@@ -56,6 +56,8 @@ export class WantedSystem {
   private sightTimer = 0;
   /** Missions can pin a minimum wanted level (e.g. during a heist). */
   floor = 0;
+  /** Seconds spent unseen outside the search area. */
+  private evadeClock = 0;
 
   constructor(private readonly sim: Sim) {}
 
@@ -112,6 +114,12 @@ export class WantedSystem {
     this.lastSeenX = x;
     this.lastSeenZ = z;
     this.searching = false;
+    this.evadeClock = 0;
+  }
+
+  /** Radius of the police search area around the last sighting. */
+  searchRadius(level = this.level): number {
+    return 60 + level * 25;
   }
 
   /** Any police officer, patrol car or helicopter that can see (x, z)? */
@@ -142,7 +150,12 @@ export class WantedSystem {
     }
     const unseen = sim.time - this.lastSeen;
     this.searching = unseen > 2.5;
-    if (unseen > this.evadeTime() && this.floor === 0) {
+    // The evasion clock only counts once the player has left the search area
+    // around their last known position (or after a long time hiding).
+    const pp = sim.playerPos();
+    const away = Math.hypot(pp.x - this.lastSeenX, pp.z - this.lastSeenZ) > this.searchRadius();
+    if (away) this.evadeClock += dt;
+    if ((this.evadeClock > this.evadeTime() || unseen > this.evadeTime() * 2.6) && this.floor === 0) {
       this.heat = 0;
       this.apply(0, true);
       sim.events.emit('message', { text: 'You lost the cops.', duration: 3 });

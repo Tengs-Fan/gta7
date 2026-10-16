@@ -183,9 +183,12 @@ describe('ambient city', () => {
     expect(traffic.length).toBeGreaterThan(10);
     expect(peds.length).toBeGreaterThan(12);
     expect(allFinite(sim)).toBe(true);
-    // Traffic is actually moving.
-    const moving = traffic.filter((v) => v.speed > 2).length;
-    expect(moving).toBeGreaterThan(traffic.length * 0.4);
+    // Traffic makes progress over time (instant snapshots are dominated by red lights).
+    const start = new Map(traffic.map((v) => [v.id, { x: v.pos.x, z: v.pos.z }]));
+    step(sim, 20);
+    const still = traffic.filter((v) => !v.removed && start.has(v.id));
+    const progressed = still.filter((v) => Math.hypot(v.pos.x - start.get(v.id)!.x, v.pos.z - start.get(v.id)!.z) > 25).length;
+    expect(progressed).toBeGreaterThan(still.length * 0.6);
     // No car is stuck inside a building.
     const c = makeContact();
     for (const v of sim.vehicles) {
@@ -217,6 +220,9 @@ describe('combat, wanted level and police', () => {
     const sim = makeSim({ ambient: true });
     const node = sim.roads.node(3, 6);
     teleport(sim, node.x + 10, node.z + 10);
+    // Standing still at 2 stars gets you arrested; this test is about pursuit, not arrests.
+    sim.missions.noBust = true;
+    sim.cheats.godMode = true;
     sim.wanted.setLevel(2);
     step(sim, 20);
     const units = sim.vehicles.filter((v) => v.owner === 'police');

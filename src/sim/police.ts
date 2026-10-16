@@ -135,7 +135,10 @@ export class PoliceSystem {
         const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
         // Officers get out to arrest a player on foot, or one sitting in a stopped car.
         const playerStopped = !!p.vehicle && p.vehicle.speed < 1.5 && this.playerStill > 2.5;
-        if ((!p.vehicle || playerStopped) && d < 26 && v.speed < 4.5) this.deploy(v);
+        const close = d < 26 && v.speed < 4.5;
+        // A unit stuck behind others near an on-foot player sends its crew on foot.
+        const stuckNear = !p.vehicle && d < 55 && v.stuckTime > 2.5;
+        if ((!p.vehicle || playerStopped) && (close || stuckNear)) this.deploy(v);
         else ai.hold = false;
       } else if (ai.policy === 'chase') {
         ai.setPolicy('traffic');

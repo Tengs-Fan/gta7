@@ -83,6 +83,9 @@ export class DriverAI {
   arrived = false;
   /** Lane whose signal we committed to stop for (prevents yellow-light dithering). */
   private stopLane = -1;
+  /** Seconds left in an overtaking manoeuvre (path shifted into the oncoming lane). */
+  private overtake = 0;
+  private blockedTime = 0;
   /** Debug/telemetry: why the car is slowing down. */
   limiter: 'none' | 'light' | 'obstacle' | 'turn' | 'yield' = 'none';
 
@@ -330,11 +333,23 @@ export class DriverAI {
       const p = this.pointAhead(look);
       aimX = p.x;
       aimZ = p.z;
+      if (this.overtake > 0) {
+        // Swing out to the left (into the oncoming lane) to pass whatever blocks us.
+        const q = this.pointAhead(look + 2);
+        const tx = q.x - p.x;
+        const tz = q.z - p.z;
+        const tl = Math.hypot(tx, tz) || 1;
+        const lx2 = tz / tl;
+        const lz2 = -tx / tl;
+        aimX += lx2 * 4.2;
+        aimZ += lz2 * 4.2;
+      }
       targetSpeed = Math.min(this.segs[0]!.speed * this.speedMul, this.maxSpeed);
       targetSpeed = Math.min(targetSpeed, this.planSpeed());
     }
 
     // Obstacles ahead (vehicles and pedestrians).
+    if (this.overtake > 0) this.overtake -= dt;
     const gap = this.scanAhead(v, aimX, aimZ);
     if (gap < Infinity) {
       const stopGap = Math.max(0, gap - 2.2);
@@ -343,6 +358,14 @@ export class DriverAI {
         targetSpeed = vs;
         this.limiter = 'obstacle';
       }
+    }
+    // Pursuers go around traffic quickly; civilians only around long-term blockages.
+    if (this.limiter === 'obstacle' && Math.abs(speed) < 3 && !this.direct) this.blockedTime += dt;
+    else this.blockedTime = Math.max(0, this.blockedTime - dt * 2);
+    const patience = this.policy === 'chase' || this.policy === 'flee' ? 0.9 : 7;
+    if (this.blockedTime > patience && this.overtake <= 0) {
+      this.overtake = this.policy === 'traffic' ? 3.2 : 2.6;
+      this.blockedTime = 0;
     }
 
     // Pure pursuit steering.

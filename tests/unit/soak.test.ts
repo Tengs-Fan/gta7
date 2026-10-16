@@ -31,6 +31,11 @@ describe('soak', () => {
     const frames = 60 * 600;
     for (let f = 0; f < frames; f++) {
       modeTime -= dt;
+      // Arrests confiscate weapons: re-arm like a player visiting a gun shop.
+      if (f % (60 * 30) === 0) {
+        p.inventory.give('smg', 500);
+        p.inventory.give('rocket', 5);
+      }
       if (modeTime <= 0) {
         mode = rng.int(0, 5);
         modeTime = rng.range(2, 9);
