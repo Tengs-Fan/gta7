@@ -81,6 +81,8 @@ export class DriverAI {
   private sightTimer = 0;
   private visibleTarget = false;
   arrived = false;
+  /** Lane whose signal we committed to stop for (prevents yellow-light dithering). */
+  private stopLane = -1;
   /** Debug/telemetry: why the car is slowing down. */
   limiter: 'none' | 'light' | 'obstacle' | 'turn' | 'yield' = 'none';
 
@@ -432,12 +434,21 @@ export class DriverAI {
         const stopDist = dist + seg.length;
         if (stopDist > -0.5 && stopDist < 80) {
           const state = this.host.roads.signalState(seg.lane.to, axisOf(seg.lane.dir), this.host.time);
-          let mustStop = state === 'red' || (state === 'yellow' && stopDist > (speed * speed) / (2 * 7) + 1);
+          const committed = this.stopLane === seg.lane.id;
+          let mustStop = state === 'red' || (state === 'yellow' && (committed || stopDist > (speed * speed) / (2 * 7) + 1));
+          // Once we decide to stop for a light we stay stopped until it turns green.
+          if (state === 'green') {
+            if (committed) this.stopLane = -1;
+          } else if (mustStop && i === 0) {
+            this.stopLane = seg.lane.id;
+          }
           if (!mustStop && next.turn && next.turn.kind === 'left' && stopDist < 30 && this.oncoming(seg.lane)) {
             mustStop = true;
             this.limiter = 'yield';
           }
           if (mustStop && stopDist > -0.5) {
+            // Plan with the comfortable deceleration for margin; the speed
+            // controller brakes harder on its own when we are above the profile.
             const vs = Math.sqrt(2 * this.decel * Math.max(0, stopDist - 0.8));
             if (vs < limit) {
               limit = vs;

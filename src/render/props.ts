@@ -180,7 +180,8 @@ export class PropsView {
     this.signalProps = signals.map((i) => L.props[i]!);
     this.signalPropIndex = signals;
     // Three bulbs per signal.
-    const bulb = new THREE.SphereGeometry(0.105, 8, 6);
+    // Low-poly bulbs: there are three per signal head, citywide.
+    const bulb = new THREE.IcosahedronGeometry(0.11, 0);
     const mesh = new THREE.InstancedMesh(bulb, new THREE.MeshBasicMaterial({ color: 0xffffff }), signals.length * 3);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();

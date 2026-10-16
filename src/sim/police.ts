@@ -18,10 +18,15 @@ export class PoliceSystem {
 
   constructor(private readonly sim: Sim) {}
 
+  /** Seconds the player's vehicle has been (nearly) stationary. */
+  private playerStill = 0;
+
   update(dt: number): void {
     const sim = this.sim;
     if (!sim.policeEnabled) return;
     const level = sim.playerDown ? 0 : sim.wanted.level;
+    const pv = sim.player.vehicle;
+    this.playerStill = pv && pv.speed < 1.5 ? this.playerStill + dt : 0;
     this.calm = level === 0 ? this.calm + dt : 0;
     this.updateUnits(level);
     this.updateFootCops(dt, level);
@@ -128,7 +133,9 @@ export class PoliceSystem {
         ai.target = p;
         v.siren = true;
         const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
-        if (!p.vehicle && d < 26 && v.speed < 4.5) this.deploy(v);
+        // Officers get out to arrest a player on foot, or one sitting in a stopped car.
+        const playerStopped = !!p.vehicle && p.vehicle.speed < 1.5 && this.playerStill > 2.5;
+        if ((!p.vehicle || playerStopped) && d < 26 && v.speed < 4.5) this.deploy(v);
         else ai.hold = false;
       } else if (ai.policy === 'chase') {
         ai.setPolicy('traffic');
@@ -205,7 +212,8 @@ export class PoliceSystem {
         continue;
       }
       const d = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z);
-      if (p.vehicle && d > 34 && car && Math.hypot(car.pos.x - c.pos.x, car.pos.z - c.pos.z) < 45) b.mode = 'return';
+      const playerDrivingOff = !!p.vehicle && (p.vehicle.speed > 3 || d > 34);
+      if (playerDrivingOff && d > 34 && car && Math.hypot(car.pos.x - c.pos.x, car.pos.z - c.pos.z) < 45) b.mode = 'return';
       if (b.mode === 'return') {
         if (!p.vehicle && d < 25) b.mode = 'chase';
         else if (car) {

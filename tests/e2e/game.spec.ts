@@ -344,3 +344,93 @@ test.describe('GTA 7', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test.describe('GTA 7 devices', () => {
+  test('a standard gamepad drives the car', async ({ page }) => {
+    // Fake a connected standard-mapping gamepad that the test can control.
+    await page.addInitScript(() => {
+      const pad = {
+        id: 'Test Pad (STANDARD GAMEPAD)',
+        index: 0,
+        connected: true,
+        mapping: 'standard',
+        timestamp: 0,
+        axes: [0, 0, 0, 0],
+        buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
+      };
+      (window as Api).__pad = pad;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad, null, null, null], configurable: true });
+    });
+    const errors = await boot(page);
+    await newGame(page);
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      g.godMode(true);
+      g.spawnVehicle('sports', true);
+    });
+    await page.evaluate(() => {
+      const b = (window as Api).__pad.buttons[7];
+      b.pressed = true;
+      b.value = 1;
+    });
+    await page.waitForTimeout(2500);
+    const s = await state(page);
+    expect(s.player.vehicle).toBe('sports');
+    expect(s.player.speed).toBeGreaterThan(10);
+    // Y exits the vehicle (once slowed down).
+    await page.evaluate(() => {
+      const pad = (window as Api).__pad;
+      pad.buttons[7].pressed = false;
+      pad.buttons[7].value = 0;
+      pad.buttons[6].pressed = true;
+      pad.buttons[6].value = 1;
+    });
+    await page.waitForTimeout(2500);
+    await page.evaluate(() => {
+      const pad = (window as Api).__pad;
+      pad.buttons[6].pressed = false;
+      pad.buttons[6].value = 0;
+      pad.buttons[3].pressed = true;
+    });
+    await page.waitForTimeout(150);
+    await page.evaluate(() => {
+      (window as Api).__pad.buttons[3].pressed = false;
+    });
+    await page.waitForFunction(() => (window as Api).__gta7.state().player.vehicle === null, null, { timeout: 8000 });
+    expect(errors).toEqual([]);
+  });
+
+  test('audio runs: engine, radio and effects without errors', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      g.godMode(true);
+      g.spawnVehicle('muscle', true);
+    });
+    await page.keyboard.down('KeyW');
+    await page.waitForTimeout(1500);
+    // Cycle through every radio station and back to the first.
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press('KeyR');
+      await page.waitForTimeout(700);
+    }
+    await page.keyboard.up('KeyW');
+    const audio = await page.evaluate(() => {
+      const a = (window as Api).__gta7.game.audio;
+      return { state: a.ctx?.state ?? 'none', station: a.radio.stationName };
+    });
+    expect(audio.state).toBe('running');
+    expect(audio.station).not.toBe('');
+    await expect(page.locator('.radio')).toBeVisible();
+    // Gunfire and an explosion exercise the effect voices.
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      const p = g.sim.player;
+      const v = g.sim.spawnVehicle('sedan', p.vehicle.pos.x + 12, p.vehicle.pos.z, 0);
+      g.sim.combat.explodeVehicle(v);
+    });
+    await page.waitForTimeout(1500);
+    expect(errors).toEqual([]);
+  });
+});
