@@ -16,7 +16,7 @@ export function randomAppearance(rng: Rng, role: CharacterRole): Appearance {
     case 'gang':
       return { skin, shirt: rng.pick([0x0e7c7b, 0x117864, 0x0b5345]), pants: 0x1b1b1b, hair: rng.pick(HAIR), hat: rng.chance(0.6) ? 0x0e7c7b : 0, height: rng.range(0.96, 1.05), build: rng.range(1.0, 1.15) };
     case 'player':
-      return { skin: 0xc68642, shirt: 0xf2f2f2, pants: 0x2e4a7a, hair: 0x1a1a1a, hat: 0, height: 1.02, build: 1.05 };
+      return { skin: 0xc68642, shirt: 0x2a2c33, pants: 0x34557f, hair: 0x15110e, hat: 0, height: 1.02, build: 1.06 };
     case 'mission':
     case 'civilian':
     default:

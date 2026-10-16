@@ -182,6 +182,11 @@ export class StaticWorld {
     return c.propIndex;
   }
 
+  /** Restores every broken prop (new game). */
+  resetBroken(): void {
+    for (const c of this.grid.colliders) c.broken = false;
+  }
+
   lineOfSight(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
     return this.grid.lineOfSight(ax, ay, az, bx, by, bz, this.scratchHit);
   }

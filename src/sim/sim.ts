@@ -94,8 +94,12 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.ambient = opts.ambient ?? true;
     this.policeEnabled = opts.police ?? true;
 
+    // Start on the sidewalk a few steps from the safehouse door, facing the street.
     const home = this.world.layout.pois.find((p) => p.id === 'safehouse')!;
-    this.player = this.spawnCharacter('player', home.x, home.z, randomAppearance(this.rng, 'player'));
+    const sx = home.x + Math.cos(home.heading) * 3.2;
+    const sz = home.z - Math.sin(home.heading) * 3.2;
+    const start = this.world.findFreeSpot(sx, sz, 0.5, 6) ?? { x: home.x, z: home.z };
+    this.player = this.spawnCharacter('player', start.x, start.z, randomAppearance(this.rng, 'player'));
     this.player.heading = home.heading;
     this.player.persistent = true;
 

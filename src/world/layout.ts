@@ -924,13 +924,17 @@ function makeYard(layout: CityLayout, p: Rect, rng: Rng): void {
 
 function buildPark(layout: CityLayout, block: Block, rng: Rng): void {
   const lot = block.lot;
-  layout.ground.push({ rect: lot, kind: 'grass' });
   const cx = rectCX(lot);
   const cz = rectCZ(lot);
-  // Cross-shaped paths and a central plaza with a fountain.
-  layout.ground.push({ rect: mkRect(cx - 2.5, lot.minZ, cx + 2.5, lot.maxZ), kind: 'plaza' });
-  layout.ground.push({ rect: mkRect(lot.minX, cz - 2.5, lot.maxX, cz + 2.5), kind: 'plaza' });
-  layout.ground.push({ rect: mkRect(cx - 9, cz - 9, cx + 9, cz + 9), kind: 'plaza' });
+  // Cross-shaped paths with a fountain in the middle; ground patches never overlap.
+  const pw = 2.5;
+  layout.ground.push({ rect: mkRect(lot.minX, lot.minZ, cx - pw, cz - pw), kind: 'grass' });
+  layout.ground.push({ rect: mkRect(cx + pw, lot.minZ, lot.maxX, cz - pw), kind: 'grass' });
+  layout.ground.push({ rect: mkRect(lot.minX, cz + pw, cx - pw, lot.maxZ), kind: 'grass' });
+  layout.ground.push({ rect: mkRect(cx + pw, cz + pw, lot.maxX, lot.maxZ), kind: 'grass' });
+  layout.ground.push({ rect: mkRect(cx - pw, lot.minZ, cx + pw, lot.maxZ), kind: 'plaza' });
+  layout.ground.push({ rect: mkRect(lot.minX, cz - pw, cx - pw, cz + pw), kind: 'plaza' });
+  layout.ground.push({ rect: mkRect(cx + pw, cz - pw, lot.maxX, cz + pw), kind: 'plaza' });
   addProp(layout, 'fountain', cx, cz, 0, 1);
   for (let i = 0; i < 4; i++) {
     const a = (i * Math.PI) / 2 + Math.PI / 4;

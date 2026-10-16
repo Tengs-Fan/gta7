@@ -1,0 +1,418 @@
+// In-game heads-up display: status cluster, radar, messages and prompts.
+
+import { formatMoney, formatTime } from '../core/math';
+import type { BigStyle } from '../sim/events';
+import type { Sim } from '../sim/sim';
+import { WEAPONS, type WeaponId } from '../sim/specs';
+import { collectBlips, drawBlip, gpsRoute, MAP_SCALE, type MapImage } from './mapRender';
+
+const STAR = '<svg viewBox="0 0 24 24"><path d="M12 1.8l3.1 6.6 7.2.9-5.3 5 1.4 7.2L12 18l-6.4 3.5L7 14.3l-5.3-5 7.2-.9z"/></svg>';
+
+export const WEAPON_ICONS: Record<WeaponId, string> = {
+  fists: '<svg viewBox="0 0 64 40"><path d="M18 10c0-3 2-5 5-5h16c4 0 7 3 7 7v6l4 2v9c0 4-3 7-7 7H25c-4 0-7-3-7-7z M24 10v8 M30 9v9 M36 9v9 M42 10v8" stroke="#222" stroke-width="1.5"/></svg>',
+  pistol: '<svg viewBox="0 0 64 40"><path d="M8 10h42l4 4v4H30l-3 3h-5l-4 13H9l5-15-6-2z"/></svg>',
+  smg: '<svg viewBox="0 0 64 40"><path d="M4 13h46l6 3v4H38l-2 3h-6l-2 12h-7l2-12h-6l-3 8H8l3-10-7-2zM50 11h8v2h-8z"/></svg>',
+  shotgun: '<svg viewBox="0 0 64 40"><path d="M2 15h48l10 1v3H40l-4 2H26l-8 9H8l7-10H2z"/></svg>',
+  rifle: '<svg viewBox="0 0 64 40"><path d="M2 14h52l8 2v3H44l-3 3h-5l-2 10h-6l2-10h-5l-5 9h-8l5-10H2z M30 12h8v2h-8z"/></svg>',
+  rocket: '<svg viewBox="0 0 64 40"><path d="M2 14h50l8 4-8 4H2z M18 22h6l2 10h-6z M34 22h5l1 6h-5z"/></svg>',
+};
+
+interface BigMsg {
+  text: string;
+  sub: string;
+  style: BigStyle;
+  duration: number;
+}
+
+export class Hud {
+  readonly root: HTMLDivElement;
+  private readonly el: Record<string, HTMLElement> = {};
+  private readonly radar: HTMLCanvasElement;
+  private readonly radarCtx: CanvasRenderingContext2D;
+  private shown = { money: -1, health: -1, armor: -1, weapon: '', ammo: '', clock: '', stars: -1, flash: false, status: '', zone: '' };
+  private timers = { help: 0, subtitle: 0, zone: 0, radio: 0, toast: 0, delta: 0, hurt: 0, objective: 0 };
+  private bigQueue: BigMsg[] = [];
+  private bigCur: BigMsg | null = null;
+  private bigTimer = 0;
+  private moneyDelta = 0;
+  private unsub: Array<() => void> = [];
+  private route: Array<{ x: number; z: number }> = [];
+  private routeTimer = 0;
+  private lastHealth = 100;
+  waypoint: { x: number; z: number } | null = null;
+  visible = true;
+
+  constructor(parent: HTMLElement, private readonly map: MapImage) {
+    this.root = document.createElement('div');
+    this.root.className = 'hud';
+    this.root.innerHTML = `
+      <div class="vignette" data-el="vignette"></div>
+      <div class="hud-tr">
+        <div class="hud-row"><div class="clock" data-el="clock">00:00</div><div class="weapon" data-el="weapon"><span data-el="wicon"></span><span class="ammo" data-el="ammo"></span></div></div>
+        <div class="bars"><div class="bar health" data-el="hbar"><i data-el="health"></i></div><div class="bar armor" data-el="abar"><i data-el="armor"></i></div></div>
+        <div class="money" data-el="money">$0</div>
+        <div class="money-delta" data-el="delta"></div>
+        <div class="stars" data-el="stars">${STAR.repeat(5)}</div>
+        <div class="status hidden" data-el="status"></div>
+      </div>
+      <div class="radar"><canvas width="220" height="220" data-el="radar"></canvas></div>
+      <div class="help" data-el="help"></div>
+      <div class="radio" data-el="radio"></div>
+      <div class="prompt hidden" data-el="prompt"></div>
+      <div class="subtitle" data-el="subtitle"></div>
+      <div class="objective" data-el="objective"></div>
+      <div class="big" data-el="big"><div class="t" data-el="bigT"></div><div class="s" data-el="bigS"></div></div>
+      <div class="zone" data-el="zone"></div>
+      <div class="toast" data-el="toast"></div>
+      <div class="crosshair" data-el="cross"><i></i></div>
+      <div class="fade" data-el="fade"></div>
+    `;
+    parent.appendChild(this.root);
+    this.root.querySelectorAll<HTMLElement>('[data-el]').forEach((e) => {
+      this.el[e.dataset.el!] = e;
+    });
+    this.radar = this.el.radar as HTMLCanvasElement;
+    this.radarCtx = this.radar.getContext('2d')!;
+  }
+
+  bind(sim: Sim): void {
+    for (const u of this.unsub) u();
+    this.unsub = [];
+    this.bigQueue = [];
+    this.bigCur = null;
+    this.bigTimer = 0;
+    this.el.big!.classList.remove('show');
+    this.timers.subtitle = 0;
+    this.timers.help = 0;
+    this.timers.objective = 0;
+    this.waypoint = null;
+    const ev = sim.events;
+    this.unsub.push(
+      ev.on('message', (e) => this.help(e.text, e.duration)),
+      ev.on('subtitle', (e) => {
+        this.el.subtitle!.innerHTML = `<b>${escapeHtml(e.speaker)}:</b> ${escapeHtml(e.text)}`;
+        this.el.subtitle!.classList.add('show');
+        this.timers.subtitle = e.duration;
+      }),
+      ev.on('objective', (e) => {
+        this.el.objective!.textContent = e.text;
+        this.el.objective!.classList.add('show');
+        this.timers.objective = 7;
+      }),
+      ev.on('big', (e) => {
+        // Wasted / busted replace everything immediately.
+        if (e.style === 'wasted' || e.style === 'busted') {
+          this.bigQueue = [];
+          this.showBig(e);
+        } else this.bigQueue.push(e);
+      }),
+      ev.on('money', (e) => {
+        this.moneyDelta += e.amount;
+        this.timers.delta = 2.5;
+      }),
+      ev.on('vehicleEnter', (e) => {
+        if (e.character.isPlayer) this.flashZone(e.vehicle.spec.name, '');
+      }),
+      ev.on('fade', (e) => {
+        this.el.fade!.classList.add('on');
+        window.setTimeout(() => this.el.fade!.classList.remove('on'), Math.max(200, e.duration * 1000 - 500));
+      }),
+      ev.on('respawn', () => {
+        this.lastHealth = sim.player.health;
+      }),
+    );
+  }
+
+  help(text: string, duration = 4): void {
+    this.el.help!.innerHTML = text;
+    this.el.help!.classList.add('show');
+    this.timers.help = duration;
+  }
+
+  toast(text: string): void {
+    this.el.toast!.textContent = text;
+    this.el.toast!.classList.add('show');
+    this.timers.toast = 2.5;
+  }
+
+  showRadio(name: string): void {
+    this.el.radio!.textContent = name;
+    this.el.radio!.classList.add('show');
+    this.timers.radio = 2.5;
+  }
+
+  private flashZone(name: string, sub: string): void {
+    this.el.zone!.innerHTML = `${escapeHtml(name)}${sub ? `<small>${escapeHtml(sub)}</small>` : ''}`;
+    this.el.zone!.classList.add('show');
+    this.timers.zone = 3;
+  }
+
+  private showBig(m: BigMsg): void {
+    this.bigCur = m;
+    this.bigTimer = m.duration;
+    const big = this.el.big!;
+    big.className = `big show ${m.style}`;
+    this.el.bigT!.textContent = m.text;
+    this.el.bigS!.textContent = m.sub;
+  }
+
+  setVisible(v: boolean): void {
+    this.visible = v;
+    this.root.classList.toggle('hidden', !v);
+  }
+
+  update(dt: number, sim: Sim, camYaw: number, aiming: boolean, prompt: string | null, time: number): void {
+    if (!this.visible) return;
+    const p = sim.player;
+    const prog = sim.progress;
+    const el = this.el;
+
+    // Timed elements.
+    for (const k of Object.keys(this.timers) as Array<keyof typeof this.timers>) if (this.timers[k] > 0) this.timers[k] -= dt;
+    if (this.timers.help <= 0) el.help!.classList.remove('show');
+    if (this.timers.subtitle <= 0) el.subtitle!.classList.remove('show');
+    if (this.timers.zone <= 0) el.zone!.classList.remove('show');
+    if (this.timers.radio <= 0) el.radio!.classList.remove('show');
+    if (this.timers.toast <= 0) el.toast!.classList.remove('show');
+    if (this.timers.delta <= 0 && this.moneyDelta !== 0) {
+      this.moneyDelta = 0;
+      el.delta!.classList.remove('show');
+    }
+    const objText = sim.missions.active?.objectiveText ?? '';
+    if (objText && this.timers.objective <= 0 && this.timers.subtitle <= 0) {
+      el.objective!.textContent = objText;
+      el.objective!.classList.add('show');
+    } else if (!objText && this.timers.objective <= 0) el.objective!.classList.remove('show');
+
+    if (this.bigCur) {
+      this.bigTimer -= dt;
+      if (this.bigTimer <= 0) {
+        this.bigCur = null;
+        el.big!.classList.remove('show');
+      }
+    } else if (this.bigQueue.length > 0) {
+      this.showBig(this.bigQueue.shift()!);
+    }
+
+    // Status cluster.
+    const clock = sim.clock.label();
+    if (clock !== this.shown.clock) {
+      this.shown.clock = clock;
+      el.clock!.textContent = clock;
+    }
+    if (prog.money !== this.shown.money) {
+      if (this.shown.money >= 0) {
+        el.money!.classList.remove('pop');
+        void el.money!.offsetWidth;
+        el.money!.classList.add('pop');
+      }
+      this.shown.money = prog.money;
+      el.money!.textContent = formatMoney(prog.money);
+    }
+    if (this.moneyDelta !== 0 && this.timers.delta > 0) {
+      el.delta!.textContent = `${this.moneyDelta > 0 ? '+' : '-'}${formatMoney(Math.abs(this.moneyDelta))}`;
+      el.delta!.style.color = this.moneyDelta > 0 ? 'var(--money)' : '#ff6a5a';
+      el.delta!.classList.add('show');
+    }
+    const hp = Math.max(0, p.health) / p.maxHealth;
+    if (Math.abs(hp - this.shown.health) > 0.001) {
+      this.shown.health = hp;
+      el.health!.style.transform = `scaleX(${hp})`;
+      el.hbar!.classList.toggle('ok', hp > 0.5);
+      el.hbar!.classList.toggle('low', hp < 0.25 && p.alive);
+    }
+    const ar = p.armor / 100;
+    if (Math.abs(ar - this.shown.armor) > 0.001) {
+      this.shown.armor = ar;
+      el.armor!.style.transform = `scaleX(${ar})`;
+      el.abar!.classList.toggle('hidden', ar <= 0);
+    }
+    if (p.health < this.lastHealth - 0.5) {
+      this.timers.hurt = 0.35;
+    }
+    this.lastHealth = p.health;
+    el.vignette!.style.opacity = String(Math.max(0, this.timers.hurt / 0.35) * 0.8 + (hp < 0.25 && p.alive ? 0.35 + Math.sin(time * 6) * 0.1 : 0));
+
+    const w = p.inventory.current;
+    if (w !== this.shown.weapon) {
+      this.shown.weapon = w;
+      el.wicon!.innerHTML = WEAPON_ICONS[w];
+    }
+    const slot = p.inventory.slot();
+    const ammo = w === 'fists' ? '' : p.reloadTimer > 0 ? 'RELOAD' : `${slot.clip}/${slot.ammo}`;
+    if (ammo !== this.shown.ammo) {
+      this.shown.ammo = ammo;
+      el.ammo!.textContent = ammo;
+    }
+    const stars = sim.wanted.level;
+    const flash = sim.wanted.searching;
+    if (stars !== this.shown.stars || flash !== this.shown.flash) {
+      this.shown.stars = stars;
+      this.shown.flash = flash;
+      el.stars!.querySelectorAll('svg').forEach((s, i) => s.classList.toggle('on', i < stars));
+      el.stars!.classList.toggle('flash', flash);
+    }
+    const status = this.statusText(sim);
+    if (status !== this.shown.status) {
+      this.shown.status = status;
+      el.status!.textContent = status;
+      el.status!.classList.toggle('hidden', !status);
+    }
+
+    // Zone changes.
+    const pos = sim.playerPos();
+    const zone = sim.world.zoneName(pos.x, pos.z);
+    if (zone !== this.shown.zone) {
+      if (this.shown.zone) this.flashZone(zone, '');
+      this.shown.zone = zone;
+    }
+
+    // Prompt + crosshair.
+    if (prompt) {
+      el.prompt!.innerHTML = prompt.replace(/Press (\w)/, 'Press <kbd>$1</kbd>');
+      el.prompt!.classList.remove('hidden');
+    } else el.prompt!.classList.add('hidden');
+    const showCross = aiming && p.alive && !sim.playerDown && p.inventory.current !== 'fists';
+    el.cross!.classList.toggle('show', showCross);
+
+    this.drawRadar(sim, camYaw, time, dt);
+  }
+
+  private statusText(sim: Sim): string {
+    const m = sim.missions.active;
+    if (m) {
+      if (m.timer) return `${m.timer.label} ${formatTime(m.timer.endsAt - sim.time)}`;
+      if (m.counter) return m.counter;
+    }
+    return sim.activities.status() ?? '';
+  }
+
+  private drawRadar(sim: Sim, camYaw: number, time: number, dt: number): void {
+    const ctx = this.radarCtx;
+    const W = this.radar.width;
+    const H = this.radar.height;
+    const cx = W / 2;
+    const cy = H / 2;
+    const p = sim.playerPos();
+    const v = sim.player.vehicle;
+    const speed = v ? v.speed : 0;
+    const zoom = 0.75 - Math.min(0.3, speed / 120); // px per metre; zooms out at speed
+    ctx.save();
+    ctx.clearRect(0, 0, W, H);
+    ctx.beginPath();
+    ctx.arc(cx, cy, W / 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = '#16384f';
+    ctx.fillRect(0, 0, W, H);
+    // Rotate so that the camera's forward direction points up.
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.PI + camYaw);
+    ctx.scale(zoom / MAP_SCALE, zoom / MAP_SCALE);
+    ctx.translate(-(p.x - this.map.minX) * MAP_SCALE, -(p.z - this.map.minZ) * MAP_SCALE);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.map.canvas, 0, 0);
+    // GPS route to the waypoint or first objective.
+    this.routeTimer -= dt;
+    const target = this.waypoint ?? this.firstObjective(sim);
+    if (target && this.routeTimer <= 0) {
+      this.routeTimer = 1;
+      this.route = gpsRoute(sim, target.x, target.z);
+    }
+    if (!target) this.route = [];
+    if (this.route.length > 1) {
+      ctx.strokeStyle = this.waypoint ? '#c04fff' : '#ffd23d';
+      ctx.lineWidth = 6 / zoom;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      this.route.forEach((pt, i) => {
+        const x = (pt.x - this.map.minX) * MAP_SCALE;
+        const y = (pt.z - this.map.minZ) * MAP_SCALE;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Blips in screen space.
+    const range = W / 2 - 10;
+    const toScreen = (x: number, z: number) => {
+      const dx = (x - p.x) * zoom;
+      const dz = (z - p.z) * zoom;
+      const a = Math.PI + camYaw;
+      const c = Math.cos(a);
+      const s = Math.sin(a);
+      return { x: cx + dx * c - dz * s, y: cy + dx * s + dz * c };
+    };
+    const blips = collectBlips(sim, time);
+    if (this.waypoint) blips.push({ x: this.waypoint.x, z: this.waypoint.z, color: '#c04fff', label: '', sticky: true, shape: 'square' });
+    for (const b of blips) {
+      let s = toScreen(b.x, b.z);
+      const dx = s.x - cx;
+      const dy = s.y - cy;
+      const d = Math.hypot(dx, dy);
+      if (d > range) {
+        if (!b.sticky) continue;
+        s = { x: cx + (dx / d) * range, y: cy + (dy / d) * range };
+      }
+      drawBlip(ctx, b, s.x, s.y, b.shape === 'dot' ? 9 : 14);
+    }
+    // North marker.
+    const n = toScreen(p.x, p.z - 10000);
+    const nd = Math.hypot(n.x - cx, n.y - cy) || 1;
+    const nx = cx + ((n.x - cx) / nd) * (W / 2 - 12);
+    const ny = cy + ((n.y - cy) / nd) * (W / 2 - 12);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 16px Rajdhani, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    ctx.strokeText('N', nx, ny);
+    ctx.fillText('N', nx, ny);
+    // Player arrow (relative to the camera).
+    const ph = sim.player.vehicle ? sim.player.vehicle.heading : sim.player.heading;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-(ph - camYaw));
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, -10);
+    ctx.lineTo(7, 8);
+    ctx.lineTo(0, 4);
+    ctx.lineTo(-7, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    // Health / armour ring.
+    const hp = Math.max(0, sim.player.health) / sim.player.maxHealth;
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, W / 2 - 3, Math.PI * 0.6, Math.PI * 1.4);
+    ctx.stroke();
+    ctx.strokeStyle = hp > 0.5 ? '#6fd36f' : '#e2453c';
+    ctx.beginPath();
+    ctx.arc(cx, cy, W / 2 - 3, Math.PI * 1.4 - Math.PI * 0.8 * hp, Math.PI * 1.4);
+    ctx.stroke();
+  }
+
+  private firstObjective(sim: Sim): { x: number; z: number } | null {
+    const objs = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
+    const o = objs[0];
+    if (!o) return null;
+    const t = o.vehicle ?? o.character;
+    return t ? { x: t.pos.x, z: t.pos.z } : { x: o.x, z: o.z };
+  }
+}
+
+export function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+export function weaponName(id: WeaponId): string {
+  return WEAPONS[id].name;
+}
