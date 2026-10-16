@@ -359,12 +359,16 @@ export class Effects {
 
   explosion(x: number, y: number, z: number, radius: number): void {
     const s = radius / 7.5;
-    this.glow.emit(x, y + 0.5, z, 0, 0, 0, 0.18, 4 * s, 11 * s, 0xffffff, 0xffa040, 1);
-    for (let i = 0; i < 26; i++) {
-      this.glow.emit(x + this.r(-1, 1) * s, y + this.r(0, 1.5) * s, z + this.r(-1, 1) * s, this.r(-6, 6) * s, this.r(2, 9) * s, this.r(-6, 6) * s, this.r(0.45, 0.95), this.r(1.5, 3) * s, this.r(3, 5.5) * s, 0xffd070, 0xc02000, 1, -1, 2.2, this.r(-1, 1));
+    // Flash, rolling fireball, dark smoke column, sparks.
+    this.glow.emit(x, y + 0.6, z, 0, 0, 0, 0.16, 3 * s, 9 * s, 0xffd890, 0xff7020, 0.8);
+    for (let i = 0; i < 36; i++) {
+      const a = this.r(0, Math.PI * 2);
+      const sp = this.r(2, 8) * s;
+      const hot = i % 4 === 0;
+      this.glow.emit(x + Math.cos(a) * this.r(0, 1.5) * s, y + this.r(0, 2) * s, z + Math.sin(a) * this.r(0, 1.5) * s, Math.cos(a) * sp, this.r(3, 10) * s, Math.sin(a) * sp, this.r(0.5, 1.1), this.r(1.8, 3.4) * s, this.r(3.5, 6.5) * s, hot ? 0xffc860 : 0xff8a28, 0x801200, 0.55, -1.5, 2.6, this.r(-1.5, 1.5));
     }
-    for (let i = 0; i < 26; i++) {
-      this.smoke.emit(x + this.r(-1.5, 1.5) * s, y + this.r(0.5, 2.5) * s, z + this.r(-1.5, 1.5) * s, this.r(-2.5, 2.5), this.r(1.5, 4.5), this.r(-2.5, 2.5), this.r(2.2, 4.2), this.r(2, 3.5) * s, this.r(6, 10) * s, 0x2a2622, 0x585450, 0.85, -0.6, 0.8, this.r(-0.4, 0.4));
+    for (let i = 0; i < 22; i++) {
+      this.smoke.emit(x + this.r(-2, 2) * s, y + this.r(0.5, 3) * s, z + this.r(-2, 2) * s, this.r(-2.5, 2.5), this.r(2, 5.5), this.r(-2.5, 2.5), this.r(2.5, 4.5), this.r(1.8, 3) * s, this.r(5, 8) * s, 0x24201c, 0x55514c, 0.6, -0.7, 0.7, this.r(-0.4, 0.4));
     }
     for (let i = 0; i < 18; i++) {
       this.glow.emit(x, y + 0.5, z, this.r(-14, 14), this.r(5, 16), this.r(-14, 14), this.r(0.6, 1.4), 0.15, 0.08, 0xffe0a0, 0xff5000, 1, 18);

@@ -21,7 +21,7 @@ export class PedSystem {
 
   get targetCount(): number {
     const h = this.sim.clock.hours;
-    return Math.round((h < 6 ? 12 : h < 8 ? 22 : h < 20 ? 32 : h < 23 ? 22 : 14) * this.density);
+    return Math.round((h < 6 ? 14 : h < 8 ? 26 : h < 20 ? 40 : h < 23 ? 28 : 16) * this.density);
   }
 
   updateStreaming(dt: number): void {
@@ -40,14 +40,14 @@ export class PedSystem {
         if ((c.deadTime > 30 && (d > 40 || !sim.isVisible(c.pos.x, c.pos.y, c.pos.z))) || d > 170) sim.removeCharacter(c);
         continue;
       }
-      if (d > 160) {
+      if (d > 150 || (d > 110 && !sim.isVisible(c.pos.x, c.pos.y, c.pos.z))) {
         sim.removeCharacter(c);
         continue;
       }
       if (c.owner === 'ped') count++;
     }
     let spawned = 0;
-    while (count < this.targetCount && spawned < 3) {
+    while (count < this.targetCount && spawned < 4) {
       if (!this.trySpawn()) break;
       spawned++;
       count++;
@@ -58,10 +58,11 @@ export class PedSystem {
     const sim = this.sim;
     const pp = sim.playerPos();
     for (let tries = 0; tries < 6; tries++) {
-      const pt = sim.world.walk.randomPointNear(sim.rng, pp.x, pp.z, 38, 125);
+      // Keep the crowd close: hidden spots (behind the camera or buildings) may be near.
+      const pt = sim.world.walk.randomPointNear(sim.rng, pp.x, pp.z, 22, sim.rng.range(45, 100));
       if (!pt) return null;
       const d = Math.hypot(pt.x - pp.x, pt.z - pp.z);
-      if (d < 80 && sim.isVisible(pt.x, 1, pt.z)) continue;
+      if (d < 55 && sim.isVisible(pt.x, 1, pt.z)) continue;
       if (sim.world.waterDepth(pt.x, pt.z) > -0.2) continue;
       if (!sim.traffic.isClear(pt.x, pt.z, 2.5)) continue;
       const zone = sim.world.zoneName(pt.x, pt.z);

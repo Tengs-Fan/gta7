@@ -482,10 +482,11 @@ export class Menus {
     );
     el.appendChild(h('div', 'map-hint', 'Click to set a waypoint (click it again to clear) · Drag to pan · Wheel to zoom · <kbd>M</kbd>/<kbd>Esc</kbd> to close'));
     const ctx = canvas.getContext('2d')!;
-    const pp = sim.playerPos();
+    // Start centred on the island showing the whole city.
+    const b = sim.world.layout.bounds;
     let zoom = 0;
-    let cx = pp.x;
-    let cz = pp.z;
+    let cx = (b.landMinX + b.beachEndX) / 2;
+    let cz = (b.landMinZ + b.landMaxZ) / 2;
     let dragging = false;
     let moved = 0;
     let lx = 0;
@@ -520,6 +521,7 @@ export class Menus {
       const seen = new Set<string>();
       for (const blk of sim.world.layout.blocks) {
         if (seen.has(blk.zone)) continue;
+        if (blk.district === 'park' && zoom < 1) continue;
         seen.add(blk.zone);
         const group = sim.world.layout.blocks.filter((b) => b.zone === blk.zone);
         const mx = group.reduce((a, b) => a + (b.rect.minX + b.rect.maxX) / 2, 0) / group.length;

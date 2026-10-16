@@ -39,7 +39,7 @@ const tmp = {
 
 export class CrowdView {
   readonly group = new THREE.Group();
-  private readonly parts: Record<'torso' | 'head' | 'hair' | 'hat' | 'arm' | 'leg' | 'shoe', Part>;
+  private readonly parts: Record<'torso' | 'head' | 'hair' | 'hat' | 'arm' | 'hand' | 'leg' | 'shoe' | 'neck', Part>;
   private readonly weapons = new Map<WeaponId, Part>();
   /** Per-character smoothed lying angle for knocked/dead animation. */
   private readonly lie = new Map<number, number>();
@@ -66,7 +66,9 @@ export class CrowdView {
       head: make(box(0.23, 0.26, 0.25, 0, 0.15, 0), MAX),
       hair: make(mergeAll([box(0.25, 0.08, 0.27, 0, 0.3, -0.005), box(0.25, 0.18, 0.06, 0, 0.19, -0.11)]), MAX),
       hat: make(mergeAll([box(0.26, 0.09, 0.27, 0, 0.32, 0), box(0.23, 0.03, 0.14, 0, 0.28, 0.18)]), MAX),
-      arm: make(box(0.12, 0.62, 0.13, 0, -0.31, 0), MAX * 2),
+      arm: make(box(0.12, 0.54, 0.13, 0, -0.27, 0), MAX * 2),
+      hand: make(box(0.1, 0.1, 0.1, 0, -0.59, 0.01), MAX * 2),
+      neck: make(box(0.11, 0.08, 0.11, 0, 0.62, 0), MAX),
       leg: make(box(0.17, 0.84, 0.18, 0, -0.42, 0), MAX * 2),
       shoe: make(box(0.17, 0.08, 0.27, 0, -0.84, 0.04), MAX * 2),
     };
@@ -151,6 +153,7 @@ export class CrowdView {
     M.torso.copy(M.hip).multiply(M.r.makeRotationX(lean));
     M.out.copy(M.torso).multiply(M.s.makeScale(bw, h, bw));
     this.put(this.parts.torso, M.out, a.shirt);
+    this.put(this.parts.neck, M.out, a.skin);
 
     M.neck.copy(M.torso).multiply(M.t.makeTranslation(0, 0.64 * h, 0));
     const headPitch = c.aiming ? -c.aimPitch * 0.5 : 0;
@@ -198,6 +201,7 @@ export class CrowdView {
         .multiply(M.s.makeRotationZ(-az));
       M.out.copy(M.limb).multiply(M.s.makeScale(1, h, 1));
       this.put(this.parts.arm, M.out, a.shirt);
+      this.put(this.parts.hand, M.out, a.skin);
       if (side > 0 && armed && c.state !== 'dead') {
         const wp = this.weapons.get(weapon);
         if (wp) {

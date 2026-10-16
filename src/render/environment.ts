@@ -19,12 +19,12 @@ interface Key {
 const KEYS: Key[] = [
   { h: 0, top: 0x03060f, horizon: 0x0b1530, sun: 0x8fa8ff, sunI: 0.0, hemiI: 0.22, exposure: 1.0 },
   { h: 4.8, top: 0x060c1f, horizon: 0x1a2440, sun: 0x8fa8ff, sunI: 0.0, hemiI: 0.25, exposure: 1.0 },
-  { h: 6.0, top: 0x29457f, horizon: 0xf09a6a, sun: 0xffa060, sunI: 0.9, hemiI: 0.5, exposure: 1.0 },
-  { h: 7.5, top: 0x3f7fd2, horizon: 0xbfd8f0, sun: 0xffe0b8, sunI: 2.4, hemiI: 0.9, exposure: 1.0 },
-  { h: 12, top: 0x2b6cd4, horizon: 0xaed0f2, sun: 0xfff6e8, sunI: 3.1, hemiI: 1.05, exposure: 1.0 },
-  { h: 16.5, top: 0x3570cc, horizon: 0xf0d8b0, sun: 0xffe2b0, sunI: 2.6, hemiI: 0.95, exposure: 1.0 },
-  { h: 18.4, top: 0x34478a, horizon: 0xff8a4c, sun: 0xff8040, sunI: 1.4, hemiI: 0.62, exposure: 1.05 },
-  { h: 19.4, top: 0x161e44, horizon: 0xb44a3e, sun: 0xff5a30, sunI: 0.25, hemiI: 0.35, exposure: 1.05 },
+  { h: 6.0, top: 0x29457f, horizon: 0xf09a6a, sun: 0xffa060, sunI: 1.0, hemiI: 0.5, exposure: 1.0 },
+  { h: 7.5, top: 0x3f7fd2, horizon: 0xbfd8f0, sun: 0xffe0b8, sunI: 2.7, hemiI: 0.72, exposure: 1.0 },
+  { h: 12, top: 0x2b6cd4, horizon: 0xaed0f2, sun: 0xfff6e8, sunI: 3.3, hemiI: 0.8, exposure: 1.0 },
+  { h: 16.5, top: 0x3570cc, horizon: 0xf0d8b0, sun: 0xffe2b0, sunI: 2.9, hemiI: 0.74, exposure: 1.0 },
+  { h: 18.4, top: 0x34478a, horizon: 0xff8a4c, sun: 0xff8040, sunI: 1.7, hemiI: 0.6, exposure: 1.08 },
+  { h: 19.4, top: 0x161e44, horizon: 0xb44a3e, sun: 0xff5a30, sunI: 0.3, hemiI: 0.36, exposure: 1.05 },
   { h: 20.6, top: 0x070c20, horizon: 0x1e2648, sun: 0x8fa8ff, sunI: 0.0, hemiI: 0.24, exposure: 1.0 },
   { h: 24, top: 0x03060f, horizon: 0x0b1530, sun: 0x8fa8ff, sunI: 0.0, hemiI: 0.22, exposure: 1.0 },
 ];
@@ -140,34 +140,56 @@ export class Environment {
     scene.add(this.hemi);
 
     this.waterNormal = waterNormalTexture();
-    this.waterNormal.repeat.set(220, 220);
+    this.waterNormal.repeat.set(900, 900);
     const water = new THREE.Mesh(
       new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2),
-      new THREE.MeshStandardMaterial({ color: 0x1b5d78, roughness: 0.12, metalness: 0.15, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.55, 0.55), envMapIntensity: 1.1 }),
+      new THREE.MeshStandardMaterial({ color: 0x135a73, roughness: 0.22, metalness: 0.1, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22), envMapIntensity: 1.8 }),
     );
     water.position.y = WATER_Y;
     water.receiveShadow = true;
     this.water = water;
     scene.add(water);
 
-    // Image based lighting from a simple gradient environment.
+    // Image based lighting: a tiny sky scene re-baked whenever the palette changes.
+    this.envMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      uniforms: { uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uSun: { value: new THREE.Color() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) } },
+      vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSun; uniform vec3 uSunDir; varying vec3 vP;
+        void main(){ vec3 d = normalize(vP); float h = d.y;
+          vec3 c = mix(uHorizon, uTop, smoothstep(0.0, 0.6, h));
+          c = mix(c, vec3(0.16, 0.15, 0.14) * (uHorizon + 0.2), 1.0 - smoothstep(-0.25, 0.0, h));
+          c += uSun * pow(max(dot(d, uSunDir), 0.0), 24.0) * 2.5;
+          gl_FragColor = vec4(c, 1.0); }`,
+    });
+    this.envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 24, 12), this.envMat));
     try {
-      const pmrem = new THREE.PMREMGenerator(renderer);
-      const envScene = new THREE.Scene();
-      const envSky = new THREE.Mesh(
-        new THREE.SphereGeometry(10, 24, 12),
-        new THREE.ShaderMaterial({
-          side: THREE.BackSide,
-          vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-          fragmentShader: 'varying vec3 vP; void main(){ float h = normalize(vP).y; vec3 c = mix(vec3(0.42,0.40,0.36), vec3(0.62,0.76,0.95), smoothstep(-0.2, 0.5, h)); c += vec3(1.0,0.95,0.85) * pow(max(dot(normalize(vP), normalize(vec3(0.4,0.8,0.3))),0.0), 40.0) * 2.0; gl_FragColor = vec4(c, 1.0); }',
-        }),
-      );
-      envScene.add(envSky);
-      this.envTarget = pmrem.fromScene(envScene, 0.02);
-      scene.environment = this.envTarget.texture;
-      pmrem.dispose();
+      this.pmrem = new THREE.PMREMGenerator(renderer);
     } catch {
-      scene.environment = null;
+      this.pmrem = null;
+    }
+  }
+
+  private readonly envScene = new THREE.Scene();
+  private readonly envMat: THREE.ShaderMaterial;
+  private pmrem: THREE.PMREMGenerator | null;
+  private envHours = Number.NaN;
+
+  /** Re-bakes the environment map for the current sky (cheap: a 24-segment sphere). */
+  private refreshEnv(s: { top: THREE.Color; horizon: THREE.Color; sun: THREE.Color; sunI: number }, sunDir: THREE.Vector3): void {
+    if (!this.pmrem) return;
+    const u = this.envMat.uniforms;
+    (u.uTop!.value as THREE.Color).copy(s.top);
+    (u.uHorizon!.value as THREE.Color).copy(s.horizon);
+    (u.uSun!.value as THREE.Color).copy(s.sun).multiplyScalar(Math.min(1.5, s.sunI / 2));
+    (u.uSunDir!.value as THREE.Vector3).copy(sunDir);
+    try {
+      const target = this.pmrem.fromScene(this.envScene, 0, 0.1, 100, { size: 128 });
+      this.envTarget?.dispose();
+      this.envTarget = target;
+      this.scene.environment = target.texture;
+    } catch {
+      this.scene.environment = null;
     }
   }
 
@@ -179,14 +201,14 @@ export class Environment {
   /** Updates lighting for the given time of day and moves the shadow frustum with the camera focus. */
   update(hours: number, focus: THREE.Vector3, camera: THREE.Camera, time: number, renderer: THREE.WebGLRenderer): void {
     const s = sample(hours);
-    // Sun path: rises in the east (+X), sets in the west, tilted south.
-    const dayT = (hours - 6) / 12;
+    // Sun path: rises in the east (+X) at 06:00, sets in the west at 19:00, tilted south.
+    const dayT = (hours - 6) / 13;
     const elev = Math.sin(dayT * Math.PI) * 1.15;
     const az = dayT * Math.PI;
     const sunDir = new THREE.Vector3(Math.cos(az), Math.sin(elev), 0.35).normalize();
     this.sunDir.copy(sunDir);
     const moonDir = new THREE.Vector3(-Math.cos(az) * 0.8, Math.max(0.25, -Math.sin(elev) * 0.9), -0.35).normalize();
-    this.night = 1 - smoothstep(0.02, 0.45, s.sunI / 3.1);
+    this.night = 1 - smoothstep(0.02, 0.45, s.sunI / 3.3);
 
     const u = this.skyMat.uniforms;
     (u.uTop!.value as THREE.Color).copy(s.top);
@@ -194,7 +216,7 @@ export class Environment {
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);
     (u.uSunColor!.value as THREE.Color).copy(s.sun);
     (u.uMoonDir!.value as THREE.Vector3).copy(moonDir);
-    u.uStars!.value = this.night;
+    u.uStars!.value = smoothstep(0.5, 0.95, this.night);
     u.uTime!.value = time;
     this.sky.position.copy(camera.position);
 
@@ -219,13 +241,20 @@ export class Environment {
     this.fog.color.copy(s.horizon).lerp(s.top, 0.15);
     this.fog.near = lerp(180, 90, this.night);
     this.fog.far = lerp(780, 520, this.night);
-    this.scene.environmentIntensity = 0.25 + 0.75 * (1 - this.night);
+    this.scene.environmentIntensity = 0.4 + 0.35 * (1 - this.night);
+    // Re-bake reflections every quarter game hour (or after a jump in time); NaN forces the first bake.
+    const diff = Math.abs(hours - this.envHours);
+    if (!(Math.min(diff, 24 - diff) <= 0.25)) {
+      this.envHours = hours;
+      this.refreshEnv(s, sunDir);
+    }
     renderer.toneMappingExposure = s.exposure;
 
-    this.waterNormal.offset.set((time * 0.004) % 1, (time * 0.0025) % 1);
+    this.waterNormal.offset.set((time * 0.012) % 1, (time * 0.008) % 1);
   }
 
   dispose(): void {
     this.envTarget?.dispose();
+    this.pmrem?.dispose();
   }
 }

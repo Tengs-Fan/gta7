@@ -19,7 +19,7 @@ export class TrafficSystem {
 
   get targetCount(): number {
     const h = this.sim.clock.hours;
-    const base = h < 5 ? 11 : h < 7 ? 16 : h < 10 ? 26 : h < 16 ? 21 : h < 20 ? 26 : 17;
+    const base = h < 5 ? 14 : h < 7 ? 20 : h < 10 ? 30 : h < 16 ? 26 : h < 20 ? 30 : 20;
     return Math.round(base * this.density);
   }
 
@@ -58,7 +58,7 @@ export class TrafficSystem {
         continue;
       }
       if (v.owner === 'parked') continue; // handled by streamParked
-      if (d > 285) {
+      if (d > 240 || (d > 175 && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z))) {
         sim.removeVehicle(v);
         continue;
       }
@@ -87,7 +87,7 @@ export class TrafficSystem {
   }
 
   /** Spawns one moving car on a lane out of the player's view. */
-  trySpawnTraffic(minDist = 75, maxDist = 230, kind?: VehicleKind): Vehicle | null {
+  trySpawnTraffic(minDist = 45, maxDist = 165, kind?: VehicleKind): Vehicle | null {
     const sim = this.sim;
     if (this.nearLanes.length === 0 || maxDist > 230) this.refreshNearLanes();
     if (this.nearLanes.length === 0) return null;
@@ -100,7 +100,7 @@ export class TrafficSystem {
       const z = lane.sz + lane.dz * s;
       const d = Math.hypot(x - pp.x, z - pp.z);
       if (d < minDist || d > maxDist) continue;
-      if (d < 175 && sim.isVisible(x, 1, z)) continue;
+      if (d < 120 && sim.isVisible(x, 1, z)) continue;
       if (!this.isClear(x, z, 11)) continue;
       let k = kind ?? sim.rng.weighted(TRAFFIC_MIX);
       if (k === 'bus' && !lane.line.avenue) k = 'sedan';
