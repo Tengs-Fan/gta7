@@ -581,6 +581,8 @@ function buildBlock(layout: CityLayout, block: Block, rng: Rng, specials: Specia
       specialParcels.set(parcel, def);
       const marker = sidewalkMarker(block, def.side, 0);
       layout.pois.push({ id: def.id, kind: def.kind, name: def.name, x: marker.x, z: marker.z, heading, bay: null, block: block.id });
+      // Keep the entrance clear of lamps, trees and benches.
+      reserved.push(mkRect(marker.x - 3.5, marker.z - 3.5, marker.x + 3.5, marker.z + 3.5));
     }
   }
 
