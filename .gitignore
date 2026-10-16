@@ -1,0 +1,7 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+tests/e2e/__screenshots__/
+*.log
+.DS_Store
