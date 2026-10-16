@@ -93,6 +93,9 @@ class ButtonList {
 export class Menus {
   readonly root: HTMLDivElement;
   private stack: Screen[] = [];
+  /** Seconds since the top screen appeared; input is ignored briefly so the
+   *  key that opened a screen (or exited pointer lock) cannot also close it. */
+  private age = 0;
 
   constructor(parent: HTMLElement, private readonly host: MenuHost, private readonly map: MapImage) {
     this.root = h('div');
@@ -112,6 +115,7 @@ export class Menus {
     if (prev) prev.el.classList.add('hidden');
     this.stack.push(s);
     this.root.appendChild(s.el);
+    this.age = 0;
   }
 
   pop(): void {
@@ -120,6 +124,7 @@ export class Menus {
     s.close?.();
     s.el.remove();
     this.top?.el.classList.remove('hidden');
+    this.age = 0;
   }
 
   closeAll(): void {
@@ -129,7 +134,9 @@ export class Menus {
   input(ui: UiActions, dt: number): void {
     const s = this.top;
     if (!s) return;
+    this.age += dt;
     s.tick?.(dt);
+    if (this.age < 0.25) return;
     s.input(ui);
   }
 

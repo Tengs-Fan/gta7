@@ -94,6 +94,59 @@ export function installDebugApi(game: Game): void {
       c.yaw = yaw;
       c.pitch = pitch;
     },
+    /** Renders a frame and samples a 9x9 pixel grid from the canvas (for tests). */
+    samplePixels() {
+      const r = game.renderer;
+      r.render(1 / 60, false);
+      const gl = r.renderer.getContext();
+      const w = gl.drawingBufferWidth;
+      const h = gl.drawingBufferHeight;
+      const px = new Uint8Array(4);
+      let sum = 0;
+      let sum2 = 0;
+      let n = 0;
+      const colors = new Set<string>();
+      for (let i = 1; i < 10; i++) {
+        for (let j = 1; j < 10; j++) {
+          gl.readPixels(Math.floor((w * i) / 10), Math.floor((h * j) / 10), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          const l = (px[0]! + px[1]! + px[2]!) / 3;
+          sum += l;
+          sum2 += l * l;
+          n++;
+          colors.add(`${px[0]! >> 3},${px[1]! >> 3},${px[2]! >> 3}`);
+        }
+      }
+      const mean = sum / n;
+      return { mean, std: Math.sqrt(Math.max(0, sum2 / n - mean * mean)), colors: colors.size };
+    },
+    /** Moves the player's vehicle (or the player) to an exact spot and stops it. */
+    place(x: number, z: number, heading?: number) {
+      const sim = game.sim;
+      const p = sim.player;
+      const t = p.vehicle ?? p;
+      t.pos.x = x;
+      t.pos.z = z;
+      t.pos.y = sim.world.groundHeight(x, z);
+      if (heading !== undefined) t.heading = heading;
+      if (p.vehicle) {
+        p.vehicle.vel.x = 0;
+        p.vehicle.vel.z = 0;
+        p.vehicle.angVel = 0;
+      }
+    },
+    spawnPedAhead(dist = 6) {
+      const sim = game.sim;
+      const p = sim.player;
+      const yaw = game.renderer.cameraCtl.yaw;
+      const c = sim.spawnCharacter('civilian', p.pos.x + Math.sin(yaw) * dist, p.pos.z + Math.cos(yaw) * dist);
+      c.owner = 'mission';
+      c.persistent = true;
+      return c.id;
+    },
+    characterAlive(id: number) {
+      const c = game.sim.characters.find((x) => x.id === id);
+      return c ? c.alive : false;
+    },
   };
   (window as unknown as { __gta7: typeof api }).__gta7 = api;
 }
