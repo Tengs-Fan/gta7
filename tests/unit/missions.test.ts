@@ -161,6 +161,9 @@ describe('story missions are completable', () => {
     const money = sim.progress.money;
     startMission(sim, 'big_score');
     stepUntil(sim, () => sim.missions.active!.objectiveText === 'Go to the First Azura Bank', 20);
+    // Officers answer the alarm during the hold; whether they may arrest a player standing there is
+    // the police's business (the e2e test sets the same flag).
+    sim.missions.noBust = true;
     teleport(sim, spots.bank.x, spots.bank.z);
     stepUntil(sim, () => sim.missions.active!.objectiveText.startsWith('Hold'), 2);
     expect(sim.wanted.level).toBe(3);

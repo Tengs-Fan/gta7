@@ -313,7 +313,7 @@ export class Vehicle {
   }
 }
 
-export type PickupKind = 'health' | 'armor' | 'weapon' | 'money' | 'package' | 'rampage';
+export type PickupKind = 'health' | 'armor' | 'weapon' | 'money' | 'package' | 'rampage' | 'parcel';
 
 export class Pickup {
   active = true;

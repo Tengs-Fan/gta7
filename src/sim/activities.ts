@@ -147,8 +147,11 @@ export class Activities {
     if (c.state === 'inVehicle') return;
     if (c.brain) {
       c.brain.hostile = false;
-      c.brain.mode = 'wander';
-      c.brain.toNode = -1;
+      // Someone running from danger (a fare out of a burning cab) keeps running.
+      if (c.brain.mode !== 'flee') {
+        c.brain.mode = 'wander';
+        c.brain.toNode = -1;
+      }
     }
   }
 
@@ -188,7 +191,8 @@ export class Activities {
     this.spawnFare();
   }
 
-  private spawnFare(): boolean {
+  /** Spawns the next fare; `lead` is news to tell the player first, in the same message. */
+  private spawnFare(lead = ''): boolean {
     const sim = this.sim;
     const j = this.job;
     if (!j || j.kind !== 'taxi') return false;
@@ -202,7 +206,7 @@ export class Activities {
     c.brain = makeBrain('stand');
     j.fare = c;
     j.stage = 'pickup';
-    this.say('Pick up the fare (blue marker).');
+    this.say(lead ? `${lead} Pick up the next fare (blue marker).` : 'Pick up the fare (blue marker).');
     return true;
   }
 
@@ -240,6 +244,18 @@ export class Activities {
         j.stage = 'dropoff';
         this.say(`Take the fare to ${j.destName}.`);
       }
+      return;
+    }
+    const fare = j.fare;
+    if (!fare || fare.removed || !fare.alive || fare.vehicle !== j.taxi) {
+      // Out of the cab (it caught fire, someone dragged them out) or dead: nobody pays this trip.
+      const bailed = 'The fare bailed. No fare, no tip.';
+      if (fare && !fare.removed) {
+        if (fare.vehicle) sim.unseat(fare);
+        this.releaseCharacter(fare);
+      }
+      j.fare = null;
+      if (!this.spawnFare(bailed)) this.end(`${bailed} Taxi job ended. Fares: ${j.fares}.`);
       return;
     }
     j.timer -= dt;

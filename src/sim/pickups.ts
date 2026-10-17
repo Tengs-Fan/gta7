@@ -61,6 +61,11 @@ export class PickupSystem {
     }
   }
 
+  /** A mission parcel (Hot Delivery), picked up on foot; the mission removes it when it ends. */
+  addMissionParcel(x: number, z: number): Pickup {
+    return this.add('parcel', x, z, 0, null, 0, 'parcel');
+  }
+
   dropMoney(x: number, z: number, amount: number): void {
     const sim = this.sim;
     if (sim.world.waterDepth(x, z) > 0) return;
@@ -154,6 +159,9 @@ export class PickupSystem {
           return false;
         }
         return sim.activities.startRampage(p.tag);
+      case 'parcel':
+        // The mission script watches for it (see Hot Delivery).
+        return true;
     }
   }
 
