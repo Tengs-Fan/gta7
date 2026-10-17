@@ -637,11 +637,13 @@ export class DriverAI {
         // backing out of a face-off for a car someone drives; other reverses end there, and so do
         // these at a wall or a prop, which will not move.
         const o = this.nearest;
-        const faceOff = (this.reverseKind === 'yield' || this.reverseKind === 'lane' || this.reverseKind === 'retreat') && this.reverseTime < 3;
-        if (!this.behindProp && ((this.passing && this.reverseKind === 'queue') || (faceOff && !!o && 'kind' in o && this.driven(o) !== null))) {
+        const backingOut = (this.reverseKind === 'yield' || this.reverseKind === 'lane' || this.reverseKind === 'retreat') && this.reverseTime < 3;
+        if (!this.behindProp && ((this.passing && this.reverseKind === 'queue') || (backingOut && !!o && 'kind' in o && this.driven(o) !== null))) {
           c.brake = 0;
           c.throttle = back > 0.6 ? 1 : 0;
           if (this.reverseTime < 3) this.reverseTimer += dt;
+          // (Standing still while it waits is not getting nowhere: it backs on once the room is there.)
+          this.reverseStill = 0;
           waiting = true;
         } else {
           // The stuck rule's slow reverse stopped short of a lamp or a bin: the next one knocks it over.
@@ -1477,7 +1479,10 @@ export class DriverAI {
     return { x: f.x + f.tx * back + f.tz * off, z: f.z + f.tz * back - f.tx * off };
   }
 
-  /** Seconds a retreat takes to back past the cars it backs out round (see retreatPoint) at the reversing speed, and on into the lane. */
+  /**
+   * Seconds a retreat takes to back past the cars it backs out round (see retreatPoint) at the
+   * reversing speed; the lane phase after it gets time of its own (see update).
+   */
   private retreatTime(): number {
     const r = this.retreatTo;
     if (!r) return 8;
@@ -1537,7 +1542,10 @@ export class DriverAI {
     return this.noseInBy() > 0.4;
   }
 
-  /** How far left of our lane's centre line the left rear corner of the body is (STREET_W / 2 + LANE_W / 2: on a street's far curb). */
+  /**
+   * How far left of our lane's centre line the left rear corner of the body is (STREET_W / 2 +
+   * LANE_W / 2 is the far curb of a one-lane street).
+   */
   private tailOut(): number {
     const v = this.vehicle;
     const f = this.laneFrame();

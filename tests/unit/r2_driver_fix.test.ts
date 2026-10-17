@@ -197,6 +197,36 @@ describe('reversing in tight spots', () => {
     expect(room).toBeGreaterThan(0.2);
   });
 
+  it('backing up to give way, waits for the cars right behind to make room, then backs on into it', () => {
+    // A car gives way to one standing out of its lane in front of it, with a car of its own lane 1 m
+    // behind it and another 0.5 m behind that one: it waits while they make room in turn (see makeRoom)
+    // instead of giving up, and once the room is there it uses it, instead of ending the reverse for
+    // having stood still while it waited.
+    const sim = makeSim({ police: false });
+    const lane = streetLane(sim);
+    signalsOff(sim);
+    const opp = oppositeLane(sim, lane);
+    const car = drive(sim, 'sedan', lane, 40);
+    const behind = drive(sim, 'sedan', lane, 40 - 2 * car.halfL - 1);
+    const last = drive(sim, 'sedan', lane, 40 - 4 * car.halfL - 1.5);
+    const rival = shiftLeft(drive(sim, 'sedan', opp, opp.length - (40 + 2 * car.halfL + 2)), opp, 3);
+    internals(car).yielded = rival;
+    internals(car).startReverse(0, 'yield', 10);
+    const hits = contacts(sim, () => [car, behind, last, rival]);
+    const s0 = along(lane, car.pos);
+    let backed = 0;
+    let clear = Infinity;
+    step(sim, 6, () => {
+      rival.ai!.hold = true;
+      backed = Math.max(backed, s0 - along(lane, car.pos));
+      clear = Math.min(clear, closest([car, behind, last, rival]));
+      return input();
+    });
+    expect(backed).toBeGreaterThan(1.5);
+    expect(hits.n).toBe(0);
+    expect(clear).toBeGreaterThan(0.2);
+  });
+
   it('stops a reverse of any kind short of a wall or a lamp post behind it', () => {
     // Each kind as the driver starts it: making room ('queue'), the stuck rule ('stuck'), giving way to
     // a car standing out of its lane ('yield'), backing into the lane from the passing lane ('lane')
