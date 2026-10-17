@@ -215,9 +215,18 @@ class FakeStorage {
 
 // ---------------------------------------------------------------------------
 // Fake Web Audio: AudioParams throw on non-finite values like browsers do.
+// Every param logs its calls and every node records its kind, so tests can inspect the graph
+// and the automation that was scheduled.
+
+type ParamCall = { op: 'value' | 'set' | 'linear' | 'exp' | 'target' | 'cancel'; v: number; t: number; tc?: number };
 
 class FakeParam {
-  constructor(public target = 0) {}
+  readonly log: ParamCall[] = [];
+  /** The default value the param was created with. */
+  readonly initial: number;
+  constructor(public target = 0) {
+    this.initial = target;
+  }
   private check(...xs: number[]): void {
     for (const x of xs) if (!Number.isFinite(x)) throw new TypeError('The provided float value is non-finite.');
   }
@@ -227,36 +236,43 @@ class FakeParam {
   set value(v: number) {
     this.check(v);
     this.target = v;
+    this.log.push({ op: 'value', v, t: NaN });
   }
   setValueAtTime(v: number, t: number): this {
     this.check(v, t);
     this.target = v;
+    this.log.push({ op: 'set', v, t });
     return this;
   }
   linearRampToValueAtTime(v: number, t: number): this {
     this.check(v, t);
     this.target = v;
+    this.log.push({ op: 'linear', v, t });
     return this;
   }
   exponentialRampToValueAtTime(v: number, t: number): this {
     this.check(v, t);
     if (v === 0) throw new RangeError('The float target value provided (0) should not be in the range (-1.40130e-45, 1.40130e-45).');
     this.target = v;
+    this.log.push({ op: 'exp', v, t });
     return this;
   }
   setTargetAtTime(v: number, t: number, tc: number): this {
     this.check(v, t, tc);
     this.target = v;
+    this.log.push({ op: 'target', v, t, tc });
     return this;
   }
   cancelScheduledValues(t: number): this {
     this.check(t);
+    this.log.push({ op: 'cancel', v: NaN, t });
     return this;
   }
 }
 
 class FakeNode {
   readonly outputs: unknown[] = [];
+  constructor(readonly kind = 'node') {}
   connect<T>(d: T): T {
     this.outputs.push(d);
     return d;
@@ -265,6 +281,9 @@ class FakeNode {
 
 class FakeGain extends FakeNode {
   readonly gain = new FakeParam(1);
+  constructor() {
+    super('gain');
+  }
 }
 
 class FakeSource extends FakeNode {
@@ -274,6 +293,9 @@ class FakeSource extends FakeNode {
   startAt = 0;
   offset = 0;
   stopAt = Infinity;
+  constructor() {
+    super('source');
+  }
   start(t = 0, offset = 0): void {
     if (!Number.isFinite(t) || !Number.isFinite(offset)) throw new TypeError('non-finite start');
     this.startAt = t;
@@ -289,7 +311,19 @@ class FakeOscillator extends FakeNode {
   type = 'sine';
   readonly frequency = new FakeParam(440);
   readonly detune = new FakeParam(0);
-  start(): void {}
+  wave: unknown = null;
+  startAt = NaN;
+  constructor() {
+    super('oscillator');
+  }
+  setPeriodicWave(w: unknown): void {
+    this.wave = w;
+    this.type = 'custom';
+  }
+  start(t = 0): void {
+    if (!Number.isFinite(t)) throw new TypeError('non-finite start');
+    this.startAt = t;
+  }
   stop(): void {}
 }
 
@@ -298,35 +332,57 @@ class FakeAudioContext {
   currentTime = 1;
   state = 'running';
   readonly sampleRate = 8000;
-  readonly destination = new FakeNode();
+  readonly destination = new FakeNode('destination');
   readonly sources: FakeSource[] = [];
+  /** Every node created, in order. */
+  readonly nodes: FakeNode[] = [];
+  /** Number of create*() calls of any kind (nodes, buffers and periodic waves). */
+  created = 0;
   constructor() {
     FakeAudioContext.last = this;
   }
+  private track<T extends FakeNode>(n: T): T {
+    this.created++;
+    this.nodes.push(n);
+    return n;
+  }
   createGain(): FakeGain {
-    return new FakeGain();
+    return this.track(new FakeGain());
   }
   createDynamicsCompressor(): FakeNode {
-    return Object.assign(new FakeNode(), { threshold: new FakeParam(-24), ratio: new FakeParam(12) });
+    return this.track(
+      Object.assign(new FakeNode('compressor'), { threshold: new FakeParam(-24), knee: new FakeParam(30), ratio: new FakeParam(12), attack: new FakeParam(0.003), release: new FakeParam(0.25) }),
+    );
   }
   createBiquadFilter(): FakeNode {
-    return Object.assign(new FakeNode(), { type: 'lowpass', frequency: new FakeParam(350), Q: new FakeParam(1), gain: new FakeParam(0) });
+    return this.track(Object.assign(new FakeNode('biquad'), { type: 'lowpass', frequency: new FakeParam(350), Q: new FakeParam(1), gain: new FakeParam(0) }));
   }
   createOscillator(): FakeOscillator {
-    return new FakeOscillator();
+    return this.track(new FakeOscillator());
   }
   createBufferSource(): FakeSource {
-    const s = new FakeSource();
+    const s = this.track(new FakeSource());
     this.sources.push(s);
     return s;
   }
   createStereoPanner(): FakeNode {
-    return Object.assign(new FakeNode(), { pan: new FakeParam(0) });
+    return this.track(Object.assign(new FakeNode('panner'), { pan: new FakeParam(0) }));
   }
   createDelay(): FakeNode {
-    return Object.assign(new FakeNode(), { delayTime: new FakeParam(0) });
+    return this.track(Object.assign(new FakeNode('delay'), { delayTime: new FakeParam(0) }));
+  }
+  createWaveShaper(): FakeNode {
+    return this.track(Object.assign(new FakeNode('waveshaper'), { curve: null as Float32Array | null, oversample: 'none' }));
+  }
+  createAnalyser(): FakeNode {
+    return this.track(Object.assign(new FakeNode('analyser'), { fftSize: 2048, getFloatTimeDomainData: (b: Float32Array) => b.fill(0) }));
+  }
+  createPeriodicWave(real: Float32Array, imag: Float32Array, opts?: unknown): unknown {
+    this.created++;
+    return { real, imag, opts };
   }
   createBuffer(_channels: number, length: number, rate: number): unknown {
+    this.created++;
     const data = new Float32Array(length);
     return { duration: length / rate, length, sampleRate: rate, getChannelData: () => data };
   }
@@ -1444,5 +1500,577 @@ describe('map wheel zoom: a notch is one step on every platform', () => {
     const { zoom, wheel } = mapWheelRig();
     wheel(-4, 20, { ctrlKey: true });
     expect(zoom()).toBeCloseTo(0.5 + 19 * 4 * 0.005, 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2, audio cluster: the rebuilt mix, the vehicle voices and the ambience bed, against the
+// fake context above (the pure parts are in r2_audio.test.ts).
+
+describe('round 2 audio: mix, voices and ambience', () => {
+  type MixerT = import('../../src/audio/mixer').Mixer;
+  type AmbienceT = import('../../src/audio/ambience').Ambience;
+  type EngineVoiceT = import('../../src/audio/engineVoice').EngineVoice;
+  type InputT = import('../../src/sim/input').PlayerInput;
+  type VehicleT = import('../../src/sim/entities').Vehicle;
+  type Internals = {
+    mixer: MixerT;
+    ambience: AmbienceT;
+    engine: EngineVoiceT;
+    hornNodes: { osc1: FakeOscillator; osc2: FakeOscillator; gain: FakeGain };
+    inVehicle: boolean;
+  };
+  const db = (g: number) => 20 * Math.log10(g);
+  const P = (x: unknown) => x as FakeParam;
+
+  /** Value of a fake AudioParam at `time`, replaying its logged automation like a browser would. */
+  function paramAt(p: FakeParam, time: number): number {
+    let v = p.initial;
+    let evs: ParamCall[] = [];
+    for (const c of p.log) {
+      if (c.op === 'value') {
+        // The code under test only sets .value on creation: the value before any automation.
+        if (evs.length === 0) v = c.v;
+      } else if (c.op === 'cancel') evs = evs.filter((e) => e.t < c.t);
+      else evs.push(c);
+    }
+    const order = evs.map((e, i) => ({ e, i })).sort((a, b) => a.e.t - b.e.t || a.i - b.i).map((x) => x.e);
+    let at = -Infinity;
+    let target: ParamCall | null = null;
+    const evolve = (to: number) => {
+      if (target && to > at) v = target.v + (v - target.v) * Math.exp(-(to - at) / target.tc!);
+      at = Math.max(at, to);
+    };
+    for (const e of order) {
+      if (e.t > time) {
+        // A ramp runs from the previous event to its own end time.
+        if (e.op === 'linear') return v + ((e.v - v) * (time - at)) / (e.t - at);
+        if (e.op === 'exp') return v * Math.pow(e.v / v, (time - at) / (e.t - at));
+        break;
+      }
+      evolve(e.t);
+      if (e.op === 'target') target = e;
+      else {
+        target = null;
+        v = e.v;
+      }
+      at = e.t;
+    }
+    evolve(time);
+    return v;
+  }
+
+  /** The graph path from a node to the speakers (following first connections). */
+  function pathOf(node: unknown): FakeNode[] {
+    const ctx = FakeAudioContext.last!;
+    const out: FakeNode[] = [];
+    let n = node as FakeNode;
+    for (let i = 0; i < 40 && n; i++) {
+      out.push(n);
+      if (n === ctx.destination) break;
+      n = n.outputs[0] as FakeNode;
+    }
+    return out;
+  }
+
+  /** An unlocked engine on a quick sim, with the listener a few metres behind the player. */
+  function rig() {
+    const sim = quickSim();
+    const neutral: InputT = { ...sim.lastInput };
+    const audio = new AudioEngine();
+    audio.unlock();
+    const ctx = FakeAudioContext.last!;
+    audio.attach(sim);
+    const inner = audio as unknown as Internals;
+    const listen = () => {
+      const p = sim.playerPos();
+      audio.setListener(p.x, p.y + 2, p.z - 5, 0);
+    };
+    const input = (over: Partial<InputT> = {}): InputT => ({ ...neutral, ...over });
+    /** Runs `n` frames of sim + audio, advancing the audio clock with them. */
+    const frames = (n: number, inp: InputT | ((i: number) => InputT) = input(), dt = 1 / 60) => {
+      for (let i = 0; i < n; i++) {
+        ctx.currentTime += dt;
+        sim.update(dt, typeof inp === 'function' ? inp(i) : inp);
+        listen();
+        audio.update(dt, sim, true);
+      }
+    };
+    listen();
+    return { sim, audio, ctx, inner, input, frames, listen };
+  }
+
+  function seatInCar(sim: Sim, kind: import('../../src/sim/specs').VehicleKind = 'sedan'): VehicleT {
+    const rp = roadPoint(sim);
+    const v = sim.spawnVehicle(kind, rp.x, rp.z, rp.heading);
+    placeInCar(sim, v);
+    return v;
+  }
+
+  it('every bus reaches the speakers through the bus compressor, the limiter and the tanh soft clip', () => {
+    const audio = new AudioEngine();
+    audio.unlock();
+    const ctx = FakeAudioContext.last!;
+    const m = (audio as unknown as Internals).mixer;
+    for (const bus of [m.sfx, m.vehicleBus, m.ambBus, m.musicBus, m.uiBus]) {
+      const kinds = pathOf(bus).map((n) => n.kind);
+      expect(kinds.slice(-4)).toEqual(['compressor', 'compressor', 'waveshaper', 'destination']);
+    }
+    const [comp, lim, clip] = pathOf(m.sfx).slice(-4) as unknown as Array<Record<string, FakeParam> & FakeNode & { curve: Float32Array; oversample: string }>;
+    expect([comp!.threshold!.target, comp!.knee!.target, comp!.ratio!.target, comp!.attack!.target, comp!.release!.target]).toEqual([-18, 6, 3, 0.005, 0.15]);
+    expect([lim!.threshold!.target, lim!.knee!.target, lim!.ratio!.target, lim!.attack!.target, lim!.release!.target]).toEqual([-2, 0, 20, 0.001, 0.08]);
+    expect(clip!.curve.length).toBe(1024);
+    expect(clip!.oversample).toBe('2x');
+    expect(Math.max(...Array.from(clip!.curve, Math.abs))).toBeLessThan(1);
+    // The test tap hangs off the final stage, after the speakers' connection.
+    expect(clip!.outputs[0]).toBe(ctx.destination);
+    expect((clip!.outputs as FakeNode[]).some((o) => o.kind === 'analyser')).toBe(true);
+    expect(audio.mixer!.analyser).toBe(clip!.outputs[1]);
+  });
+
+  it('the pause stage mutes the world, vehicle, ambience and music buses but not the UI', () => {
+    const audio = new AudioEngine();
+    audio.unlock();
+    const m = (audio as unknown as Internals).mixer;
+    for (const bus of [m.sfx, m.vehicleBus, m.ambBus, m.musicBus, m.uiBus]) expect(outputGain(bus)).toBeGreaterThan(0);
+    audio.setPaused(true);
+    for (const bus of [m.sfx, m.vehicleBus, m.ambBus, m.musicBus]) expect(outputGain(bus)).toBe(0);
+    expect(outputGain(m.uiBus)).toBeGreaterThan(0);
+    // Volumes scale the buses as before: the radio bus carries the music volume.
+    audio.setPaused(false);
+    audio.setVolumes(1, 0.5, 1);
+    expect(outputGain(m.musicBus)).toBeCloseTo(0.5 * 0.8, 6);
+    expect(outputGain(m.ambBus)).toBeCloseTo(1, 6);
+  });
+
+  it('one-shot envelopes are silent from creation and their sources start a sample after the envelope', () => {
+    const { audio, ctx, sim, listen } = rig();
+    const v = seatInCar(sim);
+    listen();
+    const L = { ...sim.playerPos() };
+    const before = ctx.nodes.length;
+    const envelopes = (fn: () => void) => {
+      const b = ctx.nodes.length;
+      fn();
+      return ctx.nodes.slice(b).filter((n) => n instanceof FakeGain).length;
+    };
+    const routines: Array<[string, () => void]> = [
+      ['gunshot', () => audio.gunshot('pistol', L.x + 30, 1, L.z, false)],
+      ['player gunshot', () => audio.gunshot('shotgun', L.x + 1, 1, L.z, true)],
+      ['explosion', () => audio.explosion(L.x + 40, 1, L.z, 7.5)],
+      ['impact', () => audio.impact(L.x + 5, 1, L.z, 12)],
+      ['punch', () => audio.punch(L.x + 2, 1, L.z, true)],
+      ['scream', () => audio.scream(L.x + 6, 1, L.z)],
+      ['horn tap', () => audio.horn(L.x + 10, 1, L.z, false)],
+      ['splash', () => audio.splash(L.x + 8, 0, L.z, true)],
+      ['reload', () => audio.reloadClick()],
+      ['door', () => audio.doorThunk(v)],
+      ['chime', () => audio.chime('passed')],
+      [
+        'radio',
+        () => {
+          // The radio's notes and its tuning static.
+          for (let i = 0; i < 20; i++) {
+            ctx.currentTime += 0.05;
+            audio.radio.update(0.05, true);
+          }
+        },
+      ],
+    ];
+    for (const [name, fn] of routines) expect(envelopes(fn), name).toBeGreaterThan(0);
+    const fresh = ctx.nodes.slice(before);
+    const gains = fresh.filter((n): n is FakeGain => n instanceof FakeGain && n.gain.log.some((c) => c.op !== 'value'));
+    expect(gains.length).toBeGreaterThan(30);
+    for (const g of gains) {
+      expect(g.gain.log[0]).toMatchObject({ op: 'value', v: 0 });
+      expect(g.gain.log[1]).toMatchObject({ op: 'set', v: 0 });
+      expect(g.gain.log[1]!.t).toBeLessThanOrEqual(g.gain.log[2]!.t);
+    }
+    const sources = fresh.filter((n): n is FakeSource | FakeOscillator => n instanceof FakeSource || n instanceof FakeOscillator);
+    expect(sources.length).toBeGreaterThan(30);
+    for (const s of sources) {
+      const env = pathOf(s).find((n): n is FakeGain => n instanceof FakeGain)!;
+      expect(s.startAt).toBeCloseTo(env.gain.log[2]!.t + 1 / ctx.sampleRate, 9);
+    }
+  });
+
+  it('one shotgun pull (nine pellets in a frame) plays one gunshot; NPC shots stay rate-limited', () => {
+    const { sim, audio, input, frames } = rig();
+    const p = sim.player;
+    p.inventory.give('shotgun', 30);
+    p.inventory.current = 'shotgun';
+    frames(60); // draw it
+    let pellets = 0;
+    sim.events.on('shot', () => pellets++);
+    const before = audio.counters.gunshots;
+    frames(1, input({ fire: true, firePressed: true }));
+    expect(pellets).toBe(9);
+    expect(audio.counters.gunshots - before).toBe(1);
+    // The same in one frame from synthetic events, whatever their source.
+    const shot = { shooter: p, weapon: 'shotgun' as const, fx: p.pos.x, fy: 1.4, fz: p.pos.z, tx: p.pos.x, ty: 1, tz: p.pos.z + 20, hit: 'world' as const, nx: 0, ny: 1, nz: 0 };
+    for (let i = 0; i < 9; i++) sim.events.emit('shot', shot);
+    expect(audio.counters.gunshots - before).toBe(2);
+    frames(1);
+    sim.events.emit('shot', shot);
+    expect(audio.counters.gunshots - before).toBe(3);
+    // An NPC's pellets keep the old 40 ms limiter (shared with the player's shots of that weapon).
+    const npc = sim.spawnCharacter('gang', p.pos.x + 5, p.pos.z);
+    FakeAudioContext.last!.currentTime += 0.05;
+    for (let i = 0; i < 9; i++) sim.events.emit('shot', { ...shot, shooter: npc });
+    expect(audio.counters.gunshots - before).toBe(4);
+  });
+
+  it('a held horn is one continuous voice at the car’s horn notes that lets go within 0.1 s', () => {
+    const { sim, ctx, inner, input, frames } = rig();
+    seatInCar(sim, 'bus');
+    frames(5);
+    inner.ambience.random = () => 0.999; // no ambience one-shots while counting oscillators
+    const h = inner.hornNodes;
+    let taps = 0;
+    sim.events.on('horn', () => taps++);
+    const oscBefore = ctx.nodes.filter((n) => n instanceof FakeOscillator).length;
+    const pressAt = ctx.currentTime;
+    frames(120, (i) => input({ horn: true, hornPressed: i === 0 }));
+    // The sim still reports taps (pedestrians react to them), but no new voice is started.
+    expect(taps).toBeGreaterThanOrEqual(4);
+    expect(ctx.nodes.filter((n) => n instanceof FakeOscillator).length).toBe(oscBefore);
+    expect([h.osc1.frequency.target, h.osc2.frequency.target]).toEqual([220, 277]);
+    const peak = paramAt(h.gain.gain, pressAt + 1);
+    expect(peak).toBeCloseTo(0.15, 4);
+    expect(paramAt(h.gain.gain, pressAt + 1 / 60 + 0.015)).toBeGreaterThan(0.9 * peak);
+    const releaseAt = ctx.currentTime;
+    frames(10);
+    expect(paramAt(h.gain.gain, releaseAt + 1 / 60 + 0.1)).toBeLessThan(0.01 * peak);
+    // AI horn taps are unchanged: a two-note honk each.
+    const ai = sim.spawnVehicle('sedan', sim.playerPos().x + 12, sim.playerPos().z, 0);
+    const n0 = ctx.nodes.filter((n) => n instanceof FakeOscillator).length;
+    sim.onHorn(ai);
+    expect(ctx.nodes.filter((n) => n instanceof FakeOscillator).length).toBe(n0 + 2);
+  });
+
+  it('the radio echo follows a dotted eighth of each song’s tempo', () => {
+    const audio = new AudioEngine();
+    audio.unlock();
+    const ctx = FakeAudioContext.last!;
+    const radio = audio.radio as unknown as { delay: { delayTime: FakeParam }; song: { bpm: number } | null; update(dt: number, inCar: boolean): void; next(): string };
+    radio.update(1 / 60, true);
+    expect(radio.song).not.toBe(null);
+    const delay = radio.delay.delayTime;
+    expect(delay.log.at(-1)!.op).toBe('target');
+    expect(delay.target).toBeCloseTo((0.75 * 60) / radio.song!.bpm, 9);
+    for (let k = 0; k < 2; k++) {
+      radio.next();
+      ctx.currentTime += 0.1;
+      radio.update(0.1, true);
+      expect(delay.target).toBeCloseTo((0.75 * 60) / radio.song!.bpm, 9);
+      expect(delay.target).toBeGreaterThan(0.3);
+    }
+  });
+
+  it('a subtitle ducks the music by 9 dB and the ambience by 6 dB for its duration', () => {
+    const { sim, inner, frames } = rig();
+    frames(5);
+    const music = P(inner.mixer.musicMix.gain);
+    const amb = P(inner.mixer.ambMix.gain);
+    expect(music.target).toBeCloseTo(0.8, 9);
+    sim.events.emit('subtitle', { speaker: 'Mama Lou', text: 'Bring me a car.', duration: 2 });
+    frames(1);
+    expect(music.target).toBeLessThanOrEqual(0.35);
+    expect(db(music.target / 0.8)).toBeCloseTo(-9, 6);
+    expect(db(amb.target)).toBeCloseTo(-6, 6);
+    frames(110);
+    expect(music.target).toBeLessThan(0.35);
+    frames(12);
+    expect(music.target).toBeCloseTo(0.8, 9);
+    expect(amb.target).toBeCloseTo(1, 9);
+  });
+
+  it('an explosion 20 m away ducks the music within 50 ms and lets go within 1.5 s; one 100 m away does not', () => {
+    const { sim, ctx, inner, frames } = rig();
+    frames(5);
+    const music = P(inner.mixer.musicMix.gain);
+    const p = sim.playerPos();
+    const t0 = ctx.currentTime;
+    sim.events.emit('explosion', { x: p.x + 20, y: p.y, z: p.z - 5, radius: 7.5 });
+    frames(1);
+    expect(paramAt(music, t0 + 0.05)).toBeLessThanOrEqual(0.5);
+    frames(90);
+    expect(paramAt(music, t0 + 1.5)).toBeGreaterThanOrEqual(0.8 * Math.pow(10, -0.5 / 20));
+    const far = rig();
+    far.frames(5);
+    const farMusic = P(far.inner.mixer.musicMix.gain);
+    const q = far.sim.playerPos();
+    const t1 = far.ctx.currentTime;
+    far.sim.events.emit('explosion', { x: q.x + 100, y: q.y, z: q.z - 5, radius: 7.5 });
+    far.frames(3);
+    expect(paramAt(farMusic, t1 + 0.05)).toBeCloseTo(0.8, 6);
+  });
+
+  it('a result card ducks every bus but the UI 10 dB while it shows, and its sting plays on the UI bus', () => {
+    const { sim, ctx, inner, frames } = rig();
+    frames(5);
+    const m = inner.mixer;
+    const before = ctx.nodes.length;
+    sim.events.emit('big', { text: 'WASTED', sub: '', style: 'wasted', duration: 1 });
+    const sting = ctx.nodes.slice(before).filter((n): n is FakeGain => n instanceof FakeGain);
+    expect(sting.length).toBeGreaterThan(0);
+    for (const g of sting) expect(g.outputs[0]).toBe(m.uiBus);
+    frames(1);
+    expect(db(P(m.sfxMix.gain).target)).toBeCloseTo(-10, 6);
+    expect(db(P(m.ambMix.gain).target)).toBeCloseTo(-10, 6);
+    expect(db(P(m.vehMix.gain).target)).toBeCloseTo(-10, 6);
+    expect(db(P(m.musicMix.gain).target / 0.8)).toBeCloseTo(-10, 6);
+    expect(outputGain(m.uiBus)).toBeCloseTo(0.85 * 0.8, 6);
+    frames(60);
+    expect(P(m.sfxMix.gain).target).toBeCloseTo(1, 9);
+    // A mission title card is not a result: no duck.
+    sim.events.emit('big', { text: 'WHEELS', sub: 'Mama Lou', style: 'title', duration: 3 });
+    frames(1);
+    expect(P(m.sfxMix.gain).target).toBeCloseTo(1, 9);
+  });
+
+  it('in a car the world is muffled; with the radio on the engine steps back under it', () => {
+    const { sim, audio, inner, frames } = rig();
+    frames(2);
+    const m = inner.mixer;
+    seatInCar(sim);
+    frames(2);
+    expect(P(m.sfxLowpass.frequency).target).toBe(1800);
+    expect(db(P(m.sfxMix.gain).target)).toBeCloseTo(-4, 6);
+    expect(P((inner.ambience as unknown as { carFilter: { frequency: unknown } }).carFilter.frequency).target).toBe(900);
+    expect(audio.radio.playing).toBe(true);
+    expect(db(P(m.vehMix.gain).target)).toBeCloseTo(-7, 6);
+    expect(P(m.vehHighpass.frequency).target).toBe(60);
+    expect(P(m.vehPeak.gain).target).toBe(-4);
+    expect(P(m.musicMix.gain).target).toBe(1);
+    audio.radio.prev(); // RADIO OFF
+    frames(2);
+    expect(audio.radio.playing).toBe(false);
+    expect(P(m.vehMix.gain).target).toBe(1);
+    // The player's own shots from the car go to the vehicle bus, not through the muffling.
+    const ctx = FakeAudioContext.last!;
+    const before = ctx.nodes.length;
+    const p = sim.playerPos();
+    audio.gunshot('smg', p.x + 1, p.y + 1, p.z, true);
+    const panner = ctx.nodes.slice(before).find((n) => n.kind === 'panner')!;
+    expect(pathOf(panner)).toContain(m.vehicleBus as unknown as FakeNode);
+  });
+
+  it('60 s of the ambience bed create no new persistent nodes', () => {
+    const { sim, ctx, inner, frames } = rig();
+    frames(10);
+    expect(inner.ambience.ready).toBe(true);
+    inner.ambience.random = () => 0.999; // no one-shots
+    const created = ctx.created;
+    const p = sim.player;
+    const spots: Array<[number, number, number]> = [
+      [p.pos.x, p.pos.z, 12],
+      [sim.world.bounds.beachStartX + 20, 0, 18.6],
+      [0, 0, 23],
+      [sim.world.bounds.landMinX + 10, 100, 3],
+    ];
+    for (const [x, z, h] of spots) {
+      p.pos.x = x;
+      p.pos.z = z;
+      p.pos.y = sim.world.groundHeight(x, z);
+      sim.clock.set(h);
+      frames(900);
+    }
+    expect(ctx.created).toBe(created);
+  });
+
+  it('ambience one-shots play by place and time, at most two a second', () => {
+    const { sim, ctx, inner, frames } = rig();
+    const park = sim.world.layout.blocks.find((b) => b.district === 'park')!;
+    const p = sim.player;
+    p.pos.x = (park.rect.minX + park.rect.maxX) / 2 + 10;
+    p.pos.z = (park.rect.minZ + park.rect.maxZ) / 2 + 10;
+    p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
+    sim.clock.set(23);
+    sim.clock.rate = 0;
+    const amb = inner.ambience as unknown as { play: (kind: string) => void };
+    const starts: Array<[string, number]> = [];
+    const play = amb.play.bind(amb);
+    amb.play = (kind: string, ...rest: unknown[]) => {
+      starts.push([kind, ctx.currentTime]);
+      (play as (...a: unknown[]) => void)(kind, ...rest);
+    };
+    frames(3600);
+    expect(starts.length).toBeGreaterThan(20);
+    expect(starts.length).toBeLessThanOrEqual(120);
+    for (let i = 1; i < starts.length; i++) expect(starts[i]![1] - starts[i - 1]![1]).toBeGreaterThanOrEqual(0.5 - 1e-9);
+    const kinds = new Set(starts.map((s) => s[0]));
+    expect(kinds.has('crickets')).toBe(true);
+    expect(kinds.has('birds')).toBe(false);
+  });
+
+  it('120 frames of driving create no new nodes after the first, and the engine wave is built once per kind', () => {
+    const { sim, audio, ctx, inner, input, frames } = rig();
+    const v = seatInCar(sim);
+    audio.radio.prev(); // the radio's notes are one-shots: switch it off
+    frames(10);
+    inner.ambience.random = () => 0.999;
+    expect(inner.engine.wavesBuilt).toBe(1);
+    const created = ctx.created;
+    frames(120, input({ throttle: 1 }));
+    expect(ctx.created).toBe(created);
+    expect(v.speed).toBeGreaterThan(10);
+    expect(inner.engine.dips).toBeGreaterThan(0);
+    expect(inner.engine.wavesBuilt).toBe(1);
+    // Another kind builds its own wave; coming back reuses the first.
+    const bus = sim.spawnVehicle('bus', v.pos.x + 30, v.pos.z, 0);
+    sim.playerCtl.ejectPlayer(true);
+    placeInCar(sim, bus);
+    frames(2);
+    expect(inner.engine.currentKind).toBe('bus');
+    sim.playerCtl.ejectPlayer(true);
+    placeInCar(sim, v);
+    frames(2);
+    expect(inner.engine.currentKind).toBe('sedan');
+    expect(inner.engine.wavesBuilt).toBe(2);
+  });
+
+  it('an upshift dips the engine by at least 4 dB for 50-120 ms; a downshift does not', () => {
+    const { sim, audio, ctx, inner, frames } = rig();
+    const v = seatInCar(sim);
+    frames(5);
+    const dip = P(inner.engine.dip.gain);
+    const step = () => {
+      ctx.currentTime += 1 / 60;
+      audio.update(1 / 60, sim, true);
+    };
+    v.gear = 2;
+    const t0 = ctx.currentTime + 1 / 60;
+    step();
+    expect(inner.engine.dips).toBe(1);
+    let min = 1;
+    let first = Infinity;
+    let last = -Infinity;
+    let below4 = 0;
+    for (let t = t0; t < t0 + 0.3; t += 0.0005) {
+      const g = paramAt(dip, t);
+      min = Math.min(min, g);
+      if (g < 0.999) {
+        first = Math.min(first, t);
+        last = Math.max(last, t);
+      }
+      if (db(g) <= -4) below4 += 0.0005;
+    }
+    expect(db(min)).toBeLessThanOrEqual(-4);
+    expect(last - first).toBeGreaterThanOrEqual(0.05);
+    expect(last - first).toBeLessThanOrEqual(0.12);
+    expect(below4).toBeGreaterThanOrEqual(0.04);
+    for (let i = 0; i < 30; i++) step();
+    v.gear = 1;
+    step();
+    expect(inner.engine.dips).toBe(1);
+  });
+
+  it('a skid above 0.5 raises the tyre squeal; it stops with the skid', () => {
+    const { sim, audio, ctx, inner, frames } = rig();
+    const v = seatInCar(sim);
+    frames(5);
+    const eng = inner.engine as unknown as { squealGain: FakeGain; squeal1: FakeOscillator };
+    const step = () => {
+      ctx.currentTime += 1 / 60;
+      audio.update(1 / 60, sim, true);
+    };
+    expect(eng.squealGain.gain.target).toBe(0);
+    v.skid = 0.8;
+    step();
+    expect(eng.squealGain.gain.target).toBeGreaterThan(0.02);
+    expect(eng.squeal1.frequency.target).toBeGreaterThanOrEqual(900);
+    expect(eng.squeal1.frequency.target).toBeLessThanOrEqual(1400);
+    v.skid = 0;
+    step();
+    expect(eng.squealGain.gain.target).toBe(0);
+  });
+
+  it('the player’s door thunks once on getting in and once on getting out', () => {
+    const { sim, audio } = rig();
+    const rp = roadPoint(sim);
+    const v = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
+    audio.setListener(rp.x + 4, 2, rp.z + 4, 0);
+    const n0 = audio.counters.doorThunks;
+    sim.events.emit('vehicleEnter', { vehicle: v, character: sim.player, jacked: false });
+    expect(audio.counters.doorThunks).toBe(n0 + 1);
+    sim.events.emit('vehicleExit', { vehicle: v, character: sim.player });
+    expect(audio.counters.doorThunks).toBe(n0 + 2);
+    const npc = sim.spawnCharacter('civilian', rp.x + 3, rp.z);
+    sim.events.emit('vehicleEnter', { vehicle: v, character: npc, jacked: false });
+    expect(audio.counters.doorThunks).toBe(n0 + 2);
+  });
+
+  it('far explosions arrive at the speed of sound (up to 0.8 s late), and every one-shot is low-passed by distance', () => {
+    const { sim, ctx, audio } = rig();
+    const p = { ...sim.playerPos() };
+    audio.setListener(p.x, p.y, p.z, 0);
+    const blast = (d: number) => {
+      const b = ctx.nodes.length;
+      audio.explosion(p.x + d, p.y, p.z, 7.5);
+      const made = ctx.nodes.slice(b);
+      const start = Math.min(...made.filter((n): n is FakeSource => n instanceof FakeSource).map((n) => n.startAt));
+      const lp = made.find((n) => n.kind === 'biquad') as FakeNode & { frequency: FakeParam };
+      return { delay: start - ctx.currentTime, cutoff: lp.frequency.target };
+    };
+    const near = blast(50);
+    expect(near.delay).toBeLessThan(0.02);
+    expect(near.cutoff).toBeCloseTo(20000 * Math.exp(-50 / 120), 3);
+    const far = blast(200);
+    expect(far.delay).toBeCloseTo(0.01 + 200 / 343 + 1 / ctx.sampleRate, 6);
+    expect(far.cutoff).toBeCloseTo(20000 * Math.exp(-200 / 120), 3);
+    expect(blast(600).delay).toBeCloseTo(0.01 + 0.8 + 1 / ctx.sampleRate, 6);
+  });
+
+  it('sirens peak at 0.4 (8 dB louder than before) and screams 14 dB louder', () => {
+    const { sim, ctx, audio, frames } = rig();
+    frames(2);
+    const p = sim.playerPos();
+    const cop = sim.spawnVehicle('police', p.x, p.z - 5, 0);
+    cop.siren = true;
+    frames(1);
+    const siren = (audio as unknown as { sirenNodes: { gain: FakeGain } }).sirenNodes.gain;
+    // At the listener's own position the distance law gives the peak.
+    expect(siren.gain.target).toBeGreaterThan(0.39);
+    expect(siren.gain.target).toBeLessThanOrEqual(0.4);
+    const b = ctx.nodes.length;
+    const L = { ...sim.playerPos() };
+    audio.setListener(L.x, L.y, L.z, 0);
+    audio.scream(L.x, L.y, L.z);
+    const env = ctx.nodes.slice(b).find((n): n is FakeGain => n instanceof FakeGain)!;
+    const peak = Math.max(...env.gain.log.map((c) => (Number.isFinite(c.v) ? c.v : 0)));
+    expect(db(peak / 0.12)).toBeCloseTo(14, 3);
+  });
+
+  it('the title screen moves the listener with its flyover camera', () => {
+    const canvas = new FakeElement('canvas');
+    const game = new Game(canvas as unknown as HTMLCanvasElement, new FakeElement('div') as unknown as HTMLElement);
+    game.audio.unlock();
+    game.step(1 / 60, { ui: {}, player: {} } as unknown as FrameInput);
+    const cam = game.renderer.cameraCtl.camera.position;
+    cam.set(12, 95, -40);
+    game.step(1 / 60, { ui: {}, player: {} } as unknown as FrameInput);
+    const L = (game.audio as unknown as { listener: { x: number; y: number; z: number } }).listener;
+    expect([L.x, L.y, L.z]).toEqual([cam.x, cam.y, cam.z]);
+    expect(game.mode).toBe('title');
+  });
+
+  it('broken vehicle or camera state never reaches an AudioParam', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { sim, audio, ctx } = rig();
+    const v = seatInCar(sim);
+    for (let i = 0; i < 12; i++) {
+      ctx.currentTime += 1 / 60;
+      audio.update(1 / 60, sim, true);
+    }
+    Object.assign(v, { speed: NaN, skid: NaN, gear: NaN, rpm: Infinity });
+    v.controls.throttle = NaN;
+    sim.clock.hours = NaN;
+    audio.setListener(NaN, NaN, NaN, NaN);
+    for (let i = 0; i < 3; i++) {
+      ctx.currentTime += 1 / 60;
+      audio.update(1 / 60, sim, true);
+    }
+    expect(warn).not.toHaveBeenCalled();
   });
 });

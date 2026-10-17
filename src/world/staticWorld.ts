@@ -4,7 +4,7 @@
 import { circleVsAabb, makeContact } from '../core/collision';
 import { CITY_SEED, CURB_H, SEABED_Y, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
-import { generateCity, rectContains, sandHeight, type CityLayout, type Prop, type Ramp } from './layout';
+import { generateCity, rectContains, sandHeight, type CityLayout, type District, type Prop, type Ramp } from './layout';
 import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
 
@@ -190,6 +190,31 @@ export class StaticWorld {
 
   lineOfSight(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
     return this.grid.lineOfSight(ax, ay, az, bx, by, bz, this.scratchHit);
+  }
+
+  /**
+   * The district at (x, z): a city block's district (roads and the promenades take the nearest
+   * block's), 'beach' east of the city down to the waterline, 'sea' over water (decks included).
+   */
+  districtAt(x: number, z: number): District | 'beach' | 'sea' {
+    if (!Number.isFinite(x) || !Number.isFinite(z) || this.baseGround(x, z) < WATER_Y) return 'sea';
+    const l = this.layout;
+    if (x > l.bounds.cityMaxX) return 'beach';
+    let bi = l.vLines.length - 2;
+    for (let i = 0; i < l.vLines.length - 1; i++) {
+      if (x < l.vLines[i + 1]!.pos) {
+        bi = i;
+        break;
+      }
+    }
+    let bj = l.hLines.length - 2;
+    for (let j = 0; j < l.hLines.length - 1; j++) {
+      if (z < l.hLines[j + 1]!.pos) {
+        bj = j;
+        break;
+      }
+    }
+    return l.blocks[bj * l.n + bi]!.district;
   }
 }
 
