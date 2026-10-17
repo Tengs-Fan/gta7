@@ -175,7 +175,7 @@ const delivery: MissionDef = {
     }
     const buyer = m.spawnCharacter('mission', at.x, at.z, 'stand');
     buyer.heading = Math.atan2(drop.x - at.x, drop.z - at.z);
-    m.failIf(() => buyer.removed || !buyer.alive, 'The buyer is dead.');
+    const deal = m.failIf(() => buyer.removed || !buyer.alive, 'The buyer is dead.');
     yield* m.intro([
       [LOU, "One of my boys dropped a package in a Midtown parking lot. Don't ask what's in it."],
       [LOU, 'Buyer waits in Hillcrest. He gets nervous, he walks. Move it!'],
@@ -206,6 +206,8 @@ const delivery: MissionDef = {
       }
     });
     yield* m.goTo(drop.x, drop.z, { radius: 4, label: 'Buyer', hold: tailed });
+    // Delivered: what happens to the buyer now is his own business.
+    m.clearFail(deal);
     m.unwatch(lose);
     m.unwatch(marks);
     m.clearTimer();

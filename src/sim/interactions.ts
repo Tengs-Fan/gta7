@@ -78,10 +78,10 @@ export class Interactions {
     const def = sim.missions.retryOffer();
     if (!def) return null;
     const p = sim.player;
+    if (sim.wanted.level > 0) return 'Lose the cops before retrying.';
     // In a vehicle the key is the horn (see Input), so the retry is taken on foot.
     if (p.state === 'inVehicle') return `Get out of the vehicle to retry "${def.title}"`;
     if (!p.onFoot) return null;
-    if (sim.wanted.level > 0) return 'Lose the cops before retrying.';
     return `Press E to retry "${def.title}"`;
   }
 

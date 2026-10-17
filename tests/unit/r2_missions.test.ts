@@ -478,6 +478,35 @@ describe('retrying a failed mission', () => {
     expect(sim.interactions.prompt()).toBe('Press E to retry "Hot Delivery"');
   });
 
+  it('offers a retry swallowed by a death during the fade again after the respawn', () => {
+    const sim = setup(['wheels']);
+    sim.cheats.godMode = false;
+    startMission(sim, 'delivery').fail('test');
+    step(sim, 0.1);
+    teleport(sim, sim.player.pos.x + 20, sim.player.pos.z);
+    press(sim);
+    expect(sim.controlLock).toBeGreaterThan(1);
+    sim.combat.damageCharacter(sim.player, 999, null, 'fall', 0, -1, 0);
+    step(sim, 1);
+    expect(sim.missions.active).toBeNull();
+    expect(sim.missions.retryOffer()).toBeNull();
+    step(sim, 5);
+    expect(sim.player.alive).toBe(true);
+    expect(sim.missions.retryOffer()?.id).toBe('delivery');
+    press(sim);
+    stepUntil(sim, () => objective(sim) === 'Collect the package', 1);
+  });
+
+  it('asks to lose the cops before anything else, in a vehicle too', () => {
+    const sim = setup(['wheels']);
+    startMission(sim, 'delivery').fail('test');
+    step(sim, 0.1);
+    const lane = sim.roads.nearestLane(sim.player.pos.x + 20, sim.player.pos.z).lane;
+    placeInCar(sim, sim.spawnVehicle('sedan', lane.sx + lane.dx * 10, lane.sz + lane.dz * 10, lane.heading));
+    sim.wanted.setLevel(1);
+    expect(sim.interactions.prompt()).toBe('Lose the cops before retrying.');
+  });
+
   it('skips a line of dialogue on a fresh E press once it has been up for 0.4 s', () => {
     const sim = setup(['wheels']);
     const subs = record(sim, 'subtitle');
@@ -612,6 +641,21 @@ describe('staged missions', () => {
     stepUntil(sim, () => objectives.at(-1)?.text === '', 3);
     expect(objectives.map((e) => e.text)).toEqual(['Lose the tail', 'Deliver the package to Hillcrest', '']);
     stepUntil(sim, () => sim.missions.active === null, 30);
+    expect(sim.progress.missionsDone).toContain('delivery');
+  });
+
+  it('Hot Delivery is not failed by the buyer dying after the drop', () => {
+    const sim = setup(['wheels']);
+    const spots = missionSpots(sim.world);
+    const m = collectParcel(sim);
+    const tail = m.vehicles.find((v) => v.kind === 'muscle');
+    if (tail) sim.removeVehicle(tail);
+    teleport(sim, spots.packageDrop.x, spots.packageDrop.z);
+    stepUntil(sim, () => m.objectiveText === '', 2);
+    const buyer = m.characters.find((c) => c.missionTag === 'delivery')!;
+    sim.combat.damageCharacter(buyer, 500, null, 'bullet', 0, 0, 1);
+    stepUntil(sim, () => sim.missions.active === null, 30);
+    expect(m.failedReason).toBeNull();
     expect(sim.progress.missionsDone).toContain('delivery');
   });
 

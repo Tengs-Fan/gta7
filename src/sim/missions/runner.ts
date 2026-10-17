@@ -681,9 +681,14 @@ export class MissionSystem {
   private restart(r: RetryOffer): void {
     const sim = this.sim;
     const def = this.defs.find((d) => d.id === r.id);
-    if (!def || this.active || sim.playerDown || !this.available().includes(def)) return;
+    if (!def || this.active || !this.available().includes(def)) return;
+    if (sim.playerDown) {
+      // Killed or busted during the fade: offer it again after the respawn.
+      this.retry = { ...r, failed: null, until: null };
+      return;
+    }
     if (sim.wanted.level > 0) {
-      // Something drew the police during the fade: offer the retry again once they are gone.
+      // Something drew the police during the fade: offer it again once they are gone.
       this.retry = r;
       return;
     }
