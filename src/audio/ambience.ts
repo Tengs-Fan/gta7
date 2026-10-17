@@ -1,7 +1,8 @@
-// The ambience bed: city hum, traffic wash, wind, surf and crowd murmur as looping layers, plus
-// rate-limited one-shots (birds, gulls, crickets, far horns, dogs, a distant siren). The layers
-// are a fixed set of about two dozen nodes; their loops are generated procedurally (no files),
-// one per frame after start-up, and only their gains, filters and pans move afterwards.
+// The ambience bed: city hum, traffic wash, wind, surf and crowd murmur as looping layers,
+// plus rate-limited one-shots (birds, gulls, crickets, far horns, dogs, a distant siren).
+// The layers are a fixed set of about two dozen nodes.
+// Their loops are generated procedurally (no files), one per frame after start-up,
+// and only their gains, filters and pans move afterwards.
 //
 //   brown loop -> low-pass ------------------> hum -----------+
 //   pink loop  -> band-pass -> traffic -> pan ----------------+
@@ -139,15 +140,17 @@ export function ambienceTargets(i: AmbienceInput, out?: AmbienceLevels): Ambienc
   const height = Number.isFinite(i.height) ? i.height : 0;
   const traffic = Number.isFinite(i.traffic) ? clamp(i.traffic, 0, 1) : 0;
   const k = i.inVehicle ? IN_CAR : 1;
+  // Street life fades with height (rooftops keep some of it, the title flyover little).
+  const street = 1 - 0.8 * smoothstep(15, 70, height);
   o.cityHum = k * m.hum * (0.72 + 0.28 * day);
   o.trafficWash = k * traffic;
   o.wind = k * clamp(m.wind + 0.75 * smoothstep(8, 45, height), 0, 1);
   o.surf = k * Math.pow(clamp(1 - (shore - 15) / 165, 0, 1), 1.4);
-  o.murmur = k * m.murmur * day;
+  o.murmur = k * street * m.murmur * day;
   o.birds = k * m.birds * birdsTime;
   o.gulls = k * m.gulls * (0.3 + 0.7 * day);
-  o.crickets = k * m.crickets * cricketsTime;
-  o.dogs = k * m.dogs * (0.5 + 0.5 * day);
+  o.crickets = k * street * m.crickets * cricketsTime;
+  o.dogs = k * street * m.dogs * (0.5 + 0.5 * day);
   o.horns = k * m.horns * (0.25 + 0.75 * traffic) * (0.4 + 0.6 * day);
   o.siren = (i.wanted ?? 0) > 0 ? 0 : k * m.hum;
   return o;
@@ -186,8 +189,8 @@ function makeLoop(ctx: BaseAudioContext, seconds: number, rate: number, fill: (d
     fill(tmp, ch);
     const d = buf.getChannelData(ch);
     for (let i = 0; i < len; i++) d[i] = tmp[i]!;
-    // The head becomes a crossfade from the tail's continuation into the head, so the last
-    // sample flows into the first.
+    // The head becomes a crossfade from the tail's continuation into the head,
+    // so the last sample flows into the first.
     for (let i = 0; i < fade; i++) {
       const a = (i + 0.5) / fade;
       d[i] = tmp[i]! * Math.sin((a * Math.PI) / 2) + tmp[len + i]! * Math.cos((a * Math.PI) / 2);
@@ -437,8 +440,8 @@ export class Ambience {
     // The farther the surf, the darker it gets.
     const shore = Number.isFinite(f.shoreDist) ? f.shoreDist : 1e4;
     g.set(this.surfFilter.frequency, 1200 + 4800 * clamp(1 - (shore - 15) / 165, 0, 1), now, 1);
-    if (this.surf.pan) g.set(this.surf.pan.pan, clamp(f.seaPan, -0.85, 0.85), now, 0.4, 0.05);
-    if (this.traffic.pan) g.set(this.traffic.pan.pan, clamp(f.trafficPan, -0.7, 0.7), now, 0.6, 0.05);
+    if (this.surf.pan) g.set(this.surf.pan.pan, clamp(f.seaPan, -0.85, 0.85), now, 0.4, 0, 0.03);
+    if (this.traffic.pan) g.set(this.traffic.pan.pan, clamp(f.trafficPan, -0.7, 0.7), now, 0.6, 0, 0.03);
     g.set(this.carFilter.frequency, f.inVehicle ? 900 : OPEN_HZ, now, 0.3);
     // Successive waves differ a little in length.
     this.surfDrift -= dt;

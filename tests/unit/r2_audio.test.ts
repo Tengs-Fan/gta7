@@ -1,6 +1,6 @@
-// Round 2 audio cluster: pure tests of the mix targets, the distance low-pass, the ambience
-// targets, the engine voice parameters and StaticWorld.districtAt. The Web Audio graph itself
-// is tested against the fake context in fix_frontend.test.ts.
+// Round 2 audio cluster: pure tests of the mix targets, the distance low-pass,
+// the ambience targets, the engine voice parameters and StaticWorld.districtAt.
+// The Web Audio graph itself is tested against the fake context in fix_frontend.test.ts.
 
 import { describe, expect, it } from 'vitest';
 import { ambienceTargets, IN_CAR, shoreInfo, type AmbienceDistrict, type AmbienceInput } from '../../src/audio/ambience';
@@ -167,6 +167,8 @@ describe('ambienceTargets', () => {
 
   it('wind rises on roofs, surf with the shore, traffic wash with traffic', () => {
     expect(at({ height: 45 }).wind).toBeGreaterThan(at({ height: 0 }).wind + 0.5);
+    // Street murmur fades high above the city.
+    expect(at({ district: 'downtown', height: 100 }).murmur).toBeLessThan(0.3 * at({ district: 'downtown', height: 0 }).murmur);
     expect(at({ shoreDist: 20 }).surf).toBeGreaterThan(at({ shoreDist: 120 }).surf);
     expect(at({ shoreDist: 400 }).surf).toBe(0);
     expect(at({ traffic: 0.8 }).trafficWash).toBeCloseTo(0.8, 6);
@@ -266,8 +268,8 @@ describe('engine profiles', () => {
   });
 
   it('small engines idle higher than big ones: compact > sedan > muscle > bus', () => {
-    // The plan's "idle firing frequency" order holds for the idle speed (and the engine-cycle
-    // pitch the oscillator runs at); the firing rate itself rises with the cylinder count.
+    // The plan's "idle firing frequency" order holds for the idle speed and the engine-cycle pitch the oscillator runs at.
+    // The firing rate itself rises with the cylinder count (a V8 fires faster than a three-cylinder).
     const idle = (k: VehicleKind) => engineParams(k, 0, 0, 0);
     expect(idle('compact').rpm).toBeGreaterThan(idle('sedan').rpm);
     expect(idle('sedan').rpm).toBeGreaterThan(idle('muscle').rpm);

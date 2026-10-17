@@ -1,5 +1,5 @@
-// Synthesised sound effects, the player's vehicle, sirens, the ambience bed and the mix
-// (mixer.ts). Everything is generated with WebAudio nodes; there are no audio files.
+// Synthesised sound effects, the player's vehicle, sirens, the ambience bed and the mix (mixer.ts).
+// Everything is generated with WebAudio nodes; there are no audio files.
 
 import { clamp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
@@ -598,7 +598,7 @@ export class AudioEngine {
       { inVehicle: this.inVehicle, radioOn: this.radio.playing, subtitleActive: this.subtitleTimer > 0, explosionDist: this.explosionDist, paused: this.paused, bigScreen: this.bigTimer > 0 },
       this.mix,
     );
-    this.mixer!.apply(m, t, this.explosionTimer > 0);
+    this.mixer!.update(m, t, this.explosionTimer > 0);
   }
 
   /** The player's held horn: one continuous voice at the vehicle's horn notes. */
@@ -652,7 +652,7 @@ export class AudioEngine {
     const shore = shoreInfo(world.bounds, L.x, L.z, this.shore);
     const rx = -Math.cos(L.yaw);
     const rz = Math.sin(L.yaw);
-    // Moving traffic within 120 m, speed-weighted, and where it is.
+    // Moving traffic within 120 m (in 3D: rooftops and the title flyover hear the street from afar), speed-weighted, and where it is.
     let w = 0;
     let sx = 0;
     let sz = 0;
@@ -661,12 +661,13 @@ export class AudioEngine {
       if (v === own || v.removed || v.destroyed || !(v.speed > 1)) continue;
       const dx = v.pos.x - L.x;
       const dz = v.pos.z - L.z;
-      const d = Math.hypot(dx, dz);
+      const d = Math.hypot(dx, v.pos.y - L.y, dz);
       if (!(d < 120)) continue;
       const k = Math.min(1, v.speed / 20) * (1 - d / 120);
+      const hd = Math.hypot(dx, dz) || 1;
       w += k;
-      sx += (dx / (d || 1)) * k;
-      sz += (dz / (d || 1)) * k;
+      sx += (dx / hd) * k;
+      sz += (dz / hd) * k;
     }
     const f = this.ambFrame;
     f.district = world.districtAt(L.x, L.z);

@@ -215,7 +215,8 @@ export class Radio {
   /** Envelope on a fresh gain: silent from creation (notes are scheduled ahead) until `t`. */
   private env(g: GainNode, t: number, peak: number, attack: number, hold: number, release: number): void {
     g.gain.value = 0;
-    g.gain.setValueAtTime(0, this.ctx!.currentTime);
+    // After a stalled frame a note can be due a little in the past: the zero must not land after it starts.
+    g.gain.setValueAtTime(0, Math.min(this.ctx!.currentTime, t));
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + attack);
     g.gain.setValueAtTime(peak, t + attack + hold);

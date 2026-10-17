@@ -215,8 +215,8 @@ class FakeStorage {
 
 // ---------------------------------------------------------------------------
 // Fake Web Audio: AudioParams throw on non-finite values like browsers do.
-// Every param logs its calls and every node records its kind, so tests can inspect the graph
-// and the automation that was scheduled.
+// Every param logs its calls and every node records its kind,
+// so tests can inspect the graph and the automation that was scheduled.
 
 type ParamCall = { op: 'value' | 'set' | 'linear' | 'exp' | 'target' | 'cancel'; v: number; t: number; tc?: number };
 
@@ -1504,8 +1504,8 @@ describe('map wheel zoom: a notch is one step on every platform', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Round 2, audio cluster: the rebuilt mix, the vehicle voices and the ambience bed, against the
-// fake context above (the pure parts are in r2_audio.test.ts).
+// Round 2, audio cluster: the rebuilt mix, the vehicle voices and the ambience bed,
+// against the fake context above (the pure parts are in r2_audio.test.ts).
 
 describe('round 2 audio: mix, voices and ambience', () => {
   type MixerT = import('../../src/audio/mixer').Mixer;
@@ -1767,6 +1767,26 @@ describe('round 2 audio: mix, voices and ambience', () => {
     }
   });
 
+  it('a radio note that falls due a little in the past after a stall still opens its envelope', () => {
+    const audio = new AudioEngine();
+    audio.unlock();
+    const ctx = FakeAudioContext.last!;
+    const radio = audio.radio as unknown as { update(dt: number, inCar: boolean): void; nextTime: number };
+    radio.update(1 / 60, true);
+    ctx.currentTime += 0.5;
+    // The scheduler is 0.15 s behind (it only resyncs when more than 0.2 s late).
+    radio.nextTime = ctx.currentTime - 0.15;
+    const before = ctx.nodes.length;
+    radio.update(1 / 60, true);
+    const envs = ctx.nodes.slice(before).filter((n): n is FakeGain => n instanceof FakeGain && n.gain.log.length > 2);
+    expect(envs.length).toBeGreaterThan(0);
+    for (const g of envs) {
+      expect(g.gain.log[1]).toMatchObject({ op: 'set', v: 0 });
+      // A zero after the note's start would cut the note off.
+      expect(g.gain.log[1]!.t).toBeLessThanOrEqual(g.gain.log[2]!.t);
+    }
+  });
+
   it('a subtitle ducks the music by 9 dB and the ambience by 6 dB for its duration', () => {
     const { sim, inner, frames } = rig();
     frames(5);
@@ -1930,7 +1950,7 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(inner.engine.wavesBuilt).toBe(2);
   });
 
-  it('an upshift dips the engine by at least 4 dB for 50-120 ms; a downshift does not', () => {
+  it('an upshift under power dips the engine by at least 4 dB for 50-120 ms; a downshift does not', () => {
     const { sim, audio, ctx, inner, frames } = rig();
     const v = seatInCar(sim);
     frames(5);
@@ -1939,6 +1959,7 @@ describe('round 2 audio: mix, voices and ambience', () => {
       ctx.currentTime += 1 / 60;
       audio.update(1 / 60, sim, true);
     };
+    v.controls.throttle = 1;
     v.gear = 2;
     const t0 = ctx.currentTime + 1 / 60;
     step();
@@ -1962,6 +1983,11 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(below4).toBeGreaterThanOrEqual(0.04);
     for (let i = 0; i < 30; i++) step();
     v.gear = 1;
+    step();
+    expect(inner.engine.dips).toBe(1);
+    // Rolling faster without the throttle is not a shift the engine feels.
+    v.controls.throttle = 0;
+    v.gear = 2;
     step();
     expect(inner.engine.dips).toBe(1);
   });

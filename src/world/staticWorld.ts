@@ -193,8 +193,8 @@ export class StaticWorld {
   }
 
   /**
-   * The district at (x, z): a city block's district (roads and the promenades take the nearest
-   * block's), 'beach' east of the city down to the waterline, 'sea' over water (decks included).
+   * The district at (x, z): a city block's district (roads and the promenades take the nearest block's),
+   * 'beach' east of the city down to the waterline, and 'sea' over water (decks included).
    */
   districtAt(x: number, z: number): District | 'beach' | 'sea' {
     if (!Number.isFinite(x) || !Number.isFinite(z) || this.baseGround(x, z) < WATER_Y) return 'sea';

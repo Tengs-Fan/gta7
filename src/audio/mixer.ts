@@ -1,5 +1,5 @@
-// The mix: category buses, the pause stage, ducking, in-car muffling and the master chain
-// (bus compressor -> limiter -> tanh soft clip) that keeps the output inside full scale.
+// The mix: category buses, the pause stage, ducking and in-car muffling,
+// then the master chain (bus compressor -> limiter -> tanh soft clip) that keeps the output inside full scale.
 //
 //   vehicleBus -> high-pass -> 120 Hz peaking cut -> vehMix -+
 //   sfx        -> low-pass  -> sfxMix ----------------------+
@@ -8,8 +8,9 @@
 //   uiBus -----------------------------------------------------------------+-> preMaster (master volume)
 //     -> compressor -> limiter -> soft clip -> destination (+ analyser tap for tests)
 //
-// Bus gains carry the volume settings and are set immediately; the *Mix stages carry the
-// mix targets below and move smoothly. Nothing here allocates nodes after construction.
+// Bus gains carry the volume settings and are set immediately.
+// The *Mix stages carry the mix targets below and move smoothly.
+// Nothing here allocates nodes after construction.
 
 import { dbToGain } from './vehicleProfiles';
 
@@ -91,16 +92,17 @@ export function mixTargets(i: MixInput, out?: MixTargets): MixTargets {
 }
 
 /**
- * Moves AudioParams with setTargetAtTime, skipping changes too small to hear so a steady state
- * schedules nothing. Non-finite targets are dropped (AudioParams throw on them).
+ * Moves AudioParams with setTargetAtTime, skipping changes too small to hear, so a steady state schedules nothing.
+ * Non-finite targets are dropped (AudioParams throw on them).
  */
 export class Glider {
   private readonly sent = new Map<AudioParam, number>();
 
-  set(param: AudioParam, target: number, now: number, tau: number, relEps = 0.004): void {
+  /** Changes within `relEps` of the last target (or `absEps` absolute) are skipped. */
+  set(param: AudioParam, target: number, now: number, tau: number, relEps = 0.004, absEps = 1e-5): void {
     if (!Number.isFinite(target) || !Number.isFinite(now) || !(tau > 0)) return;
     const last = this.sent.get(param);
-    if (last !== undefined && Math.abs(target - last) <= Math.max(1e-5, Math.abs(last) * relEps)) return;
+    if (last !== undefined && Math.abs(target - last) <= Math.max(absEps, Math.abs(last) * relEps)) return;
     this.sent.set(param, target);
     param.setTargetAtTime(target, now, tau);
   }
@@ -159,7 +161,6 @@ export class Mixer {
   readonly ambMix: GainNode;
   readonly musicMix: GainNode;
   private readonly glide = new Glider();
-  private readonly meterBuf: Float32Array<ArrayBuffer>;
 
   constructor(private readonly ctx: BaseAudioContext, paused: boolean) {
     const gain = (v = 1) => {
@@ -212,7 +213,6 @@ export class Mixer {
     this.limiter = lim;
     this.softClip = clip;
     this.analyser = an;
-    this.meterBuf = new Float32Array(an.fftSize);
 
     // The first connection of every node is its path to the speakers (tests walk it).
     this.vehicleBus.connect(this.vehHighpass);
@@ -256,10 +256,11 @@ export class Mixer {
   }
 
   /**
-   * Moves the mix stages toward `m`. Ducks come in fast (an explosion's in 20 ms) and recover
-   * over about 1.2 s; the in-car filters follow the door in about half a second.
+   * Moves the mix stages toward `m`.
+   * Ducks come in fast (an explosion's in 20 ms) and recover over about 1.2 s.
+   * The in-car filters follow the door in about half a second.
    */
-  apply(m: MixTargets, now: number, explosionAttack: boolean): void {
+  update(m: MixTargets, now: number, explosionAttack: boolean): void {
     const g = this.glide;
     const level = (node: GainNode, target: number, attack: number, release = 0.4) => {
       const cur = g.target(node.gain) ?? node.gain.value;
@@ -280,21 +281,5 @@ export class Mixer {
   /** Current gains of the mix stages (what the ducks and the in-car treatment are doing now). */
   levels(): MixLevels {
     return { vehicle: this.vehMix.gain.value, sfx: this.sfxMix.gain.value, amb: this.ambMix.gain.value, music: this.musicMix.gain.value };
-  }
-
-  /** Peak and RMS of the last `samples` output samples (at most the analyser's 8192). */
-  meter(samples = 2048): { peak: number; rms: number } {
-    const buf = this.meterBuf;
-    this.analyser.getFloatTimeDomainData(buf);
-    const n = Math.max(1, Math.min(buf.length, Math.floor(samples)));
-    let peak = 0;
-    let ss = 0;
-    for (let i = buf.length - n; i < buf.length; i++) {
-      const x = buf[i]!;
-      const a = Math.abs(x);
-      if (a > peak) peak = a;
-      ss += x * x;
-    }
-    return { peak, rms: Math.sqrt(ss / n) };
   }
 }

@@ -3,8 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { boot, newGame, type Api } from './helpers';
 
 /**
- * Installs an in-page meter on the analyser tap at the end of the master chain. It polls on its
- * own timer, so it keeps measuring while the game is paused (the frame loop then skips audio).
+ * Installs an in-page meter on the analyser tap at the end of the master chain.
+ * It polls on its own timer, so it keeps measuring while the game is paused (the frame loop then skips audio).
  */
 async function installMeter(page: Page): Promise<void> {
   await page.evaluate(() => {

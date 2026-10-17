@@ -1,6 +1,7 @@
 // The player's vehicle: a firing-pulse engine voice per vehicle kind, an exhaust noise band,
-// road roar, a tonal tyre squeal and wind, plus the upshift dip. Every node is created once;
-// each frame only moves AudioParams, and the engine's PeriodicWave is built once per kind.
+// road roar, a tonal tyre squeal and wind, plus the upshift dip.
+// Every node is created once, and each frame only moves AudioParams.
+// The engine's PeriodicWave is built once per vehicle kind.
 //
 //   pulse oscillator -> throttle low-pass -> body --+
 //   noise -> exhaust band-pass -> exhaust gain -----+-> dip -> out
@@ -152,7 +153,7 @@ export class EngineVoice {
     g.set(this.squealGain.gain, sq.level, now, 0.04);
     const gear = Number.isFinite(v.gear) ? v.gear : this.gear;
     // Upshifts under power only; the sim's gear follows speed, so ignore flicker at a boundary.
-    if (gear > this.gear && !v.airborne && now - this.lastDip > 0.4) this.shiftDip(now);
+    if (gear > this.gear && v.controls.throttle > 0.1 && !v.airborne && now - this.lastDip > 0.4) this.shiftDip(now);
     this.gear = gear;
   }
 

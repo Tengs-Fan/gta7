@@ -1,5 +1,5 @@
 // Per-kind engine character for the player's engine voice (engineVoice.ts) and horn.
-// Pure data plus the pure functions that turn a vehicle's state into voice parameters,
+// Pure data, plus the pure functions that turn a vehicle's state into voice parameters,
 // so the numbers can be unit tested without Web Audio.
 
 import { clamp } from '../core/math';
@@ -65,8 +65,8 @@ const ROAR_K = 0.0021;
 const WIND_K = 0.07;
 
 /**
- * Voice parameters for a `kind` engine at `rpm01` (the sim's 0..1 rev position), `throttle`
- * (0..1) and `speed` (m/s). `soft` ground (sand, grass) makes the tyres roar 3 dB louder.
+ * Voice parameters for a `kind` engine at `rpm01` (the sim's 0..1 rev position), `throttle` (0..1) and `speed` (m/s).
+ * `soft` ground (sand, grass) makes the tyres roar 3 dB louder.
  */
 export function engineParams(kind: VehicleKind, rpm01: number, throttle: number, speed: number, soft = false, out?: EngineParams): EngineParams {
   const p = ENGINE_PROFILES[kind];
@@ -100,10 +100,11 @@ export function squealParams(skid: number, airborne: boolean): { level: number; 
 export const ENGINE_HARMONICS = 400;
 
 /**
- * Fourier coefficients of one four-stroke cycle of exhaust pulses for a profile: one damped pulse
- * per cylinder, with deterministic cylinder-to-cylinder variation (roughness), the uneven V8
- * spacing and the diesel click. Played by an oscillator at the cycle frequency (rpm / 120), the
- * pulses arrive at the firing frequency. Built once per vehicle kind, never per frame.
+ * Fourier coefficients of one four-stroke cycle of exhaust pulses for a profile:
+ * one damped pulse per cylinder, with deterministic cylinder-to-cylinder variation (roughness),
+ * the uneven V8 spacing and the diesel click.
+ * Played by an oscillator at the cycle frequency (rpm / 120), the pulses arrive at the firing frequency.
+ * Built once per vehicle kind, never per frame.
  */
 export function engineWave(p: EngineProfile, harmonics = ENGINE_HARMONICS): { real: Float32Array; imag: Float32Array } {
   const n = p.cylinders;
@@ -156,9 +157,9 @@ export function engineWave(p: EngineProfile, harmonics = ENGINE_HARMONICS): { re
     real[h] = 2 * cRe;
     imag[h] = -2 * cIm;
   }
-  // Unit RMS (Parseval) over the band up to ten times the firing frequency, which is what the
-  // throttle low-pass lets through, so `loudness` alone sets the level and sharper or fewer
-  // pulses don't come out quieter. The wave is used with normalisation disabled.
+  // Unit RMS (Parseval) over the band up to ten times the firing frequency, which is what the throttle low-pass lets through,
+  // so `loudness` alone sets the level and sharper or fewer pulses don't come out quieter.
+  // The wave is used with normalisation disabled.
   let power = 0;
   for (let h = 1; h <= Math.min(harmonics, 10 * n); h++) power += (real[h]! * real[h]! + imag[h]! * imag[h]!) / 2;
   const k = power > 0 ? 1 / Math.sqrt(power) : 0;
