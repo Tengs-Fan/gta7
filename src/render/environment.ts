@@ -51,20 +51,27 @@ function nightOf(sunI: number): number {
 
 /** Brightness 0..1 of the stars at a time of day (hours). */
 export function starIntensity(hours: number): number {
-  return smoothstep(0.5, 0.95, nightOf(sample(hours).sunI));
+  return starsAt(nightOf(sample(hours).sunI));
+}
+
+function starsAt(night: number): number {
+  return smoothstep(0.5, 0.95, night);
 }
 
 /** Share of the sky covered by cloud at a time of day (hours): about 0.35 by day and 0.25 at night. */
 export function cloudCover(hours: number): number {
-  const day = 1 - nightOf(sample(hours).sunI);
-  return lerp(0.25, 0.35, day) + 0.03 * Math.sin((hours / 24) * Math.PI * 4);
+  return coverAt(hours, nightOf(sample(hours).sunI));
+}
+
+function coverAt(hours: number, night: number): number {
+  return lerp(0.25, 0.35, 1 - night) + 0.03 * Math.sin((hours / 24) * Math.PI * 4);
 }
 
 /**
  * Standard deviation of the sky shader's gradient-noise fbm (mean 0.5) per octave count, measured by
  * sampling the same noise; the cloud threshold for a coverage is mean + sd * probit(1 - coverage).
  */
-const CLOUD_SD: Readonly<Record<number, number>> = { 2: 0.132, 4: 0.109, 5: 0.106 };
+const CLOUD_SD: Readonly<Record<number, number>> = { 2: 0.132, 3: 0.116, 4: 0.109, 5: 0.106 };
 
 /** Inverse of the standard normal CDF (Abramowitz and Stegun 26.2.23, error below 5e-4). */
 function probit(p: number): number {
@@ -128,6 +135,7 @@ uniform float uCamY;
 uniform vec2 uWind1;
 uniform vec2 uWind2;
 uniform int uOctaves;
+uniform int uHighOctaves;
 uniform float uLightTap;
 varying vec3 vDir;
 
@@ -210,13 +218,14 @@ vec4 clouds(vec3 d) {
   float dens = smoothstep(uCloudT - 0.06, uCloudT + 0.06, n1);
   // Thin high streaks.
   vec2 q2 = (uCamXZ + p * 2400.0) / 400.0 * vec2(0.45, 1.0) + uWind2;
-  float n2 = fbm(q2 + vec2(5.2, 1.3), uOctaves > 2 ? uOctaves - 1 : 2);
+  float n2 = fbm(q2 + vec2(5.2, 1.3), uHighOctaves);
   float high = smoothstep(uHighT - 0.03, uHighT + 0.12, n2) * 0.4;
   // Light: compare the density one step towards the sun (or moon): denser there means shadowed here.
+  // Same octaves as the density itself, so only the offset towards the light shades the cloud.
   float lit = 0.6;
   if (uLightTap > 0.5) {
     vec2 toward = normalize(uLightDir.xz + vec2(1e-4)) * 0.22;
-    float tap = smoothstep(uCloudT - 0.06, uCloudT + 0.06, fbm(q1 + toward, 3));
+    float tap = smoothstep(uCloudT - 0.06, uCloudT + 0.06, fbm(q1 + toward, uOctaves));
     lit = clamp(0.62 + (dens - tap) * 1.1, 0.0, 1.0);
   }
   vec3 bright = mix(vec3(1.0), uSunColor, 0.35) * 1.12;
@@ -328,8 +337,13 @@ export class Environment {
   night = 0;
   sunDir = new THREE.Vector3(0, 1, 0);
   shadowsEnabled = true;
-  /** Spread of the sky shader's cloud fbm at the current octave count. */
+  /** Spread of the sky shader's cloud fbm at the current octave counts (main and high layer). */
   private cloudSd = CLOUD_SD[5]!;
+  private highSd = CLOUD_SD[4]!;
+  private readonly onContextRestored = (): void => {
+    // A restored WebGL context has lost the GPU copy of the environment map: re-bake on the next frame.
+    this.envHours = Number.NaN;
+  };
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -361,6 +375,7 @@ export class Environment {
         uWind1: { value: new THREE.Vector2() },
         uWind2: { value: new THREE.Vector2() },
         uOctaves: { value: 5 },
+        uHighOctaves: { value: 4 },
         uLightTap: { value: 1 },
       },
       side: THREE.BackSide,
@@ -423,10 +438,7 @@ export class Environment {
     } catch {
       this.pmrem = null;
     }
-    // A restored WebGL context has lost the GPU copy of the environment map: re-bake on the next frame.
-    renderer.domElement?.addEventListener?.('webglcontextrestored', () => {
-      this.envHours = Number.NaN;
-    });
+    renderer.domElement?.addEventListener?.('webglcontextrestored', this.onContextRestored);
   }
 
   private readonly envScene = new THREE.Scene();
@@ -473,9 +485,12 @@ export class Environment {
   setQuality(q: SkyQuality): void {
     const u = this.skyMat.uniforms;
     const octaves = q === 'high' ? 5 : q === 'medium' ? 4 : 2;
+    const high = Math.max(2, octaves - 1);
     u.uOctaves!.value = octaves;
+    u.uHighOctaves!.value = high;
     u.uLightTap!.value = q === 'low' ? 0 : 1;
-    this.cloudSd = CLOUD_SD[octaves] ?? CLOUD_SD[5]!;
+    this.cloudSd = CLOUD_SD[octaves]!;
+    this.highSd = CLOUD_SD[high]!;
   }
 
   /** Updates lighting for the given time of day and moves the shadow frustum with the camera focus. */
@@ -506,19 +521,21 @@ export class Environment {
     (u.uSunColor!.value as THREE.Color).copy(s.sun);
     (u.uMoonDir!.value as THREE.Vector3).copy(moonDir);
     (u.uLightDir!.value as THREE.Vector3).copy(night > 0.6 ? moonDir : sunDir);
-    u.uStars!.value = starIntensity(hours);
+    u.uStars!.value = starsAt(night);
     u.uMoon!.value = smoothstep(0.3, 0.85, night);
     u.uNight!.value = night;
     u.uGolden!.value = goldenHour(hours);
-    const cover = cloudCover(hours);
+    const cover = coverAt(hours, night);
     u.uCloudT!.value = cloudThreshold(cover, this.cloudSd);
-    u.uHighT!.value = cloudThreshold(cover * 0.5, this.cloudSd);
-    u.uTime!.value = time % 1000;
+    u.uHighT!.value = cloudThreshold(cover * 0.5, this.highSd);
+    // Wrapped daily: twinkle and wind stay precise in float32, and jump at most once a day.
+    const t = time % 86400;
+    u.uTime!.value = t;
     (u.uCamXZ!.value as THREE.Vector2).set(camera.position.x, camera.position.z);
     u.uCamY!.value = Math.max(0.5, camera.position.y - WATER_Y);
-    // Wind drift in noise units, wrapped well before float precision suffers.
-    (u.uWind1!.value as THREE.Vector2).set((time * 0.0105) % 1000, (time * 0.0042) % 1000);
-    (u.uWind2!.value as THREE.Vector2).set((time * 0.021) % 1000, (time * 0.0085) % 1000);
+    // Wind drift in noise units (under 2000 after a day, where the hash is still exact enough).
+    (u.uWind1!.value as THREE.Vector2).set(t * 0.0105, t * 0.0042);
+    (u.uWind2!.value as THREE.Vector2).set(t * 0.021, t * 0.0085);
     this.sky.position.copy(camera.position);
 
     // Daylight sun, or a dim bluish moon at night.
@@ -556,6 +573,7 @@ export class Environment {
   }
 
   dispose(): void {
+    this.renderer.domElement?.removeEventListener?.('webglcontextrestored', this.onContextRestored);
     this.cubeTarget?.dispose();
     this.envTarget?.dispose();
     this.pmrem?.dispose();

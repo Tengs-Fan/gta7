@@ -546,8 +546,13 @@ const CELL_PX_H = 336;
 const SWATCH_Y = 3 * CELL_PX_H;
 const SWATCH_PX_W = 256;
 const SWATCH_PX_H = ATLAS_H - SWATCH_Y;
-/** Pixels trimmed from every cell edge so mip levels do not bleed in from the neighbours. */
-const CELL_INSET = 3;
+/**
+ * Each cell is drawn this many pixels inside its slot and its edge pixels are then extruded into
+ * the gap, so the first mip levels sample the cell's own border rather than its neighbour's.
+ */
+const CELL_GUTTER = 4;
+/** Pixels trimmed from a swatch's edges when it is sampled. */
+const SWATCH_INSET = 4;
 
 /** Atlas cells after the 16 shopfronts (cells 0-15). */
 export const CELLS = {
@@ -593,22 +598,34 @@ export interface ShopFront {
   beach: boolean;
 }
 
-/** UV rectangle [u0, v0, u1, v1] (v0 at the bottom) of an atlas cell, optionally only the part from `fromTop` to `toTop` (fractions of its height). */
-export function storefrontUv(cell: number, fromTop = 0, toTop = 1): [number, number, number, number] {
+/** Pixel rectangle a cell's content is drawn into (its slot minus the gutter). */
+function cellRect(cell: number): { x: number; y: number; w: number; h: number } {
   const col = cell % ATLAS_COLS;
   const row = Math.floor(cell / ATLAS_COLS);
-  const x0 = col * CELL_PX_W + CELL_INSET;
-  const x1 = (col + 1) * CELL_PX_W - CELL_INSET;
-  const yTop = row * CELL_PX_H + Math.max(CELL_INSET, fromTop * CELL_PX_H);
-  const yBot = row * CELL_PX_H + Math.min(CELL_PX_H - CELL_INSET, toTop * CELL_PX_H);
-  return [x0 / ATLAS_W, 1 - yBot / ATLAS_H, x1 / ATLAS_W, 1 - yTop / ATLAS_H];
+  return { x: col * CELL_PX_W + CELL_GUTTER, y: row * CELL_PX_H + CELL_GUTTER, w: CELL_PX_W - 2 * CELL_GUTTER, h: CELL_PX_H - 2 * CELL_GUTTER };
+}
+
+/** UV rectangle [u0, v0, u1, v1] (v0 at the bottom) of an atlas cell, optionally only the part from `fromTop` to `toTop` (fractions of its height). */
+export function storefrontUv(cell: number, fromTop = 0, toTop = 1): [number, number, number, number] {
+  const r = cellRect(cell);
+  const yTop = r.y + fromTop * r.h;
+  const yBot = r.y + toTop * r.h;
+  return [r.x / ATLAS_W, 1 - yBot / ATLAS_H, (r.x + r.w) / ATLAS_W, 1 - yTop / ATLAS_H];
 }
 
 /** UV rectangle of a solid swatch from the bottom strip. */
 export function swatchUv(index: number): [number, number, number, number] {
-  const x0 = index * SWATCH_PX_W + CELL_INSET;
-  const x1 = (index + 1) * SWATCH_PX_W - CELL_INSET;
-  return [x0 / ATLAS_W, 1 - (SWATCH_Y + SWATCH_PX_H - 4) / ATLAS_H, x1 / ATLAS_W, 1 - (SWATCH_Y + 4) / ATLAS_H];
+  const x0 = index * SWATCH_PX_W + SWATCH_INSET;
+  const x1 = (index + 1) * SWATCH_PX_W - SWATCH_INSET;
+  return [x0 / ATLAS_W, 1 - (SWATCH_Y + SWATCH_PX_H - SWATCH_INSET) / ATLAS_H, x1 / ATLAS_W, 1 - (SWATCH_Y + SWATCH_INSET) / ATLAS_H];
+}
+
+/** Copies the outermost pixel rows and columns of a rectangle outwards over `pad` pixels. */
+function extrude(c: CanvasRenderingContext2D, src: HTMLCanvasElement, x: number, y: number, w: number, h: number, pad: number): void {
+  c.drawImage(src, x, y, w, 1, x, y - pad, w, pad);
+  c.drawImage(src, x, y + h - 1, w, 1, x, y + h, w, pad);
+  c.drawImage(src, x, y - pad, 1, h + 2 * pad, x - pad, y - pad, pad, h + 2 * pad);
+  c.drawImage(src, x + w - 1, y - pad, 1, h + 2 * pad, x + w, y - pad, pad, h + 2 * pad);
 }
 
 const ANTON = 'Anton, Impact, "Arial Black", sans-serif';
@@ -1445,18 +1462,19 @@ export function storefrontAtlas(): StorefrontAtlas {
   e.fillRect(0, 0, ATLAS_W, ATLAS_H);
   const rng = new Rng(2024);
   const paint = (cell: number, design: { w: number; h: number }, draw: (p: Pair) => void): void => {
-    const x0 = (cell % ATLAS_COLS) * CELL_PX_W;
-    const y0 = Math.floor(cell / ATLAS_COLS) * CELL_PX_H;
-    // Keep every cell's drawing inside its own slot.
+    const r = cellRect(cell);
+    // Keep every cell's drawing inside its own rectangle, then pad the gutter around it.
     for (const c of [m, e]) {
       c.save();
       c.beginPath();
-      c.rect(x0, y0, CELL_PX_W, CELL_PX_H);
+      c.rect(r.x, r.y, r.w, r.h);
       c.clip();
     }
-    draw({ m: new Painter(m, x0, y0, design.w, design.h), e: new Painter(e, x0, y0, design.w, design.h), rng });
+    draw({ m: new Painter(m, r.x, r.y, design.w, design.h, r.w, r.h), e: new Painter(e, r.x, r.y, design.w, design.h, r.w, r.h), rng });
     m.restore();
     e.restore();
+    extrude(m, cm, r.x, r.y, r.w, r.h, CELL_GUTTER);
+    extrude(e, ce, r.x, r.y, r.w, r.h, CELL_GUTTER);
   };
   SHOP_DESIGNS.forEach((d, i) => paint(i, CELL_DESIGN.shop, (p) => drawShop(p, d)));
   paint(CELLS.lobbyRevolving, CELL_DESIGN.lobby, drawLobbyRevolving);

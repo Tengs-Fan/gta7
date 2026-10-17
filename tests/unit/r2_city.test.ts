@@ -7,10 +7,11 @@ import { createHash } from 'node:crypto';
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { CityView, occupancy, shopOccupancy } from '../../src/render/city';
+import { storefrontUv } from '../../src/render/textures';
 import { Environment, cloudCover, cloudThreshold, starIntensity } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
 import { CURB_H } from '../../src/world/constants';
-import { STREET_FACING_DIST, frontages, generateCity, type Building, type Side } from '../../src/world/layout';
+import { frontages, generateCity, rectCX, rectCZ, type Building, type Side } from '../../src/world/layout';
 import type { StaticWorld } from '../../src/world/staticWorld';
 import { world } from './helpers';
 
@@ -89,13 +90,18 @@ vi.mock('three', async (importOriginal) => {
   return { ...actual, WebGLRenderer: FakeWebGLRenderer };
 });
 
-/** SHA-256 of the generated layout without the ground-floor fields this round added. */
+/** The plan's street-facing distance: a first-tier wall this close to its lot edge faces the street. */
+const STREET_FACING_DIST = 10;
+
+/** SHA-256 of the generated layout without the fields this round added to Building. */
 function layoutHash(): string {
   const L = generateCity();
   const buildings = L.buildings.map((b) => {
     const r: Record<string, unknown> = { ...b };
+    delete r.special;
     delete r.ground;
     delete r.groundH;
+    delete r.groundSides;
     return r;
   });
   return createHash('sha256').update(JSON.stringify({ ...L, buildings })).digest('hex');
@@ -201,6 +207,7 @@ describe('round 2 city: layout', () => {
     for (const b of L.buildings) {
       const f = front.get(b)!;
       expect(f, `building ${b.id} has a block`).toBeTruthy();
+      expect(b.groundSides).toEqual(f.sides);
       if (f.sides.length === 0) {
         expect(b.ground).toBe('none');
         expect(b.groundH).toBe(0);
@@ -220,23 +227,28 @@ describe('round 2 city: layout', () => {
     expect([...kinds].sort()).toEqual(['house', 'loading', 'lobby', 'shops']);
     const sign = (t: string) => L.buildings.find((b) => b.sign?.text === t)!;
     expect(sign('FIRST AZURA BANK').ground).toBe('lobby');
+    expect(sign('FIRST AZURA BANK').special).toBe('bank');
     expect(sign('POLICE').ground).toBe('lobby');
     expect(sign('HOSPITAL').ground).toBe('lobby');
     expect(sign('MOREAU').ground).toBe('lobby');
-    for (const g of L.buildings.filter((b) => b.sign?.text === 'BANG BANG GUNS')) expect(g.ground).toBe('shops');
+    expect(sign('AZURA BOWL').special).toBe('stadium');
+    for (const g of L.buildings.filter((b) => b.sign?.text === 'BANG BANG GUNS')) {
+      expect(g.ground).toBe('shops');
+      expect(g.special).toBe('gunshop');
+    }
     // The safehouse: the house right behind its marker on the sidewalk.
     const safe = L.pois.find((p) => p.id === 'safehouse')!;
     const home = L.buildings
       .filter((b) => b.style === 'house' && b.rect.maxZ < safe.z && safe.x > b.rect.minX && safe.x < b.rect.maxX)
       .sort((a, b) => b.rect.maxZ - a.rect.maxZ)[0]!;
     expect(safe.z - home.rect.maxZ).toBeLessThan(4);
+    expect(home.special).toBe('safehouse');
     expect(home.ground).toBe('house');
+    expect(home.groundSides).toContain('S');
   });
 
   it('every wall within 10 m of its lot edge counts as street frontage', () => {
-    const W = world();
-    const front = frontages(W.layout);
-    for (const w of streetWalls(W)) expect(front.get(w.b)!.sides, `building ${w.b.id} ${w.side}`).toContain(w.side);
+    for (const w of streetWalls(world())) expect(w.b.groundSides, `building ${w.b.id} ${w.side}`).toContain(w.side);
   });
 });
 
@@ -269,8 +281,7 @@ describe('round 2 city: ground-floor geometry', () => {
   it('covers the band of every street-facing wall with frontage quads, and no facade window sits in it', () => {
     const fr = verticalTris(front);
     const fa = facades.flatMap(verticalTris);
-    const frontage = frontages(W.layout);
-    const walls = [...frontage].flatMap(([b, f]) => (b.ground === 'none' ? [] : f.sides.map((s) => wallOf(b, s))));
+    const walls = W.layout.buildings.flatMap((b) => b.groundSides.map((s) => wallOf(b, s)));
     // Every 10 m wall is among them (plus walls that look across open ground to the street).
     expect(walls.length).toBeGreaterThanOrEqual(streetWalls(W).length);
     let checked = 0;
@@ -296,6 +307,40 @@ describe('round 2 city: ground-floor geometry', () => {
       checked++;
     }
     expect(checked).toBeGreaterThan(1000);
+  });
+
+  it('hangs the big signs above the ground floor', () => {
+    let checked = 0;
+    for (const b of W.layout.buildings) {
+      if (!b.sign || b.ground === 'none') continue;
+      const r = b.rect;
+      const at = b.sign.side === 'N' ? [rectCX(r), r.minZ] : b.sign.side === 'S' ? [rectCX(r), r.maxZ] : b.sign.side === 'E' ? [r.maxX, rectCZ(r)] : [r.minX, rectCZ(r)];
+      const sign = city.group.children.find((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.geometry instanceof THREE.PlaneGeometry && Math.hypot(o.position.x - at[0]!, o.position.z - at[1]!) < 0.2)!;
+      expect(sign, `sign of ${b.sign.text}`).toBeTruthy();
+      const h = (sign.geometry as THREE.PlaneGeometry).parameters.height;
+      expect(sign.position.y - h / 2, b.sign.text).toBeGreaterThanOrEqual(CURB_H + b.groundH);
+      expect(sign.position.y + h / 2, b.sign.text).toBeLessThan(b.height);
+      checked++;
+    }
+    expect(checked).toBe(7);
+  });
+
+  it('keeps every atlas cell inside its own slot, clear of its neighbours', () => {
+    const rects = Array.from({ length: 24 }, (_, c) => storefrontUv(c));
+    for (const [i, a] of rects.entries()) {
+      expect(a[0]).toBeLessThan(a[2]);
+      expect(a[1]).toBeLessThan(a[3]);
+      for (const [j, o] of rects.entries()) {
+        if (i === j) continue;
+        const apart = a[2] <= o[0] || o[2] <= a[0] || a[3] <= o[1] || o[3] <= a[1];
+        expect(apart, `cells ${i} and ${j}`).toBe(true);
+      }
+    }
+    // A shop cell without its fascia is the lower part of the same rectangle.
+    const full = storefrontUv(1);
+    const lower = storefrontUv(1, 0.25, 1);
+    expect(lower[1]).toBeCloseTo(full[1], 9);
+    expect(lower[3]).toBeLessThan(full[3]);
   });
 
   it('gives every building with a ground floor at least one frontage quad', () => {
@@ -350,13 +395,14 @@ describe('round 2 city: night and sky helpers', () => {
     }
   });
 
-  it('shops: about 70% lit from dusk, all dark from about 02:00 to dawn', () => {
+  it('shops: about 70% lit from dusk, the last going dark a little after 02:00, none at dawn', () => {
     expect(shopOccupancy(12)).toBe(0);
     expect(shopOccupancy(19)).toBeCloseTo(0.7, 5);
     expect(shopOccupancy(23)).toBeGreaterThan(0.2);
-    expect(shopOccupancy(2)).toBeLessThan(0.15);
-    expect(shopOccupancy(3)).toBe(0);
-    expect(shopOccupancy(4.5)).toBe(0);
+    expect(shopOccupancy(1)).toBeGreaterThan(shopOccupancy(2));
+    expect(shopOccupancy(2)).toBeLessThan(0.05);
+    expect(shopOccupancy(2.5)).toBe(0);
+    for (let h = 3; h < 17; h += 0.25) expect(shopOccupancy(h), `${h} h`).toBe(0);
   });
 
   it('clouds always cover part of the sky; stars only shine at night', () => {

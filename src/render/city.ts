@@ -6,7 +6,7 @@ import { clamp01 } from '../core/math';
 import { Rng } from '../core/rng';
 import { BEACH_W, BOARDWALK_W, CROSSWALK_W, CURB_H, DECK_SLAB, LANE_W, SEABED_Y, SIDEWALK_W, WATER_Y } from '../world/constants';
 import {
-  SPECIALS, frontages, hashInts, rectCX, rectCZ, rectD, rectW, sandHeight, specialOf,
+  SPECIALS, blockOf, hashInts, rectCX, rectCZ, rectD, rectW, sandHeight,
   type Block, type Building, type FacadeStyle, type GroundKind, type Side, type Tier,
 } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
@@ -78,9 +78,14 @@ const OCCUPANCY_KEYS: ReadonlyArray<readonly [number, number]> = [
   [31.5, 0],
 ];
 
-/** Share of shops still lit: about 70% from dusk, closing one by one until the last go dark around 02:00. */
+/**
+ * Share of shops still lit: about 70% from dusk, closing one by one until the last go dark a little
+ * after 02:00. Shops keep evening hours only: the early risers before dawn are at home.
+ */
 export function shopOccupancy(hours: number): number {
-  return 0.7 * clamp01((occupancy(hours) - 0.15) / 0.45);
+  const h = ((hours % 24) + 24) % 24;
+  if (h >= 3 && h < 12) return 0;
+  return 0.7 * clamp01((occupancy(h) - 0.2) / 0.4);
 }
 
 /** How strongly each facade style follows the occupancy, and the share of its floors lit as a whole (offices, towers). */
@@ -230,7 +235,6 @@ export class CityView {
     const front = new GeoBuilder(true, true);
     const decor = new GeoBuilder(true);
     const rng = new Rng(4242);
-    const frontage = frontages(layout);
 
     for (const b of layout.buildings) {
       const gb = builders.get(b.style)!;
@@ -243,9 +247,9 @@ export class CityView {
       const color = scaleRgb(tint, shade);
       const offU = Math.floor(rng.next() * FACADE_COLS) / FACADE_COLS;
       const offV = Math.floor(rng.next() * FACADE_ROWS) / FACADE_ROWS;
-      const f = b.ground !== 'none' ? frontage.get(b) : undefined;
-      const block = f?.block ?? null;
-      const street = new Set<Side>(f?.sides ?? []);
+      // The layout decided which sides get a ground floor (Building.groundSides).
+      const block = b.ground !== 'none' ? blockOf(layout, b) : null;
+      const street = new Set<Side>(block ? b.groundSides : []);
       // With a ground floor the window grid starts on top of it, on every wall so the rows meet at the corners.
       const baseY = CURB_H + (street.size > 0 ? b.groundH : 0);
       for (const t of b.tiers) {
@@ -343,7 +347,7 @@ export class CityView {
   /** The side that gets the main door: a special's entrance side, else the street side nearest its lot edge (then the longest). */
   private entranceSide(b: Building, block: Block, walls: TierWall[]): Side {
     const sides = new Set(walls.map((wl) => wl.side));
-    const special = specialOf(b);
+    const special = b.special;
     if (special) {
       const def = SPECIALS.find((s) => s.kind === special && s.bi === block.bi && s.bj === block.bj);
       if (def && sides.has(def.side)) return def.side;
@@ -360,7 +364,7 @@ export class CityView {
     const uz = (wl.z1 - wl.z0) / len;
     const n = Math.max(1, Math.round(len / 6.5));
     const seg = len / n;
-    const special = specialOf(b);
+    const special = b.special;
     const sideIx = SIDE_INDEX[wl.side];
     const doorAt = Math.floor(n / 2);
     let prevShop = -1;
@@ -459,7 +463,7 @@ export class CityView {
   }
 
   /** A cantilevered slab over a lobby entrance. */
-  private canopy(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, ux: number, uz: number, y0: number, y1: number, gap: number, special: ReturnType<typeof specialOf>): void {
+  private canopy(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, ux: number, uz: number, y0: number, y1: number, gap: number, special: Building['special']): void {
     const nx = -uz;
     const nz = ux;
     const len = Math.hypot(bx - ax, bz - az);
@@ -565,7 +569,9 @@ export class CityView {
     const h = w * (192 / 1024);
     const geo = new THREE.PlaneGeometry(w, h);
     const m = new THREE.Mesh(geo, mat);
-    const y = Math.min(b.height - h / 2 - 0.5, 6 + h / 2);
+    // Above the ground floor (lobby, shops) when there is one, else from 6 m up.
+    const bottom = b.ground !== 'none' ? CURB_H + b.groundH + 0.3 : 6;
+    const y = Math.min(b.height - h / 2 - 0.3, bottom + h / 2);
     const off = 0.08;
     switch (side) {
       case 'S':
@@ -834,7 +840,7 @@ export class CityView {
       const poi = layout.pois.find((p) => p.id === g.poi)!;
       const text = poi.kind === 'spray' ? 'SPRAY SHACK' : "LOU'S AUTO";
       const color = poi.kind === 'spray' ? '#5cff9d' : '#ff9a5c';
-      const fake: Building = { id: -1, rect: g.rect, height: g.height + 3.2, tiers: [], style: 'office', roof: 'flat', tint: 0, district: 'docks', roofProps: [], sign: null, ground: 'none', groundH: 0 };
+      const fake: Building = { id: -1, rect: g.rect, height: g.height + 3.2, tiers: [], style: 'office', roof: 'flat', tint: 0, district: 'docks', roofProps: [], sign: null, special: null, ground: 'none', groundH: 0, groundSides: [] };
       this.addSign(fake, text, color, g.side);
     }
     this.add(garageGeo.build(), new THREE.MeshStandardMaterial({ map: groundTexture('metal'), vertexColors: true, roughness: 0.7, metalness: 0.2 }), { shadow: true, name: 'garages' });
@@ -883,7 +889,8 @@ export class CityView {
   update(night: number, hours: number, time: number): void {
     this.nightU.occupancy.value = occupancy(hours);
     this.nightU.shopOccupancy.value = shopOccupancy(hours);
-    this.nightU.time.value = time % 1000;
+    // Wrapped daily: float precision stays fine for the flicker, and it jumps once a day at most.
+    this.nightU.time.value = time % 86400;
     for (const m of this.materials.facades.values()) m.emissiveIntensity = night * 1.4;
     if (this.materials.storefront) this.materials.storefront.emissiveIntensity = night * 1.5;
     for (const m of this.materials.signs) m.emissiveIntensity = 0.35 + night * 3.2;
