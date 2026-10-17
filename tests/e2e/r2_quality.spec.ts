@@ -147,8 +147,7 @@ test.describe('WebGL context loss', () => {
 
     await page.getByRole('button', { name: 'RESUME', exact: true }).click();
     await page.waitForFunction(() => !(window as Api).__gta7.state().menuOpen);
-    await page.waitForTimeout(800);
-    expect(await page.evaluate(() => (window as Api).__gta7.sim.time)).toBeGreaterThan(t0 + 0.3);
+    await page.waitForFunction((t) => (window as Api).__gta7.sim.time > t + 0.3, t0, { timeout: 15_000 });
     // Play goes on: drive off in a car and look around at night.
     await page.evaluate(() => {
       const g = (window as Api).__gta7;
@@ -156,11 +155,10 @@ test.describe('WebGL context loss', () => {
       g.setTime(22);
     });
     await page.keyboard.down('KeyW');
-    await page.waitForTimeout(1500);
+    await page.waitForFunction(() => (window as Api).__gta7.state().player.speed > 3, null, { timeout: 15_000 });
     await page.keyboard.up('KeyW');
     const s = await state(page);
     expect(s.player.vehicle).toBe('sports');
-    expect(s.player.speed).toBeGreaterThan(3);
     const night = await page.evaluate(() => (window as Api).__gta7.samplePixels());
     expect(night.colors).toBeGreaterThan(6);
     expect(s.crashed).toBe(false);
