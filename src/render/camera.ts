@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { clamp, damp, dampAngle, smoothstep, wrapAngle, type V3 } from '../core/math';
 import type { Sim } from '../sim/sim';
-import { isSolidForSight, makeRayHit } from '../world/colliders';
+import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
 import { WATER_Y } from '../world/constants';
 
 export type CameraMode = 'play' | 'title';
@@ -23,9 +23,17 @@ const KICK_PEAK = (() => {
   const tp = Math.atan2(wd, KICK_ZETA * KICK_OMEGA) / wd;
   return (Math.exp(-KICK_ZETA * KICK_OMEGA * tp) * Math.sin(wd * tp)) / wd;
 })();
-/** On-foot boom as update() places it at rest: distance back and shoulder offset (m). */
+/** On-foot boom as update() places it at rest: distance back (normal and far zoom) and shoulder offset (m). */
 const FOOT_BOOM = 4.3;
+const FOOT_BOOM_FAR = 6.6;
 const FOOT_SHOULDER = 0.42;
+/**
+ * On foot the boom also stops in front of tree and palm trunks, except one hugging the player's back
+ * (nearer than this to the look point): pulling the camera in there would put it in his head.
+ */
+const TRUNK_SKIP = 1.6;
+
+const isTrunk = (c: StaticCollider) => c.tag === 'tree' || c.tag === 'palm';
 
 export class CameraController {
   readonly camera: THREE.PerspectiveCamera;
@@ -57,6 +65,8 @@ export class CameraController {
   private readonly kickVel = new THREE.Vector3();
   /** Shake, rumble and kick added to the camera this frame (zero while paused). */
   private readonly offset = new THREE.Vector3();
+  /** Boom length (m) the trunks behind the player allow, eased: in quickly, back out slowly. */
+  private trunkReach = Infinity;
   private titleT = 0;
   private deathT = 0;
   private wasInVehicle = false;
@@ -229,16 +239,26 @@ export class CameraController {
       this.desired.add(this.offset);
     }
 
-    // Keep the camera out of buildings, and in front of tree trunks (whose canopy would fill the view).
+    // Keep the camera out of buildings, and on foot in front of tree trunks. A building wall stops the
+    // boom at once; a trunk (thin, and swept across by every turn of the camera) pulls it in over a
+    // few frames and lets it back out slowly, so the camera glides instead of popping.
     const d = this.desired.clone().sub(lookFrom);
     const len = d.length();
+    const onFoot = !v && !(sim.playerDown && sim.deathKind === 'wasted');
     if (len > 0.01) {
       d.divideScalar(len);
-      if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, (c) => isSolidForSight(c) || c.tag === 'tree' || c.tag === 'palm')) {
-        const t = Math.max(0.35, hit.t - 0.3);
-        this.desired.copy(lookFrom).addScaledVector(d, t);
+      let reach = len;
+      if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) reach = Math.max(0.35, hit.t - 0.3);
+      if (onFoot) {
+        let trunk = len;
+        if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isTrunk) && hit.t > TRUNK_SKIP) trunk = hit.t - 0.3;
+        this.trunkReach = Math.min(this.trunkReach, len);
+        this.trunkReach = damp(this.trunkReach, trunk, trunk < this.trunkReach ? 12 : 4, dt);
+        reach = Math.min(reach, this.trunkReach);
       }
+      if (reach < len) this.desired.copy(lookFrom).addScaledVector(d, reach);
     }
+    if (!onFoot) this.trunkReach = Infinity;
     // Stay above the ground and above the sea, whose surface plane is invisible from below.
     const floor = Math.max(sim.world.groundHeight(this.desired.x, this.desired.z), WATER_Y) + 0.35;
     if (this.desired.y < floor) this.desired.y = floor;
@@ -303,14 +323,15 @@ export class CameraController {
    */
   private clearYaw(sim: Sim): number {
     const p = sim.player;
-    const near = sim.world.layout.props.filter((q) => (q.kind === 'tree' || q.kind === 'palm') && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < 12);
+    const boom = this.zoomLevel === 1 ? FOOT_BOOM_FAR : FOOT_BOOM;
+    const near = sim.world.layout.props.filter((q) => (q.kind === 'tree' || q.kind === 'palm') && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < boom + 8);
     if (near.length === 0) return p.heading;
     for (let k = 0; k <= 23; k++) {
       // 0, +15, -15, +30, ... degrees, ending with the half turn.
       const yaw = p.heading + (k % 2 === 1 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 12);
       // The boom point update() starts from: behind the player, over the right shoulder.
-      const bx = p.pos.x - Math.sin(yaw) * FOOT_BOOM - Math.cos(yaw) * FOOT_SHOULDER;
-      const bz = p.pos.z - Math.cos(yaw) * FOOT_BOOM + Math.sin(yaw) * FOOT_SHOULDER;
+      const bx = p.pos.x - Math.sin(yaw) * boom - Math.cos(yaw) * FOOT_SHOULDER;
+      const bz = p.pos.z - Math.cos(yaw) * boom + Math.sin(yaw) * FOOT_SHOULDER;
       if (near.every((q) => Math.hypot(q.x - bx, q.z - bz) >= 2.6 * q.scale)) return wrapAngle(yaw);
     }
     return p.heading;
@@ -329,6 +350,7 @@ export class CameraController {
     this.kickPos.set(0, 0, 0);
     this.kickVel.set(0, 0, 0);
     this.offset.set(0, 0, 0);
+    this.trunkReach = Infinity;
     const pos = sim.playerPos();
     this.target.set(pos.x, pos.y + 1.5, pos.z);
     this.wasInVehicle = !!p.vehicle;

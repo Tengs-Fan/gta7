@@ -320,11 +320,12 @@ export class PlayerController {
   }
 
   /**
-   * The steering sent to the car. Keys are on or off, so they are shaped: the wheel winds in more
-   * slowly the faster the car goes (a tap at speed is a lane nudge, not a swerve), eases back at a
-   * fixed rate, and above 20 m/s stops short of full lock. Holding the handbrake keeps today's
-   * immediate full lock for handbrake turns and drifts. Analog sticks pass straight through. Either
-   * way the car's own steering rate limit (stepVehicle) still applies on top.
+   * The steering sent to the car. Held keys are on or off, so they are shaped: the wheel winds in
+   * more slowly the faster the car goes (a tap at speed is a lane nudge, not a swerve), eases back
+   * through the centre when the other key takes over, and above 20 m/s stops short of full lock.
+   * Holding the handbrake keeps today's immediate full lock for handbrake turns and drifts. Sticks,
+   * and keys let go, pass straight through. Either way the car's own steering rate limit
+   * (stepVehicle) still applies on top.
    */
   private steerFor(v: Vehicle, input: PlayerInput, dt: number): number {
     const frame = this.sim.frame;

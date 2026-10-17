@@ -31,8 +31,9 @@ export interface PlayerInput {
   brake: number;
   steer: number;
   /**
-   * The steer value is digital: it came from keys (A/D/arrows, or no key at all) rather than an
-   * analog stick, so the player controller shapes it (see PlayerController.steerFor).
+   * The steer value is digital: a steering key (A/D/arrows) is held and no stick overrides it, so
+   * the player controller shapes it (see PlayerController.steerFor). With no key held (a centred
+   * stick or a released key) the value passes straight through, as an analog one does.
    */
   steerDigital: boolean;
   handbrake: boolean;

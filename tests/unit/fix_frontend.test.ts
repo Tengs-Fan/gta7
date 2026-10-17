@@ -1458,8 +1458,8 @@ describe('r2 driving: digital steering flag (P23a)', () => {
       inp.endFrame();
       return fi.player;
     };
-    // No key and a centred stick: the keyboard's 0, eased back by the player controller.
-    expect(poll()).toMatchObject({ steer: 0, steerDigital: true });
+    // No key and a centred stick: nothing to shape (a released key or stick lets go at once, as before).
+    expect(poll()).toMatchObject({ steer: 0, steerDigital: false });
     dom.win.dispatchEvent(keyEv('keydown', 'KeyD', 'd'));
     expect(poll()).toMatchObject({ steer: 1, steerDigital: true });
     pad.axes[0] = -0.6;
@@ -1471,5 +1471,11 @@ describe('r2 driving: digital steering flag (P23a)', () => {
     dom.win.dispatchEvent(keyEv('keyup', 'KeyD', 'd'));
     dom.win.dispatchEvent(keyEv('keydown', 'ArrowLeft', 'ArrowLeft'));
     expect(poll()).toMatchObject({ steer: -1, steerDigital: true });
+    // Both held cancel out but are still keys: the wheel eases back to the centre.
+    dom.win.dispatchEvent(keyEv('keydown', 'KeyD', 'd'));
+    expect(poll()).toMatchObject({ steer: 0, steerDigital: true });
+    dom.win.dispatchEvent(keyEv('keyup', 'KeyD', 'd'));
+    dom.win.dispatchEvent(keyEv('keyup', 'ArrowLeft', 'ArrowLeft'));
+    expect(poll()).toMatchObject({ steer: 0, steerDigital: false });
   });
 });

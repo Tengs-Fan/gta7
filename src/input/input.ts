@@ -329,7 +329,7 @@ export class Input {
       p.throttle = fwd;
       p.brake = back;
       p.steer = right - left;
-      p.steerDigital = true;
+      p.steerDigital = left + right > 0;
       p.sprint = this.key('ShiftLeft', 'ShiftRight');
       p.jump = this.pressed('Space');
       p.handbrake = this.key('Space');

@@ -75,8 +75,8 @@ export class TrafficSystem {
   private streamTraffic(): void {
     const sim = this.sim;
     const pp = sim.playerPos();
-    // Every tick, not just with the near lanes: at 30 m/s the player crosses half a block in 1.5 s.
-    this.refreshAhead();
+    const pv = this.playerVel();
+    const fast = Math.hypot(pv.x, pv.z) > AHEAD_SPEED;
     let count = 0;
     for (const v of sim.vehicles) {
       if (v.removed || v.persistent || v.owner === 'police' || v.owner === 'mission') continue;
@@ -93,8 +93,10 @@ export class TrafficSystem {
         continue;
       }
       if (v.owner === 'parked') continue; // handled by streamParked
-      // Far cars only vanish out of view (the fog does not hide them at this range).
-      if (d > 175 && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
+      // Far cars only vanish out of view (the fog does not hide them at this range). A fast player is
+      // about to reach the ones in front of him, as far out as the cross traffic spawned for him.
+      const comingUp = fast && d <= AHEAD_MAX && (v.pos.x - pp.x) * pv.x + (v.pos.z - pp.z) * pv.z > 0;
+      if (d > 175 && !comingUp && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
         sim.removeVehicle(v);
         continue;
       }
@@ -110,15 +112,20 @@ export class TrafficSystem {
       }
     }
     // A fast player leaves the cars streamed around him behind, and at the target count none spawn
-    // ahead: retire the furthest one well behind him, out of view, to make room.
-    if (count >= this.targetCount && this.aheadSpans.length > 0) {
-      const pv = this.playerVel();
-      const behind = sim.vehicles
-        .filter((v) => !v.removed && !v.persistent && v.owner === 'traffic' && v.driver && v.driver !== sim.player && (v.pos.x - pp.x) * pv.x + (v.pos.z - pp.z) * pv.z < 0 && Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z) > RECYCLE_BEHIND)
-        .sort((a, b) => Math.hypot(b.pos.x - pp.x, b.pos.z - pp.z) - Math.hypot(a.pos.x - pp.x, a.pos.z - pp.z));
-      const gone = behind.find((v) => !sim.isVisible(v.pos.x, v.pos.y, v.pos.z));
+    // where he is going: retire the furthest one well behind him, out of view, to make room.
+    if (count >= this.targetCount && fast) {
+      const behind: Array<{ v: Vehicle; d: number }> = [];
+      for (const v of sim.vehicles) {
+        if (v.removed || v.persistent || v.owner !== 'traffic' || !v.driver || v.driver === sim.player) continue;
+        const dx = v.pos.x - pp.x;
+        const dz = v.pos.z - pp.z;
+        const d = Math.hypot(dx, dz);
+        if (d > RECYCLE_BEHIND && dx * pv.x + dz * pv.z < 0) behind.push({ v, d });
+      }
+      behind.sort((a, b) => b.d - a.d);
+      const gone = behind.find((b) => !sim.isVisible(b.v.pos.x, b.v.pos.y, b.v.pos.z));
       if (gone) {
-        sim.removeVehicle(gone);
+        sim.removeVehicle(gone.v);
         count--;
       }
     }
@@ -189,8 +196,8 @@ export class TrafficSystem {
   /**
    * Spawns one moving car on a lane out of the player's view, minDist-maxDist from him (default
    * 45-165 m). When he drives fast, the first 7 of the 12 tries go to the cross streets ahead
-   * (45-200 m, within the caller's band) and no car spawns behind him. Lanes are weighted by their
-   * count per direction, so an avenue lane is twice as likely as a street lane.
+   * (45-200 m, narrowed to the band a caller passes) and no car spawns behind him. Lanes are weighted
+   * by their count per direction, so an avenue lane is twice as likely as a street lane.
    */
   trySpawnTraffic(minDist?: number, maxDist?: number, kind?: VehicleKind): Vehicle | null {
     const sim = this.sim;
@@ -234,7 +241,10 @@ export class TrafficSystem {
       const driver = sim.addDriver(v, 'civilian', 'traffic');
       driver.owner = 'traffic';
       v.ai!.setLane(lane, s);
-      const sp = lane.speedLimit * 0.55;
+      // Cross traffic queued at a light that is not green waits there: a few metres from the line it
+      // could not stop from cruising speed.
+      const queued = ahead && sim.roads.signalState(lane.to, axisOf(lane.dir), sim.time) !== 'green';
+      const sp = queued ? 0 : lane.speedLimit * 0.55;
       v.vel.x = lane.dx * sp;
       v.vel.z = lane.dz * sp;
       return v;

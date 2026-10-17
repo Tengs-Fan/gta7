@@ -15,7 +15,7 @@ import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
 import { isSolidForSight, makeRayHit } from '../../src/world/colliders';
 import { AVENUE_W } from '../../src/world/constants';
 import type { Prop } from '../../src/world/layout';
-import type { Lane } from '../../src/world/roads';
+import { axisOf, type Lane } from '../../src/world/roads';
 import { StaticWorld } from '../../src/world/staticWorld';
 import { input, placeInCar, world } from './helpers';
 
@@ -126,7 +126,8 @@ function steerRun(kind: VehicleKind, speed: number, mode: SteerMode, secs: numbe
       v.controls.handbrake = !!c.handbrake;
       sim.update(DT, input());
     } else {
-      sim.update(DT, input({ throttle, steer: c.steer, handbrake: !!c.handbrake, steerDigital: mode === 'keys' }));
+      // As Input reports it: digital only while a steering key is held.
+      sim.update(DT, input({ throttle, steer: c.steer, handbrake: !!c.handbrake, steerDigital: mode === 'keys' && c.steer !== 0 }));
     }
     turned += wrapAngle(v.heading - prev);
     prev = v.heading;
@@ -199,6 +200,18 @@ describe('keyboard steering (P23a)', () => {
       expect(Math.abs(today), name).toBeGreaterThan(0.01);
       expect(Math.abs(pad - today), name).toBeLessThanOrEqual(0.05 * Math.abs(today));
     }
+  });
+
+  it('a released key lets the wheel go at once, as before', () => {
+    const sim = new Sim({ world: flatWorld(), ambient: false, police: false });
+    const v = sim.spawnVehicle('sedan', 0, 0, 0);
+    placeInCar(sim, v);
+    v.vel.z = 30;
+    for (let i = 0; i < 60; i++) sim.update(DT, input({ steer: 1, steerDigital: true, throttle: 0.4 }));
+    expect(v.controls.steer).toBeGreaterThan(0.5);
+    // No key held: Input reports a plain 0, which goes straight to the car (its own limit eases the wheel back).
+    sim.update(DT, input({ steer: 0, steerDigital: false, throttle: 0.4 }));
+    expect(v.controls.steer).toBe(0);
   });
 
   it('starts centred in a new car', () => {
@@ -375,13 +388,21 @@ describe('traffic ahead of a fast driver (P41)', () => {
     const ahead: number[] = [];
     let spawned = 0;
     let spawnedInView = 0;
-    // The whole avenue at 30 m/s (it is about 900 m long: 29 s), held on its inner southbound lane.
-    for (let i = 0; v.pos.z < end; i++) {
+    // Cross traffic spawned at a light that is not green, watched until the light changes.
+    const held = new Map<Vehicle, Lane>();
+    let heldTotal = 0;
+    let ranRed = 0;
+    const isRed = (l: Lane) => sim.roads.signalState(l.to, axisOf(l.dir), sim.time) !== 'green';
+    // The whole avenue at 30 m/s (it is about 900 m long: 29 s), held on its inner southbound lane
+    // whatever it runs into.
+    const z0 = v.pos.z;
+    for (let i = 0; i < 60 * 40 && v.pos.z < end; i++) {
       v.vel.x = 0;
       v.vel.z = 30;
       v.heading = 0;
       v.angVel = 0;
       v.pos.x = x0;
+      v.pos.z = z0 + 30 * i * DT;
       sim.update(DT, cam());
       for (const o of sim.vehicles) {
         if (seen.has(o.id)) continue;
@@ -389,14 +410,61 @@ describe('traffic ahead of a fast driver (P41)', () => {
         if (o.owner !== 'traffic') continue;
         spawned++;
         if (sim.isVisible(o.pos.x, 1, o.pos.z)) spawnedInView++;
+        const lane = o.ai?.currentLane();
+        if (lane && lane.dir % 2 === 1 && lane.length - ((o.pos.x - lane.sx) * lane.dx + (o.pos.z - lane.sz) * lane.dz) < 12 && isRed(lane)) {
+          expect(o.speed).toBe(0);
+          held.set(o, lane);
+          heldTotal++;
+        }
+      }
+      for (const [o, lane] of held) {
+        if (o.removed || !isRed(lane)) held.delete(o);
+        // The nose stays behind the end of the lane (the stop line) until the light changes.
+        else if ((o.pos.x - lane.sx) * lane.dx + (o.pos.z - lane.sz) * lane.dz + o.halfL > lane.length + 0.5) ranRed++;
       }
       if (i % 30 === 0) ahead.push(sim.vehicles.filter((o) => o.owner === 'traffic' && !o.removed && o.pos.z > v.pos.z && o.pos.z < v.pos.z + 150 && Math.abs(o.pos.x - n.x) < AVENUE_W / 2).length);
     }
     const mean = ahead.reduce((a, b) => a + b, 0) / ahead.length;
+    expect(v.pos.z).toBeGreaterThanOrEqual(end);
     expect(ahead.length).toBeGreaterThan(50);
     expect(mean).toBeGreaterThanOrEqual(1);
     expect(spawned).toBeGreaterThan(30);
     expect(spawnedInView).toBe(0);
+    expect(heldTotal).toBeGreaterThanOrEqual(2);
+    expect(ranRed).toBe(0);
+  });
+
+  it('keeps the cars coming up ahead of a fast player, retires the ones far behind', () => {
+    const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 17.5 });
+    const lane = azuraSouth(sim);
+    const v = sim.spawnVehicle('sports', lane.sx + lane.dx * 10, lane.sz + lane.dz * 10, lane.heading);
+    placeInCar(sim, v);
+    // Looking straight up: nothing on the ground is in view.
+    sim.cam.x = v.pos.x;
+    sim.cam.y = 200;
+    sim.cam.z = v.pos.z;
+    sim.camDir.x = 0;
+    sim.camDir.y = 1;
+    sim.camDir.z = 0;
+    const traffic = (z: number) => {
+      const c = sim.spawnVehicle('sedan', v.pos.x - 4, z, 0);
+      c.owner = 'traffic';
+      sim.addDriver(c, 'civilian', 'traffic');
+      return c;
+    };
+    const coming = traffic(v.pos.z + 185);
+    const behind = traffic(v.pos.z - 185);
+    const stream = () => (sim.traffic as unknown as { streamTraffic(): void }).streamTraffic();
+    sim.traffic.density = 0;
+    // Standing still, both are just far away.
+    stream();
+    expect(coming.removed && behind.removed).toBe(true);
+    const coming2 = traffic(v.pos.z + 185);
+    const behind2 = traffic(v.pos.z - 185);
+    v.vel.z = 30;
+    stream();
+    expect(coming2.removed).toBe(false);
+    expect(behind2.removed).toBe(true);
   });
 
   it('only a moving player gets cross traffic ahead, and only at junctions he has yet to reach', () => {
@@ -548,6 +616,83 @@ describe('the camera and street trees (P21)', () => {
       }
     }
     throw new Error('no open street tree found');
+  });
+
+  it('glides in front of a trunk instead of popping, and ignores one hugging the player', () => {
+    const sim = new Sim({ world: world(), ambient: false, police: false });
+    const p = sim.player;
+    const cam = new CameraController(16 / 9);
+    cam.mode = 'play';
+    // An open street tree: put the player `gap` m in front of it, the camera looking away from it.
+    const setup = (gap: number): { tree: Prop; yaw: number } | null => {
+      for (const q of sim.world.layout.props) {
+        if (q.kind !== 'tree') continue;
+        for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+          const fx = Math.sin(yaw);
+          const fz = Math.cos(yaw);
+          p.pos.x = q.x + fx * gap + Math.cos(yaw) * 0.21;
+          p.pos.z = q.z + fz * gap - Math.sin(yaw) * 0.21;
+          p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
+          if (!sim.world.isFree(p.pos.x, p.pos.z, 0.4)) continue;
+          if (sim.world.grid.raycast(p.pos.x, p.pos.y + 1.6, p.pos.z, -fx, 0, -fz, 6, rayHit, isSolidForSight)) continue;
+          return { tree: q, yaw };
+        }
+      }
+      return null;
+    };
+    const back = (yaw: number) => (p.pos.x - cam.camera.position.x) * Math.sin(yaw) + (p.pos.z - cam.camera.position.z) * Math.cos(yaw);
+    // Right behind his back: the camera stays out at its full length.
+    const hug = setup(0.9)!;
+    cam.reset(sim);
+    cam.yaw = hug.yaw;
+    for (let i = 0; i < 40; i++) cam.update(DT, sim, false);
+    expect(back(hug.yaw)).toBeGreaterThan(3.8);
+    // 2.5 m back: swinging the camera onto it pulls the boom in over a few frames, never in one jump.
+    const far = setup(2.5)!;
+    cam.reset(sim);
+    cam.yaw = far.yaw + 0.6;
+    for (let i = 0; i < 40; i++) cam.update(DT, sim, false);
+    let prev = cam.camera.position.distanceTo(p.pos);
+    let maxStep = 0;
+    for (let i = 0; i < 60; i++) {
+      cam.yaw = far.yaw + 0.6 * Math.max(0, 1 - i / 20);
+      cam.update(DT, sim, false);
+      const d = cam.camera.position.distanceTo(p.pos);
+      maxStep = Math.max(maxStep, prev - d);
+      prev = d;
+    }
+    expect(back(far.yaw)).toBeLessThan(2.5 - 0.2 * far.tree.scale);
+    expect(maxStep).toBeLessThan(0.6);
+  });
+
+  it('the chase camera is not pulled in by roadside trunks', () => {
+    const sim = new Sim({ world: world(), ambient: false, police: false });
+    const tree = sim.world.layout.props.find((q) => {
+      if (q.kind !== 'tree') return false;
+      const x = q.x;
+      const z = q.z + 3.6;
+      return sim.world.isFree(x, z, 1.4) && !sim.world.grid.raycast(x, 1.5, z, 0, 0.1, -1, 12, rayHit, isSolidForSight);
+    })!;
+    // A car 3.6 m south of the tree, facing south: the boom runs back through the trunk.
+    const v = sim.spawnVehicle('sedan', tree.x, tree.z + 3.6, 0);
+    placeInCar(sim, v);
+    const cam = new CameraController(16 / 9);
+    cam.mode = 'play';
+    cam.reset(sim);
+    for (let i = 0; i < 60; i++) cam.update(DT, sim, false);
+    expect(v.pos.z - cam.camera.position.z).toBeGreaterThan(7);
+  });
+
+  it('with the far camera the reset clears the trees for the longer boom', () => {
+    const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 15.5 });
+    const p = sim.player;
+    const cam = new CameraController(16 / 9);
+    cam.mode = 'play';
+    cam.zoomLevel = 1;
+    cam.reset(sim);
+    const bx = p.pos.x - Math.sin(cam.yaw) * 6.6 - Math.cos(cam.yaw) * 0.42;
+    const bz = p.pos.z - Math.cos(cam.yaw) * 6.6 + Math.sin(cam.yaw) * 0.42;
+    for (const q of sim.world.layout.props) if (isTree(q) && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < 20) expect(Math.hypot(q.x - bx, q.z - bz)).toBeGreaterThanOrEqual(2.6 * q.scale);
   });
 
   it('foliage dissolves near the camera in the colour pass only, with no extra draws', () => {
