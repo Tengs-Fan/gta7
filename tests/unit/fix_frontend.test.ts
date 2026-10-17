@@ -1446,3 +1446,80 @@ describe('map wheel zoom: a notch is one step on every platform', () => {
     expect(zoom()).toBeCloseTo(0.5 + 19 * 4 * 0.005, 6);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round 2 (cluster "police"): the evade bar and the dispatch scanner line on the HUD.
+
+describe('police HUD: evade bar and dispatch scanner', () => {
+  function setup(police = false) {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = new Sim({ world: world(), ambient: false, police });
+    hud.bind(sim);
+    /** Advances the sim and the HUD together at 60 fps. */
+    const run = (seconds: number) => {
+      for (let t = 0; t < seconds; t += 1 / 60) {
+        step(sim, 1 / 60);
+        hud.update(1 / 60, sim, 0, false, null, sim.time);
+      }
+    };
+    return { el, sim, run };
+  }
+
+  it('the evade bar fills with evadeProgress while the stars flash, and is hidden otherwise', () => {
+    const { el, sim, run } = setup();
+    sim.wanted.setLevel(2);
+    run(0.5);
+    // The response phase: they know where he is, so there is nothing to show.
+    expect(el.evade!.classList.contains('hidden')).toBe(true);
+    sim.wanted.responseUntil = 0;
+    // He slips out of the search area.
+    const n = sim.roads.nearestNode(sim.player.pos.x + 250, sim.player.pos.z);
+    sim.player.pos.x = n.x + 9;
+    sim.player.pos.z = n.z + 9;
+    sim.player.pos.y = sim.world.groundHeight(n.x + 9, n.z + 9);
+    run(4);
+    expect(sim.wanted.searching).toBe(true);
+    expect(el.evade!.classList.contains('hidden')).toBe(false);
+    expect(el.evadeFill!.style.width).toBe(`${(sim.wanted.evadeProgress() * 100).toFixed(1)}%`);
+    const before = parseFloat(el.evadeFill!.style.width!);
+    expect(before).toBeGreaterThan(10);
+    run(3);
+    expect(parseFloat(el.evadeFill!.style.width!)).toBeCloseTo(before + (3 / sim.wanted.evadeTime()) * 100, 0);
+    // Stars a mission pins cannot be lost: no bar for them.
+    sim.wanted.floor = 2;
+    run(0.1);
+    expect(el.evade!.classList.contains('hidden')).toBe(true);
+    sim.wanted.floor = 0;
+    run(0.1);
+    expect(el.evade!.classList.contains('hidden')).toBe(false);
+    sim.wanted.clear();
+    run(0.1);
+    expect(el.evade!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('a dispatch line shows on the scanner line for 4.5 s and leaves the subtitle alone', () => {
+    const { el, sim, run } = setup();
+    sim.events.emit('subtitle', { speaker: 'Mama Lou', text: 'Bring it back in one piece.', duration: 10 });
+    run(0.1);
+    const subtitle = el.subtitle!.innerHTML;
+    sim.events.emit('dispatch', { text: 'All units, shots fired reported in Downtown. Suspect on foot.' });
+    run(0.1);
+    expect(el.scanner!.classList.contains('show')).toBe(true);
+    expect(el.scanner!.textContent).toBe('DISPATCH: All units, shots fired reported in Downtown. Suspect on foot.');
+    expect(el.subtitle!.innerHTML).toBe(subtitle);
+    expect(el.subtitle!.classList.contains('show')).toBe(true);
+    run(4.5);
+    expect(el.scanner!.classList.contains('show')).toBe(false);
+  });
+
+  it('the police radio speaks on the scanner line when the police are called', () => {
+    const { el, sim, run } = setup(true);
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    sim.wanted.setLevel(2);
+    run(0.5);
+    expect(el.scanner!.classList.contains('show')).toBe(true);
+    expect(el.scanner!.textContent).toContain(`DISPATCH: All units, a disturbance reported in ${sim.world.zoneName(sim.player.pos.x, sim.player.pos.z)}.`);
+  });
+});

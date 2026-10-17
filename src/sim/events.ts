@@ -21,6 +21,8 @@ export interface SimEvents {
   pickup: { kind: PickupKind; x: number; y: number; z: number };
   money: { amount: number };
   wanted: { level: number; previous: number };
+  /** A police radio line for the HUD's dispatch scanner (never a subtitle). */
+  dispatch: { text: string };
   wasted: Record<string, never>;
   busted: Record<string, never>;
   respawn: { where: 'hospital' | 'police' };

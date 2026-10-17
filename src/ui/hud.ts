@@ -5,7 +5,7 @@ import { KeyLabels } from '../input/input';
 import type { BigStyle } from '../sim/events';
 import type { Sim } from '../sim/sim';
 import { WEAPONS, type WeaponId } from '../sim/specs';
-import { collectBlips, drawBlip, gpsRoute, MAP_SCALE, type MapImage } from './mapRender';
+import { collectBlips, drawBlip, drawPoliceOverlay, gpsRoute, MAP_SCALE, type MapImage } from './mapRender';
 
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 1.8l3.1 6.6 7.2.9-5.3 5 1.4 7.2L12 18l-6.4 3.5L7 14.3l-5.3-5 7.2-.9z"/></svg>';
 
@@ -47,6 +47,9 @@ export class Hud {
   private routeTimer = 0;
   private lastHealth = 100;
   private fadeTimeout = 0;
+  /** Police: seconds the dispatch line stays up, and the evade bar as last written ('' = hidden). */
+  private scannerTimer = 0;
+  private shownEvade = '';
   waypoint: { x: number; z: number } | null = null;
   visible = true;
 
@@ -62,6 +65,8 @@ export class Hud {
         <div class="money-delta" data-el="delta"></div>
         <div class="stars" data-el="stars">${STAR.repeat(5)}</div>
         <div class="status hidden" data-el="status"></div>
+        <div class="evade hidden" data-el="evade"><i data-el="evadeFill"></i></div>
+        <div class="scanner" data-el="scanner"></div>
       </div>
       <div class="radar"><canvas width="220" height="220" data-el="radar"></canvas></div>
       <div class="help" data-el="help"></div>
@@ -130,6 +135,32 @@ export class Hud {
       ev.on('missionEnded', clearObjective),
       ev.on('activityEnded', clearObjective),
     );
+    // Police radio on its own line: the subtitle belongs to the story.
+    this.unsub.push(ev.on('dispatch', (e) => this.showScanner(e.text)));
+  }
+
+  private showScanner(text: string): void {
+    this.el.scanner!.textContent = `DISPATCH: ${text}`;
+    this.el.scanner!.classList.add('show');
+    this.scannerTimer = 4.5;
+  }
+
+  /**
+   * The dispatch line's timer, and the evade bar: how close the player is to losing the stars, while they
+   * flash (not while a mission pins them, as nothing can lose those).
+   */
+  private updatePolice(dt: number, sim: Sim): void {
+    if (this.scannerTimer > 0) {
+      this.scannerTimer -= dt;
+      if (this.scannerTimer <= 0) this.el.scanner!.classList.remove('show');
+    }
+    const w = sim.wanted;
+    const evade = w.level > 0 && w.searching && w.floor === 0 ? `${(w.evadeProgress() * 100).toFixed(1)}%` : '';
+    if (evade !== this.shownEvade) {
+      this.el.evade!.classList.toggle('hidden', !evade);
+      if (evade) this.el.evadeFill!.style.width = evade;
+      this.shownEvade = evade;
+    }
   }
 
   /** Clears everything the previous session left on screen (the HUD is reused across games). */
@@ -153,6 +184,10 @@ export class Hud {
     el.ammo!.textContent = '';
     el.status!.textContent = '';
     el.status!.classList.add('hidden');
+    this.scannerTimer = 0;
+    this.shownEvade = '';
+    el.scanner!.classList.remove('show');
+    el.evade!.classList.add('hidden');
   }
 
   help(text: string, duration = 4): void {
@@ -288,6 +323,7 @@ export class Hud {
       el.status!.textContent = status;
       el.status!.classList.toggle('hidden', !status);
     }
+    this.updatePolice(dt, sim);
 
     // Zone changes.
     const pos = sim.playerPos();
@@ -346,6 +382,7 @@ export class Hud {
     ctx.translate(-(p.x - this.map.minX) * MAP_SCALE, -(p.z - this.map.minZ) * MAP_SCALE);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.map.canvas, 0, 0);
+    drawPoliceOverlay(ctx, sim, this.map, time, zoom / MAP_SCALE);
     // GPS route to the waypoint or first objective.
     this.routeTimer -= dt;
     const target = this.waypoint ?? this.firstObjective(sim);

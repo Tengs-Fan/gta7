@@ -267,9 +267,9 @@ describe('crime heat per trigger pull', () => {
     const cop = sim.spawnCharacter('cop', p.pos.x + f.fx * 6, p.pos.z + f.fz * 6);
     cop.armor = 5000;
     const chest = { x: cop.pos.x, y: cop.pos.y + 1.2, z: cop.pos.z };
-    pullTrigger(sim, chest);
-    pullTrigger(sim, chest);
-    expect(sim.wanted.heat).toBeGreaterThanOrEqual(2 * 150);
+    // Round 2 (police, P62): an assault on an officer is 70 heat (was 150), so it takes four pulls.
+    for (let i = 0; i < 4; i++) pullTrigger(sim, chest);
+    expect(sim.wanted.heat).toBeGreaterThanOrEqual(4 * 70);
     expect(sim.wanted.level).toBe(2);
   });
 });
@@ -524,7 +524,8 @@ describe('crime heat from automatic fire', () => {
     expect(hits).toBe(5);
     expect(cop.alive).toBe(true);
     expect(sim.wanted.heat).toBeGreaterThanOrEqual(hits * CRIMES.assaultCop.heat);
-    expect(sim.wanted.level).toBe(3);
+    // Round 2 (police, P62): 70 heat per assault on an officer (was 150), so five hits are two stars, not three.
+    expect(sim.wanted.level).toBe(2);
   });
 });
 

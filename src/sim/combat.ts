@@ -134,7 +134,7 @@ export class CombatSystem {
   }
 
   /** NPC shooting at a target character (or the vehicle it is in). */
-  npcFire(c: Character, target: Character, accuracy: number): void {
+  npcFire(c: Character, target: Character, accuracy: number, fromVehicle = false): void {
     this.syncWeapon(c);
     const w = c.inventory.spec();
     if (w.id === 'fists' || c.fireCooldown > 0 || c.reloadTimer > 0) return;
@@ -149,7 +149,7 @@ export class CombatSystem {
     slot.readyAt = this.sim.time + c.fireCooldown;
     c.shotTimer = 0.07;
     c.aimHold = 1.2;
-    const from = this.muzzle(c, false);
+    const from = this.muzzle(c, fromVehicle);
     const tp = target.vehicle ? target.vehicle.pos : target.pos;
     const ty = target.vehicle ? tp.y + 0.9 : tp.y + target.height * 0.62;
     let dx = tp.x - from.x;

@@ -81,6 +81,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   controlLock = 0;
   deathTimer = -1;
   deathKind: 'wasted' | 'busted' | null = null;
+  /** Wanted level when the player was wasted or busted: the hospital bill and the bail scale with it. */
+  deathLevel = 0;
   /** Camera pose from the last input, used for "is this visible" heuristics. */
   readonly cam: V3 = { x: 0, y: 0, z: 0 };
   readonly camDir: V3 = { x: 0, y: 0, z: 1 };
@@ -468,6 +470,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   playerDied(): void {
     if (this.deathKind) return;
     this.deathKind = 'wasted';
+    this.deathLevel = this.wanted.level;
     this.deathTimer = 0;
     this.progress.stats.timesWasted++;
     this.events.emit('wasted', {});
@@ -479,6 +482,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   bustPlayer(): void {
     if (this.deathKind || !this.player.alive) return;
     this.deathKind = 'busted';
+    this.deathLevel = this.wanted.level;
     this.deathTimer = 0;
     this.progress.stats.timesBusted++;
     if (this.player.vehicle) this.playerCtl.ejectPlayer(false);
@@ -504,11 +508,13 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     if (p.vehicle) this.unseat(p);
     p.state = 'normal';
     p.health = p.maxHealth;
-    if (busted) {
-      p.inventory.clear();
-    } else {
-      p.armor = 0;
-    }
+    // Bail is $100 + $150 a star, and from 2 stars the police keep the guns; the hospital bill is
+    // $100 + $100 a star, and the doctors keep the armour.
+    const stars = this.deathLevel;
+    const armed = p.inventory.owned().length > 1;
+    const confiscated = busted && stars >= 2;
+    if (confiscated) p.inventory.clear();
+    if (!busted) p.armor = 0;
     p.knockTimer = 0;
     p.deadTime = 0;
     p.vel.x = 0;
@@ -520,15 +526,17 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     p.pos.y = this.world.groundHeight(spot.x, spot.z);
     p.heading = poi.heading;
     p.onGround = true;
-    const fee = this.progress.charge(100);
+    const fee = this.progress.charge(100 + (busted ? 150 : 100) * stars);
     this.wanted.clear();
     this.police.dismissAll();
     this.deathKind = null;
     this.deathTimer = -1;
+    this.deathLevel = 0;
     this.clock.advance(busted ? 12 / 60 : 6);
     this.events.emit('respawn', { where: busted ? 'police' : 'hospital' });
     if (fee > 0) this.events.emit('money', { amount: -fee });
-    this.events.emit('message', { text: busted ? `Bail paid: $${fee}. Your weapons were confiscated.` : `Hospital bill: $${fee}.`, duration: 5 });
+    const weapons = !armed ? '' : confiscated ? ' Your weapons were confiscated.' : ' You kept your weapons.';
+    this.events.emit('message', { text: `${busted ? 'Bail paid' : 'Hospital bill'}: $${fee}.${weapons}`, duration: 5 });
   }
 
   /** Guards against numerical blow-ups: anything non-finite is repaired. */

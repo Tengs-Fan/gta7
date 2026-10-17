@@ -245,6 +245,41 @@ body {
   letter-spacing: 1px;
 }
 
+/* Police: how close the player is to losing the stars (while they flash), and the dispatch line. */
+.evade {
+  width: 160px;
+  height: 7px;
+  border: 2px solid rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.evade > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #3060ff, #9fd0ff);
+  transition: width 0.15s linear;
+}
+
+.scanner {
+  max-width: min(420px, 60vw);
+  text-align: right;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #7fe8ff;
+  text-shadow: var(--outline);
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+
+.scanner.show {
+  opacity: 1;
+}
+
 /* Radar */
 .radar {
   position: absolute;

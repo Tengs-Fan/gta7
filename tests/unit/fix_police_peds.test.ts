@@ -141,7 +141,7 @@ describe('pursuit units', () => {
   });
 });
 
-describe('arrests at 2+ stars', () => {
+describe('arrests an unarmed player standing still at 2 stars', () => {
   for (const god of [true, false]) {
     it(`lets a foot cop walk up and arrest a player standing still (god mode ${god})`, () => {
       const sim = makeSim();
@@ -284,6 +284,8 @@ describe('searching', () => {
     sim.missions.noBust = true;
     const p = sim.player;
     sim.wanted.setLevel(2);
+    // Round 2 (police, P10): no response phase, in which the police would know where he hides.
+    sim.wanted.responseUntil = 0;
     const unit = mustSpawnUnit(sim);
     const crew = unit.occupants();
     const spot = visibleSpot(sim, p.pos.x, p.pos.z, 12);
@@ -489,6 +491,8 @@ function corner(sim: Sim, i: number, j: number): { x: number; z: number } {
 /** Wanted at `level`, and out of sight of the police since a moment ago (where he stands now). */
 function lostSight(sim: Sim, level: number): void {
   sim.wanted.setLevel(level);
+  // Round 2 (police, P10): no response phase, in which the police would know where he is.
+  sim.wanted.responseUntil = 0;
   sim.wanted.lastSeen = sim.time - 3;
   sim.wanted.searching = true;
 }
@@ -598,6 +602,8 @@ describe('police helicopter sightings', () => {
     sim.missions.noBust = true;
     teleport(sim, seen.x, seen.z);
     sim.wanted.setLevel(3);
+    // Round 2 (police, P10): no response phase, in which the police would know where he is.
+    sim.wanted.responseUntil = 0;
     teleport(sim, spot.x, spot.z);
     sim.wanted.lastSeen = sim.time - 3;
     sim.wanted.searching = true;

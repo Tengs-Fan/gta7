@@ -130,6 +130,8 @@ test.describe('GTA 7 side content', () => {
       g.godMode(true);
       g.spawnVehicle('sedan', true);
       g.setWanted(2);
+      // Round 2 (police, P62): the shop turns away a car the police watch drive in.
+      g.sim.police.dismissAll();
       const spray = g.sim.world.layout.pois.find((p: Api) => p.id === 'spray_south');
       g.place((spray.bay.minX + spray.bay.maxX) / 2, (spray.bay.minZ + spray.bay.maxZ) / 2, spray.heading + Math.PI);
     });

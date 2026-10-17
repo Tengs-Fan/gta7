@@ -152,15 +152,24 @@ export class Interactions {
       sim.events.emit('message', { text: "Spray Shack: not with the whole city watching. Nobody's touching this car.", duration: 3.5 });
       return;
     }
-    const wanted = sim.wanted.level > 0;
+    const level = sim.wanted.level;
+    const wanted = level > 0;
     const damaged = v.health < v.spec.health * 0.98 || v.burning;
     if (!wanted && !damaged) {
       sim.events.emit('message', { text: "Spray Shack: your ride's already clean. Come back with some heat.", duration: 3.5 });
       return;
     }
     if (!v.drivable) return;
-    if (!sim.progress.spend(SPRAY_COST)) {
-      sim.events.emit('message', { text: `No money, no spray! ($${SPRAY_COST})`, duration: 3 });
+    // New plates are no use to a car the police watched drive in: lose them first (stars flashing).
+    const bay = inside.bay!;
+    if (wanted && !sim.wanted.searching && sim.wanted.copWitness((bay.minX + bay.maxX) / 2, (bay.minZ + bay.maxZ) / 2, 40)) {
+      sim.events.emit('message', { text: 'Spray Shack: They saw you drive in!', duration: 3.5 });
+      return;
+    }
+    // A repair costs the base price; a respray costs it once per star.
+    const price = SPRAY_COST * Math.max(1, level);
+    if (!sim.progress.spend(price)) {
+      sim.events.emit('message', { text: `No money, no spray! ($${price})`, duration: 3 });
       return;
     }
     sim.controlLock = 2.2;
@@ -171,8 +180,8 @@ export class Interactions {
     const colors = v.spec.colors.filter((c) => c !== v.color);
     if (colors.length > 0) v.color = sim.rng.pick(colors);
     sim.wanted.clear();
-    sim.events.emit('sprayed', { cost: SPRAY_COST });
-    sim.events.emit('money', { amount: -SPRAY_COST });
-    sim.events.emit('message', { text: wanted ? 'New paint, new plates. The cops have lost you.' : 'Good as new.', duration: 3.5 });
+    sim.events.emit('sprayed', { cost: price });
+    sim.events.emit('money', { amount: -price });
+    sim.events.emit('message', { text: `${wanted ? 'New paint, new plates. The cops have lost you.' : 'Good as new.'} ($${price})`, duration: 3.5 });
   }
 }
