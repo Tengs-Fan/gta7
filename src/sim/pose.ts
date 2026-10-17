@@ -256,7 +256,7 @@ export function cycleFraction(phase: number): number {
 export interface Trunk {
   /** Hip joint height above the feet (c.pos.y). */
   y: number;
-  /** World yaw of the hips (and legs), of the chest, and of the arms and weapon (the aim when aiming). */
+  /** World yaw of the hips (and legs), of the chest (turned right of the aim behind a long gun), and of the aim. */
   hipYaw: number;
   chestYaw: number;
   armYaw: number;
@@ -323,12 +323,13 @@ export function trunkPose(c: Character, out: Trunk = makeTrunk()): Trunk {
   }
   if (isAimed) {
     const pitch = Number.isFinite(c.aimPitch) ? c.aimPitch : 0;
+    // A long gun or launcher keeps the bladed stance through its reloads, so the chest never snaps round.
     const w = c.inventory.current;
-    const shouldered = w !== 'fists' && w !== 'pistol' && !reloading(c);
+    const bladed = w !== 'fists' && w !== 'pistol';
     out.armYaw = aimYaw;
-    out.chestYaw = shouldered ? wrapAngle(aimYaw - BLADE) : aimYaw;
+    out.chestYaw = bladed ? wrapAngle(aimYaw - BLADE) : aimYaw;
     // Lean into a low aim, back from a high one; into the gun when it is shouldered.
-    out.lean = shouldered ? clamp(0.12 - 0.18 * pitch, -0.05, 0.25) : clamp(0.05 - 0.25 * pitch, -0.12, 0.2);
+    out.lean = bladed && !reloading(c) ? clamp(0.12 - 0.18 * pitch, -0.05, 0.25) : clamp(0.05 - 0.25 * pitch, -0.12, 0.2);
   } else {
     // Counter-rotation against the legs, and a forward lean that grows with speed.
     out.chestYaw = wrapAngle(hipYaw + out.move * counterTwist(speed, out.mz, c.animPhase));
@@ -511,7 +512,7 @@ export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): We
   } else if (out.mode === 'reload') {
     // Brought in front of the chest, muzzle dipped about half a radian and rolled to show the magazine.
     const base = aimed(c) ? pitch : 0;
-    aimFrame(out, yaw + (weapon === 'pistol' ? 0.15 : 0.35), base - 0.5, 0.55);
+    aimFrame(out, t.chestYaw + (weapon === 'pistol' ? 0.15 : 0.35), base - 0.5, 0.55);
     const reach = (weapon === 'pistol' ? 0.36 : 0.3) * s;
     const drop = (weapon === 'pistol' ? 0.12 : 0.2) * s;
     anchor(out, pts.grip, mx - cy * 0.08 + cl * sy * reach, my - drop - sl * reach, mz + sy * 0.08 + cl * cy * reach);

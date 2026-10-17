@@ -455,20 +455,32 @@ describe('action poses', () => {
     expect(pitch(cv) - still).toBeGreaterThanOrEqual(kick);
   });
 
-  it.each(['pistol', 'smg', 'rifle', 'shotgun'] as const)('reloading the %s brings the off hand to the weapon', (w) => {
+  it.each(['pistol', 'smg', 'rifle', 'shotgun'] as const)('reloading the %s brings the off hand to the weapon, aiming or not', (w) => {
     const { c } = armed(w);
-    c.reloadTimer = 1;
-    c.reloadWeapon = w;
-    const cv = drawn(c);
-    const wm = matrixAt(weaponPart(cv, w), 0);
-    const geo = weaponPart(cv, w).mesh.geometry;
-    geo.computeBoundingBox();
-    const { hands } = arms(cv, c);
-    const inWeapon = hands.left.clone().applyMatrix4(wm.clone().invert());
-    expect(geo.boundingBox!.distanceToPoint(inWeapon)).toBeLessThan(0.15);
-    // Lowered and tilted compared with aiming.
-    const dir = new THREE.Vector3().setFromMatrixColumn(wm, 2).normalize();
-    expect(Math.asin(dir.y)).toBeLessThan(-0.3);
+    const torsoYaw = (cv: CrowdView) => {
+      const f = new THREE.Vector3(0, 0, 1).transformDirection(matrixAt(parts(cv).torso!, 0));
+      return Math.atan2(f.x, f.z);
+    };
+    c.aiming = true;
+    const stance = torsoYaw(drawn(c));
+    for (const aim of [false, true]) {
+      c.aiming = aim;
+      c.reloadTimer = 1;
+      c.reloadWeapon = w;
+      const cv = drawn(c);
+      const wm = matrixAt(weaponPart(cv, w), 0);
+      const geo = weaponPart(cv, w).mesh.geometry;
+      geo.computeBoundingBox();
+      const { hands } = arms(cv, c);
+      const inWeapon = hands.left.clone().applyMatrix4(wm.clone().invert());
+      expect(geo.boundingBox!.distanceToPoint(inWeapon)).toBeLessThan(0.15);
+      // Lowered and tilted compared with aiming.
+      const dir = new THREE.Vector3().setFromMatrixColumn(wm, 2).normalize();
+      expect(Math.asin(dir.y)).toBeLessThan(-0.3);
+      // Aiming through a reload keeps the stance: the torso does not swing round.
+      if (aim) expect(Math.abs(torsoYaw(cv) - stance)).toBeLessThan(0.05);
+    }
+    c.reloadTimer = 0;
   });
 
   it.each(['rifle', 'shotgun', 'smg'] as const)('aiming the %s puts its stock in the right shoulder and the left hand on the forend', (w) => {
@@ -562,6 +574,42 @@ describe('the muzzle is the drawn barrel tip', () => {
       c.reloadWeapon = w;
       check();
     }
+  });
+
+  it.each([
+    ['pistol', true, 2.8],
+    ['rifle', true, 4.3],
+    ['rifle', false, 4.3],
+    ['shotgun', false, 7.4],
+  ] as const)('the drawn %s barrel stays on the simulated tip while walking (aiming %s, %f m/s)', (w, aim, speed) => {
+    const cv = new CrowdView();
+    const c = person();
+    c.inventory.give(w, 100);
+    c.inventory.current = w;
+    c.aiming = aim;
+    c.moveX = 0.3;
+    c.moveZ = 1;
+    c.moveSpeed = speed;
+    const dt = 1 / 120;
+    let worst = 0;
+    let travel = 0;
+    let prev: THREE.Vector3 | null = null;
+    for (let i = 0; i < 360; i++) {
+      stepCharacter(c, dt, flat);
+      if (aim) c.aimYaw = c.heading = Math.atan2(c.vel.x, c.vel.z) - 0.3;
+      cv.sync([c], c.pos.x, c.pos.z, dt);
+      if (i < 180) continue;
+      const part = weaponPart(cv, w);
+      const end = faceCentre(part.mesh.geometry, true).applyMatrix4(matrixAt(part, 0));
+      const tip = weaponPose(c).tip;
+      worst = Math.max(worst, end.distanceTo(new THREE.Vector3(tip.x, tip.y, tip.z)));
+      // The tip really moves with the stride (bob and counter-twist), so the match is not trivial.
+      const rel = new THREE.Vector3(tip.x - c.pos.x, tip.y - c.pos.y, tip.z - c.pos.z);
+      if (prev) travel = Math.max(travel, rel.distanceTo(prev));
+      prev = rel;
+    }
+    expect(worst).toBeLessThan(0.01);
+    expect(travel).toBeGreaterThan(1e-4);
   });
 
   it('the tip is where the aim points: ahead of the shooter and turning with the aim yaw', () => {
