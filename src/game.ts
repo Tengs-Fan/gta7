@@ -340,6 +340,7 @@ export class Game {
       inp.aimDir = { x: d.x, y: d.y, z: d.z };
       this.sim.update(dt, inp);
       this.renderer.render(dt, false);
+      this.audio.setListener(cam.camera.position.x, cam.camera.position.y, cam.camera.position.z, cam.yaw);
       this.audio.update(dt, this.sim, false);
       return;
     }

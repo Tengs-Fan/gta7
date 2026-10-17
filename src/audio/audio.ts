@@ -1,12 +1,18 @@
-// Synthesised sound effects, engine and siren. Everything is generated with
-// WebAudio nodes; there are no audio files.
+// Synthesised sound effects, the player's vehicle, sirens, the ambience bed and the mix (mixer.ts).
+// Everything is generated with WebAudio nodes; there are no audio files.
 
 import { clamp } from '../core/math';
-import type { Character } from '../sim/entities';
+import type { Character, Vehicle } from '../sim/entities';
 import type { SimEvents } from '../sim/events';
 import type { Sim } from '../sim/sim';
-import type { WeaponId } from '../sim/specs';
+import type { VehicleKind, WeaponId } from '../sim/specs';
+import type { Rect } from '../world/layout';
+import type { StaticWorld } from '../world/staticWorld';
+import { Ambience, shoreInfo, type AmbienceFrame, type ShoreInfo } from './ambience';
+import { EngineVoice } from './engineVoice';
+import { distanceCutoff, EXPLOSION_DUCK_RANGE, Glider, Mixer, mixTargets, OPEN_HZ, type MixTargets } from './mixer';
 import { Radio } from './radio';
+import { DEFAULT_HORN, ENGINE_PROFILES } from './vehicleProfiles';
 
 interface Listener {
   x: number;
@@ -24,18 +30,32 @@ function finite(...xs: number[]): boolean {
   return true;
 }
 
+/** Peak gain of the player's held horn. */
+const HORN_LEVEL = 0.15;
+/** Peak gain of the nearest police siren. */
+const SIREN_LEVEL = 0.4;
+/** Scream peak: 14 dB above the old 0.12. */
+const SCREAM_LEVEL = 0.12 * Math.pow(10, 14 / 20);
+/** Seconds an explosion keeps the music ducked before it recovers. */
+const EXPLOSION_HOLD = 0.15;
+
 export class AudioEngine {
   ctx: AudioContext | null = null;
-  private master!: GainNode;
-  /** Pause mute for world sound, a stage of its own so volume changes can't undo it. */
-  private pauseGain!: GainNode;
+  /** The bus graph and master chain; null until unlock(). */
+  mixer: Mixer | null = null;
   private paused = false;
+  /** World one-shots (gunfire, impacts, explosions...). */
   private sfx!: GainNode;
-  /** Menu clicks: bypass the pause stage, so menus over a paused game still give feedback. */
+  /** Menu clicks and HUD stings: bypass the pause stage and every duck. */
   private uiBus!: GainNode;
   private musicBus!: GainNode;
+  /** The player's engine, tyres, wind and horn. */
+  private vehicleBus!: GainNode;
   private noise!: AudioBuffer;
-  private engineNodes: { osc1: OscillatorNode; osc2: OscillatorNode; filter: BiquadFilterNode; gain: GainNode; skid: GainNode; skidSrc: AudioBufferSourceNode } | null = null;
+  private engine: EngineVoice | null = null;
+  private ambience: Ambience | null = null;
+  private hornNodes: { osc1: OscillatorNode; osc2: OscillatorNode; gain: GainNode } | null = null;
+  private hornKind: VehicleKind | null = null;
   private sirenNodes: { osc: OscillatorNode; gain: GainNode; lfo: OscillatorNode; lfoGain: GainNode } | null = null;
   readonly radio = new Radio();
   private readonly listener: Listener = { x: 0, y: 0, z: 0, yaw: 0 };
@@ -44,6 +64,23 @@ export class AudioEngine {
   private lastShot = new Map<WeaponId, number>();
   /** The player's hits this frame, the strongest per victim; played (once each) by update(). */
   private readonly confirms = new Map<Character, HitConfirm>();
+  /** Frame of the player's last shot per weapon: one trigger pull plays one gunshot. */
+  private playerShotFrame = new Map<WeaponId, number>();
+  /** Counts update() calls. */
+  private frame = 0;
+  private subtitleTimer = 0;
+  private bigTimer = 0;
+  private explosionTimer = 0;
+  private explosionDist = Infinity;
+  private inVehicle = false;
+  private readonly mix = {} as MixTargets;
+  private readonly glide = new Glider();
+  private readonly ambFrame = {} as AmbienceFrame;
+  private readonly shore = {} as ShoreInfo;
+  private softWorld: StaticWorld | null = null;
+  private softPatches: Rect[] = [];
+  /** Instrumentation for tests: sounds started since the page loaded. */
+  readonly counters = { gunshots: 0, doorThunks: 0 };
   private failed = false;
   private warned = false;
 
@@ -59,32 +96,28 @@ export class AudioEngine {
         }
         const ctx = new AC();
         this.ctx = ctx;
-        const comp = ctx.createDynamicsCompressor();
-        comp.threshold.value = -14;
-        comp.ratio.value = 6;
-        this.master = ctx.createGain();
-        this.pauseGain = ctx.createGain();
-        this.pauseGain.gain.value = this.paused ? 0 : 1;
-        this.sfx = ctx.createGain();
-        this.uiBus = ctx.createGain();
-        this.musicBus = ctx.createGain();
-        this.sfx.connect(this.pauseGain);
-        this.musicBus.connect(this.pauseGain);
-        this.pauseGain.connect(this.master);
-        this.uiBus.connect(this.master);
-        this.master.connect(comp);
-        comp.connect(ctx.destination);
+        const mixer = new Mixer(ctx, this.paused);
+        this.mixer = mixer;
+        this.sfx = mixer.sfx;
+        this.uiBus = mixer.uiBus;
+        this.musicBus = mixer.musicBus;
+        this.vehicleBus = mixer.vehicleBus;
         const len = ctx.sampleRate * 2;
         this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
         const d = this.noise.getChannelData(0);
         for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
         this.radio.init(ctx, this.musicBus, this.noise);
+        this.engine = new EngineVoice(ctx, this.vehicleBus, this.noise);
+        this.ambience = new Ambience(ctx, mixer.ambBus);
+        this.buildHorn();
+        this.buildSiren();
         this.applyVolumes();
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => undefined);
     } catch {
       this.failed = true;
       this.ctx = null;
+      this.mixer = null;
     }
   }
 
@@ -96,23 +129,17 @@ export class AudioEngine {
   }
 
   private applyVolumes(): void {
-    if (!this.ctx) return;
-    this.master.gain.value = this.volumes.master;
-    this.sfx.gain.value = this.volumes.sfx;
-    this.uiBus.gain.value = this.volumes.sfx;
-    this.musicBus.gain.value = this.volumes.music * 0.8;
+    if (!this.mixer) return;
+    this.mixer.setVolumes(this.volumes.master, this.volumes.music, this.volumes.sfx);
   }
 
-  /** Mutes the world (effects, engine, siren, radio) under the pause menu, map, shop or crash screen without stopping the radio clock. */
+  /** Mutes the world (effects, vehicle, ambience, radio) under the pause menu, map, shop or crash screen without stopping the radio clock. */
   setPaused(paused: boolean): void {
     if (paused === this.paused) return;
     // Remembered even without a context yet, so unlock() starts in the right state.
     this.paused = paused;
     this.radio.setPaused(paused);
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime;
-    this.pauseGain.gain.cancelScheduledValues(t);
-    this.pauseGain.gain.setTargetAtTime(paused ? 0 : 1, t, 0.05);
+    this.mixer?.setPaused(paused);
   }
 
   /** Runs a sound routine; an audio bug is logged once and never reaches the game loop. */
@@ -130,6 +157,10 @@ export class AudioEngine {
   attach(sim: Sim): void {
     for (const u of this.unsub) u();
     this.unsub = [];
+    this.subtitleTimer = 0;
+    this.bigTimer = 0;
+    this.explosionTimer = 0;
+    this.explosionDist = Infinity;
     // Sound handlers run inside sim.update(): isolate them from it.
     const on = <K extends keyof SimEvents>(type: K, fn: (e: SimEvents[K]) => void) => sim.events.on(type, (e) => this.safely(() => fn(e)));
     this.confirms.clear();
@@ -149,7 +180,11 @@ export class AudioEngine {
       on('explosion', (e) => this.explosion(e.x, e.y, e.z, e.radius)),
       on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength)),
       on('melee', (e) => this.punch(e.x, e.y, e.z, e.hit)),
-      on('horn', (e) => this.horn(e.vehicle.pos.x, e.vehicle.pos.y, e.vehicle.pos.z, e.vehicle.spec.police)),
+      on('horn', (e) => {
+        // The player's own horn is a continuous voice (updateHorn); AI taps play here.
+        if (e.vehicle === sim.player.vehicle) return;
+        this.horn(e.vehicle.pos.x, e.vehicle.pos.y, e.vehicle.pos.z, e.vehicle.spec.police);
+      }),
       on('pickup', (e) => this.chime(e.kind === 'money' ? 'cash' : 'pickup')),
       on('money', (e) => {
         if (e.amount >= 500) this.chime('cash');
@@ -166,8 +201,20 @@ export class AudioEngine {
         if (e.style === 'passed') this.chime('passed');
         else if (e.style === 'failed' || e.style === 'wasted' || e.style === 'busted') this.chime('fail');
         else if (e.style === 'stunt') this.chime('stunt');
+        // Result cards duck everything but the UI bus (where their sting plays) while they show.
+        if ((e.style === 'passed' || e.style === 'failed' || e.style === 'wasted' || e.style === 'busted') && finite(e.duration)) this.bigTimer = Math.max(this.bigTimer, e.duration);
+      }),
+      on('subtitle', (e) => {
+        // Dialogue ducks the music and the ambience for as long as the line shows (as in the HUD).
+        if (finite(e.duration)) this.subtitleTimer = e.duration;
       }),
       on('scream', (e) => this.scream(e.x, e.y, e.z)),
+      on('vehicleEnter', (e) => {
+        if (e.character.isPlayer) this.doorThunk(e.vehicle);
+      }),
+      on('vehicleExit', (e) => {
+        if (e.character.isPlayer) this.doorThunk(e.vehicle);
+      }),
     );
   }
 
@@ -178,8 +225,8 @@ export class AudioEngine {
     this.listener.yaw = yaw;
   }
 
-  /** Gain and pan for a sound at (x, y, z). Returns null when inaudible. */
-  private spatial(x: number, y: number, z: number, ref: number, max: number): { gain: number; pan: number } | null {
+  /** Gain, pan, distance low-pass and distance for a sound at (x, y, z). Returns null when inaudible. */
+  private spatial(x: number, y: number, z: number, ref: number, max: number): { gain: number; pan: number; cutoff: number; dist: number } | null {
     const L = this.listener;
     const dx = x - L.x;
     const dy = y - L.y;
@@ -191,22 +238,44 @@ export class AudioEngine {
     const rz = Math.sin(L.yaw);
     const hd = Math.hypot(dx, dz) || 1;
     const pan = clamp(((dx * rx + dz * rz) / hd) * 0.8, -1, 1);
-    return finite(pan) ? { gain, pan } : null;
+    return finite(pan) ? { gain, pan, cutoff: distanceCutoff(d), dist: d } : null;
   }
 
-  private out(pan: number): AudioNode {
+  /** Entry point of a one-shot: a panner and its distance low-pass into `bus` (world effects by default). */
+  private out(pan: number, cutoff: number = OPEN_HZ, bus: AudioNode = this.sfx): AudioNode {
     const ctx = this.ctx!;
+    let dest = bus;
+    if (finite(cutoff) && cutoff < OPEN_HZ) {
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = cutoff;
+      f.connect(dest);
+      dest = f;
+    }
     if (typeof ctx.createStereoPanner === 'function') {
       const p = ctx.createStereoPanner();
-      p.pan.value = pan;
-      p.connect(this.sfx);
+      p.pan.value = finite(pan) ? pan : 0;
+      p.connect(dest);
       return p;
     }
-    return this.sfx;
+    return dest;
+  }
+
+  /** A gain for a one-shot envelope: silent from creation until its automation starts. */
+  private envGain(): GainNode {
+    const g = this.ctx!.createGain();
+    g.gain.value = 0;
+    g.gain.setValueAtTime(0, this.ctx!.currentTime);
+    return g;
+  }
+
+  /** One sample: sources start this long after their envelope's first event. */
+  private get sample(): number {
+    return 1 / this.ctx!.sampleRate;
   }
 
   private noiseBurst(dest: AudioNode, t: number, dur: number, type: BiquadFilterType, freq: number, q: number, gain: number, freqEnd?: number): void {
-    if (!finite(t, dur, freq, q, gain, freqEnd ?? freq)) return;
+    if (!finite(t, dur, freq, q, gain, freqEnd ?? freq) || !(gain > 0) || !(dur > 0)) return;
     const ctx = this.ctx!;
     const src = ctx.createBufferSource();
     src.buffer = this.noise;
@@ -219,13 +288,15 @@ export class AudioEngine {
     f.frequency.setValueAtTime(freq, t);
     if (freqEnd !== undefined) f.frequency.exponentialRampToValueAtTime(Math.max(20, freqEnd), t + dur);
     f.Q.value = q;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, t);
-    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    const g = this.envGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(gain, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(Math.min(0.0008, gain * 0.05), t + dur);
+    g.gain.linearRampToValueAtTime(0, t + dur + 0.02);
     src.connect(f);
     f.connect(g);
     g.connect(dest);
-    src.start(t, Math.random() * 1.5);
+    src.start(t + this.sample, Math.random() * 1.5);
     src.stop(t + dur + 0.05);
   }
 
@@ -237,13 +308,14 @@ export class AudioEngine {
     o.type = type;
     o.frequency.setValueAtTime(f0, t);
     o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-    const g = ctx.createGain();
+    const g = this.envGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    g.gain.linearRampToValueAtTime(0, t + dur + 0.02);
     o.connect(g);
     g.connect(dest);
-    o.start(t);
+    o.start(t + this.sample);
     o.stop(t + dur + 0.05);
   }
 
@@ -254,15 +326,23 @@ export class AudioEngine {
   gunshot(w: WeaponId, x: number, y: number, z: number, player: boolean): void {
     if (!this.ready()) return;
     const ctx = this.ctx!;
-    // Rate-limit overlapping shots of the same weapon (SMG crowds).
     const now = ctx.currentTime;
-    if (!player && now - (this.lastShot.get(w) ?? 0) < 0.04) return;
+    if (player) {
+      // A shotgun reports nine pellets in the same frame: one trigger pull, one bang.
+      if (this.playerShotFrame.get(w) === this.frame) return;
+      this.playerShotFrame.set(w, this.frame);
+    } else if (now - (this.lastShot.get(w) ?? -Infinity) < 0.04) {
+      // Rate-limit overlapping shots of the same weapon (SMG crowds, NPC shotgun pellets).
+      return;
+    }
     this.lastShot.set(w, now);
     const s = this.spatial(x, y, z, 14, 260);
     if (!s) return;
-    const out = this.out(s.pan);
+    // The player's own shots from a car ring inside it, not through the in-car muffling.
+    const out = this.out(s.pan, s.cutoff, player && this.inVehicle ? this.vehicleBus : this.sfx);
     const g = s.gain * (player ? 1 : 0.8);
     const t = now + 0.005;
+    this.counters.gunshots++;
     switch (w) {
       case 'pistol':
         this.noiseBurst(out, t, 0.16, 'lowpass', 4200, 0.7, 0.9 * g, 900);
@@ -294,8 +374,14 @@ export class AudioEngine {
     if (!this.ready()) return;
     const s = this.spatial(x, y, z, 30, 700);
     if (!s) return;
-    const out = this.out(s.pan);
-    const t = this.ctx!.currentTime + 0.01;
+    if (s.dist <= EXPLOSION_DUCK_RANGE) {
+      this.explosionDist = Math.min(this.explosionTimer > 0 ? this.explosionDist : Infinity, s.dist);
+      this.explosionTimer = EXPLOSION_HOLD;
+    }
+    const out = this.out(s.pan, s.cutoff);
+    // Far blasts arrive late: sound covers 343 m/s.
+    const delay = s.dist > 80 ? Math.min(0.8, s.dist / 343) : 0;
+    const t = this.ctx!.currentTime + 0.01 + delay;
     const k = clamp(radius / 7.5, 0.5, 1.4) * s.gain;
     this.noiseBurst(out, t, 1.6, 'lowpass', 2200, 0.5, 1.4 * k, 120);
     this.noiseBurst(out, t, 0.25, 'highpass', 1500, 0.5, 0.6 * k);
@@ -306,7 +392,7 @@ export class AudioEngine {
     if (!this.ready() || strength < 2.2) return;
     const s = this.spatial(x, y, z, 12, 160);
     if (!s) return;
-    const out = this.out(s.pan);
+    const out = this.out(s.pan, s.cutoff);
     const t = this.ctx!.currentTime + 0.005;
     const k = clamp(strength / 14, 0.15, 1) * s.gain;
     this.noiseBurst(out, t, 0.18 + k * 0.25, 'bandpass', 700 + Math.random() * 400, 0.9, 1.1 * k, 200);
@@ -317,7 +403,7 @@ export class AudioEngine {
     if (!this.ready()) return;
     const s = this.spatial(x, y, z, 6, 50);
     if (!s) return;
-    const out = this.out(s.pan);
+    const out = this.out(s.pan, s.cutoff);
     const t = this.ctx!.currentTime;
     if (hit) {
       this.tone(out, t, 'sine', 140, 55, 0.12, 0.9 * s.gain);
@@ -327,28 +413,31 @@ export class AudioEngine {
     }
   }
 
+  /** An AI driver's horn tap (the player's own horn is the continuous voice in updateHorn). */
   horn(x: number, y: number, z: number, police: boolean): void {
     if (!this.ready() || police) return;
     const s = this.spatial(x, y, z, 14, 140);
     if (!s) return;
-    const out = this.out(s.pan);
-    const t = this.ctx!.currentTime;
-    for (const f of [392, 494]) {
-      const o = this.ctx!.createOscillator();
+    const ctx = this.ctx!;
+    const out = this.out(s.pan, s.cutoff);
+    const t = ctx.currentTime;
+    for (const f of DEFAULT_HORN) {
+      const o = ctx.createOscillator();
       o.type = 'square';
       o.frequency.value = f;
-      const filt = this.ctx!.createBiquadFilter();
+      const filt = ctx.createBiquadFilter();
       filt.type = 'lowpass';
       filt.frequency.value = 1800;
-      const g = this.ctx!.createGain();
+      const g = this.envGain();
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(0.18 * s.gain, t + 0.02);
       g.gain.setValueAtTime(0.18 * s.gain, t + 0.38);
       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+      g.gain.linearRampToValueAtTime(0, t + 0.47);
       o.connect(filt);
       filt.connect(g);
       g.connect(out);
-      o.start(t);
+      o.start(t + this.sample);
       o.stop(t + 0.5);
     }
   }
@@ -357,7 +446,7 @@ export class AudioEngine {
     if (!this.ready()) return;
     const s = this.spatial(x, y, z, 12, 140);
     if (!s) return;
-    this.noiseBurst(this.out(s.pan), this.ctx!.currentTime, big ? 1.1 : 0.5, 'lowpass', 1800, 0.5, (big ? 1 : 0.5) * s.gain, 300);
+    this.noiseBurst(this.out(s.pan, s.cutoff), this.ctx!.currentTime, big ? 1.1 : 0.5, 'lowpass', 1800, 0.5, (big ? 1 : 0.5) * s.gain, 300);
   }
 
   thud(k: number): void {
@@ -371,7 +460,7 @@ export class AudioEngine {
     const s = this.spatial(x, y, z, 8, 70);
     if (!s) return;
     const ctx = this.ctx!;
-    const out = this.out(s.pan);
+    const out = this.out(s.pan, s.cutoff);
     const t = ctx.currentTime;
     const o = ctx.createOscillator();
     o.type = 'sawtooth';
@@ -383,14 +472,15 @@ export class AudioEngine {
     f.type = 'bandpass';
     f.frequency.value = 1400;
     f.Q.value = 3;
-    const g = ctx.createGain();
+    const g = this.envGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.12 * s.gain, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(SCREAM_LEVEL * s.gain, t + 0.04);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
+    g.gain.linearRampToValueAtTime(0, t + 0.67);
     o.connect(f);
     f.connect(g);
     g.connect(out);
-    o.start(t);
+    o.start(t + this.sample);
     o.stop(t + 0.7);
   }
 
@@ -414,10 +504,28 @@ export class AudioEngine {
     this.noiseBurst(this.sfx, t + 0.25, 0.05, 'highpass', 2500, 1, 0.35);
   }
 
+  /** The player's car door shutting as they get in or out. */
+  doorThunk(v: Vehicle): void {
+    if (!this.ready() || v.destroyed || v.inWater) return;
+    // The driver's door is on the vehicle's left (local +X).
+    const x = v.pos.x + Math.cos(v.heading) * v.halfW;
+    const z = v.pos.z - Math.sin(v.heading) * v.halfW;
+    const s = this.spatial(x, v.pos.y + 0.8, z, 6, 60);
+    if (!s) return;
+    const out = this.out(s.pan, s.cutoff);
+    const t = this.ctx!.currentTime + 0.005;
+    this.tone(out, t, 'sine', 120, 52, 0.16, 0.55 * s.gain, 0.004);
+    this.noiseBurst(out, t, 0.08, 'lowpass', 1000, 0.7, 0.45 * s.gain, 250);
+    // The latch.
+    this.noiseBurst(out, t + 0.012, 0.025, 'bandpass', 2600, 1.4, 0.14 * s.gain);
+    this.counters.doorThunks++;
+  }
+
   chime(kind: 'pickup' | 'cash' | 'passed' | 'fail' | 'alert' | 'stunt' | 'ui'): void {
     if (!this.ready()) return;
     const t = this.ctx!.currentTime + 0.01;
-    const d = kind === 'ui' ? this.uiBus : this.sfx;
+    // HUD stings are not in the world: no in-car muffling, and the result-card duck leaves them on top.
+    const d = this.uiBus;
     const seq = (notes: number[], step: number, type: OscillatorType, len: number, gain: number) =>
       notes.forEach((n, i) => this.tone(d, t + i * step, type, n, n * 0.999, len, gain, 0.01));
     switch (kind) {
@@ -447,45 +555,32 @@ export class AudioEngine {
   }
 
   // ---------------------------------------------------------------------------
-  // Continuous voices: player engine and police siren.
+  // Continuous voices: the player's horn and the police siren (the engine is engineVoice.ts).
 
-  private ensureEngine(): void {
-    if (this.engineNodes || !this.ctx) return;
-    const ctx = this.ctx;
+  private buildHorn(): void {
+    const ctx = this.ctx!;
     const osc1 = ctx.createOscillator();
     const osc2 = ctx.createOscillator();
-    osc1.type = 'sawtooth';
+    osc1.type = 'square';
     osc2.type = 'square';
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.Q.value = 2;
+    osc1.frequency.value = DEFAULT_HORN[0];
+    osc2.frequency.value = DEFAULT_HORN[1];
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 1800;
     const gain = ctx.createGain();
     gain.gain.value = 0;
-    osc1.connect(filter);
-    osc2.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.sfx);
-    const skidSrc = ctx.createBufferSource();
-    skidSrc.buffer = this.noise;
-    skidSrc.loop = true;
-    const skidF = ctx.createBiquadFilter();
-    skidF.type = 'bandpass';
-    skidF.frequency.value = 1500;
-    skidF.Q.value = 4;
-    const skid = ctx.createGain();
-    skid.gain.value = 0;
-    skidSrc.connect(skidF);
-    skidF.connect(skid);
-    skid.connect(this.sfx);
+    osc1.connect(filt);
+    osc2.connect(filt);
+    filt.connect(gain);
+    gain.connect(this.vehicleBus);
     osc1.start();
     osc2.start();
-    skidSrc.start();
-    this.engineNodes = { osc1, osc2, filter, gain, skid, skidSrc };
+    this.hornNodes = { osc1, osc2, gain };
   }
 
-  private ensureSiren(): void {
-    if (this.sirenNodes || !this.ctx) return;
-    const ctx = this.ctx;
+  private buildSiren(): void {
+    const ctx = this.ctx!;
     const osc = ctx.createOscillator();
     osc.type = 'triangle';
     osc.frequency.value = 950;
@@ -506,6 +601,7 @@ export class AudioEngine {
   }
 
   update(dt: number, sim: Sim, inGame: boolean): void {
+    this.frame++;
     // At most one confirmation per victim per frame (a shotgun blast is one tick), the strongest one.
     if (this.confirms.size > 0) {
       if (this.ready()) for (const kind of this.confirms.values()) this.safely(() => this.hitConfirm(kind));
@@ -517,26 +613,45 @@ export class AudioEngine {
 
   private updateVoices(dt: number, sim: Sim, inGame: boolean): void {
     const t = this.ctx!.currentTime;
-    this.ensureEngine();
-    this.ensureSiren();
-    const v = inGame ? sim.player.vehicle : null;
-    const e = this.engineNodes!;
-    if (v && !v.destroyed && !v.inWater) {
-      // A numeric blow-up the sim repairs can leave rpm / throttle NaN for a while.
-      const rpm = finite(v.rpm) ? clamp(v.rpm, 0, 1.1) : 0;
-      const throttle = finite(v.controls.throttle) ? clamp(v.controls.throttle, 0, 1) : 0;
-      const base = v.spec.kind === 'bus' || v.spec.kind === 'van' || v.spec.kind === 'swat' ? 32 : v.spec.kind === 'sports' ? 55 : 42;
-      const f = base + rpm * base * 3.2;
-      e.osc1.frequency.setTargetAtTime(f, t, 0.05);
-      e.osc2.frequency.setTargetAtTime(f * 0.5, t, 0.05);
-      e.filter.frequency.setTargetAtTime(380 + rpm * 2200, t, 0.08);
-      e.gain.gain.setTargetAtTime(0.06 + throttle * 0.07 + rpm * 0.03, t, 0.08);
-      e.skid.gain.setTargetAtTime(v.skid > 0.3 && !v.airborne ? clamp(v.skid, 0, 1) * 0.22 : 0, t, 0.05);
-    } else {
-      e.gain.gain.setTargetAtTime(0, t, 0.1);
-      e.skid.gain.setTargetAtTime(0, t, 0.05);
+    const step = finite(dt) && dt > 0 ? Math.min(dt, 0.25) : 0;
+    const pv = inGame ? sim.player.vehicle : null;
+    // A wreck or a sinking car has no engine; the radio dies with a wreck.
+    const live = pv && !pv.destroyed && !pv.inWater && !pv.removed ? pv : null;
+    this.inVehicle = !!pv;
+    this.engine!.update(live, t, live ? this.softGround(sim.world, live.pos.x, live.pos.z) : false);
+    this.updateHorn(live, t);
+    this.updateSiren(sim, inGame, t);
+    this.radio.update(dt, inGame && !!pv && !pv.destroyed);
+    this.subtitleTimer = Math.max(0, this.subtitleTimer - step);
+    this.bigTimer = Math.max(0, this.bigTimer - step);
+    if (this.explosionTimer > 0) {
+      this.explosionTimer -= step;
+      if (this.explosionTimer <= 0) this.explosionDist = Infinity;
     }
-    // Siren: loudness from the closest police car with its siren on.
+    this.updateAmbience(step, sim, inGame, t);
+    const m = mixTargets(
+      { inVehicle: this.inVehicle, radioOn: this.radio.playing, subtitleActive: this.subtitleTimer > 0, explosionDist: this.explosionDist, paused: this.paused, bigScreen: this.bigTimer > 0 },
+      this.mix,
+    );
+    this.mixer!.update(m, t, this.explosionTimer > 0);
+  }
+
+  /** The player's held horn: one continuous voice at the vehicle's horn notes. */
+  private updateHorn(v: Vehicle | null, t: number): void {
+    const h = this.hornNodes!;
+    if (v && v.kind !== this.hornKind) {
+      this.hornKind = v.kind;
+      const [f1, f2] = ENGINE_PROFILES[v.kind].horn;
+      h.osc1.frequency.setValueAtTime(f1, t);
+      h.osc2.frequency.setValueAtTime(f2, t);
+    }
+    const on = !!v && v.horn;
+    // 15 ms attack, 60 ms release (three time constants each).
+    this.glide.set(h.gain.gain, on ? HORN_LEVEL : 0, t, on ? 0.005 : 0.02);
+  }
+
+  /** Siren loudness from the closest police car with its siren on. */
+  private updateSiren(sim: Sim, inGame: boolean, t: number): void {
     const s = this.sirenNodes!;
     let best = Infinity;
     if (inGame) {
@@ -546,9 +661,59 @@ export class AudioEngine {
         if (d < best) best = d;
       }
     }
-    const sg = best < 260 ? (1 / (1 + Math.pow(best / 35, 1.5))) * 0.16 : 0;
-    s.gain.gain.setTargetAtTime(sg, t, 0.2);
-    s.lfo.frequency.setTargetAtTime(sim.wanted.level >= 3 ? 1.6 : 0.32, t, 0.3);
-    this.radio.update(dt, inGame && !!v && !v.destroyed);
+    const sg = best < 260 ? (1 / (1 + Math.pow(best / 35, 1.5))) * SIREN_LEVEL : 0;
+    this.glide.set(s.gain.gain, sg, t, 0.2);
+    this.glide.set(s.lfo.frequency, sim.wanted.level >= 3 ? 1.6 : 0.32, t, 0.3);
+  }
+
+  /** Sand, grass, yards and dirt make the tyres roar louder than asphalt and paving. */
+  private softGround(world: StaticWorld, x: number, z: number): boolean {
+    if (!finite(x, z)) return false;
+    if (x >= world.bounds.beachStartX) return true;
+    if (world.isOnRoad(x, z)) return false;
+    if (this.softWorld !== world) {
+      this.softWorld = world;
+      this.softPatches = world.layout.ground.filter((g) => g.kind === 'grass' || g.kind === 'yard' || g.kind === 'dirt').map((g) => g.rect);
+    }
+    for (const r of this.softPatches) if (x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) return true;
+    return false;
+  }
+
+  private updateAmbience(dt: number, sim: Sim, inGame: boolean, t: number): void {
+    const L = this.listener;
+    // A broken camera pose keeps the bed as it was rather than reading NaN places.
+    if (!finite(L.x, L.y, L.z, L.yaw)) return;
+    const world = sim.world;
+    const shore = shoreInfo(world.bounds, L.x, L.z, this.shore);
+    const rx = -Math.cos(L.yaw);
+    const rz = Math.sin(L.yaw);
+    // Moving traffic within 120 m (in 3D: rooftops and the title flyover hear the street from afar), speed-weighted, and where it is.
+    let w = 0;
+    let sx = 0;
+    let sz = 0;
+    const own = sim.player.vehicle;
+    for (const v of sim.vehicles) {
+      if (v === own || v.removed || v.destroyed || !(v.speed > 1)) continue;
+      const dx = v.pos.x - L.x;
+      const dz = v.pos.z - L.z;
+      const d = Math.hypot(dx, v.pos.y - L.y, dz);
+      if (!(d < 120)) continue;
+      const k = Math.min(1, v.speed / 20) * (1 - d / 120);
+      const hd = Math.hypot(dx, dz) || 1;
+      w += k;
+      sx += (dx / hd) * k;
+      sz += (dz / hd) * k;
+    }
+    const f = this.ambFrame;
+    f.district = world.districtAt(L.x, L.z);
+    f.hours = sim.clock.hours;
+    f.shoreDist = shore.dist;
+    f.height = inGame ? sim.player.pos.y : L.y;
+    f.traffic = clamp(w / 2.5, 0, 1);
+    f.inVehicle = this.inVehicle;
+    f.wanted = sim.wanted.level;
+    f.seaPan = shore.dirX * rx + shore.dirZ * rz;
+    f.trafficPan = w > 0 ? (sx * rx + sz * rz) / w : 0;
+    this.ambience!.update(dt, t, f);
   }
 }

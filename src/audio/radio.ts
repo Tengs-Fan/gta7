@@ -17,6 +17,9 @@ export const STATIONS: readonly StationDef[] = [
   { name: 'PULSE 96.1', genre: 'house', bpm: [120, 126] },
 ];
 
+/** Output level of a playing station: 3 dB over unity, so the music sits over the engine. */
+const RADIO_LEVEL = 1.41;
+
 const MINOR = [0, 2, 3, 5, 7, 8, 10];
 const DORIAN = [0, 2, 3, 5, 7, 9, 10];
 
@@ -52,6 +55,16 @@ export class Radio {
 
   get stationName(): string {
     return this.index < STATIONS.length ? STATIONS[this.index]!.name : 'RADIO OFF';
+  }
+
+  /** A station is playing (in a car, not paused, not switched off). */
+  get playing(): boolean {
+    return this.active;
+  }
+
+  /** One sample: notes start this long after their envelope's first event. */
+  private get sample(): number {
+    return 1 / this.ctx!.sampleRate;
   }
 
   init(ctx: AudioContext, dest: AudioNode, noise: AudioBuffer): void {
@@ -99,7 +112,7 @@ export class Radio {
   private static(): void {
     const ctx = this.ctx;
     if (!ctx || !this.active) return;
-    const t = ctx.currentTime;
+    const t = ctx.currentTime + 0.005;
     const src = ctx.createBufferSource();
     src.buffer = this.noise;
     const f = ctx.createBiquadFilter();
@@ -107,13 +120,25 @@ export class Radio {
     f.frequency.value = 2400;
     f.Q.value = 0.6;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.18, t);
+    g.gain.value = 0;
+    g.gain.setValueAtTime(0, ctx.currentTime);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.18, t + 0.004);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    g.gain.linearRampToValueAtTime(0, t + 0.32);
     src.connect(f);
     f.connect(g);
     g.connect(this.out);
-    src.start(t, Math.random());
+    src.start(t + this.sample, Math.random());
     src.stop(t + 0.35);
+  }
+
+  /** Starts a new song and moves the echo to a dotted eighth of its tempo. */
+  private startSong(): Song {
+    const song = this.newSong();
+    this.song = song;
+    if (this.ctx) this.delay.delayTime.setTargetAtTime((0.75 * 60) / song.bpm, this.ctx.currentTime, 0.05);
+    return song;
   }
 
   private newSong(): Song {
@@ -157,19 +182,18 @@ export class Radio {
     const t = ctx.currentTime;
     if (want !== this.active) {
       this.active = want;
-      this.out.gain.setTargetAtTime(want ? 1 : 0, t, want ? 0.3 : 0.15);
+      this.out.gain.setTargetAtTime(want ? RADIO_LEVEL : 0, t, want ? 0.3 : 0.15);
       if (want) {
         this.nextTime = t + 0.08;
-        if (!this.song) this.song = this.newSong();
+        if (!this.song) this.startSong();
         this.static();
       }
     }
     if (!this.active) return;
-    if (!this.song) this.song = this.newSong();
+    let song = this.song ?? this.startSong();
     if (this.nextTime < t - 0.2) this.nextTime = t + 0.05;
     let guard = 0;
     while (this.nextTime < t + 0.14 && guard++ < 32) {
-      const song = this.song;
       const stepDur = 60 / song.bpm / 4;
       this.playStep(song, this.step, this.bar, this.nextTime, stepDur);
       this.nextTime += stepDur;
@@ -179,7 +203,7 @@ export class Radio {
         this.bar++;
         if (this.bar >= song.bars) {
           this.bar = 0;
-          this.song = this.newSong();
+          song = this.startSong();
         }
       }
     }
@@ -188,11 +212,16 @@ export class Radio {
   // ---------------------------------------------------------------------------
   // Instruments
 
+  /** Envelope on a fresh gain: silent from creation (notes are scheduled ahead) until `t`. */
   private env(g: GainNode, t: number, peak: number, attack: number, hold: number, release: number): void {
+    g.gain.value = 0;
+    // After a stalled frame a note can be due a little in the past: the zero must not land after it starts.
+    g.gain.setValueAtTime(0, Math.min(this.ctx!.currentTime, t));
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + attack);
     g.gain.setValueAtTime(peak, t + attack + hold);
     g.gain.exponentialRampToValueAtTime(0.0001, t + attack + hold + release);
+    g.gain.linearRampToValueAtTime(0, t + attack + hold + release + 0.01);
   }
 
   private kick(t: number, k = 1): void {
@@ -204,7 +233,7 @@ export class Radio {
     this.env(g, t, 0.85 * k, 0.003, 0.02, 0.3);
     o.connect(g);
     g.connect(this.out);
-    o.start(t);
+    o.start(t + this.sample);
     o.stop(t + 0.4);
   }
 
@@ -226,7 +255,7 @@ export class Radio {
       g.connect(s);
       s.connect(this.delaySend);
     }
-    src.start(t, Math.random() * 1.5);
+    src.start(t + this.sample, Math.random() * 1.5);
     src.stop(t + dur + 0.05);
   }
 
@@ -241,7 +270,7 @@ export class Radio {
     this.env(g, t, 0.25, 0.002, 0.01, 0.1);
     o.connect(g);
     g.connect(this.out);
-    o.start(t);
+    o.start(t + this.sample);
     o.stop(t + 0.2);
   }
 
@@ -281,7 +310,7 @@ export class Radio {
       o.frequency.value = freq;
       o.detune.value = d;
       o.connect(f);
-      o.start(t);
+      o.start(t + this.sample);
       o.stop(t + dur + release + 0.05);
     }
   }
