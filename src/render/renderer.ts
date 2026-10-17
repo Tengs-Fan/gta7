@@ -160,6 +160,9 @@ export class GameRenderer {
     }
     this.vehicleViews.clear();
     this.effects.reset();
+    // A new session's clock starts again from 0.
+    this.autoRounds = 0;
+    this.lastAutoRound = -Infinity;
     this.sim = sim;
     const fx = this.effects;
     const ev = sim.events;
@@ -169,13 +172,13 @@ export class GameRenderer {
         fx.muzzleFlash(e.x, e.y, e.z, FLASH_SIZE[e.weapon]);
         if (e.weapon === 'rocket') fx.rocketLaunched(e.x, e.y, e.z);
       }),
-      // Every bullet or pellet: its tracer and where it hits the world or a vehicle (flesh hits come from 'blood').
+      // Every bullet or pellet: its tracer and its impact.
       ev.on('shot', (e) => {
         // Helicopter rounds have no weaponFired of their own.
         if (!e.shooter) fx.muzzleFlash(e.fx, e.fy, e.fz, FLASH_SIZE[e.weapon]);
         if (e.weapon === 'rocket' || e.weapon === 'fists') return;
-        // The player's automatic fire traces every second round of a burst (its first one always);
-        // everyone else's traces every round.
+        // The player's automatic fire traces every second round of a burst (its first one always).
+        // Everyone else's traces every round.
         let traced = true;
         if (e.shooter?.isPlayer && WEAPONS[e.weapon].auto) {
           if (sim.time - this.lastAutoRound > 0.25) this.autoRounds = 0;
@@ -183,7 +186,8 @@ export class GameRenderer {
           traced = this.autoRounds++ % 2 === 0;
         }
         if (traced) fx.tracer(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz);
-        if (e.hit === 'world' || e.hit === 'vehicle') fx.impact(e.tx, e.ty, e.tz, e.nx, e.ny, e.nz, e.hit);
+        // Flesh hits bleed through 'blood', except helicopter rounds, which come without one.
+        if (e.hit === 'world' || e.hit === 'vehicle' || (e.hit === 'flesh' && !e.shooter)) fx.impact(e.tx, e.ty, e.tz, e.nx, e.ny, e.nz, e.hit);
       }),
       ev.on('explosion', (e) => {
         fx.explosion(e.x, e.y, e.z, e.radius);

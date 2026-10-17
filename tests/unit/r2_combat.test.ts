@@ -505,6 +505,25 @@ describe('P31b: a gun poking through a wall only hits the wall', () => {
     for (const w of fired) expect(toFace(w.x, w.z)).toBeLessThan(0);
   });
 
+  it('muzzleBlocked is about the next shot: the gun raised towards the aim, not where the body faces', () => {
+    const { sim, f, p, chest } = againstWall('pistol');
+    expect(sim.combat.muzzleBlocked(p)).toBe(true);
+    // Look along the wall and lower the gun (a second after the last shot): the body still faces the wall.
+    const along = { x: p.pos.x + f.rx * 20, y: p.pos.y + 1.2, z: p.pos.z + f.rz * 20 };
+    step(sim, 1.5, () => crosshairOn(sim, along, { aim: false }));
+    expect(p.aiming).toBe(false);
+    expect((p.heading - f.h + 4 * Math.PI) % (2 * Math.PI)).toBeLessThan(0.3);
+    expect(sim.combat.muzzleBlocked(p)).toBe(false);
+    // A shot there flies along the wall, as the reticle said.
+    const shots = record(sim, 'shot');
+    sim.update(DT, crosshairOn(sim, along, { aim: false, fire: true, firePressed: true }));
+    expect(shots.length).toBe(1);
+    expect(Math.hypot(shots[0]!.tx - p.pos.x, shots[0]!.tz - p.pos.z)).toBeGreaterThan(3);
+    // Back towards the wall: blocked again.
+    step(sim, 0.3, () => crosshairOn(sim, chest()));
+    expect(sim.combat.muzzleBlocked(p)).toBe(true);
+  });
+
   it('a shotgun blast there: nine shots, all at the wall face; muzzleBlocked is false in the open', () => {
     const { sim, f, face, civ, chest } = againstWall('shotgun');
     const shots = record(sim, 'shot');
@@ -545,6 +564,9 @@ describe('P31b: a gun poking through a wall only hits the wall', () => {
     g.inventory.give('pistol', 99);
     g.inventory.current = 'pistol';
     g.heading = f.h + Math.PI;
+    // Aiming at the player, as the AI sets him up before npcFire.
+    g.aiming = true;
+    g.aimYaw = g.heading;
     // A 0.2 m wall 0.38 m in front of the gang member, between him and the player.
     const back = { fx: -f.fx, fz: -f.fz, rx: -f.rx, rz: -f.rz };
     const gp = { x: g.pos.x, y: g.pos.y, z: g.pos.z };
@@ -711,6 +733,11 @@ describe('P31b: flashes and tracers', () => {
       R.render(DT, false);
       expect(R.effects.glowCount).toBe(2);
       expect(R.effects.tracerCount).toBe(1);
+      settle();
+      // ...and come without a 'blood' event, so their flesh hits bleed from the 'shot' itself.
+      sim.events.emit('shot', { shooter: null, weapon: 'rifle', fx: 0, fy: 30, fz: 0, tx: 0, ty: 1, tz: 10, hit: 'flesh', nx: 0, ny: 0, nz: -1, pellet: 0 });
+      R.render(DT, false);
+      expect(R.effects.particleCount - R.effects.glowCount).toBe(6);
     });
 
     it("the player's automatic fire traces every second round of a burst, NPC rounds every round", () => {
@@ -742,6 +769,15 @@ describe('P31b: flashes and tracers', () => {
       for (let i = 0; i < 4; i++) shot(p, 'pistol');
       R.render(DT, false);
       expect(R.effects.tracerCount).toBe(14);
+      settle();
+      // A burst cut short at an odd round, then a new game (its clock starts again from 0): the first round still traces.
+      step(sim, 5);
+      shot(p, 'smg');
+      const next = makeSim({ world: W });
+      R.attach(next);
+      next.events.emit('shot', { shooter: next.player, weapon: 'smg', fx: 0, fy: 1, fz: 0, tx: 0, ty: 1, tz: 400, hit: 'none', nx: 0, ny: 1, nz: 0, pellet: 0 });
+      R.render(DT, false);
+      expect(R.effects.tracerCount).toBe(1);
     });
   });
 });
@@ -797,6 +833,43 @@ describe('P32: fire cadence', () => {
   });
 });
 
+describe('P32: a queued press survives at any frame rate', () => {
+  it.each([1 / 50, 1 / 60, 1 / 75, 1 / 144, 1 / 165])('a press in the first frame of the queue window fires once ready (dt %f)', (dt) => {
+    const sim = makeSim();
+    const f = standOnOpenRoad(sim);
+    arm(sim, 'pistol');
+    step(sim, 0.5, input(), dt);
+    const p = sim.player;
+    let fired = 0;
+    sim.events.on('weaponFired', () => fired++);
+    const target = { x: p.pos.x + f.fx * 30, y: p.pos.y + 1.2, z: p.pos.z + f.fz * 30 };
+    const aim = (over: Partial<PlayerInput> = {}) => aimAt(sim, target, { aim: true, ...over });
+    sim.update(dt, aim({ fire: true, firePressed: true }));
+    expect(fired).toBe(1);
+    // Wait for the first frame whose cooldown is inside the window, then tap once.
+    while (p.fireCooldown > 0.1) sim.update(dt, aim());
+    sim.update(dt, aim({ fire: true, firePressed: true }));
+    expect(fired).toBe(1);
+    for (let i = 0; i < Math.ceil(0.2 / dt); i++) sim.update(dt, aim());
+    expect(fired).toBe(2);
+  });
+
+  it('presses from a car are not queued (the drive-by trigger only fires while held)', () => {
+    const sim = makeSim();
+    const r = openRoad(sim);
+    const v = sim.spawnVehicle('sedan', r.x, r.z, r.h);
+    sim.seat(sim.player, v, 0);
+    arm(sim, 'pistol');
+    step(sim, 0.5);
+    const p = sim.player;
+    const target = { x: v.pos.x + Math.sin(r.h) * 30, y: v.pos.y + 1.2, z: v.pos.z + Math.cos(r.h) * 30 };
+    sim.update(DT, aimAt(sim, target, { fire: true, firePressed: true }));
+    while (p.fireCooldown > 0.08) sim.update(DT, aimAt(sim, target));
+    sim.update(DT, aimAt(sim, target, { fire: true, firePressed: true }));
+    expect(p.fireQueued).toBe(0);
+  });
+});
+
 describe('P32: head volume and headshots', () => {
   it.each(['civilian', 'gang', 'cop'] as const)('one aimed player pistol headshot kills a %s', (role) => {
     const sim = makeSim();
@@ -813,6 +886,23 @@ describe('P32: head volume and headshots', () => {
     expect(damage.length).toBe(1);
     expect(damage[0]).toMatchObject({ victim: v, zone: 'head', killed: true });
     expect(v.alive).toBe(false);
+    expect(sim.progress.stats.headshots).toBe(headshots + 1);
+  });
+
+  it('a shotgun blast at a head counts one headshot, however many pellets land there', () => {
+    const sim = makeSim();
+    const f = standOnOpenRoad(sim);
+    arm(sim, 'shotgun');
+    step(sim, 0.4);
+    const p = sim.player;
+    const v = npcAt(sim, 'gang', p.pos.x + f.fx * 4, p.pos.z + f.fz * 4);
+    v.armor = 5000;
+    const head = () => ({ x: v.pos.x, y: v.pos.y + v.height * 0.93, z: v.pos.z });
+    step(sim, 0.3, () => crosshairOn(sim, head()));
+    const damage = record(sim, 'damage');
+    const headshots = sim.progress.stats.headshots;
+    sim.update(DT, crosshairOn(sim, head(), { fire: true, firePressed: true }));
+    expect(damage.filter((d) => d.zone === 'head').length).toBeGreaterThan(1);
     expect(sim.progress.stats.headshots).toBe(headshots + 1);
   });
 

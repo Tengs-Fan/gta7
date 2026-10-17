@@ -140,7 +140,8 @@ export class AudioEngine {
         if (!e.shooter) this.gunshot(e.weapon, e.fx, e.fy, e.fz, false);
       }),
       on('damage', (e) => {
-        if (!e.attacker?.isPlayer || e.victim.isPlayer) return;
+        // The player's weapon hits: bullets, fists and explosions, not people run over.
+        if (!e.attacker?.isPlayer || e.victim.isPlayer || !(e.kind === 'bullet' || e.kind === 'melee' || e.kind === 'explosion')) return;
         const kind: HitConfirm = e.killed ? 'kill' : e.zone === 'head' ? 'head' : 'hit';
         const prev = this.confirms.get(e.victim);
         if (prev === undefined || CONFIRM_RANK[kind] > CONFIRM_RANK[prev]) this.confirms.set(e.victim, kind);
@@ -394,8 +395,8 @@ export class AudioEngine {
   }
 
   /**
-   * Confirms a hit by the player, on the UI bus: a 2.2 kHz tick; a kill adds a 90 Hz thump and a
-   * headshot a 3-5 kHz crack.
+   * Confirms a hit by the player on the UI bus with a 2.2 kHz tick.
+   * A kill adds a 90 Hz thump, a headshot a 3-5 kHz crack.
    */
   hitConfirm(kind: HitConfirm): void {
     if (!this.ready()) return;

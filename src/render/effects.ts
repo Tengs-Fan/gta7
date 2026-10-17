@@ -10,7 +10,10 @@ export const FLASH_SIZE: Readonly<Record<WeaponId, number>> = { fists: 0, pistol
 /** The muzzle light's intensity per metre of flash, and its cap (a shotgun used to white the screen out). */
 const FLASH_LIGHT = 55;
 const FLASH_LIGHT_MAX = 30;
-/** Tracer streak: its head flies at TRACER_SPEED (m/s), the tail TRACER_STREAK (m) behind; ribbons are TRACER_WIDTH (m) wide but never under TRACER_MIN_PX pixels. */
+/**
+ * Tracer streak: its head flies at TRACER_SPEED (m/s), the tail TRACER_STREAK (m) behind.
+ * Ribbons are TRACER_WIDTH (m) wide, but never under TRACER_MIN_PX pixels.
+ */
 const TRACER_SPEED = 300;
 const TRACER_STREAK = 3;
 const TRACER_WIDTH = 0.03;
@@ -162,8 +165,9 @@ class ParticleLayer {
     let n = 0;
     for (let i = 0; i < this.max; i++) {
       if (this.life[i]! <= 0) continue;
-      // Drawn at least once whatever the frame time: on the frame it was emitted a particle ages at most
-      // through its fade-in (an eighth of its life), which leaves even a 0.05 s flash visible at 10 fps.
+      // Drawn at least once whatever the frame time.
+      // On the frame it was emitted a particle ages at most through its fade-in (an eighth of its life),
+      // which leaves even a 0.05 s flash visible at 10 fps.
       let step = dt;
       if (this.fresh[i] && dt > 0) {
         this.fresh[i] = 0;
@@ -296,10 +300,8 @@ uniform float uMinPx;
 uniform float uViewH;
 attribute vec3 iFrom;
 attribute vec3 iTo;
-attribute float iAlpha;
 varying float vAlong;
 varying float vAcross;
-varying float vAlpha;
 #include <fog_pars_vertex>
 void main() {
   // position.x: 0 at the tail, 1 at the head; position.y: -1 / +1 for the two edges of the ribbon.
@@ -315,7 +317,6 @@ void main() {
   mvPosition.xyz += side * position.y * max(uHalfWidth, uMinPx * 0.5 * px);
   vAlong = position.x;
   vAcross = position.y;
-  vAlpha = iAlpha;
   gl_Position = projectionMatrix * mvPosition;
   #include <fog_vertex>
 }`;
@@ -324,11 +325,10 @@ const TRACER_FS = /* glsl */ `
 uniform vec3 uColor;
 varying float vAlong;
 varying float vAcross;
-varying float vAlpha;
 #include <fog_pars_fragment>
 void main() {
   // Brightest at the head, fading to the tail and to the edges.
-  float a = vAlpha * (0.15 + 0.85 * vAlong * vAlong) * (1.0 - vAcross * vAcross);
+  float a = (0.15 + 0.85 * vAlong * vAlong) * (1.0 - vAcross * vAcross);
   #ifdef USE_FOG
     #ifdef FOG_EXP2
       a *= exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
@@ -340,8 +340,9 @@ void main() {
 }`;
 
 /**
- * Bullet tracers: camera-facing ribbons (one instanced draw). Each streak's head leaves the muzzle at
- * TRACER_SPEED with the tail TRACER_STREAK behind it, and the tracer ends when the tail reaches the hit.
+ * Bullet tracers: camera-facing ribbons (one instanced draw).
+ * Each streak's head leaves the muzzle at TRACER_SPEED with the tail TRACER_STREAK behind it,
+ * and the tracer ends when the tail reaches the hit.
  * A tracer is drawn from the muzzle on the frame it was fired, however long that frame was.
  */
 class Tracers {
@@ -350,7 +351,6 @@ class Tracers {
   private readonly mat: THREE.ShaderMaterial;
   private readonly iFrom: Float32Array;
   private readonly iTo: Float32Array;
-  private readonly iAlpha: Float32Array;
   private readonly from: Float32Array;
   private readonly dir: Float32Array;
   private readonly len: Float32Array;
@@ -367,10 +367,8 @@ class Tracers {
     this.geo.setIndex([0, 2, 1, 1, 2, 3]);
     this.iFrom = new Float32Array(max * 3);
     this.iTo = new Float32Array(max * 3);
-    this.iAlpha = new Float32Array(max);
     this.geo.setAttribute('iFrom', new THREE.InstancedBufferAttribute(this.iFrom, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('iTo', new THREE.InstancedBufferAttribute(this.iTo, 3).setUsage(THREE.DynamicDrawUsage));
-    this.geo.setAttribute('iAlpha', new THREE.InstancedBufferAttribute(this.iAlpha, 1).setUsage(THREE.DynamicDrawUsage));
     this.geo.instanceCount = 0;
     this.mat = new THREE.ShaderMaterial({
       vertexShader: TRACER_VS,
@@ -434,14 +432,12 @@ class Tracers {
         this.iFrom[n * 3 + k] = f + d * tail;
         this.iTo[n * 3 + k] = f + d * head;
       }
-      this.iAlpha[n] = 1;
       n++;
     }
     this.active = n;
     this.geo.instanceCount = n;
     (this.geo.getAttribute('iFrom') as THREE.InstancedBufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('iTo') as THREE.InstancedBufferAttribute).needsUpdate = true;
-    (this.geo.getAttribute('iAlpha') as THREE.InstancedBufferAttribute).needsUpdate = true;
   }
 
   clear(): void {

@@ -1,4 +1,4 @@
-import type { DamageKind } from './combat';
+import type { DamageKind, HitZone } from './combat';
 import type { Character, PickupKind, Vehicle } from './entities';
 import type { WeaponId } from './specs';
 
@@ -7,12 +7,12 @@ export type HitKind = 'none' | 'world' | 'flesh' | 'vehicle';
 
 /** Everything the presentation layer (renderer, audio, HUD) reacts to. */
 export interface SimEvents {
-  /** One bullet, pellet or rocket launch; `pellet` is its 0-based index within the trigger pull (NPC and helicopter rounds use 0). */
+  /** One bullet, pellet or rocket launch; `pellet` is its 0-based index within the trigger pull (0 for single-shot weapons and helicopter rounds). */
   shot: { shooter: Character | null; weapon: WeaponId; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; hit: HitKind; nx: number; ny: number; nz: number; pellet: number };
   /** Exactly one per trigger pull of a gun (player, NPC, rocket launch) from the muzzle along the aim before spread. Not for melee or helicopter rounds. */
   weaponFired: { shooter: Character | null; weapon: WeaponId; x: number; y: number; z: number; dx: number; dy: number; dz: number; pellets: number };
   /** Every hit CombatSystem.damageCharacter applies, also one the armour absorbed completely; (dirX, dirZ) is the normalised hit direction, 0 when it has none. */
-  damage: { victim: Character; attacker: Character | null; healthLoss: number; armourLoss: number; kind: DamageKind; zone: 'head' | 'body'; killed: boolean; dirX: number; dirZ: number };
+  damage: { victim: Character; attacker: Character | null; healthLoss: number; armourLoss: number; kind: DamageKind; zone: HitZone; killed: boolean; dirX: number; dirZ: number };
   explosion: { x: number; y: number; z: number; radius: number };
   impact: { x: number; y: number; z: number; strength: number; vehicle: Vehicle | null };
   blood: { x: number; y: number; z: number; dx: number; dy: number; dz: number };

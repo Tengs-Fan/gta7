@@ -2,7 +2,7 @@
 
 import { rayCylinderY, rayObb3, type OBB } from '../core/collision';
 import { clamp, type V3 } from '../core/math';
-import { isSolidForSight, makeRayHit, type RayHit } from '../world/colliders';
+import { makeRayHit, type RayHit } from '../world/colliders';
 import { makeBrain } from './brains';
 import type { Character, Vehicle } from './entities';
 import { Projectile } from './entities';
@@ -27,7 +27,7 @@ const SWAP_TIME = 0.25;
 const ASSAULT_GAP = 0.24;
 /** Most of a fire cooldown's overshoot (s) that counts towards the next shot, so the rate holds at any frame rate. */
 const MAX_CARRY = 0.05;
-/** A semi-automatic trigger press this close (s) to the weapon being ready is queued, and kept that long. */
+/** A semi-automatic trigger press this close (s) to the weapon being ready is queued, and kept that long after it is. */
 const QUEUE_WINDOW = 0.1;
 /** Head hits of NPC shooters (the player's use WeaponSpec.headMul). */
 const NPC_HEAD_MUL = 2;
@@ -105,6 +105,8 @@ export class CombatSystem {
   private volley: Set<object> | null = null;
   /** Who and which zone the player's crosshair is on, for the trigger pull being resolved. */
   private aimed: { character: Character; zone: HitZone } | null = null;
+  /** Victims of a headshot in the trigger pull being resolved: the stat counts one per victim per pull. */
+  private headshotsThisPull: Set<Character> | null = null;
   /** Sim time each victim was last reported as assaulted. */
   private readonly assaulted = new WeakMap<object, number>();
   /** Sim time each rocket was launched (or first seen), for its arming delay. */
@@ -162,7 +164,9 @@ export class CombatSystem {
     }
     if (p.fireCooldown > 0) {
       // A semi-automatic pull just before the gun is ready fires the moment it is.
-      if (!w.auto && input.firePressed && p.fireCooldown <= QUEUE_WINDOW) p.fireQueued = QUEUE_WINDOW;
+      // The press is kept until then and a little after, so frame timing cannot lose it.
+      // On foot only: from a car, playerFire runs only while the button is held.
+      if (!w.auto && !fromVehicle && input.firePressed && p.fireCooldown <= QUEUE_WINDOW) p.fireQueued = p.fireCooldown + QUEUE_WINDOW;
       return;
     }
     p.fireQueued = 0;
@@ -225,8 +229,9 @@ export class CombatSystem {
   }
 
   /**
-   * Starts the cooldown after a shot. What the last frame overran the previous cooldown by counts
-   * towards this one (up to MAX_CARRY), so weapons keep their rate of fire at any frame rate.
+   * Starts the cooldown after a shot.
+   * What the last frame overran the previous cooldown by counts towards this one (up to MAX_CARRY),
+   * so weapons keep their rate of fire at any frame rate.
    */
   private startCooldown(c: Character, seconds: number): void {
     c.fireCooldown = Math.max(c.fireCooldown, -MAX_CARRY) + seconds;
@@ -234,9 +239,9 @@ export class CombatSystem {
   }
 
   /**
-   * One trigger pull from `from` along (dx, dy, dz): a weaponFired event, then the rocket or one ray
-   * per pellet within `spread`. A gun whose muzzle pokes through a wall (`wall`, see muzzleWall) fires
-   * into that wall instead: the flash comes from the chest and every pellet stops at the wall face.
+   * One trigger pull from `from` along (dx, dy, dz): a weaponFired event, then the rocket or one ray per pellet within `spread`.
+   * A gun whose muzzle pokes through a wall (`wall`, see muzzleWall) fires into that wall instead:
+   * the flash comes from the chest and every pellet stops at the wall face.
    */
   private discharge(shooter: Character, w: WeaponSpec, from: V3, dx: number, dy: number, dz: number, spread: number, wall: RayHit | null): void {
     const sim = this.sim;
@@ -264,6 +269,7 @@ export class CombatSystem {
       return;
     }
     this.volley = new Set();
+    this.headshotsThisPull = new Set();
     try {
       for (let i = 0; i < w.pellets; i++) {
         const d = this.spread(dx, dy, dz, spread);
@@ -271,28 +277,31 @@ export class CombatSystem {
       }
     } finally {
       this.volley = null;
+      this.headshotsThisPull = null;
     }
   }
 
   /**
    * The wall face between a character's chest and his muzzle, when the gun pokes through a solid wall
-   * (building, wall, container, pillar); null when the muzzle is clear. The hit is a shared scratch object.
+   * (building, wall, container, pillar); null when the muzzle is clear.
+   * The hit is a shared scratch object.
    */
   private muzzleWall(c: Character, muzzle: V3): RayHit | null {
-    const ax = c.pos.x;
-    const ay = c.pos.y + CHEST * c.height;
-    const az = c.pos.z;
-    const dx = muzzle.x - ax;
-    const dy = muzzle.y - ay;
-    const dz = muzzle.z - az;
-    const len = Math.hypot(dx, dy, dz);
-    if (!(len > 1e-6)) return null;
-    return this.sim.world.grid.raycast(ax, ay, az, dx / len, dy / len, dz / len, len, wallHit, isSolidForSight) ? wallHit : null;
+    return this.sim.world.grid.lineOfSight(c.pos.x, c.pos.y + CHEST * c.height, c.pos.z, muzzle.x, muzzle.y, muzzle.z, wallHit) ? null : wallHit;
   }
 
-  /** True when the character's gun pokes through a wall on foot, so its shots would only hit that wall. */
+  /**
+   * True when a shot fired now on foot would come from inside a wall, so it would only hit that wall.
+   * Firing raises the gun towards the aim (muzzle() follows `aiming`), wherever the body faces at the moment.
+   */
   muzzleBlocked(c: Character): boolean {
-    return this.muzzleWall(c, this.muzzle(c, false)) !== null;
+    const aiming = c.aiming;
+    c.aiming = true;
+    try {
+      return this.muzzleWall(c, this.muzzle(c, false)) !== null;
+    } finally {
+      c.aiming = aiming;
+    }
   }
 
   private spread(dx: number, dy: number, dz: number, angle: number): V3 {
@@ -327,8 +336,8 @@ export class CombatSystem {
   /**
    * Point the crosshair ray hits first (ignoring the shooter), and who and which zone it is on there.
    * The camera sits behind the shooter, so only what lies beyond the muzzle's depth along the ray counts:
-   * a van the camera has backed into, or a car or person between the camera and the player, would
-   * otherwise be shot from the muzzle backwards.
+   * a van the camera has backed into, or a car or person between the camera and the player,
+   * would otherwise be shot from the muzzle backwards.
    */
   cameraTarget(o: V3, d: V3, range: number, shooter: Character, muzzle: V3): AimPoint {
     const t0 = Math.max(0, (muzzle.x - o.x) * d.x + (muzzle.y - o.y) * d.y + (muzzle.z - o.z) * d.z);
@@ -343,13 +352,14 @@ export class CombatSystem {
       // Where the crosshair ray reaches the cylinder he fills as a whole (his head volume is narrower).
       const te = rayCylinderY(o.x, o.y, o.z, d.x, d.y, d.z, c.pos.x, c.pos.z, b.r, b.y0, b.y1, t);
       // Just past the muzzle, where the crosshair ray enters someone is the edge of him as seen from the muzzle,
-      // and shots there graze past. Shoot through his middle instead (where the crosshair ray passes nearest his
-      // axis), aimed at the spot where that line from the muzzle enters the zone the crosshair is on (head or
-      // body) at the crosshair's height on him: aiming at a point inside him would land the shot lower, as the
-      // muzzle is below the camera. The spot stays inside the zone's top and bottom (0.1 m, less in the head) so
-      // that pellets do not fly over his head. With the muzzle above his top (he lies on the ground, or is below
-      // the shooter) that line would run down his side into the road, so the shot goes to the crosshair's point
-      // on his top instead.
+      // and shots there graze past.
+      // Shoot through his middle instead (where the crosshair ray passes nearest his axis),
+      // aimed at the spot where that line from the muzzle enters the zone the crosshair is on (head or body)
+      // at the crosshair's height on him.
+      // Aiming at a point inside him would land the shot lower, as the muzzle is below the camera.
+      // The spot stays inside the zone's top and bottom (0.1 m, less in the head) so that pellets do not fly over his head.
+      // With the muzzle above his top (he lies on the ground, or is below the shooter) that line would run down his side
+      // into the road, so the shot goes to the crosshair's point on his top instead.
       if ((te >= 0 ? te : t) - t0 < 2 * b.r && muzzle.y < b.y1) {
         const v = zoneOf(c, r.zone);
         const tm = Math.max(t, ((c.pos.x - o.x) * d.x + (c.pos.z - o.z) * d.z) / flat);
@@ -486,8 +496,9 @@ export class CombatSystem {
     if (r.character) {
       const c = r.character;
       let zone = r.zone;
-      // The gun sits below the eyes, so on its way to the head under the crosshair a round can clip that man's
-      // shoulder first (at close range nearly always). A round still on course for that head is the headshot aimed.
+      // The gun sits below the eyes, so on its way to the head under the crosshair a round can clip that man's shoulder first
+      // (at close range nearly always).
+      // A round still on course for that head is the headshot aimed.
       const aimed = this.aimed;
       if (zone === 'body' && aimed && aimed.character === c && aimed.zone === 'head' && c.state === 'normal') {
         const head = zoneOf(c, 'head');
@@ -497,7 +508,10 @@ export class CombatSystem {
       if (zone === 'head') {
         const mul = shooter.isPlayer ? w.headMul : NPC_HEAD_MUL;
         dmg *= c.role === 'swat' ? Math.max(1, mul * HELMET) : mul;
-        if (shooter.isPlayer && c.alive) sim.progress.stats.headshots++;
+        if (shooter.isPlayer && c.alive && !this.headshotsThisPull?.has(c)) {
+          sim.progress.stats.headshots++;
+          this.headshotsThisPull?.add(c);
+        }
       }
       if (w.id === 'shotgun' && r.t < 8) dmg *= 1.3;
       if (shooter.role === 'cop' || shooter.role === 'swat' || shooter.role === 'gang') dmg *= c.isPlayer ? 0.55 : 1;
@@ -612,9 +626,10 @@ export class CombatSystem {
   // Damage
 
   /**
-   * Applies a hit (armour first, except for falls and drowning) and emits a 'damage' event for it, also
-   * when the armour took all of it. Ignored, with no event, on the dead, the removed, and the player in
-   * god mode or while wasted / busted. (dx, dz) is the direction the hit travels in.
+   * Applies a hit (armour first, except for falls and drowning) and emits a 'damage' event for it,
+   * also when the armour took all of it.
+   * Ignored, with no event, on the dead, the removed, and the player in god mode or while wasted / busted.
+   * (dx, dz) is the direction the hit travels in.
    */
   damageCharacter(c: Character, amount: number, attacker: Character | null, kind: DamageKind, dx: number, _dy: number, dz: number, zone: HitZone = 'body'): void {
     const sim = this.sim;
@@ -815,8 +830,9 @@ export class CombatSystem {
   }
 
   /**
-   * How much of a character a blast at (x, y, z) sees: line of sight from just above it to his feet,
-   * middle and head (0.3, 1.0 and 1.6 m up), as a share of the three, but at least a quarter.
+   * How much of a character a blast at (x, y, z) sees:
+   * line of sight from just above it to his feet, middle and head (0.3, 1.0 and 1.6 m up),
+   * as a share of the three, but at least a quarter.
    */
   private exposure(c: Character, x: number, y: number, z: number): number {
     const world = this.sim.world;

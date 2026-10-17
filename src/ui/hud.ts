@@ -2,6 +2,7 @@
 
 import { formatMoney, formatTime, wrapAngle } from '../core/math';
 import { KeyLabels } from '../input/input';
+import type { DamageKind } from '../sim/combat';
 import type { BigStyle, SimEvents } from '../sim/events';
 import type { Sim } from '../sim/sim';
 import { WEAPONS, type WeaponId } from '../sim/specs';
@@ -30,6 +31,8 @@ const initialShown = () => ({ money: -1, health: -1, armor: -1, weapon: '', ammo
 const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, toast: 0, delta: 0, hurt: 0, objective: 0 });
 /** Elements shown with the 'show' class for a while. */
 const TIMED = ['help', 'subtitle', 'objective', 'zone', 'radio', 'toast', 'delta', 'big'];
+/** Damage kinds that show the hitmarker when the player deals them. */
+const WEAPON_HIT: Readonly<Record<DamageKind, boolean>> = { bullet: true, melee: true, explosion: true, vehicle: false, fall: false, fire: false, impact: false, drown: false };
 /** Hitmarker display time (s) for a hit and for a kill. */
 const HIT_TIME = 0.12;
 const KILL_TIME = 0.25;
@@ -149,6 +152,8 @@ export class Hud {
   /** Hitmarkers for the player's hits; a damage-direction arc for hits on him that came from somewhere. */
   private onDamage(e: SimEvents['damage']): void {
     if (e.attacker?.isPlayer && !e.victim.isPlayer) {
+      // Weapon feedback: bullets, fists and explosions, not people run over.
+      if (!WEAPON_HIT[e.kind]) return;
       const el = this.el.hitmarker!;
       // A kill or a headshot keeps its colour until the marker goes out; a kill stays up longer.
       this.hitTimer = Math.max(this.hitTimer, e.killed ? KILL_TIME : HIT_TIME);
@@ -180,8 +185,8 @@ export class Hud {
         a.el.style.opacity = '0';
         continue;
       }
-      // The bearing relative to the view is positive to the left (headings turn anticlockwise), and
-      // CSS rotates clockwise from the top of the screen.
+      // The bearing relative to the view is positive to the left (headings turn anticlockwise),
+      // and CSS rotates clockwise from the top of the screen.
       const deg = (((-wrapAngle(a.bearing - camYaw) * 180) / Math.PI) % 360 + 360) % 360;
       a.el.style.transform = `rotate(${deg.toFixed(1)}deg)`;
       a.el.style.opacity = (a.t / ARC_TIME).toFixed(3);
@@ -365,8 +370,8 @@ export class Hud {
       el.prompt!.innerHTML = this.keyCaps(prompt);
       el.prompt!.classList.remove('hidden');
     } else el.prompt!.classList.add('hidden');
-    // A reticle whenever a gun is out on foot: small and faint for hip fire, full while aiming (`aiming`
-    // is the aim button), red while the muzzle is inside a wall (the shot would only hit that wall).
+    // A reticle whenever a gun is out on foot: small and faint for hip fire, full while aiming (`aiming` is the aim button),
+    // red while the muzzle is inside a wall (the shot would only hit that wall).
     const showCross = p.state === 'normal' && p.alive && !sim.playerDown && p.inventory.current !== 'fists';
     el.cross!.classList.toggle('show', showCross);
     el.cross!.classList.toggle('hip', showCross && !aiming);

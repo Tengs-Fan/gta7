@@ -34,7 +34,10 @@ export class CameraController {
   private deathT = 0;
   private wasInVehicle = false;
   private initialized = false;
-  /** What rayFor() rebuilds the on-foot view from: whether the last update() framed the player on foot, its shoulder offset, how far along the boom the camera ended up (1 = not pulled in) and the floor it was kept above. */
+  /**
+   * What rayFor() rebuilds the on-foot view from: whether the last update() framed the player on foot,
+   * its shoulder offset, how far along the boom the camera ended up (1 = not pulled in) and the floor it was kept above.
+   */
   private footView = false;
   private shoulder = 0.42;
   private boom = 1;
@@ -75,11 +78,12 @@ export class CameraController {
   }
 
   /**
-   * The crosshair ray for the current yaw and pitch, without waiting for update(): aimRay() still points
-   * where the last frame looked, so a look and a shot in the same frame would miss. On foot the view is
-   * rebuilt like update() frames it, from the current target and distance (no smoothing step), pulled in
-   * along the boom as far as the last frame's collision did and kept above its floor (no new raycast).
-   * In a vehicle, while wasted and on the title screen it is aimRay(). Changes nothing.
+   * The crosshair ray for the current yaw and pitch, without waiting for update().
+   * aimRay() still points where the last frame looked, so a look and a shot in the same frame would miss.
+   * On foot the view is rebuilt the way update() frames it, from the current target and distance (no smoothing step),
+   * pulled in along the boom as far as the last frame's collision did and kept above its floor (no new raycast).
+   * In a vehicle, while wasted and on the title screen it is aimRay().
+   * It changes nothing.
    */
   rayFor(): { origin: V3; dir: V3 } {
     if (!this.footView) return this.aimRay();

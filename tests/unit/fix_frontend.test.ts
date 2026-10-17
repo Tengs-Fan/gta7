@@ -1496,6 +1496,14 @@ describe('combat feedback on the HUD and in the mix (r2 combat)', () => {
     damage({ attacker: null, kind: 'fire', dirX: 0, dirZ: 0 });
     damage({ victim: sim.player, attacker: sim.player, kind: 'explosion' });
     expect(marker.classList.contains('show')).toBe(false);
+    // Nor for running people over: it is weapon feedback (bullets, fists, explosions).
+    damage({ kind: 'vehicle', killed: true });
+    expect(marker.classList.contains('show')).toBe(false);
+    damage({ kind: 'melee' });
+    expect(marker.classList.contains('show')).toBe(true);
+    update(0.2);
+    damage({ kind: 'explosion', killed: true });
+    expect(marker.classList.contains('kill')).toBe(true);
   });
 
   it('a hit on the player from directly behind turns the first damage arc to the bottom of the screen; it fades in a second', () => {
@@ -1628,6 +1636,8 @@ describe('combat feedback on the HUD and in the mix (r2 combat)', () => {
     hit(other, { killed: true });
     hit(p, { attacker: other });
     hit(civ, { attacker: other });
+    // Running someone over is no weapon hit.
+    hit(sim.spawnCharacter('civilian', p.pos.x, p.pos.z + 5), { kind: 'vehicle', killed: true });
     expect(confirm).not.toHaveBeenCalled();
     tone.mockClear();
     noise.mockClear();
