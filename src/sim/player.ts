@@ -20,6 +20,10 @@ export class PlayerController {
   private lastZ = 0;
   /** Last vehicle the player entered (for mission checks). */
   lastVehicle: Vehicle | null = null;
+  /** Keyboard steering wheel position before the high-speed authority cut (see steerFor). */
+  private steerKb = 0;
+  private steerCar: Vehicle | null = null;
+  private steerFrame = -1;
 
   constructor(private readonly sim: Sim) {
     this.lastX = sim.player.pos.x;
@@ -283,7 +287,7 @@ export class PlayerController {
     }
     c.throttle = clamp(input.throttle, 0, 1);
     c.brake = clamp(input.brake, 0, 1);
-    c.steer = clamp(input.steer, -1, 1);
+    c.steer = this.steerFor(v, input, dt);
     c.handbrake = input.handbrake;
 
     if (input.hornPressed) {
@@ -313,7 +317,32 @@ export class PlayerController {
       else if (v.speed < 11) this.exitPending = true;
       else this.exitVehicle(true);
     }
-    void dt;
+  }
+
+  /**
+   * The steering sent to the car. Keys are on or off, so they are shaped: the wheel winds in more
+   * slowly the faster the car goes (a tap at speed is a lane nudge, not a swerve), eases back at a
+   * fixed rate, and above 20 m/s stops short of full lock. Holding the handbrake keeps today's
+   * immediate full lock for handbrake turns and drifts. Analog sticks pass straight through. Either
+   * way the car's own steering rate limit (stepVehicle) still applies on top.
+   */
+  private steerFor(v: Vehicle, input: PlayerInput, dt: number): number {
+    const frame = this.sim.frame;
+    // A new car, or the first frame back at the wheel (after a cutscene lock or an exit that found
+    // no room), starts from the centre.
+    if (v !== this.steerCar || frame !== this.steerFrame + 1) this.steerKb = 0;
+    this.steerCar = v;
+    this.steerFrame = frame;
+    const target = clamp(input.steer, -1, 1);
+    if (!input.steerDigital || input.handbrake) {
+      this.steerKb = target;
+      return target;
+    }
+    const speed = v.speed;
+    // Today's 4.2/s up to walking pace (full lock in 0.24 s for parking), then slower with speed.
+    const rate = KEY_STEER_RATE / (1 + Math.max(0, speed - 5) / 12);
+    this.steerKb = keySteerStep(this.steerKb, target, rate, KEY_STEER_RETURN, dt);
+    return this.steerKb / (1 + Math.max(0, speed - 20) / 25);
   }
 
   /** Gets the player out of the current vehicle. Returns false if there was no room. */
@@ -406,4 +435,25 @@ export class PlayerController {
     this.exitPending = false;
     sim.events.emit('vehicleExit', { vehicle: v, character: p });
   }
+}
+
+/** Keyboard steering: wind-in rate (full lock per second) at walking pace, and the rate back to the centre. */
+const KEY_STEER_RATE = 4.2;
+const KEY_STEER_RETURN = 8;
+
+/**
+ * One step of the keyboard wheel towards `target`: away from the centre at `ramp` per second, back
+ * towards it (easing off, or on the way through to the other side) at `back` per second.
+ */
+function keySteerStep(cur: number, target: number, ramp: number, back: number, dt: number): number {
+  if (cur !== 0 && (Math.sign(target) !== Math.sign(cur) || Math.abs(target) < Math.abs(cur))) {
+    const stop = Math.sign(target) === Math.sign(cur) ? target : 0;
+    const need = Math.abs(cur - stop) / back;
+    if (need >= dt) return cur + Math.sign(stop - cur) * back * dt;
+    cur = stop;
+    dt -= need;
+  }
+  const d = target - cur;
+  const max = ramp * dt;
+  return Math.abs(d) <= max ? target : cur + Math.sign(d) * max;
 }

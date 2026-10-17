@@ -179,7 +179,7 @@ export class GameRenderer {
       }),
       ev.on('impact', (e) => {
         if (e.strength > 7) fx.debris(e.x, e.y, e.z);
-        if (e.vehicle && e.vehicle.driver === sim.player) this.cameraCtl.addShake(Math.min(0.8, e.strength / 25));
+        if (e.vehicle && e.vehicle.driver === sim.player) this.cameraCtl.addKick(e.x - e.vehicle.pos.x, e.z - e.vehicle.pos.z, e.strength);
       }),
       ev.on('propBroken', (e) => {
         this.props.breakProp(e.index, e.dirX, e.dirZ);

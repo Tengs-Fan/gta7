@@ -1446,3 +1446,30 @@ describe('map wheel zoom: a notch is one step on every platform', () => {
     expect(zoom()).toBeCloseTo(0.5 + 19 * 4 * 0.005, 6);
   });
 });
+
+describe('r2 driving: digital steering flag (P23a)', () => {
+  it('keys steer digitally; a deflected stick overrides them as analog', () => {
+    const pad = fakePad();
+    const inp = newInput();
+    inp.attach();
+    inp.inVehicle = true;
+    const poll = () => {
+      const fi = inp.poll(1 / 60);
+      inp.endFrame();
+      return fi.player;
+    };
+    // No key and a centred stick: the keyboard's 0, eased back by the player controller.
+    expect(poll()).toMatchObject({ steer: 0, steerDigital: true });
+    dom.win.dispatchEvent(keyEv('keydown', 'KeyD', 'd'));
+    expect(poll()).toMatchObject({ steer: 1, steerDigital: true });
+    pad.axes[0] = -0.6;
+    const stick = poll();
+    expect(stick.steerDigital).toBe(false);
+    expect(stick.steer).toBeLessThan(-0.4);
+    pad.axes[0] = 0.05; // inside the dead zone: the key counts again
+    expect(poll()).toMatchObject({ steer: 1, steerDigital: true });
+    dom.win.dispatchEvent(keyEv('keyup', 'KeyD', 'd'));
+    dom.win.dispatchEvent(keyEv('keydown', 'ArrowLeft', 'ArrowLeft'));
+    expect(poll()).toMatchObject({ steer: -1, steerDigital: true });
+  });
+});

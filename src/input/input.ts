@@ -329,6 +329,7 @@ export class Input {
       p.throttle = fwd;
       p.brake = back;
       p.steer = right - left;
+      p.steerDigital = true;
       p.sprint = this.key('ShiftLeft', 'ShiftRight');
       p.jump = this.pressed('Space');
       p.handbrake = this.key('Space');
@@ -382,6 +383,7 @@ export class Input {
           p.moveX = lx;
           p.moveZ = -ly;
           p.steer = lx;
+          p.steerDigital = false;
         }
         p.sprint = p.sprint || b(0);
         if (this.inVehicle) {

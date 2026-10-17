@@ -30,6 +30,11 @@ export interface PlayerInput {
   throttle: number;
   brake: number;
   steer: number;
+  /**
+   * The steer value is digital: it came from keys (A/D/arrows, or no key at all) rather than an
+   * analog stick, so the player controller shapes it (see PlayerController.steerFor).
+   */
+  steerDigital: boolean;
   handbrake: boolean;
   horn: boolean;
   hornPressed: boolean;
@@ -58,6 +63,7 @@ export function neutralInput(): PlayerInput {
     throttle: 0,
     brake: 0,
     steer: 0,
+    steerDigital: false,
     handbrake: false,
     horn: false,
     hornPressed: false,

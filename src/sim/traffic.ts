@@ -1,17 +1,47 @@
 // Streams ambient traffic and parked cars in and out around the player.
 
-import type { Lane } from '../world/roads';
+import { axisOf, type Lane } from '../world/roads';
 import { pointSegDist } from '../core/math';
+import type { Rng } from '../core/rng';
 import { WATER_Y } from '../world/constants';
 import type { Vehicle } from './entities';
 import type { Sim } from './sim';
 import { PARKED_MIX, TRAFFIC_MIX, type VehicleKind } from './specs';
+
+/** Above this speed (m/s) the player outruns the traffic streamed around him: spawn ahead too. */
+const AHEAD_SPEED = 8;
+/** Spawn tries (of 12) taken first from the lanes ahead, and their distance band from the player (m). */
+const AHEAD_TRIES = 7;
+const AHEAD_MIN = 45;
+const AHEAD_MAX = 200;
+/** Cars this far behind a fast player (m), out of view, make room for cars ahead. */
+const RECYCLE_BEHIND = 120;
+/** Junctions ahead whose cross streets get traffic. */
+const AHEAD_JUNCTIONS = 3;
+/** Cross traffic waits this far (m) before the stop line, just round the corner. */
+const QUEUE_NEAR = 6;
+const QUEUE_FAR = 10;
+/** Seconds the cross street needs a green before the player arrives for its cars to be out in front of him. */
+const CROSS_LEAD = 3;
+
+/** A stretch of lane to spawn on: distances s0-s1 along it. */
+interface SpawnSpan {
+  lane: Lane;
+  s0: number;
+  s1: number;
+}
 
 export class TrafficSystem {
   private timer = 0;
   private parkedTimer = 0;
   private laneTimer = 0;
   private nearLanes: Lane[] = [];
+  /** Running totals of the near lanes' pick weights. */
+  private nearCum: number[] = [];
+  /** Where cross traffic queues at the junctions ahead of a fast player (see refreshAhead). */
+  private aheadSpans: SpawnSpan[] = [];
+  private aheadCum: number[] = [];
+  private aheadTime = -Infinity;
   readonly parkedBySpot = new Map<number, Vehicle>();
   /** Multiplier for traffic density (settings / tests). */
   density = 1;
@@ -45,6 +75,8 @@ export class TrafficSystem {
   private streamTraffic(): void {
     const sim = this.sim;
     const pp = sim.playerPos();
+    // Every tick, not just with the near lanes: at 30 m/s the player crosses half a block in 1.5 s.
+    this.refreshAhead();
     let count = 0;
     for (const v of sim.vehicles) {
       if (v.removed || v.persistent || v.owner === 'police' || v.owner === 'mission') continue;
@@ -77,6 +109,19 @@ export class TrafficSystem {
         sim.removeVehicle(v);
       }
     }
+    // A fast player leaves the cars streamed around him behind, and at the target count none spawn
+    // ahead: retire the furthest one well behind him, out of view, to make room.
+    if (count >= this.targetCount && this.aheadSpans.length > 0) {
+      const pv = this.playerVel();
+      const behind = sim.vehicles
+        .filter((v) => !v.removed && !v.persistent && v.owner === 'traffic' && v.driver && v.driver !== sim.player && (v.pos.x - pp.x) * pv.x + (v.pos.z - pp.z) * pv.z < 0 && Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z) > RECYCLE_BEHIND)
+        .sort((a, b) => Math.hypot(b.pos.x - pp.x, b.pos.z - pp.z) - Math.hypot(a.pos.x - pp.x, a.pos.z - pp.z));
+      const gone = behind.find((v) => !sim.isVisible(v.pos.x, v.pos.y, v.pos.z));
+      if (gone) {
+        sim.removeVehicle(gone);
+        count--;
+      }
+    }
     let spawned = 0;
     while (count < this.targetCount && spawned < 2) {
       if (!this.trySpawnTraffic()) break;
@@ -88,22 +133,97 @@ export class TrafficSystem {
   private refreshNearLanes(): void {
     const pp = this.sim.playerPos();
     this.nearLanes = this.sim.roads.lanes.filter((l) => pointSegDist(pp.x, pp.z, l.sx, l.sz, l.ex, l.ez) < 235);
+    this.nearCum = runningWeights(this.nearLanes.map((l) => l.lanesInDir));
   }
 
-  /** Spawns one moving car on a lane out of the player's view. */
-  trySpawnTraffic(minDist = 45, maxDist = 165, kind?: VehicleKind): Vehicle | null {
+  private playerVel(): { x: number; z: number } {
+    const p = this.sim.player;
+    return p.vehicle ? p.vehicle.vel : p.vel;
+  }
+
+  /**
+   * Where a fast player is about to be. The straight road ahead is in plain view, where nothing may
+   * spawn, so its traffic has to come in from the side streets, and in time: a car queued round the
+   * corner only pulls out in front of him if its light turns green early enough. Takes the next
+   * junctions along his lane (it and its straight continuation) and, at each, the cross-street lanes
+   * arriving from either side whose green comes at least CROSS_LEAD s before he gets there.
+   */
+  private refreshAhead(): void {
+    this.aheadSpans = [];
+    this.aheadCum = [];
+    this.aheadTime = this.sim.time;
+    const pv = this.playerVel();
+    const speed = Math.hypot(pv.x, pv.z);
+    if (!(speed > AHEAD_SPEED)) return;
+    const roads = this.sim.roads;
+    const pp = this.sim.playerPos();
+    let lane: Lane | null = roads.nearestLane(pp.x, pp.z, Math.atan2(pv.x, pv.z)).lane;
+    // Only along a lane, not across a plaza or the beach.
+    if (lane.dx * pv.x + lane.dz * pv.z < 0.7 * speed) return;
+    for (let n = 0; n < AHEAD_JUNCTIONS && lane; n++) {
+      const node = roads.nodes[lane.to]!;
+      const lead = Math.hypot(node.x - pp.x, node.z - pp.z) / speed - CROSS_LEAD;
+      for (const turn of [1, 3]) {
+        const side = node.neighbors[(lane.dir + turn) % 4]!;
+        if (side < 0 || lead < 0) continue;
+        for (const l of roads.lanesBetween(side, node.id)) {
+          if (!this.greenWithin(node.id, l, lead)) continue;
+          const a = Math.max(6, l.length - QUEUE_FAR);
+          const b = l.length - QUEUE_NEAR;
+          if (b > a) this.aheadSpans.push({ lane: l, s0: a, s1: b });
+        }
+      }
+      lane = lane.turns.find((t) => t.kind === 'straight')?.to ?? null;
+    }
+    this.aheadCum = runningWeights(this.aheadSpans.map((sp) => sp.lane.lanesInDir));
+  }
+
+  /** Whether the light for `lane` at its junction shows green at some point in the next `secs` seconds. */
+  private greenWithin(nodeId: number, lane: Lane, secs: number): boolean {
+    const t = this.sim.time;
+    const axis = axisOf(lane.dir);
+    for (let dt = 0; dt <= secs; dt += 0.5) if (this.sim.roads.signalState(nodeId, axis, t + dt) === 'green') return true;
+    return false;
+  }
+
+  /**
+   * Spawns one moving car on a lane out of the player's view, minDist-maxDist from him (default
+   * 45-165 m). When he drives fast, the first 7 of the 12 tries go to the cross streets ahead
+   * (45-200 m, within the caller's band) and no car spawns behind him. Lanes are weighted by their
+   * count per direction, so an avenue lane is twice as likely as a street lane.
+   */
+  trySpawnTraffic(minDist?: number, maxDist?: number, kind?: VehicleKind): Vehicle | null {
     const sim = this.sim;
-    if (this.nearLanes.length === 0 || maxDist > 230) this.refreshNearLanes();
+    const nearMin = minDist ?? 45;
+    const nearMax = maxDist ?? 165;
+    const aheadMin = Math.max(AHEAD_MIN, nearMin);
+    const aheadMax = Math.min(AHEAD_MAX, maxDist ?? AHEAD_MAX);
+    if (this.nearLanes.length === 0 || nearMax > 230) this.refreshNearLanes();
     if (this.nearLanes.length === 0) return null;
+    // Missions spawn through here too, with or without the streaming that refreshes these.
+    if (sim.time - this.aheadTime >= 0.4) this.refreshAhead();
     const pp = sim.playerPos();
+    const pv = this.playerVel();
+    const fast = Math.hypot(pv.x, pv.z) > AHEAD_SPEED;
     for (let tries = 0; tries < 12; tries++) {
-      const lane = sim.rng.pick(this.nearLanes);
-      if (lane.length < 16) continue;
-      const s = sim.rng.range(6, lane.length - 6);
+      const ahead = this.aheadSpans.length > 0 && aheadMax > aheadMin && tries < AHEAD_TRIES;
+      let lane: Lane;
+      let s: number;
+      if (ahead) {
+        const span = pickWeighted(sim.rng, this.aheadSpans, this.aheadCum);
+        lane = span.lane;
+        s = sim.rng.range(span.s0, span.s1);
+      } else {
+        lane = pickWeighted(sim.rng, this.nearLanes, this.nearCum);
+        if (lane.length < 16) continue;
+        s = sim.rng.range(6, lane.length - 6);
+      }
       const x = lane.sx + lane.dx * s;
       const z = lane.sz + lane.dz * s;
       const d = Math.hypot(x - pp.x, z - pp.z);
-      if (d < minDist || d > maxDist) continue;
+      if (ahead ? d < aheadMin || d > aheadMax : d < nearMin || d > nearMax) continue;
+      // A car spawned behind a fast player is left behind at once (and recycled): pure churn.
+      if (!ahead && fast && (x - pp.x) * pv.x + (z - pp.z) * pv.z < 0) continue;
       // Spawn ranges lie inside the fog-free distance: never pop a car into view.
       if (sim.isVisible(x, 1, z)) continue;
       if (!this.isClear(x, z, 11)) continue;
@@ -183,6 +303,25 @@ export class TrafficSystem {
       this.parkedBySpot.set(i, v);
     }
   }
+}
+
+/** Running totals of `weights`, for pickWeighted. */
+function runningWeights(weights: number[]): number[] {
+  let t = 0;
+  return weights.map((w) => (t += w));
+}
+
+/** An item of `items` drawn with probability proportional to its weight (`cum`: running totals). */
+function pickWeighted<T>(rng: Rng, items: readonly T[], cum: readonly number[]): T {
+  const r = rng.next() * cum[cum.length - 1]!;
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid]! > r) hi = mid;
+    else lo = mid + 1;
+  }
+  return items[lo]!;
 }
 
 function hash(i: number): number {
