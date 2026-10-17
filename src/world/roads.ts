@@ -86,6 +86,8 @@ export class RoadNetwork {
   readonly lanes: Lane[] = [];
   readonly segments: RoadSegment[] = [];
   private readonly lanesByEdge = new Map<number, Lane[]>();
+  /** distanceField() results by goal node. */
+  private readonly fields = new Map<number, Float64Array>();
   private readonly n: number;
 
   constructor(readonly layout: CityLayout) {
@@ -334,6 +336,41 @@ export class RoadNetwork {
       }
     }
     return null;
+  }
+
+  /**
+   * Shortest road distance from every intersection to `goal` (Dijkstra over node neighbours,
+   * Infinity where unreachable). Memoised per goal; callers must not modify the array.
+   */
+  distanceField(goal: number): Float64Array {
+    let field = this.fields.get(goal);
+    if (field) return field;
+    const nodes = this.nodes;
+    field = new Float64Array(nodes.length).fill(Infinity);
+    const done = new Uint8Array(nodes.length);
+    field[goal] = 0;
+    // Plain O(n^2) selection: the grid has about a hundred intersections.
+    for (;;) {
+      let cur = -1;
+      let best = Infinity;
+      for (let i = 0; i < nodes.length; i++) {
+        if (!done[i] && field[i]! < best) {
+          best = field[i]!;
+          cur = i;
+        }
+      }
+      if (cur < 0) break;
+      done[cur] = 1;
+      const nc = nodes[cur]!;
+      for (const nb of nc.neighbors) {
+        if (nb < 0 || done[nb]) continue;
+        const nn = nodes[nb]!;
+        const d = best + Math.hypot(nn.x - nc.x, nn.z - nc.z);
+        if (d < field[nb]!) field[nb] = d;
+      }
+    }
+    this.fields.set(goal, field);
+    return field;
   }
 
   /** Turn from `lane` towards the neighbouring node `next`, or null if not adjacent. */

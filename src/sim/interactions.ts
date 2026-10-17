@@ -62,20 +62,36 @@ export class Interactions {
     return null;
   }
 
-  /** HUD prompt for the marker under the player. */
+  /** HUD prompt for the marker under the player, or for retrying a failed mission. */
   prompt(): string | null {
     const m = this.current();
-    if (!m) return null;
+    if (!m) return this.retryPrompt();
     if (m.kind === 'mission' && (this.sim.missions.active || this.sim.wanted.level > 0)) {
       return this.sim.wanted.level > 0 ? 'Lose the cops before starting a mission.' : null;
     }
     return m.label;
   }
 
+  /** Offers the retry of a mission that just failed (markers under the player come first). */
+  private retryPrompt(): string | null {
+    const sim = this.sim;
+    const def = sim.missions.retryOffer();
+    if (!def) return null;
+    const p = sim.player;
+    // In a vehicle the key is the horn (see Input), so the retry is taken on foot.
+    if (p.state === 'inVehicle') return `Get out of the vehicle to retry "${def.title}"`;
+    if (!p.onFoot) return null;
+    if (sim.wanted.level > 0) return 'Lose the cops before retrying.';
+    return `Press E to retry "${def.title}"`;
+  }
+
   interact(): void {
     const sim = this.sim;
     const m = this.current();
-    if (!m) return;
+    if (!m) {
+      sim.missions.retryNow();
+      return;
+    }
     switch (m.kind) {
       case 'gunshop':
         sim.events.emit('shopOpen', { poi: m.ref });

@@ -44,6 +44,110 @@ const HOLD_TIMEOUT = 4;
 const QUEUE_PATIENCE = 40;
 /** Seconds two cars may stand nose to nose before the one out of its lane backs into it. */
 const FACE_OFF_PATIENCE = 3;
+/** A car on the route policy has arrived once it is this close (straight-line) to its destination. */
+export const ARRIVE_RADIUS = 20;
+/**
+ * What a turn from the wrong lane (a late lane change into it) costs the route planner, in metres:
+ * route drivers keep to lane discipline unless the legal way round is that much longer. Strict
+ * discipline would send a car in the inner lane of a border avenue all the way to the corner.
+ */
+const WRONG_LANE_COST = 60;
+
+/**
+ * A route destination planned over the lane graph, so lane discipline (see WRONG_LANE_COST) and the
+ * no-U-turn rule are part of the plan. `start[i]` and `end[i]` are the planning costs from the start
+ * and from the end of lane i (the best turn on), `startLen[i]` and `endLen[i]` the metres of those
+ * same drives, and `goalS[i]` the offset along lane i of its closest approach to the destination,
+ * for the lanes that pass within ARRIVE_RADIUS of it (NaN for the others).
+ */
+interface RouteField {
+  start: Float64Array;
+  end: Float64Array;
+  startLen: Float64Array;
+  endLen: Float64Array;
+  goalS: Float64Array;
+}
+
+/** A turn's length for the route planner, a turn from the wrong lane costing extra. */
+function turnCost(t: Turn): number {
+  return t.legal ? t.length : t.length + WRONG_LANE_COST;
+}
+
+const routeFields = new WeakMap<RoadNetwork, Map<string, RouteField>>();
+
+function routeField(roads: RoadNetwork, x: number, z: number): RouteField {
+  let cache = routeFields.get(roads);
+  if (!cache) {
+    cache = new Map();
+    routeFields.set(roads, cache);
+  }
+  const key = `${x.toFixed(1)},${z.toFixed(1)}`;
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const lanes = roads.lanes;
+  const n = lanes.length;
+  const near = new Float64Array(n);
+  const along = new Float64Array(n);
+  let nearest = Infinity;
+  for (const l of lanes) {
+    const s = clamp((x - l.sx) * l.dx + (z - l.sz) * l.dz, 0, l.length);
+    along[l.id] = s;
+    near[l.id] = Math.hypot(x - (l.sx + l.dx * s), z - (l.sz + l.dz * s));
+    nearest = Math.min(nearest, near[l.id]!);
+  }
+  // A destination farther than ARRIVE_RADIUS from every road is driven to as close as the roads
+  // get; the car never arrives there and keeps circling.
+  const reach = Math.max(ARRIVE_RADIUS, nearest + 0.5);
+  const goalS = new Float64Array(n).fill(NaN);
+  const start = new Float64Array(n).fill(Infinity);
+  const startLen = new Float64Array(n).fill(Infinity);
+  for (const l of lanes) {
+    if (near[l.id]! <= reach) {
+      goalS[l.id] = along[l.id]!;
+      start[l.id] = along[l.id]!;
+      startLen[l.id] = along[l.id]!;
+    }
+  }
+  // Reverse Dijkstra over the turns. Edge from lane l into lane m: drive all of l, then the turn.
+  const preds: Array<Array<{ lane: Lane; turn: Turn }>> = Array.from({ length: n }, () => []);
+  for (const l of lanes) for (const t of l.turns) preds[t.to.id]!.push({ lane: l, turn: t });
+  const done = new Uint8Array(n);
+  for (;;) {
+    let m = -1;
+    let best = Infinity;
+    for (let i = 0; i < n; i++) {
+      if (!done[i] && start[i]! < best) {
+        best = start[i]!;
+        m = i;
+      }
+    }
+    if (m < 0) break;
+    done[m] = 1;
+    for (const p of preds[m]!) {
+      const c = p.lane.length + turnCost(p.turn) + best;
+      if (c < start[p.lane.id]!) {
+        start[p.lane.id] = c;
+        startLen[p.lane.id] = p.lane.length + p.turn.length + startLen[m]!;
+      }
+    }
+  }
+  const end = new Float64Array(n).fill(Infinity);
+  const endLen = new Float64Array(n).fill(Infinity);
+  for (const l of lanes) {
+    for (const t of l.turns) {
+      const c = turnCost(t) + start[t.to.id]!;
+      if (c < end[l.id]!) {
+        end[l.id] = c;
+        endLen[l.id] = t.length + startLen[t.to.id]!;
+      }
+    }
+  }
+  const field: RouteField = { start, end, startLen, endLen, goalS };
+  // Only a few destinations are ever live at once: keep the cache small.
+  if (cache.size >= 32) cache.delete(cache.keys().next().value!);
+  cache.set(key, field);
+  return field;
+}
 
 /**
  * Kinds of reversing: a slow queue manoeuvre (making room, backing up to overtake), the stuck rule
@@ -104,8 +208,11 @@ export class DriverAI {
   decel: number;
   /** Chase / flee subject. */
   target: Character | Vehicle | null = null;
-  /** Fixed destination for the route policy. */
+  /** Fixed destination for the route policy (also a waypoint for 'chase', see police search). */
   dest: { x: number; z: number } | null = null;
+  /** The route field for `routeDest` (see routeField). */
+  private route: RouteField | null = null;
+  private routeDest: { x: number; z: number } | null = null;
   /** Pursuit: drive straight at the target when close and visible. */
   direct = false;
   private holdUntil = -Infinity;
@@ -123,6 +230,7 @@ export class DriverAI {
   private honkCooldown = 0;
   private sightTimer = 0;
   private visibleTarget = false;
+  /** Route policy: within ARRIVE_RADIUS of `dest`; the car then stops and holds there. */
   arrived = false;
   /** Lane whose signal we committed to stop for (prevents yellow-light dithering). */
   private stopLane = -1;
@@ -200,6 +308,44 @@ export class DriverAI {
     this.direct = false;
   }
 
+  /** Drive to (x, z) on the route policy, stop within ARRIVE_RADIUS of it and wait there. */
+  setDestination(x: number, z: number): void {
+    if (this.policy !== 'route') this.setPolicy('route');
+    this.dest = { x, z };
+    this.arrived = false;
+    this.resetPath();
+  }
+
+  /** The route field towards `dest`, or null without one. */
+  private routeTo(): RouteField | null {
+    const d = this.dest;
+    if (!d) return null;
+    if (this.routeDest !== d) {
+      this.routeDest = d;
+      this.route = routeField(this.host.roads, d.x, d.z);
+    }
+    return this.route;
+  }
+
+  /**
+   * Route policy: driving distance left to the destination along the planned route (0 once
+   * arrived, Infinity without a destination or when none of the roads leads there).
+   */
+  routeRemaining(): number {
+    if (this.policy !== 'route' || !this.dest) return Infinity;
+    if (this.arrived) return 0;
+    const field = this.routeTo();
+    const seg = this.segs[0];
+    if (!field || !seg) return Infinity;
+    const left = Math.max(0, seg.length - this.s);
+    if (seg.turn) return left + field.startLen[seg.turn.to.id]!;
+    const lane = seg.lane!;
+    const at = lane.length - left;
+    const g = field.goalS[lane.id]!;
+    if (at <= g) return g - at;
+    return left + field.endLen[lane.id]!;
+  }
+
   /** Snap onto the nearest lane in the vehicle's travel direction. */
   resetPath(): void {
     const v = this.vehicle;
@@ -253,22 +399,24 @@ export class DriverAI {
     if (turns.length === 0) return null;
     const rng = this.host.rng;
     const roads = this.host.roads;
-    if (this.policy === 'chase' || this.policy === 'route') {
+    if (this.policy === 'chase') {
       const tp = this.targetPos();
       if (tp) {
         const goal = roads.nearestNode(tp.x, tp.z);
-        if (goal.id === lane.to) {
-          if (this.policy === 'route') this.arrived = true;
-        } else {
+        if (goal.id !== lane.to) {
           let route = roads.findRoute(lane.to, goal.id);
           // Lanes have no U-turn: go round the block rather than take a random turn away from the goal.
           if (route && route.length > 1 && route[1] === lane.from) route = roads.findRoute(lane.to, goal.id, lane.from);
           if (route && route.length > 1) {
             const t = roads.turnTowards(lane, route[1]!);
-            if (t && (this.policy === 'chase' || t.legal)) return t;
+            if (t) return t;
           }
         }
       }
+    }
+    if (this.policy === 'route') {
+      const t = this.routeTurn(lane);
+      if (t) return t;
     }
     if (this.policy === 'flee') {
       const tp = this.targetPos();
@@ -293,6 +441,26 @@ export class DriverAI {
     if (steerable.length > 0) pool = steerable;
     const weights = pool.map((t) => [t, t.kind === 'straight' ? 3 : 1.4] as const);
     return rng.weighted(weights);
+  }
+
+  /**
+   * Route policy: the turn on the shortest drive to the destination (null when no road leads
+   * there), from the wrong lane only when the legal way round is much longer (WRONG_LANE_COST).
+   * A turn tighter than the vehicle steers is still taken, at a crawl (see turnSeg).
+   */
+  private routeTurn(lane: Lane): Turn | null {
+    const field = this.routeTo();
+    if (!field) return null;
+    let best: Turn | null = null;
+    let bestCost = Infinity;
+    for (const t of lane.turns) {
+      const c = turnCost(t) + field.start[t.to.id]!;
+      if (c < bestCost) {
+        bestCost = c;
+        best = t;
+      }
+    }
+    return best;
   }
 
   /** Projects the vehicle onto the current path and advances the cursor. */
@@ -365,6 +533,8 @@ export class DriverAI {
     this.waitLine = Infinity;
     this.pathOffset = Infinity;
 
+    // Arrived and stopped: wait there (holds expire unless asserted again).
+    if (this.arrived && this.policy === 'route' && this.dest && Math.abs(v.forwardSpeed) < 0.5) this.hold = true;
     if (this.hold) {
       c.throttle = 0;
       c.brake = 0;
@@ -503,6 +673,10 @@ export class DriverAI {
       }
       targetSpeed = Math.min(this.segs[0]!.speed * this.speedMul, this.maxSpeed);
       targetSpeed = Math.min(targetSpeed, this.planSpeed());
+      const dest = this.policy === 'route' ? this.dest : null;
+      if (dest && !this.arrived && Math.hypot(v.pos.x - dest.x, v.pos.z - dest.z) <= ARRIVE_RADIUS) this.arrived = true;
+      // There: brake to a stop on the lane (the hold above takes over once stopped).
+      if (dest && this.arrived) targetSpeed = 0;
     }
 
     // Obstacles ahead (vehicles and pedestrians).

@@ -33,6 +33,14 @@ function iconGeometry(kind: PickupKind): THREE.BufferGeometry {
       return m([new THREE.BoxGeometry(0.45, 0.45, 0.45), new THREE.BoxGeometry(0.47, 0.1, 0.47)]);
     case 'rampage':
       return m([new THREE.SphereGeometry(0.3, 10, 8), new THREE.BoxGeometry(0.34, 0.2, 0.3).translate(0, -0.25, 0.02)]);
+    case 'parcel':
+      // A taped cardboard box.
+      return m([
+        new THREE.BoxGeometry(0.62, 0.42, 0.46),
+        new THREE.BoxGeometry(0.64, 0.05, 0.12).translate(0, 0.2, 0),
+        new THREE.BoxGeometry(0.1, 0.44, 0.48).translate(0.18, 0, 0),
+        new THREE.BoxGeometry(0.1, 0.44, 0.48).translate(-0.18, 0, 0),
+      ]);
   }
 }
 
@@ -43,6 +51,7 @@ const ICON_COLOR: Record<PickupKind, number> = {
   money: 0x3fd96b,
   package: 0xf5c542,
   rampage: 0xd01818,
+  parcel: 0xb98149,
 };
 
 export class MarkerView {
