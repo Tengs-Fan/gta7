@@ -2,11 +2,11 @@
 // coast, piers, ramps, garages and signs. Everything is merged per material.
 
 import * as THREE from 'three';
-import { clamp01 } from '../core/math';
+import { clamp, clamp01 } from '../core/math';
 import { Rng } from '../core/rng';
 import { BEACH_W, BOARDWALK_W, CROSSWALK_W, CURB_H, DECK_SLAB, LANE_W, SEABED_Y, SIDEWALK_W, WATER_Y } from '../world/constants';
 import {
-  SPECIALS, blockOf, hashInts, rectCX, rectCZ, rectD, rectW, sandHeight,
+  SPECIALS, blockOf, hashInts, rectD, rectW, sandHeight,
   type Block, type Building, type FacadeStyle, type GroundKind, type Side, type Tier,
 } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
@@ -199,9 +199,134 @@ function linearRgb(hex: number): RGB {
   return [c.r, c.g, c.b];
 }
 
+/** Nominal width (m) of a frontage quad: every storefront cell is drawn for 6.5 m of wall. */
+const BAY = 6.5;
+/** The narrowest quad (m) a door-aware split leaves beside the door. */
+const BAY_MIN = 4;
+/** The narrowest and widest door quad (m). */
+const DOOR_MIN = 5;
+const DOOR_MAX = 8;
+/** A sign over an entrance keeps this far (m) from the ends of its wall. */
+const SIGN_MARGIN = 0.4;
+
+/** The drawn main door of a building: the wall it is in and its centre at the foot of that wall. */
+export interface Entrance {
+  side: Side;
+  x: number;
+  z: number;
+}
+
+export interface FrontageSplit {
+  /** Quad edges along the wall (m), from 0 to its length. */
+  edges: number[];
+  /** Index of the door quad (-1: none). */
+  door: number;
+  /** The door quad is drawn mirrored, which puts its door at 1 - u of its width. */
+  mirror: boolean;
+}
+
+/**
+ * Splits a wall `len` m long into frontage quads about BAY wide. Without a door they are equal.
+ * With one, the door quad (its door `u` of the way across it, or mirrored at 1 - u) is placed and
+ * sized (DOOR_MIN to DOOR_MAX), and the wall left on either side is split into equal quads no
+ * narrower than BAY_MIN. Each metre between the door and `at` costs `pull`, against quads stretched
+ * or squeezed away from the BAY their cells are drawn for: a strong pull (2) puts a door at its spot
+ * wherever the wall allows; a weak one (0.3) centres a door only where the quads stay near BAY.
+ */
+export function frontageSplit(len: number, door: { at: number; u: number; pull: number } | null): FrontageSplit {
+  const edges = [0];
+  if (!door || Math.round(len / BAY) <= 1) {
+    pushEven(edges, 0, len, Math.max(1, Math.round(len / BAY)));
+    // A single quad: mirroring is the only way to move its door towards the spot.
+    const mirror = !!door && Math.abs(len * (1 - door.u) - door.at) < Math.abs(len * door.u - door.at) - 1e-9;
+    return { edges, door: door ? 0 : -1, mirror };
+  }
+  let best = { cost: Infinity, s0: 0, w: BAY, mirror: false };
+  for (let k = 0; DOOR_MIN + k * 0.05 <= Math.min(DOOR_MAX, len) + 1e-9; k++) {
+    const w = DOOR_MIN + k * 0.05;
+    for (const mirror of [false, true]) {
+      const u = mirror ? 1 - door.u : door.u;
+      // Flush with either end of the wall, or as near the spot as leaves BAY_MIN on both sides.
+      const starts = [0, len - w];
+      if (len - w - BAY_MIN >= BAY_MIN) starts.push(clamp(door.at - w * u, BAY_MIN, len - w - BAY_MIN));
+      for (const s0 of starts) {
+        const right = len - s0 - w;
+        if (s0 < -1e-6 || right < -1e-6 || (s0 > 1e-6 && s0 < BAY_MIN - 1e-6) || (right > 1e-6 && right < BAY_MIN - 1e-6)) continue;
+        const cost = door.pull * Math.abs(s0 + w * u - door.at) + 0.25 * (Math.abs(w - BAY) + stretch(s0, right));
+        if (cost < best.cost - 1e-9) best = { cost, s0, w, mirror };
+      }
+    }
+  }
+  if (best.s0 > 1e-6) pushEven(edges, 0, best.s0, bays(best.s0));
+  const ix = edges.length - 1;
+  const end = best.s0 + best.w;
+  if (len - end > 1e-6) {
+    edges.push(end);
+    pushEven(edges, end, len, bays(len - end));
+  } else {
+    edges.push(len);
+  }
+  return { edges, door: ix, mirror: best.mirror };
+}
+
+/** Appends the far edges of k equal quads from a to b, the last exactly b. */
+function pushEven(edges: number[], a: number, b: number, k: number): void {
+  for (let i = 1; i < k; i++) edges.push(a + ((b - a) * i) / k);
+  edges.push(b);
+}
+
+/** How many equal quads a stretch `part` m long beside a door gets: each as near BAY wide as can be, none narrower than BAY_MIN. */
+function bays(part: number): number {
+  const lo = Math.max(1, Math.floor(part / BAY));
+  const hi = Math.max(lo, Math.min(lo + 1, Math.floor(part / BAY_MIN)));
+  return Math.abs(part / hi - BAY) < Math.abs(part / lo - BAY) ? hi : lo;
+}
+
+/** Mean distance (m) from BAY of the quads of the stretches left and right of a door (0 for none). */
+function stretch(left: number, right: number): number {
+  let sum = 0;
+  let n = 0;
+  for (const part of [left, right]) {
+    if (part <= 1e-6) continue;
+    const k = bays(part);
+    sum += k * Math.abs(part / k - BAY);
+    n += k;
+  }
+  return n > 0 ? sum / n : 0;
+}
+
+/** The SPECIALS entry a special building stands for (none for the stadium and ordinary buildings). */
+function specialDef(b: Building, block: Block): (typeof SPECIALS)[number] | undefined {
+  const special = b.special;
+  return special ? SPECIALS.find((s) => s.kind === special && s.bi === block.bi && s.bj === block.bj) : undefined;
+}
+
+/** The door cell of a building's entrance wall, or -1 when its ground floor has no single door (a row of shops, loading bays). */
+function entranceCell(b: Building, sideIx: number): number {
+  const r = hashInts(b.id, sideIx, 0xd00, 0xf00d) / 4294967296;
+  switch (b.ground) {
+    case 'lobby':
+      return b.special === 'bank' ? CELLS.bank : r < 0.5 ? CELLS.lobbyRevolving : CELLS.lobbyDoors;
+    case 'house':
+      return r < 0.5 ? CELLS.houseDoorA : CELLS.houseDoorB;
+    case 'shops':
+      // Every gun shop quad is a barred pawn-shop front with its door; the entrance one is placed.
+      return b.special === 'gunshop' ? PAWN : -1;
+    default:
+      return -1;
+  }
+}
+
+/** The same atlas rectangle with u running the other way. */
+function mirrored(uv: readonly [number, number, number, number]): [number, number, number, number] {
+  return [uv[2], uv[1], uv[0], uv[3]];
+}
+
 export class CityView {
   readonly group = new THREE.Group();
   readonly materials: CityMaterials = { facades: new Map(), signs: [], storefront: null, decor: null };
+  /** The drawn main door of every building with one, by building id (a special's stands in front of its POI marker). */
+  readonly entrances = new Map<number, Entrance>();
   private readonly nightU: NightUniforms = { occupancy: { value: 0 }, shopOccupancy: { value: 0 }, time: { value: 0 } };
 
   constructor(private readonly world: StaticWorld) {
@@ -333,6 +458,9 @@ export class CityView {
       { side: 'W', x0: t.minX, z0: t.minZ, x1: t.minX, z1: t.maxZ, u: 2 * w + d, gap: t.minX - lot.minX },
     ];
     const entrance = this.entranceSide(b, block, walls.filter((wl) => street.has(wl.side)));
+    // The sim and the missions put a special's entrance at its POI marker on the sidewalk.
+    const def = specialDef(b, block);
+    const poi = def ? this.world.layout.pois.find((p) => p.id === def.id) : undefined;
     const top = t.y0 + b.groundH;
     for (const wl of walls) {
       if (!street.has(wl.side)) {
@@ -340,16 +468,16 @@ export class CityView {
         continue;
       }
       gb.wall(wl.x0, wl.z0, wl.x1, wl.z1, top, t.y1, uv, color, wl.u);
-      this.frontage(front, decor, b, wl, t.y0, top, color, wl.side === entrance);
+      const main = wl.side === entrance;
+      this.frontage(front, decor, b, wl, t.y0, top, color, main, main && poi ? poi : null);
     }
   }
 
   /** The side that gets the main door: a special's entrance side, else the street side nearest its lot edge (then the longest). */
   private entranceSide(b: Building, block: Block, walls: TierWall[]): Side {
     const sides = new Set(walls.map((wl) => wl.side));
-    const special = b.special;
-    if (special) {
-      const def = SPECIALS.find((s) => s.kind === special && s.bi === block.bi && s.bj === block.bj);
+    if (b.special) {
+      const def = specialDef(b, block);
       if (def && sides.has(def.side)) return def.side;
       if (b.sign && sides.has(b.sign.side)) return b.sign.side;
     }
@@ -357,23 +485,34 @@ export class CityView {
     return walls.reduce((best, wl) => (wl.gap < best.gap - 0.01 || (Math.abs(wl.gap - best.gap) <= 0.01 && len(wl) > len(best)) ? wl : best)).side;
   }
 
-  /** Frontage quads (one per 5-8 m) for the band of one street-facing wall, plus their awnings, canopies and porches. */
-  private frontage(front: GeoBuilder, decor: GeoBuilder, b: Building, wl: TierWall, y0: number, y1: number, wallColor: RGB, entrance: boolean): void {
+  /**
+   * Frontage quads (about 6.5 m each, see frontageSplit) for the band of one street-facing wall, plus
+   * their awnings, canopies and porches. The entrance wall's door stands in front of `marker` (a
+   * special's POI) or in the middle of the wall.
+   */
+  private frontage(front: GeoBuilder, decor: GeoBuilder, b: Building, wl: TierWall, y0: number, y1: number, wallColor: RGB, entrance: boolean, marker: { x: number; z: number } | null): void {
     const len = Math.hypot(wl.x1 - wl.x0, wl.z1 - wl.z0);
     const ux = (wl.x1 - wl.x0) / len;
     const uz = (wl.z1 - wl.z0) / len;
-    const n = Math.max(1, Math.round(len / 6.5));
-    const seg = len / n;
     const special = b.special;
     const sideIx = SIDE_INDEX[wl.side];
-    const doorAt = Math.floor(n / 2);
+    const doorCell = entrance ? entranceCell(b, sideIx) : -1;
+    const doorU = doorCell >= 0 ? DOOR_U[doorCell]! : 0.5;
+    // A marker's spot is where the sim puts the entrance; mid-wall is only tidier.
+    const spot = marker ? { at: clamp((marker.x - wl.x0) * ux + (marker.z - wl.z0) * uz, 0, len), u: doorU, pull: 2 } : { at: len / 2, u: doorU, pull: 0.3 };
+    const split = frontageSplit(len, doorCell >= 0 ? spot : null);
     let prevShop = -1;
-    for (let i = 0; i < n; i++) {
-      const s0 = i * seg;
+    for (let i = 0; i + 1 < split.edges.length; i++) {
+      const s0 = split.edges[i]!;
+      const seg = split.edges[i + 1]! - s0;
       const ax = wl.x0 + ux * s0;
       const az = wl.z0 + uz * s0;
       const bx = ax + ux * seg;
       const bz = az + uz * seg;
+      const door = i === split.door;
+      // Where the door quad's door stands along it (mirroring moves it across).
+      const doorAlong = seg * (split.mirror ? 1 - doorU : doorU);
+      if (door) this.entrances.set(b.id, { side: wl.side, x: ax + ux * doorAlong, z: az + uz * doorAlong });
       const h = hashInts(b.id, sideIx, i, 0xf00d);
       const rnd = (k: number) => hashInts(h, k) / 4294967296;
       /** Frontage seed: class in the integer part, a whole number of thousandths as the fraction. */
@@ -385,10 +524,11 @@ export class CityView {
         case 'shops': {
           if (special === 'gunshop') {
             // Bang Bang Guns: a barred display under the big sign, on a plain dark fascia.
-            const split = y0 + (y1 - y0) * (1 - SHOP_FASCIA_FRAC);
+            const fascia = y0 + (y1 - y0) * (1 - SHOP_FASCIA_FRAC);
+            const display = storefrontUv(PAWN, SHOP_FASCIA_FRAC, 1);
             front.seed = seed(FRONT_LAMP);
-            quadUv(front, ax, az, bx, bz, y0, split, storefrontUv(PAWN, SHOP_FASCIA_FRAC, 1), WHITE);
-            quadUv(front, ax, az, bx, bz, split, y1, swatchUv(SWATCHES.gunFascia), WHITE);
+            quadUv(front, ax, az, bx, bz, y0, fascia, door && split.mirror ? mirrored(display) : display, WHITE);
+            quadUv(front, ax, az, bx, bz, fascia, y1, swatchUv(SWATCHES.gunFascia), WHITE);
             continue;
           }
           const pool = b.district === 'beachfront' && rnd(2) < 0.75 ? BEACH_SHOPS : INLAND_SHOPS;
@@ -401,19 +541,17 @@ export class CityView {
           break;
         }
         case 'lobby': {
-          const door = entrance && i === doorAt;
-          cell = !door ? CELLS.lobbyGlass : special === 'bank' ? CELLS.bank : rnd(6) < 0.5 ? CELLS.lobbyRevolving : CELLS.lobbyDoors;
+          cell = door ? doorCell : CELLS.lobbyGlass;
           cls = FRONT_LOBBY;
           if (door && special === 'bank') this.steps(decor, ax, az, bx, bz, ux, uz, y0);
           else if (door) this.canopy(decor, ax, az, bx, bz, ux, uz, y0, y1, wl.gap, special);
           break;
         }
         case 'house': {
-          const door = entrance && i === doorAt;
-          cell = !door ? CELLS.houseWindows : rnd(7) < 0.5 ? CELLS.houseDoorA : CELLS.houseDoorB;
+          cell = door ? doorCell : CELLS.houseWindows;
           cls = FRONT_HOME;
           tint = wallColor;
-          if (door) this.porch(decor, ax, az, ux, uz, seg * (DOOR_U[cell] ?? 0.5), y0, b);
+          if (door) this.porch(decor, ax, az, ux, uz, doorAlong, y0, b);
           break;
         }
         case 'loading':
@@ -424,10 +562,11 @@ export class CityView {
           break;
       }
       front.seed = seed(cls);
-      // Plain glass and window cells are mirrored on every other quad to break up the repeat.
-      const flip = (cell === CELLS.lobbyGlass || cell === CELLS.houseWindows) && i % 2 === 1;
+      // Plain glass and window cells are mirrored on every other quad to break up the repeat; a door
+      // quad is mirrored when that brings its door to its spot.
+      const flip = door ? split.mirror : (cell === CELLS.lobbyGlass || cell === CELLS.houseWindows) && i % 2 === 1;
       const uv = storefrontUv(cell);
-      quadUv(front, ax, az, bx, bz, y0, y1, flip ? [uv[2], uv[1], uv[0], uv[3]] : uv, tint);
+      quadUv(front, ax, az, bx, bz, y0, y1, flip ? mirrored(uv) : uv, tint);
     }
   }
 
@@ -564,29 +703,37 @@ export class CityView {
     const mat = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.4, roughness: 0.6, transparent: false });
     this.materials.signs.push(mat);
     const r = b.rect;
-    const along = side === 'N' || side === 'S' ? rectW(r) : rectD(r);
+    const ns = side === 'N' || side === 'S';
+    const along = ns ? rectW(r) : rectD(r);
     const w = Math.min(along * 0.8, 16);
+    // Centre along the side, from its west (N, S) or north (E, W) end: over the main door when it is
+    // in this wall, as near as the sign can get while it stays on the wall; else mid-wall.
+    let c = along / 2;
+    const door = this.entrances.get(b.id);
+    if (door && door.side === side) c = clamp(ns ? door.x - r.minX : door.z - r.minZ, Math.min(along / 2, w / 2 + SIGN_MARGIN), Math.max(along / 2, along - w / 2 - SIGN_MARGIN));
     const h = w * (192 / 1024);
     const geo = new THREE.PlaneGeometry(w, h);
     const m = new THREE.Mesh(geo, mat);
+    m.name = 'sign';
+    m.userData.building = b.id;
     // Above the ground floor (lobby, shops) when there is one, else from 6 m up.
     const bottom = b.ground !== 'none' ? CURB_H + b.groundH + 0.3 : 6;
     const y = Math.min(b.height - h / 2 - 0.3, bottom + h / 2);
     const off = 0.08;
     switch (side) {
       case 'S':
-        m.position.set(rectCX(r), y, r.maxZ + off);
+        m.position.set(r.minX + c, y, r.maxZ + off);
         break;
       case 'N':
-        m.position.set(rectCX(r), y, r.minZ - off);
+        m.position.set(r.minX + c, y, r.minZ - off);
         m.rotation.y = Math.PI;
         break;
       case 'E':
-        m.position.set(r.maxX + off, y, rectCZ(r));
+        m.position.set(r.maxX + off, y, r.minZ + c);
         m.rotation.y = Math.PI / 2;
         break;
       case 'W':
-        m.position.set(r.minX - off, y, rectCZ(r));
+        m.position.set(r.minX - off, y, r.minZ + c);
         m.rotation.y = -Math.PI / 2;
         break;
     }

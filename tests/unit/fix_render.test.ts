@@ -145,14 +145,15 @@ describe('render fixes', () => {
     const props = R.props as unknown as { signalBulbs: THREE.InstancedMesh; signalProps: Prop[] };
     const c = new THREE.Color();
     let mismatches = 0;
+    // Lit bulbs are at least 0.7 in their own channel on every tier (far more with bloom), unlit ones 0.12.
     props.signalProps.forEach((p, i) => {
       const want = W.roads.signalState(p.node, axisOf(p.dir as Dir), sim.time);
       props.signalBulbs.getColorAt(i * 3, c);
-      const red = c.r > 3;
+      const red = c.r > 0.5;
       props.signalBulbs.getColorAt(i * 3 + 1, c);
-      const yellow = c.r > 3;
+      const yellow = c.r > 0.5;
       props.signalBulbs.getColorAt(i * 3 + 2, c);
-      const green = c.g > 3;
+      const green = c.g > 0.5;
       const shown = red ? 'red' : yellow ? 'yellow' : green ? 'green' : 'off';
       if (shown !== want) mismatches++;
     });

@@ -13,6 +13,8 @@ import { GameRenderer, guardStaleDeletes } from '../../src/render/renderer';
 import type { VehicleView } from '../../src/render/vehicleView';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '../../src/settings';
 import type { Sim } from '../../src/sim/sim';
+import type { Prop } from '../../src/world/layout';
+import { axisOf, type Dir } from '../../src/world/roads';
 import type { StaticWorld } from '../../src/world/staticWorld';
 import { makeSim, step, teleport, world } from './helpers';
 
@@ -481,6 +483,35 @@ describe('GameRenderer quality tiers', () => {
     }
   });
 
+  it('Low draws every car of the title flyover: the 150 m cull is for the play camera', () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'low', fov: 68, gpu: HDR });
+    const sim = makeSim({ world: W, police: false });
+    r.attach(sim);
+    r.cameraCtl.mode = 'title';
+    r.render(DT, false);
+    // The title camera circles 260 m out and 95 m up.
+    const cam = r.cameraCtl.camera.position;
+    expect(Math.hypot(cam.x, cam.z)).toBeGreaterThan(250);
+    expect(cam.y).toBeGreaterThan(70);
+    const far = QUALITY.low.vehicleDistance;
+    const cars = ([[0, 0], [100, -100], [-150, 120], [-200, -150]] as const).map(([x, z], i) => {
+      const v = sim.spawnVehicle('sedan', x, z, 0);
+      v.owner = i % 2 === 0 ? 'parked' : 'traffic';
+      return v;
+    });
+    for (const v of cars) expect(Math.hypot(v.pos.x - cam.x, v.pos.z - cam.z)).toBeGreaterThan(far);
+    const shown = () => cars.map((v) => views(r).get(v.id)!.group.visible);
+    r.render(DT, false);
+    expect(shown()).toEqual([true, true, true, true]);
+    // New Game: the play camera at the safehouse culls the ones beyond 150 m again.
+    r.cameraCtl.mode = 'play';
+    r.cameraCtl.reset(sim);
+    r.render(DT, false);
+    const play = r.cameraCtl.camera.position;
+    expect(shown()).toEqual(cars.map((v) => Math.hypot(v.pos.x - play.x, v.pos.z - play.z) <= far));
+    expect(shown().filter(Boolean).length).toBeLessThan(cars.length);
+  });
+
   it('on Low a far car is drawn while it smokes or burns, and a hidden one leaves no skid marks or smoke', () => {
     const r = new GameRenderer(eventCanvas(), W, { quality: 'low', fov: 68, gpu: HDR });
     const sim = makeSim({ world: W });
@@ -518,6 +549,95 @@ describe('GameRenderer quality tiers', () => {
     const marked = new Set(skids.mock.calls.map((c) => String(c[0]).split(':')[0]));
     expect(marked.has(String(nearSkid.id))).toBe(true);
     expect(marked.has(String(skidding.id))).toBe(false);
+  });
+});
+
+describe('coloured lamps with and without bloom', () => {
+  let W: StaticWorld;
+
+  beforeAll(() => {
+    W = world();
+  });
+
+  /** 8-bit display colour of a linear colour after three's ACESFilmicToneMapping (r186, exposure 1) and the sRGB transfer. */
+  function display(c: { r: number; g: number; b: number }): [number, number, number] {
+    // GLSL mat3 constructors take columns: m * v = sum of column j times v[j].
+    const IN = [[0.59719, 0.076, 0.0284], [0.35458, 0.90834, 0.13383], [0.04823, 0.01566, 0.83777]];
+    const OUT = [[1.60475, -0.10208, -0.00327], [-0.53108, 1.10813, -0.07276], [-0.07367, -0.00605, 1.07602]];
+    const mul = (m: number[][], v: number[]) => [0, 1, 2].map((i) => m[0]![i]! * v[0]! + m[1]![i]! * v[1]! + m[2]![i]! * v[2]!);
+    const rrt = (x: number) => (x * (x + 0.0245786) - 0.000090537) / (x * (0.983729 * x + 0.432951) + 0.238081);
+    const lin = mul(OUT, mul(IN, [c.r / 0.6, c.g / 0.6, c.b / 0.6]).map(rrt)).map((x) => Math.min(1, Math.max(0, x)));
+    return lin.map((x) => Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055))) as [number, number, number];
+  }
+
+  /** Luminance with the weights three's bloom high pass uses. */
+  function lum(c: THREE.Color): number {
+    const w = THREE.ColorManagement.getLuminanceCoefficients(new THREE.Vector3());
+    return w.x * c.r + w.y * c.g + w.z * c.b;
+  }
+
+  type PropsPriv = { signalBulbs: THREE.InstancedMesh; signalProps: Prop[]; antennaMat: THREE.MeshBasicMaterial; antennaLights: THREE.InstancedMesh | null; ferris: { lights: THREE.InstancedMesh } | null };
+
+  /** Signal 0's lit bulb at a night-time frame whose sim clock shows it `state`. */
+  function litBulb(r: GameRenderer, state: 'red' | 'yellow' | 'green'): THREE.Color {
+    const props = r.props as unknown as PropsPriv;
+    const p = props.signalProps[0]!;
+    let t = 0;
+    while (W.roads.signalState(p.node, axisOf(p.dir as Dir), t) !== state) t += 0.25;
+    r.props.update(0, 1, t);
+    const c = new THREE.Color();
+    props.signalBulbs.getColorAt(['red', 'yellow', 'green'].indexOf(state), c);
+    return c;
+  }
+
+  /** The aircraft warning light, lit (it blinks on in the first 0.83 s of every 1.67 s at night), and every lit ferris wheel light. */
+  function nightLamps(r: GameRenderer): { warning: THREE.Color; ferris: THREE.Color[] } {
+    const props = r.props as unknown as PropsPriv;
+    r.props.update(0, 1, 0);
+    expect(props.antennaLights).toBeTruthy();
+    const ferris = props.ferris ? Array.from({ length: 64 }, (_, i) => props.ferris!.lights.getColorAt(i, new THREE.Color())) : [];
+    expect(ferris.length).toBe(64);
+    return { warning: props.antennaMat.color.clone(), ferris };
+  }
+
+  it('on Low, with no bloom to carry it, a lit traffic light keeps its colour through the tone mapping', () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'low', fov: 68, gpu: HDR });
+    expect(fakeOf(r).effects).toEqual([]);
+    const [rr, rg, rb] = display(litBulb(r, 'red'));
+    expect(rr - rg, `red ${rr},${rg},${rb}`).toBeGreaterThan(150);
+    expect(rr - rb, `red ${rr},${rg},${rb}`).toBeGreaterThan(150);
+    const [yr, yg, yb] = display(litBulb(r, 'yellow'));
+    expect(yr - yb, `yellow ${yr},${yg},${yb}`).toBeGreaterThan(120);
+    expect(yg - yb, `yellow ${yr},${yg},${yb}`).toBeGreaterThan(100);
+    expect(yr, `yellow ${yr},${yg},${yb}`).toBeGreaterThan(yg);
+    const [gr, gg, gb] = display(litBulb(r, 'green'));
+    expect(gg - gr, `green ${gr},${gg},${gb}`).toBeGreaterThan(80);
+    expect(gg, `green ${gr},${gg},${gb}`).toBeGreaterThan(gb);
+    // The red aircraft warning lights and the ferris wheel's rainbow keep theirs too.
+    const lamps = nightLamps(r);
+    const [wr, wg, wb] = display(lamps.warning);
+    expect(wr - Math.max(wg, wb), `warning ${wr},${wg},${wb}`).toBeGreaterThan(150);
+    for (const c of lamps.ferris) expect(Math.max(c.r, c.g, c.b)).toBeLessThanOrEqual(1);
+  });
+
+  it('with bloom every lit lamp is bright enough to bloom, so its halo carries the colour', () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    const bloom = fakeOf(r).effects[0] as UnrealBloomPass;
+    expect(bloom).toBeInstanceOf(UnrealBloomPass);
+    for (const st of ['red', 'yellow', 'green'] as const) expect(lum(litBulb(r, st)), st).toBeGreaterThan(bloom.threshold);
+    const lamps = nightLamps(r);
+    expect(lum(lamps.warning), 'warning light').toBeGreaterThan(bloom.threshold);
+    for (const c of lamps.ferris) expect(lum(c), 'ferris light').toBeGreaterThan(bloom.threshold);
+    // The lamps follow the tier.
+    r.setQuality('low');
+    expect(Math.max(...litBulb(r, 'green').toArray())).toBeLessThanOrEqual(1);
+    r.setQuality('high');
+    expect(lum(litBulb(r, 'green'))).toBeGreaterThan(bloom.threshold);
+    // Without a half-float target there is no bloom on any tier: High draws the lamps as Low does.
+    const plain = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat: false } });
+    expect(fakeOf(plain).effects).toEqual([]);
+    const [gr, gg] = display(litBulb(plain, 'green'));
+    expect(gg - gr).toBeGreaterThan(80);
   });
 });
 

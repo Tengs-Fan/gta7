@@ -6,14 +6,18 @@
 import { createHash } from 'node:crypto';
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { CityView, occupancy, shopOccupancy } from '../../src/render/city';
-import { cloudFbm, cloudNoiseData, storefrontUv } from '../../src/render/textures';
+import { CameraController } from '../../src/render/camera';
+import { CityView, frontageSplit, occupancy, shopOccupancy } from '../../src/render/city';
+import { FOLIAGE_FADE_FAR, PropsView, foliagePoints, foliageSpheres } from '../../src/render/props';
+import { DOOR_U, cloudFbm, cloudNoiseData, storefrontUv } from '../../src/render/textures';
 import { CLOUD_SD, Environment, cloudCover, cloudThreshold, starIntensity } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
+import { Sim } from '../../src/sim/sim';
+import { isSolidForSight, makeRayHit } from '../../src/world/colliders';
 import { CURB_H } from '../../src/world/constants';
-import { frontages, generateCity, rectCX, rectCZ, type Building, type Side } from '../../src/world/layout';
+import { SPECIALS, blockOf, frontages, generateCity, type Building, type Prop, type Side } from '../../src/world/layout';
 import type { StaticWorld } from '../../src/world/staticWorld';
-import { world } from './helpers';
+import { input, makeSim, step, teleport, world } from './helpers';
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
@@ -194,6 +198,55 @@ function onWall(tris: Tri[], w: Wall, eps = 1e-3): Tri[] {
   return tris.filter((t) => t.axis === w.axis && t.sign === w.sign && Math.abs(t.coord - w.coord) < eps && t.hi > w.lo + eps && t.lo < w.hi - eps);
 }
 
+/**
+ * The doors drawn on a wall, read back from the storefront mesh: for every triangle in the wall's
+ * plane mapped inside an atlas cell with a door, the coordinate along the wall (x for N/S walls,
+ * z for E/W ones) where that cell's door centre (DOOR_U) lands, whichever way the quad is mapped.
+ */
+function drawnDoors(mesh: THREE.Mesh, w: Wall): number[] {
+  const g = mesh.geometry;
+  const pos = g.getAttribute('position');
+  const nrm = g.getAttribute('normal');
+  const uv = g.getAttribute('uv');
+  const idx = g.getIndex()!;
+  const cells = Object.entries(DOOR_U).map(([c, u]) => ({ rect: storefrontUv(Number(c)), u }));
+  const out: number[] = [];
+  for (let i = 0; i < idx.count; i += 3) {
+    const v = [idx.getX(i), idx.getX(i + 1), idx.getX(i + 2)];
+    const n = w.axis === 'x' ? nrm.getX(v[0]!) : nrm.getZ(v[0]!);
+    const coord = w.axis === 'x' ? pos.getX(v[0]!) : pos.getZ(v[0]!);
+    if (Math.abs(n - w.sign) > 1e-3 || Math.abs(coord - w.coord) > 1e-3) continue;
+    const along = v.map((k) => (w.axis === 'x' ? pos.getZ(k) : pos.getX(k)));
+    if (Math.max(...along) <= w.lo + 1e-3 || Math.min(...along) >= w.hi - 1e-3) continue;
+    const us = v.map((k) => uv.getX(k));
+    const vs = v.map((k) => uv.getY(k));
+    for (const c of cells) {
+      const [u0, v0, u1, v1] = c.rect;
+      if (Math.min(...us) < u0 - 1e-6 || Math.max(...us) > u1 + 1e-6 || Math.min(...vs) < v0 - 1e-6 || Math.max(...vs) > v1 + 1e-6) continue;
+      // Two corners with different u: the door's u lies between them, linearly along the wall.
+      const [a, b] = Math.abs(us[0]! - us[1]!) > 1e-9 ? [0, 1] : Math.abs(us[0]! - us[2]!) > 1e-9 ? [0, 2] : [1, 2];
+      const ud = u0 + (u1 - u0) * c.u;
+      const s = along[a]! + ((ud - us[a]!) * (along[b]! - along[a]!)) / (us[b]! - us[a]!);
+      // Each quad is two triangles: keep one copy of its door.
+      if (!out.some((o) => Math.abs(o - s) < 1e-3)) out.push(s);
+    }
+  }
+  return out;
+}
+
+/** The sign CityView hung on a building (signs are named 'sign' and tagged with the building id). */
+function signOf(city: CityView, b: Building): THREE.Mesh | undefined {
+  return city.group.children.find((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.name === 'sign' && o.userData.building === b.id);
+}
+
+/** A special building's POI and the side its marker faces. */
+function specialPoi(W: StaticWorld, b: Building): { side: Side; x: number; z: number } | null {
+  const block = blockOf(W.layout, b);
+  const def = block ? SPECIALS.find((s) => s.kind === b.special && s.bi === block.bi && s.bj === block.bj) : undefined;
+  const poi = def ? W.layout.pois.find((p) => p.id === def.id) : undefined;
+  return def && poi ? { side: def.side, x: poi.x, z: poi.z } : null;
+}
+
 describe('round 2 city: layout', () => {
   it('ground floors leave the generated layout bit-identical to the base commit', () => {
     // Captured on 8788242 (round 2 base) with the same canonical JSON.
@@ -313,9 +366,7 @@ describe('round 2 city: ground-floor geometry', () => {
     let checked = 0;
     for (const b of W.layout.buildings) {
       if (!b.sign || b.ground === 'none') continue;
-      const r = b.rect;
-      const at = b.sign.side === 'N' ? [rectCX(r), r.minZ] : b.sign.side === 'S' ? [rectCX(r), r.maxZ] : b.sign.side === 'E' ? [r.maxX, rectCZ(r)] : [r.minX, rectCZ(r)];
-      const sign = city.group.children.find((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.geometry instanceof THREE.PlaneGeometry && Math.hypot(o.position.x - at[0]!, o.position.z - at[1]!) < 0.2)!;
+      const sign = signOf(city, b)!;
       expect(sign, `sign of ${b.sign.text}`).toBeTruthy();
       const h = (sign.geometry as THREE.PlaneGeometry).parameters.height;
       expect(sign.position.y - h / 2, b.sign.text).toBeGreaterThanOrEqual(CURB_H + b.groundH);
@@ -370,6 +421,144 @@ describe('round 2 city: ground-floor geometry', () => {
     }
     // Plenty of distinct seeds across the 684 buildings.
     expect(seeds.size).toBeGreaterThan(400);
+  });
+});
+
+describe('round 2 fix: entrances where the sim puts them', () => {
+  let W: StaticWorld;
+  let city: CityView;
+  let front: THREE.Mesh;
+
+  beforeAll(() => {
+    W = world();
+    city = new CityView(W);
+    front = city.group.getObjectByName('storefronts') as THREE.Mesh;
+  });
+
+  /** Coordinate of a point along a wall: x for N/S walls, z for E/W ones. */
+  const alongOf = (w: Wall, x: number, z: number): number => (w.axis === 'x' ? z : x);
+
+  it("draws every special's door within 2 m along its entrance wall of its POI marker", () => {
+    const specials = W.layout.buildings.filter((b) => specialPoi(W, b));
+    expect(specials.map((b) => b.special).sort()).toEqual(['bank', 'contactDex', 'gunshop', 'gunshop', 'hospital', 'police', 'safehouse']);
+    for (const b of specials) {
+      const poi = specialPoi(W, b)!;
+      const w = wallOf(b, poi.side);
+      const at = alongOf(w, poi.x, poi.z);
+      const label = `${b.special} at (${poi.x}, ${poi.z})`;
+      // Gun shops draw a door in every bay; one of them must be at the marker.
+      const doors = drawnDoors(front, w);
+      expect(doors.length, label).toBeGreaterThan(0);
+      expect(Math.min(...doors.map((d) => Math.abs(d - at))), label).toBeLessThanOrEqual(2);
+      // CityView.entrances, which the sign follows, is that drawn door.
+      const e = city.entrances.get(b.id)!;
+      expect(e.side, label).toBe(poi.side);
+      expect(Math.min(...doors.map((d) => Math.abs(d - alongOf(w, e.x, e.z)))), label).toBeLessThan(1e-3);
+      expect(Math.abs(alongOf(w, e.x, e.z) - at), label).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('holding the drawn bank doors in The Big Score fills the vault', () => {
+    const sim: Sim = makeSim({ ambient: false, police: false });
+    for (const id of ['wheels', 'delivery', 'repo', 'loose_lips', 'heatwave']) sim.progress.markDone(id);
+    sim.cheats.godMode = true;
+    step(sim, 0.1);
+    const until = (pred: () => boolean, max: number): void => {
+      for (let t = 0; t < max && !pred(); t += 1 / 60) sim.update(1 / 60, input());
+      expect(pred()).toBe(true);
+    };
+    const giver = sim.interactions.markers.find((m) => m.kind === 'mission' && m.ref === 'big_score')!;
+    teleport(sim, giver.x, giver.z);
+    step(sim, 0.1);
+    sim.update(1 / 60, input({ interact: true }));
+    const m = sim.missions.active!;
+    expect(m.def.id).toBe('big_score');
+    until(() => m.objectiveText === 'Go to the First Azura Bank', 30);
+    const poi = W.layout.pois.find((p) => p.id === 'bank')!;
+    teleport(sim, poi.x, poi.z);
+    until(() => m.objectiveText.startsWith('Hold the bank entrance'), 3);
+    // Stand on the steps of the doors drawn in the bank's west wall, 1.2 m out from it.
+    const bank = W.layout.buildings.find((b) => b.special === 'bank')!;
+    const w = wallOf(bank, 'W');
+    const doors = drawnDoors(front, w);
+    expect(doors.length).toBe(1);
+    teleport(sim, w.coord - 1.2, doors[0]!);
+    step(sim, 6);
+    // The vault opens in 20 s of holding: 6 s is 30%.
+    expect(Number(/VAULT (\d+)%/.exec(m.counter ?? '')?.[1] ?? 0)).toBeGreaterThanOrEqual(25);
+  });
+
+  it("hangs each sign over its building's door, centred on it unless that runs it off the wall", () => {
+    let checked = 0;
+    for (const b of W.layout.buildings) {
+      if (!b.sign || b.ground === 'none') continue;
+      const sign = signOf(city, b)!;
+      const w = wallOf(b, b.sign.side);
+      // The main door drawn in the sign's wall: the one in front of the marker (gun shops draw one per bay).
+      const poi = specialPoi(W, b);
+      const doors = drawnDoors(front, w);
+      expect(doors.length, b.sign.text).toBeGreaterThan(0);
+      const d = poi ? doors.reduce((p, q) => (Math.abs(q - alongOf(w, poi.x, poi.z)) < Math.abs(p - alongOf(w, poi.x, poi.z)) ? q : p)) : doors[0]!;
+      const half = (sign.geometry as THREE.PlaneGeometry).parameters.width / 2;
+      const c = alongOf(w, sign.position.x, sign.position.z);
+      // The door is under the sign...
+      expect(Math.abs(c - d), b.sign.text).toBeLessThan(half);
+      // ...centred on it, or as near as it gets with one end of the sign at the end of the wall.
+      const atEnd = Math.min(c - half - w.lo, w.hi - c - half) < 0.5;
+      expect(Math.abs(c - d) < 0.05 || atEnd, `${b.sign.text}: sign ${c.toFixed(2)}, door ${d.toFixed(2)}`).toBe(true);
+      checked++;
+    }
+    // The bank, SAPD, the hospital, Moreau Tower, both gun shops and the stadium.
+    expect(checked).toBe(7);
+  });
+
+  it('centres the door of every ordinary lobby on its wall', () => {
+    let checked = 0;
+    for (const b of W.layout.buildings) {
+      if (b.special || b.ground !== 'lobby') continue;
+      const doors = b.groundSides.flatMap((side) => drawnDoors(front, wallOf(b, side)).map((d) => ({ d, w: wallOf(b, side) })));
+      expect(doors.length, `building ${b.id}`).toBe(1);
+      const { d, w } = doors[0]!;
+      expect(Math.abs(d - (w.lo + w.hi) / 2), `building ${b.id}`).toBeLessThan(0.05);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(50);
+  });
+
+  it('frontageSplit tiles the wall with regular quads and brings the door to its spot', () => {
+    for (let len = 3; len <= 60; len += 0.37) {
+      for (const u of [0.3, 0.5, 0.85]) {
+        for (const f of [0, 0.07, 0.25, 0.5, 0.71, 0.93, 1]) {
+          for (const pull of [2, 0.3]) {
+            const at = len * f;
+            const s = frontageSplit(len, { at, u, pull });
+            const label = `len ${len.toFixed(2)}, u ${u}, spot ${at.toFixed(2)}, pull ${pull}`;
+            const e = s.edges;
+            expect(e[0], label).toBe(0);
+            expect(e[e.length - 1], label).toBe(len);
+            const widths = e.slice(1).map((x, i) => x - e[i]!);
+            expect(s.door, label).toBeGreaterThanOrEqual(0);
+            expect(s.door, label).toBeLessThan(widths.length);
+            if (widths.length === 1) continue;
+            // No sliver beside the door, and a door quad drawn at most a quarter narrower or wider than its cell.
+            for (const x of widths) expect(x, label).toBeGreaterThanOrEqual(4 - 1e-9);
+            expect(widths[s.door], label).toBeGreaterThanOrEqual(5 - 1e-9);
+            expect(widths[s.door], label).toBeLessThanOrEqual(8 + 1e-9);
+            const door = e[s.door]! + widths[s.door]! * (s.mirror ? 1 - u : u);
+            if (pull === 2) {
+              // Wherever the wall leaves room the door is at the spot; at a wall's end, about half a door quad away.
+              expect(Math.abs(door - at), label).toBeLessThanOrEqual(2.6);
+              // A 5 m door quad fits round the spot with 4 m to spare on either side.
+              const reach = 4 + 5 * Math.max(u, 1 - u);
+              if (at >= reach && at <= len - reach) expect(Math.abs(door - at), label).toBeLessThan(0.03);
+            } else if (u === 0.5 && f === 0.5 && len >= 13) {
+              expect(Math.abs(door - at), label).toBeLessThan(0.03);
+            }
+          }
+        }
+      }
+    }
+    expect(frontageSplit(20, null)).toEqual({ edges: [0, 20 / 3, 40 / 3, 20], door: -1, mirror: false });
   });
 });
 
@@ -514,5 +703,234 @@ describe('round 2 city: sky and environment map', () => {
     expect(glow.r).toBeGreaterThan(0.03);
     expect(env.fog.color.r / env.fog.color.b).toBeGreaterThan((navy.r / navy.b) * 3);
     expect(env.fog.color.r).toBeGreaterThan(navy.r * 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix: the camera and street trees (P21 follow-up)
+
+const DT = 1 / 60;
+const sightHit = makeRayHit();
+
+/** Share of a frame's pixels (rays through a grid) whose nearest visible leaf is inside the dissolve band. */
+function dissolving(props: PropsView, sim: Sim, cam: THREE.PerspectiveCamera, cols: number, rows: number): number {
+  const foliage: THREE.Object3D[] = [];
+  props.group.traverse((o) => {
+    if (o instanceof THREE.InstancedMesh && (o.material as THREE.Material).onBeforeCompile.toString().includes('vFadeWorld')) foliage.push(o);
+  });
+  const rc = new THREE.Raycaster();
+  cam.updateMatrixWorld(true);
+  let n = 0;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      rc.setFromCamera(new THREE.Vector2(((i + 0.5) / cols) * 2 - 1, ((j + 0.5) / rows) * 2 - 1), cam);
+      const h = rc.intersectObjects(foliage, false)[0];
+      if (!h || h.distance >= FOLIAGE_FADE_FAR) continue;
+      const o = rc.ray.origin;
+      const d = rc.ray.direction;
+      if (!sim.world.grid.raycast(o.x, o.y, o.z, d.x, d.y, d.z, h.distance, sightHit, isSolidForSight)) n++;
+    }
+  }
+  return n / (cols * rows);
+}
+
+/** The widest share of one pixel row (rays through a grid) that any one tree or palm trunk covers, buildings in front counted. */
+function trunkWidth(sim: Sim, cam: THREE.PerspectiveCamera, trunks: readonly Prop[]): number {
+  const cols = 48;
+  const rows = 27;
+  cam.updateMatrixWorld(true);
+  const rc = new THREE.Raycaster();
+  let widest = 0;
+  for (let j = 0; j < rows; j++) {
+    const covered = new Map<Prop, number>();
+    for (let i = 0; i < cols; i++) {
+      rc.setFromCamera(new THREE.Vector2(((i + 0.5) / cols) * 2 - 1, ((j + 0.5) / rows) * 2 - 1), cam);
+      const o = rc.ray.origin;
+      const d = rc.ray.direction;
+      let best = Infinity;
+      let nearest: Prop | null = null;
+      for (const q of trunks) {
+        // The drawn trunk: a cylinder of its mean radius up to where the canopy starts.
+        const r = (q.kind === 'palm' ? 0.19 : 0.21) * q.scale;
+        const top = q.y + (q.kind === 'palm' ? 8.5 : 3.0) * q.scale;
+        const ox = o.x - q.x;
+        const oz = o.z - q.z;
+        const a = d.x * d.x + d.z * d.z;
+        const b = ox * d.x + oz * d.z;
+        const disc = b * b - a * (ox * ox + oz * oz - r * r);
+        if (disc < 0 || a < 1e-9) continue;
+        const t = (-b - Math.sqrt(disc)) / a;
+        const y = o.y + d.y * t;
+        if (t > cam.near && t < best && y > q.y && y < top) {
+          best = t;
+          nearest = q;
+        }
+      }
+      if (nearest && !sim.world.grid.raycast(o.x, o.y, o.z, d.x, d.y, d.z, best, sightHit, isSolidForSight)) covered.set(nearest, (covered.get(nearest) ?? 0) + 1);
+    }
+    for (const n of covered.values()) widest = Math.max(widest, n / cols);
+  }
+  return widest;
+}
+
+describe('round 2 fix: the camera and street trees', () => {
+  it('the first frame of a new game shows no leaves dissolving, landscape and portrait', () => {
+    const props = new PropsView(world());
+    for (const [w, h] of [[1280, 720], [390, 844]] as const) {
+      const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 15.5 });
+      const cam = new CameraController(w / h);
+      cam.mode = 'play';
+      cam.reset(sim);
+      cam.update(DT, sim, false);
+      expect(dissolving(props, sim, cam.camera, Math.round(w / 20), Math.round(h / 20)), `${w}x${h}`).toBe(0);
+    }
+  });
+
+  it("describes the foliage with the drawn geometry's own corners", () => {
+    const props = new PropsView(world());
+    const meshes: THREE.InstancedMesh[] = [];
+    props.group.traverse((o) => {
+      if (o instanceof THREE.InstancedMesh && (o.material as THREE.Material).onBeforeCompile.toString().includes('vFadeWorld')) meshes.push(o);
+    });
+    const byKind = { tree: world().layout.props.filter((q) => q.kind === 'tree'), bush: world().layout.props.filter((q) => q.kind === 'bush') };
+    let checked = 0;
+    for (const mesh of meshes) {
+      const kind = mesh.count === byKind.tree.length ? 'tree' : mesh.count === byKind.bush.length ? 'bush' : null;
+      if (!kind) continue;
+      const pos = mesh.geometry.getAttribute('position');
+      const m = new THREE.Matrix4();
+      const v = new THREE.Vector3();
+      for (const k of [0, 7, Math.floor(mesh.count / 2), mesh.count - 1]) {
+        const q = byKind[kind][k]!;
+        mesh.getMatrixAt(k, m);
+        const spheres = foliageSpheres(q);
+        const points = foliagePoints(q);
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(m);
+          // Inside a bounding sphere, and one of the sampled surface points.
+          expect(spheres.some((sp) => Math.hypot(v.x - sp.x, v.y - sp.y, v.z - sp.z) <= sp.r + 1e-4), `${kind} ${k}`).toBe(true);
+          let found = false;
+          for (let j = 0; j < points.length && !found; j += 3) found = Math.hypot(v.x - points[j]!, v.y - points[j + 1]!, v.z - points[j + 2]!) < 1e-4;
+          expect(found, `${kind} ${k}`).toBe(true);
+        }
+        checked++;
+      }
+    }
+    expect(checked).toBe(8);
+  });
+
+  it('the boom stops in front of a trunk it would only have grazed', () => {
+    const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 12 });
+    const p = sim.player;
+    const cam = new CameraController(16 / 9);
+    cam.mode = 'play';
+    // A street tree 3 m behind the player, the camera's boom running 0.45 m beside its trunk.
+    for (const q of sim.world.layout.props) {
+      if (q.kind !== 'tree') continue;
+      for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const fx = Math.sin(yaw);
+        const fz = Math.cos(yaw);
+        const rx = -Math.cos(yaw);
+        const rz = Math.sin(yaw);
+        // The boom leaves 0.21 m right of the head and ends 0.42 m right: the trunk 0.45 m right of where it passes.
+        const side = 0.32 + 0.45;
+        p.pos.x = q.x + fx * 3 - rx * side;
+        p.pos.z = q.z + fz * 3 - rz * side;
+        p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
+        if (!sim.world.isFree(p.pos.x, p.pos.z, 0.5) || sim.world.grid.raycast(p.pos.x, p.pos.y + 1.6, p.pos.z, -fx, 0, -fz, 6, sightHit, isSolidForSight)) continue;
+        if (sim.world.layout.props.some((o) => o !== q && (o.kind === 'tree' || o.kind === 'palm') && Math.hypot(o.x - p.pos.x, o.z - p.pos.z) < 8)) continue;
+        cam.reset(sim);
+        cam.yaw = yaw;
+        for (let i = 0; i < 60; i++) cam.update(DT, sim, false);
+        const c = cam.camera.position;
+        const back = (p.pos.x - c.x) * fx + (p.pos.z - c.z) * fz;
+        // In front of the trunk (3 m back), with the bark well clear of the lens.
+        expect(back).toBeLessThan(3 - 0.3);
+        expect(Math.hypot(c.x - q.x, c.z - q.z) - 0.26 * q.scale).toBeGreaterThan(0.35);
+        return;
+      }
+    }
+    throw new Error('no open street tree found');
+  });
+
+  it('after a reset with a trunk between the camera and the player, the first frame is already in front of it', () => {
+    const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 12 });
+    const p = sim.player;
+    const cam = new CameraController(16 / 9);
+    cam.mode = 'play';
+    for (const q of sim.world.layout.props) {
+      if (q.kind !== 'tree') continue;
+      for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const fx = Math.sin(yaw);
+        const fz = Math.cos(yaw);
+        // 2.5 m in front of the trunk, the boom running back through it.
+        p.pos.x = q.x + fx * 2.5 + Math.cos(yaw) * 0.3;
+        p.pos.z = q.z + fz * 2.5 - Math.sin(yaw) * 0.3;
+        p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
+        if (!sim.world.isFree(p.pos.x, p.pos.z, 0.5) || sim.world.grid.raycast(p.pos.x, p.pos.y + 1.6, p.pos.z, -fx, 0, -fz, 6, sightHit, isSolidForSight)) continue;
+        cam.reset(sim);
+        // A teleport that keeps facing this way (reset() picks its own yaw; the debug API sets it back).
+        cam.yaw = yaw;
+        cam.update(DT, sim, false);
+        const c = cam.camera.position;
+        expect((p.pos.x - c.x) * fx + (p.pos.z - c.z) * fz).toBeLessThan(2.5 - 0.26 * q.scale);
+        return;
+      }
+    }
+    throw new Error('no open street tree found');
+  });
+
+  it('walking past rows of street trees, no trunk spans a third of the frame or comes within 0.3 m of the lens', () => {
+    const W = world();
+    const trees = W.layout.props.filter((q) => q.kind === 'tree');
+    const rows: Array<{ a: Prop; heading: number }> = [];
+    for (const a of trees) {
+      if (rows.length >= 8) break;
+      // A tree with the next one of its row 6-16 m further along x or z.
+      if (trees.some((q) => q !== a && Math.abs(q.x - a.x) < 0.05 && q.z > a.z + 6 && q.z < a.z + 16)) rows.push({ a, heading: 0 });
+      else if (trees.some((q) => q !== a && Math.abs(q.z - a.z) < 0.05 && q.x > a.x + 6 && q.x < a.x + 16)) rows.push({ a, heading: Math.PI / 2 });
+    }
+    expect(rows.length).toBe(8);
+    let walks = 0;
+    let widest = 0;
+    let closest = Infinity;
+    // Sideways offsets from the row: negative is with the trees on his right, the camera's side.
+    for (const lat of [-1.2, -0.8, -0.4, 0.4]) {
+      for (const { a, heading } of rows) {
+        const sim = new Sim({ world: W, ambient: false, police: false, startHour: 12 });
+        const p = sim.player;
+        const fx = Math.sin(heading);
+        const fz = Math.cos(heading);
+        const rx = -Math.cos(heading);
+        const rz = Math.sin(heading);
+        // 3 m short of the tree, the camera settled, then 3 s of walking past it.
+        p.pos.x = a.x - fx * 3 + rx * lat;
+        p.pos.z = a.z - fz * 3 + rz * lat;
+        if (!W.isFree(p.pos.x, p.pos.z, 0.4)) continue;
+        p.pos.y = W.groundHeight(p.pos.x, p.pos.z);
+        p.heading = heading;
+        const cam = new CameraController(16 / 9);
+        cam.mode = 'play';
+        cam.reset(sim);
+        cam.yaw = heading;
+        cam.pitch = -0.12;
+        const near = W.layout.props.filter((q) => (q.kind === 'tree' || q.kind === 'palm') && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < 25);
+        for (let f = 0; f < 60; f++) {
+          sim.update(DT, input({ cameraYaw: cam.yaw }));
+          cam.update(DT, sim, false);
+        }
+        walks++;
+        for (let f = 0; f < 180; f++) {
+          sim.update(DT, input({ moveZ: 1, cameraYaw: cam.yaw }));
+          cam.update(DT, sim, false);
+          widest = Math.max(widest, trunkWidth(sim, cam.camera, near));
+          const c = cam.camera.position;
+          for (const q of near) closest = Math.min(closest, Math.hypot(c.x - q.x, c.z - q.z) - 0.26 * q.scale);
+        }
+      }
+    }
+    expect(walks).toBeGreaterThanOrEqual(24);
+    expect(widest).toBeLessThan(1 / 3);
+    expect(closest).toBeGreaterThan(0.3);
   });
 });

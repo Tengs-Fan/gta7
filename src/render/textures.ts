@@ -578,14 +578,14 @@ export const CELL_DESIGN = {
 export const SHOP_FASCIA_FRAC = 1.05 / CELL_DESIGN.shop.h;
 /** Distance (metres) from the top of a shop cell down to where its awning attaches, just above the display window. */
 export const SHOP_AWNING_TOP = 1.0;
-/** Door centre (fraction of the cell width) of each door cell. */
-export const DOOR_U: Readonly<Record<number, number>> = {
-  [CELLS.lobbyRevolving]: 0.5,
-  [CELLS.lobbyDoors]: 0.5,
-  [CELLS.bank]: 0.5,
-  [CELLS.houseDoorA]: 0.3,
-  [CELLS.houseDoorB]: 0.5,
-};
+/** The shop name and tagline on the fascia board (0.1-0.95 m from the top): centre and type height (m). */
+const SHOP_NAME = { y: 0.42, h: 0.48 } as const;
+const SHOP_TAG = { y: 0.78, h: 0.24 } as const;
+/** House door centres (fraction of the cell width); DOOR_U below has every door. */
+const HOUSE_DOOR_U = { a: 0.3, b: 0.5 } as const;
+/** A shop door is this wide (metres), its left edge SHOP_DOOR_INSET from the cell edge on its side. */
+const SHOP_DOOR_W = 1.0;
+const SHOP_DOOR_INSET = 0.5;
 /** A house door's sill stands this far above the bottom of the cell (a porch deck meets it). */
 export const HOUSE_SILL = 0.3;
 
@@ -630,6 +630,13 @@ function extrude(c: CanvasRenderingContext2D, src: HTMLCanvasElement, x: number,
 
 const ANTON = 'Anton, Impact, "Arial Black", sans-serif';
 const RAJDHANI = 'Rajdhani, "Arial Narrow", sans-serif';
+/**
+ * Atlas text is drawn this many times larger, unsqueezed, into a scratch canvas and then scaled into
+ * its slot with smoothing. Drawn straight into the squeezed slot, the canvas put each glyph of small
+ * text on a whole pixel, so taglines came out unevenly spaced ('H ERO WOR SHIP').
+ */
+const TEXT_SUPERSAMPLE = 4;
+let textScratch: HTMLCanvasElement | null = null;
 
 /** Draws in metres (y down from the top of the frontage) into one atlas slot. */
 class Painter {
@@ -705,27 +712,48 @@ class Painter {
     c.restore();
   }
 
-  /** Text centred at (cx, cy), `h` metres tall, shrunk to fit `maxW` metres. */
+  /** Text centred at (cx, cy), `h` metres tall, shrunk to fit `maxW` metres (supersampled, see TEXT_SUPERSAMPLE). */
   text(t: string, cx: number, cy: number, h: number, font: string, fill: string, maxW: number, weight = '400', blur = 0, blurColor = fill): void {
-    const c = this.c;
+    const k = TEXT_SUPERSAMPLE;
     const squeeze = this.sx / this.sy;
+    textScratch ??= document.createElement('canvas');
+    const s = textScratch;
+    let sc = s.getContext('2d');
+    if (!sc) return;
     let size = h * this.sy;
-    c.save();
-    c.font = `${weight} ${size}px ${font}`;
-    while (c.measureText(t).width * squeeze > maxW * this.sx && size > 6) {
+    sc.font = `${weight} ${size * k}px ${font}`;
+    while ((sc.measureText(t).width / k) * squeeze > maxW * this.sx && size > 6) {
       size *= 0.92;
-      c.font = `${weight} ${size}px ${font}`;
+      sc.font = `${weight} ${size * k}px ${font}`;
     }
-    c.translate(this.x(cx), this.y(cy));
-    c.scale(squeeze, 1);
-    c.textAlign = 'center';
-    c.textBaseline = 'middle';
-    c.fillStyle = fill;
+    sc.textAlign = 'center';
+    sc.textBaseline = 'middle';
+    const m = sc.measureText(t);
+    const fs = size * k;
+    // Ink extents from the centre point (with a fallback where the box metrics are missing).
+    const left = Number.isFinite(m.actualBoundingBoxLeft) ? m.actualBoundingBoxLeft : m.width / 2;
+    const right = Number.isFinite(m.actualBoundingBoxRight) ? m.actualBoundingBoxRight : m.width / 2;
+    const up = Number.isFinite(m.actualBoundingBoxAscent) ? m.actualBoundingBoxAscent : fs * 0.8;
+    const down = Number.isFinite(m.actualBoundingBoxDescent) ? m.actualBoundingBoxDescent : fs * 0.8;
+    const pad = 2 * k;
+    // Resizing clears the scratch canvas and resets its state.
+    s.width = Math.max(1, Math.ceil(left + right) + 2 * pad);
+    s.height = Math.max(1, Math.ceil(up + down) + 2 * pad);
+    sc = s.getContext('2d')!;
+    sc.font = `${weight} ${fs}px ${font}`;
+    sc.textAlign = 'center';
+    sc.textBaseline = 'middle';
+    sc.fillStyle = fill;
+    sc.fillText(t, pad + left, pad + up);
+    const c = this.c;
+    c.save();
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = 'high';
     if (blur > 0) {
       c.shadowColor = blurColor;
       c.shadowBlur = blur;
     }
-    c.fillText(t, 0, 0);
+    c.drawImage(s, this.x(cx) - ((pad + left) / k) * squeeze, this.y(cy) - (pad + up) / k, (s.width / k) * squeeze, s.height / k);
     c.restore();
   }
 
@@ -843,10 +871,11 @@ const SHOP_DESIGNS: ShopDesign[] = [
     board: '#b3201e', letters: '#ffffff', neon: '#ff3b3b', trim: '#3a3a3a', interior: '#d9d4c7', light: '#fff2d6', doorLeft: true, shutter: 0.3,
     goods: ({ m, e }, x, y, w, h) => {
       for (let k = 0; k < 9; k++) m.rect(x + 0.05, y + h * 0.35 + k * 0.17, w - 0.1, 0.06, '#c9c2b0');
-      m.rect(x + w * 0.18, y + h * 0.45, w * 0.64, 0.75, '#fff');
-      m.text('24/7', x + w * 0.5, y + h * 0.45 + 0.27, 0.32, ANTON, '#b3201e', w * 0.55);
-      m.text('FREE CALL', x + w * 0.5, y + h * 0.45 + 0.58, 0.16, RAJDHANI, '#222', w * 0.55, '700');
-      e.text('24/7', x + w * 0.5, y + h * 0.45 + 0.27, 0.32, ANTON, '#ff4444', w * 0.55, '400', 8);
+      // The card hangs in the right-hand pane, clear of the window's centre bar.
+      m.rect(x + w * 0.54, y + h * 0.45, w * 0.4, 0.75, '#fff');
+      m.text('24/7', x + w * 0.74, y + h * 0.45 + 0.26, 0.34, ANTON, '#b3201e', w * 0.34);
+      m.text('FREE CALL', x + w * 0.74, y + h * 0.45 + 0.59, 0.26, RAJDHANI, '#222', w * 0.34, '700');
+      e.text('24/7', x + w * 0.74, y + h * 0.45 + 0.26, 0.34, ANTON, '#ff4444', w * 0.34, '400', 8);
     },
   },
   {
@@ -893,8 +922,8 @@ const SHOP_DESIGNS: ShopDesign[] = [
           e.rect(bx, sy + 0.08, 0.1, 0.34, '#2a2018');
         }
       }
-      m.text('COLD BEER', x + w * 0.5, y + h - 0.35, 0.22, ANTON, '#4dd2ff', w * 0.6);
-      e.text('COLD BEER', x + w * 0.5, y + h - 0.35, 0.22, ANTON, '#4dd2ff', w * 0.6, '400', 6);
+      m.text('COLD BEER', x + w * 0.5, y + h - 0.35, 0.26, ANTON, '#4dd2ff', w * 0.6);
+      e.text('COLD BEER', x + w * 0.5, y + h - 0.35, 0.26, ANTON, '#4dd2ff', w * 0.6, '400', 6);
     },
   },
   {
@@ -965,8 +994,8 @@ const SHOP_DESIGNS: ShopDesign[] = [
         m.circle(px, y + h * 0.82, 0.15, '#d9480f');
         m.circle(px + 0.04, y + h * 0.8, 0.03, '#ffe066');
       }
-      m.text('BY THE SLICE', x + w * 0.7, y + 0.4, 0.18, ANTON, '#c92a2a', w * 0.5);
-      e.text('BY THE SLICE', x + w * 0.7, y + 0.4, 0.18, ANTON, '#ff6b6b', w * 0.5, '400', 6);
+      m.text('BY THE SLICE', x + w * 0.7, y + 0.4, 0.26, ANTON, '#c92a2a', w * 0.5);
+      e.text('BY THE SLICE', x + w * 0.7, y + 0.4, 0.26, ANTON, '#ff6b6b', w * 0.5, '400', 6);
     },
   },
   {
@@ -998,9 +1027,10 @@ const SHOP_DESIGNS: ShopDesign[] = [
         m.rect(px + 0.02, y + h * 0.5 + 0.03, 0.18, 0.32, ['#4dc3ff', '#9b5de5', '#00f5d4', '#fee440'][k % 4]!);
         e.rect(px + 0.02, y + h * 0.5 + 0.03, 0.18, 0.32, ['#4dc3ff', '#9b5de5', '#00f5d4', '#fee440'][k % 4]!);
       }
-      m.rect(x + 0.4, y + 0.3, w * 0.5, 0.7, '#0f2b5b');
-      m.text('UNLOCKED', x + 0.4 + w * 0.25, y + 0.55, 0.2, ANTON, '#fff', w * 0.45);
-      m.text('NO QUESTIONS', x + 0.4 + w * 0.25, y + 0.82, 0.12, RAJDHANI, '#4dc3ff', w * 0.45, '700');
+      // In the left-hand pane, clear of the window's centre bar.
+      m.rect(x + 0.4, y + 0.3, w * 0.4, 0.7, '#0f2b5b');
+      m.text('UNLOCKED', x + 0.4 + w * 0.2, y + 0.5, 0.28, ANTON, '#fff', w * 0.37);
+      m.text('NO QUESTIONS', x + 0.4 + w * 0.2, y + 0.82, 0.22, RAJDHANI, '#4dc3ff', w * 0.37, '700');
     },
   },
   {
@@ -1038,6 +1068,21 @@ const SHOP_DESIGNS: ShopDesign[] = [
 
 export const SHOPS: readonly ShopFront[] = SHOP_DESIGNS.map(({ name, tag, awning, beach }) => ({ name, tag, awning, beach }));
 
+/** Left edge (metres) of a shop cell's door. */
+function shopDoorX(d: { doorLeft: boolean }): number {
+  return d.doorLeft ? SHOP_DOOR_INSET : CELL_DESIGN.shop.w - SHOP_DOOR_INSET - SHOP_DOOR_W;
+}
+
+/** Door centre (fraction of the cell width) of every cell with a door: each shop, the lobby entrances, the bank and the house fronts. */
+export const DOOR_U: Readonly<Record<number, number>> = {
+  ...Object.fromEntries(SHOP_DESIGNS.map((d, i) => [i, (shopDoorX(d) + SHOP_DOOR_W / 2) / CELL_DESIGN.shop.w])),
+  [CELLS.lobbyRevolving]: 0.5,
+  [CELLS.lobbyDoors]: 0.5,
+  [CELLS.bank]: 0.5,
+  [CELLS.houseDoorA]: HOUSE_DOOR_U.a,
+  [CELLS.houseDoorB]: HOUSE_DOOR_U.b,
+};
+
 function drawShop(p: Pair, d: ShopDesign): void {
   const { m, e } = p;
   const W = CELL_DESIGN.shop.w;
@@ -1048,12 +1093,12 @@ function drawShop(p: Pair, d: ShopDesign): void {
   m.rect(0.12, 0.1, W - 0.24, 0.85, d.board);
   m.rect(0.12, 0.1, W - 0.24, 0.04, 'rgba(255,255,255,0.25)');
   m.rect(0.12, 0.91, W - 0.24, 0.04, 'rgba(0,0,0,0.25)');
-  m.text(d.name, W / 2, 0.45, 0.5, ANTON, d.letters, W - 0.9);
-  m.text(d.tag, W / 2, 0.8, 0.15, RAJDHANI, d.letters, W - 1.2, '700');
-  e.text(d.name, W / 2, 0.45, 0.5, ANTON, d.neon, W - 0.9, '400', 10, d.neon);
-  e.text(d.tag, W / 2, 0.8, 0.15, RAJDHANI, d.neon, W - 1.2, '700');
+  m.text(d.name, W / 2, SHOP_NAME.y, SHOP_NAME.h, ANTON, d.letters, W - 0.9);
+  m.text(d.tag, W / 2, SHOP_TAG.y, SHOP_TAG.h, RAJDHANI, d.letters, W - 1.2, '700');
+  e.text(d.name, W / 2, SHOP_NAME.y, SHOP_NAME.h, ANTON, d.neon, W - 0.9, '400', 10, d.neon);
+  e.text(d.tag, W / 2, SHOP_TAG.y, SHOP_TAG.h, RAJDHANI, d.neon, W - 1.2, '700');
   // Door and display window.
-  const doorX = d.doorLeft ? 0.5 : W - 1.5;
+  const doorX = shopDoorX(d);
   const winX = d.doorLeft ? 1.75 : 0.45;
   const winW = W - 2.2;
   const winY = SHOP_AWNING_TOP + 0.15;
@@ -1218,10 +1263,10 @@ function drawLobbyDoors(p: Pair): void {
   plant(p, W - 0.9, H - 0.1);
   m.rect(2.6, H - 2.3, 1.3, 0.45, '#3a2f28');
   lobbyMullions(p, W, H);
-  // Stone surround with double glass doors.
+  // Stone surround with double glass doors, and the street number over them.
   const cx = W / 2;
-  m.rect(cx - 1.25, H - 3.1, 2.5, 3.1, '#bdb6aa');
-  m.rect(cx - 1.25, H - 3.1, 2.5, 0.1, '#d8d2c6');
+  m.rect(cx - 1.25, H - 3.3, 2.5, 3.3, '#bdb6aa');
+  m.rect(cx - 1.25, H - 3.3, 2.5, 0.1, '#d8d2c6');
   m.rect(cx - 0.95, H - 2.8, 1.9, 2.8, '#1e2329');
   for (const x of [cx - 0.9, cx + 0.03]) {
     m.vgrad(x, H - 2.72, 0.87, 2.64, [
@@ -1234,7 +1279,7 @@ function drawLobbyDoors(p: Pair): void {
     ]);
     m.rect(x + 0.1, H - 1.45, 0.67, 0.05, '#c9cfd4');
   }
-  m.text('1200', cx, H - 2.95, 0.12, RAJDHANI, '#2a2a2a', 1.2, '700');
+  m.text('1200', cx, H - 3.0, 0.34, RAJDHANI, '#2a2a2a', 1.2, '700');
 }
 
 function drawLobbyGlass(p: Pair): void {
@@ -1413,7 +1458,7 @@ function porchLamp(p: Pair, x: number): void {
 
 function drawHouseDoorA(p: Pair): void {
   const { W } = houseWall(p);
-  const cx = W * (DOOR_U[CELLS.houseDoorA] ?? 0.3);
+  const cx = W * HOUSE_DOOR_U.a;
   houseDoor(p, cx, '#7a3b2e', false);
   porchLamp(p, cx + 0.85);
   houseWindow(p, 3.85, 1.7, 0.75, 1.25, 0.18);
@@ -1421,7 +1466,7 @@ function drawHouseDoorA(p: Pair): void {
 
 function drawHouseDoorB(p: Pair): void {
   const { W } = houseWall(p);
-  const cx = W * (DOOR_U[CELLS.houseDoorB] ?? 0.5);
+  const cx = W * HOUSE_DOOR_U.b;
   houseDoor(p, cx, '#2f4a6b', true);
   porchLamp(p, cx - 1.0);
   houseWindow(p, 0.75, 1.2, 0.8, 1.2, 0);

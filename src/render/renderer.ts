@@ -199,6 +199,8 @@ export class GameRenderer {
       shadow.mapSize.set(t.shadowSize, t.shadowSize);
     }
     this.setBloom(t.bloom);
+    // Without a bloom halo the coloured lamps (traffic lights) must carry their hue in the lamp itself.
+    this.props.setGlow(this.bloom !== null);
     // Dynamic lights: on 'few' the sources stay hidden and feed the pool (see syncLightPool).
     // The number of visible lights only changes here, so shaders are not rebuilt during play.
     this.collectPointSources();
@@ -403,10 +405,12 @@ export class GameRenderer {
   /**
    * Skips ambient cars beyond the tier's vehicle draw distance (on Low, 150 m: a few pixels tall, and
    * about 15 draw calls each). Mission and police vehicles are always drawn, and so are wrecks and
-   * burning or smoking cars, whose fire and smoke would otherwise hang in the air.
+   * burning or smoking cars, whose fire and smoke would otherwise hang in the air. The title flyover
+   * draws every car: it circles 260 m out and 95 m up, where all of them are far yet clearly seen,
+   * and the title sim has only a few dozen.
    */
   private cullFar(view: VehicleView, v: Vehicle): void {
-    const far = QUALITY[this.quality].vehicleDistance;
+    const far = this.cameraCtl.mode === 'title' ? Infinity : QUALITY[this.quality].vehicleDistance;
     const cam = this.cameraCtl.camera.position;
     const plain = (v.owner === 'traffic' || v.owner === 'parked') && !v.destroyed && !v.burning && v.condition >= SMOKE_CONDITION;
     const hide = plain && (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2 > far * far;

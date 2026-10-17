@@ -42,6 +42,77 @@ function cyl(rt: number, rb: number, h: number, seg: number, x = 0, y = 0, z = 0
 export const FOLIAGE_FADE_FAR = 2.5;
 const FADE_NEAR = 1.2;
 
+/** Share of foliage fragments at `d` m from the camera that the dissolve keeps (see fadeNearCamera). */
+export function foliageKept(d: number): number {
+  return smoothstep(FADE_NEAR, FOLIAGE_FADE_FAR, d);
+}
+
+/** A tree's canopy: three icosahedra (radius, vertical stretch, centre at scale 1, before the prop's turn). */
+const CANOPY = [
+  { r: 1.7, sy: 1.1, at: [0, 4.3, 0] },
+  { r: 1.25, sy: 1, at: [0.7, 5.3, 0.3] },
+  { r: 1.1, sy: 1, at: [-0.6, 5.0, -0.5] },
+] as const;
+/** A bush: one squashed icosahedron. */
+const BUSH = { r: 0.85, scale: [1.2, 0.75, 1.1], at: [0, 0.55, 0] } as const;
+
+/** Points on the faces of three's unit detail-0 icosahedron: a barycentric grid of every face (corners and edges included). */
+const ICOSA_POINTS: readonly number[] = (() => {
+  const pos = new THREE.IcosahedronGeometry(1, 0).getAttribute('position');
+  const out: number[] = [];
+  const n = 4;
+  for (let f = 0; f < pos.count; f += 3) {
+    for (let i = 0; i <= n; i++) {
+      for (let j = 0; j <= n - i; j++) {
+        const a = i / n;
+        const b = j / n;
+        const c = 1 - a - b;
+        for (const axis of ['getX', 'getY', 'getZ'] as const) out.push(pos[axis](f) * a + pos[axis](f + 1) * b + pos[axis](f + 2) * c);
+      }
+    }
+  }
+  return out;
+})();
+
+/** One icosahedron of a prop's foliage: its radius per axis and centre, at scale 1 before the prop's turn. */
+interface FoliagePart {
+  scale: readonly [number, number, number];
+  at: readonly [number, number, number];
+}
+
+function foliageParts(q: Prop): readonly FoliagePart[] {
+  if (q.kind === 'tree') return CANOPY.map((c) => ({ scale: [c.r, c.r * c.sy, c.r] as const, at: c.at }));
+  if (q.kind === 'bush') return [{ scale: [BUSH.r * BUSH.scale[0], BUSH.r * BUSH.scale[1], BUSH.r * BUSH.scale[2]] as const, at: BUSH.at }];
+  return [];
+}
+
+/** PropsView.standard's placement of a point given in a prop's frame: turned by rot about Y, scaled, at the prop. */
+function placed(q: Prop, x: number, y: number, z: number): [number, number, number] {
+  const cos = Math.cos(q.rot);
+  const sin = Math.sin(q.rot);
+  return [q.x + (x * cos + z * sin) * q.scale, q.y + y * q.scale, q.z + (z * cos - x * sin) * q.scale];
+}
+
+/** Spheres round the foliage of a tree or bush (none for other props), in world space: every leaf lies inside one. */
+export function foliageSpheres(q: Prop): Array<{ x: number; y: number; z: number; r: number }> {
+  return foliageParts(q).map(({ scale, at }) => {
+    const [x, y, z] = placed(q, at[0], at[1], at[2]);
+    return { x, y, z, r: Math.max(...scale) * q.scale };
+  });
+}
+
+/**
+ * Points spread over the faces of a tree's or bush's foliage (none for other props), in world space,
+ * no more than a quarter of a face's edge apart: where the camera could see leaves dissolving.
+ */
+export function foliagePoints(q: Prop): number[] {
+  const out: number[] = [];
+  for (const { scale, at } of foliageParts(q)) {
+    for (let k = 0; k < ICOSA_POINTS.length; k += 3) out.push(...placed(q, at[0] + ICOSA_POINTS[k]! * scale[0], at[1] + ICOSA_POINTS[k + 1]! * scale[1], at[2] + ICOSA_POINTS[k + 2]! * scale[2]));
+  }
+  return out;
+}
+
 /**
  * Makes an instanced foliage material dissolve close to the camera: fragments within
  * FOLIAGE_FADE_FAR of it are thinned out by a 4x4 Bayer dither (all of them nearer than 1.2 m),
@@ -88,6 +159,27 @@ float fadeBayer4( vec2 frag ) {
 
 const BEAM_LENGTH = 90;
 const GLOW_COLOR = new THREE.Color(0xffe6b0);
+
+type Rgb = readonly [number, number, number];
+
+/**
+ * Coloured lamps (signal bulbs, aircraft warning lights), lit. ACES tone-maps a lamp far above 1 to
+ * a near-white core, so with bloom each one's luminance stays above the bloom threshold (2.6) and
+ * the halo round it carries the colour (the reds lean a little orange to get there without a halo
+ * twice as strong as the green's). Without bloom (Low, or no half-float target) only that core is
+ * drawn, so they stay where ACES keeps the hue: red reads red and green green, not white and peach.
+ */
+const LAMPS: Readonly<Record<'glow' | 'flat', { red: Rgb; yellow: Rgb; green: Rgb; warning: Rgb }>> = {
+  glow: { red: [9.5, 1.1, 0.22], yellow: [6, 3.6, 0.07], green: [0.07, 5.5, 2.4], warning: [9.5, 1.1, 0.22] },
+  flat: { red: [1, 0.02, 0.01], yellow: [1, 0.42, 0.01], green: [0.01, 0.7, 0.22], warning: [1.1, 0.02, 0.015] },
+};
+/** Luminance of a lit ferris wheel light with bloom: every hue blooms alike. */
+const FERRIS_GLOW = 3.5;
+
+/** Relative luminance (the weights three's bloom pass and tone mapping use). */
+function luminance(c: { r: number; g: number; b: number }): number {
+  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+}
 
 const BEAM_VS = /* glsl */ `
 varying float vT;
@@ -160,6 +252,8 @@ export class PropsView {
   private readonly antennaMat = new THREE.MeshBasicMaterial({ color: 0x220000 });
   private readonly tmpM = new THREE.Matrix4();
   private readonly tmpC = new THREE.Color();
+  /** Whether a bloom pass draws halos round bright lights, which picks the coloured lamps' colours (see LAMPS). */
+  private glow = true;
 
   constructor(private readonly world: StaticWorld) {
     this.group.name = 'props';
@@ -234,18 +328,14 @@ export class PropsView {
   private buildTrees(trees: number[], bushes: number[]): void {
     const rng = new Rng(77);
     const trunk = cyl(0.16, 0.26, 3.2, 6);
-    const foliage = merged([
-      new THREE.IcosahedronGeometry(1.7, 0).scale(1, 1.1, 1).translate(0, 4.3, 0),
-      new THREE.IcosahedronGeometry(1.25, 0).translate(0.7, 5.3, 0.3),
-      new THREE.IcosahedronGeometry(1.1, 0).translate(-0.6, 5.0, -0.5),
-    ]);
+    const foliage = merged(CANOPY.map((c) => new THREE.IcosahedronGeometry(c.r, 0).scale(1, c.sy, 1).translate(c.at[0], c.at[1], c.at[2])));
     this.makeInstanced(trunk, new THREE.MeshStandardMaterial({ color: 0x5a4030, roughness: 0.95 }), trees, PropsView.standard);
     const leaves = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
     fadeNearCamera(leaves);
     this.makeInstanced(foliage, leaves, trees, PropsView.standard, {
       color: (_p, c) => c.setHSL(0.26 + rng.range(-0.04, 0.05), rng.range(0.45, 0.65), rng.range(0.24, 0.36)),
     });
-    const bush = new THREE.IcosahedronGeometry(0.85, 0).scale(1.2, 0.75, 1.1).translate(0, 0.55, 0);
+    const bush = new THREE.IcosahedronGeometry(BUSH.r, 0).scale(BUSH.scale[0], BUSH.scale[1], BUSH.scale[2]).translate(BUSH.at[0], BUSH.at[1], BUSH.at[2]);
     const bushMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
     fadeNearCamera(bushMat);
     this.makeInstanced(bush, bushMat, bushes, PropsView.standard, {
@@ -582,6 +672,11 @@ export class PropsView {
     if (p.kind === 'signal') this.brokenSignals.add(index);
   }
 
+  /** Whether bloom draws halos round bright lights (GameRenderer.setQuality): without it the coloured lamps use LAMPS.flat. */
+  setGlow(on: boolean): void {
+    this.glow = on;
+  }
+
   /** Puts every knocked-over prop back in place (new game). */
   restoreAll(): void {
     for (const refs of this.refs.values()) {
@@ -604,6 +699,7 @@ export class PropsView {
     this.poolMat.opacity = k * 0.42;
     for (const m of this.adMaterials) m.emissiveIntensity = 0.12 + k * 1.1;
     // Signals.
+    const lamps = LAMPS[this.glow ? 'glow' : 'flat'];
     const bulbs = this.signalBulbs;
     if (bulbs) {
       const roads = this.world.roads;
@@ -611,9 +707,9 @@ export class PropsView {
       this.signalProps.forEach((p, i) => {
         const broken = this.brokenSignals.has(this.signalPropIndex[i]!);
         const st = broken ? 'off' : roads.signalState(p.node, axisOf(p.dir as Dir), signalTime);
-        bulbs.setColorAt(i * 3, this.tmpC.setRGB(st === 'red' ? 6 : off + 0.05, st === 'red' ? 0.25 : off, off));
-        bulbs.setColorAt(i * 3 + 1, this.tmpC.setRGB(st === 'yellow' ? 6 : off + 0.05, st === 'yellow' ? 3.6 : off, off));
-        bulbs.setColorAt(i * 3 + 2, this.tmpC.setRGB(off, st === 'green' ? 5.5 : off + 0.05, st === 'green' ? 2.4 : off));
+        bulbs.setColorAt(i * 3, st === 'red' ? this.tmpC.setRGB(...lamps.red) : this.tmpC.setRGB(off + 0.05, off, off));
+        bulbs.setColorAt(i * 3 + 1, st === 'yellow' ? this.tmpC.setRGB(...lamps.yellow) : this.tmpC.setRGB(off + 0.05, off, off));
+        bulbs.setColorAt(i * 3 + 2, st === 'green' ? this.tmpC.setRGB(...lamps.green) : this.tmpC.setRGB(off, off + 0.05, off));
       });
       if (bulbs.instanceColor) bulbs.instanceColor.needsUpdate = true;
     }
@@ -635,7 +731,8 @@ export class PropsView {
       for (let i = 0; i < 64; i++) {
         const lit = night > 0.2;
         const hue = (i / 64 + time * 0.05) % 1;
-        if (lit) this.tmpC.setHSL(hue, 1, 0.6).multiplyScalar(5);
+        if (lit && this.glow) this.tmpC.setHSL(hue, 1, 0.6).multiplyScalar(FERRIS_GLOW / luminance(this.tmpC));
+        else if (lit) this.tmpC.setHSL(hue, 1, 0.5);
         else this.tmpC.setRGB(0.15, 0.15, 0.15);
         f.lights.setColorAt(i, this.tmpC);
       }
@@ -654,7 +751,8 @@ export class PropsView {
     }
     if (this.antennaLights) {
       const on = night > 0.3 && Math.floor(time * 1.2) % 2 === 0;
-      this.antennaMat.color.setRGB(on ? 7 : 0.25, on ? 0.3 : 0.02, on ? 0.15 : 0.02);
+      if (on) this.antennaMat.color.setRGB(...lamps.warning);
+      else this.antennaMat.color.setRGB(0.25, 0.02, 0.02);
     }
   }
 }

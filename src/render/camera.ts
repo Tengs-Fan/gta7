@@ -6,6 +6,7 @@ import { clamp, damp, dampAngle, smoothstep, wrapAngle, type V3 } from '../core/
 import type { Sim } from '../sim/sim';
 import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
 import { WATER_Y } from '../world/constants';
+import { FOLIAGE_FADE_FAR, foliageKept, foliagePoints, foliageSpheres } from './props';
 
 export type CameraMode = 'play' | 'title';
 
@@ -23,17 +24,106 @@ const KICK_PEAK = (() => {
   const tp = Math.atan2(wd, KICK_ZETA * KICK_OMEGA) / wd;
   return (Math.exp(-KICK_ZETA * KICK_OMEGA * tp) * Math.sin(wd * tp)) / wd;
 })();
-/** On-foot boom as update() places it at rest: distance back (normal and far zoom) and shoulder offset (m). */
+/** On-foot boom as update() places it at rest: distance back (normal and far zoom), shoulder offset (m) and pitch after a reset. */
 const FOOT_BOOM = 4.3;
 const FOOT_BOOM_FAR = 6.6;
 const FOOT_SHOULDER = 0.42;
+const RESET_PITCH = -0.12;
+/** Leaves the dissolve keeps more of than this show no screen-door pattern worth the name. */
+const KEPT_UNSEEN = 0.9;
 /**
  * On foot the boom also stops in front of tree and palm trunks, except one hugging the player's back
  * (nearer than this to the look point): pulling the camera in there would put it in his head.
  */
 const TRUNK_SKIP = 1.6;
+/**
+ * Radius (m) of the camera's lens for the trunk stop: the boom stops where a sphere this big round the
+ * camera would touch a trunk, so it is also caught by trunks it would only have grazed.
+ */
+const LENS = 0.5;
 
 const isTrunk = (c: StaticCollider) => c.tag === 'tree' || c.tag === 'palm';
+
+/** The foliage of a prop near a reset: its bounding spheres, to skip it cheaply, and points on its faces (see props.ts). */
+interface Leaves {
+  spheres: Array<{ x: number; y: number; z: number; r: number }>;
+  points: number[];
+}
+
+/**
+ * True when a camera at `cam` with this yaw and pitch, field of view and aspect sees no leaves
+ * dissolving: no point of the foliage in its frame loses a tenth or more of its fragments to the
+ * dissolve (the camera inside a canopy fails too).
+ */
+function leavesClear(cam: V3, yaw: number, pitch: number, fovDeg: number, aspect: number, leaves: readonly Leaves[]): boolean {
+  const f = { x: Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch) };
+  const r = { x: -Math.cos(yaw), z: Math.sin(yaw) };
+  // Up = right x forward (right has no y).
+  const u = { x: -r.z * f.y, y: r.z * f.x - r.x * f.z, z: r.x * f.y };
+  const tanV = Math.tan((fovDeg * Math.PI) / 360);
+  const tanH = tanV * aspect;
+  for (const l of leaves) {
+    let near = false;
+    for (const s of l.spheres) {
+      const d = Math.hypot(s.x - cam.x, s.y - cam.y, s.z - cam.z);
+      // Inside a canopy's core (its insphere is over 0.79 of the radius): every way it looks is leaves.
+      if (d < 0.79 * s.r) return false;
+      if (d - s.r < FOLIAGE_FADE_FAR) near = true;
+    }
+    if (!near) continue;
+    const p = l.points;
+    for (let k = 0; k < p.length; k += 3) {
+      const vx = p[k]! - cam.x;
+      const vy = p[k + 1]! - cam.y;
+      const vz = p[k + 2]! - cam.z;
+      const z = vx * f.x + vy * f.y + vz * f.z;
+      if (z <= 0 || foliageKept(Math.hypot(vx, vy, vz)) >= KEPT_UNSEEN) continue;
+      if (Math.abs(vx * r.x + vz * r.z) < z * tanH && Math.abs(vx * u.x + vy * u.y + vz * u.z) < z * tanV) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * How far along the on-foot boom (from `from` along the unit vector `d`, `len` long) the lens first
+ * touches a tree or palm trunk (`t`, Infinity for none; never under TRUNK_SKIP - 0.3, the old ray
+ * stop's minimum) and which trunk that is. Trunks hugging his back (their near side within TRUNK_SKIP
+ * along the boom) are ignored and go into `hugging`. Trunk colliders are vertical cylinders taller
+ * than the boom is high, so this is the boom's track over the ground against each trunk's circle
+ * grown by LENS.
+ */
+function trunkStop(sim: Sim, from: V3, d: V3, len: number, hugging: Set<number>): { t: number; id: number } {
+  const stop = { t: Infinity, id: -1 };
+  const h2 = d.x * d.x + d.z * d.z;
+  if (h2 < 1e-6) return stop;
+  const ex = from.x + d.x * len;
+  const ez = from.z + d.z * len;
+  const pad = 1 + LENS;
+  sim.world.grid.query(Math.min(from.x, ex) - pad, Math.min(from.z, ez) - pad, Math.max(from.x, ex) + pad, Math.max(from.z, ez) + pad, (c) => {
+    if (!isTrunk(c) || !c.circle) return;
+    const ox = from.x - c.cx;
+    const oz = from.z - c.cz;
+    const r = c.r + LENS;
+    // |from + d t - centre| = r over the ground: h2 t^2 + 2 b t + q = 0; the entry is the smaller root.
+    const b = ox * d.x + oz * d.z;
+    const q = ox * ox + oz * oz - r * r;
+    const disc = b * b - h2 * q;
+    if (disc < 0) return;
+    const sq = Math.sqrt(disc);
+    if ((-b + sq) / h2 <= 0) return;
+    const t = Math.max(TRUNK_SKIP - 0.3, (-b - sq) / h2);
+    if (t >= len) return;
+    const y = from.y + d.y * t;
+    if (y < c.y0 - LENS || y > c.y1 + LENS) return;
+    // Along the boom to where it passes the trunk's centre, less the trunk's own radius.
+    if (-b / h2 - c.r <= TRUNK_SKIP) hugging.add(c.id);
+    else if (t < stop.t) {
+      stop.t = t;
+      stop.id = c.id;
+    }
+  });
+  return stop;
+}
 
 export class CameraController {
   readonly camera: THREE.PerspectiveCamera;
@@ -67,6 +157,11 @@ export class CameraController {
   private readonly offset = new THREE.Vector3();
   /** Boom length (m) the trunks behind the player allow (Infinity: none), eased in quickly and out slowly. */
   private trunkReach = Infinity;
+  /** Trunks the boom ignored last frame and this one, for hugging the player's back (see trunkStop). */
+  private hugging = new Set<number>();
+  private huggingNow = new Set<number>();
+  /** Set by reset(): the next on-foot frame has no earlier boom to glide from. */
+  private freshBoom = true;
   private titleT = 0;
   private deathT = 0;
   private wasInVehicle = false;
@@ -293,16 +388,29 @@ export class CameraController {
       let reach = len;
       if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) reach = Math.max(0.35, hit.t - 0.3);
       if (onFoot) {
-        const limit = sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isTrunk) && hit.t > TRUNK_SKIP ? hit.t - 0.3 : Infinity;
+        this.huggingNow.clear();
+        const stop = trunkStop(sim, lookFrom, d, len, this.huggingNow);
         const cur = Math.min(this.trunkReach, len);
-        // In from the boom's current length; out again at 6 m/s, after which no trunk holds it back.
-        this.trunkReach = limit < cur ? damp(cur, limit, 12, dt) : Math.min(limit, this.trunkReach + 6 * dt);
+        if (stop.t < cur) {
+          // In from the boom's current length; but a trunk that hugged his back last frame has the camera
+          // behind it, and gliding in front of it would drag the camera through it: that is a cut, as is
+          // the first frame after a reset, which has no earlier boom to glide from.
+          this.trunkReach = this.hugging.has(stop.id) || this.freshBoom ? stop.t : damp(cur, stop.t, 12, dt);
+        } else {
+          // Out again at 6 m/s, after which no trunk holds it back.
+          this.trunkReach = Math.min(stop.t, this.trunkReach + 6 * dt);
+        }
+        [this.hugging, this.huggingNow] = [this.huggingNow, this.hugging];
+        this.freshBoom = false;
         reach = Math.min(reach, this.trunkReach);
       }
       if (reach < len) this.desired.copy(lookFrom).addScaledVector(d, reach);
     }
     this.boom = len > 0.01 ? Math.min(1, this.desired.distanceTo(lookFrom) / len) : 1;
-    if (!onFoot) this.trunkReach = Infinity;
+    if (!onFoot) {
+      this.trunkReach = Infinity;
+      this.hugging.clear();
+    }
     // Stay above the ground and above the sea, whose surface plane is invisible from below.
     const floor = Math.max(sim.world.groundHeight(this.desired.x, this.desired.z), WATER_Y) + 0.35;
     if (this.desired.y < floor) this.desired.y = floor;
@@ -362,24 +470,34 @@ export class CameraController {
   }
 
   /**
-   * Yaw for an on-foot reset: the player's heading, or the nearest yaw to it (in 15 degree steps,
-   * up to a half turn) whose boom point keeps 2.6 x scale m from every street tree and palm, so the
-   * camera does not start inside a canopy (the first New Game frame was a third leaves).
+   * Yaw for an on-foot reset: the player's heading, or the nearest yaw to it (in 5 degree steps, up to
+   * a half turn) whose camera point keeps 2.6 x scale m from every street tree and palm trunk, so the
+   * camera does not start inside a canopy (the first New Game frame was a third leaves), and shows no
+   * leaves dissolving (see leavesClear). Where no yaw does both, the nearest one clear of the trunks;
+   * then the heading.
    */
   private clearYaw(sim: Sim): number {
     const p = sim.player;
     const boom = this.zoomLevel === 1 ? FOOT_BOOM_FAR : FOOT_BOOM;
-    const near = sim.world.layout.props.filter((q) => (q.kind === 'tree' || q.kind === 'palm') && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < boom + 8);
-    if (near.length === 0) return p.heading;
-    for (let k = 0; k <= 23; k++) {
-      // 0, +15, -15, +30, ... degrees, ending with the half turn.
-      const yaw = p.heading + (k % 2 === 1 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 12);
-      // The boom point update() starts from: behind the player, over the right shoulder.
-      const bx = p.pos.x - Math.sin(yaw) * boom - Math.cos(yaw) * FOOT_SHOULDER;
-      const bz = p.pos.z - Math.cos(yaw) * boom + Math.sin(yaw) * FOOT_SHOULDER;
-      if (near.every((q) => Math.hypot(q.x - bx, q.z - bz) >= 2.6 * q.scale)) return wrapAngle(yaw);
+    const props = sim.world.layout.props.filter((q) => (q.kind === 'tree' || q.kind === 'palm' || q.kind === 'bush') && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < boom + 8);
+    if (props.length === 0) return p.heading;
+    const trunks = props.filter((q) => q.kind !== 'bush');
+    const leaves = props.filter((q) => q.kind !== 'palm').map((q) => ({ spheres: foliageSpheres(q), points: foliagePoints(q) }));
+    // The camera point update() settles at: behind the head and up the pitched boom, over the right shoulder.
+    const back = boom * Math.cos(RESET_PITCH);
+    const cam = { x: 0, y: p.pos.y + 1.58 * p.appearance.height - Math.sin(RESET_PITCH) * boom + 0.18, z: 0 };
+    let trunksOnly: number | null = null;
+    for (let k = 0; k <= 72; k++) {
+      // 0, +5, -5, +10, ... degrees, ending with the half turn.
+      const yaw = p.heading + (k % 2 === 1 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 36);
+      cam.x = p.pos.x - Math.sin(yaw) * back - Math.cos(yaw) * FOOT_SHOULDER;
+      cam.z = p.pos.z - Math.cos(yaw) * back + Math.sin(yaw) * FOOT_SHOULDER;
+      if (!trunks.every((q) => Math.hypot(q.x - cam.x, q.z - cam.z) >= 2.6 * q.scale)) continue;
+      // The view eases to the base FOV from wherever it was (wider after a fast drive).
+      if (leavesClear(cam, yaw, RESET_PITCH, Math.max(this.baseFov, this.fov), this.camera.aspect, leaves)) return wrapAngle(yaw);
+      trunksOnly ??= wrapAngle(yaw);
     }
-    return p.heading;
+    return trunksOnly ?? p.heading;
   }
 
   /** Snap behind the player (after respawn / teleport). */
@@ -389,13 +507,15 @@ export class CameraController {
     this.vehYaw = this.yaw;
     this.orbitYaw = 0;
     this.orbitPitch = 0;
-    this.pitch = -0.12;
+    this.pitch = RESET_PITCH;
     this.shakeAmt = 0;
     this.rumbleAmt = 0;
     this.kickPos.set(0, 0, 0);
     this.kickVel.set(0, 0, 0);
     this.offset.set(0, 0, 0);
     this.trunkReach = Infinity;
+    this.hugging.clear();
+    this.freshBoom = true;
     const pos = sim.playerPos();
     this.target.set(pos.x, pos.y + 1.5, pos.z);
     this.wasInVehicle = !!p.vehicle;
