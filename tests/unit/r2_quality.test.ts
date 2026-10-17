@@ -1,0 +1,540 @@
+// Graphics quality tiers (P40s) and WebGL context loss (P90): the Auto pick from the GPU string,
+// the settings field, and GameRenderer switching tiers and surviving a context restore headless.
+// The stub header is copied from fix_render.test.ts (vi.mock cannot be shared between files); the
+// fake WebGLRenderer here also records what it is told (pixel ratio, effects, compiles, options).
+
+import * as THREE from 'three';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Environment } from '../../src/render/environment';
+import { AUTO_MAX_PIXELS, drawingBufferPixels, gpuClass, pickTier, pixelRatioFor, QUALITY, QUALITY_TIERS, type QualityTier } from '../../src/render/quality';
+import { GameRenderer, guardStaleDeletes } from '../../src/render/renderer';
+import type { VehicleView } from '../../src/render/vehicleView';
+import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '../../src/settings';
+import type { Sim } from '../../src/sim/sim';
+import type { StaticWorld } from '../../src/world/staticWorld';
+import { makeSim, step, teleport, world } from './helpers';
+
+vi.hoisted(() => {
+  const g = globalThis as Record<string, unknown>;
+  const ctx2d = (): unknown => {
+    const store: Record<string | symbol, unknown> = {
+      getImageData: (_x: number, _y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+      createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+      measureText: () => ({ width: 100 }),
+      createLinearGradient: () => ({ addColorStop: () => {} }),
+      createRadialGradient: () => ({ addColorStop: () => {} }),
+    };
+    // Every other 2D call is a no-op; property writes are kept.
+    return new Proxy(store, {
+      get: (o, k) => (k in o ? o[k] : () => {}),
+      set: (o, k, v) => {
+        o[k] = v;
+        return true;
+      },
+    });
+  };
+  const canvas = (): Record<string, unknown> => ({
+    width: 300,
+    height: 150,
+    clientWidth: 1280,
+    clientHeight: 720,
+    style: {},
+    getContext: (kind: string) => (kind === '2d' ? ctx2d() : null),
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  });
+  g.document ??= { createElement: canvas, createElementNS: canvas };
+  g.window ??= { devicePixelRatio: 1, innerWidth: 1280, innerHeight: 720, addEventListener: () => {} };
+});
+
+vi.mock('three', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('three')>();
+  class FakeWebGLRenderer {
+    readonly domElement: unknown;
+    readonly params: Record<string, unknown>;
+    readonly info = { autoReset: true, reset: () => {}, render: { calls: 0, triangles: 0 }, programs: [] as unknown[], memory: { geometries: 0, textures: 0 } };
+    readonly shadowMap = { enabled: false, type: 0 };
+    outputColorSpace = '';
+    toneMapping = 0;
+    toneMappingExposure = 1;
+    pixelRatio = 1;
+    effects: unknown[] = [];
+    compiles = 0;
+    constructor(params: { canvas?: unknown } = {}) {
+      this.params = params;
+      this.domElement = params.canvas;
+    }
+    setPixelRatio(r: number): void {
+      this.pixelRatio = r;
+    }
+    setSize(): void {}
+    getDrawingBufferSize(v: InstanceType<typeof actual.Vector2>): InstanceType<typeof actual.Vector2> {
+      return v.set(1280, 720);
+    }
+    setEffects(e: unknown[]): void {
+      this.effects = e;
+    }
+    /** Render target bound at each compile() (the HDR warm-up binds a half-float one). */
+    compileTargets: unknown[] = [];
+    private target: unknown = null;
+    setRenderTarget(t: unknown): void {
+      this.target = t;
+    }
+    getRenderTarget(): unknown {
+      return this.target;
+    }
+    compile(): void {
+      this.compiles++;
+      this.compileTargets.push(this.target);
+    }
+    render(): void {}
+    dispose(): void {}
+    /** A stand-in WebGL context that records deletes (for the stale-delete guard). */
+    readonly gl = {
+      deleted: [] as unknown[],
+      createTexture: (): object => ({}),
+      deleteTexture: (o: unknown): void => {
+        this.gl.deleted.push(o);
+      },
+    };
+    getContext(): unknown {
+      return this.gl;
+    }
+  }
+  return { ...actual, WebGLRenderer: FakeWebGLRenderer };
+});
+
+/** What the fake WebGLRenderer above records. */
+interface Fake {
+  gl: { deleted: unknown[]; createTexture(): object; deleteTexture(o: unknown): void };
+  params: { antialias?: boolean; outputBufferType?: number };
+  shadowMap: { enabled: boolean };
+  pixelRatio: number;
+  effects: unknown[];
+  compiles: number;
+  compileTargets: unknown[];
+  getRenderTarget(): unknown;
+  toneMapping: number;
+  outputColorSpace: string;
+}
+
+const DT = 1 / 60;
+const HDR = { renderer: '', halfFloat: true };
+
+/** A canvas that really dispatches events, for the context-loss handlers. */
+function eventCanvas(): HTMLCanvasElement {
+  return Object.assign(new EventTarget(), { width: 300, height: 150, clientWidth: 1280, clientHeight: 720, style: {}, getContext: () => null }) as unknown as HTMLCanvasElement;
+}
+
+function fakeOf(r: GameRenderer): Fake {
+  return r.renderer as unknown as Fake;
+}
+
+function visibleLights(scene: THREE.Scene): { point: THREE.PointLight[]; spot: THREE.SpotLight[] } {
+  const point: THREE.PointLight[] = [];
+  const spot: THREE.SpotLight[] = [];
+  scene.traverseVisible((o) => {
+    if (o instanceof THREE.PointLight) point.push(o);
+    if (o instanceof THREE.SpotLight) spot.push(o);
+  });
+  return { point, spot };
+}
+
+function views(r: GameRenderer): Map<number, VehicleView> {
+  return (r as unknown as { vehicleViews: Map<number, VehicleView> }).vehicleViews;
+}
+
+function attachPlay(r: GameRenderer, sim: Sim): void {
+  r.attach(sim);
+  r.cameraCtl.mode = 'play';
+  r.cameraCtl.reset(sim);
+}
+
+/** A clear spot on the beach, away from buildings. */
+function beachSpot(sim: Sim): { x: number; z: number } {
+  const b = sim.world.layout.bounds;
+  return { x: b.beachStartX + 30, z: (b.landMinZ + b.landMaxZ) / 2 };
+}
+
+// ---------------------------------------------------------------------------
+
+describe('Auto tier pick (pickTier)', () => {
+  it('maps GPU renderer strings to tiers', () => {
+    const cases: Array<[string, QualityTier]> = [
+      ['ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Laptop GPU (0x000024DD) Direct3D11 vs_5_0 ps_5_0, D3D11)', 'high'],
+      ['ANGLE (NVIDIA, Vulkan 1.4.351 (NVIDIA NVIDIA GeForce RTX 3070 Laptop GPU (0x000024DD)), NVIDIA)', 'high'],
+      ['ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)', 'medium'],
+      ['Apple M1', 'medium'],
+      ['ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)', 'medium'],
+      ['Apple M2 Max', 'high'],
+      ['ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)', 'high'],
+      ['SwiftShader', 'low'],
+      ['ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)', 'low'],
+      ['llvmpipe (LLVM 15.0.7, 256 bits)', 'low'],
+      ['ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11)', 'low'],
+      ['', 'medium'],
+      ['Some Future GPU 9000', 'medium'],
+      ['ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001638) Direct3D11 vs_5_0 ps_5_0, D3D11)', 'medium'],
+      ['AMD Radeon(TM) RX Vega 10 Graphics', 'medium'],
+      ['ANGLE (AMD, AMD Radeon RX 6800 XT (0x000073BF) Direct3D11 vs_5_0 ps_5_0, D3D11)', 'high'],
+      ['ANGLE (AMD, AMD Radeon Pro 5500M OpenGL Engine, OpenGL 4.1)', 'high'],
+      ['Mali-G78', 'medium'],
+      ['Adreno (TM) 740', 'medium'],
+      ['PowerVR Rogue GE8320', 'medium'],
+      ['NVIDIA GeForce MX450/PCIe/SSE2', 'medium'],
+      ['NVIDIA Quadro P1000/PCIe/SSE2', 'high'],
+      ['ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics (0x000056A0) Direct3D11 vs_5_0 ps_5_0, D3D11)', 'high'],
+      ['ANGLE (Intel, Intel(R) Arc(TM) Graphics (0x00007D55) Direct3D11 vs_5_0 ps_5_0, D3D11)', 'medium'],
+      ['Mesa Intel(R) UHD Graphics 620 (KBL GT2)', 'medium'],
+    ];
+    const wrong = cases.filter(([s, want]) => pickTier({ renderer: s }) !== want).map(([s, want]) => `${s} -> ${pickTier({ renderer: s })} (want ${want})`);
+    expect(wrong).toEqual([]);
+  });
+
+  it('demotes an integrated GPU to Low when its Medium drawing buffer would be too big', () => {
+    const iris = 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+    // A 4K monitor at 100% scaling: 3840 x 2160 x 0.85^2 = 6.0 MP at Medium.
+    expect(drawingBufferPixels('medium', 3840, 2160, 1)).toBeGreaterThan(AUTO_MAX_PIXELS);
+    expect(pickTier({ renderer: iris, devicePixelRatio: 1, screenWidth: 3840, screenHeight: 2160 })).toBe('low');
+    expect(pickTier({ renderer: iris, devicePixelRatio: 3, screenWidth: 3840, screenHeight: 2160 })).toBe('low');
+    expect(pickTier({ renderer: 'Mali-G78', devicePixelRatio: 3, screenWidth: 3440, screenHeight: 1440 })).toBe('low');
+    // Medium caps the pixel ratio at 1, so a HiDPI panel costs no more than a 1x one of the same
+    // CSS size: 3x DPR on a 2560 x 1600 screen renders 2176 x 1360 = 2.96 MP and stays Medium
+    // (the plan's example expected Low; see the report's deviations).
+    expect(drawingBufferPixels('medium', 2560, 1600, 3)).toBeLessThanOrEqual(AUTO_MAX_PIXELS);
+    expect(pickTier({ renderer: iris, devicePixelRatio: 3, screenWidth: 2560, screenHeight: 1600 })).toBe('medium');
+    // A Retina MacBook Air (1440 x 900 CSS at 2x) is a Medium machine.
+    expect(pickTier({ renderer: 'Apple M1', devicePixelRatio: 2, screenWidth: 1440, screenHeight: 900 })).toBe('medium');
+    // Discrete GPUs are never demoted.
+    expect(pickTier({ renderer: 'NVIDIA GeForce RTX 3070', devicePixelRatio: 3, screenWidth: 3840, screenHeight: 2160 })).toBe('high');
+  });
+
+  it('classifies GPUs', () => {
+    expect(gpuClass('SwiftShader')).toBe('software');
+    expect(gpuClass('Intel(R) UHD Graphics 630')).toBe('integrated');
+    expect(gpuClass('NVIDIA GeForce GTX 1060')).toBe('discrete');
+    expect(gpuClass('WebKit WebGL')).toBe('unknown');
+  });
+});
+
+describe('tier table', () => {
+  it('High is the original look, Low drops MSAA, shadows, bloom and dynamic lights', () => {
+    expect(QUALITY.high).toMatchObject({ dprCap: 1.5, renderScale: 1, msaa: true, shadows: true, shadowSize: 2048, bloom: true, pointLights: 'all', headlight: true, trafficDensity: 1, pedDensity: 1 });
+    expect(QUALITY.high.vehicleDistance).toBe(Infinity);
+    expect(QUALITY.medium).toMatchObject({ dprCap: 1, renderScale: 0.85, shadows: true, shadowSize: 1024, bloom: true, pointLights: 'few', headlight: true, trafficDensity: 0.9, pedDensity: 0.9 });
+    expect(QUALITY.low).toMatchObject({ dprCap: 1, renderScale: 0.67, msaa: false, shadows: false, bloom: false, pointLights: 'none', headlight: false, trafficDensity: 0.75, pedDensity: 0.75 });
+    // The pixel ratio is dprCap x renderScale on any display at or above the cap.
+    for (const q of QUALITY_TIERS) {
+      expect(pixelRatioFor(q, 3)).toBeCloseTo(QUALITY[q].dprCap * QUALITY[q].renderScale, 6);
+      expect(pixelRatioFor(q, 1)).toBeCloseTo(Math.min(1, QUALITY[q].dprCap) * QUALITY[q].renderScale, 6);
+    }
+    expect(pixelRatioFor('high', Number.NaN)).toBe(1);
+  });
+});
+
+describe('settings quality field', () => {
+  class Storage {
+    private readonly m = new Map<string, string>();
+    getItem(k: string): string | null {
+      return this.m.get(k) ?? null;
+    }
+    setItem(k: string, v: string): void {
+      this.m.set(k, String(v));
+    }
+    removeItem(k: string): void {
+      this.m.delete(k);
+    }
+  }
+  const win = window as unknown as { localStorage?: Storage };
+
+  afterEach(() => {
+    delete win.localStorage;
+  });
+
+  it("defaults to 'auto', keeps a saved fixed tier and rejects junk", () => {
+    expect(DEFAULT_SETTINGS.quality).toBe('auto');
+    expect(loadSettings().quality).toBe('auto'); // no storage at all
+    win.localStorage = new Storage();
+    expect(loadSettings().quality).toBe('auto'); // nothing saved yet
+    // An old settings file without the field, as saved before this round.
+    win.localStorage.setItem('gta7.settings.v1', JSON.stringify({ master: 0.5, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68 }));
+    expect(loadSettings()).toMatchObject({ quality: 'auto', master: 0.5 });
+    for (const q of ['low', 'medium', 'high', 'auto'] as const) {
+      saveSettings({ ...DEFAULT_SETTINGS, quality: q });
+      expect(loadSettings().quality).toBe(q);
+    }
+    win.localStorage.setItem('gta7.settings.v1', JSON.stringify({ quality: 'ultra' }));
+    expect(loadSettings().quality).toBe('auto');
+  });
+});
+
+describe('GameRenderer quality tiers', () => {
+  let W: StaticWorld;
+
+  beforeAll(() => {
+    W = world();
+  });
+
+  afterEach(() => {
+    (window as unknown as { devicePixelRatio: number }).devicePixelRatio = 1;
+    vi.restoreAllMocks();
+  });
+
+  it('MSAA follows the starting tier; the HDR output (and so the colour pipeline) is the same on every tier', () => {
+    const made = QUALITY_TIERS.map((q) => new GameRenderer(eventCanvas(), W, { quality: q, fov: 68, gpu: HDR }));
+    const [low, medium, high] = made.map(fakeOf);
+    expect(low!.params.antialias).toBe(false);
+    expect(medium!.params.antialias).toBe(true);
+    expect(high!.params.antialias).toBe(true);
+    expect(made.map((r) => r.msaa)).toEqual([false, true, true]);
+    for (const f of [low!, medium!, high!]) {
+      expect(f.params.outputBufferType).toBe(THREE.HalfFloatType);
+      expect(f.toneMapping).toBe(THREE.ACESFilmicToneMapping);
+      expect(f.outputColorSpace).toBe(THREE.SRGBColorSpace);
+    }
+    // Switching tiers later never touches MSAA (the context attribute), only the rest.
+    made[0]!.setQuality('high');
+    expect(made[0]!.msaa).toBe(false);
+  });
+
+  it("setQuality('low') disables the shadow map, bloom and every dynamic light; High brings them back", () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    const f = fakeOf(r);
+    expect(f.shadowMap.enabled).toBe(true);
+    expect(r.env.sun.castShadow).toBe(true);
+    expect(r.env.sun.shadow.mapSize.x).toBe(2048);
+    expect(f.effects.length).toBe(1);
+    expect(f.effects[0]).toBeInstanceOf(UnrealBloomPass);
+    const bloom = f.effects[0];
+    let lights = visibleLights(r.scene);
+    expect(lights.point.length).toBe(3); // siren, muzzle flash, explosion flash
+    expect(lights.spot.length).toBe(1); // the player's headlight
+
+    r.setQuality('low');
+    expect(f.shadowMap.enabled).toBe(false);
+    expect(r.env.sun.castShadow).toBe(false);
+    expect(f.effects).toEqual([]);
+    lights = visibleLights(r.scene);
+    expect(lights.point.length).toBe(0);
+    expect(lights.spot.length).toBe(0);
+    // Still none while the siren, a muzzle flash and an explosion are all live.
+    const sim = makeSim({ world: W, startHour: 23 });
+    attachPlay(r, sim);
+    const p = sim.playerPos();
+    const cop = sim.spawnVehicle('police', p.x + 6, p.z, 0);
+    cop.siren = true;
+    r.effects.muzzleFlash(p.x, p.y + 1.5, p.z, false);
+    r.effects.explosion(p.x + 10, p.y, p.z, 7.5);
+    r.render(DT, false);
+    expect(visibleLights(r.scene).point.length).toBe(0);
+
+    r.setQuality('high');
+    expect(f.shadowMap.enabled).toBe(true);
+    expect(r.env.sun.castShadow).toBe(true);
+    // The same bloom pass comes back (switching tiers does not leak a new one each time).
+    expect(f.effects).toEqual([bloom]);
+    expect(visibleLights(r.scene).point.length).toBe(3);
+    expect(visibleLights(r.scene).spot.length).toBe(1);
+  });
+
+  it("setQuality('medium') caps the dynamic point lights at 2, given to the brightest nearby sources", () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    r.setQuality('medium');
+    expect(r.env.sun.shadow.mapSize.x).toBe(1024);
+    expect(fakeOf(r).shadowMap.enabled).toBe(true);
+    expect(visibleLights(r.scene).point.length).toBe(2);
+    expect(visibleLights(r.scene).spot.length).toBe(1);
+    const sim = makeSim({ world: W, startHour: 23 });
+    attachPlay(r, sim);
+    const p = sim.playerPos();
+    const cop = sim.spawnVehicle('police', p.x + 6, p.z, 0);
+    cop.siren = true;
+    r.render(DT, false);
+    let lit = visibleLights(r.scene).point.filter((l) => l.intensity > 0);
+    // Only the siren is on: it gets a pool light, at the police car.
+    expect(lit.length).toBe(1);
+    expect(lit[0]!.position.distanceTo(new THREE.Vector3(cop.pos.x, cop.pos.y + cop.spec.height + 0.6, cop.pos.z))).toBeLessThan(1e-6);
+    // Siren, muzzle flash and explosion at once: still 2, and the explosion flash is one of them.
+    r.effects.muzzleFlash(p.x, p.y + 1.5, p.z, false);
+    r.effects.explosion(p.x + 10, p.y, p.z, 7.5);
+    r.render(DT, false);
+    const all = visibleLights(r.scene).point;
+    lit = all.filter((l) => l.intensity > 0);
+    expect(all.length).toBe(2);
+    expect(lit.length).toBe(2);
+    const flash = r.effects.flash;
+    expect(lit.some((l) => l.color.equals(flash.color) && l.intensity === flash.intensity && l.position.distanceTo(flash.position) < 1e-6)).toBe(true);
+    // Once everything has faded the pool goes dark.
+    cop.siren = false;
+    for (let i = 0; i < 40; i++) r.render(DT, false);
+    expect(visibleLights(r.scene).point.filter((l) => l.intensity > 0).length).toBe(0);
+  });
+
+  it('the warm-up compiles for the HDR scene target, and runs again after a tier switch', () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    const f = fakeOf(r);
+    expect(f.compiles).toBe(1);
+    const bound = f.compileTargets[0] as THREE.WebGLRenderTarget;
+    expect(bound).toBeInstanceOf(THREE.WebGLRenderTarget);
+    expect(bound.texture.type).toBe(THREE.HalfFloatType);
+    expect(f.getRenderTarget()).toBe(null); // unbound again afterwards
+    r.setQuality('low');
+    expect(f.compiles).toBe(2);
+    // Without the HDR output there is no scene target: compile for the canvas.
+    const plain = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat: false } });
+    expect(fakeOf(plain).compileTargets).toEqual([null]);
+  });
+
+  it('the pixel ratio follows dprCap x renderScale, and is re-read on resize', () => {
+    const win = window as unknown as { devicePixelRatio: number };
+    win.devicePixelRatio = 2;
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    const f = fakeOf(r);
+    expect(f.pixelRatio).toBeCloseTo(1.5, 6);
+    r.setQuality('medium');
+    expect(f.pixelRatio).toBeCloseTo(0.85, 6);
+    r.setQuality('low');
+    expect(f.pixelRatio).toBeCloseTo(0.67, 6);
+    expect(r.pixelRatio).toBeCloseTo(0.67, 6);
+    // Dragged to a 1x monitor.
+    win.devicePixelRatio = 1;
+    r.setQuality('high');
+    expect(f.pixelRatio).toBeCloseTo(1, 6);
+    win.devicePixelRatio = 1.25;
+    r.resize();
+    expect(f.pixelRatio).toBeCloseTo(1.25, 6);
+  });
+
+  it('Low skips ambient cars beyond its draw distance, never police or mission vehicles', () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'low', fov: 68, gpu: HDR });
+    const sim = makeSim({ world: W });
+    const spot = beachSpot(sim);
+    teleport(sim, spot.x, spot.z);
+    step(sim, 0.2);
+    attachPlay(r, sim);
+    r.render(DT, false);
+    const cam = r.cameraCtl.camera.position;
+    const far = QUALITY.low.vehicleDistance;
+    const at = (d: number, owner: 'parked' | 'traffic' | 'police' | 'mission') => {
+      const v = sim.spawnVehicle('sedan', cam.x, cam.z + d, 0);
+      v.owner = owner;
+      return v;
+    };
+    const parkedFar = at(far + 30, 'parked');
+    const trafficFar = at(-(far + 30), 'traffic');
+    const copFar = at(far + 40, 'police');
+    const missionFar = at(-(far + 40), 'mission');
+    const parkedNear = at(far - 40, 'parked');
+    r.render(DT, false);
+    const shown = (v: { id: number }) => views(r).get(v.id)!.group.visible;
+    expect([parkedFar, trafficFar, copFar, missionFar, parkedNear].map(shown)).toEqual([false, false, true, true, true]);
+    // Driving closer brings it back.
+    parkedFar.pos.z = cam.z + far - 20;
+    r.render(DT, false);
+    expect(shown(parkedFar)).toBe(true);
+    // High draws everything again.
+    r.setQuality('high');
+    r.render(DT, false);
+    expect([parkedFar, trafficFar, copFar, missionFar, parkedNear].every(shown)).toBe(true);
+    // A pooled view hidden on Low is visible again when it is reused for another car.
+    r.setQuality('low');
+    r.render(DT, false);
+    expect(shown(trafficFar)).toBe(false);
+    const hiddenView = views(r).get(trafficFar.id)!;
+    sim.removeVehicle(trafficFar);
+    r.render(DT, false);
+    const again = at(10, 'traffic');
+    r.render(DT, false);
+    expect(views(r).get(again.id)).toBe(hiddenView);
+    expect(shown(again)).toBe(true);
+  });
+});
+
+describe('WebGL context loss (renderer side)', () => {
+  it('a restore re-bakes the environment map and recompiles, without doubling listeners', () => {
+    const canvas = eventCanvas();
+    const r = new GameRenderer(canvas, world(), { quality: 'high', fov: 68, gpu: HDR });
+    const f = fakeOf(r);
+    const sim = makeSim({ world: world() });
+    attachPlay(r, sim);
+    r.render(DT, false);
+    const refresh = vi.spyOn(Environment.prototype as unknown as { refreshEnv: () => void }, 'refreshEnv');
+    r.render(DT, false);
+    expect(refresh).not.toHaveBeenCalled(); // steady state: no re-bake
+    const compiles = f.compiles;
+
+    canvas.dispatchEvent(new Event('webglcontextlost'));
+    expect(r.isContextLost).toBe(true);
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(r.isContextLost).toBe(false);
+    expect(f.compiles).toBe(compiles + 1);
+    r.render(DT, false);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    r.render(DT, false);
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    // Sim subscriptions are untouched: one explosion still makes one blast.
+    const blast = vi.spyOn(r.effects, 'explosion');
+    sim.events.emit('explosion', { x: 0, y: 0, z: 0, radius: 7.5 });
+    expect(blast).toHaveBeenCalledTimes(1);
+    // A second loss and restore compiles once more, not twice (no stacked handlers).
+    canvas.dispatchEvent(new Event('webglcontextlost'));
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(f.compiles).toBe(compiles + 2);
+    // dispose() removes the handlers.
+    r.dispose();
+    const before = f.compiles;
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(f.compiles).toBe(before);
+    refresh.mockRestore();
+  });
+
+  it('after a loss, deleting GL objects of the lost context is skipped and new ones are deleted', () => {
+    const canvas = eventCanvas();
+    const r = new GameRenderer(canvas, world(), { quality: 'low', fov: 68, gpu: HDR });
+    const gl = fakeOf(r).gl;
+    const before = gl.createTexture();
+    gl.deleteTexture(before);
+    expect(gl.deleted).toEqual([before]); // untouched until a context is lost
+    const old = gl.createTexture();
+    canvas.dispatchEvent(new Event('webglcontextlost'));
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    gl.deleteTexture(old);
+    expect(gl.deleted).toEqual([before]);
+    const fresh = gl.createTexture();
+    gl.deleteTexture(fresh);
+    expect(gl.deleted).toEqual([before, fresh]);
+    gl.deleteTexture(null);
+    expect(gl.deleted).toEqual([before, fresh, null]);
+    // A second loss makes the objects of the restored context stale in turn.
+    const second = gl.createTexture();
+    canvas.dispatchEvent(new Event('webglcontextlost'));
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    gl.deleteTexture(second);
+    const third = gl.createTexture();
+    gl.deleteTexture(third);
+    expect(gl.deleted).toEqual([before, fresh, null, third]);
+  });
+});
+
+describe('guardStaleDeletes', () => {
+  it('wraps every create / delete pair it finds and leaves other calls alone', () => {
+    const deleted: string[] = [];
+    const gl: Record<string, unknown> = {
+      createBuffer: () => ({ k: 'buffer' }),
+      deleteBuffer: (o: { k: string }) => deleted.push(o.k),
+      createFramebuffer: () => ({ k: 'fbo' }),
+      deleteFramebuffer: (o: { k: string }) => deleted.push(o.k),
+      bindBuffer: () => 'bound',
+    };
+    const oldBuf = (gl.createBuffer as () => object)();
+    const bind = gl.bindBuffer;
+    guardStaleDeletes(gl);
+    expect(gl.bindBuffer).toBe(bind);
+    (gl.deleteBuffer as (o: unknown) => void)(oldBuf);
+    const fbo = (gl.createFramebuffer as () => object)();
+    (gl.deleteFramebuffer as (o: unknown) => void)(fbo);
+    expect(deleted).toEqual(['fbo']);
+  });
+});

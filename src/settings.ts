@@ -1,10 +1,11 @@
 // User settings and save-game persistence (localStorage, defensively guarded).
 
-import type { Quality } from './render/renderer';
+import type { QualitySetting } from './render/quality';
 import { parseSave, type SaveData } from './sim/progress';
 
 export interface Settings {
-  quality: Quality;
+  /** 'auto' follows the tier picked from the GPU at boot. */
+  quality: QualitySetting;
   master: number;
   music: number;
   sfx: number;
@@ -14,7 +15,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  quality: 'high',
+  quality: 'auto',
   master: 0.8,
   music: 0.6,
   sfx: 0.85,
@@ -50,7 +51,7 @@ export function loadSettings(): Settings {
     if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS };
     const q = raw.quality;
     return {
-      quality: q === 'low' || q === 'medium' || q === 'high' ? q : DEFAULT_SETTINGS.quality,
+      quality: q === 'auto' || q === 'low' || q === 'medium' || q === 'high' ? q : DEFAULT_SETTINGS.quality,
       master: clampNum(raw.master, 0, 1, DEFAULT_SETTINGS.master),
       music: clampNum(raw.music, 0, 1, DEFAULT_SETTINGS.music),
       sfx: clampNum(raw.sfx, 0, 1, DEFAULT_SETTINGS.sfx),

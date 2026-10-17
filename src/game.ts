@@ -3,6 +3,7 @@
 
 import { AudioEngine } from './audio/audio';
 import { Input, type FrameInput } from './input/input';
+import { pickTier, probeGpu, QUALITY, type QualitySetting, type QualityTier } from './render/quality';
 import { GameRenderer } from './render/renderer';
 import { deleteGame, loadGame, loadSettings, saveSettings, writeGame, type Settings } from './settings';
 import type { Vehicle } from './sim/entities';
@@ -38,6 +39,14 @@ export class Game {
   private crashed = false;
   private unsub: Array<() => void> = [];
   private wasDown = false;
+  /** The tier 'auto' stands for: picked once at boot from the GPU, never changed at run time. */
+  readonly autoTier: QualityTier;
+  /** The tier the renderer was created with, which fixed its MSAA until the page is reloaded. */
+  private readonly bootTier: QualityTier;
+  /** Between 'webglcontextlost' and 'webglcontextrestored': nothing steps or renders. */
+  private gfxLost = false;
+  private gfxOverlay: HTMLElement | null = null;
+  private gfxTimer: ReturnType<typeof setTimeout> | null = null;
   /** Total real time spent in frames (for tests). */
   readonly perf = { frameMs: 0, simMs: 0, renderMs: 0 };
 
@@ -45,7 +54,10 @@ export class Game {
     this.settings = loadSettings();
     this.world = new StaticWorld();
     this.mapImage = new MapImage(this.world);
-    this.renderer = new GameRenderer(canvas, this.world, { quality: this.settings.quality, fov: this.settings.fov });
+    const gpu = probeGpu();
+    this.autoTier = pickTier({ renderer: gpu.renderer, ...displayInfo() });
+    this.bootTier = this.tierOf(this.settings.quality);
+    this.renderer = new GameRenderer(canvas, this.world, { quality: this.bootTier, fov: this.settings.fov, gpu });
     this.input = new Input(canvas);
     this.input.attach();
     this.input.wantsPointerLock = () => this.mode === 'game' && !this.menus.open && !this.crashed;
@@ -68,6 +80,8 @@ export class Game {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.mode === 'game' && !this.menus.open) this.pause();
     });
+    canvas.addEventListener('webglcontextlost', (e) => this.onContextLost(e));
+    canvas.addEventListener('webglcontextrestored', () => this.onContextRestored());
   }
 
   private makeTitleSim(): Sim {
@@ -79,6 +93,7 @@ export class Game {
     p.pos.y = this.world.groundHeight(p.pos.x, p.pos.z);
     sim.cheats.godMode = true;
     sim.clock.rate = 0;
+    this.applyDensity(sim);
     this.renderer.crowd.hiddenId = p.id;
     return sim;
   }
@@ -103,18 +118,34 @@ export class Game {
       },
       waypoint: () => this.hud.waypoint,
       click: () => this.audio.chime('ui'),
+      quality: () => ({ auto: this.autoTier, msaa: QUALITY[this.bootTier].msaa }),
     };
   }
 
   applySettings(s: Settings, persist: boolean): void {
-    const qualityChanged = s.quality !== this.renderer.currentQuality;
+    const tier = this.tierOf(s.quality);
+    const qualityChanged = tier !== this.renderer.currentQuality;
     this.settings = { ...s };
-    if (qualityChanged) this.renderer.setQuality(s.quality);
+    if (qualityChanged) this.renderer.setQuality(tier);
+    // Not yet during construction, which applies the settings before the first sim exists.
+    if (this.sim) this.applyDensity(this.sim);
     this.renderer.setFov(s.fov);
     this.renderer.cameraCtl.sensitivity = s.sensitivity;
     this.renderer.cameraCtl.invertY = s.invertY;
     this.audio.setVolumes(s.master, s.music, s.sfx);
     if (persist) saveSettings(this.settings);
+  }
+
+  /** The concrete tier a quality setting stands for. */
+  tierOf(q: QualitySetting): QualityTier {
+    return q === 'auto' ? this.autoTier : q;
+  }
+
+  /** Ambient traffic and pedestrian numbers follow the graphics tier (fewer to simulate and draw on Low). */
+  private applyDensity(sim: Sim): void {
+    const t = QUALITY[this.tierOf(this.settings.quality)];
+    sim.traffic.density = t.trafficDensity;
+    sim.peds.density = t.pedDensity;
   }
 
   // ---------------------------------------------------------------------------
@@ -126,6 +157,7 @@ export class Game {
     this.world.resetBroken();
     this.renderer.props.restoreAll();
     const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5 });
+    this.applyDensity(sim);
     if (save) {
       applySave(sim.progress, save);
       sim.clock.day = save.day;
@@ -265,6 +297,7 @@ export class Game {
   /** One frame of game logic + rendering (also driven directly by tests). */
   step(dt: number, fi: FrameInput): void {
     if (this.crashed) return;
+    if (this.gfxLost) return;
     const cam = this.renderer.cameraCtl;
     if (this.mode === 'title') {
       this.menus.input(fi.ui, dt);
@@ -408,6 +441,83 @@ export class Game {
   get isCrashed(): boolean {
     return this.crashed;
   }
+
+  // ---------------------------------------------------------------------------
+  // WebGL context loss (driver reset, GPU switch, a background tab under memory pressure)
+
+  /** True while the WebGL context is lost and the game waits for it to come back. */
+  get contextLost(): boolean {
+    return this.gfxLost;
+  }
+
+  private onContextLost(e: Event): void {
+    // three already asks the browser to restore the context; asking twice is harmless.
+    e.preventDefault();
+    if (this.gfxLost || this.crashed) return;
+    this.gfxLost = true;
+    // Frees the mouse, mutes the world and leaves the pause menu under the overlay (step() is idle meanwhile).
+    if (this.mode === 'game') this.pause();
+    this.input.exitPointerLock();
+    this.audio.setPaused(true);
+    this.showGfxOverlay(false);
+    if (this.gfxTimer !== null) clearTimeout(this.gfxTimer);
+    this.gfxTimer = setTimeout(() => {
+      this.gfxTimer = null;
+      if (this.gfxLost) this.showGfxOverlay(true);
+    }, GFX_RESTORE_TIMEOUT_MS);
+  }
+
+  private onContextRestored(): void {
+    if (!this.gfxLost) return;
+    this.gfxLost = false;
+    if (this.gfxTimer !== null) clearTimeout(this.gfxTimer);
+    this.gfxTimer = null;
+    this.gfxOverlay?.remove();
+    this.gfxOverlay = null;
+    if (this.crashed) return;
+    // Back to a rendered, paused game (the renderer rebuilt its GPU state in its own handler).
+    if (this.mode === 'game') {
+      if (!this.menus.open) {
+        this.suspendPlay();
+        this.menus.showPause();
+      }
+    } else {
+      this.audio.setPaused(false);
+    }
+  }
+
+  private showGfxOverlay(failed: boolean): void {
+    this.gfxOverlay?.remove();
+    const el = document.createElement('div');
+    el.className = 'gfx-lost';
+    const box = document.createElement('div');
+    const text = document.createElement('p');
+    text.textContent = failed ? 'Graphics could not be restored. Reload the page.' : 'Graphics reset - restoring...';
+    box.append(text);
+    if (failed) {
+      const reload = document.createElement('button');
+      reload.className = 'btn primary';
+      reload.textContent = 'RELOAD';
+      reload.addEventListener('click', () => location.reload());
+      box.append(reload);
+    }
+    el.append(box);
+    this.ui.appendChild(el);
+    this.gfxOverlay = el;
+  }
+}
+
+/** How long a lost WebGL context may take to come back before the player is told to reload. */
+export const GFX_RESTORE_TIMEOUT_MS = 10_000;
+
+/** Display facts for the Auto tier pick (CSS screen size, so a window opened small still counts the full screen). */
+function displayInfo(): { devicePixelRatio: number; screenWidth: number; screenHeight: number } {
+  const w = typeof window === 'undefined' ? undefined : (window as Partial<Window>);
+  return {
+    devicePixelRatio: w?.devicePixelRatio || 1,
+    screenWidth: w?.screen?.width || w?.innerWidth || 0,
+    screenHeight: w?.screen?.height || w?.innerHeight || 0,
+  };
 }
 
 /** The nearest intact car within 30 m that the player was the last to drive. */

@@ -3,6 +3,7 @@
 
 import { clamp, formatMoney } from '../core/math';
 import { KeyLabels, WHEEL_GESTURE_GAP, WHEEL_STEP, type UiActions } from '../input/input';
+import { QUALITY, type QualityTier } from '../render/quality';
 import type { Sim } from '../sim/sim';
 import { shopItems } from '../sim/interactions';
 import { PACKAGE_COUNT } from '../sim/pickups';
@@ -24,6 +25,8 @@ export interface MenuHost {
   setWaypoint(p: { x: number; z: number } | null): void;
   waypoint(): { x: number; z: number } | null;
   click(): void;
+  /** The tier 'auto' picked at boot, and whether the renderer was created with MSAA (only a reload changes that). */
+  quality?(): { auto: QualityTier; msaa: boolean };
 }
 
 interface Screen {
@@ -390,23 +393,35 @@ export class Menus {
       const snap = (v: number) => Number((Math.round(v / stepv) * stepv).toFixed(6));
       addRow({ el: row, adjust: (d) => set(clamp(snap(s[key] + d * keyStep), min, max)) });
     };
-    const qualities = ['low', 'medium', 'high'] as const;
+    const qualities = ['auto', 'low', 'medium', 'high'] as const;
+    const qinfo = this.host.quality?.() ?? null;
     const qrow = h('div', 'setting');
     const qsel = h('select');
     for (const q of qualities) {
       const o = h('option');
       o.value = q;
-      o.textContent = q.toUpperCase();
+      o.textContent = q === 'auto' && qinfo ? `AUTO (${qinfo.auto.toUpperCase()})` : q.toUpperCase();
       if (s.quality === q) o.selected = true;
       qsel.appendChild(o);
     }
+    // Everything else applies at once; anti-aliasing is fixed when the renderer is created.
+    const qnote = h('div', 'setting-note');
+    const showNote = () => {
+      const tier = s.quality === 'auto' ? qinfo?.auto : s.quality;
+      const msaa = tier ? QUALITY[tier].msaa : null;
+      const pending = qinfo !== null && msaa !== null && msaa !== qinfo.msaa;
+      qnote.textContent = pending ? `Anti-aliasing turns ${msaa ? 'on' : 'off'} after a reload.` : '';
+      qnote.classList.toggle('hidden', !pending);
+    };
     const setQuality = (q: Settings['quality']) => {
       s.quality = q;
       qsel.value = q;
+      showNote();
       apply();
     };
     qsel.addEventListener('change', () => setQuality(qsel.value as Settings['quality']));
-    qrow.append(h('span', '', 'Graphics quality'), qsel, h('span', '', ''));
+    qrow.append(h('span', '', 'Graphics quality'), qsel, h('span', '', ''), qnote);
+    showNote();
     panel.appendChild(qrow);
     addRow({
       el: qrow,

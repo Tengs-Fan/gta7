@@ -257,4 +257,13 @@ export class Environment {
     this.envTarget?.dispose();
     this.pmrem?.dispose();
   }
+
+  /**
+   * After a WebGL context restore the baked map is gone with the old context: drop it (disposing it
+   * would delete objects of that context) and re-bake on the next update.
+   */
+  contextRestored(): void {
+    this.envTarget = null;
+    this.envHours = Number.NaN;
+  }
 }
