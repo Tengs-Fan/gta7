@@ -518,32 +518,227 @@ export interface DentLike {
   depth: number;
 }
 
+/** Reach of a dent: vertices closer than this to its centre move. */
+export function dentRadius(d: DentLike): number {
+  return 0.6 + d.depth;
+}
+
+/** Writes the point (x, y, z) displaced by `dents` (see displace) into out[o..o+2]. */
+function displacePoint(x: number, y: number, z: number, dents: readonly DentLike[], out: Float32Array, o: number): void {
+  let ox = 0;
+  let oy = 0;
+  let oz = 0;
+  for (let j = 0; j < dents.length; j++) {
+    const d = dents[j]!;
+    const r = 0.6 + d.depth;
+    const dx = x - d.lx;
+    const dy = y - d.ly;
+    const dz = z - d.lz;
+    const q = dx * dx + dy * dy + dz * dz;
+    if (q >= r * r) continue;
+    const k = 1 - Math.sqrt(q) / r;
+    const w = d.depth * k * k;
+    if (d.nx === 0 && d.nz === 0) oy -= w;
+    else {
+      ox += d.nx * w;
+      oz += d.nz * w;
+    }
+  }
+  out[o] = x + ox;
+  out[o + 1] = y + oy;
+  out[o + 2] = z + oz;
+}
+
 /**
  * Writes `src` positions displaced by `dents` into `dst`: every vertex within r = 0.6 + depth of a dent moves by
  * depth * (1 - d / r)^2 along its inward normal (straight down for a roof dent, whose normal is zero).
  */
 export function displace(src: ArrayLike<number>, dst: Float32Array, dents: readonly DentLike[]): void {
-  for (let i = 0; i < src.length; i += 3) {
-    const x = src[i]!;
-    const y = src[i + 1]!;
-    const z = src[i + 2]!;
-    let ox = 0;
-    let oy = 0;
-    let oz = 0;
-    for (const d of dents) {
-      const r = 0.6 + d.depth;
-      const dist = Math.hypot(x - d.lx, y - d.ly, z - d.lz);
-      if (dist >= r) continue;
-      const k = 1 - dist / r;
-      const w = d.depth * k * k;
-      if (d.nx === 0 && d.nz === 0) oy -= w;
-      else {
-        ox += d.nx * w;
-        oz += d.nz * w;
+  for (let i = 0; i < src.length; i += 3) displacePoint(src[i]!, src[i + 1]!, src[i + 2]!, dents, dst, i);
+}
+
+/** Cells of the triangle grid (m). */
+const CELL = 0.5;
+
+/** Triangles of a non-indexed geometry bucketed by the grid cells their bounds overlap. */
+interface TriangleGrid {
+  cells: Map<number, number[]>;
+  count: number;
+}
+
+const grids = new WeakMap<THREE.BufferGeometry, TriangleGrid>();
+
+const cellKey = (i: number, j: number, k: number): number => ((i + 512) * 1024 + (j + 512)) * 1024 + (k + 512);
+
+function triangleGrid(g: THREE.BufferGeometry): TriangleGrid {
+  let grid = grids.get(g);
+  if (grid) return grid;
+  const p = g.getAttribute('position').array as ArrayLike<number>;
+  const count = p.length / 9;
+  const cells = new Map<number, number[]>();
+  for (let t = 0; t < count; t++) {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let z0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    let z1 = -Infinity;
+    for (let v = 0; v < 3; v++) {
+      const o = t * 9 + v * 3;
+      x0 = Math.min(x0, p[o]!);
+      x1 = Math.max(x1, p[o]!);
+      y0 = Math.min(y0, p[o + 1]!);
+      y1 = Math.max(y1, p[o + 1]!);
+      z0 = Math.min(z0, p[o + 2]!);
+      z1 = Math.max(z1, p[o + 2]!);
+    }
+    for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) {
+      for (let j = Math.floor(y0 / CELL); j <= Math.floor(y1 / CELL); j++) {
+        for (let k = Math.floor(z0 / CELL); k <= Math.floor(z1 / CELL); k++) {
+          const key = cellKey(i, j, k);
+          let list = cells.get(key);
+          if (!list) cells.set(key, (list = []));
+          list.push(t);
+        }
       }
     }
-    dst[i] = x + ox;
-    dst[i + 1] = y + oy;
-    dst[i + 2] = z + oz;
+  }
+  grid = { cells, count };
+  grids.set(g, grid);
+  return grid;
+}
+
+/**
+ * A per-view copy of a shared, flat-shaded (non-indexed) geometry that dents bend. A change re-evaluates only the
+ * triangles within reach of the dents that changed since the last update (a grid finds them), recomputes their face
+ * normals and uploads only their stretches of the buffers, instead of displacing every vertex against every dent and
+ * recomputing every normal: a crash costs about a third to a sixth of what a full rebuild did (2-4 ms per change).
+ */
+export class DentedGeometry {
+  readonly geometry: THREE.BufferGeometry;
+  private readonly src: ArrayLike<number>;
+  private readonly srcNormal: ArrayLike<number>;
+  private readonly grid: TriangleGrid;
+  private readonly bounds: THREE.Box3;
+  /** The dents shown, as of the last update. */
+  private shown: DentLike[] = [];
+  /** Per-triangle stamp of the last pass that queued it. */
+  private readonly stamp: Uint32Array;
+  private pass = 0;
+  private readonly queue: number[] = [];
+  /** Triangles re-evaluated by the last update (the work a change cost). */
+  touched = 0;
+
+  constructor(readonly source: THREE.BufferGeometry) {
+    this.geometry = source.clone();
+    this.src = source.getAttribute('position').array as ArrayLike<number>;
+    this.srcNormal = source.getAttribute('normal').array as ArrayLike<number>;
+    this.grid = triangleGrid(source);
+    if (!source.boundingBox) source.computeBoundingBox();
+    this.bounds = source.boundingBox!.clone();
+    this.stamp = new Uint32Array(this.grid.count);
+  }
+
+  /** Shows `dents`; returns whether any vertex may have moved. */
+  update(dents: readonly DentLike[]): boolean {
+    const changed: DentLike[] = [];
+    const n = Math.max(dents.length, this.shown.length);
+    for (let i = 0; i < n; i++) {
+      const a = this.shown[i];
+      const b = dents[i];
+      if (a && b && a.lx === b.lx && a.ly === b.ly && a.lz === b.lz && a.nx === b.nx && a.nz === b.nz && a.depth === b.depth) continue;
+      if (a) changed.push(a);
+      if (b) changed.push(b);
+    }
+    this.shown = dents.map((d) => ({ lx: d.lx, ly: d.ly, lz: d.lz, nx: d.nx, nz: d.nz, depth: d.depth }));
+    this.touched = 0;
+    if (changed.length === 0) return false;
+    // Triangles within reach of a changed dent, before or after the change.
+    this.pass = (this.pass + 1) >>> 0 || 1;
+    const q = this.queue;
+    q.length = 0;
+    for (const d of changed) {
+      const r = dentRadius(d);
+      const b = this.bounds;
+      if (d.lx + r < b.min.x || d.lx - r > b.max.x || d.ly + r < b.min.y || d.ly - r > b.max.y || d.lz + r < b.min.z || d.lz - r > b.max.z) continue;
+      for (let i = Math.floor((d.lx - r) / CELL); i <= Math.floor((d.lx + r) / CELL); i++) {
+        for (let j = Math.floor((d.ly - r) / CELL); j <= Math.floor((d.ly + r) / CELL); j++) {
+          for (let k = Math.floor((d.lz - r) / CELL); k <= Math.floor((d.lz + r) / CELL); k++) {
+            const list = this.grid.cells.get(cellKey(i, j, k));
+            if (!list) continue;
+            for (const t of list) {
+              if (this.stamp[t] === this.pass) continue;
+              this.stamp[t] = this.pass;
+              q.push(t);
+            }
+          }
+        }
+      }
+    }
+    if (q.length === 0) return false;
+    q.sort((a, b) => a - b);
+    this.touched = q.length;
+    const posAttr = this.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const nAttr = this.geometry.getAttribute('normal') as THREE.BufferAttribute;
+    const pos = posAttr.array as Float32Array;
+    const nor = nAttr.array as Float32Array;
+    const src = this.src;
+    const sn = this.srcNormal;
+    const live = this.shown;
+    // Runs of nearby triangles are uploaded together; three merges the ranges added since the last upload.
+    let runStart = -1;
+    let runEnd = -1;
+    const flush = (): void => {
+      if (runStart < 0) return;
+      posAttr.addUpdateRange(runStart, runEnd - runStart);
+      nAttr.addUpdateRange(runStart, runEnd - runStart);
+    };
+    for (const t of q) {
+      const o = t * 9;
+      if (runStart >= 0 && o - runEnd <= 9 * 16) runEnd = o + 9;
+      else {
+        flush();
+        runStart = o;
+        runEnd = o + 9;
+      }
+      let moved = false;
+      for (let v = 0; v < 9; v += 3) {
+        displacePoint(src[o + v]!, src[o + v + 1]!, src[o + v + 2]!, live, pos, o + v);
+        if (pos[o + v] !== src[o + v] || pos[o + v + 1] !== src[o + v + 1] || pos[o + v + 2] !== src[o + v + 2]) moved = true;
+      }
+      if (!moved) {
+        for (let v = 0; v < 9; v++) nor[o + v] = sn[o + v]!;
+        continue;
+      }
+      // Flat face normal, as computeVertexNormals gives a non-indexed geometry.
+      const ux = pos[o + 3]! - pos[o]!;
+      const uy = pos[o + 4]! - pos[o + 1]!;
+      const uz = pos[o + 5]! - pos[o + 2]!;
+      const wx = pos[o + 6]! - pos[o]!;
+      const wy = pos[o + 7]! - pos[o + 1]!;
+      const wz = pos[o + 8]! - pos[o + 2]!;
+      let nx = uy * wz - uz * wy;
+      let ny = uz * wx - ux * wz;
+      let nz = ux * wy - uy * wx;
+      const l = Math.hypot(nx, ny, nz);
+      if (l > 0) {
+        nx /= l;
+        ny /= l;
+        nz /= l;
+      }
+      for (let v = 0; v < 9; v += 3) {
+        nor[o + v] = nx;
+        nor[o + v + 1] = ny;
+        nor[o + v + 2] = nz;
+      }
+    }
+    flush();
+    posAttr.needsUpdate = true;
+    nAttr.needsUpdate = true;
+    return true;
+  }
+
+  dispose(): void {
+    this.geometry.dispose();
   }
 }

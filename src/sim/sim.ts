@@ -316,10 +316,13 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   onVehicleLanded(v: Vehicle, impact: number): void {
     const before = v.health;
     if (impact > 9) this.combat.damageVehicle(v, (impact - 9) * v.spec.health * 0.03 * v.spec.durability, null, 'impact');
+    // Whether the landing itself did damage, taken before a car left on its roof catches fire (which zeroes its health
+    // however soft the landing was): god mode, which takes no damage, keeps the roof whole too.
+    const damaged = v.health < before;
     if (impact > 3) this.events.emit('impact', { x: v.pos.x, y: v.pos.y, z: v.pos.z, strength: impact * 0.6, vehicle: v });
     if (v.flipped && !v.burning && !v.destroyed) this.combat.igniteVehicle(v, 3.5);
     // A landing on the roof that did damage crushes it (the roof dent pushes straight down).
-    if (v.flipped && v.health < before) {
+    if (v.flipped && damaged) {
       this.addDent(v, { lx: 0, ly: v.spec.height, lz: 0, nx: 0, nz: 0, depth: Math.min(0.4, 0.15 + 0.011 * impact * v.spec.durability) });
     }
     this.activities.onVehicleLanded(v);

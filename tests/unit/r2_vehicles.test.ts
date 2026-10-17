@@ -6,8 +6,8 @@ import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Effects } from '../../src/render/effects';
 import { GameRenderer } from '../../src/render/renderer';
-import { triangulateCDT, type Pt } from '../../src/render/vehicleGeometry';
-import { VehicleView, VehicleViewPool, vehicleGlass } from '../../src/render/vehicleView';
+import { DentedGeometry, displace, triangulateCDT, type Pt } from '../../src/render/vehicleGeometry';
+import { cabinLayout, VehicleView, VehicleViewPool, vehicleGlass } from '../../src/render/vehicleView';
 import { MAX_DENTS, type Dent, type Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
@@ -530,8 +530,14 @@ describe('vehicle views', () => {
     for (let i = 0; i < pos.count; i++) if (original[i * 3 + 2]! < 0) expect(pos.getZ(i)).toBe(original[i * 3 + 2]);
     expect(meshNamed(view2, 'body').geometry).toBe(shared);
     expect(Array.from(shared.getAttribute('position').array)).toEqual(Array.from(original));
-    // Rebinding the pooled view to a fresh car frees the clone.
+    // The dent does not reach the glass, which stays shared; a roof dent copies it as well.
+    const sharedGlass = meshNamed(view2, 'glass').geometry;
+    expect(meshNamed(view, 'glass').geometry).toBe(sharedGlass);
+    addDent(v, { lx: 0, ly: v.spec.height, lz: -0.3, nx: 0, nz: 0, depth: 0.2 });
+    view.sync(v, DT, 0, 0);
     const glassClone = meshNamed(view, 'glass').geometry;
+    expect(glassClone).not.toBe(sharedGlass);
+    // Rebinding the pooled view to a fresh car frees the clones.
     const spy = vi.spyOn(dented, 'dispose');
     const glassSpy = vi.spyOn(glassClone, 'dispose');
     const fresh = sim.spawnVehicle('sedan', p.x - 6, p.z, 0);
@@ -539,6 +545,7 @@ describe('vehicle views', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     expect(glassSpy).toHaveBeenCalledTimes(1);
     expect(meshNamed(view, 'body').geometry).toBe(shared);
+    expect(meshNamed(view, 'glass').geometry).toBe(sharedGlass);
     view.sync(fresh, DT, 0, 0);
     expect(meshNamed(view, 'body').geometry).toBe(shared);
     // Releasing a dented view to the pool frees its clone as well.
@@ -953,6 +960,300 @@ describe('crash effects', () => {
     const night = R.env.night;
     expect(night).toBeGreaterThan(0.9);
     const siren = (R as unknown as { siren: THREE.PointLight }).siren;
-    expect(siren.intensity).toBeCloseTo(30 + 50 * night, 6);
+    expect(siren.intensity).toBeGreaterThan(0);
+    // three's punctual light falloff: d^-decay, faded out to nothing at the light's distance.
+    const reach = (l: { intensity: number; distance: number; decay: number }, d: number): number =>
+      (l.intensity / d ** l.decay) * (l.distance > 0 ? Math.max(0, 1 - (d / l.distance) ** 4) ** 2 : 1);
+    // The round-2 siren (30 + 50 x night over 30 m, decay 1.6) turned a facade 7 m away blue: it now gets under a third of
+    // that light, while the street right by the car keeps most of its wash and nothing 12 m off is lit at all.
+    const before = { intensity: 30 + 50 * night, distance: 30, decay: 1.6 };
+    expect(reach(siren, 7) / reach(before, 7)).toBeLessThan(0.33);
+    expect(reach(siren, 2) / reach(before, 2)).toBeGreaterThan(0.4);
+    expect(reach(siren, 12.5)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix pass: wrecks on their roof, lamps that break only on real dents, the player's beam, charred livery,
+// planted wheels under a leaning body, the roof dent's damage guard and cheaper dent rebuilds.
+
+/** Lowest point of every visible mesh of a view, relative to the vehicle's contact point. */
+function lowestPoint(view: VehicleView, v: Vehicle, filter: (o: THREE.Mesh) => boolean = () => true): number {
+  view.group.updateMatrixWorld(true);
+  let low = Infinity;
+  const p = new THREE.Vector3();
+  view.group.traverseVisible((o) => {
+    if (!(o instanceof THREE.Mesh) || !filter(o)) return;
+    const pos = o.geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) low = Math.min(low, p.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).y);
+  });
+  return low - v.pos.y;
+}
+
+function headGlows(view: VehicleView): number[] {
+  return view.group.children
+    .filter((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.name === 'lamp' && o.position.z > 0 && (o.geometry as THREE.BoxGeometry).parameters?.width === 0.34)
+    .sort((a, b) => b.position.x - a.position.x)
+    .map((o) => {
+      const m = o.material as THREE.MeshStandardMaterial;
+      return m.emissiveIntensity * Math.max(m.emissive.r, m.emissive.g, m.emissive.b);
+    });
+}
+
+describe('round-2 fixes: wrecks, lamps, livery, lean and dents', () => {
+  let W: StaticWorld;
+
+  beforeAll(() => {
+    W = world();
+  });
+
+  function spot(sim: Sim): { x: number; z: number } {
+    const b = sim.world.layout.bounds;
+    return { x: b.beachStartX + 30, z: (b.landMinZ + b.landMaxZ) / 2 };
+  }
+
+  it.each(['sedan', 'sports', 'police', 'taxi', 'van'] as const)('a burnt-out %s on its roof rests on its roof, like an intact one', (kind) => {
+    const sim = makeSim({ world: W });
+    const p = spot(sim);
+    const v = sim.spawnVehicle(kind, p.x, p.z, 0.4);
+    const view = new VehicleView(kind);
+    view.bind(v);
+    v.flipped = true;
+    v.roll = Math.PI;
+    view.sync(v, DT, 0, 0);
+    const intact = lowestPoint(view, v);
+    expect(intact).toBeGreaterThan(-0.01);
+    v.destroyed = true;
+    v.health = 0;
+    view.sync(v, DT, 0, 0);
+    const wreck = lowestPoint(view, v);
+    expect(wreck).toBeGreaterThan(-0.01);
+    expect(wreck).toBeLessThan(intact + 0.01);
+    // On its wheels the same wreck still sags onto its rims.
+    v.flipped = false;
+    v.roll = 0;
+    const upright = new VehicleView(kind);
+    upright.bind(v);
+    upright.sync(v, DT, 0, 0);
+    const fresh = sim.spawnVehicle(kind, p.x, p.z, 0.4);
+    fresh.pos.y = v.pos.y;
+    const ref = new VehicleView(kind);
+    ref.bind(fresh);
+    ref.sync(fresh, DT, 0, 0);
+    expect(ref.group.position.y - upright.group.position.y).toBeGreaterThanOrEqual(0.1);
+  });
+
+  it('lamps break on real dents only: a parking bump leaves them lit, a hard crash smashes both, a knock on a corner one', () => {
+    const sim = makeSim({ world: W });
+    const p = spot(sim);
+    const lit = (dent: Dent | null): number[] => {
+      const v = sim.spawnVehicle('sedan', p.x, p.z, 0);
+      placeInCar(sim, v);
+      const view = new VehicleView('sedan');
+      view.bind(v);
+      if (dent) addDent(v, { ...dent, ly: 0.5 * v.spec.height });
+      view.sync(v, DT, 0, 1);
+      sim.unseat(sim.player);
+      return headGlows(view);
+    };
+    const hw = VEHICLE_SPECS.sedan.width / 2;
+    const hl = VEHICLE_SPECS.sedan.length / 2;
+    expect(lit(null).every((g) => g > 3)).toBe(true);
+    // A 3-4 m/s bump into a wall (about 4 cm) and a 10 m/s knock (11 cm) on the middle of the bumper: both lamps work.
+    for (const depth of [0.04, 0.11]) expect(lit({ lx: 0, ly: 0, lz: hl, nx: 0, nz: -1, depth }).every((g) => g > 3), `centre ${depth}`).toBe(true);
+    // A crash at 22 m/s (24 cm) smashes both.
+    expect(lit({ lx: 0, ly: 0, lz: hl, nx: 0, nz: -1, depth: 0.24 })).toEqual([0, 0]);
+    // A 12 cm knock on the front left corner breaks the left lamp only.
+    const [left, right] = lit({ lx: hw, ly: 0, lz: hl, nx: -0.6, nz: -0.8, depth: 0.12 });
+    expect(left).toBe(0);
+    expect(right).toBeGreaterThan(3);
+  });
+
+  it("smashed head lamps take the player's headlight beam with them", () => {
+    const R = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, W, { quality: 'high', fov: 68 });
+    const sim = makeSim({ world: W });
+    sim.clock.set(23);
+    const p = spot(sim);
+    teleport(sim, p.x, p.z);
+    const v = sim.spawnVehicle('sedan', p.x, p.z + 4, 0);
+    placeInCar(sim, v);
+    R.attach(sim);
+    R.render(DT, false);
+    const beam = (): number => (R as unknown as { headlight: THREE.SpotLight }).headlight.intensity;
+    const night = R.env.night;
+    expect(night).toBeGreaterThan(0.9);
+    expect(beam()).toBeCloseTo(260 * night, 3);
+    // The left lamp smashed: half the beam.
+    addDent(v, { lx: v.halfW, ly: 0.5 * v.spec.height, lz: v.halfL, nx: -0.6, nz: -0.8, depth: 0.14 });
+    R.render(DT, false);
+    expect(beam()).toBeCloseTo(130 * night, 3);
+    // Both: no beam at all.
+    addDent(v, { lx: 0, ly: 0.5 * v.spec.height, lz: v.halfL, nx: 0, nz: -1, depth: 0.3 });
+    R.render(DT, false);
+    expect(beam()).toBe(0);
+    R.dispose();
+  });
+
+  it('where the roof panel stops short over a glass roof, the light bar and the taxi sign still stand on paint', () => {
+    for (const kind of ['police', 'taxi', 'sedan', 'compact'] as const) {
+      const view = new VehicleView(kind);
+      view.group.updateMatrixWorld(true);
+      const body = meshNamed(view, 'body');
+      const s = VEHICLE_SPECS[kind];
+      const layout = cabinLayout(kind)!;
+      // The panel covers the front of the cabin top and at least 0.6 m of it.
+      expect(layout.roof.z1 - layout.roof.z0, kind).toBeGreaterThanOrEqual(0.6 - 1e-9);
+      const gear = view.group.children.filter((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.name === '' && o.position.y > s.height * 0.9);
+      if (kind === 'police' || kind === 'taxi') expect(gear.length, kind).toBeGreaterThan(0);
+      for (const g of gear) {
+        // Straight down through the gear's footprint (front and back edges), the body is hit at the panel.
+        g.geometry.computeBoundingBox();
+        const half = (g.geometry.boundingBox!.max.z - g.geometry.boundingBox!.min.z) / 2;
+        for (const dz of [-half, half]) {
+          const ray = new THREE.Raycaster(new THREE.Vector3(g.position.x, s.height + 2, g.position.z + dz), new THREE.Vector3(0, -1, 0));
+          const hit = ray.intersectObject(body, false)[0];
+          expect(hit, kind).toBeDefined();
+          expect(hit!.point.y, kind).toBeGreaterThan(layout.roof.y - 0.01);
+        }
+      }
+    }
+  });
+
+  it('a burnt-out police car or taxi loses its livery, light bar and lit sign with the rest of the paint', () => {
+    const sim = makeSim({ world: W });
+    const p = spot(sim);
+    const materials = (view: VehicleView): THREE.Material[] =>
+      view.group.children.filter((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.name === '').flatMap((o) => (Array.isArray(o.material) ? o.material : [o.material]));
+    for (const kind of ['police', 'taxi'] as const) {
+      const v = sim.spawnVehicle(kind, p.x, p.z, 0);
+      const view = new VehicleView(kind);
+      view.bind(v);
+      view.sync(v, DT, 0, 1);
+      const intact = materials(view);
+      expect(intact.length).toBeGreaterThan(0);
+      v.destroyed = true;
+      v.health = 0;
+      view.sync(v, DT, 0, 1);
+      const charred = meshNamed(view, 'body').material as THREE.Material;
+      for (const m of materials(view)) {
+        expect(m, kind).toBe(charred);
+        expect((m as THREE.MeshStandardMaterial).emissiveIntensity * Math.max((m as THREE.MeshStandardMaterial).emissive.r, (m as THREE.MeshStandardMaterial).emissive.g)).toBe(0);
+      }
+      // The pooled view, bound to a fresh car, wears them again.
+      const fresh = sim.spawnVehicle(kind, p.x + 8, p.z, 0);
+      view.bind(fresh);
+      view.sync(fresh, DT, 0, 1);
+      expect(materials(view)).toEqual(intact);
+    }
+  });
+
+  it.each(['bus', 'van', 'pickup', 'swat', 'sedan'] as const)('a %s leans on its springs under hard braking and cornering, its tyres staying on the road', (kind) => {
+    const sim = makeSim({ world: W });
+    const p = spot(sim);
+    const v = sim.spawnVehicle(kind, p.x, p.z, 0);
+    const view = new VehicleView(kind);
+    view.bind(v);
+    const tyres = (o: THREE.Mesh): boolean => o.name === 'tire';
+    view.sync(v, DT, 0, 0);
+    const rest = lowestPoint(view, v, (o) => o.name === 'body');
+    // The lean's lever arms: the furthest axle from the centre and the half track, from the wheels at rest.
+    const pivots = view.group.children.filter((o) => o instanceof THREE.Group);
+    const axle = Math.max(...pivots.map((o) => Math.abs(o.position.z)));
+    const track = Math.max(...pivots.map((o) => Math.abs(o.position.x)));
+    // Full braking from 20 m/s at the class's braking rate.
+    v.forwardSpeed = 20;
+    view.sync(v, DT, 0, 0);
+    for (let i = 0; i < 60 && v.forwardSpeed > 0; i++) {
+      v.forwardSpeed = Math.max(0.5, v.forwardSpeed - v.spec.brake * DT);
+      view.sync(v, DT, 0, 0);
+    }
+    const dive = view.group.rotation.x;
+    expect(dive, kind).toBeGreaterThan(0.01);
+    expect(lowestPoint(view, v, tyres), `${kind} braking`).toBeGreaterThan(-0.01);
+    expect(lowestPoint(view, v, (o) => o.name === 'body'), `${kind} body`).toBeGreaterThan(Math.min(0.1, rest - 0.2));
+    // A hard right turn at speed: the body rolls to the left, the inner tyres stay on the road.
+    v.forwardSpeed = 16;
+    v.angVel = -0.9;
+    for (let i = 0; i < 90; i++) view.sync(v, DT, 0, 0);
+    expect(Math.abs(view.group.rotation.z), kind).toBeGreaterThan(0.02);
+    expect(lowestPoint(view, v, tyres), `${kind} cornering`).toBeGreaterThan(-0.01);
+    // Braking hard in that corner: dive and roll together bring the arch over a corner wheel down by at most 6 cm,
+    // the arch's clearance plus a little of the tyre tucking into its well.
+    let worst = 0;
+    for (let i = 0; i < 90; i++) {
+      v.forwardSpeed = i % 30 === 0 ? 20 : Math.max(0.5, v.forwardSpeed - v.spec.brake * DT);
+      view.sync(v, DT, 0, 0);
+      worst = Math.max(worst, axle * Math.abs(view.group.rotation.x + v.pitch) + track * Math.abs(view.group.rotation.z - v.roll));
+      expect(lowestPoint(view, v, tyres)).toBeGreaterThan(-0.01);
+    }
+    expect(worst, kind).toBeLessThanOrEqual(0.0605);
+    expect(worst, kind).toBeGreaterThan(0.02);
+  });
+
+  it('a gentle roll onto the roof sets the car alight without crushing its roof; in god mode no roof landing does', () => {
+    const sim = makeSim({ police: false });
+    const b = sim.world.layout.bounds;
+    const x = b.beachStartX + 30;
+    const z = b.landMinZ + 100;
+    const drop = (vy: number, god: boolean): Vehicle => {
+      const v = sim.spawnVehicle('sedan', x, z + sim.vehicles.length * 12, 0);
+      if (god) placeInCar(sim, v);
+      sim.cheats.godMode = god;
+      v.airborne = true;
+      v.pos.y += 0.3;
+      v.vy = vy;
+      v.roll = Math.PI;
+      step(sim, 0.6);
+      expect(v.flipped).toBe(true);
+      if (god) sim.unseat(sim.player);
+      return v;
+    };
+    for (const vy of [-2, -4, -6]) {
+      const v = drop(vy, false);
+      expect(v.burning).toBe(true);
+      expect(v.dents.length, `vy ${vy}`).toBe(0);
+    }
+    const mine = drop(-14, true);
+    expect(mine.dents.length).toBe(0);
+    // A hard landing on the roof still crushes it.
+    const hard = drop(-14, false);
+    expect(hard.dents.some((d) => d.ly === hard.spec.height)).toBe(true);
+  });
+
+  it('a dent change re-shapes only the triangles near it, exactly as a full rebuild would', () => {
+    const sim = makeSim({ world: W });
+    const p = spot(sim);
+    const v = sim.spawnVehicle('bus', p.x, p.z, 0);
+    const view = new VehicleView('bus');
+    view.bind(v);
+    view.sync(v, DT, 0, 0);
+    const shared = meshNamed(view, 'body').geometry;
+    for (let i = 0; i < 8; i++) addDent(v, { lx: (i % 2 ? 1 : -1) * v.halfW, ly: 0.5 * v.spec.height, lz: -v.halfL + 0.6 + i * 1.3, nx: i % 2 ? -1 : 1, nz: 0, depth: 0.12 + 0.02 * i });
+    view.sync(v, DT, 0, 0);
+    // One dent deepens.
+    v.dents[3]!.depth = 0.35;
+    v.dentVersion++;
+    const dented = (view as unknown as { dentBody: DentedGeometry }).dentBody;
+    view.sync(v, DT, 0, 0);
+    const triangles = shared.getAttribute('position').count / 3;
+    expect(dented.touched).toBeGreaterThan(0);
+    expect(dented.touched).toBeLessThan(triangles * 0.25);
+    // The same shape and normals as displacing everything and recomputing the normals from scratch.
+    const ref = shared.clone();
+    displace(shared.getAttribute('position').array, ref.getAttribute('position').array as Float32Array, v.dents);
+    ref.computeVertexNormals();
+    const a = meshNamed(view, 'body').geometry;
+    for (const name of ['position', 'normal'] as const) {
+      const got = a.getAttribute(name).array;
+      const want = ref.getAttribute(name).array;
+      let worst = 0;
+      for (let i = 0; i < got.length; i++) worst = Math.max(worst, Math.abs(got[i]! - want[i]!));
+      expect(worst, name).toBeLessThan(1e-5);
+    }
+    // A repair (no dents) puts every triangle back.
+    v.dents.length = 0;
+    v.dentVersion++;
+    view.sync(v, DT, 0, 0);
+    expect(meshNamed(view, 'body').geometry).toBe(shared);
   });
 });

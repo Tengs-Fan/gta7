@@ -9,45 +9,20 @@ import { clamp, damp, lerp, wrapAngle } from '../core/math';
 import type { Character, Vehicle } from '../sim/entities';
 import {
   aimed, aimFrame, anchor, hipSpread, makeTrunk, makeWeaponPose, shoulderSpread, SKELETON, trunkPose, weaponPoint, weaponPoseInto,
-  WEAPON_POINTS, type Trunk, type WeaponPose,
+  SWIM_HIP, SWIM_TREAD_LEAN, WEAPON_POINTS, seatSide, windowMuzzle, type Trunk, type WeaponPose,
 } from '../sim/pose';
 import type { VehicleKind, WeaponId } from '../sim/specs';
 import { gait, makeGaitOut, makeTwoBone, solveLeg, solveTwoBone, type LegPose } from './gait';
-import { VehicleView } from './vehicleView';
+import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
 
 const MAX = 240;
 /** Seated drivers and passengers are drawn within this distance of the camera. */
 export const OCCUPANT_RANGE = 60;
-
 /**
- * Seats of each kind, heights above the wheel contact point (v.pos.y): the hip, the seat back's recline
- * (least), and the cabin roof. A rider leans back further when he would otherwise put his head (or cap)
- * through the roof, so tall riders slouch in low cars while short ones still sit up to be seen.
+ * The driver's hands turn this far round the wheel at full lock (rad, clockwise for a right turn), which keeps the lower
+ * hand above the cabin floor (the wheel's centre sits 0.1 m above it).
  */
-export const SEATS: Readonly<Record<VehicleKind, { readonly y: number; readonly recline: number; readonly roof: number }>> = {
-  compact: { y: 0.42, recline: 0.25, roof: 1.47 },
-  sedan: { y: 0.45, recline: 0.25, roof: 1.47 },
-  taxi: { y: 0.45, recline: 0.25, roof: 1.47 },
-  police: { y: 0.45, recline: 0.22, roof: 1.52 },
-  sports: { y: 0.22, recline: 0.42, roof: 1.195 },
-  muscle: { y: 0.38, recline: 0.35, roof: 1.36 },
-  pickup: { y: 0.62, recline: 0.18, roof: 1.84 },
-  van: { y: 0.85, recline: 0.15, roof: 2.17 },
-  swat: { y: 0.9, recline: 0.15, roof: 2.22 },
-  bus: { y: 1.15, recline: 0.12, roof: 2.76 },
-};
-/** Head clearance kept under the roof. */
-const HEADROOM = 0.025;
-/**
- * Front and rear seats along the car (m ahead of its centre). Cars use the simulation's seat offsets
- * (Sim.syncOccupant); the van, the SWAT van and the bus have their cabs and windscreens well forward.
- */
-const SEAT_Z: Partial<Record<VehicleKind, readonly [number, number]>> = { van: [1.15, -0.9], swat: [1.45, -0.6], bus: [4.55, -0.9] };
-/**
- * The steering wheel the driver holds, placed from the middle of his shoulders: distance ahead and below
- * (x his height), rim radius, the rim's tilt back from upright, and the turn of the hands at full lock.
- */
-export const DRIVER_WHEEL = { ahead: 0.45, below: 0.2, radius: 0.16, tilt: 0.4, lock: 0.65 } as const;
+const WHEEL_LOCK = 0.5;
 
 type Gun = Exclude<WeaponId, 'fists'>;
 /** Recoil kick (rad) of each weapon just after a shot; it is drawn only, never part of the muzzle. */
@@ -94,7 +69,8 @@ const S = {
   inst: new THREE.Matrix4(),
   /** Body frame rotation of the character being posed (chest, lying or seat frame). */
   body: new THREE.Matrix4(),
-  /** Vehicle rotation (seated characters). */
+  /** Vehicle body frame and its rotation (seated characters). */
+  frame: new THREE.Matrix4(),
   vrot: new THREE.Matrix4(),
   /** Temporary rotations inside helpers. */
   rot: new THREE.Matrix4(),
@@ -176,6 +152,8 @@ export class CrowdView {
   private readonly wp: WeaponPose = makeWeaponPose();
   /** Height each vehicle kind's view rotates about (see VehicleView). */
   private readonly pivots = new Map<VehicleKind, number>();
+  private readonly seat: RiderSeat = { y: 0, z: 0, recline: 0 };
+  private readonly muzzle = { x: 0, y: 0, z: 0 };
 
   constructor() {
     this.group.name = 'crowd';
@@ -648,20 +626,40 @@ export class CrowdView {
     }
   }
 
-  /** Swimming face down: crawl strokes and a flutter kick, or treading water when still. */
+  /**
+   * Swimming face down: crawl strokes and a flutter kick, or treading water when still. A swimmer with a gun up treads
+   * water holding it out of the water in his right hand, as sim/pose.ts places it (shots leave from its barrel).
+   */
   private swim(c: Character): void {
     const bw = c.appearance.build;
-    const moving = c.speed > 0.3;
+    const weapon = c.inventory.current;
+    const shooting = weapon !== 'fists' && (c.aiming || c.shotTimer > 0);
+    const moving = c.speed > 0.3 && !shooting;
     const ph = moving ? c.animPhase : this.time * 3 + c.id;
     S.rot.makeRotationY(c.heading);
-    const P = S.pelvis.set(0, 1.2, 0).applyMatrix4(S.rot).add(c.pos);
-    S.body.copy(S.rot).multiply(S.rot2.makeRotationX(moving ? 1.25 : 0.35));
+    const P = S.pelvis.set(0, SWIM_HIP, 0).applyMatrix4(S.rot).add(c.pos);
+    S.body.copy(S.rot).multiply(S.rot2.makeRotationX(moving ? 1.25 : SWIM_TREAD_LEAN));
     this.torso(c, P, moving ? -0.9 : -0.3);
     this.shoulders(c, P);
+    if (shooting) {
+      const w = weaponPoseInto(c, this.wp);
+      const gun = w.weapon;
+      const kick = kickAmount(c.shotTimer);
+      const m = this.weaponMatrix(w, kick * KICK[gun], WEAPON_POINTS[gun].grip, KICK_BACK * kick);
+      this.put(this.weapons.get(gun)!, m, 0xffffff);
+      const g = WEAPON_POINTS[gun].grip;
+      S.pole.copy(S.up).negate().addScaledVector(S.left, -0.6);
+      this.armTo(S.shR, S.targetR.set(g.x, g.y, g.z).applyMatrix4(m), S.pole, S.left, c);
+    }
     const hx = hipSpread(bw);
     for (const side of [1, -1]) {
       const sh = side > 0 ? S.shL : S.shR;
       const hip = (side > 0 ? S.hipL : S.hipR).copy(P).addScaledVector(S.left, side * hx);
+      if (shooting && side < 0) {
+        // The gun arm is drawn above; the legs still tread water.
+        this.legFK(hip, side, -0.5 + 0.35 * Math.sin(ph * 0.8 + side), 0.1, 0.9, -0.3, c);
+        continue;
+      }
       if (moving) {
         // Crawl: each arm circles overhead, half a stroke apart; the elbow bends on the pull.
         const arm = ph * 0.45 + (side > 0 ? 0 : Math.PI);
@@ -688,34 +686,49 @@ export class CrowdView {
     return p;
   }
 
-  /** A driver or passenger in the seat, carried by the vehicle's heading, pitch and roll. */
+  /**
+   * `v`'s body frame as drawn (VehicleView: heading, pitch, roll, the body's lean, a wreck's sag), into S.frame; for a
+   * vehicle no view draws, the same frame without the lean, from the simulation (YXZ about the body centre).
+   */
+  private vehicleFrame(v: Vehicle): THREE.Matrix4 {
+    const drawn = drawnFrame(v);
+    if (drawn) return S.frame.copy(drawn);
+    const pivot = this.pivotY(v.kind);
+    S.e.set(-v.pitch, v.heading, v.roll, 'YXZ');
+    S.frame.makeRotationFromEuler(S.e);
+    const c = S.d1.set(0, pivot, 0).applyMatrix4(S.frame);
+    return S.frame.setPosition(v.pos.x - c.x, v.pos.y + pivot - c.y, v.pos.z - c.z);
+  }
+
+  /**
+   * A driver or passenger in his seat (see cabinLayout and riderSeat: shoulders over the waistline, head under the roof
+   * and in front of the low seat back), carried by the car body as drawn; the driver's hands on the wheel the car draws.
+   */
   private seated(c: Character, v: Vehicle): void {
+    const layout = cabinLayout(v.kind);
+    const weapon = c.inventory.current;
+    const shooting = weapon !== 'fists' && c.shotTimer > 0;
+    const side = seatSide(c.seat);
+    if (!layout) {
+      // Nobody shows through the dark windows of a van, a riot van or a bus: only a gun held out of one.
+      if (shooting) this.windowGun(c, v, weapon, null, side);
+      return;
+    }
     const a = c.appearance;
     const s = a.height;
     const bw = a.build;
-    const pivot = this.pivotY(v.kind);
-    // The vehicle frame exactly as VehicleView draws it: YXZ (heading, -pitch, roll) about the body centre.
-    S.e.set(-v.pitch, v.heading, v.roll, 'YXZ');
-    const vrot = S.vrot.makeRotationFromEuler(S.e);
-    const side = c.seat === 0 || c.seat === 2 ? 1 : -1;
-    const [front, rear] = SEAT_Z[v.kind] ?? [0.15, -0.9];
-    const seat = SEATS[v.kind];
-    const P = S.pelvis.set(side * v.halfW * 0.45, seat.y - pivot, c.seat >= 2 ? rear : front).applyMatrix4(vrot);
-    P.x += v.pos.x;
-    P.y += v.pos.y + pivot;
-    P.z += v.pos.z;
+    const seat = riderSeat(layout, c.seat >= 2, s, a.hat !== 0, this.seat);
+    const frame = this.vehicleFrame(v);
+    const vrot = S.vrot.extractRotation(frame);
+    const P = S.pelvis.set(side * v.halfW * 0.45, seat.y, seat.z).applyMatrix4(frame);
     S.vleft.set(1, 0, 0).transformDirection(vrot);
     S.vup.set(0, 1, 0).transformDirection(vrot);
     S.vfwd.set(0, 0, 1).transformDirection(vrot);
-    // Leaning back against the seat (further if the roof is low for him), head tipped forward to look ahead.
-    // His cap or hair top is about 0.38 x height above the neck, which leans with the seat back.
-    const room = seat.roof - HEADROOM - seat.y - 0.38 * s;
-    const neck = SKELETON.neckY * s;
-    const recline = room >= neck ? seat.recline : Math.max(seat.recline, Math.acos(clamp(room / neck, -1, 1)));
-    S.body.copy(vrot).multiply(S.rot2.makeRotationX(-recline));
-    this.torso(c, P, recline * 0.8);
+    // Leaning back against the seat, head tipped forward to look ahead.
+    S.body.copy(vrot).multiply(S.rot2.makeRotationX(-seat.recline));
+    this.torso(c, P, seat.recline * 0.8);
     this.shoulders(c, P);
-    // Thighs along the seat; shins and shoes are down in the footwell, out of sight.
+    // Thighs along the seat, under the waistline; shins and shoes are down in the footwell, out of sight.
     const hx = hipSpread(bw);
     for (const sd of [1, -1]) {
       const hip = (sd > 0 ? S.hipL : S.hipR).copy(P).addScaledVector(S.vleft, sd * hx);
@@ -723,25 +736,23 @@ export class CrowdView {
       this.bone(this.parts.thigh, hip, S.knee, S.vleft, s, a.pants);
     }
     const pole = S.pole;
-    const weapon = c.inventory.current;
     let busy = 0;
-    if (weapon !== 'fists' && c.shotTimer > 0) {
+    if (shooting) {
       // Drive-by: the gun held out of the shooter's own window.
       busy = side;
-      this.driveBy(c, v, weapon, side > 0 ? S.shL : S.shR, side);
+      this.windowGun(c, v, weapon, side > 0 ? S.shL : S.shR, side);
     }
+    const w = layout.wheel;
     for (const sd of [1, -1]) {
       if (sd === busy) continue;
       const target = sd > 0 ? S.targetL : S.targetR;
       if (c.seat === 0) {
-        // Hands on the wheel at a quarter to three, turned with the steering (clockwise for a right turn).
-        const W = DRIVER_WHEEL;
-        const turn = clamp(v.steer, -1, 1) * W.lock;
-        const wx = sd * W.radius * Math.cos(turn);
-        const wy = sd * W.radius * Math.sin(turn);
-        // Wheel centre ahead of and below the middle of the shoulders, in the car's frame.
-        target.copy(S.shL).add(S.shR).multiplyScalar(0.5).addScaledVector(S.vfwd, W.ahead * s).addScaledVector(S.vup, -W.below * s);
-        target.addScaledVector(S.vleft, wx).addScaledVector(S.vup, wy * Math.cos(W.tilt)).addScaledVector(S.vfwd, -wy * Math.sin(W.tilt));
+        // Hands on the rim at a quarter to three, turned with the steering (clockwise for a right turn): the rim's
+        // across axis is the car's x, its up axis is tilted forward by the wheel's tilt.
+        const turn = clamp(v.steer, -1, 1) * WHEEL_LOCK;
+        const across = sd * w.radius * Math.cos(turn);
+        const up = sd * w.radius * Math.sin(turn);
+        target.set(w.x + across, w.y + up * Math.cos(w.tilt), w.z + up * Math.sin(w.tilt)).applyMatrix4(frame);
         pole.copy(S.vup).negate().addScaledVector(S.vleft, sd * 0.6);
       } else {
         // Hands resting in the lap.
@@ -753,22 +764,23 @@ export class CrowdView {
   }
 
   /**
-   * A seated shooter's gun held out of his own window towards the aim. From the driver's seat the tip is
-   * where CombatSystem.muzzle(c, true) fires from (the car's left window); a passenger on the right holds it
-   * out of his window instead of reaching across the car.
+   * A seated shooter's gun out of his own window, pointing along his aim (which CombatSystem.npcFire publishes for NPCs),
+   * its barrel end on the point his shots leave from (sim/pose.ts windowMuzzle: his seat's window, as
+   * CombatSystem.muzzle(c, true) fires): the gun stays there and the hand reaches for its grip as far as the arm goes.
+   * With no shoulder (nobody drawn inside), the gun alone.
    */
-  private driveBy(c: Character, v: Vehicle, gun: Gun, shoulder: THREE.Vector3, side: number): void {
+  private windowGun(c: Character, v: Vehicle, gun: Gun, shoulder: THREE.Vector3 | null, side: number): void {
     const w = this.wp;
     const pts = WEAPON_POINTS[gun];
     w.weapon = gun;
     aimFrame(w, c.aimYaw, clamp(c.aimPitch, -1.2, 1.2), 0);
-    const out = side * (v.halfW + 0.2);
-    anchor(w, pts.tip, v.pos.x + Math.cos(v.heading) * out, v.pos.y + v.spec.height * 0.75, v.pos.z - Math.sin(v.heading) * out);
-    const grip = weaponPoint(w, pts.grip, S.targetL);
-    S.pole.copy(S.up).negate().addScaledVector(S.left, side * 0.5);
-    // The hand reaches for the grip; the gun stays in the hand when the window is out of reach.
-    const hand = this.armTo(shoulder, S.d1.set(grip.x, grip.y, grip.z), S.pole, S.left, c);
-    anchor(w, pts.grip, hand.x, hand.y, hand.z);
+    const m = windowMuzzle(v, c.seat, this.muzzle);
+    anchor(w, pts.tip, m.x, m.y, m.z);
+    if (shoulder) {
+      const grip = weaponPoint(w, pts.grip, S.targetL);
+      S.pole.copy(S.up).negate().addScaledVector(S.left, side * 0.5);
+      this.armTo(shoulder, S.d1.set(grip.x, grip.y, grip.z), S.pole, S.left, c);
+    }
     const kick = kickAmount(c.shotTimer);
     this.put(this.weapons.get(gun)!, this.weaponMatrix(w, kick * KICK[gun], pts.grip, KICK_BACK * kick), 0xffffff);
   }
