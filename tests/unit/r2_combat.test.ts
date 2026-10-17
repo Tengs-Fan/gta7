@@ -705,17 +705,30 @@ describe('P31b: flashes and tracers', () => {
       expect(R.effects.tracerCount).toBe(1);
     });
 
-    it("the player's automatic fire traces every second round, NPC rounds every round", () => {
+    it("the player's automatic fire traces every second round of a burst, NPC rounds every round", () => {
       const sim = makeSim({ world: W });
       R.attach(sim);
       settle();
       const p = sim.player;
       const g = npcAt(sim, 'gang', p.pos.x + 30, p.pos.z);
       const shot = (shooter: Character, weapon: WeaponId) =>
-        sim.events.emit('shot', { shooter, weapon, fx: 0, fy: 1, fz: 0, tx: 0, ty: 1, tz: 200, hit: 'none', nx: 0, ny: 1, nz: 0, pellet: 0 });
-      for (let i = 0; i < 10; i++) shot(p, 'smg');
+        sim.events.emit('shot', { shooter, weapon, fx: 0, fy: 1, fz: 0, tx: 0, ty: 1, tz: 400, hit: 'none', nx: 0, ny: 1, nz: 0, pellet: 0 });
+      // A 10-round burst (one round a frame).
+      for (let i = 0; i < 10; i++) {
+        shot(p, 'smg');
+        step(sim, DT);
+      }
       R.render(DT, false);
       expect(R.effects.tracerCount).toBe(5);
+      settle();
+      step(sim, 0.5);
+      // Single taps a moment apart each trace.
+      for (let i = 0; i < 3; i++) {
+        shot(p, 'rifle');
+        step(sim, 0.3);
+      }
+      R.render(DT, false);
+      expect(R.effects.tracerCount).toBe(3);
       settle();
       for (let i = 0; i < 10; i++) shot(g, 'smg');
       for (let i = 0; i < 4; i++) shot(p, 'pistol');
@@ -861,7 +874,8 @@ describe('P32: head volume and headshots', () => {
     arm(sim, 'pistol');
     step(sim, 0.4);
     const p = sim.player;
-    const v = npcAt(sim, 'gang', p.pos.x + f.fx * 1.0 + f.rx * 0.3, p.pos.z + f.fz * 1.0 + f.rz * 0.3);
+    // 0.9 m away, 0.62 m to the right: the muzzle is a hand's width from his shoulder.
+    const v = npcAt(sim, 'gang', p.pos.x + f.fx * 0.652 + f.rx * 0.62, p.pos.z + f.fz * 0.652 + f.rz * 0.62);
     v.armor = 5000;
     const head = () => ({ x: v.pos.x, y: v.pos.y + v.height * 0.92, z: v.pos.z });
     step(sim, 0.3, () => crosshairOn(sim, head()));
@@ -874,6 +888,57 @@ describe('P32: head volume and headshots', () => {
     sim.update(DT, crosshairOn(sim, { x: v.pos.x, y: v.pos.y + 1.0, z: v.pos.z }, { fire: true, firePressed: true }));
     expect(damage.length).toBe(2);
     expect(damage[1]!.zone).toBe('body');
+  });
+});
+
+describe('P32: a round on course for the aimed head counts as a headshot', () => {
+  /** A rising ray from 1 m in front of `v` that enters his body just under the shoulder line and goes on into his head. */
+  function setup() {
+    const sim = makeSim();
+    const f = standOnOpenRoad(sim);
+    const p = sim.player;
+    const v = npcAt(sim, 'civilian', p.pos.x + f.fx * 10, p.pos.z + f.fz * 10);
+    v.maxHealth = 1e6;
+    v.health = 1e6;
+    const neck = v.pos.y + 0.86 * v.height;
+    const from = { x: v.pos.x - f.fx * 1, y: neck - 0.25, z: v.pos.z - f.fz * 1 };
+    // Aimed at a point in his head 0.08 m above the shoulder line: the ray enters the body cylinder's side first.
+    const to = { x: v.pos.x, y: neck + 0.08, z: v.pos.z };
+    const l = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+    const d = { x: (to.x - from.x) / l, y: (to.y - from.y) / l, z: (to.z - from.z) / l };
+    const combat = sim.combat as unknown as { aimed: { character: Character; zone: 'head' | 'body' } | null; fireRay: (...a: unknown[]) => void };
+    // The geometry: the body cylinder is hit first, and the head lies further along the same ray.
+    const r = sim.combat.castRay(from.x, from.y, from.z, d.x, d.y, d.z, 5, p);
+    expect(r.character).toBe(v);
+    expect(r.zone).toBe('body');
+    expect(from.y + d.y * r.t).toBeLessThan(neck);
+    const damage = record(sim, 'damage');
+    return { sim, p, v, from, d, combat, damage };
+  }
+
+  it('the crosshair on his head: a round clipping his shoulder on its way there is a head hit', () => {
+    const { p, v, from, d, combat, damage } = setup();
+    expect(combat.aimed).toBeNull();
+    // Without an aim (an NPC's shot, or the crosshair elsewhere) the shoulder takes it.
+    combat.fireRay(p, from, d.x, d.y, d.z, WEAPONS.pistol, 0);
+    expect(damage[0]).toMatchObject({ victim: v, zone: 'body' });
+    combat.aimed = { character: v, zone: 'body' };
+    combat.fireRay(p, from, d.x, d.y, d.z, WEAPONS.pistol, 0);
+    expect(damage[1]).toMatchObject({ victim: v, zone: 'body' });
+    combat.aimed = { character: v, zone: 'head' };
+    combat.fireRay(p, from, d.x, d.y, d.z, WEAPONS.pistol, 0);
+    expect(damage[2]).toMatchObject({ victim: v, zone: 'head' });
+    expect(damage[2]!.healthLoss).toBe(WEAPONS.pistol.damage * WEAPONS.pistol.headMul);
+    combat.aimed = null;
+  });
+
+  it('a round that spread off the head into his chest stays a body hit', () => {
+    const { p, v, combat, damage } = setup();
+    combat.aimed = { character: v, zone: 'head' };
+    const from = { x: v.pos.x - 3, y: v.pos.y + 1.0, z: v.pos.z };
+    combat.fireRay(p, from, 1, 0, 0, WEAPONS.pistol, 0);
+    combat.aimed = null;
+    expect(damage[0]).toMatchObject({ victim: v, zone: 'body' });
   });
 });
 

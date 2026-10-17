@@ -520,6 +520,10 @@ body {
 }
 
 /* The muzzle is inside a wall: shots would only hit that wall. */
+.crosshair.show.blocked {
+  opacity: 0.95;
+}
+
 .crosshair.blocked::before,
 .crosshair.blocked::after {
   background: #ff4b3e;
@@ -598,6 +602,9 @@ body {
   border: 6px solid transparent;
   border-top-color: rgba(255, 46, 32, 0.9);
   filter: drop-shadow(0 0 6px rgba(255, 0, 0, 0.75));
+  /* Fade the quarter-circle border to a soft arc about 50 degrees across. */
+  -webkit-mask-image: conic-gradient(from -45deg, transparent 0deg, #000 22deg, #000 68deg, transparent 90deg);
+  mask-image: conic-gradient(from -45deg, transparent 0deg, #000 22deg, #000 68deg, transparent 90deg);
   opacity: 0;
   pointer-events: none;
 }

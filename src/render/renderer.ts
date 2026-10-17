@@ -54,8 +54,9 @@ export class GameRenderer {
   private sim: Sim | null = null;
   private unsub: Array<() => void> = [];
   private smokeTimer = 0;
-  /** Rounds the player fired from automatic weapons: only every second one draws a tracer. */
+  /** Rounds of the player's current automatic burst (every second one draws a tracer), and the sim time of the last. */
   private autoRounds = 0;
+  private lastAutoRound = -Infinity;
   private quality: Quality = 'high';
   time = 0;
 
@@ -173,8 +174,14 @@ export class GameRenderer {
         // Helicopter rounds have no weaponFired of their own.
         if (!e.shooter) fx.muzzleFlash(e.fx, e.fy, e.fz, FLASH_SIZE[e.weapon]);
         if (e.weapon === 'rocket' || e.weapon === 'fists') return;
-        // The player's automatic fire traces every second round; everyone else's traces every round.
-        const traced = !(e.shooter?.isPlayer && WEAPONS[e.weapon].auto) || this.autoRounds++ % 2 === 0;
+        // The player's automatic fire traces every second round of a burst (its first one always);
+        // everyone else's traces every round.
+        let traced = true;
+        if (e.shooter?.isPlayer && WEAPONS[e.weapon].auto) {
+          if (sim.time - this.lastAutoRound > 0.25) this.autoRounds = 0;
+          this.lastAutoRound = sim.time;
+          traced = this.autoRounds++ % 2 === 0;
+        }
         if (traced) fx.tracer(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz);
         if (e.hit === 'world' || e.hit === 'vehicle') fx.impact(e.tx, e.ty, e.tz, e.nx, e.ny, e.nz, e.hit);
       }),

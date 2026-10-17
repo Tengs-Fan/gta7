@@ -488,7 +488,7 @@ export class CombatSystem {
       // The gun sits below the eyes, so on its way to the head under the crosshair a round can clip that man's
       // shoulder first (at close range nearly always). A round still on course for that head is the headshot aimed.
       const aimed = this.aimed;
-      if (zone === 'body' && aimed && aimed.character === c && aimed.zone === 'head') {
+      if (zone === 'body' && aimed && aimed.character === c && aimed.zone === 'head' && c.state === 'normal') {
         const head = zoneOf(c, 'head');
         if (rayCylinderY(from.x, from.y, from.z, dx, dy, dz, c.pos.x, c.pos.z, head.r, head.y0, head.y1, w.range) >= 0) zone = 'head';
       }

@@ -1446,3 +1446,198 @@ describe('map wheel zoom: a notch is one step on every platform', () => {
     expect(zoom()).toBeCloseTo(0.5 + 19 * 4 * 0.005, 6);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round 2, combat cluster: the reticle, hitmarkers, damage-direction arcs and hit-confirm sounds.
+
+describe('combat feedback on the HUD and in the mix (r2 combat)', () => {
+  function hudRig() {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    const update = (dt: number, camYaw = 0, aiming = false) => hud.update(dt, sim, camYaw, aiming, null, 0);
+    const civ = sim.spawnCharacter('civilian', sim.player.pos.x + 5, sim.player.pos.z);
+    const cop = sim.spawnCharacter('cop', sim.player.pos.x - 5, sim.player.pos.z);
+    type Damage = Parameters<Parameters<typeof sim.events.on<'damage'>>[1]>[0];
+    const damage = (over: Partial<Damage>) =>
+      sim.events.emit('damage', { victim: civ, attacker: sim.player, healthLoss: 34, armourLoss: 0, kind: 'bullet', zone: 'body', killed: false, dirX: 1, dirZ: 0, ...over });
+    /** The arc's rotation in degrees, 0-360 clockwise from the top of the screen. */
+    const rotation = (e: FakeElement) => {
+      const m = /rotate\((-?[\d.]+)deg\)/.exec(e.style.transform ?? '');
+      return m ? ((Number(m[1]) % 360) + 360) % 360 : NaN;
+    };
+    return { hud, el, sim, update, civ, cop, damage, rotation };
+  }
+
+  it("a hit by the player shows the hitmarker for 0.12 s; a kill adds 'kill' for 0.25 s, a headshot 'head'", () => {
+    const { el, update, damage, sim, cop } = hudRig();
+    const marker = el.hitmarker!;
+    expect(marker.classList.contains('show')).toBe(false);
+    damage({});
+    expect(marker.classList.contains('show')).toBe(true);
+    expect(marker.classList.contains('kill')).toBe(false);
+    update(1 / 60);
+    expect(marker.classList.contains('show')).toBe(true);
+    update(0.15);
+    expect(marker.classList.contains('show')).toBe(false);
+    damage({ killed: true, zone: 'head' });
+    expect(marker.classList.contains('show')).toBe(true);
+    expect(marker.classList.contains('kill')).toBe(true);
+    expect(marker.classList.contains('head')).toBe(true);
+    update(0.15);
+    expect(marker.classList.contains('show')).toBe(true);
+    update(0.15);
+    expect(marker.classList.contains('show')).toBe(false);
+    expect(marker.classList.contains('kill')).toBe(false);
+    expect(marker.classList.contains('head')).toBe(false);
+    // Nothing for hits the player did not make: a cop shooting a civilian, fire, a fall.
+    damage({ attacker: cop });
+    damage({ attacker: null, kind: 'fire', dirX: 0, dirZ: 0 });
+    damage({ victim: sim.player, attacker: sim.player, kind: 'explosion' });
+    expect(marker.classList.contains('show')).toBe(false);
+  });
+
+  it('a hit on the player from directly behind turns the first damage arc to the bottom of the screen; it fades in a second', () => {
+    const { el, update, damage, sim, cop, rotation } = hudRig();
+    const camYaw = 0.7;
+    // The round travels along the camera's view: it came from behind.
+    damage({ victim: sim.player, attacker: cop, healthLoss: 0, armourLoss: 20, dirX: Math.sin(camYaw), dirZ: Math.cos(camYaw) });
+    update(1 / 60, camYaw);
+    const arc = el.dmg0!;
+    expect(arc.classList.contains('show')).toBe(true);
+    expect(rotation(arc)).toBeGreaterThan(150);
+    expect(rotation(arc)).toBeLessThan(210);
+    expect(Number(arc.style.opacity)).toBeGreaterThan(0.9);
+    update(0.5, camYaw);
+    expect(Number(arc.style.opacity)).toBeCloseTo(0.483, 2);
+    update(0.6, camYaw);
+    expect(arc.classList.contains('show')).toBe(false);
+    expect(Number(arc.style.opacity)).toBe(0);
+  });
+
+  it('arcs point at the attacker on screen (right is right) and follow the camera; hits from nowhere draw none', () => {
+    const { el, update, damage, sim, cop, rotation } = hudRig();
+    const yaw = 0.3;
+    // Right of the view is (-cos yaw, sin yaw): a shooter there fires along (cos yaw, -sin yaw).
+    damage({ victim: sim.player, attacker: cop, dirX: Math.cos(yaw), dirZ: -Math.sin(yaw) });
+    update(1 / 60, yaw);
+    expect(rotation(el.dmg0!)).toBeCloseTo(90, 0);
+    // From the left, in front: other arcs.
+    damage({ victim: sim.player, attacker: cop, dirX: -Math.cos(yaw), dirZ: Math.sin(yaw) });
+    damage({ victim: sim.player, attacker: null, kind: 'vehicle', dirX: -Math.sin(yaw), dirZ: -Math.cos(yaw) });
+    update(1 / 60, yaw);
+    expect(rotation(el.dmg1!)).toBeCloseTo(270, 0);
+    expect(rotation(el.dmg2!)).toBeCloseTo(0, 0);
+    // Turning the camera 90 degrees right (yaw decreases) moves the right-hand attacker to the top.
+    update(1 / 60, yaw - Math.PI / 2);
+    expect(rotation(el.dmg0!)).toBeCloseTo(0, 0);
+    // A second hit from about the same direction refreshes that arc instead of taking another.
+    damage({ victim: sim.player, attacker: cop, dirX: Math.cos(yaw + 0.1), dirZ: -Math.sin(yaw + 0.1) });
+    update(1 / 60, yaw);
+    expect(el.dmg3!.classList.contains('show')).toBe(false);
+    // Falls, fire and drowning have no direction.
+    damage({ victim: sim.player, attacker: null, kind: 'fall', dirX: 0, dirZ: 0 });
+    update(1 / 60, yaw);
+    expect(el.dmg3!.classList.contains('show')).toBe(false);
+  });
+
+  it("shows the hip reticle with a gun drawn before any shot, the full one while aiming, and 'blocked' in a wall", () => {
+    const { el, update, sim } = hudRig();
+    const cross = el.cross!;
+    update(1 / 60);
+    expect(cross.classList.contains('show')).toBe(false);
+    sim.player.inventory.give('pistol', 48);
+    sim.player.inventory.current = 'pistol';
+    update(1 / 60);
+    expect(cross.classList.contains('show')).toBe(true);
+    expect(cross.classList.contains('hip')).toBe(true);
+    expect(cross.classList.contains('blocked')).toBe(false);
+    update(1 / 60, 0, true);
+    expect(cross.classList.contains('hip')).toBe(false);
+    vi.spyOn(sim.combat, 'muzzleBlocked').mockReturnValue(true);
+    update(1 / 60);
+    expect(cross.classList.contains('blocked')).toBe(true);
+    // Swimming, knocked down and in a car hide it.
+    for (const state of ['swimming', 'knocked', 'inVehicle'] as const) {
+      sim.player.state = state;
+      update(1 / 60);
+      expect(cross.classList.contains('show'), state).toBe(false);
+    }
+  });
+
+  it('in the game the reticle is up with a pistol before any shot and loses "hip" while the right button is held', async () => {
+    const canvas = new FakeElement('canvas');
+    const uiRoot = new FakeElement('div');
+    const game = new Game(canvas as unknown as HTMLCanvasElement, uiRoot as unknown as HTMLElement);
+    const g = game as unknown as { running: boolean; last: number; frame: (now: number) => void };
+    let now = 1000;
+    g.running = true;
+    g.last = now;
+    const frames = (n: number) => {
+      for (let i = 0; i < n; i++) {
+        now += 1000 / 60;
+        g.frame(now);
+      }
+    };
+    game.newGame();
+    await flush();
+    const p = game.sim.player;
+    p.inventory.give('pistol', 48);
+    p.inventory.current = 'pistol';
+    const cross = uiRoot.all().find((e) => e.dataset.el === 'cross')!;
+    frames(2);
+    expect(game.sim.progress.stats.shotsFired).toBe(0);
+    expect(cross.classList.contains('show')).toBe(true);
+    expect(cross.classList.contains('hip')).toBe(true);
+    canvas.dispatchEvent(ev('mousedown', { button: 2 }));
+    frames(2);
+    expect(p.aimZoom).toBe(true);
+    expect(cross.classList.contains('show')).toBe(true);
+    expect(cross.classList.contains('hip')).toBe(false);
+    dom.win.dispatchEvent(ev('mouseup', { button: 2 }));
+    frames(2);
+    expect(cross.classList.contains('hip')).toBe(true);
+  });
+
+  it('one bang per trigger pull, the helicopter still heard, and one hit confirmation per victim per frame on the UI bus', () => {
+    const sim = quickSim();
+    const audio = new AudioEngine();
+    audio.unlock();
+    audio.attach(sim);
+    const p = sim.player;
+    audio.setListener(p.pos.x, p.pos.y + 2, p.pos.z, 0);
+    const a = audio as unknown as { gunshot: (...x: unknown[]) => void; hitConfirm: (k: string) => void; tone: (...x: unknown[]) => void; noiseBurst: (...x: unknown[]) => void; uiBus: unknown };
+    const gunshot = vi.spyOn(a, 'gunshot');
+    const confirm = vi.spyOn(a, 'hitConfirm');
+    const tone = vi.spyOn(a, 'tone');
+    const noise = vi.spyOn(a, 'noiseBurst');
+    const at = { x: p.pos.x, y: p.pos.y + 1, z: p.pos.z };
+    sim.events.emit('weaponFired', { shooter: p, weapon: 'shotgun', ...at, dx: 0, dy: 0, dz: 1, pellets: 9 });
+    for (let i = 0; i < 9; i++) sim.events.emit('shot', { shooter: p, weapon: 'shotgun', fx: at.x, fy: at.y, fz: at.z, tx: at.x, ty: at.y, tz: at.z + 9, hit: 'world', nx: 0, ny: 0, nz: -1, pellet: i });
+    expect(gunshot).toHaveBeenCalledTimes(1);
+    sim.events.emit('shot', { shooter: null, weapon: 'rifle', fx: at.x, fy: at.y + 30, fz: at.z, tx: at.x, ty: at.y, tz: at.z, hit: 'none', nx: 0, ny: 1, nz: 0, pellet: 0 });
+    expect(gunshot).toHaveBeenCalledTimes(2);
+    const civ = sim.spawnCharacter('civilian', p.pos.x + 5, p.pos.z);
+    const other = sim.spawnCharacter('civilian', p.pos.x - 5, p.pos.z);
+    const hit = (victim: typeof civ, over: Record<string, unknown> = {}) =>
+      sim.events.emit('damage', { victim, attacker: p, healthLoss: 13, armourLoss: 0, kind: 'bullet', zone: 'body', killed: false, dirX: 1, dirZ: 0, ...over });
+    // Nine pellets on one man (one in the head), a kill on another, and hits the player did not make.
+    for (let i = 0; i < 8; i++) hit(civ);
+    hit(civ, { zone: 'head' });
+    hit(other, { killed: true });
+    hit(p, { attacker: other });
+    hit(civ, { attacker: other });
+    expect(confirm).not.toHaveBeenCalled();
+    tone.mockClear();
+    noise.mockClear();
+    audio.update(1 / 60, sim, true);
+    expect(confirm.mock.calls.map((c) => c[0]).sort()).toEqual(['head', 'kill']);
+    // Two ticks, the kill's thump and the headshot's crack, all on the UI bus.
+    expect(tone.mock.calls.length).toBe(3);
+    expect(noise.mock.calls.length).toBe(1);
+    expect([...tone.mock.calls, ...noise.mock.calls].every((c) => c[0] === a.uiBus)).toBe(true);
+    audio.update(1 / 60, sim, true);
+    expect(confirm).toHaveBeenCalledTimes(2);
+  });
+});
