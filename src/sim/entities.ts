@@ -119,7 +119,12 @@ export class Character {
   wantJump = false;
   speed = 0;
   animPhase = 0;
+  /** Weapon raised: the aim button held, firing a gun, or aimHold > 0 (pose, turning to the aim, civilians cowering). */
   aiming = false;
+  /** The aim button is held on foot (zoomed over-the-shoulder view, aimed walk speed, tighter spread). */
+  aimZoom = false;
+  /** Seconds a semi-automatic trigger press made just before the weapon was ready stays queued. */
+  fireQueued = 0;
   aimPitch = 0;
   aimYaw = 0;
   punchTimer = 0;

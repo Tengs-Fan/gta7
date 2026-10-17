@@ -30,6 +30,7 @@ export class PlayerController {
     const sim = this.sim;
     const p = sim.player;
     p.aiming = false;
+    p.aimZoom = false;
     p.moveSpeed = 0;
     this.trackDistance();
     // Dying or being busted mid-entry must release the car's AI hold.
@@ -104,12 +105,15 @@ export class PlayerController {
     const m = Math.min(1, mag);
     const swimming = p.state === 'swimming';
     const weapon = p.inventory.spec();
-    const firing = (input.fire || input.firePressed) && !swimming;
+    // A queued semi-automatic shot (see CombatSystem.playerFire) still fires once the trigger is released.
+    const firing = (input.fire || input.firePressed || p.fireQueued > 0) && !swimming;
     // Keep the aiming pose briefly after shooting so the character doesn't snap around.
     p.aiming = !swimming && (input.aim || (firing && weapon.id !== 'fists') || (p.aimHold > 0 && weapon.id !== 'fists'));
+    // Only the aim button zooms in and slows the walk; hip fire keeps the view and the pace.
+    p.aimZoom = !swimming && input.aim;
 
     let speed = swimming ? 2.4 : input.sprint ? 7.4 : 4.3;
-    if (p.aiming && !swimming) speed = input.sprint ? 4.3 : 2.8;
+    if (p.aimZoom) speed = input.sprint ? 4.3 : 2.8;
     p.moveX = dx;
     p.moveZ = dz;
     p.moveSpeed = m > 0.05 ? speed * m : 0;

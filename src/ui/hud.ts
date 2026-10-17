@@ -1,8 +1,8 @@
 // In-game heads-up display: status cluster, radar, messages and prompts.
 
-import { formatMoney, formatTime } from '../core/math';
+import { formatMoney, formatTime, wrapAngle } from '../core/math';
 import { KeyLabels } from '../input/input';
-import type { BigStyle } from '../sim/events';
+import type { BigStyle, SimEvents } from '../sim/events';
 import type { Sim } from '../sim/sim';
 import { WEAPONS, type WeaponId } from '../sim/specs';
 import { collectBlips, drawBlip, gpsRoute, MAP_SCALE, type MapImage } from './mapRender';
@@ -30,6 +30,13 @@ const initialShown = () => ({ money: -1, health: -1, armor: -1, weapon: '', ammo
 const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, toast: 0, delta: 0, hurt: 0, objective: 0 });
 /** Elements shown with the 'show' class for a while. */
 const TIMED = ['help', 'subtitle', 'objective', 'zone', 'radio', 'toast', 'delta', 'big'];
+/** Hitmarker display time (s) for a hit and for a kill. */
+const HIT_TIME = 0.12;
+const KILL_TIME = 0.25;
+/** Damage-direction arcs: how many at once, how long one fades (s), and within what angle a new hit refreshes an arc already up. */
+const ARCS = 4;
+const ARC_TIME = 1;
+const ARC_MERGE = 0.35;
 
 export class Hud {
   readonly root: HTMLDivElement;
@@ -47,6 +54,9 @@ export class Hud {
   private routeTimer = 0;
   private lastHealth = 100;
   private fadeTimeout = 0;
+  private hitTimer = 0;
+  /** Damage-direction arcs: seconds left and the world bearing (heading) of where the hit came from. */
+  private readonly arcs: Array<{ el: HTMLElement; t: number; bearing: number }> = [];
   waypoint: { x: number; z: number } | null = null;
   visible = true;
 
@@ -73,12 +83,15 @@ export class Hud {
       <div class="zone" data-el="zone"></div>
       <div class="toast" data-el="toast"></div>
       <div class="crosshair" data-el="cross"><i></i></div>
+      <div class="hitmarker" data-el="hitmarker"><b></b><b></b><b></b><b></b></div>
+      <div class="dmg-dirs">${Array.from({ length: ARCS }, (_, i) => `<div class="dmg-dir" data-el="dmg${i}"></div>`).join('')}</div>
       <div class="fade" data-el="fade"></div>
     `;
     parent.appendChild(this.root);
     this.root.querySelectorAll<HTMLElement>('[data-el]').forEach((e) => {
       this.el[e.dataset.el!] = e;
     });
+    for (let i = 0; i < ARCS; i++) this.arcs.push({ el: this.el[`dmg${i}`]!, t: 0, bearing: 0 });
     this.radar = this.el.radar as HTMLCanvasElement;
     this.radarCtx = this.radar.getContext('2d')!;
   }
@@ -129,7 +142,50 @@ export class Hud {
       }),
       ev.on('missionEnded', clearObjective),
       ev.on('activityEnded', clearObjective),
+      ev.on('damage', (e) => this.onDamage(e)),
     );
+  }
+
+  /** Hitmarkers for the player's hits; a damage-direction arc for hits on him that came from somewhere. */
+  private onDamage(e: SimEvents['damage']): void {
+    if (e.attacker?.isPlayer && !e.victim.isPlayer) {
+      const el = this.el.hitmarker!;
+      // A kill or a headshot keeps its colour until the marker goes out; a kill stays up longer.
+      this.hitTimer = Math.max(this.hitTimer, e.killed ? KILL_TIME : HIT_TIME);
+      el.classList.add('show');
+      if (e.killed) el.classList.add('kill');
+      if (e.zone === 'head') el.classList.add('head');
+    } else if (e.victim.isPlayer && (e.dirX !== 0 || e.dirZ !== 0) && Number.isFinite(e.dirX + e.dirZ)) {
+      // The hit travels along (dirX, dirZ): it came from the opposite way.
+      const bearing = Math.atan2(-e.dirX, -e.dirZ);
+      let arc = this.arcs.find((a) => a.t > 0 && Math.abs(wrapAngle(a.bearing - bearing)) < ARC_MERGE);
+      if (!arc) arc = this.arcs.reduce((a, b) => (b.t < a.t ? b : a));
+      arc.t = ARC_TIME;
+      arc.bearing = bearing;
+      arc.el.classList.add('show');
+    }
+  }
+
+  /** Fades the hitmarker and the damage arcs; an arc points where its hit came from as the camera turns. */
+  private updateHitFeedback(dt: number, camYaw: number): void {
+    if (this.hitTimer > 0) {
+      this.hitTimer -= dt;
+      if (this.hitTimer <= 0) this.el.hitmarker!.classList.remove('show', 'kill', 'head');
+    }
+    for (const a of this.arcs) {
+      if (a.t <= 0) continue;
+      a.t -= dt;
+      if (a.t <= 0) {
+        a.el.classList.remove('show');
+        a.el.style.opacity = '0';
+        continue;
+      }
+      // The bearing relative to the view is positive to the left (headings turn anticlockwise), and
+      // CSS rotates clockwise from the top of the screen.
+      const deg = (((-wrapAngle(a.bearing - camYaw) * 180) / Math.PI) % 360 + 360) % 360;
+      a.el.style.transform = `rotate(${deg.toFixed(1)}deg)`;
+      a.el.style.opacity = (a.t / ARC_TIME).toFixed(3);
+    }
   }
 
   /** Clears everything the previous session left on screen (the HUD is reused across games). */
@@ -153,6 +209,13 @@ export class Hud {
     el.ammo!.textContent = '';
     el.status!.textContent = '';
     el.status!.classList.add('hidden');
+    this.hitTimer = 0;
+    el.hitmarker!.classList.remove('show', 'kill', 'head');
+    for (const a of this.arcs) {
+      a.t = 0;
+      a.el.classList.remove('show');
+      a.el.style.opacity = '0';
+    }
   }
 
   help(text: string, duration = 4): void {
@@ -302,8 +365,13 @@ export class Hud {
       el.prompt!.innerHTML = this.keyCaps(prompt);
       el.prompt!.classList.remove('hidden');
     } else el.prompt!.classList.add('hidden');
-    const showCross = aiming && p.alive && !sim.playerDown && p.inventory.current !== 'fists';
+    // A reticle whenever a gun is out on foot: small and faint for hip fire, full while aiming (`aiming`
+    // is the aim button), red while the muzzle is inside a wall (the shot would only hit that wall).
+    const showCross = p.state === 'normal' && p.alive && !sim.playerDown && p.inventory.current !== 'fists';
     el.cross!.classList.toggle('show', showCross);
+    el.cross!.classList.toggle('hip', showCross && !aiming);
+    el.cross!.classList.toggle('blocked', showCross && sim.combat.muzzleBlocked(p));
+    this.updateHitFeedback(dt, camYaw);
 
     this.drawRadar(sim, camYaw, time, dt);
   }

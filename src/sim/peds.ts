@@ -12,8 +12,9 @@ export class PedSystem {
   density = 1;
 
   constructor(private readonly sim: Sim) {
-    sim.events.on('shot', (e) => {
-      if (e.shooter && e.weapon !== 'fists') this.onViolence(e.fx, e.fz, e.shooter, e.weapon === 'pistol' ? 34 : 45);
+    // Once per trigger pull (a shotgun blast is one bang, not nine), from the muzzle.
+    sim.events.on('weaponFired', (e) => {
+      if (e.shooter && e.weapon !== 'fists') this.onViolence(e.x, e.z, e.shooter, e.weapon === 'pistol' ? 34 : 45);
     });
     sim.events.on('explosion', (e) => this.onViolence(e.x, e.z, null, 60));
     sim.events.on('characterKilled', (e) => this.onViolence(e.victim.pos.x, e.victim.pos.z, e.killer, 16));

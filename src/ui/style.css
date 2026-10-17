@@ -473,7 +473,7 @@ body {
   height: 26px;
   margin: -13px 0 0 -13px;
   opacity: 0;
-  transition: opacity 0.1s;
+  transition: opacity 0.1s, transform 0.1s;
 }
 
 .crosshair.show {
@@ -508,6 +508,98 @@ body {
   border: 2px solid #fff;
   border-radius: 50%;
   box-shadow: 0 0 2px #000;
+}
+
+/* Hip fire: a smaller, fainter reticle; aiming (right mouse) brings the full one. */
+.crosshair.hip {
+  transform: scale(0.7);
+}
+
+.crosshair.show.hip {
+  opacity: 0.6;
+}
+
+/* The muzzle is inside a wall: shots would only hit that wall. */
+.crosshair.blocked::before,
+.crosshair.blocked::after {
+  background: #ff4b3e;
+}
+
+.crosshair.blocked i {
+  border-color: #ff4b3e;
+}
+
+/* Hit confirmation: four short strokes around the reticle (gold for a headshot, red for a kill). */
+.hitmarker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
+  opacity: 0;
+  transform: scale(0.75);
+  pointer-events: none;
+}
+
+.hitmarker.show {
+  opacity: 1;
+  transform: scale(1);
+  transition: transform 0.05s ease-out;
+}
+
+.hitmarker b {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  margin: -1px 0 0 -5px;
+  background: #fff;
+  box-shadow: 0 0 2px #000;
+}
+
+.hitmarker b:nth-child(1) {
+  transform: rotate(45deg) translateX(-12px);
+}
+
+.hitmarker b:nth-child(2) {
+  transform: rotate(135deg) translateX(-12px);
+}
+
+.hitmarker b:nth-child(3) {
+  transform: rotate(225deg) translateX(-12px);
+}
+
+.hitmarker b:nth-child(4) {
+  transform: rotate(315deg) translateX(-12px);
+}
+
+.hitmarker.head b {
+  background: #ffd23d;
+}
+
+.hitmarker.kill b {
+  width: 13px;
+  margin-left: -6.5px;
+  height: 3px;
+  background: #ff3b30;
+}
+
+/* Where incoming damage came from: a red arc around the reticle, rotated towards the attacker. */
+.dmg-dir {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 260px;
+  height: 260px;
+  margin: -130px 0 0 -130px;
+  border-radius: 50%;
+  border: 6px solid transparent;
+  border-top-color: rgba(255, 46, 32, 0.9);
+  filter: drop-shadow(0 0 6px rgba(255, 0, 0, 0.75));
+  opacity: 0;
+  pointer-events: none;
 }
 
 .vignette {

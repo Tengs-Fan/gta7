@@ -2,6 +2,7 @@
 // WebAudio nodes; there are no audio files.
 
 import { clamp } from '../core/math';
+import type { Character } from '../sim/entities';
 import type { SimEvents } from '../sim/events';
 import type { Sim } from '../sim/sim';
 import type { WeaponId } from '../sim/specs';
@@ -13,6 +14,9 @@ interface Listener {
   z: number;
   yaw: number;
 }
+
+export type HitConfirm = 'hit' | 'kill' | 'head';
+const CONFIRM_RANK: Readonly<Record<HitConfirm, number>> = { hit: 0, head: 1, kill: 2 };
 
 /** AudioParams throw on NaN / Infinity, so every computed value is checked before use. */
 function finite(...xs: number[]): boolean {
@@ -38,6 +42,8 @@ export class AudioEngine {
   private unsub: Array<() => void> = [];
   private volumes = { master: 0.8, music: 0.6, sfx: 0.85 };
   private lastShot = new Map<WeaponId, number>();
+  /** The player's hits this frame, the strongest per victim; played (once each) by update(). */
+  private readonly confirms = new Map<Character, HitConfirm>();
   private failed = false;
   private warned = false;
 
@@ -126,8 +132,19 @@ export class AudioEngine {
     this.unsub = [];
     // Sound handlers run inside sim.update(): isolate them from it.
     const on = <K extends keyof SimEvents>(type: K, fn: (e: SimEvents[K]) => void) => sim.events.on(type, (e) => this.safely(() => fn(e)));
+    this.confirms.clear();
     this.unsub.push(
-      on('shot', (e) => this.gunshot(e.weapon, e.fx, e.fy, e.fz, e.shooter?.isPlayer ?? false)),
+      // One bang per trigger pull; helicopter rounds come only as 'shot' events.
+      on('weaponFired', (e) => this.gunshot(e.weapon, e.x, e.y, e.z, e.shooter?.isPlayer ?? false)),
+      on('shot', (e) => {
+        if (!e.shooter) this.gunshot(e.weapon, e.fx, e.fy, e.fz, false);
+      }),
+      on('damage', (e) => {
+        if (!e.attacker?.isPlayer || e.victim.isPlayer) return;
+        const kind: HitConfirm = e.killed ? 'kill' : e.zone === 'head' ? 'head' : 'hit';
+        const prev = this.confirms.get(e.victim);
+        if (prev === undefined || CONFIRM_RANK[kind] > CONFIRM_RANK[prev]) this.confirms.set(e.victim, kind);
+      }),
       on('explosion', (e) => this.explosion(e.x, e.y, e.z, e.radius)),
       on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength)),
       on('melee', (e) => this.punch(e.x, e.y, e.z, e.hit)),
@@ -376,6 +393,19 @@ export class AudioEngine {
     o.stop(t + 0.7);
   }
 
+  /**
+   * Confirms a hit by the player, on the UI bus: a 2.2 kHz tick; a kill adds a 90 Hz thump and a
+   * headshot a 3-5 kHz crack.
+   */
+  hitConfirm(kind: HitConfirm): void {
+    if (!this.ready()) return;
+    const t = this.ctx!.currentTime + 0.005;
+    const d = this.uiBus;
+    this.tone(d, t, 'square', 2200, 2150, 0.025, 0.07, 0.001);
+    if (kind === 'kill') this.tone(d, t, 'sine', 90, 55, 0.12, 0.5, 0.004);
+    else if (kind === 'head') this.noiseBurst(d, t, 0.04, 'bandpass', 4000, 2, 0.35);
+  }
+
   reloadClick(): void {
     if (!this.ready()) return;
     const t = this.ctx!.currentTime;
@@ -475,6 +505,11 @@ export class AudioEngine {
   }
 
   update(dt: number, sim: Sim, inGame: boolean): void {
+    // At most one confirmation per victim per frame (a shotgun blast is one tick), the strongest one.
+    if (this.confirms.size > 0) {
+      if (this.ready()) for (const kind of this.confirms.values()) this.safely(() => this.hitConfirm(kind));
+      this.confirms.clear();
+    }
     if (!this.ready()) return;
     this.safely(() => this.updateVoices(dt, sim, inGame));
   }

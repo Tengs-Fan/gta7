@@ -4,12 +4,12 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import type { Sim } from '../sim/sim';
 import type { Vehicle } from '../sim/entities';
-import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
+import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import type { StaticWorld } from '../world/staticWorld';
 import { CameraController } from './camera';
 import { CityView } from './city';
 import { CrowdView } from './crowd';
-import { Effects } from './effects';
+import { Effects, FLASH_SIZE } from './effects';
 import { Environment } from './environment';
 import { MarkerView } from './markers';
 import { PropsView } from './props';
@@ -54,6 +54,8 @@ export class GameRenderer {
   private sim: Sim | null = null;
   private unsub: Array<() => void> = [];
   private smokeTimer = 0;
+  /** Rounds the player fired from automatic weapons: only every second one draws a tracer. */
+  private autoRounds = 0;
   private quality: Quality = 'high';
   time = 0;
 
@@ -161,14 +163,20 @@ export class GameRenderer {
     const fx = this.effects;
     const ev = sim.events;
     this.unsub.push(
+      // One flash per trigger pull (a shotgun blast is one flash, not nine).
+      ev.on('weaponFired', (e) => {
+        fx.muzzleFlash(e.x, e.y, e.z, FLASH_SIZE[e.weapon]);
+        if (e.weapon === 'rocket') fx.rocketLaunched(e.x, e.y, e.z);
+      }),
+      // Every bullet or pellet: its tracer and where it hits the world or a vehicle (flesh hits come from 'blood').
       ev.on('shot', (e) => {
-        const big = e.weapon === 'shotgun' || e.weapon === 'rocket';
-        if (e.shooter || e.weapon === 'rifle') fx.muzzleFlash(e.fx, e.fy, e.fz, big);
-        if (e.weapon === 'rocket') fx.rocketLaunched(e.fx, e.fy, e.fz);
-        if (e.weapon !== 'rocket' && e.weapon !== 'fists') {
-          fx.tracer(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz);
-          if (e.hit === 'world' || e.hit === 'vehicle' || e.hit === 'flesh') fx.impact(e.tx, e.ty, e.tz, e.nx, e.ny, e.nz, e.hit);
-        }
+        // Helicopter rounds have no weaponFired of their own.
+        if (!e.shooter) fx.muzzleFlash(e.fx, e.fy, e.fz, FLASH_SIZE[e.weapon]);
+        if (e.weapon === 'rocket' || e.weapon === 'fists') return;
+        // The player's automatic fire traces every second round; everyone else's traces every round.
+        const traced = !(e.shooter?.isPlayer && WEAPONS[e.weapon].auto) || this.autoRounds++ % 2 === 0;
+        if (traced) fx.tracer(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz);
+        if (e.hit === 'world' || e.hit === 'vehicle') fx.impact(e.tx, e.ty, e.tz, e.nx, e.ny, e.nz, e.hit);
       }),
       ev.on('explosion', (e) => {
         fx.explosion(e.x, e.y, e.z, e.radius);

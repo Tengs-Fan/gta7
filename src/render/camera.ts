@@ -34,6 +34,11 @@ export class CameraController {
   private deathT = 0;
   private wasInVehicle = false;
   private initialized = false;
+  /** What rayFor() rebuilds the on-foot view from: whether the last update() framed the player on foot, its shoulder offset, how far along the boom the camera ended up (1 = not pulled in) and the floor it was kept above. */
+  private footView = false;
+  private shoulder = 0.42;
+  private boom = 1;
+  private floorY = -Infinity;
   baseFov = 68;
 
   constructor(aspect: number) {
@@ -69,8 +74,39 @@ export class CameraController {
     };
   }
 
+  /**
+   * The crosshair ray for the current yaw and pitch, without waiting for update(): aimRay() still points
+   * where the last frame looked, so a look and a shot in the same frame would miss. On foot the view is
+   * rebuilt like update() frames it, from the current target and distance (no smoothing step), pulled in
+   * along the boom as far as the last frame's collision did and kept above its floor (no new raycast).
+   * In a vehicle, while wasted and on the title screen it is aimRay(). Changes nothing.
+   */
+  rayFor(): { origin: V3; dir: V3 } {
+    if (!this.footView) return this.aimRay();
+    const cy = Math.cos(this.pitch);
+    const dx = Math.sin(this.yaw) * cy;
+    const dy = Math.sin(this.pitch);
+    const dz = Math.cos(this.yaw) * cy;
+    const rx = -Math.cos(this.yaw);
+    const rz = Math.sin(this.yaw);
+    const t = this.target;
+    const s = this.shoulder;
+    // lookFrom and the desired camera point of update()'s on-foot branch.
+    const lx = t.x + rx * s * 0.5;
+    const lz = t.z + rz * s * 0.5;
+    const px = t.x - dx * this.dist + rx * s;
+    const py = t.y - dy * this.dist + 0.18;
+    const pz = t.z - dz * this.dist + rz * s;
+    const k = this.boom;
+    return {
+      origin: { x: lx + (px - lx) * k, y: Math.max(t.y + (py - t.y) * k, this.floorY), z: lz + (pz - lz) * k },
+      dir: { x: dx, y: dy, z: dz },
+    };
+  }
+
   update(dt: number, sim: Sim, aiming: boolean): void {
     this.lookIdle += dt;
+    this.footView = false;
     if (this.mode === 'title') {
       this.updateTitle(dt);
       return;
@@ -142,9 +178,12 @@ export class CameraController {
       const lying = p.state === 'knocked' || p.state === 'dead';
       const headY = swimming ? 1.6 : lying ? 0.7 : 1.58 * p.appearance.height;
       this.target.lerp(new THREE.Vector3(p.pos.x, p.pos.y + headY, p.pos.z), 1 - Math.exp(-22 * dt));
+      // `aiming` is the aim button (Character.aimZoom): hip fire keeps the wide view.
       const distTarget = aim ? 2.4 : this.zoomLevel === 1 ? 6.6 : 4.3;
       this.dist = damp(this.dist, distTarget, 10, dt);
       const shoulder = aim ? 0.62 : 0.42;
+      this.footView = true;
+      this.shoulder = shoulder;
       const cy = Math.cos(this.pitch);
       this.dir.set(Math.sin(this.yaw) * cy, Math.sin(this.pitch), Math.cos(this.yaw) * cy);
       const rx = -Math.cos(this.yaw);
@@ -165,9 +204,11 @@ export class CameraController {
         this.desired.copy(lookFrom).addScaledVector(d, t);
       }
     }
+    this.boom = len > 0.01 ? Math.min(1, this.desired.distanceTo(lookFrom) / len) : 1;
     // Stay above the ground and above the sea, whose surface plane is invisible from below.
     const floor = Math.max(sim.world.groundHeight(this.desired.x, this.desired.z), WATER_Y) + 0.35;
     if (this.desired.y < floor) this.desired.y = floor;
+    this.floorY = floor;
 
     cam.position.copy(this.desired);
     // No jitter while paused (dt = 0): the shake could not decay and would run behind the menu forever.

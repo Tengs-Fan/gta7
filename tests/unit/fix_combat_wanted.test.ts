@@ -552,7 +552,7 @@ describe('close-range shots from the shoulder camera land at the crosshair', () 
       const headshots = sim.progress.stats.headshots;
       sim.update(1 / 60, crosshairOn(sim, head(), { fire: true, firePressed: true }));
       expect(shots.map((s) => s.hit), `aimed at ${k} of his height`).toEqual(['flesh']);
-      expect(armor - enemy.armor, `aimed at ${k} of his height`).toBe(WEAPONS.pistol.damage * 2.5);
+      expect(armor - enemy.armor, `aimed at ${k} of his height`).toBe(WEAPONS.pistol.damage * WEAPONS.pistol.headMul);
       expect(sim.progress.stats.headshots).toBe(headshots + 1);
       shots.length = 0;
     }

@@ -723,7 +723,7 @@ export class PoliceSystem {
     const r = sim.combat.castRay(ox, oy, oz, dx, dy, dz, 110, null);
     if (r.character) sim.combat.damageCharacter(r.character, 9, null, 'bullet', dx, dy, dz);
     else if (r.vehicle) sim.combat.damageVehicle(r.vehicle, 14, null, 'bullet');
-    sim.events.emit('shot', { shooter: null, weapon: 'rifle', fx: ox, fy: oy, fz: oz, tx: ox + dx * r.t, ty: oy + dy * r.t, tz: oz + dz * r.t, hit: r.kind, nx: r.nx, ny: r.ny, nz: r.nz });
+    sim.events.emit('shot', { shooter: null, weapon: 'rifle', fx: ox, fy: oy, fz: oz, tx: ox + dx * r.t, ty: oy + dy * r.t, tz: oz + dz * r.t, hit: r.kind, nx: r.nx, ny: r.ny, nz: r.nz, pellet: 0 });
   }
 
   // ---------------------------------------------------------------------------

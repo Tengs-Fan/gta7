@@ -87,15 +87,17 @@ export interface WeaponSpec {
   ammoPack: number;
   /** Two handed weapons are held with both arms. */
   twoHanded: boolean;
+  /** Damage multiplier of the player's head hits (NPC head hits use 2). */
+  headMul: number;
 }
 
 export const WEAPONS: Readonly<Record<WeaponId, WeaponSpec>> = {
-  fists: { id: 'fists', name: 'Fists', slot: 0, damage: 12, rate: 2.6, mag: 0, reload: 0, spread: 0, range: 1.7, pellets: 1, auto: false, projectile: false, price: 0, ammoPrice: 0, ammoPack: 0, twoHanded: false },
-  pistol: { id: 'pistol', name: 'Pistol', slot: 1, damage: 34, rate: 4, mag: 12, reload: 1.2, spread: 0.012, range: 120, pellets: 1, auto: false, projectile: false, price: 250, ammoPrice: 60, ammoPack: 48, twoHanded: false },
-  smg: { id: 'smg', name: 'SMG', slot: 2, damage: 15, rate: 11, mag: 30, reload: 1.7, spread: 0.035, range: 90, pellets: 1, auto: true, projectile: false, price: 900, ammoPrice: 120, ammoPack: 120, twoHanded: true },
-  shotgun: { id: 'shotgun', name: 'Shotgun', slot: 3, damage: 13, rate: 1.15, mag: 6, reload: 2.3, spread: 0.075, range: 42, pellets: 9, auto: false, projectile: false, price: 1400, ammoPrice: 140, ammoPack: 24, twoHanded: true },
-  rifle: { id: 'rifle', name: 'Assault Rifle', slot: 4, damage: 32, rate: 7, mag: 30, reload: 2.0, spread: 0.018, range: 180, pellets: 1, auto: true, projectile: false, price: 3500, ammoPrice: 200, ammoPack: 120, twoHanded: true },
-  rocket: { id: 'rocket', name: 'Rocket Launcher', slot: 5, damage: 420, rate: 0.7, mag: 1, reload: 2.2, spread: 0.004, range: 260, pellets: 1, auto: false, projectile: true, price: 8000, ammoPrice: 900, ammoPack: 4, twoHanded: true },
+  fists: { id: 'fists', name: 'Fists', slot: 0, damage: 13, rate: 2.6, mag: 0, reload: 0, spread: 0, range: 1.7, pellets: 1, auto: false, projectile: false, price: 0, ammoPrice: 0, ammoPack: 0, twoHanded: false, headMul: 1 },
+  pistol: { id: 'pistol', name: 'Pistol', slot: 1, damage: 34, rate: 4, mag: 12, reload: 1.2, spread: 0.012, range: 120, pellets: 1, auto: false, projectile: false, price: 250, ammoPrice: 60, ammoPack: 48, twoHanded: false, headMul: 4 },
+  smg: { id: 'smg', name: 'SMG', slot: 2, damage: 15, rate: 11, mag: 30, reload: 1.7, spread: 0.035, range: 90, pellets: 1, auto: true, projectile: false, price: 900, ammoPrice: 120, ammoPack: 120, twoHanded: true, headMul: 2.5 },
+  shotgun: { id: 'shotgun', name: 'Shotgun', slot: 3, damage: 13, rate: 1.15, mag: 6, reload: 2.3, spread: 0.075, range: 42, pellets: 9, auto: false, projectile: false, price: 1400, ammoPrice: 140, ammoPack: 24, twoHanded: true, headMul: 1.5 },
+  rifle: { id: 'rifle', name: 'Assault Rifle', slot: 4, damage: 32, rate: 7, mag: 30, reload: 2.0, spread: 0.018, range: 180, pellets: 1, auto: true, projectile: false, price: 3500, ammoPrice: 200, ammoPack: 120, twoHanded: true, headMul: 4 },
+  rocket: { id: 'rocket', name: 'Rocket Launcher', slot: 5, damage: 420, rate: 0.7, mag: 1, reload: 2.2, spread: 0.004, range: 260, pellets: 1, auto: false, projectile: true, price: 8000, ammoPrice: 900, ammoPack: 4, twoHanded: true, headMul: 1 },
 };
 
 export const WEAPON_ORDER: readonly WeaponId[] = ['fists', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket'];
