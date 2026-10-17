@@ -1,6 +1,7 @@
 // Keyboard, mouse (pointer lock) and gamepad input mapped to game actions.
 
 import { neutralInput, type PlayerInput } from '../sim/input';
+import { cheatPrefixLength, completedCheat, type TypedCheat } from './cheats';
 
 export interface UiActions {
   pause: boolean;
@@ -48,6 +49,29 @@ const BOUND_CODES = new Set([
   'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6',
 ]);
 const LETTER_SHORTCUTS = new Set(['e', 'f', 'h', 'm', 'p', 'q', 'r', 't', 'v']);
+/** A letter typed longer ago than this (ms) before the next one no longer counts towards a cheat code. */
+const CHEAT_GAP_MS = 1500;
+/** From this many letters into a cheat code, the keys typing it do nothing else (see Input.typeLetter). */
+const CHEAT_SWALLOW_AT = 3;
+/** Mouse moves are dropped this long (ms) after pointer lock is gained: the first one jumps by the cursor's offset. */
+const LOCK_SETTLE_MS = 100;
+/** Keys that ask for the map or the pause menu, and keys that get in or out of a vehicle. */
+const SCREEN_KEYS = new Set(['KeyM', 'KeyP', 'Escape']);
+const EXIT_KEYS = new Set(['KeyF', 'Enter']);
+
+/**
+ * Whether pointer lock must be refused: under browser automation (navigator.webdriver) headless Chromium
+ * that grants it can stop delivering frames and grow its memory without bound. `lock=1` in the URL asks
+ * for it anyway. Unit tests (Node) stub a navigator without webdriver.
+ */
+function automationRefusesLock(): boolean {
+  try {
+    if (typeof navigator === 'undefined' || navigator.webdriver !== true) return false;
+    return new URLSearchParams(typeof location !== 'undefined' ? location.search : '').get('lock') !== '1';
+  } catch {
+    return false;
+  }
+}
 
 function dz(v: number): number {
   if (Math.abs(v) < DEADZONE) return 0;
@@ -149,8 +173,27 @@ export class Input {
   private captureRequested = false;
   /** Pointer lock was refused for a capture click (sandboxed frame, no API): clicks shoot unlocked. */
   private lockUnavailable = false;
-  /** Last typed letters for cheat codes. */
+  /** Read once: pointer lock is refused under automation (see automationRefusesLock). */
+  private readonly noLock = automationRefusesLock();
+  /** Mouse moves are dropped until this time (performance.now() ms), just after pointer lock is gained. */
+  private ignoreMoveUntil = -Infinity;
+  /** Key presses so far (auto-repeats aside), numbering each one. */
+  private presses = 0;
+  /** The press that asked for the map or the pause menu since the last frame, or -1. */
+  private screenPress = -1;
+  /** The latest press that asked to get in or out of a vehicle, or -1. */
+  private exitPress = -1;
+  /** Last typed letters for cheat codes (upper case), and when the newest was typed (performance.now() ms). */
   typed = '';
+  private typedAt = -Infinity;
+  /** One flag per letter of `typed`: '1' where it was typed with a key that has no binding. */
+  private typedFree = '';
+  /** The press that typed each letter of `typed`. */
+  private typedPresses: number[] = [];
+  /** Cheat codes typed and not taken yet. */
+  private readonly cheats: TypedCheat[] = [];
+  /** Keys swallowed for typing a cheat code, until released. */
+  private readonly swallowed = new Set<string>();
   inVehicle = false;
   enabled = true;
   /** Whether gameplay wants the mouse captured right now (set by the game). */
@@ -171,17 +214,26 @@ export class Input {
       const ev = e as KeyboardEvent;
       if (PREVENT.has(ev.code)) ev.preventDefault();
       this.labels.learn(ev);
+      this.device = 'kb';
       const alias = letterAlias(ev);
+      const press = ev.repeat ? -1 : ++this.presses;
+      // A key typing a cheat code does nothing else, also while it auto-repeats, until it is released.
+      if (ev.repeat ? this.swallowed.has(ev.code) : this.typeLetter(ev.key, BOUND_CODES.has(ev.code) || alias !== null, press)) {
+        this.swallowed.add(ev.code);
+        return;
+      }
+      this.swallowed.delete(ev.code);
+      if (press > 0 && SCREEN_KEYS.has(alias ?? ev.code)) this.screenPress = press;
+      if (press > 0 && EXIT_KEYS.has(alias ?? ev.code)) this.exitPress = press;
       if (alias) this.aliases.set(ev.code, alias);
       for (const code of alias ? [ev.code, alias] : [ev.code]) {
         if (!ev.repeat) this.down.add(code);
         this.held.add(code);
       }
-      this.device = 'kb';
-      if (ev.key.length === 1 && /[a-z]/i.test(ev.key)) this.typed = (this.typed + ev.key.toUpperCase()).slice(-24);
     });
     on(window, 'keyup', (e) => {
       const code = (e as KeyboardEvent).code;
+      this.swallowed.delete(code);
       this.held.delete(code);
       const alias = this.aliases.get(code);
       if (alias) {
@@ -192,6 +244,7 @@ export class Input {
     on(window, 'blur', () => {
       this.held.clear();
       this.aliases.clear();
+      this.swallowed.clear();
       this.mouseHeld = 0;
       this.wheelSteps = 0;
       this.wheelAcc = 0;
@@ -214,7 +267,10 @@ export class Input {
     on(document, 'pointerlockchange', () => {
       this.lockRequestT = -Infinity;
       this.captureRequested = false;
-      if (this.pointerLocked) this.lockUnavailable = false;
+      if (this.pointerLocked) {
+        this.lockUnavailable = false;
+        this.ignoreMoveUntil = performance.now() + LOCK_SETTLE_MS;
+      }
     });
     on(document, 'pointerlockerror', () => this.lockRefused());
     on(window, 'mouseup', (e) => {
@@ -222,10 +278,16 @@ export class Input {
     });
     on(window, 'mousemove', (e) => {
       const ev = e as MouseEvent;
-      if (document.pointerLockElement === this.canvas) {
-        this.lookX += ev.movementX;
-        this.lookY += ev.movementY;
-      }
+      if (document.pointerLockElement !== this.canvas) return;
+      // Gaining the lock (closing the map, resuming) delivers a move by the cursor's offset from where it was
+      // locked, which would swing the camera round: drop moves just after it and any single jump of a third of
+      // the window (no real flick moves that far between two events).
+      if (performance.now() < this.ignoreMoveUntil) return;
+      const w = window.innerWidth > 0 ? window.innerWidth : 1280;
+      const h = window.innerHeight > 0 ? window.innerHeight : 720;
+      if (!(Math.abs(ev.movementX) <= w / 3 && Math.abs(ev.movementY) <= h / 3)) return;
+      this.lookX += ev.movementX;
+      this.lookY += ev.movementY;
     });
     on(this.canvas, 'contextmenu', (e) => e.preventDefault());
     on(this.canvas, 'wheel', (e) => {
@@ -274,6 +336,11 @@ export class Input {
   /** Asks for pointer lock. Returns false when no request was made (locked, pending or unsupported). */
   requestPointerLock(): boolean {
     if (this.pointerLocked) return false;
+    if (this.noLock) {
+      // Under automation clicks shoot unlocked, as where the browser refuses the lock.
+      this.lockUnavailable = true;
+      return false;
+    }
     // A second request while one is pending makes Chrome fire pointerlockchange before the
     // lock is granted, which the game would read as losing the lock.
     const now = performance.now();
@@ -426,19 +493,58 @@ export class Input {
 
   endFrame(): void {
     this.down.clear();
+    this.screenPress = -1;
     this.mouseDown = 0;
     this.lookX = 0;
     this.lookY = 0;
   }
 
-  /** Returns and clears a cheat code if the typed buffer ends with one of them. */
-  takeCheat<T extends string>(codes: readonly T[]): T | null {
-    for (const c of codes) {
-      if (this.typed.endsWith(c)) {
-        this.typed = '';
-        return c;
-      }
+  /** The cheat codes typed since the last call, oldest first. */
+  takeCheats(): TypedCheat[] {
+    return this.cheats.splice(0);
+  }
+
+  /**
+   * The key press (numbered as in TypedCheat.presses) behind this frame's map or pause request, or -1 (none, or
+   * the gamepad): the game tells by it whether a cheat code's own letter opened a screen.
+   */
+  get screenKeyPress(): number {
+    return this.screenPress;
+  }
+
+  /** The latest key press that asked to get in or out of a vehicle (numbered as in TypedCheat.presses), or -1. */
+  get exitKeyPress(): number {
+    return this.exitPress;
+  }
+
+  /**
+   * Adds a typed letter to the cheat buffer (`bound`: the key that typed it has a binding) and queues a
+   * completed code. Returns true when the key is typing a code and must do nothing else: from the third
+   * letter of a code on, once the letters so far include one typed with an unbound key. Play alone never
+   * types those, so play is never swallowed (S P A, back / pause / left, also starts SPAWNSPORTS); a code's
+   * first letters still act, and Game undoes what they did.
+   */
+  private typeLetter(key: unknown, bound: boolean, press: number): boolean {
+    if (typeof key !== 'string' || key.length !== 1 || !/[a-z]/i.test(key)) return false;
+    const now = performance.now();
+    if (now - this.typedAt > CHEAT_GAP_MS) {
+      this.typed = '';
+      this.typedFree = '';
+      this.typedPresses = [];
     }
-    return null;
+    this.typedAt = now;
+    this.typed = (this.typed + key.toUpperCase()).slice(-24);
+    this.typedFree = (this.typedFree + (bound ? '0' : '1')).slice(-24);
+    this.typedPresses = [...this.typedPresses, press].slice(-24);
+    const n = cheatPrefixLength(this.typed);
+    const swallow = n >= CHEAT_SWALLOW_AT && this.typedFree.slice(-n).includes('1');
+    const code = completedCheat(this.typed);
+    if (code) {
+      this.cheats.push({ code, presses: this.typedPresses.slice(-code.length) });
+      this.typed = '';
+      this.typedFree = '';
+      this.typedPresses = [];
+    }
+    return swallow;
   }
 }

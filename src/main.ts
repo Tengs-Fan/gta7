@@ -45,6 +45,16 @@ async function boot(): Promise<void> {
     ui.innerHTML = '';
     const game = new Game(canvas, ui);
     installDebugApi(game);
+    // Errors outside the frame loop (DOM handlers, promises) never stop the game: they are logged, and the
+    // crash report lists them should the game break later.
+    window.addEventListener('error', (e) => {
+      console.error('GTA7 uncaught error', e.error ?? e.message);
+      game.noteEvent('error', String(e.message || e.error));
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      console.error('GTA7 unhandled rejection', e.reason);
+      game.noteEvent('rejection', String(e.reason instanceof Error ? e.reason.message : e.reason));
+    });
     game.start();
   } catch (err) {
     console.error(err);

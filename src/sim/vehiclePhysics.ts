@@ -13,6 +13,11 @@ export const ENGINE_BRAKE = 1.4;
 const MAX_STEP_UP = 1.0;
 /** Cars sink where the water is deeper than this. */
 const SINK_DEPTH = 0.8;
+/** Explosion kicks: the horizontal speed (m/s) a kick may raise a car to, and the top launch speed upwards. */
+const LAUNCH_MAX_SPEED = 24;
+const LAUNCH_MAX_VY = 12;
+/** Horizontal speed (m/s) above which an airborne car feels air drag. */
+const AIR_DRAG_SPEED = 35;
 
 export interface VehiclePhysicsHost {
   world: StaticWorld;
@@ -212,6 +217,12 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     v.skid = damp(v.skid, clamp(skidTarget, 0, 1), 10, dt);
   } else {
     v.skid = damp(v.skid, 0, 10, dt);
+    // Air drag above ramp-jump speeds: wrecks blown across the map slow down; a jump barely notices it.
+    if (vF * vF + vR * vR > AIR_DRAG_SPEED * AIR_DRAG_SPEED) {
+      const k = Math.exp(-0.12 * dt);
+      vF *= k;
+      vR *= k;
+    }
   }
 
   v.vel.x = fx * vF + rx * vR;
@@ -503,11 +514,23 @@ function resolvePair(a: Vehicle, b: Vehicle, ct: Contact, host: VehiclePhysicsHo
   if (dvb > 1.5) host.onVehicleImpact(b, a, dvb, ct.px, ct.pz, closingA > closingB);
 }
 
-/** Gives a vehicle an explosion kick: upward launch, push and tumble. */
+/**
+ * Gives a vehicle an explosion kick: upward launch, push and tumble. Kicks from chained blasts must not
+ * add up: a wreck takes half the push, and a kick never takes a car past LAUNCH_MAX_SPEED (or past the
+ * speed it already had) nor up faster than LAUNCH_MAX_VY.
+ */
 export function launchVehicle(v: Vehicle, dirX: number, dirZ: number, strength: number, spin: number): void {
-  v.vel.x += dirX * strength;
-  v.vel.z += dirZ * strength;
-  v.vy = Math.max(v.vy, strength * 0.9);
+  const s0 = Math.hypot(v.vel.x, v.vel.z);
+  const push = v.destroyed ? strength * 0.5 : strength;
+  v.vel.x += dirX * push;
+  v.vel.z += dirZ * push;
+  const cap = Math.max(s0, LAUNCH_MAX_SPEED);
+  const s1 = Math.hypot(v.vel.x, v.vel.z);
+  if (s1 > cap) {
+    v.vel.x *= cap / s1;
+    v.vel.z *= cap / s1;
+  }
+  v.vy = Math.min(Math.max(v.vy, strength * 0.9), LAUNCH_MAX_VY);
   if (!v.airborne) {
     v.airborne = true;
     v.airTime = 0;

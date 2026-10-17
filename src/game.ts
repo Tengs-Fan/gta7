@@ -2,6 +2,7 @@
 // HUD, menus and audio, and runs the frame loop.
 
 import { AudioEngine } from './audio/audio';
+import type { TypedCheat } from './input/cheats';
 import { Input, type FrameInput } from './input/input';
 import { GameRenderer } from './render/renderer';
 import { deleteGame, loadGame, loadSettings, saveSettings, writeGame, type Settings } from './settings';
@@ -16,7 +17,7 @@ import { MapImage } from './ui/mapRender';
 import { Menus, type MenuHost } from './ui/menus';
 import { StaticWorld } from './world/staticWorld';
 
-export const CHEATS = ['CHILLOUT', 'GUNSGALORE', 'FIXMYRIDE', 'IMMORTAL', 'MONEYTREE', 'SUNSET', 'NIGHTOWL', 'SPAWNSPORTS', 'COPMAGNET'] as const;
+export { CHEAT_CODES as CHEATS } from './input/cheats';
 
 export class Game {
   readonly world: StaticWorld;
@@ -38,6 +39,12 @@ export class Game {
   private crashed = false;
   private unsub: Array<() => void> = [];
   private wasDown = false;
+  /** The screen (map or pause menu) gameplay last opened by its key, and that key press: a cheat code's first letters can do that. */
+  private keyScreen: { screen: Menus['top']; press: number } | null = null;
+  /** The player's last exit from a vehicle and the key press that asked for it, for FIXMYRIDE, whose F gets him out. */
+  private lastExit: { vehicle: Vehicle; press: number; bailed: boolean } | null = null;
+  /** The last sim events of the session and page errors, oldest first, for the crash report. */
+  private readonly recent: Array<{ t: number; type: string; text: string }> = [];
   /** Total real time spent in frames (for tests). */
   readonly perf = { frameMs: 0, simMs: 0, renderMs: 0 };
 
@@ -83,24 +90,38 @@ export class Game {
     return sim;
   }
 
+  /**
+   * Menu actions that switch state run from DOM handlers, outside the frame loop's catch: one that throws
+   * shows the error screen instead of leaving the game half switched.
+   */
+  private guard<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void {
+    return (...args) => {
+      try {
+        fn(...args);
+      } catch (err) {
+        this.crash(err);
+      }
+    };
+  }
+
   private menuHost(): MenuHost {
     return {
       hasSave: () => loadGame() !== null,
-      newGame: () => this.newGame(),
-      continueGame: () => this.continueGame(),
-      resume: () => this.resume(),
-      quitToTitle: () => this.quitToTitle(),
-      abandonMission: () => {
+      newGame: this.guard(() => this.newGame()),
+      continueGame: this.guard(() => this.continueGame()),
+      resume: this.guard(() => this.resume()),
+      quitToTitle: this.guard(() => this.quitToTitle()),
+      abandonMission: this.guard(() => {
         this.sim.missions.abandon();
         this.resume();
-      },
+      }),
       settings: () => this.settings,
-      applySettings: (s) => this.applySettings(s, true),
+      applySettings: this.guard((s: Settings) => this.applySettings(s, true)),
       deleteSave: () => deleteGame(),
       sim: () => (this.mode === 'game' ? this.sim : null),
-      setWaypoint: (p) => {
+      setWaypoint: this.guard((p: { x: number; z: number } | null) => {
         this.hud.waypoint = p;
-      },
+      }),
       waypoint: () => this.hud.waypoint,
       click: () => this.audio.chime('ui'),
     };
@@ -142,12 +163,21 @@ export class Game {
     this.unsub.push(
       ev.on('shopOpen', () => {
         this.suspendPlay();
-        this.menus.showShop(() => this.resume());
+        this.menus.showShop(this.guard(() => this.resume()));
       }),
       ev.on('saveRequested', (e) => this.save(e.poi === 'auto')),
       ev.on('respawn', () => this.renderer.cameraCtl.reset(sim)),
       ev.on('missionStarted', () => {
         this.hud.waypoint = null;
+      }),
+    );
+    this.noteEvent('session', save ? 'continued' : 'new game');
+    this.unsub.push(...this.recordEvents(sim));
+    this.lastExit = null;
+    this.unsub.push(
+      ev.on('vehicleExit', (e) => {
+        // The exit may come a moment after its key press (braking first). A bail at speed (knocked down) cost him 6 health, unless he is invulnerable.
+        if (e.character === sim.player) this.lastExit = { vehicle: e.vehicle, press: this.input.exitKeyPress, bailed: e.character.state === 'knocked' && !sim.cheats.godMode };
       }),
     );
     this.mode = 'game';
@@ -224,7 +254,7 @@ export class Game {
 
   private openMap(): void {
     this.suspendPlay();
-    this.menus.showMap(() => this.resume());
+    this.menus.showMap(this.guard(() => this.resume()));
   }
 
   // ---------------------------------------------------------------------------
@@ -265,6 +295,8 @@ export class Game {
   /** One frame of game logic + rendering (also driven directly by tests). */
   step(dt: number, fi: FrameInput): void {
     if (this.crashed) return;
+    // Every frame, also while a screen is open: a code's first letters can open the map or the pause menu.
+    for (const typed of this.input.takeCheats()) if (this.mode === 'game') this.applyCheat(typed);
     const cam = this.renderer.cameraCtl;
     if (this.mode === 'title') {
       this.menus.input(fi.ui, dt);
@@ -284,17 +316,17 @@ export class Game {
     }
     if (fi.ui.pause) {
       this.pause();
+      this.keyScreen = { screen: this.menus.top, press: this.input.screenKeyPress };
       return;
     }
     if (fi.ui.map) {
       this.openMap();
+      this.keyScreen = { screen: this.menus.top, press: this.input.screenKeyPress };
       return;
     }
     if (fi.ui.camera) cam.zoomLevel = cam.zoomLevel === 0 ? 1 : 0;
     if (fi.ui.radioNext) this.hud.showRadio(this.audio.radio.next());
     if (fi.ui.radioPrev) this.hud.showRadio(this.audio.radio.prev());
-    const cheat = this.input.takeCheat(CHEATS);
-    if (cheat) this.applyCheat(cheat);
 
     const sim = this.sim;
     cam.look(fi.lookX, fi.lookY);
@@ -332,9 +364,14 @@ export class Game {
     return null;
   }
 
-  private applyCheat(code: (typeof CHEATS)[number]): void {
+  private applyCheat(typed: TypedCheat): void {
     const sim = this.sim;
     const p = sim.player;
+    const code = typed.code;
+    // Undo the code's first letters: the M of MONEYTREE or IMMORTAL opens the map, the P of SPAWNSPORTS pauses.
+    // Only a screen one of its own letters opened, and only while it is still on top.
+    const ks = this.keyScreen;
+    if (ks?.screen && this.menus.top === ks.screen && typed.presses.includes(ks.press)) this.resume();
     switch (code) {
       case 'CHILLOUT':
         sim.wanted.clear();
@@ -343,8 +380,17 @@ export class Game {
         for (const w of WEAPON_ORDER) if (w !== 'fists') p.inventory.give(w, 300);
         break;
       case 'FIXMYRIDE': {
-        // Typing the code presses F (enter / exit), so by the time it completes the player has
-        // usually left the car: fix the one they just got out of as well.
+        // Its F gets the player out of the car (bailing out at speed): put him back in his seat, refunding the fall.
+        // Only an exit the code's own F asked for: one he made himself before typing it stands.
+        const ex = this.lastExit;
+        this.lastExit = null;
+        if (ex && typed.presses.includes(ex.press) && !p.vehicle && p.alive && !sim.playerDown && p.state !== 'entering' && canReseat(ex.vehicle)) {
+          if (ex.bailed) p.health = Math.min(p.maxHealth, p.health + 6);
+          p.state = 'normal';
+          p.knockTimer = 0;
+          sim.seat(p, ex.vehicle, 0);
+        }
+        // Otherwise fix the car he last drove nearby.
         const v = p.vehicle ?? recentRide(sim);
         if (v) {
           v.health = v.spec.health;
@@ -390,12 +436,13 @@ export class Game {
     if (this.crashed) return;
     this.crashed = true;
     console.error('GTA7 crashed', err);
-    const el = document.createElement('div');
-    el.className = 'error';
-    el.innerHTML = `<div><h2 style="font-family:Anton,Impact,sans-serif;font-size:42px;margin:0 0 10px">SOMETHING BROKE</h2><p>The game hit an unexpected error and stopped to protect your save.</p><pre style="white-space:pre-wrap;opacity:.7;max-width:80vw">${String(err instanceof Error ? err.stack ?? err.message : err).slice(0, 800).replace(/</g, '&lt;')}</pre><button class="btn primary" style="pointer-events:auto" onclick="location.reload()">RELOAD</button></div>`;
-    this.ui.appendChild(el);
     // Stopping the loop also keeps the pointerlockchange handler from pausing under the overlay.
     this.running = false;
+    try {
+      this.showCrash(err);
+    } catch {
+      // Best effort when the DOM is what broke: the loop is stopped either way.
+    }
     try {
       // Free the cursor for RELOAD and silence the frozen engine / siren voices.
       this.input.exitPointerLock();
@@ -405,9 +452,118 @@ export class Game {
     }
   }
 
+  /** The error screen: what broke, RELOAD, and COPY DETAILS for a bug report. */
+  private showCrash(err: unknown): void {
+    const el = document.createElement('div');
+    el.className = 'error';
+    const box = document.createElement('div');
+    box.innerHTML = `<h2 style="font-family:Anton,Impact,sans-serif;font-size:42px;margin:0 0 10px">SOMETHING BROKE</h2><p>The game hit an unexpected error and stopped to protect your save.</p><pre style="white-space:pre-wrap;opacity:.7;max-width:80vw">${String(err instanceof Error ? err.stack ?? err.message : err).slice(0, 800).replace(/</g, '&lt;')}</pre>`;
+    const reload = document.createElement('button');
+    reload.className = 'btn primary';
+    reload.textContent = 'RELOAD';
+    reload.addEventListener('click', () => location.reload());
+    const copy = document.createElement('button');
+    copy.className = 'btn';
+    copy.textContent = 'COPY DETAILS';
+    copy.dataset.id = 'copy-report';
+    const text = document.createElement('textarea');
+    text.readOnly = true;
+    text.hidden = true;
+    // No display style here, or it would override `hidden`: centred as an inline block by the overlay's text-align.
+    text.style.cssText = 'width:min(760px,90vw);height:220px;margin-top:14px;text-align:left;font:13px/1.35 monospace;pointer-events:auto';
+    copy.addEventListener('click', () => {
+      const report = this.crashReport(err);
+      // Where the clipboard is refused (an insecure origin, a denied permission), show it selected to copy by hand.
+      const byHand = () => {
+        text.value = report;
+        text.hidden = false;
+        text.focus();
+        text.select();
+      };
+      try {
+        if (!navigator.clipboard?.writeText) byHand();
+        else
+          navigator.clipboard.writeText(report).then(() => {
+            copy.textContent = 'COPIED';
+          }, byHand);
+      } catch {
+        byHand();
+      }
+    });
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;justify-content:center';
+    row.append(reload, copy);
+    box.append(row, text);
+    el.appendChild(box);
+    this.ui.appendChild(el);
+  }
+
+  /** Plain text for a bug report: the error, the state of the session and its last events. */
+  crashReport(err: unknown): string {
+    const lines = [`GTA 7 crash report, ${new Date().toISOString()}`, `error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`];
+    // Each line on its own: whatever broke the game may break reading it too.
+    const add = (label: string, value: () => string) => {
+      try {
+        lines.push(`${label}: ${value()}`);
+      } catch (e) {
+        lines.push(`${label}: unavailable (${String(e)})`);
+      }
+    };
+    const sim = this.sim;
+    add('mode', () => this.mode);
+    add('sim time', () => `${sim.time.toFixed(2)} s (frame ${sim.frame}, ${sim.clock.label()}, day ${sim.clock.day})`);
+    add('mission', () => sim.missions.active?.def.id ?? 'none');
+    add('zone', () => {
+      const q = sim.playerPos();
+      return `${sim.world.zoneName(q.x, q.z)} at ${q.x.toFixed(1)}, ${q.y.toFixed(1)}, ${q.z.toFixed(1)}`;
+    });
+    add('player', () => {
+      const p = sim.player;
+      return `${p.state}, health ${Math.round(p.health)}, armor ${Math.round(p.armor)}, ${p.inventory.current}, vehicle ${p.vehicle?.kind ?? 'none'}, wanted ${sim.wanted.level}`;
+    });
+    add('quality', () => `${this.settings.quality} (rendering ${this.renderer.currentQuality})`);
+    add('listener errors', () => String(sim.events.errors));
+    add('browser', () => String(navigator.userAgent));
+    lines.push(`last ${this.recent.length} events (sim time, oldest first):`);
+    for (const e of this.recent) lines.push(`  ${e.t.toFixed(2)} ${e.type}${e.text ? ` ${e.text}` : ''}`);
+    return lines.join('\n');
+  }
+
+  /** Adds an entry to the crash report's recent events: the session's sim events, and page errors (main.ts). */
+  noteEvent(type: string, text: string): void {
+    this.recent.push({ t: this.sim?.time ?? 0, type, text: text.slice(0, 200) });
+    if (this.recent.length > 30) this.recent.shift();
+  }
+
+  /** Subscribes the crash report to a session's notable sim events. */
+  private recordEvents(sim: Sim): Array<() => void> {
+    const ev = sim.events;
+    const note = (type: string, text: string) => this.noteEvent(type, text);
+    return [
+      ev.on('message', (e) => note('message', e.text)),
+      ev.on('subtitle', (e) => note('subtitle', `${e.speaker}: ${e.text}`)),
+      ev.on('big', (e) => note('big', e.sub ? `${e.text} (${e.sub})` : e.text)),
+      ev.on('wanted', (e) => note('wanted', `${e.previous} -> ${e.level}`)),
+      ev.on('missionStarted', (e) => note('missionStarted', e.id)),
+      ev.on('missionEnded', (e) => note('missionEnded', `${e.id} ${e.passed ? 'passed' : 'failed'}`)),
+      ev.on('vehicleEnter', (e) => note('vehicleEnter', `${e.character.role} into ${e.vehicle.kind}${e.jacked ? ', jacked' : ''}`)),
+      ev.on('vehicleExit', (e) => note('vehicleExit', `${e.character.role} out of ${e.vehicle.kind}`)),
+      ev.on('characterKilled', (e) => note('characterKilled', `${e.victim.role} by ${e.killer?.role ?? 'nobody'}`)),
+      ev.on('wasted', () => note('wasted', '')),
+      ev.on('busted', () => note('busted', '')),
+      ev.on('respawn', (e) => note('respawn', e.where)),
+      ev.on('explosion', (e) => note('explosion', `at ${e.x.toFixed(0)}, ${e.z.toFixed(0)}, radius ${e.radius}`)),
+    ];
+  }
+
   get isCrashed(): boolean {
     return this.crashed;
   }
+}
+
+/** The player can be put back in a vehicle he just got out of: it still drives and its seat is free. */
+function canReseat(v: Vehicle): boolean {
+  return !v.removed && !v.destroyed && !v.inWater && v.driver === null;
 }
 
 /** The nearest intact car within 30 m that the player was the last to drive. */

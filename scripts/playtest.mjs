@@ -8,8 +8,12 @@
 // saves screenshots to --out and writes --out/report.json (console errors, state snapshots and
 // per-segment performance). Built-in scenarios: tour, drive, chase, night, perf. A custom --script
 // is an ES module exporting `default async function (t)`, where `t` is the helper object below.
+//
+// Pointer lock is refused (headless Chromium that grants it stops delivering frames); --pointer-lock
+// allows it, adding lock=1 to the URL, which the game needs under automation. The game is opened with
+// intro=0 (no automatic first mission) unless --intro is passed.
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from '@playwright/test';
@@ -21,7 +25,12 @@ const opt = (name, def) => {
 };
 const flag = (name) => argv.includes(`--${name}`);
 
-const url = opt('url', `http://localhost:${opt('port', '4173')}/`);
+const url = (() => {
+  const u = new URL(opt('url', `http://localhost:${opt('port', '4173')}/`));
+  if (!flag('intro')) u.searchParams.set('intro', '0');
+  if (flag('pointer-lock')) u.searchParams.set('lock', '1');
+  return u.toString();
+})();
 const out = resolve(opt('out', '/tmp/gta7-playtest'));
 const scenario = opt('scenario', opt('script') ? null : 'tour');
 const scriptPath = opt('script', null);
@@ -88,7 +97,7 @@ const t = {
       const mem = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
       return { f: s.frames, t: performance.now(), render: s.render, perf: s.perf, heapMB: mem, vehicles: s.vehicles, characters: s.characters };
     });
-    const seg = { label, fps: Math.round(((after.f - before.f) * 1000) / (after.t - before.t)), ...after };
+    const seg = { label, fps: Math.round(((after.f - before.f) * 1000) / (after.t - before.t)), ...after, rssMB: await t.rss() };
     delete seg.f;
     delete seg.t;
     report.segments.push(seg);
@@ -101,7 +110,35 @@ const t = {
   async newGame() {
     await page.click('button[data-id="new"]');
     await page.waitForFunction(() => window.__gta7.state().mode === 'game');
-    await page.waitForTimeout(600);
+    // Fail fast on a frame stall (a granted pointer lock in headless Chromium) rather than measure one.
+    const f0 = (await t.state()).frames;
+    await page.waitForTimeout(2000);
+    const f1 = (await t.state()).frames;
+    if (f1 - f0 < 10) throw new Error('fps < 5 after New Game (pointer lock stall?)');
+  },
+  /** Resident memory (MB) of the browser's processes (browser, renderer, GPU, network), or null where unavailable. */
+  async rss() {
+    try {
+      const cdp = await browser.newBrowserCDPSession();
+      try {
+        const { processInfo } = await cdp.send('SystemInfo.getProcessInfo');
+        let kb = 0;
+        for (const { id } of processInfo) {
+          try {
+            const m = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${id}/status`, 'utf8'));
+            if (m) kb += Number(m[1]);
+          } catch {
+            // The process just exited.
+          }
+        }
+        return kb > 0 ? Math.round(kb / 1024) : null;
+      } finally {
+        await cdp.detach();
+      }
+    } catch {
+      // No CDP (another browser) or no /proc (not Linux): measuring memory is optional.
+      return null;
+    }
   },
 };
 

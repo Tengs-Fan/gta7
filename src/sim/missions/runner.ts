@@ -65,15 +65,22 @@ export class MissionCtx {
   tick(dt: number): void {
     if (this.done || this.failedReason) return;
     this.time += dt;
-    if (this.timer && this.sim.time >= this.timer.endsAt) {
-      this.fail(this.timer.reason);
-      return;
-    }
-    for (const f of this.fails) {
-      if (f.check(dt)) {
-        this.fail(f.reason);
+    try {
+      if (this.timer && this.sim.time >= this.timer.endsAt) {
+        this.fail(this.timer.reason);
         return;
       }
+      for (const f of this.fails) {
+        if (f.check(dt)) {
+          this.fail(f.reason);
+          return;
+        }
+      }
+    } catch (err) {
+      // A broken fail check must never take the game down with it either (see the script below).
+      console.error(`Mission ${this.def.id} check error`, err);
+      this.fail('Something went wrong.');
+      return;
     }
     let guard = 0;
     let waited = dt;
