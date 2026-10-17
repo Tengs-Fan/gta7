@@ -65,7 +65,7 @@ export class CameraController {
   private readonly kickVel = new THREE.Vector3();
   /** Shake, rumble and kick added to the camera this frame (zero while paused). */
   private readonly offset = new THREE.Vector3();
-  /** Boom length (m) the trunks behind the player allow, eased: in quickly, back out slowly. */
+  /** Boom length (m) the trunks behind the player allow (Infinity: none), eased in quickly and out slowly. */
   private trunkReach = Infinity;
   private titleT = 0;
   private deathT = 0;
@@ -250,10 +250,10 @@ export class CameraController {
       let reach = len;
       if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) reach = Math.max(0.35, hit.t - 0.3);
       if (onFoot) {
-        let trunk = len;
-        if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isTrunk) && hit.t > TRUNK_SKIP) trunk = hit.t - 0.3;
-        this.trunkReach = Math.min(this.trunkReach, len);
-        this.trunkReach = damp(this.trunkReach, trunk, trunk < this.trunkReach ? 12 : 4, dt);
+        const limit = sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isTrunk) && hit.t > TRUNK_SKIP ? hit.t - 0.3 : Infinity;
+        const cur = Math.min(this.trunkReach, len);
+        // In from the boom's current length; out again at 6 m/s, after which no trunk holds it back.
+        this.trunkReach = limit < cur ? damp(cur, limit, 12, dt) : Math.min(limit, this.trunkReach + 6 * dt);
         reach = Math.min(reach, this.trunkReach);
       }
       if (reach < len) this.desired.copy(lookFrom).addScaledVector(d, reach);

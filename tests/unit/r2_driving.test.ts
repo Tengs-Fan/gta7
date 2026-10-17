@@ -665,6 +665,24 @@ describe('the camera and street trees (P21)', () => {
     expect(maxStep).toBeLessThan(0.6);
   });
 
+  it('away from trunks the boom comes back from an aim as fast as before', () => {
+    const sim = new Sim({ world: world(), ambient: false, police: false });
+    const b = sim.world.layout.bounds;
+    const p = sim.player;
+    p.pos.x = b.beachStartX + 40;
+    p.pos.z = (b.landMinZ + b.landMaxZ) / 2;
+    p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
+    const cam = new CameraController(16 / 9);
+    cam.mode = 'play';
+    cam.reset(sim);
+    const boom = () => cam.camera.position.distanceTo(camPriv(cam).target);
+    for (let i = 0; i < 60; i++) cam.update(DT, sim, true);
+    expect(boom()).toBeLessThan(2.6);
+    for (let i = 0; i < 18; i++) cam.update(DT, sim, false);
+    // The boom eases from 2.4 to 4.3 m at 10/s: 95% of the way in 0.3 s.
+    expect(boom()).toBeGreaterThan(4.1);
+  });
+
   it('the chase camera is not pulled in by roadside trunks', () => {
     const sim = new Sim({ world: world(), ambient: false, police: false });
     const tree = sim.world.layout.props.find((q) => {
