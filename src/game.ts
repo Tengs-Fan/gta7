@@ -2,7 +2,7 @@
 // HUD, menus and audio, and runs the frame loop.
 
 import { AudioEngine } from './audio/audio';
-import type { CheatCode } from './input/cheats';
+import type { TypedCheat } from './input/cheats';
 import { Input, type FrameInput } from './input/input';
 import { GameRenderer } from './render/renderer';
 import { deleteGame, loadGame, loadSettings, saveSettings, writeGame, type Settings } from './settings';
@@ -39,8 +39,8 @@ export class Game {
   private crashed = false;
   private unsub: Array<() => void> = [];
   private wasDown = false;
-  /** The screen (map or pause menu) gameplay last opened by its key, and when (performance.now() ms): a cheat code's first letters can do that. */
-  private keyScreen: { screen: Menus['top']; at: number } | null = null;
+  /** The screen (map or pause menu) gameplay last opened by its key, and that key press: a cheat code's first letters can do that. */
+  private keyScreen: { screen: Menus['top']; press: number } | null = null;
   /** The player's last exit from a vehicle (sim time), for FIXMYRIDE, whose F gets him out. */
   private lastExit: { vehicle: Vehicle; t: number; bailed: boolean } | null = null;
   /** The last sim events of the session and page errors, oldest first, for the crash report. */
@@ -296,7 +296,7 @@ export class Game {
   step(dt: number, fi: FrameInput): void {
     if (this.crashed) return;
     // Every frame, also while a screen is open: a code's first letters can open the map or the pause menu.
-    for (const code of this.input.takeCheats()) if (this.mode === 'game') this.applyCheat(code);
+    for (const typed of this.input.takeCheats()) if (this.mode === 'game') this.applyCheat(typed);
     const cam = this.renderer.cameraCtl;
     if (this.mode === 'title') {
       this.menus.input(fi.ui, dt);
@@ -316,12 +316,12 @@ export class Game {
     }
     if (fi.ui.pause) {
       this.pause();
-      this.keyScreen = { screen: this.menus.top, at: performance.now() };
+      this.keyScreen = { screen: this.menus.top, press: this.input.screenKeyPress };
       return;
     }
     if (fi.ui.map) {
       this.openMap();
-      this.keyScreen = { screen: this.menus.top, at: performance.now() };
+      this.keyScreen = { screen: this.menus.top, press: this.input.screenKeyPress };
       return;
     }
     if (fi.ui.camera) cam.zoomLevel = cam.zoomLevel === 0 ? 1 : 0;
@@ -364,12 +364,14 @@ export class Game {
     return null;
   }
 
-  private applyCheat(code: CheatCode): void {
+  private applyCheat(typed: TypedCheat): void {
     const sim = this.sim;
     const p = sim.player;
+    const code = typed.code;
     // Undo the code's first letters: the M of MONEYTREE or IMMORTAL opens the map, the P of SPAWNSPORTS pauses.
+    // Only a screen one of its own letters opened, and only while it is still on top.
     const ks = this.keyScreen;
-    if (ks?.screen && this.menus.top === ks.screen && performance.now() - ks.at < 2000) this.resume();
+    if (ks?.screen && this.menus.top === ks.screen && typed.presses.includes(ks.press)) this.resume();
     switch (code) {
       case 'CHILLOUT':
         sim.wanted.clear();

@@ -1,7 +1,7 @@
 // Keyboard, mouse (pointer lock) and gamepad input mapped to game actions.
 
 import { neutralInput, type PlayerInput } from '../sim/input';
-import { cheatPrefixLength, completedCheat, type CheatCode } from './cheats';
+import { cheatPrefixLength, completedCheat, type TypedCheat } from './cheats';
 
 export interface UiActions {
   pause: boolean;
@@ -55,6 +55,8 @@ const CHEAT_GAP_MS = 1500;
 const CHEAT_SWALLOW_AT = 3;
 /** Mouse moves are dropped this long (ms) after pointer lock is gained: the first one jumps by the cursor's offset. */
 const LOCK_SETTLE_MS = 100;
+/** Keys that ask for the map or the pause menu. */
+const SCREEN_KEYS = new Set(['KeyM', 'KeyP', 'Escape']);
 
 /**
  * Whether pointer lock must be refused: under browser automation (navigator.webdriver) headless Chromium
@@ -174,13 +176,19 @@ export class Input {
   private readonly noLock = automationRefusesLock();
   /** Mouse moves are dropped until this time (performance.now() ms), just after pointer lock is gained. */
   private ignoreMoveUntil = -Infinity;
+  /** Key presses so far (auto-repeats aside), numbering each one. */
+  private presses = 0;
+  /** The press that asked for the map or the pause menu since the last frame, or -1. */
+  private screenPress = -1;
   /** Last typed letters for cheat codes (upper case), and when the newest was typed (performance.now() ms). */
   typed = '';
   private typedAt = -Infinity;
   /** One flag per letter of `typed`: '1' where it was typed with a key that has no binding. */
   private typedFree = '';
+  /** The press that typed each letter of `typed`. */
+  private typedPresses: number[] = [];
   /** Cheat codes typed and not taken yet. */
-  private readonly cheats: CheatCode[] = [];
+  private readonly cheats: TypedCheat[] = [];
   /** Keys swallowed for typing a cheat code, until released. */
   private readonly swallowed = new Set<string>();
   inVehicle = false;
@@ -205,12 +213,14 @@ export class Input {
       this.labels.learn(ev);
       this.device = 'kb';
       const alias = letterAlias(ev);
+      const press = ev.repeat ? -1 : ++this.presses;
       // A key typing a cheat code does nothing else, also while it auto-repeats, until it is released.
-      if (ev.repeat ? this.swallowed.has(ev.code) : this.typeLetter(ev.key, BOUND_CODES.has(ev.code) || alias !== null)) {
+      if (ev.repeat ? this.swallowed.has(ev.code) : this.typeLetter(ev.key, BOUND_CODES.has(ev.code) || alias !== null, press)) {
         this.swallowed.add(ev.code);
         return;
       }
       this.swallowed.delete(ev.code);
+      if (press > 0 && SCREEN_KEYS.has(alias ?? ev.code)) this.screenPress = press;
       if (alias) this.aliases.set(ev.code, alias);
       for (const code of alias ? [ev.code, alias] : [ev.code]) {
         if (!ev.repeat) this.down.add(code);
@@ -479,14 +489,23 @@ export class Input {
 
   endFrame(): void {
     this.down.clear();
+    this.screenPress = -1;
     this.mouseDown = 0;
     this.lookX = 0;
     this.lookY = 0;
   }
 
   /** The cheat codes typed since the last call, oldest first. */
-  takeCheats(): CheatCode[] {
+  takeCheats(): TypedCheat[] {
     return this.cheats.splice(0);
+  }
+
+  /**
+   * The key press (numbered as in TypedCheat.presses) behind this frame's map or pause request, or -1 (none, or
+   * the gamepad): the game tells by it whether a cheat code's own letter opened a screen.
+   */
+  get screenKeyPress(): number {
+    return this.screenPress;
   }
 
   /**
@@ -496,23 +515,26 @@ export class Input {
    * types those, so play is never swallowed (S P A, back / pause / left, also starts SPAWNSPORTS); a code's
    * first letters still act, and Game undoes what they did.
    */
-  private typeLetter(key: unknown, bound: boolean): boolean {
+  private typeLetter(key: unknown, bound: boolean, press: number): boolean {
     if (typeof key !== 'string' || key.length !== 1 || !/[a-z]/i.test(key)) return false;
     const now = performance.now();
     if (now - this.typedAt > CHEAT_GAP_MS) {
       this.typed = '';
       this.typedFree = '';
+      this.typedPresses = [];
     }
     this.typedAt = now;
     this.typed = (this.typed + key.toUpperCase()).slice(-24);
     this.typedFree = (this.typedFree + (bound ? '0' : '1')).slice(-24);
+    this.typedPresses = [...this.typedPresses, press].slice(-24);
     const n = cheatPrefixLength(this.typed);
     const swallow = n >= CHEAT_SWALLOW_AT && this.typedFree.slice(-n).includes('1');
     const code = completedCheat(this.typed);
     if (code) {
-      this.cheats.push(code);
+      this.cheats.push({ code, presses: this.typedPresses.slice(-code.length) });
       this.typed = '';
       this.typedFree = '';
+      this.typedPresses = [];
     }
     return swallow;
   }

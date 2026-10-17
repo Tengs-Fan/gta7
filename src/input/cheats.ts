@@ -6,6 +6,12 @@ export const CHEAT_CODES = ['CHILLOUT', 'GUNSGALORE', 'FIXMYRIDE', 'IMMORTAL', '
 
 export type CheatCode = (typeof CHEAT_CODES)[number];
 
+/** A cheat code typed, and the key presses that typed its letters (numbered by Input, see Input.screenKeyPress). */
+export interface TypedCheat {
+  code: CheatCode;
+  presses: readonly number[];
+}
+
 const LONGEST = Math.max(...CHEAT_CODES.map((c) => c.length));
 
 /** Length of the longest suffix of `typed` (upper case) that begins a cheat code: how far into a code the player is. */

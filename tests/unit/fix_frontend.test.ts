@@ -1625,7 +1625,7 @@ describe('round 2 harness', () => {
           inp.poll(1 / 60);
           inp.endFrame();
           clock.now += ms / 2;
-          taken.push(...inp.takeCheats());
+          taken.push(...inp.takeCheats().map((t) => t.code));
           return fi;
         });
       return { inp, type, taken };
@@ -1735,20 +1735,27 @@ describe('round 2 harness', () => {
           g.frame(clock.now);
         }
       };
-      /** Types `text` at 8 frames (133 ms) a key. */
-      const type = (text: string) => {
+      /** Types `text` at `perKey` frames a key (8 frames: 133 ms). */
+      const type = (text: string, perKey = 8) => {
         for (const ch of text) {
           const code = `Key${ch.toUpperCase()}`;
           dom.win.dispatchEvent(keyEv('keydown', code, ch.toLowerCase()));
-          frames(4);
+          frames(perKey / 2);
           dom.win.dispatchEvent(keyEv('keyup', code, ch.toLowerCase()));
-          frames(4);
+          frames(perKey / 2);
         }
+      };
+      /** Presses a key that is not a letter (Escape). */
+      const press = (code: string) => {
+        dom.win.dispatchEvent(keyEv('keydown', code, code));
+        frames(2);
+        dom.win.dispatchEvent(keyEv('keyup', code, code));
+        frames(2);
       };
       game.newGame();
       await flush();
       frames(3);
-      return { game, sim: game.sim, frames, type };
+      return { game, sim: game.sim, frames, type, press };
     }
 
     it('FIXMYRIDE in a car at 20 m/s: its F bails out, and the cheat puts the player back in his repaired car', async () => {
@@ -1834,6 +1841,48 @@ describe('round 2 harness', () => {
       expect(opened).toBeGreaterThan(0);
       expect(sim.cheats.godMode).toBe(true);
       expect(sports()).toBe(cars + 1);
+    });
+
+    it('MONEYTREE typed slowly (350 ms a key) still closes the map its M opened', async () => {
+      const { game, sim, frames, type } = await playing();
+      const money = sim.progress.money;
+      type('MONEYTREE', 21);
+      frames(30);
+      expect(sim.progress.money).toBe(money + 50000);
+      expect(game.menus.open).toBe(false);
+    });
+
+    it('a pause menu opened with Escape just before a code stays open', async () => {
+      const { game, sim, frames, type, press } = await playing();
+      sim.wanted.setLevel(2);
+      press('Escape');
+      expect(game.menus.open).toBe(true);
+      type('CHILLOUT');
+      frames(30);
+      expect(sim.wanted.level).toBe(0);
+      expect(game.menus.open).toBe(true);
+    });
+
+    it('so does one opened with Escape in the middle of a code', async () => {
+      const { game, sim, frames, type, press } = await playing();
+      type('SUN');
+      press('Escape');
+      expect(game.menus.open).toBe(true);
+      type('SET');
+      frames(30);
+      expect(sim.clock.hours).toBeCloseTo(18.3, 1);
+      expect(game.menus.open).toBe(true);
+    });
+
+    it('and one already open when a code types its M: the M opened nothing', async () => {
+      const { game, sim, frames, type } = await playing();
+      type('P');
+      expect(game.menus.open).toBe(true);
+      frames(20);
+      type('IMMORTAL');
+      frames(30);
+      expect(sim.cheats.godMode).toBe(true);
+      expect(game.menus.open).toBe(true);
     });
 
     it('only the screen a key opened is closed: a shop opened meanwhile stays open', async () => {
