@@ -2011,7 +2011,8 @@ describe('round 2 harness', () => {
       expect(report).toContain('mission: none');
       expect(report).toMatch(/zone: \S+/);
       expect(report).toMatch(/player: normal, health 100, armor 0, fists, vehicle none, wanted 0/);
-      expect(report).toContain('quality: high (rendering high)');
+      // The setting defaults to 'auto', which the fake DOM (no WebGL, unknown GPU) resolves to Medium.
+      expect(report).toContain('quality: auto (rendering medium)');
       expect(report).toContain('browser: FakeBrowser/1.0');
       // Only the last 30 events are kept, the newest last.
       const events = report.slice(report.indexOf('last 30 events'));
