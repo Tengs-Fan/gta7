@@ -567,6 +567,37 @@ describe('vehicle views', () => {
     expect(glow(left)).toBeGreaterThan(3);
   });
 
+  it('lamps, roof gear and the police stripe move with the dented metal under them, and come back on rebind', () => {
+    const sim = makeSim({ world: W });
+    const p = spot(sim);
+    const v = sim.spawnVehicle('police', p.x, p.z, 0);
+    const view = new VehicleView('police');
+    view.bind(v);
+    view.sync(v, DT, 0, 0);
+    const lamp = view.group.children.find((o) => o.name === 'lamp' && o.position.z > 0 && o.position.x > 0)!;
+    const lampZ = lamp.position.z;
+    const stripe = view.group.children.find((o): o is THREE.Mesh => o instanceof THREE.Mesh && (o.material as THREE.MeshStandardMaterial).color?.getHex() === 0xf2f2f2)!;
+    const flank = (): number => {
+      const q = stripe.geometry.getAttribute('position');
+      let x = -Infinity;
+      for (let i = 0; i < q.count; i++) if (Math.abs(q.getZ(i) - 0.1) < 0.3 && Math.abs(q.getY(i) - 0.5 * v.spec.height) < 0.2) x = Math.max(x, q.getX(i));
+      return x;
+    };
+    const flankX = flank();
+    // A crushed front left corner and a dent in the left doors.
+    addDent(v, { lx: v.halfW - 0.3, ly: 0.5 * v.spec.height, lz: v.halfL, nx: 0, nz: -1, depth: 0.35 });
+    addDent(v, { lx: v.halfW, ly: 0.5 * v.spec.height, lz: 0.1, nx: -1, nz: 0, depth: 0.3 });
+    view.sync(v, DT, 0, 0);
+    expect(lampZ - lamp.position.z).toBeGreaterThan(0.15);
+    expect(flankX - flank()).toBeGreaterThan(0.15);
+    // The roof gear stays put (no dent near it).
+    const fresh = sim.spawnVehicle('police', p.x + 8, p.z, 0);
+    view.bind(fresh);
+    view.sync(fresh, DT, 0, 0);
+    expect(lamp.position.z).toBe(lampZ);
+    expect(flank()).toBeCloseTo(flankX, 6);
+  });
+
   it('wrecks sag and lose their glass; damaged cars get cracked, then shattered glass', () => {
     const sim = makeSim({ world: W });
     const p = spot(sim);

@@ -441,6 +441,10 @@ export class VehicleView {
   private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean }> = [];
   /** Head, tail and reverse lamps with their working material (smashed and burnt ones swap theirs out). */
   private readonly lamps: Array<{ mesh: THREE.Mesh; mat: THREE.Material; broken: boolean }> = [];
+  /** Separate parts on the body (lamps, roof gear) and where they sit undamaged: dents carry them along. */
+  private readonly attached: Array<{ obj: THREE.Object3D; base: THREE.Vector3 }> = [];
+  /** The police livery stripe: its own subdivided geometry, bent with the body, and its undamaged positions. */
+  private stripe: { geo: THREE.BufferGeometry; base: Float32Array } | null = null;
   private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xfffbe8, emissive: 0xfff2c8, emissiveIntensity: 0.3, roughness: 0.2 });
   private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x2a0000, emissive: 0xff0000, emissiveIntensity: 0.3, roughness: 0.3 });
   private readonly reverseMat = new THREE.MeshStandardMaterial({ color: 0x777777, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.3 });
@@ -510,6 +514,7 @@ export class VehicleView {
     rev.name = 'lamp';
     this.group.add(rev);
     this.lamps.push({ mesh: rev, mat: this.reverseMat, broken: false });
+    for (const l of this.lamps) this.attached.push({ obj: l.mesh, base: l.mesh.position.clone() });
     if (s.police) {
       const red = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.3 });
       const blue = new THREE.MeshStandardMaterial({ color: 0x000040, emissive: 0x0040ff, emissiveIntensity: 0, roughness: 0.3 });
@@ -525,17 +530,21 @@ export class VehicleView {
       const b = new THREE.Mesh(new THREE.BoxGeometry(s.width * 0.32, 0.14, 0.28), blue);
       b.position.set(-s.width * 0.18, roofY + 0.14, barZ);
       this.group.add(base, r, b);
+      this.attached.push({ obj: base, base: base.position.clone() }, { obj: r, base: r.position.clone() }, { obj: b, base: b.position.clone() });
       if (kind === 'police') {
-        // White doors livery stripe.
-        const stripe = new THREE.Mesh(new THREE.BoxGeometry(s.width + 0.02, 0.3, s.length * 0.42), new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4, metalness: 0.3 }));
-        stripe.position.set(0, s.height * 0.45, 0.02 * s.length);
+        // White doors livery stripe, subdivided so a side dent bends it with the doors under it.
+        const geo = new THREE.BoxGeometry(s.width + 0.02, 0.3, s.length * 0.42, 1, 2, 10);
+        geo.translate(0, s.height * 0.45, 0.02 * s.length);
+        const stripe = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4, metalness: 0.3 }));
         this.group.add(stripe);
+        this.stripe = { geo, base: Float32Array.from(geo.getAttribute('position').array) };
       }
     }
     if (kind === 'taxi') {
       const sign = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.22, 0.32), [taxiSignMat, taxiSignMat, taxiSignMat, taxiSignMat, taxiSignMat, taxiSignMat]);
       sign.position.set(0, s.height * 0.98 + 0.085 + 0.11, -0.08 * s.length);
       this.group.add(sign);
+      this.attached.push({ obj: sign, base: sign.position.clone() });
     }
     this.group.rotation.order = 'YXZ';
     // Includes roof gear (light bar, taxi sign), so a car on its roof rests on it.
@@ -572,10 +581,21 @@ export class VehicleView {
       this.dentGlass.dispose();
       this.dentGlass = null;
     }
+    for (const a of this.attached) a.obj.position.copy(a.base);
+    if (this.stripe && this.stripeBent) {
+      const pos = this.stripe.geo.getAttribute('position') as THREE.BufferAttribute;
+      (pos.array as Float32Array).set(this.stripe.base);
+      pos.needsUpdate = true;
+      this.stripe.geo.computeVertexNormals();
+      this.stripeBent = false;
+    }
     for (const l of this.lamps) l.broken = false;
     this.dentVersion = -1;
     this.applyLampMaterials();
   }
+
+  /** Whether the stripe's geometry is bent (restoreShape puts it back). */
+  private stripeBent = false;
 
   /** Shows the vehicle's dents: displaced per-view copies of the body and glass, and the lamps near a dent smashed. */
   private applyDents(v: Vehicle): void {
@@ -600,8 +620,21 @@ export class VehicleView {
       pos.needsUpdate = true;
       dst.computeVertexNormals();
     }
+    // Parts on the body move with the metal under them.
+    const p3 = new Float32Array(3);
+    for (const a of this.attached) {
+      displace([a.base.x, a.base.y, a.base.z], p3, v.dents);
+      a.obj.position.set(p3[0]!, p3[1]!, p3[2]!);
+    }
+    if (this.stripe) {
+      const pos = this.stripe.geo.getAttribute('position') as THREE.BufferAttribute;
+      displace(this.stripe.base, pos.array as Float32Array, v.dents);
+      pos.needsUpdate = true;
+      this.stripe.geo.computeVertexNormals();
+      this.stripeBent = true;
+    }
     for (const l of this.lamps) {
-      const p = l.mesh.position;
+      const p = this.attached.find((a) => a.obj === l.mesh)!.base;
       l.broken = v.dents.some((d) => Math.hypot(p.x - d.lx, p.y - d.ly, p.z - d.lz) < LAMP_BREAK_DIST);
     }
     this.applyLampMaterials();
