@@ -226,22 +226,54 @@ export function facadeTextures(style: FacadeStyle, seed: number): FacadeTextures
       // Roughness: glass is shiny.
       r.fillStyle = style === 'glassBlue' || style === 'glassTeal' ? '#222' : '#555';
       r.fillRect(wx, wy, ww, wh);
-      // Lit windows at night.
-      const litChance = style === 'warehouse' ? 0.15 : style === 'house' ? 0.45 : 0.38;
-      if (rng.chance(litChance)) {
-        const warm = rng.chance(0.75);
-        const v = rng.range(0.55, 1);
-        e.fillStyle = warm ? `rgba(255,${Math.round(200 * v + 30)},${Math.round(120 * v)},1)` : `rgba(${Math.round(190 * v)},${Math.round(220 * v)},255,1)`;
-        e.fillRect(wx + 1, wy + 1, ww - 2, wh - 2);
-        // Curtains / partial light.
-        if (rng.chance(0.4)) {
-          e.fillStyle = 'rgba(0,0,0,0.55)';
-          e.fillRect(wx + 1, wy + 1, ww * rng.range(0.2, 0.5), wh - 2);
-        }
-      }
+      glassMask(e, rng, style, wx, wy, ww, wh, x0, cell);
     }
   }
   return { map: toTexture(cm), emissive: toTexture(ce), rough: toTexture(cr, false) };
+}
+
+/**
+ * Night glass mask of one window: how much of it can glow (brighter under the ceiling, with
+ * blinds, curtains and frames). Whether a window is lit, and in which colour, is decided per
+ * window and per building by the facade shader in city.ts, so nothing here is lit or unlit.
+ */
+function glassMask(e: CanvasRenderingContext2D, rng: Rng, style: FacadeStyle, wx: number, wy: number, ww: number, wh: number, x0: number, cell: number): void {
+  const g = e.createLinearGradient(0, wy, 0, wy + wh);
+  g.addColorStop(0, '#ffffff');
+  g.addColorStop(0.3, '#e4e4e4');
+  g.addColorStop(1, '#8a8a8a');
+  e.fillStyle = g;
+  e.fillRect(wx + 1, wy + 1, ww - 2, wh - 2);
+  const r = rng.next();
+  if (r < 0.28) {
+    // Venetian blinds lowered part of the way: a dim, slatted band from the top.
+    const bh = (wh - 2) * rng.range(0.2, 0.8);
+    e.fillStyle = 'rgba(0,0,0,0.5)';
+    e.fillRect(wx + 1, wy + 1, ww - 2, bh);
+    e.fillStyle = 'rgba(0,0,0,0.35)';
+    for (let y = wy + 2; y < wy + 1 + bh; y += 3) e.fillRect(wx + 1, y, ww - 2, 1);
+  } else if (r < 0.5) {
+    // Curtains half drawn from one or both sides.
+    e.fillStyle = 'rgba(0,0,0,0.62)';
+    const cw = (ww - 2) * rng.range(0.15, 0.4);
+    e.fillRect(wx + 1, wy + 1, cw, wh - 2);
+    if (rng.chance(0.5)) e.fillRect(wx + ww - 1 - cw * 0.8, wy + 1, cw * 0.8, wh - 2);
+  } else if (r < 0.58) {
+    // A lamp-lit corner: a soft hot spot.
+    const hx = wx + ww * rng.range(0.2, 0.8);
+    const rg = e.createRadialGradient(hx, wy + wh * 0.45, 1, hx, wy + wh * 0.45, Math.max(ww, wh) * 0.6);
+    rg.addColorStop(0, 'rgba(255,255,255,0.5)');
+    rg.addColorStop(1, 'rgba(255,255,255,0)');
+    e.fillStyle = rg;
+    e.fillRect(wx + 1, wy + 1, ww - 2, wh - 2);
+  }
+  // Frames and mullions stay dark.
+  e.fillStyle = '#000';
+  if (style === 'brick' || style === 'stucco' || style === 'house') {
+    e.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
+  } else if (style === 'office') {
+    for (let k = 0; k < 4; k++) e.fillRect(x0 + (cell / 4) * k, wy, 2, wh);
+  }
 }
 
 export type GroundTex = 'asphalt' | 'sidewalk' | 'grass' | 'sand' | 'dirt' | 'plaza' | 'wood' | 'concrete' | 'roof' | 'metal';
@@ -497,4 +529,1059 @@ export function taxiSignTexture(): THREE.Texture {
   ctx.textBaseline = 'middle';
   ctx.fillText('TAXI', 128, 34);
   return toTexture(c, true, false);
+}
+
+// ---------------------------------------------------------------------------
+// Storefront atlas: the street-level ground floors (shops, lobbies, the bank, loading bays and
+// house fronts). One 2048x1024 colour canvas and a matching emissive canvas hold 24 cells of
+// 256x336 px in three rows of eight, plus a 16 px strip of swatches along the bottom.
+// Each cell is drawn for a physical frontage (CELL_DESIGN, in metres) and squeezed into its
+// square-ish slot, so text and shapes come out undistorted on a quad of that size.
+
+const ATLAS_W = 2048;
+const ATLAS_H = 1024;
+const ATLAS_COLS = 8;
+const CELL_PX_W = 256;
+const CELL_PX_H = 336;
+const SWATCH_Y = 3 * CELL_PX_H;
+const SWATCH_PX_W = 256;
+const SWATCH_PX_H = ATLAS_H - SWATCH_Y;
+/**
+ * Each cell is drawn this many pixels inside its slot and its edge pixels are then extruded into
+ * the gap, so the first mip levels sample the cell's own border rather than its neighbour's.
+ */
+const CELL_GUTTER = 4;
+/** Pixels trimmed from a swatch's edges when it is sampled. */
+const SWATCH_INSET = 4;
+
+/** Atlas cells after the 16 shopfronts (cells 0-15). */
+export const CELLS = {
+  lobbyRevolving: 16,
+  lobbyDoors: 17,
+  lobbyGlass: 18,
+  bank: 19,
+  rollup: 20,
+  houseDoorA: 21,
+  houseDoorB: 22,
+  houseWindows: 23,
+} as const;
+export const SWATCHES = { gunFascia: 0 } as const;
+
+/** Frontage (width, height in metres) each kind of cell is drawn for. */
+export const CELL_DESIGN = {
+  shop: { w: 6.5, h: 4.5 },
+  lobby: { w: 6.5, h: 6.5 },
+  rollup: { w: 6.5, h: 5 },
+  house: { w: 6.5, h: 3 },
+} as const;
+/** Fraction of a shop cell's height, from the top, taken by the cornice and fascia sign. */
+export const SHOP_FASCIA_FRAC = 1.05 / CELL_DESIGN.shop.h;
+/** Distance (metres) from the top of a shop cell down to where its awning attaches, just above the display window. */
+export const SHOP_AWNING_TOP = 1.0;
+/** Door centre (fraction of the cell width) of each door cell. */
+export const DOOR_U: Readonly<Record<number, number>> = {
+  [CELLS.lobbyRevolving]: 0.5,
+  [CELLS.lobbyDoors]: 0.5,
+  [CELLS.bank]: 0.5,
+  [CELLS.houseDoorA]: 0.3,
+  [CELLS.houseDoorB]: 0.5,
+};
+/** A house door's sill stands this far above the bottom of the cell (a porch deck meets it). */
+export const HOUSE_SILL = 0.3;
+
+export interface ShopFront {
+  name: string;
+  tag: string;
+  /** Awning fabric colour (packed RGB); -1 when the shop has no awning. */
+  awning: number;
+  /** More common on the beachfront. */
+  beach: boolean;
+}
+
+/** Pixel rectangle a cell's content is drawn into (its slot minus the gutter). */
+function cellRect(cell: number): { x: number; y: number; w: number; h: number } {
+  const col = cell % ATLAS_COLS;
+  const row = Math.floor(cell / ATLAS_COLS);
+  return { x: col * CELL_PX_W + CELL_GUTTER, y: row * CELL_PX_H + CELL_GUTTER, w: CELL_PX_W - 2 * CELL_GUTTER, h: CELL_PX_H - 2 * CELL_GUTTER };
+}
+
+/** UV rectangle [u0, v0, u1, v1] (v0 at the bottom) of an atlas cell, optionally only the part from `fromTop` to `toTop` (fractions of its height). */
+export function storefrontUv(cell: number, fromTop = 0, toTop = 1): [number, number, number, number] {
+  const r = cellRect(cell);
+  const yTop = r.y + fromTop * r.h;
+  const yBot = r.y + toTop * r.h;
+  return [r.x / ATLAS_W, 1 - yBot / ATLAS_H, (r.x + r.w) / ATLAS_W, 1 - yTop / ATLAS_H];
+}
+
+/** UV rectangle of a solid swatch from the bottom strip. */
+export function swatchUv(index: number): [number, number, number, number] {
+  const x0 = index * SWATCH_PX_W + SWATCH_INSET;
+  const x1 = (index + 1) * SWATCH_PX_W - SWATCH_INSET;
+  return [x0 / ATLAS_W, 1 - (SWATCH_Y + SWATCH_PX_H - SWATCH_INSET) / ATLAS_H, x1 / ATLAS_W, 1 - (SWATCH_Y + SWATCH_INSET) / ATLAS_H];
+}
+
+/** Copies the outermost pixel rows and columns of a rectangle outwards over `pad` pixels. */
+function extrude(c: CanvasRenderingContext2D, src: HTMLCanvasElement, x: number, y: number, w: number, h: number, pad: number): void {
+  c.drawImage(src, x, y, w, 1, x, y - pad, w, pad);
+  c.drawImage(src, x, y + h - 1, w, 1, x, y + h, w, pad);
+  c.drawImage(src, x, y - pad, 1, h + 2 * pad, x - pad, y - pad, pad, h + 2 * pad);
+  c.drawImage(src, x + w - 1, y - pad, 1, h + 2 * pad, x + w, y - pad, pad, h + 2 * pad);
+}
+
+const ANTON = 'Anton, Impact, "Arial Black", sans-serif';
+const RAJDHANI = 'Rajdhani, "Arial Narrow", sans-serif';
+
+/** Draws in metres (y down from the top of the frontage) into one atlas slot. */
+class Painter {
+  readonly sx: number;
+  readonly sy: number;
+
+  constructor(
+    readonly c: CanvasRenderingContext2D,
+    readonly x0: number,
+    readonly y0: number,
+    readonly mw: number,
+    readonly mh: number,
+    pw = CELL_PX_W,
+    ph = CELL_PX_H,
+  ) {
+    this.sx = pw / mw;
+    this.sy = ph / mh;
+  }
+
+  x(m: number): number {
+    return this.x0 + m * this.sx;
+  }
+
+  y(m: number): number {
+    return this.y0 + m * this.sy;
+  }
+
+  rect(x: number, y: number, w: number, h: number, fill: string | CanvasGradient): void {
+    this.c.fillStyle = fill;
+    this.c.fillRect(this.x(x), this.y(y), w * this.sx, h * this.sy);
+  }
+
+  /** Vertical gradient over a rectangle. */
+  vgrad(x: number, y: number, w: number, h: number, stops: ReadonlyArray<readonly [number, string]>): void {
+    const g = this.c.createLinearGradient(0, this.y(y), 0, this.y(y + h));
+    for (const [t, col] of stops) g.addColorStop(t, col);
+    this.rect(x, y, w, h, g);
+  }
+
+  ellipse(cx: number, cy: number, rx: number, ry: number, fill: string): void {
+    this.c.fillStyle = fill;
+    this.c.beginPath();
+    this.c.ellipse(this.x(cx), this.y(cy), Math.max(0.5, rx * this.sx), Math.max(0.5, ry * this.sy), 0, 0, Math.PI * 2);
+    this.c.fill();
+  }
+
+  /** A circle in metres (an ellipse in the squeezed slot). */
+  circle(cx: number, cy: number, r: number, fill: string): void {
+    this.ellipse(cx, cy, r, r, fill);
+  }
+
+  line(xa: number, ya: number, xb: number, yb: number, width: number, stroke: string): void {
+    const c = this.c;
+    c.strokeStyle = stroke;
+    c.lineWidth = Math.max(1, width * this.sy);
+    c.beginPath();
+    c.moveTo(this.x(xa), this.y(ya));
+    c.lineTo(this.x(xb), this.y(yb));
+    c.stroke();
+  }
+
+  /** Radial glow (for lamps on the emissive canvas). */
+  glow(cx: number, cy: number, r: number, color: string): void {
+    const c = this.c;
+    c.save();
+    c.translate(this.x(cx), this.y(cy));
+    c.scale(this.sx / this.sy, 1);
+    const g = c.createRadialGradient(0, 0, 0, 0, 0, r * this.sy);
+    g.addColorStop(0, color);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g;
+    c.fillRect(-r * this.sy, -r * this.sy, 2 * r * this.sy, 2 * r * this.sy);
+    c.restore();
+  }
+
+  /** Text centred at (cx, cy), `h` metres tall, shrunk to fit `maxW` metres. */
+  text(t: string, cx: number, cy: number, h: number, font: string, fill: string, maxW: number, weight = '400', blur = 0, blurColor = fill): void {
+    const c = this.c;
+    const squeeze = this.sx / this.sy;
+    let size = h * this.sy;
+    c.save();
+    c.font = `${weight} ${size}px ${font}`;
+    while (c.measureText(t).width * squeeze > maxW * this.sx && size > 6) {
+      size *= 0.92;
+      c.font = `${weight} ${size}px ${font}`;
+    }
+    c.translate(this.x(cx), this.y(cy));
+    c.scale(squeeze, 1);
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillStyle = fill;
+    if (blur > 0) {
+      c.shadowColor = blurColor;
+      c.shadowBlur = blur;
+    }
+    c.fillText(t, 0, 0);
+    c.restore();
+  }
+
+  /** Small random specks for weathering (cheap stand-in for per-pixel noise). */
+  speckle(x: number, y: number, w: number, h: number, rng: Rng, n: number, dark: string, light: string): void {
+    for (let i = 0; i < n; i++) {
+      this.c.fillStyle = rng.chance(0.5) ? dark : light;
+      this.c.fillRect(this.x(x + rng.next() * w), this.y(y + rng.next() * h), rng.range(1, 3), rng.range(1, 2));
+    }
+  }
+}
+
+/** A colour painter and an emissive painter over the same slot. */
+interface Pair {
+  m: Painter;
+  e: Painter;
+  rng: Rng;
+}
+
+interface ShopDesign extends ShopFront {
+  board: string;
+  letters: string;
+  neon: string;
+  trim: string;
+  interior: string;
+  light: string;
+  doorLeft: boolean;
+  grille?: boolean;
+  /** Fraction of the display window covered by a lowered roll shutter. */
+  shutter?: number;
+  goods: (p: Pair, x: number, y: number, w: number, h: number) => void;
+}
+
+const SHOP_DESIGNS: ShopDesign[] = [
+  {
+    name: 'DONUTS', tag: 'HOLEY MOLY', awning: 0xe85a9a, beach: false,
+    board: '#f6d3e4', letters: '#d62f7a', neon: '#ff5fb0', trim: '#7a3b52', interior: '#f3e2d2', light: '#ffe4c4', doorLeft: true,
+    goods: ({ m, e }, x, y, w, h) => {
+      for (let row = 0; row < 2; row++) {
+        const sy = y + h * (0.55 + row * 0.22);
+        m.rect(x + 0.1, sy + 0.12, w - 0.2, 0.05, '#b8a493');
+        for (let k = 0; k < 9; k++) {
+          const cx = x + 0.35 + ((w - 0.7) * k) / 8;
+          m.circle(cx, sy, 0.13, '#c98a4b');
+          m.circle(cx, sy - 0.02, 0.1, ['#ff8fc4', '#5b3420', '#fff4e6', '#ffd35c'][(k + row) % 4]!);
+          m.circle(cx, sy - 0.01, 0.035, '#f3e2d2');
+          e.circle(cx, sy, 0.13, '#3a2a20');
+        }
+      }
+      m.circle(x + w - 0.6, y + 0.55, 0.38, '#ff5fb0');
+      m.circle(x + w - 0.6, y + 0.55, 0.15, '#f3e2d2');
+      e.circle(x + w - 0.6, y + 0.55, 0.38, '#ff5fb0');
+      e.circle(x + w - 0.6, y + 0.55, 0.15, '#000');
+    },
+  },
+  {
+    name: 'PAWN', tag: 'CASH 4 YOUR STUFF', awning: -1, beach: false,
+    board: '#20352a', letters: '#f2c94c', neon: '#ffd75e', trim: '#2b2b2b', interior: '#cfc6ae', light: '#fff0c8', doorLeft: false, grille: true,
+    goods: ({ m, e }, x, y, w, h) => {
+      for (let k = 0; k < 3; k++) {
+        const gx = x + 0.5 + k * 0.75;
+        m.rect(gx - 0.03, y + 0.35, 0.06, 0.9, '#5a3a22');
+        m.ellipse(gx, y + 1.35, 0.22, 0.26, ['#b5651d', '#1f1f1f', '#c0392b'][k]!);
+        e.ellipse(gx, y + 1.35, 0.22, 0.26, '#201810');
+      }
+      m.rect(x + w - 1.5, y + 0.4, 1.1, 0.75, '#222');
+      m.rect(x + w - 1.42, y + 0.47, 0.94, 0.6, '#3d5a73');
+      e.rect(x + w - 1.42, y + 0.47, 0.94, 0.6, '#6f8fb0');
+      m.rect(x + 0.2, y + h - 0.55, w - 0.4, 0.4, '#3b2f25');
+      for (let k = 0; k < 14; k++) m.circle(x + 0.4 + k * ((w - 0.8) / 13), y + h - 0.42, 0.04, '#f6e27a');
+      m.rect(x + 0.25, y + h - 1.0, w * 0.45, 0.06, '#444');
+      m.rect(x + 0.35, y + h - 1.1, w * 0.4, 0.05, '#555');
+    },
+  },
+  {
+    name: 'LAUNDROMAT', tag: 'SPIN CITY', awning: 0x3c7fd6, beach: false,
+    board: '#e9f3ff', letters: '#1f5fbf', neon: '#6fb4ff', trim: '#30475e', interior: '#e8f0f4', light: '#e6f4ff', doorLeft: true,
+    goods: ({ m, e }, x, y, w, h) => {
+      const n = 4;
+      for (let row = 0; row < 2; row++) {
+        for (let k = 0; k < n; k++) {
+          const bx = x + 0.25 + k * ((w - 0.5) / n);
+          const by = y + h * 0.38 + row * 0.82;
+          const bw = (w - 0.5) / n - 0.1;
+          m.rect(bx, by, bw, 0.72, '#f7f7f5');
+          m.rect(bx, by, bw, 0.12, '#cfd6dc');
+          m.circle(bx + bw / 2, by + 0.43, 0.22, '#5c6b78');
+          m.circle(bx + bw / 2, by + 0.43, 0.16, '#9ec3dd');
+          e.rect(bx, by, bw, 0.72, '#2a3036');
+        }
+      }
+    },
+  },
+  {
+    name: 'TACOS', tag: "TACO 'BOUT IT", awning: 0xf28c28, beach: true,
+    board: '#ffd23f', letters: '#c0392b', neon: '#ff7a2f', trim: '#7b2d12', interior: '#f4d6a6', light: '#ffd29a', doorLeft: false,
+    goods: ({ m, e }, x, y, w, h) => {
+      m.rect(x + 0.3, y + 0.25, w * 0.55, 0.9, '#2b2b2b');
+      for (let k = 0; k < 5; k++) m.rect(x + 0.42, y + 0.38 + k * 0.15, w * 0.35, 0.05, '#f2f2f2');
+      e.rect(x + 0.3, y + 0.25, w * 0.55, 0.9, '#5a4a3a');
+      m.ellipse(x + w - 0.85, y + 0.7, 0.45, 0.28, '#f2c14e');
+      m.ellipse(x + w - 0.85, y + 0.62, 0.36, 0.12, '#58a83c');
+      m.ellipse(x + w - 0.85, y + 0.58, 0.25, 0.07, '#d64534');
+      e.ellipse(x + w - 0.85, y + 0.7, 0.45, 0.28, '#ffb347');
+      for (let k = 0; k < 10; k++) {
+        const lx = x + 0.2 + k * ((w - 0.4) / 9);
+        m.circle(lx, y + 0.1, 0.04, ['#ff4136', '#2ecc40', '#ffdc00'][k % 3]!);
+        e.circle(lx, y + 0.1, 0.05, ['#ff4136', '#2ecc40', '#ffdc00'][k % 3]!);
+      }
+      m.rect(x + 0.1, y + h - 0.65, w - 0.2, 0.5, '#8e5a2b');
+    },
+  },
+  {
+    name: 'BAIL BONDS', tag: 'OUT BY LUNCH  24/7', awning: -1, beach: false,
+    board: '#b3201e', letters: '#ffffff', neon: '#ff3b3b', trim: '#3a3a3a', interior: '#d9d4c7', light: '#fff2d6', doorLeft: true, shutter: 0.3,
+    goods: ({ m, e }, x, y, w, h) => {
+      for (let k = 0; k < 9; k++) m.rect(x + 0.05, y + h * 0.35 + k * 0.17, w - 0.1, 0.06, '#c9c2b0');
+      m.rect(x + w * 0.18, y + h * 0.45, w * 0.64, 0.75, '#fff');
+      m.text('24/7', x + w * 0.5, y + h * 0.45 + 0.27, 0.32, ANTON, '#b3201e', w * 0.55);
+      m.text('FREE CALL', x + w * 0.5, y + h * 0.45 + 0.58, 0.16, RAJDHANI, '#222', w * 0.55, '700');
+      e.text('24/7', x + w * 0.5, y + h * 0.45 + 0.27, 0.32, ANTON, '#ff4444', w * 0.55, '400', 8);
+    },
+  },
+  {
+    name: 'SURF SHOP', tag: 'WIPEOUT', awning: 0x19a7a0, beach: true,
+    board: '#e6fbf8', letters: '#0f7d78', neon: '#38e1d2', trim: '#2a6f73', interior: '#f6efe0', light: '#fff4dc', doorLeft: false,
+    goods: ({ m, e }, x, y, w, h) => {
+      const cols = ['#ff6b6b', '#ffd93d', '#4d96ff', '#6bcb77', '#ff9f45', '#c77dff'];
+      for (let k = 0; k < 6; k++) {
+        const bx = x + 0.35 + k * ((w - 0.7) / 5);
+        m.ellipse(bx, y + h * 0.55, 0.16, h * 0.42, cols[k]!);
+        m.rect(bx - 0.015, y + h * 0.18, 0.03, h * 0.74, '#ffffff');
+        e.ellipse(bx, y + h * 0.55, 0.16, h * 0.42, '#3a3020');
+      }
+    },
+  },
+  {
+    name: 'ARCADE', tag: 'INSERT COIN', awning: -1, beach: true,
+    board: '#1b0f33', letters: '#ff4fd8', neon: '#ff4fd8', trim: '#2a1b4a', interior: '#20163a', light: '#7f5cff', doorLeft: true,
+    goods: ({ m, e }, x, y, w, h) => {
+      for (let k = 0; k < 4; k++) {
+        const cx = x + 0.3 + k * ((w - 0.6) / 4);
+        const cw = (w - 0.6) / 4 - 0.15;
+        m.rect(cx, y + h * 0.3, cw, h * 0.7, '#111');
+        const scr = ['#3cf', '#f3c', '#ff3', '#3f6'][k]!;
+        m.rect(cx + 0.06, y + h * 0.35, cw - 0.12, h * 0.22, scr);
+        e.rect(cx + 0.06, y + h * 0.35, cw - 0.12, h * 0.22, scr);
+        m.rect(cx, y + h * 0.3, cw, 0.08, '#ff4fd8');
+        e.rect(cx, y + h * 0.3, cw, 0.08, '#ff4fd8');
+      }
+    },
+  },
+  {
+    name: 'LIQUOR', tag: 'LIQUID COURAGE', awning: -1, beach: false,
+    board: '#1f1f1f', letters: '#ff3b30', neon: '#ff3b30', trim: '#4b1e1e', interior: '#e6dcc5', light: '#fff0cc', doorLeft: false, grille: true,
+    goods: ({ m, e }, x, y, w, h) => {
+      for (let row = 0; row < 4; row++) {
+        const sy = y + 0.3 + row * (h * 0.22);
+        m.rect(x + 0.1, sy + 0.42, w - 0.2, 0.05, '#7a6650');
+        for (let k = 0; k < 16; k++) {
+          const bx = x + 0.2 + k * ((w - 0.4) / 16);
+          const col = ['#3b6e2f', '#7a4a1f', '#c9d6df', '#5a1f2c', '#d9a441'][(k * 3 + row) % 5]!;
+          m.rect(bx, sy + 0.08, 0.1, 0.34, col);
+          m.rect(bx + 0.03, sy, 0.04, 0.1, col);
+          e.rect(bx, sy + 0.08, 0.1, 0.34, '#2a2018');
+        }
+      }
+      m.text('COLD BEER', x + w * 0.5, y + h - 0.35, 0.22, ANTON, '#4dd2ff', w * 0.6);
+      e.text('COLD BEER', x + w * 0.5, y + h - 0.35, 0.22, ANTON, '#4dd2ff', w * 0.6, '400', 6);
+    },
+  },
+  {
+    name: 'PHARMACY', tag: 'SIDE EFFECTS MAY VARY', awning: -1, beach: false,
+    board: '#ffffff', letters: '#1b8a3a', neon: '#2ee66b', trim: '#1b5e3a', interior: '#f2f5f2', light: '#f2fff4', doorLeft: true,
+    goods: ({ m, e }, x, y, w, h) => {
+      for (let row = 0; row < 3; row++) {
+        const sy = y + h * 0.42 + row * (h * 0.18);
+        m.rect(x + 0.1, sy + 0.32, w - 0.2, 0.04, '#bbb');
+        for (let k = 0; k < 12; k++) m.rect(x + 0.2 + k * ((w - 0.4) / 12), sy + 0.08, 0.2, 0.24, ['#e74c3c', '#3498db', '#f1c40f', '#ecf0f1', '#9b59b6'][(k + row) % 5]!);
+      }
+      const cx = x + w - 0.7;
+      const cy = y + 0.6;
+      m.rect(cx - 0.35, cy - 0.12, 0.7, 0.24, '#2ee66b');
+      m.rect(cx - 0.12, cy - 0.35, 0.24, 0.7, '#2ee66b');
+      e.rect(cx - 0.35, cy - 0.12, 0.7, 0.24, '#2ee66b');
+      e.rect(cx - 0.12, cy - 0.35, 0.24, 0.7, '#2ee66b');
+    },
+  },
+  {
+    name: 'NAILS', tag: 'NAILED IT', awning: 0xc85fa5, beach: false,
+    board: '#2d1630', letters: '#ff8ad8', neon: '#ff8ad8', trim: '#5a2d5c', interior: '#fbe3ef', light: '#ffe3f2', doorLeft: false,
+    goods: ({ m, e }, x, y, w, h) => {
+      for (let k = 0; k < 3; k++) {
+        const tx = x + 0.3 + k * ((w - 0.6) / 3);
+        m.rect(tx, y + h * 0.7, (w - 0.6) / 3 - 0.2, 0.08, '#fff');
+        m.rect(tx + 0.1, y + h * 0.78, 0.06, h * 0.22, '#ccc');
+        m.ellipse(tx + 0.4, y + h * 0.6, 0.18, 0.22, '#7b4a8c');
+      }
+      for (let k = 0; k < 18; k++) m.rect(x + 0.25 + k * ((w - 0.5) / 18), y + 0.35, 0.07, 0.18, ['#ff3b6b', '#c00', '#f9c', '#a0f', '#f60', '#09c'][k % 6]!);
+      m.text('OPEN', x + w * 0.7, y + 0.85, 0.28, ANTON, '#ff4fd8', w * 0.4);
+      e.text('OPEN', x + w * 0.7, y + 0.85, 0.28, ANTON, '#ff4fd8', w * 0.4, '400', 8);
+    },
+  },
+  {
+    name: 'CAFE', tag: 'BEAN THERE', awning: 0x6b3f2a, beach: true,
+    board: '#3e2a1f', letters: '#f3e3c3', neon: '#ffd9a0', trim: '#2b1d15', interior: '#e9d8bd', light: '#ffd9a8', doorLeft: true,
+    goods: ({ m, e }, x, y, w, h) => {
+      for (let k = 0; k < 2; k++) {
+        const tx = x + 0.6 + k * (w * 0.45);
+        m.ellipse(tx, y + h * 0.66, 0.42, 0.06, '#5a3a24');
+        m.rect(tx - 0.03, y + h * 0.66, 0.06, h * 0.32, '#3a2a1f');
+        m.rect(tx - 0.55, y + h * 0.6, 0.12, h * 0.38, '#7a5a3a');
+        m.rect(tx + 0.43, y + h * 0.6, 0.12, h * 0.38, '#7a5a3a');
+        m.circle(tx, y + h * 0.62, 0.06, '#fff');
+      }
+      m.ellipse(x + w - 0.75, y + 0.65, 0.3, 0.32, '#f3e3c3');
+      m.rect(x + w - 1.0, y + 0.45, 0.5, 0.4, '#f3e3c3');
+      m.ellipse(x + w - 0.42, y + 0.62, 0.1, 0.12, '#f3e3c3');
+      e.rect(x + w - 1.0, y + 0.45, 0.5, 0.4, '#ffcf8a');
+      for (let k = 0; k < 5; k++) {
+        m.circle(x + 0.4 + k * 0.32, y + 0.25, 0.07, '#fff6dd');
+        e.circle(x + 0.4 + k * 0.32, y + 0.25, 0.09, '#fff1c6');
+      }
+    },
+  },
+  {
+    name: 'PIZZA', tag: 'SLICE SLICE BABY', awning: 0x2f9e44, beach: true,
+    board: '#ffffff', letters: '#c92a2a', neon: '#ff4d4d', trim: '#2f6b3a', interior: '#f1dcc0', light: '#ffc98a', doorLeft: false,
+    goods: ({ m, e }, x, y, w, h) => {
+      m.rect(x + 0.25, y + h * 0.3, w * 0.45, h * 0.5, '#8b3a2a');
+      m.ellipse(x + 0.25 + w * 0.225, y + h * 0.62, w * 0.16, h * 0.14, '#1a0d08');
+      m.ellipse(x + 0.25 + w * 0.225, y + h * 0.66, w * 0.12, h * 0.08, '#ff7b22');
+      e.ellipse(x + 0.25 + w * 0.225, y + h * 0.66, w * 0.14, h * 0.1, '#ff6a00');
+      for (let k = 0; k < 3; k++) {
+        const px = x + w * 0.62 + k * 0.42;
+        m.circle(px, y + h * 0.82, 0.18, '#e8a33d');
+        m.circle(px, y + h * 0.82, 0.15, '#d9480f');
+        m.circle(px + 0.04, y + h * 0.8, 0.03, '#ffe066');
+      }
+      m.text('BY THE SLICE', x + w * 0.7, y + 0.4, 0.18, ANTON, '#c92a2a', w * 0.5);
+      e.text('BY THE SLICE', x + w * 0.7, y + 0.4, 0.18, ANTON, '#ff6b6b', w * 0.5, '400', 6);
+    },
+  },
+  {
+    name: 'VINYL', tag: 'WAX POETIC', awning: -1, beach: false,
+    board: '#111111', letters: '#ff9f1c', neon: '#ff9f1c', trim: '#222', interior: '#d8cfc2', light: '#ffe2b8', doorLeft: true,
+    goods: ({ m, e }, x, y, w, h) => {
+      const cols = ['#e63946', '#457b9d', '#f4a261', '#2a9d8f', '#e9c46a', '#8d5bd1'];
+      for (let row = 0; row < 2; row++) {
+        for (let k = 0; k < 4; k++) {
+          const sx = x + 0.3 + k * ((w - 0.6) / 4);
+          const s = (w - 0.6) / 4 - 0.15;
+          const sy = y + 0.35 + row * (h * 0.36);
+          m.rect(sx, sy, s, s * 0.9, cols[(k + row * 2) % 6]!);
+          m.circle(sx + s * 0.62, sy + s * 0.45, s * 0.32, '#111');
+          m.circle(sx + s * 0.62, sy + s * 0.45, s * 0.1, '#f1faee');
+          e.rect(sx, sy, s, s * 0.9, '#2a2420');
+        }
+      }
+    },
+  },
+  {
+    name: 'PHONES', tag: 'BURNER BROS', awning: -1, beach: false,
+    board: '#0f2b5b', letters: '#ffffff', neon: '#4dc3ff', trim: '#14213d', interior: '#eef2f7', light: '#eaf4ff', doorLeft: false,
+    goods: ({ m, e }, x, y, w, h) => {
+      m.rect(x + 0.15, y + h * 0.72, w - 0.3, 0.1, '#ccd');
+      for (let k = 0; k < 8; k++) {
+        const px = x + 0.3 + k * ((w - 0.6) / 8);
+        m.rect(px, y + h * 0.5, 0.22, 0.4, '#1c1c1c');
+        m.rect(px + 0.02, y + h * 0.5 + 0.03, 0.18, 0.32, ['#4dc3ff', '#9b5de5', '#00f5d4', '#fee440'][k % 4]!);
+        e.rect(px + 0.02, y + h * 0.5 + 0.03, 0.18, 0.32, ['#4dc3ff', '#9b5de5', '#00f5d4', '#fee440'][k % 4]!);
+      }
+      m.rect(x + 0.4, y + 0.3, w * 0.5, 0.7, '#0f2b5b');
+      m.text('UNLOCKED', x + 0.4 + w * 0.25, y + 0.55, 0.2, ANTON, '#fff', w * 0.45);
+      m.text('NO QUESTIONS', x + 0.4 + w * 0.25, y + 0.82, 0.12, RAJDHANI, '#4dc3ff', w * 0.45, '700');
+    },
+  },
+  {
+    name: 'TATTOO', tag: 'REGRET INK', awning: -1, beach: true,
+    board: '#151515', letters: '#e5383b', neon: '#e5383b', trim: '#3d0c11', interior: '#cfc3b5', light: '#ffd7c2', doorLeft: true, shutter: 0.18,
+    goods: ({ m, e }, x, y, w, h) => {
+      for (let k = 0; k < 6; k++) {
+        const fx = x + 0.3 + (k % 3) * ((w - 0.6) / 3);
+        const fy = y + h * 0.35 + Math.floor(k / 3) * (h * 0.3);
+        const s = (w - 0.6) / 3 - 0.2;
+        m.rect(fx, fy, s, h * 0.24, '#f5efe6');
+        m.circle(fx + s * 0.5, fy + h * 0.1, s * 0.22, ['#e5383b', '#1d3557', '#2a9d8f'][k % 3]!);
+        m.rect(fx + s * 0.2, fy + h * 0.17, s * 0.6, 0.05, '#222');
+      }
+      m.text('OPEN', x + w * 0.5, y + h - 0.3, 0.24, ANTON, '#e5383b', w * 0.4);
+      e.text('OPEN', x + w * 0.5, y + h - 0.3, 0.24, ANTON, '#ff3b3b', w * 0.4, '400', 8);
+    },
+  },
+  {
+    name: 'DELI', tag: 'HERO WORSHIP', awning: 0x1e7b46, beach: false,
+    board: '#f4f1e8', letters: '#1e5631', neon: '#5adf8a', trim: '#1e5631', interior: '#f3ead8', light: '#fff1d6', doorLeft: false,
+    goods: ({ m, e }, x, y, w, h) => {
+      for (let k = 0; k < 7; k++) {
+        const sx = x + 0.4 + k * ((w - 0.8) / 6);
+        m.line(sx, y + 0.1, sx, y + 0.35, 0.02, '#555');
+        m.ellipse(sx, y + 0.6, 0.09, 0.26, k % 2 ? '#8b2e1f' : '#a0522d');
+        e.ellipse(sx, y + 0.6, 0.09, 0.26, '#201510');
+      }
+      m.rect(x + 0.1, y + h * 0.62, w - 0.2, h * 0.38, '#fafafa');
+      m.rect(x + 0.2, y + h * 0.66, w - 0.4, h * 0.14, '#cfe8f3');
+      for (let k = 0; k < 6; k++) m.circle(x + 0.5 + k * ((w - 1) / 5), y + h * 0.73, 0.12, ['#f6c343', '#d1495b', '#edae49', '#f2e8cf'][k % 4]!);
+    },
+  },
+];
+
+export const SHOPS: readonly ShopFront[] = SHOP_DESIGNS.map(({ name, tag, awning, beach }) => ({ name, tag, awning, beach }));
+
+function drawShop(p: Pair, d: ShopDesign): void {
+  const { m, e } = p;
+  const W = CELL_DESIGN.shop.w;
+  const H = CELL_DESIGN.shop.h;
+  // Piers, cornice and fascia board.
+  m.rect(0, 0, W, H, d.trim);
+  m.rect(0, 0, W, 0.1, '#2a2a2a');
+  m.rect(0.12, 0.1, W - 0.24, 0.85, d.board);
+  m.rect(0.12, 0.1, W - 0.24, 0.04, 'rgba(255,255,255,0.25)');
+  m.rect(0.12, 0.91, W - 0.24, 0.04, 'rgba(0,0,0,0.25)');
+  m.text(d.name, W / 2, 0.45, 0.5, ANTON, d.letters, W - 0.9);
+  m.text(d.tag, W / 2, 0.8, 0.15, RAJDHANI, d.letters, W - 1.2, '700');
+  e.text(d.name, W / 2, 0.45, 0.5, ANTON, d.neon, W - 0.9, '400', 10, d.neon);
+  e.text(d.tag, W / 2, 0.8, 0.15, RAJDHANI, d.neon, W - 1.2, '700');
+  // Door and display window.
+  const doorX = d.doorLeft ? 0.5 : W - 1.5;
+  const winX = d.doorLeft ? 1.75 : 0.45;
+  const winW = W - 2.2;
+  const winY = SHOP_AWNING_TOP + 0.15;
+  const winH = 2.55;
+  // Interior seen through the glass, then the goods, then reflections.
+  m.vgrad(winX, winY, winW, winH, [
+    [0, '#f8f4ea'],
+    [0.12, d.interior],
+    [1, d.interior],
+  ]);
+  e.vgrad(winX, winY, winW, winH, [
+    [0, d.light],
+    [0.15, d.light],
+    [1, '#4a4038'],
+  ]);
+  d.goods(p, winX, winY, winW, winH);
+  m.rect(winX + winW / 2 - 0.04, winY, 0.08, winH, d.trim);
+  e.rect(winX + winW / 2 - 0.04, winY, 0.08, winH, '#000');
+  // Bulkhead under the window.
+  m.rect(winX - 0.05, winY + winH, winW + 0.1, H - winY - winH, '#2f2f33');
+  m.rect(winX - 0.05, winY + winH, winW + 0.1, 0.06, '#55555c');
+  // Door: glass with a frame and a transom.
+  m.rect(doorX, winY, 1.0, 0.55, '#1e2a33');
+  e.rect(doorX + 0.06, winY + 0.06, 0.88, 0.43, d.light);
+  m.rect(doorX + 0.06, winY + 0.06, 0.88, 0.43, '#6d8597');
+  const dy = winY + 0.6;
+  m.rect(doorX, dy, 1.0, H - dy - 0.04, '#1e2a33');
+  m.vgrad(doorX + 0.09, dy + 0.08, 0.82, H - dy - 0.3, [
+    [0, '#9fb3c2'],
+    [1, '#4f6271'],
+  ]);
+  e.vgrad(doorX + 0.09, dy + 0.08, 0.82, H - dy - 0.3, [
+    [0, d.light],
+    [1, '#3a3530'],
+  ]);
+  m.rect(doorX + 0.12, dy + 1.1, 0.76, 0.05, '#c8c8c8');
+  m.rect(doorX + (d.doorLeft ? 0.78 : 0.12), dy + 1.0, 0.06, 0.3, '#ddd');
+  // Glass reflections (daytime only: the colour map).
+  for (const [gx, gw] of [
+    [winX, winW],
+    [doorX + 0.09, 0.82],
+  ] as const) {
+    const c = m.c;
+    c.fillStyle = 'rgba(255,255,255,0.13)';
+    c.beginPath();
+    c.moveTo(m.x(gx + gw * 0.1), m.y(winY));
+    c.lineTo(m.x(gx + gw * 0.42), m.y(winY));
+    c.lineTo(m.x(gx + gw * 0.18), m.y(winY + winH));
+    c.lineTo(m.x(gx), m.y(winY + winH));
+    c.closePath();
+    c.fill();
+  }
+  if (d.shutter) {
+    const sh = winH * d.shutter;
+    for (let y = 0; y < sh; y += 0.09) m.rect(winX, winY + y, winW, 0.05, '#9aa1a8');
+    m.rect(winX, winY, winW, sh, 'rgba(110,116,122,0.45)');
+    m.rect(winX - 0.05, winY + sh - 0.06, winW + 0.1, 0.08, '#555b61');
+    e.rect(winX, winY, winW, sh, '#000');
+  }
+  if (d.grille) {
+    for (let x = winX + 0.1; x < winX + winW; x += 0.18) {
+      m.rect(x, winY, 0.035, winH, '#3a3a3a');
+      e.rect(x, winY, 0.035, winH, '#000');
+    }
+    m.rect(winX, winY + winH * 0.33, winW, 0.03, '#3a3a3a');
+    m.rect(winX, winY + winH * 0.66, winW, 0.03, '#3a3a3a');
+  }
+  m.speckle(0, 1.0, W, H - 1.0, p.rng, 260, 'rgba(0,0,0,0.12)', 'rgba(255,255,255,0.07)');
+  // Threshold.
+  m.rect(0, H - 0.05, W, 0.05, '#4b4b4b');
+}
+
+function lobbyBase(p: Pair, wall: string): { W: number; H: number } {
+  const { m, e } = p;
+  const W = CELL_DESIGN.lobby.w;
+  const H = CELL_DESIGN.lobby.h;
+  m.rect(0, 0, W, H, '#2c3138');
+  // Interior behind tinted glass: by day the glass reads mostly by its reflections.
+  m.vgrad(0.15, 0.4, W - 0.3, H - 0.45, [
+    [0, '#9c978e'],
+    [0.12, wall],
+    [0.85, '#6f6a62'],
+    [1, '#55524d'],
+  ]);
+  // A softly lit interior: bright downlights, the walls in their warm spill.
+  e.vgrad(0.15, 0.4, W - 0.3, H - 0.45, [
+    [0, '#6a5c46'],
+    [0.3, '#3a332a'],
+    [0.85, '#211e1a'],
+    [1, '#100f0d'],
+  ]);
+  for (let k = 0; k < 4; k++) {
+    const lx = 0.5 + k * ((W - 1) / 3);
+    m.rect(lx - 0.35, 0.45, 0.7, 0.08, '#fffbe8');
+    e.rect(lx - 0.35, 0.45, 0.7, 0.08, '#ffffff');
+    e.glow(lx, 0.7, 0.8, 'rgba(255,236,200,0.3)');
+  }
+  // Head band.
+  m.rect(0, 0, W, 0.38, '#3a4048');
+  m.rect(0, 0.34, W, 0.04, '#5b636d');
+  return { W, H };
+}
+
+function lobbyMullions(p: Pair, W: number, H: number): void {
+  const { m, e } = p;
+  for (const x of [0.15, 1.7, W - 1.7, W - 0.15]) {
+    m.rect(x - 0.05, 0.38, 0.1, H - 0.38, '#2c3138');
+    e.rect(x - 0.05, 0.38, 0.1, H - 0.38, '#000');
+  }
+  m.rect(0, 3.15, W, 0.07, '#2c3138');
+  e.rect(0, 3.15, W, 0.07, '#000');
+  // Sky reflection on the glass.
+  const c = m.c;
+  c.fillStyle = 'rgba(200,225,255,0.16)';
+  c.beginPath();
+  c.moveTo(m.x(0.3), m.y(0.4));
+  c.lineTo(m.x(2.6), m.y(0.4));
+  c.lineTo(m.x(0.9), m.y(H));
+  c.lineTo(m.x(0.15), m.y(H));
+  c.closePath();
+  c.fill();
+  m.rect(0, H - 0.08, W, 0.08, '#3d4148');
+}
+
+function plant(p: Pair, x: number, floor: number): void {
+  p.m.rect(x - 0.2, floor - 0.45, 0.4, 0.45, '#5a4636');
+  p.m.circle(x, floor - 0.85, 0.42, '#2f6b35');
+  p.m.circle(x - 0.2, floor - 1.12, 0.26, '#3e8a45');
+  p.m.circle(x + 0.2, floor - 1.08, 0.24, '#357a3d');
+  p.e.circle(x, floor - 0.9, 0.42, '#14140f');
+  p.e.rect(x - 0.2, floor - 0.45, 0.4, 0.45, '#14140f');
+}
+
+function drawLobbyRevolving(p: Pair): void {
+  const { W, H } = lobbyBase(p, '#8f897d');
+  const { m, e } = p;
+  // Reception desk and plants behind the glass.
+  m.rect(4.6, H - 1.2, 1.4, 1.1, '#4a3628');
+  m.rect(4.6, H - 1.25, 1.4, 0.08, '#d8c9a8');
+  e.rect(4.6, H - 1.2, 1.4, 1.1, '#18120e');
+  plant(p, 0.85, H - 0.1);
+  lobbyMullions(p, W, H);
+  // Revolving door drum.
+  const cx = W / 2;
+  m.rect(cx - 1.3, H - 3.05, 2.6, 0.28, '#23272d');
+  m.rect(cx - 1.3, H - 3.05, 2.6, 0.05, '#7d8794');
+  m.vgrad(cx - 1.2, H - 2.77, 2.4, 2.72, [
+    [0, 'rgba(190,210,225,0.55)'],
+    [1, 'rgba(90,105,120,0.55)'],
+  ]);
+  for (const x of [cx - 1.2, cx - 0.55, cx, cx + 0.55, cx + 1.2]) {
+    m.rect(x - 0.035, H - 2.77, 0.07, 2.72, '#2c3138');
+    e.rect(x - 0.035, H - 2.77, 0.07, 2.72, '#000');
+  }
+  m.rect(cx - 1.2, H - 1.5, 2.4, 0.05, '#9aa4ae');
+}
+
+function drawLobbyDoors(p: Pair): void {
+  const { W, H } = lobbyBase(p, '#8b8579');
+  const { m, e } = p;
+  plant(p, 0.9, H - 0.1);
+  plant(p, W - 0.9, H - 0.1);
+  m.rect(2.6, H - 2.3, 1.3, 0.45, '#3a2f28');
+  lobbyMullions(p, W, H);
+  // Stone surround with double glass doors.
+  const cx = W / 2;
+  m.rect(cx - 1.25, H - 3.1, 2.5, 3.1, '#bdb6aa');
+  m.rect(cx - 1.25, H - 3.1, 2.5, 0.1, '#d8d2c6');
+  m.rect(cx - 0.95, H - 2.8, 1.9, 2.8, '#1e2329');
+  for (const x of [cx - 0.9, cx + 0.03]) {
+    m.vgrad(x, H - 2.72, 0.87, 2.64, [
+      [0, '#a9bccb'],
+      [1, '#56697a'],
+    ]);
+    e.vgrad(x, H - 2.72, 0.87, 2.64, [
+      [0, '#ffe9c4'],
+      [1, '#5a5040'],
+    ]);
+    m.rect(x + 0.1, H - 1.45, 0.67, 0.05, '#c9cfd4');
+  }
+  m.text('1200', cx, H - 2.95, 0.12, RAJDHANI, '#2a2a2a', 1.2, '700');
+}
+
+function drawLobbyGlass(p: Pair): void {
+  const { W, H } = lobbyBase(p, '#8d877d');
+  const { m, e } = p;
+  // A quiet stretch of lobby: slatted back wall, a low bench and one plant (mirrored on alternate quads).
+  for (let x = 0.5; x < W - 0.3; x += 0.32) m.rect(x, 1.2, 0.05, H - 2.1, 'rgba(120,96,70,0.18)');
+  m.rect(1.4, H - 0.85, 2.6, 0.32, '#3d3a36');
+  m.rect(1.55, H - 0.53, 0.12, 0.45, '#2a2724');
+  m.rect(3.73, H - 0.53, 0.12, 0.45, '#2a2724');
+  e.rect(1.4, H - 0.85, 2.6, 0.75, '#141210');
+  plant(p, W - 1.1, H - 0.1);
+  lobbyMullions(p, W, H);
+}
+
+function drawBank(p: Pair): void {
+  const { m, e, rng } = p;
+  const W = CELL_DESIGN.lobby.w;
+  const H = CELL_DESIGN.lobby.h;
+  m.rect(0, 0, W, H, '#d6ccb7');
+  for (let y = 0.9; y < H; y += 0.5) m.rect(0, y, W, 0.035, '#b3a990');
+  m.speckle(0, 0, W, H, rng, 400, 'rgba(90,80,60,0.15)', 'rgba(255,255,255,0.12)');
+  // Entablature with dentils.
+  m.rect(0, 0, W, 0.85, '#e4dbc8');
+  m.rect(0, 0.78, W, 0.07, '#a89e86');
+  for (let x = 0.1; x < W; x += 0.28) m.rect(x, 0.62, 0.14, 0.14, '#c9bfa8');
+  // Pilasters.
+  for (const x of [0.35, W - 1.0]) {
+    m.rect(x, 0.85, 0.65, H - 0.85, '#e7dfcd');
+    m.rect(x - 0.08, 0.85, 0.81, 0.28, '#d2c8b2');
+    m.rect(x - 0.08, H - 0.45, 0.81, 0.45, '#cfc5ae');
+    for (let k = 1; k < 4; k++) m.rect(x + k * 0.16, 1.2, 0.03, H - 1.7, '#cdc3ad');
+  }
+  // Recessed entrance: transom and bronze doors.
+  m.rect(1.55, 1.35, W - 3.1, H - 1.35, '#5b5346');
+  m.rect(1.8, 1.55, W - 3.6, 1.05, '#2a2f35');
+  m.vgrad(1.88, 1.62, W - 3.76, 0.9, [
+    [0, '#c4d3dc'],
+    [1, '#6f8291'],
+  ]);
+  e.rect(1.88, 1.62, W - 3.76, 0.9, '#ffe2a8');
+  for (let k = 1; k < 4; k++) m.rect(1.88 + (k * (W - 3.76)) / 4, 1.62, 0.04, 0.9, '#2a2f35');
+  const dTop = 2.8;
+  m.vgrad(1.85, dTop, W - 3.7, H - dTop, [
+    [0, '#8a6a3a'],
+    [1, '#4e3a1f'],
+  ]);
+  m.rect(W / 2 - 0.03, dTop, 0.06, H - dTop, '#2e2414');
+  for (const x of [1.95, W / 2 + 0.1]) {
+    for (let k = 0; k < 3; k++) m.rect(x, dTop + 0.15 + k * 1.15, W / 2 - 2.05, 0.95, 'rgba(255,220,160,0.12)');
+  }
+  e.rect(1.85, dTop, W - 3.7, H - dTop, '#000');
+  // Lanterns either side of the doors.
+  for (const x of [1.25, W - 1.25]) {
+    m.rect(x - 0.12, 3.0, 0.24, 0.42, '#2d2a24');
+    m.rect(x - 0.09, 3.05, 0.18, 0.3, '#fff2c4');
+    e.rect(x - 0.09, 3.05, 0.18, 0.3, '#ffffff');
+    e.glow(x, 3.2, 0.9, 'rgba(255,220,160,0.55)');
+  }
+  m.rect(0, H - 0.12, W, 0.12, '#b8ae98');
+}
+
+function drawRollup(p: Pair): void {
+  const { m, e, rng } = p;
+  const W = CELL_DESIGN.rollup.w;
+  const H = CELL_DESIGN.rollup.h;
+  m.rect(0, 0, W, H, '#9b9990');
+  m.speckle(0, 0, W, H, rng, 700, 'rgba(40,40,40,0.18)', 'rgba(255,255,255,0.1)');
+  for (let k = 0; k < 6; k++) m.rect(rng.range(0, W), 0, rng.range(0.05, 0.2), rng.range(0.6, 2.2), 'rgba(70,60,50,0.12)');
+  // Roll-up door with its housing, frame and guards.
+  const dx = 0.5;
+  const dw = 4.4;
+  const dt = 0.9;
+  m.rect(dx - 0.15, dt - 0.4, dw + 0.3, 0.4, '#5c6168');
+  m.rect(dx - 0.12, dt, 0.12, H - dt, '#44494f');
+  m.rect(dx + dw, dt, 0.12, H - dt, '#44494f');
+  for (let y = dt; y < H - 0.05; y += 0.11) {
+    m.rect(dx, y, dw, 0.06, '#94a1ae');
+    m.rect(dx, y + 0.06, dw, 0.05, '#7a8693');
+  }
+  m.rect(dx, H - 0.14, dw, 0.1, '#3b3f44');
+  m.rect(dx + dw / 2 - 0.2, H - 0.45, 0.4, 0.06, '#2a2d31');
+  for (const gx of [dx - 0.3, dx + dw + 0.12]) {
+    for (let k = 0; k < 6; k++) m.rect(gx, H - 1.1 + k * 0.18, 0.18, 0.09, k % 2 ? '#1c1c1c' : '#f2c230');
+  }
+  // Personnel door and its lamp.
+  const px = 5.4;
+  m.rect(px - 0.06, H - 2.2, 0.98, 2.2, '#3c4044');
+  m.rect(px, H - 2.14, 0.86, 2.14, '#3e5c4a');
+  m.rect(px + 0.25, H - 1.95, 0.36, 0.32, '#9fb6c4');
+  m.rect(px + 0.68, H - 1.15, 0.08, 0.12, '#c8c8c8');
+  m.rect(px + 0.28, H - 2.75, 0.3, 0.2, '#2c2c2c');
+  m.rect(px + 0.31, H - 2.72, 0.24, 0.12, '#fff6d8');
+  e.rect(px + 0.31, H - 2.72, 0.24, 0.12, '#ffffff');
+  e.glow(px + 0.43, H - 2.4, 1.6, 'rgba(255,214,150,0.55)');
+  e.rect(px + 0.25, H - 1.95, 0.36, 0.32, '#806a48');
+}
+
+function houseWall(p: Pair): { W: number; H: number } {
+  const { m, rng } = p;
+  const W = CELL_DESIGN.house.w;
+  const H = CELL_DESIGN.house.h;
+  // Same base colour as the 'house' facade so the building tint matches above and below.
+  m.rect(0, 0, W, H, '#efe5d6');
+  m.speckle(0, 0, W, H, rng, 500, 'rgba(60,50,40,0.06)', 'rgba(255,255,255,0.08)');
+  m.rect(0, H - HOUSE_SILL, W, HOUSE_SILL, '#a39b8e');
+  m.rect(0, H - HOUSE_SILL, W, 0.04, '#8a8276');
+  return { W, H };
+}
+
+function houseWindow(p: Pair, x: number, w: number, top: number, h: number, curtain: number): void {
+  const { m, e } = p;
+  m.rect(x - 0.42, top - 0.05, 0.36, h + 0.1, '#3f5d4a');
+  m.rect(x + w + 0.06, top - 0.05, 0.36, h + 0.1, '#3f5d4a');
+  for (let k = 0; k < 6; k++) {
+    m.rect(x - 0.38, top + 0.08 + k * (h / 6), 0.28, 0.03, '#2f4a3a');
+    m.rect(x + w + 0.1, top + 0.08 + k * (h / 6), 0.28, 0.03, '#2f4a3a');
+  }
+  m.rect(x - 0.06, top - 0.06, w + 0.12, h + 0.12, '#fbfaf6');
+  m.vgrad(x, top, w, h, [
+    [0, '#8fa9bd'],
+    [1, '#3e5163'],
+  ]);
+  e.vgrad(x, top, w, h, [
+    [0, '#ffe6b8'],
+    [1, '#a8875a'],
+  ]);
+  if (curtain > 0) {
+    m.rect(x, top, w * curtain, h, '#c9a27e');
+    m.rect(x + w * (1 - curtain), top, w * curtain, h, '#c9a27e');
+    e.rect(x, top, w * curtain, h, '#4a3420');
+    e.rect(x + w * (1 - curtain), top, w * curtain, h, '#4a3420');
+  }
+  m.rect(x + w / 2 - 0.03, top, 0.06, h, '#fbfaf6');
+  m.rect(x, top + h / 2 - 0.03, w, 0.06, '#fbfaf6');
+  e.rect(x + w / 2 - 0.03, top, 0.06, h, '#000');
+  e.rect(x, top + h / 2 - 0.03, w, 0.06, '#000');
+  // Flower box.
+  m.rect(x - 0.08, top + h + 0.06, w + 0.16, 0.18, '#7a4e2d');
+  for (let k = 0; k < 8; k++) m.circle(x + (k + 0.5) * (w / 8), top + h + 0.04, 0.06, ['#e63946', '#f4a261', '#e9c46a', '#ff70a6'][k % 4]!);
+}
+
+function houseDoor(p: Pair, cx: number, color: string, sidelights: boolean): void {
+  const { m, e } = p;
+  const H = CELL_DESIGN.house.h;
+  const top = H - HOUSE_SILL - 2.1;
+  m.rect(cx - 0.62, top - 0.12, 1.24, 2.1 + 0.12, '#fbfaf6');
+  if (sidelights) {
+    for (const sx of [cx - 0.78, cx + 0.56]) {
+      m.rect(sx, top, 0.22, 2.1, '#fbfaf6');
+      m.vgrad(sx + 0.04, top + 0.05, 0.14, 2.0, [
+        [0, '#9fb6c8'],
+        [1, '#4b5f70'],
+      ]);
+      e.rect(sx + 0.04, top + 0.05, 0.14, 2.0, '#d9b47a');
+    }
+  }
+  m.rect(cx - 0.5, top, 1.0, 2.1, color);
+  for (let k = 0; k < 3; k++) {
+    m.rect(cx - 0.36 + k * 0.26, top + 0.14, 0.2, 0.3, '#a9c0d0');
+    e.rect(cx - 0.36 + k * 0.26, top + 0.14, 0.2, 0.3, '#ffd99a');
+  }
+  m.rect(cx - 0.38, top + 0.65, 0.76, 0.6, 'rgba(0,0,0,0.12)');
+  m.rect(cx - 0.38, top + 1.35, 0.76, 0.6, 'rgba(0,0,0,0.12)');
+  m.circle(cx + 0.36, top + 1.1, 0.04, '#d4af37');
+}
+
+function porchLamp(p: Pair, x: number): void {
+  const H = CELL_DESIGN.house.h;
+  const y = H - HOUSE_SILL - 1.75;
+  p.m.rect(x - 0.08, y - 0.14, 0.16, 0.3, '#2a2a2a');
+  p.m.rect(x - 0.06, y - 0.1, 0.12, 0.2, '#fff1c4');
+  p.e.rect(x - 0.06, y - 0.1, 0.12, 0.2, '#ffffff');
+  p.e.glow(x, y, 0.7, 'rgba(255,214,150,0.6)');
+}
+
+function drawHouseDoorA(p: Pair): void {
+  const { W } = houseWall(p);
+  const cx = W * (DOOR_U[CELLS.houseDoorA] ?? 0.3);
+  houseDoor(p, cx, '#7a3b2e', false);
+  porchLamp(p, cx + 0.85);
+  houseWindow(p, 3.85, 1.7, 0.75, 1.25, 0.18);
+}
+
+function drawHouseDoorB(p: Pair): void {
+  const { W } = houseWall(p);
+  const cx = W * (DOOR_U[CELLS.houseDoorB] ?? 0.5);
+  houseDoor(p, cx, '#2f4a6b', true);
+  porchLamp(p, cx - 1.0);
+  houseWindow(p, 0.75, 1.2, 0.8, 1.2, 0);
+  houseWindow(p, W - 1.95, 1.2, 0.8, 1.2, 0.22);
+}
+
+function drawHouseWindows(p: Pair): void {
+  const { W } = houseWall(p);
+  houseWindow(p, 0.95, 1.55, 0.75, 1.3, 0.2);
+  houseWindow(p, W - 2.5, 1.55, 0.75, 1.3, 0);
+}
+
+function drawSwatches(m: CanvasRenderingContext2D, e: CanvasRenderingContext2D): void {
+  // Gun shop fascia: a plain dark board under the big BANG BANG GUNS sign.
+  const x = SWATCHES.gunFascia * SWATCH_PX_W;
+  m.fillStyle = '#1c1c22';
+  m.fillRect(x, SWATCH_Y, SWATCH_PX_W, SWATCH_PX_H);
+  m.fillStyle = '#ff8a1f';
+  m.fillRect(x, SWATCH_Y + 5, SWATCH_PX_W, 1);
+  m.fillRect(x, SWATCH_Y + SWATCH_PX_H - 6, SWATCH_PX_W, 1);
+  e.fillStyle = '#ff8a1f';
+  e.fillRect(x, SWATCH_Y + 5, SWATCH_PX_W, 1);
+  e.fillRect(x, SWATCH_Y + SWATCH_PX_H - 6, SWATCH_PX_W, 1);
+}
+
+export interface StorefrontAtlas {
+  map: THREE.Texture;
+  emissive: THREE.Texture;
+}
+
+/** Colour and emissive atlas of every ground-floor frontage. */
+export function storefrontAtlas(): StorefrontAtlas {
+  const [cm, m] = canvas(ATLAS_W, ATLAS_H);
+  const [ce, e] = canvas(ATLAS_W, ATLAS_H);
+  m.fillStyle = '#808080';
+  m.fillRect(0, 0, ATLAS_W, ATLAS_H);
+  e.fillStyle = '#000';
+  e.fillRect(0, 0, ATLAS_W, ATLAS_H);
+  const rng = new Rng(2024);
+  const paint = (cell: number, design: { w: number; h: number }, draw: (p: Pair) => void): void => {
+    const r = cellRect(cell);
+    // Keep every cell's drawing inside its own rectangle, then pad the gutter around it.
+    for (const c of [m, e]) {
+      c.save();
+      c.beginPath();
+      c.rect(r.x, r.y, r.w, r.h);
+      c.clip();
+    }
+    draw({ m: new Painter(m, r.x, r.y, design.w, design.h, r.w, r.h), e: new Painter(e, r.x, r.y, design.w, design.h, r.w, r.h), rng });
+    m.restore();
+    e.restore();
+    extrude(m, cm, r.x, r.y, r.w, r.h, CELL_GUTTER);
+    extrude(e, ce, r.x, r.y, r.w, r.h, CELL_GUTTER);
+  };
+  SHOP_DESIGNS.forEach((d, i) => paint(i, CELL_DESIGN.shop, (p) => drawShop(p, d)));
+  paint(CELLS.lobbyRevolving, CELL_DESIGN.lobby, drawLobbyRevolving);
+  paint(CELLS.lobbyDoors, CELL_DESIGN.lobby, drawLobbyDoors);
+  paint(CELLS.lobbyGlass, CELL_DESIGN.lobby, drawLobbyGlass);
+  paint(CELLS.bank, CELL_DESIGN.lobby, drawBank);
+  paint(CELLS.rollup, CELL_DESIGN.rollup, drawRollup);
+  paint(CELLS.houseDoorA, CELL_DESIGN.house, drawHouseDoorA);
+  paint(CELLS.houseDoorB, CELL_DESIGN.house, drawHouseDoorB);
+  paint(CELLS.houseWindows, CELL_DESIGN.house, drawHouseWindows);
+  drawSwatches(m, e);
+  const map = toTexture(cm, true, false);
+  const emissive = toTexture(ce, true, false);
+  return { map, emissive };
+}
+
+// ---------------------------------------------------------------------------
+// Cloud noise: one tileable channel of gradient noise that the sky shader samples once per
+// octave (a texture fetch is far cheaper than hashing four lattice gradients per octave).
+
+/** Lattice cells across one tile of the cloud noise (each cell is CLOUD_NOISE_SIZE / CLOUD_NOISE_CELLS texels). */
+export const CLOUD_NOISE_CELLS = 16;
+const CLOUD_NOISE_SIZE = 128;
+/** Noise values v (within about ±0.71) are stored as 0.5 + v * CLOUD_NOISE_SCALE. */
+export const CLOUD_NOISE_SCALE = 0.7;
+
+/** The cloud noise texels (row-major, CLOUD_NOISE_SIZE square), deterministic. */
+export function cloudNoiseData(): Uint8Array {
+  const S = CLOUD_NOISE_SIZE;
+  const C = CLOUD_NOISE_CELLS;
+  const rng = new Rng(1717);
+  const gx = new Float64Array(C * C);
+  const gy = new Float64Array(C * C);
+  for (let i = 0; i < C * C; i++) {
+    const a = rng.next() * Math.PI * 2;
+    gx[i] = Math.cos(a);
+    gy[i] = Math.sin(a);
+  }
+  const fade = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
+  const dot = (ix: number, iy: number, fx: number, fy: number) => {
+    const k = (((iy % C) + C) % C) * C + (((ix % C) + C) % C);
+    return gx[k]! * fx + gy[k]! * fy;
+  };
+  const data = new Uint8Array(S * S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      // Texel centres, in lattice units.
+      const u = ((x + 0.5) / S) * C;
+      const v = ((y + 0.5) / S) * C;
+      const ix = Math.floor(u);
+      const iy = Math.floor(v);
+      const fx = u - ix;
+      const fy = v - iy;
+      const a = dot(ix, iy, fx, fy);
+      const b = dot(ix + 1, iy, fx - 1, fy);
+      const c = dot(ix, iy + 1, fx, fy - 1);
+      const d = dot(ix + 1, iy + 1, fx - 1, fy - 1);
+      const sx = fade(fx);
+      const sy = fade(fy);
+      const n = a + (b - a) * sx + (c + (d - c) * sx - (a + (b - a) * sx)) * sy;
+      data[y * S + x] = Math.max(0, Math.min(255, Math.round((0.5 + n * CLOUD_NOISE_SCALE) * 255)));
+    }
+  }
+  return data;
+}
+
+/** The cloud noise as a repeating, mipmapped single-channel texture. */
+export function cloudNoiseTexture(): THREE.DataTexture {
+  const t = new THREE.DataTexture(cloudNoiseData(), CLOUD_NOISE_SIZE, CLOUD_NOISE_SIZE, THREE.RedFormat, THREE.UnsignedByteType);
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.needsUpdate = true;
+  return t;
+}
+
+/**
+ * The sky shader's fbm over the cloud noise, evaluated on the CPU (bilinear, full resolution):
+ * octaves rotated and doubled each step, mean 0.5. Used to calibrate cloud cover.
+ */
+export function cloudFbm(data: Uint8Array, px: number, py: number, octaves: number): number {
+  const S = CLOUD_NOISE_SIZE;
+  const sample = (qx: number, qy: number) => {
+    const tx = (qx / CLOUD_NOISE_CELLS) * S - 0.5;
+    const ty = (qy / CLOUD_NOISE_CELLS) * S - 0.5;
+    const x0 = Math.floor(tx);
+    const y0 = Math.floor(ty);
+    const fx = tx - x0;
+    const fy = ty - y0;
+    const at = (x: number, y: number) => data[(((y % S) + S) % S) * S + (((x % S) + S) % S)]! / 255;
+    const top = at(x0, y0) * (1 - fx) + at(x0 + 1, y0) * fx;
+    const bot = at(x0, y0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1) * fx;
+    return (top * (1 - fy) + bot * fy - 0.5) / CLOUD_NOISE_SCALE;
+  };
+  let a = 0.5;
+  let s = 0;
+  let n = 0;
+  for (let i = 0; i < octaves; i++) {
+    s += a * sample(px, py);
+    n += a;
+    const nx = 1.6 * px - 1.2 * py + 17.1;
+    const ny = 1.2 * px + 1.6 * py + 9.3;
+    px = nx;
+    py = ny;
+    a *= 0.5;
+  }
+  return 0.5 + s / n;
 }

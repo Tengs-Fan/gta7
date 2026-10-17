@@ -26,6 +26,8 @@ export type PropKind =
   | 'fountain' | 'crane' | 'boat' | 'lighthouse' | 'ferris' | 'billboard';
 export type PoiKind = 'safehouse' | 'hospital' | 'police' | 'spray' | 'gunshop' | 'bank' | 'contactLou' | 'contactDex' | 'marina';
 export type RoofPropKind = 'ac' | 'tank' | 'antenna' | 'billboard' | 'helipad';
+/** Street-level treatment of a building's ground floor (drawn by the renderer only). */
+export type GroundFloor = 'shops' | 'lobby' | 'house' | 'loading' | 'none';
 
 export interface RoadLine {
   index: number;
@@ -66,6 +68,17 @@ export interface Building {
   district: District;
   roofProps: RoofProp[];
   sign: { text: string; color: string; side: Side } | null;
+  /** The special structure this building is (bank, police, safehouse, stadium...), or null. */
+  special: PoiKind | 'stadium' | null;
+  /**
+   * Ground-floor treatment of the street frontage of the first tier, assigned after generation
+   * (see assignGroundFloors) so it never changes the generated geometry.
+   */
+  ground: GroundFloor;
+  /** Height of the ground-floor band above CURB_H in metres (0 when ground is 'none'). */
+  groundH: number;
+  /** Sides of the first tier that get the ground floor (empty when ground is 'none'). */
+  groundSides: Side[];
 }
 
 export interface Block {
@@ -389,10 +402,11 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   buildCoast(layout, rng);
   buildRamps(layout);
   removePropsInRamps(layout);
+  assignGroundFloors(layout);
 
   // Final sanity: never leave NaN in generated data.
   for (const b of layout.buildings) {
-    if (![b.rect.minX, b.rect.maxX, b.rect.minZ, b.rect.maxZ, b.height].every(Number.isFinite)) {
+    if (![b.rect.minX, b.rect.maxX, b.rect.minZ, b.rect.maxZ, b.height, b.groundH].every(Number.isFinite)) {
       throw new Error(`Non-finite building ${b.id}`);
     }
   }
@@ -735,6 +749,10 @@ function makeParcel(layout: CityLayout, p: Rect, block: Block, rng: Rng, distCen
     district: d,
     roofProps: [],
     sign: null,
+    special: null,
+    ground: 'none',
+    groundH: 0,
+    groundSides: [],
   };
   addRoofProps(b, rng);
   layout.buildings.push(b);
@@ -839,7 +857,7 @@ function specialBuilding(id: number, parcel: Rect, def: SpecialDef, district: Di
   } else {
     tiers.push({ ...fp, y0: CURB_H, y1: height });
   }
-  const b: Building = { id, rect: fp, height, tiers, style, roof, tint: rng.next(), district, roofProps: [], sign };
+  const b: Building = { id, rect: fp, height, tiers, style, roof, tint: rng.next(), district, roofProps: [], sign, special: def.kind, ground: 'none', groundH: 0, groundSides: [] };
   addRoofProps(b, rng);
   return b;
 }
@@ -968,7 +986,7 @@ function buildStadium(layout: CityLayout, block: Block): void {
   layout.ground.push({ rect: lot, kind: 'plaza' });
   const fp = insetRect(lot, 5);
   layout.stadium = fp;
-  layout.buildings.push({
+  const stadium: Building = {
     id: layout.buildings.length,
     rect: fp,
     height: 22,
@@ -979,8 +997,120 @@ function buildStadium(layout: CityLayout, block: Block): void {
     district: 'southgate',
     roofProps: [],
     sign: { text: 'AZURA BOWL', color: '#ff4fa3', side: 'N' },
-  });
+    special: 'stadium',
+    ground: 'none',
+    groundH: 0,
+    groundSides: [],
+  };
+  layout.buildings.push(stadium);
   layout.openSpots.push({ x: lot.minX + 2.5, z: lot.minZ + 2.5, district: 'southgate' });
+}
+
+// ---------------------------------------------------------------------------
+// Ground floors. A pure post-pass over the finished layout: it draws only from its own
+// per-building generators, so the shared rng sequence, and with it every rect, tier, prop,
+// POI and parking spot, is exactly what it would be without it.
+
+/** Ground-floor band heights above CURB_H, in metres. */
+export const GROUND_H = { shops: 4.5, lobbyMin: 6, lobbyMax: 7, house: 3, loading: 5 } as const;
+
+/** Deterministic 32-bit hash of a few integers (murmur3 mixing). */
+export function hashInts(...xs: number[]): number {
+  let h = 0x9e3779b9;
+  for (const x of xs) {
+    let k = Math.imul(x | 0, 0xcc9e2d51);
+    k = (k << 15) | (k >>> 17);
+    k = Math.imul(k, 0x1b873593);
+    h ^= k;
+    h = (h << 13) | (h >>> 19);
+    h = (Math.imul(h, 5) + 0xe6546b64) | 0;
+  }
+  h ^= xs.length;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+/** The block whose lot holds a building (every building stands inside one lot). */
+export function blockOf(layout: CityLayout, b: Building): Block | null {
+  const cx = rectCX(b.rect);
+  const cz = rectCZ(b.rect);
+  return layout.blocks.find((bl) => rectContains(bl.lot, cx, cz)) ?? null;
+}
+
+/**
+ * The street frontage of every building: the sides of its first tier with nothing (no other
+ * building, no garage) between them and the lot edge. That is every street-facing wall (one
+ * standing within 10 m of the lot edge: parcels are at least 16 m deep, so nothing fits in
+ * front of those), plus walls that look across open ground (a parking lot, plaza or yard) all
+ * the way to the street.
+ */
+export function frontages(layout: CityLayout): Map<Building, { block: Block; sides: Side[] }> {
+  const byBlock = new Map<Block, Building[]>();
+  for (const b of layout.buildings) {
+    const block = blockOf(layout, b);
+    if (!block) continue;
+    const list = byBlock.get(block);
+    if (list) list.push(b);
+    else byBlock.set(block, [b]);
+  }
+  const out = new Map<Building, { block: Block; sides: Side[] }>();
+  for (const [block, list] of byBlock) {
+    const lot = block.lot;
+    const garages = layout.garages.filter((g) => rectsOverlap(g.rect, lot)).map((g) => g.rect);
+    for (const b of list) {
+      const t = b.tiers[0];
+      if (!t) continue;
+      const blockers = [...list.filter((o) => o !== b).map((o) => o.rect), ...garages];
+      const m = 0.5;
+      const sides: Side[] = [];
+      for (const side of ['S', 'E', 'N', 'W'] as const) {
+        const corridor =
+          side === 'S' ? mkRect(t.minX + m, t.maxZ, t.maxX - m, lot.maxZ)
+          : side === 'E' ? mkRect(t.maxX, t.minZ + m, lot.maxX, t.maxZ - m)
+          : side === 'N' ? mkRect(t.minX + m, lot.minZ, t.maxX - m, t.minZ)
+          : mkRect(lot.minX, t.minZ + m, t.minX, t.maxZ - m);
+        if (!blockers.some((r) => rectsOverlap(r, corridor))) sides.push(side);
+      }
+      out.set(b, { block, sides });
+    }
+  }
+  return out;
+}
+
+function assignGroundFloors(layout: CityLayout): void {
+  const front = frontages(layout);
+  for (const b of layout.buildings) {
+    const f = front.get(b);
+    const t0 = b.tiers[0];
+    if (!f || !t0 || f.sides.length === 0) continue;
+    const rng = new Rng(hashInts(layout.seed, b.id));
+    const special = b.special;
+    let ground: GroundFloor;
+    let h: number;
+    if (special === 'bank' || special === 'police' || special === 'hospital' || special === 'contactDex' || special === 'stadium' || (!special && b.district === 'downtown')) {
+      ground = 'lobby';
+      h = rng.range(GROUND_H.lobbyMin, GROUND_H.lobbyMax);
+    } else if (special === 'safehouse' || b.style === 'house') {
+      ground = 'house';
+      h = GROUND_H.house;
+    } else if (b.district === 'docks') {
+      ground = 'loading';
+      h = GROUND_H.loading;
+    } else {
+      // Gun shops, and the apartment and office blocks of midtown, southgate, beachfront,
+      // westside and hillcrest: a row of shops.
+      ground = 'shops';
+      h = GROUND_H.shops;
+    }
+    // Always leave a real upper storey above the band.
+    b.ground = ground;
+    b.groundH = Math.min(h, (t0.y1 - t0.y0) * 0.6);
+    b.groundSides = f.sides;
+  }
 }
 
 // ---------------------------------------------------------------------------

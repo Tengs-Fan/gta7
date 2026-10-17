@@ -189,6 +189,8 @@ export class GameRenderer {
     const t = QUALITY[q];
     this.renderer.shadowMap.enabled = t.shadows;
     this.env.setShadows(t.shadows);
+    // The sky's cloud octaves and light tap follow the tier (compiled by the warm-up below).
+    this.env.setQuality(q);
     const shadow = this.env.sun.shadow;
     if (!t.shadows || shadow.mapSize.x !== t.shadowSize) {
       // Freed on Low; rebuilt at the new size on the next shadow pass otherwise.
@@ -498,7 +500,7 @@ export class GameRenderer {
     const focus = sim && this.cameraCtl.mode === 'play' ? new THREE.Vector3(cam.position.x * 0.5 + sim.playerPos().x * 0.5, 0, cam.position.z * 0.5 + sim.playerPos().z * 0.5) : new THREE.Vector3(cam.position.x * 0.3, 0, cam.position.z * 0.3);
     this.env.update(hours, focus, cam, this.time, this.renderer);
     const night = this.env.night;
-    this.city.update(night);
+    this.city.update(night, hours, this.time);
     // Signals run on the sim clock, the one drivers and pedestrians obey.
     this.props.update(this.time, night, sim ? sim.time : this.time);
     if (sim) {
