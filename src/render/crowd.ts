@@ -26,6 +26,11 @@ export const SEAT_Y: Readonly<Record<VehicleKind, number>> = { compact: 0.42, se
  * (Sim.syncOccupant); the van, the SWAT van and the bus have their cabs and windscreens well forward.
  */
 const SEAT_Z: Partial<Record<VehicleKind, readonly [number, number]>> = { van: [1.15, -0.9], swat: [1.45, -0.6], bus: [4.55, -0.9] };
+/**
+ * The steering wheel the driver holds, relative to the seat (hip) point: centre height and distance ahead
+ * (x the driver's height), rim radius, the rim's tilt back from upright, and the turn of the hands at full lock.
+ */
+export const DRIVER_WHEEL = { up: 0.38, ahead: 0.36, radius: 0.16, tilt: 0.4, lock: 0.65 } as const;
 
 type Gun = Exclude<WeaponId, 'fists'>;
 /** Recoil kick (rad) of each weapon just after a shot; it is drawn only, never part of the muzzle. */
@@ -703,10 +708,11 @@ export class CrowdView {
       const target = sd > 0 ? S.targetL : S.targetR;
       if (c.seat === 0) {
         // Hands on the wheel at a quarter to three, turned with the steering (clockwise for a right turn).
-        const turn = clamp(v.steer, -1, 1) * 0.65;
-        const wx = sd * 0.16 * Math.cos(turn);
-        const wy = sd * 0.16 * Math.sin(turn);
-        target.set(wx, 0.38 * s + wy * Math.cos(0.4), 0.36 * s - wy * Math.sin(0.4));
+        const W = DRIVER_WHEEL;
+        const turn = clamp(v.steer, -1, 1) * W.lock;
+        const wx = sd * W.radius * Math.cos(turn);
+        const wy = sd * W.radius * Math.sin(turn);
+        target.set(wx, W.up * s + wy * Math.cos(W.tilt), W.ahead * s - wy * Math.sin(W.tilt));
         pole.copy(S.vup).negate().addScaledVector(S.vleft, sd * 0.6);
       } else {
         // Hands resting in the lap.
