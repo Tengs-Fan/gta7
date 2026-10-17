@@ -85,7 +85,8 @@ export class DispatchSystem {
     const w = sim.wanted;
     const level = w.level;
     const searching = level > 0 && w.searching;
-    const helis = level > 0 ? sim.helis.filter((h) => !h.removed && !h.destroyed).length : 0;
+    let helis = 0;
+    if (level > 0) for (const h of sim.helis) if (!h.removed && !h.destroyed) helis++;
     if (sim.playerDown) {
       // Wasted or busted: the chase is over, and the respawn clears the stars without a word.
       this.queue.length = 0;
