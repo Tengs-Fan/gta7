@@ -13,7 +13,7 @@ import type { HintOptions } from './hud';
 export interface HintHost {
   /** Tutorial hints are switched on in the settings. */
   enabled(): boolean;
-  /** Ids of the hints already shown (Settings.hintsSeen). */
+  /** Ids of the hints already read and of the counted vehicle entries (Settings.hintsSeen). */
   seen(): readonly string[];
   /** Records a read hint for good. */
   markSeen(id: string): void;
