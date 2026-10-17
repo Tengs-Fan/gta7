@@ -199,6 +199,16 @@ function makeLoop(ctx: BaseAudioContext, seconds: number, rate: number, fill: (d
   return buf;
 }
 
+/** `want` if the context can make buffers at that rate, else its own rate. */
+function supportedRate(ctx: BaseAudioContext, want: number): number {
+  try {
+    ctx.createBuffer(1, 1, want);
+    return want;
+  } catch {
+    return ctx.sampleRate;
+  }
+}
+
 function brownNoise(d: Float32Array, rnd: () => number): void {
   let b = 0;
   for (let i = 0; i < d.length; i++) {
@@ -365,7 +375,8 @@ export class Ambience {
       return { level, pan };
     };
     // Ambience textures need no more than ~8 kHz: a third of the rate keeps the loops small and quick to make.
-    this.rate = clamp(Math.round(ctx.sampleRate / 3), 8000, 16000);
+    // Some older browsers refuse buffers below 22.05 kHz; they get loops at the context's own rate.
+    this.rate = supportedRate(ctx, clamp(Math.round(ctx.sampleRate / 3), 8000, 16000));
     this.out = gain(1);
     this.carFilter = filter('lowpass', OPEN_HZ, Math.SQRT1_2);
     this.out.connect(this.carFilter);

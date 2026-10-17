@@ -1876,6 +1876,31 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(pathOf(panner)).toContain(m.vehicleBus as unknown as FakeNode);
   });
 
+  it('the ambience falls back to the context rate where low-rate buffers are refused', () => {
+    const audio = new AudioEngine();
+    audio.unlock();
+    const base = FakeAudioContext.last!;
+    // A 48 kHz context that, like older browsers, refuses buffers below 22.05 kHz.
+    const made: number[] = [];
+    const ctx = Object.create(base, {
+      sampleRate: { value: 48000 },
+      createBuffer: {
+        value: (channels: number, length: number, rate: number) => {
+          if (rate < 22050) throw new DOMException('rate not supported', 'NotSupportedError');
+          made.push(rate);
+          return base.createBuffer(channels, length, rate);
+        },
+      },
+    }) as FakeAudioContext;
+    const Amb = (audio as unknown as Internals).ambience.constructor as new (c: unknown, d: unknown) => AmbienceT;
+    const amb = new Amb(ctx, new FakeNode());
+    expect((amb as unknown as { rate: number }).rate).toBe(48000);
+    for (let i = 0; i < 6; i++) amb.update(1 / 60, base.currentTime, { district: 'park', hours: 23, shoreDist: 500, height: 0, traffic: 0, inVehicle: false, seaPan: 0, trafficPan: 0 });
+    expect(amb.ready).toBe(true);
+    expect(made.length).toBeGreaterThanOrEqual(4);
+    expect(made.every((r) => r === 48000)).toBe(true);
+  });
+
   it('60 s of the ambience bed create no new persistent nodes', () => {
     const { sim, ctx, inner, frames } = rig();
     frames(10);
