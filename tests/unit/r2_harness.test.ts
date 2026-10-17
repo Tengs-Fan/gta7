@@ -208,7 +208,8 @@ describe('a throwing listener is isolated', () => {
     expect(() => step(sim, 0.2)).not.toThrow();
     expect(sim.missions.active).toBe(null);
     expect(ended).toEqual({ id: 'wheels', passed: false });
-    expect(failed).toEqual(['Something went wrong.']);
+    // The reason, with the retry offer that a failed mission now makes (missions P4).
+    expect(failed).toEqual(['Something went wrong. - Press E to retry']);
     expect(err.mock.calls.filter((c) => String(c[0]).includes('check error'))).toHaveLength(1);
     // The game goes on, and the mission can be played again.
     expect(sim.missions.start('wheels')).toBe(true);

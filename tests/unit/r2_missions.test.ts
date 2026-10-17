@@ -365,6 +365,8 @@ describe('retrying a failed mission', () => {
     stepUntil(sim, () => objective(sim) === 'Steal the Nightjar GT', 20);
     expect(inv.total('pistol')).toBe(72);
     inv.slots.get('pistol')!.clip = 0;
+    // The police keep the guns only from 2 stars (police P62).
+    sim.wanted.setLevel(2);
     sim.bustPlayer();
     step(sim, 0.1);
     expect(m.failedReason).toBe('You got busted.');
