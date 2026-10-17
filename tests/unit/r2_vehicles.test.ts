@@ -1256,4 +1256,37 @@ describe('round-2 fixes: wrecks, lamps, livery, lean and dents', () => {
     view.sync(v, DT, 0, 0);
     expect(meshNamed(view, 'body').geometry).toBe(shared);
   });
+
+  it('a dent change uploads the bent body and glass whole, never in stretches', () => {
+    // Chrome's WebGL on Vulkan (ANGLE) turns a partial update of a buffer the GPU may still read into a copy outside
+    // the render pass. Uploading each dent change in stretches made dozens of them in a crash-heavy frame (a chase, a
+    // blast denting a row of cars), and past 15 in one render pass ANGLE splits it and warns "Running out of reserved
+    // outsideRenderPass queueSerial", which failed the e2e console checks. A whole upload swaps in a fresh buffer.
+    const sim = makeSim({ world: W });
+    const p = spot(sim);
+    const v = sim.spawnVehicle('sedan', p.x, p.z, 0);
+    const view = new VehicleView('sedan');
+    view.bind(v);
+    view.sync(v, DT, 0, 0);
+    const dents: Dent[] = [
+      { lx: v.halfW, ly: 0.5 * v.spec.height, lz: 0.8, nx: -1, nz: 0, depth: 0.2 },
+      { lx: -v.halfW, ly: 0.5 * v.spec.height, lz: -1.1, nx: 1, nz: 0, depth: 0.15 },
+      { lx: 0, ly: 0.5 * v.spec.height, lz: v.halfL, nx: 0, nz: -1, depth: 0.25 },
+      // On the roof: the glass is bent too.
+      { lx: 0, ly: v.spec.height, lz: 0, nx: 0, nz: 0, depth: 0.3 },
+    ];
+    const attr = (n: string, name: 'position' | 'normal') => meshNamed(view, n).geometry.getAttribute(name) as THREE.BufferAttribute;
+    const sharedGlass = meshNamed(view, 'glass').geometry;
+    for (const d of dents) {
+      const before = attr('body', 'position').version;
+      addDent(v, d);
+      view.sync(v, DT, 0, 0);
+      for (const n of ['body', 'glass']) for (const name of ['position', 'normal'] as const) expect(attr(n, name).updateRanges, `${n} ${name}`).toEqual([]);
+      // ...and the body is uploaded again after every change.
+      expect(attr('body', 'position').version).toBeGreaterThan(before);
+    }
+    // The roof dent bent the glass too (its own copy, uploaded).
+    expect(meshNamed(view, 'glass').geometry).not.toBe(sharedGlass);
+    expect(attr('glass', 'position').version).toBeGreaterThan(0);
+  });
 });

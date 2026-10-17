@@ -610,9 +610,14 @@ function triangleGrid(g: THREE.BufferGeometry): TriangleGrid {
 
 /**
  * A per-view copy of a shared, flat-shaded (non-indexed) geometry that dents bend. A change re-evaluates only the
- * triangles within reach of the dents that changed since the last update (a grid finds them), recomputes their face
- * normals and uploads only their stretches of the buffers, instead of displacing every vertex against every dent and
- * recomputing every normal: a crash costs about a third to a sixth of what a full rebuild did (2-4 ms per change).
+ * triangles within reach of the dents that changed since the last update (a grid finds them) and recomputes their face
+ * normals, instead of displacing every vertex against every dent and recomputing every normal: a crash costs about a
+ * third to a sixth of what a full rebuild did (2-4 ms per change).
+ *
+ * The changed attributes are then uploaded whole, not in stretches. Chrome's WebGL on Vulkan (ANGLE) turns a partial
+ * update of a buffer the GPU may still be reading into a copy outside the render pass, and a crash-heavy frame (a
+ * chase, a blast that dents a row of cars) made dozens of them: past 15 in one render pass ANGLE splits it and warns
+ * "Running out of reserved outsideRenderPass queueSerial". A whole upload lets it swap in a fresh buffer instead.
  */
 export class DentedGeometry {
   readonly geometry: THREE.BufferGeometry;
@@ -676,7 +681,6 @@ export class DentedGeometry {
       }
     }
     if (q.length === 0) return false;
-    q.sort((a, b) => a - b);
     this.touched = q.length;
     const posAttr = this.geometry.getAttribute('position') as THREE.BufferAttribute;
     const nAttr = this.geometry.getAttribute('normal') as THREE.BufferAttribute;
@@ -685,22 +689,8 @@ export class DentedGeometry {
     const src = this.src;
     const sn = this.srcNormal;
     const live = this.shown;
-    // Runs of nearby triangles are uploaded together; three merges the ranges added since the last upload.
-    let runStart = -1;
-    let runEnd = -1;
-    const flush = (): void => {
-      if (runStart < 0) return;
-      posAttr.addUpdateRange(runStart, runEnd - runStart);
-      nAttr.addUpdateRange(runStart, runEnd - runStart);
-    };
     for (const t of q) {
       const o = t * 9;
-      if (runStart >= 0 && o - runEnd <= 9 * 16) runEnd = o + 9;
-      else {
-        flush();
-        runStart = o;
-        runEnd = o + 9;
-      }
       let moved = false;
       for (let v = 0; v < 9; v += 3) {
         displacePoint(src[o + v]!, src[o + v + 1]!, src[o + v + 2]!, live, pos, o + v);
@@ -732,7 +722,7 @@ export class DentedGeometry {
         nor[o + v + 2] = nz;
       }
     }
-    flush();
+    // Uploaded whole (see the class comment).
     posAttr.needsUpdate = true;
     nAttr.needsUpdate = true;
     return true;
