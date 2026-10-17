@@ -58,6 +58,11 @@ const EXPOSURE_HEIGHTS = [0.3, 1.0, 1.6] as const;
  */
 const RAISE_STEPS = 10;
 const RAISE_SETTLED = 1e-7;
+/**
+ * A raised barrel passing further than this (m) from the target cannot point at it: the pose limits the pitch (80 degrees
+ * standing, 20 down to 69 up treading water). That shot leaves the tip straight at the target.
+ */
+const RAISE_MISS = 0.02;
 /** Scratch pose of raiseGun. */
 const raisePose: WeaponPose = makeWeaponPose();
 
@@ -266,14 +271,25 @@ export class CombatSystem {
     let dy: number;
     let dz: number;
     let dist: number;
-    if (pose && (tp.x - pose.tip.x) * pose.dir.x + (ty - pose.tip.y) * pose.dir.y + (tp.z - pose.tip.z) * pose.dir.z > 0 && !this.barrelCrowded(c, pose.tip, fx, fz)) {
+    const along = pose ? (tp.x - pose.tip.x) * pose.dir.x + (ty - pose.tip.y) * pose.dir.y + (tp.z - pose.tip.z) * pose.dir.z : 0;
+    if (pose && along > 0 && !this.barrelCrowded(c, pose.tip, fx, fz)) {
       from = { x: pose.tip.x, y: pose.tip.y, z: pose.tip.z };
-      dx = pose.dir.x;
-      dy = pose.dir.y;
-      dz = pose.dir.z;
-      dist = Math.hypot(tp.x - from.x, ty - from.y, tp.z - from.z);
-      // Published as drawn (also where the pose had to clamp the pitch).
-      this.aimAlong(c, dx, dy, dz);
+      dx = tp.x - from.x;
+      dy = ty - from.y;
+      dz = tp.z - from.z;
+      dist = Math.hypot(dx, dy, dz) || 1;
+      if (dist * dist - along * along <= RAISE_MISS * RAISE_MISS) {
+        // The barrel runs through the target: along it, published as drawn.
+        dx = pose.dir.x;
+        dy = pose.dir.y;
+        dz = pose.dir.z;
+        this.aimAlong(c, dx, dy, dz);
+      } else {
+        // Steeper than the pose can raise the gun: from its tip straight at the target, drawn as near it as it goes.
+        dx /= dist;
+        dy /= dist;
+        dz /= dist;
+      }
     } else {
       // From a car window (a fixed muzzle), or with the barrel reaching into or past someone at point blank: the shot
       // then leaves from the chest (as in muzzle()), the gun still drawn pointing at the target.

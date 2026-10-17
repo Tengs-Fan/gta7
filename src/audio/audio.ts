@@ -1,13 +1,11 @@
 // Synthesised sound effects, the player's vehicle, sirens, the ambience bed and the mix (mixer.ts).
 // Everything is generated with WebAudio nodes; there are no audio files.
 
-import { makeContact, obbVsObb, type OBB } from '../core/collision';
 import { clamp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import type { SimEvents } from '../sim/events';
 import type { Sim } from '../sim/sim';
 import type { VehicleKind, WeaponId } from '../sim/specs';
-import { vehicleObb } from '../sim/vehiclePhysics';
 import type { Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { Ambience, shoreInfo, type AmbienceFrame, type ShoreInfo } from './ambience';
@@ -45,23 +43,6 @@ const EXPLOSION_HOLD = 0.15;
  * Below it the engine steps back under the radio only as far as the radio can be heard; at 0 not at all.
  */
 const RADIO_FULL = 0.3;
-/** Two cars still touch this far apart (m): the physics pushes a grinding pair 1 mm apart before it reports the scrape. */
-const TOUCH_GAP = 0.05;
-const touchA: OBB = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
-const touchB: OBB = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
-const touchContact = makeContact();
-
-/**
- * True when vehicles `a` and `b` touch: outlines within TOUCH_GAP of each other, at heights the vehicle physics lets
- * collide. A pair grinding along each other is reported once, as a scrape of the faster car only.
- */
-function touching(a: Vehicle, b: Vehicle): boolean {
-  if (a === b || a.pos.y > b.pos.y + b.spec.height - 0.2 || b.pos.y > a.pos.y + a.spec.height - 0.2) return false;
-  vehicleObb(a, touchA);
-  touchA.hw += TOUCH_GAP;
-  touchA.hl += TOUCH_GAP;
-  return obbVsObb(touchA, vehicleObb(b, touchB), touchContact);
-}
 
 export class AudioEngine {
   ctx: AudioContext | null = null;
@@ -210,10 +191,10 @@ export class AudioEngine {
       // The player's own crashes (his car hitting something, landing, running someone over) sound inside the car,
       // not through the in-car muffling of the world outside.
       on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength, !!e.vehicle && e.vehicle === sim.player.vehicle)),
-      // His car grinding along something, or a faster car grinding along his (reported as that car's scrape).
+      // His car grinding along something, or a faster car grinding along his (reported as that car's scrape, his as `other`).
       on('scrape', (e) => {
         const own = sim.player.vehicle;
-        this.scrape(e.x, e.y, e.z, e.speed, !!own && (e.vehicle === own || touching(e.vehicle, own)));
+        this.scrape(e.x, e.y, e.z, e.speed, !!own && (e.vehicle === own || e.other === own));
       }),
       on('melee', (e) => this.punch(e.x, e.y, e.z, e.hit)),
       on('horn', (e) => {

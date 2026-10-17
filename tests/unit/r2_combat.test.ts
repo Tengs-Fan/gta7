@@ -11,12 +11,14 @@ import { CameraController } from '../../src/render/camera';
 import { CrowdView } from '../../src/render/crowd';
 import { Effects, FLASH_SIZE } from '../../src/render/effects';
 import { GameRenderer } from '../../src/render/renderer';
+import { SWIM_FLOAT } from '../../src/sim/characterPhysics';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
 import type { PlayerInput } from '../../src/sim/input';
 import { WEAPON_POINTS, weaponPose } from '../../src/sim/pose';
 import type { Sim } from '../../src/sim/sim';
 import { WEAPONS, type WeaponId } from '../../src/sim/specs';
+import { WATER_Y } from '../../src/world/constants';
 import type { StaticWorld } from '../../src/world/staticWorld';
 import { aimAt, input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
@@ -1191,6 +1193,55 @@ describe('P32: table-driven numbers', () => {
     expect(checked).toBeGreaterThanOrEqual(3);
   });
 
+  it('the punch skips a nearer man behind a garage wall for one in reach on this side; one knocked down behind it is safe too', () => {
+    const sim = makeSim({ police: false });
+    const p = sim.player;
+    let checked = 0;
+    for (const gar of sim.world.layout.garages) {
+      for (const w of gar.walls) {
+        const alongX = w.maxX - w.minX > w.maxZ - w.minZ;
+        const thick = alongX ? w.maxZ - w.minZ : w.maxX - w.minX;
+        if (thick > 0.6 || Math.max(w.maxX - w.minX, w.maxZ - w.minZ) < 4) continue;
+        const cx = (w.minX + w.maxX) / 2;
+        const cz = (w.minZ + w.maxZ) / 2;
+        // n: across the wall, from the player's side; t: along it.
+        const n = { x: alongX ? 0 : 1, z: alongX ? 1 : 0 };
+        const t = { x: alongX ? 1 : 0, z: alongX ? 0 : 1 };
+        const off = thick / 2 + 0.4;
+        const at = { x: cx - n.x * off, z: cz - n.z * off };
+        // Behind the wall straight across (1.3 m), and on this side 1.5 m along it.
+        const hidden = { x: cx + n.x * off, z: cz + n.z * off };
+        const open = { x: at.x + t.x * 1.5, z: at.z + t.z * 1.5 };
+        if (![at, hidden, open].every((q) => sim.world.isFree(q.x, q.z, 0.35))) continue;
+        teleport(sim, at.x, at.z);
+        // Facing 40 degrees from the wall towards the open side: both men are in front of him.
+        const toWall = Math.atan2(n.x, n.z);
+        const toOpen = Math.atan2(t.x, t.z);
+        p.heading = toWall + wrapAngle(toOpen - toWall) * (40 / 90);
+        const a = npcAt(sim, 'gang', hidden.x, hidden.z);
+        const b = npcAt(sim, 'gang', open.x, open.z);
+        a.brain = null;
+        b.brain = null;
+        const where = `garage ${gar.poi} wall at (${cx.toFixed(1)}, ${cz.toFixed(1)})`;
+        p.fireCooldown = 0;
+        sim.combat.melee(p);
+        expect(a.health, where).toBe(a.maxHealth);
+        expect(b.health, where).toBeLessThan(b.maxHealth);
+        // Knocked down behind the wall, and nobody else around: no punch reaches him.
+        b.removed = true;
+        a.state = 'knocked';
+        a.knockTimer = 5;
+        p.fireCooldown = 0;
+        p.heading = toWall;
+        sim.combat.melee(p);
+        expect(a.health, where).toBe(a.maxHealth);
+        a.removed = true;
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(2);
+  });
+
   it('a rocket explosion hits for WEAPONS.rocket.damage at its centre', () => {
     const sim = makeSim();
     const f = standOnOpenRoad(sim);
@@ -1457,6 +1508,55 @@ describe('a foot shooter raises the gun through the target: the shot leaves from
     }
     // Point blank (the target's body within the barrel's reach) is the exception, not the rule.
     expect(tipped).toBeGreaterThan(pointBlank * 3);
+  });
+
+  it('steeper than the gun can be raised (a swimmer under a pier, a cop under a balcony) the shot still leaves the drawn tip straight at him', () => {
+    const cases = [
+      // Treading water, 10 m under the player and 2 m off: 78 degrees up, past the swimmer's 69 (1.2 rad).
+      { swim: true, up: 10, off: 2, limit: 1.2 },
+      // Standing, the player 6 m up and 0.4 m off: 86 degrees up, past the standing 80 (1.4 rad).
+      { swim: false, up: 6, off: 0.4, limit: 1.4 },
+    ];
+    for (const k of cases) {
+      const sim = makeSim({ world: world(), police: false });
+      sim.cheats.godMode = true;
+      const b = sim.world.layout.bounds;
+      const p = sim.player;
+      let cop: Character;
+      if (k.swim) {
+        cop = npcAt(sim, 'cop', b.beachEndX + 40, (b.landMinZ + b.landMaxZ) / 2);
+        cop.state = 'swimming';
+        cop.pos.y = WATER_Y - SWIM_FLOAT;
+      } else {
+        const f = standOnOpenRoad(sim);
+        cop = npcAt(sim, 'cop', p.pos.x - f.fx * 3, p.pos.z - f.fz * 3);
+      }
+      cop.brain = null;
+      cop.inventory.infinite = true;
+      cop.inventory.give('rifle', 99);
+      cop.inventory.current = 'rifle';
+      cop.drawnWeapon = 'rifle';
+      cop.inventory.slot().clip = 5;
+      cop.aiming = true;
+      cop.aimYaw = cop.heading;
+      cop.aimPitch = 0;
+      p.pos.x = cop.pos.x + Math.sin(cop.heading) * k.off;
+      p.pos.z = cop.pos.z + Math.cos(cop.heading) * k.off;
+      p.pos.y = cop.pos.y + k.up;
+      const target = { x: p.pos.x, y: p.pos.y + p.height * 0.62, z: p.pos.z };
+      const fired = record(sim, 'weaponFired');
+      const shots = record(sim, 'shot');
+      sim.combat.npcFire(cop, p, 1);
+      const label = k.swim ? 'swimming' : 'standing';
+      expect(fired.length, label).toBe(1);
+      const e = fired[0]!;
+      const pose = weaponPose(cop);
+      // Drawn at the pose's limit, the flash at its tip, the shot aimed at him from there, and it lands.
+      expect(Math.asin(pose.dir.y), label).toBeCloseTo(k.limit, 6);
+      expect(Math.hypot(e.x - pose.tip.x, e.y - pose.tip.y, e.z - pose.tip.z), label).toBeLessThan(0.02);
+      expect(miss(e, { x: e.dx, y: e.dy, z: e.dz }, target), label).toBeLessThan(0.01);
+      expect(shots[0]!.hit, label).toBe('flesh');
+    }
   });
 
   it('at point blank the gun is drawn pointing at the target, not swung aside, and the shot hits him', () => {

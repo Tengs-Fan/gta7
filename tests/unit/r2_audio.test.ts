@@ -695,6 +695,44 @@ describe('round-2 audio fixes', () => {
     expect(scrape.mock.calls.every((c) => c[4] === false)).toBe(true);
   });
 
+  it('a car 4 cm from his grinding along a wall on its far side is not his scrape', () => {
+    const sim = makeSim({ police: false });
+    const rp = roadPoint(sim);
+    const fx = Math.sin(rp.heading);
+    const fz = Math.cos(rp.heading);
+    const lx = Math.cos(rp.heading);
+    const lz = -Math.sin(rp.heading);
+    const mine = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
+    placeInCar(sim, mine);
+    // Another sedan on his left, 4 cm clear of him, and a wall along its far (left) flank.
+    const other = sim.spawnVehicle('sedan', rp.x + lx * (2 * mine.halfW + 0.04), rp.z + lz * (2 * mine.halfW + 0.04), rp.heading);
+    const wx = other.pos.x + lx * (other.halfW + 0.15);
+    const wz = other.pos.z + lz * (other.halfW + 0.15);
+    const hx = Math.abs(lx) * 0.15 + Math.abs(fx) * 12;
+    const hz = Math.abs(lz) * 0.15 + Math.abs(fz) * 12;
+    sim.world.grid.addBox(wx - hx, wz - hz, wx + hx, wz + hz, other.pos.y - 0.5, other.pos.y + 3, 'wall');
+    const { audio, ctx } = rig(sim);
+    const scrape = vi.spyOn(audio, 'scrape');
+    const reported: Array<Vehicle | null | undefined> = [];
+    sim.events.on('scrape', (e) => {
+      if (e.vehicle === other) reported.push(e.other);
+    });
+    for (let i = 0; i < 40; i++) {
+      // He sits still; it slides along the wall at 12 m/s, pressed into it, away from him.
+      mine.vel.x = 0;
+      mine.vel.z = 0;
+      other.vel.x = fx * 12 + lx * 0.5;
+      other.vel.z = fz * 12 + lz * 0.5;
+      ctx.currentTime += 1 / 60;
+      sim.update(1 / 60, sim.lastInput);
+      audio.update(1 / 60, sim, true);
+    }
+    expect(reported.length).toBeGreaterThan(3);
+    expect(reported.every((o) => o == null)).toBe(true);
+    expect(scrape.mock.calls.length).toBeGreaterThan(3);
+    expect(scrape.mock.calls.every((c) => c[4] === false)).toBe(true);
+  });
+
   it('a scrape grinds louder and higher the faster the car slides', () => {
     const { sim, inner } = rig();
     const p = sim.player;
