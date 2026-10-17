@@ -1813,7 +1813,8 @@ describe('round 2 harness', () => {
         dom.win.dispatchEvent(keyEv('keyup', code, code));
         frames(2);
       };
-      game.newGame();
+      // No opening call from Lou: a slowly typed code would otherwise see Wheels start 2.5 s in.
+      game.newGame({ intro: false });
       await flush();
       frames(3);
       return { game, sim: game.sim, frames, type, press };
@@ -2166,7 +2167,7 @@ describe('r2 quality: tiers in the game and the settings row', () => {
 
   it('the settings row offers AUTO (tier) and says when the anti-aliasing change waits for a reload', () => {
     let applied: Settings | null = null;
-    let current: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68 };
+    let current: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [] };
     const host = stubHost({
       settings: () => current,
       applySettings: (s) => {
