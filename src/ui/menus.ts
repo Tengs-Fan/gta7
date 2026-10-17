@@ -436,36 +436,27 @@ export class Menus {
     slider('Sound effects', 'sfx', 0, 1, 0.05, 0.05, pct);
     slider('Mouse sensitivity', 'sensitivity', 0.2, 3, 0.05, 0.1, (v) => v.toFixed(2));
     slider('Field of view', 'fov', 55, 90, 1, 5, (v) => `${v}°`);
-    const irow = h('div', 'setting');
-    const inv = h('input');
-    inv.type = 'checkbox';
-    inv.checked = s.invertY;
-    inv.style.pointerEvents = 'auto';
-    const setInvert = (v: boolean) => {
-      s.invertY = v;
-      inv.checked = v;
-      apply();
+    // On / off rows: a checkbox, with its state spelled out in the value column like the sliders'.
+    const toggle = (label: string, key: 'invertY' | 'hints') => {
+      const row = h('div', 'setting');
+      const box = h('input');
+      box.type = 'checkbox';
+      box.checked = s[key];
+      box.style.pointerEvents = 'auto';
+      const val = h('span', '', s[key] ? 'On' : 'Off');
+      const set = (v: boolean) => {
+        s[key] = v;
+        box.checked = v;
+        val.textContent = v ? 'On' : 'Off';
+        apply();
+      };
+      box.addEventListener('change', () => set(box.checked));
+      row.append(h('span', '', label), box, val);
+      panel.appendChild(row);
+      addRow({ el: row, adjust: () => set(!s[key]), activate: () => set(!s[key]) });
     };
-    inv.addEventListener('change', () => setInvert(inv.checked));
-    irow.append(h('span', '', 'Invert look Y'), inv, h('span', '', ''));
-    panel.appendChild(irow);
-    addRow({ el: irow, adjust: () => setInvert(!s.invertY), activate: () => setInvert(!s.invertY) });
-    const hrow = h('div', 'setting');
-    const hints = h('input');
-    hints.type = 'checkbox';
-    hints.checked = s.hints;
-    hints.style.pointerEvents = 'auto';
-    const hval = h('span', '', s.hints ? 'On' : 'Off');
-    const setHints = (v: boolean) => {
-      s.hints = v;
-      hints.checked = v;
-      hval.textContent = v ? 'On' : 'Off';
-      apply();
-    };
-    hints.addEventListener('change', () => setHints(hints.checked));
-    hrow.append(h('span', '', 'Tutorial hints'), hints, hval);
-    panel.appendChild(hrow);
-    addRow({ el: hrow, adjust: () => setHints(!s.hints), activate: () => setHints(!s.hints) });
+    toggle('Invert look Y', 'invertY');
+    toggle('Tutorial hints', 'hints');
     const row = h('div', 'row-end');
     const del = h('button', 'btn', 'DELETE SAVE');
     del.disabled = !this.host.hasSave();

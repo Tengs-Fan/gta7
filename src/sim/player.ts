@@ -351,6 +351,11 @@ export class PlayerController {
     return this.steerKb / (1 + Math.max(0, speed - 20) / 25);
   }
 
+  /** Calls off an exit still braking for its stop (asked for between 3.5 and 11 m/s): the player keeps driving. */
+  cancelExit(): void {
+    this.exitPending = false;
+  }
+
   /** Gets the player out of the current vehicle. Returns false if there was no room. */
   exitVehicle(bail: boolean): boolean {
     const sim = this.sim;

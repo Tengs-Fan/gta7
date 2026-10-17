@@ -335,7 +335,10 @@ body {
 .prompt {
   position: absolute;
   left: 50%;
-  bottom: 160px;
+  /* Above a showing subtitle, which a long line wraps up into this slot (Hud sets --sub-top, its top edge). */
+  bottom: max(160px, calc(var(--sub-top, 0px) + 12px));
+  /* Centred, and narrow enough to clear the radar (22 + 220 px, its ring and a gap: 260 px) on both sides. */
+  max-width: calc(100vw - 520px);
   transform: translateX(-50%);
   background: var(--panel);
   padding: 8px 16px;
@@ -424,8 +427,8 @@ body {
 
 /* A mission offer at a contact's marker. */
 .prompt.card {
-  bottom: 150px;
-  width: min(420px, 90vw);
+  bottom: max(150px, calc(var(--sub-top, 0px) + 12px));
+  width: min(420px, calc(100vw - 520px));
   padding: 12px 18px 12px 16px;
   border-left: 4px solid var(--card, var(--accent));
   font-weight: 600;
@@ -546,7 +549,8 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  top: 34%;
+  /* In a low window it moves up and its text shrinks with the height, keeping clear of the subtitle and the prompt below. */
+  top: min(34%, calc(100% - 290px));
   text-align: center;
   font-family: 'Anton', Impact, sans-serif;
   pointer-events: none;
@@ -559,7 +563,7 @@ body {
 }
 
 .big .t {
-  font-size: clamp(42px, 7vw, 96px);
+  font-size: clamp(42px, min(7vw, 13vh), 96px);
   letter-spacing: 3px;
   text-shadow: 0 0 3px #000, 3px 3px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0 0 30px rgba(0, 0, 0, 0.6);
   line-height: 1.05;
@@ -568,7 +572,7 @@ body {
 .big .s {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 700;
-  font-size: clamp(20px, 2.4vw, 32px);
+  font-size: clamp(20px, min(2.4vw, 5vh), 32px);
   text-shadow: var(--outline);
   margin-top: 6px;
 }
@@ -1028,6 +1032,14 @@ body {
   accent-color: var(--accent);
 }
 
+.setting input[type='checkbox'] {
+  justify-self: start;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 /* A line under a setting row, e.g. the part of a quality change that waits for a reload. */
 .setting-note {
   grid-column: 1 / -1;
@@ -1200,6 +1212,37 @@ body {
   font-size: 20px;
 }
 
+/*
+ * The crash report, shown to copy by hand where the clipboard is refused: a dark panel like the menus.
+ * No display rule, which would override the hidden attribute it starts with.
+ */
+.crash-report {
+  width: min(760px, 90vw);
+  height: 220px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  text-align: left;
+  font: 13px/1.4 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  color: #e6e9ef;
+  background: rgba(10, 14, 24, 0.9);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  outline: none;
+  resize: vertical;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.crash-report:focus {
+  box-shadow: 0 0 0 3px rgba(255, 79, 163, 0.25);
+}
+
+.crash-report::selection {
+  background: rgba(255, 79, 163, 0.45);
+  color: #ffffff;
+}
+
 /* Lost WebGL context: covers the frozen canvas (and the pause menu under it) until it is restored. */
 .gfx-lost {
   position: absolute;
@@ -1240,17 +1283,27 @@ body {
   text-align: center;
 }
 
-/* Too narrow or too low for the subtitle beside the radar: it goes above the radar instead. */
-@media (max-width: 719.98px), (max-height: 599.98px) {
-  .subtitle {
-    bottom: 270px;
-  }
-}
-
-@media (max-width: 720px) {
+/*
+ * Narrow windows (below 768 px, where a 280 px column centred beside the 220 px radar would touch it):
+ * a smaller radar, the subtitle just above it at nearly the full width (fewer lines, still well under
+ * the title card at top 34%), and the objective, the prompt and the offer card narrow enough to clear
+ * the radar (22 + 150 px, its ring and a gap: 190 px) on both sides.
+ */
+@media (max-width: 767.98px) {
   .radar {
     width: 150px;
     height: 150px;
+  }
+  .subtitle {
+    bottom: 184px;
+    width: min(900px, calc(100vw - 32px));
+  }
+  .objective,
+  .prompt {
+    max-width: max(200px, calc(100vw - 380px));
+  }
+  .prompt.card {
+    width: min(420px, max(200px, calc(100vw - 380px)));
   }
   .bars {
     width: 130px;

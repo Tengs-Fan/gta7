@@ -76,6 +76,8 @@ export class MissionCtx {
   checkpointReached: number;
   /** Markers on enemies. They stay behind every other marker, so the GPS keeps leading to the objective. */
   private readonly enemyMarks = new Set<Objective>();
+  /** The line of dialogue on screen (see say): when it started and when it ends, in mission time. */
+  private line: { start: number; end: number } | null = null;
 
   constructor(
     readonly sim: Sim,
@@ -114,10 +116,22 @@ export class MissionCtx {
     }
     let guard = 0;
     let waited = dt;
-    while (this.current === null || this.current(waited)) {
+    for (;;) {
+      if (this.current !== null) {
+        let ready: boolean;
+        try {
+          ready = this.current(waited);
+        } catch (err) {
+          // Nor a broken wait (until, goTo's checks, a line of dialogue): the mission fails, as for the script.
+          console.error(`Mission ${this.def.id} wait error`, err);
+          this.fail('Something went wrong.');
+          return;
+        }
+        if (!ready) return;
+      }
       // A wait yielded during this tick is checked right away, but it has not waited through this frame.
       waited = 0;
-      if (++guard > 64) break;
+      if (++guard > 64) return;
       let r: IteratorResult<Wait, void>;
       try {
         r = this.it.next();
@@ -139,6 +153,9 @@ export class MissionCtx {
   fail(reason: string): void {
     if (this.done || this.failedReason) return;
     this.failedReason = reason;
+    // Its dialogue ends with it: a line cut short must not run on over MISSION FAILED (or the offer card).
+    if (this.line && this.time < this.line.end) this.sim.events.emit('subtitle', { speaker: '', text: '', duration: 0 });
+    this.line = null;
     try {
       this.it.return(undefined);
     } catch {
@@ -157,18 +174,28 @@ export class MissionCtx {
     yield () => this.time >= end;
   }
 
-  /** A line of dialogue. A fresh press of the interact key skips it once it has been up for a moment. */
+  /**
+   * A line of dialogue. A fresh press of the interact key skips it once it has been up for a moment
+   * (in a vehicle, where that key is the horn, it skips instead of honking: see canSkipLine).
+   */
   *say(speaker: string, text: string, seconds?: number): Script {
     const s = seconds ?? Math.min(6, 1.6 + text.length * 0.055);
     this.sim.events.emit('subtitle', { speaker, text, duration: s });
-    const start = this.time;
+    const line = { start: this.time, end: this.time + s };
+    this.line = line;
     let skipped = false;
     yield () => {
-      if (this.time - start >= SKIP_AFTER && this.sim.missions.skipPressed) skipped = true;
-      return skipped || this.time >= start + s;
+      if (this.time - line.start >= SKIP_AFTER && this.sim.missions.skipPressed) skipped = true;
+      return skipped || this.time >= line.end;
     };
+    if (this.line === line) this.line = null;
     // Take the skipped line off the screen; a next line replaces it in the same frame anyway.
     if (skipped) this.sim.events.emit('subtitle', { speaker: '', text: '', duration: 0 });
+  }
+
+  /** A line of dialogue is on screen and has been up long enough to be skipped. */
+  get canSkipLine(): boolean {
+    return this.line !== null && this.time - this.line.start >= SKIP_AFTER;
   }
 
   /** The opening dialogue, skipped entirely on a retry. */
@@ -596,8 +623,14 @@ export class MissionSystem {
     this.active = new MissionCtx(sim, def, !!opts.retrying, opts.resume ?? 0);
     this.refreshMarkers();
     sim.events.emit('missionStarted', { id: def.id, title: def.title });
-    sim.events.emit('big', { text: def.title.toUpperCase(), sub: def.giver === 'lou' ? 'Mama Lou' : 'Dex Moreau', style: 'title', duration: 3.5 });
+    // A retry goes straight back to work, as it skips the intro: no title card.
+    if (!opts.retrying) sim.events.emit('big', { text: def.title.toUpperCase(), sub: def.giver === 'lou' ? 'Mama Lou' : 'Dex Moreau', style: 'title', duration: 3.5 });
     return true;
+  }
+
+  /** A line of dialogue can be skipped now (Game lets the horn key skip it in a vehicle, see Input.skipLine). */
+  get lineSkippable(): boolean {
+    return this.active?.canSkipLine ?? false;
   }
 
   update(dt: number): void {
@@ -638,7 +671,8 @@ export class MissionSystem {
       // After a wasted or busted the offer waits for the respawn (see armRetry).
       const down = reason === WASTED || reason === BUSTED;
       this.retry = { id: m.def.id, resume: m.checkpointReached, start, failed: down ? null : takeLoadout(sim.player), until: down ? null : sim.time + RETRY_WINDOW };
-      if (!down) sub = `${reason} - Press E to retry`;
+      // In a vehicle E is the horn: the retry is taken on foot, as the prompt says (see Interactions).
+      if (!down) sub = `${reason} - ${sim.player.vehicle ? 'Get out of the vehicle to retry' : 'Press E to retry'}`;
     }
     if (passed) {
       sim.progress.markDone(m.def.id);

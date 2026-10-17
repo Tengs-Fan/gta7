@@ -55,6 +55,15 @@ const CHEAT_GAP_MS = 1500;
 const CHEAT_SWALLOW_AT = 3;
 /** Mouse moves are dropped this long (ms) after pointer lock is gained: the first one jumps by the cursor's offset. */
 const LOCK_SETTLE_MS = 100;
+/**
+ * A frame at 60 fps (ms). Browsers send one mousemove per frame with the frame's motion summed, so a move
+ * after a long frame (30 fps, a hitch) carries that much more: the jump limit grows with the time since the
+ * last poll, up to MOVE_FRAMES_MAX frames.
+ */
+const FRAME_MS = 1000 / 60;
+const MOVE_FRAMES_MAX = 6;
+/** A move within this long (ms) of the one before it can continue its motion (see the mousemove handler). */
+const MOVE_RUN_MS = 150;
 /** Keys that ask for the map or the pause menu, and keys that get in or out of a vehicle. */
 const SCREEN_KEYS = new Set(['KeyM', 'KeyP', 'Escape']);
 const EXIT_KEYS = new Set(['KeyF', 'Enter']);
@@ -71,6 +80,14 @@ function automationRefusesLock(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether the mouse move (x, y) carries at least a quarter of move `m` along m's line: two moves of one
+ * turn (a hand speeds up and slows down over a few frames, it never starts or stops dead).
+ */
+function sameTurn(m: { x: number; y: number }, x: number, y: number): boolean {
+  return m.x * x + m.y * y >= 0.25 * (m.x * m.x + m.y * m.y);
 }
 
 function dz(v: number): number {
@@ -177,6 +194,15 @@ export class Input {
   private readonly noLock = automationRefusesLock();
   /** Mouse moves are dropped until this time (performance.now() ms), just after pointer lock is gained. */
   private ignoreMoveUntil = -Infinity;
+  /** Pointer lock was gained and no mouse move has come since: the next one carries the jump, whenever it comes. */
+  private lockJump = false;
+  /** The last mouse move (performance.now() ms and movement), and when poll() last ran. */
+  private lastMove = { t: -Infinity, x: 0, y: 0 };
+  private pollT = -Infinity;
+  /** A move too big for one frame that the next move has to confirm as part of a turn (see the mousemove handler). */
+  private heldMove: { t: number; x: number; y: number } | null = null;
+  /** E skipped a line of dialogue in a vehicle: it does not honk until released. */
+  private eSkipped = false;
   /** Key presses so far (auto-repeats aside), numbering each one. */
   private presses = 0;
   /** The press that asked for the map or the pause menu since the last frame, or -1. */
@@ -195,6 +221,11 @@ export class Input {
   /** Keys swallowed for typing a cheat code, until released. */
   private readonly swallowed = new Set<string>();
   inVehicle = false;
+  /**
+   * A line of dialogue can be skipped (set by the game each frame, see MissionSystem.lineSkippable). In a
+   * vehicle, where E is the horn, a fresh E press then skips the line instead of honking.
+   */
+  skipLine = false;
   enabled = true;
   /** Whether gameplay wants the mouse captured right now (set by the game). */
   wantsPointerLock: () => boolean = () => false;
@@ -270,6 +301,7 @@ export class Input {
       if (this.pointerLocked) {
         this.lockUnavailable = false;
         this.ignoreMoveUntil = performance.now() + LOCK_SETTLE_MS;
+        this.lockJump = true;
       }
     });
     on(document, 'pointerlockerror', () => this.lockRefused());
@@ -279,15 +311,42 @@ export class Input {
     on(window, 'mousemove', (e) => {
       const ev = e as MouseEvent;
       if (document.pointerLockElement !== this.canvas) return;
+      const mx = ev.movementX;
+      const my = ev.movementY;
+      if (!Number.isFinite(mx) || !Number.isFinite(my)) return;
+      const now = performance.now();
       // Gaining the lock (closing the map, resuming) delivers a move by the cursor's offset from where it was
-      // locked, which would swing the camera round: drop moves just after it and any single jump of a third of
-      // the window (no real flick moves that far between two events).
-      if (performance.now() < this.ignoreMoveUntil) return;
+      // locked, which would swing the camera round: drop the first move after it, whenever it comes, and any
+      // that come while the lock settles.
+      if (this.lockJump || now < this.ignoreMoveUntil) {
+        this.lockJump = false;
+        this.lastMove = { t: -Infinity, x: 0, y: 0 };
+        this.heldMove = null;
+        return;
+      }
+      // Any other jump (a glitch) is a single move of more than a third of the window per frame's worth of
+      // motion that does not belong to a turn. A real turn that fast builds up over the moves before it in the
+      // same direction (the one before carries at least a quarter of it along its line), or, started all at
+      // once, goes on in the moves after it: such a move is held back for the next one to confirm it.
+      const held = this.heldMove;
+      this.heldMove = null;
+      if (held && now - held.t <= MOVE_RUN_MS && sameTurn(held, mx, my)) {
+        this.lookX += held.x;
+        this.lookY += held.y;
+      }
       const w = window.innerWidth > 0 ? window.innerWidth : 1280;
       const h = window.innerHeight > 0 ? window.innerHeight : 720;
-      if (!(Math.abs(ev.movementX) <= w / 3 && Math.abs(ev.movementY) <= h / 3)) return;
-      this.lookX += ev.movementX;
-      this.lookY += ev.movementY;
+      const frames = Math.min(MOVE_FRAMES_MAX, Math.max(1, (now - this.pollT) / FRAME_MS));
+      const big = Math.abs(mx) > (w / 3) * frames || Math.abs(my) > (h / 3) * frames;
+      const prev = this.lastMove;
+      const continues = now - prev.t <= MOVE_RUN_MS && sameTurn({ x: mx, y: my }, prev.x, prev.y);
+      this.lastMove = { t: now, x: mx, y: my };
+      if (big && !continues) {
+        this.heldMove = { t: now, x: mx, y: my };
+        return;
+      }
+      this.lookX += mx;
+      this.lookY += my;
     });
     on(this.canvas, 'contextmenu', (e) => e.preventDefault());
     on(this.canvas, 'wheel', (e) => {
@@ -384,6 +443,7 @@ export class Input {
 
   /** Builds this frame's input (dt: frame time in seconds). Call once per frame, then endFrame(). */
   poll(dt: number): FrameInput {
+    this.pollT = performance.now();
     const p = neutralInput();
     const ui: UiActions = { pause: false, map: false, camera: false, radioNext: false, radioPrev: false, confirm: false, back: false, up: false, down: false, left: false, right: false };
     let lookX = this.lookX;
@@ -409,9 +469,16 @@ export class Input {
       p.firePressed = (this.mouseDown & 1) !== 0;
       p.aim = (this.mouseHeld & 4) !== 0;
       p.enterExit = this.pressed('KeyF', 'Enter');
-      p.interact = !this.inVehicle && this.pressed('KeyE');
-      p.horn = this.inVehicle && this.key('KeyE', 'KeyH');
-      p.hornPressed = this.inVehicle && this.pressed('KeyE', 'KeyH');
+      // In a vehicle E is the horn, but a fresh press skips a line of dialogue that can be skipped, and then
+      // honks only once let go and pressed again (H is the horn alone).
+      const e = this.pressed('KeyE');
+      // Each fresh press decides anew (it may have been let go and pressed again between two polls).
+      if (e) this.eSkipped = this.inVehicle && this.skipLine;
+      else if (!this.key('KeyE')) this.eSkipped = false;
+      p.interact = e && (!this.inVehicle || this.eSkipped);
+      const horn = this.eSkipped ? ['KeyH'] : ['KeyE', 'KeyH'];
+      p.horn = this.inVehicle && this.key(...horn);
+      p.hornPressed = this.inVehicle && this.pressed(...horn);
       p.reload = !this.inVehicle && this.pressed('KeyR');
       p.prevWeapon = this.pressed('KeyQ') || wheel < 0;
       p.nextWeapon = wheel > 0;
@@ -466,6 +533,8 @@ export class Input {
           p.hornPressed = p.hornPressed || tap(10);
           p.fire = p.fire || b(2);
           p.firePressed = p.firePressed || tap(2);
+          // D-pad up is interact on foot; in a vehicle it skips a line of dialogue (the horn is L3).
+          if (this.skipLine) p.interact = p.interact || tap(12);
           ui.radioNext = ui.radioNext || tap(15);
           ui.radioPrev = ui.radioPrev || tap(14);
         } else {
