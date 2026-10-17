@@ -72,8 +72,11 @@ export function gpuClass(renderer: string): GpuClass {
   }
   if (/radeon|\bamd\b/.test(s)) {
     if (/radeon(\s*\(tm\))?\s+pro\b/.test(s)) return 'discrete';
-    // Vega 3-11 and 'Radeon(TM) Graphics' are Ryzen APUs (even the 'RX Vega' ones).
-    if (/vega|radeon(\s*\(tm\))?\s+graphics/.test(s)) return 'integrated';
+    // Ryzen APUs report 'Vega 3' to 'Vega 11' (some as 'RX Vega 10'); the desktop cards are
+    // 'RX Vega 56 / 64', plain 'RX Vega' and 'RX Vega M'.
+    const vega = /vega\s*(\d+)?/.exec(s);
+    if (vega) return vega[1] && Number(vega[1]) <= 11 ? 'integrated' : 'discrete';
+    if (/radeon(\s*\(tm\))?\s+graphics/.test(s)) return 'integrated';
     if (/radeon(\s*\(tm\))?\s+rx\b/.test(s)) return 'discrete';
     return 'unknown';
   }
@@ -127,10 +130,11 @@ const MASKED_RENDERER = /^(webkit webgl|mozilla|apple gpu)?$/i;
  */
 export function probeGpu(): GpuProbe {
   const out: GpuProbe = { renderer: '', halfFloat: false };
+  let gl: WebGL2RenderingContext | null = null;
   try {
     if (typeof document === 'undefined') return out;
     const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl2', { powerPreference: 'high-performance' }) as WebGL2RenderingContext | null;
+    gl = canvas.getContext('webgl2', { powerPreference: 'high-performance' }) as WebGL2RenderingContext | null;
     if (!gl) return out;
     out.halfFloat = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
     // Firefox reports the real (sanitised) GPU in RENDERER and deprecates the debug extension, so
@@ -143,9 +147,16 @@ export function probeGpu(): GpuProbe {
       if (typeof unmasked === 'string' && unmasked) name = unmasked;
     }
     out.renderer = name;
-    (gl.getExtension('WEBGL_lose_context') as { loseContext(): void } | null)?.loseContext();
   } catch {
-    // No usable probe: unknown GPU, no half-float targets.
+    // No usable probe: unknown GPU (and no half-float targets unless that answer came first).
+  } finally {
+    // Release the throwaway context whatever happened, so it does not count against the page's limit.
+    try {
+      const lose = gl?.getExtension('WEBGL_lose_context') as { loseContext?: () => void } | null | undefined;
+      if (typeof lose?.loseContext === 'function') lose.loseContext();
+    } catch {
+      // Best effort.
+    }
   }
   return out;
 }

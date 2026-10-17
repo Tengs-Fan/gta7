@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Environment } from '../../src/render/environment';
-import { AUTO_MAX_PIXELS, drawingBufferPixels, gpuClass, pickTier, pixelRatioFor, QUALITY, QUALITY_TIERS, type QualityTier } from '../../src/render/quality';
+import { AUTO_MAX_PIXELS, drawingBufferPixels, gpuClass, pickTier, pixelRatioFor, probeGpu, QUALITY, QUALITY_TIERS, type QualityTier } from '../../src/render/quality';
 import { GameRenderer, guardStaleDeletes } from '../../src/render/renderer';
 import type { VehicleView } from '../../src/render/vehicleView';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '../../src/settings';
@@ -88,7 +88,10 @@ vi.mock('three', async (importOriginal) => {
       this.compiles++;
       this.compileTargets.push(this.target);
     }
-    render(): void {}
+    draws = 0;
+    render(): void {
+      this.draws++;
+    }
     dispose(): void {}
     /** A stand-in WebGL context that records deletes (for the stale-delete guard). */
     readonly gl = {
@@ -115,6 +118,7 @@ interface Fake {
   compiles: number;
   compileTargets: unknown[];
   getRenderTarget(): unknown;
+  draws: number;
   toneMapping: number;
   outputColorSpace: string;
 }
@@ -177,6 +181,11 @@ describe('Auto tier pick (pickTier)', () => {
       ['Some Future GPU 9000', 'medium'],
       ['ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001638) Direct3D11 vs_5_0 ps_5_0, D3D11)', 'medium'],
       ['AMD Radeon(TM) RX Vega 10 Graphics', 'medium'],
+      ['ANGLE (AMD, AMD Radeon(TM) Vega 8 Graphics (0x000015DD) Direct3D11 vs_5_0 ps_5_0, D3D11)', 'medium'],
+      ['ANGLE (AMD, Radeon RX Vega Direct3D11 vs_5_0 ps_5_0, D3D11)', 'high'],
+      ['AMD Radeon RX Vega 64 (vega10, LLVM 15.0.7, DRM 3.49)', 'high'],
+      ['Radeon RX Vega M GH Graphics', 'high'],
+      ['AMD Radeon Pro Vega 20', 'high'],
       ['ANGLE (AMD, AMD Radeon RX 6800 XT (0x000073BF) Direct3D11 vs_5_0 ps_5_0, D3D11)', 'high'],
       ['ANGLE (AMD, AMD Radeon Pro 5500M OpenGL Engine, OpenGL 4.1)', 'high'],
       ['Mali-G78', 'medium'],
@@ -311,10 +320,12 @@ describe('GameRenderer quality tiers', () => {
     expect(lights.point.length).toBe(3); // siren, muzzle flash, explosion flash
     expect(lights.spot.length).toBe(1); // the player's headlight
 
+    const bloomDispose = vi.spyOn(bloom as UnrealBloomPass, 'dispose');
     r.setQuality('low');
     expect(f.shadowMap.enabled).toBe(false);
     expect(r.env.sun.castShadow).toBe(false);
     expect(f.effects).toEqual([]);
+    expect(bloomDispose).toHaveBeenCalledTimes(1); // its render targets are freed on Low
     lights = visibleLights(r.scene);
     expect(lights.point.length).toBe(0);
     expect(lights.spot.length).toBe(0);
@@ -332,8 +343,9 @@ describe('GameRenderer quality tiers', () => {
     r.setQuality('high');
     expect(f.shadowMap.enabled).toBe(true);
     expect(r.env.sun.castShadow).toBe(true);
-    // The same bloom pass comes back (switching tiers does not leak a new one each time).
-    expect(f.effects).toEqual([bloom]);
+    expect(f.effects.length).toBe(1);
+    expect(f.effects[0]).toBeInstanceOf(UnrealBloomPass);
+    expect(f.effects[0]).not.toBe(bloom);
     expect(visibleLights(r.scene).point.length).toBe(3);
     expect(visibleLights(r.scene).spot.length).toBe(1);
   });
@@ -449,6 +461,63 @@ describe('GameRenderer quality tiers', () => {
     expect(views(r).get(again.id)).toBe(hiddenView);
     expect(shown(again)).toBe(true);
   });
+
+  it('Low keeps culling after a new sim is attached (pooled views do not remember being hidden)', () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'low', fov: 68, gpu: HDR });
+    const far = QUALITY.low.vehicleDistance;
+    for (let round = 0; round < 2; round++) {
+      const sim = makeSim({ world: W });
+      const spot = beachSpot(sim);
+      teleport(sim, spot.x, spot.z);
+      step(sim, 0.2);
+      attachPlay(r, sim);
+      r.render(DT, false);
+      const cam = r.cameraCtl.camera.position;
+      const v = sim.spawnVehicle('sedan', cam.x, cam.z + far + 50, 0);
+      v.owner = 'traffic';
+      r.render(DT, false);
+      expect(views(r).get(v.id)!.group.visible).toBe(false);
+    }
+  });
+
+  it('on Low a far car is drawn while it smokes or burns, and a hidden one leaves no skid marks or smoke', () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'low', fov: 68, gpu: HDR });
+    const sim = makeSim({ world: W });
+    const spot = beachSpot(sim);
+    teleport(sim, spot.x, spot.z);
+    step(sim, 0.2);
+    attachPlay(r, sim);
+    r.render(DT, false);
+    const cam = r.cameraCtl.camera.position;
+    const d = QUALITY.low.vehicleDistance + 30;
+    const burning = sim.spawnVehicle('sedan', cam.x, cam.z + d, 0);
+    burning.owner = 'parked';
+    burning.burning = true;
+    const wreck = sim.spawnVehicle('sedan', cam.x + 8, cam.z + d, 0);
+    wreck.owner = 'traffic';
+    wreck.destroyed = true;
+    const smoking = sim.spawnVehicle('sedan', cam.x - 8, cam.z + d, 0);
+    smoking.owner = 'traffic';
+    smoking.health = smoking.spec.health * 0.3; // condition 0.3: it smokes
+    // Two cars in a hard slide: one beyond the draw distance, one near (the control).
+    const skidding = sim.spawnVehicle('sedan', cam.x, cam.z - d, 0);
+    const nearSkid = sim.spawnVehicle('sedan', cam.x + 20, cam.z - 40, 0);
+    for (const v of [skidding, nearSkid]) {
+      v.owner = 'traffic';
+      v.skid = 0.9;
+      v.speed = 10;
+    }
+    const smoke = vi.spyOn(r.effects, 'vehicleSmoke');
+    const skids = vi.spyOn(r.effects.skids, 'add');
+    for (let i = 0; i < 10; i++) r.render(DT, false);
+    const shown = (v: { id: number }) => views(r).get(v.id)!.group.visible;
+    expect([burning, wreck, smoking].map(shown)).toEqual([true, true, true]);
+    expect(smoke).toHaveBeenCalled(); // their fire and smoke sit on a visible car
+    expect(shown(skidding)).toBe(false);
+    const marked = new Set(skids.mock.calls.map((c) => String(c[0]).split(':')[0]));
+    expect(marked.has(String(nearSkid.id))).toBe(true);
+    expect(marked.has(String(skidding.id))).toBe(false);
+  });
 });
 
 describe('WebGL context loss (renderer side)', () => {
@@ -466,6 +535,11 @@ describe('WebGL context loss (renderer side)', () => {
 
     canvas.dispatchEvent(new Event('webglcontextlost'));
     expect(r.isContextLost).toBe(true);
+    // Nothing is drawn (or baked) into a lost context.
+    const draws = f.draws;
+    r.render(DT, false);
+    expect(f.draws).toBe(draws);
+    expect(refresh).not.toHaveBeenCalled();
     canvas.dispatchEvent(new Event('webglcontextrestored'));
     expect(r.isContextLost).toBe(false);
     expect(f.compiles).toBe(compiles + 1);
@@ -518,6 +592,54 @@ describe('WebGL context loss (renderer side)', () => {
   });
 });
 
+describe('probeGpu', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubProbe(gl: Record<string, unknown>): void {
+    vi.stubGlobal('document', { createElement: () => ({ getContext: (kind: string) => (kind === 'webgl2' ? gl : null) }) });
+  }
+
+  it('reads the unmasked renderer when RENDERER is masked, and always releases its context', () => {
+    const lose = vi.fn();
+    stubProbe({
+      RENDERER: 1,
+      getParameter: (p: number) => (p === 1 ? 'WebKit WebGL' : p === 2 ? 'ANGLE (Intel, Intel(R) UHD Graphics 620)' : null),
+      getExtension: (name: string) => (name === 'EXT_color_buffer_float' ? {} : name === 'WEBGL_debug_renderer_info' ? { UNMASKED_RENDERER_WEBGL: 2 } : name === 'WEBGL_lose_context' ? { loseContext: lose } : null),
+    });
+    expect(probeGpu()).toEqual({ renderer: 'ANGLE (Intel, Intel(R) UHD Graphics 620)', halfFloat: true });
+    expect(lose).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses an unmasked RENDERER directly (Firefox) without the deprecated debug extension', () => {
+    const asked: string[] = [];
+    stubProbe({
+      RENDERER: 1,
+      getParameter: () => 'NVIDIA GeForce GTX 980, or similar',
+      getExtension: (name: string) => {
+        asked.push(name);
+        return null;
+      },
+    });
+    expect(probeGpu().renderer).toBe('NVIDIA GeForce GTX 980, or similar');
+    expect(asked).not.toContain('WEBGL_debug_renderer_info');
+  });
+
+  it('a query that throws still releases the throwaway context', () => {
+    const lose = vi.fn();
+    stubProbe({
+      RENDERER: 1,
+      getParameter: () => {
+        throw new Error('blocked by a privacy extension');
+      },
+      getExtension: (name: string) => (name === 'WEBGL_lose_context' ? { loseContext: lose } : null),
+    });
+    expect(probeGpu()).toEqual({ renderer: '', halfFloat: false });
+    expect(lose).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('guardStaleDeletes', () => {
   it('wraps every create / delete pair it finds and leaves other calls alone', () => {
     const deleted: string[] = [];
@@ -526,15 +648,20 @@ describe('guardStaleDeletes', () => {
       deleteBuffer: (o: { k: string }) => deleted.push(o.k),
       createFramebuffer: () => ({ k: 'fbo' }),
       deleteFramebuffer: (o: { k: string }) => deleted.push(o.k),
+      fenceSync: () => ({ k: 'sync' }),
+      deleteSync: (o: { k: string }) => deleted.push(o.k),
       bindBuffer: () => 'bound',
     };
-    const oldBuf = (gl.createBuffer as () => object)();
+    const call = (name: string, ...a: unknown[]) => (gl[name] as (...x: unknown[]) => unknown)(...a);
+    const oldBuf = call('createBuffer');
+    const oldSync = call('fenceSync');
     const bind = gl.bindBuffer;
     guardStaleDeletes(gl);
     expect(gl.bindBuffer).toBe(bind);
-    (gl.deleteBuffer as (o: unknown) => void)(oldBuf);
-    const fbo = (gl.createFramebuffer as () => object)();
-    (gl.deleteFramebuffer as (o: unknown) => void)(fbo);
-    expect(deleted).toEqual(['fbo']);
+    call('deleteBuffer', oldBuf);
+    call('deleteSync', oldSync);
+    call('deleteFramebuffer', call('createFramebuffer'));
+    call('deleteSync', call('fenceSync'));
+    expect(deleted).toEqual(['fbo', 'sync']);
   });
 });

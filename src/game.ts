@@ -41,9 +41,7 @@ export class Game {
   private wasDown = false;
   /** The tier 'auto' stands for: picked once at boot from the GPU, never changed at run time. */
   readonly autoTier: QualityTier;
-  /** The tier the renderer was created with, which fixed its MSAA until the page is reloaded. */
-  private readonly bootTier: QualityTier;
-  /** Between 'webglcontextlost' and 'webglcontextrestored': nothing steps or renders. */
+  /** The lost-context flow is on (the renderer keeps its own GL-side flag): nothing steps, the overlay is up. */
   private gfxLost = false;
   private gfxOverlay: HTMLElement | null = null;
   private gfxTimer: ReturnType<typeof setTimeout> | null = null;
@@ -56,8 +54,7 @@ export class Game {
     this.mapImage = new MapImage(this.world);
     const gpu = probeGpu();
     this.autoTier = pickTier({ renderer: gpu.renderer, ...displayInfo() });
-    this.bootTier = this.tierOf(this.settings.quality);
-    this.renderer = new GameRenderer(canvas, this.world, { quality: this.bootTier, fov: this.settings.fov, gpu });
+    this.renderer = new GameRenderer(canvas, this.world, { quality: this.tierOf(this.settings.quality), fov: this.settings.fov, gpu });
     this.input = new Input(canvas);
     this.input.attach();
     this.input.wantsPointerLock = () => this.mode === 'game' && !this.menus.open && !this.crashed;
@@ -118,7 +115,7 @@ export class Game {
       },
       waypoint: () => this.hud.waypoint,
       click: () => this.audio.chime('ui'),
-      quality: () => ({ auto: this.autoTier, msaa: QUALITY[this.bootTier].msaa }),
+      quality: () => ({ auto: this.autoTier, msaa: this.renderer.msaa }),
     };
   }
 

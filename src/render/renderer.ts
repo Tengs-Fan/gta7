@@ -25,7 +25,14 @@ export interface RenderSettings {
   gpu?: GpuProbe;
 }
 
-const GL_KINDS = ['Buffer', 'Framebuffer', 'Program', 'Query', 'Renderbuffer', 'Sampler', 'Shader', 'Texture', 'TransformFeedback', 'VertexArray'] as const;
+/** Vehicles below this condition smoke (as in vehicleEffects). */
+const SMOKE_CONDITION = 0.45;
+
+/** Every create / delete pair of WebGL 2 objects. */
+const GL_PAIRS: ReadonlyArray<readonly [create: string, del: string]> = [
+  ...['Buffer', 'Framebuffer', 'Program', 'Query', 'Renderbuffer', 'Sampler', 'Shader', 'Texture', 'TransformFeedback', 'VertexArray'].map((k) => [`create${k}`, `delete${k}`] as const),
+  ['fenceSync', 'deleteSync'],
+];
 const GL_GENERATION = Symbol('glGeneration');
 
 /**
@@ -40,16 +47,16 @@ const GL_GENERATION = Symbol('glGeneration');
 export function guardStaleDeletes(gl: object): () => void {
   let generation = 1;
   const ctx = gl as Record<string, unknown>;
-  for (const kind of GL_KINDS) {
-    const create = ctx[`create${kind}`];
-    const del = ctx[`delete${kind}`];
+  for (const [createName, deleteName] of GL_PAIRS) {
+    const create = ctx[createName];
+    const del = ctx[deleteName];
     if (typeof create !== 'function' || typeof del !== 'function') continue;
-    ctx[`create${kind}`] = (...args: unknown[]) => {
+    ctx[createName] = (...args: unknown[]) => {
       const o = (create as (...a: unknown[]) => unknown).apply(gl, args);
       if (o && typeof o === 'object') (o as Record<symbol, number>)[GL_GENERATION] = generation;
       return o;
     };
-    ctx[`delete${kind}`] = (o: unknown) => {
+    ctx[deleteName] = (o: unknown) => {
       // Untagged objects predate the first loss; null and undefined pass through (no-ops).
       if (o && typeof o === 'object' && (o as Record<symbol, number | undefined>)[GL_GENERATION] !== generation) return;
       (del as (o: unknown) => void).call(gl, o);
@@ -204,7 +211,10 @@ export class GameRenderer {
   private setBloom(on: boolean): void {
     if (!this.hdr) return;
     if (!on) {
+      // Off on Low: free its render targets too (a fresh pass is made if it comes back).
       this.renderer.setEffects([]);
+      this.bloom?.dispose();
+      this.bloom = null;
       return;
     }
     if (!this.bloom) {
@@ -294,6 +304,7 @@ export class GameRenderer {
       this.pool.release(v);
     }
     this.vehicleViews.clear();
+    this.farHidden.clear();
     this.effects.reset();
     this.sim = sim;
     const fx = this.effects;
@@ -358,12 +369,14 @@ export class GameRenderer {
 
   /**
    * Skips ambient cars beyond the tier's vehicle draw distance (on Low, 150 m: a few pixels tall, and
-   * about 15 draw calls each). Mission and police vehicles are always drawn.
+   * about 15 draw calls each). Mission and police vehicles are always drawn, and so are wrecks and
+   * burning or smoking cars, whose fire and smoke would otherwise hang in the air.
    */
   private cullFar(view: VehicleView, v: Vehicle): void {
     const far = QUALITY[this.quality].vehicleDistance;
     const cam = this.cameraCtl.camera.position;
-    const hide = (v.owner === 'traffic' || v.owner === 'parked') && (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2 > far * far;
+    const plain = (v.owner === 'traffic' || v.owner === 'parked') && !v.destroyed && !v.burning && v.condition >= SMOKE_CONDITION;
+    const hide = plain && (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2 > far * far;
     if (hide === this.farHidden.has(view)) return;
     view.group.visible = !hide;
     if (hide) this.farHidden.add(view);
@@ -380,6 +393,9 @@ export class GameRenderer {
       if (v.removed) continue;
       const d2 = (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2;
       if (d2 > 220 * 220) continue;
+      // Not drawn on this tier (see cullFar): no skid marks or tyre smoke under an invisible car.
+      const view = this.vehicleViews.get(v.id);
+      if (view && this.farHidden.has(view)) continue;
       const fxh = Math.sin(v.heading);
       const fzh = Math.cos(v.heading);
       const hx = v.pos.x + fxh * v.halfL * 0.62;
@@ -442,6 +458,7 @@ export class GameRenderer {
 
   /** Mirrors the sim (if any) and renders one frame. */
   render(dt: number, aiming: boolean): void {
+    if (this.contextLost) return;
     this.time += dt;
     const sim = this.sim;
     const cam = this.cameraCtl.camera;

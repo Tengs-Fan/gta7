@@ -1,8 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
+import { QUALITY, type QualityTier } from '../../src/render/quality';
 import { boot, newGame, state, type Api } from './helpers';
 
 // Graphics quality tiers (Auto, Low, Medium, High) and recovery from a lost WebGL context.
-// This machine's discrete GPU makes Auto mean High, so Low and Medium are also booted directly.
+// What Auto means depends on the machine's GPU (High on the reference RTX machine, Low under
+// SwiftShader), so the settings test reads it from the game; Low and Medium are also booted directly.
 
 /** Automated runs refuse pointer lock (headless Chromium can stall rAF once it grants it). */
 async function noPointerLock(page: Page): Promise<void> {
@@ -31,23 +33,27 @@ test.describe('graphics quality', () => {
   test('switches Auto -> Low -> High in settings with zero console errors', async ({ page }) => {
     await noPointerLock(page);
     const errors = await boot(page);
-    expect((await state(page)).render.tier).toBe('high');
+    const auto: QualityTier = await page.evaluate(() => (window as Api).__gta7.game.autoTier);
+    // MSAA is fixed when the renderer is made (here from Auto); everything else applies at once.
+    const builtMsaa = QUALITY[auto].msaa;
+    expect((await state(page)).render.tier).toBe(auto);
     await page.getByRole('button', { name: 'SETTINGS', exact: true }).click();
     const select = page.locator('.setting select');
     const note = page.locator('.setting-note');
     await expect(select).toHaveValue('auto');
-    await expect(select.locator('option').first()).toHaveText('AUTO (HIGH)');
+    await expect(select.locator('option').first()).toHaveText(`AUTO (${auto.toUpperCase()})`);
     await expect(note).toBeHidden();
     await select.selectOption('low');
     expect((await state(page)).render.tier).toBe('low');
-    // MSAA was fixed when the renderer was made; everything else applied at once.
-    await expect(note).toHaveText('Anti-aliasing turns off after a reload.');
+    if (builtMsaa) await expect(note).toHaveText('Anti-aliasing turns off after a reload.');
+    else await expect(note).toBeHidden();
     let r = await rendererFacts(page);
-    expect(r).toMatchObject({ tier: 'low', msaa: true, antialias: true, shadows: false, point: 0, spot: 0 });
+    expect(r).toMatchObject({ tier: 'low', msaa: builtMsaa, antialias: builtMsaa, shadows: false, point: 0, spot: 0 });
     expect(r.pixelRatio).toBeCloseTo(0.67, 5);
     await select.selectOption('high');
     expect((await state(page)).render.tier).toBe('high');
-    await expect(note).toBeHidden();
+    if (builtMsaa) await expect(note).toBeHidden();
+    else await expect(note).toHaveText('Anti-aliasing turns on after a reload.');
     r = await rendererFacts(page);
     expect(r).toMatchObject({ tier: 'high', shadows: true, point: 3, spot: 1 });
     await page.getByRole('button', { name: 'BACK', exact: true }).click();
@@ -64,12 +70,12 @@ test.describe('graphics quality', () => {
     expect(low).toMatchObject({ tier: 'low', traffic: 0.75, peds: 0.75 });
     expect(low.px.colors).toBeGreaterThan(6);
     await select.selectOption('auto');
-    const auto = await page.evaluate(() => {
+    const back = await page.evaluate(() => {
       const g = (window as Api).__gta7;
       return { tier: g.state().render.tier, traffic: g.sim.traffic.density, setting: g.game.settings.quality, px: g.samplePixels() };
     });
-    expect(auto).toMatchObject({ tier: 'high', traffic: 1, setting: 'auto' });
-    expect(auto.px.colors).toBeGreaterThan(6);
+    expect(back).toMatchObject({ tier: auto, traffic: QUALITY[auto].trafficDensity, setting: 'auto' });
+    expect(back.px.colors).toBeGreaterThan(6);
     await page.getByRole('button', { name: 'BACK', exact: true }).click();
     await page.getByRole('button', { name: 'RESUME', exact: true }).click();
     await page.waitForFunction(() => !(window as Api).__gta7.state().menuOpen);
