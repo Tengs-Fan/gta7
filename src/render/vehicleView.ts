@@ -597,7 +597,10 @@ export class VehicleView {
   /** Whether the stripe's geometry is bent (restoreShape puts it back). */
   private stripeBent = false;
 
-  /** Shows the vehicle's dents: displaced per-view copies of the body and glass, and the lamps near a dent smashed. */
+  /**
+   * Shows the vehicle's dents: displaced per-view copies of the body and glass, the lamps, roof gear and livery carried
+   * along with the metal, and the lamps near a dent smashed.
+   */
   private applyDents(v: Vehicle): void {
     if (v.dents.length === 0) {
       this.restoreShape();
@@ -622,9 +625,9 @@ export class VehicleView {
     }
     // Parts on the body move with the metal under them.
     const p3 = new Float32Array(3);
-    for (const a of this.attached) {
-      displace([a.base.x, a.base.y, a.base.z], p3, v.dents);
-      a.obj.position.set(p3[0]!, p3[1]!, p3[2]!);
+    for (const part of this.attached) {
+      displace([part.base.x, part.base.y, part.base.z], p3, v.dents);
+      part.obj.position.set(p3[0]!, p3[1]!, p3[2]!);
     }
     if (this.stripe) {
       const pos = this.stripe.geo.getAttribute('position') as THREE.BufferAttribute;
@@ -634,7 +637,7 @@ export class VehicleView {
       this.stripeBent = true;
     }
     for (const l of this.lamps) {
-      const p = this.attached.find((a) => a.obj === l.mesh)!.base;
+      const p = this.attached.find((part) => part.obj === l.mesh)!.base;
       l.broken = v.dents.some((d) => Math.hypot(p.x - d.lx, p.y - d.ly, p.z - d.lz) < LAMP_BREAK_DIST);
     }
     this.applyLampMaterials();
