@@ -11,6 +11,7 @@ import { CityView, frontageSplit, occupancy, shopOccupancy } from '../../src/ren
 import { FOLIAGE_FADE_FAR, PropsView, foliagePoints, foliageSpheres } from '../../src/render/props';
 import { DOOR_U, cloudFbm, cloudNoiseData, storefrontUv } from '../../src/render/textures';
 import { CLOUD_SD, Environment, cloudCover, cloudThreshold, starIntensity } from '../../src/render/environment';
+import { MARKER_FADE_FAR, MARKER_FADE_NEAR, MarkerView, markerFade } from '../../src/render/markers';
 import { GameRenderer } from '../../src/render/renderer';
 import { Sim } from '../../src/sim/sim';
 import { isSolidForSight, makeRayHit } from '../../src/world/colliders';
@@ -1225,5 +1226,94 @@ describe('round 2 fix 2: trunk cuts with hysteresis', () => {
       expect(r.cuts, label).toBe(0);
       expect(r.maxJump, label).toBeLessThan(0.8);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix 2: markers next to the camera
+
+describe('round 2 fix 2: markers fade out next to the camera', () => {
+  /**
+   * The ids of the drawn markers that the frame's edge cuts within 6 m of the camera: of the vertices of
+   * their visible beam and icon within 6 m, some are in the frame and some out of it (or behind the camera).
+   */
+  function cutMarkers(view: MarkerView, cam: THREE.PerspectiveCamera): string[] {
+    cam.updateMatrixWorld(true);
+    view.group.updateMatrixWorld(true);
+    const out: string[] = [];
+    const v = new THREE.Vector3();
+    for (const g of view.group.children) {
+      if (!g.visible) continue;
+      let inside = 0;
+      let outside = 0;
+      for (const o of g.children) {
+        if (!(o instanceof THREE.Mesh) || !o.visible || o.scale.x < 1e-3 || (o.material as THREE.Material).opacity < 0.01) continue;
+        const pos = o.geometry.getAttribute('position');
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+          if (v.distanceTo(cam.position) > 6) continue;
+          const s = v.clone().project(cam);
+          if (s.z > -1 && s.z < 1 && Math.abs(s.x) <= 1 && Math.abs(s.y) <= 1) inside++;
+          else outside++;
+        }
+      }
+      if (inside > 0 && outside > 0) out.push(g.uuid);
+    }
+    return out;
+  }
+
+  it('the first frame of a new game draws no marker cut by the frame close to the camera, landscape and portrait', () => {
+    for (const [w, h] of [[1280, 720], [1600, 900], [800, 600], [390, 844]] as const) {
+      const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 15.5 });
+      const cam = new CameraController(w / h);
+      cam.mode = 'play';
+      cam.reset(sim);
+      cam.update(DT, sim, false);
+      const view = new MarkerView();
+      view.syncMarkers(sim.interactions.markers, 0, cam.camera.position, sim.playerPos());
+      // The safehouse save marker is 3.2 m from the spawn: drawn, it filled the right edge of a landscape frame.
+      expect(sim.interactions.markers.some((m) => m.kind === 'save' && Math.hypot(m.x - sim.player.pos.x, m.z - sim.player.pos.z) < 4)).toBe(true);
+      expect(cutMarkers(view, cam.camera), `${w}x${h}`).toEqual([]);
+    }
+  });
+
+  it('a marker fades out only once the camera is about to pass through it', () => {
+    const view = new MarkerView();
+    const m = { id: 'save:t', kind: 'save' as const, x: 10, z: 20, radius: 1.5, label: '', color: 0x55ccff, ref: '' };
+    const drawn = (back: number): { visible: boolean; alpha: number; icon: number } => {
+      view.syncMarkers([m], 0, { x: m.x - back, y: 2.3, z: m.z });
+      const g = view.group.children[0]!;
+      const beam = g.getObjectByName('beam') as THREE.Mesh;
+      return { visible: g.visible, alpha: (beam.material as THREE.MeshBasicMaterial).opacity, icon: g.getObjectByName('icon')!.scale.x };
+    };
+    // Standing in it, the camera 4.3 m behind him: drawn in full.
+    expect(drawn(4.3)).toEqual({ visible: true, alpha: 0.28, icon: 1 });
+    expect(drawn(MARKER_FADE_FAR)).toEqual({ visible: true, alpha: 0.28, icon: 1 });
+    // Fading on the way in...
+    const half = drawn((MARKER_FADE_NEAR + MARKER_FADE_FAR) / 2);
+    expect(half.visible).toBe(true);
+    expect(half.alpha).toBeCloseTo(0.14, 6);
+    expect(half.icon).toBeCloseTo(0.5, 6);
+    // ...and gone nearer than MARKER_FADE_NEAR, as in the New Game frame (2.9 m from the safehouse marker).
+    expect(drawn(2.9).visible).toBe(false);
+    expect(drawn(0.5).visible).toBe(false);
+    // Without a camera (title screen, tests) every marker is drawn in full...
+    view.syncMarkers([m], 0);
+    expect(view.group.children[0]!.visible).toBe(true);
+    // ...and so is the one he stands in, the camera pulled in close by a wall or an aim.
+    view.syncMarkers([m], 0, { x: m.x - 2.4, y: 2.3, z: m.z }, { x: m.x - 0.6, z: m.z });
+    expect(view.group.children[0]!.visible).toBe(true);
+    expect((((view.group.children[0]!.getObjectByName('beam') as THREE.Mesh).material) as THREE.MeshBasicMaterial).opacity).toBe(0.28);
+    view.syncMarkers([m], 0, { x: m.x - 2.4, y: 2.3, z: m.z }, { x: m.x - 1.6, z: m.z });
+    expect(view.group.children[0]!.visible).toBe(false);
+    // High above it, as close over the ground: far from the marker itself.
+    expect(markerFade({ x: m.x, y: 30, z: m.z }, m.x, m.z)).toBe(1);
+    // Every material a marker view had goes with it.
+    const beam = view.group.children[0]!.getObjectByName('beam') as THREE.Mesh;
+    let disposed = false;
+    (beam.material as THREE.Material).addEventListener('dispose', () => (disposed = true));
+    view.syncMarkers([], 1);
+    expect(view.group.children.length).toBe(0);
+    expect(disposed).toBe(true);
   });
 });
