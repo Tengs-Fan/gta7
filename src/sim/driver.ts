@@ -208,11 +208,13 @@ export class DriverAI {
   decel: number;
   /** Chase / flee subject. */
   target: Character | Vehicle | null = null;
-  /** Fixed destination for the route policy (also a waypoint for 'chase', see police search). */
-  dest: { x: number; z: number } | null = null;
-  /** The route field for `routeDest` (see routeField). */
+  private destPt: { x: number; z: number } | null = null;
+  /** A route car got a new destination: plan the path afresh on the next update. */
+  private repath = false;
+  /** The route field for the destination at `routeX`, `routeZ` (see routeField). */
   private route: RouteField | null = null;
-  private routeDest: { x: number; z: number } | null = null;
+  private routeX = NaN;
+  private routeZ = NaN;
   /** Pursuit: drive straight at the target when close and visible. */
   direct = false;
   private holdUntil = -Infinity;
@@ -308,20 +310,39 @@ export class DriverAI {
     this.direct = false;
   }
 
+  /**
+   * Fixed destination for the route policy (also a waypoint for 'chase', see police search). A new
+   * one clears `arrived`; a route car then stops waiting at the old one and plans its path afresh.
+   */
+  get dest(): { x: number; z: number } | null {
+    return this.destPt;
+  }
+
+  set dest(d: { x: number; z: number } | null) {
+    if (d === this.destPt) return;
+    const wasThere = this.arrived;
+    this.destPt = d;
+    this.arrived = false;
+    if (this.policy === 'route') {
+      if (wasThere) this.hold = false;
+      this.repath = true;
+    }
+  }
+
   /** Drive to (x, z) on the route policy, stop within ARRIVE_RADIUS of it and wait there. */
   setDestination(x: number, z: number): void {
     if (this.policy !== 'route') this.setPolicy('route');
     this.dest = { x, z };
-    this.arrived = false;
     this.resetPath();
   }
 
   /** The route field towards `dest`, or null without one. */
   private routeTo(): RouteField | null {
-    const d = this.dest;
+    const d = this.destPt;
     if (!d) return null;
-    if (this.routeDest !== d) {
-      this.routeDest = d;
+    if (d.x !== this.routeX || d.z !== this.routeZ) {
+      this.routeX = d.x;
+      this.routeZ = d.z;
       this.route = routeField(this.host.roads, d.x, d.z);
     }
     return this.route;
@@ -348,6 +369,7 @@ export class DriverAI {
 
   /** Snap onto the nearest lane in the vehicle's travel direction. */
   resetPath(): void {
+    this.repath = false;
     const v = this.vehicle;
     const { lane, s } = this.host.roads.nearestLane(v.pos.x, v.pos.z, v.heading);
     this.segs = [laneSeg(lane, s)];
@@ -533,8 +555,9 @@ export class DriverAI {
     this.waitLine = Infinity;
     this.pathOffset = Infinity;
 
+    if (this.repath) this.resetPath();
     // Arrived and stopped: wait there (holds expire unless asserted again).
-    if (this.arrived && this.policy === 'route' && this.dest && Math.abs(v.forwardSpeed) < 0.5) this.hold = true;
+    if (this.arrived && this.policy === 'route' && this.destPt && Math.abs(v.forwardSpeed) < 0.5) this.hold = true;
     if (this.hold) {
       c.throttle = 0;
       c.brake = 0;

@@ -192,6 +192,24 @@ describe('route drivers reach their destination', () => {
     expect(car.ai!.routeRemaining()).toBe(0);
   });
 
+  it('a new destination clears the arrival, however it is set', () => {
+    const sim = new Sim({ world: world(), ambient: false, police: false });
+    const lane = sim.roads.lanes.find((l) => l.length > 60 && l.turns.length > 0)!;
+    const near = { x: lane.sx + lane.dx * 30, z: lane.sz + lane.dz * 30 };
+    const car = sim.spawnVehicle('sedan', lane.sx + lane.dx * 5, lane.sz + lane.dz * 5, lane.heading);
+    sim.addDriver(car, 'civilian', 'route');
+    car.ai!.setLane(lane, 5);
+    car.ai!.setDestination(near.x, near.z);
+    stepUntil(sim, () => car.ai!.arrived && car.speed < 0.3, 20, 1 / 30);
+    const next = lane.turns.find((t) => t.kind === 'straight')!.to;
+    const far = { x: next.sx + next.dx * 40, z: next.sz + next.dz * 40 };
+    car.ai!.dest = far;
+    expect(car.ai!.arrived).toBe(false);
+    expect(car.ai!.routeRemaining()).toBeGreaterThan(40);
+    stepUntil(sim, () => car.ai!.arrived, 40, 1 / 30);
+    expect(dist(car.pos, far)).toBeLessThanOrEqual(ARRIVE_RADIUS + 0.5);
+  });
+
   it('spawnDriver puts a mission-owned car and driver on a lane, with a route when given a destination', () => {
     const sim = setup([]);
     const m = startMission(sim, 'wheels');
@@ -758,6 +776,25 @@ describe('staged missions', () => {
     const p0 = { x: c!.pos.x, z: c!.pos.z };
     step(sim, 4, input(), 1 / 30);
     expect(dist(c!.pos, p0)).toBeGreaterThan(8);
+  });
+
+  it('Heatwave: only the crew still by the last van piles in', () => {
+    const sim = setup(before('heatwave'));
+    const m = startMission(sim, 'heatwave');
+    stepUntil(sim, () => objective(sim).startsWith('Destroy the vans'), 20);
+    const [a, b, c] = m.vehicles;
+    const crew = m.characters.filter((g) => g.role === 'gang' && dist(g.pos, c!.pos) < 8);
+    expect(crew.length).toBe(2);
+    // One of them went after the player and is far off now.
+    const away = sim.world.findFreeSpot(c!.pos.x + 40, c!.pos.z, 0.5, 20)!;
+    crew[0]!.pos.x = away.x;
+    crew[0]!.pos.z = away.z;
+    sim.combat.damageVehicle(a!, 99999, sim.player, 'explosion');
+    sim.combat.damageVehicle(b!, 99999, sim.player, 'explosion');
+    step(sim, 0.2);
+    expect(c!.driver).toBe(crew[1]);
+    expect(crew[0]!.vehicle).toBeNull();
+    expect(c!.passengers.filter(Boolean).length).toBe(0);
   });
 
   it('The Big Score: guards at the door, police answering the alarm and SWAT halfway', () => {

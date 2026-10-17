@@ -80,10 +80,10 @@ function markChasers(m: MissionCtx, cars: Vehicle[]): number {
   });
 }
 
-/** A van's crew piles in and drives off, away from the player (a new driver if they are all down). */
+/** A van's crew, those still by it, piles in and drives off away from the player (a new driver if none is). */
 function makeRun(m: MissionCtx, v: Vehicle, crew: Character[]): void {
   const sim = m.sim;
-  const free = crew.filter((c) => !c.removed && c.alive && c.state === 'normal');
+  const free = crew.filter((c) => !c.removed && c.alive && c.state === 'normal' && Math.hypot(c.pos.x - v.pos.x, c.pos.z - v.pos.z) < 15);
   const driver = free.shift();
   if (driver) {
     driver.aiming = false;
