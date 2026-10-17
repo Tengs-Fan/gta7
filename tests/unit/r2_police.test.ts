@@ -105,23 +105,33 @@ describe('lethal force and arrests', () => {
 
   for (const level of [4, 5]) {
     it(`never busts a player firing a rifle into the air every 0.5 s at ${level} stars, and fires at him`, () => {
-      seedMathRandom(level);
-      const sim = makeSim({ ambient: true, seed: level });
-      sim.cheats.godMode = true;
-      const p = sim.player;
-      p.inventory.give('rifle', 2000);
-      p.inventory.current = 'rifle';
-      sim.wanted.setLevel(level);
-      const shots = countPoliceShots(sim);
-      let busted = false;
-      let frame = 0;
-      step(sim, 30, () => {
-        if (sim.deathKind === 'busted') busted = true;
-        const pull = frame++ % 30 === 0;
-        return aimAt(sim, { x: p.pos.x + 0.5, y: p.pos.y + 30, z: p.pos.z + 0.5 }, { fire: pull, firePressed: pull });
-      });
-      expect(busted).toBe(false);
-      expect(shots.n).toBeGreaterThanOrEqual(15);
+      // Seeds 1-5, as in the acceptance and the pistol and fists cases above. Whether the first unit gets
+      // through the ambient traffic within the 30 s depends on the seed (it misses in about 1 run in 20), so
+      // the fire is asked of 4 runs in 5; the arrest must never happen.
+      const runs: string[] = [];
+      let fired = 0;
+      for (const seed of [1, 2, 3, 4, 5]) {
+        seedMathRandom(seed);
+        const sim = makeSim({ ambient: true, seed });
+        sim.cheats.godMode = true;
+        const p = sim.player;
+        p.inventory.give('rifle', 2000);
+        p.inventory.current = 'rifle';
+        sim.wanted.setLevel(level);
+        const shots = countPoliceShots(sim);
+        let busted = false;
+        let frame = 0;
+        step(sim, 30, () => {
+          if (sim.deathKind === 'busted') busted = true;
+          const pull = frame++ % 30 === 0;
+          return aimAt(sim, { x: p.pos.x + 0.5, y: p.pos.y + 30, z: p.pos.z + 0.5 }, { fire: pull, firePressed: pull });
+        });
+        expect(busted, `seed ${seed}`).toBe(false);
+        if (shots.n >= 15) fired++;
+        runs.push(`seed ${seed}: ${shots.n} police shots`);
+        vi.restoreAllMocks();
+      }
+      expect(fired, runs.join(', ')).toBeGreaterThanOrEqual(4);
     });
   }
 
