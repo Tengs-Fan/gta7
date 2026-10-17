@@ -21,6 +21,8 @@ const WRECK_SAG = 0.12;
 const WRECK_ROLL = 0.05;
 /** Lamps closer than this to a dent are smashed. */
 const LAMP_BREAK_DIST = 0.8;
+/** Tail lamp emissive intensity while braking (running lights 1.2, off 0.3). */
+const BRAKE_GLOW = 1.8;
 
 /** A window on a flat segment of the body profile (a -> b, in profile order), across x0..x1. */
 interface Pane {
@@ -673,7 +675,8 @@ export class VehicleView {
     const powered = !v.destroyed && (v.driver !== null || v.siren);
     const lightsOn = night > 0.35 && powered;
     this.headMat.emissiveIntensity = powered ? 0.4 + night * 5 : 0.3;
-    this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? 3 : lightsOn ? 1.2 : 0.3;
+    // Braking stays at 1.8: brighter red saturates under ACES tone mapping and turns orange (3 renders as 255, 130, 67).
+    this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? BRAKE_GLOW : lightsOn ? 1.2 : 0.3;
     this.reverseMat.emissiveIntensity = v.reversing && v.driver ? 4 : 0;
     if (this.sirenRed && this.sirenBlue) {
       const on = v.siren && !v.destroyed;

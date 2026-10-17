@@ -644,7 +644,23 @@ export class Effects {
   /** Sparks of metal grinding on a wall or another car: orange-white, short-lived, thrown along (vx, vz). */
   sparks(x: number, y: number, z: number, n: number, vx = 0, vz = 0): void {
     for (let i = 0; i < n; i++) {
-      this.glow.emit(x + this.r(-0.15, 0.15), y + this.r(-0.1, 0.15), z + this.r(-0.15, 0.15), vx + this.r(-3.5, 3.5), this.r(0.8, 4.5), vz + this.r(-3.5, 3.5), this.r(0.2, 0.4), this.r(0.06, 0.1), 0.02, 0xfff4cc, 0xff8a1a, 1, 14, 0.8);
+      this.glow.emit(x + this.r(-0.15, 0.15), y + this.r(-0.1, 0.15), z + this.r(-0.15, 0.15), vx + this.r(-1.5, 1.5), this.r(1, 4.5), vz + this.r(-1.5, 1.5), this.r(0.2, 0.4), this.r(0.1, 0.16), 0.03, 0xfff4cc, 0xff8a1a, 1, 14, 0.8);
+    }
+  }
+
+  /**
+   * Sparks for a vehicle scraping at (x, y, z) at `speed`: more the faster it grinds, shed along the contact towards the
+   * vehicle's tail and trailing it at half its speed, so they stream out behind it instead of dying under its body.
+   */
+  scrapeSparks(v: Vehicle, x: number, y: number, z: number, speed: number): void {
+    const n = Math.round(Math.min(16, Math.max(4, speed / 1.8)));
+    const sp = Math.hypot(v.vel.x, v.vel.z);
+    const dx = sp > 1e-3 ? v.vel.x / sp : Math.sin(v.heading);
+    const dz = sp > 1e-3 ? v.vel.z / sp : Math.cos(v.heading);
+    for (let i = 0; i < n; i++) {
+      const back = this.r(0.3, 1) * v.halfL;
+      const k = this.r(0.45, 0.75);
+      this.sparks(x - dx * back, y + this.r(0, 0.2), z - dz * back, 1, v.vel.x * k, v.vel.z * k);
     }
   }
 
@@ -657,7 +673,8 @@ export class Effects {
 
   /**
    * Knocks 1-3 body parts in the vehicle's colour off a hard crash at (x, y, z): bumpers and the hood from the ends,
-   * mirrors from the sides. They fly with the car's velocity plus a kick, then bounce on `ground` and settle.
+   * mirrors from the sides. Crushed off between the car and what it hit, they squeeze out sideways and up from the car's
+   * surface (never into the obstacle) on top of the car's own velocity, then bounce on `ground` and settle.
    */
   shedParts(v: Vehicle, x: number, y: number, z: number, strength: number, ground: (x: number, z: number) => number): void {
     const n = Math.max(1, Math.min(3, 1 + Math.floor((strength - 20) / 8)));
@@ -669,15 +686,21 @@ export class Effects {
     const across = dx * fz - dz * fx;
     const end = Math.abs(along) / v.halfL >= Math.abs(across) / v.halfW;
     const kinds: PartKind[] = end ? (along > 0 ? ['bumper', 'hood', 'mirror'] : ['bumper', 'mirror', 'mirror']) : ['mirror', 'bumper', 'mirror'];
-    const hl = Math.hypot(dx, dz) || 1;
+    // Outward through the hit face (from the centre, or straight up for a hit at the centre, e.g. a landing).
+    const hl = Math.hypot(dx, dz);
+    const ox = hl > 1e-6 ? dx / hl : 0;
+    const oz = hl > 1e-6 ? dz / hl : 0;
     const color = v.destroyed ? BURNT_COLOR : v.color;
     for (let i = 0; i < n; i++) {
-      const kick = this.r(2, 5);
+      const side = (i % 2 === 0 ? 1 : -1) * this.r(1.5, 4);
+      const back = this.r(0.3, 1.5);
       const spin = new THREE.Vector3(this.r(-9, 9), this.r(-6, 6), this.r(-9, 9));
-      const px = x + this.r(-0.3, 0.3);
-      const pz = z + this.r(-0.3, 0.3);
+      const px = x - ox * 0.35 + this.r(-0.2, 0.2);
+      const pz = z - oz * 0.35 + this.r(-0.2, 0.2);
       const py = Math.max(y, ground(px, pz) + 0.3);
-      this.parts.spawn(kinds[i]!, px, py, pz, v.vel.x + (dx / hl) * kick + this.r(-1, 1), this.r(2.5, 5), v.vel.z + (dz / hl) * kick + this.r(-1, 1), color, spin, ground);
+      const vx = v.vel.x - oz * side - ox * back + this.r(-0.5, 0.5);
+      const vz = v.vel.z + ox * side - oz * back + this.r(-0.5, 0.5);
+      this.parts.spawn(kinds[i]!, px, py, pz, vx, this.r(2.5, 5), vz, color, spin, ground);
     }
   }
 

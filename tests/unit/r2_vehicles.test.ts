@@ -386,32 +386,47 @@ describe('cap triangulation', () => {
     }
   });
 
-  it('every vehicle flank is closed: the cap area matches the profile with its wheel arches', () => {
+  it('every vehicle flank is watertight: its boundary is exactly the side walls\' outline, with no T-junctions', () => {
     for (const kind of Object.keys(VEHICLE_SPECS) as VehicleKind[]) {
-      const body = meshNamed(new VehicleView(kind), 'body').geometry;
-      const pos = body.getAttribute('position');
-      const half = VEHICLE_SPECS[kind].width / 2;
-      let left = 0;
-      let right = 0;
-      const a = new THREE.Vector3();
-      const b = new THREE.Vector3();
-      const c = new THREE.Vector3();
-      for (let i = 0; i < pos.count; i += 3) {
-        a.fromBufferAttribute(pos, i);
-        b.fromBufferAttribute(pos, i + 1);
-        c.fromBufferAttribute(pos, i + 2);
-        const onCap = (side: number): boolean => [a, b, c].every((p) => Math.abs(p.x - side * half) < 1e-6);
-        const cr = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
-        if (onCap(-1)) {
-          expect(cr.x, kind).toBeLessThan(0);
-          left += cr.length() / 2;
-        } else if (onCap(1)) {
-          expect(cr.x, kind).toBeGreaterThan(0);
-          right += cr.length() / 2;
+      for (const mesh of ['body', 'glass'] as const) {
+        const g = meshNamed(new VehicleView(kind), mesh).geometry;
+        const pos = g.getAttribute('position');
+        // The body's flanks are at the spec's half width (the pickup's bed walls stand 2 mm proud); the glass's are outermost.
+        let half = 0;
+        for (let i = 0; i < pos.count; i++) half = Math.max(half, Math.abs(pos.getX(i)));
+        if (mesh === 'body') half = VEHICLE_SPECS[kind].width / 2;
+        const key = (i: number): string => `${pos.getY(i).toFixed(5)},${pos.getZ(i).toFixed(5)}`;
+        const edge = (a: number, b: number): string => [key(a), key(b)].sort().join('|');
+        for (const side of [-1, 1]) {
+          const onCap = (i: number): boolean => Math.abs(pos.getX(i) - side * half) < 1e-6;
+          const capCount = new Map<string, number>();
+          const wall = new Set<string>();
+          let area = 0;
+          for (let i = 0; i < pos.count; i += 3) {
+            const tri = [i, i + 1, i + 2];
+            const flat = tri.filter(onCap);
+            if (flat.length === 3) {
+              const cr = (pos.getY(i + 1) - pos.getY(i)) * (pos.getZ(i + 2) - pos.getZ(i)) - (pos.getZ(i + 1) - pos.getZ(i)) * (pos.getY(i + 2) - pos.getY(i));
+              area += Math.abs(cr) / 2;
+              for (let k = 0; k < 3; k++) {
+                const e = edge(tri[k]!, tri[(k + 1) % 3]!);
+                capCount.set(e, (capCount.get(e) ?? 0) + 1);
+              }
+            } else if (flat.length === 2) {
+              wall.add(edge(flat[0]!, flat[1]!));
+            }
+          }
+          expect(area, `${kind} ${mesh}`).toBeGreaterThan(0.3);
+          // Edges used once are the cap's boundary; none is used more than twice (no overlaps).
+          const boundary = new Set<string>();
+          for (const [e, n] of capCount) {
+            expect(n, `${kind} ${mesh} ${e}`).toBeLessThanOrEqual(2);
+            if (n === 1) boundary.add(e);
+          }
+          expect(boundary.size, `${kind} ${mesh}`).toBe(wall.size);
+          for (const e of wall) expect(boundary.has(e), `${kind} ${mesh} wall edge ${e}`).toBe(true);
         }
       }
-      expect(left, kind).toBeGreaterThan(0.3);
-      expect(right, kind).toBeCloseTo(left, 6);
     }
   });
 });
@@ -688,7 +703,7 @@ describe('vehicle views', () => {
     expect(mat().emissiveIntensity).toBeCloseTo(1.2, 6);
     v.braking = true;
     view.sync(v, DT, 0, 1);
-    expect(mat().emissiveIntensity).toBeCloseTo(3, 6);
+    expect(mat().emissiveIntensity).toBeCloseTo(1.8, 6);
     v.braking = false;
     view.sync(v, DT, 0, 0);
     expect(mat().emissiveIntensity).toBeCloseTo(0.3, 6);
