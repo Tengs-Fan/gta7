@@ -35,10 +35,16 @@ export class GeoBuilder {
   private nrm: number[] = [];
   private uv: number[] = [];
   private col: number[] = [];
+  private seeds: number[] = [];
   private idx: number[] = [];
   private n = 0;
+  /** Written to the per-vertex float attribute `aSeed` of every vertex added while set (seeded builders only). */
+  seed = 0;
 
-  constructor(readonly colored = false) {}
+  constructor(
+    readonly colored = false,
+    readonly seeded = false,
+  ) {}
 
   get vertexCount(): number {
     return this.n;
@@ -75,6 +81,7 @@ export class GeoBuilder {
       const c = color ?? [1, 1, 1];
       for (let i = 0; i < 4; i++) this.col.push(c[0], c[1], c[2]);
     }
+    if (this.seeded) this.seeds.push(this.seed, this.seed, this.seed, this.seed);
     this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     this.n += 4;
   }
@@ -102,6 +109,7 @@ export class GeoBuilder {
       const c = color ?? [1, 1, 1];
       for (let i = 0; i < 3; i++) this.col.push(c[0], c[1], c[2]);
     }
+    if (this.seeded) this.seeds.push(this.seed, this.seed, this.seed);
     this.idx.push(base, base + 1, base + 2);
     this.n += 3;
   }
@@ -164,6 +172,7 @@ export class GeoBuilder {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nrm, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     if (this.colored) g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    if (this.seeded) g.setAttribute('aSeed', new THREE.Float32BufferAttribute(this.seeds, 1));
     g.setIndex(this.n > 65535 ? new THREE.Uint32BufferAttribute(this.idx, 1) : new THREE.Uint16BufferAttribute(this.idx, 1));
     g.computeBoundingSphere();
     g.computeBoundingBox();

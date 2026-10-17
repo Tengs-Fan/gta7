@@ -113,6 +113,7 @@ export class GameRenderer {
     this.renderer.setPixelRatio(dpr);
     const shadows = q !== 'low';
     this.env.setShadows(shadows);
+    this.env.setQuality(q);
     this.env.sun.shadow.mapSize.set(q === 'high' ? 2048 : 1024, q === 'high' ? 2048 : 1024);
     this.env.sun.shadow.map?.dispose();
     (this.env.sun.shadow as { map: THREE.WebGLRenderTarget | null }).map = null;
@@ -296,7 +297,7 @@ export class GameRenderer {
     const focus = sim && this.cameraCtl.mode === 'play' ? new THREE.Vector3(cam.position.x * 0.5 + sim.playerPos().x * 0.5, 0, cam.position.z * 0.5 + sim.playerPos().z * 0.5) : new THREE.Vector3(cam.position.x * 0.3, 0, cam.position.z * 0.3);
     this.env.update(hours, focus, cam, this.time, this.renderer);
     const night = this.env.night;
-    this.city.update(night);
+    this.city.update(night, hours, this.time);
     // Signals run on the sim clock, the one drivers and pedestrians obey.
     this.props.update(this.time, night, sim ? sim.time : this.time);
     if (sim) {
