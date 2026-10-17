@@ -761,7 +761,7 @@ describe('menus', () => {
 
   function makeMenus(over: Partial<MenuHost> = {}) {
     let saved = true;
-    let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68 };
+    let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [] };
     let waypoint: { x: number; z: number } | null = null;
     const host: MenuHost = {
       hasSave: () => saved,
@@ -826,6 +826,11 @@ describe('menus', () => {
     press({ down: true }); // invert look Y
     press({ confirm: true });
     expect(settings().invertY).toBe(true);
+    press({ down: true }); // tutorial hints
+    press({ right: true });
+    expect(settings().hints).toBe(false);
+    press({ confirm: true });
+    expect(settings().hints).toBe(true);
     press({ down: true }); // DELETE SAVE is disabled without a save: straight to BACK
     press({ confirm: true });
     expect(menus.open).toBe(false);
@@ -1054,7 +1059,7 @@ function stubHost(over: Partial<MenuHost> = {}): MenuHost {
     resume: vi.fn(),
     quitToTitle: vi.fn(),
     abandonMission: vi.fn(),
-    settings: () => ({ quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68 }),
+    settings: () => ({ quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [] }),
     applySettings: () => undefined,
     deleteSave: () => undefined,
     sim: () => null,
@@ -1444,5 +1449,690 @@ describe('map wheel zoom: a notch is one step on every platform', () => {
     const { zoom, wheel } = mapWheelRig();
     wheel(-4, 20, { ctrlKey: true });
     expect(zoom()).toBeCloseTo(0.5 + 19 * 4 * 0.005, 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2, onboarding: Lou's opening call, the next-step line, the route to the contact, key
+// glyphs for the active device, first-time hints and the help queue, the mission offer card and
+// objectives that clear. Modules are imported dynamically so this block adds no top-level imports.
+
+/** A Game on the fake DOM, stepped through its real frame loop at 60 fps. */
+function onboardingGame() {
+  const canvas = new FakeElement('canvas');
+  const uiRoot = new FakeElement('div');
+  const game = new Game(canvas as unknown as HTMLCanvasElement, uiRoot as unknown as HTMLElement);
+  const g = game as unknown as { running: boolean; last: number; frame: (now: number) => void };
+  let now = 1000;
+  g.running = true; // as after start(); requestAnimationFrame is stubbed
+  g.last = now;
+  const frames = (n: number) => {
+    for (let i = 0; i < n; i++) {
+      now += 1000 / 60;
+      g.frame(now);
+    }
+  };
+  const seconds = (s: number) => frames(Math.round(s * 60));
+  const el = (name: string) => uiRoot.all().find((e) => e.dataset.el === name)!;
+  const showing = (name: string) => el(name).classList.contains('show');
+  const prompt = () => (el('prompt').classList.contains('hidden') ? null : el('prompt').innerHTML);
+  return { game, canvas, uiRoot, frames, seconds, el, showing, prompt };
+}
+
+/** A 2D context that records every call with the stroke and fill style current at the time. */
+function recordingCtx() {
+  const calls: Array<{ fn: string; args: unknown[]; strokeStyle: unknown; fillStyle: unknown }> = [];
+  const state: Record<string | symbol, unknown> = {};
+  const ctx = new Proxy(state, {
+    get: (t, k) =>
+      k in t
+        ? t[k]
+        : (...args: unknown[]) => {
+            calls.push({ fn: String(k), args, strokeStyle: t.strokeStyle, fillStyle: t.fillStyle });
+            return { addColorStop: () => undefined, width: 0 };
+          },
+    set: (t, k, v) => {
+      t[k] = v;
+      return true;
+    },
+  });
+  return { ctx, calls };
+}
+
+/** A save in which these story missions are done. */
+function saveWithDone(...ids: string[]): void {
+  const prog = new Progress();
+  for (const id of ids) prog.markDone(id);
+  expect(writeGame(serialize(prog, [], 0, 12, 1))).toBe(true);
+}
+
+/** Puts the player on foot 2.3 m beside the driver's door of a new parked car (as the e2e tests do). */
+function besideNewCar(sim: Sim, kind: 'sedan' | 'compact' = 'sedan') {
+  const rp = roadPoint(sim, 40, 30);
+  const v = sim.spawnVehicle(kind, rp.x, rp.z, rp.heading);
+  v.owner = 'parked';
+  const p = sim.player;
+  if (p.vehicle) sim.playerCtl.ejectPlayer(true);
+  p.pos.x = v.pos.x + Math.cos(v.heading) * 2.3;
+  p.pos.z = v.pos.z - Math.sin(v.heading) * 2.3;
+  p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
+  p.vel.x = 0;
+  p.vel.z = 0;
+  return v;
+}
+
+describe('R2 onboarding: Mama Lou calls on New Game', () => {
+  it('newGame() starts Wheels 2.5 s in; newGame({ intro: false }) does not', async () => {
+    const a = onboardingGame();
+    a.game.newGame();
+    await flush();
+    a.seconds(2.3);
+    expect(a.game.sim.missions.active).toBe(null);
+    a.seconds(0.7);
+    expect(a.game.sim.missions.active?.def.id).toBe('wheels');
+
+    const b = onboardingGame();
+    b.game.newGame({ intro: false });
+    await flush();
+    b.seconds(3);
+    expect(b.game.sim.missions.active).toBe(null);
+  });
+
+  it('?intro=0 in the page URL turns the call off', async () => {
+    vi.stubGlobal('location', { search: '?lock=1&intro=0' });
+    const { game, seconds } = onboardingGame();
+    game.newGame();
+    await flush();
+    seconds(4);
+    expect(game.sim.missions.active).toBe(null);
+  });
+
+  it('the call waits while a menu is open', async () => {
+    const { game, seconds } = onboardingGame();
+    game.newGame();
+    await flush();
+    seconds(1);
+    game.pause();
+    expect(game.menus.open).toBe(true);
+    seconds(5);
+    expect(game.sim.missions.active).toBe(null);
+    game.resume();
+    seconds(1.4);
+    expect(game.sim.missions.active).toBe(null);
+    seconds(0.3);
+    expect(game.sim.missions.active?.def.id).toBe('wheels');
+  });
+
+  it('a wanted level calls it off, and the next-step line points at Lou instead', async () => {
+    const { game, seconds, el, showing } = onboardingGame();
+    game.newGame();
+    await flush();
+    game.sim.cheats.godMode = true;
+    game.sim.missions.noBust = true;
+    game.sim.wanted.setLevel(1);
+    seconds(2.4);
+    expect(showing('objective')).toBe(false);
+    seconds(0.6);
+    expect(game.sim.missions.active).toBe(null);
+    expect(showing('objective')).toBe(true);
+    expect(el('objective').textContent).toBe('Next: Mama Lou has work - L on your radar');
+    // Once only: losing the stars later does not bring the call back.
+    game.sim.wanted.clear();
+    seconds(3);
+    expect(game.sim.missions.active).toBe(null);
+  });
+
+  it('the welcome text matches the opening: the pink route without the call, the call itself with it', async () => {
+    const a = onboardingGame();
+    a.game.newGame({ intro: false });
+    expect(a.el('help').innerHTML).toContain('follow the <b class="lou">pink route</b> to the <b class="lou">L</b> on your radar');
+    expect(a.el('help').innerHTML).toContain('Steal a ride with <kbd>F</kbd>.');
+    const b = onboardingGame();
+    b.game.newGame();
+    expect(b.el('help').innerHTML).toContain('Mama Lou has work for you.');
+    expect(b.el('help').innerHTML).not.toContain('route');
+    expect(b.el('help').innerHTML).toContain('Steal a ride with <kbd>F</kbd>.');
+  });
+
+  it('continueGame() never calls; the next-step line names the contact who has work', async () => {
+    saveWithDone('wheels');
+    const a = onboardingGame();
+    a.game.continueGame();
+    await flush();
+    a.seconds(3);
+    expect(a.game.sim.missions.active).toBe(null);
+    expect(a.showing('objective')).toBe(true);
+    expect(a.el('objective').classList.contains('next')).toBe(true);
+    expect(a.el('objective').textContent).toBe('Next: Mama Lou has work - L on your radar');
+    a.seconds(5.5);
+    expect(a.showing('objective')).toBe(false);
+
+    saveWithDone('wheels', 'delivery', 'repo');
+    const b = onboardingGame();
+    b.game.continueGame();
+    await flush();
+    b.seconds(1);
+    expect(b.game.sim.missions.active).toBe(null);
+    expect(b.el('objective').textContent).toBe('Next: Dex Moreau has work - D on your radar');
+  });
+
+  it('the line returns after respawning and after a passed mission (once its cards are gone), and leaves when a mission starts', async () => {
+    saveWithDone('wheels');
+    const { game, seconds, el, showing } = onboardingGame();
+    game.continueGame();
+    await flush();
+    const sim = game.sim;
+    seconds(9);
+    expect(showing('objective')).toBe(false);
+    sim.playerDied();
+    seconds(5.2);
+    expect(sim.playerDown).toBe(false);
+    expect(showing('objective')).toBe(true);
+    expect(el('objective').textContent).toContain('Mama Lou');
+    // Starting a mission takes the line off at once.
+    expect(sim.missions.start('delivery')).toBe(true);
+    seconds(1 / 60);
+    expect(showing('objective')).toBe(false);
+    expect(el('objective').classList.contains('next')).toBe(false);
+    // Pass it: no line while DELIVERY / MISSION PASSED are up, then the next contact.
+    sim.missions.active!.done = true;
+    seconds(0.5);
+    expect(el('bigT').textContent).toBe('HOT DELIVERY');
+    expect(showing('objective')).toBe(false);
+    seconds(3.5);
+    expect(el('bigT').textContent).toBe('MISSION PASSED');
+    expect(showing('objective')).toBe(false);
+    seconds(5);
+    expect(showing('objective')).toBe(true);
+    expect(el('objective').textContent).toBe('Next: Mama Lou has work - L on your radar');
+  });
+
+  it('debug newGame(opts) forwards to the game', async () => {
+    const { installDebugApi } = await import('../../src/debug');
+    const { game, seconds } = onboardingGame();
+    installDebugApi(game);
+    const api = (dom.win as unknown as { __gta7: { newGame(o?: { intro?: boolean }): void } }).__gta7;
+    api.newGame({ intro: false });
+    await flush();
+    seconds(3);
+    expect(game.mode).toBe('game');
+    expect(game.sim.missions.active).toBe(null);
+  });
+});
+
+describe('R2 onboarding: the GPS route leads to the contact and the L stays on top', () => {
+  it('a new game sets no waypoint: the route runs pink to Lou and her L is the last blip drawn there', async () => {
+    const mapRender = await import('../../src/ui/mapRender');
+    const { game, frames } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    expect(game.hud.waypoint).toBe(null);
+    const rec = recordingCtx();
+    (game.hud as unknown as { radarCtx: unknown }).radarCtx = rec.ctx;
+    const draw = vi.spyOn(mapRender, 'drawBlip');
+    frames(2);
+    const lou = game.sim.world.layout.pois.find((p) => p.id === 'lou')!;
+    const route = (game.hud as unknown as { route: Array<{ x: number; z: number }> }).route;
+    expect(route.length).toBeGreaterThan(2);
+    expect(route[route.length - 1]).toEqual({ x: lou.x, z: lou.z });
+    expect(rec.calls.some((c) => c.fn === 'stroke' && c.strokeStyle === '#ff4fa3')).toBe(true);
+    expect(rec.calls.some((c) => c.fn === 'stroke' && (c.strokeStyle === '#c04fff' || c.strokeStyle === '#ffd23d'))).toBe(false);
+    const atLou = draw.mock.calls.map((c) => c[1]).filter((b) => b.sticky && b.x === lou.x && b.z === lou.z);
+    expect(atLou.length).toBeGreaterThan(0);
+    expect(atLou[atLou.length - 1]!.label).toBe('L');
+
+    // The player's own waypoint (here right on Lou) turns the route purple and goes under her L.
+    draw.mockClear();
+    rec.calls.length = 0;
+    game.hud.waypoint = { x: lou.x, z: lou.z };
+    frames(1);
+    expect(rec.calls.some((c) => c.fn === 'stroke' && c.strokeStyle === '#c04fff')).toBe(true);
+    expect(rec.calls.some((c) => c.fn === 'stroke' && c.strokeStyle === '#ff4fa3')).toBe(false);
+    const order = draw.mock.calls.map((c) => c[1]);
+    const wp = order.findIndex((b) => b.color === '#c04fff');
+    const l = order.findIndex((b) => b.label === 'L');
+    expect(wp).toBeGreaterThanOrEqual(0);
+    expect(l).toBeGreaterThan(wp);
+  });
+
+  it('the route turns teal for Dex, yellow for an objective, and the full map draws W under L', async () => {
+    const mapRender = await import('../../src/ui/mapRender');
+    saveWithDone('wheels', 'delivery', 'repo');
+    const { game, frames } = onboardingGame();
+    game.continueGame();
+    await flush();
+    const rec = recordingCtx();
+    (game.hud as unknown as { radarCtx: unknown }).radarCtx = rec.ctx;
+    frames(2);
+    const dex = game.sim.world.layout.pois.find((p) => p.id === 'dex')!;
+    const route = (game.hud as unknown as { route: Array<{ x: number; z: number }> }).route;
+    expect(route[route.length - 1]).toEqual({ x: dex.x, z: dex.z });
+    expect(rec.calls.some((c) => c.fn === 'stroke' && c.strokeStyle === '#38e1d2')).toBe(true);
+    // A mission objective marker: yellow.
+    rec.calls.length = 0;
+    expect(game.sim.missions.start('loose_lips')).toBe(true);
+    const m = game.sim.missions.active!;
+    m.mark({ x: dex.x + 200, z: dex.z }, 'Somewhere', 0x3dd9ff);
+    frames(2);
+    expect(rec.calls.some((c) => c.fn === 'stroke' && c.strokeStyle === '#ffd23d')).toBe(true);
+    m.fail('test');
+    frames(2);
+
+    // Full map: a waypoint on Lou's spot is drawn before (under) her L.
+    const lou = game.sim.world.layout.pois.find((p) => p.id === 'lou')!;
+    const sim = quickSim();
+    sim.missions.refreshMarkers();
+    const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, stubHost({ sim: () => sim, waypoint: () => ({ x: lou.x, z: lou.z }) }), new MapImage(world()));
+    const draw = vi.spyOn(mapRender, 'drawBlip');
+    menus.showMap();
+    menus.input(NO_UI, 0.3);
+    const order = draw.mock.calls.map((c) => c[1]);
+    const w = order.findIndex((b) => b.label === 'W');
+    const l = order.findIndex((b) => b.label === 'L');
+    expect(w).toBeGreaterThanOrEqual(0);
+    expect(l).toBeGreaterThan(w);
+  });
+});
+
+describe('R2 onboarding: key glyphs for the active device', () => {
+  it('converts the three literal key forms, and nothing else, for keyboard and pad', async () => {
+    const { formatKeys } = await import('../../src/ui/glyphs');
+    const kb = (s: string) => formatKeys(s, 'kb');
+    const pad = (s: string, inVehicle = false) => formatKeys(s, 'pad', { inVehicle });
+    expect(kb('Press E to shop at Bang Bang Guns')).toBe('Press <kbd>E</kbd> to shop at Bang Bang Guns');
+    expect(kb('drive a taxi and press T.')).toBe('drive a taxi and press <kbd>T</kbd>.');
+    expect(kb('Steal a ride with <kbd>F</kbd>.')).toBe('Steal a ride with <kbd>F</kbd>.');
+    expect(kb('Hold <kbd>Space</kbd>, retry (E), pause with Press Esc')).toBe('Hold <kbd>Space</kbd>, retry <kbd>E</kbd>, pause with Press <kbd>Esc</kbd>');
+    expect(kb('Right-click to aim, left-click to shoot.')).toBe('Right-click to aim, left-click to shoot.');
+    // Only exact key mentions: prose, other letters in parentheses and longer words stay as they are.
+    for (const s of ['a Spray Shack (S on the radar)', 'Plan (A) or (B)', 'Expressway E', 'Press a button', 'Pressed E', '<b class="lou">L</b>', 'Press Entertainment']) {
+      expect(kb(s)).toBe(s);
+      expect(pad(s)).toBe(s);
+    }
+    const glyph = (s: string) => /<kbd class="pad ([^"]+)"/.exec(s)?.[1];
+    expect(glyph(pad('Press E to start "Wheels"'))).toBe('dpad');
+    expect(pad('Press E to start "Wheels"')).toContain('aria-label="D-pad up"');
+    expect(pad('Press T')).toContain('aria-label="D-pad down"');
+    expect(pad('Press F to get out!')).toBe('Press <kbd class="pad pad-y">Y</kbd> to get out!');
+    expect(pad('<kbd>R</kbd> reloads')).toBe('<kbd class="pad pad-b">B</kbd> reloads');
+    expect(pad('<kbd>R</kbd> changes the station', true)).toContain('aria-label="D-pad right"');
+    expect(pad('<kbd>M</kbd> map, <kbd>V</kbd> camera, (P) pause, <kbd>Esc</kbd> too')).toBe(
+      '<kbd class="pad pad-back">Back</kbd> map, <kbd class="pad pad-r3">R3</kbd> camera, <kbd class="pad pad-start">Start</kbd> pause, <kbd class="pad pad-start">Start</kbd> too',
+    );
+    // Space jumps (X) on foot and is the handbrake (RB) in a car; Shift sprints (A).
+    expect(pad('<kbd>Space</kbd>')).toBe('<kbd class="pad pad-x">X</kbd>');
+    expect(pad('<kbd>Space</kbd>', true)).toBe('<kbd class="pad pad-rb">RB</kbd>');
+    expect(pad('<kbd>Shift</kbd>')).toBe('<kbd class="pad pad-a">A</kbd>');
+    // The triggers shoot and aim on foot; in a car RT is the throttle and X shoots.
+    expect(pad('Right-click to aim, left-click to shoot.')).toBe('<kbd class="pad pad-lt">LT</kbd> to aim, <kbd class="pad pad-rt">RT</kbd> to shoot.');
+    expect(pad('left click to shoot', true)).toBe('<kbd class="pad pad-x">X</kbd> to shoot');
+    // A key with no pad button keeps its keycap.
+    expect(pad('Press W')).toBe('Press <kbd>W</kbd>');
+  });
+
+  it('names keys once, as printed on the layout (no keycap is read again as another key)', async () => {
+    const { formatKeys } = await import('../../src/ui/glyphs');
+    const labels = new KeyLabels();
+    // Colemak: the F binding sits on the key printed T, the T binding on the key printed G.
+    const typed: Array<[string, string]> = [['KeyE', 'f'], ['KeyF', 't'], ['KeyT', 'g'], ['KeyG', 'd']];
+    for (const [code, key] of typed) labels.learn({ code, key, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false } as KeyboardEvent);
+    expect(formatKeys('<kbd>F</kbd>, then Press T and (T)', 'kb', { labels })).toBe('<kbd>T</kbd>, then Press <kbd>G</kbd> and <kbd>G</kbd>');
+  });
+
+  it("the HUD draws Lou's start prompt with a D-pad glyph on a pad and her E keycap on a keyboard", () => {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    sim.missions.refreshMarkers();
+    const marker = sim.interactions.markers.find((m) => m.kind === 'mission' && m.ref === 'wheels')!;
+    sim.player.pos.x = marker.x;
+    sim.player.pos.z = marker.z;
+    const prompt = sim.interactions.prompt();
+    expect(prompt).toBe('Press E to start "Wheels"');
+    hud.device = 'pad';
+    hud.update(1 / 60, sim, 0, false, prompt, 0);
+    expect(el.prompt!.innerHTML).toContain('<kbd class="pad dpad" aria-label="D-pad up">');
+    expect(el.prompt!.innerHTML).not.toContain('<kbd>E</kbd>');
+    hud.device = 'kb';
+    hud.update(1 / 60, sim, 0, false, prompt, 0);
+    expect(el.prompt!.innerHTML).toContain('Press <kbd>E</kbd> to start');
+    expect(el.prompt!.innerHTML).not.toContain('pad');
+  });
+
+  it('a showing help box is redrawn when the player switches device', () => {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    sim.events.emit('message', { text: 'Your vehicle is on fire! Press F to get out!', duration: 3 });
+    expect(el.help!.innerHTML).toBe('Your vehicle is on fire! Press <kbd>F</kbd> to get out!');
+    hud.device = 'pad';
+    hud.update(1 / 60, sim, 0, false, null, 0);
+    expect(el.help!.innerHTML).toBe('Your vehicle is on fire! Press <kbd class="pad pad-y">Y</kbd> to get out!');
+  });
+
+  it('the game hands the device of the last input to the HUD', async () => {
+    const pad = fakePad();
+    const { game, frames, el } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    frames(1);
+    expect(game.hud.device).toBe('kb');
+    pad.buttons[4]!.pressed = true; // LB
+    frames(1);
+    pad.buttons[4]!.pressed = false;
+    frames(1);
+    expect(game.hud.device).toBe('pad');
+    expect(el('help').innerHTML).toContain('<kbd class="pad pad-y">Y</kbd>');
+  });
+});
+
+describe('R2 onboarding: the help queue', () => {
+  function setup() {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    const run = (seconds: number) => {
+      for (let t = 0; t < seconds - 1e-9; t += 1 / 60) hud.update(1 / 60, sim, 0, false, null, 0);
+    };
+    const help = () => (el.help!.classList.contains('show') ? el.help!.innerHTML : null);
+    return { hud, el, sim, run, help };
+  }
+
+  it('a message replaces a showing hint at once; a hint never replaces a showing message', () => {
+    const { hud, el, sim, run, help } = setup();
+    expect(hud.help('Hint one', 5, 'hint')).toBe(true);
+    expect(help()).toBe('Hint one');
+    expect(el.help!.classList.contains('hint')).toBe(true);
+    sim.events.emit('message', { text: 'Bail paid: $100.', duration: 2 });
+    expect(help()).toBe('Bail paid: $100.');
+    expect(el.help!.classList.contains('hint')).toBe(false);
+    expect(hud.help('Hint two', 4, 'hint')).toBe(true);
+    run(1);
+    expect(help()).toBe('Bail paid: $100.');
+    // After the message and a short gap, the interrupted hint comes back first, then the next one.
+    run(1.2);
+    expect(help()).toBe(null);
+    run(0.5);
+    expect(help()).toBe('Hint one');
+    run(5.6);
+    expect(help()).toBe('Hint two');
+  });
+
+  it('holds at most three hints, and none appear while a subtitle is up', () => {
+    const { hud, sim, run, help } = setup();
+    sim.events.emit('subtitle', { speaker: 'Mama Lou', text: 'Welcome home, baby.', duration: 3 });
+    expect(hud.help('Hint 1', 2, 'hint')).toBe(true);
+    expect(hud.help('Hint 2', 2, 'hint')).toBe(true);
+    expect(hud.help('Hint 3', 2, 'hint')).toBe(true);
+    expect(hud.help('Hint 4', 2, 'hint')).toBe(false);
+    run(2.9);
+    expect(help()).toBe(null);
+    run(0.2);
+    expect(help()).toBe('Hint 1');
+    // A message still shows at once over a waiting queue.
+    sim.events.emit('message', { text: 'Good as new.', duration: 1 });
+    expect(help()).toBe('Good as new.');
+  });
+
+  it('switching hints off drops the queue and ends a showing hint', async () => {
+    const { game, frames, el } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    expect(game.hud.help('A hint', 5, 'hint')).toBe(true); // queued behind the welcome message
+    game.applySettings({ ...game.settings, hints: false }, true);
+    frames(60 * 10);
+    expect(el('help').innerHTML).not.toContain('A hint');
+  });
+});
+
+describe('R2 onboarding: first-time hints and the steal prompt', () => {
+  it('2 m beside a parked car the prompt offers to steal it, for the first five vehicle entries only', async () => {
+    const { game, frames, prompt } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    const sim = game.sim;
+    sim.cheats.godMode = true;
+    const v = besideNewCar(sim);
+    frames(2);
+    expect(prompt()).toMatch(/steal the/i);
+    expect(prompt()).toBe(`Press <kbd>F</kbd> to steal the ${v.spec.name}`);
+    // A real entry with F counts as the first.
+    dom.win.dispatchEvent(keyEv('keydown', 'KeyF', 'f'));
+    frames(2);
+    dom.win.dispatchEvent(keyEv('keyup', 'KeyF', 'f'));
+    for (let i = 0; i < 180 && sim.player.vehicle !== v; i++) frames(1);
+    expect(sim.player.vehicle).toBe(v);
+    expect(game.settings.hintsSeen).toContain('steal:1');
+    // Out again, next to the car he just sat in: not a theft any more.
+    sim.playerCtl.ejectPlayer(true);
+    frames(30);
+    expect(prompt()).toBe(`Press <kbd>F</kbd> to get in the ${v.spec.name}`);
+    for (let i = 0; i < 4; i++) sim.events.emit('vehicleEnter', { vehicle: v, character: sim.player, jacked: false });
+    expect(game.settings.hintsSeen.filter((id) => id.startsWith('steal:'))).toEqual(['steal:1', 'steal:2', 'steal:3', 'steal:4', 'steal:5']);
+    frames(2);
+    expect(prompt()).toBe(null);
+  });
+
+  it('says "get in" next to the car the player last drove, and gives way to a marker', async () => {
+    const { game, frames, prompt } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    const sim = game.sim;
+    const v = besideNewCar(sim, 'compact');
+    v.lastDriver = sim.player;
+    frames(2);
+    expect(prompt()).toBe(`Press <kbd>F</kbd> to get in the ${v.spec.name}`);
+    // On the safehouse marker (with a car right there) the marker's prompt wins.
+    const save = sim.interactions.markers.find((m) => m.kind === 'save')!;
+    const car = sim.spawnVehicle('sedan', save.x + 2.2, save.z, 0);
+    car.owner = 'parked';
+    sim.player.pos.x = save.x;
+    sim.player.pos.z = save.z;
+    frames(2);
+    expect(prompt()).toBe('Press <kbd>E</kbd> to save your game');
+  });
+
+  it('the first star explains how to lose the cops, once the welcome message is done', async () => {
+    const { game, seconds, el } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    const sim = game.sim;
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    sim.wanted.setLevel(1);
+    seconds(2);
+    expect(el('help').innerHTML).toContain('Welcome to San Azura');
+    seconds(8);
+    expect(el('help').classList.contains('show')).toBe(true);
+    expect(el('help').innerHTML).toContain('Spray');
+    expect(el('help').classList.contains('hint')).toBe(true);
+    expect(game.settings.hintsSeen).toContain('wanted');
+  });
+
+  it('hintsSeen persists across a new Game on the same storage', async () => {
+    const a = onboardingGame();
+    a.game.newGame({ intro: false });
+    await flush();
+    a.game.sim.cheats.godMode = true;
+    a.game.sim.missions.noBust = true;
+    a.game.sim.wanted.setLevel(1);
+    a.seconds(1);
+    expect(a.game.settings.hintsSeen).toContain('wanted');
+    const b = onboardingGame();
+    expect(b.game.settings.hintsSeen).toContain('wanted');
+    b.game.newGame({ intro: false });
+    await flush();
+    b.game.sim.cheats.godMode = true;
+    b.game.sim.missions.noBust = true;
+    b.game.sim.wanted.setLevel(1);
+    let spray = false;
+    for (let i = 0; i < 60 * 12; i++) {
+      b.frames(1);
+      if (b.el('help').innerHTML.includes('Spray')) spray = true;
+    }
+    expect(spray).toBe(false);
+  });
+
+  it('with hints off there is no hint and no steal prompt', async () => {
+    const { game, frames, el, prompt } = onboardingGame();
+    game.applySettings({ ...game.settings, hints: false }, true);
+    game.newGame({ intro: false });
+    await flush();
+    const sim = game.sim;
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    besideNewCar(sim);
+    sim.wanted.setLevel(1);
+    sim.player.inventory.give('pistol', 48);
+    sim.player.inventory.current = 'pistol';
+    let hint = false;
+    for (let i = 0; i < 60 * 11; i++) {
+      frames(1);
+      if (el('help').classList.contains('hint')) hint = true;
+      if (prompt()?.includes('steal')) hint = true;
+    }
+    expect(hint).toBe(false);
+    expect(game.settings.hintsSeen).toEqual([]);
+  });
+
+  it('each rule fires on its own condition: driving, a gun, low health, a free mouse', async () => {
+    dom.lockMode = 'manual'; // the lock request stays pending: the mouse is free
+    const { game, seconds, el } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    const sim = game.sim;
+    sim.cheats.godMode = true;
+    seconds(1.2);
+    expect(game.settings.hintsSeen).toEqual(['mouse']);
+    const v = besideNewCar(sim);
+    placeInCar(sim, v);
+    seconds(0.1);
+    sim.playerCtl.ejectPlayer(true);
+    sim.player.inventory.give('pistol', 48);
+    sim.player.inventory.current = 'pistol';
+    seconds(0.1);
+    sim.player.health = 30;
+    seconds(0.1);
+    // The queue holds three: the low-health hint waits for room (and is not marked seen yet).
+    expect(game.settings.hintsSeen).toEqual(['mouse', 'drive', 'weapon']);
+    // They take turns in the help box after the welcome message.
+    const seen: string[] = [];
+    for (let i = 0; i < 60 * 40; i++) {
+      game.sim.player.health = Math.max(game.sim.player.health, 30);
+      seconds(1 / 60);
+      const h = el('help');
+      if (h.classList.contains('show') && h.classList.contains('hint') && seen[seen.length - 1] !== h.innerHTML) seen.push(h.innerHTML);
+    }
+    expect(seen.map((s) => s.replace(/<[^>]*>/g, '').split('.')[0])).toEqual(['Click the game to control the camera', 'Hold Space for the handbrake', 'Right-click to aim, left-click to shoot', 'Health is low: buy First Aid at Bang Bang Guns or save at the safehouse']);
+    expect(game.settings.hintsSeen).toEqual(['mouse', 'drive', 'weapon', 'health']);
+  });
+
+  it('no mouse hint on a pad or where pointer lock is unavailable', async () => {
+    const a = onboardingGame();
+    Object.assign(a.canvas, {
+      requestPointerLock: () => {
+        throw new Error('unsupported');
+      },
+    });
+    a.game.newGame({ intro: false });
+    await flush();
+    a.seconds(2);
+    expect(a.game.settings.hintsSeen).not.toContain('mouse');
+
+    dom.lockMode = 'manual';
+    const pad = fakePad();
+    const b = onboardingGame();
+    b.game.newGame({ intro: false });
+    await flush();
+    pad.axes[2] = 0.5; // nudging the right stick makes the pad the active device
+    b.seconds(2);
+    expect(b.game.hud.device).toBe('pad');
+    expect(b.game.settings.hintsSeen).not.toContain('mouse');
+  });
+
+  it('settings: old files get hints on, and the seen list is validated and capped', async () => {
+    const { loadSettings, saveSettings, MAX_HINTS_SEEN } = await import('../../src/settings');
+    const storage = (dom.win as unknown as { localStorage: FakeStorage }).localStorage;
+    storage.setItem('gta7.settings.v1', JSON.stringify({ quality: 'medium', master: 0.5 }));
+    const old = loadSettings();
+    expect(old.hints).toBe(true);
+    expect(old.hintsSeen).toEqual([]);
+    expect(old.quality).toBe('medium');
+    const many = Array.from({ length: 70 }, (_, i) => `rule${i}`);
+    storage.setItem('gta7.settings.v1', JSON.stringify({ hints: false, hintsSeen: [7, 'wanted', 'wanted', '', '<img src=x>', 'x'.repeat(40), null, 'steal:1', ...many] }));
+    const s = loadSettings();
+    expect(s.hints).toBe(false);
+    expect(s.hintsSeen.slice(0, 3)).toEqual(['wanted', 'steal:1', 'rule0']);
+    expect(s.hintsSeen.length).toBe(MAX_HINTS_SEEN);
+    saveSettings({ ...s, hints: true, hintsSeen: ['drive'] });
+    expect(loadSettings().hintsSeen).toEqual(['drive']);
+    expect(loadSettings().hints).toBe(true);
+  });
+});
+
+describe('R2 onboarding: the mission offer card', () => {
+  it("at Lou's marker the prompt is a card with the title, giver, blurb, reward and start line; elsewhere the plain label", () => {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    sim.missions.refreshMarkers();
+    const at = (m: { x: number; z: number }) => {
+      sim.player.pos.x = m.x;
+      sim.player.pos.z = m.z;
+      hud.update(1 / 60, sim, 0, false, sim.interactions.prompt(), 0);
+      return el.prompt!;
+    };
+    const lou = at(sim.interactions.markers.find((m) => m.kind === 'mission' && m.ref === 'wheels')!);
+    expect(lou.classList.contains('card')).toBe(true);
+    expect(lou.classList.contains('lou')).toBe(true);
+    for (const s of ['Wheels', 'Mama Lou needs a car', '$500', 'Mama Lou']) expect(lou.textContent).toContain(s);
+    expect(lou.innerHTML).toContain('<div class="card-start">Press <kbd>E</kbd> to start</div>');
+    // Wanted: the card stays and says why it can't start yet.
+    sim.wanted.setLevel(1);
+    hud.update(1 / 60, sim, 0, false, sim.interactions.prompt(), 0);
+    expect(lou.textContent).toContain('Lose the cops before starting a mission.');
+    sim.wanted.clear();
+    const shop = at(sim.interactions.markers.find((m) => m.kind === 'gunshop')!);
+    expect(shop.classList.contains('card')).toBe(false);
+    expect(shop.innerHTML).toBe('Press <kbd>E</kbd> to shop at Bang Bang Guns');
+    // Dex's card wears his colour.
+    for (const id of ['wheels', 'delivery', 'repo']) sim.progress.markDone(id);
+    sim.missions.refreshMarkers();
+    const dex = at(sim.interactions.markers.find((m) => m.kind === 'mission' && m.ref === 'loose_lips')!);
+    expect(dex.classList.contains('dex')).toBe(true);
+    expect(dex.classList.contains('lou')).toBe(false);
+    expect(dex.textContent).toContain('Dex Moreau');
+    expect(dex.textContent).toContain('$4,000');
+  });
+});
+
+describe('R2 onboarding: objectives clear', () => {
+  it("an empty 'objective' event hides the objective at once", () => {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    sim.events.emit('objective', { text: "Drive it into Lou's garage" });
+    hud.update(1 / 60, sim, 0, false, null, 0);
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    sim.events.emit('objective', { text: '' });
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    hud.update(1 / 60, sim, 0, false, null, 0);
+    expect(el.objective!.classList.contains('show')).toBe(false);
+  });
+
+  it('the MISSION FAILED sub-line names the retry key for the device', () => {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    hud.device = 'pad';
+    sim.events.emit('big', { text: 'MISSION FAILED', sub: "The buyer walked. - Press E to retry", style: 'failed', duration: 4 });
+    hud.update(1 / 60, sim, 0, false, null, 0);
+    expect(el.bigS!.innerHTML).toContain('The buyer walked. - Press <kbd class="pad dpad" aria-label="D-pad up">');
   });
 });

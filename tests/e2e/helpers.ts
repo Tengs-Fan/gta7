@@ -15,9 +15,9 @@ export function trackErrors(page: Page): string[] {
   return errors;
 }
 
-export async function boot(page: Page): Promise<string[]> {
+export async function boot(page: Page, path = '/?intro=0'): Promise<string[]> {
   const errors = trackErrors(page);
-  await page.goto('/');
+  await page.goto(path);
   await page.waitForFunction(() => (window as Api).__gta7?.state().frames > 20, null, { timeout: 90_000 });
   return errors;
 }

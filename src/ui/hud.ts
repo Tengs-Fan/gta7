@@ -3,9 +3,11 @@
 import { formatMoney, formatTime } from '../core/math';
 import { KeyLabels } from '../input/input';
 import type { BigStyle } from '../sim/events';
+import type { MissionDef } from '../sim/missions/runner';
 import type { Sim } from '../sim/sim';
 import { WEAPONS, type WeaponId } from '../sim/specs';
-import { collectBlips, drawBlip, gpsRoute, MAP_SCALE, type MapImage } from './mapRender';
+import { formatKeys, type InputDevice } from './glyphs';
+import { collectBlips, drawBlip, gpsRoute, MAP_SCALE, type Blip, type MapImage } from './mapRender';
 
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 1.8l3.1 6.6 7.2.9-5.3 5 1.4 7.2L12 18l-6.4 3.5L7 14.3l-5.3-5 7.2-.9z"/></svg>';
 
@@ -24,6 +26,31 @@ interface BigMsg {
   style: BigStyle;
   duration: number;
 }
+
+/** A message (sim or game news) shows at once; a hint (tutorial) waits for a quiet moment. */
+export type HelpKind = 'message' | 'hint';
+
+interface HelpEntry {
+  text: string;
+  duration: number;
+  kind: HelpKind;
+  /** Whether the player was in a vehicle when it was raised (R and Space mean other things there). */
+  inVehicle: boolean;
+}
+
+/** Hints waiting for the help box; more are refused. */
+const MAX_QUEUED_HINTS = 3;
+/** Seconds the help box stays empty before a queued hint takes it, so a new box reads as new. */
+const HINT_GAP = 0.5;
+/** How long the next-step line stays up. */
+const NEXT_STEP_SECONDS = 8;
+const CONTACTS = {
+  lou: { name: 'Mama Lou', letter: 'L', color: '#ff4fa3' },
+  dex: { name: 'Dex Moreau', letter: 'D', color: '#38e1d2' },
+} as const;
+/** GPS route colours: the player's own waypoint, a mission or job objective. */
+const ROUTE_WAYPOINT = '#c04fff';
+const ROUTE_OBJECTIVE = '#ffd23d';
 
 // What the DOM shows initially; bind() returns to these for every new session.
 const initialShown = () => ({ money: -1, health: -1, armor: -1, weapon: '', ammo: '', clock: '', stars: -1, flash: false, status: '', zone: '' });
@@ -49,6 +76,21 @@ export class Hud {
   private fadeTimeout = 0;
   waypoint: { x: number; z: number } | null = null;
   visible = true;
+  /** Device of the last input (Game writes it every frame); keys in HUD text are drawn for it. */
+  device: InputDevice = 'kb';
+  private sim: Sim | null = null;
+  /** What the help box shows and for how long it has (it is hidden once timers.help runs out). */
+  private helpCur: (HelpEntry & { shown: number }) | null = null;
+  private helpDevice: InputDevice = 'kb';
+  private hintQueue: HelpEntry[] = [];
+  private hintGap = 0;
+  /** showNextStep() was called; the line appears once no big title card is up. */
+  private nextPending = false;
+  /** Markup last written to the prompt (rewritten only when it changes). */
+  private promptHtml = '';
+  /** Colour and waypoint the GPS route was planned for; a change re-plans it at once. */
+  private routeColor = '';
+  private routeWaypoint: { x: number; z: number } | null = null;
 
   constructor(parent: HTMLElement, private readonly map: MapImage, private readonly keys = new KeyLabels()) {
     this.root = document.createElement('div');
@@ -86,6 +128,7 @@ export class Hud {
   bind(sim: Sim): void {
     for (const u of this.unsub) u();
     this.unsub = [];
+    this.sim = sim;
     this.reset(sim);
     const ev = sim.events;
     // A finished mission's or rampage's last objective must not linger next to its PASSED / FAILED.
@@ -94,13 +137,19 @@ export class Hud {
       this.el.objective!.classList.remove('show');
     };
     this.unsub.push(
-      ev.on('message', (e) => this.help(this.keyCaps(e.text), e.duration)),
+      ev.on('message', (e) => this.help(e.text, e.duration)),
       ev.on('subtitle', (e) => {
         this.el.subtitle!.innerHTML = `<b>${escapeHtml(e.speaker)}:</b> ${escapeHtml(e.text)}`;
         this.el.subtitle!.classList.add('show');
         this.timers.subtitle = e.duration;
       }),
       ev.on('objective', (e) => {
+        this.el.objective!.classList.remove('next');
+        // An empty objective (one just reached) leaves at once instead of lingering under the dialogue.
+        if (!e.text) {
+          clearObjective();
+          return;
+        }
         this.el.objective!.textContent = e.text;
         this.el.objective!.classList.add('show');
         this.timers.objective = 7;
@@ -144,6 +193,16 @@ export class Hud {
     this.routeTimer = 0;
     this.lastHealth = sim.player.health;
     this.waypoint = null;
+    this.helpCur = null;
+    this.hintQueue = [];
+    this.hintGap = 0;
+    this.nextPending = false;
+    this.promptHtml = '';
+    this.routeColor = '';
+    this.routeWaypoint = null;
+    this.el.help!.classList.remove('hint');
+    this.el.objective!.classList.remove('next');
+    this.el.prompt!.classList.remove('card', 'lou', 'dex');
     window.clearTimeout(this.fadeTimeout);
     const el = this.el;
     for (const k of TIMED) el[k]!.classList.remove('show');
@@ -155,10 +214,66 @@ export class Hud {
     el.status!.classList.add('hidden');
   }
 
-  help(text: string, duration = 4): void {
-    this.el.help!.innerHTML = text;
+  /**
+   * Shows text in the help box. Keys are named by their QWERTY binding ('Press E', <kbd>E</kbd>)
+   * and drawn for the active device. A message shows at once and cuts a hint short; a hint never
+   * covers a message and does not appear while a subtitle is up: it waits in a queue of at most
+   * MAX_QUEUED_HINTS. Returns false when a hint was refused because that queue is full.
+   */
+  help(text: string, duration = 4, kind: HelpKind = 'message'): boolean {
+    const entry: HelpEntry = { text, duration, kind, inVehicle: !!this.sim?.player.vehicle };
+    const cur = this.helpCur;
+    if (kind === 'hint') {
+      if (cur || this.hintGap > 0 || this.timers.subtitle > 0 || this.hintQueue.length > 0) {
+        if (this.hintQueue.length >= MAX_QUEUED_HINTS) return false;
+        this.hintQueue.push(entry);
+        return true;
+      }
+    } else if (cur?.kind === 'hint' && cur.shown < cur.duration / 2 && this.hintQueue.length < MAX_QUEUED_HINTS) {
+      // A hint the player barely had time to read comes back once the message is gone.
+      this.hintQueue.unshift({ text: cur.text, duration: cur.duration, kind: 'hint', inVehicle: cur.inVehicle });
+    }
+    this.showHelp(entry);
+    return true;
+  }
+
+  /** Drops the queued hints and ends a showing one (tutorial hints were switched off). */
+  clearHints(): void {
+    this.hintQueue = [];
+    if (this.helpCur?.kind === 'hint') this.timers.help = 0;
+  }
+
+  private showHelp(e: HelpEntry): void {
+    this.helpCur = { ...e, shown: 0 };
+    this.timers.help = e.duration;
+    this.hintGap = 0;
+    this.el.help!.classList.toggle('hint', e.kind === 'hint');
+    this.renderHelp();
     this.el.help!.classList.add('show');
-    this.timers.help = duration;
+  }
+
+  private renderHelp(): void {
+    const cur = this.helpCur;
+    if (!cur) return;
+    this.helpDevice = this.device;
+    this.el.help!.innerHTML = formatKeys(cur.text, this.device, { labels: this.keys, inVehicle: cur.inVehicle });
+  }
+
+  /** Expires the help box, redraws it for a new device and lets the next queued hint in. */
+  private updateHelp(dt: number): void {
+    const cur = this.helpCur;
+    if (cur && this.timers.help > 0) {
+      cur.shown += dt;
+      if (this.helpDevice !== this.device) this.renderHelp();
+      return;
+    }
+    if (cur) {
+      this.helpCur = null;
+      this.el.help!.classList.remove('show');
+      this.hintGap = HINT_GAP;
+    }
+    if (this.hintGap > 0) this.hintGap -= dt;
+    else if (this.hintQueue.length > 0 && this.timers.subtitle <= 0) this.showHelp(this.hintQueue.shift()!);
   }
 
   toast(text: string): void {
@@ -185,7 +300,8 @@ export class Hud {
     const big = this.el.big!;
     big.className = `big show ${m.style}`;
     this.el.bigT!.textContent = m.text;
-    this.el.bigS!.textContent = m.sub;
+    // The sub-line is plain sim text, but it may name a key ('MISSION FAILED ... Press E to retry').
+    this.el.bigS!.innerHTML = formatKeys(escapeHtml(m.sub), this.device, { labels: this.keys, inVehicle: !!this.sim?.player.vehicle });
   }
 
   setVisible(v: boolean): void {
@@ -201,7 +317,7 @@ export class Hud {
 
     // Timed elements.
     for (const k of Object.keys(this.timers) as Array<keyof typeof this.timers>) if (this.timers[k] > 0) this.timers[k] -= dt;
-    if (this.timers.help <= 0) el.help!.classList.remove('show');
+    this.updateHelp(dt);
     if (this.timers.subtitle <= 0) el.subtitle!.classList.remove('show');
     if (this.timers.zone <= 0) el.zone!.classList.remove('show');
     if (this.timers.radio <= 0) el.radio!.classList.remove('show');
@@ -222,6 +338,7 @@ export class Hud {
     } else if (this.bigQueue.length > 0) {
       this.showBig(this.bigQueue.shift()!);
     }
+    this.updateNextStep(sim);
 
     // Status cluster.
     const clock = sim.clock.label();
@@ -299,7 +416,7 @@ export class Hud {
 
     // Prompt + crosshair.
     if (prompt) {
-      el.prompt!.innerHTML = this.keyCaps(prompt);
+      this.renderPrompt(sim, prompt);
       el.prompt!.classList.remove('hidden');
     } else el.prompt!.classList.add('hidden');
     const showCross = aiming && p.alive && !sim.playerDown && p.inventory.current !== 'fists';
@@ -308,9 +425,48 @@ export class Hud {
     this.drawRadar(sim, camYaw, time, dt);
   }
 
-  /** Shows each 'Press E' in sim text (named after the QWERTY binding) as the key cap printed on the player's keyboard. */
-  private keyCaps(text: string): string {
-    return text.replace(/\b([Pp]ress) ([A-Z])\b/g, (_m, press: string, k: string) => `${press} <kbd>${escapeHtml(this.keys.label(`Key${k}`))}</kbd>`);
+  /** The prompt slot: an offer card at a contact's marker, else the prompt with its key glyphs. */
+  private renderPrompt(sim: Sim, prompt: string): void {
+    const m = sim.interactions.current();
+    const def = m?.kind === 'mission' && !sim.missions.active ? sim.missions.defs.find((d) => d.id === m.ref) : undefined;
+    // The card names the mission already, so its start line drops the quoted title.
+    const line = def ? prompt.replace(/\s*"[^"]*"\s*$/, '') : prompt;
+    const start = formatKeys(line, this.device, { labels: this.keys, inVehicle: !!sim.player.vehicle });
+    const el = this.el.prompt!;
+    el.classList.toggle('card', !!def);
+    el.classList.toggle('lou', def?.giver === 'lou');
+    el.classList.toggle('dex', def?.giver === 'dex');
+    const html = def ? missionCard(def, start) : start;
+    if (html !== this.promptHtml) {
+      this.promptHtml = html;
+      el.innerHTML = html;
+    }
+  }
+
+  /**
+   * Shows where the story goes next ('Next: Mama Lou has work - L on your radar') for a few
+   * seconds, once no title card is up, unless a mission or a side job is running by then.
+   */
+  showNextStep(sim: Sim): void {
+    if (!sim.missions.active && !sim.activities.busy && sim.missions.offers().length > 0) this.nextPending = true;
+  }
+
+  private updateNextStep(sim: Sim): void {
+    const o = this.el.objective!;
+    const busy = !!sim.missions.active || sim.activities.busy;
+    // A mission or job taking over removes the line at once.
+    if (busy && o.classList.contains('next')) {
+      o.classList.remove('next', 'show');
+      this.timers.objective = 0;
+    }
+    if (!this.nextPending || this.bigCur || this.bigQueue.length > 0) return;
+    this.nextPending = false;
+    const d = busy ? undefined : sim.missions.offers()[0];
+    if (!d) return;
+    const c = CONTACTS[d.giver];
+    o.textContent = `Next: ${c.name} has work - ${c.letter} on your radar`;
+    o.classList.add('show', 'next');
+    this.timers.objective = NEXT_STEP_SECONDS;
   }
 
   private statusText(sim: Sim): string {
@@ -348,14 +504,21 @@ export class Hud {
     ctx.drawImage(this.map.canvas, 0, 0);
     // GPS route to the waypoint or first objective.
     this.routeTimer -= dt;
-    const target = this.waypoint ?? this.firstObjective(sim);
+    const target = this.routeTarget(sim);
+    // A different kind of target (a waypoint set, a mission started) is planned at once.
+    if (target && (target.color !== this.routeColor || this.waypoint !== this.routeWaypoint)) this.routeTimer = 0;
     if (target && this.routeTimer <= 0) {
       this.routeTimer = 1;
+      this.routeColor = target.color;
+      this.routeWaypoint = this.waypoint;
       this.route = gpsRoute(sim, target.x, target.z);
     }
-    if (!target) this.route = [];
+    if (!target) {
+      this.route = [];
+      this.routeColor = '';
+    }
     if (this.route.length > 1) {
-      ctx.strokeStyle = this.waypoint ? '#c04fff' : '#ffd23d';
+      ctx.strokeStyle = this.routeColor;
       ctx.lineWidth = 6 / zoom;
       ctx.lineJoin = 'round';
       ctx.beginPath();
@@ -379,8 +542,9 @@ export class Hud {
       const s = Math.sin(a);
       return { x: cx + dx * c - dz * s, y: cy + dx * s + dz * c };
     };
-    const blips = collectBlips(sim, time);
-    if (this.waypoint) blips.push({ x: this.waypoint.x, z: this.waypoint.z, color: '#c04fff', label: '', sticky: true, shape: 'square' });
+    // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top.
+    const blips: Blip[] = this.waypoint ? [{ x: this.waypoint.x, z: this.waypoint.z, color: ROUTE_WAYPOINT, label: '', sticky: true, shape: 'square' }] : [];
+    blips.push(...collectBlips(sim, time));
     for (const b of blips) {
       let s = toScreen(b.x, b.z);
       const dx = s.x - cx;
@@ -435,13 +599,33 @@ export class Hud {
     ctx.stroke();
   }
 
-  private firstObjective(sim: Sim): { x: number; z: number } | null {
+  /**
+   * Where the GPS route leads, in its colour: the player's own waypoint, else the first mission or
+   * job objective, else (with neither going on) the contact who has work next.
+   */
+  private routeTarget(sim: Sim): { x: number; z: number; color: string } | null {
+    if (this.waypoint) return { x: this.waypoint.x, z: this.waypoint.z, color: ROUTE_WAYPOINT };
     const objs = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
     const o = objs[0];
-    if (!o) return null;
-    const t = o.vehicle ?? o.character;
-    return t ? { x: t.pos.x, z: t.pos.z } : { x: o.x, z: o.z };
+    if (o) {
+      const t = o.vehicle ?? o.character;
+      return t ? { x: t.pos.x, z: t.pos.z, color: ROUTE_OBJECTIVE } : { x: o.x, z: o.z, color: ROUTE_OBJECTIVE };
+    }
+    if (sim.missions.active || sim.activities.busy) return null;
+    const d = sim.missions.offers()[0];
+    if (!d) return null;
+    const poi = sim.world.layout.pois.find((p) => p.id === d.giver);
+    return poi ? { x: poi.x, z: poi.z, color: CONTACTS[d.giver].color } : null;
   }
+}
+
+/** The prompt at a contact's marker: who offers what for how much, and how to start it. */
+function missionCard(def: MissionDef, start: string): string {
+  const c = CONTACTS[def.giver];
+  return (
+    `<div class="card-head"><span class="card-giver">${c.name}</span><span class="card-reward">${formatMoney(def.reward)}</span></div>` +
+    `<div class="card-title">${escapeHtml(def.title)}</div><div class="card-blurb">${escapeHtml(def.blurb)}</div><div class="card-start">${start}</div>`
+  );
 }
 
 export function escapeHtml(s: string): string {
