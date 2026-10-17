@@ -551,7 +551,8 @@ export function launchVehicle(v: Vehicle, dirX: number, dirZ: number, strength: 
     v.launchRamp = -1;
     v.pos.y += 0.05;
   }
-  v.pitchVel += (Math.random() - 0.5) * spin;
-  v.rollVel += (Math.random() - 0.5) * spin * 1.4;
-  v.angVel += (Math.random() - 0.5) * spin * 0.5;
+  // A random tumble, from the vehicle's own generator so that runs repeat.
+  v.pitchVel += (v.rng.next() - 0.5) * spin;
+  v.rollVel += (v.rng.next() - 0.5) * spin * 1.4;
+  v.angVel += (v.rng.next() - 0.5) * spin * 0.5;
 }

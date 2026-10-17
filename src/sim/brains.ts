@@ -23,7 +23,6 @@ export interface PedBrain {
   lateral: number;
   waitTimer: number;
   modeTimer: number;
-  thinkTimer: number;
   threat: Character | null;
   threatX: number;
   threatZ: number;
@@ -55,7 +54,6 @@ export function makeBrain(mode: PedMode): PedBrain {
     lateral: 0,
     waitTimer: 0,
     modeTimer: 0,
-    thinkTimer: Math.random(),
     threat: null,
     threatX: 0,
     threatZ: 0,
