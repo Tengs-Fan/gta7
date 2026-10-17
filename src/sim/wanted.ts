@@ -2,6 +2,7 @@
 // sight with the police for long enough clears it.
 
 import { clamp } from '../core/math';
+import type { Helicopter } from './entities';
 import type { Sim } from './sim';
 
 export type CrimeType =
@@ -59,15 +60,18 @@ const HIDE_FACTOR = 2.6;
 /** How far (m) officers see the player, in a car or on foot, given a clear line of sight. */
 export const COP_SIGHT = 80;
 /**
- * How far (m, along the ground) the helicopter crew sees: a car that outruns the helicopter gets away
- * from it. At night they make out only what is close below (HELI_NIGHT_SIGHT, straight-line) or in the
- * spotlight (within SPOT_SEE of its centre).
+ * How far (m, along the ground) the helicopter crew sees (see heliSees): a car that outruns the helicopter
+ * gets away from it. At night they make out only what is close below (HELI_NIGHT_SIGHT, straight-line) or in
+ * the spotlight (within SPOT_SEE of its centre).
  */
 export const HELI_SIGHT = 60;
 export const HELI_NIGHT_SIGHT = 60;
 /** Radius (m) of the spotlight's pool of light on the ground (markers.ts draws it this size). */
 export const SPOT_RADIUS = 5;
-/** The crew makes out anything within this distance (m) of the spotlight's centre: the pool and its glare. */
+/**
+ * At night the crew makes out anything within this distance (m) of the spotlight's centre: the pool and its
+ * glare. Close below the helicopter they see without it too (HELI_NIGHT_SIGHT).
+ */
 export const SPOT_SEE = 2 * SPOT_RADIUS;
 /**
  * Seconds unseen outside the search area that lose the stars, per level (index = stars). The P10 fallback table:
@@ -228,15 +232,21 @@ export class WantedSystem {
       if (d > range) continue;
       if (d < 8 || sim.world.lineOfSight(p.x, p.y + 1.6, p.z, x, gy, z)) return true;
     }
-    const h24 = sim.clock.hours;
-    const night = h24 < 6 || h24 >= 20;
-    for (const h of sim.helis) {
-      if (h.removed || h.destroyed || Math.hypot(h.pos.x - x, h.pos.z - z) > HELI_SIGHT) continue;
-      // At night the crew only makes out what the spotlight shows, or what is close below.
-      if (night && Math.hypot(h.spotlight.x - x, h.spotlight.z - z) > SPOT_SEE && Math.hypot(h.pos.x - x, h.pos.y - gy, h.pos.z - z) > HELI_NIGHT_SIGHT) continue;
-      if (sim.world.lineOfSight(h.pos.x, h.pos.y - 1.5, h.pos.z, x, gy, z)) return true;
-    }
+    for (const h of sim.helis) if (this.heliSees(h, x, z)) return true;
     return false;
+  }
+
+  /**
+   * Can the crew of helicopter `h` make out (x, z)? Within HELI_SIGHT along the ground, with a clear line of
+   * sight; at night only in the spotlight (within SPOT_SEE of its centre) or close below (HELI_NIGHT_SIGHT).
+   */
+  heliSees(h: Helicopter, x: number, z: number): boolean {
+    const sim = this.sim;
+    if (h.removed || h.destroyed || Math.hypot(h.pos.x - x, h.pos.z - z) > HELI_SIGHT) return false;
+    const gy = sim.world.groundHeight(x, z) + 1.2;
+    const h24 = sim.clock.hours;
+    if ((h24 < 6 || h24 >= 20) && Math.hypot(h.spotlight.x - x, h.spotlight.z - z) > SPOT_SEE && Math.hypot(h.pos.x - x, h.pos.y - gy, h.pos.z - z) > HELI_NIGHT_SIGHT) return false;
+    return sim.world.lineOfSight(h.pos.x, h.pos.y - 1.5, h.pos.z, x, gy, z);
   }
 
   update(dt: number): void {

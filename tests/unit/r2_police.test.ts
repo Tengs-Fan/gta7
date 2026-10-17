@@ -13,9 +13,9 @@ import { Helicopter, type Character, type Vehicle } from '../../src/sim/entities
 import type { Sim } from '../../src/sim/sim';
 import { HELI_DASH_SPEED, HELI_SPEED, SPOT_REACH } from '../../src/sim/police';
 import { HELI_NIGHT_SIGHT, HELI_SIGHT, RESPONSE_BASE, RESPONSE_PER_STAR, RISE_GAP, SPOT_RADIUS, SPOT_SEE } from '../../src/sim/wanted';
-import { collectBlips, searchArea } from '../../src/ui/mapRender';
+import { collectBlips, HELI_SIGHT_RANGE, searchArea } from '../../src/ui/mapRender';
 import { aimAt, input, makeSim, placeInCar, step, teleport } from './helpers';
-import { at, countPoliceShots, dist, fleeBot, internals, liveUnits, longestLane, officer, seedMathRandom, stepUntil, visibleSpot } from './r2_police_helpers';
+import { at, chaseCamera, countPoliceShots, dist, fleeBot, internals, liveUnits, longestLane, officer, seedMathRandom, stepUntil, visibleSpot } from './r2_police_helpers';
 
 // Headless render stubs (copied from fix_render.test.ts): the procedural textures need a 2D canvas.
 vi.hoisted(() => {
@@ -143,6 +143,34 @@ describe('lethal force and arrests', () => {
         expect(firedAt).toBe(-1);
       }
     }
+  });
+
+  it('at 1 star aiming at a gang member with an officer standing behind him threatens nobody', () => {
+    // Round 2 fix pass (police, review): the threat is the first person along the crosshair ray, not anyone
+    // near it.
+    const sim = makeSim();
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    const p = sim.player;
+    p.inventory.give('pistol', 48);
+    p.inventory.current = 'pistol';
+    sim.wanted.setLevel(1);
+    const near = visibleSpot(sim, p.pos.x, p.pos.z, 7);
+    const dx = (near.x - p.pos.x) / 7;
+    const dz = (near.z - p.pos.z) / 7;
+    const gang = sim.spawnCharacter('gang', near.x, near.z);
+    gang.health = gang.maxHealth = 1e6;
+    const cop = officer(sim, p.pos.x + dx * 13, p.pos.z + dz * 13);
+    cop.health = cop.maxHealth = 1e6;
+    expect(sim.world.lineOfSight(p.pos.x, p.pos.y + 1.5, p.pos.z, cop.pos.x, cop.pos.y + 1.2, cop.pos.z)).toBe(true);
+    const at = (c: Character) => () => aimAt(sim, { x: c.pos.x, y: c.pos.y + 1.2, z: c.pos.z }, { aim: true });
+    step(sim, 0.5, at(gang));
+    expect(sim.wanted.lastCopAssaultAt).toBe(-Infinity);
+    // Stepping aside to aim past him at the officer does count.
+    gang.pos.x += dz * 3;
+    gang.pos.z -= dx * 3;
+    step(sim, 0.5, at(cop));
+    expect(sim.wanted.lastCopAssaultAt).toBeGreaterThan(sim.time - 1);
   });
 
   it('at 1 star officers fire back right after an attack on one of them, and stop again after 4 s', () => {
@@ -513,8 +541,37 @@ describe('pursuit units', () => {
     expect(corners).toBeGreaterThan(ahead / 2);
   });
 
-  it('cuts off neither a 1-star suspect nor, below 5 stars, one with a unit already on his tail', () => {
-    for (const [stars, tail, cut] of [[1, false, false], [3, true, false], [3, false, true], [5, true, true]] as const) {
+  it("the flee bot's camera looks along the car's travel going forward, and along its nose when backing up", () => {
+    const sim = makeSim();
+    const lane = longestLane(sim);
+    const car = sim.spawnVehicle('sports', at(lane, 30).x, at(lane, 30).z, lane.heading);
+    car.vel.x = -lane.dx * 4;
+    car.vel.z = -lane.dz * 4;
+    car.speed = 4;
+    car.forwardSpeed = -4;
+    const back = chaseCamera(car).aimDir;
+    expect(back.x * lane.dx + back.z * lane.dz).toBeGreaterThan(0.9);
+    car.vel.x = lane.dx * 20;
+    car.vel.z = lane.dz * 20;
+    car.speed = 20;
+    car.forwardSpeed = 20;
+    const ahead = chaseCamera(car);
+    expect(ahead.aimDir.x * lane.dx + ahead.aimDir.z * lane.dz).toBeGreaterThan(0.9);
+    // From behind the car.
+    expect((car.pos.x - ahead.aimOrigin.x) * lane.dx + (car.pos.z - ahead.aimOrigin.z) * lane.dz).toBeGreaterThan(6);
+  });
+
+  it('cuts off neither a 1-star suspect nor, below 5 stars, one with a unit on his tail or one just caught up with', () => {
+    // [stars, a unit 25 m behind him, seconds since a unit was within 40 m of him, cut off?]
+    for (const [stars, tail, contact, cut] of [
+      [1, false, Infinity, false],
+      [3, true, Infinity, false],
+      [3, false, Infinity, true],
+      [3, false, 5, false],
+      [3, false, 13, true],
+      [5, true, 0.5, false],
+      [5, true, 2, true],
+    ] as const) {
       const sim = makeSim({ seed: 4 });
       const inner = sim.roads.lanes.filter((l) => l.line.avenue && Math.max(Math.abs(l.sx), Math.abs(l.sz), Math.abs(l.ex), Math.abs(l.ez)) < 260);
       const lane = inner[3]!;
@@ -536,6 +593,7 @@ describe('pursuit units', () => {
         u.pos.x = car.pos.x - lane.dx * 25;
         u.pos.z = car.pos.z - lane.dz * 25;
       }
+      (sim.police as unknown as { contactAt: number }).contactAt = sim.time - contact;
       // Count the cut-offs tried: the corner search ahead of him.
       const police = sim.police as unknown as { cornerAhead(): unknown };
       const corner = police.cornerAhead.bind(sim.police);
@@ -548,8 +606,9 @@ describe('pursuit units', () => {
         const v = sim.police.spawnUnit('police', true);
         if (v) sim.removeVehicle(v);
       }
-      if (cut) expect(tried, `${stars} stars, unit on his tail: ${tail}`).toBeGreaterThanOrEqual(4);
-      else expect(tried, `${stars} stars, unit on his tail: ${tail}`).toBe(0);
+      const label = `${stars} stars, unit on his tail: ${tail}, ${contact} s since one caught up`;
+      if (cut) expect(tried, label).toBeGreaterThanOrEqual(4);
+      else expect(tried, label).toBe(0);
     }
   });
 
@@ -587,8 +646,10 @@ describe('the police helicopter', () => {
     expect(d).toBeLessThan(152);
   });
 
-  it('dashes in at up to 55 m/s on its way out, and cruises at up to 30 m/s within 120 m of its spot', () => {
-    for (const [from, cap] of [[400, HELI_DASH_SPEED], [100, HELI_SPEED]] as const) {
+  it('dashes in at up to 55 m/s from afar on its way out, and to catch up with a player standing still', () => {
+    const HELI_DASH_RANGE_M = 120;
+    // (After a car faster than its cruise speed it does not dash: see the outrun cases below.)
+    for (const [from, cap] of [[400, HELI_DASH_SPEED], [100, HELI_DASH_SPEED]] as const) {
       const sim = makeSim();
       sim.cheats.godMode = true;
       sim.missions.noBust = true;
@@ -600,19 +661,21 @@ describe('the police helicopter', () => {
         top = Math.max(top, c.y1);
       });
       const h = new Helicopter(sim.newId(), p.x, top + 30, p.z + from);
+      h.orbit = 0;
       sim.helis.push(h);
       let fastest = 0;
       step(sim, 6, () => {
-        fastest = Math.max(fastest, Math.hypot(h.vel.x, h.vel.y, h.vel.z));
+        // Over the ground: it climbs and sinks on top of that.
+        fastest = Math.max(fastest, Math.hypot(h.vel.x, h.vel.z));
         return input();
       });
-      expect(fastest, `from ${from} m`).toBeGreaterThan(cap - 5);
+      expect(fastest, `from ${from} m`).toBeGreaterThan(from > HELI_DASH_RANGE_M ? cap - 5 : HELI_SPEED + 5);
       expect(fastest, `from ${from} m`).toBeLessThanOrEqual(cap + 1e-6);
     }
   });
 
   /** Round 2 fix pass (police): 3 stars, no other police, the helicopter right behind a car doing `speed` m/s straight down Azura Ave. */
-  function outrun(speed: number, hour: number, seen = false) {
+  function outrun(speed: number, hour: number, seen = false, orbit?: number) {
     const sim = makeSim({ startHour: hour });
     sim.cheats.godMode = true;
     sim.missions.noBust = true;
@@ -625,6 +688,7 @@ describe('the police helicopter', () => {
     noResponse(sim);
     const h = new Helicopter(sim.newId(), x0 + 12, sim.world.groundHeight(x0, z0) + 36, z0 - 12);
     h.spotlight = { x: x0, z: z0 };
+    if (orbit !== undefined) h.orbit = orbit;
     sim.helis.push(h);
     // It has been on the scene a while: no dash for a car faster than it.
     (sim.police as unknown as { heliArrived: WeakSet<Helicopter> }).heliArrived.add(h);
@@ -652,16 +716,89 @@ describe('the police helicopter', () => {
     // The helicopter used to cruise at 40 m/s, dash at 55 and see 110 m all round, so a fleeing car never even
     // made the stars flash.
     for (const hour of [14, 22.5]) {
-      const r = outrun(40, hour);
-      expect(r.lostAt, `${hour}:00`).toBeGreaterThan(0);
-      expect(r.lostAt, `${hour}:00`).toBeLessThan(12);
-      expect(r.fastest).toBeLessThanOrEqual(HELI_SPEED + 1e-6);
-      // Its beam reaches the street only so far out from under it.
-      expect(r.beamOut).toBeLessThanOrEqual(SPOT_REACH + 1e-6);
+      // Wherever it is on its orbit round the car when the chase starts.
+      for (let k = 0; k < 4; k++) {
+        const r = outrun(40, hour, false, (k * Math.PI) / 2);
+        expect(r.lostAt, `${hour}:00, orbit ${k}`).toBeGreaterThan(0);
+        expect(r.lostAt, `${hour}:00, orbit ${k}`).toBeLessThan(12);
+        expect(r.fastest).toBeLessThanOrEqual(HELI_SPEED + 1e-6);
+        // Its beam reaches the street only so far out from under it.
+        expect(r.beamOut).toBeLessThanOrEqual(SPOT_REACH + 1e-6);
+      }
     }
-    // A car no faster than it stays in sight.
-    const slow = outrun(22, 14);
-    expect(slow.lostAt).toBe(-1);
+  });
+
+  it('keeps a car slower than its cruise speed in sight, wherever it is on its orbit', () => {
+    // Round 2 fix pass (police, review): it used to steer only for its orbit spot round the car and trailed it
+    // by the car's speed over its gain, so at 25-28 m/s it lost cars it could outfly.
+    for (const speed of [22, 25, 28]) {
+      for (let k = 0; k < 8; k++) {
+        const r = outrun(speed, 14, false, (k * Math.PI) / 4);
+        expect(r.lostAt, `${speed} m/s, orbit ${k}`).toBe(-1);
+      }
+    }
+  });
+
+  it('dashes in again after a recall, and its gunner fires only at someone its crew can make out', () => {
+    // Round 2 fix pass (police, review). Recalled when the stars drop below 3, a helicopter sent back in dashes
+    // in again; and from 4 stars the gun (90 m reach) fires only at a player within the crew's sight.
+    const sim = makeSim();
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    const n = sim.roads.node(5, 0);
+    const x0 = n.x - 2;
+    const z0 = n.z + n.halfZ + 8;
+    const car = sim.spawnVehicle('sports', x0, z0, 0);
+    placeInCar(sim, car);
+    sim.wanted.setLevel(3);
+    noResponse(sim);
+    const h = new Helicopter(sim.newId(), x0, sim.world.groundHeight(x0, z0) + 36, z0 - 10);
+    h.spotlight = { x: x0, z: z0 };
+    h.orbit = 0;
+    sim.helis.push(h);
+    const cam = () => input({ aimOrigin: { x: car.pos.x, y: car.pos.y + 3, z: car.pos.z - 9 }, aimDir: { x: 0, y: -0.1, z: 1 } });
+    step(sim, 3, cam);
+    const arrived = (sim.police as unknown as { heliArrived: WeakSet<Helicopter> }).heliArrived;
+    expect(arrived.has(h)).toBe(true);
+    sim.wanted.clear();
+    // It leaves; well away, it is sent back in.
+    for (let t = 0; t < 20 && dist(h.pos, car.pos) < 220; t += 0.5) step(sim, 0.5, cam);
+    expect(h.removed).toBe(false);
+    expect(dist(h.pos, car.pos)).toBeGreaterThan(215);
+    // Back at 3 stars (the response phase tells the police where he is) and driving off at 35 m/s, faster than
+    // it cruises: it dashes after him all the same, as it did when it was first sent.
+    sim.wanted.setLevel(3);
+    let fastest = 0;
+    let i = 0;
+    const zs = car.pos.z;
+    step(sim, 6, () => {
+      car.vel.x = 0;
+      car.vel.z = 35;
+      car.heading = 0;
+      car.angVel = 0;
+      car.pos.x = x0;
+      car.pos.z = zs + 35 * i++ * (1 / 60);
+      fastest = Math.max(fastest, Math.hypot(h.vel.x, h.vel.z));
+      return cam();
+    });
+    expect(fastest).toBeGreaterThan(HELI_DASH_SPEED - 10);
+    // The gunner: a helicopter held 75 m (along the ground) from him with a clear view fires no round; 40 m away it does.
+    sim.wanted.setLevel(4);
+    let rounds = 0;
+    sim.events.on('shot', (e) => {
+      if (!e.shooter) rounds++;
+    });
+    const shoot = (sim.police as unknown as { heliShot(h: Helicopter): void }).heliShot.bind(sim.police);
+    const pp = sim.playerPos();
+    for (const [gap, fires] of [[75, false], [40, true]] as const) {
+      h.pos.x = pp.x;
+      h.pos.z = pp.z - gap;
+      h.pos.y = sim.world.groundHeight(pp.x, pp.z) + 36;
+      expect(sim.world.lineOfSight(h.pos.x, h.pos.y - 1.5, h.pos.z, pp.x, pp.y + 1.2, pp.z), `clear view from ${gap} m`).toBe(true);
+      const before = rounds;
+      for (let k = 0; k < 5; k++) shoot(h);
+      expect(rounds > before, `${gap} m`).toBe(fires);
+    }
   });
 
   it('after a slow quarry it dashes again', () => {
@@ -675,6 +812,7 @@ describe('the police helicopter', () => {
       top = Math.max(top, c.y1);
     });
     const h = new Helicopter(sim.newId(), p.x, top + 30, p.z + 400);
+    h.orbit = 0;
     sim.helis.push(h);
     (sim.police as unknown as { heliArrived: WeakSet<Helicopter> }).heliArrived.add(h);
     let fastest = 0;
@@ -1012,6 +1150,12 @@ describe('the spotlight beam', () => {
     v.cone.onBeforeRender(null as never, null as never, cam, null as never, mat, null as never);
     expect(mat.uniforms.uFade!.value).toBe(1);
     expect(beamFade(new THREE.Vector3(8, 20, 0), new THREE.Vector3(0, 20, 0), new THREE.Vector3(0, 0, 0))).toBeCloseTo(0.5, 6);
+    // Round 2 fix pass (police, review): straddling a curb, the pool lies at the higher ground under its rim,
+    // so its far side does not sink under the sidewalk.
+    view.syncHelis([h], 1, (x) => (x > h.spotlight.x + 2 ? 0.15 : 0));
+    expect(v.pool.position.y).toBeGreaterThan(0.15);
+    view.syncHelis([h], 1, () => 0);
+    expect(v.pool.position.y).toBeLessThan(0.15);
     // Each helicopter has its own beam material: two beams fade separately.
     const h2 = new Helicopter(sim.newId(), 50, 40, 0);
     view.syncHelis([h, h2], 1, () => 0);
@@ -1040,6 +1184,10 @@ describe('readable evasion', () => {
     expect(police(0)[0]!.color).not.toBe(police(0.25)[0]!.color);
     sim.wanted.clear();
     expect(police(0).length).toBe(0);
+  });
+
+  it("draws the helicopter's sighting ring as far out as its crew sees", () => {
+    expect(HELI_SIGHT_RANGE).toBe(HELI_SIGHT);
   });
 
   it('searchArea is the circle the police search, while the stars flash', () => {

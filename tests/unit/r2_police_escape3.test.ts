@@ -12,8 +12,8 @@ afterEach(() => {
 
 describe('losing 3 stars in a fleeing car', () => {
   it('loses 3 stars in a median of 90 s at most', () => {
-    // Measured in the round 2 fix pass: a median of 66 s, 15 of the 21 runs within 90 s (none in 150 s before
-    // the fix). 4 and 5 stars, measured over 200 and 240 s: 16 and 7 of the 21 runs escaped.
+    // Measured in the round 2 fix pass: a median of 63.9 s, 16 of these 21 runs within 90 s (37 of 52 seeds;
+    // none in 150 s before the fix). 4 and 5 stars over 52 seeds: 41 escaped within 200 s and 28 within 240 s.
     const runs = fleeRuns(3, 90, true);
     expect(median(runs.map(lostTime)), showRuns(runs)).toBeLessThanOrEqual(90);
   }, 600_000);

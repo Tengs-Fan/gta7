@@ -102,12 +102,13 @@ interface PathPriv {
 }
 
 /**
- * The camera of a player driving `car`: the chase camera behind it, looking where it goes. Nothing spawns
+ * The camera of a player driving `car`: the chase camera behind it, looking where it goes (along its
+ * velocity going forward above 6 m/s, else along its heading, as CameraController does). Nothing spawns
  * where the player can see (see Sim.isVisible), so the camera decides where traffic and police units
  * may appear around the bot, as it does in the game.
  */
 export function chaseCamera(car: Vehicle): Pick<PlayerInput, 'aimOrigin' | 'aimDir'> {
-  const moving = car.speed > 2;
+  const moving = car.speed > 6 && car.forwardSpeed > 0;
   const fx = moving ? car.vel.x / car.speed : Math.sin(car.heading);
   const fz = moving ? car.vel.z / car.speed : Math.cos(car.heading);
   const l = Math.hypot(fx, fz) || 1;

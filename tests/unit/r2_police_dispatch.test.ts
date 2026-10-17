@@ -43,7 +43,7 @@ describe('dispatch chatter', () => {
       log.push(`seed ${seed}: ${lines.map((l) => l.text).join(' | ')}`);
       vi.restoreAllMocks();
     }
-    // 18 lines in these three runs, about 6 a run over 21 seeds.
+    // 16 lines in these three runs (measured in the round 2 fix pass), about 6 a run over 21 seeds.
     expect(total, log.join('\n')).toBeGreaterThanOrEqual(9);
   }, 600_000);
 });

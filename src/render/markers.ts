@@ -16,12 +16,15 @@ const SPOT_ALPHA = 0.1;
 const SPOT_CLEAR = 6;
 const SPOT_FADE = 4;
 /**
- * The pool of light on the ground (see buildHeli): the opacity of its rim, which marks where the light ends
- * (and with it what the crew makes out at night, wanted.ts SPOT_SEE), and of its centre relative to that.
- * The rim carries the cue; the dim centre keeps an unlit player from turning into a black silhouette.
+ * The pool of light on the ground (see buildHeli): the opacity of its rim, which marks where the light ends,
+ * and of its centre relative to that. The rim carries the cue (at night the crew makes out what is within
+ * twice the pool's radius of its centre, wanted.ts SPOT_SEE, besides what is close below the helicopter);
+ * the dim centre keeps an unlit player from turning into a black silhouette.
  */
 const SPOT_POOL = 0.16;
 const SPOT_CORE = 0.18;
+/** Points on the pool's rim where syncHelis samples the ground. */
+const POOL_RIM: ReadonlyArray<readonly [number, number]> = Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4) * SPOT_RADIUS * 0.9, Math.sin((k * Math.PI) / 4) * SPOT_RADIUS * 0.9] as const);
 
 /**
  * How visible the spotlight beam is from a camera at `cam`, for a beam from `a` (the lamp) to `b`: 0
@@ -322,7 +325,10 @@ export class MarkerView {
       v.cone.visible = showLight;
       v.pool.visible = showLight;
       if (showLight) {
-        const gy = groundAt(h.spotlight.x, h.spotlight.z);
+        // The pool lies flat at the highest ground under it (its centre and rim), so where it straddles a
+        // curb the rim does not sink under the sidewalk.
+        let gy = groundAt(h.spotlight.x, h.spotlight.z);
+        for (const [ox, oz] of POOL_RIM) gy = Math.max(gy, groundAt(h.spotlight.x + ox, h.spotlight.z + oz));
         const dx = h.spotlight.x - h.pos.x;
         const dy = gy - (h.pos.y - 1);
         const dz = h.spotlight.z - h.pos.z;

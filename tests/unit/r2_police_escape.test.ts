@@ -13,13 +13,13 @@ afterEach(() => {
 
 describe('losing the police in a fleeing car', () => {
   it('loses 1 star in a median of 30 s at most', () => {
-    // Measured in the round 2 fix pass: a median of 21.7 s, 17 of the 21 runs within 30 s.
+    // Measured in the round 2 fix pass: a median of 21.7 s, 16 of these 21 runs within 30 s (37 of 52 seeds).
     const runs = fleeRuns(1, 30, true);
     expect(median(runs.map(lostTime)), showRuns(runs)).toBeLessThanOrEqual(30);
   }, 600_000);
 
   it('loses 2 stars in a median of 75 s at most', () => {
-    // Measured: a median of 33.4 s, 18 of the 21 runs within 75 s.
+    // Measured: a median of 33.3 s, 18 of these 21 runs within 75 s (46 of 52 seeds).
     const runs = fleeRuns(2, 75, true);
     expect(median(runs.map(lostTime)), showRuns(runs)).toBeLessThanOrEqual(75);
   }, 600_000);

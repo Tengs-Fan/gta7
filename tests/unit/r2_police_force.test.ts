@@ -42,16 +42,17 @@ describe('lethal force and arrests', () => {
   }, 300_000);
 
   it('at 4 stars arrest a player who stands still unarmed (BUSTED) in most runs', () => {
-    // A rate of about 86% (18 of 21, the rest shot in the crossfire), against which the acceptance's 4 of 5
-    // flips with any reshuffle of the trajectories: 21 seeds, at least 15 busted.
-    const outcomes = standStill('fists', SEEDS_21);
-    expect(outcomes.filter((o) => o.endsWith(':busted')).length, outcomes.join(', ')).toBeGreaterThanOrEqual(15);
-  }, 600_000);
+    // A rate of about 83% (35 of 42 runs measured in the round 2 fix pass, the rest shot in the crossfire
+    // before an officer reached him), against which the acceptance's 4 of 5 flips with any reshuffle of the
+    // trajectories: 42 seeds, at least 30 busted.
+    const outcomes = standStill('fists', Array.from({ length: 42 }, (_, i) => i + 1));
+    expect(outcomes.filter((o) => o.endsWith(':busted')).length, outcomes.join(', ')).toBeGreaterThanOrEqual(30);
+  }, 900_000);
 
   it('never busts a player firing a rifle into the air every 0.5 s at 4-5 stars, and fires at him', () => {
     // 21 seeds, 4 stars in the odd ones and 5 in the even. Whether the first unit gets through the traffic within
-    // the 30 s depends on the seed: the police fired 15 shots or more in 20 of 21 runs at each level (measured in
-    // the round 2 fix pass), so 18 of 21 are asked for; the arrest must never happen.
+    // the 30 s depends on the seed: the police fired 15 shots or more in 41 of 42 runs (measured in the round 2
+    // fix pass at both levels), so 18 of 21 are asked for; the arrest must never happen.
     const runs: string[] = [];
     let fired = 0;
     for (const seed of SEEDS_21) {

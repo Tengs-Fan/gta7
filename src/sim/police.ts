@@ -17,8 +17,8 @@ export const HOSTILE_WINDOW = 4;
 const STANDOFF = 12;
 /** A wanted player aiming a gun at an officer this close (m) is attacking the police (see aimThreat). */
 const AIM_THREAT_RANGE = 15;
-/** ...when the aim passes this close (m) to the officer's chest. */
-const AIM_THREAT_MISS = 1.4;
+/** ...when the crosshair ray passes this close (m) to the officer's chest, before anyone else's. */
+const AIM_THREAT_MISS = 1;
 /** The others cover an arrester walking up to a still player this long at most (he may be stuck: then they open fire). */
 const ARREST_PATIENCE = 12;
 /** Crews fire from pursuit cars (from 2 stars) at a player within this range and in sight of their window, rechecked this often. */
@@ -35,24 +35,35 @@ const RECYCLE_CLOSING = 5;
 /** Pursuit units cut off a fast player from lanes this far ahead of him. */
 const AHEAD_MIN = 90;
 const AHEAD_MAX = 180;
-/** From this many stars pursuit units cut off a fast player (at one star they only come to arrest him). */
+/**
+ * From CUT_OFF_LEVEL stars every second pursuit unit sent for a fast player cuts him off from ahead (at one star
+ * they only come to arrest him), until one has caught up with him (come within CONTACT m). After that, for a
+ * chance to shake them off: below SWARM_LEVEL only once none has been that close for CUT_OFF_GAP s and none
+ * is on his tail (within CUT_OFF_CLEAR m); at SWARM_LEVEL as soon as none has been that close for SWARM_GAP s.
+ */
 const CUT_OFF_LEVEL = 2;
-/** ...but only while no unit is on his tail within this distance (m): one waiting for him, not a wall of them. */
+const CONTACT = 40;
+const CUT_OFF_GAP = 12;
 const CUT_OFF_CLEAR = 60;
-/** From this many stars every second pursuit unit cuts him off, whoever is on his tail already. */
 const SWARM_LEVEL = 5;
+const SWARM_GAP = 1.5;
 /** A unit cutting him off from a cross street waits this far (m) before the stop line of the junction ahead. */
 const CORNER_NEAR = 8;
 const CORNER_FAR = 30;
 /**
  * Helicopter: spawn distance from where the police think the player is, cruise and dash speeds, and the dash
- * range. It dashes in from beyond the dash range on its way out and after a quarry slower than its cruise
- * speed; a getaway car faster than that pulls away from it, out of its sight (wanted.ts HELI_SIGHT).
+ * range. It dashes in from beyond the dash range on its way out, and after that only to catch up with a
+ * quarry slower than its cruise speed; a getaway car faster than that pulls away from it, out of its sight
+ * (wanted.ts HELI_SIGHT).
  */
 const HELI_SPAWN_DIST = 150;
 export const HELI_SPEED = 30;
 export const HELI_DASH_SPEED = 55;
 const HELI_DASH_RANGE = 120;
+/** Once on the scene it dashes after a quarry slower than its cruise speed when this far (m) behind its spot. */
+const HELI_CATCH_UP = 40;
+/** Its fastest climb or descent (m/s), on top of its speed over the ground. */
+const HELI_CLIMB = 20;
 /** The spotlight reaches the ground at most this far (m) out from under the helicopter. */
 export const SPOT_REACH = 45;
 /** No new helicopter for this many seconds after one is shot down. */
@@ -84,6 +95,8 @@ export class PoliceSystem {
   private readonly trail = new WeakMap<Vehicle, { t: number; d: number }>();
   /** Alternates the pursuit spawns for a fast player between lanes ahead of him and the usual ring. */
   private aheadTurn = false;
+  /** Sim time a police unit was last within CONTACT of the player. */
+  private contactAt = -Infinity;
   /** No helicopter is sent before this sim time (one was just shot down). */
   heliCooldownUntil = -Infinity;
   /** Helicopters that have reached the scene once since they were sent (they dash in only on the way out). */
@@ -147,30 +160,38 @@ export class PoliceSystem {
     return !p.vehicle && p.inventory.current !== 'fists';
   }
 
-  /** The player, on foot with a gun, aims it at an officer within AIM_THREAT_RANGE whom he can see. */
+  /**
+   * The player, on foot with a gun, aims it at an officer within AIM_THREAT_RANGE of him whom he can see: the
+   * first person the crosshair ray (the aim camera's, see Sim.cam) passes within AIM_THREAT_MISS of is an officer.
+   */
   private aimThreat(): boolean {
     const sim = this.sim;
     const p = sim.player;
     if (!this.playerArmed() || !p.aiming || p.state !== 'normal') return false;
-    const cp = Math.cos(p.aimPitch);
-    const ax = Math.sin(p.aimYaw) * cp;
-    const ay = Math.sin(p.aimPitch);
-    const az = Math.cos(p.aimYaw) * cp;
-    const ex = p.pos.x;
-    const ey = p.pos.y + 1.5;
-    const ez = p.pos.z;
+    const o = sim.cam;
+    const l = Math.hypot(sim.camDir.x, sim.camDir.y, sim.camDir.z);
+    if (l < 1e-6) return false;
+    const ax = sim.camDir.x / l;
+    const ay = sim.camDir.y / l;
+    const az = sim.camDir.z / l;
+    // Only beyond the gun: the ray starts at the camera, behind him.
+    const gun = (p.pos.x - o.x) * ax + (p.pos.y + 1.5 - o.y) * ay + (p.pos.z - o.z) * az + 0.5;
+    let first: Character | null = null;
+    let firstAlong = Infinity;
     for (const c of sim.characters) {
-      if (c.removed || !c.isLaw || !c.alive || c.state === 'inVehicle') continue;
-      const dx = c.pos.x - ex;
-      const dy = c.pos.y + 1.2 - ey;
-      const dz = c.pos.z - ez;
+      if (c === p || c.removed || !c.alive || (c.state !== 'normal' && c.state !== 'swimming')) continue;
+      if (Math.hypot(c.pos.x - p.pos.x, c.pos.z - p.pos.z) > AIM_THREAT_RANGE) continue;
+      const dx = c.pos.x - o.x;
+      const dy = c.pos.y + 1.2 - o.y;
+      const dz = c.pos.z - o.z;
       const along = dx * ax + dy * ay + dz * az;
-      if (along <= 0 || along > AIM_THREAT_RANGE) continue;
-      const miss = Math.hypot(dx - ax * along, dy - ay * along, dz - az * along);
-      if (miss > AIM_THREAT_MISS) continue;
-      if (sim.world.lineOfSight(ex, ey, ez, c.pos.x, c.pos.y + 1.2, c.pos.z)) return true;
+      if (along <= gun || along >= firstAlong) continue;
+      if (Math.hypot(dx - ax * along, dy - ay * along, dz - az * along) > AIM_THREAT_MISS) continue;
+      first = c;
+      firstAlong = along;
     }
-    return false;
+    if (!first?.isLaw) return false;
+    return sim.world.lineOfSight(p.pos.x, p.pos.y + 1.5, p.pos.z, first.pos.x, first.pos.y + 1.2, first.pos.z);
   }
 
   /**
@@ -249,15 +270,20 @@ export class PoliceSystem {
    * Spawns a police car on a lane 95-215 m from the player, preferably out of sight.
    * While the police are searching, pursuit units join the search around the last sighting,
    * heading its way from near it, or at least from its side of that ring.
-   * From two stars a player driving off fast is cut off instead: every second pursuit unit comes at him
-   * from ahead, round the corner of a junction he is about to reach or down a road towards him.
+   * From two stars a player driving off fast is cut off instead (see CUT_OFF_LEVEL): every second pursuit
+   * unit comes at him from ahead, round the corner of a junction he is about to reach or down a road
+   * towards him.
    */
   spawnUnit(kind: 'police' | 'swat', pursuit: boolean): Vehicle | null {
     const sim = this.sim;
     const pp = sim.playerPos();
     const w = sim.wanted;
     const searching = pursuit && this.searching(w.level);
-    if (pursuit && !searching && w.level >= CUT_OFF_LEVEL && this.playerSpeed() > 10 && (w.level >= SWARM_LEVEL || !this.unitNear(pp, CUT_OFF_CLEAR))) {
+    // Until a unit catches up with him; after that, below SWARM_LEVEL only once he has been clear of them
+    // for a while (CUT_OFF_GAP) and none is on his tail, at SWARM_LEVEL as soon as he gets away (SWARM_GAP).
+    const since = sim.time - this.contactAt;
+    const cutOff = w.level >= SWARM_LEVEL ? since >= SWARM_GAP : since >= CUT_OFF_GAP && !this.unitNear(pp, CUT_OFF_CLEAR);
+    if (pursuit && !searching && w.level >= CUT_OFF_LEVEL && this.playerSpeed() > 10 && cutOff) {
       this.aheadTurn = !this.aheadTurn;
       const spot = this.aheadTurn ? (this.cornerAhead() ?? this.laneAhead()) : null;
       if (spot) return this.placeUnit(kind, true, false, spot.lane, spot.s);
@@ -356,9 +382,9 @@ export class PoliceSystem {
 
   /**
    * A spot just round the corner at a junction AHEAD_MIN-AHEAD_MAX m ahead of a fast player, on a cross
-   * street heading into the junction, out of his sight and clear of traffic: the unit pulls out across
-   * his road, or into it towards him, as he gets there. The road ahead is in plain view of a driver, so
-   * this is where a unit can wait for him unseen. Null when none turns up.
+   * street heading into the junction, out of his sight and clear of traffic. The road ahead is in plain
+   * view of a driver, so this is where a unit can appear unseen: it pulls into the junction a second or
+   * two later and comes at him down his road, or goes across it. Null when none turns up.
    */
   private cornerAhead(): { lane: Lane; s: number } | null {
     const sim = this.sim;
@@ -460,6 +486,7 @@ export class PoliceSystem {
         ai.resetPath();
       }
       const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
+      if (d < CONTACT) this.contactAt = sim.time;
       // Pull up behind a player car that is stopped (or being shoved without power) instead of
       // ramming it: heading for its position rather than for the player makes it an obstacle.
       const contact = !!pv && d < v.halfL + pv.halfL + 1.5;
@@ -903,7 +930,8 @@ export class PoliceSystem {
         continue;
       }
       if (level < 3) {
-        // Leave the area.
+        // Leave the area. Sent back in, it dashes in again.
+        this.heliArrived.delete(h);
         h.vel.y = damp1(h.vel.y, 6, dt);
         const ax = h.pos.x - pp.x;
         const az = h.pos.z - pp.z;
@@ -935,21 +963,32 @@ export class PoliceSystem {
         }
         if (y <= base) break;
       }
-      // Climb early for anything in the way there.
+      // Towards its spot, and along with the player while the police know where he is: it keeps pace with
+      // anything up to its own speed instead of trailing it.
+      const p = sim.player;
+      const searching = this.searching(level);
+      const qv = searching ? null : p.vehicle ? p.vehicle.vel : p.vel;
+      let dvx = (tx - h.pos.x) * 0.9 + (qv ? qv.x : 0);
+      let dvz = (tz - h.pos.z) * 0.9 + (qv ? qv.z : 0);
+      // Climb early for anything in the way there, and for anything on its course over the next 2 s.
       ty = Math.max(ty, this.pathTop(h.pos.x, h.pos.z, tx, tz) + HELI_CLEARANCE);
-      let dvx = (tx - h.pos.x) * 0.9;
-      let dvy = (ty - h.pos.y) * 0.9;
-      let dvz = (tz - h.pos.z) * 0.9;
-      const dl = Math.hypot(dvx, dvy, dvz);
-      // Dashes in from afar on its way out, and to catch up with a quarry slower than its cruise speed
-      // (one on foot, or a spot to search). A faster car outruns it.
-      const far = Math.hypot(tx - h.pos.x, tz - h.pos.z) > HELI_DASH_RANGE;
-      if (!far) this.heliArrived.add(h);
-      const quarry = this.searching(level) ? 0 : this.playerSpeed();
-      const maxV = far && (!this.heliArrived.has(h) || quarry < HELI_SPEED) ? HELI_DASH_SPEED : HELI_SPEED;
+      const course = Math.hypot(dvx, dvz);
+      if (course > 1) {
+        const ahead = Math.max(40, Math.min(course, HELI_DASH_SPEED) * 2);
+        ty = Math.max(ty, this.pathTop(h.pos.x, h.pos.z, h.pos.x + (dvx / course) * ahead, h.pos.z + (dvz / course) * ahead, ahead) + HELI_CLEARANCE);
+      }
+      // It climbs and sinks as fast as it needs to, apart from its speed over the ground.
+      const dvy = clamp((ty - h.pos.y) * 0.9, -HELI_CLIMB, HELI_CLIMB);
+      // Dashes in from afar on its way out, and to catch up with a quarry slower than its cruise speed (one
+      // on foot, a car held up, a spot to search) once it lags behind its spot. A faster car outruns it.
+      const lag = Math.hypot(tx - h.pos.x, tz - h.pos.z);
+      if (lag <= HELI_DASH_RANGE) this.heliArrived.add(h);
+      const quarry = searching ? 0 : this.playerSpeed();
+      const dash = this.heliArrived.has(h) ? quarry < HELI_SPEED && lag > HELI_CATCH_UP : lag > HELI_DASH_RANGE;
+      const maxV = dash ? HELI_DASH_SPEED : HELI_SPEED;
+      const dl = Math.hypot(dvx, dvz);
       if (dl > maxV) {
         dvx *= maxV / dl;
-        dvy *= maxV / dl;
         dvz *= maxV / dl;
       }
       h.vel.x = damp1(h.vel.x, dvx, dt * 1.6);
@@ -987,10 +1026,10 @@ export class PoliceSystem {
     return top;
   }
 
-  /** Highest obstacle under the next 40 m of a straight flight from (x0, z0) towards (x1, z1). */
-  private pathTop(x0: number, z0: number, x1: number, z1: number): number {
+  /** Highest obstacle under the next `range` m of a straight flight from (x0, z0) towards (x1, z1). */
+  private pathTop(x0: number, z0: number, x1: number, z1: number, range = 40): number {
     const len = Math.hypot(x1 - x0, z1 - z0);
-    const reach = Math.min(len, 40);
+    const reach = Math.min(len, range);
     const n = Math.ceil(reach / 8);
     let top = this.skyTop(x0, z0);
     for (let i = 1; i <= n; i++) {
@@ -1015,6 +1054,8 @@ export class PoliceSystem {
   private heliShot(h: Helicopter): void {
     const sim = this.sim;
     const pp = sim.playerPos();
+    // Only at someone the crew can make out (a car that outran it, or one in the dark, is not fired on).
+    if (!sim.wanted.heliSees(h, pp.x, pp.z)) return;
     const tx = pp.x;
     const ty = pp.y + 1;
     const tz = pp.z;
