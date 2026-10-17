@@ -12,6 +12,10 @@ export interface Settings {
   sensitivity: number;
   invertY: boolean;
   fov: number;
+  /** Contextual tutorial hints and the steal prompt. */
+  hints: boolean;
+  /** Hints already shown once (ids from src/ui/hints.ts). Replaced, never changed in place. */
+  hintsSeen: readonly string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -22,7 +26,19 @@ export const DEFAULT_SETTINGS: Settings = {
   sensitivity: 1,
   invertY: false,
   fov: 68,
+  hints: true,
+  hintsSeen: [],
 };
+
+/** At most this many hint ids are kept: a corrupt or hand-edited file can't grow without bound. */
+export const MAX_HINTS_SEEN = 50;
+
+/** The distinct, plausible hint ids of a saved list, capped at MAX_HINTS_SEEN. */
+function hintIds(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const ok = v.filter((x): x is string => typeof x === 'string' && /^[a-z][a-z0-9:_-]{0,31}$/i.test(x));
+  return [...new Set(ok)].slice(0, MAX_HINTS_SEEN);
+}
 
 const SETTINGS_KEY = 'gta7.settings.v1';
 const SAVE_KEY = 'gta7.save.v1';
@@ -58,6 +74,9 @@ export function loadSettings(): Settings {
       sensitivity: clampNum(raw.sensitivity, 0.2, 3, DEFAULT_SETTINGS.sensitivity),
       invertY: raw.invertY === true,
       fov: clampNum(raw.fov, 55, 90, DEFAULT_SETTINGS.fov),
+      // Files from before hints existed lack both fields: hints on, nothing seen yet.
+      hints: typeof raw.hints === 'boolean' ? raw.hints : DEFAULT_SETTINGS.hints,
+      hintsSeen: hintIds(raw.hintsSeen),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

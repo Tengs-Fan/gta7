@@ -6,19 +6,35 @@ import type { TypedCheat } from './input/cheats';
 import { Input, type FrameInput } from './input/input';
 import { pickTier, probeGpu, QUALITY, type QualitySetting, type QualityTier } from './render/quality';
 import { GameRenderer } from './render/renderer';
-import { deleteGame, loadGame, loadSettings, saveSettings, writeGame, type Settings } from './settings';
+import { deleteGame, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, writeGame, type Settings } from './settings';
 import type { Vehicle } from './sim/entities';
 import { neutralInput } from './sim/input';
-import { missionSpots } from './sim/missions/spots';
 import { applySave, serialize, type SaveData } from './sim/progress';
 import { Sim } from './sim/sim';
 import { WEAPON_ORDER, type WeaponId } from './sim/specs';
-import { escapeHtml, Hud } from './ui/hud';
+import { HintSystem } from './ui/hints';
+import { Hud } from './ui/hud';
 import { MapImage } from './ui/mapRender';
 import { Menus, type MenuHost } from './ui/menus';
 import { StaticWorld } from './world/staticWorld';
 
 export { CHEAT_CODES as CHEATS } from './input/cheats';
+
+/** Seconds into a fresh game before Mama Lou calls with the first mission. */
+export const INTRO_DELAY = 2.5;
+/** Keys are named by their QWERTY binding: the HUD draws them for the player's layout or pad. */
+const WELCOME = 'Welcome to San Azura. Mama Lou has work for you: follow the <b class="lou">pink route</b> to the <b class="lou">L</b> on your radar. Steal a ride with <kbd>F</kbd>.';
+/** With her call coming in, the route to her is no longer the thing to read. */
+const WELCOME_CALL = 'Welcome to San Azura. Mama Lou has work for you. Steal a ride with <kbd>F</kbd>.';
+
+/** Whether the page URL turns the opening call off (?intro=0, used by tests and playtests). */
+function introOffByUrl(): boolean {
+  try {
+    return typeof location !== 'undefined' && new URLSearchParams(location.search).get('intro') === '0';
+  } catch {
+    return false;
+  }
+}
 
 export class Game {
   readonly world: StaticWorld;
@@ -54,6 +70,18 @@ export class Game {
   private gfxTimer: ReturnType<typeof setTimeout> | null = null;
   /** Total real time spent in frames (for tests). */
   readonly perf = { frameMs: 0, simMs: 0, renderMs: 0 };
+  /** ?intro=0 in the URL, read once. */
+  private readonly introOff = introOffByUrl();
+  /** Seconds until Lou's opening call on a fresh game; not positive when no call is pending. */
+  private introTimer = -1;
+  /** First-time tutorial hints and the steal prompt, remembered in the settings. */
+  readonly hints = new HintSystem({
+    enabled: () => this.settings.hints,
+    seen: () => this.settings.hintsSeen,
+    markSeen: (id) => this.markHintSeen(id),
+    show: (html, duration, opts) => this.hud.help(html, duration, 'hint', opts),
+    pending: (id) => this.hud.hintPending(id),
+  });
 
   constructor(private readonly canvas: HTMLCanvasElement, private readonly ui: HTMLElement) {
     this.settings = loadSettings();
@@ -151,6 +179,7 @@ export class Game {
     this.renderer.cameraCtl.sensitivity = s.sensitivity;
     this.renderer.cameraCtl.invertY = s.invertY;
     this.audio.setVolumes(s.master, s.music, s.sfx);
+    if (!s.hints) this.hud.clearHints();
     if (persist) saveSettings(this.settings);
   }
 
@@ -166,10 +195,20 @@ export class Game {
     sim.peds.density = t.pedDensity;
   }
 
+  /** Remembers a read hint for good (saved with the settings). */
+  private markHintSeen(id: string): void {
+    const seen = this.settings.hintsSeen;
+    if (seen.includes(id)) return;
+    // A full list (only a bad settings file gets there) drops its oldest id rather than this one,
+    // which would otherwise come round again every frame.
+    this.settings = { ...this.settings, hintsSeen: [...seen, id].slice(-MAX_HINTS_SEEN) };
+    saveSettings(this.settings);
+  }
+
   // ---------------------------------------------------------------------------
   // Game lifecycle
 
-  private startSim(save: SaveData | null): void {
+  private startSim(save: SaveData | null, intro = false): void {
     for (const u of this.unsub) u();
     this.unsub = [];
     this.world.resetBroken();
@@ -209,6 +248,13 @@ export class Game {
         if (e.character === sim.player) this.lastExit = { vehicle: e.vehicle, press: this.input.exitKeyPress, bailed: e.character.state === 'knocked' && !sim.cheats.godMode };
       }),
     );
+    this.unsub.push(
+      ev.on('respawn', () => this.showNextStep()),
+      ev.on('missionEnded', (e) => {
+        if (e.passed) this.showNextStep();
+      }),
+      this.hints.bind(sim),
+    );
     this.mode = 'game';
     this.renderer.cameraCtl.mode = 'play';
     this.renderer.cameraCtl.reset(sim);
@@ -217,17 +263,36 @@ export class Game {
     this.audio.unlock();
     this.audio.setPaused(false);
     this.input.requestPointerLock();
+    // A fresh game gets Lou's call a moment in; the radar's pink route leads to her without it.
+    this.introTimer = !save && intro ? INTRO_DELAY : -1;
     if (!save || sim.progress.missionsDone.length === 0) {
-      const lou = missionSpots(this.world).lou;
-      this.hud.waypoint = { x: lou.x, z: lou.z };
-      this.hud.help(`Welcome to San Azura. Mama Lou has work for you: follow the <b style="color:#c04fff">purple route</b> to the pink <b style="color:#ff4fa3">L</b> on your radar. Steal a ride with <kbd>${escapeHtml(this.input.labels.label('KeyF'))}</kbd>.`, 9);
+      this.hud.help(this.introTimer > 0 ? WELCOME_CALL : WELCOME, 9);
     } else {
       this.hud.help('Welcome back. Your game was loaded.', 4);
     }
+    this.showNextStep();
   }
 
-  newGame(): void {
-    this.startSim(null);
+  /** Starts a fresh game; Lou's opening call is on unless opts.intro is false or the URL has intro=0. */
+  newGame(opts: { intro?: boolean } = {}): void {
+    this.startSim(null, opts.intro !== false && !this.introOff);
+  }
+
+  /** The 'Next: ...' line, unless Lou's call is about to tell the player anyway. */
+  private showNextStep(): void {
+    if (this.mode === 'game' && this.introTimer <= 0) this.hud.showNextStep(this.sim);
+  }
+
+  /** Counts down to Lou's call; menus and the wasted / busted screens hold the clock. */
+  private updateIntro(dt: number): void {
+    const sim = this.sim;
+    if (this.introTimer <= 0 || sim.playerDown) return;
+    this.introTimer -= dt;
+    if (this.introTimer > 0) return;
+    // Once only: a running mission or job, a wanted level or a finished Wheels call it off.
+    if (!sim.missions.active && !sim.activities.busy && sim.wanted.level === 0) sim.missions.start('wheels');
+    // Called off: the next-step line points the player to Lou instead.
+    if (!sim.missions.active) this.showNextStep();
   }
 
   continueGame(): void {
@@ -265,12 +330,14 @@ export class Game {
     this.menus.closeAll();
     this.audio.setPaused(false);
     if (this.mode === 'game') this.input.requestPointerLock();
+    this.showNextStep();
   }
 
   private quitToTitle(): void {
     for (const u of this.unsub) u();
     this.unsub = [];
     this.mode = 'title';
+    this.introTimer = -1;
     this.hud.setVisible(false);
     this.audio.setPaused(false);
     this.sim = this.makeTitleSim();
@@ -384,7 +451,10 @@ export class Game {
     const cp = cam.camera.position;
     this.audio.setListener(cp.x, cp.y, cp.z, cam.yaw);
     this.audio.update(dt, sim, true);
-    const prompt = sim.interactions.prompt() ?? this.jobPrompt(sim);
+    this.updateIntro(dt);
+    this.hints.update(dt, sim, { device: fi.device, mouseFree: !this.input.pointerLocked && this.input.lockAvailable });
+    const prompt = sim.interactions.prompt() ?? this.jobPrompt(sim) ?? this.hints.stealPrompt(sim);
+    this.hud.device = fi.device;
     this.hud.update(dt, sim, cam.yaw, aiming, prompt, this.renderer.time);
     const down = sim.deathKind;
     this.canvas.classList.toggle('wasted', down === 'wasted');

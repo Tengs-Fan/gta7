@@ -9,7 +9,7 @@ import { shopItems } from '../sim/interactions';
 import { PACKAGE_COUNT } from '../sim/pickups';
 import type { Settings } from '../settings';
 import { escapeHtml } from './hud';
-import { collectBlips, drawBlip, drawPoliceOverlay, MAP_SCALE, type MapImage } from './mapRender';
+import { collectBlips, drawBlip, drawPoliceOverlay, MAP_SCALE, type Blip, type MapImage } from './mapRender';
 
 export interface MenuHost {
   hasSave(): boolean;
@@ -450,6 +450,22 @@ export class Menus {
     irow.append(h('span', '', 'Invert look Y'), inv, h('span', '', ''));
     panel.appendChild(irow);
     addRow({ el: irow, adjust: () => setInvert(!s.invertY), activate: () => setInvert(!s.invertY) });
+    const hrow = h('div', 'setting');
+    const hints = h('input');
+    hints.type = 'checkbox';
+    hints.checked = s.hints;
+    hints.style.pointerEvents = 'auto';
+    const hval = h('span', '', s.hints ? 'On' : 'Off');
+    const setHints = (v: boolean) => {
+      s.hints = v;
+      hints.checked = v;
+      hval.textContent = v ? 'On' : 'Off';
+      apply();
+    };
+    hints.addEventListener('change', () => setHints(hints.checked));
+    hrow.append(h('span', '', 'Tutorial hints'), hints, hval);
+    panel.appendChild(hrow);
+    addRow({ el: hrow, adjust: () => setHints(!s.hints), activate: () => setHints(!s.hints) });
     const row = h('div', 'row-end');
     const del = h('button', 'btn', 'DELETE SAVE');
     del.disabled = !this.host.hasSave();
@@ -639,9 +655,10 @@ export class Menus {
         ctx.strokeText(blk.zone.toUpperCase(), sx, sy);
         ctx.fillText(blk.zone.toUpperCase(), sx, sy);
       }
-      const blips = collectBlips(sim, time);
+      // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top.
       const wp = this.host.waypoint();
-      if (wp) blips.push({ x: wp.x, z: wp.z, color: '#c04fff', label: 'W', sticky: true, shape: 'circle' });
+      const blips: Blip[] = wp ? [{ x: wp.x, z: wp.z, color: '#c04fff', label: 'W', sticky: true, shape: 'circle' }] : [];
+      blips.push(...collectBlips(sim, time));
       for (const b of blips) drawBlip(ctx, b, canvas.width / 2 + (b.x - cx) * k, canvas.height / 2 + (b.z - cz) * k, 18);
       const p = sim.playerPos();
       const ph = sim.player.vehicle ? sim.player.vehicle.heading : sim.player.heading;

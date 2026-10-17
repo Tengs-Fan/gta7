@@ -10,7 +10,8 @@ export function installDebugApi(game: Game): void {
     get sim() {
       return game.sim;
     },
-    newGame: () => game.newGame(),
+    /** New Game; { intro: false } skips Lou's opening call. */
+    newGame: (opts?: { intro?: boolean }) => game.newGame(opts),
     state: () => {
       const sim = game.sim;
       const p = sim.player;

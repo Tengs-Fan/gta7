@@ -369,6 +369,11 @@ export class Input {
     if (this.pointerLocked) document.exitPointerLock();
   }
 
+  /** False once pointer lock turned out to be refused or missing (clicks then shoot without it). */
+  get lockAvailable(): boolean {
+    return !this.lockUnavailable;
+  }
+
   private key(...codes: string[]): boolean {
     return codes.some((c) => this.held.has(c));
   }
