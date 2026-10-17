@@ -82,7 +82,6 @@ const S = {
   q: new THREE.Quaternion(),
   e: new THREE.Euler(0, 0, 0, 'YXZ'),
   sc: V(),
-  color: new THREE.Color(),
   // Joints of the character being posed.
   pelvis: V(),
   neck: V(),
@@ -116,6 +115,17 @@ const S = {
 };
 
 const ik = makeTwoBone();
+
+/** Packed colours converted to the working colour space once (setHex does it with three pow calls). */
+const colors = new Map<number, THREE.Color>();
+function colorOf(hex: number): THREE.Color {
+  let c = colors.get(hex);
+  if (!c) {
+    c = new THREE.Color(hex);
+    colors.set(hex, c);
+  }
+  return c;
+}
 
 /** Deterministic per-character variation in 0..1. */
 function seeded(id: number, salt: number): number {
@@ -196,7 +206,7 @@ export class CrowdView {
   private put(part: Part, m: THREE.Matrix4, color: number): void {
     if (part.n >= part.mesh.instanceMatrix.count) return;
     part.mesh.setMatrixAt(part.n, m);
-    part.mesh.setColorAt(part.n, S.color.setHex(color));
+    part.mesh.setColorAt(part.n, colorOf(color));
     part.n++;
   }
 
@@ -253,7 +263,11 @@ export class CrowdView {
     if (l > 1e-9) Y.divideScalar(l);
     else Y.set(0, 1, 0);
     const X = S.bx.copy(side).addScaledVector(Y, -side.dot(Y));
-    if (X.lengthSq() < 1e-10) X.set(Y.y * Y.y < 0.81 ? 0 : 1, Y.y * Y.y < 0.81 ? 1 : 0, 0).addScaledVector(Y, Y.y * Y.y < 0.81 ? -Y.y : -Y.x);
+    if (X.lengthSq() < 1e-10) {
+      // `side` runs along the bone: take the twist from the world axis least aligned with it.
+      if (Math.abs(Y.y) < 0.9) X.set(0, 1, 0).addScaledVector(Y, -Y.y);
+      else X.set(1, 0, 0).addScaledVector(Y, -Y.x);
+    }
     X.normalize();
     const Z = S.bz.crossVectors(X, Y);
     S.inst.makeBasis(X, Y, Z).scale(S.sc.set(1, sy, 1)).setPosition(a);
@@ -293,7 +307,10 @@ export class CrowdView {
     this.arm(shoulder, S.elbow, S.hand, S.left, c);
   }
 
-  /** Leg by angles in the body frame: hip pitch (- forward), spread, knee flex; the foot at right angles to the shin, toes up by `ankle`. */
+  /**
+   * Leg by angles in the body frame: hip pitch (- forward), spread, knee flex; the foot at right angles to
+   * the shin, its toes turned towards the knee by `ankle` (negative points them).
+   */
   private legFK(hip: THREE.Vector3, sign: number, pitch: number, spread: number, knee: number, ankle: number, c: Character): void {
     const s = c.appearance.height;
     S.knee.copy(hip).addScaledVector(this.limbDir(pitch, spread, sign, S.d1), SKELETON.thigh * s);
@@ -384,7 +401,8 @@ export class CrowdView {
     const grounded = c.onGround || entering;
     anim.walk = damp(anim.walk, entering ? 1 : t.move, 10, dt);
     anim.air = damp(anim.air, grounded ? 0 : 1, 14, dt);
-    const g = gait(c.animPhase, entering ? 1.8 : Math.max(0, c.speed), Math.atan2(t.mx, t.mz), this.gaitOut, s, bw);
+    // The trunk's gait cycle when it has one (the same speed and direction), else one for standing.
+    const g = gait(c.animPhase, entering ? 1.8 : Math.max(0, c.speed), Math.atan2(t.mx, t.mz), this.gaitOut, s, bw, t.move > 0 && !entering ? t.cycle : null);
     const walk = anim.walk * (1 - anim.air);
     // Drawn hip height: the trunk's gait curve eased in and out of standing. The simulation uses the
     // unsmoothed curve, identical once a character walks or stands steadily.
@@ -589,16 +607,16 @@ export class CrowdView {
         const out = 0.25 + 0.5 * seeded(c.id, side > 0 ? 2 : 3);
         this.armFK(sh, side, 0.18, out, 0, -0.15 - 0.35 * seeded(c.id, side > 0 ? 4 : 5), c);
         const k = 0.25 + 0.45 * seeded(c.id, side > 0 ? 6 : 7);
-        this.legFK(hip, side, -k * 0.55, 0.03 + 0.06 * seeded(c.id, side > 0 ? 8 : 9), k, 0.6, c);
+        this.legFK(hip, side, -k * 0.55, 0.03 + 0.06 * seeded(c.id, side > 0 ? 8 : 9), k, -0.35, c);
       } else if (knocked) {
         // Bracing against the ground and kicking.
         this.armFK(sh, side, 0.35, 0.95 + 0.15 * Math.sin(ph * 2 + side), 0, 1.4, c);
         const kick = Math.sin(ph * 2 + side * 1.3) * 0.25;
-        this.legFK(hip, side, -0.75 + kick, 0.08, 1.15 - kick, 0.4, c);
+        this.legFK(hip, side, -0.75 + kick, 0.08, 1.15 - kick, -0.1, c);
       } else {
         // Getting up: legs drawn in and arms pushing off, straightening as the body comes upright.
         this.armFK(sh, side, -0.6 * lie, lerp(0.09, 0.35, lie), lerp(0.18, 0.6, lie), 0, c);
-        this.legFK(hip, side, -1.3 * lie, lerp(0.02, 0.12, lie), 1.9 * lie, 0.6 * lie, c);
+        this.legFK(hip, side, -1.3 * lie, lerp(0.02, 0.12, lie), 1.9 * lie, 0, c);
       }
     }
   }
@@ -607,7 +625,7 @@ export class CrowdView {
   private swim(c: Character): void {
     const bw = c.appearance.build;
     const moving = c.speed > 0.3;
-    const ph = moving ? c.animPhase : this.time * 3;
+    const ph = moving ? c.animPhase : this.time * 3 + c.id;
     S.rot.makeRotationY(c.heading);
     const P = S.pelvis.set(0, 1.2, 0).applyMatrix4(S.rot).add(c.pos);
     S.body.copy(S.rot).multiply(S.rot2.makeRotationX(moving ? 1.25 : 0.35));
@@ -623,12 +641,12 @@ export class CrowdView {
         const round = Math.PI * 2;
         this.armFK(sh, side, -(((arm % round) + round) % round), 0.25, 0.5 * Math.max(0, Math.sin(arm)), 0, c);
         const k = ph * 1.2 + side * 1.5;
-        this.legFK(hip, side, Math.sin(k) * 0.35, 0.05, 0.25 + 0.15 * Math.sin(k + 1), 0.9, c);
+        this.legFK(hip, side, Math.sin(k) * 0.35, 0.05, 0.25 + 0.15 * Math.sin(k + 1), -1.2, c);
       } else {
         // Treading water: arms sculling at the sides, legs cycling.
         const sc = Math.sin(ph + (side > 0 ? 0 : 1));
         this.armFK(sh, side, -0.5, 0.9 + 0.25 * sc, 0.6, 0, c);
-        this.legFK(hip, side, -0.5 + 0.35 * Math.sin(ph * 0.8 + side), 0.1, 0.9, 0.5, c);
+        this.legFK(hip, side, -0.5 + 0.35 * Math.sin(ph * 0.8 + side), 0.1, 0.9, -0.3, c);
       }
     }
   }

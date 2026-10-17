@@ -6,8 +6,8 @@
 
 import { clamp, lerp, smoothstep } from '../core/math';
 import {
-  ankleOnGround, cycleFraction, gaitCycle, gaitHipY, hipSpread, makeFootTarget, makeGaitCycle, SKELETON, stanceFoot,
-  type FootTarget, type GaitCycle,
+  ankleOnGround, counterTwist, cycleFraction, gaitCycle, gaitHipY, gaitLean, hipSpread, makeFootTarget, makeGaitCycle, SKELETON,
+  stanceFoot, type FootTarget, type GaitCycle,
 } from '../sim/pose';
 
 export interface TwoBone {
@@ -215,18 +215,18 @@ export function solveLeg(hx: number, hy: number, scale: number, leg: LegPose): L
 /**
  * Gait pose at `phase` (radians, one cycle per stride; 0 = left foot touch-down) for moving at `speed`
  * in direction `strafe` relative to the hips (0 forward, +PI/2 to the character's left, PI backwards),
- * for a character of height `scale` and build `build`.
+ * for a character of height `scale` and build `build`. `cycle` may pass the gait cycle already set up
+ * for exactly these (sim/pose.ts trunkPose computes it).
  */
-export function gait(phase: number, speed: number, strafe: number, out: GaitOut, scale = 1, build = 1): GaitOut {
+export function gait(phase: number, speed: number, strafe: number, out: GaitOut, scale = 1, build = 1, cycle: GaitCycle | null = null): GaitOut {
   const st = Number.isFinite(strafe) ? strafe : 0;
-  const g = gaitCycle(speed, Math.sin(st), Math.cos(st), scale, out.cycle);
+  const g = cycle ? Object.assign(out.cycle, cycle) : gaitCycle(speed, Math.sin(st), Math.cos(st), scale, out.cycle);
   const u = cycleFraction(phase);
   const ph = u * Math.PI * 2;
   const v = g.speed;
   out.hipY = gaitHipY(g, u);
-  const fwd = Math.max(0, g.mz);
-  out.chestYaw = 0.1 * smoothstep(0.3, 1.5, v) * fwd * Math.cos(ph);
-  out.lean = 0.03 + 0.07 * smoothstep(0.3, 1.45, v) * g.mz + 0.2 * smoothstep(1.45, 7.4, v) * fwd;
+  out.chestYaw = counterTwist(v, g.mz, ph);
+  out.lean = gaitLean(v, g.mz);
   const hx = hipSpread(build);
   for (let i = 0; i < 2; i++) {
     const leg = out.legs[i]!;

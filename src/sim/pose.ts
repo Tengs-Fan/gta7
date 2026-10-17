@@ -234,6 +234,16 @@ export function gaitHipY(g: GaitCycle, u: number): number {
   return lerp(walk, run, g.run);
 }
 
+/** Forward lean of an upright torso moving at `speed` (along mz in the hip frame): 0.03 standing, 0.1 walking, 0.3 sprinting. */
+export function gaitLean(speed: number, mz: number): number {
+  return 0.03 + 0.07 * smoothstep(IDLE_SPEED, 1.45, speed) * mz + 0.2 * smoothstep(1.45, 7.4, speed) * Math.max(0, mz);
+}
+
+/** Chest yaw against the legs at gait phase `phase`: about 6 degrees each way at a walk, the right shoulder forward with the left foot. */
+export function counterTwist(speed: number, mz: number, phase: number): number {
+  return 0.1 * smoothstep(IDLE_SPEED, 1.5, speed) * Math.max(0, mz) * Math.cos(Number.isFinite(phase) ? phase : 0);
+}
+
 /** Fraction of the left foot's gait cycle (0..1) for a gait phase in radians. */
 export function cycleFraction(phase: number): number {
   const u = (Number.isFinite(phase) ? phase : 0) / TAU;
@@ -320,11 +330,10 @@ export function trunkPose(c: Character, out: Trunk = makeTrunk()): Trunk {
     // Lean into a low aim, back from a high one; into the gun when it is shouldered.
     out.lean = shouldered ? clamp(0.12 - 0.18 * pitch, -0.05, 0.25) : clamp(0.05 - 0.25 * pitch, -0.12, 0.2);
   } else {
-    // ~6 degrees of counter-rotation against the legs, and a forward lean that grows with speed.
-    const swing = 0.1 * out.move * smoothstep(0.3, 1.5, speed) * Math.max(0, out.mz);
-    out.chestYaw = wrapAngle(hipYaw + swing * Math.cos(Number.isFinite(c.animPhase) ? c.animPhase : 0));
+    // Counter-rotation against the legs, and a forward lean that grows with speed.
+    out.chestYaw = wrapAngle(hipYaw + out.move * counterTwist(speed, out.mz, c.animPhase));
     out.armYaw = out.chestYaw;
-    out.lean = grounded ? 0.03 + 0.07 * smoothstep(0.3, 1.45, speed) * out.mz + 0.2 * smoothstep(1.45, 7.4, speed) * Math.max(0, out.mz) : 0.1;
+    out.lean = grounded ? gaitLean(speed, out.mz) : 0.1;
   }
   return out;
 }
@@ -516,7 +525,7 @@ export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): We
   } else {
     // Low ready: across the body, muzzle down and to the left, the grip by the right hip.
     aimFrame(out, yaw + 0.45, -0.6, 0.2);
-    const gx = -0.15 + 0.0 * b;
+    const gx = -0.15;
     const up = 0.18 * s;
     const fwd = 0.24 * s;
     anchor(out, pts.grip, hx + cy * gx + sl * sy * up + cl * sy * fwd, hy + cl * up - sl * fwd, hz - sy * gx + sl * cy * up + cl * cy * fwd);
