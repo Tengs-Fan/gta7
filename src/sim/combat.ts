@@ -8,7 +8,7 @@ import type { Character, Vehicle } from './entities';
 import { Projectile } from './entities';
 import type { HitKind } from './events';
 import type { PlayerInput } from './input';
-import { weaponPose } from './pose';
+import { weaponPose, windowMuzzle } from './pose';
 import type { Sim } from './sim';
 import { WEAPONS, type WeaponSpec } from './specs';
 import { launchVehicle, vehicleObb } from './vehiclePhysics';
@@ -132,11 +132,9 @@ export class CombatSystem {
 
   muzzle(c: Character, fromVehicle: boolean): V3 {
     if (fromVehicle && c.vehicle) {
-      // Out of the shooter's own window: seats 0 and 2 are on the left (local +X), the others on the right,
-      // as Sim.syncOccupant seats them and CrowdView draws the gun held out there.
-      const v = c.vehicle;
-      const out = (c.seat === 0 || c.seat === 2 ? 1 : -1) * (v.halfW + 0.2);
-      return { x: v.pos.x + Math.cos(v.heading) * out, y: v.pos.y + v.spec.height * 0.75, z: v.pos.z - Math.sin(v.heading) * out };
+      // Out of the shooter's own window (seats 0 and 2 on the left, local +X, the others on the right, as
+      // Sim.syncOccupant seats them): the point CrowdView draws the barrel end of the gun held out there on.
+      return windowMuzzle(c.vehicle, c.seat, { x: 0, y: 0, z: 0 });
     }
     const yaw = c.aiming ? c.aimYaw : c.heading;
     const fx = Math.sin(yaw);

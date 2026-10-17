@@ -1064,7 +1064,11 @@ describe('window guns match where vehicle shots leave', () => {
       expect(part.mesh.count).toBe(1);
       const m = matrixAt(part, 0);
       const tip = new THREE.Vector3(WEAPON_POINTS[gun].tip.x, WEAPON_POINTS[gun].tip.y, WEAPON_POINTS[gun].tip.z).applyMatrix4(m);
-      expect(tip.distanceTo(windowPoint(v, seat)), `${kind} seat ${seat} yaw ${(yaw - v.heading).toFixed(2)}`).toBeLessThan(0.1);
+      // The drawn barrel end sits on the real shot origin, which is that seat's window.
+      const shot = sim.combat.muzzle(shooter, true);
+      const from = new THREE.Vector3(shot.x, shot.y, shot.z);
+      expect(from.distanceTo(windowPoint(v, seat)), `${kind} seat ${seat}`).toBeLessThan(1e-9);
+      expect(tip.distanceTo(from), `${kind} seat ${seat} yaw ${(yaw - v.heading).toFixed(2)}`).toBeLessThan(0.1);
       const dir = new THREE.Vector3().setFromMatrixColumn(m, 2).normalize();
       const aim = new THREE.Vector3(Math.sin(yaw) * Math.cos(0.05), Math.sin(0.05), Math.cos(yaw) * Math.cos(0.05));
       expect(THREE.MathUtils.radToDeg(dir.angleTo(aim))).toBeLessThan(15);
