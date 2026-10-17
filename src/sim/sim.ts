@@ -16,7 +16,7 @@ import {
 import { GameClock } from './clock';
 import { CombatSystem } from './combat';
 import { DriverAI, type DriverHost, type DriverPolicy } from './driver';
-import { Character, Helicopter, Pickup, Projectile, Vehicle, type Appearance, type CharacterRole } from './entities';
+import { Character, Helicopter, MAX_DENTS, Pickup, Projectile, Vehicle, type Appearance, type CharacterRole, type Dent } from './entities';
 import type { SimEvents } from './events';
 import { neutralInput, type PlayerInput } from './input';
 import { Interactions } from './interactions';
@@ -280,13 +280,16 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   // ---------------------------------------------------------------------------
   // Physics host callbacks
 
-  onVehicleImpact(v: Vehicle, other: Vehicle | null, deltaV: number, x: number, z: number, otherRammed = false): void {
+  onVehicleImpact(v: Vehicle, other: Vehicle | null, deltaV: number, x: number, z: number, otherRammed = false, nx?: number, nz?: number): void {
     // Only the player driving into a car is his doing: a police car ramming him is not.
     const playerRammed = !!other && other.driver === this.player && otherRammed;
     if (deltaV > 2.5) {
-      const dmg = (deltaV - 2.5) * v.spec.health * 0.022;
+      const dmg = (deltaV - 2.5) * v.spec.health * 0.022 * v.spec.durability;
+      const before = v.health;
       // Ramming someone else's car makes the player responsible for its destruction.
       this.combat.damageVehicle(v, dmg, playerRammed ? this.player : null, 'impact');
+      // A hit that did damage leaves a dent (the player's car in god mode keeps its shape).
+      if (deltaV > 3 && v.health < before) this.dentAt(v, x, z, nx, nz, Math.min(0.4, 0.011 * deltaV * v.spec.durability));
     }
     if (v.impactTimer <= 0 && deltaV > 2) {
       v.impactTimer = 0.25;
@@ -309,10 +312,94 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   }
 
   onVehicleLanded(v: Vehicle, impact: number): void {
-    if (impact > 9) this.combat.damageVehicle(v, (impact - 9) * v.spec.health * 0.03, null, 'impact');
+    if (impact > 9) this.combat.damageVehicle(v, (impact - 9) * v.spec.health * 0.03 * v.spec.durability, null, 'impact');
     if (impact > 3) this.events.emit('impact', { x: v.pos.x, y: v.pos.y, z: v.pos.z, strength: impact * 0.6, vehicle: v });
     if (v.flipped && !v.burning && !v.destroyed) this.combat.igniteVehicle(v, 3.5);
+    // Landing on the roof crushes it (the roof dent pushes straight down).
+    if (v.flipped && v.health < v.spec.health) {
+      this.addDent(v, { lx: 0, ly: v.spec.height, lz: 0, nx: 0, nz: 0, depth: Math.min(0.4, 0.15 + 0.011 * impact * v.spec.durability) });
+    }
     this.activities.onVehicleLanded(v);
+  }
+
+  /** Last 'scrape' event time per vehicle, to emit at most 15 per second each. */
+  private readonly scrapeTimes = new WeakMap<Vehicle, number>();
+
+  onVehicleScrape(v: Vehicle, x: number, z: number, speed: number): void {
+    const last = this.scrapeTimes.get(v);
+    if (last !== undefined && this.time - last < 1 / 15) return;
+    this.scrapeTimes.set(v, this.time);
+    this.events.emit('scrape', { x, y: v.pos.y + 0.4, z, speed, vehicle: v });
+  }
+
+  /**
+   * Dents `v` where a crash touched it at world (x, z). (nx, nz) is the world contact normal pushing `v` away, i.e. into
+   * its body; without one (ledge hits) the face the point lies on decides. The dent sits on the body outline at half height.
+   */
+  private dentAt(v: Vehicle, x: number, z: number, nx: number | undefined, nz: number | undefined, depth: number): void {
+    const c = Math.cos(v.heading);
+    const s = Math.sin(v.heading);
+    const dx = x - v.pos.x;
+    const dz = z - v.pos.z;
+    let lx = dx * c - dz * s;
+    let lz = dx * s + dz * c;
+    let inx = 0;
+    let inz = 0;
+    if (nx !== undefined && nz !== undefined) {
+      inx = nx * c - nz * s;
+      inz = nx * s + nz * c;
+    }
+    const nl = Math.hypot(inx, inz);
+    if (nl > 1e-6) {
+      inx /= nl;
+      inz /= nl;
+    } else if (Math.abs(lz) / v.halfL >= Math.abs(lx) / v.halfW) {
+      inx = 0;
+      inz = lz >= 0 ? -1 : 1;
+    } else {
+      inx = lx >= 0 ? -1 : 1;
+      inz = 0;
+    }
+    // Onto the face the push comes through (a deep contact point lies inside the body).
+    if (Math.abs(inz) >= Math.abs(inx)) {
+      lz = inz < 0 ? v.halfL : -v.halfL;
+      lx = clamp(lx, -v.halfW, v.halfW);
+    } else {
+      lx = inx < 0 ? v.halfW : -v.halfW;
+      lz = clamp(lz, -v.halfL, v.halfL);
+    }
+    this.addDent(v, { lx, ly: v.spec.height * 0.5, lz, nx: inx, nz: inz, depth });
+  }
+
+  /** A new dent within 0.6 m of an existing one keeps the deeper of the two; with MAX_DENTS the shallowest gives way. */
+  private addDent(v: Vehicle, d: Dent): void {
+    let near: Dent | null = null;
+    let nearDist = 0.6;
+    for (const o of v.dents) {
+      const dist = Math.hypot(o.lx - d.lx, o.ly - d.ly, o.lz - d.lz);
+      if (dist < nearDist) {
+        nearDist = dist;
+        near = o;
+      }
+    }
+    if (near) {
+      if (d.depth > near.depth) {
+        Object.assign(near, d);
+        v.dentVersion++;
+      }
+      return;
+    }
+    if (v.dents.length < MAX_DENTS) {
+      v.dents.push(d);
+      v.dentVersion++;
+      return;
+    }
+    let k = 0;
+    for (let i = 1; i < v.dents.length; i++) if (v.dents[i]!.depth < v.dents[k]!.depth) k = i;
+    if (d.depth > v.dents[k]!.depth) {
+      v.dents[k] = d;
+      v.dentVersion++;
+    }
   }
 
   onVehicleEnteredWater(v: Vehicle): void {
@@ -458,6 +545,11 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
       if (v.inWater && v.sinkTimer > 4 && !v.destroyed) {
         v.destroyed = true;
         v.health = 0;
+      }
+      // Dents only come with damage, so a car back at full health was repaired (Spray Shack, FIXMYRIDE).
+      if (v.dents.length > 0 && v.health >= v.spec.health) {
+        v.dents.length = 0;
+        v.dentVersion++;
       }
     }
   }

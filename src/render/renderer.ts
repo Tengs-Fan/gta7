@@ -189,6 +189,15 @@ export class GameRenderer {
       ev.on('splash', (e) => fx.splash(e.x, e.y, e.z, e.big)),
       ev.on('blood', (e) => fx.impact(e.x, e.y, e.z, -e.dx, -e.dy, -e.dz, 'flesh')),
     );
+    // Crash feedback: sparks where a vehicle grinds along something, glass and body parts flying off hard hits.
+    const ground = (x: number, z: number): number => sim.world.groundHeight(x, z);
+    this.unsub.push(
+      ev.on('scrape', (e) => fx.sparks(e.x, e.y, e.z, Math.round(Math.min(12, Math.max(3, e.speed / 2.5))), e.vehicle.vel.x * 0.4, e.vehicle.vel.z * 0.4)),
+      ev.on('impact', (e) => {
+        if (e.strength > 15) fx.glassShards(e.x, e.y, e.z);
+        if (e.strength > 20 && e.vehicle) fx.shedParts(e.vehicle, e.x, e.y, e.z, e.strength, ground);
+      }),
+    );
   }
 
   private syncVehicles(sim: Sim, dt: number, night: number): void {
@@ -280,7 +289,7 @@ export class GameRenderer {
       const red = Math.floor(this.time * 6) % 2 === 0;
       this.siren.color.setHex(red ? 0xff2020 : 0x2050ff);
       this.siren.position.set(best.pos.x, best.pos.y + best.spec.height + 0.6, best.pos.z);
-      this.siren.intensity = 40 + 160 * night;
+      this.siren.intensity = 30 + 50 * night;
     } else {
       this.siren.intensity = 0;
     }

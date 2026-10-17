@@ -17,12 +17,20 @@ const SINK_DEPTH = 0.8;
 export interface VehiclePhysicsHost {
   world: StaticWorld;
   vehicles: Vehicle[];
-  /** `otherRammed`: `other` was closing in faster than `v`, i.e. it drove into `v` (not the other way round). */
-  onVehicleImpact(v: Vehicle, other: Vehicle | null, deltaV: number, x: number, z: number, otherRammed?: boolean): void;
+  /**
+   * `otherRammed`: `other` was closing in faster than `v`, i.e. it drove into `v` (not the other way round).
+   * (nx, nz): the contact normal pushing `v` out of the contact, i.e. into its body (absent for ledge hits).
+   */
+  onVehicleImpact(v: Vehicle, other: Vehicle | null, deltaV: number, x: number, z: number, otherRammed?: boolean, nx?: number, nz?: number): void;
   onPropBroken(c: StaticCollider, v: Vehicle): void;
   onVehicleLanded(v: Vehicle, impact: number): void;
   onVehicleEnteredWater(v: Vehicle): void;
+  /** `v` slides along a wall or another vehicle touching it at (x, z), `speed` m/s along the contact (over SCRAPE_SPEED). */
+  onVehicleScrape(v: Vehicle, x: number, z: number, speed: number): void;
 }
+
+/** Sliding speed along a contact (m/s) above which a vehicle scrapes (sparks). */
+export const SCRAPE_SPEED = 4;
 
 const contact: Contact = makeContact();
 const obbA: OBB = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
@@ -382,6 +390,12 @@ function resolveStatic(v: Vehicle, ct: Contact, host: VehiclePhysicsHost): void 
   const vcx = v.vel.x + v.angVel * pz;
   const vcz = v.vel.z - v.angVel * px;
   const vn = vcx * ct.nx + vcz * ct.nz;
+  // Sliding speed along the wall, before any impulse: a car grinding along a wall has vn ~ 0, so it is
+  // reported before the early return below. Reporting changes nothing in the response.
+  const tx = -ct.nz;
+  const tz = ct.nx;
+  const vt = vcx * tx + vcz * tz;
+  if (Math.abs(vt) > SCRAPE_SPEED) host.onVehicleScrape(v, ct.px, ct.pz, Math.abs(vt));
   if (vn >= 0) return;
   const e = 0.2;
   const rn = pz * ct.nx - px * ct.nz;
@@ -390,9 +404,6 @@ function resolveStatic(v: Vehicle, ct: Contact, host: VehiclePhysicsHost): void 
   v.vel.z += (j * ct.nz) / m;
   v.angVel += (j * rn) / inertia;
   // Coulomb friction along the wall.
-  const tx = -ct.nz;
-  const tz = ct.nx;
-  const vt = vcx * tx + vcz * tz;
   const rt = pz * tx - px * tz;
   let jt = -vt / (1 / m + (rt * rt) / inertia);
   const mu = 0.35;
@@ -402,7 +413,7 @@ function resolveStatic(v: Vehicle, ct: Contact, host: VehiclePhysicsHost): void 
   v.angVel += (jt * rt) / inertia;
   v.angVel = clamp(v.angVel, -6, 6);
   const dv = j / m;
-  if (dv > 1.5) host.onVehicleImpact(v, null, dv, ct.px, ct.pz);
+  if (dv > 1.5) host.onVehicleImpact(v, null, dv, ct.px, ct.pz, false, ct.nx, ct.nz);
 }
 
 /** Pairwise vehicle collisions (brute force with a cheap radius test). */
@@ -465,6 +476,11 @@ function resolvePair(a: Vehicle, b: Vehicle, ct: Contact, host: VehiclePhysicsHo
   const rvx = vax - vbx;
   const rvz = vaz - vbz;
   const vn = rvx * ct.nx + rvz * ct.nz;
+  // Relative sliding speed along the contact, before any impulse (see resolveStatic); one report per pair, for a.
+  const tx = -ct.nz;
+  const tz = ct.nx;
+  const vt = rvx * tx + rvz * tz;
+  if (Math.abs(vt) > SCRAPE_SPEED) host.onVehicleScrape(a, ct.px, ct.pz, Math.abs(vt));
   if (vn >= 0) return;
   // Who drove into whom: each car's own speed towards the other (the normal points from b to a).
   const closingA = -(a.vel.x * ct.nx + a.vel.z * ct.nz);
@@ -480,9 +496,6 @@ function resolvePair(a: Vehicle, b: Vehicle, ct: Contact, host: VehiclePhysicsHo
   b.vel.z -= j * ct.nz * wb;
   b.angVel -= (j * rnb) / ib;
 
-  const tx = -ct.nz;
-  const tz = ct.nx;
-  const vt = rvx * tx + rvz * tz;
   const rta = paz * tx - pax * tz;
   const rtb = pbz * tx - pbx * tz;
   let jt = -vt / (wa + wb + (rta * rta) / ia + (rtb * rtb) / ib);
@@ -499,8 +512,8 @@ function resolvePair(a: Vehicle, b: Vehicle, ct: Contact, host: VehiclePhysicsHo
 
   const dva = j * wa;
   const dvb = j * wb;
-  if (dva > 1.5) host.onVehicleImpact(a, b, dva, ct.px, ct.pz, closingB > closingA);
-  if (dvb > 1.5) host.onVehicleImpact(b, a, dvb, ct.px, ct.pz, closingA > closingB);
+  if (dva > 1.5) host.onVehicleImpact(a, b, dva, ct.px, ct.pz, closingB > closingA, ct.nx, ct.nz);
+  if (dvb > 1.5) host.onVehicleImpact(b, a, dvb, ct.px, ct.pz, closingA > closingB, -ct.nx, -ct.nz);
 }
 
 /** Gives a vehicle an explosion kick: upward launch, push and tumble. */
