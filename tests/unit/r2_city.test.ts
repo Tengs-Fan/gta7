@@ -441,8 +441,15 @@ describe('round 2 city: sky and environment map', () => {
     const env = new Environment(new THREE.Scene(), R.renderer);
     env.update(2, new THREE.Vector3(), R.cameraCtl.camera, 0, R.renderer);
     expect(env.hemi.intensity).toBeGreaterThanOrEqual(0.4 - 1e-9);
-    // Sodium-lit streets bounce warm light up; the night fog takes the city's warm glow.
+    // Sodium-lit streets bounce warm light up.
     expect(env.hemi.groundColor.r).toBeGreaterThan(env.hemi.groundColor.b);
-    expect(env.fog.color.r).toBeGreaterThan(env.fog.color.b);
+    // The sky adds a warm glow at the horizon, and the fog blends from the plain navy horizon towards it.
+    const sky = (env.sky.material as THREE.ShaderMaterial).uniforms;
+    const glow = sky.uGlow!.value as THREE.Color;
+    const navy = sky.uHorizon!.value as THREE.Color;
+    expect(glow.r).toBeGreaterThan(glow.b);
+    expect(glow.r).toBeGreaterThan(0.03);
+    expect(env.fog.color.r / env.fog.color.b).toBeGreaterThan((navy.r / navy.b) * 3);
+    expect(env.fog.color.r).toBeGreaterThan(navy.r * 3);
   });
 });
