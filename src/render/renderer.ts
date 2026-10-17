@@ -524,7 +524,7 @@ export class GameRenderer {
       this.effects.syncRockets(sim.projectiles);
       this.vehicleEffects(sim, dt);
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt);
-      this.markers.syncMarkers(sim.missions.active || sim.wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time);
+      this.markers.syncMarkers(sim.missions.active || sim.wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, sim.playerPos());
       const objectives = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
       this.markers.syncObjectives(objectives, (x, z) => sim.world.groundHeight(x, z), this.time);
       this.markers.syncPickups(sim.pickups, this.time, cam.position.x, cam.position.z);

@@ -114,6 +114,23 @@ function poolTexture(): THREE.DataTexture {
   return t;
 }
 
+/**
+ * An interaction marker fades out as the camera comes near it (unless the player stands in it): drawn in
+ * full from MARKER_FADE_FAR (m), gone within MARKER_FADE_NEAR. Nearer, its beam and icon only fill the edge
+ * of the frame, as the safehouse save marker beside the New Game spawn did in the game's first frame.
+ */
+export const MARKER_FADE_NEAR = 3.2;
+export const MARKER_FADE_FAR = 4.2;
+const MARKER_ALPHA = 0.28;
+
+/** How much of an interaction marker at (x, z) is drawn for a camera at `cam`, by its distance from the marker's axis (0.15-2.3 m up). */
+export function markerFade(cam: { x: number; y: number; z: number }, x: number, z: number): number {
+  const dy = Math.max(0, 0.15 - cam.y, cam.y - 2.3);
+  const d = Math.hypot(cam.x - x, dy, cam.z - z);
+  const t = Math.min(1, Math.max(0, (d - MARKER_FADE_NEAR) / (MARKER_FADE_FAR - MARKER_FADE_NEAR)));
+  return t * t * (3 - 2 * t);
+}
+
 function beamMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({ map: beamTex, color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
 }
@@ -188,7 +205,11 @@ export class MarkerView {
     return s;
   }
 
-  syncMarkers(markers: readonly Marker[], time: number): void {
+  /**
+   * Mirrors the interaction markers. Given the camera's position, each fades out near it (see markerFade),
+   * except one the player (at `player`) stands in.
+   */
+  syncMarkers(markers: readonly Marker[], time: number, cam?: { x: number; y: number; z: number }, player?: { x: number; z: number }): void {
     const seen = new Set<string>();
     for (const m of markers) {
       seen.add(m.id);
@@ -197,11 +218,13 @@ export class MarkerView {
         g = new THREE.Group();
         let mats = this.markerMats.get(m.color);
         if (!mats) {
-          mats = { beam: beamMaterial(m.color, 0.28), icon: new THREE.MeshStandardMaterial({ color: m.color, emissive: m.color, emissiveIntensity: 1.2, roughness: 0.3 }) };
+          mats = { beam: beamMaterial(m.color, MARKER_ALPHA), icon: new THREE.MeshStandardMaterial({ color: m.color, emissive: m.color, emissiveIntensity: 1.2, roughness: 0.3 }) };
           this.markerMats.set(m.color, mats);
         }
-        const beam = new THREE.Mesh(this.beamGeo, mats.beam);
+        // Its own beam material: each marker fades on its own.
+        const beam = new THREE.Mesh(this.beamGeo, mats.beam.clone());
         beam.scale.set(1.1, 1.3, 1.1);
+        beam.name = 'beam';
         const icon = new THREE.Mesh(this.markerIconGeo, mats.icon);
         icon.position.y = 1.7;
         icon.name = 'icon';
@@ -210,15 +233,21 @@ export class MarkerView {
         this.group.add(g);
       }
       g.position.set(m.x, 0.15, m.z);
+      const using = player !== undefined && Math.hypot(player.x - m.x, player.z - m.z) < m.radius;
+      const fade = cam && !using ? markerFade(cam, m.x, m.z) : 1;
+      g.visible = fade > 0;
+      ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = MARKER_ALPHA * fade;
       const icon = g.getObjectByName('icon');
       if (icon) {
         icon.rotation.y = time * 2;
         icon.position.y = 1.7 + Math.sin(time * 3) * 0.12;
+        icon.scale.setScalar(fade);
       }
     }
     for (const [id, g] of this.markerViews) {
       if (!seen.has(id)) {
         this.group.remove(g);
+        ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.Material).dispose();
         this.markerViews.delete(id);
       }
     }

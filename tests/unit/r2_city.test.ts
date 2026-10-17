@@ -11,13 +11,15 @@ import { CityView, frontageSplit, occupancy, shopOccupancy } from '../../src/ren
 import { FOLIAGE_FADE_FAR, PropsView, foliagePoints, foliageSpheres } from '../../src/render/props';
 import { DOOR_U, cloudFbm, cloudNoiseData, storefrontUv } from '../../src/render/textures';
 import { CLOUD_SD, Environment, cloudCover, cloudThreshold, starIntensity } from '../../src/render/environment';
+import { MARKER_FADE_FAR, MARKER_FADE_NEAR, MarkerView, markerFade } from '../../src/render/markers';
 import { GameRenderer } from '../../src/render/renderer';
 import { Sim } from '../../src/sim/sim';
 import { isSolidForSight, makeRayHit } from '../../src/world/colliders';
+import { Helicopter } from '../../src/sim/entities';
 import { CURB_H } from '../../src/world/constants';
-import { SPECIALS, blockOf, frontages, generateCity, type Building, type Prop, type Side } from '../../src/world/layout';
-import type { StaticWorld } from '../../src/world/staticWorld';
-import { input, makeSim, step, teleport, world } from './helpers';
+import { SPECIALS, blockOf, frontages, generateCity, rectContains, type Building, type Poi, type Prop, type Side } from '../../src/world/layout';
+import { GARAGE_EAVE, GARAGE_ROOF, type StaticWorld } from '../../src/world/staticWorld';
+import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
@@ -1008,5 +1010,310 @@ describe('round 2 fix: the camera and street trees', () => {
     expect(walks).toBeGreaterThanOrEqual(24);
     expect(widest).toBeLessThan(1 / 3);
     expect(closest).toBeGreaterThan(0.3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix 2: garage roofs in the sight grid
+
+/** Removes every police car and officer, leaving the helicopters: what they see is all the police see. */
+function helisOnly(sim: Sim): void {
+  for (const v of sim.vehicles) if (v.owner === 'police' && v.driver !== sim.player) sim.removeVehicle(v);
+  for (const c of sim.characters) if (c.isLaw) sim.removeCharacter(c);
+}
+
+/** A garage's bay, its centre, and the way out of it (the side its opening faces). */
+function bayOf(poi: Poi): { cx: number; cz: number; fx: number; fz: number; depth: number } {
+  const b = poi.bay!;
+  const fx = Math.sin(poi.heading);
+  const fz = Math.cos(poi.heading);
+  // Half the bay's extent along the way out.
+  const depth = (Math.abs(fx) * (b.maxX - b.minX) + Math.abs(fz) * (b.maxZ - b.minZ)) / 2;
+  return { cx: (b.minX + b.maxX) / 2, cz: (b.minZ + b.maxZ) / 2, fx, fz, depth };
+}
+
+describe('round 2 fix 2: garages hide the bay from above', () => {
+  it('draws each garage roof where its collider is', () => {
+    const W = world();
+    const mesh = new CityView(W).group.getObjectByName('garages') as THREE.Mesh;
+    const pos = mesh.geometry.getAttribute('position');
+    const nrm = mesh.geometry.getAttribute('normal');
+    expect(W.layout.garages.length).toBe(4);
+    for (const g of W.layout.garages) {
+      // The roof slab's top face: the upward faces at the top of the slab over this garage.
+      const top = { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity };
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const z = pos.getZ(i);
+        if (nrm.getY(i) < 0.99 || Math.abs(pos.getY(i) - (g.height + GARAGE_ROOF)) > 1e-3) continue;
+        if (x < g.rect.minX - 2 || x > g.rect.maxX + 2 || z < g.rect.minZ - 2 || z > g.rect.maxZ + 2) continue;
+        top.minX = Math.min(top.minX, x);
+        top.minZ = Math.min(top.minZ, z);
+        top.maxX = Math.max(top.maxX, x);
+        top.maxZ = Math.max(top.maxZ, z);
+      }
+      const roofs = W.grid.colliders.filter((c) => !c.circle && Math.abs(c.y0 - g.height) < 1e-9 && Math.abs(c.y1 - g.height - GARAGE_ROOF) < 1e-9 && rectContains(g.rect, c.cx, c.cz));
+      expect(roofs.length, g.poi).toBe(1);
+      const c = roofs[0]!;
+      expect(c.tag, g.poi).toBe('wall');
+      for (const k of ['minX', 'minZ', 'maxX', 'maxZ'] as const) expect(Math.abs(c[k] - top[k]), `${g.poi} ${k}`).toBeLessThan(1e-3);
+      expect(c.maxX - c.minX - (g.rect.maxX - g.rect.minX)).toBeCloseTo(2 * GARAGE_EAVE, 9);
+    }
+  });
+
+  it('no helicopter round the orbit or overhead sees into a garage bay, though it sees the street in front', () => {
+    const sim = makeSim({ startHour: 12 });
+    for (const g of sim.world.layout.garages) {
+      const poi = sim.world.layout.pois.find((p) => p.id === g.poi)!;
+      const { cx, cz, fx, fz, depth } = bayOf(poi);
+      // The road 6 m beyond the sidewalk in front of the opening.
+      const sx = cx + fx * (depth + 1.5 + 10);
+      const sz = cz + fz * (depth + 1.5 + 10);
+      const gy = sim.world.groundHeight(cx, cz);
+      let n = 0;
+      let bay = 0;
+      let street = 0;
+      // The orbit's radii (24, 16 and 8 m) and beyond, all the way round, low and high.
+      for (const r of [0, 8, 16, 24, 32, 40]) {
+        for (let a = 0; a < 360; a += 10) {
+          for (const up of [30, 36, 42]) {
+            const h = new Helicopter(sim.newId(), cx + Math.cos((a * Math.PI) / 180) * r, gy + up, cz + Math.sin((a * Math.PI) / 180) * r);
+            n++;
+            if (sim.wanted.heliSees(h, cx, cz)) bay++;
+            if (sim.wanted.heliSees(h, sx, sz)) street++;
+          }
+        }
+      }
+      expect(bay, g.poi).toBe(0);
+      expect(street / n, g.poi).toBeGreaterThan(0.9);
+    }
+  });
+
+  it('a car hidden in a garage bay loses the helicopter: the stars flash, then clear', () => {
+    for (const g of world().layout.garages) {
+      const sim = makeSim({ startHour: 12 });
+      sim.clock.rate = 0;
+      const poi = sim.world.layout.pois.find((p) => p.id === g.poi)!;
+      const { cx, cz } = bayOf(poi);
+      placeInCar(sim, sim.spawnVehicle('sedan', cx, cz, poi.heading + Math.PI));
+      sim.wanted.setLevel(3);
+      sim.helis.push(new Helicopter(sim.newId(), cx + 20, sim.world.groundHeight(cx, cz) + 36, cz));
+      let flashed = -1;
+      let cleared = -1;
+      for (let i = 0; i < 1000 && cleared < 0; i++) {
+        helisOnly(sim);
+        sim.update(0.1, input());
+        if (flashed < 0 && sim.wanted.searching) flashed = sim.time;
+        if (sim.wanted.level === 0) cleared = sim.time;
+      }
+      expect(sim.helis.some((h) => !h.removed && Math.hypot(h.pos.x - cx, h.pos.z - cz) < 60), g.poi).toBe(true);
+      // Once the police are no longer told where he is (13 s at 3 stars), the stars flash 2.5 s later...
+      expect(flashed, g.poi).toBeGreaterThan(0);
+      expect(flashed, g.poi).toBeLessThan(16.5);
+      // ...and hiding clears them (2.6 x 28 s unseen).
+      expect(cleared, g.poi).toBeGreaterThan(0);
+      expect(cleared, g.poi).toBeLessThan(95);
+    }
+  });
+
+  it('a helicopter that watched the car drive in still turns the respray down, and the roof lets even a bus in', () => {
+    for (const [id, kind] of [['spray_hill', 'sedan'], ['spray_docks', 'bus'], ['spray_south', 'van']] as const) {
+      const sim = makeSim({ startHour: 12 });
+      sim.clock.rate = 0;
+      sim.cheats.godMode = true;
+      sim.missions.noBust = true;
+      sim.progress.addMoney(5000);
+      const poi = sim.world.layout.pois.find((p) => p.id === id)!;
+      const { cx, cz, fx, fz, depth } = bayOf(poi);
+      // On the road 14 m out from the bay, facing in, with a helicopter over him.
+      const sx = cx + fx * (depth + 14);
+      const sz = cz + fz * (depth + 14);
+      const car = sim.spawnVehicle(kind, sx, sz, poi.heading + Math.PI);
+      placeInCar(sim, car);
+      const texts: string[] = [];
+      sim.events.on('message', (e) => texts.push(e.text));
+      sim.wanted.setLevel(3);
+      sim.helis.push(new Helicopter(sim.newId(), sx, sim.world.groundHeight(sx, sz) + 36, sz));
+      const money = sim.progress.money;
+      // Past the 13 s response phase, the helicopter watching him...
+      step(sim, 14, () => {
+        helisOnly(sim);
+        return input();
+      });
+      expect(sim.wanted.searching, id).toBe(false);
+      // ...he drives in slowly and stops in the middle of the bay.
+      step(sim, 8, () => {
+        helisOnly(sim);
+        const ahead = (car.pos.x - cx) * fx + (car.pos.z - cz) * fz;
+        return ahead > 0.5 ? input({ throttle: car.speed > 6 ? 0 : 0.6 }) : input({ brake: 1 });
+      });
+      expect(rectContains(poi.bay!, car.pos.x, car.pos.z), `${id} ${kind}`).toBe(true);
+      expect(texts, id).toContain('Spray Shack: They saw you drive in!');
+      expect(sim.wanted.level, id).toBe(3);
+      expect(sim.progress.money, id).toBe(money);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix 2: the on-foot camera next to a trunk
+
+describe('round 2 fix 2: trunk cuts with hysteresis', () => {
+  /**
+   * An idle player in front of open street trees, 1.4-2.4 m from the trunk and up to 1.2 m to either
+   * side, the camera settled looking away from it, then two seconds of a slow look round: the yaw
+   * swept `amp` degrees either way at 1 Hz. Counts frames where the camera jumps over 0.8 m.
+   */
+  function panSweep(aiming: boolean, amp: number): { cases: number; cuts: number; maxJump: number } {
+    const W = world();
+    const sim = new Sim({ world: W, ambient: false, police: false, startHour: 12 });
+    const p = sim.player;
+    const trees = W.layout.props.filter((q) => q.kind === 'tree');
+    let cases = 0;
+    let cuts = 0;
+    let maxJump = 0;
+    let tested = 0;
+    for (const q of trees) {
+      if (tested >= 6) break;
+      if (W.layout.props.some((o) => o !== q && (o.kind === 'tree' || o.kind === 'palm') && Math.hypot(o.x - q.x, o.z - q.z) < 9)) continue;
+      for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const fx = Math.sin(yaw);
+        const fz = Math.cos(yaw);
+        const rx = -Math.cos(yaw);
+        const rz = Math.sin(yaw);
+        // Open ground in front of the trunk and nothing solid behind it for 7 m.
+        const ox = q.x + fx * 2;
+        const oz = q.z + fz * 2;
+        if (!W.isFree(ox, oz, 0.6) || W.grid.raycast(ox, W.groundHeight(ox, oz) + 1.6, oz, -fx, 0, -fz, 7, sightHit, isSolidForSight)) continue;
+        tested++;
+        for (let D = 1.4; D <= 2.401; D += 0.05) {
+          for (let lat = -0.75; lat <= 1.201; lat += 0.15) {
+            p.pos.x = q.x + fx * D - rx * lat;
+            p.pos.z = q.z + fz * D - rz * lat;
+            if (!W.isFree(p.pos.x, p.pos.z, 0.35)) continue;
+            p.pos.y = W.groundHeight(p.pos.x, p.pos.z);
+            p.heading = yaw;
+            const cam = new CameraController(16 / 9);
+            cam.mode = 'play';
+            cam.reset(sim);
+            cam.yaw = yaw;
+            cam.pitch = -0.12;
+            for (let i = 0; i < 90; i++) cam.update(DT, sim, aiming);
+            const prev = cam.camera.position.clone();
+            for (let i = 0; i < 120; i++) {
+              cam.yaw = yaw + ((amp * Math.PI) / 180) * Math.sin(2 * Math.PI * i * DT);
+              cam.update(DT, sim, aiming);
+              const jump = cam.camera.position.distanceTo(prev);
+              maxJump = Math.max(maxJump, jump);
+              if (jump > 0.8) cuts++;
+              prev.copy(cam.camera.position);
+            }
+            cases++;
+          }
+        }
+        break;
+      }
+    }
+    expect(tested).toBe(6);
+    return { cases, cuts, maxJump };
+  }
+
+  it('a few degrees of look round beside a street tree never cuts the camera back and forth, on foot or aiming', () => {
+    for (const [aiming, amp] of [[false, 3], [true, 3], [false, 8]] as const) {
+      const r = panSweep(aiming, amp);
+      const label = `${aiming ? 'aiming' : 'on foot'}, +-${amp} degrees: ${JSON.stringify(r)}`;
+      expect(r.cases, label).toBeGreaterThan(1000);
+      expect(r.cuts, label).toBe(0);
+      expect(r.maxJump, label).toBeLessThan(0.8);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix 2: markers next to the camera
+
+describe('round 2 fix 2: markers fade out next to the camera', () => {
+  /**
+   * The ids of the drawn markers that the frame's edge cuts within 6 m of the camera: of the vertices of
+   * their visible beam and icon within 6 m, some are in the frame and some out of it (or behind the camera).
+   */
+  function cutMarkers(view: MarkerView, cam: THREE.PerspectiveCamera): string[] {
+    cam.updateMatrixWorld(true);
+    view.group.updateMatrixWorld(true);
+    const out: string[] = [];
+    const v = new THREE.Vector3();
+    for (const g of view.group.children) {
+      if (!g.visible) continue;
+      let inside = 0;
+      let outside = 0;
+      for (const o of g.children) {
+        if (!(o instanceof THREE.Mesh) || !o.visible || o.scale.x < 1e-3 || (o.material as THREE.Material).opacity < 0.01) continue;
+        const pos = o.geometry.getAttribute('position');
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+          if (v.distanceTo(cam.position) > 6) continue;
+          const s = v.clone().project(cam);
+          if (s.z > -1 && s.z < 1 && Math.abs(s.x) <= 1 && Math.abs(s.y) <= 1) inside++;
+          else outside++;
+        }
+      }
+      if (inside > 0 && outside > 0) out.push(g.uuid);
+    }
+    return out;
+  }
+
+  it('the first frame of a new game draws no marker cut by the frame close to the camera, landscape and portrait', () => {
+    for (const [w, h] of [[1280, 720], [1600, 900], [800, 600], [390, 844]] as const) {
+      const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 15.5 });
+      const cam = new CameraController(w / h);
+      cam.mode = 'play';
+      cam.reset(sim);
+      cam.update(DT, sim, false);
+      const view = new MarkerView();
+      view.syncMarkers(sim.interactions.markers, 0, cam.camera.position, sim.playerPos());
+      // The safehouse save marker is 3.2 m from the spawn: drawn, it filled the right edge of a landscape frame.
+      expect(sim.interactions.markers.some((m) => m.kind === 'save' && Math.hypot(m.x - sim.player.pos.x, m.z - sim.player.pos.z) < 4)).toBe(true);
+      expect(cutMarkers(view, cam.camera), `${w}x${h}`).toEqual([]);
+    }
+  });
+
+  it('a marker fades out only once the camera is about to pass through it', () => {
+    const view = new MarkerView();
+    const m = { id: 'save:t', kind: 'save' as const, x: 10, z: 20, radius: 1.5, label: '', color: 0x55ccff, ref: '' };
+    const drawn = (back: number): { visible: boolean; alpha: number; icon: number } => {
+      view.syncMarkers([m], 0, { x: m.x - back, y: 2.3, z: m.z });
+      const g = view.group.children[0]!;
+      const beam = g.getObjectByName('beam') as THREE.Mesh;
+      return { visible: g.visible, alpha: (beam.material as THREE.MeshBasicMaterial).opacity, icon: g.getObjectByName('icon')!.scale.x };
+    };
+    // Standing in it, the camera 4.3 m behind him: drawn in full.
+    expect(drawn(4.3)).toEqual({ visible: true, alpha: 0.28, icon: 1 });
+    expect(drawn(MARKER_FADE_FAR)).toEqual({ visible: true, alpha: 0.28, icon: 1 });
+    // Fading on the way in...
+    const half = drawn((MARKER_FADE_NEAR + MARKER_FADE_FAR) / 2);
+    expect(half.visible).toBe(true);
+    expect(half.alpha).toBeCloseTo(0.14, 6);
+    expect(half.icon).toBeCloseTo(0.5, 6);
+    // ...and gone nearer than MARKER_FADE_NEAR, as in the New Game frame (2.9 m from the safehouse marker).
+    expect(drawn(2.9).visible).toBe(false);
+    expect(drawn(0.5).visible).toBe(false);
+    // Without a camera (title screen, tests) every marker is drawn in full...
+    view.syncMarkers([m], 0);
+    expect(view.group.children[0]!.visible).toBe(true);
+    // ...and so is the one he stands in, the camera pulled in close by a wall or an aim.
+    view.syncMarkers([m], 0, { x: m.x - 2.4, y: 2.3, z: m.z }, { x: m.x - 0.6, z: m.z });
+    expect(view.group.children[0]!.visible).toBe(true);
+    expect((((view.group.children[0]!.getObjectByName('beam') as THREE.Mesh).material) as THREE.MeshBasicMaterial).opacity).toBe(0.28);
+    view.syncMarkers([m], 0, { x: m.x - 2.4, y: 2.3, z: m.z }, { x: m.x - 1.6, z: m.z });
+    expect(view.group.children[0]!.visible).toBe(false);
+    // High above it, as close over the ground: far from the marker itself.
+    expect(markerFade({ x: m.x, y: 30, z: m.z }, m.x, m.z)).toBe(1);
+    // Every material a marker view had goes with it.
+    const beam = view.group.children[0]!.getObjectByName('beam') as THREE.Mesh;
+    let disposed = false;
+    (beam.material as THREE.Material).addEventListener('dispose', () => (disposed = true));
+    view.syncMarkers([], 1);
+    expect(view.group.children.length).toBe(0);
+    expect(disposed).toBe(true);
   });
 });

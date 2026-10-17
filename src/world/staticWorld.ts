@@ -8,6 +8,13 @@ import { generateCity, rectContains, sandHeight, type CityLayout, type District,
 import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
 
+/**
+ * The roof slab over a garage's walls, as render/city.ts draws it: from the top of the walls up this
+ * thick (m), overhanging the garage's rectangle by GARAGE_EAVE on every side.
+ */
+export const GARAGE_ROOF = 0.4;
+export const GARAGE_EAVE = 0.3;
+
 export class StaticWorld {
   readonly layout: CityLayout;
   readonly roads: RoadNetwork;
@@ -34,6 +41,10 @@ export class StaticWorld {
     }
     for (const gar of this.layout.garages) {
       for (const w of gar.walls) g.addBox(w.minX, w.minZ, w.maxX, w.maxZ, 0, gar.height, 'wall');
+      // The roof hides the bay from the helicopter and stops shots and the camera from above. It is no
+      // obstacle on the way in: cars and people collide only with what overlaps their own height.
+      const r = gar.rect;
+      g.addBox(r.minX - GARAGE_EAVE, r.minZ - GARAGE_EAVE, r.maxX + GARAGE_EAVE, r.maxZ + GARAGE_EAVE, gar.height, gar.height + GARAGE_ROOF, 'wall');
     }
     this.layout.props.forEach((p, i) => {
       this.propColliders[i] = this.addPropCollider(p, i);

@@ -28,7 +28,7 @@ test.describe('GTA 7 round 2 city look', () => {
     expect(errors).toEqual([]);
   });
 
-  test('storefront taglines and window labels are drawn at least 11 texels tall', async ({ page }) => {
+  test('storefront taglines and window labels are drawn at least 11 texels tall, the window signs clear of the bars', async ({ page }) => {
     const errors = await boot(page);
     const rows = await page.evaluate(() => {
       const img = (window as Api).__gta7.game.renderer.city.materials.storefront.map.image as HTMLCanvasElement;
@@ -66,6 +66,32 @@ test.describe('GTA 7 round 2 city look', () => {
         }
         return n;
       };
+      /**
+       * Texel columns of a region (as inkRows) that a window bar crosses from top to bottom: 95% of the
+       * column's texels within 24 of one of the bar colours (the grille's '#3a3a3a', the centre bar's
+       * shop trim). A letter's anti-aliased edge can match a dark bar colour, but not over the full height.
+       */
+      const barColumns = (cell: number, h: number, x0: number, y0: number, x1: number, y1: number, bars: number[][]): number => {
+        const sx = 248 / 6.5;
+        const sy = 328 / h;
+        const ox = (cell % 8) * 256 + 4;
+        const oy = Math.floor(cell / 8) * 336 + 4;
+        const px = Math.round(ox + x0 * sx);
+        const py = Math.round(oy + y0 * sy);
+        const w = Math.round(ox + x1 * sx) - px;
+        const hh = Math.round(oy + y1 * sy) - py;
+        const d = ctx.getImageData(px, py, w, hh).data;
+        let n = 0;
+        for (let x = 0; x < w; x++) {
+          let on = 0;
+          for (let y = 0; y < hh; y++) {
+            const k = (y * w + x) * 4;
+            if (bars.some((b) => Math.hypot(d[k]! - b[0]!, d[k + 1]! - b[1]!, d[k + 2]! - b[2]!) < 24)) on++;
+          }
+          if (on >= hh * 0.95) n++;
+        }
+        return n;
+      };
       const out: Record<string, number> = {};
       // The 16 shop fascias: the tagline under the name.
       for (let i = 0; i < 16; i++) out[`tagline ${i}`] = inkRows(i, 4.5, 0.5, 0.6, 6.0, 0.93);
@@ -74,10 +100,19 @@ test.describe('GTA 7 round 2 city look', () => {
       out['NO QUESTIONS'] = inkRows(13, 4.5, 0.9, 1.85, 2.5, 2.13);
       out['BY THE SLICE'] = inkRows(11, 4.5, 2.7, 1.33, 4.4, 1.75);
       out['1200'] = inkRows(17, 6.5, 2.25, 3.32, 4.25, 3.67);
-      return out;
+      // Round 2 fix 2: the liquor store's COLD BEER and the tattoo parlour's OPEN, neon signs in the
+      // right-hand pane (inside their rims), drawn over the grille and clear of the centre bar.
+      out['COLD BEER'] = inkRows(7, 4.5, 2.88, 3.09, 4.47, 3.47);
+      out['OPEN'] = inkRows(14, 4.5, 4.53, 1.71, 5.42, 1.97);
+      const bars = {
+        'COLD BEER': barColumns(7, 4.5, 2.88, 3.09, 4.47, 3.47, [[58, 58, 58], [75, 30, 30]]),
+        OPEN: barColumns(14, 4.5, 4.53, 1.71, 5.42, 1.97, [[61, 12, 17]]),
+      };
+      return { out, bars };
     });
-    const short = Object.entries(rows).filter(([, n]) => n < 11);
+    const short = Object.entries(rows.out).filter(([, n]) => n < 11);
     expect(short).toEqual([]);
+    expect(rows.bars).toEqual({ 'COLD BEER': 0, OPEN: 0 });
     expect(errors).toEqual([]);
   });
 

@@ -785,6 +785,26 @@ interface ShopDesign extends ShopFront {
   /** Fraction of the display window covered by a lowered roll shutter. */
   shutter?: number;
   goods: (p: Pair, x: number, y: number, w: number, h: number) => void;
+  /** Drawn last, over the window's centre bar, grille and shutter: a sign that has to stay readable. */
+  sign?: (p: Pair, x: number, y: number, w: number, h: number) => void;
+}
+
+/**
+ * A neon sign in a display window (`win`: its left, top and width): centred in the right-hand pane, clear
+ * of the centre bar, `cy` m down from the window's top, `sw` x `sh` m, a neon rim round a dark plate with
+ * `text` `size` m tall on it.
+ */
+function windowSign(p: Pair, win: { x: number; y: number; w: number }, cy: number, sw: number, sh: number, text: string, size: number, neon: string, plate: string): void {
+  const { m, e } = p;
+  const cx = win.x + win.w * 0.75;
+  const y = win.y + cy;
+  const rim = 0.03;
+  m.rect(cx - sw / 2, y - sh / 2, sw, sh, neon);
+  m.rect(cx - sw / 2 + rim, y - sh / 2 + rim, sw - 2 * rim, sh - 2 * rim, plate);
+  e.rect(cx - sw / 2, y - sh / 2, sw, sh, neon);
+  e.rect(cx - sw / 2 + rim, y - sh / 2 + rim, sw - 2 * rim, sh - 2 * rim, '#000');
+  m.text(text, cx, y, size, ANTON, neon, sw - 0.2);
+  e.text(text, cx, y, size, ANTON, neon, sw - 0.2, '400', 6);
 }
 
 const SHOP_DESIGNS: ShopDesign[] = [
@@ -922,9 +942,9 @@ const SHOP_DESIGNS: ShopDesign[] = [
           e.rect(bx, sy + 0.08, 0.1, 0.34, '#2a2018');
         }
       }
-      m.text('COLD BEER', x + w * 0.5, y + h - 0.35, 0.26, ANTON, '#4dd2ff', w * 0.6);
-      e.text('COLD BEER', x + w * 0.5, y + h - 0.35, 0.26, ANTON, '#4dd2ff', w * 0.6, '400', 6);
     },
+    // Hung on the grille in front of the bottom shelf: drawn under the bars, 'COLD BEER' read 'COL| BEER'.
+    sign: (p, x, y, w, h) => windowSign(p, { x, y, w }, h - 0.42, 1.7, 0.48, 'COLD BEER', 0.3, '#4dd2ff', '#141414'),
   },
   {
     name: 'PHARMACY', tag: 'SIDE EFFECTS MAY VARY', awning: -1, beach: false,
@@ -1036,7 +1056,7 @@ const SHOP_DESIGNS: ShopDesign[] = [
   {
     name: 'TATTOO', tag: 'REGRET INK', awning: -1, beach: true,
     board: '#151515', letters: '#e5383b', neon: '#e5383b', trim: '#3d0c11', interior: '#cfc3b5', light: '#ffd7c2', doorLeft: true, shutter: 0.18,
-    goods: ({ m, e }, x, y, w, h) => {
+    goods: ({ m }, x, y, w, h) => {
       for (let k = 0; k < 6; k++) {
         const fx = x + 0.3 + (k % 3) * ((w - 0.6) / 3);
         const fy = y + h * 0.35 + Math.floor(k / 3) * (h * 0.3);
@@ -1045,9 +1065,10 @@ const SHOP_DESIGNS: ShopDesign[] = [
         m.circle(fx + s * 0.5, fy + h * 0.1, s * 0.22, ['#e5383b', '#1d3557', '#2a9d8f'][k % 3]!);
         m.rect(fx + s * 0.2, fy + h * 0.17, s * 0.6, 0.05, '#222');
       }
-      m.text('OPEN', x + w * 0.5, y + h - 0.3, 0.24, ANTON, '#e5383b', w * 0.4);
-      e.text('OPEN', x + w * 0.5, y + h - 0.3, 0.24, ANTON, '#ff3b3b', w * 0.4, '400', 8);
     },
+    // Between the half-lowered shutter (0.18 h) and the flash cards (from 0.35 h); on the centre bar
+    // and the bottom cards it read 'O|EN'.
+    sign: (p, x, y, w, h) => windowSign(p, { x, y, w }, h * 0.27, 1.0, 0.36, 'OPEN', 0.26, '#ff3b3b', '#151515'),
   },
   {
     name: 'DELI', tag: 'HERO WORSHIP', awning: 0x1e7b46, beach: false,
@@ -1166,6 +1187,7 @@ function drawShop(p: Pair, d: ShopDesign): void {
     m.rect(winX, winY + winH * 0.33, winW, 0.03, '#3a3a3a');
     m.rect(winX, winY + winH * 0.66, winW, 0.03, '#3a3a3a');
   }
+  d.sign?.(p, winX, winY, winW, winH);
   m.speckle(0, 1.0, W, H - 1.0, p.rng, 260, 'rgba(0,0,0,0.12)', 'rgba(255,255,255,0.07)');
   // Threshold.
   m.rect(0, H - 0.05, W, 0.05, '#4b4b4b');

@@ -4,6 +4,7 @@
 import { rectContains, type Poi } from '../world/layout';
 import type { Sim } from './sim';
 import { WEAPONS, type WeaponId } from './specs';
+import { HELI_SIGHT } from './wanted';
 
 export type MarkerKind = 'mission' | 'gunshop' | 'save';
 
@@ -177,8 +178,12 @@ export class Interactions {
     }
     if (!v.drivable) return;
     // New plates are no use to a car the police watched drive in: lose them first (stars flashing).
+    // The roof hides the bay from above, so a helicopter that has him counts within its sight range.
     const bay = inside.bay!;
-    if (wanted && !sim.wanted.searching && sim.wanted.copWitness((bay.minX + bay.maxX) / 2, (bay.minZ + bay.maxZ) / 2, 40)) {
+    const bx = (bay.minX + bay.maxX) / 2;
+    const bz = (bay.minZ + bay.maxZ) / 2;
+    const heli = sim.helis.some((h) => !h.removed && !h.destroyed && Math.hypot(h.pos.x - bx, h.pos.z - bz) <= HELI_SIGHT);
+    if (wanted && !sim.wanted.searching && (heli || sim.wanted.copWitness(bx, bz, 40))) {
       sim.events.emit('message', { text: 'Spray Shack: They saw you drive in!', duration: 3.5 });
       return;
     }
