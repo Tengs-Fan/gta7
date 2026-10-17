@@ -8,7 +8,7 @@ import type { Character, Vehicle } from './entities';
 import { Projectile } from './entities';
 import type { HitKind } from './events';
 import type { PlayerInput } from './input';
-import { weaponPose, windowMuzzle } from './pose';
+import { makeWeaponPose, upright, weaponPose, weaponPoseInto, windowMuzzle, type WeaponPose } from './pose';
 import type { Sim } from './sim';
 import { WEAPONS, type WeaponSpec } from './specs';
 import { launchVehicle, vehicleObb } from './vehiclePhysics';
@@ -34,8 +34,10 @@ const QUEUE_WINDOW = 0.1;
 const NPC_HEAD_MUL = 2;
 /** SWAT helmets: their head hits take this share of the multiplier (never less than a body hit). */
 const HELMET = 0.6;
-/** The muzzle wall check starts from the chest, this share of the shooter's height up. */
+/** The muzzle wall check starts from the chest, this share of the shooter's height up (also where a punch lands). */
 const CHEST = 0.75;
+/** A punch is thrown from the shoulders, this share of the puncher's height up. */
+const SHOULDER = 0.82;
 /** Standing characters: body cylinder up to NECK of the height, head cylinder from there to the top. */
 const BODY_R = 0.36;
 const HEAD_R = 0.16;
@@ -48,6 +50,14 @@ const ROCKET_BLAST = 8;
 const ROCKET_ARMING = 0.15;
 /** Heights above a character's feet that a blast must see to hurt him fully. */
 const EXPOSURE_HEIGHTS = [0.3, 1.0, 1.6] as const;
+/**
+ * Steps of raiseGun. Each one aims from the gun's pivot, which the aim moves only a little, so the barrel's miss
+ * shrinks about threefold per step even at point blank (from 0.5 to 30 m, 60 degrees up or down, starting 0.6 rad
+ * off: 29 cm, 9 cm, 1.6 cm and 5 mm after one to four steps). Six leave under a millimetre.
+ */
+const RAISE_STEPS = 6;
+/** Scratch pose of raiseGun. */
+const raisePose: WeaponPose = makeWeaponPose();
 
 /** The upright cylinder a character occupies as a whole (shared scratch object). */
 const body = { r: 0, y0: 0, y1: 0 };
@@ -146,7 +156,7 @@ export class CombatSystem {
       const tip = weaponPose(c).tip;
       if (!this.barrelCrowded(c, tip, fx, fz)) return tip;
     }
-    return { x: c.pos.x + fx * 0.55 - fz * 0.18, y: c.pos.y + c.height * 0.76, z: c.pos.z + fz * 0.55 + fx * 0.18 };
+    return chestMuzzle(c, fx, fz);
   }
 
   /**
@@ -242,28 +252,44 @@ export class CombatSystem {
     c.aimHold = 1.2;
     const tp = target.vehicle ? target.vehicle.pos : target.pos;
     const ty = target.vehicle ? tp.y + 0.9 : tp.y + target.height * 0.62;
-    let from = this.muzzle(c, fromVehicle);
-    // On foot the barrel tip moves with the aim: the gun is raised at the target first (the tip settles in two steps),
-    // so that the shot leaves from the tip as it is drawn. A car window is a fixed muzzle.
-    if (!(fromVehicle && c.vehicle)) {
-      for (let k = 0; k < 2; k++) {
-        this.aimAlong(c, tp.x - from.x, ty - from.y, tp.z - from.z);
-        from = this.muzzle(c, fromVehicle);
-      }
+    const fromWindow = fromVehicle && !!c.vehicle;
+    // On foot the gun is raised at the target first, its barrel as drawn pointing through him, and the shot leaves from
+    // its tip along it: the aim, the drawn gun, the flash and the tracer all agree.
+    // (Knocked down, dead or getting in, nobody holds a gun up: those shots leave from muzzle() at the target.)
+    const pose = !fromWindow && (upright(c) || c.state === 'swimming') ? this.raiseGun(c, tp.x, ty, tp.z) : null;
+    const fx = Math.sin(c.aimYaw);
+    const fz = Math.cos(c.aimYaw);
+    let from: V3;
+    let dx: number;
+    let dy: number;
+    let dz: number;
+    let dist: number;
+    if (pose && (tp.x - pose.tip.x) * pose.dir.x + (ty - pose.tip.y) * pose.dir.y + (tp.z - pose.tip.z) * pose.dir.z > 0 && !this.barrelCrowded(c, pose.tip, fx, fz)) {
+      from = { x: pose.tip.x, y: pose.tip.y, z: pose.tip.z };
+      dx = pose.dir.x;
+      dy = pose.dir.y;
+      dz = pose.dir.z;
+      dist = Math.hypot(tp.x - from.x, ty - from.y, tp.z - from.z);
+      // Published as drawn (also where the pose had to clamp the pitch).
+      this.aimAlong(c, dx, dy, dz);
+    } else {
+      // From a car window (a fixed muzzle), or with the barrel reaching into or past someone at point blank: the shot
+      // then leaves from the chest (as in muzzle()), the gun still drawn pointing at the target.
+      from = pose ? chestMuzzle(c, fx, fz) : this.muzzle(c, fromVehicle);
+      dx = tp.x - from.x;
+      dy = ty - from.y;
+      dz = tp.z - from.z;
+      dist = Math.hypot(dx, dy, dz) || 1;
+      dx /= dist;
+      dy /= dist;
+      dz /= dist;
+      // The gun held out of a car window points along the shot.
+      if (!pose) this.aimAlong(c, dx, dy, dz);
     }
-    let dx = tp.x - from.x;
-    let dy = ty - from.y;
-    let dz = tp.z - from.z;
-    const dist = Math.hypot(dx, dy, dz) || 1;
-    dx /= dist;
-    dy /= dist;
-    dz /= dist;
-    // The gun as drawn points along the shot (a car crew's held out of the window, a foot shooter's raised at the target).
-    this.aimAlong(c, dx, dy, dz);
     const tSpeed = target.vehicle ? target.vehicle.speed : target.speed;
     const err = w.spread + (1 - accuracy) * 0.075 + tSpeed * 0.004 + dist * 0.0009;
     // From a car window there is no chest-to-muzzle wall check; on foot (also when asked for a car he has left) there is.
-    this.discharge(c, w, from, dx, dy, dz, err, fromVehicle && c.vehicle ? null : this.muzzleWall(c, from));
+    this.discharge(c, w, from, dx, dy, dz, err, fromWindow ? null : this.muzzleWall(c, from));
     if (slot.clip === 0) this.startReload(c);
   }
 
@@ -273,6 +299,27 @@ export class CombatSystem {
     if (!(l > 1e-9)) return;
     c.aimYaw = Math.atan2(dx, dz);
     c.aimPitch = Math.asin(clamp(dy / l, -1, 1));
+  }
+
+  /**
+   * Raises a foot shooter's gun at (x, y, z): points his aim so that the barrel as drawn (sim/pose.ts) runs through
+   * that point, and returns that pose (a shared scratch object).
+   * A gun turns about the shoulder: a long gun's stock sits in its pocket, the pistol swings with both arms about the
+   * shoulder line, the launcher rests on it. The aim moves that pivot only a little (the chest turns and leans with it),
+   * so each step aims from the barrel line's point beside the shoulder joint and converges quickly (see RAISE_STEPS).
+   * Aiming from the tip instead swings it by the whole reach of the gun and overshoots within about 2 m.
+   */
+  private raiseGun(c: Character, x: number, y: number, z: number): WeaponPose {
+    c.aiming = true;
+    const w = raisePose;
+    for (let k = 0; k < RAISE_STEPS; k++) {
+      weaponPoseInto(c, w);
+      const t = w.tip;
+      const d = w.dir;
+      const s = (w.shoulder.x - t.x) * d.x + (w.shoulder.y - t.y) * d.y + (w.shoulder.z - t.z) * d.z;
+      this.aimAlong(c, x - (t.x + d.x * s), y - (t.y + d.y * s), z - (t.z + d.z * s));
+    }
+    return weaponPoseInto(c, w);
   }
 
   /**
@@ -604,6 +651,9 @@ export class CombatSystem {
       const d = Math.hypot(dx, dz);
       if (d > bd || Math.abs(o.pos.y - c.pos.y) > 1.2) continue;
       if (d > 0.3 && (dx * fx + dz * fz) / d < 0.45) continue;
+      // Not through a wall (the thin garage walls put two people 1.3 m apart on either side): the fist must reach his
+      // chest from the shoulder.
+      if (!sim.world.lineOfSight(c.pos.x, c.pos.y + SHOULDER * c.height, c.pos.z, o.pos.x, o.pos.y + (o.state === 'knocked' ? 0.3 : CHEST * o.height), o.pos.z)) continue;
       best = o;
       bd = d;
     }
@@ -986,6 +1036,14 @@ export class CombatSystem {
       }
     }
   }
+}
+
+/**
+ * Where a shot on foot leaves when the barrel tip is no use (fists, or someone standing along the barrel at point
+ * blank): from the chest, 0.55 m ahead along (fx, fz) and 0.18 m to the right, at 0.76 of the height, where a punch lands.
+ */
+function chestMuzzle(c: Character, fx: number, fz: number): V3 {
+  return { x: c.pos.x + fx * 0.55 - fz * 0.18, y: c.pos.y + c.height * 0.76, z: c.pos.z + fz * 0.55 + fx * 0.18 };
 }
 
 function raySphere(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, cx: number, cy: number, cz: number, r: number): number {

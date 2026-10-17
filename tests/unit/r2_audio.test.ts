@@ -8,12 +8,12 @@ import { ambienceTargets, IN_CAR, shoreInfo, type AmbienceDistrict, type Ambienc
 import { AudioEngine } from '../../src/audio/audio';
 import { dbToGain, distanceCutoff, EXPLOSION_DUCK_RANGE, gainToDb, MIX_DB, mixTargets, OPEN_HZ, softClipCurve, type MixInput } from '../../src/audio/mixer';
 import { ENGINE_PROFILES, engineParams, engineWave, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
-import type { Character } from '../../src/sim/entities';
+import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import type { VehicleKind } from '../../src/sim/specs';
 import { WATER_Y } from '../../src/world/constants';
 import { beachOffsetAt, districtOf } from '../../src/world/layout';
-import { makeSim, placeInCar, roadPoint, world } from './helpers';
+import { input, makeSim, placeInCar, roadPoint, teleport, world } from './helpers';
 
 const close = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) <= eps;
 
@@ -588,6 +588,111 @@ describe('round-2 audio fixes', () => {
     sim.events.emit('scrape', { x: other.pos.x, y: other.pos.y + 0.4, z: other.pos.z, speed: 14, vehicle: other });
     expect(bus()).toBe(inner.sfx);
     expect(audio.counters.scrapes).toBe(n0 + 2);
+  });
+
+  it('a retry taken 0.5 s into MISSION FAILED lifts its duck with the banner; a WASTED card keeps its own', () => {
+    const sim = makeSim({ police: false });
+    sim.cheats.godMode = true;
+    sim.progress.markDone('wheels');
+    const { audio, ctx } = rig(sim);
+    const mixer = audio.mixer!;
+    const run = (seconds: number, inp = input()) => {
+      for (let i = 0; i < Math.round(seconds * 60); i++) {
+        ctx.currentTime += 1 / 60;
+        sim.update(1 / 60, inp);
+        audio.update(1 / 60, sim, true);
+      }
+    };
+    run(0.1);
+    // Hot Delivery from Lou's marker, failed at once.
+    const marker = sim.interactions.markers.find((m) => m.kind === 'mission' && m.ref === 'delivery')!;
+    teleport(sim, marker.x, marker.z);
+    run(0.1);
+    run(1 / 60, input({ interact: true }));
+    expect(sim.missions.active?.def.id).toBe('delivery');
+    // Past the title card (its duck is not a result card's).
+    run(4);
+    expect(mixer.sfxMix.gain.value).toBe(1);
+    sim.missions.active!.fail('test');
+    run(0.5);
+    // MISSION FAILED is up: everything but the UI is 10 dB down.
+    expect(mixer.sfxMix.gain.value).toBeCloseTo(dbToGain(MIX_DB.bigCard), 6);
+    teleport(sim, sim.player.pos.x + 20, sim.player.pos.z);
+    expect(sim.missions.retryNow()).toBe(true);
+    let started = false;
+    sim.events.on('missionStarted', () => (started = true));
+    // Through the retry fade (1.2 s): the mission is back on, its MISSION FAILED gone, and so is the duck.
+    run(1.25);
+    expect(started).toBe(true);
+    expect(sim.missions.active?.def.id).toBe('delivery');
+    expect(mixer.sfxMix.gain.value).toBe(1);
+    expect(mixer.musicMix.gain.value).toBeCloseTo(0.8, 6);
+    // A mission starting leaves the other result cards' duck alone (the HUD keeps them up too).
+    sim.events.emit('big', { text: 'WASTED', sub: '', style: 'wasted', duration: 4.5 });
+    run(0.5);
+    sim.events.emit('missionStarted', { id: 'delivery', title: 'Hot Delivery' });
+    run(0.5);
+    expect(mixer.sfxMix.gain.value).toBeCloseTo(dbToGain(MIX_DB.bigCard), 6);
+  });
+
+  it("a faster car grinding along the player's car sounds as his own scrape; two others grinding nearby do not", () => {
+    const sim = makeSim({ police: false });
+    const rp = roadPoint(sim);
+    const fx = Math.sin(rp.heading);
+    const fz = Math.cos(rp.heading);
+    const lx = Math.cos(rp.heading);
+    const lz = -Math.sin(rp.heading);
+    const mine = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
+    placeInCar(sim, mine);
+    // A cruiser just behind him on his left, its right flank a few centimetres into his left one.
+    const unit = sim.spawnVehicle('police', rp.x - fx * 3, rp.z - fz * 3, rp.heading);
+    const side = mine.halfW + unit.halfW - 0.03;
+    unit.pos.x += lx * side;
+    unit.pos.z += lz * side;
+    const { audio, ctx } = rig(sim);
+    const scrape = vi.spyOn(audio, 'scrape');
+    const reported: Vehicle[] = [];
+    sim.events.on('scrape', (e) => reported.push(e.vehicle));
+    const run = (frames: number, push: () => void) => {
+      for (let i = 0; i < frames; i++) {
+        push();
+        ctx.currentTime += 1 / 60;
+        sim.update(1 / 60, sim.lastInput);
+        audio.update(1 / 60, sim, true);
+      }
+    };
+    // He rolls at 2 m/s; the cruiser slides past at 12 m/s, pressed into his flank.
+    run(40, () => {
+      mine.vel.x = fx * 2;
+      mine.vel.z = fz * 2;
+      unit.vel.x = fx * 12 - lx * 1.5;
+      unit.vel.z = fz * 12 - lz * 1.5;
+    });
+    // The physics reports each grind as the faster car's scrape: every one of them is the player's own.
+    expect(reported.length).toBeGreaterThan(3);
+    expect(reported.every((v) => v === unit)).toBe(true);
+    expect(scrape.mock.calls.length).toBe(reported.length);
+    expect(scrape.mock.calls.every((c) => c[4] === true)).toBe(true);
+    // Two other cars grinding along each other 8 m to his right: the world bus.
+    scrape.mockClear();
+    reported.length = 0;
+    const rx = -lx;
+    const rz = -lz;
+    const a = sim.spawnVehicle('sedan', mine.pos.x + rx * 8, mine.pos.z + rz * 8, rp.heading);
+    const b = sim.spawnVehicle('sedan', a.pos.x + rx * (2 * a.halfW - 0.03) - fx * 3, a.pos.z + rz * (2 * a.halfW - 0.03) - fz * 3, rp.heading);
+    run(40, () => {
+      mine.vel.x = 0;
+      mine.vel.z = 0;
+      unit.vel.x = 0;
+      unit.vel.z = 0;
+      a.vel.x = fx * 2;
+      a.vel.z = fz * 2;
+      b.vel.x = fx * 12 + lx * 1.5;
+      b.vel.z = fz * 12 + lz * 1.5;
+    });
+    expect(reported.filter((v) => v === b).length).toBeGreaterThan(3);
+    expect(scrape.mock.calls.length).toBeGreaterThan(3);
+    expect(scrape.mock.calls.every((c) => c[4] === false)).toBe(true);
   });
 
   it('a scrape grinds louder and higher the faster the car slides', () => {

@@ -337,6 +337,7 @@ export class GameRenderer {
       ev.on('shot', (e) => {
         // Helicopter rounds have no weaponFired of their own.
         if (!e.shooter) fx.muzzleFlash(e.fx, e.fy, e.fz, FLASH_SIZE[e.weapon]);
+        else if (e.hit !== 'none') fx.shotLanded(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz, e.nx, e.ny, e.nz);
         if (e.weapon === 'rocket' || e.weapon === 'fists') return;
         // The player's automatic fire traces every second round of a burst (its first one always).
         // Everyone else's traces every round.

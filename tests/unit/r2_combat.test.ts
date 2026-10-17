@@ -610,12 +610,12 @@ describe('P31b: flashes and tracers', () => {
   it('a muzzle flash and a tracer are still drawn after one 0.08 s frame', () => {
     const fx = new Effects();
     fx.muzzleFlash(0, 1, 0, FLASH_SIZE.pistol);
-    fx.tracer(0, 1, 0, 0, 1, 20);
+    fx.tracer(0, 1, 0, 0, 1, 12);
     fx.update(0.08, 0.08);
     expect(fx.glowCount).toBeGreaterThan(0);
     expect(fx.tracerCount).toBeGreaterThan(0);
     expect(fx.muzzle.intensity).toBeGreaterThan(0);
-    // The next frame they are gone (the 20 m tracer's tail reached the hit after 0.067 s).
+    // The next frame they are gone (the 12 m tracer's tail left after 0.03 s and reached the hit 0.04 s later).
     fx.update(0.08, 0.16);
     expect(fx.glowCount).toBe(0);
     expect(fx.tracerCount).toBe(0);
@@ -645,7 +645,7 @@ describe('P31b: flashes and tracers', () => {
     expect(Math.abs(wrapAngle(sr.getY(1) - sr.getY(0)))).toBeCloseTo(Math.PI / 2, 6);
   });
 
-  it('a tracer streak starts at the muzzle reaching most of the way on its first frame, then a 3 m streak flies on at 300 m/s', () => {
+  it('a tracer streak starts at the muzzle reaching most of the way on its first frame, held for 0.03 s, then a 3 m streak flies on at 300 m/s', () => {
     const fx = new Effects();
     const geo = (fx as unknown as { tracers: { mesh: THREE.Mesh } }).tracers.mesh.geometry as THREE.InstancedBufferGeometry;
     const seg = () => {
@@ -653,17 +653,22 @@ describe('P31b: flashes and tracers', () => {
       const b = geo.getAttribute('iTo') as THREE.InstancedBufferAttribute;
       return { from: a.getZ(0), to: b.getZ(0) };
     };
-    // 15 m: 80% of the way at once; the head waits there until the tail is 3 m behind it.
+    // 15 m: 80% of the way at once, for two frames; then the tail flies and the head waits until it is 3 m behind it.
     fx.tracer(0, 1, 0, 0, 1, 15);
     fx.update(DT, 0);
     expect(geo.instanceCount).toBe(1);
     expect(seg()).toEqual({ from: 0, to: 12 });
     fx.update(DT, 0);
-    expect(seg().from).toBeCloseTo(5, 5);
+    expect(seg()).toEqual({ from: 0, to: 12 });
+    fx.update(DT, 0);
+    expect(seg().from).toBeCloseTo(1, 5);
     expect(seg().to).toBeCloseTo(12, 5);
     fx.update(DT, 0);
-    expect(seg().from).toBeCloseTo(10, 5);
-    expect(seg().to).toBeCloseTo(13, 5);
+    expect(seg().from).toBeCloseTo(6, 5);
+    expect(seg().to).toBeCloseTo(12, 5);
+    fx.update(DT, 0);
+    expect(seg().from).toBeCloseTo(11, 5);
+    expect(seg().to).toBeCloseTo(14, 5);
     fx.update(DT, 0);
     // The tail reached the hit point at 15 m: gone.
     expect(geo.instanceCount).toBe(0);
@@ -671,9 +676,9 @@ describe('P31b: flashes and tracers', () => {
     fx.tracer(0, 1, 0, 0, 1, 100);
     fx.update(DT, 0);
     expect(seg()).toEqual({ from: 0, to: 20 });
-    for (let i = 0; i < 5; i++) fx.update(DT, 0);
-    expect(seg().from).toBeCloseTo(25, 4);
-    expect(seg().to).toBeCloseTo(28, 4);
+    for (let i = 0; i < 6; i++) fx.update(DT, 0);
+    expect(seg().from).toBeCloseTo(21, 4);
+    expect(seg().to).toBeCloseTo(24, 4);
     fx.update(DT, 0);
     expect(seg().to - seg().from).toBeCloseTo(3, 4);
     // A short one is drawn over its whole length less the last fifth, never less than 3 m.
@@ -1133,6 +1138,59 @@ describe('P32: table-driven numbers', () => {
     expect(boom).toBeLessThan(WEAPONS.rocket.range / 58 + 0.05);
   });
 
+  it('no punch lands through a garage wall, the player’s or a thug’s; with the wall gone the same punches land', () => {
+    const sim = makeSim({ police: false });
+    const p = sim.player;
+    let checked = 0;
+    for (const gar of sim.world.layout.garages) {
+      for (const w of gar.walls) {
+        const alongX = w.maxX - w.minX > w.maxZ - w.minZ;
+        const thick = alongX ? w.maxZ - w.minZ : w.maxX - w.minX;
+        if (thick > 0.6 || Math.max(w.maxX - w.minX, w.maxZ - w.minZ) < 3) continue;
+        // Both standing against it, one on either side of its middle: 1.3 m apart for a 0.5 m wall.
+        const cx = (w.minX + w.maxX) / 2;
+        const cz = (w.minZ + w.maxZ) / 2;
+        const nx = alongX ? 0 : 1;
+        const nz = alongX ? 1 : 0;
+        const off = thick / 2 + 0.4;
+        const a = { x: cx - nx * off, z: cz - nz * off };
+        const b = { x: cx + nx * off, z: cz + nz * off };
+        if (!sim.world.isFree(a.x, a.z, 0.35) || !sim.world.isFree(b.x, b.z, 0.35)) continue;
+        const wall = sim.world.grid.colliders.find((c) => c.tag === 'wall' && !c.broken && c.minX === w.minX && c.maxX === w.maxX && c.minZ === w.minZ && c.maxZ === w.maxZ)!;
+        expect(wall).toBeDefined();
+        teleport(sim, a.x, a.z);
+        p.heading = Math.atan2(b.x - a.x, b.z - a.z);
+        const thug = npcAt(sim, 'gang', b.x, b.z);
+        thug.brain = null;
+        thug.heading = p.heading + Math.PI;
+        const punches = record(sim, 'melee');
+        const punch = (c: Character) => {
+          c.fireCooldown = 0;
+          sim.combat.melee(c);
+        };
+        const where = `garage ${gar.poi} wall at (${cx.toFixed(1)}, ${cz.toFixed(1)})`;
+        const thugHp = thug.health;
+        const hp = p.health + p.armor;
+        punch(p);
+        punch(thug);
+        expect(thug.health, where).toBe(thugHp);
+        expect(p.health + p.armor, where).toBe(hp);
+        expect(punches.map((e) => e.hit), where).toEqual([false, false]);
+        // The same two punches with the wall knocked out of the way.
+        wall.broken = true;
+        punch(p);
+        punch(thug);
+        wall.broken = false;
+        expect(thug.health, where).toBeLessThan(thugHp);
+        expect(p.health + p.armor, where).toBeLessThan(hp);
+        thug.removed = true;
+        p.health = p.maxHealth;
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(3);
+  });
+
   it('a rocket explosion hits for WEAPONS.rocket.damage at its centre', () => {
     const sim = makeSim();
     const f = standOnOpenRoad(sim);
@@ -1308,6 +1366,129 @@ describe('car crews fire out of their own window, and their drawn gun points alo
 });
 
 // ---------------------------------------------------------------------------
+// Fix pass 2: the raise-the-gun solve converges at every range
+
+describe('a foot shooter raises the gun through the target: the shot leaves from the drawn tip along the drawn barrel', () => {
+  type Part = { mesh: THREE.InstancedMesh };
+  const GUNS = ['pistol', 'smg', 'shotgun', 'rifle', 'rocket'] as const;
+
+  /** The chest point muzzle() falls back on when someone stands along the barrel (point blank). */
+  const chestPoint = (c: Character): V3 => {
+    const fx = Math.sin(c.aimYaw);
+    const fz = Math.cos(c.aimYaw);
+    return { x: c.pos.x + fx * 0.55 - fz * 0.18, y: c.pos.y + c.height * 0.76, z: c.pos.z + fz * 0.55 + fx * 0.18 };
+  };
+  /** How far the line through `o` along the unit `d` passes from `q`. */
+  const miss = (o: V3, d: V3, q: V3): number => {
+    const x = q.x - o.x;
+    const y = q.y - o.y;
+    const z = q.z - o.z;
+    const a = x * d.x + y * d.y + z * d.z;
+    return Math.hypot(x - d.x * a, y - d.y * a, z - d.z * a);
+  };
+
+  it('0.5 to 30 m away, 60 degrees above to 60 below, from any earlier aim: the tip as drawn, the barrel through him', () => {
+    const sim = makeSim({ world: world(), police: false });
+    sim.cheats.godMode = true;
+    const f = standOnOpenRoad(sim);
+    const p = sim.player;
+    const ground = p.pos.y;
+    const cop = npcAt(sim, 'cop', p.pos.x - f.fx * 30, p.pos.z - f.fz * 30);
+    cop.inventory.infinite = true;
+    const cv = new CrowdView();
+    const fired = record(sim, 'weaponFired');
+    const shots = record(sim, 'shot');
+    let tipped = 0;
+    let pointBlank = 0;
+    for (const gun of GUNS) {
+      cop.inventory.give(gun, 99);
+      cop.inventory.current = gun;
+      // In hand already: no swap time.
+      cop.drawnWeapon = gun;
+      for (const dist of [0.5, 0.75, 1, 1.2, 1.5, 2, 3, 5, 8, 15, 30]) {
+        for (const elev of [-60, -30, 0, 30, 60]) {
+          for (const [yawOff, pitch0] of [[0, 0], [0.6, -0.5]] as const) {
+            // The cop `dist` m (on the ground) from the player, who is lifted or dropped so that the point the cop fires at
+            // (0.62 of his height) is `elev` degrees from the cop's shoulders; set up as the AI does, aiming along the ground.
+            cop.pos.x = p.pos.x - f.fx * dist;
+            cop.pos.z = p.pos.z - f.fz * dist;
+            cop.pos.y = ground;
+            cop.heading = f.h;
+            cop.aiming = true;
+            cop.aimYaw = f.h + yawOff;
+            cop.aimPitch = pitch0;
+            cop.fireCooldown = 0;
+            cop.reloadTimer = 0;
+            // Not the last round of the clip: the gun is still drawn as it was fired (a reload would bring it in).
+            cop.inventory.slot().clip = 5;
+            p.pos.y = ground + 1.5 * cop.appearance.height + Math.tan((elev * Math.PI) / 180) * dist - p.height * 0.62;
+            const target = { x: p.pos.x, y: p.pos.y + p.height * 0.62, z: p.pos.z };
+            fired.length = 0;
+            shots.length = 0;
+            sim.combat.npcFire(cop, p, 1);
+            const label = `${gun} ${dist} m ${elev} deg from (${yawOff}, ${pitch0})`;
+            expect(fired.length, label).toBe(1);
+            const e = fired[0]!;
+            const pose = weaponPose(cop);
+            // Drawn as published, the barrel runs through the target, at point blank too.
+            expect(miss(pose.tip, pose.dir, target), label).toBeLessThan(0.01);
+            const chest = chestPoint(cop);
+            if (Math.hypot(e.x - chest.x, e.y - chest.y, e.z - chest.z) < 1e-9) {
+              // The barrel reaches into him: the shot leaves from the chest instead, and still finds him.
+              pointBlank++;
+              expect(dist, label).toBeLessThanOrEqual(1.2);
+              if (gun !== 'rocket') expect(shots.some((s) => s.hit === 'flesh'), label).toBe(true);
+              continue;
+            }
+            tipped++;
+            expect(Math.hypot(e.x - pose.tip.x, e.y - pose.tip.y, e.z - pose.tip.z), label).toBeLessThan(0.02);
+            expect(Math.hypot(e.dx - pose.dir.x, e.dy - pose.dir.y, e.dz - pose.dir.z), label).toBeLessThan(1e-6);
+            // The gun CrowdView draws (past its recoil kick) ends there.
+            cop.shotTimer = 0;
+            cv.sync([cop], cop.pos.x, cop.pos.z, DT);
+            const part = (cv as unknown as { weapons: Map<WeaponId, Part> }).weapons.get(gun)!;
+            const m = new THREE.Matrix4();
+            part.mesh.getMatrixAt(0, m);
+            const t = WEAPON_POINTS[gun].tip;
+            expect(new THREE.Vector3(t.x, t.y, t.z).applyMatrix4(m).distanceTo(new THREE.Vector3(e.x, e.y, e.z)), label).toBeLessThan(0.02);
+          }
+        }
+      }
+    }
+    // Point blank (the target's body within the barrel's reach) is the exception, not the rule.
+    expect(tipped).toBeGreaterThan(pointBlank * 3);
+  });
+
+  it('at point blank the gun is drawn pointing at the target, not swung aside, and the shot hits him', () => {
+    for (const gun of ['pistol', 'rifle', 'shotgun'] as const) {
+      for (const dist of [0.72, 0.8, 1, 1.2]) {
+        const sim = makeSim({ world: world(), police: false });
+        const f = standOnOpenRoad(sim);
+        const p = sim.player;
+        const cop = npcAt(sim, 'cop', p.pos.x - f.fx * dist, p.pos.z - f.fz * dist);
+        cop.inventory.infinite = true;
+        cop.inventory.give(gun, 99);
+        cop.inventory.current = gun;
+        cop.heading = f.h;
+        cop.aiming = true;
+        cop.aimYaw = f.h;
+        cop.aimPitch = 0;
+        const hp = p.health + p.armor;
+        sim.combat.npcFire(cop, p, 1);
+        const pose = weaponPose(cop);
+        const target = { x: p.pos.x, y: p.pos.y + p.height * 0.62, z: p.pos.z };
+        expect(miss(pose.tip, pose.dir, target), `${gun} ${dist} m`).toBeLessThan(0.01);
+        // Turned towards him by no more than the barrel's offset from the body's axis requires (it sits by the right
+        // shoulder): the old two-step raise swung it 22-69 degrees aside here.
+        const off = Math.abs(wrapAngle(cop.aimYaw - f.h));
+        expect(off, `${gun} ${dist} m`).toBeLessThan(Math.asin(Math.min(1, 0.3 / dist)));
+        expect(p.health + p.armor, `${gun} ${dist} m`).toBeLessThan(hp);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Round-2 fixes: point blank, the crosshair on someone in front of the gun
 
 describe('point blank: the crosshair on someone in front of the gun hits him; beside or behind the shoulder it never does', () => {
@@ -1470,10 +1651,16 @@ describe('tracers read from the hip camera', () => {
     const dash = pathOnScreen(shot, 0, 3);
     expect(first).toBeGreaterThanOrEqual(0.85 * whole);
     expect(first).toBeGreaterThan(1.6 * dash);
-    // The next frame the streak has moved on, still drawn.
+    // It stays that long for the next frame too (about 33 ms in all), then flies on and is gone once it reaches the wall.
     frame();
     expect(R.effects.tracerCount).toBe(1);
-    expect(onScreen(0).px).toBeGreaterThan(3);
+    expect(onScreen(0).px).toBeGreaterThanOrEqual(0.85 * whole);
+    let frames = 2;
+    while (R.effects.tracerCount > 0 && frames < 30) {
+      frame();
+      frames++;
+    }
+    expect(frames).toBeLessThanOrEqual(6);
   });
 
   it('aimed, the same round shows at least 40 px on its first frame', () => {
@@ -1537,6 +1724,81 @@ describe('the muzzle light shines ahead of the barrel, not into the shooter’s 
     expect(lux).toBeLessThanOrEqual(6 + 1e-9);
     // Ahead of him along the shot, not at his shoulder.
     expect((light.position.x - p.pos.x) * f.fx + (light.position.z - p.pos.z) * f.fz).toBeGreaterThan(0.9);
+  });
+
+  it.each(['pistol', 'smg', 'rifle', 'shotgun'] as const)('a %s fired into a wall right in front of him lights its face: the light stays short of it', (weapon) => {
+    const W = world();
+    const R = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, W, { quality: 'low', fov: 68 });
+    // Wall faces from inside the barrel's reach (the gun pokes through and the pull is blocked) to just past the tip.
+    for (const face of [0.38, 0.45, 0.55, 0.7, 0.85]) {
+      for (const aim of [true, false]) {
+        const sim = makeSim({ world: W, police: false });
+        const f = standOnOpenRoad(sim);
+        const p = sim.player;
+        arm(sim, weapon);
+        R.attach(sim);
+        step(sim, 0.4);
+        wallAhead(sim, f, face);
+        const home = { x: p.pos.x, z: p.pos.z };
+        const target = { x: p.pos.x + f.fx * 6, y: p.pos.y + 1.3, z: p.pos.z + f.fz * 6 };
+        step(sim, 0.2, () => {
+          teleport(sim, home.x, home.z);
+          p.heading = f.h;
+          return aimAt(sim, target, { aim });
+        });
+        teleport(sim, home.x, home.z);
+        const fired = record(sim, 'weaponFired');
+        const shots = record(sim, 'shot');
+        sim.update(DT, aimAt(sim, target, { fire: true, firePressed: true, aim }));
+        R.render(DT, aim);
+        const label = `${weapon} wall ${face} m ${aim ? 'aimed' : 'hip'}`;
+        expect(fired.length, label).toBe(1);
+        expect(shots.length, label).toBeGreaterThan(0);
+        expect(shots.every((s) => s.hit === 'world'), label).toBe(true);
+        const ahead = (q: { x: number; z: number }) => (q.x - p.pos.x) * f.fx + (q.z - p.pos.z) * f.fz;
+        const light = R.effects.muzzle;
+        const flash = ahead(fired[0]!);
+        // On this side of the face it is shot at: 0.15 m short of it, or at the flash when that is nearer still
+        // (a tip a few centimetres from the wall), never behind the flash; near enough to light it, and lit.
+        expect(face - ahead(light.position), label).toBeGreaterThanOrEqual(Math.min(0.15, face - flash) - 0.005);
+        expect(ahead(light.position), label).toBeGreaterThanOrEqual(flash - 1e-6);
+        expect(ahead(light.position), label).toBeGreaterThan(face - 0.45);
+        expect(light.intensity, label).toBeGreaterThan(0.5);
+        sim.world.grid.colliders[sim.world.grid.colliders.length - 1]!.broken = true;
+      }
+    }
+  });
+
+  it('a shot into the open keeps the light the full 0.6 m out; a surface nearer than that keeps it 0.15 m in front', () => {
+    const fx = new Effects();
+    const at = () => [fx.muzzle.position.x, fx.muzzle.position.y, fx.muzzle.position.z];
+    fx.muzzleFlash(1, 1.4, 2, FLASH_SIZE.rifle, { dx: 0, dy: 0, dz: 1, shooter: null });
+    // Hits further than 0.75 m, from another muzzle, or on a surface facing away, leave it.
+    fx.shotLanded(1, 1.4, 2, 1, 1.4, 12, 0, 0, -1);
+    fx.shotLanded(1, 1.4, 1.5, 1, 1.4, 1.7, 0, 0, -1);
+    fx.shotLanded(1, 1.4, 2, 1, 1.4, 2.3, 0, 0, 1);
+    expect(at()).toEqual([1, 1.4, 2.6]);
+    // The nearest of a blast's pellets counts.
+    fx.shotLanded(1, 1.4, 2, 1.05, 1.4, 2.5, 0, 0, -1);
+    fx.shotLanded(1, 1.4, 2, 1, 1.4, 2.4, 0, 0, -1);
+    fx.shotLanded(1, 1.4, 2, 1, 1.4, 2.45, 0, 0, -1);
+    expect(fx.muzzle.position.z).toBeCloseTo(2.25, 9);
+    expect(fx.muzzle.intensity).toBeCloseTo(55 * FLASH_SIZE.rifle, 6);
+    // A wall the shot meets at 60 degrees: 0.15 m in front of its plane, along the shot.
+    fx.muzzleFlash(1, 1.4, 2, FLASH_SIZE.rifle, { dx: 0, dy: 0, dz: 1, shooter: null });
+    const n = { x: -Math.sin(Math.PI / 3), z: -Math.cos(Math.PI / 3) };
+    fx.shotLanded(1, 1.4, 2, 1.1, 1.4, 2.5, n.x, 0, n.z);
+    const lp = at();
+    expect(lp[0]).toBe(1);
+    expect((lp[0]! - 1.1) * n.x + (lp[2]! - 2.5) * n.z).toBeCloseTo(0.15, 9);
+    // A hit at the muzzle leaves the light there; a frame later the pull is over and nothing moves it.
+    fx.shotLanded(1, 1.4, 2, 1, 1.4, 2.05, 0, 0, -1);
+    expect(fx.muzzle.position.z).toBeCloseTo(2, 9);
+    fx.muzzleFlash(1, 1.4, 2, FLASH_SIZE.rifle, { dx: 0, dy: 0, dz: 1, shooter: null });
+    fx.update(DT, 0);
+    fx.update(DT, 0);
+    fx.shotLanded(1, 1.4, 2, 1, 1.4, 2.3, 0, 0, -1);
+    expect(fx.muzzle.position.z).toBeCloseTo(2.6, 9);
   });
 });
 

@@ -1,11 +1,13 @@
 // Synthesised sound effects, the player's vehicle, sirens, the ambience bed and the mix (mixer.ts).
 // Everything is generated with WebAudio nodes; there are no audio files.
 
+import { makeContact, obbVsObb, type OBB } from '../core/collision';
 import { clamp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import type { SimEvents } from '../sim/events';
 import type { Sim } from '../sim/sim';
 import type { VehicleKind, WeaponId } from '../sim/specs';
+import { vehicleObb } from '../sim/vehiclePhysics';
 import type { Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { Ambience, shoreInfo, type AmbienceFrame, type ShoreInfo } from './ambience';
@@ -43,6 +45,23 @@ const EXPLOSION_HOLD = 0.15;
  * Below it the engine steps back under the radio only as far as the radio can be heard; at 0 not at all.
  */
 const RADIO_FULL = 0.3;
+/** Two cars still touch this far apart (m): the physics pushes a grinding pair 1 mm apart before it reports the scrape. */
+const TOUCH_GAP = 0.05;
+const touchA: OBB = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
+const touchB: OBB = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
+const touchContact = makeContact();
+
+/**
+ * True when vehicles `a` and `b` touch: outlines within TOUCH_GAP of each other, at heights the vehicle physics lets
+ * collide. A pair grinding along each other is reported once, as a scrape of the faster car only.
+ */
+function touching(a: Vehicle, b: Vehicle): boolean {
+  if (a === b || a.pos.y > b.pos.y + b.spec.height - 0.2 || b.pos.y > a.pos.y + a.spec.height - 0.2) return false;
+  vehicleObb(a, touchA);
+  touchA.hw += TOUCH_GAP;
+  touchA.hl += TOUCH_GAP;
+  return obbVsObb(touchA, vehicleObb(b, touchB), touchContact);
+}
 
 export class AudioEngine {
   ctx: AudioContext | null = null;
@@ -77,7 +96,9 @@ export class AudioEngine {
   /** Counts update() calls. */
   private frame = 0;
   private subtitleTimer = 0;
+  /** Seconds left of the result-card duck: the passed / wasted / busted cards', and the MISSION FAILED cards' apart. */
   private bigTimer = 0;
+  private failTimer = 0;
   private explosionTimer = 0;
   private explosionDist = Infinity;
   private inVehicle = false;
@@ -167,6 +188,7 @@ export class AudioEngine {
     this.unsub = [];
     this.subtitleTimer = 0;
     this.bigTimer = 0;
+    this.failTimer = 0;
     this.explosionTimer = 0;
     this.explosionDist = Infinity;
     // Sound handlers run inside sim.update(): isolate them from it.
@@ -188,7 +210,11 @@ export class AudioEngine {
       // The player's own crashes (his car hitting something, landing, running someone over) sound inside the car,
       // not through the in-car muffling of the world outside.
       on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength, !!e.vehicle && e.vehicle === sim.player.vehicle)),
-      on('scrape', (e) => this.scrape(e.x, e.y, e.z, e.speed, e.vehicle === sim.player.vehicle)),
+      // His car grinding along something, or a faster car grinding along his (reported as that car's scrape).
+      on('scrape', (e) => {
+        const own = sim.player.vehicle;
+        this.scrape(e.x, e.y, e.z, e.speed, !!own && (e.vehicle === own || touching(e.vehicle, own)));
+      }),
       on('melee', (e) => this.punch(e.x, e.y, e.z, e.hit)),
       on('horn', (e) => {
         // The player's own horn is a continuous voice (updateHorn); AI taps play here.
@@ -212,7 +238,14 @@ export class AudioEngine {
         else if (e.style === 'failed' || e.style === 'wasted' || e.style === 'busted') this.chime('fail');
         else if (e.style === 'stunt') this.chime('stunt');
         // Result cards duck everything but the UI bus (where their sting plays) while they show.
-        if ((e.style === 'passed' || e.style === 'failed' || e.style === 'wasted' || e.style === 'busted') && finite(e.duration)) this.bigTimer = Math.max(this.bigTimer, e.duration);
+        if (!finite(e.duration)) return;
+        if (e.style === 'failed') this.failTimer = Math.max(this.failTimer, e.duration);
+        else if (e.style === 'passed' || e.style === 'wasted' || e.style === 'busted') this.bigTimer = Math.max(this.bigTimer, e.duration);
+      }),
+      // A mission starting (a retry above all) takes a MISSION FAILED card down, showing or waiting (as the HUD does),
+      // and its duck with it.
+      on('missionStarted', () => {
+        this.failTimer = 0;
       }),
       on('subtitle', (e) => {
         // Dialogue ducks the music and the ambience for as long as the line shows (as in the HUD).
@@ -655,6 +688,7 @@ export class AudioEngine {
     this.radio.update(dt, inGame && !!pv && !pv.destroyed);
     this.subtitleTimer = Math.max(0, this.subtitleTimer - step);
     this.bigTimer = Math.max(0, this.bigTimer - step);
+    this.failTimer = Math.max(0, this.failTimer - step);
     if (this.explosionTimer > 0) {
       this.explosionTimer -= step;
       if (this.explosionTimer <= 0) this.explosionDist = Infinity;
@@ -663,7 +697,7 @@ export class AudioEngine {
     // The radio is as present in the mix as the music volume lets it be heard (switched off or at 0: not at all).
     const radio = this.radio.playing ? clamp(this.volumes.music / RADIO_FULL, 0, 1) : 0;
     const m = mixTargets(
-      { inVehicle: this.inVehicle, radio, subtitleActive: this.subtitleTimer > 0, explosionDist: this.explosionDist, paused: this.paused, bigScreen: this.bigTimer > 0 },
+      { inVehicle: this.inVehicle, radio, subtitleActive: this.subtitleTimer > 0, explosionDist: this.explosionDist, paused: this.paused, bigScreen: this.bigTimer > 0 || this.failTimer > 0 },
       this.mix,
     );
     this.mixer!.update(m, t, this.explosionTimer > 0);
