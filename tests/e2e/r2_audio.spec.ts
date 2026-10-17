@@ -224,6 +224,55 @@ test.describe('GTA 7 audio mix', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a car grinding along a container plays a grind for every scrape', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    const ok = await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      const sim = g.sim;
+      g.godMode(true);
+      sim.policeEnabled = false;
+      // A ground-floor container with a clear lane along one long side.
+      const blocked = (x0: number, z0: number, x1: number, z1: number): boolean =>
+        sim.world.grid.colliders.some((c: Api) => !c.broken && c.maxX > x0 && c.minX < x1 && c.maxZ > z0 && c.minZ < z1);
+      for (const p of sim.world.layout.props) {
+        if (p.kind !== 'container' || p.y > 1 || p.w < p.d) continue;
+        for (const side of [-1, 1]) {
+          const face = p.z + (side * p.d) / 2;
+          if (blocked(p.x - p.w / 2 - 6, Math.min(face + side * 0.05, face + side * 4), p.x + p.w / 2 + 6, Math.max(face + side * 0.05, face + side * 4))) continue;
+          const w = window as Api;
+          for (const v of [...sim.vehicles]) sim.removeVehicle(v);
+          // Alongside the container, its side 3 cm into the container's, held at 14 m/s along it.
+          const v = sim.spawnVehicle('sedan', p.x - p.w / 2 + 3, face + side * 0.97, Math.PI / 2);
+          sim.seat(sim.player, v, 0);
+          g.game.renderer.cameraCtl.reset(sim);
+          w.__scrapes = 0;
+          sim.events.on('scrape', (e: Api) => {
+            if (e.vehicle === v) w.__scrapes++;
+          });
+          const update = sim.update.bind(sim);
+          sim.update = (dt: number, inp: Api) => {
+            if (w.__scrapes < 6) {
+              v.vel.x = 14;
+              v.vel.z = -side * 0.8;
+              v.angVel = 0;
+            }
+            update(dt, inp);
+          };
+          w.__grinds0 = g.game.audio.counters.scrapes;
+          return true;
+        }
+      }
+      return false;
+    });
+    expect(ok).toBe(true);
+    await page.waitForFunction(() => (window as Api).__scrapes >= 6, null, { timeout: 10_000 });
+    const r = await page.evaluate(() => ({ scrapes: (window as Api).__scrapes as number, grinds: ((window as Api).__gta7.game.audio.counters.scrapes as number) - (window as Api).__grinds0 }));
+    // One grind per scrape the sim reports (the listener is right behind the car).
+    expect(r.grinds).toBeGreaterThanOrEqual(r.scrapes);
+    expect(errors).toEqual([]);
+  });
+
   test('pressing F next to a car plays one door thunk', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);

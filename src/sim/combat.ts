@@ -242,9 +242,17 @@ export class CombatSystem {
     this.startCooldown(c, (1 / w.rate) * (w.auto ? 1.4 : 2.2) + this.sim.rng.range(0, 0.25));
     c.shotTimer = 0.07;
     c.aimHold = 1.2;
-    const from = this.muzzle(c, fromVehicle);
     const tp = target.vehicle ? target.vehicle.pos : target.pos;
     const ty = target.vehicle ? tp.y + 0.9 : tp.y + target.height * 0.62;
+    let from = this.muzzle(c, fromVehicle);
+    // On foot the barrel tip moves with the aim: the gun is raised at the target first (the tip settles in two steps),
+    // so that the shot leaves from the tip as it is drawn. A car window is a fixed muzzle.
+    if (!(fromVehicle && c.vehicle)) {
+      for (let k = 0; k < 2; k++) {
+        this.aimAlong(c, tp.x - from.x, ty - from.y, tp.z - from.z);
+        from = this.muzzle(c, fromVehicle);
+      }
+    }
     let dx = tp.x - from.x;
     let dy = ty - from.y;
     let dz = tp.z - from.z;
@@ -253,13 +261,20 @@ export class CombatSystem {
     dy /= dist;
     dz /= dist;
     // The gun as drawn points along the shot (a car crew's held out of the window, a foot shooter's raised at the target).
-    c.aimYaw = Math.atan2(dx, dz);
-    c.aimPitch = Math.asin(clamp(dy, -1, 1));
+    this.aimAlong(c, dx, dy, dz);
     const tSpeed = target.vehicle ? target.vehicle.speed : target.speed;
     const err = w.spread + (1 - accuracy) * 0.075 + tSpeed * 0.004 + dist * 0.0009;
     // From a car window there is no chest-to-muzzle wall check; on foot (also when asked for a car he has left) there is.
     this.discharge(c, w, from, dx, dy, dz, err, fromVehicle && c.vehicle ? null : this.muzzleWall(c, from));
     if (slot.clip === 0) this.startReload(c);
+  }
+
+  /** Points a character's aim (yaw and pitch, as drawn and as the barrel tip follows) along (dx, dy, dz). */
+  private aimAlong(c: Character, dx: number, dy: number, dz: number): void {
+    const l = Math.hypot(dx, dy, dz);
+    if (!(l > 1e-9)) return;
+    c.aimYaw = Math.atan2(dx, dz);
+    c.aimPitch = Math.asin(clamp(dy / l, -1, 1));
   }
 
   /**

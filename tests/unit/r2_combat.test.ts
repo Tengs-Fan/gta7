@@ -4,7 +4,6 @@
 // The render checks run headless: the stub header below is copied from fix_render.test.ts.
 
 import * as THREE from 'three';
-import { writeFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { V3 } from '../../src/core/math';
 import { wrapAngle } from '../../src/core/math';
@@ -15,7 +14,7 @@ import { GameRenderer } from '../../src/render/renderer';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
 import type { PlayerInput } from '../../src/sim/input';
-import { WEAPON_POINTS } from '../../src/sim/pose';
+import { WEAPON_POINTS, weaponPose } from '../../src/sim/pose';
 import type { Sim } from '../../src/sim/sim';
 import { WEAPONS, type WeaponId } from '../../src/sim/specs';
 import type { StaticWorld } from '../../src/world/staticWorld';
@@ -1241,6 +1240,35 @@ describe('car crews fire out of their own window, and their drawn gun points alo
     expect(g.aimPitch).toBeLessThan(0);
   });
 
+  it.each([
+    ['above him', 5],
+    ['level with him', 0],
+    ['below him', -3],
+  ])('a foot shooter firing at a target %s raises the gun first: the shot leaves from the barrel tip as drawn', (_name, up) => {
+    const sim = makeSim({ police: false });
+    const f = standOnOpenRoad(sim);
+    const p = sim.player;
+    const cop = npcAt(sim, 'cop', p.pos.x + f.fx * 8, p.pos.z + f.fz * 8);
+    cop.inventory.infinite = true;
+    cop.inventory.give('rifle', 99);
+    cop.inventory.current = 'rifle';
+    // Set up by the AI as it does: aiming along the ground at the player, the gun level.
+    cop.heading = f.h + Math.PI;
+    cop.aiming = true;
+    cop.aimYaw = cop.heading;
+    cop.aimPitch = 0;
+    p.pos.y += up;
+    const fired = record(sim, 'weaponFired');
+    sim.combat.npcFire(cop, p, 1);
+    expect(fired.length).toBe(1);
+    const e = fired[0]!;
+    // The gun as drawn after the shot (its published aim) has its tip where the shot left, pointing along it.
+    const tip = weaponPose(cop).tip;
+    expect(Math.hypot(tip.x - e.x, tip.y - e.y, tip.z - e.z)).toBeLessThan(0.03);
+    expect(cop.aimPitch).toBeCloseTo(Math.asin(e.dy), 9);
+    if (up > 0) expect(cop.aimPitch).toBeGreaterThan(0.3);
+  });
+
   it('the player’s drive-by from the driver’s seat still leaves from the left window', () => {
     const sim = makeSim({ police: false });
     const r = openRoad(sim);
@@ -1440,7 +1468,6 @@ describe('tracers read from the hip camera', () => {
     // into the crosshair), and a 3 m streak about half of that, partly behind his arm.
     const whole = pathOnScreen(shot, 0, Math.hypot(shot.tx - shot.fx, shot.ty - shot.fy, shot.tz - shot.fz));
     const dash = pathOnScreen(shot, 0, 3);
-    writeFileSync('/home/tengs/.claude/jobs/39f78d2d/tmp/r2fix/run/combat/probes/tracer_hip.txt', `hip f0 ${first.toFixed(1)} px, whole path ${whole.toFixed(1)} px, 3 m dash ${dash.toFixed(1)} px\n`);
     expect(first).toBeGreaterThanOrEqual(0.85 * whole);
     expect(first).toBeGreaterThan(1.6 * dash);
     // The next frame the streak has moved on, still drawn.
