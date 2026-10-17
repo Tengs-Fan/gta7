@@ -1,9 +1,10 @@
 // Room for a vehicle: whether one of a kind fits at a spot, clear not only of the static world
 // (StaticWorld.isFree knows nothing else) but of the cars and the people already there, and the
 // nearest spot where it does. A vehicle spawned into another one is shoved out by the physics in
-// plain view on its first step.
+// plain view on its first step. Mission vehicles, SPAWNSPORTS and the parked cars streamed into
+// their bays (traffic.ts) all ask here.
 
-import { circleVsObb, makeContact, obbVsObb, type OBB } from '../core/collision';
+import { circleVsObb, makeContact, obbRadius, obbVsObb, type OBB } from '../core/collision';
 import type { Vehicle } from './entities';
 import type { Sim } from './sim';
 import { VEHICLE_SPECS, type VehicleKind } from './specs';
@@ -30,15 +31,16 @@ function footprint(kind: VehicleKind, x: number, z: number, heading: number): OB
 /** Collects into `out` (or stops at the first one without it) the vehicles in the way; true if there are any. */
 function scanVehicles(sim: Sim, kind: VehicleKind, x: number, z: number, heading: number, out?: Vehicle[]): boolean {
   const b = footprint(kind, x, z, heading);
-  const reach = Math.hypot(b.hw, b.hl);
+  const reach = obbRadius(b);
   const y = sim.world.groundHeight(x, z);
   const height = VEHICLE_SPECS[kind].height;
   let found = false;
   for (const v of sim.vehicles) {
     if (v.removed) continue;
-    if (Math.hypot(v.pos.x - x, v.pos.z - z) >= reach + Math.hypot(v.halfW, v.halfL)) continue;
-    // One overhead (on a deck, in the air) or below is not in the way.
-    if (v.pos.y > y + height || y > v.pos.y + v.spec.height) continue;
+    if (Math.hypot(v.pos.x - x, v.pos.z - z) > reach + Math.hypot(v.halfW, v.halfL)) continue;
+    // One overhead (on a deck, in the air) or below is not in the way: vehicles at different heights do not
+    // collide (the same rule as collideVehicles).
+    if (v.pos.y > y + height - 0.2 || y > v.pos.y + v.spec.height - 0.2) continue;
     if (!obbVsObb(b, vehicleObb(v, other), contact)) continue;
     found = true;
     if (!out) return true;
@@ -54,6 +56,11 @@ export function vehiclesInTheWay(sim: Sim, kind: VehicleKind, x: number, z: numb
   return out;
 }
 
+/** Whether a `kind` placed at (x, z) facing `heading` keeps ROOM_GAP clear of every vehicle's body at its height. */
+export function clearOfVehicles(sim: Sim, kind: VehicleKind, x: number, z: number, heading: number): boolean {
+  return !scanVehicles(sim, kind, x, z, heading);
+}
+
 /** Someone on foot (the player too) or a body lies where a `kind` at (x, z) facing `heading` would stand. */
 function peopleInTheWay(sim: Sim, kind: VehicleKind, x: number, z: number, heading: number): boolean {
   const b = footprint(kind, x, z, heading);
@@ -67,7 +74,7 @@ function peopleInTheWay(sim: Sim, kind: VehicleKind, x: number, z: number, headi
 /** A `kind` at (x, z) facing `heading` fits there: clear of walls, props and deep water, of cars and of people. */
 export function vehicleFits(sim: Sim, kind: VehicleKind, x: number, z: number, heading: number): boolean {
   const s = VEHICLE_SPECS[kind];
-  return sim.world.isFree(x, z, Math.hypot(s.width / 2, s.length / 2)) && !scanVehicles(sim, kind, x, z, heading) && !peopleInTheWay(sim, kind, x, z, heading);
+  return sim.world.isFree(x, z, Math.hypot(s.width / 2, s.length / 2)) && clearOfVehicles(sim, kind, x, z, heading) && !peopleInTheWay(sim, kind, x, z, heading);
 }
 
 /**
