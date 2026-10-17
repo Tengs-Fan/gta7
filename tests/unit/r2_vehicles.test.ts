@@ -8,7 +8,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Effects } from '../../src/render/effects';
 import { GameRenderer } from '../../src/render/renderer';
 import { DentedGeometry, displace, triangulateCDT, type Pt } from '../../src/render/vehicleGeometry';
-import { cabinLayout, leanRoom, setVehicleGlow, VehicleView, VehicleViewPool, vehicleGlass } from '../../src/render/vehicleView';
+import { cabinLayout, leanRoom, VehicleView, VehicleViewPool, vehicleGlass } from '../../src/render/vehicleView';
 import { MAX_DENTS, type Dent, type Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
@@ -1440,38 +1440,41 @@ describe('round-2 fixes 2: light bars with and without bloom', () => {
 
   it('a lit light bar blooms on the tiers with bloom, keeps its red and blue without it, and follows the tier', () => {
     const sim = makeSim({ world: W });
-    const b = sim.world.layout.bounds;
-    const v = sim.spawnVehicle('police', b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0);
+    sim.clock.set(23);
+    const p = sim.player.pos;
+    const v = sim.spawnVehicle('police', p.x + 6, p.z, 0);
     v.siren = true;
-    const view = new VehicleView('police');
-    view.bind(v);
-    /** The lit lens's emitted colour: the red one shows in the first sixth of a second, the blue one in the next. */
-    const lit = (which: 'red' | 'blue'): THREE.Color => {
-      view.sync(v, DT, which === 'red' ? 0.05 : 0.22, 1);
+    /** The lit lens's emitted colour after the renderer draws a frame: the red one shows in the first sixth of a second, the blue one in the next. */
+    const lit = (r: GameRenderer, which: 'red' | 'blue'): THREE.Color => {
+      r.time = which === 'red' ? 0.05 : 0.22;
+      r.render(0, false);
+      const view = (r as unknown as { vehicleViews: Map<number, VehicleView> }).vehicleViews.get(v.id)!;
       const m = (view as unknown as Record<string, THREE.MeshStandardMaterial>)[which === 'red' ? 'sirenRed' : 'sirenBlue']!;
       return m.emissive.clone().multiplyScalar(m.emissiveIntensity);
     };
-    const high = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, W, { quality: 'high', fov: 68, gpu: HDR });
+    const canvas = (): HTMLCanvasElement => document.createElement('canvas') as unknown as HTMLCanvasElement;
+    const high = new GameRenderer(canvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    high.attach(sim);
     const threshold = (high as unknown as { bloom: UnrealBloomPass }).bloom.threshold;
-    for (const which of ['red', 'blue'] as const) expect(lum(lit(which)), which).toBeGreaterThan(threshold);
+    for (const which of ['red', 'blue'] as const) expect(lum(lit(high, which)), which).toBeGreaterThan(threshold);
     // Without bloom only the lamp is drawn: tone-mapped, it is still red, and blue.
     high.setQuality('low');
-    const [rr, rg, rb] = display(lit('red'));
+    const [rr, rg, rb] = display(lit(high, 'red'));
     expect(rr - Math.max(rg, rb), `red ${rr},${rg},${rb}`).toBeGreaterThan(150);
-    const [br, bg, bb] = display(lit('blue'));
+    const [br, bg, bb] = display(lit(high, 'blue'));
     expect(bb - Math.max(br, bg), `blue ${br},${bg},${bb}`).toBeGreaterThan(100);
     high.setQuality('high');
-    expect(lum(lit('red'))).toBeGreaterThan(threshold);
+    expect(lum(lit(high, 'red'))).toBeGreaterThan(threshold);
     // No half-float target, no bloom on any tier: High draws the light bar as Low does.
-    const plain = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, W, { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat: false } });
-    const [pr, pg, pb] = display(lit('red'));
+    const plain = new GameRenderer(canvas(), W, { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat: false } });
+    plain.attach(sim);
+    const [pr, pg, pb] = display(lit(plain, 'red'));
     expect(pr - Math.max(pg, pb)).toBeGreaterThan(150);
     // Unlit, the lenses are dim.
     v.siren = false;
-    expect(lum(lit('red'))).toBeLessThan(0.05);
-    expect(lum(lit('blue'))).toBeLessThan(0.05);
+    expect(lum(lit(plain, 'red'))).toBeLessThan(0.05);
+    expect(lum(lit(plain, 'blue'))).toBeLessThan(0.05);
     high.dispose();
     plain.dispose();
-    setVehicleGlow(true);
   });
 });

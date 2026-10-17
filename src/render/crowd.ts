@@ -12,7 +12,7 @@ import {
   SWIM_HIP, SWIM_TREAD_LEAN, WEAPON_POINTS, seatSide, windowMuzzle, type Trunk, type WeaponPose,
 } from '../sim/pose';
 import type { VehicleKind, WeaponId } from '../sim/specs';
-import { gait, makeGaitOut, makeTwoBone, solveLeg, solveTwoBone, type LegPose } from './gait';
+import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
 import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
 
 const MAX = 240;
@@ -573,6 +573,9 @@ export class CrowdView {
       f.z = lerp(f.z, -0.08 * s, air);
       f.pitch = lerp(f.pitch, -0.45, air);
     }
+    // Easing a foot rolled up on its toes or heel towards a flat one can tip that edge under the ground: lift it back.
+    const low = soleLow(f.y, f.pitch, s);
+    if (low < 0) f.y -= low;
     solveLeg(side * hx, hipY, s, leg);
   }
 

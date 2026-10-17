@@ -659,9 +659,9 @@ export const GUN_PORT = { z0: -0.24, z1: -0.07, y0: 0.6, y1: 0.8 } as const;
 
 /**
  * Where along each vehicle its front and rear rows of seats fire from, as a fraction of its length ahead of its centre:
- * the side window beside the row. A car's riders fire beside their seats (the rear row as CrowdView seats it, under the
- * roof's rear edge). The van's and the riot van's side windows are in the cab, well forward of the centre; the riot van's
- * crew in the back fire through its gun ports. A bus's windows run its whole length.
+ * the side window beside the row. A car's riders fire beside their seats; its rear row sits here too (VehicleView seats
+ * it here, its heads under the roof's rear edge). The van's and the riot van's side windows are in the cab, well forward
+ * of the centre; the riot van's crew in the back fire through its gun ports. A bus's windows run its whole length.
  */
 const FIRING_ROWS: Readonly<Record<VehicleKind, readonly [number, number]>> = {
   compact: [0, 0],
@@ -676,17 +676,34 @@ const FIRING_ROWS: Readonly<Record<VehicleKind, readonly [number, number]>> = {
   swat: [0.283, (GUN_PORT.z0 + GUN_PORT.z1) / 2],
 };
 
+/** How far ahead of a vehicle's centre (m) its front or rear row of seats fires from (FIRING_ROWS). */
+export function firingRow(kind: VehicleKind, length: number, rear: boolean): number {
+  return FIRING_ROWS[kind][rear ? 1 : 0] * length;
+}
+
 /**
  * Where a shot fired from seat `seat` of vehicle `v` leaves: out of that seat's own window (FIRING_ROWS), 0.2 m outside
- * the body side at three quarters of the vehicle's height. This is the point CombatSystem.muzzle(c, true) fires from (the
- * shooter's own window by seat), and CrowdView draws the barrel end of a drive-by gun on it.
+ * the body side at three quarters of the vehicle's height, pitched with the body (about its centre, half its height up,
+ * as VehicleView draws it) on a slope or a ramp. This is the point CombatSystem.muzzle(c, true) fires from (the shooter's
+ * own window by seat), and CrowdView draws the barrel end of a drive-by gun on it.
  */
-export function windowMuzzle(v: Pick<Vehicle, 'pos' | 'heading' | 'halfW' | 'spec'>, seat: number, out: V3): V3 {
+export function windowMuzzle(v: Pick<Vehicle, 'pos' | 'heading' | 'pitch' | 'halfW' | 'spec'>, seat: number, out: V3): V3 {
   const across = seatSide(seat) * (v.halfW + 0.2);
-  const along = FIRING_ROWS[v.spec.kind][seat >= 2 ? 1 : 0] * v.spec.length;
-  const c = Math.cos(v.heading);
-  const s = Math.sin(v.heading);
-  return set(out, v.pos.x + c * across + s * along, v.pos.y + v.spec.height * 0.75, v.pos.z - s * across + c * along);
+  const along = firingRow(v.spec.kind, v.spec.length, seat >= 2);
+  const centre = v.spec.height * 0.5;
+  const up = v.spec.height * 0.75 - centre;
+  const ch = Math.cos(v.heading);
+  const sh = Math.sin(v.heading);
+  const pitch = Number.isFinite(v.pitch) ? v.pitch : 0;
+  const cp = Math.cos(pitch);
+  const sp = Math.sin(pitch);
+  // Body axes, nose up for a positive pitch: left (ch, 0, -sh), up (-sh sp, cp, -ch sp), forward (sh cp, sp, ch cp).
+  return set(
+    out,
+    v.pos.x + ch * across - sh * sp * up + sh * cp * along,
+    v.pos.y + centre + cp * up + sp * along,
+    v.pos.z - sh * across - ch * sp * up + ch * cp * along,
+  );
 }
 
 /**

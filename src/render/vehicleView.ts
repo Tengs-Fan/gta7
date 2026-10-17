@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { clamp, damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
-import { GUN_PORT, SKELETON } from '../sim/pose';
+import { firingRow, GUN_PORT, SKELETON } from '../sim/pose';
 import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
 import { chaseOffset, CHASE_TARGET_Y } from './camera';
 import { taxiSignTexture } from './textures';
@@ -14,7 +14,10 @@ import { crackedGlassTexture, GLASS_TINT } from './vehicleTextures';
 const BEVEL = 0.07;
 /** Vertex shade of the cabin interior, window backings and wheel wells (paint is 1). */
 const DARK = 0.08;
-/** Clearance between a tyre and its wheel arch. */
+/**
+ * Clearance between a tyre and its wheel arch. The arch is a tunnel through the body's width, so a wider gap would show
+ * the street through the car over the tyres; a long-travel class's tyre tucks further into its dark well instead.
+ */
 const ARCH_GAP = 0.11;
 /**
  * How far the body of a sedan (wheel radius 0.34, gains 1) may come down onto a planted wheel as it leans: the arch's
@@ -57,12 +60,6 @@ const SIREN: Readonly<Record<'glow' | 'flat', { readonly red: Rgb; readonly blue
   glow: { red: [13, 0.4, 0.1], blue: [0.1, 1.6, 26] },
   flat: { red: [1, 0.02, 0.01], blue: [0.02, 0.1, 1.5] },
 };
-let sirenGlow = true;
-
-/** Whether bloom draws halos round bright lights (GameRenderer.setQuality), which picks the light bars' colours (SIREN). */
-export function setVehicleGlow(on: boolean): void {
-  sirenGlow = on;
-}
 
 /**
  * How far from a dent of `depth` a lamp is smashed: nothing below 4 cm (a parking bump), growing to LAMP_BREAK_DIST at
@@ -229,9 +226,9 @@ function computeLayout(kind: VehicleKind, prof: Profile): CabinLayout {
   const wzMax = (shield ? shield[1] : ft[0]) - 0.03 - WHEEL_RADIUS * Math.sin(WHEEL_TILT);
   const frontZ = Math.min(0.15, wzMax - WHEEL_AHEAD);
   const wheel = { x: hw * 0.45, y: wy, z: Math.min(wzMax, frontZ + WHEEL_AHEAD), radius: WHEEL_RADIUS, tilt: WHEEL_TILT };
-  // The rear row far enough forward that its heads, tall and capped ones too, are under the roof, not the sloping rear
-  // window.
-  const rearZ = prof.rearSeats ? Math.max(-0.9, rt[0] + 0.4) : null;
+  // The rear row where its riders fire from their windows (sim/pose.ts), far enough forward that their heads, tall and
+  // capped ones too, are under the roof, not the sloping rear window.
+  const rearZ = prof.rearSeats ? firingRow(kind, s.length, true) : null;
   // Riders sit no lower than their thighs' depth over the body's bevelled floor pan.
   const seatLow = prof.body[0]![1] - BEVEL + THIGH_LOW;
   const layout = { floor, frontZ, rearZ, recline: 0.36, seatLow, wheel, glass: prof.cabin, roof: { z0: rt[0] - 0.03, z1: ft[0] + 0.03, y: top - 0.015 } };
@@ -951,7 +948,8 @@ export class VehicleView {
     }
   }
 
-  sync(v: Vehicle, dt: number, time: number, night: number): void {
+  /** `glow`: whether bloom draws halos round bright lights (GameRenderer: on the tiers with bloom), which picks the light bars' colours (SIREN). */
+  sync(v: Vehicle, dt: number, time: number, night: number, glow = true): void {
     const s = v.spec;
     this.vehicle = v;
     drawing.set(v, this);
@@ -1032,7 +1030,7 @@ export class VehicleView {
     if (this.sirenRed && this.sirenBlue) {
       const on = v.siren && !v.destroyed;
       const phase = Math.floor(time * 6) % 2 === 0;
-      const lit = SIREN[sirenGlow ? 'glow' : 'flat'];
+      const lit = SIREN[glow ? 'glow' : 'flat'];
       if (on && phase) this.sirenRed.emissive.setRGB(...lit.red);
       else this.sirenRed.emissive.setRGB(0.1, 0, 0);
       if (on && !phase) this.sirenBlue.emissive.setRGB(...lit.blue);

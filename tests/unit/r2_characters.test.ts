@@ -1131,6 +1131,40 @@ describe('window guns match where vehicle shots leave', () => {
   });
 });
 
+describe('window guns on a slope', () => {
+  it.each([
+    ['swat', 1],
+    ['swat', 2],
+    ['swat', 3],
+    ['van', 0],
+    ['sedan', 3],
+  ] as const)('up or down a ramp, a %s rider in seat %i still fires through his window as the car draws it', (kind, seat) => {
+    for (const pitch of [0.25, -0.25]) {
+      const sim = makeSim({ world: world() });
+      const b = sim.world.layout.bounds;
+      const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.4);
+      v.pitch = pitch;
+      const view = new VehicleView(kind);
+      view.bind(v);
+      view.sync(v, 1 / 60, 0, 0);
+      view.group.updateMatrixWorld(true);
+      const riders: Character[] = [];
+      for (let i = 0; i <= seat; i++) {
+        const c = sim.spawnCharacter(kind === 'swat' ? 'swat' : 'cop', v.pos.x, v.pos.z);
+        sim.seat(c, v, i);
+        riders.push(c);
+      }
+      const shot = sim.combat.muzzle(riders[seat]!, true);
+      // Straight across the car from 3 m out, through the shot origin: glass.
+      const side = seat === 0 || seat === 2 ? 1 : -1;
+      const lx = Math.cos(v.heading) * side;
+      const lz = -Math.sin(v.heading) * side;
+      const ray = new THREE.Raycaster(new THREE.Vector3(shot.x + lx * 3, shot.y, shot.z + lz * 3), new THREE.Vector3(-lx, 0, -lz), 0, 6);
+      expect(ray.intersectObject(view.group, true)[0]?.object.name, `${kind} seat ${seat} pitch ${pitch}`).toBe('glass');
+    }
+  });
+});
+
 describe('swimming shooters and standing legs', () => {
   it('a swimming shooter holds the gun up out of the water and fires from its drawn barrel end', () => {
     const sim = makeSim({ world: world() });
@@ -1218,6 +1252,15 @@ describe('a natural walk over slightly bent stance knees', () => {
     expect(hi - lo).toBeLessThanOrEqual(maxBob);
     expect(hi - lo).toBeGreaterThanOrEqual(0.025);
     expect(planted).toBeGreaterThanOrEqual(5);
+  });
+
+  it.each([0.4, 0.5, 0.6])('easing into a walk at %f m/s, no sole dips under the ground', (speed) => {
+    let lowest = Infinity;
+    walkSamples(speed, 0, 1, false, (cv) => {
+      const shoe = parts(cv).shoe!;
+      lowest = Math.min(lowest, soleLow(matrixAt(shoe, 0)), soleLow(matrixAt(shoe, 1)));
+    });
+    expect(lowest).toBeGreaterThan(-0.001);
   });
 
   it('through the middle of the stance the knee is slightly bent, neither locked nor crouched, forwards and backwards', () => {
