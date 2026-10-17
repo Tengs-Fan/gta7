@@ -5,7 +5,7 @@ import type { AABB } from '../core/collision';
 import { clamp, pointSegDist, wrapAngle } from '../core/math';
 import type { Rng } from '../core/rng';
 import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
-import { LANE_W } from '../world/constants';
+import { LANE_W, STREET_W } from '../world/constants';
 import { axisOf, reverseDir, type Lane, type RoadNetwork, type Turn } from '../world/roads';
 import type { StaticWorld } from '../world/staticWorld';
 import type { Character, Vehicle } from './entities';
@@ -51,7 +51,7 @@ const FACE_OFF_PATIENCE = 3;
  * and the corridor margin to standing cars meanwhile (0.5 m otherwise).
  */
 const SQUEEZE_RANGE = 20;
-const SQUEEZE_CLEARANCE = 0.5;
+const SQUEEZE_CLEARANCE = 0.3;
 const SQUEEZE_MARGIN = 0.2;
 /** Squeezing past, a car pulls back in once its rear is this far past what it passes (1 m otherwise). */
 const SQUEEZE_PULL_IN = 0.3;
@@ -174,6 +174,15 @@ function routeField(roads: RoadNetwork, x: number, z: number): RouteField {
  */
 type ReverseKind = 'queue' | 'stuck' | 'lane' | 'retreat' | 'pullIn' | 'yield';
 
+/** How a car gives way in a face-off (see DriverAI.facePlan); 'back' is the 'yield' reverse. */
+type YieldMode = 'lane' | 'retreat' | 'pullIn' | 'back';
+
+/** Which of the two cars in a face-off gives way, and how. */
+interface FacePlan {
+  by: DriverAI;
+  mode: YieldMode;
+}
+
 const hit = makeRayHit();
 
 function laneSeg(lane: Lane, fromS = 0): PathSeg {
@@ -239,8 +248,9 @@ export class DriverAI {
   private reverseTimer = 0;
   private reverseSteer = 0;
   private reverseKind: ReverseKind = 'queue';
-  /** Seconds the running reverse has lasted. */
+  /** Seconds the running reverse has lasted, and of those, how long the car has stood still. */
   private reverseTime = 0;
+  private reverseStill = 0;
   /** Full power instead of the slow reverse (see the stuck rule). */
   private reverseHard = false;
   /** The last stuck-rule reverse ended against something behind (a lamp, a bin): the next one uses full power. */
@@ -266,6 +276,10 @@ export class DriverAI {
   /** The car we last backed away from in a face-off, and when. */
   private yielded: Vehicle | null = null;
   private yieldedAt = -Infinity;
+  /** How we last gave way (see facePlan). */
+  private yieldedHow: YieldMode | null = null;
+  /** Seconds the car we back up for has stood still during the 'yield' reverse. */
+  private yieldStill = 0;
   /** Past what we overtook but still out in the other lane, pulling back in. */
   private merging = false;
   /** A retreat backs out round the cars in our lane up to this point, keeping `off` to the left of the lane (see planRetreat). */
@@ -602,6 +616,7 @@ export class DriverAI {
     if (this.reverseTimer > 0) {
       this.reverseTimer -= dt;
       this.reverseTime += dt;
+      this.reverseStill = Math.abs(v.forwardSpeed) < 0.2 ? this.reverseStill + dt : 0;
       c.throttle = 0;
       c.handbrake = false;
       const goal = this.reverseKind === 'retreat' ? this.retreatPoint() : null;
@@ -612,14 +627,24 @@ export class DriverAI {
       const room = (this.obeyLights ? 1.2 : 0.5) + (back > 0 ? (back * back) / (2 * v.spec.brake) : 0);
       // Retreating, the tail swings round the cars beside us: check the way it heads. Once past
       // them, back into the lane.
-      if (this.reverseKind === 'retreat' && !goal) this.reverseKind = 'lane';
+      if (this.reverseKind === 'retreat' && !goal) {
+        this.reverseKind = 'lane';
+        this.reverseTimer = Math.max(this.reverseTimer, 5);
+      }
+      let waiting = false;
       if ((goal ? this.gapToward(goal) : this.gapBehind(v, this.reverseHard)) < room) {
-        // Backing up to overtake waits for the car behind to make room (see makeRoom); other reverses
-        // end there, and so does this one at a wall or a prop, which will not move.
-        if (this.passing && this.reverseKind === 'queue' && !this.behindProp) {
+        // Backing up to overtake waits for the car behind to make room (see makeRoom), and so does
+        // backing out of a face-off for a car someone drives; other reverses end there, and so do
+        // these at a wall or a prop, which will not move.
+        const o = this.nearest;
+        const backingOut = (this.reverseKind === 'yield' || this.reverseKind === 'lane' || this.reverseKind === 'retreat') && this.reverseTime < 3;
+        if (!this.behindProp && ((this.passing && this.reverseKind === 'queue') || (backingOut && !!o && 'kind' in o && this.driven(o) !== null))) {
           c.brake = 0;
           c.throttle = back > 0.6 ? 1 : 0;
           if (this.reverseTime < 3) this.reverseTimer += dt;
+          // (Standing still while it waits is not getting nowhere: it backs on once the room is there.)
+          this.reverseStill = 0;
+          waiting = true;
         } else {
           // The stuck rule's slow reverse stopped short of a lamp or a bin: the next one knocks it over.
           if (this.reverseKind === 'stuck' && this.behindProp?.breakable) this.pinned = true;
@@ -637,14 +662,20 @@ export class DriverAI {
         this.reverseTimer = 0;
       }
       if ((this.reverseKind === 'lane' || this.reverseKind === 'retreat') && this.backInLane()) this.reverseTimer = 0;
-      // Pulling in: once the nose points in, drive in (with it in already, the reverse only makes room ahead).
-      if (this.reverseKind === 'pullIn' && this.reverseSteer < 0 && this.noseIn()) this.reverseTimer = 0;
-      // Giving way and getting nowhere (something behind): stop pushing.
-      if (this.reverseKind !== 'queue' && this.reverseKind !== 'stuck' && this.reverseTime > 0.6 && back < 0.2) this.reverseTimer = 0;
+      // Pulling in: once the nose points in far enough to drive past what stands in the way (see
+      // clearAhead), or as far in as it sensibly goes, drive in; also before the tail swings out past
+      // the far curb of a street.
+      if (this.reverseKind === 'pullIn' && ((this.noseIn() && (this.clearAhead(this.yielded) || this.noseInBy() > 1)) || this.tailOut() > STREET_W / 2 + LANE_W / 2)) this.reverseTimer = 0;
+      // Giving way and getting nowhere (something behind that does not make room): stop pushing. A car
+      // still braking from driving on (a pass called off at speed) is not getting nowhere.
+      if (!waiting && this.reverseKind !== 'queue' && this.reverseKind !== 'stuck' && this.reverseStill > 0.6) this.reverseTimer = 0;
       if (this.reverseKind === 'yield') {
+        // Until the car we give way to is back in its lane or well away, or has stopped using the room
+        // (after the first 4 s).
         const o = this.yielded;
         const ai = o && !o.removed ? this.driven(o) : null;
-        if (!ai || ai.laneIntrusion() < 0.1 || Math.hypot(o!.pos.x - v.pos.x, o!.pos.z - v.pos.z) > 20) this.reverseTimer = 0;
+        this.yieldStill = o && o.speed < 0.3 ? this.yieldStill + dt : 0;
+        if (!ai || ai.laneIntrusion() < 0.1 || Math.hypot(o!.pos.x - v.pos.x, o!.pos.z - v.pos.z) > 20 || (this.reverseTime > 4 && this.yieldStill > 1.5)) this.reverseTimer = 0;
       }
       if (this.reverseTimer <= 0) {
         this.stuck = 0;
@@ -752,7 +783,9 @@ export class DriverAI {
     }
 
     // Obstacles ahead (vehicles and pedestrians).
-    const patience = this.policy === 'chase' || this.policy === 'flee' ? 0.9 : 7;
+    // Having just given way in a face-off, a civilian goes round again as soon as the way is clear.
+    const backedOut = this.host.time - this.yieldedAt < 30 && (this.yieldedHow === 'lane' || this.yieldedHow === 'retreat');
+    const patience = this.policy === 'chase' || this.policy === 'flee' ? 0.9 : backedOut ? 2 : 7;
     let backIntoLane = false;
     if (this.overtake > 0) {
       this.overtake -= dt;
@@ -830,6 +863,7 @@ export class DriverAI {
       this.faceOffTime = 0;
       this.yielded = rival;
       this.yieldedAt = this.host.time;
+      this.yieldedHow = yieldMode;
       if (yieldMode === 'lane' || yieldMode === 'retreat') {
         this.overtake = 0;
         this.passing = null;
@@ -852,7 +886,7 @@ export class DriverAI {
       this.overtake <= 0 &&
       !backIntoLane &&
       !makeWay &&
-      !(ahead && 'kind' in ahead && this.driven(ahead) && Math.sin(ahead.heading) * fx + Math.cos(ahead.heading) * fz < -0.7) &&
+      !(ahead && 'kind' in ahead && this.driven(ahead) && Math.sin(ahead.heading) * fx + Math.cos(ahead.heading) * fz < -0.5) &&
       !(this.obeyLights && ahead && this.passingLaneTaken(ahead, this.passStretch(ahead, gap), (u) => 15 + u * 5))
     ) {
       this.overtake = this.obeyLights ? 8 : 6;
@@ -919,9 +953,9 @@ export class DriverAI {
         this.host.onHorn(v);
       }
       if (this.waitObstacle > 9) {
-        // Make room, nose towards the passing side (not the curb).
+        // Make room, nose towards the passing side (not the curb), less so if it points out already.
         this.waitObstacle = 0;
-        this.startReverse(1, 'queue');
+        this.startReverse(this.outSteer(), 'queue');
       }
     } else {
       this.waitObstacle = Math.max(0, this.waitObstacle - dt);
@@ -934,20 +968,31 @@ export class DriverAI {
       gap < 3 &&
       ((ahead.ai !== null && ahead.ai.reverseTimer > 0) || ahead.forwardSpeed < -0.5) &&
       Math.sin(ahead.heading) * fx + Math.cos(ahead.heading) * fz > 0.7;
-    if (backIntoLane) this.startReverse(0, retreat ? 'retreat' : 'lane', retreat ? 8 : 6);
-    // Wheels away from the lane: the nose swings towards it. With the nose in already, straight back.
-    else if (pullIn) this.startReverse(this.noseIn() ? 0 : -1, 'pullIn', this.noseIn() ? 1 : 1.5);
-    else if (makeWay) this.startReverse(0, 'yield', 4);
+    if (backIntoLane) this.startReverse(0, retreat ? 'retreat' : 'lane', retreat ? this.retreatTime() : 6);
+    // Wheels away from the lane: the nose swings towards it, further in if it points in already (backing
+    // straight up, it would drive the same line into the same car again).
+    else if (pullIn) this.startReverse(-1, 'pullIn', 2.5);
+    else if (makeWay) {
+      this.yieldStill = 0;
+      this.startReverse(0, 'yield', 10);
+    }
     // Back up with the wheels turned away from where we want to go, less so the further an earlier
     // reverse has turned the nose out already: turning on would put the tail on the curb.
-    else if (backUpToPass) {
-      const f = this.laneFrame();
-      const out = Math.asin(clamp(fx * f.tz - fz * f.tx, -1, 1));
-      this.startReverse(clamp((0.45 - out) / 0.3, 0, 1), 'queue', 1.2);
-    }
+    else if (backUpToPass) this.startReverse(this.outSteer(), 'queue', 1.2);
     else if (makeRoom) this.startReverse(0, 'queue', 0.5);
     else if (this.stuck > (this.policy === 'chase' ? 1.1 : 1.8)) this.startReverse(lx >= 0 ? -1 : 1, 'stuck');
     this.trackProgress(dt, waiting || (!blocked && this.waitLine < Infinity));
+  }
+
+  /**
+   * Steering for backing up to pull out to the left: full lock (the nose swings out), less the further
+   * the nose points out already (turning on would put the tail on the curb).
+   */
+  private outSteer(): number {
+    const f = this.laneFrame();
+    const h = this.vehicle.heading;
+    const out = Math.asin(clamp(Math.sin(h) * f.tz - Math.cos(h) * f.tx, -1, 1));
+    return clamp((0.45 - out) / 0.3, 0, 1);
   }
 
   /**
@@ -958,6 +1003,7 @@ export class DriverAI {
   private startReverse(steer: number, kind: ReverseKind, time = this.policy === 'chase' ? 1.0 : 1.4): void {
     this.reverseTimer = time;
     this.reverseTime = 0;
+    this.reverseStill = 0;
     this.reverseSteer = steer;
     this.reverseKind = kind;
     this.reverseHard = kind === 'stuck' && this.pinned;
@@ -1123,17 +1169,24 @@ export class DriverAI {
     const across = 'kind' in p ? halfExtent(p, -f.tz, f.tx) : 0.4;
     const pa = (p.pos.x - v.pos.x) * f.tx + (p.pos.z - v.pos.z) * f.tz;
     const pe = 'kind' in p ? halfExtent(p, f.tx, f.tz) : 0.4;
-    // A car standing in the passing lane beside it or not far beyond it: pass close, between the two,
-    // and pull back in before the other one.
+    const end = this.queueFront(p);
+    // A car standing in the passing lane beside it or not far beyond it (or beyond the cars queued
+    // after it, which we pass in the same go): pass close, between the two, and pull back in before
+    // the other one.
     for (const o of this.host.vehicles) {
       if (o === v || o === p || o.removed || o.speed > 0.5) continue;
       const ol = (o.pos.x - f.x) * f.tz - (o.pos.z - f.z) * f.tx;
       if (ol < LANE_W / 2 - 0.2 || ol > 1.5 * LANE_W + 0.3) continue;
       const oa = (o.pos.x - v.pos.x) * f.tx + (o.pos.z - v.pos.z) * f.tz;
       const oe = halfExtent(o, f.tx, f.tz);
-      if (oa + oe < pa - pe - 1 || oa - oe > pa + pe + SQUEEZE_RANGE) continue;
+      if (oa + oe < pa - pe - 1 || oa - oe > end + SQUEEZE_RANGE) continue;
       this.squeeze = true;
-      return Math.min(4.2, left + across + v.halfW + SQUEEZE_CLEARANCE);
+      const off = Math.min(4.2, left + across + v.halfW + SQUEEZE_CLEARANCE);
+      // Out further than that already (an overtake taken up again while pulling in after the last
+      // one): no turning back in towards what we pass before drawing level with it.
+      if (!this.behindPassing()) return off;
+      const out = (v.pos.x - f.x) * f.tz - (v.pos.z - f.z) * f.tx;
+      return clamp(out, off, 4.2);
     }
     return 4.2;
   }
@@ -1186,9 +1239,34 @@ export class DriverAI {
     // How far the car must pull back in, once past `p`, to clear `o`.
     const shift = Math.min(4.2, pLeft + v.halfW + SQUEEZE_CLEARANCE) + v.halfW + SQUEEZE_MARGIN - oRight;
     if (shift <= 0) return false;
-    const pFront = (p.pos.x - v.pos.x) * f.tx + (p.pos.z - v.pos.z) * f.tz + ('kind' in p ? halfExtent(p, f.tx, f.tz) : 0.4);
     const oNear = (o.pos.x - v.pos.x) * f.tx + (o.pos.z - v.pos.z) * f.tz - halfExtent(o, f.tx, f.tz);
-    return oNear - pFront < 2 * v.halfL + SQUEEZE_PULL_IN + Math.min(4, 1.5 + 2 * shift);
+    return oNear - this.queueFront(p) < 2 * v.halfL + SQUEEZE_PULL_IN + Math.min(4, 1.5 + 2 * shift);
+  }
+
+  /**
+   * How far along our lane (from our centre) the front of what we pass reaches: `p`, and the cars
+   * standing in its lane after it close enough for the same overtake to take them too (see
+   * stillPassing, which counts those within 6 m of our front while we are still beside `p`).
+   */
+  private queueFront(p: Vehicle | Character): number {
+    const v = this.vehicle;
+    const f = this.laneFrame();
+    const along = (o: Vehicle | Character) => (o.pos.x - v.pos.x) * f.tx + (o.pos.z - v.pos.z) * f.tz;
+    const side = (o: Vehicle | Character) => (o.pos.x - f.x) * f.tz - (o.pos.z - f.z) * f.tx;
+    const ps = side(p);
+    let front = along(p) + ('kind' in p ? halfExtent(p, f.tx, f.tz) : 0.4);
+    for (let k = 0; k < 6; k++) {
+      let next = -Infinity;
+      for (const o of this.host.vehicles) {
+        if (o === v || o === p || o.removed || o.speed > 3 || Math.abs(side(o) - ps) > 2.5) continue;
+        const ext = halfExtent(o, f.tx, f.tz);
+        const rear = along(o) - ext;
+        if (rear > front - 0.5 && rear < front + 2 * v.halfL + 7) next = Math.max(next, along(o) + ext);
+      }
+      if (next <= front) break;
+      front = next;
+    }
+    return front;
   }
 
   /**
@@ -1220,6 +1298,8 @@ export class DriverAI {
     const pass = this.passingLane();
     for (const o of this.host.vehicles) {
       if (o === v || o === except || o.removed) continue;
+      // Backing up to let us through (see facePlan).
+      if (o.ai && o.ai.reverseTimer > 0 && o.ai.reverseKind === 'yield' && o.ai.yielded === v) continue;
       const along = (o.pos.x - v.pos.x) * f.tx + (o.pos.z - v.pos.z) * f.tz;
       // Gone past us.
       if (along + o.halfL < -v.halfL - 1) continue;
@@ -1348,11 +1428,11 @@ export class DriverAI {
   }
 
   /**
-   * Plans a retreat (see retreatPoint) from the cars in our lane beside us (from 1.5 m behind our rear
-   * to 0.5 m past our front), and those behind them with less than a car length plus 4 m between
+   * Plans a retreat (see retreatPoint) from the cars in our lane beside us (from `reach` m behind our
+   * rear to 0.5 m past our front), and those behind them with less than a car length plus 4 m between
    * any two, too little to back in between: false when no car in our lane is beside us.
    */
-  private planRetreat(): boolean {
+  private planRetreat(reach = 1.5): boolean {
     const v = this.vehicle;
     const f = this.laneFrame();
     const cars: { rear: number; front: number; left: number }[] = [];
@@ -1368,7 +1448,7 @@ export class DriverAI {
     let rear = Infinity;
     let clear = 0;
     for (const c of cars) {
-      const beside = c.front > -v.halfL - 1.5;
+      const beside = c.front > -v.halfL - reach;
       if (!beside && (rear === Infinity || c.front < rear - (2 * v.halfL + 4))) continue;
       rear = Math.min(rear, c.rear);
       clear = Math.max(clear, c.left + v.halfW + 0.6);
@@ -1400,9 +1480,23 @@ export class DriverAI {
   }
 
   /**
+   * Seconds a retreat takes to back past the cars it backs out round (see retreatPoint) at the
+   * reversing speed; the lane phase after it gets time of its own (see update).
+   */
+  private retreatTime(): number {
+    const r = this.retreatTo;
+    if (!r) return 8;
+    const v = this.vehicle;
+    const f = this.laneFrame();
+    const way = (v.pos.x - r.x) * f.tx + (v.pos.z - r.z) * f.tz + v.halfL + 0.5;
+    return clamp(way / (REVERSE_SPEED * 0.85) + 2, 4, 16);
+  }
+
+  /**
    * Free distance from the rear bumper for a retreat towards `q`: towards it, to vehicles, people,
-   * walls and props; and straight back, to people, walls and props, over the 2.5 m the tail covers
-   * before the steering has turned it (the cars beside us it steers round count towards `q` only).
+   * walls and props; and straight back, over the 2.5 m the tail covers before the steering has turned
+   * it, to people, walls, props and the cars wholly behind us (the cars beside us it steers round
+   * count towards `q` only). The nearest vehicle or person is kept in `nearest`.
    */
   private gapToward(q: { x: number; z: number }): number {
     const v = this.vehicle;
@@ -1415,21 +1509,82 @@ export class DriverAI {
     const bx = -Math.sin(v.heading);
     const bz = -Math.cos(v.heading);
     // (Ranges run from the centre of the car for people, from the rear bumper for walls and props.)
+    const found = this.nearest;
     const people = this.peopleGap(v, bx, bz, v.halfL + 2.5, 0.6, null);
     const near = this.staticBehind(v, bx, bz, 2.5, 0.3, false);
     if (near < wall) {
       wall = near;
       prop = this.behindProp;
     }
-    const nearest = Math.min(gap, people);
+    // Cars straight back count too, all but those beside us (they overlap our length).
+    let cars = Infinity;
+    let car: Vehicle | null = null;
+    for (const o of this.host.vehicles) {
+      if (o === v || o.removed) continue;
+      const ox = o.pos.x - v.pos.x;
+      const oz = o.pos.z - v.pos.z;
+      const along = ox * bx + oz * bz;
+      const g = along - v.halfL - halfExtent(o, bx, bz);
+      if (g < -0.3 || g > 2.5 || Math.abs(ox * -bz + oz * bx) > v.halfW + halfExtent(o, -bz, bx) + 0.3) continue;
+      if (g < cars) {
+        cars = g;
+        car = o;
+      }
+    }
+    const nearest = Math.min(gap, people, cars);
+    this.nearest = cars === nearest ? car : people === nearest ? this.nearestPerson : found;
     this.behindProp = wall < nearest ? prop : null;
     return Math.min(nearest, wall);
   }
 
   /** The nose points at least 0.4 rad to the right of our lane, into it from the passing side. */
   private noseIn(): boolean {
+    return this.noseInBy() > 0.4;
+  }
+
+  /**
+   * How far left of our lane's centre line the left rear corner of the body is (STREET_W / 2 +
+   * LANE_W / 2 is the far curb of a one-lane street).
+   */
+  private tailOut(): number {
+    const v = this.vehicle;
     const f = this.laneFrame();
-    return Math.sin(this.vehicle.heading) * f.tz - Math.cos(this.vehicle.heading) * f.tx < -Math.sin(0.4);
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const cx = v.pos.x - fx * v.halfL + fz * v.halfW;
+    const cz = v.pos.z - fz * v.halfL - fx * v.halfW;
+    return (cx - f.x) * f.tz - (cz - f.z) * f.tx;
+  }
+
+  /** How far (rad) the nose points to the right of our lane, into it from the passing side. */
+  private noseInBy(): number {
+    const f = this.laneFrame();
+    return -Math.asin(clamp(Math.sin(this.vehicle.heading) * f.tz - Math.cos(this.vehicle.heading) * f.tx, -1, 1));
+  }
+
+  /**
+   * Driving on from here leaves `o` alone: it is out of the scan corridor (see corridor) both along our
+   * heading and towards a lane point 4.5 m ahead, which the steering turns us to as we pull in.
+   */
+  private clearAhead(o: Vehicle | null): boolean {
+    if (!o || o.removed) return true;
+    const v = this.vehicle;
+    const f = this.laneFrame();
+    const hx = Math.sin(v.heading);
+    const hz = Math.cos(v.heading);
+    const ax = f.x + f.tx * 4.5 - v.pos.x;
+    const az = f.z + f.tz * 4.5 - v.pos.z;
+    const al = Math.hypot(ax, az) || 1;
+    const clear = (fx: number, fz: number) => {
+      const ox = o.pos.x - v.pos.x;
+      const oz = o.pos.z - v.pos.z;
+      if (ox * fx + oz * fz <= 0) return true;
+      const ofx = Math.sin(o.heading);
+      const ofz = Math.cos(o.heading);
+      const side = Math.abs(ofx * -fz + ofz * fx) * o.halfL + Math.abs(ofx * fx + ofz * fz) * o.halfW;
+      return Math.abs(ox * -fz + oz * fx) > v.halfW + side + 0.5;
+    };
+    return clear(hx, hz) && clear(ax / al, az / al);
   }
 
   /** No vehicle in our lane from 1 m behind our rear to 4 m past our front: room to pull in there. */
@@ -1454,7 +1609,8 @@ export class DriverAI {
     for (const o of this.host.vehicles) {
       if (o === v || o.removed || o.speed > 0.5) continue;
       if (this.blocker !== o && o.ai?.blocker !== v) continue;
-      if (Math.sin(o.heading) * fx + Math.cos(o.heading) * fz > -0.7) continue;
+      // Within 60 degrees of head-on: a car turning its nose in to pull in is still in the face-off.
+      if (Math.sin(o.heading) * fx + Math.cos(o.heading) * fz > -0.5) continue;
       const along = (o.pos.x - v.pos.x) * fx + (o.pos.z - v.pos.z) * fz;
       if (along > 0 && along - v.halfL - o.halfL < 5) return o;
     }
@@ -1472,38 +1628,81 @@ export class DriverAI {
   }
 
   /**
-   * How we give way in a face-off with `o`, if we do. The car out of its lane backs into it
-   * ('lane'); the other one backs up to let it pull in instead ('back') when it cannot: it has no
-   * room behind, is pulling in past what it overtook, or already backed away from us once. With
-   * cars of its own lane beside it, the car out of its lane cannot back into it there: unless the
-   * other one can back up, it backs out the way it came, round them ('retreat'). Past what it
-   * overtook, with its lane free beside it, it backs up a little to turn its nose in, and pulls in
-   * ('pullIn'). Ties go by id. Only one of the two reverses at a time.
+   * How we give way in a face-off with `o`, if we do. Both cars work out the same plan (see
+   * facePlan) from the same state, so when one of them waits for the other, the other one moves.
+   * Only one of the two reverses at a time.
    */
-  private yieldsTo(o: Vehicle): 'lane' | 'retreat' | 'pullIn' | 'back' | null {
+  private yieldsTo(o: Vehicle): YieldMode | null {
     const ai = this.driven(o);
     if (ai && ai.reverseTimer > 0) return null;
+    const v = this.vehicle;
     const mine = this.laneIntrusion();
     const theirs = ai ? ai.laneIntrusion() : -Infinity;
     const outOfLane = (a: number, b: number, first: boolean) => a > 0.3 && (a > b + 0.2 || (a > b - 0.2 && first));
-    const v = this.vehicle;
+    let plan: FacePlan | null = null;
+    if (outOfLane(mine, theirs, v.id < o.id)) plan = this.facePlan(this, ai, o);
+    else if (ai && outOfLane(theirs, mine, o.id < v.id)) plan = this.facePlan(ai, this, v);
+    return plan && plan.by === this ? plan.mode : null;
+  }
+
+  /**
+   * Who gives way in a face-off between `x`, the car out of its lane, and the car `yv` that `y`
+   * drives (null when nobody does), and how. The other one backs up to let `x` through ('back') when
+   * it has room and `x` is pulling in past what it overtook, already backed away from it once, or is
+   * overtaking cars of its own lane beside it. Otherwise `x` gives way itself. Past what it overtook,
+   * with its lane free beside it and room to turn its nose in ahead of the other car (see canTurnIn),
+   * it backs up turning the nose in and pulls in ('pullIn'; not twice running for the same car). With
+   * cars of its lane beside it, or too close behind it to back in ahead of them, it backs out the way
+   * it came, round them ('retreat'). Otherwise it backs into its lane ('lane'). When `x` cannot do
+   * that, the other one backs up if it has room; failing that, whichever has a driven car close behind
+   * it backs up all the same, the other car first, its reverse waiting for that car to make room (see
+   * update). Null only when both are boxed in by what cannot move.
+   */
+  private facePlan(x: DriverAI, y: DriverAI | null, yv: Vehicle): FacePlan | null {
     const recently = (d: DriverAI, from: Vehicle) => d.yielded === from && this.host.time - d.yieldedAt < 20;
-    if (outOfLane(mine, theirs, v.id < o.id)) {
-      const theyCanBack = !!ai && ai.roomBehind();
-      if ((this.merging || recently(this, o)) && theyCanBack) return null;
-      // Cars in our lane beside us: we cannot back into it there. Unless they back up, back out round
-      // them, the way we came.
-      if (this.planRetreat()) {
-        const q = theyCanBack ? null : this.retreatPoint();
-        return q && this.gapToward(q) > 2 ? 'retreat' : null;
-      }
-      // Past what we overtook, with our lane free beside us: turn the nose in (or with it in, back
-      // up a little) and pull in.
-      if (this.merging && this.laneFreeBeside()) return this.gapBehind(v) > 1.5 ? 'pullIn' : null;
-      return this.roomBehind() ? 'lane' : null;
+    const yCanBack = !!y && y.roomBehind();
+    const beside = x.planRetreat();
+    if (y && yCanBack && (x.merging || recently(x, yv) || (beside && x.overtake > 0))) return { by: y, mode: 'back' };
+    if (x.merging && x.laneFreeBeside() && !(recently(x, yv) && x.yieldedHow === 'pullIn') && x.canTurnIn(yv)) {
+      if (x.gapBehind(x.vehicle) > 1.5) return { by: x, mode: 'pullIn' };
+    } else if (beside || x.planRetreat(2 * x.vehicle.halfL + 2)) {
+      // Cars of its lane beside it or not far enough behind to back in in front of them: back out round them.
+      const q = x.retreatPoint();
+      if (q && x.gapToward(q) > 2) return { by: x, mode: 'retreat' };
+    } else if (x.roomBehind()) {
+      return { by: x, mode: 'lane' };
     }
-    if (!ai || !outOfLane(theirs, mine, o.id < v.id) || !this.roomBehind()) return null;
-    return ai.merging || recently(ai, v) || !ai.roomBehind() ? 'back' : null;
+    if (y && yCanBack) return { by: y, mode: 'back' };
+    if (y && y.carBehind()) return { by: y, mode: 'back' };
+    if (x.carBehind()) return { by: x, mode: beside ? 'retreat' : 'lane' };
+    return null;
+  }
+
+  /**
+   * Turning the nose in can take us past `o`, nose to nose with us: our left front corner has to move
+   * across to clear the side of `o` nearest our lane (with 0.3 m to spare) by no more than 0.5 m plus
+   * half the gap between the two, which the turn-in makes up. From further out in the passing lane,
+   * the pull-in only swings the tail out and the nose stays in the other car's way.
+   */
+  private canTurnIn(o: Vehicle): boolean {
+    const v = this.vehicle;
+    const f = this.laneFrame();
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    // Left front corner of our body, and the side of `o` nearest our lane, as offsets left of our lane.
+    const cx = v.pos.x + fx * v.halfL + fz * v.halfW;
+    const cz = v.pos.z + fz * v.halfL - fx * v.halfW;
+    const corner = (cx - f.x) * f.tz - (cz - f.z) * f.tx;
+    const side = (o.pos.x - f.x) * f.tz - (o.pos.z - f.z) * f.tx - halfExtent(o, -f.tz, f.tx);
+    const gap = (o.pos.x - v.pos.x) * fx + (o.pos.z - v.pos.z) * fz - v.halfL - halfExtent(o, fx, fz);
+    return corner + 0.3 - side < 0.5 + 0.5 * Math.max(0, gap);
+  }
+
+  /** A car driven by someone right behind us, which makes room when we back towards it (see makeRoom). */
+  private carBehind(): boolean {
+    const gap = this.gapBehind(this.vehicle);
+    const o = this.nearest;
+    return gap < 6 && !this.behindProp && !!o && 'kind' in o && this.driven(o) !== null;
   }
 
   /** True if oncoming traffic is about to cross a left turn at the end of `lane`. */
@@ -1541,7 +1740,7 @@ export class DriverAI {
     fz /= fl;
     const range = 7 + Math.abs(v.forwardSpeed) * 1.7;
     const ignore = this.policy === 'chase' ? this.target : null;
-    this.blockerGap = this.corridor(v, fx, fz, range, 0.5, 0.9, ignore, this.overtake <= 0 && this.pathOffset < 1.5, this.squeeze ? SQUEEZE_MARGIN : 0.5);
+    this.blockerGap = this.corridor(v, fx, fz, range, 0.5, 0.9, ignore, this.overtake <= 0 && !this.merging && this.pathOffset < 1.5, this.squeeze ? SQUEEZE_MARGIN : 0.5);
     this.blocker = this.nearest;
     return this.blockerGap;
   }

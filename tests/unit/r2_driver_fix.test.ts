@@ -1,13 +1,15 @@
 // Round 2 fix pass, cluster "driver": a reproducible simulation (no Math.random in the sim), and the
-// driving AI's overtaking and reversing in tight spots.
+// driving AI's overtaking and reversing in tight spots. Second fix pass: face-offs that always resolve,
+// pulling in past a car in the way, squeezing on from out in the passing lane, wide vehicles through
+// tight chicanes, and the wall check for every kind of reverse.
 
 import { describe, expect, it } from 'vitest';
 import type { DriverPolicy } from '../../src/sim/driver';
 import type { Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
-import type { VehicleKind } from '../../src/sim/specs';
+import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
 import type { Lane } from '../../src/world/roads';
-import { input, makeSim, step } from './helpers';
+import { input, makeSim, step, teleport } from './helpers';
 
 /** A one-lane street lane of 80 m or more ending at a signalled four-way junction (as in fix_driving). */
 function streetLane(sim: Sim): Lane {
@@ -62,19 +64,65 @@ function bodyDistance(v: Vehicle, x: number, z: number): number {
 }
 
 /** Driver internals the tests drive directly. */
-type Internals = { startReverse(steer: number, kind: 'queue' | 'stuck' | 'lane' | 'yield', time?: number): void; reverseTimer: number };
+type Internals = {
+  startReverse(steer: number, kind: 'queue' | 'stuck' | 'lane' | 'pullIn' | 'yield', time?: number): void;
+  reverseTimer: number;
+  yielded: Vehicle | null;
+  merging: boolean;
+  blocker: unknown;
+};
 const internals = (v: Vehicle) => v.ai as unknown as Internals;
 
-/** A wall 0.4 m thick standing across `lane` (and 2.5 m to each side of it) from `s` back to `s - 0.4`. */
-function wallAcross(sim: Sim, lane: Lane, s: number): { x: number; z: number } {
-  const ax = lane.sx + lane.dx * s;
-  const az = lane.sz + lane.dz * s;
-  const bx = lane.sx + lane.dx * (s - 0.4);
-  const bz = lane.sz + lane.dz * (s - 0.4);
-  const wx = Math.abs(lane.dz) * 2.5;
-  const wz = Math.abs(lane.dx) * 2.5;
+/** Half the length of each kind of vehicle. */
+const VEHICLE_HALF_L = Object.fromEntries(Object.entries(VEHICLE_SPECS).map(([k, sp]) => [k, sp.length / 2])) as Record<VehicleKind, number>;
+
+/** Moves `v` `d` m to the left of its place across `lane` (into the passing lane). */
+function shiftLeft(v: Vehicle, lane: Lane, d: number): Vehicle {
+  v.pos.x += lane.dz * d;
+  v.pos.z -= lane.dx * d;
+  return v;
+}
+
+/**
+ * A wall 0.4 m thick standing across `lane` from `s` back to `s - 0.4`, `half` m to each side of the
+ * line `left` m to the left of the lane's centre line.
+ */
+function wallAcross(sim: Sim, lane: Lane, s: number, left = 0, half = 2.5): { x: number; z: number } {
+  const ox = lane.dz * left;
+  const oz = -lane.dx * left;
+  const ax = lane.sx + lane.dx * s + ox;
+  const az = lane.sz + lane.dz * s + oz;
+  const bx = lane.sx + lane.dx * (s - 0.4) + ox;
+  const bz = lane.sz + lane.dz * (s - 0.4) + oz;
+  const wx = Math.abs(lane.dz) * half;
+  const wz = Math.abs(lane.dx) * half;
   sim.world.grid.addBox(Math.min(ax, bx) - wx, Math.min(az, bz) - wz, Math.max(ax, bx) + wx, Math.max(az, bz) + wz, 0, 2.5, 'wall');
   return { x: ax, z: az };
+}
+
+/** The corners of the body of `v`. */
+function corners(v: Vehicle): { x: number; z: number }[] {
+  const fx = Math.sin(v.heading);
+  const fz = Math.cos(v.heading);
+  const out: { x: number; z: number }[] = [];
+  for (const a of [1, -1]) for (const b of [1, -1]) out.push({ x: v.pos.x + fx * v.halfL * a - fz * v.halfW * b, z: v.pos.z + fz * v.halfL * a + fx * v.halfW * b });
+  return out;
+}
+
+/** Separation between two vehicle bodies (negative when a corner of one is inside the other). */
+function bodyGap(a: Vehicle, b: Vehicle): number {
+  let m = Infinity;
+  for (const c of corners(a)) m = Math.min(m, bodyDistance(b, c.x, c.z));
+  for (const c of corners(b)) m = Math.min(m, bodyDistance(a, c.x, c.z));
+  return m;
+}
+
+/** The smallest separation between any two of `cars` (Infinity with fewer than two). */
+function closest(cars: (Vehicle | null)[]): number {
+  let m = Infinity;
+  const live = cars.filter((c): c is Vehicle => !!c && !c.removed);
+  for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) m = Math.min(m, bodyGap(live[i]!, live[j]!));
+  return m;
 }
 
 /** Where everything is, to compare two runs. */
@@ -149,31 +197,85 @@ describe('reversing in tight spots', () => {
     expect(room).toBeGreaterThan(0.2);
   });
 
+  it('backing up to give way, waits for the cars right behind to make room, then backs on into it', () => {
+    // A car gives way to one standing out of its lane in front of it, with a car of its own lane 1 m
+    // behind it and another 0.5 m behind that one: it waits while they make room in turn (see makeRoom)
+    // instead of giving up, and once the room is there it uses it, instead of ending the reverse for
+    // having stood still while it waited.
+    const sim = makeSim({ police: false });
+    const lane = streetLane(sim);
+    signalsOff(sim);
+    const opp = oppositeLane(sim, lane);
+    const car = drive(sim, 'sedan', lane, 40);
+    const behind = drive(sim, 'sedan', lane, 40 - 2 * car.halfL - 1);
+    const last = drive(sim, 'sedan', lane, 40 - 4 * car.halfL - 1.5);
+    const rival = shiftLeft(drive(sim, 'sedan', opp, opp.length - (40 + 2 * car.halfL + 2)), opp, 3);
+    internals(car).yielded = rival;
+    internals(car).startReverse(0, 'yield', 10);
+    const hits = contacts(sim, () => [car, behind, last, rival]);
+    const s0 = along(lane, car.pos);
+    let backed = 0;
+    let clear = Infinity;
+    step(sim, 6, () => {
+      rival.ai!.hold = true;
+      backed = Math.max(backed, s0 - along(lane, car.pos));
+      clear = Math.min(clear, closest([car, behind, last, rival]));
+      return input();
+    });
+    expect(backed).toBeGreaterThan(1.5);
+    expect(hits.n).toBe(0);
+    expect(clear).toBeGreaterThan(0.2);
+  });
+
   it('stops a reverse of any kind short of a wall or a lamp post behind it', () => {
-    for (const kind of ['queue', 'yield', 'stuck'] as const) {
+    // Each kind as the driver starts it: making room ('queue'), the stuck rule ('stuck'), giving way to
+    // a car standing out of its lane ('yield'), backing into the lane from the passing lane ('lane')
+    // and turning the nose in from there to pull in ('pullIn').
+    for (const kind of ['queue', 'stuck', 'yield', 'lane', 'pullIn'] as const) {
       for (const what of ['wall', 'lamp'] as const) {
         const sim = makeSim({ police: false });
         const lane = streetLane(sim);
         signalsOff(sim);
+        // Out in the passing lane, 2.5 m to the left, for the reverses that start from there.
+        const out = kind === 'lane' || kind === 'pullIn' ? 2.5 : 0;
         // An abandoned van right in front keeps it from driving off.
-        abandon(sim, 'van', lane, 30 + 2.35 + 0.8 + 2.55);
-        const car = drive(sim, 'sedan', lane, 30);
-        const back = 30 - car.halfL - 1;
-        if (what === 'wall') wallAcross(sim, lane, back);
-        else sim.world.grid.addCircle(lane.sx + lane.dx * (back - 0.17), lane.sz + lane.dz * (back - 0.17), 0.17, 0, 6.5, 'lamp', -1, true);
+        shiftLeft(abandon(sim, 'van', lane, 30 + 2.35 + 0.8 + 2.55), lane, out);
+        const car = shiftLeft(drive(sim, 'sedan', lane, 30), lane, out);
+        if (kind === 'yield') {
+          // Giving way to a car that stands out of its lane in ours, nose to nose with the van: the
+          // reverse lasts until it is back in its lane.
+          const opp = oppositeLane(sim, lane);
+          const rival = shiftLeft(drive(sim, 'sedan', opp, opp.length - (30 + 2.35 + 0.8 + 5.1 + 1 + 2.35)), opp, 3);
+          rival.ai!.hold = true;
+          internals(car).yielded = rival;
+        }
+        // 2 m behind the rear bumper: the reverse gets going, and has to stop short of it.
+        const back = 30 - car.halfL - 2;
+        const lamp = { x: car.pos.x - lane.dx * (car.halfL + 2.17), z: car.pos.z - lane.dz * (car.halfL + 2.17) };
+        if (what === 'wall') wallAcross(sim, lane, back, out, 3.5);
+        else sim.world.grid.addCircle(lamp.x, lamp.z, 0.17, 0, 6.5, 'lamp', -1, true);
         let impacts = 0;
         let broken = 0;
         sim.events.on('impact', (e) => {
           if (e.vehicle === car) impacts++;
         });
         sim.events.on('propBroken', () => broken++);
-        internals(car).startReverse(0, kind, 3);
+        internals(car).startReverse(kind === 'pullIn' ? -1 : 0, kind, 3);
         let room = Infinity;
+        let moved = 0;
+        const x0 = car.pos.x;
+        const z0 = car.pos.z;
         step(sim, 3, () => {
-          room = Math.min(room, along(lane, car.pos) - car.halfL - back);
+          // The body's distance to the face of the wall, or to the lamp post.
+          if (what === 'wall') for (const c of corners(car)) room = Math.min(room, along(lane, c) - back);
+          else room = Math.min(room, bodyDistance(car, lamp.x, lamp.z) - 0.17);
+          moved = Math.max(moved, Math.hypot(car.pos.x - x0, car.pos.z - z0));
           return input();
         });
         const what2 = `${kind} reverse, ${what}`;
+        // It does back up (the case tests the check, not a reverse that ends at once)...
+        expect(moved, what2).toBeGreaterThan(0.3);
+        // ...and keeps off what is behind it.
         expect(impacts, what2).toBe(0);
         expect(broken, what2).toBe(0);
         expect(room, what2).toBeGreaterThan(0.2);
@@ -206,6 +308,181 @@ function chicane(sim: Sim, lane: Lane, gap: number): [Vehicle, Vehicle] {
 function pastIn(lane: Lane, v: Vehicle, o: Vehicle): boolean {
   return along(lane, v.pos) - v.halfL > along(lane, o.pos) + o.halfL && Math.abs(across(lane, v.pos)) < 1.5;
 }
+
+/**
+ * A face-off past a car `blk` left in a one-lane street 45 m in (and a sedan left `second` m behind it,
+ * bumper gap, unless negative): an overtaker `x` sets off from 8 m at 8 m/s and, `delay` s after it
+ * first backs up to pull out, a car `y` comes the other way from the far end at 12 m/s (with a sedan
+ * `follower` m behind it, unless negative). How long after that first reverse all of them are past
+ * the cars left there (-1 if one of them is not within 90 s), how many impacts there were, and the
+ * closest any two bodies came.
+ */
+function faceOff(blk: VehicleKind, second: number, x: VehicleKind, y: VehicleKind, delay: number, follower: number): { took: number; impacts: number; clear: number } {
+  const sim = makeSim({ police: false });
+  const lane = streetLane(sim);
+  signalsOff(sim);
+  const opp = oppositeLane(sim, lane);
+  const parked = abandon(sim, blk, lane, 45);
+  const parked2 = second >= 0 ? abandon(sim, 'sedan', lane, 45 - parked.halfL - second - 2.35) : null;
+  const car = drive(sim, x, lane, 8, 8);
+  let oncoming: Vehicle | null = null;
+  let behind: Vehicle | null = null;
+  const all = () => [car, oncoming, behind, parked, parked2];
+  const hits = contacts(sim, () => all().filter((v): v is Vehicle => !!v));
+  const end = along(lane, parked.pos) + parked.halfL;
+  const begin = along(lane, (parked2 ?? parked).pos) - (parked2 ?? parked).halfL;
+  let start = -1;
+  let carPast = -1;
+  let oncomingPast = -1;
+  let behindPast = -1;
+  let clear = Infinity;
+  for (let f = 0; f < 60 * 90; f++) {
+    const t = f / 60;
+    if (start < 0 && t > 1 && car.forwardSpeed < -0.2) start = t;
+    if (start >= 0 && !oncoming && t >= start + delay) {
+      oncoming = drive(sim, y, opp, 2, 12);
+      if (follower >= 0) behind = drive(sim, 'sedan', opp, 2 - oncoming.halfL - follower - 2.35, 12);
+    }
+    sim.update(1 / 60, input());
+    clear = Math.min(clear, closest(all()));
+    if (carPast < 0 && along(lane, car.pos) - car.halfL > end && Math.abs(across(lane, car.pos)) < 1.5) carPast = t;
+    if (oncoming && oncomingPast < 0 && along(lane, oncoming.pos) + oncoming.halfL < begin - 1) oncomingPast = t;
+    if (behind && behindPast < 0 && along(lane, behind.pos) + behind.halfL < begin - 1) behindPast = t;
+    if (carPast >= 0 && oncomingPast >= 0 && (!behind || behindPast >= 0)) break;
+  }
+  const all3 = carPast >= 0 && oncomingPast >= 0 && (!behind || behindPast >= 0);
+  return { took: all3 && start >= 0 ? Math.max(carPast, oncomingPast, behindPast) - start : -1, impacts: hits.n, clear };
+}
+
+describe('face-offs that always resolve (second fix pass)', () => {
+  it('an overtaker level with a bus meets a lone car coming the other way: that one backs up, and both are through within 25 s', () => {
+    // The overtaker cannot back into its lane with the bus beside it, so it waits for the other car
+    // to back up; that one used to wait for it as well, until the queue reverses shuffled them apart.
+    const r = faceOff('bus', -1, 'sedan', 'sedan', 2.5, -1);
+    expect(r.took).toBeGreaterThan(0);
+    expect(r.took).toBeLessThan(25);
+    expect(r.impacts).toBe(0);
+    expect(r.clear).toBeGreaterThan(0.05);
+  });
+
+  it('resolves every face-off of a sweep of layouts within 40 s, without contact', () => {
+    // Blocker kinds, a second car left behind the first or not, overtaker kinds, arrival delays, and
+    // the car coming the other way with or without another right behind it. Each pairing has one of
+    // the two give way (see facePlan), and when neither has room by the rules, one backs up all the
+    // same, waiting for the car behind it to make room.
+    const slow: string[] = [];
+    for (const blk of ['sedan', 'pickup', 'bus'] as const)
+      for (const second of [-1, 2, 5])
+        for (const x of ['sedan', 'van'] as const)
+          for (const y of ['sedan', 'van'] as const)
+            for (const delay of [2, 3, 4])
+              for (const follower of [-1, 1.5]) {
+                const r = faceOff(blk, second, x, y, delay, follower);
+                if (r.took < 0 || r.took >= 40 || r.impacts > 0 || r.clear < 0.05) {
+                  slow.push(`${blk}${second >= 0 ? ` (a sedan ${second} m behind)` : ''}, ${x} meets ${y}${follower >= 0 ? ' and its follower' : ''} ${delay} s on: ${r.took.toFixed(1)} s, ${r.impacts} impacts, ${r.clear.toFixed(2)} m apart`);
+                }
+              }
+    expect(slow).toEqual([]);
+  });
+});
+
+/**
+ * Two sedans left in `lane`, at 30 m and `gap` m (bumper gap) further on, and a third left in the
+ * oncoming lane with its near end `far` m past the second's front.
+ */
+function queueAndBeyond(sim: Sim, lane: Lane, gap: number, far: number): [Vehicle, Vehicle, Vehicle] {
+  const first = abandon(sim, 'sedan', lane, 30);
+  const second = abandon(sim, 'sedan', lane, 30 + 2 * first.halfL + gap);
+  const opp = oppositeLane(sim, lane);
+  const third = abandon(sim, 'sedan', opp, opp.length - (along(lane, second.pos) + second.halfL + far + first.halfL));
+  return [first, second, third];
+}
+
+/** Drives `car` on until it is past `last` and back in `lane` (or `limit` s): when, and how often it stood still against `stop` for over 1 s. */
+function passAll(sim: Sim, lane: Lane, car: Vehicle, last: Vehicle, stop: Vehicle, others: Vehicle[], limit: number): { past: number; stops: number; impacts: number; clear: number } {
+  const hits = contacts(sim, () => [car, ...others]);
+  let past = -1;
+  let still = 0;
+  let stops = 0;
+  let clear = Infinity;
+  for (let f = 0; f < 60 * limit && past < 0; f++) {
+    sim.update(1 / 60, input());
+    clear = Math.min(clear, closest([car, ...others]));
+    if (car.speed < 0.3 && internals(car).blocker === stop) {
+      still += 1 / 60;
+      if (still >= 1 && still < 1 + 1 / 60) stops++;
+    } else still = 0;
+    if (pastIn(lane, car, last)) past = f / 60;
+  }
+  return { past, stops, impacts: hits.n, clear };
+}
+
+describe('pulling in past a car in the way (second fix pass)', () => {
+  it('pulls in between the cars it passed and one standing in the passing lane 12 m beyond, never stopping twice against that one', () => {
+    // Swinging out the full 4.2 m past two cars 4-10 m apart, it used to end up nose-in short of the third
+    // car, back straight up and drive the same line into it again, 6 or 7 times over 50 s. Squeezing past
+    // the queue as a whole, it pulls in before the third car.
+    for (const kind of ['sedan', 'compact', 'van', 'pickup'] as const) {
+      for (const gap of [4, 6, 8, 10]) {
+        const sim = makeSim({ police: false });
+        const lane = streetLane(sim);
+        signalsOff(sim);
+        const [first, second, third] = queueAndBeyond(sim, lane, gap, 12);
+        const car = drive(sim, kind, lane, 6, 8);
+        const r = passAll(sim, lane, car, second, third, [first, second, third], 45);
+        const what = `${kind}, ${gap} m`;
+        expect(r.past, what).toBeGreaterThan(0);
+        expect(r.past, what).toBeLessThan(30);
+        expect(r.stops, what).toBeLessThanOrEqual(1);
+        expect(r.impacts, what).toBe(0);
+        expect(r.clear, what).toBeGreaterThan(0.05);
+      }
+    }
+  });
+
+  it('with its nose turned in already, short of a car standing in the passing lane, backs up turning it in further and then pulls in', () => {
+    // The pose the first fix pass got stuck in: past what it overtook, 2.7 m out with the nose 0.47 rad
+    // in and the front level with the near end of the car in the passing lane. Backing straight up, it
+    // drove the same line into the same car again every few seconds.
+    for (const kind of ['sedan', 'compact', 'van'] as const) {
+      const sim = makeSim({ police: false });
+      const lane = streetLane(sim);
+      signalsOff(sim);
+      const [first, second, third] = queueAndBeyond(sim, lane, 8, 12);
+      const s0 = along(lane, third.pos) - third.halfL - VEHICLE_HALF_L[kind];
+      const car = shiftLeft(drive(sim, kind, lane, s0), lane, 2.7);
+      car.heading = lane.heading - 0.47;
+      internals(car).merging = true;
+      const r = passAll(sim, lane, car, third, third, [first, second, third], 30);
+      expect(r.past, kind).toBeGreaterThan(0);
+      expect(r.past, kind).toBeLessThan(15);
+      expect(r.stops, kind).toBeLessThanOrEqual(1);
+      expect(r.impacts, kind).toBe(0);
+    }
+  });
+
+  it('squeezes on past the second of two cars 13-15 m apart from out in the passing lane, with a car standing 16 m beyond it', () => {
+    // Past the first car, it cannot pull in before the second and takes up the overtake again from out
+    // in the passing lane; squeezing, it used to turn back in towards the second car and stall against
+    // it, 9 s at a time, for 40-54 s.
+    for (const kind of ['sedan', 'van', 'pickup'] as const) {
+      for (const gap of [13, 14, 15]) {
+        const sim = makeSim({ police: false });
+        const lane = streetLane(sim);
+        signalsOff(sim);
+        const [first, second, third] = queueAndBeyond(sim, lane, gap, 16);
+        const car = drive(sim, kind, lane, 6, 8);
+        const r = passAll(sim, lane, car, second, second, [first, second, third], 45);
+        const what = `${kind}, ${gap} m`;
+        expect(r.past, what).toBeGreaterThan(0);
+        expect(r.past, what).toBeLessThan(30);
+        expect(r.stops, what).toBeLessThanOrEqual(1);
+        expect(r.impacts, what).toBe(0);
+        expect(r.clear, what).toBeGreaterThan(0.05);
+      }
+    }
+  });
+});
 
 describe('backing out of a face-off', () => {
   it('a retreat spares a person or a lamp post right behind the tail of a car turned out of its lane', () => {
@@ -245,11 +522,14 @@ describe('backing out of a face-off', () => {
 });
 
 describe('overtaking past cars left in the street', () => {
-  it('squeezes between a car abandoned in its lane and one left in the oncoming lane 8-12 m further on', () => {
+  it('squeezes between a car abandoned in its lane and one left in the oncoming lane 7-12 m further on, 8.5 m for a pickup', () => {
+    // (Second fix pass: 0.3 m from what it passes instead of 0.5 m, which takes pickups through 8.5 m and
+    // vans through 8 m; they used to wait behind the first car for good.)
     for (const [kind, gaps] of [
-      ['sedan', [8, 10, 12]],
-      ['van', [9, 10, 12]],
-      ['compact', [8, 10, 12]],
+      ['sedan', [7.5, 8, 10, 12]],
+      ['compact', [7, 8, 10, 12]],
+      ['van', [8, 9, 10, 12]],
+      ['pickup', [8.5, 9, 10, 12]],
     ] as const) {
       for (const gap of gaps) {
         const sim = makeSim({ police: false });
@@ -259,7 +539,9 @@ describe('overtaking past cars left in the street', () => {
         const car = drive(sim, kind, lane, 10, 8);
         const hits = contacts(sim, () => [car, first, second]);
         let past = -1;
+        let clear = Infinity;
         step(sim, 30, (t) => {
+          clear = Math.min(clear, closest([car, first, second]));
           if (past < 0 && pastIn(lane, car, second)) past = t;
           return input();
         });
@@ -267,9 +549,39 @@ describe('overtaking past cars left in the street', () => {
         // It swings out only as far as it takes to clear the first car, which leaves room to pull back in before the second.
         expect(past, what).toBeGreaterThan(0);
         expect(hits.n, what).toBe(0);
+        expect(clear, what).toBeGreaterThan(0.2);
       }
     }
   });
+
+  it('keeps pickups in traffic from waiting for good behind two cars left 8.5 m apart, one in each lane', () => {
+    // The ambient soak of the review: one car left in the lane, one in the oncoming lane 8.5 m beyond it
+    // (bumper gap), the player beside the first. Pickups used to wait behind the first car, 60-110 s in
+    // these seeds, with the cars behind them.
+    for (const seed of [4, 6]) {
+      const sim = makeSim({ police: false, ambient: true, seed });
+      const lane = streetLane(sim);
+      const opp = oppositeLane(sim, lane);
+      const a = abandon(sim, 'sedan', lane, lane.length * 0.45);
+      const b = abandon(sim, 'sedan', opp, opp.length * 0.25 + 12);
+      expect(along(lane, b.pos) - b.halfL - (along(lane, a.pos) + a.halfL), `seed ${seed}`).toBeCloseTo(8.5, 0);
+      teleport(sim, a.pos.x - lane.dz * 5, a.pos.z + lane.dx * 5);
+      let worst = 0;
+      let who = '';
+      step(sim, 120, () => {
+        for (const v of sim.vehicles) {
+          if (v.removed || !v.ai || !v.driver) continue;
+          if (Math.min(Math.hypot(v.pos.x - a.pos.x, v.pos.z - a.pos.z), Math.hypot(v.pos.x - b.pos.x, v.pos.z - b.pos.z)) > 30) continue;
+          if (v.stuckTime > worst) {
+            worst = v.stuckTime;
+            who = `${v.kind} #${v.id}`;
+          }
+        }
+        return input();
+      });
+      expect(worst, `seed ${seed}: ${who}`).toBeLessThan(40);
+    }
+  }, 300_000);
 
   it('passes two cars abandoned 8, 10 and 12 m apart in its own lane in one go', () => {
     for (const kind of ['sedan', 'van'] as const) {
