@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { FLASH_SIZE } from '../../src/render/effects';
 import { Environment } from '../../src/render/environment';
 import { AUTO_MAX_PIXELS, drawingBufferPixels, gpuClass, pickTier, pixelRatioFor, probeGpu, QUALITY, QUALITY_TIERS, type QualityTier } from '../../src/render/quality';
 import { GameRenderer, guardStaleDeletes } from '../../src/render/renderer';
@@ -335,7 +336,7 @@ describe('GameRenderer quality tiers', () => {
     const p = sim.playerPos();
     const cop = sim.spawnVehicle('police', p.x + 6, p.z, 0);
     cop.siren = true;
-    r.effects.muzzleFlash(p.x, p.y + 1.5, p.z, false);
+    r.effects.muzzleFlash(p.x, p.y + 1.5, p.z, FLASH_SIZE.pistol);
     r.effects.explosion(p.x + 10, p.y, p.z, 7.5);
     r.render(DT, false);
     expect(visibleLights(r.scene).point.length).toBe(0);
@@ -368,7 +369,7 @@ describe('GameRenderer quality tiers', () => {
     expect(lit.length).toBe(1);
     expect(lit[0]!.position.distanceTo(new THREE.Vector3(cop.pos.x, cop.pos.y + cop.spec.height + 0.6, cop.pos.z))).toBeLessThan(1e-6);
     // Siren, muzzle flash and explosion at once: still 2, and the explosion flash is one of them.
-    r.effects.muzzleFlash(p.x, p.y + 1.5, p.z, false);
+    r.effects.muzzleFlash(p.x, p.y + 1.5, p.z, FLASH_SIZE.pistol);
     r.effects.explosion(p.x + 10, p.y, p.z, 7.5);
     r.render(DT, false);
     const all = visibleLights(r.scene).point;
