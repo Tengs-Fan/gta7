@@ -2,14 +2,38 @@
 // orbit when wasted, slow flyover on the title screen. Collides with buildings.
 
 import * as THREE from 'three';
-import { clamp, damp, dampAngle, wrapAngle, type V3 } from '../core/math';
+import { clamp, damp, dampAngle, smoothstep, wrapAngle, type V3 } from '../core/math';
 import type { Sim } from '../sim/sim';
-import { isSolidForSight, makeRayHit } from '../world/colliders';
+import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
 import { WATER_Y } from '../world/constants';
 
 export type CameraMode = 'play' | 'title';
 
 const hit = makeRayHit();
+
+/** Shake and speed rumble are smooth noise: three sines per axis at these frequencies (Hz). */
+const NOISE_HZ = [6.3, 9.7, 13.1] as const;
+/** Impact kick: a damped spring (natural frequency rad/s, damping ratio) with a capped swing (m). */
+const KICK_OMEGA = 18;
+const KICK_ZETA = 0.5;
+const KICK_MAX = 0.35;
+/** Peak of the spring's first swing per m/s of kick speed (the swing peaks at a 60 degree phase). */
+const KICK_PEAK = (() => {
+  const wd = KICK_OMEGA * Math.sqrt(1 - KICK_ZETA * KICK_ZETA);
+  const tp = Math.atan2(wd, KICK_ZETA * KICK_OMEGA) / wd;
+  return (Math.exp(-KICK_ZETA * KICK_OMEGA * tp) * Math.sin(wd * tp)) / wd;
+})();
+/** On-foot boom as update() places it at rest: distance back (normal and far zoom) and shoulder offset (m). */
+const FOOT_BOOM = 4.3;
+const FOOT_BOOM_FAR = 6.6;
+const FOOT_SHOULDER = 0.42;
+/**
+ * On foot the boom also stops in front of tree and palm trunks, except one hugging the player's back
+ * (nearer than this to the look point): pulling the camera in there would put it in his head.
+ */
+const TRUNK_SKIP = 1.6;
+
+const isTrunk = (c: StaticCollider) => c.tag === 'tree' || c.tag === 'palm';
 
 export class CameraController {
   readonly camera: THREE.PerspectiveCamera;
@@ -30,6 +54,19 @@ export class CameraController {
   private fov = 68;
   private dist = 4.4;
   private shakeAmt = 0;
+  /** Seconds of play the shake / rumble noise has run (it stands still while paused). */
+  private noiseT = 0;
+  /** Random phase per axis and frequency, so the axes and every session move differently. */
+  private readonly noisePhase = Array.from({ length: 18 }, () => Math.random() * Math.PI * 2);
+  /** Speed rumble amplitude (m) for this frame. */
+  private rumbleAmt = 0;
+  /** Impact kick spring: offset (m) and its velocity (m/s). */
+  private readonly kickPos = new THREE.Vector3();
+  private readonly kickVel = new THREE.Vector3();
+  /** Shake, rumble and kick added to the camera this frame (zero while paused). */
+  private readonly offset = new THREE.Vector3();
+  /** Boom length (m) the trunks behind the player allow (Infinity: none), eased in quickly and out slowly. */
+  private trunkReach = Infinity;
   private titleT = 0;
   private deathT = 0;
   private wasInVehicle = false;
@@ -67,6 +104,22 @@ export class CameraController {
 
   addShake(amount: number): void {
     this.shakeAmt = Math.min(2, this.shakeAmt + amount);
+  }
+
+  /**
+   * A jolt from a hit on the player's car: the camera swings towards the impact (dirX, dirZ point
+   * from the car's centre to the contact) by up to min(0.35, strength / 60) m and springs back.
+   * A hit with no horizontal direction (a landing) dips the camera instead.
+   */
+  addKick(dirX: number, dirZ: number, strength: number): void {
+    if (!(strength > 0) || !Number.isFinite(strength)) return;
+    const amp = Math.min(KICK_MAX, strength / 60);
+    const len = Number.isFinite(dirX) && Number.isFinite(dirZ) ? Math.hypot(dirX, dirZ) : 0;
+    const dir = len > 1e-3 ? new THREE.Vector3(dirX / len, 0, dirZ / len) : new THREE.Vector3(0, -1, 0);
+    this.kickVel.addScaledVector(dir, amp / KICK_PEAK);
+    // Kicks in quick succession never swing further than one full-strength kick.
+    const maxVel = KICK_MAX / KICK_PEAK;
+    if (this.kickVel.length() > maxVel) this.kickVel.setLength(maxVel);
   }
 
   /** Ray through the centre of the screen. */
@@ -135,6 +188,7 @@ export class CameraController {
 
     let lookFrom: THREE.Vector3;
     let fovTarget = this.baseFov;
+    this.rumbleAmt = 0;
     if (sim.playerDown && sim.deathKind === 'wasted') {
       this.deathT += dt;
       const tx = p.pos.x;
@@ -151,6 +205,8 @@ export class CameraController {
       let desiredYaw = v.heading;
       if (speed > 6 && v.forwardSpeed > 0) desiredYaw = Math.atan2(v.vel.x, v.vel.z);
       if (v.forwardSpeed < -4) desiredYaw = v.heading;
+      // Lead into a turn, so the camera looks where the car is going instead of swinging wide.
+      desiredYaw += clamp(0.25 * v.angVel, -0.25, 0.25);
       this.vehYaw = dampAngle(this.vehYaw, desiredYaw, v.airborne ? 1.5 : 4.2, dt);
       if (this.lookIdle > 1.4) {
         this.orbitYaw = dampAngle(this.orbitYaw, 0, 2.6, dt);
@@ -160,8 +216,12 @@ export class CameraController {
       this.yaw = wrapAngle(yaw);
       const s = v.spec;
       const zoom = this.zoomLevel === 1 ? 1.5 : 1;
-      const dist = (5.2 + s.length * 0.72) * zoom;
-      const height = (1.3 + s.height * 0.6) * (this.zoomLevel === 1 ? 1.25 : 1);
+      // Selling the speed: from 15 m/s the camera drops and pulls back by up to 18% (the longer boom
+      // gives back some height through its pitch), and the FOV (below) widens with the absolute
+      // speed rather than the fraction of each car's top speed.
+      const k = smoothstep(15, 55, speed);
+      const dist = (5.2 + s.length * 0.72) * zoom * (1 + 0.18 * k);
+      const height = (1.3 + s.height * 0.6) * (this.zoomLevel === 1 ? 1.25 : 1) * (1 - 0.18 * k);
       this.target.lerp(new THREE.Vector3(v.pos.x, v.pos.y + s.height * 0.75, v.pos.z), 1 - Math.exp(-18 * dt));
       const pitch = -0.08 + this.orbitPitch;
       const fx = Math.sin(yaw) * Math.cos(pitch);
@@ -170,7 +230,8 @@ export class CameraController {
       const look = new THREE.Vector3(this.target.x + Math.sin(yaw) * 3, this.target.y + 0.3, this.target.z + Math.cos(yaw) * 3);
       this.dir.copy(look).sub(this.desired).normalize();
       lookFrom = this.target.clone();
-      fovTarget = this.baseFov + clamp(speed / s.maxSpeed, 0, 1) * 13;
+      fovTarget = this.baseFov + 15 * smoothstep(8, 58, speed);
+      this.rumbleAmt = 0.03 * smoothstep(30, 60, speed);
       this.pitch = Math.asin(clamp(this.dir.y, -1, 1));
     } else {
       this.deathT = 0;
@@ -198,31 +259,56 @@ export class CameraController {
       fovTarget = aim ? this.baseFov - 16 : this.baseFov;
     }
 
-    // Keep the camera out of buildings.
+    // Shake, speed rumble and impact kick, before the collision checks below so that none of them
+    // pushes the camera into a wall. None while paused (dt = 0): nothing could decay behind the menu.
+    this.offset.set(0, 0, 0);
+    if (dt > 0) {
+      this.noiseT += dt;
+      this.stepKick(dt);
+      this.offset.copy(this.kickPos);
+      if (this.shakeAmt > 0.001) {
+        const s = this.shakeAmt * 0.12;
+        this.offset.x += this.noise(0) * s;
+        this.offset.y += this.noise(1) * s;
+        this.offset.z += this.noise(2) * s;
+        this.shakeAmt *= Math.exp(-5 * dt);
+      }
+      if (this.rumbleAmt > 0) {
+        const r = this.rumbleAmt;
+        this.offset.x += this.noise(3) * r * 0.5;
+        this.offset.y += this.noise(4) * r;
+        this.offset.z += this.noise(5) * r * 0.5;
+      }
+      this.desired.add(this.offset);
+    }
+
+    // Keep the camera out of buildings, and on foot in front of tree trunks. A building wall stops the
+    // boom at once; a trunk (thin, and swept across by every turn of the camera) pulls it in over a
+    // few frames and lets it back out slowly, so the camera glides instead of popping.
     const d = this.desired.clone().sub(lookFrom);
     const len = d.length();
+    const onFoot = !v && !(sim.playerDown && sim.deathKind === 'wasted');
     if (len > 0.01) {
       d.divideScalar(len);
-      if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) {
-        const t = Math.max(0.35, hit.t - 0.3);
-        this.desired.copy(lookFrom).addScaledVector(d, t);
+      let reach = len;
+      if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) reach = Math.max(0.35, hit.t - 0.3);
+      if (onFoot) {
+        const limit = sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isTrunk) && hit.t > TRUNK_SKIP ? hit.t - 0.3 : Infinity;
+        const cur = Math.min(this.trunkReach, len);
+        // In from the boom's current length; out again at 6 m/s, after which no trunk holds it back.
+        this.trunkReach = limit < cur ? damp(cur, limit, 12, dt) : Math.min(limit, this.trunkReach + 6 * dt);
+        reach = Math.min(reach, this.trunkReach);
       }
+      if (reach < len) this.desired.copy(lookFrom).addScaledVector(d, reach);
     }
     this.boom = len > 0.01 ? Math.min(1, this.desired.distanceTo(lookFrom) / len) : 1;
+    if (!onFoot) this.trunkReach = Infinity;
     // Stay above the ground and above the sea, whose surface plane is invisible from below.
     const floor = Math.max(sim.world.groundHeight(this.desired.x, this.desired.z), WATER_Y) + 0.35;
     if (this.desired.y < floor) this.desired.y = floor;
     this.floorY = floor;
 
     cam.position.copy(this.desired);
-    // No jitter while paused (dt = 0): the shake could not decay and would run behind the menu forever.
-    if (dt > 0 && this.shakeAmt > 0.001) {
-      const s = this.shakeAmt * 0.18;
-      cam.position.x += (Math.random() - 0.5) * s;
-      cam.position.y += (Math.random() - 0.5) * s;
-      cam.position.z += (Math.random() - 0.5) * s;
-      this.shakeAmt *= Math.exp(-5 * dt);
-    }
     this.fov = damp(this.fov, fovTarget, 6, dt);
     if (Math.abs(cam.fov - this.fov) > 0.01) {
       cam.fov = this.fov;
@@ -246,15 +332,70 @@ export class CameraController {
     }
   }
 
+  /** Smooth noise in [-1, 1] for one axis: three sines with that axis's random phases. */
+  private noise(axis: number): number {
+    const t = this.noiseT * Math.PI * 2;
+    let n = 0;
+    for (let i = 0; i < 3; i++) n += Math.sin(t * NOISE_HZ[i]! + this.noisePhase[axis * 3 + i]!);
+    return n / 3;
+  }
+
+  /** Advances the kick spring by dt, in short sub-steps: the stiff spring would blow up at 10 fps. */
+  private stepKick(dt: number): void {
+    const p = this.kickPos;
+    const v = this.kickVel;
+    if (p.lengthSq() < 1e-10 && v.lengthSq() < 1e-8) {
+      p.set(0, 0, 0);
+      v.set(0, 0, 0);
+      return;
+    }
+    const n = Math.ceil(dt * 240);
+    const h = dt / n;
+    const w2 = KICK_OMEGA * KICK_OMEGA;
+    const c = 2 * KICK_ZETA * KICK_OMEGA;
+    for (let i = 0; i < n; i++) {
+      v.x += (-w2 * p.x - c * v.x) * h;
+      v.y += (-w2 * p.y - c * v.y) * h;
+      v.z += (-w2 * p.z - c * v.z) * h;
+      p.addScaledVector(v, h);
+    }
+  }
+
+  /**
+   * Yaw for an on-foot reset: the player's heading, or the nearest yaw to it (in 15 degree steps,
+   * up to a half turn) whose boom point keeps 2.6 x scale m from every street tree and palm, so the
+   * camera does not start inside a canopy (the first New Game frame was a third leaves).
+   */
+  private clearYaw(sim: Sim): number {
+    const p = sim.player;
+    const boom = this.zoomLevel === 1 ? FOOT_BOOM_FAR : FOOT_BOOM;
+    const near = sim.world.layout.props.filter((q) => (q.kind === 'tree' || q.kind === 'palm') && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < boom + 8);
+    if (near.length === 0) return p.heading;
+    for (let k = 0; k <= 23; k++) {
+      // 0, +15, -15, +30, ... degrees, ending with the half turn.
+      const yaw = p.heading + (k % 2 === 1 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 12);
+      // The boom point update() starts from: behind the player, over the right shoulder.
+      const bx = p.pos.x - Math.sin(yaw) * boom - Math.cos(yaw) * FOOT_SHOULDER;
+      const bz = p.pos.z - Math.cos(yaw) * boom + Math.sin(yaw) * FOOT_SHOULDER;
+      if (near.every((q) => Math.hypot(q.x - bx, q.z - bz) >= 2.6 * q.scale)) return wrapAngle(yaw);
+    }
+    return p.heading;
+  }
+
   /** Snap behind the player (after respawn / teleport). */
   reset(sim: Sim): void {
     const p = sim.player;
-    this.yaw = p.vehicle ? p.vehicle.heading : p.heading;
+    this.yaw = p.vehicle ? p.vehicle.heading : this.clearYaw(sim);
     this.vehYaw = this.yaw;
     this.orbitYaw = 0;
     this.orbitPitch = 0;
     this.pitch = -0.12;
     this.shakeAmt = 0;
+    this.rumbleAmt = 0;
+    this.kickPos.set(0, 0, 0);
+    this.kickVel.set(0, 0, 0);
+    this.offset.set(0, 0, 0);
+    this.trunkReach = Infinity;
     const pos = sim.playerPos();
     this.target.set(pos.x, pos.y + 1.5, pos.z);
     this.wasInVehicle = !!p.vehicle;

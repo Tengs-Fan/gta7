@@ -2542,3 +2542,36 @@ describe('police HUD: evade bar and dispatch scanner', () => {
     expect(el.scanner!.textContent).toContain(`DISPATCH: All units, a disturbance reported in ${sim.world.zoneName(sim.player.pos.x, sim.player.pos.z)}.`);
   });
 });
+
+describe('r2 driving: digital steering flag (P23a)', () => {
+  it('keys steer digitally; a deflected stick overrides them as analog', () => {
+    const pad = fakePad();
+    const inp = newInput();
+    inp.attach();
+    inp.inVehicle = true;
+    const poll = () => {
+      const fi = inp.poll(1 / 60);
+      inp.endFrame();
+      return fi.player;
+    };
+    // No key and a centred stick: nothing to shape (a released key or stick lets go at once, as before).
+    expect(poll()).toMatchObject({ steer: 0, steerDigital: false });
+    dom.win.dispatchEvent(keyEv('keydown', 'KeyD', 'd'));
+    expect(poll()).toMatchObject({ steer: 1, steerDigital: true });
+    pad.axes[0] = -0.6;
+    const stick = poll();
+    expect(stick.steerDigital).toBe(false);
+    expect(stick.steer).toBeLessThan(-0.4);
+    pad.axes[0] = 0.05; // inside the dead zone: the key counts again
+    expect(poll()).toMatchObject({ steer: 1, steerDigital: true });
+    dom.win.dispatchEvent(keyEv('keyup', 'KeyD', 'd'));
+    dom.win.dispatchEvent(keyEv('keydown', 'ArrowLeft', 'ArrowLeft'));
+    expect(poll()).toMatchObject({ steer: -1, steerDigital: true });
+    // Both held cancel out but are still keys: the wheel eases back to the centre.
+    dom.win.dispatchEvent(keyEv('keydown', 'KeyD', 'd'));
+    expect(poll()).toMatchObject({ steer: 0, steerDigital: true });
+    dom.win.dispatchEvent(keyEv('keyup', 'KeyD', 'd'));
+    dom.win.dispatchEvent(keyEv('keyup', 'ArrowLeft', 'ArrowLeft'));
+    expect(poll()).toMatchObject({ steer: 0, steerDigital: false });
+  });
+});

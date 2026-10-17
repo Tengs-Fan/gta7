@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { smoothstep } from '../core/math';
 import { Rng } from '../core/rng';
 import { axisOf, type Dir } from '../world/roads';
 import type { Prop, PropKind } from '../world/layout';
@@ -37,6 +38,112 @@ function cyl(rt: number, rb: number, h: number, seg: number, x = 0, y = 0, z = 0
   return g;
 }
 
+/** Foliage dissolves within this distance (m) of the camera, completely nearer than FADE_NEAR. */
+export const FOLIAGE_FADE_FAR = 2.5;
+const FADE_NEAR = 1.2;
+
+/**
+ * Makes an instanced foliage material dissolve close to the camera: fragments within
+ * FOLIAGE_FADE_FAR of it are thinned out by a 4x4 Bayer dither (all of them nearer than 1.2 m),
+ * so a canopy the camera pushes into turns see-through instead of filling the screen. Opaque, so no
+ * sorting and no extra draws; shadows come from the default depth material and are unaffected.
+ */
+function fadeNearCamera(mat: THREE.Material): void {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vFadeWorld;')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+vec4 fadeWorld = vec4( transformed, 1.0 );
+#ifdef USE_BATCHING
+fadeWorld = batchingMatrix * fadeWorld;
+#endif
+#ifdef USE_INSTANCING
+fadeWorld = instanceMatrix * fadeWorld;
+#endif
+vFadeWorld = ( modelMatrix * fadeWorld ).xyz;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vFadeWorld;
+float fadeBayer4( vec2 frag ) {
+  const float m[ 16 ] = float[ 16 ]( 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 );
+  ivec2 p = ivec2( mod( floor( frag ), 4.0 ) );
+  return ( m[ p.x + p.y * 4 ] + 0.5 ) / 16.0;
+}`,
+      )
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+{
+  float fadeD = distance( vFadeWorld, cameraPosition );
+  if ( fadeD < ${FOLIAGE_FADE_FAR.toFixed(2)} && fadeBayer4( gl_FragCoord.xy ) >= smoothstep( ${FADE_NEAR.toFixed(2)}, ${FOLIAGE_FADE_FAR.toFixed(2)}, fadeD ) ) discard;
+}`,
+      );
+  };
+}
+
+const BEAM_LENGTH = 90;
+const GLOW_COLOR = new THREE.Color(0xffe6b0);
+
+const BEAM_VS = /* glsl */ `
+varying float vT;
+varying vec3 vNormalV;
+varying vec3 vViewV;
+varying vec3 vWorld;
+#include <fog_pars_vertex>
+void main() {
+  // Both beams run along local +-X from the lantern: 0 there, 1 at the tip.
+  vT = abs( position.x ) / ${BEAM_LENGTH.toFixed(1)};
+  vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+  vNormalV = normalize( normalMatrix * normal );
+  vViewV = -mvPosition.xyz;
+  vWorld = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+
+const BEAM_FS = /* glsl */ `
+uniform float uNight;
+uniform float uTime;
+uniform vec3 uColor;
+varying float vT;
+varying vec3 vNormalV;
+varying vec3 vViewV;
+varying vec3 vWorld;
+#include <fog_pars_fragment>
+float beamHash( vec3 p ) {
+  p = fract( p * 0.3183099 + 0.1 );
+  p *= 17.0;
+  return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) );
+}
+float beamNoise( vec3 x ) {
+  vec3 i = floor( x );
+  vec3 f = fract( x );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( mix( beamHash( i ), beamHash( i + vec3( 1, 0, 0 ) ), f.x ), mix( beamHash( i + vec3( 0, 1, 0 ) ), beamHash( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
+              mix( mix( beamHash( i + vec3( 0, 0, 1 ) ), beamHash( i + vec3( 1, 0, 1 ) ), f.x ), mix( beamHash( i + vec3( 0, 1, 1 ) ), beamHash( i + vec3( 1, 1, 1 ) ), f.x ), f.y ), f.z );
+}
+void main() {
+  // Brightest where the cone faces the viewer, fading to nothing at its silhouette (no hard outline)
+  // and along its length; end-on the surface is edge-on, so there is no disc.
+  float facing = abs( dot( normalize( vNormalV ), normalize( vViewV ) ) );
+  float a = uNight * 0.35 * pow( 1.0 - clamp( vT, 0.0, 1.0 ), 1.5 ) * facing * facing;
+  // Faint dust drifting through the light.
+  a *= 0.8 + 0.2 * beamNoise( vWorld * 0.35 + vec3( 0.0, uTime * 0.35, uTime * 0.2 ) );
+  #ifdef USE_FOG
+    #ifdef FOG_EXP2
+      a *= exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+    #else
+      a *= 1.0 - smoothstep( fogNear, fogFar, vFogDepth );
+    #endif
+  #endif
+  gl_FragColor = vec4( uColor, a );
+}`;
+
 export class PropsView {
   readonly group = new THREE.Group();
   private readonly refs = new Map<number, InstanceRef[]>();
@@ -47,7 +154,8 @@ export class PropsView {
   private signalPropIndex: number[] = [];
   private readonly brokenSignals = new Set<number>();
   private ferris: { wheel: THREE.Group; gondolas: THREE.InstancedMesh; lights: THREE.InstancedMesh; x: number; y: number; z: number; rot: number } | null = null;
-  private lighthouseBeam: THREE.Mesh | null = null;
+  private lighthouseBeam: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null;
+  private lighthouseGlow: THREE.Sprite | null = null;
   private antennaLights: THREE.InstancedMesh | null = null;
   private readonly antennaMat = new THREE.MeshBasicMaterial({ color: 0x220000 });
   private readonly tmpM = new THREE.Matrix4();
@@ -132,11 +240,15 @@ export class PropsView {
       new THREE.IcosahedronGeometry(1.1, 0).translate(-0.6, 5.0, -0.5),
     ]);
     this.makeInstanced(trunk, new THREE.MeshStandardMaterial({ color: 0x5a4030, roughness: 0.95 }), trees, PropsView.standard);
-    this.makeInstanced(foliage, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), trees, PropsView.standard, {
+    const leaves = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
+    fadeNearCamera(leaves);
+    this.makeInstanced(foliage, leaves, trees, PropsView.standard, {
       color: (_p, c) => c.setHSL(0.26 + rng.range(-0.04, 0.05), rng.range(0.45, 0.65), rng.range(0.24, 0.36)),
     });
     const bush = new THREE.IcosahedronGeometry(0.85, 0).scale(1.2, 0.75, 1.1).translate(0, 0.55, 0);
-    this.makeInstanced(bush, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), bushes, PropsView.standard, {
+    const bushMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
+    fadeNearCamera(bushMat);
+    this.makeInstanced(bush, bushMat, bushes, PropsView.standard, {
       color: (_p, c) => c.setHSL(0.27 + rng.range(-0.03, 0.04), 0.5, rng.range(0.22, 0.32)),
       shadow: false,
     });
@@ -155,7 +267,9 @@ export class PropsView {
       fronds.push(f);
     }
     this.makeInstanced(trunk, new THREE.MeshStandardMaterial({ color: 0x8b6b4a, roughness: 0.95 }), palms, PropsView.standard);
-    this.makeInstanced(merged(fronds), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, side: THREE.DoubleSide }), palms, PropsView.standard, {
+    const frondMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, side: THREE.DoubleSide });
+    fadeNearCamera(frondMat);
+    this.makeInstanced(merged(fronds), frondMat, palms, PropsView.standard, {
       color: (_p, c) => c.setHSL(0.28 + rng.range(-0.03, 0.03), 0.55, rng.range(0.26, 0.34)),
     });
   }
@@ -263,13 +377,47 @@ export class PropsView {
     lantern.position.set(p.x, p.y + 25.2, p.z);
     const cap = new THREE.Mesh(new THREE.ConeGeometry(2.1, 2.2, 12), new THREE.MeshStandardMaterial({ color: 0x8f1f1a, roughness: 0.5 }));
     cap.position.set(p.x, p.y + 27.5, p.z);
-    const beamGeo = new THREE.ConeGeometry(5, 90, 16, 1, true);
-    beamGeo.translate(0, -45, 0);
-    beamGeo.rotateZ(Math.PI / 2);
-    const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xfff4c8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    // Two opposite beams in one mesh: open cones from the lantern (apex) out along local +-X.
+    const cone = new THREE.ConeGeometry(5, BEAM_LENGTH, 16, 1, true);
+    cone.translate(0, -BEAM_LENGTH / 2, 0);
+    cone.rotateZ(Math.PI / 2);
+    const beamGeo = mergeGeometries([cone, cone.clone().rotateY(Math.PI)], false);
+    if (!beamGeo) throw new Error('mergeGeometries failed');
+    // Only the near side of each cone draws (FrontSide): no double layer and no disc seen end-on.
+    const beamMat = new THREE.ShaderMaterial({
+      vertexShader: BEAM_VS,
+      fragmentShader: BEAM_FS,
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uNight: { value: 0 }, uTime: { value: 0 }, uColor: { value: new THREE.Color(0xfff1c8) } }]),
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.FrontSide,
+      fog: true,
+    });
+    const beam = new THREE.Mesh(beamGeo, beamMat);
+    beam.name = 'lighthouseBeam';
     beam.position.set(p.x, p.y + 25.2, p.z);
+    beam.visible = false;
     this.lighthouseBeam = beam;
-    this.group.add(tower, lantern, cap, beam);
+    // A halo round the lantern; bright lights carry through the haze, so it is not fogged.
+    const glowMat = new THREE.SpriteMaterial({ map: glowTexture(), color: GLOW_COLOR, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0 });
+    const glow = new THREE.Sprite(glowMat);
+    glow.name = 'lighthouseGlow';
+    glow.position.set(p.x, p.y + 25.2, p.z);
+    glow.scale.set(11, 11, 1);
+    glow.visible = false;
+    // It flares as a beam sweeps across the viewer (end-on the beam itself is edge-on and unseen).
+    glow.onBeforeRender = (_r, _s, camera) => {
+      const e = camera.matrixWorld.elements;
+      const dx = e[12]! - glow.position.x;
+      const dz = e[14]! - glow.position.z;
+      const r = beam.rotation.y;
+      // Local +-X turned by r about Y points along +-(cos r, -sin r).
+      const along = Math.abs(dx * Math.cos(r) - dz * Math.sin(r)) / (Math.hypot(dx, dz) || 1);
+      glowMat.color.copy(GLOW_COLOR).multiplyScalar(1 + 3 * smoothstep(0.94, 1, along));
+    };
+    this.lighthouseGlow = glow;
+    this.group.add(tower, lantern, cap, beam, glow);
   }
 
   private buildFerris(p: Prop): void {
@@ -494,9 +642,15 @@ export class PropsView {
       if (f.lights.instanceColor) f.lights.instanceColor.needsUpdate = true;
     }
     if (this.lighthouseBeam) {
-      this.lighthouseBeam.rotation.y = time * 0.9;
-      (this.lighthouseBeam.material as THREE.MeshBasicMaterial).opacity = night * 0.16;
-      this.lighthouseBeam.visible = night > 0.05;
+      const beam = this.lighthouseBeam;
+      beam.rotation.y = time * 0.9;
+      beam.material.uniforms.uNight!.value = night;
+      beam.material.uniforms.uTime!.value = time;
+      beam.visible = night > 0.05;
+    }
+    if (this.lighthouseGlow) {
+      this.lighthouseGlow.material.opacity = Math.min(1, night * 0.9);
+      this.lighthouseGlow.visible = night > 0.05;
     }
     if (this.antennaLights) {
       const on = night > 0.3 && Math.floor(time * 1.2) % 2 === 0;
