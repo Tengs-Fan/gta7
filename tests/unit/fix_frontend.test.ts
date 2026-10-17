@@ -5,13 +5,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AudioEngine } from '../../src/audio/audio';
+import { circleVsObb, makeContact, obbVsObb, type OBB } from '../../src/core/collision';
 import { wrapAngle } from '../../src/core/math';
 import { Game } from '../../src/game';
 import { Input, KeyLabels, type FrameInput, type UiActions } from '../../src/input/input';
 import { CameraController } from '../../src/render/camera';
 import { writeGame, type Settings } from '../../src/settings';
+import type { Vehicle } from '../../src/sim/entities';
 import { Progress, serialize } from '../../src/sim/progress';
 import { Sim } from '../../src/sim/sim';
+import { VEHICLE_SPECS } from '../../src/sim/specs';
+import { vehicleObb } from '../../src/sim/vehiclePhysics';
 import { Hud } from '../../src/ui/hud';
 import { MAP_SCALE, MapImage } from '../../src/ui/mapRender';
 import { Menus, type MenuHost } from '../../src/ui/menus';
@@ -809,6 +813,46 @@ describe('HUD', () => {
     sim.events.emit('missionEnded', { id: 'delivery', passed: true });
     run(sim, 1 / 60);
     expect(el.objective!.classList.contains('show')).toBe(false);
+  });
+
+  it('keeps the title card above a subtitle and the prompt, measuring them only when they change', () => {
+    const { hud, el } = makeHud();
+    const sim = quickSim();
+    hud.bind(sim);
+    // The fake DOM lays nothing out: record the custom properties the HUD sets, and give the line and the
+    // prompt their boxes in the 720 px window (a long line's top 250 px up, the prompt's 330 px up).
+    const props: Record<string, string> = {};
+    const root = (hud as unknown as { root: FakeElement }).root;
+    (root.style as unknown as { setProperty: (k: string, v: string) => void }).setProperty = (k, v) => {
+      props[k] = v;
+    };
+    el.subtitle!.getBoundingClientRect = () => ({ left: 340, top: 720 - 250, width: 600, height: 130 });
+    const promptBox = vi.fn(() => ({ left: 430, top: 720 - 330, width: 420, height: 60 }));
+    el.prompt!.getBoundingClientRect = promptBox;
+    const frame = (prompt: string | null) => hud.update(1 / 60, sim, 0, false, prompt, 0);
+    frame(null);
+    expect(props['--stack-top']).toBe('0px');
+    sim.events.emit('subtitle', { speaker: 'Mama Lou', text: 'A long line, wrapped to four lines in a short window.', duration: 6 });
+    frame(null);
+    expect(props['--stack-top']).toBe('250px');
+    // The prompt slot above it: measured once when it appears, not on every frame it stays.
+    for (let i = 0; i < 10; i++) frame('Press E to enter');
+    expect(props['--stack-top']).toBe('330px');
+    expect(promptBox).toHaveBeenCalledTimes(1);
+    // A new prompt is measured again, and so is the same one after the window changes size.
+    frame('Press E to buy');
+    expect(promptBox).toHaveBeenCalledTimes(2);
+    const win = dom.win as unknown as { innerHeight: number };
+    win.innerHeight = 600;
+    frame('Press E to buy');
+    expect(promptBox).toHaveBeenCalledTimes(3);
+    win.innerHeight = 720;
+    frame('Press E to buy');
+    // The prompt gone, the line alone; the line gone (after its fade), nothing.
+    frame(null);
+    expect(props['--stack-top']).toBe('250px');
+    for (let t = 0; t < 7; t += 1 / 60) frame(null);
+    expect(props['--stack-top']).toBe('0px');
   });
 });
 
@@ -1976,6 +2020,43 @@ describe('round 2 harness', () => {
       expect(opened).toBeGreaterThan(0);
       expect(sim.cheats.godMode).toBe(true);
       expect(sports()).toBe(cars + 1);
+    });
+
+    it('SPAWNSPORTS puts its car where it fits: not inside a car parked 6 m ahead, nor on anyone', async () => {
+      const { sim, frames, type } = await playing();
+      type('SPAWNSPORT'); // its P opened the pause menu: the sim waits there for the last letter
+      // On a long straight road facing along it, a car parked right where the code puts the new one.
+      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const p = sim.player;
+      p.pos.x = lane.sx + lane.dx * 30;
+      p.pos.z = lane.sz + lane.dz * 30;
+      p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
+      p.heading = lane.heading;
+      for (const v of sim.vehicles) if (Math.hypot(v.pos.x - p.pos.x, v.pos.z - p.pos.z) < 60) sim.removeVehicle(v);
+      const ahead = { x: p.pos.x + Math.sin(p.heading) * 6, z: p.pos.z + Math.cos(p.heading) * 6 };
+      expect(sim.world.isFree(ahead.x, ahead.z, 2.4)).toBe(true);
+      const parked = sim.spawnVehicle('sedan', ahead.x, ahead.z, lane.heading);
+      const parkedBox = vehicleObb(parked, { x: 0, z: 0, hw: 0, hl: 0, h: 0 });
+      // And someone standing beside it, on the first spot out there where the car would fit.
+      const ped = sim.spawnCharacter('civilian', ahead.x + Math.cos(lane.heading) * 3, ahead.z - Math.sin(lane.heading) * 3);
+      const people = [p, ped].map((c) => ({ x: c.pos.x, z: c.pos.z, r: c.radius }));
+      const spawns = vi.spyOn(sim, 'spawnVehicle');
+      type('S');
+      expect(spawns).toHaveBeenCalledTimes(1);
+      // Where it spawned, before the physics could shove anything.
+      const [kind, x, z, heading] = spawns.mock.calls[0]!;
+      expect(kind).toBe('sports');
+      const spec = VEHICLE_SPECS.sports;
+      const body: OBB = { x, z, hw: spec.width / 2, hl: spec.length / 2, h: heading };
+      const ct = makeContact();
+      expect(obbVsObb(body, parkedBox, ct)).toBe(false);
+      for (const c of people) expect(circleVsObb(c.x, c.z, c.r, body, ct)).toBe(false);
+      expect(Math.hypot(x - ahead.x, z - ahead.z)).toBeLessThan(8);
+      // Nothing gets shoved apart.
+      const car = spawns.mock.results[0]!.value as Vehicle;
+      frames(30);
+      expect(Math.hypot(car.pos.x - x, car.pos.z - z)).toBeLessThan(0.05);
+      expect(Math.hypot(parked.pos.x - ahead.x, parked.pos.z - ahead.z)).toBeLessThan(0.05);
     });
 
     it('MONEYTREE typed slowly (350 ms a key) still closes the map its M opened', async () => {

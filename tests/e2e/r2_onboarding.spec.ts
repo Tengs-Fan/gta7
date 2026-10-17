@@ -20,6 +20,22 @@ async function placeAt(page: Page, find: string): Promise<void> {
   await page.waitForTimeout(300);
 }
 
+/** Waits for the game to draw `n` more frames: the HUD lays out a resize or a new line in its next update. */
+async function settle(page: Page, n = 3): Promise<void> {
+  const from = await page.evaluate(() => (window as Api).__gta7.state().frames as number);
+  await page.waitForFunction((f) => (window as Api).__gta7.state().frames >= f, from + n);
+}
+
+/**
+ * Puts up a title card and waits until it shows. A slow machine draws few frames and the HUD's clock
+ * runs in frames (0.1 s at most each), so the last card can still be up, keeping the next one waiting.
+ */
+async function titleCard(page: Page, card: { text: string; sub: string; style: string }): Promise<void> {
+  await page.waitForFunction(() => !document.querySelector('.big')!.classList.contains('show'));
+  await page.evaluate((c) => (window as Api).__gta7.sim.events.emit('big', { ...c, duration: 1 }), card);
+  await page.waitForFunction(() => document.querySelector('.big')!.classList.contains('show'));
+}
+
 const LOU_MARKER = "(g) => g.sim.interactions.markers.find((m) => m.kind === 'mission' && m.ref === 'wheels')";
 const GUN_MARKER = "(g) => g.sim.interactions.markers.find((m) => m.kind === 'gunshop')";
 
@@ -133,19 +149,24 @@ test.describe('GTA 7 onboarding', () => {
       [721, 700],
       [700, 600],
     ] as const;
+    /** Short and narrow: the line takes more lines and the title card has less room above it. */
+    const SHORT = [
+      [850, 480],
+      [800, 500],
+      [768, 450],
+      [700, 450],
+      [640, 480],
+    ] as const;
     // A mission starting: its title card and the first line, with the longest objective in the story.
-    for (const [width, height] of SIZES) {
+    for (const [width, height] of [...SIZES, ...SHORT]) {
       const at = `${width}x${height}`;
       await page.setViewportSize({ width, height });
-      await page.evaluate(() => {
-        const ev = (window as Api).__gta7.sim.events;
-        ev.emit('big', { text: 'THE BIG SCORE', sub: 'Dex Moreau', style: 'title', duration: 1 });
-        ev.emit('objective', { text: 'Hold the bank entrance while the vault opens' });
-      });
+      await titleCard(page, { text: 'THE BIG SCORE', sub: 'Dex Moreau', style: 'title' });
+      await page.evaluate(() => (window as Api).__gta7.sim.events.emit('objective', { text: 'Hold the bank entrance while the vault opens' }));
       await line(text);
-      await page.waitForTimeout(450);
+      await settle(page);
+      // (Where the card stands does not depend on it still showing: only its opacity does.)
       const [radar, sub, obj, title, titleSub] = await Promise.all(['.radar', '.subtitle', '.objective', '.big .t', '.big .s'].map(box));
-      expect(await page.locator('.big').getAttribute('class'), at).toContain('show');
       expect(sub.width, at).toBeGreaterThan(200);
       expect(overlap(sub, title) || overlap(sub, titleSub), `subtitle vs title card at ${at}`).toBe(false);
       expect(overlap(sub, radar), `subtitle vs radar at ${at}`).toBe(false);
@@ -154,7 +175,6 @@ test.describe('GTA 7 onboarding', () => {
       // Inside the window.
       expect(sub.x).toBeGreaterThanOrEqual(0);
       expect(sub.x + sub.width).toBeLessThanOrEqual(width);
-      await page.waitForTimeout(800); // the title card goes
     }
     // A line up while standing on a marker (a mission failed at its contact before the intro was done):
     // the offer card, and a plain prompt, stay above it, all of their lines readable.
@@ -167,7 +187,7 @@ test.describe('GTA 7 onboarding', () => {
         const at = `${width}x${height}`;
         await page.setViewportSize({ width, height });
         await line(text);
-        await page.waitForTimeout(300);
+        await settle(page);
         const [radar, sub, prompt, key] = await Promise.all(['.radar', '.subtitle', '.prompt', sel].map(box));
         expect(overlap(prompt, sub), `${sel} vs subtitle at ${at}`).toBe(false);
         expect(overlap(key, sub), `${sel} line vs subtitle at ${at}`).toBe(false);
@@ -176,10 +196,59 @@ test.describe('GTA 7 onboarding', () => {
       }
       // The line gone, the prompt is back in its own place.
       await page.evaluate(() => (window as Api).__gta7.sim.events.emit('subtitle', { speaker: '', text: '', duration: 0 }));
-      await page.waitForTimeout(500);
-      const prompt = await box('.prompt');
       const own = sel === '.prompt' ? 160 : 150;
-      expect(Math.round(SIZES[SIZES.length - 1]![1] - (prompt.y + prompt.height)), 'prompt back at its bottom').toBe(own);
+      const bottom = async () => {
+        const prompt = await box('.prompt');
+        return Math.round(SIZES[SIZES.length - 1]![1] - (prompt.y + prompt.height));
+      };
+      await expect.poll(bottom, { message: 'prompt back at its bottom' }).toBe(own);
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test("a title card over Lou's offer card (MISSION PASSED on her marker) stays above it where both fit", async ({ page }) => {
+    await refusePointerLock(page);
+    const errors = await boot(page);
+    await newGame(page);
+    await page.evaluate(() => (window as Api).__gta7.godMode(true));
+    await placeAt(page, LOU_MARKER);
+    type Box = { x: number; y: number; width: number; height: number };
+    const overlap = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    // What is drawn: the glyphs of the title and its sub-line, the offer card's panel.
+    const drawn = () =>
+      page.evaluate(() => {
+        const text = (sel: string) => {
+          const r = document.createRange();
+          r.selectNodeContents(document.querySelector(sel)!);
+          const b = r.getBoundingClientRect();
+          return { x: b.x, y: b.y, width: b.width, height: b.height };
+        };
+        const p = document.querySelector('.prompt')!.getBoundingClientRect();
+        return { title: text('.big .t'), sub: text('.big .s'), prompt: { x: p.x, y: p.y, width: p.width, height: p.height } };
+      });
+    // Below about 480 px tall the card (some 180 px from 150 px up) leaves no room for it.
+    for (const [width, height] of [
+      [1920, 1080],
+      [1366, 768],
+      [1280, 720],
+      [1366, 560],
+      [1280, 600],
+      [1024, 600],
+      [1024, 560],
+      [900, 500],
+      [800, 500],
+      [700, 600],
+      [640, 480],
+    ] as const) {
+      const at = `${width}x${height}`;
+      await page.setViewportSize({ width, height });
+      await titleCard(page, { text: 'MISSION PASSED', sub: '$500', style: 'passed' });
+      await settle(page);
+      await expect(page.locator('.prompt.card')).toContainText('Wheels');
+      const d = await drawn();
+      expect(overlap(d.title, d.prompt), `title vs offer card at ${at}`).toBe(false);
+      expect(overlap(d.sub, d.prompt), `title sub-line vs offer card at ${at}`).toBe(false);
+      expect(d.title.y, at).toBeGreaterThanOrEqual(0);
     }
     expect(errors).toEqual([]);
   });

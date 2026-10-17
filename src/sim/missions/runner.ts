@@ -12,6 +12,7 @@ import type { DriverPolicy } from '../driver';
 import type { Character, CharacterRole, Pickup, Vehicle, WeaponSlot } from '../entities';
 import type { Sim } from '../sim';
 import type { VehicleKind, WeaponId } from '../specs';
+import { findVehicleRoom, vehiclesInTheWay } from '../vehicleRoom';
 import { STORY } from './story';
 
 /**
@@ -340,12 +341,29 @@ export class MissionCtx {
   }
 
   spawnVehicle(kind: VehicleKind, x: number, z: number, heading: number, color?: number): Vehicle {
-    const v = this.sim.spawnVehicle(kind, x, z, heading, color);
+    const at = this.makeRoom(kind, x, z, heading);
+    const v = this.sim.spawnVehicle(kind, at.x, at.z, heading, color);
     v.owner = 'mission';
     v.persistent = true;
     v.missionTag = this.def.id;
     this.vehicles.push(v);
     return v;
+  }
+
+  /**
+   * Clears the spot a mission vehicle spawns at: whatever was left standing in its way goes, such as a
+   * failed attempt's wreck or car on the spot a retry spawns its new one at, or a car parked in its bay.
+   * Only a car the player is in, or one another job holds on to, stays: then the new one goes to the
+   * nearest spot within 15 m where it fits, or, with none there either, to its own spot after all.
+   */
+  private makeRoom(kind: VehicleKind, x: number, z: number, heading: number): { x: number; z: number } {
+    const sim = this.sim;
+    let blocked = false;
+    for (const v of vehiclesInTheWay(sim, kind, x, z, heading)) {
+      if (v.persistent || v.occupants().some((c) => c.isPlayer)) blocked = true;
+      else sim.removeVehicle(v);
+    }
+    return (blocked && findVehicleRoom(sim, kind, x, z, heading, 15)) || { x, z };
   }
 
   spawnCharacter(role: CharacterRole, x: number, z: number, mode: PedMode, weapon?: WeaponId): Character {

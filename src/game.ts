@@ -12,6 +12,7 @@ import { neutralInput } from './sim/input';
 import { applySave, serialize, type SaveData } from './sim/progress';
 import { Sim } from './sim/sim';
 import { WEAPON_ORDER, type WeaponId } from './sim/specs';
+import { findVehicleRoom } from './sim/vehicleRoom';
 import { HintSystem } from './ui/hints';
 import { Hud } from './ui/hud';
 import { MapImage } from './ui/mapRender';
@@ -534,7 +535,8 @@ export class Game {
       case 'SPAWNSPORTS': {
         const fx = Math.sin(p.heading);
         const fz = Math.cos(p.heading);
-        const spot = this.world.findFreeSpot(p.pos.x + fx * 6, p.pos.z + fz * 6, 2.4, 20);
+        // In front of him where it fits: clear of walls and props, and of the cars and people there (him too).
+        const spot = findVehicleRoom(sim, 'sports', p.pos.x + fx * 6, p.pos.z + fz * 6, p.heading, 20);
         if (spot) sim.spawnVehicle('sports', spot.x, spot.z, p.heading);
         break;
       }
