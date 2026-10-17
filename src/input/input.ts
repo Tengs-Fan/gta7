@@ -55,8 +55,9 @@ const CHEAT_GAP_MS = 1500;
 const CHEAT_SWALLOW_AT = 3;
 /** Mouse moves are dropped this long (ms) after pointer lock is gained: the first one jumps by the cursor's offset. */
 const LOCK_SETTLE_MS = 100;
-/** Keys that ask for the map or the pause menu. */
+/** Keys that ask for the map or the pause menu, and keys that get in or out of a vehicle. */
 const SCREEN_KEYS = new Set(['KeyM', 'KeyP', 'Escape']);
+const EXIT_KEYS = new Set(['KeyF', 'Enter']);
 
 /**
  * Whether pointer lock must be refused: under browser automation (navigator.webdriver) headless Chromium
@@ -180,6 +181,8 @@ export class Input {
   private presses = 0;
   /** The press that asked for the map or the pause menu since the last frame, or -1. */
   private screenPress = -1;
+  /** The latest press that asked to get in or out of a vehicle, or -1. */
+  private exitPress = -1;
   /** Last typed letters for cheat codes (upper case), and when the newest was typed (performance.now() ms). */
   typed = '';
   private typedAt = -Infinity;
@@ -221,6 +224,7 @@ export class Input {
       }
       this.swallowed.delete(ev.code);
       if (press > 0 && SCREEN_KEYS.has(alias ?? ev.code)) this.screenPress = press;
+      if (press > 0 && EXIT_KEYS.has(alias ?? ev.code)) this.exitPress = press;
       if (alias) this.aliases.set(ev.code, alias);
       for (const code of alias ? [ev.code, alias] : [ev.code]) {
         if (!ev.repeat) this.down.add(code);
@@ -506,6 +510,11 @@ export class Input {
    */
   get screenKeyPress(): number {
     return this.screenPress;
+  }
+
+  /** The latest key press that asked to get in or out of a vehicle (numbered as in TypedCheat.presses), or -1. */
+  get exitKeyPress(): number {
+    return this.exitPress;
   }
 
   /**

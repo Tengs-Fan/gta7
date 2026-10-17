@@ -1796,6 +1796,37 @@ describe('round 2 harness', () => {
       expect(sim.player.health).toBe(sim.player.maxHealth); // a stop-and-get-out, not a bail
     });
 
+    it('FIXMYRIDE typed slowly (350 ms a key) at 20 m/s still puts the player back at the wheel', async () => {
+      const { sim, frames, type } = await playing();
+      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const v = sim.spawnVehicle('sedan', lane.sx + lane.dx * 5, lane.sz + lane.dz * 5, lane.heading);
+      placeInCar(sim, v);
+      v.vel.x = lane.dx * 20;
+      v.vel.z = lane.dz * 20;
+      frames(1);
+      type('FIXMYRIDE', 21);
+      frames(10);
+      expect(sim.player.vehicle).toBe(v);
+      expect(v.health).toBe(v.spec.health);
+    });
+
+    it('an exit the player made himself before typing FIXMYRIDE is not undone', async () => {
+      const { game, sim, frames, type, press } = await playing();
+      const rp = roadPoint(sim);
+      const v = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
+      placeInCar(sim, v);
+      v.health = v.spec.health * 0.5;
+      frames(2);
+      type('F'); // gets out
+      expect(sim.player.vehicle).toBe(null);
+      press('Escape'); // and pauses, so the code's own F does nothing
+      type('FIXMYRIDE');
+      frames(10);
+      expect(sim.player.vehicle).toBe(null);
+      expect(v.health).toBe(v.spec.health); // still the ride that gets fixed
+      expect(game.menus.open).toBe(true);
+    });
+
     it("SUNSET typed on Mama Lou's marker starts no mission and sets the clock", async () => {
       const { game, sim, frames, type } = await playing();
       const lou = sim.world.layout.pois.find((q) => q.id === 'lou')!;

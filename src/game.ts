@@ -41,8 +41,8 @@ export class Game {
   private wasDown = false;
   /** The screen (map or pause menu) gameplay last opened by its key, and that key press: a cheat code's first letters can do that. */
   private keyScreen: { screen: Menus['top']; press: number } | null = null;
-  /** The player's last exit from a vehicle (sim time), for FIXMYRIDE, whose F gets him out. */
-  private lastExit: { vehicle: Vehicle; t: number; bailed: boolean } | null = null;
+  /** The player's last exit from a vehicle and the key press that asked for it, for FIXMYRIDE, whose F gets him out. */
+  private lastExit: { vehicle: Vehicle; press: number; bailed: boolean } | null = null;
   /** The last sim events of the session and page errors, oldest first, for the crash report. */
   private readonly recent: Array<{ t: number; type: string; text: string }> = [];
   /** Total real time spent in frames (for tests). */
@@ -176,8 +176,8 @@ export class Game {
     this.lastExit = null;
     this.unsub.push(
       ev.on('vehicleExit', (e) => {
-        // A bail at speed (knocked down) cost him 6 health, unless he is invulnerable.
-        if (e.character === sim.player) this.lastExit = { vehicle: e.vehicle, t: sim.time, bailed: e.character.state === 'knocked' && !sim.cheats.godMode };
+        // The exit may come a moment after its key press (braking first). A bail at speed (knocked down) cost him 6 health, unless he is invulnerable.
+        if (e.character === sim.player) this.lastExit = { vehicle: e.vehicle, press: this.input.exitKeyPress, bailed: e.character.state === 'knocked' && !sim.cheats.godMode };
       }),
     );
     this.mode = 'game';
@@ -381,9 +381,10 @@ export class Game {
         break;
       case 'FIXMYRIDE': {
         // Its F gets the player out of the car (bailing out at speed): put him back in his seat, refunding the fall.
+        // Only an exit the code's own F asked for: one he made himself before typing it stands.
         const ex = this.lastExit;
         this.lastExit = null;
-        if (ex && !p.vehicle && p.alive && !sim.playerDown && p.state !== 'entering' && sim.time - ex.t <= 2 && canReseat(ex.vehicle)) {
+        if (ex && typed.presses.includes(ex.press) && !p.vehicle && p.alive && !sim.playerDown && p.state !== 'entering' && canReseat(ex.vehicle)) {
           if (ex.bailed) p.health = Math.min(p.maxHealth, p.health + 6);
           p.state = 'normal';
           p.knockTimer = 0;
