@@ -207,6 +207,35 @@ describe('lethal force and arrests', () => {
     expect(shots.n).toBeGreaterThan(5);
   });
 
+  it('covers an arrester walking up for 12 s at most: one who cannot get through is no reason to hold fire for ever', () => {
+    const sim = makeSim();
+    sim.cheats.godMode = true;
+    const p = sim.player;
+    sim.wanted.setLevel(2);
+    // The arrester is stuck 8 m away; his partner has a clear shot from 16 m.
+    const near = visibleSpot(sim, p.pos.x, p.pos.z, 8);
+    const stuck = officer(sim, near.x, near.z);
+    const far = visibleSpot(sim, p.pos.x, p.pos.z, 16, 2);
+    const partner = officer(sim, far.x, far.z);
+    let partnerShots: number[] = [];
+    sim.events.on('shot', (e) => {
+      if (e.shooter === partner) partnerShots.push(sim.time);
+    });
+    const t0 = sim.time;
+    step(sim, 15, () => {
+      stuck.pos.x = near.x;
+      stuck.pos.z = near.z;
+      partner.pos.x = far.x;
+      partner.pos.z = far.z;
+      return input();
+    });
+    expect(internals(sim).arrester).toBe(stuck);
+    expect(sim.deathKind).toBeNull();
+    partnerShots = partnerShots.map((t) => t - t0);
+    expect(partnerShots.length).toBeGreaterThan(0);
+    expect(partnerShots[0]!).toBeGreaterThanOrEqual(12);
+  });
+
   it('never sends SWAT to make an arrest', () => {
     const sim = makeSim();
     sim.cheats.godMode = true;

@@ -14,6 +14,8 @@ const UNITS_BY_LEVEL = [0, 2, 3, 4, 6, 7];
 export const HOSTILE_WINDOW = 4;
 /** From 3 stars, officers keep at least this far from an armed or fighting player instead of walking up to him. */
 const STANDOFF = 12;
+/** The others cover an arrester walking up to a still player this long at most (he may be stuck: then they open fire). */
+const ARREST_PATIENCE = 12;
 /** Crews fire from pursuit cars (from 2 stars) at a player within this range and in sight, rechecked this often. */
 const CAR_FIRE_RANGE = 35;
 const CAR_SIGHT_INTERVAL = 0.35;
@@ -76,6 +78,8 @@ export class PoliceSystem {
   /** The officer walking up to arrest the player this frame, and whether he is making the arrest (see pickArrester). */
   private arrester: Character | null = null;
   private arresting = false;
+  /** Seconds that arrester has been walking up to the player without a bust under way. */
+  private arrestWalk = 0;
 
   update(dt: number): void {
     const sim = this.sim;
@@ -87,7 +91,7 @@ export class PoliceSystem {
     this.playerStill = pv && pv.speed < 1.5 ? this.playerStill + dt : 0;
     this.playerStopped = pv && pv.speed < 1.2 ? this.playerStopped + dt : 0;
     this.calm = level === 0 ? this.calm + dt : 0;
-    this.pickArrester(level);
+    this.pickArrester(dt, level);
     this.updateUnits(dt, level);
     this.updateFootCops(dt, level);
     this.updateHelis(dt, level);
@@ -596,18 +600,21 @@ export class PoliceSystem {
 
   /**
    * The nearest officer on foot (never SWAT) walks up to arrest a player the police may take in (see
-   * arrestAllowed). While he walks up to a player who is not getting away, and while a bust is under
-   * way, he is arresting: everyone else, in the street, in a car or in the air, holds fire meanwhile.
+   * arrestAllowed). While he walks up to a player who is not getting away (for ARREST_PATIENCE seconds
+   * at most), and while a bust is under way, he is arresting: everyone else, in the street, in a car or
+   * in the air, holds fire meanwhile.
    */
-  private pickArrester(level: number): void {
+  private pickArrester(dt: number, level: number): void {
     const sim = this.sim;
     const p = sim.player;
     const pv = p.vehicle;
     const pp = sim.playerPos();
     const arrestable = pv ? pv.speed < 1.2 : p.speed < 2.2 || p.state === 'knocked';
     const a = !this.searching(level) && this.arrestAllowed(level) ? this.nearestOfficer(pp.x, pp.z, 32, pp.y) : null;
+    const walking = !!a && arrestable && this.bustTimer === 0;
+    this.arrestWalk = walking && a === this.arrester ? this.arrestWalk + dt : 0;
     this.arrester = a;
-    this.arresting = !!a && (this.bustTimer > 0 || arrestable);
+    this.arresting = !!a && (this.bustTimer > 0 || (arrestable && this.arrestWalk < ARREST_PATIENCE));
   }
 
   /**
