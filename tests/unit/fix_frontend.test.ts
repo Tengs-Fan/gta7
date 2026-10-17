@@ -1450,472 +1450,504 @@ describe('map wheel zoom: a notch is one step on every platform', () => {
 // ---------------------------------------------------------------------------
 // Round 2 (harness): pointer lock under automation, the jump that comes with a re-lock, and typed cheats.
 
-/** A fake performance.now() the tests below advance by hand. */
-const clock = { now: 1000 };
+describe('round 2 harness', () => {
+  /** A fake performance.now() the tests below advance by hand. */
+  const clock = { now: 1000 };
 
-/** QWERTY letters whose keys have a binding (see BOUND_CODES and LETTER_SHORTCUTS in input.ts). */
-const BOUND_LETTERS = new Set('WASDFEHRQTPMV');
-const CODES = ['CHILLOUT', 'GUNSGALORE', 'FIXMYRIDE', 'IMMORTAL', 'MONEYTREE', 'SUNSET', 'NIGHTOWL', 'SPAWNSPORTS', 'COPMAGNET'] as const;
+  /** QWERTY letters whose keys have a binding (see BOUND_CODES and LETTER_SHORTCUTS in input.ts). */
+  const BOUND_LETTERS = new Set('WASDFEHRQTPMV');
+  const CODES = ['CHILLOUT', 'GUNSGALORE', 'FIXMYRIDE', 'IMMORTAL', 'MONEYTREE', 'SUNSET', 'NIGHTOWL', 'SPAWNSPORTS', 'COPMAGNET'] as const;
 
-describe('pointer lock under browser automation', () => {
-  it('is refused under webdriver: no request is made and clicks shoot unlocked', () => {
-    vi.stubGlobal('navigator', { webdriver: true, getGamepads: () => [] });
-    const canvas = new FakeElement('canvas');
-    const inp = new Input(canvas as unknown as HTMLCanvasElement);
-    inp.attach();
-    inp.wantsPointerLock = () => true; // in game, no menu open
-    // The capture click itself already shoots.
-    canvas.dispatchEvent(ev('mousedown', { button: 0 }));
-    const first = inp.poll(1 / 60);
-    inp.endFrame();
-    expect(first.player.fire).toBe(true);
-    expect(first.player.firePressed).toBe(true);
-    dom.win.dispatchEvent(ev('mouseup', { button: 0 }));
-    expect(inp.requestPointerLock()).toBe(false);
-    canvas.dispatchEvent(ev('mousedown', { button: 0 }));
-    expect(inp.poll(1 / 60).player.fire).toBe(true);
-    expect(dom.lockRequests).toBe(0);
-  });
-
-  it('lock=1 in the URL asks for it anyway', () => {
-    vi.stubGlobal('navigator', { webdriver: true, getGamepads: () => [] });
-    vi.stubGlobal('location', { search: '?intro=0&lock=1' });
-    const inp = newInput();
-    inp.attach();
-    expect(inp.requestPointerLock()).toBe(true);
-    expect(dom.lockRequests).toBe(1);
-  });
-
-  it('a new game under automation never asks for the lock, so it never pauses for losing it', async () => {
-    vi.stubGlobal('navigator', { webdriver: true, getGamepads: () => [] });
-    const canvas = new FakeElement('canvas');
-    const game = new Game(canvas as unknown as HTMLCanvasElement, new FakeElement('div') as unknown as HTMLElement);
-    game.newGame();
-    await flush();
-    canvas.dispatchEvent(ev('mousedown', { button: 0 }));
-    dom.doc.dispatchEvent(new Event('pointerlockchange'));
-    expect(dom.lockRequests).toBe(0);
-    expect(game.menus.open).toBe(false);
-  });
-});
-
-describe('re-capturing the mouse does not swing the camera', () => {
-  beforeEach(() => {
-    clock.now = 1000;
-    vi.spyOn(performance, 'now').mockImplementation(() => clock.now);
-  });
-
-  function setup() {
-    const canvas = new FakeElement('canvas');
-    const inp = new Input(canvas as unknown as HTMLCanvasElement);
-    inp.attach();
-    const lock = () => {
-      dom.doc.pointerLockElement = canvas;
-      dom.doc.dispatchEvent(new Event('pointerlockchange'));
-    };
-    /** One mouse move, then a frame: the look input it produced. */
-    const move = (x: number, y: number) => {
-      dom.win.dispatchEvent(ev('mousemove', { movementX: x, movementY: y }));
-      const fi = inp.poll(1 / 60);
+  describe('pointer lock under browser automation', () => {
+    it('is refused under webdriver: no request is made and clicks shoot unlocked', () => {
+      vi.stubGlobal('navigator', { webdriver: true, getGamepads: () => [] });
+      const canvas = new FakeElement('canvas');
+      const inp = new Input(canvas as unknown as HTMLCanvasElement);
+      inp.attach();
+      inp.wantsPointerLock = () => true; // in game, no menu open
+      // The capture click itself already shoots.
+      canvas.dispatchEvent(ev('mousedown', { button: 0 }));
+      const first = inp.poll(1 / 60);
       inp.endFrame();
-      return [fi.lookX, fi.lookY];
-    };
-    return { lock, move };
-  }
+      expect(first.player.fire).toBe(true);
+      expect(first.player.firePressed).toBe(true);
+      dom.win.dispatchEvent(ev('mouseup', { button: 0 }));
+      expect(inp.requestPointerLock()).toBe(false);
+      canvas.dispatchEvent(ev('mousedown', { button: 0 }));
+      expect(inp.poll(1 / 60).player.fire).toBe(true);
+      expect(dom.lockRequests).toBe(0);
+    });
 
-  it('drops the jump by the cursor offset that comes with the lock', () => {
-    const { lock, move } = setup();
-    lock();
-    expect(move(-640, -360)).toEqual([0, 0]);
-    clock.now += 50;
-    expect(move(5, 3)).toEqual([0, 0]); // still settling
-    clock.now += 100;
-    expect(move(5, 3)).toEqual([5, 3]);
+    it('lock=1 in the URL asks for it anyway', () => {
+      vi.stubGlobal('navigator', { webdriver: true, getGamepads: () => [] });
+      vi.stubGlobal('location', { search: '?intro=0&lock=1' });
+      const inp = newInput();
+      inp.attach();
+      expect(inp.requestPointerLock()).toBe(true);
+      expect(dom.lockRequests).toBe(1);
+    });
+
+    it('a new game under automation never asks for the lock, so it never pauses for losing it', async () => {
+      vi.stubGlobal('navigator', { webdriver: true, getGamepads: () => [] });
+      const canvas = new FakeElement('canvas');
+      const game = new Game(canvas as unknown as HTMLCanvasElement, new FakeElement('div') as unknown as HTMLElement);
+      game.newGame();
+      await flush();
+      canvas.dispatchEvent(ev('mousedown', { button: 0 }));
+      dom.doc.dispatchEvent(new Event('pointerlockchange'));
+      expect(dom.lockRequests).toBe(0);
+      expect(game.menus.open).toBe(false);
+    });
   });
 
-  it('drops a single move of more than a third of the window', () => {
-    const { lock, move } = setup();
-    lock();
-    clock.now += 150;
-    expect(move(900, 0)).toEqual([0, 0]); // 1280 / 3 = 427
-    expect(move(300, 0)).toEqual([300, 0]);
-    expect(move(0, 250)).toEqual([0, 0]); // 720 / 3 = 240
-    expect(move(-200, 200)).toEqual([-200, 200]);
-    expect(move(NaN, 0)).toEqual([0, 0]);
-  });
+  describe('re-capturing the mouse does not swing the camera', () => {
+    beforeEach(() => {
+      clock.now = 1000;
+      vi.spyOn(performance, 'now').mockImplementation(() => clock.now);
+    });
 
-  it('closing the map leaves the camera where it was', async () => {
-    const canvas = new FakeElement('canvas');
-    const game = new Game(canvas as unknown as HTMLCanvasElement, new FakeElement('div') as unknown as HTMLElement);
-    const g = game as unknown as { running: boolean; last: number; frame: (now: number) => void };
-    g.running = true;
-    g.last = clock.now;
-    const frames = (n: number) => {
-      for (let i = 0; i < n; i++) {
-        clock.now += 1000 / 60;
-        g.frame(clock.now);
-      }
-    };
-    const key = (code: string, k: string) => {
-      dom.win.dispatchEvent(keyEv('keydown', code, k));
-      frames(2);
-      dom.win.dispatchEvent(keyEv('keyup', code, k));
-      frames(1);
-    };
-    game.newGame();
-    await flush();
-    frames(5);
-    const cam = game.renderer.cameraCtl;
-    key('KeyM', 'm');
-    await flush();
-    expect(game.menus.open).toBe(true);
-    frames(20);
-    const yaw = cam.yaw;
-    const pitch = cam.pitch;
-    key('KeyM', 'm'); // closes the map and re-captures the mouse
-    await flush();
-    expect(dom.doc.pointerLockElement).toBe(canvas);
-    // What Chrome sends next: a move by minus the cursor position.
-    dom.win.dispatchEvent(ev('mousemove', { movementX: -640, movementY: -360 }));
-    frames(2);
-    expect(cam.yaw).toBe(yaw);
-    expect(cam.pitch).toBe(pitch);
-  });
-});
-
-describe('typed cheat codes', () => {
-  beforeEach(() => {
-    clock.now = 5000;
-    vi.spyOn(performance, 'now').mockImplementation(() => clock.now);
-  });
-
-  /** The action edges a key could fire. */
-  const edges = (f: FrameInput) => ({
-    enterExit: f.player.enterExit,
-    interact: f.player.interact,
-    job: f.player.job,
-    reload: f.player.reload,
-    horn: f.player.hornPressed,
-    prevWeapon: f.player.prevWeapon,
-    radio: f.ui.radioNext || f.ui.radioPrev,
-    camera: f.ui.camera,
-    map: f.ui.map,
-    pause: f.ui.pause,
-  });
-  const NO_EDGES = { enterExit: false, interact: false, job: false, reload: false, horn: false, prevWeapon: false, radio: false, camera: false, map: false, pause: false };
-  /** Any input at all, movement and menu navigation included. */
-  const anything = (f: FrameInput) =>
-    Object.values(edges(f)).some(Boolean) || f.player.moveX !== 0 || f.player.moveZ !== 0 || f.player.horn || f.ui.up || f.ui.down || f.ui.left || f.ui.right || f.ui.confirm || f.ui.back;
-
-  function setup(inVehicle = false) {
-    const inp = newInput();
-    inp.attach();
-    inp.inVehicle = inVehicle;
-    const taken: string[] = [];
-    /** Types `text` at `ms` per key (each held for half of it); returns the input of the frame after each keydown. */
-    const type = (text: string, ms = 130): FrameInput[] =>
-      [...text].map((ch) => {
-        const code = `Key${ch.toUpperCase()}`;
-        dom.win.dispatchEvent(keyEv('keydown', code, ch.toLowerCase()));
+    function setup() {
+      const canvas = new FakeElement('canvas');
+      const inp = new Input(canvas as unknown as HTMLCanvasElement);
+      inp.attach();
+      const lock = () => {
+        dom.doc.pointerLockElement = canvas;
+        dom.doc.dispatchEvent(new Event('pointerlockchange'));
+      };
+      /** One mouse move, then a frame: the look input it produced. */
+      const move = (x: number, y: number) => {
+        dom.win.dispatchEvent(ev('mousemove', { movementX: x, movementY: y }));
         const fi = inp.poll(1 / 60);
         inp.endFrame();
-        clock.now += ms / 2;
-        dom.win.dispatchEvent(keyEv('keyup', code, ch.toLowerCase()));
-        inp.poll(1 / 60);
-        inp.endFrame();
-        clock.now += ms / 2;
-        taken.push(...inp.takeCheats());
-        return fi;
-      });
-    return { inp, type, taken };
-  }
+        return [fi.lookX, fi.lookY];
+      };
+      return { lock, move };
+    }
 
-  it('each of the 9 codes is taken once, and from its third letter on its keys fire no action', () => {
-    for (const inVehicle of [false, true]) {
+    it('drops the jump by the cursor offset that comes with the lock', () => {
+      const { lock, move } = setup();
+      lock();
+      expect(move(-640, -360)).toEqual([0, 0]);
+      clock.now += 50;
+      expect(move(5, 3)).toEqual([0, 0]); // still settling
+      clock.now += 100;
+      expect(move(5, 3)).toEqual([5, 3]);
+    });
+
+    it('drops a single move of more than a third of the window', () => {
+      const { lock, move } = setup();
+      lock();
+      clock.now += 150;
+      expect(move(900, 0)).toEqual([0, 0]); // 1280 / 3 = 427
+      expect(move(300, 0)).toEqual([300, 0]);
+      expect(move(0, 250)).toEqual([0, 0]); // 720 / 3 = 240
+      expect(move(-200, 200)).toEqual([-200, 200]);
+      expect(move(NaN, 0)).toEqual([0, 0]);
+    });
+
+    it('closing the map leaves the camera where it was', async () => {
+      const canvas = new FakeElement('canvas');
+      const game = new Game(canvas as unknown as HTMLCanvasElement, new FakeElement('div') as unknown as HTMLElement);
+      const g = game as unknown as { running: boolean; last: number; frame: (now: number) => void };
+      g.running = true;
+      g.last = clock.now;
+      const frames = (n: number) => {
+        for (let i = 0; i < n; i++) {
+          clock.now += 1000 / 60;
+          g.frame(clock.now);
+        }
+      };
+      const key = (code: string, k: string) => {
+        dom.win.dispatchEvent(keyEv('keydown', code, k));
+        frames(2);
+        dom.win.dispatchEvent(keyEv('keyup', code, k));
+        frames(1);
+      };
+      game.newGame();
+      await flush();
+      frames(5);
+      const cam = game.renderer.cameraCtl;
+      key('KeyM', 'm');
+      await flush();
+      expect(game.menus.open).toBe(true);
+      frames(20);
+      const yaw = cam.yaw;
+      const pitch = cam.pitch;
+      key('KeyM', 'm'); // closes the map and re-captures the mouse
+      await flush();
+      expect(dom.doc.pointerLockElement).toBe(canvas);
+      // What Chrome sends next: a move by minus the cursor position.
+      dom.win.dispatchEvent(ev('mousemove', { movementX: -640, movementY: -360 }));
+      frames(2);
+      expect(cam.yaw).toBe(yaw);
+      expect(cam.pitch).toBe(pitch);
+    });
+  });
+
+  describe('typed cheat codes', () => {
+    beforeEach(() => {
+      clock.now = 5000;
+      vi.spyOn(performance, 'now').mockImplementation(() => clock.now);
+    });
+
+    /** The action edges a key could fire. */
+    const edges = (f: FrameInput) => ({
+      enterExit: f.player.enterExit,
+      interact: f.player.interact,
+      job: f.player.job,
+      reload: f.player.reload,
+      horn: f.player.hornPressed,
+      prevWeapon: f.player.prevWeapon,
+      radio: f.ui.radioNext || f.ui.radioPrev,
+      camera: f.ui.camera,
+      map: f.ui.map,
+      pause: f.ui.pause,
+    });
+    const NO_EDGES = { enterExit: false, interact: false, job: false, reload: false, horn: false, prevWeapon: false, radio: false, camera: false, map: false, pause: false };
+    /** Any input at all, movement and menu navigation included. */
+    const anything = (f: FrameInput) =>
+      Object.values(edges(f)).some(Boolean) || f.player.moveX !== 0 || f.player.moveZ !== 0 || f.player.horn || f.ui.up || f.ui.down || f.ui.left || f.ui.right || f.ui.confirm || f.ui.back;
+
+    function setup(inVehicle = false) {
+      const inp = newInput();
+      inp.attach();
+      inp.inVehicle = inVehicle;
+      const taken: string[] = [];
+      /** Types `text` at `ms` per key (each held for half of it); returns the input of the frame after each keydown. */
+      const type = (text: string, ms = 130): FrameInput[] =>
+        [...text].map((ch) => {
+          const code = `Key${ch.toUpperCase()}`;
+          dom.win.dispatchEvent(keyEv('keydown', code, ch.toLowerCase()));
+          const fi = inp.poll(1 / 60);
+          inp.endFrame();
+          clock.now += ms / 2;
+          dom.win.dispatchEvent(keyEv('keyup', code, ch.toLowerCase()));
+          inp.poll(1 / 60);
+          inp.endFrame();
+          clock.now += ms / 2;
+          taken.push(...inp.takeCheats());
+          return fi;
+        });
+      return { inp, type, taken };
+    }
+
+    it('each of the 9 codes is taken once, and from its third letter on its keys fire no action', () => {
+      for (const inVehicle of [false, true]) {
+        for (const code of CODES) {
+          const { inp, type, taken } = setup(inVehicle);
+          const frames = type(code);
+          expect(taken, code).toEqual([code]);
+          frames.forEach((f, i) => {
+            if (i >= 2) expect(edges(f), `${code} letter ${i + 1}${inVehicle ? ' in a car' : ''}`).toEqual(NO_EDGES);
+          });
+          inp.detach();
+        }
+      }
+    });
+
+    it('once the letters typed include an unbound key, the code does nothing else at all', () => {
       for (const code of CODES) {
-        const { inp, type, taken } = setup(inVehicle);
+        const { inp, type } = setup();
         const frames = type(code);
-        expect(taken, code).toEqual([code]);
+        // From the third letter, as soon as one letter so far has no binding (play never types those).
+        let from = 2;
+        while (![...code.slice(0, from + 1)].some((ch) => !BOUND_LETTERS.has(ch))) from++;
         frames.forEach((f, i) => {
-          if (i >= 2) expect(edges(f), `${code} letter ${i + 1}${inVehicle ? ' in a car' : ''}`).toEqual(NO_EDGES);
+          if (i >= from) expect(anything(f), `${code} letter ${i + 1}`).toBe(false);
         });
         inp.detach();
       }
-    }
-  });
+    });
 
-  it('once the letters typed include an unbound key, the code does nothing else at all', () => {
-    for (const code of CODES) {
+    it("a code's first letters still act (Game undoes them)", () => {
+      const first = (code: string) => {
+        const { inp, type } = setup();
+        const frames = type(code);
+        inp.detach();
+        return frames;
+      };
+      expect(first('FIXMYRIDE')[0]!.player.enterExit).toBe(true);
+      expect(first('MONEYTREE')[0]!.ui.map).toBe(true);
+      expect(first('IMMORTAL')[1]!.ui.map).toBe(true);
+      expect(first('SPAWNSPORTS')[1]!.ui.pause).toBe(true);
+      // S P A W are all keys of play (back, pause, left, forward): they act until the N.
+      expect(first('SPAWNSPORTS')[3]!.player.moveZ).toBe(1);
+      expect(first('COPMAGNET')[2]!.ui.pause).toBe(false);
+    });
+
+    it('play (WASD, SPAM) and codes typed with long pauses match nothing and swallow no key', () => {
+      const { type, taken } = setup();
+      const does: Record<string, (f: FrameInput) => boolean> = {
+        W: (f) => f.player.moveZ === 1,
+        A: (f) => f.player.moveX === -1,
+        S: (f) => f.player.moveZ === -1,
+        D: (f) => f.player.moveX === 1,
+        P: (f) => f.ui.pause,
+        M: (f) => f.ui.map,
+        F: (f) => f.player.enterExit,
+        R: (f) => f.player.reload,
+        E: (f) => f.player.interact,
+        T: (f) => f.player.job,
+      };
+      const check = (text: string, ms = 130) =>
+        type(text, ms).forEach((f, i) => {
+          const act = does[text[i]!];
+          if (act) expect(act(f), `${text} letter ${i + 1}`).toBe(true);
+        });
+      check('WASD');
+      check('SPAM');
+      check('WASDSPAMWASD');
+      check('FIX');
+      clock.now += 2000;
+      check('MYRIDE');
+      check('SUNSET', 1600); // slower than 1.5 s a key
+      expect(taken).toEqual([]);
+    });
+
+    it('a held key typing a code stays swallowed while it repeats, and acts again once pressed anew', () => {
       const { inp, type } = setup();
-      const frames = type(code);
-      // From the third letter, as soon as one letter so far has no binding (play never types those).
-      let from = 2;
-      while (![...code.slice(0, from + 1)].some((ch) => !BOUND_LETTERS.has(ch))) from++;
-      frames.forEach((f, i) => {
-        if (i >= from) expect(anything(f), `${code} letter ${i + 1}`).toBe(false);
-      });
-      inp.detach();
+      type('COP'.slice(0, 2));
+      dom.win.dispatchEvent(keyEv('keydown', 'KeyP', 'p'));
+      dom.win.dispatchEvent(ev('keydown', { code: 'KeyP', key: 'p', repeat: true }));
+      expect(inp.poll(1 / 60).ui.pause).toBe(false);
+      inp.endFrame();
+      dom.win.dispatchEvent(keyEv('keyup', 'KeyP', 'p'));
+      clock.now += 2000;
+      dom.win.dispatchEvent(keyEv('keydown', 'KeyP', 'p'));
+      expect(inp.poll(1 / 60).ui.pause).toBe(true);
+    });
+  });
+
+  describe('typed cheats in the game', () => {
+    beforeEach(() => {
+      clock.now = 1000;
+      vi.spyOn(performance, 'now').mockImplementation(() => clock.now);
+    });
+
+    async function playing() {
+      const game = new Game(new FakeElement('canvas') as unknown as HTMLCanvasElement, new FakeElement('div') as unknown as HTMLElement);
+      const g = game as unknown as { running: boolean; last: number; frame: (now: number) => void };
+      g.running = true;
+      g.last = clock.now;
+      const frames = (n: number) => {
+        for (let i = 0; i < n; i++) {
+          clock.now += 1000 / 60;
+          g.frame(clock.now);
+        }
+      };
+      /** Types `text` at 8 frames (133 ms) a key. */
+      const type = (text: string) => {
+        for (const ch of text) {
+          const code = `Key${ch.toUpperCase()}`;
+          dom.win.dispatchEvent(keyEv('keydown', code, ch.toLowerCase()));
+          frames(4);
+          dom.win.dispatchEvent(keyEv('keyup', code, ch.toLowerCase()));
+          frames(4);
+        }
+      };
+      game.newGame();
+      await flush();
+      frames(3);
+      return { game, sim: game.sim, frames, type };
     }
-  });
 
-  it("a code's first letters still act (Game undoes them)", () => {
-    const first = (code: string) => {
-      const { inp, type } = setup();
-      const frames = type(code);
-      inp.detach();
-      return frames;
-    };
-    expect(first('FIXMYRIDE')[0]!.player.enterExit).toBe(true);
-    expect(first('MONEYTREE')[0]!.ui.map).toBe(true);
-    expect(first('IMMORTAL')[1]!.ui.map).toBe(true);
-    expect(first('SPAWNSPORTS')[1]!.ui.pause).toBe(true);
-    // S P A W are all keys of play (back, pause, left, forward): they act until the N.
-    expect(first('SPAWNSPORTS')[3]!.player.moveZ).toBe(1);
-    expect(first('COPMAGNET')[2]!.ui.pause).toBe(false);
-  });
-
-  it('play (WASD, SPAM) and codes typed with long pauses match nothing and swallow no key', () => {
-    const { type, taken } = setup();
-    const does: Record<string, (f: FrameInput) => boolean> = {
-      W: (f) => f.player.moveZ === 1,
-      A: (f) => f.player.moveX === -1,
-      S: (f) => f.player.moveZ === -1,
-      D: (f) => f.player.moveX === 1,
-      P: (f) => f.ui.pause,
-      M: (f) => f.ui.map,
-      F: (f) => f.player.enterExit,
-      R: (f) => f.player.reload,
-      E: (f) => f.player.interact,
-      T: (f) => f.player.job,
-    };
-    const check = (text: string, ms = 130) =>
-      type(text, ms).forEach((f, i) => {
-        const act = does[text[i]!];
-        if (act) expect(act(f), `${text} letter ${i + 1}`).toBe(true);
-      });
-    check('WASD');
-    check('SPAM');
-    check('WASDSPAMWASD');
-    check('FIX');
-    clock.now += 2000;
-    check('MYRIDE');
-    check('SUNSET', 1600); // slower than 1.5 s a key
-    expect(taken).toEqual([]);
-  });
-
-  it('a held key typing a code stays swallowed while it repeats, and acts again once pressed anew', () => {
-    const { inp, type } = setup();
-    type('COP'.slice(0, 2));
-    dom.win.dispatchEvent(keyEv('keydown', 'KeyP', 'p'));
-    dom.win.dispatchEvent(ev('keydown', { code: 'KeyP', key: 'p', repeat: true }));
-    expect(inp.poll(1 / 60).ui.pause).toBe(false);
-    inp.endFrame();
-    dom.win.dispatchEvent(keyEv('keyup', 'KeyP', 'p'));
-    clock.now += 2000;
-    dom.win.dispatchEvent(keyEv('keydown', 'KeyP', 'p'));
-    expect(inp.poll(1 / 60).ui.pause).toBe(true);
-  });
-});
-
-describe('typed cheats in the game', () => {
-  beforeEach(() => {
-    clock.now = 1000;
-    vi.spyOn(performance, 'now').mockImplementation(() => clock.now);
-  });
-
-  async function playing() {
-    const game = new Game(new FakeElement('canvas') as unknown as HTMLCanvasElement, new FakeElement('div') as unknown as HTMLElement);
-    const g = game as unknown as { running: boolean; last: number; frame: (now: number) => void };
-    g.running = true;
-    g.last = clock.now;
-    const frames = (n: number) => {
-      for (let i = 0; i < n; i++) {
-        clock.now += 1000 / 60;
-        g.frame(clock.now);
-      }
-    };
-    /** Types `text` at 8 frames (133 ms) a key. */
-    const type = (text: string) => {
-      for (const ch of text) {
-        const code = `Key${ch.toUpperCase()}`;
-        dom.win.dispatchEvent(keyEv('keydown', code, ch.toLowerCase()));
-        frames(4);
-        dom.win.dispatchEvent(keyEv('keyup', code, ch.toLowerCase()));
-        frames(4);
-      }
-    };
-    game.newGame();
-    await flush();
-    frames(3);
-    return { game, sim: game.sim, frames, type };
-  }
-
-  it('FIXMYRIDE in a car at 20 m/s: its F bails out, and the cheat puts the player back in his repaired car', async () => {
-    const { game, sim, frames, type } = await playing();
-    const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
-    const v = sim.spawnVehicle('sedan', lane.sx + lane.dx * 5, lane.sz + lane.dz * 5, lane.heading);
-    placeInCar(sim, v);
-    v.health = v.spec.health * 0.4;
-    v.vel.x = lane.dx * 20;
-    v.vel.z = lane.dz * 20;
-    frames(1);
-    let bails = 0;
-    sim.events.on('vehicleExit', () => bails++);
-    type('FIXMYRIDE');
-    expect(bails).toBe(1);
-    frames(30);
-    expect(sim.player.vehicle).toBe(v);
-    expect(sim.player.state).toBe('inVehicle');
-    expect(v.health).toBe(v.spec.health);
-    expect(sim.player.health).toBe(sim.player.maxHealth); // the bail's 6 health came back
-    expect(game.menus.open).toBe(false);
-  });
-
-  it("SUNSET typed on Mama Lou's marker starts no mission and sets the clock", async () => {
-    const { game, sim, frames, type } = await playing();
-    const lou = sim.world.layout.pois.find((q) => q.id === 'lou')!;
-    sim.player.pos.x = lou.x;
-    sim.player.pos.z = lou.z;
-    sim.player.pos.y = sim.world.groundHeight(lou.x, lou.z);
-    frames(5);
-    expect(sim.interactions.prompt()).toContain('Wheels');
-    type('SUNSET');
-    frames(30);
-    expect(sim.missions.active).toBe(null);
-    expect(sim.clock.hours).toBeCloseTo(18.3, 1);
-    expect(game.menus.open).toBe(false);
-    // Whereas E alone does start it.
-    type('E');
-    expect(sim.missions.active?.def.id).toBe('wheels');
-  });
-
-  it('MONEYTREE adds $50,000 and closes the map its M opened', async () => {
-    const { game, sim, frames, type } = await playing();
-    const money = sim.progress.money;
-    type('M');
-    expect(game.menus.open).toBe(true);
-    type('ONEYTREE');
-    frames(30);
-    expect(sim.progress.money).toBe(money + 50000);
-    expect(game.menus.open).toBe(false);
-  });
-
-  it('IMMORTAL and SPAWNSPORTS close the map and the pause menu their first letters opened', async () => {
-    const { game, sim, frames, type } = await playing();
-    let opened = 0;
-    const sports = () => sim.vehicles.filter((v) => v.kind === 'sports').length;
-    const cars = sports();
-    for (const code of ['IMMORTAL', 'SPAWNSPORTS']) {
-      for (const ch of code) {
-        type(ch);
-        if (game.menus.open) opened++;
-      }
+    it('FIXMYRIDE in a car at 20 m/s: its F bails out, and the cheat puts the player back in his repaired car', async () => {
+      const { game, sim, frames, type } = await playing();
+      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const v = sim.spawnVehicle('sedan', lane.sx + lane.dx * 5, lane.sz + lane.dz * 5, lane.heading);
+      placeInCar(sim, v);
+      v.health = v.spec.health * 0.4;
+      v.vel.x = lane.dx * 20;
+      v.vel.z = lane.dz * 20;
+      frames(1);
+      let bails = 0;
+      sim.events.on('vehicleExit', () => bails++);
+      type('FIXMYRIDE');
+      expect(bails).toBe(1);
       frames(30);
-      expect(game.menus.open, code).toBe(false);
-    }
-    expect(opened).toBeGreaterThan(0);
-    expect(sim.cheats.godMode).toBe(true);
-    expect(sports()).toBe(cars + 1);
-  });
+      expect(sim.player.vehicle).toBe(v);
+      expect(sim.player.state).toBe('inVehicle');
+      expect(v.health).toBe(v.spec.health);
+      expect(sim.player.health).toBe(sim.player.maxHealth); // the bail's 6 health came back
+      expect(game.menus.open).toBe(false);
+    });
 
-  it('a screen opened well before the code was typed stays open', async () => {
-    const { game, sim, frames, type } = await playing();
-    type('M');
-    expect(game.menus.open).toBe(true);
-    frames(180); // 3 s on the map
-    type('NIGHTOWL');
-    frames(10);
-    expect(sim.clock.hours).toBeCloseTo(23, 1);
-    expect(game.menus.open).toBe(true);
-  });
-});
+    it('FIXMYRIDE in a bus at 10 m/s: its F brakes before getting out, and the cheat still ends with the player at the wheel', async () => {
+      const { sim, frames, type } = await playing();
+      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const v = sim.spawnVehicle('bus', lane.sx + lane.dx * 8, lane.sz + lane.dz * 8, lane.heading);
+      placeInCar(sim, v);
+      v.vel.x = lane.dx * 10.9;
+      v.vel.z = lane.dz * 10.9;
+      frames(1);
+      let exits = 0;
+      sim.events.on('vehicleExit', () => exits++);
+      type('FIXMYRIDE');
+      frames(60);
+      expect(exits).toBe(1);
+      expect(sim.player.vehicle).toBe(v);
+      expect(sim.player.health).toBe(sim.player.maxHealth); // a stop-and-get-out, not a bail
+    });
 
-describe('crash resilience in the game', () => {
-  function running() {
-    const uiRoot = new FakeElement('div');
-    const game = new Game(new FakeElement('canvas') as unknown as HTMLCanvasElement, uiRoot as unknown as HTMLElement);
-    const g = game as unknown as { running: boolean; last: number; frame: (now: number) => void };
-    let now = 1000;
-    g.running = true;
-    g.last = now;
-    const frames = (n: number) => {
-      for (let i = 0; i < n; i++) {
-        now += 1000 / 60;
-        g.frame(now);
+    it("SUNSET typed on Mama Lou's marker starts no mission and sets the clock", async () => {
+      const { game, sim, frames, type } = await playing();
+      const lou = sim.world.layout.pois.find((q) => q.id === 'lou')!;
+      sim.player.pos.x = lou.x;
+      sim.player.pos.z = lou.z;
+      sim.player.pos.y = sim.world.groundHeight(lou.x, lou.z);
+      frames(5);
+      expect(sim.interactions.prompt()).toContain('Wheels');
+      type('SUNSET');
+      frames(30);
+      expect(sim.missions.active).toBe(null);
+      expect(sim.clock.hours).toBeCloseTo(18.3, 1);
+      expect(game.menus.open).toBe(false);
+      // Whereas E alone does start it.
+      type('E');
+      expect(sim.missions.active?.def.id).toBe('wheels');
+    });
+
+    it('MONEYTREE adds $50,000 and closes the map its M opened', async () => {
+      const { game, sim, frames, type } = await playing();
+      const money = sim.progress.money;
+      type('M');
+      expect(game.menus.open).toBe(true);
+      type('ONEYTREE');
+      frames(30);
+      expect(sim.progress.money).toBe(money + 50000);
+      expect(game.menus.open).toBe(false);
+    });
+
+    it('IMMORTAL and SPAWNSPORTS close the map and the pause menu their first letters opened', async () => {
+      const { game, sim, frames, type } = await playing();
+      let opened = 0;
+      const sports = () => sim.vehicles.filter((v) => v.kind === 'sports').length;
+      const cars = sports();
+      for (const code of ['IMMORTAL', 'SPAWNSPORTS']) {
+        for (const ch of code) {
+          type(ch);
+          if (game.menus.open) opened++;
+        }
+        frames(30);
+        expect(game.menus.open, code).toBe(false);
       }
-    };
-    const button = (label: string) => uiRoot.all().find((e) => e.tagName === 'BUTTON' && e.textContent === label);
-    return { game, uiRoot, frames, button };
-  }
-
-  it('a menu action that throws shows the error screen instead of escaping the click', () => {
-    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const { game, uiRoot, button } = running();
-    vi.spyOn(game, 'newGame').mockImplementation(() => {
-      throw new Error('broken new game');
+      expect(opened).toBeGreaterThan(0);
+      expect(sim.cheats.godMode).toBe(true);
+      expect(sports()).toBe(cars + 1);
     });
-    expect(() => button('NEW GAME')!.click()).not.toThrow();
-    expect(game.isCrashed).toBe(true);
-    expect(uiRoot.children.some((c) => c.classList.contains('error'))).toBe(true);
-    expect(err).toHaveBeenCalledWith('GTA7 crashed', expect.any(Error));
+
+    it('a screen opened well before the code was typed stays open', async () => {
+      const { game, sim, frames, type } = await playing();
+      type('M');
+      expect(game.menus.open).toBe(true);
+      frames(180); // 3 s on the map
+      type('NIGHTOWL');
+      frames(10);
+      expect(sim.clock.hours).toBeCloseTo(23, 1);
+      expect(game.menus.open).toBe(true);
+    });
   });
 
-  it('COPY DETAILS copies a report of the session and its last events', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const writeText = vi.fn(() => Promise.resolve());
-    vi.stubGlobal('navigator', { getGamepads: () => [], clipboard: { writeText }, userAgent: 'FakeBrowser/1.0' });
-    const { game, frames, button } = running();
-    game.newGame();
-    await flush();
-    frames(2);
-    const sim = game.sim;
-    for (let i = 0; i < 40; i++) sim.events.emit('explosion', { x: i, y: 0, z: 0, radius: 7.5 });
-    sim.events.emit('message', { text: 'Last words.', duration: 1 });
-    vi.spyOn(game.hud, 'update').mockImplementation(() => {
-      throw new Error('hud exploded');
-    });
-    frames(1);
-    expect(game.isCrashed).toBe(true);
-    button('COPY DETAILS')!.click();
-    await flush();
-    expect(writeText).toHaveBeenCalledTimes(1);
-    const report = (writeText.mock.calls[0] as unknown as [string])[0];
-    expect(report).toContain('Error: hud exploded');
-    expect(report).toContain('mode: game');
-    expect(report).toMatch(/sim time: \d+\.\d\d s/);
-    expect(report).toContain('mission: none');
-    expect(report).toMatch(/zone: \S+/);
-    expect(report).toMatch(/player: normal, health 100, armor 0, fists, vehicle none, wanted 0/);
-    expect(report).toContain('quality: high (rendering high)');
-    expect(report).toContain('browser: FakeBrowser/1.0');
-    // Only the last 30 events are kept, the newest last.
-    const events = report.slice(report.indexOf('last 30 events'));
-    expect(events.split('\n')).toHaveLength(31);
-    expect(events).not.toContain('explosion at 9, 0');
-    expect(events).toContain('explosion at 39, 0');
-    expect(events.trimEnd().endsWith('message Last words.')).toBe(true);
-    expect(button('COPIED')).toBeDefined();
-  });
+  describe('crash resilience in the game', () => {
+    function running() {
+      const uiRoot = new FakeElement('div');
+      const game = new Game(new FakeElement('canvas') as unknown as HTMLCanvasElement, uiRoot as unknown as HTMLElement);
+      const g = game as unknown as { running: boolean; last: number; frame: (now: number) => void };
+      let now = 1000;
+      g.running = true;
+      g.last = now;
+      const frames = (n: number) => {
+        for (let i = 0; i < n; i++) {
+          now += 1000 / 60;
+          g.frame(now);
+        }
+      };
+      const button = (label: string) => uiRoot.all().find((e) => e.tagName === 'BUTTON' && e.textContent === label);
+      return { game, uiRoot, frames, button };
+    }
 
-  it('without a clipboard the report is shown to copy by hand', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const { game, uiRoot, frames, button } = running();
-    game.newGame();
-    await flush();
-    vi.spyOn(game.hud, 'update').mockImplementation(() => {
-      throw new Error('hud exploded');
+    it('a menu action that throws shows the error screen instead of escaping the click', () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { game, uiRoot, button } = running();
+      vi.spyOn(game, 'newGame').mockImplementation(() => {
+        throw new Error('broken new game');
+      });
+      expect(() => button('NEW GAME')!.click()).not.toThrow();
+      expect(game.isCrashed).toBe(true);
+      expect(uiRoot.children.some((c) => c.classList.contains('error'))).toBe(true);
+      expect(err).toHaveBeenCalledWith('GTA7 crashed', expect.any(Error));
     });
-    frames(1);
-    const area = uiRoot.all().find((e) => e.tagName === 'TEXTAREA')! as FakeElement & { hidden: boolean; focus(): void; select(): void };
-    let selected = false;
-    area.focus = () => undefined;
-    area.select = () => {
-      selected = true;
-    };
-    expect(area.hidden).toBe(true);
-    button('COPY DETAILS')!.click();
-    expect(area.hidden).toBe(false);
-    expect(selected).toBe(true);
-    expect(area.value).toContain('Error: hud exploded');
+
+    it("leaving the gun shop with a broken resume shows the error screen too (the shop's LEAVE is a DOM click)", async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { game, button } = running();
+      game.newGame();
+      await flush();
+      game.sim.events.emit('shopOpen', { poi: 'guns_south' });
+      vi.spyOn(game, 'resume').mockImplementation(() => {
+        throw new Error('broken resume');
+      });
+      expect(() => button('LEAVE')!.click()).not.toThrow();
+      expect(game.isCrashed).toBe(true);
+    });
+
+    it('COPY DETAILS copies a report of the session and its last events', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const writeText = vi.fn(() => Promise.resolve());
+      vi.stubGlobal('navigator', { getGamepads: () => [], clipboard: { writeText }, userAgent: 'FakeBrowser/1.0' });
+      const { game, frames, button } = running();
+      game.newGame();
+      await flush();
+      frames(2);
+      const sim = game.sim;
+      for (let i = 0; i < 40; i++) sim.events.emit('explosion', { x: i, y: 0, z: 0, radius: 7.5 });
+      sim.events.emit('message', { text: 'Last words.', duration: 1 });
+      vi.spyOn(game.hud, 'update').mockImplementation(() => {
+        throw new Error('hud exploded');
+      });
+      frames(1);
+      expect(game.isCrashed).toBe(true);
+      button('COPY DETAILS')!.click();
+      await flush();
+      expect(writeText).toHaveBeenCalledTimes(1);
+      const report = (writeText.mock.calls[0] as unknown as [string])[0];
+      expect(report).toContain('Error: hud exploded');
+      expect(report).toContain('mode: game');
+      expect(report).toMatch(/sim time: \d+\.\d\d s/);
+      expect(report).toContain('mission: none');
+      expect(report).toMatch(/zone: \S+/);
+      expect(report).toMatch(/player: normal, health 100, armor 0, fists, vehicle none, wanted 0/);
+      expect(report).toContain('quality: high (rendering high)');
+      expect(report).toContain('browser: FakeBrowser/1.0');
+      // Only the last 30 events are kept, the newest last.
+      const events = report.slice(report.indexOf('last 30 events'));
+      expect(events.split('\n')).toHaveLength(31);
+      expect(events).not.toContain('explosion at 9, 0');
+      expect(events).toContain('explosion at 39, 0');
+      expect(events.trimEnd().endsWith('message Last words.')).toBe(true);
+      expect(button('COPIED')).toBeDefined();
+    });
+
+    it('without a clipboard the report is shown to copy by hand', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { game, uiRoot, frames, button } = running();
+      game.newGame();
+      await flush();
+      vi.spyOn(game.hud, 'update').mockImplementation(() => {
+        throw new Error('hud exploded');
+      });
+      frames(1);
+      const area = uiRoot.all().find((e) => e.tagName === 'TEXTAREA')! as FakeElement & { hidden: boolean; focus(): void; select(): void };
+      let selected = false;
+      area.focus = () => undefined;
+      area.select = () => {
+        selected = true;
+      };
+      expect(area.hidden).toBe(true);
+      button('COPY DETAILS')!.click();
+      expect(area.hidden).toBe(false);
+      expect(selected).toBe(true);
+      expect(area.value).toContain('Error: hud exploded');
+    });
   });
 });

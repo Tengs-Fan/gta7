@@ -60,6 +60,9 @@ test.describe('GTA 7 harness: resilience and typed cheats', () => {
     });
     await expect(page.locator('.error h2')).toHaveText('SOMETHING BROKE');
     expect((await state(page)).crashed).toBe(true);
+    await expect(page.getByRole('button', { name: 'RELOAD' })).toBeVisible();
+    // The report box only appears where the clipboard is refused.
+    await expect(page.locator('.error textarea')).toBeHidden();
     await page.getByRole('button', { name: 'COPY DETAILS' }).click();
     await expect(page.getByRole('button', { name: 'COPIED' })).toBeVisible();
     const report = await page.evaluate(() => navigator.clipboard.readText());

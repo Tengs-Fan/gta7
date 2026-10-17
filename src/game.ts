@@ -90,31 +90,36 @@ export class Game {
     return sim;
   }
 
-  private menuHost(): MenuHost {
-    // Menu actions that switch state run from DOM handlers, outside the frame loop's catch: one that throws
-    // shows the error screen instead of leaving the game half switched.
-    const guard = <A extends unknown[]>(fn: (...args: A) => void) => (...args: A): void => {
+  /**
+   * Menu actions that switch state run from DOM handlers, outside the frame loop's catch: one that throws
+   * shows the error screen instead of leaving the game half switched.
+   */
+  private guard<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void {
+    return (...args) => {
       try {
         fn(...args);
       } catch (err) {
         this.crash(err);
       }
     };
+  }
+
+  private menuHost(): MenuHost {
     return {
       hasSave: () => loadGame() !== null,
-      newGame: guard(() => this.newGame()),
-      continueGame: guard(() => this.continueGame()),
-      resume: guard(() => this.resume()),
-      quitToTitle: guard(() => this.quitToTitle()),
-      abandonMission: guard(() => {
+      newGame: this.guard(() => this.newGame()),
+      continueGame: this.guard(() => this.continueGame()),
+      resume: this.guard(() => this.resume()),
+      quitToTitle: this.guard(() => this.quitToTitle()),
+      abandonMission: this.guard(() => {
         this.sim.missions.abandon();
         this.resume();
       }),
       settings: () => this.settings,
-      applySettings: guard((s: Settings) => this.applySettings(s, true)),
+      applySettings: this.guard((s: Settings) => this.applySettings(s, true)),
       deleteSave: () => deleteGame(),
       sim: () => (this.mode === 'game' ? this.sim : null),
-      setWaypoint: guard((p: { x: number; z: number } | null) => {
+      setWaypoint: this.guard((p: { x: number; z: number } | null) => {
         this.hud.waypoint = p;
       }),
       waypoint: () => this.hud.waypoint,
@@ -158,7 +163,7 @@ export class Game {
     this.unsub.push(
       ev.on('shopOpen', () => {
         this.suspendPlay();
-        this.menus.showShop(() => this.resume());
+        this.menus.showShop(this.guard(() => this.resume()));
       }),
       ev.on('saveRequested', (e) => this.save(e.poi === 'auto')),
       ev.on('respawn', () => this.renderer.cameraCtl.reset(sim)),
@@ -249,7 +254,7 @@ export class Game {
 
   private openMap(): void {
     this.suspendPlay();
-    this.menus.showMap(() => this.resume());
+    this.menus.showMap(this.guard(() => this.resume()));
   }
 
   // ---------------------------------------------------------------------------
@@ -460,7 +465,8 @@ export class Game {
     const text = document.createElement('textarea');
     text.readOnly = true;
     text.hidden = true;
-    text.style.cssText = 'display:block;width:min(760px,90vw);height:220px;margin:14px auto 0;font:13px/1.35 monospace;pointer-events:auto';
+    // No display style here, or it would override `hidden`: centred as an inline block by the overlay's text-align.
+    text.style.cssText = 'width:min(760px,90vw);height:220px;margin-top:14px;text-align:left;font:13px/1.35 monospace;pointer-events:auto';
     copy.addEventListener('click', () => {
       const report = this.crashReport(err);
       // Where the clipboard is refused (an insecure origin, a denied permission), show it selected to copy by hand.
