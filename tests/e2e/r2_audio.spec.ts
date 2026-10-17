@@ -55,19 +55,18 @@ test.describe('GTA 7 audio mix', () => {
       const g = (window as Api).__gta7;
       g.godMode(true);
       g.give('shotgun', 30);
+      // Mouse look off: headless Chromium reports bogus movement with synthetic clicks.
+      g.game.renderer.cameraCtl.sensitivity = 0;
     });
     // Let the shotgun be drawn before pulling the trigger.
     await page.waitForTimeout(1200);
     const shots0 = await page.evaluate(() => (window as Api).__gta7.game.audio.counters.gunshots);
+    const shots = () => page.evaluate(() => (window as Api).__gta7.game.audio.counters.gunshots as number);
     await meterStart(page);
-    for (let i = 0; i < 3; i++) {
-      await page.evaluate(() => {
-        const sim = (window as Api).__gta7.sim;
-        const p = sim.player;
-        p.fireCooldown = 0;
-        sim.combat.playerFire(p, { ...sim.lastInput, fire: true, firePressed: true }, false);
-      });
-      await page.waitForTimeout(300);
+    // Real trigger pulls, a second apart (a click that only recaptures the mouse does not fire).
+    for (let i = 0; i < 8 && (await shots()) - shots0 < 3; i++) {
+      await page.mouse.click(640, 360);
+      await page.waitForTimeout(1000);
     }
     await page.evaluate(() => {
       const g = (window as Api).__gta7;
@@ -77,9 +76,8 @@ test.describe('GTA 7 audio mix', () => {
     });
     await page.waitForTimeout(2000);
     const m = await meterStop(page);
-    const shots = await page.evaluate(() => (window as Api).__gta7.game.audio.counters.gunshots);
     // Nine pellets per pull, one gunshot per pull.
-    expect(shots - shots0).toBe(3);
+    expect((await shots()) - shots0).toBe(3);
     expect(m.polls).toBeGreaterThan(40);
     expect(m.peak).toBeGreaterThan(0.1);
     expect(m.peak).toBeLessThanOrEqual(1);
