@@ -7,6 +7,7 @@ import { Helicopter, type Character, type Vehicle } from '../../src/sim/entities
 import type { PlayerInput } from '../../src/sim/input';
 import type { Sim } from '../../src/sim/sim';
 import type { Lane } from '../../src/world/roads';
+import { HELI_SIGHT } from '../../src/sim/wanted';
 import { aimAt, input, makeSim, placeInCar, step, teleport } from './helpers';
 
 /** PoliceSystem internals the scenarios need to set up. */
@@ -623,7 +624,7 @@ describe('police helicopter sightings', () => {
       return input();
     });
     // In sighting range nearly all along, but never in sight.
-    expect(closest).toBeLessThan(110);
+    expect(closest).toBeLessThan(HELI_SIGHT);
     expect(spotted).toBe(false);
     expect(sim.wanted.level).toBe(0);
   });
@@ -863,5 +864,80 @@ describe('searching while the player is far from the last sighting', () => {
     }
     expect(wrong).toEqual([]);
     expect(sent).toBeGreaterThan(25);
+  });
+
+  it('lets a player standing 250-300 m from his last sighting lose the stars too: no unit sent from near the search area passes him', () => {
+    // Round 2 fix pass (police): three blocks from the sighting, units sent from lanes near the search area
+    // are also near him, and used to start as close as 95 m and head his way (2 of these 60 runs saw him again).
+    const failures: string[] = [];
+    let sent = 0;
+    for (const level of [1, 2]) {
+      for (const [li, lj, fi, fj] of [[2, 2, 5, 2], [6, 6, 6, 3], [4, 7, 7, 7], [7, 3, 4, 3], [3, 4, 3, 7], [5, 5, 8, 5], [8, 6, 5, 6], [2, 8, 2, 5], [1, 4, 4, 4], [6, 1, 6, 4]] as const) {
+        for (const seed of [1, 2, 3]) {
+          const sim = dispatchOnly(seed * 1000 + li * 10 + lj);
+          const seen = corner(sim, li, lj);
+          teleport(sim, seen.x, seen.z);
+          lostSight(sim, level);
+          const hide = corner(sim, fi, fj);
+          teleport(sim, hide.x, hide.z);
+          const run = evade(sim, 40);
+          sent += run.sent;
+          if (run.failed) failures.push(`${level} star(s), (${li},${lj}) -> (${fi},${fj}), seed ${seed}: ${run.failed}`);
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+    expect(sent).toBeGreaterThan(60);
+  });
+
+  it('also starts the units sent from near the search area 120+ m from the player, heading away from him and out of his sight', () => {
+    // Round 2 fix pass (police): the player three blocks (about 250-300 m) from the sighting, so lanes within a
+    // short drive of the search area are also within reach of him and the preferred (first) tries use them.
+    // Every unit sent, whichever tries placed it and whatever the random draws, must start beyond 1.5 x the
+    // distance an officer sees, on a lane heading for the sighting and away from him, and not in his view.
+    const wrong: string[] = [];
+    let sent = 0;
+    let nearArea = 0;
+    for (const [level, li, lj, fi, fj] of [
+      [1, 2, 2, 5, 2], [1, 6, 6, 6, 3], [1, 4, 7, 7, 7], [1, 7, 3, 4, 3], [2, 3, 4, 3, 7], [2, 5, 5, 8, 5], [2, 8, 6, 5, 6], [2, 2, 8, 2, 5],
+    ] as const) {
+      for (const seed of [1, 2, 3]) {
+        const sim = makeSim({ seed: seed * 100 + li * 10 + lj });
+        const seen = corner(sim, li, lj);
+        teleport(sim, seen.x, seen.z);
+        lostSight(sim, level);
+        const hide = corner(sim, fi, fj);
+        teleport(sim, hide.x, hide.z);
+        // He looks back down the street towards where he was seen.
+        const dx = seen.x - hide.x;
+        const dz = seen.z - hide.z;
+        const l = Math.hypot(dx, dz);
+        sim.cam.x = hide.x - (dx / l) * 6;
+        sim.cam.y = sim.world.groundHeight(hide.x, hide.z) + 3;
+        sim.cam.z = hide.z - (dz / l) * 6;
+        sim.camDir.x = dx / l;
+        sim.camDir.y = -0.05;
+        sim.camDir.z = dz / l;
+        for (let k = 0; k < 30; k++) {
+          const v = sim.police.spawnUnit('police', true);
+          if (!v) continue;
+          sent++;
+          const fx = Math.sin(v.heading);
+          const fz = Math.cos(v.heading);
+          const toSeen = (seen.x - v.pos.x) * fx + (seen.z - v.pos.z) * fz;
+          const fromHim = (v.pos.x - hide.x) * fx + (v.pos.z - hide.z) * fz;
+          const d = dist(v.pos, hide);
+          if (dist(v.pos, seen) <= sim.wanted.searchRadius() + 130) nearArea++;
+          if (d < 120 || toSeen < 0 || fromHim < 0 || (d < 160 && sim.isVisible(v.pos.x, 1, v.pos.z))) {
+            wrong.push(`${level} star(s), (${li},${lj}) -> (${fi},${fj}): unit ${Math.round(d)} m from him at (${Math.round(v.pos.x)}, ${Math.round(v.pos.z)})${fromHim < 0 ? ', heading his way' : ''}`);
+          }
+          sim.removeVehicle(v);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+    expect(sent).toBeGreaterThan(150);
+    // Most come from near the search area.
+    expect(nearArea).toBeGreaterThan(sent * 0.5);
   });
 });

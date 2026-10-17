@@ -427,8 +427,9 @@ describe('point-blank shots from the shoulder camera', () => {
     sim.wanted.setLevel(1);
     const chest = () => ({ x: cop.pos.x, y: cop.pos.y + 1.2, z: cop.pos.z });
     const dist = () => Math.hypot(cop.pos.x - p.pos.x, cop.pos.z - p.pos.z);
-    // He walks right up to the player (about 0.8 m), who keeps the crosshair on his chest.
-    for (let i = 0; i < 180 && dist() > 1; i++) sim.update(1 / 60, crosshairOn(sim, chest()));
+    // He walks right up to the player (about 0.8 m), who keeps the crosshair on his chest with the gun lowered
+    // (round 2 fix pass, police: holding an officer at gunpoint is an attack on him, and he fires back instead).
+    for (let i = 0; i < 180 && dist() > 1; i++) sim.update(1 / 60, crosshairOn(sim, chest(), { aim: false }));
     expect(dist()).toBeLessThan(1);
     const shots = recordShots(sim);
     for (let i = 0; i < 4 && cop.alive; i++) {
