@@ -111,8 +111,9 @@ test.describe('GTA 7 audio mix', () => {
         return w.districtAt(p.x, p.z);
       }, place);
       expect(district, place.name).toBe(place.at);
-      // The layers glide to the new place over 1-2 s.
+      // The layers glide to the new place over 1-2 s; dialogue would duck the bed, so measure between lines.
       await page.waitForTimeout(3000);
+      await expect(page.locator('.subtitle')).not.toHaveClass(/show/, { timeout: 20_000 });
       await meterStart(page);
       await page.waitForTimeout(5000);
       const m = await meterStop(page);
@@ -130,8 +131,10 @@ test.describe('GTA 7 audio mix', () => {
   test('the first subtitle of Wheels ducks the music bus by at least 6 dB', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
+    // Start from an unducked music stage (no line of dialogue showing).
+    await expect(page.locator('.subtitle')).not.toHaveClass(/show/, { timeout: 20_000 });
+    await page.waitForFunction(() => (window as Api).__gta7.game.audio.mixer.levels().music > 0.75, null, { timeout: 5000 });
     const before = await page.evaluate(() => (window as Api).__gta7.game.audio.mixer.levels().music as number);
-    expect(before).toBeGreaterThan(0.5);
     await page.evaluate(() => (window as Api).__gta7.startMission('wheels'));
     await expect(page.locator('.subtitle')).toHaveClass(/show/, { timeout: 10_000 });
     await page.waitForTimeout(400);
