@@ -51,7 +51,7 @@ const ICON_COLOR: Record<PickupKind, number> = {
   money: 0x3fd96b,
   package: 0xf5c542,
   rampage: 0xd01818,
-  parcel: 0xb98149,
+  parcel: 0x8a5a2c,
 };
 
 export class MarkerView {
