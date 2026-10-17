@@ -160,8 +160,10 @@ export class CameraController {
   /** Trunks the boom ignored last frame and this one, for hugging the player's back (see trunkStop). */
   private hugging = new Set<number>();
   private huggingNow = new Set<number>();
-  /** Set by reset(): the next on-foot frame has no earlier boom to glide from. */
+  /** Set by reset() and on leaving a vehicle: the next on-foot frame has no earlier boom to glide from. */
   private freshBoom = true;
+  /** The trunk the boom was last held back by (collider id, -1: none). */
+  private heldBy = -1;
   private titleT = 0;
   private deathT = 0;
   private wasInVehicle = false;
@@ -277,7 +279,9 @@ export class CameraController {
       this.orbitPitch = 0;
     } else if (!v && this.wasInVehicle) {
       this.yaw = wrapAngle(this.vehYaw + this.orbitYaw);
-      this.pitch = -0.12;
+      this.pitch = RESET_PITCH;
+      // The view jumps from the chase camera to the boom, so a trunk in the way is a cut, as after a reset.
+      this.freshBoom = true;
     }
     this.wasInVehicle = !!v;
 
@@ -396,9 +400,16 @@ export class CameraController {
           // behind it, and gliding in front of it would drag the camera through it: that is a cut, as is
           // the first frame after a reset, which has no earlier boom to glide from.
           this.trunkReach = this.hugging.has(stop.id) || this.freshBoom ? stop.t : damp(cur, stop.t, 12, dt);
+          this.heldBy = stop.id;
+        } else if (this.huggingNow.has(this.heldBy)) {
+          // The trunk the camera stood in front of now hugs his back (he backed up to it): easing out
+          // would drag the camera back through it, so it cuts out behind it.
+          this.trunkReach = stop.t;
+          this.heldBy = -1;
         } else {
           // Out again at 6 m/s, after which no trunk holds it back.
           this.trunkReach = Math.min(stop.t, this.trunkReach + 6 * dt);
+          if (this.trunkReach >= len) this.heldBy = -1;
         }
         [this.hugging, this.huggingNow] = [this.huggingNow, this.hugging];
         this.freshBoom = false;
@@ -410,6 +421,7 @@ export class CameraController {
     if (!onFoot) {
       this.trunkReach = Infinity;
       this.hugging.clear();
+      this.heldBy = -1;
     }
     // Stay above the ground and above the sea, whose surface plane is invisible from below.
     const floor = Math.max(sim.world.groundHeight(this.desired.x, this.desired.z), WATER_Y) + 0.35;
@@ -515,6 +527,7 @@ export class CameraController {
     this.offset.set(0, 0, 0);
     this.trunkReach = Infinity;
     this.hugging.clear();
+    this.heldBy = -1;
     this.freshBoom = true;
     const pos = sim.playerPos();
     this.target.set(pos.x, pos.y + 1.5, pos.z);

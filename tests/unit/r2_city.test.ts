@@ -880,6 +880,82 @@ describe('round 2 fix: the camera and street trees', () => {
     throw new Error('no open street tree found');
   });
 
+  it('getting out of a car with a trunk behind him, the first frame on foot is already in front of it', () => {
+    const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 12 });
+    const p = sim.player;
+    const cam = new CameraController(16 / 9);
+    cam.mode = 'play';
+    for (const q of sim.world.layout.props) {
+      if (q.kind !== 'tree') continue;
+      for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const fx = Math.sin(yaw);
+        const fz = Math.cos(yaw);
+        const x = q.x + fx * 2.5 + Math.cos(yaw) * 0.3;
+        const z = q.z + fz * 2.5 - Math.sin(yaw) * 0.3;
+        if (!sim.world.isFree(x, z, 1.2) || sim.world.grid.raycast(x, sim.world.groundHeight(x, z) + 1.6, z, -fx, 0, -fz, 6, sightHit, isSolidForSight)) continue;
+        // On foot somewhere open, into a car facing away from the trunk, then out of it where he sat.
+        cam.reset(sim);
+        cam.update(DT, sim, false);
+        const v = sim.spawnVehicle('sedan', x, z, yaw);
+        sim.seat(p, v, 0);
+        for (let i = 0; i < 30; i++) cam.update(DT, sim, false);
+        sim.unseat(p);
+        p.pos.x = x;
+        p.pos.z = z;
+        p.pos.y = sim.world.groundHeight(x, z);
+        sim.removeVehicle(v);
+        cam.update(DT, sim, false);
+        const c = cam.camera.position;
+        expect((p.pos.x - c.x) * fx + (p.pos.z - c.z) * fz).toBeLessThan(2.5 - 0.26 * q.scale);
+        return;
+      }
+    }
+    throw new Error('no open street tree found');
+  });
+
+  it('backing up to a trunk behind him, the camera cuts behind it instead of easing back through it', () => {
+    const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 12 });
+    const p = sim.player;
+    for (const q of sim.world.layout.props) {
+      if (q.kind !== 'tree') continue;
+      for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const fx = Math.sin(yaw);
+        const fz = Math.cos(yaw);
+        // 4 m in front of the trunk, the boom running back over it, nothing else near.
+        p.pos.x = q.x + fx * 4 + Math.cos(yaw) * 0.3;
+        p.pos.z = q.z + fz * 4 - Math.sin(yaw) * 0.3;
+        p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
+        p.heading = yaw;
+        if (!sim.world.isFree(p.pos.x, p.pos.z, 0.5) || sim.world.grid.raycast(p.pos.x, p.pos.y + 1.6, p.pos.z, -fx, 0, -fz, 7, sightHit, isSolidForSight)) continue;
+        if (sim.world.layout.props.some((o) => o !== q && (o.kind === 'tree' || o.kind === 'palm') && Math.hypot(o.x - p.pos.x, o.z - p.pos.z) < 9)) continue;
+        const cam = new CameraController(16 / 9);
+        cam.mode = 'play';
+        cam.reset(sim);
+        cam.yaw = yaw;
+        cam.pitch = -0.12;
+        for (let f = 0; f < 30; f++) {
+          sim.update(DT, input({ cameraYaw: cam.yaw }));
+          cam.update(DT, sim, false);
+        }
+        let closest = Infinity;
+        let widest = 0;
+        // Two seconds walking backwards, into the trunk and round it.
+        for (let f = 0; f < 120; f++) {
+          sim.update(DT, input({ moveZ: -1, cameraYaw: cam.yaw }));
+          cam.update(DT, sim, false);
+          const c = cam.camera.position;
+          closest = Math.min(closest, Math.hypot(c.x - q.x, c.z - q.z) - 0.26 * q.scale);
+          widest = Math.max(widest, trunkWidth(sim, cam.camera, [q]));
+        }
+        // Never inside the trunk (easing out drags the camera back through it), never a third of the frame.
+        expect(closest).toBeGreaterThan(0.1);
+        expect(widest).toBeLessThan(1 / 3);
+        return;
+      }
+    }
+    throw new Error('no open street tree found');
+  });
+
   it('walking past rows of street trees, no trunk spans a third of the frame or comes within 0.3 m of the lens', () => {
     const W = world();
     const trees = W.layout.props.filter((q) => q.kind === 'tree');
