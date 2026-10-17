@@ -7,8 +7,8 @@ import { createHash } from 'node:crypto';
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { CityView, occupancy, shopOccupancy } from '../../src/render/city';
-import { storefrontUv } from '../../src/render/textures';
-import { Environment, cloudCover, cloudThreshold, starIntensity } from '../../src/render/environment';
+import { cloudFbm, cloudNoiseData, storefrontUv } from '../../src/render/textures';
+import { CLOUD_SD, Environment, cloudCover, cloudThreshold, starIntensity } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
 import { CURB_H } from '../../src/world/constants';
 import { frontages, generateCity, rectCX, rectCZ, type Building, type Side } from '../../src/world/layout';
@@ -417,7 +417,24 @@ describe('round 2 city: night and sky helpers', () => {
     expect(cloudThreshold(0.5)).toBeCloseTo(0.5, 3);
     expect(cloudThreshold(0.35)).toBeGreaterThan(0.5);
     expect(cloudThreshold(0.25)).toBeGreaterThan(cloudThreshold(0.35));
-    expect(cloudThreshold(0.35)).toBeCloseTo(0.5 + 0.106 * 0.3853, 3);
+    expect(cloudThreshold(0.35, 0.1272)).toBeCloseTo(0.5 + 0.1272 * 0.3853, 3);
+  });
+
+  it('the cloud threshold really covers the asked share of the sky with the sky texture noise', () => {
+    const data = cloudNoiseData();
+    for (const octaves of [2, 3, 4, 5]) {
+      const vals: number[] = [];
+      for (let i = 0; i < 160; i++) for (let j = 0; j < 160; j++) vals.push(cloudFbm(data, i * 0.2373 + 3.1, j * 0.2371 + 7.7, octaves));
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length);
+      expect(mean, `${octaves} octaves`).toBeCloseTo(0.5, 2);
+      expect(Math.abs(sd - CLOUD_SD[octaves]!), `${octaves} octaves`).toBeLessThan(0.006);
+      for (const cover of [0.25, 0.35]) {
+        const t = cloudThreshold(cover, CLOUD_SD[octaves]);
+        const share = vals.filter((v) => v > t).length / vals.length;
+        expect(Math.abs(share - cover), `${octaves} octaves, cover ${cover}`).toBeLessThan(0.03);
+      }
+    }
   });
 });
 

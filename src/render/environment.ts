@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { clamp, lerp, smoothstep } from '../core/math';
 import { WATER_Y } from '../world/constants';
-import { waterNormalTexture } from './textures';
+import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 
 interface Key {
   h: number;
@@ -68,10 +68,13 @@ function coverAt(hours: number, night: number): number {
 }
 
 /**
- * Standard deviation of the sky shader's gradient-noise fbm (mean 0.5) per octave count, measured by
- * sampling the same noise; the cloud threshold for a coverage is mean + sd * probit(1 - coverage).
+ * Standard deviation of the sky shader's cloud fbm (mean 0.5) per octave count, measured with
+ * textures.ts cloudFbm over the cloud noise texture (r2_city.test.ts checks these); the cloud
+ * threshold for a coverage is mean + sd * probit(1 - coverage).
  */
-const CLOUD_SD: Readonly<Record<number, number>> = { 2: 0.132, 3: 0.116, 4: 0.109, 5: 0.106 };
+export const CLOUD_SD: Readonly<Record<number, number>> = { 2: 0.1595, 3: 0.1399, 4: 0.1313, 5: 0.1272 };
+/** Half-width of the cloud edge, in standard deviations of the fbm. */
+const CLOUD_EDGE = 0.55;
 
 /** Inverse of the standard normal CDF (Abramowitz and Stegun 26.2.23, error below 5e-4). */
 function probit(p: number): number {
@@ -116,6 +119,8 @@ void main() {
 }`;
 
 const SKY_FS = /* glsl */ `
+#define NOISE_TILE ${(1 / CLOUD_NOISE_CELLS).toFixed(6)}
+#define NOISE_GAIN ${(1 / CLOUD_NOISE_SCALE).toFixed(6)}
 uniform vec3 uTop;
 uniform vec3 uHorizon;
 uniform vec3 uGlow;
@@ -128,7 +133,9 @@ uniform float uMoon;
 uniform float uNight;
 uniform float uGolden;
 uniform float uCloudT;
+uniform float uCloudW;
 uniform float uHighT;
+uniform sampler2D uNoise;
 uniform float uTime;
 uniform vec2 uCamXZ;
 uniform float uCamY;
@@ -155,17 +162,12 @@ float vnoise(vec2 p) {
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
 }
-// Gradient noise: no lattice-aligned blocks, so thresholded clouds keep soft, natural edges.
-float gnoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  float a = dot(hash22(i) * 2.0 - 1.0, f);
-  float b = dot(hash22(i + vec2(1.0, 0.0)) * 2.0 - 1.0, f - vec2(1.0, 0.0));
-  float c = dot(hash22(i + vec2(0.0, 1.0)) * 2.0 - 1.0, f - vec2(0.0, 1.0));
-  float d = dot(hash22(i + vec2(1.0, 1.0)) * 2.0 - 1.0, f - vec2(1.0, 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
+// Gradient noise from the tileable noise texture (lattice units in, about -0.7..0.7 out). Its
+// mipmaps fade far, fine detail to the mean, so the clouds do not shimmer towards the horizon.
+// Callers keep skyNoise in uniform control flow (implicit derivatives); skyNoise0 samples the top level
+// and may be used anywhere.
+float skyNoise(vec2 p) { return (texture2D(uNoise, p * NOISE_TILE).r - 0.5) * NOISE_GAIN; }
+float skyNoise0(vec2 p) { return (textureLod(uNoise, p * NOISE_TILE, 0.0).r - 0.5) * NOISE_GAIN; }
 // Each octave is rotated against the last. Mean 0.5; its spread per octave count is CLOUD_SD.
 const mat2 OCTAVE = mat2(1.6, 1.2, -1.2, 1.6);
 float fbm(vec2 p, int octaves) {
@@ -174,7 +176,20 @@ float fbm(vec2 p, int octaves) {
   float n = 0.0;
   for (int i = 0; i < 6; i++) {
     if (i >= octaves) break;
-    s += a * gnoise(p);
+    s += a * skyNoise(p);
+    n += a;
+    p = OCTAVE * p + vec2(17.1, 9.3);
+    a *= 0.5;
+  }
+  return 0.5 + s / n;
+}
+float fbm0(vec2 p, int octaves) {
+  float a = 0.5;
+  float s = 0.0;
+  float n = 0.0;
+  for (int i = 0; i < 6; i++) {
+    if (i >= octaves) break;
+    s += a * skyNoise0(p);
     n += a;
     p = OCTAVE * p + vec2(17.1, 9.3);
     a *= 0.5;
@@ -215,17 +230,17 @@ vec4 clouds(vec3 d) {
   vec2 q1 = (uCamXZ + p * 1500.0) / 900.0 + uWind1;
   // uCloudT is the fbm value that exactly uCloudCover of the sky exceeds (see cloudThreshold).
   float n1 = fbm(q1, uOctaves);
-  float dens = smoothstep(uCloudT - 0.06, uCloudT + 0.06, n1);
+  float dens = smoothstep(uCloudT - uCloudW, uCloudT + uCloudW, n1);
   // Thin high streaks.
   vec2 q2 = (uCamXZ + p * 2400.0) / 400.0 * vec2(0.45, 1.0) + uWind2;
   float n2 = fbm(q2 + vec2(5.2, 1.3), uHighOctaves);
-  float high = smoothstep(uHighT - 0.03, uHighT + 0.12, n2) * 0.4;
+  float high = smoothstep(uHighT - 0.5 * uCloudW, uHighT + 2.0 * uCloudW, n2) * 0.4;
   // Light: compare the density one step towards the sun (or moon): denser there means shadowed here.
   // Same octaves as the density itself, so only the offset towards the light shades the cloud.
   float lit = 0.6;
   if (uLightTap > 0.5) {
     vec2 toward = normalize(uLightDir.xz + vec2(1e-4)) * 0.22;
-    float tap = smoothstep(uCloudT - 0.06, uCloudT + 0.06, fbm(q1 + toward, uOctaves));
+    float tap = smoothstep(uCloudT - uCloudW, uCloudT + uCloudW, fbm(q1 + toward, uOctaves));
     lit = clamp(0.62 + (dens - tap) * 1.1, 0.0, 1.0);
   }
   vec3 bright = mix(vec3(1.0), uSunColor, 0.35) * 1.12;
@@ -252,7 +267,7 @@ vec4 clouds(vec3 d) {
 // A ridge of hills at a distance (metres) with heights (metres above the sea) between lo and hi:
 // 1 inside its silhouette, which sits on the sea at its true angle below the horizon.
 float ridge(float h, vec2 hz, float dist, float lo, float hi, float present, float pix, float seed) {
-  float top = (lo + (hi - lo) * fbm(hz * (dist / 1100.0) + seed, 4)) * present;
+  float top = (lo + (hi - lo) * fbm0(hz * (dist / 1100.0) + seed, 4)) * present;
   float above = (top - uCamY) / dist;
   float base = -uCamY / dist;
   return (1.0 - smoothstep(above - pix, above + pix, h)) * smoothstep(base - pix, base + pix, h) * step(0.001, present);
@@ -286,10 +301,9 @@ void main() {
     }
     col += vec3(0.55, 0.62, 0.8) * (exp(-m * 30.0) * 0.16 + exp(-m * 6.0) * 0.05) * uMoon;
   }
-  if (h > 0.0) {
-    vec4 c = clouds(d);
-    col = mix(col, c.rgb, c.a);
-  }
+  // Evaluated everywhere (its texture lookups need uniform control flow); it fades out at the horizon.
+  vec4 c = clouds(d);
+  col = mix(col, c.rgb, c.a);
   // Hills across the bay to the north, west and south (the open ocean lies east): a far ridge about
   // 6 km out and a nearer one at 3.5 km, both standing on the sea, hazed towards the horizon colour.
   if (h < 0.12) {
@@ -330,6 +344,7 @@ export class Environment {
   readonly fog: THREE.Fog;
   private readonly skyMat: THREE.ShaderMaterial;
   private readonly waterNormal: THREE.Texture;
+  private readonly cloudNoise = cloudNoiseTexture();
   /** The PMREM target holding the environment map: allocated by the first bake and refilled by every later one. */
   private envTarget: THREE.WebGLRenderTarget | null = null;
   private cubeTarget: THREE.WebGLCubeRenderTarget | null = null;
@@ -368,7 +383,9 @@ export class Environment {
         uNight: { value: 0 },
         uGolden: { value: 0 },
         uCloudT: { value: 0.55 },
+        uCloudW: { value: 0.07 },
         uHighT: { value: 0.6 },
+        uNoise: { value: this.cloudNoise },
         uTime: { value: 0 },
         uCamXZ: { value: new THREE.Vector2() },
         uCamY: { value: 2 },
@@ -527,6 +544,7 @@ export class Environment {
     u.uGolden!.value = goldenHour(hours);
     const cover = coverAt(hours, night);
     u.uCloudT!.value = cloudThreshold(cover, this.cloudSd);
+    u.uCloudW!.value = CLOUD_EDGE * this.cloudSd;
     u.uHighT!.value = cloudThreshold(cover * 0.5, this.highSd);
     // Wrapped daily: twinkle and wind stay precise in float32, and jump at most once a day.
     const t = time % 86400;
@@ -574,6 +592,7 @@ export class Environment {
 
   dispose(): void {
     this.renderer.domElement?.removeEventListener?.('webglcontextrestored', this.onContextRestored);
+    this.cloudNoise.dispose();
     this.cubeTarget?.dispose();
     this.envTarget?.dispose();
     this.pmrem?.dispose();
