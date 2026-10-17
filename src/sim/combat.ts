@@ -87,18 +87,24 @@ export class CombatSystem {
     return { x: c.pos.x + fx * 0.55 - fz * 0.18, y: c.pos.y + c.height * 0.76, z: c.pos.z + fz * 0.55 + fx * 0.18 };
   }
 
-  /** Someone on foot stands in front of `c` within reach of the barrel ending at `tip` (forward fx, fz). */
+  /**
+   * Someone on foot stands along the barrel ending at `tip` (forward fx, fz): ahead of `c`, nearer than
+   * the tip plus his body, and beside the barrel line no further than his body plus the shoulder camera's
+   * offset (the crosshair can be on him there at point blank).
+   */
   private barrelCrowded(c: Character, tip: V3, fx: number, fz: number): boolean {
-    const reach = Math.hypot(tip.x - c.pos.x, tip.z - c.pos.z);
+    const reach = (tip.x - c.pos.x) * fx + (tip.z - c.pos.z) * fz;
+    // Sideways offsets are measured to the left: (fz, -fx).
+    const line = (tip.x - c.pos.x) * fz - (tip.z - c.pos.z) * fx;
     for (const o of this.sim.characters) {
       if (o === c || o.removed || o.state === 'inVehicle' || o.state === 'entering') continue;
       const dx = o.pos.x - c.pos.x;
       const dz = o.pos.z - c.pos.z;
-      if (dx * fx + dz * fz <= 0) continue;
+      const along = dx * fx + dz * fz;
+      if (along <= 0) continue;
       const b = bodyOf(o);
-      if (tip.y < b.y0 - 0.2 || tip.y > b.y1 + 0.2) continue;
-      const r = reach + b.r;
-      if (dx * dx + dz * dz < r * r) return true;
+      if (tip.y < b.y0 - 0.2 || tip.y > b.y1 + 0.2 || along > reach + b.r) continue;
+      if (Math.abs(dx * fz - dz * fx - line) < b.r + 0.3) return true;
     }
     return false;
   }

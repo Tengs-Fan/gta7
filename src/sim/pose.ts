@@ -1,9 +1,10 @@
 // Character skeleton, locomotion trunk and weapon-holding pose, shared by the simulation and the renderer.
 //
 // Pure math without three.js. CombatSystem.muzzle() returns weaponPose(c).tip and CrowdView draws the
-// weapon and the arms holding it from the same pose, so the drawn barrel tip is exactly where bullets and
-// rockets leave from. The trunk (hip height, hip and chest yaw, lean) carries the shoulders, so the gait
-// cycle that sets the hip height lives here too; render/gait.ts builds the legs and swinging arms under it.
+// weapon and the arms holding it from the same pose, so the drawn barrel tip is where bullets and rockets
+// leave from (CrowdView eases the hips in and out of a stride, the only moments the two part, by
+// centimetres). The trunk (hip height, hip and chest yaw, lean) carries the shoulders, so the gait cycle
+// that sets the hip height lives here too; render/gait.ts builds the legs and swinging arms under it.
 //
 // Frames: a character's hip frame has its origin on the ground under the hips (c.pos), yaw `hipYaw`,
 // +x to the character's left, +y up and +z forward. Lengths are for appearance.height 1 (a 1.8 m person)
@@ -407,7 +408,7 @@ function set(o: V3, x: number, y: number, z: number): V3 {
 }
 
 /** World point of weapon-local p in the frame (origin, left, up, dir). */
-function local(w: WeaponPose, p: V3, out: V3): V3 {
+export function weaponPoint(w: WeaponPose, p: V3, out: V3): V3 {
   const o = w.origin;
   return set(
     out,
@@ -418,7 +419,7 @@ function local(w: WeaponPose, p: V3, out: V3): V3 {
 }
 
 /** Points the weapon frame along (yaw, pitch), rolled by `roll` about the barrel (+ turns its underside to the left). */
-function aimFrame(w: WeaponPose, yaw: number, pitch: number, roll: number): void {
+export function aimFrame(w: WeaponPose, yaw: number, pitch: number, roll: number): void {
   const cy = Math.cos(yaw);
   const sy = Math.sin(yaw);
   const cp = Math.cos(pitch);
@@ -436,7 +437,7 @@ function aimFrame(w: WeaponPose, yaw: number, pitch: number, roll: number): void
 }
 
 /** Places the weapon frame so that weapon-local point `p` lands on world point (x, y, z). */
-function anchor(w: WeaponPose, p: V3, x: number, y: number, z: number): void {
+export function anchor(w: WeaponPose, p: V3, x: number, y: number, z: number): void {
   set(
     w.origin,
     x - (w.left.x * p.x + w.up.x * p.y + w.dir.x * p.z),
@@ -531,8 +532,8 @@ export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): We
     const fwd = 0.24 * s;
     anchor(out, pts.grip, hx + cy * gx + sl * sy * up + cl * sy * fwd, hy + cl * up - sl * fwd, hz - sy * gx + sl * cy * up + cl * cy * fwd);
   }
-  local(out, pts.tip, out.tip);
-  local(out, pts.grip, out.hand);
+  weaponPoint(out, pts.tip, out.tip);
+  weaponPoint(out, pts.grip, out.hand);
   const off = out.mode === 'reload' ? pts.reload : pts.fore;
   set(out.offLocal, off.x, off.y, off.z);
   if (out.twoHands) {
@@ -541,7 +542,7 @@ export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): We
     const lx = hx + cy * sx + sl * sy * shY;
     const ly = hy + cl * shY;
     const lz = hz - sy * sx + sl * cy * shY;
-    local(out, off, out.offHand);
+    weaponPoint(out, off, out.offHand);
     const qx = out.offHand.x - lx;
     const qy = out.offHand.y - ly;
     const qz = out.offHand.z - lz;
@@ -553,7 +554,7 @@ export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): We
       out.offLocal.z -= clamp(back, 0, Math.max(0, off.z - pts.grip.z - 0.08));
     }
   }
-  local(out, out.offLocal, out.offHand);
+  weaponPoint(out, out.offLocal, out.offHand);
   return out;
 }
 

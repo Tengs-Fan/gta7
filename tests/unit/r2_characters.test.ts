@@ -12,7 +12,7 @@ import { stepCharacter, type CharacterPhysicsHost } from '../../src/sim/characte
 import { Character, type Appearance, type Vehicle } from '../../src/sim/entities';
 import { strideLength, weaponPose, WEAPON_POINTS } from '../../src/sim/pose';
 import type { Sim } from '../../src/sim/sim';
-import type { WeaponId } from '../../src/sim/specs';
+import { VEHICLE_SPECS, type VehicleKind, type WeaponId } from '../../src/sim/specs';
 import type { StaticWorld } from '../../src/world/staticWorld';
 import { makeSim, world } from './helpers';
 
@@ -513,33 +513,33 @@ describe('action poses', () => {
     }
   });
 
-  it('punches alternate: right jab, left jab, right hook, each with its own arm pose', () => {
+  it('punches thrown through combat go right jab, left jab, right hook, each with its own arm pose', () => {
     const { sim, c } = lone();
-    const reachOf = (cv: CrowdView) => {
-      const { hands } = arms(cv, c);
-      return { left: local(c, hands.left).z, right: local(c, hands.right).z };
-    };
-    c.punchTimer = 0.16;
-    c.meleeCombo = 0;
-    const jabR = reachOf(drawn(c));
-    expect(jabR.right).toBeGreaterThan(jabR.left + 0.2);
-    c.meleeCombo = 1;
-    const jabL = reachOf(drawn(c));
-    expect(jabL.left).toBeGreaterThan(jabL.right + 0.2);
-    // Three punches in a row through the combat system: three different arm poses at the same moment.
+    // Each punch drawn at its peak, after CombatSystem.melee has counted the combo on.
     const poses: number[][] = [];
-    c.punchTimer = 0;
-    for (let k = 0; k < 3; k++) {
+    const reach: Array<{ left: number; right: number; twist: number }> = [];
+    for (let k = 0; k < 4; k++) {
       c.fireCooldown = 0;
       sim.combat.melee(c);
       c.punchTimer = 0.16;
       const cv = drawn(c);
+      const { hands } = arms(cv, c);
+      const f = new THREE.Vector3(0, 0, 1).transformDirection(matrixAt(parts(cv).torso!, 0));
+      reach.push({ left: local(c, hands.left).z, right: local(c, hands.right).z, twist: Math.atan2(f.x, f.z) - c.heading });
       poses.push([...all(parts(cv).upperArm!), ...all(parts(cv).forearm!)].flatMap((m) => m.elements));
     }
+    // meleeCombo 0 (the first punch) and 1 extend different hands.
+    expect(reach[0]!.right).toBeGreaterThan(reach[0]!.left + 0.2);
+    expect(reach[1]!.left).toBeGreaterThan(reach[1]!.right + 0.2);
+    // The hook turns the shoulders through to the left, more than either jab.
+    expect(reach[2]!.twist).toBeGreaterThan(0.35);
+    expect(Math.abs(reach[0]!.twist)).toBeLessThan(0.25);
     const differ = (a: number[], b: number[]) => a.some((x, i) => Math.abs(x - b[i]!) > 0.05);
     expect(differ(poses[0]!, poses[1]!)).toBe(true);
     expect(differ(poses[1]!, poses[2]!)).toBe(true);
     expect(differ(poses[0]!, poses[2]!)).toBe(true);
+    // The fourth starts the combo again.
+    expect(differ(poses[0]!, poses[3]!)).toBe(false);
   });
 });
 
@@ -649,6 +649,15 @@ describe('the muzzle is the drawn barrel tip', () => {
     other.pos.z = c.pos.z + fz * 1.15;
     other.state = 'dead';
     expect(sim.combat.muzzle(c, false)).toEqual(tip);
+    // Standing beside him, clear of the barrel, a bystander does not move the muzzle either.
+    other.state = 'normal';
+    other.pos.x = c.pos.x + fx * 0.1 - fz * 1.2;
+    other.pos.z = c.pos.z + fz * 0.1 + fx * 1.2;
+    expect(sim.combat.muzzle(c, false)).toEqual(tip);
+    // ...while someone at the crosshair's point-blank spot, on the shoulder camera's line 0.62 m to the right, does.
+    other.pos.x = c.pos.x + fx * 0.65 - fz * 0.62;
+    other.pos.z = c.pos.z + fz * 0.65 + fx * 0.62;
+    expect(sim.combat.muzzle(c, false)).not.toEqual(tip);
   });
 });
 
@@ -719,6 +728,46 @@ describe('drivers and passengers', () => {
     for (let i = 0; i < after.length; i++) expect(after[i]!.distanceTo(before[i]!)).toBeLessThan(1e-3);
   });
 
+  it.each(Object.keys(VEHICLE_SPECS) as VehicleKind[])('a %s seats the tallest rider in a cap under its roof, and the shortest with his head in the windows', (kind) => {
+    const sim = makeSim({ world: world() });
+    const b = sim.world.layout.bounds;
+    const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.3);
+    const view = new VehicleView(kind);
+    view.bind(v);
+    view.sync(v, 1 / 60, 0, 0);
+    view.group.updateMatrixWorld(true);
+    const inv = view.group.matrixWorld.clone().invert();
+    const cab = ((view as unknown as { cabin?: THREE.Mesh }).cabin ?? view.group.getObjectByName('glass')) as THREE.Mesh;
+    cab.geometry.computeBoundingBox();
+    const glass = cab.geometry.boundingBox!;
+    const seated = (height: number, hat: number): THREE.Matrix4[] => {
+      const riders: Character[] = [];
+      for (let i = 0; i <= v.passengers.length; i++) {
+        const c = sim.spawnCharacter('civilian', v.pos.x, v.pos.z);
+        c.appearance.height = height;
+        c.appearance.hat = hat;
+        sim.seat(c, v, i);
+        riders.push(c);
+      }
+      const cv = new CrowdView();
+      cv.sync(riders, v.pos.x, v.pos.z, 1 / 60);
+      for (const c of riders) sim.unseat(c);
+      return all(parts(cv).head!);
+    };
+    for (const m of seated(1.07, 0x222222)) {
+      const capTop = new THREE.Vector3(0, 0.365, 0).applyMatrix4(m).applyMatrix4(inv);
+      expect(capTop.y).toBeLessThan(glass.max.y - 0.01);
+    }
+    seated(0.9, 0).forEach((m, seat) => {
+      const head = new THREE.Vector3(0, 0.15, 0).applyMatrix4(m).applyMatrix4(inv);
+      expect(head.y).toBeGreaterThan(glass.min.y + 0.15);
+      // The front seats sit by the windows (a SWAT van's rear bench is in its windowless back).
+      if (seat > 1) return;
+      expect(head.z).toBeGreaterThan(glass.min.z);
+      expect(head.z).toBeLessThan(glass.max.z);
+    });
+  });
+
   it(`occupants are drawn within ${OCCUPANT_RANGE} m only, never in wrecks or burning cars, and the seated player unless hidden`, () => {
     const { sim, v, driver, passenger } = sedanWithTwo();
     const count = (cv: CrowdView) => parts(cv).head!.mesh.count;
@@ -747,7 +796,7 @@ describe('drivers and passengers', () => {
   });
 
   it('the driver turns the wheel with the steering and a gun shows only while firing from the car', () => {
-    const { v, driver } = sedanWithTwo();
+    const { sim, v, driver, passenger } = sedanWithTwo();
     v.heading = 0;
     const handsLocal = (cv: CrowdView) => {
       const hs = all(parts(cv).hand!).map(origin).map((h) => new THREE.Vector3(h.x - v.pos.x, h.y - v.pos.y, h.z - v.pos.z));
@@ -776,8 +825,22 @@ describe('drivers and passengers', () => {
     driver.aimPitch = 0;
     cv.sync([driver], v.pos.x, v.pos.z, 1 / 60);
     expect(weaponPart(cv, 'pistol').mesh.count).toBe(1);
-    // Out of the driver's window on the car's left, pointing where he aims.
+    // Out of the driver's window on the car's left, pointing where he aims, its tip where vehicle shots leave.
     const gun = origin(matrixAt(weaponPart(cv, 'pistol'), 0));
     expect(gun.x - v.pos.x).toBeGreaterThan(v.halfW * 0.6);
+    const muzzle = sim.combat.muzzle(driver, true);
+    const tip = new THREE.Vector3(0, 0, 0.21).applyMatrix4(matrixAt(weaponPart(cv, 'pistol'), 0));
+    expect(tip.distanceTo(new THREE.Vector3(muzzle.x, muzzle.y, muzzle.z))).toBeLessThan(0.08);
+    // A passenger on the right shoots out of his own window, not from inside the cabin.
+    passenger.inventory.give('pistol', 20);
+    passenger.inventory.current = 'pistol';
+    passenger.shotTimer = 0.06;
+    passenger.aimYaw = -Math.PI / 2;
+    passenger.aimPitch = 0;
+    driver.shotTimer = 0;
+    cv.sync([driver, passenger], v.pos.x, v.pos.z, 1 / 60);
+    expect(weaponPart(cv, 'pistol').mesh.count).toBe(1);
+    const pgun = origin(matrixAt(weaponPart(cv, 'pistol'), 0));
+    expect(pgun.x - v.pos.x).toBeLessThan(-v.halfW * 0.6);
   });
 });
