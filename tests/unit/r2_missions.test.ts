@@ -2,6 +2,7 @@
 // skippable dialogue and checkpoints (P4), the restaged missions (P35) and finished objectives (P57a).
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { makeContact, obbVsObb, type OBB } from '../../src/core/collision';
 import { wrapAngle } from '../../src/core/math';
 import { Rng } from '../../src/core/rng';
 import type { Character, Vehicle } from '../../src/sim/entities';
@@ -10,6 +11,7 @@ import type { MissionCtx } from '../../src/sim/missions/runner';
 import { RETRY_WINDOW } from '../../src/sim/missions/runner';
 import { missionSpots } from '../../src/sim/missions/spots';
 import { Sim, type SimOptions } from '../../src/sim/sim';
+import { vehicleObb } from '../../src/sim/vehiclePhysics';
 import { ARRIVE_RADIUS } from '../../src/sim/driver';
 import { SIGNAL_CYCLE, SIGNAL_GREEN } from '../../src/world/roads';
 import { StaticWorld } from '../../src/world/staticWorld';
@@ -79,6 +81,13 @@ function record<K extends keyof SimEvents>(sim: Sim, type: K): Array<SimEvents[K
 }
 
 const dist = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
+
+/** The other vehicles whose bodies overlap `v`'s (the physics' own boxes). */
+function overlapping(sim: Sim, v: Vehicle): Vehicle[] {
+  const box = (o: Vehicle): OBB => vehicleObb(o, { x: 0, z: 0, hw: 0, hl: 0, h: 0 });
+  const ct = makeContact();
+  return sim.vehicles.filter((o) => o !== v && !o.removed && obbVsObb(box(v), box(o), ct));
+}
 
 /** Plays Hot Delivery up to the parcel being collected (the timer and the tail start then). */
 function collectParcel(sim: Sim): MissionCtx {
@@ -460,6 +469,69 @@ describe('retrying a failed mission', () => {
     expect(sim.missions.retryOffer()).toBeNull();
     stepUntil(sim, () => objective(sim) === 'Steal the Nightjar GT', 20);
     expect(inv.total('pistol')).toBe(72);
+  });
+
+  it("a Repo Man retry takes the failed attempt's wreck off the Nightjar's spot: the new car starts clear and stays put", () => {
+    const sim = setup(before('repo'));
+    const spots = missionSpots(sim.world);
+    const m = startMission(sim, 'repo');
+    stepUntil(sim, () => objective(sim) === 'Steal the Nightjar GT', 20);
+    const wreck = m.vehicles[0]!;
+    sim.combat.explodeVehicle(wreck);
+    step(sim, 0.5);
+    expect(m.failedReason).toBe('The Nightjar was wrecked.');
+    expect(dist(wreck.pos, spots.repoCar)).toBeLessThan(1);
+    teleport(sim, sim.player.pos.x + 20, sim.player.pos.z);
+    press(sim);
+    stepUntil(sim, () => sim.missions.active?.retrying === true && objective(sim) === 'Steal the Nightjar GT', 2);
+    const car = sim.missions.active!.vehicles[0]!;
+    expect(car).not.toBe(wreck);
+    expect(wreck.removed).toBe(true);
+    expect(overlapping(sim, car)).toEqual([]);
+    expect(dist(car.pos, spots.repoCar)).toBeLessThan(0.01);
+    step(sim, 1);
+    expect(dist(car.pos, spots.repoCar)).toBeLessThan(0.05);
+  });
+
+  it("never clears away a car the player sits in: the Nightjar parks in the nearest spot it fits instead", () => {
+    const sim = setup(before('repo'));
+    const spots = missionSpots(sim.world);
+    const mine = sim.spawnVehicle('sedan', spots.repoCar.x, spots.repoCar.z, spots.repoCar.heading);
+    placeInCar(sim, mine);
+    expect(sim.missions.start('repo')).toBe(true);
+    stepUntil(sim, () => objective(sim) === 'Steal the Nightjar GT', 20);
+    const car = sim.missions.active!.vehicles[0]!;
+    expect(mine.removed).toBe(false);
+    expect(sim.player.vehicle).toBe(mine);
+    expect(overlapping(sim, car)).toEqual([]);
+    expect(dist(car.pos, spots.repoCar)).toBeLessThan(15);
+  });
+
+  it("Heatwave's vans start clear of cars left on their bays: a parked car, and on a retry the failed attempt's vans", () => {
+    const sim = setup(before('heatwave'));
+    const spots = missionSpots(sim.world);
+    // A car parked in the first van's bay before the mission starts (traffic streams parked cars into bays).
+    const bay = spots.vans[0]!;
+    const parked = sim.spawnVehicle('sedan', bay.x, bay.z, bay.heading);
+    parked.owner = 'parked';
+    const m = startMission(sim, 'heatwave');
+    stepUntil(sim, () => objective(sim).startsWith('Destroy the vans'), 20);
+    expect(parked.removed).toBe(true);
+    for (const v of m.vehicles) expect(overlapping(sim, v), v.kind).toEqual([]);
+    // Killed with every van still standing: the retry's vans take their places.
+    const old = [...m.vehicles];
+    sim.cheats.godMode = false;
+    sim.combat.damageCharacter(sim.player, 999, null, 'fall', 0, -1, 0);
+    step(sim, 6);
+    press(sim);
+    stepUntil(sim, () => sim.missions.active?.retrying === true && objective(sim).startsWith('Destroy the vans'), 2);
+    const vans = sim.missions.active!.vehicles;
+    expect(vans).toHaveLength(3);
+    for (const v of old) expect(v.removed).toBe(true);
+    vans.forEach((v, i) => {
+      expect(overlapping(sim, v)).toEqual([]);
+      expect(dist(v.pos, spots.vans[i]!)).toBeLessThan(0.01);
+    });
   });
 
   it('resumes The Big Score at the getaway car after dying past the vault', () => {

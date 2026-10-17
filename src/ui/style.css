@@ -549,13 +549,26 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  /* In a low window it moves up and its text shrinks with the height, keeping clear of the subtitle and the prompt below. */
-  top: min(34%, calc(100% - 290px));
+  top: 0;
+  /* Down to just above what stands at the bottom centre, a subtitle or the prompt slot (Hud measures its top edge into --stack-top). */
+  bottom: calc(var(--stack-top, 0px) + 12px);
+  display: flex;
+  flex-direction: column;
   text-align: center;
   font-family: 'Anton', Impact, sans-serif;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.4s;
+}
+
+/*
+ * The card's slot above it: 34% down, higher in a low window (where its text also shrinks with the height),
+ * and higher still when a long line or the prompt below needs the room, though not up into the messages.
+ */
+.big::before {
+  content: '';
+  flex: 0 1 min(34vh, calc(100vh - 290px));
+  min-height: 64px;
 }
 
 .big.show {
@@ -1313,5 +1326,41 @@ body {
   }
   .menu button {
     font-size: 24px;
+  }
+}
+
+/*
+ * Narrow windows (below 820 px): a smaller title card, so that a long title ('MISSION PASSED') stays clear
+ * of the money and the stars in the top right also where the card has to move up past a long line or the
+ * prompt.
+ */
+@media (max-width: 819.98px) {
+  .big .t {
+    font-size: clamp(34px, min(5.5vw, 13vh), 96px);
+  }
+}
+
+/*
+ * Short windows (below 560 px) not wide enough for a readable column beside the 220 px radar (768-899 px:
+ * 280-320 px, a long line in five lines): the smaller radar, and the subtitle, the objective, the prompt and
+ * the offer card wider beside it (22 + 150 px, its ring and a gap: 193 px for the subtitle and the
+ * objective, as below 768 px 190 px for the prompt).
+ */
+@media (min-width: 768px) and (max-width: 899.98px) and (max-height: 559.98px) {
+  .radar {
+    width: 150px;
+    height: 150px;
+  }
+  .subtitle {
+    width: min(900px, max(280px, calc(100vw - 386px)));
+  }
+  .objective {
+    max-width: min(900px, max(280px, calc(100vw - 386px)));
+  }
+  .prompt {
+    max-width: calc(100vw - 380px);
+  }
+  .prompt.card {
+    width: min(420px, calc(100vw - 380px));
   }
 }

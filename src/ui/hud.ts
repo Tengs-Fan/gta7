@@ -107,6 +107,14 @@ export class Hud {
   private subtitleFade = 0;
   private subtitleW = 0;
   private subtitleH = 0;
+  /**
+   * What stands at the bottom centre changed (a subtitle, the prompt slot), and the window size and prompt
+   * state it was last measured with, for the title card to stay above it (see restack).
+   */
+  private stackDirty = true;
+  private stackW = 0;
+  private stackH = 0;
+  private promptUp = false;
   /** Damage-direction arcs: seconds left and the world bearing (heading) of where the hit came from. */
   private readonly arcs: Array<{ el: HTMLElement; t: number; bearing: number }> = [];
   /** Police: seconds the dispatch line stays up, and the evade bar as last written ('' = hidden). */
@@ -367,6 +375,7 @@ export class Hud {
     el.hitmarker!.classList.remove('show', 'kill', 'head');
     this.subtitleFade = 0;
     this.lowerPrompt();
+    this.promptUp = false;
     for (const a of this.arcs) {
       a.t = 0;
       a.el.classList.remove('show');
@@ -498,6 +507,7 @@ export class Hud {
     // Not laid out (the HUD hidden): nothing to keep clear of.
     const above = this.subtitleH > 0 && box.height > 0 && Number.isFinite(box.top) ? Math.max(0, Math.round(this.subtitleH - box.top)) : 0;
     this.root.style.setProperty?.('--sub-top', `${above}px`);
+    this.stackDirty = true;
   }
 
   /** The prompt slot back in its own place (no subtitle up). */
@@ -505,6 +515,29 @@ export class Hud {
     this.subtitleW = 0;
     this.subtitleH = 0;
     this.root.style.setProperty?.('--sub-top', '0px');
+    this.stackDirty = true;
+  }
+
+  /**
+   * Keeps the title card above what stands at the bottom centre: a subtitle (up or fading out) and the
+   * prompt slot above it, whose top edges a long line, a narrow column or a short window raise. style.css
+   * places the card by --stack-top, the higher top edge above the bottom of the window. Measured only
+   * when one of them changes, or the window does.
+   */
+  private restack(): void {
+    this.stackDirty = false;
+    if (typeof window === 'undefined') return;
+    const h = window.innerHeight;
+    this.stackW = window.innerWidth;
+    this.stackH = h;
+    let top = 0;
+    const raise = (e: HTMLElement) => {
+      const box = e.getBoundingClientRect();
+      if (h > 0 && box.height > 0 && Number.isFinite(box.top)) top = Math.max(top, Math.round(h - box.top));
+    };
+    if (this.subtitleW > 0) raise(this.el.subtitle!);
+    if (this.promptUp) raise(this.el.prompt!);
+    this.root.style.setProperty?.('--stack-top', `${top}px`);
   }
 
   toast(text: string): void {
@@ -651,6 +684,11 @@ export class Hud {
       this.renderPrompt(sim, prompt);
       el.prompt!.classList.remove('hidden');
     } else el.prompt!.classList.add('hidden');
+    if (!!prompt !== this.promptUp) {
+      this.promptUp = !!prompt;
+      this.stackDirty = true;
+    }
+    if (this.stackDirty || (typeof window !== 'undefined' && (window.innerWidth !== this.stackW || window.innerHeight !== this.stackH))) this.restack();
     // A reticle whenever a gun is out on foot: small and faint for hip fire, full while aiming (`aiming` is the aim button),
     // red while the muzzle is inside a wall (the shot would only hit that wall).
     const showCross = p.state === 'normal' && p.alive && !sim.playerDown && p.inventory.current !== 'fists';
@@ -677,6 +715,7 @@ export class Hud {
     if (html !== this.promptHtml) {
       this.promptHtml = html;
       el.innerHTML = html;
+      this.stackDirty = true;
     }
   }
 

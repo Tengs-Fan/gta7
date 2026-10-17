@@ -5,13 +5,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AudioEngine } from '../../src/audio/audio';
+import { circleVsObb, makeContact, obbVsObb, type OBB } from '../../src/core/collision';
 import { wrapAngle } from '../../src/core/math';
 import { Game } from '../../src/game';
 import { Input, KeyLabels, type FrameInput, type UiActions } from '../../src/input/input';
 import { CameraController } from '../../src/render/camera';
 import { writeGame, type Settings } from '../../src/settings';
+import type { Vehicle } from '../../src/sim/entities';
 import { Progress, serialize } from '../../src/sim/progress';
 import { Sim } from '../../src/sim/sim';
+import { VEHICLE_SPECS } from '../../src/sim/specs';
+import { vehicleObb } from '../../src/sim/vehiclePhysics';
 import { Hud } from '../../src/ui/hud';
 import { MAP_SCALE, MapImage } from '../../src/ui/mapRender';
 import { Menus, type MenuHost } from '../../src/ui/menus';
@@ -1976,6 +1980,43 @@ describe('round 2 harness', () => {
       expect(opened).toBeGreaterThan(0);
       expect(sim.cheats.godMode).toBe(true);
       expect(sports()).toBe(cars + 1);
+    });
+
+    it('SPAWNSPORTS puts its car where it fits: not inside a car parked 6 m ahead, nor on anyone', async () => {
+      const { sim, frames, type } = await playing();
+      type('SPAWNSPORT'); // its P opened the pause menu: the sim waits there for the last letter
+      // On a long straight road facing along it, a car parked right where the code puts the new one.
+      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const p = sim.player;
+      p.pos.x = lane.sx + lane.dx * 30;
+      p.pos.z = lane.sz + lane.dz * 30;
+      p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
+      p.heading = lane.heading;
+      for (const v of sim.vehicles) if (Math.hypot(v.pos.x - p.pos.x, v.pos.z - p.pos.z) < 60) sim.removeVehicle(v);
+      const ahead = { x: p.pos.x + Math.sin(p.heading) * 6, z: p.pos.z + Math.cos(p.heading) * 6 };
+      expect(sim.world.isFree(ahead.x, ahead.z, 2.4)).toBe(true);
+      const parked = sim.spawnVehicle('sedan', ahead.x, ahead.z, lane.heading);
+      const parkedBox = vehicleObb(parked, { x: 0, z: 0, hw: 0, hl: 0, h: 0 });
+      // And someone standing beside it, on the first spot out there where the car would fit.
+      const ped = sim.spawnCharacter('civilian', ahead.x + Math.cos(lane.heading) * 3, ahead.z - Math.sin(lane.heading) * 3);
+      const people = [p, ped].map((c) => ({ x: c.pos.x, z: c.pos.z, r: c.radius }));
+      const spawns = vi.spyOn(sim, 'spawnVehicle');
+      type('S');
+      expect(spawns).toHaveBeenCalledTimes(1);
+      // Where it spawned, before the physics could shove anything.
+      const [kind, x, z, heading] = spawns.mock.calls[0]!;
+      expect(kind).toBe('sports');
+      const spec = VEHICLE_SPECS.sports;
+      const body: OBB = { x, z, hw: spec.width / 2, hl: spec.length / 2, h: heading };
+      const ct = makeContact();
+      expect(obbVsObb(body, parkedBox, ct)).toBe(false);
+      for (const c of people) expect(circleVsObb(c.x, c.z, c.r, body, ct)).toBe(false);
+      expect(Math.hypot(x - ahead.x, z - ahead.z)).toBeLessThan(8);
+      // Nothing gets shoved apart.
+      const car = spawns.mock.results[0]!.value as Vehicle;
+      frames(30);
+      expect(Math.hypot(car.pos.x - x, car.pos.z - z)).toBeLessThan(0.05);
+      expect(Math.hypot(parked.pos.x - ahead.x, parked.pos.z - ahead.z)).toBeLessThan(0.05);
     });
 
     it('MONEYTREE typed slowly (350 ms a key) still closes the map its M opened', async () => {

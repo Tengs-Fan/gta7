@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { boot, holdKey, newGame, state, type Api } from './helpers';
 
@@ -272,33 +272,42 @@ test.describe('GTA 7', () => {
       g.give('rocket', 40);
     });
     const keys = ['KeyW', 'KeyA', 'KeyD', 'KeyS', 'Space', 'ShiftLeft'];
+    const kinds = ['sports', 'muscle', 'sedan', 'pickup', 'police'];
+    // Every choice comes from this one seeded generator, the page's too (passed in), and the rounds are
+    // counted, not timed: every run plays the same moves in the same order, only the frame timing differs.
     let seed = 99;
     const rnd = () => {
       seed = (seed * 1103515245 + 12345) & 0x7fffffff;
       return seed / 0x7fffffff;
     };
+    const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
+    /** About a second each: two minutes. */
+    const ROUNDS = 110;
     const fps: number[] = [];
-    const t0 = Date.now();
-    let round = 0;
-    while (Date.now() - t0 < 120_000) {
-      round++;
+    let maxTarget = 0;
+    /** When the player last jumped across town. */
+    let movedAt = Date.now();
+    for (let round = 1; round <= ROUNDS; round++) {
       const action = Math.floor(rnd() * 7);
       if (action === 0) {
-        await page.evaluate(() => (window as Api).__gta7.spawnVehicle(['sports', 'muscle', 'sedan', 'pickup', 'police'][Math.floor(Math.random() * 5)]));
+        await page.evaluate((kind) => (window as Api).__gta7.spawnVehicle(kind), pick(kinds));
       } else if (action === 1) {
-        await page.evaluate(() => (window as Api).__gta7.setWanted(1 + Math.floor(Math.random() * 5)));
+        await page.evaluate((stars) => (window as Api).__gta7.setWanted(stars), 1 + Math.floor(rnd() * 5));
       } else if (action === 2) {
         await page.keyboard.press('KeyF');
       } else if (action === 3) {
         for (let k = 0; k < 6; k++) await page.mouse.click(640 + rnd() * 100 - 50, 360);
       } else if (action === 4) {
-        await page.evaluate(() => {
+        const moved = await page.evaluate((r) => {
           const g = (window as Api).__gta7;
-          const n = g.sim.roads.nodes[Math.floor(Math.random() * g.sim.roads.nodes.length)];
-          if (!g.sim.player.vehicle) g.place(n.x + n.halfX + 2, n.z + n.halfZ + 2);
-        });
+          const n = g.sim.roads.nodes[Math.floor(r * g.sim.roads.nodes.length)];
+          if (g.sim.player.vehicle) return false;
+          g.place(n.x + n.halfX + 2, n.z + n.halfZ + 2);
+          return true;
+        }, rnd());
+        if (moved) movedAt = Date.now();
       }
-      const key = keys[Math.floor(rnd() * keys.length)]!;
+      const key = pick(keys);
       await page.keyboard.down('KeyW');
       await page.keyboard.down(key);
       await page.waitForTimeout(400 + rnd() * 1200);
@@ -308,9 +317,21 @@ test.describe('GTA 7', () => {
         const s = await state(page);
         fps.push(s.fps);
         expect(s.crashed).toBe(false);
-        expect(s.vehicles).toBeLessThan(120);
         expect(s.characters).toBeLessThan(180);
-        if (s.menuOpen) await page.evaluate(() => (window as Api).__gta7.game.resume());
+        if (s.menuOpen) {
+          await page.evaluate(() => (window as Api).__gta7.game.resume());
+          movedAt = Date.now();
+        }
+        // After a jump the streaming needs a tick (parked cars: 1.1 s) to drop what was left behind.
+        const settle = movedAt + 1500 - Date.now();
+        if (settle > 0) await page.waitForTimeout(settle);
+        const c = await vehicleCensus(page);
+        maxTarget = Math.max(maxTarget, c.target);
+        // What caps the vehicle count, category by category (see vehicleCensus).
+        expect(c.traffic, `round ${round}`).toBeLessThanOrEqual(maxTarget);
+        expect(c.parked, `round ${round}`).toBeLessThanOrEqual(c.bays);
+        expect(c.units, `round ${round}`).toBeLessThanOrEqual(8);
+        expect(c.far, `round ${round}`).toEqual([]);
       }
     }
     const avg = fps.reduce((a, b) => a + b, 0) / Math.max(1, fps.length);
@@ -318,6 +339,33 @@ test.describe('GTA 7', () => {
     expect(errors).toEqual([]);
   });
 });
+
+/**
+ * The vehicles by what keeps their number down, since nothing caps the total: TrafficSystem tops ambient
+ * traffic up to its target and no further, and parks at most one car per bay, each one tracked
+ * (parkedBySpot); PoliceSystem keeps at most UNITS_BY_LEVEL[5] = 7 crewed units out, one more with a
+ * patrol. Everything else (the test's own cars, cars it jacked, wrecks, cars left by their crews) has no
+ * cap of its own and goes once out of range: `far` lists what is still more than 450 m from the player,
+ * beyond the 320 m anything stays visible plus a streaming tick of driving at 60 m/s. Police sweeping a
+ * search area may stay by it, away from him.
+ */
+function vehicleCensus(page: Page) {
+  return page.evaluate(() => {
+    const sim = (window as Api).__gta7.sim;
+    const pp = sim.playerPos();
+    const out = { traffic: 0, target: sim.traffic.targetCount as number, parked: 0, bays: sim.traffic.parkedBySpot.size as number, units: 0, far: [] as string[] };
+    for (const v of sim.vehicles) {
+      if (v.removed || v === sim.player.vehicle) continue;
+      const npc = v.driver && !v.driver.isPlayer;
+      if (v.owner === 'traffic' && npc && !v.destroyed) out.traffic++;
+      else if (v.owner === 'parked') out.parked++;
+      else if (v.owner === 'police' && v.drivable && v.occupants().some((c: Api) => c.isLaw && c.alive)) out.units++;
+      const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
+      if (v.owner !== 'police' && d > 450) out.far.push(`${v.kind} (${v.owner}${v.destroyed ? ', wreck' : ''}) ${Math.round(d)} m away`);
+    }
+    return out;
+  });
+}
 
 test.describe('GTA 7 devices', () => {
   test('a standard gamepad drives the car', async ({ page }) => {
