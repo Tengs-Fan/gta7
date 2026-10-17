@@ -1799,6 +1799,12 @@ describe('the muzzle light shines ahead of the barrel, not into the shooter’s 
     fx.update(DT, 0);
     fx.shotLanded(1, 1.4, 2, 1, 1.4, 2.3, 0, 0, -1);
     expect(fx.muzzle.position.z).toBeCloseTo(2.6, 9);
+    // Nor after a new simulation is attached (the pull, and its shooter, belonged to the old one).
+    fx.muzzleFlash(1, 1.4, 2, FLASH_SIZE.rifle, { dx: 0, dy: 0, dz: 1, shooter: null });
+    fx.reset();
+    fx.shotLanded(1, 1.4, 2, 1, 1.4, 2.3, 0, 0, -1);
+    expect(fx.muzzle.position.z).toBeCloseTo(2.6, 9);
+    expect((fx as unknown as { pull: { shooter: unknown } }).pull.shooter).toBeNull();
   });
 });
 

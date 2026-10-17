@@ -1,7 +1,7 @@
 // Weapons, damage, deaths, burning vehicles, explosions and rockets.
 
 import { rayCylinderY, rayObb3, type OBB } from '../core/collision';
-import { clamp, type V3 } from '../core/math';
+import { clamp, wrapAngle, type V3 } from '../core/math';
 import { makeRayHit, type RayHit } from '../world/colliders';
 import { makeBrain } from './brains';
 import type { Character, Vehicle } from './entities';
@@ -51,11 +51,13 @@ const ROCKET_ARMING = 0.15;
 /** Heights above a character's feet that a blast must see to hurt him fully. */
 const EXPOSURE_HEIGHTS = [0.3, 1.0, 1.6] as const;
 /**
- * Steps of raiseGun. Each one aims from the gun's pivot, which the aim moves only a little, so the barrel's miss
- * shrinks about threefold per step even at point blank (from 0.5 to 30 m, 60 degrees up or down, starting 0.6 rad
- * off: 29 cm, 9 cm, 1.6 cm and 5 mm after one to four steps). Six leave under a millimetre.
+ * Most steps of raiseGun; it stops sooner once a step moves the aim by less than RAISE_SETTLED (rad). Each step aims
+ * from the gun's pivot, which the aim moves only a little, so the barrel's miss shrinks about threefold per step even
+ * at point blank (from 0.5 to 30 m, 60 degrees up or down, starting 0.6 rad off: 29 cm, 9 cm, 1.6 cm and 5 mm after one
+ * to four steps); at ordinary ranges two or three steps settle it.
  */
-const RAISE_STEPS = 6;
+const RAISE_STEPS = 10;
+const RAISE_SETTLED = 1e-7;
 /** Scratch pose of raiseGun. */
 const raisePose: WeaponPose = makeWeaponPose();
 
@@ -317,7 +319,10 @@ export class CombatSystem {
       const t = w.tip;
       const d = w.dir;
       const s = (w.shoulder.x - t.x) * d.x + (w.shoulder.y - t.y) * d.y + (w.shoulder.z - t.z) * d.z;
+      const yaw = c.aimYaw;
+      const pitch = c.aimPitch;
       this.aimAlong(c, x - (t.x + d.x * s), y - (t.y + d.y * s), z - (t.z + d.z * s));
+      if (Math.abs(wrapAngle(c.aimYaw - yaw)) + Math.abs(c.aimPitch - pitch) < RAISE_SETTLED) break;
     }
     return weaponPoseInto(c, w);
   }

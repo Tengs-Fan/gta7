@@ -746,6 +746,9 @@ export class Effects {
     this.syncRockets([]);
     this.tracers.clear();
     this.parts.clear();
+    // The last pull belongs to the old simulation (and holds on to its shooter).
+    this.pull.aimed = false;
+    this.pull.shooter = null;
   }
 
   private r(a: number, b: number): number {
