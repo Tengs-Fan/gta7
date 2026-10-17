@@ -21,6 +21,14 @@ const AIM_THREAT_RANGE = 15;
 const AIM_THREAT_MISS = 1;
 /** The others cover an arrester walking up to a still player this long at most (he may be stuck: then they open fire). */
 const ARREST_PATIENCE = 12;
+/**
+ * The police on the scene (officers on foot within ARREST_RANGE of him, a helicopter whose crew sees him) hold
+ * their fire at a player waiting for the arrest without a fight (see pickArrester) this long at most (s), all told,
+ * for an officer who can make it to come: none may be able to get to him.
+ */
+export const SURRENDER_PATIENCE = 45;
+/** The nearest officer within this distance (m) of the player, on his level, walks up to arrest him. */
+const ARREST_RANGE = 32;
 /** Crews fire from pursuit cars (from 2 stars) at a player within this range and in sight of their window, rechecked this often. */
 const CAR_FIRE_RANGE = 35;
 const CAR_SIGHT_INTERVAL = 0.35;
@@ -51,16 +59,16 @@ const SWARM_GAP = 1.5;
 const CORNER_NEAR = 8;
 const CORNER_FAR = 30;
 /**
- * Helicopter: spawn distance from where the police think the player is, cruise and dash speeds, and the dash
- * range. It dashes in from beyond the dash range on its way out, and after that only to catch up with a
+ * Helicopter: spawn distance from where the police think the player is, and its cruise and dash speeds. On its
+ * way out it dashes in until it is on the scene: until its crew first makes the player out (or, while the police
+ * search for him, until it is within HELI_CATCH_UP of its spot). After that it dashes only to catch up with a
  * quarry slower than its cruise speed; a getaway car faster than that pulls away from it, out of its sight
  * (wanted.ts HELI_SIGHT).
  */
 const HELI_SPAWN_DIST = 150;
 export const HELI_SPEED = 30;
 export const HELI_DASH_SPEED = 55;
-const HELI_DASH_RANGE = 120;
-/** Once on the scene it dashes after a quarry slower than its cruise speed when this far (m) behind its spot. */
+/** On the scene, it dashes after a quarry slower than its cruise speed when this far (m) behind its spot. */
 const HELI_CATCH_UP = 40;
 /** Its fastest climb or descent (m/s), on top of its speed over the ground. */
 const HELI_CLIMB = 20;
@@ -99,7 +107,7 @@ export class PoliceSystem {
   private contactAt = -Infinity;
   /** No helicopter is sent before this sim time (one was just shot down). */
   heliCooldownUntil = -Infinity;
-  /** Helicopters that have reached the scene once since they were sent (they dash in only on the way out). */
+  /** Helicopters on the scene since they were sent: their crew has made the player out, or, while the police search, they reached their spot (see HELI_SPAWN_DIST). */
   private readonly heliArrived = new WeakSet<Helicopter>();
   /** Police radio chatter for the HUD, updated after everything else here. */
   readonly dispatcher: DispatchSystem;
@@ -112,11 +120,13 @@ export class PoliceSystem {
   private playerStill = 0;
   /** Seconds the player's vehicle has been stopped (below 1.2 m/s). */
   private playerStopped = 0;
-  /** The officer walking up to arrest the player this frame, and whether he is making the arrest (see pickArrester). */
+  /** The officer walking up to arrest the player this frame, and whether everyone else holds fire (see pickArrester). */
   private arrester: Character | null = null;
-  private arresting = false;
+  private holdFire = false;
   /** Seconds that arrester has been walking up to the player without a bust under way. */
   private arrestWalk = 0;
+  /** Seconds the police on the scene have waited for an officer to cuff a player who stopped fighting, since they last lost him (see pickArrester). */
+  private surrenderTime = 0;
 
   update(dt: number): void {
     const sim = this.sim;
@@ -518,7 +528,7 @@ export class PoliceSystem {
     const sim = this.sim;
     const p = sim.player;
     const pv = p.vehicle;
-    if (d > CAR_FIRE_RANGE || sim.playerDown || !p.alive || this.arresting || (v.kind === 'swat' && level < 4)) return;
+    if (d > CAR_FIRE_RANGE || sim.playerDown || !p.alive || this.holdFire || (v.kind === 'swat' && level < 4)) return;
     const pp = sim.playerPos();
     const closing = ((v.vel.x - (pv ? pv.vel.x : p.vel.x)) * (pp.x - v.pos.x) + (v.vel.z - (pv ? pv.vel.z : p.vel.z)) * (pp.z - v.pos.z)) / Math.max(d, 1e-6);
     if ((d < 8 && closing > 4) || (!pv && d < 6)) return;
@@ -674,7 +684,7 @@ export class PoliceSystem {
     // Not while the player fights or holds them off with a gun: they all fire back, and from 3
     // stars nobody walks up to an armed or fighting player.
     const arrester = this.arrester;
-    const arresting = this.arresting;
+    const holdFire = this.holdFire;
     const fireAtWill = level >= 2 || sim.time - sim.wanted.lastCopAssaultAt < HOSTILE_WINDOW;
     const standOff = level >= 3 && (this.playerArmed() || this.playerHostile());
     // Officers walk up to the driver's door: the arrest radius around a long vehicle's centre does not reach its ends.
@@ -727,7 +737,7 @@ export class PoliceSystem {
         c.aiming = true;
         c.aimYaw = yaw;
         c.heading = moveAngleTowards(c.heading, yaw, 9 * dt);
-        if (!arresting && Math.abs(wrapAngle(yaw - c.heading)) < 0.3) sim.combat.npcFire(c, p, b.accuracy);
+        if (!holdFire && Math.abs(wrapAngle(yaw - c.heading)) < 0.3) sim.combat.npcFire(c, p, b.accuracy);
         // Close in a bit when far.
         if (d > 22) this.runTo(c, pp.x, pp.z, 3.2, dt);
       } else if (standOff && c !== arrester && d < STANDOFF) {
@@ -747,9 +757,12 @@ export class PoliceSystem {
 
   /**
    * The nearest officer on foot (never SWAT) walks up to arrest a player the police may take in (see
-   * arrestAllowed). While he walks up to a player who is not getting away (for ARREST_PATIENCE seconds
-   * at most), and while a bust is under way, he is arresting: everyone else, in the street, in a car or
-   * in the air, holds fire meanwhile.
+   * arrestAllowed). Everyone else, in the street, in a car or in the air, holds fire while a player who is not
+   * getting away (standing still, or sitting in a stopped car) waits for the arrest without a fight: while a
+   * bust is under way, while that officer walks up to him (for ARREST_PATIENCE seconds at most: he may be
+   * stuck), and until one is near (SURRENDER_PATIENCE seconds at most, all told, of the police on the scene
+   * waiting for him: none may be able to get to him). SWAT and the helicopter, who never make the arrest, used
+   * to shoot such a player dead before an officer who could came (in 27% of runs at 4 stars).
    */
   private pickArrester(dt: number, level: number): void {
     const sim = this.sim;
@@ -757,11 +770,18 @@ export class PoliceSystem {
     const pv = p.vehicle;
     const pp = sim.playerPos();
     const arrestable = pv ? pv.speed < 1.2 : p.speed < 2.2 || p.state === 'knocked';
-    const a = !this.searching(level) && this.arrestAllowed(level) ? this.nearestOfficer(pp.x, pp.z, 32, pp.y) : null;
+    const allowed = !this.searching(level) && this.arrestAllowed(level);
+    const a = allowed ? this.nearestOfficer(pp.x, pp.z, ARREST_RANGE, pp.y) : null;
     const walking = !!a && arrestable && this.bustTimer === 0;
     this.arrestWalk = walking && a === this.arrester ? this.arrestWalk + dt : 0;
     this.arrester = a;
-    this.arresting = !!a && (this.bustTimer > 0 || (arrestable && this.arrestWalk < ARREST_PATIENCE));
+    const waiting = allowed && arrestable;
+    // The patience before one who can cuff him comes runs only while the police are on the scene waiting for him
+    // (units still on their way do not use it up), and lasts until they lose him: stepping off and back, or a
+    // helicopter losing sight of him behind a tower now and then, does not renew it.
+    if (level === 0 || this.searching(level)) this.surrenderTime = 0;
+    else if (waiting && !a && this.onScene(pp)) this.surrenderTime += dt;
+    this.holdFire = this.bustTimer > 0 || (a ? arrestable && this.arrestWalk < ARREST_PATIENCE : waiting && this.surrenderTime < SURRENDER_PATIENCE);
   }
 
   /**
@@ -781,6 +801,18 @@ export class PoliceSystem {
       }
     }
     return best;
+  }
+
+  /**
+   * Police on the scene at (x, z), the player's position: an officer on foot (SWAT too) within ARREST_RANGE along
+   * the ground, on any level, or a helicopter whose crew sees him.
+   */
+  private onScene(p: { x: number; z: number }): boolean {
+    const sim = this.sim;
+    for (const c of sim.characters) {
+      if (!c.removed && c.isLaw && c.alive && (c.state === 'normal' || c.state === 'swimming') && Math.hypot(c.pos.x - p.x, c.pos.z - p.z) < ARREST_RANGE) return true;
+    }
+    return sim.helis.some((h) => sim.wanted.heliSees(h, p.x, p.z));
   }
 
   /** An officer who lost the player runs to where he was last seen, then checks the sidewalks around it. */
@@ -979,12 +1011,16 @@ export class PoliceSystem {
       }
       // It climbs and sinks as fast as it needs to, apart from its speed over the ground.
       const dvy = clamp((ty - h.pos.y) * 0.9, -HELI_CLIMB, HELI_CLIMB);
-      // Dashes in from afar on its way out, and to catch up with a quarry slower than its cruise speed (one
-      // on foot, a car held up, a spot to search) once it lags behind its spot. A faster car outruns it.
+      // Dashes in on its way out until it is on the scene (its crew made the player out, or, while the police
+      // search, it got to its spot), even after a car faster than its cruise speed; after that only to catch up
+      // with a quarry slower than that (one on foot, a car held up, a spot to search) once it lags behind its
+      // spot. A faster car outruns it then.
       const lag = Math.hypot(tx - h.pos.x, tz - h.pos.z);
-      if (lag <= HELI_DASH_RANGE) this.heliArrived.add(h);
+      // On the scene: once its crew makes him out; while the police search, once at its spot over the place. (Being
+      // near him is not enough: at night, or high over the towers, the crew may still not see him.)
+      if (!this.heliArrived.has(h) && (sim.wanted.heliSees(h, pp.x, pp.z) || (searching && lag <= HELI_CATCH_UP))) this.heliArrived.add(h);
       const quarry = searching ? 0 : this.playerSpeed();
-      const dash = this.heliArrived.has(h) ? quarry < HELI_SPEED && lag > HELI_CATCH_UP : lag > HELI_DASH_RANGE;
+      const dash = !this.heliArrived.has(h) || (quarry < HELI_SPEED && lag > HELI_CATCH_UP);
       const maxV = dash ? HELI_DASH_SPEED : HELI_SPEED;
       const dl = Math.hypot(dvx, dvz);
       if (dl > maxV) {
@@ -1006,7 +1042,7 @@ export class PoliceSystem {
       const k = sl > SPOT_REACH ? SPOT_REACH / sl : 1;
       h.spotlight.x = h.pos.x + sx * k;
       h.spotlight.z = h.pos.z + sz * k;
-      if (level >= 4 && !sim.playerDown && !this.searching(level) && !this.arresting) {
+      if (level >= 4 && !sim.playerDown && !this.searching(level) && !this.holdFire) {
         h.fireCooldown -= dt;
         if (h.fireCooldown <= 0) {
           h.fireCooldown = 0.16;

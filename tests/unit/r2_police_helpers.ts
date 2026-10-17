@@ -1,6 +1,5 @@
 // Shared scenario helpers for the round 2 police tests (r2_police*.test.ts).
 
-import { vi } from 'vitest';
 import { DriverAI } from '../../src/sim/driver';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { PlayerInput } from '../../src/sim/input';
@@ -16,17 +15,6 @@ export interface PoliceInternals {
   arrester: Character | null;
 }
 export const internals = (sim: Sim) => sim.police as unknown as PoliceInternals;
-
-/** A seeded stand-in for Math.random (helicopter orbits, brain timers, crash spins), so runs repeat exactly. */
-export function seedMathRandom(seed: number): void {
-  let a = seed >>> 0;
-  vi.spyOn(Math, 'random').mockImplementation(() => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  });
-}
 
 export function longestLane(sim: Sim, avenue = false): Lane {
   return [...sim.roads.lanes].filter((l) => !avenue || l.line.avenue).sort((a, b) => b.length - a.length)[0]!;
@@ -307,11 +295,13 @@ export function liveUnits(sim: Sim): Vehicle[] {
 // Flee-bot runs (P10)
 
 /**
- * Seeds of the flee-bot runs: 21 of them. Each run is chaotic (any change to the traffic or the police
- * randomness reshuffles its trajectory), so the tests check medians and shares over all of them, with bounds
- * the measured values clear by a margin.
+ * Seeds 1..n. Each flee-bot run is chaotic (any change to the traffic or the police reshuffles its trajectory),
+ * so the tests check medians and shares over many runs, with bounds the rates measured over more seeds still
+ * clear by three standard deviations of the count (round 2 fix pass 2).
  */
-export const FLEE_SEEDS = Array.from({ length: 21 }, (_, i) => i + 1);
+export const seeds = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+/** The default seeds of the flee-bot runs: 21 of them. */
+export const FLEE_SEEDS = seeds(21);
 
 export interface FleeRun {
   seed: number;
@@ -325,19 +315,32 @@ export interface FleeRun {
   far: number;
   /** The 0.5 s samples taken while the police were in pursuit (wanted, stars not flashing), how many of them had a unit within 60 m, and the units over 150 m away summed over them. */
   pursuit: { samples: number; near60: number; far: number };
+  /** Seconds until a helicopter's crew first made the car out (-1: never). */
+  heliSeenAt: number;
+}
+
+/** Who else is out there in a flee-bot run: police cars (else, from 3 stars, only the helicopter), traffic and people. */
+export interface FleeWorld {
+  units?: boolean;
+  traffic?: boolean;
 }
 
 /** One flee-bot run at `level` stars (no arrests), for up to `seconds`, or until the stars are lost. */
-export function flee(level: number, seed: number, seconds: number, untilLost: boolean): FleeRun {
-  seedMathRandom(seed);
+export function flee(level: number, seed: number, seconds: number, untilLost: boolean, world: FleeWorld = {}): FleeRun {
   const sim = makeSim({ ambient: true, seed });
   sim.cheats.godMode = true;
   sim.missions.noBust = true;
+  if (world.units === false) (sim.police as unknown as { dispatch(): void }).dispatch = () => {};
+  if (world.traffic === false) {
+    sim.traffic.updateStreaming = () => {};
+    sim.peds.updateStreaming = () => {};
+  }
   const { bot } = getaway(sim, seed);
   sim.wanted.setLevel(level);
   const dt = 1 / 60;
   let lostAt = -1;
   let within40At = -1;
+  let heliSeenAt = -1;
   let samples = 0;
   let near60 = 0;
   let far = 0;
@@ -350,6 +353,7 @@ export function flee(level: number, seed: number, seconds: number, untilLost: bo
     const pp = sim.playerPos();
     const d = liveUnits(sim).map((v) => dist(v.pos, pp));
     if (within40At < 0 && d.some((x) => x < 40)) within40At = t;
+    if (heliSeenAt < 0 && sim.helis.some((h) => sim.wanted.heliSees(h, pp.x, pp.z))) heliSeenAt = t;
     if (i % 30 === 0) {
       samples++;
       const near = d.some((x) => x < 60);
@@ -364,17 +368,18 @@ export function flee(level: number, seed: number, seconds: number, untilLost: bo
     }
     step(sim, dt, bot());
   }
-  vi.restoreAllMocks();
-  return { seed, lostAt, within40At, near60: near60 / Math.max(1, samples), far: far / Math.max(1, samples), pursuit };
+  // Lost on the very last step.
+  if (lostAt < 0 && sim.wanted.level === 0) lostAt = seconds;
+  return { seed, lostAt, within40At, near60: near60 / Math.max(1, samples), far: far / Math.max(1, samples), pursuit, heliSeenAt };
 }
 
-/** Flee-bot runs for every seed in FLEE_SEEDS (see flee). */
-export function fleeRuns(level: number, seconds: number, untilLost: boolean): FleeRun[] {
-  return FLEE_SEEDS.map((seed) => flee(level, seed, seconds, untilLost));
+/** Flee-bot runs for every seed in `which` (see flee). */
+export function fleeRuns(level: number, seconds: number, untilLost: boolean, which: readonly number[] = FLEE_SEEDS, world: FleeWorld = {}): FleeRun[] {
+  return which.map((seed) => flee(level, seed, seconds, untilLost, world));
 }
 
 export const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
 /** When the stars were lost, Infinity for a run that kept them (runs stop at their bound, which counts as never). */
 export const lostTime = (r: FleeRun) => (r.lostAt < 0 ? Infinity : r.lostAt);
 export const showRuns = (runs: FleeRun[]) =>
-  runs.map((r) => `seed ${r.seed}: lost ${r.lostAt.toFixed(1)} s, within 40 m at ${r.within40At.toFixed(1)} s, near ${(r.near60 * 100).toFixed(0)}%, far ${r.far.toFixed(2)}`).join('; ');
+  runs.map((r) => `seed ${r.seed}: lost ${r.lostAt.toFixed(1)} s, within 40 m at ${r.within40At.toFixed(1)} s, near ${(r.near60 * 100).toFixed(0)}%, far ${r.far.toFixed(2)}, helicopter crew saw him at ${r.heliSeenAt.toFixed(1)} s`).join('; ');

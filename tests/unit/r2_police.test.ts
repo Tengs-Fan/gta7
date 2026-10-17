@@ -3,19 +3,21 @@
 // (P62), the helicopter's sight and spotlight (P88), readable evasion on the radar and map (P24) and dispatch
 // chatter (P58). The statistical cases, rates and medians over many seeds, have files of their own:
 // r2_police_force (P9 in the ambient city), r2_police_pursuit and r2_police_pursuit5 (flee-bot pursuits),
-// r2_police_escape and r2_police_escape3 (losing the stars) and r2_police_dispatch (a long chase).
+// r2_police_escape and r2_police_escape3 (losing the stars) and r2_police_dispatch (a long chase). Parked-car
+// streaming (traffic.ts, owned by this cluster) is in r2_police_parked.
 
 import * as THREE from 'three';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { beamFade, MarkerView } from '../../src/render/markers';
 import { colourName, compassName } from '../../src/sim/dispatch';
 import { Helicopter, type Character, type Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
-import { HELI_DASH_SPEED, HELI_SPEED, SPOT_REACH } from '../../src/sim/police';
+import { HELI_DASH_SPEED, HELI_SPEED, SPOT_REACH, SURRENDER_PATIENCE } from '../../src/sim/police';
 import { HELI_NIGHT_SIGHT, HELI_SIGHT, RESPONSE_BASE, RESPONSE_PER_STAR, RISE_GAP, SPOT_RADIUS, SPOT_SEE } from '../../src/sim/wanted';
 import { collectBlips, HELI_SIGHT_RANGE, searchArea } from '../../src/ui/mapRender';
+import type { Lane } from '../../src/world/roads';
 import { aimAt, input, makeSim, placeInCar, step, teleport } from './helpers';
-import { at, chaseCamera, countPoliceShots, dist, fleeBot, internals, liveUnits, longestLane, officer, seedMathRandom, stepUntil, visibleSpot } from './r2_police_helpers';
+import { at, chaseCamera, countPoliceShots, dist, fleeBot, internals, liveUnits, longestLane, officer, stepUntil, visibleSpot } from './r2_police_helpers';
 
 // Headless render stubs (copied from fix_render.test.ts): the procedural textures need a 2D canvas.
 vi.hoisted(() => {
@@ -49,10 +51,6 @@ vi.hoisted(() => {
   });
   g.document ??= { createElement: canvas, createElementNS: canvas };
   g.window ??= { devicePixelRatio: 1, innerWidth: 1280, innerHeight: 720, addEventListener: () => {} };
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
 });
 
 /** Ends the response phase that a new level starts (the police then only know what they see). */
@@ -97,7 +95,6 @@ describe('lethal force and arrests', () => {
   });
 
   it('at 1 star a passive player draws no police fire', () => {
-    seedMathRandom(7);
     const sim = makeSim({ ambient: true, seed: 7 });
     sim.cheats.godMode = true;
     sim.missions.noBust = true;
@@ -247,6 +244,95 @@ describe('lethal force and arrests', () => {
     expect(partnerShots[0]!).toBeGreaterThanOrEqual(12);
   });
 
+  it('at 4 stars SWAT and the helicopter hold their fire at an unarmed player standing still until an officer comes to cuff him', () => {
+    // Round 2 fix pass 2 (police): SWAT, who never make the arrest, and the helicopter used to shoot such a player
+    // dead before an officer who could came (in 34 of 126 runs at 4 stars in the ambient city).
+    const sim = makeSim();
+    sim.cheats.godMode = true;
+    const p = sim.player;
+    sim.wanted.setLevel(4);
+    const s = visibleSpot(sim, p.pos.x, p.pos.z, 16);
+    const swat = officer(sim, s.x, s.z, 'swat');
+    swat.health = swat.maxHealth = 1e6;
+    const h = new Helicopter(sim.newId(), p.pos.x + 12, sim.world.groundHeight(p.pos.x, p.pos.z) + 36, p.pos.z + 12);
+    h.spotlight = { x: p.pos.x, z: p.pos.z };
+    sim.helis.push(h);
+    const shots = countPoliceShots(sim, true);
+    let aimed = 0;
+    step(sim, 10, () => {
+      if (swat.aiming) aimed++;
+      return input();
+    });
+    // They have him covered, but nobody fires.
+    expect(aimed).toBeGreaterThan(300);
+    expect(sim.wanted.heliSees(h, p.pos.x, p.pos.z)).toBe(true);
+    expect(shots.n).toBe(0);
+    // An officer who can make the arrest comes.
+    const c = visibleSpot(sim, p.pos.x, p.pos.z, 14, 2);
+    officer(sim, c.x, c.z);
+    expect(stepUntil(sim, 10, () => sim.deathKind === 'busted')).toBeGreaterThan(0);
+    expect(shots.n).toBe(0);
+  });
+
+  it('officers on the scene wait for one who can cuff such a player 45 s at most, counted from when they got there', () => {
+    // Round 2 fix pass 2 (police): he may be where none can get to him; and the wait starts when they get there,
+    // not when he gave up (units still on their way do not use it up).
+    expect(SURRENDER_PATIENCE).toBe(45);
+    const sim = makeSim();
+    sim.cheats.godMode = true;
+    const p = sim.player;
+    sim.wanted.setLevel(4);
+    step(sim, 15);
+    const s = visibleSpot(sim, p.pos.x, p.pos.z, 16);
+    const swat = officer(sim, s.x, s.z, 'swat');
+    swat.health = swat.maxHealth = 1e6;
+    const shots = countPoliceShots(sim);
+    const t0 = sim.time;
+    const first = stepUntil(sim, SURRENDER_PATIENCE + 5, () => shots.n > 0);
+    expect(first, `first shot ${first.toFixed(1)} s after SWAT got there`).toBeGreaterThanOrEqual(SURRENDER_PATIENCE);
+    expect(first).toBeLessThan(SURRENDER_PATIENCE + 2);
+    expect(sim.time - t0).toBeGreaterThan(SURRENDER_PATIENCE);
+  });
+
+  it('a helicopter alone over such a player waits as long, then opens fire', () => {
+    // Round 2 fix pass 2 (Codex review): with no officer on foot near him the wait never started, so a helicopter
+    // holding fire over a player no unit could reach held it for ever, its sightings keeping the stars on.
+    const sim = makeSim();
+    sim.cheats.godMode = true;
+    const p = sim.player;
+    sim.wanted.setLevel(4);
+    const h = new Helicopter(sim.newId(), p.pos.x + 12, sim.world.groundHeight(p.pos.x, p.pos.z) + 36, p.pos.z + 12);
+    h.spotlight = { x: p.pos.x, z: p.pos.z };
+    sim.helis.push(h);
+    const rounds = countPoliceShots(sim, true);
+    const first = stepUntil(sim, SURRENDER_PATIENCE + 10, () => rounds.n > 0);
+    expect(first, `first round at ${first.toFixed(1)} s`).toBeGreaterThanOrEqual(SURRENDER_PATIENCE);
+    expect(first).toBeLessThan(SURRENDER_PATIENCE + 5);
+  });
+
+  it('stepping off and back does not give such a player the whole wait again', () => {
+    // Round 2 fix pass 2 (Codex review): one step faster than a walk reset the wait, so he could stand his ground
+    // for ever by moving now and then. Now it runs until the police lose him.
+    const sim = makeSim();
+    sim.cheats.godMode = true;
+    const p = sim.player;
+    sim.wanted.setLevel(4);
+    const s = visibleSpot(sim, p.pos.x, p.pos.z, 16);
+    const swat = officer(sim, s.x, s.z, 'swat');
+    swat.health = swat.maxHealth = 1e6;
+    const shots = countPoliceShots(sim);
+    step(sim, 30);
+    expect(shots.n).toBe(0);
+    // A step aside (they may fire while he moves), then he stands still again.
+    step(sim, 0.6, () => input({ moveZ: 1, sprint: true }));
+    expect(stepUntil(sim, 3, () => p.speed < 0.3)).toBeGreaterThanOrEqual(0);
+    const n = shots.n;
+    const next = stepUntil(sim, SURRENDER_PATIENCE, () => shots.n > n);
+    // The 15 s left of the wait, not a new one.
+    expect(next, `next shot ${next.toFixed(1)} s after he stopped`).toBeGreaterThan(0);
+    expect(next).toBeLessThan(SURRENDER_PATIENCE - 30 + 3);
+  });
+
   it('never sends SWAT to make an arrest', () => {
     const sim = makeSim();
     sim.cheats.godMode = true;
@@ -264,7 +350,6 @@ describe('lethal force and arrests', () => {
 
   it('at 3 stars a pursuit unit keeping within 30 m of a sedan doing 20 m/s shoots it up (150+ bullet damage in 10 s)', () => {
     for (const seed of [1, 2, 3]) {
-      seedMathRandom(seed);
       const sim = makeSim({ seed });
       const lane = longestLane(sim, true);
       const car = sim.spawnVehicle('sedan', at(lane, 30).x, at(lane, 30).z, lane.heading);
@@ -302,7 +387,6 @@ describe('lethal force and arrests', () => {
       expect(speed / frames, `seed ${seed}: average speed`).toBeGreaterThan(18);
       expect(farthest, `seed ${seed}`).toBeLessThan(30);
       expect(damage, `seed ${seed}`).toBeGreaterThanOrEqual(150);
-      vi.restoreAllMocks();
     }
   });
 
@@ -455,7 +539,6 @@ describe('the response phase', () => {
 
 describe('pursuit units', () => {
   it('a unit trailing far behind and not closing in is recycled for one dispatched near the player', () => {
-    seedMathRandom(5);
     const sim = makeSim({ ambient: true, seed: 5 });
     sim.cheats.godMode = true;
     sim.missions.noBust = true;
@@ -493,7 +576,10 @@ describe('pursuit units', () => {
   it('cuts off a fast player: every second pursuit unit waits round the corner at a junction 90-180 m ahead, or comes his way', () => {
     // Round 2 fix pass (police): the road ahead is in the driver's view, so only the cross streets just
     // round the corners there, or roads coming his way out of his sight, hide a unit until he gets there.
-    let ahead = 0;
+    // Round 2 fix pass 2: a cut-off is told apart from a unit from the usual ring by the spot its search
+    // returned, not by where it lands: the ring puts a unit ahead of him now and then too, and may put one in
+    // his view beyond 160 m (see spawnUnit), as it did in 4 of 63 seeds.
+    let cutOffs = 0;
     let corners = 0;
     let total = 0;
     for (const seed of [1, 2, 3, 4, 5]) {
@@ -514,31 +600,53 @@ describe('pursuit units', () => {
       sim.camDir.y = -0.1;
       sim.camDir.z = lane.dz;
       sim.wanted.setLevel(2);
+      // The spot each cut-off search hands out.
+      const police = sim.police as unknown as Record<'cornerAhead' | 'laneAhead', () => { lane: Lane; s: number } | null>;
+      let picked: { lane: Lane; s: number; corner: boolean } | null = null;
+      for (const name of ['cornerAhead', 'laneAhead'] as const) {
+        const search = police[name].bind(sim.police);
+        police[name] = () => {
+          const spot = search();
+          if (spot) picked = { ...spot, corner: name === 'cornerAhead' };
+          return spot;
+        };
+      }
+      let seedCutOffs = 0;
       for (let k = 0; k < 8; k++) {
+        picked = null;
         const v = sim.police.spawnUnit('police', true);
         if (!v) continue;
         total++;
-        const along = (v.pos.x - car.pos.x) * lane.dx + (v.pos.z - car.pos.z) * lane.dz;
-        const facing = Math.sin(v.heading) * lane.dx + Math.cos(v.heading) * lane.dz;
-        const vl = v.ai!.currentLane()!;
-        const node = sim.roads.nodes[vl.to]!;
-        // Heading into a junction on his road ahead from a cross street, a few metres short of its line.
-        const nodeAhead = (node.x - car.pos.x) * lane.dx + (node.z - car.pos.z) * lane.dz;
-        const nodeSide = Math.abs((node.x - car.pos.x) * lane.dz - (node.z - car.pos.z) * lane.dx);
-        const toLine = vl.length - ((v.pos.x - vl.sx) * vl.dx + (v.pos.z - vl.sz) * vl.dz);
-        const corner = Math.abs(facing) < 0.3 && nodeAhead >= 90 && nodeAhead <= 180 && nodeSide < 12 && toLine >= 8 - 1e-6 && toLine <= 30 + 1e-6;
-        if (corner || (along >= 90 && along <= 180 && facing < -0.5)) {
-          ahead++;
-          if (corner) corners++;
-          expect(sim.isVisible(v.pos.x, 1, v.pos.z)).toBe(false);
+        const spot = picked as { lane: Lane; s: number; corner: boolean } | null;
+        if (spot && dist(v.pos, at(spot.lane, spot.s)) < 1e-6) {
+          cutOffs++;
+          seedCutOffs++;
+          expect(sim.isVisible(v.pos.x, 1, v.pos.z), `seed ${seed}, unit ${k}`).toBe(false);
+          const facing = Math.sin(v.heading) * lane.dx + Math.cos(v.heading) * lane.dz;
+          if (spot.corner) {
+            corners++;
+            // Heading into a junction on his road ahead from a cross street, a few metres short of its line.
+            const vl = v.ai!.currentLane()!;
+            const node = sim.roads.nodes[vl.to]!;
+            const nodeAhead = (node.x - car.pos.x) * lane.dx + (node.z - car.pos.z) * lane.dz;
+            const nodeSide = Math.abs((node.x - car.pos.x) * lane.dz - (node.z - car.pos.z) * lane.dx);
+            const toLine = vl.length - ((v.pos.x - vl.sx) * vl.dx + (v.pos.z - vl.sz) * vl.dz);
+            expect(Math.abs(facing) < 0.3 && nodeAhead >= 90 && nodeAhead <= 180 && nodeSide < 12 && toLine >= 8 - 1e-6 && toLine <= 30 + 1e-6, `seed ${seed}, unit ${k}`).toBe(true);
+          } else {
+            // On a road coming his way, ahead of him.
+            const along = (v.pos.x - car.pos.x) * lane.dx + (v.pos.z - car.pos.z) * lane.dz;
+            expect(along >= 90 && along <= 180 && facing < -0.5, `seed ${seed}, unit ${k}`).toBe(true);
+          }
         }
         sim.removeVehicle(v);
       }
+      // Every second one at most (Codex review: the bounds below alone pass if every unit cuts him off).
+      expect(seedCutOffs, `seed ${seed}`).toBeLessThanOrEqual(4);
     }
     expect(total).toBeGreaterThanOrEqual(25);
-    // About half: the other half comes from the usual ring (which may land ahead now and then too).
-    expect(ahead).toBeGreaterThanOrEqual(Math.floor(total * 0.4));
-    expect(corners).toBeGreaterThan(ahead / 2);
+    // Every second one (a search may come up empty now and then); the other half comes from the usual ring.
+    expect(cutOffs).toBeGreaterThanOrEqual(Math.floor(total * 0.4));
+    expect(corners).toBeGreaterThan(cutOffs / 2);
   });
 
   it("the flee bot's camera looks along the car's travel going forward, and along its nose when backing up", () => {
@@ -634,7 +742,6 @@ describe('pursuit units', () => {
 
 describe('the police helicopter', () => {
   it('is sent from 150 m out', () => {
-    seedMathRandom(3);
     const sim = makeSim({ ambient: true, seed: 3 });
     sim.cheats.godMode = true;
     sim.missions.noBust = true;
@@ -647,8 +754,7 @@ describe('the police helicopter', () => {
   });
 
   it('dashes in at up to 55 m/s from afar on its way out, and to catch up with a player standing still', () => {
-    const HELI_DASH_RANGE_M = 120;
-    // (After a car faster than its cruise speed it does not dash: see the outrun cases below.)
+    // (On the scene, after a car faster than its cruise speed, it does not dash: see the outrun cases below.)
     for (const [from, cap] of [[400, HELI_DASH_SPEED], [100, HELI_DASH_SPEED]] as const) {
       const sim = makeSim();
       sim.cheats.godMode = true;
@@ -669,7 +775,8 @@ describe('the police helicopter', () => {
         fastest = Math.max(fastest, Math.hypot(h.vel.x, h.vel.z));
         return input();
       });
-      expect(fastest, `from ${from} m`).toBeGreaterThan(from > HELI_DASH_RANGE_M ? cap - 5 : HELI_SPEED + 5);
+      // From 100 m it is on the scene before it is up to speed.
+      expect(fastest, `from ${from} m`).toBeGreaterThan(from >= 400 ? cap - 5 : HELI_SPEED + 5);
       expect(fastest, `from ${from} m`).toBeLessThanOrEqual(cap + 1e-6);
     }
   });
@@ -801,6 +908,76 @@ describe('the police helicopter', () => {
     }
   });
 
+  it('sent after a car already faster than its cruise speed, it dashes in to it, by day until its crew sees it; then the car pulls away', () => {
+    // Round 2 fix pass 2 (police): its first approach used to end 120 m out, where it spawns 150 m away, so it
+    // cruised the rest of the way and never got within the crew's 60 m sight of a car holding over 30 m/s (unless
+    // it happened to spawn ahead of it). Now it dashes until its crew makes the player out, wherever it spawns (the
+    // seed picks the side), and a car faster than its cruise speed still gets away from it afterwards. (Codex
+    // review: ending it within 40 m of its orbit spot instead left it up to 64 m from the car, and 14 of these 32
+    // runs at night went unseen; now 2 do.) At night the crew may still not make such a car out: over the towers
+    // of Azura Ave it flies higher than its 60 m night sight reaches, and its beam trails a car this fast by more
+    // than the 10 m it lights. That is the night sight; the dash has to bring it there, within 45 m along the ground.
+    const log: string[] = [];
+    let nightSeen = 0;
+    for (const [hour, speed] of [[14, 35], [14, 40], [0, 35], [0, 40], [22.5, 35], [22.5, 40]] as const) {
+      for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+        const sim = makeSim({ ambient: true, seed, startHour: hour });
+        sim.cheats.godMode = true;
+        sim.missions.noBust = true;
+        // Only the helicopter: no traffic, people or ground units.
+        sim.traffic.updateStreaming = () => {};
+        sim.peds.updateStreaming = () => {};
+        (sim.police as unknown as { dispatch(): void }).dispatch = () => {};
+        const n = sim.roads.node(5, 0);
+        const x0 = n.x - 2;
+        const z0 = n.z + n.halfZ + 8;
+        const car = sim.spawnVehicle('sports', x0, z0, 0);
+        placeInCar(sim, car);
+        sim.wanted.setLevel(3);
+        let seenAt = -1;
+        let lastSeen = -1;
+        let flashAt = -1;
+        let closest = Infinity;
+        let spawned: { x: number; z: number } | null = null;
+        let i = 0;
+        step(sim, 25, () => {
+          if (flashAt < 0 && sim.wanted.searching) flashAt = sim.time;
+          // Kinematic, held on the inner southbound lane of Azura Ave (as in outrun above).
+          car.vel.x = 0;
+          car.vel.z = speed;
+          car.heading = 0;
+          car.angVel = 0;
+          car.pos.x = x0;
+          car.pos.z = z0 + speed * i++ * (1 / 60);
+          const h = sim.helis.find((q) => !q.destroyed);
+          if (h) {
+            spawned ??= { x: h.pos.x - car.pos.x, z: h.pos.z - car.pos.z };
+            if (flashAt < 0) closest = Math.min(closest, Math.hypot(h.pos.x - car.pos.x, h.pos.z - car.pos.z));
+            if (sim.wanted.heliSees(h, car.pos.x, car.pos.z)) {
+              if (seenAt < 0) seenAt = sim.time;
+              lastSeen = sim.time;
+            }
+          }
+          return input({ aimOrigin: { x: car.pos.x, y: car.pos.y + 3, z: car.pos.z - 9 }, aimDir: { x: 0, y: -0.1, z: 1 } });
+        });
+        const s = spawned as { x: number; z: number } | null;
+        const label = `${hour}:00, ${speed} m/s, seed ${seed}: spawned at (${s?.x.toFixed(0)}, ${s?.z.toFixed(0)}) from the car, within ${closest.toFixed(0)} m of it, seen from ${seenAt.toFixed(1)} to ${lastSeen.toFixed(1)} s, stars flashing from ${flashAt.toFixed(1)} s`;
+        log.push(label);
+        // By day its crew makes the car out; at night it does, or else it gets to the car while the police know where
+        // it is.
+        if (hour === 14) expect(seenAt, log.join('; ')).toBeGreaterThan(0);
+        else {
+          expect(seenAt > 0 || closest < 45, log.join('; ')).toBe(true);
+          if (seenAt > 0) nightSeen++;
+        }
+        // It cruises after that, and the car gets away from it: the stars flash before the run ends.
+        expect(sim.wanted.searching, label).toBe(true);
+      }
+    }
+    // At night most of these runs see it all the same (30 of the 32).
+    expect(nightSeen, log.join('; ')).toBeGreaterThanOrEqual(27);
+  });
+
   it('after a slow quarry it dashes again', () => {
     const sim = makeSim();
     sim.cheats.godMode = true;
@@ -825,7 +1002,6 @@ describe('the police helicopter', () => {
   });
 
   it('sends no new helicopter for 45 s after one is shot down', () => {
-    seedMathRandom(4);
     const sim = makeSim({ ambient: true, seed: 4 });
     sim.cheats.godMode = true;
     sim.missions.noBust = true;
@@ -853,7 +1029,6 @@ describe('the police helicopter', () => {
 describe('escalation', () => {
   it('a shootout from 2 stars climbs one star per 8 s at most: 4 stars not before 16 s, 5 not before 24 s', () => {
     for (const seed of [1, 2]) {
-      seedMathRandom(seed);
       const sim = makeSim({ ambient: true, seed });
       sim.cheats.godMode = true;
       sim.missions.noBust = true;
@@ -897,7 +1072,6 @@ describe('escalation', () => {
         expect(rises[i]!.level, log).toBe(rises[i - 1]!.level + 1);
         if (rises[i - 1]!.level > 2) expect(rises[i]!.t - rises[i - 1]!.t, log).toBeGreaterThanOrEqual(RISE_GAP - 1e-9);
       }
-      vi.restoreAllMocks();
     }
   });
 
@@ -1328,7 +1502,6 @@ describe('dispatch chatter', () => {
   // The pacing over a long 5-star chase is in r2_police_dispatch.test.ts.
 
   it('announces SWAT and the air unit when the chase escalates', () => {
-    seedMathRandom(2);
     const sim = makeSim({ ambient: true, seed: 2 });
     sim.cheats.godMode = true;
     sim.missions.noBust = true;
