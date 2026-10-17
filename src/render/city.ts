@@ -521,7 +521,7 @@ export class CityView {
     const nx = -uz;
     const nz = ux;
     const len = Math.hypot(bx - ax, bz - az);
-    // The roll-up door spans 0.5-4.9 m of the 6.5 m cell, under its housing 0.5 m below the top of a 5 m band.
+    // Over the door's housing (0.35-5.05 m across the 6.5 m cell), 0.45 m below the top of the 5 m band.
     const c0 = (0.35 / CELL_DESIGN.rollup.w) * len;
     const c1 = (5.05 / CELL_DESIGN.rollup.w) * len;
     const mx = ax + ux * ((c0 + c1) / 2);
@@ -530,6 +530,7 @@ export class CityView {
     const w = c1 - c0;
     boxAround(g, mx + nx * 0.3, mz + nz * 0.3, Math.abs(ux) * w + Math.abs(nx) * 0.6, Math.abs(uz) * w + Math.abs(nz) * 0.6, y, y + 0.12, [0.3, 0.32, 0.34]);
   }
+
   /** Pitched roof along the longer side. */
   private gable(gb: GeoBuilder, t: { minX: number; minZ: number; maxX: number; maxZ: number; y1: number }, b: Building, wallColor: RGB): void {
     const w = t.maxX - t.minX;

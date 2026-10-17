@@ -490,9 +490,9 @@ export class Environment {
     const moonDir = new THREE.Vector3(-Math.cos(az) * 0.8, Math.max(0.25, -Math.sin(elev) * 0.9), -0.35).normalize();
     this.night = nightOf(s.sunI);
     const night = this.night;
-    // At night the city's light glows warm on the horizon; the fog takes the same colour, so
-    // distant buildings fade into it rather than into a navy wall.
-    // Only once it is properly dark, so the sunset keeps its colours.
+    // At night the city's light glows warm on the horizon and the fog blends part of the way towards
+    // it, so distant buildings fade into a warm haze rather than a navy wall. Only once it is
+    // properly dark, so the sunset keeps its colours.
     const dark = smoothstep(0.55, 1, night);
     const horizon = s.horizon.clone().lerp(NIGHT_HORIZON_GLOW, dark * GLOW_STRENGTH);
     // The sky adds the difference near the horizon only (it fades out with elevation).

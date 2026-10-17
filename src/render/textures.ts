@@ -538,8 +538,8 @@ export function taxiSignTexture(): THREE.Texture {
 // Each cell is drawn for a physical frontage (CELL_DESIGN, in metres) and squeezed into its
 // square-ish slot, so text and shapes come out undistorted on a quad of that size.
 
-export const ATLAS_W = 2048;
-export const ATLAS_H = 1024;
+const ATLAS_W = 2048;
+const ATLAS_H = 1024;
 const ATLAS_COLS = 8;
 const CELL_PX_W = 256;
 const CELL_PX_H = 336;
@@ -560,7 +560,6 @@ export const CELLS = {
   houseDoorB: 22,
   houseWindows: 23,
 } as const;
-export const SHOP_CELL_COUNT = 16;
 export const SWATCHES = { gunFascia: 0 } as const;
 
 /** Frontage (width, height in metres) each kind of cell is drawn for. */
@@ -572,7 +571,7 @@ export const CELL_DESIGN = {
 } as const;
 /** Fraction of a shop cell's height, from the top, taken by the cornice and fascia sign. */
 export const SHOP_FASCIA_FRAC = 1.05 / CELL_DESIGN.shop.h;
-/** Height (metres) of the bottom of a shop's display windows and awning attachment, from the top of the cell. */
+/** Distance (metres) from the top of a shop cell down to where its awning attaches, just above the display window. */
 export const SHOP_AWNING_TOP = 1.0;
 /** Door centre (fraction of the cell width) of each door cell. */
 export const DOOR_U: Readonly<Record<number, number>> = {
