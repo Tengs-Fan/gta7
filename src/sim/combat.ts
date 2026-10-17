@@ -8,6 +8,7 @@ import type { Character, Vehicle } from './entities';
 import { Projectile } from './entities';
 import type { HitKind } from './events';
 import type { PlayerInput } from './input';
+import { weaponPose } from './pose';
 import type { Sim } from './sim';
 import type { WeaponSpec } from './specs';
 import { launchVehicle, vehicleObb } from './vehiclePhysics';
@@ -76,7 +77,30 @@ export class CombatSystem {
     const yaw = c.aiming ? c.aimYaw : c.heading;
     const fx = Math.sin(yaw);
     const fz = Math.cos(yaw);
+    // On foot a gun fires from its barrel tip as drawn (sim/pose.ts). With someone in front nearer than the
+    // barrel reaches, the barrel ends beside or inside him: the shot then leaves from the chest, where a punch
+    // lands, which the point-blank aiming of cameraTarget is built around.
+    if (c.inventory.current !== 'fists') {
+      const tip = weaponPose(c).tip;
+      if (!this.barrelCrowded(c, tip, fx, fz)) return tip;
+    }
     return { x: c.pos.x + fx * 0.55 - fz * 0.18, y: c.pos.y + c.height * 0.76, z: c.pos.z + fz * 0.55 + fx * 0.18 };
+  }
+
+  /** Someone on foot stands in front of `c` within reach of the barrel ending at `tip` (forward fx, fz). */
+  private barrelCrowded(c: Character, tip: V3, fx: number, fz: number): boolean {
+    const reach = Math.hypot(tip.x - c.pos.x, tip.z - c.pos.z);
+    for (const o of this.sim.characters) {
+      if (o === c || o.removed || o.state === 'inVehicle' || o.state === 'entering') continue;
+      const dx = o.pos.x - c.pos.x;
+      const dz = o.pos.z - c.pos.z;
+      if (dx * fx + dz * fz <= 0) continue;
+      const b = bodyOf(o);
+      if (tip.y < b.y0 - 0.2 || tip.y > b.y1 + 0.2) continue;
+      const r = reach + b.r;
+      if (dx * dx + dz * dz < r * r) return true;
+    }
+    return false;
   }
 
   playerFire(p: Character, input: PlayerInput, fromVehicle: boolean): void {

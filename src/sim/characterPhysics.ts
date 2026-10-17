@@ -5,6 +5,7 @@ import { clamp } from '../core/math';
 import { GRAVITY, SWIM_DEPTH, WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
 import type { Character, Vehicle } from './entities';
+import { gaitPhaseStep } from './pose';
 import { vehicleObb } from './vehiclePhysics';
 
 const MAX_STEP = 0.55;
@@ -133,7 +134,7 @@ export function stepCharacter(c: Character, dt: number, host: CharacterPhysicsHo
   c.pos.z = clamp(c.pos.z, b.worldMinZ + 3, b.worldMaxZ - 3);
 
   c.speed = Math.hypot(c.vel.x, c.vel.z);
-  c.animPhase += c.speed * dt * 2.4;
+  c.animPhase += gaitPhaseStep(c.speed, dt);
   if (c.animPhase > 1e6) c.animPhase = 0;
 }
 
