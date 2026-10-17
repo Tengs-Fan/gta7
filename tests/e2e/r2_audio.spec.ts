@@ -3,17 +3,27 @@ import { expect, test, type Page } from '@playwright/test';
 import { boot, newGame, type Api } from './helpers';
 
 /**
- * Installs an in-page meter on the analyser tap at the end of the master chain.
+ * Installs an in-page meter on the analyser tap at the end of the master chain (after the soft clip) and on a second
+ * tap on the limiter's output, which is what the soft clip is fed: the clip's curve ends at 0.93, so the final output
+ * can never read above that whatever reaches the clip, and only the tap before it shows what the limiter lets through.
  * It polls on its own timer, so it keeps measuring while the game is paused (the frame loop then skips audio).
  */
 async function installMeter(page: Page): Promise<void> {
   await page.evaluate(() => {
-    const an = (window as Api).__gta7.game.audio.mixer.analyser as AnalyserNode;
-    const buf = new Float32Array(an.fftSize);
     const w = window as Api;
+    const mixer = w.__gta7.game.audio.mixer;
+    const an = mixer.analyser as AnalyserNode;
+    const pre = (mixer.limiter as AudioNode).context.createAnalyser();
+    pre.fftSize = 8192;
+    mixer.limiter.connect(pre);
+    const buf = new Float32Array(an.fftSize);
+    const pbuf = new Float32Array(pre.fftSize);
     w.__meter = {
       start() {
         this.peak = 0;
+        this.prePeak = 0;
+        this.preN = 0;
+        this.overKnee = 0;
         this.ss = 0;
         this.n = 0;
         clearInterval(this.iv);
@@ -21,16 +31,30 @@ async function installMeter(page: Page): Promise<void> {
       },
       sample() {
         an.getFloatTimeDomainData(buf);
+        pre.getFloatTimeDomainData(pbuf);
         let ss = 0;
         // Peak over the whole window (170 ms, overlapping the next poll); RMS over the last 2048 samples.
         for (let i = 0; i < buf.length; i++) this.peak = Math.max(this.peak, Math.abs(buf[i]!));
         for (let i = buf.length - 2048; i < buf.length; i++) ss += buf[i]! * buf[i]!;
+        // Before the clip: the peak, and how many samples go past the clip's 0.7 knee (counted over the polled windows).
+        for (let i = 0; i < pbuf.length; i++) {
+          const a = Math.abs(pbuf[i]!);
+          this.prePeak = Math.max(this.prePeak, a);
+          if (a > 0.7) this.overKnee++;
+        }
+        this.preN += pbuf.length;
         this.ss += ss / 2048;
         this.n++;
       },
       stop() {
         clearInterval(this.iv);
-        return { peak: this.peak as number, rmsDb: 10 * Math.log10((this.ss as number) / Math.max(1, this.n as number) + 1e-15), polls: this.n as number };
+        return {
+          peak: this.peak as number,
+          prePeak: this.prePeak as number,
+          overKnee: (this.overKnee as number) / Math.max(1, this.preN as number),
+          rmsDb: 10 * Math.log10((this.ss as number) / Math.max(1, this.n as number) + 1e-15),
+          polls: this.n as number,
+        };
       },
       /** RMS of the newest 2048 samples (about 43 ms). */
       now() {
@@ -43,11 +67,56 @@ async function installMeter(page: Page): Promise<void> {
   });
 }
 
+type Meter = { peak: number; prePeak: number; overKnee: number; rmsDb: number; polls: number };
 const meterStart = (page: Page) => page.evaluate(() => (window as Api).__meter.start());
-const meterStop = (page: Page) => page.evaluate(() => (window as Api).__meter.stop() as { peak: number; rmsDb: number; polls: number });
+const meterStop = (page: Page) => page.evaluate(() => (window as Api).__meter.stop() as Meter);
+
+/**
+ * Plays a 220 Hz tone `amp` times full scale into the master sum (faded in over 80 ms, held 0.7 s) with the world
+ * muted, and meters it. `limiter: false` turns the limiter off for the tone (threshold 0 dB, ratio 1) and back on after.
+ */
+async function hotTone(page: Page, amp: number, limiter: boolean): Promise<Meter> {
+  await meterStart(page);
+  await page.evaluate(
+    ({ amp, limiter }) =>
+      new Promise<void>((resolve) => {
+        const audio = (window as Api).__gta7.game.audio;
+        const m = audio.mixer;
+        const ctx = audio.ctx as AudioContext;
+        const lim = m.limiter as DynamicsCompressorNode;
+        const saved = [lim.threshold.value, lim.ratio.value];
+        if (!limiter) {
+          lim.threshold.value = 0;
+          lim.ratio.value = 1;
+        }
+        audio.setPaused(true);
+        const o = ctx.createOscillator();
+        o.frequency.value = 220;
+        const g = ctx.createGain();
+        const t0 = ctx.currentTime + 0.02;
+        g.gain.setValueAtTime(0, t0);
+        g.gain.linearRampToValueAtTime(amp, t0 + 0.08);
+        g.gain.setValueAtTime(amp, t0 + 0.7);
+        g.gain.linearRampToValueAtTime(0, t0 + 0.75);
+        o.connect(g);
+        g.connect(m.preMaster);
+        o.start(t0);
+        o.stop(t0 + 0.8);
+        setTimeout(() => {
+          g.disconnect();
+          lim.threshold.value = saved[0]!;
+          lim.ratio.value = saved[1]!;
+          audio.setPaused(false);
+          resolve();
+        }, 1000);
+      }),
+    { amp, limiter },
+  );
+  return meterStop(page);
+}
 
 test.describe('GTA 7 audio mix', () => {
-  test('the master output stays inside full scale through three shotgun blasts and an explosion', async ({ page }) => {
+  test('the master output stays inside full scale: headroom at default volumes, and the limiter holds a hot mix under full scale', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
     await installMeter(page);
@@ -80,7 +149,21 @@ test.describe('GTA 7 audio mix', () => {
     expect((await shots()) - shots0).toBe(3);
     expect(m.polls).toBeGreaterThan(40);
     expect(m.peak).toBeGreaterThan(0.1);
+    // At the default volumes the mix leaves headroom before the clip: it is not leaning on the limiter or the soft clip.
+    expect(m.prePeak).toBeLessThanOrEqual(0.8);
+    expect(m.overKnee).toBeLessThan(0.001);
+    // Sanity: the final output.
     expect(m.peak).toBeLessThanOrEqual(1);
+
+    // A mix far too hot (a tone 6 times full scale into the master sum): the limiter keeps what reaches the clip inside
+    // full scale. The tap must carry the master signal (it reads the tone), or the check would pass on silence.
+    const held = await hotTone(page, 6, true);
+    expect(held.prePeak).toBeGreaterThan(0.5);
+    expect(held.prePeak).toBeLessThanOrEqual(1);
+    expect(held.peak).toBeLessThanOrEqual(1);
+    // The same tone with the limiter off goes over full scale before the clip: without the limiter this test fails.
+    const open = await hotTone(page, 6, false);
+    expect(open.prePeak).toBeGreaterThan(1.05);
     expect(errors).toEqual([]);
   });
 

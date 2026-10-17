@@ -30,7 +30,7 @@ export function distanceCutoff(d: number): number {
 export const EXPLOSION_DUCK_RANGE = 60;
 
 export const MIX_DB = {
-  /** In a car with the radio playing: the engine steps back under the music. */
+  /** In a car with the radio playing (at a full music volume): the engine steps back under the music. */
   carRadioVehicle: -7,
   carRadioPeak: -4,
   /** World and ambience heard through the closed car. */
@@ -44,8 +44,8 @@ export const MIX_DB = {
 
 export interface MixInput {
   inVehicle: boolean;
-  /** The car radio is playing a station. */
-  radioOn: boolean;
+  /** How present the car radio is: 0 off (or the music volume at 0) to 1 playing at a full music volume. */
+  radio: number;
   subtitleActive: boolean;
   /** Distance of an explosion that is ducking the music; Infinity when none. */
   explosionDist: number;
@@ -72,21 +72,22 @@ export interface MixTargets {
 /** Gains (linear) and filter settings of the mix stages for a situation. Pure. */
 export function mixTargets(i: MixInput, out?: MixTargets): MixTargets {
   const o = out ?? ({} as MixTargets);
-  const carRadio = i.inVehicle && i.radioOn;
+  // The radio's share of the in-car treatment (the engine duck, its high-pass and the 120 Hz cut scale with it).
+  const radio = i.inVehicle && i.radio > 0 ? Math.min(1, i.radio) : 0;
   const big = i.bigScreen ? MIX_DB.bigCard : 0;
   const car = i.inVehicle ? MIX_DB.carWorld : 0;
   // Ducks don't stack: the deepest one applies.
   const musicDuck = Math.min(i.subtitleActive ? MIX_DB.subtitleMusic : 0, i.explosionDist <= EXPLOSION_DUCK_RANGE ? MIX_DB.explosionMusic : 0, big);
   const ambDuck = Math.min(i.subtitleActive ? MIX_DB.subtitleAmb : 0, big);
   o.world = i.paused ? 0 : 1;
-  o.vehicle = dbToGain((carRadio ? MIX_DB.carRadioVehicle : 0) + big);
-  o.vehicleHighpass = carRadio ? 60 : 10;
-  o.vehiclePeakDb = carRadio ? MIX_DB.carRadioPeak : 0;
+  o.vehicle = dbToGain(MIX_DB.carRadioVehicle * radio + big);
+  o.vehicleHighpass = 10 + 50 * radio;
+  o.vehiclePeakDb = radio > 0 ? MIX_DB.carRadioPeak * radio : 0;
   o.sfx = dbToGain(car + big);
   o.sfxLowpass = i.inVehicle ? 1800 : OPEN_HZ;
   o.amb = dbToGain(car + ambDuck);
   o.ambLowpass = i.inVehicle ? 1800 : OPEN_HZ;
-  o.music = (carRadio ? 1 : 0.8) * dbToGain(musicDuck);
+  o.music = (radio > 0 ? 1 : 0.8) * dbToGain(musicDuck);
   o.ui = 1;
   return o;
 }

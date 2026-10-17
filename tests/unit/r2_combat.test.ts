@@ -4,19 +4,22 @@
 // The render checks run headless: the stub header below is copied from fix_render.test.ts.
 
 import * as THREE from 'three';
+import { writeFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { V3 } from '../../src/core/math';
 import { wrapAngle } from '../../src/core/math';
 import { CameraController } from '../../src/render/camera';
+import { CrowdView } from '../../src/render/crowd';
 import { Effects, FLASH_SIZE } from '../../src/render/effects';
 import { GameRenderer } from '../../src/render/renderer';
-import type { Character } from '../../src/sim/entities';
+import type { Character, Vehicle } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
 import type { PlayerInput } from '../../src/sim/input';
+import { WEAPON_POINTS } from '../../src/sim/pose';
 import type { Sim } from '../../src/sim/sim';
 import { WEAPONS, type WeaponId } from '../../src/sim/specs';
 import type { StaticWorld } from '../../src/world/staticWorld';
-import { aimAt, input, makeSim, step, teleport, world } from './helpers';
+import { aimAt, input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
@@ -643,30 +646,47 @@ describe('P31b: flashes and tracers', () => {
     expect(Math.abs(wrapAngle(sr.getY(1) - sr.getY(0)))).toBeCloseTo(Math.PI / 2, 6);
   });
 
-  it('a tracer streak starts at the muzzle, is 3 m long and flies at 300 m/s', () => {
+  it('a tracer streak starts at the muzzle reaching most of the way on its first frame, then a 3 m streak flies on at 300 m/s', () => {
     const fx = new Effects();
-    fx.tracer(0, 1, 0, 0, 1, 15);
     const geo = (fx as unknown as { tracers: { mesh: THREE.Mesh } }).tracers.mesh.geometry as THREE.InstancedBufferGeometry;
     const seg = () => {
       const a = geo.getAttribute('iFrom') as THREE.InstancedBufferAttribute;
       const b = geo.getAttribute('iTo') as THREE.InstancedBufferAttribute;
       return { from: a.getZ(0), to: b.getZ(0) };
     };
+    // 15 m: 80% of the way at once; the head waits there until the tail is 3 m behind it.
+    fx.tracer(0, 1, 0, 0, 1, 15);
     fx.update(DT, 0);
     expect(geo.instanceCount).toBe(1);
-    expect(seg()).toEqual({ from: 0, to: 3 });
+    expect(seg()).toEqual({ from: 0, to: 12 });
     fx.update(DT, 0);
     expect(seg().from).toBeCloseTo(5, 5);
-    expect(seg().to).toBeCloseTo(8, 5);
+    expect(seg().to).toBeCloseTo(12, 5);
     fx.update(DT, 0);
+    expect(seg().from).toBeCloseTo(10, 5);
     expect(seg().to).toBeCloseTo(13, 5);
     fx.update(DT, 0);
     // The tail reached the hit point at 15 m: gone.
     expect(geo.instanceCount).toBe(0);
+    // A long shot: 20 m at most at once, then the usual 3 m streak at 300 m/s.
+    fx.tracer(0, 1, 0, 0, 1, 100);
+    fx.update(DT, 0);
+    expect(seg()).toEqual({ from: 0, to: 20 });
+    for (let i = 0; i < 5; i++) fx.update(DT, 0);
+    expect(seg().from).toBeCloseTo(25, 4);
+    expect(seg().to).toBeCloseTo(28, 4);
+    fx.update(DT, 0);
+    expect(seg().to - seg().from).toBeCloseTo(3, 4);
+    // A short one is drawn over its whole length less the last fifth, never less than 3 m.
+    fx.tracer(0, 1, 0, 0, 1, 2);
+    for (let i = 0; i < 40; i++) fx.update(DT, 0);
+    fx.tracer(0, 1, 0, 0, 1, 3.5);
+    fx.update(DT, 0);
+    expect(seg()).toEqual({ from: 0, to: 3 });
     // Paused frames (dt = 0) hold it where it is.
     fx.tracer(0, 1, 0, 0, 1, 15);
     for (let i = 0; i < 5; i++) fx.update(0, 0);
-    expect(geo.instanceCount).toBe(1);
+    expect(geo.instanceCount).toBe(2);
   });
 
   it('short sparks and the explosion flash are drawn on their first frame even at 10 fps', () => {
@@ -1130,5 +1150,425 @@ describe('P32: table-driven numbers', () => {
     expect(hit.kind).toBe('explosion');
     // Within a metre of the blast: 80% of 420 times the falloff.
     expect(hit.healthLoss).toBeGreaterThan(WEAPONS.rocket.damage * 0.8 * (1 - 1.5 / 8));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round-2 fixes: car crews fire out of their own window, with the drawn gun along the shot
+
+describe('car crews fire out of their own window, and their drawn gun points along the shot', () => {
+  type Part = { mesh: THREE.InstancedMesh };
+
+  /** Where CrowdView draws `c`'s gun this frame: the barrel tip and the way the barrel points. */
+  function drawnGun(c: Character): { tip: THREE.Vector3; dir: THREE.Vector3 } {
+    const cv = new CrowdView();
+    cv.sync([c], c.pos.x, c.pos.z, DT);
+    const gun = c.inventory.current as Exclude<WeaponId, 'fists'>;
+    const part = (cv as unknown as { weapons: Map<WeaponId, Part> }).weapons.get(gun)!;
+    expect(part.mesh.count).toBe(1);
+    const m = new THREE.Matrix4();
+    part.mesh.getMatrixAt(0, m);
+    const t = WEAPON_POINTS[gun].tip;
+    return { tip: new THREE.Vector3(t.x, t.y, t.z).applyMatrix4(m), dir: new THREE.Vector3().setFromMatrixColumn(m, 2).normalize() };
+  }
+
+  /** A point's offset to the left of a vehicle's centre line (a vehicle's local +X is its left side). */
+  const leftOf = (v: Vehicle, q: { x: number; z: number }) => (q.x - v.pos.x) * Math.cos(v.heading) - (q.z - v.pos.z) * Math.sin(v.heading);
+
+  /** The player in a sedan on an open road, and a police cruiser beside him (`side` m to his right, so he is on its left) with a cop in its front passenger seat. */
+  function crewBeside(side: number) {
+    const sim = makeSim({ police: false });
+    const r = openRoad(sim);
+    const car = sim.spawnVehicle('sedan', r.x, r.z, r.h);
+    placeInCar(sim, car);
+    const rx = -Math.cos(r.h);
+    const rz = Math.sin(r.h);
+    const unit = sim.spawnVehicle('police', r.x + rx * side, r.z + rz * side, r.h);
+    const cop = sim.spawnCharacter('cop', unit.pos.x, unit.pos.z);
+    cop.inventory.infinite = true;
+    cop.inventory.give('pistol', 99);
+    cop.inventory.current = 'pistol';
+    sim.seat(cop, unit, 1);
+    return { sim, car, unit, cop };
+  }
+
+  it.each([
+    ['left', 5],
+    ['right', -5],
+  ])('a front passenger fires from his own (right) window where his gun is drawn, with the player on the cruiser’s %s', (_name, side) => {
+    const { sim, unit, cop } = crewBeside(side);
+    const fired = record(sim, 'weaponFired');
+    sim.combat.npcFire(cop, sim.player, 1, true);
+    expect(fired.length).toBe(1);
+    const e = fired[0]!;
+    // Seat 1 is on the right: the shot leaves 0.2 m outside the right flank, at three quarters of the cruiser's height.
+    expect(leftOf(unit, e)).toBeCloseTo(-(unit.halfW + 0.2), 6);
+    expect(e.y).toBeCloseTo(unit.pos.y + unit.spec.height * 0.75, 6);
+    // The drawn gun: its tip at the muzzle, its barrel along the shot (within the recoil kick).
+    expect(cop.aimYaw).toBeCloseTo(Math.atan2(e.dx, e.dz), 9);
+    expect(cop.aimPitch).toBeCloseTo(Math.asin(e.dy), 9);
+    const g = drawnGun(cop);
+    expect(g.tip.distanceTo(new THREE.Vector3(e.x, e.y, e.z))).toBeLessThan(0.1);
+    expect((g.dir.angleTo(new THREE.Vector3(e.dx, e.dy, e.dz)) * 180) / Math.PI).toBeLessThan(15);
+  });
+
+  it('a rear-left passenger fires from the left window; a foot shooter’s gun is raised along his shot too', () => {
+    const { sim, unit } = crewBeside(-5);
+    const swat = sim.spawnCharacter('swat', unit.pos.x, unit.pos.z);
+    swat.inventory.infinite = true;
+    swat.inventory.give('smg', 99);
+    swat.inventory.current = 'smg';
+    unit.passengers.length = 3;
+    sim.seat(swat, unit, 2);
+    const fired = record(sim, 'weaponFired');
+    sim.combat.npcFire(swat, sim.player, 1, true);
+    expect(leftOf(unit, fired[0]!)).toBeCloseTo(unit.halfW + 0.2, 6);
+    // On foot, aimed by the AI along the ground only: the shot's pitch is published as well.
+    const p = sim.player;
+    const g = npcAt(sim, 'gang', p.pos.x + 9, p.pos.z + 3);
+    g.inventory.infinite = true;
+    g.inventory.give('pistol', 99);
+    g.inventory.current = 'pistol';
+    g.aiming = true;
+    g.aimYaw = Math.atan2(p.pos.x - g.pos.x, p.pos.z - g.pos.z);
+    g.aimPitch = 0.5;
+    fired.length = 0;
+    sim.combat.npcFire(g, p, 1);
+    const e = fired[0]!;
+    expect(e.shooter).toBe(g);
+    expect(g.aimYaw).toBeCloseTo(Math.atan2(e.dx, e.dz), 9);
+    expect(g.aimPitch).toBeCloseTo(Math.asin(e.dy), 9);
+    expect(g.aimPitch).toBeLessThan(0);
+  });
+
+  it('the player’s drive-by from the driver’s seat still leaves from the left window', () => {
+    const sim = makeSim({ police: false });
+    const r = openRoad(sim);
+    const v = sim.spawnVehicle('sedan', r.x, r.z, r.h);
+    placeInCar(sim, v);
+    arm(sim, 'pistol');
+    step(sim, 0.5);
+    const fired = record(sim, 'weaponFired');
+    const target = { x: v.pos.x + Math.sin(r.h) * 30, y: v.pos.y + 1.2, z: v.pos.z + Math.cos(r.h) * 30 };
+    sim.update(DT, aimAt(sim, target, { fire: true, firePressed: true }));
+    expect(fired.length).toBe(1);
+    expect(fired[0]!.shooter).toBe(sim.player);
+    expect(leftOf(v, fired[0]!)).toBeCloseTo(v.halfW + 0.2, 6);
+  });
+
+  it('with the cruiser’s driver side against a wall, the passenger’s rounds still reach the player on the open side', () => {
+    const { sim, car, unit, cop } = crewBeside(-6);
+    // A wall along the cruiser's left flank, 5 cm clear of it.
+    const lx = Math.cos(unit.heading);
+    const lz = -Math.sin(unit.heading);
+    const fx = Math.sin(unit.heading);
+    const fz = Math.cos(unit.heading);
+    const cx = unit.pos.x + lx * (unit.halfW + 0.05 + 0.15);
+    const cz = unit.pos.z + lz * (unit.halfW + 0.05 + 0.15);
+    const hx = Math.abs(lx) * 0.15 + Math.abs(fx) * 4;
+    const hz = Math.abs(lz) * 0.15 + Math.abs(fz) * 4;
+    sim.world.grid.addBox(cx - hx, cz - hz, cx + hx, cz + hz, unit.pos.y - 0.5, unit.pos.y + 4, 'wall');
+    const shots = record(sim, 'shot');
+    for (let i = 0; i < 12; i++) {
+      cop.fireCooldown = 0;
+      sim.combat.npcFire(cop, sim.player, 1, true);
+    }
+    expect(shots.length).toBe(12);
+    expect(shots.filter((s) => s.hit === 'vehicle').length).toBeGreaterThanOrEqual(10);
+    expect(car.health).toBeLessThan(car.spec.health);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round-2 fixes: point blank, the crosshair on someone in front of the gun
+
+describe('point blank: the crosshair on someone in front of the gun hits him; beside or behind the shoulder it never does', () => {
+  /**
+   * The player aiming along an open road (aimed or from the hip), with an enemy `ahead` m in front of him (behind him
+   * when negative) standing so that the crosshair ray passes `u` m to the left of his axis, crossing it at `k` of his
+   * height. The shoulder camera's ray always runs through a point over the player's right shoulder (the shoulder offset
+   * to his right, 0.18 m over his head height), so the pitch follows from where it has to cross the enemy.
+   */
+  function pointBlank(weapon: WeaponId, aiming: boolean, ahead: number, u: number, k = 0.68) {
+    const sim = makeSim({ police: false });
+    const f = standOnOpenRoad(sim);
+    arm(sim, weapon);
+    const p = sim.player;
+    const home = { x: p.pos.x, z: p.pos.z };
+    const right = (aiming ? 0.62 : 0.42) + u;
+    const e = npcAt(sim, 'gang', home.x + f.fx * ahead + f.rx * right, home.z + f.fz * ahead + f.rz * right);
+    e.armor = 5000;
+    const spot = { x: e.pos.x, z: e.pos.z };
+    // Both stand still where they were put (at point blank they would push each other apart).
+    const pin = () => {
+      teleport(sim, home.x, home.z);
+      p.heading = f.h;
+      e.pos.x = spot.x;
+      e.pos.z = spot.z;
+      e.vel.x = 0;
+      e.vel.z = 0;
+    };
+    const over = p.pos.y + 1.58 * p.appearance.height + 0.18;
+    const y = e.pos.y + k * e.height;
+    const pitch = ahead > 0 ? Math.atan2(y - over, ahead) : Math.atan2(over - y, -ahead);
+    // Within the camera's pitch range.
+    expect(pitch).toBeGreaterThan(-1.25);
+    expect(pitch).toBeLessThan(1.35);
+    const aim = (o: Partial<PlayerInput> = {}) => shoulderAim(sim, f.h, pitch, null, { aim: aiming, ...o });
+    step(sim, 0.3, () => {
+      pin();
+      return aim();
+    });
+    pin();
+    // The crosshair ray really is on him: through his body, or his head.
+    const o = aim().aimOrigin;
+    const d = aim().aimDir;
+    const tc = ((e.pos.x - o.x) * d.x + (e.pos.z - o.z) * d.z) / (d.x * d.x + d.z * d.z);
+    expect(tc).toBeGreaterThan(0.5);
+    expect(Math.hypot(o.x + d.x * tc - e.pos.x, o.z + d.z * tc - e.pos.z)).toBeCloseTo(Math.abs(u), 6);
+    expect(o.y + d.y * tc).toBeCloseTo(y, 6);
+    const shots = record(sim, 'shot');
+    sim.update(DT, aim({ fire: true, firePressed: true }));
+    return { sim, e, f, shots: shots.filter((s) => s.shooter === p), home };
+  }
+
+  it.each([
+    ['pistol', true, 0.6, 0.15, 0.68],
+    ['pistol', true, 0.7, 0.15, 0.68],
+    ['pistol', true, 0.55, 0.3, 0.68],
+    ['smg', true, 0.55, 0.15, 0.9],
+    ['rifle', true, 0.6, 0.15, 0.9],
+    ['pistol', false, 0.7, 0.3, 0.68],
+    ['smg', false, 0.55, 0.15, 0.9],
+    ['rifle', false, 0.6, 0.15, 0.9],
+  ] as const)('a %s shot (aimed: %s) hits an enemy %f m ahead with the crosshair %f m in from his axis at %f of his height', (weapon, aiming, ahead, u, k) => {
+    const { e, shots } = pointBlank(weapon, aiming, ahead, u, k);
+    expect(shots.map((s) => s.hit)).toEqual(['flesh']);
+    expect(e.armor).toBeLessThan(5000);
+  });
+
+  it('a head-aimed pistol shot at an enemy 0.6 m ahead, the crosshair through his axis, is a headshot', () => {
+    const { sim, e, shots } = pointBlank('pistol', true, 0.6, 0, 0.93);
+    expect(shots.map((s) => s.hit)).toEqual(['flesh']);
+    expect(5000 - e.armor).toBe(WEAPONS.pistol.damage * WEAPONS.pistol.headMul);
+    expect(sim.progress.stats.headshots).toBe(1);
+  });
+
+  it.each([
+    ['pistol', true, 0.3, 0.1, 0.9],
+    ['pistol', true, 0.2, 0.1, 0.93],
+    ['rifle', true, 0.25, 0.1, 0.9],
+    ['smg', false, 0.2, 0.1, 0.93],
+    ['shotgun', false, 0.25, 0.1, 0.9],
+    ['pistol', true, -0.6, 0.1, 0.9],
+    ['pistol', true, -1.2, 0, 0.68],
+  ] as const)('a %s shot (aimed: %s) never hits someone %f m ahead, beside or behind the shoulder, with the crosshair on him (%f m in, at %f of his height)', (weapon, aiming, ahead, u, k) => {
+    const { e, shots } = pointBlank(weapon, aiming, ahead, u, k);
+    expect(shots.length).toBe(WEAPONS[weapon].pellets);
+    for (const s of shots) expect(s.hit).not.toBe('flesh');
+    expect(e.armor).toBe(5000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round-2 fixes: tracers readable from the hip camera
+
+describe('tracers read from the hip camera', () => {
+  let W: StaticWorld;
+  let R: GameRenderer;
+  beforeAll(() => {
+    W = world();
+    R = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, W, { quality: 'low', fov: 68 });
+  });
+
+  /** Screen length (px at 1600x900) of tracer `i` as drawn this frame, and its ends' distances from `p` along `f`. */
+  function onScreen(i: number): { px: number; from: THREE.Vector3; to: THREE.Vector3 } {
+    const geo = (R.effects as unknown as { tracers: { mesh: THREE.Mesh } }).tracers.mesh.geometry as THREE.InstancedBufferGeometry;
+    const a = geo.getAttribute('iFrom') as THREE.InstancedBufferAttribute;
+    const b = geo.getAttribute('iTo') as THREE.InstancedBufferAttribute;
+    const from = new THREE.Vector3(a.getX(i), a.getY(i), a.getZ(i));
+    const to = new THREE.Vector3(b.getX(i), b.getY(i), b.getZ(i));
+    const cam = R.cameraCtl.camera;
+    cam.updateMatrixWorld();
+    const pa = from.clone().project(cam);
+    const pb = to.clone().project(cam);
+    return { px: Math.hypot((pa.x - pb.x) * 800, (pa.y - pb.y) * 450), from, to };
+  }
+
+  /** The player on an open road with a wall 15 m ahead, looking along the road from the camera's hip or aimed view; one rifle round fired at the wall. */
+  function rifleAtWall(aiming: boolean) {
+    const sim = makeSim({ world: W, police: false });
+    const f = standOnOpenRoad(sim);
+    arm(sim, 'rifle');
+    const p = sim.player;
+    wallAhead(sim, f, 15);
+    R.attach(sim);
+    const cam = R.cameraCtl;
+    cam.mode = 'play';
+    cam.reset(sim);
+    cam.yaw = f.h;
+    cam.pitch = -0.08;
+    const frame = (over: Partial<PlayerInput> = {}) => {
+      const ray = cam.rayFor();
+      sim.update(DT, input({ aimOrigin: ray.origin, aimDir: ray.dir, cameraYaw: cam.yaw, aim: aiming, ...over }));
+      R.render(DT, aiming && p.aimZoom);
+    };
+    for (let i = 0; i < 60; i++) frame();
+    const shots = record(sim, 'shot');
+    frame({ fire: true, firePressed: true });
+    expect(shots.length).toBe(1);
+    expect(shots[0]!.hit).toBe('world');
+    return { sim, f, p, frame, shot: shots[0]! };
+  }
+
+  /** Screen length (px at 1600x900) of the shot's path from `a` to `b` m out of the muzzle. */
+  function pathOnScreen(shot: SimEvents['shot'], a: number, b: number): number {
+    const cam = R.cameraCtl.camera;
+    cam.updateMatrixWorld();
+    const from = new THREE.Vector3(shot.fx, shot.fy, shot.fz);
+    const dir = new THREE.Vector3(shot.tx - shot.fx, shot.ty - shot.fy, shot.tz - shot.fz).normalize();
+    const pa = from.clone().addScaledVector(dir, a).project(cam);
+    const pb = from.clone().addScaledVector(dir, b).project(cam);
+    return Math.hypot((pa.x - pb.x) * 800, (pa.y - pb.y) * 450);
+  }
+
+  it('from the hip, a rifle round at a wall 15 m ahead shows most of its path on its first frame, not a 3 m dash', () => {
+    const { shot, frame } = rifleAtWall(false);
+    expect(R.effects.tracerCount).toBe(1);
+    const first = onScreen(0).px;
+    // Seen from 4.3 m behind the shooter the whole 14 m from the muzzle to the wall is only a few dozen pixels (it runs
+    // into the crosshair), and a 3 m streak about half of that, partly behind his arm.
+    const whole = pathOnScreen(shot, 0, Math.hypot(shot.tx - shot.fx, shot.ty - shot.fy, shot.tz - shot.fz));
+    const dash = pathOnScreen(shot, 0, 3);
+    writeFileSync('/home/tengs/.claude/jobs/39f78d2d/tmp/r2fix/run/combat/probes/tracer_hip.txt', `hip f0 ${first.toFixed(1)} px, whole path ${whole.toFixed(1)} px, 3 m dash ${dash.toFixed(1)} px\n`);
+    expect(first).toBeGreaterThanOrEqual(0.85 * whole);
+    expect(first).toBeGreaterThan(1.6 * dash);
+    // The next frame the streak has moved on, still drawn.
+    frame();
+    expect(R.effects.tracerCount).toBe(1);
+    expect(onScreen(0).px).toBeGreaterThan(3);
+  });
+
+  it('aimed, the same round shows at least 40 px on its first frame', () => {
+    rifleAtWall(true);
+    expect(R.effects.tracerCount).toBe(1);
+    expect(onScreen(0).px).toBeGreaterThanOrEqual(40);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round-2 fixes: the muzzle light does not burn out the shooter's head
+
+describe('the muzzle light shines ahead of the barrel, not into the shooter’s face', () => {
+  it('the light sits 0.6 m along the shot from the tip, where the sprites stay, and fades out with them', () => {
+    const fx = new Effects();
+    const glow = (fx as unknown as { glow: { max: number; life: Float32Array; px: Float32Array; py: Float32Array; pz: Float32Array } }).glow;
+    fx.muzzleFlash(1, 1.4, 2, FLASH_SIZE.rifle, { dx: 0, dy: 0, dz: 2, shooter: null });
+    expect([fx.muzzle.position.x, fx.muzzle.position.y, fx.muzzle.position.z]).toEqual([1, 1.4, 2.6]);
+    expect(fx.muzzle.intensity).toBeCloseTo(55 * FLASH_SIZE.rifle, 6);
+    let sprites = 0;
+    for (let i = 0; i < glow.max; i++) {
+      if (glow.life[i]! <= 0) continue;
+      sprites++;
+      expect(Math.hypot(glow.px[i]! - 1, glow.py[i]! - 1.4, glow.pz[i]! - 2)).toBeLessThan(1e-6);
+    }
+    expect(sprites).toBe(2);
+    const seen: Array<[number, number]> = [];
+    for (let i = 0; i < 6; i++) {
+      fx.update(DT, 0);
+      seen.push([fx.glowCount, fx.muzzle.intensity]);
+    }
+    // Lit at full strength on its first frame, fading over the next two, dark when the sprites are gone.
+    expect(seen[0]![1]).toBeCloseTo(55 * FLASH_SIZE.rifle, 6);
+    expect(seen[1]![1]).toBeLessThan(seen[0]![1] * 0.5);
+    expect(seen[2]![1]).toBeLessThan(seen[1]![1]);
+    for (const [sprites, light] of seen) if (sprites === 0) expect(light).toBe(0);
+    expect(seen[5]).toEqual([0, 0]);
+    // Without the shot (a helicopter's round) it is lit at the muzzle.
+    fx.muzzleFlash(1, 1.4, 2, FLASH_SIZE.rifle);
+    expect([fx.muzzle.position.x, fx.muzzle.position.y, fx.muzzle.position.z]).toEqual([1, 1.4, 2]);
+  });
+
+  it.each(['smg', 'pistol', 'rifle', 'shotgun'] as const)('an aimed %s shot throws at most 6 on the player’s own head (the noon sun gives 3.3), from a light ahead of him', (weapon) => {
+    const W = world();
+    const R = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, W, { quality: 'low', fov: 68 });
+    const sim = makeSim({ world: W, police: false });
+    const f = standOnOpenRoad(sim);
+    arm(sim, weapon);
+    R.attach(sim);
+    R.cameraCtl.mode = 'play';
+    R.cameraCtl.reset(sim);
+    step(sim, 0.4);
+    const p = sim.player;
+    sim.update(DT, aimAt(sim, { x: p.pos.x + f.fx * 20, y: p.pos.y + 1.2, z: p.pos.z + f.fz * 20 }, { fire: true, firePressed: true, aim: true }));
+    R.render(DT, true);
+    const light = R.effects.muzzle;
+    expect(light.intensity).toBeGreaterThan(0);
+    // His head, and the light's irradiance there (intensity over distance squared, decay 2).
+    const head = new THREE.Vector3(p.pos.x, p.pos.y + p.height * 0.9, p.pos.z);
+    const lux = light.intensity / light.position.distanceToSquared(head);
+    expect(lux).toBeLessThanOrEqual(6 + 1e-9);
+    // Ahead of him along the shot, not at his shoulder.
+    expect((light.position.x - p.pos.x) * f.fx + (light.position.z - p.pos.z) * f.fz).toBeGreaterThan(0.9);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round-2 fixes: scrape sparks read from the chase camera
+
+describe('scrape sparks are bright streaks along their flight', () => {
+  type Layer = { mesh: THREE.Mesh; active: number };
+  const attr = (fx: Effects, name: string) => ((fx as unknown as { glow: Layer }).glow.mesh.geometry as THREE.InstancedBufferGeometry).getAttribute(name) as THREE.InstancedBufferAttribute;
+
+  it('each spark is a streak (at least 4:1, 0.35-0.5 m long) aligned with its motion, and blooms (luminance over 2.6) on its first frame', () => {
+    const fx = new Effects();
+    fx.sparks(0, 1, 0, 12, 8, 0);
+    fx.update(DT, 0);
+    expect(fx.glowCount).toBe(12);
+    const col = attr(fx, 'iColor');
+    const size = attr(fx, 'iSizeRot');
+    const vel = attr(fx, 'iVel');
+    for (let i = 0; i < 12; i++) {
+      expect(size.getZ(i)).toBeGreaterThanOrEqual(4);
+      expect(size.getX(i)).toBeGreaterThan(0.33);
+      expect(size.getX(i)).toBeLessThan(0.51);
+      // Streaks along the way they fly: the shader turns them by their velocity.
+      expect(vel.getW(i)).toBe(1);
+      expect(vel.getX(i)).toBeGreaterThan(6);
+      const lum = 0.299 * col.getX(i) + 0.587 * col.getY(i) + 0.114 * col.getZ(i);
+      expect(lum * col.getW(i)).toBeGreaterThan(2.6);
+    }
+    // Late in life they have cooled under the threshold.
+    for (let k = 0; k < 15; k++) fx.update(DT, 0);
+    for (let i = 0; i < fx.glowCount; i++) expect(0.299 * col.getX(i) + 0.587 * col.getY(i) + 0.114 * col.getZ(i)).toBeLessThan(2.6);
+    // A muzzle flash keeps its own rotation (no velocity alignment).
+    const fx2 = new Effects();
+    fx2.muzzleFlash(0, 1, 0, FLASH_SIZE.pistol);
+    fx2.update(DT, 0);
+    expect(attr(fx2, 'iVel').getW(0)).toBe(0);
+  });
+
+  it('a faster grind throws more of them', () => {
+    const W = world();
+    const sim = makeSim({ world: W, police: false });
+    const v = sim.spawnVehicle('sedan', 0, 0, 0);
+    v.pos.x = 0;
+    v.pos.z = 0;
+    const count = (speed: number) => {
+      const fx = new Effects();
+      v.vel.x = 0.5;
+      v.vel.z = speed;
+      fx.scrapeSparks(v, v.halfW, 0.5, 0, speed);
+      fx.update(1e-4, 0);
+      return fx.glowCount;
+    };
+    const slow = count(6);
+    const mid = count(14);
+    const fast = count(28);
+    expect(slow).toBeGreaterThanOrEqual(4);
+    expect(mid).toBeGreaterThan(slow);
+    expect(fast).toBeGreaterThan(mid);
+    expect(mid).toBeGreaterThanOrEqual(10);
+    expect(fast).toBeGreaterThanOrEqual(20);
   });
 });

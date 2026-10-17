@@ -1,21 +1,24 @@
 // Round 2 audio cluster: pure tests of the mix targets, the distance low-pass,
 // the ambience targets, the engine voice parameters and StaticWorld.districtAt.
-// The Web Audio graph itself is tested against the fake context in fix_frontend.test.ts.
+// The Web Audio graph itself is tested against the fake context in fix_frontend.test.ts;
+// the round-2 fixes at the end (kill confirmation, radio duck, the player's own crashes, scrapes) use the small fake below.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ambienceTargets, IN_CAR, shoreInfo, type AmbienceDistrict, type AmbienceInput } from '../../src/audio/ambience';
 import { AudioEngine } from '../../src/audio/audio';
 import { dbToGain, distanceCutoff, EXPLOSION_DUCK_RANGE, gainToDb, MIX_DB, mixTargets, OPEN_HZ, softClipCurve, type MixInput } from '../../src/audio/mixer';
 import { ENGINE_PROFILES, engineParams, engineWave, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
+import type { Character } from '../../src/sim/entities';
+import type { Sim } from '../../src/sim/sim';
 import type { VehicleKind } from '../../src/sim/specs';
 import { WATER_Y } from '../../src/world/constants';
 import { beachOffsetAt, districtOf } from '../../src/world/layout';
-import { world } from './helpers';
+import { makeSim, placeInCar, roadPoint, world } from './helpers';
 
 const close = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) <= eps;
 
 describe('mixTargets', () => {
-  const base: MixInput = { inVehicle: false, radioOn: false, subtitleActive: false, explosionDist: Infinity, paused: false, bigScreen: false };
+  const base: MixInput = { inVehicle: false, radio: 0, subtitleActive: false, explosionDist: Infinity, paused: false, bigScreen: false };
   const mix = (over: Partial<MixInput>) => mixTargets({ ...base, ...over });
 
   it('on foot: every stage open, music at 0.8', () => {
@@ -37,13 +40,29 @@ describe('mixTargets', () => {
   });
 
   it('in a car with the radio on: the engine steps back under the music', () => {
-    const m = mix({ inVehicle: true, radioOn: true });
+    const m = mix({ inVehicle: true, radio: 1 });
     expect(close(gainToDb(m.vehicle), -7)).toBe(true);
     expect(m.vehicleHighpass).toBe(60);
     expect(m.vehiclePeakDb).toBe(-4);
     expect(m.music).toBe(1);
     expect(close(gainToDb(m.sfx), -4)).toBe(true);
     expect(m.sfxLowpass).toBe(1800);
+  });
+
+  it('a radio that can barely be heard ducks the engine only that much; one muted or off not at all', () => {
+    const half = mix({ inVehicle: true, radio: 0.5 });
+    expect(close(gainToDb(half.vehicle), -3.5)).toBe(true);
+    expect(half.vehicleHighpass).toBeCloseTo(35, 9);
+    expect(half.vehiclePeakDb).toBeCloseTo(-2, 9);
+    for (const radio of [0, -1, NaN]) {
+      const m = mix({ inVehicle: true, radio });
+      expect(m.vehicle).toBe(1);
+      expect(m.vehiclePeakDb).toBe(0);
+      expect(m.vehicleHighpass).toBeLessThanOrEqual(20);
+    }
+    // A louder radio never ducks more than the full -7 dB, and on foot it changes nothing.
+    expect(close(gainToDb(mix({ inVehicle: true, radio: 3 }).vehicle), -7)).toBe(true);
+    expect(mix({ radio: 1 })).toMatchObject({ vehicle: 1, vehiclePeakDb: 0, music: 0.8 });
   });
 
   it('a subtitle ducks the music 9 dB and the ambience 6 dB', () => {
@@ -66,7 +85,7 @@ describe('mixTargets', () => {
   });
 
   it('a result card ducks everything but the UI 10 dB', () => {
-    const m = mix({ bigScreen: true, inVehicle: true, radioOn: true });
+    const m = mix({ bigScreen: true, inVehicle: true, radio: 1 });
     expect(close(gainToDb(m.vehicle), -7 - 10)).toBe(true);
     expect(close(gainToDb(m.sfx), -4 - 10)).toBe(true);
     expect(close(gainToDb(m.amb), -4 - 10)).toBe(true);
@@ -346,5 +365,252 @@ describe('engine profiles', () => {
     const st = waveStats(engineWave(ENGINE_PROFILES.sedan).real, engineWave(ENGINE_PROFILES.sedan).imag, 1024);
     expect(st.peak / st.rms).toBeGreaterThan(2);
     expect(st.peak / st.rms).toBeLessThan(8);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round-2 fixes, against a minimal fake Web Audio context (AudioParams record their last target).
+
+class FParam {
+  value: number;
+  constructor(v = 0) {
+    this.value = v;
+  }
+  setValueAtTime(v: number): this {
+    this.value = v;
+    return this;
+  }
+  linearRampToValueAtTime(v: number): this {
+    this.value = v;
+    return this;
+  }
+  exponentialRampToValueAtTime(v: number): this {
+    if (v === 0) throw new RangeError('exponential ramp to 0');
+    this.value = v;
+    return this;
+  }
+  setTargetAtTime(v: number): this {
+    this.value = v;
+    return this;
+  }
+  cancelScheduledValues(): this {
+    return this;
+  }
+}
+
+class FNode {
+  readonly outputs: unknown[] = [];
+  constructor(readonly kind: string, props: Record<string, unknown> = {}) {
+    Object.assign(this, props);
+  }
+  connect<T>(d: T): T {
+    this.outputs.push(d);
+    return d;
+  }
+  start(): void {}
+  stop(): void {}
+}
+
+class FContext {
+  static last: FContext | null = null;
+  currentTime = 1;
+  state = 'running';
+  readonly sampleRate = 8000;
+  readonly destination = new FNode('destination');
+  constructor() {
+    FContext.last = this;
+  }
+  createGain() {
+    return new FNode('gain', { gain: new FParam(1) });
+  }
+  createDynamicsCompressor() {
+    return new FNode('compressor', { threshold: new FParam(), knee: new FParam(), ratio: new FParam(), attack: new FParam(), release: new FParam() });
+  }
+  createBiquadFilter() {
+    return new FNode('biquad', { type: 'lowpass', frequency: new FParam(350), Q: new FParam(1), gain: new FParam(0) });
+  }
+  createOscillator() {
+    return new FNode('oscillator', { type: 'sine', frequency: new FParam(440), detune: new FParam(0), setPeriodicWave() {} });
+  }
+  createBufferSource() {
+    return new FNode('source', { buffer: null, loop: false, playbackRate: new FParam(1) });
+  }
+  createStereoPanner() {
+    return new FNode('panner', { pan: new FParam(0) });
+  }
+  createDelay() {
+    return new FNode('delay', { delayTime: new FParam(0) });
+  }
+  createWaveShaper() {
+    return new FNode('waveshaper', { curve: null, oversample: 'none' });
+  }
+  createAnalyser() {
+    return new FNode('analyser', { fftSize: 2048, getFloatTimeDomainData: (b: Float32Array) => b.fill(0) });
+  }
+  createPeriodicWave(real: Float32Array, imag: Float32Array): unknown {
+    return { real, imag };
+  }
+  createBuffer(_channels: number, length: number): unknown {
+    const data = new Float32Array(length);
+    return { length, getChannelData: () => data };
+  }
+  resume(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+describe('round-2 audio fixes', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  type Internals = {
+    out: (pan: number, cutoff?: number, bus?: unknown) => unknown;
+    noiseBurst: (...a: unknown[]) => void;
+    tone: (...a: unknown[]) => void;
+    uiBus: unknown;
+    sfx: unknown;
+    vehicleBus: unknown;
+  };
+
+  /** An unlocked engine on a sim, the listener a few metres behind the player; `frames` runs sim and audio together. */
+  function rig(sim: Sim = makeSim({ police: false })) {
+    vi.stubGlobal('window', { AudioContext: FContext });
+    const audio = new AudioEngine();
+    audio.unlock();
+    const ctx = FContext.last!;
+    audio.attach(sim);
+    const inner = audio as unknown as Internals;
+    const listen = () => {
+      const p = sim.playerPos();
+      audio.setListener(p.x, p.y + 2, p.z - 5, 0);
+    };
+    const frames = (n: number) => {
+      for (let i = 0; i < n; i++) {
+        ctx.currentTime += 1 / 60;
+        sim.update(1 / 60, sim.lastInput);
+        listen();
+        audio.update(1 / 60, sim, true);
+      }
+    };
+    listen();
+    return { sim, audio, ctx, inner, frames };
+  }
+
+  it('a blast that kills six people plays one kill confirmation (one thump, one tick), not six in phase', () => {
+    const { sim, audio, inner } = rig();
+    const p = sim.player;
+    const victims: Character[] = [];
+    for (let i = 0; i < 6; i++) {
+      const c = sim.spawnCharacter('civilian', p.pos.x + 6 + Math.cos(i) * 0.8, p.pos.z + Math.sin(i) * 0.8);
+      victims.push(c);
+    }
+    const confirm = vi.spyOn(audio, 'hitConfirm');
+    const tone = vi.spyOn(inner, 'tone');
+    sim.combat.explosion(p.pos.x + 6, p.pos.y + 0.5, p.pos.z, 7.5, 420, p, null);
+    expect(victims.every((c) => !c.alive)).toBe(true);
+    tone.mockClear();
+    audio.update(1 / 60, sim, true);
+    expect(confirm.mock.calls.map((c) => c[0])).toEqual(['kill']);
+    const ui = tone.mock.calls.filter((c) => c[0] === inner.uiBus);
+    expect(ui.length).toBe(2);
+    expect(ui.filter((c) => c[3] === 90).length).toBe(1);
+    // A frame with only a headshot still cracks; the next empty frame plays nothing.
+    const civ = sim.spawnCharacter('civilian', p.pos.x - 4, p.pos.z);
+    sim.events.emit('damage', { victim: civ, attacker: p, healthLoss: 20, armourLoss: 0, kind: 'bullet', zone: 'head', killed: false, dirX: 1, dirZ: 0 });
+    sim.events.emit('damage', { victim: civ, attacker: p, healthLoss: 20, armourLoss: 0, kind: 'bullet', zone: 'body', killed: false, dirX: 1, dirZ: 0 });
+    audio.update(1 / 60, sim, true);
+    expect(confirm.mock.calls.map((c) => c[0])).toEqual(['kill', 'head']);
+    audio.update(1 / 60, sim, true);
+    expect(confirm).toHaveBeenCalledTimes(2);
+  });
+
+  it('music at 0 or the radio off does not duck the engine; at the default music volume it is the full 7 dB', () => {
+    const sim = makeSim({ police: false });
+    const rp = roadPoint(sim);
+    const v = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
+    placeInCar(sim, v);
+    const { audio, frames } = rig(sim);
+    const mixer = audio.mixer!;
+    const db = (g: number) => 20 * Math.log10(g);
+    // Default volumes (music 0.6): the radio plays and the engine steps back under it.
+    frames(30);
+    expect(audio.radio.playing).toBe(true);
+    expect(db(mixer.vehMix.gain.value)).toBeCloseTo(-7, 6);
+    expect(mixer.vehHighpass.frequency.value).toBe(60);
+    expect(mixer.vehPeak.gain.value).toBe(-4);
+    // Music volume 0: the station still plays, but nobody hears it, so nothing is ducked.
+    audio.setVolumes(0.8, 0, 0.85);
+    frames(30);
+    expect(audio.radio.playing).toBe(true);
+    expect(mixer.vehMix.gain.value).toBe(1);
+    expect(mixer.vehHighpass.frequency.value).toBe(10);
+    expect(mixer.vehPeak.gain.value).toBe(0);
+    // A quiet radio ducks it in proportion (music 0.15 is half of the full 0.3).
+    audio.setVolumes(0.8, 0.15, 0.85);
+    frames(30);
+    expect(db(mixer.vehMix.gain.value)).toBeCloseTo(-3.5, 6);
+    // Back to the default, then RADIO OFF.
+    audio.setVolumes(0.8, 0.6, 0.85);
+    frames(30);
+    expect(db(mixer.vehMix.gain.value)).toBeCloseTo(-7, 6);
+    while (audio.radio.stationName !== 'RADIO OFF') audio.radio.next();
+    frames(30);
+    expect(audio.radio.playing).toBe(false);
+    expect(mixer.vehMix.gain.value).toBe(1);
+  });
+
+  it("the player's own crashes and scrapes play on the vehicle bus; other cars' through the muffled world bus", () => {
+    const sim = makeSim({ police: false });
+    const rp = roadPoint(sim);
+    const mine = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
+    placeInCar(sim, mine);
+    const other = sim.spawnVehicle('sedan', rp.x + 8, rp.z + 8, rp.heading);
+    const { audio, inner, frames } = rig(sim);
+    frames(5);
+    const out = vi.spyOn(inner, 'out');
+    const bus = () => out.mock.calls.at(-1)?.[2];
+    const at = { x: mine.pos.x + 1, y: mine.pos.y + 0.6, z: mine.pos.z };
+    sim.events.emit('impact', { ...at, strength: 12, vehicle: mine });
+    expect(bus()).toBe(inner.vehicleBus);
+    sim.events.emit('impact', { x: other.pos.x, y: other.pos.y + 0.6, z: other.pos.z, strength: 12, vehicle: other });
+    expect(bus()).toBe(inner.sfx);
+    // A person or a prop the player's car hits counts as his crash too; a blast thrown car does not.
+    sim.events.emit('impact', { ...at, strength: 4, vehicle: mine });
+    expect(bus()).toBe(inner.vehicleBus);
+    sim.events.emit('impact', { ...at, strength: 12, vehicle: null });
+    expect(bus()).toBe(inner.sfx);
+    // Scrapes: counted, on the right bus.
+    const n0 = audio.counters.scrapes;
+    sim.events.emit('scrape', { ...at, speed: 14, vehicle: mine });
+    expect(bus()).toBe(inner.vehicleBus);
+    sim.events.emit('scrape', { x: other.pos.x, y: other.pos.y + 0.4, z: other.pos.z, speed: 14, vehicle: other });
+    expect(bus()).toBe(inner.sfx);
+    expect(audio.counters.scrapes).toBe(n0 + 2);
+  });
+
+  it('a scrape grinds louder and higher the faster the car slides', () => {
+    const { sim, inner } = rig();
+    const p = sim.player;
+    const noise = vi.spyOn(inner, 'noiseBurst');
+    const grind = (speed: number) => {
+      noise.mockClear();
+      sim.events.emit('scrape', { x: p.pos.x + 3, y: p.pos.y + 0.4, z: p.pos.z, speed, vehicle: sim.spawnVehicle('sedan', p.pos.x + 3, p.pos.z, 0) });
+      expect(noise).toHaveBeenCalledTimes(1);
+      const c = noise.mock.calls[0]!;
+      // noiseBurst(dest, t, dur, type, freq, q, gain, freqEnd): a short band-passed burst.
+      expect(c[3]).toBe('bandpass');
+      expect(c[2] as number).toBeLessThan(0.2);
+      return { hz: c[4] as number, gain: c[6] as number };
+    };
+    const slow = grind(5);
+    const fast = grind(20);
+    const faster = grind(30);
+    expect(fast.gain).toBeGreaterThan(slow.gain * 2);
+    expect(faster.gain).toBeCloseTo(fast.gain, 6);
+    // The band centre is jittered by +-10% around a pitch that rises with speed.
+    expect(fast.hz).toBeGreaterThan(slow.hz * 1.3);
+    expect(faster.hz).toBeGreaterThan(fast.hz);
   });
 });
