@@ -76,7 +76,7 @@ export class TrafficSystem {
     const sim = this.sim;
     const pp = sim.playerPos();
     const pv = this.playerVel();
-    const fast = Math.hypot(pv.x, pv.z) > AHEAD_SPEED;
+    const fast = this.outrunsTraffic(pv);
     let count = 0;
     for (const v of sim.vehicles) {
       if (v.removed || v.persistent || v.owner === 'police' || v.owner === 'mission') continue;
@@ -149,6 +149,15 @@ export class TrafficSystem {
   }
 
   /**
+   * The player (moving at `pv`) outruns the traffic streamed around him, so it streams ahead of him instead.
+   * Not while the police are after him: traffic packed in front of a fleeing car made the stars much harder
+   * to lose (flee-bot medians over 21 seeds: 29 -> 43 s for 1 star, 52 -> 66 s for 2), against the pursuit balance.
+   */
+  private outrunsTraffic(pv: { x: number; z: number }): boolean {
+    return Math.hypot(pv.x, pv.z) > AHEAD_SPEED && this.sim.wanted.level === 0;
+  }
+
+  /**
    * Where a fast player is about to be. The straight road ahead is in plain view, where nothing may
    * spawn, so its traffic has to come in from the side streets, and in time: a car queued round the
    * corner only pulls out in front of him if its light turns green early enough. Takes the next
@@ -161,7 +170,7 @@ export class TrafficSystem {
     this.aheadTime = this.sim.time;
     const pv = this.playerVel();
     const speed = Math.hypot(pv.x, pv.z);
-    if (!(speed > AHEAD_SPEED)) return;
+    if (!this.outrunsTraffic(pv)) return;
     const roads = this.sim.roads;
     const pp = this.sim.playerPos();
     let lane: Lane | null = roads.nearestLane(pp.x, pp.z, Math.atan2(pv.x, pv.z)).lane;
@@ -195,7 +204,7 @@ export class TrafficSystem {
 
   /**
    * Spawns one moving car on a lane out of the player's view, minDist-maxDist from him (default
-   * 45-165 m). When he drives fast, the first 7 of the 12 tries go to the cross streets ahead
+   * 45-165 m). When he drives fast (and is not wanted), the first 7 of the 12 tries go to the cross streets ahead
    * (45-200 m, narrowed to the band a caller passes) and no car spawns behind him. Lanes are weighted
    * by their count per direction, so an avenue lane is twice as likely as a street lane.
    */
@@ -211,7 +220,7 @@ export class TrafficSystem {
     if (sim.time - this.aheadTime >= 0.4) this.refreshAhead();
     const pp = sim.playerPos();
     const pv = this.playerVel();
-    const fast = Math.hypot(pv.x, pv.z) > AHEAD_SPEED;
+    const fast = this.outrunsTraffic(pv);
     for (let tries = 0; tries < 12; tries++) {
       const ahead = this.aheadSpans.length > 0 && aheadMax > aheadMin && tries < AHEAD_TRIES;
       let lane: Lane;

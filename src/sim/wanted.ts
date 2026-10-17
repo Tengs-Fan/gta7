@@ -56,6 +56,11 @@ export const RESPONSE_BASE = 4;
 export const RESPONSE_PER_STAR = 3;
 /** Hiding inside the search area clears the stars too, after this many times the evade time. */
 const HIDE_FACTOR = 2.6;
+/**
+ * Seconds unseen outside the search area that lose the stars, per level (index = stars). The P10 fallback table:
+ * 9 + 5 per star left 1-star escapes sticky (a flee-bot median of 29-30 s over 21 seeds, at the 30 s bound).
+ */
+const EVADE_TIME = [0, 10, 18, 28, 40, 55] as const;
 
 export class WantedSystem {
   level = 0;
@@ -85,7 +90,7 @@ export class WantedSystem {
   constructor(private readonly sim: Sim) {}
 
   evadeTime(level = this.level): number {
-    return 9 + level * 5;
+    return EVADE_TIME[Math.max(0, Math.min(MAX_STARS, Math.round(level)))]!;
   }
 
   /** Reports a crime by the player at (x, z). */
