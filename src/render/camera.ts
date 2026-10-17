@@ -37,6 +37,15 @@ const KEPT_UNSEEN = 0.9;
  */
 const TRUNK_SKIP = 1.6;
 /**
+ * Hysteresis round TRUNK_SKIP. Going from one side of it to the other is a cut, so a trunk keeps last
+ * frame's side until it is clearly past: one that hugged his back stops the boom only once its near
+ * side is beyond HUG_RELEASE, and the one holding the boom back hugs only within HOLD_RELEASE, which
+ * keeps the camera (never nearer than TRUNK_SKIP - 0.3) clear of its bark. Without it a trunk near the
+ * threshold flipped the camera about 3 m back and forth on a pan of a few degrees.
+ */
+const HUG_RELEASE = TRUNK_SKIP + 0.25;
+const HOLD_RELEASE = TRUNK_SKIP - 0.15;
+/**
  * Radius (m) of the camera's lens for the trunk stop: the boom stops where a sphere this big round the
  * camera would touch a trunk, so it is also caught by trunks it would only have grazed.
  */
@@ -88,11 +97,12 @@ function leavesClear(cam: V3, yaw: number, pitch: number, fovDeg: number, aspect
  * How far along the on-foot boom (from `from` along the unit vector `d`, `len` long) the lens first
  * touches a tree or palm trunk (`t`, Infinity for none; never under TRUNK_SKIP - 0.3, the old ray
  * stop's minimum) and which trunk that is. Trunks hugging his back (their near side within TRUNK_SKIP
- * along the boom) are ignored and go into `hugging`. Trunk colliders are vertical cylinders taller
- * than the boom is high, so this is the boom's track over the ground against each trunk's circle
- * grown by LENS.
+ * along the boom) are ignored and go into `hugging`; with hysteresis (HUG_RELEASE, HOLD_RELEASE) for the
+ * trunks that hugged last frame (`hugged`) and the one holding the boom back (`held`). Trunk colliders are
+ * vertical cylinders taller than the boom is high, so this is the boom's track over the ground against
+ * each trunk's circle grown by LENS.
  */
-function trunkStop(sim: Sim, from: V3, d: V3, len: number, hugging: Set<number>): { t: number; id: number } {
+function trunkStop(sim: Sim, from: V3, d: V3, len: number, hugged: ReadonlySet<number>, held: number, hugging: Set<number>): { t: number; id: number } {
   const stop = { t: Infinity, id: -1 };
   const h2 = d.x * d.x + d.z * d.z;
   if (h2 < 1e-6) return stop;
@@ -116,7 +126,8 @@ function trunkStop(sim: Sim, from: V3, d: V3, len: number, hugging: Set<number>)
     const y = from.y + d.y * t;
     if (y < c.y0 - LENS || y > c.y1 + LENS) return;
     // Along the boom to where it passes the trunk's centre, less the trunk's own radius.
-    if (-b / h2 - c.r <= TRUNK_SKIP) hugging.add(c.id);
+    const skip = hugged.has(c.id) ? HUG_RELEASE : c.id === held ? HOLD_RELEASE : TRUNK_SKIP;
+    if (-b / h2 - c.r <= skip) hugging.add(c.id);
     else if (t < stop.t) {
       stop.t = t;
       stop.id = c.id;
@@ -393,7 +404,7 @@ export class CameraController {
       if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) reach = Math.max(0.35, hit.t - 0.3);
       if (onFoot) {
         this.huggingNow.clear();
-        const stop = trunkStop(sim, lookFrom, d, len, this.huggingNow);
+        const stop = trunkStop(sim, lookFrom, d, len, this.hugging, this.heldBy, this.huggingNow);
         const cur = Math.min(this.trunkReach, len);
         if (stop.t < cur) {
           // In from the boom's current length; but a trunk that hugged his back last frame has the camera

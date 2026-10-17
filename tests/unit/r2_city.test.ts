@@ -1153,3 +1153,77 @@ describe('round 2 fix 2: garages hide the bay from above', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round 2 fix 2: the on-foot camera next to a trunk
+
+describe('round 2 fix 2: trunk cuts with hysteresis', () => {
+  /**
+   * An idle player in front of open street trees, 1.4-2.4 m from the trunk and up to 1.2 m to either
+   * side, the camera settled looking away from it, then two seconds of a slow look round: the yaw
+   * swept `amp` degrees either way at 1 Hz. Counts frames where the camera jumps over 0.8 m.
+   */
+  function panSweep(aiming: boolean, amp: number): { cases: number; cuts: number; maxJump: number } {
+    const W = world();
+    const sim = new Sim({ world: W, ambient: false, police: false, startHour: 12 });
+    const p = sim.player;
+    const trees = W.layout.props.filter((q) => q.kind === 'tree');
+    let cases = 0;
+    let cuts = 0;
+    let maxJump = 0;
+    let tested = 0;
+    for (const q of trees) {
+      if (tested >= 6) break;
+      if (W.layout.props.some((o) => o !== q && (o.kind === 'tree' || o.kind === 'palm') && Math.hypot(o.x - q.x, o.z - q.z) < 9)) continue;
+      for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const fx = Math.sin(yaw);
+        const fz = Math.cos(yaw);
+        const rx = -Math.cos(yaw);
+        const rz = Math.sin(yaw);
+        // Open ground in front of the trunk and nothing solid behind it for 7 m.
+        const ox = q.x + fx * 2;
+        const oz = q.z + fz * 2;
+        if (!W.isFree(ox, oz, 0.6) || W.grid.raycast(ox, W.groundHeight(ox, oz) + 1.6, oz, -fx, 0, -fz, 7, sightHit, isSolidForSight)) continue;
+        tested++;
+        for (let D = 1.4; D <= 2.401; D += 0.05) {
+          for (let lat = -0.75; lat <= 1.201; lat += 0.15) {
+            p.pos.x = q.x + fx * D - rx * lat;
+            p.pos.z = q.z + fz * D - rz * lat;
+            if (!W.isFree(p.pos.x, p.pos.z, 0.35)) continue;
+            p.pos.y = W.groundHeight(p.pos.x, p.pos.z);
+            p.heading = yaw;
+            const cam = new CameraController(16 / 9);
+            cam.mode = 'play';
+            cam.reset(sim);
+            cam.yaw = yaw;
+            cam.pitch = -0.12;
+            for (let i = 0; i < 90; i++) cam.update(DT, sim, aiming);
+            const prev = cam.camera.position.clone();
+            for (let i = 0; i < 120; i++) {
+              cam.yaw = yaw + ((amp * Math.PI) / 180) * Math.sin(2 * Math.PI * i * DT);
+              cam.update(DT, sim, aiming);
+              const jump = cam.camera.position.distanceTo(prev);
+              maxJump = Math.max(maxJump, jump);
+              if (jump > 0.8) cuts++;
+              prev.copy(cam.camera.position);
+            }
+            cases++;
+          }
+        }
+        break;
+      }
+    }
+    expect(tested).toBe(6);
+    return { cases, cuts, maxJump };
+  }
+
+  it('a few degrees of look round beside a street tree never cuts the camera back and forth, on foot or aiming', () => {
+    for (const [aiming, amp] of [[false, 3], [true, 3], [false, 8]] as const) {
+      const r = panSweep(aiming, amp);
+      const label = `${aiming ? 'aiming' : 'on foot'}, +-${amp} degrees: ${JSON.stringify(r)}`;
+      expect(r.cases, label).toBeGreaterThan(1000);
+      expect(r.cuts, label).toBe(0);
+      expect(r.maxJump, label).toBeLessThan(0.8);
+    }
+  });
+});
