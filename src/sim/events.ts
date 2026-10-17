@@ -18,8 +18,8 @@ export interface SimEvents {
   blood: { x: number; y: number; z: number; dx: number; dy: number; dz: number };
   melee: { x: number; y: number; z: number; hit: boolean };
   propBroken: { index: number; dirX: number; dirZ: number };
-  /** A vehicle grinding along a wall or another vehicle (at most 15 per second per vehicle). */
-  scrape: { x: number; y: number; z: number; speed: number; vehicle: Vehicle };
+  /** A vehicle grinding along a wall or another vehicle (at most 15 per second per vehicle); a grinding pair is reported once, for the faster car, with the slower as `other`. */
+  scrape: { x: number; y: number; z: number; speed: number; vehicle: Vehicle; other?: Vehicle | null };
   splash: { x: number; y: number; z: number; big: boolean };
   horn: { vehicle: Vehicle };
   vehicleEnter: { vehicle: Vehicle; character: Character; jacked: boolean };

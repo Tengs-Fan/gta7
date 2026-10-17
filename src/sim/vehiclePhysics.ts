@@ -30,8 +30,8 @@ export interface VehiclePhysicsHost {
   onPropBroken(c: StaticCollider, v: Vehicle): void;
   onVehicleLanded(v: Vehicle, impact: number): void;
   onVehicleEnteredWater(v: Vehicle): void;
-  /** `v` slides along a wall or another vehicle touching it at (x, z), `speed` m/s along the contact (over SCRAPE_SPEED). */
-  onVehicleScrape(v: Vehicle, x: number, z: number, speed: number): void;
+  /** `v` slides along a wall or another vehicle (`other`) touching it at (x, z), `speed` m/s along the contact (over SCRAPE_SPEED). */
+  onVehicleScrape(v: Vehicle, x: number, z: number, speed: number, other?: Vehicle): void;
 }
 
 /** Sliding speed along a contact (m/s) above which a vehicle scrapes (sparks). */
@@ -492,7 +492,8 @@ function resolvePair(a: Vehicle, b: Vehicle, ct: Contact, host: VehiclePhysicsHo
   const tx = -ct.nz;
   const tz = ct.nx;
   const vt = rvx * tx + rvz * tz;
-  if (Math.abs(vt) > SCRAPE_SPEED) host.onVehicleScrape(Math.hypot(b.vel.x, b.vel.z) > Math.hypot(a.vel.x, a.vel.z) ? b : a, ct.px, ct.pz, Math.abs(vt));
+  const faster = Math.hypot(b.vel.x, b.vel.z) > Math.hypot(a.vel.x, a.vel.z) ? b : a;
+  if (Math.abs(vt) > SCRAPE_SPEED) host.onVehicleScrape(faster, ct.px, ct.pz, Math.abs(vt), faster === a ? b : a);
   if (vn >= 0) return;
   // Who drove into whom: each car's own speed towards the other (the normal points from b to a).
   const closingA = -(a.vel.x * ct.nx + a.vel.z * ct.nz);

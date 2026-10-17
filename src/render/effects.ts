@@ -17,6 +17,8 @@ const FLASH_LIFE = 0.05;
  * at the tip itself it sat a hand's breadth from the shooter's face.
  */
 const FLASH_LIGHT_AHEAD = 0.6;
+/** ...but stays this far short of the first thing the shot hits (Effects.shotLanded), so a wall in front of the gun is lit. */
+const FLASH_LIGHT_CLEAR = 0.15;
 /**
  * Most light the flash may throw on the shooter's own head (irradiance; the noon sun gives 3.3).
  * The light is dimmed to keep under it, so a short gun held close to the face does not burn the head out to white.
@@ -40,12 +42,14 @@ function headOf(c: Character): { x: number; y: number; z: number } {
  * Tracer streak: its head flies at TRACER_SPEED (m/s), the tail TRACER_STREAK (m) behind.
  * On the frame it is fired the streak reaches TRACER_REACH of the way to the hit (TRACER_REACH_MAX m at most):
  * a shot seen from behind the shooter runs almost straight away from the view, and only a streak over most of its
- * path shows on screen (from the hip camera a 3 m one is a few pixels). Its head waits there until the tail has
- * caught up to the usual streak, which flies on.
+ * path shows on screen (from the hip camera a 3 m one is a few pixels). That long streak stays up for TRACER_HOLD
+ * (s, about two frames) before its tail leaves the muzzle; its head waits there until the tail has caught up to the
+ * usual streak, which flies on.
  * Ribbons are TRACER_WIDTH (m) wide, but never under TRACER_MIN_PX pixels.
  */
 const TRACER_SPEED = 300;
 const TRACER_STREAK = 3;
+const TRACER_HOLD = 0.03;
 const TRACER_REACH = 0.8;
 const TRACER_REACH_MAX = 20;
 const TRACER_WIDTH = 0.03;
@@ -431,9 +435,9 @@ void main() {
 
 /**
  * Bullet tracers: camera-facing ribbons (one instanced draw).
- * Each streak's tail leaves the muzzle at TRACER_SPEED. On the frame it is fired the head is already most of the way
- * to the hit (TRACER_REACH); it stays there until it is TRACER_STREAK ahead of the tail, and then keeps that lead.
- * The tracer ends when the tail reaches the hit.
+ * Each streak's tail leaves the muzzle at TRACER_SPEED once the tracer is TRACER_HOLD old. On the frame it is fired the
+ * head is already most of the way to the hit (TRACER_REACH); it stays there until it is TRACER_STREAK ahead of the tail,
+ * and then keeps that lead. The tracer ends when the tail reaches the hit.
  * A tracer is drawn from the muzzle on the frame it was fired, however long that frame was.
  */
 class Tracers {
@@ -511,7 +515,7 @@ class Tracers {
       if (st === 2) this.state[i] = 1;
       else this.age[i] = this.age[i]! + dt;
       const l = this.len[i]!;
-      const tail = TRACER_SPEED * this.age[i]!;
+      const tail = TRACER_SPEED * Math.max(0, this.age[i]! - TRACER_HOLD);
       if (tail >= l) {
         this.state[i] = 0;
         continue;
@@ -713,6 +717,11 @@ export class Effects {
   /** The explosion / muzzle light was lit since the last update: it is not aged before its first frame. */
   private flashFresh = false;
   private muzzleFresh = false;
+  /**
+   * The trigger pull the muzzle light was last placed for: its flash point, unit shot direction (`aimed` when it has one),
+   * how far ahead of the flash the light sits, its unshaded intensity and the shooter. Its shots land right after it.
+   */
+  private readonly pull = { x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0, aimed: false, ahead: 0, peak: 0, shooter: null as Character | null };
   private readonly rng = new Rng(5);
   private readonly sprays: Array<{ x: number; y: number; z: number; t: number; acc: number }> = [];
   private readonly rockets = new Map<number, RocketView>();
@@ -737,6 +746,9 @@ export class Effects {
     this.syncRockets([]);
     this.tracers.clear();
     this.parts.clear();
+    // The last pull belongs to the old simulation (and holds on to its shooter).
+    this.pull.aimed = false;
+    this.pull.shooter = null;
   }
 
   private r(a: number, b: number): number {
@@ -746,34 +758,64 @@ export class Effects {
   /**
    * A muzzle flash `size` m across (FLASH_SIZE) at the barrel tip (x, y, z): two crossed, stretched glow sprites and a
    * short light that fades with them. Given the shot (`aim`), the light shines from FLASH_LIGHT_AHEAD further along it
-   * and is dimmed to throw at most FLASH_HEAD_LIGHT on the shooter's own head.
+   * (less once its shots land: shotLanded) and is dimmed to throw at most FLASH_HEAD_LIGHT on the shooter's own head.
    */
   muzzleFlash(x: number, y: number, z: number, size: number, aim: FlashAim | null = null): void {
     if (!(size > 0) || !Number.isFinite(x + y + z)) return;
     const rot = Math.random() * Math.PI;
     for (const r of [rot, rot + Math.PI / 2]) this.glow.emit(x, y, z, 0, 0, 0, FLASH_LIFE, size, size * 1.3, 0xfff0b0, 0xff8020, 1, 0, 0, 0, 3, r);
-    let intensity = Math.min(FLASH_LIGHT_MAX, FLASH_LIGHT * size);
-    let lx = x;
-    let ly = y;
-    let lz = z;
-    if (aim) {
-      const l = Math.hypot(aim.dx, aim.dy, aim.dz);
-      if (l > 1e-6 && Number.isFinite(l)) {
-        lx += (aim.dx / l) * FLASH_LIGHT_AHEAD;
-        ly += (aim.dy / l) * FLASH_LIGHT_AHEAD;
-        lz += (aim.dz / l) * FLASH_LIGHT_AHEAD;
-      }
-      if (aim.shooter) {
-        const h = headOf(aim.shooter);
-        const d2 = (lx - h.x) ** 2 + (ly - h.y) ** 2 + (lz - h.z) ** 2;
-        if (Number.isFinite(d2)) intensity = Math.min(intensity, FLASH_HEAD_LIGHT * d2);
-      }
+    const p = this.pull;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.peak = Math.min(FLASH_LIGHT_MAX, FLASH_LIGHT * size);
+    p.shooter = aim?.shooter ?? null;
+    const l = aim ? Math.hypot(aim.dx, aim.dy, aim.dz) : 0;
+    p.aimed = !!aim && l > 1e-6 && Number.isFinite(l);
+    p.dx = p.aimed ? aim!.dx / l : 0;
+    p.dy = p.aimed ? aim!.dy / l : 0;
+    p.dz = p.aimed ? aim!.dz / l : 0;
+    p.ahead = p.aimed ? FLASH_LIGHT_AHEAD : 0;
+    this.placeMuzzleLight();
+    this.muzzleAge = 0;
+    this.muzzleFresh = true;
+  }
+
+  /**
+   * A bullet or pellet that left (fx, fy, fz) hit a surface at (tx, ty, tz) facing (nx, ny, nz). When it belongs to the
+   * latest muzzle flash (it left from that flash point), the light is kept FLASH_LIGHT_CLEAR in front of that surface:
+   * pushed on past a wall (or a car, or a man) right in front of the gun, it would light the far side of it and leave
+   * its face dark.
+   */
+  shotLanded(fx: number, fy: number, fz: number, tx: number, ty: number, tz: number, nx: number, ny: number, nz: number): void {
+    const p = this.pull;
+    if (!p.aimed || this.muzzleAge > 0 || Math.abs(fx - p.x) + Math.abs(fy - p.y) + Math.abs(fz - p.z) > 1e-6) return;
+    // How far in front of the flash the surface lies, and how fast the light's way along the shot closes on it.
+    const depth = (fx - tx) * nx + (fy - ty) * ny + (fz - tz) * nz;
+    const closing = -(p.dx * nx + p.dy * ny + p.dz * nz);
+    if (!(closing > 1e-3) || !Number.isFinite(depth)) return;
+    const ahead = Math.max(0, (depth - FLASH_LIGHT_CLEAR) / closing);
+    if (ahead >= p.ahead) return;
+    p.ahead = ahead;
+    // Moved after it was lit (the same frame): its first frame keeps full strength.
+    this.placeMuzzleLight();
+  }
+
+  /** Puts the muzzle light where the latest pull's flash and first hit leave it, dimmed for the shooter's head. */
+  private placeMuzzleLight(): void {
+    const p = this.pull;
+    const lx = p.x + p.dx * p.ahead;
+    const ly = p.y + p.dy * p.ahead;
+    const lz = p.z + p.dz * p.ahead;
+    let intensity = p.peak;
+    if (p.aimed && p.shooter) {
+      const h = headOf(p.shooter);
+      const d2 = (lx - h.x) ** 2 + (ly - h.y) ** 2 + (lz - h.z) ** 2;
+      if (Number.isFinite(d2)) intensity = Math.min(intensity, FLASH_HEAD_LIGHT * d2);
     }
     this.muzzle.position.set(lx, ly, lz);
     this.muzzle.intensity = intensity;
     this.muzzlePeak = intensity;
-    this.muzzleAge = 0;
-    this.muzzleFresh = true;
   }
 
   tracer(fx: number, fy: number, fz: number, tx: number, ty: number, tz: number): void {

@@ -333,11 +333,11 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   /** Each vehicle's health at the last tick: a rise back to full health is a repair, which takes the dents away. */
   private readonly healthSeen = new WeakMap<Vehicle, number>();
 
-  onVehicleScrape(v: Vehicle, x: number, z: number, speed: number): void {
+  onVehicleScrape(v: Vehicle, x: number, z: number, speed: number, other: Vehicle | null = null): void {
     const last = this.scrapeTimes.get(v);
     if (last !== undefined && this.time - last < 1 / 15) return;
     this.scrapeTimes.set(v, this.time);
-    this.events.emit('scrape', { x, y: v.pos.y + 0.4, z, speed, vehicle: v });
+    this.events.emit('scrape', { x, y: v.pos.y + 0.4, z, speed, vehicle: v, other });
   }
 
   /**

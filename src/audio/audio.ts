@@ -77,7 +77,9 @@ export class AudioEngine {
   /** Counts update() calls. */
   private frame = 0;
   private subtitleTimer = 0;
+  /** Seconds left of the result-card duck: the passed / wasted / busted cards', and the MISSION FAILED cards' apart. */
   private bigTimer = 0;
+  private failTimer = 0;
   private explosionTimer = 0;
   private explosionDist = Infinity;
   private inVehicle = false;
@@ -167,6 +169,7 @@ export class AudioEngine {
     this.unsub = [];
     this.subtitleTimer = 0;
     this.bigTimer = 0;
+    this.failTimer = 0;
     this.explosionTimer = 0;
     this.explosionDist = Infinity;
     // Sound handlers run inside sim.update(): isolate them from it.
@@ -188,7 +191,11 @@ export class AudioEngine {
       // The player's own crashes (his car hitting something, landing, running someone over) sound inside the car,
       // not through the in-car muffling of the world outside.
       on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength, !!e.vehicle && e.vehicle === sim.player.vehicle)),
-      on('scrape', (e) => this.scrape(e.x, e.y, e.z, e.speed, e.vehicle === sim.player.vehicle)),
+      // His car grinding along something, or a faster car grinding along his (reported as that car's scrape, his as `other`).
+      on('scrape', (e) => {
+        const own = sim.player.vehicle;
+        this.scrape(e.x, e.y, e.z, e.speed, !!own && (e.vehicle === own || e.other === own));
+      }),
       on('melee', (e) => this.punch(e.x, e.y, e.z, e.hit)),
       on('horn', (e) => {
         // The player's own horn is a continuous voice (updateHorn); AI taps play here.
@@ -212,7 +219,14 @@ export class AudioEngine {
         else if (e.style === 'failed' || e.style === 'wasted' || e.style === 'busted') this.chime('fail');
         else if (e.style === 'stunt') this.chime('stunt');
         // Result cards duck everything but the UI bus (where their sting plays) while they show.
-        if ((e.style === 'passed' || e.style === 'failed' || e.style === 'wasted' || e.style === 'busted') && finite(e.duration)) this.bigTimer = Math.max(this.bigTimer, e.duration);
+        if (!finite(e.duration)) return;
+        if (e.style === 'failed') this.failTimer = Math.max(this.failTimer, e.duration);
+        else if (e.style === 'passed' || e.style === 'wasted' || e.style === 'busted') this.bigTimer = Math.max(this.bigTimer, e.duration);
+      }),
+      // A mission starting (a retry above all) takes a MISSION FAILED card down, showing or waiting (as the HUD does),
+      // and its duck with it.
+      on('missionStarted', () => {
+        this.failTimer = 0;
       }),
       on('subtitle', (e) => {
         // Dialogue ducks the music and the ambience for as long as the line shows (as in the HUD).
@@ -655,6 +669,7 @@ export class AudioEngine {
     this.radio.update(dt, inGame && !!pv && !pv.destroyed);
     this.subtitleTimer = Math.max(0, this.subtitleTimer - step);
     this.bigTimer = Math.max(0, this.bigTimer - step);
+    this.failTimer = Math.max(0, this.failTimer - step);
     if (this.explosionTimer > 0) {
       this.explosionTimer -= step;
       if (this.explosionTimer <= 0) this.explosionDist = Infinity;
@@ -663,7 +678,7 @@ export class AudioEngine {
     // The radio is as present in the mix as the music volume lets it be heard (switched off or at 0: not at all).
     const radio = this.radio.playing ? clamp(this.volumes.music / RADIO_FULL, 0, 1) : 0;
     const m = mixTargets(
-      { inVehicle: this.inVehicle, radio, subtitleActive: this.subtitleTimer > 0, explosionDist: this.explosionDist, paused: this.paused, bigScreen: this.bigTimer > 0 },
+      { inVehicle: this.inVehicle, radio, subtitleActive: this.subtitleTimer > 0, explosionDist: this.explosionDist, paused: this.paused, bigScreen: this.bigTimer > 0 || this.failTimer > 0 },
       this.mix,
     );
     this.mixer!.update(m, t, this.explosionTimer > 0);
