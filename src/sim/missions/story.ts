@@ -109,13 +109,15 @@ const DROP_RADIUS = 4;
 const BUYER_FROM_DROP = DROP_RADIUS + 3.5;
 
 /**
- * Where the buyer waits: beside the drop, to one side of the way in from the nearest road, so that a
- * car driving into the marker neither passes through him nor runs on into him.
+ * Where the buyer waits: beside the drop, to one side of the way the GPS leads in (its last leg comes
+ * from the junction nearest the drop, see gpsRoute), so that a car driven into the marker that way
+ * neither passes through him nor runs on into him. At today's drop, in a park with a road on each side,
+ * that puts him on a diagonal: straight in from any of the four roads misses him too.
  */
 function buyerSpot(sim: Sim, drop: { x: number; z: number }): { x: number; z: number } {
   const w = sim.world;
-  const { lane, s } = sim.roads.nearestLane(drop.x, drop.z);
-  const road = Math.atan2(lane.sx + lane.dx * s - drop.x, lane.sz + lane.dz * s - drop.z);
+  const node = sim.roads.nearestNode(drop.x, drop.z);
+  const road = Math.atan2(node.x - drop.x, node.z - drop.z);
   for (const off of [0, 0.35, -0.35, 0.7, -0.7]) {
     for (const side of [1, -1]) {
       const a = road + side * (Math.PI / 2 + off);

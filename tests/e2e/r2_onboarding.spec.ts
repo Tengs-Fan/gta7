@@ -127,6 +127,8 @@ test.describe('GTA 7 onboarding', () => {
       [1024, 768],
       [1366, 560],
       [1024, 560],
+      [1366, 400],
+      [1024, 400],
       [740, 800],
       [721, 700],
       [700, 600],
@@ -210,7 +212,7 @@ test.describe('GTA 7 onboarding', () => {
     await expect(page.locator('.prompt.card')).toContainText('Hot Delivery', { timeout: 8000 });
     await page.waitForFunction(() => !document.querySelector('.big')!.classList.contains('show'), null, { timeout: 8000 });
     await page.waitForTimeout(1500);
-    await expect(page.locator('.objective')).not.toHaveClass(/show/);
+    expect(await page.locator('.objective').getAttribute('class')).not.toContain('show');
     expect(await page.evaluate(() => (window as Api).__gta7.game.hud.route.length)).toBe(0);
     // Walking off, the route leads back to her.
     await page.evaluate(() => {

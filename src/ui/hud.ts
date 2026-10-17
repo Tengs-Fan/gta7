@@ -692,22 +692,27 @@ export class Hud {
   private updateNextStep(sim: Sim): void {
     const o = this.el.objective!;
     const busy = !!sim.missions.active || sim.activities.busy;
-    // A mission or job taking over removes the line at once.
-    if (busy && o.classList.contains('next')) {
+    // A mission or job taking over removes the line at once, and so does stepping onto the marker it
+    // points to, whose offer card says the same.
+    if (o.classList.contains('next') && (busy || this.onNextMarker(sim))) {
       o.classList.remove('next', 'show');
       this.timers.objective = 0;
     }
     if (!this.nextPending || this.bigCur || this.bigQueue.length > 0) return;
     this.nextPending = false;
     const d = busy ? undefined : sim.missions.offers()[0];
-    if (!d) return;
-    // Standing on that contact's marker (Wheels hands over at Lou's): the offer card says it already.
-    const here = sim.interactions.current();
-    if (here?.kind === 'mission' && here.ref === d.id) return;
+    // Already on that marker (Wheels hands over at Lou's): the card says it.
+    if (!d || this.onNextMarker(sim)) return;
     const c = CONTACTS[d.giver];
     o.textContent = `Next: ${c.name} has work - ${c.letter} on your radar`;
     o.classList.add('show', 'next');
     this.timers.objective = NEXT_STEP_SECONDS;
+  }
+
+  /** The player stands on the marker of the next mission on offer, the one the next-step line names. */
+  private onNextMarker(sim: Sim): boolean {
+    const here = sim.interactions.current();
+    return here?.kind === 'mission' && here.ref === sim.missions.offers()[0]?.id;
   }
 
   private statusText(sim: Sim): string {

@@ -1615,14 +1615,16 @@ describe('round 2 harness', () => {
       expect(move(5, 3)).toEqual([5, 3]);
     });
 
-    it('drops a single move of more than a third of the window', () => {
+    it('drops a single move of more than a third of the window that no turn goes on from', () => {
       const { lock, move } = setup();
       lock();
       clock.now += 150;
-      expect(move(900, 0)).toEqual([0, 0]); // 1280 / 3 = 427
+      expect(move(5, 3)).toEqual([0, 0]); // the jump that comes with the lock
+      expect(move(900, 0)).toEqual([0, 0]); // 1280 / 3 = 427: held back for the next move to confirm...
+      expect(move(20, 0)).toEqual([20, 0]); // ...which it does not
       expect(move(300, 0)).toEqual([300, 0]);
       expect(move(0, 250)).toEqual([0, 0]); // 720 / 3 = 240
-      expect(move(-200, 200)).toEqual([-200, 200]);
+      expect(move(-200, -10)).toEqual([-200, -10]);
       expect(move(NaN, 0)).toEqual([0, 0]);
     });
 
@@ -4235,6 +4237,18 @@ describe('R2 fixes: the next step and the route at a contact marker', () => {
     seconds(0.1);
     expect(showing('objective')).toBe(true);
     expect(el('objective').textContent).toBe('Next: Mama Lou has work - L on your radar');
+    // Stepping onto her marker while it shows: the card takes over at once, and a resume there brings no line.
+    sim.player.pos.x = lou.x;
+    sim.player.pos.z = lou.z;
+    sim.player.pos.y = sim.world.groundHeight(lou.x, lou.z);
+    seconds(0.2);
+    expect(el('prompt').classList.contains('card')).toBe(true);
+    expect(showing('objective')).toBe(false);
+    expect(el('objective').classList.contains('next')).toBe(false);
+    game.pause();
+    game.resume();
+    seconds(1);
+    expect(showing('objective')).toBe(false);
   });
 });
 
@@ -4286,6 +4300,19 @@ describe('R2 fixes: the mouse filter keeps real turns', () => {
     expect(up).toBe(-960);
   });
 
+  it('keeps a flick that starts all at once: its first move waits a frame for the next to confirm it', () => {
+    const { lock, frame } = rig();
+    lock();
+    for (let i = 0; i < 10; i++) frame(1, 0); // settled, the mouse barely moving
+    expect(frame(900, 0)).toEqual([0, 0]); // too big for a frame, out of nowhere: held back...
+    expect(frame(700, 0)).toEqual([1600, 0]); // ...and the turn goes on: both count
+    expect(frame(300, 0)).toEqual([300, 0]);
+    // Upwards just the same, with a little sideways drift.
+    for (let i = 0; i < 5; i++) frame();
+    expect(frame(30, -500)).toEqual([0, 0]);
+    expect(frame(10, -300)).toEqual([40, -800]);
+  });
+
   it('keeps the turn a long frame carries (30 fps, or a hitch)', () => {
     const { lock, frame } = rig();
     lock();
@@ -4298,8 +4325,8 @@ describe('R2 fixes: the mouse filter keeps real turns', () => {
     const { lock, frame } = rig();
     lock();
     for (let i = 0; i < 10; i++) frame(20, 0);
-    expect(frame(900, 0)).toEqual([0, 0]); // 1280 / 3 = 427 in one frame, after 20 px moves
-    expect(frame(20, 0)).toEqual([20, 0]);
+    expect(frame(900, 0)).toEqual([0, 0]); // 1280 / 3 = 427 in one frame, after 20 px moves...
+    expect(frame(20, 0)).toEqual([20, 0]); // ...and none like it after: a glitch
     for (const x of [100, 300, 450]) frame(x, 0);
     expect(frame(-900, 0)).toEqual([0, 0]); // against a flick to the right
     expect(frame(0, 600)).toEqual([0, 0]); // across it
@@ -4348,6 +4375,18 @@ describe('R2 fixes: in a vehicle the horn key skips dialogue', () => {
     p = frame();
     expect([p.hornPressed, p.interact]).toEqual([true, false]);
     up('KeyH', 'h');
+    frame();
+    // E skips a line, the line ends, and E is let go and pressed again between two polls: that press honks.
+    down('KeyE', 'e');
+    p = frame();
+    expect([p.interact, p.hornPressed]).toEqual([true, false]);
+    inp.skipLine = false;
+    up('KeyE', 'e');
+    down('KeyE', 'e');
+    p = frame();
+    expect([p.hornPressed, p.horn, p.interact]).toEqual([true, true, false]);
+    up('KeyE', 'e');
+    frame();
     // On foot E is interact, as before.
     inp.inVehicle = false;
     down('KeyE', 'e');

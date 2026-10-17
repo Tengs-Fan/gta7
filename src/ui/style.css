@@ -549,7 +549,8 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  top: 34%;
+  /* In a low window it moves up and its text shrinks with the height, keeping clear of the subtitle and the prompt below. */
+  top: min(34%, calc(100% - 290px));
   text-align: center;
   font-family: 'Anton', Impact, sans-serif;
   pointer-events: none;
@@ -562,7 +563,7 @@ body {
 }
 
 .big .t {
-  font-size: clamp(42px, 7vw, 96px);
+  font-size: clamp(42px, min(7vw, 13vh), 96px);
   letter-spacing: 3px;
   text-shadow: 0 0 3px #000, 3px 3px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0 0 30px rgba(0, 0, 0, 0.6);
   line-height: 1.05;
@@ -571,7 +572,7 @@ body {
 .big .s {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 700;
-  font-size: clamp(20px, 2.4vw, 32px);
+  font-size: clamp(20px, min(2.4vw, 5vh), 32px);
   text-shadow: var(--outline);
   margin-top: 6px;
 }

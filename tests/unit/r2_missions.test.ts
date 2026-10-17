@@ -171,10 +171,11 @@ describe('route drivers reach their destination', () => {
     const log = runs.map((r) => r.log).join('\n');
     expect(runs.every((r) => r.ok), log).toBe(true);
     expect(runs.filter((r) => r.arrivedAt <= r.astar / 8 + 30).length, log).toBeGreaterThanOrEqual(18);
-    // With the signals working, law-abiding drivers also wait at red lights, which P96's budget left
-    // out (only 9-14 of 20 runs make it over six seeds). The same budget plus the expected wait at each
-    // signalled junction on the route (a car arriving at a random moment finds no green 21 s in 32
-    // and waits half of that on average: 6.9 s) still holds for 18 of 20, and none takes absurdly long.
+    // Deviation from P96's acceptance, amended in the round-2 fix pass: with the signals working,
+    // law-abiding drivers also wait at red lights, which P96's 8 m/s budget left out (only 9-14 of 20 runs
+    // make A*/8 + 30 s over six seeds, all of them arriving). The budget amended with the expected wait at
+    // each signalled junction on the route (a car arriving at a random moment finds no green 21 s in 32 and
+    // waits half of that on average: 6.9 s) holds for 18 of 20 (20 of 20 here), and none takes absurdly long.
     const notGreen = SIGNAL_CYCLE - SIGNAL_GREEN;
     const redWait = (notGreen / SIGNAL_CYCLE) * (notGreen / 2);
     expect(redWait).toBeCloseTo(6.89, 2);
@@ -799,6 +800,7 @@ describe('staged missions', () => {
     const report: string[] = [];
     let excused = 0;
     let stoppedRuns = 0;
+    const excusedAt: number[] = [];
     for (let k = 0; k < 16; k++) {
       const a = (k / 16) * Math.PI * 2;
       for (const speed of [12, 18]) {
@@ -838,7 +840,10 @@ describe('staged missions', () => {
         const along = (b.x - sx) * Math.sin(heading) + (b.z - sz) * Math.cos(heading);
         const off = Math.abs((b.x - sx) * Math.cos(heading) - (b.z - sz) * Math.sin(heading));
         const inTheWay = dist(b, drop) > 4 && along > 0 && along < 15 && off < car.halfW + 0.4 + 0.3;
-        if (inTheWay) excused++;
+        if (inTheWay) {
+          excused++;
+          excusedAt.push(a);
+        }
         report.push(`a=${a.toFixed(2)} v=${speed}: delivered ${delivered} failed ${m.failedReason} stopped ${stopped} buyer hit at ${hitAt.toFixed(1)} m in the way ${inTheWay}`);
         if (!inTheWay) {
           expect(buyer.health, report.join('\n')).toBe(health);
@@ -850,6 +855,11 @@ describe('staged missions', () => {
     // Only the line through his own spot (both speeds), and at most one side blocked by a tree.
     expect(excused, report.join('\n')).toBeLessThanOrEqual(2 * 2);
     expect(stoppedRuns, report.join('\n')).toBeLessThanOrEqual(2 * 2);
+    // And that line is none a player would take: not the GPS's way in (from the junction nearest the
+    // drop), nor straight in from any of the roads around the park.
+    const node = w.roads.nearestNode(drop.x, drop.z);
+    const ways = [Math.atan2(node.x - drop.x, node.z - drop.z), 0, Math.PI / 2, Math.PI, -Math.PI / 2];
+    for (const a of excusedAt) for (const way of ways) expect(Math.abs(wrapAngle(a - way)), report.join('\n')).toBeGreaterThan(0.3);
   });
 
   it('Hot Delivery fails when the buyer dies', () => {

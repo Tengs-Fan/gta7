@@ -82,6 +82,14 @@ function automationRefusesLock(): boolean {
   }
 }
 
+/**
+ * Whether the mouse move (x, y) carries at least a quarter of move `m` along m's line: two moves of one
+ * turn (a hand speeds up and slows down over a few frames, it never starts or stops dead).
+ */
+function sameTurn(m: { x: number; y: number }, x: number, y: number): boolean {
+  return m.x * x + m.y * y >= 0.25 * (m.x * m.x + m.y * m.y);
+}
+
 function dz(v: number): number {
   if (Math.abs(v) < DEADZONE) return 0;
   return Math.sign(v) * ((Math.abs(v) - DEADZONE) / (1 - DEADZONE));
@@ -191,6 +199,8 @@ export class Input {
   /** The last mouse move (performance.now() ms and movement), and when poll() last ran. */
   private lastMove = { t: -Infinity, x: 0, y: 0 };
   private pollT = -Infinity;
+  /** A move too big for one frame that the next move has to confirm as part of a turn (see the mousemove handler). */
+  private heldMove: { t: number; x: number; y: number } | null = null;
   /** E skipped a line of dialogue in a vehicle: it does not honk until released. */
   private eSkipped = false;
   /** Key presses so far (auto-repeats aside), numbering each one. */
@@ -311,19 +321,30 @@ export class Input {
       if (this.lockJump || now < this.ignoreMoveUntil) {
         this.lockJump = false;
         this.lastMove = { t: -Infinity, x: 0, y: 0 };
+        this.heldMove = null;
         return;
       }
       // Any other jump (a glitch) is a single move of more than a third of the window per frame's worth of
-      // motion that comes out of nowhere. A real turn that fast builds up over the moves before it, in the
-      // same direction (the one before carries at least a quarter of it along its line), so it passes whole.
+      // motion that does not belong to a turn. A real turn that fast builds up over the moves before it in the
+      // same direction (the one before carries at least a quarter of it along its line), or, started all at
+      // once, goes on in the moves after it: such a move is held back for the next one to confirm it.
+      const held = this.heldMove;
+      this.heldMove = null;
+      if (held && now - held.t <= MOVE_RUN_MS && sameTurn(held, mx, my)) {
+        this.lookX += held.x;
+        this.lookY += held.y;
+      }
       const w = window.innerWidth > 0 ? window.innerWidth : 1280;
       const h = window.innerHeight > 0 ? window.innerHeight : 720;
       const frames = Math.min(MOVE_FRAMES_MAX, Math.max(1, (now - this.pollT) / FRAME_MS));
       const big = Math.abs(mx) > (w / 3) * frames || Math.abs(my) > (h / 3) * frames;
       const prev = this.lastMove;
-      const continues = now - prev.t <= MOVE_RUN_MS && prev.x * mx + prev.y * my >= 0.25 * (mx * mx + my * my);
+      const continues = now - prev.t <= MOVE_RUN_MS && sameTurn({ x: mx, y: my }, prev.x, prev.y);
       this.lastMove = { t: now, x: mx, y: my };
-      if (big && !continues) return;
+      if (big && !continues) {
+        this.heldMove = { t: now, x: mx, y: my };
+        return;
+      }
       this.lookX += mx;
       this.lookY += my;
     });
@@ -451,7 +472,8 @@ export class Input {
       // In a vehicle E is the horn, but a fresh press skips a line of dialogue that can be skipped, and then
       // honks only once let go and pressed again (H is the horn alone).
       const e = this.pressed('KeyE');
-      if (e && this.inVehicle && this.skipLine) this.eSkipped = true;
+      // Each fresh press decides anew (it may have been let go and pressed again between two polls).
+      if (e) this.eSkipped = this.inVehicle && this.skipLine;
       else if (!this.key('KeyE')) this.eSkipped = false;
       p.interact = e && (!this.inVehicle || this.eSkipped);
       const horn = this.eSkipped ? ['KeyH'] : ['KeyE', 'KeyH'];
