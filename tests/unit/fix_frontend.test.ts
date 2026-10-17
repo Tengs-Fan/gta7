@@ -2045,3 +2045,217 @@ describe('round 2 harness', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round 2 (quality): graphics tiers in the Game and the settings row, and WebGL context loss.
+
+/** A Game on the fake DOM, driven frame by frame (as in 'game flows'). */
+function makeQualityGame() {
+  const canvas = new FakeElement('canvas');
+  const uiRoot = new FakeElement('div');
+  const game = new Game(canvas as unknown as HTMLCanvasElement, uiRoot as unknown as HTMLElement);
+  const g = game as unknown as { running: boolean; last: number; frame: (now: number) => void };
+  let now = 1000;
+  g.running = true; // as after start(); requestAnimationFrame is stubbed
+  g.last = now;
+  const frames = (n: number) => {
+    for (let i = 0; i < n; i++) {
+      now += 1000 / 60;
+      g.frame(now);
+    }
+  };
+  const overlay = () => uiRoot.children.find((c) => c.classList.contains('gfx-lost')) ?? null;
+  const sfx = () => (game.audio as unknown as { sfx: unknown }).sfx;
+  return { game, canvas, uiRoot, frames, overlay, sfx };
+}
+
+describe('r2 quality: tiers in the game and the settings row', () => {
+  it("resolves 'auto' once at boot and gives every sim the tier's traffic and pedestrian density", () => {
+    const { game } = makeQualityGame();
+    // No usable WebGL here, so the GPU is unknown: Auto means Medium.
+    expect(game.settings.quality).toBe('auto');
+    expect(game.autoTier).toBe('medium');
+    expect(game.renderer.currentQuality).toBe('medium');
+    expect([game.sim.traffic.density, game.sim.peds.density]).toEqual([0.9, 0.9]); // the title's sim
+    game.newGame();
+    const sim = game.sim;
+    expect([sim.traffic.density, sim.peds.density]).toEqual([0.9, 0.9]);
+    game.applySettings({ ...game.settings, quality: 'low' }, false);
+    expect(game.renderer.currentQuality).toBe('low');
+    expect([sim.traffic.density, sim.peds.density]).toEqual([0.75, 0.75]);
+    const lowTargets = [sim.traffic.targetCount, sim.peds.targetCount];
+    game.applySettings({ ...game.settings, quality: 'high' }, false);
+    expect([sim.traffic.density, sim.peds.density]).toEqual([1, 1]);
+    // Fewer ambient cars and people are kept around on Low.
+    expect(lowTargets[0]).toBeLessThan(sim.traffic.targetCount);
+    expect(lowTargets[1]).toBeLessThan(sim.peds.targetCount);
+    game.applySettings({ ...game.settings, quality: 'auto' }, false);
+    expect(game.renderer.currentQuality).toBe('medium');
+    expect(sim.traffic.density).toBe(0.9);
+  });
+
+  it('a saved fixed tier wins over Auto at boot', () => {
+    (dom.win as unknown as { localStorage: FakeStorage }).localStorage.setItem('gta7.settings.v1', JSON.stringify({ quality: 'low', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68 }));
+    const { game } = makeQualityGame();
+    expect(game.settings.quality).toBe('low');
+    expect(game.renderer.currentQuality).toBe('low');
+    expect([game.sim.traffic.density, game.sim.peds.density]).toEqual([0.75, 0.75]);
+  });
+
+  it('the settings row offers AUTO (tier) and says when the anti-aliasing change waits for a reload', () => {
+    let applied: Settings | null = null;
+    let current: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68 };
+    const host = stubHost({
+      settings: () => current,
+      applySettings: (s) => {
+        applied = s;
+        current = s;
+      },
+      quality: () => ({ auto: 'high', msaa: true }),
+    });
+    const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, host, new MapImage(world()));
+    menus.showSettings();
+    const top = menus.top!.el as unknown as FakeElement;
+    const select = top.all().find((e) => e.tagName === 'SELECT')!;
+    const note = top.all().find((e) => e.classList.contains('setting-note'))!;
+    expect(select.children.map((o) => o.textContent)).toEqual(['AUTO (HIGH)', 'LOW', 'MEDIUM', 'HIGH']);
+    expect(select.children.map((o) => o.value)).toEqual(['auto', 'low', 'medium', 'high']);
+    expect(note.classList.contains('hidden')).toBe(true);
+    const pick = (q: string) => {
+      select.value = q;
+      select.dispatchEvent(new Event('change'));
+    };
+    pick('low');
+    expect(applied!.quality).toBe('low');
+    expect(note.classList.contains('hidden')).toBe(false);
+    expect(note.textContent).toBe('Anti-aliasing turns off after a reload.');
+    pick('medium');
+    expect(note.classList.contains('hidden')).toBe(true);
+    pick('auto');
+    expect(applied!.quality).toBe('auto');
+    expect(note.classList.contains('hidden')).toBe(true);
+    // Keyboard / gamepad: left and right walk AUTO, LOW, MEDIUM, HIGH and stop at the ends.
+    const press = (over: Partial<UiActions>) => menus.input({ ...NO_UI, ...over }, 0.3);
+    press({ right: true });
+    expect(current.quality).toBe('low');
+    press({ left: true });
+    press({ left: true });
+    expect(current.quality).toBe('auto');
+    // A renderer started on Low (no MSAA) says the opposite for Medium and High.
+    menus.closeAll();
+    const lowHost = stubHost({ settings: () => current, quality: () => ({ auto: 'low', msaa: false }) });
+    const m2 = new Menus(new FakeElement('div') as unknown as HTMLElement, lowHost, new MapImage(world()));
+    m2.showSettings();
+    const top2 = m2.top!.el as unknown as FakeElement;
+    const select2 = top2.all().find((e) => e.tagName === 'SELECT')!;
+    const note2 = top2.all().find((e) => e.classList.contains('setting-note'))!;
+    expect(select2.children[0]!.textContent).toBe('AUTO (LOW)');
+    expect(note2.classList.contains('hidden')).toBe(true);
+    select2.value = 'high';
+    select2.dispatchEvent(new Event('change'));
+    expect(note2.textContent).toBe('Anti-aliasing turns on after a reload.');
+  });
+});
+
+describe('r2 quality: WebGL context loss', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('pauses under an overlay with the sim frozen, and comes back to a paused game when restored', async () => {
+    const { game, canvas, uiRoot, frames, overlay, sfx } = makeQualityGame();
+    game.newGame();
+    await flush();
+    frames(5);
+    expect(dom.doc.pointerLockElement).toBe(canvas);
+    const t0 = game.sim.time;
+    const lost = ev('webglcontextlost');
+    canvas.dispatchEvent(lost);
+    expect(lost.defaultPrevented).toBe(true); // so the browser may restore it
+    expect(game.contextLost).toBe(true);
+    expect(overlay()!.textContent).toContain('Graphics reset - restoring...');
+    // Paused at once, not only when the lost pointer lock is reported.
+    expect(game.menus.open).toBe(true);
+    await flush();
+    expect(dom.doc.pointerLockElement).toBe(null);
+    expect(outputGain(sfx())).toBe(0);
+    expect(game.menus.open).toBe(true); // the pause menu waits under the overlay
+    frames(60);
+    // Keys reach nothing while the context is gone.
+    dom.win.dispatchEvent(keyEv('keydown', 'Escape', 'Escape'));
+    frames(3);
+    dom.win.dispatchEvent(keyEv('keyup', 'Escape', 'Escape'));
+    expect(game.sim.time).toBe(t0);
+    expect(game.menus.open).toBe(true);
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(game.contextLost).toBe(false);
+    expect(overlay()).toBe(null);
+    const top = game.menus.top!.el as unknown as FakeElement;
+    expect(top.all().some((e) => e.tagName === 'H2' && e.textContent === 'PAUSED')).toBe(true);
+    frames(30);
+    expect(game.sim.time).toBe(t0); // still paused
+    uiRoot.all().find((e) => e.tagName === 'BUTTON' && e.textContent === 'RESUME')!.click();
+    await flush();
+    frames(10);
+    expect(game.menus.open).toBe(false);
+    expect(game.sim.time).toBeGreaterThan(t0);
+    expect(outputGain(sfx())).toBeGreaterThan(0);
+  });
+
+  it('after 10 s without a restore it asks for a reload, and still recovers if the context comes back later', async () => {
+    const { game, canvas, uiRoot, frames, overlay } = makeQualityGame();
+    game.newGame();
+    await flush();
+    frames(2);
+    const reload = vi.fn();
+    vi.stubGlobal('location', { reload, search: '' });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    canvas.dispatchEvent(ev('webglcontextlost'));
+    vi.advanceTimersByTime(9_900);
+    expect(overlay()!.textContent).toContain('restoring');
+    expect(overlay()!.all().some((e) => e.tagName === 'BUTTON')).toBe(false);
+    vi.advanceTimersByTime(200);
+    expect(uiRoot.children.filter((c) => c.classList.contains('gfx-lost')).length).toBe(1);
+    expect(overlay()!.textContent).toContain('Graphics could not be restored. Reload the page.');
+    const button = overlay()!.all().find((e) => e.tagName === 'BUTTON' && e.textContent === 'RELOAD')!;
+    button.click();
+    expect(reload).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(overlay()).toBe(null);
+    expect(game.contextLost).toBe(false);
+    expect(game.menus.open).toBe(true);
+  });
+
+  it('on the title screen the backdrop freezes and carries on once restored', () => {
+    const { game, canvas, frames, overlay, sfx } = makeQualityGame();
+    game.audio.unlock();
+    frames(5);
+    expect(game.mode).toBe('title');
+    const t0 = game.sim.time;
+    canvas.dispatchEvent(ev('webglcontextlost'));
+    frames(30);
+    expect(game.sim.time).toBe(t0);
+    expect(outputGain(sfx())).toBe(0);
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(overlay()).toBe(null);
+    expect(outputGain(sfx())).toBeGreaterThan(0);
+    frames(5);
+    expect(game.sim.time).toBeGreaterThan(t0);
+    expect(game.mode).toBe('title');
+  });
+
+  it('a crash screen stays as it is when the context goes', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { game, canvas, frames, overlay } = makeQualityGame();
+    game.newGame();
+    vi.spyOn(game.hud, 'update').mockImplementation(() => {
+      throw new Error('boom');
+    });
+    frames(1);
+    expect(game.isCrashed).toBe(true);
+    canvas.dispatchEvent(ev('webglcontextlost'));
+    expect(overlay()).toBe(null);
+    expect(game.contextLost).toBe(false);
+  });
+});

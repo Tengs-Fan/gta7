@@ -112,7 +112,12 @@ GTA7_SWIFTSHADER=1 npm run test:e2e
 ## Performance
 
 The game targets 60 fps on desktop hardware. On an RTX 3070 laptop it renders about 200–550 draw calls at roughly 3 ms of CPU per frame.
-If your machine struggles, lower **Graphics quality** in Settings: *Low* disables shadows and bloom and reduces resolution.
+**Graphics quality** in Settings defaults to *Auto*, which picks a tier once at startup from the GPU: *High* on discrete graphics cards, *Medium* on integrated and mobile GPUs, and *Low* on software renderers (and on integrated GPUs driving very large screens).
+*Medium* renders at 85% resolution (ignoring high-DPI scaling) with smaller shadow maps, at most two dynamic lights and a little less traffic.
+*Low* renders at 67% resolution without anti-aliasing, shadows, bloom or dynamic lights, with fewer cars and pedestrians, and does not draw ambient cars farther than 150 m.
+Colours are the same on every tier.
+Anti-aliasing changes take effect after a reload; everything else applies at once.
+If the graphics driver resets, the game pauses behind a notice and carries on once WebGL is restored.
 
 ## License
 

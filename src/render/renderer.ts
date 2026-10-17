@@ -13,26 +13,58 @@ import { Effects } from './effects';
 import { Environment } from './environment';
 import { MarkerView } from './markers';
 import { PropsView } from './props';
+import { FEW_POINT_LIGHTS, pixelRatioFor, probeGpu, QUALITY, type GpuProbe, type QualityTier } from './quality';
 import { VehicleView, VehicleViewPool } from './vehicleView';
 
-export type Quality = 'low' | 'medium' | 'high';
+export type Quality = QualityTier;
 
 export interface RenderSettings {
   quality: Quality;
   fov: number;
+  /** The boot-time GPU probe (taken here when absent). */
+  gpu?: GpuProbe;
 }
 
-function supportsHalfFloatTargets(): boolean {
-  try {
-    const c = document.createElement('canvas');
-    const gl = c.getContext('webgl2');
-    if (!gl) return false;
-    const ok = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
-    gl.getExtension('WEBGL_lose_context')?.loseContext();
-    return ok;
-  } catch {
-    return false;
+/** Vehicles below this condition smoke (as in vehicleEffects). */
+const SMOKE_CONDITION = 0.45;
+
+/** Every create / delete pair of WebGL 2 objects. */
+const GL_PAIRS: ReadonlyArray<readonly [create: string, del: string]> = [
+  ...['Buffer', 'Framebuffer', 'Program', 'Query', 'Renderbuffer', 'Sampler', 'Shader', 'Texture', 'TransformFeedback', 'VertexArray'].map((k) => [`create${k}`, `delete${k}`] as const),
+  ['fenceSync', 'deleteSync'],
+];
+const GL_GENERATION = Symbol('glGeneration');
+
+/**
+ * After a context restore three still holds 'dispose' handlers bound to the lost context, so
+ * disposing anything made before the loss (a render target resized later, for one) asks WebGL to
+ * delete an object of the old context, which it reports as INVALID_OPERATION. This wraps the
+ * context's create / delete calls: new objects are tagged with the context generation, and deletes
+ * of objects from an earlier generation are skipped (their GPU memory died with that context).
+ * Call it when the context is first lost (everything made before is stale from then on); it returns
+ * the function to call at each later loss.
+ */
+export function guardStaleDeletes(gl: object): () => void {
+  let generation = 1;
+  const ctx = gl as Record<string, unknown>;
+  for (const [createName, deleteName] of GL_PAIRS) {
+    const create = ctx[createName];
+    const del = ctx[deleteName];
+    if (typeof create !== 'function' || typeof del !== 'function') continue;
+    ctx[createName] = (...args: unknown[]) => {
+      const o = (create as (...a: unknown[]) => unknown).apply(gl, args);
+      if (o && typeof o === 'object') (o as Record<symbol, number>)[GL_GENERATION] = generation;
+      return o;
+    };
+    ctx[deleteName] = (o: unknown) => {
+      // Untagged objects predate the first loss; null and undefined pass through (no-ops).
+      if (o && typeof o === 'object' && (o as Record<symbol, number | undefined>)[GL_GENERATION] !== generation) return;
+      (del as (o: unknown) => void).call(gl, o);
+    };
   }
+  return () => {
+    generation++;
+  };
 }
 
 export class GameRenderer {
@@ -51,17 +83,36 @@ export class GameRenderer {
   private readonly siren: THREE.PointLight;
   private bloom: UnrealBloomPass | null = null;
   private readonly hdr: boolean;
+  /** Whether the context was created with MSAA: fixed for the page's life (see QUALITY). */
+  readonly msaa: boolean;
+  /** The dynamic point lights (siren, muzzle flash, explosion flash) as their owners drive them. */
+  private pointSources: THREE.PointLight[] = [];
+  /** On 'few', the lights actually drawn: the most visible sources are copied into them each frame. */
+  private readonly lightPool: THREE.PointLight[] = [];
+  /** Ambient vehicle views hidden beyond the tier's vehicle draw distance. */
+  private readonly farHidden = new Set<VehicleView>();
+  private readonly tmpV = new THREE.Vector3();
+  private contextLost = false;
+  /** Set up on the first context loss (see guardStaleDeletes). */
+  private newGlGeneration: (() => void) | null = null;
+  private ratio = 0;
   private sim: Sim | null = null;
   private unsub: Array<() => void> = [];
   private smokeTimer = 0;
   private quality: Quality = 'high';
+  private warmedUp = false;
   time = 0;
 
   constructor(canvas: HTMLCanvasElement, private readonly world: StaticWorld, settings: RenderSettings) {
-    this.hdr = supportsHalfFloatTargets();
+    this.hdr = (settings.gpu ?? probeGpu()).halfFloat;
+    // MSAA is a context attribute that also sizes three's internal HDR scene target, so it can only
+    // be chosen here, from the starting tier; setQuality() applies everything else live. The
+    // half-float output stays on every tier: the output pass applies the tone mapping and sRGB
+    // conversion that the custom sky and particle shaders rely on, so colours match across tiers.
+    this.msaa = QUALITY[settings.quality].msaa;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: this.msaa,
       powerPreference: 'high-performance',
       outputBufferType: this.hdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
     });
@@ -84,10 +135,22 @@ export class GameRenderer {
     this.scene.add(this.headlight, this.headlight.target);
     this.siren = new THREE.PointLight(0xff2020, 0, 30, 1.6);
     this.scene.add(this.siren);
+    for (let i = 0; i < FEW_POINT_LIGHTS; i++) {
+      const l = new THREE.PointLight(0xffffff, 0, 30, 1.6);
+      l.visible = false;
+      this.lightPool.push(l);
+      this.scene.add(l);
+    }
+    // three registers its own handlers first (it calls preventDefault so the browser may restore).
+    canvas.addEventListener('webglcontextlost', this.onContextLost);
+    canvas.addEventListener('webglcontextrestored', this.onContextRestored);
 
     this.setQuality(settings.quality);
     this.resize();
+    // Bake the environment map first, so the warm-up compiles the env-mapped variants that are drawn.
+    this.env.update(17.5, new THREE.Vector3(), this.cameraCtl.camera, 0, this.renderer);
     this.warmup();
+    this.warmedUp = true;
   }
 
   /** Builds one view per vehicle kind and compiles every shader up front to avoid hitches later. */
@@ -99,39 +162,118 @@ export class GameRenderer {
       this.scene.add(v.group);
       tmp.push(v);
     }
+    // With the HDR output three draws the scene into its half-float target with tone mapping off and
+    // a linear colour space. Compiling for the canvas would build the tone-mapped sRGB variants,
+    // which are never drawn, so a stand-in half-float target is bound while compiling.
+    const target = this.hdr ? new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType }) : null;
     try {
-      this.renderer.compile(this.scene, this.cameraCtl.camera);
+      if (target) this.renderer.setRenderTarget(target);
+      try {
+        this.renderer.compile(this.scene, this.cameraCtl.camera);
+      } finally {
+        if (target) this.renderer.setRenderTarget(null);
+      }
     } catch {
       // Compilation is an optimisation only.
     }
+    target?.dispose();
     for (const v of tmp) this.pool.release(v);
   }
 
+  /** Applies a tier from the QUALITY table live (MSAA excepted, see the constructor). */
   setQuality(q: Quality): void {
     this.quality = q;
-    const dpr = Math.min(window.devicePixelRatio || 1, q === 'high' ? 1.5 : q === 'medium' ? 1.15 : 0.8);
-    this.renderer.setPixelRatio(dpr);
-    const shadows = q !== 'low';
-    this.env.setShadows(shadows);
-    this.env.sun.shadow.mapSize.set(q === 'high' ? 2048 : 1024, q === 'high' ? 2048 : 1024);
-    this.env.sun.shadow.map?.dispose();
-    (this.env.sun.shadow as { map: THREE.WebGLRenderTarget | null }).map = null;
-    if (this.hdr) {
-      if (q === 'low') {
-        this.renderer.setEffects([]);
-        this.bloom = null;
-      } else if (!this.bloom) {
-        const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-        // Threshold sits above sun-lit albedo so only emissive lights, the sun and explosions bloom.
-        this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.6, 0.5, 2.6);
-        this.renderer.setEffects([this.bloom]);
-      }
+    const t = QUALITY[q];
+    this.renderer.shadowMap.enabled = t.shadows;
+    this.env.setShadows(t.shadows);
+    const shadow = this.env.sun.shadow;
+    if (!t.shadows || shadow.mapSize.x !== t.shadowSize) {
+      // Freed on Low; rebuilt at the new size on the next shadow pass otherwise.
+      shadow.map?.dispose();
+      (shadow as { map: THREE.WebGLRenderTarget | null }).map = null;
+      shadow.mapSize.set(t.shadowSize, t.shadowSize);
     }
+    this.setBloom(t.bloom);
+    // Dynamic lights: on 'few' the sources stay hidden and feed the pool (see syncLightPool).
+    // The number of visible lights only changes here, so shaders are not rebuilt during play.
+    this.collectPointSources();
+    for (const l of this.pointSources) l.visible = t.pointLights === 'all';
+    for (const l of this.lightPool) {
+      l.visible = t.pointLights === 'few';
+      l.intensity = 0;
+    }
+    this.headlight.visible = t.headlight;
     this.resize();
+    // Compile the new light / shadow variants now rather than when each object first shows up.
+    if (this.warmedUp) this.warmup();
+  }
+
+  private setBloom(on: boolean): void {
+    if (!this.hdr) return;
+    if (!on) {
+      // Off on Low: free its render targets too (a fresh pass is made if it comes back).
+      this.renderer.setEffects([]);
+      this.bloom?.dispose();
+      this.bloom = null;
+      return;
+    }
+    if (!this.bloom) {
+      const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+      // Threshold sits above sun-lit albedo so only emissive lights, the sun and explosions bloom.
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.6, 0.5, 2.6);
+    }
+    this.renderer.setEffects([this.bloom]);
+  }
+
+  /** Every point light in the scene except the pool's own: the siren, the effects' flashes, and any added later. */
+  private collectPointSources(): void {
+    const pool = new Set<THREE.Object3D>(this.lightPool);
+    const found: THREE.PointLight[] = [];
+    this.scene.traverse((o) => {
+      if (o instanceof THREE.PointLight && !pool.has(o)) found.push(o);
+    });
+    this.pointSources = found;
+  }
+
+  /** On 'few': copies the most visible lit sources into the pool lights, the rest go dark for the frame. */
+  private syncLightPool(): void {
+    if (QUALITY[this.quality].pointLights !== 'few') return;
+    const cam = this.cameraCtl.camera.position;
+    const pool = this.lightPool;
+    const picked: Array<{ l: THREE.PointLight; score: number }> = [];
+    for (const l of this.pointSources) {
+      if (l.intensity <= 0) continue;
+      const p = l.parent ? l.parent.localToWorld(this.tmpV.copy(l.position)) : this.tmpV.copy(l.position);
+      const range = l.distance > 0 ? l.distance : 50;
+      // Brighter and closer to the camera first: a flash 200 m away lights nothing on screen.
+      const score = l.intensity / (1 + (p.distanceTo(cam) / range) ** 2);
+      let i = picked.length;
+      while (i > 0 && picked[i - 1]!.score < score) i--;
+      if (i < pool.length) picked.splice(i, 0, { l, score });
+      if (picked.length > pool.length) picked.pop();
+    }
+    pool.forEach((dst, i) => {
+      const src = picked[i]?.l;
+      if (!src) {
+        dst.intensity = 0;
+        return;
+      }
+      if (src.parent) src.parent.localToWorld(dst.position.copy(src.position));
+      else dst.position.copy(src.position);
+      dst.color.copy(src.color);
+      dst.intensity = src.intensity;
+      dst.distance = src.distance;
+      dst.decay = src.decay;
+    });
   }
 
   get currentQuality(): Quality {
     return this.quality;
+  }
+
+  /** The pixel ratio handed to three: dprCap x renderScale of the tier on a display at or above the cap. */
+  get pixelRatio(): number {
+    return this.ratio;
   }
 
   setFov(fov: number): void {
@@ -142,6 +284,12 @@ export class GameRenderer {
     const canvas = this.renderer.domElement;
     const w = Math.max(1, canvas.clientWidth || window.innerWidth);
     const h = Math.max(1, canvas.clientHeight || window.innerHeight);
+    // Re-read on every resize: zooming or moving to another monitor changes devicePixelRatio.
+    const ratio = pixelRatioFor(this.quality, window.devicePixelRatio || 1);
+    if (ratio !== this.ratio) {
+      this.ratio = ratio;
+      this.renderer.setPixelRatio(ratio);
+    }
     this.renderer.setSize(w, h, false);
     const cam = this.cameraCtl.camera;
     cam.aspect = w / h;
@@ -156,6 +304,7 @@ export class GameRenderer {
       this.pool.release(v);
     }
     this.vehicleViews.clear();
+    this.farHidden.clear();
     this.effects.reset();
     this.sim = sim;
     const fx = this.effects;
@@ -204,9 +353,11 @@ export class GameRenderer {
         this.vehicleViews.set(v.id, view);
       }
       view.sync(v, dt, this.time, night);
+      this.cullFar(view, v);
     }
     for (const [id, view] of this.vehicleViews) {
       if (!seen.has(id)) {
+        this.farHidden.delete(view);
         this.scene.remove(view.group);
         this.pool.release(view);
         this.vehicleViews.delete(id);
@@ -214,6 +365,22 @@ export class GameRenderer {
         this.effects.skids.break(`${id}:r`);
       }
     }
+  }
+
+  /**
+   * Skips ambient cars beyond the tier's vehicle draw distance (on Low, 150 m: a few pixels tall, and
+   * about 15 draw calls each). Mission and police vehicles are always drawn, and so are wrecks and
+   * burning or smoking cars, whose fire and smoke would otherwise hang in the air.
+   */
+  private cullFar(view: VehicleView, v: Vehicle): void {
+    const far = QUALITY[this.quality].vehicleDistance;
+    const cam = this.cameraCtl.camera.position;
+    const plain = (v.owner === 'traffic' || v.owner === 'parked') && !v.destroyed && !v.burning && v.condition >= SMOKE_CONDITION;
+    const hide = plain && (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2 > far * far;
+    if (hide === this.farHidden.has(view)) return;
+    view.group.visible = !hide;
+    if (hide) this.farHidden.add(view);
+    else this.farHidden.delete(view);
   }
 
   private vehicleEffects(sim: Sim, dt: number): void {
@@ -226,6 +393,9 @@ export class GameRenderer {
       if (v.removed) continue;
       const d2 = (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2;
       if (d2 > 220 * 220) continue;
+      // Not drawn on this tier (see cullFar): no skid marks or tyre smoke under an invisible car.
+      const view = this.vehicleViews.get(v.id);
+      if (view && this.farHidden.has(view)) continue;
       const fxh = Math.sin(v.heading);
       const fzh = Math.cos(v.heading);
       const hx = v.pos.x + fxh * v.halfL * 0.62;
@@ -288,6 +458,7 @@ export class GameRenderer {
 
   /** Mirrors the sim (if any) and renders one frame. */
   render(dt: number, aiming: boolean): void {
+    if (this.contextLost) return;
     this.time += dt;
     const sim = this.sim;
     const cam = this.cameraCtl.camera;
@@ -312,6 +483,7 @@ export class GameRenderer {
       this.syncLights(sim, night);
     }
     this.effects.update(dt, this.time);
+    this.syncLightPool();
     this.renderer.info.reset();
     this.renderer.render(this.scene, cam);
   }
@@ -321,8 +493,38 @@ export class GameRenderer {
     return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, vehicles: this.vehicleViews.size };
   }
 
+  /** True between 'webglcontextlost' and 'webglcontextrestored'; nothing can be drawn meanwhile. */
+  get isContextLost(): boolean {
+    return this.contextLost;
+  }
+
+  private readonly onContextLost = (): void => {
+    this.contextLost = true;
+    const gl = typeof this.renderer.getContext === 'function' ? this.renderer.getContext() : null;
+    if (gl) {
+      if (this.newGlGeneration) this.newGlGeneration();
+      else this.newGlGeneration = guardStaleDeletes(gl);
+    }
+  };
+
+  /**
+   * three has already rebuilt its GL state (its handler runs first): it re-uploads buffers and
+   * textures and rebuilds render targets on first use. What only ever lived on the GPU is gone,
+   * though: the environment map is re-baked on the next frame (shadow and bloom targets are redrawn
+   * every frame anyway), and every shader is compiled again before play resumes.
+   */
+  private readonly onContextRestored = (): void => {
+    this.contextLost = false;
+    this.env.contextRestored();
+    this.warmup();
+  };
+
   dispose(): void {
     for (const u of this.unsub) u();
+    const canvas = this.renderer.domElement;
+    canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    this.bloom?.dispose();
     this.env.dispose();
     this.renderer.dispose();
   }
