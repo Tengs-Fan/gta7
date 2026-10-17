@@ -1301,7 +1301,6 @@ function drawRollup(p: Pair): void {
   }
   m.rect(dx, H - 0.14, dw, 0.1, '#3b3f44');
   m.rect(dx + dw / 2 - 0.2, H - 0.45, 0.4, 0.06, '#2a2d31');
-  m.text('07', dx + dw / 2, dt + 0.75, 0.6, ANTON, 'rgba(20,20,20,0.75)', 1.2);
   for (const gx of [dx - 0.3, dx + dw + 0.12]) {
     for (let k = 0; k < 6; k++) m.rect(gx, H - 1.1 + k * 0.18, 0.18, 0.09, k % 2 ? '#1c1c1c' : '#f2c230');
   }

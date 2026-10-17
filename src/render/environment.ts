@@ -91,8 +91,10 @@ export function goldenHour(hours: number): number {
 const NIGHT_SKY_LIGHT = new THREE.Color(0.36, 0.46, 0.8);
 const NIGHT_GROUND_LIGHT = new THREE.Color(0.35, 0.27, 0.18);
 const NIGHT_HORIZON_GLOW = new THREE.Color(0.16, 0.11, 0.08);
-/** How much of that glow the night horizon (and the fog) takes on. */
+/** How much of that glow the night sky takes on at the horizon. */
 const GLOW_STRENGTH = 0.45;
+/** ...and the fog: less, so the sea and distant buildings stay darker than the glowing sky above them. */
+const FOG_GLOW_STRENGTH = 0.25;
 const WHITE = new THREE.Color(0xffffff);
 
 const SKY_VS = /* glsl */ `
@@ -224,8 +226,8 @@ vec4 clouds(vec3 d) {
   bright = mix(bright, mix(uSunColor, vec3(1.0, 0.86, 0.7), 0.35) * 1.2, uGolden);
   // Night: dim moonlit tops; low clouds catch the city's glow from below.
   vec3 glowLit = max(uGlow, vec3(0.0)) * exp(-d.y * 5.0);
-  bright = mix(bright, vec3(0.06, 0.066, 0.085) + glowLit * 0.6, uNight);
-  shade = mix(shade, vec3(0.028, 0.03, 0.04) + glowLit * 0.9, uNight);
+  bright = mix(bright, vec3(0.04, 0.044, 0.058) + glowLit * 0.6, uNight);
+  shade = mix(shade, vec3(0.02, 0.021, 0.028) + glowLit * 0.9, uNight);
   vec3 col = mix(shade, bright, lit);
   float sd = max(dot(d, uSunDir), 0.0);
   col += uSunColor * pow(sd, 10.0) * (1.0 - dens) * 0.9 * (1.0 - uNight);
@@ -491,7 +493,8 @@ export class Environment {
     // At night the city's light glows warm on the horizon; the fog takes the same colour, so
     // distant buildings fade into it rather than into a navy wall.
     // Only once it is properly dark, so the sunset keeps its colours.
-    const horizon = s.horizon.clone().lerp(NIGHT_HORIZON_GLOW, smoothstep(0.55, 1, night) * GLOW_STRENGTH);
+    const dark = smoothstep(0.55, 1, night);
+    const horizon = s.horizon.clone().lerp(NIGHT_HORIZON_GLOW, dark * GLOW_STRENGTH);
     // The sky adds the difference near the horizon only (it fades out with elevation).
     const glow = horizon.clone().sub(s.horizon);
 
@@ -537,7 +540,7 @@ export class Environment {
     this.hemi.color.copy(s.top).lerp(WHITE, 0.45).lerp(NIGHT_SKY_LIGHT, night);
     this.hemi.groundColor.setRGB(0.32, 0.28, 0.24).multiplyScalar(0.6 + 0.4 * (1 - night)).lerp(NIGHT_GROUND_LIGHT, night);
 
-    this.fog.color.copy(horizon).lerp(s.top, 0.15 * (1 - night));
+    this.fog.color.copy(s.horizon).lerp(NIGHT_HORIZON_GLOW, dark * FOG_GLOW_STRENGTH).lerp(s.top, 0.15 * (1 - night));
     this.fog.near = lerp(180, 90, night);
     this.fog.far = lerp(780, 520, night);
     this.scene.environmentIntensity = 0.4 + 0.35 * (1 - night);
