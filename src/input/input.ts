@@ -27,10 +27,38 @@ export interface FrameInput {
 
 const PREVENT = new Set(['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F1']);
 const DEADZONE = 0.18;
+/** Right-stick turn rate in look units per second (the old per-frame 14 / 10 at 60 fps). */
+const STICK_LOOK_X = 14 * 60;
+const STICK_LOOK_Y = 10 * 60;
+/** RT counts as pulled above PRESS and as released below RELEASE (hysteresis against jitter). */
+const TRIGGER_PRESS = 0.4;
+const TRIGGER_RELEASE = 0.3;
+/** A wheel pause longer than this (ms) starts a new gesture; within one, every WHEEL_STEP px is another step. */
+const WHEEL_GESTURE_GAP = 200;
+const WHEEL_STEP = 100;
+/** Every physical key that poll() reads by code. */
+const BOUND_CODES = new Set([
+  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'Space',
+  'KeyF', 'Enter', 'KeyE', 'KeyH', 'KeyR', 'KeyQ', 'KeyT', 'KeyP', 'KeyM', 'KeyV', 'Escape', 'Backspace',
+  'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6',
+]);
+const LETTER_SHORTCUTS = new Set(['e', 'f', 'h', 'm', 'p', 'q', 'r', 't', 'v']);
 
 function dz(v: number): number {
   if (Math.abs(v) < DEADZONE) return 0;
   return Math.sign(v) * ((Math.abs(v) - DEADZONE) / (1 - DEADZONE));
+}
+
+/**
+ * Bindings use KeyboardEvent.code (US-QWERTY positions), which is right for WASD but puts
+ * e.g. Map on AZERTY's ',' key. A key with no binding of its own therefore also acts as the
+ * letter shortcut printed on it. Bound keys never alias, so one key can't fire two actions
+ * (AZERTY's 'q' stays strafe-left, Dvorak's 'p' on KeyR stays reload).
+ */
+function letterAlias(ev: KeyboardEvent): string | null {
+  if (BOUND_CODES.has(ev.code) || typeof ev.key !== 'string') return null;
+  const k = ev.key.toLowerCase();
+  return LETTER_SHORTCUTS.has(k) ? `Key${k.toUpperCase()}` : null;
 }
 
 export class Input {
@@ -40,13 +68,26 @@ export class Input {
   private mouseDown = 0;
   private lookX = 0;
   private lookY = 0;
-  private wheel = 0;
+  /** Queued weapon steps from the wheel (+ next, - previous), at most one used per frame. */
+  private wheelSteps = 0;
+  private wheelAcc = 0;
+  private wheelT = -Infinity;
+  /** Letter alias added for a held physical key (see letterAlias), released with it. */
+  private readonly aliases = new Map<string, string>();
   private padPrev: boolean[] = [];
+  private rtDown = false;
   private device: 'kb' | 'pad' = 'kb';
+  private lockRequestT = -Infinity;
+  /** A pointer-lock request made by a capture click has not been answered yet. */
+  private captureRequested = false;
+  /** Pointer lock was refused for a capture click (sandboxed frame, no API): clicks shoot unlocked. */
+  private lockUnavailable = false;
   /** Last typed letters for cheat codes. */
   typed = '';
   inVehicle = false;
   enabled = true;
+  /** Whether gameplay wants the mouse captured right now (set by the game). */
+  wantsPointerLock: () => boolean = () => false;
   private readonly listeners: Array<[EventTarget, string, EventListener]> = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {}
@@ -59,22 +100,52 @@ export class Input {
     on(window, 'keydown', (e) => {
       const ev = e as KeyboardEvent;
       if (PREVENT.has(ev.code)) ev.preventDefault();
-      if (!ev.repeat) this.down.add(ev.code);
-      this.held.add(ev.code);
+      const alias = letterAlias(ev);
+      if (alias) this.aliases.set(ev.code, alias);
+      for (const code of alias ? [ev.code, alias] : [ev.code]) {
+        if (!ev.repeat) this.down.add(code);
+        this.held.add(code);
+      }
       this.device = 'kb';
       if (ev.key.length === 1 && /[a-z]/i.test(ev.key)) this.typed = (this.typed + ev.key.toUpperCase()).slice(-24);
     });
-    on(window, 'keyup', (e) => this.held.delete((e as KeyboardEvent).code));
+    on(window, 'keyup', (e) => {
+      const code = (e as KeyboardEvent).code;
+      this.held.delete(code);
+      const alias = this.aliases.get(code);
+      if (alias) {
+        this.held.delete(alias);
+        this.aliases.delete(code);
+      }
+    });
     on(window, 'blur', () => {
       this.held.clear();
+      this.aliases.clear();
       this.mouseHeld = 0;
+      this.wheelSteps = 0;
+      this.wheelAcc = 0;
     });
     on(this.canvas, 'mousedown', (e) => {
       const ev = e as MouseEvent;
+      this.device = 'kb';
+      if (this.wantsPointerLock() && !this.pointerLocked) {
+        const asked = this.requestPointerLock();
+        // The click that captures the mouse is not also a trigger pull. Where pointer lock is
+        // refused, clicks still have to shoot.
+        if (!this.lockUnavailable) {
+          if (asked) this.captureRequested = true;
+          return;
+        }
+      }
       this.mouseHeld |= 1 << ev.button;
       this.mouseDown |= 1 << ev.button;
-      this.device = 'kb';
     });
+    on(document, 'pointerlockchange', () => {
+      this.lockRequestT = -Infinity;
+      this.captureRequested = false;
+      if (this.pointerLocked) this.lockUnavailable = false;
+    });
+    on(document, 'pointerlockerror', () => this.lockRefused());
     on(window, 'mouseup', (e) => {
       this.mouseHeld &= ~(1 << (e as MouseEvent).button);
     });
@@ -88,7 +159,7 @@ export class Input {
     on(this.canvas, 'contextmenu', (e) => e.preventDefault());
     on(this.canvas, 'wheel', (e) => {
       e.preventDefault();
-      this.wheel += Math.sign((e as WheelEvent).deltaY);
+      this.wheelEvent(e as WheelEvent);
     }, { passive: false });
   }
 
@@ -97,18 +168,63 @@ export class Input {
     this.listeners.length = 0;
   }
 
+  /**
+   * One weapon step per wheel gesture, plus one per WHEEL_STEP px of further travel within it.
+   * A touchpad or smooth-scroll stream sends dozens of small events per swipe, which must not
+   * cycle through every weapon; separate notches of any size still step once each.
+   */
+  private wheelEvent(ev: WheelEvent): void {
+    const unit = ev.deltaMode === 1 ? 40 : ev.deltaMode === 2 ? 800 : 1;
+    const dy = ev.deltaY * unit;
+    // Ctrl+wheel is a touchpad pinch; mostly-horizontal swipes are not weapon changes.
+    if (ev.ctrlKey || !Number.isFinite(dy) || dy === 0 || Math.abs(ev.deltaX * unit) > Math.abs(dy)) return;
+    const dir = Math.sign(dy);
+    const queue = () => {
+      this.wheelSteps = Math.max(-6, Math.min(6, this.wheelSteps + dir));
+    };
+    if (ev.timeStamp - this.wheelT > WHEEL_GESTURE_GAP) {
+      queue();
+      this.wheelAcc = 0;
+    } else {
+      if (Math.sign(this.wheelAcc) === -dir) this.wheelAcc = 0;
+      this.wheelAcc += dy;
+      while (Math.abs(this.wheelAcc) >= WHEEL_STEP) {
+        queue();
+        this.wheelAcc -= dir * WHEEL_STEP;
+      }
+    }
+    this.wheelT = ev.timeStamp;
+  }
+
   get pointerLocked(): boolean {
     return document.pointerLockElement === this.canvas;
   }
 
-  requestPointerLock(): void {
-    if (this.pointerLocked) return;
+  /** Asks for pointer lock. Returns false when no request was made (locked, pending or unsupported). */
+  requestPointerLock(): boolean {
+    if (this.pointerLocked) return false;
+    // A second request while one is pending makes Chrome fire pointerlockchange before the
+    // lock is granted, which the game would read as losing the lock.
+    const now = performance.now();
+    if (now - this.lockRequestT < 500) return false;
+    this.lockRequestT = now;
     try {
       const r = this.canvas.requestPointerLock() as unknown;
-      if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => undefined);
+      if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => this.lockRefused());
+      return true;
     } catch {
       // Pointer lock unsupported (e.g. headless). Mouse look is then unavailable, keyboard still works.
+      this.lockRequestT = -Infinity;
+      this.lockUnavailable = true;
+      return false;
     }
+  }
+
+  private lockRefused(): void {
+    this.lockRequestT = -Infinity;
+    // Only a refusal of a request made by a click (a user gesture) means the lock is unavailable.
+    if (this.captureRequested) this.lockUnavailable = true;
+    this.captureRequested = false;
   }
 
   exitPointerLock(): void {
@@ -123,12 +239,14 @@ export class Input {
     return codes.some((c) => this.down.has(c));
   }
 
-  /** Builds this frame's input. Call once per frame, then endFrame(). */
-  poll(): FrameInput {
+  /** Builds this frame's input (dt: frame time in seconds). Call once per frame, then endFrame(). */
+  poll(dt: number): FrameInput {
     const p = neutralInput();
     const ui: UiActions = { pause: false, map: false, camera: false, radioNext: false, radioPrev: false, confirm: false, back: false, up: false, down: false, left: false, right: false };
     let lookX = this.lookX;
     let lookY = this.lookY;
+    const wheel = Math.sign(this.wheelSteps);
+    this.wheelSteps -= wheel;
 
     if (this.enabled) {
       const fwd = this.key('KeyW', 'ArrowUp') ? 1 : 0;
@@ -151,13 +269,13 @@ export class Input {
       p.horn = this.inVehicle && this.key('KeyE', 'KeyH');
       p.hornPressed = this.inVehicle && this.pressed('KeyE', 'KeyH');
       p.reload = !this.inVehicle && this.pressed('KeyR');
-      p.prevWeapon = this.pressed('KeyQ') || this.wheel < 0;
-      p.nextWeapon = this.wheel > 0;
+      p.prevWeapon = this.pressed('KeyQ') || wheel < 0;
+      p.nextWeapon = wheel > 0;
       p.job = this.pressed('KeyT');
       for (let i = 0; i < 6; i++) if (this.pressed(`Digit${i + 1}`)) p.selectSlot = i;
       ui.radioNext = this.inVehicle && this.pressed('KeyR');
       ui.radioPrev = this.inVehicle && this.pressed('KeyQ');
-      if (this.inVehicle) p.prevWeapon = this.wheel < 0;
+      if (this.inVehicle) p.prevWeapon = wheel < 0;
     }
     ui.pause = this.pressed('Escape', 'KeyP');
     ui.map = this.pressed('KeyM');
@@ -183,6 +301,11 @@ export class Input {
       const ry = dz(pad.axes[3] ?? 0);
       const any = lx !== 0 || ly !== 0 || rx !== 0 || ry !== 0 || pad.buttons.some((x) => x.pressed);
       if (any) this.device = 'pad';
+      // RT keeps its own threshold history: GamepadButton.pressed turns on far below the 0.4
+      // pull, so it can't supply the press edge. Updated every poll, so a trigger still held
+      // from a menu or from driving doesn't count as a fresh press.
+      const rtWas = this.rtDown;
+      this.rtDown = bv(7) > (rtWas ? TRIGGER_RELEASE : TRIGGER_PRESS);
       if (this.enabled && any) {
         if (lx !== 0 || ly !== 0) {
           p.moveX = lx;
@@ -201,8 +324,8 @@ export class Input {
           ui.radioNext = ui.radioNext || tap(15);
           ui.radioPrev = ui.radioPrev || tap(14);
         } else {
-          p.fire = p.fire || bv(7) > 0.4;
-          p.firePressed = p.firePressed || (bv(7) > 0.4 && !was(7));
+          p.fire = p.fire || this.rtDown;
+          p.firePressed = p.firePressed || (this.rtDown && !rtWas);
           p.aim = p.aim || bv(6) > 0.4;
           p.jump = p.jump || tap(2);
           p.reload = p.reload || tap(1);
@@ -212,8 +335,9 @@ export class Input {
         }
         p.enterExit = p.enterExit || tap(3);
         p.job = p.job || tap(13);
-        lookX += rx * 14;
-        lookY += ry * 10;
+        // The stick is a turn rate, unlike mouse deltas, so it scales with the frame time.
+        lookX += rx * STICK_LOOK_X * dt;
+        lookY += ry * STICK_LOOK_Y * dt;
       }
       ui.pause = ui.pause || tap(9);
       ui.map = ui.map || tap(8);
@@ -225,7 +349,7 @@ export class Input {
       ui.left = ui.left || tap(14);
       ui.right = ui.right || tap(15);
       this.padPrev = pad.buttons.map((x) => x.pressed);
-    }
+    } else this.rtDown = false;
     return { player: p, lookX, lookY, ui, device: this.device };
   }
 
@@ -234,7 +358,6 @@ export class Input {
     this.mouseDown = 0;
     this.lookX = 0;
     this.lookY = 0;
-    this.wheel = 0;
   }
 
   /** Returns and clears a cheat code if the typed buffer ends with one of them. */

@@ -80,7 +80,8 @@ export class Inventory {
 
   /** Selects the next/previous owned weapon that has ammunition (fists always qualify). */
   cycle(dir: 1 | -1): void {
-    const list = this.owned().filter((id) => id === 'fists' || this.total(id) > 0 || this.infinite);
+    // Keep the current weapon even when it is empty, so stepping starts from its slot.
+    const list = this.owned().filter((id) => id === this.current || id === 'fists' || this.total(id) > 0 || this.infinite);
     if (list.length === 0) return;
     const i = list.indexOf(this.current);
     const next = list[(i + dir + list.length) % list.length]!;
@@ -124,6 +125,8 @@ export class Character {
   /** Seconds to keep the aiming pose after the last shot. */
   aimHold = 0;
   reloadTimer = 0;
+  /** Weapon the running reload is for; switching away from it cancels the reload. */
+  reloadWeapon: WeaponId | null = null;
   fireCooldown = 0;
   knockTimer = 0;
   deadTime = 0;
@@ -167,7 +170,7 @@ export class Character {
     return this.role === 'cop' || this.role === 'swat';
   }
 
-  /** Can walk, shoot, be bumped: alive and not inside a vehicle. */
+  /** Walking or swimming under its own control (not knocked down, dead, climbing in or seated). */
   get onFoot(): boolean {
     return this.state === 'normal' || this.state === 'swimming';
   }
@@ -231,7 +234,7 @@ export class Vehicle {
   impactTimer = 0;
   /** Ever driven by the player (no longer counts as a parked car). */
   usedByPlayer = false;
-  /** Time spent nearly stationary while the AI wanted to move. */
+  /** Seconds since the AI driver last got 5 m from where it was; waits at a red light, a yield or in a queue don't count. */
   stuckTime = 0;
   spawnTime = 0;
 

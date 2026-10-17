@@ -726,7 +726,20 @@ body {
   align-items: center;
   gap: 12px;
   font-size: 19px;
-  margin: 10px 0;
+  margin: 6px 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border-left: 4px solid transparent;
+}
+
+/* Row picked with the keyboard / gamepad. */
+.setting.sel {
+  background: rgba(255, 79, 163, 0.1);
+  border-left-color: var(--accent);
+}
+
+.btn.sel {
+  box-shadow: 0 0 0 2px #ffffff;
 }
 
 .setting input[type='range'] {
@@ -897,6 +910,14 @@ body {
   text-align: center;
   padding: 30px;
   font-size: 20px;
+}
+
+.title-note {
+  padding: 6px 18px;
+  font-size: 19px;
+  font-weight: 700;
+  color: #ffd1a8;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
 }
 
 .title-foot {

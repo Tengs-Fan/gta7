@@ -146,18 +146,44 @@ export class SidewalkGraph {
       const d = Math.hypot(x - px, z - pz);
       if (d >= minD && d <= maxD) return { a, b, t, x, z };
     }
-    // Fallback: scan edges near the point.
-    const near = this.walkEdges.filter(([a, b]) => {
+    // Fallback: pick uniformly (by length) from the exact parts of every walking edge inside the band.
+    // On one edge those are up to two pieces either side of the point closest to (px, pz).
+    const pieces: number[] = []; // edge index, start, end (metres along the edge)
+    let total = 0;
+    const addPiece = (edge: number, s0: number, s1: number) => {
+      if (s1 <= s0) return;
+      pieces.push(edge, s0, s1);
+      total += s1 - s0;
+    };
+    for (let i = 0; i < this.walkEdges.length; i++) {
+      const [a, b] = this.walkEdges[i]!;
       const na = this.nodes[a]!;
       const nb = this.nodes[b]!;
-      const d = Math.hypot((na.x + nb.x) / 2 - px, (na.z + nb.z) / 2 - pz);
-      return d >= minD && d <= maxD;
-    });
-    if (near.length === 0) return null;
-    const [a, b] = rng.pick(near);
-    const na = this.nodes[a]!;
-    const nb = this.nodes[b]!;
-    const t = rng.next();
-    return { a, b, t, x: na.x + (nb.x - na.x) * t, z: na.z + (nb.z - na.z) * t };
+      const len = Math.hypot(nb.x - na.x, nb.z - na.z);
+      if (len < 1e-9) continue;
+      const along = ((px - na.x) * (nb.x - na.x) + (pz - na.z) * (nb.z - na.z)) / len;
+      const off2 = Math.max(0, (px - na.x) ** 2 + (pz - na.z) ** 2 - along * along);
+      if (off2 > maxD * maxD) continue;
+      const outer = Math.sqrt(maxD * maxD - off2);
+      const inner = Math.sqrt(Math.max(0, minD * minD - off2));
+      addPiece(i, Math.max(0, along - outer), Math.min(len, along - inner));
+      addPiece(i, Math.max(0, along + inner), Math.min(len, along + outer));
+    }
+    if (total <= 0) return null;
+    let u = rng.next() * total;
+    for (let k = 0; k < pieces.length; k += 3) {
+      const s0 = pieces[k + 1]!;
+      const span = pieces[k + 2]! - s0;
+      if (u > span && k + 3 < pieces.length) {
+        u -= span;
+        continue;
+      }
+      const [a, b] = this.walkEdges[pieces[k]!]!;
+      const na = this.nodes[a]!;
+      const nb = this.nodes[b]!;
+      const t = (s0 + Math.min(u, span)) / Math.hypot(nb.x - na.x, nb.z - na.z);
+      return { a, b, t, x: na.x + (nb.x - na.x) * t, z: na.z + (nb.z - na.z) * t };
+    }
+    return null;
   }
 }

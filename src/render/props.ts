@@ -194,6 +194,8 @@ export class PropsView {
         m.makeTranslation(p.x + v.x, p.y + v.y, p.z + v.z);
         mesh.setMatrixAt(k * 3 + b, m);
         mesh.setColorAt(k * 3 + b, new THREE.Color(0x111111));
+        // Tracked with the pole (whose refs entry exists by now) so breakProp hides them and restoreAll restores them.
+        this.refs.get(pi)?.push({ mesh, index: k * 3 + b, base: m.clone() });
       }
     });
     mesh.instanceMatrix.needsUpdate = true;
@@ -424,7 +426,7 @@ export class PropsView {
     const hide = p.kind === 'hydrant';
     for (const r of refs) {
       let m: THREE.Matrix4;
-      if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat) m = new THREE.Matrix4().makeScale(0, 0, 0);
+      if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat || r.mesh === this.signalBulbs) m = new THREE.Matrix4().makeScale(0, 0, 0);
       else m = back.clone().multiply(fall).multiply(toOrigin).multiply(r.base);
       r.mesh.setMatrixAt(r.index, m);
       r.mesh.instanceMatrix.needsUpdate = true;
@@ -443,7 +445,11 @@ export class PropsView {
     this.brokenSignals.clear();
   }
 
-  update(time: number, night: number): void {
+  /**
+   * `time` drives the decorative animation only. `signalTime` must be the simulation clock
+   * (sim.time) so the bulbs show the phase that drivers and pedestrians obey.
+   */
+  update(time: number, night: number, signalTime: number): void {
     // Lamps.
     const k = night;
     this.bulbMat.color.setRGB(0.25 + k * 7.5, 0.24 + k * 6, 0.22 + k * 3.8);
@@ -456,7 +462,7 @@ export class PropsView {
       const off = 0.07;
       this.signalProps.forEach((p, i) => {
         const broken = this.brokenSignals.has(this.signalPropIndex[i]!);
-        const st = broken ? 'off' : roads.signalState(p.node, axisOf(p.dir as Dir), time);
+        const st = broken ? 'off' : roads.signalState(p.node, axisOf(p.dir as Dir), signalTime);
         bulbs.setColorAt(i * 3, this.tmpC.setRGB(st === 'red' ? 6 : off + 0.05, st === 'red' ? 0.25 : off, off));
         bulbs.setColorAt(i * 3 + 1, this.tmpC.setRGB(st === 'yellow' ? 6 : off + 0.05, st === 'yellow' ? 3.6 : off, off));
         bulbs.setColorAt(i * 3 + 2, this.tmpC.setRGB(off, st === 'green' ? 5.5 : off + 0.05, st === 'green' ? 2.4 : off));

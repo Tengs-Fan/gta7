@@ -99,14 +99,21 @@ export class PedSystem {
   onViolence(x: number, z: number, attacker: Character | null, radius: number): void {
     for (const c of this.sim.characters) {
       if (c.removed || !c.brain || c.isLaw || c.isPlayer || !c.alive) continue;
-      if (c.state === 'inVehicle') continue;
+      if (c.state === 'inVehicle' || c === attacker) continue;
       const b = c.brain;
       if (b.mode === 'stand') continue;
       const d = Math.hypot(c.pos.x - x, c.pos.z - z);
       if (d > radius) continue;
-      if (attacker && attacker !== c && (b.hostile || (b.brave && c.role === 'gang' && attacker.isPlayer && d < 25))) {
+      if (attacker && this.allied(c, attacker)) {
+        // A crewmate opened fire: back him up against the player, never turn on him or run from him.
+        const t = attacker.brain?.target;
+        if (b.hostile && b.mode !== 'fight' && t && t.isPlayer && t.alive) this.fight(c, t);
+        continue;
+      }
+      // Hostiles only go after the player (or whoever hurts them, see onAttacked) and don't run from gunfire.
+      if (attacker && attacker.isPlayer && (b.hostile || (b.brave && c.role === 'gang' && d < 25))) {
         this.fight(c, attacker);
-      } else if (b.mode !== 'fight') {
+      } else if (b.mode !== 'fight' && !(b.hostile && attacker)) {
         this.flee(c, attacker ? attacker.pos.x : x, attacker ? attacker.pos.z : z, attacker);
       }
     }
@@ -117,8 +124,32 @@ export class PedSystem {
     if (!victim.brain || victim.isLaw || victim.isPlayer || !victim.alive) return;
     const b = victim.brain;
     if (b.mode === 'stand' && !b.hostile) return;
+    // Friendly fire: take the hit and keep the current target.
+    if (attacker && this.allied(victim, attacker)) return;
     if (attacker && (b.brave || b.hostile)) this.fight(victim, attacker);
-    else this.flee(victim, attacker ? attacker.pos.x : victim.pos.x, attacker ? attacker.pos.z : victim.pos.z, attacker);
+    // Hurt by nothing in particular (fire, a fall) while already running: keep running from the known threat.
+    else if (attacker || b.mode !== 'flee') this.flee(victim, attacker ? attacker.pos.x : victim.pos.x, attacker ? attacker.pos.z : victim.pos.z, attacker);
+  }
+
+  /** Gang members are one crew: they never fight, or run from, each other. */
+  allied(a: Character, b: Character): boolean {
+    return a !== b && a.role === 'gang' && b.role === 'gang';
+  }
+
+  /** A crewmate of `c` stands in the line of fire towards (tx, tz). */
+  private allyInLine(c: Character, tx: number, tz: number): boolean {
+    const dx = tx - c.pos.x;
+    const dz = tz - c.pos.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-3) return false;
+    for (const o of this.sim.characters) {
+      if (o.removed || !o.alive || o.state === 'inVehicle' || !this.allied(c, o)) continue;
+      const ox = o.pos.x - c.pos.x;
+      const oz = o.pos.z - c.pos.z;
+      const along = (ox * dx + oz * dz) / len;
+      if (along > 0 && along < len && Math.abs(ox * dz - oz * dx) / len < 0.8) return true;
+    }
+    return false;
   }
 
   onJacked(victim: Character): void {
@@ -131,8 +162,13 @@ export class PedSystem {
   }
 
   flee(c: Character, fromX: number, fromZ: number, threat: Character | null): void {
+    if (c.isPlayer) return;
+    if (!c.brain) {
+      // NPCs spawned without AI (traffic drivers) still need one to run away.
+      c.brain = makeBrain('wander');
+      c.brain.speedMul = this.sim.rng.range(0.85, 1.15);
+    }
     const b = c.brain;
-    if (!b) return;
     const was = b.mode;
     b.mode = 'flee';
     b.threat = threat;
@@ -306,9 +342,15 @@ export class PedSystem {
     }
     let dx = c.pos.x - b.threatX;
     let dz = c.pos.z - b.threatZ;
-    const d = Math.hypot(dx, dz) || 1;
-    dx /= d;
-    dz /= d;
+    const d = Math.hypot(dx, dz);
+    if (d > 1e-3) {
+      dx /= d;
+      dz /= d;
+    } else {
+      // The threat is right here (hurt with no known source): turn back the way we came.
+      dx = -Math.sin(c.heading);
+      dz = -Math.cos(c.heading);
+    }
     // Bend the escape direction a little per ped so crowds scatter.
     const ang = Math.atan2(dx, dz) + b.lateral * 0.8;
     let tx = c.pos.x + Math.sin(ang) * 6;
@@ -355,10 +397,19 @@ export class PedSystem {
     if (armed) {
       const canSee = d < 38 && sim.world.lineOfSight(c.pos.x, c.pos.y + 1.5, c.pos.z, tp.x, tp.y + 1.2, tp.z);
       if (canSee && d < 30) {
+        const yaw = Math.atan2(tp.x - c.pos.x, tp.z - c.pos.z);
         c.moveSpeed = 0;
         c.aiming = true;
-        c.heading = moveAngleTowards(c.heading, Math.atan2(tp.x - c.pos.x, tp.z - c.pos.z), 10 * dt);
-        sim.combat.npcFire(c, t, b.accuracy);
+        c.aimYaw = yaw;
+        c.heading = moveAngleTowards(c.heading, yaw, 10 * dt);
+        if (!this.allyInLine(c, tp.x, tp.z)) sim.combat.npcFire(c, t, b.accuracy);
+        else {
+          // Don't shoot through a crewmate: side-step for a clear line.
+          const side = c.id % 2 === 0 ? 1 : -1;
+          c.moveX = (-(tp.z - c.pos.z) / d) * side;
+          c.moveZ = ((tp.x - c.pos.x) / d) * side;
+          c.moveSpeed = 2.5;
+        }
       } else {
         this.steer(c, tp.x, tp.z, 5.8, dt);
         this.unstick(c, b, dt);

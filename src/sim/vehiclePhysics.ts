@@ -8,12 +8,15 @@ import type { StaticWorld } from '../world/staticWorld';
 import type { Vehicle } from './entities';
 
 export const VEHICLE_GRAVITY = 17;
+/** Deceleration (m/s^2) of a driven car with neither throttle nor brake pressed. */
+export const ENGINE_BRAKE = 1.4;
 const MAX_STEP_UP = 1.0;
 
 export interface VehiclePhysicsHost {
   world: StaticWorld;
   vehicles: Vehicle[];
-  onVehicleImpact(v: Vehicle, other: Vehicle | null, deltaV: number, x: number, z: number): void;
+  /** `otherRammed`: `other` was closing in faster than `v`, i.e. it drove into `v` (not the other way round). */
+  onVehicleImpact(v: Vehicle, other: Vehicle | null, deltaV: number, x: number, z: number, otherRammed?: boolean): void;
   onPropBroken(c: StaticCollider, v: Vehicle): void;
   onVehicleLanded(v: Vehicle, impact: number): void;
   onVehicleEnteredWater(v: Vehicle): void;
@@ -31,6 +34,26 @@ export function vehicleObb(v: Vehicle, out: OBB): OBB {
   out.hl = v.halfL;
   out.h = v.heading;
   return out;
+}
+
+/** Distance from the centre to the body's leading edge along the unit direction (ux, uz), capped at 2.2 m. */
+function leadingEdge(v: Vehicle, ux: number, uz: number): number {
+  const fx = Math.sin(v.heading);
+  const fz = Math.cos(v.heading);
+  return Math.min(2.2, v.halfL * Math.abs(ux * fx + uz * fz) + v.halfW * Math.abs(ux * fz - uz * fx));
+}
+
+/**
+ * True when a vehicle centred at (x, z) would have its centre or leading edge on a ledge it cannot climb.
+ * Airborne cars are checked too, so a car flying low into a ramp end bounces off instead of landing on top.
+ */
+function ledgeTooHigh(v: Vehicle, world: StaticWorld, x: number, z: number, ux: number, uz: number, edge: number): boolean {
+  return Math.max(world.groundHeight(x, z), world.groundHeight(x + ux * edge, z + uz * edge)) > v.pos.y + MAX_STEP_UP;
+}
+
+/** True when pushing a vehicle by d along the unit direction (ux, uz) would move it onto a ledge it cannot climb. */
+function pushBlocked(v: Vehicle, world: StaticWorld, ux: number, uz: number, d: number): boolean {
+  return ledgeTooHigh(v, world, v.pos.x + ux * d, v.pos.z + uz * d, ux, uz, leadingEdge(v, ux, uz));
 }
 
 export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): void {
@@ -61,7 +84,8 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     v.vy = -0.9;
     v.pos.x += v.vel.x * dt;
     v.pos.z += v.vel.z * dt;
-    v.pos.y = Math.max(WATER_Y - 3.2, v.pos.y + v.vy * dt);
+    // Sink out of sight, but rest on the sand where the water is shallower (piers do not count).
+    v.pos.y = Math.max(WATER_Y - 3.2, world.baseGround(v.pos.x, v.pos.z) - 0.3, v.pos.y + v.vy * dt);
     v.sinkTimer += dt;
     updateDerived(v, dt, 0);
     return;
@@ -124,7 +148,7 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     if (throttle > 0.01 && before < -0.5 && vF > 0) vF = 0;
 
     let friction = 0.35 + 0.012 * Math.abs(vF);
-    if (throttle < 0.01 && brake < 0.01) friction += 1.4; // engine braking
+    if (throttle < 0.01 && brake < 0.01) friction += ENGINE_BRAKE;
     if (!hasDriver) friction += 5.5; // parked: handbrake on
     if (handbrake) friction += 7.5;
     if (v.destroyed || v.flipped) friction += 9;
@@ -146,14 +170,17 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   // --- Integrate horizontal position with step-up blocking (ramp backs, high ledges) ---
   let nx = v.pos.x + v.vel.x * dt;
   let nz = v.pos.z + v.vel.z * dt;
-  const probe = Math.sign(vF || 1) * Math.min(v.halfL, 2.2);
-  const ahead = world.groundHeight(nx + fx * probe, nz + fz * probe);
-  if (!v.airborne && ahead > v.pos.y + MAX_STEP_UP) {
+  // Probe along the direction of travel, not the heading: a sliding or spinning car meets ledges side-first.
+  const sp = Math.hypot(v.vel.x, v.vel.z);
+  const sg = Math.sign(vF || 1);
+  const ux = sp > 1e-3 ? v.vel.x / sp : fx * sg;
+  const uz = sp > 1e-3 ? v.vel.z / sp : fz * sg;
+  const probe = leadingEdge(v, ux, uz);
+  if (ledgeTooHigh(v, world, nx, nz, ux, uz, probe)) {
     nx = oldX;
     nz = oldZ;
     // Treat as a wall hit.
-    const sp = Math.hypot(v.vel.x, v.vel.z);
-    if (sp > 4) host.onVehicleImpact(v, null, sp * 0.6, oldX + fx * probe, oldZ + fz * probe);
+    if (sp > 4) host.onVehicleImpact(v, null, sp * 0.6, oldX + ux * probe, oldZ + uz * probe);
     v.vel.x *= -0.15;
     v.vel.z *= -0.15;
   }
@@ -184,7 +211,9 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   } else {
     if (gy >= v.pos.y - 0.4 || (gy > v.pos.y - 1.2 && v.climbRate < 1.5)) {
       // Follow the ground. Large ground drops (> 0.4 m, e.g. quay edge or ramp end) start a flight.
-      const rate = (gy - v.pos.y) / dt;
+      // The climb rate is capped above the steepest ramp slope (0.24), so popping up a curb or
+      // ledge in a single step never turns into launch speed.
+      const rate = Math.min((gy - v.pos.y) / dt, 0.3 * Math.hypot(v.vel.x, v.vel.z));
       if (gy < v.pos.y - 0.4) {
         v.pos.y = damp(v.pos.y, gy, 25, dt);
       } else {
@@ -358,10 +387,22 @@ function resolvePair(a: Vehicle, b: Vehicle, ct: Contact, host: VehiclePhysicsHo
   const wa = 1 / ma;
   const wb = 1 / mb;
   const corr = ct.depth + 0.001;
-  a.pos.x += ct.nx * corr * (wa / (wa + wb));
-  a.pos.z += ct.nz * corr * (wa / (wa + wb));
-  b.pos.x -= ct.nx * corr * (wb / (wa + wb));
-  b.pos.z -= ct.nz * corr * (wb / (wa + wb));
+  let ka = wa / (wa + wb);
+  let kb = wb / (wa + wb);
+  // A car pinned against a ledge is never shoved up it (stepVehicle only guards a car's own motion):
+  // the other car takes the whole push-out if it can.
+  const w = host.world;
+  if (pushBlocked(a, w, ct.nx, ct.nz, corr * ka)) {
+    ka = 0;
+    kb = pushBlocked(b, w, -ct.nx, -ct.nz, corr) ? 0 : 1;
+  } else if (pushBlocked(b, w, -ct.nx, -ct.nz, corr * kb)) {
+    ka = pushBlocked(a, w, ct.nx, ct.nz, corr) ? 0 : 1;
+    kb = 0;
+  }
+  a.pos.x += ct.nx * corr * ka;
+  a.pos.z += ct.nz * corr * ka;
+  b.pos.x -= ct.nx * corr * kb;
+  b.pos.z -= ct.nz * corr * kb;
 
   const pax = ct.px - a.pos.x;
   const paz = ct.pz - a.pos.z;
@@ -375,6 +416,9 @@ function resolvePair(a: Vehicle, b: Vehicle, ct: Contact, host: VehiclePhysicsHo
   const rvz = vaz - vbz;
   const vn = rvx * ct.nx + rvz * ct.nz;
   if (vn >= 0) return;
+  // Who drove into whom: each car's own speed towards the other (the normal points from b to a).
+  const closingA = -(a.vel.x * ct.nx + a.vel.z * ct.nz);
+  const closingB = b.vel.x * ct.nx + b.vel.z * ct.nz;
   const e = 0.25;
   const rna = paz * ct.nx - pax * ct.nz;
   const rnb = pbz * ct.nx - pbx * ct.nz;
@@ -405,8 +449,8 @@ function resolvePair(a: Vehicle, b: Vehicle, ct: Contact, host: VehiclePhysicsHo
 
   const dva = j * wa;
   const dvb = j * wb;
-  if (dva > 1.5) host.onVehicleImpact(a, b, dva, ct.px, ct.pz);
-  if (dvb > 1.5) host.onVehicleImpact(b, a, dvb, ct.px, ct.pz);
+  if (dva > 1.5) host.onVehicleImpact(a, b, dva, ct.px, ct.pz, closingB > closingA);
+  if (dvb > 1.5) host.onVehicleImpact(b, a, dvb, ct.px, ct.pz, closingA > closingB);
 }
 
 /** Gives a vehicle an explosion kick: upward launch, push and tumble. */

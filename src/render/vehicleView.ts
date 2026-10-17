@@ -97,7 +97,6 @@ const glassMat = new THREE.MeshStandardMaterial({ color: 0x141c26, roughness: 0.
 const tireMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.92 });
 const rimMat = new THREE.MeshStandardMaterial({ color: 0xc4c6c8, roughness: 0.3, metalness: 0.9 });
 const burntMat = new THREE.MeshStandardMaterial({ color: 0x1d1b19, roughness: 1, metalness: 0.1 });
-const headMat = new THREE.MeshStandardMaterial({ color: 0xfffbe8, emissive: 0xfff2c8, emissiveIntensity: 0.3, roughness: 0.2 });
 const bodyMats = new Map<number, THREE.MeshStandardMaterial>();
 
 function bodyMaterial(color: number): THREE.MeshStandardMaterial {
@@ -116,10 +115,16 @@ export class VehicleView {
   private readonly body: THREE.Mesh;
   private readonly cabin: THREE.Mesh;
   private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean }> = [];
+  /** Head, tail and reverse lamps with their working material (wrecks swap in the burnt one). */
+  private readonly lamps: Array<{ mesh: THREE.Mesh; mat: THREE.Material }> = [];
+  private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xfffbe8, emissive: 0xfff2c8, emissiveIntensity: 0.3, roughness: 0.2 });
   private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x3a0505, emissive: 0xff1a10, emissiveIntensity: 0.3, roughness: 0.3 });
   private readonly reverseMat = new THREE.MeshStandardMaterial({ color: 0x777777, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.3 });
   private sirenRed: THREE.MeshStandardMaterial | null = null;
   private sirenBlue: THREE.MeshStandardMaterial | null = null;
+  /** Height above the wheel contact point that the body rotates about (half the mesh height). */
+  private readonly pivotY: number;
+  private readonly centre = new THREE.Vector3();
   private leanX = 0;
   private leanZ = 0;
   private lastSpeed = 0;
@@ -152,15 +157,17 @@ export class VehicleView {
     const ly = a.prof.lightY * s.height;
     const front = s.length / 2 + BEVEL + 0.02;
     for (const side of [-1, 1]) {
-      const h = new THREE.Mesh(a.lamp, headMat);
+      const h = new THREE.Mesh(a.lamp, this.headMat);
       h.position.set(side * (halfW - 0.32), ly, front);
       const t = new THREE.Mesh(a.lamp, this.tailMat);
       t.position.set(side * (halfW - 0.3), ly + 0.05, -front);
       this.group.add(h, t);
+      this.lamps.push({ mesh: h, mat: this.headMat }, { mesh: t, mat: this.tailMat });
     }
     const rev = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.05), this.reverseMat);
     rev.position.set(0, ly - 0.05, -front);
     this.group.add(rev);
+    this.lamps.push({ mesh: rev, mat: this.reverseMat });
     if (s.police) {
       const red = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.3 });
       const blue = new THREE.MeshStandardMaterial({ color: 0x000040, emissive: 0x0040ff, emissiveIntensity: 0, roughness: 0.3 });
@@ -188,6 +195,8 @@ export class VehicleView {
       this.group.add(sign);
     }
     this.group.rotation.order = 'YXZ';
+    // Includes roof gear (light bar, taxi sign), so a car on its roof rests on it.
+    this.pivotY = new THREE.Box3().setFromObject(this.group).max.y / 2;
   }
 
   bind(v: Vehicle): void {
@@ -207,6 +216,8 @@ export class VehicleView {
       w.tire.visible = !b;
       w.rim.material = b ? burntMat : rimMat;
     }
+    // Views are pooled, so the lamps must also be restored when b is false.
+    for (const l of this.lamps) l.mesh.material = b ? burntMat : l.mat;
     if (b) {
       this.body.material = burntMat;
       this.color = -1;
@@ -214,8 +225,9 @@ export class VehicleView {
   }
 
   sync(v: Vehicle, dt: number, time: number, night: number): void {
-    if (v.destroyed) this.setBurnt(true);
-    else if (this.color !== v.color) {
+    // A car that drowned is destroyed too, but not burnt out; a wreck that is already burnt stays so.
+    if (v.destroyed && !v.inWater) this.setBurnt(true);
+    else if (!this.burnt && this.color !== v.color) {
       this.setBurnt(false);
       this.body.material = bodyMaterial(v.color);
       this.color = v.color;
@@ -225,10 +237,16 @@ export class VehicleView {
     this.lastSpeed = v.forwardSpeed;
     const lat = v.angVel * v.forwardSpeed;
     const onGround = !v.airborne && !v.inWater;
-    this.leanX = damp(this.leanX, onGround ? clamp(acc * 0.006, -0.07, 0.07) : 0, 8, dt);
-    this.leanZ = damp(this.leanZ, onGround ? clamp(-lat * 0.006, -0.09, 0.09) : 0, 8, dt);
-    this.group.position.set(v.pos.x, v.pos.y, v.pos.z);
-    this.group.rotation.set(-v.pitch + this.leanX, v.heading, v.roll + this.leanZ);
+    // +rotation.x dips the nose (local +Z) and +rotation.z lifts local +X, the left side:
+    // squat under acceleration, dive under braking, roll away from the turn centre.
+    this.leanX = damp(this.leanX, onGround ? clamp(-acc * 0.006, -0.07, 0.07) : 0, 8, dt);
+    this.leanZ = damp(this.leanZ, onGround ? clamp(lat * 0.006, -0.09, 0.09) : 0, 8, dt);
+    const rot = this.group.rotation;
+    rot.set(-v.pitch + this.leanX, v.heading, v.roll + this.leanZ);
+    // Rotate about the body centre, not the wheel contact point at v.pos: a car on its roof
+    // (roll = PI) then rests on the road instead of being mirrored underneath it.
+    const c = this.centre.set(0, this.pivotY, 0).applyEuler(rot);
+    this.group.position.set(v.pos.x - c.x, v.pos.y + this.pivotY - c.y, v.pos.z - c.z);
 
     const steerAngle = -v.steer * v.spec.steer * 0.85;
     for (const w of this.wheels) {
@@ -236,8 +254,10 @@ export class VehicleView {
       w.tire.rotation.x = v.wheelSpin;
       w.rim.rotation.x = v.wheelSpin;
     }
-    const lightsOn = night > 0.35 && !v.destroyed && v.driver !== null;
-    headMat.emissiveIntensity = 0.4 + night * 5;
+    // Parked, abandoned and wrecked cars keep their lights off (a deployed police car keeps its siren running).
+    const powered = !v.destroyed && (v.driver !== null || v.siren);
+    const lightsOn = night > 0.35 && powered;
+    this.headMat.emissiveIntensity = powered ? 0.4 + night * 5 : 0.3;
     this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? 6 : lightsOn ? 2.2 : 0.3;
     this.reverseMat.emissiveIntensity = v.reversing && v.driver ? 4 : 0;
     if (this.sirenRed && this.sirenBlue) {
@@ -268,8 +288,4 @@ export class VehicleViewPool {
     }
     list.push(view);
   }
-}
-
-export function vehicleMaterials(): { head: THREE.MeshStandardMaterial } {
-  return { head: headMat };
 }

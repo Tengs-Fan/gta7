@@ -103,21 +103,28 @@ export function stepCharacter(c: Character, dt: number, host: CharacterPhysicsHo
       c.onGround = true;
     } else if (c.pos.y > gy + 0.25) {
       c.onGround = false;
-    } else if (c.vel.y <= 0) {
-      // Small step down (curb): stick to the ground.
+    } else if (c.onGround && c.vel.y <= 0) {
+      // Small step down (curb) while walking: stick to the ground. Falls land in the branch above.
       c.pos.y = gy;
       c.vel.y = 0;
       c.onGround = true;
     }
     if (depth > SWIM_DEPTH && c.pos.y < WATER_Y - SWIM_FLOAT + 0.3) {
-      if (c.state === 'normal') {
+      // A knocked body can never land in deep water, so the water ends the knock.
+      if (c.state === 'normal' || c.state === 'knocked') {
         c.state = 'swimming';
+        c.knockTimer = 0;
         c.swimTime = 0;
+        // Hitting the water kills most horizontal speed (no long glide after a fast bail).
+        c.vel.x *= 0.35;
+        c.vel.z *= 0.35;
         host.onCharacterSplash(c);
       }
       if (c.state === 'swimming') c.pos.y = WATER_Y - SWIM_FLOAT;
       else c.pos.y = Math.max(c.pos.y, WATER_Y - SWIM_FLOAT - 0.4);
       c.vel.y = 0;
+      // The water carries the body: floating corpses slow down like bodies on the ground.
+      c.onGround = true;
     }
   }
 

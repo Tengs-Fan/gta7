@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { clamp, damp, dampAngle, wrapAngle, type V3 } from '../core/math';
 import type { Sim } from '../sim/sim';
 import { isSolidForSight, makeRayHit } from '../world/colliders';
+import { WATER_Y } from '../world/constants';
 
 export type CameraMode = 'play' | 'title';
 
@@ -49,9 +50,11 @@ export class CameraController {
       this.orbitPitch = clamp(this.orbitPitch - dy * ky, -0.5, 0.6);
     } else {
       this.yaw = wrapAngle(this.yaw - dx * k);
-      this.pitch = clamp(this.pitch - dy * ky, -1.25, 0.85);
+      // Steep enough to aim at the police helicopter orbiting overhead (about 1 rad up).
+      this.pitch = clamp(this.pitch - dy * ky, -1.25, 1.35);
     }
-    if (Math.abs(dx) + Math.abs(dy) > 0.5) this.lookIdle = 0;
+    // Any look input counts: a gentle stick pan at a high frame rate is well under a pixel per frame.
+    if (dx !== 0 || dy !== 0) this.lookIdle = 0;
   }
 
   addShake(amount: number): void {
@@ -132,12 +135,16 @@ export class CameraController {
     } else {
       this.deathT = 0;
       const swimming = p.state === 'swimming';
+      // The camera cannot dip under the sea surface, so looking up from the water would lose the swimmer;
+      // swimmers cannot aim either, so they keep the wider camera.
+      if (swimming && this.pitch > 0.3) this.pitch = 0.3;
+      const aim = aiming && !swimming;
       const lying = p.state === 'knocked' || p.state === 'dead';
       const headY = swimming ? 1.6 : lying ? 0.7 : 1.58 * p.appearance.height;
       this.target.lerp(new THREE.Vector3(p.pos.x, p.pos.y + headY, p.pos.z), 1 - Math.exp(-22 * dt));
-      const distTarget = aiming ? 2.4 : this.zoomLevel === 1 ? 6.6 : 4.3;
+      const distTarget = aim ? 2.4 : this.zoomLevel === 1 ? 6.6 : 4.3;
       this.dist = damp(this.dist, distTarget, 10, dt);
-      const shoulder = aiming ? 0.62 : 0.42;
+      const shoulder = aim ? 0.62 : 0.42;
       const cy = Math.cos(this.pitch);
       this.dir.set(Math.sin(this.yaw) * cy, Math.sin(this.pitch), Math.cos(this.yaw) * cy);
       const rx = -Math.cos(this.yaw);
@@ -145,7 +152,7 @@ export class CameraController {
       // Right of the camera is (-cos yaw, sin yaw): shift the character to the left of the crosshair.
       this.desired.set(this.target.x - this.dir.x * this.dist + rx * shoulder, this.target.y - this.dir.y * this.dist + 0.18, this.target.z - this.dir.z * this.dist + rz * shoulder);
       lookFrom = new THREE.Vector3(this.target.x + rx * shoulder * 0.5, this.target.y, this.target.z + rz * shoulder * 0.5);
-      fovTarget = aiming ? this.baseFov - 16 : this.baseFov;
+      fovTarget = aim ? this.baseFov - 16 : this.baseFov;
     }
 
     // Keep the camera out of buildings.
@@ -158,11 +165,13 @@ export class CameraController {
         this.desired.copy(lookFrom).addScaledVector(d, t);
       }
     }
-    const gy = sim.world.groundHeight(this.desired.x, this.desired.z);
-    if (this.desired.y < gy + 0.35) this.desired.y = gy + 0.35;
+    // Stay above the ground and above the sea, whose surface plane is invisible from below.
+    const floor = Math.max(sim.world.groundHeight(this.desired.x, this.desired.z), WATER_Y) + 0.35;
+    if (this.desired.y < floor) this.desired.y = floor;
 
     cam.position.copy(this.desired);
-    if (this.shakeAmt > 0.001) {
+    // No jitter while paused (dt = 0): the shake could not decay and would run behind the menu forever.
+    if (dt > 0 && this.shakeAmt > 0.001) {
       const s = this.shakeAmt * 0.18;
       cam.position.x += (Math.random() - 0.5) * s;
       cam.position.y += (Math.random() - 0.5) * s;
@@ -200,6 +209,7 @@ export class CameraController {
     this.orbitYaw = 0;
     this.orbitPitch = 0;
     this.pitch = -0.12;
+    this.shakeAmt = 0;
     const pos = sim.playerPos();
     this.target.set(pos.x, pos.y + 1.5, pos.z);
     this.wasInVehicle = !!p.vehicle;

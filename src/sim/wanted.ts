@@ -93,10 +93,10 @@ export class WantedSystem {
     this.apply(lvl, true);
   }
 
+  /** Drops the wanted level, but never below a mission's floor (missions reset the floor themselves). */
   clear(): void {
-    this.heat = 0;
-    this.floor = 0;
-    this.apply(0, true);
+    this.heat = STAR_HEAT[this.floor];
+    this.apply(this.floor, true);
   }
 
   private apply(level: number, force = false): void {

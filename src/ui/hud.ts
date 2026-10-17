@@ -24,13 +24,19 @@ interface BigMsg {
   duration: number;
 }
 
+// What the DOM shows initially; bind() returns to these for every new session.
+const initialShown = () => ({ money: -1, health: -1, armor: -1, weapon: '', ammo: '', clock: '', stars: -1, flash: false, status: '', zone: '' });
+const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, toast: 0, delta: 0, hurt: 0, objective: 0 });
+/** Elements shown with the 'show' class for a while. */
+const TIMED = ['help', 'subtitle', 'objective', 'zone', 'radio', 'toast', 'delta', 'big'];
+
 export class Hud {
   readonly root: HTMLDivElement;
   private readonly el: Record<string, HTMLElement> = {};
   private readonly radar: HTMLCanvasElement;
   private readonly radarCtx: CanvasRenderingContext2D;
-  private shown = { money: -1, health: -1, armor: -1, weapon: '', ammo: '', clock: '', stars: -1, flash: false, status: '', zone: '' };
-  private timers = { help: 0, subtitle: 0, zone: 0, radio: 0, toast: 0, delta: 0, hurt: 0, objective: 0 };
+  private shown = initialShown();
+  private timers = initialTimers();
   private bigQueue: BigMsg[] = [];
   private bigCur: BigMsg | null = null;
   private bigTimer = 0;
@@ -39,6 +45,7 @@ export class Hud {
   private route: Array<{ x: number; z: number }> = [];
   private routeTimer = 0;
   private lastHealth = 100;
+  private fadeTimeout = 0;
   waypoint: { x: number; z: number } | null = null;
   visible = true;
 
@@ -78,14 +85,7 @@ export class Hud {
   bind(sim: Sim): void {
     for (const u of this.unsub) u();
     this.unsub = [];
-    this.bigQueue = [];
-    this.bigCur = null;
-    this.bigTimer = 0;
-    this.el.big!.classList.remove('show');
-    this.timers.subtitle = 0;
-    this.timers.help = 0;
-    this.timers.objective = 0;
-    this.waypoint = null;
+    this.reset(sim);
     const ev = sim.events;
     this.unsub.push(
       ev.on('message', (e) => this.help(e.text, e.duration)),
@@ -115,12 +115,41 @@ export class Hud {
       }),
       ev.on('fade', (e) => {
         this.el.fade!.classList.add('on');
-        window.setTimeout(() => this.el.fade!.classList.remove('on'), Math.max(200, e.duration * 1000 - 500));
+        window.clearTimeout(this.fadeTimeout);
+        this.fadeTimeout = window.setTimeout(() => this.el.fade!.classList.remove('on'), Math.max(200, e.duration * 1000 - 500));
       }),
       ev.on('respawn', () => {
         this.lastHealth = sim.player.health;
       }),
+      ev.on('missionEnded', () => {
+        // The finished mission's last objective must not linger next to MISSION PASSED / FAILED.
+        this.timers.objective = 0;
+        this.el.objective!.classList.remove('show');
+      }),
     );
+  }
+
+  /** Clears everything the previous session left on screen (the HUD is reused across games). */
+  private reset(sim: Sim): void {
+    this.shown = initialShown();
+    this.timers = initialTimers();
+    this.bigQueue = [];
+    this.bigCur = null;
+    this.bigTimer = 0;
+    this.moneyDelta = 0;
+    this.route = [];
+    this.routeTimer = 0;
+    this.lastHealth = sim.player.health;
+    this.waypoint = null;
+    window.clearTimeout(this.fadeTimeout);
+    const el = this.el;
+    for (const k of TIMED) el[k]!.classList.remove('show');
+    el.fade!.classList.remove('on');
+    el.money!.classList.remove('pop');
+    // update() only writes these when they change, and '' is also a valid new-session value.
+    el.ammo!.textContent = '';
+    el.status!.textContent = '';
+    el.status!.classList.add('hidden');
   }
 
   help(text: string, duration = 4): void {
@@ -174,10 +203,7 @@ export class Hud {
     if (this.timers.zone <= 0) el.zone!.classList.remove('show');
     if (this.timers.radio <= 0) el.radio!.classList.remove('show');
     if (this.timers.toast <= 0) el.toast!.classList.remove('show');
-    if (this.timers.delta <= 0 && this.moneyDelta !== 0) {
-      this.moneyDelta = 0;
-      el.delta!.classList.remove('show');
-    }
+    if (this.timers.delta <= 0) this.moneyDelta = 0;
     const objText = sim.missions.active?.objectiveText ?? '';
     if (objText && this.timers.objective <= 0 && this.timers.subtitle <= 0) {
       el.objective!.textContent = objText;
@@ -209,11 +235,12 @@ export class Hud {
       this.shown.money = prog.money;
       el.money!.textContent = formatMoney(prog.money);
     }
-    if (this.moneyDelta !== 0 && this.timers.delta > 0) {
+    // Hidden when the window expired and also when gains and losses inside it cancel out.
+    if (this.moneyDelta !== 0) {
       el.delta!.textContent = `${this.moneyDelta > 0 ? '+' : '-'}${formatMoney(Math.abs(this.moneyDelta))}`;
       el.delta!.style.color = this.moneyDelta > 0 ? 'var(--money)' : '#ff6a5a';
       el.delta!.classList.add('show');
-    }
+    } else el.delta!.classList.remove('show');
     const hp = Math.max(0, p.health) / p.maxHealth;
     if (Math.abs(hp - this.shown.health) > 0.001) {
       this.shown.health = hp;

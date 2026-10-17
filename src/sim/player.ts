@@ -14,6 +14,8 @@ const obb = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
 export class PlayerController {
   private exitPending = false;
   private jacked = false;
+  /** Door distance beyond which entering is given up (the vehicle drove off). */
+  private enterReach = 7;
   private lastX = 0;
   private lastZ = 0;
   /** Last vehicle the player entered (for mission checks). */
@@ -30,6 +32,8 @@ export class PlayerController {
     p.aiming = false;
     p.moveSpeed = 0;
     this.trackDistance();
+    // Dying or being busted mid-entry must release the car's AI hold.
+    if (p.enterTarget && (sim.playerDown || p.state !== 'entering')) this.abortEnter();
     if (sim.playerDown || !p.alive) {
       if (p.vehicle) this.neutralVehicle(p.vehicle);
       return;
@@ -162,6 +166,9 @@ export class PlayerController {
     p.vel.z = 0;
     this.jacked = false;
     if (v.ai) v.ai.hold = true;
+    // Long vehicles (bus) are in reach from further than 7 m from the door.
+    const door = this.doorPos(v);
+    this.enterReach = Math.max(7, Math.hypot(door.x - p.pos.x, door.z - p.pos.z) + 2);
   }
 
   private doorPos(v: Vehicle): { x: number; z: number } {
@@ -186,7 +193,7 @@ export class PlayerController {
     const dx = door.x - p.pos.x;
     const dz = door.z - p.pos.z;
     const d = Math.hypot(dx, dz);
-    if (d > 7) {
+    if (d > this.enterReach) {
       this.abortEnter();
       return;
     }
@@ -234,6 +241,8 @@ export class PlayerController {
       }
       sim.seat(p, v, 0);
       v.ai = null;
+      // The car is the player's now: police, traffic and parking systems let go of it.
+      if (v.owner !== 'mission') v.owner = 'none';
       v.controls.handbrake = false;
       if (!v.usedByPlayer) sim.progress.stats.carsStolen++;
       v.usedByPlayer = true;
@@ -248,7 +257,8 @@ export class PlayerController {
   private abortEnter(): void {
     const p = this.sim.player;
     if (p.enterTarget?.ai) p.enterTarget.ai.hold = false;
-    p.state = 'normal';
+    // A player who died mid-entry stays dead.
+    if (p.state === 'entering') p.state = 'normal';
     p.enterTarget = null;
   }
 

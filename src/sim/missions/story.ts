@@ -1,6 +1,7 @@
 // The San Azura story: six missions for two contacts.
 
 import { rectContains } from '../../world/layout';
+import { makeBrain } from '../brains';
 import type { Vehicle } from '../entities';
 import type { MissionCtx, MissionDef, Script } from './runner';
 import { missionSpots } from './spots';
@@ -11,6 +12,13 @@ const DEX = 'Dex Moreau';
 /** Ends a garage delivery: the player steps out on the sidewalk, Lou keeps the car. */
 function* handOver(m: MissionCtx, v: Vehicle | null): Script {
   const sim = m.sim;
+  if (v && !v.removed && !v.destroyed) {
+    // Lou's crew kills the fire the moment the car is accepted: the player is still locked inside it.
+    v.burning = false;
+    v.burnTimer = 0;
+    // At <= 0 HP any stray hit would set it alight again.
+    v.health = Math.max(v.health, 1);
+  }
   sim.controlLock = 1.4;
   sim.events.emit('fade', { duration: 1.4 });
   yield* m.wait(0.7);
@@ -95,13 +103,30 @@ const repo: MissionDef = {
     m.givePlayer('pistol', 72);
     const car = m.spawnVehicle('sports', spots.repoCar.x, spots.repoCar.z, spots.repoCar.heading, 0xc0392b);
     for (const g of spots.repoGuards) m.spawnCharacter('gang', g.x, g.z, 'guard', 'pistol');
-    m.failIf(() => car.destroyed || car.removed || car.inWater, 'The Nightjar was wrecked.');
-    const mk = m.mark(car, 'Nightjar GT');
-    m.objective('Steal the Nightjar GT');
-    yield m.until(() => sim.player.vehicle === car);
-    m.unmark(mk);
-    m.objective("Bring the Nightjar to Lou's garage");
-    yield* m.goTo(spots.louBay.x, spots.louBay.z, { vehicle: car, maxSpeed: 5, area: bay, label: "Lou's garage", radius: 4 });
+    const wreck = m.failIf(() => car.destroyed || car.removed || car.inWater, 'The Nightjar was wrecked.');
+    // Whenever the player is out of the Nightjar, point back at it instead of at the garage.
+    let stolen = false;
+    for (;;) {
+      if (sim.player.vehicle !== car) {
+        const mk = m.mark(car, 'Nightjar GT', stolen ? 0x3dd9ff : 0xff3b3b);
+        m.objective(stolen ? 'Get back in the Nightjar' : 'Steal the Nightjar GT');
+        yield m.until(() => sim.player.vehicle === car);
+        m.unmark(mk);
+        stolen = true;
+      }
+      m.objective("Bring the Nightjar to Lou's garage");
+      const delivered = yield* m.goTo(spots.louBay.x, spots.louBay.z, {
+        vehicle: car,
+        maxSpeed: 5,
+        area: bay,
+        label: "Lou's garage",
+        radius: 4,
+        abortIf: () => sim.player.vehicle !== car,
+      });
+      if (delivered) break;
+    }
+    // Lou has the car now: whatever happens to it afterwards is her problem.
+    m.clearFail(wreck);
     const condition = car.condition;
     if (condition < 0.5) m.reward = Math.round(m.def.reward * 0.6);
     yield* handOver(m, car);
@@ -142,25 +167,36 @@ const looseLips: MissionDef = {
     benny.owner = 'mission';
     benny.persistent = true;
     benny.missionTag = m.def.id;
+    // Traffic drivers spawn without a brain: give Benny one so he can run once he is out of his car.
+    benny.brain = makeBrain('wander');
     m.vehicles.push(target);
     m.characters.push(benny);
     const t = target;
-    m.mark(t, 'Benny');
+    // Track Benny himself, in his car or on foot (carjacked, bailed out).
+    const bennyPos = () => benny.vehicle?.pos ?? benny.pos;
+    // removed = drowned with a sinking car
+    const bennyDown = () => !benny.alive || benny.removed;
+    const mk = m.mark(benny, 'Benny');
     m.objective('Take out Benny');
     let farFor = 0;
-    m.failIf(() => {
-      const d = sim.distToPlayer(t.pos.x, t.pos.z);
-      farFor = d > 330 ? farFor + 1 / 60 : 0;
+    const escape = m.failIf((dt) => {
+      const p = bennyPos();
+      farFor = !bennyDown() && sim.distToPlayer(p.x, p.z) > 330 ? farFor + dt : 0;
       return farFor > 10;
     }, 'Benny got away.');
     // He panics and flees once he notices you.
-    yield m.until(() => sim.distToPlayer(t.pos.x, t.pos.z) < 60 || t.destroyed || !benny.alive);
-    if (t.ai && benny.alive && benny.vehicle === t) {
+    yield m.until(() => {
+      const p = bennyPos();
+      return sim.distToPlayer(p.x, p.z) < 60 || bennyDown();
+    });
+    if (t.ai && !bennyDown() && benny.vehicle === t) {
       t.ai.setPolicy('flee');
       t.ai.target = sim.player;
       sim.events.emit('message', { text: "Benny spotted you! Don't let him escape.", duration: 3 });
     }
-    yield m.until(() => !benny.alive || t.destroyed);
+    yield m.until(bennyDown);
+    m.clearFail(escape);
+    m.unmark(mk);
     yield* m.say(DEX, 'Benny will be very quiet from now on. Come see me, there is more.');
   },
 };
@@ -226,10 +262,10 @@ const bigScore: MissionDef = {
     sim.wanted.floor = 3;
     sim.wanted.setLevel(3);
     let progress = 0;
-    yield m.until(() => {
+    yield m.until((dt) => {
       const p = sim.player;
       const inside = p.state === 'normal' && Math.hypot(p.pos.x - spots.bank.x, p.pos.z - spots.bank.z) < 9;
-      progress = Math.max(0, progress + (inside ? 1 / 60 : -0.5 / 60));
+      progress = Math.max(0, progress + (inside ? dt : -0.5 * dt));
       m.counter = `VAULT ${Math.floor((progress / 20) * 100)}%`;
       return progress >= 20;
     });

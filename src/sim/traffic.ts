@@ -2,6 +2,7 @@
 
 import type { Lane } from '../world/roads';
 import { pointSegDist } from '../core/math';
+import { WATER_Y } from '../world/constants';
 import type { Vehicle } from './entities';
 import type { Sim } from './sim';
 import { PARKED_MIX, TRAFFIC_MIX, type VehicleKind } from './specs';
@@ -49,16 +50,19 @@ export class TrafficSystem {
       if (v.removed || v.persistent || v.owner === 'police' || v.owner === 'mission') continue;
       if (v.driver === sim.player) continue;
       const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
+      // Sunk cars go before the wreck rule: sinking marks them destroyed after 4 s. One resting in
+      // the surf, partly above the water, only goes out of view (or later as an ordinary wreck).
+      if (v.inWater && v.sinkTimer > 6 && (v.pos.y + v.spec.height < WATER_Y || !sim.isVisible(v.pos.x, v.pos.y, v.pos.z))) {
+        sim.removeVehicle(v);
+        continue;
+      }
       if (v.destroyed) {
         if ((v.wreckTime > 40 && (d > 60 || !sim.isVisible(v.pos.x, v.pos.y, v.pos.z))) || d > 280) sim.removeVehicle(v);
         continue;
       }
-      if (v.inWater && v.sinkTimer > 6) {
-        sim.removeVehicle(v);
-        continue;
-      }
       if (v.owner === 'parked') continue; // handled by streamParked
-      if (d > 240 || (d > 175 && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z))) {
+      // Far cars only vanish out of view (the fog does not hide them at this range).
+      if (d > 175 && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
         sim.removeVehicle(v);
         continue;
       }
@@ -100,7 +104,8 @@ export class TrafficSystem {
       const z = lane.sz + lane.dz * s;
       const d = Math.hypot(x - pp.x, z - pp.z);
       if (d < minDist || d > maxDist) continue;
-      if (d < 120 && sim.isVisible(x, 1, z)) continue;
+      // Spawn ranges lie inside the fog-free distance: never pop a car into view.
+      if (sim.isVisible(x, 1, z)) continue;
       if (!this.isClear(x, z, 11)) continue;
       let k = kind ?? sim.rng.weighted(TRAFFIC_MIX);
       if (k === 'bus' && !lane.line.avenue) k = 'sedan';
@@ -170,7 +175,7 @@ export class TrafficSystem {
       const d = Math.hypot(s.x - pp.x, s.z - pp.z);
       if (d > 175 || d < 35) continue;
       if (hash(i) % 100 >= 55) continue;
-      if (d < 120 && sim.isVisible(s.x, 0.5, s.z)) continue;
+      if (sim.isVisible(s.x, 0.5, s.z)) continue;
       if (!this.isClear(s.x, s.z, 3.5)) continue;
       const kind = PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0];
       const v = sim.spawnVehicle(kind, s.x, s.z, s.heading);

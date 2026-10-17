@@ -147,6 +147,11 @@ export class Interactions {
     }
     if (this.sprayBusy === inside.id || v.speed > 4) return;
     this.sprayBusy = inside.id;
+    // A mission has pinned a minimum wanted level (The Big Score): a respray would wipe it.
+    if (sim.wanted.floor > 0) {
+      sim.events.emit('message', { text: "Spray Shack: not with the whole city watching. Nobody's touching this car.", duration: 3.5 });
+      return;
+    }
     const wanted = sim.wanted.level > 0;
     const damaged = v.health < v.spec.health * 0.98 || v.burning;
     if (!wanted && !damaged) {

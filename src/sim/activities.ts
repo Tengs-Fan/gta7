@@ -35,6 +35,8 @@ interface VigilanteJob {
   car: Vehicle;
   level: number;
   target: Vehicle | null;
+  /** The target's driver; tracked on its own because he leaves the car (dead or alive) before he counts as stopped. */
+  suspect: Character | null;
   timer: number;
   pause: number;
 }
@@ -126,7 +128,10 @@ export class Activities {
       if (j.fare.vehicle) sim.unseat(j.fare);
       this.releaseCharacter(j.fare);
     }
-    if (j.kind === 'vigilante' && j.target) this.releaseVehicle(j.target);
+    if (j.kind === 'vigilante') {
+      if (j.target) this.releaseVehicle(j.target);
+      this.releaseSuspect(j);
+    }
     if (j.kind === 'rampage') {
       for (const c of sim.characters) if (c.missionTag === 'rampage') this.releaseCharacter(c);
       if (!sim.progress.rampages.includes(j.tag)) sim.pickupSys.rearmRampage(j.tag, 25);
@@ -150,9 +155,25 @@ export class Activities {
     v.persistent = false;
     v.missionTag = '';
     v.owner = 'none';
-    if (v.driver) {
-      v.driver.persistent = false;
-      v.driver.missionTag = '';
+    if (v.ai) {
+      v.ai.setPolicy('traffic');
+      v.ai.target = null;
+    }
+  }
+
+  /** Hands the vigilante suspect, dead or alive, back to the ambient systems so he can stream out. */
+  private releaseSuspect(j: VigilanteJob): void {
+    const c = j.suspect;
+    j.suspect = null;
+    if (!c || c.removed || c.isPlayer) return;
+    c.persistent = false;
+    c.missionTag = '';
+    // Seated drivers belong to traffic, which hands them to the ped system when they get out.
+    c.owner = c.state === 'inVehicle' ? 'traffic' : 'ped';
+    if (c.alive && c.state !== 'inVehicle' && !c.brain) {
+      // Traffic drivers spawn without a brain: without one he would stand frozen where he got out.
+      c.brain = makeBrain('wander');
+      this.sim.peds.flee(c, this.sim.player.pos.x, this.sim.player.pos.z, this.sim.player);
     }
   }
 
@@ -239,7 +260,7 @@ export class Activities {
       sim.events.emit('money', { amount: pay });
       if (j.fare && !j.fare.removed) {
         if (j.fare.vehicle) sim.unseat(j.fare);
-        this.placeOnSidewalk(j.fare, v);
+        this.placeOnSidewalk(j.fare, v, j.destX, j.destZ);
         this.releaseCharacter(j.fare);
       }
       j.fare = null;
@@ -254,9 +275,21 @@ export class Activities {
     }
   }
 
-  private placeOnSidewalk(c: Character, v: Vehicle): void {
+  /** Lets a fare out on the curb side: the passenger door, or the side their destination is on. */
+  private placeOnSidewalk(c: Character, v: Vehicle, towardX?: number, towardZ?: number): void {
     const sim = this.sim;
-    const spot = sim.world.findFreeSpot(v.pos.x + Math.cos(v.heading) * (v.halfW + 0.8), v.pos.z - Math.sin(v.heading) * (v.halfW + 0.8), 0.4, 8) ?? { x: v.pos.x, z: v.pos.z };
+    // Passenger side = local -X (right), the curb in right-hand traffic.
+    let sx = -Math.cos(v.heading);
+    let sz = Math.sin(v.heading);
+    // Stopped facing against traffic: the destination's curb is on the driver's side.
+    if (towardX !== undefined && towardZ !== undefined && (towardX - v.pos.x) * sx + (towardZ - v.pos.z) * sz < 0) {
+      sx = -sx;
+      sz = -sz;
+    }
+    // Step over the rest of the lane and shoulder onto the sidewalk (bounded, e.g. inside an intersection).
+    let d = v.halfW + 0.8;
+    for (let k = 0; k < 12 && sim.world.isOnRoad(v.pos.x + sx * d, v.pos.z + sz * d); k++) d += 0.5;
+    const spot = sim.world.findFreeSpot(v.pos.x + sx * d, v.pos.z + sz * d, 0.4, 8) ?? { x: v.pos.x, z: v.pos.z };
     c.pos.x = spot.x;
     c.pos.z = spot.z;
     c.pos.y = sim.world.groundHeight(spot.x, spot.z);
@@ -268,7 +301,7 @@ export class Activities {
 
   private startVigilante(car: Vehicle): void {
     const sim = this.sim;
-    this.job = { kind: 'vigilante', car, level: 1, target: null, timer: 120, pause: 0 };
+    this.job = { kind: 'vigilante', car, level: 1, target: null, suspect: null, timer: 120, pause: 0 };
     sim.events.emit('big', { text: 'VIGILANTE', sub: 'Take out the criminal before the time runs out', style: 'title', duration: 3 });
     this.spawnSuspect();
   }
@@ -294,6 +327,7 @@ export class Activities {
     v.ai!.setPolicy('flee');
     v.ai!.target = sim.player;
     j.target = v;
+    j.suspect = d;
     j.timer = Math.max(j.timer, 60 + j.level * 10);
     this.say(`Level ${j.level}: stop the suspect!`);
   }
@@ -324,6 +358,7 @@ export class Activities {
       sim.events.emit('money', { amount: reward });
       sim.events.emit('big', { text: 'CRIMINAL STOPPED', sub: formatMoney(reward), style: 'passed', duration: 2.5 });
       this.releaseVehicle(t);
+      this.releaseSuspect(j);
       j.target = null;
       j.level++;
       j.timer += 30;

@@ -1,7 +1,7 @@
 // Menu screens (title, pause, map, stats, controls, settings, shop, credits)
 // managed as a stack. Keyboard, gamepad and mouse can all drive them.
 
-import { formatMoney } from '../core/math';
+import { clamp, formatMoney } from '../core/math';
 import type { UiActions } from '../input/input';
 import type { Sim } from '../sim/sim';
 import { shopItems } from '../sim/interactions';
@@ -31,6 +31,8 @@ interface Screen {
   input(ui: UiActions): void;
   /** Called every frame while on top (for animated screens like the map). */
   tick?(dt: number): void;
+  /** Called when the screen is on top again after the one above it closed. */
+  refresh?(): void;
   close?(): void;
 }
 
@@ -83,6 +85,14 @@ class ButtonList {
     }
   }
 
+  /** Enables or disables the button with this id, moving the selection off it if needed. */
+  setDisabled(id: string, disabled: boolean): void {
+    const b = this.buttons.find((x) => x.dataset.id === id);
+    if (!b) return;
+    b.disabled = disabled;
+    if (this.buttons[this.sel]?.disabled) this.move(1);
+  }
+
   input(ui: UiActions): void {
     if (ui.up) this.move(-1);
     if (ui.down) this.move(1);
@@ -124,6 +134,7 @@ export class Menus {
     s.close?.();
     s.el.remove();
     this.top?.el.classList.remove('hidden');
+    this.top?.refresh?.();
     this.age = 0;
   }
 
@@ -142,7 +153,8 @@ export class Menus {
 
   // ---------------------------------------------------------------------------
 
-  showTitle(): void {
+  /** Title menu; `notice` is an optional one-line message under the buttons. */
+  showTitle(notice?: string): void {
     this.closeAll();
     const el = h('div', 'screen');
     el.appendChild(h('div', 'title-shade'));
@@ -158,10 +170,16 @@ export class Menus {
       ],
       () => this.host.click(),
     );
+    if (notice) list.el.appendChild(h('div', 'title-note', escapeHtml(notice)));
     wrap.appendChild(list.el);
     wrap.appendChild(h('div', 'title-foot', 'A fan-made parody sandbox. Not affiliated with or endorsed by Rockstar Games or Take-Two Interactive. All city, character, vehicle and brand names are fictional. Best with keyboard + mouse or a gamepad.'));
     el.appendChild(wrap);
-    this.push({ el, input: (ui) => list.input(ui) });
+    this.push({
+      el,
+      input: (ui) => list.input(ui),
+      // The save may have been deleted from SETTINGS meanwhile.
+      refresh: () => list.setDisabled('continue', !this.host.hasSave()),
+    });
   }
 
   showPause(): void {
@@ -323,7 +341,30 @@ export class Menus {
     const el = h('div', 'screen dim');
     const panel = h('div', 'panel');
     panel.appendChild(h('h2', '', 'SETTINGS'));
-    const slider = (label: string, key: 'master' | 'music' | 'sfx' | 'sensitivity' | 'fov', min: number, max: number, stepv: number, fmt: (v: number) => string) => {
+    const apply = () => this.host.applySettings({ ...s });
+    // Keyboard / gamepad: up / down pick a row, left / right adjust it, confirm activates it.
+    const rows: Array<{ el: HTMLElement; adjust?(d: number): void; activate?(): void; skip?(): boolean }> = [];
+    let sel = 0;
+    const select = (i: number) => {
+      sel = i;
+      rows.forEach((r, k) => r.el.classList.toggle('sel', k === i));
+    };
+    const move = (d: number) => {
+      const n = rows.length;
+      for (let k = 1; k <= n; k++) {
+        const i = (sel + d * k + n * 10) % n;
+        if (!rows[i]!.skip?.()) {
+          select(i);
+          return;
+        }
+      }
+    };
+    const addRow = (r: (typeof rows)[number]) => {
+      const i = rows.length;
+      rows.push(r);
+      r.el.addEventListener('mouseenter', () => select(i));
+    };
+    const slider = (label: string, key: 'master' | 'music' | 'sfx' | 'sensitivity' | 'fov', min: number, max: number, stepv: number, keyStep: number, fmt: (v: number) => string) => {
       const row = h('div', 'setting');
       const lab = h('span', '', label);
       const input = h('input');
@@ -334,46 +375,64 @@ export class Menus {
       input.value = String(s[key]);
       input.style.pointerEvents = 'auto';
       const val = h('span', '', fmt(s[key]));
-      input.addEventListener('input', () => {
-        s[key] = Number(input.value);
-        val.textContent = fmt(s[key]);
-        this.host.applySettings({ ...s });
-      });
+      const set = (v: number) => {
+        s[key] = v;
+        input.value = String(v);
+        val.textContent = fmt(v);
+        apply();
+      };
+      input.addEventListener('input', () => set(Number(input.value)));
       row.append(lab, input, val);
       panel.appendChild(row);
+      // Snapped to the slider's step so repeated presses don't drift (0.7999999...).
+      const snap = (v: number) => Number((Math.round(v / stepv) * stepv).toFixed(6));
+      addRow({ el: row, adjust: (d) => set(clamp(snap(s[key] + d * keyStep), min, max)) });
     };
+    const qualities = ['low', 'medium', 'high'] as const;
     const qrow = h('div', 'setting');
     const qsel = h('select');
-    for (const q of ['low', 'medium', 'high'] as const) {
+    for (const q of qualities) {
       const o = h('option');
       o.value = q;
       o.textContent = q.toUpperCase();
       if (s.quality === q) o.selected = true;
       qsel.appendChild(o);
     }
-    qsel.addEventListener('change', () => {
-      s.quality = qsel.value as Settings['quality'];
-      this.host.applySettings({ ...s });
-    });
+    const setQuality = (q: Settings['quality']) => {
+      s.quality = q;
+      qsel.value = q;
+      apply();
+    };
+    qsel.addEventListener('change', () => setQuality(qsel.value as Settings['quality']));
     qrow.append(h('span', '', 'Graphics quality'), qsel, h('span', '', ''));
     panel.appendChild(qrow);
+    addRow({
+      el: qrow,
+      adjust: (d) => {
+        const q = qualities[clamp(qualities.indexOf(s.quality) + d, 0, qualities.length - 1)]!;
+        if (q !== s.quality) setQuality(q);
+      },
+    });
     const pct = (v: number) => `${Math.round(v * 100)}%`;
-    slider('Master volume', 'master', 0, 1, 0.05, pct);
-    slider('Music (radio)', 'music', 0, 1, 0.05, pct);
-    slider('Sound effects', 'sfx', 0, 1, 0.05, pct);
-    slider('Mouse sensitivity', 'sensitivity', 0.2, 3, 0.05, (v) => v.toFixed(2));
-    slider('Field of view', 'fov', 55, 90, 1, (v) => `${v}°`);
+    slider('Master volume', 'master', 0, 1, 0.05, 0.05, pct);
+    slider('Music (radio)', 'music', 0, 1, 0.05, 0.05, pct);
+    slider('Sound effects', 'sfx', 0, 1, 0.05, 0.05, pct);
+    slider('Mouse sensitivity', 'sensitivity', 0.2, 3, 0.05, 0.1, (v) => v.toFixed(2));
+    slider('Field of view', 'fov', 55, 90, 1, 5, (v) => `${v}°`);
     const irow = h('div', 'setting');
     const inv = h('input');
     inv.type = 'checkbox';
     inv.checked = s.invertY;
     inv.style.pointerEvents = 'auto';
-    inv.addEventListener('change', () => {
-      s.invertY = inv.checked;
-      this.host.applySettings({ ...s });
-    });
+    const setInvert = (v: boolean) => {
+      s.invertY = v;
+      inv.checked = v;
+      apply();
+    };
+    inv.addEventListener('change', () => setInvert(inv.checked));
     irow.append(h('span', '', 'Invert look Y'), inv, h('span', '', ''));
     panel.appendChild(irow);
+    addRow({ el: irow, adjust: () => setInvert(!s.invertY), activate: () => setInvert(!s.invertY) });
     const row = h('div', 'row-end');
     const del = h('button', 'btn', 'DELETE SAVE');
     del.disabled = !this.host.hasSave();
@@ -381,14 +440,32 @@ export class Menus {
       this.confirm('Delete your saved game? This cannot be undone.', () => {
         this.host.deleteSave();
         del.disabled = true;
+        if (rows[sel]?.el === del) move(1);
       }),
     );
     const back = h('button', 'btn primary', 'BACK');
     back.addEventListener('click', () => this.pop());
     row.append(del, back);
     panel.appendChild(row);
+    addRow({ el: del, activate: () => del.click(), skip: () => del.disabled });
+    addRow({ el: back, activate: () => back.click() });
+    select(0);
     el.appendChild(panel);
-    this.push({ el, input: (ui) => (ui.back ? this.pop() : undefined) });
+    this.push({
+      el,
+      input: (ui) => {
+        if (ui.back) {
+          this.pop();
+          return;
+        }
+        if (ui.up) move(-1);
+        if (ui.down) move(1);
+        const r = rows[sel]!;
+        if (ui.left) r.adjust?.(-1);
+        if (ui.right) r.adjust?.(1);
+        if (ui.confirm) r.activate?.();
+      },
+    });
   }
 
   showShop(onClose: () => void): void {
@@ -460,7 +537,8 @@ export class Menus {
     });
   }
 
-  showMap(): void {
+  /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
+  showMap(onClose?: () => void): void {
     const sim = this.host.sim();
     if (!sim) return;
     const el = h('div', 'map-screen');
@@ -564,14 +642,26 @@ export class Menus {
       ctx.restore();
     };
     let t = 0;
-    canvas.addEventListener('mousedown', (e) => {
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      // Capture, so the move and the release reach the canvas even over the legend / hint or
+      // outside the window and the drag always ends with the button.
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // Pointer already gone: the buttons check below still ends the drag.
+      }
       dragging = true;
       moved = 0;
       lx = e.clientX;
       ly = e.clientY;
     });
-    canvas.addEventListener('mousemove', (e) => {
+    canvas.addEventListener('pointermove', (e) => {
       if (!dragging) return;
+      if ((e.buttons & 1) === 0) {
+        dragging = false; // the release happened where we couldn't see it
+        return;
+      }
       const k = scale();
       cx -= (e.clientX - lx) / k;
       cz -= (e.clientY - ly) / k;
@@ -579,7 +669,14 @@ export class Menus {
       lx = e.clientX;
       ly = e.clientY;
     });
-    canvas.addEventListener('mouseup', (e) => {
+    const endDrag = () => {
+      dragging = false;
+    };
+    canvas.addEventListener('pointercancel', endDrag);
+    canvas.addEventListener('lostpointercapture', endDrag);
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('pointerup', (e) => {
+      if (!dragging || e.button !== 0) return;
       dragging = false;
       if (moved > 6) return;
       const r = canvas.getBoundingClientRect();
@@ -608,6 +705,7 @@ export class Menus {
         t += dt;
         draw(t);
       },
+      close: onClose,
     });
   }
 }

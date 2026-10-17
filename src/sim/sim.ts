@@ -138,7 +138,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     return v;
   }
 
-  /** Spawns an NPC driver inside `v` with an AI brain. */
+  /** Spawns an NPC driver inside `v` and gives the car a DriverAI (the driver gets no ped brain here). */
   addDriver(v: Vehicle, role: CharacterRole, policy: DriverPolicy): Character {
     const d = this.spawnCharacter(role, v.pos.x, v.pos.z);
     this.seat(d, v, 0);
@@ -280,19 +280,20 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   // ---------------------------------------------------------------------------
   // Physics host callbacks
 
-  onVehicleImpact(v: Vehicle, other: Vehicle | null, deltaV: number, x: number, z: number): void {
+  onVehicleImpact(v: Vehicle, other: Vehicle | null, deltaV: number, x: number, z: number, otherRammed = false): void {
+    // Only the player driving into a car is his doing: a police car ramming him is not.
+    const playerRammed = !!other && other.driver === this.player && otherRammed;
     if (deltaV > 2.5) {
       const dmg = (deltaV - 2.5) * v.spec.health * 0.022;
       // Ramming someone else's car makes the player responsible for its destruction.
-      const culprit = other && other.driver === this.player ? this.player : null;
-      this.combat.damageVehicle(v, dmg, culprit, 'impact');
+      this.combat.damageVehicle(v, dmg, playerRammed ? this.player : null, 'impact');
     }
     if (v.impactTimer <= 0 && deltaV > 2) {
       v.impactTimer = 0.25;
       this.events.emit('impact', { x, y: v.pos.y + 0.6, z, strength: deltaV, vehicle: v });
     }
     // Hitting police cars is a crime; the police notice rammers.
-    if (other && other.driver === this.player && v.spec.police && deltaV > 3) this.wanted.crime('hitPolice', v.pos.x, v.pos.z);
+    if (playerRammed && v.spec.police && deltaV > 3) this.wanted.crime('hitPolice', v.pos.x, v.pos.z);
     // Wake up AI drivers that got hit by the player.
     if (other && other.driver === this.player && v.driver && !v.driver.isPlayer && v.driver.brain) {
       v.driver.brain.threat = this.player;
@@ -335,12 +336,14 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
       c.knockTimer = 2.2;
     }
     const driver = v.driver ?? v.lastDriver;
-    const attacker = driver && driver.isPlayer ? driver : null;
+    // The player's own (now empty) car hitting him is an accident, not an attack.
+    const attacker = driver && driver.isPlayer && driver !== c ? driver : null;
     this.combat.damageCharacter(c, dmg, attacker, 'vehicle', v.vel.x / vs, 0, v.vel.z / vs);
     v.vel.x *= 0.96;
     v.vel.z *= 0.96;
     this.events.emit('impact', { x: c.pos.x, y: c.pos.y + 1, z: c.pos.z, strength: 2 + relSpeed * 0.2, vehicle: v });
-    if (attacker && c.alive) this.wanted.crime(c.isLaw ? 'assaultCop' : 'hitPed', c.pos.x, c.pos.z);
+    // damageCharacter already reported assaultCop (or a kill) for officers.
+    if (attacker && c.alive && !c.isLaw) this.wanted.crime('hitPed', c.pos.x, c.pos.z);
     this.peds.onViolence(c.pos.x, c.pos.z, attacker, 18);
   }
 
@@ -440,7 +443,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
       }
       if (c.state === 'knocked') {
         c.knockTimer -= dt;
-        if (c.knockTimer <= 0 && c.onGround) {
+        // A knock ends on the ground; the time cap makes sure no hovering body stays knocked forever.
+        if (c.knockTimer <= 0 && (c.onGround || c.knockTimer < -3)) {
           c.state = 'normal';
           c.vel.x = 0;
           c.vel.z = 0;
@@ -546,6 +550,19 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
         v.pitchVel = 0;
         v.rollVel = 0;
       }
+      // Smoothed and derived values never recover from NaN on their own (damp/moveTowards keep it),
+      // and the renderer and audio read them.
+      if (!Number.isFinite(v.rpm)) v.rpm = 0;
+      if (!Number.isFinite(v.steer)) v.steer = 0;
+      if (!Number.isFinite(v.speed)) v.speed = 0;
+      if (!Number.isFinite(v.forwardSpeed)) v.forwardSpeed = 0;
+      if (!Number.isFinite(v.climbRate)) v.climbRate = 0;
+      if (!Number.isFinite(v.skid)) v.skid = 0;
+      if (!Number.isFinite(v.wheelSpin)) v.wheelSpin = 0;
+      const ctl = v.controls;
+      if (!Number.isFinite(ctl.throttle)) ctl.throttle = 0;
+      if (!Number.isFinite(ctl.brake)) ctl.brake = 0;
+      if (!Number.isFinite(ctl.steer)) ctl.steer = 0;
     }
     for (const c of this.characters) {
       if (!Number.isFinite(c.pos.x + c.pos.y + c.pos.z + c.vel.x + c.vel.y + c.vel.z + c.heading)) {

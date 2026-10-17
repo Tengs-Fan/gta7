@@ -36,6 +36,9 @@ export interface PedBrain {
   car: Vehicle | null;
   homeX: number;
   homeZ: number;
+  /** Cops: the spot being checked while searching for a player who got away. */
+  searchX: number;
+  searchZ: number;
   /** Shooting accuracy 0..1. */
   accuracy: number;
   burst: number;
@@ -63,6 +66,8 @@ export function makeBrain(mode: PedMode): PedBrain {
     car: null,
     homeX: 0,
     homeZ: 0,
+    searchX: 0,
+    searchZ: 0,
     accuracy: 0.5,
     burst: 0,
     stuckTimer: 0,

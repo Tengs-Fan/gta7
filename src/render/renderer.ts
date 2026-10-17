@@ -156,6 +156,7 @@ export class GameRenderer {
       this.pool.release(v);
     }
     this.vehicleViews.clear();
+    this.effects.reset();
     this.sim = sim;
     const fx = this.effects;
     const ev = sim.events;
@@ -163,6 +164,7 @@ export class GameRenderer {
       ev.on('shot', (e) => {
         const big = e.weapon === 'shotgun' || e.weapon === 'rocket';
         if (e.shooter || e.weapon === 'rifle') fx.muzzleFlash(e.fx, e.fy, e.fz, big);
+        if (e.weapon === 'rocket') fx.rocketLaunched(e.fx, e.fy, e.fz);
         if (e.weapon !== 'rocket' && e.weapon !== 'fists') {
           fx.tracer(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz);
           if (e.hit === 'world' || e.hit === 'vehicle' || e.hit === 'flesh') fx.impact(e.tx, e.ty, e.tz, e.nx, e.ny, e.nz, e.hit);
@@ -172,7 +174,8 @@ export class GameRenderer {
         fx.explosion(e.x, e.y, e.z, e.radius);
         const c = this.cameraCtl.camera.position;
         const d = Math.hypot(c.x - e.x, c.y - e.y, c.z - e.z);
-        this.cameraCtl.addShake(Math.max(0, 1.6 - d / 40));
+        // The only blast shake: grows with the radius and fades out by about 70 m.
+        this.cameraCtl.addShake((e.radius / 7.5) * Math.max(0, 2.4 - d / 30));
       }),
       ev.on('impact', (e) => {
         if (e.strength > 7) fx.debris(e.x, e.y, e.z);
@@ -227,7 +230,8 @@ export class GameRenderer {
       const fzh = Math.cos(v.heading);
       const hx = v.pos.x + fxh * v.halfL * 0.62;
       const hz = v.pos.z + fzh * v.halfL * 0.62;
-      if (v.burning || (v.destroyed && v.wreckTime < 25) || v.condition < 0.45) {
+      // Nothing smokes or burns in the sea (cars that drown are marked destroyed, with no health left).
+      if (!v.inWater && (v.burning || (v.destroyed && v.wreckTime < 25) || v.condition < 0.45)) {
         fx.vehicleSmoke(v.destroyed ? v.pos.x : hx, v.pos.y + v.spec.height * 0.55, v.destroyed ? v.pos.z : hz, v.condition, v.burning, v.destroyed && v.wreckTime < 25, dt);
       }
       if (v.skid > 0.25 && !v.airborne && !v.inWater && v.speed > 2) {
@@ -293,9 +297,11 @@ export class GameRenderer {
     this.env.update(hours, focus, cam, this.time, this.renderer);
     const night = this.env.night;
     this.city.update(night);
-    this.props.update(sim ? sim.time + 1000 : this.time, night);
+    // Signals run on the sim clock, the one drivers and pedestrians obey.
+    this.props.update(this.time, night, sim ? sim.time : this.time);
     if (sim) {
       this.syncVehicles(sim, dt, night);
+      this.effects.syncRockets(sim.projectiles);
       this.vehicleEffects(sim, dt);
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt);
       this.markers.syncMarkers(sim.missions.active || sim.wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time);
@@ -305,8 +311,6 @@ export class GameRenderer {
       this.markers.syncHelis(sim.helis, night, (x, z) => sim.world.groundHeight(x, z));
       this.syncLights(sim, night);
     }
-    this.cameraCtl.addShake(this.effects.shake);
-    this.effects.shake = 0;
     this.effects.update(dt, this.time);
     this.renderer.info.reset();
     this.renderer.render(this.scene, cam);

@@ -6,7 +6,7 @@ import { Rng } from '../core/rng';
 import { clamp } from '../core/math';
 import {
   AVENUE_W, BEACH_W, BOARDWALK_W, CITY_SEED, CROSSWALK_W, CURB_H, GRID_N, PED_INSET,
-  PROMENADE_W, PROP_INSET, SIDEWALK_W, STREET_W,
+  PROMENADE_W, PROP_INSET, SAND_DROP, SIDEWALK_W, STREET_W, WATER_Y,
 } from './constants';
 
 export interface Rect {
@@ -1130,16 +1130,24 @@ function buildCoast(layout: CityLayout, rng: Rng): void {
   for (let z = landMinZ + 20; z < landMaxZ - 20; z += 18) {
     addProp(layout, 'palm', beachStartX - 2.2, z, rng.range(0, 6.28), rng.range(0.9, 1.2));
   }
-  // Scattered beach palms on the dry sand (outside the ramp corridor x in [start+14, start+30]).
+  // The pier and the marina deck span the whole beach.
+  const pierZ = (cityMinZ + cityMaxZ) / 2 + 40;
+  const pierRect = mkRect(beachStartX - 1, pierZ - 7, beachEndX + 90, pierZ + 7);
+  const marinaZ = landMaxZ - 70;
+  const marinaMain = mkRect(beachStartX - 1, marinaZ - 5, beachEndX + 60, marinaZ + 5);
+  // Scattered beach palms on dry sand, seaward of the ramp corridor (x in [start+15, start+29]) and
+  // of the collectible spots at start+30, at least 0.15 m above the water.
+  const dryEnd = beachOffsetAt(WATER_Y + 0.15);
   for (let i = 0; i < 26; i++) {
-    const x = beachStartX + rng.range(34, 44);
+    const x = beachStartX + rng.range(31.5, dryEnd);
     const z = rng.range(landMinZ + 30, landMaxZ - 30);
-    addProp(layout, 'palm', x, z, rng.range(0, 6.28), rng.range(0.9, 1.3), sandHeight(b, x));
+    const rot = rng.range(0, 6.28);
+    const scale = rng.range(0.9, 1.3);
+    if (rectContains(pierRect, x, z, 1.5) || rectContains(marinaMain, x, z, 1.5)) continue;
+    addProp(layout, 'palm', x, z, rot, scale, sandHeight(b, x));
   }
 
   // Azura Pier with a Ferris wheel (centre of the beach) and the marina piers (south).
-  const pierZ = (cityMinZ + cityMaxZ) / 2 + 40;
-  const pierRect = mkRect(beachStartX - 1, pierZ - 7, beachEndX + 90, pierZ + 7);
   layout.decks.push({ rect: pierRect, y: 0.45, name: 'Azura Pier' });
   addProp(layout, 'ferris', beachEndX + 70, pierZ, Math.PI / 2, 1, 0.45);
   for (let x = beachStartX + 20; x < beachEndX + 85; x += 22) {
@@ -1148,8 +1156,6 @@ function buildCoast(layout: CityLayout, rng: Rng): void {
   }
   layout.openSpots.push({ x: beachEndX + 50, z: pierZ + 3, district: 'beachfront' });
 
-  const marinaZ = landMaxZ - 70;
-  const marinaMain = mkRect(beachStartX - 1, marinaZ - 5, beachEndX + 60, marinaZ + 5);
   layout.decks.push({ rect: marinaMain, y: 0.45, name: 'Marina' });
   for (let k = 0; k < 3; k++) {
     const x = beachEndX - 10 + k * 26;
@@ -1167,20 +1173,26 @@ function buildCoast(layout: CityLayout, rng: Rng): void {
     addProp(layout, 'crane', cityMinX + 60 + k * 70, landMaxZ - 9, 0, 1);
   }
 
-  // Billboards on the promenade facing the ring roads.
-  addProp(layout, 'billboard', cityMinX - 20, (cityMinZ + cityMaxZ) / 2 - 120, Math.PI / 2, 1);
-  addProp(layout, 'billboard', (cityMinX + cityMaxX) / 2 + 60, cityMinZ - 20, 0, 1);
-  addProp(layout, 'billboard', (cityMinX + cityMaxX) / 2 - 150, cityMaxZ + 20, Math.PI, 1);
+  // Billboards on the promenade facing the ring roads, 9 m inland of the stunt ramp lines
+  // (the promenade ramps sit at landMin + 15) so cars landing a jump do not run into the posts.
+  addProp(layout, 'billboard', cityMinX - 10, (cityMinZ + cityMaxZ) / 2 - 120, Math.PI / 2, 1);
+  addProp(layout, 'billboard', (cityMinX + cityMaxX) / 2 + 60, cityMinZ - 10, 0, 1);
+  addProp(layout, 'billboard', (cityMinX + cityMaxX) / 2 - 150, cityMaxZ + 10, Math.PI, 1);
 
-  // Beach collectibles.
-  layout.openSpots.push({ x: beachStartX + 40, z: landMinZ + 60, district: 'beachfront' });
-  layout.openSpots.push({ x: beachStartX + 38, z: landMaxZ - 120, district: 'beachfront' });
+  // Beach collectibles, just seaward of the ramp corridor where the sand is still dry.
+  layout.openSpots.push({ x: beachStartX + 30, z: landMinZ + 60, district: 'beachfront' });
+  layout.openSpots.push({ x: beachStartX + 30, z: landMaxZ - 120, district: 'beachfront' });
 }
 
 /** Height of the sloping beach sand at x (independent of z). */
 export function sandHeight(b: Bounds, x: number): number {
   const t = (x - b.beachStartX) / BEACH_W;
-  return CURB_H - t * 3.2;
+  return CURB_H - t * SAND_DROP;
+}
+
+/** Distance from the beach start at which the sand is at height y (inverse of sandHeight). */
+export function beachOffsetAt(y: number): number {
+  return (BEACH_W * (CURB_H - y)) / SAND_DROP;
 }
 
 // ---------------------------------------------------------------------------

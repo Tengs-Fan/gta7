@@ -1,7 +1,8 @@
-// Particles (instanced billboards), bullet tracers, skid marks and flash lights.
+// Particles (instanced billboards), bullet tracers, skid marks, flash lights and rockets in flight.
 
 import * as THREE from 'three';
 import { Rng } from '../core/rng';
+import type { Projectile } from '../sim/entities';
 
 const PARTICLE_VS = /* glsl */ `
 attribute vec3 iPos;
@@ -310,6 +311,27 @@ class Tracers {
   }
 }
 
+// Rocket parts, shared by every rocket view. The body points along local +Z.
+const rocketBodyGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.62, 8).rotateX(Math.PI / 2);
+const rocketNoseGeo = new THREE.ConeGeometry(0.075, 0.2, 8).rotateX(Math.PI / 2).translate(0, 0, 0.41);
+const rocketFinGeo = new THREE.BoxGeometry(0.3, 0.02, 0.14).translate(0, 0, -0.24);
+const rocketFlameGeo = new THREE.SphereGeometry(0.1, 8, 6).scale(1, 1, 2.2).translate(0, 0, -0.5);
+const rocketBodyMat = new THREE.MeshStandardMaterial({ color: 0x3d4a2f, roughness: 0.5, metalness: 0.5 });
+// Far above the bloom threshold so the exhaust glows.
+const rocketFlameMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 4.6, 1.4) });
+const ROCKET_FWD = new THREE.Vector3(0, 0, 1);
+/** Distance between trail puffs, so the trail is continuous at any frame rate. */
+const ROCKET_PUFF = 0.6;
+
+interface RocketView {
+  group: THREE.Group;
+  /** Tail position at the last frame, and distance travelled since the last puff. */
+  x: number;
+  y: number;
+  z: number;
+  carry: number;
+}
+
 export class Effects {
   readonly group = new THREE.Group();
   private readonly glow = new ParticleLayer(2500, true);
@@ -321,15 +343,26 @@ export class Effects {
   private flashLife = 0;
   private muzzleLife = 0;
   private readonly rng = new Rng(5);
-  /** Accumulated camera shake request (consumed by the camera). */
-  shake = 0;
-  private readonly sprays: Array<{ x: number; y: number; z: number; t: number }> = [];
+  private readonly sprays: Array<{ x: number; y: number; z: number; t: number; acc: number }> = [];
+  private readonly rockets = new Map<number, RocketView>();
+  private readonly rocketPool: RocketView[] = [];
+  private readonly rocketSeen = new Set<number>();
+  private readonly rocketDir = new THREE.Vector3();
+  private launch: { x: number; y: number; z: number } | null = null;
 
   constructor() {
     this.group.add(this.glow.mesh, this.smoke.mesh, this.skids.mesh, this.tracers.mesh);
     this.flash = new THREE.PointLight(0xffa040, 0, 40, 1.6);
     this.muzzle = new THREE.PointLight(0xffd080, 0, 12, 2);
     this.group.add(this.flash, this.muzzle);
+    // One pooled rocket up front, so the renderer's warm-up compiles its materials.
+    this.rocketPool.push(this.newRocket());
+  }
+
+  /** Clears per-simulation state when a new simulation is attached (props are restored then). */
+  reset(): void {
+    this.sprays.length = 0;
+    this.syncRockets([]);
   }
 
   private r(a: number, b: number): number {
@@ -376,7 +409,86 @@ export class Effects {
     this.flash.position.set(x, y + 2, z);
     this.flash.intensity = 900 * s;
     this.flashLife = 0.5;
-    this.shake += 1.2 * s;
+  }
+
+  /** Muzzle point of a rocket just fired, where the next new rocket's trail starts. */
+  rocketLaunched(x: number, y: number, z: number): void {
+    this.launch = { x, y, z };
+  }
+
+  /** Mirrors the rockets in flight: a pooled body oriented along the velocity plus a smoke trail. */
+  syncRockets(projectiles: readonly Projectile[]): void {
+    const seen = this.rocketSeen;
+    seen.clear();
+    const dir = this.rocketDir;
+    for (const p of projectiles) {
+      if (p.removed) continue;
+      const sp = Math.hypot(p.vel.x, p.vel.y, p.vel.z);
+      if (sp > 1e-6) dir.set(p.vel.x / sp, p.vel.y / sp, p.vel.z / sp);
+      else dir.copy(ROCKET_FWD);
+      const tx = p.pos.x - dir.x * 0.4;
+      const ty = p.pos.y - dir.y * 0.4;
+      const tz = p.pos.z - dir.z * 0.4;
+      seen.add(p.id);
+      let r = this.rockets.get(p.id);
+      if (!r) {
+        r = this.rocketPool.pop() ?? this.newRocket();
+        // The sim has already moved the rocket once, so start the trail at the launcher.
+        const from = this.launch;
+        this.launch = null;
+        r.x = from ? from.x - dir.x * 0.4 : tx;
+        r.y = from ? from.y - dir.y * 0.4 : ty;
+        r.z = from ? from.z - dir.z * 0.4 : tz;
+        r.carry = 0;
+        r.group.visible = true;
+        this.rockets.set(p.id, r);
+      }
+      r.group.position.set(p.pos.x, p.pos.y, p.pos.z);
+      r.group.quaternion.setFromUnitVectors(ROCKET_FWD, dir);
+      r.carry = this.rocketTrail(r, tx, ty, tz);
+    }
+    for (const [id, r] of this.rockets) {
+      if (seen.has(id)) continue;
+      r.group.visible = false;
+      this.rocketPool.push(r);
+      this.rockets.delete(id);
+    }
+    // A rocket that exploded before it was ever drawn must not hand its launch point to the next one.
+    this.launch = null;
+  }
+
+  /** Lays puffs every ROCKET_PUFF metres from the view's last tail position to (x, y, z); returns the leftover distance. */
+  private rocketTrail(r: RocketView, x: number, y: number, z: number): number {
+    const dx = x - r.x;
+    const dy = y - r.y;
+    const dz = z - r.z;
+    const len = Math.hypot(dx, dy, dz);
+    r.x = x;
+    r.y = y;
+    r.z = z;
+    if (len < 1e-6) return r.carry;
+    let d = ROCKET_PUFF - r.carry;
+    for (; d <= len; d += ROCKET_PUFF) {
+      const k = d / len - 1;
+      const px = x + dx * k;
+      const py = y + dy * k;
+      const pz = z + dz * k;
+      this.smoke.emit(px, py, pz, this.r(-0.25, 0.25), this.r(0.1, 0.5), this.r(-0.25, 0.25), this.r(1.2, 2), 0.3, 1.6, 0xe2ded6, 0x9a968e, 0.55, -0.2, 1.2, this.r(-0.5, 0.5));
+      this.glow.emit(px, py, pz, 0, 0, 0, 0.1, 0.35, 0.12, 0xffe0a0, 0xff6a10, 0.9);
+    }
+    return len - (d - ROCKET_PUFF);
+  }
+
+  private newRocket(): RocketView {
+    const g = new THREE.Group();
+    g.name = 'rocket';
+    const fin = new THREE.Mesh(rocketFinGeo, rocketBodyMat);
+    const fin2 = new THREE.Mesh(rocketFinGeo, rocketBodyMat);
+    fin2.rotation.z = Math.PI / 2;
+    g.add(new THREE.Mesh(rocketBodyGeo, rocketBodyMat), new THREE.Mesh(rocketNoseGeo, rocketBodyMat), fin, fin2, new THREE.Mesh(rocketFlameGeo, rocketFlameMat));
+    g.visible = false;
+    this.group.add(g);
+    return { group: g, x: 0, y: 0, z: 0, carry: 0 };
   }
 
   /** Damaged / burning vehicle emitters (called per frame). */
@@ -400,7 +512,7 @@ export class Effects {
   }
 
   hydrantSpray(x: number, y: number, z: number): void {
-    this.sprays.push({ x, y, z, t: 12 });
+    this.sprays.push({ x, y, z, t: 12, acc: 0 });
   }
 
   debris(x: number, y: number, z: number): void {
@@ -415,7 +527,9 @@ export class Effects {
         this.sprays.splice(i, 1);
         continue;
       }
-      for (let k = 0; k < 3; k++) this.smoke.emit(s.x + this.r(-0.1, 0.1), s.y + 0.6, s.z + this.r(-0.1, 0.1), this.r(-0.8, 0.8), this.r(7, 10), this.r(-0.8, 0.8), this.r(1, 1.6), 0.2, 0.7, 0xffffff, 0xd8ecf8, 0.75, 9, 0.1);
+      // A fixed rate (3 per frame at 60 Hz) rather than per call: nothing while paused, same at any frame rate.
+      s.acc += dt * 180;
+      for (; s.acc >= 1; s.acc--) this.smoke.emit(s.x + this.r(-0.1, 0.1), s.y + 0.6, s.z + this.r(-0.1, 0.1), this.r(-0.8, 0.8), this.r(7, 10), this.r(-0.8, 0.8), this.r(1, 1.6), 0.2, 0.7, 0xffffff, 0xd8ecf8, 0.75, 9, 0.1);
     }
     this.glow.update(dt, 1);
     this.smoke.update(dt, 1);

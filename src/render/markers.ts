@@ -52,10 +52,17 @@ export class MarkerView {
   private readonly arrowPool: THREE.Mesh[] = [];
   private readonly pickupViews = new Map<number, THREE.Group>();
   private readonly heliViews = new Map<number, { g: THREE.Group; rotor: THREE.Object3D; tail: THREE.Object3D; cone: THREE.Mesh; pool: THREE.Mesh }>();
+  // Views come and go as things stream in and out of range; their geometry and materials are
+  // shared so a returning view uploads nothing new (and nothing has to be disposed).
   private readonly beamGeo = new THREE.CylinderGeometry(1, 1, 1, 32, 1, true).translate(0, 0.5, 0);
   private readonly arrowGeo = new THREE.ConeGeometry(0.45, 0.9, 4).rotateX(Math.PI);
+  private readonly markerIconGeo = new THREE.OctahedronGeometry(0.32, 0);
+  private readonly markerMats = new Map<number, { beam: THREE.MeshBasicMaterial; icon: THREE.MeshStandardMaterial }>();
+  private readonly iconGeos = new Map<PickupKind, THREE.BufferGeometry>();
   private readonly iconMats = new Map<PickupKind, THREE.MeshStandardMaterial>();
   private readonly glowMats = new Map<number, THREE.SpriteMaterial>();
+  /** Helicopter built once; each view is a clone sharing its geometry and materials. */
+  private heliTemplate: { g: THREE.Group; cone: THREE.Mesh; pool: THREE.Mesh } | null = null;
 
   private glowSprite(color: number, size: number): THREE.Sprite {
     let mat = this.glowMats.get(color);
@@ -75,9 +82,14 @@ export class MarkerView {
       let g = this.markerViews.get(m.id);
       if (!g) {
         g = new THREE.Group();
-        const beam = new THREE.Mesh(this.beamGeo, beamMaterial(m.color, 0.28));
+        let mats = this.markerMats.get(m.color);
+        if (!mats) {
+          mats = { beam: beamMaterial(m.color, 0.28), icon: new THREE.MeshStandardMaterial({ color: m.color, emissive: m.color, emissiveIntensity: 1.2, roughness: 0.3 }) };
+          this.markerMats.set(m.color, mats);
+        }
+        const beam = new THREE.Mesh(this.beamGeo, mats.beam);
         beam.scale.set(1.1, 1.3, 1.1);
-        const icon = new THREE.Mesh(new THREE.OctahedronGeometry(0.32, 0), new THREE.MeshStandardMaterial({ color: m.color, emissive: m.color, emissiveIntensity: 1.2, roughness: 0.3 }));
+        const icon = new THREE.Mesh(this.markerIconGeo, mats.icon);
         icon.position.y = 1.7;
         icon.name = 'icon';
         g.add(beam, icon);
@@ -160,7 +172,12 @@ export class MarkerView {
           mat = new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: p.kind === 'weapon' ? 0.4 : 0.9, roughness: 0.35, metalness: p.kind === 'weapon' ? 0.7 : 0.1 });
           this.iconMats.set(p.kind, mat);
         }
-        const icon = new THREE.Mesh(iconGeometry(p.kind), mat);
+        let geo = this.iconGeos.get(p.kind);
+        if (!geo) {
+          geo = iconGeometry(p.kind);
+          this.iconGeos.set(p.kind, geo);
+        }
+        const icon = new THREE.Mesh(geo, mat);
         icon.name = 'icon';
         icon.castShadow = true;
         g.add(icon, this.glowSprite(ICON_COLOR[p.kind], p.kind === 'package' ? 2.2 : 1.6));
@@ -215,6 +232,18 @@ export class MarkerView {
   }
 
   private newHeli(id: number) {
+    const t = (this.heliTemplate ??= this.buildHeli());
+    // clone() shares geometry and materials; transforms and visibility stay per view.
+    const g = t.g.clone();
+    const cone = t.cone.clone();
+    const pool = t.pool.clone();
+    this.group.add(g, cone, pool);
+    const v = { g, rotor: g.getObjectByName('rotor')!, tail: g.getObjectByName('tailRotor')!, cone, pool };
+    this.heliViews.set(id, v);
+    return v;
+  }
+
+  private buildHeli(): { g: THREE.Group; cone: THREE.Mesh; pool: THREE.Mesh } {
     const g = new THREE.Group();
     const dark = new THREE.MeshStandardMaterial({ color: 0x1d2a44, roughness: 0.4, metalness: 0.4 });
     const white = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.4, metalness: 0.3 });
@@ -228,9 +257,11 @@ export class MarkerView {
     const skids2 = skids.clone();
     skids2.position.x = -1.8;
     const rotor = new THREE.Group();
+    rotor.name = 'rotor';
     rotor.position.y = 1.45;
     rotor.add(new THREE.Mesh(new THREE.BoxGeometry(11, 0.06, 0.32), dark), new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.06, 11), dark));
     const tailRotor = new THREE.Group();
+    tailRotor.name = 'tailRotor';
     tailRotor.position.set(0.25, 0.9, -6.7);
     tailRotor.add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.8, 0.18), dark));
     g.add(body, nose, stripe, tail, fin, skids, skids2, rotor, tailRotor);
@@ -241,9 +272,6 @@ export class MarkerView {
     const coneGeo = new THREE.ConeGeometry(4.5, 1, 20, 1, true).translate(0, -0.5, 0);
     const cone = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({ color: 0xeef4ff, transparent: true, opacity: 0.09, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     const pool = new THREE.Mesh(new THREE.CircleGeometry(5, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xeef4ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }));
-    this.group.add(g, cone, pool);
-    const v = { g, rotor, tail: tailRotor, cone, pool };
-    this.heliViews.set(id, v);
-    return v;
+    return { g, cone, pool };
   }
 }

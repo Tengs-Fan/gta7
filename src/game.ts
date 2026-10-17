@@ -5,6 +5,7 @@ import { AudioEngine } from './audio/audio';
 import { Input, type FrameInput } from './input/input';
 import { GameRenderer } from './render/renderer';
 import { deleteGame, loadGame, loadSettings, saveSettings, writeGame, type Settings } from './settings';
+import type { Vehicle } from './sim/entities';
 import { neutralInput } from './sim/input';
 import { missionSpots } from './sim/missions/spots';
 import { applySave, serialize, type SaveData } from './sim/progress';
@@ -47,6 +48,7 @@ export class Game {
     this.renderer = new GameRenderer(canvas, this.world, { quality: this.settings.quality, fov: this.settings.fov });
     this.input = new Input(canvas);
     this.input.attach();
+    this.input.wantsPointerLock = () => this.mode === 'game' && !this.menus.open && !this.crashed;
     this.hud = new Hud(ui, this.mapImage);
     this.hud.setVisible(false);
     this.menus = new Menus(ui, this.menuHost(), this.mapImage);
@@ -57,10 +59,8 @@ export class Game {
     this.menus.showTitle();
 
     window.addEventListener('resize', () => this.renderer.resize());
-    canvas.addEventListener('click', () => {
-      this.audio.unlock();
-      if (this.mode === 'game' && !this.menus.open) this.input.requestPointerLock();
-    });
+    // Input re-captures the mouse on mousedown (without firing), see wantsPointerLock.
+    canvas.addEventListener('click', () => this.audio.unlock());
     window.addEventListener('keydown', () => this.audio.unlock(), { once: false });
     document.addEventListener('pointerlockchange', () => {
       if (!this.input.pointerLocked && this.mode === 'game' && !this.menus.open && !this.sim.playerDown && this.running) this.pause();
@@ -141,7 +141,7 @@ export class Game {
     const ev = sim.events;
     this.unsub.push(
       ev.on('shopOpen', () => {
-        this.input.exitPointerLock();
+        this.suspendPlay();
         this.menus.showShop(() => this.resume());
       }),
       ev.on('saveRequested', (e) => this.save(e.poi === 'auto')),
@@ -156,6 +156,7 @@ export class Game {
     this.menus.closeAll();
     this.hud.setVisible(true);
     this.audio.unlock();
+    this.audio.setPaused(false);
     this.input.requestPointerLock();
     if (!save || sim.progress.missionsDone.length === 0) {
       const lou = missionSpots(this.world).lou;
@@ -173,7 +174,9 @@ export class Game {
   continueGame(): void {
     const save = loadGame();
     if (!save) {
-      this.newGame();
+      // The save went away after the title was built (deleted in another tab, site data
+      // cleared, unreadable): say so rather than silently starting over.
+      this.menus.showTitle('No saved game found.');
       return;
     }
     this.startSim(save);
@@ -188,10 +191,15 @@ export class Game {
   }
 
   pause(): void {
-    if (this.mode !== 'game' || this.menus.open) return;
+    if (this.mode !== 'game' || this.menus.open || this.crashed) return;
+    this.suspendPlay();
+    this.menus.showPause();
+  }
+
+  /** Frees the mouse and mutes the frozen world while an in-game screen covers it; resume() undoes it. */
+  private suspendPlay(): void {
     this.input.exitPointerLock();
     this.audio.setPaused(true);
-    this.menus.showPause();
   }
 
   resume(): void {
@@ -215,8 +223,8 @@ export class Game {
   }
 
   private openMap(): void {
-    this.input.exitPointerLock();
-    this.menus.showMap();
+    this.suspendPlay();
+    this.menus.showMap(() => this.resume());
   }
 
   // ---------------------------------------------------------------------------
@@ -236,7 +244,7 @@ export class Game {
     this.last = now;
     if (dt <= 0) return;
     const t0 = performance.now();
-    const fi = this.input.poll();
+    const fi = this.input.poll(dt);
     try {
       this.step(dt, fi);
     } catch (err) {
@@ -299,7 +307,8 @@ export class Game {
     sim.update(dt, inp);
     this.perf.simMs = performance.now() - ts;
     this.input.inVehicle = !!sim.player.vehicle;
-    const aiming = (sim.player.aiming || inp.aim) && !sim.player.vehicle;
+    // The sim decides whether the player can aim (not while swimming, knocked down or climbing in).
+    const aiming = sim.player.aiming && !sim.player.vehicle;
     const tr = performance.now();
     this.renderer.render(dt, aiming);
     this.perf.renderMs = performance.now() - tr;
@@ -333,12 +342,23 @@ export class Game {
       case 'GUNSGALORE':
         for (const w of WEAPON_ORDER) if (w !== 'fists') p.inventory.give(w, 300);
         break;
-      case 'FIXMYRIDE':
-        if (p.vehicle) {
-          p.vehicle.health = p.vehicle.spec.health;
-          p.vehicle.burning = false;
+      case 'FIXMYRIDE': {
+        // Typing the code presses F (enter / exit), so by the time it completes the player has
+        // usually left the car: fix the one they just got out of as well.
+        const v = p.vehicle ?? recentRide(sim);
+        if (v) {
+          v.health = v.spec.health;
+          v.burning = false;
+          v.burnTimer = 0;
+          // A car on its roof is undrivable: put it back on its wheels.
+          v.flipped = false;
+          v.roll = 0;
+          v.pitch = 0;
+          v.rollVel = 0;
+          v.pitchVel = 0;
         }
         break;
+      }
       case 'IMMORTAL':
         sim.cheats.godMode = !sim.cheats.godMode;
         break;
@@ -374,9 +394,34 @@ export class Game {
     el.className = 'error';
     el.innerHTML = `<div><h2 style="font-family:Anton,Impact,sans-serif;font-size:42px;margin:0 0 10px">SOMETHING BROKE</h2><p>The game hit an unexpected error and stopped to protect your save.</p><pre style="white-space:pre-wrap;opacity:.7;max-width:80vw">${String(err instanceof Error ? err.stack ?? err.message : err).slice(0, 800).replace(/</g, '&lt;')}</pre><button class="btn primary" style="pointer-events:auto" onclick="location.reload()">RELOAD</button></div>`;
     this.ui.appendChild(el);
+    // Stopping the loop also keeps the pointerlockchange handler from pausing under the overlay.
+    this.running = false;
+    try {
+      // Free the cursor for RELOAD and silence the frozen engine / siren voices.
+      this.input.exitPointerLock();
+      this.audio.setPaused(true);
+    } catch {
+      // Best effort: the error screen is already up even if input or audio is what broke.
+    }
   }
 
   get isCrashed(): boolean {
     return this.crashed;
   }
+}
+
+/** The nearest intact car within 30 m that the player was the last to drive. */
+function recentRide(sim: Sim): Vehicle | null {
+  const p = sim.playerPos();
+  let best: Vehicle | null = null;
+  let bestD = 30;
+  for (const v of sim.vehicles) {
+    if (v.lastDriver !== sim.player || v.removed || v.destroyed) continue;
+    const d = Math.hypot(v.pos.x - p.x, v.pos.z - p.z);
+    if (d < bestD) {
+      best = v;
+      bestD = d;
+    }
+  }
+  return best;
 }

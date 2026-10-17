@@ -18,6 +18,8 @@ export const PROP_INSET = 0.9;
 export const PROMENADE_W = 34; // land strip beyond the outer ring road on the W, N and S coasts
 export const BOARDWALK_W = 14; // east coast strip before the sand starts
 export const BEACH_W = 110;
+/** The beach sand drops this much from the boardwalk (CURB_H) over BEACH_W. */
+export const SAND_DROP = 3.2;
 export const WATER_Y = -1.0;
 export const SEABED_Y = -8;
 /** Swimming starts when the water is deeper than this. */

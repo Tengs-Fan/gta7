@@ -3,6 +3,7 @@
 import { rayCylinderY, rayObb3, type OBB } from '../core/collision';
 import { clamp, type V3 } from '../core/math';
 import { makeRayHit } from '../world/colliders';
+import { makeBrain } from './brains';
 import type { Character, Vehicle } from './entities';
 import { Projectile } from './entities';
 import type { HitKind } from './events';
@@ -10,6 +11,7 @@ import type { PlayerInput } from './input';
 import type { Sim } from './sim';
 import type { WeaponSpec } from './specs';
 import { launchVehicle, vehicleObb } from './vehiclePhysics';
+import type { CrimeType } from './wanted';
 
 export type DamageKind = 'bullet' | 'melee' | 'explosion' | 'vehicle' | 'fall' | 'fire' | 'impact' | 'drown';
 
@@ -31,10 +33,15 @@ export class CombatSystem {
   /** Vehicle -> who last damaged it (for crimes and stats on destruction). */
   private readonly damagedBy = new WeakMap<Vehicle, Character>();
   private fireWarnCooldown = 0;
+  /** Victims already charged with a crime for the shot being resolved (one per victim per trigger pull). */
+  private volley: Set<object> | null = null;
 
   constructor(private readonly sim: Sim) {}
 
   update(dt: number): void {
+    // Weapons change hands in many places (slot keys, pickups, shops, missions): drop stale reloads
+    // here, before the timers run them out and before the HUD shows them.
+    for (const c of this.sim.characters) this.syncReload(c);
     this.updateProjectiles(dt);
     this.updateBurning(dt);
     if (this.fireWarnCooldown > 0) this.fireWarnCooldown -= dt;
@@ -62,6 +69,7 @@ export class CombatSystem {
       if (input.firePressed && !fromVehicle) this.melee(p);
       return;
     }
+    this.syncReload(p);
     if (p.reloadTimer > 0 || p.fireCooldown > 0) return;
     if (!w.auto && !input.firePressed) return;
     const slot = p.inventory.slot();
@@ -80,7 +88,7 @@ export class CombatSystem {
     p.aimHold = 1.0;
     this.sim.progress.stats.shotsFired++;
     const from = this.muzzle(p, fromVehicle);
-    const target = this.cameraTarget(input.aimOrigin, input.aimDir, w.range + 8, p);
+    const target = this.cameraTarget(input.aimOrigin, input.aimDir, w.range + 8, p, from);
     let dx = target.x - from.x;
     let dy = target.y - from.y;
     let dz = target.z - from.z;
@@ -92,9 +100,14 @@ export class CombatSystem {
     if (w.projectile) {
       this.launchRocket(p, from, dx, dy, dz);
     } else {
-      for (let i = 0; i < w.pellets; i++) {
-        const d = this.spread(dx, dy, dz, w.spread * spreadMul);
-        this.fireRay(p, from, d.x, d.y, d.z, w);
+      this.volley = new Set();
+      try {
+        for (let i = 0; i < w.pellets; i++) {
+          const d = this.spread(dx, dy, dz, w.spread * spreadMul);
+          this.fireRay(p, from, d.x, d.y, d.z, w);
+        }
+      } finally {
+        this.volley = null;
       }
     }
     this.sim.wanted.crime('gunfire', p.pos.x, p.pos.z);
@@ -104,6 +117,7 @@ export class CombatSystem {
   /** NPC shooting at a target character (or the vehicle it is in). */
   npcFire(c: Character, target: Character, accuracy: number): void {
     const w = c.inventory.spec();
+    this.syncReload(c);
     if (w.id === 'fists' || c.fireCooldown > 0 || c.reloadTimer > 0) return;
     const slot = c.inventory.slot();
     if (slot.clip <= 0) {
@@ -163,19 +177,29 @@ export class CombatSystem {
     return { x: ox / l, y: oy / l, z: oz / l };
   }
 
-  /** Point the crosshair ray hits first (ignoring the shooter). */
-  cameraTarget(o: V3, d: V3, range: number, shooter: Character): V3 {
-    const r = this.castRay(o.x, o.y, o.z, d.x, d.y, d.z, range + 12, shooter, true);
-    const t = r.kind === 'none' ? range + 12 : r.t;
+  /**
+   * Point the crosshair ray hits first (ignoring the shooter). The camera sits behind the shooter, so
+   * only hits beyond the muzzle's depth along the ray count: a van the camera has backed into, or a car
+   * or person between the camera and the player, would otherwise be shot from the muzzle backwards.
+   */
+  cameraTarget(o: V3, d: V3, range: number, shooter: Character, muzzle: V3): V3 {
+    const t0 = Math.max(0, (muzzle.x - o.x) * d.x + (muzzle.y - o.y) * d.y + (muzzle.z - o.z) * d.z);
+    const far = t0 + range + 12;
+    const r = this.castRay(o.x, o.y, o.z, d.x, d.y, d.z, far, shooter, true, t0);
+    // A prop the ray is inside at the muzzle's depth gives no direction: aim along the crosshair.
+    const t = r.kind === 'none' || r.t <= t0 ? far : r.t;
     return { x: o.x + d.x * t, y: o.y + d.y * t, z: o.z + d.z * t };
   }
 
-  /** Nearest hit along a ray against world, vehicles, characters and helicopters. */
-  castRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, range: number, ignore: Character | null, forAim = false): RayResult {
+  /**
+   * Nearest hit along a ray against world, vehicles, characters and helicopters. Nothing nearer than
+   * `minT` counts: the world is cast from there, and anything else the ray entered before it is skipped.
+   */
+  castRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, range: number, ignore: Character | null, forAim = false, minT = 0): RayResult {
     const sim = this.sim;
     const res: RayResult = { t: range, kind: 'none', character: null, vehicle: null, heli: -1, nx: 0, ny: 1, nz: 0 };
-    if (sim.world.grid.raycast(ox, oy, oz, dx, dy, dz, range, hit)) {
-      res.t = hit.t;
+    if (sim.world.grid.raycast(ox + dx * minT, oy + dy * minT, oz + dz * minT, dx, dy, dz, range - minT, hit)) {
+      res.t = minT + hit.t;
       res.kind = 'world';
       res.nx = hit.nx;
       res.ny = hit.ny;
@@ -188,7 +212,7 @@ export class CombatSystem {
         const gx = ox + dx * tg;
         const gz = oz + dz * tg;
         const tg2 = (sim.world.groundHeight(gx, gz) - oy) / dy;
-        if (tg2 >= 0 && tg2 < res.t) {
+        if (tg2 >= minT && tg2 < res.t) {
           res.t = tg2;
           res.kind = 'world';
           res.nx = 0;
@@ -206,7 +230,7 @@ export class CombatSystem {
       if (along < -6 || along > res.t + 6) continue;
       vehicleObb(v, obb);
       const t = rayObb3(ox, oy, oz, dx, dy, dz, obb, v.pos.y + 0.15, v.pos.y + v.spec.height, res.t);
-      if (t >= 0 && t < res.t) {
+      if (t >= minT && t < res.t) {
         res.t = t;
         res.kind = 'vehicle';
         res.vehicle = v;
@@ -227,7 +251,7 @@ export class CombatSystem {
       const top = c.state === 'swimming' ? c.pos.y + c.height : c.pos.y + (lying ? 0.45 : c.height);
       const bottom = c.state === 'swimming' ? c.pos.y + 0.9 : c.pos.y;
       const t = rayCylinderY(ox, oy, oz, dx, dy, dz, c.pos.x, c.pos.z, lying ? 0.6 : 0.36, bottom, top, res.t);
-      if (t >= 0 && t < res.t) {
+      if (t >= minT && t < res.t) {
         res.t = t;
         res.kind = 'flesh';
         res.character = c;
@@ -241,7 +265,7 @@ export class CombatSystem {
       const h = sim.helis[i]!;
       if (h.removed || h.destroyed) continue;
       const t = raySphere(ox, oy, oz, dx, dy, dz, h.pos.x, h.pos.y + 1.2, h.pos.z, 3.2);
-      if (t >= 0 && t < res.t) {
+      if (t >= minT && t < res.t) {
         res.t = t;
         res.kind = 'vehicle';
         res.heli = i;
@@ -275,7 +299,7 @@ export class CombatSystem {
     } else if (r.heli >= 0) {
       const h = sim.helis[r.heli]!;
       h.health -= w.damage * (shooter.isPlayer ? 1.2 : 0);
-      if (shooter.isPlayer) sim.wanted.crime('assaultCop', h.pos.x, h.pos.z);
+      if (shooter.isPlayer) this.reportAttack(h, 'assaultCop', h.pos.x, h.pos.z);
     }
     sim.events.emit('shot', { shooter, weapon: w.id, fx: from.x, fy: from.y, fz: from.z, tx, ty, tz, hit: r.kind, nx: r.nx, ny: r.ny, nz: r.nz });
   }
@@ -292,6 +316,8 @@ export class CombatSystem {
     let bd = 1.75;
     for (const o of sim.characters) {
       if (o === c || o.removed || !o.alive || (o.state !== 'normal' && o.state !== 'knocked')) continue;
+      // Gang members crowding the player never punch each other.
+      if (sim.peds.allied(c, o)) continue;
       const dx = o.pos.x - c.pos.x;
       const dz = o.pos.z - c.pos.z;
       const d = Math.hypot(dx, dz);
@@ -329,16 +355,21 @@ export class CombatSystem {
   // Reloading
 
   startReload(c: Character): void {
+    this.syncReload(c);
     const spec = c.inventory.spec();
     const slot = c.inventory.slot();
     if (spec.mag === 0 || c.reloadTimer > 0 || slot.clip >= spec.mag) return;
     if (slot.ammo <= 0 && !c.inventory.infinite) return;
     c.reloadTimer = spec.reload;
+    c.reloadWeapon = spec.id;
     this.sim.events.emit('reload', { character: c });
   }
 
   finishReload(c: Character): void {
+    const weapon = c.reloadWeapon;
     c.reloadTimer = 0;
+    c.reloadWeapon = null;
+    if (weapon !== c.inventory.current) return;
     const spec = c.inventory.spec();
     const slot = c.inventory.slot();
     const need = spec.mag - slot.clip;
@@ -346,6 +377,14 @@ export class CombatSystem {
     const take = c.inventory.infinite ? need : Math.min(need, slot.ammo);
     slot.clip += take;
     if (!c.inventory.infinite) slot.ammo -= take;
+  }
+
+  /** Cancels a reload whose weapon is no longer in hand; that weapon keeps its partial clip. */
+  private syncReload(c: Character): void {
+    if (c.reloadTimer > 0 && c.reloadWeapon !== c.inventory.current) {
+      c.reloadTimer = 0;
+      c.reloadWeapon = null;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -372,13 +411,22 @@ export class CombatSystem {
       return;
     }
     if (attacker && attacker.isPlayer && !c.isPlayer) {
-      if (c.isLaw) sim.wanted.crime('assaultCop', c.pos.x, c.pos.z);
-      else if (kind === 'melee' || kind === 'bullet') sim.wanted.crime('assault', c.pos.x, c.pos.z);
+      if (c.isLaw) this.reportAttack(c, 'assaultCop', c.pos.x, c.pos.z);
+      else if (kind === 'melee' || kind === 'bullet') this.reportAttack(c, 'assault', c.pos.x, c.pos.z);
     }
     if (!c.isPlayer) {
       if (c.isLaw) sim.police.onCopAttacked(c, attacker);
       else sim.peds.onAttacked(c, attacker);
     }
+  }
+
+  /** Reports the player attacking `victim`; the pellets of one shot are one crime per victim. */
+  private reportAttack(victim: object, type: CrimeType, x: number, z: number): void {
+    if (this.volley) {
+      if (this.volley.has(victim)) return;
+      this.volley.add(victim);
+    }
+    this.sim.wanted.crime(type, x, z);
   }
 
   kill(c: Character, killer: Character | null, kind: DamageKind, dx: number, dz: number): void {
@@ -400,6 +448,7 @@ export class CombatSystem {
     c.moveSpeed = 0;
     c.aiming = false;
     c.reloadTimer = 0;
+    c.reloadWeapon = null;
     if (kind === 'bullet' || kind === 'melee') {
       c.vel.x += dx * 2.5;
       c.vel.z += dz * 2.5;
@@ -430,7 +479,7 @@ export class CombatSystem {
     if (this.sim.cheats.godMode && v.driver?.isPlayer) return;
     v.health -= amount;
     if (attacker) this.damagedBy.set(v, attacker);
-    if (attacker && attacker.isPlayer && v.spec.police && kind === 'bullet') this.sim.wanted.crime('assaultCop', v.pos.x, v.pos.z);
+    if (attacker && attacker.isPlayer && v.spec.police && kind === 'bullet') this.reportAttack(v, 'assaultCop', v.pos.x, v.pos.z);
     if (v.driver && !v.driver.isPlayer && v.driver.brain && attacker) v.driver.brain.threat = attacker;
     if (kind === 'explosion' && v.health < -v.spec.health * 0.35) {
       this.explodeVehicle(v);
@@ -579,17 +628,29 @@ export class CombatSystem {
         o.state = 'normal';
         if (o.owner === 'traffic') o.owner = 'ped';
         if (o.isLaw) sim.police.onCopBailed(o);
-        else if (o.brain) sim.peds.flee(o, v.pos.x, v.pos.z, null);
+        else {
+          // Traffic drivers are spawned without a brain and would just stand in the fire.
+          if (!o.brain) o.brain = makeBrain('wander');
+          sim.peds.flee(o, v.pos.x, v.pos.z, null);
+        }
       }
       if (v.burnTimer <= 0) this.explodeVehicle(v);
     }
-    // Standing in flames hurts.
+    // Standing in flames hurts. Cars in the sea do not burn (a car that drowns is also marked destroyed).
     for (const v of sim.vehicles) {
-      if (v.removed || !(v.burning || (v.destroyed && v.wreckTime < 12))) continue;
+      if (v.removed || v.inWater || !(v.burning || (v.destroyed && v.wreckTime < 12))) continue;
       for (const c of sim.characters) {
         if (c.removed || !c.alive || c.state === 'inVehicle') continue;
         const d = Math.hypot(c.pos.x - v.pos.x, c.pos.z - v.pos.z);
-        if (d < v.halfL + 0.4 && Math.abs(c.pos.y - v.pos.y) < 2) this.damageCharacter(c, 22 * dt, null, 'fire', 0, 0, 0);
+        if (d < v.halfL + 0.4 && Math.abs(c.pos.y - v.pos.y) < 2) {
+          this.damageCharacter(c, 22 * dt, null, 'fire', 0, 0, 0);
+          // An attacker-less hit makes peds flee from where they stand (an arbitrary direction,
+          // possibly into the car): make them run from the flames instead.
+          if (c.alive && c.brain?.mode === 'flee') {
+            c.brain.threatX = v.pos.x;
+            c.brain.threatZ = v.pos.z;
+          }
+        }
       }
     }
   }

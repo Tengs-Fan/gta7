@@ -3,7 +3,8 @@
 
 import type { Objective } from '../sim/activities';
 import type { Sim } from '../sim/sim';
-import { rectContains } from '../world/layout';
+import { WATER_Y } from '../world/constants';
+import { beachOffsetAt, rectContains } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 
 export const MAP_SCALE = 1; // pixels per metre in the pre-rendered image
@@ -33,7 +34,7 @@ export class MapImage {
     ctx.fillRect(0, 0, w, h);
     // Land and beach.
     rect(b.landMinX, b.landMinZ, b.beachStartX, b.landMaxZ, '#3b4249');
-    const shoreX = b.beachStartX + 0.36 * (b.beachEndX - b.beachStartX);
+    const shoreX = b.beachStartX + beachOffsetAt(WATER_Y);
     rect(b.beachStartX, b.landMinZ, shoreX, b.landMaxZ, '#cdb77d');
     const g = ctx.createLinearGradient(X(shoreX), 0, X(b.beachEndX), 0);
     g.addColorStop(0, '#2a6f8c');

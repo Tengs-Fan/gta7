@@ -76,9 +76,10 @@ export class StaticWorld {
       case 'ferris':
         return g.addBox(p.x - 4, p.z - 6, p.x + 4, p.z + 6, p.y, p.y + 4, 'pillar').id;
       case 'billboard': {
+        // Posts under the rendered legs (render/props.ts buildBillboard, local x = +-4.5).
         const along = Math.abs(Math.sin(p.rot)) > 0.7;
-        const ox = along ? 0 : 5;
-        const oz = along ? 5 : 0;
+        const ox = along ? 0 : 4.5;
+        const oz = along ? 4.5 : 0;
         g.addCircle(p.x - ox, p.z - oz, 0.35, p.y, p.y + 9, 'pillar');
         return g.addCircle(p.x + ox, p.z + oz, 0.35, p.y, p.y + 9, 'pillar').id;
       }

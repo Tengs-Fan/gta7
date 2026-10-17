@@ -10,8 +10,12 @@ import type { Sim } from '../sim';
 import type { VehicleKind, WeaponId } from '../specs';
 import { STORY } from './story';
 
-/** A wait condition: the script resumes once it returns true. */
-export type Wait = () => boolean;
+/**
+ * A wait condition: the script resumes once it returns true. `dt` is the mission
+ * time since the previous check (0 on the first check), so anything that
+ * accumulates time stays correct at any frame rate.
+ */
+export type Wait = (dt: number) => boolean;
 export type Script = Generator<Wait, void, undefined>;
 
 export interface MissionDef {
@@ -26,7 +30,7 @@ export interface MissionDef {
 
 interface FailCheck {
   id: number;
-  check: () => boolean;
+  check: (dt: number) => boolean;
   reason: string;
 }
 
@@ -66,13 +70,16 @@ export class MissionCtx {
       return;
     }
     for (const f of this.fails) {
-      if (f.check()) {
+      if (f.check(dt)) {
         this.fail(f.reason);
         return;
       }
     }
     let guard = 0;
-    while (this.current === null || this.current()) {
+    let waited = dt;
+    while (this.current === null || this.current(waited)) {
+      // A wait yielded during this tick is checked right away, but it has not waited through this frame.
+      waited = 0;
       if (++guard > 64) break;
       let r: IteratorResult<Wait, void>;
       try {
@@ -104,7 +111,7 @@ export class MissionCtx {
 
   // --- waiting --------------------------------------------------------------
 
-  until(pred: () => boolean): Wait {
+  until(pred: Wait): Wait {
     return pred;
   }
 
@@ -124,16 +131,27 @@ export class MissionCtx {
     this.sim.events.emit('objective', { text });
   }
 
-  /** Waits until the player reaches a point. */
+  /** Waits until the player reaches a point. Returns false when `abortIf` ended the wait instead. */
   *goTo(
     x: number,
     z: number,
-    opts: { radius?: number; label?: string; color?: number; vehicle?: Vehicle | 'any' | null; onFoot?: boolean; maxSpeed?: number; area?: Rect } = {},
-  ): Script {
+    opts: {
+      radius?: number;
+      label?: string;
+      color?: number;
+      vehicle?: Vehicle | 'any' | null;
+      onFoot?: boolean;
+      maxSpeed?: number;
+      area?: Rect;
+      abortIf?: () => boolean;
+    } = {},
+  ): Generator<Wait, boolean, undefined> {
     const marker: Objective = { x, z, label: opts.label ?? '', color: opts.color ?? 0xffd23d, radius: opts.radius ?? 3 };
     this.markers.push(marker);
+    let arrived = false;
     try {
       yield () => {
+        if (opts.abortIf?.()) return true;
         const sim = this.sim;
         const p = sim.player;
         const pos = sim.playerPos();
@@ -143,11 +161,13 @@ export class MissionCtx {
         if (opts.vehicle === 'any' && !p.vehicle) return false;
         if (opts.vehicle && opts.vehicle !== 'any' && p.vehicle !== opts.vehicle) return false;
         if (opts.maxSpeed !== undefined && p.vehicle && p.vehicle.speed > opts.maxSpeed) return false;
+        arrived = true;
         return true;
       };
     } finally {
       this.unmark(marker);
     }
+    return arrived;
   }
 
   mark(target: Vehicle | Character | { x: number; z: number }, label: string, color = 0xff3b3b, radius = 3): Objective {
@@ -167,7 +187,7 @@ export class MissionCtx {
     if (i >= 0) this.markers.splice(i, 1);
   }
 
-  failIf(check: () => boolean, reason: string): number {
+  failIf(check: (dt: number) => boolean, reason: string): number {
     const id = ++this.failSeq;
     this.fails.push({ id, check, reason });
     return id;

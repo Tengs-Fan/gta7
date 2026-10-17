@@ -104,6 +104,9 @@ test.describe('GTA 7', () => {
       g.godMode(true);
       g.give('pistol', 60);
       g.setCamera(g.sim.player.heading, -0.12);
+      // The test points the camera itself. Mouse look is off because headless Chromium reports
+      // bogus movement (hundreds of pixels) with every synthetic click under pointer lock.
+      g.game.renderer.cameraCtl.sensitivity = 0;
       return g.spawnPedAhead(5);
     });
     await page.waitForTimeout(300);
@@ -111,17 +114,22 @@ test.describe('GTA 7', () => {
     for (let i = 0; i < 12; i++) {
       const alive = await page.evaluate((id) => (window as Api).__gta7.characterAlive(id), pedId);
       if (!alive) break;
-      await page.evaluate((id) => {
-        const g = (window as Api).__gta7;
-        const c = g.sim.characters.find((x: Api) => x.id === id);
-        const cam = g.game.renderer.cameraCtl;
-        const cp = cam.camera.position;
-        const dx = c.pos.x - cp.x;
-        const dy = c.pos.y + 1.2 - cp.y;
-        const dz = c.pos.z - cp.z;
-        cam.yaw = Math.atan2(dx, dz);
-        cam.pitch = Math.atan2(dy, Math.hypot(dx, dz));
-      }, pedId);
+      // The shoulder camera swings round the player as it turns (and pulls in once he aims), so
+      // re-aim from where it has moved to until it settles.
+      for (let k = 0; k < 4; k++) {
+        await page.evaluate((id) => {
+          const g = (window as Api).__gta7;
+          const c = g.sim.characters.find((x: Api) => x.id === id);
+          const cam = g.game.renderer.cameraCtl;
+          const cp = cam.camera.position;
+          const dx = c.pos.x - cp.x;
+          const dy = c.pos.y + 1.2 - cp.y;
+          const dz = c.pos.z - cp.z;
+          cam.yaw = Math.atan2(dx, dz);
+          cam.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+        }, pedId);
+        await page.waitForTimeout(60);
+      }
       await page.mouse.click(640, 360);
       await page.waitForTimeout(300);
     }

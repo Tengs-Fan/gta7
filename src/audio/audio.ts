@@ -2,6 +2,7 @@
 // WebAudio nodes; there are no audio files.
 
 import { clamp } from '../core/math';
+import type { SimEvents } from '../sim/events';
 import type { Sim } from '../sim/sim';
 import type { WeaponId } from '../sim/specs';
 import { Radio } from './radio';
@@ -13,10 +14,21 @@ interface Listener {
   yaw: number;
 }
 
+/** AudioParams throw on NaN / Infinity, so every computed value is checked before use. */
+function finite(...xs: number[]): boolean {
+  for (const x of xs) if (!Number.isFinite(x)) return false;
+  return true;
+}
+
 export class AudioEngine {
   ctx: AudioContext | null = null;
   private master!: GainNode;
+  /** Pause mute for world sound, a stage of its own so volume changes can't undo it. */
+  private pauseGain!: GainNode;
+  private paused = false;
   private sfx!: GainNode;
+  /** Menu clicks: bypass the pause stage, so menus over a paused game still give feedback. */
+  private uiBus!: GainNode;
   private musicBus!: GainNode;
   private noise!: AudioBuffer;
   private engineNodes: { osc1: OscillatorNode; osc2: OscillatorNode; filter: BiquadFilterNode; gain: GainNode; skid: GainNode; skidSrc: AudioBufferSourceNode } | null = null;
@@ -27,6 +39,7 @@ export class AudioEngine {
   private volumes = { master: 0.8, music: 0.6, sfx: 0.85 };
   private lastShot = new Map<WeaponId, number>();
   private failed = false;
+  private warned = false;
 
   /** Creates / resumes the AudioContext. Must be called from a user gesture. */
   unlock(): void {
@@ -44,10 +57,15 @@ export class AudioEngine {
         comp.threshold.value = -14;
         comp.ratio.value = 6;
         this.master = ctx.createGain();
+        this.pauseGain = ctx.createGain();
+        this.pauseGain.gain.value = this.paused ? 0 : 1;
         this.sfx = ctx.createGain();
+        this.uiBus = ctx.createGain();
         this.musicBus = ctx.createGain();
-        this.sfx.connect(this.master);
-        this.musicBus.connect(this.master);
+        this.sfx.connect(this.pauseGain);
+        this.musicBus.connect(this.pauseGain);
+        this.pauseGain.connect(this.master);
+        this.uiBus.connect(this.master);
         this.master.connect(comp);
         comp.connect(ctx.destination);
         const len = ctx.sampleRate * 2;
@@ -65,7 +83,9 @@ export class AudioEngine {
   }
 
   setVolumes(master: number, music: number, sfx: number): void {
-    this.volumes = { master, music, sfx };
+    const v = this.volumes;
+    const vol = (x: number, old: number) => (Number.isFinite(x) ? clamp(x, 0, 1) : old);
+    this.volumes = { master: vol(master, v.master), music: vol(music, v.music), sfx: vol(sfx, v.sfx) };
     this.applyVolumes();
   }
 
@@ -73,46 +93,63 @@ export class AudioEngine {
     if (!this.ctx) return;
     this.master.gain.value = this.volumes.master;
     this.sfx.gain.value = this.volumes.sfx;
+    this.uiBus.gain.value = this.volumes.sfx;
     this.musicBus.gain.value = this.volumes.music * 0.8;
   }
 
-  /** Mute everything (pause menu) without stopping the radio clock. */
+  /** Mutes the world (effects, engine, siren, radio) under the pause menu, map, shop or crash screen without stopping the radio clock. */
   setPaused(paused: boolean): void {
+    if (paused === this.paused) return;
+    // Remembered even without a context yet, so unlock() starts in the right state.
+    this.paused = paused;
+    this.radio.setPaused(paused);
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    this.master.gain.cancelScheduledValues(t);
-    this.master.gain.setTargetAtTime(paused ? 0 : this.volumes.master, t, 0.05);
-    this.radio.setPaused(paused);
+    this.pauseGain.gain.cancelScheduledValues(t);
+    this.pauseGain.gain.setTargetAtTime(paused ? 0 : 1, t, 0.05);
+  }
+
+  /** Runs a sound routine; an audio bug is logged once and never reaches the game loop. */
+  private safely(fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      if (!this.warned) {
+        this.warned = true;
+        console.warn('GTA7 audio error', err);
+      }
+    }
   }
 
   attach(sim: Sim): void {
     for (const u of this.unsub) u();
     this.unsub = [];
-    const ev = sim.events;
+    // Sound handlers run inside sim.update(): isolate them from it.
+    const on = <K extends keyof SimEvents>(type: K, fn: (e: SimEvents[K]) => void) => sim.events.on(type, (e) => this.safely(() => fn(e)));
     this.unsub.push(
-      ev.on('shot', (e) => this.gunshot(e.weapon, e.fx, e.fy, e.fz, e.shooter?.isPlayer ?? false)),
-      ev.on('explosion', (e) => this.explosion(e.x, e.y, e.z, e.radius)),
-      ev.on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength)),
-      ev.on('melee', (e) => this.punch(e.x, e.y, e.z, e.hit)),
-      ev.on('horn', (e) => this.horn(e.vehicle.pos.x, e.vehicle.pos.y, e.vehicle.pos.z, e.vehicle.spec.police)),
-      ev.on('pickup', (e) => this.chime(e.kind === 'money' ? 'cash' : 'pickup')),
-      ev.on('money', (e) => {
+      on('shot', (e) => this.gunshot(e.weapon, e.fx, e.fy, e.fz, e.shooter?.isPlayer ?? false)),
+      on('explosion', (e) => this.explosion(e.x, e.y, e.z, e.radius)),
+      on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength)),
+      on('melee', (e) => this.punch(e.x, e.y, e.z, e.hit)),
+      on('horn', (e) => this.horn(e.vehicle.pos.x, e.vehicle.pos.y, e.vehicle.pos.z, e.vehicle.spec.police)),
+      on('pickup', (e) => this.chime(e.kind === 'money' ? 'cash' : 'pickup')),
+      on('money', (e) => {
         if (e.amount >= 500) this.chime('cash');
       }),
-      ev.on('splash', (e) => this.splash(e.x, e.y, e.z, e.big)),
-      ev.on('propBroken', () => this.thud(0.5)),
-      ev.on('reload', (e) => {
+      on('splash', (e) => this.splash(e.x, e.y, e.z, e.big)),
+      on('propBroken', () => this.thud(0.5)),
+      on('reload', (e) => {
         if (e.character.isPlayer) this.reloadClick();
       }),
-      ev.on('wanted', (e) => {
+      on('wanted', (e) => {
         if (e.level > e.previous) this.chime('alert');
       }),
-      ev.on('big', (e) => {
+      on('big', (e) => {
         if (e.style === 'passed') this.chime('passed');
         else if (e.style === 'failed' || e.style === 'wasted' || e.style === 'busted') this.chime('fail');
         else if (e.style === 'stunt') this.chime('stunt');
       }),
-      ev.on('scream', (e) => this.scream(e.x, e.y, e.z)),
+      on('scream', (e) => this.scream(e.x, e.y, e.z)),
     );
   }
 
@@ -130,13 +167,13 @@ export class AudioEngine {
     const dy = y - L.y;
     const dz = z - L.z;
     const d = Math.hypot(dx, dy, dz);
-    if (d > max) return null;
+    if (!(d <= max)) return null; // also drops NaN positions
     const gain = 1 / (1 + Math.pow(d / ref, 1.6));
     const rx = -Math.cos(L.yaw);
     const rz = Math.sin(L.yaw);
     const hd = Math.hypot(dx, dz) || 1;
     const pan = clamp(((dx * rx + dz * rz) / hd) * 0.8, -1, 1);
-    return { gain, pan };
+    return finite(pan) ? { gain, pan } : null;
   }
 
   private out(pan: number): AudioNode {
@@ -151,9 +188,13 @@ export class AudioEngine {
   }
 
   private noiseBurst(dest: AudioNode, t: number, dur: number, type: BiquadFilterType, freq: number, q: number, gain: number, freqEnd?: number): void {
+    if (!finite(t, dur, freq, q, gain, freqEnd ?? freq)) return;
     const ctx = this.ctx!;
     const src = ctx.createBufferSource();
     src.buffer = this.noise;
+    // Loop so a long burst (explosion rumble) can't run off the end of the 2 s buffer from its
+    // random start offset; stop() below ends it.
+    src.loop = true;
     src.playbackRate.value = 0.8 + Math.random() * 0.4;
     const f = ctx.createBiquadFilter();
     f.type = type;
@@ -171,6 +212,8 @@ export class AudioEngine {
   }
 
   private tone(dest: AudioNode, t: number, type: OscillatorType, f0: number, f1: number, dur: number, gain: number, attack = 0.002): void {
+    // The exponential ramp below also rejects a zero peak.
+    if (!finite(t, f0, f1, dur, gain, attack) || gain <= 0) return;
     const ctx = this.ctx!;
     const o = ctx.createOscillator();
     o.type = type;
@@ -343,7 +386,7 @@ export class AudioEngine {
   chime(kind: 'pickup' | 'cash' | 'passed' | 'fail' | 'alert' | 'stunt' | 'ui'): void {
     if (!this.ready()) return;
     const t = this.ctx!.currentTime + 0.01;
-    const d = this.sfx;
+    const d = kind === 'ui' ? this.uiBus : this.sfx;
     const seq = (notes: number[], step: number, type: OscillatorType, len: number, gain: number) =>
       notes.forEach((n, i) => this.tone(d, t + i * step, type, n, n * 0.999, len, gain, 0.01));
     switch (kind) {
@@ -433,19 +476,25 @@ export class AudioEngine {
 
   update(dt: number, sim: Sim, inGame: boolean): void {
     if (!this.ready()) return;
+    this.safely(() => this.updateVoices(dt, sim, inGame));
+  }
+
+  private updateVoices(dt: number, sim: Sim, inGame: boolean): void {
     const t = this.ctx!.currentTime;
     this.ensureEngine();
     this.ensureSiren();
     const v = inGame ? sim.player.vehicle : null;
     const e = this.engineNodes!;
     if (v && !v.destroyed && !v.inWater) {
-      const rpm = clamp(v.rpm, 0, 1.1);
+      // A numeric blow-up the sim repairs can leave rpm / throttle NaN for a while.
+      const rpm = finite(v.rpm) ? clamp(v.rpm, 0, 1.1) : 0;
+      const throttle = finite(v.controls.throttle) ? clamp(v.controls.throttle, 0, 1) : 0;
       const base = v.spec.kind === 'bus' || v.spec.kind === 'van' || v.spec.kind === 'swat' ? 32 : v.spec.kind === 'sports' ? 55 : 42;
       const f = base + rpm * base * 3.2;
       e.osc1.frequency.setTargetAtTime(f, t, 0.05);
       e.osc2.frequency.setTargetAtTime(f * 0.5, t, 0.05);
       e.filter.frequency.setTargetAtTime(380 + rpm * 2200, t, 0.08);
-      e.gain.gain.setTargetAtTime(0.06 + v.controls.throttle * 0.07 + rpm * 0.03, t, 0.08);
+      e.gain.gain.setTargetAtTime(0.06 + throttle * 0.07 + rpm * 0.03, t, 0.08);
       e.skid.gain.setTargetAtTime(v.skid > 0.3 && !v.airborne ? clamp(v.skid, 0, 1) * 0.22 : 0, t, 0.05);
     } else {
       e.gain.gain.setTargetAtTime(0, t, 0.1);
