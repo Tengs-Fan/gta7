@@ -2,7 +2,7 @@
 // Everything is generated with WebAudio nodes; there are no audio files.
 
 import { clamp } from '../core/math';
-import type { Character, Vehicle } from '../sim/entities';
+import type { Vehicle } from '../sim/entities';
 import type { SimEvents } from '../sim/events';
 import type { Sim } from '../sim/sim';
 import type { VehicleKind, WeaponId } from '../sim/specs';
@@ -38,6 +38,11 @@ const SIREN_LEVEL = 0.4;
 const SCREAM_LEVEL = 0.12 * Math.pow(10, 14 / 20);
 /** Seconds an explosion keeps the music ducked before it recovers. */
 const EXPLOSION_HOLD = 0.15;
+/**
+ * Music volume from which the car radio is fully present in the mix (the default is 0.6).
+ * Below it the engine steps back under the radio only as far as the radio can be heard; at 0 not at all.
+ */
+const RADIO_FULL = 0.3;
 
 export class AudioEngine {
   ctx: AudioContext | null = null;
@@ -62,8 +67,11 @@ export class AudioEngine {
   private unsub: Array<() => void> = [];
   private volumes = { master: 0.8, music: 0.6, sfx: 0.85 };
   private lastShot = new Map<WeaponId, number>();
-  /** The player's hits this frame, the strongest per victim; played (once each) by update(). */
-  private readonly confirms = new Map<Character, HitConfirm>();
+  /**
+   * The strongest of the player's hits this frame (kill over headshot over hit), played once by update():
+   * one blast that drops six people is one kill confirmation, not six identical thumps in phase.
+   */
+  private confirm: HitConfirm | null = null;
   /** Frame of the player's last shot per weapon: one trigger pull plays one gunshot. */
   private playerShotFrame = new Map<WeaponId, number>();
   /** Counts update() calls. */
@@ -80,7 +88,7 @@ export class AudioEngine {
   private softWorld: StaticWorld | null = null;
   private softPatches: Rect[] = [];
   /** Instrumentation for tests: sounds started since the page loaded. */
-  readonly counters = { gunshots: 0, doorThunks: 0 };
+  readonly counters = { gunshots: 0, doorThunks: 0, scrapes: 0 };
   private failed = false;
   private warned = false;
 
@@ -163,7 +171,7 @@ export class AudioEngine {
     this.explosionDist = Infinity;
     // Sound handlers run inside sim.update(): isolate them from it.
     const on = <K extends keyof SimEvents>(type: K, fn: (e: SimEvents[K]) => void) => sim.events.on(type, (e) => this.safely(() => fn(e)));
-    this.confirms.clear();
+    this.confirm = null;
     this.unsub.push(
       // One bang per trigger pull; helicopter rounds come only as 'shot' events.
       on('weaponFired', (e) => this.gunshot(e.weapon, e.x, e.y, e.z, e.shooter?.isPlayer ?? false)),
@@ -174,11 +182,13 @@ export class AudioEngine {
         // The player's weapon hits: bullets, fists and explosions, not people run over.
         if (!e.attacker?.isPlayer || e.victim.isPlayer || !(e.kind === 'bullet' || e.kind === 'melee' || e.kind === 'explosion')) return;
         const kind: HitConfirm = e.killed ? 'kill' : e.zone === 'head' ? 'head' : 'hit';
-        const prev = this.confirms.get(e.victim);
-        if (prev === undefined || CONFIRM_RANK[kind] > CONFIRM_RANK[prev]) this.confirms.set(e.victim, kind);
+        if (this.confirm === null || CONFIRM_RANK[kind] > CONFIRM_RANK[this.confirm]) this.confirm = kind;
       }),
       on('explosion', (e) => this.explosion(e.x, e.y, e.z, e.radius)),
-      on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength)),
+      // The player's own crashes (his car hitting something, landing, running someone over) sound inside the car,
+      // not through the in-car muffling of the world outside.
+      on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength, !!e.vehicle && e.vehicle === sim.player.vehicle)),
+      on('scrape', (e) => this.scrape(e.x, e.y, e.z, e.speed, e.vehicle === sim.player.vehicle)),
       on('melee', (e) => this.punch(e.x, e.y, e.z, e.hit)),
       on('horn', (e) => {
         // The player's own horn is a continuous voice (updateHorn); AI taps play here.
@@ -388,15 +398,35 @@ export class AudioEngine {
     this.tone(out, t, 'sine', 70, 28, 1.2, 1.2 * k, 0.005);
   }
 
-  impact(x: number, y: number, z: number, strength: number): void {
+  /** A collision at (x, y, z); `own` is one of the player's car, which plays on the vehicle bus. */
+  impact(x: number, y: number, z: number, strength: number, own = false): void {
     if (!this.ready() || strength < 2.2) return;
     const s = this.spatial(x, y, z, 12, 160);
     if (!s) return;
-    const out = this.out(s.pan, s.cutoff);
+    const out = this.out(s.pan, s.cutoff, own ? this.vehicleBus : this.sfx);
     const t = this.ctx!.currentTime + 0.005;
     const k = clamp(strength / 14, 0.15, 1) * s.gain;
     this.noiseBurst(out, t, 0.18 + k * 0.25, 'bandpass', 700 + Math.random() * 400, 0.9, 1.1 * k, 200);
     if (strength > 8) this.tone(out, t, 'triangle', 900 + Math.random() * 500, 300, 0.25, 0.25 * k);
+  }
+
+  /**
+   * Metal grinding along a wall or another car at (x, y, z), sliding at `speed` (m/s): a short band-passed noise burst
+   * whose loudness and pitch rise with the speed, and a faint metallic ring over it. The sim reports a grinding vehicle
+   * up to 15 times a second, so a long scrape is a run of overlapping bursts. `own`: the player's car (vehicle bus).
+   */
+  scrape(x: number, y: number, z: number, speed: number, own = false): void {
+    if (!this.ready() || !(speed > 0)) return;
+    const s = this.spatial(x, y, z, 10, 120);
+    if (!s) return;
+    const out = this.out(s.pan, s.cutoff, own ? this.vehicleBus : this.sfx);
+    const t = this.ctx!.currentTime + 0.003;
+    // Scrapes start at 4 m/s: quiet and low there, full and bright from 20 m/s.
+    const k = clamp((speed - 2) / 18, 0.15, 1) * s.gain;
+    const hz = 800 + 85 * Math.min(speed, 36);
+    this.noiseBurst(out, t, 0.11, 'bandpass', hz * (0.9 + Math.random() * 0.2), 3, 0.55 * k, hz * 0.75);
+    this.tone(out, t, 'triangle', hz * 2.1, hz * 1.8, 0.08, 0.05 * k);
+    this.counters.scrapes++;
   }
 
   punch(x: number, y: number, z: number, hit: boolean): void {
@@ -602,10 +632,11 @@ export class AudioEngine {
 
   update(dt: number, sim: Sim, inGame: boolean): void {
     this.frame++;
-    // At most one confirmation per victim per frame (a shotgun blast is one tick), the strongest one.
-    if (this.confirms.size > 0) {
-      if (this.ready()) for (const kind of this.confirms.values()) this.safely(() => this.hitConfirm(kind));
-      this.confirms.clear();
+    // One confirmation per frame, the strongest (a shotgun blast is one tick, a multi-kill one thump).
+    const confirm = this.confirm;
+    if (confirm !== null) {
+      this.confirm = null;
+      if (this.ready()) this.safely(() => this.hitConfirm(confirm));
     }
     if (!this.ready()) return;
     this.safely(() => this.updateVoices(dt, sim, inGame));
@@ -629,8 +660,10 @@ export class AudioEngine {
       if (this.explosionTimer <= 0) this.explosionDist = Infinity;
     }
     this.updateAmbience(step, sim, inGame, t);
+    // The radio is as present in the mix as the music volume lets it be heard (switched off or at 0: not at all).
+    const radio = this.radio.playing ? clamp(this.volumes.music / RADIO_FULL, 0, 1) : 0;
     const m = mixTargets(
-      { inVehicle: this.inVehicle, radioOn: this.radio.playing, subtitleActive: this.subtitleTimer > 0, explosionDist: this.explosionDist, paused: this.paused, bigScreen: this.bigTimer > 0 },
+      { inVehicle: this.inVehicle, radio, subtitleActive: this.subtitleTimer > 0, explosionDist: this.explosionDist, paused: this.paused, bigScreen: this.bigTimer > 0 },
       this.mix,
     );
     this.mixer!.update(m, t, this.explosionTimer > 0);

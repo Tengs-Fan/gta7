@@ -2484,7 +2484,7 @@ describe('combat feedback on the HUD and in the mix (r2 combat)', () => {
     expect(cross.classList.contains('hip')).toBe(true);
   });
 
-  it('one bang per trigger pull, the helicopter still heard, and one hit confirmation per victim per frame on the UI bus', () => {
+  it('one bang per trigger pull, the helicopter still heard, and one hit confirmation per frame (the strongest) on the UI bus', () => {
     const sim = quickSim();
     const audio = new AudioEngine();
     audio.unlock();
@@ -2518,13 +2518,13 @@ describe('combat feedback on the HUD and in the mix (r2 combat)', () => {
     tone.mockClear();
     noise.mockClear();
     audio.update(1 / 60, sim, true);
-    expect(confirm.mock.calls.map((c) => c[0]).sort()).toEqual(['head', 'kill']);
-    // Two ticks, the kill's thump and the headshot's crack, all on the UI bus.
-    expect(tone.mock.calls.length).toBe(3);
-    expect(noise.mock.calls.length).toBe(1);
-    expect([...tone.mock.calls, ...noise.mock.calls].every((c) => c[0] === a.uiBus)).toBe(true);
+    expect(confirm.mock.calls.map((c) => c[0])).toEqual(['kill']);
+    // One tick and the kill's thump, on the UI bus.
+    expect(tone.mock.calls.length).toBe(2);
+    expect(noise.mock.calls.length).toBe(0);
+    expect(tone.mock.calls.every((c) => c[0] === a.uiBus)).toBe(true);
     audio.update(1 / 60, sim, true);
-    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(confirm).toHaveBeenCalledTimes(1);
   });
 });
 

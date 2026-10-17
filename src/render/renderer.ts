@@ -320,7 +320,7 @@ export class GameRenderer {
     this.unsub.push(
       // One flash per trigger pull (a shotgun blast is one flash, not nine).
       ev.on('weaponFired', (e) => {
-        fx.muzzleFlash(e.x, e.y, e.z, FLASH_SIZE[e.weapon]);
+        fx.muzzleFlash(e.x, e.y, e.z, FLASH_SIZE[e.weapon], e);
         if (e.weapon === 'rocket') fx.rocketLaunched(e.x, e.y, e.z);
       }),
       // Every bullet or pellet: its tracer and its impact.

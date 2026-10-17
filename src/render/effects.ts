@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { Rng } from '../core/rng';
-import type { Projectile, Vehicle } from '../sim/entities';
+import type { Character, Projectile, Vehicle } from '../sim/entities';
 import type { WeaponId } from '../sim/specs';
 
 /** Muzzle flash size (m, across the star) per weapon. */
@@ -10,21 +10,63 @@ export const FLASH_SIZE: Readonly<Record<WeaponId, number>> = { fists: 0, pistol
 /** The muzzle light's intensity per metre of flash, and its cap (a shotgun used to white the screen out). */
 const FLASH_LIGHT = 55;
 const FLASH_LIGHT_MAX = 30;
+/** How long a muzzle flash (its sprites and its light) lasts (s). */
+const FLASH_LIFE = 0.05;
+/**
+ * The muzzle light shines from this far ahead of the barrel tip along the shot, out in the flash's plume:
+ * at the tip itself it sat a hand's breadth from the shooter's face.
+ */
+const FLASH_LIGHT_AHEAD = 0.6;
+/**
+ * Most light the flash may throw on the shooter's own head (irradiance; the noon sun gives 3.3).
+ * The light is dimmed to keep under it, so a short gun held close to the face does not burn the head out to white.
+ */
+const FLASH_HEAD_LIGHT = 6;
+
+/** Which way a shot went and who fired it, for placing its muzzle light (a 'weaponFired' event fits). */
+export interface FlashAim {
+  dx: number;
+  dy: number;
+  dz: number;
+  shooter: Character | null;
+}
+
+/** Where a shooter's head is, near enough for lighting: over his feet when standing, over his seat when riding. */
+function headOf(c: Character): { x: number; y: number; z: number } {
+  return { x: c.pos.x, y: c.pos.y + c.height * (c.vehicle ? 0.55 : 0.9), z: c.pos.z };
+}
+
 /**
  * Tracer streak: its head flies at TRACER_SPEED (m/s), the tail TRACER_STREAK (m) behind.
+ * On the frame it is fired the streak reaches TRACER_REACH of the way to the hit (TRACER_REACH_MAX m at most):
+ * a shot seen from behind the shooter runs almost straight away from the view, and only a streak over most of its
+ * path shows on screen (from the hip camera a 3 m one is a few pixels). Its head waits there until the tail has
+ * caught up to the usual streak, which flies on.
  * Ribbons are TRACER_WIDTH (m) wide, but never under TRACER_MIN_PX pixels.
  */
 const TRACER_SPEED = 300;
 const TRACER_STREAK = 3;
+const TRACER_REACH = 0.8;
+const TRACER_REACH_MAX = 20;
 const TRACER_WIDTH = 0.03;
 const TRACER_MIN_PX = 1.5;
 /** HDR orange, far above the bloom threshold. */
 const TRACER_COLOR = new THREE.Color(6, 3, 1);
+/**
+ * Grinding sparks: streaks this many times longer than wide along their flight, born at full strength this many times
+ * brighter than white-hot (past the renderer's 2.6 bloom threshold, so they glow) before they cool to a bright orange.
+ */
+const SPARK_STRETCH = 6;
+const SPARK_GLOW = 3.5;
+const SPARK_STYLE: EmitStyle = { align: true, glow: SPARK_GLOW, glowEnd: 1.5, instant: true };
 
 const PARTICLE_VS = /* glsl */ `
 attribute vec3 iPos;
 attribute vec4 iColor;
 attribute vec3 iSizeRot;
+#ifdef ALIGN
+attribute vec4 iVel;
+#endif
 varying vec2 vUv;
 varying vec4 vColor;
 #include <fog_pars_vertex>
@@ -32,12 +74,27 @@ void main() {
   vUv = uv;
   vColor = iColor;
   vec4 mvPosition = modelViewMatrix * vec4(iPos, 1.0);
-  float c = cos(iSizeRot.y);
-  float s = sin(iSizeRot.y);
   // iSizeRot: size (the long side), rotation, and how many times longer than wide the sprite is.
-  vec2 q = vec2(position.x, position.y / iSizeRot.z);
-  vec2 p = vec2(q.x * c - q.y * s, q.x * s + q.y * c) * iSizeRot.x;
-  mvPosition.xy += p;
+  float rot = iSizeRot.y;
+  float width = iSizeRot.x / iSizeRot.z;
+  float len = iSizeRot.x;
+  #ifdef ALIGN
+  if (iVel.w > 0.5) {
+    // A streak along its motion on screen: d/dt of xy / -z for a point at mvPosition moving with v (view space).
+    vec3 v = (modelViewMatrix * vec4(iVel.xyz, 0.0)).xyz;
+    vec2 sv = v.xy * -mvPosition.z + mvPosition.xy * v.z;
+    float sl = length(sv);
+    if (sl > 1e-6) rot = atan(sv.y, sv.x);
+    // Flying straight at or away from the camera it shortens, to a third of its length end on.
+    len *= mix(0.35, 1.0, clamp(sl / max(length(v) * -mvPosition.z, 1e-6), 0.0, 1.0));
+    // Sparks thrown back past the camera fade out rather than flare up across the view.
+    vColor.a *= smoothstep(1.5, 4.0, -mvPosition.z);
+  }
+  #endif
+  float c = cos(rot);
+  float s = sin(rot);
+  vec2 q = vec2(position.x * len, position.y * width);
+  mvPosition.xy += vec2(q.x * c - q.y * s, q.x * s + q.y * c);
   gl_Position = projectionMatrix * mvPosition;
   #include <fog_vertex>
 }`;
@@ -55,12 +112,25 @@ void main() {
   #include <fog_fragment>
 }`;
 
+/** Optional looks of a particle (ParticleLayer.emit). */
+interface EmitStyle {
+  /** Streak along the way it moves on screen (on a layer made `aligned`); emit's `stretch` sets its length:width. */
+  align?: boolean;
+  /** Scale the starting and the final colour, which may so go past 1 (HDR, to bloom). */
+  glow?: number;
+  glowEnd?: number;
+  /** At full strength from its first frame, without the fade-in over the first eighth of its life. */
+  instant?: boolean;
+}
+
 class ParticleLayer {
   readonly mesh: THREE.Mesh;
   private readonly geo: THREE.InstancedBufferGeometry;
   private readonly iPos: Float32Array;
   private readonly iColor: Float32Array;
   private readonly iSizeRot: Float32Array;
+  /** Velocity and whether to streak along it (w = 1), on a layer that can (`aligned`). */
+  private readonly iVel: Float32Array | null;
   // Simulation state.
   private readonly px: Float32Array;
   private readonly py: Float32Array;
@@ -80,12 +150,15 @@ class ParticleLayer {
   private readonly rot: Float32Array;
   private readonly spin: Float32Array;
   private readonly stretch: Float32Array;
+  private readonly align: Uint8Array;
+  private readonly instant: Uint8Array;
   /** Emitted since the last update: not aged before it is first drawn. */
   private readonly fresh: Uint8Array;
   private next = 0;
   active = 0;
 
-  constructor(readonly max: number, additive: boolean) {
+  /** `aligned` lets particles streak along their motion on screen (emit's `align`). */
+  constructor(readonly max: number, additive: boolean, aligned = false) {
     const base = new THREE.PlaneGeometry(1, 1);
     this.geo = new THREE.InstancedBufferGeometry();
     this.geo.index = base.index;
@@ -94,14 +167,17 @@ class ParticleLayer {
     this.iPos = new Float32Array(max * 3);
     this.iColor = new Float32Array(max * 4);
     this.iSizeRot = new Float32Array(max * 3);
+    this.iVel = aligned ? new Float32Array(max * 4) : null;
     this.geo.setAttribute('iPos', new THREE.InstancedBufferAttribute(this.iPos, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('iColor', new THREE.InstancedBufferAttribute(this.iColor, 4).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('iSizeRot', new THREE.InstancedBufferAttribute(this.iSizeRot, 3).setUsage(THREE.DynamicDrawUsage));
+    if (this.iVel) this.geo.setAttribute('iVel', new THREE.InstancedBufferAttribute(this.iVel, 4).setUsage(THREE.DynamicDrawUsage));
     this.geo.instanceCount = 0;
     const mat = new THREE.ShaderMaterial({
       vertexShader: PARTICLE_VS,
       fragmentShader: PARTICLE_FS,
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSoft: { value: additive ? 0.0 : 0.25 } }]),
+      defines: aligned ? { ALIGN: '' } : {},
       transparent: true,
       depthWrite: false,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
@@ -129,11 +205,15 @@ class ParticleLayer {
     this.rot = f();
     this.spin = f();
     this.stretch = f();
+    this.align = new Uint8Array(max);
+    this.instant = new Uint8Array(max);
     this.fresh = new Uint8Array(max);
   }
 
-  /** `stretch` > 1 draws an elongated sprite (length:width), turned by `rot` on screen. */
-  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size0: number, size1: number, color0: number, color1: number, alpha: number, gravity = 0, drag = 0, spin = 0, stretch = 1, rot = Math.random() * 6.28): void {
+  /** `stretch` > 1 draws an elongated sprite (length:width), turned by `rot` on screen (or see `style.align`). */
+  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size0: number, size1: number, color0: number, color1: number, alpha: number, gravity = 0, drag = 0, spin = 0, stretch = 1, rot = Math.random() * 6.28, style?: EmitStyle): void {
+    const glow0 = style?.glow ?? 1;
+    const glow1 = style?.glowEnd ?? 1;
     const i = this.next;
     this.next = (this.next + 1) % this.max;
     this.px[i] = x;
@@ -146,18 +226,20 @@ class ParticleLayer {
     this.maxLife[i] = life;
     this.s0[i] = size0;
     this.s1[i] = size1;
-    this.c0[i * 3] = ((color0 >> 16) & 255) / 255;
-    this.c0[i * 3 + 1] = ((color0 >> 8) & 255) / 255;
-    this.c0[i * 3 + 2] = (color0 & 255) / 255;
-    this.c1[i * 3] = ((color1 >> 16) & 255) / 255;
-    this.c1[i * 3 + 1] = ((color1 >> 8) & 255) / 255;
-    this.c1[i * 3 + 2] = (color1 & 255) / 255;
+    this.c0[i * 3] = (((color0 >> 16) & 255) / 255) * glow0;
+    this.c0[i * 3 + 1] = (((color0 >> 8) & 255) / 255) * glow0;
+    this.c0[i * 3 + 2] = ((color0 & 255) / 255) * glow0;
+    this.c1[i * 3] = (((color1 >> 16) & 255) / 255) * glow1;
+    this.c1[i * 3 + 1] = (((color1 >> 8) & 255) / 255) * glow1;
+    this.c1[i * 3 + 2] = ((color1 & 255) / 255) * glow1;
     this.a0[i] = alpha;
     this.grav[i] = gravity;
     this.drag[i] = drag;
     this.rot[i] = rot;
     this.spin[i] = spin;
     this.stretch[i] = Math.max(1, stretch);
+    this.align[i] = style?.align && this.iVel ? 1 : 0;
+    this.instant[i] = style?.instant ? 1 : 0;
     this.fresh[i] = 1;
   }
 
@@ -191,10 +273,17 @@ class ParticleLayer {
       this.iColor[n * 4 + 1] = (this.c0[i * 3 + 1]! + (this.c1[i * 3 + 1]! - this.c0[i * 3 + 1]!) * t) * intensity;
       this.iColor[n * 4 + 2] = (this.c0[i * 3 + 2]! + (this.c1[i * 3 + 2]! - this.c0[i * 3 + 2]!) * t) * intensity;
       // Fade in quickly, out smoothly.
-      this.iColor[n * 4 + 3] = this.a0[i]! * Math.min(1, t * 8) * (1 - t * t);
+      this.iColor[n * 4 + 3] = this.a0[i]! * (this.instant[i] ? 1 : Math.min(1, t * 8)) * (1 - t * t);
       this.iSizeRot[n * 3] = this.s0[i]! + (this.s1[i]! - this.s0[i]!) * t;
       this.iSizeRot[n * 3 + 1] = this.rot[i]!;
       this.iSizeRot[n * 3 + 2] = this.stretch[i]!;
+      const vel = this.iVel;
+      if (vel) {
+        vel[n * 4] = this.vx[i]!;
+        vel[n * 4 + 1] = this.vy[i]!;
+        vel[n * 4 + 2] = this.vz[i]!;
+        vel[n * 4 + 3] = this.align[i]!;
+      }
       n++;
     }
     this.active = n;
@@ -202,6 +291,7 @@ class ParticleLayer {
     (this.geo.getAttribute('iPos') as THREE.InstancedBufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('iColor') as THREE.InstancedBufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('iSizeRot') as THREE.InstancedBufferAttribute).needsUpdate = true;
+    if (this.iVel) (this.geo.getAttribute('iVel') as THREE.InstancedBufferAttribute).needsUpdate = true;
   }
 }
 
@@ -341,8 +431,9 @@ void main() {
 
 /**
  * Bullet tracers: camera-facing ribbons (one instanced draw).
- * Each streak's head leaves the muzzle at TRACER_SPEED with the tail TRACER_STREAK behind it,
- * and the tracer ends when the tail reaches the hit.
+ * Each streak's tail leaves the muzzle at TRACER_SPEED. On the frame it is fired the head is already most of the way
+ * to the hit (TRACER_REACH); it stays there until it is TRACER_STREAK ahead of the tail, and then keeps that lead.
+ * The tracer ends when the tail reaches the hit.
  * A tracer is drawn from the muzzle on the frame it was fired, however long that frame was.
  */
 class Tracers {
@@ -425,7 +516,7 @@ class Tracers {
         this.state[i] = 0;
         continue;
       }
-      const head = Math.min(l, tail + TRACER_STREAK);
+      const head = Math.min(l, Math.max(tail + TRACER_STREAK, Math.min(TRACER_REACH_MAX, l * TRACER_REACH)));
       for (let k = 0; k < 3; k++) {
         const f = this.from[i * 3 + k]!;
         const d = this.dir[i * 3 + k]!;
@@ -608,7 +699,7 @@ interface RocketView {
 
 export class Effects {
   readonly group = new THREE.Group();
-  private readonly glow = new ParticleLayer(2500, true);
+  private readonly glow = new ParticleLayer(2500, true, true);
   private readonly smoke = new ParticleLayer(3000, false);
   readonly skids = new SkidMarks(3000);
   private readonly tracers = new Tracers(160);
@@ -616,7 +707,9 @@ export class Effects {
   readonly flash: THREE.PointLight;
   readonly muzzle: THREE.PointLight;
   private flashLife = 0;
-  private muzzleLife = 0;
+  /** Age of the muzzle light (s) and its intensity when lit; it fades out over FLASH_LIFE. */
+  private muzzleAge = FLASH_LIFE;
+  private muzzlePeak = 0;
   /** The explosion / muzzle light was lit since the last update: it is not aged before its first frame. */
   private flashFresh = false;
   private muzzleFresh = false;
@@ -650,14 +743,36 @@ export class Effects {
     return this.rng.range(a, b);
   }
 
-  /** A muzzle flash `size` m across (FLASH_SIZE): two crossed, stretched glow sprites and a short light. */
-  muzzleFlash(x: number, y: number, z: number, size: number): void {
+  /**
+   * A muzzle flash `size` m across (FLASH_SIZE) at the barrel tip (x, y, z): two crossed, stretched glow sprites and a
+   * short light that fades with them. Given the shot (`aim`), the light shines from FLASH_LIGHT_AHEAD further along it
+   * and is dimmed to throw at most FLASH_HEAD_LIGHT on the shooter's own head.
+   */
+  muzzleFlash(x: number, y: number, z: number, size: number, aim: FlashAim | null = null): void {
     if (!(size > 0) || !Number.isFinite(x + y + z)) return;
     const rot = Math.random() * Math.PI;
-    for (const r of [rot, rot + Math.PI / 2]) this.glow.emit(x, y, z, 0, 0, 0, 0.05, size, size * 1.3, 0xfff0b0, 0xff8020, 1, 0, 0, 0, 3, r);
-    this.muzzle.position.set(x, y, z);
-    this.muzzle.intensity = Math.min(FLASH_LIGHT_MAX, FLASH_LIGHT * size);
-    this.muzzleLife = 0.06;
+    for (const r of [rot, rot + Math.PI / 2]) this.glow.emit(x, y, z, 0, 0, 0, FLASH_LIFE, size, size * 1.3, 0xfff0b0, 0xff8020, 1, 0, 0, 0, 3, r);
+    let intensity = Math.min(FLASH_LIGHT_MAX, FLASH_LIGHT * size);
+    let lx = x;
+    let ly = y;
+    let lz = z;
+    if (aim) {
+      const l = Math.hypot(aim.dx, aim.dy, aim.dz);
+      if (l > 1e-6 && Number.isFinite(l)) {
+        lx += (aim.dx / l) * FLASH_LIGHT_AHEAD;
+        ly += (aim.dy / l) * FLASH_LIGHT_AHEAD;
+        lz += (aim.dz / l) * FLASH_LIGHT_AHEAD;
+      }
+      if (aim.shooter) {
+        const h = headOf(aim.shooter);
+        const d2 = (lx - h.x) ** 2 + (ly - h.y) ** 2 + (lz - h.z) ** 2;
+        if (Number.isFinite(d2)) intensity = Math.min(intensity, FLASH_HEAD_LIGHT * d2);
+      }
+    }
+    this.muzzle.position.set(lx, ly, lz);
+    this.muzzle.intensity = intensity;
+    this.muzzlePeak = intensity;
+    this.muzzleAge = 0;
     this.muzzleFresh = true;
   }
 
@@ -788,10 +903,13 @@ export class Effects {
     }
   }
 
-  /** Sparks of metal grinding on a wall or another car: orange-white, short-lived, thrown along (vx, vz). */
+  /**
+   * Sparks of metal grinding on a wall or another car, thrown along (vx, vz): streaks along their flight on screen,
+   * white-hot past the bloom threshold at first (SPARK_GLOW), cooling to orange, short-lived.
+   */
   sparks(x: number, y: number, z: number, n: number, vx = 0, vz = 0): void {
     for (let i = 0; i < n; i++) {
-      this.glow.emit(x + this.r(-0.15, 0.15), y + this.r(-0.1, 0.15), z + this.r(-0.15, 0.15), vx + this.r(-1.5, 1.5), this.r(1, 4.5), vz + this.r(-1.5, 1.5), this.r(0.2, 0.4), this.r(0.1, 0.16), 0.03, 0xfff4cc, 0xff8a1a, 1, 14, 0.8);
+      this.glow.emit(x + this.r(-0.15, 0.15), y + this.r(-0.1, 0.15), z + this.r(-0.15, 0.15), vx + this.r(-1.5, 1.5), this.r(1, 4.5), vz + this.r(-1.5, 1.5), this.r(0.25, 0.45), this.r(0.35, 0.5), 0.12, 0xfff4cc, 0xff7a14, 1, 14, 0.8, 0, SPARK_STRETCH, 0, SPARK_STYLE);
     }
   }
 
@@ -801,7 +919,7 @@ export class Effects {
    * they stream out behind the vehicle instead of dying under its body (or inside it when it slides sideways).
    */
   scrapeSparks(v: Vehicle, x: number, y: number, z: number, speed: number): void {
-    const n = Math.round(Math.min(16, Math.max(4, speed / 1.8)));
+    const n = Math.round(Math.min(24, Math.max(4, speed / 1.2)));
     const fx = Math.sin(v.heading);
     const fz = Math.cos(v.heading);
     const ox = x - v.pos.x;
@@ -912,9 +1030,11 @@ export class Effects {
     }
     if (this.muzzleFresh) {
       if (dt > 0) this.muzzleFresh = false;
-    } else if (this.muzzleLife > 0) {
-      this.muzzleLife -= dt;
-      if (this.muzzleLife <= 0) this.muzzle.intensity = 0;
+    } else if (this.muzzleAge < FLASH_LIFE) {
+      // Fades with the flash sprites (quadratically, so the second frame is already well down).
+      this.muzzleAge += dt;
+      const k = Math.max(0, 1 - this.muzzleAge / FLASH_LIFE);
+      this.muzzle.intensity = this.muzzlePeak * k * k;
     }
   }
 

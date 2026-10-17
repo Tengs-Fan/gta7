@@ -132,10 +132,11 @@ export class CombatSystem {
 
   muzzle(c: Character, fromVehicle: boolean): V3 {
     if (fromVehicle && c.vehicle) {
+      // Out of the shooter's own window: seats 0 and 2 are on the left (local +X), the others on the right,
+      // as Sim.syncOccupant seats them and CrowdView draws the gun held out there.
       const v = c.vehicle;
-      const sx = Math.cos(v.heading);
-      const sz = -Math.sin(v.heading);
-      return { x: v.pos.x + sx * (v.halfW + 0.2), y: v.pos.y + v.spec.height * 0.75, z: v.pos.z + sz * (v.halfW + 0.2) };
+      const out = (c.seat === 0 || c.seat === 2 ? 1 : -1) * (v.halfW + 0.2);
+      return { x: v.pos.x + Math.cos(v.heading) * out, y: v.pos.y + v.spec.height * 0.75, z: v.pos.z - Math.sin(v.heading) * out };
     }
     const yaw = c.aiming ? c.aimYaw : c.heading;
     const fx = Math.sin(yaw);
@@ -241,9 +242,17 @@ export class CombatSystem {
     this.startCooldown(c, (1 / w.rate) * (w.auto ? 1.4 : 2.2) + this.sim.rng.range(0, 0.25));
     c.shotTimer = 0.07;
     c.aimHold = 1.2;
-    const from = this.muzzle(c, fromVehicle);
     const tp = target.vehicle ? target.vehicle.pos : target.pos;
     const ty = target.vehicle ? tp.y + 0.9 : tp.y + target.height * 0.62;
+    let from = this.muzzle(c, fromVehicle);
+    // On foot the barrel tip moves with the aim: the gun is raised at the target first (the tip settles in two steps),
+    // so that the shot leaves from the tip as it is drawn. A car window is a fixed muzzle.
+    if (!(fromVehicle && c.vehicle)) {
+      for (let k = 0; k < 2; k++) {
+        this.aimAlong(c, tp.x - from.x, ty - from.y, tp.z - from.z);
+        from = this.muzzle(c, fromVehicle);
+      }
+    }
     let dx = tp.x - from.x;
     let dy = ty - from.y;
     let dz = tp.z - from.z;
@@ -251,11 +260,21 @@ export class CombatSystem {
     dx /= dist;
     dy /= dist;
     dz /= dist;
+    // The gun as drawn points along the shot (a car crew's held out of the window, a foot shooter's raised at the target).
+    this.aimAlong(c, dx, dy, dz);
     const tSpeed = target.vehicle ? target.vehicle.speed : target.speed;
     const err = w.spread + (1 - accuracy) * 0.075 + tSpeed * 0.004 + dist * 0.0009;
     // From a car window there is no chest-to-muzzle wall check; on foot (also when asked for a car he has left) there is.
     this.discharge(c, w, from, dx, dy, dz, err, fromVehicle && c.vehicle ? null : this.muzzleWall(c, from));
     if (slot.clip === 0) this.startReload(c);
+  }
+
+  /** Points a character's aim (yaw and pitch, as drawn and as the barrel tip follows) along (dx, dy, dz). */
+  private aimAlong(c: Character, dx: number, dy: number, dz: number): void {
+    const l = Math.hypot(dx, dy, dz);
+    if (!(l > 1e-9)) return;
+    c.aimYaw = Math.atan2(dx, dz);
+    c.aimPitch = Math.asin(clamp(dy / l, -1, 1));
   }
 
   /**
@@ -485,9 +504,17 @@ export class CombatSystem {
       }
       // At point blank the crosshair ray enters someone in front of the player before the muzzle's depth:
       // a person counts by where he stands (the ray's closest approach to his axis), and is hit just past it.
+      // One level with the muzzle, his axis up to his radius short of its depth, still counts when he stands
+      // wholly in front of the shooter; beside or behind the shooter's shoulder he is out of the gun's way.
       if (minT > 0 && t >= 0) {
         const tc = flat > 1e-9 ? along / flat : -1;
-        t = tc >= minT ? Math.max(t, minT + 1e-3) : -1;
+        let reach = tc >= minT;
+        if (!reach && ignore && flat > 1e-9) {
+          const r = c.state === 'normal' ? BODY_R : bodyOf(c).r;
+          const ahead = ((c.pos.x - ignore.pos.x) * dx + (c.pos.z - ignore.pos.z) * dz) / Math.sqrt(flat);
+          reach = tc >= minT - r && ahead >= r;
+        }
+        t = reach ? Math.max(t, minT + 1e-3) : -1;
       }
       if (t >= minT && t < res.t) {
         res.t = t;
