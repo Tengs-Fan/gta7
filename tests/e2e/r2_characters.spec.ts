@@ -63,7 +63,8 @@ test.describe('character rig', () => {
       }
       return inside;
     });
-    expect(found).toBe(1);
+    // At least him (traffic could pass through the same spot).
+    expect(found).toBeGreaterThanOrEqual(1);
     expect(errors).toEqual([]);
   });
 });
