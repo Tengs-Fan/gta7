@@ -14,10 +14,11 @@ import { CLOUD_SD, Environment, cloudCover, cloudThreshold, starIntensity } from
 import { GameRenderer } from '../../src/render/renderer';
 import { Sim } from '../../src/sim/sim';
 import { isSolidForSight, makeRayHit } from '../../src/world/colliders';
+import { Helicopter } from '../../src/sim/entities';
 import { CURB_H } from '../../src/world/constants';
-import { SPECIALS, blockOf, frontages, generateCity, type Building, type Prop, type Side } from '../../src/world/layout';
-import type { StaticWorld } from '../../src/world/staticWorld';
-import { input, makeSim, step, teleport, world } from './helpers';
+import { SPECIALS, blockOf, frontages, generateCity, rectContains, type Building, type Poi, type Prop, type Side } from '../../src/world/layout';
+import { GARAGE_EAVE, GARAGE_ROOF, type StaticWorld } from '../../src/world/staticWorld';
+import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
@@ -1008,5 +1009,147 @@ describe('round 2 fix: the camera and street trees', () => {
     expect(walks).toBeGreaterThanOrEqual(24);
     expect(widest).toBeLessThan(1 / 3);
     expect(closest).toBeGreaterThan(0.3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix 2: garage roofs in the sight grid
+
+/** Removes every police car and officer, leaving the helicopters: what they see is all the police see. */
+function helisOnly(sim: Sim): void {
+  for (const v of sim.vehicles) if (v.owner === 'police' && v.driver !== sim.player) sim.removeVehicle(v);
+  for (const c of sim.characters) if (c.isLaw) sim.removeCharacter(c);
+}
+
+/** A garage's bay, its centre, and the way out of it (the side its opening faces). */
+function bayOf(poi: Poi): { cx: number; cz: number; fx: number; fz: number; depth: number } {
+  const b = poi.bay!;
+  const fx = Math.sin(poi.heading);
+  const fz = Math.cos(poi.heading);
+  // Half the bay's extent along the way out.
+  const depth = (Math.abs(fx) * (b.maxX - b.minX) + Math.abs(fz) * (b.maxZ - b.minZ)) / 2;
+  return { cx: (b.minX + b.maxX) / 2, cz: (b.minZ + b.maxZ) / 2, fx, fz, depth };
+}
+
+describe('round 2 fix 2: garages hide the bay from above', () => {
+  it('draws each garage roof where its collider is', () => {
+    const W = world();
+    const mesh = new CityView(W).group.getObjectByName('garages') as THREE.Mesh;
+    const pos = mesh.geometry.getAttribute('position');
+    const nrm = mesh.geometry.getAttribute('normal');
+    expect(W.layout.garages.length).toBe(4);
+    for (const g of W.layout.garages) {
+      // The roof slab's top face: the upward faces at the top of the slab over this garage.
+      const top = { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity };
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const z = pos.getZ(i);
+        if (nrm.getY(i) < 0.99 || Math.abs(pos.getY(i) - (g.height + GARAGE_ROOF)) > 1e-3) continue;
+        if (x < g.rect.minX - 2 || x > g.rect.maxX + 2 || z < g.rect.minZ - 2 || z > g.rect.maxZ + 2) continue;
+        top.minX = Math.min(top.minX, x);
+        top.minZ = Math.min(top.minZ, z);
+        top.maxX = Math.max(top.maxX, x);
+        top.maxZ = Math.max(top.maxZ, z);
+      }
+      const roofs = W.grid.colliders.filter((c) => !c.circle && Math.abs(c.y0 - g.height) < 1e-9 && Math.abs(c.y1 - g.height - GARAGE_ROOF) < 1e-9 && rectContains(g.rect, c.cx, c.cz));
+      expect(roofs.length, g.poi).toBe(1);
+      const c = roofs[0]!;
+      expect(c.tag, g.poi).toBe('wall');
+      for (const k of ['minX', 'minZ', 'maxX', 'maxZ'] as const) expect(Math.abs(c[k] - top[k]), `${g.poi} ${k}`).toBeLessThan(1e-3);
+      expect(c.maxX - c.minX - (g.rect.maxX - g.rect.minX)).toBeCloseTo(2 * GARAGE_EAVE, 9);
+    }
+  });
+
+  it('no helicopter round the orbit or overhead sees into a garage bay, though it sees the street in front', () => {
+    const sim = makeSim({ startHour: 12 });
+    for (const g of sim.world.layout.garages) {
+      const poi = sim.world.layout.pois.find((p) => p.id === g.poi)!;
+      const { cx, cz, fx, fz, depth } = bayOf(poi);
+      // The road 6 m beyond the sidewalk in front of the opening.
+      const sx = cx + fx * (depth + 1.5 + 10);
+      const sz = cz + fz * (depth + 1.5 + 10);
+      const gy = sim.world.groundHeight(cx, cz);
+      let n = 0;
+      let bay = 0;
+      let street = 0;
+      // The orbit's radii (24, 16 and 8 m) and beyond, all the way round, low and high.
+      for (const r of [0, 8, 16, 24, 32, 40]) {
+        for (let a = 0; a < 360; a += 10) {
+          for (const up of [30, 36, 42]) {
+            const h = new Helicopter(sim.newId(), cx + Math.cos((a * Math.PI) / 180) * r, gy + up, cz + Math.sin((a * Math.PI) / 180) * r);
+            n++;
+            if (sim.wanted.heliSees(h, cx, cz)) bay++;
+            if (sim.wanted.heliSees(h, sx, sz)) street++;
+          }
+        }
+      }
+      expect(bay, g.poi).toBe(0);
+      expect(street / n, g.poi).toBeGreaterThan(0.9);
+    }
+  });
+
+  it('a car hidden in a garage bay loses the helicopter: the stars flash, then clear', () => {
+    for (const g of world().layout.garages) {
+      const sim = makeSim({ startHour: 12 });
+      sim.clock.rate = 0;
+      const poi = sim.world.layout.pois.find((p) => p.id === g.poi)!;
+      const { cx, cz } = bayOf(poi);
+      placeInCar(sim, sim.spawnVehicle('sedan', cx, cz, poi.heading + Math.PI));
+      sim.wanted.setLevel(3);
+      sim.helis.push(new Helicopter(sim.newId(), cx + 20, sim.world.groundHeight(cx, cz) + 36, cz));
+      let flashed = -1;
+      let cleared = -1;
+      for (let i = 0; i < 1000 && cleared < 0; i++) {
+        helisOnly(sim);
+        sim.update(0.1, input());
+        if (flashed < 0 && sim.wanted.searching) flashed = sim.time;
+        if (sim.wanted.level === 0) cleared = sim.time;
+      }
+      expect(sim.helis.some((h) => !h.removed && Math.hypot(h.pos.x - cx, h.pos.z - cz) < 60), g.poi).toBe(true);
+      // Once the police are no longer told where he is (13 s at 3 stars), the stars flash 2.5 s later...
+      expect(flashed, g.poi).toBeGreaterThan(0);
+      expect(flashed, g.poi).toBeLessThan(16.5);
+      // ...and hiding clears them (2.6 x 28 s unseen).
+      expect(cleared, g.poi).toBeGreaterThan(0);
+      expect(cleared, g.poi).toBeLessThan(95);
+    }
+  });
+
+  it('a helicopter that watched the car drive in still turns the respray down, and the roof lets even a bus in', () => {
+    for (const [id, kind] of [['spray_hill', 'sedan'], ['spray_docks', 'bus'], ['spray_south', 'van']] as const) {
+      const sim = makeSim({ startHour: 12 });
+      sim.clock.rate = 0;
+      sim.cheats.godMode = true;
+      sim.missions.noBust = true;
+      sim.progress.addMoney(5000);
+      const poi = sim.world.layout.pois.find((p) => p.id === id)!;
+      const { cx, cz, fx, fz, depth } = bayOf(poi);
+      // On the road 14 m out from the bay, facing in, with a helicopter over him.
+      const sx = cx + fx * (depth + 14);
+      const sz = cz + fz * (depth + 14);
+      const car = sim.spawnVehicle(kind, sx, sz, poi.heading + Math.PI);
+      placeInCar(sim, car);
+      const texts: string[] = [];
+      sim.events.on('message', (e) => texts.push(e.text));
+      sim.wanted.setLevel(3);
+      sim.helis.push(new Helicopter(sim.newId(), sx, sim.world.groundHeight(sx, sz) + 36, sz));
+      const money = sim.progress.money;
+      // Past the 13 s response phase, the helicopter watching him...
+      step(sim, 14, () => {
+        helisOnly(sim);
+        return input();
+      });
+      expect(sim.wanted.searching, id).toBe(false);
+      // ...he drives in slowly and stops in the middle of the bay.
+      step(sim, 8, () => {
+        helisOnly(sim);
+        const ahead = (car.pos.x - cx) * fx + (car.pos.z - cz) * fz;
+        return ahead > 0.5 ? input({ throttle: car.speed > 6 ? 0 : 0.6 }) : input({ brake: 1 });
+      });
+      expect(rectContains(poi.bay!, car.pos.x, car.pos.z), `${id} ${kind}`).toBe(true);
+      expect(texts, id).toContain('Spray Shack: They saw you drive in!');
+      expect(sim.wanted.level, id).toBe(3);
+      expect(sim.progress.money, id).toBe(money);
+    }
   });
 });
