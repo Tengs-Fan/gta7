@@ -285,8 +285,8 @@ test.describe('GTA 7', () => {
     const ROUNDS = 110;
     const fps: number[] = [];
     let maxTarget = 0;
-    /** When the player last jumped across town. */
-    let movedAt = Date.now();
+    /** Sim time when the player last jumped across town (the sim clock: it runs slow when frames do). */
+    let movedAt = 0;
     for (let round = 1; round <= ROUNDS; round++) {
       const action = Math.floor(rnd() * 7);
       if (action === 0) {
@@ -301,11 +301,11 @@ test.describe('GTA 7', () => {
         const moved = await page.evaluate((r) => {
           const g = (window as Api).__gta7;
           const n = g.sim.roads.nodes[Math.floor(r * g.sim.roads.nodes.length)];
-          if (g.sim.player.vehicle) return false;
+          if (g.sim.player.vehicle) return null;
           g.place(n.x + n.halfX + 2, n.z + n.halfZ + 2);
-          return true;
+          return g.sim.time as number;
         }, rnd());
-        if (moved) movedAt = Date.now();
+        if (moved !== null) movedAt = moved;
       }
       const key = pick(keys);
       await page.keyboard.down('KeyW');
@@ -318,13 +318,9 @@ test.describe('GTA 7', () => {
         fps.push(s.fps);
         expect(s.crashed).toBe(false);
         expect(s.characters).toBeLessThan(180);
-        if (s.menuOpen) {
-          await page.evaluate(() => (window as Api).__gta7.game.resume());
-          movedAt = Date.now();
-        }
-        // After a jump the streaming needs a tick (parked cars: 1.1 s) to drop what was left behind.
-        const settle = movedAt + 1500 - Date.now();
-        if (settle > 0) await page.waitForTimeout(settle);
+        if (s.menuOpen) await page.evaluate(() => (window as Api).__gta7.game.resume());
+        // After a jump the streaming needs a tick (parked cars: 1.1 s of sim time) to drop what was left behind.
+        await page.waitForFunction((t) => (window as Api).__gta7.sim.time >= t, movedAt + 1.5);
         const c = await vehicleCensus(page);
         maxTarget = Math.max(maxTarget, c.target);
         // What caps the vehicle count, category by category (see vehicleCensus).

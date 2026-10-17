@@ -354,7 +354,7 @@ export class MissionCtx {
    * Clears the spot a mission vehicle spawns at: whatever was left standing in its way goes, such as a
    * failed attempt's wreck or car on the spot a retry spawns its new one at, or a car parked in its bay.
    * Only a car the player is in, or one another job holds on to, stays: then the new one goes to the
-   * nearest spot where it fits.
+   * nearest spot within 15 m where it fits, or, with none there either, to its own spot after all.
    */
   private makeRoom(kind: VehicleKind, x: number, z: number, heading: number): { x: number; z: number } {
     const sim = this.sim;

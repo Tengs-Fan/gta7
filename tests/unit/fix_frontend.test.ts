@@ -814,6 +814,46 @@ describe('HUD', () => {
     run(sim, 1 / 60);
     expect(el.objective!.classList.contains('show')).toBe(false);
   });
+
+  it('keeps the title card above a subtitle and the prompt, measuring them only when they change', () => {
+    const { hud, el } = makeHud();
+    const sim = quickSim();
+    hud.bind(sim);
+    // The fake DOM lays nothing out: record the custom properties the HUD sets, and give the line and the
+    // prompt their boxes in the 720 px window (a long line's top 250 px up, the prompt's 330 px up).
+    const props: Record<string, string> = {};
+    const root = (hud as unknown as { root: FakeElement }).root;
+    (root.style as unknown as { setProperty: (k: string, v: string) => void }).setProperty = (k, v) => {
+      props[k] = v;
+    };
+    el.subtitle!.getBoundingClientRect = () => ({ left: 340, top: 720 - 250, width: 600, height: 130 });
+    const promptBox = vi.fn(() => ({ left: 430, top: 720 - 330, width: 420, height: 60 }));
+    el.prompt!.getBoundingClientRect = promptBox;
+    const frame = (prompt: string | null) => hud.update(1 / 60, sim, 0, false, prompt, 0);
+    frame(null);
+    expect(props['--stack-top']).toBe('0px');
+    sim.events.emit('subtitle', { speaker: 'Mama Lou', text: 'A long line, wrapped to four lines in a short window.', duration: 6 });
+    frame(null);
+    expect(props['--stack-top']).toBe('250px');
+    // The prompt slot above it: measured once when it appears, not on every frame it stays.
+    for (let i = 0; i < 10; i++) frame('Press E to enter');
+    expect(props['--stack-top']).toBe('330px');
+    expect(promptBox).toHaveBeenCalledTimes(1);
+    // A new prompt is measured again, and so is the same one after the window changes size.
+    frame('Press E to buy');
+    expect(promptBox).toHaveBeenCalledTimes(2);
+    const win = dom.win as unknown as { innerHeight: number };
+    win.innerHeight = 600;
+    frame('Press E to buy');
+    expect(promptBox).toHaveBeenCalledTimes(3);
+    win.innerHeight = 720;
+    frame('Press E to buy');
+    // The prompt gone, the line alone; the line gone (after its fade), nothing.
+    frame(null);
+    expect(props['--stack-top']).toBe('250px');
+    for (let t = 0; t < 7; t += 1 / 60) frame(null);
+    expect(props['--stack-top']).toBe('0px');
+  });
 });
 
 describe('menus', () => {
