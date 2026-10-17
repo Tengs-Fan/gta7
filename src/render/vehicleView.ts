@@ -4,8 +4,9 @@
 import * as THREE from 'three';
 import { clamp, damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
-import { SKELETON } from '../sim/pose';
+import { GUN_PORT, SKELETON } from '../sim/pose';
 import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
+import { chaseOffset, CHASE_TARGET_Y } from './camera';
 import { taxiSignTexture } from './textures';
 import { addPanel, addPrism, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
 import { crackedGlassTexture, GLASS_TINT } from './vehicleTextures';
@@ -16,10 +17,23 @@ const DARK = 0.08;
 /** Clearance between a tyre and its wheel arch. */
 const ARCH_GAP = 0.11;
 /**
- * How far the body may come down onto a planted wheel as it leans: the arch's clearance over the tyre (about 4 cm once
- * the body's bevel is counted) and 2 cm of the tyre tucking into its well as the springs compress.
+ * How far the body of a sedan (wheel radius 0.34, gains 1) may come down onto a planted wheel as it leans: the arch's
+ * clearance over the tyre (about 4 cm once the body's bevel is counted) and 2 cm of the tyre tucking into its well as
+ * the springs compress. Other classes travel in proportion to their wheels and how soft P42 makes them (leanRoom).
  */
 const LEAN_ARCH_ROOM = 0.06;
+const LEAN_WHEEL_R = 0.34;
+
+/**
+ * How far the body of a `kind` may come down onto a planted wheel as it leans (m): a stiff sports car on its low-profile
+ * tyres a few centimetres, a soft van, pickup or bus on its big wheels about twice a sedan's. Long-travel classes so keep
+ * the extra lean P42 gives them (rollGain, pitchGain) in hard braking and cornering instead of all meeting one limit,
+ * and no tyre comes up through the bodywork over it.
+ */
+export function leanRoom(kind: VehicleKind): number {
+  const s = VEHICLE_SPECS[kind];
+  return LEAN_ARCH_ROOM * (profile(kind).wheelR / LEAN_WHEEL_R) * Math.max(s.pitchGain, s.rollGain);
+}
 /** Glass panels float this far above the bevelled body surface. */
 const GLASS_LIFT = 0.015;
 /** Bevel of a see-through cabin's glass (the glass prism bulges this far out of the cabin profile). */
@@ -31,6 +45,24 @@ const WRECK_ROLL = 0.05;
 const LAMP_BREAK_DIST = 0.8;
 /** Tail lamp emissive intensity while braking (running lights 1.2, off 0.3). */
 const BRAKE_GLOW = 1.8;
+
+type Rgb = readonly [number, number, number];
+/**
+ * A light bar's lit red and blue lenses (linear RGB; unlit they fall to a tenth of plain red and blue). ACES tone-maps a
+ * lamp far above 1 to a near-white core, so with bloom each one's luminance stays above the bloom threshold (2.6) and
+ * the halo round it carries the colour. Without bloom (Low, or no half-float target) only that core is drawn, so they
+ * stay where ACES keeps the hue: a red that reads red and a blue that reads blue (as props.ts LAMPS does for signals).
+ */
+const SIREN: Readonly<Record<'glow' | 'flat', { readonly red: Rgb; readonly blue: Rgb }>> = {
+  glow: { red: [13, 0.4, 0.1], blue: [0.1, 1.6, 26] },
+  flat: { red: [1, 0.02, 0.01], blue: [0.02, 0.1, 1.5] },
+};
+let sirenGlow = true;
+
+/** Whether bloom draws halos round bright lights (GameRenderer.setQuality), which picks the light bars' colours (SIREN). */
+export function setVehicleGlow(on: boolean): void {
+  sirenGlow = on;
+}
 
 /**
  * How far from a dent of `depth` a lamp is smashed: nothing below 4 cm (a parking bump), growing to LAMP_BREAK_DIST at
@@ -60,8 +92,10 @@ export interface CabinLayout {
   /** Hip joints of the front and the rear row, m ahead of the vehicle's centre (riders sit 0.45 x the half width out). */
   readonly frontZ: number;
   readonly rearZ: number | null;
-  /** Recline of the seat backs, rad back from upright; riders lean back further when their heads need it. */
+  /** Recline of the seat backs, rad back from upright; riders lean back further when their heads or legs need it. */
   readonly recline: number;
+  /** The lowest a rider's hip joint may sit: his thighs stay inside the body, over its floor pan. */
+  readonly seatLow: number;
   readonly wheel: SteeringWheel;
   /** Side profile of the cabin glass: front-bottom, front-top, rear-top, rear-bottom. */
   readonly glass: readonly Pt[];
@@ -84,7 +118,9 @@ export const SEAT_HEADROOM = 0.025;
 const CHASE_HEAD = 0.3;
 /** Front seat backs reach this far above the floor: under a rider's head, so it shows from behind. */
 const SEAT_BACK_TOP = 0.1;
-const MAX_RECLINE = 0.62;
+const MAX_RECLINE = 0.8;
+/** A seated rider's thighs reach this far under his hip joints (their half thickness and a margin). */
+const THIGH_LOW = 0.11;
 /** The steering wheel: rim radius, tilt, height of its centre above the floor and distance ahead of the driver's hips. */
 const WHEEL_RADIUS = 0.16;
 const WHEEL_TILT = 0.45;
@@ -128,24 +164,34 @@ function headOver(c: CabinLayout, y: number, z: number, r: number, s: number, ha
 
 /**
  * Seats a rider of `height` (appearance.height) in the front or rear row: shoulders just above the floor, leaning back
- * like the seat, and sitting lower when his head or cap would not fit under the roof. Leaning back further only helps
- * where the roof comes down in front of the head (a raked windscreen), so the least recline that does best is taken.
+ * like the seat, and sitting lower when his head or cap would not fit under the roof. Leaning back raises his hips
+ * under shoulders at the same height, which keeps the legs of a rider in a low car inside its body (seatLow), and helps
+ * his head where the roof comes down in front of it (a raked windscreen): the least recline that does best is taken.
  */
 export function riderSeat(c: CabinLayout, rear: boolean, height: number, hat: boolean, out: RiderSeat): RiderSeat {
   const s = height;
   const z = rear && c.rearZ !== null ? c.rearZ : c.frontZ;
   const hipFor = (r: number): number => c.floor + SEAT_SHOULDER_CLEAR - SKELETON.shoulderY * s * Math.cos(r);
+  // (Bounded: a head corner outside the cabin's length would see no roof at all.)
+  const overAt = (r: number): number => clamp(headOver(c, hipFor(r), z, r, s, hat), 0, 0.5);
   let recline = c.recline;
-  let over = headOver(c, hipFor(recline), z, recline, s, hat);
-  for (let r = c.recline + 0.04; over > 0 && r <= MAX_RECLINE + 1e-9; r += 0.04) {
-    const o = headOver(c, hipFor(r), z, r, s, hat);
-    if (o < over - 0.005) {
-      over = o;
-      recline = r;
+  let over = overAt(recline);
+  let fits = hipFor(recline) - over >= c.seatLow;
+  if (over > 0 || !fits) {
+    for (let r = c.recline + 0.04; r <= MAX_RECLINE + 1e-9; r += 0.04) {
+      const o = overAt(r);
+      const f = hipFor(r) - o >= c.seatLow;
+      // Legs inside the car first; then shoulders as high as the head allows (5 mm better, or the lesser recline);
+      // with neither possible, the highest hips.
+      const better = f !== fits ? f : f ? o < over - 0.005 : hipFor(r) - o > hipFor(recline) - over;
+      if (better) {
+        recline = r;
+        over = o;
+        fits = f;
+      }
     }
   }
-  // (Bounded: a head corner outside the cabin's length would see no roof at all.)
-  out.y = hipFor(recline) - clamp(over, 0, 0.5);
+  out.y = hipFor(recline) - over;
   out.z = z;
   out.recline = recline;
   return out;
@@ -183,20 +229,25 @@ function computeLayout(kind: VehicleKind, prof: Profile): CabinLayout {
   const wzMax = (shield ? shield[1] : ft[0]) - 0.03 - WHEEL_RADIUS * Math.sin(WHEEL_TILT);
   const frontZ = Math.min(0.15, wzMax - WHEEL_AHEAD);
   const wheel = { x: hw * 0.45, y: wy, z: Math.min(wzMax, frontZ + WHEEL_AHEAD), radius: WHEEL_RADIUS, tilt: WHEEL_TILT };
-  // The rear row far enough forward that its heads are under the roof, not the sloping rear window.
-  const rearZ = prof.rearSeats ? Math.max(-0.9, rt[0] + 0.36) : null;
-  const layout = { floor, frontZ, rearZ, recline: 0.36, wheel, glass: prof.cabin, roof: { z0: rt[0] - 0.03, z1: ft[0] + 0.03, y: top - 0.015 } };
-  // The player's head must show through the rear window from the chase camera (camera.ts: 5.2 + 0.72 x length behind,
-  // 1.3 + 1.35 x height up, pitched 0.08 down), which looks steeply down past the roof's rear edge. Where the roof runs
-  // too far back for CHASE_HEAD of the back of his head to show under it, its painted panel stops short and the glass
-  // under it carries on as a glass roof: 0.2-0.5 m of it on the cars, 1 m on the compact hatchback, none on the pickup.
+  // The rear row far enough forward that its heads, tall and capped ones too, are under the roof, not the sloping rear
+  // window.
+  const rearZ = prof.rearSeats ? Math.max(-0.9, rt[0] + 0.4) : null;
+  // Riders sit no lower than their thighs' depth over the body's bevelled floor pan.
+  const seatLow = prof.body[0]![1] - BEVEL + THIGH_LOW;
+  const layout = { floor, frontZ, rearZ, recline: 0.36, seatLow, wheel, glass: prof.cabin, roof: { z0: rt[0] - 0.03, z1: ft[0] + 0.03, y: top - 0.015 } };
+  // The player's head must show through the rear window from the chase camera (camera.ts chaseOffset), which looks
+  // steeply down past the roof's rear edge, most steeply at rest (at speed it drops and pulls back, zoomed out it stands
+  // further off). Where the roof runs too far back for CHASE_HEAD of the back of his head to show under it, its painted
+  // panel stops short and the glass under it carries on as a glass roof: 0.2-0.5 m of it on the cars, 1 m on the
+  // compact hatchback, none on the pickup.
   const ref = riderSeat(layout, false, 1.02, false, { y: 0, z: 0, recline: 0 });
   const neckY = ref.y + SKELETON.neckY * 1.02 * Math.cos(ref.recline);
   const neckZ = ref.z - SKELETON.neckY * 1.02 * Math.sin(ref.recline);
   const zt = neckZ - 0.12 * 1.02;
   const yt = neckY + (0.02 + CHASE_HEAD) * 1.02;
-  const camBack = 5.2 + 0.72 * s.length;
-  const camY = 0.75 * s.height + 1.3 + 0.6 * s.height + Math.sin(0.08) * camBack * 0.3;
+  const cam = chaseOffset(s, 0, false);
+  const camBack = cam.back;
+  const camY = s.height * CHASE_TARGET_Y + cam.up;
   const edge = zt - ((layout.roof.y - yt) * (zt + camBack)) / (camY - yt);
   // A light bar or taxi sign keeps the roof under it.
   const gear = s.police ? -0.1 * s.length - 0.25 : kind === 'taxi' ? -0.08 * s.length - 0.25 : Infinity;
@@ -223,6 +274,8 @@ interface Profile {
   lightY: number;
   /** Windshield and rear windows of box-shaped vehicles, whose cabin is part of the body. */
   panes: Pane[];
+  /** More side windows of box-shaped vehicles, cut and glazed like the cab's (the riot van's gun ports). */
+  ports: Pt[][];
   /** A rear bench behind the front seats. */
   rearSeats: boolean;
 }
@@ -238,12 +291,12 @@ function profile(kind: VehicleKind): Profile {
   const H = s.height;
   const hw = s.width / 2;
   const P = (pts: Array<[number, number]>): Pt[] => pts.map(([x, y]) => [x * L, y * H]);
-  const base = { panes: [] as Pane[], rearSeats: false };
+  const base = { panes: [] as Pane[], ports: [] as Pt[][], rearSeats: false };
   switch (kind) {
     case 'compact':
       return { ...base, body: P([[-0.5, 0.22], [0.49, 0.22], [0.5, 0.4], [0.47, 0.56], [0.24, 0.62], [-0.46, 0.63], [-0.5, 0.5]]), cabin: P([[0.25, 0.61], [0.07, 0.98], [-0.39, 0.98], [-0.47, 0.62]]), cabinInset: 0.1, wheelR: 0.31, wheelFront: 0.33, wheelRear: -0.32, lightY: 0.45 };
     case 'sports':
-      return { ...base, body: P([[-0.5, 0.2], [0.5, 0.2], [0.5, 0.36], [0.32, 0.52], [-0.4, 0.62], [-0.5, 0.52]]), cabin: P([[0.22, 0.55], [0.02, 0.97], [-0.2, 0.97], [-0.4, 0.61]]), cabinInset: 0.14, wheelR: 0.34, wheelFront: 0.32, wheelRear: -0.31, lightY: 0.38 };
+      return { ...base, body: P([[-0.5, 0.2], [0.5, 0.2], [0.5, 0.36], [0.32, 0.545], [-0.4, 0.545], [-0.5, 0.52]]), cabin: P([[0.22, 0.55], [0.02, 0.97], [-0.2, 0.97], [-0.4, 0.54]]), cabinInset: 0.14, wheelR: 0.32, wheelFront: 0.32, wheelRear: -0.31, lightY: 0.38 };
     case 'muscle':
       return { ...base, body: P([[-0.5, 0.22], [0.5, 0.22], [0.5, 0.5], [0.14, 0.62], [-0.3, 0.62], [-0.5, 0.56]]), cabin: P([[0.12, 0.61], [-0.02, 0.97], [-0.22, 0.97], [-0.34, 0.61]]), cabinInset: 0.12, wheelR: 0.36, wheelFront: 0.33, wheelRear: -0.31, lightY: 0.45 };
     case 'pickup': {
@@ -289,6 +342,8 @@ function profile(kind: VehicleKind): Profile {
         ...base,
         body,
         cabin: P([[0.39, 0.55], [0.325, 0.84], [0.22, 0.84], [0.22, 0.55]]),
+        // Gun ports in the windowless back, for the crew in the rear seats (sim/pose.ts fires from them).
+        ports: [P([[GUN_PORT.z1, GUN_PORT.y0], [GUN_PORT.z1, GUN_PORT.y1], [GUN_PORT.z0, GUN_PORT.y1], [GUN_PORT.z0, GUN_PORT.y0]])],
         cabinInset: -GLASS_LIFT,
         wheelR: 0.45,
         wheelFront: 0.33,
@@ -515,7 +570,7 @@ function kindAssets(kind: VehicleKind): KindAssets {
     steiner: spacing,
     extraX: prof.panes.flatMap((w) => [w.x0, w.x1]),
     // Side windows of box-shaped vehicles: dark backing behind the glass, cut into the flanks.
-    holes: box ? [prof.cabin] : [],
+    holes: box ? [prof.cabin, ...prof.ports] : [],
     holeShade: DARK,
     sideShade: (p, q, x) => (onArch(p, q) || inPane(p, q, x) ? DARK : 1),
   });
@@ -529,9 +584,9 @@ function kindAssets(kind: VehicleKind): KindAssets {
     bb.box(hw - 0.09, floorEdge, tail, hw + 0.002, top, cabBack, 1);
     bb.box(-hw - 0.002, floorEdge, tail, -hw + 0.09, top, cabBack, 1);
     bb.box(-hw + 0.09, floorTop, tail, hw - 0.09, top, tail + 0.08, 1);
-    // Wheel-well humps: the rear tyres reach above the bed floor.
+    // Wheel-well humps: the rear tyres reach above the bed floor, and come up further into them as the body leans.
     const wz = prof.wheelRear * s.length;
-    const hump = prof.wheelR * 2 + 0.07;
+    const hump = prof.wheelR * 2 + leanRoom(kind) + 0.02;
     const reach = prof.wheelR + 0.1;
     bb.box(hw - 0.38, floorTop - 0.02, wz - reach, hw - 0.09, hump, wz + reach, 1);
     bb.box(-hw + 0.09, floorTop - 0.02, wz - reach, -hw + 0.38, hump, wz + reach, 1);
@@ -543,7 +598,7 @@ function kindAssets(kind: VehicleKind): KindAssets {
   }
   const body = bb.build();
   const gb = new GeoBuilder();
-  addPrism(gb, prof.cabin, { width: s.width - prof.cabinInset * 2, bevel: prof.cabinInset > 0 ? 0.05 : 0.01, steps: 4, maxEdge: spacing, steiner: spacing });
+  for (const glass of [prof.cabin, ...prof.ports]) addPrism(gb, glass, { width: s.width - prof.cabinInset * 2, bevel: prof.cabinInset > 0 ? 0.05 : 0.01, steps: 4, maxEdge: spacing, steiner: spacing });
   for (const w of prof.panes) {
     // Glass over the window's dark backing: outward from the profile by the bevel plus a gap.
     const dx = w.b[0] - w.a[0];
@@ -653,7 +708,12 @@ export class VehicleView {
   /** How far the furthest axle sits from the body's centre, and the wheels' half track: the lean's lever arms. */
   private readonly axle: number;
   private readonly track: number;
+  /** How far the body may come down onto a wheel as it leans (leanRoom). */
+  private readonly room: number;
   private readonly centre = new THREE.Vector3();
+  /** The point the body leans about on its springs: over the centre, at the height of the tyres' tops. */
+  private readonly leanAxis: THREE.Vector3;
+  private readonly leanTmp = new THREE.Vector3();
   private readonly euler = new THREE.Euler(0, 0, 0, 'YXZ');
   private readonly qBody = new THREE.Quaternion();
   private readonly qPlanted = new THREE.Quaternion();
@@ -704,9 +764,11 @@ export class VehicleView {
         this.wheels.push({ pivot, tire, rim, front, base: pivot.position.clone() });
       }
     }
-    // Leaning about the body's centre, the arch over the furthest axle and the outer track drops the most.
+    // As the body leans, the arch over the furthest axle and the outer track comes down the most.
     this.axle = Math.max(Math.abs(a.prof.wheelFront), Math.abs(a.prof.wheelRear)) * s.length;
     this.track = halfW - 0.15;
+    this.room = leanRoom(kind);
+    this.leanAxis = new THREE.Vector3(0, 2 * a.prof.wheelR, 0);
     // Lights sit just outside the bevelled body surface so they are never buried.
     const ly = a.prof.lightY * s.height;
     const front = s.length / 2 + BEVEL + 0.02;
@@ -727,8 +789,9 @@ export class VehicleView {
     this.lamps.push({ mesh: rev, mat: this.reverseMat, broken: false, base: rev.position.clone(), head: false });
     for (const l of this.lamps) this.attached.push({ obj: l.mesh, base: l.base });
     if (s.police) {
-      const red = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.3 });
-      const blue = new THREE.MeshStandardMaterial({ color: 0x000040, emissive: 0x0040ff, emissiveIntensity: 0, roughness: 0.3 });
+      // Emissive colours set by sync() (SIREN).
+      const red = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0x000000, emissiveIntensity: 1, roughness: 0.3 });
+      const blue = new THREE.MeshStandardMaterial({ color: 0x000040, emissive: 0x000000, emissiveIntensity: 1, roughness: 0.3 });
       this.sirenRed = red;
       this.sirenBlue = blue;
       // The cruiser's bar stands on its painted roof panel (see addRoof).
@@ -916,27 +979,35 @@ export class VehicleView {
     // squat under acceleration, dive under braking, roll away from the turn centre.
     let pitch = clamp(-acc * 0.006 * pg, -0.07 * pg, 0.07 * pg);
     let roll = clamp(lat * 0.006 * rg, -0.09 * rg, 0.09 * rg);
-    // Diving and rolling both bring a corner's wheel arch down onto its tyre: together they share LEAN_ARCH_ROOM.
+    // Diving and rolling both bring a corner's wheel arch down onto its tyre: together they share the class's room.
     const drop = this.axle * Math.abs(pitch) + this.track * Math.abs(roll);
-    if (drop > LEAN_ARCH_ROOM) {
-      pitch *= LEAN_ARCH_ROOM / drop;
-      roll *= LEAN_ARCH_ROOM / drop;
+    if (drop > this.room) {
+      pitch *= this.room / drop;
+      roll *= this.room / drop;
     }
     this.leanX = damp(this.leanX, onGround ? pitch : 0, 8, dt);
     this.leanZ = damp(this.leanZ, onGround ? roll : 0, 8, dt);
     // A burnt-out wreck sits low on its rims, tilted, while it stands on its wheels; on its roof or side it rests on that.
     const upright = this.burnt ? Math.max(0, Math.cos(v.roll)) * Math.max(0, Math.cos(v.pitch)) : 0;
     const bodyRoll = v.roll + this.wreckRoll * upright;
+    // The planted pose rotates about the body centre, not the wheel contact point at v.pos: a car on its roof (roll = PI)
+    // then rests on the road instead of being mirrored underneath it.
+    this.qPlanted.setFromEuler(this.euler.set(-v.pitch, v.heading, bodyRoll, 'YXZ'));
+    const c = this.centre.set(0, this.pivotY, 0).applyQuaternion(this.qPlanted);
+    const px = v.pos.x - c.x;
+    const py = v.pos.y + this.pivotY - c.y - WRECK_SAG * upright;
+    const pz = v.pos.z - c.z;
+    // The body leans on its springs about the axis through its tyres' tops, so the wheel arches stay over the planted
+    // tyres instead of swinging off them sideways.
     const rot = this.group.rotation;
     rot.set(-v.pitch + this.leanX, v.heading, bodyRoll + this.leanZ);
-    // Rotate about the body centre, not the wheel contact point at v.pos: a car on its roof
-    // (roll = PI) then rests on the road instead of being mirrored underneath it.
-    const c = this.centre.set(0, this.pivotY, 0).applyEuler(rot);
-    this.group.position.set(v.pos.x - c.x, v.pos.y + this.pivotY - c.y - WRECK_SAG * upright, v.pos.z - c.z);
-    this.group.updateMatrix();
-    // The wheels stay where the body would put them without its lean: on the road (the lean is the body on its springs).
     this.qBody.setFromEuler(rot);
-    this.qPlanted.setFromEuler(this.euler.set(-v.pitch, v.heading, bodyRoll, 'YXZ'));
+    const lean = this.leanAxis;
+    const a = this.centre.copy(lean).applyQuaternion(this.qPlanted);
+    const b = this.leanTmp.copy(lean).applyQuaternion(this.qBody);
+    this.group.position.set(px + a.x - b.x, py + a.y - b.y, pz + a.z - b.z);
+    this.group.updateMatrix();
+    // The wheels stay where the planted body would put them: on the road (the lean is the body on its springs).
     const undo = this.qBody.invert().multiply(this.qPlanted);
 
     // Front wheels follow the physics' steering limit, which shrinks with speed (steer / (1 + |v| / 15)), shown 30%
@@ -945,7 +1016,7 @@ export class VehicleView {
     this.spin += (v.forwardSpeed / this.kindAssets.prof.wheelR) * dt;
     if (Math.abs(this.spin) > 1e4) this.spin %= Math.PI * 2;
     for (const w of this.wheels) {
-      w.pivot.position.copy(w.base).sub(this.centre.set(0, this.pivotY, 0)).applyQuaternion(undo).add(this.centre);
+      w.pivot.position.copy(w.base).sub(lean).applyQuaternion(undo).add(lean);
       w.pivot.quaternion.copy(undo);
       if (w.front) w.pivot.quaternion.multiply(this.qSteer.setFromAxisAngle(this.yAxis, steerAngle));
       w.tire.rotation.x = this.spin;
@@ -961,8 +1032,11 @@ export class VehicleView {
     if (this.sirenRed && this.sirenBlue) {
       const on = v.siren && !v.destroyed;
       const phase = Math.floor(time * 6) % 2 === 0;
-      this.sirenRed.emissiveIntensity = on && phase ? 9 : 0.1;
-      this.sirenBlue.emissiveIntensity = on && !phase ? 9 : 0.1;
+      const lit = SIREN[sirenGlow ? 'glow' : 'flat'];
+      if (on && phase) this.sirenRed.emissive.setRGB(...lit.red);
+      else this.sirenRed.emissive.setRGB(0.1, 0, 0);
+      if (on && !phase) this.sirenBlue.emissive.setRGB(...lit.blue);
+      else this.sirenBlue.emissive.setRGB(0, 0.005, 0.1);
     }
   }
 }

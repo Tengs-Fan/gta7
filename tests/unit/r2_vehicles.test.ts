@@ -3,11 +3,12 @@
 // copied from fix_render.test.ts: a tiny canvas/document stub and a fake WebGLRenderer.
 
 import * as THREE from 'three';
+import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Effects } from '../../src/render/effects';
 import { GameRenderer } from '../../src/render/renderer';
 import { DentedGeometry, displace, triangulateCDT, type Pt } from '../../src/render/vehicleGeometry';
-import { cabinLayout, VehicleView, VehicleViewPool, vehicleGlass } from '../../src/render/vehicleView';
+import { cabinLayout, leanRoom, setVehicleGlow, VehicleView, VehicleViewPool, vehicleGlass } from '../../src/render/vehicleView';
 import { MAX_DENTS, type Dent, type Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
@@ -719,20 +720,24 @@ describe('vehicle views', () => {
     }
   });
 
-  it('a van rolls at least 1.5 times as much as the sports car in the same corner', () => {
+  it('a van rolls at least 1.5 times as much as the sports car in the same corner, gentle or hard', () => {
     const sim = makeSim({ world: W });
     const p = spot(sim);
-    const roll = (kind: VehicleKind): number => {
+    const roll = (kind: VehicleKind, speed: number, angVel: number): number => {
       const v = sim.spawnVehicle(kind, p.x, p.z, 0);
       const view = new VehicleView(kind);
       view.bind(v);
-      v.forwardSpeed = 15;
-      v.angVel = -0.5;
+      v.forwardSpeed = speed;
+      v.angVel = angVel;
       for (let i = 0; i < 120; i++) view.sync(v, DT, 0, 0);
       return Math.abs(view.group.rotation.z);
     };
-    expect(roll('van')).toBeGreaterThanOrEqual(1.5 * roll('sports'));
-    expect(roll('sports')).toBeGreaterThan(0.01);
+    // 7.5, 14.4 and 18 m/s2 of lateral acceleration.
+    for (const [speed, angVel] of [[15, -0.5], [16, -0.9], [20, -0.9]] as const) {
+      const sports = roll('sports', speed, angVel);
+      expect(sports).toBeGreaterThan(0.01);
+      expect(roll('van', speed, angVel), `${speed * -angVel} m/s2`).toBeGreaterThanOrEqual(1.5 * sports);
+    }
   });
 
   it('front wheels steer like the physics and wheels spin by their own radius', () => {
@@ -1147,7 +1152,7 @@ describe('round-2 fixes: wrecks, lamps, livery, lean and dents', () => {
     }
   });
 
-  it.each(['bus', 'van', 'pickup', 'swat', 'sedan'] as const)('a %s leans on its springs under hard braking and cornering, its tyres staying on the road', (kind) => {
+  it.each(['bus', 'van', 'pickup', 'swat', 'sedan', 'sports'] as const)('a %s leans on its springs under hard braking and cornering, its tyres staying on the road', (kind) => {
     const sim = makeSim({ world: W });
     const p = spot(sim);
     const v = sim.spawnVehicle(kind, p.x, p.z, 0);
@@ -1177,8 +1182,8 @@ describe('round-2 fixes: wrecks, lamps, livery, lean and dents', () => {
     for (let i = 0; i < 90; i++) view.sync(v, DT, 0, 0);
     expect(Math.abs(view.group.rotation.z), kind).toBeGreaterThan(0.02);
     expect(lowestPoint(view, v, tyres), `${kind} cornering`).toBeGreaterThan(-0.01);
-    // Braking hard in that corner: dive and roll together bring the arch over a corner wheel down by at most 6 cm,
-    // the arch's clearance plus a little of the tyre tucking into its well.
+    // Braking hard in that corner: dive and roll together bring the arch over a corner wheel down by at most the class's
+    // travel (6 cm for a sedan), the arch's clearance plus a little of the tyre tucking into its well.
     let worst = 0;
     for (let i = 0; i < 90; i++) {
       v.forwardSpeed = i % 30 === 0 ? 20 : Math.max(0.5, v.forwardSpeed - v.spec.brake * DT);
@@ -1186,11 +1191,11 @@ describe('round-2 fixes: wrecks, lamps, livery, lean and dents', () => {
       worst = Math.max(worst, axle * Math.abs(view.group.rotation.x + v.pitch) + track * Math.abs(view.group.rotation.z - v.roll));
       expect(lowestPoint(view, v, tyres)).toBeGreaterThan(-0.01);
     }
-    expect(worst, kind).toBeLessThanOrEqual(0.0605);
+    expect(worst, kind).toBeLessThanOrEqual(leanRoom(kind) + 5e-4);
     expect(worst, kind).toBeGreaterThan(0.02);
   });
 
-  it('a gentle roll onto the roof sets the car alight without crushing its roof; in god mode no roof landing does', () => {
+  it('a gentle roll onto the roof sets the car alight without crushing its roof; in god mode no roof landing crushes or burns it', () => {
     const sim = makeSim({ police: false });
     const b = sim.world.layout.bounds;
     const x = b.beachStartX + 30;
@@ -1215,6 +1220,11 @@ describe('round-2 fixes: wrecks, lamps, livery, lean and dents', () => {
     }
     const mine = drop(-14, true);
     expect(mine.dents.length).toBe(0);
+    // Nor does it catch fire: god mode keeps the player's car from being destroyed by a roll onto its roof.
+    expect(mine.burning).toBe(false);
+    expect(mine.health).toBe(mine.spec.health);
+    step(sim, 6);
+    expect(mine.destroyed).toBe(false);
     // A hard landing on the roof still crushes it.
     const hard = drop(-14, false);
     expect(hard.dents.some((d) => d.ly === hard.spec.height)).toBe(true);
@@ -1288,5 +1298,180 @@ describe('round-2 fixes: wrecks, lamps, livery, lean and dents', () => {
     // The roof dent bent the glass too (its own copy, uploaded).
     expect(meshNamed(view, 'glass').geometry).not.toBe(sharedGlass);
     expect(attr('glass', 'position').version).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix pass 2: each class leans as far as its own suspension lets it. One shared lean limit made the sports car
+// dive deeper than the van and the bus, and roll nearly as much as the van in a hard corner, the opposite of P42.
+
+/**
+ * Points over the top half of each tyre's tread with no bodywork above them in the body's own frame: a tyre showing
+ * up through the bonnet or a wing.
+ */
+function tyrePointsThroughBody(view: VehicleView): number {
+  view.group.updateMatrixWorld(true);
+  const body = meshNamed(view, 'body');
+  const tri = body.geometry.getAttribute('position').array as Float32Array;
+  const toBody = body.matrixWorld.clone().invert();
+  const p = new THREE.Vector3();
+  let exposed = 0;
+  view.group.traverse((o) => {
+    if (o.name !== 'tire') return;
+    const { radiusTop: r, height: w } = ((o as THREE.Mesh).geometry as THREE.CylinderGeometry).parameters;
+    // The wheel pivot's frame: the axle along x, without the tyre's spin.
+    const pivot = o.parent!.matrixWorld;
+    for (let ia = -4; ia <= 4; ia++) {
+      for (let iw = 0; iw <= 2; iw++) {
+        const a = (ia / 4) * 0.9;
+        p.set(-w / 2 + (w * iw) / 2, r * Math.cos(a), r * Math.sin(a)).applyMatrix4(pivot).applyMatrix4(toBody);
+        let covered = false;
+        for (let i = 0; i < tri.length && !covered; i += 9) {
+          // Barycentric test of (x, z) against the triangle's footprint, then its height there.
+          const ax = tri[i]!, ay = tri[i + 1]!, az = tri[i + 2]!;
+          const bx = tri[i + 3]! - ax, by = tri[i + 4]! - ay, bz = tri[i + 5]! - az;
+          const cx = tri[i + 6]! - ax, cy = tri[i + 7]! - ay, cz = tri[i + 8]! - az;
+          const det = bx * cz - bz * cx;
+          if (Math.abs(det) < 1e-9) continue;
+          const px = p.x - ax;
+          const pz = p.z - az;
+          const u = (px * cz - pz * cx) / det;
+          const v = (bx * pz - bz * px) / det;
+          if (u < 0 || v < 0 || u + v > 1) continue;
+          if (ay + u * by + v * cy > p.y) covered = true;
+        }
+        if (!covered) exposed++;
+      }
+    }
+  });
+  return exposed;
+}
+
+describe('round-2 fixes 2: each class leans on its own suspension', () => {
+  let W: StaticWorld;
+
+  beforeAll(() => {
+    W = world();
+  });
+
+  function car(kind: VehicleKind): { v: Vehicle; view: VehicleView } {
+    const sim = makeSim({ world: W });
+    const b = sim.world.layout.bounds;
+    const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0);
+    const view = new VehicleView(kind);
+    view.bind(v);
+    view.sync(v, DT, 0, 0);
+    return { v, view };
+  }
+
+  /** The deepest dive braking from 20 m/s at the class's own braking rate. */
+  function deepestDive(kind: VehicleKind): number {
+    const { v, view } = car(kind);
+    v.forwardSpeed = 20;
+    view.sync(v, DT, 0, 0);
+    let dive = 0;
+    for (let i = 0; i < 120 && v.forwardSpeed > 0.5; i++) {
+      v.forwardSpeed = Math.max(0.5, v.forwardSpeed - v.spec.brake * DT);
+      view.sync(v, DT, 0, 0);
+      dive = Math.max(dive, view.group.rotation.x + v.pitch);
+    }
+    return dive;
+  }
+
+  it('hard braking dives the soft van, pickup, riot van and bus deeper than the stiff sports car', () => {
+    const sports = deepestDive('sports');
+    expect(sports).toBeGreaterThan(0.01);
+    for (const kind of ['van', 'pickup', 'swat', 'bus'] as const) expect(deepestDive(kind), kind).toBeGreaterThan(sports);
+  });
+
+  it.each(Object.keys(VEHICLE_SPECS) as VehicleKind[])('no %s tyre comes up through the bodywork, standing, braking hard, cornering hard or both', (kind) => {
+    const { v, view } = car(kind);
+    expect(tyrePointsThroughBody(view), 'standing').toBe(0);
+    // Braking from 20 m/s: checked through the dive.
+    v.forwardSpeed = 20;
+    view.sync(v, DT, 0, 0);
+    for (let i = 0; i < 120 && v.forwardSpeed > 0.5; i++) {
+      v.forwardSpeed = Math.max(0.5, v.forwardSpeed - v.spec.brake * DT);
+      view.sync(v, DT, 0, 0);
+      if (i % 10 === 9) expect(tyrePointsThroughBody(view), `braking, step ${i}`).toBe(0);
+    }
+    // Settled in an 18 m/s2 corner, then braking hard in it.
+    v.forwardSpeed = 20;
+    v.angVel = -0.9;
+    for (let i = 0; i < 90; i++) view.sync(v, DT, 0, 0);
+    expect(tyrePointsThroughBody(view), 'cornering').toBe(0);
+    for (let i = 0; i < 30; i++) {
+      v.forwardSpeed = Math.max(0.5, v.forwardSpeed - v.spec.brake * DT);
+      view.sync(v, DT, 0, 0);
+    }
+    expect(tyrePointsThroughBody(view), 'braking in the corner').toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix pass 2: light bars that glow through bloom where it draws halos, and keep their colours where it does not
+// (as props.ts does for traffic lights). The lit red lens had a luminance of 1.9 against the bloom threshold of 2.6: no
+// halo on High, and a pale peach core on Low.
+
+describe('round-2 fixes 2: light bars with and without bloom', () => {
+  let W: StaticWorld;
+
+  beforeAll(() => {
+    W = world();
+  });
+
+  /** 8-bit display colour of a linear colour after three's ACESFilmicToneMapping (r186, exposure 1) and the sRGB transfer. */
+  function display(c: THREE.Color): [number, number, number] {
+    const IN = [[0.59719, 0.076, 0.0284], [0.35458, 0.90834, 0.13383], [0.04823, 0.01566, 0.83777]];
+    const OUT = [[1.60475, -0.10208, -0.00327], [-0.53108, 1.10813, -0.07276], [-0.07367, -0.00605, 1.07602]];
+    const mul = (m: number[][], v: number[]) => [0, 1, 2].map((i) => m[0]![i]! * v[0]! + m[1]![i]! * v[1]! + m[2]![i]! * v[2]!);
+    const rrt = (x: number) => (x * (x + 0.0245786) - 0.000090537) / (x * (0.983729 * x + 0.432951) + 0.238081);
+    const lin = mul(OUT, mul(IN, [c.r / 0.6, c.g / 0.6, c.b / 0.6]).map(rrt)).map((x) => Math.min(1, Math.max(0, x)));
+    return lin.map((x) => Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055))) as [number, number, number];
+  }
+
+  /** Luminance with the weights three's bloom high pass uses. */
+  function lum(c: THREE.Color): number {
+    const w = THREE.ColorManagement.getLuminanceCoefficients(new THREE.Vector3());
+    return w.x * c.r + w.y * c.g + w.z * c.b;
+  }
+
+  const HDR = { renderer: '', halfFloat: true };
+
+  it('a lit light bar blooms on the tiers with bloom, keeps its red and blue without it, and follows the tier', () => {
+    const sim = makeSim({ world: W });
+    const b = sim.world.layout.bounds;
+    const v = sim.spawnVehicle('police', b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0);
+    v.siren = true;
+    const view = new VehicleView('police');
+    view.bind(v);
+    /** The lit lens's emitted colour: the red one shows in the first sixth of a second, the blue one in the next. */
+    const lit = (which: 'red' | 'blue'): THREE.Color => {
+      view.sync(v, DT, which === 'red' ? 0.05 : 0.22, 1);
+      const m = (view as unknown as Record<string, THREE.MeshStandardMaterial>)[which === 'red' ? 'sirenRed' : 'sirenBlue']!;
+      return m.emissive.clone().multiplyScalar(m.emissiveIntensity);
+    };
+    const high = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, W, { quality: 'high', fov: 68, gpu: HDR });
+    const threshold = (high as unknown as { bloom: UnrealBloomPass }).bloom.threshold;
+    for (const which of ['red', 'blue'] as const) expect(lum(lit(which)), which).toBeGreaterThan(threshold);
+    // Without bloom only the lamp is drawn: tone-mapped, it is still red, and blue.
+    high.setQuality('low');
+    const [rr, rg, rb] = display(lit('red'));
+    expect(rr - Math.max(rg, rb), `red ${rr},${rg},${rb}`).toBeGreaterThan(150);
+    const [br, bg, bb] = display(lit('blue'));
+    expect(bb - Math.max(br, bg), `blue ${br},${bg},${bb}`).toBeGreaterThan(100);
+    high.setQuality('high');
+    expect(lum(lit('red'))).toBeGreaterThan(threshold);
+    // No half-float target, no bloom on any tier: High draws the light bar as Low does.
+    const plain = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, W, { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat: false } });
+    const [pr, pg, pb] = display(lit('red'));
+    expect(pr - Math.max(pg, pb)).toBeGreaterThan(150);
+    // Unlit, the lenses are dim.
+    v.siren = false;
+    expect(lum(lit('red'))).toBeLessThan(0.05);
+    expect(lum(lit('blue'))).toBeLessThan(0.05);
+    high.dispose();
+    plain.dispose();
+    setVehicleGlow(true);
   });
 });

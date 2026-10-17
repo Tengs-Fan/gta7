@@ -14,7 +14,7 @@ import { Environment } from './environment';
 import { MarkerView } from './markers';
 import { PropsView } from './props';
 import { FEW_POINT_LIGHTS, pixelRatioFor, probeGpu, QUALITY, type GpuProbe, type QualityTier } from './quality';
-import { VehicleView, VehicleViewPool } from './vehicleView';
+import { setVehicleGlow, VehicleView, VehicleViewPool } from './vehicleView';
 
 export type Quality = QualityTier;
 
@@ -207,8 +207,9 @@ export class GameRenderer {
       shadow.mapSize.set(t.shadowSize, t.shadowSize);
     }
     this.setBloom(t.bloom);
-    // Without a bloom halo the coloured lamps (traffic lights) must carry their hue in the lamp itself.
+    // Without a bloom halo the coloured lamps (traffic lights, light bars) must carry their hue in the lamp itself.
     this.props.setGlow(this.bloom !== null);
+    setVehicleGlow(this.bloom !== null);
     // Dynamic lights: on 'few' the sources stay hidden and feed the pool (see syncLightPool).
     // The number of visible lights only changes here, so shaders are not rebuilt during play.
     this.collectPointSources();

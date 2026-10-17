@@ -320,7 +320,9 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     // however soft the landing was): god mode, which takes no damage, keeps the roof whole too.
     const damaged = v.health < before;
     if (impact > 3) this.events.emit('impact', { x: v.pos.x, y: v.pos.y, z: v.pos.z, strength: impact * 0.6, vehicle: v });
-    if (v.flipped && !v.burning && !v.destroyed) this.combat.igniteVehicle(v, 3.5);
+    // A car left on its roof catches fire, except the player's in god mode, which no harm destroys (as damageVehicle).
+    const spared = this.cheats.godMode && !!v.driver?.isPlayer;
+    if (v.flipped && !v.burning && !v.destroyed && !spared) this.combat.igniteVehicle(v, 3.5);
     // A landing on the roof that did damage crushes it (the roof dent pushes straight down).
     if (v.flipped && damaged) {
       this.addDent(v, { lx: 0, ly: v.spec.height, lz: 0, nx: 0, nz: 0, depth: Math.min(0.4, 0.15 + 0.011 * impact * v.spec.durability) });

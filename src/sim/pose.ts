@@ -12,7 +12,7 @@
 
 import { clamp, lerp, smoothstep, TAU, wrapAngle, type V3 } from '../core/math';
 import type { Character, Vehicle } from './entities';
-import type { WeaponId } from './specs';
+import type { VehicleKind, WeaponId } from './specs';
 
 export const SKELETON = {
   /**
@@ -84,7 +84,7 @@ export function dutyFactor(speed: number): number {
   return Math.max(0.24, 0.3 - (v - 7.4) * 0.012);
 }
 
-/** Stance progress where the heel rocker (landing) ends. */
+/** Stance progress where a forward step's heel rocker (landing) ends. */
 const ROCK_IN = 0.18;
 
 /** Everything about one gait cycle that the hip height and the legs must agree on. */
@@ -101,25 +101,31 @@ export interface GaitCycle {
   back: number;
   /**
    * Foot pitch (+ toe up) at touch-down, through the middle of the stance and at lift-off, and the stance
-   * progress where the push-off starts. A pitched foot pivots on the edge that is on the ground.
+   * progress where the landing roll ends and where the push-off starts. A pitched foot pivots on the edge
+   * that is on the ground.
    */
   pitchIn: number;
   pitchMid: number;
   pitchOut: number;
+  rockIn: number;
   rockOut: number;
   /** Swing foot lift (m) and how far it is kicked up behind the body (0 walk .. 1 sprint). */
   lift: number;
   kick: number;
-  /** Hip height: walking (top - dip at double support) and running (top - dip at mid-stance), blended by `run`. */
+  /**
+   * Hip height: walking (top, falling by dip to its lowest at cycle fraction walkLow and again half a cycle on) and
+   * running (top - dip at mid-stance), blended by `run`.
+   */
   walkTop: number;
   walkDip: number;
+  walkLow: number;
   runTop: number;
   runDip: number;
   run: number;
 }
 
 export function makeGaitCycle(): GaitCycle {
-  return { speed: 0, duty: 0.62, half: 0, mx: 0, mz: 1, back: 0, pitchIn: 0, pitchMid: 0, pitchOut: 0, rockOut: 0.55, lift: 0, kick: 0, walkTop: SKELETON.hipY, walkDip: 0, runTop: SKELETON.hipY, runDip: 0, run: 0 };
+  return { speed: 0, duty: 0.62, half: 0, mx: 0, mz: 1, back: 0, pitchIn: 0, pitchMid: 0, pitchOut: 0, rockIn: ROCK_IN, rockOut: 0.55, lift: 0, kick: 0, walkTop: SKELETON.hipY, walkDip: 0, walkLow: 0.06, runTop: SKELETON.hipY, runDip: 0, run: 0 };
 }
 
 export interface FootTarget {
@@ -163,7 +169,7 @@ export function ankleOnGround(x: number, z: number, pitch: number, scale: number
 export function stanceFoot(g: GaitCycle, t: number, scale: number, out: FootTarget): FootTarget {
   const d = g.half * (1 - 2 * t);
   let pitch = g.pitchMid;
-  if (t < ROCK_IN) pitch = lerp(g.pitchIn, g.pitchMid, smoothstep(0, ROCK_IN, t));
+  if (t < g.rockIn) pitch = lerp(g.pitchIn, g.pitchMid, smoothstep(0, g.rockIn, t));
   else if (t > g.rockOut) pitch = lerp(g.pitchMid, g.pitchOut, smoothstep(g.rockOut, 1, t));
   return ankleOnGround(g.mx * d, g.mz * d - g.back, pitch, scale, out);
 }
@@ -179,8 +185,9 @@ function reachLimit(f: FootTarget, scale: number): number {
 
 /**
  * Sets up the gait cycle for moving at `speed` along (mx, mz) (hip frame, unit) for a character of
- * height `scale`. The hip height curve is fitted to the planted feet: low enough at every touch-down
- * and lift-off that the leg reaches the ground there.
+ * height `scale`. The hip height curve is fitted to the planted feet: a walker's through the whole
+ * stance (see fitWalk), a runner's low enough at every touch-down and lift-off that the leg reaches
+ * the ground there.
  */
 export function gaitCycle(speed: number, mx: number, mz: number, scale: number, out: GaitCycle): GaitCycle {
   const v = Number.isFinite(speed) ? clamp(speed, 0, 20) : 0;
@@ -194,25 +201,34 @@ export function gaitCycle(speed: number, mx: number, mz: number, scale: number, 
   out.duty = duty;
   out.half = (duty * strideLength(v)) / 2;
   const fwd = Math.abs(out.mz);
-  // Walkers land on the heel and push off the toes; runners land flatter and push off harder.
+  // From walking (0) to running (1) by speed: the walking foot placement below gives way to the runner's.
+  const jog = smoothstep(2.8, 4.3, v);
+  // Walkers land on the heel and push off the toes, rolling far up onto them before the foot leaves the
+  // ground (WALK_TOE); runners land flatter and push off harder, fast ones on the ball of the foot.
   const heelRock = 0.26 * (1 - smoothstep(1.9, 4.3, v)) + 0.06;
-  const toeRock = lerp(0.5, 0.62, smoothstep(1.45, 7.4, v));
+  const fore = smoothstep(3.4, 6.3, v);
+  const landing = lerp(heelRock, -0.28, fore);
+  const flat = -0.18 * fore;
+  const pushOff = -lerp(WALK_TOE, lerp(0.5, 0.62, smoothstep(1.45, 7.4, v)), jog);
   // Runners spend a shorter time on the foot: the heel comes up earlier in the stance, not faster.
-  out.rockOut = lerp(0.55, 0.3, smoothstep(1.9, 7.4, v));
+  const heelUp = lerp(0.55, 0.3, smoothstep(1.9, 7.4, v));
   if (out.mz >= 0) {
-    // Fast runners land on the ball of the foot and stay on it.
-    const fore = smoothstep(3.4, 6.3, v);
-    out.pitchIn = lerp(heelRock, -0.28, fore) * fwd;
-    out.pitchMid = -0.18 * fore * fwd;
-    out.pitchOut = -toeRock * fwd;
+    out.pitchIn = landing * fwd;
+    out.pitchOut = pushOff * fwd;
+    out.rockIn = ROCK_IN;
+    out.rockOut = heelUp;
   } else {
-    // Backpedalling: land on the toes behind, roll off the heel in front.
-    out.pitchIn = -toeRock * fwd;
-    out.pitchMid = 0;
-    out.pitchOut = heelRock * fwd;
+    // Backpedalling is the same stance played backwards: land on the toes behind, the heel coming down,
+    // and roll off the heel in front.
+    out.pitchIn = pushOff * fwd;
+    out.pitchOut = landing * fwd;
+    out.rockIn = 1 - heelUp;
+    out.rockOut = 1 - ROCK_IN;
   }
-  // The toe push-off leaves more room behind than the heel landing in front.
-  out.back = out.half * 0.12 * fwd;
+  out.pitchMid = flat * fwd;
+  // The toe roll leaves more room behind than the heel in front, so the planted stretch is centred behind
+  // the hip (for a walker by WALK_BACK of its half length, for a runner by 0.12).
+  out.back = out.half * lerp(WALK_BACK, 0.12, jog) * fwd;
   out.run = smoothstep(0.53, 0.47, duty);
   out.lift = lerp(0.075, 0.24, smoothstep(1.45, 4.3, v)) * scale + 0.14 * smoothstep(4.3, 7.4, v) * scale;
   out.kick = smoothstep(2.8, 7.4, v);
@@ -223,11 +239,13 @@ export function gaitCycle(speed: number, mx: number, mz: number, scale: number, 
   const cOut = reachLimit(stanceFoot(out, 1, scale, footTmp), scale);
   const limit = Math.min(cIn, cOut) - margin;
   const top = SKELETON.hipY * scale;
-  // Walking: lowest at the middle of the double support, highest at mid-stance (single support).
-  const uds = Math.max(0, (duty - 0.5) / 2);
-  const kWalk = (1 + Math.cos(4 * Math.PI * uds)) / 2;
-  out.walkTop = top;
-  out.walkDip = clamp((top - limit) / kWalk, 0, 0.22 * scale);
+  if (out.run < 1) fitWalk(out, scale, top, lerp(WALK_BOB, WALK_BOB_FAST, smoothstep(1.45, 2.8, v)) * scale);
+  else {
+    // A runner's hips follow the running curve alone.
+    out.walkTop = top;
+    out.walkDip = 0;
+    out.walkLow = 0;
+  }
   // Running: lowest at mid-stance (the knee loads), highest in flight.
   const kRun = (1 + Math.cos(TAU * duty)) / 2;
   out.runDip = lerp(0.03, 0.05, smoothstep(4.3, 7.4, v)) * scale;
@@ -235,10 +253,70 @@ export function gaitCycle(speed: number, mx: number, mz: number, scale: number, 
   return out;
 }
 
+/**
+ * Where a walker's planted stretch is centred, as a fraction of its half length behind the hip, and how far up onto
+ * his toes he rolls before the foot leaves the ground (rad, 46 degrees). Both bring his feet in under him: the leading
+ * foot lands nearer, the trailing one reaches further, so his hips need not sink far between his feet.
+ */
+const WALK_BACK = 0.22;
+const WALK_TOE = 0.8;
+/** A walker's hips rise and fall this much (m, height 1): 4.5 cm at an ordinary pace, 6 cm at a fast one (2.8 m/s). */
+const WALK_BOB = 0.045;
+const WALK_BOB_FAST = 0.06;
+/** A walker's stance knee stays bent at least this much (rad, 8 degrees): it never locks straight. */
+const WALK_KNEE = (8 * Math.PI) / 180;
+/** Samples of a stance in the walk fit, plus the other foot's touch-down and lift-off. */
+const WALK_SAMPLES = 16;
+const walkRoom = new Float64Array(WALK_SAMPLES + 3);
+const walkShape = new Float64Array(WALK_SAMPLES + 3);
+
+/**
+ * Fits the walking hip curve (gaitHipY) under the planted feet. It is a sine twice a cycle, lowest at walkLow: for a
+ * forward walker at the touch-down, so the hips rise as the leg comes under them and the knee straightens through the
+ * stance; backwards at the front foot's lift-off, the same moment played backwards; sideways in the middle of the
+ * double support. Its top is as high as it can be, never above standing, with every planted leg still reaching its foot
+ * with the knee bent at least WALK_KNEE at every moment of the stance, and the hips falling at most `bob` in between.
+ */
+function fitWalk(g: GaitCycle, scale: number, top: number, bob: number): void {
+  const duty = g.duty;
+  const uds = Math.max(0, (duty - 0.5) / 2);
+  g.walkLow = uds * (1 - g.mz);
+  const a = SKELETON.thigh * scale;
+  const b = SKELETON.shin * scale;
+  // The hip-to-ankle distance with the knee bent WALK_KNEE.
+  const r2 = a * a + b * b + 2 * a * b * Math.cos(WALK_KNEE);
+  // The left foot's stance, sampled evenly and at the right foot's lift-off and touch-down; the right
+  // foot's stance is the same half a cycle on, and the curve repeats every half cycle.
+  let n = 0;
+  let wTop = top;
+  for (let i = 0; i <= WALK_SAMPLES + 2; i++) {
+    const u = i <= WALK_SAMPLES ? (i / WALK_SAMPLES) * duty : i === WALK_SAMPLES + 1 ? duty - 0.5 : 0.5;
+    if (u < 0 || u > duty) continue;
+    let rm = hipRoom(g, u / duty, scale, r2);
+    if (u <= duty - 0.5) rm = Math.min(rm, hipRoom(g, (u + 0.5) / duty, scale, r2));
+    if (u >= 0.5) rm = Math.min(rm, hipRoom(g, (u - 0.5) / duty, scale, r2));
+    const sh = (1 + Math.cos(4 * Math.PI * (u - g.walkLow))) / 2;
+    walkRoom[n] = rm;
+    walkShape[n] = sh;
+    n++;
+    wTop = Math.min(wTop, rm + bob * sh);
+  }
+  // Below standing height the curve may not need its whole fall.
+  let dip = 0;
+  for (let i = 0; i < n; i++) if (walkShape[i]! > 1e-3) dip = Math.max(dip, (wTop - walkRoom[i]!) / walkShape[i]!);
+  g.walkTop = wTop;
+  g.walkDip = clamp(dip, 0, bob);
+}
+
+/** Highest the hip joint may be over a foot planted at stance progress t, for a hip-to-ankle distance of sqrt(r2). */
+function hipRoom(g: GaitCycle, t: number, scale: number, r2: number): number {
+  const f = stanceFoot(g, clamp(t, 0, 1), scale, footTmp);
+  return f.y + Math.sqrt(Math.max(0, r2 - f.x * f.x - f.z * f.z));
+}
+
 /** Hip joint height at fraction u of the left foot's cycle (0 = left touch-down). */
 export function gaitHipY(g: GaitCycle, u: number): number {
-  const uds = Math.max(0, (g.duty - 0.5) / 2);
-  const walk = g.walkTop - g.walkDip * (1 + Math.cos(4 * Math.PI * (u - uds))) / 2;
+  const walk = g.walkTop - g.walkDip * (1 + Math.cos(4 * Math.PI * (u - g.walkLow))) / 2;
   if (g.run <= 0) return walk;
   const run = g.runTop - g.runDip * (1 + Math.cos(4 * Math.PI * (u - g.duty / 2))) / 2;
   return lerp(walk, run, g.run);
@@ -574,13 +652,41 @@ export function seatSide(seat: number): number {
 }
 
 /**
- * Where a shot fired from seat `seat` of vehicle `v` leaves: out of that seat's window, 0.2 m outside the body side at
- * three quarters of the vehicle's height, level with its centre. This is the point CombatSystem.muzzle(c, true) fires
- * from (the shooter's own window by seat), and CrowdView draws the barrel end of a drive-by gun on it.
+ * The riot van's gun ports: windows in the sides of its windowless back, for the crew in its rear seats, as fractions of
+ * its length (ahead of the centre) and of its height. VehicleView cuts them; windowMuzzle fires from their middle.
+ */
+export const GUN_PORT = { z0: -0.24, z1: -0.07, y0: 0.6, y1: 0.8 } as const;
+
+/**
+ * Where along each vehicle its front and rear rows of seats fire from, as a fraction of its length ahead of its centre:
+ * the side window beside the row. A car's riders fire beside their seats (the rear row as CrowdView seats it, under the
+ * roof's rear edge). The van's and the riot van's side windows are in the cab, well forward of the centre; the riot van's
+ * crew in the back fire through its gun ports. A bus's windows run its whole length.
+ */
+const FIRING_ROWS: Readonly<Record<VehicleKind, readonly [number, number]>> = {
+  compact: [0, 0],
+  sedan: [0, -0.135],
+  taxi: [0, -0.135],
+  sports: [0, 0],
+  muscle: [0, 0],
+  pickup: [0, 0],
+  van: [0.24, 0.24],
+  bus: [0, 0],
+  police: [0, -0.138],
+  swat: [0.283, (GUN_PORT.z0 + GUN_PORT.z1) / 2],
+};
+
+/**
+ * Where a shot fired from seat `seat` of vehicle `v` leaves: out of that seat's own window (FIRING_ROWS), 0.2 m outside
+ * the body side at three quarters of the vehicle's height. This is the point CombatSystem.muzzle(c, true) fires from (the
+ * shooter's own window by seat), and CrowdView draws the barrel end of a drive-by gun on it.
  */
 export function windowMuzzle(v: Pick<Vehicle, 'pos' | 'heading' | 'halfW' | 'spec'>, seat: number, out: V3): V3 {
-  const out_ = seatSide(seat) * (v.halfW + 0.2);
-  return set(out, v.pos.x + Math.cos(v.heading) * out_, v.pos.y + v.spec.height * 0.75, v.pos.z - Math.sin(v.heading) * out_);
+  const across = seatSide(seat) * (v.halfW + 0.2);
+  const along = FIRING_ROWS[v.spec.kind][seat >= 2 ? 1 : 0] * v.spec.length;
+  const c = Math.cos(v.heading);
+  const s = Math.sin(v.heading);
+  return set(out, v.pos.x + c * across + s * along, v.pos.y + v.spec.height * 0.75, v.pos.z - s * across + c * along);
 }
 
 /**
