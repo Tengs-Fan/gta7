@@ -116,17 +116,20 @@ const t = {
     const f1 = (await t.state()).frames;
     if (f1 - f0 < 10) throw new Error('fps < 5 after New Game (pointer lock stall?)');
   },
-  /** Resident memory (MB) of all the browser's processes (browser, renderer, GPU...), or null where unavailable. */
+  /** Resident memory (MB) of the browser's processes (browser, renderer, GPU, network), or null where unavailable. */
   async rss() {
     try {
       const cdp = await browser.newBrowserCDPSession();
       try {
         const { processInfo } = await cdp.send('SystemInfo.getProcessInfo');
-        const pids = new Set([...processInfo.map((p) => p.id), browser.process?.()?.pid].filter((id) => id > 0));
         let kb = 0;
-        for (const pid of pids) {
-          const m = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${pid}/status`, 'utf8'));
-          if (m) kb += Number(m[1]);
+        for (const { id } of processInfo) {
+          try {
+            const m = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${id}/status`, 'utf8'));
+            if (m) kb += Number(m[1]);
+          } catch {
+            // The process just exited.
+          }
         }
         return kb > 0 ? Math.round(kb / 1024) : null;
       } finally {

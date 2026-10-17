@@ -39,8 +39,8 @@ export class Game {
   private crashed = false;
   private unsub: Array<() => void> = [];
   private wasDown = false;
-  /** When (performance.now() ms) gameplay last opened the map or the pause menu by its key, which a cheat code's first letters can do. */
-  private screenOpenedAt = -Infinity;
+  /** The screen (map or pause menu) gameplay last opened by its key, and when (performance.now() ms): a cheat code's first letters can do that. */
+  private keyScreen: { screen: Menus['top']; at: number } | null = null;
   /** The player's last exit from a vehicle (sim time), for FIXMYRIDE, whose F gets him out. */
   private lastExit: { vehicle: Vehicle; t: number; bailed: boolean } | null = null;
   /** The last sim events of the session and page errors, oldest first, for the crash report. */
@@ -316,12 +316,12 @@ export class Game {
     }
     if (fi.ui.pause) {
       this.pause();
-      this.screenOpenedAt = performance.now();
+      this.keyScreen = { screen: this.menus.top, at: performance.now() };
       return;
     }
     if (fi.ui.map) {
       this.openMap();
-      this.screenOpenedAt = performance.now();
+      this.keyScreen = { screen: this.menus.top, at: performance.now() };
       return;
     }
     if (fi.ui.camera) cam.zoomLevel = cam.zoomLevel === 0 ? 1 : 0;
@@ -368,7 +368,8 @@ export class Game {
     const sim = this.sim;
     const p = sim.player;
     // Undo the code's first letters: the M of MONEYTREE or IMMORTAL opens the map, the P of SPAWNSPORTS pauses.
-    if (this.menus.open && performance.now() - this.screenOpenedAt < 2000) this.resume();
+    const ks = this.keyScreen;
+    if (ks?.screen && this.menus.top === ks.screen && performance.now() - ks.at < 2000) this.resume();
     switch (code) {
       case 'CHILLOUT':
         sim.wanted.clear();

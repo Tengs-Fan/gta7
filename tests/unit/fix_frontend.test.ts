@@ -1836,6 +1836,20 @@ describe('round 2 harness', () => {
       expect(sports()).toBe(cars + 1);
     });
 
+    it('only the screen a key opened is closed: a shop opened meanwhile stays open', async () => {
+      const { game, sim, frames, type } = await playing();
+      type('M');
+      frames(20); // past the map's input guard
+      type('M'); // closes it again
+      expect(game.menus.open).toBe(false);
+      sim.events.emit('shopOpen', { poi: 'guns_south' });
+      expect(game.menus.open).toBe(true);
+      type('SUNSET'); // all within 2 s of opening the map
+      frames(10);
+      expect(sim.clock.hours).toBeCloseTo(18.3, 1);
+      expect(game.menus.open).toBe(true);
+    });
+
     it('a screen opened well before the code was typed stays open', async () => {
       const { game, sim, frames, type } = await playing();
       type('M');
