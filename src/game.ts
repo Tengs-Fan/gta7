@@ -148,8 +148,10 @@ export class Game {
   /** Remembers a shown hint for good (saved with the settings). */
   private markHintSeen(id: string): void {
     const seen = this.settings.hintsSeen;
-    if (seen.includes(id) || seen.length >= MAX_HINTS_SEEN) return;
-    this.settings = { ...this.settings, hintsSeen: [...seen, id] };
+    if (seen.includes(id)) return;
+    // A full list (only a bad settings file gets there) drops its oldest id rather than this one,
+    // which would otherwise come round again every frame.
+    this.settings = { ...this.settings, hintsSeen: [...seen, id].slice(-MAX_HINTS_SEEN) };
     saveSettings(this.settings);
   }
 

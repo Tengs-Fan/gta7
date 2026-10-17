@@ -2053,6 +2053,24 @@ describe('R2 onboarding: first-time hints and the steal prompt', () => {
     expect(b.game.settings.hintsSeen).not.toContain('mouse');
   });
 
+  it('a full seen list (a bad settings file) still records a new hint, so it shows once', async () => {
+    const storage = (dom.win as unknown as { localStorage: FakeStorage }).localStorage;
+    storage.setItem('gta7.settings.v1', JSON.stringify({ hintsSeen: Array.from({ length: 50 }, (_, i) => `junk${i}`) }));
+    const { game, seconds } = onboardingGame();
+    expect(game.settings.hintsSeen.length).toBe(50);
+    game.newGame({ intro: false });
+    await flush();
+    const help = vi.spyOn(game.hud, 'help');
+    game.sim.cheats.godMode = true;
+    game.sim.missions.noBust = true;
+    game.sim.wanted.setLevel(1);
+    seconds(1);
+    expect(help.mock.calls.filter((c) => c[2] === 'hint' && c[0].includes('Spray')).length).toBe(1);
+    expect(game.settings.hintsSeen.length).toBe(50);
+    expect(game.settings.hintsSeen).toContain('wanted');
+    expect(game.settings.hintsSeen).not.toContain('junk0');
+  });
+
   it('settings: old files get hints on, and the seen list is validated and capped', async () => {
     const { loadSettings, saveSettings, MAX_HINTS_SEEN } = await import('../../src/settings');
     const storage = (dom.win as unknown as { localStorage: FakeStorage }).localStorage;

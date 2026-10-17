@@ -47,7 +47,7 @@ const PAREN = ['E', 'F', 'T', 'R', 'Q', 'H', 'M', 'V', 'P', 'Esc', 'Space', 'Shi
 
 const KEY = `([A-Z]|${NAMED.join('|')})`;
 // One pass over all four forms, so a keycap written for one key is never read again as another
-// (on Colemak the F binding is printed T, and T's own key is printed B).
+// (on Colemak the F binding is printed T, and the T binding G).
 const PATTERN = new RegExp(`<kbd>${KEY}</kbd>|\\b([Pp]ress) ${KEY}\\b|\\((${PAREN.join('|')})\\)|\\b([Ll]eft|[Rr]ight)[- ]click\\b`, 'g');
 
 function escapeText(s: string): string {
@@ -55,7 +55,7 @@ function escapeText(s: string): string {
 }
 
 /** A gamepad button glyph: the face buttons in their usual colours, a drawn cross for the D-pad. */
-export function padGlyph(b: PadButton): string {
+function padGlyph(b: PadButton): string {
   const arm = DPAD_ARM[b];
   if (arm) return `<kbd class="pad dpad" aria-label="D-pad ${b}"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="dpad-base" d="${DPAD_CROSS}"/><path class="dpad-on" d="${arm}"/></svg></kbd>`;
   return `<kbd class="pad pad-${b}">${PAD_TEXT[b]}</kbd>`;
