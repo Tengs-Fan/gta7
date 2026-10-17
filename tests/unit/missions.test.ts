@@ -146,6 +146,9 @@ describe('story missions are completable', () => {
     stepUntil(sim, () => sim.missions.active!.objectiveText === 'Lose the cops', 3);
     expect(sim.wanted.level).toBeGreaterThanOrEqual(2);
     sim.police.dismissAll();
+    // Round 2 (police, P10): sit out the response phase (4 + 3 per star seconds), in which the police
+    // know where he is, so the teleport leaves them looking around the vans.
+    step(sim, 12);
     const far = sim.roads.node(9, 1);
     teleport(sim, far.x + 12, far.z + 12);
     stepUntil(sim, () => sim.wanted.level === 0, 60);

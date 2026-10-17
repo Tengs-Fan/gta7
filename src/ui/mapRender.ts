@@ -64,7 +64,8 @@ export interface Blip {
   label: string;
   /** Keep on the radar rim when out of range. */
   sticky: boolean;
-  shape: 'circle' | 'square' | 'dot';
+  /** 'pip': a small dot (officers on foot). */
+  shape: 'circle' | 'square' | 'dot' | 'pip';
 }
 
 const POI_BLIPS: Record<string, { color: string; label: string }> = {
@@ -97,21 +98,62 @@ export function collectBlips(sim: Sim, time: number): Blip[] {
   if (sim.wanted.level > 0) {
     const blink = Math.floor(time * 4) % 2 === 0;
     for (const v of sim.vehicles) if (v.owner === 'police' && !v.removed && !v.destroyed) out.push({ x: v.pos.x, z: v.pos.z, color: blink ? '#ff3030' : '#3060ff', label: '', sticky: false, shape: 'dot' });
+    // Every officer on foot too, smaller.
+    for (const c of sim.characters) if (c.isLaw && c.alive && !c.removed && c.state !== 'inVehicle') out.push({ x: c.pos.x, z: c.pos.z, color: blink ? '#ff3030' : '#3060ff', label: '', sticky: false, shape: 'pip' });
     for (const h of sim.helis) if (!h.removed) out.push({ x: h.pos.x, z: h.pos.z, color: blink ? '#3060ff' : '#ff3030', label: '', sticky: false, shape: 'square' });
   }
   return out;
 }
 
+/** The police search area while the stars flash (null while they see the player, or he is not wanted). */
+export function searchArea(sim: Sim): { x: number; z: number; r: number } | null {
+  const w = sim.wanted;
+  if (w.level === 0 || !w.searching) return null;
+  return { x: w.lastSeenX, z: w.lastSeenZ, r: w.searchRadius() };
+}
+
+/** Helicopter sighting range shown on the radar and map from 3 stars (see WantedSystem.copWitness). */
+export const HELI_SIGHT_RANGE = 110;
+
+/**
+ * Police overlay drawn in map-image space (a context transformed so one unit is one pixel of the map
+ * image): the search area pulsing red with a red/blue outline, and from 3 stars a faint ring around each
+ * helicopter. `pxPerUnit` is the screen size of one map pixel, so outlines keep their screen width.
+ */
+export function drawPoliceOverlay(ctx: CanvasRenderingContext2D, sim: Sim, map: { minX: number; minZ: number }, time: number, pxPerUnit: number): void {
+  const area = searchArea(sim);
+  if (area) {
+    ctx.beginPath();
+    ctx.arc((area.x - map.minX) * MAP_SCALE, (area.z - map.minZ) * MAP_SCALE, area.r * MAP_SCALE, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 48, 48, ${(0.18 + 0.06 * Math.sin(time * Math.PI * 2 * 1.5)).toFixed(3)})`;
+    ctx.fill();
+    ctx.lineWidth = 2.5 / pxPerUnit;
+    ctx.strokeStyle = Math.floor(time * 4) % 2 === 0 ? '#ff3030' : '#3060ff';
+    ctx.stroke();
+  }
+  if (sim.wanted.level >= 3) {
+    ctx.lineWidth = 1.5 / pxPerUnit;
+    ctx.strokeStyle = 'rgba(150, 190, 255, 0.4)';
+    for (const h of sim.helis) {
+      if (h.removed || h.destroyed) continue;
+      ctx.beginPath();
+      ctx.arc((h.pos.x - map.minX) * MAP_SCALE, (h.pos.z - map.minZ) * MAP_SCALE, HELI_SIGHT_RANGE * MAP_SCALE, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+}
+
 export function drawBlip(ctx: CanvasRenderingContext2D, b: Blip, x: number, y: number, size: number): void {
   ctx.save();
   ctx.translate(x, y);
-  if (b.shape === 'dot') {
+  if (b.shape === 'dot' || b.shape === 'pip') {
     ctx.fillStyle = b.color;
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.42, 0, Math.PI * 2);
+    // Callers size pips like full blips (14 px on the radar, 18 on the map): about 2.5 and 3 px.
+    ctx.arc(0, 0, size * (b.shape === 'pip' ? 0.17 : 0.42), 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = b.shape === 'pip' ? 1 : 1.5;
     ctx.stroke();
   } else if (b.shape === 'square') {
     ctx.fillStyle = b.color;

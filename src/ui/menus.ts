@@ -9,7 +9,7 @@ import { shopItems } from '../sim/interactions';
 import { PACKAGE_COUNT } from '../sim/pickups';
 import type { Settings } from '../settings';
 import { escapeHtml } from './hud';
-import { collectBlips, drawBlip, MAP_SCALE, type MapImage } from './mapRender';
+import { collectBlips, drawBlip, drawPoliceOverlay, MAP_SCALE, type MapImage } from './mapRender';
 
 export interface MenuHost {
   hasSave(): boolean;
@@ -575,7 +575,9 @@ export class Menus {
           ['#ff8a1f', 'Gun shop'],
           ['#3fd96b', 'Spray Shack'],
           ['#ff4a4a', 'Hospital'],
-          ['#3a6bff', 'Police'],
+          ['#3a6bff', 'Police station'],
+          ['#ff3030', 'Police unit'],
+          ['rgba(255, 48, 48, 0.55)', 'Search area'],
           ['#c04fff', 'Waypoint'],
         ]
           .map(([c, t]) => `<div><i style="background:${c}"></i>${t}</div>`)
@@ -616,6 +618,7 @@ export class Menus {
       ctx.scale(k / MAP_SCALE, k / MAP_SCALE);
       ctx.translate(-(cx - this.map.minX) * MAP_SCALE, -(cz - this.map.minZ) * MAP_SCALE);
       ctx.drawImage(this.map.canvas, 0, 0);
+      drawPoliceOverlay(ctx, sim, this.map, time, k / MAP_SCALE);
       ctx.restore();
       // District labels.
       ctx.font = '700 15px Rajdhani, sans-serif';

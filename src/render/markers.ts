@@ -10,6 +10,74 @@ import { beamTexture, glowTexture } from './textures';
 const beamTex = beamTexture();
 const glowTex = glowTexture();
 
+/** Helicopter spotlight: beam opacity at the lamp, the camera distance from the beam's axis inside which it vanishes, and the fade-in width. */
+const SPOT_ALPHA = 0.1;
+const SPOT_CLEAR = 6;
+const SPOT_FADE = 4;
+/** Opacity of the pool of light on the ground (see buildHeli). */
+const SPOT_POOL = 0.1;
+
+/**
+ * How visible the spotlight beam is from a camera at `cam`, for a beam from `a` (the lamp) to `b`: 0
+ * within SPOT_CLEAR m of its axis (the camera is in the light, where a glowing cone would only wash out
+ * the screen), fully visible SPOT_FADE m further out.
+ */
+export function beamFade(cam: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const abz = b.z - a.z;
+  const l2 = abx * abx + aby * aby + abz * abz;
+  const t = l2 > 1e-9 ? THREE.MathUtils.clamp(((cam.x - a.x) * abx + (cam.y - a.y) * aby + (cam.z - a.z) * abz) / l2, 0, 1) : 0;
+  const d = Math.hypot(cam.x - (a.x + abx * t), cam.y - (a.y + aby * t), cam.z - (a.z + abz * t));
+  return THREE.MathUtils.clamp((d - SPOT_CLEAR) / SPOT_FADE, 0, 1);
+}
+
+/** The beam: additive, front faces only, unfogged, brightest at the lamp and gone at the ground. */
+function spotlightMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(0xeef4ff) }, uAlpha: { value: SPOT_ALPHA }, uFade: { value: 1 } },
+    vertexShader: /* glsl */ `
+      varying float vAlong;
+      void main() {
+        // The cone runs from the lamp (y = 0) to the ground (y = -1) before scaling.
+        vAlong = clamp(-position.y, 0.0, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uAlpha;
+      uniform float uFade;
+      varying float vAlong;
+      void main() {
+        // (1 - v)^1.5, kept off pow(): interpolation can push v a hair past 1, and pow() of a negative
+        // number is NaN, which the bloom pass would smear over the whole frame.
+        float k = clamp(1.0 - vAlong, 0.0, 1.0);
+        gl_FragColor = vec4(uColor, uAlpha * k * sqrt(k) * uFade);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    side: THREE.FrontSide,
+    depthWrite: false,
+    fog: false,
+  });
+}
+
+const fadeCam = new THREE.Vector3();
+const fadeA = new THREE.Vector3();
+const fadeB = new THREE.Vector3();
+
+/** Before each draw of a beam (per camera, so reflections get their own), fades it by that camera's distance from its axis. */
+function fadeBeam(cone: THREE.Mesh, camera: THREE.Camera): void {
+  fadeCam.setFromMatrixPosition(camera.matrixWorld);
+  fadeA.set(0, 0, 0).applyMatrix4(cone.matrixWorld);
+  fadeB.set(0, -1, 0).applyMatrix4(cone.matrixWorld);
+  const m = cone.material as THREE.ShaderMaterial;
+  m.uniforms.uFade!.value = beamFade(fadeCam, fadeA, fadeB);
+  m.uniformsNeedUpdate = true;
+}
+
 function beamMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({ map: beamTex, color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
 }
@@ -226,6 +294,7 @@ export class MarkerView {
     for (const [id, v] of this.heliViews) {
       if (!seen.has(id)) {
         this.group.remove(v.g, v.cone, v.pool);
+        (v.cone.material as THREE.Material).dispose();
         this.heliViews.delete(id);
       }
     }
@@ -233,9 +302,12 @@ export class MarkerView {
 
   private newHeli(id: number) {
     const t = (this.heliTemplate ??= this.buildHeli());
-    // clone() shares geometry and materials; transforms and visibility stay per view.
+    // clone() shares geometry and materials; transforms and visibility stay per view. The beam has
+    // its own material (same shader program) because its fade depends on where it is.
     const g = t.g.clone();
     const cone = t.cone.clone();
+    cone.material = (t.cone.material as THREE.ShaderMaterial).clone();
+    cone.onBeforeRender = (_r, _s, camera) => fadeBeam(cone, camera);
     const pool = t.pool.clone();
     this.group.add(g, cone, pool);
     const v = { g, rotor: g.getObjectByName('rotor')!, tail: g.getObjectByName('tailRotor')!, cone, pool };
@@ -270,8 +342,10 @@ export class MarkerView {
     });
     g.rotation.order = 'YXZ';
     const coneGeo = new THREE.ConeGeometry(4.5, 1, 20, 1, true).translate(0, -0.5, 0);
-    const cone = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({ color: 0xeef4ff, transparent: true, opacity: 0.09, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(5, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xeef4ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const cone = new THREE.Mesh(coneGeo, spotlightMaterial());
+    // The pool only marks where the light points: added to a dark night street, more than this lights up
+    // the ground around an unlit player and makes him a black silhouette (0.35 put the frame at 1.46x).
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(3.5, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xeef4ff, transparent: true, opacity: SPOT_POOL, blending: THREE.AdditiveBlending, depthWrite: false }));
     return { g, cone, pool };
   }
 }

@@ -241,7 +241,8 @@ describe('crime attribution for vehicle hits', () => {
     sim.onCharacterHitByVehicle(cop, v, 5, 1, 0);
     expect(cop.alive).toBe(true);
     expect(crimes).toEqual(['assaultCop']);
-    expect(sim.wanted.heat).toBe(150);
+    // Round 2 (police, P62): an assault on an officer is 70 heat (was 150).
+    expect(sim.wanted.heat).toBe(70);
     expect(sim.wanted.level).toBe(1);
   });
 

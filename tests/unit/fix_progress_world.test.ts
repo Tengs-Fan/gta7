@@ -255,6 +255,7 @@ describe('Spray Shack and the mission wanted floor', () => {
     sim.events.on('sprayed', () => sprayed++);
     sim.wanted.floor = 4;
     sim.wanted.setLevel(4);
+    sim.progress.addMoney(1000); // enough for a four-star respray
     const money = sim.progress.money;
     step(sim, 0.5);
     expect(sim.wanted.level).toBe(4);
@@ -271,7 +272,8 @@ describe('Spray Shack and the mission wanted floor', () => {
     step(sim, 0.5);
     expect(sprayed).toBe(1);
     expect(sim.wanted.level).toBe(0);
-    expect(sim.progress.money).toBe(money - 100);
+    // Round 2 (police, P62): a respray costs $100 per star (four here).
+    expect(sim.progress.money).toBe(money - 400);
   });
 });
 

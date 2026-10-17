@@ -238,35 +238,37 @@ describe('combat, wanted level and police', () => {
     expect(sim.wanted.level).toBe(0);
   });
 
-  it('busts the player when a cop catches them standing still', () => {
-    const sim = makeSim();
-    const p = sim.player;
-    p.inventory.give('smg', 100);
-    sim.wanted.setLevel(1);
-    const cop = sim.spawnCharacter('cop', p.pos.x + 1.0, p.pos.z);
-    cop.owner = 'police';
-    cop.brain = { ...cop.brain!, ...{} } as never;
-    // Use the police system equipment path for a proper brain.
-    sim.removeCharacter(cop);
-    const unit = sim.police.spawnUnit('police', true);
-    expect(unit).not.toBeNull();
-    // Move the crew next to the player on foot.
-    for (const c of unit!.occupants()) {
-      sim.unseat(c);
-      c.state = 'normal';
-      c.pos.x = p.pos.x + 0.9;
-      c.pos.z = p.pos.z;
-      c.pos.y = p.pos.y;
-    }
-    step(sim, 2);
-    expect(sim.deathKind).toBe('busted');
-    step(sim, 5);
-    expect(sim.deathKind).toBeNull();
-    const police = sim.world.layout.pois.find((q) => q.id === 'police')!;
-    expect(Math.hypot(p.pos.x - police.x, p.pos.z - police.z)).toBeLessThan(12);
-    expect(p.inventory.has('smg')).toBe(false);
-    expect(sim.wanted.level).toBe(0);
-  });
+  // Round 2 (police, P62): bail is $100 + $150 a star, and the police keep the guns only from 2 stars.
+  for (const [stars, confiscated] of [[1, false], [2, true]] as const) {
+    it(`busts the player when a cop catches them standing still (${stars} star${stars > 1 ? 's' : ''}: weapons ${confiscated ? 'confiscated' : 'kept'})`, () => {
+      const sim = makeSim();
+      const p = sim.player;
+      p.inventory.give('smg', 100);
+      sim.progress.addMoney(1000);
+      const money = sim.progress.money;
+      sim.wanted.setLevel(stars);
+      // Use the police system equipment path for a proper brain.
+      const unit = sim.police.spawnUnit('police', true);
+      expect(unit).not.toBeNull();
+      // Move the crew next to the player on foot.
+      for (const c of unit!.occupants()) {
+        sim.unseat(c);
+        c.state = 'normal';
+        c.pos.x = p.pos.x + 0.9;
+        c.pos.z = p.pos.z;
+        c.pos.y = p.pos.y;
+      }
+      step(sim, 2);
+      expect(sim.deathKind).toBe('busted');
+      step(sim, 5);
+      expect(sim.deathKind).toBeNull();
+      const police = sim.world.layout.pois.find((q) => q.id === 'police')!;
+      expect(Math.hypot(p.pos.x - police.x, p.pos.z - police.z)).toBeLessThan(12);
+      expect(p.inventory.has('smg')).toBe(!confiscated);
+      expect(sim.progress.money).toBe(money - 100 - 150 * stars);
+      expect(sim.wanted.level).toBe(0);
+    });
+  }
 
   it('respawns at the hospital after being wasted', () => {
     const sim = makeSim();
@@ -315,7 +317,8 @@ describe('combat, wanted level and police', () => {
     step(sim, 0.5);
     expect(sim.wanted.level).toBe(0);
     expect(v.health).toBe(v.spec.health);
-    expect(sim.progress.money).toBe(money - 100);
+    // Round 2 (police, P62): a respray costs $100 per star.
+    expect(sim.progress.money).toBe(money - 200);
   });
 });
 
