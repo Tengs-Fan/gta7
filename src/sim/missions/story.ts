@@ -465,7 +465,7 @@ const bigScore: MissionDef = {
         g.brain!.hostile = true;
         g.brain!.brave = true;
         g.heading = bank.heading;
-        g.appearance = { ...g.appearance, shirt: 0x5d6d7e, pants: 0x1b1f24, hat: 0x22262b };
+        g.appearance = { ...g.appearance, shirt: 0xc9ccd1, pants: 0x26282b, hat: 0x17181a };
       }
       yield* m.intro([
         [DEX, 'First Azura Bank. The vault opens on a timer: twenty seconds, and the whole city will hear it.'],
