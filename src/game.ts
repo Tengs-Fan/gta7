@@ -364,7 +364,8 @@ export class Game {
 
     const sim = this.sim;
     cam.look(fi.lookX, fi.lookY);
-    const aim = cam.aimRay();
+    // This frame's look, not the last frame's view: aimRay() only catches up in render().
+    const aim = cam.rayFor();
     const inp = fi.player;
     inp.aimOrigin = aim.origin;
     inp.aimDir = aim.dir;
@@ -374,7 +375,8 @@ export class Game {
     this.perf.simMs = performance.now() - ts;
     this.input.inVehicle = !!sim.player.vehicle;
     // The sim decides whether the player can aim (not while swimming, knocked down or climbing in).
-    const aiming = sim.player.aiming && !sim.player.vehicle;
+    // Only the aim button zooms the view and steadies the reticle; hip fire keeps both wide.
+    const aiming = sim.player.aimZoom && !sim.player.vehicle;
     const tr = performance.now();
     this.renderer.render(dt, aiming);
     this.perf.renderMs = performance.now() - tr;

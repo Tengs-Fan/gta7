@@ -3,11 +3,28 @@
 import * as THREE from 'three';
 import { Rng } from '../core/rng';
 import type { Projectile } from '../sim/entities';
+import type { WeaponId } from '../sim/specs';
+
+/** Muzzle flash size (m, across the star) per weapon. */
+export const FLASH_SIZE: Readonly<Record<WeaponId, number>> = { fists: 0, pistol: 0.3, smg: 0.32, rifle: 0.4, shotgun: 0.55, rocket: 0.6 };
+/** The muzzle light's intensity per metre of flash, and its cap (a shotgun used to white the screen out). */
+const FLASH_LIGHT = 55;
+const FLASH_LIGHT_MAX = 30;
+/**
+ * Tracer streak: its head flies at TRACER_SPEED (m/s), the tail TRACER_STREAK (m) behind.
+ * Ribbons are TRACER_WIDTH (m) wide, but never under TRACER_MIN_PX pixels.
+ */
+const TRACER_SPEED = 300;
+const TRACER_STREAK = 3;
+const TRACER_WIDTH = 0.03;
+const TRACER_MIN_PX = 1.5;
+/** HDR orange, far above the bloom threshold. */
+const TRACER_COLOR = new THREE.Color(6, 3, 1);
 
 const PARTICLE_VS = /* glsl */ `
 attribute vec3 iPos;
 attribute vec4 iColor;
-attribute vec2 iSizeRot;
+attribute vec3 iSizeRot;
 varying vec2 vUv;
 varying vec4 vColor;
 #include <fog_pars_vertex>
@@ -17,7 +34,9 @@ void main() {
   vec4 mvPosition = modelViewMatrix * vec4(iPos, 1.0);
   float c = cos(iSizeRot.y);
   float s = sin(iSizeRot.y);
-  vec2 p = vec2(position.x * c - position.y * s, position.x * s + position.y * c) * iSizeRot.x;
+  // iSizeRot: size (the long side), rotation, and how many times longer than wide the sprite is.
+  vec2 q = vec2(position.x, position.y / iSizeRot.z);
+  vec2 p = vec2(q.x * c - q.y * s, q.x * s + q.y * c) * iSizeRot.x;
   mvPosition.xy += p;
   gl_Position = projectionMatrix * mvPosition;
   #include <fog_vertex>
@@ -60,6 +79,9 @@ class ParticleLayer {
   private readonly drag: Float32Array;
   private readonly rot: Float32Array;
   private readonly spin: Float32Array;
+  private readonly stretch: Float32Array;
+  /** Emitted since the last update: not aged before it is first drawn. */
+  private readonly fresh: Uint8Array;
   private next = 0;
   active = 0;
 
@@ -71,10 +93,10 @@ class ParticleLayer {
     this.geo.setAttribute('uv', base.getAttribute('uv'));
     this.iPos = new Float32Array(max * 3);
     this.iColor = new Float32Array(max * 4);
-    this.iSizeRot = new Float32Array(max * 2);
+    this.iSizeRot = new Float32Array(max * 3);
     this.geo.setAttribute('iPos', new THREE.InstancedBufferAttribute(this.iPos, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('iColor', new THREE.InstancedBufferAttribute(this.iColor, 4).setUsage(THREE.DynamicDrawUsage));
-    this.geo.setAttribute('iSizeRot', new THREE.InstancedBufferAttribute(this.iSizeRot, 2).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('iSizeRot', new THREE.InstancedBufferAttribute(this.iSizeRot, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.instanceCount = 0;
     const mat = new THREE.ShaderMaterial({
       vertexShader: PARTICLE_VS,
@@ -106,9 +128,12 @@ class ParticleLayer {
     this.drag = f();
     this.rot = f();
     this.spin = f();
+    this.stretch = f();
+    this.fresh = new Uint8Array(max);
   }
 
-  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size0: number, size1: number, color0: number, color1: number, alpha: number, gravity = 0, drag = 0, spin = 0): void {
+  /** `stretch` > 1 draws an elongated sprite (length:width), turned by `rot` on screen. */
+  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size0: number, size1: number, color0: number, color1: number, alpha: number, gravity = 0, drag = 0, spin = 0, stretch = 1, rot = Math.random() * 6.28): void {
     const i = this.next;
     this.next = (this.next + 1) % this.max;
     this.px[i] = x;
@@ -130,24 +155,34 @@ class ParticleLayer {
     this.a0[i] = alpha;
     this.grav[i] = gravity;
     this.drag[i] = drag;
-    this.rot[i] = Math.random() * 6.28;
+    this.rot[i] = rot;
     this.spin[i] = spin;
+    this.stretch[i] = Math.max(1, stretch);
+    this.fresh[i] = 1;
   }
 
   update(dt: number, intensity: number): void {
     let n = 0;
     for (let i = 0; i < this.max; i++) {
       if (this.life[i]! <= 0) continue;
-      this.life[i] = this.life[i]! - dt;
+      // Drawn at least once whatever the frame time.
+      // On the frame it was emitted a particle ages at most through its fade-in (an eighth of its life),
+      // which leaves even a 0.05 s flash visible at 10 fps.
+      let step = dt;
+      if (this.fresh[i] && dt > 0) {
+        this.fresh[i] = 0;
+        step = Math.min(dt, this.maxLife[i]! * 0.125);
+      }
+      this.life[i] = this.life[i]! - step;
       if (this.life[i]! <= 0) continue;
-      const k = Math.exp(-this.drag[i]! * dt);
+      const k = Math.exp(-this.drag[i]! * step);
       this.vx[i] = this.vx[i]! * k;
-      this.vy[i] = this.vy[i]! * k - this.grav[i]! * dt;
+      this.vy[i] = this.vy[i]! * k - this.grav[i]! * step;
       this.vz[i] = this.vz[i]! * k;
-      this.px[i] = this.px[i]! + this.vx[i]! * dt;
-      this.py[i] = this.py[i]! + this.vy[i]! * dt;
-      this.pz[i] = this.pz[i]! + this.vz[i]! * dt;
-      this.rot[i] = this.rot[i]! + this.spin[i]! * dt;
+      this.px[i] = this.px[i]! + this.vx[i]! * step;
+      this.py[i] = this.py[i]! + this.vy[i]! * step;
+      this.pz[i] = this.pz[i]! + this.vz[i]! * step;
+      this.rot[i] = this.rot[i]! + this.spin[i]! * step;
       const t = 1 - this.life[i]! / this.maxLife[i]!;
       this.iPos[n * 3] = this.px[i]!;
       this.iPos[n * 3 + 1] = this.py[i]!;
@@ -157,8 +192,9 @@ class ParticleLayer {
       this.iColor[n * 4 + 2] = (this.c0[i * 3 + 2]! + (this.c1[i * 3 + 2]! - this.c0[i * 3 + 2]!) * t) * intensity;
       // Fade in quickly, out smoothly.
       this.iColor[n * 4 + 3] = this.a0[i]! * Math.min(1, t * 8) * (1 - t * t);
-      this.iSizeRot[n * 2] = this.s0[i]! + (this.s1[i]! - this.s0[i]!) * t;
-      this.iSizeRot[n * 2 + 1] = this.rot[i]!;
+      this.iSizeRot[n * 3] = this.s0[i]! + (this.s1[i]! - this.s0[i]!) * t;
+      this.iSizeRot[n * 3 + 1] = this.rot[i]!;
+      this.iSizeRot[n * 3 + 2] = this.stretch[i]!;
       n++;
     }
     this.active = n;
@@ -258,56 +294,156 @@ class SkidMarks {
   }
 }
 
+const TRACER_VS = /* glsl */ `
+uniform float uHalfWidth;
+uniform float uMinPx;
+uniform float uViewH;
+attribute vec3 iFrom;
+attribute vec3 iTo;
+varying float vAlong;
+varying float vAcross;
+#include <fog_pars_vertex>
+void main() {
+  // position.x: 0 at the tail, 1 at the head; position.y: -1 / +1 for the two edges of the ribbon.
+  vec4 a = modelViewMatrix * vec4(iFrom, 1.0);
+  vec4 b = modelViewMatrix * vec4(iTo, 1.0);
+  vec4 mvPosition = mix(a, b, position.x);
+  // Face the camera: widen across both the streak and the line of sight.
+  vec3 side = cross(b.xyz - a.xyz, mvPosition.xyz);
+  float sl = length(side);
+  side = sl > 1e-9 ? side / sl : vec3(1.0, 0.0, 0.0);
+  // One pixel at this depth (projectionMatrix[1][1] is 1 / tan(fov / 2)): far streaks keep a minimum width.
+  float px = 2.0 * max(-mvPosition.z, 0.01) / (projectionMatrix[1][1] * uViewH);
+  mvPosition.xyz += side * position.y * max(uHalfWidth, uMinPx * 0.5 * px);
+  vAlong = position.x;
+  vAcross = position.y;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+
+const TRACER_FS = /* glsl */ `
+uniform vec3 uColor;
+varying float vAlong;
+varying float vAcross;
+#include <fog_pars_fragment>
+void main() {
+  // Brightest at the head, fading to the tail and to the edges.
+  float a = (0.15 + 0.85 * vAlong * vAlong) * (1.0 - vAcross * vAcross);
+  #ifdef USE_FOG
+    #ifdef FOG_EXP2
+      a *= exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+    #else
+      a *= 1.0 - smoothstep(fogNear, fogFar, vFogDepth);
+    #endif
+  #endif
+  gl_FragColor = vec4(uColor, a);
+}`;
+
+/**
+ * Bullet tracers: camera-facing ribbons (one instanced draw).
+ * Each streak's head leaves the muzzle at TRACER_SPEED with the tail TRACER_STREAK behind it,
+ * and the tracer ends when the tail reaches the hit.
+ * A tracer is drawn from the muzzle on the frame it was fired, however long that frame was.
+ */
 class Tracers {
-  readonly mesh: THREE.LineSegments;
-  private readonly pos: Float32Array;
-  private readonly col: Float32Array;
-  private readonly life: Float32Array;
+  readonly mesh: THREE.Mesh;
+  private readonly geo: THREE.InstancedBufferGeometry;
+  private readonly mat: THREE.ShaderMaterial;
+  private readonly iFrom: Float32Array;
+  private readonly iTo: Float32Array;
   private readonly from: Float32Array;
-  private readonly to: Float32Array;
+  private readonly dir: Float32Array;
+  private readonly len: Float32Array;
+  private readonly age: Float32Array;
+  /** 0 = free, 1 = flying, 2 = fired since the last update (not aged yet). */
+  private readonly state: Uint8Array;
+  private readonly size = new THREE.Vector2();
   private next = 0;
+  active = 0;
 
   constructor(private readonly max: number) {
-    this.pos = new Float32Array(max * 6);
-    this.col = new Float32Array(max * 6);
-    this.life = new Float32Array(max);
-    this.from = new Float32Array(max * 3);
-    this.to = new Float32Array(max * 3);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
-    this.mesh = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.geo = new THREE.InstancedBufferGeometry();
+    this.geo.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 0, 1, 0, 1, -1, 0, 1, 1, 0], 3));
+    this.geo.setIndex([0, 2, 1, 1, 2, 3]);
+    this.iFrom = new Float32Array(max * 3);
+    this.iTo = new Float32Array(max * 3);
+    this.geo.setAttribute('iFrom', new THREE.InstancedBufferAttribute(this.iFrom, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('iTo', new THREE.InstancedBufferAttribute(this.iTo, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geo.instanceCount = 0;
+    this.mat = new THREE.ShaderMaterial({
+      vertexShader: TRACER_VS,
+      fragmentShader: TRACER_FS,
+      uniforms: THREE.UniformsUtils.merge([
+        THREE.UniformsLib.fog,
+        { uColor: { value: TRACER_COLOR.clone() }, uHalfWidth: { value: TRACER_WIDTH / 2 }, uMinPx: { value: TRACER_MIN_PX }, uViewH: { value: 720 } },
+      ]),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      fog: true,
+    });
+    this.mesh = new THREE.Mesh(this.geo, this.mat);
     this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 5;
+    // The minimum width is in pixels of whatever the frame is drawn at.
+    this.mesh.onBeforeRender = (renderer) => {
+      this.mat.uniforms.uViewH!.value = Math.max(1, renderer.getDrawingBufferSize(this.size).y);
+    };
+    this.from = new Float32Array(max * 3);
+    this.dir = new Float32Array(max * 3);
+    this.len = new Float32Array(max);
+    this.age = new Float32Array(max);
+    this.state = new Uint8Array(max);
   }
 
   add(fx: number, fy: number, fz: number, tx: number, ty: number, tz: number): void {
+    const dx = tx - fx;
+    const dy = ty - fy;
+    const dz = tz - fz;
+    const l = Math.hypot(dx, dy, dz);
+    if (!(l > 1e-3) || !Number.isFinite(l + fx + fy + fz)) return;
     const i = this.next;
     this.next = (this.next + 1) % this.max;
     this.from.set([fx, fy, fz], i * 3);
-    this.to.set([tx, ty, tz], i * 3);
-    this.life[i] = 0.07;
+    this.dir.set([dx / l, dy / l, dz / l], i * 3);
+    this.len[i] = l;
+    this.age[i] = 0;
+    this.state[i] = 2;
   }
 
   update(dt: number): void {
+    let n = 0;
     for (let i = 0; i < this.max; i++) {
-      const l = this.life[i]!;
-      if (l > 0) this.life[i] = l - dt;
-      const a = Math.max(0, this.life[i]!) / 0.07;
-      // Draw a short streak that moves along the bullet path.
-      const t0 = 1 - a;
-      const t1 = Math.min(1, t0 + 0.35);
+      const st = this.state[i]!;
+      if (st === 0) continue;
+      if (st === 2) this.state[i] = 1;
+      else this.age[i] = this.age[i]! + dt;
+      const l = this.len[i]!;
+      const tail = TRACER_SPEED * this.age[i]!;
+      if (tail >= l) {
+        this.state[i] = 0;
+        continue;
+      }
+      const head = Math.min(l, tail + TRACER_STREAK);
       for (let k = 0; k < 3; k++) {
         const f = this.from[i * 3 + k]!;
-        const t = this.to[i * 3 + k]!;
-        this.pos[i * 6 + k] = f + (t - f) * t0;
-        this.pos[i * 6 + 3 + k] = f + (t - f) * t1;
+        const d = this.dir[i * 3 + k]!;
+        this.iFrom[n * 3 + k] = f + d * tail;
+        this.iTo[n * 3 + k] = f + d * head;
       }
-      const b = a * 2.2;
-      this.col.set([b, b * 0.85, b * 0.45, b * 0.6, b * 0.5, b * 0.25], i * 6);
+      n++;
     }
-    const g = this.mesh.geometry;
-    (g.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-    (g.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
+    this.active = n;
+    this.geo.instanceCount = n;
+    (this.geo.getAttribute('iFrom') as THREE.InstancedBufferAttribute).needsUpdate = true;
+    (this.geo.getAttribute('iTo') as THREE.InstancedBufferAttribute).needsUpdate = true;
+  }
+
+  clear(): void {
+    this.state.fill(0);
+    this.active = 0;
+    this.geo.instanceCount = 0;
   }
 }
 
@@ -342,6 +478,9 @@ export class Effects {
   readonly muzzle: THREE.PointLight;
   private flashLife = 0;
   private muzzleLife = 0;
+  /** The explosion / muzzle light was lit since the last update: it is not aged before its first frame. */
+  private flashFresh = false;
+  private muzzleFresh = false;
   private readonly rng = new Rng(5);
   private readonly sprays: Array<{ x: number; y: number; z: number; t: number; acc: number }> = [];
   private readonly rockets = new Map<number, RocketView>();
@@ -363,17 +502,22 @@ export class Effects {
   reset(): void {
     this.sprays.length = 0;
     this.syncRockets([]);
+    this.tracers.clear();
   }
 
   private r(a: number, b: number): number {
     return this.rng.range(a, b);
   }
 
-  muzzleFlash(x: number, y: number, z: number, big: boolean): void {
-    this.glow.emit(x, y, z, 0, 0, 0, 0.05, big ? 0.9 : 0.5, big ? 1.3 : 0.7, 0xfff0b0, 0xff8020, 1);
+  /** A muzzle flash `size` m across (FLASH_SIZE): two crossed, stretched glow sprites and a short light. */
+  muzzleFlash(x: number, y: number, z: number, size: number): void {
+    if (!(size > 0) || !Number.isFinite(x + y + z)) return;
+    const rot = Math.random() * Math.PI;
+    for (const r of [rot, rot + Math.PI / 2]) this.glow.emit(x, y, z, 0, 0, 0, 0.05, size, size * 1.3, 0xfff0b0, 0xff8020, 1, 0, 0, 0, 3, r);
     this.muzzle.position.set(x, y, z);
-    this.muzzle.intensity = big ? 40 : 22;
+    this.muzzle.intensity = Math.min(FLASH_LIGHT_MAX, FLASH_LIGHT * size);
     this.muzzleLife = 0.06;
+    this.muzzleFresh = true;
   }
 
   tracer(fx: number, fy: number, fz: number, tx: number, ty: number, tz: number): void {
@@ -409,6 +553,7 @@ export class Effects {
     this.flash.position.set(x, y + 2, z);
     this.flash.intensity = 900 * s;
     this.flashLife = 0.5;
+    this.flashFresh = true;
   }
 
   /** Muzzle point of a rocket just fired, where the next new rocket's trail starts. */
@@ -535,12 +680,16 @@ export class Effects {
     this.smoke.update(dt, 1);
     this.tracers.update(dt);
     this.skids.update(now);
-    if (this.flashLife > 0) {
+    if (this.flashFresh) {
+      if (dt > 0) this.flashFresh = false;
+    } else if (this.flashLife > 0) {
       this.flashLife -= dt;
       this.flash.intensity *= Math.exp(-8 * dt);
       if (this.flashLife <= 0) this.flash.intensity = 0;
     }
-    if (this.muzzleLife > 0) {
+    if (this.muzzleFresh) {
+      if (dt > 0) this.muzzleFresh = false;
+    } else if (this.muzzleLife > 0) {
       this.muzzleLife -= dt;
       if (this.muzzleLife <= 0) this.muzzle.intensity = 0;
     }
@@ -548,5 +697,15 @@ export class Effects {
 
   get particleCount(): number {
     return this.glow.active + this.smoke.active;
+  }
+
+  /** Glow particles (flashes, sparks, fire) drawn this frame. */
+  get glowCount(): number {
+    return this.glow.active;
+  }
+
+  /** Tracer streaks drawn this frame. */
+  get tracerCount(): number {
+    return this.tracers.active;
   }
 }
