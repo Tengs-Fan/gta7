@@ -1,12 +1,15 @@
 // Streams ambient traffic and parked cars in and out around the player.
 
 import { axisOf, type Lane } from '../world/roads';
+import { makeContact, obbRadius, obbVsObb, type OBB } from '../core/collision';
 import { pointSegDist } from '../core/math';
 import type { Rng } from '../core/rng';
 import { WATER_Y } from '../world/constants';
+import type { ParkingSpot } from '../world/layout';
 import type { Vehicle } from './entities';
 import type { Sim } from './sim';
-import { PARKED_MIX, TRAFFIC_MIX, type VehicleKind } from './specs';
+import { PARKED_MIX, TRAFFIC_MIX, VEHICLE_SPECS, type VehicleKind } from './specs';
+import { vehicleObb } from './vehiclePhysics';
 
 /** Above this speed (m/s) the player outruns the traffic streamed around him: spawn ahead too. */
 const AHEAD_SPEED = 8;
@@ -23,6 +26,19 @@ const QUEUE_NEAR = 6;
 const QUEUE_FAR = 10;
 /** Seconds the cross street needs a green before the player arrives for its cars to be out in front of him. */
 const CROSS_LEAD = 3;
+/**
+ * A parked car streams into a bay only with no other vehicle's centre within BAY_SPACING m of the bay's centre
+ * (neighbouring bays are 3.2 m apart, so a lot fills every other bay at most) and no vehicle's footprint within
+ * BAY_MARGIN m of its own: a long or crooked car standing over the bay from further off (a bus, a car left
+ * across the bays) keeps it empty. One above or below it (in the air) does not, as vehicles at different heights
+ * do not collide (see collideVehicles).
+ */
+const BAY_SPACING = 3.5;
+const BAY_MARGIN = 0.3;
+
+const bayBox: OBB = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
+const otherBox: OBB = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
+const bayContact = makeContact();
 
 /** A stretch of lane to spawn on: distances s0-s1 along it. */
 interface SpawnSpan {
@@ -321,12 +337,31 @@ export class TrafficSystem {
       if (d > 175 || d < 35) continue;
       if (hash(i) % 100 >= 55) continue;
       if (sim.isVisible(s.x, 0.5, s.z)) continue;
-      if (!this.isClear(s.x, s.z, 3.5)) continue;
+      if (!this.isClear(s.x, s.z, BAY_SPACING)) continue;
       const kind = PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0];
+      if (!this.bayClear(s, kind)) continue;
       const v = sim.spawnVehicle(kind, s.x, s.z, s.heading);
       v.owner = 'parked';
       this.parkedBySpot.set(i, v);
     }
+  }
+
+  /** Whether a `kind` parked in bay `s` would keep BAY_MARGIN m clear of every vehicle's footprint at its height. */
+  private bayClear(s: ParkingSpot, kind: VehicleKind): boolean {
+    const spec = VEHICLE_SPECS[kind];
+    const y = this.sim.world.groundHeight(s.x, s.z);
+    bayBox.x = s.x;
+    bayBox.z = s.z;
+    bayBox.hw = spec.width / 2 + BAY_MARGIN;
+    bayBox.hl = spec.length / 2 + BAY_MARGIN;
+    bayBox.h = s.heading;
+    const reach = obbRadius(bayBox);
+    for (const v of this.sim.vehicles) {
+      if (v.removed || Math.hypot(v.pos.x - s.x, v.pos.z - s.z) > reach + Math.hypot(v.halfW, v.halfL)) continue;
+      if (v.pos.y > y + spec.height - 0.2 || y > v.pos.y + v.spec.height - 0.2) continue;
+      if (obbVsObb(bayBox, vehicleObb(v, otherBox), bayContact)) return false;
+    }
+    return true;
   }
 }
 
