@@ -193,6 +193,22 @@ export interface VehicleControls {
   handbrake: boolean;
 }
 
+/**
+ * A dent in vehicle-local space: lz along the heading (front +), lx towards the driver side (local +X), ly up
+ * from the ground. (nx, nz) is the horizontal inward direction the body is pushed in; a roof dent has a zero
+ * normal and pushes straight down.
+ */
+export interface Dent {
+  lx: number;
+  ly: number;
+  lz: number;
+  nx: number;
+  nz: number;
+  depth: number;
+}
+
+export const MAX_DENTS = 8;
+
 export class Vehicle {
   readonly spec: VehicleSpec;
   readonly pos: V3;
@@ -242,6 +258,9 @@ export class Vehicle {
   reversing = false;
   climbRate = 0;
   impactTimer = 0;
+  /** Crash damage the renderer shows as dents (at most MAX_DENTS); dentVersion changes with every change to it. */
+  readonly dents: Dent[] = [];
+  dentVersion = 0;
   /** Ever driven by the player (no longer counts as a parked car). */
   usedByPlayer = false;
   /** Seconds since the AI driver last got 5 m from where it was; waits at a red light, a yield or in a queue don't count. */

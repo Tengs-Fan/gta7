@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { Rng } from '../core/rng';
-import type { Projectile } from '../sim/entities';
+import type { Projectile, Vehicle } from '../sim/entities';
 import type { WeaponId } from '../sim/specs';
 
 /** Muzzle flash size (m, across the star) per weapon. */
@@ -447,6 +447,144 @@ class Tracers {
   }
 }
 
+/** Body parts a hard crash knocks off: sizes (x, y, z) of the shared unit box. */
+const PART_SIZES = { bumper: [1.6, 0.25, 0.15], hood: [1.2, 0.05, 0.9], mirror: [0.15, 0.1, 0.08] } as const;
+export type PartKind = keyof typeof PART_SIZES;
+const MAX_PARTS = 16;
+/** Parts lie on the road this long, then shrink away over PART_FADE. */
+const PART_LIFE = 8;
+const PART_FADE = 1;
+const PART_GRAVITY = 12;
+const BURNT_COLOR = 0x1d1b19;
+const UP = new THREE.Vector3(0, 1, 0);
+
+interface Part {
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  quat: THREE.Quaternion;
+  spin: THREE.Vector3;
+  size: THREE.Vector3;
+  color: THREE.Color;
+  age: number;
+  resting: boolean;
+}
+
+/** Up to MAX_PARTS rigid parts (one InstancedMesh, per-instance scale and colour) that tumble, bounce and settle flat. */
+class BodyParts {
+  readonly mesh: THREE.InstancedMesh;
+  private readonly parts: Part[] = [];
+  private readonly m = new THREE.Matrix4();
+  private readonly q = new THREE.Quaternion();
+  private readonly axis = new THREE.Vector3();
+  private readonly s = new THREE.Vector3();
+  /** Ground height under the parts (the world of the latest crash; reset() drops the parts with their world). */
+  private ground: (x: number, z: number) => number = () => 0;
+
+  constructor() {
+    this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.5, envMapIntensity: 1.2 }), MAX_PARTS);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // Creates the colour attribute up front, so the shader compiled at warm-up is the one used later.
+    this.mesh.setColorAt(0, new THREE.Color(1, 1, 1));
+    this.mesh.count = 0;
+    this.mesh.castShadow = true;
+    this.mesh.frustumCulled = false;
+    this.mesh.name = 'bodyParts';
+  }
+
+  get active(): number {
+    return this.parts.length;
+  }
+
+  spawn(kind: PartKind, x: number, y: number, z: number, vx: number, vy: number, vz: number, color: number, spin: THREE.Vector3, ground: (x: number, z: number) => number): void {
+    // A full pool recycles its oldest part.
+    if (this.parts.length >= MAX_PARTS) this.parts.shift();
+    this.ground = ground;
+    const sz = PART_SIZES[kind];
+    this.parts.push({
+      pos: new THREE.Vector3(x, y, z),
+      vel: new THREE.Vector3(vx, vy, vz),
+      quat: new THREE.Quaternion().setFromEuler(new THREE.Euler(spin.x * 0.1, Math.atan2(vx, vz), spin.z * 0.1)),
+      spin: spin.clone(),
+      size: new THREE.Vector3(sz[0], sz[1], sz[2]),
+      color: new THREE.Color(color),
+      age: 0,
+      resting: false,
+    });
+  }
+
+  /** Half the height of a part's rotated box: how far its lowest corner is below its centre. */
+  private halfHeight(p: Part): number {
+    this.m.makeRotationFromQuaternion(p.quat);
+    const e = this.m.elements;
+    // Row 1 of the rotation matrix: the world Y of each local axis.
+    return (Math.abs(e[1]!) * p.size.x + Math.abs(e[5]!) * p.size.y + Math.abs(e[9]!) * p.size.z) / 2;
+  }
+
+  /** Rotation that lays the part on its largest face: its thinnest local axis turned straight up or down. */
+  private flatten(p: Part): THREE.Quaternion {
+    this.m.makeRotationFromQuaternion(p.quat);
+    const e = this.m.elements;
+    const size = [p.size.x, p.size.y, p.size.z];
+    let k = 0;
+    for (let i = 1; i < 3; i++) if (size[i]! < size[k]!) k = i;
+    this.axis.set(e[k * 4]!, e[k * 4 + 1]!, e[k * 4 + 2]!).normalize();
+    return this.q.setFromUnitVectors(this.axis, e[k * 4 + 1]! >= 0 ? UP : this.s.set(0, -1, 0)).multiply(p.quat);
+  }
+
+  update(dt: number): void {
+    for (let i = this.parts.length - 1; i >= 0; i--) {
+      const p = this.parts[i]!;
+      p.age += dt;
+      if (p.age >= PART_LIFE + PART_FADE) {
+        this.parts.splice(i, 1);
+        continue;
+      }
+      if (dt <= 0) continue;
+      if (!p.resting) {
+        p.vel.y -= PART_GRAVITY * dt;
+        p.pos.addScaledVector(p.vel, dt);
+        const w = p.spin.length();
+        if (w > 1e-6) p.quat.premultiply(this.q.setFromAxisAngle(this.axis.copy(p.spin).divideScalar(w), w * dt));
+      } else {
+        // Settle flat on the road.
+        p.quat.slerp(this.flatten(p), 1 - Math.exp(-14 * dt));
+      }
+      const floor = this.ground(p.pos.x, p.pos.z) + this.halfHeight(p);
+      if (p.pos.y < floor || p.resting) {
+        p.pos.y = floor;
+        if (!p.resting) {
+          if (p.vel.y < 0) p.vel.y = -p.vel.y * 0.35;
+          p.vel.x *= 0.65;
+          p.vel.z *= 0.65;
+          p.spin.multiplyScalar(0.55);
+          if (Math.hypot(p.vel.x, p.vel.z) < 0.7 && p.vel.y < 1.2) {
+            p.resting = true;
+            p.vel.set(0, 0, 0);
+            p.spin.set(0, 0, 0);
+          }
+        }
+      }
+    }
+    let n = 0;
+    for (const p of this.parts) {
+      const k = p.age > PART_LIFE ? Math.max(0, 1 - (p.age - PART_LIFE) / PART_FADE) : 1;
+      this.m.compose(p.pos, p.quat, this.s.copy(p.size).multiplyScalar(Math.max(1e-4, k)));
+      this.mesh.setMatrixAt(n, this.m);
+      this.mesh.setColorAt(n, p.color);
+      n++;
+    }
+    this.mesh.count = n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  clear(): void {
+    this.parts.length = 0;
+    this.mesh.count = 0;
+    this.ground = () => 0;
+  }
+}
+
 // Rocket parts, shared by every rocket view. The body points along local +Z.
 const rocketBodyGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.62, 8).rotateX(Math.PI / 2);
 const rocketNoseGeo = new THREE.ConeGeometry(0.075, 0.2, 8).rotateX(Math.PI / 2).translate(0, 0, 0.41);
@@ -474,6 +612,7 @@ export class Effects {
   private readonly smoke = new ParticleLayer(3000, false);
   readonly skids = new SkidMarks(3000);
   private readonly tracers = new Tracers(160);
+  private readonly parts = new BodyParts();
   readonly flash: THREE.PointLight;
   readonly muzzle: THREE.PointLight;
   private flashLife = 0;
@@ -491,6 +630,7 @@ export class Effects {
 
   constructor() {
     this.group.add(this.glow.mesh, this.smoke.mesh, this.skids.mesh, this.tracers.mesh);
+    this.group.add(this.parts.mesh);
     this.flash = new THREE.PointLight(0xffa040, 0, 40, 1.6);
     this.muzzle = new THREE.PointLight(0xffd080, 0, 12, 2);
     this.group.add(this.flash, this.muzzle);
@@ -503,6 +643,7 @@ export class Effects {
     this.sprays.length = 0;
     this.syncRockets([]);
     this.tracers.clear();
+    this.parts.clear();
   }
 
   private r(a: number, b: number): number {
@@ -647,6 +788,87 @@ export class Effects {
     }
   }
 
+  /** Sparks of metal grinding on a wall or another car: orange-white, short-lived, thrown along (vx, vz). */
+  sparks(x: number, y: number, z: number, n: number, vx = 0, vz = 0): void {
+    for (let i = 0; i < n; i++) {
+      this.glow.emit(x + this.r(-0.15, 0.15), y + this.r(-0.1, 0.15), z + this.r(-0.15, 0.15), vx + this.r(-1.5, 1.5), this.r(1, 4.5), vz + this.r(-1.5, 1.5), this.r(0.2, 0.4), this.r(0.1, 0.16), 0.03, 0xfff4cc, 0xff8a1a, 1, 14, 0.8);
+    }
+  }
+
+  /**
+   * Sparks for a vehicle scraping at (x, y, z) at `speed`: more the faster it grinds. They are shed along the body face
+   * the contact is on, behind the contact, and trail the sliding motion along that face at about half its speed, so
+   * they stream out behind the vehicle instead of dying under its body (or inside it when it slides sideways).
+   */
+  scrapeSparks(v: Vehicle, x: number, y: number, z: number, speed: number): void {
+    const n = Math.round(Math.min(16, Math.max(4, speed / 1.8)));
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const ox = x - v.pos.x;
+    const oz = z - v.pos.z;
+    const along = ox * fx + oz * fz;
+    const across = ox * fz - oz * fx;
+    // Outward normal of the face the contact is on: a side (local +-X) or an end.
+    const onSide = Math.abs(across) / v.halfW > Math.abs(along) / v.halfL;
+    const nx = onSide ? fz * Math.sign(across) : fx * Math.sign(along);
+    const nz = onSide ? -fx * Math.sign(across) : fz * Math.sign(along);
+    // Only the sliding part of the velocity, along that face.
+    const vn = v.vel.x * nx + v.vel.z * nz;
+    const tx = v.vel.x - vn * nx;
+    const tz = v.vel.z - vn * nz;
+    const tl = Math.hypot(tx, tz);
+    const reach = onSide ? v.halfL : v.halfW;
+    for (let i = 0; i < n; i++) {
+      const back = tl > 1e-3 ? this.r(0.3, 1) * reach : 0;
+      const k = this.r(0.45, 0.75);
+      this.sparks(x - (back * tx) / (tl || 1), y + this.r(0, 0.2), z - (back * tz) / (tl || 1), 1, tx * k, tz * k);
+    }
+  }
+
+  /** A burst of light blue glass fragments from a smashed window. */
+  glassShards(x: number, y: number, z: number): void {
+    for (let i = 0; i < 16; i++) {
+      this.smoke.emit(x + this.r(-0.35, 0.35), y + this.r(0, 0.45), z + this.r(-0.35, 0.35), this.r(-3, 3), this.r(1.5, 4.5), this.r(-3, 3), this.r(0.5, 0.95), this.r(0.05, 0.09), 0.04, 0xe4f4ff, 0x9fc8e6, 0.95, 9, 0.6, this.r(-9, 9));
+    }
+  }
+
+  /**
+   * Knocks 1-3 body parts in the vehicle's colour off a hard crash at (x, y, z): bumpers and the hood from the ends,
+   * mirrors from the sides. Crushed off between the car and what it hit, they squeeze out from the contact sideways, up
+   * and back towards the car (never into the obstacle) on top of the car's own velocity, then bounce and settle.
+   */
+  shedParts(v: Vehicle, x: number, y: number, z: number, strength: number, ground: (x: number, z: number) => number): void {
+    const n = Math.max(1, Math.min(3, 1 + Math.floor((strength - 20) / 8)));
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const dx = x - v.pos.x;
+    const dz = z - v.pos.z;
+    const along = dx * fx + dz * fz;
+    const across = dx * fz - dz * fx;
+    const end = Math.abs(along) / v.halfL >= Math.abs(across) / v.halfW;
+    const kinds: PartKind[] = end ? (along > 0 ? ['bumper', 'hood', 'mirror'] : ['bumper', 'mirror', 'mirror']) : ['mirror', 'bumper', 'mirror'];
+    // Outward through the hit face (from the centre, or straight up for a hit at the centre, e.g. a landing).
+    const hl = Math.hypot(dx, dz);
+    const ox = hl > 1e-6 ? dx / hl : 0;
+    const oz = hl > 1e-6 ? dz / hl : 0;
+    const color = v.destroyed ? BURNT_COLOR : v.color;
+    for (let i = 0; i < n; i++) {
+      const side = (i % 2 === 0 ? 1 : -1) * this.r(1.5, 4);
+      const back = this.r(0.3, 1.5);
+      const spin = new THREE.Vector3(this.r(-9, 9), this.r(-6, 6), this.r(-9, 9));
+      const px = x + this.r(-0.2, 0.2);
+      const pz = z + this.r(-0.2, 0.2);
+      const py = Math.max(y + 0.1, ground(px, pz) + 0.3);
+      const vx = v.vel.x - oz * side - ox * back + this.r(-0.5, 0.5);
+      const vz = v.vel.z + ox * side - oz * back + this.r(-0.5, 0.5);
+      this.parts.spawn(kinds[i]!, px, py, pz, vx, this.r(2.5, 5), vz, color, spin, ground);
+    }
+  }
+
+  get partCount(): number {
+    return this.parts.active;
+  }
+
   tireSmoke(x: number, y: number, z: number): void {
     this.smoke.emit(x + this.r(-0.2, 0.2), y + 0.15, z + this.r(-0.2, 0.2), this.r(-0.6, 0.6), this.r(0.4, 1.0), this.r(-0.6, 0.6), this.r(0.8, 1.6), 0.5, 2.2, 0xd8d8d8, 0xeeeeee, 0.32, -0.1, 0.8);
   }
@@ -678,6 +900,7 @@ export class Effects {
     }
     this.glow.update(dt, 1);
     this.smoke.update(dt, 1);
+    this.parts.update(dt);
     this.tracers.update(dt);
     this.skids.update(now);
     if (this.flashFresh) {

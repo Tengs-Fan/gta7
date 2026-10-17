@@ -357,6 +357,18 @@ export class GameRenderer {
       ev.on('splash', (e) => fx.splash(e.x, e.y, e.z, e.big)),
       ev.on('blood', (e) => fx.impact(e.x, e.y, e.z, -e.dx, -e.dy, -e.dz, 'flesh')),
     );
+    // Crash feedback: sparks where a vehicle grinds along something, glass and body parts flying off hard hits.
+    const ground = (x: number, z: number): number => sim.world.groundHeight(x, z);
+    this.unsub.push(
+      ev.on('scrape', (e) => fx.scrapeSparks(e.vehicle, e.x, e.y, e.z, e.speed)),
+      ev.on('impact', (e) => {
+        const v = e.vehicle;
+        // God mode keeps the player's car whole, so nothing comes off it; a burnt-out wreck has no glass left.
+        if (v && sim.cheats.godMode && v.driver === sim.player) return;
+        if (e.strength > 15 && !v?.destroyed) fx.glassShards(e.x, e.y, e.z);
+        if (e.strength > 20 && v) fx.shedParts(v, e.x, e.y, e.z, e.strength, ground);
+      }),
+    );
   }
 
   private syncVehicles(sim: Sim, dt: number, night: number): void {
@@ -469,7 +481,7 @@ export class GameRenderer {
       const red = Math.floor(this.time * 6) % 2 === 0;
       this.siren.color.setHex(red ? 0xff2020 : 0x2050ff);
       this.siren.position.set(best.pos.x, best.pos.y + best.spec.height + 0.6, best.pos.z);
-      this.siren.intensity = 40 + 160 * night;
+      this.siren.intensity = 30 + 50 * night;
     } else {
       this.siren.intensity = 0;
     }
