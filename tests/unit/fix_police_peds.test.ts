@@ -781,6 +781,8 @@ describe('searching while the player is far from the last sighting', () => {
       for (const [li, lj, fi, fj, seed] of [
         [1, 1, 7, 7, 1], [2, 8, 8, 2, 2], [8, 8, 2, 3, 3], [1, 5, 8, 5, 4], [5, 1, 5, 8, 5], [9, 2, 2, 7, 6],
         [3, 3, 9, 8, 7], [7, 1, 1, 6, 8], [4, 9, 6, 2, 9], [1, 2, 6, 3, 10], [8, 1, 3, 2, 11], [5, 9, 5, 3, 12],
+        // A unit spawned 96 m to his side, heading away, used to turn across his street within sight.
+        [0, 9, 4, 3, 205],
       ] as const) {
         const sim = dispatchOnly(seed);
         const seen = corner(sim, li, lj);
@@ -848,7 +850,7 @@ describe('searching while the player is far from the last sighting', () => {
         const fz = Math.cos(v.heading);
         const toSeen = (seen.x - v.pos.x) * fx + (seen.z - v.pos.z) * fz;
         const fromHim = (v.pos.x - hide.x) * fx + (v.pos.z - hide.z) * fz;
-        if (dist(v.pos, seen) > dist(hide, seen) || toSeen < 0 || fromHim < 0) wrong.push(`${level} star(s), (${li},${lj}) -> (${fi},${fj}): unit at (${Math.round(v.pos.x)}, ${Math.round(v.pos.z)})`);
+        if (dist(v.pos, seen) > dist(hide, seen) || toSeen < 0 || fromHim < 0 || dist(v.pos, hide) < 120) wrong.push(`${level} star(s), (${li},${lj}) -> (${fi},${fj}): unit at (${Math.round(v.pos.x)}, ${Math.round(v.pos.z)})`);
         // Off duty again (crew and all), so the next one finds a spot of its own.
         sim.removeVehicle(v);
       }
