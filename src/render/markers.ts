@@ -5,6 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Objective } from '../sim/activities';
 import type { Helicopter, Pickup, PickupKind } from '../sim/entities';
 import type { Marker } from '../sim/interactions';
+import { SPOT_RADIUS } from '../sim/wanted';
 import { beamTexture, glowTexture } from './textures';
 
 const beamTex = beamTexture();
@@ -14,8 +15,16 @@ const glowTex = glowTexture();
 const SPOT_ALPHA = 0.1;
 const SPOT_CLEAR = 6;
 const SPOT_FADE = 4;
-/** Opacity of the pool of light on the ground (see buildHeli). */
-const SPOT_POOL = 0.1;
+/**
+ * The pool of light on the ground (see buildHeli): the opacity of its rim, which marks where the light ends,
+ * and of its centre relative to that. The rim carries the cue (at night the crew makes out what is within
+ * twice the pool's radius of its centre, wanted.ts SPOT_SEE, besides what is close below the helicopter);
+ * the dim centre keeps an unlit player from turning into a black silhouette.
+ */
+const SPOT_POOL = 0.16;
+const SPOT_CORE = 0.18;
+/** Points on the pool's rim where syncHelis samples the ground. */
+const POOL_RIM: ReadonlyArray<readonly [number, number]> = Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4) * SPOT_RADIUS * 0.9, Math.sin((k * Math.PI) / 4) * SPOT_RADIUS * 0.9] as const);
 
 /**
  * How visible the spotlight beam is from a camera at `cam`, for a beam from `a` (the lamp) to `b`: 0
@@ -76,6 +85,33 @@ function fadeBeam(cone: THREE.Mesh, camera: THREE.Camera): void {
   const m = cone.material as THREE.ShaderMaterial;
   m.uniforms.uFade!.value = beamFade(fadeCam, fadeA, fadeB);
   m.uniformsNeedUpdate = true;
+}
+
+const smooth = (a: number, b: number, x: number) => {
+  const t = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+/** Alpha of the spotlight's pool: a dim disc whose rim, the last fifth of the radius, glows brighter (white texels). */
+function poolTexture(): THREE.DataTexture {
+  const S = 64;
+  const data = new Uint8Array(S * S * 4);
+  for (let j = 0; j < S; j++) {
+    for (let i = 0; i < S; i++) {
+      const r = Math.hypot(((i + 0.5) / S) * 2 - 1, ((j + 0.5) / S) * 2 - 1);
+      const rim = smooth(0.68, 0.86, r) * (1 - smooth(0.9, 1, r));
+      const core = SPOT_CORE * (1 - smooth(0.86, 1, r));
+      const k = (j * S + i) * 4;
+      data[k] = data[k + 1] = data[k + 2] = 255;
+      data[k + 3] = Math.round(255 * Math.min(1, Math.max(rim, core)));
+    }
+  }
+  const t = new THREE.DataTexture(data, S, S, THREE.RGBAFormat);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
 }
 
 function beamMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
@@ -289,7 +325,10 @@ export class MarkerView {
       v.cone.visible = showLight;
       v.pool.visible = showLight;
       if (showLight) {
-        const gy = groundAt(h.spotlight.x, h.spotlight.z);
+        // The pool lies flat at the highest ground under it (its centre and rim), so where it straddles a
+        // curb the rim does not sink under the sidewalk.
+        let gy = groundAt(h.spotlight.x, h.spotlight.z);
+        for (const [ox, oz] of POOL_RIM) gy = Math.max(gy, groundAt(h.spotlight.x + ox, h.spotlight.z + oz));
         const dx = h.spotlight.x - h.pos.x;
         const dy = gy - (h.pos.y - 1);
         const dz = h.spotlight.z - h.pos.z;
@@ -350,11 +389,13 @@ export class MarkerView {
       if (o instanceof THREE.Mesh) o.castShadow = true;
     });
     g.rotation.order = 'YXZ';
-    const coneGeo = new THREE.ConeGeometry(4.5, 1, 20, 1, true).translate(0, -0.5, 0);
+    // The beam lands on the pool: both SPOT_RADIUS wide on the ground.
+    const coneGeo = new THREE.ConeGeometry(SPOT_RADIUS, 1, 20, 1, true).translate(0, -0.5, 0);
     const cone = new THREE.Mesh(coneGeo, spotlightMaterial());
-    // The pool only marks where the light points: added to a dark night street, more than this lights up
-    // the ground around an unlit player and makes him a black silhouette (0.35 put the frame at 1.46x).
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(3.5, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xeef4ff, transparent: true, opacity: SPOT_POOL, blending: THREE.AdditiveBlending, depthWrite: false }));
+    // The pool marks where the light points and where it ends. Lighting the whole disc up brightly on a
+    // dark night street makes an unlit player a black silhouette (a 3.5 m glow at 0.35 put the frame at
+    // 1.46x the luminance without it), so only the rim is bright.
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(SPOT_RADIUS, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: poolTexture(), color: 0xeef4ff, transparent: true, opacity: SPOT_POOL, blending: THREE.AdditiveBlending, depthWrite: false }));
     return { g, cone, pool };
   }
 }

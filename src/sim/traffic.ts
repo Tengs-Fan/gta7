@@ -42,6 +42,8 @@ export class TrafficSystem {
   private aheadSpans: SpawnSpan[] = [];
   private aheadCum: number[] = [];
   private aheadTime = -Infinity;
+  /** The lanes of the road a fast player is about to drive down, his way (see refreshAhead). */
+  private aheadPath = new Set<Lane>();
   readonly parkedBySpot = new Map<number, Vehicle>();
   /** Multiplier for traffic density (settings / tests). */
   density = 1;
@@ -148,13 +150,9 @@ export class TrafficSystem {
     return p.vehicle ? p.vehicle.vel : p.vel;
   }
 
-  /**
-   * The player (moving at `pv`) outruns the traffic streamed around him, so it streams ahead of him instead.
-   * Not while the police are after him: traffic packed in front of a fleeing car made the stars much harder
-   * to lose (flee-bot medians over 21 seeds: 29 -> 43 s for 1 star, 52 -> 66 s for 2), against the pursuit balance.
-   */
+  /** The player (moving at `pv`) outruns the traffic streamed around him, so it streams ahead of him instead. */
   private outrunsTraffic(pv: { x: number; z: number }): boolean {
-    return Math.hypot(pv.x, pv.z) > AHEAD_SPEED && this.sim.wanted.level === 0;
+    return Math.hypot(pv.x, pv.z) > AHEAD_SPEED;
   }
 
   /**
@@ -162,11 +160,13 @@ export class TrafficSystem {
    * spawn, so its traffic has to come in from the side streets, and in time: a car queued round the
    * corner only pulls out in front of him if its light turns green early enough. Takes the next
    * junctions along his lane (it and its straight continuation) and, at each, the cross-street lanes
-   * arriving from either side whose green comes at least CROSS_LEAD s before he gets there.
+   * arriving from either side whose green comes at least CROSS_LEAD s before he gets there. Notes the
+   * lanes his way along that road too (see trySpawnTraffic).
    */
   private refreshAhead(): void {
     this.aheadSpans = [];
     this.aheadCum = [];
+    this.aheadPath.clear();
     this.aheadTime = this.sim.time;
     const pv = this.playerVel();
     const speed = Math.hypot(pv.x, pv.z);
@@ -177,6 +177,7 @@ export class TrafficSystem {
     // Only along a lane, not across a plaza or the beach.
     if (lane.dx * pv.x + lane.dz * pv.z < 0.7 * speed) return;
     for (let n = 0; n < AHEAD_JUNCTIONS && lane; n++) {
+      for (const l of roads.lanesBetween(lane.from, lane.to)) this.aheadPath.add(l);
       const node = roads.nodes[lane.to]!;
       const lead = Math.hypot(node.x - pp.x, node.z - pp.z) / speed - CROSS_LEAD;
       for (const turn of [1, 3]) {
@@ -204,9 +205,13 @@ export class TrafficSystem {
 
   /**
    * Spawns one moving car on a lane out of the player's view, minDist-maxDist from him (default
-   * 45-165 m). When he drives fast (and is not wanted), the first 7 of the 12 tries go to the cross streets ahead
+   * 45-165 m). When he drives fast, the first 7 of the 12 tries go to the cross streets ahead
    * (45-200 m, narrowed to the band a caller passes) and no car spawns behind him. Lanes are weighted
    * by their count per direction, so an avenue lane is twice as likely as a street lane.
+   * While the police are after him, no car spawns to wait at a red light in his way: neither on the
+   * cross streets ahead, where it would pull out across his road just as he gets there, nor on the road
+   * ahead his way, where it would queue at the stop line. Cross traffic with a green light, oncoming
+   * traffic and cars moving his way still come.
    */
   trySpawnTraffic(minDist?: number, maxDist?: number, kind?: VehicleKind): Vehicle | null {
     const sim = this.sim;
@@ -240,6 +245,8 @@ export class TrafficSystem {
       if (ahead ? d < aheadMin || d > aheadMax : d < nearMin || d > nearMax) continue;
       // A car spawned behind a fast player is left behind at once (and recycled): pure churn.
       if (!ahead && fast && (x - pp.x) * pv.x + (z - pp.z) * pv.z < 0) continue;
+      const red = sim.roads.signalState(lane.to, axisOf(lane.dir), sim.time) !== 'green';
+      if (red && sim.wanted.level > 0 && (ahead || this.aheadPath.has(lane))) continue;
       // Spawn ranges lie inside the fog-free distance: never pop a car into view.
       if (sim.isVisible(x, 1, z)) continue;
       if (!this.isClear(x, z, 11)) continue;
@@ -252,8 +259,7 @@ export class TrafficSystem {
       v.ai!.setLane(lane, s);
       // Cross traffic queued at a light that is not green waits there: a few metres from the line it
       // could not stop from cruising speed.
-      const queued = ahead && sim.roads.signalState(lane.to, axisOf(lane.dir), sim.time) !== 'green';
-      const sp = queued ? 0 : lane.speedLimit * 0.55;
+      const sp = ahead && red ? 0 : lane.speedLimit * 0.55;
       v.vel.x = lane.dx * sp;
       v.vel.z = lane.dz * sp;
       return v;

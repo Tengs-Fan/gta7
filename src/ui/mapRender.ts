@@ -3,6 +3,7 @@
 
 import type { Objective } from '../sim/activities';
 import type { Sim } from '../sim/sim';
+import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
 import { beachOffsetAt, rectContains } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
@@ -112,8 +113,8 @@ export function searchArea(sim: Sim): { x: number; z: number; r: number } | null
   return { x: w.lastSeenX, z: w.lastSeenZ, r: w.searchRadius() };
 }
 
-/** Helicopter sighting range shown on the radar and map from 3 stars (see WantedSystem.copWitness). */
-export const HELI_SIGHT_RANGE = 110;
+/** Helicopter sighting range shown on the radar and map from 3 stars (see WantedSystem.heliSees). */
+export const HELI_SIGHT_RANGE = HELI_SIGHT;
 
 /**
  * Police overlay drawn in map-image space (a context transformed so one unit is one pixel of the map

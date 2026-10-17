@@ -2,6 +2,7 @@
 // sight with the police for long enough clears it.
 
 import { clamp } from '../core/math';
+import type { Helicopter } from './entities';
 import type { Sim } from './sim';
 
 export type CrimeType =
@@ -56,6 +57,22 @@ export const RESPONSE_BASE = 4;
 export const RESPONSE_PER_STAR = 3;
 /** Hiding inside the search area clears the stars too, after this many times the evade time. */
 const HIDE_FACTOR = 2.6;
+/** How far (m) officers see the player, in a car or on foot, given a clear line of sight. */
+export const COP_SIGHT = 80;
+/**
+ * How far (m, along the ground) the helicopter crew sees (see heliSees): a car that outruns the helicopter
+ * gets away from it. At night they make out only what is close below (HELI_NIGHT_SIGHT, straight-line) or in
+ * the spotlight (within SPOT_SEE of its centre).
+ */
+export const HELI_SIGHT = 60;
+export const HELI_NIGHT_SIGHT = 60;
+/** Radius (m) of the spotlight's pool of light on the ground (markers.ts draws it this size). */
+export const SPOT_RADIUS = 5;
+/**
+ * At night the crew makes out anything within this distance (m) of the spotlight's centre: the pool and its
+ * glare. Close below the helicopter they see without it too (HELI_NIGHT_SIGHT).
+ */
+export const SPOT_SEE = 2 * SPOT_RADIUS;
 /**
  * Seconds unseen outside the search area that lose the stars, per level (index = stars). The P10 fallback table:
  * 9 + 5 per star left 1-star escapes sticky (a flee-bot median of 29-30 s over 21 seeds, at the 30 s bound).
@@ -204,7 +221,7 @@ export class WantedSystem {
     return Math.max(this.evadeClock / t, (this.sim.time - this.lastSeen) / (HIDE_FACTOR * t));
   }
 
-  /** Any police officer, patrol car or helicopter that can see (x, z)? */
+  /** Any police officer, patrol car or helicopter that can see (x, z)? Officers within `range`, the helicopter within HELI_SIGHT. */
   copWitness(x: number, z: number, range = 48): boolean {
     const sim = this.sim;
     const gy = sim.world.groundHeight(x, z) + 1.2;
@@ -215,15 +232,21 @@ export class WantedSystem {
       if (d > range) continue;
       if (d < 8 || sim.world.lineOfSight(p.x, p.y + 1.6, p.z, x, gy, z)) return true;
     }
-    const h24 = sim.clock.hours;
-    const night = h24 < 6 || h24 >= 20;
-    for (const h of sim.helis) {
-      if (h.removed || h.destroyed || Math.hypot(h.pos.x - x, h.pos.z - z) >= 110) continue;
-      // At night the crew only makes out what the spotlight shows, or what is close below.
-      if (night && Math.hypot(h.spotlight.x - x, h.spotlight.z - z) > 25 && Math.hypot(h.pos.x - x, h.pos.y - gy, h.pos.z - z) > 60) continue;
-      if (sim.world.lineOfSight(h.pos.x, h.pos.y - 1.5, h.pos.z, x, gy, z)) return true;
-    }
+    for (const h of sim.helis) if (this.heliSees(h, x, z)) return true;
     return false;
+  }
+
+  /**
+   * Can the crew of helicopter `h` make out (x, z)? Within HELI_SIGHT along the ground, with a clear line of
+   * sight; at night only in the spotlight (within SPOT_SEE of its centre) or close below (HELI_NIGHT_SIGHT).
+   */
+  heliSees(h: Helicopter, x: number, z: number): boolean {
+    const sim = this.sim;
+    if (h.removed || h.destroyed || Math.hypot(h.pos.x - x, h.pos.z - z) > HELI_SIGHT) return false;
+    const gy = sim.world.groundHeight(x, z) + 1.2;
+    const h24 = sim.clock.hours;
+    if ((h24 < 6 || h24 >= 20) && Math.hypot(h.spotlight.x - x, h.spotlight.z - z) > SPOT_SEE && Math.hypot(h.pos.x - x, h.pos.y - gy, h.pos.z - z) > HELI_NIGHT_SIGHT) return false;
+    return sim.world.lineOfSight(h.pos.x, h.pos.y - 1.5, h.pos.z, x, gy, z);
   }
 
   update(dt: number): void {
@@ -238,7 +261,7 @@ export class WantedSystem {
       this.sightTimer -= dt;
       if (this.sightTimer <= 0) {
         this.sightTimer = 0.3;
-        if (this.copWitness(pp.x, pp.z, 80)) this.see(pp.x, pp.z);
+        if (this.copWitness(pp.x, pp.z, COP_SIGHT)) this.see(pp.x, pp.z);
       }
     }
     this.searching = sim.time - this.lastSeen > 2.5;

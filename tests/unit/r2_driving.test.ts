@@ -384,7 +384,10 @@ describe('the speed camera (P34)', () => {
 // P41 traffic ahead of a fast player
 
 describe('traffic ahead of a fast driver (P41)', () => {
-  it('a fast run down Azura Ave has traffic on the avenue ahead, none of it spawned in view', () => {
+  for (const stars of [0, 2]) {
+  it(`a fast run down Azura Ave has traffic on the avenue ahead, none of it spawned in view (${stars} stars)`, () => {
+    // Round 2 fix pass (police): also while the police are after him (the merger had switched traffic ahead off
+    // then). Wanted, only the cars that would wait at a red light in his way or across it are left out.
     const sim = new Sim({ world: world(), ambient: true, police: false, startHour: 17.5 });
     const n = sim.roads.node(5, 0);
     const end = sim.roads.node(5, 10).z - 60;
@@ -394,7 +397,15 @@ describe('traffic ahead of a fast driver (P41)', () => {
     // The chase camera's pose, aimed along the travel direction (south).
     const cam = (over = {}) => input({ aimOrigin: { x: v.pos.x, y: v.pos.y + 3, z: v.pos.z - 9 }, aimDir: { x: 0, y: -0.1, z: 1 }, ...over });
     for (let i = 0; i < 60 * 20; i++) sim.update(DT, cam({ handbrake: true }));
+    if (stars > 0) {
+      // A mission floor keeps the stars with the police off.
+      sim.wanted.setLevel(stars);
+      sim.wanted.floor = stars;
+    }
     const seen = new Set(sim.vehicles.map((o) => o.id));
+    // Cross traffic spawned with its light green (moving), and cars spawned on his road ahead at a red light.
+    let crossGreen = 0;
+    let pathRed = 0;
     const ahead: number[] = [];
     let spawned = 0;
     let spawnedInView = 0;
@@ -421,11 +432,14 @@ describe('traffic ahead of a fast driver (P41)', () => {
         spawned++;
         if (sim.isVisible(o.pos.x, 1, o.pos.z)) spawnedInView++;
         const lane = o.ai?.currentLane();
-        if (lane && lane.dir % 2 === 1 && lane.length - ((o.pos.x - lane.sx) * lane.dx + (o.pos.z - lane.sz) * lane.dz) < 12 && isRed(lane)) {
+        const atLine = !!lane && lane.length - ((o.pos.x - lane.sx) * lane.dx + (o.pos.z - lane.sz) * lane.dz) < 12;
+        if (lane && lane.dir % 2 === 1 && atLine && isRed(lane)) {
           expect(o.speed).toBe(0);
           held.set(o, lane);
           heldTotal++;
         }
+        if (lane && lane.dir % 2 === 1 && atLine && !isRed(lane)) crossGreen++;
+        if (lane && lane.dir === 2 && Math.abs(o.pos.x - n.x) < AVENUE_W / 2 && o.pos.z > v.pos.z && isRed(lane)) pathRed++;
       }
       for (const [o, lane] of held) {
         if (o.removed || !isRed(lane)) held.delete(o);
@@ -440,9 +454,16 @@ describe('traffic ahead of a fast driver (P41)', () => {
     expect(mean).toBeGreaterThanOrEqual(1);
     expect(spawned).toBeGreaterThan(30);
     expect(spawnedInView).toBe(0);
-    expect(heldTotal).toBeGreaterThanOrEqual(2);
     expect(ranRed).toBe(0);
+    if (stars === 0) {
+      expect(heldTotal).toBeGreaterThanOrEqual(2);
+    } else {
+      expect(heldTotal).toBe(0);
+      expect(pathRed).toBe(0);
+      expect(crossGreen).toBeGreaterThanOrEqual(1);
+    }
   });
+  }
 
   it('keeps the cars coming up ahead of a fast player, retires the ones far behind', () => {
     const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 17.5 });
@@ -476,6 +497,60 @@ describe('traffic ahead of a fast driver (P41)', () => {
     expect(coming2.removed).toBe(false);
     expect(behind2.removed).toBe(true);
   });
+
+  for (const stars of [0, 2]) {
+  it(`recycles cars 120-175 m behind a fast player, the furthest first and one per refresh, but none in view or nearer (${stars} stars)`, () => {
+    // Round 2 fix pass (police): the 175 m far despawn alone keeps all of these; only the recycling retires them,
+    // with the police after him too.
+    const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 17.5 });
+    const lane = azuraSouth(sim);
+    const v = sim.spawnVehicle('sports', lane.sx + lane.dx * 200, lane.sz + lane.dz * 200, lane.heading);
+    placeInCar(sim, v);
+    sim.wanted.setLevel(stars);
+    const lookUp = () => {
+      sim.cam.x = v.pos.x;
+      sim.cam.y = 200;
+      sim.cam.z = v.pos.z;
+      sim.camDir.x = 0;
+      sim.camDir.y = 1;
+      sim.camDir.z = 0;
+    };
+    lookUp();
+    const traffic = (z: number) => {
+      const c = sim.spawnVehicle('sedan', v.pos.x - 4, z, 0);
+      c.owner = 'traffic';
+      sim.addDriver(c, 'civilian', 'traffic');
+      return c;
+    };
+    const stream = () => (sim.traffic as unknown as { streamTraffic(): void }).streamTraffic();
+    sim.traffic.density = 0;
+    v.vel.z = 30;
+    const far = traffic(v.pos.z - 160);
+    const mid = traffic(v.pos.z - 135);
+    const near = traffic(v.pos.z - 100);
+    stream();
+    expect([far.removed, mid.removed, near.removed]).toEqual([true, false, false]);
+    stream();
+    expect([mid.removed, near.removed]).toEqual([true, false]);
+    stream();
+    expect(near.removed).toBe(false);
+    // One in plain view stays, however far behind.
+    const seen = traffic(v.pos.z - 150);
+    sim.cam.x = seen.pos.x + 12;
+    sim.cam.y = 3;
+    sim.cam.z = seen.pos.z;
+    sim.camDir.x = -1;
+    sim.camDir.y = 0;
+    sim.camDir.z = 0;
+    expect(sim.isVisible(seen.pos.x, seen.pos.y, seen.pos.z)).toBe(true);
+    stream();
+    expect(seen.removed).toBe(false);
+    lookUp();
+    stream();
+    expect(seen.removed).toBe(true);
+    expect(near.removed).toBe(false);
+  });
+  }
 
   it('only a moving player gets cross traffic ahead, and only at junctions he has yet to reach', () => {
     const sim = new Sim({ world: world(), ambient: false, police: false, startHour: 17.5 });
