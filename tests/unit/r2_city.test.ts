@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { CityView, occupancy, shopOccupancy } from '../../src/render/city';
-import { Environment, cloudCover, starIntensity } from '../../src/render/environment';
+import { Environment, cloudCover, cloudThreshold, starIntensity } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
 import { CURB_H } from '../../src/world/constants';
 import { STREET_FACING_DIST, frontages, generateCity, type Building, type Side } from '../../src/world/layout';
@@ -367,6 +367,11 @@ describe('round 2 city: night and sky helpers', () => {
     expect(starIntensity(12)).toBe(0);
     expect(starIntensity(2)).toBeGreaterThan(0.5);
     expect(starIntensity(23)).toBeGreaterThan(0.5);
+    // More cover means a lower density threshold; half cover sits at the noise mean.
+    expect(cloudThreshold(0.5)).toBeCloseTo(0.5, 3);
+    expect(cloudThreshold(0.35)).toBeGreaterThan(0.5);
+    expect(cloudThreshold(0.25)).toBeGreaterThan(cloudThreshold(0.35));
+    expect(cloudThreshold(0.35)).toBeCloseTo(0.5 + 0.106 * 0.3853, 3);
   });
 });
 

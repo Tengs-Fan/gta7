@@ -60,6 +60,25 @@ export function cloudCover(hours: number): number {
   return lerp(0.25, 0.35, day) + 0.03 * Math.sin((hours / 24) * Math.PI * 4);
 }
 
+/**
+ * Standard deviation of the sky shader's gradient-noise fbm (mean 0.5) per octave count, measured by
+ * sampling the same noise; the cloud threshold for a coverage is mean + sd * probit(1 - coverage).
+ */
+const CLOUD_SD: Readonly<Record<number, number>> = { 2: 0.132, 4: 0.109, 5: 0.106 };
+
+/** Inverse of the standard normal CDF (Abramowitz and Stegun 26.2.23, error below 5e-4). */
+function probit(p: number): number {
+  const q = Math.min(Math.max(p < 0.5 ? p : 1 - p, 1e-6), 0.5);
+  const t = Math.sqrt(-2 * Math.log(q));
+  const z = t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t);
+  return p < 0.5 ? -z : z;
+}
+
+/** The cloud fbm value that a share `cover` of the sky exceeds (the shader's density is 0.5 there). */
+export function cloudThreshold(cover: number, sd: number = CLOUD_SD[5]!): number {
+  return 0.5 + sd * probit(1 - clamp(cover, 0.01, 0.99));
+}
+
 /** 0..1: how strongly a low sun paints the cloud undersides (dusk 17:30-19:30, and a little at dawn). */
 export function goldenHour(hours: number): number {
   const h = ((hours % 24) + 24) % 24;
@@ -72,12 +91,16 @@ export function goldenHour(hours: number): number {
 const NIGHT_SKY_LIGHT = new THREE.Color(0.36, 0.46, 0.8);
 const NIGHT_GROUND_LIGHT = new THREE.Color(0.35, 0.27, 0.18);
 const NIGHT_HORIZON_GLOW = new THREE.Color(0.16, 0.11, 0.08);
+/** How much of that glow the night horizon (and the fog) takes on. */
+const GLOW_STRENGTH = 0.45;
 const WHITE = new THREE.Color(0xffffff);
 
 const SKY_VS = /* glsl */ `
 varying vec3 vDir;
 void main() {
-  vDir = normalize(position);
+  // The sphere is centred on the camera: the interpolated (not normalised) position is the exact
+  // point of each pixel's view ray on its triangle, so patterns never bend at the triangle edges.
+  vDir = position;
   vec4 p = modelViewMatrix * vec4(position, 1.0);
   gl_Position = projectionMatrix * p;
   gl_Position.z = gl_Position.w; // keep at far plane
@@ -86,6 +109,7 @@ void main() {
 const SKY_FS = /* glsl */ `
 uniform vec3 uTop;
 uniform vec3 uHorizon;
+uniform vec3 uGlow;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uMoonDir;
@@ -94,9 +118,11 @@ uniform float uStars;
 uniform float uMoon;
 uniform float uNight;
 uniform float uGolden;
-uniform float uCloudCover;
+uniform float uCloudT;
+uniform float uHighT;
 uniform float uTime;
 uniform vec2 uCamXZ;
+uniform float uCamY;
 uniform vec2 uWind1;
 uniform vec2 uWind2;
 uniform int uOctaves;
@@ -119,18 +145,31 @@ float vnoise(vec2 p) {
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
 }
+// Gradient noise: no lattice-aligned blocks, so thresholded clouds keep soft, natural edges.
+float gnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  float a = dot(hash22(i) * 2.0 - 1.0, f);
+  float b = dot(hash22(i + vec2(1.0, 0.0)) * 2.0 - 1.0, f - vec2(1.0, 0.0));
+  float c = dot(hash22(i + vec2(0.0, 1.0)) * 2.0 - 1.0, f - vec2(0.0, 1.0));
+  float d = dot(hash22(i + vec2(1.0, 1.0)) * 2.0 - 1.0, f - vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+// Each octave is rotated against the last. Mean 0.5; its spread per octave count is CLOUD_SD.
+const mat2 OCTAVE = mat2(1.6, 1.2, -1.2, 1.6);
 float fbm(vec2 p, int octaves) {
   float a = 0.5;
   float s = 0.0;
   float n = 0.0;
   for (int i = 0; i < 6; i++) {
     if (i >= octaves) break;
-    s += a * vnoise(p);
+    s += a * gnoise(p);
     n += a;
-    p = p * 2.03 + vec2(17.1, 9.3);
+    p = OCTAVE * p + vec2(17.1, 9.3);
     a *= 0.5;
   }
-  return s / n;
+  return 0.5 + s / n;
 }
 
 // One jittered point star per cell of a cube-face grid; sized in pixels via fwidth so stars stay
@@ -145,7 +184,7 @@ vec3 stars(vec3 d, float pix) {
   else { face = d.z > 0.0 ? 4.0 : 5.0; uv = d.xy / a.z; }
   vec2 cell = floor((uv * 0.5 + 0.5) * K);
   vec2 key = cell + vec2(face * 211.0, face * 97.0);
-  if (hash12(key + 0.5) > 0.09) return vec3(0.0);
+  if (hash12(key + 0.5) > 0.075) return vec3(0.0);
   vec2 jit = hash22(key);
   vec2 c = (cell + 0.25 + 0.5 * jit) / K * 2.0 - 1.0;
   vec3 s;
@@ -164,28 +203,29 @@ vec3 stars(vec3 d, float pix) {
 vec4 clouds(vec3 d) {
   vec2 p = d.xz / max(d.y, 0.03);
   vec2 q1 = (uCamXZ + p * 1500.0) / 900.0 + uWind1;
-  float t1 = 0.665 - 0.33 * uCloudCover;
+  // uCloudT is the fbm value that exactly uCloudCover of the sky exceeds (see cloudThreshold).
   float n1 = fbm(q1, uOctaves);
-  float dens = smoothstep(t1, t1 + 0.16, n1);
+  float dens = smoothstep(uCloudT - 0.06, uCloudT + 0.06, n1);
   // Thin high streaks.
   vec2 q2 = (uCamXZ + p * 2400.0) / 400.0 * vec2(0.45, 1.0) + uWind2;
   float n2 = fbm(q2 + vec2(5.2, 1.3), uOctaves > 2 ? uOctaves - 1 : 2);
-  float high = smoothstep(t1 + 0.04, t1 + 0.3, n2) * 0.4;
+  float high = smoothstep(uHighT - 0.03, uHighT + 0.12, n2) * 0.4;
   // Light: compare the density one step towards the sun (or moon): denser there means shadowed here.
   float lit = 0.6;
   if (uLightTap > 0.5) {
     vec2 toward = normalize(uLightDir.xz + vec2(1e-4)) * 0.22;
-    float tap = smoothstep(t1, t1 + 0.16, fbm(q1 + toward, 3));
-    lit = clamp(0.62 + (dens - tap) * 1.4, 0.0, 1.0);
+    float tap = smoothstep(uCloudT - 0.06, uCloudT + 0.06, fbm(q1 + toward, 3));
+    lit = clamp(0.62 + (dens - tap) * 1.1, 0.0, 1.0);
   }
   vec3 bright = mix(vec3(1.0), uSunColor, 0.35) * 1.12;
   vec3 shade = mix(uTop, vec3(0.72, 0.74, 0.78), 0.55) * 0.78;
   // Low sun: undersides and edges take its orange.
   shade = mix(shade, uSunColor * vec3(1.0, 0.6, 0.42) * 0.95, uGolden);
   bright = mix(bright, mix(uSunColor, vec3(1.0, 0.86, 0.7), 0.35) * 1.2, uGolden);
-  // Night: moonlit grey tops, undersides lifted by the city's glow.
-  bright = mix(bright, vec3(0.15, 0.16, 0.2), uNight);
-  shade = mix(shade, uHorizon * 0.75 + vec3(0.015, 0.016, 0.022), uNight);
+  // Night: dim moonlit tops; low clouds catch the city's glow from below.
+  vec3 glowLit = max(uGlow, vec3(0.0)) * exp(-d.y * 5.0);
+  bright = mix(bright, vec3(0.06, 0.066, 0.085) + glowLit * 0.6, uNight);
+  shade = mix(shade, vec3(0.028, 0.03, 0.04) + glowLit * 0.9, uNight);
   vec3 col = mix(shade, bright, lit);
   float sd = max(dot(d, uSunDir), 0.0);
   col += uSunColor * pow(sd, 10.0) * (1.0 - dens) * 0.9 * (1.0 - uNight);
@@ -194,17 +234,28 @@ vec4 clouds(vec3 d) {
   col = a > 0.0 ? (col * dens + highCol * high * (1.0 - dens)) / a : col;
   // Far clouds sink into the haze; none below the horizon.
   float fade = smoothstep(0.0, 0.2, d.y);
-  col = mix(uHorizon, col, smoothstep(0.02, 0.35, d.y));
+  col = mix(uHorizon + uGlow, col, smoothstep(0.02, 0.35, d.y));
   return vec4(col, a * fade);
+}
+
+// A ridge of hills at a distance (metres) with heights (metres above the sea) between lo and hi:
+// 1 inside its silhouette, which sits on the sea at its true angle below the horizon.
+float ridge(float h, vec2 hz, float dist, float lo, float hi, float present, float pix, float seed) {
+  float top = (lo + (hi - lo) * fbm(hz * (dist / 1100.0) + seed, 4)) * present;
+  float above = (top - uCamY) / dist;
+  float base = -uCamY / dist;
+  return (1.0 - smoothstep(above - pix, above + pix, h)) * smoothstep(base - pix, base + pix, h) * step(0.001, present);
 }
 
 void main() {
   vec3 d = normalize(vDir);
   float h = clamp(d.y, -1.0, 1.0);
   float t = pow(clamp(h, 0.0, 1.0), 0.55);
-  vec3 col = mix(uHorizon, uTop, t);
+  // The city's warm glow hangs low over the horizon at night.
+  vec3 horizon = uHorizon + uGlow;
+  vec3 col = max(mix(uHorizon, uTop, t) + uGlow * exp(-max(h, 0.0) * 9.0), vec3(0.0));
   // Below the horizon fade towards a darker haze.
-  if (h < 0.0) col = mix(uHorizon, uHorizon * 0.55, clamp(-h * 4.0, 0.0, 1.0));
+  if (h < 0.0) col = mix(horizon, horizon * 0.55, clamp(-h * 4.0, 0.0, 1.0));
   float pix = max(length(fwidth(d)), 1e-6);
   float sd = max(dot(d, uSunDir), 0.0);
   col += uSunColor * (pow(sd, 900.0) * 18.0 + pow(sd, 12.0) * 0.35 + pow(sd, 3.0) * 0.12) * step(-0.05, uSunDir.y);
@@ -228,28 +279,28 @@ void main() {
     vec4 c = clouds(d);
     col = mix(col, c.rgb, c.a);
   }
-  // Hills across the bay to the north, west and south (the open ocean lies east).
-  if (h < 0.1) {
+  // Hills across the bay to the north, west and south (the open ocean lies east): a far ridge about
+  // 6 km out and a nearer one at 3.5 km, both standing on the sea, hazed towards the horizon colour.
+  if (h < 0.12) {
     vec2 hz = normalize(d.xz + vec2(1e-5));
-    float present = 1.0 - smoothstep(0.2, 0.75, hz.x);
+    float present = 1.0 - smoothstep(0.05, 0.85, hz.x);
     if (present > 0.0) {
-      float ridgeFar = (0.02 + 0.05 * fbm(hz * 3.1 + 11.0, 4)) * present;
-      float ridgeNear = (0.012 + 0.03 * fbm(hz * 6.3 + 3.0, 4)) * present;
       float lightK = 1.0 - 0.92 * uNight;
       vec3 land = vec3(0.2, 0.27, 0.21) * lightK;
-      float far = (1.0 - smoothstep(ridgeFar - pix, ridgeFar + pix, h)) * smoothstep(0.0, 0.12, present);
-      float near = (1.0 - smoothstep(ridgeNear - pix, ridgeNear + pix, h)) * smoothstep(0.0, 0.12, present);
-      col = mix(col, mix(land, uHorizon, 0.72), far);
-      vec3 nearCol = mix(land * 0.8, uHorizon, 0.5);
-      // Scattered house lights on the near hills at night.
-      if (uNight > 0.0 && near > 0.0 && h < ridgeNear - 0.004) {
-        float az = atan(hz.y, hz.x) * 900.0;
-        vec2 cell = floor(vec2(az, h * 900.0));
-        vec2 jit = hash22(cell + 7.0);
-        if (hash12(cell + 3.7) < 0.12) {
-          vec2 dd = vec2(az, h * 900.0) - (cell + 0.25 + 0.5 * jit);
-          float r = length(dd) / 900.0 / pix;
-          nearCol += vec3(1.0, 0.7, 0.4) * (1.0 - smoothstep(0.4, 1.2, r)) * 0.9 * uNight;
+      float far = ridge(h, hz, 6000.0, 120.0, 420.0, present, pix, 11.0);
+      float near = ridge(h, hz, 3500.0, 42.0, 150.0, present, pix, 3.0);
+      col = mix(col, mix(land, horizon, 0.74), far);
+      vec3 nearCol = mix(land * 0.8, horizon, 0.52);
+      // A few house lights on the nearer hills at night, a few pixels apart.
+      float lights = smoothstep(0.5, 0.9, uNight);
+      if (lights > 0.0 && near > 0.0) {
+        // Azimuth with its wrap-around seam facing east, where there are no hills.
+        vec2 g = vec2(atan(hz.y, -hz.x), h) * 300.0;
+        vec2 cell = floor(g);
+        if (hash12(cell + 3.7) < 0.035) {
+          vec2 c = cell + 0.25 + 0.5 * hash22(cell + 7.0);
+          float r = length(g - c) / 300.0 / pix;
+          nearCol += vec3(1.0, 0.72, 0.42) * (1.0 - smoothstep(0.35, 1.0, r)) * 0.7 * lights;
         }
       }
       col = mix(col, nearCol, near);
@@ -275,6 +326,8 @@ export class Environment {
   night = 0;
   sunDir = new THREE.Vector3(0, 1, 0);
   shadowsEnabled = true;
+  /** Spread of the sky shader's cloud fbm at the current octave count. */
+  private cloudSd = CLOUD_SD[5]!;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -289,6 +342,7 @@ export class Environment {
       uniforms: {
         uTop: { value: new THREE.Color() },
         uHorizon: { value: new THREE.Color() },
+        uGlow: { value: new THREE.Color(0, 0, 0) },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uSunColor: { value: new THREE.Color() },
         uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
@@ -297,9 +351,11 @@ export class Environment {
         uMoon: { value: 0 },
         uNight: { value: 0 },
         uGolden: { value: 0 },
-        uCloudCover: { value: 0.3 },
+        uCloudT: { value: 0.55 },
+        uHighT: { value: 0.6 },
         uTime: { value: 0 },
         uCamXZ: { value: new THREE.Vector2() },
+        uCamY: { value: 2 },
         uWind1: { value: new THREE.Vector2() },
         uWind2: { value: new THREE.Vector2() },
         uOctaves: { value: 5 },
@@ -365,6 +421,10 @@ export class Environment {
     } catch {
       this.pmrem = null;
     }
+    // A restored WebGL context has lost the GPU copy of the environment map: re-bake on the next frame.
+    renderer.domElement?.addEventListener?.('webglcontextrestored', () => {
+      this.envHours = Number.NaN;
+    });
   }
 
   private readonly envScene = new THREE.Scene();
@@ -410,8 +470,10 @@ export class Environment {
   /** Sky detail per graphics quality: low draws 2-octave clouds without the light tap. */
   setQuality(q: SkyQuality): void {
     const u = this.skyMat.uniforms;
-    u.uOctaves!.value = q === 'high' ? 5 : q === 'medium' ? 4 : 2;
+    const octaves = q === 'high' ? 5 : q === 'medium' ? 4 : 2;
+    u.uOctaves!.value = octaves;
     u.uLightTap!.value = q === 'low' ? 0 : 1;
+    this.cloudSd = CLOUD_SD[octaves] ?? CLOUD_SD[5]!;
   }
 
   /** Updates lighting for the given time of day and moves the shadow frustum with the camera focus. */
@@ -426,12 +488,17 @@ export class Environment {
     const moonDir = new THREE.Vector3(-Math.cos(az) * 0.8, Math.max(0.25, -Math.sin(elev) * 0.9), -0.35).normalize();
     this.night = nightOf(s.sunI);
     const night = this.night;
-    // At night the horizon glows with the city's light, and the fog fades into the same colour.
-    const horizon = s.horizon.clone().lerp(NIGHT_HORIZON_GLOW, night * 0.85);
+    // At night the city's light glows warm on the horizon; the fog takes the same colour, so
+    // distant buildings fade into it rather than into a navy wall.
+    // Only once it is properly dark, so the sunset keeps its colours.
+    const horizon = s.horizon.clone().lerp(NIGHT_HORIZON_GLOW, smoothstep(0.55, 1, night) * GLOW_STRENGTH);
+    // The sky adds the difference near the horizon only (it fades out with elevation).
+    const glow = horizon.clone().sub(s.horizon);
 
     const u = this.skyMat.uniforms;
     (u.uTop!.value as THREE.Color).copy(s.top);
-    (u.uHorizon!.value as THREE.Color).copy(horizon);
+    (u.uHorizon!.value as THREE.Color).copy(s.horizon);
+    (u.uGlow!.value as THREE.Color).copy(glow);
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);
     (u.uSunColor!.value as THREE.Color).copy(s.sun);
     (u.uMoonDir!.value as THREE.Vector3).copy(moonDir);
@@ -440,9 +507,12 @@ export class Environment {
     u.uMoon!.value = smoothstep(0.3, 0.85, night);
     u.uNight!.value = night;
     u.uGolden!.value = goldenHour(hours);
-    u.uCloudCover!.value = cloudCover(hours);
+    const cover = cloudCover(hours);
+    u.uCloudT!.value = cloudThreshold(cover, this.cloudSd);
+    u.uHighT!.value = cloudThreshold(cover * 0.5, this.cloudSd);
     u.uTime!.value = time % 1000;
     (u.uCamXZ!.value as THREE.Vector2).set(camera.position.x, camera.position.z);
+    u.uCamY!.value = Math.max(0.5, camera.position.y - WATER_Y);
     // Wind drift in noise units, wrapped well before float precision suffers.
     (u.uWind1!.value as THREE.Vector2).set((time * 0.0105) % 1000, (time * 0.0042) % 1000);
     (u.uWind2!.value as THREE.Vector2).set((time * 0.021) % 1000, (time * 0.0085) % 1000);

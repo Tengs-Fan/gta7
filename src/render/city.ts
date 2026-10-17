@@ -884,7 +884,7 @@ export class CityView {
     this.nightU.shopOccupancy.value = shopOccupancy(hours);
     this.nightU.time.value = time % 1000;
     for (const m of this.materials.facades.values()) m.emissiveIntensity = night * 1.4;
-    if (this.materials.storefront) this.materials.storefront.emissiveIntensity = night * 1.8;
+    if (this.materials.storefront) this.materials.storefront.emissiveIntensity = night * 1.5;
     for (const m of this.materials.signs) m.emissiveIntensity = 0.35 + night * 3.2;
   }
 }
