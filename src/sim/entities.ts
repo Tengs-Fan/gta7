@@ -1,9 +1,20 @@
 // Simulation entities. Plain mutable state; behaviour lives in the systems.
 
 import type { V3 } from '../core/math';
+import { Rng } from '../core/rng';
 import type { DriverAI } from './driver';
 import type { PedBrain } from './brains';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind, type VehicleSpec, type WeaponId, type WeaponSpec } from './specs';
+
+/**
+ * A generator for an entity's own random choices (a helicopter's orbit, the tumble of an explosion
+ * kick), seeded from its id (scrambled; the salt is arbitrary). The sim hands out ids in a fixed
+ * order, so a run from the same seed with the same inputs repeats exactly, which Math.random would
+ * not allow.
+ */
+export function entityRng(id: number): Rng {
+  return new Rng(Math.imul(id, 0x9e3779b1) ^ 7);
+}
 
 export type CharacterRole = 'player' | 'civilian' | 'cop' | 'swat' | 'gang' | 'mission';
 
@@ -266,6 +277,8 @@ export class Vehicle {
   /** Seconds since the AI driver last got 5 m from where it was; waits at a red light, a yield or in a queue don't count. */
   stuckTime = 0;
   spawnTime = 0;
+  /** This vehicle's own randomness (the tumble of explosion kicks), see entityRng. */
+  readonly rng: Rng;
 
   constructor(
     readonly id: number,
@@ -281,6 +294,7 @@ export class Vehicle {
     this.heading = heading;
     this.health = this.spec.health;
     this.passengers = new Array(Math.max(0, this.spec.seats - 1)).fill(null);
+    this.rng = entityRng(id);
   }
 
   get halfW(): number {
@@ -319,7 +333,8 @@ export class Pickup {
   active = true;
   respawnTimer = 0;
   removed = false;
-  bob = Math.random() * 6;
+  /** Phase of the hover bob (cosmetic), so pickups next to each other do not bob in step. */
+  readonly bob: number;
   /** Sim time at which a temporary pickup (dropped cash) disappears. */
   expires = Infinity;
 
@@ -333,7 +348,9 @@ export class Pickup {
     readonly respawn: number,
     /** Collectible / rampage identifier. */
     readonly tag: string,
-  ) {}
+  ) {
+    this.bob = entityRng(id).range(0, 6);
+  }
 }
 
 export class Projectile {
@@ -357,9 +374,11 @@ export class Helicopter {
   removed = false;
   rotor = 0;
   fireCooldown = 2;
-  orbit = Math.random() * Math.PI * 2;
+  /** Angle round the circle it flies above the target (police.ts advances it). */
+  orbit: number;
   spotlight = { x: 0, z: 0 };
   constructor(readonly id: number, x: number, y: number, z: number) {
     this.pos = { x, y, z };
+    this.orbit = entityRng(id).range(0, Math.PI * 2);
   }
 }
