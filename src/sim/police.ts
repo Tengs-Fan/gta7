@@ -1,7 +1,7 @@
 // Police response: patrol cars, pursuit units, foot officers, SWAT, the
 // helicopter, and arrests ("busted").
 
-import { clamp, moveAngleTowards, wrapAngle } from '../core/math';
+import { clamp, moveAngleTowards, pointSegDist, wrapAngle } from '../core/math';
 import { makeBrain, type PedBrain } from './brains';
 import { DriverAI } from './driver';
 import { Helicopter, type Character, type Vehicle } from './entities';
@@ -24,11 +24,17 @@ export class PoliceSystem {
   private calm = 0;
   /** Seconds each unit has been waiting for its crew to get back in. */
   private readonly crewWait = new WeakMap<Vehicle, number>();
-  /** Destinations handed out to units searching for the player. */
-  private readonly searchDests = new WeakSet<object>();
+  /** Destinations handed out to units searching for the player: when, and how far from the last sighting the unit was then. */
+  private readonly searchDests = new WeakMap<object, { at: number; from: number }>();
   private wasSearching = false;
+  /** Sim time of the player's last gunshot. */
+  private playerShotAt = -Infinity;
 
-  constructor(private readonly sim: Sim) {}
+  constructor(private readonly sim: Sim) {
+    sim.events.on('shot', (e) => {
+      if (e.shooter?.isPlayer) this.playerShotAt = sim.time;
+    });
+  }
 
   /** Seconds the player's vehicle has been (nearly) stationary. */
   private playerStill = 0;
@@ -63,7 +69,7 @@ export class PoliceSystem {
   // ---------------------------------------------------------------------------
   // Units (cars)
 
-  /** A police car on duty: crewed by live officers, and not driven by anyone else (a stolen cruiser keeps owner 'police'). */
+  /** A police car on duty: crewed by live officers, and not driven by anyone else. */
   private isUnit(v: Vehicle): boolean {
     if (v.owner !== 'police' || v.removed || !v.drivable || (v.driver && !v.driver.isLaw)) return false;
     return v.occupants().some((c) => c.isLaw && c.alive) || this.sim.characters.some((c) => !c.removed && c.isLaw && c.alive && c.brain?.car === v);
@@ -96,7 +102,8 @@ export class PoliceSystem {
 
   /**
    * Spawns a police car on a lane 95-215 m from the player, preferably out of sight.
-   * While the police are searching, pursuit units join the search around the last sighting.
+   * While the police are searching, pursuit units join the search around the last sighting,
+   * preferably coming from its side of that ring.
    */
   spawnUnit(kind: 'police' | 'swat', pursuit: boolean): Vehicle | null {
     const sim = this.sim;
@@ -105,15 +112,17 @@ export class PoliceSystem {
     const searching = pursuit && this.searching(w.level);
     const goal = searching ? { x: w.lastSeenX, z: w.lastSeenZ } : pp;
     const lanes = sim.roads.lanes;
+    // Search reinforcements preferably start a short drive from the search area.
+    const reach = w.searchRadius() + 130;
+    const near = searching ? lanes.filter((l) => pointSegDist(goal.x, goal.z, l.sx, l.sz, l.ex, l.ez) < reach && pointSegDist(pp.x, pp.z, l.sx, l.sz, l.ex, l.ez) < 215) : lanes;
     for (let tries = 0; tries < 30; tries++) {
-      const lane = sim.rng.pick(lanes);
+      const lane = sim.rng.pick(tries < 20 && near.length > 0 ? near : lanes);
       const s = sim.rng.range(5, Math.max(6, lane.length - 5));
       const x = lane.sx + lane.dx * s;
       const z = lane.sz + lane.dz * s;
       const d = Math.hypot(x - pp.x, z - pp.z);
-      // Search reinforcements keep out of sighting range of the hidden player.
-      if (d < (searching ? 120 : 95) || d > 215) continue;
-      if (searching && Math.hypot(x - goal.x, z - goal.z) > w.searchRadius()) continue;
+      if (d < 95 || d > 215) continue;
+      if (searching && tries < 20 && Math.hypot(x - goal.x, z - goal.z) > reach) continue;
       if (pursuit && (goal.x - x) * lane.dx + (goal.z - z) * lane.dz < 0 && tries < 20) continue;
       if (d < 160 && sim.isVisible(x, 1, z) && tries < 25) continue;
       if (!sim.traffic.isClear(x, z, 9)) continue;
@@ -182,14 +191,23 @@ export class PoliceSystem {
       if (ai.policy !== 'chase') ai.setPolicy('chase');
       v.siren = true;
       if (searching) {
+        const r = w.searchRadius();
         const dest = ai.dest;
-        if (!dest || !this.searchDests.has(dest) || Math.hypot(dest.x - v.pos.x, dest.z - v.pos.z) < 18 || Math.hypot(dest.x - w.lastSeenX, dest.z - w.lastSeenZ) > w.searchRadius()) {
+        const job = dest ? this.searchDests.get(dest) : undefined;
+        const fromSeen = Math.hypot(v.pos.x - w.lastSeenX, v.pos.z - w.lastSeenZ);
+        // A new spot once there, or once the area moved; also when the unit drives away from the
+        // area or still is not there after a while, so it comes back instead of wandering off.
+        if (!dest || !job || Math.hypot(dest.x - v.pos.x, dest.z - v.pos.z) < 18 || Math.hypot(dest.x - w.lastSeenX, dest.z - w.lastSeenZ) > r || fromSeen > Math.max(job.from, r) + 30 || sim.time - job.at > 20) {
           this.assignSearch(ai);
         }
         ai.hold = boarding || this.holdForCrew(v, dt, level);
         continue;
       }
-      if (resumed) ai.resetPath();
+      if (resumed) {
+        // Back to full pursuit speed (see assignSearch).
+        ai.setPolicy('chase');
+        ai.resetPath();
+      }
       const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
       // Pull up behind a player car that is stopped (or being shoved without power) instead of
       // ramming it: heading for its position rather than for the player makes it an obstacle.
@@ -203,33 +221,66 @@ export class PoliceSystem {
       // A unit stuck behind others near an on-foot player sends its crew on foot.
       const stuckNear = !pv && d < 55 && v.stuckTime > 2.5;
       if ((!pv || playerStopped) && (close || stuckNear)) this.deploy(v);
-      else ai.hold = boarding || (yielding && contact) || this.holdForCrew(v, dt, level);
+      // The hold's handbrake only to stop the last bit of a shove: at speed, braking for the car
+      // ahead (no longer the target) keeps the unit steering.
+      else ai.hold = boarding || (yielding && contact && v.speed < 4) || this.holdForCrew(v, dt, level);
     }
   }
 
-  /** Sends a unit to a random road point in the search area around the last sighting. */
+  /**
+   * Sends a unit to a road point in the search area around the last sighting: of a few random
+   * ones, the one most ahead of it that its route reaches without a U-turn (routes cannot make
+   * one), at a speed that lets it look around rather than wreck itself.
+   */
   private assignSearch(ai: DriverAI): void {
     const sim = this.sim;
+    const roads = sim.roads;
     const w = sim.wanted;
     const r = w.searchRadius();
+    const v = ai.vehicle;
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
     const roadNear = (x: number, z: number) => {
-      const { lane, s } = sim.roads.nearestLane(x, z);
+      const { lane, s } = roads.nearestLane(x, z);
       return { x: lane.sx + lane.dx * s, z: lane.sz + lane.dz * s };
     };
-    // A random spot in the area, or failing that the road nearest to the sighting itself.
+    // The lane the route starts from (see DriverAI.resetPath).
+    const lane = roads.nearestLane(v.pos.x, v.pos.z, v.heading).lane;
+    // Failing all else, the road nearest to the sighting itself.
     let dest = roadNear(w.lastSeenX, w.lastSeenZ);
-    for (let tries = 0; tries < 3; tries++) {
+    let best = -Infinity;
+    for (let tries = 0; tries < 6; tries++) {
       const a = sim.rng.range(0, Math.PI * 2);
       const k = sim.rng.range(0, r);
       const pt = roadNear(w.lastSeenX + Math.cos(a) * k, w.lastSeenZ + Math.sin(a) * k);
-      if (Math.hypot(pt.x - w.lastSeenX, pt.z - w.lastSeenZ) <= r) {
+      const d = Math.hypot(pt.x - v.pos.x, pt.z - v.pos.z);
+      if (Math.hypot(pt.x - w.lastSeenX, pt.z - w.lastSeenZ) > r || d < 25) continue;
+      let score = ((pt.x - v.pos.x) * fx + (pt.z - v.pos.z) * fz) / d;
+      const route = roads.findRoute(lane.to, roads.nearestNode(pt.x, pt.z).id);
+      if (route && route.length > 1 && route[1] === lane.from) score -= 2;
+      if (score > best) {
+        best = score;
         dest = pt;
-        break;
       }
     }
-    this.searchDests.add(dest);
+    // All of them behind: turn round in the street instead, slowly, heading for the road a little
+    // way back (close enough for the driver to go straight at it) if that is still in the area.
+    let turn = false;
+    if (best < -1 && best > -Infinity) {
+      for (const back of [30, 45]) {
+        const pt = roadNear(v.pos.x - fx * back, v.pos.z - fz * back);
+        if (Math.hypot(pt.x - w.lastSeenX, pt.z - w.lastSeenZ) <= r && Math.hypot(pt.x - v.pos.x, pt.z - v.pos.z) >= 25) {
+          dest = pt;
+          turn = true;
+          break;
+        }
+      }
+    }
+    this.searchDests.set(dest, { at: sim.time, from: Math.hypot(v.pos.x - w.lastSeenX, v.pos.z - w.lastSeenZ) });
     ai.target = null;
     ai.dest = dest;
+    ai.speedMul = 1.2;
+    ai.maxSpeed = turn ? 8 : 20;
     ai.resetPath();
   }
 
@@ -310,11 +361,13 @@ export class PoliceSystem {
     const pp = sim.playerPos();
     const searching = this.searching(level);
     // At 2+ stars officers shoot on sight, but the nearest one still walks up to arrest a player
-    // who is unarmed or not getting away, and the others hold fire while he does.
+    // who is unarmed or not getting away, and the others hold fire while he does. Not while the
+    // player holds them off with a gun (aiming, or shooting even from a car): they all fire back.
     const arrestable = pv ? pv.speed < 1.2 : p.speed < 2.2 || p.state === 'knocked';
     const unarmed = !pv && p.inventory.current === 'fists';
-    const arrester = level >= 2 && !searching && !sim.playerDown && !sim.missions.noBust && (arrestable || unarmed) ? this.nearestOfficer(pp.x, pp.z, 32) : null;
-    const arresting = this.bustTimer > 0 || (!!arrester && arrestable && Math.hypot(arrester.pos.x - pp.x, arrester.pos.z - pp.z) < 5);
+    const threat = !unarmed && p.state !== 'knocked' && (p.aiming || sim.time - this.playerShotAt < 2);
+    const arrester = level >= 2 && !searching && !sim.playerDown && !sim.missions.noBust && !threat && (arrestable || unarmed) ? this.nearestOfficer(pp.x, pp.z, 32) : null;
+    const arresting = !threat && (this.bustTimer > 0 || (!!arrester && arrestable && Math.hypot(arrester.pos.x - pp.x, arrester.pos.z - pp.z) < 5));
     // Officers walk up to the driver's door: the arrest radius around a long vehicle's centre does not reach its ends.
     const ax = pv ? pv.pos.x + Math.cos(pv.heading) * (pv.halfW + 0.6) : pp.x;
     const az = pv ? pv.pos.z - Math.sin(pv.heading) * (pv.halfW + 0.6) : pp.z;

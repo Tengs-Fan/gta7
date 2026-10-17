@@ -47,6 +47,10 @@ npm run preview    # serves dist/ at http://localhost:4173
 | Map | M | Back |
 | Pause | Esc / P | Start |
 
+Keys are bound by position, and the table names them as on a US QWERTY keyboard.
+In the game, prompts and the CONTROLS screen use the names printed on your own layout, so on AZERTY you move with Z Q S D.
+Browsers without the Keyboard API (Firefox, Safari) learn the layout as you press keys.
+
 Click the game view to capture the mouse. Pressing Esc releases it and pauses.
 
 ## What's in the game

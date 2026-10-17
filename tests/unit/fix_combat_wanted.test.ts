@@ -2,10 +2,12 @@
 
 import { describe, expect, it } from 'vitest';
 import type { V3 } from '../../src/core/math';
+import { makeBrain } from '../../src/sim/brains';
 import { Inventory } from '../../src/sim/entities';
 import type { PlayerInput } from '../../src/sim/input';
 import type { Sim } from '../../src/sim/sim';
-import { STAR_HEAT } from '../../src/sim/wanted';
+import { WEAPONS, type WeaponId } from '../../src/sim/specs';
+import { CRIMES, STAR_HEAT } from '../../src/sim/wanted';
 import { aimAt, input, makeSim, placeInCar, step, teleport } from './helpers';
 
 /** The middle of a long straight lane with nothing static within a few metres (props knocked over). */
@@ -176,7 +178,7 @@ describe('reloading', () => {
     sim.update(1 / 60, aim({ selectSlot: 2 }));
     expect(p.inventory.current).toBe('smg');
     expect(p.reloadTimer).toBe(0);
-    // Only the pistol's fire cooldown (0.25 s) delays the SMG, not the 1.2 s pistol reload.
+    // Only the swap time (0.25 s) delays the SMG, not the 1.2 s pistol reload.
     step(sim, 0.4, () => aim({ fire: true }));
     expect(smg.clip).toBeLessThan(30);
     // The dropped reload never lands on the SMG, and the pistol stays empty.
@@ -355,5 +357,173 @@ describe('weapon cycling', () => {
     expect(inv.current).toBe('fists');
     inv.cycle(-1);
     expect(inv.current).toBe('rocket');
+  });
+});
+
+/** The shoulder camera turned, the way a player turns it, until its crosshair ray passes through `target`. */
+function crosshairOn(sim: Sim, target: V3, over: Partial<PlayerInput> = {}): PlayerInput {
+  let yaw = Math.atan2(target.x - sim.player.pos.x, target.z - sim.player.pos.z);
+  let pitch = 0;
+  for (let i = 0; i < 80; i++) {
+    const o = shoulderAim(sim, yaw, pitch, null).aimOrigin;
+    yaw = Math.atan2(target.x - o.x, target.z - o.z);
+    pitch = Math.atan2(target.y - o.y, Math.hypot(target.x - o.x, target.z - o.z));
+  }
+  return shoulderAim(sim, yaw, pitch, null, over);
+}
+
+describe('point-blank shots from the shoulder camera', () => {
+  /** The player with `weapon`, and an enemy standing still `ahead` m in front and `side` m to the right. */
+  function closeEnemy(weapon: WeaponId, ahead: number, side: number) {
+    const sim = makeSim();
+    const f = standOnOpenRoad(sim);
+    const p = sim.player;
+    p.inventory.give(weapon, 100);
+    p.inventory.current = weapon;
+    const enemy = sim.spawnCharacter('gang', p.pos.x + f.fx * ahead + f.rx * side, p.pos.z + f.fz * ahead + f.rz * side);
+    enemy.armor = 5000;
+    const chest = () => ({ x: enemy.pos.x, y: enemy.pos.y + 1.2, z: enemy.pos.z });
+    step(sim, 0.1, () => crosshairOn(sim, chest()));
+    return { sim, enemy, chest, shots: recordShots(sim) };
+  }
+
+  it.each([
+    [0.65, 0.62],
+    [0.5, 0.75],
+    [0.75, 0.45],
+  ])('hit an enemy 0.9 m away under the crosshair (%f m ahead, %f m right)', (ahead, side) => {
+    const { sim, enemy, chest, shots } = closeEnemy('pistol', ahead, side);
+    for (let i = 0; i < 3; i++) {
+      sim.update(1 / 60, crosshairOn(sim, chest(), { fire: true, firePressed: true }));
+      step(sim, 0.3, () => crosshairOn(sim, chest()));
+    }
+    expect(shots.map((s) => s.hit)).toEqual(['flesh', 'flesh', 'flesh']);
+    expect(enemy.armor).toBeLessThanOrEqual(5000 - 3 * WEAPONS.pistol.damage);
+  });
+
+  it.each([
+    [1.0, 0.62],
+    [1.1, 0.4],
+    [0.8, 0.8],
+  ])('put every shotgun pellet into an enemy 1.1-1.2 m away (%f m ahead, %f m right)', (ahead, side) => {
+    // Aiming at the edge of him where the crosshair ray enters sends pellets grazing past from the muzzle.
+    const { sim, chest, shots } = closeEnemy('shotgun', ahead, side);
+    sim.update(1 / 60, crosshairOn(sim, chest(), { fire: true, firePressed: true }));
+    expect(shots.length).toBe(WEAPONS.shotgun.pellets);
+    expect(shots.filter((s) => s.hit === 'flesh').length).toBe(WEAPONS.shotgun.pellets);
+  });
+
+  it('can stop an officer who walks up to make an arrest', () => {
+    const sim = makeSim();
+    const f = standOnOpenRoad(sim);
+    const p = sim.player;
+    p.inventory.give('pistol', 48);
+    p.inventory.current = 'pistol';
+    const cop = sim.spawnCharacter('cop', p.pos.x + f.fx * 4, p.pos.z + f.fz * 4);
+    cop.owner = 'police';
+    const b = makeBrain('chase');
+    b.brave = true;
+    cop.brain = b;
+    sim.wanted.setLevel(1);
+    const chest = () => ({ x: cop.pos.x, y: cop.pos.y + 1.2, z: cop.pos.z });
+    const dist = () => Math.hypot(cop.pos.x - p.pos.x, cop.pos.z - p.pos.z);
+    // He walks right up to the player (about 0.8 m), who keeps the crosshair on his chest.
+    for (let i = 0; i < 180 && dist() > 1; i++) sim.update(1 / 60, crosshairOn(sim, chest()));
+    expect(dist()).toBeLessThan(1);
+    const shots = recordShots(sim);
+    for (let i = 0; i < 4 && cop.alive; i++) {
+      sim.update(1 / 60, crosshairOn(sim, chest(), { fire: true, firePressed: true }));
+      step(sim, 0.27, () => crosshairOn(sim, chest()));
+    }
+    expect(shots.length).toBeGreaterThan(0);
+    expect(shots.every((s) => s.hit === 'flesh')).toBe(true);
+    expect(cop.alive).toBe(false);
+    expect(sim.deathKind).toBeNull();
+  });
+});
+
+describe('switching weapons', () => {
+  it.each(['pistol', 'fists'] as const)("drops the rocket launcher's 1.4 s cooldown: the %s is ready after the swap time", (next) => {
+    const sim = makeSim();
+    const f = standOnOpenRoad(sim);
+    const p = sim.player;
+    p.inventory.give('rocket', 4);
+    p.inventory.give('pistol', 48);
+    p.inventory.current = 'rocket';
+    const sky = { x: p.pos.x + f.fx * 40, y: p.pos.y + 8, z: p.pos.z + f.fz * 40 };
+    const aim = (over: Partial<PlayerInput> = {}) => aimAt(sim, sky, { aim: true, ...over });
+    sim.update(1 / 60, aim({ fire: true, firePressed: true }));
+    expect(sim.projectiles.length).toBe(1);
+    sim.update(1 / 60, aim({ selectSlot: next === 'pistol' ? 1 : 0 }));
+    expect(p.inventory.current).toBe(next);
+    const switched = sim.time;
+    let ready = -1;
+    sim.events.on('shot', (e) => {
+      if (ready < 0 && e.shooter === p && e.weapon === 'pistol') ready = sim.time - switched;
+    });
+    sim.events.on('melee', () => {
+      if (ready < 0) ready = sim.time - switched;
+    });
+    // Pull the trigger every frame from the switch on.
+    step(sim, 2, () => aim({ fire: true, firePressed: true }));
+    expect(ready).toBeGreaterThan(0.2);
+    expect(ready).toBeLessThan(0.3);
+  });
+
+  it('never lets swapping away and back fire the shotgun faster than its rate', () => {
+    const sim = makeSim();
+    const f = standOnOpenRoad(sim);
+    const p = sim.player;
+    p.inventory.give('shotgun', 24);
+    p.inventory.give('pistol', 48);
+    p.inventory.current = 'shotgun';
+    const ahead = { x: p.pos.x + f.fx * 20, y: p.pos.y + 1, z: p.pos.z + f.fz * 20 };
+    const blasts: number[] = [];
+    sim.events.on('shot', (e) => {
+      if (e.shooter === p && e.weapon === 'shotgun' && blasts[blasts.length - 1] !== sim.time) blasts.push(sim.time);
+    });
+    // Every third of a second: one frame on the pistol, then straight back to the shotgun, pulling the trigger every frame.
+    let frame = 0;
+    step(sim, 4, () => {
+      const phase = frame++ % 20;
+      if (phase === 0) return aimAt(sim, ahead, { aim: true, selectSlot: 1 });
+      return aimAt(sim, ahead, { aim: true, selectSlot: phase === 1 ? 3 : -1, fire: true, firePressed: true });
+    });
+    expect(blasts.length).toBeGreaterThanOrEqual(4);
+    for (let i = 1; i < blasts.length; i++) expect(blasts[i]! - blasts[i - 1]!).toBeGreaterThanOrEqual(1 / WEAPONS.shotgun.rate);
+  });
+});
+
+describe('crime heat from automatic fire', () => {
+  /** The player with `weapon`, facing an armoured officer 8 m away. */
+  function atOfficer(weapon: WeaponId) {
+    const sim = makeSim();
+    const f = standOnOpenRoad(sim);
+    const p = sim.player;
+    p.inventory.give(weapon, 120);
+    p.inventory.current = weapon;
+    const cop = sim.spawnCharacter('swat', p.pos.x + f.fx * 8, p.pos.z + f.fz * 8);
+    cop.armor = 5000;
+    const chest = { x: cop.pos.x, y: cop.pos.y + 1.2, z: cop.pos.z };
+    return { sim, cop, chest, shots: recordShots(sim) };
+  }
+
+  it('a half-second SMG burst at an officer stays under three stars', () => {
+    const { sim, cop, chest, shots } = atOfficer('smg');
+    step(sim, 0.5, () => aimAt(sim, chest, { aim: true, fire: true }));
+    expect(shots.filter((s) => s.hit === 'flesh').length).toBeGreaterThanOrEqual(4);
+    expect(cop.alive).toBe(true);
+    expect(sim.wanted.heat).toBeLessThan(STAR_HEAT[3]);
+    expect(sim.wanted.level).toBe(2);
+  });
+
+  it('pistol fire at its full rate still counts every hit', () => {
+    const { sim, cop, chest, shots } = atOfficer('pistol');
+    step(sim, 1.2, () => aimAt(sim, chest, { aim: true, fire: true, firePressed: true }));
+    const hits = shots.filter((s) => s.hit === 'flesh').length;
+    expect(hits).toBe(5);
+    expect(cop.alive).toBe(true);
+    expect(sim.wanted.heat).toBeGreaterThanOrEqual(hits * CRIMES.assaultCop.heat);
+    expect(sim.wanted.level).toBe(3);
   });
 });

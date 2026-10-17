@@ -288,8 +288,11 @@ export class RoadNetwork {
     return { lane: best, s: bestS, dist: bestDist };
   }
 
-  /** A* over intersections. Returns the node id sequence (inclusive) or null. */
-  findRoute(from: number, to: number): number[] | null {
+  /**
+   * A* over intersections. Returns the node id sequence (inclusive) or null. `notFirst` is a
+   * neighbour of `from` the route may not lead to first (the node a car came from: no U-turns).
+   */
+  findRoute(from: number, to: number, notFirst = -1): number[] | null {
     if (from === to) return [from];
     const nodes = this.nodes;
     const open = new Set<number>([from]);
@@ -319,7 +322,7 @@ export class RoadNetwork {
       open.delete(cur);
       const nc = nodes[cur]!;
       for (const nb of nc.neighbors) {
-        if (nb < 0) continue;
+        if (nb < 0 || (cur === from && nb === notFirst)) continue;
         const nn = nodes[nb]!;
         const tentative = (g.get(cur) ?? Infinity) + Math.hypot(nn.x - nc.x, nn.z - nc.z);
         if (tentative < (g.get(nb) ?? Infinity)) {

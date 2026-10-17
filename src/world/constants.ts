@@ -24,5 +24,7 @@ export const WATER_Y = -1.0;
 export const SEABED_Y = -8;
 /** Swimming starts when the water is deeper than this. */
 export const SWIM_DEPTH = 1.05;
+/** Thickness of the pier and marina deck slabs, which hang from the deck height down. */
+export const DECK_SLAB = 0.35;
 
 export const GRAVITY = 22;

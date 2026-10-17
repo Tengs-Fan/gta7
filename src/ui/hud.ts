@@ -1,6 +1,7 @@
 // In-game heads-up display: status cluster, radar, messages and prompts.
 
 import { formatMoney, formatTime } from '../core/math';
+import { KeyLabels } from '../input/input';
 import type { BigStyle } from '../sim/events';
 import type { Sim } from '../sim/sim';
 import { WEAPONS, type WeaponId } from '../sim/specs';
@@ -49,7 +50,7 @@ export class Hud {
   waypoint: { x: number; z: number } | null = null;
   visible = true;
 
-  constructor(parent: HTMLElement, private readonly map: MapImage) {
+  constructor(parent: HTMLElement, private readonly map: MapImage, private readonly keys = new KeyLabels()) {
     this.root = document.createElement('div');
     this.root.className = 'hud';
     this.root.innerHTML = `
@@ -87,8 +88,13 @@ export class Hud {
     this.unsub = [];
     this.reset(sim);
     const ev = sim.events;
+    // A finished mission's or rampage's last objective must not linger next to its PASSED / FAILED.
+    const clearObjective = () => {
+      this.timers.objective = 0;
+      this.el.objective!.classList.remove('show');
+    };
     this.unsub.push(
-      ev.on('message', (e) => this.help(e.text, e.duration)),
+      ev.on('message', (e) => this.help(this.keyCaps(e.text), e.duration)),
       ev.on('subtitle', (e) => {
         this.el.subtitle!.innerHTML = `<b>${escapeHtml(e.speaker)}:</b> ${escapeHtml(e.text)}`;
         this.el.subtitle!.classList.add('show');
@@ -121,11 +127,8 @@ export class Hud {
       ev.on('respawn', () => {
         this.lastHealth = sim.player.health;
       }),
-      ev.on('missionEnded', () => {
-        // The finished mission's last objective must not linger next to MISSION PASSED / FAILED.
-        this.timers.objective = 0;
-        this.el.objective!.classList.remove('show');
-      }),
+      ev.on('missionEnded', clearObjective),
+      ev.on('activityEnded', clearObjective),
     );
   }
 
@@ -296,13 +299,18 @@ export class Hud {
 
     // Prompt + crosshair.
     if (prompt) {
-      el.prompt!.innerHTML = prompt.replace(/Press (\w)/, 'Press <kbd>$1</kbd>');
+      el.prompt!.innerHTML = this.keyCaps(prompt);
       el.prompt!.classList.remove('hidden');
     } else el.prompt!.classList.add('hidden');
     const showCross = aiming && p.alive && !sim.playerDown && p.inventory.current !== 'fists';
     el.cross!.classList.toggle('show', showCross);
 
     this.drawRadar(sim, camYaw, time, dt);
+  }
+
+  /** Shows each 'Press E' in sim text (named after the QWERTY binding) as the key cap printed on the player's keyboard. */
+  private keyCaps(text: string): string {
+    return text.replace(/\b([Pp]ress) ([A-Z])\b/g, (_m, press: string, k: string) => `${press} <kbd>${escapeHtml(this.keys.label(`Key${k}`))}</kbd>`);
   }
 
   private statusText(sim: Sim): string {

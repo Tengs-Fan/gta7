@@ -242,11 +242,13 @@ export class PlayerController {
       sim.seat(p, v, 0);
       v.ai = null;
       // The car is the player's now: police, traffic and parking systems let go of it.
+      // Only taking a cruiser from the police is a theft, not getting back into it later.
+      const fromPolice = v.owner === 'police';
       if (v.owner !== 'mission') v.owner = 'none';
       v.controls.handbrake = false;
       if (!v.usedByPlayer) sim.progress.stats.carsStolen++;
       v.usedByPlayer = true;
-      if (v.spec.police) sim.wanted.crime('stealPoliceCar', v.pos.x, v.pos.z);
+      if (fromPolice) sim.wanted.crime('stealPoliceCar', v.pos.x, v.pos.z);
       this.lastVehicle = v;
       this.exitPending = false;
       p.enterTarget = null;

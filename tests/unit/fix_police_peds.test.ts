@@ -5,7 +5,7 @@ import { makeBrain } from '../../src/sim/brains';
 import { Helicopter, type Character, type Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import type { Lane } from '../../src/world/roads';
-import { input, makeSim, placeInCar, step, teleport } from './helpers';
+import { aimAt, input, makeSim, placeInCar, step, teleport } from './helpers';
 
 /** PoliceSystem internals the scenarios need to set up. */
 interface PoliceInternals {
@@ -472,5 +472,268 @@ describe('fleeing', () => {
     const d0 = dist(c.pos, p);
     step(sim, 1.5);
     expect(dist(c.pos, p)).toBeGreaterThan(d0 + 4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 (cluster "police").
+
+/** A sidewalk spot on the corner of intersection (i, j). */
+function corner(sim: Sim, i: number, j: number): { x: number; z: number } {
+  const n = sim.roads.node(i, j);
+  return sim.world.findFreeSpot(n.x + n.halfX + 3, n.z + n.halfZ + 3, 0.5, 8)!;
+}
+
+/** Wanted at `level`, and out of sight of the police since a moment ago (where he stands now). */
+function lostSight(sim: Sim, level: number): void {
+  sim.wanted.setLevel(level);
+  sim.wanted.lastSeen = sim.time - 3;
+  sim.wanted.searching = true;
+}
+
+describe('searching with reinforcements', () => {
+  for (const level of [1, 2]) {
+    it(`sends units to search for a player who stays where he was last seen (${level} star${level > 1 ? 's' : ''})`, () => {
+      const sim = makeSim({ ambient: true });
+      sim.cheats.godMode = true;
+      sim.missions.noBust = true;
+      const spot = corner(sim, 4, 4);
+      teleport(sim, spot.x, spot.z);
+      // No unit is near yet: every one has to come from dispatch.
+      lostSight(sim, level);
+      const seenAt = sim.wanted.lastSeen;
+      const searchers = new Set<Vehicle>();
+      let foundAt = -1;
+      step(sim, 40, (t) => {
+        const w = sim.wanted;
+        if (foundAt < 0 && w.lastSeen > seenAt) foundAt = t;
+        if (foundAt < 0) {
+          for (const v of sim.vehicles) {
+            const d = v.ai?.dest;
+            if (v.owner === 'police' && v.driver?.isLaw && !v.ai!.target && d && Math.hypot(d.x - w.lastSeenX, d.z - w.lastSeenZ) <= w.searchRadius()) searchers.add(v);
+          }
+        }
+        return input();
+      });
+      expect(searchers.size).toBeGreaterThan(0);
+      // They find him well before he could sit the stars out.
+      expect(foundAt).toBeGreaterThan(0);
+      expect(sim.wanted.level).toBe(level);
+    });
+  }
+
+  it('still lets a player who leaves the search area lose the stars, with reinforcements sweeping the area', () => {
+    const sim = makeSim({ ambient: true });
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    const spot = corner(sim, 4, 4);
+    teleport(sim, spot.x, spot.z);
+    lostSight(sim, 2);
+    // He slipped three blocks away, out of the area.
+    const hide = corner(sim, 7, 4);
+    teleport(sim, hide.x, hide.z);
+    const searchers = new Set<Vehicle>();
+    let homing = 0;
+    step(sim, 30, () => {
+      const w = sim.wanted;
+      if (w.level > 0 && w.searching) {
+        for (const v of sim.vehicles) {
+          if (v.owner !== 'police' || !v.ai || !v.driver?.isLaw) continue;
+          const d = v.ai.dest;
+          if (v.ai.target || !d || Math.hypot(d.x - w.lastSeenX, d.z - w.lastSeenZ) > w.searchRadius() + 5) homing++;
+          else searchers.add(v);
+        }
+      }
+      return input();
+    });
+    expect(searchers.size).toBeGreaterThan(0);
+    expect(homing).toBe(0);
+    expect(sim.wanted.level).toBe(0);
+  });
+
+  it('keeps searching units around the area instead of losing them to cleanup or crashes', () => {
+    let units = 0;
+    let lost = 0;
+    for (const [i, j] of [[2, 2], [4, 1], [7, 7], [3, 6], [6, 3], [5, 8], [1, 4], [4, 4]] as const) {
+      const sim = makeSim({ seed: 3 });
+      sim.cheats.godMode = true;
+      sim.missions.noBust = true;
+      const spot = corner(sim, i, j);
+      teleport(sim, spot.x, spot.z);
+      sim.wanted.setLevel(2);
+      // A long search: the mission floor keeps the stars while he hides four blocks away.
+      sim.wanted.floor = 2;
+      const crew: Vehicle[] = [];
+      for (let k = 0; k < 40 && crew.length < 3; k++) {
+        const v = sim.police.spawnUnit('police', true);
+        if (v) crew.push(v);
+      }
+      lostSight(sim, 2);
+      const hide = corner(sim, i < 5 ? i + 4 : i - 4, j);
+      teleport(sim, hide.x, hide.z);
+      step(sim, 90);
+      units += crew.length;
+      lost += crew.filter((v) => v.removed || v.destroyed).length;
+    }
+    expect(units).toBe(24);
+    expect(lost).toBeLessThanOrEqual(8);
+  });
+});
+
+describe('police helicopter sightings', () => {
+  /** Last seen on the road in front of the tallest downtown tower, now hiding against its far wall. */
+  function towerHideout(sim: Sim): { seen: { x: number; z: number }; hide: { x: number; z: number } } {
+    const height = (b: (typeof sim.world.layout.buildings)[number]) => Math.max(...b.tiers.map((t) => t.y1));
+    const tower = sim.world.layout.buildings.filter((b) => b.district === 'downtown').sort((a, b) => height(b) - height(a))[0]!;
+    const cx = (tower.rect.minX + tower.rect.maxX) / 2;
+    const { lane, s } = sim.roads.nearestLane(cx, tower.rect.minZ - 14);
+    return { seen: at(lane, s), hide: sim.world.findFreeSpot(cx, tower.rect.maxZ + 1.2, 0.4, 3)! };
+  }
+
+  /** 3 stars, last seen at `seen` a moment ago, now at `spot`, with the helicopter circling the sighting. */
+  function heliSearch(sim: Sim, seen: { x: number; z: number }, spot: { x: number; z: number }): number {
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    teleport(sim, seen.x, seen.z);
+    sim.wanted.setLevel(3);
+    teleport(sim, spot.x, spot.z);
+    sim.wanted.lastSeen = sim.time - 3;
+    sim.wanted.searching = true;
+    sim.helis.push(new Helicopter(sim.newId(), seen.x + 24, sim.world.groundHeight(seen.x, seen.z) + 36, seen.z));
+    return sim.wanted.lastSeen;
+  }
+
+  it('cannot see through a tower: hiding behind one near the last sighting loses the stars', () => {
+    const sim = makeSim();
+    const { seen, hide } = towerHideout(sim);
+    const seenAt = heliSearch(sim, seen, hide);
+    let closest = Infinity;
+    let spotted = false;
+    step(sim, 70, () => {
+      if (sim.wanted.level > 0 && sim.wanted.lastSeen > seenAt) spotted = true;
+      for (const h of sim.helis) closest = Math.min(closest, dist(h.pos, sim.player.pos));
+      return input();
+    });
+    // In sighting range nearly all along, but never in sight.
+    expect(closest).toBeLessThan(110);
+    expect(spotted).toBe(false);
+    expect(sim.wanted.level).toBe(0);
+  });
+
+  it('still spots a player out in the open', () => {
+    const sim = makeSim();
+    const { seen } = towerHideout(sim);
+    const seenAt = heliSearch(sim, seen, seen);
+    step(sim, 20);
+    expect(sim.wanted.level).toBe(3);
+    expect(sim.wanted.lastSeen).toBeGreaterThan(seenAt);
+    expect(sim.time - sim.wanted.lastSeen).toBeLessThan(1);
+  });
+});
+
+describe('arrests against an armed player', () => {
+  /** 2 stars; the two officers of a unit on foot, 16 and 20 m away in sight, and too tough to drop. */
+  function standoff(sim: Sim): Character[] {
+    const p = sim.player;
+    sim.cheats.godMode = true;
+    sim.wanted.setLevel(2);
+    const crew = mustSpawnUnit(sim).occupants();
+    const a = visibleSpot(sim, p.pos.x, p.pos.z, 16);
+    const b = visibleSpot(sim, p.pos.x, p.pos.z, 20, Math.atan2(a.z - p.pos.z, a.x - p.pos.x) + 0.6);
+    [a, b].forEach((s, k) => {
+      const c = crew[k]!;
+      placeOnFoot(sim, c, s.x, s.z);
+      c.maxHealth = 1e6;
+      c.health = 1e6;
+    });
+    p.inventory.give('pistol', 500);
+    p.inventory.current = 'pistol';
+    return crew;
+  }
+
+  function countShots(sim: Sim, crew: Character[]): Map<Character, number> {
+    const shots = new Map<Character, number>(crew.map((c) => [c, 0]));
+    sim.events.on('shot', (e) => {
+      if (e.shooter && shots.has(e.shooter)) shots.set(e.shooter, shots.get(e.shooter)! + 1);
+    });
+    return shots;
+  }
+
+  const chest = (c: Character) => ({ x: c.pos.x, y: c.pos.y + 1.3, z: c.pos.z });
+
+  it('has every officer, the nearest included, fire back at a player who stands and shoots', () => {
+    const sim = makeSim();
+    const crew = standoff(sim);
+    const shots = countShots(sim, crew);
+    let frame = 0;
+    step(sim, 8, () => aimAt(sim, chest(crew[0]!), { aim: true, fire: true, firePressed: frame++ % 18 === 0 }));
+    expect(sim.deathKind).toBeNull();
+    for (const c of crew) expect(shots.get(c)).toBeGreaterThan(3);
+  });
+
+  it('walks up and arrests him once he puts the gun away', () => {
+    const sim = makeSim();
+    const crew = standoff(sim);
+    let frame = 0;
+    step(sim, 3, () => aimAt(sim, chest(crew[0]!), { aim: true, fire: true, firePressed: frame++ % 18 === 0 }));
+    expect(sim.deathKind).toBeNull();
+    let outcome: string | null = null;
+    step(sim, 15, (t) => {
+      outcome ??= sim.deathKind;
+      return input({ selectSlot: t === 0 ? 0 : -1 });
+    });
+    expect(sim.player.inventory.current).toBe('fists');
+    expect(outcome).toBe('busted');
+  });
+
+  it('fires back at a player shooting from a stopped car, and arrests him once he stops', () => {
+    const sim = makeSim();
+    sim.cheats.godMode = true;
+    const lane = longestLane(sim);
+    const car = sim.spawnVehicle('sedan', at(lane, 60).x, at(lane, 60).z, lane.heading);
+    placeInCar(sim, car);
+    sim.player.inventory.give('pistol', 500);
+    sim.player.inventory.current = 'pistol';
+    sim.wanted.setLevel(2);
+    const crew = mustSpawnUnit(sim).occupants();
+    crew.forEach((c, k) => {
+      placeOnFoot(sim, c, at(lane, 46 - k * 5).x, at(lane, 46 - k * 5).z);
+      c.maxHealth = 1e6;
+      c.health = 1e6;
+    });
+    const shots = countShots(sim, crew);
+    let frame = 0;
+    step(sim, 5, () => aimAt(sim, chest(crew[0]!), { handbrake: true, fire: true, firePressed: frame++ % 18 === 0 }));
+    expect(sim.deathKind).toBeNull();
+    for (const c of crew) expect(shots.get(c)).toBeGreaterThan(3);
+    let outcome: string | null = null;
+    step(sim, 15, () => {
+      outcome ??= sim.deathKind;
+      return input({ handbrake: true });
+    });
+    expect(outcome).toBe('busted');
+  });
+});
+
+describe('pursuit units at speed', () => {
+  it('never lock the handbrake behind a player who lifts off the throttle', () => {
+    const sim = makeSim();
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    const lane = longestLane(sim);
+    const car = sim.spawnVehicle('sedan', at(lane, 30).x, at(lane, 30).z, lane.heading);
+    placeInCar(sim, car);
+    putOnLane(car, sim, lane, 30, 20);
+    sim.wanted.setLevel(1);
+    const unit = mustSpawnUnit(sim);
+    putOnLane(unit, sim, lane, 15, 24);
+    let locked = 0;
+    step(sim, 5, (t) => {
+      if (unit.speed > 8 && (unit.ai?.hold || unit.controls.handbrake)) locked++;
+      return input({ throttle: t < 2 ? 1 : 0 });
+    });
+    expect(locked).toBe(0);
+    // It stayed on his tail all along.
+    expect(dist(unit.pos, car.pos)).toBeLessThan(30);
   });
 });

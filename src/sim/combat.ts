@@ -17,6 +17,20 @@ export type DamageKind = 'bullet' | 'melee' | 'explosion' | 'vehicle' | 'fall' |
 
 const hit = makeRayHit();
 const obb: OBB = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
+/** Seconds before a weapon just switched to can fire. */
+const SWAP_TIME = 0.25;
+/** An assault on one victim is reported at most once per this many seconds: just under the pistol's 0.25 s cadence. */
+const ASSAULT_GAP = 0.24;
+
+/** The upright cylinder a character's body occupies for hits (shared scratch object). */
+const body = { r: 0, y0: 0, y1: 0 };
+function bodyOf(c: Character): typeof body {
+  const lying = c.state === 'dead' || c.state === 'knocked';
+  body.r = lying ? 0.6 : 0.36;
+  body.y0 = c.state === 'swimming' ? c.pos.y + 0.9 : c.pos.y;
+  body.y1 = c.state === 'swimming' ? c.pos.y + c.height : c.pos.y + (lying ? 0.45 : c.height);
+  return body;
+}
 
 interface RayResult {
   t: number;
@@ -35,13 +49,15 @@ export class CombatSystem {
   private fireWarnCooldown = 0;
   /** Victims already charged with a crime for the shot being resolved (one per victim per trigger pull). */
   private volley: Set<object> | null = null;
+  /** Sim time each victim was last reported as assaulted. */
+  private readonly assaulted = new WeakMap<object, number>();
 
   constructor(private readonly sim: Sim) {}
 
   update(dt: number): void {
     // Weapons change hands in many places (slot keys, pickups, shops, missions): drop stale reloads
-    // here, before the timers run them out and before the HUD shows them.
-    for (const c of this.sim.characters) this.syncReload(c);
+    // and start the swap time here, before the timers run them out and before the HUD shows them.
+    for (const c of this.sim.characters) this.syncWeapon(c);
     this.updateProjectiles(dt);
     this.updateBurning(dt);
     if (this.fireWarnCooldown > 0) this.fireWarnCooldown -= dt;
@@ -64,15 +80,16 @@ export class CombatSystem {
   }
 
   playerFire(p: Character, input: PlayerInput, fromVehicle: boolean): void {
+    this.syncWeapon(p);
     const w = p.inventory.spec();
     if (w.id === 'fists') {
       if (input.firePressed && !fromVehicle) this.melee(p);
       return;
     }
-    this.syncReload(p);
-    if (p.reloadTimer > 0 || p.fireCooldown > 0) return;
+    if (p.reloadTimer > 0) return;
     if (!w.auto && !input.firePressed) return;
     const slot = p.inventory.slot();
+    // An empty gun reloads on the trigger like on R, even while it is still being drawn.
     if (slot.clip <= 0) {
       if (slot.ammo > 0) this.startReload(p);
       else if (input.firePressed) {
@@ -82,8 +99,10 @@ export class CombatSystem {
       }
       return;
     }
+    if (p.fireCooldown > 0) return;
     slot.clip--;
     p.fireCooldown = 1 / w.rate;
+    slot.readyAt = this.sim.time + p.fireCooldown;
     p.shotTimer = 0.07;
     p.aimHold = 1.0;
     this.sim.progress.stats.shotsFired++;
@@ -116,8 +135,8 @@ export class CombatSystem {
 
   /** NPC shooting at a target character (or the vehicle it is in). */
   npcFire(c: Character, target: Character, accuracy: number): void {
+    this.syncWeapon(c);
     const w = c.inventory.spec();
-    this.syncReload(c);
     if (w.id === 'fists' || c.fireCooldown > 0 || c.reloadTimer > 0) return;
     const slot = c.inventory.slot();
     if (slot.clip <= 0) {
@@ -127,6 +146,7 @@ export class CombatSystem {
     if (!c.inventory.infinite) slot.clip--;
     else slot.clip = Math.max(0, slot.clip - 1);
     c.fireCooldown = (1 / w.rate) * (w.auto ? 1.4 : 2.2) + this.sim.rng.range(0, 0.25);
+    slot.readyAt = this.sim.time + c.fireCooldown;
     c.shotTimer = 0.07;
     c.aimHold = 1.2;
     const from = this.muzzle(c, false);
@@ -179,21 +199,35 @@ export class CombatSystem {
 
   /**
    * Point the crosshair ray hits first (ignoring the shooter). The camera sits behind the shooter, so
-   * only hits beyond the muzzle's depth along the ray count: a van the camera has backed into, or a car
-   * or person between the camera and the player, would otherwise be shot from the muzzle backwards.
+   * only what lies beyond the muzzle's depth along the ray counts: a van the camera has backed into, or a
+   * car or person between the camera and the player, would otherwise be shot from the muzzle backwards.
    */
   cameraTarget(o: V3, d: V3, range: number, shooter: Character, muzzle: V3): V3 {
     const t0 = Math.max(0, (muzzle.x - o.x) * d.x + (muzzle.y - o.y) * d.y + (muzzle.z - o.z) * d.z);
     const far = t0 + range + 12;
     const r = this.castRay(o.x, o.y, o.z, d.x, d.y, d.z, far, shooter, true, t0);
     // A prop the ray is inside at the muzzle's depth gives no direction: aim along the crosshair.
-    const t = r.kind === 'none' || r.t <= t0 ? far : r.t;
+    let t = r.kind === 'none' || r.t <= t0 ? far : r.t;
+    const c = r.character;
+    const flat = d.x * d.x + d.z * d.z;
+    if (c && flat > 1e-9) {
+      const b = bodyOf(c);
+      // Just past the muzzle, where the crosshair ray enters someone is the edge of him as seen from the
+      // muzzle, off to the side: aim through his middle there (nearest his axis, within his height).
+      if (t - t0 < 2 * b.r) {
+        let tm = ((c.pos.x - o.x) * d.x + (c.pos.z - o.z) * d.z) / flat;
+        if (d.y < -1e-6) tm = Math.min(tm, (b.y0 - o.y) / d.y);
+        else if (d.y > 1e-6) tm = Math.min(tm, (b.y1 - o.y) / d.y);
+        t = Math.max(t, tm);
+      }
+    }
     return { x: o.x + d.x * t, y: o.y + d.y * t, z: o.z + d.z * t };
   }
 
   /**
    * Nearest hit along a ray against world, vehicles, characters and helicopters. Nothing nearer than
-   * `minT` counts: the world is cast from there, and anything else the ray entered before it is skipped.
+   * `minT` counts: the world is cast from there, and anything else the ray entered before it is skipped,
+   * except a person who stands past it.
    */
   castRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, range: number, ignore: Character | null, forAim = false, minT = 0): RayResult {
     const sim = this.sim;
@@ -240,6 +274,7 @@ export class CombatSystem {
         res.nz = -dz;
       }
     }
+    const flat = dx * dx + dz * dz;
     for (const c of sim.characters) {
       if (c.removed || c === ignore || c.state === 'inVehicle' || c.state === 'entering') continue;
       if (c.state === 'dead' && forAim) continue;
@@ -247,10 +282,14 @@ export class CombatSystem {
       const cz = c.pos.z - oz;
       const along = cx * dx + cz * dz;
       if (along < -1 || along > res.t + 1) continue;
-      const lying = c.state === 'dead' || c.state === 'knocked';
-      const top = c.state === 'swimming' ? c.pos.y + c.height : c.pos.y + (lying ? 0.45 : c.height);
-      const bottom = c.state === 'swimming' ? c.pos.y + 0.9 : c.pos.y;
-      const t = rayCylinderY(ox, oy, oz, dx, dy, dz, c.pos.x, c.pos.z, lying ? 0.6 : 0.36, bottom, top, res.t);
+      const b = bodyOf(c);
+      let t = rayCylinderY(ox, oy, oz, dx, dy, dz, c.pos.x, c.pos.z, b.r, b.y0, b.y1, res.t);
+      // At point blank the crosshair ray enters someone in front of the player before the muzzle's depth:
+      // a person counts by where he stands (the ray's closest approach to his axis), and is hit just past it.
+      if (minT > 0 && t >= 0) {
+        const tc = flat > 1e-9 ? along / flat : -1;
+        t = tc >= minT ? Math.max(t, minT + 1e-3) : -1;
+      }
       if (t >= minT && t < res.t) {
         res.t = t;
         res.kind = 'flesh';
@@ -306,8 +345,10 @@ export class CombatSystem {
 
   melee(c: Character): void {
     const sim = this.sim;
+    this.syncWeapon(c);
     if (c.fireCooldown > 0) return;
     c.fireCooldown = 1 / 2.6;
+    c.inventory.slot().readyAt = sim.time + c.fireCooldown;
     c.punchTimer = 0.32;
     c.meleeCombo = (c.meleeCombo + 1) % 3;
     const fx = Math.sin(c.heading);
@@ -355,7 +396,7 @@ export class CombatSystem {
   // Reloading
 
   startReload(c: Character): void {
-    this.syncReload(c);
+    this.syncWeapon(c);
     const spec = c.inventory.spec();
     const slot = c.inventory.slot();
     if (spec.mag === 0 || c.reloadTimer > 0 || slot.clip >= spec.mag) return;
@@ -379,12 +420,21 @@ export class CombatSystem {
     if (!c.inventory.infinite) slot.ammo -= take;
   }
 
-  /** Cancels a reload whose weapon is no longer in hand; that weapon keeps its partial clip. */
-  private syncReload(c: Character): void {
-    if (c.reloadTimer > 0 && c.reloadWeapon !== c.inventory.current) {
+  /**
+   * Catches up with a weapon change. A reload whose weapon is no longer in hand is cancelled (that weapon
+   * keeps its partial clip). The weapon now in hand fires once the swap time and its own cooldown from
+   * its last shot have both passed, so switching back and forth never beats a weapon's rate of fire.
+   */
+  private syncWeapon(c: Character): void {
+    const current = c.inventory.current;
+    if (c.reloadTimer > 0 && c.reloadWeapon !== current) {
       c.reloadTimer = 0;
       c.reloadWeapon = null;
     }
+    if (c.drawnWeapon === current) return;
+    // The weapon a character is first seen with (spawned with) is ready at once.
+    if (c.drawnWeapon !== null) c.fireCooldown = Math.max(SWAP_TIME, c.inventory.slot().readyAt - this.sim.time);
+    c.drawnWeapon = current;
   }
 
   // ---------------------------------------------------------------------------
@@ -420,12 +470,19 @@ export class CombatSystem {
     }
   }
 
-  /** Reports the player attacking `victim`; the pellets of one shot are one crime per victim. */
+  /**
+   * Reports the player attacking `victim`. The pellets of one shot are one crime per victim, and so are
+   * hits on one victim within ASSAULT_GAP of the last reported one: automatic fire adds heat no faster
+   * than the pistol does.
+   */
   private reportAttack(victim: object, type: CrimeType, x: number, z: number): void {
     if (this.volley) {
       if (this.volley.has(victim)) return;
       this.volley.add(victim);
     }
+    const last = this.assaulted.get(victim);
+    if (last !== undefined && this.sim.time - last < ASSAULT_GAP) return;
+    this.assaulted.set(victim, this.sim.time);
     this.sim.wanted.crime(type, x, z);
   }
 

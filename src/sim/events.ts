@@ -35,6 +35,8 @@ export interface SimEvents {
   scream: { x: number; y: number; z: number };
   missionStarted: { id: string; title: string };
   missionEnded: { id: string; passed: boolean };
+  /** A side activity (taxi, vigilante, rampage) is over, whatever the outcome. */
+  activityEnded: { kind: 'taxi' | 'vigilante' | 'rampage' };
   reload: { character: Character };
   fade: { duration: number };
 }

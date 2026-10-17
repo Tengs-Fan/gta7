@@ -2,7 +2,7 @@
 // managed as a stack. Keyboard, gamepad and mouse can all drive them.
 
 import { clamp, formatMoney } from '../core/math';
-import type { UiActions } from '../input/input';
+import { KeyLabels, type UiActions } from '../input/input';
 import type { Sim } from '../sim/sim';
 import { shopItems } from '../sim/interactions';
 import { PACKAGE_COUNT } from '../sim/pickups';
@@ -107,7 +107,7 @@ export class Menus {
    *  key that opened a screen (or exited pointer lock) cannot also close it. */
   private age = 0;
 
-  constructor(parent: HTMLElement, private readonly host: MenuHost, private readonly map: MapImage) {
+  constructor(parent: HTMLElement, private readonly host: MenuHost, private readonly map: MapImage, private readonly keys = new KeyLabels()) {
     this.root = h('div');
     parent.appendChild(this.root);
   }
@@ -227,21 +227,23 @@ export class Menus {
   showControls(): void {
     const el = h('div', 'screen dim');
     const panel = h('div', 'panel');
+    // Named as printed on the player's keyboard: the bindings are positions, so AZERTY moves with Z Q S D.
+    const k = (code: string) => this.keys.label(code);
     const kb: Array<[string, string]> = [
-      ['Move / Drive', 'W A S D'],
+      ['Move / Drive', ['KeyW', 'KeyA', 'KeyS', 'KeyD'].map(k).join(' ')],
       ['Look / Aim', 'Mouse'],
       ['Sprint', 'Shift'],
       ['Jump / Handbrake', 'Space'],
       ['Shoot / Punch', 'Left click'],
       ['Aim', 'Right click'],
-      ['Enter / Exit vehicle', 'F'],
-      ['Interact / Horn', 'E'],
-      ['Reload / Next radio', 'R'],
-      ['Weapons', '1-6, Q, wheel'],
-      ['Taxi / Vigilante job', 'T'],
-      ['Camera distance', 'V'],
-      ['Map', 'M'],
-      ['Pause', 'Esc / P'],
+      ['Enter / Exit vehicle', k('KeyF')],
+      ['Interact / Horn', k('KeyE')],
+      ['Reload / Next radio', k('KeyR')],
+      ['Weapons', `1-6, ${k('KeyQ')}, wheel`],
+      ['Taxi / Vigilante job', k('KeyT')],
+      ['Camera distance', k('KeyV')],
+      ['Map', k('KeyM')],
+      ['Pause', `Esc / ${k('KeyP')}`],
     ];
     const pad: Array<[string, string]> = [
       ['Move / Steer', 'Left stick'],
@@ -259,9 +261,9 @@ export class Menus {
       ['Job', 'D-pad down'],
       ['Map / Pause', 'Back / Start'],
     ];
-    const grid = (rows: Array<[string, string]>) => `<div class="keys">${rows.map(([a, b]) => `<div><span>${a}</span><span>${b}</span></div>`).join('')}</div>`;
+    const grid = (rows: Array<[string, string]>) => `<div class="keys">${rows.map(([a, b]) => `<div><span>${a}</span><span>${escapeHtml(b)}</span></div>`).join('')}</div>`;
     panel.innerHTML = `<h2>CONTROLS</h2><h3>Keyboard &amp; mouse</h3>${grid(kb)}<h3>Gamepad</h3>${grid(pad)}
-      <h3>Tips</h3><p>Steal any car with <kbd>F</kbd>, even with someone inside. Lose the cops by breaking line of sight or by driving into a Spray Shack. Hidden packages, stunt ramps and rampages are scattered across San Azura. Drive a taxi or police car and press <kbd>T</kbd> for side jobs.</p>`;
+      <h3>Tips</h3><p>Steal any car with <kbd>${escapeHtml(k('KeyF'))}</kbd>, even with someone inside. Lose the cops by breaking line of sight or by driving into a Spray Shack. Hidden packages, stunt ramps and rampages are scattered across San Azura. Drive a taxi or police car and press <kbd>${escapeHtml(k('KeyT'))}</kbd> for side jobs.</p>`;
     const row = h('div', 'row-end');
     const back = h('button', 'btn primary', 'BACK');
     back.style.pointerEvents = 'auto';
@@ -565,7 +567,7 @@ export class Menus {
           .join(''),
       ),
     );
-    el.appendChild(h('div', 'map-hint', 'Click to set a waypoint (click it again to clear) · Drag to pan · Wheel to zoom · <kbd>M</kbd>/<kbd>Esc</kbd> to close'));
+    el.appendChild(h('div', 'map-hint', `Click to set a waypoint (click it again to clear) · Drag to pan · Wheel to zoom · <kbd>${escapeHtml(this.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`));
     const ctx = canvas.getContext('2d')!;
     // Start centred on the island showing the whole city.
     const b = sim.world.layout.bounds;
@@ -689,7 +691,12 @@ export class Menus {
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      zoom = Math.max(0, Math.min(4, zoom + (e.deltaY < 0 ? 0.5 : -0.5)));
+      // Zoom by distance scrolled, not per event: a touchpad sends dozens of tiny events per
+      // swipe. A classic 100 px notch is one 0.5 step.
+      const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1;
+      const dy = e.deltaY * unit;
+      if (!Number.isFinite(dy) || dy === 0 || Math.abs(e.deltaX * unit) > Math.abs(dy)) return;
+      zoom = clamp(zoom - dy * 0.005, 0, 4);
     }, { passive: false });
     this.push({
       el,

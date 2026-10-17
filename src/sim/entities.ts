@@ -27,6 +27,8 @@ export interface WeaponSlot {
   /** Rounds in reserve (not counting the loaded magazine). */
   ammo: number;
   clip: number;
+  /** Sim time from which this weapon can fire again; putting it away does not reset it. */
+  readyAt: number;
 }
 
 export class Inventory {
@@ -35,7 +37,7 @@ export class Inventory {
   infinite = false;
 
   constructor() {
-    this.slots.set('fists', { ammo: 0, clip: 0 });
+    this.slots.set('fists', { ammo: 0, clip: 0, readyAt: 0 });
   }
 
   has(id: WeaponId): boolean {
@@ -57,7 +59,7 @@ export class Inventory {
       s.ammo = Math.min(9999, s.ammo + ammo);
     } else {
       const clip = Math.min(spec.mag, ammo);
-      this.slots.set(id, { ammo: Math.min(9999, ammo - clip), clip });
+      this.slots.set(id, { ammo: Math.min(9999, ammo - clip), clip, readyAt: 0 });
     }
   }
 
@@ -69,7 +71,7 @@ export class Inventory {
   /** Removes everything except fists. */
   clear(): void {
     this.slots.clear();
-    this.slots.set('fists', { ammo: 0, clip: 0 });
+    this.slots.set('fists', { ammo: 0, clip: 0, readyAt: 0 });
     this.current = 'fists';
   }
 
@@ -127,7 +129,10 @@ export class Character {
   reloadTimer = 0;
   /** Weapon the running reload is for; switching away from it cancels the reload. */
   reloadWeapon: WeaponId | null = null;
+  /** Seconds until the weapon in hand can fire (or punch) again. */
   fireCooldown = 0;
+  /** Weapon in hand when combat last checked; switching starts the swap time. Null until first checked. */
+  drawnWeapon: WeaponId | null = null;
   knockTimer = 0;
   deadTime = 0;
   /** Seconds this character has been continuously in water deep enough to swim. */

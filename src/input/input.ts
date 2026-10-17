@@ -33,8 +33,12 @@ const STICK_LOOK_Y = 10 * 60;
 /** RT counts as pulled above PRESS and as released below RELEASE (hysteresis against jitter). */
 const TRIGGER_PRESS = 0.4;
 const TRIGGER_RELEASE = 0.3;
-/** A wheel pause longer than this (ms) starts a new gesture; within one, every WHEEL_STEP px is another step. */
-const WHEEL_GESTURE_GAP = 200;
+/**
+ * A wheel pause longer than this (ms) starts a new gesture; within one, every WHEEL_STEP px is another step.
+ * Touchpad and smooth-scroll streams send an event every frame (~16 ms), while separate wheel notches,
+ * even macOS's 4 px ones, come further apart unless spun faster than about 15 per second.
+ */
+const WHEEL_GESTURE_GAP = 60;
 const WHEEL_STEP = 100;
 /** Every physical key that poll() reads by code. */
 const BOUND_CODES = new Set([
@@ -59,6 +63,68 @@ function letterAlias(ev: KeyboardEvent): string | null {
   if (BOUND_CODES.has(ev.code) || typeof ev.key !== 'string') return null;
   const k = ev.key.toLowerCase();
   return LETTER_SHORTCUTS.has(k) ? `Key${k.toUpperCase()}` : null;
+}
+
+/** A character worth printing as a key label. Keyboards for other scripts also carry the Latin letters. */
+const LABEL_CHAR = /^(?!\s)[\p{Script=Latin}\p{Script=Common}]$/u;
+
+type LayoutNavigator = { keyboard?: { getLayoutMap?(): Promise<Iterable<[string, string]>> } };
+
+/**
+ * On-screen names for the bound keys. Bindings are positional (KeyboardEvent.code, named after
+ * US QWERTY), so on AZERTY the player moves with the keys printed Z Q S D. The layout comes from
+ * the Keyboard API where the browser has it (Chromium), else is learned from key presses; keys
+ * not seen yet keep their QWERTY names.
+ */
+export class KeyLabels {
+  /** What each physical key types on this layout (lower case). */
+  private readonly typed = new Map<string, string>();
+
+  /** Reads the whole layout from navigator.keyboard.getLayoutMap(), where there is one. */
+  async load(): Promise<void> {
+    try {
+      const map = await (navigator as unknown as LayoutNavigator).keyboard?.getLayoutMap?.();
+      if (!map) return;
+      this.typed.clear();
+      for (const [code, key] of map) this.set(code, key);
+    } catch {
+      // Refused (e.g. in a cross-origin frame): keep learning from key presses.
+    }
+  }
+
+  /** Learns what a key types from its keydown (with a modifier held it types something else). */
+  learn(ev: KeyboardEvent): void {
+    if (ev.shiftKey || ev.altKey || ev.ctrlKey || ev.metaKey || ev.getModifierState?.('AltGraph')) return;
+    this.set(ev.code, ev.key);
+  }
+
+  private set(code: string, key: string): void {
+    if (typeof code !== 'string' || !code || typeof key !== 'string' || !LABEL_CHAR.test(key)) return;
+    const k = key.toLowerCase();
+    for (const [c, v] of this.typed) if (v === k && c !== code) this.typed.delete(c);
+    this.typed.set(code, k);
+  }
+
+  /** The key that types `ch`, if known. */
+  private codeTyping(ch: string): string | undefined {
+    for (const [c, v] of this.typed) if (v === ch) return c;
+    return undefined;
+  }
+
+  /** The printed name of the key bound to a Key* or Digit* code. */
+  label(code: string): string {
+    const m = /^(Key|Digit)([A-Z0-9])$/.exec(code);
+    if (!m) return code;
+    const q = m[2]!.toLowerCase();
+    // The number row carries its digits on every layout (AZERTY types & é " ' ( - there unshifted).
+    if (m[1] === 'Digit') return q;
+    const printed = this.codeTyping(q);
+    // A letter shortcut also answers to the key printed with its letter if that key is free (see letterAlias).
+    if (printed !== undefined && LETTER_SHORTCUTS.has(q) && !BOUND_CODES.has(printed)) return q.toUpperCase();
+    // Not seen yet while its QWERTY letter sits on another key: such layouts swap the pair (AZERTY's A / Q, Z / W).
+    const own = this.typed.get(code) ?? (printed?.startsWith('Key') ? printed.slice(3).toLowerCase() : q);
+    return own.toUpperCase();
+  }
 }
 
 export class Input {
@@ -88,6 +154,8 @@ export class Input {
   enabled = true;
   /** Whether gameplay wants the mouse captured right now (set by the game). */
   wantsPointerLock: () => boolean = () => false;
+  /** Names of the keys on the player's keyboard layout, for prompts and menus. */
+  readonly labels = new KeyLabels();
   private readonly listeners: Array<[EventTarget, string, EventListener]> = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {}
@@ -97,9 +165,11 @@ export class Input {
       t.addEventListener(type, fn, opts);
       this.listeners.push([t, type, fn]);
     };
+    void this.labels.load();
     on(window, 'keydown', (e) => {
       const ev = e as KeyboardEvent;
       if (PREVENT.has(ev.code)) ev.preventDefault();
+      this.labels.learn(ev);
       const alias = letterAlias(ev);
       if (alias) this.aliases.set(ev.code, alias);
       for (const code of alias ? [ev.code, alias] : [ev.code]) {

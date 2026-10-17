@@ -11,7 +11,7 @@ import { missionSpots } from './sim/missions/spots';
 import { applySave, serialize, type SaveData } from './sim/progress';
 import { Sim } from './sim/sim';
 import { WEAPON_ORDER, type WeaponId } from './sim/specs';
-import { Hud } from './ui/hud';
+import { escapeHtml, Hud } from './ui/hud';
 import { MapImage } from './ui/mapRender';
 import { Menus, type MenuHost } from './ui/menus';
 import { StaticWorld } from './world/staticWorld';
@@ -49,9 +49,9 @@ export class Game {
     this.input = new Input(canvas);
     this.input.attach();
     this.input.wantsPointerLock = () => this.mode === 'game' && !this.menus.open && !this.crashed;
-    this.hud = new Hud(ui, this.mapImage);
+    this.hud = new Hud(ui, this.mapImage, this.input.labels);
     this.hud.setVisible(false);
-    this.menus = new Menus(ui, this.menuHost(), this.mapImage);
+    this.menus = new Menus(ui, this.menuHost(), this.mapImage, this.input.labels);
     this.applySettings(this.settings, false);
     this.sim = this.makeTitleSim();
     this.renderer.attach(this.sim);
@@ -161,7 +161,7 @@ export class Game {
     if (!save || sim.progress.missionsDone.length === 0) {
       const lou = missionSpots(this.world).lou;
       this.hud.waypoint = { x: lou.x, z: lou.z };
-      this.hud.help('Welcome to San Azura. Mama Lou has work for you: follow the <b style="color:#c04fff">purple route</b> to the pink <b style="color:#ff4fa3">L</b> on your radar. Steal a ride with <kbd>F</kbd>.', 9);
+      this.hud.help(`Welcome to San Azura. Mama Lou has work for you: follow the <b style="color:#c04fff">purple route</b> to the pink <b style="color:#ff4fa3">L</b> on your radar. Steal a ride with <kbd>${escapeHtml(this.input.labels.label('KeyF'))}</kbd>.`, 9);
     } else {
       this.hud.help('Welcome back. Your game was loaded.', 4);
     }

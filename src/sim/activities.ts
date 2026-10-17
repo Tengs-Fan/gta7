@@ -136,6 +136,7 @@ export class Activities {
       for (const c of sim.characters) if (c.missionTag === 'rampage') this.releaseCharacter(c);
       if (!sim.progress.rampages.includes(j.tag)) sim.pickupSys.rearmRampage(j.tag, 25);
     }
+    sim.events.emit('activityEnded', { kind: j.kind });
     this.say(text);
   }
 

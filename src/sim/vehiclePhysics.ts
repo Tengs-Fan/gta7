@@ -3,7 +3,7 @@
 import { circleVsObb, makeContact, obbBounds, obbVsAabb, obbVsObb, type AABB, type Contact, type OBB } from '../core/collision';
 import { clamp, damp, dampAngle, moveTowards, wrapAngle } from '../core/math';
 import type { StaticCollider } from '../world/colliders';
-import { WATER_Y } from '../world/constants';
+import { DECK_SLAB, WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
 import type { Vehicle } from './entities';
 
@@ -11,6 +11,8 @@ export const VEHICLE_GRAVITY = 17;
 /** Deceleration (m/s^2) of a driven car with neither throttle nor brake pressed. */
 export const ENGINE_BRAKE = 1.4;
 const MAX_STEP_UP = 1.0;
+/** Cars sink where the water is deeper than this. */
+const SINK_DEPTH = 0.8;
 
 export interface VehiclePhysicsHost {
   world: StaticWorld;
@@ -56,6 +58,38 @@ function pushBlocked(v: Vehicle, world: StaticWorld, ux: number, uz: number, d: 
   return ledgeTooHigh(v, world, v.pos.x + ux * d, v.pos.z + uz * d, ux, uz, leadingEdge(v, ux, uz));
 }
 
+/** How high a vehicle centred at (x, z) may sit with its roof under the slab of every deck over it (Infinity in the open). */
+function deckCeiling(v: Vehicle, world: StaticWorld, x: number, z: number): number {
+  vehicleObb(v, obbA);
+  obbA.x = x;
+  obbA.z = z;
+  let y = Infinity;
+  for (const d of world.layout.decks) if (obbVsAabb(obbA, d.rect, contact)) y = Math.min(y, d.y - DECK_SLAB - v.spec.height - 0.05);
+  return y;
+}
+
+/** Height at which a vehicle sinking at (x, z) settles: out of sight in deep water, on the sand where it is shallower, under any deck. */
+function sinkFloor(v: Vehicle, world: StaticWorld, x: number, z: number): number {
+  return Math.min(Math.max(WATER_Y - 3.2, world.baseGround(x, z) - 0.3), deckCeiling(v, world, x, z));
+}
+
+/**
+ * True when a sinking vehicle may not drift on to (x, z): its centre or leading edge would reach water too shallow to sink in
+ * (quays, the beach), it would have to rise to settle there (the sand at the beach's ends; the slack still lets it slide up
+ * the gentle beach slope), or it would slide under a deck its roof is still above.
+ */
+function sinkBlocked(v: Vehicle, world: StaticWorld, x: number, z: number): boolean {
+  const sp = Math.hypot(v.vel.x, v.vel.z);
+  if (sp < 1e-6) return false;
+  const ux = v.vel.x / sp;
+  const uz = v.vel.z / sp;
+  const edge = leadingEdge(v, ux, uz);
+  if (Math.max(world.baseGround(x, z), world.baseGround(x + ux * edge, z + uz * edge)) > WATER_Y - SINK_DEPTH) return true;
+  const ceil = deckCeiling(v, world, x, z);
+  if (v.pos.y > ceil && ceil < deckCeiling(v, world, v.pos.x, v.pos.z)) return true;
+  return sinkFloor(v, world, x, z) > v.pos.y + 0.05;
+}
+
 export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): void {
   if (v.removed) return;
   const s = v.spec;
@@ -82,10 +116,17 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     v.vel.z *= k;
     v.angVel *= k;
     v.vy = -0.9;
-    v.pos.x += v.vel.x * dt;
-    v.pos.z += v.vel.z * dt;
-    // Sink out of sight, but rest on the sand where the water is shallower (piers do not count).
-    v.pos.y = Math.max(WATER_Y - 3.2, world.baseGround(v.pos.x, v.pos.z) - 0.3, v.pos.y + v.vy * dt);
+    // A wreck pushed back towards land (a blast, a collision) stops instead of popping up out of the sea.
+    const nx = v.pos.x + v.vel.x * dt;
+    const nz = v.pos.z + v.vel.z * dt;
+    if (sinkBlocked(v, world, nx, nz)) {
+      v.vel.x = 0;
+      v.vel.z = 0;
+    } else {
+      v.pos.x = nx;
+      v.pos.z = nz;
+    }
+    v.pos.y = Math.max(sinkFloor(v, world, v.pos.x, v.pos.z), v.pos.y + v.vy * dt);
     v.sinkTimer += dt;
     updateDerived(v, dt, 0);
     return;
@@ -243,7 +284,7 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   }
 
   // --- Water ---
-  if (v.pos.y < WATER_Y + 0.15 && world.waterDepth(v.pos.x, v.pos.z) > 0.8) {
+  if (v.pos.y < WATER_Y + 0.15 && world.waterDepth(v.pos.x, v.pos.z) > SINK_DEPTH) {
     v.inWater = true;
     v.airborne = false;
     host.onVehicleEnteredWater(v);

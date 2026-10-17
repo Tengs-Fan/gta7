@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { Rng } from '../core/rng';
-import { BEACH_W, BOARDWALK_W, CROSSWALK_W, CURB_H, LANE_W, SEABED_Y, SIDEWALK_W, WATER_Y } from '../world/constants';
+import { BEACH_W, BOARDWALK_W, CROSSWALK_W, CURB_H, DECK_SLAB, LANE_W, SEABED_Y, SIDEWALK_W, WATER_Y } from '../world/constants';
 import { rectCX, rectCZ, rectD, rectW, sandHeight, type Building, type FacadeStyle, type GroundKind, type Side } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB } from './geo';
@@ -389,7 +389,7 @@ export class CityView {
     const deck = new GeoBuilder(false);
     const pillars: THREE.Vector3[] = [];
     for (const d of this.world.layout.decks) {
-      deck.box(d.rect.minX, d.y - 0.35, d.rect.minZ, d.rect.maxX, d.y, d.rect.maxZ, { uv: { kind: 'world', scale: 4 }, bottom: true });
+      deck.box(d.rect.minX, d.y - DECK_SLAB, d.rect.minZ, d.rect.maxX, d.y, d.rect.maxZ, { uv: { kind: 'world', scale: 4 }, bottom: true });
       for (let x = d.rect.minX + 2; x < d.rect.maxX; x += 7) {
         for (const z of [d.rect.minZ + 0.6, d.rect.maxZ - 0.6]) if (WATER_Y > this.world.baseGround(x, z) - 0.1) pillars.push(new THREE.Vector3(x, d.y, z));
       }
@@ -403,7 +403,7 @@ export class CityView {
       pillars.forEach((p, i) => {
         const h = p.y - SEABED_Y;
         m.makeScale(1, h, 1);
-        m.setPosition(p.x, p.y - 0.35, p.z);
+        m.setPosition(p.x, p.y - DECK_SLAB, p.z);
         pm.setMatrixAt(i, m);
       });
       pm.instanceMatrix.needsUpdate = true;

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AudioEngine } from '../../src/audio/audio';
 import { wrapAngle } from '../../src/core/math';
 import { Game } from '../../src/game';
-import { Input, type UiActions } from '../../src/input/input';
+import { Input, KeyLabels, type FrameInput, type UiActions } from '../../src/input/input';
 import { CameraController } from '../../src/render/camera';
 import { writeGame, type Settings } from '../../src/settings';
 import { Progress, serialize } from '../../src/sim/progress';
@@ -1038,5 +1038,342 @@ describe('game flows', () => {
     expect(writeGame(serialize(new Progress(), [], 0, 12, 1))).toBe(true);
     game.continueGame();
     expect(game.mode).toBe('game');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 1b: issues found by re-reviewing the round-1 fixes.
+
+const NO_UI: UiActions = { pause: false, map: false, camera: false, radioNext: false, radioPrev: false, confirm: false, back: false, up: false, down: false, left: false, right: false };
+
+function stubHost(over: Partial<MenuHost> = {}): MenuHost {
+  return {
+    hasSave: () => false,
+    newGame: vi.fn(),
+    continueGame: vi.fn(),
+    resume: vi.fn(),
+    quitToTitle: vi.fn(),
+    abandonMission: vi.fn(),
+    settings: () => ({ quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68 }),
+    applySettings: () => undefined,
+    deleteSave: () => undefined,
+    sim: () => null,
+    setWaypoint: () => undefined,
+    waypoint: () => null,
+    click: () => undefined,
+    ...over,
+  };
+}
+
+describe('side activity objective on the HUD', () => {
+  function setup() {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    let ended = 0;
+    sim.events.on('activityEnded', () => ended++);
+    /** Advances the side activity and the HUD together at 60 fps. */
+    const run = (seconds: number) => {
+      for (let t = 0; t < seconds; t += 1 / 60) {
+        sim.activities.update(1 / 60);
+        hud.update(1 / 60, sim, 0, false, null, 0);
+      }
+    };
+    const kill = () => {
+      const p = sim.player.pos;
+      const g = sim.spawnCharacter('gang', p.x + 6, p.z);
+      g.missionTag = 'rampage';
+      sim.combat.kill(g, sim.player, 'bullet', 1, 0);
+    };
+    const objective = () => (el.objective!.classList.contains('show') ? el.objective!.textContent : null);
+    const startRampage = () => {
+      expect(sim.activities.startRampage('rampage:0')).toBe(true);
+      for (let i = 0; i < 5; i++) {
+        kill();
+        run(0.5);
+      }
+      run(1.5); // the RAMPAGE! title is over, so the result banner shows at once
+      expect(objective()).toBe('Rampage: 5/12 gang members');
+    };
+    return { el, sim, run, kill, objective, startRampage, ended: () => ended };
+  }
+
+  it('RAMPAGE PASSED takes the kill count off the screen', () => {
+    const { el, sim, run, kill, objective, startRampage, ended } = setup();
+    startRampage();
+    for (let i = 5; i < 11; i++) {
+      kill();
+      run(0.5);
+    }
+    expect(objective()).toBe('Rampage: 11/12 gang members');
+    kill();
+    run(1 / 60);
+    expect(sim.activities.busy).toBe(false);
+    expect(ended()).toBe(1);
+    expect(el.bigT!.textContent).toBe('RAMPAGE PASSED');
+    expect(objective()).toBe(null);
+  });
+
+  it('RAMPAGE FAILED (out of time) takes it off too', () => {
+    const { el, sim, run, objective, startRampage, ended } = setup();
+    startRampage();
+    (sim.activities.job as { timer: number }).timer = 0.05;
+    run(0.1);
+    expect(sim.activities.busy).toBe(false);
+    expect(ended()).toBe(1);
+    expect(el.bigT!.textContent).toBe('RAMPAGE FAILED');
+    expect(objective()).toBe(null);
+  });
+
+  it('so does getting wasted mid-rampage', () => {
+    const { el, sim, run, objective, startRampage, ended } = setup();
+    startRampage();
+    sim.playerDied();
+    run(1 / 60);
+    expect(ended()).toBe(1);
+    expect(el.bigT!.textContent).toBe('WASTED');
+    expect(el.help!.textContent).toBe('Rampage failed.');
+    expect(objective()).toBe(null);
+  });
+});
+
+describe('map wheel zoom', () => {
+  function setup() {
+    const sim = quickSim();
+    let wp: { x: number; z: number } | null = null;
+    const host = stubHost({ sim: () => sim, setWaypoint: (p) => (wp = p), waypoint: () => wp });
+    const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, host, new MapImage(world()));
+    menus.showMap();
+    menus.input(NO_UI, 0.3); // the first frame sizes the canvas to the 1280 x 720 window
+    const canvas = (menus.top!.el as unknown as FakeElement).children[0]!;
+    const map = (menus as unknown as { map: MapImage }).map;
+    const base = Math.min(1280 / (map.canvas.width / MAP_SCALE), 720 / (map.canvas.height / MAP_SCALE));
+    const b = sim.world.layout.bounds;
+    const cx = (b.landMinX + b.beachEndX) / 2;
+    /** The zoom level, read back from where a click 100 px right of the centre drops the waypoint. */
+    const zoom = () => {
+      wp = null;
+      pointer(canvas, 'down', 740, 360, 1);
+      pointer(canvas, 'up', 740, 360, 0);
+      const k = 100 / (wp!.x - cx);
+      wp = null;
+      return Math.log(k / base) / Math.log(1.5);
+    };
+    const wheel = (deltaY: number, times = 1, more: { deltaX?: number; deltaMode?: number; ctrlKey?: boolean } = {}) => {
+      for (let i = 0; i < times; i++) canvas.dispatchEvent(ev('wheel', { deltaY, deltaX: 0, deltaMode: 0, ctrlKey: false, ...more }));
+    };
+    return { zoom, wheel };
+  }
+
+  it('zooms by the distance scrolled, not per event', () => {
+    const { zoom, wheel } = setup();
+    expect(zoom()).toBeCloseTo(0, 6);
+    wheel(-100); // one classic notch
+    expect(zoom()).toBeCloseTo(0.5, 6);
+    wheel(100);
+    expect(zoom()).toBeCloseTo(0, 6);
+    wheel(-3, 25); // a 75 px touchpad brush used to slam to full zoom
+    expect(zoom()).toBeCloseTo(0.375, 6);
+    wheel(-3, 1, { deltaMode: 1 }); // Firefox line mode: 3 lines = 120 px
+    expect(zoom()).toBeCloseTo(0.975, 6);
+  });
+
+  it('ignores horizontal swipes and stays within its limits', () => {
+    const { zoom, wheel } = setup();
+    wheel(-200);
+    expect(zoom()).toBeCloseTo(1, 6);
+    wheel(0, 10, { deltaX: 40 });
+    wheel(5, 10, { deltaX: 40 });
+    expect(zoom()).toBeCloseTo(1, 6);
+    wheel(-100, 20);
+    expect(zoom()).toBeCloseTo(4, 6);
+    wheel(100, 20);
+    expect(zoom()).toBeCloseTo(0, 6);
+  });
+});
+
+describe('quick small wheel notches', () => {
+  function setup() {
+    const canvas = new FakeElement('canvas');
+    const inp = new Input(canvas as unknown as HTMLCanvasElement);
+    inp.attach();
+    let t = 1000;
+    /** One wheel event per frame, `gap` ms apart; returns the weapon steps they caused. */
+    return (deltas: number[], gap: number) => {
+      let next = 0;
+      let prev = 0;
+      const frame = () => {
+        const fi = inp.poll(1 / 60);
+        inp.endFrame();
+        if (fi.player.nextWeapon) next++;
+        if (fi.player.prevWeapon) prev++;
+      };
+      for (const deltaY of deltas) {
+        t += gap;
+        canvas.dispatchEvent(ev('wheel', { deltaY, deltaX: 0, deltaMode: 0, ctrlKey: false, timeStamp: t }));
+        frame();
+      }
+      for (let i = 0; i < 10; i++) frame();
+      t += 1000;
+      return { next, prev };
+    };
+  }
+
+  it('each step once even when a few come quickly (macOS 4 px, Linux 53 px notches)', () => {
+    const scroll = setup();
+    expect(scroll([-4, -4, -4], 100)).toEqual({ next: 0, prev: 3 });
+    expect(scroll(Array<number>(5).fill(4), 120)).toEqual({ next: 5, prev: 0 });
+    expect(scroll(Array<number>(5).fill(53), 80)).toEqual({ next: 5, prev: 0 });
+  });
+
+  it('a touchpad stream is still one gesture', () => {
+    const scroll = setup();
+    expect(scroll(Array<number>(30).fill(10), 16)).toEqual({ next: 3, prev: 0 }); // 300 px: 1 + one per 100 px after the first event
+    expect(scroll(Array<number>(25).fill(-3), 8)).toEqual({ next: 0, prev: 1 }); // 120 Hz brush
+  });
+});
+
+describe('key names follow the keyboard layout', () => {
+  /** A map like navigator.keyboard.getLayoutMap() returns: each row's codes, in QWERTY order, to what they type. */
+  function layoutMap(rows: { digits?: string; top: string; home: string; bottom: string }): Map<string, string> {
+    const codes = {
+      digits: ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'],
+      top: ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyO', 'KeyP'],
+      home: ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL', 'Semicolon'],
+      bottom: ['KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'Comma', 'Period', 'Slash'],
+    };
+    const m = new Map<string, string>();
+    for (const [row, chars] of Object.entries({ digits: '1234567890', ...rows })) [...chars].forEach((ch, i) => m.set(codes[row as keyof typeof codes][i]!, ch));
+    return m;
+  }
+  const AZERTY = layoutMap({ digits: '&é"\'(-è_çà', top: 'azertyuiop', home: 'qsdfghjklm', bottom: 'wxcvbn,;:!' });
+  const DVORAK = layoutMap({ top: '\',.pyfgcrl', home: 'aoeuidhtns', bottom: ';qjkxbmwvz' });
+  const COLEMAK = layoutMap({ top: 'qwfpgjluy;', home: 'arstdhneio', bottom: 'zxcvbkm,./' });
+  const COLEMAK_DH = layoutMap({ top: 'qwfpbjluy;', home: 'arstgmneio', bottom: 'zxcdvkh,./' });
+
+  function setup(layout: Map<string, string> | 'none' | 'refused') {
+    const getLayoutMap = layout === 'refused' ? () => Promise.reject(new Error('SecurityError')) : async () => layout;
+    vi.stubGlobal('navigator', { getGamepads: () => [], ...(layout === 'none' ? {} : { keyboard: { getLayoutMap } }) });
+    const inp = newInput();
+    inp.attach();
+    const press = (code: string, key: string, mods: Record<string, boolean> = {}) => {
+      dom.win.dispatchEvent(ev('keydown', { code, key, repeat: false, ...mods }));
+      const fi = inp.poll(1 / 60);
+      inp.endFrame();
+      dom.win.dispatchEvent(keyEv('keyup', code, key));
+      return fi;
+    };
+    /** The keyboard rows of the CONTROLS screen, label by action. */
+    const controls = () => {
+      const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, stubHost(), new MapImage(world()), inp.labels);
+      menus.showControls();
+      const html = (menus.top!.el as unknown as FakeElement).children.find((c) => c.classList.contains('panel'))!.innerHTML;
+      const [keyboard, rest] = html.split('<h3>Gamepad</h3>');
+      const rows = Object.fromEntries([...keyboard!.matchAll(/<div><span>([^<]*)<\/span><span>([^<]*)<\/span><\/div>/g)].map((m) => [m[1]!, m[2]!]));
+      return { rows, tips: rest!.slice(rest!.indexOf('<h3>Tips</h3>')) };
+    };
+    return { inp, press, controls };
+  }
+
+  /** Each labelled action and how to tell that it fired. */
+  const ACTIONS: Array<[string, (f: FrameInput) => boolean]> = [
+    ['KeyW', (f) => f.player.moveZ === 1],
+    ['KeyA', (f) => f.player.moveX === -1],
+    ['KeyS', (f) => f.player.moveZ === -1],
+    ['KeyD', (f) => f.player.moveX === 1],
+    ['KeyF', (f) => f.player.enterExit],
+    ['KeyE', (f) => f.player.interact],
+    ['KeyR', (f) => f.player.reload],
+    ['KeyQ', (f) => f.player.prevWeapon],
+    ['KeyT', (f) => f.player.job],
+    ['KeyV', (f) => f.ui.camera],
+    ['KeyM', (f) => f.ui.map],
+    ['KeyP', (f) => f.ui.pause],
+  ];
+
+  it('AZERTY (Keyboard API): CONTROLS says Z Q S D to move and A for the previous weapon', async () => {
+    const { controls } = setup(AZERTY);
+    await flush();
+    const { rows } = controls();
+    expect(rows['Move / Drive']).toBe('Z Q S D');
+    expect(rows['Weapons']).toBe('1-6, A, wheel');
+    // M works on its printed key too (letter alias), and the other shortcuts sit where QWERTY has them.
+    expect([rows['Map'], rows['Enter / Exit vehicle'], rows['Interact / Horn'], rows['Reload / Next radio'], rows['Taxi / Vigilante job'], rows['Camera distance'], rows['Pause']]).toEqual(['M', 'F', 'E', 'R', 'T', 'V', 'Esc / P']);
+  });
+
+  it('every label names a key that really does the job (AZERTY, Dvorak, Colemak, Colemak-DH)', async () => {
+    for (const layout of [AZERTY, DVORAK, COLEMAK, COLEMAK_DH]) {
+      const { inp, press } = setup(layout);
+      await flush();
+      for (const [code, fired] of ACTIONS) {
+        const label = inp.labels.label(code);
+        const physical = [...layout].find(([, ch]) => ch.toUpperCase() === label);
+        expect(physical, `${code} is labelled ${label}`).toBeDefined();
+        expect(fired(press(physical![0], physical![1])), `${code} is labelled ${label}`).toBe(true);
+      }
+      inp.detach();
+    }
+  });
+
+  it('prompts, tips, the map hint and the welcome help use the same names', async () => {
+    const { inp, controls } = setup(COLEMAK_DH);
+    await flush();
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()), inp.labels);
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    hud.update(1 / 60, sim, 0, false, 'Press E to shop at Bang Bang Guns', 0);
+    expect(el.prompt!.innerHTML).toBe('Press <kbd>E</kbd> to shop at Bang Bang Guns'); // 'e' is on a free key: the alias works
+    hud.update(1 / 60, sim, 0, false, 'Press T to start a taxi job', 0);
+    expect(el.prompt!.innerHTML).toBe('Press <kbd>B</kbd> to start a taxi job');
+    sim.events.emit('message', { text: 'Jobs: drive a taxi or a police car and press T.', duration: 3 });
+    expect(el.help!.innerHTML).toBe('Jobs: drive a taxi or a police car and press <kbd>B</kbd>.');
+    expect(controls().tips).toContain('Steal any car with <kbd>T</kbd>');
+    const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, stubHost({ sim: () => sim }), new MapImage(world()), inp.labels);
+    menus.showMap();
+    const hint = (menus.top!.el as unknown as FakeElement).children.find((c) => c.classList.contains('map-hint'))!;
+    expect(hint.innerHTML).toContain('<kbd>H</kbd>/<kbd>Esc</kbd> to close');
+  });
+
+  it('the game wires the layout into its HUD and menus', async () => {
+    vi.stubGlobal('navigator', { getGamepads: () => [], keyboard: { getLayoutMap: async () => COLEMAK } });
+    const uiRoot = new FakeElement('div');
+    const game = new Game(new FakeElement('canvas') as unknown as HTMLCanvasElement, uiRoot as unknown as HTMLElement);
+    await flush();
+    game.menus.showControls();
+    expect((game.menus.top!.el as unknown as FakeElement).all().find((c) => c.classList.contains('panel'))!.innerHTML).toContain('<span>Move / Drive</span><span>W A R S</span>');
+    game.newGame();
+    expect(uiRoot.all().find((e) => e.dataset.el === 'help')!.innerHTML).toContain('Steal a ride with <kbd>T</kbd>.');
+  });
+
+  it('without the Keyboard API the names are learned from key presses', () => {
+    const { inp, press, controls } = setup('none');
+    const names = () => ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyM', 'Digit1'].map((c) => inp.labels.label(c)).join(' ');
+    expect(names()).toBe('W A S D Q M 1');
+    // Modifiers (here AltGr) and other scripts type something else than the key's own label.
+    press('KeyE', '€', { ctrlKey: true, altKey: true });
+    press('KeyW', 'ц');
+    press('Digit1', '&');
+    expect(names()).toBe('W A S D Q M 1');
+    expect(inp.labels.label('KeyE')).toBe('E');
+    // AZERTY: moving teaches Z and Q; QWERTY's Q is then known to be elsewhere, so its key is A.
+    press('KeyW', 'z');
+    press('KeyA', 'q');
+    expect(names()).toBe('Z Q S D A M 1');
+    expect(controls().rows['Weapons']).toBe('1-6, A, wheel');
+    press('KeyM', ',');
+    expect(inp.labels.label('KeyM')).toBe(',');
+    press('Semicolon', 'm'); // the key printed M opens the map through its letter alias
+    expect(inp.labels.label('KeyM')).toBe('M');
+  });
+
+  it('QWERTY names when the layout is unknown or the Keyboard API refuses', async () => {
+    expect(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyM'].map((c) => new KeyLabels().label(c))).toEqual(['W', 'A', 'S', 'D', 'Q', 'M']);
+    const { controls } = setup('refused');
+    await flush();
+    const { rows } = controls();
+    expect(rows['Move / Drive']).toBe('W A S D');
+    expect(rows['Weapons']).toBe('1-6, Q, wheel');
   });
 });

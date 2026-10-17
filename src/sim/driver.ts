@@ -4,7 +4,8 @@
 import { clamp, pointSegDist, wrapAngle } from '../core/math';
 import type { Rng } from '../core/rng';
 import { isSolidForSight, makeRayHit } from '../world/colliders';
-import { axisOf, type Lane, type RoadNetwork, type Turn } from '../world/roads';
+import { LANE_W } from '../world/constants';
+import { axisOf, reverseDir, type Lane, type RoadNetwork, type Turn } from '../world/roads';
 import type { StaticWorld } from '../world/staticWorld';
 import type { Character, Vehicle } from './entities';
 import type { VehicleSpec } from './specs';
@@ -41,6 +42,15 @@ const REVERSE_SPEED = 3;
 const HOLD_TIMEOUT = 4;
 /** A queue that has not moved for this long is handled like any other blockage (jams, cycles). */
 const QUEUE_PATIENCE = 40;
+/** Seconds two cars may stand nose to nose before the one out of its lane backs into it. */
+const FACE_OFF_PATIENCE = 3;
+
+/**
+ * Kinds of reversing: a slow queue manoeuvre (making room, backing up to overtake), the stuck rule
+ * (pinned against something), backing into our own lane to let oncoming traffic through, or
+ * backing off until a car stuck out in our lane has pulled back into its own.
+ */
+type ReverseKind = 'queue' | 'stuck' | 'lane' | 'yield';
 
 const hit = makeRayHit();
 
@@ -101,6 +111,13 @@ export class DriverAI {
   private holdUntil = -Infinity;
   private reverseTimer = 0;
   private reverseSteer = 0;
+  private reverseKind: ReverseKind = 'queue';
+  /** Seconds the running reverse has lasted. */
+  private reverseTime = 0;
+  /** Full power instead of the slow reverse (see the stuck rule). */
+  private reverseHard = false;
+  /** The last stuck-rule reverse ended against something behind (a lamp, a bin): the next one uses full power. */
+  private pinned = false;
   private stuck = 0;
   private waitObstacle = 0;
   private honkCooldown = 0;
@@ -114,11 +131,20 @@ export class DriverAI {
   /** What we are overtaking; the manoeuvre ends once it is behind us. */
   private passing: Vehicle | Character | null = null;
   private blockedTime = 0;
+  /** Seconds spent stopped nose to nose with a car coming the other way (see faceOff). */
+  private faceOffTime = 0;
+  /** The car we last backed away from in a face-off, and when. */
+  private yielded: Vehicle | null = null;
+  private yieldedAt = -Infinity;
+  /** Past what we overtook but still out in the other lane, pulling back in. */
+  private merging = false;
   /** Seconds spent stopped in a queue (see queuedBehind). */
   private queueTime = 0;
   /** What scanAhead found closest ahead this frame, and its bumper gap. */
   private blocker: Vehicle | Character | null = null;
   private blockerGap = Infinity;
+  /** What the last corridor scan found. */
+  private nearest: Vehicle | Character | null = null;
   /** Distance from the front bumper to the stop line of a red light or a yield on the path, if any. */
   private waitLine = Infinity;
   /** Last place the vehicle made real progress from (see trackProgress). */
@@ -230,7 +256,9 @@ export class DriverAI {
         if (goal.id === lane.to) {
           if (this.policy === 'route') this.arrived = true;
         } else {
-          const route = roads.findRoute(lane.to, goal.id);
+          let route = roads.findRoute(lane.to, goal.id);
+          // Lanes have no U-turn: go round the block rather than take a random turn away from the goal.
+          if (route && route.length > 1 && route[1] === lane.from) route = roads.findRoute(lane.to, goal.id, lane.from);
           if (route && route.length > 1) {
             const t = roads.turnTowards(lane, route[1]!);
             if (t && (this.policy === 'chase' || t.legal)) return t;
@@ -344,16 +372,41 @@ export class DriverAI {
 
     if (this.reverseTimer > 0) {
       this.reverseTimer -= dt;
+      this.reverseTime += dt;
       c.throttle = 0;
       c.handbrake = false;
-      c.steer = this.reverseSteer;
+      c.steer = this.reverseKind === 'lane' ? this.laneReverseSteer() : this.reverseSteer;
       // Back up slowly, and stop short of whatever is behind (pursuers use all the room there is).
-      c.brake = clamp((REVERSE_SPEED + v.forwardSpeed) * 0.8, 0, 1);
-      if (this.gapBehind(v) < (this.obeyLights ? 1.2 : 0.5)) this.reverseTimer = 0;
+      const back = -v.forwardSpeed;
+      c.brake = this.reverseHard ? 1 : clamp((REVERSE_SPEED - back) * 0.8, 0, 1);
+      const room = (this.obeyLights ? 1.2 : 0.5) + (back > 0 ? (back * back) / (2 * v.spec.brake) : 0);
+      if (this.gapBehind(v) < room) {
+        // Backing up to overtake waits for the car behind to make room (see makeRoom); other reverses end there.
+        if (this.passing && this.reverseKind === 'queue') {
+          c.brake = 0;
+          c.throttle = back > 0.6 ? 1 : 0;
+          if (this.reverseTime < 3) this.reverseTimer += dt;
+        } else {
+          this.reverseTimer = 0;
+        }
+      }
       // Backing up to overtake only needs room to swing out.
       const p = this.passing;
       if (p && (p.pos.x - v.pos.x) * Math.sin(v.heading) + (p.pos.z - v.pos.z) * Math.cos(v.heading) - v.halfL - ('kind' in p ? p.halfL : 0.4) > 4.5) {
         this.reverseTimer = 0;
+      }
+      if (this.reverseKind === 'stuck' && this.reverseTime > 0.35 && back < 0.3) {
+        // Pinned against something behind: pushing on is no use, and the next try needs full power.
+        this.pinned = true;
+        this.reverseTimer = 0;
+      }
+      if (this.reverseKind === 'lane' && this.backInLane()) this.reverseTimer = 0;
+      // Giving way and getting nowhere (something behind): stop pushing.
+      if ((this.reverseKind === 'lane' || this.reverseKind === 'yield') && this.reverseTime > 0.6 && back < 0.2) this.reverseTimer = 0;
+      if (this.reverseKind === 'yield') {
+        const o = this.yielded;
+        const ai = o && !o.removed ? this.driven(o) : null;
+        if (!ai || ai.laneIntrusion() < 0.1 || Math.hypot(o!.pos.x - v.pos.x, o!.pos.z - v.pos.z) > 20) this.reverseTimer = 0;
       }
       if (this.reverseTimer <= 0) {
         this.stuck = 0;
@@ -449,13 +502,25 @@ export class DriverAI {
     }
 
     // Obstacles ahead (vehicles and pedestrians).
+    const patience = this.policy === 'chase' || this.policy === 'flee' ? 0.9 : 7;
+    let backIntoLane = false;
     if (this.overtake > 0) {
       this.overtake -= dt;
       // Pull back in as soon as we are past, instead of lingering in the oncoming lane.
-      if (!this.direct && !this.stillPassing()) this.overtake = 0;
+      if (!this.direct && !this.stillPassing()) {
+        this.overtake = 0;
+        this.merging = true;
+      } else if (this.obeyLights && !this.direct) {
+        backIntoLane = this.giveWay();
+        // Called off, or timed out short of drawing level: try again once the way is clear.
+        if (this.overtake <= 0) this.retryOvertake(patience);
+      }
       if (this.overtake <= 0) this.passing = null;
     }
+    if (this.merging && this.overtake <= 0 && this.laneIntrusion() < 0) this.merging = false;
     const gap = this.scanAhead(v, aimX, aimZ);
+    // (Read back through a cast: the reset at the top of update() leaves the field narrowed to null.)
+    const ahead = this.blocker as Vehicle | Character | null;
     if (gap < Infinity) {
       const stopGap = Math.max(0, gap - 2.2);
       const vs = Math.sqrt(2 * this.decel * stopGap);
@@ -464,22 +529,57 @@ export class DriverAI {
         this.limiter = 'obstacle';
       }
     }
+    // Still out in the passing lane, slow for anyone coming the other way in it: pulling back in
+    // turns the corridor away from them while the car is still in their way.
+    if (this.obeyLights && (this.overtake > 0 || this.merging) && this.laneIntrusion() > 0) {
+      targetSpeed = Math.min(targetSpeed, Math.sqrt(2 * this.decel * Math.max(0, this.oncomingGap() - 2.2)));
+    }
     const blocked = this.limiter === 'obstacle';
     // Waiting in line at a light is not a blockage: no horn, no overtaking, no reversing.
     // A queue that does not move for a long time is handled like any other blockage, though.
-    const queued = blocked && this.queuedBehind();
+    const queue = blocked ? this.queuedBehind() : null;
+    const queued = queue !== null;
     if (queued && Math.abs(speed) < 0.5) this.queueTime += dt;
     else if (!queued || Math.abs(speed) > 1.5) this.queueTime = 0;
     const waiting = queued && this.queueTime < QUEUE_PATIENCE;
-    // Pursuers go around traffic quickly; civilians only around long-term blockages.
-    if (blocked && !waiting && Math.abs(speed) < 3 && !this.direct) this.blockedTime += dt;
+    // Pursuers go around traffic quickly; civilians only around long-term blockages. Waiting in
+    // line behind a car that is stuck at one counts, so the next in line goes round without delay.
+    if (blocked && (!waiting || queue === 'car') && Math.abs(speed) < 3 && !this.direct) this.blockedTime += dt;
     else this.blockedTime = Math.max(0, this.blockedTime - dt * 2);
-    const patience = this.policy === 'chase' || this.policy === 'flee' ? 0.9 : 7;
+    // Two cars stopped nose to nose (an overtaker met oncoming traffic): one of them backs up, so
+    // neither waits for the other forever (see yieldsTo).
+    const rival = !this.direct && Math.abs(speed) < 0.5 ? this.faceOff() : null;
+    this.faceOffTime = rival ? this.faceOffTime + dt : 0;
+    let makeWay = false;
+    const yieldMode = rival && this.faceOffTime > FACE_OFF_PATIENCE ? this.yieldsTo(rival) : null;
+    if (rival && yieldMode) {
+      this.faceOffTime = 0;
+      this.yielded = rival;
+      this.yieldedAt = this.host.time;
+      if (yieldMode === 'lane') {
+        this.overtake = 0;
+        this.passing = null;
+        this.retryOvertake(patience);
+        backIntoLane = true;
+      } else {
+        makeWay = true;
+      }
+    }
     let backUpToPass = false;
-    // Civilians wait for a gap in oncoming traffic before pulling out.
-    if (blocked && this.blockedTime > patience && this.overtake <= 0 && !(this.obeyLights && this.oncomingInPassingLane())) {
+    // Civilians wait for a gap in oncoming traffic before pulling out, and for the passing lane to be
+    // free. Nobody overtakes a car coming the other way (a face-off sorts that out).
+    if (
+      blocked &&
+      !waiting &&
+      this.blockedTime > patience &&
+      this.overtake <= 0 &&
+      !backIntoLane &&
+      !makeWay &&
+      !(ahead && 'kind' in ahead && this.driven(ahead) && Math.sin(ahead.heading) * fx + Math.cos(ahead.heading) * fz < -0.7) &&
+      !(this.obeyLights && ahead && this.passingLaneTaken(ahead, this.passStretch(ahead, gap), (u) => 15 + u * 5))
+    ) {
       this.overtake = this.obeyLights ? 8 : 6;
-      this.passing = this.blocker;
+      this.passing = ahead;
       this.blockedTime = 0;
       this.waitObstacle = 0;
       // Stopped close behind the blocker, the car cannot swing out (the blocker stays in the
@@ -543,21 +643,45 @@ export class DriverAI {
       if (this.waitObstacle > 9) {
         // Make room, nose towards the passing side (not the curb).
         this.waitObstacle = 0;
-        this.startReverse(1);
+        this.startReverse(1, 'queue');
       }
     } else {
       this.waitObstacle = Math.max(0, this.waitObstacle - dt);
     }
+    // Make room for a car ahead backing up towards us (to pull out, or to get back into its lane).
+    const makeRoom =
+      this.obeyLights &&
+      !!ahead &&
+      'kind' in ahead &&
+      gap < 3 &&
+      ((ahead.ai !== null && ahead.ai.reverseTimer > 0) || ahead.forwardSpeed < -0.5) &&
+      Math.sin(ahead.heading) * fx + Math.cos(ahead.heading) * fz > 0.7;
+    if (backIntoLane) this.startReverse(0, 'lane', 6);
+    else if (makeWay) this.startReverse(0, 'yield', 4);
     // Back up with the wheels turned away from where we want to go.
-    if (backUpToPass) this.startReverse(1, 1.2);
-    else if (this.stuck > (this.policy === 'chase' ? 1.1 : 1.8)) this.startReverse(lx >= 0 ? -1 : 1);
+    else if (backUpToPass) this.startReverse(1, 'queue', 1.2);
+    else if (makeRoom) this.startReverse(0, 'queue', 0.5);
+    else if (this.stuck > (this.policy === 'chase' ? 1.1 : 1.8)) this.startReverse(lx >= 0 ? -1 : 1, 'stuck');
     this.trackProgress(dt, waiting || (!blocked && this.waitLine < Infinity));
   }
 
-  private startReverse(steer: number, time = this.policy === 'chase' ? 1.0 : 1.4): void {
+  /**
+   * Starts reversing. Queue manoeuvres and giving way stay below the speed at which street
+   * furniture breaks; the stuck rule does too, unless its last try ended against something behind
+   * (a lamp or a bin), which full power knocks over. People and cars behind are always spared.
+   */
+  private startReverse(steer: number, kind: ReverseKind, time = this.policy === 'chase' ? 1.0 : 1.4): void {
     this.reverseTimer = time;
+    this.reverseTime = 0;
     this.reverseSteer = steer;
+    this.reverseKind = kind;
+    this.reverseHard = kind === 'stuck' && this.pinned;
     this.stuck = 0;
+  }
+
+  /** Overtake again as soon as the passing lane is free (the random part keeps two cars from mirroring each other). */
+  private retryOvertake(patience: number): void {
+    this.blockedTime = patience - this.host.rng.range(0.5, 3);
   }
 
   /**
@@ -570,6 +694,7 @@ export class DriverAI {
       this.progressX = v.pos.x;
       this.progressZ = v.pos.z;
       this.idle = 0;
+      this.pinned = false;
     } else if (!excused) {
       this.idle += dt;
     }
@@ -577,31 +702,35 @@ export class DriverAI {
   }
 
   /**
-   * True if the car blocking us is waiting at a light or yielding, directly or through the cars in
-   * front of it. Worked out afresh every frame, so no stale flag can keep a jam or a cycle "queued".
+   * Whether the car blocking us has us waiting in line: 'light' if it waits at a light or yields
+   * (or moves), directly or through the cars in front of it; 'car' if the cars ahead wait to get
+   * past one standing in the road, which only the first in line goes round. Null if we are blocked
+   * ourselves. Worked out afresh every frame, so no stale flag can keep a jam or a cycle "queued".
    */
-  private queuedBehind(): boolean {
-    if (!this.obeyLights) return false;
+  private queuedBehind(): 'light' | 'car' | null {
+    if (!this.obeyLights) return null;
     const fx = Math.sin(this.vehicle.heading);
     const fz = Math.cos(this.vehicle.heading);
     let ai: DriverAI = this;
     for (let hops = 0; hops < 12; hops++) {
       const b = ai.blocker;
-      if (!b || b.removed) return false;
+      if (!b || b.removed) return null;
       // The car ahead waits for someone to get out of the road; we are only held up by a person
       // ourselves when they are on the crossing in front of a red light.
-      if (!('kind' in b)) return ai !== this || ai.waitLine < ai.blockerGap + 5;
+      if (!('kind' in b)) return ai !== this || ai.waitLine < ai.blockerGap + 5 ? 'light' : null;
       // Only cars lined up our way form a queue (not one across the road or nose to nose).
-      if (Math.sin(b.heading) * fx + Math.cos(b.heading) * fz < 0.7) return false;
-      if (b.forwardSpeed > 1) return true;
+      if (Math.sin(b.heading) * fx + Math.cos(b.heading) * fz < 0.7) return null;
+      if (b.forwardSpeed > 1) return 'light';
       const next = b.ai && b.driver && b.driver.alive && !b.driver.isPlayer && !b.ai.hold ? b.ai : null;
       // The player's car, or one nobody drives, counts when it stands at our stop line.
-      if (!next) return ai.waitLine < ai.blockerGap + 2 * b.halfL + 3;
-      if (next.limiter === 'light' || next.limiter === 'yield') return true;
-      if (next.limiter !== 'obstacle') return false;
+      if (!next) return ai.waitLine < ai.blockerGap + 2 * b.halfL + 3 ? 'light' : ai !== this ? 'car' : null;
+      if (next.limiter === 'light' || next.limiter === 'yield') return 'light';
+      // A car ahead backing up or pulling out is busy getting past whatever holds it up.
+      if (next.reverseTimer > 0 || next.overtake > 0) return 'car';
+      if (next.limiter !== 'obstacle') return null;
       ai = next;
     }
-    return false;
+    return null;
   }
 
   /** Speed limit from upcoming turns and signals along the planned path. */
@@ -629,7 +758,10 @@ export class DriverAI {
           const committed = this.stopLane === seg.lane.id;
           // stopDist is measured from the vehicle centre; signals stop the front bumper at the line.
           const lineGap = stopDist - v.halfL - STOP_MARGIN;
-          let mustStop = state === 'red' || (state === 'yellow' && (committed || lineGap > (speed * speed) / (2 * 7) + 1));
+          // A nose already past the line when the light changes (a left turner yielding on its green)
+          // is in the junction: only oncoming traffic holds it, and it clears the junction after that.
+          const inJunction = lineGap < 0 && !committed;
+          let mustStop = !inJunction && (state === 'red' || (state === 'yellow' && (committed || lineGap > (speed * speed) / (2 * 7) + 1)));
           const forSignal = mustStop;
           // Once we decide to stop for a light we stay stopped until it turns green.
           if (state === 'green') {
@@ -644,8 +776,9 @@ export class DriverAI {
           if (mustStop && stopDist > -0.5) {
             this.waitLine = Math.min(this.waitLine, stopDist - v.halfL);
             // Plan with the comfortable deceleration for margin; the speed controller brakes
-            // harder on its own when we are above the profile. Left turners yield (during their
-            // own green, with no one crossing in front) with the centre near the lane end.
+            // harder on its own when we are above the profile. Left turners yield (on their own
+            // green, or in the junction after it, with no one crossing in front) with the centre
+            // near the lane end.
             const vs = Math.sqrt(2 * this.decel * Math.max(0, forSignal ? lineGap : stopDist - 0.8));
             if (vs < limit) {
               limit = vs;
@@ -661,51 +794,223 @@ export class DriverAI {
   }
 
   /**
-   * True while what we are overtaking, or a car queued next to it in our lane, is not yet
-   * behind us. A blocker that drives off ends the manoeuvre.
+   * True while what we are overtaking, or a car queued in front of it, is not yet behind us.
+   * Measured from the car itself like the scan corridor, so a car pushed off its lane still
+   * finishes its pass; along the lane rather than the car's heading, which swings wide while it
+   * backs up and pulls out. A blocker that drives off ends the manoeuvre.
    */
   private stillPassing(): boolean {
     const p = this.passing;
     if (!p || p.removed) return false;
     const v = this.vehicle;
-    // Our lane at the car.
-    const a = this.pointAhead(0);
-    const b = this.pointAhead(1);
-    const tl = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-    const fx = (b.x - a.x) / tl;
-    const fz = (b.z - a.z) / tl;
-    // Not yet 1 m behind our rear (and, for other cars, in our lane no more than 6 m ahead).
-    const notPassed = (x: number, z: number, half: number, ahead: number) => {
-      const ox = x - a.x;
-      const oz = z - a.z;
-      const along = ox * fx + oz * fz;
-      return Math.abs(ox * fz - oz * fx) < 2.5 && along + half > -v.halfL - 1 && along - half < v.halfL + ahead;
-    };
-    if (!('kind' in p)) return notPassed(p.pos.x, p.pos.z, 0.4, Infinity);
+    const f = this.laneFrame();
+    const fx = f.tx;
+    const fz = f.tz;
+    const along = (o: Vehicle | Character) => (o.pos.x - v.pos.x) * fx + (o.pos.z - v.pos.z) * fz;
+    const side = (o: Vehicle | Character) => (o.pos.x - v.pos.x) * -fz + (o.pos.z - v.pos.z) * fx;
+    // Not yet 1 m behind our rear.
+    const notPassed = (o: Vehicle | Character, half: number) => along(o) + half > -v.halfL - 1;
+    const ps = side(p);
+    if (Math.abs(ps) > 2 * LANE_W) return false;
+    if (!('kind' in p)) return notPassed(p, 0.4);
     if (p.vel.x * fx + p.vel.z * fz > 3) return false;
-    if (notPassed(p.pos.x, p.pos.z, p.halfL, Infinity)) return true;
+    if (notPassed(p, p.halfL)) return true;
+    // Cars queued in its lane up to 6 m past our front are overtaken in the same go.
     for (const o of this.host.vehicles) {
-      if (o !== v && !o.removed && notPassed(o.pos.x, o.pos.z, o.halfL, 6)) return true;
+      if (o === v || o === p || o.removed || Math.abs(side(o) - ps) > 2.5) continue;
+      if (notPassed(o, o.halfL) && along(o) - o.halfL < v.halfL + 6) return true;
     }
     return false;
   }
 
-  /** True if a vehicle is coming the other way, too close, in the lane we would pass in. */
-  private oncomingInPassingLane(): boolean {
+  /**
+   * Civilians give way to traffic in the passing lane while overtaking. Short of drawing level
+   * with what they pass, they pull back in behind it (returns true when that takes reversing, the
+   * nose being out in the other lane); once alongside they see it through, and the obstacle scan
+   * stops them short of anyone in the way.
+   */
+  private giveWay(): boolean {
+    const p = this.passing!;
+    const v = this.vehicle;
+    const f = this.laneFrame();
+    const half = 'kind' in p ? p.halfL : 0.4;
+    const gap = (p.pos.x - v.pos.x) * f.tx + (p.pos.z - v.pos.z) * f.tz - half - v.halfL;
+    if (gap < 0) {
+      // Level with it: there is no way back, so the pass never times out half done.
+      this.overtake = Math.max(this.overtake, 0.5);
+      return false;
+    }
+    if (!this.passingLaneTaken(p, this.passStretch(p, gap), (u) => Math.max(40, u * 3))) return false;
+    this.overtake = 0;
+    return this.laneIntrusion() > 0;
+  }
+
+  /** Length of passing lane an overtake of `p` (bumper gap `gap` ahead) takes: past it, plus room to pull back in. */
+  private passStretch(p: Vehicle | Character, gap: number): number {
+    return gap + ('kind' in p ? 2 * p.halfL : 0.8) + 2 * this.vehicle.halfL + 4;
+  }
+
+  /**
+   * True if the lane we pass in is taken: a vehicle stands in it (or drives our way) within
+   * `stretch` metres of our front bumper, or one comes the other way within `range(its speed)`,
+   * counting cars about to turn into it at the far junction. `except` is what we overtake.
+   */
+  private passingLaneTaken(except: Vehicle | Character, stretch: number, range: (speed: number) => number): boolean {
+    const v = this.vehicle;
+    const f = this.laneFrame();
+    const pass = this.passingLane();
+    for (const o of this.host.vehicles) {
+      if (o === v || o === except || o.removed) continue;
+      const along = (o.pos.x - v.pos.x) * f.tx + (o.pos.z - v.pos.z) * f.tz;
+      // Gone past us.
+      if (along + o.halfL < -v.halfL - 1) continue;
+      const gap = along - o.halfL - v.halfL;
+      const coming = -(o.vel.x * f.tx + o.vel.z * f.tz);
+      const left = (o.pos.x - f.x) * f.tz - (o.pos.z - f.z) * f.tx;
+      if (left > LANE_W / 2 - 0.2 && left < 1.5 * LANE_W + 0.3) {
+        if (coming > 1 ? gap < range(coming) : gap < stretch) return true;
+      } else if (pass && o.ai && o.driver?.alive && !o.driver.isPlayer && o.ai.entering(pass) && gap < range(Math.max(coming, o.speed, 6))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Bumper gap, along our lane, to the nearest car in the passing lane ahead that faces us, less the way it covers in a second. */
+  private oncomingGap(): number {
+    const v = this.vehicle;
+    const f = this.laneFrame();
+    let best = Infinity;
+    for (const o of this.host.vehicles) {
+      if (o === v || o.removed || Math.sin(o.heading) * f.tx + Math.cos(o.heading) * f.tz > -0.7) continue;
+      const along = (o.pos.x - v.pos.x) * f.tx + (o.pos.z - v.pos.z) * f.tz;
+      const left = (o.pos.x - f.x) * f.tz - (o.pos.z - f.z) * f.tx;
+      if (along <= 0 || left < LANE_W / 2 - 0.2 || left > 1.5 * LANE_W + 0.3) continue;
+      const coming = Math.max(0, -(o.vel.x * f.tx + o.vel.z * f.tz));
+      best = Math.min(best, along - o.halfL - v.halfL - coming);
+    }
+    return best;
+  }
+
+  /** The lane an overtake swings out into: the next one to the left, on a one-lane road the oncoming one. */
+  private passingLane(): Lane | null {
+    const lane = this.segs[0]?.lane;
+    if (!lane) return null;
+    const roads = this.host.roads;
+    return lane.index > 0 ? roads.laneFrom(lane.from, lane.dir, lane.index - 1) : roads.laneFrom(lane.to, reverseDir(lane.dir), 0);
+  }
+
+  /** True if this car is turning into `lane`, or on its way to the junction to do so. */
+  private entering(lane: Lane): boolean {
+    const s0 = this.segs[0];
+    if (!s0) return false;
+    if (s0.turn) return s0.turn.to === lane;
+    const s1 = this.segs[1];
+    return !!s1?.turn && s1.turn.to === lane && s0.length - this.s < 20 && this.vehicle.speed > 1;
+  }
+
+  /** The point of the planned path nearest to the car, and the path direction there. */
+  private laneFrame(): { x: number; z: number; tx: number; tz: number } {
+    const v = this.vehicle;
+    const seg = this.segs[0];
+    if (!seg) return { x: v.pos.x, z: v.pos.z, tx: Math.sin(v.heading), tz: Math.cos(v.heading) };
+    const s = Math.min(projectOnSeg(seg, v.pos.x, v.pos.z).s, seg.length - 0.5);
+    const a = pointOnSeg(seg, s);
+    const b = pointOnSeg(seg, s + 0.5);
+    const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+    return { x: a.x, z: a.z, tx: (b.x - a.x) / l, tz: (b.z - a.z) / l };
+  }
+
+  /** How far the body reaches past the left edge of our lane, into the passing lane (negative inside the lane). */
+  private laneIntrusion(): number {
+    const v = this.vehicle;
+    const f = this.laneFrame();
+    const left = (v.pos.x - f.x) * f.tz - (v.pos.z - f.z) * f.tx;
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const across = Math.abs(fx * f.tz - fz * f.tx) * v.halfL + Math.abs(fx * f.tx + fz * f.tz) * v.halfW;
+    return left + across - LANE_W / 2;
+  }
+
+  /** Back in our lane and lined up with it (ends a reverse into the lane). */
+  private backInLane(): boolean {
+    const f = this.laneFrame();
+    const h = this.vehicle.heading;
+    return this.laneIntrusion() < -0.1 && Math.sin(h) * f.tx + Math.cos(h) * f.tz > Math.cos(0.2);
+  }
+
+  /** Steering while backing into our lane: pure pursuit, in reverse, of a lane point behind the car. */
+  private laneReverseSteer(): number {
+    const v = this.vehicle;
+    const seg = this.segs[0];
+    if (!seg) return 0;
+    // The whole lane, not just the planned part of it, which starts where the car joined it.
+    const lane = seg.lane;
+    let q: { x: number; z: number };
+    if (lane) {
+      const s = clamp((v.pos.x - lane.sx) * lane.dx + (v.pos.z - lane.sz) * lane.dz - 6, 0, lane.length);
+      q = { x: lane.sx + lane.dx * s, z: lane.sz + lane.dz * s };
+    } else {
+      q = pointOnSeg(seg, projectOnSeg(seg, v.pos.x, v.pos.z).s - 6);
+    }
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const dx = q.x - v.pos.x;
+    const dz = q.z - v.pos.z;
+    const lx = dx * -fz + dz * fx;
+    const lz = dx * fx + dz * fz;
+    if (lz > -1) return 0;
+    // Moving backwards, the same wheel angle turns the car's tail towards a point on that side.
+    const maxSteer = v.spec.steer / (1 + Math.abs(v.forwardSpeed) / 15);
+    return clamp(Math.atan(((2 * lx) / Math.max(1, lx * lx + lz * lz)) * v.spec.length * 0.6) / maxSteer, -1, 1);
+  }
+
+  /** A car stopped nose to nose with us, one of us blocking the other (null if none). */
+  private faceOff(): Vehicle | null {
     const v = this.vehicle;
     const fx = Math.sin(v.heading);
     const fz = Math.cos(v.heading);
     for (const o of this.host.vehicles) {
-      if (o === v || o.removed || o.speed < 1) continue;
-      const ox = o.pos.x - v.pos.x;
-      const oz = o.pos.z - v.pos.z;
-      const along = ox * fx + oz * fz;
-      const left = ox * fz - oz * fx;
-      if (along <= 0 || left < 1.5 || left > 8) continue;
+      if (o === v || o.removed || o.speed > 0.5) continue;
+      if (this.blocker !== o && o.ai?.blocker !== v) continue;
       if (Math.sin(o.heading) * fx + Math.cos(o.heading) * fz > -0.7) continue;
-      if (along < 15 + o.speed * 5) return true;
+      const along = (o.pos.x - v.pos.x) * fx + (o.pos.z - v.pos.z) * fz;
+      if (along > 0 && along - v.halfL - o.halfL < 5) return o;
     }
-    return false;
+    return null;
+  }
+
+  /** The AI driving `o`, if a live NPC drives it on a lane (not straight at a pursuit target). */
+  private driven(o: Vehicle): DriverAI | null {
+    return o.ai && o.driver && o.driver.alive && !o.driver.isPlayer && !o.ai.direct ? o.ai : null;
+  }
+
+  /** Room to back up into (vehicles and people behind). */
+  private roomBehind(): boolean {
+    return this.gapBehind(this.vehicle) > 2;
+  }
+
+  /**
+   * How we give way in a face-off with `o`, if we do. The car out of its lane backs into it
+   * ('lane'); the other one backs up to let it pull in instead ('back') when it cannot: it has no
+   * room behind, is pulling in past what it overtook, or already backed away from us once. Ties go
+   * by id. Only one of the two reverses at a time.
+   */
+  private yieldsTo(o: Vehicle): 'lane' | 'back' | null {
+    const ai = this.driven(o);
+    if (ai && ai.reverseTimer > 0) return null;
+    const mine = this.laneIntrusion();
+    const theirs = ai ? ai.laneIntrusion() : -Infinity;
+    const outOfLane = (a: number, b: number, first: boolean) => a > 0.3 && (a > b + 0.2 || (a > b - 0.2 && first));
+    const v = this.vehicle;
+    const recently = (d: DriverAI, from: Vehicle) => d.yielded === from && this.host.time - d.yieldedAt < 20;
+    if (outOfLane(mine, theirs, v.id < o.id)) {
+      const theyCanBack = !!ai && ai.roomBehind();
+      if (!this.roomBehind() || ((this.merging || recently(this, o)) && theyCanBack)) return null;
+      return 'lane';
+    }
+    if (!ai || !outOfLane(theirs, mine, o.id < v.id) || !this.roomBehind()) return null;
+    return ai.merging || recently(ai, v) || !ai.roomBehind() ? 'back' : null;
   }
 
   /** True if oncoming traffic is about to cross a left turn at the end of `lane`. */
@@ -744,6 +1049,7 @@ export class DriverAI {
     const range = 7 + Math.abs(v.forwardSpeed) * 1.7;
     const ignore = this.policy === 'chase' ? this.target : null;
     this.blockerGap = this.corridor(v, fx, fz, range, 0.5, 0.9, ignore, this.overtake <= 0 && this.pathOffset < 1.5);
+    this.blocker = this.nearest;
     return this.blockerGap;
   }
 
@@ -775,14 +1081,12 @@ export class DriverAI {
 
   /** Free distance behind the rear bumper (vehicles and people), checked while reversing. */
   private gapBehind(v: Vehicle): number {
-    const gap = this.corridor(v, -Math.sin(v.heading), -Math.cos(v.heading), 6, 0.3, 0.6, null, false);
-    this.blocker = null;
-    return gap;
+    return this.corridor(v, -Math.sin(v.heading), -Math.cos(v.heading), 6, 0.3, 0.6, null, false);
   }
 
   /**
    * Bumper gap to the nearest vehicle or person in a corridor from `v` along (fx, fz), which is
-   * stored in `blocker`. People count when a vehicle can run them over, knocked down ones included.
+   * stored in `nearest`. People count when a vehicle can run them over, knocked down ones included.
    * With `onPath`, oncoming vehicles that the planned path keeps clear of are ignored: they are in
    * their own lane, even when the corridor of a car still turning sweeps across it.
    */
@@ -826,7 +1130,7 @@ export class DriverAI {
         found = ch;
       }
     }
-    this.blocker = found;
+    this.nearest = found;
     return best;
   }
 

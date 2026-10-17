@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { DriverPolicy } from '../../src/sim/driver';
 import type { Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
-import type { VehicleKind } from '../../src/sim/specs';
-import { axisOf, SIGNAL_CYCLE, SIGNAL_GREEN, SIGNAL_HALF, SIGNAL_YELLOW, type Lane } from '../../src/world/roads';
+import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
+import { axisOf, reverseDir, SIGNAL_CYCLE, SIGNAL_GREEN, SIGNAL_HALF, SIGNAL_YELLOW, type Lane } from '../../src/world/roads';
 import { input, makeSim, placeInCar, step, teleport } from './helpers';
 
 /** A one-lane street lane of 80 m or more ending at a signalled four-way junction. */
@@ -405,5 +405,273 @@ describe('driving fixes', () => {
     expect(honks).toBeLessThan(25);
     expect(crashes).toBeLessThanOrEqual(1);
     expect(broken).toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * Nooks where a car fits nose-first between a building and a sidewalk lamp: the nose 0.3-0.6 m from
+ * the wall, the lamp 1.4 m behind the rear bumper, nothing else in the way. Centre and heading.
+ */
+function lampNooks(sim: Sim, kind: VehicleKind): { x: number; z: number; heading: number }[] {
+  const halfL = VEHICLE_SPECS[kind].length / 2;
+  const halfW = VEHICLE_SPECS[kind].width / 2;
+  const grid = sim.world.grid;
+  const nooks: { x: number; z: number; heading: number }[] = [];
+  for (const p of sim.world.layout.props) {
+    if (p.kind !== 'lamp') continue;
+    // Lamps face the street; the building is the other way.
+    const nx = -Math.sin(p.rot);
+    const nz = -Math.cos(p.rot);
+    let wall = -1;
+    for (let d = 0.3; d < 12 && wall < 0; d += 0.02) {
+      const x = p.x + nx * d;
+      const z = p.z + nz * d;
+      grid.query(x, z, x, z, (c) => {
+        if (c.tag === 'building' && x >= c.minX && x <= c.maxX && z >= c.minZ && z <= c.maxZ) wall = d;
+      });
+    }
+    // The lamp post has a 0.17 m radius.
+    const back = 0.17 + 1.4;
+    const nose = wall - back - 2 * halfL;
+    if (nose < 0.3 || nose > 0.6) continue;
+    const x = p.x + nx * (back + halfL);
+    const z = p.z + nz * (back + halfL);
+    let clear = true;
+    grid.query(x - 4, z - 4, x + 4, z + 4, (c) => {
+      if (c.tag === 'building') return;
+      const dx = c.cx - x;
+      const dz = c.cz - z;
+      if (Math.abs(dx * nx + dz * nz) < halfL + 0.3 + c.r && Math.abs(dx * nz - dz * nx) < halfW + 0.3 + c.r) clear = false;
+    });
+    if (clear) nooks.push({ x, z, heading: Math.atan2(nx, nz) });
+  }
+  return nooks;
+}
+
+describe('driving fixes, round 2', () => {
+  it('gives way to a car entering the far end of the street while it overtakes', () => {
+    for (const kind of ['sedan', 'van'] as const) {
+      for (const delay of [0, 0.5, 1, 1.5, 2, 2.5]) {
+        const sim = makeSim({ police: false });
+        const lane = streetLane(sim);
+        signalsOff(sim);
+        const opp = oppositeLane(sim, lane);
+        const parked = abandon(sim, 'sedan', lane, 45);
+        const car = drive(sim, 'sedan', lane, 8, 8);
+        let other: Vehicle | null = null;
+        let impacts = 0;
+        sim.events.on('impact', (e) => {
+          if (e.vehicle === car || e.vehicle === parked || (other && e.vehicle === other)) impacts++;
+        });
+        const begin = along(lane, parked.pos) - parked.halfL;
+        const end = along(lane, parked.pos) + parked.halfL;
+        let start = -1;
+        let carPast = -1;
+        let otherPast = -1;
+        let reverse = 0;
+        step(sim, 45, (t) => {
+          // The manoeuvre starts when the car backs up to pull out; the other car turns up `delay` s later.
+          if (start < 0 && t > 1 && car.forwardSpeed < -0.2) start = t;
+          if (start >= 0 && !other && t >= start + delay) other = drive(sim, kind, opp, 2, 12);
+          reverse = Math.max(reverse, -car.forwardSpeed);
+          if (carPast < 0 && along(lane, car.pos) - car.halfL > end && Math.abs(across(lane, car.pos)) < 1.5) carPast = t;
+          if (other && otherPast < 0 && along(lane, other.pos) + other.halfL < begin - 1 && Math.abs(across(opp, other.pos)) < 1.5) otherPast = t;
+          return input();
+        });
+        expect(start).toBeGreaterThan(0);
+        expect(carPast).toBeGreaterThan(start);
+        expect(otherPast).toBeGreaterThan(start);
+        expect(carPast - start).toBeLessThan(30);
+        expect(otherPast - start).toBeLessThan(30);
+        expect(impacts).toBe(0);
+        // Backing up around other cars stays below the speed at which street furniture breaks.
+        expect(reverse).toBeLessThan(3.5);
+      }
+    }
+  });
+
+  it('backs the car that is out of its lane into it when it meets oncoming traffic nose to nose', () => {
+    for (const parkedBehind of [false, true]) {
+      const sim = makeSim({ police: false });
+      const lane = streetLane(sim);
+      signalsOff(sim);
+      const opp = oppositeLane(sim, lane);
+      // Standing out in the oncoming lane, 4 m to the left of its own.
+      const outOfLane = (v: Vehicle) => {
+        v.pos.x += lane.dz * 4;
+        v.pos.z -= lane.dx * 4;
+        return v;
+      };
+      const a = outOfLane(drive(sim, 'sedan', lane, 40));
+      // With a car parked right behind it, it cannot back up: the oncoming one makes room instead.
+      if (parkedBehind) outOfLane(abandon(sim, 'sedan', lane, 33.5));
+      const b = drive(sim, 'sedan', opp, opp.length - 52);
+      let impacts = 0;
+      sim.events.on('impact', (e) => {
+        if (e.vehicle === a || e.vehicle === b) impacts++;
+      });
+      let bPast = -1;
+      let aBack = -1;
+      step(sim, 20, (t) => {
+        if (bPast < 0 && along(lane, b.pos) + b.halfL < along(lane, a.pos) - a.halfL - 1) bPast = t;
+        if (aBack < 0 && Math.abs(across(lane, a.pos)) < 0.8 && along(lane, a.pos) > 45) aBack = t;
+        return input();
+      });
+      expect(bPast).toBeGreaterThan(0);
+      expect(bPast).toBeLessThan(15);
+      expect(aBack).toBeGreaterThan(0);
+      expect(aBack).toBeLessThan(15);
+      expect(impacts).toBe(0);
+    }
+  });
+
+  it('keeps traffic moving both ways past a car abandoned in a one-lane street', () => {
+    for (const seed of [5, 17]) {
+      const sim = makeSim({ police: false, ambient: true, seed });
+      const lane = streetLane(sim);
+      const parked = abandon(sim, 'sedan', lane, lane.length / 2);
+      // The player stands on the sidewalk next to it.
+      teleport(sim, parked.pos.x - lane.dz * 5, parked.pos.z + lane.dx * 5);
+      const at = along(lane, parked.pos);
+      const last = new Map<Vehicle, number>();
+      // Per direction (0: the parked car's, 1: the other one): since when cars wait behind it with
+      // none getting past, and the longest such stall.
+      const since = [-1, -1];
+      const stall = [0, 0];
+      step(sim, 240, (t) => {
+        const waiting = [false, false];
+        for (const v of sim.vehicles) {
+          if (v.removed || !v.ai || v.owner !== 'traffic') continue;
+          const side = across(lane, v.pos);
+          const a = along(lane, v.pos) - at;
+          if (side < -7.5 || side > 3.5 || Math.abs(a) > 45) {
+            last.delete(v);
+            continue;
+          }
+          const dot = Math.sin(v.heading) * lane.dx + Math.cos(v.heading) * lane.dz;
+          if (Math.abs(dot) < 0.5) continue;
+          const d = dot > 0 ? 0 : 1;
+          const before = last.get(v);
+          last.set(v, a);
+          const clear = parked.halfL + v.halfL;
+          if (v.speed < 0.5 && (d === 0 ? a > -25 && a < 0 : a > 0 && a < 25)) waiting[d] = true;
+          if (before !== undefined && (d === 0 ? before <= clear && a > clear : before >= -clear && a < -clear)) since[d] = -1;
+        }
+        for (const d of [0, 1]) {
+          if (!waiting[d]) since[d] = -1;
+          else if (since[d]! < 0) since[d] = t;
+          else stall[d] = Math.max(stall[d]!, t - since[d]!);
+        }
+        return input();
+      });
+      expect(stall[0]).toBeLessThan(40);
+      expect(stall[1]).toBeLessThan(40);
+    }
+  });
+
+  it('clears the junction when the light turns red while it yields to turn left', () => {
+    for (const kind of ['sedan', 'bus'] as const) {
+      const sim = makeSim({ police: false });
+      const roads = sim.roads;
+      const oncomingLane = (l: Lane) => roads.laneFrom(roads.nodes[l.to]!.neighbors[l.dir]!, reverseDir(l.dir), 0);
+      // The inner lane of an avenue into a signalled crossing with another avenue, turning left onto it.
+      const lane = roads.lanes.find((l) => {
+        const n = roads.nodes[l.to]!;
+        if (!l.line.avenue || l.index !== 0 || l.length < 60 || !n.signal || n.degree !== 4) return false;
+        const left = l.turns.find((t) => t.kind === 'left');
+        const opp = oncomingLane(l);
+        return !!left && left.legal && left.to.line.avenue && !!opp && opp.to === n.id && opp.length >= 60;
+      })!;
+      const node = roads.nodes[lane.to]!;
+      const turn = lane.turns.find((t) => t.kind === 'left')!;
+      const opp = oncomingLane(lane)!;
+      const exit = roads.nodes[turn.to.to]!;
+      const beyond = roads.nodes[node.neighbors[reverseDir(lane.dir)]!]!;
+      // Our green ends in 3 s.
+      const phase = (axisOf(lane.dir) === 'NS' ? 0 : SIGNAL_HALF) + SIGNAL_GREEN - 3;
+      node.offset = (((phase - sim.time) % SIGNAL_CYCLE) + SIGNAL_CYCLE) % SIGNAL_CYCLE;
+      const route = (v: Vehicle, l: Lane, s: number, to: { x: number; z: number }) => {
+        v.ai!.dest = { x: to.x, z: to.z };
+        v.ai!.setLane(l, s);
+        return v;
+      };
+      const car = route(drive(sim, kind, lane, lane.length - 30, 8, 'route'), lane, lane.length - 30, exit);
+      let next = 0;
+      let redAt = -1;
+      let onCrossing = 0;
+      let cleared = -1;
+      step(sim, 30, (t) => {
+        const red = roads.signalState(node.id, axisOf(lane.dir), sim.time) === 'red';
+        // A steady stream of oncoming cars keeps it yielding until the yellow ends.
+        if (!red && t >= next) {
+          next = t + 1.2;
+          if (sim.traffic.isClear(opp.sx + opp.dx * 25, opp.sz + opp.dz * 25, 8)) route(drive(sim, 'sedan', opp, 25, 13, 'route'), opp, 25, beyond);
+        }
+        if (red && redAt < 0) redAt = t;
+        const nose = along(lane, car.pos) + car.halfL - lane.length;
+        if (red && car.ai!.currentLane() === lane && nose > 0 && car.speed < 0.3) onCrossing += 1 / 60;
+        if (cleared < 0 && car.ai!.currentLane() === turn.to && along(turn.to, car.pos) > 3) cleared = t;
+        return input();
+      });
+      expect(redAt).toBeGreaterThan(0);
+      // It waits out the last cars running the yellow, then completes the turn.
+      expect(cleared).toBeGreaterThan(redAt);
+      expect(cleared - redAt).toBeLessThan(15);
+      expect(onCrossing).toBeLessThan(4);
+    }
+  });
+
+  it('gets a car pinned between a building and a lamp post out within 8 s', () => {
+    for (const [kind, policy] of [
+      ['sedan', 'traffic'],
+      ['police', 'chase'],
+    ] as const) {
+      const nooks = lampNooks(makeSim({ police: false }), kind);
+      expect(nooks.length).toBeGreaterThanOrEqual(3);
+      for (const nook of nooks.slice(0, 3)) {
+        const sim = makeSim({ police: false });
+        const car = sim.spawnVehicle(kind, nook.x, nook.z, nook.heading);
+        car.owner = 'traffic';
+        sim.addDriver(car, kind === 'police' ? 'cop' : 'civilian', policy);
+        if (policy === 'chase') car.ai!.target = sim.player;
+        let freeAt = -1;
+        step(sim, 8, (t) => {
+          if (freeAt < 0 && Math.hypot(car.pos.x - nook.x, car.pos.z - nook.z) > 4) freeAt = t;
+          return input();
+        });
+        // A slow reverse ends against the lamp; the next one knocks it over.
+        expect(freeAt).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('routes a pursuer round the block to a goal behind it instead of on along the street', () => {
+    const roads = makeSim({ police: false }).roads;
+    const behind = (l: Lane) => roads.nodes[l.from]!.neighbors[reverseDir(l.dir)]!;
+    const fourWay = (id: number) => id >= 0 && roads.nodes[id]!.degree === 4;
+    const lanes = roads.lanes.filter((l) => l.lanesInDir === 1 && l.length >= 60 && fourWay(l.from) && fourWay(l.to) && fourWay(behind(l)));
+    expect(lanes.length).toBeGreaterThanOrEqual(12);
+    for (let k = 0; k < 12; k++) {
+      const lane = lanes[Math.floor((k * lanes.length) / 12)]!;
+      const sim = makeSim({ police: false });
+      const unit = drive(sim, 'police', lane, 8, 0, 'chase');
+      // A search point at the junction behind the one it just left: too far to drive straight at.
+      const goal = sim.roads.nodes[behind(lane)]!;
+      unit.ai!.dest = { x: goal.x, z: goal.z };
+      unit.ai!.resetPath();
+      const ahead = sim.roads.nodes[lane.to]!;
+      let past = -Infinity;
+      let reached = -1;
+      step(sim, 40, (t) => {
+        if (reached >= 0) return input();
+        past = Math.max(past, (unit.pos.x - ahead.x) * lane.dx + (unit.pos.z - ahead.z) * lane.dz);
+        if (Math.hypot(unit.pos.x - goal.x, unit.pos.z - goal.z) < 15) reached = t;
+        return input();
+      });
+      // Lanes have no U-turn: it turns off at the junction ahead rather than carry on to the next one.
+      expect(past).toBeLessThan(20);
+      expect(reached).toBeGreaterThan(0);
+      expect(reached).toBeLessThan(30);
+    }
   });
 });

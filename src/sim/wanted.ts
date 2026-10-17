@@ -133,7 +133,8 @@ export class WantedSystem {
       if (d < 8 || sim.world.lineOfSight(p.x, p.y + 1.6, p.z, x, sim.world.groundHeight(x, z) + 1.2, z)) return true;
     }
     for (const h of sim.helis) {
-      if (!h.removed && !h.destroyed && Math.hypot(h.pos.x - x, h.pos.z - z) < 110) return true;
+      if (h.removed || h.destroyed || Math.hypot(h.pos.x - x, h.pos.z - z) >= 110) continue;
+      if (sim.world.lineOfSight(h.pos.x, h.pos.y, h.pos.z, x, sim.world.groundHeight(x, z) + 1.2, z)) return true;
     }
     return false;
   }

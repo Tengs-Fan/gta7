@@ -205,6 +205,8 @@ describe('render fixes', () => {
     const p = sim.player;
     p.inventory.give('rocket', 4);
     p.inventory.current = 'rocket';
+    // Wait out the weapon swap time before pulling the trigger.
+    step(sim, 0.3);
     const pp = sim.playerPos();
     sim.update(0.1, aimAt(sim, { x: pp.x + 60, y: pp.y + 3, z: pp.z }, { fire: true, firePressed: true }));
     expect(sim.projectiles.length).toBe(1);
