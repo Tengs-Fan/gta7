@@ -188,8 +188,8 @@ function computeLayout(kind: VehicleKind, prof: Profile): CabinLayout {
   const layout = { floor, frontZ, rearZ, recline: 0.36, wheel, glass: prof.cabin, roof: { z0: rt[0] - 0.03, z1: ft[0] + 0.03, y: top - 0.015 } };
   // The player's head must show through the rear window from the chase camera (camera.ts: 5.2 + 0.72 x length behind,
   // 1.3 + 1.35 x height up, pitched 0.08 down), which looks steeply down past the roof's rear edge. Where the roof runs
-  // too far back for CHASE_HEAD of the back of his head to show under it (a hatchback's), its painted panel stops short
-  // and the glass under it carries on as a glass roof.
+  // too far back for CHASE_HEAD of the back of his head to show under it, its painted panel stops short and the glass
+  // under it carries on as a glass roof: 0.2-0.5 m of it on the cars, 1 m on the compact hatchback, none on the pickup.
   const ref = riderSeat(layout, false, 1.02, false, { y: 0, z: 0, recline: 0 });
   const neckY = ref.y + SKELETON.neckY * 1.02 * Math.cos(ref.recline);
   const neckZ = ref.z - SKELETON.neckY * 1.02 * Math.sin(ref.recline);
