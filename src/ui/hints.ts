@@ -1,21 +1,26 @@
-// First-time tutorial hints and the steal prompt. Each hint shows once ever: its id goes into
-// Settings.hintsSeen, which is saved with the settings. Game owns the system and updates it after
-// Sim.update; the HUD's help queue decides when a queued hint actually appears (never over a
-// message, never while a subtitle is up).
+// First-time tutorial hints and the steal prompt. Each hint is read once ever: once it has been
+// on screen for half its time its id goes into Settings.hintsSeen, which is saved with the
+// settings. A hint still waiting in the HUD's queue is not seen yet, so quitting, reloading or
+// switching hints off before its turn brings it back next time. Game owns the system and updates
+// it after Sim.update; the HUD's help queue decides when a hint appears (never over a message,
+// never while a subtitle is up).
 
 import type { Vehicle } from '../sim/entities';
 import type { Sim } from '../sim/sim';
 import type { InputDevice } from './glyphs';
+import type { HintOptions } from './hud';
 
 export interface HintHost {
   /** Tutorial hints are switched on in the settings. */
   enabled(): boolean;
   /** Ids of the hints already shown (Settings.hintsSeen). */
   seen(): readonly string[];
-  /** Records a shown hint for good. */
+  /** Records a read hint for good. */
   markSeen(id: string): void;
   /** Queues a hint on the HUD; false when the queue is full (the rule then tries again later). */
-  show(html: string, duration: number): boolean;
+  show(html: string, duration: number, opts: HintOptions): boolean;
+  /** Whether the HUD holds this hint, queued or on screen. */
+  pending(id: string): boolean;
 }
 
 export interface HintFrame {
@@ -101,8 +106,8 @@ export class HintSystem {
     this.mouseFreeFor = frame.mouseFree && frame.device === 'kb' ? this.mouseFreeFor + dt : 0;
     if (!this.host.enabled()) return;
     for (const r of RULES) {
-      if (this.host.seen().includes(r.id) || !r.when(sim, this)) continue;
-      if (this.host.show(r.text, r.duration)) this.host.markSeen(r.id);
+      if (this.host.seen().includes(r.id) || this.host.pending(r.id) || !r.when(sim, this)) continue;
+      this.host.show(r.text, r.duration, { id: r.id, valid: () => r.when(sim, this), onRead: () => this.host.markSeen(r.id) });
     }
   }
 

@@ -30,12 +30,23 @@ interface BigMsg {
 /** A message (sim or game news) shows at once; a hint (tutorial) waits for a quiet moment. */
 export type HelpKind = 'message' | 'hint';
 
+/** Bookkeeping for a tutorial hint (see Hud.help). */
+export interface HintOptions {
+  /** Names the hint while it waits or shows (see hintPending). */
+  id: string;
+  /** Called once it has been on screen for half its time: from then on it counts as read. */
+  onRead?: () => void;
+  /** Asked when its turn comes: a hint that no longer applies is dropped unread. */
+  valid?: () => boolean;
+}
+
 interface HelpEntry {
   text: string;
   duration: number;
   kind: HelpKind;
   /** Whether the player was in a vehicle when it was raised (R and Space mean other things there). */
   inVehicle: boolean;
+  hint?: HintOptions;
 }
 
 /** Hints waiting for the help box; more are refused. */
@@ -79,8 +90,8 @@ export class Hud {
   /** Device of the last input (Game writes it every frame); keys in HUD text are drawn for it. */
   device: InputDevice = 'kb';
   private sim: Sim | null = null;
-  /** What the help box shows and for how long it has (it is hidden once timers.help runs out). */
-  private helpCur: (HelpEntry & { shown: number }) | null = null;
+  /** What the help box shows, for how long it has, and (for a hint) whether it counts as read yet. */
+  private helpCur: (HelpEntry & { shown: number; read: boolean }) | null = null;
   private helpDevice: InputDevice = 'kb';
   private hintQueue: HelpEntry[] = [];
   private hintGap = 0;
@@ -142,6 +153,8 @@ export class Hud {
         this.el.subtitle!.innerHTML = `<b>${escapeHtml(e.speaker)}:</b> ${escapeHtml(e.text)}`;
         this.el.subtitle!.classList.add('show');
         this.timers.subtitle = e.duration;
+        // Dialogue takes the stage: a hint not read yet steps back and returns after it.
+        if (this.helpCur?.kind === 'hint' && !this.helpCur.read) this.interruptHint();
       }),
       ev.on('objective', (e) => {
         this.el.objective!.classList.remove('next');
@@ -220,31 +233,46 @@ export class Hud {
    * covers a message and does not appear while a subtitle is up: it waits in a queue of at most
    * MAX_QUEUED_HINTS. Returns false when a hint was refused because that queue is full.
    */
-  help(text: string, duration = 4, kind: HelpKind = 'message'): boolean {
-    const entry: HelpEntry = { text, duration, kind, inVehicle: !!this.sim?.player.vehicle };
-    const cur = this.helpCur;
+  help(text: string, duration = 4, kind: HelpKind = 'message', hint?: HintOptions): boolean {
+    const entry: HelpEntry = { text, duration, kind, inVehicle: !!this.sim?.player.vehicle, hint };
     if (kind === 'hint') {
-      if (cur || this.hintGap > 0 || this.timers.subtitle > 0 || this.hintQueue.length > 0) {
+      if (this.helpCur || this.hintGap > 0 || this.timers.subtitle > 0 || this.hintQueue.length > 0) {
         if (this.hintQueue.length >= MAX_QUEUED_HINTS) return false;
         this.hintQueue.push(entry);
         return true;
       }
-    } else if (cur?.kind === 'hint' && cur.shown < cur.duration / 2 && this.hintQueue.length < MAX_QUEUED_HINTS) {
-      // A hint the player barely had time to read comes back once the message is gone.
-      this.hintQueue.unshift({ text: cur.text, duration: cur.duration, kind: 'hint', inVehicle: cur.inVehicle });
-    }
+    } else this.interruptHint();
     this.showHelp(entry);
     return true;
   }
 
-  /** Drops the queued hints and ends a showing one (tutorial hints were switched off). */
+  /** Whether the hint with this id waits in the queue or is on screen. */
+  hintPending(id: string): boolean {
+    return this.helpCur?.hint?.id === id || this.hintQueue.some((e) => e.hint?.id === id);
+  }
+
+  /** Drops the queued hints and takes a showing one off (tutorial hints were switched off). */
   clearHints(): void {
     this.hintQueue = [];
-    if (this.helpCur?.kind === 'hint') this.timers.help = 0;
+    if (this.helpCur?.kind !== 'hint') return;
+    this.helpCur = null;
+    this.timers.help = 0;
+    this.el.help!.classList.remove('show');
+  }
+
+  /** Takes a showing hint off the screen; one not read yet goes back to the front of the queue. */
+  private interruptHint(): void {
+    const cur = this.helpCur;
+    if (cur?.kind !== 'hint') return;
+    if (!cur.read && this.hintQueue.length < MAX_QUEUED_HINTS) this.hintQueue.unshift({ text: cur.text, duration: cur.duration, kind: 'hint', inVehicle: cur.inVehicle, hint: cur.hint });
+    this.helpCur = null;
+    this.timers.help = 0;
+    this.el.help!.classList.remove('show');
+    this.hintGap = HINT_GAP;
   }
 
   private showHelp(e: HelpEntry): void {
-    this.helpCur = { ...e, shown: 0 };
+    this.helpCur = { ...e, shown: 0, read: false };
     this.timers.help = e.duration;
     this.hintGap = 0;
     this.el.help!.classList.toggle('hint', e.kind === 'hint');
@@ -264,16 +292,33 @@ export class Hud {
     const cur = this.helpCur;
     if (cur && this.timers.help > 0) {
       cur.shown += dt;
+      if (cur.kind === 'hint' && !cur.read && cur.shown >= cur.duration / 2) this.markRead(cur);
       if (this.helpDevice !== this.device) this.renderHelp();
       return;
     }
     if (cur) {
+      if (cur.kind === 'hint' && !cur.read) this.markRead(cur);
       this.helpCur = null;
       this.el.help!.classList.remove('show');
       this.hintGap = HINT_GAP;
     }
-    if (this.hintGap > 0) this.hintGap -= dt;
-    else if (this.hintQueue.length > 0 && this.timers.subtitle <= 0) this.showHelp(this.hintQueue.shift()!);
+    if (this.hintGap > 0) {
+      this.hintGap -= dt;
+      return;
+    }
+    if (this.timers.subtitle > 0) return;
+    while (this.hintQueue.length > 0) {
+      const next = this.hintQueue.shift()!;
+      // Waited too long: what it explains is over (the stars are gone, the health is back).
+      if (next.hint?.valid && !next.hint.valid()) continue;
+      this.showHelp(next);
+      return;
+    }
+  }
+
+  private markRead(cur: { read: boolean; hint?: HintOptions }): void {
+    cur.read = true;
+    cur.hint?.onRead?.();
   }
 
   toast(text: string): void {

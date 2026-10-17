@@ -65,7 +65,8 @@ export class Game {
     enabled: () => this.settings.hints,
     seen: () => this.settings.hintsSeen,
     markSeen: (id) => this.markHintSeen(id),
-    show: (html, duration) => this.hud.help(html, duration, 'hint'),
+    show: (html, duration, opts) => this.hud.help(html, duration, 'hint', opts),
+    pending: (id) => this.hud.hintPending(id),
   });
 
   constructor(private readonly canvas: HTMLCanvasElement, private readonly ui: HTMLElement) {
@@ -145,7 +146,7 @@ export class Game {
     if (persist) saveSettings(this.settings);
   }
 
-  /** Remembers a shown hint for good (saved with the settings). */
+  /** Remembers a read hint for good (saved with the settings). */
   private markHintSeen(id: string): void {
     const seen = this.settings.hintsSeen;
     if (seen.includes(id)) return;

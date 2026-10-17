@@ -1877,6 +1877,32 @@ describe('R2 onboarding: the help queue', () => {
     expect(help()).toBe('Good as new.');
   });
 
+  it('dialogue starting over an unread hint sends it back to the queue; a read one stays up', () => {
+    const { hud, sim, run, help } = setup();
+    const read: string[] = [];
+    expect(hud.help('Hint one', 6, 'hint', { id: 'one', onRead: () => read.push('one') })).toBe(true);
+    run(1);
+    expect(help()).toBe('Hint one');
+    sim.events.emit('subtitle', { speaker: 'Mama Lou', text: 'Welcome home, baby.', duration: 4 });
+    expect(help()).toBe(null);
+    expect(hud.hintPending('one')).toBe(true);
+    run(3.9);
+    expect(help()).toBe(null);
+    run(0.2);
+    expect(help()).toBe('Hint one');
+    run(2.9);
+    expect(read).toEqual([]);
+    run(0.2);
+    expect(read).toEqual(['one']);
+    // Read by now: another line of dialogue leaves it up to finish.
+    sim.events.emit('subtitle', { speaker: 'Mama Lou', text: 'Bring me a car.', duration: 2 });
+    expect(help()).toBe('Hint one');
+    run(3);
+    expect(help()).toBe(null);
+    expect(read).toEqual(['one']);
+    expect(hud.hintPending('one')).toBe(false);
+  });
+
   it('switching hints off drops the queue and ends a showing hint', async () => {
     const { game, frames, el } = onboardingGame();
     game.newGame({ intro: false });
@@ -1949,6 +1975,9 @@ describe('R2 onboarding: first-time hints and the steal prompt', () => {
     expect(el('help').classList.contains('show')).toBe(true);
     expect(el('help').innerHTML).toContain('Spray');
     expect(el('help').classList.contains('hint')).toBe(true);
+    // Remembered once it has been up for half its 8 s.
+    expect(game.settings.hintsSeen).not.toContain('wanted');
+    seconds(4);
     expect(game.settings.hintsSeen).toContain('wanted');
   });
 
@@ -1959,7 +1988,7 @@ describe('R2 onboarding: first-time hints and the steal prompt', () => {
     a.game.sim.cheats.godMode = true;
     a.game.sim.missions.noBust = true;
     a.game.sim.wanted.setLevel(1);
-    a.seconds(1);
+    a.seconds(14);
     expect(a.game.settings.hintsSeen).toContain('wanted');
     const b = onboardingGame();
     expect(b.game.settings.hintsSeen).toContain('wanted');
@@ -1998,36 +2027,93 @@ describe('R2 onboarding: first-time hints and the steal prompt', () => {
     expect(game.settings.hintsSeen).toEqual([]);
   });
 
-  it('each rule fires on its own condition: driving, a gun, low health, a free mouse', async () => {
+  it('each rule fires on its own condition (a free mouse, driving, a gun, low health) and they take turns', async () => {
     dom.lockMode = 'manual'; // the lock request stays pending: the mouse is free
     const { game, seconds, el } = onboardingGame();
     game.newGame({ intro: false });
     await flush();
     const sim = game.sim;
     sim.cheats.godMode = true;
+    const hud = game.hud;
     seconds(1.2);
-    expect(game.settings.hintsSeen).toEqual(['mouse']);
+    expect(hud.hintPending('mouse')).toBe(true);
     const v = besideNewCar(sim);
     placeInCar(sim, v);
     seconds(0.1);
-    sim.playerCtl.ejectPlayer(true);
+    expect(hud.hintPending('drive')).toBe(true);
     sim.player.inventory.give('pistol', 48);
     sim.player.inventory.current = 'pistol';
-    seconds(0.1);
     sim.player.health = 30;
     seconds(0.1);
-    // The queue holds three: the low-health hint waits for room (and is not marked seen yet).
-    expect(game.settings.hintsSeen).toEqual(['mouse', 'drive', 'weapon']);
-    // They take turns in the help box after the welcome message.
+    // In the car the gun hint does not apply yet; the low-health one takes the third queue slot.
+    // Nothing counts as seen before it has been read.
+    expect(hud.hintPending('health')).toBe(true);
+    expect(hud.hintPending('weapon')).toBe(false);
+    expect(game.settings.hintsSeen).toEqual([]);
+    // They take turns in the help box after the welcome message; each is remembered once read.
     const seen: string[] = [];
     for (let i = 0; i < 60 * 40; i++) {
-      game.sim.player.health = Math.max(game.sim.player.health, 30);
+      // Out of the car once the driving hint has been read, so the gun hint applies.
+      if (sim.player.vehicle && game.settings.hintsSeen.includes('drive')) sim.playerCtl.ejectPlayer(true);
       seconds(1 / 60);
       const h = el('help');
       if (h.classList.contains('show') && h.classList.contains('hint') && seen[seen.length - 1] !== h.innerHTML) seen.push(h.innerHTML);
     }
-    expect(seen.map((s) => s.replace(/<[^>]*>/g, '').split('.')[0])).toEqual(['Click the game to control the camera', 'Hold Space for the handbrake', 'Right-click to aim, left-click to shoot', 'Health is low: buy First Aid at Bang Bang Guns or save at the safehouse']);
-    expect(game.settings.hintsSeen).toEqual(['mouse', 'drive', 'weapon', 'health']);
+    expect(seen.map((s) => s.replace(/<[^>]*>/g, '').split('.')[0])).toEqual(['Click the game to control the camera', 'Hold Space for the handbrake', 'Health is low: buy First Aid at Bang Bang Guns or save at the safehouse', 'Right-click to aim, left-click to shoot']);
+    expect(game.settings.hintsSeen).toEqual(['mouse', 'drive', 'health', 'weapon']);
+  });
+
+  it('a hint counts as seen only once read: one still queued when hints go off or a new game starts comes back', async () => {
+    const { game, seconds, el } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    game.sim.cheats.godMode = true;
+    game.sim.missions.noBust = true;
+    game.sim.wanted.setLevel(1);
+    seconds(2);
+    expect(game.hud.hintPending('wanted')).toBe(true); // waiting behind the welcome message
+    expect(game.settings.hintsSeen).not.toContain('wanted');
+    // Hints off and on again before its turn: dropped from the queue, not remembered, queued again.
+    game.applySettings({ ...game.settings, hints: false }, true);
+    expect(game.hud.hintPending('wanted')).toBe(false);
+    game.applySettings({ ...game.settings, hints: true }, true);
+    seconds(0.1);
+    expect(game.hud.hintPending('wanted')).toBe(true);
+    // A new game before its turn: still unseen, and back with the next star.
+    game.newGame({ intro: false });
+    await flush();
+    expect(game.hud.hintPending('wanted')).toBe(false);
+    expect(game.settings.hintsSeen).not.toContain('wanted');
+    game.sim.cheats.godMode = true;
+    game.sim.missions.noBust = true;
+    game.sim.wanted.setLevel(1);
+    seconds(9.7);
+    expect(el('help').innerHTML).toContain('Spray');
+    expect(game.settings.hintsSeen).not.toContain('wanted'); // on screen, not read yet
+    seconds(4);
+    expect(game.settings.hintsSeen).toContain('wanted');
+  });
+
+  it('a queued hint that no longer applies when its turn comes is dropped unread, and comes back when it applies again', async () => {
+    const { game, seconds, el } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    const sim = game.sim;
+    sim.player.health = 30;
+    seconds(1);
+    expect(game.hud.hintPending('health')).toBe(true);
+    sim.player.health = sim.player.maxHealth; // First Aid before the welcome message is over
+    let shown = false;
+    for (let i = 0; i < 60 * 10; i++) {
+      seconds(1 / 60);
+      if (el('help').innerHTML.includes('Health is low')) shown = true;
+    }
+    expect(shown).toBe(false);
+    expect(game.hud.hintPending('health')).toBe(false);
+    expect(game.settings.hintsSeen).not.toContain('health');
+    sim.player.health = 30;
+    seconds(0.1);
+    expect(el('help').innerHTML).toContain('Health is low');
   });
 
   it('no mouse hint on a pad or where pointer lock is unavailable', async () => {
@@ -2064,7 +2150,7 @@ describe('R2 onboarding: first-time hints and the steal prompt', () => {
     game.sim.cheats.godMode = true;
     game.sim.missions.noBust = true;
     game.sim.wanted.setLevel(1);
-    seconds(1);
+    seconds(20);
     expect(help.mock.calls.filter((c) => c[2] === 'hint' && c[0].includes('Spray')).length).toBe(1);
     expect(game.settings.hintsSeen.length).toBe(50);
     expect(game.settings.hintsSeen).toContain('wanted');
