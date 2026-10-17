@@ -527,3 +527,108 @@ describe('crime heat from automatic fire', () => {
     expect(sim.wanted.level).toBe(3);
   });
 });
+
+describe('close-range shots from the shoulder camera land at the crosshair', () => {
+  /** The player with `weapon`, and an enemy standing still `dist` m away, `side` m of it to the right. */
+  function enemyAt(weapon: WeaponId, dist: number, side: number) {
+    const sim = makeSim();
+    const f = standOnOpenRoad(sim);
+    const p = sim.player;
+    p.inventory.give(weapon, 100);
+    p.inventory.current = weapon;
+    const ahead = Math.sqrt(dist * dist - side * side);
+    const enemy = sim.spawnCharacter('gang', p.pos.x + f.fx * ahead + f.rx * side, p.pos.z + f.fz * ahead + f.rz * side);
+    enemy.armor = 5000;
+    return { sim, enemy, shots: recordShots(sim) };
+  }
+
+  /** Pistol shots with the crosshair on his head (through his axis at 0.89, 0.93 and 0.97 of his height) are all headshots. */
+  function expectHeadshots(dist: number, side: number): void {
+    const { sim, enemy, shots } = enemyAt('pistol', dist, side);
+    for (const k of [0.89, 0.93, 0.97]) {
+      const head = () => ({ x: enemy.pos.x, y: enemy.pos.y + k * enemy.height, z: enemy.pos.z });
+      step(sim, 0.3, () => crosshairOn(sim, head()));
+      const armor = enemy.armor;
+      const headshots = sim.progress.stats.headshots;
+      sim.update(1 / 60, crosshairOn(sim, head(), { fire: true, firePressed: true }));
+      expect(shots.map((s) => s.hit), `aimed at ${k} of his height`).toEqual(['flesh']);
+      expect(armor - enemy.armor, `aimed at ${k} of his height`).toBe(WEAPONS.pistol.damage * 2.5);
+      expect(sim.progress.stats.headshots).toBe(headshots + 1);
+      shots.length = 0;
+    }
+  }
+
+  it.each([
+    [1.1, 0],
+    [1.1, 0.62],
+    [1.35, 0],
+    [1.35, 0.62],
+    [1.6, 0],
+    [1.6, 0.62],
+  ])('head-aimed pistol shots %f m away (%f m right) are headshots', (dist, side) => {
+    expectHeadshots(dist, side);
+  });
+
+  it.each([
+    [0.9, 0.45],
+    [0.9, 0.62],
+    [0.9, 0.75],
+  ])('head-aimed pistol shots at point blank, %f m away (%f m right), are headshots', (dist, side) => {
+    expectHeadshots(dist, side);
+  });
+
+  it.each([
+    [1.2, 0],
+    [1.2, 0.3],
+    [1.18, 0.62],
+    [1.13, 0.8],
+    [1.17, 1.0],
+  ])('every pellet of five shotgun blasts hits an enemy %f m away (%f m right)', (dist, side) => {
+    // Just past the muzzle the crosshair's point on him is his edge as seen from the muzzle: aimed there, a third of the pellets graze past.
+    const { sim, enemy, shots } = enemyAt('shotgun', dist, side);
+    const chest = () => ({ x: enemy.pos.x, y: enemy.pos.y + 1.2, z: enemy.pos.z });
+    step(sim, 0.3, () => crosshairOn(sim, chest()));
+    for (let i = 0; i < 5; i++) {
+      sim.update(1 / 60, crosshairOn(sim, chest(), { fire: true, firePressed: true }));
+      step(sim, 0.9, () => crosshairOn(sim, chest()));
+    }
+    expect(shots.length).toBe(5 * WEAPONS.shotgun.pellets);
+    expect(shots.filter((s) => s.hit !== 'flesh')).toEqual([]);
+  });
+
+  it.each([
+    [1.2, 0],
+    [1.3, 0.4],
+    [1.5, 0],
+  ])('shotgun blasts at a knocked-down enemy %f m away (%f m right) land on him, not in the road beside him', (dist, side) => {
+    // He lies below the muzzle: aiming at his near side wall would send the pellets down along it into the road.
+    const { sim, enemy, shots } = enemyAt('shotgun', dist, side);
+    enemy.state = 'knocked';
+    enemy.knockTimer = 60;
+    const body = () => ({ x: enemy.pos.x, y: enemy.pos.y + 0.25, z: enemy.pos.z });
+    step(sim, 0.3, () => crosshairOn(sim, body()));
+    for (let i = 0; i < 3; i++) {
+      sim.update(1 / 60, crosshairOn(sim, body(), { fire: true, firePressed: true }));
+      step(sim, 0.9, () => crosshairOn(sim, body()));
+    }
+    expect(shots.length).toBe(3 * WEAPONS.shotgun.pellets);
+    expect(shots.filter((s) => s.hit === 'flesh').length).toBeGreaterThanOrEqual(3 * WEAPONS.shotgun.pellets - 2);
+  });
+});
+
+describe('the burning-car warning', () => {
+  it("says 'Press F', so the HUD shows the enter/exit key printed on the player's keyboard", () => {
+    const sim = makeSim();
+    const r = openRoad(sim);
+    const v = sim.spawnVehicle('sedan', r.x, r.z, r.h);
+    placeInCar(sim, v);
+    const messages: string[] = [];
+    sim.events.on('message', (e) => messages.push(e.text));
+    sim.combat.damageVehicle(v, v.spec.health + 1, null, 'bullet');
+    expect(v.burning).toBe(true);
+    const warning = messages.find((m) => /on fire/.test(m));
+    // Hud.keyCaps rewrites only 'Press X' / 'press X' into the key cap for the QWERTY key X.
+    expect(warning).toMatch(/\bPress F\b/);
+    expect(warning).not.toMatch(/\(F\)/);
+  });
+});

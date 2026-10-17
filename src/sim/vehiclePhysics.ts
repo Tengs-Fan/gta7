@@ -73,6 +73,11 @@ function sinkFloor(v: Vehicle, world: StaticWorld, x: number, z: number): number
   return Math.min(Math.max(WATER_Y - 3.2, world.baseGround(x, z) - 0.3), deckCeiling(v, world, x, z));
 }
 
+/** The nearer of 0 and PI to the pitch or roll angle a: a sinking car settles on its wheels or on its roof, whichever is closer. */
+function nearerFace(a: number): number {
+  return Math.abs(wrapAngle(a)) > Math.PI / 2 ? Math.PI : 0;
+}
+
 /**
  * True when a sinking vehicle may not drift on to (x, z): its centre or leading edge would reach water too shallow to sink in
  * (quays, the beach), it would have to rise to settle there (the sand at the beach's ends; the slack still lets it slide up
@@ -127,6 +132,10 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
       v.pos.z = nz;
     }
     v.pos.y = Math.max(sinkFloor(v, world, v.pos.x, v.pos.z), v.pos.y + v.vy * dt);
+    // Level out: sinkFloor only keeps a level body under the deck and the surface, so the end that tipped up going
+    // over an edge (or in a blast's tumble) would otherwise poke through the deck or out of the water for good.
+    v.pitch = dampAngle(v.pitch, nearerFace(v.pitch), 3, dt);
+    v.roll = dampAngle(v.roll, nearerFace(v.roll), 3, dt);
     v.sinkTimer += dt;
     updateDerived(v, dt, 0);
     return;

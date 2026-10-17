@@ -1,8 +1,10 @@
 // Regressions for the police / pedestrian AI review (cluster "police_peds").
 
 import { describe, expect, it } from 'vitest';
+import { clamp } from '../../src/core/math';
 import { makeBrain } from '../../src/sim/brains';
 import { Helicopter, type Character, type Vehicle } from '../../src/sim/entities';
+import type { PlayerInput } from '../../src/sim/input';
 import type { Sim } from '../../src/sim/sim';
 import type { Lane } from '../../src/world/roads';
 import { aimAt, input, makeSim, placeInCar, step, teleport } from './helpers';
@@ -735,5 +737,123 @@ describe('pursuit units at speed', () => {
     expect(locked).toBe(0);
     // It stayed on his tail all along.
     expect(dist(unit.pos, car.pos)).toBeLessThan(30);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 follow-up (cluster "police").
+
+describe('searching while the player is far from the last sighting', () => {
+  /** Ambient dispatch, but no traffic or pedestrians streaming in: only the police come and go. */
+  function dispatchOnly(seed: number): Sim {
+    const sim = makeSim({ ambient: true, seed });
+    sim.traffic.updateStreaming = () => {};
+    sim.peds.updateStreaming = () => {};
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    return sim;
+  }
+
+  /** Steps `seconds` of a search with no unit around yet: what went wrong for the player, if anything, and how many units were sent. */
+  function evade(sim: Sim, seconds: number, inp: () => PlayerInput = () => input()): { failed: string | null; sent: number } {
+    const w = sim.wanted;
+    const seen = { x: w.lastSeenX, z: w.lastSeenZ };
+    const seenAt = w.lastSeen;
+    const sent = new Set<Vehicle>();
+    let againAt = -1;
+    let againDist = 0;
+    step(sim, seconds, (t) => {
+      if (againAt < 0 && w.lastSeen > seenAt) {
+        againAt = t;
+        againDist = dist(sim.playerPos(), seen);
+      }
+      if (w.level > 0) for (const v of sim.vehicles) if (v.owner === 'police') sent.add(v);
+      return inp();
+    });
+    const failed = againAt >= 0 ? `seen again after ${againAt.toFixed(1)} s, ${Math.round(againDist)} m from the sighting` : w.level > 0 ? 'kept the stars' : null;
+    return { failed, sent: sent.size };
+  }
+
+  it('lets a player standing 450-800 m from his last sighting lose the stars: no unit sent to the search passes him', () => {
+    const failures: string[] = [];
+    let sent = 0;
+    for (const level of [1, 2]) {
+      for (const [li, lj, fi, fj, seed] of [
+        [1, 1, 7, 7, 1], [2, 8, 8, 2, 2], [8, 8, 2, 3, 3], [1, 5, 8, 5, 4], [5, 1, 5, 8, 5], [9, 2, 2, 7, 6],
+        [3, 3, 9, 8, 7], [7, 1, 1, 6, 8], [4, 9, 6, 2, 9], [1, 2, 6, 3, 10], [8, 1, 3, 2, 11], [5, 9, 5, 3, 12],
+      ] as const) {
+        const sim = dispatchOnly(seed);
+        const seen = corner(sim, li, lj);
+        teleport(sim, seen.x, seen.z);
+        lostSight(sim, level);
+        const hide = corner(sim, fi, fj);
+        teleport(sim, hide.x, hide.z);
+        const run = evade(sim, 30);
+        sent += run.sent;
+        if (run.failed) failures.push(`${level} star(s), (${li},${lj}) -> (${fi},${fj}): ${run.failed}`);
+      }
+    }
+    expect(failures).toEqual([]);
+    // The search was reinforced all the same.
+    expect(sent).toBeGreaterThan(0);
+  });
+
+  it('lets a player driving away from 450 to 870 m from his last sighting lose the stars', () => {
+    const failures: string[] = [];
+    for (const level of [1, 2]) {
+      for (const [j, dir, seed] of [[2, 1, 1], [3, -1, 2], [5, 1, 3], [7, -1, 4], [8, 1, 5], [2, -1, 6], [3, 1, 7], [5, -1, 8], [7, 1, 9], [8, -1, 10]] as const) {
+        const sim = dispatchOnly(seed);
+        // Last seen at one end of a street across town, now driving along it from the middle to the other end.
+        const end = sim.roads.node(dir > 0 ? 0 : 10, j);
+        const seen = sim.world.findFreeSpot(end.x + dir * (end.halfX + 3), end.z + end.halfZ + 3, 0.5, 8)!;
+        const middle = sim.roads.node(5, j);
+        const lane = sim.roads.lanes.find((l) => l.from === middle.id && Math.abs(l.dx - dir) < 0.01)!;
+        const car = sim.spawnVehicle('sports', lane.sx + lane.dx * 10, lane.sz, lane.heading);
+        placeInCar(sim, car);
+        const from = { x: car.pos.x, z: car.pos.z };
+        teleport(sim, seen.x, seen.z);
+        lostSight(sim, level);
+        teleport(sim, from.x, from.z);
+        car.vel.x = dir * 25;
+        const run = evade(sim, 30, () => {
+          // Keep to the lane at 25 m/s, and stop before the edge of town.
+          const az = lane.sz - car.pos.z;
+          const right = dir * 20 * -Math.cos(car.heading) + az * Math.sin(car.heading);
+          const want = Math.abs(car.pos.x) > 400 ? 0 : 25;
+          return input({ throttle: car.speed < want - 0.5 ? 1 : 0, brake: car.speed > want + 2 ? 1 : 0, steer: clamp((right / Math.hypot(20, az)) * 2.5, -1, 1) });
+        });
+        if (run.failed) failures.push(`${level} star(s), street ${j} heading ${dir > 0 ? 'east' : 'west'}: ${run.failed}`);
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it('starts every unit sent to a search far from the player nearer to the sighting, heading for it and away from him', () => {
+    const wrong: string[] = [];
+    let sent = 0;
+    for (const [level, li, lj, fi, fj] of [
+      [1, 8, 3, 2, 1], [1, 2, 5, 9, 4], [1, 0, 6, 8, 5], [1, 4, 0, 4, 8], [2, 1, 7, 8, 6], [2, 5, 0, 5, 7], [2, 9, 9, 3, 2], [2, 0, 2, 7, 3],
+    ] as const) {
+      const sim = makeSim({ seed: li * 10 + lj });
+      const seen = corner(sim, li, lj);
+      teleport(sim, seen.x, seen.z);
+      lostSight(sim, level);
+      const hide = corner(sim, fi, fj);
+      teleport(sim, hide.x, hide.z);
+      for (let k = 0; k < 40; k++) {
+        const v = sim.police.spawnUnit('police', true);
+        if (!v) continue;
+        sent++;
+        const fx = Math.sin(v.heading);
+        const fz = Math.cos(v.heading);
+        const toSeen = (seen.x - v.pos.x) * fx + (seen.z - v.pos.z) * fz;
+        const fromHim = (v.pos.x - hide.x) * fx + (v.pos.z - hide.z) * fz;
+        if (dist(v.pos, seen) > dist(hide, seen) || toSeen < 0 || fromHim < 0) wrong.push(`${level} star(s), (${li},${lj}) -> (${fi},${fj}): unit at (${Math.round(v.pos.x)}, ${Math.round(v.pos.z)})`);
+        // Off duty again (crew and all), so the next one finds a spot of its own.
+        sim.removeVehicle(v);
+      }
+    }
+    expect(wrong).toEqual([]);
+    expect(sent).toBeGreaterThan(25);
   });
 });

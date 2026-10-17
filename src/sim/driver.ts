@@ -138,6 +138,10 @@ export class DriverAI {
   private yieldedAt = -Infinity;
   /** Past what we overtook but still out in the other lane, pulling back in. */
   private merging = false;
+  /** Seconds the speed cap for oncoming traffic in the passing lane has held the car under 2 m/s (see update). */
+  private capTime = 0;
+  /** What the last oncomingGap found. */
+  private oncomer: Vehicle | null = null;
   /** Seconds spent stopped in a queue (see queuedBehind). */
   private queueTime = 0;
   /** What scanAhead found closest ahead this frame, and its bumper gap. */
@@ -518,9 +522,7 @@ export class DriverAI {
       if (this.overtake <= 0) this.passing = null;
     }
     if (this.merging && this.overtake <= 0 && this.laneIntrusion() < 0) this.merging = false;
-    const gap = this.scanAhead(v, aimX, aimZ);
-    // (Read back through a cast: the reset at the top of update() leaves the field narrowed to null.)
-    const ahead = this.blocker as Vehicle | Character | null;
+    let gap = this.scanAhead(v, aimX, aimZ);
     if (gap < Infinity) {
       const stopGap = Math.max(0, gap - 2.2);
       const vs = Math.sqrt(2 * this.decel * stopGap);
@@ -531,9 +533,29 @@ export class DriverAI {
     }
     // Still out in the passing lane, slow for anyone coming the other way in it: pulling back in
     // turns the corridor away from them while the car is still in their way.
+    let held = false;
     if (this.obeyLights && (this.overtake > 0 || this.merging) && this.laneIntrusion() > 0) {
-      targetSpeed = Math.min(targetSpeed, Math.sqrt(2 * this.decel * Math.max(0, this.oncomingGap() - 2.2)));
+      const capGap = this.oncomingGap();
+      const vs = Math.sqrt(2 * this.decel * Math.max(0, capGap - 2.2));
+      if (vs < targetSpeed) {
+        targetSpeed = vs;
+        held = vs < 2 && Math.abs(speed) < 2;
+        // Held up by that car for over 2 s: report it as the blocker (for the blocked and wait
+        // timers). What frees the car is dropping `merging` after 4 s, below.
+        if (held && this.capTime > 2) {
+          this.limiter = 'obstacle';
+          this.blocker = this.oncomer;
+          this.blockerGap = capGap;
+          gap = capGap;
+        }
+      }
     }
+    this.capTime = held ? this.capTime + dt : 0;
+    // Kept standing by it for over 4 s, stop waiting for it: as an ordinary car out of its lane, the
+    // car drives on and stops only for what the obstacle scan finds in its way.
+    if (this.capTime > 4 && Math.abs(speed) < 0.5) this.merging = false;
+    // (Read back through a cast: the reset at the top of update() leaves the field narrowed to null.)
+    const ahead = this.blocker as Vehicle | Character | null;
     const blocked = this.limiter === 'obstacle';
     // Waiting in line at a light is not a blockage: no horn, no overtaking, no reversing.
     // A queue that does not move for a long time is handled like any other blockage, though.
@@ -876,18 +898,29 @@ export class DriverAI {
     return false;
   }
 
-  /** Bumper gap, along our lane, to the nearest car in the passing lane ahead that faces us, less the way it covers in a second. */
+  /**
+   * Bumper gap, along our lane, to the nearest car in the passing lane ahead that closes in on us
+   * (kept in `oncomer`), less the way it covers in a second. One standing there (parked, abandoned,
+   * waiting) is left to the obstacle scan, which stops us only when it is in our way, and makes it
+   * the blocker that the face-off and stuck rules work with.
+   */
   private oncomingGap(): number {
     const v = this.vehicle;
     const f = this.laneFrame();
     let best = Infinity;
+    this.oncomer = null;
     for (const o of this.host.vehicles) {
       if (o === v || o.removed || Math.sin(o.heading) * f.tx + Math.cos(o.heading) * f.tz > -0.7) continue;
       const along = (o.pos.x - v.pos.x) * f.tx + (o.pos.z - v.pos.z) * f.tz;
       const left = (o.pos.x - f.x) * f.tz - (o.pos.z - f.z) * f.tx;
       if (along <= 0 || left < LANE_W / 2 - 0.2 || left > 1.5 * LANE_W + 0.3) continue;
-      const coming = Math.max(0, -(o.vel.x * f.tx + o.vel.z * f.tz));
-      best = Math.min(best, along - o.halfL - v.halfL - coming);
+      const coming = -(o.vel.x * f.tx + o.vel.z * f.tz);
+      if (coming < 1) continue;
+      const gap = along - o.halfL - v.halfL - coming;
+      if (gap < best) {
+        best = gap;
+        this.oncomer = o;
+      }
     }
     return best;
   }

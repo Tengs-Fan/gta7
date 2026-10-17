@@ -675,3 +675,112 @@ describe('driving fixes, round 2', () => {
     }
   });
 });
+
+/** Driver internals the round-3 tests look at. */
+const internals = (v: Vehicle) => v.ai as unknown as { merging: boolean; blocker: unknown };
+
+/**
+ * A car abandoned in `lane` 35 m in, and a second one left in the oncoming lane facing its own way,
+ * its front bumper `stagger` m past the first one's.
+ */
+function staggered(sim: Sim, lane: Lane, stagger: number): [Vehicle, Vehicle] {
+  const opp = oppositeLane(sim, lane);
+  const first = abandon(sim, 'sedan', lane, 35);
+  const second = abandon(sim, 'sedan', opp, opp.length - (35 + first.halfL + stagger + VEHICLE_SPECS.sedan.length / 2));
+  return [first, second];
+}
+
+describe('driving fixes, round 3', () => {
+  it('drives on past a car left in the oncoming lane just beyond the one it overtakes', () => {
+    for (const kind of ['sedan', 'van', 'compact'] as const) {
+      for (const stagger of [16, 20, 24]) {
+        const sim = makeSim({ police: false });
+        const lane = streetLane(sim);
+        signalsOff(sim);
+        const [first, second] = staggered(sim, lane, stagger);
+        const car = drive(sim, kind, lane, 8, 8);
+        let contacts = 0;
+        sim.events.on('impact', (e) => {
+          if (e.vehicle === car || e.vehicle === first || e.vehicle === second) contacts++;
+        });
+        let pastFirst = -1;
+        let past = -1;
+        let still = 0;
+        let longest = 0;
+        step(sim, 30, (t) => {
+          if (pastFirst < 0 && along(lane, car.pos) - car.halfL > along(lane, first.pos) + first.halfL) pastFirst = t;
+          if (past < 0 && along(lane, car.pos) - car.halfL > along(lane, second.pos) + second.halfL && Math.abs(across(lane, car.pos)) < 1.5) past = t;
+          still = pastFirst >= 0 && past < 0 && car.speed < 0.1 ? still + 1 / 60 : 0;
+          longest = Math.max(longest, still);
+          return input();
+        });
+        const what = `${kind}, ${stagger} m on`;
+        expect(past, what).toBeGreaterThan(0);
+        expect(contacts, what).toBe(0);
+        // From 20 m on the second car stands well clear of its way back in: once round the first
+        // one, nothing holds it up.
+        if (stagger >= 20) expect(longest, what).toBeLessThan(1);
+      }
+    }
+  });
+
+  it('does not wait for good for a car that keeps coming its way while it pulls back in', () => {
+    const sim = makeSim({ police: false });
+    const lane = streetLane(sim);
+    signalsOff(sim);
+    const opp = oppositeLane(sim, lane);
+    const [first, creeper] = staggered(sim, lane, 20);
+    const x = creeper.pos.x;
+    const z = creeper.pos.z;
+    const car = drive(sim, 'sedan', lane, 8, 8);
+    let level = false;
+    let reported = false;
+    let past = -1;
+    step(sim, 30, (t) => {
+      // Once the car has drawn level with the first one, the second rolls its way at walking pace,
+      // pinned in place: it never gets any closer, so waiting for it to arrive is waiting for good.
+      level ||= along(lane, car.pos) + car.halfL > along(lane, first.pos) - first.halfL + 1;
+      if (level) {
+        creeper.pos.x = x;
+        creeper.pos.z = z;
+        creeper.vel.x = opp.dx * 1.2;
+        creeper.vel.z = opp.dz * 1.2;
+      }
+      if (car.speed < 0.3 && car.ai!.limiter === 'obstacle' && internals(car).blocker === creeper) reported = true;
+      if (past < 0 && along(lane, car.pos) - car.halfL > along(lane, creeper.pos) + creeper.halfL && Math.abs(across(lane, car.pos)) < 1.5) past = t;
+      return input();
+    });
+    // Kept standing by it, the car reports it as what blocks it, and before long drives on past it.
+    expect(reported).toBe(true);
+    expect(past).toBeGreaterThan(0);
+  });
+
+  it('never leaves a car frozen pulling back in after overtaking, in traffic past a car left in each lane', () => {
+    for (const seed of [2, 3]) {
+      const sim = makeSim({ police: false, ambient: true, seed });
+      const lane = streetLane(sim);
+      const opp = oppositeLane(sim, lane);
+      const parked = abandon(sim, 'sedan', lane, lane.length * 0.45);
+      abandon(sim, 'sedan', opp, opp.length * 0.25);
+      // The player stands on the sidewalk next to the first one.
+      teleport(sim, parked.pos.x - lane.dz * 5, parked.pos.z + lane.dx * 5);
+      const merged = new Set<Vehicle>();
+      const frozen = new Map<Vehicle, number>();
+      let worst = 0;
+      step(sim, 90, () => {
+        for (const v of sim.vehicles) {
+          if (v.removed || !v.ai) continue;
+          const merging = internals(v).merging;
+          if (merging) merged.add(v);
+          const t = merging && v.speed < 0.3 ? (frozen.get(v) ?? 0) + 1 / 60 : 0;
+          frozen.set(v, t);
+          worst = Math.max(worst, t);
+        }
+        return input();
+      });
+      // Cars do go round the abandoned ones, and none is left standing out in the other lane.
+      expect(merged.size, `seed ${seed}`).toBeGreaterThanOrEqual(2);
+      expect(worst, `seed ${seed}`).toBeLessThan(20);
+    }
+  });
+});

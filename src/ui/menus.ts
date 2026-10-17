@@ -2,7 +2,7 @@
 // managed as a stack. Keyboard, gamepad and mouse can all drive them.
 
 import { clamp, formatMoney } from '../core/math';
-import { KeyLabels, type UiActions } from '../input/input';
+import { KeyLabels, WHEEL_GESTURE_GAP, WHEEL_STEP, type UiActions } from '../input/input';
 import type { Sim } from '../sim/sim';
 import { shopItems } from '../sim/interactions';
 import { PACKAGE_COUNT } from '../sim/pickups';
@@ -689,14 +689,22 @@ export class Menus {
       else this.host.setWaypoint(w);
       this.host.click();
     });
+    // Steps like the weapon wheel: the first event of a gesture (see WHEEL_GESTURE_GAP) is one
+    // 0.5 step whatever its size, so a notch is a step on every platform (4 px on macOS, 53 on
+    // Linux, 100 on Windows, a page). The rest of a gesture, such as a touchpad's dozens of tiny
+    // events per swipe, zooms by distance: a step per WHEEL_STEP px, at most one per event.
+    let wheelT = -Infinity;
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      // Zoom by distance scrolled, not per event: a touchpad sends dozens of tiny events per
-      // swipe. A classic 100 px notch is one 0.5 step.
       const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1;
       const dy = e.deltaY * unit;
+      // Ignored events still continue the gesture: a stray vertical event in a sideways touchpad
+      // swipe is not a whole step. Unlike for weapons, ctrl+wheel (a touchpad pinch) zooms too.
+      const newGesture = e.timeStamp - wheelT > WHEEL_GESTURE_GAP;
+      wheelT = e.timeStamp;
       if (!Number.isFinite(dy) || dy === 0 || Math.abs(e.deltaX * unit) > Math.abs(dy)) return;
-      zoom = clamp(zoom - dy * 0.005, 0, 4);
+      const steps = newGesture ? 1 : Math.min(Math.abs(dy) / WHEEL_STEP, 1);
+      zoom = clamp(zoom - Math.sign(dy) * 0.5 * steps, 0, 4);
     }, { passive: false });
     this.push({
       el,

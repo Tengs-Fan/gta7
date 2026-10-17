@@ -207,18 +207,31 @@ export class CombatSystem {
     const far = t0 + range + 12;
     const r = this.castRay(o.x, o.y, o.z, d.x, d.y, d.z, far, shooter, true, t0);
     // A prop the ray is inside at the muzzle's depth gives no direction: aim along the crosshair.
-    let t = r.kind === 'none' || r.t <= t0 ? far : r.t;
+    const t = r.kind === 'none' || r.t <= t0 ? far : r.t;
     const c = r.character;
     const flat = d.x * d.x + d.z * d.z;
     if (c && flat > 1e-9) {
       const b = bodyOf(c);
-      // Just past the muzzle, where the crosshair ray enters someone is the edge of him as seen from the
-      // muzzle, off to the side: aim through his middle there (nearest his axis, within his height).
-      if (t - t0 < 2 * b.r) {
-        let tm = ((c.pos.x - o.x) * d.x + (c.pos.z - o.z) * d.z) / flat;
-        if (d.y < -1e-6) tm = Math.min(tm, (b.y0 - o.y) / d.y);
-        else if (d.y > 1e-6) tm = Math.min(tm, (b.y1 - o.y) / d.y);
-        t = Math.max(t, tm);
+      // Just past the muzzle, where the crosshair ray enters someone is the edge of him as seen from the muzzle,
+      // and shots there graze past. Shoot through his middle instead (where the crosshair ray passes nearest his
+      // axis), aimed at the spot where that line from the muzzle enters him at the crosshair's height on him:
+      // aiming at a point inside him would land the shot lower, as the muzzle is below the camera. The spot
+      // stays 0.1 m inside his top and bottom so that pellets do not fly over his head. With the muzzle above
+      // his top (he lies on the ground, or is below the shooter) that line would run down his side into the
+      // road, so the shot goes to the crosshair's point on his top instead.
+      if (t - t0 < 2 * b.r && muzzle.y < b.y1) {
+        const tm = Math.max(t, ((c.pos.x - o.x) * d.x + (c.pos.z - o.z) * d.z) / flat);
+        const ux = o.x + d.x * tm - muzzle.x;
+        const uz = o.z + d.z * tm - muzzle.z;
+        const l = Math.hypot(ux, uz);
+        // How far that line runs (on the ground plane) before it reaches him; 0 with the muzzle inside him.
+        const s = l > 1e-6 ? rayCylinderY(muzzle.x, 0, muzzle.z, ux / l, 0, uz / l, c.pos.x, c.pos.z, b.r, -1, 1, l) : -1;
+        if (s > 0) {
+          // Where the crosshair ray enters him: at point blank that is short of t, which castRay moves on to the muzzle's depth.
+          const tv = rayCylinderY(o.x, o.y, o.z, d.x, d.y, d.z, c.pos.x, c.pos.z, b.r, b.y0, b.y1, t);
+          const y = clamp(o.y + d.y * (tv >= 0 ? tv : t), b.y0 + 0.1, b.y1 - 0.1);
+          return { x: muzzle.x + (ux / l) * s, y, z: muzzle.z + (uz / l) * s };
+        }
       }
     }
     return { x: o.x + d.x * t, y: o.y + d.y * t, z: o.z + d.z * t };
@@ -552,7 +565,7 @@ export class CombatSystem {
     v.health = Math.min(v.health, 0);
     if (v.driver?.isPlayer && this.fireWarnCooldown <= 0) {
       this.fireWarnCooldown = 6;
-      this.sim.events.emit('message', { text: 'Your vehicle is on fire! Get out (F)!', duration: 3 });
+      this.sim.events.emit('message', { text: 'Your vehicle is on fire! Press F to get out!', duration: 3 });
     }
   }
 

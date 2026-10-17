@@ -3,7 +3,7 @@ import { makeContact, obbVsAabb } from '../../src/core/collision';
 import { Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { stepVehicle, vehicleObb } from '../../src/sim/vehiclePhysics';
-import { WATER_Y } from '../../src/world/constants';
+import { DECK_SLAB, WATER_Y } from '../../src/world/constants';
 import { input, makeSim, placeInCar, roadPoint, step, teleport } from './helpers';
 
 /** Records every crime the wanted system is asked to report. */
@@ -445,5 +445,94 @@ describe('sinking cars stay in the water', () => {
       expect(decks.length).toBeGreaterThan(0);
       for (const d of decks) expect(bus.pos.y + bus.spec.height).toBeLessThan(d.y - 0.35);
     }
+  });
+});
+
+describe('sinking cars level out', () => {
+  /** Top of the body as VehicleView draws it: the box tilted by pitch (about its width) and roll (about its length) about its centre. */
+  function drawnTop(v: Vehicle): number {
+    const h = v.spec.height / 2;
+    const level = h * Math.abs(Math.cos(v.roll)) + v.halfW * Math.abs(Math.sin(v.roll));
+    return v.pos.y + h + Math.abs(Math.cos(v.pitch)) * level + v.halfL * Math.abs(Math.sin(v.pitch));
+  }
+
+  /** Sends a vehicle off the north or south side of Azura Pier at x (driven forward, reversed or pushed at 1.5 m/s), then lets it settle. */
+  function offThePier(kind: 'bus' | 'swat' | 'van', x: number, south: boolean, how: 'drive' | 'reverse' | 'roll'): { sim: Sim; v: Vehicle } {
+    const sim = makeSim();
+    const pier = sim.world.layout.decks.find((d) => d.name === 'Azura Pier')!;
+    const dir = south ? 1 : -1;
+    const v = sim.spawnVehicle(kind, x, (pier.rect.minZ + pier.rect.maxZ) / 2, south !== (how === 'reverse') ? 0 : Math.PI);
+    v.pos.z = (south ? pier.rect.maxZ : pier.rect.minZ) - dir * (v.halfL + (how === 'reverse' ? 3 : 1));
+    if (how !== 'roll') placeInCar(sim, v);
+    step(sim, 12, () => {
+      if (how === 'roll' && !v.inWater && !v.airborne) {
+        v.vel.x = 0;
+        v.vel.z = 1.5 * dir;
+      }
+      return input(v.inWater || how === 'roll' ? {} : how === 'drive' ? { throttle: 0.2 } : { brake: 0.2 });
+    });
+    step(sim, 20);
+    return { sim, v };
+  }
+
+  it('buses, SWAT vans and vans driven, reversed or rolled off the side of the pier are drawn under the deck', () => {
+    for (const kind of ['bus', 'swat', 'van'] as const) {
+      for (const [x, south, how] of [[562, true, 'drive'], [575, false, 'reverse'], [562, false, 'roll'], [590, true, 'roll']] as const) {
+        const { sim, v } = offThePier(kind, x, south, how);
+        const label = `${kind} ${how} off the ${south ? 'south' : 'north'} side at x=${x}`;
+        expect(v.inWater, label).toBe(true);
+        const ct = makeContact();
+        const obb = vehicleObb(v, { x: 0, z: 0, hw: 0, hl: 0, h: 0 });
+        const decks = sim.world.layout.decks.filter((d) => obbVsAabb(obb, d.rect, ct));
+        // The end that went over the edge last rests under the pier, and the nose-down (or tail-down) tilt
+        // it had going over must not lift that end back up through the deck.
+        expect(decks.length, label).toBeGreaterThan(0);
+        for (const d of decks) expect(drawnTop(v), label).toBeLessThan(d.y - DECK_SLAB);
+      }
+    }
+  });
+
+  it('a sinking wreck settles on its wheels or its roof, whichever is nearer, without rising out of the water', () => {
+    const sim = makeSim();
+    const x = sim.world.bounds.landMinX - 25;
+    // How they fell in: nose-down; rolled most of the way onto its roof; flipped end over end (roof down);
+    // flipped end over end and rolled over too (wheels down).
+    const cases = [
+      ['van', -0.6, 0.2],
+      ['swat', 0.3, 2.6],
+      ['sedan', 2.8, -0.4],
+      ['pickup', -2.9, 2.7],
+    ] as const;
+    const cars = cases.map(([kind, pitch, roll], i) => {
+      const v = sim.spawnVehicle(kind, x, -60 + i * 30, 0.7 * i);
+      v.pos.y = WATER_Y + 0.1;
+      v.inWater = true;
+      v.pitch = pitch;
+      v.roll = roll;
+      return v;
+    });
+    // Wheels down while the body's up axis points up: its height component is cos(pitch) * cos(roll).
+    const upright = cars.map((v) => Math.cos(v.pitch) * Math.cos(v.roll) > 0);
+    const top0 = cars.map(drawnTop);
+    const rise = cars.map(() => 0);
+    const watch = () => {
+      cars.forEach((v, i) => (rise[i] = Math.max(rise[i]!, drawnTop(v) - top0[i]!)));
+      return input();
+    };
+    // Level by the time a bus that fell in beside the pier has sunk to its resting height under the deck (about 2.5 s).
+    step(sim, 2.5, watch);
+    cars.forEach((v, i) => {
+      const label = `${v.kind} from pitch ${cases[i]![1]}, roll ${cases[i]![2]}`;
+      expect(Math.abs(Math.sin(v.pitch)), label).toBeLessThan(0.01);
+      expect(Math.abs(Math.sin(v.roll)), label).toBeLessThan(0.01);
+      expect(Math.cos(v.pitch) * Math.cos(v.roll) > 0, label).toBe(upright[i]);
+    });
+    step(sim, 2.5, watch);
+    cars.forEach((v, i) => {
+      const label = `${v.kind} from pitch ${cases[i]![1]}, roll ${cases[i]![2]}`;
+      // It never somersaults onto its other face, which would swing an end up out of the water: the body only goes down.
+      expect(rise[i], label).toBe(0);
+      expect(drawnTop(v), label).toBeLessThan(WATER_Y);
+    });
   });
 });

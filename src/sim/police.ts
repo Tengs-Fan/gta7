@@ -103,7 +103,7 @@ export class PoliceSystem {
   /**
    * Spawns a police car on a lane 95-215 m from the player, preferably out of sight.
    * While the police are searching, pursuit units join the search around the last sighting,
-   * preferably coming from its side of that ring.
+   * heading its way from near it, or at least from its side of that ring.
    */
   spawnUnit(kind: 'police' | 'swat', pursuit: boolean): Vehicle | null {
     const sim = this.sim;
@@ -112,8 +112,11 @@ export class PoliceSystem {
     const searching = pursuit && this.searching(w.level);
     const goal = searching ? { x: w.lastSeenX, z: w.lastSeenZ } : pp;
     const lanes = sim.roads.lanes;
-    // Search reinforcements preferably start a short drive from the search area.
+    // Search reinforcements preferably start a short drive from the search area. Failing that, they
+    // start nearer to it than the player is, on a lane heading for it and away from him: their way
+    // there must never lead past where he hides.
     const reach = w.searchRadius() + 130;
+    const seenDist = Math.hypot(pp.x - goal.x, pp.z - goal.z);
     const near = searching ? lanes.filter((l) => pointSegDist(goal.x, goal.z, l.sx, l.sz, l.ex, l.ez) < reach && pointSegDist(pp.x, pp.z, l.sx, l.sz, l.ex, l.ez) < 215) : lanes;
     for (let tries = 0; tries < 30; tries++) {
       const lane = sim.rng.pick(tries < 20 && near.length > 0 ? near : lanes);
@@ -122,8 +125,9 @@ export class PoliceSystem {
       const z = lane.sz + lane.dz * s;
       const d = Math.hypot(x - pp.x, z - pp.z);
       if (d < 95 || d > 215) continue;
-      if (searching && tries < 20 && Math.hypot(x - goal.x, z - goal.z) > reach) continue;
-      if (pursuit && (goal.x - x) * lane.dx + (goal.z - z) * lane.dz < 0 && tries < 20) continue;
+      if (searching && Math.hypot(x - goal.x, z - goal.z) > (tries < 20 ? reach : seenDist)) continue;
+      if (pursuit && (goal.x - x) * lane.dx + (goal.z - z) * lane.dz < 0 && (tries < 20 || searching)) continue;
+      if (searching && tries >= 20 && (x - pp.x) * lane.dx + (z - pp.z) * lane.dz < 0) continue;
       if (d < 160 && sim.isVisible(x, 1, z) && tries < 25) continue;
       if (!sim.traffic.isClear(x, z, 9)) continue;
       const v = sim.spawnVehicle(kind, x, z, lane.heading);

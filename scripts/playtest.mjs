@@ -37,6 +37,15 @@ const browser = await chromium.launch({
     : ['--use-angle=vulkan', '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage({ viewport: { width: vw, height: vh } });
+// Headless Chromium that grants pointer lock can stop delivering frames and grow without bound,
+// so automated runs refuse the lock (clicks then shoot unlocked); --pointer-lock opts back in.
+if (!flag('pointer-lock')) {
+  await page.addInitScript(() => {
+    HTMLCanvasElement.prototype.requestPointerLock = function () {
+      throw new DOMException('pointer lock disabled under automation', 'NotSupportedError');
+    };
+  });
+}
 const IGNORED = [/GPU stall due to ReadPixels/i, /requestPointerLock/i, /pointer lock/i];
 const report = { url, scenario: scenario ?? scriptPath, errors: [], shots: [], snapshots: [], segments: [], notes: [] };
 page.on('console', (m) => {

@@ -37,9 +37,10 @@ const TRIGGER_RELEASE = 0.3;
  * A wheel pause longer than this (ms) starts a new gesture; within one, every WHEEL_STEP px is another step.
  * Touchpad and smooth-scroll streams send an event every frame (~16 ms), while separate wheel notches,
  * even macOS's 4 px ones, come further apart unless spun faster than about 15 per second.
+ * Weapon switching and the map's zoom both step this way.
  */
-const WHEEL_GESTURE_GAP = 60;
-const WHEEL_STEP = 100;
+export const WHEEL_GESTURE_GAP = 60;
+export const WHEEL_STEP = 100;
 /** Every physical key that poll() reads by code. */
 const BOUND_CODES = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'Space',

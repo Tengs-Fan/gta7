@@ -1138,54 +1138,60 @@ describe('side activity objective on the HUD', () => {
   });
 });
 
-describe('map wheel zoom', () => {
-  function setup() {
-    const sim = quickSim();
-    let wp: { x: number; z: number } | null = null;
-    const host = stubHost({ sim: () => sim, setWaypoint: (p) => (wp = p), waypoint: () => wp });
-    const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, host, new MapImage(world()));
-    menus.showMap();
-    menus.input(NO_UI, 0.3); // the first frame sizes the canvas to the 1280 x 720 window
-    const canvas = (menus.top!.el as unknown as FakeElement).children[0]!;
-    const map = (menus as unknown as { map: MapImage }).map;
-    const base = Math.min(1280 / (map.canvas.width / MAP_SCALE), 720 / (map.canvas.height / MAP_SCALE));
-    const b = sim.world.layout.bounds;
-    const cx = (b.landMinX + b.beachEndX) / 2;
-    /** The zoom level, read back from where a click 100 px right of the centre drops the waypoint. */
-    const zoom = () => {
-      wp = null;
-      pointer(canvas, 'down', 740, 360, 1);
-      pointer(canvas, 'up', 740, 360, 0);
-      const k = 100 / (wp!.x - cx);
-      wp = null;
-      return Math.log(k / base) / Math.log(1.5);
-    };
-    const wheel = (deltaY: number, times = 1, more: { deltaX?: number; deltaMode?: number; ctrlKey?: boolean } = {}) => {
-      for (let i = 0; i < times; i++) canvas.dispatchEvent(ev('wheel', { deltaY, deltaX: 0, deltaMode: 0, ctrlKey: false, ...more }));
-    };
-    return { zoom, wheel };
-  }
+/** A map screen to scroll on; zoom() reads the zoom level back. */
+function mapWheelRig() {
+  const sim = quickSim();
+  let wp: { x: number; z: number } | null = null;
+  const host = stubHost({ sim: () => sim, setWaypoint: (p) => (wp = p), waypoint: () => wp });
+  const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, host, new MapImage(world()));
+  menus.showMap();
+  menus.input(NO_UI, 0.3); // the first frame sizes the canvas to the 1280 x 720 window
+  const canvas = (menus.top!.el as unknown as FakeElement).children[0]!;
+  const map = (menus as unknown as { map: MapImage }).map;
+  const base = Math.min(1280 / (map.canvas.width / MAP_SCALE), 720 / (map.canvas.height / MAP_SCALE));
+  const b = sim.world.layout.bounds;
+  const cx = (b.landMinX + b.beachEndX) / 2;
+  /** The zoom level, read back from where a click 100 px right of the centre drops the waypoint. */
+  const zoom = () => {
+    wp = null;
+    pointer(canvas, 'down', 740, 360, 1);
+    pointer(canvas, 'up', 740, 360, 0);
+    const k = 100 / (wp!.x - cx);
+    wp = null;
+    return Math.log(k / base) / Math.log(1.5);
+  };
+  let t = 1000;
+  /** `times` wheel events `gap` ms apart, the first `pause` ms after the previous call's last one. */
+  const wheel = (deltaY: number, times = 1, { gap = 16, pause = 1000, ...more }: { gap?: number; pause?: number; deltaX?: number; deltaMode?: number; ctrlKey?: boolean } = {}) => {
+    for (let i = 0; i < times; i++) {
+      t += i === 0 ? pause : gap;
+      canvas.dispatchEvent(ev('wheel', { deltaY, deltaX: 0, deltaMode: 0, ctrlKey: false, timeStamp: t, ...more }));
+    }
+  };
+  return { zoom, wheel };
+}
 
-  it('zooms by the distance scrolled, not per event', () => {
-    const { zoom, wheel } = setup();
+describe('map wheel zoom', () => {
+  it('zooms a step per notch, and by distance within a gesture', () => {
+    const { zoom, wheel } = mapWheelRig();
     expect(zoom()).toBeCloseTo(0, 6);
     wheel(-100); // one classic notch
     expect(zoom()).toBeCloseTo(0.5, 6);
     wheel(100);
     expect(zoom()).toBeCloseTo(0, 6);
-    wheel(-3, 25); // a 75 px touchpad brush used to slam to full zoom
-    expect(zoom()).toBeCloseTo(0.375, 6);
-    wheel(-3, 1, { deltaMode: 1 }); // Firefox line mode: 3 lines = 120 px
-    expect(zoom()).toBeCloseTo(0.975, 6);
+    wheel(-3, 25); // a 75 px touchpad brush used to slam to full zoom: one step, then 72 px of travel
+    expect(zoom()).toBeCloseTo(0.86, 6);
+    wheel(-3, 1, { deltaMode: 1 }); // Firefox line mode: one notch of 3 lines
+    expect(zoom()).toBeCloseTo(1.36, 6);
   });
 
   it('ignores horizontal swipes and stays within its limits', () => {
-    const { zoom, wheel } = setup();
+    const { zoom, wheel } = mapWheelRig();
     wheel(-200);
-    expect(zoom()).toBeCloseTo(1, 6);
+    expect(zoom()).toBeCloseTo(0.5, 6);
     wheel(0, 10, { deltaX: 40 });
     wheel(5, 10, { deltaX: 40 });
-    expect(zoom()).toBeCloseTo(1, 6);
+    expect(zoom()).toBeCloseTo(0.5, 6);
     wheel(-100, 20);
     expect(zoom()).toBeCloseTo(4, 6);
     wheel(100, 20);
@@ -1329,6 +1335,12 @@ describe('key names follow the keyboard layout', () => {
     expect(el.prompt!.innerHTML).toBe('Press <kbd>B</kbd> to start a taxi job');
     sim.events.emit('message', { text: 'Jobs: drive a taxi or a police car and press T.', duration: 3 });
     expect(el.help!.innerHTML).toBe('Jobs: drive a taxi or a police car and press <kbd>B</kbd>.');
+    // The sim's own burning-car warning, end to end: it names the enter/exit key, printed T here.
+    const rp = roadPoint(sim);
+    const car = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
+    placeInCar(sim, car);
+    sim.combat.igniteVehicle(car, 4);
+    expect(el.help!.innerHTML).toBe('Your vehicle is on fire! Press <kbd>T</kbd> to get out!');
     expect(controls().tips).toContain('Steal any car with <kbd>T</kbd>');
     const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, stubHost({ sim: () => sim }), new MapImage(world()), inp.labels);
     menus.showMap();
@@ -1375,5 +1387,62 @@ describe('key names follow the keyboard layout', () => {
     const { rows } = controls();
     expect(rows['Move / Drive']).toBe('W A S D');
     expect(rows['Weapons']).toBe('1-6, Q, wheel');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 1c: issues found by re-reviewing the round-1b fixes.
+
+describe('map wheel zoom: a notch is one step on every platform', () => {
+  it('separate macOS 4 px notches are one 0.5 step each', () => {
+    const { zoom, wheel } = mapWheelRig();
+    wheel(-4); // one slow notch used to zoom 0.02
+    expect(zoom()).toBeCloseTo(0.5, 6);
+    wheel(-4, 3, { gap: 100 }); // a few in quick succession
+    expect(zoom()).toBeCloseTo(2, 6);
+    wheel(4, 2, { gap: 300 });
+    expect(zoom()).toBeCloseTo(1, 6);
+  });
+
+  it('a Linux 53 px notch is one step', () => {
+    const { zoom, wheel } = mapWheelRig();
+    wheel(-53);
+    expect(zoom()).toBeCloseTo(0.5, 6);
+    wheel(-53, 2, { gap: 80 });
+    expect(zoom()).toBeCloseTo(1.5, 6);
+  });
+
+  it('a page-mode notch moves at most one step, even within a gesture', () => {
+    const { zoom, wheel } = mapWheelRig();
+    wheel(-1, 1, { deltaMode: 2 }); // one page used to jump the whole range
+    expect(zoom()).toBeCloseTo(0.5, 6);
+    wheel(-1, 2, { deltaMode: 2, gap: 30 });
+    expect(zoom()).toBeCloseTo(1.5, 6);
+  });
+
+  it('a touchpad brush stays well under the full range, and a fast spin keeps every notch', () => {
+    const { zoom, wheel } = mapWheelRig();
+    wheel(-1.5, 50, { gap: 8 }); // 75 px at 120 Hz: one step, then 73.5 px of travel
+    expect(zoom()).toBeCloseTo(0.8675, 6);
+    wheel(1.5, 50, { gap: 8 });
+    expect(zoom()).toBeCloseTo(0, 6);
+    wheel(-100, 3, { gap: 30 }); // Windows notches spun fast are one gesture, still a step each
+    expect(zoom()).toBeCloseTo(1.5, 6);
+  });
+
+  it('a stray vertical event in a sideways swipe is not a whole step', () => {
+    const { zoom, wheel } = mapWheelRig();
+    wheel(-1, 1, { deltaX: 10 }); // a sideways two-finger swipe, which does not zoom
+    for (let i = 0; i < 5; i++) {
+      wheel(-1, 5, { deltaX: 10, pause: 16 });
+      wheel(-3, 1, { deltaX: 1, pause: 16 }); // now and then one event is mostly vertical
+    }
+    expect(zoom()).toBeCloseTo(5 * 3 * 0.005, 6);
+  });
+
+  it('a touchpad pinch (ctrl+wheel) zooms like a two-finger scroll', () => {
+    const { zoom, wheel } = mapWheelRig();
+    wheel(-4, 20, { ctrlKey: true });
+    expect(zoom()).toBeCloseTo(0.5 + 19 * 4 * 0.005, 6);
   });
 });
