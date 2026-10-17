@@ -560,6 +560,14 @@ describe('P31b: a gun poking through a wall only hits the wall', () => {
     expect(shots[0]!.hit).toBe('world');
     expect(Math.hypot(shots[0]!.tx - gp.x, shots[0]!.tz - gp.z)).toBeLessThan(0.45);
     expect(p.health).toBe(p.maxHealth);
+    // Asked to fire 'from a vehicle' while on foot (just got out), he still has the wall in front of him.
+    g.fireCooldown = 0;
+    shots.length = 0;
+    sim.combat.npcFire(g, p, 1, true);
+    expect(shots.length).toBe(1);
+    expect(shots[0]!.hit).toBe('world');
+    expect(Math.hypot(shots[0]!.tx - gp.x, shots[0]!.tz - gp.z)).toBeLessThan(0.45);
+    expect(p.health).toBe(p.maxHealth);
     // Seated in a car (fromVehicle) the muzzle is the car window and there is no chest-to-muzzle check.
     const car = sim.spawnVehicle('sedan', gp.x + f.rx * 3, gp.z + f.rz * 3, f.h);
     sim.seat(g, car, 0);

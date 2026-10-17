@@ -184,7 +184,7 @@ export class CombatSystem {
     const spreadMul = fromVehicle ? 1.6 : Math.min(2, (p.speed > 3 ? 1.5 : 1) * (p.aimZoom ? 1 : 1.5));
     this.aimed = target.character ? { character: target.character, zone: target.zone } : null;
     try {
-      this.discharge(p, w, from, dx, dy, dz, w.spread * spreadMul, fromVehicle ? null : this.muzzleWall(p, from));
+      this.discharge(p, w, from, dx, dy, dz, w.spread * spreadMul, fromVehicle && p.vehicle ? null : this.muzzleWall(p, from));
     } finally {
       this.aimed = null;
     }
@@ -219,7 +219,8 @@ export class CombatSystem {
     dz /= dist;
     const tSpeed = target.vehicle ? target.vehicle.speed : target.speed;
     const err = w.spread + (1 - accuracy) * 0.075 + tSpeed * 0.004 + dist * 0.0009;
-    this.discharge(c, w, from, dx, dy, dz, err, fromVehicle ? null : this.muzzleWall(c, from));
+    // From a car window there is no chest-to-muzzle wall check; on foot (also when asked for a car he has left) there is.
+    this.discharge(c, w, from, dx, dy, dz, err, fromVehicle && c.vehicle ? null : this.muzzleWall(c, from));
     if (slot.clip === 0) this.startReload(c);
   }
 
