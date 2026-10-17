@@ -2835,17 +2835,18 @@ describe('round 2 audio: mix, voices and ambience', () => {
     frames(1, input({ fire: true, firePressed: true }));
     expect(pellets).toBe(9);
     expect(audio.counters.gunshots - before).toBe(1);
-    // The same in one frame from synthetic events, whatever their source.
-    const shot = { shooter: p, weapon: 'shotgun' as const, fx: p.pos.x, fy: 1.4, fz: p.pos.z, tx: p.pos.x, ty: 1, tz: p.pos.z + 20, hit: 'world' as const, nx: 0, ny: 1, nz: 0 };
-    for (let i = 0; i < 9; i++) sim.events.emit('shot', shot);
+    // The same in one frame from synthetic trigger pulls, whatever their source (the gunshot plays from
+    // 'weaponFired', one per pull; the pellets' 'shot' events only sound for helicopter rounds).
+    const pull = { shooter: p, weapon: 'shotgun' as const, x: p.pos.x, y: 1.4, z: p.pos.z, dx: 0, dy: 0, dz: 1, pellets: 9 };
+    for (let i = 0; i < 9; i++) sim.events.emit('weaponFired', pull);
     expect(audio.counters.gunshots - before).toBe(2);
     frames(1);
-    sim.events.emit('shot', shot);
+    sim.events.emit('weaponFired', pull);
     expect(audio.counters.gunshots - before).toBe(3);
-    // An NPC's pellets keep the old 40 ms limiter (shared with the player's shots of that weapon).
+    // An NPC's pulls keep the old 40 ms limiter (shared with the player's shots of that weapon).
     const npc = sim.spawnCharacter('gang', p.pos.x + 5, p.pos.z);
     FakeAudioContext.last!.currentTime += 0.05;
-    for (let i = 0; i < 9; i++) sim.events.emit('shot', { ...shot, shooter: npc });
+    for (let i = 0; i < 9; i++) sim.events.emit('weaponFired', { ...pull, shooter: npc });
     expect(audio.counters.gunshots - before).toBe(4);
   });
 
