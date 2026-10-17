@@ -12,7 +12,7 @@ import {
   SWIM_HIP, SWIM_TREAD_LEAN, WEAPON_POINTS, seatSide, windowMuzzle, type Trunk, type WeaponPose,
 } from '../sim/pose';
 import type { VehicleKind, WeaponId } from '../sim/specs';
-import { gait, makeGaitOut, makeTwoBone, solveLeg, solveTwoBone, type LegPose } from './gait';
+import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
 import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
 
 const MAX = 240;
@@ -573,6 +573,9 @@ export class CrowdView {
       f.z = lerp(f.z, -0.08 * s, air);
       f.pitch = lerp(f.pitch, -0.45, air);
     }
+    // Easing a foot rolled up on its toes or heel towards a flat one can tip that edge under the ground: lift it back.
+    const low = soleLow(f.y, f.pitch, s);
+    if (low < 0) f.y -= low;
     solveLeg(side * hx, hipY, s, leg);
   }
 
@@ -710,7 +713,8 @@ export class CrowdView {
     const shooting = weapon !== 'fists' && c.shotTimer > 0;
     const side = seatSide(c.seat);
     if (!layout) {
-      // Nobody shows through the dark windows of a van, a riot van or a bus: only a gun held out of one.
+      // Nobody shows through the dark windows of a van, a riot van or a bus: only a gun held out of one, and the arm
+      // holding it.
       if (shooting) this.windowGun(c, v, weapon, null, side);
       return;
     }
@@ -767,7 +771,7 @@ export class CrowdView {
    * A seated shooter's gun out of his own window, pointing along his aim (which CombatSystem.npcFire publishes for NPCs),
    * its barrel end on the point his shots leave from (sim/pose.ts windowMuzzle: his seat's window, as
    * CombatSystem.muzzle(c, true) fires): the gun stays there and the hand reaches for its grip as far as the arm goes.
-   * With no shoulder (nobody drawn inside), the gun alone.
+   * With no shoulder (nobody is drawn behind dark windows), his arm reaches out to the grip from inside the window.
    */
   private windowGun(c: Character, v: Vehicle, gun: Gun, shoulder: THREE.Vector3 | null, side: number): void {
     const w = this.wp;
@@ -776,10 +780,20 @@ export class CrowdView {
     aimFrame(w, c.aimYaw, clamp(c.aimPitch, -1.2, 1.2), 0);
     const m = windowMuzzle(v, c.seat, this.muzzle);
     anchor(w, pts.tip, m.x, m.y, m.z);
+    const grip = weaponPoint(w, pts.grip, S.targetL);
     if (shoulder) {
-      const grip = weaponPoint(w, pts.grip, S.targetL);
       S.pole.copy(S.up).negate().addScaledVector(S.left, side * 0.5);
       this.armTo(shoulder, S.d1.set(grip.x, grip.y, grip.z), S.pole, S.left, c);
+    } else {
+      // A shoulder inside the body, in from the grip across the car and a little lower: the upper arm stays behind the
+      // dark window, the forearm and the hand show where they reach out of it.
+      const s = c.appearance.height;
+      const lx = Math.cos(v.heading);
+      const lz = -Math.sin(v.heading);
+      S.vleft.set(lx, 0, lz);
+      S.shR.set(grip.x - lx * side * 0.42 * s, grip.y - 0.15 * s, grip.z - lz * side * 0.42 * s);
+      S.pole.set(0, -1, 0).addScaledVector(S.vleft, side * 0.3);
+      this.armTo(S.shR, S.d1.set(grip.x, grip.y, grip.z), S.pole, S.vleft, c);
     }
     const kick = kickAmount(c.shotTimer);
     this.put(this.weapons.get(gun)!, this.weaponMatrix(w, kick * KICK[gun], pts.grip, KICK_BACK * kick), 0xffffff);

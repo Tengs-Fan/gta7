@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
+import { CameraController, chaseOffset, CHASE_TARGET_Y } from '../../src/render/camera';
 import { CrowdView, OCCUPANT_RANGE } from '../../src/render/crowd';
 import { gait, makeGaitOut, makeTwoBone, solveTwoBone } from '../../src/render/gait';
 import { cabinLayout, VehicleView } from '../../src/render/vehicleView';
@@ -955,21 +956,36 @@ describe('one seat frame for riders and car interiors', () => {
     }
   });
 
-  it.each(SEE_THROUGH)("the player's own head shows through the rear window of a %s from the chase camera, at rest and at speed", (kind) => {
+  it.each(SEE_THROUGH)("the player's own head shows through the rear window of a %s from the chase camera, at rest, at speed and zoomed out", (kind) => {
     const { v, view, cv } = carWithRiders(kind, { height: 1.02, hat: 0 });
     const occ = bodyOccluder(view);
     const pts = headGrid(all(parts(cv).head!)[0]!, false);
     const s = v.spec;
-    // The chase camera's offset as camera.ts places it (boom 5.2 + 0.72 x length, pulled back 18% and lowered at speed).
-    for (const k of [0, 1]) {
-      const dist = (5.2 + 0.72 * s.length) * (1 + 0.18 * k);
-      const up = 0.75 * s.height + (1.3 + 0.6 * s.height) * (1 - 0.18 * k) + Math.sin(0.08) * dist * 0.3;
-      const share = seenShare(occ, new THREE.Vector3(v.pos.x, v.pos.y + up, v.pos.z - Math.cos(0.08) * dist), pts);
-      expect(share, `${kind} ${k ? 'at speed' : 'at rest'}`).toBeGreaterThanOrEqual(0.4);
+    // Where camera.ts settles the chase camera (heading 0: behind is -z).
+    for (const [k, far] of [[0, false], [1, false], [0, true]] as const) {
+      const cam = chaseOffset(s, k, far);
+      const share = seenShare(occ, new THREE.Vector3(v.pos.x, v.pos.y + s.height * CHASE_TARGET_Y + cam.up, v.pos.z - cam.back), pts);
+      expect(share, `${kind} ${k ? 'at speed' : far ? 'zoomed out' : 'at rest'}`).toBeGreaterThanOrEqual(0.4);
     }
   });
 
-  it.each(SEE_THROUGH)('the driver of a %s holds the wheel the car draws, and riders sit with their shoulders over the waistline', (kind) => {
+  it.each(['sedan', 'sports', 'bus'] as const)('chaseOffset is where the real chase camera settles behind a %s', (kind) => {
+    const sim = makeSim({ world: world() });
+    const b = sim.world.layout.bounds;
+    const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.6);
+    sim.seat(sim.player, v, 0);
+    const cc = new CameraController(16 / 9);
+    cc.mode = 'play';
+    for (const far of [false, true]) {
+      cc.zoomLevel = far ? 1 : 0;
+      for (let i = 0; i < 600; i++) cc.update(1 / 60, sim, false);
+      const cam = chaseOffset(v.spec, 0, far);
+      const want = new THREE.Vector3(v.pos.x - Math.sin(v.heading) * cam.back, v.pos.y + v.spec.height * CHASE_TARGET_Y + cam.up, v.pos.z - Math.cos(v.heading) * cam.back);
+      expect(cc.camera.position.distanceTo(want), `${kind} ${far ? 'zoomed out' : 'normal'}`).toBeLessThan(0.01);
+    }
+  });
+
+  it.each(SEE_THROUGH)('the driver of a %s holds the wheel the car draws', (kind) => {
     const { v, view, riders, cv } = carWithRiders(kind, { height: 1, hat: 0 });
     view.group.updateMatrixWorld(true);
     const body = view.group.getObjectByName('body') as THREE.Mesh;
@@ -990,13 +1006,32 @@ describe('one seat frame for riders and car interiors', () => {
       expect(Math.abs(turned[0]!.y - turned[1]!.y)).toBeGreaterThan(0.1);
     }
     v.steer = 0;
-    // Shoulders: the top of the torso clears the floor, where the roof leaves room for that (the sports car's does not:
-    // riders sit low in it, and only their heads show).
-    if (layout.roof.y - layout.floor > 0.4) {
-      for (const m of all(parts(cv).torso!)) {
-        const top = new THREE.Vector3(0, 0.67, 0).applyMatrix4(m);
-        expect(top.y - v.pos.y, kind).toBeGreaterThan(layout.floor + 0.03);
-      }
+  });
+
+  it.each(SEE_THROUGH)('every rider of a %s, short or tall, capped or not, in front or behind, sits with his shoulders over the waistline and his legs inside the car', (kind) => {
+    const layout = cabinLayout(kind)!;
+    // The player is 1.02 tall. The tallest riders may sink a little lower to keep their heads under the roof, but never
+    // so far that their shoulders go under the floor plate.
+    for (const look of [...LOOKS, { height: 1.02, hat: 0 }, { height: 1.07, hat: 0 }]) {
+      const { v, view, riders, cv } = carWithRiders(kind, look);
+      const torsos = all(parts(cv).torso!);
+      expect(torsos.length).toBe(riders.length);
+      const clear = look.height! <= 1.02 ? 0.03 : 0;
+      const label = (seat: number) => `${kind} height ${look.height}${look.hat ? ' capped' : ''} seat ${seat}`;
+      riders.forEach((c, i) => {
+        const top = new THREE.Vector3(0, 0.67, 0).applyMatrix4(torsos[i]!);
+        expect(top.y - v.pos.y - layout.floor, label(c.seat)).toBeGreaterThanOrEqual(clear);
+      });
+      // Seated low enough for the head, a rider still keeps his thighs over the car's floor pan, not out under it.
+      const body = view.group.getObjectByName('body') as THREE.Mesh;
+      body.geometry.computeBoundingBox();
+      const pan = v.pos.y + body.geometry.boundingBox!.min.y;
+      const corner = new THREE.Vector3();
+      all(parts(cv).thigh!).forEach((m, k) => {
+        let low = Infinity;
+        for (const x of [-0.085, 0.085]) for (const y of [-0.455, 0.035]) for (const z of [-0.085, 0.095]) low = Math.min(low, corner.set(x, y, z).applyMatrix4(m).y);
+        expect(low, label(riders[k >> 1]!.seat)).toBeGreaterThanOrEqual(pan - 0.005);
+      });
     }
   });
 
@@ -1023,24 +1058,36 @@ describe('one seat frame for riders and car interiors', () => {
 });
 
 describe('window guns match where vehicle shots leave', () => {
-  /** Where a shot from `seat` leaves: that seat's window, 0.2 m out of the body side at 3/4 of the height, level with the centre. */
-  function windowPoint(v: Vehicle, seat: number): THREE.Vector3 {
-    const side = seat === 0 || seat === 2 ? 1 : -1;
-    const out = side * (v.halfW + 0.2);
-    return new THREE.Vector3(v.pos.x + Math.cos(v.heading) * out, v.pos.y + v.spec.height * 0.75, v.pos.z - Math.sin(v.heading) * out);
+  /**
+   * What a shot from `from` (beside vehicle `v`, on the side `side`) passes on its way in, looking straight across the
+   * car: the first mesh a ray from 3 m out hits ('glass' for a real window).
+   */
+  function seenThrough(view: VehicleView, v: Vehicle, from: THREE.Vector3, side: number): string | undefined {
+    view.group.updateMatrixWorld(true);
+    const lx = Math.cos(v.heading) * side;
+    const lz = -Math.sin(v.heading) * side;
+    const ray = new THREE.Raycaster(new THREE.Vector3(from.x + lx * 3, from.y, from.z + lz * 3), new THREE.Vector3(-lx, 0, -lz), 0, 6);
+    return ray.intersectObject(view.group, true)[0]?.object.name;
   }
 
   it.each([
     ['police', 1, 'pistol'],
     ['sedan', 0, 'pistol'],
     ['sedan', 3, 'pistol'],
+    ['taxi', 2, 'pistol'],
+    ['van', 1, 'smg'],
+    ['swat', 0, 'smg'],
     ['swat', 1, 'smg'],
     ['swat', 2, 'smg'],
     ['swat', 3, 'smg'],
-  ] as const)('a %s rider in seat %i fires a %s out of his own window: barrel end on the muzzle, pointing along his aim', (kind, seat, gun) => {
+    ['bus', 0, 'pistol'],
+  ] as const)('a %s rider in seat %i fires a %s out of his own window: through glass, barrel end on the muzzle, a hand on the grip', (kind, seat, gun) => {
     const sim = makeSim({ world: world() });
     const b = sim.world.layout.bounds;
     const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.4);
+    const view = new VehicleView(kind);
+    view.bind(v);
+    view.sync(v, 1 / 60, 0, 0);
     const riders: Character[] = [];
     for (let i = 0; i <= seat; i++) {
       const c = sim.spawnCharacter(kind === 'swat' ? 'swat' : 'cop', v.pos.x, v.pos.z);
@@ -1052,6 +1099,11 @@ describe('window guns match where vehicle shots leave', () => {
     shooter.inventory.current = gun;
     const side = seat === 0 || seat === 2 ? 1 : -1;
     const out = v.heading + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+    // The real shot origin is outside one of the car's windows: looking across the car from beside it, glass, not a
+    // painted panel (the riot van's crew in the back fire through its gun ports).
+    const shot = sim.combat.muzzle(shooter, true);
+    const from = new THREE.Vector3(shot.x, shot.y, shot.z);
+    expect(seenThrough(view, v, from, side), `${kind} seat ${seat}`).toBe('glass');
     const cv = new CrowdView();
     // Out of his window, forward, backward, and back across the car.
     for (const yaw of [out, v.heading, v.heading + Math.PI, out + Math.PI]) {
@@ -1064,24 +1116,51 @@ describe('window guns match where vehicle shots leave', () => {
       expect(part.mesh.count).toBe(1);
       const m = matrixAt(part, 0);
       const tip = new THREE.Vector3(WEAPON_POINTS[gun].tip.x, WEAPON_POINTS[gun].tip.y, WEAPON_POINTS[gun].tip.z).applyMatrix4(m);
-      // The drawn barrel end sits on the real shot origin, which is that seat's window.
-      const shot = sim.combat.muzzle(shooter, true);
-      const from = new THREE.Vector3(shot.x, shot.y, shot.z);
-      expect(from.distanceTo(windowPoint(v, seat)), `${kind} seat ${seat}`).toBeLessThan(1e-9);
+      // The drawn barrel end sits on the real shot origin.
       expect(tip.distanceTo(from), `${kind} seat ${seat} yaw ${(yaw - v.heading).toFixed(2)}`).toBeLessThan(0.1);
       const dir = new THREE.Vector3().setFromMatrixColumn(m, 2).normalize();
       const aim = new THREE.Vector3(Math.sin(yaw) * Math.cos(0.05), Math.sin(0.05), Math.cos(yaw) * Math.cos(0.05));
       expect(THREE.MathUtils.radToDeg(dir.angleTo(aim))).toBeLessThan(15);
-    }
-    // Out of a car you can see into, a front seat rider's hand holds the gun aimed out of his window (a rear seat is
-    // too far behind the window muzzle for his arm).
-    if (kind !== 'swat' && seat < 2) {
-      shooter.aimYaw = out;
-      cv.sync(riders, v.pos.x, v.pos.z, 1 / 60);
-      const m = matrixAt(weaponPart(cv, gun), 0);
+      // A hand holds it: the rider's own in a car you can see into, a hand reaching out of the window of a dark one
+      // (aimed back across the car, into it, the gun is only reached as far as the arm goes).
+      if (yaw === out + Math.PI) continue;
       const grip = new THREE.Vector3(WEAPON_POINTS[gun].grip.x, WEAPON_POINTS[gun].grip.y, WEAPON_POINTS[gun].grip.z).applyMatrix4(m);
       const near = Math.min(...all(parts(cv).hand!).map((h) => origin(h).distanceTo(grip)));
-      expect(near).toBeLessThan(0.06);
+      expect(near, `${kind} seat ${seat} yaw ${(yaw - v.heading).toFixed(2)}`).toBeLessThan(0.06);
+    }
+  });
+});
+
+describe('window guns on a slope', () => {
+  it.each([
+    ['swat', 1],
+    ['swat', 2],
+    ['swat', 3],
+    ['van', 0],
+    ['sedan', 3],
+  ] as const)('up or down a ramp, a %s rider in seat %i still fires through his window as the car draws it', (kind, seat) => {
+    for (const pitch of [0.25, -0.25]) {
+      const sim = makeSim({ world: world() });
+      const b = sim.world.layout.bounds;
+      const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.4);
+      v.pitch = pitch;
+      const view = new VehicleView(kind);
+      view.bind(v);
+      view.sync(v, 1 / 60, 0, 0);
+      view.group.updateMatrixWorld(true);
+      const riders: Character[] = [];
+      for (let i = 0; i <= seat; i++) {
+        const c = sim.spawnCharacter(kind === 'swat' ? 'swat' : 'cop', v.pos.x, v.pos.z);
+        sim.seat(c, v, i);
+        riders.push(c);
+      }
+      const shot = sim.combat.muzzle(riders[seat]!, true);
+      // Straight across the car from 3 m out, through the shot origin: glass.
+      const side = seat === 0 || seat === 2 ? 1 : -1;
+      const lx = Math.cos(v.heading) * side;
+      const lz = -Math.sin(v.heading) * side;
+      const ray = new THREE.Raycaster(new THREE.Vector3(shot.x + lx * 3, shot.y, shot.z + lz * 3), new THREE.Vector3(-lx, 0, -lz), 0, 6);
+      expect(ray.intersectObject(view.group, true)[0]?.object.name, `${kind} seat ${seat} pitch ${pitch}`).toBe('glass');
     }
   });
 });
@@ -1138,6 +1217,72 @@ describe('swimming shooters and standing legs', () => {
       }
       // Still on the ground.
       expect(Math.min(soleLow(matrixAt(p.shoe!, 0)), soleLow(matrixAt(p.shoe!, 1)))).toBeLessThan(0.02);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix pass 2: a natural walk on the straight-legged skeleton (hipY 0.894). Fitting the walk to straight legs
+// doubled the hip and head bob (8.3 cm at 1.45 m/s, 10.8 cm aim-walking) and locked the stance knee straight.
+
+describe('a natural walk over slightly bent stance knees', () => {
+  /** Knee flex (degrees) of drawn leg i. */
+  function kneeFlex(cv: CrowdView, i: number): number {
+    return THREE.MathUtils.radToDeg(axis(matrixAt(parts(cv).thigh!, i)).angleTo(axis(matrixAt(parts(cv).shin!, i))));
+  }
+
+  it.each([
+    [1.45, 0, 1, false, 0.055],
+    [1.9, 0, 1, false, 0.06],
+    [1.45, 0, -1, true, 0.055],
+    [2.8, 0, 1, true, 0.07],
+    [2.8, 0, -1, true, 0.07],
+  ] as const)('walking at %f m/s along (%f, %f) (aiming %s), the head bobs at most %f m and a planted knee never locks', (speed, mx, mz, aiming, maxBob) => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    let planted = Infinity;
+    walkSamples(speed, mx, mz, aiming, (cv) => {
+      const head = origin(matrixAt(parts(cv).head!, 0));
+      lo = Math.min(lo, head.y);
+      hi = Math.max(hi, head.y);
+      const shoe = parts(cv).shoe!;
+      for (let i = 0; i < 2; i++) if (soleLow(matrixAt(shoe, i)) <= 0.01) planted = Math.min(planted, kneeFlex(cv, i));
+    });
+    // A natural walk's few centimetres, not a flat glide either.
+    expect(hi - lo).toBeLessThanOrEqual(maxBob);
+    expect(hi - lo).toBeGreaterThanOrEqual(0.025);
+    expect(planted).toBeGreaterThanOrEqual(5);
+  });
+
+  it.each([0.4, 0.5, 0.6])('easing into a walk at %f m/s, no sole dips under the ground', (speed) => {
+    let lowest = Infinity;
+    walkSamples(speed, 0, 1, false, (cv) => {
+      const shoe = parts(cv).shoe!;
+      lowest = Math.min(lowest, soleLow(matrixAt(shoe, 0)), soleLow(matrixAt(shoe, 1)));
+    });
+    expect(lowest).toBeGreaterThan(-0.001);
+  });
+
+  it('through the middle of the stance the knee is slightly bent, neither locked nor crouched, forwards and backwards', () => {
+    const out = makeGaitOut();
+    for (const scale of [1, 1.07]) {
+      for (const [speed, strafe] of [[1.45, 0], [1.9, 0], [2.8, 0], [1.45, Math.PI], [2.8, Math.PI]] as const) {
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let k = 0; k < 200; k++) {
+          const u = k / 200;
+          gait(u * 2 * Math.PI, speed, strafe, out, scale, 1);
+          const leg = out.legs[0]!;
+          const t = u / out.cycle.duty;
+          if (!leg.planted || t < 0.4 || t > 0.6) continue;
+          const flex = THREE.MathUtils.radToDeg(leg.kneeFlex);
+          lo = Math.min(lo, flex);
+          hi = Math.max(hi, flex);
+        }
+        const label = `${speed} m/s ${strafe ? 'backwards' : 'forwards'} height ${scale}`;
+        expect(lo, label).toBeGreaterThanOrEqual(5);
+        expect(hi, label).toBeLessThanOrEqual(25);
+      }
     }
   });
 });

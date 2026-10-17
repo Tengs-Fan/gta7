@@ -396,7 +396,8 @@ export class GameRenderer {
         this.scene.add(view.group);
         this.vehicleViews.set(v.id, view);
       }
-      view.sync(v, dt, this.time, night);
+      // Without a bloom halo the light bars, like the traffic lights, must carry their hue in the lamp itself.
+      view.sync(v, dt, this.time, night, this.bloom !== null);
       this.cullFar(view, v);
     }
     for (const [id, view] of this.vehicleViews) {

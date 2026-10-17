@@ -44,6 +44,31 @@ const LENS = 0.5;
 
 const isTrunk = (c: StaticCollider) => c.tag === 'tree' || c.tag === 'palm';
 
+/** The chase camera looks at a point this far up a vehicle (x its height). */
+export const CHASE_TARGET_Y = 0.75;
+
+/**
+ * Where the chase camera settles relative to its look point (CHASE_TARGET_Y up the vehicle) for a vehicle of this
+ * length and height: `back` m behind it along the view's heading, `up` m above it, looking down by -`pitch`. `k` sells
+ * the speed (0 at rest .. 1 from 55 m/s: the boom drops and pulls back 18%), `far` is the far zoom and `orbitPitch`
+ * the player's look up or down. VehicleView cuts its roofs back from this, so the player shows in his car.
+ */
+export function chaseOffset(
+  spec: { readonly length: number; readonly height: number },
+  k: number,
+  far: boolean,
+  orbitPitch = 0,
+  out = { back: 0, up: 0, pitch: 0 },
+): { back: number; up: number; pitch: number } {
+  const dist = (5.2 + spec.length * 0.72) * (far ? 1.5 : 1) * (1 + 0.18 * k);
+  const height = (1.3 + spec.height * 0.6) * (far ? 1.25 : 1) * (1 - 0.18 * k);
+  out.pitch = -0.08 + orbitPitch;
+  out.back = Math.cos(out.pitch) * dist;
+  // The longer boom gives back some height through its pitch.
+  out.up = height - Math.sin(out.pitch) * dist * 0.3;
+  return out;
+}
+
 /** The foliage of a prop near a reset: its bounding spheres, to skip it cheaply, and points on its faces (see props.ts). */
 interface Leaves {
   spheres: Array<{ x: number; y: number; z: number; r: number }>;
@@ -141,6 +166,7 @@ export class CameraController {
   private readonly target = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
   private readonly dir = new THREE.Vector3(0, 0, 1);
+  private readonly chase = { back: 0, up: 0, pitch: 0 };
   private fov = 68;
   private dist = 4.4;
   private shakeAmt = 0;
@@ -314,18 +340,12 @@ export class CameraController {
       const yaw = this.vehYaw + this.orbitYaw;
       this.yaw = wrapAngle(yaw);
       const s = v.spec;
-      const zoom = this.zoomLevel === 1 ? 1.5 : 1;
-      // Selling the speed: from 15 m/s the camera drops and pulls back by up to 18% (the longer boom
-      // gives back some height through its pitch), and the FOV (below) widens with the absolute
-      // speed rather than the fraction of each car's top speed.
+      // Selling the speed: from 15 m/s the camera drops and pulls back by up to 18% (see chaseOffset),
+      // and the FOV (below) widens with the absolute speed rather than the fraction of each car's top speed.
       const k = smoothstep(15, 55, speed);
-      const dist = (5.2 + s.length * 0.72) * zoom * (1 + 0.18 * k);
-      const height = (1.3 + s.height * 0.6) * (this.zoomLevel === 1 ? 1.25 : 1) * (1 - 0.18 * k);
-      this.target.lerp(new THREE.Vector3(v.pos.x, v.pos.y + s.height * 0.75, v.pos.z), 1 - Math.exp(-18 * dt));
-      const pitch = -0.08 + this.orbitPitch;
-      const fx = Math.sin(yaw) * Math.cos(pitch);
-      const fz = Math.cos(yaw) * Math.cos(pitch);
-      this.desired.set(this.target.x - fx * dist, this.target.y + height - Math.sin(pitch) * dist * 0.3, this.target.z - fz * dist);
+      const boom = chaseOffset(s, k, this.zoomLevel === 1, this.orbitPitch, this.chase);
+      this.target.lerp(new THREE.Vector3(v.pos.x, v.pos.y + s.height * CHASE_TARGET_Y, v.pos.z), 1 - Math.exp(-18 * dt));
+      this.desired.set(this.target.x - Math.sin(yaw) * boom.back, this.target.y + boom.up, this.target.z - Math.cos(yaw) * boom.back);
       const look = new THREE.Vector3(this.target.x + Math.sin(yaw) * 3, this.target.y + 0.3, this.target.z + Math.cos(yaw) * 3);
       this.dir.copy(look).sub(this.desired).normalize();
       lookFrom = this.target.clone();
