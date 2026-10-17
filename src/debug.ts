@@ -18,6 +18,7 @@ export function installDebugApi(game: Game): void {
       return {
         mode: game.mode,
         crashed: game.isCrashed,
+        listenerErrors: game.sim.events.errors,
         fps: Math.round(game.fps),
         frames: game.frames,
         menuOpen: game.menus.open,

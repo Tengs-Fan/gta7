@@ -152,6 +152,8 @@ export class StaticGrid {
 
   /** Calls `fn` once for every non-broken collider whose bounds overlap the query box. */
   query(minX: number, minZ: number, maxX: number, maxZ: number, fn: (c: StaticCollider) => void): void {
+    // Bounds from a body that blew up (NaN or infinite) overlap nothing, rather than every cell or none by accident.
+    if (!Number.isFinite(minX + minZ + maxX + maxZ)) return;
     const st = this.nextStamp();
     const x0 = this.cellX(minX);
     const x1 = this.cellX(maxX);
@@ -184,6 +186,8 @@ export class StaticGrid {
     out: RayHit,
     filter?: (c: StaticCollider) => boolean,
   ): boolean {
+    // A non-finite ray would index the grid with NaN (and throw): it hits nothing.
+    if (!Number.isFinite(ox + oy + oz + dx + dy + dz + maxDist)) return false;
     const cs = this.cell;
     const gMaxX = this.minX + this.cols * cs;
     const gMaxZ = this.minZ + this.rows * cs;
@@ -244,6 +248,8 @@ export class StaticGrid {
 
   /** True when no sight-blocking collider lies on the segment between the two points. */
   lineOfSight(ax: number, ay: number, az: number, bx: number, by: number, bz: number, scratch: RayHit): boolean {
+    // Nobody sees to or from a non-finite point.
+    if (!Number.isFinite(ax + ay + az + bx + by + bz)) return false;
     const dx = bx - ax;
     const dy = by - ay;
     const dz = bz - az;

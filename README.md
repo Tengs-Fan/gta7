@@ -101,6 +101,7 @@ npm run check         # typecheck + unit + build + e2e
 ```
 
 The end-to-end suite boots the production build. It plays through real keyboard, mouse and gamepad input, including the first mission, carjacking, shooting, wanted levels, menus, the gun shop, save and continue after a reload, night rendering and quality switches, and a two-minute chaos session. It asserts there are zero console errors.
+Automated browsers (Playwright and `scripts/playtest.mjs`) run without pointer lock, because headless Chromium stops delivering frames once it grants the lock; pass `--pointer-lock` to the playtest script or add `?lock=1` to the URL to re-enable it.
 
 It uses the hardware GPU through ANGLE/Vulkan by default. On machines without a GPU, run it with software rendering:
 

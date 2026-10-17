@@ -15,9 +15,19 @@ export function trackErrors(page: Page): string[] {
   return errors;
 }
 
-export async function boot(page: Page): Promise<string[]> {
+/**
+ * Headless Chromium that grants pointer lock can stop delivering frames and grow without bound, so the tests
+ * refuse it (the game also refuses it under automation): clicks then shoot unlocked. intro=0 keeps a new game
+ * from starting the first mission by itself.
+ */
+export async function boot(page: Page, path = '/?intro=0'): Promise<string[]> {
   const errors = trackErrors(page);
-  await page.goto('/');
+  await page.addInitScript(() => {
+    HTMLCanvasElement.prototype.requestPointerLock = function () {
+      throw new DOMException('pointer lock disabled under automation', 'NotSupportedError');
+    };
+  });
+  await page.goto(path);
   await page.waitForFunction(() => (window as Api).__gta7?.state().frames > 20, null, { timeout: 90_000 });
   return errors;
 }

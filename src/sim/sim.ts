@@ -398,6 +398,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
       collideCharacters(this.characters);
       for (const c of this.characters) collideCharacterStatic(c, this.world);
     }
+    // A physics blow-up is repaired before anything below indexes grids or aims with it.
+    this.sanitize();
     for (const c of this.characters) if (c.vehicle && c.state === 'inVehicle') this.syncOccupant(c);
 
     this.combat.update(dt);
@@ -531,6 +533,9 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.events.emit('message', { text: busted ? `Bail paid: $${fee}. Your weapons were confiscated.` : `Hospital bill: $${fee}.`, duration: 5 });
   }
 
+  /** Last finite position of each helicopter, where sanitize() returns one that blew up. */
+  private readonly heliSafe = new WeakMap<Helicopter, V3>();
+
   /** Guards against numerical blow-ups: anything non-finite is repaired. */
   private sanitize(): void {
     for (const v of this.vehicles) {
@@ -550,6 +555,18 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
         v.pitchVel = 0;
         v.rollVel = 0;
       }
+      // The tumble is not part of the check above: a NaN there leaves the car where it is.
+      if (!Number.isFinite(v.pitch)) v.pitch = 0;
+      if (!Number.isFinite(v.roll)) v.roll = 0;
+      if (!Number.isFinite(v.pitchVel)) v.pitchVel = 0;
+      if (!Number.isFinite(v.rollVel)) v.rollVel = 0;
+      // Last net under the explosion launch cap (vehiclePhysics.launchVehicle): nothing crosses the city in seconds.
+      const sp = Math.hypot(v.vel.x, v.vel.z);
+      if (sp > 90) {
+        v.vel.x *= 90 / sp;
+        v.vel.z *= 90 / sp;
+      }
+      v.vy = clamp(v.vy, -60, 60);
       // Smoothed and derived values never recover from NaN on their own (damp/moveTowards keep it),
       // and the renderer and audio read them.
       if (!Number.isFinite(v.rpm)) v.rpm = 0;
@@ -576,6 +593,36 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
         c.heading = 0;
       }
       c.health = clamp(c.health, -1000, c.maxHealth);
+    }
+    for (const p of this.projectiles) {
+      if (!Number.isFinite(p.pos.x + p.pos.y + p.pos.z + p.vel.x + p.vel.y + p.vel.z)) p.removed = true;
+    }
+    for (const h of this.helis) {
+      if (h.removed) continue;
+      const safe = this.heliSafe.get(h);
+      if (!Number.isFinite(h.pos.x + h.pos.y + h.pos.z + h.vel.x + h.vel.y + h.vel.z)) {
+        // Back to where it last was, hovering; one never seen intact is dropped (police sends another).
+        if (!safe) {
+          h.removed = true;
+          continue;
+        }
+        h.pos.x = safe.x;
+        h.pos.y = safe.y;
+        h.pos.z = safe.z;
+        h.vel.x = 0;
+        h.vel.y = 0;
+        h.vel.z = 0;
+      } else if (safe) {
+        safe.x = h.pos.x;
+        safe.y = h.pos.y;
+        safe.z = h.pos.z;
+      } else this.heliSafe.set(h, { x: h.pos.x, y: h.pos.y, z: h.pos.z });
+      // Heading and spotlight are steered towards targets and keep a NaN for good.
+      if (!Number.isFinite(h.heading)) h.heading = 0;
+      if (!Number.isFinite(h.spotlight.x + h.spotlight.z)) {
+        h.spotlight.x = h.pos.x;
+        h.spotlight.z = h.pos.z;
+      }
     }
   }
 }

@@ -143,6 +143,8 @@ export class StaticWorld {
 
   /** True when a circle at ground level overlaps no solid static collider and is not deep water. */
   isFree(x: number, z: number, r: number, allowWater = false): boolean {
+    // NaN fails every bounds test below and would come out free.
+    if (!Number.isFinite(x + z + r)) return false;
     const b = this.layout.bounds;
     if (x < b.worldMinX + 1 || x > b.worldMaxX - 1 || z < b.worldMinZ + 1 || z > b.worldMaxZ - 1) return false;
     if (!allowWater && this.waterDepth(x, z) > 0.3) return false;
@@ -162,6 +164,7 @@ export class StaticWorld {
 
   /** Searches outward in rings for a free spot near (x, z). */
   findFreeSpot(x: number, z: number, r: number, maxRadius = 30, allowWater = false): { x: number; z: number } | null {
+    if (!Number.isFinite(x + z)) return null;
     if (this.isFree(x, z, r, allowWater)) return { x, z };
     for (let ring = 1; ring * 1.5 <= maxRadius; ring++) {
       const rad = ring * 1.5;
