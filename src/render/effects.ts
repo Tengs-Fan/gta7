@@ -331,7 +331,6 @@ interface Part {
   color: THREE.Color;
   age: number;
   resting: boolean;
-  ground: (x: number, z: number) => number;
 }
 
 /** Up to MAX_PARTS rigid parts (one InstancedMesh, per-instance scale and colour) that tumble, bounce and settle flat. */
@@ -342,6 +341,8 @@ class BodyParts {
   private readonly q = new THREE.Quaternion();
   private readonly axis = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
+  /** Ground height under the parts (the world of the latest crash; reset() drops the parts with their world). */
+  private ground: (x: number, z: number) => number = () => 0;
 
   constructor() {
     this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.5, envMapIntensity: 1.2 }), MAX_PARTS);
@@ -361,6 +362,7 @@ class BodyParts {
   spawn(kind: PartKind, x: number, y: number, z: number, vx: number, vy: number, vz: number, color: number, spin: THREE.Vector3, ground: (x: number, z: number) => number): void {
     // A full pool recycles its oldest part.
     if (this.parts.length >= MAX_PARTS) this.parts.shift();
+    this.ground = ground;
     const sz = PART_SIZES[kind];
     this.parts.push({
       pos: new THREE.Vector3(x, y, z),
@@ -371,7 +373,6 @@ class BodyParts {
       color: new THREE.Color(color),
       age: 0,
       resting: false,
-      ground,
     });
   }
 
@@ -412,7 +413,7 @@ class BodyParts {
         // Settle flat on the road.
         p.quat.slerp(this.flatten(p), 1 - Math.exp(-14 * dt));
       }
-      const floor = p.ground(p.pos.x, p.pos.z) + this.halfHeight(p);
+      const floor = this.ground(p.pos.x, p.pos.z) + this.halfHeight(p);
       if (p.pos.y < floor || p.resting) {
         p.pos.y = floor;
         if (!p.resting) {
@@ -444,6 +445,7 @@ class BodyParts {
   clear(): void {
     this.parts.length = 0;
     this.mesh.count = 0;
+    this.ground = () => 0;
   }
 }
 
@@ -649,18 +651,32 @@ export class Effects {
   }
 
   /**
-   * Sparks for a vehicle scraping at (x, y, z) at `speed`: more the faster it grinds, shed along the contact towards the
-   * vehicle's tail and trailing it at half its speed, so they stream out behind it instead of dying under its body.
+   * Sparks for a vehicle scraping at (x, y, z) at `speed`: more the faster it grinds. They are shed along the body face
+   * the contact is on, behind the contact, and trail the sliding motion along that face at about half its speed, so
+   * they stream out behind the vehicle instead of dying under its body (or inside it when it slides sideways).
    */
   scrapeSparks(v: Vehicle, x: number, y: number, z: number, speed: number): void {
     const n = Math.round(Math.min(16, Math.max(4, speed / 1.8)));
-    const sp = Math.hypot(v.vel.x, v.vel.z);
-    const dx = sp > 1e-3 ? v.vel.x / sp : Math.sin(v.heading);
-    const dz = sp > 1e-3 ? v.vel.z / sp : Math.cos(v.heading);
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const ox = x - v.pos.x;
+    const oz = z - v.pos.z;
+    const along = ox * fx + oz * fz;
+    const across = ox * fz - oz * fx;
+    // Outward normal of the face the contact is on: a side (local +-X) or an end.
+    const onSide = Math.abs(across) / v.halfW > Math.abs(along) / v.halfL;
+    const nx = onSide ? fz * Math.sign(across) : fx * Math.sign(along);
+    const nz = onSide ? -fx * Math.sign(across) : fz * Math.sign(along);
+    // Only the sliding part of the velocity, along that face.
+    const vn = v.vel.x * nx + v.vel.z * nz;
+    const tx = v.vel.x - vn * nx;
+    const tz = v.vel.z - vn * nz;
+    const tl = Math.hypot(tx, tz);
+    const reach = onSide ? v.halfL : v.halfW;
     for (let i = 0; i < n; i++) {
-      const back = this.r(0.3, 1) * v.halfL;
+      const back = tl > 1e-3 ? this.r(0.3, 1) * reach : 0;
       const k = this.r(0.45, 0.75);
-      this.sparks(x - dx * back, y + this.r(0, 0.2), z - dz * back, 1, v.vel.x * k, v.vel.z * k);
+      this.sparks(x - (back * tx) / (tl || 1), y + this.r(0, 0.2), z - (back * tz) / (tl || 1), 1, tx * k, tz * k);
     }
   }
 
@@ -673,8 +689,8 @@ export class Effects {
 
   /**
    * Knocks 1-3 body parts in the vehicle's colour off a hard crash at (x, y, z): bumpers and the hood from the ends,
-   * mirrors from the sides. Crushed off between the car and what it hit, they squeeze out sideways and up from the car's
-   * surface (never into the obstacle) on top of the car's own velocity, then bounce on `ground` and settle.
+   * mirrors from the sides. Crushed off between the car and what it hit, they squeeze out from the contact sideways, up
+   * and back towards the car (never into the obstacle) on top of the car's own velocity, then bounce and settle.
    */
   shedParts(v: Vehicle, x: number, y: number, z: number, strength: number, ground: (x: number, z: number) => number): void {
     const n = Math.max(1, Math.min(3, 1 + Math.floor((strength - 20) / 8)));
@@ -695,9 +711,9 @@ export class Effects {
       const side = (i % 2 === 0 ? 1 : -1) * this.r(1.5, 4);
       const back = this.r(0.3, 1.5);
       const spin = new THREE.Vector3(this.r(-9, 9), this.r(-6, 6), this.r(-9, 9));
-      const px = x - ox * 0.35 + this.r(-0.2, 0.2);
-      const pz = z - oz * 0.35 + this.r(-0.2, 0.2);
-      const py = Math.max(y, ground(px, pz) + 0.3);
+      const px = x + this.r(-0.2, 0.2);
+      const pz = z + this.r(-0.2, 0.2);
+      const py = Math.max(y + 0.1, ground(px, pz) + 0.3);
       const vx = v.vel.x - oz * side - ox * back + this.r(-0.5, 0.5);
       const vz = v.vel.z + ox * side - oz * back + this.r(-0.5, 0.5);
       this.parts.spawn(kinds[i]!, px, py, pz, vx, this.r(2.5, 5), vz, color, spin, ground);

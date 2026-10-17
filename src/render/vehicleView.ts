@@ -439,8 +439,8 @@ export class VehicleView {
   private readonly cabin: THREE.Mesh;
   private readonly kindAssets: KindAssets;
   private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean }> = [];
-  /** Head, tail and reverse lamps with their working material (smashed and burnt ones swap theirs out). */
-  private readonly lamps: Array<{ mesh: THREE.Mesh; mat: THREE.Material; broken: boolean }> = [];
+  /** Head, tail and reverse lamps with their working material (smashed and burnt ones swap theirs out) and place. */
+  private readonly lamps: Array<{ mesh: THREE.Mesh; mat: THREE.Material; broken: boolean; base: THREE.Vector3 }> = [];
   /** Separate parts on the body (lamps, roof gear) and where they sit undamaged: dents carry them along. */
   private readonly attached: Array<{ obj: THREE.Object3D; base: THREE.Vector3 }> = [];
   /** The police livery stripe: its own subdivided geometry, bent with the body, and its undamaged positions. */
@@ -507,14 +507,14 @@ export class VehicleView {
       h.name = 'lamp';
       t.name = 'lamp';
       this.group.add(h, t);
-      this.lamps.push({ mesh: h, mat: this.headMat, broken: false }, { mesh: t, mat: this.tailMat, broken: false });
+      this.lamps.push({ mesh: h, mat: this.headMat, broken: false, base: h.position.clone() }, { mesh: t, mat: this.tailMat, broken: false, base: t.position.clone() });
     }
     const rev = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.05), this.reverseMat);
     rev.position.set(0, ly - 0.05, -front);
     rev.name = 'lamp';
     this.group.add(rev);
-    this.lamps.push({ mesh: rev, mat: this.reverseMat, broken: false });
-    for (const l of this.lamps) this.attached.push({ obj: l.mesh, base: l.mesh.position.clone() });
+    this.lamps.push({ mesh: rev, mat: this.reverseMat, broken: false, base: rev.position.clone() });
+    for (const l of this.lamps) this.attached.push({ obj: l.mesh, base: l.base });
     if (s.police) {
       const red = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.3 });
       const blue = new THREE.MeshStandardMaterial({ color: 0x000040, emissive: 0x0040ff, emissiveIntensity: 0, roughness: 0.3 });
@@ -637,7 +637,7 @@ export class VehicleView {
       this.stripeBent = true;
     }
     for (const l of this.lamps) {
-      const p = this.attached.find((part) => part.obj === l.mesh)!.base;
+      const p = l.base;
       l.broken = v.dents.some((d) => Math.hypot(p.x - d.lx, p.y - d.ly, p.z - d.lz) < LAMP_BREAK_DIST);
     }
     this.applyLampMaterials();
@@ -698,7 +698,8 @@ export class VehicleView {
     // A burnt-out wreck sits low on its rims.
     this.group.position.set(v.pos.x - c.x, v.pos.y + this.pivotY - c.y - (this.burnt ? WRECK_SAG : 0), v.pos.z - c.z);
 
-    // Front wheels at the angle the physics steers with (it shrinks with speed); spin from this kind's wheel radius.
+    // Front wheels follow the physics' steering limit, which shrinks with speed (steer / (1 + |v| / 15)), shown 30%
+    // larger so it reads at speed and capped at 85% of full lock; they spin by this kind's own wheel radius.
     const steerAngle = -v.steer * Math.min(s.steer * 0.85, (s.steer / (1 + Math.abs(v.forwardSpeed) / 15)) * 1.3);
     this.spin += (v.forwardSpeed / this.kindAssets.prof.wheelR) * dt;
     if (Math.abs(this.spin) > 1e4) this.spin %= Math.PI * 2;

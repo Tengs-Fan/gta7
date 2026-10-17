@@ -25,7 +25,7 @@ export interface VehicleSpec {
   police: boolean;
   /** Price-like value for stats and Spray Shack flavour text. */
   value: number;
-  /** Multiplier on crash and landing damage (and dent depth): sturdy vehicles shrug off hits. */
+  /** Multiplier on crash and landing damage and on dent depth: below 1 sturdier, above 1 more fragile. */
   durability: number;
   /** Visual body roll and pitch (lean) multipliers: tall, soft vehicles lean more. */
   rollGain: number;

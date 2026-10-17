@@ -232,6 +232,35 @@ describe('vehicle durability and dents (sim)', () => {
     expect(mine.dents.length).toBe(0);
   });
 
+  it('a car that starts above full health keeps its dents (only a repair, health rising to full, takes them away)', () => {
+    const sim = makeSim({ police: false });
+    const w = beachWithWall(sim);
+    // Like a vigilante suspect at level 4, 8 m short of the wall.
+    const v = sim.spawnVehicle('sedan', w.x, w.wall - 10, 0);
+    v.health = v.spec.health * 1.2;
+    hitWall(sim, v, 6);
+    expect(v.health).toBeGreaterThanOrEqual(v.spec.health);
+    expect(v.dents.length).toBe(1);
+    step(sim, 1);
+    expect(v.dents.length).toBe(1);
+  });
+
+  it('only a landing on the roof that does damage crushes the roof', () => {
+    const sim = makeSim({ police: false });
+    const w = beachWithWall(sim);
+    const v = sim.spawnVehicle('sedan', w.x, w.z - 20, 0);
+    // Already burning on its roof: a gentle bounce does nothing more.
+    sim.combat.igniteVehicle(v, 30);
+    v.flipped = true;
+    v.roll = Math.PI;
+    v.airborne = true;
+    v.pos.y += 0.3;
+    v.vy = -4;
+    step(sim, 0.5);
+    expect(v.airborne).toBe(false);
+    expect(v.dents.length).toBe(0);
+  });
+
   it('the Spray Shack repair takes the dents out too', () => {
     const sim = makeSim({ police: false });
     const poi = sim.world.layout.pois.find((p) => p.id === 'spray_hill')!;
@@ -304,6 +333,26 @@ describe('scrapes', () => {
       sim.update(DT, input());
     }
     expect(n).toBeGreaterThan(0);
+  });
+
+  it('a car grinding along a parked one gets the scrape, whichever comes first in the list', () => {
+    for (const parkedFirst of [true, false]) {
+      const sim = makeSim({ police: false });
+      const w = beachWithWall(sim);
+      const spawnParked = (): Vehicle => sim.spawnVehicle('van', w.x + 2.0, w.z, 0);
+      const parked = parkedFirst ? spawnParked() : null;
+      const mover = sim.spawnVehicle('sedan', w.x, w.z - 8, 0);
+      const other = parked ?? spawnParked();
+      const who = new Set<Vehicle>();
+      sim.events.on('scrape', (e) => who.add(e.vehicle));
+      for (let i = 0; i < 60; i++) {
+        mover.vel.z = 15;
+        mover.vel.x = 0.6;
+        sim.update(DT, input());
+      }
+      expect(who.has(mover), `parked first: ${parkedFirst}`).toBe(true);
+      expect(who.has(other)).toBe(false);
+    }
   });
 
   it('scrape reporting leaves crash results alone: a 30 m/s head-on still impacts once, identically', () => {
@@ -811,6 +860,84 @@ describe('crash effects', () => {
     sim.events.emit('impact', { x: v.pos.x, y: v.pos.y + 0.6, z: v.pos.z, strength: 40, vehicle: null });
     R.render(DT, false);
     expect(R.effects.partCount).toBe(0);
+  });
+
+  it('god mode keeps the player\'s car whole and a wreck has no glass to shed', () => {
+    const sim = makeSim({ world: W });
+    R.attach(sim);
+    settle();
+    const p = sim.player.pos;
+    const other = sim.spawnVehicle('sedan', p.x - 10, p.z, 0);
+    const hit = (v: Vehicle, strength: number): number => {
+      settle();
+      sim.events.emit('impact', { x: v.pos.x, y: v.pos.y + 0.6, z: v.pos.z + v.halfL, strength, vehicle: v });
+      R.render(DT, false);
+      return R.effects.particleCount;
+    };
+    // Dust from any hard knock (the existing debris), glass on top of it from 15 up.
+    const dust = hit(other, 12);
+    expect(dust).toBeGreaterThan(0);
+    expect(hit(other, 18)).toBeGreaterThan(dust);
+    const mine = sim.spawnVehicle('sedan', p.x + 5, p.z, 0);
+    placeInCar(sim, mine);
+    sim.cheats.godMode = true;
+    expect(hit(mine, 40)).toBe(dust);
+    expect(R.effects.partCount).toBe(0);
+    const wreck = sim.spawnVehicle('sedan', p.x - 5, p.z, 0);
+    wreck.destroyed = true;
+    expect(hit(wreck, 18)).toBe(dust);
+  });
+
+  it('sparks stay on the face being scraped, behind the contact, and parts start at it', () => {
+    const fx = new Effects();
+    const glow = (fx as unknown as { glow: { max: number; life: Float32Array; px: Float32Array; pz: Float32Array } }).glow;
+    const live = (): Array<[number, number]> => {
+      const out: Array<[number, number]> = [];
+      for (let i = 0; i < glow.max; i++) if (glow.life[i]! > 0) out.push([glow.px[i]!, glow.pz[i]!]);
+      return out;
+    };
+    const sim = makeSim({ world: W });
+    const v = sim.spawnVehicle('sedan', 0, 0, 0);
+    v.pos.x = 0;
+    v.pos.z = 0;
+    // Sliding sideways into a wall on its left (+X) side: the sparks stay at the contact, not inside the body.
+    v.vel.x = 12;
+    v.vel.z = 0;
+    fx.scrapeSparks(v, v.halfW, 0.5, 0.2, 12);
+    for (const [x, z] of live()) {
+      expect(x).toBeGreaterThan(v.halfW - 0.2);
+      expect(Math.abs(z - 0.2)).toBeLessThan(0.2);
+    }
+    // Driving forward along it: shed behind the contact along the flank, within its length.
+    const fx2 = new Effects();
+    const glow2 = (fx2 as unknown as { glow: typeof glow }).glow;
+    v.vel.x = 0.5;
+    v.vel.z = 15;
+    fx2.scrapeSparks(v, v.halfW, 0.5, 0, 15);
+    let n = 0;
+    for (let i = 0; i < glow2.max; i++) {
+      if (glow2.life[i]! <= 0) continue;
+      n++;
+      expect(glow2.px[i]!).toBeGreaterThan(v.halfW - 0.2);
+      expect(glow2.pz[i]!).toBeLessThan(0.2);
+      expect(glow2.pz[i]!).toBeGreaterThan(-v.halfL - 0.2);
+    }
+    expect(n).toBeGreaterThan(5);
+    // Parts start at the contact, not inside the nose.
+    const fx3 = new Effects();
+    v.vel.x = 0;
+    v.vel.z = -3;
+    fx3.shedParts(v, 0, 0.6, v.halfL, 40, () => 0);
+    fx3.update(1e-4, 0);
+    const parts = (fx3 as unknown as { parts: { mesh: THREE.InstancedMesh } }).parts.mesh;
+    const m = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    expect(parts.count).toBe(3);
+    for (let i = 0; i < parts.count; i++) {
+      parts.getMatrixAt(i, m);
+      pos.setFromMatrixPosition(m);
+      expect(Math.abs(pos.z - v.halfL)).toBeLessThan(0.3);
+    }
   });
 
   it('a siren lights the street without washing it out at night', () => {

@@ -476,11 +476,12 @@ function resolvePair(a: Vehicle, b: Vehicle, ct: Contact, host: VehiclePhysicsHo
   const rvx = vax - vbx;
   const rvz = vaz - vbz;
   const vn = rvx * ct.nx + rvz * ct.nz;
-  // Relative sliding speed along the contact, before any impulse (see resolveStatic); one report per pair, for a.
+  // Relative sliding speed along the contact, before any impulse (see resolveStatic). One report per pair, for the
+  // faster of the two: the one doing the grinding, whose motion the sparks follow.
   const tx = -ct.nz;
   const tz = ct.nx;
   const vt = rvx * tx + rvz * tz;
-  if (Math.abs(vt) > SCRAPE_SPEED) host.onVehicleScrape(a, ct.px, ct.pz, Math.abs(vt));
+  if (Math.abs(vt) > SCRAPE_SPEED) host.onVehicleScrape(Math.hypot(b.vel.x, b.vel.z) > Math.hypot(a.vel.x, a.vel.z) ? b : a, ct.px, ct.pz, Math.abs(vt));
   if (vn >= 0) return;
   // Who drove into whom: each car's own speed towards the other (the normal points from b to a).
   const closingA = -(a.vel.x * ct.nx + a.vel.z * ct.nz);

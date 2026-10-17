@@ -312,11 +312,12 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   }
 
   onVehicleLanded(v: Vehicle, impact: number): void {
+    const before = v.health;
     if (impact > 9) this.combat.damageVehicle(v, (impact - 9) * v.spec.health * 0.03 * v.spec.durability, null, 'impact');
     if (impact > 3) this.events.emit('impact', { x: v.pos.x, y: v.pos.y, z: v.pos.z, strength: impact * 0.6, vehicle: v });
     if (v.flipped && !v.burning && !v.destroyed) this.combat.igniteVehicle(v, 3.5);
-    // Landing on the roof crushes it (the roof dent pushes straight down).
-    if (v.flipped && v.health < v.spec.health) {
+    // A landing on the roof that did damage crushes it (the roof dent pushes straight down).
+    if (v.flipped && v.health < before) {
       this.addDent(v, { lx: 0, ly: v.spec.height, lz: 0, nx: 0, nz: 0, depth: Math.min(0.4, 0.15 + 0.011 * impact * v.spec.durability) });
     }
     this.activities.onVehicleLanded(v);
@@ -324,6 +325,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
 
   /** Last 'scrape' event time per vehicle, to emit at most 15 per second each. */
   private readonly scrapeTimes = new WeakMap<Vehicle, number>();
+  /** Each vehicle's health at the last tick: a rise back to full health is a repair, which takes the dents away. */
+  private readonly healthSeen = new WeakMap<Vehicle, number>();
 
   onVehicleScrape(v: Vehicle, x: number, z: number, speed: number): void {
     const last = this.scrapeTimes.get(v);
@@ -546,11 +549,14 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
         v.destroyed = true;
         v.health = 0;
       }
-      // Dents only come with damage, so a car back at full health was repaired (Spray Shack, FIXMYRIDE).
-      if (v.dents.length > 0 && v.health >= v.spec.health) {
+      // A repair (Spray Shack, FIXMYRIDE) raises health back to full: the dents go with the damage. Health alone is no
+      // sign: some cars start above full health (vigilante suspects) and keep it through their first dents.
+      const seen = this.healthSeen.get(v);
+      if (v.dents.length > 0 && seen !== undefined && v.health > seen && v.health >= v.spec.health) {
         v.dents.length = 0;
         v.dentVersion++;
       }
+      this.healthSeen.set(v, v.health);
     }
   }
 

@@ -194,8 +194,11 @@ export class GameRenderer {
     this.unsub.push(
       ev.on('scrape', (e) => fx.scrapeSparks(e.vehicle, e.x, e.y, e.z, e.speed)),
       ev.on('impact', (e) => {
-        if (e.strength > 15) fx.glassShards(e.x, e.y, e.z);
-        if (e.strength > 20 && e.vehicle) fx.shedParts(e.vehicle, e.x, e.y, e.z, e.strength, ground);
+        const v = e.vehicle;
+        // God mode keeps the player's car whole, so nothing comes off it; a burnt-out wreck has no glass left.
+        if (v && sim.cheats.godMode && v.driver === sim.player) return;
+        if (e.strength > 15 && !v?.destroyed) fx.glassShards(e.x, e.y, e.z);
+        if (e.strength > 20 && v) fx.shedParts(v, e.x, e.y, e.z, e.strength, ground);
       }),
     );
   }
