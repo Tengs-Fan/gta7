@@ -1,7 +1,8 @@
 // Round 2, missions cluster: route drivers that arrive (P96), mission and activity bugs (P87), retry,
 // skippable dialogue and checkpoints (P4), the restaged missions (P35) and finished objectives (P57a).
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { wrapAngle } from '../../src/core/math';
 import { Rng } from '../../src/core/rng';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
@@ -10,10 +11,15 @@ import { RETRY_WINDOW } from '../../src/sim/missions/runner';
 import { missionSpots } from '../../src/sim/missions/spots';
 import { Sim, type SimOptions } from '../../src/sim/sim';
 import { ARRIVE_RADIUS } from '../../src/sim/driver';
+import { SIGNAL_CYCLE, SIGNAL_GREEN } from '../../src/world/roads';
 import { StaticWorld } from '../../src/world/staticWorld';
 import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
 // --- helpers ------------------------------------------------------------------
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function setup(done: string[], opts: SimOptions = {}): Sim {
   const sim = makeSim({ ambient: false, ...opts });
@@ -103,14 +109,14 @@ describe('route drivers reach their destination', () => {
 
   /**
    * Drives a route sedan from 20 random lanes to random road points 300-900 m away. Per run: whether
-   * it arrived (within 25 m), when, the A* route length, and whether `arrived` ever showed more than
-   * 30 m out or the car was still moving 3 s after arriving.
+   * it arrived (within 25 m), when, the A* route length and the signalled junctions on that route, and
+   * whether `arrived` ever showed more than 30 m out or the car was still moving 3 s after arriving.
    */
-  function routeRuns(sim: Sim, seed: number): Array<{ arrivedAt: number; astar: number; ok: boolean; log: string }> {
+  function routeRuns(sim: Sim, seed: number): Array<{ arrivedAt: number; astar: number; signals: number; ok: boolean; log: string }> {
     const roads = sim.roads;
     const rng = new Rng(seed);
     const lanes = roads.lanes.filter((l) => l.length > 30);
-    const out: Array<{ arrivedAt: number; astar: number; ok: boolean; log: string }> = [];
+    const out: Array<{ arrivedAt: number; astar: number; signals: number; ok: boolean; log: string }> = [];
     for (let run = 0; run < 20; run++) {
       let lane = lanes[0]!;
       let s = 0;
@@ -132,6 +138,7 @@ describe('route drivers reach their destination', () => {
       const route = roads.findRoute(lane.to, goal.id)!;
       let astar = lane.length - s + dist(goal, dest);
       for (let i = 1; i < route.length; i++) astar += dist(roads.nodes[route[i - 1]!]!, roads.nodes[route[i]!]!);
+      const signals = route.filter((id) => roads.nodes[id]!.signal).length;
       let arrivedAt = -1;
       let early = false;
       let stopped = false;
@@ -148,8 +155,8 @@ describe('route drivers reach their destination', () => {
           break;
         }
       }
-      const log = `run ${run}: lane ${lane.id} dest ${dest.x.toFixed(0)},${dest.z.toFixed(0)} astar ${astar.toFixed(0)} arrived ${arrivedAt.toFixed(1)} closest ${closest.toFixed(1)} stopped ${stopped} early ${early}`;
-      out.push({ arrivedAt, astar, ok: arrivedAt >= 0 && closest <= 25 && !early && stopped, log });
+      const log = `run ${run}: lane ${lane.id} dest ${dest.x.toFixed(0)},${dest.z.toFixed(0)} astar ${astar.toFixed(0)} signals ${signals} arrived ${arrivedAt.toFixed(1)} closest ${closest.toFixed(1)} stopped ${stopped} early ${early}`;
+      out.push({ arrivedAt, astar, signals, ok: arrivedAt >= 0 && closest <= 25 && !early && stopped, log });
       sim.removeVehicle(car);
       sim.update(dt, input());
     }
@@ -157,18 +164,24 @@ describe('route drivers reach their destination', () => {
   }
 
   it('arrives within 25 m of destinations 300-900 m away from 20 random lanes, then stops and holds', () => {
-    // The routes themselves, without signals: the A* length at 8 m/s plus 30 s.
+    // The routes themselves, without signals: P96's budget, the A* length at 8 m/s plus 30 s.
     const open = new StaticWorld();
     for (const n of open.roads.nodes) n.signal = false;
     const runs = routeRuns(new Sim({ world: open, ambient: false, police: false }), 9001);
     const log = runs.map((r) => r.log).join('\n');
     expect(runs.every((r) => r.ok), log).toBe(true);
     expect(runs.filter((r) => r.arrivedAt <= r.astar / 8 + 30).length, log).toBeGreaterThanOrEqual(18);
-    // With the signals working, red lights (56% of each cycle) slow law-abiding drivers to about
-    // 7 m/s on average, but every one of them still gets there.
+    // With the signals working, law-abiding drivers also wait at red lights, which P96's budget left
+    // out (only 9-14 of 20 runs make it over six seeds). The same budget plus the expected wait at each
+    // signalled junction on the route (a car arriving at a random moment finds no green 21 s in 32
+    // and waits half of that on average: 6.9 s) still holds for 18 of 20, and none takes absurdly long.
+    const notGreen = SIGNAL_CYCLE - SIGNAL_GREEN;
+    const redWait = (notGreen / SIGNAL_CYCLE) * (notGreen / 2);
+    expect(redWait).toBeCloseTo(6.89, 2);
     const lit = routeRuns(new Sim({ world: world(), ambient: false, police: false }), 9001);
     const litLog = lit.map((r) => r.log).join('\n');
     expect(lit.every((r) => r.ok), litLog).toBe(true);
+    expect(lit.filter((r) => r.arrivedAt <= r.astar / 8 + 30 + r.signals * redWait).length, litLog).toBeGreaterThanOrEqual(18);
     expect(lit.every((r) => r.arrivedAt <= r.astar / 5 + 30), litLog).toBe(true);
   });
 
@@ -330,6 +343,51 @@ describe('retrying a failed mission', () => {
     press(sim);
     stepUntil(sim, () => objective(sim) === 'Collect the package', 1);
     expect(subs.filter((s) => s.speaker)).toEqual([]);
+  });
+
+  it('skips the title card on a retry too: straight back to work', () => {
+    const sim = setup(['wheels']);
+    const big = record(sim, 'big');
+    const m = startMission(sim, 'delivery');
+    expect(big.filter((b) => b.style === 'title').map((b) => b.text)).toEqual(['HOT DELIVERY']);
+    m.fail('test');
+    step(sim, 0.1);
+    teleport(sim, sim.player.pos.x + 20, sim.player.pos.z);
+    press(sim);
+    stepUntil(sim, () => objective(sim) === 'Collect the package', 1);
+    expect(sim.missions.active!.retrying).toBe(true);
+    expect(big.filter((b) => b.style === 'title')).toHaveLength(1);
+  });
+
+  it('a failure in a vehicle says to get out to retry: E is the horn there', () => {
+    const sim = setup(['wheels']);
+    const big = record(sim, 'big');
+    const m = collectParcel(sim);
+    const lane = sim.roads.nearestLane(sim.player.pos.x, sim.player.pos.z).lane;
+    placeInCar(sim, sim.spawnVehicle('sedan', lane.sx + lane.dx * 10, lane.sz + lane.dz * 10, lane.heading));
+    m.setTimer('DELIVERY', 0.05, 'The buyer walked.');
+    step(sim, 0.2);
+    expect(big.at(-1)).toEqual(expect.objectContaining({ text: 'MISSION FAILED', sub: 'The buyer walked. - Get out of the vehicle to retry' }));
+    expect(sim.interactions.prompt()).toBe('Get out of the vehicle to retry "Hot Delivery"');
+  });
+
+  it('a failure takes the line being said off the screen at once; with no line up it says nothing', () => {
+    const sim = setup(['wheels']);
+    const subs = record(sim, 'subtitle');
+    startMission(sim, 'delivery');
+    step(sim, 0.5);
+    expect(subs.map((s) => s.speaker)).toEqual(['Mama Lou']);
+    sim.missions.abandon();
+    expect(subs.at(-1)).toEqual({ speaker: '', text: '', duration: 0 });
+    step(sim, 0.1);
+    expect(subs).toHaveLength(2);
+    // Past the intro nothing is being said: a failure adds no line.
+    const m = startMission(sim, 'delivery');
+    stepUntil(sim, () => objective(sim) === 'Collect the package', 20);
+    const n = subs.length;
+    m.fail('test');
+    step(sim, 0.1);
+    expect(subs).toHaveLength(n);
   });
 
   it('restores the pistol ammo of the pre-mission loadout on a Repo Man retry', () => {
@@ -550,6 +608,29 @@ describe('retrying a failed mission', () => {
     expect(objective(sim)).toBe('Collect the package');
   });
 
+  it('says when a line can be skipped (0.4 s into it), so the horn key can skip it in a vehicle', () => {
+    const sim = setup(['wheels']);
+    const subs = record(sim, 'subtitle');
+    startMission(sim, 'delivery');
+    expect(sim.missions.lineSkippable).toBe(false);
+    step(sim, 0.3);
+    expect(sim.missions.lineSkippable).toBe(false);
+    step(sim, 0.15);
+    expect(sim.missions.lineSkippable).toBe(true);
+    // From a car as on foot: a fresh interact press skips it (Input sends one for E in a car only then).
+    const lane = sim.roads.nearestLane(sim.player.pos.x, sim.player.pos.z).lane;
+    placeInCar(sim, sim.spawnVehicle('sedan', lane.sx + lane.dx * 10, lane.sz + lane.dz * 10, lane.heading));
+    press(sim);
+    expect(subs.filter((s) => s.text)).toHaveLength(2);
+    expect(sim.missions.lineSkippable).toBe(false);
+    step(sim, 0.45);
+    expect(sim.missions.lineSkippable).toBe(true);
+    step(sim, 0.1);
+    press(sim);
+    expect(sim.missions.lineSkippable).toBe(false);
+    expect(objective(sim)).toBe('Collect the package');
+  });
+
   it('tops mission weapons up instead of adding to them', () => {
     const sim = setup(['wheels']);
     const m = startMission(sim, 'delivery');
@@ -599,7 +680,11 @@ describe('staged missions', () => {
     expect(m.pickups).toContain(parcel);
     const buyer = sim.characters.find((c) => c.missionTag === 'delivery' && c.alive);
     expect(buyer).toBeDefined();
-    expect(dist(buyer!.pos, spots.packageDrop)).toBeLessThanOrEqual(4);
+    // Beside the drop, outside its 4 m marker by more than a car's reach, facing it.
+    const drop = spots.packageDrop;
+    expect(dist(buyer!.pos, drop)).toBeGreaterThanOrEqual(4 + 3.1 + 0.4);
+    expect(dist(buyer!.pos, drop)).toBeLessThanOrEqual(9);
+    expect(Math.abs(wrapAngle(buyer!.heading - Math.atan2(drop.x - buyer!.pos.x, drop.z - buyer!.pos.z)))).toBeLessThan(0.01);
     stepUntil(sim, () => objective(sim) === 'Collect the package', 20);
     // Not from a car.
     const lane = sim.roads.nearestLane(spots.packagePickup.x, spots.packagePickup.z).lane;
@@ -631,6 +716,33 @@ describe('staged missions', () => {
     step(sim, 0.1);
     expect(parcel.removed).toBe(true);
     expect(sim.pickups.includes(parcel)).toBe(false);
+  });
+
+  it('Hot Delivery: the parcel is drawn over the objective beam it stands in, so it stays cardboard brown', async () => {
+    // The marker view builds its textures on a 2D canvas: a stub that takes any call will do.
+    const ctx2d = () => new Proxy({} as Record<string | symbol, unknown>, { get: (o, k) => (k in o ? o[k] : () => ({ addColorStop: () => undefined })), set: (o, k, v) => ((o[k] = v), true) });
+    vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: ctx2d }) });
+    const THREE = await import('three');
+    const { MarkerView } = await import('../../src/render/markers');
+    const sim = setup(['wheels']);
+    const m = startMission(sim, 'delivery');
+    stepUntil(sim, () => objective(sim) === 'Collect the package', 20);
+    const parcel = m.pickups[0]!;
+    const view = new MarkerView();
+    view.syncObjectives(m.markers, () => 0, 0);
+    view.syncPickups(sim.pickups, 0, parcel.pos.x, parcel.pos.z);
+    const meshes: Array<InstanceType<typeof THREE.Mesh>> = [];
+    view.group.traverseVisible((o) => {
+      if (o instanceof THREE.Mesh) meshes.push(o);
+    });
+    const beam = meshes.find((o) => (o.material as InstanceType<typeof THREE.Material>).blending === THREE.AdditiveBlending)!;
+    const box = meshes.find((o) => o.name === 'icon' && (o.material as InstanceType<typeof THREE.MeshStandardMaterial>).color.getHex() === 0x8a5a2c)!;
+    expect(beam).toBeDefined();
+    expect(box).toBeDefined();
+    // Both in the transparent pass, the box after the beam: the beam's additive cyan never lands on it.
+    expect((beam.material as InstanceType<typeof THREE.Material>).transparent).toBe(true);
+    expect((box.material as InstanceType<typeof THREE.Material>).transparent).toBe(true);
+    expect(box.renderOrder).toBeGreaterThan(beam.renderOrder);
   });
 
   it('Hot Delivery: the buyer does not deal with a tail in tow', () => {
@@ -677,6 +789,67 @@ describe('staged missions', () => {
     stepUntil(sim, () => sim.missions.active === null, 30);
     expect(m.failedReason).toBeNull();
     expect(sim.progress.missionsDone).toContain('delivery');
+  });
+
+  it('Hot Delivery: driving into the marker never kills the buyer, from any side at 12 or 18 m/s', () => {
+    // A fresh mission per run on one world, started as a retry (no intro), its tail removed.
+    const w = new StaticWorld();
+    const spots = missionSpots(w);
+    const drop = spots.packageDrop;
+    const report: string[] = [];
+    let excused = 0;
+    let stoppedRuns = 0;
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      for (const speed of [12, 18]) {
+        w.resetBroken();
+        const sim = new Sim({ world: w, ambient: false, police: false });
+        sim.progress.markDone('wheels');
+        sim.cheats.godMode = true;
+        step(sim, 0.05);
+        expect(sim.missions.start('delivery', { retrying: true })).toBe(true);
+        const m = sim.missions.active!;
+        step(sim, 0.05);
+        teleport(sim, spots.packagePickup.x, spots.packagePickup.z);
+        stepUntil(sim, () => m.timer !== null, 2);
+        for (const v of m.vehicles.filter((v) => v.kind === 'muscle')) sim.removeVehicle(v);
+        const buyer = m.characters.find((c) => c.missionTag === 'delivery')!;
+        const health = buyer.health;
+        // A sedan 15 m out, driven straight at the drop and kept at speed.
+        const sx = drop.x + Math.sin(a) * 15;
+        const sz = drop.z + Math.cos(a) * 15;
+        const heading = Math.atan2(drop.x - sx, drop.z - sz);
+        const car = sim.spawnVehicle('sedan', sx, sz, heading);
+        placeInCar(sim, car);
+        car.vel.x = Math.sin(heading) * speed;
+        car.vel.z = Math.cos(heading) * speed;
+        let hitAt = -1;
+        for (let t = 0; t < 3 && sim.missions.active === m && m.objectiveText !== ''; t += 1 / 60) {
+          sim.update(1 / 60, input({ throttle: car.speed < speed ? 1 : 0 }));
+          if (hitAt < 0 && buyer.health < health) hitAt = dist(car.pos, drop);
+        }
+        const delivered = sim.missions.active === m && m.objectiveText === '';
+        // A tree on the way in stops the car short of the marker: no drive-in from that side.
+        const stopped = !delivered && m.failedReason === null && car.speed < 1;
+        if (stopped) stoppedRuns++;
+        // Excused only where he stands in the car's way before it reaches the marker: its corridor (half
+        // its width plus his own 0.4 m and a margin) runs through his spot, outside the marker.
+        const b = buyer.pos;
+        const along = (b.x - sx) * Math.sin(heading) + (b.z - sz) * Math.cos(heading);
+        const off = Math.abs((b.x - sx) * Math.cos(heading) - (b.z - sz) * Math.sin(heading));
+        const inTheWay = dist(b, drop) > 4 && along > 0 && along < 15 && off < car.halfW + 0.4 + 0.3;
+        if (inTheWay) excused++;
+        report.push(`a=${a.toFixed(2)} v=${speed}: delivered ${delivered} failed ${m.failedReason} stopped ${stopped} buyer hit at ${hitAt.toFixed(1)} m in the way ${inTheWay}`);
+        if (!inTheWay) {
+          expect(buyer.health, report.join('\n')).toBe(health);
+          expect(m.failedReason, report.join('\n')).toBe(null);
+          if (!stopped) expect(delivered, report.join('\n')).toBe(true);
+        }
+      }
+    }
+    // Only the line through his own spot (both speeds), and at most one side blocked by a tree.
+    expect(excused, report.join('\n')).toBeLessThanOrEqual(2 * 2);
+    expect(stoppedRuns, report.join('\n')).toBeLessThanOrEqual(2 * 2);
   });
 
   it('Hot Delivery fails when the buyer dies', () => {

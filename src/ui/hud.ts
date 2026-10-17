@@ -71,9 +71,13 @@ const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, toast: 0
 const TIMED = ['help', 'subtitle', 'objective', 'zone', 'radio', 'toast', 'delta', 'big'];
 /** Damage kinds that show the hitmarker when the player deals them. */
 const WEAPON_HIT: Readonly<Record<DamageKind, boolean>> = { bullet: true, melee: true, explosion: true, vehicle: false, fall: false, fire: false, impact: false, drown: false };
-/** Hitmarker display time (s) for a hit and for a kill. */
+/** Hitmarker display time (s) for a hit and for a kill; the kill colour keeps its own time, whatever hits follow. */
 const HIT_TIME = 0.12;
 const KILL_TIME = 0.25;
+/** The subtitle's fade-out (style.css .subtitle transition, s): the prompt stays above it until it is gone. */
+const SUBTITLE_FADE = 0.25;
+/** Within this distance (m) of where the GPS route leads, it is not drawn: the marker is in sight, and the route would only run out to the nearest junction and back. */
+const ROUTE_NEAR = 20;
 /** Damage-direction arcs: how many at once, how long one fades (s), and within what angle a new hit refreshes an arc already up. */
 const ARCS = 4;
 const ARC_TIME = 1;
@@ -95,7 +99,14 @@ export class Hud {
   private routeTimer = 0;
   private lastHealth = 100;
   private fadeTimeout = 0;
+  /** Hitmarker: seconds it stays up, seconds the kill colour has left, and the sim frame of the hits it shows (a shotgun's pellets are one hit). */
   private hitTimer = 0;
+  private killTimer = 0;
+  private hitFrame = -1;
+  /** Seconds a subtitle that went has left to fade out, and the window size its height was measured at (see raisePrompt). */
+  private subtitleFade = 0;
+  private subtitleW = 0;
+  private subtitleH = 0;
   /** Damage-direction arcs: seconds left and the world bearing (heading) of where the hit came from. */
   private readonly arcs: Array<{ el: HTMLElement; t: number; bearing: number }> = [];
   /** Police: seconds the dispatch line stays up, and the evade bar as last written ('' = hidden). */
@@ -171,9 +182,18 @@ export class Hud {
     this.unsub.push(
       ev.on('message', (e) => this.help(e.text, e.duration)),
       ev.on('subtitle', (e) => {
-        this.el.subtitle!.innerHTML = `<b>${escapeHtml(e.speaker)}:</b> ${escapeHtml(e.text)}`;
-        this.el.subtitle!.classList.add('show');
+        const sub = this.el.subtitle!;
+        // An empty line (a skipped one, or one a failure cut short) only takes the last line off: it fades out as it was.
+        if (!e.text) {
+          this.timers.subtitle = 0;
+          sub.classList.remove('show');
+          return;
+        }
+        sub.innerHTML = `<b>${escapeHtml(e.speaker)}:</b> ${escapeHtml(e.text)}`;
+        sub.classList.add('show');
         this.timers.subtitle = e.duration;
+        this.subtitleFade = SUBTITLE_FADE;
+        this.raisePrompt();
         // Dialogue takes the stage: a hint not read yet steps back and returns after it.
         if (this.helpCur?.kind === 'hint' && !this.helpCur.read) this.interruptHint();
       }),
@@ -194,6 +214,15 @@ export class Hud {
           this.bigQueue = [];
           this.showBig(e);
         } else this.bigQueue.push(e);
+      }),
+      // A mission starting (a retry above all) makes any MISSION FAILED still up or waiting old news.
+      ev.on('missionStarted', () => {
+        this.bigQueue = this.bigQueue.filter((m) => m.style !== 'failed');
+        if (this.bigCur?.style === 'failed') {
+          this.bigCur = null;
+          this.bigTimer = 0;
+          this.el.big!.classList.remove('show');
+        }
       }),
       ev.on('money', (e) => {
         this.moneyDelta += e.amount;
@@ -248,11 +277,22 @@ export class Hud {
       // Weapon feedback: bullets, fists and explosions, not people run over.
       if (!WEAPON_HIT[e.kind]) return;
       const el = this.el.hitmarker!;
-      // A kill or a headshot keeps its colour until the marker goes out; a kill stays up longer.
-      this.hitTimer = Math.max(this.hitTimer, e.killed ? KILL_TIME : HIT_TIME);
-      el.classList.add('show');
-      if (e.killed) el.classList.add('kill');
+      const frame = this.sim?.frame ?? -1;
+      if (frame !== this.hitFrame || this.hitTimer <= 0) {
+        // A new hit: the marker pops again (so the hits of a burst can be told apart), in that hit's colour.
+        this.hitFrame = frame;
+        el.classList.remove('show', 'head');
+        void el.offsetWidth;
+        el.classList.add('show');
+      }
+      // The hits of one frame (a shotgun's pellets) show the strongest of them: gold if one was a headshot.
       if (e.zone === 'head') el.classList.add('head');
+      // A kill shows red for its own time, whatever hits follow.
+      if (e.killed) {
+        this.killTimer = KILL_TIME;
+        el.classList.add('kill');
+      }
+      this.hitTimer = Math.max(this.hitTimer, e.killed ? KILL_TIME : HIT_TIME);
     } else if (e.victim.isPlayer && (e.dirX !== 0 || e.dirZ !== 0) && Number.isFinite(e.dirX + e.dirZ)) {
       // The hit travels along (dirX, dirZ): it came from the opposite way.
       const bearing = Math.atan2(-e.dirX, -e.dirZ);
@@ -266,6 +306,10 @@ export class Hud {
 
   /** Fades the hitmarker and the damage arcs; an arc points where its hit came from as the camera turns. */
   private updateHitFeedback(dt: number, camYaw: number): void {
+    if (this.killTimer > 0) {
+      this.killTimer -= dt;
+      if (this.killTimer <= 0) this.el.hitmarker!.classList.remove('kill');
+    }
     if (this.hitTimer > 0) {
       this.hitTimer -= dt;
       if (this.hitTimer <= 0) this.el.hitmarker!.classList.remove('show', 'kill', 'head');
@@ -318,7 +362,11 @@ export class Hud {
     el.status!.textContent = '';
     el.status!.classList.add('hidden');
     this.hitTimer = 0;
+    this.killTimer = 0;
+    this.hitFrame = -1;
     el.hitmarker!.classList.remove('show', 'kill', 'head');
+    this.subtitleFade = 0;
+    this.lowerPrompt();
     for (const a of this.arcs) {
       a.t = 0;
       a.el.classList.remove('show');
@@ -424,6 +472,41 @@ export class Hud {
     cur.hint?.onRead?.();
   }
 
+  /** Takes the subtitle off when its time is up, and lets the prompt back down once it has faded out. */
+  private updateSubtitle(dt: number): void {
+    if (this.timers.subtitle > 0) {
+      // The window was resized under a line: its wrapped height changed.
+      if (typeof window !== 'undefined' && (window.innerWidth !== this.subtitleW || window.innerHeight !== this.subtitleH)) this.raisePrompt();
+      return;
+    }
+    this.el.subtitle!.classList.remove('show');
+    if (this.subtitleFade <= 0) return;
+    this.subtitleFade -= dt;
+    if (this.subtitleFade <= 0) this.lowerPrompt();
+  }
+
+  /**
+   * Keeps the prompt slot (a prompt or a mission offer card) above a showing subtitle: a long line,
+   * wrapped to three lines or more, would otherwise grow up over it. style.css places the prompt by
+   * --sub-top, the subtitle's top edge above the bottom of the window.
+   */
+  private raisePrompt(): void {
+    if (typeof window === 'undefined') return;
+    this.subtitleW = window.innerWidth;
+    this.subtitleH = window.innerHeight;
+    const box = this.el.subtitle!.getBoundingClientRect();
+    // Not laid out (the HUD hidden): nothing to keep clear of.
+    const above = this.subtitleH > 0 && box.height > 0 && Number.isFinite(box.top) ? Math.max(0, Math.round(this.subtitleH - box.top)) : 0;
+    this.root.style.setProperty?.('--sub-top', `${above}px`);
+  }
+
+  /** The prompt slot back in its own place (no subtitle up). */
+  private lowerPrompt(): void {
+    this.subtitleW = 0;
+    this.subtitleH = 0;
+    this.root.style.setProperty?.('--sub-top', '0px');
+  }
+
   toast(text: string): void {
     this.el.toast!.textContent = text;
     this.el.toast!.classList.add('show');
@@ -466,7 +549,7 @@ export class Hud {
     // Timed elements.
     for (const k of Object.keys(this.timers) as Array<keyof typeof this.timers>) if (this.timers[k] > 0) this.timers[k] -= dt;
     this.updateHelp(dt);
-    if (this.timers.subtitle <= 0) el.subtitle!.classList.remove('show');
+    this.updateSubtitle(dt);
     if (this.timers.zone <= 0) el.zone!.classList.remove('show');
     if (this.timers.radio <= 0) el.radio!.classList.remove('show');
     if (this.timers.toast <= 0) el.toast!.classList.remove('show');
@@ -599,7 +682,8 @@ export class Hud {
 
   /**
    * Shows where the story goes next ('Next: Mama Lou has work - L on your radar') for a few
-   * seconds, once no title card is up, unless a mission or a side job is running by then.
+   * seconds, once no title card is up, unless a mission or a side job is running by then or the
+   * player stands on that contact's marker.
    */
   showNextStep(sim: Sim): void {
     if (!sim.missions.active && !sim.activities.busy && sim.missions.offers().length > 0) this.nextPending = true;
@@ -617,6 +701,9 @@ export class Hud {
     this.nextPending = false;
     const d = busy ? undefined : sim.missions.offers()[0];
     if (!d) return;
+    // Standing on that contact's marker (Wheels hands over at Lou's): the offer card says it already.
+    const here = sim.interactions.current();
+    if (here?.kind === 'mission' && here.ref === d.id) return;
     const c = CONTACTS[d.giver];
     o.textContent = `Next: ${c.name} has work - ${c.letter} on your radar`;
     o.classList.add('show', 'next');
@@ -756,9 +843,17 @@ export class Hud {
 
   /**
    * Where the GPS route leads, in its colour: the player's own waypoint, else the first mission or
-   * job objective, else (with neither going on) the contact who has work next.
+   * job objective, else (with neither going on) the contact who has work next. Null with none of
+   * them, or once the player is within ROUTE_NEAR of it.
    */
   private routeTarget(sim: Sim): { x: number; z: number; color: string } | null {
+    const t = this.routeGoal(sim);
+    if (!t) return null;
+    const p = sim.playerPos();
+    return Math.hypot(t.x - p.x, t.z - p.z) < ROUTE_NEAR ? null : t;
+  }
+
+  private routeGoal(sim: Sim): { x: number; z: number; color: string } | null {
     if (this.waypoint) return { x: this.waypoint.x, z: this.waypoint.z, color: ROUTE_WAYPOINT };
     const objs = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
     const o = objs[0];

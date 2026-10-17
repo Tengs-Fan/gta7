@@ -6,6 +6,7 @@ import type { V3 } from '../../src/core/math';
 import { makeBrain } from '../../src/sim/brains';
 import { Helicopter, Projectile } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
+import { MissionCtx, type MissionDef } from '../../src/sim/missions/runner';
 import type { Sim } from '../../src/sim/sim';
 import { launchVehicle } from '../../src/sim/vehiclePhysics';
 import { makeRayHit } from '../../src/world/colliders';
@@ -213,6 +214,48 @@ describe('a throwing listener is isolated', () => {
     expect(err.mock.calls.filter((c) => String(c[0]).includes('check error'))).toHaveLength(1);
     // The game goes on, and the mission can be played again.
     expect(sim.missions.start('wheels')).toBe(true);
+  });
+
+  it('a mission wait that throws (an until() predicate, a goTo check) fails the mission instead of the game', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    for (const broken of ['until', 'goTo'] as const) {
+      const sim = makeSim();
+      const def: MissionDef = {
+        id: 'broken',
+        title: 'Broken',
+        giver: 'lou',
+        reward: 0,
+        requires: [],
+        blurb: '',
+        *run(m) {
+          yield* m.wait(0.1);
+          if (broken === 'until') {
+            yield m.until(() => {
+              throw new Error('broken wait');
+            });
+          } else {
+            yield* m.goTo(0, 0, {
+              abortIf: () => {
+                throw new Error('broken abortIf');
+              },
+            });
+          }
+        },
+      };
+      const m = new MissionCtx(sim, def);
+      sim.missions.active = m;
+      const failed: string[] = [];
+      sim.events.on('big', (e) => {
+        if (e.style === 'failed') failed.push(e.sub);
+      });
+      expect(() => step(sim, 0.5), broken).not.toThrow();
+      expect(m.failedReason, broken).toBe('Something went wrong.');
+      expect(sim.missions.active, broken).toBe(null);
+      expect(failed, broken).toEqual(['Something went wrong.']);
+      // goTo's marker went with it.
+      expect(m.markers, broken).toEqual([]);
+    }
+    expect(err.mock.calls.filter((c) => String(c[0]).includes('wait error'))).toHaveLength(2);
   });
 });
 

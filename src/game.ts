@@ -407,7 +407,9 @@ export class Game {
       inp.aimDir = { x: d.x, y: d.y, z: d.z };
       this.sim.update(dt, inp);
       this.renderer.render(dt, false);
-      this.audio.setListener(cam.camera.position.x, cam.camera.position.y, cam.camera.position.z, cam.yaw);
+      // The flyover aims with lookAt and never sets cam.yaw: the listener faces where the view looks.
+      const view = cam.aimRay().dir;
+      this.audio.setListener(cam.camera.position.x, cam.camera.position.y, cam.camera.position.z, Math.atan2(view.x, view.z));
       this.audio.update(dt, this.sim, false);
       return;
     }
@@ -442,6 +444,7 @@ export class Game {
     sim.update(dt, inp);
     this.perf.simMs = performance.now() - ts;
     this.input.inVehicle = !!sim.player.vehicle;
+    this.input.skipLine = sim.missions.lineSkippable;
     // The sim decides whether the player can aim (not while swimming, knocked down or climbing in).
     // Only the aim button zooms the view and steadies the reticle; hip fire keeps both wide.
     const aiming = sim.player.aimZoom && !sim.player.vehicle;
@@ -496,6 +499,9 @@ export class Game {
           p.state = 'normal';
           p.knockTimer = 0;
           sim.seat(p, ex.vehicle, 0);
+        } else if (p.vehicle && typed.presses.includes(this.input.exitKeyPress)) {
+          // Between 3.5 and 11 m/s its F only braked for an exit still to come (typed fast): call it off.
+          sim.playerCtl.cancelExit();
         }
         // Otherwise fix the car he last drove nearby.
         const v = p.vehicle ?? recentRide(sim);
@@ -576,8 +582,8 @@ export class Game {
     const text = document.createElement('textarea');
     text.readOnly = true;
     text.hidden = true;
-    // No display style here, or it would override `hidden`: centred as an inline block by the overlay's text-align.
-    text.style.cssText = 'width:min(760px,90vw);height:220px;margin-top:14px;text-align:left;font:13px/1.35 monospace;pointer-events:auto';
+    // Styled like the menu panels (style.css), centred as an inline block by the overlay's text-align.
+    text.className = 'crash-report';
     copy.addEventListener('click', () => {
       const report = this.crashReport(err);
       // Where the clipboard is refused (an insecure origin, a denied permission), show it selected to copy by hand.
@@ -586,6 +592,8 @@ export class Game {
         text.hidden = false;
         text.focus();
         text.select();
+        // Selecting scrolls to the end: the error is at the top.
+        text.scrollTop = 0;
       };
       try {
         if (!navigator.clipboard?.writeText) byHand();

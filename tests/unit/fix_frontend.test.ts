@@ -892,6 +892,26 @@ describe('menus', () => {
     expect(menus.open).toBe(false);
   });
 
+  it('both on / off rows in SETTINGS spell out their state in the value column, like the sliders', () => {
+    const { menus, top, settings } = makeMenus();
+    menus.showSettings();
+    const row = (label: string) => top().all().find((e) => e.classList.contains('setting') && e.children[0]?.textContent === label)!;
+    const value = (label: string) => row(label).children[2]!.textContent;
+    expect(value('Master volume')).toBe('80%');
+    expect(value('Invert look Y')).toBe('Off');
+    expect(value('Tutorial hints')).toBe('On');
+    // A click on the box and the keys keep the word in step.
+    const box = row('Invert look Y').children[1]!;
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    expect(settings().invertY).toBe(true);
+    expect(value('Invert look Y')).toBe('On');
+    for (let i = 0; i < 7; i++) menus.input(ui({ down: true }), 0.3); // tutorial hints
+    menus.input(ui({ confirm: true }), 0.3);
+    expect(settings().hints).toBe(false);
+    expect(value('Tutorial hints')).toBe('Off');
+  });
+
   it('a map drag ends when the button is released outside the canvas', () => {
     const sim = quickSim();
     const { menus, top, waypoint } = makeMenus({ sim: () => sim });
@@ -1858,6 +1878,26 @@ describe('round 2 harness', () => {
       expect(sim.player.health).toBe(sim.player.maxHealth); // a stop-and-get-out, not a bail
     });
 
+    it('FIXMYRIDE typed fast (67 ms a key) in a bus at 10.9 m/s calls off the exit its F was still braking for', async () => {
+      const { sim, frames, type } = await playing();
+      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const v = sim.spawnVehicle('bus', lane.sx + lane.dx * 8, lane.sz + lane.dz * 8, lane.heading);
+      placeInCar(sim, v);
+      v.health = v.spec.health * 0.5;
+      v.vel.x = lane.dx * 10.9;
+      v.vel.z = lane.dz * 10.9;
+      frames(1);
+      let exits = 0;
+      sim.events.on('vehicleExit', () => exits++);
+      type('FIXMYRIDE', 4);
+      // Done before the bus is down to the 3.2 m/s an exit waits for: no exit comes afterwards.
+      expect(v.speed).toBeGreaterThan(3.2);
+      frames(90);
+      expect(exits).toBe(0);
+      expect(sim.player.vehicle).toBe(v);
+      expect(v.health).toBe(v.spec.health);
+    });
+
     it('FIXMYRIDE typed slowly (350 ms a key) at 20 m/s still puts the player back at the wheel', async () => {
       const { sim, frames, type } = await playing();
       const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
@@ -2094,17 +2134,23 @@ describe('round 2 harness', () => {
         throw new Error('hud exploded');
       });
       frames(1);
-      const area = uiRoot.all().find((e) => e.tagName === 'TEXTAREA')! as FakeElement & { hidden: boolean; focus(): void; select(): void };
+      const area = uiRoot.all().find((e) => e.tagName === 'TEXTAREA')! as FakeElement & { hidden: boolean; scrollTop: number; focus(): void; select(): void };
       let selected = false;
       area.focus = () => undefined;
       area.select = () => {
         selected = true;
+        // As a browser does: selecting all scrolls to the end.
+        area.scrollTop = 900;
       };
       expect(area.hidden).toBe(true);
+      // Styled like the menu panels (a dark box), not the browser's white default.
+      expect(area.className).toBe('crash-report');
       button('COPY DETAILS')!.click();
       expect(area.hidden).toBe(false);
       expect(selected).toBe(true);
       expect(area.value).toContain('Error: hud exploded');
+      // ...and back at the top, where the error is.
+      expect(area.scrollTop).toBe(0);
     });
   });
 });
@@ -4048,5 +4094,315 @@ describe('R2 onboarding: objectives clear', () => {
     sim.events.emit('big', { text: 'MISSION FAILED', sub: "The buyer walked. - Press E to retry", style: 'failed', duration: 4 });
     hud.update(1 / 60, sim, 0, false, null, 0);
     expect(el.bigS!.innerHTML).toContain('The buyer walked. - Press <kbd class="pad dpad" aria-label="D-pad up">');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix pass (cluster ui): banners and lines around a retry, the hitmarker per hit, the next step
+// and the route at a contact's marker, the mouse filter, the horn key in dialogue and the title listener.
+
+describe('R2 fixes: banners, lines and the hitmarker on the HUD', () => {
+  function hudRig() {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    const update = (dt: number) => hud.update(dt, sim, 0, false, null, 0);
+    return { hud, el, sim, update };
+  }
+
+  it('a mission starting (a retry) takes a MISSION FAILED off at once, on screen or waiting behind WASTED', () => {
+    const { el, sim, update } = hudRig();
+    sim.events.emit('big', { text: 'MISSION FAILED', sub: 'The buyer walked. - Press E to retry', style: 'failed', duration: 4.5 });
+    update(1 / 60);
+    expect(el.big!.classList.contains('show')).toBe(true);
+    expect(el.bigT!.textContent).toBe('MISSION FAILED');
+    update(0.8);
+    sim.events.emit('missionStarted', { id: 'delivery', title: 'Hot Delivery' });
+    expect(el.big!.classList.contains('show')).toBe(false);
+    update(1 / 60);
+    expect(el.big!.classList.contains('show')).toBe(false);
+    // Waiting behind WASTED, it goes too; any other card stays in line.
+    sim.events.emit('big', { text: 'WASTED', sub: '', style: 'wasted', duration: 4.5 });
+    sim.events.emit('big', { text: 'MISSION FAILED', sub: 'You got wasted.', style: 'failed', duration: 4.5 });
+    sim.events.emit('big', { text: 'UNIQUE STUNT', sub: '', style: 'stunt', duration: 2 });
+    update(1 / 60);
+    sim.events.emit('missionStarted', { id: 'big_score', title: 'The Big Score' });
+    expect(el.bigT!.textContent).toBe('WASTED');
+    update(4.6);
+    update(1 / 60);
+    expect(el.bigT!.textContent).toBe('UNIQUE STUNT');
+  });
+
+  it('a skipped last line fades out as it was: no lone colon', () => {
+    const { el, sim, update } = hudRig();
+    sim.events.emit('subtitle', { speaker: 'Mama Lou', text: 'Buyer waits in Hillcrest. Move it!', duration: 3 });
+    update(0.5);
+    const line = el.subtitle!.innerHTML;
+    expect(line).toBe('<b>Mama Lou:</b> Buyer waits in Hillcrest. Move it!');
+    sim.events.emit('subtitle', { speaker: '', text: '', duration: 0 });
+    expect(el.subtitle!.classList.contains('show')).toBe(false);
+    expect(el.subtitle!.innerHTML).toBe(line);
+    update(1 / 60);
+    expect(el.subtitle!.classList.contains('show')).toBe(false);
+    expect(el.subtitle!.innerHTML).toBe(line);
+  });
+
+  it('the hitmarker pops again for every hit in its own colour; a kill stays red for its own 0.25 s', () => {
+    const { el, sim, update } = hudRig();
+    const civ = sim.spawnCharacter('civilian', sim.player.pos.x + 5, sim.player.pos.z);
+    type Damage = Parameters<Parameters<typeof sim.events.on<'damage'>>[1]>[0];
+    const damage = (over: Partial<Damage>) =>
+      sim.events.emit('damage', { victim: civ, attacker: sim.player, healthLoss: 20, armourLoss: 0, kind: 'bullet', zone: 'body', killed: false, dirX: 1, dirZ: 0, ...over });
+    const marker = el.hitmarker!;
+    const has = (c: string) => marker.classList.contains(c);
+    let pops = 0;
+    const remove = marker.classList.remove.bind(marker.classList);
+    marker.classList.remove = (...cs: string[]) => {
+      if (cs.includes('show') && has('show')) pops++;
+      remove(...cs);
+    };
+    /** The next sim frame, `dt` seconds on. */
+    const frame = (dt: number) => {
+      update(dt);
+      sim.frame++;
+    };
+    // An SMG burst: a headshot, then body hits every 0.09 s (under the 0.12 s the marker stays up).
+    frame(1 / 60);
+    damage({ zone: 'head' });
+    expect(has('show') && has('head')).toBe(true);
+    for (let i = 0; i < 5; i++) {
+      frame(0.09);
+      damage({});
+      expect(has('show')).toBe(true);
+      expect(has('head')).toBe(false);
+    }
+    expect(pops).toBe(5);
+    // A shotgun blast: nine pellets in one frame, one in the head: one pop, gold.
+    frame(0.09);
+    for (let i = 0; i < 9; i++) damage({ zone: i === 4 ? 'head' : 'body' });
+    expect(pops).toBe(6);
+    expect(has('head')).toBe(true);
+    // A kill shows red for 0.25 s, also while the burst goes on into the next man, then the hits are white again.
+    frame(0.09);
+    damage({ killed: true });
+    expect(has('kill')).toBe(true);
+    frame(0.09);
+    damage({});
+    frame(0.09);
+    damage({});
+    expect(has('kill')).toBe(true);
+    frame(0.09);
+    damage({});
+    expect(has('kill')).toBe(false);
+    expect(has('show')).toBe(true);
+    // The burst over, the marker goes out.
+    update(0.2);
+    expect(has('show') || has('kill') || has('head')).toBe(false);
+  });
+});
+
+describe('R2 fixes: the next step and the route at a contact marker', () => {
+  it("standing on Lou's marker after Wheels: the offer card alone, no 'Next' line and no route stub", async () => {
+    const { game, seconds, el, showing } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    seconds(9); // the opening 'Next' line is gone
+    const sim = game.sim;
+    const route = () => (game.hud as unknown as { route: unknown[] }).route;
+    expect(route().length).toBeGreaterThan(2);
+    // As Wheels' hand-over leaves him: on Lou's marker, her next job on offer.
+    sim.progress.markDone('wheels');
+    sim.missions.refreshMarkers();
+    const lou = sim.world.layout.pois.find((p) => p.id === 'lou')!;
+    sim.player.pos.x = lou.x;
+    sim.player.pos.z = lou.z;
+    sim.player.pos.y = sim.world.groundHeight(lou.x, lou.z);
+    seconds(0.2);
+    expect(sim.interactions.current()?.ref).toBe('delivery');
+    sim.events.emit('missionEnded', { id: 'wheels', passed: true });
+    seconds(1.2);
+    expect(el('prompt').classList.contains('card')).toBe(true);
+    expect(showing('objective')).toBe(false);
+    expect(route()).toEqual([]);
+    // Walking off, the route to her comes back (pink); the line does on the next occasion.
+    sim.player.pos.x = lou.x + 40;
+    seconds(1.2);
+    expect(route().length).toBeGreaterThan(1);
+    expect((game.hud as unknown as { routeColor: string }).routeColor).toBe('#ff4fa3');
+    game.pause();
+    game.resume();
+    seconds(0.1);
+    expect(showing('objective')).toBe(true);
+    expect(el('objective').textContent).toBe('Next: Mama Lou has work - L on your radar');
+  });
+});
+
+describe('R2 fixes: the mouse filter keeps real turns', () => {
+  const clock = { now: 1000 };
+  beforeEach(() => {
+    clock.now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock.now);
+  });
+
+  function rig() {
+    const canvas = new FakeElement('canvas');
+    const inp = new Input(canvas as unknown as HTMLCanvasElement);
+    inp.attach();
+    const lock = () => {
+      dom.doc.pointerLockElement = canvas;
+      dom.doc.dispatchEvent(new Event('pointerlockchange'));
+    };
+    /** A frame `ms` long: the browser sends its summed move just before the game polls. */
+    const frame = (x = 0, y = 0, ms = 1000 / 60) => {
+      clock.now += ms;
+      if (x !== 0 || y !== 0) dom.win.dispatchEvent(ev('mousemove', { movementX: x, movementY: y }));
+      const fi = inp.poll(ms / 1000);
+      inp.endFrame();
+      return [fi.lookX, fi.lookY];
+    };
+    return { lock, frame };
+  }
+
+  it('drops the jump that comes with the lock even when the mouse first moves seconds later', () => {
+    const { lock, frame } = rig();
+    frame();
+    lock();
+    for (let i = 0; i < 120; i++) frame(); // two seconds without moving the mouse
+    expect(frame(-300, -200)).toEqual([0, 0]); // under a third of the window, but a jump all the same
+    expect(frame(6, 2)).toEqual([6, 2]);
+  });
+
+  it('keeps every move of a fast flick, which a browser sums into one move a frame', () => {
+    const { lock, frame } = rig();
+    lock();
+    for (let i = 0; i < 10; i++) frame(1, 0); // settled
+    let turned = 0;
+    for (const x of [40, 200, 380, 520, 640, 450, 200, 60]) turned += frame(x, 0)[0]!;
+    expect(turned).toBe(2490);
+    // Up and to the left as well.
+    let up = 0;
+    for (const y of [-30, -150, -230, -290, -200, -60]) up += frame(0, y)[1]!;
+    expect(up).toBe(-960);
+  });
+
+  it('keeps the turn a long frame carries (30 fps, or a hitch)', () => {
+    const { lock, frame } = rig();
+    lock();
+    for (let i = 0; i < 10; i++) frame(1, 0); // settled
+    expect(frame(700, 0, 1000 / 30)).toEqual([700, 0]);
+    expect(frame(-1500, 300, 120)).toEqual([-1500, 300]);
+  });
+
+  it('still drops a jump out of nowhere, or one against the motion before it', () => {
+    const { lock, frame } = rig();
+    lock();
+    for (let i = 0; i < 10; i++) frame(20, 0);
+    expect(frame(900, 0)).toEqual([0, 0]); // 1280 / 3 = 427 in one frame, after 20 px moves
+    expect(frame(20, 0)).toEqual([20, 0]);
+    for (const x of [100, 300, 450]) frame(x, 0);
+    expect(frame(-900, 0)).toEqual([0, 0]); // against a flick to the right
+    expect(frame(0, 600)).toEqual([0, 0]); // across it
+    expect(frame(NaN, 0)).toEqual([0, 0]);
+  });
+});
+
+describe('R2 fixes: in a vehicle the horn key skips dialogue', () => {
+  it('E skips a line that can be skipped instead of honking, and honks again once let go; H always honks', () => {
+    const inp = newInput();
+    inp.attach();
+    inp.inVehicle = true;
+    const frame = () => {
+      const f = inp.poll(1 / 60);
+      inp.endFrame();
+      return f.player;
+    };
+    const down = (code: string, key: string) => dom.win.dispatchEvent(keyEv('keydown', code, key));
+    const up = (code: string, key: string) => dom.win.dispatchEvent(keyEv('keyup', code, key));
+    // No line up: E is the horn.
+    down('KeyE', 'e');
+    let p = frame();
+    expect([p.hornPressed, p.interact]).toEqual([true, false]);
+    up('KeyE', 'e');
+    frame();
+    // A line that can be skipped: the press skips it, without a honk, also while E stays down.
+    inp.skipLine = true;
+    down('KeyE', 'e');
+    p = frame();
+    expect([p.interact, p.hornPressed, p.horn]).toEqual([true, false, false]);
+    inp.skipLine = false; // the next line is not skippable yet
+    for (let i = 0; i < 5; i++) {
+      p = frame();
+      expect([p.interact, p.horn]).toEqual([false, false]);
+    }
+    up('KeyE', 'e');
+    frame();
+    down('KeyE', 'e');
+    p = frame();
+    expect([p.hornPressed, p.horn, p.interact]).toEqual([true, true, false]);
+    up('KeyE', 'e');
+    frame();
+    // H is the horn alone, line or not.
+    inp.skipLine = true;
+    down('KeyH', 'h');
+    p = frame();
+    expect([p.hornPressed, p.interact]).toEqual([true, false]);
+    up('KeyH', 'h');
+    // On foot E is interact, as before.
+    inp.inVehicle = false;
+    down('KeyE', 'e');
+    p = frame();
+    expect([p.interact, p.hornPressed]).toEqual([true, false]);
+  });
+
+  it('in the game: E in a car skips the line being said and does not honk', async () => {
+    const { game, seconds, frames } = onboardingGame();
+    game.newGame({ intro: false });
+    await flush();
+    const sim = game.sim;
+    sim.progress.markDone('wheels');
+    const subs: string[] = [];
+    sim.events.on('subtitle', (e) => subs.push(e.text));
+    let horns = 0;
+    sim.events.on('horn', () => horns++);
+    const rp = roadPoint(sim);
+    placeInCar(sim, sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading));
+    expect(sim.missions.start('delivery')).toBe(true);
+    seconds(0.6);
+    expect(subs.filter((t) => t)).toHaveLength(1);
+    dom.win.dispatchEvent(keyEv('keydown', 'KeyE', 'e'));
+    frames(6);
+    dom.win.dispatchEvent(keyEv('keyup', 'KeyE', 'e'));
+    frames(2);
+    expect(subs.filter((t) => t)).toHaveLength(2);
+    expect(horns).toBe(0);
+    // Too soon into the next line, E is the horn again.
+    dom.win.dispatchEvent(keyEv('keydown', 'KeyE', 'e'));
+    frames(2);
+    dom.win.dispatchEvent(keyEv('keyup', 'KeyE', 'e'));
+    frames(2);
+    expect(horns).toBe(1);
+    expect(subs.filter((t) => t)).toHaveLength(2);
+  });
+});
+
+describe('R2 fixes: the title flyover listener', () => {
+  it('faces where the orbiting title camera looks', () => {
+    const game = new Game(new FakeElement('canvas') as unknown as HTMLCanvasElement, new FakeElement('div') as unknown as HTMLElement);
+    game.audio.unlock();
+    const cam = game.renderer.cameraCtl;
+    // The real flyover (the mocked renderer draws nothing).
+    game.renderer.render = (dt: number) => cam.update(dt, game.sim, false);
+    const L = (game.audio as unknown as { listener: { x: number; z: number; yaw: number } }).listener;
+    const yaws: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      for (let k = 0; k < 120; k++) game.step(1 / 60, { ui: {}, player: {} } as unknown as FrameInput);
+      const d = cam.aimRay().dir;
+      expect(L.yaw).toBeCloseTo(Math.atan2(d.x, d.z), 6);
+      // ...which is towards the city centre the camera circles.
+      expect(Math.abs(wrapAngle(L.yaw - Math.atan2(-L.x, -L.z)))).toBeLessThan(0.05);
+      yaws.push(L.yaw);
+    }
+    expect(Math.abs(wrapAngle(yaws[2]! - yaws[0]!))).toBeGreaterThan(0.1);
   });
 });

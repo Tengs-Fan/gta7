@@ -100,6 +100,37 @@ function makeRun(m: MissionCtx, v: Vehicle, crew: Character[]): void {
   v.ai!.target = sim.player;
 }
 
+/** Hot Delivery's drop: the radius of its marker, and how far from its centre the buyer waits. */
+const DROP_RADIUS = 4;
+/**
+ * Outside the marker by more than a car's reach (the corner of the biggest car but the bus, 3.1 m, plus
+ * his own 0.4 m): no car with its centre in the marker, where the delivery counts, can touch him.
+ */
+const BUYER_FROM_DROP = DROP_RADIUS + 3.5;
+
+/**
+ * Where the buyer waits: beside the drop, to one side of the way in from the nearest road, so that a
+ * car driving into the marker neither passes through him nor runs on into him.
+ */
+function buyerSpot(sim: Sim, drop: { x: number; z: number }): { x: number; z: number } {
+  const w = sim.world;
+  const { lane, s } = sim.roads.nearestLane(drop.x, drop.z);
+  const road = Math.atan2(lane.sx + lane.dx * s - drop.x, lane.sz + lane.dz * s - drop.z);
+  for (const off of [0, 0.35, -0.35, 0.7, -0.7]) {
+    for (const side of [1, -1]) {
+      const a = road + side * (Math.PI / 2 + off);
+      const x = drop.x + Math.sin(a) * BUYER_FROM_DROP;
+      const z = drop.z + Math.cos(a) * BUYER_FROM_DROP;
+      if (w.isFree(x, z, 0.5) && w.waterDepth(x, z) <= -0.1) return { x, z };
+    }
+  }
+  // Nowhere free at that distance (not so at today's drop): the nearest free spot to the first choice.
+  const a = road + Math.PI / 2;
+  const x = drop.x + Math.sin(a) * BUYER_FROM_DROP;
+  const z = drop.z + Math.cos(a) * BUYER_FROM_DROP;
+  return w.findFreeSpot(x, z, 0.5, 4) ?? { x, z };
+}
+
 /** Seconds the buyer waits: the drive by road at 10 m/s plus 15 s, kept within 60-90 s. */
 function deliveryTime(sim: Sim, from: { x: number; z: number }, to: { x: number; z: number }): number {
   const roads = sim.roads;
@@ -161,18 +192,9 @@ const delivery: MissionDef = {
     const spots = missionSpots(sim.world);
     const pick = spots.packagePickup;
     const drop = spots.packageDrop;
-    // The parcel waits in the parking lot, the buyer at the drop.
+    // The parcel waits in the parking lot, the buyer beside the drop, facing it.
     const parcel = m.spawnParcel(pick.x, pick.z);
-    let at = { x: drop.x, z: drop.z };
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2 + 0.6;
-      const x = drop.x + Math.cos(a) * 2.5;
-      const z = drop.z + Math.sin(a) * 2.5;
-      if (sim.world.isFree(x, z, 0.4)) {
-        at = { x, z };
-        break;
-      }
-    }
+    const at = buyerSpot(sim, drop);
     const buyer = m.spawnCharacter('mission', at.x, at.z, 'stand');
     buyer.heading = Math.atan2(drop.x - at.x, drop.z - at.z);
     const deal = m.failIf(() => buyer.removed || !buyer.alive, 'The buyer is dead.');
@@ -205,7 +227,7 @@ const delivery: MissionDef = {
         m.objective(deliver);
       }
     });
-    yield* m.goTo(drop.x, drop.z, { radius: 4, label: 'Buyer', hold: tailed });
+    yield* m.goTo(drop.x, drop.z, { radius: DROP_RADIUS, label: 'Buyer', hold: tailed });
     // Delivered: what happens to the buyer now is his own business.
     m.clearFail(deal);
     m.unwatch(lose);

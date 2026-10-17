@@ -257,6 +257,11 @@ export class MarkerView {
         const icon = new THREE.Mesh(geo, mat);
         icon.name = 'icon';
         icon.castShadow = true;
+        // A mission parcel stands inside its objective beam: drawn after the beam, it keeps its cardboard brown.
+        if (p.kind === 'parcel') {
+          mat.transparent = true;
+          icon.renderOrder = 1;
+        }
         g.add(icon, this.glowSprite(ICON_COLOR[p.kind], p.kind === 'package' ? 2.2 : 1.6));
         this.pickupViews.set(p.id, g);
         this.group.add(g);

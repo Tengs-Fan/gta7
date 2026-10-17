@@ -108,46 +108,81 @@ test.describe('GTA 7 onboarding', () => {
     expect(errors).toEqual([]);
   });
 
-  test('subtitles and objectives clear the radar at common screen sizes', async ({ page }) => {
+  test('subtitles never collide with the title card, the radar, the objective or a prompt, at any common size', async ({ page }) => {
     await refusePointerLock(page);
     const errors = await boot(page);
     await newGame(page);
+    await page.evaluate(() => (window as Api).__gta7.godMode(true));
     const text = 'Kai Navarro! Six years inside and not one postcard. You need money, I need cars. Bring me one, baby!';
     expect(text.length).toBe(100);
-    const overlap = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) =>
-      a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-    for (const [width, height] of [
-      [1024, 768],
-      [1280, 720],
+    type Box = { x: number; y: number; width: number; height: number };
+    const overlap = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    const box = async (sel: string) => (await page.locator(sel).boundingBox())!;
+    const line = (t: string) =>
+      page.evaluate((s) => (window as Api).__gta7.sim.events.emit('subtitle', { speaker: 'Mama Lou', text: s, duration: 6 }), t);
+    const SIZES = [
+      [1920, 1080],
       [1366, 768],
+      [1280, 720],
+      [1024, 768],
+      [1366, 560],
       [1024, 560],
+      [740, 800],
+      [721, 700],
       [700, 600],
-    ] as const) {
+    ] as const;
+    // A mission starting: its title card and the first line, with the longest objective in the story.
+    for (const [width, height] of SIZES) {
+      const at = `${width}x${height}`;
       await page.setViewportSize({ width, height });
-      await page.evaluate((t) => {
+      await page.evaluate(() => {
         const ev = (window as Api).__gta7.sim.events;
-        ev.emit('subtitle', { speaker: 'Mama Lou', text: t, duration: 6 });
-        // The longest objective in the story.
+        ev.emit('big', { text: 'THE BIG SCORE', sub: 'Dex Moreau', style: 'title', duration: 1 });
         ev.emit('objective', { text: 'Hold the bank entrance while the vault opens' });
-      }, text);
+      });
+      await line(text);
       await page.waitForTimeout(450);
-      const radar = (await page.locator('.radar').boundingBox())!;
-      const sub = (await page.locator('.subtitle').boundingBox())!;
-      const obj = (await page.locator('.objective').boundingBox())!;
-      expect(sub.width, `${width}x${height}`).toBeGreaterThan(200);
-      expect(overlap(sub, radar), `subtitle vs radar at ${width}x${height}`).toBe(false);
-      if (width >= 720) {
-        expect(overlap(obj, radar), `objective vs radar at ${width}x${height}`).toBe(false);
-        expect(overlap(obj, sub), `objective vs subtitle at ${width}x${height}`).toBe(false);
-      }
+      const [radar, sub, obj, title, titleSub] = await Promise.all(['.radar', '.subtitle', '.objective', '.big .t', '.big .s'].map(box));
+      expect(await page.locator('.big').getAttribute('class'), at).toContain('show');
+      expect(sub.width, at).toBeGreaterThan(200);
+      expect(overlap(sub, title) || overlap(sub, titleSub), `subtitle vs title card at ${at}`).toBe(false);
+      expect(overlap(sub, radar), `subtitle vs radar at ${at}`).toBe(false);
+      expect(overlap(obj, radar), `objective vs radar at ${at}`).toBe(false);
+      expect(overlap(obj, sub), `objective vs subtitle at ${at}`).toBe(false);
       // Inside the window.
       expect(sub.x).toBeGreaterThanOrEqual(0);
       expect(sub.x + sub.width).toBeLessThanOrEqual(width);
+      await page.waitForTimeout(800); // the title card goes
+    }
+    // A line up while standing on a marker (a mission failed at its contact before the intro was done):
+    // the offer card, and a plain prompt, stay above it, all of their lines readable.
+    for (const [marker, sel] of [
+      [LOU_MARKER, '.prompt .card-start'],
+      [GUN_MARKER, '.prompt'],
+    ] as const) {
+      await placeAt(page, marker);
+      for (const [width, height] of SIZES) {
+        const at = `${width}x${height}`;
+        await page.setViewportSize({ width, height });
+        await line(text);
+        await page.waitForTimeout(300);
+        const [radar, sub, prompt, key] = await Promise.all(['.radar', '.subtitle', '.prompt', sel].map(box));
+        expect(overlap(prompt, sub), `${sel} vs subtitle at ${at}`).toBe(false);
+        expect(overlap(key, sub), `${sel} line vs subtitle at ${at}`).toBe(false);
+        expect(overlap(prompt, radar), `${sel} vs radar at ${at}`).toBe(false);
+        expect(prompt.y, at).toBeGreaterThanOrEqual(0);
+      }
+      // The line gone, the prompt is back in its own place.
+      await page.evaluate(() => (window as Api).__gta7.sim.events.emit('subtitle', { speaker: '', text: '', duration: 0 }));
+      await page.waitForTimeout(500);
+      const prompt = await box('.prompt');
+      const own = sel === '.prompt' ? 160 : 150;
+      expect(Math.round(SIZES[SIZES.length - 1]![1] - (prompt.y + prompt.height)), 'prompt back at its bottom').toBe(own);
     }
     expect(errors).toEqual([]);
   });
 
-  test('MISSION PASSED shows no stale objective, then the next step', async ({ page }) => {
+  test("MISSION PASSED shows no stale objective, then Lou's next job on her marker, without a 'Next' line or a route stub", async ({ page }) => {
     await refusePointerLock(page);
     const errors = await boot(page);
     await newGame(page);
@@ -170,7 +205,21 @@ test.describe('GTA 7 onboarding', () => {
     });
     await expect(page.locator('.big')).toContainText('MISSION PASSED', { timeout: 20_000 });
     await expect(page.locator('.objective')).not.toHaveClass(/show/);
-    await expect(page.locator('.objective.next.show')).toContainText('Next: Mama Lou has work', { timeout: 8000 });
+    // Wheels hands over on Lou's marker: her next job's card says what comes next, the 'Next' line would only
+    // repeat it, and a GPS route to where he stands would only run out to the junction and back.
+    await expect(page.locator('.prompt.card')).toContainText('Hot Delivery', { timeout: 8000 });
+    await page.waitForFunction(() => !document.querySelector('.big')!.classList.contains('show'), null, { timeout: 8000 });
+    await page.waitForTimeout(1500);
+    await expect(page.locator('.objective')).not.toHaveClass(/show/);
+    expect(await page.evaluate(() => (window as Api).__gta7.game.hud.route.length)).toBe(0);
+    // Walking off, the route leads back to her.
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      const lou = g.poi('lou');
+      g.place(lou.x + 40, lou.z);
+    });
+    await page.waitForFunction(() => (window as Api).__gta7.game.hud.route.length > 1, null, { timeout: 5000 });
+    expect(await page.evaluate(() => (window as Api).__gta7.game.hud.routeColor)).toBe('#ff4fa3');
     expect(errors).toEqual([]);
   });
 });
