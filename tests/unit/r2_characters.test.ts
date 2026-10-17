@@ -6,13 +6,14 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { CrowdView, OCCUPANT_RANGE } from '../../src/render/crowd';
 import { gait, makeGaitOut, makeTwoBone, solveTwoBone } from '../../src/render/gait';
-import { VehicleView } from '../../src/render/vehicleView';
+import { cabinLayout, VehicleView } from '../../src/render/vehicleView';
 import { makeBrain } from '../../src/sim/brains';
-import { stepCharacter, type CharacterPhysicsHost } from '../../src/sim/characterPhysics';
+import { stepCharacter, SWIM_FLOAT, type CharacterPhysicsHost } from '../../src/sim/characterPhysics';
 import { Character, type Appearance, type Vehicle } from '../../src/sim/entities';
 import { strideLength, weaponPose, WEAPON_POINTS } from '../../src/sim/pose';
 import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind, type WeaponId } from '../../src/sim/specs';
+import { WATER_Y } from '../../src/world/constants';
 import type { StaticWorld } from '../../src/world/staticWorld';
 import { makeSim, world } from './helpers';
 
@@ -726,6 +727,17 @@ describe('drivers and passengers', () => {
     const after = seatedPoints(cv, view);
     // Instance matrices are float32 and the car is ~600 m from the origin: equal to a millimetre.
     for (let i = 0; i < after.length; i++) expect(after[i]!.distanceTo(before[i]!)).toBeLessThan(1e-3);
+    // Braking hard dips the body on its springs: the riders go with it, keeping their place in the cabin.
+    v.forwardSpeed = 20;
+    view.sync(v, 1 / 60, 0, 0);
+    for (let i = 0; i < 40; i++) {
+      v.forwardSpeed -= 0.3;
+      view.sync(v, 1 / 60, 0, 0);
+    }
+    expect(Math.abs(view.group.rotation.x + v.pitch)).toBeGreaterThan(0.01);
+    cv.sync([driver, passenger], v.pos.x + 8, v.pos.z, 1 / 60);
+    const leaned = seatedPoints(cv, view);
+    for (let i = 0; i < leaned.length; i++) expect(leaned[i]!.distanceTo(before[i]!)).toBeLessThan(1e-3);
   });
 
   it.each(Object.keys(VEHICLE_SPECS) as VehicleKind[])('a %s seats the tallest rider in a cap under its roof, and the shortest with his head in the windows', (kind) => {
@@ -842,5 +854,286 @@ describe('drivers and passengers', () => {
     expect(weaponPart(cv, 'pistol').mesh.count).toBe(1);
     const pgun = origin(matrixAt(weaponPart(cv, 'pistol'), 0));
     expect(pgun.x - v.pos.x).toBeLessThan(-v.halfW * 0.6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 fix pass: one seat frame for the riders CrowdView draws and the interior VehicleView builds (cabinLayout),
+// window guns that match the vehicle muzzle, swimming shooters, and standing legs.
+
+/** A DoubleSide stand-in for a view's body mesh (seat backs, dash, wheel, floor, roof and pillars are all in it). */
+function bodyOccluder(view: VehicleView): THREE.Mesh {
+  view.group.updateMatrixWorld(true);
+  const body = view.group.getObjectByName('body') as THREE.Mesh;
+  const occ = new THREE.Mesh(body.geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  occ.matrixWorld.copy(body.matrixWorld);
+  occ.matrixAutoUpdate = false;
+  return occ;
+}
+
+/** Share of `pts` that `from` sees past the body (the glass is see-through). */
+function seenShare(occ: THREE.Mesh, from: THREE.Vector3, pts: THREE.Vector3[]): number {
+  const ray = new THREE.Raycaster();
+  let n = 0;
+  for (const q of pts) {
+    const dir = q.clone().sub(from);
+    const d = dir.length();
+    ray.set(from, dir.normalize());
+    ray.far = d - 0.004;
+    if (ray.intersectObject(occ, false).length === 0) n++;
+  }
+  return n / pts.length;
+}
+
+/** Points through a drawn head (instance matrix of the head part), up to the hair or cap top. */
+function headGrid(m: THREE.Matrix4, hat: boolean): THREE.Vector3[] {
+  const pts: THREE.Vector3[] = [];
+  for (let x = 0; x <= 4; x++) for (let y = 0; y <= 6; y++) for (let z = 0; z <= 4; z++) pts.push(new THREE.Vector3(-0.11 + 0.055 * x, 0.03 + ((hat ? 0.33 : 0.3) * y) / 6, -0.12 + 0.06 * z).applyMatrix4(m));
+  return pts;
+}
+
+/** Distance from p to the nearest triangle of a mesh. */
+function surfaceDistance(mesh: THREE.Mesh, p: THREE.Vector3): number {
+  const pos = mesh.geometry.getAttribute('position');
+  const tri = new THREE.Triangle();
+  const q = new THREE.Vector3();
+  let best = Infinity;
+  for (let i = 0; i < pos.count; i += 3) {
+    tri.set(
+      new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld),
+      new THREE.Vector3().fromBufferAttribute(pos, i + 1).applyMatrix4(mesh.matrixWorld),
+      new THREE.Vector3().fromBufferAttribute(pos, i + 2).applyMatrix4(mesh.matrixWorld),
+    );
+    tri.closestPointToPoint(p, q);
+    best = Math.min(best, q.distanceTo(p));
+  }
+  return best;
+}
+
+/** A car of `kind` on the open beach, its view synced, with a rider of each look in every seat (look per call). */
+function carWithRiders(kind: VehicleKind, look: Partial<Appearance>): { sim: Sim; v: Vehicle; view: VehicleView; riders: Character[]; cv: CrowdView } {
+  const sim = makeSim({ world: world() });
+  const b = sim.world.layout.bounds;
+  const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0);
+  const view = new VehicleView(kind);
+  view.bind(v);
+  view.sync(v, 1 / 60, 0, 0);
+  const riders: Character[] = [];
+  for (let i = 0; i < v.spec.seats; i++) {
+    const c = sim.spawnCharacter('civilian', v.pos.x, v.pos.z);
+    Object.assign(c.appearance, { build: 1.05 }, look);
+    sim.seat(c, v, i);
+    riders.push(c);
+  }
+  const cv = new CrowdView();
+  cv.sync(riders, v.pos.x, v.pos.z, 1 / 60);
+  return { sim, v, view, riders, cv };
+}
+
+const SEE_THROUGH: VehicleKind[] = ['compact', 'sedan', 'taxi', 'police', 'sports', 'muscle', 'pickup'];
+const LOOKS: Array<Partial<Appearance>> = [{ height: 0.9, hat: 0 }, { height: 1, hat: 0 }, { height: 1.07, hat: 0x222222 }];
+
+describe('one seat frame for riders and car interiors', () => {
+  it.each(SEE_THROUGH)('a %s shows every rider whole: no seat back or roof through the head, from the side or the front', (kind) => {
+    for (const look of LOOKS) {
+      const { v, view, riders, cv } = carWithRiders(kind, look);
+      const occ = bodyOccluder(view);
+      const heads = all(parts(cv).head!);
+      expect(heads.length).toBe(riders.length);
+      riders.forEach((c, i) => {
+        const pts = headGrid(heads[i]!, look.hat !== 0);
+        const centre = new THREE.Vector3(0, 0.15, 0).applyMatrix4(heads[i]!);
+        const side = c.seat === 0 || c.seat === 2 ? 1 : -1;
+        // Level with the head, 4 m out of his own window, and 4 m ahead of the car.
+        const level = seenShare(occ, new THREE.Vector3(v.pos.x + side * 4, centre.y, centre.z), pts);
+        expect(level, `${kind} ${look.height} seat ${c.seat} from the side`).toBeGreaterThanOrEqual(0.8);
+        if (c.seat < 2) {
+          const front = seenShare(occ, new THREE.Vector3(centre.x, centre.y, v.pos.z + v.halfL + 4), pts);
+          expect(front, `${kind} ${look.height} seat ${c.seat} from the front`).toBeGreaterThanOrEqual(0.55);
+        }
+      });
+    }
+  });
+
+  it.each(SEE_THROUGH)("the player's own head shows through the rear window of a %s from the chase camera, at rest and at speed", (kind) => {
+    const { v, view, cv } = carWithRiders(kind, { height: 1.02, hat: 0 });
+    const occ = bodyOccluder(view);
+    const pts = headGrid(all(parts(cv).head!)[0]!, false);
+    const s = v.spec;
+    // The chase camera's offset as camera.ts places it (boom 5.2 + 0.72 x length, pulled back 18% and lowered at speed).
+    for (const k of [0, 1]) {
+      const dist = (5.2 + 0.72 * s.length) * (1 + 0.18 * k);
+      const up = 0.75 * s.height + (1.3 + 0.6 * s.height) * (1 - 0.18 * k) + Math.sin(0.08) * dist * 0.3;
+      const share = seenShare(occ, new THREE.Vector3(v.pos.x, v.pos.y + up, v.pos.z - Math.cos(0.08) * dist), pts);
+      expect(share, `${kind} ${k ? 'at speed' : 'at rest'}`).toBeGreaterThanOrEqual(0.4);
+    }
+  });
+
+  it.each(SEE_THROUGH)('the driver of a %s holds the wheel the car draws, and riders sit with their shoulders over the waistline', (kind) => {
+    const { v, view, riders, cv } = carWithRiders(kind, { height: 1, hat: 0 });
+    view.group.updateMatrixWorld(true);
+    const body = view.group.getObjectByName('body') as THREE.Mesh;
+    const hands = all(parts(cv).hand!).map(origin);
+    // The driver's two hands are the first two (he is synced first): on the rim, above the cabin floor.
+    for (const h of hands.slice(0, 2)) expect(surfaceDistance(body, h), kind).toBeLessThan(0.03);
+    const layout = cabinLayout(kind)!;
+    for (const h of hands.slice(0, 2)) expect(h.y - v.pos.y).toBeGreaterThan(layout.floor + 0.02);
+    // Turning the wheel to either lock moves the hands round the rim, still on it and above the floor.
+    for (const steer of [1, -1]) {
+      v.steer = steer;
+      cv.sync(riders, v.pos.x, v.pos.z, 1 / 60);
+      const turned = all(parts(cv).hand!).map(origin).slice(0, 2);
+      for (const h of turned) {
+        expect(surfaceDistance(body, h)).toBeLessThan(0.03);
+        expect(h.y - v.pos.y, `${kind} steer ${steer}`).toBeGreaterThan(layout.floor + 0.02);
+      }
+      expect(Math.abs(turned[0]!.y - turned[1]!.y)).toBeGreaterThan(0.1);
+    }
+    v.steer = 0;
+    // Shoulders: the top of the torso clears the floor, where the roof leaves room for that (the sports car's does not:
+    // riders sit low in it, and only their heads show).
+    if (layout.roof.y - layout.floor > 0.4) {
+      for (const m of all(parts(cv).torso!)) {
+        const top = new THREE.Vector3(0, 0.67, 0).applyMatrix4(m);
+        expect(top.y - v.pos.y, kind).toBeGreaterThan(layout.floor + 0.03);
+      }
+    }
+  });
+
+  it('nobody is drawn inside a van, a riot van or a bus, whose dark windows show nothing; a gun fired out of one is', () => {
+    for (const kind of ['van', 'swat', 'bus'] as const) {
+      const { riders, cv } = carWithRiders(kind, { height: 1, hat: 0 });
+      expect(riders.length).toBeGreaterThan(0);
+      expect(parts(cv).head!.mesh.count, kind).toBe(0);
+      expect(parts(cv).torso!.mesh.count, kind).toBe(0);
+      expect(parts(cv).hand!.mesh.count, kind).toBe(0);
+      expect(cabinLayout(kind)).toBeNull();
+    }
+    const { v, riders, cv } = carWithRiders('swat', { height: 1, hat: 0x111111 });
+    const crew = riders[1]!;
+    crew.inventory.give('smg', 100);
+    crew.inventory.current = 'smg';
+    crew.shotTimer = 0.06;
+    crew.aimYaw = v.heading - Math.PI / 2;
+    crew.aimPitch = 0;
+    cv.sync(riders, v.pos.x, v.pos.z, 1 / 60);
+    expect(weaponPart(cv, 'smg').mesh.count).toBe(1);
+    expect(parts(cv).head!.mesh.count).toBe(0);
+  });
+});
+
+describe('window guns match where vehicle shots leave', () => {
+  /** Where a shot from `seat` leaves: that seat's window, 0.2 m out of the body side at 3/4 of the height, level with the centre. */
+  function windowPoint(v: Vehicle, seat: number): THREE.Vector3 {
+    const side = seat === 0 || seat === 2 ? 1 : -1;
+    const out = side * (v.halfW + 0.2);
+    return new THREE.Vector3(v.pos.x + Math.cos(v.heading) * out, v.pos.y + v.spec.height * 0.75, v.pos.z - Math.sin(v.heading) * out);
+  }
+
+  it.each([
+    ['police', 1, 'pistol'],
+    ['sedan', 0, 'pistol'],
+    ['sedan', 3, 'pistol'],
+    ['swat', 1, 'smg'],
+    ['swat', 2, 'smg'],
+    ['swat', 3, 'smg'],
+  ] as const)('a %s rider in seat %i fires a %s out of his own window: barrel end on the muzzle, pointing along his aim', (kind, seat, gun) => {
+    const sim = makeSim({ world: world() });
+    const b = sim.world.layout.bounds;
+    const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.4);
+    const riders: Character[] = [];
+    for (let i = 0; i <= seat; i++) {
+      const c = sim.spawnCharacter(kind === 'swat' ? 'swat' : 'cop', v.pos.x, v.pos.z);
+      sim.seat(c, v, i);
+      riders.push(c);
+    }
+    const shooter = riders[seat]!;
+    shooter.inventory.give(gun, 100);
+    shooter.inventory.current = gun;
+    const side = seat === 0 || seat === 2 ? 1 : -1;
+    const out = v.heading + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+    const cv = new CrowdView();
+    // Out of his window, forward, backward, and back across the car.
+    for (const yaw of [out, v.heading, v.heading + Math.PI, out + Math.PI]) {
+      shooter.aimYaw = yaw;
+      shooter.aimPitch = 0.05;
+      // Past the full recoil: the drawn kick is small.
+      shooter.shotTimer = 0.02;
+      cv.sync(riders, v.pos.x, v.pos.z, 1 / 60);
+      const part = weaponPart(cv, gun);
+      expect(part.mesh.count).toBe(1);
+      const m = matrixAt(part, 0);
+      const tip = new THREE.Vector3(WEAPON_POINTS[gun].tip.x, WEAPON_POINTS[gun].tip.y, WEAPON_POINTS[gun].tip.z).applyMatrix4(m);
+      expect(tip.distanceTo(windowPoint(v, seat)), `${kind} seat ${seat} yaw ${(yaw - v.heading).toFixed(2)}`).toBeLessThan(0.1);
+      const dir = new THREE.Vector3().setFromMatrixColumn(m, 2).normalize();
+      const aim = new THREE.Vector3(Math.sin(yaw) * Math.cos(0.05), Math.sin(0.05), Math.cos(yaw) * Math.cos(0.05));
+      expect(THREE.MathUtils.radToDeg(dir.angleTo(aim))).toBeLessThan(15);
+    }
+    // Out of a car you can see into, a front seat rider's hand holds the gun aimed out of his window (a rear seat is
+    // too far behind the window muzzle for his arm).
+    if (kind !== 'swat' && seat < 2) {
+      shooter.aimYaw = out;
+      cv.sync(riders, v.pos.x, v.pos.z, 1 / 60);
+      const m = matrixAt(weaponPart(cv, gun), 0);
+      const grip = new THREE.Vector3(WEAPON_POINTS[gun].grip.x, WEAPON_POINTS[gun].grip.y, WEAPON_POINTS[gun].grip.z).applyMatrix4(m);
+      const near = Math.min(...all(parts(cv).hand!).map((h) => origin(h).distanceTo(grip)));
+      expect(near).toBeLessThan(0.06);
+    }
+  });
+});
+
+describe('swimming shooters and standing legs', () => {
+  it('a swimming shooter holds the gun up out of the water and fires from its drawn barrel end', () => {
+    const sim = makeSim({ world: world() });
+    const b = sim.world.layout.bounds;
+    const cop = sim.spawnCharacter('cop', b.beachEndX + 40, (b.landMinZ + b.landMaxZ) / 2);
+    cop.brain = null;
+    cop.state = 'swimming';
+    cop.pos.y = WATER_Y - SWIM_FLOAT;
+    cop.inventory.give('pistol', 100);
+    cop.inventory.current = 'pistol';
+    cop.inventory.infinite = true;
+    cop.aiming = true;
+    for (const pitch of [0, 0.3, -0.8]) {
+      cop.aimYaw = cop.heading + 0.2;
+      cop.aimPitch = pitch;
+      const m = sim.combat.muzzle(cop, false);
+      expect(m.y, `pitch ${pitch}`).toBeGreaterThan(WATER_Y + 0.1);
+      const tip = weaponPose(cop).tip;
+      expect(Math.hypot(m.x - tip.x, m.y - tip.y, m.z - tip.z)).toBeLessThan(1e-6);
+      const cv = drawn(cop);
+      const part = weaponPart(cv, 'pistol');
+      expect(part.mesh.count).toBe(1);
+      const end = faceCentre(part.mesh.geometry, true).applyMatrix4(matrixAt(part, 0));
+      expect(end.distanceTo(new THREE.Vector3(m.x, m.y, m.z))).toBeLessThan(0.05);
+    }
+    // The shot itself leaves above the surface.
+    const p = sim.player;
+    p.pos.x = cop.pos.x - 15;
+    p.pos.z = cop.pos.z;
+    p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
+    cop.aimPitch = 0;
+    cop.fireCooldown = 0;
+    let y = -Infinity;
+    sim.events.on('weaponFired', (e) => {
+      if (e.shooter === cop) y = e.y;
+    });
+    sim.combat.npcFire(cop, p, 1, false);
+    expect(y).toBeGreaterThan(WATER_Y + 0.1);
+  });
+
+  it('standing still, the knees are all but straight', () => {
+    for (const height of [0.9, 1, 1.07]) {
+      const c = person();
+      c.appearance.height = height;
+      const cv = drawn(c);
+      const p = parts(cv);
+      for (let i = 0; i < 2; i++) {
+        const flex = THREE.MathUtils.radToDeg(axis(matrixAt(p.thigh!, i)).angleTo(axis(matrixAt(p.shin!, i))));
+        expect(flex, `height ${height}`).toBeLessThan(8);
+      }
+      // Still on the ground.
+      expect(Math.min(soleLow(matrixAt(p.shoe!, 0)), soleLow(matrixAt(p.shoe!, 1)))).toBeLessThan(0.02);
+    }
   });
 });

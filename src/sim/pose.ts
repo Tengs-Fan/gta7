@@ -11,12 +11,15 @@
 // and scale with the height; the shoulder and hip spread scale with the build instead.
 
 import { clamp, lerp, smoothstep, TAU, wrapAngle, type V3 } from '../core/math';
-import type { Character } from './entities';
+import type { Character, Vehicle } from './entities';
 import type { WeaponId } from './specs';
 
 export const SKELETON = {
-  /** Hip joint height when standing. */
-  hipY: 0.86,
+  /**
+   * Hip joint height when standing: a millimetre short of the leg's full length (thigh + shin + ankleY), so a standing
+   * leg is all but straight (about 5 degrees of knee bend) instead of squatting.
+   */
+  hipY: 0.894,
   /** Hip joints sit this far either side of the centre line (x build). */
   hipX: 0.11,
   thigh: 0.43,
@@ -47,6 +50,12 @@ export function hipSpread(build: number): number {
 
 /** Below this speed a character stands (the gait phase holds). */
 export const IDLE_SPEED = 0.3;
+
+/** A swimmer's hips sit this far above c.pos.y; treading water he leans forward by SWIM_TREAD_LEAN (CrowdView swim). */
+export const SWIM_HIP = 1.2;
+export const SWIM_TREAD_LEAN = 0.35;
+/** A swimmer holds a gun up out of the water at most this far below level. */
+const SWIM_AIM_LOW = -0.35;
 
 // ---------------------------------------------------------------------------
 // Gait cycle
@@ -463,6 +472,7 @@ export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): We
   const s = c.appearance.height;
   const b = c.appearance.build;
   out.weapon = weapon;
+  if (c.state === 'swimming') return swimmerGun(c, out, weapon, s, b);
   out.mode = reloading(c) ? 'reload' : aimed(c) ? 'raised' : 'lowered';
 
   // Chest frame (world): yaw then forward lean.
@@ -554,6 +564,52 @@ export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): We
       out.offLocal.z -= clamp(back, 0, Math.max(0, off.z - pts.grip.z - 0.08));
     }
   }
+  weaponPoint(out, out.offLocal, out.offHand);
+  return out;
+}
+
+/** The side of the car a seat is on: seats 0 and 2 on the left (local +x), 1 and 3 on the right. */
+export function seatSide(seat: number): number {
+  return seat === 0 || seat === 2 ? 1 : -1;
+}
+
+/**
+ * Where a shot fired from seat `seat` of vehicle `v` leaves: out of that seat's window, 0.2 m outside the body side at
+ * three quarters of the vehicle's height, level with its centre. This is the point CombatSystem.muzzle(c, true) fires
+ * from (the shooter's own window by seat), and CrowdView draws the barrel end of a drive-by gun on it.
+ */
+export function windowMuzzle(v: Pick<Vehicle, 'pos' | 'heading' | 'halfW' | 'spec'>, seat: number, out: V3): V3 {
+  const out_ = seatSide(seat) * (v.halfW + 0.2);
+  return set(out, v.pos.x + Math.cos(v.heading) * out_, v.pos.y + v.spec.height * 0.75, v.pos.z - Math.sin(v.heading) * out_);
+}
+
+/**
+ * A swimmer treading water (hips SWIM_HIP up, leaning forward SWIM_TREAD_LEAN, facing his heading) holds the gun up out
+ * of the water in his right hand, his arm reaching along the aim (never below SWIM_AIM_LOW): shots then leave above the
+ * surface, from the gun CrowdView draws in his hand.
+ */
+function swimmerGun(c: Character, out: WeaponPose, weapon: Gun, s: number, b: number): WeaponPose {
+  const pts = WEAPON_POINTS[weapon];
+  const h = Number.isFinite(c.heading) ? c.heading : 0;
+  const ch = Math.cos(h);
+  const sh = Math.sin(h);
+  const cl = Math.cos(SWIM_TREAD_LEAN);
+  const sl = Math.sin(SWIM_TREAD_LEAN);
+  // Right shoulder: (-spread, shoulder height, 0) in the body frame, leaned forward about x, turned by the heading.
+  const lx = -shoulderSpread(b);
+  const ly = SKELETON.shoulderY * s * cl;
+  const lz = SKELETON.shoulderY * s * sl;
+  const shoulder = set(out.shoulder, c.pos.x + lx * ch + lz * sh, c.pos.y + SWIM_HIP + ly, c.pos.z - lx * sh + lz * ch);
+  out.mode = 'raised';
+  out.twoHands = false;
+  const yaw = c.aiming && Number.isFinite(c.aimYaw) ? c.aimYaw : h;
+  const pitch = c.aiming && Number.isFinite(c.aimPitch) ? clamp(c.aimPitch, SWIM_AIM_LOW, 1.2) : 0;
+  aimFrame(out, yaw, pitch, 0);
+  const reach = 0.9 * (SKELETON.upperArm + SKELETON.forearm + SKELETON.hand) * s;
+  anchor(out, pts.grip, shoulder.x + out.dir.x * reach, shoulder.y + out.dir.y * reach, shoulder.z + out.dir.z * reach);
+  weaponPoint(out, pts.tip, out.tip);
+  weaponPoint(out, pts.grip, out.hand);
+  set(out.offLocal, pts.fore.x, pts.fore.y, pts.fore.z);
   weaponPoint(out, out.offLocal, out.offHand);
   return out;
 }

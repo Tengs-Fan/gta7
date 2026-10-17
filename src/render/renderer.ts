@@ -27,6 +27,14 @@ export interface RenderSettings {
 
 /** Vehicles below this condition smoke (as in vehicleEffects). */
 const SMOKE_CONDITION = 0.45;
+/**
+ * The siren's light: intensity by day plus at night, and a short reach with inverse-square falloff, so it washes the
+ * street around the car red and blue but leaves the facades a few metres away their own colour (P27).
+ */
+const SIREN_DAY = 25;
+const SIREN_NIGHT = 25;
+const SIREN_RANGE = 12;
+const SIREN_DECAY = 2;
 
 /** Every create / delete pair of WebGL 2 objects. */
 const GL_PAIRS: ReadonlyArray<readonly [create: string, del: string]> = [
@@ -136,7 +144,7 @@ export class GameRenderer {
 
     this.headlight = new THREE.SpotLight(0xfff4dc, 0, 70, 0.55, 0.55, 1.4);
     this.scene.add(this.headlight, this.headlight.target);
-    this.siren = new THREE.PointLight(0xff2020, 0, 30, 1.6);
+    this.siren = new THREE.PointLight(0xff2020, 0, SIREN_RANGE, SIREN_DECAY);
     this.scene.add(this.siren);
     for (let i = 0; i < FEW_POINT_LIGHTS; i++) {
       const l = new THREE.PointLight(0xffffff, 0, 30, 1.6);
@@ -463,7 +471,9 @@ export class GameRenderer {
       this.headlight.position.set(v.pos.x + fx * v.halfL, v.pos.y + 0.8, v.pos.z + fz * v.halfL);
       this.headlight.target.position.set(v.pos.x + fx * (v.halfL + 25), v.pos.y - 0.5, v.pos.z + fz * (v.halfL + 25));
       this.headlight.target.updateMatrixWorld();
-      this.headlight.intensity = 260 * night;
+      // Each smashed head lamp takes its half of the beam with it.
+      const lamps = this.vehicleViews.get(v.id)?.headLamps ?? 2;
+      this.headlight.intensity = 260 * night * (lamps / 2);
     } else {
       this.headlight.intensity = 0;
     }
@@ -483,7 +493,7 @@ export class GameRenderer {
       const red = Math.floor(this.time * 6) % 2 === 0;
       this.siren.color.setHex(red ? 0xff2020 : 0x2050ff);
       this.siren.position.set(best.pos.x, best.pos.y + best.spec.height + 0.6, best.pos.z);
-      this.siren.intensity = 30 + 50 * night;
+      this.siren.intensity = SIREN_DAY + SIREN_NIGHT * night;
     } else {
       this.siren.intensity = 0;
     }
