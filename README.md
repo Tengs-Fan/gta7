@@ -41,7 +41,7 @@ npm run preview    # serves dist/ at http://localhost:4173
 | Enter / exit vehicle (also carjacks) | F | Y |
 | Interact (missions, shops, save) / horn in car | E | D-pad up / L3 |
 | Reload / next radio station in car | R | B / D-pad right |
-| Weapons | 1–6, Q, mouse wheel | LB / RB |
+| Weapons | 1–6, Q, mouse wheel | LB / RB (LB in a vehicle) |
 | Taxi / vigilante job | T | D-pad down |
 | Camera distance | V | R3 |
 | Map | M | Back |
