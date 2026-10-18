@@ -6,6 +6,8 @@
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Environment } from '../../src/render/environment';
+import { CityView } from '../../src/render/city';
+import { PropsView } from '../../src/render/props';
 import { GameRenderer } from '../../src/render/renderer';
 import type { Sim } from '../../src/sim/sim';
 import { makeContact, obbVsAabb, type OBB } from '../../src/core/collision';
@@ -358,5 +360,210 @@ describe('marina boats', () => {
       if (obbVsAabb(vehicleObb(v, obb), hull, ct)) worst = Math.max(worst, ct.depth);
     }
     expect(worst, 'deepest overlap of the car and the hull (m)').toBeLessThan(0.15);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Roofs, fountains and lamp pools
+
+describe('city and prop geometry', () => {
+  let city: CityView;
+  let props: PropsView;
+
+  beforeAll(() => {
+    city = new CityView(world());
+    props = new PropsView(world());
+    city.group.updateMatrixWorld(true);
+    props.group.updateMatrixWorld(true);
+  });
+
+  /** The first thing a ray hits among `objects` (three's raycaster skips faces the materials cull). */
+  function firstHit(objects: THREE.Object3D[], from: THREE.Vector3, to: THREE.Vector3): THREE.Intersection | null {
+    const dir = to.clone().sub(from);
+    const rc = new THREE.Raycaster(from, dir.clone().normalize(), 0, dir.length() + 2);
+    return rc.intersectObjects(objects, false)[0] ?? null;
+  }
+
+  it('from the street, a gable roof shows its eaves and the attic gap from below instead of sky', () => {
+    const roofs = city.group.getObjectByName('roofs')!;
+    let n = 0;
+    for (const b of world().layout.buildings) {
+      if (b.roof !== 'gable') continue;
+      const t = b.tiers[b.tiers.length - 1]!;
+      const along = t.maxX - t.minX >= t.maxZ - t.minZ;
+      const cx = (t.minX + t.maxX) / 2;
+      const cz = (t.minZ + t.maxZ) / 2;
+      // Straight up from under the 0.4 m eave, just outside a long wall.
+      const under = along ? new THREE.Vector3(cx, t.y1 - 1, t.maxZ + 0.2) : new THREE.Vector3(t.maxX + 0.2, t.y1 - 1, cz);
+      const eave = firstHit([roofs], under, under.clone().add(new THREE.Vector3(0, 3, 0)));
+      expect(eave, `eave of building ${b.id}`).not.toBeNull();
+      // From a camera on the sidewalk 3.5 m out, 1.8 m up, just over the wall top into the attic.
+      const eye = along ? new THREE.Vector3(cx, t.y0 + 1.8, t.maxZ + 3.5) : new THREE.Vector3(t.maxX + 3.5, t.y0 + 1.8, cz);
+      const top = along ? new THREE.Vector3(cx, t.y1 + 0.05, t.maxZ - 0.1) : new THREE.Vector3(t.maxX - 0.1, t.y1 + 0.05, cz);
+      const attic = firstHit([roofs], eye, top);
+      expect(attic, `attic of building ${b.id}`).not.toBeNull();
+      if (++n >= 40) break;
+    }
+    expect(n).toBe(40);
+    // Shadows are cast as before: the one-sided roof's back faces.
+    const mat = (roofs as THREE.Mesh).material as THREE.Material;
+    expect(mat.shadowSide).toBe(THREE.BackSide);
+  });
+
+  it('a fountain basin shows its far wall and rim above the water from outside', () => {
+    const fountains = world().layout.props.filter((p) => p.kind === 'fountain');
+    expect(fountains.length).toBe(3);
+    for (const f of fountains) {
+      const g = props.group.children.find((o) => o instanceof THREE.Group && Math.abs(o.position.x - f.x) < 1e-6 && Math.abs(o.position.z - f.z) < 1e-6)!;
+      expect(g).toBeTruthy();
+      const parts = g.children.filter((o) => o instanceof THREE.Mesh);
+      for (const [eyeY, back] of [[2.2, 5.5], [1.2, 4.5]] as const) {
+        // An eye outside the basin to the south, looking over the near rim and the water (clear of the
+        // column) at the inside of the far wall, 0.12 m above the water.
+        const eye = new THREE.Vector3(f.x + 2.6, f.y + eyeY, f.z + back);
+        const far = new THREE.Vector3(f.x + 2.2, f.y + 0.62, f.z - 2.04);
+        const hit = firstHit(parts, eye, far);
+        expect(hit, 'far wall').not.toBeNull();
+        expect(hit!.point.z, 'the hit is on the far side').toBeLessThan(f.z - 1.5);
+        expect(hit!.point.y - f.y, 'above the water').toBeGreaterThan(0.5);
+      }
+      // No gap between the water and the wall: the water reaches under the inner face.
+      const water = parts.find((o) => (o as THREE.Mesh).geometry instanceof THREE.CircleGeometry) as THREE.Mesh;
+      const r = (water.geometry as THREE.CircleGeometry).parameters.radius;
+      const wall = g.getObjectByName('fountainBasin') as THREE.Mesh | undefined;
+      const inner = wall ? Math.min(...((wall.geometry as THREE.LatheGeometry).parameters.points.map((v) => v.x))) : 3.3;
+      expect(r).toBeGreaterThanOrEqual(inner);
+    }
+  });
+
+  it('street-lamp pools stay on the deck or the land under their lamp', () => {
+    const W = world();
+    const priv = props as unknown as { poolMat: THREE.Material };
+    const pools = props.group.children.find((o) => o instanceof THREE.InstancedMesh && o.material === priv.poolMat) as THREE.InstancedMesh;
+    expect(pools).toBeTruthy();
+    const clip = pools.geometry.getAttribute('aClip') as THREE.InstancedBufferAttribute | undefined;
+    /** Glow weight of the pool texture (textures.ts glowTexture) at a radius over the half size. */
+    const glow = (r: number) => (r <= 0.35 ? 1 - (0.55 * r) / 0.35 : r <= 1 ? 0.45 * (1 - (r - 0.35) / 0.65) : 0);
+    const m = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const sc = new THREE.Vector3();
+    let worst = 0;
+    let worstAt = '';
+    let pier = 0;
+    for (let i = 0; i < pools.count; i++) {
+      pools.getMatrixAt(i, m);
+      m.decompose(pos, q, sc);
+      const [x0, z0, x1, z1] = clip ? [clip.getX(i), clip.getY(i), clip.getZ(i), clip.getW(i)] : [-Infinity, -Infinity, Infinity, Infinity];
+      let total = 0;
+      let floating = 0;
+      const N = 24;
+      for (let a = 0; a < N; a++) {
+        for (let b = 0; b < N; b++) {
+          const u = (a + 0.5) / N - 0.5;
+          const v = (b + 0.5) / N - 0.5;
+          const w = glow(Math.hypot(u, v) * 2);
+          if (w <= 0) continue;
+          const x = pos.x + u * sc.x;
+          const z = pos.z + v * sc.z;
+          total += w;
+          if (x < x0 || x > x1 || z < z0 || z > z1) continue;
+          if (pos.y > Math.max(W.groundHeight(x, z), WATER_Y) + 0.3) floating += w;
+        }
+      }
+      const share = floating / total;
+      if (pos.y > 0.4) pier++;
+      if (share > worst) {
+        worst = share;
+        worstAt = `pool ${i} at (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`;
+      }
+    }
+    expect(pier).toBe(16);
+    expect(worst, `largest share of a pool's light hanging in the air: ${worstAt}`).toBeLessThan(0.03);
+  });
+
+  it('the pier lamps face the deck, lighting its middle', () => {
+    const pier = world().layout.decks.find((d) => d.name === 'Azura Pier')!;
+    const zc = (pier.rect.minZ + pier.rect.maxZ) / 2;
+    const lamps = world().layout.props.filter((p) => p.kind === 'lamp' && rectContainsXZ(pier.rect, p.x, p.z));
+    expect(lamps.length).toBe(16);
+    for (const p of lamps) {
+      // The head, 1.55 m along the arm, stands over the deck, towards its centre line.
+      const hz = p.z + Math.cos(p.rot) * 1.55;
+      expect(Math.abs(hz - zc)).toBeLessThan(Math.abs(p.z - zc));
+    }
+  });
+});
+
+function rectContainsXZ(r: { minX: number; minZ: number; maxX: number; maxZ: number }, x: number, z: number): boolean {
+  return x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ;
+}
+
+// ---------------------------------------------------------------------------
+// The Ferris wheel's lights
+
+describe('Ferris wheel lights', () => {
+  it('each bulb stands clear of the rim tube, so a viewer sees all of it', () => {
+    const props = new PropsView(world());
+    const ferris = (props as unknown as { ferris: { wheel: THREE.Group; lights: THREE.InstancedMesh } }).ferris;
+    const wheel = ferris.wheel;
+    wheel.updateMatrixWorld(true);
+    const lights = ferris.lights;
+    const rim = wheel.children.find((o) => o instanceof THREE.Mesh && !(o instanceof THREE.InstancedMesh))!;
+    const radius = (lights.geometry as THREE.SphereGeometry).parameters.radius;
+    const m = new THREE.Matrix4();
+    const c = new THREE.Vector3();
+    const rc = new THREE.Raycaster();
+    let rays = 0;
+    let seen = 0;
+    for (let i = 0; i < lights.count; i++) {
+      lights.getMatrixAt(i, m);
+      c.setFromMatrixPosition(m);
+      const toward = Math.sign(c.z); // the face of the wheel this bulb is on
+      // A grid of rays square on to that face, over the bulb's outline (in the wheel's frame).
+      for (let a = -2; a <= 2; a++) {
+        for (let b = -2; b <= 2; b++) {
+          const u = (a / 2.5) * radius;
+          const v = (b / 2.5) * radius;
+          if (u * u + v * v > radius * radius * 0.9) continue;
+          const from = new THREE.Vector3(c.x + u, c.y + v, c.z + toward * 6).applyMatrix4(wheel.matrixWorld);
+          const dir = new THREE.Vector3(0, 0, -toward).transformDirection(wheel.matrixWorld);
+          rc.set(from, dir);
+          const hit = rc.intersectObjects([rim, lights], false)[0];
+          rays++;
+          if (hit && hit.object === lights && hit.instanceId === i) seen++;
+        }
+      }
+    }
+    expect(seen / rays, 'share of each bulb\'s outline that is the bulb, not the tube').toBeGreaterThan(0.9);
+  });
+
+  it('lit at night they keep their hue on every tier and glow by themselves', () => {
+    const r = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, world(), { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat: true } });
+    const f = (r.props as unknown as { ferris: { wheel: THREE.Group; lights: THREE.InstancedMesh } }).ferris;
+    for (const tier of ['high', 'medium', 'low'] as const) {
+      r.setQuality(tier);
+      r.props.update(3, 1, 0);
+      const halos = f.wheel.getObjectByName('ferrisHalos') as THREE.Points | undefined;
+      expect(halos, 'one halo per bulb').toBeTruthy();
+      expect(halos!.visible).toBe(true);
+      const hc = halos!.geometry.getAttribute('color') as THREE.BufferAttribute;
+      expect(hc.count).toBe(f.lights.count);
+      for (let i = 0; i < f.lights.count; i++) {
+        const core = f.lights.getColorAt(i, new THREE.Color());
+        const hsl = core.getHSL({ h: 0, s: 0, l: 0 });
+        // A saturated core no brighter than 1, which ACES keeps coloured (not a white speck).
+        expect(Math.max(core.r, core.g, core.b), `${tier} bulb ${i}`).toBeLessThanOrEqual(1 + 1e-6);
+        expect(hsl.s, `${tier} bulb ${i}`).toBeGreaterThan(0.9);
+        // Its halo in the same hue, under the bloom threshold (no halo flickering in and out).
+        const halo = new THREE.Color(hc.getX(i), hc.getY(i), hc.getZ(i));
+        expect(halo.getHSL({ h: 0, s: 0, l: 0 }).h).toBeCloseTo(hsl.h, 3);
+        expect(lum(halo)).toBeGreaterThan(0.05);
+        expect(lum(halo)).toBeLessThan(2.6);
+      }
+    }
+    // By day they are off and the halos are not drawn.
+    r.props.update(3, 0, 0);
+    expect((f.wheel.getObjectByName('ferrisHalos') as THREE.Points).visible).toBe(false);
   });
 });

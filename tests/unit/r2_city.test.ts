@@ -110,7 +110,9 @@ function layoutHash(): string {
     delete r.groundSides;
     return r;
   });
-  return createHash('sha256').update(JSON.stringify({ ...L, buildings })).digest('hex');
+  // Fix pass 3 turned the pier's railing lamps (the lamps on a deck) to face the deck: undo that half turn.
+  const props = L.props.map((p) => (p.kind === 'lamp' && p.y === 0.45 ? { ...p, rot: p.rot === 0 ? Math.PI : 0 } : p));
+  return createHash('sha256').update(JSON.stringify({ ...L, buildings, props })).digest('hex');
 }
 
 interface Wall {

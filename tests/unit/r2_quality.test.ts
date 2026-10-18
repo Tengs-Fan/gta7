@@ -627,7 +627,8 @@ describe('coloured lamps with and without bloom', () => {
     for (const st of ['red', 'yellow', 'green'] as const) expect(lum(litBulb(r, st)), st).toBeGreaterThan(bloom.threshold);
     const lamps = nightLamps(r);
     expect(lum(lamps.warning), 'warning light').toBeGreaterThan(bloom.threshold);
-    for (const c of lamps.ferris) expect(lum(c), 'ferris light').toBeGreaterThan(bloom.threshold);
+    // The ferris wheel's lights keep a saturated core on every tier and draw their own halo (fix pass 3).
+    for (const c of lamps.ferris) expect(Math.max(c.r, c.g, c.b), 'ferris light').toBeLessThanOrEqual(1);
     // The lamps follow the tier.
     r.setQuality('low');
     expect(Math.max(...litBulb(r, 'green').toArray())).toBeLessThanOrEqual(1);
