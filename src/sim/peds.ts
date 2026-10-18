@@ -6,6 +6,39 @@ import { makeBrain, type PedBrain } from './brains';
 import type { Character } from './entities';
 import type { Sim } from './sim';
 
+/**
+ * Should a cowering ped put his hands up: the player is aiming a gun at him. Otherwise he crouches with his hands over
+ * his head (cowerCrouched). CrowdView draws him by this rule, and combat hits him by it.
+ */
+export function cowerHandsUp(c: Character, p: Character | null): boolean {
+  if (!p || p === c || !p.aiming || p.state !== 'normal' || p.inventory.current === 'fists') return false;
+  if (c.brain?.threat === p) return true;
+  // Peds that freeze when a gun is pointed at them keep no threat: judge by the aim line instead.
+  const dx = c.pos.x - p.pos.x;
+  const dz = c.pos.z - p.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 20) return false;
+  const off = Math.atan2(dx, dz) - p.aimYaw;
+  return d < 1 || Math.abs(Math.atan2(Math.sin(off), Math.cos(off))) < 0.5;
+}
+
+/** A cowering ped crouched with his hands over his head: not held at gunpoint by `player` (see cowerHandsUp). */
+export function cowerCrouched(c: Character, player: Character | null): boolean {
+  return c.brain?.mode === 'cower' && c.state === 'normal' && !cowerHandsUp(c, player);
+}
+
+/**
+ * Turns from the escape direction a fleeing ped tries in turn when the way ahead runs into the sea, the least first:
+ * either side in steps of 22.5 degrees, then straight back. Fine enough to find the way along a 4 m finger pier, whatever
+ * the angle he flees at.
+ */
+const FLEE_TURNS: readonly number[] = (() => {
+  const turns = [0];
+  for (let k = 1; k < 8; k++) turns.push((k * Math.PI) / 8, (-k * Math.PI) / 8);
+  turns.push(Math.PI);
+  return turns;
+})();
+
 export class PedSystem {
   private timer = 0;
   private screamCooldown = 0;
@@ -17,7 +50,12 @@ export class PedSystem {
       if (e.shooter && e.weapon !== 'fists') this.onViolence(e.x, e.z, e.shooter, e.weapon === 'pistol' ? 34 : 45);
     });
     sim.events.on('explosion', (e) => this.onViolence(e.x, e.z, null, 60));
-    sim.events.on('characterKilled', (e) => this.onViolence(e.victim.pos.x, e.victim.pos.z, e.killer, 16));
+    // Bystanders run from a killer whose blow they saw land; from the body when he only answers for the death (the
+    // flames of a car he set alight dealt the fatal hit, whoever hit him before): the fire is what they see.
+    sim.events.on('characterKilled', (e) => {
+      const seen = e.killer !== null && e.victim.lastHitBy === e.killer;
+      this.onViolence(e.victim.pos.x, e.victim.pos.z, seen ? e.killer : null, 16);
+    });
   }
 
   get targetCount(): number {
@@ -222,6 +260,10 @@ export class PedSystem {
     if (d > 16 || d < 0.5) return;
     const cos = (dx * dir.x + dy * dir.y + dz * dir.z) / d;
     if (cos < 0.985) return;
+    // Only someone who can see the gun: not round a corner, through a wall or from outside a garage he is in
+    // (from his eyes, as the police judge it: the camera can sit beyond a corner he cannot see past).
+    const p = sim.player;
+    if (!sim.world.lineOfSight(p.pos.x, p.pos.y + 1.5, p.pos.z, c.pos.x, c.pos.y + 1.2, c.pos.z)) return;
     const b = c.brain!;
     if (c.role === 'gang') this.fight(c, sim.player);
     else if (sim.rng.chance(0.5)) {
@@ -352,16 +394,39 @@ export class PedSystem {
       dx = -Math.sin(c.heading);
       dz = -Math.cos(c.heading);
     }
-    // Bend the escape direction a little per ped so crowds scatter.
+    // Bend the escape direction a little per ped so crowds scatter. Never off a quay, a seawall or a pier into the sea:
+    // the direction nearest it (see FLEE_TURNS) whose ground 3 and 6 m ahead is dry. When that way out lies back
+    // towards what he runs from (the end of a pier), he is cornered and stays where he is, rather than pace back and
+    // forth at the edge. Already in the water, or with water all round, he makes for the nearest sidewalk instead, to
+    // climb out.
     const ang = Math.atan2(dx, dz) + b.lateral * 0.8;
-    let tx = c.pos.x + Math.sin(ang) * 6;
-    let tz = c.pos.z + Math.cos(ang) * 6;
-    if (sim.world.groundHeight(tx, tz) < WATER_Y + 0.2) {
-      tx = c.pos.x + Math.sin(ang + Math.PI / 2) * 6;
-      tz = c.pos.z + Math.cos(ang + Math.PI / 2) * 6;
+    let tx = c.pos.x;
+    let tz = c.pos.z;
+    let way = false;
+    let cornered = false;
+    if (c.state !== 'swimming') {
+      for (const turn of FLEE_TURNS) {
+        const sx = Math.sin(ang + turn);
+        const sz = Math.cos(ang + turn);
+        if (this.dry(c.pos.x + sx * 3, c.pos.z + sz * 3) && this.dry(c.pos.x + sx * 6, c.pos.z + sz * 6)) {
+          tx = c.pos.x + sx * 6;
+          tz = c.pos.z + sz * 6;
+          way = true;
+          cornered = Math.abs(turn) > Math.PI / 2;
+          break;
+        }
+      }
     }
-    this.steer(c, tx, tz, 6.3 * b.speedMul, dt);
-    this.unstick(c, b, dt);
+    if (!way) {
+      const n = sim.world.walk.nodes[sim.world.walk.nearestNode(c.pos.x, c.pos.z)]!;
+      tx = n.x;
+      tz = n.z;
+    }
+    if (cornered) c.moveSpeed = 0;
+    else {
+      this.steer(c, tx, tz, 6.3 * b.speedMul, dt);
+      this.unstick(c, b, dt);
+    }
     b.modeTimer -= dt;
     if (b.modeTimer <= 0 && d > 28) {
       b.mode = 'wander';
@@ -422,7 +487,8 @@ export class PedSystem {
       } else {
         c.moveSpeed = 0;
         c.heading = moveAngleTowards(c.heading, Math.atan2(tp.x - c.pos.x, tp.z - c.pos.z), 12 * dt);
-        if (c.fireCooldown <= 0 && !t.vehicle) sim.combat.melee(c);
+        // A man on the ground is let up first (and his first moments up do not count, see GET_UP_GRACE).
+        if (c.fireCooldown <= 0 && !t.vehicle && t.state !== 'knocked') sim.combat.melee(c);
       }
     }
   }
@@ -442,6 +508,11 @@ export class PedSystem {
       c.moveSpeed = 0;
       c.heading = moveAngleTowards(c.heading, Math.atan2(pp.x - c.pos.x, pp.z - c.pos.z), 1.5 * dt);
     }
+  }
+
+  /** Dry ground to run on at (x, z): not the sea, nor the wet sand at its edge. */
+  private dry(x: number, z: number): boolean {
+    return this.sim.world.groundHeight(x, z) >= WATER_Y + 0.2;
   }
 
   /** Detects a ped pushing against a wall and nudges its path sideways. */

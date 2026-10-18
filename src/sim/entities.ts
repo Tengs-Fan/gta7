@@ -158,12 +158,16 @@ export class Character {
   enterTarget: Vehicle | null = null;
   lastAttacker: Character | null = null;
   lastAttackTime = -999;
+  /** Who dealt the latest hit: null for one with no attacker (flames, a fall), unlike lastAttacker. */
+  lastHitBy: Character | null = null;
   /** Money this character drops on death (civilians). */
   cash = 0;
   meleeCombo = 0;
   meleeComboTimer = 0;
-  /** Counts consecutive hits for knock-downs from melee. */
+  /** Counts consecutive hits for knock-downs from melee (blows to a man on his feet only). */
   staggerHits = 0;
+  /** Seconds left of the moment after getting up from a knockdown in which blows do not count towards the next one. */
+  getUpTimer = 0;
 
   constructor(
     readonly id: number,

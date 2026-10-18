@@ -11,6 +11,12 @@ import { vehicleObb } from './vehiclePhysics';
 const MAX_STEP = 0.55;
 /** Swimmers float with the body this far below the water surface. */
 export const SWIM_FLOAT = 1.3;
+/**
+ * Top swimming speeds (m/s): the player's crawl, and a little slower for NPCs, so a swimmer can hold his distance from
+ * those after him (on land he outsprints them too). Whatever pace an AI asks for, running after someone, it swims at this.
+ */
+export const SWIM_SPEED = 2.4;
+export const NPC_SWIM_SPEED = 2.2;
 
 export interface CharacterPhysicsHost {
   world: StaticWorld;
@@ -28,8 +34,9 @@ export function stepCharacter(c: Character, dt: number, host: CharacterPhysicsHo
   const controllable = c.state === 'normal' || c.state === 'swimming';
 
   if (controllable) {
-    const tx = c.moveX * c.moveSpeed;
-    const tz = c.moveZ * c.moveSpeed;
+    const top = c.state === 'swimming' ? Math.min(c.moveSpeed, c.isPlayer ? SWIM_SPEED : NPC_SWIM_SPEED) : c.moveSpeed;
+    const tx = c.moveX * top;
+    const tz = c.moveZ * top;
     const accel = c.state === 'swimming' ? 7 : c.onGround ? 30 : 7;
     const dvx = tx - c.vel.x;
     const dvz = tz - c.vel.z;
