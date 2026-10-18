@@ -267,6 +267,7 @@ export class TrafficSystem {
       // waits further back (with half a metre to spare), where it has to be out of sight and clear too.
       const queueAt = lane.length - (VEHICLE_SPECS[k].length / 2 + STOP_MARGIN + 0.5);
       if (ahead && red && s > queueAt) {
+        if (queueAt < 6) continue;
         s = queueAt;
         x = lane.sx + lane.dx * s;
         z = lane.sz + lane.dz * s;

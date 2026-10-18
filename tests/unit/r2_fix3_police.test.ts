@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { clamp } from '../../src/core/math';
 import { Helicopter, type Character, type Vehicle } from '../../src/sim/entities';
 import { bodyGapAt } from '../../src/sim/driver';
 import { Sim } from '../../src/sim/sim';
@@ -181,31 +182,60 @@ describe('wrecks keep the pose they land in', () => {
     expect(roof.burning).toBe(true);
   });
 
-  it('touching down does not change the drawn attitude (only the angles that write it)', () => {
+  it('a live car landing on its tail just past upright drops back onto its wheels, still facing its way', () => {
+    // Pitched 1.8 rad (nose up, 13 degrees past upright): short of the 1.9 rad that leaves a live car on its roof. It used to
+    // be written as facing the other way, rolled over, and twisted half a turn round while it settled.
     const sim = makeSim({ police: false });
-    for (const [roll, pitch] of [
-      [2.5, 2.5],
-      [0.4, -2.2],
-      [-2.9, 1.9],
-      [Math.PI, 0.2],
-    ] as const) {
-      const p = beach(sim, 0);
-      const v = sim.spawnVehicle('sedan', p.x, p.z, 1.1);
-      v.destroyed = true;
-      v.health = -v.spec.health;
-      v.airborne = true;
-      v.pos.y = sim.world.groundHeight(p.x, p.z) + 0.001;
-      v.vy = -1;
-      v.roll = roll;
-      v.pitch = pitch;
-      v.pitchVel = 1e-6;
-      const before = attitude(v);
-      stepVehicle(v, 1 / 120, sim);
-      expect(v.airborne).toBe(false);
-      expect(Math.abs(v.pitch)).toBeLessThanOrEqual(Math.PI / 2 + 1e-9);
-      expect(Math.abs(attitude(v).dot(before))).toBeGreaterThan(1 - 1e-9);
-      sim.removeVehicle(v);
+    const v = drop(sim, 0, 0, 1.8, false);
+    expect(v.flipped).toBe(false);
+    expect(v.burning).toBe(false);
+    expect(Math.abs(v.roll)).toBeLessThan(0.05);
+    expect(Math.abs(v.pitch)).toBeLessThan(0.1);
+    expect(Math.cos(v.heading - 0.3)).toBeGreaterThan(0.99);
+  });
+
+  it('touching down does not change the drawn attitude, and the car comes to rest the near way round', () => {
+    // Every landing attitude, a live car and a wreck: the angles are rewritten without turning the body, and settling
+    // turns it little more than the least turn that puts it on its wheels (or its roof): the two angles settle one at a
+    // time each, which is up to 0.52 rad longer at 90 degrees of both, never the long way round.
+    const sim = makeSim({ police: false });
+    const bad: string[] = [];
+    const n = 24;
+    for (const wreck of [false, true]) {
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          // (Off the knife edges, standing exactly on its nose or tail, where the faces are equally near.)
+          const roll = -Math.PI + 0.1 + (2 * Math.PI * i) / n;
+          const pitch = -Math.PI + 0.1 + (2 * Math.PI * j) / n;
+          const p = beach(sim, 0);
+          const v = sim.spawnVehicle('sedan', p.x, p.z, 0.3);
+          if (wreck) {
+            v.destroyed = true;
+            v.health = -v.spec.health;
+          }
+          v.airborne = true;
+          v.pos.y = sim.world.groundHeight(p.x, p.z) + 0.001;
+          v.vy = -1;
+          v.roll = roll;
+          v.pitch = pitch;
+          v.pitchVel = 1e-6;
+          const before = attitude(v);
+          stepVehicle(v, 1 / 120, sim);
+          const label = `${wreck ? 'wreck' : 'live'} roll ${roll.toFixed(2)} pitch ${pitch.toFixed(2)}`;
+          if (v.airborne || Math.abs(attitude(v).dot(before)) < 1 - 1e-9) bad.push(`${label}: attitude changed on touching down`);
+          const up = Math.cos(roll) * Math.cos(pitch);
+          const roof = wreck ? up < 0 : up < Math.cos(1.9);
+          for (let k = 0; k < 240; k++) stepVehicle(v, 1 / 120, sim);
+          const turned = 2 * Math.acos(Math.min(1, Math.abs(attitude(v).dot(before))));
+          const least = Math.acos(clamp(roof ? -up : up, -1, 1));
+          const rest = Math.cos(v.roll) * Math.cos(v.pitch);
+          if (v.flipped !== roof || (roof ? rest > -0.99 : rest < 0.99)) bad.push(`${label}: rests ${v.flipped ? 'on its roof' : 'on its wheels'} (up ${rest.toFixed(2)})`);
+          if (turned > least + 0.6) bad.push(`${label}: turned ${turned.toFixed(2)} rad to rest, the least is ${least.toFixed(2)}`);
+          sim.removeVehicle(v);
+        }
+      }
     }
+    expect(bad).toEqual([]);
   });
 });
 
@@ -405,6 +435,33 @@ describe('officers without a car once the stars are gone', () => {
     expect(w.pinned).toBeLessThan(2.5);
     // Off and away (or already gone: cleanup removes them once out of view).
     for (const c of cops) if (!c.removed) expect(dist(c.pos, pp)).toBeGreaterThan(15);
+  });
+
+  it('an officer at the player\'s side when the stars go walks off away from him, not past him to the nearest corner', () => {
+    // The player a quarter of the way along a block, on the sidewalk, and an officer 1.2 m from him on the far side from
+    // the nearer corner (the stars cleared during an arrest): every way to a sidewalk node starts within 2.5 m of the player.
+    const bad: string[] = [];
+    for (let seed = 1; seed <= 8; seed++) {
+      const sim = makeSim({ seed });
+      const lanes = sim.roads.lanes.filter((l) => l.length > 60);
+      const lane = lanes[(seed * 37) % lanes.length]!;
+      const p = at(lane, lane.length * (seed % 2 ? 0.25 : 0.75));
+      const spot = sim.world.findFreeSpot(p.x - lane.dz * 7, p.z + lane.dx * 7, 0.5, 6)!;
+      teleport(sim, spot.x, spot.z);
+      const pp = sim.playerPos();
+      const n = sim.world.walk.nodes[sim.world.walk.nearestNode(pp.x, pp.z)]!;
+      const l = Math.hypot(pp.x - n.x, pp.z - n.z);
+      const c = officer(sim, pp.x + ((pp.x - n.x) / l) * 1.2, pp.z + ((pp.z - n.z) / l) * 1.2);
+      c.heading = Math.atan2(pp.x - c.pos.x, pp.z - c.pos.z);
+      const start = dist(c.pos, pp);
+      let nearest = start;
+      step(sim, 10, () => {
+        if (!c.removed) nearest = Math.min(nearest, dist(c.pos, pp));
+        return input();
+      });
+      if (nearest < start - 0.1 || (!c.removed && dist(c.pos, pp) < 8)) bad.push(`seed ${seed}: from ${start.toFixed(2)} m to ${nearest.toFixed(2)} m, ends ${c.removed ? 'gone' : dist(c.pos, pp).toFixed(1) + ' m'} away`);
+    }
+    expect(bad).toEqual([]);
   });
 
   it('after their car blew up, walk off without shoving the player; at a bust far from the cruiser they stand by him', () => {
@@ -611,6 +668,123 @@ describe('face-offs with long vehicles and overtakes after backing out (driver f
   });
 });
 
+describe('ledges: the side of the pier, and long noses', () => {
+  /** Drives `kind` from (x, z) along `heading` at `speed` with the throttle at `throttle` for `secs`, calling `each` after every frame. */
+  function drive(kind: VehicleKind, x: number, z: number, heading: number, speed: number, throttle: number, secs: number, each: (v: Vehicle) => void): { v: Vehicle; impacts: number } {
+    const sim = makeSim({ police: false });
+    const v = sim.spawnVehicle(kind, x, z, heading);
+    placeInCar(sim, v);
+    v.vel.x = Math.sin(heading) * speed;
+    v.vel.z = Math.cos(heading) * speed;
+    let impacts = 0;
+    sim.events.on('impact', (e) => {
+      if (e.vehicle === v) impacts++;
+    });
+    step(sim, secs, () => {
+      each(v);
+      return input({ throttle });
+    });
+    each(v);
+    return { v, impacts };
+  }
+
+  /** The corners of the body and the middles of its ends. */
+  function bodyPoints(v: Vehicle): { x: number; z: number }[] {
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const pts: { x: number; z: number }[] = [];
+    for (const [a, b] of [
+      [1, 1],
+      [1, 0],
+      [1, -1],
+      [-1, 1],
+      [-1, 0],
+      [-1, -1],
+    ] as const) {
+      pts.push({ x: v.pos.x + fx * a * v.halfL - fz * b * v.halfW, z: v.pos.z + fz * a * v.halfL + fx * b * v.halfW });
+    }
+    return pts;
+  }
+
+  it('a car driven along the sand into the side of the pier hits it instead of popping up onto the deck', () => {
+    // For its first 24 m over the sand the side of the deck is a 0.3-1 m slab: a car used to rise onto the deck in one frame
+    // there, with no impact, and drive on along the pier.
+    const pier = world().layout.decks.find((d) => d.name === 'Azura Pier')!.rect;
+    const bad: string[] = [];
+    for (const x of [500, 508, 514]) {
+      let rise = 0;
+      let last = NaN;
+      let into = 0;
+      const { v, impacts } = drive('sedan', x, 75, Math.PI, 20, 0.6, 3, (car) => {
+        if (!Number.isNaN(last)) rise = Math.max(rise, car.pos.y - last);
+        last = car.pos.y;
+        for (const p of bodyPoints(car)) into = Math.max(into, pier.maxZ - p.z);
+      });
+      if (rise > 0.4 || impacts === 0 || into > 0.2 || v.pos.y > 0.3) bad.push(`x ${x}: rose ${rise.toFixed(2)} m in a frame, ${impacts} impacts, ${into.toFixed(2)} m into the deck, ends at y ${v.pos.y.toFixed(2)}`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('cars, a bus and a SWAT van still drive from the boardwalk onto the pier and the marina, and up every ramp', () => {
+    const W = world();
+    const b = W.layout.bounds;
+    const bad: string[] = [];
+    for (const [name, z] of [
+      ['pier', 40],
+      ['marina', 446],
+    ] as const) {
+      for (const kind of ['sedan', 'bus', 'swat'] as const) {
+        const { v, impacts } = drive(kind, b.beachStartX - 10, z, Math.PI / 2, 0, 0.6, 4, () => {});
+        if (impacts > 0 || v.pos.x < b.beachStartX + 10 || Math.abs(v.pos.y - 0.45) > 0.01) bad.push(`${kind} onto the ${name}: x ${v.pos.x.toFixed(1)}, y ${v.pos.y.toFixed(2)}, ${impacts} impacts`);
+      }
+    }
+    for (const r of W.layout.ramps) {
+      for (const kind of ['bus', 'swat', 'compact'] as const) {
+        let air = 0;
+        let from = -1;
+        drive(kind, r.x - Math.sin(r.heading) * 40, r.z - Math.cos(r.heading) * 40, r.heading, 0, 1, 8, (car) => {
+          if (car.airborne && car.airTime > air) {
+            air = car.airTime;
+            from = car.launchRamp;
+          }
+        });
+        if (air < 0.6 || from !== r.id) bad.push(`${kind} up ramp ${r.id}: ${air.toFixed(2)} s in the air (ramp ${from})`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("a bus or a SWAT van driven into the side of the pier or a ramp's high end stops with its nose at it, level", () => {
+    // The ledge probe looks 2.2 m ahead of the centre: a bus's nose used to stop 3.55 m inside the pier (a SWAT van's 0.7 m),
+    // drawn nose up on flat ground as the pitch sample landed on the deck.
+    const W = world();
+    const pier = W.layout.decks.find((d) => d.name === 'Azura Pier')!.rect;
+    const r = W.layout.ramps[2]!;
+    // Ramp 2 launches north (-z): its 2.2 m high end faces north, at z = r.z - 5.5.
+    const face = r.z - r.length / 2;
+    const bad: string[] = [];
+    for (const kind of ['bus', 'swat'] as const) {
+      for (const tilt of [0, 0.4]) {
+        let into = 0;
+        let pitch = 0;
+        drive(kind, 525, 75, Math.PI - tilt, 12, 0.5, 4, (car) => {
+          for (const p of bodyPoints(car)) if (p.x > pier.minX && p.x < pier.maxX) into = Math.max(into, pier.maxZ - p.z);
+          pitch = Math.max(pitch, Math.abs(car.pitch));
+        });
+        if (into > 0.2 || pitch > (2 * Math.PI) / 180) bad.push(`${kind} into the pier at ${tilt} rad: nose ${into.toFixed(2)} m in, pitch ${((pitch * 180) / Math.PI).toFixed(1)} deg`);
+        into = 0;
+        pitch = 0;
+        drive(kind, r.x, face - 30, tilt, 12, 0.5, 4, (car) => {
+          for (const p of bodyPoints(car)) if (Math.abs(p.x - r.x) < r.width / 2) into = Math.max(into, p.z - face);
+          pitch = Math.max(pitch, Math.abs(car.pitch));
+        });
+        if (into > 0.2 || pitch > (2 * Math.PI) / 180) bad.push(`${kind} into ramp 2's high end at ${tilt} rad: nose ${into.toFixed(2)} m in, pitch ${((pitch * 180) / Math.PI).toFixed(1)} deg`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});
+
 describe('driving into the surf', () => {
   /** The beach at z = -100 (clear of the pier and the marina): the x where the water is `depth` m deep. */
   function surfX(sim: Sim, depth: number): number {
@@ -637,6 +811,29 @@ describe('driving into the surf', () => {
     // Full throttle all the way: it used to keep gaining speed through the surf.
     expect(deep).toBeLessThan(atEdge - 3);
     expect(v.inWater).toBe(true);
+  });
+
+  it('tyres sliding in the water neither squeal nor smoke nor leave marks; on the dry sand they still do', () => {
+    // v.skid drives the squeal, the tyre smoke and the skid marks.
+    const skids: number[] = [];
+    for (const depth of [-1, 0.4]) {
+      const sim = makeSim({ police: false });
+      const b = sim.world.layout.bounds;
+      // Along the beach (south), at a constant depth: in the surf, or on the dry sand at its top.
+      const x = depth < 0 ? b.beachStartX + 5 : surfX(sim, depth);
+      const v = sim.spawnVehicle('sports', x, -100, Math.PI);
+      placeInCar(sim, v);
+      v.vel.z = -16;
+      let most = 0;
+      step(sim, 1.2, () => {
+        most = Math.max(most, v.skid);
+        return input({ handbrake: true, steer: 1, throttle: 0.5 });
+      });
+      expect(v.inWater).toBe(false);
+      skids.push(most);
+    }
+    expect(skids[0]).toBeGreaterThan(0.5);
+    expect(skids[1]).toBeLessThan(0.05);
   });
 
   it('a car standing in water half a metre deep drives or backs out onto dry sand', () => {

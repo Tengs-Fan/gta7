@@ -4,6 +4,7 @@ import { circleVsObb, makeContact, obbBounds, obbVsAabb, obbVsObb, type AABB, ty
 import { clamp, damp, dampAngle, moveTowards, wrapAngle } from '../core/math';
 import type { StaticCollider } from '../world/colliders';
 import { DECK_SLAB, WATER_Y } from '../world/constants';
+import { rectContains } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import type { Vehicle } from './entities';
 
@@ -68,7 +69,92 @@ function ledgeTooHigh(v: Vehicle, world: StaticWorld, x: number, z: number, ux: 
 
 /** True when pushing a vehicle by d along the unit direction (ux, uz) would move it onto a ledge it cannot climb. */
 function pushBlocked(v: Vehicle, world: StaticWorld, ux: number, uz: number, d: number): boolean {
-  return ledgeTooHigh(v, world, v.pos.x + ux * d, v.pos.z + uz * d, ux, uz, leadingEdge(v, ux, uz));
+  const x = v.pos.x + ux * d;
+  const z = v.pos.z + uz * d;
+  return ledgeTooHigh(v, world, x, z, ux, uz, leadingEdge(v, ux, uz)) || faceAhead(v, world, v.pos.x, v.pos.z, x, z, ux, uz, false);
+}
+
+/**
+ * The side of a deck (the pier, the marina) stops a vehicle whose wheels are more than this far below the deck, though it is
+ * lower than MAX_STEP_UP: its first metres over the sand are a 0.3-1 m slab. The 0.3 m step up from the boardwalk stays drivable.
+ */
+const DECK_STEP = 0.4;
+/** Points of the body checked for step faces (see faceAhead), in half lengths along it and half widths across it. */
+const FACE_ALONG = [1, 1, 1, -1, -1, -1, 0, 0];
+const FACE_ACROSS = [1, 0, -1, 1, 0, -1, 1, -1];
+
+/** Bounding boxes (min x, min z, max x, max z) of every deck and ramp of a world (see nearRaisedGround). */
+const raisedBoxes = new WeakMap<StaticWorld, Float64Array>();
+
+/** Whether a deck or a ramp is within `r` of the segment from (x0, z0) to (x1, z1) (by bounding boxes). */
+function nearRaisedGround(world: StaticWorld, x0: number, z0: number, x1: number, z1: number, r: number): boolean {
+  let boxes = raisedBoxes.get(world);
+  if (!boxes) {
+    const { decks, ramps } = world.layout;
+    boxes = new Float64Array((decks.length + ramps.length) * 4);
+    let i = 0;
+    for (const d of decks) {
+      boxes[i++] = d.rect.minX;
+      boxes[i++] = d.rect.minZ;
+      boxes[i++] = d.rect.maxX;
+      boxes[i++] = d.rect.maxZ;
+    }
+    for (const p of ramps) {
+      const h = Math.hypot(p.length, p.width) / 2;
+      boxes[i++] = p.x - h;
+      boxes[i++] = p.z - h;
+      boxes[i++] = p.x + h;
+      boxes[i++] = p.z + h;
+    }
+    raisedBoxes.set(world, boxes);
+  }
+  const minX = Math.min(x0, x1) - r;
+  const maxX = Math.max(x0, x1) + r;
+  const minZ = Math.min(z0, z1) - r;
+  const maxZ = Math.max(z0, z1) + r;
+  for (let i = 0; i < boxes.length; i += 4) {
+    if (boxes[i]! <= maxX && boxes[i + 2]! >= minX && boxes[i + 1]! <= maxZ && boxes[i + 3]! >= minZ) return true;
+  }
+  return false;
+}
+
+/** Whether (x, z), with the ground at height y, is on a deck. */
+function onDeck(world: StaticWorld, x: number, z: number, y: number): boolean {
+  for (const d of world.layout.decks) if (d.y >= y - 1e-6 && rectContains(d.rect, x, z)) return true;
+  return false;
+}
+
+/**
+ * True when moving a vehicle from (x0, z0) to (x1, z1), along the unit direction (ux, uz), runs the leading part of its body
+ * (its leading corners and the middle of its leading end or side) into a step face: where one of those points goes, the
+ * ground rises by more than MAX_STEP_UP above both the ground it leaves and the vehicle's own height, or onto a deck by more
+ * than DECK_STEP. ledgeTooHigh probes no further ahead than 2.2 m, which lets a long vehicle's nose into a ledge (a bus's up
+ * to 3.5 m into the side of the pier). A ramp's slope rises a few centimetres from one step to the next; a point already on
+ * the higher ground (a corner swung over it) rises by nothing. Sinking (`sinking`), the face is the edge of water too shallow
+ * to sink in (see sinkBlocked).
+ */
+function faceAhead(v: Vehicle, world: StaticWorld, x0: number, z0: number, x1: number, z1: number, ux: number, uz: number, sinking: boolean): boolean {
+  // On land, ground higher than a curb comes only from decks and ramps (the land's edge a car reaches only sinking): far
+  // from all of them, there is nothing to probe for.
+  if (!sinking && !nearRaisedGround(world, x0, z0, x1, z1, v.halfL + v.halfW)) return false;
+  const fx = Math.sin(v.heading);
+  const fz = Math.cos(v.heading);
+  for (let i = 0; i < FACE_ALONG.length; i++) {
+    const a = FACE_ALONG[i]! * v.halfL;
+    const b = FACE_ACROSS[i]! * v.halfW;
+    const ox = fx * a - fz * b;
+    const oz = fz * a + fx * b;
+    // Only the part of the body that leads.
+    if (ox * ux + oz * uz < 1e-3) continue;
+    if (sinking) {
+      if (world.baseGround(x1 + ox, z1 + oz) > WATER_Y - SINK_DEPTH && world.baseGround(x0 + ox, z0 + oz) <= WATER_Y - SINK_DEPTH) return true;
+      continue;
+    }
+    const y = world.groundHeight(x1 + ox, z1 + oz);
+    const from = Math.max(world.groundHeight(x0 + ox, z0 + oz), v.pos.y);
+    if (y > from + MAX_STEP_UP || (y > from + DECK_STEP && onDeck(world, x1 + ox, z1 + oz, y))) return true;
+  }
+  return false;
 }
 
 /** How high a vehicle centred at (x, z) may sit with its roof under the slab of every deck over it (Infinity in the open). */
@@ -103,6 +189,7 @@ function sinkBlocked(v: Vehicle, world: StaticWorld, x: number, z: number): bool
   const uz = v.vel.z / sp;
   const edge = leadingEdge(v, ux, uz);
   if (Math.max(world.baseGround(x, z), world.baseGround(x + ux * edge, z + uz * edge)) > WATER_Y - SINK_DEPTH) return true;
+  if (faceAhead(v, world, v.pos.x, v.pos.z, x, z, ux, uz, true)) return true;
   const ceil = deckCeiling(v, world, x, z);
   if (v.pos.y > ceil && ceil < deckCeiling(v, world, v.pos.x, v.pos.z)) return true;
   return sinkFloor(v, world, x, z) > v.pos.y + 0.05;
@@ -228,7 +315,8 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     const skidLat = Math.abs(vR);
     vR = moveTowards(vR, 0, grip * dt);
     const skidTarget = clamp((skidLat - 2.2) / 6, 0, 1) + (handbrake && Math.abs(vF) > 5 ? 0.6 : 0) + (v.braking && Math.abs(vF) > 12 && brake > 0.8 ? 0.35 : 0);
-    v.skid = damp(v.skid, clamp(skidTarget, 0, 1), 10, dt);
+    // Tyres sliding under water neither squeal nor smoke nor leave marks (all three follow v.skid).
+    v.skid = damp(v.skid, clamp(skidTarget, 0, 1) * clamp(1 - wade * 10, 0, 1), 10, dt);
   } else {
     v.skid = damp(v.skid, 0, 10, dt);
     // Air drag above ramp-jump speeds: wrecks blown across the map slow down; a jump barely notices it.
@@ -251,11 +339,12 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   const ux = sp > 1e-3 ? v.vel.x / sp : fx * sg;
   const uz = sp > 1e-3 ? v.vel.z / sp : fz * sg;
   const probe = leadingEdge(v, ux, uz);
-  if (ledgeTooHigh(v, world, nx, nz, ux, uz, probe)) {
+  if (ledgeTooHigh(v, world, nx, nz, ux, uz, probe) || faceAhead(v, world, oldX, oldZ, nx, nz, ux, uz, false)) {
     nx = oldX;
     nz = oldZ;
-    // Treat as a wall hit.
-    if (sp > 4) host.onVehicleImpact(v, null, sp * 0.6, oldX + ux * probe, oldZ + uz * probe);
+    // Treat as a wall hit, where the body meets it.
+    const reach = v.halfL * Math.abs(ux * fx + uz * fz) + v.halfW * Math.abs(ux * fz - uz * fx);
+    if (sp > 4) host.onVehicleImpact(v, null, sp * 0.6, oldX + ux * reach, oldZ + uz * reach);
     v.vel.x *= -0.15;
     v.vel.z *= -0.15;
   }
@@ -336,22 +425,30 @@ const LIVE_UPSIDE = Math.cos(1.9);
 
 /**
  * Whether a vehicle touching down rests on its roof (true) or on its wheels; the ground then settles it there (see stepVehicle).
- * First the attitude is written with the pitch within 90 degrees of level: the same orientation (YXZ Euler angles with
- * x = -pitch: heading + PI, PI - pitch, roll + PI), so the settling turns the short way. The body's up axis then points up
- * by cos(roll) cos(pitch). A wreck settles on whichever face is nearer, wheels or roof, as one sinking does (see nearerFace);
- * a live car only well past its side, so that one landing on its side or nose is put back on its wheels.
+ * The body's up axis points up by cos(roll) cos(pitch). A wreck settles on whichever face is nearer, wheels or roof, as one
+ * sinking does (see nearerFace); a live car only well past its side, so that one landing on its side or nose is put back on
+ * its wheels.
+ * The same orientation has two sets of angles (YXZ Euler angles with x = -pitch): (heading, pitch, roll) and (heading + PI,
+ * PI - pitch, roll + PI). The ground turns pitch and roll each the short way, to level and to 0 or PI: the attitude is
+ * written with the set from which those two turns add up to less, so that a car comes to rest the near way round (one on
+ * its tail past upright goes over onto its roof facing back, one that lands on its wheels keeps facing its way).
  */
 function landsUpsideDown(v: Vehicle): boolean {
-  if (Math.abs(wrapAngle(v.pitch)) > Math.PI / 2) {
-    v.heading = wrapAngle(v.heading + Math.PI);
-    v.pitch = wrapAngle(Math.PI - v.pitch);
-    v.roll = wrapAngle(v.roll + Math.PI);
-  } else {
-    v.pitch = wrapAngle(v.pitch);
-    v.roll = wrapAngle(v.roll);
-  }
   const up = Math.cos(v.roll) * Math.cos(v.pitch);
-  return v.destroyed ? up < 0 : up < LIVE_UPSIDE;
+  const upside = v.destroyed ? up < 0 : up < LIVE_UPSIDE;
+  let pitch = wrapAngle(v.pitch);
+  let roll = wrapAngle(v.roll);
+  const p = Math.abs(pitch);
+  const r = Math.abs(roll);
+  // Onto the roof the turns are p + (PI - r), or (PI - p) + r with the other set; onto the wheels p + r, or 2 PI - p - r.
+  if (upside ? p > r : p + r > Math.PI) {
+    v.heading = wrapAngle(v.heading + Math.PI);
+    pitch = wrapAngle(Math.PI - pitch);
+    roll = wrapAngle(roll + Math.PI);
+  }
+  v.pitch = pitch;
+  v.roll = roll;
+  return upside;
 }
 
 /** Id of the stunt ramp under (x, z), or -1. */

@@ -883,14 +883,22 @@ export class PoliceSystem {
     const walk = sim.world.walk;
     const pp = sim.playerPos();
     b.car = null;
+    if (walk.nodes.length === 0) {
+      // No sidewalks at all: straight away from the player.
+      this.runTo(c, 2 * c.pos.x - pp.x, 2 * c.pos.z - pp.z, WALK_OFF_SPEED, dt);
+      return;
+    }
     let w = this.walkingOff.get(c);
     if (!w || sim.time > w.until) {
       const stuck = w ? w.node : -1;
+      // Not past the player: the way there keeps 2.5 m from him, and an officer nearer than that (an arrester at his side)
+      // comes no nearer to him than he is.
+      const clear = Math.min(2.5, Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) - 0.1);
       let best = -1;
       let bd = Infinity;
       for (const n of walk.nodes) {
         const d = Math.hypot(n.x - c.pos.x, n.z - c.pos.z);
-        if (d >= bd || n.id === stuck || pointSegDist(pp.x, pp.z, c.pos.x, c.pos.z, n.x, n.z) < 2.5) continue;
+        if (d >= bd || n.id === stuck || pointSegDist(pp.x, pp.z, c.pos.x, c.pos.z, n.x, n.z) < clear) continue;
         bd = d;
         best = n.id;
       }
