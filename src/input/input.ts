@@ -15,6 +15,12 @@ export interface UiActions {
   down: boolean;
   left: boolean;
   right: boolean;
+  /** Map zoom: the keys typing + and - (and the keypad's), the pad's RB and LB. */
+  zoomIn?: boolean;
+  zoomOut?: boolean;
+  /** Held direction (-1..1) for screens that pan, i.e. the map: arrows / WASD, the D-pad and the left stick. */
+  panX?: number;
+  panY?: number;
 }
 
 export interface FrameInput {
@@ -46,8 +52,10 @@ export const WHEEL_STEP = 100;
 const BOUND_CODES = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'Space',
   'KeyF', 'Enter', 'KeyE', 'KeyH', 'KeyR', 'KeyQ', 'KeyT', 'KeyP', 'KeyM', 'KeyV', 'Escape', 'Backspace',
-  'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6',
+  'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract',
 ]);
+/** Pseudo-codes for a press that types + or - on any key: QWERTZ has them elsewhere, AZERTY's - is the 6. */
+const TYPED_ZOOM: Record<string, string> = { '+': 'Typed+', '=': 'Typed+', '-': 'Typed-' };
 const LETTER_SHORTCUTS = new Set(['e', 'f', 'h', 'm', 'p', 'q', 'r', 't', 'v']);
 /** A letter typed longer ago than this (ms) before the next one no longer counts towards a cheat code. */
 const CHEAT_GAP_MS = 1500;
@@ -317,7 +325,9 @@ export class Input {
       if (alias) this.aliases.set(ev.code, alias);
       for (const code of codes) this.held.add(code);
       if (ev.repeat) return;
-      const key: KeyPress = { press, codes, action: alias ?? ev.code };
+      // A key typing + or - also zooms the map, whatever the layout (TYPED_ZOOM): part of this press, never held.
+      const typed = typeof ev.key === 'string' ? TYPED_ZOOM[ev.key] : undefined;
+      const key: KeyPress = { press, codes: typed ? [...codes, typed] : codes, action: alias ?? ev.code };
       // The same key again while one was held back (F F, P P): that one acts now, and this one is the same request.
       if (released === key.action) return;
       const hold = this.menuOpen ? press === this.menuHoldPress && SCREEN_KEYS.has(key.action) : key.action === 'KeyF' && this.inVehicle && this.exitAtStake;
@@ -581,6 +591,10 @@ export class Input {
     ui.down = this.pressed('ArrowDown', 'KeyS');
     ui.left = this.pressed('ArrowLeft', 'KeyA');
     ui.right = this.pressed('ArrowRight', 'KeyD');
+    ui.zoomIn = this.pressed('Equal', 'NumpadAdd', 'Typed+');
+    ui.zoomOut = this.pressed('Minus', 'NumpadSubtract', 'Typed-');
+    ui.panX = (this.key('ArrowRight', 'KeyD') ? 1 : 0) - (this.key('ArrowLeft', 'KeyA') ? 1 : 0);
+    ui.panY = (this.key('ArrowDown', 'KeyS') ? 1 : 0) - (this.key('ArrowUp', 'KeyW') ? 1 : 0);
 
     // Gamepad (standard mapping).
     const pad = this.standardPad();
@@ -645,6 +659,10 @@ export class Input {
       ui.down = ui.down || tap(13);
       ui.left = ui.left || tap(14);
       ui.right = ui.right || tap(15);
+      ui.zoomIn = ui.zoomIn || tap(5);
+      ui.zoomOut = ui.zoomOut || tap(4);
+      ui.panX = Math.max(-1, Math.min(1, (ui.panX ?? 0) + lx + (b(15) ? 1 : 0) - (b(14) ? 1 : 0)));
+      ui.panY = Math.max(-1, Math.min(1, (ui.panY ?? 0) + ly + (b(13) ? 1 : 0) - (b(12) ? 1 : 0)));
       this.padPrev = pad.buttons.map((x) => x.pressed);
     } else this.rtDown = false;
     return { player: p, lookX, lookY, ui, device: this.device };
