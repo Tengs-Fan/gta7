@@ -45,7 +45,7 @@ Progress stays in this browser: the game autosaves after every mission passed, E
 | Shoot / punch (on foot) | Left click | RT |
 | Aim (on foot) | Right click | LT |
 | Reload (on foot) | R | B |
-| Choose a weapon | 1–6, mouse wheel, Q (previous) | LB / RB (on foot) |
+| Choose a weapon | 1–6, mouse wheel, Q (previous) | LB / RB on foot, LB in a vehicle |
 | Accelerate / brake and reverse (vehicle) | W or Up / S or Down | RT / LT |
 | Handbrake (vehicle) | Space | RB or A |
 | Shoot from a vehicle (pistol or SMG) | Left click | X |
@@ -57,14 +57,14 @@ Progress stays in this browser: the game autosaves after every mission passed, E
 | Camera distance | V | R3 |
 | Map | M | Back |
 | Pause | Esc or P | Start |
-| Menus | W S or Up Down choose, A D or Left Right adjust, Enter or Space confirm, Esc or Backspace back | D-pad choose and adjust, A confirm, B back |
+| Menus | W S or Up Down choose, A D or Left Right adjust, Enter or Space confirm, Esc or Backspace back | D-pad or left stick choose and adjust, A confirm, B back |
 
 - Keys are matched by position and named here as on a US QWERTY keyboard.
   In the game, prompts and the CONTROLS screen show the names printed on your own layout, so on AZERTY you move with Z Q S D; Firefox and Safari learn the layout as you press keys.
 - The game captures the mouse when you start or resume play, or when you click the game view.
   Mouse look works only while it is captured, and losing it (Esc) pauses the game, as does switching to another tab.
 - Weapon slots: 1 Fists, 2 Pistol, 3 SMG, 4 Shotgun, 5 Assault Rifle, 6 Rocket Launcher.
-  The wheel, Q and LB / RB step through the weapons you own that still have ammo; in a vehicle only the pistol and SMG fire, and Q changes the station.
+  The wheel, Q and LB / RB step through the weapons you own that still have ammo; in a vehicle only the pistol and SMG fire, Q changes the station, and on a gamepad LB steps the weapons (RB is the handbrake).
 - Getting out of a moving car: below 3.5 m/s you step out, up to 11 m/s the car brakes first, and faster than that you bail out, tumble and lose 6 health.
 - Map: click, or press Enter, Space or A at the center cross, to set a waypoint, and do it again on the waypoint to clear it.
   Drag, the arrow keys, W A S D, the D-pad or the left stick pan; the wheel, + and -, or LB and RB zoom; M, Esc or Back close it.
@@ -123,7 +123,7 @@ Progress stays in this browser: the game autosaves after every mission passed, E
 
 Type a code during play: no Enter, any mix of upper and lower case, each letter within 1.5 seconds of the one before.
 A message confirms it ("Cheat activated", or "Cheat: god mode on" and "Cheat: god mode off" for IMMORTAL).
-The first letters of a code may briefly do their usual job (M opens the map, F starts to leave the car), and the game undoes that once the code is complete.
+The first letters of a code may briefly do their usual job (M opens the map, F gets you out of your car), and the game undoes that once the code is complete.
 
 | Code | Effect |
 | --- | --- |
@@ -183,8 +183,7 @@ All of these are minor; the most noticeable come first.
 - On foot the camera does not avoid vehicles, so with your back close to a bus or van it can end up on the far side, with the bodywork hiding you; step away or turn the camera.
 - Brushing past a street tree on foot, its trunk can hang in view for about half a second before the camera jumps in front of it.
 - Aiming while standing in a save, shop or mission marker puts the marker's floating diamond big in front of the camera; step out of the marker first.
-- Swimming a couple of meters off a quay or a Marina pier, swinging the camera over the edge makes it hop up in one frame.
-- Swimming right against a Marina pier with the far camera (V), a fast swing of the view can make the camera jump for a frame.
+- Swimming a couple of meters off a quay or a Marina pier, swinging the camera over the edge makes it hop up in one frame; right against a pier a fast swing with the far camera (V) can make it jump for a frame, and near the edge a wall, a crane leg or a change of camera distance can make it dive in toward you and back out.
 
 **Traffic and driving**
 
@@ -193,32 +192,75 @@ All of these are minor; the most noticeable come first.
 - When a car overtaking one left in the road meets oncoming traffic, the drivers can spend half a minute or more backing up and taking turns.
 - City buses turning at the four outer corners of the ring road crawl round the bend and swing into the oncoming lanes for a couple of seconds.
 - Getting into a bus from its front or back makes your character walk into the bodywork and pop into the seat; walk up to the middle of its driver's side instead.
+- A car that lands a jump on top of another car does not settle on its roof: both cars snap about a meter sideways in a single frame, undamaged.
 - A car or wreck that spins into the tall back corner of a stunt ramp can come to rest with the corner sticking into its side.
-- A car or bus sliding slowly off the side of the pier shows part of its body poking up through the deck for a second or two as it falls in.
+- A car or bus sliding slowly off the side of the pier shows part of its body poking up through the deck for a second or two as it falls in, and a car resting half inside the edge of the pier or the Marina deck can be shoved or steered about twice as deep into it, though it still drives away.
+- Near the land end of Azura Pier or the Marina deck, getting out of a car on the side that faces the edge can drop you about a meter onto the sand, where you cannot climb back up (walk round to the land end), and a wreck sunk under the deck can block getting out of a car parked above it ("No room to get out here") until you drive off.
+- Pressing F within a couple of meters of a car on the other side of a wall (Lou's garage, say) walks you straight through the wall into it.
+- Now and then a new city bus appears slightly overlapping the bus ahead of it in the same lane, usually out of sight, and both end up dented.
+
+<details><summary>More, by area</summary>
 
 **Police, combat and people**
 
-- If another vehicle smashes a car you left behind into a pedestrian and kills them, the death can be pinned on you, with a wanted star, even when you are far away.
-- With an enemy right at your right shoulder, an aimed pistol shot at his head or neck can miss; aim at his chest, fire from the hip or step back.
-- An enemy firing an SMG, rifle or shotgun from a step or two away keeps his gun slightly to one side of you and jerks it onto you with each shot.
+- After a police stop that ends calmly, the officer who got out on the passenger side can grind against his cruiser's side for about half a minute, unable to get back in, and is then left behind when it drives off.
+- A rocket fired at the sea flies on under the surface and blows up far out with no splash, yet still earns a wanted star, and bullets fired at the water likewise end under the surface.
+- At two stars or more, standing still on top of a stunt ramp to be arrested does not work: no officer climbs up, and about 45 seconds after they arrive they shoot you dead; come down off the ramp first.
+- If a car you left behind kills a pedestrian, either because another vehicle smashed it into them or because it was still rolling after you bailed out and died, the death can be pinned on you, with a wanted star, even when you are far away.
 - In a rampage, gang members' stray shots sometimes kill their own crew, and those kills don't count, but new gang members keep coming.
-- People who flee onto the narrow Marina piers walk off the side into the sea, and some stay paddling against a pier or a moored boat.
+- With an enemy right at your right shoulder, an aimed pistol shot at his head or neck can miss; aim at his chest, fire from the hip or step back.
+- Shots at the head and shoulders of someone who has been knocked down or killed pass straight through, though the hips and legs still register.
+- An enemy firing an SMG, rifle or shotgun from a step or two away keeps his gun slightly to one side of you and jerks it onto you with each shot.
+- People who flee onto the narrow Marina piers walk off the side into the sea, and some stay paddling against a pier or a moored boat; on the beach beside a pier or the Marina deck a fleeing person can get boxed in and stand frozen for up to about ten seconds.
+- When a car with people in it sinks in deep water, they vanish on the spot instead of swimming or dying, and nothing is counted as a kill or a crime.
+- Stunt ramps look solid, but bullets, officers' line of sight and explosions pass straight through them.
+- While you climb into a car (about half a second, longer for a carjack or a bus) you cannot be shot or run over: bullets and cars pass through you until you are seated.
 - At one star, an officer who ends up in the sea while you are swimming treads water until you leave it; swimming away still loses the star.
+- Officers on a pier cannot get back to a cruiser standing in the surf beside it: while you are wanted they pace back and forth at the pier's land end, and once you are not they give up and leave the car sitting dark in the water.
+- A police helicopter shot down over a garage (Lou's, for one) falls through the roof and explodes inside among whatever is parked there, and the lighthouse, the crane legs and the Ferris wheel do not stop its fall either.
+- A weapon pickup is used up even when that gun's ammo is already full: it shows "Pistol ammo." and adds nothing until it respawns.
+- With the IMMORTAL cheat on, hits that do no damage still make you spray blood, which can look as if you were hurt.
+- A shot aimed at you that misses can still fly on and hit an officer standing behind you.
+- A gunman firing from a tight gap beside a vehicle now and then puts a stray round into it.
+- A police car shoved into shallow water stays put there while you are close by.
+- At one star far out on Azura Pier, officers on foot can take so long to walk out that the star clears before they reach you.
+
+**Missions and jobs**
+
+- Hot Delivery's package and The Big Score's bank door respond only to you on foot: if you drive onto them nothing happens and the objective stays put, with no hint; get out of the car.
+- After you fail a mission, once MISSION FAILED fades, the objective line and a pink route on the radar can send you to Mama Lou ("Next: Mama Lou has work") while the prompt still says to press E to retry; retrying with E is quicker than driving to her.
+- A fade to black that hides a jump (a mission retry or a car hand-over in Lou's garage, say) can run out behind the pause menu if you pause just as it starts, so you watch the jump when you resume, and it can happen the same way below about 10 fps; a Spray Shack respray also shows its new paint a moment before the screen is fully dark.
+- The low-health hint suggests saving at the safehouse, but during a mission the safehouse refuses to save or heal, and the hint shows only once, so you will not see it again when its advice would work.
+- Pressing E at the safehouse within a second or so of stepping out of a taxi or vigilante car can wrongly answer "You can't save during a rampage"; press E again.
+- Quitting to the title on the BUSTED or WASTED screen just after passing a mission keeps the pass and its pay but skips the bail or hospital bill.
 
 **Graphics**
 
+- Pedestrians can pop into existence on sidewalks far down the street, in plain view, most of all in the first seconds of a new game and when you drive into new streets.
+- Old wrecks and dead bodies can vanish in a single frame while you are looking straight at them from 40 to 60 meters away.
+- At dawn and dusk the brightness and tint of the whole picture can take a small step every 15 seconds or so instead of shifting smoothly, on every graphics tier.
 - At night, tail and brake lights stay plain red without the glow that headlights and street lamps get on High and Medium, and braking barely brightens them.
+- A shot-down police helicopter tumbles out of the sky with no fire or smoke, leaving only the first puff where it was hit.
+- While your car burns, your character vanishes from his seat until you get out; this shows from the side and through the windscreen, and the default chase view mostly hides it.
 - On older or low-end GPUs that cannot render to high-precision buffers, paint, glass and chrome don't reflect the sky and bright lights don't glow, at any setting.
+- The small porches in front of houses (deck, posts and roof) and the bank's front steps are decoration only: cars, people and bullets pass through them.
 - At around 10 fps, water from a knocked-over fire hydrant comes out in separate puffs instead of a steady jet.
 
 **Menus, input and small windows**
 
+- When the top-right corner is crowded (armor, a job or mission status, the evade bar and the DISPATCH line), pop-up messages such as "Waypoint reached", "Cheat activated" and "Autosaved" sit on top of it for a couple of seconds, and in a 1024x768 window a title card such as TAXI DRIVER can land on the DISPATCH line.
 - In small windows (about 500 px tall or 800 px wide, or less), on-screen text can overlap: MISSION PASSED over a help message or an offer card, or the objective over the district name or the radar.
-- On Firefox and Safari with a layout that moves letters (AZERTY, Dvorak, Colemak), the CONTROLS screen and key prompts show US letters until you have pressed those keys once; prompts then correct themselves, and the CONTROLS screen does when you reopen it.
 - Typing a cheat with a menu open can make its first letter do its menu job (MONEYTREE typed on the map closes the map until the code is finished); type cheats during play.
+- Switching to another window during the WASTED or BUSTED screen, or at any time while the mouse is not captured, does not pause the game, so the city and any mission timer keep running in the background; pause with Esc or P before you switch away.
+- On Firefox and Safari with a layout that moves letters (AZERTY, Dvorak, Colemak), the CONTROLS screen and key prompts show US letters until you have pressed those keys once; prompts then correct themselves, and the CONTROLS screen does when you reopen it.
 - If you open the map while holding a movement key, then press and release the opposite key, the map keeps scrolling until you let go of the first key.
 - On a touchpad, a sideways two-finger swipe over the game now and then switches your weapon by one.
-- During a taxi or vigilante job, jumping out of a burning car with the keyboard and straight back in with a gamepad keeps the job going, while getting back in with the keyboard ends it.
+- On a gamepad in a vehicle, LB steps through all your weapons, including ones that cannot be fired from a car, on its way to the Pistol or SMG.
+- At speed, the radar's route line starts a little behind your arrow, because the route is planned again only once a second.
+- If the browser will not capture the mouse (in an embedded page, say), the camera on foot cannot be turned at all and nothing says why; open the game in its own tab.
+- On the title screen, the ambient hum and wind keep playing while the tab is in the background; mute the tab.
+
+</details>
 
 ## Architecture
 
@@ -263,7 +305,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-44 files with 1191 tests run in Node, with no browser.
+52 files with 1263 tests run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission completed by a scripted bot with its failure paths and retries, side jobs, saves, and a 10-minute chaotic soak test (36,000 frames with a seeded random player).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
@@ -271,7 +313,7 @@ The police tests are statistics over many deterministic seeds, and they set the 
 
 ### End-to-end tests
 
-70 tests in 17 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
+74 tests in 18 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
 They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, a murder that brings the police, WASTED, the menus, the gun shop, saving and continuing after a reload, the side jobs, night rendering and the quality tiers, WebGL context loss, crash screens, all nine cheats, and a two-minute chaos session that must average over 30 fps.
 Most tests also fail on any console error, console warning or page error.
 
@@ -332,7 +374,7 @@ scripts/with-slot.sh cpu npx vitest run
 ## Performance
 
 The game targets 60 fps on desktop hardware.
-On an RTX 3070 laptop at High it renders about <!-- PERF: draw calls on High --> draw calls at roughly <!-- PERF: CPU ms per frame on High --> ms of CPU per frame <!-- PERF: where and when measured, e.g. "on foot in Downtown at dusk" -->.
+On an RTX 3070 laptop at High (1600x900) it holds a steady 60 fps with about 260 to 600 draw calls and 0.86 to 0.89 million triangles, at roughly 6 to 8 ms of CPU per frame (about 2 ms of simulation and 4 to 5 ms of rendering), measured with the perf playtest at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
 Nothing adjusts itself at runtime: there is no dynamic resolution, and the tier only changes when you pick another one (see [Settings and graphics quality](#settings-and-graphics-quality) for what each tier trades away).
 `node scripts/playtest.mjs --scenario perf` prints fps, draw calls, triangles and heap at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
 `window.__gta7.state()` also reports `fps` (frames over the last second of game time: a frame counts for at most 0.1 s, so it never reads below 10), `render.calls` and `perf.frameMs`, `simMs` and `renderMs`, which describe the last frame only, so sample them many times.
