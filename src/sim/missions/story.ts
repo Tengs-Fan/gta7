@@ -324,11 +324,12 @@ const repo: MissionDef = {
       const delivered = yield* toLouGarage(m, "Bring the Nightjar to Lou's garage", { vehicle: car, maxSpeed: 5, abortIf: () => sim.player.vehicle !== car });
       if (delivered) break;
     }
+    // Lou pays less for a battered car (set before complete, which pays it).
+    const condition = car.condition;
+    if (condition < 0.5) m.reward = Math.round(m.def.reward * 0.6);
     m.complete();
     // Lou has the car now: whatever happens to it afterwards is her problem.
     m.clearFail(wreck);
-    const condition = car.condition;
-    if (condition < 0.5) m.reward = Math.round(m.def.reward * 0.6);
     yield* handOver(m, car);
     yield* m.say(LOU, condition < 0.5 ? 'You call this a delivery? I pay for cars, not scrap. Less money.' : "Look at that paint. You're my favorite now.");
     yield* m.say(LOU, "A friend of mine, Dex Moreau, wants to meet you. Moreau Tower, downtown. Be nice to him.");

@@ -183,13 +183,36 @@ export function drawBlip(ctx: CanvasRenderingContext2D, b: Blip, x: number, y: n
   ctx.restore();
 }
 
-/** Road-following GPS route (list of world points) from the player to a target. */
+/** Within this distance (m) of the lane he drives on, a car is on that road: its GPS route leads on along it. */
+const ROUTE_ON_ROAD = 12;
+/** What turning round costs (m) on top of the drive back: the GPS has a car turn back only when that is clearly shorter. */
+const ROUTE_TURN_BACK = 40;
+
+/**
+ * Road-following GPS route (list of world points) from the player to a target. A car on a road is led on to the
+ * junction ahead and on from there without turning straight back (as DriverAI plans), unless turning back to the
+ * junction behind is clearly shorter (the target is behind him); on foot, or off the road, it starts at the nearest one.
+ */
 export function gpsRoute(sim: Sim, tx: number, tz: number): Array<{ x: number; z: number }> {
   const pp = sim.playerPos();
   const roads = sim.roads;
-  const a = roads.nearestNode(pp.x, pp.z);
   const b = roads.nearestNode(tx, tz);
-  const route = roads.findRoute(a.id, b.id);
+  const v = sim.player.vehicle;
+  const on = v ? roads.nearestLane(pp.x, pp.z, v.heading) : null;
+  let route: number[] | null;
+  if (on && on.dist <= ROUTE_ON_ROAD) {
+    const { lane } = on;
+    const len = (r: number[]) => {
+      let l = Math.hypot(roads.nodes[r[0]!]!.x - pp.x, roads.nodes[r[0]!]!.z - pp.z);
+      for (let i = 1; i < r.length; i++) l += Math.hypot(roads.nodes[r[i]!]!.x - roads.nodes[r[i - 1]!]!.x, roads.nodes[r[i]!]!.z - roads.nodes[r[i - 1]!]!.z);
+      return l;
+    };
+    const ahead = roads.findRoute(lane.to, b.id, lane.from) ?? roads.findRoute(lane.to, b.id);
+    const back = roads.findRoute(lane.from, b.id);
+    route = ahead && (!back || len(ahead) <= len(back) + ROUTE_TURN_BACK) ? ahead : back;
+  } else {
+    route = roads.findRoute(roads.nearestNode(pp.x, pp.z).id, b.id);
+  }
   if (!route) return [];
   const pts = [{ x: pp.x, z: pp.z }];
   for (const id of route) pts.push({ x: roads.nodes[id]!.x, z: roads.nodes[id]!.z });

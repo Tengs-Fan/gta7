@@ -78,6 +78,8 @@ export class MissionCtx {
   done = false;
   /** The goal is met (see complete): nothing fails the mission any more. */
   won = false;
+  /** Marked done, paid and autosaved (see MissionSystem.settle). */
+  settled = false;
   private readonly it: Script;
   private current: Wait | null = null;
   /** Reward override (scripts may pay less for a damaged delivery). */
@@ -168,14 +170,21 @@ export class MissionCtx {
   }
 
   /**
-   * The mission's goal is met (each script calls this right after its last objective): it is passed from here
-   * on, whatever happens during its closing hand-over and lines. Its timer and fail checks stop counting, and a
-   * wasted, a busted or an abandon only cuts the rest short (see fail).
+   * The mission's goal is met (each script calls this right after its last objective, its reward set): it is
+   * passed from here on, whatever happens during its closing hand-over and lines. Its timer and fail checks stop
+   * counting, and a wasted, a busted or an abandon only cuts the rest short (see fail). It is marked done, paid
+   * and saved now, not at the end of those lines, so quitting during them cannot lose it (see MissionSystem.settle).
    */
   complete(): void {
     if (this.done || this.failedReason) return;
     this.won = true;
     this.timer = null;
+    // The finished objective must not sit under the closing lines either (goTo clears its own).
+    if (this.objectiveText) {
+      this.objectiveText = '';
+      this.sim.events.emit('objective', { text: '' });
+    }
+    this.sim.missions.settle(this);
   }
 
   /** Ends the mission as failed; past its goal (see complete) it ends passed instead, cut short. */
@@ -659,7 +668,7 @@ export class MissionSystem {
   private retry: RetryOffer | null = null;
   /** A retry under way: the player is moved and the mission restarted at `at`, behind the fade. */
   private pendingRetry: (RetryOffer & { at: number }) | null = null;
-  /** A mission passed while the player was down: its autosave waits until he is back up (see finish). */
+  /** A mission passed while the player was down: its autosave waits until he is back up (see settle and finish). */
   private saveOnRespawn = false;
 
   constructor(private readonly sim: Sim) {
@@ -749,6 +758,21 @@ export class MissionSystem {
     else if (m.done) this.finish(true, '');
   }
 
+  /**
+   * A passed mission is marked done, paid and autosaved, once: at its goal (see MissionCtx.complete), before its
+   * closing lines. Passed while the player is down, the save waits until he is back up (see update).
+   */
+  settle(m: MissionCtx): void {
+    if (m.settled) return;
+    m.settled = true;
+    const sim = this.sim;
+    sim.progress.markDone(m.def.id);
+    sim.progress.addMoney(m.reward);
+    sim.events.emit('money', { amount: m.reward });
+    if (sim.playerDown) this.saveOnRespawn = true;
+    else sim.events.emit('saveRequested', { poi: 'auto' });
+  }
+
   private finish(passed: boolean, reason: string): void {
     const sim = this.sim;
     const m = this.active;
@@ -769,15 +793,14 @@ export class MissionSystem {
       if (!down) sub = `${reason} - ${retryHint(sim)}`;
     }
     if (passed) {
-      sim.progress.markDone(m.def.id);
-      sim.progress.addMoney(m.reward);
-      sim.events.emit('money', { amount: m.reward });
+      // Settled at its goal already (see MissionCtx.complete), unless its script ended without one.
+      const settled = m.settled;
+      this.settle(m);
       sim.events.emit('big', { text: 'MISSION PASSED', sub: `$${m.reward.toLocaleString('en-US')}`, style: 'passed', duration: 5 });
       if (m.def.outro) sim.events.emit('big', { ...m.def.outro, style: 'title' });
-      // Passed past its goal while wasted or busted (see MissionCtx.complete): the save waits for the respawn,
-      // which pays the bill and keeps what the police take, so a loaded game cannot undo either.
-      if (sim.playerDown) this.saveOnRespawn = true;
-      else sim.events.emit('saveRequested', { poi: 'auto' });
+      // Wasted or busted during its closing lines: saved again after the respawn, which pays the bill and keeps
+      // what the police take, so a loaded game cannot undo either.
+      if (settled && sim.playerDown) this.saveOnRespawn = true;
     } else {
       sim.events.emit('big', { text: 'MISSION FAILED', sub, style: 'failed', duration: 4.5 });
     }
