@@ -76,8 +76,15 @@ const HIT_TIME = 0.12;
 const KILL_TIME = 0.25;
 /** The subtitle's fade-out (style.css .subtitle transition, s): the prompt stays above it until it is gone. */
 const SUBTITLE_FADE = 0.25;
-/** Within this distance (m) of where the GPS route leads, it is not drawn: the marker is in sight, and the route would only run out to the nearest junction and back. */
+/**
+ * Within this distance (m) of where the GPS route leads, it is not drawn: the marker is in sight, and the route would only run out to the nearest junction and back.
+ * The player's own waypoint is reached there, and cleared.
+ */
 const ROUTE_NEAR = 20;
+/** Seconds a showing hint may no longer apply (out of the car, health back, wasted) before it is taken off: passing states (getting in) keep it. */
+const HINT_STALE = 0.4;
+/** The radar's drawing size (px): its backing store follows its CSS size and the device pixel ratio, scaled from this. */
+const RADAR_SIZE = 220;
 /** Damage-direction arcs: how many at once, how long one fades (s), and within what angle a new hit refreshes an arc already up. */
 const ARCS = 4;
 const ARC_TIME = 1;
@@ -125,8 +132,11 @@ export class Hud {
   /** Device of the last input (Game writes it every frame); keys in HUD text are drawn for it. */
   device: InputDevice = 'kb';
   private sim: Sim | null = null;
-  /** What the help box shows, for how long it has, and (for a hint) whether it counts as read yet. */
-  private helpCur: (HelpEntry & { shown: number; read: boolean }) | null = null;
+  /**
+   * What the help box shows, for how long it has, and (for a hint) whether it counts as read yet and for how long it
+   * has no longer applied.
+   */
+  private helpCur: (HelpEntry & { shown: number; read: boolean; stale: number }) | null = null;
   private helpDevice: InputDevice = 'kb';
   private hintQueue: HelpEntry[] = [];
   private hintGap = 0;
@@ -137,6 +147,11 @@ export class Hud {
   /** Colour and waypoint the GPS route was planned for; a change re-plans it at once. */
   private routeColor = '';
   private routeWaypoint: { x: number; z: number } | null = null;
+  /** A side job (taxi, vigilante, rampage) was running last frame: one starting clears the waypoint, as a mission does. */
+  private jobRunning = false;
+  /** Window size and pixel ratio the radar's backing store was sized for, and its scale from RADAR_SIZE. */
+  private radarFit = '';
+  private radarScale = 1;
 
   constructor(parent: HTMLElement, private readonly map: MapImage, private readonly keys = new KeyLabels()) {
     this.root = document.createElement('div');
@@ -357,6 +372,7 @@ export class Hud {
     this.promptHtml = '';
     this.routeColor = '';
     this.routeWaypoint = null;
+    this.jobRunning = sim.activities.busy;
     this.el.help!.classList.remove('hint');
     this.el.objective!.classList.remove('next');
     this.el.prompt!.classList.remove('card', 'lou', 'dex');
@@ -432,7 +448,7 @@ export class Hud {
   }
 
   private showHelp(e: HelpEntry): void {
-    this.helpCur = { ...e, shown: 0, read: false };
+    this.helpCur = { ...e, shown: 0, read: false, stale: 0 };
     this.timers.help = e.duration;
     this.hintGap = 0;
     this.el.help!.classList.toggle('hint', e.kind === 'hint');
@@ -452,6 +468,18 @@ export class Hud {
     const cur = this.helpCur;
     if (cur && this.timers.help > 0) {
       cur.shown += dt;
+      // A hint whose situation is over (out of the car, the health back, wasted) goes, and unless it was read already it
+      // can come back when it applies again.
+      if (cur.kind === 'hint' && cur.hint?.valid) {
+        cur.stale = cur.hint.valid() ? 0 : cur.stale + dt;
+        if (cur.stale >= HINT_STALE) {
+          this.helpCur = null;
+          this.timers.help = 0;
+          this.el.help!.classList.remove('show');
+          this.hintGap = HINT_GAP;
+          return;
+        }
+      }
       if (cur.kind === 'hint' && !cur.read && cur.shown >= cur.duration / 2) this.markRead(cur);
       if (this.helpDevice !== this.device) this.renderHelp();
       return;
@@ -697,7 +725,45 @@ export class Hud {
     el.cross!.classList.toggle('blocked', showCross && sim.combat.muzzleBlocked(p));
     this.updateHitFeedback(dt, camYaw);
 
+    this.updateWaypoint(sim);
     this.drawRadar(sim, camYaw, time, dt);
+  }
+
+  /**
+   * The player's own waypoint is done once he gets within ROUTE_NEAR of it (where its route stops anyway): it goes,
+   * and the GPS leads to the objective or the contact again. A side job starting clears it as a mission does (game.ts);
+   * one set during the job stays until reached.
+   */
+  private updateWaypoint(sim: Sim): void {
+    const busy = sim.activities.busy;
+    if (busy && !this.jobRunning) this.waypoint = null;
+    this.jobRunning = busy;
+    const w = this.waypoint;
+    if (!w) return;
+    const p = sim.playerPos();
+    if (Math.hypot(w.x - p.x, w.z - p.z) >= ROUTE_NEAR) return;
+    this.waypoint = null;
+    this.toast('Waypoint reached');
+  }
+
+  /**
+   * Sizes the radar's backing store to its CSS box times the device pixel ratio (both change with the window, the
+   * browser zoom and the monitor), so it is drawn sharp instead of stretched; measured only when those change. Returns
+   * the scale from RADAR_SIZE drawing units to backing-store pixels.
+   */
+  private fitRadar(): number {
+    const win = typeof window === 'undefined' ? undefined : (window as Partial<Window>);
+    const dpr = Math.min(3, win?.devicePixelRatio && win.devicePixelRatio > 0 ? win.devicePixelRatio : 1);
+    const key = `${win?.innerWidth ?? 0}x${win?.innerHeight ?? 0}@${dpr}`;
+    if (key === this.radarFit) return this.radarScale;
+    const css = this.radar.clientWidth;
+    // Not laid out (the HUD hidden): measured again next time.
+    if (css > 0) this.radarFit = key;
+    const px = Math.max(1, Math.round((css > 0 ? css : RADAR_SIZE) * dpr));
+    if (this.radar.width !== px) this.radar.width = px;
+    if (this.radar.height !== px) this.radar.height = px;
+    this.radarScale = px / RADAR_SIZE;
+    return this.radarScale;
   }
 
   /** The prompt slot: an offer card at a contact's marker, else the prompt with its key glyphs. */
@@ -765,8 +831,11 @@ export class Hud {
 
   private drawRadar(sim: Sim, camYaw: number, time: number, dt: number): void {
     const ctx = this.radarCtx;
-    const W = this.radar.width;
-    const H = this.radar.height;
+    // Drawn in RADAR_SIZE units whatever the backing store's size (resizing it also resets the transform).
+    const k = this.fitRadar();
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    const W = RADAR_SIZE;
+    const H = RADAR_SIZE;
     const cx = W / 2;
     const cy = H / 2;
     const p = sim.playerPos();
