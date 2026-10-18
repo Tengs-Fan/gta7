@@ -163,9 +163,30 @@ function hemiLight(s: { top: THREE.Color; hemiI: number }, night: number, sky: T
   return Math.max(s.hemiI, 0.4 * night);
 }
 
-/** Strength of the image-based light (the baked sky) for a darkness. */
+/**
+ * Strength of the image-based light (the baked sky) for a darkness. three applies it, as
+ * scene.environmentIntensity, to every material that has no environment map of its own (all of them
+ * here), and it scales the sky's diffuse light as well as its reflections: it is the one reflection
+ * knob, so no material sets an envMapIntensity of its own (three would ignore it).
+ */
 function envIntensity(night: number): number {
   return 0.4 + 0.35 * (1 - night);
+}
+
+/** Colour of the baked sky's lower half (envMat): a dark haze under the horizon. */
+const HAZE = new THREE.Color(0.16, 0.15, 0.14);
+
+/**
+ * Average radiance of the baked sky (envMat) over the half a surface facing straight up sees, and the
+ * half one facing down sees, each weighted by the cosine: the diffuse part of the image-based light.
+ * Upwards mix(horizon, top, smoothstep(0, 0.6, h)) weighs the top 0.892 and the horizon 0.108, and
+ * the sun's lobe (2.5 pow(cos, 24) of its colour `sun`) adds 0.2 of it times the sun's height;
+ * downwards it is the haze. For the path without an environment map (see Environment.envFill).
+ */
+function skyIrradiance(top: THREE.Color, horizon: THREE.Color, sun: THREE.Color, sunY: number, up: THREE.Color, down: THREE.Color): void {
+  const k = 0.2 * Math.max(0, sunY);
+  up.setRGB(0.892 * top.r + 0.108 * horizon.r + k * sun.r, 0.892 * top.g + 0.108 * horizon.g + k * sun.g, 0.892 * top.b + 0.108 * horizon.b + k * sun.b);
+  down.setRGB(HAZE.r * (horizon.r + 0.2), HAZE.g * (horizon.g + 0.2), HAZE.b * (horizon.b + 0.2));
 }
 
 /** Share of the key light a puff of smoke scatters, against a surface facing the light. */
@@ -205,6 +226,37 @@ function noonPuffLight(): THREE.Color {
     noonPuff = puffLight(sky, ground, hemiI, s.sun, s.sunI * sunVisibility(sunDir.y), envIntensity(night), s.top, s.horizon, new THREE.Color());
   }
   return noonPuff;
+}
+
+/**
+ * The sea samples its ripple tile twice: as mapped (one tile per 6.67 m), and turned by atan2(sin, cos)
+ * (37 degrees) and enlarged by 1 / scale (2.69, far from any simple fraction), so the two repeats never
+ * line up and the sum shows no lattice; the second sample drifts its own way (see update).
+ */
+export const RIPPLE_B = { scale: 0.3719, cos: 0.8, sin: 0.6 } as const;
+
+/** Patches the sea's standard material to sum the two ripple samples (see RIPPLE_B). */
+function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetB: { value: THREE.Vector2 }): void {
+  const { scale, cos, sin } = RIPPLE_B;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uRippleB = offsetB;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uRippleB;').replace(
+      '#include <normal_fragment_maps>',
+      `#ifdef USE_NORMALMAP_TANGENTSPACE
+  vec3 rippleA = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
+  vec2 rippleUv = mat2( ${cos.toFixed(4)}, ${sin.toFixed(4)}, ${(-sin).toFixed(4)}, ${cos.toFixed(4)} ) * vNormalMapUv * ${scale.toFixed(4)} + uRippleB;
+  vec3 rippleB = texture2D( normalMap, rippleUv ).xyz * 2.0 - 1.0;
+  // The second sample's slopes, turned back into the first one's frame.
+  rippleB.xy = mat2( ${cos.toFixed(4)}, ${(-sin).toFixed(4)}, ${sin.toFixed(4)}, ${cos.toFixed(4)} ) * rippleB.xy;
+  vec3 mapN = vec3( ( rippleA.xy + rippleB.xy ) * 0.7071, ( rippleA.z + rippleB.z ) * 0.5 );
+  mapN.xy *= normalScale;
+  normal = normalize( tbn * mapN );
+#else
+#include <normal_fragment_maps>
+#endif`,
+    );
+  };
+  mat.customProgramCacheKey = () => 'gta7-sea-ripples';
 }
 
 /** The shadow map's texel grid is measured from a world point on a grid this coarse (m): see Environment.placeShadow. */
@@ -441,6 +493,9 @@ void main() {
     }
   }
   gl_FragColor = vec4(col, 1.0);
+  // No-ops when three draws into its HDR target (its output pass tone-maps); else this is the output.
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }`;
 
 type SkyQuality = 'low' | 'medium' | 'high';
@@ -453,6 +508,8 @@ export class Environment {
   readonly fog: THREE.Fog;
   private readonly skyMat: THREE.ShaderMaterial;
   private readonly waterNormal: THREE.Texture;
+  /** Offset of the sea's second ripple sample (RIPPLE_B), in its own tile units. */
+  private readonly rippleB = { value: new THREE.Vector2() };
   private readonly cloudNoise = cloudNoiseTexture();
   /** The PMREM target holding the environment map: allocated by the first bake and refilled by every later one. */
   private envTarget: THREE.WebGLRenderTarget | null = null;
@@ -466,9 +523,16 @@ export class Environment {
   /**
    * Light falling on a diffuse puff of smoke, spray or dust relative to noon, which is (1, 1, 1): the
    * unlit particle layers are multiplied by it, so they dim at night with everything lit, and take on
-   * the light's tint (orange at sunset, blue under the moon). See smokeLight().
+   * the light's tint (orange at sunset, blue under the moon). See updateSmokeLight.
    */
   readonly smokeLight = new THREE.Color(1, 1, 1);
+  /**
+   * Without float colour buffers (hdr false) there is no environment map: three's PMREM targets are
+   * half-float and would come out black, logging GL errors at every bake. This second hemisphere
+   * light then gives the scene the baked sky's diffuse light instead (skyIrradiance); only sharp
+   * reflections are missing on that path. Null when the environment map is baked.
+   */
+  readonly envFill: THREE.HemisphereLight | null;
   shadowsEnabled = true;
   /** Spread of the sky shader's cloud fbm at the current octave counts (main and high layer). */
   private cloudSd = CLOUD_SD[5]!;
@@ -476,12 +540,16 @@ export class Environment {
   private readonly onContextRestored = (): void => {
     // A restored WebGL context has lost the GPU copy of the environment map: re-bake on the next frame.
     this.envHours = Number.NaN;
+    this.envSunVis = Number.NaN;
   };
 
+  /** `hdr`: whether the GPU renders to half-float targets (probeGpu), which the environment map needs. */
   constructor(
     private readonly scene: THREE.Scene,
     private readonly renderer: THREE.WebGLRenderer,
+    opts: { hdr?: boolean } = {},
   ) {
+    const hdr = opts.hdr ?? true;
     this.fog = new THREE.Fog(0xaed0f2, 180, 760);
     scene.fog = this.fog;
 
@@ -544,13 +612,14 @@ export class Environment {
 
     this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x6b5a48, 1);
     scene.add(this.hemi);
+    this.envFill = hdr ? null : new THREE.HemisphereLight(0x000000, 0x000000, 1);
+    if (this.envFill) scene.add(this.envFill);
 
     this.waterNormal = waterNormalTexture();
     this.waterNormal.repeat.set(900, 900);
-    const water = new THREE.Mesh(
-      new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2),
-      new THREE.MeshStandardMaterial({ color: 0x135a73, roughness: 0.22, metalness: 0.1, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22), envMapIntensity: 1.8 }),
-    );
+    const waterMat = new THREE.MeshStandardMaterial({ color: 0x135a73, roughness: 0.22, metalness: 0.1, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22) });
+    twoLayerRipples(waterMat, this.rippleB);
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), waterMat);
     water.position.y = WATER_Y;
     water.receiveShadow = true;
     this.water = water;
@@ -569,10 +638,13 @@ export class Environment {
           gl_FragColor = vec4(c, 1.0); }`,
     });
     this.envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 24, 12), this.envMat));
-    try {
-      this.pmrem = new THREE.PMREMGenerator(renderer);
-    } catch {
-      this.pmrem = null;
+    this.pmrem = null;
+    if (hdr) {
+      try {
+        this.pmrem = new THREE.PMREMGenerator(renderer);
+      } catch {
+        this.pmrem = null;
+      }
     }
     renderer.domElement?.addEventListener?.('webglcontextrestored', this.onContextRestored);
   }
@@ -581,20 +653,24 @@ export class Environment {
   private readonly envMat: THREE.ShaderMaterial;
   private pmrem: THREE.PMREMGenerator | null;
   private envHours = Number.NaN;
+  /** sunVisibility at the last bake: the reflected sun is re-baked as it sets, not only every quarter hour. */
+  private envSunVis = Number.NaN;
+  private readonly envUp = new THREE.Color();
+  private readonly envDown = new THREE.Color();
+  private readonly envSun = new THREE.Color();
 
   /**
    * Re-bakes the environment map for the current sky (cheap: a 24-segment sphere). The sky is
    * rendered with one reused cube camera into one cube target, then prefiltered into the PMREM
    * target of the first bake, so scene.environment never changes identity and the env-mapped
-   * materials never re-resolve their programs.
+   * materials never re-resolve their programs. Never without half-float targets (no PMREM then).
    */
-  private refreshEnv(s: { top: THREE.Color; horizon: THREE.Color; sun: THREE.Color; sunI: number }, sunDir: THREE.Vector3, sunVis: number): void {
+  private refreshEnv(s: { top: THREE.Color; horizon: THREE.Color }, sun: THREE.Color, sunDir: THREE.Vector3): void {
     if (!this.pmrem) return;
     const u = this.envMat.uniforms;
     (u.uTop!.value as THREE.Color).copy(s.top);
     (u.uHorizon!.value as THREE.Color).copy(s.horizon);
-    // The reflected sun sets with the sky's (sunVisibility).
-    (u.uSun!.value as THREE.Color).copy(s.sun).multiplyScalar(Math.min(1.5, s.sunI / 2) * sunVis);
+    (u.uSun!.value as THREE.Color).copy(sun);
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);
     try {
       if (!this.cubeTarget || !this.cubeCamera) {
@@ -693,17 +769,31 @@ export class Environment {
     this.fog.color.copy(s.horizon).lerp(NIGHT_HORIZON_GLOW, dark * FOG_GLOW_STRENGTH).lerp(s.top, 0.15 * (1 - night));
     this.fog.near = lerp(180, 90, night);
     this.fog.far = lerp(780, 520, night);
-    this.scene.environmentIntensity = envIntensity(night);
+    const envI = envIntensity(night);
+    this.scene.environmentIntensity = envI;
     this.updateSmokeLight(s);
-    // Re-bake reflections every quarter game hour (or after a jump in time); NaN forces the first bake.
+    // The baked sky's sun, which sets with the sky's own (sunVisibility).
+    const envSun = this.envSun.copy(s.sun).multiplyScalar(Math.min(1.5, s.sunI / 2) * sunVis);
+    if (this.envFill) {
+      skyIrradiance(s.top, s.horizon, envSun, sunDir.y, this.envUp, this.envDown);
+      // A hemisphere light's colour is irradiance; the sky's diffuse light is PI x its average radiance.
+      this.envFill.color.copy(this.envUp).multiplyScalar(Math.PI * envI);
+      this.envFill.groundColor.copy(this.envDown).multiplyScalar(Math.PI * envI);
+    }
+    // Re-bake reflections every quarter game hour (or after a jump in time), and while the sun sets or
+    // rises, so its reflection fades with the sky's instead of in quarter-hour steps and is gone (or
+    // whole) with it; NaN forces the first bake.
     const diff = Math.abs(hours - this.envHours);
-    if (!(Math.min(diff, 24 - diff) <= 0.25)) {
+    const settled = (sunVis === 0 || sunVis === 1) && sunVis !== this.envSunVis;
+    if (!(Math.min(diff, 24 - diff) <= 0.25) || !(Math.abs(sunVis - this.envSunVis) <= 0.1) || settled) {
       this.envHours = hours;
-      this.refreshEnv(s, sunDir, sunVis);
+      this.envSunVis = sunVis;
+      this.refreshEnv(s, envSun, sunDir);
     }
     renderer.toneMappingExposure = s.exposure;
 
     this.waterNormal.offset.set((time * 0.012) % 1, (time * 0.008) % 1);
+    this.rippleB.value.set((time * -0.0061) % 1, (time * 0.0093) % 1);
   }
 
   /**
@@ -761,5 +851,6 @@ export class Environment {
   contextRestored(): void {
     this.envTarget = null;
     this.envHours = Number.NaN;
+    this.envSunVis = Number.NaN;
   }
 }

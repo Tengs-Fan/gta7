@@ -120,6 +120,9 @@ void main() {
   gl_FragColor.rgb *= uLight;
   #endif
   if (gl_FragColor.a < 0.004) discard;
+  // No-ops when three draws into its HDR target (its output pass tone-maps); else this is the output.
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
   #include <fog_fragment>
 }`;
 
@@ -344,6 +347,8 @@ uniform vec3 uLight;
 void main() {
   // Rubber on the road takes the scene's light like the road does: not lighter than the asphalt at night.
   gl_FragColor = vec4(vec3(0.04) * uLight, vA);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
   #include <fog_fragment>
 }`;
 
@@ -472,6 +477,8 @@ void main() {
     #endif
   #endif
   gl_FragColor = vec4(uColor, a);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }`;
 
 /**
@@ -617,7 +624,7 @@ class BodyParts {
   private ground: (x: number, z: number) => number = () => 0;
 
   constructor() {
-    this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.5, envMapIntensity: 1.2 }), MAX_PARTS);
+    this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.5 }), MAX_PARTS);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     // Creates the colour attribute up front, so the shader compiled at warm-up is the one used later.
     this.mesh.setColorAt(0, new THREE.Color(1, 1, 1));

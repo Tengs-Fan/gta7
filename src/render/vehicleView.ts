@@ -620,7 +620,7 @@ function kindAssets(kind: VehicleKind): KindAssets {
 
 // Shared materials.
 /** Transparent tinted glass. A white map keeps it on the same shader as the cracked variants (no hitch on first damage). */
-const GLASS = { transparent: true, opacity: 0.55, depthWrite: false, roughness: 0.05, envMapIntensity: 1.4 } as const;
+const GLASS = { transparent: true, opacity: 0.55, depthWrite: false, roughness: 0.05 } as const;
 
 function plainTexture(): THREE.Texture {
   const c = document.createElement('canvas');
@@ -651,7 +651,7 @@ const bodyMats = new Map<number, THREE.MeshStandardMaterial>();
 function bodyMaterial(color: number): THREE.MeshStandardMaterial {
   let m = bodyMats.get(color);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.55, envMapIntensity: 1.25, vertexColors: true });
+    m = new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.55, vertexColors: true });
     bodyMats.set(color, m);
   }
   return m;

@@ -5,10 +5,14 @@
 
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import * as environment from '../../src/render/environment';
 import { Environment } from '../../src/render/environment';
+import * as textures from '../../src/render/textures';
 import { CityView } from '../../src/render/city';
 import { PropsView } from '../../src/render/props';
 import { GameRenderer } from '../../src/render/renderer';
+import type { VehicleViewPool } from '../../src/render/vehicleView';
+import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
 import type { Sim } from '../../src/sim/sim';
 import { makeContact, obbVsAabb, type OBB } from '../../src/core/collision';
 import { vehicleObb } from '../../src/sim/vehiclePhysics';
@@ -105,9 +109,10 @@ describe('twilight key light (no phantom sun)', () => {
    * change of the key light (direction x intensity, colour x intensity), and every frame where a
    * sun below the sky's horizon test (sunDir.y < -0.05) still lights the scene.
    */
-  function sweep(h0: number, h1: number): { dL: number; dC: number; phantom: Array<{ h: number; y: number; i: number }>; at: number } {
+  function sweep(h0: number, h1: number): { dL: number; dC: number; phantom: Array<{ h: number; y: number; i: number }>; reflected: Array<{ h: number; y: number; sun: number }>; off: number; at: number } {
     const r = fakeRenderer();
     const env = new Environment(new THREE.Scene(), r);
+    const envSun = ((env as unknown as { envMat: THREE.ShaderMaterial }).envMat.uniforms.uSun!.value as THREE.Color);
     const cam = new THREE.PerspectiveCamera();
     const focus = new THREE.Vector3();
     let prevL: THREE.Vector3 | null = null;
@@ -115,7 +120,9 @@ describe('twilight key light (no phantom sun)', () => {
     let dL = 0;
     let dC = 0;
     let at = h0;
+    let off = 0;
     const phantom: Array<{ h: number; y: number; i: number }> = [];
+    const reflected: Array<{ h: number; y: number; sun: number }> = [];
     const frames = Math.round((h1 - h0) / FRAME_H);
     for (let k = 0; k <= frames; k++) {
       const h = (h0 + k * FRAME_H) % 24;
@@ -135,22 +142,31 @@ describe('twilight key light (no phantom sun)', () => {
       prevC = C;
       const moon = env.sun.color.equals(MOON_COLOR);
       if (env.sunDir.y < -0.05 && !moon && i > 1e-3) phantom.push({ h, y: env.sunDir.y, i });
+      // The sun reflected by the baked sky (the sea's glare) sets with the sky's too.
+      if (env.sunDir.y < -0.05 && lum(envSun) > 0) reflected.push({ h, y: env.sunDir.y, sun: lum(envSun) });
+      // While the sun lights the scene, its light comes from where the sky shows it (within the low-sun guard).
+      if (!moon && i > 1e-3) off = Math.max(off, keyDir(env).angleTo(env.sunDir));
     }
-    return { dL, dC, phantom, at };
+    return { dL, dC, phantom, reflected, off, at };
   }
 
   it('dusk: the sun light fades out with the sky sun and the moon fades in, without a one-frame swap', () => {
     const s = sweep(18.5, 20.5);
     expect(s.phantom.slice(0, 3), 'a sun below the horizon still lights the scene').toEqual([]);
+    expect(s.reflected.slice(0, 3), 'the baked sky still reflects a sun below the horizon').toEqual([]);
     expect(s.dL, `largest per-frame change of the key light at ${s.at.toFixed(4)} h`).toBeLessThan(0.01);
     expect(s.dC).toBeLessThan(0.01);
+    // The light never sits more than the guard (3 degrees above the horizon) away from the sky's sun.
+    expect(THREE.MathUtils.radToDeg(s.off)).toBeLessThan(5.9);
   });
 
   it('dawn: the moon fades out before the sun light comes up with the sky sun', () => {
     const s = sweep(4.5, 6.5);
     expect(s.phantom.slice(0, 3), 'a sun below the horizon already lights the scene').toEqual([]);
+    expect(s.reflected.slice(0, 3), 'the baked sky already reflects a sun below the horizon').toEqual([]);
     expect(s.dL, `largest per-frame change of the key light at ${s.at.toFixed(4)} h`).toBeLessThan(0.01);
     expect(s.dC).toBeLessThan(0.01);
+    expect(THREE.MathUtils.radToDeg(s.off)).toBeLessThan(5.9);
   });
 
   it('the moonlight does not jump at midnight', () => {
@@ -565,5 +581,179 @@ describe('Ferris wheel lights', () => {
     // By day they are off and the halos are not drawn.
     r.props.update(3, 0, 0);
     expect((f.wheel.getObjectByName('ferrisHalos') as THREE.Points).visible).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The sea's ripples do not tile into a lattice
+
+describe('sea ripples', () => {
+  const tileData = (): Uint8ClampedArray => {
+    const fn = (textures as Record<string, unknown>).waterNormalData as (() => Uint8ClampedArray) | undefined;
+    expect(fn, 'the ripple tile as data').toBeTypeOf('function');
+    return fn!();
+  };
+  const S = 256;
+
+  it('the ripple tile has no dominant crest train and keeps the old ripple contrast', () => {
+    const d = tileData();
+    const nx = (i: number) => (d[i * 4]! / 255) * 2 - 1;
+    const ny = (i: number) => (d[i * 4 + 1]! / 255) * 2 - 1;
+    let s2 = 0;
+    for (let i = 0; i < S * S; i++) s2 += nx(i) ** 2 + ny(i) ** 2;
+    // The round-2 tile's RMS tilt was 0.214.
+    expect(Math.abs(Math.sqrt(s2 / (S * S)) - 0.214)).toBeLessThan(0.01);
+    // Share of the x slope's power in its strongest Fourier component (the round-2 tile: 0.61).
+    let best = 0;
+    let total = 0;
+    for (let kx = -16; kx <= 16; kx++) {
+      for (let ky = 0; ky <= 16; ky++) {
+        if (ky === 0 && kx <= 0) continue;
+        let re = 0;
+        let im = 0;
+        for (let y = 0; y < S; y += 2) {
+          for (let x = 0; x < S; x += 2) {
+            const ph = ((kx * x + ky * y) / S) * Math.PI * 2;
+            const v = nx(y * S + x);
+            re += v * Math.cos(ph);
+            im += v * Math.sin(ph);
+          }
+        }
+        const pw = re * re + im * im;
+        total += pw;
+        best = Math.max(best, pw);
+      }
+    }
+    expect(best / total).toBeLessThan(0.2);
+  });
+
+  it('the sea draws the tile twice, turned and scaled by an irrational ratio, so the sum does not repeat with the tile', () => {
+    const env = new Environment(new THREE.Scene(), fakeRenderer());
+    const mat = env.water.material as THREE.MeshStandardMaterial;
+    const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} as Record<string, THREE.IUniform> };
+    mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, fakeRenderer());
+    expect(shader.fragmentShader.match(/texture2D\( normalMap/g)?.length ?? 0, 'normal-map samples').toBeGreaterThanOrEqual(2);
+    expect(shader.uniforms.uRippleB).toBeTruthy();
+    expect(mat.customProgramCacheKey()).not.toBe(new THREE.MeshStandardMaterial().customProgramCacheKey());
+    // The summed slope field as the shader forms it, sampled over the sea: its correlation with itself
+    // one tile (6000 m / 900) along x or z. A single tile repeats exactly (1).
+    const d = tileData();
+    const rb = (environment as Record<string, unknown>).RIPPLE_B as { scale: number; cos: number; sin: number };
+    const at = (u: number, v: number, c: number) => {
+      const x = ((Math.floor(u * S) % S) + S) % S;
+      const y = ((Math.floor(v * S) % S) + S) % S;
+      return (d[(y * S + x) * 4 + c]! / 255) * 2 - 1;
+    };
+    const field = (wx: number, wz: number): [number, number] => {
+      const u = (wx / 6000) * 900;
+      const v = (wz / 6000) * 900;
+      const ub = (rb.cos * u - rb.sin * v) * rb.scale;
+      const vb = (rb.sin * u + rb.cos * v) * rb.scale;
+      const bx = at(ub, vb, 0);
+      const by = at(ub, vb, 1);
+      return [(at(u, v, 0) + rb.cos * bx + rb.sin * by) * 0.7071, (at(u, v, 1) - rb.sin * bx + rb.cos * by) * 0.7071];
+    };
+    const T = 6000 / 900;
+    const corr = (lx: number, lz: number) => {
+      let sab = 0;
+      let saa = 0;
+      let sbb = 0;
+      for (let i = 0; i < 4000; i++) {
+        const x = 37.3 + (i % 63) * 5.31;
+        const z = -91.7 + Math.floor(i / 63) * 4.73;
+        const a = field(x, z);
+        const b = field(x + lx, z + lz);
+        sab += a[0] * b[0] + a[1] * b[1];
+        saa += a[0] ** 2 + a[1] ** 2;
+        sbb += b[0] ** 2 + b[1] ** 2;
+      }
+      return sab / Math.sqrt(saa * sbb);
+    };
+    for (const [lx, lz] of [[T, 0], [0, T], [2 * T, 0], [T, T]]) expect(corr(lx, lz), `lag (${lx.toFixed(2)}, ${lz.toFixed(2)})`).toBeLessThan(0.65);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Without float colour buffers, and the per-material reflection strengths
+
+describe('without float colour buffers', () => {
+  /** A renderer on a GPU with or without half-float render targets, showing a sim at a time of day. */
+  function rendererAt(halfFloat: boolean): { r: GameRenderer; show: (hours: number) => void } {
+    const r = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, world(), { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat } });
+    const sim = makeSim({ world: world() });
+    r.attach(sim);
+    sim.clock.rate = 0;
+    return {
+      r,
+      show: (hours: number) => {
+        sim.clock.set(hours);
+        r.render(DT, false);
+      },
+    };
+  }
+  type EnvPriv = { pmrem: unknown; cubeTarget: unknown; envTarget: unknown };
+
+  it('bakes no environment map (whose half-float targets would come out black) and lights the scene with the sky through a fill light', () => {
+    const { r, show } = rendererAt(false);
+    const env = r.env as unknown as EnvPriv;
+    const fill: Record<number, number> = {};
+    for (const h of [12, 18.5, 22, 6]) {
+      show(h);
+      expect(r.scene.environment, `${h} h`).toBeNull();
+      expect(r.env.envFill, 'the sky light instead').toBeTruthy();
+      fill[h] = lum(r.env.envFill!.color);
+    }
+    expect(env.pmrem, 'no PMREM generator (its targets are half-float)').toBeNull();
+    expect(env.cubeTarget, 'no half-float cube target').toBeNull();
+    expect(env.envTarget).toBeNull();
+    // The fill follows the sky: bright at noon, dim at night, never black by day.
+    expect(fill[12]!).toBeGreaterThan(lum(r.env.hemi.color) * 0.5);
+    expect(fill[22]!).toBeLessThan(0.2 * fill[12]!);
+    expect(fill[6]!).toBeGreaterThan(0);
+    // With half-float targets nothing changes: the baked sky lights and reflects, with no fill.
+    const hdr = rendererAt(true);
+    hdr.show(12);
+    expect((hdr.r.env as unknown as EnvPriv).pmrem).toBeTruthy();
+    expect(hdr.r.env.envFill).toBeNull();
+  });
+
+  it('every custom shader drawn to the screen tone-maps and sRGB-encodes its own output when there is no output pass', () => {
+    const { r, show } = rendererAt(false);
+    show(12);
+    const shaders: string[] = [];
+    r.scene.traverse((o) => {
+      const mats = (o as THREE.Mesh).material;
+      for (const m of Array.isArray(mats) ? mats : mats ? [mats] : []) {
+        if (!(m instanceof THREE.ShaderMaterial) || m instanceof THREE.RawShaderMaterial) continue;
+        shaders.push(`${o.name || o.type}`);
+        expect(m.fragmentShader, `${o.name || o.type}`).toContain('#include <tonemapping_fragment>');
+        expect(m.fragmentShader, `${o.name || o.type}`).toContain('#include <colorspace_fragment>');
+      }
+    });
+    // The sky, both particle layers, the skid marks, the tracers and the lighthouse beam at least.
+    expect(shaders.length).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe('reflection strength', () => {
+  it('no material carries an envMapIntensity of its own, which three would ignore for scene.environmentIntensity', () => {
+    const r = new GameRenderer(document.createElement('canvas') as unknown as HTMLCanvasElement, world(), { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat: true } });
+    const dead: string[] = [];
+    const check = (o: THREE.Object3D): void => {
+      const mats = (o as THREE.Mesh).material;
+      for (const m of Array.isArray(mats) ? mats : mats ? [mats] : []) {
+        const s = m as THREE.MeshStandardMaterial;
+        if (s.isMeshStandardMaterial && !s.envMap && s.envMapIntensity !== 1) dead.push(`${o.name || o.type} ${s.envMapIntensity}`);
+      }
+    };
+    r.scene.traverse(check);
+    // Every vehicle kind's view as well (pooled, in the scene only while a car of its kind is shown).
+    const pool = (r as unknown as { pool: VehicleViewPool }).pool;
+    for (const kind of Object.keys(VEHICLE_SPECS) as VehicleKind[]) {
+      const v = pool.acquire(kind);
+      v.group.traverse(check);
+      pool.release(v);
+    }
+    expect(dead).toEqual([]);
   });
 });

@@ -137,7 +137,8 @@ export class GameRenderer {
     this.cameraCtl = new CameraController(canvas.clientWidth / Math.max(1, canvas.clientHeight));
     this.cameraCtl.baseFov = settings.fov;
 
-    this.env = new Environment(this.scene, this.renderer);
+    // Without half-float targets there is no environment map (three's PMREM needs them).
+    this.env = new Environment(this.scene, this.renderer, { hdr: this.hdr });
     this.city = new CityView(world);
     this.props = new PropsView(world);
     this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group);

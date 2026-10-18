@@ -157,36 +157,6 @@ float fadeBayer4( vec2 frag ) {
   };
 }
 
-/**
- * Makes an instanced material discard fragments whose world x / z fall outside the instance's `aClip`
- * rectangle (min x, min z, max x, max z): a light pool stays on the deck or the land its lamp stands
- * on, at no cost and without distorting its falloff.
- */
-function clipToRect(mat: THREE.Material): void {
-  mat.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec4 aClip;\nvarying vec4 vClipRect;\nvarying vec2 vClipXZ;')
-      .replace(
-        '#include <project_vertex>',
-        `#include <project_vertex>
-vec4 clipWorld = vec4( transformed, 1.0 );
-#ifdef USE_INSTANCING
-clipWorld = instanceMatrix * clipWorld;
-#endif
-vClipXZ = ( modelMatrix * clipWorld ).xz;
-vClipRect = aClip;`,
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec4 vClipRect;\nvarying vec2 vClipXZ;')
-      .replace(
-        '#include <clipping_planes_fragment>',
-        `#include <clipping_planes_fragment>
-if ( vClipXZ.x < vClipRect.x || vClipXZ.y < vClipRect.y || vClipXZ.x > vClipRect.z || vClipXZ.y > vClipRect.w ) discard;`,
-      );
-  };
-  mat.customProgramCacheKey = () => 'gta7-clip-rect';
-}
-
 const BEAM_LENGTH = 90;
 const GLOW_COLOR = new THREE.Color(0xffe6b0);
 
@@ -272,7 +242,39 @@ void main() {
     #endif
   #endif
   gl_FragColor = vec4( uColor, a );
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }`;
+
+/**
+ * Makes an instanced material discard fragments whose world x / z fall outside the instance's `aClip`
+ * rectangle (min x, min z, max x, max z): a light pool stays on the deck or the land its lamp stands
+ * on, at no cost and without distorting its falloff.
+ */
+function clipToRect(mat: THREE.Material): void {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec4 aClip;\nvarying vec4 vClipRect;\nvarying vec2 vClipXZ;')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+vec4 clipWorld = vec4( transformed, 1.0 );
+#ifdef USE_INSTANCING
+clipWorld = instanceMatrix * clipWorld;
+#endif
+vClipXZ = ( modelMatrix * clipWorld ).xz;
+vClipRect = aClip;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec4 vClipRect;\nvarying vec2 vClipXZ;')
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+if ( vClipXZ.x < vClipRect.x || vClipXZ.y < vClipRect.y || vClipXZ.x > vClipRect.z || vClipXZ.y > vClipRect.w ) discard;`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'gta7-clip-rect';
+}
 
 export class PropsView {
   readonly group = new THREE.Group();

@@ -650,8 +650,9 @@ describe('round 2 city: sky and environment map', () => {
   });
 
   it('keeps one environment-map target across re-bakes', () => {
-    const env = R.env;
-    const scene = R.scene;
+    // An environment map is baked only on a GPU with half-float targets (R probes none here).
+    const scene = new THREE.Scene();
+    const env = new Environment(scene, R.renderer, { hdr: true });
     const pmrem = (env as unknown as { pmrem: THREE.PMREMGenerator }).pmrem;
     const allocations: THREE.WebGLRenderTarget[] = [];
     const orig = pmrem.fromCubemap.bind(pmrem);

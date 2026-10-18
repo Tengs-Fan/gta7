@@ -412,7 +412,6 @@ export class CityView {
         roughness: 1,
         metalness: glass ? 0.25 : 0.02,
         vertexColors: true,
-        envMapIntensity: glass ? 1.4 : 0.6,
       });
       const sn = STYLE_NIGHT[style];
       nightShader(mat, 'gta7-facade-night', { uOccupancy: nu.occupancy, uTime: nu.time, uStyleOcc: { value: sn.occ }, uFloorShare: { value: sn.floors } }, FACADE_FRAG_MAIN);
@@ -434,7 +433,6 @@ export class CityView {
       vertexColors: true,
       roughness: 0.55,
       metalness: 0.05,
-      envMapIntensity: 0.9,
     });
     nightShader(frontMat, 'gta7-storefront-night', { uOccupancy: nu.occupancy, uShopOcc: nu.shopOccupancy }, FRONT_FRAG_MAIN);
     this.materials.storefront = frontMat;

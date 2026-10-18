@@ -380,37 +380,106 @@ export function groundTexture(kind: GroundTex, seed = 1): THREE.Texture {
   return toTexture(c);
 }
 
-/** Tileable water normal map from summed sine waves. */
+/** Side of the sea's ripple tile (px). */
+export const WATER_TILE = 256;
+/** Crest trains summed into the tile, their wave numbers (whole cycles per tile, so it repeats seamlessly) between these. */
+const WATER_WAVES = 24;
+const WATER_K_MIN = 4;
+const WATER_K_MAX = 14;
+/** RMS tilt (length of the unit normal's x, y) of the tile: as the round-2 tile's, so the ripples keep their contrast. */
+export const WATER_TILT = 0.214;
+
+/**
+ * The sea's ripple tile as RGBA tangent-space normals (row-major, WATER_TILE square): crest trains in
+ * every direction, their heights falling as 1 / |k| so that each carries about the same slope and none
+ * dominates the tile (one train of the round-2 tile held 61% of its power, and showed as a lattice
+ * where dozens of tiles fit on screen); no long waves, which the coarse mipmaps would keep. The sea
+ * draws the tile twice, at two scales and angles (Environment), so its repeat does not line up.
+ */
+export function waterNormalData(): Uint8ClampedArray {
+  const S = WATER_TILE;
+  const rng = new Rng(99);
+  const waves: Array<[number, number, number, number]> = [];
+  while (waves.length < WATER_WAVES) {
+    const kx = rng.int(-WATER_K_MAX, WATER_K_MAX);
+    const ky = rng.int(-WATER_K_MAX, WATER_K_MAX);
+    const k = Math.hypot(kx, ky);
+    if (k < WATER_K_MIN || k > WATER_K_MAX) continue;
+    if (waves.some(([x, y]) => (x === kx && y === ky) || (x === -kx && y === -ky))) continue;
+    waves.push([kx, ky, rng.range(0, Math.PI * 2), rng.range(0.75, 1) / k]);
+  }
+  // Each train a sin(u(x) + v(y)), summed as sin u cos v + cos u sin v from per-column and per-row tables.
+  const h = new Float32Array(S * S);
+  const su = new Float64Array(S);
+  const cu = new Float64Array(S);
+  const sv = new Float64Array(S);
+  const cv = new Float64Array(S);
+  for (const [kx, ky, ph, a] of waves) {
+    for (let i = 0; i < S; i++) {
+      const u = ((kx * i) / S) * Math.PI * 2;
+      const v = ((ky * i) / S) * Math.PI * 2 + ph;
+      su[i] = Math.sin(u);
+      cu[i] = Math.cos(u);
+      sv[i] = Math.sin(v) * a;
+      cv[i] = Math.cos(v) * a;
+    }
+    for (let y = 0; y < S; y++) {
+      const s = sv[y]!;
+      const c = cv[y]!;
+      for (let x = 0; x < S; x++) h[y * S + x] = h[y * S + x]! + su[x]! * c + cu[x]! * s;
+    }
+  }
+  const gx = new Float32Array(S * S);
+  const gy = new Float32Array(S * S);
+  const g2 = new Float32Array(S * S);
+  let sum2 = 0;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = y * S + x;
+      gx[i] = h[y * S + ((x + 1) % S)]! - h[y * S + ((x - 1 + S) % S)]!;
+      gy[i] = h[((y + 1) % S) * S + x]! - h[((y - 1 + S) % S) * S + x]!;
+      g2[i] = gx[i]! * gx[i]! + gy[i]! * gy[i]!;
+      sum2 += g2[i]!;
+    }
+  }
+  // The slope scale that gives the tile its RMS tilt. Normalising the normals only lowers the tilt, so
+  // it lies above the small-slope estimate (and well under 1.5 times it): bisection between the two.
+  const tilt = (g: number): number => {
+    let sum = 0;
+    for (let i = 0; i < S * S; i++) {
+      const q = g2[i]! * g * g;
+      sum += q / (q + 1);
+    }
+    return Math.sqrt(sum / (S * S));
+  };
+  let lo = WATER_TILT / Math.sqrt(sum2 / (S * S));
+  let hi = lo * 1.5;
+  while (tilt(hi) < WATER_TILT) hi *= 2;
+  for (let i = 0; i < 16; i++) {
+    const mid = (lo + hi) / 2;
+    if (tilt(mid) < WATER_TILT) lo = mid;
+    else hi = mid;
+  }
+  const g = (lo + hi) / 2;
+  const data = new Uint8ClampedArray(S * S * 4);
+  for (let i = 0; i < S * S; i++) {
+    const nx = -gx[i]! * g;
+    const ny = -gy[i]! * g;
+    const l = Math.sqrt(nx * nx + ny * ny + 1);
+    data[i * 4] = ((nx / l) * 0.5 + 0.5) * 255;
+    data[i * 4 + 1] = ((ny / l) * 0.5 + 0.5) * 255;
+    data[i * 4 + 2] = ((1 / l) * 0.5 + 0.5) * 255;
+    data[i * 4 + 3] = 255;
+  }
+  return data;
+}
+
+/** Tileable water normal map (waterNormalData). */
 export function waterNormalTexture(): THREE.Texture {
-  const S = 256;
+  const S = WATER_TILE;
   const [c, ctx] = canvas(S, S);
   const img = ctx.createImageData(S, S);
-  const h = new Float32Array(S * S);
-  const waves: Array<[number, number, number, number]> = [];
-  const rng = new Rng(99);
-  for (let i = 0; i < 9; i++) waves.push([rng.int(1, 6), rng.int(-5, 5), rng.range(0, 6.28), rng.range(0.3, 1) / (i + 1)]);
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      let v = 0;
-      for (const [kx, ky, ph, a] of waves) v += Math.sin(((kx * x + ky * y) / S) * Math.PI * 2 + ph) * a;
-      h[y * S + x] = v;
-    }
-  }
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      const dx = h[y * S + ((x + 1) % S)]! - h[y * S + ((x - 1 + S) % S)]!;
-      const dy = h[((y + 1) % S) * S + x]! - h[((y - 1 + S) % S) * S + x]!;
-      const nx = -dx * 2;
-      const ny = -dy * 2;
-      const nz = 1;
-      const l = Math.hypot(nx, ny, nz);
-      const i = (y * S + x) * 4;
-      img.data[i] = ((nx / l) * 0.5 + 0.5) * 255;
-      img.data[i + 1] = ((ny / l) * 0.5 + 0.5) * 255;
-      img.data[i + 2] = ((nz / l) * 0.5 + 0.5) * 255;
-      img.data[i + 3] = 255;
-    }
-  }
+  img.data.set(waterNormalData());
   ctx.putImageData(img, 0, 0);
   return toTexture(c, false);
 }
