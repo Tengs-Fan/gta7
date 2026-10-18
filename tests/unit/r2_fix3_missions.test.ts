@@ -830,6 +830,24 @@ describe('a taxi fare walks to the cab', () => {
     expect(job().stage).toBe('dropoff');
   });
 
+  it('a job called off while he walks out to the cab sends him back to the sidewalk he came from', () => {
+    const { sim, fare } = cabAndFare(7);
+    const spot = { x: fare.pos.x, z: fare.pos.z };
+    step(sim, 2.2);
+    expect(sim.world.isOnRoad(fare.pos.x, fare.pos.z)).toBe(true);
+    const from = Math.hypot(fare.pos.x - spot.x, fare.pos.z - spot.z);
+    sim.update(1 / 60, input({ job: true }));
+    expect(sim.activities.job).toBeNull();
+    expect(fare.persistent).toBe(false);
+    // Off the road again within a couple of seconds, back where he came from (not on across the street)...
+    step(sim, 2);
+    expect(sim.world.isOnRoad(fare.pos.x, fare.pos.z)).toBe(false);
+    expect(Math.hypot(fare.pos.x - spot.x, fare.pos.z - spot.z)).toBeLessThan(Math.min(1.5, from));
+    // ...and a pedestrian like any other from there.
+    step(sim, 2);
+    expect(fare.brain?.mode).toBe('wander');
+  });
+
   it('a cab that stops again while he walks back, then leaves, still sends him back to the sidewalk', () => {
     const { sim, taxi, fare } = cabAndFare(7);
     const spot = { x: fare.pos.x, z: fare.pos.z };
@@ -878,6 +896,73 @@ describe('a fare let out of a cab left across the road', () => {
     }
     expect(lanes.length).toBeGreaterThan(20);
     expect(onRoad).toEqual([]);
+  });
+
+  it('lets him out clear of the cab and out of its way, however it points and rolls', () => {
+    const sim = makeSim({ ambient: false, police: false });
+    const lanes = sim.roads.lanes.filter((l) => l.length > 40).filter((_, i) => i % 7 === 0);
+    const fare = sim.spawnCharacter('civilian', 0, 0);
+    const place = (sim.activities as unknown as { placeOnSidewalk(c: Character, v: Vehicle): void }).placeOnSidewalk.bind(sim.activities);
+    const cab = sim.spawnVehicle('taxi', 0, 0, 0);
+    const hit: string[] = [];
+    for (const lane of lanes) {
+      for (const turn of [0, 0.4, 0.8, Math.PI / 2, Math.PI]) {
+        // At rest, rolling forwards or backwards, sliding to either side.
+        for (const [ahead, side] of [[0, 0], [6, 0], [-6, 0], [0, 5], [0, -5]] as const) {
+          cab.pos.x = lane.sx + lane.dx * lane.length * 0.5;
+          cab.pos.z = lane.sz + lane.dz * lane.length * 0.5;
+          cab.heading = lane.heading + turn;
+          const fx = Math.sin(cab.heading);
+          const fz = Math.cos(cab.heading);
+          const rx = -Math.cos(cab.heading);
+          const rz = Math.sin(cab.heading);
+          cab.vel.x = fx * ahead + rx * side;
+          cab.vel.z = fz * ahead + rz * side;
+          place(fare, cab);
+          // Where the cab will be over the next 0.8 s: never on him (his radius 0.4).
+          for (let t = 0; t <= 0.8; t += 0.1) {
+            const dx = fare.pos.x - (cab.pos.x + cab.vel.x * t);
+            const dz = fare.pos.z - (cab.pos.z + cab.vel.z * t);
+            if (Math.abs(dx * fx + dz * fz) < cab.halfL + 0.4 && Math.abs(dx * rx + dz * rz) < cab.halfW + 0.4) {
+              hit.push(`lane ${lane.id} turn ${turn.toFixed(2)} rolling ${ahead},${side} at ${t.toFixed(1)} s`);
+              break;
+            }
+          }
+        }
+      }
+    }
+    expect(hit).toEqual([]);
+  });
+
+  it('is not run over by a cab left across the road and still reversing when his time runs out', () => {
+    const sim = makeSim({ ambient: false, police: false });
+    const lane = sim.roads.lanes.find((l) => l.lanesInDir === 1 && l.length > 60 && Math.abs(l.sx) < 300 && Math.abs(l.sz) < 300)!;
+    const x = lane.sx + lane.dx * lane.length * 0.5;
+    const z = lane.sz + lane.dz * lane.length * 0.5;
+    const taxi = sim.spawnVehicle('taxi', x, z, lane.heading);
+    placeInCar(sim, taxi);
+    step(sim, 0.05);
+    sim.activities.toggleJob();
+    const job = () => sim.activities.job as unknown as { stage: string; fare: Character | null; timer: number };
+    const fare = job().fare!;
+    fare.pos.x = x - Math.cos(lane.heading) * 3.5;
+    fare.pos.z = z + Math.sin(lane.heading) * 3.5;
+    stepUntil(sim, () => fare.vehicle === taxi, 3);
+    // Square across a street running east-west, backing up at 6 m/s as the fare's time runs out.
+    parkIn(sim, taxi, -418, -468.1);
+    expect(Math.abs(Math.sin(sim.roads.nearestLane(-418, -468.1).lane.heading))).toBeCloseTo(1, 3);
+    taxi.heading = Math.PI;
+    taxi.vel.z = 6;
+    job().timer = 0.001;
+    const health = fare.health;
+    sim.update(1 / 60, input());
+    expect(fare.vehicle).toBeNull();
+    expect(sim.activities.job).toBeNull();
+    step(sim, 0.6);
+    expect(fare.health).toBe(health);
+    expect(fare.state).toBe('normal');
+    expect(fare.lastAttacker).toBeNull();
+    expect(sim.world.isOnRoad(fare.pos.x, fare.pos.z)).toBe(false);
   });
 });
 

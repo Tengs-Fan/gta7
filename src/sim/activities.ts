@@ -3,6 +3,7 @@
 import { formatMoney } from '../core/math';
 import { makeBrain } from './brains';
 import type { Character, Vehicle } from './entities';
+import { setTimeoutLike } from './pickups';
 import type { Sim } from './sim';
 
 export interface Objective {
@@ -155,7 +156,9 @@ export class Activities {
         sim.unseat(j.fare);
         if (j.fare.alive) this.placeOnSidewalk(j.fare, cab);
       }
+      const walking = j.fare.brain?.mode === 'guard';
       this.releaseCharacter(j.fare);
+      if (walking) this.walkBack(j.fare, j.waitX, j.waitZ);
     }
     if (j.kind === 'vigilante') {
       if (j.target) this.releaseVehicle(j.target);
@@ -182,6 +185,26 @@ export class Activities {
         c.brain.toNode = -1;
       }
     }
+  }
+
+  /**
+   * A fare let go on his way to the cab (maybe in the road): he walks back to the sidewalk spot he set off from (the
+   * guard brain walks him, see board), and wanders off from there once he has had the time to get there.
+   */
+  private walkBack(c: Character, x: number, z: number): void {
+    const b = c.brain;
+    const dx = x - c.pos.x;
+    const dz = z - c.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (!b || d < 0.6) return;
+    b.mode = 'guard';
+    b.homeX = x + (dx / d) * 2.4;
+    b.homeZ = z + (dz / d) * 2.4;
+    setTimeoutLike(this.sim, d / 1.6 + 0.3, () => {
+      if (c.removed || !c.alive || b.mode !== 'guard') return;
+      b.mode = 'wander';
+      b.toNode = -1;
+    });
   }
 
   private releaseVehicle(v: Vehicle): void {
@@ -399,19 +422,31 @@ export class Activities {
     }
     // Step over the rest of the road onto the sidewalk: the lanes and the shoulder, the long way across from a cab
     // left askew (a job ended in a slide), or square to the road from one left across it, bounded (the middle of
-    // an intersection). That side, unless another reaches the sidewalk much sooner.
-    const door = v.halfW + 0.8;
+    // an intersection). That side, unless another reaches the sidewalk much sooner. Each way starts clear of the
+    // cab's body (its half-length along it, its half-width across it), and a way the cab is moving into (still
+    // rolling when a job ends) is taken only when no other reaches the sidewalk: he would land in its path.
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const clear = (dx: number, dz: number) => Math.abs(dx * fx + dz * fz) * v.halfL + Math.abs(dx * sx + dz * sz) * v.halfW + 0.8;
+    // The first spot that way off the road and free to stand on (past a lamp post at the curb, say): a spot moved
+    // to the nearest free one instead could land back in the road, under the cab.
     const curb = (dx: number, dz: number): number | null => {
-      for (let d = door; d <= CURB_SEARCH; d += 0.5) if (!sim.world.isOnRoad(v.pos.x + dx * d, v.pos.z + dz * d)) return d;
+      for (let d = clear(dx, dz); d <= CURB_SEARCH; d += 0.5) {
+        const x = v.pos.x + dx * d;
+        const z = v.pos.z + dz * d;
+        if (!sim.world.isOnRoad(x, z) && sim.world.isFree(x, z, 0.4)) return d;
+      }
       return null;
     };
     const road = sim.roads.nearestLane(v.pos.x, v.pos.z).lane.heading;
     const sides: Array<[number, number]> = [[sx, sz], [-sx, -sz], [-Math.cos(road), Math.sin(road)], [Math.cos(road), -Math.sin(road)]];
     const found = sides.map(([dx, dz]) => ({ dx, dz, d: curb(dx, dz) })).filter((f): f is { dx: number; dz: number; d: number } => f.d !== null);
-    const nearest = Math.min(...found.map((f) => f.d));
+    const clearOfIt = found.filter((f) => v.vel.x * f.dx + v.vel.z * f.dz <= 1);
+    const pool = clearOfIt.length > 0 ? clearOfIt : found;
+    const nearest = Math.min(...pool.map((f) => f.d));
     // All road around: out of the door on the side the cab is moving away from, clear of it.
     const away = v.vel.x * sx + v.vel.z * sz > 0 ? -1 : 1;
-    const out = found.find((f) => f.d <= nearest + 3) ?? { dx: sx * away, dz: sz * away, d: door };
+    const out = pool.find((f) => f.d <= nearest + 3) ?? { dx: sx * away, dz: sz * away, d: clear(sx, sz) };
     const spot = sim.world.findFreeSpot(v.pos.x + out.dx * out.d, v.pos.z + out.dz * out.d, 0.4, 8) ?? { x: v.pos.x, z: v.pos.z };
     c.pos.x = spot.x;
     c.pos.z = spot.z;
