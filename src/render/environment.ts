@@ -234,6 +234,17 @@ function noonPuffLight(): THREE.Color {
  */
 export const RIPPLE_B = { scale: 0.3719, cos: 0.8, sin: 0.6 } as const;
 
+/** How fast the first ripple sample drifts, in its tiles per second. */
+const RIPPLE_A_DRIFT = [0.012, 0.008] as const;
+/**
+ * ...and the second, in its own tiles per second: the first one's drift turned and scaled into those
+ * tiles, plus a drift of its own, so the two samples slide apart.
+ */
+const RIPPLE_B_DRIFT = [
+  RIPPLE_B.scale * (RIPPLE_B.cos * RIPPLE_A_DRIFT[0] - RIPPLE_B.sin * RIPPLE_A_DRIFT[1]) - 0.0061,
+  RIPPLE_B.scale * (RIPPLE_B.sin * RIPPLE_A_DRIFT[0] + RIPPLE_B.cos * RIPPLE_A_DRIFT[1]) + 0.0093,
+] as const;
+
 /** The baked sky's colours and strength, for the sea to reflect where there is no environment map. */
 interface SkyReflection {
   top: { value: THREE.Color };
@@ -242,13 +253,18 @@ interface SkyReflection {
 }
 
 /**
- * Patches the sea's standard material to sum the two ripple samples (see RIPPLE_B). With `sky` (no
- * environment map: no float colour buffers) the sea also reflects the baked sky's gradient, worked out
- * in the shader as envMat draws it, so it still takes the sky's colour (orange at sunset) on that path.
+ * Patches the sea's standard material to sum the two ripple samples (see RIPPLE_B). Each sample adds its
+ * own offset (`offsetA` in the first one's tiles, `offsetB` in the second one's) to the mapped UV, which
+ * carries none (the normal map's own offset stays 0): an offset wraps by whole tiles of its own sample,
+ * which that sample cannot show, but would move the other one by a fraction of its tile.
+ * With `sky` (no environment map: no float colour buffers) the sea also reflects the baked sky's
+ * gradient, worked out in the shader as envMat draws it, so it still takes the sky's colour (orange at
+ * sunset) on that path.
  */
-function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetB: { value: THREE.Vector2 }, sky: SkyReflection | null): void {
+function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetA: { value: THREE.Vector2 }, offsetB: { value: THREE.Vector2 }, sky: SkyReflection | null): void {
   const { scale, cos, sin } = RIPPLE_B;
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uRippleA = offsetA;
     shader.uniforms.uRippleB = offsetB;
     if (sky) {
       shader.uniforms.uSkyTop = sky.top;
@@ -267,10 +283,10 @@ function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetB: { value: THRE
 #endif`,
       );
     }
-    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uRippleB;').replace(
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uRippleA;\nuniform vec2 uRippleB;').replace(
       '#include <normal_fragment_maps>',
       `#ifdef USE_NORMALMAP_TANGENTSPACE
-  vec3 rippleA = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
+  vec3 rippleA = texture2D( normalMap, vNormalMapUv + uRippleA ).xyz * 2.0 - 1.0;
   vec2 rippleUv = mat2( ${cos.toFixed(4)}, ${sin.toFixed(4)}, ${(-sin).toFixed(4)}, ${cos.toFixed(4)} ) * vNormalMapUv * ${scale.toFixed(4)} + uRippleB;
   vec3 rippleB = texture2D( normalMap, rippleUv ).xyz * 2.0 - 1.0;
   // The second sample's slopes, turned back into the first one's frame.
@@ -535,7 +551,8 @@ export class Environment {
   readonly fog: THREE.Fog;
   private readonly skyMat: THREE.ShaderMaterial;
   private readonly waterNormal: THREE.Texture;
-  /** Offset of the sea's second ripple sample (RIPPLE_B), in its own tile units. */
+  /** Offsets of the sea's two ripple samples (see RIPPLE_B), each in its own sample's tiles. */
+  private readonly rippleA = { value: new THREE.Vector2() };
   private readonly rippleB = { value: new THREE.Vector2() };
   /** The sky the sea reflects without an environment map (see twoLayerRipples). */
   private readonly skyReflection: SkyReflection = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, intensity: { value: 0 } };
@@ -647,7 +664,7 @@ export class Environment {
     this.waterNormal = waterNormalTexture();
     this.waterNormal.repeat.set(900, 900);
     const waterMat = new THREE.MeshStandardMaterial({ color: 0x135a73, roughness: 0.22, metalness: 0.1, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22) });
-    twoLayerRipples(waterMat, this.rippleB, this.envFill ? this.skyReflection : null);
+    twoLayerRipples(waterMat, this.rippleA, this.rippleB, this.envFill ? this.skyReflection : null);
     const water = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), waterMat);
     water.position.y = WATER_Y;
     water.receiveShadow = true;
@@ -824,8 +841,9 @@ export class Environment {
     }
     renderer.toneMappingExposure = s.exposure;
 
-    this.waterNormal.offset.set((time * 0.012) % 1, (time * 0.008) % 1);
-    this.rippleB.value.set((time * -0.0061) % 1, (time * 0.0093) % 1);
+    // Each ripple sample's offset wraps by whole tiles of its own (see twoLayerRipples).
+    this.rippleA.value.set((time * RIPPLE_A_DRIFT[0]) % 1, (time * RIPPLE_A_DRIFT[1]) % 1);
+    this.rippleB.value.set((time * RIPPLE_B_DRIFT[0]) % 1, (time * RIPPLE_B_DRIFT[1]) % 1);
   }
 
   /**
