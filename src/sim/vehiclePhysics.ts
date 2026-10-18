@@ -91,6 +91,10 @@ const DECK_STEP = 0.4;
  * backs and sides of the ramps more than MAX_STEP_UP) and over what a smooth slope gains in one physics step (a ramp with
  * the sand under it about 0.2 m at the 90 m/s speed cap). So a ramp a long body's nose climbs well ahead of the pitch that
  * follows it (a bus's, over a metre up the plate at the foot) is no face.
+ * A slope beside the body is one, though: the body rises with the ground under its centre and pitches with the ground on its
+ * centre line, nothing else. So a slope under a point is climbed only where the centre line as far out stands within this
+ * of it (a bus's corners stand within about 0.26 m of its nose on a ramp it climbs up to 1 rad off the ramp's line); where
+ * the line stays below, the slope buries that side (a car driving past a ramp with its centre just outside the ramp's side).
  */
 const FACE_JUMP = 0.3;
 /**
@@ -156,7 +160,9 @@ function inFace(world: StaticWorld, x: number, z: number, y: number, from: numbe
  * or side), and the centre; turning on the spot (ux = uz = 0), every point does, as a turn swings the two ends opposite ways.
  * ledgeTooHigh probes no further ahead than 2.2 m along the way the vehicle moves, which lets a long vehicle's nose into a
  * ledge (a bus's up to 3.5 m into the side of the pier), and not at all as the body swings round. Only a step in the ground
- * (FACE_JUMP) is a face, not a ramp's slope, which the nose of a long body climbs well ahead of the pitch that follows it.
+ * (FACE_JUMP) is a face, not a ramp's slope, which the nose of a long body climbs well ahead of the pitch that follows it,
+ * unless the slope is beside the body: ground under the point standing more than FACE_JUMP over the ground on the centre
+ * line as far out, which the body does not rise with.
  * Only a point that enters a face stops the body: one already in it (a car shoved off the side of a deck rests with its near
  * side under the deck's edge) moves on in it or out of it, so the body drives along the face or away from it, and the centre,
  * never in a face on the ground, keeps a body that straddles one from climbing onto it. Sinking (`sinking`), the face is the
@@ -190,7 +196,8 @@ function faceAhead(v: Vehicle, world: StaticWorld, x0: number, z0: number, h0: n
     const g1 = world.groundHeight(px1, pz1);
     if (!inFace(world, px1, pz1, g1, from)) continue;
     const g0 = world.groundHeight(px0, pz0);
-    if (g1 - g0 > FACE_JUMP && !inFace(world, px0, pz0, g0, from)) return true;
+    if (inFace(world, px0, pz0, g0, from)) continue;
+    if (g1 - g0 > FACE_JUMP || g1 - world.groundHeight(x1 + f1x * a, z1 + f1z * a) > FACE_JUMP) return true;
   }
   return false;
 }
