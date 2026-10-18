@@ -14,6 +14,12 @@ export const ENGINE_BRAKE = 1.4;
 const MAX_STEP_UP = 1.0;
 /** Cars sink where the water is deeper than this. */
 const SINK_DEPTH = 0.8;
+/**
+ * The drag of the water on a vehicle standing at the deep end of wading (see stepVehicle), per m/s^2 of its engine's pull
+ * (2 m/s^2 on a sedan): a share of the engine rather than the same for all, so that half the engine backs every vehicle out
+ * again, a bus as well as a sedan.
+ */
+const WADE_DRAG = 2 / 10.5;
 /** Explosion kicks: the horizontal speed (m/s) a kick may raise a car to, and the top launch speed upwards. */
 const LAUNCH_MAX_SPEED = 24;
 const LAUNCH_MAX_VY = 12;
@@ -79,9 +85,12 @@ function pushBlocked(v: Vehicle, world: StaticWorld, ux: number, uz: number, d: 
  * lower than MAX_STEP_UP: its first metres over the sand are a 0.3-1 m slab. The 0.3 m step up from the boardwalk stays drivable.
  */
 const DECK_STEP = 0.4;
-/** Points of the body checked for step faces (see faceAhead), in half lengths along it and half widths across it. */
-const FACE_ALONG = [1, 1, 1, -1, -1, -1, 0, 0];
-const FACE_ACROSS = [1, 0, -1, 1, 0, -1, 1, -1];
+/**
+ * Points of the body checked for step faces (see faceAhead), in half lengths along it and half widths across it: the corners,
+ * the middles of the ends and the sides, and the centre.
+ */
+const FACE_ALONG = [1, 1, 1, -1, -1, -1, 0, 0, 0];
+const FACE_ACROSS = [1, 0, -1, 1, 0, -1, 1, -1, 0];
 
 /** Bounding boxes (min x, min z, max x, max z) of every deck and ramp of a world (see nearRaisedGround). */
 const raisedBoxes = new WeakMap<StaticWorld, Float64Array>();
@@ -125,15 +134,25 @@ function onDeck(world: StaticWorld, x: number, z: number, y: number): boolean {
 }
 
 /**
- * True when moving a vehicle from (x0, z0), facing h0, to (x1, z1), facing h1, runs a point of its body into a step face: where
- * the point goes, the ground stands more than MAX_STEP_UP above the point's own height (the vehicle's, raised or lowered along
- * its length by the pitch), or is a deck more than DECK_STEP above it. Moving along the unit direction (ux, uz), only the part
- * of the body that leads counts (its leading corners and the middle of its leading end or side); turning on the spot
- * (ux = uz = 0), every point does, as a turn swings the two ends opposite ways. ledgeTooHigh probes no further ahead than
- * 2.2 m along the way the vehicle moves, which lets a long vehicle's nose into a ledge (a bus's up to 3.5 m into the side of
- * the pier), and not at all as the body swings round. A ramp's slope stays within a few centimetres of a body that follows
- * it; a point already inside a face may back out of it but not go on into it. Sinking (`sinking`), the face is the edge of
- * water too shallow to sink in, crossed from deeper water (see sinkBlocked).
+ * Whether the ground at (x, z) is a step face for a point of a body at height `from`: it stands more than MAX_STEP_UP above
+ * the point, or is a deck more than DECK_STEP above it.
+ */
+function inFace(world: StaticWorld, x: number, z: number, from: number): boolean {
+  const y = world.groundHeight(x, z);
+  return y > from + MAX_STEP_UP || (y > from + DECK_STEP && onDeck(world, x, z, y));
+}
+
+/**
+ * True when moving a vehicle from (x0, z0), facing h0, to (x1, z1), facing h1, runs a point of its body into a step face (see
+ * inFace), taken at the point's own height: the vehicle's, raised or lowered along its length by the pitch. Moving along the
+ * unit direction (ux, uz), only the part of the body that leads counts (its leading corners and the middle of its leading end
+ * or side), and the centre; turning on the spot (ux = uz = 0), every point does, as a turn swings the two ends opposite ways.
+ * ledgeTooHigh probes no further ahead than 2.2 m along the way the vehicle moves, which lets a long vehicle's nose into a
+ * ledge (a bus's up to 3.5 m into the side of the pier), and not at all as the body swings round. A ramp's slope stays within
+ * a few centimetres of a body that follows it. Only a point that enters a face stops the body: one already in it (a car shoved
+ * off the side of a deck rests with its near side under the deck's edge) moves on in it or out of it, so the body drives along
+ * the face or away from it, and the centre, never in a face on the ground, keeps a body that straddles one from climbing onto
+ * it. Sinking (`sinking`), the face is the edge of water too shallow to sink in, crossed from deeper water (see sinkBlocked).
  */
 function faceAhead(v: Vehicle, world: StaticWorld, x0: number, z0: number, h0: number, x1: number, z1: number, h1: number, ux: number, uz: number, sinking: boolean): boolean {
   // On land, ground higher than a curb comes only from decks and ramps (the land's edge a car reaches only sinking): far
@@ -150,16 +169,17 @@ function faceAhead(v: Vehicle, world: StaticWorld, x0: number, z0: number, h0: n
     const b = FACE_ACROSS[i]! * v.halfW;
     const ox = f1x * a - f1z * b;
     const oz = f1z * a + f1x * b;
-    if (!turning && ox * ux + oz * uz < 1e-3) continue;
+    if (!turning && (a !== 0 || b !== 0) && ox * ux + oz * uz < 1e-3) continue;
     const px1 = x1 + ox;
     const pz1 = z1 + oz;
+    const px0 = x0 + f0x * a - f0z * b;
+    const pz0 = z0 + f0z * a + f0x * b;
     if (sinking) {
-      if (world.baseGround(px1, pz1) > WATER_Y - SINK_DEPTH && world.baseGround(x0 + f0x * a - f0z * b, z0 + f0z * a + f0x * b) <= WATER_Y - SINK_DEPTH) return true;
+      if (world.baseGround(px1, pz1) > WATER_Y - SINK_DEPTH && world.baseGround(px0, pz0) <= WATER_Y - SINK_DEPTH) return true;
       continue;
     }
-    const y = world.groundHeight(px1, pz1);
     const from = v.pos.y + a * lift;
-    if (y > from + MAX_STEP_UP || (y > from + DECK_STEP && onDeck(world, px1, pz1, y))) return true;
+    if (inFace(world, px1, pz1, from) && !inFace(world, px0, pz0, from)) return true;
   }
   return false;
 }
@@ -320,7 +340,7 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     if (!hasDriver) friction += 5.5; // parked: handbrake on
     if (handbrake) friction += 7.5;
     if (v.destroyed || v.flipped) friction += 9;
-    friction += wade * (2 + 0.04 * vF * vF);
+    friction += wade * (WADE_DRAG * s.accel + 0.04 * vF * vF);
     vF = moveTowards(vF, 0, friction * dt);
 
     // --- Lateral grip ---

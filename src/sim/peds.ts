@@ -1,8 +1,9 @@
 // Pedestrian population (civilians and street gang members) and their AI.
 
 import { clamp, moveAngleTowards } from '../core/math';
-import { WATER_Y } from '../world/constants';
+import { SWIM_DEPTH, WATER_Y } from '../world/constants';
 import { makeBrain, type PedBrain } from './brains';
+import { MAX_STEP } from './characterPhysics';
 import type { Character } from './entities';
 import type { Sim } from './sim';
 
@@ -25,6 +26,11 @@ export function cowerHandsUp(c: Character, p: Character | null): boolean {
 /** A cowering ped crouched with his hands over his head: not held at gunpoint by `player` (see cowerHandsUp). */
 export function cowerCrouched(c: Character, player: Character | null): boolean {
   return c.brain?.mode === 'cower' && c.state === 'normal' && !cowerHandsUp(c, player);
+}
+
+/** Dry ground to run on, at a ground height: not the sea, nor the wet sand at its edge (within 0.2 m of the water). */
+function dryGround(y: number): boolean {
+  return y >= WATER_Y + 0.2;
 }
 
 /**
@@ -395,24 +401,35 @@ export class PedSystem {
       dz = -Math.cos(c.heading);
     }
     // Bend the escape direction a little per ped so crowds scatter. Never off a quay, a seawall or a pier into the sea:
-    // the direction nearest it (see FLEE_TURNS) whose ground 3 and 6 m ahead is dry. When that way out lies back
-    // towards what he runs from (the end of a pier), he is cornered and stays where he is, rather than pace back and
-    // forth at the edge. Already in the water, or with water all round, he makes for the nearest sidewalk instead, to
-    // climb out.
+    // the direction nearest it (see FLEE_TURNS) whose ground 3 and 6 m ahead is dry, and no higher than he can step up
+    // (not the side of a deck from the sand). When that way out lies back towards what he runs from (the end of a pier),
+    // he is cornered and stays where he is, rather than pace back and forth at the edge. Off dry ground himself, on the
+    // wet sand at the water's edge of the beach or wading in its shallows, every way along the beach is as wet as where
+    // he stands: a way that leads no lower than that will do there (one that leads higher, in the water), so he runs
+    // along the beach or up it, and is never cornered. Already swimming, or with water all round, he makes for the
+    // nearest sidewalk instead, to climb out.
     const ang = Math.atan2(dx, dz) + b.lateral * 0.8;
     let tx = c.pos.x;
     let tz = c.pos.z;
     let way = false;
     let cornered = false;
     if (c.state !== 'swimming') {
+      const own = sim.world.groundHeight(c.pos.x, c.pos.z);
+      // On the wet sand or wading, the lowest ground ahead that will do as well as dry ground: as high as his own on the
+      // sand, higher in the water.
+      const shore = !dryGround(own) && own >= WATER_Y - SWIM_DEPTH;
+      const low = !shore ? Infinity : own < WATER_Y ? own + 0.01 : own - 0.01;
+      // On his feet, no higher than he steps up (in the air, cutting a corner of a deck, he may land back on it).
+      const high = c.onGround ? own + MAX_STEP : Infinity;
+      const open = (g: number) => g <= high && (dryGround(g) || g >= low);
       for (const turn of FLEE_TURNS) {
         const sx = Math.sin(ang + turn);
         const sz = Math.cos(ang + turn);
-        if (this.dry(c.pos.x + sx * 3, c.pos.z + sz * 3) && this.dry(c.pos.x + sx * 6, c.pos.z + sz * 6)) {
+        if (open(sim.world.groundHeight(c.pos.x + sx * 3, c.pos.z + sz * 3)) && open(sim.world.groundHeight(c.pos.x + sx * 6, c.pos.z + sz * 6))) {
           tx = c.pos.x + sx * 6;
           tz = c.pos.z + sz * 6;
           way = true;
-          cornered = Math.abs(turn) > Math.PI / 2;
+          cornered = !shore && Math.abs(turn) > Math.PI / 2;
           break;
         }
       }
@@ -508,11 +525,6 @@ export class PedSystem {
       c.moveSpeed = 0;
       c.heading = moveAngleTowards(c.heading, Math.atan2(pp.x - c.pos.x, pp.z - c.pos.z), 1.5 * dt);
     }
-  }
-
-  /** Dry ground to run on at (x, z): not the sea, nor the wet sand at its edge. */
-  private dry(x: number, z: number): boolean {
-    return this.sim.world.groundHeight(x, z) >= WATER_Y + 0.2;
   }
 
   /** Detects a ped pushing against a wall and nudges its path sideways. */

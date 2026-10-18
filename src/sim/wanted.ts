@@ -2,6 +2,7 @@
 // sight with the police for long enough clears it.
 
 import { clamp } from '../core/math';
+import { darkness } from './clock';
 import type { Helicopter } from './entities';
 import type { Sim } from './sim';
 
@@ -68,6 +69,11 @@ export const HELI_SIGHT = 60;
 export const HELI_NIGHT_SIGHT = 60;
 /** Radius (m) of the spotlight's pool of light on the ground (markers.ts draws it this size). */
 export const SPOT_RADIUS = 5;
+/**
+ * The darkness (sim/clock.ts darkness) from which the helicopter shines its spotlight (markers.ts draws the beam from
+ * then on) and its crew sees as at night (see heliSees): from about 18:53 to 06:02.
+ */
+export const SPOTLIGHT_DARK = 0.25;
 /**
  * At night the crew makes out anything within this distance (m) of the spotlight's centre: the pool and its
  * glare. Close below the helicopter they see without it too (HELI_NIGHT_SIGHT).
@@ -238,14 +244,14 @@ export class WantedSystem {
 
   /**
    * Can the crew of helicopter `h` make out (x, z)? Within HELI_SIGHT along the ground, with a clear line of
-   * sight; at night only in the spotlight (within SPOT_SEE of its centre) or close below (HELI_NIGHT_SIGHT).
+   * sight; at night (from SPOTLIGHT_DARK, while the beam is drawn) only in the spotlight (within SPOT_SEE of its
+   * centre) or close below (HELI_NIGHT_SIGHT).
    */
   heliSees(h: Helicopter, x: number, z: number): boolean {
     const sim = this.sim;
     if (h.removed || h.destroyed || Math.hypot(h.pos.x - x, h.pos.z - z) > HELI_SIGHT) return false;
     const gy = sim.world.groundHeight(x, z) + 1.2;
-    const h24 = sim.clock.hours;
-    if ((h24 < 6 || h24 >= 20) && Math.hypot(h.spotlight.x - x, h.spotlight.z - z) > SPOT_SEE && Math.hypot(h.pos.x - x, h.pos.y - gy, h.pos.z - z) > HELI_NIGHT_SIGHT) return false;
+    if (darkness(sim.clock.hours) > SPOTLIGHT_DARK && Math.hypot(h.spotlight.x - x, h.spotlight.z - z) > SPOT_SEE && Math.hypot(h.pos.x - x, h.pos.y - gy, h.pos.z - z) > HELI_NIGHT_SIGHT) return false;
     return sim.world.lineOfSight(h.pos.x, h.pos.y - 1.5, h.pos.z, x, gy, z);
   }
 

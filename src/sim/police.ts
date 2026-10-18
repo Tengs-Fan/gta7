@@ -3,7 +3,9 @@
 
 import { clamp, moveAngleTowards, pointSegDist, wrapAngle } from '../core/math';
 import { SWIM_DEPTH, WATER_Y } from '../world/constants';
+import { rectContains, type Deck } from '../world/layout';
 import type { Lane } from '../world/roads';
+import type { StaticWorld } from '../world/staticWorld';
 import { makeBrain, type PedBrain } from './brains';
 import { DispatchSystem } from './dispatch';
 import { DriverAI } from './driver';
@@ -82,6 +84,8 @@ const STAND_BY = 12;
 /** Officers walking off once the stars are gone (see walkOff) walk at this speed (m/s), and get this many seconds more than that takes to reach each sidewalk node. */
 const WALK_OFF_SPEED = 1.4;
 const WALK_OFF_SLACK = 8;
+/** An officer keeping to a deck (see deckWay) heads for a point this far (m) ahead of him along it. */
+const DECK_LEAD = 4;
 /** Helicopter: horizontal reach of its rotor and tail, and the height it keeps above roofs. */
 const HELI_PAD = 7;
 const HELI_CLEARANCE = 4;
@@ -472,7 +476,9 @@ export class PoliceSystem {
     for (const v of sim.vehicles) {
       // No siren or light bar on any police car once the stars are gone: not on one whose crew is still walking
       // back to it (it drives off as a patrol), nor on one they left behind. (A cruiser the player took is his.)
-      if (level === 0 && v.owner === 'police') v.siren = false;
+      // The stars themselves, not `level`: busted or wasted, the player keeps them until he is back on his feet
+      // (see Sim.updateDeath), and the cars around him keep flashing.
+      if (w.level === 0 && v.owner === 'police') v.siren = false;
       if (v.owner !== 'police' || v.removed || !v.drivable || !v.driver || !v.driver.isLaw || !v.ai) continue;
       const ai = v.ai;
       // Keep still while the player climbs in to take the car.
@@ -938,7 +944,46 @@ export class PoliceSystem {
       }
     }
     const n = walk.nodes[w.node]!;
-    this.runTo(c, n.x, n.z, WALK_OFF_SPEED, dt);
+    const via = this.deckWay(c, n.x, n.z);
+    this.runTo(c, via ? via.x : n.x, via ? via.z : n.z, WALK_OFF_SPEED, dt);
+  }
+
+  /**
+   * Where an officer on foot on his way to (tx, tz) heads for first while he stands on a deck (the pier, the marina's) from
+   * which the straight way there runs off its side into the sea (the sidewalks are all on land): along the deck to its end on
+   * land, or from a finger pier to the deck it joins, keeping to his side of it, or to the side away from the player where
+   * the player stands in his way. Null off the decks, or where the straight way stays dry.
+   */
+  private deckWay(c: Character, tx: number, tz: number): { x: number; z: number } | null {
+    const world = this.sim.world;
+    if (c.state !== 'normal') return null;
+    let deck: Deck | null = null;
+    let exit: DeckExit | null = null;
+    for (const d of world.layout.decks) {
+      if (c.pos.y < d.y - 0.3 || !rectContains(d.rect, c.pos.x, c.pos.z)) continue;
+      const e = deckExit(world, d);
+      // Where a finger pier meets the main deck he stands on both: the one with the end on land.
+      if (e && (!exit || (e.land && !exit.land))) {
+        deck = d;
+        exit = e;
+      }
+    }
+    if (!deck || !exit || !wetWay(world, c.pos.x, c.pos.z, tx, tz)) return null;
+    const r = deck.rect;
+    const pp = this.sim.playerPos();
+    const clear = Math.min(2.5, Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) - 0.1);
+    // Just past the end: off the deck on land, or 1 m into the deck it joins. Across the deck, his own line along it, 1 m in
+    // from its edges.
+    if (exit.nx !== 0) {
+      const end = exit.nx < 0 ? r.minX - 1 : r.maxX + 1;
+      let side = clamp(c.pos.z, r.minZ + 1, r.maxZ - 1);
+      if (passesBy(pp, c, { x: end, z: side }, clear)) side = pp.z > (r.minZ + r.maxZ) / 2 ? r.minZ + 1 : r.maxZ - 1;
+      return { x: Math.abs(end - c.pos.x) > DECK_LEAD ? c.pos.x + Math.sign(end - c.pos.x) * DECK_LEAD : end, z: side };
+    }
+    const end = exit.nz < 0 ? r.minZ - 1 : r.maxZ + 1;
+    let side = clamp(c.pos.x, r.minX + 1, r.maxX - 1);
+    if (passesBy(pp, c, { x: side, z: end }, clear)) side = pp.x > (r.minX + r.maxX) / 2 ? r.minX + 1 : r.maxX - 1;
+    return { x: side, z: Math.abs(end - c.pos.z) > DECK_LEAD ? c.pos.z + Math.sign(end - c.pos.z) * DECK_LEAD : end };
   }
 
   private walkToCar(c: Character, car: Vehicle, dt: number, level: number): void {
@@ -953,8 +998,9 @@ export class PoliceSystem {
         sim.seat(c, car, 0);
         const ai = new DriverAI(sim, car, level > 0 ? 'chase' : 'traffic');
         car.ai = ai;
-        // Back on patrol without the siren; a unit back in the chase has it on (see updateUnits).
-        car.siren = level > 0;
+        // Back on patrol without the siren once the stars are gone; a unit back in the chase has it on, and so does
+        // one whose crew gets in while the player is down with his stars still up (see updateUnits).
+        car.siren = sim.wanted.level > 0;
         if (level > 0) {
           if (this.searching(level)) this.assignSearch(ai);
           else ai.target = sim.player;
@@ -969,7 +1015,8 @@ export class PoliceSystem {
       }
       return;
     }
-    this.runTo(c, tx, tz, level > 0 ? 6 : 1.6, dt);
+    const via = this.deckWay(c, tx, tz);
+    this.runTo(c, via ? via.x : tx, via ? via.z : tz, level > 0 ? 6 : 1.6, dt);
   }
 
   // ---------------------------------------------------------------------------
@@ -1275,6 +1322,43 @@ export class PoliceSystem {
 /** Whether the straight way from where `c` stands to `n` passes within `clear` of `p` (the player). */
 function passesBy(p: { x: number; z: number }, c: Character, n: { x: number; z: number }, clear: number): boolean {
   return pointSegDist(p.x, p.z, c.pos.x, c.pos.z, n.x, n.z) < clear;
+}
+
+/** The end of a deck by which one walks off it (see deckWay): the outward normal of that side of its rect, and whether it runs onto land rather than onto another deck. */
+interface DeckExit {
+  nx: number;
+  nz: number;
+  land: boolean;
+}
+
+const DECK_SIDES: ReadonlyArray<readonly [number, number]> = [
+  [-1, 0],
+  [1, 0],
+  [0, -1],
+  [0, 1],
+];
+
+/** The side of deck `d` whose middle runs onto land (the pier's and the marina's west ends), else one that runs onto another deck (a finger pier's), else null. */
+function deckExit(world: StaticWorld, d: Deck): DeckExit | null {
+  const r = d.rect;
+  let join: DeckExit | null = null;
+  for (const [nx, nz] of DECK_SIDES) {
+    const x = nx < 0 ? r.minX - 0.5 : nx > 0 ? r.maxX + 0.5 : (r.minX + r.maxX) / 2;
+    const z = nz < 0 ? r.minZ - 0.5 : nz > 0 ? r.maxZ + 0.5 : (r.minZ + r.maxZ) / 2;
+    if (world.baseGround(x, z) > WATER_Y) return { nx, nz, land: true };
+    if (!join && world.layout.decks.some((o) => o !== d && rectContains(o.rect, x, z))) join = { nx, nz, land: false };
+  }
+  return join;
+}
+
+/** Whether the straight way from (x0, z0) to (x1, z1) crosses water (sampled every 2 m). */
+function wetWay(world: StaticWorld, x0: number, z0: number, x1: number, z1: number): boolean {
+  const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 2);
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    if (world.waterDepth(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t) > 0) return true;
+  }
+  return false;
 }
 
 function damp1(cur: number, target: number, k: number): number {
