@@ -121,6 +121,13 @@ function poolTexture(): THREE.DataTexture {
  */
 export const MARKER_FADE_NEAR = 3.2;
 export const MARKER_FADE_FAR = 4.2;
+/**
+ * The marker the player stands in is drawn in full whatever the camera does, and stepping off it he takes it along for a
+ * little: from 0.3 m inside its radius to MARKER_LEAVE m outside it, it fades by his distance. Walking through one with
+ * the camera behind him, the camera is past the fade band before he is out of the marker; this way it fades out over a
+ * metre of his walk instead of vanishing in one frame.
+ */
+export const MARKER_LEAVE = 1;
 const MARKER_ALPHA = 0.28;
 
 /** How much of an interaction marker at (x, z) is drawn for a camera at `cam`, by its distance from the marker's axis (0.15-2.3 m up). */
@@ -207,7 +214,7 @@ export class MarkerView {
 
   /**
    * Mirrors the interaction markers. Given the camera's position, each fades out near it (see markerFade),
-   * except one the player (at `player`) stands in.
+   * except one the player (at `player`) stands in or has just stepped off (MARKER_LEAVE).
    */
   syncMarkers(markers: readonly Marker[], time: number, cam?: { x: number; y: number; z: number }, player?: { x: number; z: number }): void {
     const seen = new Set<string>();
@@ -233,8 +240,8 @@ export class MarkerView {
         this.group.add(g);
       }
       g.position.set(m.x, 0.15, m.z);
-      const using = player !== undefined && Math.hypot(player.x - m.x, player.z - m.z) < m.radius;
-      const fade = cam && !using ? markerFade(cam, m.x, m.z) : 1;
+      const kept = player === undefined ? 0 : 1 - smooth(m.radius - 0.3, m.radius + MARKER_LEAVE, Math.hypot(player.x - m.x, player.z - m.z));
+      const fade = cam ? Math.max(markerFade(cam, m.x, m.z), kept) : 1;
       g.visible = fade > 0;
       ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = MARKER_ALPHA * fade;
       const icon = g.getObjectByName('icon');

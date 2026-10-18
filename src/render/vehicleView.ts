@@ -123,6 +123,16 @@ const WHEEL_RADIUS = 0.16;
 const WHEEL_TILT = 0.45;
 const WHEEL_LIFT = 0.1;
 const WHEEL_AHEAD = 0.22;
+/** Recline of the seat backs (rad), and the reference rider the cabin is fitted to: the player's height. */
+const SEAT_RECLINE = 0.36;
+const REF_RIDER = 1.02;
+/**
+ * The wheel sits no further than this (m, along the car) ahead of the reference driver's shoulders: WHEEL_AHEAD ahead of
+ * his hips with the seat back at SEAT_RECLINE. A driver laid back further (the sports car keeps a tall rider's legs
+ * inside its low body that way) has the wheel brought back with his shoulders, so he holds it with his elbows bent
+ * like everyone else instead of with his arms locked straight.
+ */
+const WHEEL_REACH = WHEEL_AHEAD + SKELETON.shoulderY * REF_RIDER * Math.sin(SEAT_RECLINE);
 
 /** The lowest the roof or the glass comes over length position z of a cabin (what a rider's head must stay under). */
 export function cabinCeiling(c: CabinLayout, z: number): number {
@@ -231,17 +241,17 @@ function computeLayout(kind: VehicleKind, prof: Profile): CabinLayout {
   const rearZ = prof.rearSeats ? firingRow(kind, s.length, true) : null;
   // Riders sit no lower than their thighs' depth over the body's bevelled floor pan.
   const seatLow = prof.body[0]![1] - BEVEL + THIGH_LOW;
-  const layout = { floor, frontZ, rearZ, recline: 0.36, seatLow, wheel, glass: prof.cabin, roof: { z0: rt[0] - 0.03, z1: ft[0] + 0.03, y: top - 0.015 } };
+  const layout = { floor, frontZ, rearZ, recline: SEAT_RECLINE, seatLow, wheel, glass: prof.cabin, roof: { z0: rt[0] - 0.03, z1: ft[0] + 0.03, y: top - 0.015 } };
   // The player's head must show through the rear window from the chase camera (camera.ts chaseOffset), which looks
   // steeply down past the roof's rear edge, most steeply at rest (at speed it drops and pulls back, zoomed out it stands
   // further off). Where the roof runs too far back for CHASE_HEAD of the back of his head to show under it, its painted
   // panel stops short and the glass under it carries on as a glass roof: 0.2-0.5 m of it on the cars, 1 m on the
   // compact hatchback, none on the pickup.
-  const ref = riderSeat(layout, false, 1.02, false, { y: 0, z: 0, recline: 0 });
-  const neckY = ref.y + SKELETON.neckY * 1.02 * Math.cos(ref.recline);
-  const neckZ = ref.z - SKELETON.neckY * 1.02 * Math.sin(ref.recline);
-  const zt = neckZ - 0.12 * 1.02;
-  const yt = neckY + (0.02 + CHASE_HEAD) * 1.02;
+  const ref = riderSeat(layout, false, REF_RIDER, false, { y: 0, z: 0, recline: 0 });
+  const neckY = ref.y + SKELETON.neckY * REF_RIDER * Math.cos(ref.recline);
+  const neckZ = ref.z - SKELETON.neckY * REF_RIDER * Math.sin(ref.recline);
+  const zt = neckZ - 0.12 * REF_RIDER;
+  const yt = neckY + (0.02 + CHASE_HEAD) * REF_RIDER;
   const cam = chaseOffset(s, 0, false);
   const camBack = cam.back;
   const camY = s.height * CHASE_TARGET_Y + cam.up;
@@ -249,6 +259,9 @@ function computeLayout(kind: VehicleKind, prof: Profile): CabinLayout {
   // A light bar or taxi sign keeps the roof under it.
   const gear = s.police ? -0.1 * s.length - 0.25 : kind === 'taxi' ? -0.08 * s.length - 0.25 : Infinity;
   layout.roof.z0 = Math.min(layout.roof.z1 - 0.6, gear, Math.max(layout.roof.z0, edge));
+  // The wheel within WHEEL_REACH of the reference driver's shoulders, seated under the finished roof.
+  const drv = riderSeat(layout, false, REF_RIDER, false, { y: 0, z: 0, recline: 0 });
+  if (drv.recline > SEAT_RECLINE + 1e-9) layout.wheel = { ...wheel, z: Math.min(wheel.z, drv.z - SKELETON.shoulderY * REF_RIDER * Math.sin(drv.recline) + WHEEL_REACH) };
   return layout;
 }
 

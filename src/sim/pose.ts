@@ -417,7 +417,7 @@ export function trunkPose(c: Character, out: Trunk = makeTrunk()): Trunk {
     out.armYaw = aimYaw;
     out.chestYaw = bladed ? wrapAngle(aimYaw - BLADE) : aimYaw;
     // Lean into a low aim, back from a high one; into the gun when it is shouldered.
-    out.lean = bladed && !reloading(c) ? clamp(0.12 - 0.18 * pitch, -0.05, 0.25) : clamp(0.05 - 0.25 * pitch, -0.12, 0.2);
+    out.lean = bladed && !reloadHeld(c) ? clamp(0.12 - 0.18 * pitch, -0.05, 0.25) : clamp(0.05 - 0.25 * pitch, -0.12, 0.2);
   } else {
     // Counter-rotation against the legs, and a forward lean that grows with speed.
     out.chestYaw = wrapAngle(hipYaw + out.move * counterTwist(speed, out.mz, c.animPhase));
@@ -539,6 +539,14 @@ export function reloading(c: Character): boolean {
 }
 
 /**
+ * The gun is held in for the reload: reloading, and no shot still leaving it. A clip's last round (every rocket) starts
+ * the reload on the frame it is fired; it is drawn fired from the raised gun, where it left, and the gun comes in after.
+ */
+function reloadHeld(c: Character): boolean {
+  return reloading(c) && !(c.shotTimer > 0);
+}
+
+/**
  * Where the gun in hand is held: raised to the aim (pistol in both hands, long guns in the shoulder,
  * rocket launcher on it), lowered while not aiming, or brought in for a reload. Recoil kick is drawn on
  * top of this and is not part of it. `trunk` may be passed when already computed for `c`.
@@ -551,7 +559,7 @@ export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): We
   const b = c.appearance.build;
   out.weapon = weapon;
   if (c.state === 'swimming') return swimmerGun(c, out, weapon, s, b);
-  out.mode = reloading(c) ? 'reload' : aimed(c) ? 'raised' : 'lowered';
+  out.mode = reloadHeld(c) ? 'reload' : aimed(c) ? 'raised' : 'lowered';
 
   // Chest frame (world): yaw then forward lean.
   const cy = Math.cos(t.chestYaw);
