@@ -62,9 +62,13 @@ type Job = TaxiJob | VigilanteJob | RampageJob;
 
 /** How far from a cab a fare let out looks for the sidewalk (m): across a wide avenue, at a slant. */
 const CURB_SEARCH = 16;
-/** A fare walks to a cab that waits within this of him (m), below BOARD_SPEED (m/s)... */
+/**
+ * A cab below this (m/s) is stopped: a fare walks to it or gets out of it at his destination, and it rolling his way
+ * this slowly is no danger to him (a car runs a pedestrian over from 4.5 m/s, see characterPhysics).
+ */
+const CAB_STOPPED = 2.5;
+/** A fare walks to a cab stopped within this of him (m)... */
 const BOARD_RANGE = 9;
-const BOARD_SPEED = 2.5;
 /** ...and gives up on it once it is this far (m) or faster. */
 const BOARD_GIVE_UP = 12;
 /** He gets in once this close to its door (m), or after walking this long (s): a blocked path never stalls a pickup. */
@@ -316,7 +320,7 @@ export class Activities {
       this.end(`Too slow! The fare got out. Fares: ${j.fares}.`);
       return;
     }
-    if (Math.hypot(j.destX - v.pos.x, j.destZ - v.pos.z) < 9 && v.speed < 2.5) {
+    if (Math.hypot(j.destX - v.pos.x, j.destZ - v.pos.z) < 9 && v.speed < CAB_STOPPED) {
       const pay = 15 + Math.round(j.tripDist * 0.09) + Math.round(j.timer * 2);
       sim.progress.addMoney(pay);
       sim.progress.stats.taxiFares++;
@@ -349,7 +353,7 @@ export class Activities {
     const b = f.brain;
     const scared = !!b && (b.mode === 'flee' || b.mode === 'cower' || b.mode === 'fight');
     const d = Math.hypot(f.pos.x - v.pos.x, f.pos.z - v.pos.z);
-    const waits = v.speed < BOARD_SPEED && d < (j.boarding >= 0 ? BOARD_GIVE_UP : BOARD_RANGE);
+    const waits = v.speed < CAB_STOPPED && d < (j.boarding >= 0 ? BOARD_GIVE_UP : BOARD_RANGE);
     if (!waits || scared || f.state !== 'normal') {
       j.boarding = -1;
       // Walking to a cab that left (the guard brain walks him, see below): back to his spot on the sidewalk, not
@@ -423,8 +427,8 @@ export class Activities {
     // Step over the rest of the road onto the sidewalk: the lanes and the shoulder, the long way across from a cab
     // left askew (a job ended in a slide), or square to the road from one left across it, bounded (the middle of
     // an intersection). That side, unless another reaches the sidewalk much sooner. Each way starts clear of the
-    // cab's body (its half-length along it, its half-width across it), and a way the cab is moving into (still
-    // rolling when a job ends) is taken only when no other reaches the sidewalk: he would land in its path.
+    // cab's body (its half-length along it, its half-width across it), and a way the cab is rolling into faster
+    // than CAB_STOPPED (a job ended at speed) is taken only when no other reaches the sidewalk: he would land in its path.
     const fx = Math.sin(v.heading);
     const fz = Math.cos(v.heading);
     const clear = (dx: number, dz: number) => Math.abs(dx * fx + dz * fz) * v.halfL + Math.abs(dx * sx + dz * sz) * v.halfW + 0.8;
@@ -441,7 +445,8 @@ export class Activities {
     const road = sim.roads.nearestLane(v.pos.x, v.pos.z).lane.heading;
     const sides: Array<[number, number]> = [[sx, sz], [-sx, -sz], [-Math.cos(road), Math.sin(road)], [Math.cos(road), -Math.sin(road)]];
     const found = sides.map(([dx, dz]) => ({ dx, dz, d: curb(dx, dz) })).filter((f): f is { dx: number; dz: number; d: number } => f.d !== null);
-    const clearOfIt = found.filter((f) => v.vel.x * f.dx + v.vel.z * f.dz <= 1);
+    // (Never at a drop-off, where the cab is stopped: he gets out on his destination's side.)
+    const clearOfIt = found.filter((f) => v.vel.x * f.dx + v.vel.z * f.dz < CAB_STOPPED);
     const pool = clearOfIt.length > 0 ? clearOfIt : found;
     const nearest = Math.min(...pool.map((f) => f.d));
     // All road around: out of the door on the side the cab is moving away from, clear of it.

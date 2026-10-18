@@ -934,6 +934,35 @@ describe('a fare let out of a cab left across the road', () => {
     expect(hit).toEqual([]);
   });
 
+  it("still gets out on his destination's side when the cab creeps that way as it stops there", () => {
+    const sim = makeSim({ ambient: false, police: false });
+    const lane = sim.roads.lanes.find((l) => l.lanesInDir === 1 && l.length > 60 && Math.abs(l.sx) < 300 && Math.abs(l.sz) < 300)!;
+    const x = lane.sx + lane.dx * lane.length * 0.5;
+    const z = lane.sz + lane.dz * lane.length * 0.5;
+    const taxi = sim.spawnVehicle('taxi', x, z, lane.heading);
+    placeInCar(sim, taxi);
+    step(sim, 0.05);
+    sim.activities.toggleJob();
+    const job = () => sim.activities.job as unknown as { stage: string; fare: Character | null; timer: number; destX: number; destZ: number };
+    const fare = job().fare!;
+    fare.pos.x = x - Math.cos(lane.heading) * 3.5;
+    fare.pos.z = z + Math.sin(lane.heading) * 3.5;
+    stepUntil(sim, () => fare.vehicle === taxi, 3);
+    // At his destination, 4 m to the cab's right, still sliding that way at 1.5 m/s.
+    parkIn(sim, taxi, -173, -304);
+    taxi.heading = Math.PI;
+    job().destX = -169;
+    job().destZ = -304;
+    job().timer = 50;
+    taxi.vel.x = 1.5;
+    const fares = sim.progress.stats.taxiFares;
+    sim.update(1 / 60, input());
+    expect(sim.progress.stats.taxiFares).toBe(fares + 1);
+    expect(fare.vehicle).toBeNull();
+    expect(fare.pos.x).toBeGreaterThan(taxi.pos.x + taxi.halfW);
+    expect(sim.world.isOnRoad(fare.pos.x, fare.pos.z)).toBe(false);
+  });
+
   it('is not run over by a cab left across the road and still reversing when his time runs out', () => {
     const sim = makeSim({ ambient: false, police: false });
     const lane = sim.roads.lanes.find((l) => l.lanesInDir === 1 && l.length > 60 && Math.abs(l.sx) < 300 && Math.abs(l.sz) < 300)!;
