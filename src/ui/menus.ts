@@ -34,8 +34,11 @@ interface Screen {
   el: HTMLElement;
   /** Called every frame while on top, once the screen's input guard is over (dt: the frame time). */
   input(ui: UiActions, dt: number): void;
-  /** Called every frame while on top (for animated screens like the map). */
-  tick?(dt: number): void;
+  /**
+   * Called every frame while on top, also during the input guard (for animated screens like the map). `ui` is that
+   * frame's input, to watch what is held, never to act on: during the guard it may be the key that opened the screen.
+   */
+  tick?(dt: number, ui: UiActions): void;
   /** Called when the screen is on top again after the one above it closed. */
   refresh?(): void;
   close?(): void;
@@ -165,7 +168,7 @@ export class Menus {
     const s = this.top;
     if (!s) return;
     this.age += dt;
-    s.tick?.(dt);
+    s.tick?.(dt, ui);
     if (this.age < 0.25) return;
     s.input(ui, dt);
   }
@@ -208,6 +211,7 @@ export class Menus {
 
   showPause(): void {
     const sim = this.host.sim();
+    const m = sim?.missions.active ?? null;
     const el = h('div', 'screen dim');
     const panel = h('div', 'panel');
     panel.style.width = 'min(520px, 92vw)';
@@ -219,14 +223,17 @@ export class Menus {
       { label: 'CONTROLS', action: () => this.showControls() },
       { label: 'SETTINGS', action: () => this.showSettings() },
     ];
-    // An abandoned mission offers no retry: it starts over from its contact.
-    if (sim?.missions.active) items.push({ label: 'ABANDON MISSION', action: () => this.confirm('Abandon the mission? You will have to start it again from the beginning.', () => this.host.abandonMission()) });
+    // An abandoned mission offers no retry: it starts over from its contact. Once its goal is met (MissionCtx.won) it
+    // is passed whatever happens during the closing lines, an abandon included, so there is nothing to abandon. The
+    // sim stands still while this menu is open, so that cannot change under it.
+    if (m && !m.won) items.push({ label: 'ABANDON MISSION', action: () => this.confirm('Abandon the mission? You will have to start it again from the beginning.', () => this.host.abandonMission()) });
     items.push({ label: 'QUIT TO TITLE', action: () => this.confirm('Quit to the title screen? Unsaved progress will be lost.', () => this.host.quitToTitle()) });
     const list = new ButtonList(items, () => this.host.click());
     panel.appendChild(list.el);
     if (sim) {
-      const m = sim.missions.active;
-      panel.appendChild(h('p', '', m ? `Mission: <b>${escapeHtml(m.def.title)}</b> — ${escapeHtml(m.objectiveText || m.def.blurb)}` : `Zone: <b>${escapeHtml(sim.world.zoneName(sim.playerPos().x, sim.playerPos().z))}</b> · ${sim.clock.label()} · Day ${sim.clock.day}`));
+      // Past the goal the objective line is stale (or empty, then the blurb would read as still to do).
+      const doing = m ? (m.won ? 'complete' : escapeHtml(m.objectiveText || m.def.blurb)) : '';
+      panel.appendChild(h('p', '', m ? `Mission: <b>${escapeHtml(m.def.title)}</b> — ${doing}` : `Zone: <b>${escapeHtml(sim.world.zoneName(sim.playerPos().x, sim.playerPos().z))}</b> · ${sim.clock.label()} · Day ${sim.clock.day}`));
     }
     el.appendChild(panel);
     this.push({ el, input: (ui) => (ui.back || ui.pause ? this.host.resume() : list.input(ui)) });
@@ -674,26 +681,42 @@ export class Menus {
     let moved = 0;
     let lx = 0;
     let ly = 0;
+    // A direction held since before the map opened (W while driving, the left stick while steering) must not pan it by
+    // itself: each axis pans only once it has been seen at rest since the map opened. tick() watches from the first
+    // frame on, the input guard included, so a key pressed right after the map opened still pans. Presses still step.
+    let freeX = false;
+    let freeY = false;
+    // The map's size on the page (CSS px), measured at each draw: the view, clicks, the waypoint's 16 px and the pan
+    // speed are all in it, whatever the canvas's backing store (see draw).
+    let vw = window.innerWidth;
+    let vh = window.innerHeight;
     const scale = () => {
-      const base = Math.min(canvas.width / (this.map.canvas.width / MAP_SCALE), canvas.height / (this.map.canvas.height / MAP_SCALE));
+      const base = Math.min(vw / (this.map.canvas.width / MAP_SCALE), vh / (this.map.canvas.height / MAP_SCALE));
       return base * Math.pow(1.5, zoom);
     };
     const toWorld = (sx: number, sy: number) => {
       const k = scale();
-      return { x: cx + (sx - canvas.width / 2) / k, z: cz + (sy - canvas.height / 2) / k };
+      return { x: cx + (sx - vw / 2) / k, z: cz + (sy - vh / 2) / k };
     };
     const draw = (time: number) => {
-      const w = el.clientWidth || window.innerWidth;
-      const hh = el.clientHeight || window.innerHeight;
-      if (canvas.width !== w || canvas.height !== hh) {
-        canvas.width = w;
-        canvas.height = hh;
+      vw = Math.max(1, el.clientWidth || window.innerWidth);
+      vh = Math.max(1, el.clientHeight || window.innerHeight);
+      // Backed at the device pixel ratio (at most 2; read every frame, as browser zoom and another monitor change it),
+      // so lines and labels are sharp on HiDPI screens. Everything below is drawn in CSS px through the transform,
+      // which resizing the canvas resets.
+      const dpr = Math.min(2, window.devicePixelRatio > 0 ? window.devicePixelRatio : 1);
+      const bw = Math.max(1, Math.round(vw * dpr));
+      const bh = Math.max(1, Math.round(vh * dpr));
+      if (canvas.width !== bw || canvas.height !== bh) {
+        canvas.width = bw;
+        canvas.height = bh;
       }
+      ctx.setTransform(bw / vw, 0, 0, bh / vh, 0, 0);
       const k = scale();
       ctx.fillStyle = '#08111a';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, vw, vh);
       ctx.save();
-      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.translate(vw / 2, vh / 2);
       ctx.scale(k / MAP_SCALE, k / MAP_SCALE);
       ctx.translate(-(cx - this.map.minX) * MAP_SCALE, -(cz - this.map.minZ) * MAP_SCALE);
       ctx.drawImage(this.map.canvas, 0, 0);
@@ -710,8 +733,8 @@ export class Menus {
         const group = sim.world.layout.blocks.filter((b) => b.zone === blk.zone);
         const mx = group.reduce((a, b) => a + (b.rect.minX + b.rect.maxX) / 2, 0) / group.length;
         const mz = group.reduce((a, b) => a + (b.rect.minZ + b.rect.maxZ) / 2, 0) / group.length;
-        const sx = canvas.width / 2 + (mx - cx) * k;
-        const sy = canvas.height / 2 + (mz - cz) * k;
+        const sx = vw / 2 + (mx - cx) * k;
+        const sy = vh / 2 + (mz - cz) * k;
         ctx.lineWidth = 4;
         ctx.strokeStyle = 'rgba(0,0,0,0.85)';
         ctx.fillStyle = '#e8ecf2';
@@ -722,11 +745,11 @@ export class Menus {
       const wp = this.host.waypoint();
       const blips: Blip[] = wp ? [{ x: wp.x, z: wp.z, color: '#c04fff', label: 'W', sticky: true, shape: 'circle' }] : [];
       blips.push(...collectBlips(sim, time));
-      for (const b of blips) drawBlip(ctx, b, canvas.width / 2 + (b.x - cx) * k, canvas.height / 2 + (b.z - cz) * k, 18);
+      for (const b of blips) drawBlip(ctx, b, vw / 2 + (b.x - cx) * k, vh / 2 + (b.z - cz) * k, 18);
       const p = sim.playerPos();
       const ph = sim.player.vehicle ? sim.player.vehicle.heading : sim.player.heading;
       ctx.save();
-      ctx.translate(canvas.width / 2 + (p.x - cx) * k, canvas.height / 2 + (p.z - cz) * k);
+      ctx.translate(vw / 2 + (p.x - cx) * k, vh / 2 + (p.z - cz) * k);
       ctx.rotate(Math.PI - ph);
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = '#000';
@@ -818,16 +841,17 @@ export class Menus {
         if (ui.zoomOut) zoom = clamp(zoom - 0.5, 0, 4);
         // Each press (arrows / WASD, the D-pad) steps the view 60 px, also a tap whose key is up again before
         // Input polls and so is never seen held. Held, they and the left stick pan it on, by up to 0.8 of its
-        // height a second (its size on the page, as the pointer handlers measure it).
+        // height a second (its size on the page, as the pointer handlers measure it), once let go since it opened.
         const k = scale();
         cx += (((ui.right ? 1 : 0) - (ui.left ? 1 : 0)) * 60) / k;
         cz += (((ui.down ? 1 : 0) - (ui.up ? 1 : 0)) * 60) / k;
-        const view = Math.min(el.clientWidth || window.innerWidth, el.clientHeight || window.innerHeight);
-        const speed = (0.8 * view) / k;
-        cx += (ui.panX ?? 0) * speed * dt;
-        cz += (ui.panY ?? 0) * speed * dt;
+        const speed = (0.8 * Math.min(vw, vh)) / k;
+        if (freeX) cx += (ui.panX ?? 0) * speed * dt;
+        if (freeY) cz += (ui.panY ?? 0) * speed * dt;
       },
-      tick: (dt) => {
+      tick: (dt, ui) => {
+        if (!ui.panX) freeX = true;
+        if (!ui.panY) freeY = true;
         t += dt;
         if (hintDevice !== this.device) showHint();
         draw(t);
