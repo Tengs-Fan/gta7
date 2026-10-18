@@ -834,12 +834,23 @@ describe('Peds fleeing along a seawall keep out of the sea', () => {
         c.brain = makeBrain('wander');
         sim.peds.flee(c, x + sx * 40, z + sz * 40, null);
         c.brain.lateral = 0;
+        // Running for the whole test (a flight that ends hands him back to wandering).
+        c.brain.modeTimer = 30;
         const label = `pier at x ${x}, threat ${sx},${sz}`;
+        let travel = 0;
         for (let i = 0; i < 60 * 10; i++) {
+          const px = c.pos.x;
+          const pz = c.pos.z;
           sim.update(DT, input());
           expect(c.state, label).not.toBe('swimming');
+          if (i >= 60 * 8) travel += Math.hypot(c.pos.x - px, c.pos.z - pz);
         }
         expect(sim.world.waterDepth(c.pos.x, c.pos.z), label).toBeLessThan(0);
+        if (sz < 0) {
+          // Away from the deck, out to the pier's end: cornered there, he stands still rather than pace at the edge.
+          expect(pier.rect.maxZ - c.pos.z, label).toBeLessThan(8);
+          expect(travel, label).toBeLessThan(0.2);
+        }
       }
     }
   });

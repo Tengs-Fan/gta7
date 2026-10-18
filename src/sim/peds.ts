@@ -395,12 +395,15 @@ export class PedSystem {
       dz = -Math.cos(c.heading);
     }
     // Bend the escape direction a little per ped so crowds scatter. Never off a quay, a seawall or a pier into the sea:
-    // the direction nearest it (see FLEE_TURNS) whose ground 3 and 6 m ahead is dry. Already in the water, or with
-    // water all round, he makes for the nearest sidewalk instead, to climb out.
+    // the direction nearest it (see FLEE_TURNS) whose ground 3 and 6 m ahead is dry. When that way out lies back
+    // towards what he runs from (the end of a pier), he is cornered and stays where he is, rather than pace back and
+    // forth at the edge. Already in the water, or with water all round, he makes for the nearest sidewalk instead, to
+    // climb out.
     const ang = Math.atan2(dx, dz) + b.lateral * 0.8;
     let tx = c.pos.x;
     let tz = c.pos.z;
     let way = false;
+    let cornered = false;
     if (c.state !== 'swimming') {
       for (const turn of FLEE_TURNS) {
         const sx = Math.sin(ang + turn);
@@ -409,6 +412,7 @@ export class PedSystem {
           tx = c.pos.x + sx * 6;
           tz = c.pos.z + sz * 6;
           way = true;
+          cornered = Math.abs(turn) > Math.PI / 2;
           break;
         }
       }
@@ -418,8 +422,11 @@ export class PedSystem {
       tx = n.x;
       tz = n.z;
     }
-    this.steer(c, tx, tz, 6.3 * b.speedMul, dt);
-    this.unstick(c, b, dt);
+    if (cornered) c.moveSpeed = 0;
+    else {
+      this.steer(c, tx, tz, 6.3 * b.speedMul, dt);
+      this.unstick(c, b, dt);
+    }
     b.modeTimer -= dt;
     if (b.modeTimer <= 0 && d > 28) {
       b.mode = 'wander';
