@@ -721,6 +721,8 @@ export class DriverAI {
     let steerX: number;
     let steerZ: number;
     let targetSpeed: number;
+    // The speed a pursuer held back by the sea ahead would go at but for it (see the stuck rule).
+    let intent = 0;
     const speed = v.forwardSpeed;
     const fx = Math.sin(v.heading);
     const fz = Math.cos(v.heading);
@@ -755,7 +757,12 @@ export class DriverAI {
       if (targetOnFoot) targetSpeed = Math.min(targetSpeed, Math.max(0, (dToT - 10) * 0.9));
       // Never into the sea after him (the feelers see only walls): slow down to stop short of deep water ahead.
       const wet = this.waterAhead(v, (speed * speed) / (2 * this.decel) + 6);
-      if (wet < Infinity) targetSpeed = Math.min(targetSpeed, Math.sqrt(2 * this.decel * Math.max(0, wet - 3)));
+      if (wet < Infinity) {
+        // Stopped there, it still means to go after him when the way to him is dry: the stuck rule backs it up and
+        // swings its nose round towards him. When he is out across the water, it waits at the water's edge.
+        if (!this.waterOnWayTo(v, tp.x, tp.z)) intent = targetSpeed;
+        targetSpeed = Math.min(targetSpeed, Math.sqrt(2 * this.decel * Math.max(0, wet - 3)));
+      }
       steerX = aimX;
       steerZ = aimZ;
     } else {
@@ -831,6 +838,8 @@ export class DriverAI {
         targetSpeed = vs;
         this.limiter = 'obstacle';
       }
+      // (Pulled up behind a car, it is not stuck.)
+      intent = Math.min(intent, vs);
     }
     // Still out in the passing lane, slow for anyone coming the other way in it: pulling back in
     // turns the corridor away from them while the car is still in their way.
@@ -963,8 +972,8 @@ export class DriverAI {
       c.brake = 0.6;
     }
 
-    // Stuck handling.
-    const wantsToMove = targetSpeed > 2;
+    // Stuck handling (also for a pursuer that the sea ahead holds back, see above).
+    const wantsToMove = Math.max(targetSpeed, intent) > 2;
     if (wantsToMove && Math.abs(speed) < 0.7) this.stuck += dt;
     else this.stuck = Math.max(0, this.stuck - dt * 2);
     if (blocked && !waiting && Math.abs(speed) < 0.5) {
@@ -1993,6 +2002,20 @@ export class DriverAI {
       if (world.waterDepth(v.pos.x + fx * (v.halfL + s), v.pos.z + fz * (v.halfL + s)) > DIRECT_WADE) return s;
     }
     return Infinity;
+  }
+
+  /**
+   * True when the straight way from `v` to (x, z) runs through water deeper than DIRECT_WADE (sampled at most 2 m apart,
+   * from where it stands to (x, z) itself). Standing in water that deep itself, backing up could take it deeper.
+   */
+  private waterOnWayTo(v: Vehicle, x: number, z: number): boolean {
+    const world = this.host.world;
+    const n = Math.ceil(Math.hypot(x - v.pos.x, z - v.pos.z) / 2);
+    for (let i = 0; i <= n; i++) {
+      const k = n > 0 ? i / n : 0;
+      if (world.waterDepth(v.pos.x + (x - v.pos.x) * k, v.pos.z + (z - v.pos.z) * k) > DIRECT_WADE) return true;
+    }
+    return false;
   }
 
   /** Steers the aim point away from buildings using three feeler rays. */

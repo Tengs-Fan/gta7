@@ -370,9 +370,10 @@ export class CombatSystem {
    * swimming) for whom `spare` holds, from the muzzle up to the target (or at the muzzle, the shot leaving from inside
    * him), within LINE_CLEAR of the line across the ground there and LINE_SPREAD more per metre out, as far as the spread
    * of the shot reaches; and with `cover`, a vehicle other than his own in the way of his shot at a target on foot
-   * (who takes cover behind it, or stands beyond the van the shooter guards), so his rounds would end in it.
+   * (who takes cover behind it, or stands beyond the van the shooter guards), so his rounds would end in it: within
+   * `pad` of it (by default LINE_CLEAR / 2, for the spread of the shot; 0 for the shot itself).
    */
-  inLineOfFire(shooter: Character, target: Character, spare: (o: Character) => boolean, cover = false): Character | Vehicle | null {
+  inLineOfFire(shooter: Character, target: Character, spare: (o: Character) => boolean, cover = false, pad = LINE_CLEAR / 2): Character | Vehicle | null {
     const sim = this.sim;
     const tp = target.vehicle ? target.vehicle.pos : target.pos;
     const m = this.muzzle(shooter, !!shooter.vehicle);
@@ -388,10 +389,9 @@ export class CombatSystem {
       if (along > -BODY_R && along < len && Math.abs(ox * dz - oz * dx) / len < LINE_CLEAR + Math.max(0, along) * LINE_SPREAD) return o;
     }
     if (!cover || target.vehicle) return null;
-    // The shot itself, from the muzzle at his chest as npcFire aims it, kept LINE_CLEAR / 2 clear of every vehicle for its spread.
+    // The shot itself, from the muzzle at his chest as npcFire aims it, kept `pad` clear of every vehicle.
     const dy = target.pos.y + target.height * 0.62 - m.y;
     const l = Math.hypot(dx, dy, dz);
-    const pad = LINE_CLEAR / 2;
     for (const v of sim.vehicles) {
       if (v.removed || v === shooter.vehicle || pointSegDist(v.pos.x, v.pos.z, m.x, m.z, tp.x, tp.z) > v.halfL + v.halfW + pad) continue;
       vehicleObb(v, obb);

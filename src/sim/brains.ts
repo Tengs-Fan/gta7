@@ -44,6 +44,12 @@ export interface PedBrain {
   stuckTimer: number;
   lastX: number;
   lastZ: number;
+  /**
+   * Gunmen on foot: the way (1 or -1; 0 before the first) they last side-stepped for a clear line of fire, and whether
+   * they have turned back since they last had one or went after the target (see PedSystem.stepSide).
+   */
+  stepSide: number;
+  stepTurned: boolean;
 }
 
 export function makeBrain(mode: PedMode): PedBrain {
@@ -71,5 +77,7 @@ export function makeBrain(mode: PedMode): PedBrain {
     stuckTimer: 0,
     lastX: 0,
     lastZ: 0,
+    stepSide: 0,
+    stepTurned: false,
   };
 }
