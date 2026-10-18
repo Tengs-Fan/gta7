@@ -671,6 +671,18 @@ describe('FIXMYRIDE typed in a burning taxi or vigilante car keeps the job', () 
       expect(sim.activities.job).toBe(null);
     });
 
+    it('at an Enter (getting back in, the other exit key, which types no letter), as when he got out', async () => {
+      const { sim, frames, n } = await outOfBurningCab();
+      keyUp('KeyF', 'f');
+      frames(3);
+      expect(n.jobsEnded).toBe(0);
+      keyDown('Enter');
+      frames(1);
+      keyUp('Enter');
+      expect(n.jobsEnded).toBe(1);
+      expect(sim.activities.job).toBe(null);
+    });
+
     it('once the time a code allows between two letters (1.5 s) has gone by with no next letter', async () => {
       const { sim, frames, n } = await outOfBurningCab();
       keyUp('KeyF', 'f');

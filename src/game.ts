@@ -512,9 +512,10 @@ export class Game {
     }
     // An F let act at once (out of a burning car, see exitAtStake) may still be FIXMYRIDE's, which puts the player back
     // in his seat: a side job waits for that while the code is typed, instead of ending as he gets out. The press behind
-    // an exit made this frame is the latest exit key press, as the vehicleExit handler records it; behind an exit
-    // already made, the one it recorded.
-    sim.activities.exitUndoable = this.input.typingCode(pv ? this.input.exitKeyPress : (this.lastExit?.press ?? -1));
+    // an exit made this frame is the latest exit key press, as the vehicleExit handler records it; out already, the one
+    // it recorded, unless he has asked to get in somewhere since (Enter or F again): that exit stands.
+    const exitPress = this.input.exitKeyPress;
+    sim.activities.exitUndoable = this.input.typingCode(exitPress) && (pv !== null || this.lastExit?.press === exitPress);
     const ts = performance.now();
     sim.update(dt, inp);
     this.perf.simMs = performance.now() - ts;
