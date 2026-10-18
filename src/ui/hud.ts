@@ -480,12 +480,14 @@ export class Hud {
           return;
         }
       }
-      if (cur.kind === 'hint' && !cur.read && cur.shown >= cur.duration / 2) this.markRead(cur);
+      // Never while it no longer applies: a hint taken off in that grace (the situation over just before half its time,
+      // the low-health hint under WASTED) goes unread, and its rule can raise it again in the right situation.
+      if (cur.kind === 'hint' && !cur.read && cur.stale === 0 && cur.shown >= cur.duration / 2) this.markRead(cur);
       if (this.helpDevice !== this.device) this.renderHelp();
       return;
     }
     if (cur) {
-      if (cur.kind === 'hint' && !cur.read) this.markRead(cur);
+      if (cur.kind === 'hint' && !cur.read && cur.stale === 0) this.markRead(cur);
       this.helpCur = null;
       this.el.help!.classList.remove('show');
       this.hintGap = HINT_GAP;

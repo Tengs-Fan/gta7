@@ -718,6 +718,14 @@ export class Input {
     return this.heldKey !== null && !this.heldKey.menu;
   }
 
+  /**
+   * Whether key press `press` (numbered as in TypedCheat.presses) typed one of the letters so far of a cheat code still
+   * being typed: one not complete yet, whose last letter came no longer ago than a code allows before the next.
+   */
+  typingCode(press: number): boolean {
+    return press >= 0 && this.typed !== '' && performance.now() - this.typedAt <= CHEAT_GAP_MS && this.codePresses.includes(press);
+  }
+
   /** The key press held back for a cheat code acts after all: at the next frame. */
   private releaseHeldKey(): void {
     const h = this.heldKey;

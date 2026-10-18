@@ -510,6 +510,11 @@ export class Game {
       inp.brake = pv.forwardSpeed > 0.5 ? 1 : 0;
       inp.handbrake = pv.forwardSpeed <= 0.5;
     }
+    // An F let act at once (out of a burning car, see exitAtStake) may still be FIXMYRIDE's, which puts the player back
+    // in his seat: a side job waits for that while the code is typed, instead of ending as he gets out. The press behind
+    // an exit made this frame is the latest exit key press, as the vehicleExit handler records it; behind an exit
+    // already made, the one it recorded.
+    sim.activities.exitUndoable = this.input.typingCode(pv ? this.input.exitKeyPress : (this.lastExit?.press ?? -1));
     const ts = performance.now();
     sim.update(dt, inp);
     this.perf.simMs = performance.now() - ts;
@@ -574,7 +579,8 @@ export class Game {
       case 'FIXMYRIDE': {
         // Its F gets the player out of the car (bailing out at speed): put him back in his seat, refunding the fall.
         // Only an exit the code's own F asked for: one he made himself before typing it stands. Where that exit could
-        // not be undone (it ends a taxi or vigilante job, a bail could kill), Input held the F back and dropped it.
+        // not be undone (it ends a taxi or vigilante job, a bail could kill), Input held the F back and dropped it; out
+        // of a burning car it acted at once, and the job waited for this (Activities.exitUndoable).
         const ex = this.lastExit;
         this.lastExit = null;
         if (ex && typed.presses.includes(ex.press) && !p.vehicle && p.alive && !sim.playerDown && p.state !== 'entering' && canReseat(ex.vehicle)) {
@@ -737,6 +743,11 @@ export class Game {
     box.append(row, text);
     el.appendChild(box);
     this.ui.appendChild(el);
+    // The rest of the page goes inert: with Tab given back to the page, the menu buttons hidden under the overlay (and the
+    // canvas, a Tab stop) would take the focus, and Enter would run them in the dead game (RESUME un-mutes the frozen
+    // voices). The overlay's own buttons and report stay the only Tab stops.
+    this.canvas.inert = true;
+    for (const c of Array.from(this.ui.children)) if (c !== el) (c as HTMLElement).inert = true;
     // Enter or Space reloads at once; Tab goes on to COPY DETAILS.
     this.focusButton(reload, copy);
   }
@@ -892,7 +903,8 @@ function displayInfo(): { devicePixelRatio: number; screenWidth: number; screenH
  * things back: a bail at speed would kill him, or it would end a taxi or vigilante job (with its fare or suspect and
  * streak). Input then holds an F press back until the next key shows whether it starts the code. A wrecked or sinking
  * vehicle never holds it, and a burning one only for a bail that kills: its occupants are safe until it blows up, so
- * waiting is no worse there, while any other way out of it is urgent ('Press F to get out!').
+ * waiting is no worse there, while any other way out of it is urgent ('Press F to get out!'). Out of a burning car the
+ * job waits for the code instead, the player out meanwhile (Activities.exitUndoable).
  */
 function exitAtStake(sim: Sim): boolean {
   const p = sim.player;

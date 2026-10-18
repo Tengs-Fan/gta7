@@ -79,6 +79,12 @@ const DOOR_OUT = 0.6;
 
 export class Activities {
   job: Job | null = null;
+  /**
+   * Set by the game each frame: the player's last way out of a vehicle may yet be undone. FIXMYRIDE puts him back in
+   * the seat its own F got him out of, and that F acts at once out of a burning car (see exitAtStake in game.ts), so a
+   * taxi or vigilante job waits for him while the code is typed, instead of ending as he gets out.
+   */
+  exitUndoable = false;
 
   constructor(private readonly sim: Sim) {
     sim.events.on('characterKilled', (e) => {
@@ -145,6 +151,14 @@ export class Activities {
 
   private say(text: string, duration = 3): void {
     if (text) this.sim.events.emit('message', { text, duration });
+  }
+
+  /**
+   * The job holds still for the player, out of its car by a way out that may yet be undone (exitUndoable), as long as
+   * that car can take him back: it still drives, nobody else sits at its wheel, and he is in no other vehicle.
+   */
+  private waitsForPlayer(car: Vehicle): boolean {
+    return this.exitUndoable && this.sim.player.vehicle === null && !car.removed && car.drivable && car.driver === null;
   }
 
   private end(text: string): void {
@@ -271,7 +285,7 @@ export class Activities {
     const sim = this.sim;
     const v = sim.player.vehicle;
     if (v !== j.taxi || !j.taxi.drivable) {
-      this.end(`Taxi job ended. Fares: ${j.fares}.`);
+      if (!this.waitsForPlayer(j.taxi)) this.end(`Taxi job ended. Fares: ${j.fares}.`);
       return;
     }
     if (j.stage === 'pickup') {
@@ -499,7 +513,7 @@ export class Activities {
     const sim = this.sim;
     const v = sim.player.vehicle;
     if (v !== j.car || !j.car.drivable) {
-      this.end(`Vigilante ended at level ${j.level}.`);
+      if (!this.waitsForPlayer(j.car)) this.end(`Vigilante ended at level ${j.level}.`);
       return;
     }
     if (j.pause > 0) {
