@@ -26,11 +26,45 @@ export const OCCUPANT_RANGE = 60;
 const WHEEL_LOCK = 0.5;
 
 type Gun = Exclude<WeaponId, 'fists'>;
-/** Recoil kick (rad) of each weapon just after a shot; it is drawn only, never part of the muzzle. */
+/**
+ * Recoil kick (rad) of each weapon just after a shot; it is drawn only, never part of the muzzle. The frame a shot is
+ * fired on shows the gun as the shot left it, the flash and tracer on its barrel end; the kick comes in from the next.
+ */
 export const KICK: Readonly<Record<Gun, number>> = { pistol: 0.12, smg: 0.06, shotgun: 0.3, rifle: 0.1, rocket: 0.15 };
 /** The kick is at full strength while shotTimer is above this, then dies away with it. */
 const KICK_HOLD = 0.05;
 const KICK_BACK = 0.05;
+
+/**
+ * Characters dissolve right in front of the camera, by depth along the view (m): nothing nearer than LENS_FADE_GONE is
+ * drawn, and they are whole again from LENS_FADE_FULL. The near plane (0.3 m) then never cuts one open into a hollow
+ * shell, whether a wall has pulled the camera in to the player's head or a passer-by brushes the lens.
+ */
+export const LENS_FADE_GONE = 0.45;
+export const LENS_FADE_FULL = 0.9;
+
+/**
+ * Makes a character material dissolve near the lens (LENS_FADE_GONE .. LENS_FADE_FULL of depth) through a 4x4 Bayer
+ * dither, like the foliage near the camera (props.ts) but by depth, the near plane's own measure. Opaque, so no sorting
+ * and no extra draws; shadows come from the default depth material, so a faded player keeps his.
+ */
+function fadeNearLens(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+float lensBayer4( vec2 frag ) {
+  const float m[ 16 ] = float[ 16 ]( 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 );
+  ivec2 p = ivec2( mod( floor( frag ), 4.0 ) );
+  return ( m[ p.x + p.y * 4 ] + 0.5 ) / 16.0;
+}`,
+    )
+    .replace(
+      '#include <clipping_planes_fragment>',
+      `#include <clipping_planes_fragment>
+if ( vViewPosition.z < ${LENS_FADE_FULL.toFixed(2)} && lensBayer4( gl_FragCoord.xy ) >= smoothstep( ${LENS_FADE_GONE.toFixed(2)}, ${LENS_FADE_FULL.toFixed(2)}, vViewPosition.z ) ) discard;`,
+    );
+}
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
   return new THREE.BoxGeometry(w, h, d).translate(x, y, z);
@@ -151,6 +185,11 @@ export class CrowdView {
   private readonly trunk: Trunk = makeTrunk();
   private readonly gaitOut = makeGaitOut();
   private readonly wp: WeaponPose = makeWeaponPose();
+  /**
+   * Per character drawn: its shot timer last frame, the value the timer had on the frame of its latest shot (it went
+   * up: a shot was fired), and the frame it was last drawn. See kickOf.
+   */
+  private readonly shots = new Map<number, { last: number; fired: number; frame: number }>();
   /** Height each vehicle kind's view rotates about (see VehicleView). */
   private readonly pivots = new Map<VehicleKind, number>();
   private readonly seat: RiderSeat = { y: 0, z: 0, recline: 0 };
@@ -158,7 +197,11 @@ export class CrowdView {
 
   constructor() {
     this.group.name = 'crowd';
-    const mat = () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0 });
+    const mat = () => {
+      const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0 });
+      m.onBeforeCompile = fadeNearLens;
+      return m;
+    };
     const make = (geo: THREE.BufferGeometry, count: number): Part => {
       const mesh = new THREE.InstancedMesh(geo, mat(), count);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -204,6 +247,31 @@ export class CrowdView {
     }
   }
 
+  /** Notes `c`'s shot timer for this frame: one that went up since the last frame is a shot fired on this one. */
+  private trackShot(c: Character): void {
+    const t = c.shotTimer;
+    const s = this.shots.get(c.id);
+    if (!s) {
+      // First seen: nothing to compare with, so not taken for a shot frame.
+      this.shots.set(c.id, { last: t, fired: NaN, frame: this.frame });
+      return;
+    }
+    if (s.frame === this.frame) return;
+    if (t > s.last) s.fired = t;
+    s.last = t;
+    s.frame = this.frame;
+  }
+
+  /**
+   * The recoil drawn on `c`'s gun this frame (0..1 of KICK): none while his shot timer still reads what it did on the
+   * frame he fired (also while paused there), so the flash and the tracer start at the barrel end as drawn; then
+   * kickAmount.
+   */
+  private kickOf(c: Character): number {
+    const t = c.shotTimer;
+    return t > 0 && t === this.shots.get(c.id)?.fired ? 0 : kickAmount(t);
+  }
+
   private put(part: Part, m: THREE.Matrix4, color: number): void {
     if (part.n >= part.mesh.instanceMatrix.count) return;
     part.mesh.setMatrixAt(part.n, m);
@@ -229,10 +297,12 @@ export class CrowdView {
         const v = c.vehicle;
         if (!v || v.removed || v.destroyed || v.burning) continue;
         if ((v.pos.x - camX) ** 2 + (v.pos.z - camZ) ** 2 > OCCUPANT_RANGE * OCCUPANT_RANGE) continue;
+        this.trackShot(c);
         this.seated(c, v);
         continue;
       }
       if ((c.pos.x - camX) ** 2 + (c.pos.z - camZ) ** 2 > 200 * 200) continue;
+      this.trackShot(c);
       let anim = this.lie.get(c.id);
       if (!anim) {
         anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, frame: 0 };
@@ -242,6 +312,7 @@ export class CrowdView {
       this.pose(c, anim, dt);
     }
     for (const [id, a] of this.lie) if (a.frame !== this.frame) this.lie.delete(id);
+    for (const [id, s] of this.shots) if (s.frame !== this.frame) this.shots.delete(id);
     const finish = (p: Part) => {
       p.mesh.count = p.n;
       p.mesh.instanceMatrix.needsUpdate = true;
@@ -427,7 +498,7 @@ export class CrowdView {
     let kick = 0;
     if (armed) {
       weaponPoseInto(c, this.wp, t);
-      kick = kickAmount(c.shotTimer);
+      kick = this.kickOf(c);
     }
 
     // Drawn-only trunk offsets: crouching, punch step and twist, recoil.
@@ -634,7 +705,7 @@ export class CrowdView {
     if (shooting) {
       const w = weaponPoseInto(c, this.wp);
       const gun = w.weapon;
-      const kick = kickAmount(c.shotTimer);
+      const kick = this.kickOf(c);
       const m = this.weaponMatrix(w, kick * KICK[gun], WEAPON_POINTS[gun].grip, KICK_BACK * kick);
       this.put(this.weapons.get(gun)!, m, 0xffffff);
       const g = WEAPON_POINTS[gun].grip;
@@ -782,7 +853,7 @@ export class CrowdView {
       S.pole.set(0, -1, 0).addScaledVector(S.vleft, side * 0.3);
       this.armTo(S.shR, S.d1.set(grip.x, grip.y, grip.z), S.pole, S.vleft, c);
     }
-    const kick = kickAmount(c.shotTimer);
+    const kick = this.kickOf(c);
     this.put(this.weapons.get(gun)!, this.weaponMatrix(w, kick * KICK[gun], pts.grip, KICK_BACK * kick), 0xffffff);
   }
 }

@@ -1304,7 +1304,8 @@ describe('round 2 fix 2: markers fade out next to the camera', () => {
     view.syncMarkers([m], 0, { x: m.x - 2.4, y: 2.3, z: m.z }, { x: m.x - 0.6, z: m.z });
     expect(view.group.children[0]!.visible).toBe(true);
     expect((((view.group.children[0]!.getObjectByName('beam') as THREE.Mesh).material) as THREE.MeshBasicMaterial).opacity).toBe(0.28);
-    view.syncMarkers([m], 0, { x: m.x - 2.4, y: 2.3, z: m.z }, { x: m.x - 1.6, z: m.z });
+    // Stepping off it, it fades out over the next metre of his walk (r2_fix3_actors), not in one frame.
+    view.syncMarkers([m], 0, { x: m.x - 2.4, y: 2.3, z: m.z }, { x: m.x - 2.6, z: m.z });
     expect(view.group.children[0]!.visible).toBe(false);
     // High above it, as close over the ground: far from the marker itself.
     expect(markerFade({ x: m.x, y: 30, z: m.z }, m.x, m.z)).toBe(1);

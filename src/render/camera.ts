@@ -3,9 +3,11 @@
 
 import * as THREE from 'three';
 import { clamp, damp, dampAngle, smoothstep, wrapAngle, type V3 } from '../core/math';
+import type { Vehicle } from '../sim/entities';
 import type { Sim } from '../sim/sim';
 import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
-import { WATER_Y } from '../world/constants';
+import { CURB_H, WATER_Y } from '../world/constants';
+import type { StaticWorld } from '../world/staticWorld';
 import { FOLIAGE_FADE_FAR, foliageKept, foliagePoints, foliageSpheres } from './props';
 
 export type CameraMode = 'play' | 'title';
@@ -46,12 +48,61 @@ const TRUNK_SKIP = 1.6;
 const HUG_RELEASE = TRUNK_SKIP + 0.25;
 const HOLD_RELEASE = TRUNK_SKIP - 0.15;
 /**
+ * The wider HUG_RELEASE holds only while the view turns, and for this long (s) after: the flips it prevents come
+ * from pans. A player who walks or stands without turning the view gets the plain TRUNK_SKIP cut, once, instead of a
+ * trunk left between him and the camera for as long as he stands there.
+ */
+const HUG_HOLD = 0.4;
+/**
  * Radius (m) of the camera's lens for the trunk stop: the boom stops where a sphere this big round the
  * camera would touch a trunk, so it is also caught by trunks it would only have grazed.
  */
 const LENS = 0.5;
+/**
+ * A wall that cuts the on-foot boom shorter than CLOSE_BOOM (m from its root beside the head; a trunk never does, see
+ * TRUNK_SKIP) lifts the camera by up to CLOSE_LIFT and slides it out over the shoulder by up to CLOSE_SIDE, in full
+ * from CLOSE_FULL in, so it looks past his head instead of out of it. Whatever is still that close to the lens,
+ * CrowdView dissolves (crowd.ts LENS_FADE_GONE), so the near plane never cuts him open.
+ */
+const CLOSE_BOOM = 1.3;
+const CLOSE_FULL = 0.35;
+const CLOSE_LIFT = 0.35;
+const CLOSE_SIDE = 0.2;
+/**
+ * The chase camera stays out of its own vehicle: within BODY_CLEAR (m) of the body's sides or ends it rises to
+ * ROOF_CLEAR over the roof (easing in from BODY_BAND further out) and looks at the car from there. Further off than
+ * that no part of the body comes nearer the lens than its near plane, whichever way the frustum's edges run.
+ */
+const BODY_CLEAR = 0.5;
+const ROOF_CLEAR = 0.45;
+const BODY_BAND = 0.6;
+/**
+ * On foot, raised ground (a quay over the sea, a deck, a stunt ramp: StaticWorld.groundHeight, which the camera's floor
+ * follows but no collider marks) must not come between the camera and the player: the line from the camera to his head
+ * clears it by SIGHT_MARGIN (m), checked every SIGHT_STEP along the ground. On land, or aiming, his boom stops short of
+ * where it would not, TERRAIN_GAP in front, as at a wall. In the water (a swimmer, or someone wading and not aiming) he
+ * is looked down on instead, over the quay or deck he has his back to: the camera rises by up to SIGHT_RISE over its
+ * floor, the boom shortening as far as that needs (down to a view from right above him), and the view tilts down with
+ * it to keep him where he was in the frame.
+ */
+const SIGHT_MARGIN = 0.1;
+const SIGHT_STEP = 0.1;
+const TERRAIN_GAP = 0.3;
+const SIGHT_RISE = 3;
+/** The sight line ends this far over the camera target: a walker's head centre, a swimmer's face. */
+const SIGHT_HEAD = 0.15;
+const SIGHT_HEAD_SWIM = 0.2;
+/**
+ * A swimmer's camera changes shoulders when the other one would see him with at least SIDE_SWAP m less of that rise
+ * (swimming along a quay, the right one looks across its edge), and changes back once the gain is under SIDE_BACK; it
+ * glides across at SIDE_RATE (1/s).
+ */
+const SIDE_SWAP = 0.5;
+const SIDE_BACK = 0.1;
+const SIDE_RATE = 5;
 
 const isTrunk = (c: StaticCollider) => c.tag === 'tree' || c.tag === 'palm';
+const ZERO: V3 = { x: 0, y: 0, z: 0 };
 
 /** The chase camera looks at a point this far up a vehicle (x its height). */
 export const CHASE_TARGET_Y = 0.75;
@@ -123,11 +174,11 @@ function leavesClear(cam: V3, yaw: number, pitch: number, fovDeg: number, aspect
  * touches a tree or palm trunk (`t`, Infinity for none; never under TRUNK_SKIP - 0.3, the old ray
  * stop's minimum) and which trunk that is. Trunks hugging his back (their near side within TRUNK_SKIP
  * along the boom) are ignored and go into `hugging`; with hysteresis (HUG_RELEASE, HOLD_RELEASE) for the
- * trunks that hugged last frame (`hugged`) and the one holding the boom back (`held`). Trunk colliders are
- * vertical cylinders taller than the boom is high, so this is the boom's track over the ground against
- * each trunk's circle grown by LENS.
+ * trunks that hugged last frame (`hugged`, while the view is `turning`: see HUG_HOLD) and the one holding
+ * the boom back (`held`). Trunk colliders are vertical cylinders taller than the boom is high, so this is
+ * the boom's track over the ground against each trunk's circle grown by LENS.
  */
-function trunkStop(sim: Sim, from: V3, d: V3, len: number, hugged: ReadonlySet<number>, held: number, hugging: Set<number>): { t: number; id: number } {
+function trunkStop(sim: Sim, from: V3, d: V3, len: number, hugged: ReadonlySet<number>, turning: boolean, held: number, hugging: Set<number>): { t: number; id: number } {
   const stop = { t: Infinity, id: -1 };
   const h2 = d.x * d.x + d.z * d.z;
   if (h2 < 1e-6) return stop;
@@ -151,7 +202,7 @@ function trunkStop(sim: Sim, from: V3, d: V3, len: number, hugged: ReadonlySet<n
     const y = from.y + d.y * t;
     if (y < c.y0 - LENS || y > c.y1 + LENS) return;
     // Along the boom to where it passes the trunk's centre, less the trunk's own radius.
-    const skip = hugged.has(c.id) ? HUG_RELEASE : c.id === held ? HOLD_RELEASE : TRUNK_SKIP;
+    const skip = hugged.has(c.id) && turning ? HUG_RELEASE : c.id === held ? HOLD_RELEASE : TRUNK_SKIP;
     if (-b / h2 - c.r <= skip) hugging.add(c.id);
     else if (t < stop.t) {
       stop.t = t;
@@ -159,6 +210,60 @@ function trunkStop(sim: Sim, from: V3, d: V3, len: number, hugged: ReadonlySet<n
     }
   });
   return stop;
+}
+
+/** The lowest the camera may be over (x, z): above the ground, and above the sea, whose surface is invisible from below. */
+function floorAt(world: StaticWorld, x: number, z: number): number {
+  return Math.max(world.groundHeight(x, z), WATER_Y) + 0.35;
+}
+
+/** The highest the terrain reaches (curbs, decks, ramps; see StaticWorld.groundHeight) over the box x0..x1, z0..z1. */
+function terrainTop(world: StaticWorld, x0: number, z0: number, x1: number, z1: number): number {
+  let top = CURB_H;
+  for (const d of world.layout.decks) {
+    if (d.y > top && d.rect.minX <= x1 && d.rect.maxX >= x0 && d.rect.minZ <= z1 && d.rect.maxZ >= z0) top = d.y;
+  }
+  for (const r of world.layout.ramps) {
+    const reach = Math.hypot(r.length, r.width) / 2;
+    if (CURB_H + r.height > top && r.x + reach >= x0 && r.x - reach <= x1 && r.z + reach >= z0 && r.z - reach <= z1) top = CURB_H + r.height;
+  }
+  return top;
+}
+
+/**
+ * The lowest camera height over (cx, cz) from which the line down to the head point (tx, ty, tz) clears the terrain
+ * between them (ground, decks and ramps) by SIGHT_MARGIN; -Infinity when no terrain there comes near the line (`cy`,
+ * the camera's height as it stands, tells). A step in the ground is located between two samples to the centimetre,
+ * so the line is never let through the corner of an edge.
+ */
+function sightFloor(world: StaticWorld, tx: number, ty: number, tz: number, cx: number, cy: number, cz: number): number {
+  if (Math.min(ty, cy) > terrainTop(world, Math.min(tx, cx), Math.min(tz, cz), Math.max(tx, cx), Math.max(tz, cz)) + SIGHT_MARGIN) return -Infinity;
+  const ground = (s: number) => world.groundHeight(tx + (cx - tx) * s, tz + (cz - tz) * s) + SIGHT_MARGIN;
+  const n = Math.max(1, Math.ceil(Math.hypot(cx - tx, cz - tz) / SIGHT_STEP));
+  let need = -Infinity;
+  let s0 = 0;
+  let g0 = ground(0);
+  for (let i = 1; i <= n; i++) {
+    const s = i / n;
+    const g = ground(s);
+    let at = s;
+    if (g > g0 + 0.05) {
+      // The ground steps up between the two samples: find where, and hold the line over the edge itself.
+      let lo = s0;
+      let hi = s;
+      const mid = (g0 + g) / 2;
+      for (let k = 0; k < 10; k++) {
+        const m = (lo + hi) / 2;
+        if (ground(m) > mid) hi = m;
+        else lo = m;
+      }
+      at = Math.max(1e-3, lo);
+    }
+    need = Math.max(need, ty + (g - ty) / at);
+    s0 = s;
+    g0 = g;
+  }
+  return need;
 }
 
 export class CameraController {
@@ -201,18 +306,39 @@ export class CameraController {
   private freshBoom = true;
   /** The trunk the boom was last held back by (collider id, -1: none). */
   private heldBy = -1;
+  /** The on-foot view's yaw and pitch last frame, and how long ago (s) it last turned (see HUG_HOLD). */
+  private lastYaw = 0;
+  private lastPitch = 0;
+  private stillFor = Infinity;
   private titleT = 0;
   private deathT = 0;
   private wasInVehicle = false;
   private initialized = false;
   /**
    * What rayFor() rebuilds the on-foot view from: whether the last update() framed the player on foot,
-   * its shoulder offset, how far along the boom the camera ended up (1 = not pulled in) and the floor it was kept above.
+   * its shoulder offset, how far along the boom the camera ended up (1 = not pulled in), how far it then rose
+   * and slid right (a wall close behind him, an edge between him and the camera), how far the view tilted down to
+   * keep a swimmer framed from up there, and the floor it was kept above.
    */
   private footView = false;
   private shoulder = 0.42;
   private boom = 1;
+  private footLift = 0;
+  private footSide = 0;
+  private footTilt = 0;
   private floorY = -Infinity;
+  /** The on-foot camera's shoulder: +1 his right, -1 his left (a swimmer's, see SIDE_SWAP), and where it is going. */
+  private shoulderSide = 1;
+  private sideTarget = 1;
+  /** The point on the player the on-foot camera keeps in sight over raised ground (see SIGHT_HEAD), as the target moves. */
+  private readonly head = new THREE.Vector3();
+  /** Where the chase camera looks (a little ahead of and above its target). */
+  private readonly chaseLook = new THREE.Vector3();
+  private readonly bodyEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  private readonly bodyTurn = new THREE.Quaternion();
+  private readonly scratch = new THREE.Vector3();
+  /** What closeBoom put on the on-foot camera beside its boom, while liftSight shortens that. */
+  private readonly boomOff = new THREE.Vector3();
   baseFov = 68;
 
   constructor(aspect: number) {
@@ -268,7 +394,8 @@ export class CameraController {
    * The crosshair ray for the current yaw and pitch, without waiting for update().
    * aimRay() still points where the last frame looked, so a look and a shot in the same frame would miss.
    * On foot the view is rebuilt the way update() frames it, from the current target and distance (no smoothing step),
-   * pulled in along the boom as far as the last frame's collision did and kept above its floor (no new raycast).
+   * pulled in along the boom, lifted, slid right and tilted as far as the last frame's collision did and kept above its
+   * floor (no new raycast).
    * In a vehicle, while wasted and on the title screen it is aimRay().
    * It changes nothing.
    */
@@ -289,15 +416,21 @@ export class CameraController {
     const py = t.y - dy * this.dist + 0.18;
     const pz = t.z - dz * this.dist + rz * s;
     const k = this.boom;
+    const side = this.footSide;
+    const view = this.pitch + this.footTilt;
+    const cv = Math.cos(view);
     return {
-      origin: { x: lx + (px - lx) * k, y: Math.max(t.y + (py - t.y) * k, this.floorY), z: lz + (pz - lz) * k },
-      dir: { x: dx, y: dy, z: dz },
+      origin: { x: lx + (px - lx) * k + rx * side, y: Math.max(t.y + (py - t.y) * k + this.footLift, this.floorY), z: lz + (pz - lz) * k + rz * side },
+      dir: { x: Math.sin(this.yaw) * cv, y: Math.sin(view), z: Math.cos(this.yaw) * cv },
     };
   }
 
   update(dt: number, sim: Sim, aiming: boolean): void {
     this.lookIdle += dt;
     this.footView = false;
+    this.footLift = 0;
+    this.footSide = 0;
+    this.footTilt = 0;
     if (this.mode === 'title') {
       this.updateTitle(dt);
       return;
@@ -314,6 +447,8 @@ export class CameraController {
       this.vehYaw = v.heading;
       this.orbitYaw = wrapAngle(this.yaw - v.heading);
       this.orbitPitch = 0;
+      this.shoulderSide = 1;
+      this.sideTarget = 1;
     } else if (!v && this.wasInVehicle) {
       this.yaw = wrapAngle(this.vehYaw + this.orbitYaw);
       this.pitch = RESET_PITCH;
@@ -324,6 +459,9 @@ export class CameraController {
 
     let lookFrom: THREE.Vector3;
     let fovTarget = this.baseFov;
+    let swimming = false;
+    // In the water and not aiming: raised ground is looked over (liftSight) rather than stopping the boom.
+    let lookOver = false;
     this.rumbleAmt = 0;
     if (sim.playerDown && sim.deathKind === 'wasted') {
       this.deathT += dt;
@@ -357,32 +495,39 @@ export class CameraController {
       const boom = chaseOffset(s, k, this.zoomLevel === 1, this.orbitPitch, this.chase);
       this.target.lerp(new THREE.Vector3(v.pos.x, v.pos.y + s.height * CHASE_TARGET_Y, v.pos.z), 1 - Math.exp(-18 * dt));
       this.desired.set(this.target.x - Math.sin(yaw) * boom.back, this.target.y + boom.up, this.target.z - Math.cos(yaw) * boom.back);
-      const look = new THREE.Vector3(this.target.x + Math.sin(yaw) * 3, this.target.y + 0.3, this.target.z + Math.cos(yaw) * 3);
-      this.dir.copy(look).sub(this.desired).normalize();
+      this.chaseLook.set(this.target.x + Math.sin(yaw) * 3, this.target.y + 0.3, this.target.z + Math.cos(yaw) * 3);
+      this.dir.copy(this.chaseLook).sub(this.desired).normalize();
       lookFrom = this.target.clone();
       fovTarget = this.baseFov + 15 * smoothstep(8, 58, speed);
       this.rumbleAmt = 0.03 * smoothstep(30, 60, speed);
       this.pitch = Math.asin(clamp(this.dir.y, -1, 1));
     } else {
       this.deathT = 0;
-      const swimming = p.state === 'swimming';
+      swimming = p.state === 'swimming';
       // The camera cannot dip under the sea surface, so looking up from the water would lose the swimmer;
       // swimmers cannot aim either, so they keep the wider camera.
       if (swimming && this.pitch > 0.3) this.pitch = 0.3;
       const aim = aiming && !swimming;
+      lookOver = !aim && (swimming || p.pos.y < WATER_Y);
       const lying = p.state === 'knocked' || p.state === 'dead';
       const headY = swimming ? 1.6 : lying ? 0.7 : 1.58 * p.appearance.height;
       this.target.lerp(new THREE.Vector3(p.pos.x, p.pos.y + headY, p.pos.z), 1 - Math.exp(-22 * dt));
       // `aiming` is the aim button (Character.aimZoom): hip fire keeps the wide view.
       const distTarget = aim ? 2.4 : this.zoomLevel === 1 ? 6.6 : 4.3;
       this.dist = damp(this.dist, distTarget, 10, dt);
-      const shoulder = aim ? 0.62 : 0.42;
-      this.footView = true;
-      this.shoulder = shoulder;
       const cy = Math.cos(this.pitch);
       this.dir.set(Math.sin(this.yaw) * cy, Math.sin(this.pitch), Math.cos(this.yaw) * cy);
       const rx = -Math.cos(this.yaw);
       const rz = Math.sin(this.yaw);
+      // (Eased like the framing: the sea takes a swimmer 0.4 m down in one frame as he lands in it.)
+      this.head.set(this.target.x, this.target.y + (swimming ? SIGHT_HEAD_SWIM : SIGHT_HEAD), this.target.z);
+      // Over his right shoulder; a swimmer's camera takes the left one where that sees him better (SIDE_SWAP).
+      const across = aim ? 0.62 : 0.42;
+      this.sideTarget = swimming ? this.openSide(sim, across, rx, rz) : 1;
+      this.shoulderSide = damp(this.shoulderSide, this.sideTarget, SIDE_RATE, dt);
+      const shoulder = across * this.shoulderSide;
+      this.footView = true;
+      this.shoulder = shoulder;
       // Right of the camera is (-cos yaw, sin yaw): shift the character to the left of the crosshair.
       this.desired.set(this.target.x - this.dir.x * this.dist + rx * shoulder, this.target.y - this.dir.y * this.dist + 0.18, this.target.z - this.dir.z * this.dist + rz * shoulder);
       lookFrom = new THREE.Vector3(this.target.x + rx * shoulder * 0.5, this.target.y, this.target.z + rz * shoulder * 0.5);
@@ -418,13 +563,20 @@ export class CameraController {
     const d = this.desired.clone().sub(lookFrom);
     const len = d.length();
     const onFoot = !v && !(sim.playerDown && sim.deathKind === 'wasted');
+    if (onFoot) {
+      // How long the view has held still, for the trunk hysteresis (HUG_HOLD).
+      const turned = Math.abs(wrapAngle(this.yaw - this.lastYaw)) > 1e-5 || Math.abs(this.pitch - this.lastPitch) > 1e-5;
+      this.stillFor = turned ? 0 : this.stillFor + dt;
+      this.lastYaw = this.yaw;
+      this.lastPitch = this.pitch;
+    }
+    let reach = len;
     if (len > 0.01) {
       d.divideScalar(len);
-      let reach = len;
       if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) reach = Math.max(0.35, hit.t - 0.3);
       if (onFoot) {
         this.huggingNow.clear();
-        const stop = trunkStop(sim, lookFrom, d, len, this.hugging, this.heldBy, this.huggingNow);
+        const stop = trunkStop(sim, lookFrom, d, len, this.hugging, this.stillFor < HUG_HOLD, this.heldBy, this.huggingNow);
         const cur = Math.min(this.trunkReach, len);
         if (stop.t < cur) {
           // In from the boom's current length; but a trunk that hugged his back last frame has the camera
@@ -445,17 +597,32 @@ export class CameraController {
         [this.hugging, this.huggingNow] = [this.huggingNow, this.hugging];
         this.freshBoom = false;
         reach = Math.min(reach, this.trunkReach);
+        // Raised ground between him and the camera stops the boom as a wall would (in the water: liftSight).
+        if (!lookOver) {
+          const seen = this.sightReach(sim.world, lookFrom, d, reach, 0, ZERO);
+          if (seen < reach) reach = Math.max(0, seen - TERRAIN_GAP);
+        }
       }
       if (reach < len) this.desired.copy(lookFrom).addScaledVector(d, reach);
     }
-    this.boom = len > 0.01 ? Math.min(1, this.desired.distanceTo(lookFrom) / len) : 1;
+    this.boom = len > 0.01 ? Math.min(1, reach / len) : 1;
     if (!onFoot) {
       this.trunkReach = Infinity;
       this.hugging.clear();
       this.heldBy = -1;
     }
-    // Stay above the ground and above the sea, whose surface plane is invisible from below.
-    const floor = Math.max(sim.world.groundHeight(this.desired.x, this.desired.z), WATER_Y) + 0.35;
+    if (onFoot && len > 0.01) {
+      this.closeBoom(sim, reach);
+      if (lookOver) this.liftSight(sim.world, lookFrom, d, len);
+    } else if (v) {
+      this.clearBody(sim, v);
+    }
+    // Stay above the ground and above the sea, whose surface plane is invisible from below. The floor rises at once
+    // but sinks over a moment (the camera passing off a deck or a quay out over the sea would drop 0.8 m in one
+    // frame), unless the camera jumped anyway.
+    const ground = floorAt(sim.world, this.desired.x, this.desired.z);
+    const moved = Math.hypot(this.desired.x - cam.position.x, this.desired.z - cam.position.z);
+    const floor = ground >= this.floorY || moved > 3 ? ground : damp(this.floorY, ground, 8, dt);
     if (this.desired.y < floor) this.desired.y = floor;
     this.floorY = floor;
 
@@ -466,6 +633,141 @@ export class CameraController {
       cam.updateProjectionMatrix();
     }
     cam.lookAt(cam.position.x + this.dir.x, cam.position.y + this.dir.y, cam.position.z + this.dir.z);
+  }
+
+  /**
+   * A wall right behind the player (the on-foot boom cut to `reach` m, shorter than CLOSE_BOOM): the camera rises and
+   * slides out over the shoulder it is on, as far as nothing solid comes within 0.3 m of the lens.
+   */
+  private closeBoom(sim: Sim, reach: number): void {
+    const k = 1 - smoothstep(CLOSE_FULL, CLOSE_BOOM, reach);
+    if (k <= 0) return;
+    const p = this.desired;
+    const grid = sim.world.grid;
+    let lift = CLOSE_LIFT * k;
+    if (grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight)) lift = Math.max(0, hit.t - 0.3);
+    p.y += lift;
+    // Out to his right, or his left with a swimmer's camera over that shoulder (between the two while it changes).
+    const out = this.shoulderSide;
+    const ox = -Math.cos(this.yaw) * Math.sign(out);
+    const oz = Math.sin(this.yaw) * Math.sign(out);
+    let slide = CLOSE_SIDE * k * Math.abs(out);
+    if (slide > 0 && grid.raycast(p.x, p.y, p.z, ox, 0, oz, slide + 0.3, hit, isSolidForSight)) slide = Math.max(0, hit.t - 0.3);
+    p.x += ox * slide;
+    p.z += oz * slide;
+    this.footLift += lift;
+    // (footSide is along his right.)
+    this.footSide += slide * Math.sign(out);
+  }
+
+  /**
+   * The longest boom, up to `reach` m from `from` along the unit vector `d` (and `off` beside it), whose camera point,
+   * kept above its floor, needs at most `rise` m more height to see the player's head (this.head) over raised ground
+   * (see sightFloor); 0 when not even the boom's root does. With no rise, the floor may not lift the camera above his
+   * head either (onto a ramp's lip or a deck he stands below): it would look out over him.
+   */
+  private sightReach(world: StaticWorld, from: V3, d: V3, reach: number, rise: number, off: V3): number {
+    const h = this.head;
+    const q = this.scratch;
+    const fits = (len: number): boolean => {
+      q.set(from.x + d.x * len + off.x, from.y + d.y * len + off.y, from.z + d.z * len + off.z);
+      const floor = floorAt(world, q.x, q.z);
+      if (rise === 0 && floor > h.y) return false;
+      const base = Math.max(q.y, floor);
+      return sightFloor(world, h.x, h.y, h.z, q.x, base, q.z) - base <= rise;
+    };
+    if (fits(reach)) return reach;
+    let lo = 0;
+    let hi = reach;
+    for (let k = 0; k < 12; k++) {
+      const m = (lo + hi) / 2;
+      if (fits(m)) lo = m;
+      else hi = m;
+    }
+    return lo;
+  }
+
+  /**
+   * Keeps the player in the water in view over raised ground (see SIGHT_RISE): the camera (this.desired, at this.boom of
+   * the boom from `lookFrom` along the unit vector `d`, `len` long in full, plus what closeBoom added) rises as far as the
+   * line down to his head needs, on a shorter boom where the one it has would need more than SIGHT_RISE, and the view
+   * tilts down with it, keeping him where he was in the frame.
+   */
+  private liftSight(world: StaticWorld, lookFrom: THREE.Vector3, d: THREE.Vector3, len: number): void {
+    const h = this.head;
+    const p = this.desired;
+    const y0 = Math.max(p.y, floorAt(world, p.x, p.z));
+    if (sightFloor(world, h.x, h.y, h.z, p.x, y0, p.z) <= y0) return;
+    const h0 = Math.hypot(p.x - h.x, p.z - h.z);
+    // What closeBoom added stays with the camera as the boom shortens.
+    const reach = this.boom * len;
+    const off = this.boomOff.copy(p).sub(this.scratch.copy(lookFrom).addScaledVector(d, reach));
+    const fit = this.sightReach(world, lookFrom, d, reach, SIGHT_RISE, off);
+    if (fit < reach) {
+      p.copy(lookFrom).addScaledVector(d, fit).add(off);
+      this.boom = fit / len;
+    }
+    const base = Math.max(p.y, floorAt(world, p.x, p.z));
+    const need = sightFloor(world, h.x, h.y, h.z, p.x, base, p.z);
+    if (need > base) {
+      // As far as anything solid overhead lets it (an eave, an upper storey reaching out).
+      let lift = need - p.y;
+      if (world.grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight)) lift = Math.max(0, hit.t - 0.3);
+      this.footLift += lift;
+      p.y += lift;
+    }
+    // (He is not aiming.) The view tilts down by as much as he now lies further below it.
+    const y1 = Math.max(p.y, floorAt(world, p.x, p.z));
+    const h1 = Math.hypot(p.x - h.x, p.z - h.z);
+    const view = clamp(this.pitch + Math.atan2(h.y - y1, h1) - Math.atan2(h.y - y0, h0), -1.45, 1.4);
+    this.footTilt = view - this.pitch;
+    const cv = Math.cos(view);
+    this.dir.set(Math.sin(this.yaw) * cv, Math.sin(view), Math.cos(this.yaw) * cv);
+  }
+
+  /**
+   * The shoulder (+1 right, -1 left) a swimmer's camera should go over, `across` m out from his head beside its boom
+   * (whose right is (rx, rz)): the right one, unless raised ground beside him hides him from it so much more than from
+   * the left one that the view from there needs less of the rise (SIDE_SWAP, SIDE_BACK).
+   */
+  private openSide(sim: Sim, across: number, rx: number, rz: number): number {
+    const w = sim.world;
+    const h = this.head;
+    const t = this.target;
+    const extra = (side: number): number => {
+      const x = t.x - this.dir.x * this.dist + rx * across * side;
+      const y = t.y - this.dir.y * this.dist + 0.18;
+      const z = t.z - this.dir.z * this.dist + rz * across * side;
+      const base = Math.max(y, floorAt(w, x, z));
+      return Math.max(0, sightFloor(w, h.x, h.y, h.z, x, base, z) - base);
+    };
+    const gain = extra(1) - extra(-1);
+    if (this.sideTarget > 0) return gain > SIDE_SWAP ? -1 : 1;
+    return gain < SIDE_BACK ? 1 : -1;
+  }
+
+  /**
+   * Keeps the chase camera out of its own vehicle `v`: near its body (see BODY_CLEAR) the camera rises over the roof,
+   * as far as a ceiling lets it, and looks at the car from there. The body frame is the vehicle's as drawn: turned,
+   * pitched and rolled about the middle of its height.
+   */
+  private clearBody(sim: Sim, v: Vehicle): void {
+    const p = this.desired;
+    const h = v.spec.height;
+    const turn = this.bodyTurn.setFromEuler(this.bodyEuler.set(-v.pitch, v.heading, v.roll, 'YXZ')).invert();
+    // A world rise lifts the camera this much in the body frame: no help on a car tipped far over (it is upright again
+    // or he is out of it within moments).
+    const up = this.scratch.set(0, 1, 0).applyQuaternion(turn).y;
+    if (!(up > 0.5)) return;
+    const local = this.scratch.set(p.x - v.pos.x, p.y - v.pos.y - h / 2, p.z - v.pos.z).applyQuaternion(turn);
+    const out = Math.hypot(Math.max(0, Math.abs(local.x) - v.halfW), Math.max(0, Math.abs(local.z) - v.halfL));
+    const near = 1 - smoothstep(BODY_CLEAR, BODY_CLEAR + BODY_BAND, out);
+    let lift = (near * Math.max(0, h / 2 + ROOF_CLEAR - local.y)) / up;
+    if (!(lift > 1e-4)) return;
+    if (sim.world.grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight)) lift = Math.max(0, hit.t - 0.3);
+    p.y += lift;
+    this.dir.copy(this.chaseLook).sub(p).normalize();
+    this.pitch = Math.asin(clamp(this.dir.y, -1, 1));
   }
 
   private updateTitle(dt: number): void {
@@ -560,6 +862,12 @@ export class CameraController {
     this.hugging.clear();
     this.heldBy = -1;
     this.freshBoom = true;
+    this.lastYaw = this.yaw;
+    this.lastPitch = this.pitch;
+    this.stillFor = Infinity;
+    this.floorY = -Infinity;
+    this.shoulderSide = 1;
+    this.sideTarget = 1;
     const pos = sim.playerPos();
     this.target.set(pos.x, pos.y + 1.5, pos.z);
     this.wasInVehicle = !!p.vehicle;
