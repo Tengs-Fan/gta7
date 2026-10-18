@@ -612,6 +612,9 @@ test.describe('GTA 7 menus', () => {
     await padTap(page, 4); // LB: the pad is the device in use
     await padTap(page, 8); // Back opens the map
     await expect(page.locator('.map-screen')).toBeVisible();
+    // The cross in the middle of the 1280 x 720 map, where A and Enter drop the waypoint.
+    const cross = (await page.locator('.map-cross').boundingBox())!;
+    expect([cross.x + cross.width / 2, cross.y + cross.height / 2]).toEqual([640, 360]);
     for (const glyph of ['pad-a', 'pad-lb', 'pad-rb', 'pad-b']) await expect(page.locator(`.map-hint kbd.${glyph}`)).toBeVisible();
     await page.waitForTimeout(300);
     await padTap(page, 0); // A
@@ -685,31 +688,42 @@ test.describe('GTA 7 menus', () => {
     expect(errors).toEqual([]);
   });
 
-  test('narrow windows: the station name clears a help box, and the objective the zone name', async ({ page }) => {
+  test('narrow windows: the station name clears a help box of any height', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
-    for (const [width, height] of [
-      [1280, 720],
-      [1024, 768],
-      [900, 600],
-      [768, 600],
-      [640, 480],
+    const DRIVE_HINT = 'Hold <kbd>Space</kbd> for the handbrake. <kbd>R</kbd> changes the radio station.';
+    for (const [width, height, text] of [
+      [1280, 720, DRIVE_HINT],
+      [1080, 720, DRIVE_HINT],
+      [1024, 768, DRIVE_HINT],
+      [900, 600, DRIVE_HINT],
+      [768, 600, DRIVE_HINT],
+      [640, 480, DRIVE_HINT],
+      // Longer than any message the game has today: five full-width lines, which a fixed offset would not clear.
+      [800, 600, 'A message longer than any the game has today, which wraps onto five lines in the help box: the station name has to go further down than a fixed offset would put it, or it covers the end of this.'],
     ] as const) {
       const at = `${width}x${height}`;
       await page.setViewportSize({ width, height });
       // The first-drive hint, which says to press R, and the name of the station R tunes in.
-      await page.evaluate(() => {
+      await page.evaluate((t) => {
         const hud = (window as Api).__gta7.game.hud;
-        hud.help('Hold <kbd>Space</kbd> for the handbrake. <kbd>R</kbd> changes the radio station.', 6);
+        hud.help(t, 6);
         hud.showRadio('NEON DRIVE 88.7');
-      });
+      }, text);
       await page.waitForTimeout(300);
       const help = (await page.locator('.help').boundingBox())!;
       const radio = await glyphs(page, '.radio');
       expect(overlap(help, radio), `help vs station name at ${at}`).toBe(false);
-      if (width >= 1060) expect(radio.y, `station name at the top at ${at}`).toBeLessThan(40);
+      if (width >= 1100) expect(radio.y, `station name at the top at ${at}`).toBeLessThan(40);
+      else expect(radio.y - (help.y + help.height), `station name just below the help box at ${at}`).toBeLessThan(20);
     }
-    // The 768-899 px short band: a long objective beside the zone flash at the bottom right.
+    expect(errors).toEqual([]);
+  });
+
+  test('the 768-899 px short band: a long objective clears the zone name', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    // A long objective beside the zone flash at the bottom right.
     for (const [width, height] of [
       [820, 480],
       [850, 480],

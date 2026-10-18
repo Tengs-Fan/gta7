@@ -578,8 +578,8 @@ export class Input {
       ui.right = ui.right || tap(15);
       ui.zoomIn = ui.zoomIn || tap(5);
       ui.zoomOut = ui.zoomOut || tap(4);
-      ui.panX = Math.max(-1, Math.min(1, ui.panX + lx + (b(15) ? 1 : 0) - (b(14) ? 1 : 0)));
-      ui.panY = Math.max(-1, Math.min(1, ui.panY + ly + (b(13) ? 1 : 0) - (b(12) ? 1 : 0)));
+      ui.panX = Math.max(-1, Math.min(1, (ui.panX ?? 0) + lx + (b(15) ? 1 : 0) - (b(14) ? 1 : 0)));
+      ui.panY = Math.max(-1, Math.min(1, (ui.panY ?? 0) + ly + (b(13) ? 1 : 0) - (b(12) ? 1 : 0)));
       this.padPrev = pad.buttons.map((x) => x.pressed);
     } else this.rtDown = false;
     return { player: p, lookX, lookY, ui, device: this.device };

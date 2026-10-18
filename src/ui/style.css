@@ -665,13 +665,18 @@ body {
 }
 
 /*
- * Windows under 1060 px wide: the station name, centred at the top, would run into a help box at the top
- * left (up to 442 px wide). While one shows, the name goes below it: three lines, the longest messages,
- * end about 110 px down.
+ * Windows under 1100 px wide: the station name, centred at the top, would run into a help box at the top
+ * left (its right edge up to 442 px in; NEON DRIVE 88.7 is 176 px wide, so 1100 px leaves a 20 px gap).
+ * While one shows, the name goes 9 px below it, however many lines it has (the help box is the anchor;
+ * it comes first in the HUD). Without anchor(): below three lines, the longest messages (109 px down).
  */
-@media (max-width: 1059.98px) {
+@media (max-width: 1099.98px) {
+  .help {
+    anchor-name: --help;
+  }
   .hud:has(.help.show) .radio {
     top: 118px;
+    top: calc(anchor(--help bottom, 109px) + 9px);
   }
 }
 
@@ -1068,8 +1073,12 @@ body {
   text-align: right;
 }
 
-/* Windows under 1000 px tall (720p, 768p, a maximised 1080p browser): two pairs a row, so STATS fits without scrolling. */
-@media (max-height: 999.98px) and (min-width: 640px) {
+/*
+ * Windows under 1000 px tall (720p, 768p, a maximised 1080p browser): two pairs a row, so STATS fits without
+ * scrolling. From 800 px wide, where even eight-digit values leave every label on one line; narrower windows
+ * keep one pair a row, which the panel scrolls (Menus.scroller).
+ */
+@media (max-height: 999.98px) and (min-width: 800px) {
   .stat-grid {
     grid-template-columns: 1fr auto 1fr auto;
   }
@@ -1231,6 +1240,23 @@ body {
   width: 100%;
   height: 100%;
   cursor: crosshair;
+}
+
+/* The cross in the middle of the map, where Enter and a pad's A set the waypoint: four white arms on a dark outline. */
+.map-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  pointer-events: none;
+  background:
+    linear-gradient(#ffffff, #ffffff) center top / 2px 9px no-repeat,
+    linear-gradient(#ffffff, #ffffff) center bottom / 2px 9px no-repeat,
+    linear-gradient(#ffffff, #ffffff) left center / 9px 2px no-repeat,
+    linear-gradient(#ffffff, #ffffff) right center / 9px 2px no-repeat;
+  filter: drop-shadow(0 0 1px #000000) drop-shadow(0 0 1px #000000);
 }
 
 .map-legend {

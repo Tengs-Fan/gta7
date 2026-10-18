@@ -626,6 +626,9 @@ export class Menus {
     const el = h('div', 'map-screen');
     const canvas = h('canvas');
     el.appendChild(canvas);
+    // The cross in the middle, where the keyboard and a pad set the waypoint: the view centre (cx, cz) is
+    // drawn at the middle of the canvas, which fills the screen, so CSS puts it there at any pixel ratio.
+    el.appendChild(h('div', 'map-cross'));
     el.appendChild(h('div', 'map-title', 'SAN AZURA'));
     el.appendChild(
       h(
@@ -737,23 +740,9 @@ export class Menus {
       ctx.fill();
       ctx.stroke();
       ctx.restore();
-      // The cross in the middle, where the keyboard and a pad set the waypoint: white on a dark outline.
-      const mx = canvas.width / 2;
-      const my = canvas.height / 2;
-      for (const [width, color] of [[4, 'rgba(0, 0, 0, 0.75)'], [2, '#ffffff']] as const) {
-        ctx.lineWidth = width;
-        ctx.strokeStyle = color;
-        ctx.beginPath();
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-          ctx.moveTo(mx + dx * 5, my + dy * 5);
-          ctx.lineTo(mx + dx * 13, my + dy * 13);
-        }
-        ctx.stroke();
-      }
     };
-    /** Sets a waypoint at a point of the canvas, or clears the one within 16 px of it. */
-    const toggleWaypointAt = (sx: number, sy: number) => {
-      const w = toWorld(sx, sy);
+    /** Sets a waypoint at a point of the world, or clears the one within 16 px of it on the map. */
+    const toggleWaypointAt = (w: { x: number; z: number }) => {
       const cur = this.host.waypoint();
       if (cur && Math.hypot(cur.x - w.x, cur.z - w.z) * scale() < 16) this.host.setWaypoint(null);
       else this.host.setWaypoint(w);
@@ -798,7 +787,7 @@ export class Menus {
       dragging = false;
       if (moved > 6) return;
       const r = canvas.getBoundingClientRect();
-      toggleWaypointAt(e.clientX - r.left, e.clientY - r.top);
+      toggleWaypointAt(toWorld(e.clientX - r.left, e.clientY - r.top));
     });
     // Steps like the weapon wheel: the first event of a gesture (see WHEEL_GESTURE_GAP) is one
     // 0.5 step whatever its size, so a notch is a step on every platform (4 px on macOS, 53 on
@@ -824,11 +813,17 @@ export class Menus {
           this.pop();
           return;
         }
-        if (ui.confirm) toggleWaypointAt(canvas.width / 2, canvas.height / 2);
+        if (ui.confirm) toggleWaypointAt({ x: cx, z: cz });
         if (ui.zoomIn) zoom = clamp(zoom + 0.5, 0, 4);
         if (ui.zoomOut) zoom = clamp(zoom - 0.5, 0, 4);
-        // Held arrows / WASD, the D-pad and the left stick pan the view, by up to 0.8 of its height a second.
-        const speed = (0.8 * Math.min(canvas.width, canvas.height)) / scale();
+        // Each press (arrows / WASD, the D-pad) steps the view 60 px, also a tap whose key is up again before
+        // Input polls and so is never seen held. Held, they and the left stick pan it on, by up to 0.8 of its
+        // height a second (its size on the page, as the pointer handlers measure it).
+        const k = scale();
+        cx += (((ui.right ? 1 : 0) - (ui.left ? 1 : 0)) * 60) / k;
+        cz += (((ui.down ? 1 : 0) - (ui.up ? 1 : 0)) * 60) / k;
+        const view = Math.min(el.clientWidth || window.innerWidth, el.clientHeight || window.innerHeight);
+        const speed = (0.8 * view) / k;
         cx += (ui.panX ?? 0) * speed * dt;
         cz += (ui.panY ?? 0) * speed * dt;
       },

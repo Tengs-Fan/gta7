@@ -60,7 +60,11 @@ export async function fakePad(page: Page): Promise<void> {
   });
 }
 
-/** One press of fake-pad button `i` (standard mapping: 0 A, 1 B, 4 LB, 5 RB, 8 Back, 9 Start, 12-15 D-pad up / down / left / right). */
+/**
+ * One press of fake-pad button `i` (standard mapping: 0 A, 1 B, 4 LB, 5 RB, 8 Back, 9 Start, 12-15 D-pad up / down / left / right).
+ * A screen ignores input for 0.25 s after it opens or closes (Menus.input), and a held button presses only once: after a tap
+ * that changes the screen, wait 300 ms before the next tap, or that press is lost.
+ */
 export async function padTap(page: Page, i: number): Promise<void> {
   await page.evaluate((k) => ((window as Api).__pad.buttons[k].pressed = true), i);
   await page.waitForTimeout(120);

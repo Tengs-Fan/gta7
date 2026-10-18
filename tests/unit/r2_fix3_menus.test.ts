@@ -606,7 +606,9 @@ describe('the full-screen map without a mouse (medium)', () => {
   }
 
   it('confirm (Enter, Space, A) sets the waypoint at the cross in the middle, and again clears it', () => {
-    const { press, waypoint, centre } = mapRig();
+    const { press, waypoint, centre, top } = mapRig();
+    // The cross is a page element over the middle of the canvas (style.css), not drawn into it.
+    expect(top().children.filter((c) => c.classList.contains('map-cross'))).toHaveLength(1);
     expect(waypoint()).toBe(null);
     press({ confirm: true });
     expect(waypoint()!.x).toBeCloseTo(centre.x, 6);
@@ -636,6 +638,22 @@ describe('the full-screen map without a mouse (medium)', () => {
     expect(viewCentre().x - centre.x).toBeCloseTo(speed * 0.5, 4);
     for (let i = 0; i < 60; i++) menus.input(ui({ panY: -0.5 }), 1 / 60);
     expect(viewCentre().z - centre.z).toBeCloseTo(-speed * 0.5, 4);
+  });
+
+  it('each press steps the view 60 px as before, even a tap too short to be seen held, and holding keeps it moving', () => {
+    const { menus, press, viewCentre, centre, scale } = mapRig();
+    const k = scale();
+    // keydown and keyup between two polls (a quick tap, page.keyboard.press): pressed, never held.
+    press({ right: true });
+    expect((viewCentre().x - centre.x) * k).toBeCloseTo(60, 6);
+    press({ down: true });
+    expect((viewCentre().z - centre.z) * k).toBeCloseTo(60, 6);
+    press({ left: true, up: true });
+    expect(viewCentre().x).toBeCloseTo(centre.x, 6);
+    expect(viewCentre().z).toBeCloseTo(centre.z, 6);
+    // A press still held when Input polls: the step, then the held pan (0.8 of the 720 px view a second).
+    menus.input(ui({ right: true, panX: 1 }), 1 / 60);
+    expect((viewCentre().x - centre.x) * k).toBeCloseTo(60 + (0.8 * 720) / 60, 6);
   });
 
   it('the hint names the controls of the device in use, and follows a change of device', () => {
@@ -678,6 +696,11 @@ describe('the full-screen map without a mouse (medium)', () => {
     expect(frame().panX).toBe(1);
     win.dispatchEvent(ev('keyup', { code: 'ArrowRight', key: 'ArrowRight', repeat: false }));
     expect(frame().panX).toBe(0);
+    // A tap whose keyup comes before the poll is pressed but was never held: the map steps the view for it.
+    win.dispatchEvent(ev('keydown', { code: 'ArrowLeft', key: 'ArrowLeft', repeat: false }));
+    win.dispatchEvent(ev('keyup', { code: 'ArrowLeft', key: 'ArrowLeft', repeat: false }));
+    const tapped = frame();
+    expect([tapped.left, tapped.panX]).toEqual([true, 0]);
     // The pad: RB / LB taps zoom, the D-pad and the dead-zoned left stick pan.
     pad.buttons[5]!.pressed = true;
     expect(frame().zoomIn).toBe(true);
