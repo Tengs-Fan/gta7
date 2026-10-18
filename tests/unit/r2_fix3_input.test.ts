@@ -540,10 +540,11 @@ async function taxiWithFare() {
   sim.activities.toggleJob();
   const job = sim.activities.job as unknown as TaxiJob;
   expect(job?.kind).toBe('taxi');
-  // Bring the fare to the cab's kerb side: the job seats a fare within 9 m of a stopped cab.
+  // Bring the fare to the cab's kerb side: within 9 m of a stopped cab he walks to its door and gets in, within
+  // 4 s at most (Activities.board).
   const fare = job.fare!;
   teleportCharacter(sim, fare, taxi.pos.x - Math.cos(taxi.heading) * 3, taxi.pos.z + Math.sin(taxi.heading) * 3);
-  frames(2);
+  for (let i = 0; i < 5 * 60 && job.stage !== 'dropoff'; i++) frames(1);
   expect(job.stage).toBe('dropoff');
   expect(fare.vehicle).toBe(taxi);
   return { ...h, taxi, lane, job, fare };
