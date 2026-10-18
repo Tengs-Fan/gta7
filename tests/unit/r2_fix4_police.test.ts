@@ -296,7 +296,7 @@ describe('officers without a car walking off at 0 stars keep to the pier and the
     expect(bad).toEqual([]);
   });
 
-  it('from the far end of the pier: past the Ferris wheel, whose base fills the deck but for a metre on either side', () => {
+  it('from the far end of the pier: back past the Ferris wheel along the deck, within 25 s', () => {
     for (const [ox, oz] of [
       [686, 40],
       [686, 36],

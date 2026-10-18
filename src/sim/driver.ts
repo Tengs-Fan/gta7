@@ -66,6 +66,8 @@ const PULL_IN_CLEAR = 0.4;
 const CLAIM_RANGE = 50;
 /** A car on the route policy has arrived once it is this close (straight-line) to its destination. */
 export const ARRIVE_RADIUS = 20;
+/** Going straight at a pursuit target, a car stops short of water deeper than this (m), well short of the depth that sinks it. */
+const DIRECT_WADE = 0.45;
 /**
  * What a turn from the wrong lane (a late lane change into it) costs the route planner, in metres:
  * route drivers keep to lane discipline unless the legal way round is that much longer. Strict
@@ -751,6 +753,9 @@ export class DriverAI {
       const dToT = Math.hypot(tp.x - v.pos.x, tp.z - v.pos.z);
       const targetOnFoot = !!t && !('kind' in t) && !t.vehicle;
       if (targetOnFoot) targetSpeed = Math.min(targetSpeed, Math.max(0, (dToT - 10) * 0.9));
+      // Never into the sea after him (the feelers see only walls): slow down to stop short of deep water ahead.
+      const wet = this.waterAhead(v, (speed * speed) / (2 * this.decel) + 6);
+      if (wet < Infinity) targetSpeed = Math.min(targetSpeed, Math.sqrt(2 * this.decel * Math.max(0, wet - 3)));
       steerX = aimX;
       steerZ = aimZ;
     } else {
@@ -1974,6 +1979,20 @@ export class DriverAI {
     }
     this.nearestPerson = found;
     return best;
+  }
+
+  /**
+   * Metres from the front of `v`, straight ahead, to water deeper than DIRECT_WADE (sampled every 2 m, out to `reach`),
+   * Infinity when there is none.
+   */
+  private waterAhead(v: Vehicle, reach: number): number {
+    const world = this.host.world;
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    for (let s = 0; s <= reach; s += 2) {
+      if (world.waterDepth(v.pos.x + fx * (v.halfL + s), v.pos.z + fz * (v.halfL + s)) > DIRECT_WADE) return s;
+    }
+    return Infinity;
   }
 
   /** Steers the aim point away from buildings using three feeler rays. */
