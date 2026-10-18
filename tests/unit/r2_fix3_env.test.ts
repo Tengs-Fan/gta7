@@ -230,7 +230,10 @@ interface FxPriv {
   skids: { mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>; birth: Float32Array };
 }
 
-/** The colour the first particle of a layer is drawn in: its instance colour times the layer's light (if lit). */
+/**
+ * The colour the first particle of a layer is drawn in: its instance colour times the layer's light (if lit). This
+ * checks the light the layer is given; r2_fix4_env.test.ts runs the particle and skid shaders to check they apply it.
+ */
 function drawnColor(layer: Layer): THREE.Color {
   const c = layer.mesh.geometry.getAttribute('iColor') as THREE.InstancedBufferAttribute;
   const light = (layer.mesh.material.uniforms.uLight?.value as THREE.Color | undefined) ?? new THREE.Color(1, 1, 1);

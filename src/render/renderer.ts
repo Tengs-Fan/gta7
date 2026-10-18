@@ -5,11 +5,12 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import type { Sim } from '../sim/sim';
 import type { Vehicle } from '../sim/entities';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
+import { WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
 import { CameraController } from './camera';
 import { CityView } from './city';
 import { CrowdView } from './crowd';
-import { Effects, FLASH_SIZE } from './effects';
+import { Effects, FLASH_SIZE, WADE_MIN } from './effects';
 import { Environment } from './environment';
 import { MarkerView } from './markers';
 import { PropsView } from './props';
@@ -452,6 +453,9 @@ export class GameRenderer {
       if (!v.inWater && (v.burning || (v.destroyed && v.wreckTime < 25) || v.condition < 0.45)) {
         fx.vehicleSmoke(v.destroyed ? v.pos.x : hx, v.pos.y + v.spec.height * 0.55, v.destroyed ? v.pos.z : hz, v.condition, v.burning, v.destroyed && v.wreckTime < 25, dt);
       }
+      // Wading (its wheels on the sand under the sea; deeper than the sim's flooding depth it is inWater): spray and a wake.
+      const depth = WATER_Y - v.pos.y;
+      if (depth >= WADE_MIN && !v.airborne && !v.inWater && d2 < 120 * 120) fx.wade(v, WATER_Y, depth, dt);
       if (v.skid > 0.25 && !v.airborne && !v.inWater && v.speed > 2) {
         const sx = Math.cos(v.heading);
         const sz = -Math.sin(v.heading);

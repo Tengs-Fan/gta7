@@ -1,6 +1,7 @@
 // Particles (instanced billboards), bullet tracers, skid marks, flash lights and rockets in flight.
 
 import * as THREE from 'three';
+import { clamp } from '../core/math';
 import { Rng } from '../core/rng';
 import type { Character, Projectile, Vehicle } from '../sim/entities';
 import type { WeaponId } from '../sim/specs';
@@ -63,6 +64,18 @@ const TRACER_COLOR = new THREE.Color(6, 3, 1);
 const SPARK_STRETCH = 6;
 const SPARK_GLOW = 3.5;
 const SPARK_STYLE: EmitStyle = { align: true, glow: SPARK_GLOW, glowEnd: 1.5, instant: true };
+
+/**
+ * A vehicle wading (its wheels on the sand under WADE_MIN to WADE_MAX m of the sea; deeper, the sim floods it) throws
+ * spray off each wheel and leaves a wake (Effects.wade): at most these many particles a second (per wheel, per side of
+ * the wake), reached at WADE_FULL_SPEED m/s and WADE_MAX deep. Nothing below WADE_MIN_SPEED.
+ */
+export const WADE_MIN = 0.1;
+const WADE_MAX = 0.8;
+const WADE_SPRAY_RATE = 60;
+const WADE_WAKE_RATE = 16;
+const WADE_MIN_SPEED = 1.5;
+const WADE_FULL_SPEED = 14;
 
 const PARTICLE_VS = /* glsl */ `
 attribute vec3 iPos;
@@ -1107,6 +1120,93 @@ export class Effects {
   splash(x: number, y: number, z: number, big: boolean): void {
     const n = big ? 40 : 14;
     for (let i = 0; i < n; i++) this.smoke.emit(x + this.r(-1, 1), y + 0.1, z + this.r(-1, 1), this.r(-3, 3), this.r(3, big ? 9 : 5), this.r(-3, 3), this.r(0.6, 1.2), 0.3, 0.8, 0xffffff, 0xcfe8f5, 0.8, 14, 0.2);
+  }
+
+  /**
+   * Spray off the wheels and a wake behind a vehicle wading through `depth` m of water (from WADE_MIN until it floods),
+   * whose surface is at `surfaceY`. Both grow with its speed and with the depth. The spray is thrown out and up from
+   * each wheel (back from the rear ones) and trails the vehicle; the wake is foam spreading out on the surface behind
+   * it, in flat sprites. Each particle starts somewhere along the way its wheel went this frame, so the trail is even
+   * at any frame rate. On the smoke layer: in the scene's light.
+   */
+  wade(v: Vehicle, surfaceY: number, depth: number, dt: number): void {
+    const go = clamp((Math.hypot(v.vel.x, v.vel.z) - WADE_MIN_SPEED) / (WADE_FULL_SPEED - WADE_MIN_SPEED), 0, 1);
+    if (!(go > 0) || !(dt > 0) || !(depth >= WADE_MIN)) return;
+    const deep = clamp((depth - WADE_MIN) / (WADE_MAX - WADE_MIN), 0, 1);
+    const k = go * (0.25 + 0.75 * deep);
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    // The vehicle's left (its local +X).
+    const lx = fz;
+    const lz = -fx;
+    const along = v.halfL * 0.62;
+    const across = v.halfW - 0.18;
+    for (const front of [1, -1]) {
+      for (const side of [1, -1]) {
+        const wx = v.pos.x + fx * along * front + lx * across * side;
+        const wz = v.pos.z + fz * along * front + lz * across * side;
+        for (let n = this.count(WADE_SPRAY_RATE * k, dt); n > 0; n--) {
+          const back = this.r(0, dt);
+          const out = this.r(0.6, 2.2) * (0.5 + 0.5 * k);
+          const up = this.r(1.2, 3.4) * (0.45 + 0.75 * k);
+          const tail = front < 0 ? this.r(0.5, 2) : 0;
+          this.smoke.emit(
+            wx - v.vel.x * back + this.r(-0.15, 0.15),
+            surfaceY + 0.05,
+            wz - v.vel.z * back + this.r(-0.15, 0.15),
+            v.vel.x * 0.5 + lx * side * out - fx * tail,
+            up,
+            v.vel.z * 0.5 + lz * side * out - fz * tail,
+            this.r(0.3, 0.6),
+            0.1,
+            0.3 + 0.25 * k,
+            0xf4faff,
+            0xd0e6f2,
+            0.35 + 0.2 * k,
+            9.8,
+            0.8,
+            0,
+            1,
+            this.r(0, Math.PI * 2),
+          );
+        }
+      }
+    }
+    for (const side of [1, -1]) {
+      const cx = v.pos.x - fx * (v.halfL + 0.3) + lx * v.halfW * 0.8 * side;
+      const cz = v.pos.z - fz * (v.halfL + 0.3) + lz * v.halfW * 0.8 * side;
+      for (let n = this.count(WADE_WAKE_RATE * k, dt); n > 0; n--) {
+        const back = this.r(0, dt);
+        const out = this.r(0.4, 1.3) * (0.4 + 0.6 * k);
+        // Four times wider than tall and level on screen: foam lying on the water.
+        this.smoke.emit(
+          cx - v.vel.x * back + this.r(-0.2, 0.2),
+          surfaceY + 0.06,
+          cz - v.vel.z * back + this.r(-0.2, 0.2),
+          v.vel.x * 0.12 + lx * side * out,
+          0,
+          v.vel.z * 0.12 + lz * side * out,
+          this.r(0.9, 1.5),
+          0.6,
+          1.2 + 1.0 * deep,
+          0xeef7fb,
+          0xd6e8f0,
+          0.22 + 0.2 * deep,
+          0,
+          1.4,
+          0,
+          4,
+          0,
+        );
+      }
+    }
+  }
+
+  /** How many particles `rate` a second makes over dt: its whole part, and one more with the chance of the rest. */
+  private count(rate: number, dt: number): number {
+    const n = rate * dt;
+    const whole = Math.floor(n);
+    return whole + (this.rng.next() < n - whole ? 1 : 0);
   }
 
   hydrantSpray(x: number, y: number, z: number): void {
