@@ -515,6 +515,7 @@ export class GameRenderer {
     const hours = sim ? sim.clock.hours : 17.5;
     const focus = sim && this.cameraCtl.mode === 'play' ? new THREE.Vector3(cam.position.x * 0.5 + sim.playerPos().x * 0.5, 0, cam.position.z * 0.5 + sim.playerPos().z * 0.5) : new THREE.Vector3(cam.position.x * 0.3, 0, cam.position.z * 0.3);
     this.env.update(hours, focus, cam, this.time, this.renderer);
+    this.effects.setLight(this.env.smokeLight);
     const night = this.env.night;
     this.city.update(night, hours, this.time);
     // Signals run on the sim clock, the one drivers and pedestrians obey.

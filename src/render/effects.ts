@@ -107,11 +107,18 @@ const PARTICLE_FS = /* glsl */ `
 varying vec2 vUv;
 varying vec4 vColor;
 uniform float uSoft;
+#ifdef LIT
+uniform vec3 uLight;
+#endif
 #include <fog_pars_fragment>
 void main() {
   float d = length(vUv - 0.5) * 2.0;
   float a = smoothstep(1.0, uSoft, d);
   gl_FragColor = vec4(vColor.rgb, vColor.a * a);
+  #ifdef LIT
+  // Smoke, spray and dust scatter the scene's light (Effects.setLight): dim at night, tinted at dusk.
+  gl_FragColor.rgb *= uLight;
+  #endif
   if (gl_FragColor.a < 0.004) discard;
   #include <fog_fragment>
 }`;
@@ -161,8 +168,14 @@ class ParticleLayer {
   private next = 0;
   active = 0;
 
-  /** `aligned` lets particles streak along their motion on screen (emit's `align`). */
-  constructor(readonly max: number, additive: boolean, aligned = false) {
+  /** The scene light the particles scatter (a `lit` layer's uniform), or null for a self-lit layer. */
+  readonly light: THREE.Color | null;
+
+  /**
+   * `aligned` lets particles streak along their motion on screen (emit's `align`). A `lit` layer
+   * multiplies its colours by the scene's light level (setLight); the others glow by themselves.
+   */
+  constructor(readonly max: number, additive: boolean, aligned = false, lit = false) {
     const base = new THREE.PlaneGeometry(1, 1);
     this.geo = new THREE.InstancedBufferGeometry();
     this.geo.index = base.index;
@@ -177,16 +190,20 @@ class ParticleLayer {
     this.geo.setAttribute('iSizeRot', new THREE.InstancedBufferAttribute(this.iSizeRot, 3).setUsage(THREE.DynamicDrawUsage));
     if (this.iVel) this.geo.setAttribute('iVel', new THREE.InstancedBufferAttribute(this.iVel, 4).setUsage(THREE.DynamicDrawUsage));
     this.geo.instanceCount = 0;
+    const defines: Record<string, string> = {};
+    if (aligned) defines.ALIGN = '';
+    if (lit) defines.LIT = '';
     const mat = new THREE.ShaderMaterial({
       vertexShader: PARTICLE_VS,
       fragmentShader: PARTICLE_FS,
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSoft: { value: additive ? 0.0 : 0.25 } }]),
-      defines: aligned ? { ALIGN: '' } : {},
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSoft: { value: additive ? 0.0 : 0.25 } }, lit ? { uLight: { value: new THREE.Color(1, 1, 1) } } : {}]),
+      defines,
       transparent: true,
       depthWrite: false,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
       fog: true,
     });
+    this.light = lit ? (mat.uniforms.uLight!.value as THREE.Color) : null;
     this.mesh = new THREE.Mesh(this.geo, mat);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = additive ? 5 : 4;
@@ -297,6 +314,15 @@ class ParticleLayer {
     (this.geo.getAttribute('iSizeRot') as THREE.InstancedBufferAttribute).needsUpdate = true;
     if (this.iVel) (this.geo.getAttribute('iVel') as THREE.InstancedBufferAttribute).needsUpdate = true;
   }
+
+  /** Drops every particle (a new session). */
+  clear(): void {
+    this.life.fill(0);
+    this.fresh.fill(0);
+    this.next = 0;
+    this.active = 0;
+    this.geo.instanceCount = 0;
+  }
 }
 
 const SKID_VS = /* glsl */ `
@@ -313,9 +339,11 @@ void main() {
 
 const SKID_FS = /* glsl */ `
 varying float vA;
+uniform vec3 uLight;
 #include <fog_pars_fragment>
 void main() {
-  gl_FragColor = vec4(0.04, 0.04, 0.04, vA);
+  // Rubber on the road takes the scene's light like the road does: not lighter than the asphalt at night.
+  gl_FragColor = vec4(vec3(0.04) * uLight, vA);
   #include <fog_fragment>
 }`;
 
@@ -341,7 +369,7 @@ class SkidMarks {
     this.mat = new THREE.ShaderMaterial({
       vertexShader: SKID_VS,
       fragmentShader: SKID_FS,
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uNow: { value: 0 } }]),
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uNow: { value: 0 }, uLight: { value: new THREE.Color(1, 1, 1) } }]),
       transparent: true,
       depthWrite: false,
       polygonOffset: true,
@@ -385,6 +413,19 @@ class SkidMarks {
 
   update(now: number): void {
     this.mat.uniforms.uNow!.value = now;
+  }
+
+  /** The scene light the marks are seen in (Effects.setLight). */
+  get light(): THREE.Color {
+    return this.mat.uniforms.uLight!.value as THREE.Color;
+  }
+
+  /** Wipes every mark and forgets every wheel's last point (a new session). */
+  clear(): void {
+    this.birth.fill(-1e6);
+    (this.mesh.geometry.getAttribute('aBirth') as THREE.BufferAttribute).needsUpdate = true;
+    this.last.clear();
+    this.next = 0;
   }
 }
 
@@ -704,7 +745,7 @@ interface RocketView {
 export class Effects {
   readonly group = new THREE.Group();
   private readonly glow = new ParticleLayer(2500, true, true);
-  private readonly smoke = new ParticleLayer(3000, false);
+  private readonly smoke = new ParticleLayer(3000, false, false, true);
   readonly skids = new SkidMarks(3000);
   private readonly tracers = new Tracers(160);
   private readonly parts = new BodyParts();
@@ -740,15 +781,38 @@ export class Effects {
     this.rocketPool.push(this.newRocket());
   }
 
-  /** Clears per-simulation state when a new simulation is attached (props are restored then). */
+  /**
+   * Clears per-simulation state when a new simulation is attached (props are restored then): nothing
+   * of the last session's smoke, fire, skid marks or flash lights carries over into the next one.
+   */
   reset(): void {
     this.sprays.length = 0;
     this.syncRockets([]);
     this.tracers.clear();
     this.parts.clear();
+    this.glow.clear();
+    this.smoke.clear();
+    this.skids.clear();
+    this.flash.intensity = 0;
+    this.flashLife = 0;
+    this.flashFresh = false;
+    this.muzzle.intensity = 0;
+    this.muzzlePeak = 0;
+    this.muzzleAge = FLASH_LIFE;
+    this.muzzleFresh = false;
+    this.launch = null;
     // The last pull belongs to the old simulation (and holds on to its shooter).
     this.pull.aimed = false;
     this.pull.shooter = null;
+  }
+
+  /**
+   * The scene's light level relative to noon (Environment.smokeLight): smoke, spray, dust, debris, blood
+   * and skid marks are drawn in it, while fire, sparks, flashes and tracers glow by themselves.
+   */
+  setLight(c: THREE.Color): void {
+    this.smoke.light!.copy(c);
+    this.skids.light.copy(c);
   }
 
   private r(a: number, b: number): number {

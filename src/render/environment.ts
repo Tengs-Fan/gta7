@@ -97,6 +97,54 @@ export function goldenHour(hours: number): number {
   return Math.max(dusk, dawn * 0.8);
 }
 
+/**
+ * The key light at the horizon, by the sun's height (sunDir.y, the sine of its elevation): the sky's sun
+ * disc and the sun's light fade out together between SUN_HI and SUN_LO, and the moonlight comes up only
+ * once the sun's light is gone (between SUN_LO and MOON_LO; the other way round at dawn). The one light
+ * so changes direction and colour while it is dark.
+ */
+const SUN_HI = 0.03;
+const SUN_LO = -0.05;
+const MOON_LO = -0.15;
+/** Moonlight intensity at full night, and its colour. */
+const MOON_I = 0.32;
+const MOON_COLOR = new THREE.Color(0x9fb4ff);
+/** The sun's light never comes from lower than this (sine of its elevation) while it fades out. */
+const KEY_MIN_Y = 0.05;
+
+/** 0..1: how much of the sun the sky shows, and how much of its light reaches the scene, at a sun height sunDir.y. */
+export function sunVisibility(y: number): number {
+  return smoothstep(SUN_LO, SUN_HI, y);
+}
+
+/** 0..1: how far the moonlight has come up at a sun height sunDir.y. */
+function moonRamp(y: number): number {
+  return 1 - smoothstep(MOON_LO, SUN_LO, y);
+}
+
+/**
+ * Sun and moon directions at a time of day (hours). The sun rises in the east (+X) at 06:00 and sets in
+ * the west at 19:00, tilted south; through the night it carries on below the horizon back to the east,
+ * so both paths run on through midnight without a jump. The moon stands opposite it, never lower than
+ * 0.25 (sine of its elevation).
+ */
+export function skyPath(hours: number, sunDir: THREE.Vector3, moonDir: THREE.Vector3): void {
+  const h = ((hours % 24) + 24) % 24;
+  let az: number;
+  let elev: number;
+  if (h >= 6 && h <= 19) {
+    const t = (h - 6) / 13;
+    az = t * Math.PI;
+    elev = Math.sin(t * Math.PI) * 1.15;
+  } else {
+    const t = (h < 6 ? h + 5 : h - 19) / 11;
+    az = Math.PI + t * Math.PI;
+    elev = -Math.sin(t * Math.PI) * 1.15;
+  }
+  sunDir.set(Math.cos(az), Math.sin(elev), 0.35).normalize();
+  moonDir.set(-Math.cos(az) * 0.8, Math.max(0.25, -Math.sin(elev) * 0.9), -0.35).normalize();
+}
+
 /** Night colours: a moonlit blue sky light, sodium-lit streets bouncing up, and the city's warm glow on the horizon. */
 const NIGHT_SKY_LIGHT = new THREE.Color(0.36, 0.46, 0.8);
 const NIGHT_GROUND_LIGHT = new THREE.Color(0.35, 0.27, 0.18);
@@ -106,6 +154,63 @@ const GLOW_STRENGTH = 0.45;
 /** ...and the fog: less, so the sea and distant buildings stay darker than the glowing sky above them. */
 const FOG_GLOW_STRENGTH = 0.25;
 const WHITE = new THREE.Color(0xffffff);
+
+/** The hemisphere fill for a palette sample and darkness: its sky and ground colours, and its intensity. */
+function hemiLight(s: { top: THREE.Color; hemiI: number }, night: number, sky: THREE.Color, ground: THREE.Color): number {
+  // Night fill: walls never go pitch black (moonlit sky above, sodium-lit streets below).
+  sky.copy(s.top).lerp(WHITE, 0.45).lerp(NIGHT_SKY_LIGHT, night);
+  ground.setRGB(0.32, 0.28, 0.24).multiplyScalar(0.6 + 0.4 * (1 - night)).lerp(NIGHT_GROUND_LIGHT, night);
+  return Math.max(s.hemiI, 0.4 * night);
+}
+
+/** Strength of the image-based light (the baked sky) for a darkness. */
+function envIntensity(night: number): number {
+  return 0.4 + 0.35 * (1 - night);
+}
+
+/** Share of the key light a puff of smoke scatters, against a surface facing the light. */
+const PUFF_KEY = 0.5;
+/** The smoke light never drops below this luminance (lamps, headlights and lit windows light the smoke too). */
+const SMOKE_FLOOR = 0.15;
+
+/**
+ * Light (linear RGB) a diffuse puff scatters towards the viewer per unit albedo, near enough, as three
+ * lights a Lambertian surface: the hemisphere light's sky and ground colours half each (a puff faces
+ * every way), a share of the key light, and the image-based light of the baked sky (envMat: its upper
+ * half runs from the horizon colour to the top, its lower half is a dark haze).
+ */
+function puffLight(hemiSky: THREE.Color, hemiGround: THREE.Color, hemiI: number, key: THREE.Color, keyI: number, envI: number, top: THREE.Color, horizon: THREE.Color, out: THREE.Color): THREE.Color {
+  const h = (0.5 * hemiI) / Math.PI;
+  const k = (PUFF_KEY * keyI) / Math.PI;
+  const sky = (a: number, b: number, haze: number) => 0.25 * (a + b) + 0.5 * haze * (b + 0.2);
+  return out.setRGB(
+    (hemiSky.r + hemiGround.r) * h + key.r * k + sky(top.r, horizon.r, 0.16) * envI,
+    (hemiSky.g + hemiGround.g) * h + key.g * k + sky(top.g, horizon.g, 0.15) * envI,
+    (hemiSky.b + hemiGround.b) * h + key.b * k + sky(top.b, horizon.b, 0.14) * envI,
+  );
+}
+
+let noonPuff: THREE.Color | null = null;
+
+/** puffLight at noon: the smoke light's reference, at which the smoke shows its own colours. */
+function noonPuffLight(): THREE.Color {
+  if (!noonPuff) {
+    const s = sample(12);
+    const sunDir = new THREE.Vector3();
+    skyPath(12, sunDir, new THREE.Vector3());
+    const night = nightOf(s.sunI);
+    const sky = new THREE.Color();
+    const ground = new THREE.Color();
+    const hemiI = hemiLight(s, night, sky, ground);
+    noonPuff = puffLight(sky, ground, hemiI, s.sun, s.sunI * sunVisibility(sunDir.y), envIntensity(night), s.top, s.horizon, new THREE.Color());
+  }
+  return noonPuff;
+}
+
+/** The shadow map's texel grid is measured from a world point on a grid this coarse (m): see Environment.placeShadow. */
+const SHADOW_ANCHOR = 64;
+/** The shadow camera stands this far from its target, towards the light (m). */
+const SHADOW_REACH = 220;
 
 const SKY_VS = /* glsl */ `
 varying vec3 vDir;
@@ -121,6 +226,8 @@ void main() {
 const SKY_FS = /* glsl */ `
 #define NOISE_TILE ${(1 / CLOUD_NOISE_CELLS).toFixed(6)}
 #define NOISE_GAIN ${(1 / CLOUD_NOISE_SCALE).toFixed(6)}
+#define SUN_LO ${SUN_LO.toFixed(4)}
+#define SUN_HI ${SUN_HI.toFixed(4)}
 uniform vec3 uTop;
 uniform vec3 uHorizon;
 uniform vec3 uGlow;
@@ -128,6 +235,7 @@ uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uMoonDir;
 uniform vec3 uLightDir;
+uniform float uLightAmt;
 uniform float uStars;
 uniform float uMoon;
 uniform float uNight;
@@ -236,12 +344,13 @@ vec4 clouds(vec3 d) {
   float n2 = fbm(q2 + vec2(5.2, 1.3), uHighOctaves);
   float high = smoothstep(uHighT - 0.5 * uCloudW, uHighT + 2.0 * uCloudW, n2) * 0.4;
   // Light: compare the density one step towards the sun (or moon): denser there means shadowed here.
-  // Same octaves as the density itself, so only the offset towards the light shades the cloud.
+  // Same octaves as the density itself, so only the offset towards the light shades the cloud. The
+  // contrast fades with the key light (uLightAmt), so the lit side changes over while it is dark.
   float lit = 0.6;
   if (uLightTap > 0.5) {
     vec2 toward = normalize(uLightDir.xz + vec2(1e-4)) * 0.22;
     float tap = smoothstep(uCloudT - uCloudW, uCloudT + uCloudW, fbm(q1 + toward, uOctaves));
-    lit = clamp(0.62 + (dens - tap) * 1.1, 0.0, 1.0);
+    lit = clamp(0.62 + (dens - tap) * 1.1 * uLightAmt, 0.0, 1.0);
   }
   vec3 bright = mix(vec3(1.0), uSunColor, 0.35) * 1.12;
   vec3 shade = mix(uTop, vec3(0.72, 0.74, 0.78), 0.55) * 0.78;
@@ -284,7 +393,7 @@ void main() {
   if (h < 0.0) col = mix(horizon, horizon * 0.55, clamp(-h * 4.0, 0.0, 1.0));
   float pix = max(length(fwidth(d)), 1e-6);
   float sd = max(dot(d, uSunDir), 0.0);
-  col += uSunColor * (pow(sd, 900.0) * 18.0 + pow(sd, 12.0) * 0.35 + pow(sd, 3.0) * 0.12) * step(-0.05, uSunDir.y);
+  col += uSunColor * (pow(sd, 900.0) * 18.0 + pow(sd, 12.0) * 0.35 + pow(sd, 3.0) * 0.12) * smoothstep(SUN_LO, SUN_HI, uSunDir.y);
   if (h > 0.0 && uStars > 0.0) col += stars(d, pix) * uStars * smoothstep(0.02, 0.25, h);
   if (uMoon > 0.0) {
     vec3 md = d - uMoonDir;
@@ -351,6 +460,15 @@ export class Environment {
   private cubeCamera: THREE.CubeCamera | null = null;
   night = 0;
   sunDir = new THREE.Vector3(0, 1, 0);
+  moonDir = new THREE.Vector3(0, 1, 0);
+  /** Where the key light (this.sun: the sun, or the moon at night) comes from. */
+  readonly keyDir = new THREE.Vector3(0, 1, 0);
+  /**
+   * Light falling on a diffuse puff of smoke, spray or dust relative to noon, which is (1, 1, 1): the
+   * unlit particle layers are multiplied by it, so they dim at night with everything lit, and take on
+   * the light's tint (orange at sunset, blue under the moon). See smokeLight().
+   */
+  readonly smokeLight = new THREE.Color(1, 1, 1);
   shadowsEnabled = true;
   /** Spread of the sky shader's cloud fbm at the current octave counts (main and high layer). */
   private cloudSd = CLOUD_SD[5]!;
@@ -378,6 +496,7 @@ export class Environment {
         uSunColor: { value: new THREE.Color() },
         uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
         uLightDir: { value: new THREE.Vector3(0, 1, 0) },
+        uLightAmt: { value: 1 },
         uStars: { value: 0 },
         uMoon: { value: 0 },
         uNight: { value: 0 },
@@ -469,12 +588,13 @@ export class Environment {
    * target of the first bake, so scene.environment never changes identity and the env-mapped
    * materials never re-resolve their programs.
    */
-  private refreshEnv(s: { top: THREE.Color; horizon: THREE.Color; sun: THREE.Color; sunI: number }, sunDir: THREE.Vector3): void {
+  private refreshEnv(s: { top: THREE.Color; horizon: THREE.Color; sun: THREE.Color; sunI: number }, sunDir: THREE.Vector3, sunVis: number): void {
     if (!this.pmrem) return;
     const u = this.envMat.uniforms;
     (u.uTop!.value as THREE.Color).copy(s.top);
     (u.uHorizon!.value as THREE.Color).copy(s.horizon);
-    (u.uSun!.value as THREE.Color).copy(s.sun).multiplyScalar(Math.min(1.5, s.sunI / 2));
+    // The reflected sun sets with the sky's (sunVisibility).
+    (u.uSun!.value as THREE.Color).copy(s.sun).multiplyScalar(Math.min(1.5, s.sunI / 2) * sunVis);
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);
     try {
       if (!this.cubeTarget || !this.cubeCamera) {
@@ -513,13 +633,9 @@ export class Environment {
   /** Updates lighting for the given time of day and moves the shadow frustum with the camera focus. */
   update(hours: number, focus: THREE.Vector3, camera: THREE.Camera, time: number, renderer: THREE.WebGLRenderer): void {
     const s = sample(hours);
-    // Sun path: rises in the east (+X) at 06:00, sets in the west at 19:00, tilted south.
-    const dayT = (hours - 6) / 13;
-    const elev = Math.sin(dayT * Math.PI) * 1.15;
-    const az = dayT * Math.PI;
-    const sunDir = new THREE.Vector3(Math.cos(az), Math.sin(elev), 0.35).normalize();
-    this.sunDir.copy(sunDir);
-    const moonDir = new THREE.Vector3(-Math.cos(az) * 0.8, Math.max(0.25, -Math.sin(elev) * 0.9), -0.35).normalize();
+    skyPath(hours, this.sunDir, this.moonDir);
+    const sunDir = this.sunDir;
+    const moonDir = this.moonDir;
     this.night = nightOf(s.sunI);
     const night = this.night;
     // At night the city's light glows warm on the horizon and the fog blends part of the way towards
@@ -537,7 +653,14 @@ export class Environment {
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);
     (u.uSunColor!.value as THREE.Color).copy(s.sun);
     (u.uMoonDir!.value as THREE.Vector3).copy(moonDir);
-    (u.uLightDir!.value as THREE.Vector3).copy(night > 0.6 ? moonDir : sunDir);
+    // The key light: the sun while the sky shows it, else the moon once the sun's light is gone (see SUN_LO).
+    const sunVis = sunVisibility(sunDir.y);
+    const sunI = s.sunI * sunVis;
+    const moonUp = moonRamp(sunDir.y);
+    const moonI = MOON_I * night * moonUp;
+    const useMoon = moonI > sunI;
+    (u.uLightDir!.value as THREE.Vector3).copy(useMoon ? moonDir : sunDir);
+    u.uLightAmt!.value = useMoon ? moonUp : sunVis;
     u.uStars!.value = starsAt(night);
     u.uMoon!.value = smoothstep(0.3, 0.85, night);
     u.uNight!.value = night;
@@ -557,38 +680,71 @@ export class Environment {
     this.sky.position.copy(camera.position);
 
     // Daylight sun, or a dim bluish moon at night.
-    const moonI = 0.32 * night;
-    const useMoon = s.sunI < moonI;
-    const lightDir = useMoon ? moonDir : sunDir.y > 0.05 ? sunDir : new THREE.Vector3(sunDir.x, 0.05, sunDir.z).normalize();
-    this.sun.color.copy(useMoon ? new THREE.Color(0x9fb4ff) : s.sun);
-    this.sun.intensity = useMoon ? moonI : s.sunI;
-    // Snap the shadow camera to texel increments to avoid shimmering.
-    const texel = 150 / 2048;
-    const fx = Math.round(focus.x / texel) * texel;
-    const fz = Math.round(focus.z / texel) * texel;
-    this.sun.target.position.set(fx, 0, fz);
-    this.sun.position.set(fx + lightDir.x * 220, lightDir.y * 220, fz + lightDir.z * 220);
-    this.sun.target.updateMatrixWorld();
+    const lightDir = this.keyDir;
+    if (useMoon) lightDir.copy(moonDir);
+    else if (sunDir.y > KEY_MIN_Y) lightDir.copy(sunDir);
+    else lightDir.set(sunDir.x, KEY_MIN_Y, sunDir.z).normalize();
+    this.sun.color.copy(useMoon ? MOON_COLOR : s.sun);
+    this.sun.intensity = Math.max(sunI, moonI);
+    this.placeShadow(focus, lightDir);
 
-    // Night fill: walls never go pitch black (moonlit sky above, sodium-lit streets below).
-    this.hemi.intensity = Math.max(s.hemiI, 0.4 * night);
-    this.hemi.color.copy(s.top).lerp(WHITE, 0.45).lerp(NIGHT_SKY_LIGHT, night);
-    this.hemi.groundColor.setRGB(0.32, 0.28, 0.24).multiplyScalar(0.6 + 0.4 * (1 - night)).lerp(NIGHT_GROUND_LIGHT, night);
+    this.hemi.intensity = hemiLight(s, night, this.hemi.color, this.hemi.groundColor);
 
     this.fog.color.copy(s.horizon).lerp(NIGHT_HORIZON_GLOW, dark * FOG_GLOW_STRENGTH).lerp(s.top, 0.15 * (1 - night));
     this.fog.near = lerp(180, 90, night);
     this.fog.far = lerp(780, 520, night);
-    this.scene.environmentIntensity = 0.4 + 0.35 * (1 - night);
+    this.scene.environmentIntensity = envIntensity(night);
+    this.updateSmokeLight(s);
     // Re-bake reflections every quarter game hour (or after a jump in time); NaN forces the first bake.
     const diff = Math.abs(hours - this.envHours);
     if (!(Math.min(diff, 24 - diff) <= 0.25)) {
       this.envHours = hours;
-      this.refreshEnv(s, sunDir);
+      this.refreshEnv(s, sunDir, sunVis);
     }
     renderer.toneMappingExposure = s.exposure;
 
     this.waterNormal.offset.set((time * 0.012) % 1, (time * 0.008) % 1);
   }
+
+  /**
+   * Centres the shadow frustum on the focus, snapped to whole shadow-map texels in the shadow camera's
+   * own frame, so static shadow edges are not re-rasterized as the camera moves. three aims that camera
+   * along -L with +Y up, so its texel rows and columns run along ex = Y x L and ey = L x ex, and a texel
+   * is the frustum's width over the live map size (1024 on Medium). The snap is measured from a world
+   * point on a SHADOW_ANCHOR grid near the focus rather than from the origin: the light turns all the
+   * time with the sun, which slides the texel grid under the scene in proportion to the distance from
+   * that point. Moving the target along L changes nothing on the map.
+   */
+  private placeShadow(focus: THREE.Vector3, L: THREE.Vector3): void {
+    const shadow = this.sun.shadow;
+    const sc = shadow.camera;
+    const texel = (sc.right - sc.left) / Math.max(1, shadow.mapSize.x);
+    const ex = this.tmpEx.set(L.z, 0, -L.x);
+    if (ex.lengthSq() < 1e-12) ex.set(1, 0, 0);
+    else ex.normalize();
+    const ey = this.tmpEy.crossVectors(L, ex);
+    const ax = Math.round(focus.x / SHADOW_ANCHOR) * SHADOW_ANCHOR;
+    const az = Math.round(focus.z / SHADOW_ANCHOR) * SHADOW_ANCHOR;
+    const r = this.tmpR.set(focus.x - ax, focus.y, focus.z - az);
+    const u = Math.round(r.dot(ex) / texel) * texel;
+    const v = Math.round(r.dot(ey) / texel) * texel;
+    const target = this.sun.target.position.set(ax, 0, az).addScaledVector(ex, u).addScaledVector(ey, v).addScaledVector(L, r.dot(L));
+    this.sun.position.copy(target).addScaledVector(L, SHADOW_REACH);
+    this.sun.target.updateMatrixWorld();
+  }
+
+  /** smokeLight from the lights just set: puffLight relative to noon, never darker than SMOKE_FLOOR. */
+  private updateSmokeLight(s: { top: THREE.Color; horizon: THREE.Color }): void {
+    const c = puffLight(this.hemi.color, this.hemi.groundColor, this.hemi.intensity, this.sun.color, this.sun.intensity, this.scene.environmentIntensity, s.top, s.horizon, this.smokeLight);
+    const noon = noonPuffLight();
+    c.setRGB(c.r / noon.r, c.g / noon.g, c.b / noon.b);
+    const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    if (lum < SMOKE_FLOOR) c.multiplyScalar(SMOKE_FLOOR / Math.max(lum, 1e-6));
+  }
+
+  private readonly tmpEx = new THREE.Vector3();
+  private readonly tmpEy = new THREE.Vector3();
+  private readonly tmpR = new THREE.Vector3();
 
   dispose(): void {
     this.renderer.domElement?.removeEventListener?.('webglcontextrestored', this.onContextRestored);

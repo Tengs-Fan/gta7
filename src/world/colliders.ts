@@ -12,7 +12,8 @@ export type ColliderTag =
   | 'bench'
   | 'bin'
   | 'rock'
-  | 'pillar';
+  | 'pillar'
+  | 'boat';
 
 export interface StaticCollider extends AABB {
   id: number;
@@ -47,7 +48,7 @@ export function makeRayHit(): RayHit {
 
 /** Tags that block bullets, cameras and line of sight. */
 export function isSolidForSight(c: StaticCollider): boolean {
-  return c.tag === 'building' || c.tag === 'wall' || c.tag === 'container' || c.tag === 'pillar';
+  return c.tag === 'building' || c.tag === 'wall' || c.tag === 'container' || c.tag === 'pillar' || c.tag === 'boat';
 }
 
 /**
