@@ -850,86 +850,130 @@ describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
     expect(fare.vehicle).toBe(taxi);
   });
 
-  it('a real F still gets out: at once with no job; in a taxi job once no letter of the code can follow, or at once when another key follows', async () => {
-    // No job, full health: no wait at all.
-    {
-      const { sim, frames } = await playing();
-      driving(sim, 'sedan');
-      frames(2);
-      const n = watch(sim);
-      keyDown('KeyF', 'f');
+  it('with no job and full health a real F gets out at once', async () => {
+    const { sim, frames } = await playing();
+    driving(sim, 'sedan');
+    frames(2);
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(1);
+    expect(n.exits).toBe(1);
+    keyUp('KeyF', 'f');
+  });
+
+  it('in a taxi job F alone waits for an I as long as the code would (1.5 s), braking the cab, then gets out and ends the job', async () => {
+    const { sim, frames, taxi, lane } = await taxiWithFare();
+    setSpeed(taxi, lane, 8);
+    frames(1);
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(4);
+    keyUp('KeyF', 'f');
+    frames(80);
+    expect(n.exits).toBe(0);
+    expect(sim.activities.job).not.toBe(null);
+    // Braked to a stop meanwhile, as the stop before getting out would have.
+    expect(taxi.speed).toBeLessThan(1);
+    frames(12);
+    expect(n.exits).toBe(1);
+    expect(sim.player.vehicle).toBe(null);
+    expect(n.jobsEnded).toBe(1);
+    expect(sim.activities.job).toBe(null);
+  });
+
+  it('in a taxi job F then W: the W shows it is no code, and the F acts at once', async () => {
+    const { sim, frames } = await taxiWithFare();
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(3);
+    expect(n.exits).toBe(0);
+    keyDown('KeyW', 'w');
+    frames(1);
+    expect(n.exits).toBe(1);
+    keyUp('KeyF', 'f');
+    keyUp('KeyW', 'w');
+  });
+
+  it('in a taxi job F pressed again (impatient) gets out at once, and only once', async () => {
+    const { sim, frames } = await taxiWithFare();
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(3);
+    keyUp('KeyF', 'f');
+    frames(3);
+    expect(n.exits).toBe(0);
+    keyDown('KeyF', 'f');
+    frames(1);
+    expect(n.exits).toBe(1);
+    keyUp('KeyF', 'f');
+    frames(30);
+    expect(n.exits).toBe(1);
+    expect(sim.player.vehicle).toBe(null);
+  });
+
+  it('in a taxi job the window losing focus lets a held F act, as it would have without the wait', async () => {
+    const { sim, frames } = await taxiWithFare();
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(3);
+    dom.win.dispatchEvent(new Event('blur'));
+    frames(1);
+    expect(n.exits).toBe(1);
+  });
+
+  it("in a taxi job the cab catching fire lets a held F act at once: 'Press F to get out!'", async () => {
+    const { sim, frames, taxi } = await taxiWithFare();
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(3);
+    expect(n.exits).toBe(0);
+    sim.combat.igniteVehicle(taxi, 5);
+    frames(2);
+    expect(n.exits).toBe(1);
+    keyUp('KeyF', 'f');
+  });
+
+  it('in a taxi job at 10.5 m/s with 5 health, accelerating, F brakes to a safe stop instead of waiting to bail at speed', async () => {
+    const { sim, frames, taxi, lane } = await taxiWithFare();
+    sim.player.health = 5;
+    keyDown('KeyW', 'w');
+    setSpeed(taxi, lane, 10.5);
+    frames(1);
+    expect(taxi.speed).toBeLessThan(11);
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(2);
+    keyUp('KeyF', 'f');
+    let top = 0;
+    for (let i = 0; i < 300 && n.exits === 0; i++) {
       frames(1);
-      expect(n.exits).toBe(1);
-      keyUp('KeyF', 'f');
+      top = Math.max(top, taxi.speed);
     }
-    // In a taxi job F alone waits for an I as long as the code would (1.5 s), then gets out and ends the job as before.
-    {
-      const { sim, frames } = await taxiWithFare();
-      const n = watch(sim);
-      keyDown('KeyF', 'f');
-      frames(4);
-      keyUp('KeyF', 'f');
-      frames(80);
-      expect(n.exits).toBe(0);
-      expect(sim.activities.job).not.toBe(null);
-      frames(12);
-      expect(n.exits).toBe(1);
-      expect(sim.player.vehicle).toBe(null);
-      expect(n.jobsEnded).toBe(1);
-      expect(sim.activities.job).toBe(null);
-    }
-    // F then W: the W shows it is no code, and the F acts at once.
-    {
-      const { sim, frames } = await taxiWithFare();
-      const n = watch(sim);
-      keyDown('KeyF', 'f');
-      frames(3);
-      expect(n.exits).toBe(0);
-      keyDown('KeyW', 'w');
-      frames(1);
-      expect(n.exits).toBe(1);
-      keyUp('KeyF', 'f');
-      keyUp('KeyW', 'w');
-    }
-    // F pressed again (impatient): out at once, and only once.
-    {
-      const { sim, frames } = await taxiWithFare();
-      const n = watch(sim);
-      keyDown('KeyF', 'f');
-      frames(3);
-      keyUp('KeyF', 'f');
-      frames(3);
-      expect(n.exits).toBe(0);
-      keyDown('KeyF', 'f');
-      frames(1);
-      expect(n.exits).toBe(1);
-      keyUp('KeyF', 'f');
-      frames(30);
-      expect(n.exits).toBe(1);
-      expect(sim.player.vehicle).toBe(null);
-    }
-    // The window losing focus: no letter can follow, so the F acts as it would have without the wait.
-    {
-      const { sim, frames } = await taxiWithFare();
-      const n = watch(sim);
-      keyDown('KeyF', 'f');
-      frames(3);
-      dom.win.dispatchEvent(new Event('blur'));
-      frames(1);
-      expect(n.exits).toBe(1);
-    }
-    // The cab catching fire meanwhile: 'Press F to get out!' acts at once.
-    {
-      const { sim, frames, taxi } = await taxiWithFare();
-      const n = watch(sim);
-      keyDown('KeyF', 'f');
-      frames(3);
-      expect(n.exits).toBe(0);
-      sim.combat.igniteVehicle(taxi, 5);
-      frames(2);
-      expect(n.exits).toBe(1);
-      keyUp('KeyF', 'f');
-    }
+    keyUp('KeyW', 'w');
+    expect(top).toBeLessThan(11);
+    expect(n.exits).toBe(1);
+    expect(sim.deathKind).toBe(null);
+    expect(sim.player.alive).toBe(true);
+    expect(sim.player.health).toBe(5);
+  });
+
+  it('typed at 20 m/s with 5 health in a burning car, the player does not bail out to his death: the fire is out and he is at the wheel', async () => {
+    const { sim, frames, type } = await playing();
+    const { v, lane } = driving(sim, 'sedan');
+    sim.player.health = 5;
+    setSpeed(v, lane, 20);
+    sim.combat.igniteVehicle(v, 5);
+    frames(1);
+    expect(v.burning).toBe(true);
+    const n = watch(sim);
+    type('FIXMYRIDE');
+    frames(10);
+    expect(sim.deathKind).toBe(null);
+    expect(sim.player.alive).toBe(true);
+    expect(n.exits).toBe(0);
+    expect(sim.player.vehicle).toBe(v);
+    expect(v.burning).toBe(false);
+    expect(v.health).toBe(v.spec.health);
   });
 
   it('at 10.5 m/s with 5 health, accelerating, F still brakes to a safe stop at once instead of waiting to bail at speed', async () => {
@@ -953,32 +997,29 @@ describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
     expect(v.speed).toBeLessThan(3.5);
   });
 
-  it('no wait where getting out is urgent or costs nothing: a burning job car, or low health at low speed', async () => {
-    // 'Your vehicle is on fire! Press F to get out!': in a burning cab mid-fare F acts at once.
-    {
-      const { sim, frames, taxi } = await taxiWithFare();
-      sim.combat.igniteVehicle(taxi, 5);
-      frames(1);
-      const n = watch(sim);
-      keyDown('KeyF', 'f');
-      frames(1);
-      expect(n.exits).toBe(1);
-      keyUp('KeyF', 'f');
-    }
-    // 5 health at 5 m/s: no bail, nothing to lose.
-    {
-      const { sim, frames } = await playing();
-      const { v, lane } = driving(sim, 'sedan');
-      sim.player.health = 5;
-      setSpeed(v, lane, 3);
-      frames(1);
-      const n = watch(sim);
-      keyDown('KeyF', 'f');
-      frames(1);
-      expect(n.exits).toBe(1);
-      expect(sim.player.health).toBe(5);
-      keyUp('KeyF', 'f');
-    }
+  it("no wait where getting out is urgent: in a burning cab mid-fare F acts at once ('Press F to get out!')", async () => {
+    const { sim, frames, taxi } = await taxiWithFare();
+    sim.combat.igniteVehicle(taxi, 5);
+    frames(1);
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(1);
+    expect(n.exits).toBe(1);
+    keyUp('KeyF', 'f');
+  });
+
+  it('no wait where getting out costs nothing: 5 health at 3 m/s is no bail', async () => {
+    const { sim, frames } = await playing();
+    const { v, lane } = driving(sim, 'sedan');
+    sim.player.health = 5;
+    setSpeed(v, lane, 3);
+    frames(1);
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(1);
+    expect(n.exits).toBe(1);
+    expect(sim.player.health).toBe(5);
+    keyUp('KeyF', 'f');
   });
 });
 
@@ -1090,30 +1131,68 @@ describe('cheat codes typed in a menu change nothing there', () => {
     expect(game.settings.fov).toBe(loadSettings().fov);
   });
 
-  it('typed on the pause menu, SPAWNSPORTS leaves it up: the P that closed it brings it back once the code is in', async () => {
+  it('typed on the pause menu, SPAWNSPORTS never closes it: its P waits for the next key, and the game stays paused', async () => {
     const { game, sim, press, frames, type } = await playing();
     press('Escape');
     frames(20);
-    expect(game.menus.top?.el.textContent).toContain('PAUSED');
+    const pauseScreen = game.menus.top;
+    expect(pauseScreen?.el.textContent).toContain('PAUSED');
     const sports = sim.vehicles.filter((v) => v.kind === 'sports').length;
-    type('SPAWNSPORTS');
+    const t = sim.time;
+    for (const ch of 'SPAWNSPORTS') {
+      type(ch);
+      expect(game.menus.top, `after ${ch}`).toBe(pauseScreen);
+    }
     frames(10);
-    expect(game.menus.open).toBe(true);
-    expect(game.menus.top?.el.textContent).toContain('PAUSED');
+    expect(game.menus.top).toBe(pauseScreen);
+    expect(sim.time).toBe(t);
     expect(sim.vehicles.filter((v) => v.kind === 'sports').length).toBe(sports + 1);
   });
 
-  it('S then P on the pause menu is still navigation: the P resumes at once', async () => {
+  it('S then P on the pause menu is still navigation: the P resumes once no letter of a code follows it', async () => {
     const { game, press, frames, type } = await playing();
     press('Escape');
     frames(20);
     expect(game.menus.open).toBe(true);
     type('S');
+    keyDown('KeyP', 'p');
+    frames(4);
+    keyUp('KeyP', 'p');
+    expect(game.menus.open).toBe(true);
+    frames(90);
+    expect(game.menus.open).toBe(false);
+    frames(120);
+    expect(game.menus.open).toBe(false);
+  });
+
+  it('S then P on the pause menu, then any other key (here Escape): the game resumes at once, and only once', async () => {
+    const { game, press, frames, type } = await playing();
+    press('Escape');
+    frames(20);
+    type('S');
+    keyDown('KeyP', 'p');
+    frames(2);
+    keyUp('KeyP', 'p');
+    expect(game.menus.open).toBe(true);
+    keyDown('Escape');
+    frames(1);
+    keyUp('Escape');
+    expect(game.menus.open).toBe(false);
+    frames(120);
+    expect(game.menus.open).toBe(false);
+  });
+
+  it('S then P then P on the pause menu: the second P resumes at once, and does not pause again', async () => {
+    const { game, press, frames, type } = await playing();
+    press('Escape');
+    frames(20);
+    type('S');
+    type('P');
     expect(game.menus.open).toBe(true);
     keyDown('KeyP', 'p');
     frames(1);
-    expect(game.menus.open).toBe(false);
     keyUp('KeyP', 'p');
+    expect(game.menus.open).toBe(false);
     frames(120);
     expect(game.menus.open).toBe(false);
   });
@@ -1141,6 +1220,28 @@ describe('cheat codes typed in a menu change nothing there', () => {
     expect(sim.progress.money).toBe(money + 50000);
     expect(game.menus.open).toBe(true);
     expect(game.menus.top?.el.classList.contains('map-screen')).toBe(true);
+  });
+
+  it('MONEYTREE typed on a map opened from the pause menu: the map is back over the pause menu once the code is in', async () => {
+    const { game, sim, press, frames, type, button } = await playing();
+    press('Escape');
+    frames(20);
+    const pauseScreen = game.menus.top;
+    button('MAP')!.click();
+    frames(20);
+    expect(game.menus.top?.el.classList.contains('map-screen')).toBe(true);
+    const money = sim.progress.money;
+    const t = sim.time;
+    type('MONEYTREE');
+    frames(10);
+    expect(sim.progress.money).toBe(money + 50000);
+    expect(game.menus.top?.el.classList.contains('map-screen')).toBe(true);
+    // Closing it leads back to the same pause menu, the game paused all along.
+    keyDown('Escape');
+    frames(2);
+    keyUp('Escape');
+    expect(game.menus.top).toBe(pauseScreen);
+    expect(sim.time).toBe(t);
   });
 });
 
@@ -1316,6 +1417,43 @@ describe('QUIT TO TITLE and the frozen game sounds', () => {
     const opened = after(stage).find((c) => c.op === 'target' && c.v > 0);
     expect(opened).toBeDefined();
     // ...long enough for each voice's fade to 0 to be nearly done: three of its time constants at least.
+    for (const [name, p] of [['siren', siren], ['engine', engine], ['radio', radio]] as const) {
+      const zero = after(p).find((c) => c.op === 'target' && c.v === 0);
+      expect(zero, name).toBeDefined();
+      expect(opened!.t - zero!.t, name).toBeGreaterThanOrEqual(3 * zero!.tc! - 1e-9);
+    }
+    expect(stage.target).toBe(1);
+  });
+
+  it('a new game started during that wait keeps the stage shut until the old voices have faded out under it', async () => {
+    const { game, sim, frames, press } = await playing();
+    sim.cheats.godMode = true;
+    const { v } = driving(sim, 'sedan');
+    const cop = sim.spawnVehicle('police', v.pos.x + Math.cos(v.heading) * 7, v.pos.z - Math.sin(v.heading) * 7, v.heading);
+    cop.siren = true;
+    game.renderer.cameraCtl.camera.position.set(v.pos.x, v.pos.y + 3, v.pos.z);
+    frames(40);
+    type Voices = { sirenNodes: { gain: { gain: FakeParam } }; engine: { levelNodes: Array<{ gain: FakeParam }> }; radio: { out: { gain: FakeParam } }; mixer: { pauseGain: { gain: FakeParam } } };
+    const a = game.audio as unknown as Voices;
+    const siren = a.sirenNodes.gain.gain;
+    const engine = a.engine.levelNodes[0]!.gain;
+    const radio = a.radio.out.gain;
+    const stage = a.mixer.pauseGain.gain;
+    for (const p of [siren, engine, radio]) expect(p.target).toBeGreaterThan(0);
+    press('Escape');
+    await flush(); // the pointer-lock change the pause makes
+    frames(20);
+    const from = new Map([siren, engine, radio, stage].map((p) => [p, p.log.length]));
+    (game as unknown as { quitToTitle(): void }).quitToTitle();
+    frames(12);
+    // NEW GAME 0.2 s later, the old voices still fading.
+    game.newGame({ intro: false });
+    await flush();
+    frames(90);
+    expect(game.mode).toBe('game');
+    const after = (p: FakeParam) => p.log.slice(from.get(p));
+    const opened = after(stage).find((c) => c.op === 'target' && c.v > 0);
+    expect(opened).toBeDefined();
     for (const [name, p] of [['siren', siren], ['engine', engine], ['radio', radio]] as const) {
       const zero = after(p).find((c) => c.op === 'target' && c.v === 0);
       expect(zero, name).toBeDefined();

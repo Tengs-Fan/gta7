@@ -24,9 +24,9 @@ export { CHEAT_CODES as CHEATS } from './input/cheats';
 /** Seconds into a fresh game before Mama Lou calls with the first mission. */
 export const INTRO_DELAY = 2.5;
 /**
- * Seconds the world stays muted on the title after QUIT TO TITLE: the in-game voices (siren, engine, horn, radio)
- * still hold the frozen game's levels, and only fade (time constants up to 0.2 s) once the title's audio updates
- * take them down. Four time constants of the slowest leave under 2% of them.
+ * Seconds the world stays muted after QUIT TO TITLE: the in-game voices (siren, engine, horn, radio) still hold the
+ * frozen game's levels, and only fade (time constants up to 0.2 s) once the title's audio updates take them down, or
+ * those of a game started meanwhile. Four time constants of the slowest leave under 2% of them.
  */
 const TITLE_UNMUTE_DELAY = 0.8;
 /**
@@ -73,10 +73,11 @@ export class Game {
   private wasDown = false;
   /** The screen (map or pause menu) gameplay last opened by its key, and that key press: a cheat code's first letters can do that. */
   private keyScreen: { screen: Menus['top']; press: number } | null = null;
-  /** The map or pause menu that its key (P, M) last closed, back to play, and that key press: a code's letter can do that too. */
-  private keyClosed: { map: boolean; press: number } | null = null;
-  /** The map screen openMap() put up, to tell it from the pause menu once closed. */
-  private mapScreen: Menus['top'] = null;
+  /**
+   * The screen (a map, or the pause menu) that its key (P, M) last closed, whether it was a map, the screen it went back
+   * to (the pause menu under it, or none: play) and that key press: a cheat code's letter can do that too.
+   */
+  private keyClosed: { map: boolean; under: Menus['top']; press: number } | null = null;
   /** The player's last exit from a vehicle and the key press that asked for it, for FIXMYRIDE, whose F gets him out. */
   private lastExit: { vehicle: Vehicle; press: number; bailed: boolean } | null = null;
   /** The last sim events of the session and page errors, oldest first, for the crash report. */
@@ -88,7 +89,7 @@ export class Game {
   /** The lost-context overlay says the graphics could not be restored (RELOAD shown). */
   private gfxFailed = false;
   private gfxOverlay: HTMLElement | null = null;
-  /** Seconds until the title un-mutes the world after QUIT TO TITLE (see TITLE_UNMUTE_DELAY); not positive when none is due. */
+  /** Seconds until the world is un-muted after QUIT TO TITLE (see TITLE_UNMUTE_DELAY); not positive when none is due. */
   private titleUnmute = 0;
   private gfxTimer: ReturnType<typeof setTimeout> | null = null;
   /** Total real time spent in frames (for tests). */
@@ -292,8 +293,8 @@ export class Game {
     this.menus.closeAll();
     this.hud.setVisible(true);
     this.audio.unlock();
-    this.titleUnmute = 0;
-    this.audio.setPaused(false);
+    // Started straight from QUIT TO TITLE, the old game's voices are still fading out: the wait goes on in this one.
+    this.openAudio();
     this.input.requestPointerLock();
     // A fresh game gets Lou's call a moment in; the radar's pink route leads to her without it.
     this.introTimer = !save && intro ? INTRO_DELAY : -1;
@@ -360,9 +361,24 @@ export class Game {
 
   resume(): void {
     this.menus.closeAll();
-    this.audio.setPaused(false);
+    this.openAudio();
     if (this.mode === 'game') this.input.requestPointerLock();
     this.showNextStep();
+  }
+
+  /** Opens the world's sound stage, unless the wait after QUIT TO TITLE (see TITLE_UNMUTE_DELAY) is still on. */
+  private openAudio(): void {
+    if (this.titleUnmute <= 0) this.audio.setPaused(false);
+  }
+
+  /**
+   * Counts down the wait after QUIT TO TITLE, on the title or in a game started meanwhile; called after a frame's audio
+   * update, which fades the old game's voices under the shut stage, and never while a menu holds the stage shut.
+   */
+  private countUnmute(dt: number): void {
+    if (this.titleUnmute <= 0) return;
+    this.titleUnmute -= dt;
+    if (this.titleUnmute <= 0) this.audio.setPaused(false);
   }
 
   private quitToTitle(): void {
@@ -386,7 +402,6 @@ export class Game {
   private openMap(): void {
     this.suspendPlay();
     this.menus.showMap(this.guard(() => this.resume()));
-    this.mapScreen = this.menus.top;
   }
 
   // ---------------------------------------------------------------------------
@@ -451,17 +466,17 @@ export class Game {
       const view = cam.aimRay().dir;
       this.audio.setListener(cam.camera.position.x, cam.camera.position.y, cam.camera.position.z, Math.atan2(view.x, view.z));
       this.audio.update(dt, this.sim, false);
-      if (this.titleUnmute > 0) {
-        this.titleUnmute -= dt;
-        if (this.titleUnmute <= 0) this.audio.setPaused(false);
-      }
+      this.countUnmute(dt);
       return;
     }
     if (this.menus.open) {
       const shown = this.menus.top;
       this.menus.input(fi.ui, dt);
-      // Its key (P, M) closed the pause menu or the map: a cheat code's letter can do that, and applyCheat reopens it.
-      if (!this.menus.open && (fi.ui.pause || fi.ui.map) && this.input.screenKeyPress >= 0) this.keyClosed = { map: shown === this.mapScreen, press: this.input.screenKeyPress };
+      // Its key (P, M) closed the pause menu or a map, back to play or to the pause menu under it: a cheat code's letter
+      // can do that (MONEYTREE's M), and applyCheat puts the screen back.
+      if (shown && this.menus.top !== shown && (fi.ui.pause || fi.ui.map) && this.input.screenKeyPress >= 0) {
+        this.keyClosed = { map: shown.el.classList.contains('map-screen'), under: this.menus.top, press: this.input.screenKeyPress };
+      }
       this.renderer.render(0, false);
       return;
     }
@@ -487,6 +502,14 @@ export class Game {
     inp.aimOrigin = aim.origin;
     inp.aimDir = aim.dir;
     inp.cameraYaw = cam.yaw;
+    // An F held back for FIXMYRIDE (Input.exitHeld) brakes the car below the bail speed, as the stop before getting out
+    // would have: the wait must not let it speed up into a bail (the exit is decided at the speed it has by then).
+    const pv = sim.player.vehicle;
+    if (pv && this.input.exitHeld && pv.speed < BAIL_SPEED) {
+      inp.throttle = 0;
+      inp.brake = pv.forwardSpeed > 0.5 ? 1 : 0;
+      inp.handbrake = pv.forwardSpeed <= 0.5;
+    }
     const ts = performance.now();
     sim.update(dt, inp);
     this.perf.simMs = performance.now() - ts;
@@ -502,6 +525,7 @@ export class Game {
     const cp = cam.camera.position;
     this.audio.setListener(cp.x, cp.y, cp.z, cam.yaw);
     this.audio.update(dt, sim, true);
+    this.countUnmute(dt);
     this.updateIntro(dt);
     this.hints.update(dt, sim, { device: fi.device, mouseFree: !this.input.pointerLocked && this.input.lockAvailable });
     const prompt = sim.interactions.prompt() ?? this.jobPrompt(sim) ?? this.hints.stealPrompt(sim);
@@ -530,12 +554,15 @@ export class Game {
     // Only a screen one of its own letters opened, and only while it is still on top.
     const ks = this.keyScreen;
     if (ks?.screen && this.menus.top === ks.screen && typed.presses.includes(ks.press)) this.resume();
-    // Typed on the pause menu or the map, a letter (SPAWNSPORTS's P, MONEYTREE's M) closes it instead: back it comes.
+    // Typed on a map or the pause menu, a letter (MONEYTREE's M) closes it instead: back it comes, if nothing else has
+    // been opened since. (SPAWNSPORTS's P waits in Input for the next key there, and never closes the pause menu.)
     const kc = this.keyClosed;
-    if (kc && !this.menus.open && typed.presses.includes(kc.press)) {
+    if (kc && typed.presses.includes(kc.press)) {
       this.keyClosed = null;
-      if (kc.map) this.openMap();
-      else this.pause();
+      if (kc.under === null && !this.menus.open) {
+        if (kc.map) this.openMap();
+        else this.pause();
+      } else if (kc.under !== null && kc.map && this.menus.top === kc.under) this.menus.showMap();
     }
     switch (code) {
       case 'CHILLOUT':
@@ -816,9 +843,9 @@ export class Game {
         this.suspendPlay();
         this.menus.showPause();
       }
-    } else if (this.titleUnmute <= 0) {
-      // Just after QUIT TO TITLE the countdown in step() opens the stage, once the frozen voices have faded.
-      this.audio.setPaused(false);
+    } else {
+      // Just after QUIT TO TITLE the countdown in step() opens the stage instead, once the frozen voices have faded.
+      this.openAudio();
     }
   }
 
@@ -862,17 +889,19 @@ function displayInfo(): { devicePixelRatio: number; screenWidth: number; screenH
 
 /**
  * Whether getting out of the vehicle now is for good, so that FIXMYRIDE, whose F gets the player out, could not put
- * things back: it would end a taxi or vigilante job (with its fare or suspect and streak), or a bail at speed could
- * kill him. Input then holds an F press back until the next key shows whether it starts the code. Never where getting
- * out is urgent: a burning, wrecked or sinking vehicle ('Press F to get out!').
+ * things back: a bail at speed would kill him, or it would end a taxi or vigilante job (with its fare or suspect and
+ * streak). Input then holds an F press back until the next key shows whether it starts the code. A wrecked or sinking
+ * vehicle never holds it, and a burning one only for a bail that kills: its occupants are safe until it blows up, so
+ * waiting is no worse there, while any other way out of it is urgent ('Press F to get out!').
  */
 function exitAtStake(sim: Sim): boolean {
   const p = sim.player;
   const v = p.vehicle;
-  if (!v || sim.playerDown || v.burning || !v.drivable || v.inWater) return false;
+  if (!v || sim.playerDown || !v.drivable || v.inWater) return false;
+  if (!sim.cheats.godMode && v.speed >= BAIL_SPEED && p.health <= BAIL_DAMAGE) return true;
+  if (v.burning) return false;
   const job = sim.activities.job;
-  if (job && job.kind !== 'rampage') return true;
-  return !sim.cheats.godMode && v.speed >= BAIL_SPEED && p.health <= BAIL_DAMAGE;
+  return !!job && job.kind !== 'rampage';
 }
 
 /** The player can be put back in a vehicle he just got out of: it still drives and its seat is free. */
