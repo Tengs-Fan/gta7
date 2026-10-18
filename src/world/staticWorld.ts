@@ -2,7 +2,7 @@
 // ground height, water, zones and free-space searches.
 
 import { circleVsAabb, makeContact } from '../core/collision';
-import { CITY_SEED, CURB_H, SEABED_Y, WATER_Y } from './constants';
+import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { generateCity, rectContains, sandHeight, type CityLayout, type District, type Prop, type Ramp } from './layout';
 import { RoadNetwork } from './roads';
@@ -14,6 +14,18 @@ import { SidewalkGraph } from './sidewalks';
  */
 export const GARAGE_ROOF = 0.4;
 export const GARAGE_EAVE = 0.3;
+
+/**
+ * A moored boat as render/props.ts buildBoat draws it, in its own frame (x along the hull, bow at +x;
+ * the boat is turned rot + PI/2 about Y): the hull's and the cabin's footprints, and the deck and cabin
+ * roof heights above the prop's y.
+ */
+export const BOAT_HULL = { x0: -5, x1: 7, z0: -1.3, z1: 1.3 };
+export const BOAT_CABIN = { x0: -2.2, x1: 1.2, z0: -1, z1: 1 };
+export const BOAT_DECK = 1.2;
+export const BOAT_ROOF = 2.5;
+/** How far under the surface a body floats in deep water: its feet (sim/characterPhysics SWIM_FLOAT). */
+export const FLOAT_FEET = 1.3;
 
 export class StaticWorld {
   readonly layout: CityLayout;
@@ -94,11 +106,43 @@ export class StaticWorld {
         g.addCircle(p.x - ox, p.z - oz, 0.35, p.y, p.y + 9, 'pillar');
         return g.addCircle(p.x + ox, p.z + oz, 0.35, p.y, p.y + 9, 'pillar').id;
       }
+      case 'boat': {
+        // The hull up to its deck, from below the swimmers' collision band, and the cabin on top: two
+        // boxes rather than one up to the cabin roof, which would stand an invisible wall over the low
+        // deck. Both are solid for sight, so shots, the camera and line of sight stop at a moored boat.
+        this.addBoatBox(p, BOAT_HULL, WATER_Y - 1.5, p.y + BOAT_DECK);
+        return this.addBoatBox(p, BOAT_CABIN, p.y + BOAT_DECK, p.y + BOAT_ROOF).id;
+      }
       case 'bush':
-      case 'boat':
       default:
         return -1;
     }
+  }
+
+  /**
+   * A box of a moored boat (`r` in the boat's own frame, as render/props.ts buildBoat draws it) between
+   * heights y0 and y1: the world-axis box round it once turned by rot + PI/2 about Y (exact at quarter
+   * turns; every boat lies along Z today).
+   */
+  private addBoatBox(p: Prop, r: { x0: number; x1: number; z0: number; z1: number }, y0: number, y1: number): StaticCollider {
+    const a = p.rot + Math.PI / 2;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    let minX = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxZ = -Infinity;
+    for (const lx of [r.x0, r.x1]) {
+      for (const lz of [r.z0, r.z1]) {
+        const x = p.x + lx * cos + lz * sin;
+        const z = p.z - lx * sin + lz * cos;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minZ = Math.min(minZ, z);
+        maxZ = Math.max(maxZ, z);
+      }
+    }
+    return this.grid.addBox(minX, minZ, maxX, maxZ, y0, y1, 'boat');
   }
 
   get bounds() {
@@ -152,14 +196,18 @@ export class StaticWorld {
     return l.blocks[bj * l.n + bi]!.zone;
   }
 
-  /** True when a circle at ground level overlaps no solid static collider and is not deep water. */
+  /**
+   * True when a circle at ground level overlaps no solid static collider and is not deep water (or, with
+   * allowWater, a body floating there in deep water overlaps none: a moored boat's hull blocks it).
+   */
   isFree(x: number, z: number, r: number, allowWater = false): boolean {
     // NaN fails every bounds test below and would come out free.
     if (!Number.isFinite(x + z + r)) return false;
     const b = this.layout.bounds;
     if (x < b.worldMinX + 1 || x > b.worldMaxX - 1 || z < b.worldMinZ + 1 || z > b.worldMaxZ - 1) return false;
-    if (!allowWater && this.waterDepth(x, z) > 0.3) return false;
-    const y = this.groundHeight(x, z);
+    const depth = this.waterDepth(x, z);
+    if (!allowWater && depth > 0.3) return false;
+    const y = depth > SWIM_DEPTH ? WATER_Y - FLOAT_FEET : this.groundHeight(x, z);
     let free = true;
     this.grid.query(x - r, z - r, x + r, z + r, (c) => {
       if (!free) return;

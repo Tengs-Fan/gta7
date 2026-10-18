@@ -1280,9 +1280,10 @@ function buildCoast(layout: CityLayout, rng: Rng): void {
   // Azura Pier with a Ferris wheel (centre of the beach) and the marina piers (south).
   layout.decks.push({ rect: pierRect, y: 0.45, name: 'Azura Pier' });
   addProp(layout, 'ferris', beachEndX + 70, pierZ, Math.PI / 2, 1, 0.45);
+  // Railing lamps along both edges, their heads over the deck.
   for (let x = beachStartX + 20; x < beachEndX + 85; x += 22) {
-    addProp(layout, 'lamp', x, pierZ - 6.2, Math.PI, 1, 0.45);
-    addProp(layout, 'lamp', x, pierZ + 6.2, 0, 1, 0.45);
+    addProp(layout, 'lamp', x, pierZ - 6.2, 0, 1, 0.45);
+    addProp(layout, 'lamp', x, pierZ + 6.2, Math.PI, 1, 0.45);
   }
   layout.openSpots.push({ x: beachEndX + 50, z: pierZ + 3, district: 'beachfront' });
 

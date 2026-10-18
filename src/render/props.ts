@@ -6,7 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { smoothstep } from '../core/math';
 import { Rng } from '../core/rng';
 import { axisOf, type Dir } from '../world/roads';
-import type { Prop, PropKind } from '../world/layout';
+import { rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { adTexture, AD_COUNT, glowTexture, groundTexture } from './textures';
 
@@ -173,13 +173,21 @@ const LAMPS: Readonly<Record<'glow' | 'flat', { red: Rgb; yellow: Rgb; green: Rg
   glow: { red: [9.5, 1.1, 0.22], yellow: [6, 3.6, 0.07], green: [0.07, 5.5, 2.4], warning: [9.5, 1.1, 0.22] },
   flat: { red: [1, 0.02, 0.01], yellow: [1, 0.42, 0.01], green: [0.01, 0.7, 0.22], warning: [1.1, 0.02, 0.015] },
 };
-/** Luminance of a lit ferris wheel light with bloom: every hue blooms alike. */
-const FERRIS_GLOW = 3.5;
-
-/** Relative luminance (the weights three's bloom pass and tone mapping use). */
-function luminance(c: { r: number; g: number; b: number }): number {
-  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-}
+/**
+ * The Ferris wheel's lights: 64 bulbs round the rim, alternately on its front and back tube, standing
+ * proud of the tube (centred FERRIS_BULB_Z out, the tubes' centre lines being 1.6 out with a 0.3 m
+ * radius) so that a viewer sees the whole bulb rather than a sliver. Each is a saturated core (ACES
+ * keeps its hue, as on Low) with its own additive halo FERRIS_HALO m across (never under
+ * FERRIS_HALO_MIN_PX pixels), so the colour no longer hangs on the bloom pass catching a 2-3 px cap.
+ */
+const FERRIS_R = 22;
+const FERRIS_LIGHTS = 64;
+const FERRIS_BULB_Z = 1.95;
+const FERRIS_BULB_R = 0.26;
+const FERRIS_HALO = 1.5;
+const FERRIS_HALO_MIN_PX = 3;
+/** The halo's strength against its core: under the bloom threshold, so it does not flicker in and out. */
+const FERRIS_HALO_I = 0.9;
 
 const BEAM_VS = /* glsl */ `
 varying float vT;
@@ -234,7 +242,39 @@ void main() {
     #endif
   #endif
   gl_FragColor = vec4( uColor, a );
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }`;
+
+/**
+ * Makes an instanced material discard fragments whose world x / z fall outside the instance's `aClip`
+ * rectangle (min x, min z, max x, max z): a light pool stays on the deck or the land its lamp stands
+ * on, at no cost and without distorting its falloff.
+ */
+function clipToRect(mat: THREE.Material): void {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec4 aClip;\nvarying vec4 vClipRect;\nvarying vec2 vClipXZ;')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+vec4 clipWorld = vec4( transformed, 1.0 );
+#ifdef USE_INSTANCING
+clipWorld = instanceMatrix * clipWorld;
+#endif
+vClipXZ = ( modelMatrix * clipWorld ).xz;
+vClipRect = aClip;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec4 vClipRect;\nvarying vec2 vClipXZ;')
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+if ( vClipXZ.x < vClipRect.x || vClipXZ.y < vClipRect.y || vClipXZ.x > vClipRect.z || vClipXZ.y > vClipRect.w ) discard;`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'gta7-clip-rect';
+}
 
 export class PropsView {
   readonly group = new THREE.Group();
@@ -245,7 +285,7 @@ export class PropsView {
   private signalProps: Prop[] = [];
   private signalPropIndex: number[] = [];
   private readonly brokenSignals = new Set<number>();
-  private ferris: { wheel: THREE.Group; gondolas: THREE.InstancedMesh; lights: THREE.InstancedMesh; x: number; y: number; z: number; rot: number } | null = null;
+  private ferris: { wheel: THREE.Group; gondolas: THREE.InstancedMesh; lights: THREE.InstancedMesh; halos: THREE.Points; x: number; y: number; z: number; rot: number } | null = null;
   private lighthouseBeam: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null;
   private lighthouseGlow: THREE.Sprite | null = null;
   private antennaLights: THREE.InstancedMesh | null = null;
@@ -258,6 +298,7 @@ export class PropsView {
   constructor(private readonly world: StaticWorld) {
     this.group.name = 'props';
     this.poolMat = new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xffc27a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+    clipToRect(this.poolMat);
     const byKind = new Map<PropKind, number[]>();
     world.layout.props.forEach((p, i) => {
       let l = byKind.get(p.kind);
@@ -364,12 +405,32 @@ export class PropsView {
     });
   }
 
+  /**
+   * Where a lamp's light pool may lie: the deck its pole stands on, else the land (not the sea or the
+   * sloping beach, which lie below it). The pool is a flat sheet at the pole's foot, so past that it
+   * would hang in the air.
+   */
+  poolClip(p: Prop): Rect {
+    const L = this.world.layout;
+    const deck = L.decks.find((d) => rectContains(d.rect, p.x, p.z));
+    if (deck) return deck.rect;
+    const b = L.bounds;
+    return { minX: b.landMinX, minZ: b.landMinZ, maxX: b.beachStartX, maxZ: b.landMaxZ };
+  }
+
   private buildLamps(lamps: number[]): void {
     const pole = merged([cyl(0.07, 0.11, 6.5, 6), box(0.08, 0.08, 1.7, 0, 6.45, 0.8), box(0.42, 0.14, 0.6, 0, 6.38, 1.55)]);
     this.makeInstanced(pole, new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.5, metalness: 0.6 }), lamps, PropsView.standard);
     const bulbGeo = box(0.32, 0.04, 0.46, 0, 6.29, 1.55);
     this.makeInstanced(bulbGeo, this.bulbMat, lamps, PropsView.standard, { shadow: false });
     const pool = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    // Per pool: the world rectangle (min x, min z, max x, max z) outside which it draws nothing (poolClip).
+    const clip = new Float32Array(lamps.length * 4);
+    lamps.forEach((pi, k) => {
+      const r = this.poolClip(this.world.layout.props[pi]!);
+      clip.set([r.minX, r.minZ, r.maxX, r.maxZ], k * 4);
+    });
+    pool.setAttribute('aClip', new THREE.InstancedBufferAttribute(clip, 4));
     this.makeInstanced(pool, this.poolMat, lamps, (p, m) => {
       const fx = Math.sin(p.rot);
       const fz = Math.cos(p.rot);
@@ -417,9 +478,12 @@ export class PropsView {
   private buildFountain(p: Prop): void {
     const g = new THREE.Group();
     const stone = new THREE.MeshStandardMaterial({ color: 0xc8c2b4, roughness: 0.9 });
-    const ring = new THREE.Mesh(new THREE.CylinderGeometry(3.3, 3.4, 0.7, 24, 1, true), stone);
-    ring.position.y = 0.35;
-    const water = new THREE.Mesh(new THREE.CircleGeometry(3.25, 24).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x3f8fb8, roughness: 0.1, metalness: 0.1 }));
+    // The basin wall, lathed: up its outer face, across a 0.3 m rim and down the inner face to just under
+    // the water, so the far side shows its inner face and rim from outside (an open, one-sided ring
+    // showed nothing there). The water's edge tucks under the inner face.
+    const ring = new THREE.Mesh(new THREE.LatheGeometry([new THREE.Vector2(3.4, 0), new THREE.Vector2(3.3, 0.7), new THREE.Vector2(3.0, 0.7), new THREE.Vector2(3.0, 0.45)], 24), stone);
+    ring.name = 'fountainBasin';
+    const water = new THREE.Mesh(new THREE.CircleGeometry(3.02, 24).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x3f8fb8, roughness: 0.1, metalness: 0.1 }));
     water.position.y = 0.5;
     const col = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 2.2, 10), stone);
     col.position.y = 1.1;
@@ -511,7 +575,7 @@ export class PropsView {
   }
 
   private buildFerris(p: Prop): void {
-    const R = 22;
+    const R = FERRIS_R;
     const hubY = p.y + R + 4;
     const steel = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4, metalness: 0.5 });
     const wheel = new THREE.Group();
@@ -530,14 +594,31 @@ export class PropsView {
     const rim = new THREE.Mesh(merged(rimParts), steel);
     rim.castShadow = true;
     wheel.add(rim);
-    const lights = new THREE.InstancedMesh(new THREE.SphereGeometry(0.22, 6, 4), new THREE.MeshBasicMaterial({ color: 0xffffff }), 64);
-    for (let i = 0; i < 64; i++) {
-      const a = (i / 64) * Math.PI * 2;
-      this.tmpM.makeTranslation(Math.cos(a) * R, Math.sin(a) * R, i % 2 === 0 ? 1.7 : -1.7);
+    const lights = new THREE.InstancedMesh(new THREE.SphereGeometry(FERRIS_BULB_R, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }), FERRIS_LIGHTS);
+    lights.name = 'ferrisLights';
+    const haloPos = new Float32Array(FERRIS_LIGHTS * 3);
+    for (let i = 0; i < FERRIS_LIGHTS; i++) {
+      const a = (i / FERRIS_LIGHTS) * Math.PI * 2;
+      const side = i % 2 === 0 ? 1 : -1;
+      this.tmpM.makeTranslation(Math.cos(a) * R, Math.sin(a) * R, side * FERRIS_BULB_Z);
       lights.setMatrixAt(i, this.tmpM);
       lights.setColorAt(i, new THREE.Color(0x222222));
+      // The halo sits at the bulb's outer face, so the tube behind does not cut into it.
+      haloPos.set([Math.cos(a) * R, Math.sin(a) * R, side * (FERRIS_BULB_Z + FERRIS_BULB_R)], i * 3);
     }
     wheel.add(lights);
+    const haloGeo = new THREE.BufferGeometry();
+    haloGeo.setAttribute('position', new THREE.BufferAttribute(haloPos, 3));
+    haloGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(FERRIS_LIGHTS * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    // The lamp pools' glow texture: on the GPU from the first frame, so lighting up at night uploads nothing.
+    const haloMat = new THREE.PointsMaterial({ size: FERRIS_HALO, map: this.poolMat.map, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+    haloMat.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader.replace('#include <fog_vertex>', `#include <fog_vertex>\ngl_PointSize = max( gl_PointSize, ${FERRIS_HALO_MIN_PX.toFixed(1)} );`);
+    };
+    haloMat.customProgramCacheKey = () => 'gta7-ferris-halo';
+    const halos = new THREE.Points(haloGeo, haloMat);
+    halos.name = 'ferrisHalos';
+    wheel.add(halos);
     wheel.position.set(p.x, hubY, p.z);
     wheel.rotation.y = p.rot;
     this.group.add(wheel);
@@ -561,7 +642,7 @@ export class PropsView {
     legMesh.rotation.y = p.rot;
     legMesh.castShadow = true;
     this.group.add(legMesh);
-    this.ferris = { wheel, gondolas, lights, x: p.x, y: hubY, z: p.z, rot: p.rot };
+    this.ferris = { wheel, gondolas, lights, halos, x: p.x, y: hubY, z: p.z, rot: p.rot };
   }
 
   private buildBoat(p: Prop): void {
@@ -718,7 +799,7 @@ export class PropsView {
     if (f) {
       const ang = time * 0.06;
       f.wheel.rotation.z = ang;
-      const R = 22;
+      const R = FERRIS_R;
       const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), f.rot);
       for (let i = 0; i < 16; i++) {
         const a = ang + (i / 16) * Math.PI * 2;
@@ -728,15 +809,20 @@ export class PropsView {
       }
       f.gondolas.instanceMatrix.needsUpdate = true;
       f.gondolas.computeBoundingSphere();
-      for (let i = 0; i < 64; i++) {
-        const lit = night > 0.2;
-        const hue = (i / 64 + time * 0.05) % 1;
-        if (lit && this.glow) this.tmpC.setHSL(hue, 1, 0.6).multiplyScalar(FERRIS_GLOW / luminance(this.tmpC));
-        else if (lit) this.tmpC.setHSL(hue, 1, 0.5);
+      const lit = night > 0.2;
+      const halo = f.halos.geometry.getAttribute('color') as THREE.BufferAttribute;
+      for (let i = 0; i < FERRIS_LIGHTS; i++) {
+        const hue = (i / FERRIS_LIGHTS + time * 0.05) % 1;
+        // The same saturated core on every tier, with or without bloom, and its own halo.
+        if (lit) this.tmpC.setHSL(hue, 1, 0.5);
         else this.tmpC.setRGB(0.15, 0.15, 0.15);
         f.lights.setColorAt(i, this.tmpC);
+        const k = lit ? FERRIS_HALO_I : 0;
+        halo.setXYZ(i, this.tmpC.r * k, this.tmpC.g * k, this.tmpC.b * k);
       }
       if (f.lights.instanceColor) f.lights.instanceColor.needsUpdate = true;
+      halo.needsUpdate = true;
+      f.halos.visible = lit;
     }
     if (this.lighthouseBeam) {
       const beam = this.lighthouseBeam;

@@ -412,7 +412,6 @@ export class CityView {
         roughness: 1,
         metalness: glass ? 0.25 : 0.02,
         vertexColors: true,
-        envMapIntensity: glass ? 1.4 : 0.6,
       });
       const sn = STYLE_NIGHT[style];
       nightShader(mat, 'gta7-facade-night', { uOccupancy: nu.occupancy, uTime: nu.time, uStyleOcc: { value: sn.occ }, uFloorShare: { value: sn.floors } }, FACADE_FRAG_MAIN);
@@ -420,7 +419,9 @@ export class CityView {
       const geo = builders.get(style)!.build();
       if (geo.getAttribute('position').count > 0) this.add(geo, mat, { shadow: true, name: `facade-${style}` });
     });
-    const roofMat = new THREE.MeshStandardMaterial({ map: groundTexture('roof'), vertexColors: true, roughness: 0.92, metalness: 0 });
+    // Two-sided: from the street a pitched roof's eaves, rakes and the attic gap above the walls are seen
+    // from below. The shadow pass keeps drawing back faces only, as a one-sided material does.
+    const roofMat = new THREE.MeshStandardMaterial({ map: groundTexture('roof'), vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide, shadowSide: THREE.BackSide });
     this.add(roofs.build(), roofMat, { shadow: true, name: 'roofs' });
 
     const atlas = storefrontAtlas();
@@ -432,7 +433,6 @@ export class CityView {
       vertexColors: true,
       roughness: 0.55,
       metalness: 0.05,
-      envMapIntensity: 0.9,
     });
     nightShader(frontMat, 'gta7-storefront-night', { uOccupancy: nu.occupancy, uShopOcc: nu.shopOccupancy }, FRONT_FRAG_MAIN);
     this.materials.storefront = frontMat;
