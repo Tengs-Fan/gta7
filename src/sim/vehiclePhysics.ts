@@ -271,10 +271,9 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
       v.pos.y = gy;
       v.vy = 0;
       v.airborne = false;
-      const upside = Math.abs(wrapAngle(v.roll)) > 1.9 || Math.abs(wrapAngle(v.pitch)) > 1.9;
       v.pitchVel = 0;
       v.rollVel = 0;
-      if (upside && !v.destroyed) v.flipped = true;
+      v.flipped = landsUpsideDown(v);
       host.onVehicleLanded(v, impact);
     }
   } else {
@@ -324,6 +323,29 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   v.pos.z = clamp(v.pos.z, b.worldMinZ + 5, b.worldMaxZ - 5);
 
   updateDerived(v, dt, throttle);
+}
+
+/** A live car landing with its body's up axis lower than this (the cosine of 1.9 rad from upright) stays on its roof. */
+const LIVE_UPSIDE = Math.cos(1.9);
+
+/**
+ * Whether a vehicle touching down rests on its roof (true) or on its wheels; the ground then settles it there (see stepVehicle).
+ * First the attitude is written with the pitch within 90 degrees of level: the same orientation (YXZ Euler angles with
+ * x = -pitch: heading + PI, PI - pitch, roll + PI), so the settling turns the short way. The body's up axis then points up
+ * by cos(roll) cos(pitch). A wreck settles on whichever face is nearer, wheels or roof, as one sinking does (see nearerFace);
+ * a live car only well past its side, so that one landing on its side or nose is put back on its wheels.
+ */
+function landsUpsideDown(v: Vehicle): boolean {
+  if (Math.abs(wrapAngle(v.pitch)) > Math.PI / 2) {
+    v.heading = wrapAngle(v.heading + Math.PI);
+    v.pitch = wrapAngle(Math.PI - v.pitch);
+    v.roll = wrapAngle(v.roll + Math.PI);
+  } else {
+    v.pitch = wrapAngle(v.pitch);
+    v.roll = wrapAngle(v.roll);
+  }
+  const up = Math.cos(v.roll) * Math.cos(v.pitch);
+  return v.destroyed ? up < 0 : up < LIVE_UPSIDE;
 }
 
 /** Id of the stunt ramp under (x, z), or -1. */

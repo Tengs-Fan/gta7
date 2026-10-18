@@ -460,6 +460,9 @@ export class PoliceSystem {
     const resumed = !searching && this.wasSearching;
     this.wasSearching = searching;
     for (const v of sim.vehicles) {
+      // No siren or light bar on any police car once the stars are gone: not on one whose crew is still walking
+      // back to it (it drives off as a patrol), nor on one they left behind. (A cruiser the player took is his.)
+      if (level === 0 && v.owner === 'police') v.siren = false;
       if (v.owner !== 'police' || v.removed || !v.drivable || !v.driver || !v.driver.isLaw || !v.ai) continue;
       const ai = v.ai;
       // Keep still while the player climbs in to take the car.
@@ -470,7 +473,6 @@ export class PoliceSystem {
           ai.target = null;
           ai.dest = null;
           ai.resetPath();
-          v.siren = false;
         }
         ai.hold = boarding || this.holdForCrew(v, dt, level);
         continue;
@@ -869,6 +871,8 @@ export class PoliceSystem {
         sim.seat(c, car, 0);
         const ai = new DriverAI(sim, car, level > 0 ? 'chase' : 'traffic');
         car.ai = ai;
+        // Back on patrol without the siren; a unit back in the chase has it on (see updateUnits).
+        car.siren = level > 0;
         if (level > 0) {
           if (this.searching(level)) this.assignSearch(ai);
           else ai.target = sim.player;
