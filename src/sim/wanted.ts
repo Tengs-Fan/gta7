@@ -227,8 +227,11 @@ export class WantedSystem {
     return Math.max(this.evadeClock / t, (this.sim.time - this.lastSeen) / (HIDE_FACTOR * t));
   }
 
-  /** Any police officer, patrol car or helicopter that can see (x, z)? Officers within `range`, the helicopter within HELI_SIGHT. */
-  copWitness(x: number, z: number, range = 48): boolean {
+  /**
+   * Any police officer, patrol car or helicopter that can see (x, z)? Officers within `range`, the helicopter within
+   * HELI_SIGHT. Officers within `near` notice what happens there through a wall too (they hear a crime that close).
+   */
+  copWitness(x: number, z: number, range = 48, near = 8): boolean {
     const sim = this.sim;
     const gy = sim.world.groundHeight(x, z) + 1.2;
     for (const c of sim.characters) {
@@ -236,7 +239,7 @@ export class WantedSystem {
       const p = c.vehicle ? c.vehicle.pos : c.pos;
       const d = Math.hypot(p.x - x, p.z - z);
       if (d > range) continue;
-      if (d < 8 || sim.world.lineOfSight(p.x, p.y + 1.6, p.z, x, gy, z)) return true;
+      if (d < near || sim.world.lineOfSight(p.x, p.y + 1.6, p.z, x, gy, z)) return true;
     }
     for (const h of sim.helis) if (this.heliSees(h, x, z)) return true;
     return false;
@@ -267,7 +270,9 @@ export class WantedSystem {
       this.sightTimer -= dt;
       if (this.sightTimer <= 0) {
         this.sightTimer = 0.3;
-        if (this.copWitness(pp.x, pp.z, COP_SIGHT)) this.see(pp.x, pp.z);
+        // Only in sight: an officer on the far side of a wall, however near, does not see where the player hides (one
+        // holding off from an armed player there kept the stars up for ever, never flashing, see PoliceSystem STANDOFF).
+        if (this.copWitness(pp.x, pp.z, COP_SIGHT, 0)) this.see(pp.x, pp.z);
       }
     }
     this.searching = sim.time - this.lastSeen > 2.5;

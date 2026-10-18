@@ -1,7 +1,7 @@
 // Weapons, damage, deaths, burning vehicles, explosions and rockets.
 
 import { rayCylinderY, rayObb3, type OBB } from '../core/collision';
-import { clamp, wrapAngle, type V3 } from '../core/math';
+import { clamp, pointSegDist, wrapAngle, type V3 } from '../core/math';
 import { makeRayHit, type RayHit } from '../world/colliders';
 import { makeBrain } from './brains';
 import type { Character, Vehicle } from './entities';
@@ -35,6 +35,10 @@ const QUEUE_WINDOW = 0.1;
 const NPC_HEAD_MUL = 2;
 /** Share of a weapon's damage an NPC's round does to the player, whoever fires it (police, gangs, a mission's guards). */
 const NPC_ON_PLAYER = 0.55;
+/** An NPC holds fire while someone he must not hit stands this close (m) to his line of fire at the muzzle (see inLineOfFire)... */
+const LINE_CLEAR = 0.8;
+/** ...and further out, this much (m) more per metre from his muzzle: the spread of an NPC's shot. */
+const LINE_SPREAD = 0.08;
 /**
  * Seconds after getting up from a knockdown during which blows do not count towards the next one (they still hurt): a
  * moment to find his feet, so a brawler, or three, cannot floor him again on the frame he is up.
@@ -359,6 +363,44 @@ export class CombatSystem {
     // From a car window there is no chest-to-muzzle wall check; on foot (also when asked for a car he has left) there is.
     this.discharge(c, w, from, dx, dy, dz, err, fromWindow ? null : this.muzzleWall(c, from));
     if (slot.clip === 0) this.startReload(c);
+  }
+
+  /**
+   * What an NPC shooting at `target` must not fire through, null when the way is clear: someone up on his feet (or
+   * swimming) for whom `spare` holds, from the muzzle up to the target (or at the muzzle, the shot leaving from inside
+   * him), within LINE_CLEAR of the line across the ground there and LINE_SPREAD more per metre out, as far as the spread
+   * of the shot reaches; and with `cover`, a vehicle other than his own in the way of his shot at a target on foot
+   * (who takes cover behind it, or stands beyond the van the shooter guards), so his rounds would end in it.
+   */
+  inLineOfFire(shooter: Character, target: Character, spare: (o: Character) => boolean, cover = false): Character | Vehicle | null {
+    const sim = this.sim;
+    const tp = target.vehicle ? target.vehicle.pos : target.pos;
+    const m = this.muzzle(shooter, !!shooter.vehicle);
+    const dx = tp.x - m.x;
+    const dz = tp.z - m.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-3) return null;
+    for (const o of sim.characters) {
+      if (o === shooter || o === target || o.removed || !o.alive || (o.state !== 'normal' && o.state !== 'swimming') || !spare(o)) continue;
+      const ox = o.pos.x - m.x;
+      const oz = o.pos.z - m.z;
+      const along = (ox * dx + oz * dz) / len;
+      if (along > -BODY_R && along < len && Math.abs(ox * dz - oz * dx) / len < LINE_CLEAR + Math.max(0, along) * LINE_SPREAD) return o;
+    }
+    if (!cover || target.vehicle) return null;
+    // The shot itself, from the muzzle at his chest as npcFire aims it, kept LINE_CLEAR / 2 clear of every vehicle for its spread.
+    const dy = target.pos.y + target.height * 0.62 - m.y;
+    const l = Math.hypot(dx, dy, dz);
+    const pad = LINE_CLEAR / 2;
+    for (const v of sim.vehicles) {
+      if (v.removed || v === shooter.vehicle || pointSegDist(v.pos.x, v.pos.z, m.x, m.z, tp.x, tp.z) > v.halfL + v.halfW + pad) continue;
+      vehicleObb(v, obb);
+      obb.hw += pad;
+      obb.hl += pad;
+      const t = rayObb3(m.x, m.y, m.z, dx / l, dy / l, dz / l, obb, v.pos.y, v.pos.y + v.spec.height + pad, l);
+      if (t >= 0 && t < l - BODY_R) return v;
+    }
+    return null;
   }
 
   /** Points a character's aim (yaw and pitch, as drawn and as the barrel tip follows) along (dx, dy, dz). */

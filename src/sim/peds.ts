@@ -176,25 +176,12 @@ export class PedSystem {
     else if (attacker || b.mode !== 'flee') this.flee(victim, attacker ? attacker.pos.x : victim.pos.x, attacker ? attacker.pos.z : victim.pos.z, attacker);
   }
 
-  /** Gang members are one crew: they never fight, or run from, each other. */
+  /**
+   * One crew, who never fight, or run from, each other: gang members, and a mission's enemies (its own gangsters, and
+   * the guards it hires, such as the bank's in The Big Score).
+   */
   allied(a: Character, b: Character): boolean {
-    return a !== b && a.role === 'gang' && b.role === 'gang';
-  }
-
-  /** A crewmate of `c` stands in the line of fire towards (tx, tz). */
-  private allyInLine(c: Character, tx: number, tz: number): boolean {
-    const dx = tx - c.pos.x;
-    const dz = tz - c.pos.z;
-    const len = Math.hypot(dx, dz);
-    if (len < 1e-3) return false;
-    for (const o of this.sim.characters) {
-      if (o.removed || !o.alive || o.state === 'inVehicle' || !this.allied(c, o)) continue;
-      const ox = o.pos.x - c.pos.x;
-      const oz = o.pos.z - c.pos.z;
-      const along = (ox * dx + oz * dz) / len;
-      if (along > 0 && along < len && Math.abs(ox * dz - oz * dx) / len < 0.8) return true;
-    }
-    return false;
+    return a !== b && ((a.role === 'gang' && b.role === 'gang') || (a.missionTag === 'enemy' && b.missionTag === 'enemy'));
   }
 
   onJacked(victim: Character): void {
@@ -485,9 +472,9 @@ export class PedSystem {
         c.aiming = true;
         c.aimYaw = yaw;
         c.heading = moveAngleTowards(c.heading, yaw, 10 * dt);
-        if (!this.allyInLine(c, tp.x, tp.z)) sim.combat.npcFire(c, t, b.accuracy);
+        if (!sim.combat.inLineOfFire(c, t, (o) => this.allied(c, o), true)) sim.combat.npcFire(c, t, b.accuracy);
         else {
-          // Don't shoot through a crewmate: side-step for a clear line.
+          // Don't shoot through a crewmate, or into a van that hides the target: side-step for a clear line.
           const side = c.id % 2 === 0 ? 1 : -1;
           c.moveX = (-(tp.z - c.pos.z) / d) * side;
           c.moveZ = ((tp.x - c.pos.x) / d) * side;

@@ -32,6 +32,11 @@ const ARREST_PATIENCE = 12;
 export const SURRENDER_PATIENCE = 45;
 /** The nearest officer within this distance (m) of the player, on his level, walks up to arrest him. */
 const ARREST_RANGE = 32;
+/**
+ * A player on foot (or in a stopped car) this far (m) from every lane is out of the units' reach: they pull up on the road
+ * nearest him and their crews come on foot (see roadEnd). Only the coast and the land's far corners lie this far from a road.
+ */
+const OFF_ROAD = 45;
 /** Crews fire from pursuit cars (from 2 stars) at a player within this range and in sight of their window, rechecked this often. */
 const CAR_FIRE_RANGE = 35;
 const CAR_SIGHT_INTERVAL = 0.35;
@@ -141,6 +146,8 @@ export class PoliceSystem {
   private arrestWalk = 0;
   /** Seconds the police on the scene have waited for an officer to cuff a player who stopped fighting, since they last lost him (see pickArrester). */
   private surrenderTime = 0;
+  /** This frame's roadEnd: where the units pull up for a player out of their cars' reach, and how far he is from it. */
+  private reach: { x: number; z: number; gap: number } | null = null;
 
   update(dt: number): void {
     const sim = this.sim;
@@ -157,6 +164,7 @@ export class PoliceSystem {
     this.playerStill = pv && pv.speed < 1.5 ? this.playerStill + dt : 0;
     this.playerStopped = pv && pv.speed < 1.2 ? this.playerStopped + dt : 0;
     this.calm = level === 0 ? this.calm + dt : 0;
+    this.reach = this.roadEnd(level);
     this.pickArrester(dt, level);
     this.updateUnits(dt, level);
     this.updateFootCops(dt, level);
@@ -248,6 +256,25 @@ export class PoliceSystem {
   private knownPos(level: number): { x: number; z: number } {
     const w = this.sim.wanted;
     return this.searching(level) ? { x: w.lastSeenX, z: w.lastSeenZ } : this.sim.playerPos();
+  }
+
+  /**
+   * The road point nearest where the police believe the player is (see knownPos) while he is out of their cars' reach
+   * there, more than OFF_ROAD m from every lane (on the pier or the marina's decks, on the sand or in the shallows of the
+   * beach): on foot at the level of the ground (not swimming, not up on a roof) or in a car that has stopped; while they
+   * search, wherever he was last seen. Their crews come on from there on foot. Null otherwise.
+   */
+  private roadEnd(level: number): { x: number; z: number; gap: number } | null {
+    const sim = this.sim;
+    const p = sim.player;
+    const pv = p.vehicle;
+    if (level === 0) return null;
+    const onFoot = !pv && (p.state === 'normal' || p.state === 'knocked') && p.pos.y < sim.world.groundHeight(p.pos.x, p.pos.z) + 1;
+    if (!this.searching(level) && !onFoot && !(pv && pv.speed < 1.5 && this.playerStill > 2.5)) return null;
+    const kp = this.knownPos(level);
+    const near = sim.roads.nearestLane(kp.x, kp.z);
+    if (near.dist < OFF_ROAD) return null;
+    return { x: near.lane.sx + near.lane.dx * near.s, z: near.lane.sz + near.lane.dz * near.s, gap: near.dist };
   }
 
   // ---------------------------------------------------------------------------
@@ -475,6 +502,8 @@ export class PoliceSystem {
     // Spotted again after a search: drop the search routes.
     const resumed = !searching && this.wasSearching;
     this.wasSearching = searching;
+    const reach = this.reach;
+    const kp = this.knownPos(level);
     for (const v of sim.vehicles) {
       // No siren or light bar on any police car once the stars are gone: not on one whose crew is still walking
       // back to it (it drives off as a patrol), nor on one they left behind. (A cruiser the player took is his.)
@@ -497,6 +526,22 @@ export class PoliceSystem {
       }
       if (ai.policy !== 'chase') ai.setPolicy('chase');
       v.siren = true;
+      if (resumed) {
+        // Back to full pursuit speed (see assignSearch).
+        ai.setPolicy('chase');
+        ai.resetPath();
+      }
+      // Out of their cars' reach (see roadEnd), every unit no nearer him than the road gets makes for the road point
+      // nearest him, pulls up there (on the handbrake, within its stopping distance) and sends its crew on foot; so does
+      // one held up near it (in the traffic queued there).
+      if (reach && Math.hypot(v.pos.x - kp.x, v.pos.z - kp.z) > reach.gap - 5) {
+        ai.target = null;
+        ai.dest = reach;
+        const left = Math.hypot(v.pos.x - reach.x, v.pos.z - reach.z);
+        if ((left < 25 && v.speed < 4.5) || (left < 60 && v.speed < 1)) this.deploy(v);
+        else ai.hold = boarding || left < 8 + (v.speed * v.speed) / 16 || this.holdForCrew(v, dt, level);
+        continue;
+      }
       if (searching) {
         const r = w.searchRadius();
         const dest = ai.dest;
@@ -509,11 +554,6 @@ export class PoliceSystem {
         }
         ai.hold = boarding || this.holdForCrew(v, dt, level);
         continue;
-      }
-      if (resumed) {
-        // Back to full pursuit speed (see assignSearch).
-        ai.setPolicy('chase');
-        ai.resetPath();
       }
       const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
       if (d < CONTACT) this.contactAt = sim.time;
@@ -562,7 +602,8 @@ export class PoliceSystem {
         sight = { at: sim.time, clear: sim.world.lineOfSight(m.x, m.y, m.z, pp.x, pp.y + 1, pp.z) };
         this.carSight.set(c, sight);
       }
-      if (sight.clear) sim.combat.npcFire(c, p, carAccuracy(level), true);
+      // Nor through anyone on foot in the way (an officer by the car, a bystander).
+      if (sight.clear && !sim.combat.inLineOfFire(c, p, () => true)) sim.combat.npcFire(c, p, carAccuracy(level), true);
     }
   }
 
@@ -737,11 +778,12 @@ export class PoliceSystem {
       }
       this.walkingOff.delete(c);
       const d = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z);
-      // Run back to the car while the player drives off, as long as the car can still take this officer.
+      // Run back to the car while the player drives off, as long as the car can still take this officer (not to one
+      // that cannot drive up to where he stopped, see roadEnd).
       const ride = car && carDist < 60 && (!car.driver || (car.speed < 3 && car.passengers.includes(null))) ? car : null;
-      if (pv && d > 34 && ride && carDist < 45) b.mode = 'return';
+      if (pv && d > 34 && ride && carDist < 45 && !this.reach) b.mode = 'return';
       if (b.mode === 'return') {
-        if (!ride || (!searching && (d < 25 || (!!pv && pv.speed < 1.5 && d < 34)))) b.mode = 'chase';
+        if (!ride || this.reach || (!searching && (d < 25 || (!!pv && pv.speed < 1.5 && d < 34)))) b.mode = 'chase';
         else {
           this.walkToCar(c, ride, dt, level);
           continue;
@@ -759,9 +801,14 @@ export class PoliceSystem {
         c.aiming = true;
         c.aimYaw = yaw;
         c.heading = moveAngleTowards(c.heading, yaw, 9 * dt);
-        if (!holdFire && Math.abs(wrapAngle(yaw - c.heading)) < 0.3) sim.combat.npcFire(c, p, b.accuracy);
-        // Close in a bit when far.
-        if (d > 22) this.runTo(c, pp.x, pp.z, 3.2, dt);
+        // Never through anyone else in the line of fire (a colleague, a bystander): a step aside for a clear line instead.
+        const inLine = holdFire ? null : sim.combat.inLineOfFire(c, p, () => true);
+        if (inLine) this.stepAside(c, inLine, pp);
+        else {
+          if (!holdFire && Math.abs(wrapAngle(yaw - c.heading)) < 0.3) sim.combat.npcFire(c, p, b.accuracy);
+          // Close in a bit when far.
+          if (d > 22) this.runTo(c, pp.x, pp.z, 3.2, dt);
+        }
       } else if (standOff && c !== arrester && d < STANDOFF) {
         // Near an armed or fighting player but without a line of fire: hold here, facing him.
         c.moveSpeed = 0;
@@ -771,7 +818,10 @@ export class PoliceSystem {
         const far = da > (pv ? 0.6 : 1.1);
         // Holding their fire, they do not swim after a swimmer: they wait for him at the water's edge (he may swim off).
         const shore = far && !fireAtWill && p.state === 'swimming' && sim.world.waterDepth(c.pos.x + (ax - c.pos.x) / da, c.pos.z + (az - c.pos.z) / da) > SWIM_DEPTH;
-        if (far && !shore) this.runTo(c, ax, az, da > 8 ? 6.4 : 4.2, dt);
+        // Onto the deck he stands on by its end (see deckWayOn).
+        const via = far && !shore ? this.deckWayOn(c, ax, az) : null;
+        if (via) this.runTo(c, via.x, via.z, 6.4, dt);
+        else if (far && !shore) this.runTo(c, ax, az, da > 8 ? 6.4 : 4.2, dt);
         else {
           c.moveSpeed = 0;
           c.heading = moveAngleTowards(c.heading, yaw, 10 * dt);
@@ -856,7 +906,8 @@ export class PoliceSystem {
       b.modeTimer = 12;
     }
     const d = Math.hypot(b.searchX - c.pos.x, b.searchZ - c.pos.z);
-    this.runTo(c, b.searchX, b.searchZ, d > 12 ? 6 : 3, dt);
+    const via = this.deckWayOn(c, b.searchX, b.searchZ);
+    this.runTo(c, via ? via.x : b.searchX, via ? via.z : b.searchZ, via || d > 12 ? 6 : 3, dt);
   }
 
   private runTo(c: Character, x: number, z: number, speed: number, dt: number): void {
@@ -880,6 +931,27 @@ export class PoliceSystem {
       c.moveZ = (-dx / d) * side;
       if (b.stuckTimer > 3.2) b.stuckTimer = 0;
     }
+  }
+
+  /**
+   * An officer whose line of fire at the player (at `pp`) runs past `by` steps across it, away from `by`, onto open ground
+   * on his own level (not off a deck or a quay, into the sea or into a wall), else the other way; where both are shut he
+   * stands his ground (holding his fire).
+   */
+  private stepAside(c: Character, by: { pos: { x: number; z: number } }, pp: { x: number; z: number }): void {
+    const world = this.sim.world;
+    const d = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) || 1;
+    let sx = -(pp.z - c.pos.z) / d;
+    let sz = (pp.x - c.pos.x) / d;
+    if ((by.pos.x - c.pos.x) * sx + (by.pos.z - c.pos.z) * sz > 0) {
+      sx = -sx;
+      sz = -sz;
+    }
+    const open = (k: number) => world.isFree(c.pos.x + sx * k, c.pos.z + sz * k, 0.4) && Math.abs(world.groundHeight(c.pos.x + sx * k, c.pos.z + sz * k) - c.pos.y) < 0.4;
+    const side = open(1) ? 1 : open(-1) ? -1 : 0;
+    c.moveX = sx * side;
+    c.moveZ = sz * side;
+    c.moveSpeed = side === 0 ? 0 : 2.5;
   }
 
   /**
@@ -987,8 +1059,7 @@ export class PoliceSystem {
     // Just past the end: off the deck on land, or 1 m into the deck it joins.
     const end = (alongX ? exit.nx : exit.nz) < 0 ? (alongX ? r.minX : r.minZ) - 1 : (alongX ? r.maxX : r.maxZ) + 1;
     const ahead = (du: number) => (Math.abs(end - u0) > du ? u0 + Math.sign(end - u0) * du : end);
-    // Nothing standing on the deck (the Ferris wheel's base fills the pier but for a metre on either side) over the next
-    // DECK_LEAD m of the line across the deck at w.
+    // Nothing standing on the deck (a railing lamp, say) over the next DECK_LEAD m of the line across the deck at w.
     const clearLine = (w: number) => {
       const u = ahead(DECK_LEAD);
       for (let k = 1; k <= 4; k++) {
@@ -1017,6 +1088,31 @@ export class PoliceSystem {
     this.deckLines.set(c, { deck, w });
     // Off his line, across to it first (along the face of whatever stood in his way), then along it.
     return at(ahead(clamp(DECK_LEAD - 2 * Math.abs(w - w0), 0.5, DECK_LEAD)), w);
+  }
+
+  /**
+   * Where an officer on foot heads first on his way to (tx, tz) on a deck he is not on (the pier, the marina's): the end
+   * by which one walks onto it, off its land end or from the deck it joins (that deck's own end first, from off it), as
+   * he cannot climb its sides from the sand or the water. The first of those ends he has not reached yet; null when
+   * (tx, tz) is on no deck, he is on its deck, or he has reached them all.
+   */
+  private deckWayOn(c: Character, tx: number, tz: number): { x: number; z: number } | null {
+    const world = this.sim.world;
+    const ends: { x: number; z: number }[] = [];
+    let x = tx;
+    let z = tz;
+    for (let i = 0; i < 3; i++) {
+      const d = world.layout.decks.find((o) => rectContains(o.rect, x, z));
+      if (!d || (c.pos.y >= d.y - 0.3 && rectContains(d.rect, c.pos.x, c.pos.z))) break;
+      const e = deckExit(world, d);
+      if (!e) break;
+      const r = d.rect;
+      x = e.nx !== 0 ? (e.nx < 0 ? r.minX - 1 : r.maxX + 1) : clamp(x, r.minX + 1, r.maxX - 1);
+      z = e.nz !== 0 ? (e.nz < 0 ? r.minZ - 1 : r.maxZ + 1) : clamp(z, r.minZ + 1, r.maxZ - 1);
+      ends.push({ x, z });
+    }
+    for (let i = ends.length - 1; i >= 0; i--) if (Math.hypot(ends[i]!.x - c.pos.x, ends[i]!.z - c.pos.z) > 1.5) return ends[i]!;
+    return null;
   }
 
   private walkToCar(c: Character, car: Vehicle, dt: number, level: number): void {
