@@ -2,6 +2,7 @@
 
 import { circleVsObb, makeContact } from '../core/collision';
 import { clamp, moveAngleTowards } from '../core/math';
+import { SWIM_SPEED } from './characterPhysics';
 import type { Character, Vehicle } from './entities';
 import type { PlayerInput } from './input';
 import type { Sim } from './sim';
@@ -116,7 +117,7 @@ export class PlayerController {
     // Only the aim button zooms in and slows the walk; hip fire keeps the view and the pace.
     p.aimZoom = !swimming && input.aim;
 
-    let speed = swimming ? 2.4 : input.sprint ? 7.4 : 4.3;
+    let speed = swimming ? SWIM_SPEED : input.sprint ? 7.4 : 4.3;
     if (p.aimZoom) speed = input.sprint ? 4.3 : 2.8;
     p.moveX = dx;
     p.moveZ = dz;
@@ -397,6 +398,12 @@ export class PlayerController {
     return true;
   }
 
+  /**
+   * Where the player gets out of `v`: beside the driver's door, else the passenger's, behind or in front. First a spot
+   * on dry ground (or water shallow enough to wade) level with the car, so a car parked along a quay, a pier or the
+   * Marina deck lets him out on the dry side rather than into the sea or down onto the sand below; only failing that
+   * (a car in the water, nothing but water and drops around) any open spot, the water included.
+   */
   private findExitSpot(v: Vehicle): { x: number; z: number } | null {
     const sim = this.sim;
     const fx = Math.sin(v.heading);
@@ -409,22 +416,27 @@ export class PlayerController {
       { x: v.pos.x - fx * (v.halfL + 0.9), z: v.pos.z - fz * (v.halfL + 0.9) },
       { x: v.pos.x + fx * (v.halfL + 0.9), z: v.pos.z + fz * (v.halfL + 0.9) },
     ];
-    for (const s of cands) {
-      if (!sim.world.isFree(s.x, s.z, 0.38, true)) continue;
-      if (Math.abs(sim.world.groundHeight(s.x, s.z) - v.pos.y) > 1.2 && sim.world.waterDepth(s.x, s.z) < 0) continue;
-      let blocked = false;
-      for (const o of sim.vehicles) {
-        if (o === v || o.removed) continue;
-        if (Math.hypot(o.pos.x - s.x, o.pos.z - s.z) > 8) continue;
-        vehicleObb(o, obb);
-        if (circleVsObb(s.x, s.z, 0.45, obb, contact)) {
-          blocked = true;
-          break;
-        }
+    for (const dry of [true, false]) {
+      for (const s of cands) {
+        // Dry: isFree turns down water deeper than wading depth.
+        if (!sim.world.isFree(s.x, s.z, 0.38, !dry)) continue;
+        const level = Math.abs(sim.world.groundHeight(s.x, s.z) - v.pos.y) <= 1.2;
+        if (!level && (dry || sim.world.waterDepth(s.x, s.z) < 0)) continue;
+        if (!this.vehicleAt(s.x, s.z, v)) return s;
       }
-      if (!blocked) return s;
     }
     return null;
+  }
+
+  /** Another vehicle than `v` covers (x, z), give or take a person's width. */
+  private vehicleAt(x: number, z: number, v: Vehicle): boolean {
+    for (const o of this.sim.vehicles) {
+      if (o === v || o.removed) continue;
+      if (Math.hypot(o.pos.x - x, o.pos.z - z) > 8) continue;
+      vehicleObb(o, obb);
+      if (circleVsObb(x, z, 0.45, obb, contact)) return true;
+    }
+    return false;
   }
 
   /** Forcibly removes the player from a vehicle (sinking, despawn, explosion). */

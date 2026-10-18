@@ -533,9 +533,12 @@ export function anchor(w: WeaponPose, p: V3, x: number, y: number, z: number): v
   );
 }
 
-/** The gun in hand is being reloaded (combat cancels a reload when the weapon changes). */
+/**
+ * The gun in hand is being reloaded (combat cancels a reload when the weapon changes), once the shot that emptied it has
+ * been drawn: on the frame of a clip's last round (every rocket) the gun is still up where the shot left it.
+ */
 export function reloading(c: Character): boolean {
-  return c.reloadTimer > 0 && (c.reloadWeapon === null || c.reloadWeapon === c.inventory.current);
+  return c.reloadTimer > 0 && !(c.shotTimer > 0) && (c.reloadWeapon === null || c.reloadWeapon === c.inventory.current);
 }
 
 /**

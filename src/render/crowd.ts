@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp, lerp, wrapAngle } from '../core/math';
 import type { Character, Vehicle } from '../sim/entities';
+import { cowerHandsUp } from '../sim/peds';
 import {
   aimed, aimFrame, anchor, hipSpread, makeTrunk, makeWeaponPose, shoulderSpread, SKELETON, trunkPose, weaponPoint, weaponPoseInto,
   SWIM_HIP, SWIM_TREAD_LEAN, WEAPON_POINTS, seatSide, windowMuzzle, type Trunk, type WeaponPose,
@@ -413,7 +414,7 @@ export class CrowdView {
     t.y = lerp(SKELETON.hipY * s, g.hipY, walk);
 
     const cower = c.brain?.mode === 'cower' && c.state === 'normal';
-    const handsUp = cower && this.handsUp(c);
+    const handsUp = cower && cowerHandsUp(c, this.player);
     const crouch = cower && !handsUp;
     const weapon = c.inventory.current;
     const armed = weapon !== 'fists' && !cower && !entering;
@@ -577,20 +578,6 @@ export class CrowdView {
     const low = soleLow(f.y, f.pitch, s);
     if (low < 0) f.y -= low;
     solveLeg(side * hx, hipY, s, leg);
-  }
-
-  /** Should a cowering ped put its hands up: the player is aiming a gun at it. */
-  private handsUp(c: Character): boolean {
-    const p = this.player;
-    if (!p || p === c || !p.aiming || p.state !== 'normal' || p.inventory.current === 'fists') return false;
-    if (c.brain?.threat === p) return true;
-    // Peds that freeze when a gun is pointed at them keep no threat: judge by the aim line instead.
-    const dx = c.pos.x - p.pos.x;
-    const dz = c.pos.z - p.pos.z;
-    const d = Math.hypot(dx, dz);
-    if (d > 20) return false;
-    const off = Math.atan2(dx, dz) - p.aimYaw;
-    return d < 1 || Math.abs(Math.atan2(Math.sin(off), Math.cos(off))) < 0.5;
   }
 
   /** Knocked down, dead, or getting back up: on the back, limbs posed by angle. */

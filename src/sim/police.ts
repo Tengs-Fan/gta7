@@ -2,6 +2,7 @@
 // helicopter, and arrests ("busted").
 
 import { clamp, moveAngleTowards, pointSegDist, wrapAngle } from '../core/math';
+import { SWIM_DEPTH } from '../world/constants';
 import type { Lane } from '../world/roads';
 import { makeBrain, type PedBrain } from './brains';
 import { DispatchSystem } from './dispatch';
@@ -746,7 +747,10 @@ export class PoliceSystem {
         c.heading = moveAngleTowards(c.heading, yaw, 10 * dt);
       } else {
         const da = Math.hypot(ax - c.pos.x, az - c.pos.z);
-        if (da > (pv ? 0.6 : 1.1)) this.runTo(c, ax, az, da > 8 ? 6.4 : 4.2, dt);
+        const far = da > (pv ? 0.6 : 1.1);
+        // Holding their fire, they do not swim after a swimmer: they wait for him at the water's edge (he may swim off).
+        const shore = far && !fireAtWill && p.state === 'swimming' && sim.world.waterDepth(c.pos.x + (ax - c.pos.x) / da, c.pos.z + (az - c.pos.z) / da) > SWIM_DEPTH;
+        if (far && !shore) this.runTo(c, ax, az, da > 8 ? 6.4 : 4.2, dt);
         else {
           c.moveSpeed = 0;
           c.heading = moveAngleTowards(c.heading, yaw, 10 * dt);

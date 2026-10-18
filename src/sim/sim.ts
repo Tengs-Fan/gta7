@@ -14,7 +14,7 @@ import {
   collideCharacters, collideCharactersVehicles, collideCharacterStatic, stepCharacter, type CharacterPhysicsHost,
 } from './characterPhysics';
 import { GameClock } from './clock';
-import { CombatSystem } from './combat';
+import { CombatSystem, GET_UP_GRACE } from './combat';
 import { DriverAI, type DriverHost, type DriverPolicy } from './driver';
 import { Character, Helicopter, MAX_DENTS, Pickup, Projectile, Vehicle, type Appearance, type CharacterRole, type Dent } from './entities';
 import type { SimEvents } from './events';
@@ -439,8 +439,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     v.vel.x *= 0.96;
     v.vel.z *= 0.96;
     this.events.emit('impact', { x: c.pos.x, y: c.pos.y + 1, z: c.pos.z, strength: 2 + relSpeed * 0.2, vehicle: v });
-    // damageCharacter already reported assaultCop (or a kill) for officers.
-    if (attacker && c.alive && !c.isLaw) this.wanted.crime('hitPed', c.pos.x, c.pos.z);
+    // damageCharacter already reported assaultCop (or a kill) for officers; running down the vigilante's suspect is no crime.
+    if (attacker && c.alive && !c.isLaw && !this.combat.isOutlaw(c)) this.wanted.crime('hitPed', c.pos.x, c.pos.z);
     this.peds.onViolence(c.pos.x, c.pos.z, attacker, 18);
   }
 
@@ -532,6 +532,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
       if (c.punchTimer > 0) c.punchTimer -= dt;
       if (c.fireCooldown > 0) c.fireCooldown -= dt;
       if (c.hurtTimer > 0) c.hurtTimer -= dt;
+      if (c.getUpTimer > 0) c.getUpTimer -= dt;
       if (c.meleeComboTimer > 0) {
         c.meleeComboTimer -= dt;
         if (c.meleeComboTimer <= 0) c.staggerHits = 0;
@@ -547,6 +548,10 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
           c.state = 'normal';
           c.vel.x = 0;
           c.vel.z = 0;
+          // Up with a clean slate (blows on the ground never count) and a moment to find his feet.
+          c.staggerHits = 0;
+          c.meleeComboTimer = 0;
+          c.getUpTimer = GET_UP_GRACE;
         }
       } else if (c.state === 'dead') {
         c.deadTime += dt;
@@ -634,6 +639,9 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     const fee = this.progress.charge(100 + (busted ? 150 : 100) * stars);
     this.wanted.clear();
     this.police.dismissAll();
+    // A new life: cars he damaged before (one he set alight, one a rocket of his lit during the WASTED screen) no longer
+    // charge him when they burn out or blow up.
+    this.combat.forgetCulprit(p);
     this.deathKind = null;
     this.deathTimer = -1;
     this.deathLevel = 0;

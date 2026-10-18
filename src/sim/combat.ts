@@ -8,7 +8,8 @@ import type { Character, Vehicle } from './entities';
 import { Projectile } from './entities';
 import type { HitKind } from './events';
 import type { PlayerInput } from './input';
-import { makeWeaponPose, upright, weaponPose, weaponPoseInto, windowMuzzle, type WeaponPose } from './pose';
+import { cowerCrouched } from './peds';
+import { makeWeaponPose, seatSide, upright, weaponPose, weaponPoseInto, windowMuzzle, type WeaponPose } from './pose';
 import type { Sim } from './sim';
 import { WEAPONS, type WeaponSpec } from './specs';
 import { launchVehicle, vehicleObb } from './vehiclePhysics';
@@ -32,6 +33,13 @@ const MAX_CARRY = 0.05;
 const QUEUE_WINDOW = 0.1;
 /** Head hits of NPC shooters (the player's use WeaponSpec.headMul). */
 const NPC_HEAD_MUL = 2;
+/** Share of a weapon's damage an NPC's round does to the player, whoever fires it (police, gangs, a mission's guards). */
+const NPC_ON_PLAYER = 0.55;
+/**
+ * Seconds after getting up from a knockdown during which blows do not count towards the next one (they still hurt): a
+ * moment to find his feet, so a brawler, or three, cannot floor him again on the frame he is up.
+ */
+export const GET_UP_GRACE = 0.5;
 /** SWAT helmets: their head hits take this share of the multiplier (never less than a body hit). */
 const HELMET = 0.6;
 /** The muzzle wall check starts from the chest, this share of the shooter's height up (also where a punch lands). */
@@ -42,6 +50,14 @@ const SHOULDER = 0.82;
 const BODY_R = 0.36;
 const HEAD_R = 0.16;
 const NECK = 0.86;
+/**
+ * A cowering civilian crouched with his hands over his head (peds.cowerCrouched) is hit as CrowdView draws him: one body
+ * volume (no head of its own) up to CROUCH_TOP of his height, its axis CROUCH_FWD of his height ahead of his feet (he leans
+ * into the crouch), CROUCH_R of his height wide. Rounds that pass over him miss him.
+ */
+const CROUCH_TOP = 0.7;
+const CROUCH_FWD = 0.2;
+const CROUCH_R = 0.24;
 /** Rocket launch speed (m/s); a rocket self-destructs once it has flown the launcher's range. */
 const ROCKET_SPEED = 58;
 const ROCKET_LIFE = WEAPONS.rocket.range / ROCKET_SPEED;
@@ -66,9 +82,22 @@ const RAISE_MISS = 0.02;
 /** Scratch pose of raiseGun. */
 const raisePose: WeaponPose = makeWeaponPose();
 
-/** The upright cylinder a character occupies as a whole (shared scratch object). */
-const body = { r: 0, y0: 0, y1: 0 };
-function bodyOf(c: Character): typeof body {
+/**
+ * The upright cylinder a character occupies as a whole (shared scratch object): axis at (x, z), radius r, from y0 to y1.
+ * `crouch`: he cowers crouched (see CROUCH_TOP).
+ */
+const body = { x: 0, z: 0, r: 0, y0: 0, y1: 0 };
+function bodyOf(c: Character, crouch = false): typeof body {
+  body.x = c.pos.x;
+  body.z = c.pos.z;
+  if (crouch) {
+    body.x += Math.sin(c.heading) * CROUCH_FWD * c.height;
+    body.z += Math.cos(c.heading) * CROUCH_FWD * c.height;
+    body.r = CROUCH_R * c.height;
+    body.y0 = c.pos.y;
+    body.y1 = c.pos.y + CROUCH_TOP * c.height;
+    return body;
+  }
   const lying = c.state === 'dead' || c.state === 'knocked';
   body.r = lying ? 0.6 : BODY_R;
   body.y0 = c.state === 'swimming' ? c.pos.y + 0.9 : c.pos.y;
@@ -76,11 +105,18 @@ function bodyOf(c: Character): typeof body {
   return body;
 }
 
-/** The cylinder of one hit zone of a character (shared scratch object); lying and swimming characters are one body volume. */
-const zoneVol = { r: 0, y0: 0, y1: 0 };
-function zoneOf(c: Character, zone: HitZone): typeof zoneVol {
-  if (c.state !== 'normal') {
-    const b = bodyOf(c);
+/**
+ * The cylinder of one hit zone of a character (shared scratch object); lying, swimming and crouching (`crouch`, see
+ * CROUCH_TOP) characters are one body volume.
+ */
+const zoneVol = { x: 0, z: 0, r: 0, y0: 0, y1: 0 };
+function zoneOf(c: Character, zone: HitZone, crouch = false): typeof zoneVol {
+  zoneVol.x = c.pos.x;
+  zoneVol.z = c.pos.z;
+  if (c.state !== 'normal' || crouch) {
+    const b = bodyOf(c, crouch);
+    zoneVol.x = b.x;
+    zoneVol.z = b.z;
     zoneVol.r = b.r;
     zoneVol.y0 = b.y0;
     zoneVol.y1 = b.y1;
@@ -116,8 +152,17 @@ interface AimPoint extends V3 {
 }
 
 export class CombatSystem {
-  /** Vehicle -> who last damaged it (for crimes and stats on destruction). */
+  /**
+   * Vehicle -> who answers for it (crimes, stats and kills when it burns or blows up): who last damaged it, but once it
+   * burns, who set it alight, unless a later hit blows it up there and then.
+   */
   private readonly damagedBy = new WeakMap<Vehicle, Character>();
+  /**
+   * Vigilante suspects and their cars. The player stops them for the law: hurting, killing or wrecking them is no
+   * crime, and the wreck that burns out and blows up afterwards is nobody's doing. Remembered after the job lets go of
+   * them (it clears their missionTag when it counts the stop, seconds before the burning wreck explodes).
+   */
+  private readonly outlaws = new WeakSet<Character | Vehicle>();
   private fireWarnCooldown = 0;
   /** Victims already charged with a crime for the shot being resolved (one per victim per trigger pull). */
   private volley: Set<object> | null = null;
@@ -133,6 +178,11 @@ export class CombatSystem {
   constructor(private readonly sim: Sim) {}
 
   update(dt: number): void {
+    const job = this.sim.activities.job;
+    if (job?.kind === 'vigilante') {
+      if (job.target) this.outlaws.add(job.target);
+      if (job.suspect) this.outlaws.add(job.suspect);
+    }
     // Weapons change hands in many places (slot keys, pickups, shops, missions): drop stale reloads
     // and start the swap time here, before the timers run them out and before the HUD shows them.
     for (const c of this.sim.characters) {
@@ -177,11 +227,11 @@ export class CombatSystem {
     const line = (tip.x - c.pos.x) * fz - (tip.z - c.pos.z) * fx;
     for (const o of this.sim.characters) {
       if (o === c || o.removed || o.state === 'inVehicle' || o.state === 'entering') continue;
-      const dx = o.pos.x - c.pos.x;
-      const dz = o.pos.z - c.pos.z;
+      const b = bodyOf(o, this.crouched(o));
+      const dx = b.x - c.pos.x;
+      const dz = b.z - c.pos.z;
       const along = dx * fx + dz * fz;
       if (along <= 0) continue;
-      const b = bodyOf(o);
       if (tip.y < b.y0 - 0.2 || tip.y > b.y1 + 0.2 || along > reach + b.r) continue;
       if (Math.abs(dx * fz - dz * fx - line) < b.r + 0.3) return true;
     }
@@ -238,7 +288,8 @@ export class CombatSystem {
     } finally {
       this.aimed = null;
     }
-    this.sim.wanted.crime('gunfire', p.pos.x, p.pos.z);
+    // Shots from the cruiser on vigilante duty are the law's, not gunfire in the street (hits on anyone else still count).
+    if (!(fromVehicle && this.onDuty(p))) this.sim.wanted.crime('gunfire', p.pos.x, p.pos.z);
     if (slot.clip === 0 && slot.ammo > 0) this.startReload(p);
   }
 
@@ -463,9 +514,10 @@ export class CombatSystem {
     const c = r.character;
     const flat = d.x * d.x + d.z * d.z;
     if (c && flat > 1e-9) {
-      const b = bodyOf(c);
+      const crouch = this.crouched(c);
+      const b = bodyOf(c, crouch);
       // Where the crosshair ray reaches the cylinder he fills as a whole (his head volume is narrower).
-      const te = rayCylinderY(o.x, o.y, o.z, d.x, d.y, d.z, c.pos.x, c.pos.z, b.r, b.y0, b.y1, t);
+      const te = rayCylinderY(o.x, o.y, o.z, d.x, d.y, d.z, b.x, b.z, b.r, b.y0, b.y1, t);
       // Just past the muzzle, where the crosshair ray enters someone is the edge of him as seen from the muzzle,
       // and shots there graze past.
       // Shoot through his middle instead (where the crosshair ray passes nearest his axis),
@@ -476,16 +528,16 @@ export class CombatSystem {
       // With the muzzle above his top (he lies on the ground, or is below the shooter) that line would run down his side
       // into the road, so the shot goes to the crosshair's point on his top instead.
       if ((te >= 0 ? te : t) - t0 < 2 * b.r && muzzle.y < b.y1) {
-        const v = zoneOf(c, r.zone);
-        const tm = Math.max(t, ((c.pos.x - o.x) * d.x + (c.pos.z - o.z) * d.z) / flat);
+        const v = zoneOf(c, r.zone, crouch);
+        const tm = Math.max(t, ((v.x - o.x) * d.x + (v.z - o.z) * d.z) / flat);
         const ux = o.x + d.x * tm - muzzle.x;
         const uz = o.z + d.z * tm - muzzle.z;
         const l = Math.hypot(ux, uz);
         // How far that line runs (on the ground plane) before it reaches the zone; 0 with the muzzle inside it.
-        const s = l > 1e-6 ? rayCylinderY(muzzle.x, 0, muzzle.z, ux / l, 0, uz / l, c.pos.x, c.pos.z, v.r, -1, 1, l) : -1;
+        const s = l > 1e-6 ? rayCylinderY(muzzle.x, 0, muzzle.z, ux / l, 0, uz / l, v.x, v.z, v.r, -1, 1, l) : -1;
         if (s > 0) {
           // Where the crosshair ray enters the zone: at point blank that is short of t, which castRay moves on to the muzzle's depth.
-          const tv = rayCylinderY(o.x, o.y, o.z, d.x, d.y, d.z, c.pos.x, c.pos.z, v.r, v.y0, v.y1, t);
+          const tv = rayCylinderY(o.x, o.y, o.z, d.x, d.y, d.z, v.x, v.z, v.r, v.y0, v.y1, t);
           const m = Math.min(0.1, (v.y1 - v.y0) / 4);
           const y = clamp(o.y + d.y * (tv >= 0 ? tv : t), v.y0 + m, v.y1 - m);
           return { x: muzzle.x + (ux / l) * s, y, z: muzzle.z + (uz / l) * s, character: c, zone: r.zone };
@@ -555,7 +607,8 @@ export class CombatSystem {
       if (along < -1 || along > res.t + 1) continue;
       let t: number;
       let zone: HitZone = 'body';
-      if (c.state === 'normal') {
+      const crouch = this.crouched(c);
+      if (c.state === 'normal' && !crouch) {
         // Standing: a body cylinder up to the shoulders and a narrower head on top; the nearer hit counts.
         const neck = c.pos.y + NECK * c.height;
         t = rayCylinderY(ox, oy, oz, dx, dy, dz, c.pos.x, c.pos.z, BODY_R, c.pos.y, neck, res.t);
@@ -565,8 +618,8 @@ export class CombatSystem {
           zone = 'head';
         }
       } else {
-        const b = bodyOf(c);
-        t = rayCylinderY(ox, oy, oz, dx, dy, dz, c.pos.x, c.pos.z, b.r, b.y0, b.y1, res.t);
+        const b = bodyOf(c, crouch);
+        t = rayCylinderY(ox, oy, oz, dx, dy, dz, b.x, b.z, b.r, b.y0, b.y1, res.t);
       }
       // At point blank the crosshair ray enters someone in front of the player before the muzzle's depth:
       // a person counts by where he stands (the ray's closest approach to his axis), and is hit just past it.
@@ -576,7 +629,7 @@ export class CombatSystem {
         const tc = flat > 1e-9 ? along / flat : -1;
         let reach = tc >= minT;
         if (!reach && ignore && flat > 1e-9) {
-          const r = c.state === 'normal' ? BODY_R : bodyOf(c).r;
+          const r = c.state === 'normal' && !crouch ? BODY_R : bodyOf(c, crouch).r;
           const ahead = ((c.pos.x - ignore.pos.x) * dx + (c.pos.z - ignore.pos.z) * dz) / Math.sqrt(flat);
           reach = tc >= minT - r && ahead >= r;
         }
@@ -623,7 +676,7 @@ export class CombatSystem {
       // (at close range nearly always).
       // A round still on course for that head is the headshot aimed.
       const aimed = this.aimed;
-      if (zone === 'body' && aimed && aimed.character === c && aimed.zone === 'head' && c.state === 'normal') {
+      if (zone === 'body' && aimed && aimed.character === c && aimed.zone === 'head' && c.state === 'normal' && !this.crouched(c)) {
         const head = zoneOf(c, 'head');
         if (rayCylinderY(from.x, from.y, from.z, dx, dy, dz, c.pos.x, c.pos.z, head.r, head.y0, head.y1, w.range) >= 0) zone = 'head';
       }
@@ -637,7 +690,7 @@ export class CombatSystem {
         }
       }
       if (w.id === 'shotgun' && r.t < 8) dmg *= 1.3;
-      if (shooter.role === 'cop' || shooter.role === 'swat' || shooter.role === 'gang') dmg *= c.isPlayer ? 0.55 : 1;
+      if (!shooter.isPlayer && c.isPlayer) dmg *= NPC_ON_PLAYER;
       this.damageCharacter(c, dmg, shooter, 'bullet', dx, dy, dz, zone);
       sim.events.emit('blood', { x: tx, y: ty, z: tz, dx, dy, dz });
     } else if (r.vehicle) {
@@ -682,9 +735,14 @@ export class CombatSystem {
     const hz = c.pos.z + fz * 0.8;
     if (best) {
       const dmg = WEAPONS.fists.damage * (c.isPlayer ? 1 : 0.7);
-      best.staggerHits++;
-      best.meleeComboTimer = 2;
-      if (best.staggerHits >= 3 && best.state === 'normal') {
+      // Only blows to a man on his feet, past his first moments back up, build up to a knockdown: on the ground, or
+      // just up, he takes the damage and the shove.
+      const counts = best.state === 'normal' && !(best.getUpTimer > 0);
+      if (counts) {
+        best.staggerHits++;
+        best.meleeComboTimer = 2;
+      }
+      if (counts && best.staggerHits >= 3) {
         best.state = 'knocked';
         best.knockTimer = 1.6;
         best.vel.x = fx * 3.5;
@@ -755,9 +813,10 @@ export class CombatSystem {
    * Applies a hit (armour first, except for falls and drowning) and emits a 'damage' event for it,
    * also when the armour took all of it.
    * Ignored, with no event, on the dead, the removed, and the player in god mode or while wasted / busted.
-   * (dx, dz) is the direction the hit travels in.
+   * (dx, dz) is the direction the hit travels in. `credit` is who answers for a death by a hit with no attacker (the
+   * flames of a car someone set alight): it counts for the kill only, not for the hit or the victim's reaction to it.
    */
-  damageCharacter(c: Character, amount: number, attacker: Character | null, kind: DamageKind, dx: number, _dy: number, dz: number, zone: HitZone = 'body'): void {
+  damageCharacter(c: Character, amount: number, attacker: Character | null, kind: DamageKind, dx: number, _dy: number, dz: number, zone: HitZone = 'body', credit: Character | null = null): void {
     const sim = this.sim;
     if (c.removed || !c.alive || !(amount > 0)) return;
     if (c.isPlayer && sim.playerDown) return;
@@ -782,10 +841,10 @@ export class CombatSystem {
     const dirZ = dir ? dz / hl : 0;
     sim.events.emit('damage', { victim: c, attacker, healthLoss, armourLoss, kind, zone, killed, dirX, dirZ });
     if (killed) {
-      this.kill(c, attacker, kind, dx, dz);
+      this.kill(c, attacker ?? credit, kind, dx, dz);
       return;
     }
-    if (attacker && attacker.isPlayer && !c.isPlayer) {
+    if (attacker && attacker.isPlayer && !c.isPlayer && !this.isOutlaw(c)) {
       if (c.isLaw) this.reportAttack(c, 'assaultCop', c.pos.x, c.pos.z);
       else if (kind === 'melee' || kind === 'bullet') this.reportAttack(c, 'assault', c.pos.x, c.pos.z);
     }
@@ -811,16 +870,44 @@ export class CombatSystem {
     this.sim.wanted.crime(type, x, z);
   }
 
+  /** A cowering civilian crouched as CrowdView draws him (hit by CROUCH_TOP's volume). */
+  private crouched(c: Character): boolean {
+    return cowerCrouched(c, this.sim.player);
+  }
+
+  /** A vigilante suspect or his car (see outlaws): the player's attacks on them are no crime. */
+  isOutlaw(o: Character | Vehicle): boolean {
+    return o.missionTag === 'vigilante' || this.outlaws.has(o);
+  }
+
+  /** The player is on vigilante duty: at the wheel of the job's police car. */
+  private onDuty(p: Character): boolean {
+    const job = this.sim.activities.job;
+    return job?.kind === 'vigilante' && !!p.vehicle && p.vehicle === job.car;
+  }
+
+  /** Who answers for what `v` does when it burns out or blows up: its culprit, but nobody for a vigilante suspect's wreck. */
+  private blameFor(v: Vehicle): Character | null {
+    return this.isOutlaw(v) ? null : (this.damagedBy.get(v) ?? null);
+  }
+
+  /**
+   * Forgets `c` as the culprit of every vehicle he damaged. On the respawn: crimes and credit from a previous life are
+   * void, and a car he set alight before he died (or a rocket he fired then lit) no longer charges him when it blows up.
+   */
+  forgetCulprit(c: Character): void {
+    for (const v of this.sim.vehicles) if (this.damagedBy.get(v) === c) this.damagedBy.delete(v);
+  }
+
   kill(c: Character, killer: Character | null, kind: DamageKind, dx: number, dz: number): void {
     const sim = this.sim;
     if (!c.alive) return;
     c.health = Math.min(0, c.health);
     if (c.vehicle) {
       const v = c.vehicle;
+      const door = seatExit(v, c.seat, v.halfW + 0.7);
       sim.unseat(c);
-      const sx = Math.cos(v.heading);
-      const sz = -Math.sin(v.heading);
-      const spot = sim.world.findFreeSpot(v.pos.x + sx * (v.halfW + 0.7), v.pos.z + sz * (v.halfW + 0.7), 0.4, 6, true) ?? { x: v.pos.x, z: v.pos.z };
+      const spot = sim.world.findFreeSpot(door.x, door.z, 0.4, 6, true) ?? { x: v.pos.x, z: v.pos.z };
       c.pos.x = spot.x;
       c.pos.z = spot.z;
       c.pos.y = Math.max(sim.world.groundHeight(spot.x, spot.z), sim.world.groundHeight(v.pos.x, v.pos.z));
@@ -843,6 +930,8 @@ export class CombatSystem {
         if (c.isLaw) {
           sim.progress.stats.copsKilled++;
           sim.wanted.crime('killCop', c.pos.x, c.pos.z);
+        } else if (this.isOutlaw(c)) {
+          // The vigilante's suspect: stopped for the law.
         } else if (c.role === 'gang' || c.missionTag === 'enemy') {
           sim.wanted.crime('killGang', c.pos.x, c.pos.z);
         } else {
@@ -860,10 +949,13 @@ export class CombatSystem {
     if (v.destroyed || v.removed || !(amount > 0)) return;
     if (this.sim.cheats.godMode && v.driver?.isPlayer) return;
     v.health -= amount;
-    if (attacker) this.damagedBy.set(v, attacker);
+    const blowsUp = kind === 'explosion' && v.health < -v.spec.health * 0.35;
+    // Who set it alight answers for it: a later hit takes that over only by blowing it up there and then
+    // (a stray round on a car someone else lit does not).
+    if (attacker && (!v.burning || blowsUp)) this.damagedBy.set(v, attacker);
     if (attacker && attacker.isPlayer && v.spec.police && kind === 'bullet') this.reportAttack(v, 'assaultCop', v.pos.x, v.pos.z);
     if (v.driver && !v.driver.isPlayer && v.driver.brain && attacker) v.driver.brain.threat = attacker;
-    if (kind === 'explosion' && v.health < -v.spec.health * 0.35) {
+    if (blowsUp) {
       this.explodeVehicle(v);
       return;
     }
@@ -885,20 +977,21 @@ export class CombatSystem {
     const sim = this.sim;
     if (v.destroyed) return;
     const culprit = this.damagedBy.get(v) ?? null;
+    const blame = this.blameFor(v);
     v.destroyed = true;
     v.burning = false;
     v.health = -v.spec.health;
     v.wreckTime = 0;
     v.siren = false;
     v.ai = null;
-    for (const o of v.occupants()) this.damageCharacter(o, 1000, culprit, 'explosion', 0, 1, 0);
+    for (const o of v.occupants()) this.damageCharacter(o, 1000, blame, 'explosion', 0, 1, 0);
     launchVehicle(v, 0, 0, 6.5, 2.5);
     if (culprit && culprit.isPlayer) {
       sim.progress.stats.vehiclesDestroyed++;
-      sim.wanted.crime(v.spec.police ? 'destroyPolice' : 'destroyVehicle', v.pos.x, v.pos.z);
+      if (blame) sim.wanted.crime(v.spec.police ? 'destroyPolice' : 'destroyVehicle', v.pos.x, v.pos.z);
     }
     sim.events.emit('vehicleDestroyed', { vehicle: v });
-    this.explosion(v.pos.x, v.pos.y + 0.8, v.pos.z, 7.5, 360, culprit, v);
+    this.explosion(v.pos.x, v.pos.y + 0.8, v.pos.z, 7.5, 360, blame, v);
   }
 
   explosion(x: number, y: number, z: number, radius: number, damage: number, owner: Character | null, source: Vehicle | null): void {
@@ -1021,10 +1114,10 @@ export class CombatSystem {
       // NPC occupants abandon a burning vehicle.
       for (const o of v.occupants()) {
         if (o.isPlayer) continue;
+        // Out of his own door: each on his seat's side and row, not all at one spot by the driver's.
+        const door = seatExit(v, o.seat, v.halfW + 0.8);
         sim.unseat(o);
-        const sx = Math.cos(v.heading);
-        const sz = -Math.sin(v.heading);
-        const spot = sim.world.findFreeSpot(v.pos.x + sx * (v.halfW + 0.8), v.pos.z + sz * (v.halfW + 0.8), 0.4, 6) ?? { x: v.pos.x + sx * 2, z: v.pos.z + sz * 2 };
+        const spot = sim.world.findFreeSpot(door.x, door.z, 0.4, 6) ?? door;
         o.pos.x = spot.x;
         o.pos.z = spot.z;
         o.pos.y = sim.world.groundHeight(spot.x, spot.z);
@@ -1042,11 +1135,13 @@ export class CombatSystem {
     // Standing in flames hurts. Cars in the sea do not burn (a car that drowns is also marked destroyed).
     for (const v of sim.vehicles) {
       if (v.removed || v.inWater || !(v.burning || (v.destroyed && v.wreckTime < 12))) continue;
+      // Whoever set it alight answers for a death in its flames (the flames are no attack: hurt, people run from the fire).
+      const credit = this.blameFor(v);
       for (const c of sim.characters) {
         if (c.removed || !c.alive || c.state === 'inVehicle') continue;
         const d = Math.hypot(c.pos.x - v.pos.x, c.pos.z - v.pos.z);
         if (d < v.halfL + 0.4 && Math.abs(c.pos.y - v.pos.y) < 2) {
-          this.damageCharacter(c, 22 * dt, null, 'fire', 0, 0, 0);
+          this.damageCharacter(c, 22 * dt, null, 'fire', 0, 0, 0, 'body', credit);
           // An attacker-less hit makes peds flee from where they stand (an arbitrary direction,
           // possibly into the car): make them run from the flames instead.
           if (c.alive && c.brain?.mode === 'flee') {
@@ -1065,6 +1160,20 @@ export class CombatSystem {
  */
 function chestMuzzle(c: Character, fx: number, fz: number): V3 {
   return { x: c.pos.x + fx * 0.55 - fz * 0.18, y: c.pos.y + c.height * 0.76, z: c.pos.z + fz * 0.55 + fx * 0.18 };
+}
+
+/**
+ * Where the occupant of seat `seat` comes out of `v`: beside his own door, on his seat's side (pose.seatSide), `across`
+ * m from the centre line, level with his row (the rear seats 0.9 m back), as Sim.syncOccupant seats him.
+ */
+function seatExit(v: Vehicle, seat: number, across: number): { x: number; z: number } {
+  const side = seatSide(seat) * across;
+  const back = seat >= 2 ? -0.9 : 0.15;
+  const sx = Math.cos(v.heading);
+  const sz = -Math.sin(v.heading);
+  const fx = Math.sin(v.heading);
+  const fz = Math.cos(v.heading);
+  return { x: v.pos.x + sx * side + fx * back, z: v.pos.z + sz * side + fz * back };
 }
 
 function raySphere(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, cx: number, cy: number, cz: number, r: number): number {
