@@ -377,7 +377,8 @@ function taxiDropOff(reversed: boolean): { sim: Sim; taxi: Vehicle; fare: Charac
   const rz = Math.sin(lane.heading);
   fare.pos.x = x + rx * 3.5;
   fare.pos.z = z + rz * 3.5;
-  step(sim, 0.05);
+  // He walks to the cab's door first.
+  step(sim, 2);
   expect(fare.vehicle).toBe(taxi);
   // The destination is the sidewalk at the curb next to the cab.
   job().destX = x + rx * 5.2;

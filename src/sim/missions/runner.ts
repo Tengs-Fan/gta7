@@ -27,6 +27,11 @@ export type Script = Generator<Wait, void, undefined>;
 export const RETRY_WINDOW = 20;
 /** A line of dialogue can be skipped once it has been up this long. */
 const SKIP_AFTER = 0.4;
+/**
+ * A contact's marker: getting out of any vehicle parked on it, which lands 1.6 m (a compact) to 2.02 m (the bus)
+ * from where it stood, puts the player on it.
+ */
+const MARKER_RADIUS = 2.1;
 /** A retry fades the screen out and back in over this long, locking the controls... */
 const RETRY_FADE = 1.2;
 /** ...and moves the player while it is black. */
@@ -45,6 +50,8 @@ export interface MissionDef {
   blurb: string;
   /** Where a retry puts the player (by default, the giver's marker). */
   retryAt?(world: StaticWorld): { x: number; z: number; heading?: number };
+  /** A title card shown after MISSION PASSED (The Big Score's THE END). */
+  outro?: { text: string; sub: string; duration: number };
   run(m: MissionCtx): Script;
 }
 
@@ -69,6 +76,8 @@ export class MissionCtx {
   private failSeq = 0;
   failedReason: string | null = null;
   done = false;
+  /** The goal is met (see complete): nothing fails the mission any more. */
+  won = false;
   private readonly it: Script;
   private current: Wait | null = null;
   /** Reward override (scripts may pay less for a damaged delivery). */
@@ -87,6 +96,11 @@ export class MissionCtx {
     readonly retrying = false,
     /** The checkpoint this attempt starts from (0: the beginning). */
     readonly resume = 0,
+    /**
+     * Rounds per weapon the player got between a failure and this retry (see MissionSystem.restart): he
+     * keeps them on top of a mission handout, which tops up only what he had before (see givePlayer).
+     */
+    private readonly kept: ReadonlyMap<WeaponId, number> = new Map(),
   ) {
     this.reward = def.reward;
     this.checkpointReached = resume;
@@ -99,12 +113,13 @@ export class MissionCtx {
     if (this.done || this.failedReason) return;
     this.time += dt;
     try {
-      if (this.timer && this.sim.time >= this.timer.endsAt) {
+      if (!this.won && this.timer && this.sim.time >= this.timer.endsAt) {
         this.fail(this.timer.reason);
         return;
       }
       for (const f of this.fails) {
-        if (f.check(dt)) {
+        // Past the goal the checks still run, as the watches ride on them, but they fail nothing.
+        if (f.check(dt) && !this.won) {
           this.fail(f.reason);
           return;
         }
@@ -137,12 +152,13 @@ export class MissionCtx {
       try {
         r = this.it.next();
       } catch (err) {
-        // A broken script must never take the game down with it.
+        // A broken script must never take the game down with it (past its goal, it ends passed all the same).
         console.error(`Mission ${this.def.id} script error`, err);
-        this.failedReason = this.failedReason ?? 'Something went wrong.';
+        if (this.won) this.done = true;
+        else this.failedReason = this.failedReason ?? 'Something went wrong.';
         return;
       }
-      if (this.failedReason) return;
+      if (this.failedReason || this.done) return;
       if (r.done) {
         this.done = true;
         return;
@@ -151,9 +167,22 @@ export class MissionCtx {
     }
   }
 
+  /**
+   * The mission's goal is met (each script calls this right after its last objective): it is passed from here
+   * on, whatever happens during its closing hand-over and lines. Its timer and fail checks stop counting, and a
+   * wasted, a busted or an abandon only cuts the rest short (see fail).
+   */
+  complete(): void {
+    if (this.done || this.failedReason) return;
+    this.won = true;
+    this.timer = null;
+  }
+
+  /** Ends the mission as failed; past its goal (see complete) it ends passed instead, cut short. */
   fail(reason: string): void {
     if (this.done || this.failedReason) return;
-    this.failedReason = reason;
+    if (this.won) this.done = true;
+    else this.failedReason = reason;
     // Its dialogue ends with it: a line cut short must not run on over MISSION FAILED (or the offer card).
     if (this.line && this.time < this.line.end) this.sim.events.emit('subtitle', { speaker: '', text: '', duration: 0 });
     this.line = null;
@@ -481,14 +510,18 @@ export class MissionCtx {
     return p;
   }
 
-  /** Gives a mission weapon, topped up to at least `ammo` rounds (never more on a restart). */
+  /**
+   * Gives a mission weapon, topped up to at least `ammo` rounds (never more on a restart). On a retry the top-up
+   * goes against what the player had before the attempt: what he got after the failure stays on top of it.
+   */
   givePlayer(weapon: WeaponId, ammo: number): void {
-    const p = this.sim.player;
-    const had = p.inventory.has(weapon);
-    const short = ammo - p.inventory.total(weapon);
-    if (!had) p.inventory.give(weapon, ammo);
-    else if (short > 0) p.inventory.give(weapon, short);
-    if (!had) p.inventory.current = weapon;
+    const inv = this.sim.player.inventory;
+    const kept = this.kept.get(weapon) ?? 0;
+    const before = Math.max(0, inv.total(weapon) - kept);
+    // Drawn unless he had it before the attempt (a slot only the kept rounds made does not count).
+    const had = inv.has(weapon) && (kept === 0 || before > 0);
+    if (ammo > before) inv.give(weapon, ammo - before);
+    if (!had) inv.current = weapon;
   }
 
   /** Releases or removes mission entities when the mission ends. */
@@ -546,40 +579,69 @@ function takeLoadout(p: Character): Loadout {
   };
 }
 
+/** What a retry gives the player back (see restoreLoadout). */
+interface RetryBase {
+  /** His loadout from before the first attempt. */
+  start: Loadout;
+  /** Rounds per weapon he got between a failure and its retry, which he keeps on every later retry too. */
+  kept: Map<WeaponId, number>;
+  /** Armour he put on between a failure and its retry (0: none). */
+  keptArmor: number;
+}
+
 /**
- * Gives the player his loadout from before the first attempt back: weapons a bust confiscated return,
- * ammo picked up during the failed attempt goes. Whatever he got after the failure (`failed` is his
- * loadout then), bought or picked up, he keeps on top.
+ * `base` with what the player carries now beyond `failed` (his loadout right after a failure, or at the
+ * last respawn since) added to what he keeps: rounds and armour he got since, bought or picked up.
  */
-function restoreLoadout(p: Character, start: Loadout, failed: Loadout): void {
+function keepGains(p: Character, base: RetryBase, failed: Loadout): RetryBase {
   const inv = p.inventory;
-  const gained: Array<[WeaponId, number]> = [];
+  const kept = new Map(base.kept);
   for (const id of inv.owned()) {
     if (id === 'fists') continue;
     const before = failed.slots.find(([w]) => w === id)?.[1];
     const g = inv.total(id) - (before ? before.ammo + before.clip : 0);
-    if (g > 0) gained.push([id, g]);
+    if (g > 0) kept.set(id, (kept.get(id) ?? 0) + g);
   }
-  const armor = p.armor > failed.armor ? Math.max(start.armor, p.armor) : start.armor;
+  const keptArmor = p.armor > failed.armor ? Math.max(base.keptArmor, p.armor) : base.keptArmor;
+  return { start: base.start, kept, keptArmor };
+}
+
+/**
+ * Gives the player his loadout from before the first attempt back: weapons a bust confiscated return,
+ * ammo picked up during a failed attempt goes. What he got after a failure (see keepGains) he keeps on top.
+ */
+function restoreLoadout(p: Character, base: RetryBase): void {
+  const inv = p.inventory;
   inv.slots.clear();
-  for (const [id, s] of start.slots) inv.slots.set(id, { ammo: s.ammo, clip: s.clip, readyAt: 0 });
+  for (const [id, s] of base.start.slots) inv.slots.set(id, { ammo: s.ammo, clip: s.clip, readyAt: 0 });
   if (!inv.slots.has('fists')) inv.slots.set('fists', { ammo: 0, clip: 0, readyAt: 0 });
-  for (const [id, g] of gained) inv.give(id, g);
-  inv.current = inv.has(start.current) ? start.current : 'fists';
-  p.armor = armor;
+  for (const [id, g] of base.kept) inv.give(id, g);
+  inv.current = inv.has(base.start.current) ? base.start.current : 'fists';
+  p.armor = Math.max(base.start.armor, base.keptArmor);
   p.reloadTimer = 0;
   p.reloadWeapon = null;
 }
 
+/** How the player takes the retry of a mission that just failed, from where he is (MISSION FAILED's sub-line). */
+function retryHint(sim: Sim): string {
+  // In the order Interactions' retry prompt names them.
+  if (sim.wanted.level > 0) return 'Lose the cops, then press E to retry';
+  // In a vehicle E is the horn: the retry is taken on foot.
+  if (sim.player.vehicle) return 'Get out of the vehicle to retry';
+  return 'Press E to retry';
+}
+
 /** A failed mission the player can restart with one key press. */
-interface RetryOffer {
+interface RetryOffer extends RetryBase {
   id: string;
   /** Checkpoint the restart resumes from. */
   resume: number;
-  /** The loadout from before the first attempt, and the one right after the failure (null until armed). */
-  start: Loadout;
+  /** His loadout right after the failure (null until the respawn after a wasted / busted). */
   failed: Loadout | null;
-  /** Sim time the offer lapses; null until armed (at the respawn after a wasted / busted). */
+  /**
+   * Sim time the offer lapses; null until armed: at the respawn after a wasted / busted, and once the
+   * police are lost after a failure with them on him.
+   */
   until: number | null;
 }
 
@@ -592,11 +654,13 @@ export class MissionSystem {
   skipPressed = false;
   private interactWas = false;
   private refreshed = false;
-  /** The active mission's loadout from before its first attempt (a retry restores it). */
-  private loadout: Loadout | null = null;
+  /** What a retry of the active mission gives back: its loadout from before the first attempt, and what he keeps. */
+  private base: RetryBase | null = null;
   private retry: RetryOffer | null = null;
   /** A retry under way: the player is moved and the mission restarted at `at`, behind the fade. */
   private pendingRetry: (RetryOffer & { at: number }) | null = null;
+  /** A mission passed while the player was down: its autosave waits until he is back up (see finish). */
+  private saveOnRespawn = false;
 
   constructor(private readonly sim: Sim) {
     sim.events.on('respawn', () => this.armRetry());
@@ -624,7 +688,7 @@ export class MissionSystem {
     if (this.active) return;
     for (const d of this.offers()) {
       const poi = sim.world.layout.pois.find((p) => p.id === d.giver)!;
-      markers.push({ id: `mission:${d.id}`, kind: 'mission', x: poi.x, z: poi.z, radius: 1.6, label: `Press E to start "${d.title}"`, color: d.giver === 'lou' ? 0xff4fa3 : 0x38e1d2, ref: d.id });
+      markers.push({ id: `mission:${d.id}`, kind: 'mission', x: poi.x, z: poi.z, radius: MARKER_RADIUS, label: `Press E to start "${d.title}"`, color: d.giver === 'lou' ? 0xff4fa3 : 0x38e1d2, ref: d.id });
     }
   }
 
@@ -634,11 +698,11 @@ export class MissionSystem {
     const def = this.defs.find((d) => d.id === id);
     if (!def || !this.available().includes(def)) return false;
     sim.activities.cancelAll('mission');
-    // A restart keeps the loadout from before the first attempt (retryNow put it back).
-    if (!opts.retrying || !this.loadout) this.loadout = takeLoadout(sim.player);
+    // A restart keeps the loadout from before the first attempt, and what he keeps on top (restart put both back).
+    if (!opts.retrying || !this.base) this.base = { start: takeLoadout(sim.player), kept: new Map(), keptArmor: 0 };
     this.retry = null;
     this.pendingRetry = null;
-    this.active = new MissionCtx(sim, def, !!opts.retrying, opts.resume ?? 0);
+    this.active = new MissionCtx(sim, def, !!opts.retrying, opts.resume ?? 0, this.base.kept);
     this.refreshMarkers();
     sim.events.emit('missionStarted', { id: def.id, title: def.title });
     // A retry goes straight back to work, as it skips the intro: no title card.
@@ -660,8 +724,19 @@ export class MissionSystem {
       this.refreshed = true;
       this.refreshMarkers();
     }
+    if (this.saveOnRespawn && !sim.playerDown) {
+      this.saveOnRespawn = false;
+      sim.events.emit('saveRequested', { poi: 'auto' });
+    }
     const offer = this.retry;
-    if (offer && offer.until !== null && sim.time >= offer.until) this.retry = null;
+    if (offer) {
+      if (offer.until === null) {
+        // A failure with the police on him: the window opens once they are lost (see retryAfterCops).
+        if (offer.failed && sim.wanted.level === 0 && !sim.playerDown) offer.until = sim.time + RETRY_WINDOW;
+      } else if (sim.time >= offer.until) {
+        this.retry = null;
+      }
+    }
     const pending = this.pendingRetry;
     if (pending && sim.time >= pending.at) {
       this.pendingRetry = null;
@@ -681,23 +756,28 @@ export class MissionSystem {
     this.active = null;
     m.cleanup();
     sim.wanted.floor = 0;
-    const start = this.loadout;
-    this.loadout = null;
+    const base = this.base;
+    this.base = null;
     this.retry = null;
     let sub = reason;
-    if (!passed && reason !== ABANDONED && start) {
-      // After a wasted or busted the offer waits for the respawn (see armRetry).
+    if (!passed && reason !== ABANDONED && base) {
+      // After a wasted or busted the offer waits for the respawn (see armRetry); after a failure with the
+      // police on him, until they are lost (see update): its window must not run out while he cannot take it.
       const down = reason === WASTED || reason === BUSTED;
-      this.retry = { id: m.def.id, resume: m.checkpointReached, start, failed: down ? null : takeLoadout(sim.player), until: down ? null : sim.time + RETRY_WINDOW };
-      // In a vehicle E is the horn: the retry is taken on foot, as the prompt says (see Interactions).
-      if (!down) sub = `${reason} - ${sim.player.vehicle ? 'Get out of the vehicle to retry' : 'Press E to retry'}`;
+      const cops = !down && sim.wanted.level > 0;
+      this.retry = { id: m.def.id, resume: m.checkpointReached, ...base, failed: down ? null : takeLoadout(sim.player), until: down || cops ? null : sim.time + RETRY_WINDOW };
+      if (!down) sub = `${reason} - ${retryHint(sim)}`;
     }
     if (passed) {
       sim.progress.markDone(m.def.id);
       sim.progress.addMoney(m.reward);
       sim.events.emit('money', { amount: m.reward });
       sim.events.emit('big', { text: 'MISSION PASSED', sub: `$${m.reward.toLocaleString('en-US')}`, style: 'passed', duration: 5 });
-      sim.events.emit('saveRequested', { poi: 'auto' });
+      if (m.def.outro) sim.events.emit('big', { ...m.def.outro, style: 'title' });
+      // Passed past its goal while wasted or busted (see MissionCtx.complete): the save waits for the respawn,
+      // which pays the bill and keeps what the police take, so a loaded game cannot undo either.
+      if (sim.playerDown) this.saveOnRespawn = true;
+      else sim.events.emit('saveRequested', { poi: 'auto' });
     } else {
       sim.events.emit('big', { text: 'MISSION FAILED', sub, style: 'failed', duration: 4.5 });
     }
@@ -705,12 +785,19 @@ export class MissionSystem {
     this.refreshMarkers();
   }
 
-  /** The respawn after a wasted / busted mission opens its retry window. */
+  /**
+   * A respawn with a retry on offer: after a wasted / busted mission (or one interrupted during a retry's fade, or
+   * waiting for the police to be lost) it opens the retry window.
+   */
   private armRetry(): void {
     const r = this.retry;
-    if (!r || r.until !== null) return;
-    r.until = this.sim.time + RETRY_WINDOW;
-    r.failed = takeLoadout(this.sim.player);
+    if (!r) return;
+    const p = this.sim.player;
+    // What he got since the failure and still has (the police keep what they take) stays his on the retry,
+    // and what he gets from here on counts from his loadout now.
+    if (r.failed) Object.assign(r, keepGains(p, r, r.failed));
+    r.failed = takeLoadout(p);
+    if (r.until === null) r.until = this.sim.time + RETRY_WINDOW;
   }
 
   /** The failed mission a retry would restart, while one is on offer. */
@@ -720,16 +807,23 @@ export class MissionSystem {
     return this.defs.find((d) => d.id === r.id) ?? null;
   }
 
+  /** The failed mission whose retry is offered once the police are lost (its window opens then), if any. */
+  retryAfterCops(): MissionDef | null {
+    const r = this.retry;
+    if (!r || r.until !== null || !r.failed || this.active || this.sim.playerDown) return null;
+    return this.defs.find((d) => d.id === r.id) ?? null;
+  }
+
   /**
    * Restarts the failed mission on offer (the interact key, see Interactions): the screen fades,
    * the player gets his loadout from before the first attempt back, and the mission starts over at
    * its giver's marker without the intro, from its last checkpoint. False if there is nothing to
-   * retry or the player cannot right now (wanted, not on foot).
+   * retry or the player cannot right now (wanted, on a rampage, not on foot).
    */
   retryNow(): boolean {
     const sim = this.sim;
     const r = this.retry;
-    if (!this.retryOffer() || !r || sim.wanted.level > 0 || !sim.player.onFoot) return false;
+    if (!this.retryOffer() || !r || sim.wanted.level > 0 || sim.activities.busy || !sim.player.onFoot) return false;
     this.retry = null;
     sim.controlLock = Math.max(sim.controlLock, RETRY_FADE);
     sim.events.emit('fade', { duration: RETRY_FADE });
@@ -742,18 +836,20 @@ export class MissionSystem {
     const def = this.defs.find((d) => d.id === r.id);
     if (!def || this.active || !this.available().includes(def)) return;
     if (sim.playerDown) {
-      // Killed or busted during the fade: offer it again after the respawn.
-      this.retry = { ...r, failed: null, until: null };
+      // Killed or busted during the fade: offer it again after the respawn (see armRetry).
+      this.retry = { ...r, until: null };
       return;
     }
     if (sim.wanted.level > 0) {
-      // Something drew the police during the fade: offer it again once they are gone.
-      this.retry = r;
+      // Something drew the police during the fade: offer it again once they are lost, with a fresh window.
+      this.retry = { ...r, failed: r.failed ?? takeLoadout(sim.player), until: null };
       return;
     }
     const p = sim.player;
     if (p.vehicle) sim.playerCtl.ejectPlayer(true);
-    restoreLoadout(p, r.start, r.failed ?? takeLoadout(p));
+    // A later retry starts from the same loadout, and keeps what he got this time too.
+    this.base = keepGains(p, r, r.failed ?? takeLoadout(p));
+    restoreLoadout(p, this.base);
     const giver = sim.world.layout.pois.find((q) => q.id === def.giver)!;
     const at = def.retryAt?.(sim.world) ?? { x: giver.x, z: giver.z, heading: giver.heading };
     const spot = sim.world.findFreeSpot(at.x, at.z, 0.5, 8) ?? at;
@@ -767,7 +863,6 @@ export class MissionSystem {
     p.onGround = true;
     p.swimTime = 0;
     if (at.heading !== undefined) p.heading = at.heading;
-    this.loadout = r.start;
     this.start(def.id, { retrying: true, resume: r.resume });
   }
 

@@ -2,6 +2,7 @@
 // and drive-in garages (Spray Shack).
 
 import { rectContains, type Poi } from '../world/layout';
+import { Inventory } from './entities';
 import type { Sim } from './sim';
 import { WEAPONS, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
@@ -29,6 +30,16 @@ export interface ShopItem {
 }
 
 export const SPRAY_COST = 100;
+
+/** Whether `ammo` more rounds of `weapon` would add any (Inventory.give caps a gun's reserve): a full gun takes no more. */
+function roomFor(inv: Inventory, weapon: WeaponId, ammo: number): boolean {
+  const s = inv.slots.get(weapon);
+  if (!s) return true;
+  const probe = new Inventory();
+  probe.slots.set(weapon, { ...s });
+  probe.give(weapon, ammo);
+  return probe.total(weapon) > inv.total(weapon);
+}
 
 export function shopItems(): ShopItem[] {
   const items: ShopItem[] = [];
@@ -65,21 +76,59 @@ export class Interactions {
 
   /** HUD prompt for the marker under the player, or for retrying a failed mission. */
   prompt(): string | null {
+    const sim = this.sim;
     const m = this.current();
-    if (!m) return this.retryPrompt();
-    if (m.kind === 'mission' && (this.sim.missions.active || this.sim.wanted.level > 0)) {
-      return this.sim.wanted.level > 0 ? 'Lose the cops before starting a mission.' : null;
+    if (!m) return this.vehiclePrompt() ?? this.retryPrompt();
+    if (m.kind === 'mission') {
+      if (sim.missions.active) return null;
+      return this.startBlock(false) ?? m.label;
+    }
+    if (m.kind === 'save') {
+      // As interact() would answer, before E is pressed.
+      if (sim.wanted.level > 0) return 'Lose the cops before saving.';
+      if (sim.missions.active) return "You can't save during a mission.";
+      if (sim.activities.busy) return "You can't save during a rampage.";
     }
     return m.label;
+  }
+
+  /**
+   * Why a mission cannot be started (or `retry`, retried) right now, as the prompt says it; null if it can. On a
+   * rampage: starting a mission would call it off.
+   */
+  private startBlock(retry: boolean): string | null {
+    const sim = this.sim;
+    if (sim.wanted.level > 0) return retry ? 'Lose the cops before retrying.' : 'Lose the cops before starting a mission.';
+    if (sim.activities.job?.kind === 'rampage') return 'Finish the rampage first.';
+    return null;
+  }
+
+  /**
+   * In a vehicle over a contact's marker, which only works on foot: E is the horn there (see Input), so the
+   * prompt says to get out. The car's body may cover the marker without its centre being on it.
+   */
+  private vehiclePrompt(): string | null {
+    const sim = this.sim;
+    const p = sim.player;
+    const v = p.vehicle;
+    if (!v || p.state !== 'inVehicle' || sim.playerDown || sim.missions.active) return null;
+    for (const m of this.markers) {
+      if (m.kind !== 'mission' || Math.hypot(m.x - v.pos.x, m.z - v.pos.z) > m.radius + v.halfW + 0.5) continue;
+      const def = sim.missions.defs.find((d) => d.id === m.ref);
+      return this.startBlock(false) ?? `Get out of the vehicle to start "${def?.title ?? ''}"`;
+    }
+    return null;
   }
 
   /** Offers the retry of a mission that just failed (markers under the player come first). */
   private retryPrompt(): string | null {
     const sim = this.sim;
     const def = sim.missions.retryOffer();
-    if (!def) return null;
+    // Failed with the police on him: the offer opens once they are lost.
+    if (!def) return sim.missions.retryAfterCops() ? 'Lose the cops before retrying.' : null;
     const p = sim.player;
-    if (sim.wanted.level > 0) return 'Lose the cops before retrying.';
+    const block = this.startBlock(true);
+    if (block) return block;
     // In a vehicle the key is the horn (see Input), so the retry is taken on foot.
     if (p.state === 'inVehicle') return `Get out of the vehicle to retry "${def.title}"`;
     if (!p.onFoot) return null;
@@ -106,11 +155,16 @@ export class Interactions {
           sim.events.emit('message', { text: "You can't save during a mission.", duration: 3 });
           return;
         }
+        // On foot the only job that can be running: a save would drop it, and the heal is no free top-up mid-fight.
+        if (sim.activities.busy) {
+          sim.events.emit('message', { text: "You can't save during a rampage.", duration: 3 });
+          return;
+        }
         sim.player.health = sim.player.maxHealth;
         sim.events.emit('saveRequested', { poi: m.ref });
         break;
       case 'mission':
-        if (sim.wanted.level > 0 || sim.missions.active) return;
+        if (sim.missions.active || this.startBlock(false)) return;
         sim.missions.start(m.ref);
         break;
     }
@@ -126,6 +180,7 @@ export class Interactions {
     if (item.weapon && p.inventory.has(item.weapon)) price = WEAPONS[item.weapon].ammoPrice;
     if (item.id === 'armor' && p.armor >= 100) return 'You are already wearing armor.';
     if (item.id === 'health' && p.health >= p.maxHealth) return 'You are already healthy.';
+    if (item.weapon && !roomFor(p.inventory, item.weapon, item.ammo)) return "You can't carry any more.";
     if (!sim.progress.spend(price)) return "You can't afford that.";
     if (item.weapon) {
       const had = p.inventory.has(item.weapon);

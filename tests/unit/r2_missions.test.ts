@@ -272,7 +272,8 @@ describe('mission and activity fixes', () => {
     const fare = job().fare!;
     fare.pos.x = x - Math.cos(lane.heading) * 3.5;
     fare.pos.z = z + Math.sin(lane.heading) * 3.5;
-    step(sim, 0.05);
+    // He walks to the cab's door first.
+    step(sim, 2);
     expect(job().stage).toBe('dropoff');
     expect(fare.vehicle).toBe(taxi);
     const money = sim.progress.money;
