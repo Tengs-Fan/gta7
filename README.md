@@ -4,7 +4,7 @@ An original, GTA-style open-world crime sandbox that runs entirely in the browse
 Steal cars, cause chaos, outrun the cops, and work your way up from a broke ex-con to the top of **San Azura**, a sun-bleached fictional coastal city.
 
 Everything is generated at runtime: the city, the buildings, the cars, the people, every texture, every sound effect and three radio stations of procedural music.
-There are no downloaded assets.
+There are no downloaded images, models or audio files; the only bundled assets are two fonts.
 
 > Fan-made parody.
 > Not affiliated with or endorsed by Rockstar Games or Take-Two Interactive.
@@ -14,8 +14,8 @@ There are no downloaded assets.
 
 ## Quick start
 
-Requirements: Node.js 22.12 or newer (Vitest 5 declares 22.12+, 24 and 26+, not 23 or 25), and a browser with WebGL 2 and hardware acceleration.
-The automated tests run in Chromium; Firefox and Safari are handled in the code but not tested automatically.
+Requirements: Node.js 22.12 or newer within 22.x, 24.x or 26+ (the range Vitest 5 supports; 23 and 25 are not), a browser with WebGL 2 and hardware acceleration, and a keyboard and mouse or a gamepad: there are no touch controls.
+The game is tested in Chromium, so Chrome and Edge are the safe choice; Firefox and Safari should work but are not tested automatically.
 
 ```sh
 npm install
@@ -31,7 +31,8 @@ npm run preview    # serves dist/ at http://localhost:4173
 
 `dist/` is a static site with relative paths, so it can be hosted anywhere, under a sub-path too.
 
-Choose NEW GAME on the title screen, and a few seconds later Mama Lou calls with your first job.
+Choose NEW GAME on the title screen, and a few seconds later Mama Lou calls with your first job: steal a car (walk up to one and press F) and drive it into her garage in the Docks, following the route on the radar.
+Progress stays in this browser: the game autosaves after every mission passed, E at the safehouse saves, and CONTINUE on the title screen picks up from there.
 
 ## Controls
 
@@ -89,19 +90,19 @@ Choose NEW GAME on the title screen, and a few seconds later Mama Lou calls with
   Body armor, jab-jab-hook punch combos, drive-bys with the pistol or SMG, and explosions that throw people and cars and set off damaged or light cars nearby.
   The dead drop their cash, and the police helicopter can be shot down.
 - **Wanted level.** Five stars.
-  Crimes like carjacking, assault and gunfire count only when the police see them, while murder, attacks on the police and explosions are always reported.
+  Crimes like carjacking, assault and gunfire count only when the police see them, and so does killing a gang member or an armed mission guard, while murdering anyone else, attacks on the police and explosions are always reported.
   Patrol cars, pursuit units that from two stars cut you off from ahead and shoot from their windows, SWAT Riot Vans from four stars, and a helicopter from three that loses you behind buildings and at night sees little beyond its spotlight.
-  Officers arrest you if you give up, and from two stars they shoot on sight (at any level once you attack one of them); a DISPATCH line on the HUD narrates the chase.
+  Officers arrest you when they reach you on foot while you are not running, or beside your car once it has stopped, and from two stars they shoot on sight (at any level once you attack one of them); a DISPATCH line on the HUD narrates the chase.
   To lose them, break line of sight and get out of the red search area on the radar (or hide inside it for longer) until the evade bar fills, or pay a Spray Shack $100 a star for a respray, if the police don't see you drive in.
-  BUSTED costs bail and, from two stars, your guns; WASTED costs a hospital bill and your armor.
+  BUSTED costs bail ($100 plus $150 a star) and, from two stars, your guns; WASTED costs a hospital bill ($100 plus $100 a star) and your armor.
 - **Story.** You are Kai Navarro, just out after six years inside, and a new game opens with a call from Mama Lou.
-  Six missions against the Tiburones: Wheels, Hot Delivery and Repo Man for Lou, then Loose Lips, Heatwave and The Big Score for Dex Moreau, a raid on the First Azura Bank with a getaway to the Marina.
-  The contacts are the pink L and the teal D on the radar; a failed mission can be retried with E within 20 seconds, and Heatwave and The Big Score have checkpoints.
+  Six missions: Wheels, Hot Delivery and Repo Man for Lou, then Loose Lips, Heatwave and The Big Score for Dex Moreau, the last a raid on the First Azura Bank with a getaway to the Marina; Hot Delivery, Repo Man and Heatwave pit you against the Tiburones.
+  The contacts are the pink L and the teal D on the radar, shown while they have a job for you; a failed mission can be retried with E within 20 seconds, and Heatwave and The Big Score have checkpoints.
 - **Side content.** Taxi fares in an Azura Cab and vigilante jobs in a police vehicle (press T), three gang rampages, twenty hidden packages ($25,000 for finding them all), unique stunt jumps, health, armor and weapon pickups, and two Bang Bang Guns stores (from the Pistol at $250 to the Rocket Launcher at $8,000, Body Armor $300, First Aid $80).
 - **Radio and sound.** In a vehicle, NEON DRIVE 88.7 (synthwave), BOOM BAP 101.3 (hip-hop) and PULSE 96.1 (house) play endless music generated live, with RADIO OFF as the fourth stop.
   An ambience of city hum, traffic, surf, gulls, birds by day and crickets at night, an engine voice for every kind of vehicle, music that ducks under dialogue and nearby explosions, and the world muffled inside a car.
 - **HUD, map and saves.** A radar that turns with the camera, with a road-following GPS route to your waypoint, the objective or the contact who has work, and the police, the helicopter and the search area on the radar and the map while you are wanted.
-  Prompts and first-time hints drawn for your keyboard layout or gamepad, a full-screen map with district names, a legend and waypoints, and a STATS screen with a game completion percentage.
+  Prompts and first-time hints drawn for your keyboard layout or gamepad, a full-screen map with district names, a legend and a waypoint you can set, and a STATS screen with a game completion percentage.
   One save slot in the browser: save at the safehouse with E (not while wanted, on a mission or on a rampage), plus an autosave after every mission passed.
 
 <table>
@@ -114,21 +115,21 @@ Choose NEW GAME on the title screen, and a few seconds later Mama Lou calls with
     <td width="50%" valign="top"><img src="docs/screenshots/beach.jpg" alt="The player walks along Azura Pier under the Ferris wheel, with the palm-lined beach and the skyline across the water"><br>Azura Pier and its Ferris wheel, with Ocean Beach and the skyline behind.</td>
   </tr>
   <tr>
-    <td colspan="2" align="center"><img src="docs/screenshots/map.jpg" width="50%" alt="The full-screen map of San Azura with district names, contacts, safehouse, shops, Spray Shacks, hospital, police station, a legend and a waypoint on the pier"><br>The full-screen map, with a waypoint set on Azura Pier.</td>
+    <td colspan="2" align="center"><img src="docs/screenshots/map.jpg" width="50%" alt="The full-screen map of San Azura with district names, Mama Lou's marker, safehouse, shops, Spray Shacks, hospital, police station, a legend and a waypoint on the pier"><br>The full-screen map, with a waypoint set on Azura Pier.</td>
   </tr>
 </table>
 
 ## Cheats
 
 Type a code during play: no Enter, any mix of upper and lower case, each letter within 1.5 seconds of the one before.
-A message confirms it ("Cheat activated").
+A message confirms it ("Cheat activated", or "Cheat: god mode on" and "Cheat: god mode off" for IMMORTAL).
 The first letters of a code may briefly do their usual job (M opens the map, F starts to leave the car), and the game undoes that once the code is complete.
 
 | Code | Effect |
 | --- | --- |
 | `CHILLOUT` | Clears the wanted level, but not below the stars a mission fixes (the bank alarm in The Big Score) |
-| `GUNSGALORE` | 300 rounds each for the Pistol, SMG, Shotgun, Assault Rifle and Rocket Launcher |
-| `FIXMYRIDE` | Repairs the vehicle you are in or, on foot, the one you last drove if it is within 30 m: full health, fire out, back on its wheels |
+| `GUNSGALORE` | Gives you the Pistol, SMG, Shotgun, Assault Rifle and Rocket Launcher if you lack them and adds 300 rounds to each, every time you type it |
+| `FIXMYRIDE` | Repairs the vehicle you are in or, on foot, the nearest one within 30 m that you were the last to drive: full health, fire out, back on its wheels |
 | `IMMORTAL` | God mode on or off: no damage to you, or to your vehicle while you drive it; you can still be BUSTED |
 | `MONEYTREE` | Adds $50,000 |
 | `SUNSET` | Sets the clock to 18:18 |
@@ -152,7 +153,7 @@ Changes apply at once and are stored in the browser (`localStorage` key `gta7.se
 | DELETE SAVE | asks first | |
 
 **Auto** picks a tier once per page load from the GPU, and the row shows its choice, such as AUTO (HIGH).
-It picks High on discrete graphics cards, Medium on integrated and mobile GPUs and on any GPU it does not recognize, and Low on software renderers and on integrated GPUs driving very large screens (where Medium would draw more than 3.5 million pixels, such as 3440x1440, or 3840x2160 at 100% scaling).
+It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro, Max and Ultra chips, Medium on other integrated GPUs (GeForce MX laptop chips count as integrated), on phone and tablet GPUs and on any GPU it does not recognize, and Low on software renderers and on integrated GPUs driving very large screens (where Medium would draw more than 3.5 million pixels, such as 3440x1440, or 3840x2160 at 100% scaling).
 
 | | High | Medium | Low |
 | --- | --- | --- | --- |
@@ -221,6 +222,7 @@ All of these are minor; the most noticeable come first.
 
 ## Architecture
 
+It is strict TypeScript on three.js 0.186, built with Vite 8 and tested with Vitest 5 and Playwright 1.64; three.js and two Fontsource fonts are the only runtime dependencies.
 The game is split into a **headless simulation** and a **presentation layer**:
 
 ```
@@ -242,10 +244,10 @@ src/
   debug.ts     window.__gta7, the console and test API (in every build)
 ```
 
-`src/core`, `src/world` and `src/sim` never touch the DOM, WebGL, audio, storage or three.js, so the whole game runs in Node.
+`src/core`, `src/world` and `src/sim` never touch the DOM, WebGL, audio, storage or three.js, so the whole simulation runs in Node.
 The layers only import downwards: `core` ← `world` ← `sim` ← `render`, `audio`, `input` ← `ui` ← `game.ts`.
 `Sim.update(dt, input)` clamps a frame to 0.1 s and runs every system in a fixed order, with physics in substeps of at most 1/120 s.
-Missions are generator scripts resumed synchronously inside `Sim.update`, and all randomness in the sim comes from a seeded RNG, so a run from the same seed and inputs repeats exactly.
+Missions are generator scripts resumed synchronously inside `Sim.update`, and all randomness in the sim comes from a seeded RNG, so a run from the same seed and inputs repeats exactly; the game itself passes no seed, so San Azura is the same city in every game.
 The renderer, HUD and audio subscribe to the typed events in `src/sim/events.ts` (shots, explosions, impacts, messages) and read entity state each frame.
 Conventions: +X is east, +Z south and +Y up, and heading h faces (sin h, cos h).
 
@@ -284,11 +286,11 @@ GTA7_SWIFTSHADER=1 npm run test:e2e
 ```
 
 Automated browsers run without pointer lock, because headless Chromium that grants it can stop delivering frames.
-Under automation the game refuses the lock unless the URL has `?lock=1`, and the test helpers also stub it out; `node scripts/playtest.mjs --pointer-lock` does both, for a real lock.
+Under automation the game refuses the lock unless the URL has `?lock=1`, and the test helpers also stub it out; `node scripts/playtest.mjs --pointer-lock` adds `lock=1` and leaves the stub out, for a real lock.
 
 ### Playtests
 
-`scripts/playtest.mjs` drives a running build (`npm run build && npm run preview`) through `window.__gta7` and real keyboard and mouse input.
+`scripts/playtest.mjs` drives a running build (`npm run build && npm run preview`) in the Chromium that `npx playwright install chromium` fetches, through `window.__gta7` and real keyboard and mouse input.
 It saves numbered screenshots and a `report.json` (console errors, state snapshots, and fps, draw calls and heap per segment), and exits with 1 if the scenario threw.
 
 ```sh
@@ -299,7 +301,7 @@ node scripts/playtest.mjs --script my-steps.mjs --url http://localhost:4173/
 | Flag | Meaning | Default |
 | --- | --- | --- |
 | `--scenario <name>` | `tour`, `drive`, `chase`, `night` or `perf` | `tour` |
-| `--script <file.mjs>` | your own steps: a module exporting `default async function (t)` | |
+| `--script <file.mjs>` | your own steps: a module exporting `default async function (t)`, where `t` is the helper object documented at the top of `scripts/playtest.mjs` (`boot`, `newGame`, `game`, `state`, `shot`, `press`, `hold`, `measure` and more) | |
 | `--url <url>`, `--port <n>` | the page to open | `http://localhost:4173/` |
 | `--out <dir>` | screenshots and `report.json` | `/tmp/gta7-playtest` |
 | `--size WxH` | viewport | `1600x900` |
@@ -312,7 +314,7 @@ node scripts/playtest.mjs --script my-steps.mjs --url http://localhost:4173/
 
 - `GTA7_PORT=<port> npm run test:e2e` builds and serves this checkout on its own port, so several worktrees can run the suite side by side.
   Add `GTA7_REUSE=1` to test a server already running on that port instead; it must serve this checkout and be up to date.
-- `scripts/with-slot.sh browser|cpu <command...>` runs a command while holding one of a few machine-wide slots, so parallel agents don't start more browsers or test suites than the machine can hold.
+- `scripts/with-slot.sh browser|cpu <command...>` runs a command while holding one of a few machine-wide slots, so several test runs on one machine don't start more browsers or test suites than it can hold.
   `GTA7_BROWSER_SLOTS` (default 4) and `GTA7_CPU_SLOTS` (default 3) set the number of slots, and the script needs Linux `flock` and bash 4.1 or newer.
 
 ```sh
@@ -325,7 +327,7 @@ scripts/with-slot.sh cpu npx vitest run
 - `?intro=0` turns off Mama Lou's opening call, which otherwise starts the first mission 2.5 s into a new game; the end-to-end tests and playtests add it.
 - `?lock=1` allows pointer lock under automation (see above).
 - `window.__gta7` (`src/debug.ts`) is the console and test API, present in every build, production included.
-  `state()` reports the mode, the player, the wanted level, the mission, render stats and frame timings, and `newGame`, `teleport`, `place`, `spawnVehicle`, `give`, `setWanted`, `setTime`, `godMode`, `startMission`, `markDone`, `poi`, `setCamera`, `samplePixels`, `spawnPedAhead` and `characterAlive` set up a scene.
+  `state()` reports the mode, the player, money, the clock, the wanted level, the mission, entity counts, render stats and frame timings; `game` and `sim` are the live objects; `newGame`, `teleport`, `place`, `spawnVehicle`, `give`, `setWanted`, `setTime`, `godMode`, `startMission`, `markDone`, `setCamera` and `spawnPedAhead` set up a scene; and `poi`, `samplePixels` and `characterAlive` look things up.
 
 ## Performance
 
@@ -333,9 +335,9 @@ The game targets 60 fps on desktop hardware.
 On an RTX 3070 laptop at High it renders about <!-- PERF: draw calls on High --> draw calls at roughly <!-- PERF: CPU ms per frame on High --> ms of CPU per frame <!-- PERF: where and when measured, e.g. "on foot in Downtown at dusk" -->.
 Nothing adjusts itself at runtime: there is no dynamic resolution, and the tier only changes when you pick another one (see [Settings and graphics quality](#settings-and-graphics-quality) for what each tier trades away).
 `node scripts/playtest.mjs --scenario perf` prints fps, draw calls, triangles and heap at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
-`window.__gta7.state()` also reports `fps` (frames in the last full second), `render.calls` and `perf.frameMs`, `simMs` and `renderMs`, which describe the last frame only, so sample them many times.
+`window.__gta7.state()` also reports `fps` (frames over the last second of game time: a frame counts for at most 0.1 s, so it never reads below 10), `render.calls` and `perf.frameMs`, `simMs` and `renderMs`, which describe the last frame only, so sample them many times.
 
 ## License
 
-Code: MIT.
+Code: MIT, see [LICENSE](LICENSE).
 Fonts: Anton and Rajdhani, SIL Open Font License (bundled via Fontsource).
