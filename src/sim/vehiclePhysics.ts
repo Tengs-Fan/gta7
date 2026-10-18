@@ -86,6 +86,14 @@ function pushBlocked(v: Vehicle, world: StaticWorld, ux: number, uz: number, d: 
  */
 const DECK_STEP = 0.4;
 /**
+ * A step face is a step in the ground: the ground under a point of the body must rise more than this from the point's old
+ * position to its new one. That is under the lowest real face (the deck sides rise DECK_STEP and more from the sand, the
+ * backs and sides of the ramps more than MAX_STEP_UP) and over what a smooth slope gains in one physics step (a ramp with
+ * the sand under it about 0.2 m at the 90 m/s speed cap). So a ramp a long body's nose climbs well ahead of the pitch that
+ * follows it (a bus's, over a metre up the plate at the foot) is no face.
+ */
+const FACE_JUMP = 0.3;
+/**
  * Points of the body checked for step faces (see faceAhead), in half lengths along it and half widths across it: the corners,
  * the middles of the ends and the sides, and the centre.
  */
@@ -134,11 +142,10 @@ function onDeck(world: StaticWorld, x: number, z: number, y: number): boolean {
 }
 
 /**
- * Whether the ground at (x, z) is a step face for a point of a body at height `from`: it stands more than MAX_STEP_UP above
- * the point, or is a deck more than DECK_STEP above it.
+ * Whether the ground at (x, z), at height y, is a step face for a point of a body at height `from`: it stands more than
+ * MAX_STEP_UP above the point, or is a deck more than DECK_STEP above it.
  */
-function inFace(world: StaticWorld, x: number, z: number, from: number): boolean {
-  const y = world.groundHeight(x, z);
+function inFace(world: StaticWorld, x: number, z: number, y: number, from: number): boolean {
   return y > from + MAX_STEP_UP || (y > from + DECK_STEP && onDeck(world, x, z, y));
 }
 
@@ -148,11 +155,12 @@ function inFace(world: StaticWorld, x: number, z: number, from: number): boolean
  * unit direction (ux, uz), only the part of the body that leads counts (its leading corners and the middle of its leading end
  * or side), and the centre; turning on the spot (ux = uz = 0), every point does, as a turn swings the two ends opposite ways.
  * ledgeTooHigh probes no further ahead than 2.2 m along the way the vehicle moves, which lets a long vehicle's nose into a
- * ledge (a bus's up to 3.5 m into the side of the pier), and not at all as the body swings round. A ramp's slope stays within
- * a few centimetres of a body that follows it. Only a point that enters a face stops the body: one already in it (a car shoved
- * off the side of a deck rests with its near side under the deck's edge) moves on in it or out of it, so the body drives along
- * the face or away from it, and the centre, never in a face on the ground, keeps a body that straddles one from climbing onto
- * it. Sinking (`sinking`), the face is the edge of water too shallow to sink in, crossed from deeper water (see sinkBlocked).
+ * ledge (a bus's up to 3.5 m into the side of the pier), and not at all as the body swings round. Only a step in the ground
+ * (FACE_JUMP) is a face, not a ramp's slope, which the nose of a long body climbs well ahead of the pitch that follows it.
+ * Only a point that enters a face stops the body: one already in it (a car shoved off the side of a deck rests with its near
+ * side under the deck's edge) moves on in it or out of it, so the body drives along the face or away from it, and the centre,
+ * never in a face on the ground, keeps a body that straddles one from climbing onto it. Sinking (`sinking`), the face is the
+ * edge of water too shallow to sink in, crossed from deeper water (see sinkBlocked).
  */
 function faceAhead(v: Vehicle, world: StaticWorld, x0: number, z0: number, h0: number, x1: number, z1: number, h1: number, ux: number, uz: number, sinking: boolean): boolean {
   // On land, ground higher than a curb comes only from decks and ramps (the land's edge a car reaches only sinking): far
@@ -179,7 +187,10 @@ function faceAhead(v: Vehicle, world: StaticWorld, x0: number, z0: number, h0: n
       continue;
     }
     const from = v.pos.y + a * lift;
-    if (inFace(world, px1, pz1, from) && !inFace(world, px0, pz0, from)) return true;
+    const g1 = world.groundHeight(px1, pz1);
+    if (!inFace(world, px1, pz1, g1, from)) continue;
+    const g0 = world.groundHeight(px0, pz0);
+    if (g1 - g0 > FACE_JUMP && !inFace(world, px0, pz0, g0, from)) return true;
   }
   return false;
 }
