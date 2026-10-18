@@ -1125,9 +1125,9 @@ export class Effects {
   /**
    * Spray off the wheels and a wake behind a vehicle wading through `depth` m of water (from WADE_MIN until it floods),
    * whose surface is at `surfaceY`. Both grow with its speed and with the depth. The spray is thrown out and up from
-   * each wheel (back from the rear ones) and trails the vehicle; the wake is foam spreading out on the surface behind
-   * it, in flat sprites. Each particle starts somewhere along the way its wheel went this frame, so the trail is even
-   * at any frame rate. On the smoke layer: in the scene's light.
+   * each wheel (back from the trailing ones) and trails the vehicle; the wake is foam spreading out on the surface from
+   * its trailing end (its nose when it reverses), in flat sprites. Each particle starts somewhere along the way its
+   * wheel went this frame, so the trail is even at any frame rate. On the smoke layer: in the scene's light.
    */
   wade(v: Vehicle, surfaceY: number, depth: number, dt: number): void {
     const go = clamp((Math.hypot(v.vel.x, v.vel.z) - WADE_MIN_SPEED) / (WADE_FULL_SPEED - WADE_MIN_SPEED), 0, 1);
@@ -1139,6 +1139,8 @@ export class Effects {
     // The vehicle's left (its local +X).
     const lx = fz;
     const lz = -fx;
+    // 1 going forwards, -1 reversing: the end it leaves behind.
+    const dir = v.vel.x * fx + v.vel.z * fz < 0 ? -1 : 1;
     const along = v.halfL * 0.62;
     const across = v.halfW - 0.18;
     for (const front of [1, -1]) {
@@ -1146,14 +1148,15 @@ export class Effects {
         const wx = v.pos.x + fx * along * front + lx * across * side;
         const wz = v.pos.z + fz * along * front + lz * across * side;
         for (let n = this.count(WADE_SPRAY_RATE * k, dt); n > 0; n--) {
-          const back = this.r(0, dt);
+          const lag = this.r(0, dt);
           const out = this.r(0.6, 2.2) * (0.5 + 0.5 * k);
           const up = this.r(1.2, 3.4) * (0.45 + 0.75 * k);
-          const tail = front < 0 ? this.r(0.5, 2) : 0;
+          // The trailing wheels' rooster tail.
+          const tail = front === dir ? 0 : this.r(0.5, 2) * dir;
           this.smoke.emit(
-            wx - v.vel.x * back + this.r(-0.15, 0.15),
+            wx - v.vel.x * lag + this.r(-0.15, 0.15),
             surfaceY + 0.05,
-            wz - v.vel.z * back + this.r(-0.15, 0.15),
+            wz - v.vel.z * lag + this.r(-0.15, 0.15),
             v.vel.x * 0.5 + lx * side * out - fx * tail,
             up,
             v.vel.z * 0.5 + lz * side * out - fz * tail,
@@ -1173,16 +1176,16 @@ export class Effects {
       }
     }
     for (const side of [1, -1]) {
-      const cx = v.pos.x - fx * (v.halfL + 0.3) + lx * v.halfW * 0.8 * side;
-      const cz = v.pos.z - fz * (v.halfL + 0.3) + lz * v.halfW * 0.8 * side;
+      const cx = v.pos.x - fx * dir * (v.halfL + 0.3) + lx * v.halfW * 0.8 * side;
+      const cz = v.pos.z - fz * dir * (v.halfL + 0.3) + lz * v.halfW * 0.8 * side;
       for (let n = this.count(WADE_WAKE_RATE * k, dt); n > 0; n--) {
-        const back = this.r(0, dt);
+        const lag = this.r(0, dt);
         const out = this.r(0.4, 1.3) * (0.4 + 0.6 * k);
         // Four times wider than tall and level on screen: foam lying on the water.
         this.smoke.emit(
-          cx - v.vel.x * back + this.r(-0.2, 0.2),
+          cx - v.vel.x * lag + this.r(-0.2, 0.2),
           surfaceY + 0.06,
-          cz - v.vel.z * back + this.r(-0.2, 0.2),
+          cz - v.vel.z * lag + this.r(-0.2, 0.2),
           v.vel.x * 0.12 + lx * side * out,
           0,
           v.vel.z * 0.12 + lz * side * out,

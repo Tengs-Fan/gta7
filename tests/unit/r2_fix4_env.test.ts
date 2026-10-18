@@ -654,6 +654,11 @@ describe('the GLSL interpreter', () => {
     const sw = run('gl_FragColor = vec4( uIn, 0.5 );\ngl_FragColor.rgb *= 2.0;\ngl_FragColor.a -= 0.25;\nfloat s = smoothstep( 1.0, 0.25, 0.0 );', {}, { uIn: new Vec([0.1, 0.2, 0.3]) });
     expect((sw.get('gl_FragColor') as Vec).c.map((x) => +x.toFixed(9))).toEqual([0.2, 0.4, 0.6, 0.25]);
     expect(sw.get('s')).toBe(1);
+    // Precedence (unary minus, then * and /, then + and -; a swizzle before the minus), and swizzled reads.
+    const pr = run('float p = -2.0 * 3.0 + 4.0 / 2.0 - 1.0;\nvec3 w = -vec3( 1.0, 2.0, 3.0 ).zyx * 2.0;\nbool b = 1.0 < 2.0 && ! ( 3.0 < 2.0 ) || false;');
+    expect(pr.get('p')).toBe(-5);
+    expect((pr.get('w') as Vec).c).toEqual([-6, -4, -2]);
+    expect(pr.get('b')).toBe(true);
     const pp = (defines: Record<string, unknown>) => run('float x = 1.0;\n#ifdef A\nx = 2.0;\n#elif defined( B ) && ! defined( C )\nx = 3.0;\n#else\nx = 4.0;\n#endif', defines).get('x');
     expect([pp({ A: '' }), pp({ B: '' }), pp({ B: '', C: '' }), pp({})]).toEqual([2, 3, 4, 4]);
     expect(run('if ( 0.003 < 0.004 ) discard;\ngl_FragColor = vec4( 1.0 );').discarded).toBe(true);
@@ -684,9 +689,10 @@ function rippleSampler(): (uv: Vec) => Vec {
 }
 
 describe('sea ripples over time', () => {
-  it('neither ripple sample jumps where an offset wraps (at 83.3 s and 125 s among others): each moves by its drift only, and so does the sea\'s normal', () => {
+  // With float colour buffers, and without (where the sea's patch also reflects the sky).
+  it.each([true, false])('neither ripple sample jumps where an offset wraps (at 83.3 s and 125 s among others): each moves by its drift only, and so does the sea\'s normal (hdr %s)', (hdr) => {
     const r = fakeRenderer();
-    const env = new Environment(new THREE.Scene(), r);
+    const env = new Environment(new THREE.Scene(), r, { hdr });
     const mat = env.water.material as THREE.MeshStandardMaterial;
     // The normal-map step of three's fragment shader, rewritten by the sea's patch.
     const shader = {
@@ -695,6 +701,7 @@ describe('sea ripples over time', () => {
       uniforms: {} as Record<string, THREE.IUniform>,
     };
     mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, r);
+    expect('uSkyI' in shader.uniforms, 'the sky reflection only without float buffers').toBe(!hdr);
     const prog = compileGlsl(shader.fragmentShader, { USE_NORMALMAP_TANGENTSPACE: '' });
     const sample = rippleSampler();
     const map = mat.normalMap!;
@@ -970,5 +977,43 @@ describe('wading spray and wake', () => {
     fx.wade(v, WATER_Y, 0.45, 0);
     fx.update(0, 0);
     expect((fx as unknown as FxPriv).smoke.active, 'paused').toBe(0);
+  });
+
+  it('the wake is left off the end the car leaves behind: its back driving forwards, its nose reversing, at any heading', () => {
+    const sim = makeSim({ world: W });
+    for (const heading of [0, 1.1, Math.PI, -2.4]) {
+      const v = sim.spawnVehicle('sedan', 10, 20, heading);
+      const fx = Math.sin(heading);
+      const fz = Math.cos(heading);
+      for (const dir of [1, -1]) {
+        const tag = `heading ${heading}, ${dir > 0 ? 'forwards' : 'reversing'}`;
+        v.vel.x = fx * 8 * dir;
+        v.vel.z = fz * 8 * dir;
+        const effects = new Effects();
+        for (let i = 0; i < 60; i++) effects.wade(v, WATER_Y, 0.45, 1 / 60);
+        // Nothing has moved yet: each particle is where it was made.
+        effects.update(0, 0);
+        const layer = (effects as unknown as FxPriv).smoke;
+        const pos = layer.mesh.geometry.getAttribute('iPos') as THREE.InstancedBufferAttribute;
+        let wake = 0;
+        let spray = 0;
+        for (let i = 0; i < layer.active; i++) {
+          const along = (pos.getX(i) - v.pos.x) * fx + (pos.getZ(i) - v.pos.z) * fz;
+          const across = (pos.getX(i) - v.pos.x) * fz - (pos.getZ(i) - v.pos.z) * fx;
+          // The foam starts 0.06 m over the surface, the spray 0.05 m.
+          if (Math.abs(pos.getY(i) - WATER_Y - 0.06) < 1e-4) {
+            expect(along * dir, tag).toBeLessThan(-v.halfL);
+            wake++;
+          } else {
+            // At a wheel (0.62 of the half-length along, 0.18 m inside the body's side), give or take a few centimetres.
+            expect(Math.abs(Math.abs(along) - v.halfL * 0.62), tag).toBeLessThan(0.4);
+            expect(Math.abs(Math.abs(across) - (v.halfW - 0.18)), tag).toBeLessThan(0.25);
+            spray++;
+          }
+        }
+        expect(wake, tag).toBeGreaterThan(5);
+        expect(spray, tag).toBeGreaterThan(20);
+      }
+    }
   });
 });
