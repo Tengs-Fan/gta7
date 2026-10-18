@@ -324,7 +324,9 @@ export class PoliceSystem {
       if (searching && Math.hypot(x - goal.x, z - goal.z) > (first ? reach : seenDist)) continue;
       if (pursuit && (goal.x - x) * lane.dx + (goal.z - z) * lane.dz < 0 && (tries < 20 || searching)) continue;
       if (away && (x - pp.x) * lane.dx + (z - pp.z) * lane.dz < 0) continue;
-      if (d < 160 && sim.isVisible(x, 1, z) && (searching || tries < 25)) continue;
+      // In his view: never for a search (the fog at 180 m by day does not hide a car down the street he looks
+      // along), and for a pursuit unit only within 160 m while other spots may still turn up.
+      if ((searching || (d < 160 && tries < 25)) && sim.isVisible(x, 1, z)) continue;
       if (!sim.traffic.isClear(x, z, 9)) continue;
       return this.placeUnit(kind, pursuit, searching, lane, s);
     }

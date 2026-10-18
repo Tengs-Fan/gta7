@@ -4,9 +4,10 @@ import { axisOf, type Lane } from '../world/roads';
 import { pointSegDist } from '../core/math';
 import type { Rng } from '../core/rng';
 import { WATER_Y } from '../world/constants';
+import { STOP_MARGIN } from './driver';
 import type { Vehicle } from './entities';
 import type { Sim } from './sim';
-import { PARKED_MIX, TRAFFIC_MIX, type VehicleKind } from './specs';
+import { PARKED_MIX, TRAFFIC_MIX, VEHICLE_SPECS, type VehicleKind } from './specs';
 import { clearOfVehicles } from './vehicleRoom';
 
 /** Above this speed (m/s) the player outruns the traffic streamed around him: spawn ahead too. */
@@ -248,8 +249,8 @@ export class TrafficSystem {
         if (lane.length < 16) continue;
         s = sim.rng.range(6, lane.length - 6);
       }
-      const x = lane.sx + lane.dx * s;
-      const z = lane.sz + lane.dz * s;
+      let x = lane.sx + lane.dx * s;
+      let z = lane.sz + lane.dz * s;
       const d = Math.hypot(x - pp.x, z - pp.z);
       if (ahead ? d < aheadMin || d > aheadMax : d < nearMin || d > nearMax) continue;
       // A car spawned behind a fast player is left behind at once (and recycled): pure churn.
@@ -261,6 +262,17 @@ export class TrafficSystem {
       if (!this.isClear(x, z, 11)) continue;
       let k = kind ?? sim.rng.weighted(TRAFFIC_MIX);
       if (k === 'bus' && !lane.line.avenue) k = 'sedan';
+      // Queued at a light that is not green, the front bumper waits STOP_MARGIN short of the line (see DriverAI). A bus
+      // queued nearer than that would already be in the junction for its driver and pull out against the light: it
+      // waits further back (with half a metre to spare), where it has to be out of sight and clear too.
+      const queueAt = lane.length - (VEHICLE_SPECS[k].length / 2 + STOP_MARGIN + 0.5);
+      if (ahead && red && s > queueAt) {
+        s = queueAt;
+        x = lane.sx + lane.dx * s;
+        z = lane.sz + lane.dz * s;
+        const dq = Math.hypot(x - pp.x, z - pp.z);
+        if (dq < aheadMin || dq > aheadMax || sim.isVisible(x, 1, z) || !this.isClear(x, z, 11)) continue;
+      }
       const v = sim.spawnVehicle(k, x, z, lane.heading);
       v.owner = 'traffic';
       const driver = sim.addDriver(v, 'civilian', 'traffic');

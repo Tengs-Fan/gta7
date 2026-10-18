@@ -34,7 +34,7 @@ interface PathSeg {
 }
 
 /** The front bumper stops this far before the lane end, just behind the painted stop line. */
-const STOP_MARGIN = 0.9;
+export const STOP_MARGIN = 0.9;
 /** Slowest planned cornering speed (below the 3.5 m/s at which street furniture breaks). */
 const CRAWL_SPEED = 2.5;
 /** AI reversing speed, also below the furniture-breaking speed. */

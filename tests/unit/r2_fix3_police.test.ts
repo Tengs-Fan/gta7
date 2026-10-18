@@ -4,10 +4,11 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import type { Vehicle } from '../../src/sim/entities';
-import type { Sim } from '../../src/sim/sim';
+import { Sim } from '../../src/sim/sim';
 import { stepVehicle } from '../../src/sim/vehiclePhysics';
+import { axisOf, SIGNAL_CYCLE, type Lane } from '../../src/world/roads';
 import { at, dist, internals, longestLane, placeOnFoot } from './r2_police_helpers';
-import { input, makeSim, placeInCar, step, teleport } from './helpers';
+import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
 /** A unit chasing the player at one star, its crew of two put out on foot near it. */
 function deployedUnit(sim: Sim): { unit: Vehicle; lane: ReturnType<typeof longestLane> } {
@@ -202,5 +203,115 @@ describe('wrecks keep the pose they land in', () => {
       expect(Math.abs(attitude(v).dot(before))).toBeGreaterThan(1 - 1e-9);
       sim.removeVehicle(v);
     }
+  });
+});
+
+describe('search reinforcements', () => {
+  it('never start where the player can see them, even 160-215 m down the street he stands looking along', () => {
+    // Round 2 fix pass 2 kept every search spawn out of his sight only within 160 m: on 5 of 30 streets a unit
+    // still appeared far down the one he looked along (in day fog, which starts at 180 m, and with no draw limit).
+    let spawned = 0;
+    let far = 0;
+    const seen: string[] = [];
+    for (let seed = 1; seed <= 30; seed++) {
+      const sim = makeSim({ seed });
+      const lanes = sim.roads.lanes.filter((l) => l.length > 60);
+      const lane = lanes[(seed * 53) % lanes.length]!;
+      const p = at(lane, lane.length / 2);
+      teleport(sim, p.x, p.z);
+      sim.wanted.setLevel(2);
+      // The police lost him here a while ago, after the response phase, and look around for him.
+      sim.wanted.responseUntil = 0;
+      sim.wanted.lastSeen = sim.time - 5;
+      sim.wanted.searching = true;
+      // The on-foot camera behind him, looking along the street.
+      sim.cam.x = p.x - lane.dx * 4;
+      sim.cam.y = sim.world.groundHeight(p.x, p.z) + 2;
+      sim.cam.z = p.z - lane.dz * 4;
+      const k = Math.hypot(1, 0.05);
+      sim.camDir.x = lane.dx / k;
+      sim.camDir.y = -0.05 / k;
+      sim.camDir.z = lane.dz / k;
+      for (let n = 0; n < 8; n++) {
+        const v = sim.police.spawnUnit('police', true);
+        if (!v) continue;
+        spawned++;
+        const d = dist(v.pos, p);
+        if (d >= 160) far++;
+        if (sim.isVisible(v.pos.x, 1, v.pos.z)) seen.push(`seed ${seed} unit ${n} at ${d.toFixed(0)} m`);
+      }
+    }
+    expect(spawned).toBeGreaterThan(150);
+    expect(far).toBeGreaterThan(20);
+    expect(seen).toEqual([]);
+  });
+});
+
+describe('cross traffic queued at a light', () => {
+  it('a bus queued round the corner at a light that is not green waits behind its stop line for the green', () => {
+    // Cross traffic for a fast player queues 6-10 m short of the line: a bus (half its length is 5.75 m) placed
+    // within 6.65 m was already in the junction for its driver, and pulled out against the red.
+    const W = world();
+    const roads = new Sim({ world: W, ambient: false, police: false }).roads;
+    const along = (l: Lane, p: { x: number; z: number }) => (p.x - l.sx) * l.dx + (p.z - l.sz) * l.dz;
+    // Streets running into a signalled junction with an avenue across them: buses queue on the avenue.
+    const streets = roads.lanes.filter((l) => {
+      const node = roads.nodes[l.to]!;
+      if (l.line.avenue || l.length < 60 || !node.signal) return false;
+      return [1, 3].some((k) => {
+        const side = node.neighbors[(l.dir + k) % 4]!;
+        return side >= 0 && roads.lanesBetween(side, l.to).some((c) => c.line.avenue);
+      });
+    });
+    expect(streets.length).toBeGreaterThanOrEqual(4);
+    let queued = 0;
+    let moved = 0;
+    const tooNear: string[] = [];
+    const ranRed: string[] = [];
+    let seed = 0;
+    for (const street of streets.slice(0, 6)) {
+      for (let t0 = 0; t0 < SIGNAL_CYCLE; t0 += 1.5) {
+        const sim = new Sim({ world: W, ambient: false, police: false, seed: ++seed });
+        sim.time = t0;
+        // The player drives down the street at 20 m/s, 140 m short of the junction, looking back the way he came.
+        const p = at(street, street.length - 140);
+        const car = sim.spawnVehicle('sports', p.x, p.z, street.heading);
+        placeInCar(sim, car);
+        car.vel.x = street.dx * 20;
+        car.vel.z = street.dz * 20;
+        sim.cam.x = p.x;
+        sim.cam.y = car.pos.y + 3;
+        sim.cam.z = p.z;
+        sim.camDir.x = -street.dx;
+        sim.camDir.y = 0;
+        sim.camDir.z = -street.dz;
+        const bus = sim.traffic.trySpawnTraffic(undefined, undefined, 'bus');
+        if (!bus || bus.kind !== 'bus' || Math.hypot(bus.vel.x, bus.vel.z) > 0) continue;
+        const lane = bus.ai!.currentLane()!;
+        const axis = axisOf(lane.dir);
+        if (sim.roads.signalState(lane.to, axis, sim.time) === 'green') continue;
+        queued++;
+        const label = `street ${street.id} t0 ${t0}`;
+        const toLine = lane.length - along(lane, bus.pos);
+        if (toLine < bus.halfL + 0.9) tooNear.push(`${label}: ${toLine.toFixed(2)} m`);
+        // The player gone, the bus waits until its light turns green, its nose behind the line (the lane end).
+        sim.removeVehicle(car);
+        const start = along(lane, bus.pos);
+        for (let f = 0; f < 60 * 20 && sim.roads.signalState(lane.to, axis, sim.time) !== 'green'; f++) {
+          sim.update(1 / 60, input());
+          if (along(lane, bus.pos) + bus.halfL > lane.length + 0.2) {
+            ranRed.push(`${label}: nose ${(along(lane, bus.pos) + bus.halfL - lane.length).toFixed(2)} m past at ${sim.time.toFixed(1)}`);
+            break;
+          }
+        }
+        // ...and drives off on the green.
+        step(sim, 4);
+        if (along(lane, bus.pos) - start > 3 || bus.ai!.currentLane() !== lane) moved++;
+      }
+    }
+    expect(queued).toBeGreaterThanOrEqual(12);
+    expect(ranRed).toEqual([]);
+    expect(tooNear).toEqual([]);
+    expect(moved).toBeGreaterThanOrEqual(queued - 1);
   });
 });
