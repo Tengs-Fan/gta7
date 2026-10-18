@@ -2,8 +2,34 @@ import { describe, expect, it } from 'vitest';
 import { makeContact, obbBounds, obbVsAabb } from '../../src/core/collision';
 import { Rng } from '../../src/core/rng';
 import type { PlayerInput } from '../../src/sim/input';
+import type { Sim } from '../../src/sim/sim';
 import { vehicleObb } from '../../src/sim/vehiclePhysics';
 import { allFinite, input, makeSim, teleport } from './helpers';
+
+/**
+ * The vehicles by what keeps their number down, as the e2e chaos test's vehicleCensus counts them, since
+ * nothing caps the total: parked cars fill a share of the bays around the player (up to 100 at once in the
+ * densest district), so a total only says which district the bot is in. TrafficSystem tops ambient traffic
+ * up to its target and no further, and parks at most one car per bay, each one tracked (parkedBySpot);
+ * PoliceSystem keeps at most UNITS_BY_LEVEL[5] = 7 crewed units out, one more with a patrol. Everything
+ * else (cars the player took or jacked, wrecks, cars left by their crews) has no cap of its own and goes
+ * once out of range: `far` lists what is still more than 450 m from the player, beyond the 320 m anything
+ * stays visible plus a streaming tick of driving at 60 m/s. Police sweeping a search area may stay by it.
+ */
+function vehicleCensus(sim: Sim): { traffic: number; parked: number; units: number; far: string[] } {
+  const pp = sim.playerPos();
+  const out = { traffic: 0, parked: 0, units: 0, far: [] as string[] };
+  for (const v of sim.vehicles) {
+    if (v.removed || v === sim.player.vehicle) continue;
+    const npc = v.driver && !v.driver.isPlayer;
+    if (v.owner === 'traffic' && npc && !v.destroyed) out.traffic++;
+    else if (v.owner === 'parked') out.parked++;
+    else if (v.owner === 'police' && v.drivable && v.occupants().some((c) => c.isLaw && c.alive)) out.units++;
+    const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
+    if (v.owner !== 'police' && d > 450) out.far.push(`${v.kind} (${v.owner}${v.destroyed ? ', wreck' : ''}) ${Math.round(d)} m away`);
+  }
+  return out;
+}
 
 describe('soak', () => {
   it('survives ten minutes of chaotic play with all invariants intact', () => {
@@ -25,8 +51,12 @@ describe('soak', () => {
     let deaths = 0;
     let enteredCars = 0;
     let maxWanted = 0;
+    let maxTarget = 0;
+    /** Sim time of the player's latest jump across town: a teleport or a respawn. */
+    let jumpedAt = -Infinity;
     sim.events.on('wasted', () => deaths++);
     sim.events.on('vehicleEnter', () => enteredCars++);
+    sim.events.on('respawn', () => (jumpedAt = sim.time));
     const dt = 1 / 60;
     const frames = 60 * 600;
     for (let f = 0; f < frames; f++) {
@@ -42,7 +72,10 @@ describe('soak', () => {
         yaw = rng.range(-Math.PI, Math.PI);
         if (rng.chance(0.08)) {
           const n = rng.pick(sim.roads.nodes);
-          if (!p.vehicle && p.alive) teleport(sim, n.x + 9, n.z + 9);
+          if (!p.vehicle && p.alive) {
+            teleport(sim, n.x + 9, n.z + 9);
+            jumpedAt = sim.time;
+          }
         }
         if (rng.chance(0.1)) sim.wanted.setLevel(rng.int(1, 5));
         if (rng.chance(0.05)) sim.wanted.clear();
@@ -99,7 +132,14 @@ describe('soak', () => {
         expect(allFinite(sim), `non-finite state at frame ${f}`).toBe(true);
         maxVehicles = Math.max(maxVehicles, sim.vehicles.length);
         maxChars = Math.max(maxChars, sim.characters.length);
-        expect(sim.vehicles.length).toBeLessThan(110);
+        // What caps the vehicle count, category by category (see vehicleCensus).
+        const census = vehicleCensus(sim);
+        maxTarget = Math.max(maxTarget, sim.traffic.targetCount);
+        expect(census.traffic, `traffic at frame ${f}`).toBeLessThanOrEqual(maxTarget);
+        expect(census.parked, `parked cars at frame ${f}`).toBeLessThanOrEqual(sim.traffic.parkedBySpot.size);
+        expect(census.units, `police units at frame ${f}`).toBeLessThanOrEqual(8);
+        // After a jump the streaming needs a tick (parked cars: 1.1 s) to drop what was left behind.
+        if (sim.time >= jumpedAt + 1.5) expect(census.far, `left behind at frame ${f}`).toEqual([]);
         expect(sim.characters.length).toBeLessThan(170);
         // No vehicle deep inside a building.
         for (const v of sim.vehicles) {
