@@ -710,8 +710,11 @@ export class CameraController {
     const base = Math.max(p.y, floorAt(world, p.x, p.z));
     const need = sightFloor(world, h.x, h.y, h.z, p.x, base, p.z);
     if (need > base) {
-      this.footLift += need - p.y;
-      p.y = need;
+      // As far as anything solid overhead lets it (an eave, an upper storey reaching out).
+      let lift = need - p.y;
+      if (world.grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight)) lift = Math.max(0, hit.t - 0.3);
+      this.footLift += lift;
+      p.y += lift;
     }
     // (He is not aiming.) The view tilts down by as much as he now lies further below it.
     const y1 = Math.max(p.y, floorAt(world, p.x, p.z));

@@ -345,6 +345,31 @@ describe('in the water with his back to a quay, the pier or a marina deck, the p
     }
   });
 
+  it('rising over the edge, the camera stays under anything solid overhead', () => {
+    // A fresh city: a slab 1.6-2.2 m up reaching out over the quay edge behind a swimmer 1 m out (an eave, a storey).
+    const sim = makeSim({ police: false });
+    sim.cheats.godMode = true;
+    const b = sim.world.layout.bounds;
+    sim.world.grid.addBox(b.landMinX - 0.5, 130, b.landMinX + 8, 150, 1.6, 2.2, 'wall');
+    const p = sim.player;
+    p.pos.x = b.landMinX - 1;
+    p.pos.z = 140;
+    p.pos.y = WATER_Y - 1.3;
+    p.state = 'swimming';
+    p.heading = -Math.PI / 2;
+    const cam = playCamera();
+    cam.reset(sim);
+    cam.yaw = -Math.PI / 2;
+    cam.pitch = -0.12;
+    play(sim, cam, new CrowdView(), 1);
+    const c = cam.camera.position;
+    expect(c.x).toBeGreaterThan(b.landMinX - 0.5);
+    expect(c.y).toBeLessThanOrEqual(1.6 - 0.29);
+    // And the crosshair ray rebuilt for the next frame starts there.
+    const ray = cam.rayFor();
+    expect(Math.hypot(ray.origin.x - c.x, ray.origin.y - c.y, ray.origin.z - c.z)).toBeLessThan(1e-6);
+  });
+
   it('getting out of a car parked along the quay into the sea, then swimming along the wall', () => {
     const sim = makeSim({ world: world(), police: false });
     sim.cheats.godMode = true;
