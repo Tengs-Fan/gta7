@@ -683,6 +683,24 @@ describe('FIXMYRIDE typed in a burning taxi or vigilante car keeps the job', () 
       expect(sim.activities.job).toBe(null);
     });
 
+    it('when the cab blows up during the wait, the code being typed or not', async () => {
+      const h = await taxiWithFare();
+      const { sim, frames, type, taxi } = h;
+      sim.cheats.godMode = true; // he lives through the blast: the job ends for the car, not for him
+      sim.combat.igniteVehicle(taxi, 0.3);
+      frames(1);
+      const n = watch(sim);
+      pressF(frames);
+      expect(n.exits).toBe(1);
+      expect(n.jobsEnded).toBe(0);
+      expect(taxi.destroyed).toBe(false);
+      type('IXM');
+      expect(taxi.destroyed).toBe(true);
+      expect(n.jobsEnded).toBe(1);
+      expect(sim.activities.job).toBe(null);
+      expect(sim.player.alive).toBe(true);
+    });
+
     it('once the time a code allows between two letters (1.5 s) has gone by with no next letter', async () => {
       const { sim, frames, n } = await outOfBurningCab();
       keyUp('KeyF', 'f');
