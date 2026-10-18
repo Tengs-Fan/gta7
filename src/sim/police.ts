@@ -123,6 +123,8 @@ export class PoliceSystem {
   readonly dispatcher: DispatchSystem;
   /** The sidewalk node each officer without a car walks off to once the stars are gone, the one before, and how long he may take (see walkOff). */
   private readonly walkingOff = new WeakMap<Character, { node: number; prev: number; until: number }>();
+  /** The deck each officer keeping to one walks along (see deckWay), and his line along it. */
+  private readonly deckLines = new WeakMap<Character, { deck: Deck; w: number }>();
 
   constructor(private readonly sim: Sim) {
     this.dispatcher = new DispatchSystem(sim);
@@ -968,22 +970,53 @@ export class PoliceSystem {
         exit = e;
       }
     }
-    if (!deck || !exit || !wetWay(world, c.pos.x, c.pos.z, tx, tz)) return null;
+    if (!deck || !exit || !wetWay(world, c.pos.x, c.pos.z, tx, tz)) {
+      this.deckLines.delete(c);
+      return null;
+    }
     const r = deck.rect;
     const pp = this.sim.playerPos();
     const clear = Math.min(2.5, Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) - 0.1);
-    // Just past the end: off the deck on land, or 1 m into the deck it joins. Across the deck, his own line along it, 1 m in
-    // from its edges.
-    if (exit.nx !== 0) {
-      const end = exit.nx < 0 ? r.minX - 1 : r.maxX + 1;
-      let side = clamp(c.pos.z, r.minZ + 1, r.maxZ - 1);
-      if (passesBy(pp, c, { x: end, z: side }, clear)) side = pp.z > (r.minZ + r.maxZ) / 2 ? r.minZ + 1 : r.maxZ - 1;
-      return { x: Math.abs(end - c.pos.x) > DECK_LEAD ? c.pos.x + Math.sign(end - c.pos.x) * DECK_LEAD : end, z: side };
+    // Along the deck (u) and across it (w).
+    const alongX = exit.nx !== 0;
+    const at = (u: number, w: number) => (alongX ? { x: u, z: w } : { x: w, z: u });
+    const u0 = alongX ? c.pos.x : c.pos.z;
+    const w0 = alongX ? c.pos.z : c.pos.x;
+    const wMin = alongX ? r.minZ : r.minX;
+    const wMax = alongX ? r.maxZ : r.maxX;
+    // Just past the end: off the deck on land, or 1 m into the deck it joins.
+    const end = (alongX ? exit.nx : exit.nz) < 0 ? (alongX ? r.minX : r.minZ) - 1 : (alongX ? r.maxX : r.maxZ) + 1;
+    const ahead = (du: number) => (Math.abs(end - u0) > du ? u0 + Math.sign(end - u0) * du : end);
+    // Nothing standing on the deck (the Ferris wheel's base fills the pier but for a metre on either side) over the next
+    // DECK_LEAD m of the line across the deck at w.
+    const clearLine = (w: number) => {
+      const u = ahead(DECK_LEAD);
+      for (let k = 1; k <= 4; k++) {
+        const p = at(u0 + ((u - u0) * k) / 4, w);
+        if (!world.isFree(p.x, p.z, 0.4)) return false;
+      }
+      return true;
+    };
+    // The line along the deck he keeps to: at first his own, 1 m in from its edges. One that runs past the player gives way
+    // to one on the side of the deck away from him, and one that runs into something to the clear line nearest it (lines
+    // a quarter metre apart, 0.5 m in from the edges).
+    const kept = this.deckLines.get(c);
+    let w = kept && kept.deck === deck ? kept.w : clamp(w0, wMin + 1, wMax - 1);
+    if (passesBy(pp, c, at(end, w), clear)) w = (alongX ? pp.z : pp.x) > (wMin + wMax) / 2 ? wMin + 1 : wMax - 1;
+    if (!clearLine(w)) {
+      let best = w;
+      let bd = Infinity;
+      for (let ww = wMin + 0.5; ww <= wMax - 0.5; ww += 0.25) {
+        if (Math.abs(ww - w) < bd && clearLine(ww)) {
+          best = ww;
+          bd = Math.abs(ww - w);
+        }
+      }
+      w = best;
     }
-    const end = exit.nz < 0 ? r.minZ - 1 : r.maxZ + 1;
-    let side = clamp(c.pos.x, r.minX + 1, r.maxX - 1);
-    if (passesBy(pp, c, { x: side, z: end }, clear)) side = pp.x > (r.minX + r.maxX) / 2 ? r.minX + 1 : r.maxX - 1;
-    return { x: side, z: Math.abs(end - c.pos.z) > DECK_LEAD ? c.pos.z + Math.sign(end - c.pos.z) * DECK_LEAD : end };
+    this.deckLines.set(c, { deck, w });
+    // Off his line, across to it first (along the face of whatever stood in his way), then along it.
+    return at(ahead(clamp(DECK_LEAD - 2 * Math.abs(w - w0), 0.5, DECK_LEAD)), w);
   }
 
   private walkToCar(c: Character, car: Vehicle, dt: number, level: number): void {

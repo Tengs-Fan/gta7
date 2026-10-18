@@ -296,6 +296,31 @@ describe('officers without a car walking off at 0 stars keep to the pier and the
     expect(bad).toEqual([]);
   });
 
+  it('from the far end of the pier: past the Ferris wheel, whose base fills the deck but for a metre on either side', () => {
+    for (const [ox, oz] of [
+      [686, 40],
+      [686, 36],
+      [691, 44],
+    ] as const) {
+      const sim = makeSim();
+      // The player 30-odd m along the pier (near enough that cleanup keeps the officer), out of his way.
+      teleport(sim, 645, oz < 40 ? 44 : 36);
+      const c = officer(sim, ox, oz);
+      let past = -1;
+      let wet = 0;
+      step(sim, 30, (t) => {
+        if (!c.removed) {
+          if (past < 0 && c.pos.x < 666) past = t;
+          wet = Math.max(wet, sim.world.waterDepth(c.pos.x, c.pos.z));
+        }
+        return input();
+      });
+      expect(wet, `from (${ox}, ${oz})`).toBeLessThanOrEqual(0);
+      expect(past, `from (${ox}, ${oz})`).toBeGreaterThan(0);
+      expect(past, `from (${ox}, ${oz})`).toBeLessThan(25);
+    }
+  });
+
   it('one walking along the pier passes the player standing in his way at a distance, on the other side of the deck', () => {
     const sim = makeSim();
     teleport(sim, 600, 40);
