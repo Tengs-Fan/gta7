@@ -109,8 +109,11 @@ const MOON_LO = -0.15;
 /** Moonlight intensity at full night, and its colour. */
 const MOON_I = 0.32;
 const MOON_COLOR = new THREE.Color(0x9fb4ff);
-/** The sun's light never comes from lower than this (sine of its elevation) while it fades out. */
-const KEY_MIN_Y = 0.05;
+/**
+ * The sun's light follows the sky's sun down to the horizon and stays level (this sine of its elevation)
+ * while it fades out under it: light from below would let the pier deck and other casters shade the scene.
+ */
+const KEY_MIN_Y = 0;
 
 /** 0..1: how much of the sun the sky shows, and how much of its light reaches the scene, at a sun height sunDir.y. */
 export function sunVisibility(y: number): number {
@@ -235,11 +238,39 @@ function noonPuffLight(): THREE.Color {
  */
 export const RIPPLE_B = { scale: 0.3719, cos: 0.8, sin: 0.6 } as const;
 
-/** Patches the sea's standard material to sum the two ripple samples (see RIPPLE_B). */
-function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetB: { value: THREE.Vector2 }): void {
+/** The baked sky's colours and strength, for the sea to reflect where there is no environment map. */
+interface SkyReflection {
+  top: { value: THREE.Color };
+  horizon: { value: THREE.Color };
+  intensity: { value: number };
+}
+
+/**
+ * Patches the sea's standard material to sum the two ripple samples (see RIPPLE_B). With `sky` (no
+ * environment map: no float colour buffers) the sea also reflects the baked sky's gradient, worked out
+ * in the shader as envMat draws it, so it still takes the sky's colour (orange at sunset) on that path.
+ */
+function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetB: { value: THREE.Vector2 }, sky: SkyReflection | null): void {
   const { scale, cos, sin } = RIPPLE_B;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRippleB = offsetB;
+    if (sky) {
+      shader.uniforms.uSkyTop = sky.top;
+      shader.uniforms.uSkyHorizon = sky.horizon;
+      shader.uniforms.uSkyI = sky.intensity;
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uSkyTop;\nuniform vec3 uSkyHorizon;\nuniform float uSkyI;').replace(
+        '#include <lights_fragment_maps>',
+        `#include <lights_fragment_maps>
+#if defined( RE_IndirectSpecular ) && ! defined( USE_ENVMAP )
+  {
+    vec3 skyR = inverseTransformDirection( reflect( - geometryViewDir, geometryNormal ), viewMatrix );
+    vec3 skyC = mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, skyR.y ) );
+    skyC = mix( skyC, vec3( ${HAZE.r.toFixed(3)}, ${HAZE.g.toFixed(3)}, ${HAZE.b.toFixed(3)} ) * ( uSkyHorizon + 0.2 ), 1.0 - smoothstep( -0.25, 0.0, skyR.y ) );
+    radiance += skyC * uSkyI;
+  }
+#endif`,
+      );
+    }
     shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uRippleB;').replace(
       '#include <normal_fragment_maps>',
       `#ifdef USE_NORMALMAP_TANGENTSPACE
@@ -256,7 +287,7 @@ function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetB: { value: THRE
 #endif`,
     );
   };
-  mat.customProgramCacheKey = () => 'gta7-sea-ripples';
+  mat.customProgramCacheKey = () => (sky ? 'gta7-sea-ripples-sky' : 'gta7-sea-ripples');
 }
 
 /** The shadow map's texel grid is measured from a world point on a grid this coarse (m): see Environment.placeShadow. */
@@ -510,6 +541,8 @@ export class Environment {
   private readonly waterNormal: THREE.Texture;
   /** Offset of the sea's second ripple sample (RIPPLE_B), in its own tile units. */
   private readonly rippleB = { value: new THREE.Vector2() };
+  /** The sky the sea reflects without an environment map (see twoLayerRipples). */
+  private readonly skyReflection: SkyReflection = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, intensity: { value: 0 } };
   private readonly cloudNoise = cloudNoiseTexture();
   /** The PMREM target holding the environment map: allocated by the first bake and refilled by every later one. */
   private envTarget: THREE.WebGLRenderTarget | null = null;
@@ -618,7 +651,7 @@ export class Environment {
     this.waterNormal = waterNormalTexture();
     this.waterNormal.repeat.set(900, 900);
     const waterMat = new THREE.MeshStandardMaterial({ color: 0x135a73, roughness: 0.22, metalness: 0.1, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22) });
-    twoLayerRipples(waterMat, this.rippleB);
+    twoLayerRipples(waterMat, this.rippleB, this.envFill ? this.skyReflection : null);
     const water = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), waterMat);
     water.position.y = WATER_Y;
     water.receiveShadow = true;
@@ -779,6 +812,9 @@ export class Environment {
       // A hemisphere light's colour is irradiance; the sky's diffuse light is PI x its average radiance.
       this.envFill.color.copy(this.envUp).multiplyScalar(Math.PI * envI);
       this.envFill.groundColor.copy(this.envDown).multiplyScalar(Math.PI * envI);
+      this.skyReflection.top.value.copy(s.top);
+      this.skyReflection.horizon.value.copy(s.horizon);
+      this.skyReflection.intensity.value = envI;
     }
     // Re-bake reflections every quarter game hour (or after a jump in time), and while the sun sets or
     // rises, so its reflection fades with the sky's instead of in quarter-hour steps and is gone (or

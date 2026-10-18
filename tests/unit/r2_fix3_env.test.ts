@@ -156,8 +156,8 @@ describe('twilight key light (no phantom sun)', () => {
     expect(s.reflected.slice(0, 3), 'the baked sky still reflects a sun below the horizon').toEqual([]);
     expect(s.dL, `largest per-frame change of the key light at ${s.at.toFixed(4)} h`).toBeLessThan(0.01);
     expect(s.dC).toBeLessThan(0.01);
-    // The light never sits more than the guard (3 degrees above the horizon) away from the sky's sun.
-    expect(THREE.MathUtils.radToDeg(s.off)).toBeLessThan(5.9);
+    // The light comes from the sky's sun, or level with the horizon while that sinks under it, fading.
+    expect(THREE.MathUtils.radToDeg(s.off)).toBeLessThan(3);
   });
 
   it('dawn: the moon fades out before the sun light comes up with the sky sun', () => {
@@ -166,7 +166,7 @@ describe('twilight key light (no phantom sun)', () => {
     expect(s.reflected.slice(0, 3), 'the baked sky already reflects a sun below the horizon').toEqual([]);
     expect(s.dL, `largest per-frame change of the key light at ${s.at.toFixed(4)} h`).toBeLessThan(0.01);
     expect(s.dC).toBeLessThan(0.01);
-    expect(THREE.MathUtils.radToDeg(s.off)).toBeLessThan(5.9);
+    expect(THREE.MathUtils.radToDeg(s.off)).toBeLessThan(3);
   });
 
   it('the moonlight does not jump at midnight', () => {
@@ -710,11 +710,23 @@ describe('without float colour buffers', () => {
     expect(fill[12]!).toBeGreaterThan(lum(r.env.hemi.color) * 0.5);
     expect(fill[22]!).toBeLessThan(0.2 * fill[12]!);
     expect(fill[6]!).toBeGreaterThan(0);
+    // The sea reflects the sky's gradient instead of the missing map (orange at sunset, not black).
+    const seaShader = (env: Environment) => {
+      const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} as Record<string, THREE.IUniform> };
+      (env.water.material as THREE.MeshStandardMaterial).onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, fakeRenderer());
+      return shader;
+    };
+    const sea = seaShader(r.env);
+    expect(sea.fragmentShader).toContain('radiance += skyC * uSkyI');
+    show(18.6);
+    expect((sea.uniforms.uSkyHorizon!.value as THREE.Color).r, 'the sunset horizon').toBeGreaterThan((sea.uniforms.uSkyHorizon!.value as THREE.Color).b);
+    expect(sea.uniforms.uSkyI!.value).toBeCloseTo(r.scene.environmentIntensity, 6);
     // With half-float targets nothing changes: the baked sky lights and reflects, with no fill.
     const hdr = rendererAt(true);
     hdr.show(12);
     expect((hdr.r.env as unknown as EnvPriv).pmrem).toBeTruthy();
     expect(hdr.r.env.envFill).toBeNull();
+    expect(seaShader(hdr.r.env).fragmentShader).not.toContain('uSkyI');
   });
 
   it('every custom shader drawn to the screen tone-maps and sRGB-encodes its own output when there is no output pass', () => {
