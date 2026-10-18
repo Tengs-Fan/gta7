@@ -158,6 +158,8 @@ export class Character {
   enterTarget: Vehicle | null = null;
   lastAttacker: Character | null = null;
   lastAttackTime = -999;
+  /** Who dealt the latest hit: null for one with no attacker (flames, a fall), unlike lastAttacker. */
+  lastHitBy: Character | null = null;
   /** Money this character drops on death (civilians). */
   cash = 0;
   meleeCombo = 0;

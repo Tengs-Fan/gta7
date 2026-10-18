@@ -228,6 +228,38 @@ describe('Vigilante: stopping the suspect is no crime', () => {
     expect(sim.wanted.lastCrime).toBe('murder');
   });
 
+  it('a job that lets the suspect go without a stop hands back an ordinary man; one stopped stays stopped after the job', () => {
+    // Quit (T) while he still drives: killing him next to the officer is killing a gang member again.
+    {
+      const sim = makeSim({ police: true });
+      const vg = startVigilante(sim);
+      officerBeside(sim, vg.target);
+      sim.update(DT, input({ job: true }));
+      sim.update(DT, input());
+      expect(sim.activities.job).toBeNull();
+      expect(vg.target.driver).toBe(vg.suspect);
+      sim.combat.damageCharacter(vg.suspect, 1000, sim.player, 'bullet', 1, 0, 0);
+      expect(vg.suspect.alive).toBe(false);
+      expect(sim.wanted.level).toBe(1);
+      expect(sim.wanted.lastCrime).toBe('killGang');
+    }
+    // Stopped (his car set alight, he bails), then the player quits: still no crime to finish him off.
+    {
+      const sim = makeSim({ police: true });
+      const vg = startVigilante(sim);
+      officerBeside(sim, vg.target);
+      sim.combat.damageVehicle(vg.target, vg.target.health + 1, sim.player, 'bullet');
+      step(sim, 0.1);
+      expect(vg.level()).toBe(2);
+      sim.update(DT, input({ job: true }));
+      sim.update(DT, input());
+      expect(sim.activities.job).toBeNull();
+      sim.combat.damageCharacter(vg.suspect, 1000, sim.player, 'bullet', 1, 0, 0);
+      expect(vg.suspect.alive).toBe(false);
+      expect(sim.wanted.level, `${sim.wanted.lastCrime}`).toBe(0);
+    }
+  });
+
   it('control: the same drive-by from a cruiser with no job running is gunfire in front of the officer', () => {
     const sim = makeSim({ police: true });
     const r = roadPoint(sim, 40, 20);
@@ -717,6 +749,29 @@ describe('Fire kills are credited to whoever set the car alight', () => {
     expect(civ.brain!.threat).toBeNull();
   });
 
+  it('hit by the player in the same frame, then finished by the flames: bystanders run from the fire, not from him', () => {
+    const sim = makeSim({ world: world(), police: false });
+    const r = openRoad(sim);
+    teleport(sim, r.x - r.fx * 40, r.z - r.fz * 40);
+    const car = sim.spawnVehicle('sedan', r.x, r.z, r.h);
+    sim.combat.damageVehicle(car, car.health + 1, sim.player, 'bullet');
+    car.burnTimer = 30;
+    const victim = npcAt(sim, 'civilian', car.pos.x + r.rx * 1.6, car.pos.z + r.rz * 1.6);
+    victim.brain = makeBrain('wander');
+    victim.health = 34.2;
+    const witness = npcAt(sim, 'civilian', car.pos.x + r.rx * 6, car.pos.z + r.rz * 6);
+    witness.brain = makeBrain('wander');
+    const killed = record(sim, 'characterKilled');
+    // A hit of his that nobody saw (no shot heard), then, in the same frame, the flames deal the fatal one.
+    sim.combat.damageCharacter(victim, 34, sim.player, 'bullet', 1, 0, 0);
+    expect(victim.alive).toBe(true);
+    sim.combat.update(DT);
+    expect(victim.alive).toBe(false);
+    expect(killed.find((k) => k.victim === victim)?.killer).toBe(sim.player);
+    expect(witness.brain!.mode).toBe('flee');
+    expect(witness.brain!.threat).toBeNull();
+  });
+
   it("a gangster's stray round on a car the player lit does not take over the blame for its explosion", () => {
     const sim = makeSim({ world: world(), police: true });
     const r = openRoad(sim);
@@ -761,6 +816,30 @@ describe('Peds fleeing along a seawall keep out of the sea', () => {
         expect(fleeAlong(b.landMinX + 3, 0, -k, side * s), `west ${beta} ${side}`).toBe(false);
         expect(fleeAlong(0, b.landMinZ + 3, side * s, -k), `north ${beta} ${side}`).toBe(false);
         expect(fleeAlong(0, b.landMaxZ - 3, side * s, k), `south ${beta} ${side}`).toBe(false);
+      }
+    }
+  });
+
+  it('on a 4 m Marina finger pier, fleeing at an angle to it: along the pier, never into the water', () => {
+    const piers = world().layout.decks.filter((d) => d.name === 'Marina' && d.rect.maxX - d.rect.minX < 6);
+    expect(piers.length).toBe(3);
+    for (const pier of piers) {
+      const x = (pier.rect.minX + pier.rect.maxX) / 2;
+      const z = (pier.rect.minZ + pier.rect.maxZ) / 2;
+      // The threat 40 m off at 45 degrees on either side, towards the deck or out to sea.
+      for (const [sx, sz] of [[1, -1], [-1, -1], [1, 1], [-1, 1]] as const) {
+        const sim = makeSim({ world: world(), police: false });
+        teleport(sim, x - 100, 300);
+        const c = npcAt(sim, 'civilian', x, z);
+        c.brain = makeBrain('wander');
+        sim.peds.flee(c, x + sx * 40, z + sz * 40, null);
+        c.brain.lateral = 0;
+        const label = `pier at x ${x}, threat ${sx},${sz}`;
+        for (let i = 0; i < 60 * 10; i++) {
+          sim.update(DT, input());
+          expect(c.state, label).not.toBe('swimming');
+        }
+        expect(sim.world.waterDepth(c.pos.x, c.pos.z), label).toBeLessThan(0);
       }
     }
   });

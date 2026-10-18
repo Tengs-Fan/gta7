@@ -160,9 +160,12 @@ export class CombatSystem {
   /**
    * Vigilante suspects and their cars. The player stops them for the law: hurting, killing or wrecking them is no
    * crime, and the wreck that burns out and blows up afterwards is nobody's doing. Remembered after the job lets go of
-   * them (it clears their missionTag when it counts the stop, seconds before the burning wreck explodes).
+   * them once stopped (it clears their missionTag when it counts the stop, seconds before the burning wreck explodes);
+   * see followVigilante.
    */
   private readonly outlaws = new WeakSet<Character | Vehicle>();
+  /** The vigilante job's suspect and his car as of the last frame (see followVigilante). */
+  private readonly hunted: { car: Vehicle | null; suspect: Character | null } = { car: null, suspect: null };
   private fireWarnCooldown = 0;
   /** Victims already charged with a crime for the shot being resolved (one per victim per trigger pull). */
   private volley: Set<object> | null = null;
@@ -178,11 +181,7 @@ export class CombatSystem {
   constructor(private readonly sim: Sim) {}
 
   update(dt: number): void {
-    const job = this.sim.activities.job;
-    if (job?.kind === 'vigilante') {
-      if (job.target) this.outlaws.add(job.target);
-      if (job.suspect) this.outlaws.add(job.suspect);
-    }
+    this.followVigilante();
     // Weapons change hands in many places (slot keys, pickups, shops, missions): drop stale reloads
     // and start the swap time here, before the timers run them out and before the HUD shows them.
     for (const c of this.sim.characters) {
@@ -830,6 +829,7 @@ export class CombatSystem {
     const healthLoss = Math.min(amount, Math.max(0, c.health));
     c.health -= amount;
     c.hurtTimer = 0.35;
+    c.lastHitBy = attacker;
     if (attacker && attacker !== c) {
       c.lastAttacker = attacker;
       c.lastAttackTime = sim.time;
@@ -878,6 +878,30 @@ export class CombatSystem {
   /** A vigilante suspect or his car (see outlaws): the player's attacks on them are no crime. */
   isOutlaw(o: Character | Vehicle): boolean {
     return o.missionTag === 'vigilante' || this.outlaws.has(o);
+  }
+
+  /**
+   * Keeps `outlaws` in step with the vigilante job: its suspect and his car while it hunts them, and for good once
+   * they are stopped (his car wrecked or left, or he is dead: what the job counts as a stop). A job that lets them go
+   * without one (out of time, he got away, the player quit or left the cruiser) hands back ordinary people.
+   */
+  private followVigilante(): void {
+    const job = this.sim.activities.job;
+    const car = job?.kind === 'vigilante' ? job.target : null;
+    const suspect = job?.kind === 'vigilante' ? job.suspect : null;
+    const h = this.hunted;
+    if (h.car && h.car !== car) {
+      const t = h.car;
+      const stopped = t.destroyed || t.removed || !t.driver || !t.driver.alive;
+      if (!stopped) {
+        this.outlaws.delete(t);
+        if (h.suspect && h.suspect !== suspect) this.outlaws.delete(h.suspect);
+      }
+    }
+    h.car = car;
+    h.suspect = suspect;
+    if (car) this.outlaws.add(car);
+    if (suspect) this.outlaws.add(suspect);
   }
 
   /** The player is on vigilante duty: at the wheel of the job's police car. */

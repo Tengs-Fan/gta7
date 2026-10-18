@@ -27,8 +27,17 @@ export function cowerCrouched(c: Character, player: Character | null): boolean {
   return c.brain?.mode === 'cower' && c.state === 'normal' && !cowerHandsUp(c, player);
 }
 
-/** Turns from the escape direction a fleeing ped tries in turn, when the way ahead runs into the sea: either side, then back. */
-const FLEE_TURNS = [0, Math.PI / 2, -Math.PI / 2, Math.PI] as const;
+/**
+ * Turns from the escape direction a fleeing ped tries in turn when the way ahead runs into the sea, the least first:
+ * either side in steps of 22.5 degrees, then straight back. Fine enough to find the way along a 4 m finger pier, whatever
+ * the angle he flees at.
+ */
+const FLEE_TURNS: readonly number[] = (() => {
+  const turns = [0];
+  for (let k = 1; k < 8; k++) turns.push((k * Math.PI) / 8, (-k * Math.PI) / 8);
+  turns.push(Math.PI);
+  return turns;
+})();
 
 export class PedSystem {
   private timer = 0;
@@ -42,9 +51,9 @@ export class PedSystem {
     });
     sim.events.on('explosion', (e) => this.onViolence(e.x, e.z, null, 60));
     // Bystanders run from a killer whose blow they saw land; from the body when he only answers for the death (the
-    // flames of a car he set alight): the fire is what they see.
+    // flames of a car he set alight dealt the fatal hit, whoever hit him before): the fire is what they see.
     sim.events.on('characterKilled', (e) => {
-      const seen = e.killer !== null && e.victim.lastAttacker === e.killer && e.victim.lastAttackTime === sim.time;
+      const seen = e.killer !== null && e.victim.lastHitBy === e.killer;
       this.onViolence(e.victim.pos.x, e.victim.pos.z, seen ? e.killer : null, 16);
     });
   }
@@ -386,8 +395,8 @@ export class PedSystem {
       dz = -Math.cos(c.heading);
     }
     // Bend the escape direction a little per ped so crowds scatter. Never off a quay, a seawall or a pier into the sea:
-    // the first of that direction, either side of it and back whose ground 3 and 6 m ahead is dry. Already in the
-    // water, or with water all round, he makes for the nearest sidewalk instead, to climb out.
+    // the direction nearest it (see FLEE_TURNS) whose ground 3 and 6 m ahead is dry. Already in the water, or with
+    // water all round, he makes for the nearest sidewalk instead, to climb out.
     const ang = Math.atan2(dx, dz) + b.lateral * 0.8;
     let tx = c.pos.x;
     let tz = c.pos.z;

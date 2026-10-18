@@ -212,6 +212,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
       if (c.brain && c.brain.target && c.brain.target.removed) c.brain.target = null;
       if (c.brain && c.brain.threat && c.brain.threat.removed) c.brain.threat = null;
       if (c.lastAttacker && c.lastAttacker.removed) c.lastAttacker = null;
+      if (c.lastHitBy && c.lastHitBy.removed) c.lastHitBy = null;
       if (c.enterTarget && c.enterTarget.removed) c.enterTarget = null;
     }
     for (const v of this.vehicles) {
