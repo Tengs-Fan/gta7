@@ -369,6 +369,22 @@ describe("The Big Score's finale at the Marina", () => {
     step(sim3, 0.1);
     expect(sim3.wanted.level).toBe(4);
   });
+
+  it('the alarm tells the police where he is, also when he arrives with more stars than it pins', () => {
+    const sim = setup(before('big_score'), { police: false });
+    sim.missions.noBust = true;
+    const spots = missionSpots(sim.world);
+    startMission(sim, 'big_score');
+    stepUntil(sim, () => objective(sim) === 'Go to the First Azura Bank', 20);
+    sim.wanted.setLevel(4);
+    // Out of their sight long enough that they search where they saw him last.
+    stepUntil(sim, () => sim.wanted.searching, 40, 1 / 30);
+    teleport(sim, spots.bank.x, spots.bank.z);
+    stepUntil(sim, () => objective(sim).startsWith('Hold'), 2);
+    expect(sim.wanted.level).toBe(4);
+    expect(sim.wanted.searching).toBe(false);
+    expect(Math.hypot(sim.wanted.lastSeenX - spots.bank.x, sim.wanted.lastSeenZ - spots.bank.z)).toBeLessThan(4);
+  });
 });
 
 // --- retries keep what was gained between attempts ---------------------------------------
@@ -701,8 +717,8 @@ describe('a taxi job ending with the fare aboard', () => {
     const fare = (sim.activities.job as unknown as { fare: Character }).fare;
     fare.pos.x = taxi.pos.x - Math.cos(taxi.heading) * 3.5;
     fare.pos.z = taxi.pos.z + Math.sin(taxi.heading) * 3.5;
-    step(sim, 0.05);
-    expect(fare.vehicle).toBe(taxi);
+    // He walks to its door first.
+    stepUntil(sim, () => fare.vehicle === taxi, 3);
     return { sim, taxi, fare };
   }
 
@@ -728,6 +744,119 @@ describe('a taxi job ending with the fare aboard', () => {
       expect(sim.world.isOnRoad(at.x, at.z)).toBe(false);
     });
   }
+});
+
+describe('a taxi fare walks to the cab', () => {
+  interface Job {
+    stage: string;
+    fare: Character | null;
+  }
+
+  /** A taxi job on a one-lane street, the cab stopped in its lane `dist` m from the fare, who waits on the sidewalk 4 m to its right. */
+  function cabAndFare(dist: number): { sim: Sim; taxi: Vehicle; fare: Character; job: () => Job } {
+    const sim = makeSim({ ambient: false, police: false });
+    const lane = sim.roads.lanes.find((l) => l.lanesInDir === 1 && l.length > 60 && Math.abs(l.sx) < 300 && Math.abs(l.sz) < 300)!;
+    const x = lane.sx + lane.dx * lane.length * 0.3;
+    const z = lane.sz + lane.dz * lane.length * 0.3;
+    const taxi = sim.spawnVehicle('taxi', x, z, lane.heading);
+    placeInCar(sim, taxi);
+    step(sim, 0.05);
+    sim.activities.toggleJob();
+    const job = () => sim.activities.job as unknown as Job;
+    const fare = job().fare!;
+    const ahead = Math.sqrt(dist * dist - 16);
+    fare.pos.x = x - Math.cos(lane.heading) * 4 + lane.dx * ahead;
+    fare.pos.z = z + Math.sin(lane.heading) * 4 + lane.dz * ahead;
+    expect(sim.world.isOnRoad(fare.pos.x, fare.pos.z)).toBe(false);
+    return { sim, taxi, fare, job };
+  }
+
+  /** Steps until the fare is aboard: how long it took, his fastest pace on foot (m/s), and the step from his last spot into the seat. */
+  function walkAboard(sim: Sim, taxi: Vehicle, fare: Character): { t: number; fastest: number; step: number } {
+    let last = { x: fare.pos.x, z: fare.pos.z };
+    let fastest = 0;
+    let t = 0;
+    while (t < 8 && fare.vehicle !== taxi) {
+      sim.update(1 / 60, input());
+      t += 1 / 60;
+      if (fare.vehicle === taxi) break;
+      fastest = Math.max(fastest, Math.hypot(fare.pos.x - last.x, fare.pos.z - last.z) * 60);
+      last = { x: fare.pos.x, z: fare.pos.z };
+    }
+    expect(fare.vehicle).toBe(taxi);
+    return { t, fastest, step: Math.hypot(fare.pos.x - last.x, fare.pos.z - last.z) };
+  }
+
+  it('does not jump into a cab stopped 8.9 m away: he walks to it, and is aboard within 4 s', () => {
+    const { sim, taxi, fare } = cabAndFare(8.9);
+    const at = { x: fare.pos.x, z: fare.pos.z };
+    sim.update(1 / 60, input());
+    expect(fare.vehicle).toBeNull();
+    expect(Math.hypot(fare.pos.x - at.x, fare.pos.z - at.z)).toBeLessThan(2.2 / 60);
+    const { t, fastest } = walkAboard(sim, taxi, fare);
+    // A walk (1.6 m/s); a long one ends with him getting in a little short of the door.
+    expect(fastest).toBeLessThan(2.2);
+    expect(t).toBeGreaterThan(3);
+    expect(t).toBeLessThan(4.1);
+  });
+
+  it('gets in at the door nearest him, one step from his seat', () => {
+    const { sim, taxi, fare } = cabAndFare(6);
+    const { t, fastest, step: into } = walkAboard(sim, taxi, fare);
+    expect(t).toBeGreaterThan(1.5);
+    expect(fastest).toBeLessThan(2.2);
+    expect(into).toBeLessThan(2.3);
+    // Ahead of the cab on its right: the front passenger door.
+    expect(fare.seat).toBe(1);
+  });
+
+  it('walks back to his spot on the sidewalk if the cab pulls away, and waits there for it', () => {
+    const { sim, taxi, fare, job } = cabAndFare(7);
+    const spot = { x: fare.pos.x, z: fare.pos.z };
+    step(sim, 1.2);
+    expect(fare.vehicle).toBeNull();
+    expect(Math.hypot(fare.pos.x - spot.x, fare.pos.z - spot.z)).toBeGreaterThan(1);
+    // The cab drives off.
+    step(sim, 2, input({ throttle: 1 }));
+    step(sim, 6, input({ brake: 1 }));
+    expect(fare.vehicle).toBeNull();
+    expect(job().stage).toBe('pickup');
+    expect(Math.hypot(fare.pos.x - spot.x, fare.pos.z - spot.z)).toBeLessThan(0.7);
+    expect(fare.brain?.mode).toBe('stand');
+    expect(sim.world.isOnRoad(fare.pos.x, fare.pos.z)).toBe(false);
+    // Back and waiting beside him: he gets in.
+    parkIn(sim, taxi, spot.x + Math.cos(taxi.heading) * 3.2, spot.z - Math.sin(taxi.heading) * 3.2);
+    stepUntil(sim, () => fare.vehicle === taxi, 4);
+    expect(job().stage).toBe('dropoff');
+  });
+
+  it('a cab that stops again while he walks back, then leaves, still sends him back to the sidewalk', () => {
+    const { sim, taxi, fare } = cabAndFare(7);
+    const spot = { x: fare.pos.x, z: fare.pos.z };
+    // Out towards the cab, into the road.
+    step(sim, 2.2);
+    expect(fare.vehicle).toBeNull();
+    expect(sim.world.isOnRoad(fare.pos.x, fare.pos.z)).toBe(true);
+    /** Backs the cab up at `speed` m/s (0: holds it) for `secs` s. */
+    const back = (speed: number, secs: number) => {
+      for (let t = 0; t < secs; t += 1 / 60) {
+        taxi.vel.x = -Math.sin(taxi.heading) * speed;
+        taxi.vel.z = -Math.cos(taxi.heading) * speed;
+        sim.update(1 / 60, input({ handbrake: speed === 0 }));
+      }
+    };
+    // It backs off; while he walks back, still in the road, it stops again, and he turns to it once more...
+    back(4, 0.3);
+    expect(sim.world.isOnRoad(fare.pos.x, fare.pos.z)).toBe(true);
+    back(0, 0.5);
+    expect(fare.vehicle).toBeNull();
+    // ...then it leaves for good: back to the sidewalk spot he first set off from.
+    back(10, 2);
+    back(0, 6);
+    expect(fare.vehicle).toBeNull();
+    expect(Math.hypot(fare.pos.x - spot.x, fare.pos.z - spot.z)).toBeLessThan(0.7);
+    expect(sim.world.isOnRoad(fare.pos.x, fare.pos.z)).toBe(false);
+  });
 });
 
 describe('a fare let out of a cab left across the road', () => {

@@ -86,13 +86,15 @@ function* toLouGarage(m: MissionCtx, objective: string, opts: Parameters<Mission
   }
 }
 
-/** Raises the wanted level to `n` stars and pins it there: never lowers it, nor the heat behind it. */
+/**
+ * The bank's alarm: the wanted level rises to `n` stars and is pinned there, never lowered, nor the heat behind it,
+ * and the police learn where the player is (setLevel's sighting), even when he already has `n` stars or more.
+ */
 function pinWanted(sim: Sim, n: number): void {
   const w = sim.wanted;
   w.floor = n;
-  if (w.level >= n) return;
   const heat = w.heat;
-  w.setLevel(n);
+  w.setLevel(Math.max(w.level, n));
   w.heat = Math.max(w.heat, heat);
 }
 

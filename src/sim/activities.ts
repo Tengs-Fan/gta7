@@ -22,6 +22,11 @@ interface TaxiJob {
   taxi: Vehicle;
   stage: 'pickup' | 'dropoff';
   fare: Character | null;
+  /** Seconds the fare has been walking to the cab, -1 while he waits (see board). */
+  boarding: number;
+  /** Where he set off to the cab from: he goes back there if it pulls away while he walks to it. */
+  waitX: number;
+  waitZ: number;
   destX: number;
   destZ: number;
   destName: string;
@@ -56,6 +61,16 @@ type Job = TaxiJob | VigilanteJob | RampageJob;
 
 /** How far from a cab a fare let out looks for the sidewalk (m): across a wide avenue, at a slant. */
 const CURB_SEARCH = 16;
+/** A fare walks to a cab that waits within this of him (m), below BOARD_SPEED (m/s)... */
+const BOARD_RANGE = 9;
+const BOARD_SPEED = 2.5;
+/** ...and gives up on it once it is this far (m) or faster. */
+const BOARD_GIVE_UP = 12;
+/** He gets in once this close to its door (m), or after walking this long (s): a blocked path never stalls a pickup. */
+const BOARD_REACH = 1;
+const BOARD_MAX = 4;
+/** Outside the cab's body (m), where he stands at its door. */
+const DOOR_OUT = 0.6;
 
 export class Activities {
   job: Job | null = null;
@@ -200,7 +215,7 @@ export class Activities {
 
   private startTaxi(taxi: Vehicle): void {
     const sim = this.sim;
-    this.job = { kind: 'taxi', taxi, stage: 'pickup', fare: null, destX: 0, destZ: 0, destName: '', timer: 0, fares: 0, tripDist: 0 };
+    this.job = { kind: 'taxi', taxi, stage: 'pickup', fare: null, boarding: -1, waitX: 0, waitZ: 0, destX: 0, destZ: 0, destName: '', timer: 0, fares: 0, tripDist: 0 };
     sim.events.emit('big', { text: 'TAXI DRIVER', sub: 'Pick up fares and drive them to their destination', style: 'title', duration: 3 });
     this.spawnFare();
   }
@@ -220,6 +235,7 @@ export class Activities {
     c.brain = makeBrain('stand');
     j.fare = c;
     j.stage = 'pickup';
+    j.boarding = -1;
     this.say(lead ? `${lead} Pick up the next fare (blue marker).` : 'Pick up the fare (blue marker).');
     return true;
   }
@@ -238,13 +254,7 @@ export class Activities {
         if (!this.spawnFare()) this.end('No fares around. Taxi job ended.');
         return;
       }
-      const f = j.fare;
-      // The fare waves you down; they walk towards the taxi when it is close.
-      const d = Math.hypot(f.pos.x - v.pos.x, f.pos.z - v.pos.z);
-      if (d < 9 && v.speed < 2.5) {
-        const seat = v.passengers.indexOf(null);
-        if (seat >= 0) sim.seat(f, v, seat + 1);
-        else sim.removeCharacter(f);
+      if (this.board(j, j.fare, v, dt)) {
         const dest = sim.world.walk.randomPointNear(sim.rng, v.pos.x, v.pos.z, 320, 900) ?? sim.world.walk.randomPointNear(sim.rng, v.pos.x, v.pos.z, 150, 1400);
         if (!dest) {
           this.end('Taxi job ended.');
@@ -304,6 +314,76 @@ export class Activities {
       }
       if (!this.spawnFare()) this.end('Taxi job ended.');
     }
+  }
+
+  /**
+   * The fare walks to the cab once it waits close by (BOARD_*), to the nearest door of a free seat, and gets in there;
+   * if it pulls away first, he walks back to where he set off from. True once he is aboard (or, with no seat free,
+   * gone). Someone scared (gunfire, a hit) runs or fights like anyone else, and boards once he is over it.
+   */
+  private board(j: TaxiJob, f: Character, v: Vehicle, dt: number): boolean {
+    const sim = this.sim;
+    const b = f.brain;
+    const scared = !!b && (b.mode === 'flee' || b.mode === 'cower' || b.mode === 'fight');
+    const d = Math.hypot(f.pos.x - v.pos.x, f.pos.z - v.pos.z);
+    const waits = v.speed < BOARD_SPEED && d < (j.boarding >= 0 ? BOARD_GIVE_UP : BOARD_RANGE);
+    if (!waits || scared || f.state !== 'normal') {
+      j.boarding = -1;
+      // Walking to a cab that left (the guard brain walks him, see below): back to his spot on the sidewalk, not
+      // left standing in the road, and he waits there again.
+      if (b?.mode === 'guard') {
+        const wx = j.waitX - f.pos.x;
+        const wz = j.waitZ - f.pos.z;
+        const w = Math.hypot(wx, wz);
+        if (w < 0.6) {
+          b.mode = 'stand';
+        } else {
+          b.homeX = j.waitX + (wx / w) * 2.4;
+          b.homeZ = j.waitZ + (wz / w) * 2.4;
+        }
+      }
+      return false;
+    }
+    if (j.boarding < 0) {
+      j.boarding = 0;
+      // Setting off from here (he may have run off and wandered since he was put down), unless he is still on his
+      // way back to where he set off from last time, maybe in the road.
+      if (b?.mode !== 'guard') {
+        j.waitX = f.pos.x;
+        j.waitZ = f.pos.z;
+      }
+    }
+    j.boarding += dt;
+    // The free seat with the door nearest him (see Sim.syncOccupant: seats 1 and 3 on the right, 2 and 3 at the back).
+    const rx = -Math.cos(v.heading);
+    const rz = Math.sin(v.heading);
+    const out = v.halfW + DOOR_OUT;
+    let seat = -1;
+    let door = { x: 0, z: 0, d: Infinity };
+    for (let s = 1; s <= v.passengers.length; s++) {
+      if (v.passengers[s - 1] !== null) continue;
+      const side = s === 2 ? -out : out;
+      const back = s >= 2 ? -0.9 : 0.15;
+      const x = v.pos.x + rx * side + Math.sin(v.heading) * back;
+      const z = v.pos.z + rz * side + Math.cos(v.heading) * back;
+      const to = Math.hypot(x - f.pos.x, z - f.pos.z);
+      if (to < door.d) {
+        seat = s;
+        door = { x, z, d: to };
+      }
+    }
+    if (b && seat > 0 && door.d > BOARD_REACH && j.boarding < BOARD_MAX) {
+      // The guard brain walks a ped to his post and stops 2.5 m short of it: set past the door, he walks up to it.
+      b.mode = 'guard';
+      b.homeX = door.x + ((door.x - f.pos.x) / door.d) * 2.4;
+      b.homeZ = door.z + ((door.z - f.pos.z) / door.d) * 2.4;
+      return false;
+    }
+    j.boarding = -1;
+    if (b) b.mode = 'stand';
+    if (seat > 0) sim.seat(f, v, seat);
+    else sim.removeCharacter(f);
+    return true;
   }
 
   /** Lets a fare out on the curb side: the passenger door, or the side their destination is on. */
