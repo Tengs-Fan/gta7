@@ -264,6 +264,44 @@ describe('panned round a swimmer by a quay or deck edge, the camera glides inste
     }
   });
 
+  it('looking up from the water (pitch 0.3) as the view turns, he never drops out of the frame', () => {
+    for (const site of ['quay', 'deck'] as const) {
+      for (const sign of [1, -1]) {
+        const { sim, cam, crowd } = swimmer(site, 0.05);
+        cam.pitch = 0.3;
+        for (let k = 0; k < 90; k++) {
+          frame(sim, cam);
+          crowd.sync([sim.player], cam.camera.position.x, cam.camera.position.z, DT);
+        }
+        let out = 0;
+        for (let k = 0; k < 240; k++) {
+          cam.look((-sign * (2 * Math.PI)) / 240 / 0.0024, 0);
+          frame(sim, cam);
+          crowd.sync([sim.player], cam.camera.position.x, cam.camera.position.z, DT);
+          cam.camera.updateMatrixWorld(true);
+          const s = headCentre(crowd).project(cam.camera);
+          if (!(s.z > -1 && s.z < 1 && Math.abs(s.x) <= 1 && Math.abs(s.y) <= 1)) out++;
+        }
+        // The view's tilt eased after the camera as it rose, and his head sank below the frame for 15 to 38 frames.
+        expect(out, `${site} ${sign}`).toBe(0);
+      }
+    }
+  });
+
+  it('paused (no time passing), the gliding camera stays exactly where it is', () => {
+    const { sim, cam } = swimmer('quay', 0.05);
+    for (let k = 0; k < 30; k++) frame(sim, cam);
+    for (let k = 0; k < 400; k++) {
+      cam.look(-(2 * Math.PI) / 240 / 0.0024, 0);
+      frame(sim, cam);
+      const c = cam.camera.position.clone();
+      const dir = cam.camera.getWorldDirection(new THREE.Vector3());
+      for (let i = 0; i < 3; i++) cam.update(0, sim, false);
+      expect(cam.camera.position.distanceTo(c), `frame ${k}`).toBe(0);
+      expect(cam.camera.getWorldDirection(new THREE.Vector3()).distanceTo(dir), `frame ${k}`).toBe(0);
+    }
+  });
+
   it('a slow turn (16 s) right against the quay and the deck', () => {
     for (const site of ['quay', 'deck'] as const) {
       const r = pan(site, 0.05, 960, 1);

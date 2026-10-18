@@ -123,11 +123,13 @@ const GLIDE_LEAD_MAX = 1.1;
 /** Short of GLIDE_RATE, the glide closes this fraction (1/s, exponentially) of the way still to go: small changes ease in. */
 const GLIDE_EASE = 9;
 /**
- * The view's tilt follows the glide at TILT_EASE (1/s, exponentially), never more than TILT_LAG (rad) behind: the camera
- * passing out over a quay's edge raises the floor its tilt is measured from by a metre at once.
+ * The view's tilt follows the glide at TILT_EASE (1/s, exponentially), never more than TILT_LAG (rad) behind, nor so far
+ * that his head leaves the middle TILT_KEEP of the frame's height: the camera passing out over a quay's edge raises the
+ * floor its tilt is measured from by a metre at once.
  */
 const TILT_EASE = 10;
 const TILT_LAG = 0.4;
+const TILT_KEEP = 0.8;
 
 const isTrunk = (c: StaticCollider) => c.tag === 'tree' || c.tag === 'palm';
 const ZERO: V3 = { x: 0, y: 0, z: 0 };
@@ -790,9 +792,10 @@ export class CameraController {
     // Only what the rule adds glides: how far in from the boom and how far up from its height the camera is (the boom
     // itself, swung by the view, cut by a wall or drawn in to aim, does not). A step of the way still to go, each no
     // further than GLIDE_RATE allows; never further out than the rule allows now.
+    // (As fast for the far boom, which has as much further to go.)
     const ease = 1 - Math.exp(-GLIDE_EASE * dt);
-    const most = GLIDE_RATE * dt;
-    const step = (from: number, to: number) => (Math.abs(to - from) < 1e-4 ? to : from + clamp((to - from) * ease, -most, most));
+    const most = GLIDE_RATE * Math.max(1, this.dist / FOOT_BOOM) * dt;
+    const step = (from: number, to: number) => (dt <= 0 ? from : Math.abs(to - from) < 1e-4 ? to : from + clamp((to - from) * ease, -most, most));
     this.glideIn = gliding ? step(this.glideIn, reach - wantReach) : reach - now.reach;
     const at = clamp(reach - this.glideIn, 0, now.reach);
     this.glideIn = reach - at;
@@ -808,8 +811,13 @@ export class CameraController {
     // (He is not aiming.) The view tilts down by as much as he now lies further below it (following it, see TILT_EASE).
     const y1 = Math.max(p.y, floorAt(world, p.x, p.z));
     const h1 = Math.hypot(p.x - h.x, p.z - h.z);
-    const tilt = Math.atan2(h.y - y1, h1) - Math.atan2(h.y - y0, h0);
+    const below = Math.atan2(h.y - y1, h1);
+    const tilt = below - Math.atan2(h.y - y0, h0);
     this.glideTilt = gliding ? clamp(damp(this.glideTilt, tilt, TILT_EASE, dt), tilt - TILT_LAG, tilt + TILT_LAG) : tilt;
+    // (Never easing him out of the frame: where the rule's own view keeps him in it.)
+    const keep = (TILT_KEEP * THREE.MathUtils.degToRad(this.camera.fov)) / 2;
+    const exact = this.pitch + tilt;
+    this.glideTilt = clamp(this.pitch + this.glideTilt, Math.min(exact, below - keep), Math.max(exact, below + keep)) - this.pitch;
     this.glideOn = true;
     const view = clamp(this.pitch + this.glideTilt, -1.45, 1.4);
     this.footTilt = view - this.pitch;
