@@ -12,7 +12,6 @@ import { makeBrain } from '../../src/sim/brains';
 import { darkness } from '../../src/sim/clock';
 import { Helicopter, type Character, type Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
-import type { VehicleKind } from '../../src/sim/specs';
 import { HELI_NIGHT_SIGHT, HELI_SIGHT, SPOT_SEE } from '../../src/sim/wanted';
 import { WATER_Y } from '../../src/world/constants';
 import type { Deck } from '../../src/world/layout';
