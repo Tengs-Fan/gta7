@@ -21,6 +21,9 @@ export interface UiActions {
   /** Held direction (-1..1) for screens that pan, i.e. the map: arrows / WASD, the D-pad and the left stick. */
   panX?: number;
   panY?: number;
+  /** The pad's left stick alone (-1..1, past its dead zone): Menus.input steps the other screens with it as with the D-pad. */
+  stickX?: number;
+  stickY?: number;
 }
 
 export interface FrameInput {
@@ -260,8 +263,8 @@ export class Input {
    *   far are all keys of play (S then P: SPAWNSPORTS, or down then resume).
    * The next key settles it: a letter typing on with the code (FI, SPA) makes it one of the code's letters, and it does
    * nothing; anything else lets it act (the same key again at once, and that one asks for nothing more). So do
-   * KEY_HOLD_MS going by and the window losing focus; an F also acts once the exit is no longer at stake (the car caught
-   * fire, the job ended). It is dropped once it has nothing left to act on: the player out of the vehicle, the menu shut.
+   * KEY_HOLD_MS going by and the window losing focus; an F also acts once the exit is no longer at stake (the car slowed
+   * below the bail speed). It is dropped once it has nothing left to act on: the player out of the vehicle, the menu shut.
    */
   private heldKey: { key: KeyPress; t: number; menu: boolean } | null = null;
   /** The press that typed the second letter of a code in a menu, all its letters so far keys of play (see heldKey). */
@@ -270,8 +273,8 @@ export class Input {
   private typedKeys: string[] = [];
   inVehicle = false;
   /**
-   * Getting out of the vehicle now could not be undone (set by the game each frame): it would end a taxi or vigilante
-   * job, or a bail could kill. FIXMYRIDE's F gets the player out, so an F press then waits for the next key (heldKey).
+   * Getting out of the vehicle now could not be undone (set by the game each frame): a bail would kill. FIXMYRIDE's F
+   * gets the player out, so an F press then waits for the next key (heldKey).
    */
   exitAtStake = false;
   /**
@@ -527,7 +530,7 @@ export class Input {
   poll(dt: number): FrameInput {
     this.pollT = performance.now();
     // A held key: dropped once it has nothing to act on (the player out anyway, the menu shut); it acts now if no
-    // letter of the code followed in time, or, an F, if getting out is no longer for good (the car caught fire).
+    // letter of the code followed in time, or, an F, if getting out is no longer for good (the car slowed down).
     const h = this.heldKey;
     if (h && (h.menu ? !this.menuOpen : !this.inVehicle)) this.heldKey = null;
     else if (h && (this.pollT - h.t > KEY_HOLD_MS || (!h.menu && !this.exitAtStake))) this.releaseHeldKey();
@@ -630,6 +633,8 @@ export class Input {
           p.hornPressed = p.hornPressed || tap(10);
           p.fire = p.fire || b(2);
           p.firePressed = p.firePressed || tap(2);
+          // RB is the handbrake here: LB alone steps the weapons, round to the pistol or SMG for a drive-by.
+          p.prevWeapon = p.prevWeapon || tap(4);
           // D-pad up is interact on foot; in a vehicle it skips a line of dialogue (the horn is L3).
           if (this.skipLine) p.interact = p.interact || tap(12);
           ui.radioNext = ui.radioNext || tap(15);
@@ -663,6 +668,8 @@ export class Input {
       ui.zoomOut = ui.zoomOut || tap(4);
       ui.panX = Math.max(-1, Math.min(1, (ui.panX ?? 0) + lx + (b(15) ? 1 : 0) - (b(14) ? 1 : 0)));
       ui.panY = Math.max(-1, Math.min(1, (ui.panY ?? 0) + ly + (b(13) ? 1 : 0) - (b(12) ? 1 : 0)));
+      ui.stickX = lx;
+      ui.stickY = ly;
       this.padPrev = pad.buttons.map((x) => x.pressed);
     } else this.rtDown = false;
     return { player: p, lookX, lookY, ui, device: this.device };

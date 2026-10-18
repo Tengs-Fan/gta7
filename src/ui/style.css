@@ -1227,6 +1227,51 @@ body {
   color: var(--muted);
 }
 
+/*
+ * Windows under 720 px tall: a 1366 x 768 or 1280 x 720 screen, or 1080p at 150 %, in a maximised browser leaves 560-
+ * 650 px. The title's logo is sized by the height too and the menus are tighter, so CREDITS and the disclaimer stay on
+ * screen; the panels grow and tighten, so the gun shop's message, how-to-buy line and LEAVE, and the pause menu's
+ * mission line, stay in view without scrolling.
+ */
+@media (max-height: 719.98px) {
+  .title-wrap {
+    top: 6vh;
+    bottom: 4vh;
+  }
+  .logo .gta {
+    font-size: clamp(56px, min(15vw, 21vh), 210px);
+  }
+  .logo .seven {
+    font-size: clamp(68px, min(18vw, 25vh), 250px);
+  }
+  .logo .sub {
+    font-size: clamp(18px, min(2.6vw, 5vh), 38px);
+  }
+  .menu button {
+    font-size: 26px;
+    padding: 2px 14px;
+  }
+  .panel {
+    max-height: 94vh;
+    padding: 18px 26px;
+  }
+  /* The scroll cue spans the panel's padding (see .scroll-cue). */
+  .scroll-cue {
+    bottom: -18px;
+  }
+  .scroll-cue::before {
+    left: -26px;
+    right: -26px;
+  }
+  .panel h2 {
+    font-size: 34px;
+    margin-bottom: 8px;
+  }
+  .shop-item {
+    padding: 5px 12px;
+  }
+}
+
 .map-screen {
   position: absolute;
   inset: 0;

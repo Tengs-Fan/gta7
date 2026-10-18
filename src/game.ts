@@ -510,8 +510,8 @@ export class Game {
       inp.brake = pv.forwardSpeed > 0.5 ? 1 : 0;
       inp.handbrake = pv.forwardSpeed <= 0.5;
     }
-    // An F let act at once (out of a burning car, see exitAtStake) may still be FIXMYRIDE's, which puts the player back
-    // in his seat: a side job waits for that while the code is typed, instead of ending as he gets out. The press behind
+    // An F let act at once (see exitAtStake) may still be FIXMYRIDE's, which puts the player back in his seat: a side
+    // job waits for that while the code is typed, instead of ending as he gets out. The press behind
     // an exit made this frame is the latest exit key press, as the vehicleExit handler records it; out already, the one
     // it recorded, unless he has asked to get in somewhere since (Enter or F again): that exit stands.
     const exitPress = this.input.exitKeyPress;
@@ -580,8 +580,8 @@ export class Game {
       case 'FIXMYRIDE': {
         // Its F gets the player out of the car (bailing out at speed): put him back in his seat, refunding the fall.
         // Only an exit the code's own F asked for: one he made himself before typing it stands. Where that exit could
-        // not be undone (it ends a taxi or vigilante job, a bail could kill), Input held the F back and dropped it; out
-        // of a burning car it acted at once, and the job waited for this (Activities.exitUndoable).
+        // not be undone (a bail could kill), Input held the F back and dropped it; out of a taxi or vigilante job's car
+        // it acted at once, and the job waited for this (Activities.exitUndoable).
         const ex = this.lastExit;
         this.lastExit = null;
         if (ex && typed.presses.includes(ex.press) && !p.vehicle && p.alive && !sim.playerDown && p.state !== 'entering' && canReseat(ex.vehicle)) {
@@ -901,20 +901,15 @@ function displayInfo(): { devicePixelRatio: number; screenWidth: number; screenH
 
 /**
  * Whether getting out of the vehicle now is for good, so that FIXMYRIDE, whose F gets the player out, could not put
- * things back: a bail at speed would kill him, or it would end a taxi or vigilante job (with its fare or suspect and
- * streak). Input then holds an F press back until the next key shows whether it starts the code. A wrecked or sinking
- * vehicle never holds it, and a burning one only for a bail that kills: its occupants are safe until it blows up, so
- * waiting is no worse there, while any other way out of it is urgent ('Press F to get out!'). Out of a burning car the
- * job waits for the code instead, the player out meanwhile (Activities.exitUndoable).
+ * things back: a bail at speed would kill him. Input then holds an F press back until the next key shows whether it
+ * starts the code. A wrecked or sinking vehicle never holds it. Any other F acts at once, also in a taxi or vigilante
+ * job's car, burning or not: the job waits for the code instead, the player out meanwhile (Activities.exitUndoable).
  */
 function exitAtStake(sim: Sim): boolean {
   const p = sim.player;
   const v = p.vehicle;
   if (!v || sim.playerDown || !v.drivable || v.inWater) return false;
-  if (!sim.cheats.godMode && v.speed >= BAIL_SPEED && p.health <= BAIL_DAMAGE) return true;
-  if (v.burning) return false;
-  const job = sim.activities.job;
-  return !!job && job.kind !== 'rampage';
+  return !sim.cheats.godMode && v.speed >= BAIL_SPEED && p.health <= BAIL_DAMAGE;
 }
 
 /** The player can be put back in a vehicle he just got out of: it still drives and its seat is free. */
