@@ -27,8 +27,11 @@ export type Script = Generator<Wait, void, undefined>;
 export const RETRY_WINDOW = 20;
 /** A line of dialogue can be skipped once it has been up this long. */
 const SKIP_AFTER = 0.4;
-/** A contact's marker: getting out of a car parked on it lands 1.7-2 m from where the car stood, still on it. */
-const MARKER_RADIUS = 2;
+/**
+ * A contact's marker: getting out of any vehicle parked on it, which lands 1.6 m (a compact) to 2.02 m (the bus)
+ * from where it stood, puts the player on it.
+ */
+const MARKER_RADIUS = 2.1;
 /** A retry fades the screen out and back in over this long, locking the controls... */
 const RETRY_FADE = 1.2;
 /** ...and moves the player while it is black. */

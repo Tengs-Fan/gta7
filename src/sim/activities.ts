@@ -317,24 +317,22 @@ export class Activities {
       sx = -sx;
       sz = -sz;
     }
-    // Step over the rest of the road onto the sidewalk: the lanes and the shoulder, more of them from a cab
-    // left askew (a job ended in a slide), bounded (the middle of an intersection). Failing that side, the other.
+    // Step over the rest of the road onto the sidewalk: the lanes and the shoulder, the long way across from a cab
+    // left askew (a job ended in a slide), or square to the road from one left across it, bounded (the middle of
+    // an intersection). That side, unless another reaches the sidewalk much sooner.
     const door = v.halfW + 0.8;
     const curb = (dx: number, dz: number): number | null => {
       for (let d = door; d <= CURB_SEARCH; d += 0.5) if (!sim.world.isOnRoad(v.pos.x + dx * d, v.pos.z + dz * d)) return d;
       return null;
     };
-    let d = curb(sx, sz);
-    if (d === null) {
-      d = curb(-sx, -sz);
-      if (d !== null) {
-        sx = -sx;
-        sz = -sz;
-      }
-    }
-    // All road around (a big intersection): out of the door, clear of the cab.
-    d ??= door;
-    const spot = sim.world.findFreeSpot(v.pos.x + sx * d, v.pos.z + sz * d, 0.4, 8) ?? { x: v.pos.x, z: v.pos.z };
+    const road = sim.roads.nearestLane(v.pos.x, v.pos.z).lane.heading;
+    const sides: Array<[number, number]> = [[sx, sz], [-sx, -sz], [-Math.cos(road), Math.sin(road)], [Math.cos(road), -Math.sin(road)]];
+    const found = sides.map(([dx, dz]) => ({ dx, dz, d: curb(dx, dz) })).filter((f): f is { dx: number; dz: number; d: number } => f.d !== null);
+    const nearest = Math.min(...found.map((f) => f.d));
+    // All road around: out of the door on the side the cab is moving away from, clear of it.
+    const away = v.vel.x * sx + v.vel.z * sz > 0 ? -1 : 1;
+    const out = found.find((f) => f.d <= nearest + 3) ?? { dx: sx * away, dz: sz * away, d: door };
+    const spot = sim.world.findFreeSpot(v.pos.x + out.dx * out.d, v.pos.z + out.dz * out.d, 0.4, 8) ?? { x: v.pos.x, z: v.pos.z };
     c.pos.x = spot.x;
     c.pos.z = spot.z;
     c.pos.y = sim.world.groundHeight(spot.x, spot.z);

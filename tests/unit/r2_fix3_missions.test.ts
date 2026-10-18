@@ -610,6 +610,18 @@ describe('prompts at the markers', () => {
     expect(sim.interactions.prompt()).toBeNull();
   });
 
+  it("getting out of any vehicle parked on a contact's marker lands on the marker, the bus too", () => {
+    for (const kind of ['compact', 'sedan', 'van', 'swat', 'bus'] as const) {
+      const sim = setup([], { police: false });
+      const marker = sim.interactions.markers.find((m) => m.kind === 'mission' && m.ref === 'wheels')!;
+      placeInCar(sim, sim.spawnVehicle(kind, marker.x, marker.z, Math.PI / 2));
+      step(sim, 0.1);
+      sim.update(1 / 60, input({ enterExit: true }));
+      stepUntil(sim, () => sim.player.state === 'normal', 3);
+      expect(sim.interactions.current()?.ref, kind).toBe('wheels');
+    }
+  });
+
   it('the safehouse marker says why it will not save before E is pressed: wanted, a mission, a rampage', () => {
     const sim = setup(['wheels'], { police: false });
     const save = sim.interactions.markers.find((m) => m.kind === 'save')!;
@@ -716,6 +728,28 @@ describe('a taxi job ending with the fare aboard', () => {
       expect(sim.world.isOnRoad(at.x, at.z)).toBe(false);
     });
   }
+});
+
+describe('a fare let out of a cab left across the road', () => {
+  it('lands on the sidewalk, whichever way the cab points', () => {
+    const sim = makeSim({ ambient: false, police: false });
+    const lanes = sim.roads.lanes.filter((l) => l.length > 40).filter((_, i) => i % 7 === 0);
+    const fare = sim.spawnCharacter('civilian', 0, 0);
+    const place = (sim.activities as unknown as { placeOnSidewalk(c: Character, v: Vehicle): void }).placeOnSidewalk.bind(sim.activities);
+    const cab = sim.spawnVehicle('taxi', 0, 0, 0);
+    const onRoad: string[] = [];
+    for (const lane of lanes) {
+      for (const turn of [0, 0.4, 0.8, Math.PI / 2, Math.PI]) {
+        cab.pos.x = lane.sx + lane.dx * lane.length * 0.5;
+        cab.pos.z = lane.sz + lane.dz * lane.length * 0.5;
+        cab.heading = lane.heading + turn;
+        place(fare, cab);
+        if (sim.world.isOnRoad(fare.pos.x, fare.pos.z)) onRoad.push(`lane ${lane.id} turn ${turn.toFixed(2)}`);
+      }
+    }
+    expect(lanes.length).toBeGreaterThan(20);
+    expect(onRoad).toEqual([]);
+  });
 });
 
 // --- the gun shop and the save at the ammo cap -----------------------------------------------
