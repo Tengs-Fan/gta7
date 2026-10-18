@@ -128,14 +128,25 @@ export const MARKER_FADE_FAR = 4.2;
  * metre of his walk instead of vanishing in one frame.
  */
 export const MARKER_LEAVE = 1;
+/**
+ * Past its edge, the marker he is stepping off is not kept right in front of the lens: there it is drawn only as far as
+ * the camera is from its axis, none of it within MARKER_LENS_NEAR (m), all of it from MARKER_LENS_FAR, coming in over his
+ * last 0.3 m inside the marker. Aiming (a 2.4 m boom) with his back to one he just stepped off puts the camera within a
+ * metre of its axis, its diamond filling a corner of the frame; walking through one, the camera is 1.8 m or more from
+ * its axis until he is out of the band.
+ */
+export const MARKER_LENS_NEAR = 1.2;
+export const MARKER_LENS_FAR = 2;
 const MARKER_ALPHA = 0.28;
+
+/** The distance from a camera at `cam` to the axis of a marker at (x, z), 0.15-2.3 m up, where its beam and icon are. */
+function axisDist(cam: { x: number; y: number; z: number }, x: number, z: number): number {
+  return Math.hypot(cam.x - x, Math.max(0, 0.15 - cam.y, cam.y - 2.3), cam.z - z);
+}
 
 /** How much of an interaction marker at (x, z) is drawn for a camera at `cam`, by its distance from the marker's axis (0.15-2.3 m up). */
 export function markerFade(cam: { x: number; y: number; z: number }, x: number, z: number): number {
-  const dy = Math.max(0, 0.15 - cam.y, cam.y - 2.3);
-  const d = Math.hypot(cam.x - x, dy, cam.z - z);
-  const t = Math.min(1, Math.max(0, (d - MARKER_FADE_NEAR) / (MARKER_FADE_FAR - MARKER_FADE_NEAR)));
-  return t * t * (3 - 2 * t);
+  return smooth(MARKER_FADE_NEAR, MARKER_FADE_FAR, axisDist(cam, x, z));
 }
 
 function beamMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
@@ -214,7 +225,7 @@ export class MarkerView {
 
   /**
    * Mirrors the interaction markers. Given the camera's position, each fades out near it (see markerFade),
-   * except one the player (at `player`) stands in or has just stepped off (MARKER_LEAVE).
+   * except one the player (at `player`) stands in or has just stepped off (MARKER_LEAVE, MARKER_LENS_NEAR).
    */
   syncMarkers(markers: readonly Marker[], time: number, cam?: { x: number; y: number; z: number }, player?: { x: number; z: number }): void {
     const seen = new Set<string>();
@@ -240,8 +251,16 @@ export class MarkerView {
         this.group.add(g);
       }
       g.position.set(m.x, 0.15, m.z);
-      const kept = player === undefined ? 0 : 1 - smooth(m.radius - 0.3, m.radius + MARKER_LEAVE, Math.hypot(player.x - m.x, player.z - m.z));
-      const fade = cam ? Math.max(markerFade(cam, m.x, m.z), kept) : 1;
+      let fade = 1;
+      if (cam) {
+        const d = axisDist(cam, m.x, m.z);
+        // In the marker or stepping off it (none of this without a player)...
+        const away = player === undefined ? Infinity : Math.hypot(player.x - m.x, player.z - m.z);
+        const kept = 1 - smooth(m.radius - 0.3, m.radius + MARKER_LEAVE, away);
+        // ...but not right in front of the lens once he is past its edge.
+        const lens = 1 - smooth(m.radius - 0.3, m.radius, away) * (1 - smooth(MARKER_LENS_NEAR, MARKER_LENS_FAR, d));
+        fade = Math.max(smooth(MARKER_FADE_NEAR, MARKER_FADE_FAR, d), kept * lens);
+      }
       g.visible = fade > 0;
       ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = MARKER_ALPHA * fade;
       const icon = g.getObjectByName('icon');

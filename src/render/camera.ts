@@ -69,6 +69,14 @@ const CLOSE_FULL = 0.35;
 const CLOSE_LIFT = 0.35;
 const CLOSE_SIDE = 0.2;
 /**
+ * On foot a wall stops the boom 0.3 m short of it, but never nearer his head than 0.35 m, unless the wall itself is
+ * nearer: then the camera stays this far (m) in front of it along the boom, on his side of it, where closeBoom can lift
+ * it and slide it out. That holds while the wall is behind the view; where the view runs along it (its face inside the
+ * frame's sides) the boom stops the full 0.3 m short of it, down to his head: a hair off its face, the wall showed as a
+ * strip seen edge-on, the near plane cutting through it beside that.
+ */
+const WALL_SKIN = 0.02;
+/**
  * The chase camera stays out of its own vehicle: within BODY_CLEAR (m) of the body's sides or ends it rises to
  * ROOF_CLEAR over the roof (easing in from BODY_BAND further out) and looks at the car from there. Further off than
  * that no part of the body comes nearer the lens than its near plane, whichever way the frustum's edges run.
@@ -100,6 +108,28 @@ const SIGHT_HEAD_SWIM = 0.2;
 const SIDE_SWAP = 0.5;
 const SIDE_BACK = 0.1;
 const SIDE_RATE = 5;
+/**
+ * In the water what that rule adds glides rather than jumps: how far the camera is drawn in along its boom and lifted
+ * over it change by up to GLIDE_RATE (m/s), never leaving the camera lower or further out than the rule needs at that
+ * moment, so he stays in sight whatever the view does (the boom itself, swung by the view, stopped by a wall or drawn in
+ * to aim, does not glide). While the view turns it also heads for where the rule will want it GLIDE_LEAD (s) into the
+ * turn (at most GLIDE_LEAD_MAX rad ahead). Close to a quay or a deck the height that keeps him in sight changes by
+ * metres over a few degrees of yaw: taken frame by frame, a steady pan (1.5 degrees a frame) dropped or raised the
+ * camera 1.8 m and turned the view 18 degrees from one frame to the next.
+ */
+const GLIDE_RATE = 12;
+const GLIDE_LEAD = 0.35;
+const GLIDE_LEAD_MAX = 1.1;
+/** Short of GLIDE_RATE, the glide closes this fraction (1/s, exponentially) of the way still to go: small changes ease in. */
+const GLIDE_EASE = 9;
+/**
+ * The view's tilt follows the glide at TILT_EASE (1/s, exponentially), never more than TILT_LAG (rad) behind, nor so far
+ * that his head leaves the middle TILT_KEEP of the frame's height: the camera passing out over a quay's edge raises the
+ * floor its tilt is measured from by a metre at once.
+ */
+const TILT_EASE = 10;
+const TILT_LAG = 0.4;
+const TILT_KEEP = 0.8;
 
 const isTrunk = (c: StaticCollider) => c.tag === 'tree' || c.tag === 'palm';
 const ZERO: V3 = { x: 0, y: 0, z: 0 };
@@ -339,6 +369,22 @@ export class CameraController {
   private readonly scratch = new THREE.Vector3();
   /** What closeBoom put on the on-foot camera beside its boom, while liftSight shortens that. */
   private readonly boomOff = new THREE.Vector3();
+  /**
+   * The camera in the water as it glides (see GLIDE_RATE): whether it is gliding, how far (m) it is in from the boom as
+   * the walls leave it, how far (m) it is up from that boom's own height, and its view's tilt (rad).
+   */
+  private glideOn = false;
+  private glideIn = 0;
+  private glideUp = 0;
+  private glideTilt = 0;
+  /** How fast the on-foot view turns (rad/s, smoothed), for the glide's lead. */
+  private yawRate = 0;
+  /** liftSight's scratch: the boom a moment into the turn, and where the rule puts the camera now and there. */
+  private readonly aheadFrom = new THREE.Vector3();
+  private readonly aheadDir = new THREE.Vector3();
+  private readonly spot = new THREE.Vector3();
+  private readonly wantNow = { reach: 0, y: 0, moved: false };
+  private readonly wantAhead = { reach: 0, y: 0, moved: false };
   baseFov = 68;
 
   constructor(aspect: number) {
@@ -564,16 +610,29 @@ export class CameraController {
     const len = d.length();
     const onFoot = !v && !(sim.playerDown && sim.deathKind === 'wasted');
     if (onFoot) {
-      // How long the view has held still, for the trunk hysteresis (HUG_HOLD).
-      const turned = Math.abs(wrapAngle(this.yaw - this.lastYaw)) > 1e-5 || Math.abs(this.pitch - this.lastPitch) > 1e-5;
+      // How long the view has held still, for the trunk hysteresis (HUG_HOLD), and how fast it turns (GLIDE_LEAD; a cut,
+      // such as the one leaving a car, is no turn).
+      const turn = wrapAngle(this.yaw - this.lastYaw);
+      const turned = Math.abs(turn) > 1e-5 || Math.abs(this.pitch - this.lastPitch) > 1e-5;
       this.stillFor = turned ? 0 : this.stillFor + dt;
+      if (dt > 0) this.yawRate = Math.abs(turn) > 0.5 ? 0 : damp(this.yawRate, turn / dt, 20, dt);
       this.lastYaw = this.yaw;
       this.lastPitch = this.pitch;
     }
     let reach = len;
     if (len > 0.01) {
       d.divideScalar(len);
-      if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) reach = Math.max(0.35, hit.t - 0.3);
+      if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) {
+        reach = Math.max(0.35, hit.t - 0.3);
+        if (onFoot) {
+          // Never into the wall: with his back to one and the view turned toward the camera's shoulder, the boom meets
+          // it nearer than that, and from inside it closeBoom found no room to rise or slide (see WALL_SKIN).
+          const facing = Math.abs(Math.sin(this.yaw) * hit.nx + Math.cos(this.yaw) * hit.nz);
+          const half = Math.atan(Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect);
+          const along = smoothstep(Math.sin(Math.min(half + 0.15, 1.5)), Math.sin(Math.max(half - 0.1, 0)), facing);
+          reach = Math.max(0, Math.min(reach, hit.t - (WALL_SKIN + (0.3 - WALL_SKIN) * along)));
+        }
+      }
       if (onFoot) {
         this.huggingNow.clear();
         const stop = trunkStop(sim, lookFrom, d, len, this.hugging, this.stillFor < HUG_HOLD, this.heldBy, this.huggingNow);
@@ -613,10 +672,12 @@ export class CameraController {
     }
     if (onFoot && len > 0.01) {
       this.closeBoom(sim, reach);
-      if (lookOver) this.liftSight(sim.world, lookFrom, d, len);
+      if (lookOver) this.liftSight(sim.world, lookFrom, d, len, dt);
     } else if (v) {
       this.clearBody(sim, v);
     }
+    // Out of the water (or aiming) the camera does not glide: the next time it does, it starts where the rule puts it.
+    if (!(onFoot && len > 0.01 && lookOver)) this.glideOn = false;
     // Stay above the ground and above the sea, whose surface plane is invisible from below. The floor rises at once
     // but sinks over a moment (the camera passing off a deck or a quay out over the sea would drop 0.8 m in one
     // frame), unless the camera jumped anyway.
@@ -690,39 +751,112 @@ export class CameraController {
   /**
    * Keeps the player in the water in view over raised ground (see SIGHT_RISE): the camera (this.desired, at this.boom of
    * the boom from `lookFrom` along the unit vector `d`, `len` long in full, plus what closeBoom added) rises as far as the
-   * line down to his head needs, on a shorter boom where the one it has would need more than SIGHT_RISE, and the view
-   * tilts down with it, keeping him where he was in the frame.
+   * line down to his head needs, on a shorter boom where the one it has would need more than SIGHT_RISE, gliding there
+   * (GLIDE_RATE) over the `dt` s of this frame, and the view tilts down with it, keeping him where he was in the frame.
    */
-  private liftSight(world: StaticWorld, lookFrom: THREE.Vector3, d: THREE.Vector3, len: number): void {
+  private liftSight(world: StaticWorld, lookFrom: THREE.Vector3, d: THREE.Vector3, len: number, dt: number): void {
     const h = this.head;
     const p = this.desired;
+    const gliding = this.glideOn;
     const y0 = Math.max(p.y, floorAt(world, p.x, p.z));
-    if (sightFloor(world, h.x, h.y, h.z, p.x, y0, p.z) <= y0) return;
     const h0 = Math.hypot(p.x - h.x, p.z - h.z);
     // What closeBoom added stays with the camera as the boom shortens.
     const reach = this.boom * len;
     const off = this.boomOff.copy(p).sub(this.scratch.copy(lookFrom).addScaledVector(d, reach));
-    const fit = this.sightReach(world, lookFrom, d, reach, SIGHT_RISE, off);
-    if (fit < reach) {
-      p.copy(lookFrom).addScaledVector(d, fit).add(off);
-      this.boom = fit / len;
+    const now = this.sightTarget(world, lookFrom, d, reach, off, this.wantNow);
+    let wantReach = now.reach;
+    let wantY = now.y;
+    // Turning, it also heads for where it will be wanted a moment into the turn: the boom there as update() lays it out
+    // (no wall stops it: one stops the boom at once when it is there). Not while a wall holds the boom in here: the
+    // camera would rise right beside his head (a moored hull), turning the view by tens of degrees a frame.
+    const lead = clamp(this.yawRate * GLIDE_LEAD, -GLIDE_LEAD_MAX, GLIDE_LEAD_MAX);
+    if (Math.abs(lead) > 0.01 && reach > 0.98 * len) {
+      const yaw = this.yaw + lead;
+      const cp = Math.cos(this.pitch);
+      const rx = -Math.cos(yaw);
+      const rz = Math.sin(yaw);
+      const t = this.target;
+      const s = this.shoulder;
+      const from = this.aheadFrom.set(t.x + rx * s * 0.5, t.y, t.z + rz * s * 0.5);
+      const dir = this.aheadDir.set(t.x - Math.sin(yaw) * cp * this.dist + rx * s, t.y - Math.sin(this.pitch) * this.dist + 0.18, t.z - Math.cos(yaw) * cp * this.dist + rz * s).sub(from);
+      const ahead = dir.length();
+      if (ahead > 0.01) {
+        // (Only where the rule moves it: the free boom there ends higher than one a wall holds in here.)
+        const there = this.sightTarget(world, from, dir.divideScalar(ahead), ahead, ZERO, this.wantAhead);
+        if (there.moved) {
+          wantReach = Math.min(wantReach, (there.reach / ahead) * len);
+          wantY = Math.max(wantY, there.y);
+        }
+      }
     }
-    const base = Math.max(p.y, floorAt(world, p.x, p.z));
-    const need = sightFloor(world, h.x, h.y, h.z, p.x, base, p.z);
-    if (need > base) {
-      // As far as anything solid overhead lets it (an eave, an upper storey reaching out).
-      let lift = need - p.y;
-      if (world.grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight)) lift = Math.max(0, hit.t - 0.3);
-      this.footLift += lift;
-      p.y += lift;
-    }
-    // (He is not aiming.) The view tilts down by as much as he now lies further below it.
+    // Only what the rule adds glides: how far in from the boom and how far up from its height the camera is (the boom
+    // itself, swung by the view, cut by a wall or drawn in to aim, does not). A step of the way still to go, each no
+    // further than GLIDE_RATE allows; never further out than the rule allows now.
+    // (As fast for the far boom, which has as much further to go.)
+    const ease = 1 - Math.exp(-GLIDE_EASE * dt);
+    const most = GLIDE_RATE * Math.max(1, this.dist / FOOT_BOOM) * dt;
+    const step = (from: number, to: number) => (dt <= 0 ? from : Math.abs(to - from) < 1e-4 ? to : from + clamp((to - from) * ease, -most, most));
+    this.glideIn = gliding ? step(this.glideIn, reach - wantReach) : reach - now.reach;
+    const at = clamp(reach - this.glideIn, 0, now.reach);
+    this.glideIn = reach - at;
+    p.copy(lookFrom).addScaledVector(d, at).add(off);
+    this.boom = at / len;
+    this.glideUp = gliding ? step(this.glideUp, Math.max(0, wantY - p.y)) : Math.max(0, now.y - p.y);
+    // Never lower than the line down to his head needs from there.
+    const need = sightFloor(world, h.x, h.y, h.z, p.x, Math.max(p.y + this.glideUp, floorAt(world, p.x, p.z)), p.z);
+    const lift = Math.max(this.glideUp, need - p.y);
+    this.glideUp = lift > 0 ? this.headroom(world, p, lift) : 0;
+    this.footLift += this.glideUp;
+    p.y += this.glideUp;
+    // (He is not aiming.) The view tilts down by as much as he now lies further below it (following it, see TILT_EASE).
     const y1 = Math.max(p.y, floorAt(world, p.x, p.z));
     const h1 = Math.hypot(p.x - h.x, p.z - h.z);
-    const view = clamp(this.pitch + Math.atan2(h.y - y1, h1) - Math.atan2(h.y - y0, h0), -1.45, 1.4);
+    const below = Math.atan2(h.y - y1, h1);
+    const tilt = below - Math.atan2(h.y - y0, h0);
+    this.glideTilt = gliding ? clamp(damp(this.glideTilt, tilt, TILT_EASE, dt), tilt - TILT_LAG, tilt + TILT_LAG) : tilt;
+    // (Never easing him out of the frame: where the rule's own view keeps him in it.)
+    const keep = (TILT_KEEP * THREE.MathUtils.degToRad(this.camera.fov)) / 2;
+    const exact = this.pitch + tilt;
+    this.glideTilt = clamp(this.pitch + this.glideTilt, Math.min(exact, below - keep), Math.max(exact, below + keep)) - this.pitch;
+    this.glideOn = true;
+    const view = clamp(this.pitch + this.glideTilt, -1.45, 1.4);
     this.footTilt = view - this.pitch;
     const cv = Math.cos(view);
     this.dir.set(Math.sin(this.yaw) * cv, Math.sin(view), Math.cos(this.yaw) * cv);
+  }
+
+  /**
+   * Where liftSight's rule puts the camera for the boom from `from` along the unit vector `d`, `reach` long, plus `off`
+   * beside it, written to `out`: the boom it shortens to (m, see sightReach), the height it rises to (m, before the
+   * floor), which is the boom's own height where he is in sight from there as it stands, and whether it moved it at all.
+   */
+  private sightTarget(world: StaticWorld, from: V3, d: V3, reach: number, off: V3, out: { reach: number; y: number; moved: boolean }): { reach: number; y: number; moved: boolean } {
+    const h = this.head;
+    const q = this.spot.set(from.x + d.x * reach + off.x, from.y + d.y * reach + off.y, from.z + d.z * reach + off.z);
+    out.reach = reach;
+    out.y = q.y;
+    out.moved = false;
+    const y0 = Math.max(q.y, floorAt(world, q.x, q.z));
+    if (sightFloor(world, h.x, h.y, h.z, q.x, y0, q.z) <= y0) return out;
+    const fit = this.sightReach(world, from, d, reach, SIGHT_RISE, off);
+    if (fit < reach) {
+      q.set(from.x + d.x * fit + off.x, from.y + d.y * fit + off.y, from.z + d.z * fit + off.z);
+      out.reach = fit;
+      out.y = q.y;
+      out.moved = true;
+    }
+    const base = Math.max(q.y, floorAt(world, q.x, q.z));
+    const need = sightFloor(world, h.x, h.y, h.z, q.x, base, q.z);
+    if (need > base) {
+      out.y = q.y + this.headroom(world, q, need - q.y);
+      out.moved = true;
+    }
+    return out;
+  }
+
+  /** How far (m, up to `lift`) the camera at `p` may rise before anything solid overhead (an eave, an upper storey reaching out) comes within 0.3 m of it. */
+  private headroom(world: StaticWorld, p: V3, lift: number): number {
+    return world.grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight) ? Math.max(0, hit.t - 0.3) : lift;
   }
 
   /**
@@ -868,6 +1002,8 @@ export class CameraController {
     this.floorY = -Infinity;
     this.shoulderSide = 1;
     this.sideTarget = 1;
+    this.glideOn = false;
+    this.yawRate = 0;
     const pos = sim.playerPos();
     this.target.set(pos.x, pos.y + 1.5, pos.z);
     this.wasInVehicle = !!p.vehicle;

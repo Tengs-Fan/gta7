@@ -336,12 +336,22 @@ describe('in the water with his back to a quay, the pier or a marina deck, the p
         expect(sim.player.state).toBe('swimming');
         expect(r.hidden, `${site.name} ${d} m: ${r.worst}`).toBe(0);
       }
-      // A slow look all the way round from 1 m out: the view sweeps over the edge and back.
+      // A slow look all the way round from 1 m out: the view sweeps over the edge and back, the camera gliding as it rises
+      // and sinks (r2_fix4_actors): no frame turns the view by more than twice the pan's own step.
       const at = site.at(1);
       const { sim, cam, crowd } = swimmerAt(at.x, at.z, site.back);
       play(sim, cam, crowd, 0.5);
-      const r = watch(sim, cam, crowd, 4, input(), 0, () => cam.look(-(2 * Math.PI) / (240 * 0.0024), 0));
+      const step = (2 * Math.PI) / 240;
+      const last = cam.camera.getWorldDirection(new THREE.Vector3());
+      const dir = new THREE.Vector3();
+      let worst = 0;
+      const r = watch(sim, cam, crowd, 4, input(), 0, () => {
+        worst = Math.max(worst, cam.camera.getWorldDirection(dir).angleTo(last));
+        last.copy(dir);
+        cam.look(-step / 0.0024, 0);
+      });
       expect(r.hidden, `${site.name} pan: ${r.worst}`).toBe(0);
+      expect(THREE.MathUtils.radToDeg(worst), `${site.name} pan`).toBeLessThan(THREE.MathUtils.radToDeg(2 * step));
     }
   });
 
@@ -370,7 +380,7 @@ describe('in the water with his back to a quay, the pier or a marina deck, the p
     expect(Math.hypot(ray.origin.x - c.x, ray.origin.y - c.y, ray.origin.z - c.z)).toBeLessThan(1e-6);
   });
 
-  it('getting out of a car parked along the quay into the sea, then swimming along the wall', () => {
+  it('getting out of a car parked along the quay, its driver side over the sea: he steps out onto the quay, in sight', () => {
     const sim = makeSim({ world: world(), police: false });
     sim.cheats.godMode = true;
     const b = sim.world.layout.bounds;
@@ -383,10 +393,29 @@ describe('in the water with his back to a quay, the pier or a marina deck, the p
     play(sim, cam, crowd, DT, input({ enterExit: true }));
     play(sim, cam, crowd, 1);
     const p = sim.player;
-    // (Where the driver's door lets him out: into the sea, right against the quay wall.)
-    if (p.state === 'swimming') expect(b.landMinX - p.pos.x).toBeLessThan(0.6);
+    // The exit on the dry side (combat's findExitSpot): on the quay, not in the sea against its wall.
+    expect(p.vehicle).toBeNull();
+    expect(p.state).toBe('normal');
+    expect(p.pos.x).toBeGreaterThan(b.landMinX + 0.3);
     const r = watch(sim, cam, crowd, 3, input({ moveZ: 1 }), 0.3);
     expect(r.hidden, r.worst).toBe(0);
+  });
+
+  it('swimming along the quay wall a hand off it, the quay on his right: the camera takes his left shoulder, over the sea', () => {
+    for (const z of [100, 140]) {
+      // Northward, the camera behind him: his right shoulder is over the quay, whose edge the line to his head clipped
+      // in every frame with the camera kept there.
+      const { sim, cam, crowd } = swimmerAt(world().layout.bounds.landMinX - 0.1, z, Math.PI);
+      const r = watch(sim, cam, crowd, 4, input({ moveZ: 1 }), 0.5);
+      const p = sim.player;
+      expect(p.state, `z ${z}`).toBe('swimming');
+      expect(z - p.pos.z, `z ${z}`).toBeGreaterThan(8);
+      expect(world().layout.bounds.landMinX - p.pos.x, `z ${z}`).toBeCloseTo(0.1, 2);
+      expect(r.hidden, `z ${z}: ${r.worst}`).toBe(0);
+      // Over his left shoulder.
+      const c = cam.camera.position;
+      expect(c.x, `z ${z}`).toBeLessThan(p.pos.x - 0.2);
+    }
   });
 
   it('walking off the quay into the sea and swimming on, and wading beside the pier', () => {
@@ -495,15 +524,17 @@ describe('an interaction marker he walks through fades out behind him instead of
       expect(drawn, `${speed} m/s`).toBeGreaterThan(0);
       expect(prev, `${speed} m/s`).toBe(0.28);
     }
-    // In it with the camera right on top of it: in full; a step outside, still most of it; 1 m outside, gone.
-    const cam = { x: -0.42, y: 2.3, z: -1 };
-    const alpha = (pz: number): number => {
+    // In it with the camera right on top of it: in full. A step outside, still most of it with the camera behind him as
+    // on that walk, but none of it with the camera right on top of it (r2_fix4_actors); 1 m outside, gone.
+    const above = { x: -0.42, y: 2.3, z: -1 };
+    const alpha = (pz: number, cam = above): number => {
       view.syncMarkers([m], 0, cam, { x: 0, z: pz });
       const g = view.group.children[0]!;
       return g.visible ? ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity : 0;
     };
     expect(alpha(1.1)).toBe(0.28);
-    expect(alpha(1.6)).toBeGreaterThan(0.2);
+    expect(alpha(1.6, { x: -0.42, y: 2.3, z: 1.6 - 4.3 })).toBeGreaterThan(0.2);
+    expect(alpha(1.6)).toBe(0);
     expect(alpha(2.6)).toBe(0);
   });
 });
