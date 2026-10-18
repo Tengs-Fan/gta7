@@ -610,14 +610,14 @@ export class PropsView {
     const haloGeo = new THREE.BufferGeometry();
     haloGeo.setAttribute('position', new THREE.BufferAttribute(haloPos, 3));
     haloGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(FERRIS_LIGHTS * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    const haloMat = new THREE.PointsMaterial({ size: FERRIS_HALO, map: glowTexture(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+    // The lamp pools' glow texture: on the GPU from the first frame, so lighting up at night uploads nothing.
+    const haloMat = new THREE.PointsMaterial({ size: FERRIS_HALO, map: this.poolMat.map, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
     haloMat.onBeforeCompile = (shader) => {
       shader.vertexShader = shader.vertexShader.replace('#include <fog_vertex>', `#include <fog_vertex>\ngl_PointSize = max( gl_PointSize, ${FERRIS_HALO_MIN_PX.toFixed(1)} );`);
     };
     haloMat.customProgramCacheKey = () => 'gta7-ferris-halo';
     const halos = new THREE.Points(haloGeo, haloMat);
     halos.name = 'ferrisHalos';
-    halos.frustumCulled = false;
     wheel.add(halos);
     wheel.position.set(p.x, hubY, p.z);
     wheel.rotation.y = p.rot;

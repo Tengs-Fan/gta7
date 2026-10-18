@@ -580,7 +580,10 @@ describe('Ferris wheel lights', () => {
     }
     // By day they are off and the halos are not drawn.
     r.props.update(3, 0, 0);
-    expect((f.wheel.getObjectByName('ferrisHalos') as THREE.Points).visible).toBe(false);
+    const halos = f.wheel.getObjectByName('ferrisHalos') as THREE.Points;
+    expect(halos.visible).toBe(false);
+    // They bring no texture of their own (one would first be uploaded at nightfall): the lamp pools' glow.
+    expect((halos.material as THREE.PointsMaterial).map).toBe((r.props as unknown as { poolMat: THREE.MeshBasicMaterial }).poolMat.map);
   });
 });
 
