@@ -2032,8 +2032,8 @@ export function bodyGapAt(a: Vehicle, x: number, z: number, h: number, b: Vehicl
   if (!apart) return 0;
   // Apart, the nearest points include a corner of one of the two.
   let m = Infinity;
-  for (const i of [1, -1]) {
-    for (const j of [1, -1]) {
+  for (let i = 1; i >= -1; i -= 2) {
+    for (let j = 1; j >= -1; j -= 2) {
       m = Math.min(m, pointToBody(x + afx * a.halfL * i + afz * a.halfW * j, z + afz * a.halfL * i - afx * a.halfW * j, b.pos.x, b.pos.z, bfx, bfz, b.halfL, b.halfW));
       m = Math.min(m, pointToBody(b.pos.x + bfx * b.halfL * i + bfz * b.halfW * j, b.pos.z + bfz * b.halfL * i - bfx * b.halfW * j, x, z, afx, afz, a.halfL, a.halfW));
     }
