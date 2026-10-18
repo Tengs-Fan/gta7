@@ -759,6 +759,18 @@ describe('gamepad: the left stick steps through the menus as the D-pad does (med
     expect(selected(game)).toBe('CREDITS');
   });
 
+  it('a broken axis (NaN) steps nothing, and the stick works again once it reads a number', () => {
+    const pad = fakePad();
+    const { game, frames } = playGame();
+    frames(30);
+    pad.axes[1] = NaN;
+    frames(60);
+    expect(selected(game)).toBe('NEW GAME');
+    pad.axes[1] = 1;
+    frames(1);
+    expect(selected(game)).toBe('CONTROLS');
+  });
+
   it('in SETTINGS the stick picks a row up and down and changes it left and right, one axis at a time', () => {
     const pad = fakePad();
     const { game, frames } = playGame();

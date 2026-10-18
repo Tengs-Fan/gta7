@@ -204,8 +204,9 @@ export class Menus {
    */
   private stickStep(ui: UiActions, dt: number, s: Screen): StickDir | null {
     const st = this.stick;
-    const x = ui.stickX ?? 0;
-    const y = ui.stickY ?? 0;
+    // A broken pad axis (NaN) reads as at rest: it must neither step nor hold a step.
+    const x = Number.isFinite(ui.stickX) ? ui.stickX! : 0;
+    const y = Number.isFinite(ui.stickY) ? ui.stickY! : 0;
     if (st.dir !== null && stickAlong(st.dir, x, y) < STICK_RELEASE) st.dir = null;
     if (Math.max(Math.abs(x), Math.abs(y)) < STICK_RELEASE) st.armed = true;
     if (!st.armed || s.pans || this.age < 0.25) return null;
