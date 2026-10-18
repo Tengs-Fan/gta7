@@ -1123,7 +1123,8 @@ describe('cheat codes typed in a menu change nothing there', () => {
 
   it('SPAWNSPORTS on Settings with Field of view selected leaves Invert look Y alone', async () => {
     const { game, type, frames, rows } = await settingsOpen();
-    rows[5]!.dispatchEvent(new Event('mouseenter'));
+    // The mouse moving over the row selects it (a mouseenter alone does not: a screen may open under a resting cursor).
+    rows[5]!.dispatchEvent(new Event('mousemove'));
     expect(rows[5]!.classList.contains('sel')).toBe(true);
     type('SPAWNSPORTS');
     frames(10);
