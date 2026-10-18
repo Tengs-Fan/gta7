@@ -2,6 +2,7 @@
 
 import * as THREE from 'three';
 import { clamp, lerp, smoothstep } from '../core/math';
+import { darkness, sunIntensity } from '../sim/clock';
 import { WATER_Y } from '../world/constants';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 
@@ -10,24 +11,24 @@ interface Key {
   top: number;
   horizon: number;
   sun: number;
-  sunI: number;
   hemiI: number;
   exposure: number;
 }
 
-// Palette keyframes over the day (hours). The warm morning light holds until about 08:30.
+// Palette keyframes over the day (hours). The warm morning light holds until about 08:30. The sun's intensity, and the
+// darkness that follows from it, come from the simulation's clock (sim/clock.ts sunIntensity, darkness).
 const KEYS: Key[] = [
-  { h: 0, top: 0x03060f, horizon: 0x0b1530, sun: 0x8fa8ff, sunI: 0.0, hemiI: 0.22, exposure: 1.0 },
-  { h: 4.8, top: 0x060c1f, horizon: 0x1a2440, sun: 0x8fa8ff, sunI: 0.0, hemiI: 0.25, exposure: 1.0 },
-  { h: 6.0, top: 0x29457f, horizon: 0xf09a6a, sun: 0xffa060, sunI: 1.0, hemiI: 0.5, exposure: 1.0 },
-  { h: 7.5, top: 0x3a6fc0, horizon: 0xf2c49c, sun: 0xffc890, sunI: 2.3, hemiI: 0.66, exposure: 1.0 },
-  { h: 8.5, top: 0x3d7bd0, horizon: 0xd6dde6, sun: 0xffe2bc, sunI: 2.8, hemiI: 0.74, exposure: 1.0 },
-  { h: 12, top: 0x2b6cd4, horizon: 0xaed0f2, sun: 0xfff6e8, sunI: 3.3, hemiI: 0.8, exposure: 1.0 },
-  { h: 16.5, top: 0x3570cc, horizon: 0xf0d8b0, sun: 0xffe2b0, sunI: 2.9, hemiI: 0.74, exposure: 1.0 },
-  { h: 18.4, top: 0x34478a, horizon: 0xff8a4c, sun: 0xff8040, sunI: 1.7, hemiI: 0.6, exposure: 1.08 },
-  { h: 19.4, top: 0x161e44, horizon: 0xb44a3e, sun: 0xff5a30, sunI: 0.3, hemiI: 0.36, exposure: 1.05 },
-  { h: 20.6, top: 0x070c20, horizon: 0x1e2648, sun: 0x8fa8ff, sunI: 0.0, hemiI: 0.24, exposure: 1.0 },
-  { h: 24, top: 0x03060f, horizon: 0x0b1530, sun: 0x8fa8ff, sunI: 0.0, hemiI: 0.22, exposure: 1.0 },
+  { h: 0, top: 0x03060f, horizon: 0x0b1530, sun: 0x8fa8ff, hemiI: 0.22, exposure: 1.0 },
+  { h: 4.8, top: 0x060c1f, horizon: 0x1a2440, sun: 0x8fa8ff, hemiI: 0.25, exposure: 1.0 },
+  { h: 6.0, top: 0x29457f, horizon: 0xf09a6a, sun: 0xffa060, hemiI: 0.5, exposure: 1.0 },
+  { h: 7.5, top: 0x3a6fc0, horizon: 0xf2c49c, sun: 0xffc890, hemiI: 0.66, exposure: 1.0 },
+  { h: 8.5, top: 0x3d7bd0, horizon: 0xd6dde6, sun: 0xffe2bc, hemiI: 0.74, exposure: 1.0 },
+  { h: 12, top: 0x2b6cd4, horizon: 0xaed0f2, sun: 0xfff6e8, hemiI: 0.8, exposure: 1.0 },
+  { h: 16.5, top: 0x3570cc, horizon: 0xf0d8b0, sun: 0xffe2b0, hemiI: 0.74, exposure: 1.0 },
+  { h: 18.4, top: 0x34478a, horizon: 0xff8a4c, sun: 0xff8040, hemiI: 0.6, exposure: 1.08 },
+  { h: 19.4, top: 0x161e44, horizon: 0xb44a3e, sun: 0xff5a30, hemiI: 0.36, exposure: 1.05 },
+  { h: 20.6, top: 0x070c20, horizon: 0x1e2648, sun: 0x8fa8ff, hemiI: 0.24, exposure: 1.0 },
+  { h: 24, top: 0x03060f, horizon: 0x0b1530, sun: 0x8fa8ff, hemiI: 0.22, exposure: 1.0 },
 ];
 
 const cA = new THREE.Color();
@@ -41,17 +42,12 @@ function sample(hours: number): { top: THREE.Color; horizon: THREE.Color; sun: T
   const b = KEYS[i + 1]!;
   const t = clamp((h - a.h) / (b.h - a.h), 0, 1);
   const mix = (x: number, y: number) => cA.setHex(x).lerp(cB.setHex(y), t).clone();
-  return { top: mix(a.top, b.top), horizon: mix(a.horizon, b.horizon), sun: mix(a.sun, b.sun), sunI: lerp(a.sunI, b.sunI, t), hemiI: lerp(a.hemiI, b.hemiI, t), exposure: lerp(a.exposure, b.exposure, t) };
-}
-
-/** Darkness 0 (day) .. 1 (night) for a sun intensity. */
-function nightOf(sunI: number): number {
-  return 1 - smoothstep(0.02, 0.45, sunI / 3.3);
+  return { top: mix(a.top, b.top), horizon: mix(a.horizon, b.horizon), sun: mix(a.sun, b.sun), sunI: sunIntensity(h), hemiI: lerp(a.hemiI, b.hemiI, t), exposure: lerp(a.exposure, b.exposure, t) };
 }
 
 /** Brightness 0..1 of the stars at a time of day (hours). */
 export function starIntensity(hours: number): number {
-  return starsAt(nightOf(sample(hours).sunI));
+  return starsAt(darkness(hours));
 }
 
 function starsAt(night: number): number {
@@ -60,7 +56,7 @@ function starsAt(night: number): number {
 
 /** Share of the sky covered by cloud at a time of day (hours): about 0.35 by day and 0.25 at night. */
 export function cloudCover(hours: number): number {
-  return coverAt(hours, nightOf(sample(hours).sunI));
+  return coverAt(hours, darkness(hours));
 }
 
 function coverAt(hours: number, night: number): number {
@@ -222,7 +218,7 @@ function noonPuffLight(): THREE.Color {
     const s = sample(12);
     const sunDir = new THREE.Vector3();
     skyPath(12, sunDir, new THREE.Vector3());
-    const night = nightOf(s.sunI);
+    const night = darkness(12);
     const sky = new THREE.Color();
     const ground = new THREE.Color();
     const hemiI = hemiLight(s, night, sky, ground);
@@ -745,7 +741,7 @@ export class Environment {
     skyPath(hours, this.sunDir, this.moonDir);
     const sunDir = this.sunDir;
     const moonDir = this.moonDir;
-    this.night = nightOf(s.sunI);
+    this.night = darkness(hours);
     const night = this.night;
     // At night the city's light glows warm on the horizon and the fog blends part of the way towards
     // it, so distant buildings fade into a warm haze rather than a navy wall. Only once it is

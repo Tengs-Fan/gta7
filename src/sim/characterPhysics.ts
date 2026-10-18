@@ -8,7 +8,8 @@ import type { Character, Vehicle } from './entities';
 import { gaitPhaseStep } from './pose';
 import { vehicleObb } from './vehiclePhysics';
 
-const MAX_STEP = 0.55;
+/** The highest step (m) a character on foot walks up; higher ground stops him (the side of a deck from the sand). */
+export const MAX_STEP = 0.55;
 /** Swimmers float with the body this far below the water surface. */
 export const SWIM_FLOAT = 1.3;
 /**

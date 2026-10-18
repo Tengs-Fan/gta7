@@ -5,7 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Objective } from '../sim/activities';
 import type { Helicopter, Pickup, PickupKind } from '../sim/entities';
 import type { Marker } from '../sim/interactions';
-import { SPOT_RADIUS } from '../sim/wanted';
+import { SPOT_RADIUS, SPOTLIGHT_DARK } from '../sim/wanted';
 import { beamTexture, glowTexture } from './textures';
 
 const beamTex = beamTexture();
@@ -362,7 +362,8 @@ export class MarkerView {
       v.g.rotation.set(h.crashing ? Math.sin(h.rotor * 0.3) * 0.4 : -h.vel.z * 0.0, h.heading, 0);
       v.rotor.rotation.y = h.rotor;
       v.tail.rotation.x = h.rotor * 1.6;
-      const showLight = night > 0.25 && !h.destroyed;
+      // From the darkness at which the crew sees only by it (see WantedSystem.heliSees).
+      const showLight = night > SPOTLIGHT_DARK && !h.destroyed;
       v.cone.visible = showLight;
       v.pool.visible = showLight;
       if (showLight) {
