@@ -6,8 +6,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { smoothstep } from '../core/math';
 import { Rng } from '../core/rng';
 import { axisOf, type Dir } from '../world/roads';
+import { SEABED_Y } from '../world/constants';
 import { rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
-import type { StaticWorld } from '../world/staticWorld';
+import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { adTexture, AD_COUNT, glowTexture, groundTexture } from './textures';
 
 interface InstanceRef {
@@ -178,16 +179,47 @@ const LAMPS: Readonly<Record<'glow' | 'flat', { red: Rgb; yellow: Rgb; green: Rg
  * proud of the tube (centred FERRIS_BULB_Z out, the tubes' centre lines being 1.6 out with a 0.3 m
  * radius) so that a viewer sees the whole bulb rather than a sliver. Each is a saturated core (ACES
  * keeps its hue, as on Low) with its own additive halo FERRIS_HALO m across (never under
- * FERRIS_HALO_MIN_PX pixels), so the colour no longer hangs on the bloom pass catching a 2-3 px cap.
+ * HALO_MIN_PX pixels), so the colour no longer hangs on the bloom pass catching a 2-3 px cap.
  */
 const FERRIS_R = 22;
 const FERRIS_LIGHTS = 64;
 const FERRIS_BULB_Z = 1.95;
 const FERRIS_BULB_R = 0.26;
 const FERRIS_HALO = 1.5;
-const FERRIS_HALO_MIN_PX = 3;
+const HALO_MIN_PX = 3;
 /** The halo's strength against its core: under the bloom threshold, so it does not flicker in and out. */
 const FERRIS_HALO_I = 0.9;
+/**
+ * A street lamp's glow: its own additive halo LAMP_HALO m across (never under HALO_MIN_PX pixels) just under the bulb, at
+ * full night LAMP_HALO_COLOR at its centre, on every tier, as the Ferris wheel's lights have. The bulb is a 4 cm plate seen
+ * edge-on, 1-2 px tall at 30 m, so a glow that hung on the bloom pass catching it switched on and off as the camera moved.
+ * The bulb (see update) and its halo together stay under the bloom threshold (2.6), so bloom no longer toggles on a lamp.
+ */
+const LAMP_HALO = 2.2;
+const LAMP_HALO_Y = 6.2;
+const LAMP_HALO_COLOR = new THREE.Color(0.65, 0.52, 0.33);
+
+/** A halo is depth-tested as if this much (m) nearer the camera, so the lamp it glows round (its head, a tube) cannot cut into it. */
+const HALO_PULL = 0.6;
+
+/**
+ * The additive glow round each point of a Points, coloured by its vertex colours, `size` m across but never under
+ * HALO_MIN_PX pixels. `map` is the lamp pools' glow texture: on the GPU from the first frame, so lighting up at night
+ * uploads nothing.
+ */
+function haloMaterial(map: THREE.Texture | null, size: number): THREE.PointsMaterial {
+  const mat = new THREE.PointsMaterial({ size, map, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <fog_vertex>',
+      `#include <fog_vertex>
+gl_PointSize = max( gl_PointSize, ${HALO_MIN_PX.toFixed(1)} );
+gl_Position = projectionMatrix * vec4( mvPosition.xyz * max( 0.0, 1.0 - ${HALO_PULL.toFixed(2)} / length( mvPosition.xyz ) ), 1.0 );`,
+    );
+  };
+  mat.customProgramCacheKey = () => 'gta7-halo';
+  return mat;
+}
 
 const BEAM_VS = /* glsl */ `
 varying float vT;
@@ -285,6 +317,9 @@ export class PropsView {
   private signalProps: Prop[] = [];
   private signalPropIndex: number[] = [];
   private readonly brokenSignals = new Set<number>();
+  private lampHalos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> | null = null;
+  /** The vertex of lampHalos for each lamp's prop index. */
+  private readonly lampHaloIndex = new Map<number, number>();
   private ferris: { wheel: THREE.Group; gondolas: THREE.InstancedMesh; lights: THREE.InstancedMesh; halos: THREE.Points; x: number; y: number; z: number; rot: number } | null = null;
   private lighthouseBeam: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null;
   private lighthouseGlow: THREE.Sprite | null = null;
@@ -436,6 +471,21 @@ export class PropsView {
       const fz = Math.cos(p.rot);
       m.compose(new THREE.Vector3(p.x + fx * 1.6, p.y + 0.04, p.z + fz * 1.6), new THREE.Quaternion(), new THREE.Vector3(13, 1, 13));
     }, { shadow: false });
+    // Each lamp's halo (LAMP_HALO), just under its bulb; a knocked-over lamp's goes dark (breakProp).
+    if (lamps.length === 0) return;
+    const haloPos = new Float32Array(lamps.length * 3);
+    lamps.forEach((pi, k) => {
+      haloPos.set(placed(this.world.layout.props[pi]!, 0, LAMP_HALO_Y, 1.55), k * 3);
+      this.lampHaloIndex.set(pi, k);
+    });
+    const haloGeo = new THREE.BufferGeometry();
+    haloGeo.setAttribute('position', new THREE.BufferAttribute(haloPos, 3));
+    haloGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(lamps.length * 3).fill(1), 3).setUsage(THREE.DynamicDrawUsage));
+    const halos = new THREE.Points(haloGeo, haloMaterial(this.poolMat.map, LAMP_HALO));
+    halos.name = 'lampHalos';
+    halos.visible = false;
+    this.group.add(halos);
+    this.lampHalos = halos;
   }
 
   private buildSignals(signals: number[]): void {
@@ -576,7 +626,7 @@ export class PropsView {
 
   private buildFerris(p: Prop): void {
     const R = FERRIS_R;
-    const hubY = p.y + R + 4;
+    const hubY = p.y + FERRIS_HUB;
     const steel = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4, metalness: 0.5 });
     const wheel = new THREE.Group();
     const rimParts: THREE.BufferGeometry[] = [];
@@ -590,7 +640,8 @@ export class PropsView {
         rimParts.push(s);
       }
     }
-    rimParts.push(new THREE.CylinderGeometry(0.9, 0.9, 4.2, 12).rotateX(Math.PI / 2));
+    // The axle, out to the A-frames' legs.
+    rimParts.push(new THREE.CylinderGeometry(0.9, 0.9, 2 * FERRIS_LEG_Z + 0.6, 12).rotateX(Math.PI / 2));
     const rim = new THREE.Mesh(merged(rimParts), steel);
     rim.castShadow = true;
     wheel.add(rim);
@@ -610,13 +661,7 @@ export class PropsView {
     const haloGeo = new THREE.BufferGeometry();
     haloGeo.setAttribute('position', new THREE.BufferAttribute(haloPos, 3));
     haloGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(FERRIS_LIGHTS * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    // The lamp pools' glow texture: on the GPU from the first frame, so lighting up at night uploads nothing.
-    const haloMat = new THREE.PointsMaterial({ size: FERRIS_HALO, map: this.poolMat.map, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
-    haloMat.onBeforeCompile = (shader) => {
-      shader.vertexShader = shader.vertexShader.replace('#include <fog_vertex>', `#include <fog_vertex>\ngl_PointSize = max( gl_PointSize, ${FERRIS_HALO_MIN_PX.toFixed(1)} );`);
-    };
-    haloMat.customProgramCacheKey = () => 'gta7-ferris-halo';
-    const halos = new THREE.Points(haloGeo, haloMat);
+    const halos = new THREE.Points(haloGeo, haloMaterial(this.poolMat.map, FERRIS_HALO));
     halos.name = 'ferrisHalos';
     wheel.add(halos);
     wheel.position.set(p.x, hubY, p.z);
@@ -626,18 +671,23 @@ export class PropsView {
     for (let i = 0; i < 16; i++) gondolas.setColorAt(i, new THREE.Color().setHSL(i / 16, 0.7, 0.55));
     gondolas.castShadow = true;
     this.group.add(gondolas);
-    // A-frame supports.
+    // A-frame supports: each leg straight from the hub through x = +-FERRIS_LEG_X at the prop's y, beside the deck, and on
+    // down to the seabed (StaticWorld stands a post round it where it meets the water).
     const legs: THREE.BufferGeometry[] = [];
-    for (const z of [-3.2, 3.2]) {
+    const rise = hubY - p.y;
+    const sink = p.y - SEABED_Y;
+    const out = FERRIS_LEG_X * (1 + sink / rise);
+    const len = Math.hypot(out, rise + sink);
+    for (const z of [-FERRIS_LEG_Z, FERRIS_LEG_Z]) {
       for (const sx of [-1, 1]) {
-        const len = Math.hypot(R * 0.55, R + 4);
         const g = new THREE.BoxGeometry(0.6, len, 0.6).translate(0, len / 2, 0);
-        g.rotateZ(sx * Math.atan2(R * 0.55, R + 4));
-        g.translate(-sx * R * 0.55, 0, z);
+        g.rotateZ(sx * Math.atan2(out, rise + sink));
+        g.translate(sx * out, -sink, z);
         legs.push(g);
       }
     }
     const legMesh = new THREE.Mesh(merged(legs), steel);
+    legMesh.name = 'ferrisLegs';
     legMesh.position.set(p.x, p.y, p.z);
     legMesh.rotation.y = p.rot;
     legMesh.castShadow = true;
@@ -751,6 +801,12 @@ export class PropsView {
       r.mesh.instanceMatrix.needsUpdate = true;
     }
     if (p.kind === 'signal') this.brokenSignals.add(index);
+    const halo = this.lampHaloIndex.get(index);
+    if (this.lampHalos && halo !== undefined) {
+      const c = this.lampHalos.geometry.getAttribute('color') as THREE.BufferAttribute;
+      c.setXYZ(halo, 0, 0, 0);
+      c.needsUpdate = true;
+    }
   }
 
   /** Whether bloom draws halos round bright lights (GameRenderer.setQuality): without it the coloured lamps use LAMPS.flat. */
@@ -767,6 +823,11 @@ export class PropsView {
       }
     }
     this.brokenSignals.clear();
+    if (this.lampHalos) {
+      const c = this.lampHalos.geometry.getAttribute('color') as THREE.BufferAttribute;
+      (c.array as Float32Array).fill(1);
+      c.needsUpdate = true;
+    }
   }
 
   /**
@@ -774,10 +835,14 @@ export class PropsView {
    * (sim.time) so the bulbs show the phase that drivers and pedestrians obey.
    */
   update(time: number, night: number, signalTime: number): void {
-    // Lamps.
+    // Lamps: the bulb, its halo added on top and the pool under it (see LAMP_HALO).
     const k = night;
-    this.bulbMat.color.setRGB(0.25 + k * 7.5, 0.24 + k * 6, 0.22 + k * 3.8);
+    this.bulbMat.color.setRGB(0.25 + k * 1.35, 0.24 + k * 1.1, 0.22 + k * 0.7);
     this.poolMat.opacity = k * 0.42;
+    if (this.lampHalos) {
+      this.lampHalos.material.color.copy(LAMP_HALO_COLOR).multiplyScalar(k);
+      this.lampHalos.visible = k > 0.02;
+    }
     for (const m of this.adMaterials) m.emissiveIntensity = 0.12 + k * 1.1;
     // Signals.
     const lamps = LAMPS[this.glow ? 'glow' : 'flat'];

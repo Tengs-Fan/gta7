@@ -26,6 +26,15 @@ export const BOAT_DECK = 1.2;
 export const BOAT_ROOF = 2.5;
 /** How far under the surface a body floats in deep water: its feet (sim/characterPhysics SWIM_FLOAT). */
 export const FLOAT_FEET = 1.3;
+/**
+ * The Ferris wheel as render/props.ts buildFerris draws it, in its own frame (turned by rot about Y; the wheel turns about
+ * its local z axis): its hub stands FERRIS_HUB above the prop's y, high enough that the gondolas, hung 2.6 m under a rim of
+ * radius 22, pass 3.9 m over the deck (a bus is 3.2 m tall). Two A-frames at z = +-FERRIS_LEG_Z hold it, each leg straight
+ * from the hub through x = +-FERRIS_LEG_X at the prop's y, beside the deck, and on down into the sea.
+ */
+export const FERRIS_HUB = 28.5;
+export const FERRIS_LEG_X = 12.1;
+export const FERRIS_LEG_Z = 3.2;
 
 export class StaticWorld {
   readonly layout: CityLayout;
@@ -96,8 +105,18 @@ export class StaticWorld {
         for (const [lx, lz] of [[-6, -5], [6, -5], [-6, 5], [6, 5]] as const) g.addBox(p.x + lx - 0.6, p.z + lz - 0.6, p.x + lx + 0.6, p.z + lz + 0.6, 0, 30, 'pillar');
         return -1;
       }
-      case 'ferris':
-        return g.addBox(p.x - 4, p.z - 6, p.x + 4, p.z + 6, p.y, p.y + 4, 'pillar').id;
+      case 'ferris': {
+        // Nothing of the wheel comes near the deck: the gondolas pass 3.9 m over it, and the legs stand in the sea on either
+        // side. A post round each leg where it meets the water, from below the swimmers' collision band up to the deck.
+        const out = FERRIS_LEG_X * (1 + (p.y - WATER_Y) / FERRIS_HUB);
+        const cos = Math.cos(p.rot);
+        const sin = Math.sin(p.rot);
+        let id = -1;
+        for (const lx of [-out, out]) {
+          for (const lz of [-FERRIS_LEG_Z, FERRIS_LEG_Z]) id = g.addCircle(p.x + lx * cos + lz * sin, p.z - lx * sin + lz * cos, 0.45, WATER_Y - 1.5, p.y, 'pillar').id;
+        }
+        return id;
+      }
       case 'billboard': {
         // Posts under the rendered legs (render/props.ts buildBillboard, local x = +-4.5).
         const along = Math.abs(Math.sin(p.rot)) > 0.7;
