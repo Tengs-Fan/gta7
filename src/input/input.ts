@@ -53,6 +53,11 @@ const LETTER_SHORTCUTS = new Set(['e', 'f', 'h', 'm', 'p', 'q', 'r', 't', 'v']);
 const CHEAT_GAP_MS = 1500;
 /** From this many letters into a cheat code, the keys typing it do nothing else (see Input.typeLetter). */
 const CHEAT_SWALLOW_AT = 3;
+/**
+ * How long (ms) an F press that would get the player out for good waits for the I of FIXMYRIDE (see Input.exitAtStake).
+ * Covers typing at up to two keys a second; the code itself allows 1.5 s between letters.
+ */
+const EXIT_HOLD_MS = 500;
 /** Mouse moves are dropped this long (ms) after pointer lock is gained: the first one jumps by the cursor's offset. */
 const LOCK_SETTLE_MS = 100;
 /**
@@ -93,6 +98,13 @@ function sameTurn(m: { x: number; y: number }, x: number, y: number): boolean {
 function dz(v: number): number {
   if (Math.abs(v) < DEADZONE) return 0;
   return Math.sign(v) * ((Math.abs(v) - DEADZONE) / (1 - DEADZONE));
+}
+
+/** A fresh key press: its number (see Input.presses), the codes it holds down (its own and a letter alias) and the one it acts as. */
+interface KeyPress {
+  press: number;
+  codes: string[];
+  action: string;
 }
 
 /**
@@ -171,7 +183,13 @@ export class KeyLabels {
 
 export class Input {
   private readonly held = new Set<string>();
+  /** The codes pressed since the last frame, built by poll() from `fresh`. */
   private readonly down = new Set<string>();
+  /**
+   * Key presses since the last frame, in order. Kept as presses until poll() so that a cheat code completed before the
+   * frame can take its own letters back (see typeLetter).
+   */
+  private fresh: KeyPress[] = [];
   private mouseHeld = 0;
   private mouseDown = 0;
   private lookX = 0;
@@ -183,6 +201,8 @@ export class Input {
   /** Letter alias added for a held physical key (see letterAlias), released with it. */
   private readonly aliases = new Map<string, string>();
   private padPrev: boolean[] = [];
+  /** navigator.getGamepads() threw (the page's permissions policy leaves out 'gamepad'): no pads for the rest of the session. */
+  private padsBlocked = false;
   private rtDown = false;
   private device: 'kb' | 'pad' = 'kb';
   private lockRequestT = -Infinity;
@@ -216,11 +236,29 @@ export class Input {
   private typedFree = '';
   /** The press that typed each letter of `typed`. */
   private typedPresses: number[] = [];
+  /** The presses that typed the letters of the cheat code being typed (or just completed), oldest first. */
+  private codePresses: number[] = [];
   /** Cheat codes typed and not taken yet. */
   private readonly cheats: TypedCheat[] = [];
   /** Keys swallowed for typing a cheat code, until released. */
   private readonly swallowed = new Set<string>();
+  /**
+   * An F press held back while exitAtStake, and when (performance.now() ms): F is also the first letter of FIXMYRIDE.
+   * The next key settles it (an I typing on is the code, and the F does nothing; anything else lets it act), and so
+   * does EXIT_HOLD_MS going by.
+   */
+  private heldExit: { key: KeyPress; t: number } | null = null;
   inVehicle = false;
+  /**
+   * Getting out of the vehicle now could not be undone (set by the game each frame): it would end a taxi or vigilante
+   * job, or a bail could kill. FIXMYRIDE's F gets the player out, so an F press then waits for the next key (heldExit).
+   */
+  exitAtStake = false;
+  /**
+   * A menu, the map or the shop is open (set by the game each frame). There S, A, W and D move through and change
+   * settings, so the keys typing a cheat code do nothing from its second letter on (in play, from its third).
+   */
+  menuOpen = false;
   /**
    * A line of dialogue can be skipped (set by the game each frame, see MissionSystem.lineSkippable). In a
    * vehicle, where E is the horn, a fresh E press then skips the line instead of honking.
@@ -229,6 +267,11 @@ export class Input {
   enabled = true;
   /** Whether gameplay wants the mouse captured right now (set by the game). */
   wantsPointerLock: () => boolean = () => false;
+  /**
+   * Whether the mouse's back and forward buttons must not leave the page (set by the game): a game is on, even
+   * under a menu, where the pointer is free and the browser would navigate.
+   */
+  guardNavigation: () => boolean = () => false;
   /** Names of the keys on the player's keyboard layout, for prompts and menus. */
   readonly labels = new KeyLabels();
   private readonly listeners: Array<[EventTarget, string, EventListener]> = [];
@@ -249,18 +292,20 @@ export class Input {
       const alias = letterAlias(ev);
       const press = ev.repeat ? -1 : ++this.presses;
       // A key typing a cheat code does nothing else, also while it auto-repeats, until it is released.
-      if (ev.repeat ? this.swallowed.has(ev.code) : this.typeLetter(ev.key, BOUND_CODES.has(ev.code) || alias !== null, press)) {
+      const typing = ev.repeat ? this.swallowed.has(ev.code) : this.typeLetter(ev.key, BOUND_CODES.has(ev.code) || alias !== null, press);
+      if (!ev.repeat) this.settleHeldExit();
+      if (typing) {
         this.swallowed.add(ev.code);
         return;
       }
       this.swallowed.delete(ev.code);
-      if (press > 0 && SCREEN_KEYS.has(alias ?? ev.code)) this.screenPress = press;
-      if (press > 0 && EXIT_KEYS.has(alias ?? ev.code)) this.exitPress = press;
+      const codes = alias ? [ev.code, alias] : [ev.code];
       if (alias) this.aliases.set(ev.code, alias);
-      for (const code of alias ? [ev.code, alias] : [ev.code]) {
-        if (!ev.repeat) this.down.add(code);
-        this.held.add(code);
-      }
+      for (const code of codes) this.held.add(code);
+      if (ev.repeat) return;
+      const key: KeyPress = { press, codes, action: alias ?? ev.code };
+      if (key.action === 'KeyF' && this.inVehicle && this.exitAtStake && !this.menuOpen) this.heldExit = { key, t: performance.now() };
+      else this.fresh.push(key);
     });
     on(window, 'keyup', (e) => {
       const code = (e as KeyboardEvent).code;
@@ -305,7 +350,15 @@ export class Input {
       }
     });
     on(document, 'pointerlockerror', () => this.lockRefused());
+    // The mouse's back and forward buttons go back and forth in the history unless their release (Chrome) or
+    // press is cancelled. With the pointer locked they never do, but menus, the map and the shop free it.
+    const keepPage = (e: Event) => {
+      const b = (e as MouseEvent).button;
+      if ((b === 3 || b === 4) && this.guardNavigation()) e.preventDefault();
+    };
+    on(window, 'mousedown', keepPage);
     on(window, 'mouseup', (e) => {
+      keepPage(e);
       this.mouseHeld &= ~(1 << (e as MouseEvent).button);
     });
     on(window, 'mousemove', (e) => {
@@ -444,6 +497,15 @@ export class Input {
   /** Builds this frame's input (dt: frame time in seconds). Call once per frame, then endFrame(). */
   poll(dt: number): FrameInput {
     this.pollT = performance.now();
+    // No letter of FIXMYRIDE followed a held F in time: it acts now.
+    if (this.heldExit && this.pollT - this.heldExit.t >= EXIT_HOLD_MS) this.releaseHeldExit();
+    this.down.clear();
+    this.screenPress = -1;
+    for (const k of this.fresh) {
+      for (const c of k.codes) this.down.add(c);
+      if (SCREEN_KEYS.has(k.action)) this.screenPress = k.press;
+      if (EXIT_KEYS.has(k.action)) this.exitPress = k.press;
+    }
     const p = neutralInput();
     const ui: UiActions = { pause: false, map: false, camera: false, radioNext: false, radioPrev: false, confirm: false, back: false, up: false, down: false, left: false, right: false };
     let lookX = this.lookX;
@@ -499,8 +561,7 @@ export class Input {
     ui.right = this.pressed('ArrowRight', 'KeyD');
 
     // Gamepad (standard mapping).
-    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
-    const pad = Array.from(pads ?? []).find((g) => g && g.connected && g.mapping === 'standard') ?? null;
+    const pad = this.standardPad();
     if (pad) {
       const b = (i: number) => !!pad.buttons[i]?.pressed;
       const bv = (i: number) => pad.buttons[i]?.value ?? 0;
@@ -567,7 +628,23 @@ export class Input {
     return { player: p, lookX, lookY, ui, device: this.device };
   }
 
+  /**
+   * The first connected pad with the standard mapping, or null. Where the page's permissions policy leaves out
+   * 'gamepad' (a hardening header, a cross-origin frame without allow="gamepad") getGamepads() throws a
+   * SecurityError: that means no pads, and keeps meaning it, as a document's policy cannot change.
+   */
+  standardPad(): Gamepad | null {
+    if (this.padsBlocked || typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null;
+    try {
+      return Array.from(navigator.getGamepads() ?? []).find((g) => g && g.connected && g.mapping === 'standard') ?? null;
+    } catch {
+      this.padsBlocked = true;
+      return null;
+    }
+  }
+
   endFrame(): void {
+    this.fresh = [];
     this.down.clear();
     this.screenPress = -1;
     this.mouseDown = 0;
@@ -593,12 +670,31 @@ export class Input {
     return this.exitPress;
   }
 
+  /** The F press held back for FIXMYRIDE acts after all: at the next frame. */
+  private releaseHeldExit(): void {
+    const h = this.heldExit;
+    this.heldExit = null;
+    if (h) this.fresh.push(h.key);
+  }
+
+  /** A new key press settles a held F: typing on with the code (F I...), the F was its first letter and does nothing. */
+  private settleHeldExit(): void {
+    const h = this.heldExit;
+    if (!h) return;
+    if (this.codePresses.length >= 2 && this.codePresses.includes(h.key.press)) this.heldExit = null;
+    else this.releaseHeldExit();
+  }
+
   /**
    * Adds a typed letter to the cheat buffer (`bound`: the key that typed it has a binding) and queues a
-   * completed code. Returns true when the key is typing a code and must do nothing else: from the third
-   * letter of a code on, once the letters so far include one typed with an unbound key. Play alone never
-   * types those, so play is never swallowed (S P A, back / pause / left, also starts SPAWNSPORTS); a code's
-   * first letters still act, and Game undoes what they did.
+   * completed code. Returns true when the key is typing a code and must do nothing else: the letter that
+   * completes a code, and in play from the third letter of a code on, once the letters so far include one
+   * typed with an unbound key. Play alone never types those, so play is never swallowed (S P A, back / pause
+   * / left, also starts SPAWNSPORTS). In a menu every letter of a code after the first is swallowed.
+   *
+   * A code's first letters still act, once a frame has seen them, and Game undoes what they did; letters no
+   * frame has seen yet when the code completes (keys sent faster than frames, as by a macro) are taken back
+   * here and never act.
    */
   private typeLetter(key: unknown, bound: boolean, press: number): boolean {
     if (typeof key !== 'string' || key.length !== 1 || !/[a-z]/i.test(key)) return false;
@@ -613,14 +709,18 @@ export class Input {
     this.typedFree = (this.typedFree + (bound ? '0' : '1')).slice(-24);
     this.typedPresses = [...this.typedPresses, press].slice(-24);
     const n = cheatPrefixLength(this.typed);
-    const swallow = n >= CHEAT_SWALLOW_AT && this.typedFree.slice(-n).includes('1');
+    this.codePresses = n > 0 ? this.typedPresses.slice(-n) : [];
+    const swallow = this.menuOpen ? n >= 2 : n >= CHEAT_SWALLOW_AT && this.typedFree.slice(-n).includes('1');
     const code = completedCheat(this.typed);
-    if (code) {
-      this.cheats.push({ code, presses: this.typedPresses.slice(-code.length) });
-      this.typed = '';
-      this.typedFree = '';
-      this.typedPresses = [];
-    }
-    return swallow;
+    if (!code) return swallow;
+    const presses = this.typedPresses.slice(-code.length);
+    this.cheats.push({ code, presses });
+    this.codePresses = presses;
+    this.fresh = this.fresh.filter((k) => !presses.includes(k.press));
+    if (this.heldExit && presses.includes(this.heldExit.key.press)) this.heldExit = null;
+    this.typed = '';
+    this.typedFree = '';
+    this.typedPresses = [];
+    return true;
   }
 }
