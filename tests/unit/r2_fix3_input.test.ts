@@ -740,18 +740,26 @@ describe('the map waypoint is cleared on arrival and by a side job starting', ()
 
 // ---------------------------------------------------------------------------
 
-describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
+describe('FIXMYRIDE in a job keeps the job, and at low health gets nobody out', () => {
+  // In a taxi or vigilante job's car the code's F gets the player out at once, as anywhere (fix pass 5: it used to wait
+  // up to 1.5 s for the next letter, braking the car), and the job waits for the code, which puts him back at the wheel.
   for (const speed of [0, 8, 20]) {
-    it(`typed in a taxi at ${speed} m/s, the fare stays seated and the job goes on`, async () => {
+    it(`typed in a taxi at ${speed} m/s, its F acts at once, and the code puts him back at the wheel with the fare seated and the job going on`, async () => {
       const { sim, frames, type, taxi, lane, job, fare, game } = await taxiWithFare();
       const fares = job.fares;
       taxi.health = taxi.spec.health * 0.4;
       setSpeed(taxi, lane, speed);
       frames(1);
       const n = watch(sim);
-      type('FIXMYRIDE');
+      keyDown('KeyF', 'f');
+      frames(4);
+      keyUp('KeyF', 'f');
+      // Out at once, bailing at 20 m/s; at 8 m/s braking for the stop it gets out at (PlayerController.driving).
+      expect(n.exits).toBe(speed === 8 ? 0 : 1);
+      frames(4);
+      type('IXMYRIDE');
       frames(60);
-      expect(n.exits).toBe(0);
+      expect(n.exits).toBe(1);
       expect(n.jobsEnded).toBe(0);
       expect(sim.activities.job).toBe(job);
       expect(job.stage).toBe('dropoff');
@@ -765,34 +773,37 @@ describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
     });
   }
 
-  it('typed slowly (about 370 ms a key) in a taxi at 14 m/s, the job goes on too', async () => {
+  it('typed slowly (about 370 ms a key) in a taxi at 14 m/s, the job waits for it too', async () => {
     const { sim, frames, type, taxi, lane, job, fare } = await taxiWithFare();
     setSpeed(taxi, lane, 14);
     frames(1);
     const n = watch(sim);
     type('FIXMYRIDE', 22);
     frames(30);
-    expect(n.exits).toBe(0);
+    expect(n.exits).toBe(1);
+    expect(n.jobsEnded).toBe(0);
     expect(sim.activities.job).toBe(job);
     expect(fare.vehicle).toBe(taxi);
     expect(sim.player.vehicle).toBe(taxi);
   });
 
-  it('typed in a vigilante car at 20 m/s, the job goes on', async () => {
+  it('typed in a vigilante car at 20 m/s, the job goes on at its level', async () => {
     const { sim, frames, type } = await playing();
     const { v: car, lane } = driving(sim, 'police');
     frames(2);
     sim.activities.toggleJob();
-    const job = sim.activities.job;
+    const job = sim.activities.job as unknown as { kind: string; level: number };
     expect(job?.kind).toBe('vigilante');
+    job.level = 2;
     setSpeed(car, lane, 20);
     frames(1);
     const n = watch(sim);
     type('FIXMYRIDE');
     frames(30);
-    expect(n.exits).toBe(0);
+    expect(n.exits).toBe(1);
     expect(n.jobsEnded).toBe(0);
     expect(sim.activities.job).toBe(job);
+    expect(job.level).toBe(2);
     expect(sim.player.vehicle).toBe(car);
   });
 
@@ -823,7 +834,7 @@ describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
     seconds(1.1);
     type('IXMYRIDE');
     frames(30);
-    expect(n.exits).toBe(0);
+    expect(n.exits).toBe(1);
     expect(n.jobsEnded).toBe(0);
     expect(sim.activities.job).toBe(job);
     expect(fare.vehicle).toBe(taxi);
@@ -845,10 +856,11 @@ describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
       frames(2);
     }
     frames(30);
-    expect(n.exits).toBe(0);
+    expect(n.exits).toBe(1);
     expect(n.jobsEnded).toBe(0);
     expect(sim.activities.job).toBe(job);
     expect(fare.vehicle).toBe(taxi);
+    expect(sim.player.vehicle).toBe(taxi);
   });
 
   it('with no job and full health a real F gets out at once', async () => {
@@ -862,7 +874,7 @@ describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
     keyUp('KeyF', 'f');
   });
 
-  it('in a taxi job F alone waits for an I as long as the code would (1.5 s), braking the cab, then gets out and ends the job', async () => {
+  it('in a taxi job F alone gets out at once (at 8 m/s at the stop it brakes for), and the job ends once 1.5 s go by with no I', async () => {
     const { sim, frames, taxi, lane } = await taxiWithFare();
     setSpeed(taxi, lane, 8);
     frames(1);
@@ -870,68 +882,94 @@ describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
     keyDown('KeyF', 'f');
     frames(4);
     keyUp('KeyF', 'f');
-    frames(80);
-    expect(n.exits).toBe(0);
-    expect(sim.activities.job).not.toBe(null);
-    // Braked to a stop meanwhile, as the stop before getting out would have.
-    expect(taxi.speed).toBeLessThan(1);
-    frames(12);
+    let f = 4;
+    for (; f < 84 && n.exits === 0; f++) frames(1);
+    // Out well before the code's 1.5 s, the cab stopped: no wait for the next letter, no braking but the stop's own.
     expect(n.exits).toBe(1);
+    expect(f).toBeLessThan(60);
+    expect(taxi.speed).toBeLessThan(3.5);
     expect(sim.player.vehicle).toBe(null);
+    // The job waits for the code as long as it allows for the next letter, then ends.
+    frames(84 - f);
+    expect(n.jobsEnded).toBe(0);
+    expect(sim.activities.job).not.toBe(null);
+    frames(8);
     expect(n.jobsEnded).toBe(1);
     expect(sim.activities.job).toBe(null);
   });
 
-  it('in a taxi job F then W: the W shows it is no code, and the F acts at once', async () => {
+  it('in a taxi job F gets out at once, and a W after it shows it is no code: the job ends at once', async () => {
     const { sim, frames } = await taxiWithFare();
     const n = watch(sim);
     keyDown('KeyF', 'f');
-    frames(3);
-    expect(n.exits).toBe(0);
-    keyDown('KeyW', 'w');
     frames(1);
     expect(n.exits).toBe(1);
+    frames(2);
+    expect(n.jobsEnded).toBe(0);
+    keyDown('KeyW', 'w');
+    frames(1);
+    expect(n.jobsEnded).toBe(1);
+    expect(sim.activities.job).toBe(null);
     keyUp('KeyF', 'f');
     keyUp('KeyW', 'w');
   });
 
-  it('in a taxi job F pressed again (impatient) gets out at once, and only once', async () => {
-    const { sim, frames } = await taxiWithFare();
+  it('in a taxi job F gets out at once, and a second F gets back in: the job is over, as getting out always made it', async () => {
+    const { sim, frames, taxi } = await taxiWithFare();
     const n = watch(sim);
     keyDown('KeyF', 'f');
     frames(3);
     keyUp('KeyF', 'f');
     frames(3);
-    expect(n.exits).toBe(0);
+    expect(n.exits).toBe(1);
+    expect(n.jobsEnded).toBe(0);
     keyDown('KeyF', 'f');
     frames(1);
-    expect(n.exits).toBe(1);
     keyUp('KeyF', 'f');
-    frames(30);
+    expect(n.jobsEnded).toBe(1);
+    frames(60);
     expect(n.exits).toBe(1);
-    expect(sim.player.vehicle).toBe(null);
+    expect(sim.player.vehicle).toBe(taxi);
+    expect(sim.activities.job).toBe(null);
   });
 
-  it('in a taxi job the window losing focus lets a held F act, as it would have without the wait', async () => {
-    const { sim, frames } = await taxiWithFare();
+  it('at 20 m/s with 5 health the window losing focus lets a held F act, as it would have without the wait', async () => {
+    const { sim, frames } = await playing();
+    const { v, lane } = driving(sim, 'sedan');
+    sim.player.health = 5;
+    setSpeed(v, lane, 20);
+    frames(1);
     const n = watch(sim);
     keyDown('KeyF', 'f');
     frames(3);
+    expect(n.exits).toBe(0);
     dom.win.dispatchEvent(new Event('blur'));
     frames(1);
     expect(n.exits).toBe(1);
   });
 
-  it("in a taxi job the cab catching fire lets a held F act at once: 'Press F to get out!'", async () => {
-    const { sim, frames, taxi } = await taxiWithFare();
+  it('at 13 m/s with 5 health a held F acts once the car slows below the bail speed: braked from before, he gets out at the stop, alive', async () => {
+    const { sim, frames } = await playing();
+    const { v, lane } = driving(sim, 'sedan');
+    sim.player.health = 5;
+    setSpeed(v, lane, 13);
+    frames(1);
     const n = watch(sim);
+    // The brake held down first: a key pressed after the F would settle it (it is no letter of the code), and it acts.
+    keyDown('KeyS', 's');
+    frames(1);
+    expect(v.speed).toBeGreaterThan(11);
     keyDown('KeyF', 'f');
-    frames(3);
-    expect(n.exits).toBe(0);
-    sim.combat.igniteVehicle(taxi, 5);
     frames(2);
-    expect(n.exits).toBe(1);
     keyUp('KeyF', 'f');
+    expect(n.exits).toBe(0);
+    for (let i = 0; i < 240 && n.exits === 0; i++) frames(1);
+    keyUp('KeyS', 's');
+    expect(n.exits).toBe(1);
+    expect(sim.deathKind).toBe(null);
+    expect(sim.player.alive).toBe(true);
+    expect(sim.player.health).toBe(5);
+    expect(v.speed).toBeLessThan(3.5);
   });
 
   it('in a taxi job at 10.5 m/s with 5 health, accelerating, F brakes to a safe stop instead of waiting to bail at speed', async () => {

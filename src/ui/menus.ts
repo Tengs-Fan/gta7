@@ -42,6 +42,21 @@ interface Screen {
   /** Called when the screen is on top again after the one above it closed. */
   refresh?(): void;
   close?(): void;
+  /** The screen pans with the left stick itself (the map): the stick makes it no up / down / left / right steps. */
+  pans?: boolean;
+}
+
+type StickDir = 'up' | 'down' | 'left' | 'right';
+/** The left stick steps a menu once pushed past STICK_PRESS along its main axis, and is let go below STICK_RELEASE... */
+const STICK_PRESS = 0.5;
+const STICK_RELEASE = 0.3;
+/** ...and held, it steps again after STICK_REPEAT_DELAY seconds, then every STICK_REPEAT seconds. */
+const STICK_REPEAT_DELAY = 0.4;
+const STICK_REPEAT = 0.13;
+
+/** How far the stick (x, y) leans the way of `dir`. */
+function stickAlong(dir: StickDir, x: number, y: number): number {
+  return dir === 'right' ? x : dir === 'left' ? -x : dir === 'down' ? y : -y;
 }
 
 /** NEW GAME's question when there is a save: the new game's first save replaces it. */
@@ -126,6 +141,11 @@ export class Menus {
   private age = 0;
   /** The device of the last input (see input()): the map and shop name its buttons. */
   private device: InputDevice = 'kb';
+  /**
+   * The left stick's steps (see stickStep): the direction it holds, the time to its next step, and whether it has been
+   * seen at rest since the top screen appeared (held from play or through the press that opened it, it does nothing).
+   */
+  private stick: { dir: StickDir | null; wait: number; armed: boolean } = { dir: null, wait: 0, armed: false };
 
   constructor(parent: HTMLElement, private readonly host: MenuHost, private readonly map: MapImage, private readonly keys = new KeyLabels()) {
     this.root = h('div');
@@ -146,6 +166,7 @@ export class Menus {
     this.stack.push(s);
     this.root.appendChild(s.el);
     this.age = 0;
+    this.stick = { dir: null, wait: 0, armed: false };
   }
 
   pop(): void {
@@ -156,6 +177,7 @@ export class Menus {
     this.top?.el.classList.remove('hidden');
     this.top?.refresh?.();
     this.age = 0;
+    this.stick = { dir: null, wait: 0, armed: false };
   }
 
   closeAll(): void {
@@ -169,8 +191,35 @@ export class Menus {
     if (!s) return;
     this.age += dt;
     s.tick?.(dt, ui);
+    const step = this.stickStep(ui, dt, s);
     if (this.age < 0.25) return;
-    s.input(ui, dt);
+    s.input(step ? { ...ui, [step]: true } : ui, dt);
+  }
+
+  /**
+   * This frame's step of the left stick through screen `s`, as a D-pad press: once it is pushed past STICK_PRESS along
+   * its main axis (one axis only: a slant does not both pick a settings row and change it), then again while it is held
+   * (STICK_REPEAT_*), until it is let go below STICK_RELEASE. None until it has been seen at rest since the screen
+   * appeared (see stick), during the screen's input guard, or on the map, which it pans.
+   */
+  private stickStep(ui: UiActions, dt: number, s: Screen): StickDir | null {
+    const st = this.stick;
+    const x = ui.stickX ?? 0;
+    const y = ui.stickY ?? 0;
+    if (st.dir !== null && stickAlong(st.dir, x, y) < STICK_RELEASE) st.dir = null;
+    if (Math.max(Math.abs(x), Math.abs(y)) < STICK_RELEASE) st.armed = true;
+    if (!st.armed || s.pans || this.age < 0.25) return null;
+    if (st.dir === null) {
+      const dir: StickDir = Math.abs(x) > Math.abs(y) ? (x > 0 ? 'right' : 'left') : y > 0 ? 'down' : 'up';
+      if (stickAlong(dir, x, y) <= STICK_PRESS) return null;
+      st.dir = dir;
+      st.wait = STICK_REPEAT_DELAY;
+      return dir;
+    }
+    st.wait -= dt;
+    if (st.wait > 0) return null;
+    st.wait = Math.max(st.wait + STICK_REPEAT, 0);
+    return st.dir;
   }
 
   // ---------------------------------------------------------------------------
@@ -326,7 +375,7 @@ export class Menus {
       ['Sprint', 'A'],
       ['Enter / Exit', 'Y'],
       ['Reload', 'B'],
-      ['Weapons', 'LB / RB'],
+      ['Weapons (LB in a vehicle)', 'LB / RB'],
       ['Horn (in a vehicle)', 'L3'],
       ['Camera distance', 'R3'],
       ['Interact', 'D-pad up'],
@@ -731,8 +780,16 @@ export class Menus {
         if (blk.district === 'park' && zoom < 1) continue;
         seen.add(blk.zone);
         const group = sim.world.layout.blocks.filter((b) => b.zone === blk.zone);
-        const mx = group.reduce((a, b) => a + (b.rect.minX + b.rect.maxX) / 2, 0) / group.length;
-        const mz = group.reduce((a, b) => a + (b.rect.minZ + b.rect.maxZ) / 2, 0) / group.length;
+        let mx = group.reduce((a, b) => a + (b.rect.minX + b.rect.maxX) / 2, 0) / group.length;
+        let mz = group.reduce((a, b) => a + (b.rect.minZ + b.rect.maxZ) / 2, 0) / group.length;
+        // The middle of a district wrapped round another (Midtown round Downtown) lies in that one: there the label goes
+        // on the district's own block nearest to it.
+        if (sim.world.zoneName(mx, mz) !== blk.zone) {
+          const centre = (b: (typeof group)[number]) => ({ x: (b.rect.minX + b.rect.maxX) / 2, z: (b.rect.minZ + b.rect.maxZ) / 2 });
+          const near = group.map(centre).reduce((a, c) => (Math.hypot(c.x - mx, c.z - mz) < Math.hypot(a.x - mx, a.z - mz) ? c : a));
+          mx = near.x;
+          mz = near.z;
+        }
         const sx = vw / 2 + (mx - cx) * k;
         const sy = vh / 2 + (mz - cz) * k;
         ctx.lineWidth = 4;
@@ -857,6 +914,7 @@ export class Menus {
         draw(t);
       },
       close: onClose,
+      pans: true,
     });
   }
 }
