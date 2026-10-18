@@ -3,7 +3,8 @@
 // damped pitch still lagged, so the smooth slope read as the ramp's back wall (an impact, a bounce and no jump).
 
 import { describe, expect, it } from 'vitest';
-import type { Vehicle, VehicleKind } from '../../src/sim/entities';
+import type { Vehicle } from '../../src/sim/entities';
+import type { VehicleKind } from '../../src/sim/specs';
 import type { Ramp } from '../../src/world/layout';
 import { input, makeSim, placeInCar, step, world } from './helpers';
 
