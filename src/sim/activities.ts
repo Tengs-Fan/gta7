@@ -54,6 +54,9 @@ interface RampageJob {
 
 type Job = TaxiJob | VigilanteJob | RampageJob;
 
+/** How far from a cab a fare let out looks for the sidewalk (m): across a wide avenue, at a slant. */
+const CURB_SEARCH = 16;
+
 export class Activities {
   job: Job | null = null;
 
@@ -112,7 +115,12 @@ export class Activities {
   }
 
   cancelAll(reason: 'wasted' | 'busted' | 'mission'): void {
-    if (this.job) this.end(reason === 'mission' ? '' : this.job.kind === 'rampage' ? 'Rampage failed.' : 'Job over.');
+    const j = this.job;
+    if (!j) return;
+    // A mission takes over from a taxi or vigilante job quietly (its markers are used on foot, which ends those
+    // anyway), but a rampage it calls off is said out loud: the markers refuse to start one during it.
+    if (reason === 'mission') this.end(j.kind === 'rampage' ? 'Rampage abandoned.' : '');
+    else this.end(j.kind === 'rampage' ? 'Rampage failed.' : 'Job over.');
   }
 
   private say(text: string, duration = 3): void {
@@ -125,7 +133,13 @@ export class Activities {
     this.job = null;
     if (!j) return;
     if (j.kind === 'taxi' && j.fare && !j.fare.removed) {
-      if (j.fare.vehicle) sim.unseat(j.fare);
+      const cab = j.fare.vehicle;
+      if (cab) {
+        // Let out on the curb, as at a drop-off: unseated where he sits he would stand inside the cab's body,
+        // and the physics would shove him out into the traffic, or under the cab itself in a slide.
+        sim.unseat(j.fare);
+        if (j.fare.alive) this.placeOnSidewalk(j.fare, cab);
+      }
       this.releaseCharacter(j.fare);
     }
     if (j.kind === 'vigilante') {
@@ -303,9 +317,23 @@ export class Activities {
       sx = -sx;
       sz = -sz;
     }
-    // Step over the rest of the lane and shoulder onto the sidewalk (bounded, e.g. inside an intersection).
-    let d = v.halfW + 0.8;
-    for (let k = 0; k < 12 && sim.world.isOnRoad(v.pos.x + sx * d, v.pos.z + sz * d); k++) d += 0.5;
+    // Step over the rest of the road onto the sidewalk: the lanes and the shoulder, more of them from a cab
+    // left askew (a job ended in a slide), bounded (the middle of an intersection). Failing that side, the other.
+    const door = v.halfW + 0.8;
+    const curb = (dx: number, dz: number): number | null => {
+      for (let d = door; d <= CURB_SEARCH; d += 0.5) if (!sim.world.isOnRoad(v.pos.x + dx * d, v.pos.z + dz * d)) return d;
+      return null;
+    };
+    let d = curb(sx, sz);
+    if (d === null) {
+      d = curb(-sx, -sz);
+      if (d !== null) {
+        sx = -sx;
+        sz = -sz;
+      }
+    }
+    // All road around (a big intersection): out of the door, clear of the cab.
+    d ??= door;
     const spot = sim.world.findFreeSpot(v.pos.x + sx * d, v.pos.z + sz * d, 0.4, 8) ?? { x: v.pos.x, z: v.pos.z };
     c.pos.x = spot.x;
     c.pos.z = spot.z;

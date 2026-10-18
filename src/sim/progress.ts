@@ -89,6 +89,9 @@ export class Progress {
 
 export const SAVE_VERSION = 1;
 
+/** The most rounds Inventory.give keeps in a gun's reserve (entities.ts); its magazine holds more on top. */
+const RESERVE_CAP = 9999;
+
 export interface SaveData {
   version: number;
   savedAt: number;
@@ -146,8 +149,11 @@ export function parseSave(raw: unknown): SaveData | null {
     for (const w of o.weapons) {
       if (!w || typeof w !== 'object') continue;
       const id = (w as Record<string, unknown>).id;
-      if (typeof id !== 'string' || !(id in WEAPONS) || id === 'fists') continue;
-      weapons.push({ id: id as WeaponId, ammo: Math.floor(num((w as Record<string, unknown>).ammo, 0, 9999, 0)) });
+      // Own keys only: 'toString' is `in` every object.
+      if (typeof id !== 'string' || !Object.hasOwn(WEAPONS, id) || id === 'fists') continue;
+      // A save holds a gun's total: its capped reserve plus the magazine loaded on top of it.
+      const max = RESERVE_CAP + WEAPONS[id as WeaponId].mag;
+      weapons.push({ id: id as WeaponId, ammo: Math.floor(num((w as Record<string, unknown>).ammo, 0, max, 0)) });
     }
   }
   return {

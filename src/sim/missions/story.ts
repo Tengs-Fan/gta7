@@ -6,7 +6,7 @@ import { makeBrain } from '../brains';
 import { DriverAI } from '../driver';
 import type { Character, Vehicle } from '../entities';
 import type { Sim } from '../sim';
-import type { MissionCtx, MissionDef, Script } from './runner';
+import type { MissionCtx, MissionDef, Script, Wait } from './runner';
 import { missionSpots } from './spots';
 
 const LOU = 'Mama Lou';
@@ -17,16 +17,27 @@ const TIBURONES = 0x0e7c7b;
 /** Police officers on foot the bank alarm keeps around the bank at most (see The Big Score). */
 const MAX_RESPONDERS = 6;
 
+/**
+ * The car a mission ends in, the moment it is accepted, with the player about to be locked inside it: its fire
+ * is put out (it would blow up with him in it) and it is stopped dead (the lock leaves him only the handbrake).
+ */
+function secureCar(v: Vehicle | null): void {
+  if (!v || v.removed || v.destroyed) return;
+  v.burning = false;
+  v.burnTimer = 0;
+  // At <= 0 HP any stray hit would set it alight again.
+  v.health = Math.max(v.health, 1);
+  v.vel.x = 0;
+  v.vel.z = 0;
+  v.angVel = 0;
+  v.controls.handbrake = true;
+}
+
 /** Ends a garage delivery: the player steps out on the sidewalk, Lou keeps the car. */
 function* handOver(m: MissionCtx, v: Vehicle | null): Script {
   const sim = m.sim;
-  if (v && !v.removed && !v.destroyed) {
-    // Lou's crew kills the fire the moment the car is accepted: the player is still locked inside it.
-    v.burning = false;
-    v.burnTimer = 0;
-    // At <= 0 HP any stray hit would set it alight again.
-    v.health = Math.max(v.health, 1);
-  }
+  // Lou's crew kills the fire the moment the car is accepted.
+  secureCar(v);
   sim.controlLock = 1.4;
   sim.events.emit('fade', { duration: 1.4 });
   yield* m.wait(0.7);
@@ -48,6 +59,41 @@ function* handOver(m: MissionCtx, v: Vehicle | null): Script {
     v.controls.handbrake = true;
   }
   yield* m.wait(0.7);
+}
+
+/**
+ * Drives a car into Lou's garage (`opts` as for goTo). Lou takes no car with the police after it, which would
+ * follow it in and arrest the player during the hand-over: while he is wanted, getting there does not count
+ * and the objective says to lose them first. Returns goTo's result.
+ */
+function* toLouGarage(m: MissionCtx, objective: string, opts: Parameters<MissionCtx['goTo']>[2]): Generator<Wait, boolean, undefined> {
+  const sim = m.sim;
+  const spots = missionSpots(sim.world);
+  const wanted = () => sim.wanted.level > 0;
+  let shown = '';
+  const show = () => {
+    const text = wanted() ? 'Lose the cops first' : objective;
+    if (text === shown) return;
+    shown = text;
+    m.objective(text);
+  };
+  show();
+  const watch = m.watch(show);
+  try {
+    return yield* m.goTo(spots.louBay.x, spots.louBay.z, { ...opts, area: spots.lou.bay!, label: "Lou's garage", radius: 4, hold: wanted });
+  } finally {
+    m.unwatch(watch);
+  }
+}
+
+/** Raises the wanted level to `n` stars and pins it there: never lowers it, nor the heat behind it. */
+function pinWanted(sim: Sim, n: number): void {
+  const w = sim.wanted;
+  w.floor = n;
+  if (w.level >= n) return;
+  const heat = w.heat;
+  w.setLevel(n);
+  w.heat = Math.max(w.heat, heat);
 }
 
 /** A Tiburones car sent after the player from `minD`-`maxD` m away (out of his view when possible). */
@@ -157,7 +203,6 @@ const wheels: MissionDef = {
   blurb: 'Mama Lou needs a car. Any car.',
   *run(m) {
     const spots = missionSpots(m.sim.world);
-    const bay = spots.lou.bay!;
     const pp = m.sim.playerPos();
     // Away from her garage (the New Game opening), Lou calls instead.
     if (Math.hypot(pp.x - spots.lou.x, pp.z - spots.lou.z) > 15) {
@@ -173,8 +218,8 @@ const wheels: MissionDef = {
     }
     m.objective('Steal a car');
     yield m.until(() => !!m.playerVehicle()?.drivable);
-    m.objective("Drive it into Lou's garage");
-    yield* m.goTo(spots.louBay.x, spots.louBay.z, { vehicle: 'any', maxSpeed: 5, area: bay, label: "Lou's garage", radius: 4 });
+    yield* toLouGarage(m, "Drive it into Lou's garage", { vehicle: 'any', maxSpeed: 5 });
+    m.complete();
     const v = m.playerVehicle();
     if (v) m.vehicles.push(v);
     yield* handOver(m, v);
@@ -230,6 +275,7 @@ const delivery: MissionDef = {
       }
     });
     yield* m.goTo(drop.x, drop.z, { radius: DROP_RADIUS, label: 'Buyer', hold: tailed });
+    m.complete();
     // Delivered: what happens to the buyer now is his own business.
     m.clearFail(deal);
     m.unwatch(lose);
@@ -249,7 +295,6 @@ const repo: MissionDef = {
   *run(m) {
     const sim = m.sim;
     const spots = missionSpots(sim.world);
-    const bay = spots.lou.bay!;
     yield* m.intro([
       [LOU, 'The Tiburones owe me a car: a red Nightjar GT, parked in Westside with three of them babysitting it.'],
       [LOU, 'Take this. Bring the car back without too many holes in it.'],
@@ -274,17 +319,10 @@ const repo: MissionDef = {
         const cars = [sendChaser(m, 'muscle', 100, 160), sendChaser(m, 'sedan', 100, 160)].filter((v): v is Vehicle => !!v);
         chasers = markChasers(m, cars);
       }
-      m.objective("Bring the Nightjar to Lou's garage");
-      const delivered = yield* m.goTo(spots.louBay.x, spots.louBay.z, {
-        vehicle: car,
-        maxSpeed: 5,
-        area: bay,
-        label: "Lou's garage",
-        radius: 4,
-        abortIf: () => sim.player.vehicle !== car,
-      });
+      const delivered = yield* toLouGarage(m, "Bring the Nightjar to Lou's garage", { vehicle: car, maxSpeed: 5, abortIf: () => sim.player.vehicle !== car });
       if (delivered) break;
     }
+    m.complete();
     // Lou has the car now: whatever happens to it afterwards is her problem.
     m.clearFail(wreck);
     const condition = car.condition;
@@ -394,6 +432,7 @@ const looseLips: MissionDef = {
       sim.events.emit('message', { text: "Benny spotted you! Don't let him escape.", duration: 3 });
     }
     yield m.until(bennyDown);
+    m.complete();
     m.clearFail(escape);
     m.unmark(mk);
     yield* m.say(DEX, 'Benny will be very quiet from now on. Come see me, there is more.');
@@ -462,6 +501,7 @@ const heatwave: MissionDef = {
     if (sim.wanted.level < 2) sim.wanted.setLevel(2);
     m.objective('Lose the cops');
     yield m.until(() => sim.wanted.level === 0);
+    m.complete();
     yield* m.say(DEX, 'I can smell it from my balcony. Wonderful. Now, the real job...');
   },
 };
@@ -502,8 +542,7 @@ const bigScore: MissionDef = {
       m.objective('Go to the First Azura Bank');
       yield* m.goTo(bank.x, bank.z, { radius: 2.5, label: 'Bank', onFoot: true });
       m.objective('Hold the bank entrance while the vault opens');
-      sim.wanted.floor = 3;
-      sim.wanted.setLevel(3);
+      pinWanted(sim, 3);
       let progress = 0;
       let wave = 0;
       let swat = false;
@@ -538,8 +577,7 @@ const bigScore: MissionDef = {
       p.pos.y = sim.world.groundHeight(at.x, at.z);
       p.heading = bank.heading;
     }
-    sim.wanted.floor = 4;
-    sim.wanted.setLevel(4);
+    pinWanted(sim, 4);
     const g = spots.getaway;
     const free = sim.world.findFreeSpot(g.x, g.z, 2.2, 14) ?? { x: g.x, z: g.z };
     for (const v of sim.vehicles) {
@@ -553,13 +591,24 @@ const bigScore: MissionDef = {
     m.objective('Escape to the Marina');
     const marina = spots.marina;
     yield* m.goTo(marina.x, marina.z, { radius: 7, label: 'Marina' });
+    m.complete();
     sim.wanted.floor = 0;
     sim.wanted.clear();
+    // Dex's people take the car: they stop it dead on the deck (the marker is some 15 m from its open end, which
+    // a car arriving at chase speed would run off under the lock) and put out any fire, before the lock keeps
+    // the player in it. Until the lock ends, nothing (a pursuer running into it) moves it on.
+    const v = m.playerVehicle();
+    secureCar(v);
     sim.controlLock = 2.5;
     sim.events.emit('fade', { duration: 2.5 });
+    const hold = m.watch(() => {
+      if (v && sim.controlLock > 0) secureCar(v);
+    });
     yield* m.say(DEX, 'Twenty-five grand for you, the rest for me. Welcome to the top of San Azura, Kai.');
-    sim.events.emit('big', { text: 'THE END', sub: 'Thanks for playing GTA 7: Grand Turbo Anarchy', style: 'title', duration: 6 });
+    m.unwatch(hold);
   },
+  // After MISSION PASSED, which the runner shows once the script is over.
+  outro: { text: 'THE END', sub: 'Thanks for playing GTA 7: Grand Turbo Anarchy', duration: 6 },
 };
 
 export const STORY: readonly MissionDef[] = [wheels, delivery, repo, looseLips, heatwave, bigScore];
