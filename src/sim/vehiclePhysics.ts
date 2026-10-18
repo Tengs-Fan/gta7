@@ -185,10 +185,15 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   v.braking = false;
   v.reversing = false;
   if (!v.airborne) {
+    // Wading (its wheels on the ground under up to SINK_DEPTH of water): drag, less grip and, at the deep end, half the
+    // engine, instead of full power on dry sand right up to flooding at once. Half the engine still takes a car on into
+    // deeper water, and back out again.
+    const wade = clamp((WATER_Y - v.pos.y) / SINK_DEPTH, 0, 1);
+    const engine = 1 - 0.5 * wade;
     // --- Longitudinal ---
     let accel = 0;
     if (throttle > 0.01) {
-      if (vF >= -0.5) accel += throttle * s.accel * Math.max(0, 1 - (vF / s.maxSpeed) ** 2);
+      if (vF >= -0.5) accel += throttle * s.accel * engine * Math.max(0, 1 - (vF / s.maxSpeed) ** 2);
       else {
         accel += throttle * s.brake;
         v.braking = true;
@@ -199,7 +204,7 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
         accel -= brake * s.brake;
         v.braking = true;
       } else {
-        accel -= brake * s.accel * 0.65 * Math.max(0, 1 - (-vF / s.reverseSpeed) ** 2);
+        accel -= brake * s.accel * engine * 0.65 * Math.max(0, 1 - (-vF / s.reverseSpeed) ** 2);
         v.reversing = vF < 0.3;
       }
     }
@@ -215,10 +220,11 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     if (!hasDriver) friction += 5.5; // parked: handbrake on
     if (handbrake) friction += 7.5;
     if (v.destroyed || v.flipped) friction += 9;
+    friction += wade * (2 + 0.04 * vF * vF);
     vF = moveTowards(vF, 0, friction * dt);
 
     // --- Lateral grip ---
-    const grip = handbrake ? s.grip * 0.3 : v.destroyed || v.flipped ? s.grip * 1.5 : s.grip;
+    const grip = (handbrake ? s.grip * 0.3 : v.destroyed || v.flipped ? s.grip * 1.5 : s.grip) * (1 - 0.4 * wade);
     const skidLat = Math.abs(vR);
     vR = moveTowards(vR, 0, grip * dt);
     const skidTarget = clamp((skidLat - 2.2) / 6, 0, 1) + (handbrake && Math.abs(vF) > 5 ? 0.6 : 0) + (v.braking && Math.abs(vF) > 12 && brake > 0.8 ? 0.35 : 0);

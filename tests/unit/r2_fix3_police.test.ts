@@ -3,11 +3,14 @@
 
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import type { Vehicle } from '../../src/sim/entities';
+import { Helicopter, type Character, type Vehicle } from '../../src/sim/entities';
+import { bodyGapAt } from '../../src/sim/driver';
 import { Sim } from '../../src/sim/sim';
+import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
+import { WATER_Y } from '../../src/world/constants';
 import { stepVehicle } from '../../src/sim/vehiclePhysics';
 import { axisOf, SIGNAL_CYCLE, type Lane } from '../../src/world/roads';
-import { at, dist, internals, longestLane, placeOnFoot } from './r2_police_helpers';
+import { at, dist, internals, longestLane, officer, placeOnFoot } from './r2_police_helpers';
 import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
 /** A unit chasing the player at one star, its crew of two put out on foot near it. */
@@ -313,5 +316,345 @@ describe('cross traffic queued at a light', () => {
     expect(ranRed).toEqual([]);
     expect(tooNear).toEqual([]);
     expect(moved).toBeGreaterThanOrEqual(queued - 1);
+  });
+});
+
+describe('a helicopter shot down over the sea', () => {
+  it('blows up where it hits the water, with a big splash, not on the seabed; over land it still blows up on the ground', () => {
+    const sim = makeSim();
+    const b = sim.world.layout.bounds;
+    const blasts: { x: number; y: number; z: number; radius: number }[] = [];
+    const splashes: { y: number; big: boolean }[] = [];
+    sim.events.on('explosion', (e) => blasts.push(e));
+    sim.events.on('splash', (e) => splashes.push(e));
+    const sea = new Helicopter(sim.newId(), b.beachEndX + 60, 25, -100);
+    expect(sim.world.groundHeight(sea.pos.x, sea.pos.z)).toBeLessThan(WATER_Y - 3);
+    sea.health = 0;
+    sim.helis.push(sea);
+    step(sim, 4);
+    expect(sea.removed).toBe(true);
+    // The kill (a small flash in the air), then the crash.
+    const crash = blasts[blasts.length - 1]!;
+    expect(crash.radius).toBe(9);
+    expect(crash.y).toBeGreaterThanOrEqual(WATER_Y - 0.5);
+    expect(crash.y).toBeLessThan(WATER_Y + 1);
+    expect(splashes.some((e) => e.big && e.y === WATER_Y)).toBe(true);
+
+    blasts.length = 0;
+    splashes.length = 0;
+    const lane = longestLane(sim);
+    const p = at(lane, lane.length / 2);
+    const land = new Helicopter(sim.newId(), p.x, 25, p.z);
+    land.health = 0;
+    sim.helis.push(land);
+    step(sim, 4);
+    expect(land.removed).toBe(true);
+    const hit = blasts[blasts.length - 1]!;
+    const gy = sim.world.groundHeight(hit.x, hit.z);
+    expect(hit.radius).toBe(9);
+    expect(hit.y).toBeGreaterThanOrEqual(gy);
+    expect(hit.y).toBeLessThan(gy + 2);
+    expect(splashes).toEqual([]);
+  });
+});
+
+/** Watches officers on foot: how near any came to the player, and the longest any stood pinned trying to walk. */
+function watchOfficers(sim: Sim, cops: () => Character[]): { nearest: number; pinned: number; update(dt: number): void } {
+  const last = new Map<Character, { x: number; z: number; pinned: number }>();
+  const w = {
+    nearest: Infinity,
+    pinned: 0,
+    update(dt: number) {
+      const pp = sim.playerPos();
+      for (const c of cops()) {
+        if (c.removed || c.state !== 'normal') continue;
+        w.nearest = Math.min(w.nearest, Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z));
+        const l = last.get(c);
+        const moved = l ? Math.hypot(c.pos.x - l.x, c.pos.z - l.z) / dt : Infinity;
+        const pinned = c.moveSpeed > 0 && moved < 0.4 ? (l?.pinned ?? 0) + dt : 0;
+        w.pinned = Math.max(w.pinned, pinned);
+        last.set(c, { x: c.pos.x, z: c.pos.z, pinned });
+      }
+    },
+  };
+  return w;
+}
+
+describe('officers without a car once the stars are gone', () => {
+  it('walk off along the sidewalks away from the player instead of straight into him', () => {
+    const sim = makeSim();
+    const lane = longestLane(sim);
+    const p = at(lane, lane.length / 2);
+    // The player on the sidewalk beside the street.
+    const spot = sim.world.findFreeSpot(p.x - lane.dz * 8, p.z + lane.dx * 8, 0.5, 6)!;
+    teleport(sim, spot.x, spot.z);
+    const pp = sim.playerPos();
+    const cops: Character[] = [];
+    for (const a of [0.3, 2.2, 4.1]) {
+      const c = officer(sim, pp.x + Math.cos(a) * 6, pp.z + Math.sin(a) * 6);
+      c.heading = Math.atan2(pp.x - c.pos.x, pp.z - c.pos.z);
+      cops.push(c);
+    }
+    expect(sim.wanted.level).toBe(0);
+    const w = watchOfficers(sim, () => cops);
+    step(sim, 20, () => {
+      w.update(1 / 60);
+      return input();
+    });
+    expect(w.nearest).toBeGreaterThan(1.5);
+    expect(w.pinned).toBeLessThan(2.5);
+    // Off and away (or already gone: cleanup removes them once out of view).
+    for (const c of cops) if (!c.removed) expect(dist(c.pos, pp)).toBeGreaterThan(15);
+  });
+
+  it('after their car blew up, walk off without shoving the player; at a bust far from the cruiser they stand by him', () => {
+    const sim = makeSim();
+    const { unit, lane } = deployedUnit(sim);
+    const crew = sim.characters.filter((c) => c.brain?.car === unit);
+    // The crew came up to the player 50 m down the street.
+    const far = at(lane, 90);
+    teleport(sim, far.x, far.z);
+    for (const [i, c] of crew.entries()) placeOnFoot(sim, c, far.x + lane.dx * (2 + i), far.z + lane.dz * (2 + i));
+    for (const c of crew) c.heading = Math.atan2(far.x - c.pos.x, far.z - c.pos.z);
+    sim.combat.explodeVehicle(unit);
+    sim.wanted.clear();
+    const w = watchOfficers(sim, () => crew);
+    step(sim, 20, () => {
+      w.update(1 / 60);
+      return input();
+    });
+    expect(w.nearest).toBeGreaterThan(1);
+    expect(w.pinned).toBeLessThan(2.5);
+
+    // A foot bust 60 m from the cruiser: during BUSTED the arresters do not walk on into him.
+    const sim2 = makeSim();
+    const d2 = deployedUnit(sim2);
+    const crew2 = sim2.characters.filter((c) => c.brain?.car === d2.unit);
+    const at2 = at(d2.lane, 100);
+    teleport(sim2, at2.x, at2.z);
+    for (const [i, c] of crew2.entries()) {
+      placeOnFoot(sim2, c, at2.x - d2.lane.dx * (1.2 + i * 0.4), at2.z - d2.lane.dz * (1.2 + i * 0.4));
+      c.heading = Math.atan2(at2.x - c.pos.x, at2.z - c.pos.z);
+    }
+    sim2.bustPlayer();
+    expect(sim2.playerDown).toBe(true);
+    const start = new Map(crew2.map((c) => [c, dist(c.pos, sim2.playerPos())] as const));
+    let closer = 0;
+    step(sim2, 4.5, () => {
+      for (const c of crew2) if (dist(c.pos, sim2.playerPos()) < start.get(c)! - 0.15) closer++;
+      return input();
+    });
+    expect(closer).toBe(0);
+    for (const c of crew2) expect(c.moveSpeed).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The driver follow-ups: face-offs with long vehicles and an overtake taken up again after backing out.
+
+/** A one-lane street lane of 80 m or more ending at a signalled four-way junction (as in r2_driver_fix). */
+function streetLane(sim: Sim): Lane {
+  return sim.roads.lanes.find((l) => !l.line.avenue && l.length >= 80 && sim.roads.nodes[l.to]!.signal && sim.roads.nodes[l.to]!.degree === 4)!;
+}
+
+function oppositeLane(sim: Sim, lane: Lane): Lane {
+  return sim.roads.lanes.find((l) => l.from === lane.to && l.to === lane.from)!;
+}
+
+const alongLane = (lane: Lane, p: { x: number; z: number }) => (p.x - lane.sx) * lane.dx + (p.z - lane.sz) * lane.dz;
+const acrossLane = (lane: Lane, p: { x: number; z: number }) => (p.x - lane.sx) * -lane.dz + (p.z - lane.sz) * lane.dx;
+
+/** A civilian-driven vehicle on `lane` at `s`, rolling at `speed`. */
+function driveOn(sim: Sim, kind: VehicleKind, lane: Lane, s: number, speed = 0): Vehicle {
+  const v = sim.spawnVehicle(kind, lane.sx + lane.dx * s, lane.sz + lane.dz * s, lane.heading);
+  v.owner = 'traffic';
+  sim.addDriver(v, 'civilian', 'traffic');
+  v.ai!.speedMul = 1;
+  v.ai!.setLane(lane, s);
+  v.vel.x = lane.dx * speed;
+  v.vel.z = lane.dz * speed;
+  return v;
+}
+
+/** Driver internals the scenarios read. */
+type DriverPeek = { reverseTimer: number; reverseKind: string; yielded: Vehicle | null; merging: boolean; startReverse(steer: number, kind: 'pullIn', time?: number): void };
+const peek = (v: Vehicle) => v.ai as unknown as DriverPeek;
+
+/**
+ * The face-off layout of the driver sweeps: a `blk` left in a one-lane street 45 m in (and a sedan `second` m behind it,
+ * bumper gap, unless negative); an overtaker `x` from 8 m at 8 m/s; `delay` s after it first backs up, a `y` from the far
+ * end at 12 m/s (with a sedan `follower` m behind it, unless negative). How long after that first reverse all of them are
+ * past (-1 if not within 90 s), the impacts, the closest two bodies came, the longest any driven car stood (its stuckTime),
+ * and how often the one coming the other way backed up to make way.
+ */
+function faceOffRun(blk: VehicleKind, second: number, x: VehicleKind, y: VehicleKind, delay: number, follower: number): { took: number; impacts: number; clear: number; stuck: number; backs: number } {
+  const sim = makeSim({ police: false });
+  const lane = streetLane(sim);
+  for (const n of sim.roads.nodes) n.signal = false;
+  const opp = oppositeLane(sim, lane);
+  const parked = sim.spawnVehicle(blk, at(lane, 45).x, at(lane, 45).z, lane.heading);
+  const half2 = VEHICLE_SPECS.sedan.length / 2;
+  const parked2 = second >= 0 ? sim.spawnVehicle('sedan', at(lane, 45 - parked.halfL - second - half2).x, at(lane, 45 - parked.halfL - second - half2).z, lane.heading) : null;
+  const car = driveOn(sim, x, lane, 8, 8);
+  let oncoming: Vehicle | null = null;
+  let behind: Vehicle | null = null;
+  let impacts = 0;
+  sim.events.on('impact', (e) => {
+    if (e.vehicle && [car, oncoming, behind, parked, parked2].includes(e.vehicle)) impacts++;
+  });
+  const end = alongLane(lane, parked.pos) + parked.halfL;
+  const begin = alongLane(lane, (parked2 ?? parked).pos) - (parked2 ?? parked).halfL;
+  let start = -1;
+  let carPast = -1;
+  let oncomingPast = -1;
+  let behindPast = -1;
+  let clear = Infinity;
+  let stuck = 0;
+  let backs = 0;
+  let backing = false;
+  for (let f = 0; f < 60 * 90; f++) {
+    const t = f / 60;
+    if (start < 0 && t > 1 && car.forwardSpeed < -0.2) start = t;
+    if (start >= 0 && !oncoming && t >= start + delay) {
+      oncoming = driveOn(sim, y, opp, 2, 12);
+      if (follower >= 0) behind = driveOn(sim, 'sedan', opp, 2 - oncoming.halfL - follower - half2, 12);
+    }
+    sim.update(1 / 60, input());
+    const cars = [car, oncoming, behind, parked, parked2].filter((v): v is Vehicle => !!v && !v.removed);
+    for (let i = 0; i < cars.length; i++) {
+      for (let j = i + 1; j < cars.length; j++) {
+        if ((cars[i]!.ai || cars[j]!.ai) && dist(cars[i]!.pos, cars[j]!.pos) < 16) clear = Math.min(clear, bodyGapAt(cars[i]!, cars[i]!.pos.x, cars[i]!.pos.z, cars[i]!.heading, cars[j]!));
+      }
+    }
+    for (const v of [car, oncoming, behind]) if (v && !v.removed) stuck = Math.max(stuck, v.stuckTime);
+    const yBacking = !!oncoming && peek(oncoming).reverseTimer > 0 && peek(oncoming).reverseKind === 'yield';
+    if (yBacking && !backing) backs++;
+    backing = yBacking;
+    if (carPast < 0 && alongLane(lane, car.pos) - car.halfL > end + 3 && Math.abs(acrossLane(lane, car.pos)) < 1) carPast = t;
+    if (oncoming && oncomingPast < 0 && alongLane(lane, oncoming.pos) + oncoming.halfL < begin - 1) oncomingPast = t;
+    if (behind && behindPast < 0 && alongLane(lane, behind.pos) + behind.halfL < begin - 1) behindPast = t;
+    if (carPast >= 0 && oncomingPast >= 0 && (!behind || behindPast >= 0)) break;
+  }
+  const done = carPast >= 0 && oncomingPast >= 0 && (!behind || behindPast >= 0);
+  return { took: done && start >= 0 ? Math.max(carPast, oncomingPast, behindPast) - start : -1, impacts, clear, stuck, backs };
+}
+
+describe('face-offs with long vehicles and overtakes after backing out (driver follow-ups)', () => {
+  it('a bus pulling back in past a bus coming the other way turns in and goes on, without touching it', () => {
+    // Its tail still out in the other lane, the pull-in used to stop for that bus (the corridor's extents take in a car
+    // beside us at an angle); a full-lock pull-in reverse then swung the tail into it, and the other bus backed up twice.
+    const bad: string[] = [];
+    for (const delay of [5, 5.5, 6])
+      for (const follower of [-1, 1.5]) {
+        const r = faceOffRun('sedan', 2, 'bus', 'bus', delay, follower);
+        if (r.took < 0 || r.took > 25 || r.impacts > 0 || r.clear < 0.1 || r.backs > 1) bad.push(`delay ${delay}, follower ${follower}: ${r.took.toFixed(1)} s, ${r.impacts} impacts, ${r.clear.toFixed(2)} m, ${r.backs} backs`);
+      }
+    expect(bad).toEqual([]);
+  });
+
+  it('a pull-in reverse stops before the body swings into the car it makes way for', () => {
+    const sim = makeSim({ police: false });
+    const lane = streetLane(sim);
+    for (const n of sim.roads.nodes) n.signal = false;
+    const opp = oppositeLane(sim, lane);
+    // As in the review's trace: a bus pulling back in, its nose turned in 0.17 rad and its tail 0.9 m out in the other
+    // lane, stands beside a bus that came the other way and stopped 0.3 m from it.
+    const x = driveOn(sim, 'bus', lane, 72.8);
+    x.pos.x += lane.dz * 0.66;
+    x.pos.z -= lane.dx * 0.66;
+    x.heading = lane.heading - 0.17;
+    const y = driveOn(sim, 'bus', opp, alongLane(opp, at(lane, 75.7)));
+    const g0 = bodyGapAt(x, x.pos.x, x.pos.z, x.heading, y);
+    expect(g0).toBeGreaterThan(0.1);
+    expect(g0).toBeLessThan(0.6);
+    peek(x).yielded = y;
+    peek(x).startReverse(-1, 'pullIn', 2.5);
+    let closest = g0;
+    for (let f = 0; f < 60 * 3; f++) {
+      sim.update(1 / 60, input());
+      y.vel.x = 0;
+      y.vel.z = 0;
+      closest = Math.min(closest, bodyGapAt(x, x.pos.x, x.pos.z, x.heading, y));
+    }
+    expect(closest).toBeGreaterThan(g0 - 0.1);
+  });
+
+  it('a car that backed out of a face-off takes the overtake up again where it stopped or once slow, not rolling up to what it passes', () => {
+    // The review's nine layouts: a bus left in the street with a sedan 2 m behind it, a compact or sports car overtaking,
+    // and a compact or sports car with another behind it coming the other way 2-4 s later. The stale blocked time used to
+    // take the overtake up again at 6-7 m/s, 5-6 m short of the sedan, and the car stood wedged against its corner.
+    const bad: string[] = [];
+    for (const [x, y, delay] of [
+      ['compact', 'compact', 2],
+      ['compact', 'compact', 3],
+      ['compact', 'compact', 4],
+      ['compact', 'sports', 2],
+      ['compact', 'sports', 3],
+      ['compact', 'sports', 4],
+      ['sports', 'sports', 4],
+    ] as const) {
+      const r = faceOffRun('bus', 2, x, y, delay, 1.5);
+      if (r.took < 0 || r.took > 36 || r.stuck > 14 || r.impacts > 0 || r.clear < 0.05) bad.push(`${x} meets ${y} ${delay} s on: ${r.took.toFixed(1)} s, stood ${r.stuck.toFixed(1)} s, ${r.impacts} impacts, ${r.clear.toFixed(2)} m`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('a bus overtaking a bus gets past it, and the bus coming the other way does not back up again and again for nothing', () => {
+    // The overtaker stood wedged against the corner of the bus it passed (gap -5 m by the corridor's extents) for up to a
+    // minute while the oncoming bus backed up six times; now it drives on past it when that takes it no nearer.
+    const bad: string[] = [];
+    for (const delay of [3, 4, 5, 6]) {
+      const r = faceOffRun('bus', -1, 'bus', 'bus', delay, -1);
+      if (r.took < 0 || r.took > 32 || r.stuck > 20 || r.backs > 1 || r.impacts > 0 || r.clear < 0.05) bad.push(`delay ${delay}: ${r.took.toFixed(1)} s, stood ${r.stuck.toFixed(1)} s, ${r.backs} backs, ${r.impacts} impacts, ${r.clear.toFixed(2)} m`);
+    }
+    expect(bad).toEqual([]);
+  });
+});
+
+describe('driving into the surf', () => {
+  /** The beach at z = -100 (clear of the pier and the marina): the x where the water is `depth` m deep. */
+  function surfX(sim: Sim, depth: number): number {
+    const b = sim.world.layout.bounds;
+    let x = b.beachStartX;
+    while (WATER_Y - sim.world.groundHeight(x, -100) < depth && x < b.beachEndX) x += 0.05;
+    return x;
+  }
+
+  it('water up to the sills holds a car back before it floods, instead of none at all', () => {
+    const sim = makeSim({ police: false });
+    const b = sim.world.layout.bounds;
+    const v = sim.spawnVehicle('sports', b.beachStartX + 10, -100, Math.PI / 2);
+    placeInCar(sim, v);
+    let atEdge = -1;
+    let deep = -1;
+    step(sim, 10, () => {
+      const depth = WATER_Y - v.pos.y;
+      if (atEdge < 0 && depth >= 0) atEdge = v.speed;
+      if (deep < 0 && depth >= 0.7) deep = v.speed;
+      return input({ throttle: v.inWater ? 0 : 1 });
+    });
+    expect(atEdge).toBeGreaterThan(20);
+    // Full throttle all the way: it used to keep gaining speed through the surf.
+    expect(deep).toBeLessThan(atEdge - 3);
+    expect(v.inWater).toBe(true);
+  });
+
+  it('a car standing in water half a metre deep drives or backs out onto dry sand', () => {
+    for (const [heading, inp] of [
+      [-Math.PI / 2, { throttle: 1 }],
+      [Math.PI / 2, { brake: 1 }],
+    ] as const) {
+      const sim = makeSim({ police: false });
+      const v = sim.spawnVehicle('sedan', surfX(sim, 0.5), -100, heading);
+      placeInCar(sim, v);
+      let out = -1;
+      step(sim, 8, (t) => {
+        if (out < 0 && WATER_Y - v.pos.y < 0) out = t;
+        return input(inp);
+      });
+      expect(v.inWater).toBe(false);
+      expect(out).toBeGreaterThan(0);
+      expect(out).toBeLessThan(6);
+    }
   });
 });

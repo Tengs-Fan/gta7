@@ -2,6 +2,7 @@
 // helicopter, and arrests ("busted").
 
 import { clamp, moveAngleTowards, pointSegDist, wrapAngle } from '../core/math';
+import { WATER_Y } from '../world/constants';
 import type { Lane } from '../world/roads';
 import { makeBrain, type PedBrain } from './brains';
 import { DispatchSystem } from './dispatch';
@@ -76,6 +77,11 @@ const HELI_CLIMB = 20;
 export const SPOT_REACH = 45;
 /** No new helicopter for this many seconds after one is shot down. */
 export const HELI_RESPAWN_DELAY = 45;
+/** While the player is busted or wasted, officers this close (m) to him stand by. */
+const STAND_BY = 12;
+/** Officers walking off once the stars are gone (see walkOff) walk at this speed (m/s), and get this many seconds more than that takes to reach each sidewalk node. */
+const WALK_OFF_SPEED = 1.4;
+const WALK_OFF_SLACK = 8;
 /** Helicopter: horizontal reach of its rotor and tail, and the height it keeps above roofs. */
 const HELI_PAD = 7;
 const HELI_CLEARANCE = 4;
@@ -111,6 +117,8 @@ export class PoliceSystem {
   private readonly heliArrived = new WeakSet<Helicopter>();
   /** Police radio chatter for the HUD, updated after everything else here. */
   readonly dispatcher: DispatchSystem;
+  /** The sidewalk node each officer without a car walks off to once the stars are gone, the one before, and how long he may take (see walkOff). */
+  private readonly walkingOff = new WeakMap<Character, { node: number; prev: number; until: number }>();
 
   constructor(private readonly sim: Sim) {
     this.dispatcher = new DispatchSystem(sim);
@@ -707,17 +715,19 @@ export class PoliceSystem {
       const car = b.car && !b.car.removed && b.car.drivable ? b.car : null;
       const carDist = car ? Math.hypot(car.pos.x - c.pos.x, car.pos.z - c.pos.z) : Infinity;
       if (level === 0) {
+        // The player busted or wasted: the officers by him stand by, facing him, until the scene is cleared.
+        const dp = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z);
+        if (sim.playerDown && dp < STAND_BY) {
+          c.moveSpeed = 0;
+          c.heading = moveAngleTowards(c.heading, Math.atan2(pp.x - c.pos.x, pp.z - c.pos.z), 10 * dt);
+          continue;
+        }
         // Get back in (a partner at the wheel waits with the door open); otherwise walk off.
         if (car && carDist < 45 && (!car.driver || (car.speed < 1 && car.passengers.includes(null)))) this.walkToCar(c, car, dt, level);
-        else {
-          // Cleanup removes officers without a car once out of view.
-          b.car = null;
-          c.moveX = Math.sin(c.heading);
-          c.moveZ = Math.cos(c.heading);
-          c.moveSpeed = 1.4;
-        }
+        else this.walkOff(c, b, dt);
         continue;
       }
+      this.walkingOff.delete(c);
       const d = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z);
       // Run back to the car while the player drives off, as long as the car can still take this officer.
       const ride = car && carDist < 60 && (!car.driver || (car.speed < 3 && car.passengers.includes(null))) ? car : null;
@@ -861,6 +871,59 @@ export class PoliceSystem {
     }
   }
 
+  /**
+   * An officer with no car to get back into once the stars are gone walks off along the sidewalks, away from the player
+   * (cleanup removes him once out of view): to the nearest sidewalk node he reaches without passing the player, then on
+   * from node to node, each time the way that leads furthest from the player, not back the way he came, and across a
+   * road only where the sidewalk ends. runTo steers him round what stands in the way; one that keeps him from a node
+   * for long makes him join the sidewalks afresh.
+   */
+  private walkOff(c: Character, b: PedBrain, dt: number): void {
+    const sim = this.sim;
+    const walk = sim.world.walk;
+    const pp = sim.playerPos();
+    b.car = null;
+    let w = this.walkingOff.get(c);
+    if (!w || sim.time > w.until) {
+      const stuck = w ? w.node : -1;
+      let best = -1;
+      let bd = Infinity;
+      for (const n of walk.nodes) {
+        const d = Math.hypot(n.x - c.pos.x, n.z - c.pos.z);
+        if (d >= bd || n.id === stuck || pointSegDist(pp.x, pp.z, c.pos.x, c.pos.z, n.x, n.z) < 2.5) continue;
+        bd = d;
+        best = n.id;
+      }
+      if (best < 0) {
+        best = walk.nearestNode(c.pos.x, c.pos.z);
+        bd = Math.hypot(walk.nodes[best]!.x - c.pos.x, walk.nodes[best]!.z - c.pos.z);
+      }
+      w = { node: best, prev: -1, until: sim.time + bd / WALK_OFF_SPEED + WALK_OFF_SLACK };
+      this.walkingOff.set(c, w);
+    } else {
+      const at = walk.nodes[w.node]!;
+      if (Math.hypot(at.x - c.pos.x, at.z - c.pos.z) < 1.2) {
+        let next = -1;
+        let score = -Infinity;
+        for (const e of at.edges) {
+          if (e.to === w.prev) continue;
+          const m = walk.nodes[e.to]!;
+          const sc = Math.hypot(m.x - pp.x, m.z - pp.z) - (e.crosswalk ? 30 : 0) + sim.rng.range(0, 8);
+          if (sc > score) {
+            score = sc;
+            next = e.to;
+          }
+        }
+        if (next < 0) next = w.prev >= 0 ? w.prev : at.id;
+        const m = walk.nodes[next]!;
+        w = { node: next, prev: at.id, until: sim.time + Math.hypot(m.x - c.pos.x, m.z - c.pos.z) / WALK_OFF_SPEED + WALK_OFF_SLACK };
+        this.walkingOff.set(c, w);
+      }
+    }
+    const n = walk.nodes[w.node]!;
+    this.runTo(c, n.x, n.z, WALK_OFF_SPEED, dt);
+  }
+
   private walkToCar(c: Character, car: Vehicle, dt: number, level: number): void {
     const sim = this.sim;
     const sx = Math.cos(car.heading);
@@ -956,14 +1019,19 @@ export class PoliceSystem {
         h.pos.x += h.vel.x * dt;
         h.pos.y += h.vel.y * dt;
         h.pos.z += h.vel.z * dt;
+        // Over the sea it comes down on the water, not on the seabed far below: it blows up where it hits the
+        // surface, with a splash, in sight of the player.
         const gy = sim.world.groundHeight(h.pos.x, h.pos.z);
+        const wet = gy < WATER_Y;
+        const floor = wet ? WATER_Y : gy;
         let hitBuilding = false;
         sim.world.grid.query(h.pos.x - 1, h.pos.z - 1, h.pos.x + 1, h.pos.z + 1, (c) => {
           if (c.tag === 'building' && h.pos.y < c.y1 && h.pos.y > c.y0) hitBuilding = true;
         });
-        if (h.pos.y <= gy + 1 || hitBuilding) {
+        if (h.pos.y <= floor + (wet ? 0.3 : 1) || hitBuilding) {
           h.removed = true;
-          sim.combat.explosion(h.pos.x, Math.max(gy, h.pos.y), h.pos.z, 9, 450, null, null);
+          if (wet && !hitBuilding) sim.events.emit('splash', { x: h.pos.x, y: WATER_Y, z: h.pos.z, big: true });
+          sim.combat.explosion(h.pos.x, Math.max(floor, h.pos.y), h.pos.z, 9, 450, null, null);
         }
         continue;
       }
