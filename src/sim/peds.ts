@@ -1,11 +1,16 @@
 // Pedestrian population (civilians and street gang members) and their AI.
 
+import { circleVsObb, makeContact } from '../core/collision';
 import { clamp, moveAngleTowards } from '../core/math';
 import { SWIM_DEPTH, WATER_Y } from '../world/constants';
 import { makeBrain, type PedBrain } from './brains';
 import { MAX_STEP } from './characterPhysics';
 import type { Character } from './entities';
 import type { Sim } from './sim';
+import { vehicleObb } from './vehiclePhysics';
+
+const contact = makeContact();
+const obb = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
 
 /**
  * Should a cowering ped put his hands up: the player is aiming a gun at him. Otherwise he crouches with his hands over
@@ -472,15 +477,22 @@ export class PedSystem {
         c.aiming = true;
         c.aimYaw = yaw;
         c.heading = moveAngleTowards(c.heading, yaw, 10 * dt);
-        if (!sim.combat.inLineOfFire(c, t, (o) => this.allied(c, o), true)) sim.combat.npcFire(c, t, b.accuracy);
-        else {
-          // Don't shoot through a crewmate, or into a van that hides the target: side-step for a clear line.
-          const side = c.id % 2 === 0 ? 1 : -1;
+        // Don't shoot through a crewmate, or into a van that hides the target: side-step for a clear line. With no way
+        // left to step (in a narrow gap between a wall and a bus, say), he fires all the same when the shot itself
+        // clears the vehicle in the way, which only the margin kept round it for the spread of his shot reaches (a
+        // round of that spread may graze it).
+        const spare = (o: Character) => this.allied(c, o);
+        const block = sim.combat.inLineOfFire(c, t, spare, true);
+        const side = block ? this.stepSide(c, b, tp, d) : 0;
+        if (!block) b.stepTurned = false;
+        if (!block || (side === 0 && 'kind' in block && !sim.combat.inLineOfFire(c, t, spare, true, 0))) sim.combat.npcFire(c, t, b.accuracy);
+        else if (side !== 0) {
           c.moveX = (-(tp.z - c.pos.z) / d) * side;
           c.moveZ = ((tp.x - c.pos.x) / d) * side;
           c.moveSpeed = 2.5;
         }
       } else {
+        b.stepTurned = false;
         this.steer(c, tp.x, tp.z, 5.8, dt);
         this.unstick(c, b, dt);
       }
@@ -495,6 +507,34 @@ export class PedSystem {
         if (c.fireCooldown <= 0 && !t.vehicle && t.state !== 'knocked') sim.combat.melee(c);
       }
     }
+  }
+
+  /**
+   * Which way (1 or -1, across his line to `tp`, `d` m away) a gunman side-steps for a clear line of fire: the way he
+   * last went (at first, the way his id picks) while it is open, else back the other way, once (to and fro across a
+   * narrow passage would get him nowhere); 0 when there is no way to go. Open is ground at his level 1 m that way,
+   * clear of walls, vehicles and the sea.
+   */
+  private stepSide(c: Character, b: PedBrain, tp: { x: number; z: number }, d: number): number {
+    const sim = this.sim;
+    const sx = -(tp.z - c.pos.z) / d;
+    const sz = (tp.x - c.pos.x) / d;
+    const open = (k: number) => {
+      const x = c.pos.x + sx * k;
+      const z = c.pos.z + sz * k;
+      if (!sim.world.isFree(x, z, 0.4) || Math.abs(sim.world.groundHeight(x, z) - c.pos.y) > 0.4) return false;
+      for (const v of sim.vehicles) {
+        if (v.removed || Math.hypot(v.pos.x - x, v.pos.z - z) > v.halfL + v.halfW + 0.4) continue;
+        vehicleObb(v, obb);
+        if (circleVsObb(x, z, 0.4, obb, contact)) return false;
+      }
+      return true;
+    };
+    const side = b.stepSide || (c.id % 2 === 0 ? 1 : -1);
+    if (open(side)) return (b.stepSide = side);
+    if (b.stepTurned || !open(-side)) return 0;
+    b.stepTurned = true;
+    return (b.stepSide = -side);
   }
 
   private doGuard(c: Character, b: PedBrain, dt: number): void {
