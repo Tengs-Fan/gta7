@@ -888,17 +888,19 @@ export class PoliceSystem {
       this.runTo(c, 2 * c.pos.x - pp.x, 2 * c.pos.z - pp.z, WALK_OFF_SPEED, dt);
       return;
     }
+    // Never past the player: the way to a node keeps 2.5 m from him, and an officer nearer than that (an arrester at his
+    // side) comes no nearer to him than he is.
+    const clear = Math.min(2.5, Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) - 0.1);
     let w = this.walkingOff.get(c);
+    // He stepped into the way to the node the officer walks to: another one.
+    if (w && passesBy(pp, c, walk.nodes[w.node]!, clear)) w.until = -Infinity;
     if (!w || sim.time > w.until) {
       const stuck = w ? w.node : -1;
-      // Not past the player: the way there keeps 2.5 m from him, and an officer nearer than that (an arrester at his side)
-      // comes no nearer to him than he is.
-      const clear = Math.min(2.5, Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) - 0.1);
       let best = -1;
       let bd = Infinity;
       for (const n of walk.nodes) {
         const d = Math.hypot(n.x - c.pos.x, n.z - c.pos.z);
-        if (d >= bd || n.id === stuck || pointSegDist(pp.x, pp.z, c.pos.x, c.pos.z, n.x, n.z) < clear) continue;
+        if (d >= bd || n.id === stuck || passesBy(pp, c, n, clear)) continue;
         bd = d;
         best = n.id;
       }
@@ -913,13 +915,17 @@ export class PoliceSystem {
       if (Math.hypot(at.x - c.pos.x, at.z - c.pos.z) < 1.2) {
         let next = -1;
         let score = -Infinity;
-        for (const e of at.edges) {
-          if (e.to === w.prev) continue;
-          const m = walk.nodes[e.to]!;
-          const sc = Math.hypot(m.x - pp.x, m.z - pp.z) - (e.crosswalk ? 30 : 0) + sim.rng.range(0, 8);
-          if (sc > score) {
-            score = sc;
-            next = e.to;
+        // The way on that leads furthest from the player, of those that do not pass him if there are any.
+        for (let pass = 0; pass < 2 && next < 0; pass++) {
+          for (const e of at.edges) {
+            if (e.to === w.prev) continue;
+            const m = walk.nodes[e.to]!;
+            if (pass === 0 && passesBy(pp, c, m, clear)) continue;
+            const sc = Math.hypot(m.x - pp.x, m.z - pp.z) - (e.crosswalk ? 30 : 0) + sim.rng.range(0, 8);
+            if (sc > score) {
+              score = sc;
+              next = e.to;
+            }
           }
         }
         if (next < 0) next = w.prev >= 0 ? w.prev : at.id;
@@ -1261,6 +1267,11 @@ export class PoliceSystem {
     for (const h of sim.helis) h.removed = true;
     this.bustTimer = 0;
   }
+}
+
+/** Whether the straight way from where `c` stands to `n` passes within `clear` of `p` (the player). */
+function passesBy(p: { x: number; z: number }, c: Character, n: { x: number; z: number }, clear: number): boolean {
+  return pointSegDist(p.x, p.z, c.pos.x, c.pos.z, n.x, n.z) < clear;
 }
 
 function damp1(cur: number, target: number, k: number): number {

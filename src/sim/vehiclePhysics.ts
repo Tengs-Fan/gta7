@@ -71,7 +71,7 @@ function ledgeTooHigh(v: Vehicle, world: StaticWorld, x: number, z: number, ux: 
 function pushBlocked(v: Vehicle, world: StaticWorld, ux: number, uz: number, d: number): boolean {
   const x = v.pos.x + ux * d;
   const z = v.pos.z + uz * d;
-  return ledgeTooHigh(v, world, x, z, ux, uz, leadingEdge(v, ux, uz)) || faceAhead(v, world, v.pos.x, v.pos.z, x, z, ux, uz, false);
+  return ledgeTooHigh(v, world, x, z, ux, uz, leadingEdge(v, ux, uz)) || faceAhead(v, world, v.pos.x, v.pos.z, v.heading, x, z, v.heading, ux, uz, false);
 }
 
 /**
@@ -125,34 +125,41 @@ function onDeck(world: StaticWorld, x: number, z: number, y: number): boolean {
 }
 
 /**
- * True when moving a vehicle from (x0, z0) to (x1, z1), along the unit direction (ux, uz), runs the leading part of its body
- * (its leading corners and the middle of its leading end or side) into a step face: where one of those points goes, the
- * ground rises by more than MAX_STEP_UP above both the ground it leaves and the vehicle's own height, or onto a deck by more
- * than DECK_STEP. ledgeTooHigh probes no further ahead than 2.2 m, which lets a long vehicle's nose into a ledge (a bus's up
- * to 3.5 m into the side of the pier). A ramp's slope rises a few centimetres from one step to the next; a point already on
- * the higher ground (a corner swung over it) rises by nothing. Sinking (`sinking`), the face is the edge of water too shallow
- * to sink in (see sinkBlocked).
+ * True when moving a vehicle from (x0, z0), facing h0, to (x1, z1), facing h1, runs a point of its body into a step face: where
+ * the point goes, the ground stands more than MAX_STEP_UP above the point's own height (the vehicle's, raised or lowered along
+ * its length by the pitch), or is a deck more than DECK_STEP above it. Moving along the unit direction (ux, uz), only the part
+ * of the body that leads counts (its leading corners and the middle of its leading end or side); turning on the spot
+ * (ux = uz = 0), every point does, as a turn swings the two ends opposite ways. ledgeTooHigh probes no further ahead than
+ * 2.2 m along the way the vehicle moves, which lets a long vehicle's nose into a ledge (a bus's up to 3.5 m into the side of
+ * the pier), and not at all as the body swings round. A ramp's slope stays within a few centimetres of a body that follows
+ * it; a point already inside a face may back out of it but not go on into it. Sinking (`sinking`), the face is the edge of
+ * water too shallow to sink in, crossed from deeper water (see sinkBlocked).
  */
-function faceAhead(v: Vehicle, world: StaticWorld, x0: number, z0: number, x1: number, z1: number, ux: number, uz: number, sinking: boolean): boolean {
+function faceAhead(v: Vehicle, world: StaticWorld, x0: number, z0: number, h0: number, x1: number, z1: number, h1: number, ux: number, uz: number, sinking: boolean): boolean {
   // On land, ground higher than a curb comes only from decks and ramps (the land's edge a car reaches only sinking): far
   // from all of them, there is nothing to probe for.
   if (!sinking && !nearRaisedGround(world, x0, z0, x1, z1, v.halfL + v.halfW)) return false;
-  const fx = Math.sin(v.heading);
-  const fz = Math.cos(v.heading);
+  const turning = ux === 0 && uz === 0;
+  const f0x = Math.sin(h0);
+  const f0z = Math.cos(h0);
+  const f1x = Math.sin(h1);
+  const f1z = Math.cos(h1);
+  const lift = Math.sin(v.pitch);
   for (let i = 0; i < FACE_ALONG.length; i++) {
     const a = FACE_ALONG[i]! * v.halfL;
     const b = FACE_ACROSS[i]! * v.halfW;
-    const ox = fx * a - fz * b;
-    const oz = fz * a + fx * b;
-    // Only the part of the body that leads.
-    if (ox * ux + oz * uz < 1e-3) continue;
+    const ox = f1x * a - f1z * b;
+    const oz = f1z * a + f1x * b;
+    if (!turning && ox * ux + oz * uz < 1e-3) continue;
+    const px1 = x1 + ox;
+    const pz1 = z1 + oz;
     if (sinking) {
-      if (world.baseGround(x1 + ox, z1 + oz) > WATER_Y - SINK_DEPTH && world.baseGround(x0 + ox, z0 + oz) <= WATER_Y - SINK_DEPTH) return true;
+      if (world.baseGround(px1, pz1) > WATER_Y - SINK_DEPTH && world.baseGround(x0 + f0x * a - f0z * b, z0 + f0z * a + f0x * b) <= WATER_Y - SINK_DEPTH) return true;
       continue;
     }
-    const y = world.groundHeight(x1 + ox, z1 + oz);
-    const from = Math.max(world.groundHeight(x0 + ox, z0 + oz), v.pos.y);
-    if (y > from + MAX_STEP_UP || (y > from + DECK_STEP && onDeck(world, x1 + ox, z1 + oz, y))) return true;
+    const y = world.groundHeight(px1, pz1);
+    const from = v.pos.y + a * lift;
+    if (y > from + MAX_STEP_UP || (y > from + DECK_STEP && onDeck(world, px1, pz1, y))) return true;
   }
   return false;
 }
@@ -189,7 +196,7 @@ function sinkBlocked(v: Vehicle, world: StaticWorld, x: number, z: number): bool
   const uz = v.vel.z / sp;
   const edge = leadingEdge(v, ux, uz);
   if (Math.max(world.baseGround(x, z), world.baseGround(x + ux * edge, z + uz * edge)) > WATER_Y - SINK_DEPTH) return true;
-  if (faceAhead(v, world, v.pos.x, v.pos.z, x, z, ux, uz, true)) return true;
+  if (faceAhead(v, world, v.pos.x, v.pos.z, v.heading, x, z, v.heading, ux, uz, true)) return true;
   const ceil = deckCeiling(v, world, x, z);
   if (v.pos.y > ceil && ceil < deckCeiling(v, world, v.pos.x, v.pos.z)) return true;
   return sinkFloor(v, world, x, z) > v.pos.y + 0.05;
@@ -260,7 +267,13 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   } else {
     v.angVel *= Math.exp(-0.4 * dt);
   }
+  const oldH = v.heading;
   v.heading = wrapAngle(v.heading + v.angVel * dt);
+  // A body swinging round into a step face (a nose turning in along the side of the pier) stops turning there.
+  if (v.heading !== oldH && faceAhead(v, world, oldX, oldZ, oldH, oldX, oldZ, v.heading, 0, 0, false)) {
+    v.heading = oldH;
+    v.angVel = 0;
+  }
 
   fx = Math.sin(v.heading);
   fz = Math.cos(v.heading);
@@ -339,7 +352,7 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   const ux = sp > 1e-3 ? v.vel.x / sp : fx * sg;
   const uz = sp > 1e-3 ? v.vel.z / sp : fz * sg;
   const probe = leadingEdge(v, ux, uz);
-  if (ledgeTooHigh(v, world, nx, nz, ux, uz, probe) || faceAhead(v, world, oldX, oldZ, nx, nz, ux, uz, false)) {
+  if (ledgeTooHigh(v, world, nx, nz, ux, uz, probe) || faceAhead(v, world, oldX, oldZ, v.heading, nx, nz, v.heading, ux, uz, false)) {
     nx = oldX;
     nz = oldZ;
     // Treat as a wall hit, where the body meets it.

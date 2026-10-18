@@ -464,6 +464,24 @@ describe('officers without a car once the stars are gone', () => {
     expect(bad).toEqual([]);
   });
 
+  it('an officer walking off does not take the way on that the player stands in', () => {
+    // (Codex review.) On the promenade, 10 m from the player: past the first node the next way on was scored only by how
+    // far its end is from the player, and the one he stood in won; the officer walked into him.
+    const sim = makeSim();
+    teleport(sim, 480.2, -102.2);
+    const pp = sim.playerPos();
+    const c = officer(sim, 480.2, -92.2);
+    c.heading = Math.atan2(pp.x - c.pos.x, pp.z - c.pos.z);
+    const start = dist(c.pos, pp);
+    let nearest = start;
+    step(sim, 30, () => {
+      if (!c.removed) nearest = Math.min(nearest, dist(c.pos, pp));
+      return input();
+    });
+    expect(nearest).toBeGreaterThan(start - 0.5);
+    expect(dist(sim.player.pos, pp)).toBeLessThan(0.05);
+  });
+
   it('after their car blew up, walk off without shoving the player; at a bust far from the cruiser they stand by him', () => {
     const sim = makeSim();
     const { unit, lane } = deployedUnit(sim);
@@ -669,8 +687,8 @@ describe('face-offs with long vehicles and overtakes after backing out (driver f
 });
 
 describe('ledges: the side of the pier, and long noses', () => {
-  /** Drives `kind` from (x, z) along `heading` at `speed` with the throttle at `throttle` for `secs`, calling `each` after every frame. */
-  function drive(kind: VehicleKind, x: number, z: number, heading: number, speed: number, throttle: number, secs: number, each: (v: Vehicle) => void): { v: Vehicle; impacts: number } {
+  /** Drives `kind` from (x, z) along `heading` at `speed` with the throttle at `throttle` (and the wheel at `steer`) for `secs`, calling `each` after every frame. */
+  function drive(kind: VehicleKind, x: number, z: number, heading: number, speed: number, throttle: number, secs: number, each: (v: Vehicle) => void, steer = 0): { v: Vehicle; impacts: number } {
     const sim = makeSim({ police: false });
     const v = sim.spawnVehicle(kind, x, z, heading);
     placeInCar(sim, v);
@@ -682,7 +700,7 @@ describe('ledges: the side of the pier, and long noses', () => {
     });
     step(sim, secs, () => {
       each(v);
-      return input({ throttle });
+      return input({ throttle, steer });
     });
     each(v);
     return { v, impacts };
@@ -782,6 +800,60 @@ describe('ledges: the side of the pier, and long noses', () => {
       }
     }
     expect(bad).toEqual([]);
+  });
+
+  it('a car turning in along the side of the pier does not swing its nose into the deck or climb onto it', () => {
+    // (Codex review.) Driving east along the sand beside the pier, steering hard towards it: the step test only looked
+    // along the way the car moved, so the nose swung into the slab as it turned (bouncing back off the side), and once a
+    // corner was over the deck it rose by nothing there, so the car went on into it or up onto it.
+    const pier = world().layout.decks.find((d) => d.name === 'Azura Pier')!.rect;
+    const bad: string[] = [];
+    for (const [kind, z] of [
+      ['sedan', 49.2],
+      ['bus', 49.6],
+      ['swat', 49.4],
+    ] as const) {
+      let into = 0;
+      let rise = 0;
+      let last = NaN;
+      drive(
+        kind,
+        508,
+        z,
+        Math.PI / 2,
+        3,
+        0.35,
+        6,
+        (car) => {
+          if (!Number.isNaN(last)) rise = Math.max(rise, car.pos.y - last);
+          last = car.pos.y;
+          for (const p of bodyPoints(car)) if (p.x > pier.minX && p.x < pier.maxX) into = Math.max(into, pier.maxZ - p.z);
+        },
+        -1,
+      );
+      if (into > 0.05 || rise > 0.1) bad.push(`${kind}: ${into.toFixed(2)} m into the deck, rose ${rise.toFixed(2)} m in a frame`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('a bus in the air beside the pier, nose up over the deck, flies on instead of stopping at an invisible wall', () => {
+    // (Codex review.) Its centre is below the deck but its raised nose clears it: the step test used the centre's height
+    // for every point of the body.
+    const sim = makeSim({ police: false });
+    const v = sim.spawnVehicle('bus', 525, 52.85, Math.PI);
+    v.airborne = true;
+    v.pos.y = -0.1;
+    v.pitch = 0.3;
+    v.vy = 4;
+    v.vel.z = -10;
+    let impacts = 0;
+    sim.events.on('impact', (e) => {
+      if (e.vehicle === v) impacts++;
+    });
+    step(sim, 0.2);
+    expect(impacts).toBe(0);
+    expect(v.vel.z).toBeLessThan(-9.5);
+    expect(v.pos.z).toBeLessThan(51);
   });
 });
 
