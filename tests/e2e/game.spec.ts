@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { boot, holdKey, newGame, state, type Api } from './helpers';
+import { boot, fakePad, holdKey, newGame, padTap, state, type Api } from './helpers';
 
 test.describe('GTA 7', () => {
   test('boots to a rendered title screen with no errors', async ({ page }) => {
@@ -287,6 +287,12 @@ test.describe('GTA 7', () => {
     let maxTarget = 0;
     /** Sim time when the player last jumped across town (the sim clock: it runs slow when frames do). */
     let movedAt = 0;
+    // The game moves him too: a bust (god mode stops deaths, not arrests) respawns him at the police station.
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      (window as Api).__respawnAt = -Infinity;
+      g.sim.events.on('respawn', () => ((window as Api).__respawnAt = g.sim.time));
+    });
     for (let round = 1; round <= ROUNDS; round++) {
       const action = Math.floor(rnd() * 7);
       if (action === 0) {
@@ -319,8 +325,12 @@ test.describe('GTA 7', () => {
         expect(s.crashed).toBe(false);
         expect(s.characters).toBeLessThan(180);
         if (s.menuOpen) await page.evaluate(() => (window as Api).__gta7.game.resume());
-        // After a jump the streaming needs a tick (parked cars: 1.1 s of sim time) to drop what was left behind.
-        await page.waitForFunction((t) => (window as Api).__gta7.sim.time >= t, movedAt + 1.5);
+        // After a jump, the test's or a respawn's, the streaming needs a tick (parked cars: 1.1 s of sim time) to
+        // drop what was left behind. Not while he is down either: the respawn is still to come.
+        await page.waitForFunction((t) => {
+          const sim = (window as Api).__gta7.sim;
+          return !sim.playerDown && sim.time >= Math.max(t, (window as Api).__respawnAt + 1.5);
+        }, movedAt + 1.5);
         const c = await vehicleCensus(page);
         maxTarget = Math.max(maxTarget, c.target);
         // What caps the vehicle count, category by category (see vehicleCensus).
@@ -449,6 +459,273 @@ test.describe('GTA 7 devices', () => {
       g.sim.combat.explodeVehicle(v);
     });
     await page.waitForTimeout(1500);
+    expect(errors).toEqual([]);
+  });
+});
+
+test.describe('GTA 7 menus', () => {
+  type Box = { x: number; y: number; width: number; height: number };
+  const overlap = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  /** The box of what is drawn: the glyphs of an element's text. */
+  const glyphs = (page: Page, sel: string) =>
+    page.evaluate((q) => {
+      const r = document.createRange();
+      r.selectNodeContents(document.querySelector(q)!);
+      const b = r.getBoundingClientRect();
+      return { x: b.x, y: b.y, width: b.width, height: b.height };
+    }, sel);
+  const reboot = async (page: Page) => {
+    await page.reload();
+    await page.waitForFunction(() => (window as Api).__gta7?.state().frames > 20, null, { timeout: 90_000 });
+  };
+  /** Saves the game as at the safehouse. */
+  const save = async (page: Page) => {
+    await page.evaluate(() => (window as Api).__gta7.sim.events.emit('saveRequested', { poi: 'safehouse' }));
+    await expect(page.locator('.toast')).toHaveText('Game saved');
+  };
+
+  test('NEW GAME over a save asks first, on NO, and keeps the save until YES', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page); // no save yet: straight into the game
+    await page.evaluate(() => (window as Api).__gta7.sim.progress.addMoney(1234));
+    await save(page);
+    await reboot(page);
+    await page.click('button[data-id="new"]');
+    await expect(page.locator('.panel p:visible')).toContainText('Start a new game? Your saved game will be replaced the next time the game saves');
+    await expect(page.locator('button[data-id="no"]')).toHaveClass(/sel/);
+    await expect(page.locator('button[data-id="yes"]')).not.toHaveClass(/sel/);
+    // A second press of the key (mashing through the menu) answers NO.
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('button[data-id="continue"]')).toBeVisible();
+    expect((await state(page)).mode).toBe('title');
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('gta7.save.v1')!).money)).toBe(250 + 1234);
+    // The e2e helper (and the playtest script's) says YES.
+    await newGame(page);
+    expect((await state(page)).money).toBe(250);
+    expect(errors).toEqual([]);
+  });
+
+  test('CONTROLS and STATS can be read to the end with the keyboard and with a pad at 1280x720, 1366x768 and 1024x768', async ({ page }) => {
+    await fakePad(page);
+    const errors = await boot(page);
+    /** Presses `press` until the open panel stops scrolling, then checks that BACK and the row `last` are inside it. */
+    const readToEnd = async (press: () => Promise<void>, last: string, at: string) => {
+      const panelTop = () => page.evaluate(() => document.querySelector('.screen:not(.hidden) .panel')!.scrollTop);
+      await page.waitForTimeout(300); // the screen's input guard
+      let top = await panelTop();
+      for (let i = 0; i < 8; i++) {
+        await press();
+        await page.waitForTimeout(450); // a smooth scroll
+        const now = await panelTop();
+        if (now === top) break;
+        top = now;
+      }
+      // Measured, not clicked: Playwright's click would scroll BACK into view itself.
+      const inside = await page.evaluate((text) => {
+        const panel = document.querySelector('.screen:not(.hidden) .panel')!;
+        const r = panel.getBoundingClientRect();
+        const within = (e: Element | undefined) => {
+          if (!e) return false;
+          const b = e.getBoundingClientRect();
+          return b.top >= r.top - 0.5 && b.bottom <= r.bottom + 0.5;
+        };
+        const back = [...panel.querySelectorAll('button')].find((b) => b.textContent === 'BACK');
+        const row = [...panel.querySelectorAll('span')].find((e) => e.textContent === text);
+        return { back: within(back), last: within(row) };
+      }, last);
+      expect(inside, `${last} at ${at}`).toEqual({ back: true, last: true });
+    };
+    const SIZES = [
+      [1280, 720],
+      [1366, 768],
+      [1024, 768],
+    ] as const;
+    /** A key press, then a few frames: two presses within one frame count as one. */
+    const key = async (k: string) => {
+      await page.keyboard.press(k);
+      await page.waitForTimeout(100);
+    };
+    // CONTROLS from the title (NEW GAME is selected on a fresh profile).
+    await page.waitForTimeout(300);
+    await key('ArrowDown');
+    for (const [width, height] of SIZES) {
+      const at = `${width}x${height}`;
+      await page.setViewportSize({ width, height });
+      await key('Enter');
+      await expect(page.locator('.panel h2:visible')).toHaveText('CONTROLS');
+      await readToEnd(() => key('ArrowDown'), 'Map / Pause', `${at}, keyboard`);
+      await key('Escape');
+      await expect(page.locator('button[data-id="new"]')).toBeVisible();
+      await page.waitForTimeout(300);
+      await padTap(page, 0); // A on CONTROLS
+      await expect(page.locator('.panel h2:visible')).toHaveText('CONTROLS');
+      await readToEnd(() => padTap(page, 13), 'Map / Pause', `${at}, pad`);
+      await padTap(page, 1); // B
+      await expect(page.locator('button[data-id="new"]')).toBeVisible();
+      await page.waitForTimeout(300);
+    }
+    // STATS from the pause menu.
+    await newGame(page);
+    for (const [width, height] of SIZES) {
+      const at = `${width}x${height}`;
+      await page.setViewportSize({ width, height });
+      await key('Escape');
+      await expect(page.locator('.panel h2:visible')).toHaveText('PAUSED');
+      await page.waitForTimeout(300);
+      await key('ArrowDown');
+      await key('ArrowDown');
+      await key('Enter');
+      await expect(page.locator('.panel h2:visible')).toHaveText('STATS');
+      await readToEnd(() => key('ArrowDown'), 'Best stunt airtime', `${at}, keyboard`);
+      await key('Escape');
+      await expect(page.locator('.panel h2:visible')).toHaveText('PAUSED');
+      await page.waitForTimeout(300);
+      await padTap(page, 0); // A on STATS, still selected
+      await expect(page.locator('.panel h2:visible')).toHaveText('STATS');
+      await readToEnd(() => padTap(page, 13), 'Best stunt airtime', `${at}, pad`);
+      await padTap(page, 1); // B: back to the pause menu
+      await expect(page.locator('.panel h2:visible')).toHaveText('PAUSED');
+      await page.waitForTimeout(300);
+      await padTap(page, 1); // B: resume
+      await page.waitForFunction(() => !(window as Api).__gta7.state().menuOpen);
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test('the map works without a mouse: a waypoint at the cross with A or Enter, zoom with RB or +, pan with the keys', async ({ page }) => {
+    await fakePad(page);
+    const errors = await boot(page);
+    await newGame(page);
+    const waypoint = () => page.evaluate(() => (window as Api).__gta7.game.hud.waypoint as { x: number; z: number } | null);
+    /** A key press, then a few frames for the game to read it. */
+    const key = async (k: string) => {
+      await page.keyboard.press(k);
+      await page.waitForTimeout(100);
+    };
+    /** World metres per 100 px, read back from where a click 100 px right of the cross drops the waypoint. */
+    const metresPer100px = async (centre: { x: number }) => {
+      await page.mouse.click(640 + 100, 360);
+      return (await waypoint())!.x - centre.x;
+    };
+    // A pad alone.
+    await padTap(page, 4); // LB: the pad is the device in use
+    await padTap(page, 8); // Back opens the map
+    await expect(page.locator('.map-screen')).toBeVisible();
+    for (const glyph of ['pad-a', 'pad-lb', 'pad-rb', 'pad-b']) await expect(page.locator(`.map-hint kbd.${glyph}`)).toBeVisible();
+    await page.waitForTimeout(300);
+    await padTap(page, 0); // A
+    const centre = (await waypoint())!;
+    expect(centre).not.toBeNull();
+    const far = await metresPer100px(centre);
+    await padTap(page, 5); // RB zooms in on the cross
+    expect(far / (await metresPer100px(centre))).toBeCloseTo(Math.sqrt(1.5), 2);
+    await padTap(page, 0); // the waypoint back on the cross...
+    expect(await waypoint()).toEqual(centre);
+    await padTap(page, 0); // ...and A again clears it
+    expect(await waypoint()).toBeNull();
+    await padTap(page, 1); // B closes the map
+    await expect(page.locator('.map-screen')).toHaveCount(0);
+    // The keyboard.
+    await page.waitForTimeout(300);
+    await key('KeyM');
+    await expect(page.locator('.map-hint')).toContainText('at the cross');
+    await expect(page.locator('.map-hint kbd', { hasText: 'Enter' })).toBeVisible();
+    await page.waitForTimeout(300);
+    await key('Enter');
+    expect(await waypoint()).toEqual(centre);
+    const far2 = await metresPer100px(centre);
+    await key('Equal');
+    expect(far2 / (await metresPer100px(centre))).toBeCloseTo(Math.sqrt(1.5), 2);
+    await key('Minus');
+    expect(far2 / (await metresPer100px(centre))).toBeCloseTo(1, 2);
+    await holdKey(page, 'ArrowRight', 400);
+    await key('Enter');
+    expect((await waypoint())!.x).toBeGreaterThan(centre.x + 20);
+    await key('Escape');
+    await page.waitForFunction(() => !(window as Api).__gta7.state().menuOpen);
+    expect(errors).toEqual([]);
+  });
+
+  test('a full localStorage still shows the save: CONTINUE loads it, and a save that needs more room says so', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    await page.evaluate(() => (window as Api).__gta7.sim.progress.addMoney(777));
+    await save(page);
+    const money = (await state(page)).money;
+    // Another game on the same origin fills it up: even a 19-character write is refused.
+    const left = await page.evaluate(() => {
+      let i = 0;
+      for (let size = 1 << 20; size >= 1; size >>= 1) {
+        try {
+          for (;;) localStorage.setItem(`other.${i++}`, 'x'.repeat(size));
+        } catch {
+          // This size no longer fits: try a smaller one.
+        }
+      }
+      try {
+        localStorage.setItem('__probe__', '0123456789');
+        return 'room';
+      } catch {
+        return 'full';
+      }
+    });
+    expect(left).toBe('full');
+    await reboot(page);
+    await expect(page.locator('button[data-id="continue"]')).toBeEnabled();
+    await page.click('button[data-id="continue"]');
+    await page.waitForFunction(() => (window as Api).__gta7.state().mode === 'game');
+    expect((await state(page)).money).toBe(money);
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      g.markDone('wheels', 'delivery', 'repo');
+      g.sim.events.emit('saveRequested', { poi: 'safehouse' });
+    });
+    await expect(page.locator('.toast')).toHaveText('Could not save: browser storage is full');
+    expect(errors).toEqual([]);
+  });
+
+  test('narrow windows: the station name clears a help box, and the objective the zone name', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    for (const [width, height] of [
+      [1280, 720],
+      [1024, 768],
+      [900, 600],
+      [768, 600],
+      [640, 480],
+    ] as const) {
+      const at = `${width}x${height}`;
+      await page.setViewportSize({ width, height });
+      // The first-drive hint, which says to press R, and the name of the station R tunes in.
+      await page.evaluate(() => {
+        const hud = (window as Api).__gta7.game.hud;
+        hud.help('Hold <kbd>Space</kbd> for the handbrake. <kbd>R</kbd> changes the radio station.', 6);
+        hud.showRadio('NEON DRIVE 88.7');
+      });
+      await page.waitForTimeout(300);
+      const help = (await page.locator('.help').boundingBox())!;
+      const radio = await glyphs(page, '.radio');
+      expect(overlap(help, radio), `help vs station name at ${at}`).toBe(false);
+      if (width >= 1060) expect(radio.y, `station name at the top at ${at}`).toBeLessThan(40);
+    }
+    // The 768-899 px short band: a long objective beside the zone flash at the bottom right.
+    for (const [width, height] of [
+      [820, 480],
+      [850, 480],
+      [899, 500],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      for (const text of ["Bring the Nightjar to Lou's garage", 'Hold the bank entrance while the vault opens']) {
+        await page.evaluate((t) => {
+          const g = (window as Api).__gta7;
+          g.sim.events.emit('objective', { text: t });
+          g.game.hud.flashZone('Port Azura Docks', '');
+        }, text);
+        await page.waitForTimeout(300);
+        expect(overlap(await glyphs(page, '.objective'), await glyphs(page, '.zone')), `objective vs zone at ${width}x${height}: ${text}`).toBe(false);
+      }
+    }
     expect(errors).toEqual([]);
   });
 });

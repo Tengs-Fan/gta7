@@ -8,6 +8,7 @@ import type { Sim } from '../sim/sim';
 import { shopItems } from '../sim/interactions';
 import { PACKAGE_COUNT } from '../sim/pickups';
 import type { Settings } from '../settings';
+import { padGlyph, type InputDevice } from './glyphs';
 import { escapeHtml } from './hud';
 import { collectBlips, drawBlip, drawPoliceOverlay, MAP_SCALE, type Blip, type MapImage } from './mapRender';
 
@@ -31,13 +32,17 @@ export interface MenuHost {
 
 interface Screen {
   el: HTMLElement;
-  input(ui: UiActions): void;
+  /** Called every frame while on top, once the screen's input guard is over (dt: the frame time). */
+  input(ui: UiActions, dt: number): void;
   /** Called every frame while on top (for animated screens like the map). */
   tick?(dt: number): void;
   /** Called when the screen is on top again after the one above it closed. */
   refresh?(): void;
   close?(): void;
 }
+
+/** NEW GAME's question when there is a save: the new game's first save replaces it. */
+export const NEW_GAME_WARNING = 'Start a new game? Your saved game will be replaced the next time the game saves (after a mission or at the safehouse).';
 
 function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -52,7 +57,8 @@ class ButtonList {
   private buttons: HTMLButtonElement[] = [];
   private sel = 0;
 
-  constructor(items: Array<{ label: string; action: () => void; disabled?: boolean; id?: string }>, private readonly click: () => void) {
+  /** `initial`: the item selected at first, or the first enabled one after it (else the first enabled one). */
+  constructor(items: Array<{ label: string; action: () => void; disabled?: boolean; id?: string }>, private readonly click: () => void, initial = 0) {
     for (const it of items) {
       const b = h('button');
       b.textContent = it.label;
@@ -63,11 +69,17 @@ class ButtonList {
         this.click();
         it.action();
       });
-      b.addEventListener('mouseenter', () => this.select(this.buttons.indexOf(b)));
+      // The mouse picks what it really moves over: never a greyed-out item (which would swallow Enter),
+      // and not one that a new screen puts under a resting cursor.
+      b.addEventListener('mousemove', () => {
+        const i = this.buttons.indexOf(b);
+        if (!b.disabled && i !== this.sel) this.select(i);
+      });
       this.el.appendChild(b);
       this.buttons.push(b);
     }
-    this.sel = this.buttons.findIndex((b) => !b.disabled);
+    const from = this.buttons.findIndex((b, i) => i >= initial && !b.disabled);
+    this.sel = from >= 0 ? from : this.buttons.findIndex((b) => !b.disabled);
     this.select(this.sel);
   }
 
@@ -109,6 +121,8 @@ export class Menus {
   /** Seconds since the top screen appeared; input is ignored briefly so the
    *  key that opened a screen (or exited pointer lock) cannot also close it. */
   private age = 0;
+  /** The device of the last input (see input()): the map and shop name its buttons. */
+  private device: InputDevice = 'kb';
 
   constructor(parent: HTMLElement, private readonly host: MenuHost, private readonly map: MapImage, private readonly keys = new KeyLabels()) {
     this.root = h('div');
@@ -145,13 +159,15 @@ export class Menus {
     while (this.stack.length) this.pop();
   }
 
-  input(ui: UiActions, dt: number): void {
+  /** One frame of input for the top screen; `device` is the one that produced the last input (keyboard and mouse, or a pad). */
+  input(ui: UiActions, dt: number, device?: InputDevice): void {
+    if (device) this.device = device;
     const s = this.top;
     if (!s) return;
     this.age += dt;
     s.tick?.(dt);
     if (this.age < 0.25) return;
-    s.input(ui);
+    s.input(ui, dt);
   }
 
   // ---------------------------------------------------------------------------
@@ -166,7 +182,12 @@ export class Menus {
     const list = new ButtonList(
       [
         { label: 'CONTINUE', action: () => this.host.continueGame(), disabled: !this.host.hasSave(), id: 'continue' },
-        { label: 'NEW GAME', action: () => this.host.newGame(), id: 'new' },
+        // There is one save slot, and the new game's first save (a passed mission, the safehouse) overwrites it.
+        {
+          label: 'NEW GAME',
+          action: () => (this.host.hasSave() ? this.confirm(NEW_GAME_WARNING, () => this.host.newGame()) : this.host.newGame()),
+          id: 'new',
+        },
         { label: 'CONTROLS', action: () => this.showControls() },
         { label: 'SETTINGS', action: () => this.showSettings() },
         { label: 'CREDITS', action: () => this.showCredits() },
@@ -198,7 +219,8 @@ export class Menus {
       { label: 'CONTROLS', action: () => this.showControls() },
       { label: 'SETTINGS', action: () => this.showSettings() },
     ];
-    if (sim?.missions.active) items.push({ label: 'ABANDON MISSION', action: () => this.host.abandonMission() });
+    // An abandoned mission offers no retry: it starts over from its contact.
+    if (sim?.missions.active) items.push({ label: 'ABANDON MISSION', action: () => this.confirm('Abandon the mission? You will have to start it again from the beginning.', () => this.host.abandonMission()) });
     items.push({ label: 'QUIT TO TITLE', action: () => this.confirm('Quit to the title screen? Unsaved progress will be lost.', () => this.host.quitToTitle()) });
     const list = new ButtonList(items, () => this.host.click());
     panel.appendChild(list.el);
@@ -210,6 +232,10 @@ export class Menus {
     this.push({ el, input: (ui) => (ui.back || ui.pause ? this.host.resume() : list.input(ui)) });
   }
 
+  /**
+   * A yes / no question over the current screen. Every one guards something that cannot be undone, so it
+   * opens on NO: a second press of the key that asked it (or menu mashing) never accepts it.
+   */
   confirm(text: string, yes: () => void): void {
     const el = h('div', 'screen dim');
     const panel = h('div', 'panel');
@@ -217,14 +243,47 @@ export class Menus {
     panel.appendChild(h('p', '', escapeHtml(text)));
     const list = new ButtonList(
       [
-        { label: 'YES', action: () => { this.pop(); yes(); } },
-        { label: 'NO', action: () => this.pop() },
+        { label: 'YES', action: () => { this.pop(); yes(); }, id: 'yes' },
+        { label: 'NO', action: () => this.pop(), id: 'no' },
       ],
       () => this.host.click(),
+      1,
     );
     panel.appendChild(list.el);
     el.appendChild(panel);
     this.push({ el, input: (ui) => (ui.back ? this.pop() : list.input(ui)) });
+  }
+
+  /**
+   * Keyboard and gamepad scrolling for a panel that can be taller than the window (CONTROLS, STATS, CREDITS):
+   * up / down move it by half its height, and focus() lets Page Up / Down, Home and End scroll it natively.
+   * A cue at its bottom edge shows while there is more below, which overlay scrollbars do not.
+   */
+  private scroller(panel: HTMLElement): { input(ui: UiActions): void; tick(): void; focus(): void } {
+    panel.tabIndex = -1;
+    const cue = h('div', 'scroll-cue hidden');
+    panel.appendChild(cue);
+    return {
+      input: (ui) => {
+        const d = (ui.down ? 1 : 0) - (ui.up ? 1 : 0);
+        if (d !== 0) panel.scrollBy?.({ top: d * Math.max(80, panel.clientHeight * 0.5), behavior: 'smooth' });
+      },
+      tick: () => cue.classList.toggle('hidden', !(panel.scrollHeight - panel.clientHeight - panel.scrollTop > 2)),
+      focus: () => panel.focus?.({ preventScroll: true }),
+    };
+  }
+
+  /** Pushes a panel screen that BACK, back or confirm closes and up / down scroll (see scroller). */
+  private pushScrolling(el: HTMLElement, panel: HTMLElement): void {
+    const row = h('div', 'row-end');
+    const back = h('button', 'btn primary', 'BACK');
+    back.addEventListener('click', () => this.pop());
+    row.appendChild(back);
+    panel.appendChild(row);
+    const scroll = this.scroller(panel);
+    el.appendChild(panel);
+    this.push({ el, input: (ui) => (ui.back || ui.confirm ? this.pop() : scroll.input(ui)), tick: scroll.tick });
+    scroll.focus();
   }
 
   showControls(): void {
@@ -248,17 +307,21 @@ export class Menus {
       ['Map', k('KeyM')],
       ['Pause', `Esc / ${k('KeyP')}`],
     ];
+    // As Input.poll() binds them: several buttons do one thing on foot and another in a vehicle.
     const pad: Array<[string, string]> = [
       ['Move / Steer', 'Left stick'],
       ['Look', 'Right stick'],
-      ['Accelerate / Shoot', 'RT'],
-      ['Brake / Aim', 'LT'],
+      ['Shoot (on foot) / Accelerate', 'RT'],
+      ['Aim (on foot) / Brake', 'LT'],
+      ['Jump (on foot)', 'X'],
+      ['Shoot from a vehicle', 'X'],
       ['Handbrake', 'RB / A'],
-      ['Jump', 'X'],
       ['Sprint', 'A'],
       ['Enter / Exit', 'Y'],
       ['Reload', 'B'],
       ['Weapons', 'LB / RB'],
+      ['Horn (in a vehicle)', 'L3'],
+      ['Camera distance', 'R3'],
       ['Interact', 'D-pad up'],
       ['Radio', 'D-pad left/right'],
       ['Job', 'D-pad down'],
@@ -267,14 +330,7 @@ export class Menus {
     const grid = (rows: Array<[string, string]>) => `<div class="keys">${rows.map(([a, b]) => `<div><span>${a}</span><span>${escapeHtml(b)}</span></div>`).join('')}</div>`;
     panel.innerHTML = `<h2>CONTROLS</h2><h3>Keyboard &amp; mouse</h3>${grid(kb)}<h3>Gamepad</h3>${grid(pad)}
       <h3>Tips</h3><p>Steal any car with <kbd>${escapeHtml(k('KeyF'))}</kbd>, even with someone inside. Lose the cops by breaking line of sight or by driving into a Spray Shack. Hidden packages, stunt ramps and rampages are scattered across San Azura. Drive a taxi or police car and press <kbd>${escapeHtml(k('KeyT'))}</kbd> for side jobs.</p>`;
-    const row = h('div', 'row-end');
-    const back = h('button', 'btn primary', 'BACK');
-    back.style.pointerEvents = 'auto';
-    back.addEventListener('click', () => this.pop());
-    row.appendChild(back);
-    panel.appendChild(row);
-    el.appendChild(panel);
-    this.push({ el, input: (ui) => (ui.back || ui.confirm ? this.pop() : undefined) });
+    this.pushScrolling(el, panel);
   }
 
   showCredits(): void {
@@ -285,13 +341,7 @@ export class Menus {
       <p>Everything you see and hear is generated at runtime: the city, the cars, the people, the textures, the sound effects and the three radio stations.</p>
       <p>Built with three.js, TypeScript and Vite. Fonts: Anton &amp; Rajdhani (SIL Open Font License).</p>
       <p>All characters, places, vehicles and brands are fictional. Any resemblance to real persons or businesses is coincidental. This is a fan-made parody and is not affiliated with Rockstar Games or Take-Two Interactive.</p>`;
-    const row = h('div', 'row-end');
-    const back = h('button', 'btn primary', 'BACK');
-    back.addEventListener('click', () => this.pop());
-    row.appendChild(back);
-    panel.appendChild(row);
-    el.appendChild(panel);
-    this.push({ el, input: (ui) => (ui.back || ui.confirm ? this.pop() : undefined) });
+    this.pushScrolling(el, panel);
   }
 
   showStats(): void {
@@ -332,13 +382,7 @@ export class Menus {
     const el = h('div', 'screen dim');
     const panel = h('div', 'panel');
     panel.innerHTML = `<h2>STATS</h2><div class="stat-grid">${rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('')}</div>`;
-    const row = h('div', 'row-end');
-    const back = h('button', 'btn primary', 'BACK');
-    back.addEventListener('click', () => this.pop());
-    row.appendChild(back);
-    panel.appendChild(row);
-    el.appendChild(panel);
-    this.push({ el, input: (ui) => (ui.back || ui.confirm ? this.pop() : undefined) });
+    this.pushScrolling(el, panel);
   }
 
   showSettings(): void {
@@ -367,7 +411,10 @@ export class Menus {
     const addRow = (r: (typeof rows)[number]) => {
       const i = rows.length;
       rows.push(r);
-      r.el.addEventListener('mouseenter', () => select(i));
+      // As in ButtonList: only a real mouse move picks a row, and never a skipped one (DELETE SAVE greyed out).
+      r.el.addEventListener('mousemove', () => {
+        if (i !== sel && !r.skip?.()) select(i);
+      });
     };
     const slider = (label: string, key: 'master' | 'music' | 'sfx' | 'sensitivity' | 'fov', min: number, max: number, stepv: number, keyStep: number, fmt: (v: number) => string) => {
       const row = h('div', 'setting');
@@ -527,7 +574,8 @@ export class Menus {
         sel = i;
         buy(i);
       });
-      r.addEventListener('mouseenter', () => {
+      r.addEventListener('mousemove', () => {
+        if (sel === i) return;
         sel = i;
         render();
       });
@@ -536,17 +584,27 @@ export class Menus {
     });
     render();
     panel.append(head, money, list, msg);
+    // How to buy, for the device in use (Enter has no pad button, and Start, the pad's Esc, does not leave), beside LEAVE.
     const row = h('div', 'row-end');
+    const how = h('div', 'shop-how');
+    let howDevice: InputDevice | null = null;
+    const showHow = () => {
+      howDevice = this.device;
+      how.innerHTML = this.device === 'pad' ? `${padGlyph('up')}${padGlyph('down')} to choose · ${padGlyph('a')} to buy · ${padGlyph('b')} to leave` : 'Click or press <kbd>Enter</kbd> to buy, <kbd>Esc</kbd> to leave.';
+    };
+    showHow();
     const back = h('button', 'btn primary', 'LEAVE');
     back.addEventListener('click', () => {
       this.pop();
     });
-    row.appendChild(back);
+    row.append(how, back);
     panel.appendChild(row);
-    panel.appendChild(h('p', '', 'Click or press <kbd>Enter</kbd> to buy, <kbd>Esc</kbd> to leave.'));
     el.appendChild(panel);
     this.push({
       el,
+      tick: () => {
+        if (howDevice !== this.device) showHow();
+      },
       input: (ui) => {
         if (ui.back) this.pop();
         else if (ui.up) {
@@ -591,7 +649,18 @@ export class Menus {
           .join(''),
       ),
     );
-    el.appendChild(h('div', 'map-hint', `Click to set a waypoint (click it again to clear) · Drag to pan · Wheel to zoom · <kbd>${escapeHtml(this.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`));
+    // What to press, for the device in use: the keyboard and a pad set the waypoint at the cross in the middle.
+    const hint = h('div', 'map-hint');
+    el.appendChild(hint);
+    let hintDevice: InputDevice | null = null;
+    const showHint = () => {
+      hintDevice = this.device;
+      hint.innerHTML =
+        this.device === 'pad'
+          ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('b')} to close`
+          : `Click, or <kbd>Enter</kbd> at the cross, to set a waypoint (again to clear it) · Drag or arrow keys to pan · Wheel or <kbd>+</kbd> <kbd>-</kbd> to zoom · <kbd>${escapeHtml(this.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`;
+    };
+    showHint();
     const ctx = canvas.getContext('2d')!;
     // Start centred on the island showing the whole city.
     const b = sim.world.layout.bounds;
@@ -668,6 +737,27 @@ export class Menus {
       ctx.fill();
       ctx.stroke();
       ctx.restore();
+      // The cross in the middle, where the keyboard and a pad set the waypoint: white on a dark outline.
+      const mx = canvas.width / 2;
+      const my = canvas.height / 2;
+      for (const [width, color] of [[4, 'rgba(0, 0, 0, 0.75)'], [2, '#ffffff']] as const) {
+        ctx.lineWidth = width;
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          ctx.moveTo(mx + dx * 5, my + dy * 5);
+          ctx.lineTo(mx + dx * 13, my + dy * 13);
+        }
+        ctx.stroke();
+      }
+    };
+    /** Sets a waypoint at a point of the canvas, or clears the one within 16 px of it. */
+    const toggleWaypointAt = (sx: number, sy: number) => {
+      const w = toWorld(sx, sy);
+      const cur = this.host.waypoint();
+      if (cur && Math.hypot(cur.x - w.x, cur.z - w.z) * scale() < 16) this.host.setWaypoint(null);
+      else this.host.setWaypoint(w);
+      this.host.click();
     };
     let t = 0;
     canvas.addEventListener('pointerdown', (e) => {
@@ -708,12 +798,7 @@ export class Menus {
       dragging = false;
       if (moved > 6) return;
       const r = canvas.getBoundingClientRect();
-      const w = toWorld(e.clientX - r.left, e.clientY - r.top);
-      const cur = this.host.waypoint();
-      const k = scale();
-      if (cur && Math.hypot(cur.x - w.x, cur.z - w.z) * k < 16) this.host.setWaypoint(null);
-      else this.host.setWaypoint(w);
-      this.host.click();
+      toggleWaypointAt(e.clientX - r.left, e.clientY - r.top);
     });
     // Steps like the weapon wheel: the first event of a gesture (see WHEEL_GESTURE_GAP) is one
     // 0.5 step whatever its size, so a notch is a step on every platform (4 px on macOS, 53 on
@@ -734,16 +819,22 @@ export class Menus {
     }, { passive: false });
     this.push({
       el,
-      input: (ui) => {
-        if (ui.back || ui.map || ui.pause) this.pop();
-        const k = scale();
-        if (ui.left) cx -= 60 / k;
-        if (ui.right) cx += 60 / k;
-        if (ui.up) cz -= 60 / k;
-        if (ui.down) cz += 60 / k;
+      input: (ui, dt) => {
+        if (ui.back || ui.map || ui.pause) {
+          this.pop();
+          return;
+        }
+        if (ui.confirm) toggleWaypointAt(canvas.width / 2, canvas.height / 2);
+        if (ui.zoomIn) zoom = clamp(zoom + 0.5, 0, 4);
+        if (ui.zoomOut) zoom = clamp(zoom - 0.5, 0, 4);
+        // Held arrows / WASD, the D-pad and the left stick pan the view, by up to 0.8 of its height a second.
+        const speed = (0.8 * Math.min(canvas.width, canvas.height)) / scale();
+        cx += (ui.panX ?? 0) * speed * dt;
+        cz += (ui.panY ?? 0) * speed * dt;
       },
       tick: (dt) => {
         t += dt;
+        if (hintDevice !== this.device) showHint();
         draw(t);
       },
       close: onClose,

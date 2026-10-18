@@ -6,7 +6,7 @@ import type { TypedCheat } from './input/cheats';
 import { Input, type FrameInput } from './input/input';
 import { pickTier, probeGpu, QUALITY, type QualitySetting, type QualityTier } from './render/quality';
 import { GameRenderer } from './render/renderer';
-import { deleteGame, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, writeGame, type Settings } from './settings';
+import { deleteGame, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, storeGame, type Settings } from './settings';
 import type { Vehicle } from './sim/entities';
 import { neutralInput } from './sim/input';
 import { applySave, serialize, type SaveData } from './sim/progress';
@@ -311,8 +311,8 @@ export class Game {
     const sim = this.sim;
     const weapons = sim.player.inventory.owned().filter((w): w is Exclude<WeaponId, 'fists'> => w !== 'fists').map((id) => ({ id, ammo: sim.player.inventory.total(id) }));
     const data = serialize(sim.progress, weapons, sim.player.armor, sim.clock.hours, sim.clock.day);
-    const ok = writeGame(data);
-    this.hud.toast(ok ? (auto ? 'Autosaved' : 'Game saved') : 'Could not save (storage unavailable)');
+    const failed = storeGame(data);
+    this.hud.toast(failed ?? (auto ? 'Autosaved' : 'Game saved'));
   }
 
   pause(): void {
@@ -401,7 +401,7 @@ export class Game {
     for (const typed of this.input.takeCheats()) if (this.mode === 'game') this.applyCheat(typed);
     const cam = this.renderer.cameraCtl;
     if (this.mode === 'title') {
-      this.menus.input(fi.ui, dt);
+      this.menus.input(fi.ui, dt, fi.device);
       const inp = neutralInput();
       inp.aimOrigin = { x: cam.camera.position.x, y: cam.camera.position.y, z: cam.camera.position.z };
       const d = cam.aimRay().dir;
@@ -415,7 +415,7 @@ export class Game {
       return;
     }
     if (this.menus.open) {
-      this.menus.input(fi.ui, dt);
+      this.menus.input(fi.ui, dt, fi.device);
       this.renderer.render(0, false);
       return;
     }

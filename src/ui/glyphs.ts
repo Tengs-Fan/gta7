@@ -14,7 +14,7 @@ export interface GlyphContext {
   inVehicle?: boolean;
 }
 
-type PadButton = 'a' | 'b' | 'x' | 'y' | 'lb' | 'rb' | 'lt' | 'rt' | 'back' | 'start' | 'l3' | 'r3' | 'up' | 'down' | 'left' | 'right';
+export type PadButton = 'a' | 'b' | 'x' | 'y' | 'lb' | 'rb' | 'lt' | 'rt' | 'back' | 'start' | 'l3' | 'r3' | 'up' | 'down' | 'left' | 'right';
 
 /** Each key's gamepad button on foot and in a vehicle, as Input.poll() binds them (standard mapping). */
 const PAD: Record<string, [onFoot: PadButton, inVehicle: PadButton]> = {
@@ -55,7 +55,7 @@ function escapeText(s: string): string {
 }
 
 /** A gamepad button glyph: the face buttons in their usual colours, a drawn cross for the D-pad. */
-function padGlyph(b: PadButton): string {
+export function padGlyph(b: PadButton): string {
   const arm = DPAD_ARM[b];
   if (arm) return `<kbd class="pad dpad" aria-label="D-pad ${b}"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="dpad-base" d="${DPAD_CROSS}"/><path class="dpad-on" d="${arm}"/></svg></kbd>`;
   return `<kbd class="pad pad-${b}">${PAD_TEXT[b]}</kbd>`;

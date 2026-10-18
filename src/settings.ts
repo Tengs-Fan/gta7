@@ -43,16 +43,25 @@ function hintIds(v: unknown): string[] {
 const SETTINGS_KEY = 'gta7.settings.v1';
 const SAVE_KEY = 'gta7.save.v1';
 
+/**
+ * The page's localStorage, or null where there is none. Reading the property throws a SecurityError
+ * where site data is blocked. Nothing is written to test it: a full origin (several games on one
+ * itch.io or github.io origin) refuses only writes that grow it, while reads, same-size rewrites and
+ * removals still work, so a test write would hide a save that is still there.
+ */
 function storage(): Storage | null {
   try {
-    const s = window.localStorage;
-    const probe = '__gta7_probe__';
-    s.setItem(probe, '1');
-    s.removeItem(probe);
-    return s;
+    return window.localStorage ?? null;
   } catch {
     return null;
   }
+}
+
+/** Whether a failed write means the origin's storage quota is used up (names and codes differ by browser). */
+function quotaExceeded(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const { name, code } = err as { name?: unknown; code?: unknown };
+  return (typeof name === 'string' && /quota/i.test(name)) || code === 22 || code === 1014;
 }
 
 function clampNum(v: unknown, lo: number, hi: number, fallback: number): number {
@@ -60,10 +69,8 @@ function clampNum(v: unknown, lo: number, hi: number, fallback: number): number 
 }
 
 export function loadSettings(): Settings {
-  const s = storage();
-  if (!s) return { ...DEFAULT_SETTINGS };
   try {
-    const raw = JSON.parse(s.getItem(SETTINGS_KEY) ?? 'null') as Record<string, unknown> | null;
+    const raw = JSON.parse(storage()?.getItem(SETTINGS_KEY) ?? 'null') as Record<string, unknown> | null;
     if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS };
     const q = raw.quality;
     return {
@@ -92,30 +99,37 @@ export function saveSettings(settings: Settings): void {
 }
 
 export function loadGame(): SaveData | null {
-  const s = storage();
-  if (!s) return null;
   try {
-    return parseSave(JSON.parse(s.getItem(SAVE_KEY) ?? 'null'));
+    return parseSave(JSON.parse(storage()?.getItem(SAVE_KEY) ?? 'null'));
   } catch {
     return null;
   }
 }
 
-export function writeGame(data: SaveData): boolean {
+/**
+ * Writes the save game. Returns null once it is stored, else a line for the player saying why it was
+ * not: the origin's storage is full (the save that was there stays as it was), or there is none.
+ */
+export function storeGame(data: SaveData): string | null {
+  const s = storage();
+  if (!s) return 'Could not save: browser storage is unavailable';
   try {
-    const s = storage();
-    if (!s) return false;
     s.setItem(SAVE_KEY, JSON.stringify(data));
-    return true;
-  } catch {
-    return false;
+    return null;
+  } catch (err) {
+    return quotaExceeded(err) ? 'Could not save: browser storage is full' : 'Could not save: browser storage is unavailable';
   }
+}
+
+/** Writes the save game; false when it could not be stored (see storeGame for why). */
+export function writeGame(data: SaveData): boolean {
+  return storeGame(data) === null;
 }
 
 export function deleteGame(): void {
   try {
     storage()?.removeItem(SAVE_KEY);
   } catch {
-    // ignore
+    // Removing needs no quota: only blocked storage throws here, and loadGame finds no save there either.
   }
 }

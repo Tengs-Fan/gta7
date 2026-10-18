@@ -109,6 +109,9 @@ const t = {
   },
   async newGame() {
     await page.click('button[data-id="new"]');
+    // With a save on the profile the game asks before replacing it (the dialog opens on NO): say YES.
+    await page.waitForFunction(() => window.__gta7.state().mode === 'game' || document.querySelector('button[data-id="yes"]') !== null);
+    if ((await t.state()).mode !== 'game') await page.click('button[data-id="yes"]');
     await page.waitForFunction(() => window.__gta7.state().mode === 'game');
     // Fail fast on a frame stall (a granted pointer lock in headless Chromium) rather than measure one.
     const f0 = (await t.state()).frames;
