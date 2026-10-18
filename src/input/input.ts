@@ -54,10 +54,10 @@ const CHEAT_GAP_MS = 1500;
 /** From this many letters into a cheat code, the keys typing it do nothing else (see Input.typeLetter). */
 const CHEAT_SWALLOW_AT = 3;
 /**
- * How long (ms) an F press that would get the player out for good waits for the I of FIXMYRIDE (see Input.exitAtStake).
- * Covers typing at up to two keys a second; the code itself allows 1.5 s between letters.
+ * How long (ms) an F press that would get the player out for good waits for the I of FIXMYRIDE (see Input.exitAtStake):
+ * as long as the code itself allows between two letters, so that whatever pace it is typed at its F never acts.
  */
-const EXIT_HOLD_MS = 500;
+const EXIT_HOLD_MS = CHEAT_GAP_MS;
 /** Mouse moves are dropped this long (ms) after pointer lock is gained: the first one jumps by the cursor's offset. */
 const LOCK_SETTLE_MS = 100;
 /**
@@ -72,6 +72,8 @@ const MOVE_RUN_MS = 150;
 /** Keys that ask for the map or the pause menu, and keys that get in or out of a vehicle. */
 const SCREEN_KEYS = new Set(['KeyM', 'KeyP', 'Escape']);
 const EXIT_KEYS = new Set(['KeyF', 'Enter']);
+/** KeyboardEvent.key of the modifier keys: pressed between the letters of a code typed in capitals, they type nothing. */
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'AltGraph', 'Meta', 'CapsLock', 'Fn', 'FnLock', 'Hyper', 'Super', 'Symbol', 'SymbolLock', 'NumLock', 'ScrollLock', 'OS']);
 
 /**
  * Whether pointer lock must be refused: under browser automation (navigator.webdriver) headless Chromium
@@ -244,10 +246,13 @@ export class Input {
   private readonly swallowed = new Set<string>();
   /**
    * An F press held back while exitAtStake, and when (performance.now() ms): F is also the first letter of FIXMYRIDE.
-   * The next key settles it (an I typing on is the code, and the F does nothing; anything else lets it act), and so
-   * does EXIT_HOLD_MS going by.
+   * The next key settles it: an I typing on is the code, and the F does nothing; anything else lets it act (a second F
+   * at once, and that one asks for nothing more). So do EXIT_HOLD_MS going by, the window losing focus, and the exit no
+   * longer being at stake (the car caught fire, the job ended); once the player is out anyway it is dropped.
    */
   private heldExit: { key: KeyPress; t: number } | null = null;
+  /** The physical key (KeyboardEvent.code) that typed each letter of `typed`. */
+  private typedKeys: string[] = [];
   inVehicle = false;
   /**
    * Getting out of the vehicle now could not be undone (set by the game each frame): it would end a taxi or vigilante
@@ -255,8 +260,9 @@ export class Input {
    */
   exitAtStake = false;
   /**
-   * A menu, the map or the shop is open (set by the game each frame). There S, A, W and D move through and change
-   * settings, so the keys typing a cheat code do nothing from its second letter on (in play, from its third).
+   * A menu, the map or the shop is open (set by the game each frame). There A and D change settings and M and P close
+   * screens, so a cheat code's keys do nothing from its third letter on, even keys of play, and from its second once an
+   * unbound letter came (in play, only from the third, once an unbound letter came).
    */
   menuOpen = false;
   /**
@@ -292,8 +298,9 @@ export class Input {
       const alias = letterAlias(ev);
       const press = ev.repeat ? -1 : ++this.presses;
       // A key typing a cheat code does nothing else, also while it auto-repeats, until it is released.
-      const typing = ev.repeat ? this.swallowed.has(ev.code) : this.typeLetter(ev.key, BOUND_CODES.has(ev.code) || alias !== null, press);
-      if (!ev.repeat) this.settleHeldExit();
+      const typing = ev.repeat ? this.swallowed.has(ev.code) : this.typeLetter(ev.key, BOUND_CODES.has(ev.code) || alias !== null, press, ev.code);
+      // A modifier (Shift for a capital I) says nothing about whether a held F starts FIXMYRIDE.
+      const released = !ev.repeat && !MODIFIER_KEYS.has(ev.key) && this.settleHeldExit();
       if (typing) {
         this.swallowed.add(ev.code);
         return;
@@ -304,6 +311,8 @@ export class Input {
       for (const code of codes) this.held.add(code);
       if (ev.repeat) return;
       const key: KeyPress = { press, codes, action: alias ?? ev.code };
+      // A second F while one was held back: that one gets out now, and this one is the same request.
+      if (released && key.action === 'KeyF') return;
       if (key.action === 'KeyF' && this.inVehicle && this.exitAtStake && !this.menuOpen) this.heldExit = { key, t: performance.now() };
       else this.fresh.push(key);
     });
@@ -318,6 +327,8 @@ export class Input {
       }
     });
     on(window, 'blur', () => {
+      // No letter of FIXMYRIDE can follow a held F now: it acts, as it would have at once without the hold.
+      this.releaseHeldExit();
       this.held.clear();
       this.aliases.clear();
       this.swallowed.clear();
@@ -497,8 +508,10 @@ export class Input {
   /** Builds this frame's input (dt: frame time in seconds). Call once per frame, then endFrame(). */
   poll(dt: number): FrameInput {
     this.pollT = performance.now();
-    // No letter of FIXMYRIDE followed a held F in time: it acts now.
-    if (this.heldExit && this.pollT - this.heldExit.t >= EXIT_HOLD_MS) this.releaseHeldExit();
+    // A held F: dropped once the player is out anyway; it acts now if no letter of FIXMYRIDE followed in time, or if
+    // getting out is no longer for good (the car caught fire: 'Press F to get out!').
+    if (this.heldExit && !this.inVehicle) this.heldExit = null;
+    else if (this.heldExit && (!this.exitAtStake || this.pollT - this.heldExit.t > EXIT_HOLD_MS)) this.releaseHeldExit();
     this.down.clear();
     this.screenPress = -1;
     for (const k of this.fresh) {
@@ -677,50 +690,71 @@ export class Input {
     if (h) this.fresh.push(h.key);
   }
 
-  /** A new key press settles a held F: typing on with the code (F I...), the F was its first letter and does nothing. */
-  private settleHeldExit(): void {
+  /**
+   * A new key press settles a held F: typing on with the code (F I...), the F was its first letter and does nothing;
+   * anything else lets it act. Returns true when it was let act.
+   */
+  private settleHeldExit(): boolean {
     const h = this.heldExit;
-    if (!h) return;
-    if (this.codePresses.length >= 2 && this.codePresses.includes(h.key.press)) this.heldExit = null;
-    else this.releaseHeldExit();
+    if (!h) return false;
+    if (this.codePresses.length >= 2 && this.codePresses.includes(h.key.press)) {
+      this.heldExit = null;
+      return false;
+    }
+    this.releaseHeldExit();
+    return true;
   }
 
   /**
-   * Adds a typed letter to the cheat buffer (`bound`: the key that typed it has a binding) and queues a
-   * completed code. Returns true when the key is typing a code and must do nothing else: the letter that
-   * completes a code, and in play from the third letter of a code on, once the letters so far include one
-   * typed with an unbound key. Play alone never types those, so play is never swallowed (S P A, back / pause
-   * / left, also starts SPAWNSPORTS). In a menu every letter of a code after the first is swallowed.
+   * Adds a letter typed with physical key `code` to the cheat buffer (`bound`: that key has a binding) and
+   * queues a completed code. Returns true when the key is typing a code and must do nothing else: the letter
+   * that completes a code, and from the third letter of a code on, in play once the letters so far include one
+   * typed with an unbound key. Play alone never types those, so play is never swallowed (S P A, back / pause /
+   * left, also starts SPAWNSPORTS). In a menu the third letter on is swallowed in any case (SPAWNSPORTS's A
+   * would change a setting), and the second once an unbound letter came (IMMORTAL's M would close the map),
+   * while two keys of menu navigation (S then P) still both act.
    *
-   * A code's first letters still act, once a frame has seen them, and Game undoes what they did; letters no
-   * frame has seen yet when the code completes (keys sent faster than frames, as by a macro) are taken back
-   * here and never act.
+   * A code's first letters still act, once a frame has seen them, and Game undoes what they did. When the code
+   * completes, its letters no frame has seen yet (keys sent faster than frames, as by a macro) are taken back
+   * and never act, and its keys still held down do nothing more until released.
    */
-  private typeLetter(key: unknown, bound: boolean, press: number): boolean {
+  private typeLetter(key: unknown, bound: boolean, press: number, code: string): boolean {
     if (typeof key !== 'string' || key.length !== 1 || !/[a-z]/i.test(key)) return false;
     const now = performance.now();
     if (now - this.typedAt > CHEAT_GAP_MS) {
       this.typed = '';
       this.typedFree = '';
       this.typedPresses = [];
+      this.typedKeys = [];
     }
     this.typedAt = now;
     this.typed = (this.typed + key.toUpperCase()).slice(-24);
     this.typedFree = (this.typedFree + (bound ? '0' : '1')).slice(-24);
     this.typedPresses = [...this.typedPresses, press].slice(-24);
+    this.typedKeys = [...this.typedKeys, code].slice(-24);
     const n = cheatPrefixLength(this.typed);
     this.codePresses = n > 0 ? this.typedPresses.slice(-n) : [];
-    const swallow = this.menuOpen ? n >= 2 : n >= CHEAT_SWALLOW_AT && this.typedFree.slice(-n).includes('1');
-    const code = completedCheat(this.typed);
-    if (!code) return swallow;
-    const presses = this.typedPresses.slice(-code.length);
-    this.cheats.push({ code, presses });
+    const free = n > 0 && this.typedFree.slice(-n).includes('1');
+    const swallow = this.menuOpen ? n >= (free ? 2 : CHEAT_SWALLOW_AT) : n >= CHEAT_SWALLOW_AT && free;
+    const cheat = completedCheat(this.typed);
+    if (!cheat) return swallow;
+    const presses = this.typedPresses.slice(-cheat.length);
+    this.cheats.push({ code: cheat, presses });
     this.codePresses = presses;
     this.fresh = this.fresh.filter((k) => !presses.includes(k.press));
     if (this.heldExit && presses.includes(this.heldExit.key.press)) this.heldExit = null;
+    for (const k of this.typedKeys.slice(-cheat.length)) {
+      if (k === code || !this.held.has(k)) continue;
+      this.held.delete(k);
+      const alias = this.aliases.get(k);
+      if (alias) this.held.delete(alias);
+      this.aliases.delete(k);
+      this.swallowed.add(k);
+    }
     this.typed = '';
     this.typedFree = '';
     this.typedPresses = [];
+    this.typedKeys = [];
     return true;
   }
 }

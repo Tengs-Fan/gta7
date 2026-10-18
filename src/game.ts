@@ -30,8 +30,10 @@ export const INTRO_DELAY = 2.5;
  */
 const TITLE_UNMUTE_DELAY = 0.8;
 /**
- * Getting out above BAIL_SPEED (m/s) is a bail that costs BAIL_DAMAGE health (PlayerController.exitVehicle). An exit
- * counts as possibly lethal a little below that speed and above that health (a frame's acceleration, a hit meanwhile).
+ * Getting out at BAIL_SPEED (m/s) or faster is a bail that costs BAIL_DAMAGE health, armour or not
+ * (PlayerController.driving and exitVehicle). The exit is decided before the frame's physics step, at the speed the
+ * last frame ended with, which is the speed Game reads for Input.exitAtStake: no margin is needed, and none is wanted,
+ * as an F held back at 10 m/s would no longer brake the car to a safe stop.
  */
 const BAIL_SPEED = 11;
 const BAIL_DAMAGE = 6;
@@ -71,6 +73,10 @@ export class Game {
   private wasDown = false;
   /** The screen (map or pause menu) gameplay last opened by its key, and that key press: a cheat code's first letters can do that. */
   private keyScreen: { screen: Menus['top']; press: number } | null = null;
+  /** The map or pause menu that its key (P, M) last closed, back to play, and that key press: a code's letter can do that too. */
+  private keyClosed: { map: boolean; press: number } | null = null;
+  /** The map screen openMap() put up, to tell it from the pause menu once closed. */
+  private mapScreen: Menus['top'] = null;
   /** The player's last exit from a vehicle and the key press that asked for it, for FIXMYRIDE, whose F gets him out. */
   private lastExit: { vehicle: Vehicle; press: number; bailed: boolean } | null = null;
   /** The last sim events of the session and page errors, oldest first, for the crash report. */
@@ -262,6 +268,11 @@ export class Game {
     this.noteEvent('session', save ? 'continued' : 'new game');
     this.unsub.push(...this.recordEvents(sim));
     this.lastExit = null;
+    this.keyClosed = null;
+    // Set from each frame of play: none of the last session's (an F held back in its car) carries over.
+    this.input.inVehicle = false;
+    this.input.exitAtStake = false;
+    this.input.skipLine = false;
     this.unsub.push(
       ev.on('vehicleExit', (e) => {
         // The exit may come a moment after its key press (braking first). A bail at speed (knocked down) cost him 6 health, unless he is invulnerable.
@@ -375,6 +386,7 @@ export class Game {
   private openMap(): void {
     this.suspendPlay();
     this.menus.showMap(this.guard(() => this.resume()));
+    this.mapScreen = this.menus.top;
   }
 
   // ---------------------------------------------------------------------------
@@ -446,7 +458,10 @@ export class Game {
       return;
     }
     if (this.menus.open) {
+      const shown = this.menus.top;
       this.menus.input(fi.ui, dt);
+      // Its key (P, M) closed the pause menu or the map: a cheat code's letter can do that, and applyCheat reopens it.
+      if (!this.menus.open && (fi.ui.pause || fi.ui.map) && this.input.screenKeyPress >= 0) this.keyClosed = { map: shown === this.mapScreen, press: this.input.screenKeyPress };
       this.renderer.render(0, false);
       return;
     }
@@ -515,6 +530,13 @@ export class Game {
     // Only a screen one of its own letters opened, and only while it is still on top.
     const ks = this.keyScreen;
     if (ks?.screen && this.menus.top === ks.screen && typed.presses.includes(ks.press)) this.resume();
+    // Typed on the pause menu or the map, a letter (SPAWNSPORTS's P, MONEYTREE's M) closes it instead: back it comes.
+    const kc = this.keyClosed;
+    if (kc && !this.menus.open && typed.presses.includes(kc.press)) {
+      this.keyClosed = null;
+      if (kc.map) this.openMap();
+      else this.pause();
+    }
     switch (code) {
       case 'CHILLOUT':
         sim.wanted.clear();
@@ -794,7 +816,8 @@ export class Game {
         this.suspendPlay();
         this.menus.showPause();
       }
-    } else {
+    } else if (this.titleUnmute <= 0) {
+      // Just after QUIT TO TITLE the countdown in step() opens the stage, once the frozen voices have faded.
       this.audio.setPaused(false);
     }
   }
@@ -849,7 +872,7 @@ function exitAtStake(sim: Sim): boolean {
   if (!v || sim.playerDown || v.burning || !v.drivable || v.inWater) return false;
   const job = sim.activities.job;
   if (job && job.kind !== 'rampage') return true;
-  return !sim.cheats.godMode && v.speed > BAIL_SPEED - 1 && p.health <= BAIL_DAMAGE + 2;
+  return !sim.cheats.godMode && v.speed >= BAIL_SPEED && p.health <= BAIL_DAMAGE;
 }
 
 /** The player can be put back in a vehicle he just got out of: it still drives and its seat is free. */

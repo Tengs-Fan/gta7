@@ -813,7 +813,44 @@ describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
     expect(v.health).toBe(v.spec.health);
   });
 
-  it('a real F still gets out: at once with no job, after a short wait in a taxi job, and at once when another key follows', async () => {
+  it('typed with 1.2 s between its F and its I (the code allows 1.5 s a letter) in a taxi, the job goes on', async () => {
+    const { sim, frames, seconds, type, taxi, job, fare } = await taxiWithFare();
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(6);
+    keyUp('KeyF', 'f');
+    seconds(1.1);
+    type('IXMYRIDE');
+    frames(30);
+    expect(n.exits).toBe(0);
+    expect(n.jobsEnded).toBe(0);
+    expect(sim.activities.job).toBe(job);
+    expect(fare.vehicle).toBe(taxi);
+    expect(sim.player.vehicle).toBe(taxi);
+  });
+
+  it('typed in capitals, Shift pressed for every letter, in a taxi at 14 m/s, the job goes on', async () => {
+    const { sim, frames, taxi, lane, job, fare } = await taxiWithFare();
+    setSpeed(taxi, lane, 14);
+    frames(1);
+    const n = watch(sim);
+    for (const ch of 'FIXMYRIDE') {
+      keyDown('ShiftLeft', 'Shift');
+      frames(2);
+      keyDown(letterCode(ch), ch);
+      frames(2);
+      keyUp(letterCode(ch), ch);
+      keyUp('ShiftLeft', 'Shift');
+      frames(2);
+    }
+    frames(30);
+    expect(n.exits).toBe(0);
+    expect(n.jobsEnded).toBe(0);
+    expect(sim.activities.job).toBe(job);
+    expect(fare.vehicle).toBe(taxi);
+  });
+
+  it('a real F still gets out: at once with no job; in a taxi job once no letter of the code can follow, or at once when another key follows', async () => {
     // No job, full health: no wait at all.
     {
       const { sim, frames } = await playing();
@@ -825,16 +862,17 @@ describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
       expect(n.exits).toBe(1);
       keyUp('KeyF', 'f');
     }
-    // In a taxi job: F alone waits half a second for an I, then gets out and ends the job as before.
+    // In a taxi job F alone waits for an I as long as the code would (1.5 s), then gets out and ends the job as before.
     {
       const { sim, frames } = await taxiWithFare();
       const n = watch(sim);
       keyDown('KeyF', 'f');
       frames(4);
       keyUp('KeyF', 'f');
-      frames(23);
+      frames(80);
       expect(n.exits).toBe(0);
-      frames(5);
+      expect(sim.activities.job).not.toBe(null);
+      frames(12);
       expect(n.exits).toBe(1);
       expect(sim.player.vehicle).toBe(null);
       expect(n.jobsEnded).toBe(1);
@@ -853,6 +891,66 @@ describe('FIXMYRIDE in a job or at low health gets nobody out', () => {
       keyUp('KeyF', 'f');
       keyUp('KeyW', 'w');
     }
+    // F pressed again (impatient): out at once, and only once.
+    {
+      const { sim, frames } = await taxiWithFare();
+      const n = watch(sim);
+      keyDown('KeyF', 'f');
+      frames(3);
+      keyUp('KeyF', 'f');
+      frames(3);
+      expect(n.exits).toBe(0);
+      keyDown('KeyF', 'f');
+      frames(1);
+      expect(n.exits).toBe(1);
+      keyUp('KeyF', 'f');
+      frames(30);
+      expect(n.exits).toBe(1);
+      expect(sim.player.vehicle).toBe(null);
+    }
+    // The window losing focus: no letter can follow, so the F acts as it would have without the wait.
+    {
+      const { sim, frames } = await taxiWithFare();
+      const n = watch(sim);
+      keyDown('KeyF', 'f');
+      frames(3);
+      dom.win.dispatchEvent(new Event('blur'));
+      frames(1);
+      expect(n.exits).toBe(1);
+    }
+    // The cab catching fire meanwhile: 'Press F to get out!' acts at once.
+    {
+      const { sim, frames, taxi } = await taxiWithFare();
+      const n = watch(sim);
+      keyDown('KeyF', 'f');
+      frames(3);
+      expect(n.exits).toBe(0);
+      sim.combat.igniteVehicle(taxi, 5);
+      frames(2);
+      expect(n.exits).toBe(1);
+      keyUp('KeyF', 'f');
+    }
+  });
+
+  it('at 10.5 m/s with 5 health, accelerating, F still brakes to a safe stop at once instead of waiting to bail at speed', async () => {
+    const { sim, frames } = await playing();
+    const { v, lane } = driving(sim, 'sedan');
+    sim.player.health = 5;
+    keyDown('KeyW', 'w');
+    setSpeed(v, lane, 10.5);
+    frames(1);
+    expect(v.speed).toBeLessThan(11);
+    const n = watch(sim);
+    keyDown('KeyF', 'f');
+    frames(2);
+    keyUp('KeyF', 'f');
+    for (let i = 0; i < 240 && n.exits === 0; i++) frames(1);
+    keyUp('KeyW', 'w');
+    expect(n.exits).toBe(1);
+    expect(sim.deathKind).toBe(null);
+    expect(sim.player.alive).toBe(true);
+    expect(sim.player.health).toBe(5);
+    expect(v.speed).toBeLessThan(3.5);
   });
 
   it('no wait where getting out is urgent or costs nothing: a burning job car, or low health at low speed', async () => {
@@ -915,6 +1013,29 @@ describe('a cheat code whose keys all arrive within one frame has no side effect
     expect(Math.hypot(sim.player.pos.x - x, sim.player.pos.z - z)).toBeLessThan(0.05);
   });
 
+  it('a code completed while one of its keys is still held down: that key does nothing more until it is released', async () => {
+    const { game, sim, frames } = await playing();
+    sim.cheats.godMode = true;
+    frames(30);
+    const x = sim.player.pos.x;
+    const z = sim.player.pos.z;
+    // SPAWNSPORTS between two frames (a stall), its A let go only well after: keys overlapping as they are typed.
+    for (const ch of 'SPAWNSPORTS') {
+      keyDown(letterCode(ch), ch.toLowerCase());
+      if (ch !== 'A') keyUp(letterCode(ch), ch.toLowerCase());
+    }
+    frames(20);
+    keyUp('KeyA', 'a');
+    frames(5);
+    expect(game.menus.open).toBe(false);
+    expect(Math.hypot(sim.player.pos.x - x, sim.player.pos.z - z)).toBeLessThan(0.05);
+    // Pressed again, the A strafes as usual.
+    keyDown('KeyA', 'a');
+    frames(20);
+    keyUp('KeyA', 'a');
+    expect(Math.hypot(sim.player.pos.x - x, sim.player.pos.z - z)).toBeGreaterThan(0.3);
+  });
+
   it('FIXMYRIDE at 20 m/s repairs the car without getting the player out of it', async () => {
     const { sim, frames, burst } = await playing();
     const { v, lane } = driving(sim, 'sedan');
@@ -969,17 +1090,57 @@ describe('cheat codes typed in a menu change nothing there', () => {
     expect(game.settings.fov).toBe(loadSettings().fov);
   });
 
-  it('typed on the pause menu, its P does not close the menu', async () => {
+  it('typed on the pause menu, SPAWNSPORTS leaves it up: the P that closed it brings it back once the code is in', async () => {
     const { game, sim, press, frames, type } = await playing();
     press('Escape');
     frames(20);
-    const pauseScreen = game.menus.top;
+    expect(game.menus.top?.el.textContent).toContain('PAUSED');
     const sports = sim.vehicles.filter((v) => v.kind === 'sports').length;
     type('SPAWNSPORTS');
     frames(10);
     expect(game.menus.open).toBe(true);
-    expect(game.menus.top).toBe(pauseScreen);
+    expect(game.menus.top?.el.textContent).toContain('PAUSED');
     expect(sim.vehicles.filter((v) => v.kind === 'sports').length).toBe(sports + 1);
+  });
+
+  it('S then P on the pause menu is still navigation: the P resumes at once', async () => {
+    const { game, press, frames, type } = await playing();
+    press('Escape');
+    frames(20);
+    expect(game.menus.open).toBe(true);
+    type('S');
+    expect(game.menus.open).toBe(true);
+    keyDown('KeyP', 'p');
+    frames(1);
+    expect(game.menus.open).toBe(false);
+    keyUp('KeyP', 'p');
+    frames(120);
+    expect(game.menus.open).toBe(false);
+  });
+
+  it('IMMORTAL typed on the map never closes it: its second letter, M, does nothing there', async () => {
+    const { game, sim, press, frames, type } = await playing();
+    press('KeyM');
+    frames(20);
+    const map = game.menus.top;
+    expect(map?.el.classList.contains('map-screen')).toBe(true);
+    type('IMMORTAL');
+    frames(10);
+    expect(sim.cheats.godMode).toBe(true);
+    expect(game.menus.top).toBe(map);
+  });
+
+  it('MONEYTREE typed on the map: the M that closed it brings it back once the code is in', async () => {
+    const { game, sim, press, frames, type } = await playing();
+    press('KeyM');
+    frames(20);
+    expect(game.menus.top?.el.classList.contains('map-screen')).toBe(true);
+    const money = sim.progress.money;
+    type('MONEYTREE');
+    frames(10);
+    expect(sim.progress.money).toBe(money + 50000);
+    expect(game.menus.open).toBe(true);
+    expect(game.menus.top?.el.classList.contains('map-screen')).toBe(true);
   });
 });
 
@@ -1160,6 +1321,27 @@ describe('QUIT TO TITLE and the frozen game sounds', () => {
       expect(zero, name).toBeDefined();
       expect(opened!.t - zero!.t, name).toBeGreaterThanOrEqual(3 * zero!.tc! - 1e-9);
     }
+    expect(stage.target).toBe(1);
+  });
+
+  it('a graphics reset during that wait does not open the stage early', async () => {
+    const { game, canvas, frames, press } = await playing();
+    press('Escape');
+    await flush(); // the pointer-lock change the pause makes
+    frames(5);
+    const stage = (game.audio as unknown as { mixer: { pauseGain: { gain: FakeParam } } }).mixer.pauseGain.gain;
+    (game as unknown as { quitToTitle(): void }).quitToTitle();
+    frames(6);
+    canvas.dispatchEvent(ev('webglcontextlost'));
+    frames(3);
+    canvas.dispatchEvent(ev('webglcontextrestored'));
+    expect(game.contextLost).toBe(false);
+    expect(stage.target).toBe(0);
+    // The wait goes on from where it stopped (0.7 s were left)...
+    frames(36);
+    expect(stage.target).toBe(0);
+    // ...and then the title's ambience comes in.
+    frames(12);
     expect(stage.target).toBe(1);
   });
 
