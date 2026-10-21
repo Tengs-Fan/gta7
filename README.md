@@ -184,6 +184,8 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Anti-aliasing | 4x MSAA | 4x MSAA | off |
 | Sun shadows | 2048 map | 1024 map | off |
 | Bloom | on | on | off |
+| Contact shadows on streets and vehicles | on | off | off |
+| Nearby street lamps illuminate cars and facades | six pooled lights | off | off |
 | Dynamic lights (sirens, muzzle flashes, explosions) | all | two, shared | none |
 | Your headlight beam at night | on | on | off |
 | Traffic and pedestrians | 100% | 90% | 75% |
@@ -247,7 +249,6 @@ All of these are minor; the most noticeable come first.
 
 **Missions and jobs**
 
-- Hot Delivery's package and The Big Score's bank door respond only to you on foot: if you drive onto them nothing happens and the objective stays put, with no hint; get out of the car.
 - After you fail a mission, once MISSION FAILED fades, the objective line and a pink route on the radar can send you to Mama Lou ("Next: Mama Lou has work") while the prompt still says to press E to retry; retrying with E is quicker than driving to her.
 - A fade to black that hides a jump (a mission retry or a car hand-over in Lou's garage, say) can run out behind the pause menu if you pause just as it starts, so you watch the jump when you resume, and it can happen the same way below about 10 fps; a Spray Shack respray also shows its new paint a moment before the screen is fully dark.
 - The low-health hint suggests saving at the safehouse, but during a mission the safehouse refuses to save or heal, and the hint shows only once, so you will not see it again when its advice would work.
@@ -325,7 +326,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-52 files with 1263 tests run in Node, with no browser.
+58 files with 1331 tests run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission completed by a scripted bot with its failure paths and retries, side jobs, saves, and a 10-minute chaotic soak test (36,000 frames with a seeded random player).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
@@ -333,14 +334,14 @@ The police tests are statistics over many deterministic seeds, and they set the 
 
 ### End-to-end tests
 
-74 tests in 18 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
+77 tests in 19 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
 They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, a murder that brings the police, WASTED, the menus, the gun shop, saving and continuing after a reload, the side jobs, night rendering and the quality tiers, WebGL context loss, crash screens, all nine cheats, and a two-minute chaos session that must average over 30 fps.
 Most tests also fail on any console error, console warning or page error.
 
 `npm run test:e2e` builds the game and serves it on port 4173, but if a server already answers there (a leftover `npm run preview`), Playwright tests that one without building; set `CI=1` to always build (it then fails if the port is busy).
 `npm run check` therefore builds twice, once itself and once in the end-to-end step.
 
-The browser uses the hardware GPU through ANGLE and Vulkan (tried on Linux only).
+The browser uses the hardware GPU through ANGLE and Vulkan by default (tried on Linux only). Set `GTA7_ANGLE=gl` to use desktop OpenGL instead; this path was verified on an RX 6600 XT under Linux. `GTA7_BROWSER=/absolute/path/to/chrome` optionally selects an existing Chromium executable. Both variables also work with `scripts/playtest.mjs`.
 On a machine without a GPU, use software rendering, which is many times slower and may miss the chaos test's 30 fps:
 
 ```sh
@@ -394,7 +395,7 @@ scripts/with-slot.sh cpu npx vitest run
 ## Performance
 
 The game targets 60 fps on desktop hardware.
-On an RTX 3070 laptop at High (1600x900) it holds a steady 60 fps with about 260 to 600 draw calls and 0.86 to 0.89 million triangles, at roughly 6 to 8 ms of CPU per frame (about 2 ms of simulation and 4 to 5 ms of rendering), measured with the perf playtest at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
+The upgraded build measured 60 fps at native 1920x1080 High on an RX 6600 XT in the perf playtest's starting street, Downtown, four-star pursuit and beach-at-dusk scenes. These short samples were refresh-capped; their last CPU frames took 5.9–8.3 ms. See [graphics notes](docs/graphics.md) for the measurement scope, detailed changes and earlier software-rendering results.
 Nothing adjusts itself at runtime: there is no dynamic resolution, and the tier only changes when you pick another one (see [Settings and graphics quality](#settings-and-graphics-quality) for what each tier trades away).
 `node scripts/playtest.mjs --scenario perf` prints fps, draw calls, triangles and heap at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
 `window.__gta7.state()` reports actual wall-clock `fps`, plus `render.calls` and the latest CPU timings in `perf.frameMs`, `simMs` and `renderMs`. `perf.frameIntervalMs` measures the time between animation frames, including GPU or browser delays that CPU timings miss. Physics still clamps long frames for stability; the FPS counter does not. Sample many frames when comparing performance.

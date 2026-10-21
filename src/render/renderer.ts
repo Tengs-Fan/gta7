@@ -8,6 +8,8 @@ import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
 import { CameraController } from './camera';
+import { ContactShadows } from './contactShadows';
+import { StreetLighting } from './streetLighting';
 import { CityView } from './city';
 import { CrowdView } from './crowd';
 import { Effects, FLASH_SIZE, WADE_MIN } from './effects';
@@ -85,6 +87,7 @@ export class GameRenderer {
   readonly env: Environment;
   readonly city: CityView;
   readonly props: PropsView;
+  readonly streetLighting: StreetLighting;
   readonly crowd = new CrowdView();
   readonly effects = new Effects();
   readonly markers = new MarkerView();
@@ -93,6 +96,7 @@ export class GameRenderer {
   private readonly headlight: THREE.SpotLight;
   private readonly siren: THREE.PointLight;
   private bloom: UnrealBloomPass | null = null;
+  private contactShadows: ContactShadows | null = null;
   private readonly hdr: boolean;
   readonly software: boolean;
   private readonly softwareMaterials: SoftwareMaterials | null;
@@ -148,12 +152,14 @@ export class GameRenderer {
     this.env = new Environment(this.scene, this.renderer, { hdr: this.hdr, software: this.software });
     this.city = new CityView(world, STATIC_CHUNK_SIZE, this.software);
     this.props = new PropsView(world);
+    this.streetLighting = new StreetLighting(world);
+    this.scene.add(this.streetLighting.group);
     this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group);
     this.softwareMaterials?.apply(this.city.group);
     this.softwareMaterials?.apply(this.props.group);
     this.softwareMaterials?.apply(this.crowd.group);
 
-    this.headlight = new THREE.SpotLight(0xfff4dc, 0, 70, 0.55, 0.55, 1.4);
+    this.headlight = new THREE.SpotLight(0xfff4dc, 0, 70, 0.55, 0.55, 2);
     this.scene.add(this.headlight, this.headlight.target);
     this.siren = new THREE.PointLight(0xff2020, 0, SIREN_RANGE, SIREN_DECAY);
     this.scene.add(this.siren);
@@ -230,6 +236,7 @@ export class GameRenderer {
       l.intensity = 0;
     }
     this.headlight.visible = t.headlight;
+    this.streetLighting.group.visible = !this.software && q === 'high';
     this.resize();
     // Compile the new light / shadow variants now rather than when each object first shows up.
     if (this.warmedUp) this.warmup();
@@ -237,6 +244,13 @@ export class GameRenderer {
 
   private setBloom(on: boolean): void {
     if (!this.hdr) return;
+    // High adds local contact shading; all tiers retain their existing native render scale.
+    if (on && this.quality === 'high') {
+      this.contactShadows ??= new ContactShadows(this.scene, this.cameraCtl.camera);
+    } else {
+      this.contactShadows?.dispose();
+      this.contactShadows = null;
+    }
     if (!on) {
       // Off on Low: free its render targets too (a fresh pass is made if it comes back).
       this.renderer.setEffects([]);
@@ -249,7 +263,7 @@ export class GameRenderer {
       // Threshold sits above sun-lit albedo so only emissive lights, the sun and explosions bloom.
       this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.6, 0.5, 2.6);
     }
-    this.renderer.setEffects([this.bloom]);
+    this.renderer.setEffects(this.contactShadows ? [this.contactShadows, this.bloom] : [this.bloom]);
   }
 
   /** Every point light in the scene except the pool's own: the siren, the effects' flashes, and any added later. */
@@ -501,7 +515,7 @@ export class GameRenderer {
       this.headlight.target.updateMatrixWorld();
       // Each smashed head lamp takes its half of the beam with it.
       const lamps = this.vehicleViews.get(v.id)?.headLamps ?? 2;
-      this.headlight.intensity = 260 * night * (lamps / 2);
+      this.headlight.intensity = 160 * night * (lamps / 2);
     } else {
       this.headlight.intensity = 0;
     }
@@ -539,6 +553,7 @@ export class GameRenderer {
     this.env.update(hours, focus, cam, this.time, this.renderer);
     this.effects.setLight(this.env.smokeLight);
     const night = this.env.night;
+    this.streetLighting.update(cam.position, night, dt);
     this.city.update(night, hours, this.time);
     // Signals run on the sim clock, the one drivers and pedestrians obey.
     this.props.update(this.time, night, sim ? sim.time : this.time);
@@ -604,6 +619,7 @@ export class GameRenderer {
     canvas.removeEventListener('webglcontextlost', this.onContextLost);
     canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.bloom?.dispose();
+    this.contactShadows?.dispose();
     this.env.dispose();
     this.softwareMaterials?.dispose();
     this.renderer.dispose();

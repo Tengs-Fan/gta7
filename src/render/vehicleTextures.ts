@@ -6,6 +6,54 @@ import { Rng } from '../core/rng';
 /** The window tint (sRGB), shared with the intact glass material's colour. */
 export const GLASS_TINT = 0x1b2733;
 
+/** A shared atlas gives rubber, polished trim, plates and mirrors their own physically based surface response. */
+export function exteriorTextures(): { color: THREE.Texture; surface: THREE.Texture } {
+  const size = 512;
+  const [c, ctx] = canvas(size);
+  const [m, mat] = canvas(size);
+  const cells = [
+    { color: '#13191d', roughness: 0.86, metalness: 0.02 },
+    { color: '#a2abb1', roughness: 0.27, metalness: 0.88 },
+    { color: '#f1ead3', roughness: 0.43, metalness: 0.12 },
+    { color: '#8dabb4', roughness: 0.10, metalness: 0.95 },
+  ];
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i]!;
+    const x = (i % 2) * 256;
+    const y = (1 - Math.floor(i / 2)) * 256;
+    ctx.fillStyle = cell.color;
+    ctx.fillRect(x, y, 256, 256);
+    // Three reads roughness from green and metalness from blue, in linear space.
+    mat.fillStyle = `rgb(255,${Math.round(cell.roughness * 255)},${Math.round(cell.metalness * 255)})`;
+    mat.fillRect(x, y, 256, 256);
+  }
+  // Registration enamel; even at the chase-camera distance the dark type and warm inset give the car scale.
+  ctx.strokeStyle = '#34454a';
+  ctx.lineWidth = 5;
+  ctx.strokeRect(17, 17, 222, 222);
+  ctx.fillStyle = '#a64936';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 27px sans-serif';
+  ctx.fillText('SAN AZURA', 128, 64);
+  ctx.fillStyle = '#182e3a';
+  ctx.font = 'bold 65px monospace';
+  ctx.fillText('SA 86', 128, 162);
+  ctx.font = '18px sans-serif';
+  ctx.fillText('SUNSHINE STATE', 128, 211);
+  for (const x of [29, 227]) {
+    ctx.fillStyle = '#7f8988';
+    ctx.beginPath();
+    ctx.arc(x, 31, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const color = new THREE.CanvasTexture(c);
+  color.colorSpace = THREE.SRGBColorSpace;
+  color.anisotropy = 4;
+  const surface = new THREE.CanvasTexture(m);
+  surface.anisotropy = 4;
+  return { color, surface };
+}
+
 function canvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
   c.width = size;

@@ -60,20 +60,61 @@ function noise(ctx: CanvasRenderingContext2D, w: number, h: number, rng: Rng, am
   ctx.putImageData(img, 0, 0);
 }
 
+/**
+ * Tangent normals from a dedicated relief canvas, never from painted reflections or shadows.
+ * Wrapped Sobel samples preserve tile boundaries; the green channel accounts for canvas Y
+ * increasing downwards while the uploaded, flipped texture's V increases upwards.
+ */
+function normalFromHeight(source: HTMLCanvasElement, strength: number): THREE.Texture {
+  const w = source.width;
+  const h = source.height;
+  const heights = source.getContext('2d')!.getImageData(0, 0, w, h).data;
+  const [c, ctx] = canvas(w, h);
+  const image = ctx.createImageData(w, h);
+  const sample = (x: number, y: number): number => heights[(((y + h) % h) * w + (x + w) % w) * 4]! / 255;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const tl = sample(x - 1, y - 1);
+      const t = sample(x, y - 1);
+      const tr = sample(x + 1, y - 1);
+      const l = sample(x - 1, y);
+      const r = sample(x + 1, y);
+      const bl = sample(x - 1, y + 1);
+      const b = sample(x, y + 1);
+      const br = sample(x + 1, y + 1);
+      const nx = -((tr - tl) + 2 * (r - l) + (br - bl)) * strength / 4;
+      const ny = ((bl - tl) + 2 * (b - t) + (br - tr)) * strength / 4;
+      const inv = 1 / Math.hypot(nx, ny, 1);
+      const i = (y * w + x) * 4;
+      image.data[i] = (nx * inv * 0.5 + 0.5) * 255;
+      image.data[i + 1] = (ny * inv * 0.5 + 0.5) * 255;
+      image.data[i + 2] = (inv * 0.5 + 0.5) * 255;
+      image.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  return toTexture(c, false);
+}
+
 export interface FacadeTextures {
   map: THREE.Texture;
   emissive: THREE.Texture;
   rough: THREE.Texture;
+  normal: THREE.Texture;
 }
 
-/** Window grid facade textures: colour, lit-window emissive mask and roughness. */
+/** Window grid facade textures: colour, lit-window mask, roughness and actual surface relief. */
 export function facadeTextures(style: FacadeStyle, seed: number): FacadeTextures {
   const S = 512;
   const cell = S / FACADE_COLS;
   const rng = new Rng(seed);
+  // Keep decor independent of the original emissive-mask stream, so day improvements do not
+  // rearrange the inhabited windows at night.
+  const decor = new Rng(seed ^ 0x6a09e667);
   const [cm, m] = canvas(S, S);
   const [ce, e] = canvas(S, S);
   const [cr, r] = canvas(S, S);
+  const [ch, h] = canvas(S, S);
   e.fillStyle = '#000';
   e.fillRect(0, 0, S, S);
 
@@ -91,9 +132,14 @@ export function facadeTextures(style: FacadeStyle, seed: number): FacadeTextures
   m.fillRect(0, 0, S, S);
   r.fillStyle = '#e0e0e0';
   r.fillRect(0, 0, S, S);
+  h.fillStyle = '#808080';
+  h.fillRect(0, 0, S, S);
+  noise(h, S, S, new Rng(seed ^ 0x3c6ef372), style === 'brick' ? 9 : 4, 1);
 
   if (style === 'brick') {
     // Brick courses.
+    h.strokeStyle = '#626262';
+    h.lineWidth = 1.5;
     m.strokeStyle = 'rgba(40,20,15,0.35)';
     m.lineWidth = 1;
     for (let y = 0; y < S; y += 8) {
@@ -101,17 +147,29 @@ export function facadeTextures(style: FacadeStyle, seed: number): FacadeTextures
       m.moveTo(0, y + 0.5);
       m.lineTo(S, y + 0.5);
       m.stroke();
+      h.beginPath();
+      h.moveTo(0, y + 0.5);
+      h.lineTo(S, y + 0.5);
+      h.stroke();
       for (let x = (y / 8) % 2 === 0 ? 0 : 8; x < S; x += 16) {
+        m.fillStyle = decor.chance(0.5) ? `rgba(210,160,120,${decor.range(0.02, 0.12)})` : `rgba(30,20,16,${decor.range(0.02, 0.1)})`;
+        m.fillRect(x + 1, y + 1, 14, 6);
         m.beginPath();
         m.moveTo(x + 0.5, y);
         m.lineTo(x + 0.5, y + 8);
         m.stroke();
+        h.beginPath();
+        h.moveTo(x + 0.5, y);
+        h.lineTo(x + 0.5, y + 8);
+        h.stroke();
       }
     }
   } else if (style === 'warehouse') {
     for (let x = 0; x < S; x += 8) {
       m.fillStyle = x % 16 === 0 ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.12)';
       m.fillRect(x, 0, 4, S);
+      h.fillStyle = x % 16 === 0 ? '#929292' : '#747474';
+      h.fillRect(x, 0, 4, S);
     }
   }
   noise(m, S, S, rng, style === 'stucco' || style === 'house' || style === 'hotel' ? 10 : 16, 2);
@@ -193,8 +251,39 @@ export function facadeTextures(style: FacadeStyle, seed: number): FacadeTextures
       }
       if (style === 'house' && (col + row) % 3 === 1) continue; // blank walls on houses
       if (style === 'warehouse' && row % 2 === 1) continue;
+      // Recess and runoff live on the opaque wall. Glazing below stays perfectly planar.
+      m.fillStyle = 'rgba(23,30,35,0.22)';
+      m.fillRect(wx - 2, wy - 2, ww + 4, wh + 5);
+      if (style !== 'glassBlue' && style !== 'glassTeal' && decor.chance(0.7)) {
+        const stain = m.createLinearGradient(0, wy + wh, 0, Math.min(y0 + cell, wy + wh + 13));
+        stain.addColorStop(0, 'rgba(56,48,35,0.14)');
+        stain.addColorStop(1, 'rgba(56,48,35,0)');
+        m.fillStyle = stain;
+        m.fillRect(wx - 2, wy + wh, ww + 4, Math.min(13, y0 + cell - wy - wh));
+      }
+      h.fillStyle = '#626262';
+      h.fillRect(wx - 1, wy - 1, ww + 2, wh + 2);
       m.fillStyle = glassGrad(wx, wy, ww, wh, glassTop, glassBottom);
       m.fillRect(wx, wy, ww, wh);
+      h.fillStyle = '#686868';
+      h.fillRect(wx, wy, ww, wh);
+      // Independent panes, partially drawn blinds and soft room silhouettes make whole
+      // buildings feel occupied without painting fake relief into the reflective glass.
+      m.fillStyle = decor.chance(0.35) ? `rgba(197,178,144,${decor.range(0.04, 0.19)})` : `rgba(10,27,38,${decor.range(0.02, 0.27)})`;
+      m.fillRect(wx, wy, ww, wh);
+      if (decor.chance(0.48)) {
+        const blindHeight = Math.floor(wh * decor.range(0.15, 0.72));
+        m.fillStyle = 'rgba(187,185,165,0.20)';
+        m.fillRect(wx + 2, wy + 1, Math.max(1, ww - 4), blindHeight);
+        m.fillStyle = 'rgba(25,36,39,0.20)';
+        for (let by = wy + 3; by < wy + blindHeight; by += 3) m.fillRect(wx + 2, by, Math.max(1, ww - 4), 1);
+      } else if (decor.chance(0.38)) {
+        m.fillStyle = 'rgba(6,17,26,0.22)';
+        m.fillRect(wx + ww * 0.14, wy + wh * 0.55, ww * decor.range(0.2, 0.5), wh * 0.45);
+      }
+      const paneRoughness = style === 'glassBlue' || style === 'glassTeal' ? decor.int(42, 65) : decor.int(75, 100);
+      r.fillStyle = `rgb(${paneRoughness},${paneRoughness},${paneRoughness})`;
+      r.fillRect(wx, wy, ww, wh);
       // Mullions / frames.
       if (style === 'brick' || style === 'stucco' || style === 'house') {
         m.strokeStyle = style === 'brick' ? '#e8e2d4' : '#ffffff';
@@ -204,15 +293,35 @@ export function facadeTextures(style: FacadeStyle, seed: number): FacadeTextures
         m.moveTo(wx + ww / 2, wy);
         m.lineTo(wx + ww / 2, wy + wh);
         m.stroke();
+        h.strokeStyle = '#a0a0a0';
+        h.lineWidth = 3;
+        h.strokeRect(wx, wy, ww, wh);
+        h.fillStyle = '#989898';
+        h.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
+        h.fillStyle = '#acacac';
+        h.fillRect(wx - 3, wy + wh + 1, ww + 6, 3);
+        r.strokeStyle = '#bebebe';
+        r.lineWidth = 3;
+        r.strokeRect(wx, wy, ww, wh);
+        r.fillStyle = '#bebebe';
+        r.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
       } else if (style === 'office') {
         m.fillStyle = 'rgba(30,40,50,0.6)';
         for (let k = 0; k < 4; k++) m.fillRect(x0 + (cell / 4) * k, wy, 2, wh);
+        h.fillStyle = '#969696';
+        r.fillStyle = '#999999';
+        for (let k = 0; k < 4; k++) {
+          h.fillRect(x0 + (cell / 4) * k, wy, 2, wh);
+          r.fillRect(x0 + (cell / 4) * k, wy, 2, wh);
+        }
       } else if (style === 'hotel') {
         // Balcony rail.
         m.fillStyle = '#d8d4cc';
         m.fillRect(x0, y0 + cell - 16, cell, 6);
         m.fillStyle = 'rgba(40,40,40,0.5)';
         for (let k = 0; k < cell; k += 6) m.fillRect(x0 + k, y0 + cell - 22, 1.5, 8);
+        h.fillStyle = '#a0a0a0';
+        h.fillRect(x0, y0 + cell - 16, cell, 6);
       }
       // Sky reflection streak on glass.
       m.fillStyle = 'rgba(255,255,255,0.10)';
@@ -223,13 +332,10 @@ export function facadeTextures(style: FacadeStyle, seed: number): FacadeTextures
       m.lineTo(wx, wy + wh);
       m.closePath();
       m.fill();
-      // Roughness: glass is shiny.
-      r.fillStyle = style === 'glassBlue' || style === 'glassTeal' ? '#222' : '#555';
-      r.fillRect(wx, wy, ww, wh);
       glassMask(e, rng, style, wx, wy, ww, wh, x0, cell);
     }
   }
-  return { map: toTexture(cm), emissive: toTexture(ce), rough: toTexture(cr, false) };
+  return { map: toTexture(cm), emissive: toTexture(ce), rough: toTexture(cr, false), normal: normalFromHeight(ch, 2.4) };
 }
 
 /**
@@ -378,6 +484,124 @@ export function groundTexture(kind: GroundTex, seed = 1): THREE.Texture {
       break;
   }
   return toTexture(c);
+}
+
+export interface GroundSurfaceTextures {
+  map: THREE.Texture;
+  rough: THREE.Texture;
+  normal: THREE.Texture;
+}
+
+/**
+ * A matched material set for the existing ground tiles. Surface relief is separate from
+ * albedo: asphalt stains do not become craters and coloured pavers keep level tops.
+ * Roughness and normals are linear data; all maps share the colour tile's dimensions.
+ */
+export function groundSurface(kind: GroundTex, seed = 1): GroundSurfaceTextures {
+  const S = 256;
+  const rng = new Rng((seed * 977 + kind.length * 131) ^ 0x510e527f);
+  const [ch, h] = canvas(S, S);
+  const [cr, r] = canvas(S, S);
+  const heights = h.createImageData(S, S);
+  const roughness = r.createImageData(S, S);
+  const settings: Record<GroundTex, { grain: number; rough: number; strength: number }> = {
+    asphalt: { grain: 16, rough: 224, strength: 2.8 },
+    sidewalk: { grain: 6, rough: 209, strength: 2.5 },
+    grass: { grain: 21, rough: 239, strength: 2.2 },
+    sand: { grain: 12, rough: 232, strength: 1.8 },
+    dirt: { grain: 20, rough: 236, strength: 2.3 },
+    plaza: { grain: 4, rough: 187, strength: 2.4 },
+    wood: { grain: 5, rough: 202, strength: 2.6 },
+    concrete: { grain: 9, rough: 215, strength: 2.2 },
+    roof: { grain: 12, rough: 225, strength: 2.5 },
+    metal: { grain: 2, rough: 149, strength: 2.1 },
+  };
+  const spec = settings[kind];
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = (y * S + x) * 4;
+      const grain = (rng.next() - 0.5) * spec.grain;
+      let relief = 128 + grain;
+      let rough = spec.rough + grain * 0.45 + (rng.next() - 0.5) * 7;
+      if (kind === 'wood') {
+        // Long, gently meandering fibres run along the planks, with whole cycles per tile.
+        const fibre = Math.sin(y * Math.PI / 2 + Math.sin(x * Math.PI / 64) * 0.6);
+        relief += fibre * 3;
+        rough += fibre * 5;
+      } else if (kind === 'sand') {
+        relief += Math.sin(y * Math.PI / 16 + Math.sin(x * Math.PI / 64) * 0.5) * 3;
+      } else if (kind === 'metal') {
+        // The albedo alternates light and dark strips every eight pixels.
+        relief += Math.cos(x * Math.PI / 8) * 18;
+        rough += Math.sin(y * Math.PI / 2) * 3;
+      }
+      for (let channel = 0; channel < 3; channel++) {
+        heights.data[i + channel] = relief;
+        roughness.data[i + channel] = rough;
+      }
+      heights.data[i + 3] = 255;
+      roughness.data[i + 3] = 255;
+    }
+  }
+  h.putImageData(heights, 0, 0);
+  r.putImageData(roughness, 0, 0);
+
+  if (kind === 'sidewalk' || kind === 'plaza') {
+    const step = kind === 'sidewalk' ? 64 : 32;
+    // Match the painted expansion joints; a shallow bevel catches grazing sunlight.
+    h.strokeStyle = '#717171';
+    h.lineWidth = 4;
+    for (let k = 0; k <= S; k += step) {
+      h.beginPath();
+      h.moveTo(k, 0);
+      h.lineTo(k, S);
+      h.moveTo(0, k);
+      h.lineTo(S, k);
+      h.stroke();
+    }
+    h.strokeStyle = '#595959';
+    h.lineWidth = 2;
+    r.strokeStyle = '#ececec';
+    r.lineWidth = 2;
+    for (let k = 0; k <= S; k += step) {
+      for (const ctx of [h, r]) {
+        ctx.beginPath();
+        ctx.moveTo(k, 0);
+        ctx.lineTo(k, S);
+        ctx.moveTo(0, k);
+        ctx.lineTo(S, k);
+        ctx.stroke();
+      }
+    }
+  } else if (kind === 'wood') {
+    h.fillStyle = '#686868';
+    r.fillStyle = '#eeeeee';
+    for (let y = 0; y < S; y += 16) {
+      h.fillRect(0, y, S, 2);
+      r.fillRect(0, y, S, 2);
+    }
+  } else if (kind === 'roof') {
+    h.fillStyle = '#6c6c6c';
+    r.fillStyle = '#eeeeee';
+    for (let x = 0; x < S; x += 32) {
+      h.fillRect(x, 0, 1, S);
+      r.fillRect(x, 0, 1, S);
+    }
+  } else if (kind === 'asphalt' || kind === 'concrete' || kind === 'dirt') {
+    // Scattered aggregate is shallow and small enough to disappear naturally in mipmaps.
+    const count = kind === 'asphalt' ? 1700 : kind === 'dirt' ? 950 : 450;
+    for (let i = 0; i < count; i++) {
+      const x = rng.int(0, S - 1);
+      const y = rng.int(0, S - 1);
+      const radius = rng.range(0.35, kind === 'dirt' ? 1.4 : 1.0);
+      const level = rng.int(135, 153);
+      h.fillStyle = `rgb(${level},${level},${level})`;
+      h.beginPath();
+      h.arc(x, y, radius, 0, Math.PI * 2);
+      h.fill();
+    }
+  }
+  return { map: groundTexture(kind, seed), rough: toTexture(cr, false), normal: normalFromHeight(ch, spec.strength) };
 }
 
 /** Side of the sea's ripple tile (px). */

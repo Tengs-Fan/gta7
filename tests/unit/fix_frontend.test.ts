@@ -4597,26 +4597,133 @@ describe('San Azura driving HUD', () => {
     expect(el.bigT!.textContent).toBe('GO');
   });
 
-  it('activity objectives persist between announcements and disappear when the activity ends', () => {
+  it('keeps approach and countdown instructions readable, then clears the center objective as racing begins', () => {
     const { el, sim, update } = rig();
     const course = sim.activities.streetRunCourses()[0]!;
-    placeInCar(sim, sim.spawnVehicle('sports', course.start.x, course.start.z, course.start.heading));
+    const car = sim.spawnVehicle('sports', course.start.x + 30, course.start.z, course.start.heading);
+    placeInCar(sim, car);
     expect(sim.activities.startStreetRun(course.id)).toBe(true);
-    sim.events.emit('objective', { text: 'Gate 1 / 13' });
+    expect(sim.activities.job).toMatchObject({ stage: 'approach' });
     update(8);
     expect(el.objective!.classList.contains('show')).toBe(true);
-    expect(el.objective!.textContent).toBe('Gate 1 / 13');
-    sim.events.emit('objective', { text: '' });
+    expect(el.objective!.textContent).toBe(`Stop in the start gate for ${course.name}. T cancels.`);
+
+    car.pos.x = course.start.x;
+    sim.activities.update(0.1);
+    expect(sim.activities.job).toMatchObject({ stage: 'countdown' });
     update(8);
-    expect(sim.activities.busy).toBe(true);
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    expect(el.objective!.textContent).toBe(`Get ready · ${course.name}`);
+    step(sim, 3.05);
+    expect(sim.activities.job).toMatchObject({ stage: 'racing' });
+    // The real GO/objective events must clear the previous instruction before the next HUD frame.
     expect(el.objective!.classList.contains('show')).toBe(false);
-    sim.events.emit('objective', { text: 'Gate 2 / 13' });
     update(8);
-    expect(el.objective!.textContent).toBe('Gate 2 / 13');
-    expect(el.objective!.classList.contains('show')).toBe(true);
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    expect(el.navLabel!.textContent).toBe(`GATE 1 / ${course.checkpoints.length}`);
+  });
+
+  function racingRig() {
+    const state = rig();
+    const { sim } = state;
+    const course = sim.activities.streetRunCourses().find((c) => c.id === 'dockside')!;
+    const car = sim.spawnVehicle('sports', course.start.x, course.start.z, course.start.heading);
+    placeInCar(sim, car);
+    expect(sim.activities.startStreetRun(course.id)).toBe(true);
+    step(sim, 3.05);
+    const job = sim.activities.job;
+    if (!job || job.kind !== 'streetRun' || job.stage !== 'racing') throw new Error('Expected a live street run');
+    // Move along the actual ordered route at a plausible road speed. Each crossing uses the
+    // simulation's swept gate detection, objective events and checkpoint events.
+    const crossGate = () => {
+      const index = job.checkpoint;
+      const gate = course.checkpoints[index]!;
+      for (let frame = 0; frame < 1000 && sim.activities.busy && job.checkpoint === index; frame++) {
+        const dx = gate.x - car.pos.x;
+        const dz = gate.z - car.pos.z;
+        const distance = Math.hypot(dx, dz);
+        const dt = Math.min(0.1, distance / 24);
+        car.vel.x = dx / distance * 24;
+        car.vel.z = dz / distance * 24;
+        car.pos.x += car.vel.x * dt;
+        car.pos.z += car.vel.z * dt;
+        sim.activities.update(dt);
+      }
+      expect(job.checkpoint).toBe(index + 1);
+    };
+    return { ...state, course, job, crossGate };
+  }
+
+  it('reads every real turn and finish in one navigation card, with a short gate pulse instead of duplicate objective/toast text', () => {
+    const { el, sim, update, course, job, crossGate } = racingRig();
+    const turns = new Set<string>();
+    for (let index = 0; index < course.checkpoints.length; index++) {
+      const gate = course.checkpoints[index]!;
+      const [direction, road] = gate.label.split(' · ');
+      const names: Record<string, string> = { Straight: 'Straight ahead', Left: 'Turn left', Right: 'Turn right', Finish: 'Finish line' };
+      const name = names[direction!];
+      expect(name).toBeDefined();
+      expect(job.checkpoint).toBe(index);
+      turns.add(direction!);
+      update(8);
+      expect(el.navigation!.classList.contains('hidden')).toBe(false);
+      expect(el.navLabel!.textContent).toBe(direction === 'Finish' ? 'FINAL GATE' : `GATE ${index + 1} / ${course.checkpoints.length}`);
+      expect(el.navName!.textContent).toBe(name);
+      expect(el.navDetail!.textContent).toBe(road ?? course.name);
+      expect(el.navDistance!.textContent).not.toBe('');
+      expect(el.objective!.classList.contains('show')).toBe(false);
+      crossGate();
+      // Crossing emits the next objective synchronously; it must never flash across the road.
+      expect(el.objective!.classList.contains('show')).toBe(false);
+      if (index < course.checkpoints.length - 1) {
+        update(0);
+        expect(el.navigation!.classList.contains('gate-hit')).toBe(true);
+        expect(el.toast!.classList.contains('show')).toBe(false);
+        expect(el.help!.textContent).not.toContain('CHECKPOINT');
+        update(0.7);
+        expect(el.navigation!.classList.contains('gate-hit')).toBe(false);
+      }
+    }
+    expect(turns).toEqual(new Set(['Straight', 'Right', 'Left', 'Finish']));
+    expect(sim.activities.busy).toBe(false);
+  });
+
+  it('cancelling a race clears its gate pulse and restores contact, waypoint and mission navigation', () => {
+    const { hud, el, sim, update, job, crossGate } = racingRig();
+    crossGate();
+    update(0);
+    expect(el.navigation!.classList.contains('gate-hit')).toBe(true);
     sim.activities.cancelAll('wasted');
     update();
+    expect(el.navigation!.classList.contains('gate-hit')).toBe(false);
+    expect(el.navLabel!.textContent).toBe('NEXT CONTACT');
+    expect(el.navName!.textContent).toBe('Mama Lou');
+    expect(el.navDetail!.textContent).toBe('');
     expect(el.objective!.classList.contains('show')).toBe(false);
+
+    const p = sim.playerPos();
+    hud.waypoint = { x: p.x, z: p.z + 300 };
+    update();
+    expect(el.navLabel!.textContent).toBe('WAYPOINT');
+    expect(el.navName!.textContent).toBe('Your waypoint');
+    expect(el.navDetail!.textContent).toBe('');
+    hud.waypoint = null;
+    sim.unseat(sim.player);
+    expect(sim.missions.start('wheels', { retrying: true })).toBe(true);
+    step(sim, 0.1);
+    update(8);
+    expect(el.navigation!.classList.contains('hidden')).toBe(true);
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    expect(el.objective!.textContent).toBe('Steal a car');
+    // Wheels has no GPS destination until the player has stolen a car.
+    placeInCar(sim, job.car);
+    step(sim, 0.1);
+    update(8);
+    expect(el.navigation!.classList.contains('hidden')).toBe(false);
+    expect(el.navLabel!.textContent).toBe('MISSION ROUTE');
+    expect(el.navDetail!.textContent).toBe('');
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    expect(el.objective!.textContent).toBe(sim.missions.active!.objectiveText);
   });
 
   it('the completed Wheels instruction stays cleared throughout the real hand-over and closing dialogue', () => {

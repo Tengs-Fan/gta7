@@ -1,10 +1,11 @@
 // Vehicle model checks (P22): windshields on the box-shaped vehicles, the pickup's open bed, wheels inside the body
-// outline and an unchanged mesh count. The render modules run headless: a tiny canvas/document stub (copied from
+// outline and a bounded draw-call budget for detailed exterior fittings. The render modules run headless: a tiny canvas/document stub (copied from
 // fix_render.test.ts) feeds the procedural textures.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { VehicleView } from '../../src/render/vehicleView';
+import { Vehicle } from '../../src/sim/entities';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
 
 vi.hoisted(() => {
@@ -158,7 +159,48 @@ describe('vehicle models', () => {
     }
   });
 
-  it('keeps one mesh per part: no new draw calls per vehicle', () => {
+  it('crumples exterior fittings per car, chars them with a wreck, and restores pooled geometry and finishes', () => {
+    const car = new Vehicle(1, 'sedan', 0, 0, 0, 0, 0xb03a2e);
+    const fresh = new Vehicle(2, 'sedan', 5, 0, 0, 0, 0x1f618d);
+    const v = view('sedan');
+    const other = view('sedan');
+    const fittings = v.group.getObjectByName('exterior') as THREE.Mesh;
+    const shared = fittings.geometry;
+    const finish = fittings.material;
+    expect((other.group.getObjectByName('exterior') as THREE.Mesh).geometry).toBe(shared);
+    v.bind(car);
+    v.sync(car, 1 / 60, 0, 0);
+    // The front grille and registration plate move inward after a front-end crash.
+    car.dents.push({ lx: 0, ly: car.spec.height * 0.45, lz: car.halfL + 0.09, nx: 0, nz: -1, depth: 0.3 });
+    car.dentVersion++;
+    v.sync(car, 1 / 60, 0, 0);
+    const bent = fittings.geometry;
+    expect(bent).not.toBe(shared);
+    const before = shared.getAttribute('position');
+    const after = bent.getAttribute('position');
+    let moved = 0;
+    for (let i = 0; i < before.count; i++) {
+      if (before.getZ(i) > car.halfL && Math.abs(before.getX(i)) < 0.2 && Math.abs(before.getY(i) - car.spec.height * 0.45) < 0.15) {
+        expect(before.getZ(i) - after.getZ(i)).toBeGreaterThan(0.1);
+        moved++;
+      }
+      if (before.getZ(i) < 0) expect(after.getZ(i)).toBe(before.getZ(i));
+    }
+    expect(moved).toBeGreaterThan(20);
+    expect((other.group.getObjectByName('exterior') as THREE.Mesh).geometry).toBe(shared);
+    car.destroyed = true;
+    v.sync(car, 1 / 60, 0, 0);
+    expect(fittings.material).toBe((v.group.getObjectByName('body') as THREE.Mesh).material);
+    expect(fittings.material).not.toBe(finish);
+    const disposal = vi.spyOn(bent, 'dispose');
+    v.bind(fresh);
+    v.sync(fresh, 1 / 60, 0, 0);
+    expect(disposal).toHaveBeenCalledOnce();
+    expect(fittings.geometry).toBe(shared);
+    expect(fittings.material).toBe(finish);
+  });
+
+  it('batches all exterior fittings into one extra draw per detailed vehicle', () => {
     const count = (kind: VehicleKind): number => {
       let n = 0;
       view(kind).group.traverse((o) => {
@@ -166,16 +208,16 @@ describe('vehicle models', () => {
       });
       return n;
     };
-    expect(count('sedan')).toBe(15);
-    expect(count('police')).toBe(19);
-    expect(count('taxi')).toBe(16);
-    expect(count('swat')).toBe(18);
-    for (const kind of ['compact', 'sports', 'muscle', 'pickup', 'van', 'bus'] as const) expect(count(kind), kind).toBe(15);
+    expect(count('sedan')).toBe(16);
+    expect(count('police')).toBe(20);
+    expect(count('taxi')).toBe(17);
+    expect(count('swat')).toBe(19);
+    for (const kind of ['compact', 'sports', 'muscle', 'pickup', 'van', 'bus'] as const) expect(count(kind), kind).toBe(16);
     // Named for tests and tools.
     const names = new Set<string>();
     view('sedan').group.traverse((o) => {
       if (o instanceof THREE.Mesh) names.add(o.name);
     });
-    expect([...names].sort()).toEqual(['body', 'glass', 'lamp', 'rim', 'tire']);
+    expect([...names].sort()).toEqual(['body', 'exterior', 'glass', 'lamp', 'rim', 'tire']);
   });
 });

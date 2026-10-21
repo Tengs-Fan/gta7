@@ -767,6 +767,10 @@ describe('staged missions', () => {
     teleport(sim, spots.packagePickup.x, spots.packagePickup.z);
     step(sim, 0.5);
     expect(parcel.active).toBe(true);
+    expect(objective(sim)).toBe('Get out of the car and collect the package');
+    teleport(sim, spots.packagePickup.x + 30, spots.packagePickup.z);
+    step(sim, 0.1);
+    expect(objective(sim)).toBe('Collect the package');
     sim.playerCtl.ejectPlayer(true);
     sim.removeVehicle(car);
     teleport(sim, spots.packagePickup.x, spots.packagePickup.z);
@@ -1098,6 +1102,27 @@ describe('staged missions', () => {
     expect(shots).toBeGreaterThanOrEqual(5);
     // At most a handful of officers answer the alarm at once.
     expect(sim.characters.filter((c) => c.isLaw && !c.removed && c.alive && !c.brain?.car).length).toBeLessThanOrEqual(6 + 4);
+  });
+
+  it('explains the bank entrance is on foot when arriving by car, and retires that guidance after entry', () => {
+    const sim = setup(before('big_score'), { police: false });
+    const bank = missionSpots(sim.world).bank;
+    const m = startMission(sim, 'big_score');
+    stepUntil(sim, () => objective(sim) === 'Go to the First Azura Bank', 20);
+    const lane = sim.roads.nearestLane(bank.x, bank.z).lane;
+    const car = sim.spawnVehicle('sedan', lane.sx, lane.sz, lane.heading);
+    placeInCar(sim, car);
+    teleport(sim, bank.x, bank.z);
+    step(sim, 0.1);
+    expect(objective(sim)).toBe('Get out of the car and reach the bank entrance');
+    expect(m.counter).toBeNull();
+    sim.playerCtl.ejectPlayer(true);
+    sim.removeVehicle(car);
+    teleport(sim, bank.x, bank.z);
+    stepUntil(sim, () => objective(sim).startsWith('Hold'), 2);
+    step(sim, 0.2);
+    expect(objective(sim)).toBe('Hold the bank entrance while the vault opens');
+    expect(m.counter).toMatch(/^VAULT/);
   });
 
   it('spawns no responders while the police are off', () => {

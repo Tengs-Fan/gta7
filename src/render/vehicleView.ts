@@ -9,7 +9,8 @@ import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
 import { chaseOffset, CHASE_TARGET_Y } from './camera';
 import { taxiSignTexture } from './textures';
 import { addPanel, addPrism, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
-import { crackedGlassTexture, GLASS_TINT } from './vehicleTextures';
+import { crackedGlassTexture, exteriorTextures, GLASS_TINT } from './vehicleTextures';
+import { alloyGeometry, exteriorGeometry, sculptBody, taperCabin, tireGeometry } from './vehicleDetails';
 
 const BEVEL = 0.07;
 /** Vertex shade of the cabin interior, window backings and wheel wells (paint is 1). */
@@ -542,6 +543,7 @@ function addRoof(b: GeoBuilder, prof: Profile, kind: VehicleKind, c: CabinLayout
 interface KindAssets {
   body: THREE.BufferGeometry;
   cabin: THREE.BufferGeometry;
+  exterior: THREE.BufferGeometry;
   wheel: THREE.BufferGeometry;
   rim: THREE.BufferGeometry;
   lamp: THREE.BufferGeometry;
@@ -576,6 +578,7 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
   addPrism(bb, pts, {
     width: s.width,
     bevel: BEVEL,
+    bevelSegments: coarse ? 2 : 5,
     steps: coarse ? 1 : 4,
     maxEdge: spacing,
     steiner: coarse ? 0 : spacing,
@@ -607,7 +610,7 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
     if (!coarse) addInterior(bb, prof, kind, layout);
     addRoof(bb, prof, kind, layout, coarse);
   }
-  const body = bb.build();
+  const body = coarse ? bb.build() : sculptBody(bb.build(), kind, prof);
   const gb = new GeoBuilder();
   for (const glass of [prof.cabin, ...prof.ports]) addPrism(gb, glass, { width: s.width - prof.cabinInset * 2, bevel: prof.cabinInset > 0 ? 0.05 : 0.01, steps: coarse ? 1 : 4, maxEdge: spacing, steiner: coarse ? 0 : spacing });
   for (const w of prof.panes) {
@@ -622,19 +625,20 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
     addPanel(gb, o, u, v, Math.max(1, Math.ceil(u.length() / spacing)), Math.max(1, Math.ceil(len / spacing)), 1);
   }
   const cabin = gb.build();
-  const wheel = new THREE.CylinderGeometry(prof.wheelR, prof.wheelR, 0.26, coarse ? 6 : 16);
-  wheel.rotateZ(Math.PI / 2);
-  const rim = new THREE.CylinderGeometry(prof.wheelR * 0.62, prof.wheelR * 0.62, 0.28, 10);
-  rim.rotateZ(Math.PI / 2);
-  const lamp = new THREE.BoxGeometry(0.34, 0.14, 0.06);
-  a = { body, cabin, wheel, rim, lamp, prof };
+  if (!coarse) taperCabin(cabin, kind);
+  const wheel = coarse ? new THREE.CylinderGeometry(prof.wheelR, prof.wheelR, 0.26, 6) : tireGeometry(prof.wheelR);
+  if (coarse) wheel.rotateZ(Math.PI / 2);
+  const rim = alloyGeometry(prof.wheelR, kind);
+  const exterior = coarse ? new THREE.BufferGeometry() : exteriorGeometry(kind, prof);
+  const lamp = new THREE.BoxGeometry(0.34, kind === 'sports' ? 0.07 : 0.14, 0.06);
+  a = { body, cabin, exterior, wheel, rim, lamp, prof };
   assets.set(key, a);
   return a;
 }
 
 // Shared materials.
 /** Transparent tinted glass. A white map keeps it on the same shader as the cracked variants (no hitch on first damage). */
-const GLASS = { transparent: true, opacity: 0.55, depthWrite: false, roughness: 0.05 } as const;
+const GLASS = { transparent: true, opacity: 0.55, depthWrite: false, roughness: 0.08, metalness: 0.12 } as const;
 
 function plainTexture(): THREE.Texture {
   const c = document.createElement('canvas');
@@ -655,17 +659,19 @@ const glassMat = new THREE.MeshStandardMaterial({ color: GLASS_TINT, map: plainT
 const crackedGlassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: crackedGlassTexture(false), ...GLASS });
 const shatteredGlassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: crackedGlassTexture(true), ...GLASS });
 const tireMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.92 });
-const rimMat = new THREE.MeshStandardMaterial({ color: 0xc4c6c8, roughness: 0.3, metalness: 0.9 });
+const rimMat = new THREE.MeshStandardMaterial({ color: 0xc4c6c8, roughness: 0.24, metalness: 0.92, vertexColors: true });
+const exteriorMaps = exteriorTextures();
+const exteriorMat = new THREE.MeshStandardMaterial({ map: exteriorMaps.color, roughnessMap: exteriorMaps.surface, metalnessMap: exteriorMaps.surface, roughness: 1, metalness: 1 });
 const burntMat = new THREE.MeshStandardMaterial({ color: 0x1d1b19, roughness: 1, metalness: 0.1 });
 /** A smashed lamp: dark, never lit. */
 const brokenLampMat = new THREE.MeshStandardMaterial({ color: 0x161616, emissive: 0x000000, emissiveIntensity: 0, roughness: 0.7 });
-const bodyMats = new Map<number, THREE.MeshStandardMaterial>();
+const bodyMats = new Map<number, THREE.MeshPhysicalMaterial>();
 
 /** Body paint; the geometry's vertex shade darkens the interior and wheel wells within the same draw. */
-function bodyMaterial(color: number): THREE.MeshStandardMaterial {
+function bodyMaterial(color: number): THREE.MeshPhysicalMaterial {
   let m = bodyMats.get(color);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.55, vertexColors: true });
+    m = new THREE.MeshPhysicalMaterial({ color, roughness: 0.3, metalness: 0.48, clearcoat: 0.95, clearcoatRoughness: 0.16, vertexColors: true });
     bodyMats.set(color, m);
   }
   return m;
@@ -698,6 +704,7 @@ export class VehicleView {
   readonly group = new THREE.Group();
   private readonly body: THREE.Mesh;
   private readonly cabin: THREE.Mesh;
+  private readonly exterior: THREE.Mesh;
   private readonly kindAssets: KindAssets;
   private detailGroup: THREE.Group | null = null;
   private distantMesh: THREE.Mesh | null = null;
@@ -745,6 +752,7 @@ export class VehicleView {
   /** Per-view dented copies of the body and glass geometry, or null while the shared ones are shown. */
   private dentBody: DentedGeometry | null = null;
   private dentGlass: DentedGeometry | null = null;
+  private dentExterior: DentedGeometry | null = null;
   /** The vehicle this view shows (null while pooled). */
   vehicle: Vehicle | null = null;
   color = -1;
@@ -755,12 +763,16 @@ export class VehicleView {
     const s = VEHICLE_SPECS[kind];
     this.body = new THREE.Mesh(a.body, bodyMaterial(0xffffff));
     this.cabin = new THREE.Mesh(a.cabin, glassMat);
+    this.exterior = new THREE.Mesh(a.exterior, exteriorMat);
+    this.exterior.name = 'exterior';
+    this.exterior.castShadow = true;
+    this.exterior.receiveShadow = true;
     this.body.name = 'body';
     this.cabin.name = 'glass';
     this.body.castShadow = true;
     this.cabin.castShadow = true;
     this.body.receiveShadow = true;
-    this.group.add(this.body, this.cabin);
+    this.group.add(this.body, this.cabin, this.exterior);
     const halfW = s.width / 2;
     for (const [front, z] of [[true, a.prof.wheelFront * s.length], [false, a.prof.wheelRear * s.length]] as const) {
       for (const side of [-1, 1]) {
@@ -912,6 +924,11 @@ export class VehicleView {
       this.dentGlass.dispose();
       this.dentGlass = null;
     }
+    if (this.dentExterior) {
+      this.exterior.geometry = this.kindAssets.exterior;
+      this.dentExterior.dispose();
+      this.dentExterior = null;
+    }
     for (const a of this.attached) a.obj.position.copy(a.base);
     if (this.stripe && this.stripeBent) {
       const pos = this.stripe.geo.getAttribute('position') as THREE.BufferAttribute;
@@ -945,6 +962,11 @@ export class VehicleView {
       this.body.geometry = this.dentBody.geometry;
     }
     this.dentBody.update(v.dents);
+    if (!this.dentExterior) {
+      this.dentExterior = new DentedGeometry(a.exterior);
+      this.exterior.geometry = this.dentExterior.geometry;
+    }
+    this.dentExterior.update(v.dents);
     // The glass is copied only once a dent reaches it (most crashes stay below the windows).
     if (!this.dentGlass && v.dents.some((d) => reaches(d, a.cabin))) {
       this.dentGlass = new DentedGeometry(a.cabin);
@@ -981,6 +1003,7 @@ export class VehicleView {
     // The glass of a burnt-out wreck is gone, and its livery, light bar and taxi sign are charred with the rest.
     this.cabin.visible = !b;
     this.cabin.material = glassMat;
+    this.exterior.material = b ? burntMat : exteriorMat;
     for (const w of this.wheels) {
       w.tire.visible = !b;
       w.rim.material = b ? burntMat : rimMat;

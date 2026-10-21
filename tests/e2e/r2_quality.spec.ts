@@ -55,7 +55,7 @@ test.describe('graphics quality', () => {
     if (builtMsaa) await expect(note).toBeHidden();
     else await expect(note).toHaveText('Anti-aliasing turns on after a reload.');
     r = await rendererFacts(page);
-    expect(r).toMatchObject({ tier: 'high', shadows: true, point: 3, spot: 1 });
+    expect(r).toMatchObject({ tier: 'high', shadows: true, point: 3, spot: 7 });
     await page.getByRole('button', { name: 'BACK', exact: true }).click();
 
     // The same in a running game, where the tier also sets traffic and pedestrian density.

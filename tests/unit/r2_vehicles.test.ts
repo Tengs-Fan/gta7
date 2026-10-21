@@ -3,6 +3,7 @@
 // copied from fix_render.test.ts: a tiny canvas/document stub and a fake WebGLRenderer.
 
 import * as THREE from 'three';
+import { bodySideX, cabinSideX } from '../../src/render/vehicleDetails';
 import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Effects } from '../../src/render/effects';
@@ -448,7 +449,13 @@ describe('cap triangulation', () => {
         const key = (i: number): string => `${pos.getY(i).toFixed(5)},${pos.getZ(i).toFixed(5)}`;
         const edge = (a: number, b: number): string => [key(a), key(b)].sort().join('|');
         for (const side of [-1, 1]) {
-          const onCap = (i: number): boolean => Math.abs(pos.getX(i) - side * half) < 1e-6;
+          const onCap = (i: number): boolean => {
+            const shaped = mesh === 'body' && !['bus', 'van', 'swat', 'pickup'].includes(kind);
+            const spec = VEHICLE_SPECS[kind];
+            let capX = shaped ? bodySideX(half, spec.height, pos.getY(i)) : half;
+            if (mesh === 'glass' && !['bus', 'van', 'swat'].includes(kind)) capX = cabinSideX(half, pos.getY(i), spec.height, spec.width / 2);
+            return Math.abs(pos.getX(i) - side * capX) < 1e-6;
+          };
           const capCount = new Map<string, number>();
           const wall = new Set<string>();
           let area = 0;
@@ -575,7 +582,7 @@ describe('vehicle views', () => {
     // Interior flank vertices (not on its outline) near the hit move in.
     let moved = 0;
     for (let i = 0; i < pos.count; i++) {
-      if (Math.abs(shared.getX(i) - halfW) > 1e-6 || Math.abs(shared.getZ(i)) > 0.3 || Math.abs(shared.getY(i) - 0.5 * v.spec.height) > 0.12) continue;
+      if (Math.abs(shared.getX(i) - bodySideX(halfW, v.spec.height, shared.getY(i))) > 1e-6 || Math.abs(shared.getZ(i)) > 0.3 || Math.abs(shared.getY(i) - 0.5 * v.spec.height) > 0.12) continue;
       expect(shared.getX(i) - pos.getX(i)).toBeGreaterThan(0.12);
       moved++;
     }
@@ -1318,7 +1325,11 @@ function tyrePointsThroughBody(view: VehicleView): number {
   let exposed = 0;
   view.group.traverse((o) => {
     if (o.name !== 'tire') return;
-    const { radiusTop: r, height: w } = ((o as THREE.Mesh).geometry as THREE.CylinderGeometry).parameters;
+    const geometry = (o as THREE.Mesh).geometry;
+    geometry.computeBoundingBox();
+    const bounds = geometry.boundingBox!;
+    const r = Math.max(Math.abs(bounds.min.y), Math.abs(bounds.max.y));
+    const w = bounds.max.x - bounds.min.x;
     // The wheel pivot's frame: the axle along x, without the tyre's spin.
     const pivot = o.parent!.matrixWorld;
     for (let ia = -4; ia <= 4; ia++) {

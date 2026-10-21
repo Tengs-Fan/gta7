@@ -203,6 +203,10 @@ export class MarkerView {
   // Views come and go as things stream in and out of range; their geometry and materials are
   // shared so a returning view uploads nothing new (and nothing has to be disposed).
   private readonly beamGeo = new THREE.CylinderGeometry(1, 1, 1, 32, 1, true).translate(0, 0.5, 0);
+  // Open perimeter markers preserve the view through the objective at driving height.
+  // All objectives share geometry; only their colour and horizontal radius differ.
+  private readonly objectiveGeo = this.objectiveGeometry(false);
+  private readonly objectiveGlowGeo = this.objectiveGeometry(true);
   private readonly arrowGeo = new THREE.ConeGeometry(0.45, 0.9, 4).rotateX(Math.PI);
   private readonly markerIconGeo = new THREE.OctahedronGeometry(0.32, 0);
   private readonly markerMats = new Map<number, { beam: THREE.MeshBasicMaterial; icon: THREE.MeshStandardMaterial }>();
@@ -298,9 +302,11 @@ export class MarkerView {
         beams++;
         g.position.set(o.x, groundAt(o.x, o.z), o.z);
         g.scale.set(Math.max(1.2, o.radius), 1, Math.max(1.2, o.radius));
-        const beam = g.children[0] as THREE.Mesh;
-        (beam.material as THREE.MeshBasicMaterial).color.setHex(o.color);
-        (beam.material as THREE.MeshBasicMaterial).opacity = 0.45 + Math.sin(time * 3) * 0.08;
+        for (const child of g.children) {
+          const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+          mat.color.setHex(o.color);
+          mat.opacity = child.name === 'halo' ? 0.2 + Math.sin(time * 3) * 0.035 : 0.88;
+        }
         g.visible = true;
       }
     }
@@ -308,11 +314,36 @@ export class MarkerView {
     for (let i = arrows; i < this.arrowPool.length; i++) this.arrowPool[i]!.visible = false;
   }
 
+  private objectiveGeometry(halo: boolean): THREE.BufferGeometry {
+    const parts: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 4 + i * Math.PI / 2;
+      const x = Math.cos(a);
+      const z = Math.sin(a);
+      // Each corner light sits on the accepted radius. The empty centre lets
+      // cars, pedestrians and the road remain readable even inside the gate.
+      parts.push(new THREE.CylinderGeometry(halo ? 0.04 : 0.012, halo ? 0.04 : 0.012, 4.2, 8, 1, halo).translate(x, 2.1, z));
+      if (!halo) {
+        parts.push(new THREE.RingGeometry(0.97, 1, 18, 1, i * Math.PI / 2 + 0.08, Math.PI / 2 - 0.16).rotateX(-Math.PI / 2).translate(0, 0.12, 0));
+      }
+    }
+    const nonIndexed = parts.map((part) => part.toNonIndexed());
+    const merged = mergeGeometries(nonIndexed, false)!;
+    for (const part of [...parts, ...nonIndexed]) part.dispose();
+    return merged;
+  }
+
   private newBeam(): THREE.Group {
     const g = new THREE.Group();
-    const beam = new THREE.Mesh(this.beamGeo, beamMaterial(0xffd23d, 0.5));
-    beam.scale.set(1, 7, 1);
-    g.add(beam);
+    const outline = new THREE.Mesh(this.objectiveGeo, new THREE.MeshBasicMaterial({
+      color: 0xffd23d, transparent: true, opacity: 0.88, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false,
+    }));
+    outline.name = 'outline';
+    const halo = new THREE.Mesh(this.objectiveGlowGeo, beamMaterial(0xffd23d, 0.2));
+    halo.name = 'halo';
+    (halo.material as THREE.MeshBasicMaterial).fog = false;
+    g.add(outline, halo);
     this.objectivePool.push(g);
     this.group.add(g);
     return g;

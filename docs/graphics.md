@@ -1,5 +1,17 @@
 # Graphics and software rendering
 
+## City and vehicle detail
+
+The hardware presentation adds projecting cornices, sills, piers and mullions, with normal and roughness maps for facade materials, glazing, roads and paving. Ground details include concrete gutters, storm drains and manholes. Broadleaf trees use textured irregular crowns and branching trunks; palms have curved feathered fronds and ringed trunks. These remain spatially batched and instanced.
+
+Vehicle bodies have tapered cabins, sculpted flanks, crowned hoods and clearcoat paint. Rounded tyres, open alloy wheels, brake rotors, mirrors, door seams, grilles, bumpers, plates and exhausts give each vehicle more detail. Exterior fittings add one batched mesh per detailed car and follow damage, burning and pool reset. Distant software traffic retains its simplified model.
+
+High adds local ambient occlusion before bloom and six nearby street lamps that light car bodies and facades at night. Lamp selection cross-fades, and broken lamps switch off immediately. Transparent effects and camera-dissolving foliage/characters are excluded from the contact-depth pass so invisible geometry cannot leave dark artifacts; sun and moon shadows still apply normally. Medium and Low keep the same resolution settings as before this visual pass.
+
+Street Run gates use open ground outlines and slim illuminated posts, with a separate readable turn instruction, road name, gate count and distance. This keeps traffic visible through a checkpoint.
+
+## Software fallback
+
 Hardware rendering keeps the existing physical materials, procedural sky, reflections, shadows,
 bloom, and High/Medium/Low resolution settings. Static city surfaces and street furniture are now
 batched in 128 m cells so geometry outside the camera can be skipped.
@@ -24,7 +36,22 @@ on software GPUs; it does not enable the physical hardware rendering path.
 Skid marks submit only written segments and stop drawing after fading. Broken prop bounds are
 recomputed, and lamp clip attributes and traffic-light indexing survive spatial batching.
 
-## Measured behaviour
+## Hardware validation
+
+On 2026-10-21, the upgraded production build ran on an RX 6600 XT through Chromium/ANGLE OpenGL at native 1920 × 1080, High, with no browser errors. The existing `perf` playtest measured the following refresh-capped frame rates over its four-to-six-second segments. CPU times below are the final sampled frame, not averages or GPU timings.
+
+| Scene | Actual FPS | Sampled CPU frame |
+| --- | ---: | ---: |
+| New-game street | 60 | 8.3 ms |
+| Downtown | 60 | 7.4 ms |
+| Four-star pursuit | 60 | 5.9 ms |
+| Beach at dusk | 60 | 5.9 ms |
+
+These are short representative scenes, not a guarantee for every crowded chase. The 31 selected production-browser checks cover walking, vehicle entry/driving/damage, the first mission, police, death/respawn, saves, UI, gamepad, audio, a two-minute chaos session, city lighting, quality switching, context recovery and Street Run journeys. All pass after updating the existing keyboard menu test for the Street Run entry. The unit suite has 1,331 tests; the final affected reflection and vehicle suites were rerun successfully after removing ignored material-level reflection settings.
+
+Keyboard-only route probes with ordinary traffic completed Dockside for gold (60.90 s) and Coastline for silver (99.91 s), awarding and saving their rewards. The simple driver reached Magnolia gate 10 before traffic collisions ended the attempt, so this pass does not claim a full keyboard-driven completion of that course. The driver changed no physics or traffic settings.
+
+## Earlier software measurements
 
 Chrome with SwiftShader, a 960 × 540 viewport, Low settings, and a stationary new-game street view
 on the development host measured these actual animation-frame rates (elapsed wall time, not the

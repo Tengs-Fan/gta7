@@ -32,8 +32,8 @@ const FOOT_BOOM = 4.3;
 const FOOT_BOOM_FAR = 6.6;
 const FOOT_SHOULDER = 0.42;
 const RESET_PITCH = -0.12;
-/** Leaves the dissolve keeps more of than this show no screen-door pattern worth the name. */
-const KEPT_UNSEEN = 0.9;
+/** Reset framing accepts only foliage outside the entire near-camera dissolve band. */
+const KEPT_UNSEEN = 1;
 /**
  * On foot the boom also stops in front of tree and palm trunks, except one hugging the player's back
  * (nearer than this to the look point): pulling the camera in there would put it in his head.
@@ -168,7 +168,7 @@ interface Leaves {
 
 /**
  * True when a camera at `cam` with this yaw and pitch, field of view and aspect sees no leaves
- * dissolving: no point of the foliage in its frame loses a tenth or more of its fragments to the
+ * dissolving: no point of the foliage in its frame loses any of its fragments to the
  * dissolve (the camera inside a canopy fails too).
  */
 function leavesClear(cam: V3, yaw: number, pitch: number, fovDeg: number, aspect: number, leaves: readonly Leaves[]): boolean {

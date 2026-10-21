@@ -11,6 +11,7 @@ import { rectContains, type Prop, type PropKind, type Rect } from '../world/layo
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { adTexture, AD_COUNT, glowTexture, groundTexture } from './textures';
 import { spatialKey, StaticVisibility } from './spatial';
+import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
 
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
@@ -49,43 +50,9 @@ export function foliageKept(d: number): number {
   return smoothstep(FADE_NEAR, FOLIAGE_FADE_FAR, d);
 }
 
-/** A tree's canopy: three icosahedra (radius, vertical stretch, centre at scale 1, before the prop's turn). */
-const CANOPY = [
-  { r: 1.7, sy: 1.1, at: [0, 4.3, 0] },
-  { r: 1.25, sy: 1, at: [0.7, 5.3, 0.3] },
-  { r: 1.1, sy: 1, at: [-0.6, 5.0, -0.5] },
-] as const;
-/** A bush: one squashed icosahedron. */
-const BUSH = { r: 0.85, scale: [1.2, 0.75, 1.1], at: [0, 0.55, 0] } as const;
-
-/** Points on the faces of three's unit detail-0 icosahedron: a barycentric grid of every face (corners and edges included). */
-const ICOSA_POINTS: readonly number[] = (() => {
-  const pos = new THREE.IcosahedronGeometry(1, 0).getAttribute('position');
-  const out: number[] = [];
-  const n = 4;
-  for (let f = 0; f < pos.count; f += 3) {
-    for (let i = 0; i <= n; i++) {
-      for (let j = 0; j <= n - i; j++) {
-        const a = i / n;
-        const b = j / n;
-        const c = 1 - a - b;
-        for (const axis of ['getX', 'getY', 'getZ'] as const) out.push(pos[axis](f) * a + pos[axis](f + 1) * b + pos[axis](f + 2) * c);
-      }
-    }
-  }
-  return out;
-})();
-
-/** One icosahedron of a prop's foliage: its radius per axis and centre, at scale 1 before the prop's turn. */
-interface FoliagePart {
-  scale: readonly [number, number, number];
-  at: readonly [number, number, number];
-}
-
-function foliageParts(q: Prop): readonly FoliagePart[] {
-  if (q.kind === 'tree') return CANOPY.map((c) => ({ scale: [c.r, c.r * c.sy, c.r] as const, at: c.at }));
-  if (q.kind === 'bush') return [{ scale: [BUSH.r * BUSH.scale[0], BUSH.r * BUSH.scale[1], BUSH.r * BUSH.scale[2]] as const, at: BUSH.at }];
-  return [];
+/** Shared envelopes for the actual smooth, irregular canopy geometry. */
+function foliageParts(q: Prop) {
+  return q.kind === 'tree' || q.kind === 'bush' ? broadleafClusters(q.kind) : [];
 }
 
 /** PropsView.standard's placement of a point given in a prop's frame: turned by rot about Y, scaled, at the prop. */
@@ -103,15 +70,12 @@ export function foliageSpheres(q: Prop): Array<{ x: number; y: number; z: number
   });
 }
 
-/**
- * Points spread over the faces of a tree's or bush's foliage (none for other props), in world space,
- * no more than a quarter of a face's edge apart: where the camera could see leaves dissolving.
- */
+/** Actual foliage corners and densely sampled faces, placed in world space for camera clearance. */
 export function foliagePoints(q: Prop): number[] {
+  if (q.kind !== 'tree' && q.kind !== 'bush') return [];
+  const points = broadleafSamples(q.kind);
   const out: number[] = [];
-  for (const { scale, at } of foliageParts(q)) {
-    for (let k = 0; k < ICOSA_POINTS.length; k += 3) out.push(...placed(q, at[0] + ICOSA_POINTS[k]! * scale[0], at[1] + ICOSA_POINTS[k + 1]! * scale[1], at[2] + ICOSA_POINTS[k + 2]! * scale[2]));
-  }
+  for (let k = 0; k < points.length; k += 3) out.push(...placed(q, points[k]!, points[k + 1]!, points[k + 2]!));
   return out;
 }
 
@@ -122,6 +86,7 @@ export function foliagePoints(q: Prop): number[] {
  * sorting and no extra draws; shadows come from the default depth material and are unaffected.
  */
 function fadeNearCamera(mat: THREE.Material): void {
+  mat.userData.contactShadow = false; // The normal override cannot reproduce the near-camera dissolve.
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vFadeWorld;')
@@ -441,40 +406,30 @@ export class PropsView {
 
   private buildTrees(trees: number[], bushes: number[]): void {
     const rng = new Rng(77);
-    const trunk = cyl(0.16, 0.26, 3.2, 6);
-    const foliage = merged(CANOPY.map((c) => new THREE.IcosahedronGeometry(c.r, 0).scale(1, c.sy, 1).translate(c.at[0], c.at[1], c.at[2])));
-    this.makeInstanced(trunk, new THREE.MeshStandardMaterial({ color: 0x5a4030, roughness: 0.95 }), trees, PropsView.standard);
-    const leaves = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
+    this.makeInstanced(treeTrunkGeometry(), new THREE.MeshStandardMaterial({ color: 0x725440, vertexColors: true, roughness: 0.96 }), trees, PropsView.standard);
+    const leaves = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: broadleafTexture(), bumpMap: broadleafTexture(), bumpScale: 0.035, roughness: 0.92 });
+    leaves.name = 'broadleaf-canopy';
     fadeNearCamera(leaves);
-    this.makeInstanced(foliage, leaves, trees, PropsView.standard, {
-      color: (_p, c) => c.setHSL(0.26 + rng.range(-0.04, 0.05), rng.range(0.45, 0.65), rng.range(0.24, 0.36)),
+    this.makeInstanced(broadleafGeometry('tree'), leaves, trees, PropsView.standard, {
+      color: (_p, c) => c.setHSL(0.26 + rng.range(-0.035, 0.035), rng.range(0.34, 0.52), rng.range(0.27, 0.37)),
     });
-    const bush = new THREE.IcosahedronGeometry(BUSH.r, 0).scale(BUSH.scale[0], BUSH.scale[1], BUSH.scale[2]).translate(BUSH.at[0], BUSH.at[1], BUSH.at[2]);
-    const bushMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
+    const bushMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: broadleafTexture(), bumpMap: broadleafTexture(), bumpScale: 0.025, roughness: 0.94 });
+    bushMat.name = 'broadleaf-shrub';
     fadeNearCamera(bushMat);
-    this.makeInstanced(bush, bushMat, bushes, PropsView.standard, {
-      color: (_p, c) => c.setHSL(0.27 + rng.range(-0.03, 0.04), 0.5, rng.range(0.22, 0.32)),
+    this.makeInstanced(broadleafGeometry('bush'), bushMat, bushes, PropsView.standard, {
+      color: (_p, c) => c.setHSL(0.27 + rng.range(-0.03, 0.03), 0.43, rng.range(0.26, 0.35)),
       shadow: false,
     });
   }
 
   private buildPalms(palms: number[]): void {
     const rng = new Rng(78);
-    const trunk = merged([cyl(0.14, 0.24, 8.5, 7), cyl(0.3, 0.3, 0.5, 7, 0, 8.3, 0)]);
-    const fronds: THREE.BufferGeometry[] = [];
-    for (let i = 0; i < 8; i++) {
-      const f = new THREE.BoxGeometry(0.5, 0.05, 3.4);
-      f.translate(0, 0, 1.7);
-      f.rotateX(0.45 + (i % 2) * 0.25);
-      f.rotateY((i / 8) * Math.PI * 2);
-      f.translate(0, 8.7, 0);
-      fronds.push(f);
-    }
-    this.makeInstanced(trunk, new THREE.MeshStandardMaterial({ color: 0x8b6b4a, roughness: 0.95 }), palms, PropsView.standard);
-    const frondMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, side: THREE.DoubleSide });
+    this.makeInstanced(palmTrunkGeometry(), new THREE.MeshStandardMaterial({ color: 0xb29875, vertexColors: true, roughness: 0.95 }), palms, PropsView.standard);
+    const frondMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.84, side: THREE.DoubleSide });
+    frondMat.name = 'palm-fronds';
     fadeNearCamera(frondMat);
-    this.makeInstanced(merged(fronds), frondMat, palms, PropsView.standard, {
-      color: (_p, c) => c.setHSL(0.28 + rng.range(-0.03, 0.03), 0.55, rng.range(0.26, 0.34)),
+    this.makeInstanced(palmFrondsGeometry(), frondMat, palms, PropsView.standard, {
+      color: (_p, c) => c.setHSL(0.25 + rng.range(-0.025, 0.025), 0.48, rng.range(0.29, 0.37)),
     });
   }
 

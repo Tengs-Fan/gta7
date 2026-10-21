@@ -11,10 +11,11 @@ import {
 } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB, type UvMode } from './geo';
+import { facadeRelief, manhole, stormDrain } from './cityArchitecture';
 import { CulledStaticMesh, spatialGeometry, StaticVisibility } from './spatial';
 import {
   CELLS, CELL_DESIGN, DOOR_U, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
-  facadeTextures, groundTexture, helipadTexture, signTexture, storefrontAtlas, storefrontUv, swatchUv,
+  facadeTextures, groundSurface, groundTexture, helipadTexture, signTexture, storefrontAtlas, storefrontUv, swatchUv, type GroundTex,
 } from './textures';
 
 const STYLES: FacadeStyle[] = ['glassBlue', 'glassTeal', 'office', 'brick', 'stucco', 'house', 'warehouse', 'hotel'];
@@ -374,6 +375,19 @@ export class CityView {
     if (parts[0] !== geo) geo.dispose();
   }
 
+  /** Albedo, grain/joints and roughness share one UV scale on each ground surface. */
+  private surface(kind: GroundTex, roughness = 1, seed = 1): THREE.MeshStandardMaterial {
+    const surface = groundSurface(kind, seed);
+    return new THREE.MeshStandardMaterial({
+      map: surface.map,
+      roughnessMap: surface.rough,
+      normalMap: surface.normal,
+      normalScale: new THREE.Vector2(0.55, 0.55),
+      roughness,
+      metalness: kind === 'metal' ? 0.35 : 0,
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Buildings
 
@@ -384,6 +398,7 @@ export class CityView {
     const roofs = new GeoBuilder(true);
     const front = new GeoBuilder(true, true);
     const decor = new GeoBuilder(true);
+    const relief = new GeoBuilder(true);
     const rng = new Rng(4242);
 
     for (const b of layout.buildings) {
@@ -406,6 +421,7 @@ export class CityView {
         const uv = { kind: 'facade' as const, w: cell.w * FACADE_COLS, h: cell.h * FACADE_ROWS, offU, offV, baseY };
         if (t === b.tiers[0] && block && street.size > 0) this.groundTier(gb, front, decor, b, block, t, street, uv, color);
         else gb.box(t.minX, t.y0, t.minZ, t.maxX, t.y1, t.maxZ, { uv, color, top: false });
+        facadeRelief(relief, b, t, baseY, color);
         if (b.roof === 'gable' && t === b.tiers[b.tiers.length - 1]) this.gable(roofs, t, b, color);
         else {
           const rc = scaleRgb([0.55, 0.54, 0.52], 0.85 + rng.next() * 0.3);
@@ -434,8 +450,10 @@ export class CityView {
         emissive: new THREE.Color(0xffffff),
         emissiveIntensity: 0,
         roughnessMap: tex.rough,
+        normalMap: tex.normal,
+        normalScale: new THREE.Vector2(glass ? 0.5 : 0.65, glass ? 0.5 : 0.65),
         roughness: 1,
-        metalness: glass ? 0.25 : 0.02,
+        metalness: glass ? 0.15 : 0.02,
         vertexColors: true,
       });
       const sn = STYLE_NIGHT[style];
@@ -446,7 +464,10 @@ export class CityView {
     });
     // Two-sided: from the street a pitched roof's eaves, rakes and the attic gap above the walls are seen
     // from below. The shadow pass keeps drawing back faces only, as a one-sided material does.
-    const roofMat = new THREE.MeshStandardMaterial({ map: groundTexture('roof'), vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide, shadowSide: THREE.BackSide });
+    const roofMat = this.surface('roof');
+    roofMat.vertexColors = true;
+    roofMat.side = THREE.DoubleSide;
+    roofMat.shadowSide = THREE.BackSide;
     this.add(roofs.build(), roofMat, { shadow: true, name: 'roofs' });
 
     const atlas = storefrontAtlas();
@@ -465,6 +486,12 @@ export class CityView {
     const decorMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide });
     this.materials.decor = decorMat;
     this.add(decor.build(), decorMat, { shadow: true, name: 'ground-decor' });
+    const reliefMat = this.surface('concrete');
+    // A neutral albedo retains the per-building finish; concrete supplies microrelief.
+    reliefMat.map = null;
+    reliefMat.vertexColors = true;
+    reliefMat.roughness = 0.78;
+    this.add(relief.build(), reliefMat, { shadow: true, name: 'architectural-trim' });
   }
 
   /**
@@ -837,12 +864,11 @@ export class CityView {
     prom.flat(b.cityMinX - sw, b.cityMaxZ + sw, b.beachStartX, b.landMaxZ, y, { kind: 'world', scale: 6 });
     wood.flat(b.cityMaxX + sw, b.cityMinZ - sw, b.beachStartX, b.cityMaxZ + sw, y, { kind: 'world', scale: 4 });
 
-    const mat = (tex: THREE.Texture, rough = 0.95) => new THREE.MeshStandardMaterial({ map: tex, roughness: rough, metalness: 0 });
-    this.add(walk.build(), mat(groundTexture('sidewalk')), { name: 'sidewalks' });
-    this.add(curbs.build(), mat(groundTexture('concrete')), { name: 'curbs' });
-    this.add(wood.build(), mat(groundTexture('wood')), { name: 'boardwalk' });
+    this.add(walk.build(), this.surface('sidewalk'), { name: 'sidewalks' });
+    this.add(curbs.build(), this.surface('concrete'), { name: 'curbs' });
+    this.add(wood.build(), this.surface('wood'), { name: 'boardwalk' });
     for (const [k, g] of patches) {
-      const m = mat(groundTexture(k as 'grass' | 'plaza' | 'asphalt' | 'dirt'), k === 'asphalt' ? 0.9 : 0.97);
+      const m = this.surface(k as 'grass' | 'plaza' | 'asphalt' | 'dirt');
       m.polygonOffset = true;
       m.polygonOffsetFactor = -1;
       m.polygonOffsetUnits = -1;
@@ -858,6 +884,8 @@ export class CityView {
   private buildRoads(): void {
     const roads = this.world.roads;
     const asphalt = new GeoBuilder(false);
+    const gutters = new GeoBuilder(false);
+    const ironwork = new GeoBuilder(true);
     const white = new GeoBuilder(false);
     const yellow = new GeoBuilder(false);
     const yM = 0.02;
@@ -870,6 +898,22 @@ export class CityView {
       const a0 = (s.vertical ? s.minZ : s.minX) + CROSSWALK_W;
       const a1 = (s.vertical ? s.maxZ : s.maxX) - CROSSWALK_W;
       const L = (a: number, o: number) => (s.vertical ? { x: c + o, z: a } : { x: a, z: c + o });
+      // Narrow concrete gutters make the asphalt meet the raised pavement cleanly.
+      // Grates and service covers are flush finishes, below all road paint.
+      for (const side of [-1, 1]) {
+        const off = side * (line.width / 2 - 0.15);
+        const start = L(s.vertical ? s.minZ : s.minX, off);
+        const end = L(s.vertical ? s.maxZ : s.maxX, off);
+        quadLine(gutters, start.x, start.z, end.x, end.z, 0.3, 0.004);
+        for (const along of [a0 + 1.5, a1 - 1.5]) {
+          const drain = L(along, side * (line.width / 2 - 0.22));
+          stormDrain(ironwork, drain.x, drain.z, s.vertical);
+        }
+      }
+      if (hashInts(s.a, s.b) % 3 !== 0 && a1 - a0 > 8) {
+        const cover = L((a0 + a1) / 2, LANE_W * 0.5);
+        manhole(ironwork, cover.x, cover.z);
+      }
       // Centre line(s).
       if (line.lanes === 2) {
         for (const o of [-0.16, 0.16]) {
@@ -930,8 +974,10 @@ export class CityView {
         }
       }
     }
-    const roadMat = new THREE.MeshStandardMaterial({ map: groundTexture('asphalt'), roughness: 0.88, metalness: 0 });
+    const roadMat = this.surface('asphalt');
     this.add(asphalt.build(), roadMat, { name: 'roads' });
+    this.add(gutters.build(), this.surface('concrete'), { name: 'road-gutters' });
+    this.add(ironwork.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.64, metalness: 0.35 }), { name: 'street-ironwork' });
     const mk = (color: number) => new THREE.MeshStandardMaterial({ color, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     this.add(white.build(), mk(0xe6e6e0), { name: 'markings-white' });
     this.add(yellow.build(), mk(0xe8b923), { name: 'markings-yellow' });
@@ -968,9 +1014,9 @@ export class CityView {
       walls.quad(x1, bottom, b.landMinZ, x0, bottom, b.landMinZ, x0, sandHeight(b, x0), b.landMinZ, x1, sandHeight(b, x1), b.landMinZ, [0, 0, 1, 0, 1, 1, 0, 1]);
       walls.quad(x0, bottom, b.landMaxZ, x1, bottom, b.landMaxZ, x1, sandHeight(b, x1), b.landMaxZ, x0, sandHeight(b, x0), b.landMaxZ, [0, 0, 1, 0, 1, 1, 0, 1]);
     }
-    const sandMat = new THREE.MeshStandardMaterial({ map: groundTexture('sand'), roughness: 1, metalness: 0 });
+    const sandMat = this.surface('sand');
     this.add(sand.build(), sandMat, { name: 'beach' });
-    this.add(walls.build(), new THREE.MeshStandardMaterial({ map: groundTexture('concrete', 3), roughness: 0.95 }), { name: 'quay' });
+    this.add(walls.build(), this.surface('concrete', 1, 3), { name: 'quay' });
 
     // Piers.
     const deck = new GeoBuilder(false);
@@ -981,7 +1027,7 @@ export class CityView {
         for (const z of [d.rect.minZ + 0.6, d.rect.maxZ - 0.6]) if (WATER_Y > this.world.baseGround(x, z) - 0.1) pillars.push(new THREE.Vector3(x, d.y, z));
       }
     }
-    this.add(deck.build(), new THREE.MeshStandardMaterial({ map: groundTexture('wood', 2), roughness: 0.9 }), { shadow: true, name: 'piers' });
+    this.add(deck.build(), this.surface('wood', 1, 2), { shadow: true, name: 'piers' });
     if (pillars.length > 0) {
       const pg = new THREE.CylinderGeometry(0.25, 0.25, 1, 6);
       pg.translate(0, -0.5, 0);

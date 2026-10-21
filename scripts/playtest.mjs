@@ -41,9 +41,10 @@ mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch({
   headless: !flag('headed'),
+  executablePath: process.env.GTA7_BROWSER,
   args: software
     ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required']
-    : ['--use-angle=vulkan', '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
+    : [`--use-angle=${process.env.GTA7_ANGLE ?? 'vulkan'}`, '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage({ viewport: { width: vw, height: vh } });
 // Headless Chromium that grants pointer lock can stop delivering frames and grow without bound,

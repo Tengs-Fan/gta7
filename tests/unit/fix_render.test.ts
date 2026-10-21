@@ -472,6 +472,114 @@ describe('render fixes', () => {
     expect(hit.heli).toBe(0);
   });
 
+  it('fixed objectives mark the ground and four corners while leaving the driving view through their center clear', () => {
+    const view = new MarkerView();
+    const objective = { x: 20, z: 30, radius: 12, color: 0x50f1d1, label: 'Gate' };
+    const ground = 2.5;
+    view.syncObjectives([objective], () => ground, 0);
+    view.group.updateMatrixWorld(true);
+    const meshes: THREE.Mesh[] = [];
+    view.group.traverseVisible((object) => {
+      if (object instanceof THREE.Mesh) meshes.push(object);
+    });
+    expect(meshes.length).toBeGreaterThan(0);
+    // Both road directions stay open at driver and chase-camera heights. The old
+    // filled seven-metre cylinder intersected all four of these sight lines.
+    for (const height of [1.5, 3.5]) {
+      for (const direction of [new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)]) {
+        const origin = new THREE.Vector3(objective.x, ground + height, objective.z).addScaledVector(direction, -objective.radius * 2);
+        const ray = new THREE.Raycaster(origin, direction, 0, objective.radius * 4);
+        expect(ray.intersectObjects(meshes, false)).toEqual([]);
+      }
+    }
+    let groundVertices = 0;
+    const corners = new Set<string>();
+    const vertex = new THREE.Vector3();
+    for (const mesh of meshes) {
+      const material = mesh.material as THREE.MeshBasicMaterial;
+      expect(material.opacity).toBeGreaterThan(0);
+      expect(material.color.getHex()).toBe(objective.color);
+      const positions = mesh.geometry.getAttribute('position');
+      for (let i = 0; i < positions.count; i++) {
+        vertex.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
+        const x = vertex.x - objective.x;
+        const z = vertex.z - objective.z;
+        const y = vertex.y - ground;
+        const radius = Math.hypot(x, z);
+        if (y > 0.05 && y < 0.25 && radius > objective.radius * 0.9) groundVertices++;
+        if (y > 3.5) {
+          expect(radius).toBeGreaterThan(objective.radius * 0.9);
+          expect(radius).toBeLessThan(objective.radius * 1.1);
+          corners.add(`${Math.sign(x)},${Math.sign(z)}`);
+        }
+      }
+    }
+    expect(groundVertices).toBeGreaterThan(32);
+    expect(corners).toEqual(new Set(['1,1', '1,-1', '-1,1', '-1,-1']));
+  });
+
+  it('objective pools reuse meshes, geometry and materials while updating radius, ground height and independent colours', () => {
+    const view = new MarkerView();
+    const first = { x: 20, z: 30, radius: 12, color: 0x50f1d1, label: 'Gate' };
+    const second = { x: 60, z: 80, radius: 8, color: 0xffd23d, label: 'Finish' };
+    view.syncObjectives([first, second], () => 2, 0);
+    const groups = [...view.group.children];
+    const meshes = groups.map((group) => [...group.children] as THREE.Mesh[]);
+    expect(groups).toHaveLength(2);
+    expect(meshes[0]!.length).toBeGreaterThan(0);
+    const geometries = meshes.map((list) => list.map((mesh) => mesh.geometry));
+    const materials = meshes.map((list) => list.map((mesh) => mesh.material));
+    expect(geometries[0]).toHaveLength(geometries[1]!.length);
+    for (let i = 0; i < geometries[0]!.length; i++) expect(geometries[0]![i]).toBe(geometries[1]![i]);
+    // Per-objective colours must not leak through the shared geometry.
+    for (const mesh of meshes[0]!) expect((mesh.material as THREE.MeshBasicMaterial).color.getHex()).toBe(first.color);
+    for (const mesh of meshes[1]!) expect((mesh.material as THREE.MeshBasicMaterial).color.getHex()).toBe(second.color);
+    view.syncObjectives([], () => 0, 1);
+    expect(view.group.children).toEqual(groups);
+    expect(groups.every((group) => !group.visible)).toBe(true);
+
+    const next = { ...first, x: -40, z: 90, radius: 6, color: 0xff3b3b };
+    view.syncObjectives([next], () => 4, 2);
+    expect(view.group.children).toEqual(groups);
+    expect(groups[0]!.visible).toBe(true);
+    expect(groups[1]!.visible).toBe(false);
+    expect(groups[0]!.position.toArray()).toEqual([-40, 4, 90]);
+    expect(groups[0]!.scale.toArray()).toEqual([6, 1, 6]);
+    for (let group = 0; group < groups.length; group++) {
+      expect(groups[group]!.children).toEqual(meshes[group]);
+      for (let i = 0; i < meshes[group]!.length; i++) {
+        const mesh = meshes[group]![i]!;
+        expect(mesh.geometry).toBe(geometries[group]![i]);
+        expect(mesh.material).toBe(materials[group]![i]);
+        expect((mesh.material as THREE.MeshBasicMaterial).color.getHex()).toBe(group === 0 ? next.color : second.color);
+      }
+    }
+  });
+
+  it('entity objectives retain their moving overhead arrow and hide it when the target is removed', () => {
+    const sim = makeSim({ world: W, police: false });
+    const car = sim.spawnVehicle('sports', 20, 30, 0);
+    const view = new MarkerView();
+    const objective = { x: 0, z: 0, radius: 4, color: 0xff3b3b, label: 'Suspect', vehicle: car };
+    view.syncObjectives([objective], () => 0, 0);
+    expect(view.group.children).toHaveLength(1);
+    const arrow = view.group.children[0] as THREE.Mesh;
+    expect(arrow.geometry).toBeInstanceOf(THREE.ConeGeometry);
+    expect(arrow.visible).toBe(true);
+    expect(arrow.position.x).toBe(car.pos.x);
+    expect(arrow.position.z).toBe(car.pos.z);
+    expect(arrow.position.y).toBeGreaterThan(car.pos.y + car.spec.height);
+    car.pos.x += 10;
+    car.pos.z -= 5;
+    view.syncObjectives([objective], () => 0, 1);
+    expect(view.group.children[0]).toBe(arrow);
+    expect(arrow.position.x).toBe(car.pos.x);
+    expect(arrow.position.z).toBe(car.pos.z);
+    car.removed = true;
+    view.syncObjectives([objective], () => 0, 2);
+    expect(arrow.visible).toBe(false);
+  });
+
   it('pickup, marker and helicopter views reuse their geometry when they come back', () => {
     const mv = new MarkerView();
     const pickup = new Pickup(1, 'health', { x: 0, y: 0, z: 0 }, 25, null, 30, '');

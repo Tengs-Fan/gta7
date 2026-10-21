@@ -200,6 +200,7 @@ export class CrowdView {
     const mat = () => {
       const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0 });
       m.onBeforeCompile = fadeNearLens;
+      m.userData.contactShadow = false; // Keep dissolved character parts out of the contact depth pass.
       return m;
     };
     const make = (geo: THREE.BufferGeometry, count: number): Part => {

@@ -1813,6 +1813,41 @@ body {
   white-space: nowrap;
 }
 
+.nav-detail {
+  display: block;
+  color: #c2cfca;
+  font-size: 14px;
+  line-height: 1.2;
+  margin-top: 3px;
+}
+
+.navigation.race {
+  width: 300px;
+  padding: 12px 14px;
+  border-left: 3px solid #50f1d1;
+  border-radius: 0 4px 4px 0;
+  transition: background-color 160ms, box-shadow 220ms;
+}
+
+.navigation.race .nav-arrow {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+  margin-right: 3px;
+}
+
+.navigation.race .nav-copy b {
+  font-size: 23px;
+  font-weight: 700;
+  line-height: 1.05;
+  margin-top: 4px;
+  white-space: normal;
+}
+
+.navigation.race .nav-copy span { color: #83d9c6; }
+.navigation.race.gate-hit { background-color: rgba(49, 143, 119, 0.8); box-shadow: 0 0 24px #50f1d140; }
+.navigation.race > strong { font-size: 22px; color: #e4fff7; }
+
 .drive-panel {
   position: absolute;
   right: 26px;
@@ -1971,6 +2006,8 @@ body {
   .title-world-caption strong { font-size: 70px; }
   .title-eyebrow { font-size: 9px; letter-spacing: 1.2px; }
   .navigation { width: 210px; }
+  .navigation.race { width: 270px; }
+  .navigation.race .nav-copy b { font-size: 21px; }
   .help { max-width: min(330px, calc(100vw - 240px)); }
   .district b { font-size: 17px; }
   .drive-panel { width: 150px; }
@@ -1994,6 +2031,11 @@ body {
   .navigation { left: 18px; bottom: 182px; width: 190px; padding: 7px 8px; gap: 7px; }
   .nav-copy b { font-size: 13px; }
   .navigation > strong { font-size: 15px; }
+  .navigation.race { width: min(250px, calc(100vw - 200px)); padding: 9px 10px; }
+  .navigation.race .nav-arrow { width: 25px; height: 25px; flex-basis: 25px; margin-right: 0; }
+  .navigation.race .nav-copy b { font-size: 19px; }
+  .navigation.race > strong { font-size: 18px; }
+  .nav-detail { font-size: 12px; }
   .nav-arrow { width: 19px; height: 19px; flex-basis: 19px; }
   .subtitle { bottom: 254px; font-size: 20px; }
   .drive-panel { right: 18px; width: 135px; bottom: 81px; padding: 9px 11px; }
@@ -2022,7 +2064,7 @@ body {
   .title-world-caption strong { font-size: 58px; }
   .radar { width: 126px; height: 126px; }
   .navigation { bottom: 168px; }
-  .quick-controls { font-size: 11px; }
+  .quick-controls { font-size: 11px; max-width: 220px; bottom: 14px; gap: 4px 8px; }
   .drive-panel { bottom: 69px; }
   .drive-speed strong { font-size: 32px; }
   .drive-condition { margin-top: 3px; }

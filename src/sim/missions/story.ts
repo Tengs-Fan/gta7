@@ -86,6 +86,16 @@ function* toLouGarage(m: MissionCtx, objective: string, opts: Parameters<Mission
   }
 }
 
+/** Explain a foot-only objective when a driver reaches it, then restore the route instruction on leaving. */
+function guideOnFoot(m: MissionCtx, target: { x: number; z: number }, travel: string, arrive: string): number {
+  const show = () => {
+    const text = m.sim.player.vehicle && m.sim.distToPlayer(target.x, target.z) < 18 ? arrive : travel;
+    if (m.objectiveText !== text) m.objective(text);
+  };
+  show();
+  return m.watch(show);
+}
+
 /**
  * The bank's alarm: the wanted level rises to `n` stars and is pinned there, never lowered, nor the heat behind it,
  * and the police learn where the player is (setLevel's sighting), even when he already has `n` stars or more.
@@ -251,9 +261,10 @@ const delivery: MissionDef = {
       [LOU, "One of my boys dropped a package in a Midtown parking lot. Don't ask what's in it."],
       [LOU, 'Buyer waits in Hillcrest. He gets nervous, he walks. Move it!'],
     ]);
-    m.objective('Collect the package');
+    const collectGuide = guideOnFoot(m, pick, 'Collect the package', 'Get out of the car and collect the package');
     const mk = m.mark(pick, 'Package', 0x3dd9ff, 1.5);
     yield m.until(() => !parcel.active || parcel.removed);
+    m.unwatch(collectGuide);
     m.unmark(mk);
     m.setTimer('DELIVERY', deliveryTime(sim, pick, drop), 'The buyer walked.');
     // The Tiburones saw the pickup: a car comes after the package. The buyer won't deal with it in tow.
@@ -542,8 +553,9 @@ const bigScore: MissionDef = {
       ]);
       m.givePlayer('rifle', 180);
       sim.player.armor = 100;
-      m.objective('Go to the First Azura Bank');
+      const bankGuide = guideOnFoot(m, bank, 'Go to the First Azura Bank', 'Get out of the car and reach the bank entrance');
       yield* m.goTo(bank.x, bank.z, { radius: 2.5, label: 'Bank', onFoot: true });
+      m.unwatch(bankGuide);
       m.objective('Hold the bank entrance while the vault opens');
       pinWanted(sim, 3);
       let progress = 0;

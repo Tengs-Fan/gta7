@@ -11,6 +11,15 @@ import { formatRunTime } from '../sim/streetRuns';
 import { formatKeys, padGlyph, type InputDevice } from './glyphs';
 import { collectBlips, drawBlip, drawPoliceOverlay, gpsRoute, MAP_SCALE, type Blip, type MapImage } from './mapRender';
 
+const NAV_PATHS = {
+  bearing: 'm12 3 8 17-8-5-8 5z',
+  straight: 'M12 2 3 11h6v11h6V11h6z',
+  left: 'M2 9 10 1v5h4a7 7 0 0 1 7 7v9h-6v-9a1 1 0 0 0-1-1h-4v5z',
+  right: 'M22 9 14 1v5h-4a7 7 0 0 0-7 7v9h6v-9a1 1 0 0 1 1-1h4v5z',
+  finish: 'M4 2h2v21H4zm3 1h5v5H7zm5 5h5v5h-5zm5-5h5v5h-5zM7 13h5v5H7zm10 0h5v5h-5z',
+} as const;
+const navIcon = (kind: keyof typeof NAV_PATHS) => '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + NAV_PATHS[kind] + '"/></svg>';
+
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 1.8l3.1 6.6 7.2.9-5.3 5 1.4 7.2L12 18l-6.4 3.5L7 14.3l-5.3-5 7.2-.9z"/></svg>';
 
 export const WEAPON_ICONS: Record<WeaponId, string> = {
@@ -67,7 +76,7 @@ const ROUTE_OBJECTIVE = '#ffd23d';
 
 // What the DOM shows initially; bind() returns to these for every new session.
 const initialShown = () => ({ money: -1, health: -1, armor: -1, weapon: '', ammo: '', clock: '', stars: -1, flash: false, status: '', zone: '' });
-const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, toast: 0, delta: 0, hurt: 0, objective: 0 });
+const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, toast: 0, delta: 0, hurt: 0, objective: 0, gate: 0 });
 /** Elements shown with the 'show' class for a while. */
 const TIMED = ['help', 'subtitle', 'objective', 'zone', 'radio', 'toast', 'delta', 'big'];
 /** Damage kinds that show the hitmarker when the player deals them. */
@@ -176,8 +185,8 @@ export class Hud {
       </div>
       <div class="radar"><canvas width="220" height="220" data-el="radar"></canvas></div>
       <div class="navigation hidden" data-el="navigation">
-        <span class="nav-arrow" data-el="navArrow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 17-8-5-8 5z"/></svg></span>
-        <div class="nav-copy"><span data-el="navLabel">NEXT STOP</span><b data-el="navName"></b></div>
+        <span class="nav-arrow" data-el="navArrow">${navIcon('bearing')}</span>
+        <div class="nav-copy"><span data-el="navLabel">NEXT STOP</span><b data-el="navName"></b><small class="nav-detail hidden" data-el="navDetail"></small></div>
         <strong data-el="navDistance"></strong>
       </div>
       <div class="drive-panel hidden" data-el="drive">
@@ -222,7 +231,13 @@ export class Hud {
       this.el.objective!.classList.remove('show');
     };
     this.unsub.push(
-      ev.on('message', (e) => this.help(e.text, e.duration)),
+      ev.on('message', (e) => {
+        const job = sim.activities.job;
+        // Checkpoint sound + the gate pulse confirm progress; the navigation
+        // card already names the next turn, so don't repeat it in the help box.
+        if (job?.kind === 'streetRun' && job.stage === 'racing' && /^CHECKPOINT \d+\//.test(e.text)) return;
+        this.help(e.text, e.duration);
+      }),
       ev.on('subtitle', (e) => {
         const sub = this.el.subtitle!;
         // An empty line (a skipped one, or one a failure cut short) only takes the last line off: it fades out as it was.
@@ -242,6 +257,12 @@ export class Hud {
       ev.on('objective', (e) => {
         this.activityObjective = e.text;
         this.el.objective!.classList.remove('next');
+        const job = sim.activities.job;
+        if (job?.kind === 'streetRun' && job.stage === 'racing') {
+          this.timers.objective = 0;
+          this.el.objective!.classList.remove('show');
+          return;
+        }
         // An empty objective (one just reached) leaves at once instead of lingering under the dialogue.
         if (!e.text) {
           clearObjective();
@@ -267,7 +288,7 @@ export class Hud {
         this.el.big!.classList.add('countdown');
       }),
       ev.on('streetRunCheckpoint', (e) => {
-        if (e.index < e.total) this.toast(`GATE ${e.index}/${e.total}  ·  ${formatRunTime(e.elapsed)}`);
+        if (e.index < e.total) this.timers.gate = 0.65;
       }),
       ev.on('streetRunFinished', (e) => {
         const text = `${e.medal.toUpperCase()} FINISH`;
@@ -661,8 +682,14 @@ export class Hud {
     if (this.timers.radio <= 0) el.radio!.classList.remove('show');
     if (this.timers.toast <= 0) el.toast!.classList.remove('show');
     if (this.timers.delta <= 0) this.moneyDelta = 0;
+    const racing = sim.activities.job?.kind === 'streetRun' && sim.activities.job.stage === 'racing';
     const objText = sim.missions.active?.objectiveText ?? (sim.activities.busy ? this.activityObjective : '');
-    if (objText && this.timers.objective <= 0 && this.timers.subtitle <= 0) {
+    // Race guidance lives beside the radar. Keep approach/countdown instructions,
+    // but don't repeat every gate across the centre of the driving view.
+    if (racing) {
+      this.timers.objective = 0;
+      el.objective!.classList.remove('show');
+    } else if (objText && this.timers.objective <= 0 && this.timers.subtitle <= 0) {
       el.objective!.textContent = objText;
       el.objective!.classList.add('show');
     } else if (!objText && this.timers.objective <= 0) el.objective!.classList.remove('show');
@@ -785,24 +812,36 @@ export class Hud {
     el.navigation!.classList.toggle('hidden', !target || sim.playerDown);
     if (!target) return;
     const active = sim.missions.active;
+    const job = sim.activities.job;
+    const race = !this.waypoint && job?.kind === 'streetRun' && job.stage === 'racing' ? job : null;
+    el.navigation!.classList.toggle('race', !!race);
+    el.navigation!.classList.toggle('gate-hit', !!race && this.timers.gate > 0);
+    const gate = race?.course.checkpoints[race.checkpoint];
     const objective = [...(active?.markers ?? []), ...sim.activities.objectives()][0];
     const offer = !active && !sim.activities.busy ? sim.missions.offers()[0] : undefined;
-    const name = this.waypoint ? 'Your waypoint' : objective?.label || (offer ? CONTACTS[offer.giver].name : active?.def.title || 'Objective');
-    const label = this.waypoint ? 'WAYPOINT' : active ? 'MISSION ROUTE' : sim.activities.busy ? 'ACTIVITY ROUTE' : 'NEXT CONTACT';
-    const text = `${label}:${name}`;
+    const instruction = gate?.label.split(' · ')[0];
+    const turn: keyof typeof NAV_PATHS = !gate ? 'bearing' : instruction === 'Finish' ? 'finish' : instruction === 'Left' ? 'left' : instruction === 'Right' ? 'right' : 'straight';
+    const name = gate ? turn === 'finish' ? 'Finish line' : turn === 'left' ? 'Turn left' : turn === 'right' ? 'Turn right' : 'Straight ahead' : this.waypoint ? 'Your waypoint' : objective?.label || (offer ? CONTACTS[offer.giver].name : active?.def.title || 'Objective');
+    const label = race ? turn === 'finish' ? 'FINAL GATE' : `GATE ${race.checkpoint + 1} / ${race.course.checkpoints.length}` : this.waypoint ? 'WAYPOINT' : active ? 'MISSION ROUTE' : sim.activities.busy ? 'ACTIVITY ROUTE' : 'NEXT CONTACT';
+    const detail = gate ? gate.label.split(' · ').slice(1).join(' · ') || race!.course.name : '';
+    const text = `${label}:${name}:${detail}`;
     if (text !== this.navigationText) {
       this.navigationText = text;
       el.navName!.textContent = name;
       el.navLabel!.textContent = label;
+      el.navDetail!.textContent = detail;
+      el.navDetail!.classList.toggle('hidden', !detail);
+      el.navArrow!.innerHTML = navIcon(turn);
     }
     const p = sim.playerPos();
     const dx = target.x - p.x;
     const dz = target.z - p.z;
     const distance = Math.hypot(dx, dz);
-    const distanceText = distance < ROUTE_NEAR ? 'HERE' : distance >= 1000 ? `${(distance / 1000).toFixed(1)} km` : `${Math.round(distance)} m`;
+    const near = gate ? distance < gate.radius + 8 : distance < ROUTE_NEAR;
+    const distanceText = near ? race ? 'NOW' : 'HERE' : distance >= 1000 ? `${(distance / 1000).toFixed(1)} km` : `${Math.round(distance)} m`;
     if (el.navDistance!.textContent !== distanceText) el.navDistance!.textContent = distanceText;
-    el.navArrow!.style.transform = `rotate(${(-wrapAngle(Math.atan2(dx, dz) - camYaw) * 180 / Math.PI).toFixed(1)}deg)`;
-    el.navArrow!.style.color = target.color;
+    el.navArrow!.style.transform = race ? 'rotate(0deg)' : `rotate(${(-wrapAngle(Math.atan2(dx, dz) - camYaw) * 180 / Math.PI).toFixed(1)}deg)`;
+    el.navArrow!.style.color = race ? '#50f1d1' : target.color;
   }
 
   /** Speed, mechanical condition and a compact reminder of the controls for the current device. */

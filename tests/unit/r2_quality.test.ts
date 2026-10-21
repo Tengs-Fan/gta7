@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ContactShadows } from '../../src/render/contactShadows';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FLASH_SIZE } from '../../src/render/effects';
 import { Environment } from '../../src/render/environment';
@@ -333,12 +334,14 @@ describe('GameRenderer quality tiers', () => {
     expect(f.shadowMap.enabled).toBe(true);
     expect(r.env.sun.castShadow).toBe(true);
     expect(r.env.sun.shadow.mapSize.x).toBe(2048);
-    expect(f.effects.length).toBe(1);
-    expect(f.effects[0]).toBeInstanceOf(UnrealBloomPass);
-    const bloom = f.effects[0];
+    expect(f.effects.length).toBe(2);
+    expect(f.effects[0]).toBeInstanceOf(ContactShadows);
+    expect(f.effects[1]).toBeInstanceOf(UnrealBloomPass);
+    const contactDispose = vi.spyOn(f.effects[0] as ContactShadows, 'dispose');
+    const bloom = f.effects[1];
     let lights = visibleLights(r.scene);
     expect(lights.point.length).toBe(3); // siren, muzzle flash, explosion flash
-    expect(lights.spot.length).toBe(1); // the player's headlight
+    expect(lights.spot.length).toBe(7); // player's headlight and six nearby street lamps
 
     const bloomDispose = vi.spyOn(bloom as UnrealBloomPass, 'dispose');
     r.setQuality('low');
@@ -346,6 +349,7 @@ describe('GameRenderer quality tiers', () => {
     expect(r.env.sun.castShadow).toBe(false);
     expect(f.effects).toEqual([]);
     expect(bloomDispose).toHaveBeenCalledTimes(1); // its render targets are freed on Low
+    expect(contactDispose).toHaveBeenCalledTimes(1);
     lights = visibleLights(r.scene);
     expect(lights.point.length).toBe(0);
     expect(lights.spot.length).toBe(0);
@@ -363,16 +367,19 @@ describe('GameRenderer quality tiers', () => {
     r.setQuality('high');
     expect(f.shadowMap.enabled).toBe(true);
     expect(r.env.sun.castShadow).toBe(true);
-    expect(f.effects.length).toBe(1);
-    expect(f.effects[0]).toBeInstanceOf(UnrealBloomPass);
-    expect(f.effects[0]).not.toBe(bloom);
+    expect(f.effects.length).toBe(2);
+    expect(f.effects[0]).toBeInstanceOf(ContactShadows);
+    expect(f.effects[1]).toBeInstanceOf(UnrealBloomPass);
+    expect(f.effects[1]).not.toBe(bloom);
     expect(visibleLights(r.scene).point.length).toBe(3);
-    expect(visibleLights(r.scene).spot.length).toBe(1);
+    expect(visibleLights(r.scene).spot.length).toBe(7);
   });
 
   it("setQuality('medium') caps the dynamic point lights at 2, given to the brightest nearby sources", () => {
     const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
     r.setQuality('medium');
+    expect(fakeOf(r).effects).toHaveLength(1);
+    expect(fakeOf(r).effects[0]).toBeInstanceOf(UnrealBloomPass);
     expect(r.env.sun.shadow.mapSize.x).toBe(1024);
     expect(fakeOf(r).shadowMap.enabled).toBe(true);
     expect(visibleLights(r.scene).point.length).toBe(2);
@@ -639,7 +646,7 @@ describe('coloured lamps with and without bloom', () => {
 
   it('with bloom every lit lamp is bright enough to bloom, so its halo carries the colour', () => {
     const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
-    const bloom = fakeOf(r).effects[0] as UnrealBloomPass;
+    const bloom = fakeOf(r).effects.find((e) => e instanceof UnrealBloomPass) as UnrealBloomPass;
     expect(bloom).toBeInstanceOf(UnrealBloomPass);
     for (const st of ['red', 'yellow', 'green'] as const) expect(lum(litBulb(r, st)), st).toBeGreaterThan(bloom.threshold);
     const lamps = nightLamps(r);

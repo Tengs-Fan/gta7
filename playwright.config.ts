@@ -3,7 +3,7 @@ import { defineConfig } from '@playwright/test';
 // Hardware GPU through ANGLE/Vulkan by default; set GTA7_SWIFTSHADER=1 on machines without a GPU.
 const gpuArgs = process.env.GTA7_SWIFTSHADER
   ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']
-  : ['--use-angle=vulkan', '--enable-gpu', '--ignore-gpu-blocklist'];
+  : [`--use-angle=${process.env.GTA7_ANGLE ?? 'vulkan'}`, '--enable-gpu', '--ignore-gpu-blocklist'];
 
 // GTA7_PORT lets several checkouts run the suite side by side: with it set, every run builds and
 // serves its own checkout (GTA7_REUSE=1 reuses a server already on the port, which must serve
@@ -22,7 +22,7 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${port}`,
     viewport: { width: 1280, height: 720 },
-    launchOptions: { args: [...gpuArgs, '--autoplay-policy=no-user-gesture-required'] },
+    launchOptions: { executablePath: process.env.GTA7_BROWSER, args: [...gpuArgs, '--autoplay-policy=no-user-gesture-required'] },
     screenshot: 'only-on-failure',
   },
   webServer: {
