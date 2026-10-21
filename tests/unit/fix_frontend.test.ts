@@ -12,6 +12,7 @@ import { Input, KeyLabels, type FrameInput, type UiActions } from '../../src/inp
 import { CameraController } from '../../src/render/camera';
 import { writeGame, type Settings } from '../../src/settings';
 import type { Vehicle } from '../../src/sim/entities';
+import { missionSpots } from '../../src/sim/missions/spots';
 import { Progress, serialize } from '../../src/sim/progress';
 import { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
@@ -1430,7 +1431,7 @@ describe('key names follow the keyboard layout', () => {
     expect(rows['Move / Drive']).toBe('Z Q S D');
     expect(rows['Weapons']).toBe('1-6, A, wheel');
     // M works on its printed key too (letter alias), and the other shortcuts sit where QWERTY has them.
-    expect([rows['Map'], rows['Enter / Exit vehicle'], rows['Interact / Horn'], rows['Reload / Next radio'], rows['Taxi / Vigilante job'], rows['Camera distance'], rows['Pause']]).toEqual(['M', 'F', 'E', 'R', 'T', 'V', 'Esc / P']);
+    expect([rows['Map'], rows['Enter / Exit vehicle'], rows['Interact / Horn'], rows['Reload / Next radio'], rows['Side job / Street run'], rows['Camera distance'], rows['Pause']]).toEqual(['M', 'F', 'E', 'R', 'T', 'V', 'Esc / P']);
   });
 
   it('every label names a key that really does the job (AZERTY, Dvorak, Colemak, Colemak-DH)', async () => {
@@ -4524,5 +4525,198 @@ describe('R2 fixes: the title flyover listener', () => {
       yaws.push(L.yaw);
     }
     expect(Math.abs(wrapAngle(yaws[2]! - yaws[0]!))).toBeGreaterThan(0.1);
+  });
+});
+
+// San Azura presentation: navigation, driving feedback and real-time event priority.
+describe('San Azura driving HUD', () => {
+  function rig() {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    const update = (dt = 1 / 60, yaw = 0) => hud.update(dt, sim, yaw, false, null, sim.time);
+    return { hud, el, sim, update };
+  }
+
+  it('navigation follows the waypoint distance and camera bearing, then resumes the contact route on arrival', () => {
+    const { hud, el, sim, update } = rig();
+    const p = sim.playerPos();
+    hud.waypoint = { x: p.x, z: p.z + 300 };
+    update();
+    expect(el.navName!.textContent).toBe('Your waypoint');
+    expect(el.navDistance!.textContent).toBe('300 m');
+    expect(el.navArrow!.style.transform).toBe('rotate(0.0deg)');
+    update(1 / 60, Math.PI / 2);
+    expect(el.navArrow!.style.transform).toBe('rotate(90.0deg)');
+    hud.waypoint = { x: p.x, z: p.z + 10 };
+    update();
+    expect(hud.waypoint).toBe(null);
+    expect(el.navName!.textContent).toBe('Mama Lou');
+    expect(el.toast!.textContent).toBe('Waypoint reached');
+  });
+
+  it('speed and condition describe the occupied car; controls follow the device and change back on exit', () => {
+    const { hud, el, sim, update } = rig();
+    const rp = roadPoint(sim);
+    const car = sim.spawnVehicle('sports', rp.x, rp.z, rp.heading);
+    placeInCar(sim, car);
+    car.speed = 25;
+    car.health = car.spec.health * 0.2;
+    update();
+    expect(el.drive!.classList.contains('hidden')).toBe(false);
+    expect(el.speed!.textContent).toBe('090');
+    expect(el.condition!.textContent).toBe('20%');
+    expect(el.drive!.classList.contains('damaged')).toBe(true);
+    expect(el.quickControls!.innerHTML).toContain('<kbd>Space</kbd> Handbrake');
+    hud.device = 'pad';
+    update();
+    expect(el.quickControls!.innerHTML).toContain('pad-rt');
+    expect(el.quickControls!.innerHTML).toContain('pad-rb');
+    expect(el.quickControls!.innerHTML).not.toContain('<kbd>Space</kbd>');
+    sim.unseat(sim.player);
+    update();
+    expect(el.drive!.classList.contains('hidden')).toBe(true);
+    expect(el.quickControls!.innerHTML).toContain('Enter car');
+    expect(el.quickControls!.innerHTML).not.toContain('Handbrake');
+  });
+
+  it('countdown events replace queued titles immediately and GO expires without replaying old titles', () => {
+    const { el, sim, update } = rig();
+    sim.events.emit('big', { text: 'OLD TITLE', sub: '', style: 'title', duration: 4 });
+    sim.events.emit('streetRunCountdown', { count: 3 });
+    expect(el.bigT!.textContent).toBe('3');
+    expect(el.big!.classList.contains('countdown')).toBe(true);
+    sim.events.emit('streetRunCountdown', { count: 1 });
+    expect(el.bigT!.textContent).toBe('1');
+    sim.events.emit('streetRunCountdown', { count: 0 });
+    expect(el.bigT!.textContent).toBe('GO');
+    update(1.2);
+    update();
+    expect(el.big!.classList.contains('show')).toBe(false);
+    expect(el.bigT!.textContent).toBe('GO');
+  });
+
+  it('activity objectives persist between announcements and disappear when the activity ends', () => {
+    const { el, sim, update } = rig();
+    const course = sim.activities.streetRunCourses()[0]!;
+    placeInCar(sim, sim.spawnVehicle('sports', course.start.x, course.start.z, course.start.heading));
+    expect(sim.activities.startStreetRun(course.id)).toBe(true);
+    sim.events.emit('objective', { text: 'Gate 1 / 13' });
+    update(8);
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    expect(el.objective!.textContent).toBe('Gate 1 / 13');
+    sim.events.emit('objective', { text: '' });
+    update(8);
+    expect(sim.activities.busy).toBe(true);
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    sim.events.emit('objective', { text: 'Gate 2 / 13' });
+    update(8);
+    expect(el.objective!.textContent).toBe('Gate 2 / 13');
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    sim.activities.cancelAll('wasted');
+    update();
+    expect(el.objective!.classList.contains('show')).toBe(false);
+  });
+
+  it('the completed Wheels instruction stays cleared throughout the real hand-over and closing dialogue', () => {
+    const { el, sim, update } = rig();
+    expect(sim.missions.start('wheels', { retrying: true })).toBe(true);
+    step(sim, 0.1);
+    const mission = sim.missions.active!;
+    update(8);
+    expect(el.objective!.textContent).toBe('Steal a car');
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    const spots = missionSpots(sim.world);
+    placeInCar(sim, sim.spawnVehicle('sedan', spots.louBay.x, spots.louBay.z, spots.lou.heading + Math.PI));
+    step(sim, 0.1);
+    expect(sim.missions.active).toBe(mission);
+    expect(mission.won).toBe(true);
+    expect(mission.objectiveText).toBe('');
+    update(8);
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    step(sim, 1.6);
+    update(0.1);
+    expect(sim.missions.active).toBe(mission);
+    expect(el.subtitle!.textContent).toContain('Not bad, baby');
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    step(sim, 8);
+    update(8);
+    expect(sim.missions.active).toBe(null);
+    expect(el.objective!.classList.contains('show')).toBe(false);
+  });
+
+  it('an explicit mission clear is respected; failure, retry and abandon never resurrect an old objective', () => {
+    const { el, sim, update } = rig();
+    expect(sim.missions.start('wheels', { retrying: true })).toBe(true);
+    step(sim, 0.1);
+    const mission = sim.missions.active!;
+    update(8);
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    mission.objective('');
+    update(8);
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    mission.objective('Old attempt instruction');
+    mission.fail('The job went wrong.');
+    step(sim, 0.1);
+    update(8);
+    expect(sim.missions.retryOffer()?.id).toBe('wheels');
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    expect(sim.missions.retryNow()).toBe(true);
+    step(sim, 0.8);
+    update(8);
+    expect(sim.missions.active).not.toBe(mission);
+    expect(el.objective!.textContent).toBe('Steal a car');
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    sim.missions.abandon();
+    step(sim, 0.1);
+    update(8);
+    expect(sim.missions.active).toBe(null);
+    expect(sim.missions.retryOffer()).toBe(null);
+    expect(el.objective!.classList.contains('show')).toBe(false);
+  });
+
+  it('a finish shows its medal, precise time and personal best immediately, without duplicating the queued result', () => {
+    const { el, sim, update } = rig();
+    sim.events.emit('big', { text: 'SILVER FINISH', sub: 'old compact result', style: 'passed', duration: 6 });
+    sim.events.emit('streetRunFinished', { id: 'magnolia', time: 72.34, medal: 'silver', personalBest: true, reward: 700 });
+    expect(el.bigT!.textContent).toBe('SILVER FINISH');
+    expect(el.big!.classList.contains('silver')).toBe(true);
+    expect(el.bigS!.textContent).toContain('1:12.3');
+    expect(el.bigS!.textContent).toContain('NEW PERSONAL BEST');
+    update(6.1);
+    update();
+    expect(el.big!.classList.contains('show')).toBe(false);
+  });
+
+  it('the course picker shows saved bests and starts the selected course', () => {
+    const startStreetRun = vi.fn();
+    const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, stubHost({
+      startStreetRun,
+      streetRunCourses: () => [{ id: 'coastline', title: 'Coastline Circuit', description: 'Along the water.', target: 85, best: 80.5, distance: 1400, reward: 1400 }],
+    }), new MapImage(world()));
+    menus.showTitle();
+    (menus.top!.el as unknown as FakeElement).all().find(e => e.dataset.id === 'street-run')!.click();
+    expect(startStreetRun).not.toHaveBeenCalled();
+    const course = (menus.top!.el as unknown as FakeElement).all().find(e => e.dataset.id === 'course-coastline')!;
+    expect(course.dataset.description).toContain('BEST 1:20.5');
+    expect(course.dataset.description).toContain('1.4 KM');
+    course.click();
+    expect(startStreetRun).toHaveBeenCalledWith('coastline');
+  });
+
+  it('software rendering explains the performance limit without promising anti-aliasing after reload', () => {
+    const base = stubHost();
+    const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, stubHost({
+      settings: () => ({ ...base.settings(), quality: 'high' }),
+      quality: () => ({ auto: 'low', msaa: false, software: true }),
+    }), new MapImage(world()));
+    menus.showSettings();
+    const note = (menus.top!.el as unknown as FakeElement).all().find(e => e.classList.contains('setting-note'))!;
+    expect(note.textContent).toContain('Hardware acceleration improves performance');
+    expect(note.textContent).not.toContain('reload');
+    menus.input({ left: true } as UiActions, 0.3);
+    expect(note.textContent).toContain('Software rendering detected');
+    expect(note.classList.contains('hidden')).toBe(false);
   });
 });

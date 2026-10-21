@@ -7,7 +7,8 @@ import type { BigStyle, SimEvents } from '../sim/events';
 import type { MissionDef } from '../sim/missions/runner';
 import type { Sim } from '../sim/sim';
 import { WEAPONS, type WeaponId } from '../sim/specs';
-import { formatKeys, type InputDevice } from './glyphs';
+import { formatRunTime } from '../sim/streetRuns';
+import { formatKeys, padGlyph, type InputDevice } from './glyphs';
 import { collectBlips, drawBlip, drawPoliceOverlay, gpsRoute, MAP_SCALE, type Blip, type MapImage } from './mapRender';
 
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 1.8l3.1 6.6 7.2.9-5.3 5 1.4 7.2L12 18l-6.4 3.5L7 14.3l-5.3-5 7.2-.9z"/></svg>';
@@ -152,12 +153,17 @@ export class Hud {
   /** Window size and pixel ratio the radar's backing store was sized for, and its scale from RADAR_SIZE. */
   private radarFit = '';
   private radarScale = 1;
+  /** Side-job objectives keep their last announced step visible until the job ends. */
+  private activityObjective = '';
+  private controlMode = '';
+  private navigationText = '';
 
   constructor(parent: HTMLElement, private readonly map: MapImage, private readonly keys = new KeyLabels()) {
     this.root = document.createElement('div');
     this.root.className = 'hud';
     this.root.innerHTML = `
       <div class="vignette" data-el="vignette"></div>
+      <div class="district"><span>SAN AZURA</span><b data-el="district"></b></div>
       <div class="hud-tr">
         <div class="hud-row"><div class="clock" data-el="clock">00:00</div><div class="weapon" data-el="weapon"><span data-el="wicon"></span><span class="ammo" data-el="ammo"></span></div></div>
         <div class="bars"><div class="bar health" data-el="hbar"><i data-el="health"></i></div><div class="bar armor" data-el="abar"><i data-el="armor"></i></div></div>
@@ -169,6 +175,18 @@ export class Hud {
         <div class="scanner" data-el="scanner"></div>
       </div>
       <div class="radar"><canvas width="220" height="220" data-el="radar"></canvas></div>
+      <div class="navigation hidden" data-el="navigation">
+        <span class="nav-arrow" data-el="navArrow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 17-8-5-8 5z"/></svg></span>
+        <div class="nav-copy"><span data-el="navLabel">NEXT STOP</span><b data-el="navName"></b></div>
+        <strong data-el="navDistance"></strong>
+      </div>
+      <div class="drive-panel hidden" data-el="drive">
+        <div class="drive-name" data-el="vname"></div>
+        <div class="drive-speed"><strong data-el="speed">000</strong><span>KM/H</span></div>
+        <div class="drive-condition"><span data-el="conditionLabel">CONDITION</span><b data-el="condition"></b></div>
+        <div class="drive-meter"><i data-el="conditionFill"></i></div>
+      </div>
+      <div class="quick-controls" data-el="quickControls"></div>
       <div class="help" data-el="help"></div>
       <div class="radio" data-el="radio"></div>
       <div class="prompt hidden" data-el="prompt"></div>
@@ -199,6 +217,7 @@ export class Hud {
     const ev = sim.events;
     // A finished mission's or rampage's last objective must not linger next to its PASSED / FAILED.
     const clearObjective = () => {
+      this.activityObjective = '';
       this.timers.objective = 0;
       this.el.objective!.classList.remove('show');
     };
@@ -221,6 +240,7 @@ export class Hud {
         if (this.helpCur?.kind === 'hint' && !this.helpCur.read) this.interruptHint();
       }),
       ev.on('objective', (e) => {
+        this.activityObjective = e.text;
         this.el.objective!.classList.remove('next');
         // An empty objective (one just reached) leaves at once instead of lingering under the dialogue.
         if (!e.text) {
@@ -237,6 +257,25 @@ export class Hud {
           this.bigQueue = [];
           this.showBig(e);
         } else this.bigQueue.push(e);
+      }),
+      // Countdown beats are tied to simulation time. They replace a title immediately;
+      // queuing them behind that title would say GO after the car was already released.
+      ev.on('streetRunCountdown', (e) => {
+        const j = sim.activities.job;
+        this.bigQueue = [];
+        this.showBig({ text: e.count === 0 ? 'GO' : String(e.count), sub: j?.kind === 'streetRun' ? j.course.name : 'STREET RUN', style: 'info', duration: e.count === 0 ? 1.1 : 1.2 });
+        this.el.big!.classList.add('countdown');
+      }),
+      ev.on('streetRunCheckpoint', (e) => {
+        if (e.index < e.total) this.toast(`GATE ${e.index}/${e.total}  ·  ${formatRunTime(e.elapsed)}`);
+      }),
+      ev.on('streetRunFinished', (e) => {
+        const text = `${e.medal.toUpperCase()} FINISH`;
+        const course = sim.activities.streetRunCourses().find((c) => c.id === e.id);
+        this.bigQueue = this.bigQueue.filter((m) => m.text !== text);
+        this.showBig({ text, sub: '', style: 'passed', duration: 6 });
+        this.el.big!.classList.add('run-result', e.medal);
+        this.el.bigS!.innerHTML = `<strong class="result-clock">${formatRunTime(e.time)}</strong><span class="result-meta">${escapeHtml(course?.name ?? 'Street run')} · ${formatMoney(e.reward)}${e.personalBest ? ' · NEW PERSONAL BEST' : ''}</span>`;
       }),
       // A mission starting (a retry above all) makes any MISSION FAILED still up or waiting old news.
       ev.on('missionStarted', () => {
@@ -373,6 +412,11 @@ export class Hud {
     this.routeColor = '';
     this.routeWaypoint = null;
     this.jobRunning = sim.activities.busy;
+    this.activityObjective = '';
+    this.controlMode = '';
+    this.navigationText = '';
+    this.el.drive!.classList.add('hidden');
+    this.el.navigation!.classList.add('hidden');
     this.el.help!.classList.remove('hint');
     this.el.objective!.classList.remove('next');
     this.el.prompt!.classList.remove('card', 'lou', 'dex');
@@ -617,7 +661,7 @@ export class Hud {
     if (this.timers.radio <= 0) el.radio!.classList.remove('show');
     if (this.timers.toast <= 0) el.toast!.classList.remove('show');
     if (this.timers.delta <= 0) this.moneyDelta = 0;
-    const objText = sim.missions.active?.objectiveText ?? '';
+    const objText = sim.missions.active?.objectiveText ?? (sim.activities.busy ? this.activityObjective : '');
     if (objText && this.timers.objective <= 0 && this.timers.subtitle <= 0) {
       el.objective!.textContent = objText;
       el.objective!.classList.add('show');
@@ -707,6 +751,7 @@ export class Hud {
     if (zone !== this.shown.zone) {
       if (this.shown.zone) this.flashZone(zone, '');
       this.shown.zone = zone;
+      el.district!.textContent = zone;
     }
 
     // Prompt + crosshair.
@@ -728,7 +773,63 @@ export class Hud {
     this.updateHitFeedback(dt, camYaw);
 
     this.updateWaypoint(sim);
+    this.updateNavigation(sim, camYaw);
+    this.updateDriving(sim);
     this.drawRadar(sim, camYaw, time, dt);
+  }
+
+  /** A bearing and a real distance to the same destination used by the radar's route. */
+  private updateNavigation(sim: Sim, camYaw: number): void {
+    const target = this.routeGoal(sim);
+    const el = this.el;
+    el.navigation!.classList.toggle('hidden', !target || sim.playerDown);
+    if (!target) return;
+    const active = sim.missions.active;
+    const objective = [...(active?.markers ?? []), ...sim.activities.objectives()][0];
+    const offer = !active && !sim.activities.busy ? sim.missions.offers()[0] : undefined;
+    const name = this.waypoint ? 'Your waypoint' : objective?.label || (offer ? CONTACTS[offer.giver].name : active?.def.title || 'Objective');
+    const label = this.waypoint ? 'WAYPOINT' : active ? 'MISSION ROUTE' : sim.activities.busy ? 'ACTIVITY ROUTE' : 'NEXT CONTACT';
+    const text = `${label}:${name}`;
+    if (text !== this.navigationText) {
+      this.navigationText = text;
+      el.navName!.textContent = name;
+      el.navLabel!.textContent = label;
+    }
+    const p = sim.playerPos();
+    const dx = target.x - p.x;
+    const dz = target.z - p.z;
+    const distance = Math.hypot(dx, dz);
+    const distanceText = distance < ROUTE_NEAR ? 'HERE' : distance >= 1000 ? `${(distance / 1000).toFixed(1)} km` : `${Math.round(distance)} m`;
+    if (el.navDistance!.textContent !== distanceText) el.navDistance!.textContent = distanceText;
+    el.navArrow!.style.transform = `rotate(${(-wrapAngle(Math.atan2(dx, dz) - camYaw) * 180 / Math.PI).toFixed(1)}deg)`;
+    el.navArrow!.style.color = target.color;
+  }
+
+  /** Speed, mechanical condition and a compact reminder of the controls for the current device. */
+  private updateDriving(sim: Sim): void {
+    const v = sim.player.vehicle;
+    const el = this.el;
+    const inVehicle = !!v;
+    this.root.classList.toggle('in-vehicle', inVehicle);
+    el.drive!.classList.toggle('hidden', !v || sim.playerDown);
+    if (v) {
+      if (el.vname!.textContent !== v.spec.name) el.vname!.textContent = v.spec.name;
+      const speed = String(Math.round(v.speed * 3.6)).padStart(3, '0');
+      if (el.speed!.textContent !== speed) el.speed!.textContent = speed;
+      const condition = Math.max(0, Math.min(1, v.condition));
+      const conditionText = `${Math.round(condition * 100)}%`;
+      if (el.condition!.textContent !== conditionText) el.condition!.textContent = conditionText;
+      el.conditionFill!.style.transform = `scaleX(${condition})`;
+      el.drive!.classList.toggle('damaged', condition < 0.3);
+      el.conditionLabel!.textContent = condition < 0.3 ? 'CRITICAL DAMAGE' : 'CONDITION';
+    }
+    const mode = `${this.device}:${inVehicle}`;
+    if (mode === this.controlMode) return;
+    this.controlMode = mode;
+    const line = inVehicle
+      ? `<span>${this.device === 'pad' ? `${padGlyph('rt')} / ${padGlyph('lt')}` : '<kbd>W</kbd><kbd>S</kbd>'} Drive</span><span><kbd>Space</kbd> Handbrake</span><span><kbd>F</kbd> Exit</span>`
+      : '<span><kbd>Shift</kbd> Sprint</span><span><kbd>F</kbd> Enter car</span>';
+    el.quickControls!.innerHTML = formatKeys(`${line}<span><kbd>M</kbd> Map</span>`, this.device, { labels: this.keys, inVehicle });
   }
 
   /**

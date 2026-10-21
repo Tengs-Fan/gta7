@@ -14,7 +14,9 @@ import { Effects, FLASH_SIZE, WADE_MIN } from './effects';
 import { Environment } from './environment';
 import { MarkerView } from './markers';
 import { PropsView } from './props';
-import { FEW_POINT_LIGHTS, pixelRatioFor, probeGpu, QUALITY, type GpuProbe, type QualityTier } from './quality';
+import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier } from './quality';
+import { STATIC_CHUNK_SIZE } from './spatial';
+import { SoftwareMaterials } from './softwareMaterials';
 import { VehicleView, VehicleViewPool } from './vehicleView';
 
 export type Quality = QualityTier;
@@ -92,6 +94,8 @@ export class GameRenderer {
   private readonly siren: THREE.PointLight;
   private bloom: UnrealBloomPass | null = null;
   private readonly hdr: boolean;
+  readonly software: boolean;
+  private readonly softwareMaterials: SoftwareMaterials | null;
   /** Whether the context was created with MSAA: fixed for the page's life (see QUALITY). */
   readonly msaa: boolean;
   /** The dynamic point lights (siren, muzzle flash, explosion flash) as their owners drive them. */
@@ -116,12 +120,14 @@ export class GameRenderer {
   time = 0;
 
   constructor(canvas: HTMLCanvasElement, private readonly world: StaticWorld, settings: RenderSettings) {
-    this.hdr = (settings.gpu ?? probeGpu()).halfFloat;
+    const gpu = settings.gpu ?? probeGpu();
+    this.software = gpuClass(gpu.renderer) === 'software';
+    this.softwareMaterials = this.software ? new SoftwareMaterials() : null;
+    this.hdr = gpu.halfFloat && !this.software;
     // MSAA is a context attribute that also sizes three's internal HDR scene target, so it can only
-    // be chosen here, from the starting tier; setQuality() applies everything else live. The
-    // half-float output stays on every tier: the output pass applies the tone mapping and sRGB
-    // conversion that the custom sky and particle shaders rely on, so colours match across tiers.
-    this.msaa = QUALITY[settings.quality].msaa;
+    // be chosen here, from the starting tier. Hardware tiers keep the HDR output pass. Software
+    // GPUs use an LDR canvas, with the same tone mapping/sRGB conversion in each material shader.
+    this.msaa = QUALITY[settings.quality].msaa && !this.software;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: this.msaa,
@@ -139,10 +145,13 @@ export class GameRenderer {
     this.cameraCtl.baseFov = settings.fov;
 
     // Without half-float targets there is no environment map (three's PMREM needs them).
-    this.env = new Environment(this.scene, this.renderer, { hdr: this.hdr });
-    this.city = new CityView(world);
+    this.env = new Environment(this.scene, this.renderer, { hdr: this.hdr, software: this.software });
+    this.city = new CityView(world, STATIC_CHUNK_SIZE, this.software);
     this.props = new PropsView(world);
     this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group);
+    this.softwareMaterials?.apply(this.city.group);
+    this.softwareMaterials?.apply(this.props.group);
+    this.softwareMaterials?.apply(this.crowd.group);
 
     this.headlight = new THREE.SpotLight(0xfff4dc, 0, 70, 0.55, 0.55, 1.4);
     this.scene.add(this.headlight, this.headlight.target);
@@ -173,6 +182,7 @@ export class GameRenderer {
       const v = this.pool.acquire(kind);
       v.group.position.set(0, -50, 0);
       this.scene.add(v.group);
+      this.softwareMaterials?.apply(v.group);
       tmp.push(v);
     }
     // With the HDR output three draws the scene into its half-float target with tone mapping off and
@@ -196,7 +206,7 @@ export class GameRenderer {
   /** Applies a tier from the QUALITY table live (MSAA excepted, see the constructor). */
   setQuality(q: Quality): void {
     this.quality = q;
-    const t = QUALITY[q];
+    const t = QUALITY[this.software ? 'low' : q];
     this.renderer.shadowMap.enabled = t.shadows;
     this.env.setShadows(t.shadows);
     // The sky's cloud octaves and light tap follow the tier (compiled by the warm-up below).
@@ -302,7 +312,9 @@ export class GameRenderer {
     const w = Math.max(1, canvas.clientWidth || window.innerWidth);
     const h = Math.max(1, canvas.clientHeight || window.innerHeight);
     // Re-read on every resize: zooming or moving to another monitor changes devicePixelRatio.
-    const ratio = pixelRatioFor(this.quality, window.devicePixelRatio || 1);
+    const ratio = this.software
+      ? softwarePixelRatioFor(this.quality, w, h, window.devicePixelRatio || 1)
+      : pixelRatioFor(this.quality, window.devicePixelRatio || 1);
     if (ratio !== this.ratio) {
       this.ratio = ratio;
       this.renderer.setPixelRatio(ratio);
@@ -400,6 +412,11 @@ export class GameRenderer {
       }
       // Without a bloom halo the light bars, like the traffic lights, must carry their hue in the lamp itself.
       view.sync(v, dt, this.time, night, this.bloom !== null);
+      if (this.software) {
+        const cam = this.cameraCtl.camera.position;
+        view.setDistant(v.driver !== sim.player && (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2 > 32 * 32);
+      }
+      this.softwareMaterials?.apply(view.group);
       this.cullFar(view, v);
     }
     for (const [id, view] of this.vehicleViews) {
@@ -422,7 +439,7 @@ export class GameRenderer {
    * and the title sim has only a few dozen.
    */
   private cullFar(view: VehicleView, v: Vehicle): void {
-    const far = this.cameraCtl.mode === 'title' ? Infinity : QUALITY[this.quality].vehicleDistance;
+    const far = this.cameraCtl.mode === 'title' ? Infinity : QUALITY[this.software ? 'low' : this.quality].vehicleDistance;
     const cam = this.cameraCtl.camera.position;
     const plain = (v.owner === 'traffic' || v.owner === 'parked') && !v.destroyed && !v.burning && v.condition >= SMOKE_CONDITION;
     const hide = plain && (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2 > far * far;
@@ -539,6 +556,13 @@ export class GameRenderer {
     }
     this.effects.update(dt, this.time);
     this.syncLightPool();
+    if (this.software) {
+      // Culling ends at the fog horizon, where geometry has already faded into the sky.
+      this.city.cull(cam, 230);
+      this.props.visibility.update(cam.position.x, cam.position.z, 110);
+      this.softwareMaterials?.lighting(this.env.sun, this.env.hemi, this.env.envFill, cam);
+      this.softwareMaterials?.sync();
+    }
     this.renderer.info.reset();
     this.renderer.render(this.scene, cam);
   }
@@ -581,6 +605,7 @@ export class GameRenderer {
     canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.bloom?.dispose();
     this.env.dispose();
+    this.softwareMaterials?.dispose();
     this.renderer.dispose();
   }
 }

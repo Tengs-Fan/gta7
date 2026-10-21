@@ -2,6 +2,7 @@
 // orbit when wasted, slow flyover on the title screen. Collides with buildings.
 
 import * as THREE from 'three';
+import { rayAabb3 } from '../core/collision';
 import { clamp, damp, dampAngle, smoothstep, wrapAngle, type V3 } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import type { Sim } from '../sim/sim';
@@ -367,6 +368,9 @@ export class CameraController {
   private readonly bodyEuler = new THREE.Euler(0, 0, 0, 'YXZ');
   private readonly bodyTurn = new THREE.Quaternion();
   private readonly scratch = new THREE.Vector3();
+  private readonly vehicleRay = new THREE.Vector3();
+  /** Come back out gently after a bus or van moves away, but never travel through it. */
+  private vehicleBoom = Infinity;
   /** What closeBoom put on the on-foot camera beside its boom, while liftSight shortens that. */
   private readonly boomOff = new THREE.Vector3();
   /**
@@ -634,6 +638,9 @@ export class CameraController {
         }
       }
       if (onFoot) {
+        const vehicleStop = this.vehicleStop(sim, lookFrom, d, len);
+        this.vehicleBoom = Math.min(vehicleStop, this.vehicleBoom + 6 * dt);
+        reach = Math.min(reach, this.vehicleBoom);
         this.huggingNow.clear();
         const stop = trunkStop(sim, lookFrom, d, len, this.hugging, this.stillFor < HUG_HOLD, this.heldBy, this.huggingNow);
         const cur = Math.min(this.trunkReach, len);
@@ -666,6 +673,7 @@ export class CameraController {
     }
     this.boom = len > 0.01 ? Math.min(1, reach / len) : 1;
     if (!onFoot) {
+      this.vehicleBoom = Infinity;
       this.trunkReach = Infinity;
       this.hugging.clear();
       this.heldBy = -1;
@@ -904,6 +912,25 @@ export class CameraController {
     this.pitch = Math.asin(clamp(this.dir.y, -1, 1));
   }
 
+  /** The lens stays on the player's side of nearby vehicles, including tilted wrecks. */
+  private vehicleStop(sim: Sim, from: THREE.Vector3, dir: THREE.Vector3, length: number): number {
+    let reach = length;
+    const pad = 0.16;
+    for (const v of sim.vehicles) {
+      if (v.removed) continue;
+      const h = v.spec.height / 2;
+      const radius = Math.hypot(v.halfW, v.halfL, h);
+      if (Math.hypot(v.pos.x - from.x, v.pos.y + h - from.y, v.pos.z - from.z) > reach + radius + pad) continue;
+      const turn = this.bodyTurn.setFromEuler(this.bodyEuler.set(-v.pitch, v.heading, v.roll, 'YXZ')).invert();
+      const local = this.scratch.set(from.x - v.pos.x, from.y - v.pos.y - h, from.z - v.pos.z).applyQuaternion(turn);
+      const ray = this.vehicleRay.copy(dir).applyQuaternion(turn);
+      const t = rayAabb3(local.x, local.y, local.z, ray.x, ray.y, ray.z,
+        -v.halfW - pad, -h - pad, -v.halfL - pad, v.halfW + pad, h + pad, v.halfL + pad, reach);
+      if (t >= 0) reach = Math.max(0, t - 0.08);
+    }
+    return reach;
+  }
+
   private updateTitle(dt: number): void {
     this.titleT += dt;
     const a = this.titleT * 0.045 + 0.6;
@@ -1000,6 +1027,7 @@ export class CameraController {
     this.lastPitch = this.pitch;
     this.stillFor = Infinity;
     this.floorY = -Infinity;
+    this.vehicleBoom = Infinity;
     this.shoulderSide = 1;
     this.sideTarget = 1;
     this.glideOn = false;

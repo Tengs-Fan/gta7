@@ -804,8 +804,13 @@ describe('the camera and street trees (P21)', () => {
     props.group.traverse((o) => {
       if (o instanceof THREE.InstancedMesh && (o.material as THREE.Material).onBeforeCompile.toString().includes('vFadeWorld')) foliage.push(o);
     });
-    // Tree canopies, bushes and palm fronds.
-    expect(foliage.length).toBe(3);
+    // Spatial cells share the same three canopy/bush/frond geometries and materials. The
+    // dissolve remains one colour pass for each batch, with every foliage prop drawn once.
+    expect(new Set(foliage.map((mesh) => mesh.material)).size).toBe(3);
+    expect(new Set(foliage.map((mesh) => mesh.geometry)).size).toBe(3);
+    const drawnProps = foliage.flatMap((mesh) => mesh.userData.propIndices as number[]).sort((a, b) => a - b);
+    const expectedProps = world().layout.props.flatMap((p, i) => ['tree', 'bush', 'palm'].includes(p.kind) ? [i] : []);
+    expect(drawnProps).toEqual(expectedProps);
     for (const mesh of foliage) {
       const mat = mesh.material as THREE.MeshStandardMaterial;
       expect(mat.transparent).toBe(false);

@@ -93,7 +93,7 @@ export class Game {
   private titleUnmute = 0;
   private gfxTimer: ReturnType<typeof setTimeout> | null = null;
   /** Total real time spent in frames (for tests). */
-  readonly perf = { frameMs: 0, simMs: 0, renderMs: 0 };
+  readonly perf = { frameMs: 0, simMs: 0, renderMs: 0, frameIntervalMs: 0 };
   /** ?intro=0 in the URL, read once. */
   private readonly introOff = introOffByUrl();
   /** Seconds until Lou's opening call on a fresh game; not positive when no call is pending. */
@@ -175,6 +175,15 @@ export class Game {
     return {
       hasSave: () => loadGame() !== null,
       newGame: this.guard(() => this.newGame()),
+      startStreetRun: this.guard((id?: string) => this.startStreetRun(id)),
+      streetRunCourses: () => {
+        const records = loadGame()?.streetRuns;
+        return this.sim.activities.streetRunCourses().map((course) => ({
+          id: course.id, title: course.name, description: course.description,
+          best: records?.[course.id]?.bestTime, target: course.gold,
+          distance: course.distance, reward: course.reward,
+        }));
+      },
       continueGame: this.guard(() => this.continueGame()),
       resume: this.guard(() => this.resume()),
       quitToTitle: this.guard(() => this.quitToTitle()),
@@ -191,7 +200,7 @@ export class Game {
       }),
       waypoint: () => this.hud.waypoint,
       click: () => this.audio.chime('ui'),
-      quality: () => ({ auto: this.autoTier, msaa: this.renderer.msaa }),
+      quality: () => ({ auto: this.autoTier, msaa: this.renderer.msaa, software: this.renderer.software }),
     };
   }
 
@@ -261,6 +270,7 @@ export class Game {
         this.menus.showShop(this.guard(() => this.resume()));
       }),
       ev.on('saveRequested', (e) => this.save(e.poi === 'auto')),
+      ev.on('streetRunFinished', () => this.save(true)),
       ev.on('respawn', () => this.renderer.cameraCtl.reset(sim)),
       ev.on('missionStarted', () => {
         this.hud.waypoint = null;
@@ -309,6 +319,26 @@ export class Game {
   /** Starts a fresh game; Lou's opening call is on unless opts.intro is false or the URL has intro=0. */
   newGame(opts: { intro?: boolean } = {}): void {
     this.startSim(null, opts.intro !== false && !this.introOff);
+  }
+
+  /** A quick route into driving; keep the player's saved story, money and equipment. */
+  startStreetRun(courseId?: string): void {
+    this.startSim(loadGame(), false);
+    const sim = this.sim;
+    const courses = sim.activities.streetRunCourses();
+    const course = courses.find((c) => c.id === courseId) ?? courses[0];
+    if (!course) return;
+    const { x, z, heading } = course.start;
+    const car = sim.spawnVehicle('sports', x, z, heading, 0xf36c49);
+    sim.seat(sim.player, car, 0);
+    car.usedByPlayer = true;
+    sim.player.heading = heading;
+    sim.clock.set(18.1);
+    this.renderer.cameraCtl.reset(sim);
+    this.hud.waypoint = null;
+    this.hud.help('Street Runs: follow the glowing checkpoints. <kbd>W</kbd> accelerates, <kbd>S</kbd> brakes, <kbd>Space</kbd> handbrakes. Beat the clock and build your best time.', 8);
+    sim.activities.startStreetRun(course.id);
+    this.noteEvent('session', `street run: ${course.id}`);
   }
 
   /** The 'Next: ...' line, unless Lou's call is about to tell the player anyway. */
@@ -417,7 +447,8 @@ export class Game {
   private readonly frame = (now: number): void => {
     if (!this.running) return;
     requestAnimationFrame(this.frame);
-    const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000));
+    const elapsed = Math.max(0, (now - this.last) / 1000);
+    const dt = Math.min(0.1, elapsed);
     this.last = now;
     if (dt <= 0) return;
     const t0 = performance.now();
@@ -431,7 +462,8 @@ export class Game {
       this.crash(err);
     }
     this.frames++;
-    this.fpsTime += dt;
+    // Simulation clamps long frames for stable physics; performance must measure real elapsed time.
+    this.fpsTime += elapsed;
     this.fpsFrames++;
     if (this.fpsTime >= 1) {
       this.fps = this.fpsFrames / this.fpsTime;
@@ -439,6 +471,7 @@ export class Game {
       this.fpsFrames = 0;
     }
     this.perf.frameMs = performance.now() - t0;
+    this.perf.frameIntervalMs = elapsed * 1000;
   };
 
   /** One frame of game logic + rendering (also driven directly by tests). */
@@ -549,6 +582,7 @@ export class Game {
     if (!v || sim.activities.busy || sim.missions.active) return null;
     if (v.kind === 'taxi' && v.speed < 1) return 'Press T to start a taxi job';
     if (v.spec.police && v.speed < 1) return 'Press T to start a vigilante job';
+    if (v.drivable && !v.burning && v.speed < 1 && sim.wanted.level === 0) return 'Press T to start a street run';
     return null;
   }
 
@@ -801,6 +835,7 @@ export class Game {
       ev.on('wanted', (e) => note('wanted', `${e.previous} -> ${e.level}`)),
       ev.on('missionStarted', (e) => note('missionStarted', e.id)),
       ev.on('missionEnded', (e) => note('missionEnded', `${e.id} ${e.passed ? 'passed' : 'failed'}`)),
+      ev.on('streetRunFinished', (e) => note('streetRunFinished', `${e.id} ${e.medal} ${e.time.toFixed(1)}s`)),
       ev.on('vehicleEnter', (e) => note('vehicleEnter', `${e.character.role} into ${e.vehicle.kind}${e.jacked ? ', jacked' : ''}`)),
       ev.on('vehicleExit', (e) => note('vehicleExit', `${e.character.role} out of ${e.vehicle.kind}`)),
       ev.on('characterKilled', (e) => note('characterKilled', `${e.victim.role} by ${e.killer?.role ?? 'nobody'}`)),

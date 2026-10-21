@@ -2,6 +2,15 @@
 // (de)serialisation. Validation is strict: corrupted saves never crash the game.
 
 import { WEAPONS, type WeaponId } from './specs';
+import { STREET_RUN_IDS, type StreetRunId, type StreetRunMedal } from './streetRuns';
+
+export interface StreetRunRecord {
+  bestTime: number;
+  medal: StreetRunMedal;
+  finishes: number;
+}
+
+export type StreetRunRecords = Partial<Record<StreetRunId, StreetRunRecord>>;
 
 export interface Stats {
   kills: number;
@@ -53,6 +62,7 @@ export class Progress {
   packages: number[] = [];
   stunts: number[] = [];
   rampages: string[] = [];
+  streetRuns: StreetRunRecords = {};
   stats: Stats = emptyStats();
 
   addMoney(amount: number): void {
@@ -100,6 +110,8 @@ export interface SaveData {
   packages: number[];
   stunts: number[];
   rampages: string[];
+  /** Added without bumping the save version: old saves simply have no records. */
+  streetRuns?: StreetRunRecords;
   stats: Stats;
   weapons: Array<{ id: WeaponId; ammo: number }>;
   armor: number;
@@ -116,6 +128,7 @@ export function serialize(p: Progress, weapons: Array<{ id: WeaponId; ammo: numb
     packages: [...p.packages],
     stunts: [...p.stunts],
     rampages: [...p.rampages],
+    streetRuns: copyRunRecords(p.streetRuns),
     stats: { ...p.stats },
     weapons: weapons.map((w) => ({ ...w })),
     armor,
@@ -134,6 +147,22 @@ function strArray(v: unknown, max = 200): string[] {
 
 function numArray(v: unknown, max = 200): number[] {
   return Array.isArray(v) ? [...new Set(v.filter((x): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 0 && x < 1000))].slice(0, max) : [];
+}
+
+/** Only authored ids and finite, complete records enter persistent progress. */
+function copyRunRecords(raw: unknown): StreetRunRecords {
+  const result: StreetRunRecords = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return result;
+  for (const id of STREET_RUN_IDS) {
+    if (!Object.hasOwn(raw, id)) continue;
+    const value = (raw as Record<string, unknown>)[id];
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const entry = value as Record<string, unknown>;
+    if (typeof entry.bestTime !== 'number' || !Number.isFinite(entry.bestTime) || entry.bestTime <= 0 || entry.bestTime > 3600) continue;
+    if (entry.medal !== 'gold' && entry.medal !== 'silver' && entry.medal !== 'bronze') continue;
+    result[id] = { bestTime: entry.bestTime, medal: entry.medal, finishes: Math.floor(num(entry.finishes, 1, 1e9, 1)) };
+  }
+  return result;
 }
 
 /** Parses untrusted save JSON. Returns null when it is unusable. */
@@ -164,6 +193,7 @@ export function parseSave(raw: unknown): SaveData | null {
     packages: numArray(o.packages),
     stunts: numArray(o.stunts),
     rampages: strArray(o.rampages),
+    streetRuns: copyRunRecords(o.streetRuns),
     stats,
     weapons,
     armor: num(o.armor, 0, 100, 0),
@@ -178,5 +208,6 @@ export function applySave(p: Progress, s: SaveData): void {
   p.packages = [...s.packages];
   p.stunts = [...s.stunts];
   p.rampages = [...s.rampages];
+  p.streetRuns = copyRunRecords(s.streetRuns);
   p.stats = { ...s.stats };
 }

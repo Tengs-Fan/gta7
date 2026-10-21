@@ -12,6 +12,7 @@ export function installDebugApi(game: Game): void {
     },
     /** New Game; { intro: false } skips Lou's opening call. */
     newGame: (opts?: { intro?: boolean }) => game.newGame(opts),
+    startStreetRun: (courseId?: string) => game.startStreetRun(courseId),
     state: () => {
       const sim = game.sim;
       const p = sim.player;
@@ -20,7 +21,7 @@ export function installDebugApi(game: Game): void {
         mode: game.mode,
         crashed: game.isCrashed,
         listenerErrors: game.sim.events.errors,
-        fps: Math.round(game.fps),
+        fps: Math.round(game.fps * 10) / 10,
         frames: game.frames,
         menuOpen: game.menus.open,
         player: { x: pos.x, y: pos.y, z: pos.z, state: p.state, health: p.health, armor: p.armor, weapon: p.inventory.current, vehicle: p.vehicle?.kind ?? null, speed: p.vehicle ? p.vehicle.speed : p.speed },
@@ -29,6 +30,8 @@ export function installDebugApi(game: Game): void {
         mission: sim.missions.active?.def.id ?? null,
         objective: sim.missions.active?.objectiveText ?? null,
         missionsDone: [...sim.progress.missionsDone],
+        activity: sim.activities.job?.kind ?? null,
+        activityStatus: sim.activities.status(),
         hours: sim.clock.hours,
         vehicles: sim.vehicles.length,
         police: sim.vehicles.filter((v) => v.owner === 'police').length,

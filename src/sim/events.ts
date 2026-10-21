@@ -1,6 +1,7 @@
 import type { DamageKind, HitZone } from './combat';
 import type { Character, PickupKind, Vehicle } from './entities';
 import type { WeaponId } from './specs';
+import type { StreetRunId, StreetRunMedal } from './streetRuns';
 
 export type BigStyle = 'title' | 'passed' | 'failed' | 'wasted' | 'busted' | 'stunt' | 'info';
 export type HitKind = 'none' | 'world' | 'flesh' | 'vehicle';
@@ -45,8 +46,12 @@ export interface SimEvents {
   scream: { x: number; y: number; z: number };
   missionStarted: { id: string; title: string };
   missionEnded: { id: string; passed: boolean };
-  /** A side activity (taxi, vigilante, rampage) is over, whatever the outcome. */
-  activityEnded: { kind: 'taxi' | 'vigilante' | 'rampage' };
+  /** A side activity is over, whatever the outcome. */
+  activityEnded: { kind: 'taxi' | 'vigilante' | 'rampage' | 'streetRun' };
+  streetRunCountdown: { count: 0 | 1 | 2 | 3 };
+  streetRunCheckpoint: { index: number; total: number; elapsed: number };
+  /** Emitted after cash and records are committed, so autosave sees the result. */
+  streetRunFinished: { id: StreetRunId; time: number; medal: StreetRunMedal; personalBest: boolean; reward: number };
   reload: { character: Character };
   fade: { duration: number };
 }

@@ -1,5 +1,5 @@
 // Static city geometry: terrain, roads, markings, sidewalks, buildings, roofs,
-// coast, piers, ramps, garages and signs. Everything is merged per material.
+// coast, piers, ramps, garages and signs. Spatial batches retain material sharing and culling.
 
 import * as THREE from 'three';
 import { clamp, clamp01 } from '../core/math';
@@ -11,6 +11,7 @@ import {
 } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB, type UvMode } from './geo';
+import { CulledStaticMesh, spatialGeometry, StaticVisibility } from './spatial';
 import {
   CELLS, CELL_DESIGN, DOOR_U, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
   facadeTextures, groundTexture, helipadTexture, signTexture, storefrontAtlas, storefrontUv, swatchUv,
@@ -169,7 +170,7 @@ function nightShader(mat: THREE.MeshStandardMaterial, key: string, uniforms: Rec
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSeed = aSeed;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\nflat varying float vSeed;\n${decl}\n${NIGHT_HASH}`)
-      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${main}`);
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\nif (dot(totalEmissiveRadiance, vec3(1.0)) > 0.001) ${main}`);
   };
   // Every material sharing this key gets identical GLSL (per-material values are uniforms), so they share one program.
   mat.customProgramCacheKey = () => key;
@@ -328,25 +329,49 @@ export class CityView {
   /** The drawn main door of every building with one, by building id (a special's stands in front of its POI marker). */
   readonly entrances = new Map<number, Entrance>();
   private readonly nightU: NightUniforms = { occupancy: { value: 0 }, shopOccupancy: { value: 0 }, time: { value: 0 } };
+  readonly visibility = new StaticVisibility();
+  private readonly softwareMeshes: CulledStaticMesh[] = [];
+  private readonly frustum = new THREE.Frustum();
+  private readonly projection = new THREE.Matrix4();
 
-  constructor(private readonly world: StaticWorld) {
+  constructor(private readonly world: StaticWorld, private readonly chunkSize = Infinity, private readonly software = false) {
     this.group.name = 'city';
     this.buildBuildings();
     this.buildGround();
     this.buildRoads();
     this.buildCoast();
     this.buildStructures();
+    this.group.traverse((o) => {
+      if (o instanceof THREE.Mesh && !(o instanceof CulledStaticMesh)) this.visibility.add(o);
+    });
   }
 
-  private add(geo: THREE.BufferGeometry, mat: THREE.Material, opts: { shadow?: boolean; receive?: boolean; name?: string } = {}): THREE.Mesh {
-    const m = new THREE.Mesh(geo, mat);
-    m.castShadow = opts.shadow ?? false;
-    m.receiveShadow = opts.receive ?? true;
-    m.matrixAutoUpdate = false;
-    m.updateMatrix();
-    if (opts.name) m.name = opts.name;
-    this.group.add(m);
-    return m;
+  cull(camera: THREE.Camera, distance: number): void {
+    camera.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    this.visibility.update(camera.position.x, camera.position.z, distance);
+    for (const mesh of this.softwareMeshes) mesh.prepare(this.frustum, camera.position.x, camera.position.z, distance);
+  }
+
+  private add(geo: THREE.BufferGeometry, mat: THREE.Material, opts: { shadow?: boolean; receive?: boolean; name?: string } = {}): void {
+    if (this.software) {
+      const mesh = new CulledStaticMesh(geo, mat, this.chunkSize);
+      mesh.name = opts.name ?? '';
+      this.group.add(mesh);
+      this.softwareMeshes.push(mesh);
+      return;
+    }
+    const parts = spatialGeometry(geo, this.chunkSize);
+    for (const part of parts) {
+      const m = new THREE.Mesh(part, mat);
+      m.castShadow = opts.shadow ?? false;
+      m.receiveShadow = opts.receive ?? true;
+      m.matrixAutoUpdate = false;
+      m.updateMatrix();
+      if (opts.name) m.name = opts.name;
+      this.group.add(m);
+    }
+    if (parts[0] !== geo) geo.dispose();
   }
 
   // ---------------------------------------------------------------------------

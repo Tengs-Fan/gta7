@@ -7,7 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Game } from '../../src/game';
 import { Input, type FrameInput } from '../../src/input/input';
-import { loadSettings } from '../../src/settings';
+import { loadGame, loadSettings, storeGame } from '../../src/settings';
+import { Progress, serialize } from '../../src/sim/progress';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { placeInCar, teleport } from './helpers';
@@ -1588,5 +1589,44 @@ describe('a tutorial hint goes once it no longer applies', () => {
     seconds(0.5);
     expect(sim.deathKind).toBe('wasted');
     expect(help()).not.toContain('Health is low');
+  });
+});
+
+describe('San Azura quick start and real frame timing', () => {
+  it('reports two FPS for half-second frames while retaining the physics time clamp', () => {
+    const { game } = playGame();
+    game.newGame({ intro: false });
+    const g = game as unknown as { frame(now: number): void };
+    const start = game.sim.time;
+    for (let i = 0; i < 4; i++) {
+      clock.now += 500;
+      g.frame(clock.now);
+    }
+    expect(game.fps).toBeCloseTo(2, 6);
+    expect(game.perf.frameIntervalMs).toBe(500);
+    expect(game.sim.time - start).toBeCloseTo(0.4, 5);
+  });
+
+  it('starts a street run at its start line with a sports car and keeps saved progression', () => {
+    const progress = new Progress();
+    progress.markDone('wheels');
+    progress.addMoney(1200);
+    const saved = serialize(progress, [{ id: 'pistol', ammo: 40 }], 30, 12, 3);
+    expect(storeGame(saved)).toBeNull();
+    const before = loadGame();
+    const { game, seconds } = playGame();
+    game.startStreetRun();
+    expect(game.mode).toBe('game');
+    expect(game.menus.open).toBe(false);
+    expect(game.sim.player.vehicle?.kind).toBe('sports');
+    expect(game.sim.activities.job?.kind).toBe('streetRun');
+    expect(game.sim.progress.missionsDone).toContain('wheels');
+    expect(game.sim.progress.money).toBe(saved.money);
+    expect(game.sim.player.inventory.has('pistol')).toBe(true);
+    expect(game.sim.player.armor).toBe(30);
+    expect(loadGame()).toEqual(before);
+    seconds(4);
+    expect(game.sim.missions.active).toBeNull();
+    expect(game.sim.activities.job?.kind).toBe('streetRun');
   });
 });

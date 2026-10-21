@@ -70,6 +70,37 @@ function glassHits(v: VehicleView, fromFront: boolean, x = 0): number[] {
 }
 
 describe('vehicle models', () => {
+  it('distant traffic preserves vehicle dimensions in one draw and restores the articulated model', () => {
+    for (const kind of KINDS) {
+      const v = view(kind);
+      const count = () => {
+        let meshes = 0;
+        let triangles = 0;
+        v.group.traverseVisible((o) => {
+          if (o instanceof THREE.Mesh) {
+            meshes++;
+            triangles += (o.geometry.index?.count ?? o.geometry.getAttribute('position').count) / 3;
+          }
+        });
+        return { meshes, triangles };
+      };
+      const full = count();
+      v.setDistant(true);
+      const far = count();
+      expect(far.meshes, kind).toBe(1);
+      expect(far.triangles, kind).toBeLessThan(full.triangles * 0.6);
+      const mesh = v.group.getObjectByName('distant-vehicle') as THREE.Mesh;
+      mesh.geometry.computeBoundingBox();
+      const size = mesh.geometry.boundingBox!.getSize(new THREE.Vector3());
+      expect(size.x, kind).toBeGreaterThanOrEqual(VEHICLE_SPECS[kind].width - 1e-5);
+      expect(size.z, kind).toBeGreaterThanOrEqual(VEHICLE_SPECS[kind].length - 1e-5);
+      expect(size.x, kind).toBeLessThan(VEHICLE_SPECS[kind].width + 0.3);
+      expect(size.z, kind).toBeLessThan(VEHICLE_SPECS[kind].length + 0.3);
+      v.setDistant(false);
+      expect(count(), kind).toEqual(full);
+    }
+  });
+
   it('every vehicle shows its windshield to a ray from 6 m in front, box-shaped ones included', () => {
     for (const kind of KINDS) {
       const hits = glassHits(view(kind), true);

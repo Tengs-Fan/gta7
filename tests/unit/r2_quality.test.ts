@@ -310,6 +310,23 @@ describe('GameRenderer quality tiers', () => {
     expect(made[0]!.msaa).toBe(false);
   });
 
+  it('software GPUs use LDR and diffuse surfaces while preserving the display colour pipeline', () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'low', fov: 68, gpu: { renderer: 'ANGLE SwiftShader', halfFloat: true } });
+    const f = fakeOf(r);
+    expect(r.software).toBe(true);
+    expect(f.params.outputBufferType).toBe(THREE.UnsignedByteType);
+    expect(f.params.antialias).toBe(false);
+    expect(r.scene.environment).toBeNull();
+    expect(r.env.envFill).not.toBeNull();
+    expect(f.toneMapping).toBe(THREE.ACESFilmicToneMapping);
+    expect(f.outputColorSpace).toBe(THREE.SRGBColorSpace);
+    const facade = r.city.group.getObjectByName('facade-office') as THREE.Mesh;
+    expect(facade.material).toBeInstanceOf(THREE.MeshLambertMaterial);
+    r.render(1 / 60, false);
+    expect(r.env.fog.far).toBeLessThanOrEqual(330);
+    r.dispose();
+  });
+
   it("setQuality('low') disables the shadow map, bloom and every dynamic light; High brings them back", () => {
     const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
     const f = fakeOf(r);

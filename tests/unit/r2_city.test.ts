@@ -797,16 +797,14 @@ describe('round 2 fix: the camera and street trees', () => {
     props.group.traverse((o) => {
       if (o instanceof THREE.InstancedMesh && (o.material as THREE.Material).onBeforeCompile.toString().includes('vFadeWorld')) meshes.push(o);
     });
-    const byKind = { tree: world().layout.props.filter((q) => q.kind === 'tree'), bush: world().layout.props.filter((q) => q.kind === 'bush') };
     let checked = 0;
-    for (const mesh of meshes) {
-      const kind = mesh.count === byKind.tree.length ? 'tree' : mesh.count === byKind.bush.length ? 'bush' : null;
-      if (!kind) continue;
-      const pos = mesh.geometry.getAttribute('position');
+    for (const kind of ['tree', 'bush'] as const) {
+      const instances = meshes.flatMap((mesh) => (mesh.userData.propIndices as number[]).map((pi, k) => ({ mesh, k, q: world().layout.props[pi]! }))).filter(({ q }) => q.kind === kind);
       const m = new THREE.Matrix4();
       const v = new THREE.Vector3();
-      for (const k of [0, 7, Math.floor(mesh.count / 2), mesh.count - 1]) {
-        const q = byKind[kind][k]!;
+      for (const sample of [0, 7, Math.floor(instances.length / 2), instances.length - 1]) {
+        const { mesh, k, q } = instances[sample]!;
+        const pos = mesh.geometry.getAttribute('position');
         mesh.getMatrixAt(k, m);
         const spheres = foliageSpheres(q);
         const points = foliagePoints(q);

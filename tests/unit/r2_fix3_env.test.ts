@@ -458,9 +458,8 @@ describe('city and prop geometry', () => {
   it('street-lamp pools stay on the deck or the land under their lamp', () => {
     const W = world();
     const priv = props as unknown as { poolMat: THREE.Material };
-    const pools = props.group.children.find((o) => o instanceof THREE.InstancedMesh && o.material === priv.poolMat) as THREE.InstancedMesh;
-    expect(pools).toBeTruthy();
-    const clip = pools.geometry.getAttribute('aClip') as THREE.InstancedBufferAttribute | undefined;
+    const batches = props.group.children.filter((o) => o instanceof THREE.InstancedMesh && o.material === priv.poolMat) as THREE.InstancedMesh[];
+    expect(batches.length).toBeGreaterThan(0);
     /** Glow weight of the pool texture (textures.ts glowTexture) at a radius over the half size. */
     const glow = (r: number) => (r <= 0.35 ? 1 - (0.55 * r) / 0.35 : r <= 1 ? 0.45 * (1 - (r - 0.35) / 0.65) : 0);
     const m = new THREE.Matrix4();
@@ -470,7 +469,9 @@ describe('city and prop geometry', () => {
     let worst = 0;
     let worstAt = '';
     let pier = 0;
-    for (let i = 0; i < pools.count; i++) {
+    for (const pools of batches) {
+      const clip = pools.geometry.getAttribute('aClip') as THREE.InstancedBufferAttribute | undefined;
+      for (let i = 0; i < pools.count; i++) {
       pools.getMatrixAt(i, m);
       m.decompose(pos, q, sc);
       const [x0, z0, x1, z1] = clip ? [clip.getX(i), clip.getY(i), clip.getZ(i), clip.getW(i)] : [-Infinity, -Infinity, Infinity, Infinity];
@@ -497,6 +498,7 @@ describe('city and prop geometry', () => {
         worstAt = `pool ${i} at (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`;
       }
     }
+      }
     expect(pier).toBe(16);
     expect(worst, `largest share of a pool's light hanging in the air: ${worstAt}`).toBeLessThan(0.03);
   });

@@ -512,7 +512,7 @@ function addInterior(b: GeoBuilder, prof: Profile, kind: VehicleKind, c: CabinLa
  * in a car body; a burnt-out wreck, whose glass is gone, keeps them as an empty frame. The cabin profile runs
  * front-bottom, front-top, rear-top, rear-bottom.
  */
-function addRoof(b: GeoBuilder, prof: Profile, kind: VehicleKind, c: CabinLayout): void {
+function addRoof(b: GeoBuilder, prof: Profile, kind: VehicleKind, c: CabinLayout, coarse = false): void {
   const s = VEHICLE_SPECS[kind];
   const cabinHalf = s.width / 2 - prof.cabinInset;
   const [fb, ft, rt, rb] = prof.cabin as [Pt, Pt, Pt, Pt];
@@ -522,7 +522,7 @@ function addRoof(b: GeoBuilder, prof: Profile, kind: VehicleKind, c: CabinLayout
   // computeLayout), framed by rails from the panel to the C pillars.
   const z0 = c.roof.z0;
   const roof: Pt[] = [[z0, top - 0.015], [ft[0] + 0.03, top - 0.015], [ft[0] + 0.03, top + 0.035], [z0, top + 0.035]];
-  addPrism(b, roof, { width: 2 * (cabinHalf + 0.012), bevel: 0.012, steps: 6, maxEdge: 0.2, steiner: 0 });
+  addPrism(b, roof, { width: 2 * (cabinHalf + 0.012), bevel: 0.012, steps: coarse ? 1 : 6, maxEdge: coarse ? 2 : 0.2, steiner: 0 });
   for (const side of [-1, 1]) {
     const x0 = side < 0 ? -(cabinHalf + 0.012) : cabinHalf - 0.06;
     const x1 = side < 0 ? -(cabinHalf - 0.06) : cabinHalf + 0.012;
@@ -548,10 +548,11 @@ interface KindAssets {
   prof: Profile;
 }
 
-const assets = new Map<VehicleKind, KindAssets>();
+const assets = new Map<string, KindAssets>();
 
-function kindAssets(kind: VehicleKind): KindAssets {
-  let a = assets.get(kind);
+function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
+  const key = `${kind}:${coarse}`;
+  let a = assets.get(key);
   if (a) return a;
   const s = VEHICLE_SPECS[kind];
   const prof = profile(kind);
@@ -570,14 +571,14 @@ function kindAssets(kind: VehicleKind): KindAssets {
   };
   const box = prof.cabinInset < 0;
   // Vertex spacing that dents can bend; coarser on the big vehicles.
-  const spacing = s.length > 8 ? 0.45 : s.length > 5 ? 0.3 : 0.2;
+  const spacing = coarse ? 2 : s.length > 8 ? 0.45 : s.length > 5 ? 0.3 : 0.2;
   const bb = new GeoBuilder();
   addPrism(bb, pts, {
     width: s.width,
     bevel: BEVEL,
-    steps: 4,
+    steps: coarse ? 1 : 4,
     maxEdge: spacing,
-    steiner: spacing,
+    steiner: coarse ? 0 : spacing,
     extraX: prof.panes.flatMap((w) => [w.x0, w.x1]),
     // Side windows of box-shaped vehicles: dark backing behind the glass, cut into the flanks.
     holes: box ? [prof.cabin, ...prof.ports] : [],
@@ -603,12 +604,12 @@ function kindAssets(kind: VehicleKind): KindAssets {
   }
   const layout = cabinLayout(kind);
   if (layout) {
-    addInterior(bb, prof, kind, layout);
-    addRoof(bb, prof, kind, layout);
+    if (!coarse) addInterior(bb, prof, kind, layout);
+    addRoof(bb, prof, kind, layout, coarse);
   }
   const body = bb.build();
   const gb = new GeoBuilder();
-  for (const glass of [prof.cabin, ...prof.ports]) addPrism(gb, glass, { width: s.width - prof.cabinInset * 2, bevel: prof.cabinInset > 0 ? 0.05 : 0.01, steps: 4, maxEdge: spacing, steiner: spacing });
+  for (const glass of [prof.cabin, ...prof.ports]) addPrism(gb, glass, { width: s.width - prof.cabinInset * 2, bevel: prof.cabinInset > 0 ? 0.05 : 0.01, steps: coarse ? 1 : 4, maxEdge: spacing, steiner: coarse ? 0 : spacing });
   for (const w of prof.panes) {
     // Glass over the window's dark backing: outward from the profile by the bevel plus a gap.
     const dx = w.b[0] - w.a[0];
@@ -621,13 +622,13 @@ function kindAssets(kind: VehicleKind): KindAssets {
     addPanel(gb, o, u, v, Math.max(1, Math.ceil(u.length() / spacing)), Math.max(1, Math.ceil(len / spacing)), 1);
   }
   const cabin = gb.build();
-  const wheel = new THREE.CylinderGeometry(prof.wheelR, prof.wheelR, 0.26, 16);
+  const wheel = new THREE.CylinderGeometry(prof.wheelR, prof.wheelR, 0.26, coarse ? 6 : 16);
   wheel.rotateZ(Math.PI / 2);
   const rim = new THREE.CylinderGeometry(prof.wheelR * 0.62, prof.wheelR * 0.62, 0.28, 10);
   rim.rotateZ(Math.PI / 2);
   const lamp = new THREE.BoxGeometry(0.34, 0.14, 0.06);
   a = { body, cabin, wheel, rim, lamp, prof };
-  assets.set(kind, a);
+  assets.set(key, a);
   return a;
 }
 
@@ -698,6 +699,8 @@ export class VehicleView {
   private readonly body: THREE.Mesh;
   private readonly cabin: THREE.Mesh;
   private readonly kindAssets: KindAssets;
+  private detailGroup: THREE.Group | null = null;
+  private distantMesh: THREE.Mesh | null = null;
   /** Wheels with their pivot's place on the body: they stay planted on the road while the body leans. */
   private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean; base: THREE.Vector3 }> = [];
   /** Head, tail and reverse lamps with their working material (smashed and burnt ones swap theirs out) and place. */
@@ -865,6 +868,36 @@ export class VehicleView {
     let n = 0;
     for (const l of this.lamps) if (l.head && !l.broken) n++;
     return n;
+  }
+
+  /** A shape-preserving, single-draw model for distant traffic on software GPUs. */
+  setDistant(distant: boolean): void {
+    if (distant && !this.distantMesh) {
+      const a = kindAssets(this.kind, true);
+      const b = new GeoBuilder();
+      const m = new THREE.Matrix4();
+      b.geometry(a.body, m, 1);
+      b.geometry(a.cabin, m, 0.1);
+      const s = VEHICLE_SPECS[this.kind];
+      for (const z of [a.prof.wheelFront * s.length, a.prof.wheelRear * s.length]) {
+        for (const side of [-1, 1]) {
+          m.makeTranslation(side * (s.width / 2 - 0.15), a.prof.wheelR, z);
+          b.geometry(a.wheel, m, 0.055);
+        }
+      }
+      if (s.police) b.box(-s.width * 0.3, s.height, -0.3, s.width * 0.3, s.height + 0.2, 0, 0.35);
+      this.distantMesh = new THREE.Mesh(b.build(), this.body.material);
+      this.distantMesh.name = 'distant-vehicle';
+      this.distantMesh.castShadow = true;
+      this.detailGroup = new THREE.Group();
+      for (const child of [...this.group.children]) this.detailGroup.add(child);
+      this.group.add(this.detailGroup, this.distantMesh);
+    }
+    if (this.detailGroup && this.distantMesh) {
+      this.detailGroup.visible = !distant;
+      this.distantMesh.visible = distant;
+      this.distantMesh.material = this.body.material;
+    }
   }
 
   /** Back to the kind's shared, undamaged geometry and working lamps. */

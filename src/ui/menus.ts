@@ -7,6 +7,7 @@ import { QUALITY, type QualityTier } from '../render/quality';
 import type { Sim } from '../sim/sim';
 import { shopItems } from '../sim/interactions';
 import { PACKAGE_COUNT } from '../sim/pickups';
+import { formatRunTime } from '../sim/streetRuns';
 import type { Settings } from '../settings';
 import { padGlyph, type InputDevice } from './glyphs';
 import { escapeHtml } from './hud';
@@ -15,6 +16,9 @@ import { collectBlips, drawBlip, drawPoliceOverlay, MAP_SCALE, type Blip, type M
 export interface MenuHost {
   hasSave(): boolean;
   newGame(): void;
+  /** Start the standalone driving challenge from the title screen. */
+  startStreetRun?(id?: string): void;
+  streetRunCourses?(): Array<{ id: string; title: string; description: string; best?: number; target?: number; distance?: number; reward?: number }>;
   continueGame(): void;
   resume(): void;
   quitToTitle(): void;
@@ -27,7 +31,7 @@ export interface MenuHost {
   waypoint(): { x: number; z: number } | null;
   click(): void;
   /** The tier 'auto' picked at boot, and whether the renderer was created with MSAA (only a reload changes that). */
-  quality?(): { auto: QualityTier; msaa: boolean };
+  quality?(): { auto: QualityTier; msaa: boolean; software?: boolean };
 }
 
 interface Screen {
@@ -76,12 +80,17 @@ class ButtonList {
   private sel = 0;
 
   /** `initial`: the item selected at first, or the first enabled one after it (else the first enabled one). */
-  constructor(items: Array<{ label: string; action: () => void; disabled?: boolean; id?: string }>, private readonly click: () => void, initial = 0) {
+  constructor(items: Array<{ label: string; action: () => void; disabled?: boolean; id?: string; description?: string }>, private readonly click: () => void, initial = 0) {
     for (const it of items) {
       const b = h('button');
       b.textContent = it.label;
+      b.ariaLabel = it.label;
       b.disabled = !!it.disabled;
       if (it.id) b.dataset.id = it.id;
+      if (it.description) {
+        b.dataset.description = it.description;
+        b.ariaDescription = it.description;
+      }
       b.addEventListener('click', () => {
         if (b.disabled) return;
         this.click();
@@ -93,6 +102,8 @@ class ButtonList {
         const i = this.buttons.indexOf(b);
         if (!b.disabled && i !== this.sel) this.select(i);
       });
+      // Tab focus and the game's arrow / stick selection should always name the same action.
+      b.addEventListener('focus', () => this.select(this.buttons.indexOf(b)));
       this.el.appendChild(b);
       this.buttons.push(b);
     }
@@ -105,6 +116,7 @@ class ButtonList {
     if (i < 0) return;
     this.sel = i;
     this.buttons.forEach((b, k) => b.classList.toggle('sel', k === i));
+    this.buttons[i]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
 
   move(d: number): void {
@@ -228,29 +240,41 @@ export class Menus {
   /** Title menu; `notice` is an optional one-line message under the buttons. */
   showTitle(notice?: string): void {
     this.closeAll();
-    const el = h('div', 'screen');
+    const el = h('div', 'screen title-screen');
     el.appendChild(h('div', 'title-shade'));
     const wrap = h('div', 'title-wrap');
-    wrap.appendChild(h('div', 'logo', '<span class="gta">GTA</span><span class="seven">7</span><span class="sub">GRAND TURBO ANARCHY</span><span class="tag">WELCOME TO SAN AZURA</span>'));
+    wrap.appendChild(h('div', 'title-eyebrow', '<span class="title-mark"></span> SAN AZURA / AN OPEN WORLD CRIME SANDBOX'));
+    const intro = h('div', 'title-intro');
+    intro.appendChild(h('div', 'logo', '<span class="gta">GTA</span><span class="seven">7</span><span class="sub">GRAND TURBO ANARCHY</span>'));
+    intro.appendChild(h('p', 'title-copy', 'A city of opportunity.<br>A spectacular way to get in trouble.'));
+    wrap.appendChild(intro);
     const list = new ButtonList(
       [
-        { label: 'CONTINUE', action: () => this.host.continueGame(), disabled: !this.host.hasSave(), id: 'continue' },
+        { label: 'CONTINUE', action: () => this.host.continueGame(), disabled: !this.host.hasSave(), id: 'continue', description: 'Pick up where you left off' },
         // There is one save slot, and the new game's first save (a passed mission, the safehouse) overwrites it.
         {
           label: 'NEW GAME',
           action: () => (this.host.hasSave() ? this.confirm(NEW_GAME_WARNING, () => this.host.newGame()) : this.host.newGame()),
           id: 'new',
+          description: 'Meet the city. Make a name for yourself.',
         },
+        ...(this.host.startStreetRun ? [{
+          label: 'STREET RUN', id: 'street-run', description: 'Get behind the wheel. Beat the clock.',
+          action: () => this.showStreetRuns(),
+        }] : []),
         { label: 'CONTROLS', action: () => this.showControls() },
         { label: 'SETTINGS', action: () => this.showSettings() },
         { label: 'CREDITS', action: () => this.showCredits() },
       ],
       () => this.host.click(),
     );
+    list.el.classList.add('title-menu');
     if (notice) list.el.appendChild(h('div', 'title-note', escapeHtml(notice)));
     wrap.appendChild(list.el);
-    wrap.appendChild(h('div', 'title-foot', 'A fan-made parody sandbox. Not affiliated with or endorsed by Rockstar Games or Take-Two Interactive. All city, character, vehicle and brand names are fictional. Best with keyboard + mouse or a gamepad.'));
+    wrap.appendChild(h('div', 'title-input-note', 'KEYBOARD + MOUSE / GAMEPAD'));
+    wrap.appendChild(h('div', 'title-foot', 'An original parody sandbox. All names are fictional. Not affiliated with Rockstar Games or Take-Two Interactive.'));
     el.appendChild(wrap);
+    el.appendChild(h('div', 'title-world-caption', '<span>WELCOME TO</span><strong>SAN<br>AZURA.</strong><small>GOOD WEATHER. BAD DECISIONS.</small>'));
     this.push({
       el,
       input: (ui) => list.input(ui),
@@ -259,12 +283,46 @@ export class Menus {
     });
   }
 
+  /** A real course selection, including the player's saved bests, before entering a car. */
+  showStreetRuns(): void {
+    const courses = this.host.streetRunCourses?.() ?? [];
+    if (!courses.length) {
+      this.host.startStreetRun?.();
+      return;
+    }
+    const el = h('div', 'screen dim');
+    const panel = h('div', 'panel runs-panel');
+    panel.appendChild(h('div', 'panel-eyebrow', 'SAN AZURA / STREET SERIES'));
+    panel.appendChild(h('h2', '', 'PICK YOUR RUN.'));
+    panel.appendChild(h('p', 'runs-intro', 'A fast car. A clear route. Your time to beat.<br>Cross every gate in order and bring it home for gold.'));
+    const list = new ButtonList([
+      ...courses.map((c) => {
+        const meta = [
+          c.distance !== undefined ? `${(c.distance / 1000).toFixed(1)} KM` : '',
+          c.target !== undefined ? `GOLD ${formatRunTime(c.target)}` : '',
+          c.best !== undefined ? `BEST ${formatRunTime(c.best)}` : 'NO TIME SET',
+          c.reward !== undefined ? `UP TO ${formatMoney(c.reward)}` : '',
+        ].filter(Boolean).join('  /  ');
+        return {
+          label: c.title.toUpperCase(), description: `${c.description}\n${meta}`,
+          action: () => this.host.startStreetRun?.(c.id), id: `course-${c.id}`,
+        };
+      }),
+      { label: 'BACK', action: () => this.pop(), id: 'courses-back' },
+    ], () => this.host.click());
+    list.el.classList.add('course-menu');
+    panel.appendChild(list.el);
+    el.appendChild(panel);
+    this.push({ el, input: (ui) => ui.back ? this.pop() : list.input(ui) });
+  }
+
   showPause(): void {
     const sim = this.host.sim();
     const m = sim?.missions.active ?? null;
     const el = h('div', 'screen dim');
-    const panel = h('div', 'panel');
+    const panel = h('div', 'panel pause-panel');
     panel.style.width = 'min(520px, 92vw)';
+    panel.appendChild(h('div', 'panel-eyebrow', 'SAN AZURA / TAKE A BREATHER'));
     panel.appendChild(h('h2', '', 'PAUSED'));
     const items: Array<{ label: string; action: () => void }> = [
       { label: 'RESUME', action: () => this.host.resume() },
@@ -283,7 +341,9 @@ export class Menus {
     if (sim) {
       // Past the goal the objective line is stale (or empty, then the blurb would read as still to do).
       const doing = m ? (m.won ? 'complete' : escapeHtml(m.objectiveText || m.def.blurb)) : '';
-      panel.appendChild(h('p', '', m ? `Mission: <b>${escapeHtml(m.def.title)}</b> — ${doing}` : `Zone: <b>${escapeHtml(sim.world.zoneName(sim.playerPos().x, sim.playerPos().z))}</b> · ${sim.clock.label()} · Day ${sim.clock.day}`));
+      const job = sim.activities.job;
+      const activity = job?.kind === 'streetRun' ? `<b>${escapeHtml(job.course.name)}</b><br>${escapeHtml(sim.activities.status() ?? '')}` : escapeHtml(sim.activities.status() ?? '');
+      panel.appendChild(h('p', 'pause-context', m ? `Mission: <b>${escapeHtml(m.def.title)}</b> — ${doing}` : activity || `Zone: <b>${escapeHtml(sim.world.zoneName(sim.playerPos().x, sim.playerPos().z))}</b> · ${sim.clock.label()} · Day ${sim.clock.day}`));
     }
     el.appendChild(panel);
     this.push({ el, input: (ui) => (ui.back || ui.pause ? this.host.resume() : list.input(ui)) });
@@ -359,7 +419,7 @@ export class Menus {
       ['Interact / Horn', k('KeyE')],
       ['Reload / Next radio', k('KeyR')],
       ['Weapons', `1-6, ${k('KeyQ')}, wheel`],
-      ['Taxi / Vigilante job', k('KeyT')],
+      ['Side job / Street run', k('KeyT')],
       ['Camera distance', k('KeyV')],
       ['Map', k('KeyM')],
       ['Pause', `Esc / ${k('KeyP')}`],
@@ -381,12 +441,13 @@ export class Menus {
       ['Camera distance', 'R3'],
       ['Interact', 'D-pad up'],
       ['Radio', 'D-pad left/right'],
-      ['Job', 'D-pad down'],
+      ['Side job / Street run', 'D-pad down'],
       ['Map / Pause', 'Back / Start'],
     ];
     const grid = (rows: Array<[string, string]>) => `<div class="keys">${rows.map(([a, b]) => `<div><span>${a}</span><span>${escapeHtml(b)}</span></div>`).join('')}</div>`;
     panel.innerHTML = `<h2>CONTROLS</h2><h3>Keyboard &amp; mouse</h3>${grid(kb)}<h3>Gamepad</h3>${grid(pad)}
-      <h3>Tips</h3><p>Steal any car with <kbd>${escapeHtml(k('KeyF'))}</kbd>, even with someone inside. Lose the cops by breaking line of sight or by driving into a Spray Shack. Hidden packages, stunt ramps and rampages are scattered across San Azura. Drive a taxi or police car and press <kbd>${escapeHtml(k('KeyT'))}</kbd> for side jobs.</p>`;
+      <h3>Tips</h3><p>Steal any car with <kbd>${escapeHtml(k('KeyF'))}</kbd>, even with someone inside. Lose the cops by breaking line of sight or by driving into a Spray Shack. Hidden packages, stunt ramps and rampages are scattered across San Azura. Drive a taxi or police car and press <kbd>${escapeHtml(k('KeyT'))}</kbd> for side jobs.</p>
+      <h3>Street runs</h3><p>Choose a course from the title screen, or press <kbd>${escapeHtml(k('KeyT'))}</kbd> in an ordinary road car to find the nearest run. Stop in the start gate, then follow the gold route through every checkpoint in order. Brake before the corners and use the handbrake to turn sharply. Gold, silver and bronze finishes pay cash; your best time is saved. Press <kbd>${escapeHtml(k('KeyT'))}</kbd> again to cancel.</p>`;
     this.pushScrolling(el, panel);
   }
 
@@ -438,7 +499,11 @@ export class Menus {
     ];
     const el = h('div', 'screen dim');
     const panel = h('div', 'panel');
-    panel.innerHTML = `<h2>STATS</h2><div class="stat-grid">${rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('')}</div>`;
+    const runs = sim.activities.streetRunCourses().map((c) => {
+      const record = p.streetRuns[c.id];
+      return `<span>${escapeHtml(c.name)}</span><span>${record ? `${formatRunTime(record.bestTime)} · ${record.medal.toUpperCase()} · ${record.finishes} finish${record.finishes === 1 ? '' : 'es'}` : 'NO TIME SET'}</span>`;
+    }).join('');
+    panel.innerHTML = `<h2>STATS</h2><div class="stat-grid">${rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('')}</div><h3>Street run records</h3><div class="run-records">${runs}</div>`;
     this.pushScrolling(el, panel);
   }
 
@@ -472,12 +537,16 @@ export class Menus {
       r.el.addEventListener('mousemove', () => {
         if (i !== sel && !r.skip?.()) select(i);
       });
+      r.el.addEventListener('focusin', () => {
+        if (!r.skip?.()) select(i);
+      });
     };
     const slider = (label: string, key: 'master' | 'music' | 'sfx' | 'sensitivity' | 'fov', min: number, max: number, stepv: number, keyStep: number, fmt: (v: number) => string) => {
       const row = h('div', 'setting');
       const lab = h('span', '', label);
       const input = h('input');
       input.type = 'range';
+      input.ariaLabel = label;
       input.min = String(min);
       input.max = String(max);
       input.step = String(stepv);
@@ -501,6 +570,7 @@ export class Menus {
     const qinfo = this.host.quality?.() ?? null;
     const qrow = h('div', 'setting');
     const qsel = h('select');
+    qsel.ariaLabel = 'Graphics quality';
     for (const q of qualities) {
       const o = h('option');
       o.value = q;
@@ -511,6 +581,11 @@ export class Menus {
     // Everything else applies at once; anti-aliasing is fixed when the renderer is created.
     const qnote = h('div', 'setting-note');
     const showNote = () => {
+      if (qinfo?.software) {
+        qnote.textContent = 'Software rendering detected. Hardware acceleration improves performance.';
+        qnote.classList.remove('hidden');
+        return;
+      }
       const tier = s.quality === 'auto' ? qinfo?.auto : s.quality;
       const msaa = tier ? QUALITY[tier].msaa : null;
       const pending = qinfo !== null && msaa !== null && msaa !== qinfo.msaa;
@@ -545,6 +620,7 @@ export class Menus {
       const row = h('div', 'setting');
       const box = h('input');
       box.type = 'checkbox';
+      box.ariaLabel = label;
       box.checked = s[key];
       box.style.pointerEvents = 'auto';
       const val = h('span', '', s[key] ? 'On' : 'Off');

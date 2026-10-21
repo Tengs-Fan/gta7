@@ -10,6 +10,7 @@ import { SEABED_Y } from '../world/constants';
 import { rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { adTexture, AD_COUNT, glowTexture, groundTexture } from './textures';
+import { spatialKey, StaticVisibility } from './spatial';
 
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
@@ -310,10 +311,12 @@ if ( vClipXZ.x < vClipRect.x || vClipXZ.y < vClipRect.y || vClipXZ.x > vClipRect
 
 export class PropsView {
   readonly group = new THREE.Group();
+  readonly visibility = new StaticVisibility();
   private readonly refs = new Map<number, InstanceRef[]>();
   private readonly bulbMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
   private readonly poolMat: THREE.MeshBasicMaterial;
   private signalBulbs: THREE.InstancedMesh | null = null;
+  private readonly signalBatches: Array<{ mesh: THREE.InstancedMesh; slots: number[] }> = [];
   private signalProps: Prop[] = [];
   private signalPropIndex: number[] = [];
   private readonly brokenSignals = new Set<number>();
@@ -360,11 +363,46 @@ export class PropsView {
     for (const i of get('boat')) this.buildBoat(world.layout.props[i]!);
     get('billboard').forEach((i, k) => this.buildBillboard(world.layout.props[i]!, k));
     this.buildRoofProps();
+    // Also cover unique signs/landmarks, which are not created by makeInstanced.
+    this.group.traverse((o) => {
+      if (o instanceof THREE.Mesh) this.visibility.add(o, 8);
+    });
   }
 
-  private makeInstanced(geo: THREE.BufferGeometry, mat: THREE.Material, props: number[], matrixFor: (p: Prop, m: THREE.Matrix4) => void, opts: { shadow?: boolean; color?: (p: Prop, c: THREE.Color) => void; track?: boolean } = {}): THREE.InstancedMesh | null {
+  private makeInstanced(geo: THREE.BufferGeometry, mat: THREE.Material, props: number[], matrixFor: (p: Prop, m: THREE.Matrix4) => void, opts: { shadow?: boolean; color?: (p: Prop, c: THREE.Color) => void; track?: boolean; chunked?: boolean } = {}): THREE.InstancedMesh | null {
     if (props.length === 0) return null;
+    if (!opts.chunked) {
+      const buckets = new Map<string, number[]>();
+      props.forEach((pi, i) => {
+        const p = this.world.layout.props[pi]!;
+        const key = spatialKey(p.x, p.z);
+        let bucket = buckets.get(key);
+        if (!bucket) buckets.set(key, bucket = []);
+        bucket.push(i);
+      });
+      if (buckets.size > 1) {
+        let first: THREE.InstancedMesh | null = null;
+        const attributes = Object.entries(geo.attributes).filter(([, a]) => a instanceof THREE.InstancedBufferAttribute);
+        for (const slots of buckets.values()) {
+          // Lamp light pools carry one clip rectangle per instance. It must follow the prop
+          // into its new cell, just like the break/restore references built below.
+          const part = attributes.length ? geo.clone() : geo;
+          for (const [name, attr] of attributes) {
+            const values = new Float32Array(slots.length * attr.itemSize);
+            slots.forEach((old, i) => {
+              for (let k = 0; k < attr.itemSize; k++) values[i * attr.itemSize + k] = attr.getComponent(old, k);
+            });
+            part.setAttribute(name, new THREE.InstancedBufferAttribute(values, attr.itemSize));
+          }
+          const mesh = this.makeInstanced(part, mat, slots.map((i) => props[i]!), matrixFor, { ...opts, chunked: true });
+          first ??= mesh;
+        }
+        if (attributes.length) geo.dispose();
+        return first;
+      }
+    }
     const mesh = new THREE.InstancedMesh(geo, mat, props.length);
+    mesh.userData.propIndices = props;
     mesh.castShadow = opts.shadow ?? true;
     mesh.receiveShadow = true;
     const m = new THREE.Matrix4();
@@ -515,8 +553,30 @@ export class PropsView {
     });
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
-    this.group.add(mesh);
     this.signalBulbs = mesh;
+    // A logical citywide buffer keeps signal indexing stable; only its spatial slices are drawn.
+    const cells = new Map<string, number[]>();
+    signals.forEach((pi, k) => {
+      const p = L.props[pi]!;
+      const key = spatialKey(p.x, p.z);
+      let slots = cells.get(key);
+      if (!slots) cells.set(key, slots = []);
+      slots.push(k * 3, k * 3 + 1, k * 3 + 2);
+    });
+    for (const slots of cells.values()) {
+      const part = new THREE.InstancedMesh(bulb, mesh.material, slots.length);
+      part.userData.signalBulbs = true;
+      slots.forEach((slot, k) => {
+        mesh.getMatrixAt(slot, m);
+        part.setMatrixAt(k, m);
+        part.setColorAt(k, new THREE.Color(0x111111));
+        const pi = signals[Math.floor(slot / 3)]!;
+        this.refs.get(pi)?.push({ mesh: part, index: k, base: m.clone() });
+      });
+      part.computeBoundingSphere();
+      this.group.add(part);
+      this.signalBatches.push({ mesh: part, slots });
+    }
   }
 
   private buildContainers(list: number[]): void {
@@ -739,8 +799,25 @@ export class PropsView {
     const tanks = all.filter((r) => r.kind === 'tank');
     const antennas = all.filter((r) => r.kind === 'antenna');
     const boards = all.filter((r) => r.kind === 'billboard');
-    const inst = (geo: THREE.BufferGeometry, mat: THREE.Material, list: typeof all, scaleY = true) => {
+    const inst = (geo: THREE.BufferGeometry, mat: THREE.Material, list: typeof all, scaleY = true, chunked = false): THREE.InstancedMesh | null => {
       if (list.length === 0) return null;
+      if (!chunked) {
+        const cells = new Map<string, typeof all>();
+        for (const r of list) {
+          const key = spatialKey(r.x, r.z);
+          let cell = cells.get(key);
+          if (!cell) cells.set(key, cell = []);
+          cell.push(r);
+        }
+        if (cells.size > 1) {
+          let first: THREE.InstancedMesh | null = null;
+          for (const cell of cells.values()) {
+            const mesh = inst(geo, mat, cell, scaleY, true);
+            first ??= mesh;
+          }
+          return first;
+        }
+      }
       const mesh = new THREE.InstancedMesh(geo, mat, list.length);
       list.forEach((r, i) => {
         this.tmpM.compose(new THREE.Vector3(r.x, r.y, r.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.rot), new THREE.Vector3(r.w, scaleY ? r.h : 1, r.d));
@@ -756,15 +833,25 @@ export class PropsView {
     inst(merged([cyl(0.5, 0.5, 0.8, 10), new THREE.ConeGeometry(0.55, 0.25, 10).translate(0, 0.92, 0), cyl(0.04, 0.04, 0.2, 4, 0.4, -0.2, 0)]), new THREE.MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.9 }), tanks);
     inst(box(1, 1, 1, 0, 0.5, 0), new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.5, metalness: 0.6 }), antennas);
     if (antennas.length > 0) {
-      const lights = new THREE.InstancedMesh(new THREE.SphereGeometry(0.35, 8, 6), this.antennaMat, antennas.length);
-      antennas.forEach((r, i) => {
-        this.tmpM.makeTranslation(r.x, r.y + r.h + 0.2, r.z);
-        lights.setMatrixAt(i, this.tmpM);
-      });
-      lights.instanceMatrix.needsUpdate = true;
-      lights.computeBoundingSphere();
-      this.group.add(lights);
-      this.antennaLights = lights;
+      const cells = new Map<string, typeof antennas>();
+      for (const r of antennas) {
+        const key = spatialKey(r.x, r.z);
+        let cell = cells.get(key);
+        if (!cell) cells.set(key, cell = []);
+        cell.push(r);
+      }
+      const geometry = new THREE.SphereGeometry(0.35, 8, 6);
+      for (const cell of cells.values()) {
+        const lights = new THREE.InstancedMesh(geometry, this.antennaMat, cell.length);
+        cell.forEach((r, i) => {
+          this.tmpM.makeTranslation(r.x, r.y + r.h + 0.2, r.z);
+          lights.setMatrixAt(i, this.tmpM);
+        });
+        lights.instanceMatrix.needsUpdate = true;
+        lights.computeBoundingSphere();
+        this.group.add(lights);
+        this.antennaLights ??= lights;
+      }
     }
     boards.forEach((r, k) => {
       const tex = adTexture((k + 2) % AD_COUNT);
@@ -795,10 +882,11 @@ export class PropsView {
     const hide = p.kind === 'hydrant';
     for (const r of refs) {
       let m: THREE.Matrix4;
-      if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat || r.mesh === this.signalBulbs) m = new THREE.Matrix4().makeScale(0, 0, 0);
+      if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat || r.mesh === this.signalBulbs || r.mesh.userData.signalBulbs) m = new THREE.Matrix4().makeScale(0, 0, 0);
       else m = back.clone().multiply(fall).multiply(toOrigin).multiply(r.base);
       r.mesh.setMatrixAt(r.index, m);
       r.mesh.instanceMatrix.needsUpdate = true;
+      r.mesh.computeBoundingSphere();
     }
     if (p.kind === 'signal') this.brokenSignals.add(index);
     const halo = this.lampHaloIndex.get(index);
@@ -820,6 +908,7 @@ export class PropsView {
       for (const r of refs) {
         r.mesh.setMatrixAt(r.index, r.base);
         r.mesh.instanceMatrix.needsUpdate = true;
+        r.mesh.computeBoundingSphere();
       }
     }
     this.brokenSignals.clear();
@@ -858,6 +947,13 @@ export class PropsView {
         bulbs.setColorAt(i * 3 + 2, st === 'green' ? this.tmpC.setRGB(...lamps.green) : this.tmpC.setRGB(off, off + 0.05, off));
       });
       if (bulbs.instanceColor) bulbs.instanceColor.needsUpdate = true;
+      for (const batch of this.signalBatches) {
+        batch.slots.forEach((slot, k) => {
+          bulbs.getColorAt(slot, this.tmpC);
+          batch.mesh.setColorAt(k, this.tmpC);
+        });
+        if (batch.mesh.instanceColor) batch.mesh.instanceColor.needsUpdate = true;
+      }
     }
     // Ferris wheel.
     const f = this.ferris;

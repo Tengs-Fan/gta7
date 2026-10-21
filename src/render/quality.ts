@@ -46,6 +46,18 @@ export function pixelRatioFor(tier: QualityTier, devicePixelRatio: number): numb
   return Math.min(dpr, t.dprCap) * t.renderScale;
 }
 
+/**
+ * Software rasterisers have a separate pixel budget. UI text stays at native CSS resolution;
+ * Low favours responsive driving, while Medium/High let the player spend more on world detail.
+ * Bound the drawing buffer as well as its scale so maximising the window does not multiply cost.
+ */
+export function softwarePixelRatioFor(tier: QualityTier, width: number, height: number, devicePixelRatio = 1): number {
+  const scale = tier === 'high' ? 0.67 : tier === 'medium' ? 0.5 : 0.45;
+  const pixels = tier === 'high' ? 350_000 : tier === 'medium' ? 200_000 : 130_000;
+  const area = Math.max(1, width) * Math.max(1, height);
+  return Math.min(pixelRatioFor(tier, devicePixelRatio), scale, Math.sqrt(pixels / area));
+}
+
 /** Pixels in the drawing buffer at a tier for a canvas of cssWidth x cssHeight CSS pixels. */
 export function drawingBufferPixels(tier: QualityTier, cssWidth: number, cssHeight: number, devicePixelRatio: number): number {
   const r = pixelRatioFor(tier, devicePixelRatio);

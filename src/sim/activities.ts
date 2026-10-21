@@ -5,6 +5,7 @@ import { makeBrain } from './brains';
 import type { Character, Vehicle } from './entities';
 import { setTimeoutLike } from './pickups';
 import type { Sim } from './sim';
+import { buildStreetRunCourses, formatRunTime, runMedal, type StreetRunCourse } from './streetRuns';
 
 export interface Objective {
   x: number;
@@ -58,7 +59,20 @@ interface RampageJob {
   centerZ: number;
 }
 
-type Job = TaxiJob | VigilanteJob | RampageJob;
+export interface StreetRunJob {
+  kind: 'streetRun';
+  car: Vehicle;
+  course: StreetRunCourse;
+  stage: 'approach' | 'countdown' | 'racing';
+  countdown: number;
+  elapsed: number;
+  /** Index of the next required gate, not the last gate visited. */
+  checkpoint: number;
+  previousX: number;
+  previousZ: number;
+}
+
+type Job = TaxiJob | VigilanteJob | RampageJob | StreetRunJob;
 
 /** How far from a cab a fare let out looks for the sidewalk (m): across a wide avenue, at a slant. */
 const CURB_SEARCH = 16;
@@ -79,6 +93,7 @@ const DOOR_OUT = 0.6;
 
 export class Activities {
   job: Job | null = null;
+  private courses: StreetRunCourse[] | null = null;
   /**
    * Set by the game each frame: the player's last way out of a vehicle may yet be undone. FIXMYRIDE puts him back in
    * the seat its own F got him out of, and that F acts at once (see exitAtStake in game.ts), so a taxi or vigilante job
@@ -109,6 +124,11 @@ export class Activities {
       if (j.stage === 'dropoff') return [{ x: j.destX, z: j.destZ, label: j.destName, color: 0xffd23d, radius: 6 }];
     }
     if (j.kind === 'vigilante' && j.target) return [{ x: j.target.pos.x, z: j.target.pos.z, label: 'Suspect', color: 0xff3b3b, radius: 3, vehicle: j.target }];
+    if (j.kind === 'streetRun') {
+      if (j.stage !== 'racing') return [{ ...j.course.start, label: `${j.course.name} · Start`, color: 0x50f1d1, radius: 8 }];
+      const gate = j.course.checkpoints[j.checkpoint];
+      if (gate) return [{ x: gate.x, z: gate.z, label: gate.label === 'Finish' ? 'Finish line' : `${j.checkpoint + 1}/${j.course.checkpoints.length} · ${gate.label}`, color: gate.label === 'Finish' ? 0xffd23d : 0x50f1d1, radius: gate.radius }];
+    }
     return [];
   }
 
@@ -123,6 +143,13 @@ export class Activities {
         return `VIGILANTE LVL ${j.level}  ·  ${Math.ceil(j.timer)}`;
       case 'rampage':
         return `RAMPAGE ${j.kills}/${j.need}  ·  ${Math.ceil(j.timer)}`;
+      case 'streetRun': {
+        if (j.stage === 'approach') return `${j.course.name.toUpperCase()} · STOP IN THE START GATE`;
+        if (j.stage === 'countdown') return `${j.course.name.toUpperCase()} · ${Math.ceil(j.countdown)}`;
+        const target = j.elapsed <= j.course.gold ? 'GOLD' : j.elapsed <= j.course.silver ? 'SILVER' : 'BRONZE';
+        const targetTime = target === 'GOLD' ? j.course.gold : target === 'SILVER' ? j.course.silver : j.course.bronze;
+        return `GATE ${j.checkpoint + 1}/${j.course.checkpoints.length} · ${formatRunTime(j.elapsed)} · ${target} ${formatRunTime(targetTime)}`;
+      }
     }
   }
 
@@ -130,14 +157,14 @@ export class Activities {
     const sim = this.sim;
     const v = sim.player.vehicle;
     if (this.job && this.job.kind !== 'rampage') {
-      this.end(this.job.kind === 'taxi' ? 'Taxi job ended.' : 'Vigilante ended.');
+      this.end(this.job.kind === 'streetRun' ? 'Run cancelled. Press T to line up again.' : this.job.kind === 'taxi' ? 'Taxi job ended.' : 'Vigilante ended.');
       return;
     }
     if (this.job || sim.missions.active) return;
     if (!v) return;
     if (v.kind === 'taxi') this.startTaxi(v);
     else if (v.spec.police) this.startVigilante(v);
-    else sim.events.emit('message', { text: 'Jobs: drive a taxi or a police car and press T.', duration: 3 });
+    else this.startStreetRun();
   }
 
   cancelAll(reason: 'wasted' | 'busted' | 'mission'): void {
@@ -185,6 +212,12 @@ export class Activities {
     if (j.kind === 'rampage') {
       for (const c of sim.characters) if (c.missionTag === 'rampage') this.releaseCharacter(c);
       if (!sim.progress.rampages.includes(j.tag)) sim.pickupSys.rearmRampage(j.tag, 25);
+    }
+    if (j.kind === 'streetRun' && j.stage === 'countdown') {
+      // Only release the countdown's lock; a longer mission/respawn lock owns
+      // the controls independently and must survive activity cancellation.
+      if (sim.controlLock <= j.countdown + 0.101) sim.controlLock = 0;
+      j.car.controls.handbrake = false;
     }
     sim.events.emit('activityEnded', { kind: j.kind });
     this.say(text);
@@ -249,6 +282,161 @@ export class Activities {
       c.brain = makeBrain('wander');
       this.sim.peds.flee(c, this.sim.player.pos.x, this.sim.player.pos.z, this.sim.player);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Street runs
+
+  streetRunCourses(): readonly StreetRunCourse[] {
+    return this.courses ??= buildStreetRunCourses(this.sim.roads);
+  }
+
+  /** Start the requested course, or the nearest start gate in free roam. */
+  startStreetRun(courseId?: string): boolean {
+    const sim = this.sim;
+    const car = sim.player.vehicle;
+    if (this.job || sim.missions.active || sim.playerDown || !sim.player.alive) return false;
+    if (!car || car.driver !== sim.player || !car.drivable || car.removed || car.burning || car.kind === 'taxi' || car.spec.police) {
+      this.say('Street runs: get into a road car and press T. Taxis and police cars have their own jobs.', 5);
+      return false;
+    }
+    if (sim.wanted.level > 0) {
+      this.say('Lose the cops before starting a street run.', 3);
+      return false;
+    }
+    const courses = this.streetRunCourses();
+    const course = courseId === undefined
+      ? courses.reduce((best, next) => Math.hypot(next.start.x - car.pos.x, next.start.z - car.pos.z) < Math.hypot(best.start.x - car.pos.x, best.start.z - car.pos.z) ? next : best)
+      : courses.find((candidate) => candidate.id === courseId);
+    if (!course) return false;
+    const j: StreetRunJob = { kind: 'streetRun', car, course, stage: 'approach', countdown: 0, elapsed: 0, checkpoint: 0, previousX: car.pos.x, previousZ: car.pos.z };
+    this.job = j;
+    sim.events.emit('big', { text: course.name.toUpperCase(), sub: `${(course.distance / 1000).toFixed(1)} km · GOLD ${formatRunTime(course.gold)} · ${formatMoney(course.reward)}`, style: 'title', duration: 3 });
+    if (this.atStreetRunStart(j)) this.beginStreetRunCountdown(j);
+    else {
+      sim.events.emit('objective', { text: `Stop in the start gate for ${course.name}. T cancels.` });
+      this.say('Follow the route to the start. Cross every gate in order. T cancels.', 5);
+    }
+    return true;
+  }
+
+  private atStreetRunStart(j: StreetRunJob): boolean {
+    return Math.hypot(j.car.pos.x - j.course.start.x, j.car.pos.z - j.course.start.z) <= 8
+      && Math.hypot(j.car.vel.x, j.car.vel.z) <= 2.5;
+  }
+
+  private beginStreetRunCountdown(j: StreetRunJob): void {
+    if (this.sim.wanted.level > 0) {
+      this.end('The start is compromised. Lose the cops and press T to try again.');
+      return;
+    }
+    j.stage = 'countdown';
+    j.countdown = 3;
+    this.sim.controlLock = Math.max(this.sim.controlLock, 3.1);
+    this.holdStreetRunStart(j);
+    this.sim.events.emit('objective', { text: `Get ready · ${j.course.name}` });
+    this.say('Hold W to launch. Space handbrakes through corners.', 4);
+    this.announceStreetRunCount(3);
+  }
+
+  private holdStreetRunStart(j: StreetRunJob): void {
+    const { car, course } = j;
+    car.pos.x = course.start.x;
+    car.pos.z = course.start.z;
+    car.pos.y = this.sim.world.groundHeight(car.pos.x, car.pos.z);
+    car.heading = course.start.heading;
+    car.vel.x = car.vel.z = car.vy = car.angVel = car.speed = car.forwardSpeed = car.steer = 0;
+    car.controls.throttle = car.controls.brake = car.controls.steer = 0;
+    car.controls.handbrake = true;
+    this.sim.syncOccupant(this.sim.player);
+    j.previousX = car.pos.x;
+    j.previousZ = car.pos.z;
+  }
+
+  private announceStreetRunCount(count: 0 | 1 | 2 | 3): void {
+    this.sim.events.emit('streetRunCountdown', { count });
+  }
+
+  private updateStreetRun(j: StreetRunJob, dt: number): void {
+    const sim = this.sim;
+    const car = j.car;
+    if (sim.player.vehicle !== car || car.driver !== sim.player || !car.drivable || car.removed || !sim.player.alive) {
+      sim.events.emit('big', { text: 'RUN ENDED', sub: 'Bring a road car back to the start to try again.', style: 'failed', duration: 3 });
+      this.end('Street run ended. Get into a road car and press T to try again.');
+      return;
+    }
+    if (j.stage === 'approach') {
+      if (this.atStreetRunStart(j)) this.beginStreetRunCountdown(j);
+      return;
+    }
+    if (j.stage === 'countdown') {
+      const before = Math.ceil(j.countdown);
+      j.countdown = Math.max(0, j.countdown - dt);
+      this.holdStreetRunStart(j);
+      const count = Math.ceil(j.countdown) as 0 | 1 | 2 | 3;
+      if (count !== before) this.announceStreetRunCount(count);
+      if (j.countdown > 0) return;
+      j.stage = 'racing';
+      if (sim.controlLock <= 0.101) sim.controlLock = 0;
+      car.controls.handbrake = false;
+      this.streetRunObjective(j);
+      return;
+    }
+    j.elapsed += dt;
+    if (j.elapsed > j.course.bronze) {
+      sim.events.emit('big', { text: 'OUT OF TIME', sub: `${j.course.name} · ${j.checkpoint}/${j.course.checkpoints.length} gates`, style: 'failed', duration: 4 });
+      this.end('Run over. Press T to return to a start gate and try again.');
+      return;
+    }
+    const gate = j.course.checkpoints[j.checkpoint]!;
+    const dx = car.pos.x - j.previousX;
+    const dz = car.pos.z - j.previousZ;
+    const lengthSq = dx * dx + dz * dz;
+    const movement = Math.sqrt(lengthSq);
+    // Swept gate detection handles a fast car across variable frame times.
+    // Discontinuous debug/respawn teleports cannot skip gates or buy a record.
+    if (movement > Math.max(12, car.spec.maxSpeed * dt * 2 + 4)) {
+      this.end('Run interrupted by a vehicle reset. Press T to line up again.');
+      return;
+    }
+    const t = lengthSq > 0 ? Math.max(0, Math.min(1, ((gate.x - j.previousX) * dx + (gate.z - j.previousZ) * dz) / lengthSq)) : 1;
+    const hit = Math.hypot(j.previousX + dx * t - gate.x, j.previousZ + dz * t - gate.z) <= gate.radius && !car.airborne;
+    j.previousX = car.pos.x;
+    j.previousZ = car.pos.z;
+    if (!hit) return;
+    j.checkpoint++;
+    sim.events.emit('streetRunCheckpoint', { index: j.checkpoint, total: j.course.checkpoints.length, elapsed: j.elapsed });
+    if (j.checkpoint === j.course.checkpoints.length) {
+      this.finishStreetRun(j);
+      return;
+    }
+    this.streetRunObjective(j);
+    this.say(`CHECKPOINT ${j.checkpoint}/${j.course.checkpoints.length} · ${formatRunTime(j.elapsed)} · ${j.course.checkpoints[j.checkpoint]!.label}`, 1.5);
+  }
+
+  private streetRunObjective(j: StreetRunJob): void {
+    const gate = j.course.checkpoints[j.checkpoint]!;
+    this.sim.events.emit('objective', { text: `${j.course.name} · ${gate.label === 'Finish' ? 'FINISH LINE' : `Gate ${j.checkpoint + 1}/${j.course.checkpoints.length} · ${gate.label}`}` });
+  }
+
+  private finishStreetRun(j: StreetRunJob): void {
+    const sim = this.sim;
+    const medal = runMedal(j.course, j.elapsed);
+    if (!medal || this.job !== j) return;
+    const previous = sim.progress.streetRuns[j.course.id];
+    const personalBest = !previous || j.elapsed < previous.bestTime;
+    const reward = Math.round(j.course.reward * (medal === 'gold' ? 1 : medal === 'silver' ? 0.7 : 0.45));
+    sim.progress.streetRuns[j.course.id] = {
+      bestTime: personalBest ? j.elapsed : previous.bestTime,
+      medal: personalBest ? medal : previous.medal,
+      finishes: Math.min(1e9, (previous?.finishes ?? 0) + 1),
+    };
+    sim.progress.addMoney(reward);
+    // End before emitting the result: a listener cannot collect it twice.
+    this.end('Press T to race again. Find other runs near Ocean Drive and the docks.');
+    sim.events.emit('money', { amount: reward });
+    sim.events.emit('big', { text: `${medal.toUpperCase()} FINISH`, sub: `${j.course.name} · ${formatRunTime(j.elapsed)} · ${formatMoney(reward)}${personalBest ? ' · NEW BEST' : ''}`, style: 'passed', duration: 6 });
+    sim.events.emit('streetRunFinished', { id: j.course.id, time: j.elapsed, medal, personalBest, reward });
   }
 
   // ---------------------------------------------------------------------------
@@ -636,9 +824,10 @@ export class Activities {
 
   update(dt: number): void {
     const j = this.job;
-    if (!j || this.sim.playerDown) return;
+    if (!j || this.sim.playerDown || !(dt > 0) || !Number.isFinite(dt)) return;
     if (j.kind === 'taxi') this.updateTaxi(j, dt);
     else if (j.kind === 'vigilante') this.updateVigilante(j, dt);
+    else if (j.kind === 'streetRun') this.updateStreetRun(j, dt);
     else this.updateRampage(j, dt);
   }
 }

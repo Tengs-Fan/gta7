@@ -203,6 +203,10 @@ export class AudioEngine {
         this.horn(e.vehicle.pos.x, e.vehicle.pos.y, e.vehicle.pos.z, e.vehicle.spec.police);
       }),
       on('pickup', (e) => this.chime(e.kind === 'money' ? 'cash' : 'pickup')),
+      on('streetRunCountdown', (e) => this.chime(e.count === 0 ? 'go' : 'countdown')),
+      on('streetRunCheckpoint', (e) => {
+        if (e.index < e.total) this.chime('checkpoint');
+      }),
       on('money', (e) => {
         if (e.amount >= 500) this.chime('cash');
       }),
@@ -565,7 +569,7 @@ export class AudioEngine {
     this.counters.doorThunks++;
   }
 
-  chime(kind: 'pickup' | 'cash' | 'passed' | 'fail' | 'alert' | 'stunt' | 'ui'): void {
+  chime(kind: 'pickup' | 'cash' | 'passed' | 'fail' | 'alert' | 'stunt' | 'ui' | 'countdown' | 'go' | 'checkpoint'): void {
     if (!this.ready()) return;
     const t = this.ctx!.currentTime + 0.01;
     // HUD stings are not in the world: no in-car muffling, and the result-card duck leaves them on top.
@@ -573,6 +577,15 @@ export class AudioEngine {
     const seq = (notes: number[], step: number, type: OscillatorType, len: number, gain: number) =>
       notes.forEach((n, i) => this.tone(d, t + i * step, type, n, n * 0.999, len, gain, 0.01));
     switch (kind) {
+      case 'countdown':
+        seq([440], 0, 'sine', 0.15, 0.2);
+        break;
+      case 'go':
+        seq([880, 1320], 0.06, 'triangle', 0.35, 0.22);
+        break;
+      case 'checkpoint':
+        seq([660, 990], 0.045, 'sine', 0.16, 0.18);
+        break;
       case 'pickup':
         seq([660, 880, 1320], 0.06, 'triangle', 0.18, 0.25);
         break;

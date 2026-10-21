@@ -35,7 +35,8 @@ npm run preview    # serves dist/ at http://localhost:4173
 `dist/` is a static site with relative paths, so it can be hosted anywhere, under a sub-path too.
 
 Choose NEW GAME on the title screen, and a few seconds later Mama Lou calls with your first job: steal a car (walk up to one and press F) and drive it into her garage in the Docks, following the route on the radar.
-Progress stays in this browser: the game autosaves after every mission passed, E at the safehouse saves, and CONTINUE on the title screen picks up from there.
+Choose STREET RUN for an immediate drive in a Nightjar GT and a choice of three timed courses.
+Progress stays in this browser: the game autosaves after every mission passed and street run finished, E at the safehouse saves, and CONTINUE on the title screen picks up from there.
 
 ## Controls
 
@@ -56,7 +57,7 @@ Progress stays in this browser: the game autosaves after every mission passed, E
 | Radio next / previous (vehicle) | R / Q | D-pad right / left |
 | Enter / exit vehicle (also carjacks) | F or Enter | Y |
 | Interact: missions, shop, save, retry, skip dialogue | E | D-pad up |
-| Taxi / vigilante job (in a taxi or police vehicle) | T | D-pad down |
+| Start / cancel a street run (road car), taxi job (taxi), or vigilante job (police vehicle) | T | D-pad down |
 | Camera distance | V | R3 |
 | Map | M | Back |
 | Pause | Esc or P | Start |
@@ -88,6 +89,7 @@ Progress stays in this browser: the game autosaves after every mission passed, E
   Cars wade through the surf off the beach but sink in deep water, and Azura Pier and the Marina deck can be driven onto, and off.
   Five stunt ramps pay stunt bonuses, doubled for the first jump off each one.
 - **On foot and in the water.** Walk, sprint and jump (long falls hurt), and swim in deep water: there is no drowning, but no shooting, weapon switching or getting into cars either.
+- **Street runs.** Three repeatable timed courses with a launch countdown, ordered checkpoints, turn directions, bronze/silver/gold medals, cash payouts and saved personal bests. Take the fast avenues of Magnolia Rush, the long coastal sweep of Coastline Circuit, or the tight corners of Dockside Switchback.
 - **Combat.** Fists, Pistol, SMG, Shotgun, Assault Rifle and Rocket Launcher.
   Hip fire is quick and loose, while aiming zooms over the shoulder and tightens the spread; hit markers show hits, headshots and kills, and red arcs show where fire is coming from.
   Body armor, jab-jab-hook punch combos, drive-bys with the pistol or SMG, and explosions that throw people and cars and set off damaged or light cars nearby.
@@ -121,6 +123,24 @@ Progress stays in this browser: the game autosaves after every mission passed, E
     <td colspan="2" align="center"><img src="docs/screenshots/map.jpg" width="50%" alt="The full-screen map of San Azura with district names, Mama Lou's marker, safehouse, shops, Spray Shacks, hospital, police station, a legend and a waypoint on the pier"><br>The full-screen map, with a waypoint set on Azura Pier.</td>
   </tr>
 </table>
+
+## Street runs
+
+Choose **STREET RUN** on the title screen, select a course, and launch in a Nightjar GT. Existing saved money, story progress and personal bests carry over.
+During free roam, press **T** (D-pad down) in an ordinary road car to enter the nearest course. Finish any mission and lose the cops first; taxis and police vehicles keep their own jobs.
+
+Follow the GPS route and stop inside the start gate. The car lines up for a three-second countdown; hold W or RT to launch at GO.
+Pass every glowing checkpoint in order, using the turn direction above the radar and the route to prepare for corners. The clock shows your next medal target, and the last gate is the finish line.
+
+| Course | Start area | Gold | Silver | Bronze | Gold payout |
+| --- | --- | --- | --- | --- | --- |
+| Magnolia Rush | Azura Ave / Magnolia Ave | 1:05 | 1:25 | 1:55 | $1,000 |
+| Coastline Circuit | Sunset Ave / Magnolia Ave | 1:25 | 1:50 | 2:25 | $1,400 |
+| Dockside Switchback | Vista Ave / Southgate Ave | 1:18 | 1:40 | 2:10 | $1,250 |
+
+Silver pays 70% of the gold prize and bronze pays 45%. Every successful finish saves your reward and personal best; slower replays retain your faster record.
+The courses loop back to their starts, so press T after a finish to line up again. Drive to another start area to enter its nearest course, or choose it from the title screen.
+Press T during a run to cancel. Running out of time, leaving the car, or losing it to a wreck ends the attempt without a payout.
 
 ## Cheats
 
@@ -183,7 +203,6 @@ All of these are minor; the most noticeable come first.
 **Camera**
 
 - With your back against a wall, your character fades out (fully, or to a speckled ghost) because the camera has no room behind you; step about a meter away.
-- On foot the camera does not avoid vehicles, so with your back close to a bus or van it can end up on the far side, with the bodywork hiding you; step away or turn the camera.
 - Brushing past a street tree on foot, its trunk can hang in view for about half a second before the camera jumps in front of it.
 - Aiming while standing in a save, shop or mission marker puts the marker's floating diamond big in front of the camera; step out of the marker first.
 - Swimming a couple of meters off a quay or a Marina pier, swinging the camera over the edge makes it hop up in one frame; right against a pier a fast swing with the far camera (V) can make it jump for a frame, and near the edge a wall, a crane leg or a change of camera distance can make it dive in toward you and back out.
@@ -194,12 +213,10 @@ All of these are minor; the most noticeable come first.
 - Traffic cannot squeeze between two cars left less than about a car and a half apart on opposite sides of a narrow street, and queues there honking while you stay nearby; move one of the cars or drive off.
 - When a car overtaking one left in the road meets oncoming traffic, the drivers can spend half a minute or more backing up and taking turns.
 - City buses turning at the four outer corners of the ring road crawl round the bend and swing into the oncoming lanes for a couple of seconds.
-- Getting into a bus from its front or back makes your character walk into the bodywork and pop into the seat; walk up to the middle of its driver's side instead.
 - A car that lands a jump on top of another car does not settle on its roof: both cars snap about a meter sideways in a single frame, undamaged.
 - A car or wreck that spins into the tall back corner of a stunt ramp can come to rest with the corner sticking into its side.
 - A car or bus sliding slowly off the side of the pier shows part of its body poking up through the deck for a second or two as it falls in, and a car resting half inside the edge of the pier or the Marina deck can be shoved or steered about twice as deep into it, though it still drives away.
 - Near the land end of Azura Pier or the Marina deck, getting out of a car on the side that faces the edge can drop you about a meter onto the sand, where you cannot climb back up (walk round to the land end), and a wreck sunk under the deck can block getting out of a car parked above it ("No room to get out here") until you drive off.
-- Pressing F within a couple of meters of a car on the other side of a wall (Lou's garage, say) walks you straight through the wall into it.
 - Now and then a new city bus appears slightly overlapping the bus ahead of it in the same lane, usually out of sight, and both end up dented.
 
 <details><summary>More, by area</summary>
@@ -380,7 +397,7 @@ The game targets 60 fps on desktop hardware.
 On an RTX 3070 laptop at High (1600x900) it holds a steady 60 fps with about 260 to 600 draw calls and 0.86 to 0.89 million triangles, at roughly 6 to 8 ms of CPU per frame (about 2 ms of simulation and 4 to 5 ms of rendering), measured with the perf playtest at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
 Nothing adjusts itself at runtime: there is no dynamic resolution, and the tier only changes when you pick another one (see [Settings and graphics quality](#settings-and-graphics-quality) for what each tier trades away).
 `node scripts/playtest.mjs --scenario perf` prints fps, draw calls, triangles and heap at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
-`window.__gta7.state()` also reports `fps` (frames over the last second of game time: a frame counts for at most 0.1 s, so it never reads below 10), `render.calls` and `perf.frameMs`, `simMs` and `renderMs`, which describe the last frame only, so sample them many times.
+`window.__gta7.state()` reports actual wall-clock `fps`, plus `render.calls` and the latest CPU timings in `perf.frameMs`, `simMs` and `renderMs`. `perf.frameIntervalMs` measures the time between animation frames, including GPU or browser delays that CPU timings miss. Physics still clamps long frames for stability; the FPS counter does not. Sample many frames when comparing performance.
 
 ## License
 

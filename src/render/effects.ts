@@ -370,6 +370,8 @@ class SkidMarks {
   private readonly pos: Float32Array;
   private readonly birth: Float32Array;
   private next = 0;
+  private count = 0;
+  private newest = -Infinity;
   private readonly mat: THREE.ShaderMaterial;
   private readonly last = new Map<string, { x: number; y: number; z: number; t: number }>();
 
@@ -384,6 +386,7 @@ class SkidMarks {
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aBirth', new THREE.BufferAttribute(this.birth, 1).setUsage(THREE.DynamicDrawUsage));
     g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.setDrawRange(0, 0);
     this.mat = new THREE.ShaderMaterial({
       vertexShader: SKID_VS,
       fragmentShader: SKID_FS,
@@ -398,6 +401,7 @@ class SkidMarks {
     });
     this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
   }
 
   /** Adds a segment for wheel `key` if it moved enough since its previous point. */
@@ -416,10 +420,14 @@ class SkidMarks {
     const nz = (dx / l) * w;
     const i = this.next;
     this.next = (this.next + 1) % this.max;
+    this.count = Math.min(this.max, this.count + 1);
+    this.newest = now;
     const yy = y + 0.025;
     this.pos.set([prev.x + nx, prev.y + 0.025, prev.z + nz, prev.x - nx, prev.y + 0.025, prev.z - nz, x - nx, yy, z - nz, x + nx, yy, z + nz], i * 12);
     this.birth.fill(now, i * 4, i * 4 + 4);
     const g = this.mesh.geometry;
+    g.setDrawRange(0, this.count * 6);
+    this.mesh.visible = true;
     (g.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     (g.getAttribute('aBirth') as THREE.BufferAttribute).needsUpdate = true;
     this.last.set(key, { x, y, z, t: now });
@@ -431,6 +439,12 @@ class SkidMarks {
 
   update(now: number): void {
     this.mat.uniforms.uNow!.value = now;
+    if (now - this.newest >= 40) {
+      this.mesh.visible = false;
+      this.mesh.geometry.setDrawRange(0, 0);
+      this.count = 0;
+      this.next = 0;
+    }
   }
 
   /** The scene light the marks are seen in (Effects.setLight). */
@@ -444,6 +458,10 @@ class SkidMarks {
     (this.mesh.geometry.getAttribute('aBirth') as THREE.BufferAttribute).needsUpdate = true;
     this.last.clear();
     this.next = 0;
+    this.count = 0;
+    this.newest = -Infinity;
+    this.mesh.geometry.setDrawRange(0, 0);
+    this.mesh.visible = false;
   }
 }
 

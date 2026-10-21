@@ -429,6 +429,13 @@ vec3 stars(vec3 d, float pix) {
 
 // Cloud layers on a virtual plane above the camera: rgb colour, a coverage.
 vec4 clouds(vec3 d) {
+#ifdef SOFTWARE_SKY
+  vec2 q = d.xz / max(d.y, 0.05) * 0.065 + uWind1 * 0.035;
+  float n = texture2D(uNoise, q).r;
+  float a = smoothstep(0.52, 0.61, n) * smoothstep(0.01, 0.25, d.y);
+  vec3 day = mix(vec3(0.75, 0.78, 0.86), uSunColor * 1.1, uGolden * 0.8);
+  return vec4(mix(day, vec3(0.025, 0.03, 0.045) + uGlow * 0.5, uNight), a);
+#else
   vec2 p = d.xz / max(d.y, 0.03);
   vec2 q1 = (uCamXZ + p * 1500.0) / 900.0 + uWind1;
   // uCloudT is the fbm value that exactly uCloudCover of the sky exceeds (see cloudThreshold).
@@ -466,12 +473,18 @@ vec4 clouds(vec3 d) {
   float fade = smoothstep(0.0, 0.2, d.y);
   col = mix(uHorizon + uGlow, col, smoothstep(0.02, 0.35, d.y));
   return vec4(col, a * fade);
+#endif
 }
 
 // A ridge of hills at a distance (metres) with heights (metres above the sea) between lo and hi:
 // 1 inside its silhouette, which sits on the sea at its true angle below the horizon.
 float ridge(float h, vec2 hz, float dist, float lo, float hi, float present, float pix, float seed) {
+#ifdef SOFTWARE_SKY
+  float shape = 0.45 + 0.2 * sin(hz.x * 19.0 + seed) + 0.15 * sin(hz.y * 31.0 + seed);
+  float top = (lo + (hi - lo) * shape) * present;
+#else
   float top = (lo + (hi - lo) * fbm0(hz * (dist / 1100.0) + seed, 4)) * present;
+#endif
   float above = (top - uCamY) / dist;
   float base = -uCamY / dist;
   return (1.0 - smoothstep(above - pix, above + pix, h)) * smoothstep(base - pix, base + pix, h) * step(0.001, present);
@@ -551,6 +564,7 @@ export class Environment {
   readonly fog: THREE.Fog;
   private readonly skyMat: THREE.ShaderMaterial;
   private readonly waterNormal: THREE.Texture;
+  private readonly software: boolean;
   /** Offsets of the sea's two ripple samples (see RIPPLE_B), each in its own sample's tiles. */
   private readonly rippleA = { value: new THREE.Vector2() };
   private readonly rippleB = { value: new THREE.Vector2() };
@@ -593,8 +607,9 @@ export class Environment {
   constructor(
     private readonly scene: THREE.Scene,
     private readonly renderer: THREE.WebGLRenderer,
-    opts: { hdr?: boolean } = {},
+    opts: { hdr?: boolean; software?: boolean } = {},
   ) {
+    this.software = opts.software ?? false;
     const hdr = opts.hdr ?? true;
     this.fog = new THREE.Fog(0xaed0f2, 180, 760);
     scene.fog = this.fog;
@@ -602,6 +617,7 @@ export class Environment {
     this.skyMat = new THREE.ShaderMaterial({
       vertexShader: SKY_VS,
       fragmentShader: SKY_FS,
+      defines: this.software ? { SOFTWARE_SKY: 1 } : {},
       uniforms: {
         uTop: { value: new THREE.Color() },
         uHorizon: { value: new THREE.Color() },
@@ -665,9 +681,47 @@ export class Environment {
     this.waterNormal.repeat.set(900, 900);
     const waterMat = new THREE.MeshStandardMaterial({ color: 0x135a73, roughness: 0.22, metalness: 0.1, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22) });
     twoLayerRipples(waterMat, this.rippleA, this.rippleB, this.envFill ? this.skyReflection : null);
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), waterMat);
+    const simpleWater = this.software ? new THREE.ShaderMaterial({
+      fog: true,
+      uniforms: {
+        ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog!),
+        uNormal: { value: this.waterNormal }, uDrift: this.rippleA,
+        uTop: this.skyReflection.top, uHorizon: this.skyReflection.horizon,
+        uNight: this.skyMat.uniforms.uNight!,
+      },
+      vertexShader: `varying vec3 vWorld;\n#include <common>\n#include <fog_pars_vertex>
+        void main() { vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }`,
+      fragmentShader: `varying vec3 vWorld;
+        uniform sampler2D uNormal; uniform vec2 uDrift;
+        uniform vec3 uTop, uHorizon; uniform float uNight;
+        #include <common>
+        #include <fog_pars_fragment>
+        void main() {
+          vec2 wave = texture2D(uNormal, vWorld.xz * 0.15 + uDrift).xy * 2.0 - 1.0;
+          vec3 n = normalize(vec3(wave.x * 0.18, 1.0, wave.y * 0.18));
+          vec3 eye = normalize(cameraPosition - vWorld);
+          vec3 reflection = reflect(-eye, n);
+          vec3 sky = mix(uHorizon, uTop, smoothstep(0.0, 0.6, reflection.y));
+          float fresnel = 1.0 - max(dot(n, eye), 0.0);
+          fresnel *= fresnel;
+          vec3 sea = vec3(0.018, 0.17, 0.23) * (1.0 - uNight * 0.94);
+          gl_FragColor = vec4(mix(sea, sky, 0.25 + fresnel * 0.65), 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+          #include <fog_fragment>
+        }`,
+    }) : null;
+    if (simpleWater) waterMat.dispose();
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), simpleWater ?? waterMat);
     water.position.y = WATER_Y;
     water.receiveShadow = true;
+    // Streets/buildings cover most ocean pixels from within the city. Shade only exposed sea,
+    // after opaque land has filled depth and before the sky at renderOrder 1000.
+    water.renderOrder = 900;
     this.water = water;
     scene.add(water);
 
@@ -813,8 +867,8 @@ export class Environment {
     this.hemi.intensity = hemiLight(s, night, this.hemi.color, this.hemi.groundColor);
 
     this.fog.color.copy(s.horizon).lerp(NIGHT_HORIZON_GLOW, dark * FOG_GLOW_STRENGTH).lerp(s.top, 0.15 * (1 - night));
-    this.fog.near = lerp(180, 90, night);
-    this.fog.far = lerp(780, 520, night);
+    this.fog.near = this.software ? lerp(70, 50, night) : lerp(180, 90, night);
+    this.fog.far = this.software ? 220 : lerp(780, 520, night);
     const envI = envIntensity(night);
     this.scene.environmentIntensity = envI;
     this.updateSmokeLight(s);

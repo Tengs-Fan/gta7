@@ -36,13 +36,15 @@ test.describe('GTA 7 input fixes (round 2, pass 5)', () => {
   test('the title menu, the gun shop and the pause menu fit windowed laptop viewports', async ({ page }) => {
     const errors = await boot(page);
     const logo = () => page.evaluate(() => getComputedStyle(document.querySelector('.logo .gta')!).fontSize);
-    // Full-screen sizes keep the logo they had.
+    // The editorial title leaves the city visible while its mark scales with the viewport.
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.waitForTimeout(200);
-    expect(await logo()).toBe('210px');
+    expect(parseFloat(await logo())).toBeGreaterThanOrEqual(120);
+    expect(parseFloat(await logo())).toBeLessThanOrEqual(160);
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.waitForTimeout(200);
-    expect(await logo()).toBe('192px');
+    expect(parseFloat(await logo())).toBeGreaterThanOrEqual(90);
+    expect(parseFloat(await logo())).toBeLessThanOrEqual(140);
     for (const [width, height] of WINDOWED) {
       const at = `${width}x${height}`;
       await page.setViewportSize({ width, height });

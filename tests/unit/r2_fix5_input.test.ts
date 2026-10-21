@@ -735,28 +735,28 @@ describe('gamepad: the left stick steps through the menus as the D-pad does (med
     expect(selected(game)).toBe('NEW GAME');
     pad.axes[1] = 1;
     frames(1);
-    expect(selected(game)).toBe('CONTROLS');
+    expect(selected(game)).toBe('STREET RUN');
     frames(20);
-    expect(selected(game)).toBe('CONTROLS');
+    expect(selected(game)).toBe('STREET RUN');
     frames(6);
-    expect(selected(game)).toBe('SETTINGS');
+    expect(selected(game)).toBe('CONTROLS');
     frames(8);
-    expect(selected(game)).toBe('CREDITS');
+    expect(selected(game)).toBe('SETTINGS');
     // Let go, then pushed up past the press point: one step back.
     pad.axes[1] = 0;
     frames(2);
     pad.axes[1] = -0.65;
     frames(1);
-    expect(selected(game)).toBe('SETTINGS');
+    expect(selected(game)).toBe('CONTROLS');
     // Eased off between the press and release points: still the same push, no new step.
     pad.axes[1] = -0.5;
     frames(10);
-    expect(selected(game)).toBe('SETTINGS');
+    expect(selected(game)).toBe('CONTROLS');
     // The D-pad steps as before.
     pad.axes[1] = 0;
     frames(2);
     padTap(pad, frames, 13);
-    expect(selected(game)).toBe('CREDITS');
+    expect(selected(game)).toBe('SETTINGS');
   });
 
   it('a broken axis (NaN) steps nothing, and the stick works again once it reads a number', () => {
@@ -768,7 +768,7 @@ describe('gamepad: the left stick steps through the menus as the D-pad does (med
     expect(selected(game)).toBe('NEW GAME');
     pad.axes[1] = 1;
     frames(1);
-    expect(selected(game)).toBe('CONTROLS');
+    expect(selected(game)).toBe('STREET RUN');
   });
 
   it('in SETTINGS the stick picks a row up and down and changes it left and right, one axis at a time', () => {
