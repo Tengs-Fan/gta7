@@ -541,6 +541,7 @@ export class Activities {
       } else {
         sim.events.emit('big', { text: 'FARE COMPLETE', sub: formatMoney(pay), style: 'info', duration: 2.5 });
       }
+      sim.events.emit('activityMilestone', { kind: 'taxi', reward: pay + (j.fares % 5 === 0 ? 500 : 0) });
       if (!this.spawnFare()) this.end('Taxi job ended.');
     }
   }
@@ -728,6 +729,7 @@ export class Activities {
       j.level++;
       j.timer += 30;
       j.pause = 2.5;
+      sim.events.emit('activityMilestone', { kind: 'vigilante', reward });
       return;
     }
     if (j.timer <= 0) {
@@ -760,6 +762,7 @@ export class Activities {
       sim.events.emit('money', { amount: 2000 });
       sim.events.emit('big', { text: 'RAMPAGE PASSED', sub: '$2,000', style: 'passed', duration: 4 });
       this.end('');
+      sim.events.emit('activityMilestone', { kind: 'rampage', reward: 2000 });
       return;
     }
     if (j.timer <= 0) {

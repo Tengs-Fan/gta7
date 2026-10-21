@@ -74,6 +74,12 @@ export class Interactions {
     return null;
   }
 
+  /** The safehouse can restore health and save now; an exited vehicle job can be ended by saving. */
+  canSave(): boolean {
+    const sim = this.sim;
+    return !sim.playerDown && sim.wanted.level === 0 && !sim.missions.active && sim.activities.job?.kind !== 'rampage';
+  }
+
   /** HUD prompt for the marker under the player, or for retrying a failed mission. */
   prompt(): string | null {
     const sim = this.sim;
@@ -87,7 +93,7 @@ export class Interactions {
       // As interact() would answer, before E is pressed.
       if (sim.wanted.level > 0) return 'Lose the cops before saving.';
       if (sim.missions.active) return "You can't save during a mission.";
-      if (sim.activities.busy) return "You can't save during a rampage.";
+      if (sim.activities.job?.kind === 'rampage') return "You can't save during a rampage.";
     }
     return m.label;
   }
@@ -139,6 +145,9 @@ export class Interactions {
     const sim = this.sim;
     const m = this.current();
     if (!m) {
+      // E commits the player's exit. A taxi/vigilante job may still be waiting for FIXMYRIDE's
+      // opening F to be undone, but it must not silently block the retry advertised on screen.
+      if (sim.missions.retryOffer() && !this.startBlock(true) && sim.player.onFoot) this.finishExitedJob();
       sim.missions.retryNow();
       return;
     }
@@ -155,11 +164,12 @@ export class Interactions {
           sim.events.emit('message', { text: "You can't save during a mission.", duration: 3 });
           return;
         }
-        // On foot the only job that can be running: a save would drop it, and the heal is no free top-up mid-fight.
-        if (sim.activities.busy) {
+        // A rampage continues on foot: the heal is no free top-up mid-fight.
+        if (sim.activities.job?.kind === 'rampage') {
           sim.events.emit('message', { text: "You can't save during a rampage.", duration: 3 });
           return;
         }
+        this.finishExitedJob();
         sim.player.health = sim.player.maxHealth;
         sim.events.emit('saveRequested', { poi: m.ref });
         break;
@@ -167,6 +177,15 @@ export class Interactions {
         if (sim.missions.active || this.startBlock(false)) return;
         sim.missions.start(m.ref);
         break;
+    }
+  }
+
+  /** An on-foot interaction confirms the exit instead of keeping its vehicle job alive for a possible cheat. */
+  private finishExitedJob(): void {
+    const sim = this.sim;
+    if (sim.player.onFoot && sim.activities.job && sim.activities.job.kind !== 'rampage') {
+      sim.activities.exitUndoable = false;
+      sim.activities.toggleJob();
     }
   }
 

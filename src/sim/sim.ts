@@ -613,6 +613,12 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     if (!this.deathKind) return;
     this.deathTimer += dt;
     if (this.deathTimer < 4.8) return;
+    this.finishRespawn();
+  }
+
+  /** Resolve an existing wasted/busted state once, including its bill and confiscation. */
+  finishRespawn(): void {
+    if (!this.deathKind) return;
     const busted = this.deathKind === 'busted';
     const poi = this.world.layout.pois.find((p) => p.id === (busted ? 'police' : 'hospital'))!;
     const p = this.player;
@@ -651,6 +657,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     if (fee > 0) this.events.emit('money', { amount: -fee });
     const weapons = !armed ? '' : confiscated ? ' Your weapons were confiscated.' : ' You kept your weapons.';
     this.events.emit('message', { text: `${busted ? 'Bail paid' : 'Hospital bill'}: $${fee}.${weapons}`, duration: 5 });
+    this.missions.saveAfterRespawn();
   }
 
   /** Last finite position of each helicopter, where sanitize() returns one that blew up. */

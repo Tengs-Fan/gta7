@@ -9,6 +9,7 @@ import { WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
 import { CameraController } from './camera';
 import { ContactShadows } from './contactShadows';
+import { LocalReflections } from './localReflections';
 import { StreetLighting } from './streetLighting';
 import { CityView } from './city';
 import { CrowdView } from './crowd';
@@ -97,6 +98,8 @@ export class GameRenderer {
   private readonly siren: THREE.PointLight;
   private bloom: UnrealBloomPass | null = null;
   private contactShadows: ContactShadows | null = null;
+  private localReflections: LocalReflections | null = null;
+  private readonly reflectionPosition = new THREE.Vector3();
   private readonly hdr: boolean;
   readonly software: boolean;
   private readonly softwareMaterials: SoftwareMaterials | null;
@@ -237,6 +240,7 @@ export class GameRenderer {
     }
     this.headlight.visible = t.headlight;
     this.streetLighting.group.visible = !this.software && q === 'high';
+    if (q !== 'high') this.clearLocalReflections();
     this.resize();
     // Compile the new light / shadow variants now rather than when each object first shows up.
     if (this.warmedUp) this.warmup();
@@ -340,6 +344,7 @@ export class GameRenderer {
   }
 
   attach(sim: Sim): void {
+    this.clearLocalReflections();
     for (const u of this.unsub) u();
     this.unsub = [];
     for (const v of this.vehicleViews.values()) {
@@ -579,12 +584,31 @@ export class GameRenderer {
       this.softwareMaterials?.sync();
     }
     this.renderer.info.reset();
+    const car = sim?.player.vehicle;
+    const view = car ? this.vehicleViews.get(car.id) : null;
+    const reflect = this.hdr && this.quality === 'high' && this.cameraCtl.mode === 'play' && car && view && !car.destroyed;
+    if (reflect) {
+      this.localReflections ??= new LocalReflections(this.renderer, this.scene);
+      this.localReflections.applyCurrent(view.group);
+    } else if (this.localReflections) this.clearLocalReflections();
     this.renderer.render(this.scene, cam);
+    if (reflect && this.localReflections) {
+      // Draw the main scene first: quality changes and context recovery rebuild shadow maps here.
+      // Capturing with shadow updates disabled before that draw would sample an uninitialised map.
+      this.reflectionPosition.set(car.pos.x, car.pos.y + car.spec.height * 0.7, car.pos.z);
+      this.localReflections.update(view.group, this.reflectionPosition, hours, this.time,
+        [this.crowd.group, this.effects.group, this.markers.group, ...Array.from(this.vehicleViews.values(), (v) => v.group)]);
+    }
   }
 
-  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number } {
+  private clearLocalReflections(): void {
+    this.localReflections?.dispose();
+    this.localReflections = null;
+  }
+
+  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean } {
     const info = this.renderer.info;
-    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, vehicles: this.vehicleViews.size };
+    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false };
   }
 
   /** True between 'webglcontextlost' and 'webglcontextrestored'; nothing can be drawn meanwhile. */
@@ -609,11 +633,13 @@ export class GameRenderer {
    */
   private readonly onContextRestored = (): void => {
     this.contextLost = false;
+    this.clearLocalReflections();
     this.env.contextRestored();
     this.warmup();
   };
 
   dispose(): void {
+    this.clearLocalReflections();
     for (const u of this.unsub) u();
     const canvas = this.renderer.domElement;
     canvas.removeEventListener('webglcontextlost', this.onContextLost);

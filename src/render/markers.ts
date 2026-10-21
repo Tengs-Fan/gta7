@@ -21,7 +21,7 @@ const SPOT_FADE = 4;
  * twice the pool's radius of its centre, wanted.ts SPOT_SEE, besides what is close below the helicopter);
  * the dim centre keeps an unlit player from turning into a black silhouette.
  */
-const SPOT_POOL = 0.16;
+const SPOT_POOL = 0.08;
 const SPOT_CORE = 0.18;
 /** Points on the pool's rim where syncHelis samples the ground. */
 const POOL_RIM: ReadonlyArray<readonly [number, number]> = Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4) * SPOT_RADIUS * 0.9, Math.sin((k * Math.PI) / 4) * SPOT_RADIUS * 0.9] as const);

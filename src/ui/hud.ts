@@ -66,6 +66,8 @@ const MAX_QUEUED_HINTS = 3;
 const HINT_GAP = 0.5;
 /** How long the next-step line stays up. */
 const NEXT_STEP_SECONDS = 8;
+/** Fade edges use simulation time, so a pause also freezes the actual opacity. */
+const FADE_EDGE_SECONDS = 0.5;
 const CONTACTS = {
   lou: { name: 'Mama Lou', letter: 'L', color: '#ff4fa3' },
   dex: { name: 'Dex Moreau', letter: 'D', color: '#38e1d2' },
@@ -115,7 +117,7 @@ export class Hud {
   private route: Array<{ x: number; z: number }> = [];
   private routeTimer = 0;
   private lastHealth = 100;
-  private fadeTimeout = 0;
+  private fade: { startedAt: number; duration: number } | null = null;
   /** Hitmarker: seconds it stays up, seconds the kill colour has left, and the sim frame of the hits it shows (a shotgun's pellets are one hit). */
   private hitTimer = 0;
   private killTimer = 0;
@@ -315,9 +317,9 @@ export class Hud {
         if (e.character.isPlayer) this.flashZone(e.vehicle.spec.name, '');
       }),
       ev.on('fade', (e) => {
+        this.fade = { startedAt: sim.time, duration: Math.max(FADE_EDGE_SECONDS * 2, e.duration) };
+        this.el.fade!.style.opacity = '0';
         this.el.fade!.classList.add('on');
-        window.clearTimeout(this.fadeTimeout);
-        this.fadeTimeout = window.setTimeout(() => this.el.fade!.classList.remove('on'), Math.max(200, e.duration * 1000 - 500));
       }),
       ev.on('respawn', () => {
         this.lastHealth = sim.player.health;
@@ -441,10 +443,11 @@ export class Hud {
     this.el.help!.classList.remove('hint');
     this.el.objective!.classList.remove('next');
     this.el.prompt!.classList.remove('card', 'lou', 'dex');
-    window.clearTimeout(this.fadeTimeout);
+    this.fade = null;
     const el = this.el;
     for (const k of TIMED) el[k]!.classList.remove('show');
     el.fade!.classList.remove('on');
+    el.fade!.style.opacity = '0';
     el.money!.classList.remove('pop');
     // update() only writes these when they change, and '' is also a valid new-session value.
     el.ammo!.textContent = '';
@@ -673,6 +676,18 @@ export class Hud {
     const p = sim.player;
     const prog = sim.progress;
     const el = this.el;
+
+    // Fade and teleport share the same clock. CSS transitions and wall-clock timers keep
+    // running under pause/context-loss overlays, exposing the move when play resumes.
+    if (this.fade) {
+      const elapsed = Math.max(0, sim.time - this.fade.startedAt);
+      const opacity = Math.max(0, Math.min(1, elapsed / FADE_EDGE_SECONDS, (this.fade.duration - elapsed) / FADE_EDGE_SECONDS));
+      el.fade!.style.opacity = String(opacity);
+      if (elapsed >= this.fade.duration) {
+        this.fade = null;
+        el.fade!.classList.remove('on');
+      }
+    }
 
     // Timed elements.
     for (const k of Object.keys(this.timers) as Array<keyof typeof this.timers>) if (this.timers[k] > 0) this.timers[k] -= dt;
@@ -938,14 +953,29 @@ export class Hud {
 
   private updateNextStep(sim: Sim): void {
     const o = this.el.objective!;
-    const busy = !!sim.missions.active || sim.activities.busy;
+    const busy = !!sim.missions.active || sim.activities.busy || !!this.fade;
+    const retry = this.retryOffered(sim);
+    const retained = sim.missions.retryMenuOffer();
     // A mission or job taking over removes the line at once, and so does stepping onto the marker it
     // points to, whose offer card says the same.
-    if (o.classList.contains('next') && (busy || this.onNextMarker(sim))) {
+    if (o.classList.contains('next') && (busy || retry || this.waypoint || this.onNextMarker(sim))) {
       o.classList.remove('next', 'show');
       this.timers.objective = 0;
     }
-    if (!this.nextPending || this.bigCur || this.bigQueue.length > 0) return;
+    // After the quick key expires, the checkpoint still belongs to this session.
+    // Keep its pause-menu recovery discoverable instead of sending the player back
+    // to the contact as if starting over were the only option.
+    if (retained) {
+      if (!busy && !retry && !sim.playerDown && !this.waypoint && !this.onNextMarker(sim) && !this.bigCur && this.bigQueue.length === 0) {
+        o.textContent = `Retry "${retained.title}" from the pause menu`;
+        o.classList.add('show', 'next');
+        this.timers.objective = 0;
+      }
+      return;
+    }
+    // Resume/respawn may request a next step during the retry window. Keep it pending
+    // until the immediate retry (or its lose-the-cops instruction) is no longer offered.
+    if (!this.nextPending || retry || this.bigCur || this.bigQueue.length > 0) return;
     this.nextPending = false;
     const d = busy ? undefined : sim.missions.offers()[0];
     // Already on that marker (Wheels hands over at Lou's): the card says it.
@@ -954,6 +984,11 @@ export class Hud {
     o.textContent = `Next: ${c.name} has work - ${c.letter} on your radar`;
     o.classList.add('show', 'next');
     this.timers.objective = NEXT_STEP_SECONDS;
+  }
+
+  /** A failed mission can be retried here, or as soon as the police are lost. */
+  private retryOffered(sim: Sim): boolean {
+    return !!(sim.missions.retryOffer() || sim.missions.retryAfterCops());
   }
 
   /** The player stands on the marker of the next mission on offer, the one the next-step line names. */
@@ -1116,7 +1151,9 @@ export class Hud {
       const t = o.vehicle ?? o.character;
       return t ? { x: t.pos.x, z: t.pos.z, color: ROUTE_OBJECTIVE } : { x: o.x, z: o.z, color: ROUTE_OBJECTIVE };
     }
-    if (sim.missions.active || sim.activities.busy) return null;
+    // The local retry prompt is the next action after a failure. Sending the player
+    // back across town at the same time would imply that trip is required to retry.
+    if (sim.missions.active || sim.activities.busy || this.fade || sim.missions.retryMenuOffer()) return null;
     const d = sim.missions.offers()[0];
     if (!d) return null;
     const poi = sim.world.layout.pois.find((p) => p.id === d.giver);

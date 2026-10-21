@@ -13,6 +13,7 @@ import {
   SWIM_HIP, SWIM_TREAD_LEAN, WEAPON_POINTS, seatSide, windowMuzzle, type Trunk, type WeaponPose,
 } from '../sim/pose';
 import type { VehicleKind, WeaponId } from '../sim/specs';
+import { characterGeometries, type CharacterPartName } from './characterGeometry';
 import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
 import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
 
@@ -81,7 +82,7 @@ interface Part {
   n: number;
 }
 
-type PartName = 'torso' | 'head' | 'hair' | 'hat' | 'neck' | 'upperArm' | 'forearm' | 'hand' | 'thigh' | 'shin' | 'shoe';
+type PartName = CharacterPartName;
 
 /** Per-character smoothing between poses. */
 interface Anim {
@@ -197,14 +198,14 @@ export class CrowdView {
 
   constructor() {
     this.group.name = 'crowd';
-    const mat = () => {
-      const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0 });
+    const mat = (vertexColors: boolean) => {
+      const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.83, metalness: 0, vertexColors });
       m.onBeforeCompile = fadeNearLens;
       m.userData.contactShadow = false; // Keep dissolved character parts out of the contact depth pass.
       return m;
     };
     const make = (geo: THREE.BufferGeometry, count: number): Part => {
-      const mesh = new THREE.InstancedMesh(geo, mat(), count);
+      const mesh = new THREE.InstancedMesh(geo, mat(geo.hasAttribute('color')), count);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -215,22 +216,13 @@ export class CrowdView {
       this.group.add(mesh);
       return { mesh, n: 0 };
     };
-    const K = SKELETON;
-    // Limbs hang along their local -y from the joint at the origin and reach a little past the next
-    // joint, so bent elbows and knees show no gap. Lengths are for appearance.height 1, scaled per instance.
-    this.parts = {
-      torso: make(mergeAll([box(0.44, 0.6, 0.25, 0, 0.3, 0), box(0.4, 0.1, 0.24, 0, 0.62, 0)]), MAX),
-      head: make(box(0.23, 0.26, 0.25, 0, 0.15, 0), MAX),
-      hair: make(mergeAll([box(0.25, 0.08, 0.27, 0, 0.3, -0.005), box(0.25, 0.18, 0.06, 0, 0.19, -0.11)]), MAX),
-      hat: make(mergeAll([box(0.26, 0.09, 0.27, 0, 0.32, 0), box(0.23, 0.03, 0.14, 0, 0.28, 0.18)]), MAX),
-      neck: make(box(0.11, 0.08, 0.11, 0, 0.62, 0), MAX),
-      upperArm: make(box(0.12, K.upperArm + 0.06, 0.13, 0, -K.upperArm / 2 + 0.01, 0), MAX * 2),
-      forearm: make(box(0.105, K.forearm + 0.03, 0.115, 0, -K.forearm / 2 + 0.005, 0), MAX * 2),
-      hand: make(box(0.095, 0.1, 0.1, 0, 0, 0), MAX * 2),
-      thigh: make(box(0.17, K.thigh + 0.05, 0.18, 0, -K.thigh / 2 + 0.01, 0.005), MAX * 2),
-      shin: make(box(0.15, K.shin + 0.05, 0.16, 0, -K.shin / 2 + 0.02, 0), MAX * 2),
-      shoe: make(box(0.15, 0.09, K.heel + K.toe, 0, -K.ankleY + 0.045, (K.toe - K.heel) / 2), MAX * 2),
-    };
+    const geometry = characterGeometries();
+    const pairs = new Set<PartName>(['upperArm', 'forearm', 'hand', 'thigh', 'shin', 'shoe']);
+    this.parts = Object.fromEntries(Object.entries(geometry).map(([name, geo]) => {
+      const p = make(geo, MAX * (pairs.has(name as PartName) ? 2 : 1));
+      p.mesh.name = 'character-' + name;
+      return [name, p];
+    })) as Record<PartName, Part>;
     // Barrel ends (front face centres) are the WEAPON_POINTS tips of sim/pose.ts.
     const weaponGeo: Record<Gun, THREE.BufferGeometry> = {
       pistol: mergeAll([box(0.05, 0.08, 0.22, 0, 0, 0.1), box(0.045, 0.13, 0.06, 0, -0.07, 0.02)]),
@@ -327,7 +319,7 @@ export class CrowdView {
   // Matrices
 
   /**
-   * A limb box hanging from joint a to joint b (its local -y runs from a towards b), its local x turned
+   * A limb hanging from joint a to joint b (its local -y runs from a towards b), its local x turned
    * towards `side`, its length scaled by `sy`. Leaves the unit basis in S.bx/by/bz.
    */
   private bone(part: Part, a: THREE.Vector3, b: THREE.Vector3, side: THREE.Vector3, sy: number, color: number): void {
@@ -392,7 +384,7 @@ export class CrowdView {
     this.bone(this.parts.shin, S.knee, S.ankle, S.left, s, c.appearance.pants);
     S.e.set(pitch + knee - ankle, 0, sign * spread, 'YXZ');
     S.inst.copy(S.body).multiply(S.rot.makeRotationFromEuler(S.e)).scale(S.sc.set(1, s, s)).setPosition(S.ankle);
-    this.put(this.parts.shoe, S.inst, 0x1a1a1a);
+    this.put(this.parts.shoe, S.inst, 0xffffff);
   }
 
   /** Shoe at the ankle, facing `yaw`, pitched (+ toe up). */
@@ -400,7 +392,7 @@ export class CrowdView {
     S.e.set(-pitch, yaw, 0, 'YXZ');
     S.q.setFromEuler(S.e);
     S.inst.compose(ankle, S.q, S.sc.set(1, s, s));
-    this.put(this.parts.shoe, S.inst, 0x1a1a1a);
+    this.put(this.parts.shoe, S.inst, 0xffffff);
   }
 
   /** Torso, neck, head and hair or hat on the body frame S.body at the pelvis, the head turned and pitched (- up). Sets S.neck. */
@@ -409,13 +401,27 @@ export class CrowdView {
     const s = a.height;
     S.inst.copy(S.body).scale(S.sc.set(a.build, s, a.build)).setPosition(pelvis);
     this.put(this.parts.torso, S.inst, a.shirt);
+    this.put(this.parts.hips, S.inst, a.pants);
     this.put(this.parts.neck, S.inst, a.skin);
+    // The player's jacket has a light inset and rear yoke. Civilians mix zip jackets and plain tops;
+    // uniforms instead carry a badge, name plate and radio. Choice is stable across streaming and saves.
+    const jacket = c.isPlayer || (!c.isLaw && seeded(c.id, 21) > 0.4);
+    if (jacket) {
+      this.put(this.parts.shirtInset, S.inst, c.isPlayer ? 0xc8c7bc : seeded(c.id, 22) > 0.5 ? 0xe1ddd0 : 0x283b48);
+      this.put(this.parts.jacketTrim, S.inst, a.shirt);
+    }
+    if (c.isLaw) this.put(this.parts.badge, S.inst, 0xffffff);
     S.neck.set(0, 1, 0).transformDirection(S.body).multiplyScalar(SKELETON.neckY * s).add(pelvis);
     S.e.set(headPitch, headYaw, 0, 'YXZ');
     S.inst.copy(S.body).multiply(S.rot.makeRotationFromEuler(S.e)).scale(S.sc.set(s, s, s)).setPosition(S.neck);
     this.put(this.parts.head, S.inst, a.skin);
+    this.put(this.parts.face, S.inst, 0xffffff);
     if (a.hat) this.put(this.parts.hat, S.inst, a.hat);
-    else this.put(this.parts.hair, S.inst, a.hair);
+    else {
+      this.put(this.parts.hair, S.inst, a.hair);
+      if (!c.isPlayer && seeded(c.id, 23) > 0.55) this.put(this.parts.hairSweep, S.inst, a.hair);
+    }
+    if (!c.isPlayer && seeded(c.id, 24) > 0.72) this.put(this.parts.glasses, S.inst, 0xffffff);
   }
 
   /** Body frame axes into S.left/up/fwd and the shoulder joints into S.shL/shR. */

@@ -648,8 +648,8 @@ interface RetryOffer extends RetryBase {
   /** His loadout right after the failure (null until the respawn after a wasted / busted). */
   failed: Loadout | null;
   /**
-   * Sim time the offer lapses; null until armed: at the respawn after a wasted / busted, and once the
-   * police are lost after a failure with them on him.
+   * Sim time the quick E prompt lapses; the pause-menu retry remains available. Null until armed:
+   * at the respawn after a wasted / busted, and once the police are lost after a failure with them on him.
    */
   until: number | null;
 }
@@ -733,17 +733,12 @@ export class MissionSystem {
       this.refreshed = true;
       this.refreshMarkers();
     }
-    if (this.saveOnRespawn && !sim.playerDown) {
-      this.saveOnRespawn = false;
-      sim.events.emit('saveRequested', { poi: 'auto' });
-    }
+    this.saveAfterRespawn();
     const offer = this.retry;
     if (offer) {
       if (offer.until === null) {
         // A failure with the police on him: the window opens once they are lost (see retryAfterCops).
         if (offer.failed && sim.wanted.level === 0 && !sim.playerDown) offer.until = sim.time + RETRY_WINDOW;
-      } else if (sim.time >= offer.until) {
-        this.retry = null;
       }
     }
     const pending = this.pendingRetry;
@@ -771,6 +766,26 @@ export class MissionSystem {
     sim.events.emit('money', { amount: m.reward });
     if (sim.playerDown) this.saveOnRespawn = true;
     else sim.events.emit('saveRequested', { poi: 'auto' });
+  }
+
+  /**
+   * QUIT TO TITLE must finish a passed mission's pending autosave. A death during its outro
+   * already ended the mission; settle that ending and its real respawn bill before discarding
+   * the sim. Ordinary unsaved free roam and NEW GAME keep their existing discard semantics.
+   */
+  settleOnQuit(): void {
+    const sim = this.sim;
+    if (!this.saveOnRespawn && !(sim.playerDown && this.active?.settled)) return;
+    if (this.active?.settled) this.finish(true, '');
+    sim.finishRespawn();
+    this.saveAfterRespawn();
+  }
+
+  /** Flush once after the respawn event and its complete money/equipment transaction. */
+  saveAfterRespawn(): void {
+    if (!this.saveOnRespawn || this.sim.playerDown) return;
+    this.saveOnRespawn = false;
+    this.sim.events.emit('saveRequested', { poi: 'auto' });
   }
 
   private finish(passed: boolean, reason: string): void {
@@ -837,16 +852,39 @@ export class MissionSystem {
     return this.defs.find((d) => d.id === r.id) ?? null;
   }
 
+  /** A failed mission remains recoverable from pause after the quick on-screen offer has expired. */
+  retryMenuOffer(): { id: string; title: string; checkpoint: number; blocked: string | null } | null {
+    const sim = this.sim;
+    const r = this.retry;
+    if (!r || this.active) return null;
+    const def = this.defs.find((d) => d.id === r.id);
+    if (!def) return null;
+    const blocked = sim.playerDown ? 'Wait until you recover to retry.'
+      : sim.wanted.level > 0 ? 'Lose the cops before retrying.'
+      : sim.activities.job?.kind === 'rampage' ? 'Finish the rampage first.'
+      : !sim.player.onFoot ? 'Get out of the vehicle and stand on foot to retry.'
+      : null;
+    return { id: def.id, title: def.title, checkpoint: r.resume, blocked };
+  }
+
   /**
    * Restarts the failed mission on offer (the interact key, see Interactions): the screen fades,
    * the player gets his loadout from before the first attempt back, and the mission starts over at
    * its giver's marker without the intro, from its last checkpoint. False if there is nothing to
-   * retry or the player cannot right now (wanted, on a rampage, not on foot).
+   * retry or the player cannot right now (wanted, on a rampage, not on foot). A pause-menu
+   * action can use the retained offer after the quick E prompt has expired.
    */
-  retryNow(): boolean {
+  retryNow(fromMenu = false): boolean {
     const sim = this.sim;
     const r = this.retry;
-    if (!this.retryOffer() || !r || sim.wanted.level > 0 || sim.activities.busy || !sim.player.onFoot) return false;
+    if (!r) return false;
+    if (fromMenu) {
+      const offer = this.retryMenuOffer();
+      if (!offer || offer.blocked) return false;
+      // An on-foot menu action commits an exit whose F might otherwise still be a cheat-code prefix.
+      sim.activities.exitUndoable = false;
+      sim.activities.cancelAll('mission');
+    } else if (!this.retryOffer() || sim.wanted.level > 0 || sim.activities.busy || !sim.player.onFoot) return false;
     this.retry = null;
     sim.controlLock = Math.max(sim.controlLock, RETRY_FADE);
     sim.events.emit('fade', { duration: RETRY_FADE });

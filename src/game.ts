@@ -98,6 +98,8 @@ export class Game {
   private readonly introOff = introOffByUrl();
   /** Seconds until Lou's opening call on a fresh game; not positive when no call is pending. */
   private introTimer = -1;
+  /** Completed achievements waiting for the end of the simulation frame (and any pending respawn bill). */
+  private pendingAutosave = false;
   /** First-time tutorial hints and the steal prompt, remembered in the settings. */
   readonly hints = new HintSystem({
     enabled: () => this.settings.hints,
@@ -191,6 +193,9 @@ export class Game {
         this.sim.missions.abandon();
         this.resume();
       }),
+      retryMission: this.guard(() => {
+        if (this.sim.missions.retryNow(true)) this.resume();
+      }),
       settings: () => this.settings,
       applySettings: this.guard((s: Settings) => this.applySettings(s, true)),
       deleteSave: () => deleteGame(),
@@ -247,6 +252,7 @@ export class Game {
   private startSim(save: SaveData | null, intro = false): void {
     for (const u of this.unsub) u();
     this.unsub = [];
+    this.pendingAutosave = false;
     this.world.resetBroken();
     this.renderer.props.restoreAll();
     const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5 });
@@ -269,8 +275,7 @@ export class Game {
         this.suspendPlay();
         this.menus.showShop(this.guard(() => this.resume()));
       }),
-      ev.on('saveRequested', (e) => this.save(e.poi === 'auto')),
-      ev.on('streetRunFinished', () => this.save(true)),
+      ...this.bindSaves(sim),
       ev.on('respawn', () => this.renderer.cameraCtl.reset(sim)),
       ev.on('missionStarted', () => {
         this.hud.waypoint = null;
@@ -377,6 +382,26 @@ export class Game {
     this.hud.toast(failed ?? (auto ? 'Autosaved' : 'Game saved'));
   }
 
+  /** Achievements queue one write after all simulation systems have committed this frame's results. */
+  private bindSaves(sim: Sim): Array<() => void> {
+    const queue = () => { this.pendingAutosave = true; };
+    return [
+      sim.events.on('saveRequested', (e) => e.poi === 'auto' ? queue() : this.save(false)),
+      sim.events.on('streetRunFinished', queue),
+      sim.events.on('activityMilestone', queue),
+      sim.events.on('pickup', (e) => { if (e.kind === 'package') queue(); }),
+      sim.events.on('stunt', queue),
+    ];
+  }
+
+  private flushAutosave(): void {
+    // A stunt landing can earn its bonus before the same frame's collision kills the player.
+    // Save only after the hospital/bail transaction, including confiscated guns and armour.
+    if (!this.pendingAutosave || this.sim.playerDown) return;
+    this.pendingAutosave = false;
+    this.save(true);
+  }
+
   pause(): void {
     if (this.mode !== 'game' || this.menus.open || this.crashed) return;
     this.suspendPlay();
@@ -412,6 +437,13 @@ export class Game {
   }
 
   private quitToTitle(): void {
+    // A passed mission may be waiting for the hospital/bail bill before its final autosave.
+    // Resolve that transaction while the save listener is still attached.
+    this.sim.missions.settleOnQuit();
+    if (this.pendingAutosave) {
+      this.sim.finishRespawn();
+      this.flushAutosave();
+    }
     for (const u of this.unsub) u();
     this.unsub = [];
     this.mode = 'title';
@@ -551,6 +583,7 @@ export class Game {
     sim.activities.exitUndoable = this.input.typingCode(exitPress) && (pv !== null || this.lastExit?.press === exitPress);
     const ts = performance.now();
     sim.update(dt, inp);
+    this.flushAutosave();
     this.perf.simMs = performance.now() - ts;
     this.input.inVehicle = !!sim.player.vehicle;
     this.input.skipLine = sim.missions.lineSkippable;

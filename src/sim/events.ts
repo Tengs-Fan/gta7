@@ -48,6 +48,8 @@ export interface SimEvents {
   missionEnded: { id: string; passed: boolean };
   /** A side activity is over, whatever the outcome. */
   activityEnded: { kind: 'taxi' | 'vigilante' | 'rampage' | 'streetRun' };
+  /** A paid side-activity milestone, after all of its cash, bonuses and progress have been committed. */
+  activityMilestone: { kind: 'taxi' | 'vigilante' | 'rampage'; reward: number };
   streetRunCountdown: { count: 0 | 1 | 2 | 3 };
   streetRunCheckpoint: { index: number; total: number; elapsed: number };
   /** Emitted after cash and records are committed, so autosave sees the result. */

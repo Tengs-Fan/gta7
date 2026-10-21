@@ -4827,3 +4827,210 @@ describe('San Azura driving HUD', () => {
     expect(note.classList.contains('hidden')).toBe(false);
   });
 });
+
+// Retry guidance and transition coverage share the same gameplay state and clock.
+describe('mission retry HUD recovery', () => {
+  function failedMission(wanted = false) {
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    const update = (dt = 1 / 60) => hud.update(dt, sim, 0, false, sim.interactions.prompt(), sim.time);
+    expect(sim.missions.start('wheels', { retrying: true })).toBe(true);
+    step(sim, 0.1);
+    if (wanted) sim.wanted.setLevel(2);
+    sim.missions.active!.fail('The deal fell through.');
+    step(sim, 0.1);
+    hud.showNextStep(sim); // Resume and respawn both request this line.
+    for (let i = 0; i < 12; i++) update(1);
+    return { hud, el, sim, update };
+  }
+
+  it('keeps the local retry as the next action, preserving a chosen waypoint and explaining menu recovery after expiry', () => {
+    const { hud, el, sim, update } = failedMission();
+    expect(el.prompt!.textContent).toContain('retry "Wheels"');
+    expect(el.navigation!.classList.contains('hidden')).toBe(true);
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    expect((hud as unknown as { route: unknown[] }).route).toHaveLength(0);
+    const p = sim.playerPos();
+    hud.waypoint = { x: p.x + 200, z: p.z };
+    update();
+    expect(el.navigation!.classList.contains('hidden')).toBe(false);
+    expect(el.navLabel!.textContent).toBe('WAYPOINT');
+    expect(el.navDistance!.textContent).toBe('200 m');
+    hud.waypoint = null;
+    step(sim, 20.1);
+    update();
+    expect(sim.missions.retryOffer()).toBe(null);
+    expect(el.navigation!.classList.contains('hidden')).toBe(true);
+    expect(el.objective!.textContent).toBe('Retry "Wheels" from the pause menu');
+    expect(el.objective!.classList.contains('show')).toBe(true);
+    expect((hud as unknown as { route: unknown[] }).route).toHaveLength(0);
+    hud.waypoint = { x: p.x + 200, z: p.z };
+    update();
+    expect(el.navLabel!.textContent).toBe('WAYPOINT');
+    expect(el.objective!.classList.contains('show')).toBe(false);
+  });
+
+  it('also gives the lose-the-cops retry instruction precedence until its fresh retry window expires', () => {
+    const { el, sim, update } = failedMission(true);
+    expect(sim.missions.retryAfterCops()?.id).toBe('wheels');
+    expect(el.prompt!.textContent).toContain('Lose the cops before retrying');
+    expect(el.navigation!.classList.contains('hidden')).toBe(true);
+    expect(el.objective!.classList.contains('show')).toBe(false);
+    sim.wanted.clear();
+    step(sim, 0.1);
+    update();
+    expect(sim.missions.retryOffer()?.id).toBe('wheels');
+    expect(el.prompt!.textContent).toContain('retry "Wheels"');
+    expect(el.navigation!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('freezes both fade edges during real Game pause and covers the actual retry teleport on resume', async () => {
+    const { game, frames } = makeQualityGame();
+    game.newGame({ intro: false });
+    await flush();
+    const sim = game.sim;
+    sim.cheats.godMode = true;
+    const el = (game.hud as unknown as { el: Record<string, FakeElement> }).el;
+    sim.missions.start('wheels', { retrying: true });
+    frames(2);
+    sim.missions.active!.fail('The deal fell through.');
+    frames(2);
+    expect(sim.missions.retryNow()).toBe(true);
+    const before = { x: sim.player.pos.x, z: sim.player.pos.z };
+    const covered: number[] = [];
+    sim.events.on('missionStarted', () => covered.push(Number(el.fade!.style.opacity)));
+    frames(12);
+    const fadingIn = Number(el.fade!.style.opacity);
+    expect(fadingIn).toBeGreaterThan(0.3);
+    expect(fadingIn).toBeLessThan(0.5);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      game.pause();
+      const pausedAt = sim.time;
+      vi.advanceTimersByTime(5000);
+      frames(120);
+      expect(sim.time).toBe(pausedAt);
+      expect(Number(el.fade!.style.opacity)).toBe(fadingIn);
+      expect({ x: sim.player.pos.x, z: sim.player.pos.z }).toEqual(before);
+      game.resume();
+      frames(42);
+      expect(sim.missions.active?.retrying).toBe(true);
+      expect(covered).toHaveLength(1);
+      expect(covered[0]).toBeCloseTo(1, 6);
+      expect({ x: sim.player.pos.x, z: sim.player.pos.z }).not.toEqual(before);
+      const fadingOut = Number(el.fade!.style.opacity);
+      expect(fadingOut).toBeGreaterThan(0.5);
+      expect(fadingOut).toBeLessThan(0.7);
+      game.pause();
+      vi.advanceTimersByTime(5000);
+      frames(120);
+      expect(Number(el.fade!.style.opacity)).toBe(fadingOut);
+      game.resume();
+      frames(24);
+      expect(el.fade!.style.opacity).toBe('0');
+      expect(el.fade!.classList.contains('on')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses the clamped simulation clock through long frames and drops an old-session fade on rebind', () => {
+    const { hud, el, sim, update } = failedMission();
+    expect(sim.missions.retryNow()).toBe(true);
+    // The simulation can advance only 0.1 s even when a caller reports a much longer frame.
+    step(sim, 0.1);
+    update(5);
+    expect(Number(el.fade!.style.opacity)).toBeCloseTo(0.2, 6);
+    update(5);
+    expect(Number(el.fade!.style.opacity)).toBeCloseTo(0.2, 6);
+    const next = quickSim();
+    hud.bind(next);
+    expect(el.fade!.style.opacity).toBe('0');
+    expect(el.fade!.classList.contains('on')).toBe(false);
+    sim.events.emit('fade', { duration: 2.2 });
+    expect(el.fade!.classList.contains('on')).toBe(false);
+  });
+});
+
+describe('retained mission retries in the pause menu', () => {
+  function failedCheckpoint() {
+    const sim = quickSim();
+    for (const id of ['wheels', 'delivery', 'repo', 'loose_lips', 'heatwave']) sim.progress.markDone(id);
+    sim.missions.start('big_score', { retrying: true, resume: 1 });
+    step(sim, 0.1);
+    sim.wanted.clear();
+    sim.missions.active!.fail('The getaway went wrong.');
+    step(sim, 0.1);
+    sim.wanted.clear();
+    step(sim, 0.1);
+    step(sim, 20.1);
+    expect(sim.missions.retryOffer()).toBe(null);
+    expect(sim.missions.retryMenuOffer()).toMatchObject({ title: 'The Big Score', checkpoint: 1, blocked: null });
+    return sim;
+  }
+
+  it('names the retained checkpoint after the quick prompt expires and leaves Resume, Map and Stats in place', () => {
+    const sim = failedCheckpoint();
+    const retryMission = vi.fn();
+    const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, stubHost({ sim: () => sim, retryMission }), new MapImage(world()));
+    menus.showPause();
+    const buttons = (menus.top!.el as unknown as FakeElement).all().filter((e) => e.tagName === 'BUTTON');
+    expect(buttons.slice(0, 3).map((b) => b.textContent)).toEqual(['RESUME', 'MAP', 'STATS']);
+    const retry = buttons.find((b) => b.dataset.id === 'retry-mission')!;
+    expect(retry.textContent).toBe('RETRY FROM CHECKPOINT');
+    expect(retry.dataset.description).toContain('The Big Score');
+    expect(retry.disabled).toBe(false);
+    retry.click();
+    expect(retryMission).toHaveBeenCalledTimes(1);
+    buttons.at(-1)!.click();
+    expect(menus.top!.el.textContent).toContain('checkpoint will be lost');
+  });
+
+  it('shows why a retained retry is unavailable and skips that disabled row with keyboard navigation', () => {
+    const sim = failedCheckpoint();
+    const retryMission = vi.fn();
+    sim.wanted.setLevel(2);
+    const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, stubHost({ sim: () => sim, retryMission }), new MapImage(world()));
+    menus.showPause();
+    const root = menus.top!.el as unknown as FakeElement;
+    const retry = root.all().find((e) => e.dataset.id === 'retry-mission')!;
+    expect(retry.disabled).toBe(true);
+    expect(retry.dataset.description).toMatch(/cops/i);
+    retry.click();
+    expect(retryMission).not.toHaveBeenCalled();
+    menus.input({ ...NO_UI }, 0.3);
+    menus.input({ ...NO_UI, up: true }, 0.3);
+    expect(root.all().find((e) => e.classList.contains('sel'))!.textContent).toBe('QUIT TO TITLE');
+    menus.input({ ...NO_UI, up: true }, 0.3);
+    expect(root.all().find((e) => e.classList.contains('sel'))!.textContent).toBe('SETTINGS');
+  });
+
+  it('the actual Game menu action resumes and starts the retained attempt under its fade', async () => {
+    const { game, frames } = makeQualityGame();
+    game.newGame({ intro: false });
+    await flush();
+    const sim = game.sim;
+    sim.cheats.godMode = true;
+    sim.missions.start('wheels', { retrying: true });
+    frames(2);
+    sim.missions.active!.fail('The deal fell through.');
+    frames(2);
+    frames(60 * 21);
+    expect(sim.missions.retryOffer()).toBe(null);
+    game.pause();
+    const root = game.menus.top!.el as unknown as FakeElement;
+    const retry = root.all().find((e) => e.dataset.id === 'retry-mission')!;
+    expect(retry.textContent).toBe('RETRY MISSION');
+    retry.click();
+    expect(game.menus.open).toBe(false);
+    const fade = (game.hud as unknown as { el: Record<string, FakeElement> }).el.fade!;
+    expect(fade.classList.contains('on')).toBe(true);
+    frames(48);
+    expect(sim.missions.active?.def.id).toBe('wheels');
+    expect(sim.missions.active?.retrying).toBe(true);
+    expect(sim.missions.active?.objectiveText).toBe('Steal a car');
+    expect(game.isCrashed).toBe(false);
+  });
+});

@@ -23,6 +23,8 @@ export interface MenuHost {
   resume(): void;
   quitToTitle(): void;
   abandonMission(): void;
+  /** Retry the retained failed attempt, including after the quick retry prompt expires. */
+  retryMission?(): void;
   settings(): Settings;
   applySettings(s: Settings): void;
   deleteSave(): void;
@@ -319,12 +321,13 @@ export class Menus {
   showPause(): void {
     const sim = this.host.sim();
     const m = sim?.missions.active ?? null;
+    const retry = this.host.retryMission ? sim?.missions.retryMenuOffer() : null;
     const el = h('div', 'screen dim');
     const panel = h('div', 'panel pause-panel');
     panel.style.width = 'min(520px, 92vw)';
     panel.appendChild(h('div', 'panel-eyebrow', 'SAN AZURA / TAKE A BREATHER'));
     panel.appendChild(h('h2', '', 'PAUSED'));
-    const items: Array<{ label: string; action: () => void }> = [
+    const items: Array<{ label: string; action: () => void; id?: string; description?: string; disabled?: boolean }> = [
       { label: 'RESUME', action: () => this.host.resume() },
       { label: 'MAP', action: () => this.showMap() },
       { label: 'STATS', action: () => this.showStats() },
@@ -335,7 +338,15 @@ export class Menus {
     // is passed whatever happens during the closing lines, an abandon included, so there is nothing to abandon. The
     // sim stands still while this menu is open, so that cannot change under it.
     if (m && !m.won) items.push({ label: 'ABANDON MISSION', action: () => this.confirm('Abandon the mission? You will have to start it again from the beginning.', () => this.host.abandonMission()) });
-    items.push({ label: 'QUIT TO TITLE', action: () => this.confirm('Quit to the title screen? Unsaved progress will be lost.', () => this.host.quitToTitle()) });
+    if (retry) items.push({
+      label: retry.checkpoint > 0 ? 'RETRY FROM CHECKPOINT' : 'RETRY MISSION',
+      id: 'retry-mission',
+      description: `${retry.title} · ${retry.blocked ?? (retry.checkpoint > 0 ? 'Resume from your last checkpoint.' : 'Start this attempt again.')}`,
+      disabled: !!retry.blocked,
+      action: () => this.host.retryMission?.(),
+    });
+    const quitWarning = retry ? 'Quit to the title screen? This mission retry and its checkpoint will be lost. Completed missions remain saved.' : 'Quit to the title screen? Unsaved progress will be lost.';
+    items.push({ label: 'QUIT TO TITLE', action: () => this.confirm(quitWarning, () => this.host.quitToTitle()) });
     const list = new ButtonList(items, () => this.host.click());
     panel.appendChild(list.el);
     if (sim) {

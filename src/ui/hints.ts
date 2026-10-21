@@ -64,7 +64,15 @@ const RULES: readonly Rule[] = [
     id: 'health',
     text: 'Health is low: buy First Aid at Bang Bang Guns or save at the safehouse.',
     duration: 7,
-    when: (sim) => sim.player.alive && !sim.playerDown && sim.player.health < sim.player.maxHealth * 0.35,
+    when: (sim) => lowHealth(sim) && sim.interactions.canSave(),
+  },
+  {
+    id: 'health:restricted',
+    text: 'Health is low: grab a health pickup or buy First Aid at Bang Bang Guns.',
+    duration: 7,
+    // Saving is unavailable during a mission, a rampage or a police chase. Keep this separate
+    // from the safehouse lesson so reading it does not consume advice that only helps later.
+    when: (sim) => lowHealth(sim) && !sim.interactions.canSave(),
   },
   {
     id: 'mouse',
@@ -73,6 +81,10 @@ const RULES: readonly Rule[] = [
     when: (_sim, hints) => hints.mouseFreeFor > 1,
   },
 ];
+
+function lowHealth(sim: Sim): boolean {
+  return sim.player.alive && !sim.playerDown && sim.player.health < sim.player.maxHealth * 0.35;
+}
 
 /** A car worth suggesting: it drives and is not about to blow up. */
 function intact(v: Vehicle): boolean {
