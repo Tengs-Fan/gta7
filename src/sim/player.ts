@@ -1,7 +1,7 @@
 // Turns PlayerInput into player character / vehicle behaviour.
 
 import { circleVsObb, makeContact, segmentHitsAabb } from '../core/collision';
-import { clamp, moveAngleTowards } from '../core/math';
+import { clamp, moveAngleTowards, moveTowards, smoothstep, wrapAngle } from '../core/math';
 import { MAX_STEP, SWIM_SPEED } from './characterPhysics';
 import type { Character, Vehicle } from './entities';
 import type { PlayerInput } from './input';
@@ -11,6 +11,15 @@ import { vehicleObb } from './vehiclePhysics';
 
 const contact = makeContact();
 const obb = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
+/**
+ * Point-blank aim convergence (see PlayerController.convergeAim): with the crosshair on someone nearer than
+ * CONVERGE_FROM (m, across the ground from the player) the aim starts to turn from the camera ray's yaw towards him,
+ * and points straight at him from CONVERGE_FULL in. The turn eases at CONVERGE_RATE (rad/s) when the crosshair jumps on
+ * or off someone at point blank, quicker than any steady approach needs.
+ */
+const CONVERGE_FROM = 3;
+const CONVERGE_FULL = 1;
+const CONVERGE_RATE = 9.5;
 
 interface EntryPoint { x: number; z: number }
 interface EntryRoute { side: 1 | -1; points: EntryPoint[]; length: number }
@@ -26,6 +35,8 @@ export class PlayerController {
   private jackedAt = 0;
   private lastX = 0;
   private lastZ = 0;
+  /** Current point-blank aim convergence: how far (rad) the aim is turned from the camera ray's yaw. */
+  private converge = 0;
   /** Last vehicle the player entered (for mission checks). */
   lastVehicle: Vehicle | null = null;
   /** Keyboard steering wheel position before the high-speed authority cut (see steerFor). */
@@ -61,6 +72,7 @@ export class PlayerController {
       }
       return;
     }
+    if (p.state !== 'normal' && p.state !== 'swimming') this.converge = 0;
     switch (p.state) {
       case 'normal':
       case 'swimming':
@@ -130,7 +142,8 @@ export class PlayerController {
     p.moveZ = dz;
     p.moveSpeed = m > 0.05 ? speed * m : 0;
 
-    const aimYaw = Math.atan2(input.aimDir.x, input.aimDir.z);
+    const rayYaw = Math.atan2(input.aimDir.x, input.aimDir.z);
+    const aimYaw = wrapAngle(rayYaw + this.convergeAim(p, input, rayYaw, p.aiming && weapon.id !== 'fists', dt));
     p.aimYaw = aimYaw;
     p.aimPitch = Math.asin(clamp(input.aimDir.y, -1, 1));
     if (p.aiming || p.punchTimer > 0) p.heading = moveAngleTowards(p.heading, aimYaw, 16 * dt);
@@ -153,6 +166,30 @@ export class PlayerController {
       const v = this.findEnterable(p);
       if (v) this.beginEnter(p, v);
     }
+  }
+
+  /**
+   * How far (rad) to turn a gun's aim from the crosshair ray's yaw `rayYaw` at point blank. The shoulder camera looks
+   * past the player's right shoulder from above and behind, so near him its ray and the gun's (from beside and below
+   * it) part: someone close by the shoulder under the crosshair is not in front of the barrel. Within CONVERGE_FROM the
+   * aim turns towards the point of the ray on him, fully from CONVERGE_FULL in, blended between with distance so a
+   * steady approach shows no pop; beyond, and with no gun up, it is the ray's yaw exactly. A wall or a car under the
+   * crosshair needs none: the shot already goes to the crosshair's point on it.
+   */
+  private convergeAim(p: Character, input: PlayerInput, rayYaw: number, gun: boolean, dt: number): number {
+    let want = 0;
+    if (gun) {
+      const q = this.sim.combat.crosshairPerson(input.aimOrigin, input.aimDir, CONVERGE_FROM + 2, p);
+      if (q) {
+        const dx = q.x - p.pos.x;
+        const dz = q.z - p.pos.z;
+        const d = Math.hypot(dx, dz);
+        const w = 1 - smoothstep(CONVERGE_FULL, CONVERGE_FROM, d);
+        if (w > 0 && d > 1e-3) want = w * wrapAngle(Math.atan2(dx, dz) - rayYaw);
+      }
+    }
+    this.converge = moveTowards(this.converge, want, CONVERGE_RATE * dt);
+    return this.converge;
   }
 
   /** Nearest vehicle whose body is in reach and has a walkable approach to a door. */
