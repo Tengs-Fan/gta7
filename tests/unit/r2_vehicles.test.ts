@@ -7,7 +7,7 @@ import { bodySideX, cabinSideX } from '../../src/render/vehicleDetails';
 import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Effects } from '../../src/render/effects';
-import { GameRenderer } from '../../src/render/renderer';
+import { GameRenderer, HEADLIGHT_INTENSITY } from '../../src/render/renderer';
 import { DentedGeometry, displace, triangulateCDT, type Pt } from '../../src/render/vehicleGeometry';
 import { cabinLayout, leanRoom, VehicleView, VehicleViewPool, vehicleGlass } from '../../src/render/vehicleView';
 import { MAX_DENTS, type Dent, type Vehicle } from '../../src/sim/entities';
@@ -1094,11 +1094,11 @@ describe('round-2 fixes: wrecks, lamps, livery, lean and dents', () => {
     const beam = (): number => (R as unknown as { headlight: THREE.SpotLight }).headlight.intensity;
     const night = R.env.night;
     expect(night).toBeGreaterThan(0.9);
-    expect(beam()).toBeCloseTo(260 * night, 3);
+    expect(beam()).toBeCloseTo(HEADLIGHT_INTENSITY * night, 3);
     // The left lamp smashed: half the beam.
     addDent(v, { lx: v.halfW, ly: 0.5 * v.spec.height, lz: v.halfL, nx: -0.6, nz: -0.8, depth: 0.14 });
     R.render(DT, false);
-    expect(beam()).toBeCloseTo(130 * night, 3);
+    expect(beam()).toBeCloseTo((HEADLIGHT_INTENSITY / 2) * night, 3);
     // Both: no beam at all.
     addDent(v, { lx: 0, ly: 0.5 * v.spec.height, lz: v.halfL, nx: 0, nz: -1, depth: 0.3 });
     R.render(DT, false);

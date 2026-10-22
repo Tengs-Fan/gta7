@@ -24,6 +24,12 @@ async function shown(page: Page, selector: string, text?: string): Promise<numbe
   );
 }
 
+/** How far (px) the open pause panel's content runs past its box, so it would have to scroll. */
+const panelOverflow = (page: Page) => page.evaluate(() => {
+  const p = document.querySelector<HTMLElement>('.pause-panel')!;
+  return p.scrollHeight - p.clientHeight;
+});
+
 /** Windowed laptop viewports: 1280 x 720 or 1080p at 150 % (595), 1366 x 768 (643, 615 with a bookmarks bar), and lower. */
 const WINDOWED = [
   [1280, 595],
@@ -94,6 +100,36 @@ test.describe('GTA 7 input fixes (round 2, pass 5)', () => {
       await expect(page.locator('.panel p:visible')).toContainText('Mission:');
       expect(await shown(page, '.menu button', 'QUIT TO TITLE'), `QUIT TO TITLE at ${at}`).toBe(1);
       expect(await shown(page, '.panel p'), `mission line at ${at}`).toBe(1);
+      expect(await panelOverflow(page), `pause panel overflow at ${at}`).toBeLessThanOrEqual(0);
+      if (width === 1280 && height === 560) await page.screenshot({ path: test.info().outputPath('pause-1280x560.png') });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !(window as Api).__gta7.state().menuOpen);
+      await page.waitForTimeout(300);
+    }
+    // A failed mission adds RETRY MISSION with its description line, the tallest pause menu.
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      g.godMode(true);
+      g.sim.missions.active.fail('The test failed it.');
+    });
+    await page.waitForFunction(() => (window as Api).__gta7.state().mission === null);
+    await page.evaluate(() => (window as Api).__gta7.sim.wanted.clear());
+    await page.waitForFunction(() => (window as Api).__gta7.sim.missions.retryMenuOffer() !== null);
+    for (const [width, height] of [...WINDOWED, [1280, 720], [1366, 768], [1920, 1080]] as const) {
+      const at = `${width}x${height} with a retry`;
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(200);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.panel h2:visible')).toHaveText('PAUSED');
+      await expect(page.locator('[data-id="retry-mission"]')).toHaveText('RETRY MISSION');
+      await page.waitForTimeout(300);
+      for (const label of ['RESUME', 'MAP', 'STATS', 'CONTROLS', 'SETTINGS', 'RETRY MISSION', 'QUIT TO TITLE']) {
+        expect(await shown(page, '.menu button', label), `${label} at ${at}`).toBe(1);
+      }
+      expect(await shown(page, '.panel p'), `context line at ${at}`).toBe(1);
+      expect(await panelOverflow(page), `pause panel overflow at ${at}`).toBeLessThanOrEqual(0);
+      if (width === 1280 || width === 1920) await page.screenshot({ path: test.info().outputPath(`pause-${at.replace(/ /g, '-')}.png`) });
       await page.keyboard.press('Escape');
       await page.waitForFunction(() => !(window as Api).__gta7.state().menuOpen);
       await page.waitForTimeout(300);
@@ -114,6 +150,8 @@ test.describe('GTA 7 input fixes (round 2, pass 5)', () => {
     };
     await page.waitForTimeout(300);
     expect(await sel()).toBe('NEW GAME');
+    await push(1, 1);
+    expect(await sel()).toBe('STREET RUN');
     await push(1, 1);
     expect(await sel()).toBe('CONTROLS');
     await push(1, 1);

@@ -402,7 +402,8 @@ describe('NEW GAME over a save asks first (critical)', () => {
 
   it('in the game, a NEW GAME click and an autosave no longer replace the save behind the player', () => {
     expect(writeGame(aSave())).toBe(true);
-    const { game, button } = makeGame();
+    const harness = makeGame();
+    const { game, button } = harness;
     button('NEW GAME')!.click();
     expect(game.mode).toBe('title');
     // What the first autosave of a new session would write (Lou's call starts Wheels 2.5 s in).
@@ -416,6 +417,9 @@ describe('NEW GAME over a save asks first (critical)', () => {
     button('YES')!.click();
     expect(game.mode).toBe('game');
     game.sim.events.emit('saveRequested', { poi: 'auto' });
+    // Autosaves are queued and written after the next sim frame.
+    expect(loadGame()!.missionsDone).toEqual(['wheels']);
+    harness.frames(1);
     expect(loadGame()!.missionsDone).toEqual([]);
   });
 });
