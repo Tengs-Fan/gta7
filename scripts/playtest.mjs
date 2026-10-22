@@ -6,7 +6,7 @@
 //
 // A scenario or script drives the real game through window.__gta7 and real keyboard/mouse input,
 // saves screenshots to --out and writes --out/report.json (console errors, state snapshots and
-// per-segment performance). Built-in scenarios: tour, drive, chase, night, perf. A custom --script
+// per-segment performance). Built-in scenarios: tour, drive, chase, night, rainnight, perf. A custom --script
 // is an ES module exporting `default async function (t)`, where `t` is the helper object below.
 //
 // Pointer lock is refused (headless Chromium that grants it stops delivering frames); --pointer-lock
@@ -274,6 +274,32 @@ const SCENARIOS = {
       await t.shot(`night-${h}`);
     }
     await t.snap('end');
+  },
+  /** Night storm downtown: rain, wet-road streaks, a fast drive throwing spray; measures the frame rate. */
+  async rainnight() {
+    await t.boot();
+    await t.newGame();
+    await t.game((g) => {
+      g.godMode(true);
+      g.game.applySettings({ ...g.game.settings, quality: 'high' }, false);
+      g.setClockRate(0);
+      g.setTime(22.5);
+      g.setWeather('storm', { instant: true });
+      const n = g.sim.roads.node(4, 4);
+      g.teleport(n.x + n.halfX + 2.2, n.z + n.halfZ + 9);
+      g.setCamera(0, -0.1);
+    });
+    await t.wait(2500);
+    await t.shot('rain-night-street');
+    await t.measure('rain-night-walk', 4000);
+    await t.game((g) => g.spawnVehicle('sports', true));
+    await t.page.keyboard.down('KeyW');
+    await t.wait(2500);
+    await t.shot('rain-night-drive');
+    await t.measure('rain-night-drive', 4000);
+    await t.page.keyboard.up('KeyW');
+    await t.snap('end');
+    console.table(report.segments.map((s) => ({ label: s.label, fps: s.fps, rainDrops: s.render?.rainDrops, wet: s.render?.wet, streaks: s.render?.streaks, particles: s.render?.particles })));
   },
   /** Frame rate in a few demanding places; prints a table. */
   async perf() {

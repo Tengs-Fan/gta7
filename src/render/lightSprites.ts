@@ -35,6 +35,13 @@ export interface LampGlow {
 
 export const GLOW_CAPACITY = 512;
 export const STREAK_CAPACITY = 64;
+/** Lights farther than this (m) from the camera, and ground drier than STREAK_MIN_WET, get no streak. */
+export const STREAK_RANGE = 60;
+const STREAK_MIN_WET = 0.01;
+/** Streaks of lights nearer the camera than this (m) are faded out, full from three times as far. */
+const STREAK_NEAR = 4;
+/** Fixed lights (street lamps) offered for streaks in a frame. */
+const LIGHT_CAPACITY = 512;
 /** Glows and pools farther than this from the camera are not drawn (a few pixels, mostly fogged). */
 export const GLOW_RANGE = 140;
 export const POOL_RANGE = 90;
@@ -176,12 +183,17 @@ export class LightSprites {
   readonly glows: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
   readonly pools: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   readonly streaks: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
-  /** Ground wetness 0..1: streaks are drawn only on a wet road. */
+  /** Ground wetness 0..1 (set before begin): streaks are drawn only on a wet road. */
   wet = 0;
   private glowCount = 0;
   private poolCount = 0;
   private streakCount = 0;
   private poolCap = 40;
+  /** Fixed lights offered this frame (offerStreakLight): x, y, z, r, g, b each. */
+  private readonly lights = new Float32Array(LIGHT_CAPACITY * 6);
+  private lightCount = 0;
+  private readonly bestD = new Float32Array(STREAK_CAPACITY);
+  private readonly bestI = new Int32Array(STREAK_CAPACITY);
   private readonly glowPos: THREE.BufferAttribute;
   private readonly glowColor: THREE.BufferAttribute;
   private readonly glowSize: THREE.BufferAttribute;
@@ -249,6 +261,7 @@ export class LightSprites {
     this.cam.copy(camera);
     this.glows.material.uniforms.uPixelsPerMetre!.value = pixelsPerMetre;
     this.glowCount = 0;
+    this.lightCount = 0;
     for (const c of this.candidates) this.spare.push(c);
     this.candidates.length = 0;
   }
@@ -331,40 +344,90 @@ export class LightSprites {
   }
 
   /**
-   * Wet-road reflections: a flat streak under each of the nearest glows, centred on the mirror point (h / (h + c) of the
-   * way from the light's foot to the camera's, h the light's height and c the camera's) and stretched towards the camera.
+   * Offers a fixed light (a street lamp's head) for a wet-road streak this frame: its position and linear colour. The
+   * streaks go to the STREAK_CAPACITY lights nearest the camera, these and the vehicle glows together.
+   */
+  offerStreakLight(x: number, y: number, z: number, r: number, g: number, b: number): void {
+    if (this.wet <= STREAK_MIN_WET || this.lightCount >= LIGHT_CAPACITY) return;
+    const dx = x - this.cam.x;
+    const dz = z - this.cam.z;
+    if (dx * dx + dz * dz > STREAK_RANGE * STREAK_RANGE) return;
+    const L = this.lights;
+    const o = this.lightCount++ * 6;
+    L[o] = x;
+    L[o + 1] = y;
+    L[o + 2] = z;
+    L[o + 3] = r;
+    L[o + 4] = g;
+    L[o + 5] = b;
+  }
+
+  /** Keeps candidate `id` at squared distance d2 if it is among the STREAK_CAPACITY nearest so far. */
+  private rank(id: number, d2: number, n: number): number {
+    const bd = this.bestD;
+    const bi = this.bestI;
+    if (n >= STREAK_CAPACITY && d2 >= bd[n - 1]!) return n;
+    let i = Math.min(n, STREAK_CAPACITY - 1);
+    while (i > 0 && bd[i - 1]! > d2) {
+      bd[i] = bd[i - 1]!;
+      bi[i] = bi[i - 1]!;
+      i--;
+    }
+    bd[i] = d2;
+    bi[i] = id;
+    return Math.min(n + 1, STREAK_CAPACITY);
+  }
+
+  /**
+   * Wet-road reflections: a flat streak under each of the nearest lights, centred on the mirror point (h / (h + c) of
+   * the way from the light's foot to the camera's, h the light's height and c the camera's) and stretched towards the
+   * camera. Their brightness follows the wetness.
    */
   private layStreaks(ground: (x: number, z: number) => number): void {
     const s = this.streaks;
     let n = 0;
-    if (this.wet > 0.01) {
+    if (this.wet > STREAK_MIN_WET) {
       const pos = this.glowPos.array as Float32Array;
-      const col = this.glowColor.array as Float32Array;
       const cam = this.cam;
-      for (let i = 0; i < this.glowCount && n < STREAK_CAPACITY; i++) {
-        const x = pos[i * 3]!;
-        const y = pos[i * 3 + 1]!;
-        const z = pos[i * 3 + 2]!;
+      let ranked = 0;
+      for (let i = 0; i < this.glowCount; i++) {
+        const d2 = (cam.x - pos[i * 3]!) ** 2 + (cam.z - pos[i * 3 + 2]!) ** 2;
+        if (d2 <= STREAK_RANGE * STREAK_RANGE) ranked = this.rank(i, d2, ranked);
+      }
+      const L = this.lights;
+      for (let j = 0; j < this.lightCount; j++) ranked = this.rank(GLOW_CAPACITY + j, (cam.x - L[j * 6]!) ** 2 + (cam.z - L[j * 6 + 2]!) ** 2, ranked);
+      const col = this.glowColor.array as Float32Array;
+      for (let r = 0; r < ranked; r++) {
+        const id = this.bestI[r]!;
+        const glow = id < GLOW_CAPACITY;
+        const src = glow ? pos : L;
+        const o = glow ? id * 3 : (id - GLOW_CAPACITY) * 6;
+        const x = src[o]!;
+        const y = src[o + 1]!;
+        const z = src[o + 2]!;
         const dx = cam.x - x;
         const dz = cam.z - z;
         const dist = Math.hypot(dx, dz);
-        if (dist > 60 || dist < 0.5) continue;
+        if (dist < 0.5) continue;
         const gy = ground(x, z);
         const h = Math.max(0.05, y - gy);
         const c = Math.max(0.2, cam.y - gy);
         const t = h / (h + c);
-        const length = Math.min(12, dist * 0.6, 1 + h * 5);
+        const length = Math.min(12, dist * 0.5, 1 + h * 5);
         const heading = Math.atan2(dx, dz);
         const mx = x + dx * t;
         const mz = z + dz * t;
         this.q.setFromEuler(this.e.set(0, heading, 0, 'YXZ'));
-        this.m.compose(this.p.set(mx - (Math.sin(heading) * length) / 2, ground(mx, mz) + 0.04, mz - (Math.cos(heading) * length) / 2), this.q, this.s.set(0.8, 1, length));
+        this.m.compose(this.p.set(mx - (Math.sin(heading) * length) / 2, ground(mx, mz) + 0.04, mz - (Math.cos(heading) * length) / 2), this.q, this.s.set(0.55, 1, length));
         s.setMatrixAt(n, this.m);
-        const k = this.wet * 0.5;
-        s.setColorAt(n, this.c.setRGB(col[i * 3]! * k, col[i * 3 + 1]! * k, col[i * 3 + 2]! * k));
+        // Faded out close to the camera, where the mirror point runs under it and a streak would fill the view.
+        const k = this.wet * 0.5 * THREE.MathUtils.smoothstep(dist, STREAK_NEAR, STREAK_NEAR * 3);
+        if (glow) s.setColorAt(n, this.c.setRGB(col[o]! * k, col[o + 1]! * k, col[o + 2]! * k));
+        else s.setColorAt(n, this.c.setRGB(L[o + 3]! * k, L[o + 4]! * k, L[o + 5]! * k));
         n++;
       }
     }
+    this.lightCount = 0;
     this.streakCount = n;
     s.count = n;
     if (n > 0) {

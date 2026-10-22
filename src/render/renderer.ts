@@ -9,17 +9,19 @@ import { WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
 import { CameraController } from './camera';
 import { ContactShadows } from './contactShadows';
-import { LightSprites, BLOOM_THRESHOLD, type LampGlow } from './lightSprites';
+import { LightSprites, BLOOM_THRESHOLD, STREAK_RANGE, type LampGlow } from './lightSprites';
 import { LocalReflections } from './localReflections';
 import { StreetLighting } from './streetLighting';
 import { CityView } from './city';
 import { CrowdView } from './crowd';
-import { Effects, FLASH_SIZE, WADE_MIN } from './effects';
+import { Effects, FLASH_SIZE, TYRE_SPRAY_SPEED, WADE_MIN } from './effects';
 import { Environment } from './environment';
 import { FinishPass } from './finishPass';
 import { gradeAt, type Grade } from './grade';
 import { MarkerView } from './markers';
 import { PropsView } from './props';
+import { Rain, SOFTWARE_RAIN_DROPS } from './rain';
+import { buildCoverMap, coverAt, type CoverMap } from './rainCover';
 import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
 import { STATIC_CHUNK_SIZE } from './spatial';
 import { SoftwareMaterials } from './softwareMaterials';
@@ -53,6 +55,12 @@ const SIREN_DAY = 25;
 const SIREN_NIGHT = 25;
 const SIREN_RANGE = 12;
 const SIREN_DECAY = 2;
+/** Tyre spray needs a road at least this wet, and a car within this range (m) of the camera. */
+const TYRE_SPRAY_WET = 0.3;
+const TYRE_SPRAY_RANGE = 60;
+const NO_WIND = { x: 0, z: 0 } as const;
+/** A street lamp's wet-road streak against its halo's colour: the lamp's own light pool already brightens the road. */
+const LAMP_STREAK = 0.3;
 
 /**
  * Brightness 0..1 of a lightning flash `t` seconds after the strike: a bright stroke, a dip, a second stroke fading
@@ -116,6 +124,11 @@ export class GameRenderer {
   readonly effects = new Effects();
   readonly markers = new MarkerView();
   readonly lightSprites = new LightSprites();
+  readonly rain: Rain;
+  /** Roof heights over the world (rain and dry ground under cover, no tyre spray in a garage). */
+  readonly cover: CoverMap;
+  /** Ground wetness 0..1 drawn this frame (the sim's weather.wet). */
+  private wet = 0;
   /** How dark the weather makes the day (0 clear .. 1), from the sim each frame: vehicles light up at max(night, weatherDim). */
   weatherDim = 0;
   /** The lightning flash on sky and light (Settings: Lightning flashes). Off, a strike changes nothing drawn. */
@@ -195,6 +208,10 @@ export class GameRenderer {
     this.softwareMaterials?.apply(this.city.group);
     this.softwareMaterials?.apply(this.props.group);
     this.softwareMaterials?.apply(this.crowd.group);
+    this.cover = buildCoverMap(world);
+    this.rain = new Rain(this.cover);
+    this.scene.add(this.rain.mesh);
+    this.city.wet.setCover(this.rain.cover, this.rain.coverRect);
 
     this.headlight = new THREE.SpotLight(0xfff4dc, 0, 70, 0.55, 0.55, 2);
     this.scene.add(this.headlight, this.headlight.target);
@@ -232,6 +249,9 @@ export class GameRenderer {
     // a linear colour space. Compiling for the canvas would build the tone-mapped sRGB variants,
     // which are never drawn, so a stand-in half-float target is bound while compiling.
     const target = this.hdr ? new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType }) : null;
+    // Hidden until it rains; compiled now so the first shower costs no program build.
+    const rainShown = this.rain.mesh.visible;
+    this.rain.mesh.visible = true;
     try {
       if (target) this.renderer.setRenderTarget(target);
       try {
@@ -243,6 +263,7 @@ export class GameRenderer {
       // Compilation is an optimisation only.
     }
     target?.dispose();
+    this.rain.mesh.visible = rainShown;
     for (const v of tmp) this.pool.release(v);
   }
 
@@ -274,6 +295,8 @@ export class GameRenderer {
     }
     this.headlight.visible = t.headlight;
     this.lightSprites.setPoolCap(t.headlightPools);
+    this.rain.setCount(this.software ? SOFTWARE_RAIN_DROPS : t.rainDrops);
+    this.city.wet.setMode(t.wetGround);
     this.streetLighting.group.visible = !this.software && q === 'high';
     if (q !== 'high') this.clearLocalReflections();
     this.resize();
@@ -544,6 +567,7 @@ export class GameRenderer {
 
   private vehicleEffects(sim: Sim, dt: number): void {
     const fx = this.effects;
+    const spray = this.wet > TYRE_SPRAY_WET && QUALITY[this.software ? 'low' : this.quality].tyreSpray;
     this.smokeTimer += dt;
     const tireSmoke = this.smokeTimer > 0.05;
     if (tireSmoke) this.smokeTimer = 0;
@@ -566,6 +590,9 @@ export class GameRenderer {
       // Wading (its wheels on the sand under the sea; deeper than the sim's flooding depth it is inWater): spray and a wake.
       const depth = WATER_Y - v.pos.y;
       if (depth >= WADE_MIN && !v.airborne && !v.inWater && d2 < 120 * 120) fx.wade(v, WATER_Y, depth, dt);
+      else if (spray && d2 < TYRE_SPRAY_RANGE * TYRE_SPRAY_RANGE && !v.airborne && !v.inWater && v.speed > TYRE_SPRAY_SPEED && coverAt(this.cover, v.pos.x, v.pos.z) < v.pos.y + 0.3) {
+        fx.tyreSpray(v, this.wet, dt);
+      }
       if (v.skid > 0.25 && !v.airborne && !v.inWater && v.speed > 2) {
         const sx = Math.cos(v.heading);
         const sz = -Math.sin(v.heading);
@@ -604,7 +631,25 @@ export class GameRenderer {
         if (lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * (lamps / 2));
       }
     }
+    if (this.wet > 0.01) this.offerLampStreaks();
     ls.finish((x, z) => sim.world.groundHeight(x, z));
+  }
+
+  /** Street lamps that are lit and standing, for wet-road streaks (LightSprites keeps the nearest). */
+  private offerLampStreaks(): void {
+    const lamps = this.props.lampLights;
+    if (!lamps) return;
+    const c = lamps.color;
+    if (c.r + c.g + c.b < 0.02) return;
+    const cam = this.cameraCtl.camera.position;
+    const { positions: p, on } = lamps;
+    for (let i = 0; i < p.length; i += 3) {
+      if (on[i]! <= 0) continue;
+      const dx = p[i]! - cam.x;
+      const dz = p[i + 2]! - cam.z;
+      if (dx * dx + dz * dz > STREAK_RANGE * STREAK_RANGE) continue;
+      this.lightSprites.offerStreakLight(p[i]!, p[i + 1]!, p[i + 2]!, c.r * LAMP_STREAK, c.g * LAMP_STREAK, c.b * LAMP_STREAK);
+    }
   }
 
   private syncLights(sim: Sim, night: number): void {
@@ -658,6 +703,12 @@ export class GameRenderer {
     if (!this.lightningFlashes) this.flashAge = Infinity;
     this.env.update(hours, focus, cam, this.time, this.renderer, weather, lightningFlash(this.flashAge));
     this.effects.setLight(this.env.smokeLight);
+    this.wet = weather?.wet ?? 0;
+    const rain = weather?.rain ?? 0;
+    this.city.wet.update(this.wet, rain, this.time);
+    this.lightSprites.wet = this.wet;
+    this.renderer.getDrawingBufferSize(this.bufferSize);
+    this.rain.update(dt, cam.position, rain, weather?.wind ?? NO_WIND, this.env.smokeLight, (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / Math.max(1, this.bufferSize.y));
     const night = this.env.night;
     this.streetLighting.update(cam.position, night, dt);
     this.city.update(night, hours, this.time);
@@ -710,9 +761,9 @@ export class GameRenderer {
     this.localReflections = null;
   }
 
-  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number } {
+  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number; rainDrops: number; wet: number } {
     const info = this.renderer.info;
-    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts };
+    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts, rainDrops: this.rain.drops, wet: this.wet };
   }
 
   /** True between 'webglcontextlost' and 'webglcontextrestored'; nothing can be drawn meanwhile. */
@@ -752,6 +803,8 @@ export class GameRenderer {
     this.contactShadows?.dispose();
     this.finish?.dispose();
     this.lightSprites.dispose();
+    this.rain.dispose();
+    this.city.wet.dispose();
     this.env.dispose();
     this.softwareMaterials?.dispose();
     this.renderer.dispose();

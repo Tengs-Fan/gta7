@@ -870,6 +870,20 @@ export class PropsView {
     }
   }
 
+  /**
+   * The street lamps' lights, for wet-road streaks: each head's position (x, y, z), its colour attribute (1, 1, 1, or 0, 0, 0
+   * once knocked over) and the colour they shine now (black by day). Null without lamps.
+   */
+  get lampLights(): { positions: Float32Array; on: Float32Array; color: THREE.Color } | null {
+    const h = this.lampHalos;
+    if (!h) return null;
+    return {
+      positions: h.geometry.getAttribute('position').array as Float32Array,
+      on: h.geometry.getAttribute('color').array as Float32Array,
+      color: h.material.color,
+    };
+  }
+
   /** Whether bloom draws halos round bright lights (GameRenderer.setQuality): without it the coloured lamps use LAMPS.flat. */
   setGlow(on: boolean): void {
     this.glow = on;

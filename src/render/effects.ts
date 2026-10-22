@@ -76,6 +76,10 @@ const WADE_SPRAY_RATE = 60;
 const WADE_WAKE_RATE = 16;
 const WADE_MIN_SPEED = 1.5;
 const WADE_FULL_SPEED = 14;
+/** Tyre spray on a wet road (Effects.tyreSpray): from this speed (m/s), full at TYRE_SPRAY_FULL, particles a second per wheel. */
+export const TYRE_SPRAY_SPEED = 8;
+const TYRE_SPRAY_FULL = 28;
+const TYRE_SPRAY_RATE = 45;
 
 const PARTICLE_VS = /* glsl */ `
 attribute vec3 iPos;
@@ -1218,6 +1222,51 @@ export class Effects {
           0,
           4,
           0,
+        );
+      }
+    }
+  }
+
+  /**
+   * Spray thrown up behind the rear wheels of a car driving on a wet road (`wet` 0..1): none below TYRE_SPRAY_SPEED,
+   * growing with speed to TYRE_SPRAY_FULL and with wetness. A fine mist on the smoke layer, so in the scene's light.
+   */
+  tyreSpray(v: Vehicle, wet: number, dt: number): void {
+    const speed = Math.hypot(v.vel.x, v.vel.z);
+    const k = clamp((speed - TYRE_SPRAY_SPEED) / (TYRE_SPRAY_FULL - TYRE_SPRAY_SPEED), 0, 1) * clamp(wet, 0, 1);
+    if (!(k > 0) || !(dt > 0)) return;
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const lx = fz;
+    const lz = -fx;
+    // The wheels trailing the motion (the front ones when reversing).
+    const back = v.vel.x * fx + v.vel.z * fz < 0 ? 1 : -1;
+    const along = v.halfL * 0.62 * back;
+    const across = v.halfW - 0.18;
+    const ux = v.vel.x / speed;
+    const uz = v.vel.z / speed;
+    for (const side of [1, -1]) {
+      const wx = v.pos.x + fx * along + lx * across * side;
+      const wz = v.pos.z + fz * along + lz * across * side;
+      for (let n = this.count(TYRE_SPRAY_RATE * k, dt); n > 0; n--) {
+        const lag = this.r(0, dt);
+        const out = this.r(0.2, 1.2);
+        this.smoke.emit(
+          wx - v.vel.x * lag + this.r(-0.15, 0.15),
+          v.pos.y + 0.12,
+          wz - v.vel.z * lag + this.r(-0.15, 0.15),
+          v.vel.x * 0.35 - ux * this.r(1, 3) + lx * side * out,
+          this.r(0.6, 1.8) * (0.5 + 0.5 * k),
+          v.vel.z * 0.35 - uz * this.r(1, 3) + lz * side * out,
+          this.r(0.45, 0.9),
+          0.25,
+          1.1 + 0.9 * k,
+          0xe6edf2,
+          0xc8d2da,
+          0.16 + 0.16 * k,
+          1.5,
+          1.6,
+          this.r(-0.5, 0.5),
         );
       }
     }
