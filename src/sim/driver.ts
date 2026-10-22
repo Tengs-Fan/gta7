@@ -90,6 +90,8 @@ const DETOUR_BACK = 2.5;
 const DETOUR_MARGIN = 0.4;
 /** A vehicle in the way short of this far (m) before the end of the lane stands on it, not in the junction after it. */
 const DETOUR_LANE_END = 2;
+/** Seconds a civilian held up by a vehicle nobody drives, standing on its lane, waits before overtaking it (7 s otherwise). */
+const UNATTENDED_PATIENCE = 2;
 /**
  * A left turner yields to an oncoming car within 38 m, and to the player's car up to ONCOMING_REACH m away if it gets
  * there within ONCOMING_TIME s: at racing speed 38 m takes under 2 s, less than a turn takes to clear.
@@ -727,13 +729,8 @@ export class DriverAI {
     const b = this.blocker as Vehicle | Character | null;
     const margin = v.halfW + DETOUR_MARGIN;
     let o = b && 'kind' in b && (!b.driver || b.destroyed) && b.speed < 0.5 ? b : null;
-    const seg = this.segs[0];
-    const lane = seg?.lane;
-    if (o && seg && lane) {
-      const from = lane.length - seg.length + this.s;
-      const to = Math.max(from, lane.length - DETOUR_LANE_END);
-      if (boxGap(o, lane.sx + lane.dx * from, lane.sz + lane.dz * from, lane.sx + lane.dx * to, lane.sz + lane.dz * to) < margin) o = null;
-    }
+    const lane = this.segs[0]?.lane;
+    if (o && this.onLaneAhead(o)) o = null;
     if (o && o !== this.avoid && lane && !this.pathClearOf(o, margin, DETOUR_LOOK, true)) {
       this.avoid = o;
       this.avoidAt = this.host.time;
@@ -750,6 +747,16 @@ export class DriverAI {
     // On its lane with every turn off it passing the vehicle, backing up makes no way round it.
     if (lane && now && this.detourTurns(now) === now.turns) return;
     if (!this.pathClearOf(o, margin, 12, true)) this.startReverse(0, 'queue', DETOUR_BACK);
+  }
+
+  /** Whether `o` stands on the rest of the lane we are on, short of its last DETOUR_LANE_END m (not in the junction after it). */
+  private onLaneAhead(o: Vehicle): boolean {
+    const seg = this.segs[0];
+    const lane = seg?.lane;
+    if (!seg || !lane) return false;
+    const from = lane.length - seg.length + this.s;
+    const to = Math.max(from, lane.length - DETOUR_LANE_END);
+    return boxGap(o, lane.sx + lane.dx * from, lane.sz + lane.dz * from, lane.sx + lane.dx * to, lane.sz + lane.dz * to) < this.vehicle.halfW + DETOUR_MARGIN;
   }
 
   /**
@@ -1080,12 +1087,17 @@ export class DriverAI {
       }
     }
     let backUpToPass = false;
+    // A vehicle nobody drives (abandoned, or a wreck) standing on our lane is not going to move off, and no detour goes
+    // round it (see trackEmptyBlock): waiting out the full patience for it only lets the gaps in oncoming traffic go by,
+    // and in busy traffic the next gap may be a long time coming. One in the junction is left to the detour.
+    const unattended = !!ahead && 'kind' in ahead && (!ahead.driver || ahead.destroyed) && ahead.speed < 0.5 && this.onLaneAhead(ahead);
+    const passPatience = unattended ? Math.min(patience, UNATTENDED_PATIENCE) : patience;
     // Civilians wait for a gap in oncoming traffic before pulling out, and for the passing lane to be
     // free. Nobody overtakes a car coming the other way (a face-off sorts that out).
     if (
       blocked &&
       !waiting &&
-      this.blockedTime > patience &&
+      this.blockedTime > passPatience &&
       // Having backed out of a face-off, take the overtake up again where the car stopped, or once it has slowed
       // behind what it passes: not while it rolls up to it, too close to swing out and too far to back up for room.
       (!backedOut || Math.abs(speed) < 3) &&

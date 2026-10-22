@@ -218,6 +218,83 @@ describe('crews deploy round a player stopped in a car (B)', () => {
     }
   });
 
+  /** Every original crew member of `unit`, and whether each is still seated in it. */
+  const seated = (unit: Vehicle) => {
+    const crew = [...unit.occupants()];
+    return { crew, all: () => crew.every((c) => c.state === 'inVehicle' && c.vehicle === unit) };
+  };
+
+  it('keeps every original crew member seated while the player drives steadily forward at 2 m/s', () => {
+    // 40 m apart at first: driving on at 2 m/s, the player is about 45 m off by the time the unit counts as stuck.
+    const { sim, unit } = stoppedPlayerScene(40);
+    const x = unit.pos.x;
+    const z = unit.pos.z;
+    const h = unit.heading;
+    const pv = sim.player.vehicle!;
+    const fx = Math.sin(pv.heading);
+    const fz = Math.cos(pv.heading);
+    pv.vel.x = fx * 2;
+    pv.vel.z = fz * 2;
+    pv.speed = pv.forwardSpeed = 2;
+    const start = { x: pv.pos.x, z: pv.pos.z };
+    const { crew, all } = seated(unit);
+    expect(crew.length).toBeGreaterThan(1);
+    let deployed = false;
+    let minSpeed = Infinity;
+    let maxSpeed = -Infinity;
+    let prev = 0;
+    let minStep = Infinity;
+    step(sim, 6, (t) => {
+      pin(sim, unit, x, z, h);
+      if (!all()) deployed = true;
+      const along = (pv.pos.x - start.x) * fx + (pv.pos.z - start.z) * fz;
+      if (t > 0) {
+        minSpeed = Math.min(minSpeed, pv.speed);
+        maxSpeed = Math.max(maxSpeed, pv.speed);
+        minStep = Math.min(minStep, along - prev);
+      }
+      prev = along;
+      // Real throttle input holding 2 m/s against rolling resistance; no writes to the car after the start.
+      const throttle = (0.35 + 0.012 * pv.speed + 2 * (2 - pv.speed)) / (pv.spec.accel * (1 - (pv.speed / pv.spec.maxSpeed) ** 2));
+      return input({ throttle, handbrake: false });
+    });
+    expect(minSpeed).toBeGreaterThan(1.9);
+    expect(maxSpeed).toBeLessThan(2.1);
+    expect(minStep).toBeGreaterThan(0);
+    expect(unit.stuckTime).toBeGreaterThan(2.5);
+    expect(Math.hypot(pv.pos.x - unit.pos.x, pv.pos.z - unit.pos.z)).toBeLessThan(55);
+    expect(deployed).toBe(false);
+    for (const c of crew) {
+      expect(c.state).toBe('inVehicle');
+      expect(c.vehicle).toBe(unit);
+    }
+  });
+
+  it('still sends the crew out round a boxed-in player rocking back and forth at up to 5 m/s', () => {
+    const { sim, unit } = stoppedPlayerScene(40);
+    const x = unit.pos.x;
+    const z = unit.pos.z;
+    const h = unit.heading;
+    const pv = sim.player.vehicle!;
+    const home = { x: pv.pos.x, z: pv.pos.z };
+    const { crew } = seated(unit);
+    const passengers = crew.filter((c) => c !== unit.driver);
+    expect(passengers.length).toBeGreaterThan(0);
+    let outAt = -1;
+    step(sim, 5, (t) => {
+      pin(sim, unit, x, z, h);
+      if (outAt < 0 && passengers.every((c) => c.state !== 'inVehicle')) outAt = t;
+      const v = 5 * Math.cos(t * 2.5);
+      pv.pos.x = home.x + Math.sin(pv.heading) * 2 * Math.sin(t * 2.5);
+      pv.pos.z = home.z + Math.cos(pv.heading) * 2 * Math.sin(t * 2.5);
+      pv.vel.x = Math.sin(pv.heading) * v;
+      pv.vel.z = Math.cos(pv.heading) * v;
+      return input({ handbrake: true });
+    });
+    expect(outAt).toBeGreaterThan(2.5);
+    expect(outAt).toBeLessThan(4);
+  });
+
   it('keeps the crew seated while the police search', () => {
     const { sim, unit, crew } = stoppedPlayerScene(45);
     const x = unit.pos.x;

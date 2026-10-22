@@ -188,7 +188,8 @@ export class Game {
         const records = loadGame()?.streetRuns;
         return this.sim.activities.streetRunCourses().map((course) => ({
           id: course.id, title: course.name, description: course.description,
-          best: records?.[course.id]?.bestTime, target: course.gold,
+          best: records?.[course.id]?.bestTime,
+          medals: { gold: course.gold, silver: course.silver, bronze: course.bronze },
           distance: course.distance, reward: course.reward,
         }));
       },

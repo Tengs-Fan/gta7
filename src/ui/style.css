@@ -1779,8 +1779,30 @@ body {
   letter-spacing: 0;
   color: #b7c3ba;
 }
+/* Flex ordering puts the medal row (a real child, so its labels can be coloured) below the ::after description. */
+.course-menu button[data-description] { display: flex; flex-direction: column; align-items: flex-start; }
+.course-menu button[data-description]::after { order: 1; }
+.course-medals {
+  order: 2;
+  display: block;
+  margin-top: 2px;
+  font: 500 14px/1.5 'Rajdhani', sans-serif;
+  letter-spacing: 0;
+  color: #b7c3ba;
+}
+.course-medal { white-space: nowrap; }
+.course-medal b { font-weight: 700; letter-spacing: .5px; }
+.course-medal.gold b { color: var(--gold); }
+.course-medal.silver b { color: #d4e5e9; }
+.course-medal.bronze b { color: #e5aa7a; }
+.course-medal-sep { color: var(--muted); }
 .course-menu button.sel { border-left-color: var(--accent); background: rgba(255,135,92,.09); }
 .course-menu button[data-id='courses-back'] { align-self: flex-end; margin-top: 14px; font-size: 18px; }
+@media (max-height: 899.98px) {
+  .course-menu button[data-description] { padding-top: 9px; padding-bottom: 9px; }
+  .course-menu button[data-description]::before { top: 12px; }
+  .course-menu button[data-description]::after { margin-top: 4px; }
+}
 .big.countdown .t { font-size: clamp(68px, 12vh, 112px); color: var(--text); text-shadow: 0 3px 20px #13242b; }
 .big.countdown .s { font-size: 18px; text-transform: uppercase; letter-spacing: 3px; color: var(--accent2); }
 .big.run-result .t { font-size: clamp(36px, 6vw, 76px); color: var(--gold); }
@@ -2054,9 +2076,10 @@ body {
   .hud.in-vehicle .zone { bottom: 216px; }
   .runs-panel h2 { font-size: 35px; }
   .runs-panel .runs-intro { font-size: 16px; margin-bottom: 12px; }
-  .course-menu button[data-description] { padding-top: 10px; padding-bottom: 10px; font-size: 22px; }
-  .course-menu button[data-description]::before { top: 12px; }
-  .course-menu button[data-description]::after { font-size: 14px; margin-top: 3px; }
+  .course-menu button[data-description] { padding-top: 6px; padding-bottom: 7px; font-size: 22px; }
+  .course-menu button[data-description]::before { top: 9px; }
+  .course-menu button[data-description]::after { font-size: 14px; line-height: 1.35; margin-top: 2px; }
+  .course-medals { font-size: 14px; line-height: 1.35; margin-top: 1px; }
   .pause-panel .panel-eyebrow { margin-bottom: 6px; }
   .pause-panel h2 { font-size: 42px; margin-bottom: 10px; }
   .pause-panel button[data-description]::after { font-size: 14px; margin-top: 1px; }
@@ -2147,7 +2170,11 @@ body {
   .runs-panel .runs-intro { display: none; }
   .runs-panel h2 { font-size: 32px; }
   .runs-panel .panel-eyebrow { margin-bottom: 4px; }
-  .course-menu button[data-description] { padding-top: 8px; padding-bottom: 8px; }
+  .course-menu button[data-description] { padding-top: 4px; padding-bottom: 5px; font-size: 21px; }
+  .course-menu button[data-description]::before { top: 7px; }
+  .course-menu button[data-description]::after { font-size: 13px; line-height: 1.3; margin-top: 1px; }
+  .course-menu button[data-id='courses-back'] { margin-top: 6px; }
+  .course-medals { font-size: 13px; line-height: 1.3; margin-top: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
