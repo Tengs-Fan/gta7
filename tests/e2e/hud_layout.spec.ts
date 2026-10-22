@@ -52,6 +52,19 @@ for (const [w, h] of [
     await expect(page.locator('.big')).toContainText('TAXI DRIVER', { timeout: 3000 });
     await page.evaluate(() => (window as Api).__gta7.setWanted(3));
     await expect(page.locator('.scanner.show')).toContainText('DISPATCH', { timeout: 5000 });
+    // Out of the search area (as in r2_police.spec.ts): the stars flash and the evade bar fills, with DISPATCH still up.
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      g.sim.wanted.responseUntil = 0;
+      g.sim.police.dismissAll();
+      const p = g.sim.playerPos();
+      const n = g.sim.roads.nearestNode(p.x + 300, p.z);
+      g.teleport(n.x + 9, n.z + 9);
+      g.sim.ambient = false;
+    });
+    await expect(page.locator('.evade')).toBeVisible({ timeout: 6000 });
+    await expect(page.locator('.scanner.show')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.hud-tr .status')).toBeVisible();
     await page.evaluate(() => {
       const g = (window as Api).__gta7;
       const hud = g.game.hud;
