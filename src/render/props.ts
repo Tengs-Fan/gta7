@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { smoothstep } from '../core/math';
+import { smoothstep, type V3 } from '../core/math';
 import { Rng } from '../core/rng';
 import { axisOf, type Dir } from '../world/roads';
 import { SEABED_Y } from '../world/constants';
@@ -11,6 +11,7 @@ import { rectContains, type Prop, type PropKind, type Rect } from '../world/layo
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { adTexture, AD_COUNT, glowTexture, groundTexture } from './textures';
 import { spatialKey, StaticVisibility } from './spatial';
+import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, occluderOpacity, SIGNAL_BULB_AXIS, type OccluderKind } from './occluderFade';
 import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
 
 interface InstanceRef {
@@ -123,6 +124,85 @@ float fadeBayer4( vec2 frag ) {
       );
   };
 }
+
+/** The camera and the subject it frames, and the fade edges (OCCLUDER_FADE_EDGES; all negative: no dissolve). */
+interface OccluderUniforms {
+  uOccCam: { value: THREE.Vector3 };
+  uOccSubject: { value: THREE.Vector3 };
+  uOccFade: { value: THREE.Vector4 };
+}
+
+const OCCLUDER_OFF = [-2, -1, -2, -1] as const;
+
+/**
+ * Makes an instanced pole or trunk material dissolve where it stands between the camera and what it frames, or right
+ * at the lens (occluderFade.ts): each instance's axis, `axis` in its own frame, is tested once per vertex against the
+ * shared camera and subject uniforms, and its fragments are thinned out by a 4x4 Bayer dither, as fadeNearCamera does
+ * for foliage. Opaque, so no sorting; uniforms only, so switching it on and off compiles nothing. Shadows come from
+ * the default depth material and are unaffected; PropsView keeps a dissolving batch out of the contact-shadow pass.
+ */
+function dissolveOccluder(mat: THREE.Material, axis: { readonly from: number; readonly to: number }, shared: OccluderUniforms): void {
+  const span = { value: new THREE.Vector2(axis.from, axis.to) };
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, shared, { uOccSpan: span });
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform vec3 uOccCam;
+uniform vec3 uOccSubject;
+uniform vec4 uOccFade;
+uniform vec2 uOccSpan;
+varying float vOccKeep;
+${OCCLUDER_GLSL}`,
+      )
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+{
+  mat4 occFrame = modelMatrix;
+  #ifdef USE_INSTANCING
+  occFrame = modelMatrix * instanceMatrix;
+  #endif
+  vec3 occBase = ( occFrame * vec4( 0.0, uOccSpan.x, 0.0, 1.0 ) ).xyz;
+  vec3 occTop = ( occFrame * vec4( 0.0, uOccSpan.y, 0.0, 1.0 ) ).xyz;
+  float occLine = occSegSeg( uOccCam, uOccSubject, occBase, occTop );
+  float occLens = occPointSeg( uOccCam, occBase, occTop );
+  vOccKeep = min( smoothstep( uOccFade.x, uOccFade.y, occLine ), smoothstep( uOccFade.z, uOccFade.w, occLens ) );
+}`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying float vOccKeep;
+float occBayer4( vec2 frag ) {
+  const float m[ 16 ] = float[ 16 ]( 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 );
+  ivec2 p = ivec2( mod( floor( frag ), 4.0 ) );
+  return ( m[ p.x + p.y * 4 ] + 0.5 ) / 16.0;
+}`,
+      )
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+if ( vOccKeep < 1.0 && occBayer4( gl_FragCoord.xy ) >= vOccKeep ) discard;`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'gta7-occluder';
+}
+
+/** A pole or trunk the camera may dissolve: its axis now (world space) and whether it is gone (a knocked-down lamp). */
+interface Occluder {
+  index: number;
+  kind: OccluderKind;
+  base: V3;
+  top: V3;
+  hidden: boolean;
+  fallen: boolean;
+}
+
+/** Bucket size (m) of PropsView's occluder lookup. */
+const OCC_CELL = 16;
 
 const BEAM_LENGTH = 90;
 const GLOW_COLOR = new THREE.Color(0xffe6b0);
@@ -302,6 +382,19 @@ export class PropsView {
   private readonly tmpC = new THREE.Color();
   /** Whether a bloom pass draws halos round bright lights, which picks the coloured lamps' colours (see LAMPS). */
   private glow = true;
+  /** Shared by every pole and trunk material (dissolveOccluder). */
+  private readonly occUniforms: OccluderUniforms = {
+    uOccCam: { value: new THREE.Vector3() },
+    uOccSubject: { value: new THREE.Vector3() },
+    uOccFade: { value: new THREE.Vector4(...OCCLUDER_OFF) },
+  };
+  private readonly occluders: Occluder[] = [];
+  private readonly occByProp = new Map<number, Occluder>();
+  /** Standing occluders by OCC_CELL cell of their foot; fallen ones (a knocked-over signal) are looked at separately. */
+  private readonly occCells = new Map<string, Occluder[]>();
+  /** Batches holding an occluder that is dissolving now: kept out of the contact-shadow pass (see setOccluderView). */
+  private readonly occFlagged = new Set<THREE.Object3D>();
+  private readonly occFallen = new Set<Occluder>();
 
   constructor(private readonly world: StaticWorld) {
     this.group.name = 'props';
@@ -333,6 +426,17 @@ export class PropsView {
     for (const i of get('boat')) this.buildBoat(world.layout.props[i]!);
     get('billboard').forEach((i, k) => this.buildBillboard(world.layout.props[i]!, k));
     this.buildRoofProps();
+    world.layout.props.forEach((p, i) => {
+      if (p.kind !== 'lamp' && p.kind !== 'signal' && p.kind !== 'tree' && p.kind !== 'palm') return;
+      const o: Occluder = { index: i, kind: p.kind, base: { x: 0, y: 0, z: 0 }, top: { x: 0, y: 0, z: 0 }, hidden: false, fallen: false };
+      this.standUp(o);
+      this.occluders.push(o);
+      this.occByProp.set(i, o);
+      const key = `${Math.floor(p.x / OCC_CELL)},${Math.floor(p.z / OCC_CELL)}`;
+      let cell = this.occCells.get(key);
+      if (!cell) this.occCells.set(key, cell = []);
+      cell.push(o);
+    });
     // Also cover unique signs/landmarks, which are not created by makeInstanced.
     this.group.traverse((o) => {
       if (o instanceof THREE.Mesh) this.visibility.add(o, 8);
@@ -411,7 +515,9 @@ export class PropsView {
 
   private buildTrees(trees: number[], bushes: number[]): void {
     const rng = new Rng(77);
-    this.makeInstanced(treeTrunkGeometry(), new THREE.MeshStandardMaterial({ color: 0x725440, vertexColors: true, roughness: 0.96 }), trees, PropsView.standard);
+    const trunk = new THREE.MeshStandardMaterial({ color: 0x725440, vertexColors: true, roughness: 0.96 });
+    dissolveOccluder(trunk, OCCLUDER_AXIS.tree, this.occUniforms);
+    this.makeInstanced(treeTrunkGeometry(), trunk, trees, PropsView.standard);
     const leaves = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: broadleafTexture(), bumpMap: broadleafTexture(), bumpScale: 0.035, roughness: 0.92 });
     leaves.name = 'broadleaf-canopy';
     fadeNearCamera(leaves);
@@ -429,7 +535,9 @@ export class PropsView {
 
   private buildPalms(palms: number[]): void {
     const rng = new Rng(78);
-    this.makeInstanced(palmTrunkGeometry(), new THREE.MeshStandardMaterial({ color: 0xb29875, vertexColors: true, roughness: 0.95 }), palms, PropsView.standard);
+    const trunk = new THREE.MeshStandardMaterial({ color: 0xb29875, vertexColors: true, roughness: 0.95 });
+    dissolveOccluder(trunk, OCCLUDER_AXIS.palm, this.occUniforms);
+    this.makeInstanced(palmTrunkGeometry(), trunk, palms, PropsView.standard);
     const frondMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.84, side: THREE.DoubleSide });
     frondMat.name = 'palm-fronds';
     fadeNearCamera(frondMat);
@@ -457,15 +565,21 @@ export class PropsView {
     const arm = new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 6.3, 0), new THREE.Vector3(0, 6.75, 0.3), new THREE.Vector3(0, y + 0.12, reach - 0.32)), 6, 0.045, 5);
     const pole = merged([cyl(0.17, 0.21, 0.5, 8), cyl(0.065, 0.1, 6.05, 8, 0, 0.5, 0), arm]);
     pole.name = 'lamp-pole';
-    this.makeInstanced(pole, new THREE.MeshStandardMaterial({ color: 0x8b9199, roughness: 0.42, metalness: 0.55 }), lamps, PropsView.standard);
+    // The pole, its head and its lens dissolve together, all by the pole's axis.
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b9199, roughness: 0.42, metalness: 0.55 });
+    dissolveOccluder(poleMat, OCCLUDER_AXIS.lamp, this.occUniforms);
+    this.makeInstanced(pole, poleMat, lamps, PropsView.standard);
     // The cobra head: a low dome 0.78 m long and 0.36 m wide on a closed rim, the lens set into its underside.
     const dome = new THREE.SphereGeometry(1, 10, 3, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.18, 0.15, 0.39).translate(0, y + 0.05, reach);
     const rim = new THREE.CylinderGeometry(1, 1, 1, 10).scale(0.18, 0.04, 0.39).translate(0, y + 0.03, reach);
     const head = merged([dome, rim]);
     head.name = 'lamp-head';
-    this.makeInstanced(head, new THREE.MeshStandardMaterial({ color: 0x9ea4ab, roughness: 0.38, metalness: 0.5 }), lamps, PropsView.standard);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0x9ea4ab, roughness: 0.38, metalness: 0.5 });
+    dissolveOccluder(headMat, OCCLUDER_AXIS.lamp, this.occUniforms);
+    this.makeInstanced(head, headMat, lamps, PropsView.standard);
     const lens = box(0.26, 0.025, 0.56, 0, y + 0.0125, reach);
     lens.name = 'lamp-lens';
+    dissolveOccluder(this.bulbMat, OCCLUDER_AXIS.lamp, this.occUniforms);
     this.makeInstanced(lens, this.bulbMat, lamps, PropsView.standard, { shadow: false });
     const pool = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     // Per pool: the world rectangle (min x, min z, max x, max z) outside which it draws nothing (poolClip).
@@ -501,13 +615,17 @@ export class PropsView {
   private buildSignals(signals: number[]): void {
     const L = this.world.layout;
     const pole = merged([cyl(0.09, 0.11, 5.2, 6), box(0.36, 1.05, 0.28, 0, 4.55, 0.05), box(0.42, 0.06, 0.36, 0, 5.1, 0.05)]);
-    this.makeInstanced(pole, new THREE.MeshStandardMaterial({ color: 0x2b2d30, roughness: 0.6, metalness: 0.4 }), signals, PropsView.standard);
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x2b2d30, roughness: 0.6, metalness: 0.4 });
+    dissolveOccluder(poleMat, OCCLUDER_AXIS.signal, this.occUniforms);
+    this.makeInstanced(pole, poleMat, signals, PropsView.standard);
     this.signalProps = signals.map((i) => L.props[i]!);
     this.signalPropIndex = signals;
     // Three bulbs per signal.
     // Low-poly bulbs: there are three per signal head, citywide.
     const bulb = new THREE.IcosahedronGeometry(0.11, 0);
-    const mesh = new THREE.InstancedMesh(bulb, new THREE.MeshBasicMaterial({ color: 0xffffff }), signals.length * 3);
+    const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    dissolveOccluder(bulbMat, SIGNAL_BULB_AXIS, this.occUniforms);
+    const mesh = new THREE.InstancedMesh(bulb, bulbMat, signals.length * 3);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const v = new THREE.Vector3();
@@ -862,6 +980,21 @@ export class PropsView {
       r.mesh.computeBoundingSphere();
     }
     if (p.kind === 'signal') this.brokenSignals.add(index);
+    const occ = this.occByProp.get(index);
+    if (occ) {
+      this.standUp(occ);
+      if (hide) occ.hidden = true;
+      else {
+        const m = back.clone().multiply(fall).multiply(toOrigin);
+        const v = new THREE.Vector3();
+        v.set(occ.base.x, occ.base.y, occ.base.z).applyMatrix4(m);
+        occ.base = { x: v.x, y: v.y, z: v.z };
+        v.set(occ.top.x, occ.top.y, occ.top.z).applyMatrix4(m);
+        occ.top = { x: v.x, y: v.y, z: v.z };
+        occ.fallen = true;
+        this.occFallen.add(occ);
+      }
+    }
     const halo = this.lampHaloIndex.get(index);
     if (this.lampHalos && halo !== undefined) {
       const c = this.lampHalos.geometry.getAttribute('color') as THREE.BufferAttribute;
@@ -884,6 +1017,60 @@ export class PropsView {
     };
   }
 
+  /** An occluder's axis as it was built, upright at its prop. */
+  private standUp(o: Occluder): void {
+    const p = this.world.layout.props[o.index]!;
+    const a = OCCLUDER_AXIS[o.kind];
+    o.base = { x: p.x, y: p.y + a.from * p.scale, z: p.z };
+    o.top = { x: p.x, y: p.y + a.to * p.scale, z: p.z };
+    o.hidden = false;
+    o.fallen = false;
+    this.occFallen.delete(o);
+  }
+
+  /**
+   * The camera's position and the subject it frames (the player's head on foot, the car when driving; null on the
+   * title screen and with no game: nothing dissolves), for dissolving the poles and trunks in between (occluderFade).
+   * The shader does the dissolve; here the batches holding one that is dissolving are kept out of the contact-shadow
+   * depth pass, whose override material would draw them whole. Returns the prop indices dissolving now.
+   */
+  setOccluderView(cam: V3, subject: V3 | null): number[] {
+    const u = this.occUniforms;
+    for (const m of this.occFlagged) delete m.userData.contactShadow;
+    this.occFlagged.clear();
+    const out: number[] = [];
+    if (!subject) {
+      u.uOccFade.value.set(...OCCLUDER_OFF);
+      return out;
+    }
+    u.uOccFade.value.set(...OCCLUDER_FADE_EDGES);
+    u.uOccCam.value.set(cam.x, cam.y, cam.z);
+    u.uOccSubject.value.set(subject.x, subject.y, subject.z);
+    const check = (o: Occluder) => {
+      if (o.hidden || occluderOpacity(cam, subject, o.base, o.top) >= 1) return;
+      out.push(o.index);
+      for (const r of this.refs.get(o.index) ?? []) {
+        r.mesh.userData.contactShadow = false;
+        this.occFlagged.add(r.mesh);
+      }
+    };
+    const pad = OCCLUDER_LENS_FAR;
+    const x0 = Math.floor((Math.min(cam.x, subject.x) - pad) / OCC_CELL);
+    const x1 = Math.floor((Math.max(cam.x, subject.x) + pad) / OCC_CELL);
+    const z0 = Math.floor((Math.min(cam.z, subject.z) - pad) / OCC_CELL);
+    const z1 = Math.floor((Math.max(cam.z, subject.z) + pad) / OCC_CELL);
+    // (A camera far from its subject, as on a cut, is not worth a sweep across the city: the shader still dissolves.)
+    if ((x1 - x0 + 1) * (z1 - z0 + 1) <= 16) {
+      for (let cx = x0; cx <= x1; cx++) {
+        for (let cz = z0; cz <= z1; cz++) {
+          for (const o of this.occCells.get(`${cx},${cz}`) ?? []) if (!o.fallen) check(o);
+        }
+      }
+    }
+    for (const o of this.occFallen) check(o);
+    return out;
+  }
+
   /** Whether bloom draws halos round bright lights (GameRenderer.setQuality): without it the coloured lamps use LAMPS.flat. */
   setGlow(on: boolean): void {
     this.glow = on;
@@ -899,6 +1086,9 @@ export class PropsView {
       }
     }
     this.brokenSignals.clear();
+    for (const o of this.occFallen) this.standUp(o);
+    this.occFallen.clear();
+    for (const o of this.occluders) o.hidden = false;
     if (this.lampHalos) {
       const c = this.lampHalos.geometry.getAttribute('color') as THREE.BufferAttribute;
       (c.array as Float32Array).fill(1);

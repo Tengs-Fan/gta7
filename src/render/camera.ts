@@ -363,6 +363,8 @@ export class CameraController {
   private sideTarget = 1;
   /** The point on the player the on-foot camera keeps in sight over raised ground (see SIGHT_HEAD), as the target moves. */
   private readonly head = new THREE.Vector3();
+  /** What the last update() framed, for the pole and trunk dissolve: the head's centre on foot, else the target. */
+  private readonly subject = new THREE.Vector3();
   /** Where the chase camera looks (a little ahead of and above its target). */
   private readonly chaseLook = new THREE.Vector3();
   private readonly bodyEuler = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -702,6 +704,16 @@ export class CameraController {
       cam.updateProjectionMatrix();
     }
     cam.lookAt(cam.position.x + this.dir.x, cam.position.y + this.dir.y, cam.position.z + this.dir.z);
+    this.subject.copy(this.footView ? this.head : this.target);
+  }
+
+  /**
+   * The point the camera keeps in sight (the player's head centre on foot, the car's look point when driving, the body
+   * when wasted), as of the last update(); null on the title flyover. Poles and trunks between it and the lens dissolve
+   * (PropsView.setOccluderView). Poles are not solid for the boom: the dissolve is what keeps them out of the way.
+   */
+  occlusionSubject(): V3 | null {
+    return this.mode === 'title' || !this.initialized ? null : this.subject;
   }
 
   /**
@@ -1034,6 +1046,7 @@ export class CameraController {
     this.yawRate = 0;
     const pos = sim.playerPos();
     this.target.set(pos.x, pos.y + 1.5, pos.z);
+    this.subject.copy(this.target);
     this.wasInVehicle = !!p.vehicle;
     this.initialized = true;
   }

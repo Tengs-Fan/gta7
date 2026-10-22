@@ -138,6 +138,13 @@ export const MARKER_LEAVE = 1;
 export const MARKER_LENS_NEAR = 1.2;
 export const MARKER_LENS_FAR = 2;
 const MARKER_ALPHA = 0.28;
+/**
+ * Aiming in a marker swings the short aiming boom round its axis, its floating diamond hanging in front of the lens: while
+ * the aim button is held there the diamond shrinks away (by how far in the marker he is, the band MARKER_LEAVE uses), at
+ * MARKER_AIM_RATE (1/s, about the aiming camera's zoom), and comes back as fast once he lets go or steps out.
+ * The beam stays: it is a faint, see-through column, and it is what shows him he is in the marker.
+ */
+export const MARKER_AIM_RATE = 8;
 
 /** The distance from a camera at `cam` to the axis of a marker at (x, z), 0.15-2.3 m up, where its beam and icon are. */
 function axisDist(cam: { x: number; y: number; z: number }, x: number, z: number): number {
@@ -196,6 +203,8 @@ const ICON_COLOR: Record<PickupKind, number> = {
 export class MarkerView {
   readonly group = new THREE.Group();
   private readonly markerViews = new Map<string, THREE.Group>();
+  /** The `time` of the last syncMarkers, for easing the diamonds' aim fade. */
+  private markerTime = 0;
   private readonly objectivePool: THREE.Group[] = [];
   private readonly arrowPool: THREE.Mesh[] = [];
   private readonly pickupViews = new Map<number, THREE.Group>();
@@ -231,8 +240,10 @@ export class MarkerView {
    * Mirrors the interaction markers. Given the camera's position, each fades out near it (see markerFade),
    * except one the player (at `player`) stands in or has just stepped off (MARKER_LEAVE, MARKER_LENS_NEAR).
    */
-  syncMarkers(markers: readonly Marker[], time: number, cam?: { x: number; y: number; z: number }, player?: { x: number; z: number }): void {
+  syncMarkers(markers: readonly Marker[], time: number, cam?: { x: number; y: number; z: number }, player?: { x: number; z: number }, aiming = false): void {
     const seen = new Set<string>();
+    const dt = Math.min(0.1, Math.max(0, time - this.markerTime));
+    this.markerTime = time;
     for (const m of markers) {
       seen.add(m.id);
       let g = this.markerViews.get(m.id);
@@ -267,11 +278,16 @@ export class MarkerView {
       }
       g.visible = fade > 0;
       ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = MARKER_ALPHA * fade;
+      const inIt = player === undefined ? 0 : 1 - smooth(m.radius - 0.3, m.radius + MARKER_LEAVE, Math.hypot(player.x - m.x, player.z - m.z));
+      const aimWant = aiming ? inIt : 0;
+      let aimK = (g.userData.aimK as number | undefined) ?? 0;
+      aimK = aimWant > aimK ? Math.min(aimWant, aimK + MARKER_AIM_RATE * dt) : Math.max(aimWant, aimK - MARKER_AIM_RATE * dt);
+      g.userData.aimK = aimK;
       const icon = g.getObjectByName('icon');
       if (icon) {
         icon.rotation.y = time * 2;
         icon.position.y = 1.7 + Math.sin(time * 3) * 0.12;
-        icon.scale.setScalar(fade);
+        icon.scale.setScalar(fade * (1 - smooth(0, 1, aimK)));
       }
     }
     for (const [id, g] of this.markerViews) {
