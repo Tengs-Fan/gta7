@@ -82,7 +82,7 @@ Progress stays in this browser: the game autosaves after every mission passed an
   Parody shopfronts (DONUTS, PAWN, TACOS, BAIL BONDS and more), tower lobbies and house porches line the streets, and lamp posts, traffic signals, fire hydrants, bins and benches break.
 - **Day and night.** A day lasts 24 minutes.
   Clouds catch the sunset, a moon and stars come out, windows light up building by building through the evening and thin out after midnight, and at night the Ferris wheel lights up and the lighthouse beam sweeps round.
-- **Weather.** Clear, cloudy, overcast, rain and storm skies change every three game hours (the first day is always clear), with greyer skies, softer shadows, closer fog, lightning in storms, and cars turning their lights on when it gets dark. Weather is visual only: it does not change grip or traffic.
+- **Weather.** Clear, cloudy, overcast, rain and storm skies change every three game hours (the first day is always clear), with greyer skies, softer shadows, closer fog, lightning in storms, and cars turning their lights on when it gets dark. Rain falls around the camera (but not under roofs, in garages or under the pier), wets and darkens the streets with puddles that dry out after the shower, reflects lamps and car lights in streaks on the road, and fast cars throw up spray. Weather is visual only: it does not change grip or traffic.
 - **Living streets.** Traffic follows its lanes, stops at red lights, yields on left turns, honks, overtakes and backs out of blockages, from about 14 cars around you late at night to 30 at rush hour.
   Pedestrians cross on the walk signal, flee from gunfire and explosions, put their hands up, cower or run at gunpoint, and some fight back, above all the Tiburones gang, who wear teal, often carry pistols and fight as a crew on their own turf.
 - **Driving.** Ten vehicles: the Pipsqueak compact, Velora sedan, Azura Cab, Nightjar GT sports car, Thunderhoof muscle car, Dustrunner pickup, Breadbox van, Citybus, Patrol Cruiser and Riot Van, and you can steal any of them, even with someone inside.
@@ -375,7 +375,7 @@ node scripts/playtest.mjs --script my-steps.mjs --url http://localhost:4173/
 
 | Flag | Meaning | Default |
 | --- | --- | --- |
-| `--scenario <name>` | `tour`, `drive`, `chase`, `night` or `perf` | `tour` |
+| `--scenario <name>` | `tour`, `drive`, `chase`, `night`, `rainnight` (a storm at night on foot and in a fast car, on High) or `perf` | `tour` |
 | `--script <file.mjs>` | your own steps: a module exporting `default async function (t)`, where `t` is the helper object documented at the top of `scripts/playtest.mjs` (`boot`, `newGame`, `game`, `state`, `shot`, `press`, `hold`, `measure` and more) | |
 | `--url <url>`, `--port <n>` | the page to open | `http://localhost:4173/` |
 | `--out <dir>` | screenshots and `report.json` | `/tmp/gta7-playtest` |

@@ -13,6 +13,7 @@ import type { StaticWorld } from '../world/staticWorld';
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB, type UvMode } from './geo';
 import { facadeRelief, manhole, stormDrain } from './cityArchitecture';
 import { CulledStaticMesh, spatialGeometry, StaticVisibility } from './spatial';
+import { WetGround } from './wetGround';
 import {
   CELLS, CELL_DESIGN, DOOR_U, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
   facadeTextures, groundSurface, groundTexture, helipadTexture, signTexture, storefrontAtlas, storefrontUv, swatchUv, type GroundTex,
@@ -331,6 +332,8 @@ export class CityView {
   readonly entrances = new Map<number, Entrance>();
   private readonly nightU: NightUniforms = { occupancy: { value: 0 }, shopOccupancy: { value: 0 }, time: { value: 0 } };
   readonly visibility = new StaticVisibility();
+  /** The wet-ground patch on the paved surfaces (roads, markings, pavements, plazas, car parks, boardwalk, piers). */
+  readonly wet = new WetGround();
   private readonly softwareMeshes: CulledStaticMesh[] = [];
   private readonly frustum = new THREE.Frustum();
   private readonly projection = new THREE.Matrix4();
@@ -864,17 +867,20 @@ export class CityView {
     prom.flat(b.cityMinX - sw, b.cityMaxZ + sw, b.beachStartX, b.landMaxZ, y, { kind: 'world', scale: 6 });
     wood.flat(b.cityMaxX + sw, b.cityMinZ - sw, b.beachStartX, b.cityMaxZ + sw, y, { kind: 'world', scale: 4 });
 
-    this.add(walk.build(), this.surface('sidewalk'), { name: 'sidewalks' });
-    this.add(curbs.build(), this.surface('concrete'), { name: 'curbs' });
-    this.add(wood.build(), this.surface('wood'), { name: 'boardwalk' });
+    const wet = this.wet;
+    this.add(walk.build(), wet.patch(this.surface('sidewalk')), { name: 'sidewalks' });
+    this.add(curbs.build(), wet.patch(this.surface('concrete')), { name: 'curbs' });
+    this.add(wood.build(), wet.patch(this.surface('wood')), { name: 'boardwalk' });
     for (const [k, g] of patches) {
       const m = this.surface(k as 'grass' | 'plaza' | 'asphalt' | 'dirt');
+      // Grass soaks the rain up rather than shining.
+      if (k !== 'grass') wet.patch(m);
       m.polygonOffset = true;
       m.polygonOffsetFactor = -1;
       m.polygonOffsetUnits = -1;
       this.add(g.build(), m, { name: `ground-${k}` });
     }
-    const lineMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const lineMat = wet.patch(new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     this.add(lines.build(), lineMat, { name: 'parking-lines' });
   }
 
@@ -974,11 +980,12 @@ export class CityView {
         }
       }
     }
-    const roadMat = this.surface('asphalt');
+    const wet = this.wet;
+    const roadMat = wet.patch(this.surface('asphalt'));
     this.add(asphalt.build(), roadMat, { name: 'roads' });
-    this.add(gutters.build(), this.surface('concrete'), { name: 'road-gutters' });
+    this.add(gutters.build(), wet.patch(this.surface('concrete')), { name: 'road-gutters' });
     this.add(ironwork.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.64, metalness: 0.35 }), { name: 'street-ironwork' });
-    const mk = (color: number) => new THREE.MeshStandardMaterial({ color, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const mk = (color: number) => wet.patch(new THREE.MeshStandardMaterial({ color, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     this.add(white.build(), mk(0xe6e6e0), { name: 'markings-white' });
     this.add(yellow.build(), mk(0xe8b923), { name: 'markings-yellow' });
   }
@@ -1027,7 +1034,7 @@ export class CityView {
         for (const z of [d.rect.minZ + 0.6, d.rect.maxZ - 0.6]) if (WATER_Y > this.world.baseGround(x, z) - 0.1) pillars.push(new THREE.Vector3(x, d.y, z));
       }
     }
-    this.add(deck.build(), this.surface('wood', 1, 2), { shadow: true, name: 'piers' });
+    this.add(deck.build(), this.wet.patch(this.surface('wood', 1, 2)), { shadow: true, name: 'piers' });
     if (pillars.length > 0) {
       const pg = new THREE.CylinderGeometry(0.25, 0.25, 1, 6);
       pg.translate(0, -0.5, 0);
