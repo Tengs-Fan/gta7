@@ -436,7 +436,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     c.vel.z = v.vel.z * 0.85 + nz * 2.5;
     c.vel.y = 2.5 + Math.min(relSpeed, 30) * 0.18;
     c.onGround = false;
-    if (c.state === 'normal') {
+    // Knocked down mid-entry, the player's controller drops the entry on its next update.
+    if (c.state === 'normal' || c.state === 'entering') {
       c.state = 'knocked';
       c.knockTimer = 2.2;
     }
