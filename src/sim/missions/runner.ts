@@ -852,17 +852,20 @@ export class MissionSystem {
     return this.defs.find((d) => d.id === r.id) ?? null;
   }
 
-  /** A failed mission remains recoverable from pause after the quick on-screen offer has expired. */
+  /**
+   * A failed mission remains recoverable from pause after the quick on-screen offer has expired. Seated in a vehicle
+   * (or getting in) is fine: restart() takes him out of it.
+   */
   retryMenuOffer(): { id: string; title: string; checkpoint: number; blocked: string | null } | null {
     const sim = this.sim;
     const r = this.retry;
     if (!r || this.active) return null;
     const def = this.defs.find((d) => d.id === r.id);
     if (!def) return null;
-    const blocked = sim.playerDown ? 'Wait until you recover to retry.'
+    const state = sim.player.state;
+    const blocked = sim.playerDown || state === 'knocked' || state === 'dead' ? 'Wait until you recover to retry.'
       : sim.wanted.level > 0 ? 'Lose the cops before retrying.'
       : sim.activities.job?.kind === 'rampage' ? 'Finish the rampage first.'
-      : !sim.player.onFoot ? 'Get out of the vehicle and stand on foot to retry.'
       : null;
     return { id: def.id, title: def.title, checkpoint: r.resume, blocked };
   }
@@ -871,8 +874,9 @@ export class MissionSystem {
    * Restarts the failed mission on offer (the interact key, see Interactions): the screen fades,
    * the player gets his loadout from before the first attempt back, and the mission starts over at
    * its giver's marker without the intro, from its last checkpoint. False if there is nothing to
-   * retry or the player cannot right now (wanted, on a rampage, not on foot). A pause-menu
-   * action can use the retained offer after the quick E prompt has expired.
+   * retry or the player cannot right now (wanted, on a rampage). The interact key also needs him
+   * on foot, since in a vehicle it is the horn. A pause-menu action can use the retained offer
+   * after the quick E prompt has expired, seated or not.
    */
   retryNow(fromMenu = false): boolean {
     const sim = this.sim;
