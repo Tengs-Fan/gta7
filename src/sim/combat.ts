@@ -3,6 +3,7 @@
 import { rayCylinderY, rayObb3, type OBB } from '../core/collision';
 import { clamp, pointSegDist, wrapAngle, type V3 } from '../core/math';
 import { makeRayHit, type RayHit } from '../world/colliders';
+import { WATER_Y } from '../world/constants';
 import { makeBrain } from './brains';
 import type { Character, Vehicle } from './entities';
 import { Projectile } from './entities';
@@ -1155,6 +1156,18 @@ export class CombatSystem {
       }
       const ignore = sim.time - born < ROCKET_ARMING ? p.owner : null;
       const r = this.castRay(p.pos.x, p.pos.y, p.pos.z, dx, dy, dz, step, ignore ?? (p.owner && p.owner.vehicle ? p.owner : null));
+      // Into the sea before it hits anything: it goes off at the surface rather than flying on under it.
+      if (dy < 0 && p.pos.y > WATER_Y) {
+        const tw = (p.pos.y - WATER_Y) / -dy;
+        const wx = p.pos.x + dx * tw;
+        const wz = p.pos.z + dz * tw;
+        if (tw <= step && (r.kind === 'none' || tw < r.t) && sim.world.waterDepth(wx, wz) > 0) {
+          p.removed = true;
+          sim.events.emit('splash', { x: wx, y: WATER_Y, z: wz, big: true });
+          this.explosion(wx, WATER_Y, wz, ROCKET_BLAST, WEAPONS.rocket.damage, p.owner, null);
+          continue;
+        }
+      }
       if (r.kind !== 'none' || p.life <= 0) {
         const t = r.kind !== 'none' ? Math.max(0, r.t - 0.2) : 0;
         p.removed = true;

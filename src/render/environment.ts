@@ -5,7 +5,10 @@ import { clamp, lerp, smoothstep } from '../core/math';
 import { darkness, sunIntensity } from '../sim/clock';
 import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
+import type { Bounds } from '../world/layout';
+import { patchSeaMaterial, seaGrid, seaPlane, seaUniforms, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
+import { CALM_SEA } from './waves';
 
 interface Key {
   h: number;
@@ -213,7 +216,7 @@ function relDiff(a: THREE.Color, b: THREE.Color): number {
 }
 
 /** The weather inputs the atmosphere reads (sim/weather.ts WeatherState). */
-export type EnvWeather = Pick<WeatherState, 'cloud' | 'rain' | 'storm' | 'fog'>;
+export type EnvWeather = Pick<WeatherState, 'cloud' | 'rain' | 'storm' | 'fog'> & { seaState?: number };
 const CLEAR_SKY: Readonly<EnvWeather> = { cloud: 0, rain: 0, storm: 0, fog: 0 };
 /** Extra cloud cover at full cloud. */
 const WEATHER_COVER = 0.6;
@@ -628,6 +631,11 @@ export class Environment {
   private readonly skyMat: THREE.ShaderMaterial;
   private readonly waterNormal: THREE.Texture;
   private readonly software: boolean;
+  /** The waves and shoreline the sea (and the foam rings on it) are drawn with. */
+  readonly sea: SeaUniforms = seaUniforms();
+  private readonly seaPlane = seaPlane();
+  /** High's wave grid, built when first shown (setWaterGrid). */
+  private seaGridGeo: THREE.BufferGeometry | null = null;
   /** Offsets of the sea's two ripple samples (see RIPPLE_B), each in its own sample's tiles. */
   private readonly rippleA = { value: new THREE.Vector2() };
   private readonly rippleB = { value: new THREE.Vector2() };
@@ -747,42 +755,18 @@ export class Environment {
     this.waterNormal.repeat.set(900, 900);
     const waterMat = new THREE.MeshStandardMaterial({ color: 0x135a73, roughness: 0.22, metalness: 0.1, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22) });
     twoLayerRipples(waterMat, this.rippleA, this.rippleB, this.envFill ? this.skyReflection : null);
-    const simpleWater = this.software ? new THREE.ShaderMaterial({
-      fog: true,
-      uniforms: {
-        ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog!),
-        uNormal: { value: this.waterNormal }, uDrift: this.rippleA,
-        uTop: this.skyReflection.top, uHorizon: this.skyReflection.horizon,
-        uNight: this.skyMat.uniforms.uNight!,
-      },
-      vertexShader: `varying vec3 vWorld;\n#include <common>\n#include <fog_pars_vertex>
-        void main() { vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_Position = projectionMatrix * mvPosition;
-          #include <fog_vertex>
-        }`,
-      fragmentShader: `varying vec3 vWorld;
-        uniform sampler2D uNormal; uniform vec2 uDrift;
-        uniform vec3 uTop, uHorizon; uniform float uNight;
-        #include <common>
-        #include <fog_pars_fragment>
-        void main() {
-          vec2 wave = texture2D(uNormal, vWorld.xz * 0.15 + uDrift).xy * 2.0 - 1.0;
-          vec3 n = normalize(vec3(wave.x * 0.18, 1.0, wave.y * 0.18));
-          vec3 eye = normalize(cameraPosition - vWorld);
-          vec3 reflection = reflect(-eye, n);
-          vec3 sky = mix(uHorizon, uTop, smoothstep(0.0, 0.6, reflection.y));
-          float fresnel = 1.0 - max(dot(n, eye), 0.0);
-          fresnel *= fresnel;
-          vec3 sea = vec3(0.018, 0.17, 0.23) * (1.0 - uNight * 0.94);
-          gl_FragColor = vec4(mix(sea, sky, 0.25 + fresnel * 0.65), 1.0);
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-          #include <fog_fragment>
-        }`,
-    }) : null;
+    patchSeaMaterial(waterMat, this.sea);
+    const simpleWater = this.software
+      ? softwareSeaMaterial(this.sea, {
+          uNormal: { value: this.waterNormal }, uDrift: this.rippleA,
+          uTop: this.skyReflection.top, uHorizon: this.skyReflection.horizon,
+          uNight: this.skyMat.uniforms.uNight!,
+        })
+      : null;
     if (simpleWater) waterMat.dispose();
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), simpleWater ?? waterMat);
+    const water = new THREE.Mesh(this.seaPlane, simpleWater ?? waterMat);
+    // Displaced vertices leave the plane's bounds; the sea is always in view anyway.
+    water.frustumCulled = false;
     water.position.y = WATER_Y;
     water.receiveShadow = true;
     // Streets/buildings cover most ocean pixels from within the city. Shade only exposed sea,
@@ -868,6 +852,32 @@ export class Environment {
     } catch {
       this.scene.environment = null;
     }
+  }
+
+  /** The shoreline's terrain (the layout's land and beach). */
+  setShore(b: Bounds): void {
+    setShore(this.sea, b);
+  }
+
+  /**
+   * High: the sea is the displaced wave grid; otherwise the flat plane with the same waves in its normals. Only the
+   * geometry and a uniform change, so the sea's program is shared. Never on the software sea (it has no grid path).
+   */
+  setWaterGrid(on: boolean): void {
+    const grid = on && !this.software;
+    if (grid) {
+      this.seaGridGeo ??= seaGrid();
+      this.water.geometry = this.seaGridGeo;
+    } else {
+      this.water.geometry = this.seaPlane;
+      // Frees its GPU buffers; it uploads again if High comes back.
+      this.seaGridGeo?.dispose();
+    }
+    this.sea.uDisplace.value = grid ? 1 : 0;
+  }
+
+  get waterGrid(): boolean {
+    return this.water.geometry === this.seaGridGeo && this.seaGridGeo !== null;
   }
 
   setShadows(on: boolean): void {
@@ -1017,6 +1027,10 @@ export class Environment {
     // Each ripple sample's offset wraps by whole tiles of its own (see twoLayerRipples).
     this.rippleA.value.set((time * RIPPLE_A_DRIFT[0]) % 1, (time * RIPPLE_A_DRIFT[1]) % 1);
     this.rippleB.value.set((time * RIPPLE_B_DRIFT[0]) % 1, (time * RIPPLE_B_DRIFT[1]) % 1);
+    const ox = snapSea(camera.position.x);
+    const oz = snapSea(camera.position.z);
+    this.water.position.set(ox, WATER_Y, oz);
+    updateSea(this.sea, time, weather.seaState ?? CALM_SEA, ox, oz);
   }
 
   /**
@@ -1062,6 +1076,8 @@ export class Environment {
   dispose(): void {
     this.renderer.domElement?.removeEventListener?.('webglcontextrestored', this.onContextRestored);
     this.cloudNoise.dispose();
+    this.seaPlane.dispose();
+    this.seaGridGeo?.dispose();
     this.cubeTarget?.dispose();
     this.envTarget?.dispose();
     this.pmrem?.dispose();

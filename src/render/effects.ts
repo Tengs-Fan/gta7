@@ -5,6 +5,7 @@ import { clamp } from '../core/math';
 import { Rng } from '../core/rng';
 import type { Character, Projectile, Vehicle } from '../sim/entities';
 import type { WeaponId } from '../sim/specs';
+import { FoamRings } from './foamRings';
 
 /** Muzzle flash size (m, across the star) per weapon. */
 export const FLASH_SIZE: Readonly<Record<WeaponId, number>> = { fists: 0, pistol: 0.3, smg: 0.32, rifle: 0.4, shotgun: 0.55, rocket: 0.6 };
@@ -80,6 +81,17 @@ const WADE_FULL_SPEED = 14;
 export const TYRE_SPRAY_SPEED = 8;
 const TYRE_SPRAY_FULL = 28;
 const TYRE_SPRAY_RATE = 45;
+
+/** How big a splash is: a bullet, a person falling in, a car or a crash, a blast on the water. */
+export type SplashSize = 'small' | 'body' | 'big' | 'plume';
+/** Per size: scale of the droplet crown, droplets, mist puffs, and the foam ring's final radius (m) and life (s). */
+const SPLASH: Readonly<Record<SplashSize, { k: number; drops: number; mist: number; ring: number; ringLife: number }>> = {
+  small: { k: 0.5, drops: 10, mist: 2, ring: 1.5, ringLife: 1.5 },
+  body: { k: 0.8, drops: 18, mist: 4, ring: 2.4, ringLife: 1.8 },
+  big: { k: 1.2, drops: 34, mist: 8, ring: 4, ringLife: 2.4 },
+  plume: { k: 1.8, drops: 44, mist: 14, ring: 7, ringLife: 3.2 },
+};
+const DROPLET_STYLE: EmitStyle = { align: true };
 
 const PARTICLE_VS = /* glsl */ `
 attribute vec3 iPos;
@@ -787,10 +799,11 @@ interface RocketView {
 export class Effects {
   readonly group = new THREE.Group();
   private readonly glow = new ParticleLayer(2500, true, true);
-  private readonly smoke = new ParticleLayer(3000, false, false, true);
+  private readonly smoke = new ParticleLayer(3000, false, true, true);
   readonly skids = new SkidMarks(3000);
   private readonly tracers = new Tracers(160);
   private readonly parts = new BodyParts();
+  readonly foam = new FoamRings();
   readonly flash: THREE.PointLight;
   readonly muzzle: THREE.PointLight;
   private flashLife = 0;
@@ -815,7 +828,7 @@ export class Effects {
 
   constructor() {
     this.group.add(this.glow.mesh, this.smoke.mesh, this.skids.mesh, this.tracers.mesh);
-    this.group.add(this.parts.mesh);
+    this.group.add(this.parts.mesh, this.foam.mesh);
     this.flash = new THREE.PointLight(0xffa040, 0, 40, 1.6);
     this.muzzle = new THREE.PointLight(0xffd080, 0, 12, 2);
     this.group.add(this.flash, this.muzzle);
@@ -832,6 +845,7 @@ export class Effects {
     this.syncRockets([]);
     this.tracers.clear();
     this.parts.clear();
+    this.foam.clear();
     this.glow.clear();
     this.smoke.clear();
     this.skids.clear();
@@ -855,6 +869,7 @@ export class Effects {
   setLight(c: THREE.Color): void {
     this.smoke.light!.copy(c);
     this.skids.light.copy(c);
+    this.foam.light.copy(c);
   }
 
   private r(a: number, b: number): number {
@@ -938,8 +953,13 @@ export class Effects {
     if (kind === 'world') for (let i = 0; i < 3; i++) this.smoke.emit(x, y, z, nx + this.r(-0.4, 0.4), ny * 0.6 + this.r(0, 0.6), nz + this.r(-0.4, 0.4), this.r(0.5, 0.9), 0.15, 0.7, 0x9a958a, 0x7a766e, 0.55, 0, 1.5);
   }
 
-  explosion(x: number, y: number, z: number, radius: number): void {
+  /** `water`: the blast is on the sea's surface, a column of water and spray instead of fire, smoke and sparks. */
+  explosion(x: number, y: number, z: number, radius: number, water = false): void {
     const s = radius / 7.5;
+    if (water) {
+      this.waterPlume(x, y, z, s);
+      return;
+    }
     // Flash, rolling fireball, dark smoke column, sparks.
     this.glow.emit(x, y + 0.6, z, 0, 0, 0, 0.16, 3 * s, 9 * s, 0xffd890, 0xff7020, 0.8);
     for (let i = 0; i < 36; i++) {
@@ -1139,9 +1159,47 @@ export class Effects {
     this.smoke.emit(x + this.r(-0.2, 0.2), y + 0.15, z + this.r(-0.2, 0.2), this.r(-0.6, 0.6), this.r(0.4, 1.0), this.r(-0.6, 0.6), this.r(0.8, 1.6), 0.5, 2.2, 0xd8d8d8, 0xeeeeee, 0.32, -0.1, 0.8);
   }
 
-  splash(x: number, y: number, z: number, big: boolean): void {
-    const n = big ? 40 : 14;
-    for (let i = 0; i < n; i++) this.smoke.emit(x + this.r(-1, 1), y + 0.1, z + this.r(-1, 1), this.r(-3, 3), this.r(3, big ? 9 : 5), this.r(-3, 3), this.r(0.6, 1.2), 0.3, 0.8, 0xffffff, 0xcfe8f5, 0.8, 14, 0.2);
+  /**
+   * Something hit the water at (x, y, z) (`big` true: a car or a crash, false: a person): a crown of droplets streaking
+   * out and falling back, a mist puff, and a foam ring spreading on the surface. On the smoke layer, in the scene's light.
+   */
+  splash(x: number, y: number, z: number, size: boolean | SplashSize): void {
+    const kind: SplashSize = size === true ? 'big' : size === false ? 'body' : size;
+    const p = SPLASH[kind];
+    const k = p.k;
+    for (let i = 0; i < p.drops; i++) {
+      const a = this.r(0, Math.PI * 2);
+      const out = this.r(0.8, 2.6) * k;
+      const r0 = this.r(0.05, 0.25) * k;
+      this.smoke.emit(x + Math.cos(a) * r0, y + 0.05, z + Math.sin(a) * r0, Math.cos(a) * out, this.r(2.5, 5.5) * Math.sqrt(k), Math.sin(a) * out, this.r(0.45, 0.85), this.r(0.07, 0.12) * k, 0.05, 0xffffff, 0xd6eaf4, 0.85, 9.8, 0.4, 0, 4, 0, DROPLET_STYLE);
+    }
+    if (kind !== 'small') {
+      // The column thrown straight up by a body or a car.
+      const n = kind === 'body' ? 8 : 18;
+      for (let i = 0; i < n; i++) this.smoke.emit(x + this.r(-0.4, 0.4) * k, y + 0.1, z + this.r(-0.4, 0.4) * k, this.r(-1, 1), this.r(3, 6.5) * k, this.r(-1, 1), this.r(0.6, 1.1), 0.25 * k, 0.7 * k, 0xffffff, 0xcfe8f5, 0.75, 12, 0.3);
+    }
+    for (let i = 0; i < p.mist; i++) {
+      this.smoke.emit(x + this.r(-0.3, 0.3) * k, y + this.r(0.1, 0.4) * k, z + this.r(-0.3, 0.3) * k, this.r(-0.4, 0.4), this.r(0.3, 0.9), this.r(-0.4, 0.4), this.r(1.2, 2), 0.4 * k, 1.8 * k, 0xf2f8fb, 0xdfeaf0, 0.28, 0, 1.2, this.r(-0.3, 0.3));
+    }
+    this.foam.add(x, z, p.ring, p.ringLife);
+  }
+
+  /** A blast on the water: a white column, a ring of spray, a drifting cloud of mist and a wide foam ring. */
+  private waterPlume(x: number, y: number, z: number, s: number): void {
+    for (let i = 0; i < 34; i++) {
+      const a = this.r(0, Math.PI * 2);
+      const r0 = this.r(0, 1.2) * s;
+      this.smoke.emit(x + Math.cos(a) * r0, y + this.r(0, 1.5) * s, z + Math.sin(a) * r0, this.r(-1.2, 1.2), this.r(8, 17) * s, this.r(-1.2, 1.2), this.r(1.3, 2.3), this.r(0.6, 1) * s, this.r(1.8, 3) * s, 0xffffff, 0xd9e9f2, 0.85, 9.8, 0.5, this.r(-0.5, 0.5));
+    }
+    this.splash(x, y, z, 'plume');
+    for (let i = 0; i < 40; i++) {
+      const a = this.r(0, Math.PI * 2);
+      const out = this.r(5, 11) * s;
+      this.smoke.emit(x + Math.cos(a) * 0.8 * s, y + 0.2, z + Math.sin(a) * 0.8 * s, Math.cos(a) * out, this.r(3, 7) * s, Math.sin(a) * out, this.r(0.7, 1.2), this.r(0.14, 0.22) * s, 0.1, 0xffffff, 0xd2e4ee, 0.8, 9.8, 0.3, 0, 5, 0, DROPLET_STYLE);
+    }
+    for (let i = 0; i < 12; i++) {
+      this.smoke.emit(x + this.r(-2.5, 2.5) * s, y + this.r(1, 6) * s, z + this.r(-2.5, 2.5) * s, this.r(-1, 1), this.r(0.4, 1.4), this.r(-1, 1), this.r(2.8, 4.2), this.r(2, 3) * s, this.r(6, 9) * s, 0xeef5f9, 0xd8e3ea, 0.32, -0.1, 0.6, this.r(-0.3, 0.3));
+    }
   }
 
   /**
@@ -1302,6 +1360,7 @@ export class Effects {
     this.glow.update(dt, 1);
     this.smoke.update(dt, 1);
     this.parts.update(dt);
+    this.foam.update(dt);
     this.tracers.update(dt);
     this.skids.update(now);
     if (this.flashFresh) {
