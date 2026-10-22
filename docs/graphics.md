@@ -12,6 +12,14 @@ High adds local ambient occlusion before bloom and six nearby street lamps that 
 
 The sky's image-based light (the baked environment map) is re-baked whenever the analytic sky colours change by about 2 %, at most about twice a real second, and at once after a jump in time (or every quarter game hour otherwise). Between bakes `scene.environmentIntensity` is scaled by the ratio of the sky's current to its baked irradiance (clamped to 0.5–2), so dawn and dusk brighten and darken every frame instead of in steps. This applies to every hardware tier with half-float targets; without them (and on software renderers) the sky light is an analytic hemisphere fill that was already continuous. The player car's local reflection probe recaptures after 0.05 game hours, still at most one capture start per half second. `__gta7.setClockRate(r)` and `__gta7.envStats()` help check this in the browser.
 
+## Finish pass: colour grade and anti-aliasing
+
+Every hardware tier ends its effects with `FinishPass` (`src/render/finishPass.ts`): High runs contact shadows, bloom, finish; Medium bloom, finish; Low finish alone. It works in linear HDR before three's own ACES and sRGB output, so tone mapping and colours stay the same pipeline on every tier. The grade (`gradeAt(hours, weather?)` in `src/render/grade.ts`) is keyframed over the day: noon is near neutral, golden hour (18:24) is warmer, and night is cooler, slightly desaturated, with a stronger vignette. It applies a luminance-normalised white balance, saturation, contrast in log space around mid grey, a small split tone and a vignette; no parameter moves more than 1e-3 per game minute, midnight included. Cloud lowers saturation and contrast and rain deepens the vignette once weather supplies those inputs (clear by default).
+
+High and Medium keep 4x MSAA from the WebGL context. Low uses FXAA inside the same pass: three's `FXAAShader`, patched to detect edges and blend in a reversible tone-mapped proxy (`c / (1 + max(c))`), so edges against bright lamps are not biased toward the light and HDR values are not clamped. The module throws on load if the patch no longer matches three's shader. Software renderers and GPUs without half-float targets have an LDR output where three allows no effects, so they get neither FXAA nor the grade. Tier switches only change the pass's uniforms (no shader rebuild). `__gta7.setPost({ aa, grade, vignette })` overrides it until the next quality change, and `state().render.post` reports `{ aa, grade, vignette }`.
+
+On the M4 Pro at 1920x1080 High the perf playtest stayed at 60 fps in all four segments (final frames 5.3–6.8 ms).
+
 Street Run gates use open ground outlines and slim illuminated posts, with a separate readable turn instruction, road name, gate count and distance. This keeps traffic visible through a checkpoint.
 
 ## Software fallback

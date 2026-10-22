@@ -8,6 +8,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ContactShadows } from '../../src/render/contactShadows';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FLASH_SIZE } from '../../src/render/effects';
+import { FinishPass } from '../../src/render/finishPass';
+import { gradeAt } from '../../src/render/grade';
 import { Environment } from '../../src/render/environment';
 import { AUTO_MAX_PIXELS, drawingBufferPixels, gpuClass, pickTier, pixelRatioFor, probeGpu, QUALITY, QUALITY_TIERS, type QualityTier } from '../../src/render/quality';
 import { GameRenderer, guardStaleDeletes } from '../../src/render/renderer';
@@ -233,10 +235,11 @@ describe('Auto tier pick (pickTier)', () => {
 
 describe('tier table', () => {
   it('High is the original look, Low drops MSAA, shadows, bloom and dynamic lights', () => {
-    expect(QUALITY.high).toMatchObject({ dprCap: 1.5, renderScale: 1, msaa: true, shadows: true, shadowSize: 2048, bloom: true, pointLights: 'all', headlight: true, trafficDensity: 1, pedDensity: 1 });
+    expect(QUALITY.high).toMatchObject({ dprCap: 1.5, renderScale: 1, msaa: true, aa: 'msaa', grade: true, shadows: true, shadowSize: 2048, bloom: true, pointLights: 'all', headlight: true, trafficDensity: 1, pedDensity: 1 });
     expect(QUALITY.high.vehicleDistance).toBe(Infinity);
     expect(QUALITY.medium).toMatchObject({ dprCap: 1, renderScale: 0.85, shadows: true, shadowSize: 1024, bloom: true, pointLights: 'few', headlight: true, trafficDensity: 0.9, pedDensity: 0.9 });
-    expect(QUALITY.low).toMatchObject({ dprCap: 1, renderScale: 0.67, msaa: false, shadows: false, bloom: false, pointLights: 'none', headlight: false, trafficDensity: 0.75, pedDensity: 0.75 });
+    expect(QUALITY.medium).toMatchObject({ aa: 'msaa', grade: true });
+    expect(QUALITY.low).toMatchObject({ dprCap: 1, renderScale: 0.67, msaa: false, aa: 'fxaa', grade: true, shadows: false, bloom: false, pointLights: 'none', headlight: false, trafficDensity: 0.75, pedDensity: 0.75 });
     // The pixel ratio is dprCap x renderScale on any display at or above the cap.
     for (const q of QUALITY_TIERS) {
       expect(pixelRatioFor(q, 3)).toBeCloseTo(QUALITY[q].dprCap * QUALITY[q].renderScale, 6);
@@ -334,9 +337,13 @@ describe('GameRenderer quality tiers', () => {
     expect(f.shadowMap.enabled).toBe(true);
     expect(r.env.sun.castShadow).toBe(true);
     expect(r.env.sun.shadow.mapSize.x).toBe(2048);
-    expect(f.effects.length).toBe(2);
+    expect(f.effects.length).toBe(3);
     expect(f.effects[0]).toBeInstanceOf(ContactShadows);
     expect(f.effects[1]).toBeInstanceOf(UnrealBloomPass);
+    expect(f.effects[2]).toBeInstanceOf(FinishPass);
+    const finish = f.effects[2] as FinishPass;
+    expect(finish.fxaa).toBe(false);
+    const finishDispose = vi.spyOn(finish, 'dispose');
     const contactDispose = vi.spyOn(f.effects[0] as ContactShadows, 'dispose');
     const bloom = f.effects[1];
     let lights = visibleLights(r.scene);
@@ -347,7 +354,11 @@ describe('GameRenderer quality tiers', () => {
     r.setQuality('low');
     expect(f.shadowMap.enabled).toBe(false);
     expect(r.env.sun.castShadow).toBe(false);
-    expect(f.effects).toEqual([]);
+    // Low keeps only FinishPass (the same one: only its uniforms change), now with FXAA.
+    expect(f.effects).toEqual([finish]);
+    expect(finish.fxaa).toBe(true);
+    expect(finish.grade).toBe(true);
+    expect(finishDispose).not.toHaveBeenCalled();
     expect(bloomDispose).toHaveBeenCalledTimes(1); // its render targets are freed on Low
     expect(contactDispose).toHaveBeenCalledTimes(1);
     lights = visibleLights(r.scene);
@@ -367,10 +378,12 @@ describe('GameRenderer quality tiers', () => {
     r.setQuality('high');
     expect(f.shadowMap.enabled).toBe(true);
     expect(r.env.sun.castShadow).toBe(true);
-    expect(f.effects.length).toBe(2);
+    expect(f.effects.length).toBe(3);
     expect(f.effects[0]).toBeInstanceOf(ContactShadows);
     expect(f.effects[1]).toBeInstanceOf(UnrealBloomPass);
     expect(f.effects[1]).not.toBe(bloom);
+    expect(f.effects[2]).toBe(finish);
+    expect(finish.fxaa).toBe(false);
     expect(visibleLights(r.scene).point.length).toBe(3);
     expect(visibleLights(r.scene).spot.length).toBe(7);
   });
@@ -378,8 +391,10 @@ describe('GameRenderer quality tiers', () => {
   it("setQuality('medium') caps the dynamic point lights at 2, given to the brightest nearby sources", () => {
     const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
     r.setQuality('medium');
-    expect(fakeOf(r).effects).toHaveLength(1);
+    expect(fakeOf(r).effects).toHaveLength(2);
     expect(fakeOf(r).effects[0]).toBeInstanceOf(UnrealBloomPass);
+    expect(fakeOf(r).effects[1]).toBeInstanceOf(FinishPass);
+    expect((fakeOf(r).effects[1] as FinishPass).fxaa).toBe(false);
     expect(r.env.sun.shadow.mapSize.x).toBe(1024);
     expect(fakeOf(r).shadowMap.enabled).toBe(true);
     expect(visibleLights(r.scene).point.length).toBe(2);
@@ -408,6 +423,81 @@ describe('GameRenderer quality tiers', () => {
     cop.siren = false;
     for (let i = 0; i < 40; i++) r.render(DT, false);
     expect(visibleLights(r.scene).point.filter((l) => l.intensity > 0).length).toBe(0);
+  });
+
+  it('every hardware tier ends its effects with FinishPass; software and hdr=false renderers get none', () => {
+    const names = (r: GameRenderer) => fakeOf(r).effects.map((e) => (e as object).constructor.name);
+    const chains: Record<QualityTier, string[]> = { high: ['ContactShadows', 'UnrealBloomPass', 'FinishPass'], medium: ['UnrealBloomPass', 'FinishPass'], low: ['FinishPass'] };
+    for (const q of QUALITY_TIERS) {
+      const r = new GameRenderer(eventCanvas(), W, { quality: q, fov: 68, gpu: HDR });
+      const f = fakeOf(r);
+      expect(names(r), q).toEqual(chains[q]);
+      const finish = f.effects.at(-1) as FinishPass;
+      expect(finish.fxaa, q).toBe(q === 'low');
+      expect(finish.grade, q).toBe(true);
+      expect(r.post).toMatchObject({ aa: q === 'low' ? 'fxaa' : 'msaa', grade: true });
+      expect(f.toneMapping).toBe(THREE.ACESFilmicToneMapping);
+      expect(f.outputColorSpace).toBe(THREE.SRGBColorSpace);
+      for (const e of f.effects) {
+        const p = e as Record<string, unknown>;
+        expect(p.isOutputPass, q).toBeUndefined();
+        expect(['OutputPass', 'LUTPass', 'SMAAPass', 'TAARenderPass', 'SSAARenderPass']).not.toContain((e as object).constructor.name);
+      }
+      // The same chain after switching to each other tier.
+      for (const to of QUALITY_TIERS) {
+        r.setQuality(to);
+        expect(names(r), `${q} -> ${to}`).toEqual(chains[to]);
+        expect((fakeOf(r).effects.at(-1) as FinishPass).fxaa).toBe(to === 'low');
+      }
+      r.dispose();
+    }
+    const software = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: { renderer: 'SwiftShader', halfFloat: true } });
+    const plain = new GameRenderer(eventCanvas(), W, { quality: 'low', fov: 68, gpu: { renderer: '', halfFloat: false } });
+    for (const r of [software, plain]) {
+      expect(fakeOf(r).effects).toEqual([]);
+      for (const q of QUALITY_TIERS) {
+        r.setQuality(q);
+        expect(fakeOf(r).effects).toEqual([]);
+      }
+      expect(r.post).toEqual({ aa: 'none', grade: false, vignette: 0 });
+      expect(r.overridePost({ aa: 'fxaa', grade: true })).toMatchObject({ aa: 'none', grade: false });
+    }
+  });
+
+  it('FinishPass follows the time of day; the debug override lasts until the next tier change', () => {
+    const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    const finish = fakeOf(r).effects.at(-1) as FinishPass;
+    const u = finish.material.uniforms;
+    const sim = makeSim({ world: W, startHour: 18.4 });
+    attachPlay(r, sim);
+    r.render(DT, false);
+    const golden = gradeAt(sim.clock.hours);
+    expect((u.uTint!.value as THREE.Vector3).x).toBeCloseTo(golden.tint[0], 6);
+    expect(u.uSat!.value).toBeCloseTo(golden.sat, 6);
+    expect(r.post.vignette).toBeCloseTo(golden.vignette, 6);
+    sim.clock.set(23);
+    r.render(DT, false);
+    const night = gradeAt(sim.clock.hours);
+    expect((u.uTint!.value as THREE.Vector3).z).toBeCloseTo(night.tint[2], 6);
+    expect(u.uVignette!.value).toBeCloseTo(night.vignette, 6);
+
+    expect(r.overridePost({ aa: 'fxaa', grade: false, vignette: 0 })).toEqual({ aa: 'fxaa', grade: false, vignette: 0 });
+    r.render(DT, false);
+    expect(u.uVignette!.value).toBe(0);
+    expect(u.uGrade!.value).toBe(0);
+    expect(u.uFxaa!.value).toBe(1);
+    r.overridePost({ vignette: null, grade: true, aa: 'none' });
+    r.render(DT, false);
+    expect(u.uVignette!.value).toBeCloseTo(night.vignette, 6);
+    expect(r.post.aa).toBe('msaa');
+    r.overridePost({ vignette: 0 });
+    r.setQuality('medium');
+    r.render(DT, false);
+    expect(r.post.vignette).toBeCloseTo(night.vignette, 6);
+
+    const dispose = vi.spyOn(finish, 'dispose');
+    r.dispose();
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 
   it('the warm-up compiles for the HDR scene target, and runs again after a tier switch', () => {
@@ -626,7 +716,8 @@ describe('coloured lamps with and without bloom', () => {
 
   it('on Low, with no bloom to carry it, a lit traffic light keeps its colour through the tone mapping', () => {
     const r = new GameRenderer(eventCanvas(), W, { quality: 'low', fov: 68, gpu: HDR });
-    expect(fakeOf(r).effects).toEqual([]);
+    expect(fakeOf(r).effects).toHaveLength(1);
+    expect(fakeOf(r).effects[0]).toBeInstanceOf(FinishPass);
     const [rr, rg, rb] = display(litBulb(r, 'red'));
     expect(rr - rg, `red ${rr},${rg},${rb}`).toBeGreaterThan(150);
     expect(rr - rb, `red ${rr},${rg},${rb}`).toBeGreaterThan(150);
@@ -689,6 +780,8 @@ describe('WebGL context loss (renderer side)', () => {
     canvas.dispatchEvent(new Event('webglcontextrestored'));
     expect(r.isContextLost).toBe(false);
     expect(f.compiles).toBe(compiles + 1);
+    // The effects chain survives: three rebuilds its programs and targets on first use.
+    expect(f.effects.map((e) => (e as object).constructor.name)).toEqual(['ContactShadows', 'UnrealBloomPass', 'FinishPass']);
     r.render(DT, false);
     expect(refresh).toHaveBeenCalledTimes(1);
     r.render(DT, false);

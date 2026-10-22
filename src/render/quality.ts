@@ -15,6 +15,10 @@ export interface TierSpec {
   renderScale: number;
   /** 4x MSAA. A WebGL context attribute (it also sizes three's HDR scene target), so it is only chosen when the renderer is created. */
   msaa: boolean;
+  /** Anti-aliasing: MSAA from the context, or FXAA in FinishPass (hardware HDR renderers only). */
+  aa: 'msaa' | 'fxaa' | 'none';
+  /** Time-of-day colour grade and vignette in FinishPass. */
+  grade: boolean;
   shadows: boolean;
   shadowSize: number;
   bloom: boolean;
@@ -33,10 +37,10 @@ export const FEW_POINT_LIGHTS = 2;
 
 /** High is the original look; Medium and Low trade it away step by step for integrated GPUs and HiDPI laptops. */
 export const QUALITY: Readonly<Record<QualityTier, Readonly<TierSpec>>> = {
-  high: { dprCap: 1.5, renderScale: 1, msaa: true, shadows: true, shadowSize: 2048, bloom: true, pointLights: 'all', headlight: true, vehicleDistance: Infinity, trafficDensity: 1, pedDensity: 1 },
-  medium: { dprCap: 1, renderScale: 0.85, msaa: true, shadows: true, shadowSize: 1024, bloom: true, pointLights: 'few', headlight: true, vehicleDistance: Infinity, trafficDensity: 0.9, pedDensity: 0.9 },
+  high: { dprCap: 1.5, renderScale: 1, msaa: true, aa: 'msaa', grade: true, shadows: true, shadowSize: 2048, bloom: true, pointLights: 'all', headlight: true, vehicleDistance: Infinity, trafficDensity: 1, pedDensity: 1 },
+  medium: { dprCap: 1, renderScale: 0.85, msaa: true, aa: 'msaa', grade: true, shadows: true, shadowSize: 1024, bloom: true, pointLights: 'few', headlight: true, vehicleDistance: Infinity, trafficDensity: 0.9, pedDensity: 0.9 },
   // Tone mapping and the output colour space are untouched, so Low keeps the same colours.
-  low: { dprCap: 1, renderScale: 0.67, msaa: false, shadows: false, shadowSize: 1024, bloom: false, pointLights: 'none', headlight: false, vehicleDistance: 150, trafficDensity: 0.75, pedDensity: 0.75 },
+  low: { dprCap: 1, renderScale: 0.67, msaa: false, aa: 'fxaa', grade: true, shadows: false, shadowSize: 1024, bloom: false, pointLights: 'none', headlight: false, vehicleDistance: 150, trafficDensity: 0.75, pedDensity: 0.75 },
 };
 
 /** The renderer's pixel ratio at a tier on a display with this devicePixelRatio. */

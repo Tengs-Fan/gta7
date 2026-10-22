@@ -37,7 +37,7 @@ export function installDebugApi(game: Game): void {
         police: sim.vehicles.filter((v) => v.owner === 'police').length,
         characters: sim.characters.length,
         deathKind: sim.deathKind,
-        render: { ...game.renderer.stats(), tier: game.renderer.currentQuality },
+        render: { ...game.renderer.stats(), tier: game.renderer.currentQuality, post: game.renderer.post },
         perf: { ...game.perf },
       };
     },
@@ -78,6 +78,10 @@ export function installDebugApi(game: Game): void {
     },
     setTime(h: number) {
       game.sim.clock.set(h);
+    },
+    /** Overrides FinishPass (FXAA, grade, vignette; vignette null = time of day) until the next quality change. */
+    setPost(o: { aa?: 'none' | 'fxaa'; grade?: boolean; vignette?: number | null }) {
+      return game.renderer.overridePost(o);
     },
     /** Clock speed relative to the default (1 = one game minute per real second). */
     setClockRate(r: number) {

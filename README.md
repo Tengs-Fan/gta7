@@ -181,7 +181,8 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | | High | Medium | Low |
 | --- | --- | --- | --- |
 | Resolution | full, pixel ratio up to 1.5 | 85%, high-DPI ignored | 67%, high-DPI ignored |
-| Anti-aliasing | 4x MSAA | 4x MSAA | off |
+| Anti-aliasing | 4x MSAA | 4x MSAA | FXAA |
+| Time-of-day colour grade and vignette | on | on | on |
 | Sun shadows | 2048 map | 1024 map | off |
 | Bloom | on | on | off |
 | Contact shadows on streets and vehicles | on | off | off |
@@ -192,7 +193,7 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Ambient cars drawn | all | all | within 150 m |
 
 Colors are the same on every tier; Low loses the glow, the shadows and some of the sky's detail.
-Everything applies at once except anti-aliasing, which changes after a reload (the Settings screen says so).
+Everything applies at once except MSAA, which changes after a reload (the Settings screen says so); Low's FXAA follows the tier at once. Software renderers get neither anti-aliasing nor the colour grade.
 A lower tier's traffic and pedestrian numbers take effect as cars and people come and go: nobody is removed on the spot.
 
 If the graphics driver resets, the game pauses behind "Graphics reset - restoring..." and returns to the pause menu once WebGL is back; choose RESUME to carry on.
@@ -326,7 +327,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-61 files with 1373 tests run in Node, with no browser.
+64 files with 1407 tests run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission completed by a scripted bot with its failure paths and retries, side jobs, saves, and a 10-minute chaotic soak test (36,000 frames with a seeded random player).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
@@ -334,7 +335,7 @@ The police tests are statistics over many deterministic seeds, and they set the 
 
 ### End-to-end tests
 
-77 tests in 19 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
+81 tests in 21 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
 They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, a murder that brings the police, WASTED, the menus, the gun shop, saving and continuing after a reload, the side jobs, night rendering and the quality tiers, WebGL context loss, crash screens, all nine cheats, and a two-minute chaos session that must average over 30 fps.
 Most tests also fail on any console error, console warning or page error.
 
