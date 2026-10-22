@@ -319,14 +319,14 @@ Conventions: +X is east, +Z south and +Y up, and heading h faces (sin h, cos h).
 ```sh
 npm run typecheck                  # tsc --noEmit, strict
 npm test                           # unit tests in Node (Vitest); npm run test:watch to watch
-npx playwright install chromium    # once, before the first end-to-end run
+npx playwright install chromium    # once, before the first end-to-end run (optional on macOS, see below)
 npm run test:e2e                   # end-to-end tests in Chromium (Playwright)
 npm run check                      # typecheck + unit + build + e2e
 ```
 
 ### Unit tests
 
-58 files with 1331 tests run in Node, with no browser.
+61 files with 1373 tests run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission completed by a scripted bot with its failure paths and retries, side jobs, saves, and a 10-minute chaotic soak test (36,000 frames with a seeded random player).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
@@ -341,7 +341,12 @@ Most tests also fail on any console error, console warning or page error.
 `npm run test:e2e` builds the game and serves it on port 4173, but if a server already answers there (a leftover `npm run preview`), Playwright tests that one without building; set `CI=1` to always build (it then fails if the port is busy).
 `npm run check` therefore builds twice, once itself and once in the end-to-end step.
 
-The browser uses the hardware GPU through ANGLE and Vulkan by default (tried on Linux only). Set `GTA7_ANGLE=gl` to use desktop OpenGL instead; this path was verified on an RX 6600 XT under Linux. `GTA7_BROWSER=/absolute/path/to/chrome` optionally selects an existing Chromium executable. Both variables also work with `scripts/playtest.mjs`.
+The browser uses the hardware GPU through ANGLE and Vulkan by default on Linux. Set `GTA7_ANGLE=gl` to use desktop OpenGL instead; this path was verified on an RX 6600 XT under Linux. `GTA7_BROWSER=/absolute/path/to/chrome` optionally selects an existing Chromium executable. Both variables also work with `scripts/playtest.mjs`.
+
+On macOS the default is ANGLE Metal (`--use-angle=metal`), because Chrome there has no Vulkan backend and would quietly fall back to software rendering and the Low tier.
+If Playwright's Chromium is not installed, the tests and playtests use the installed Google Chrome at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` (only if that file exists), so `npx playwright install chromium` is optional on a Mac.
+`GTA7_ANGLE` and `GTA7_BROWSER` still override both defaults, and `GTA7_SWIFTSHADER=1` still forces software rendering. This setup was verified on an Apple M4 Pro, where the game picks the High tier.
+The first test in `tests/e2e/r2_quality.spec.ts` logs the WebGL renderer string and the Auto tier, which shows quickly whether a run got the hardware GPU.
 On a machine without a GPU, use software rendering, which is many times slower and may miss the chaos test's 30 fps:
 
 ```sh
@@ -353,7 +358,7 @@ Under automation the game refuses the lock unless the URL has `?lock=1`, and the
 
 ### Playtests
 
-`scripts/playtest.mjs` drives a running build (`npm run build && npm run preview`) in the Chromium that `npx playwright install chromium` fetches, through `window.__gta7` and real keyboard and mouse input.
+`scripts/playtest.mjs` drives a running build (`npm run build && npm run preview`) in the Chromium that `npx playwright install chromium` fetches (or, on macOS without it, the installed Google Chrome), through `window.__gta7` and real keyboard and mouse input.
 It saves numbered screenshots and a `report.json` (console errors, state snapshots, and fps, draw calls and heap per segment), and exits with 1 if the scenario threw.
 
 ```sh
@@ -379,6 +384,7 @@ node scripts/playtest.mjs --script my-steps.mjs --url http://localhost:4173/
   Add `GTA7_REUSE=1` to test a server already running on that port instead; it must serve this checkout and be up to date.
 - `scripts/with-slot.sh browser|cpu <command...>` runs a command while holding one of a few machine-wide slots, so several test runs on one machine don't start more browsers or test suites than it can hold.
   `GTA7_BROWSER_SLOTS` (default 4) and `GTA7_CPU_SLOTS` (default 3) set the number of slots, and the script needs Linux `flock` and bash 4.1 or newer.
+  Where `flock` is missing (macOS), it simply runs the command without a slot; it is not required for testing there.
 
 ```sh
 GTA7_PORT=4181 scripts/with-slot.sh browser npx playwright test

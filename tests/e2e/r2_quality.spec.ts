@@ -34,6 +34,13 @@ test.describe('graphics quality', () => {
     await noPointerLock(page);
     const errors = await boot(page);
     const auto: QualityTier = await page.evaluate(() => (window as Api).__gta7.game.autoTier);
+    const gpu = await page.evaluate(() => {
+      const gl = (window as Api).__gta7.game.renderer.renderer.getContext();
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      return String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+    });
+    console.log(`GPU: ${gpu}; auto tier: ${auto}`);
+    test.info().annotations.push({ type: 'gpu', description: `${gpu}; auto tier ${auto}` });
     // MSAA is fixed when the renderer is made (here from Auto); everything else applies at once.
     const builtMsaa = QUALITY[auto].msaa;
     expect((await state(page)).render.tier).toBe(auto);

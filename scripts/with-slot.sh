@@ -15,6 +15,10 @@ case "$kind" in
   cpu) slots=${GTA7_CPU_SLOTS:-3} ;;
   *) echo "usage: scripts/with-slot.sh browser|cpu <command...>" >&2; exit 2 ;;
 esac
+# Without flock (macOS) there is no slot to hold: run the command directly.
+if ! command -v flock > /dev/null 2>&1; then
+  exec "$@"
+fi
 dir=/tmp/gta7-slots/$kind
 mkdir -p "$dir"
 while true; do
