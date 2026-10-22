@@ -344,8 +344,10 @@ Most tests also fail on any console error, console warning or page error.
 The browser uses the hardware GPU through ANGLE and Vulkan by default on Linux. Set `GTA7_ANGLE=gl` to use desktop OpenGL instead; this path was verified on an RX 6600 XT under Linux. `GTA7_BROWSER=/absolute/path/to/chrome` optionally selects an existing Chromium executable. Both variables also work with `scripts/playtest.mjs`.
 
 On macOS the default is ANGLE Metal (`--use-angle=metal`), because Chrome there has no Vulkan backend and would quietly fall back to software rendering and the Low tier.
-If Playwright's Chromium is not installed, the tests and playtests use the installed Google Chrome at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` (only if that file exists), so `npx playwright install chromium` is optional on a Mac.
-`GTA7_ANGLE` and `GTA7_BROWSER` still override both defaults, and `GTA7_SWIFTSHADER=1` still forces software rendering. This setup was verified on an Apple M4 Pro, where the game picks the High tier.
+If the Playwright browser a run would launch is not installed, the tests and playtests use the installed Google Chrome at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` (only if that file exists), so `npx playwright install chromium` is optional on a Mac.
+Headless runs launch Playwright's `chromium-headless-shell` and headed runs (`--headed`) its full Chromium, so a `--only-shell` install falls back to Chrome only when headed and a `--no-shell` install only when headless.
+`GTA7_ANGLE` and `GTA7_BROWSER` still override both defaults, and `GTA7_SWIFTSHADER=1` still forces software rendering.
+`GTA7_SWIFTSHADER` unset, empty or `0` means hardware rendering; the end-to-end tests also treat any other value as on, while `scripts/playtest.mjs` only accepts `1` (or `--swiftshader`). This setup was verified on an Apple M4 Pro, where the game picks the High tier.
 The first test in `tests/e2e/r2_quality.spec.ts` logs the WebGL renderer string and the Auto tier, which shows quickly whether a run got the hardware GPU.
 On a machine without a GPU, use software rendering, which is many times slower and may miss the chaos test's 30 fps:
 
