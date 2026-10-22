@@ -18,10 +18,14 @@ export function trackErrors(page: Page): string[] {
 /**
  * Headless Chromium that grants pointer lock can stop delivering frames and grow without bound, so the tests
  * refuse it (the game also refuses it under automation): clicks then shoot unlocked. intro=0 keeps a new game
- * from starting the first mission by itself.
+ * from starting the first mission by itself. Gameplay weather is forced clear (opts.weather null: as the Weather setting says).
  */
-export async function boot(page: Page, path = '/?intro=0'): Promise<string[]> {
+export async function boot(page: Page, path = '/?intro=0', opts: { weather?: 'clear' | null } = {}): Promise<string[]> {
   const errors = trackErrors(page);
+  // Clear weather unless a spec asks for the real forecast, so pixel checks stay stable when a test advances days.
+  await page.addInitScript((weather) => {
+    (window as Api).__gta7Test = { ...(window as Api).__gta7Test, weather };
+  }, opts.weather === undefined ? 'clear' : opts.weather);
   await page.addInitScript(() => {
     HTMLCanvasElement.prototype.requestPointerLock = function () {
       throw new DOMException('pointer lock disabled under automation', 'NotSupportedError');

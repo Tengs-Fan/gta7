@@ -54,6 +54,17 @@ const SIREN_NIGHT = 25;
 const SIREN_RANGE = 12;
 const SIREN_DECAY = 2;
 
+/**
+ * Brightness 0..1 of a lightning flash `t` seconds after the strike: a bright stroke, a dip, a second stroke fading
+ * out. Back to nothing within half a second.
+ */
+export function lightningFlash(t: number): number {
+  if (!(t >= 0) || t > 0.6) return 0;
+  if (t < 0.07) return 1;
+  if (t < 0.12) return 0.2;
+  return 0.75 * Math.exp(-(t - 0.12) / 0.08);
+}
+
 /** Every create / delete pair of WebGL 2 objects. */
 const GL_PAIRS: ReadonlyArray<readonly [create: string, del: string]> = [
   ...['Buffer', 'Framebuffer', 'Program', 'Query', 'Renderbuffer', 'Sampler', 'Shader', 'Texture', 'TransformFeedback', 'VertexArray'].map((k) => [`create${k}`, `delete${k}`] as const),
@@ -105,11 +116,12 @@ export class GameRenderer {
   readonly effects = new Effects();
   readonly markers = new MarkerView();
   readonly lightSprites = new LightSprites();
-  /**
-   * How dark the weather makes the day (0 clear .. 1): vehicles light up at max(night, weatherDim). The weather
-   * renderer sets it; until then it stays 0 and only the night turns lights on.
-   */
+  /** How dark the weather makes the day (0 clear .. 1), from the sim each frame: vehicles light up at max(night, weatherDim). */
   weatherDim = 0;
+  /** The lightning flash on sky and light (Settings: Lightning flashes). Off, a strike changes nothing drawn. */
+  lightningFlashes = true;
+  /** Seconds since the last strike that flashed. */
+  private flashAge = Infinity;
   private readonly lampGlows: LampGlow[] = [];
   private readonly bufferSize = new THREE.Vector2();
   private readonly vehicleViews = new Map<number, VehicleView>();
@@ -411,6 +423,7 @@ export class GameRenderer {
     this.vehicleViews.clear();
     this.farHidden.clear();
     this.effects.reset();
+    this.flashAge = Infinity;
     // A new session's clock starts again from 0.
     this.autoRounds = 0;
     this.lastAutoRound = -Infinity;
@@ -459,6 +472,9 @@ export class GameRenderer {
         if (p?.kind === 'lamp') fx.debris(p.x, p.y + 0.6, p.z);
       }),
       ev.on('splash', (e) => fx.splash(e.x, e.y, e.z, e.big)),
+      ev.on('lightning', () => {
+        if (this.lightningFlashes) this.flashAge = 0;
+      }),
       ev.on('blood', (e) => fx.impact(e.x, e.y, e.z, -e.dx, -e.dy, -e.dz, 'flesh')),
     );
     // Crash feedback: sparks where a vehicle grinds along something, glass and body parts flying off hard hits.
@@ -636,7 +652,11 @@ export class GameRenderer {
     if (sim) this.cameraCtl.update(dt, sim, aiming);
     const hours = sim ? sim.clock.hours : 17.5;
     const focus = sim && this.cameraCtl.mode === 'play' ? new THREE.Vector3(cam.position.x * 0.5 + sim.playerPos().x * 0.5, 0, cam.position.z * 0.5 + sim.playerPos().z * 0.5) : new THREE.Vector3(cam.position.x * 0.3, 0, cam.position.z * 0.3);
-    this.env.update(hours, focus, cam, this.time, this.renderer);
+    const weather = sim?.weather.state;
+    this.weatherDim = weather?.dim ?? 0;
+    this.flashAge += dt;
+    if (!this.lightningFlashes) this.flashAge = Infinity;
+    this.env.update(hours, focus, cam, this.time, this.renderer, weather, lightningFlash(this.flashAge));
     this.effects.setLight(this.env.smokeLight);
     const night = this.env.night;
     this.streetLighting.update(cam.position, night, dt);
@@ -674,7 +694,7 @@ export class GameRenderer {
       this.localReflections ??= new LocalReflections(this.renderer, this.scene);
       this.localReflections.applyCurrent(view.group);
     } else if (this.localReflections) this.clearLocalReflections();
-    if (this.finish) this.finish.setGrade(gradeAt(hours, undefined, this.gradeNow));
+    if (this.finish) this.finish.setGrade(gradeAt(hours, weather, this.gradeNow));
     this.renderer.render(this.scene, cam);
     if (reflect && this.localReflections) {
       // Draw the main scene first: quality changes and context recovery rebuild shadow maps here.

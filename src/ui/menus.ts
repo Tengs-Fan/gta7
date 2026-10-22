@@ -627,7 +627,7 @@ export class Menus {
     slider('Mouse sensitivity', 'sensitivity', 0.2, 3, 0.05, 0.1, (v) => v.toFixed(2));
     slider('Field of view', 'fov', 55, 90, 1, 5, (v) => `${v}°`);
     // On / off rows: a checkbox, with its state spelled out in the value column like the sliders'.
-    const toggle = (label: string, key: 'invertY' | 'hints') => {
+    const toggle = (label: string, key: 'invertY' | 'hints' | 'lightningFlashes') => {
       const row = h('div', 'setting');
       const box = h('input');
       box.type = 'checkbox';
@@ -648,6 +648,27 @@ export class Menus {
     };
     toggle('Invert look Y', 'invertY');
     toggle('Tutorial hints', 'hints');
+    const weathers: ReadonlyArray<readonly [Settings['weather'], string]> = [['dynamic', 'Dynamic'], ['clear', 'Always clear']];
+    const wrow = h('div', 'setting');
+    const wsel = h('select');
+    wsel.ariaLabel = 'Weather';
+    for (const [v, label] of weathers) {
+      const o = h('option');
+      o.value = v;
+      o.textContent = label;
+      if (s.weather === v) o.selected = true;
+      wsel.appendChild(o);
+    }
+    const setWeather = (v: Settings['weather']) => {
+      s.weather = v;
+      wsel.value = v;
+      apply();
+    };
+    wsel.addEventListener('change', () => setWeather(wsel.value === 'clear' ? 'clear' : 'dynamic'));
+    wrow.append(h('span', '', 'Weather'), wsel, h('span', '', ''));
+    panel.appendChild(wrow);
+    addRow({ el: wrow, adjust: () => setWeather(s.weather === 'clear' ? 'dynamic' : 'clear'), activate: () => setWeather(s.weather === 'clear' ? 'dynamic' : 'clear') });
+    toggle('Lightning flashes', 'lightningFlashes');
     const row = h('div', 'row-end');
     const del = h('button', 'btn', 'DELETE SAVE');
     del.disabled = !this.host.hasSave();

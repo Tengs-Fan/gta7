@@ -862,7 +862,7 @@ describe('menus', () => {
 
   function makeMenus(over: Partial<MenuHost> = {}) {
     let saved = true;
-    let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [] };
+    let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true };
     let waypoint: { x: number; z: number } | null = null;
     const host: MenuHost = {
       hasSave: () => saved,
@@ -932,6 +932,14 @@ describe('menus', () => {
     expect(settings().hints).toBe(false);
     press({ confirm: true });
     expect(settings().hints).toBe(true);
+    press({ down: true }); // weather
+    press({ right: true });
+    expect(settings().weather).toBe('clear');
+    press({ confirm: true });
+    expect(settings().weather).toBe('dynamic');
+    press({ down: true }); // lightning flashes
+    press({ confirm: true });
+    expect(settings().lightningFlashes).toBe(false);
     press({ down: true }); // DELETE SAVE is disabled without a save: straight to BACK
     press({ confirm: true });
     expect(menus.open).toBe(false);
@@ -1180,7 +1188,7 @@ function stubHost(over: Partial<MenuHost> = {}): MenuHost {
     resume: vi.fn(),
     quitToTitle: vi.fn(),
     abandonMission: vi.fn(),
-    settings: () => ({ quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [] }),
+    settings: () => ({ quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true }),
     applySettings: () => undefined,
     deleteSave: () => undefined,
     sim: () => null,
@@ -1582,7 +1590,7 @@ describe('round 2 harness', () => {
 
   /** QWERTY letters whose keys have a binding (see BOUND_CODES and LETTER_SHORTCUTS in input.ts). */
   const BOUND_LETTERS = new Set('WASDFEHRQTPMV');
-  const CODES = ['CHILLOUT', 'GUNSGALORE', 'FIXMYRIDE', 'IMMORTAL', 'MONEYTREE', 'SUNSET', 'NIGHTOWL', 'SPAWNSPORTS', 'COPMAGNET'] as const;
+  const CODES = ['CHILLOUT', 'GUNSGALORE', 'FIXMYRIDE', 'IMMORTAL', 'MONEYTREE', 'SUNSET', 'NIGHTOWL', 'SPAWNSPORTS', 'COPMAGNET', 'RAINDANCE'] as const;
 
   describe('pointer lock under browser automation', () => {
     it('is refused under webdriver: no request is made and clicks shoot unlocked', () => {
@@ -1759,7 +1767,7 @@ describe('round 2 harness', () => {
       return { inp, type, taken };
     }
 
-    it('each of the 9 codes is taken once, and from its third letter on its keys fire no action', () => {
+    it('each of the 10 codes is taken once, and from its third letter on its keys fire no action', () => {
       for (const inVehicle of [false, true]) {
         for (const code of CODES) {
           const { inp, type, taken } = setup(inVehicle);
@@ -1992,6 +2000,43 @@ describe('round 2 harness', () => {
       // Whereas E alone does start it.
       type('E');
       expect(sim.missions.active?.def.id).toBe('wheels');
+    });
+
+    it('RAINDANCE steps the weather rain, storm, overcast, clear, then back to the forecast, and does nothing else', async () => {
+      const { game, sim, frames, type } = await playing();
+      const toasts: string[] = [];
+      const hud = game.hud as unknown as { toast(t: string): void };
+      const toast = hud.toast.bind(hud);
+      hud.toast = (t: string) => {
+        toasts.push(t);
+        toast(t);
+      };
+      const weapon = sim.player.inventory.current;
+      const seen: Array<string | null> = [];
+      for (let i = 0; i < 5; i++) {
+        type('RAINDANCE');
+        frames(5);
+        seen.push(sim.weather.overridden);
+        expect(game.menus.open).toBe(false);
+        expect(sim.player.vehicle).toBe(null);
+        expect(sim.player.inventory.current).toBe(weapon);
+        expect(sim.missions.active).toBe(null);
+      }
+      expect(seen).toEqual(['rain', 'storm', 'overcast', 'clear', null]);
+      expect(toasts).toEqual(['Weather: rain', 'Weather: storm', 'Weather: overcast', 'Weather: clear', 'Weather: forecast']);
+    });
+
+    it('RAINDANCE completes while another code is half typed', async () => {
+      const { sim, frames, type } = await playing();
+      type('SUN');
+      type('RAINDANCE');
+      frames(5);
+      expect(sim.weather.overridden).toBe('rain');
+      type('COPMAG');
+      type('RAINDANCE');
+      frames(5);
+      expect(sim.weather.overridden).toBe('storm');
+      expect(sim.wanted.level).toBe(0);
     });
 
     it('MONEYTREE adds $50,000 and closes the map its M opened', async () => {
@@ -2297,7 +2342,7 @@ describe('r2 quality: tiers in the game and the settings row', () => {
 
   it('the settings row offers AUTO (tier) and says when the anti-aliasing change waits for a reload', () => {
     let applied: Settings | null = null;
-    let current: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [] };
+    let current: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true };
     const host = stubHost({
       settings: () => current,
       applySettings: (s) => {

@@ -2,7 +2,7 @@
 // typed letters are, so Input can keep the keys of a code being typed from also acting as bindings.
 
 /** Every cheat code, upper case. */
-export const CHEAT_CODES = ['CHILLOUT', 'GUNSGALORE', 'FIXMYRIDE', 'IMMORTAL', 'MONEYTREE', 'SUNSET', 'NIGHTOWL', 'SPAWNSPORTS', 'COPMAGNET'] as const;
+export const CHEAT_CODES = ['CHILLOUT', 'GUNSGALORE', 'FIXMYRIDE', 'IMMORTAL', 'MONEYTREE', 'SUNSET', 'NIGHTOWL', 'SPAWNSPORTS', 'COPMAGNET', 'RAINDANCE'] as const;
 
 export type CheatCode = (typeof CHEAT_CODES)[number];
 
