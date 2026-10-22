@@ -162,7 +162,12 @@ const FERRIS_HALO_I = 0.9;
  * The bulb (see update) and its halo together stay under the bloom threshold (2.6), so bloom no longer toggles on a lamp.
  */
 const LAMP_HALO = 2.2;
-const LAMP_HALO_Y = 6.2;
+/**
+ * A street lamp's luminaire in the prop's frame (before its scale): the underside of its lens `y` m up, `reach` m out
+ * along the arm (local +z). The halo, the light pool and StreetLighting's spot all hang off this point.
+ */
+export const LAMP_HEAD = { y: 6.3, reach: 1.55 } as const;
+const LAMP_HALO_Y = LAMP_HEAD.y - 0.08;
 const LAMP_HALO_COLOR = new THREE.Color(0.65, 0.52, 0.33);
 
 /** A halo is depth-tested as if this much (m) nearer the camera, so the lamp it glows round (its head, a tube) cannot cut into it. */
@@ -447,10 +452,21 @@ export class PropsView {
   }
 
   private buildLamps(lamps: number[]): void {
-    const pole = merged([cyl(0.07, 0.11, 6.5, 6), box(0.08, 0.08, 1.7, 0, 6.45, 0.8), box(0.42, 0.14, 0.6, 0, 6.38, 1.55)]);
-    this.makeInstanced(pole, new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.5, metalness: 0.6 }), lamps, PropsView.standard);
-    const bulbGeo = box(0.32, 0.04, 0.46, 0, 6.29, 1.55);
-    this.makeInstanced(bulbGeo, this.bulbMat, lamps, PropsView.standard, { shadow: false });
+    const { y, reach } = LAMP_HEAD;
+    // Plinth, tapered octagonal pole and an arm curving up and out to the back of the head.
+    const arm = new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 6.3, 0), new THREE.Vector3(0, 6.75, 0.3), new THREE.Vector3(0, y + 0.12, reach - 0.32)), 6, 0.045, 5);
+    const pole = merged([cyl(0.17, 0.21, 0.5, 8), cyl(0.065, 0.1, 6.05, 8, 0, 0.5, 0), arm]);
+    pole.name = 'lamp-pole';
+    this.makeInstanced(pole, new THREE.MeshStandardMaterial({ color: 0x8b9199, roughness: 0.42, metalness: 0.55 }), lamps, PropsView.standard);
+    // The cobra head: a low dome 0.78 m long and 0.36 m wide on a closed rim, the lens set into its underside.
+    const dome = new THREE.SphereGeometry(1, 10, 3, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.18, 0.15, 0.39).translate(0, y + 0.05, reach);
+    const rim = new THREE.CylinderGeometry(1, 1, 1, 10).scale(0.18, 0.04, 0.39).translate(0, y + 0.03, reach);
+    const head = merged([dome, rim]);
+    head.name = 'lamp-head';
+    this.makeInstanced(head, new THREE.MeshStandardMaterial({ color: 0x9ea4ab, roughness: 0.38, metalness: 0.5 }), lamps, PropsView.standard);
+    const lens = box(0.26, 0.025, 0.56, 0, y + 0.0125, reach);
+    lens.name = 'lamp-lens';
+    this.makeInstanced(lens, this.bulbMat, lamps, PropsView.standard, { shadow: false });
     const pool = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     // Per pool: the world rectangle (min x, min z, max x, max z) outside which it draws nothing (poolClip).
     const clip = new Float32Array(lamps.length * 4);
@@ -462,13 +478,14 @@ export class PropsView {
     this.makeInstanced(pool, this.poolMat, lamps, (p, m) => {
       const fx = Math.sin(p.rot);
       const fz = Math.cos(p.rot);
-      m.compose(new THREE.Vector3(p.x + fx * 1.6, p.y + 0.04, p.z + fz * 1.6), new THREE.Quaternion(), new THREE.Vector3(13, 1, 13));
+      const r = LAMP_HEAD.reach * p.scale;
+      m.compose(new THREE.Vector3(p.x + fx * r, p.y + 0.04, p.z + fz * r), new THREE.Quaternion(), new THREE.Vector3(13, 1, 13));
     }, { shadow: false });
     // Each lamp's halo (LAMP_HALO), just under its bulb; a knocked-over lamp's goes dark (breakProp).
     if (lamps.length === 0) return;
     const haloPos = new Float32Array(lamps.length * 3);
     lamps.forEach((pi, k) => {
-      haloPos.set(placed(this.world.layout.props[pi]!, 0, LAMP_HALO_Y, 1.55), k * 3);
+      haloPos.set(placed(this.world.layout.props[pi]!, 0, LAMP_HALO_Y, LAMP_HEAD.reach), k * 3);
       this.lampHaloIndex.set(pi, k);
     });
     const haloGeo = new THREE.BufferGeometry();
@@ -834,7 +851,8 @@ export class PropsView {
     const fall = new THREE.Matrix4().makeRotationAxis(axis, Math.PI / 2 - 0.08);
     const toOrigin = new THREE.Matrix4().makeTranslation(-p.x, -p.y, -p.z);
     const back = new THREE.Matrix4().makeTranslation(p.x, p.y + (p.kind === 'lamp' || p.kind === 'signal' ? 0.15 : 0.2), p.z);
-    const hide = p.kind === 'hydrant';
+    // A knocked-down lamp goes completely, light and all, so no head, lens or glow is left hanging where it stood.
+    const hide = p.kind === 'hydrant' || p.kind === 'lamp';
     for (const r of refs) {
       let m: THREE.Matrix4;
       if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat || r.mesh === this.signalBulbs || r.mesh.userData.signalBulbs) m = new THREE.Matrix4().makeScale(0, 0, 0);

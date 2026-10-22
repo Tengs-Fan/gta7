@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { PropsView } from '../../src/render/props';
+import { LAMP_HEAD, PropsView } from '../../src/render/props';
 import { GameRenderer } from '../../src/render/renderer';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
 import { WATER_Y } from '../../src/world/constants';
@@ -77,9 +77,10 @@ const lum = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c
 type PropsPriv = { poolMat: THREE.MeshBasicMaterial; bulbMat: THREE.MeshBasicMaterial; ferris: { gondolas: THREE.InstancedMesh; y: number } };
 const priv = (p: PropsView): PropsPriv => p as unknown as PropsPriv;
 
-/** A lamp prop's bulb centre in world space (render/props.ts buildLamps: box 0.32 x 0.04 x 0.46 at (0, 6.29, 1.55)). */
+/** A lamp prop's lens centre in world space (render/props.ts buildLamps: a 2.5 cm plate with its underside at LAMP_HEAD). */
 function bulbOf(p: Prop): THREE.Vector3 {
-  return new THREE.Vector3(p.x + Math.sin(p.rot) * 1.55 * p.scale, p.y + 6.29 * p.scale, p.z + Math.cos(p.rot) * 1.55 * p.scale);
+  const { y, reach } = LAMP_HEAD;
+  return new THREE.Vector3(p.x + Math.sin(p.rot) * reach * p.scale, p.y + (y + 0.0125) * p.scale, p.z + Math.cos(p.rot) * reach * p.scale);
 }
 
 describe('street lamps glow by themselves', () => {

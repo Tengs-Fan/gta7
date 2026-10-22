@@ -7,6 +7,7 @@ import type { Vehicle } from '../sim/entities';
 import { firingRow, GUN_PORT, SKELETON } from '../sim/pose';
 import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
 import { chaseOffset, CHASE_TARGET_Y } from './camera';
+import type { LampGlow } from './lightSprites';
 import { taxiSignTexture } from './textures';
 import { addPanel, addPrism, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
 import { crackedGlassTexture, exteriorTextures, GLASS_TINT } from './vehicleTextures';
@@ -47,8 +48,14 @@ const WRECK_SAG = 0.12;
 const WRECK_ROLL = 0.05;
 /** Lamps closer than this to a deep dent are smashed; shallower dents reach less far (see lampBreakRadius). */
 const LAMP_BREAK_DIST = 0.8;
-/** Tail lamp emissive intensity while braking (running lights 1.2, off 0.3). */
+/**
+ * Tail lamp emissive intensity (pure red) while braking, with running lights on, and off. Red stays pure: ACES spreads
+ * any green in a lamp this bright into an orange or peach core (1, 0.08, 0.03) x 2 shows as (255, 155, 96). The glow
+ * round the lamp (LightSprites) carries the brightness: its brake glow is 2.2 times the running one.
+ */
 const BRAKE_GLOW = 1.8;
+const TAIL_RUNNING = 1.0;
+const TAIL_OFF = 0.3;
 
 type Rgb = readonly [number, number, number];
 /**
@@ -711,7 +718,7 @@ export class VehicleView {
   /** Wheels with their pivot's place on the body: they stay planted on the road while the body leans. */
   private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean; base: THREE.Vector3 }> = [];
   /** Head, tail and reverse lamps with their working material (smashed and burnt ones swap theirs out) and place. */
-  private readonly lamps: Array<{ mesh: THREE.Mesh; mat: THREE.Material; broken: boolean; base: THREE.Vector3; head: boolean }> = [];
+  private readonly lamps: Array<{ mesh: THREE.Mesh; mat: THREE.Material; broken: boolean; base: THREE.Vector3; head: boolean; role: 'head' | 'tail' | 'reverse' }> = [];
   /** Separate parts on the body (lamps, roof gear) and where they sit undamaged: dents carry them along. */
   private readonly attached: Array<{ obj: THREE.Object3D; base: THREE.Vector3 }> = [];
   /** Livery and roof gear that char with a wreck (police stripe, light bar, taxi sign), with what they wear intact. */
@@ -723,6 +730,10 @@ export class VehicleView {
   private readonly reverseMat = new THREE.MeshStandardMaterial({ color: 0x777777, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.3 });
   private sirenRed: THREE.MeshStandardMaterial | null = null;
   private sirenBlue: THREE.MeshStandardMaterial | null = null;
+  private sirenLenses: { red: THREE.Mesh; blue: THREE.Mesh } | null = null;
+  /** What sync last lit: head and running tail lamps, and which light-bar lens (null: none). */
+  private lit: { lights: boolean; siren: 'red' | 'blue' | null } = { lights: false, siren: null };
+  private readonly lampTmp = new THREE.Vector3();
   /** Height above the wheel contact point that the body rotates about (half the mesh height). */
   private readonly pivotY: number;
   /** How far the furthest axle sits from the body's centre, and the wheels' half track: the lean's lever arms. */
@@ -805,13 +816,13 @@ export class VehicleView {
       h.name = 'lamp';
       t.name = 'lamp';
       this.group.add(h, t);
-      this.lamps.push({ mesh: h, mat: this.headMat, broken: false, base: h.position.clone(), head: true }, { mesh: t, mat: this.tailMat, broken: false, base: t.position.clone(), head: false });
+      this.lamps.push({ mesh: h, mat: this.headMat, broken: false, base: h.position.clone(), head: true, role: 'head' }, { mesh: t, mat: this.tailMat, broken: false, base: t.position.clone(), head: false, role: 'tail' });
     }
     const rev = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.05), this.reverseMat);
     rev.position.set(0, ly - 0.05, -front);
     rev.name = 'lamp';
     this.group.add(rev);
-    this.lamps.push({ mesh: rev, mat: this.reverseMat, broken: false, base: rev.position.clone(), head: false });
+    this.lamps.push({ mesh: rev, mat: this.reverseMat, broken: false, base: rev.position.clone(), head: false, role: 'reverse' });
     for (const l of this.lamps) this.attached.push({ obj: l.mesh, base: l.base });
     if (s.police) {
       // Emissive colours set by sync() (SIREN).
@@ -829,6 +840,7 @@ export class VehicleView {
       const b = new THREE.Mesh(new THREE.BoxGeometry(s.width * 0.32, 0.14, 0.28), blue);
       b.position.set(-s.width * 0.18, roofY + 0.14, barZ);
       this.group.add(base, r, b);
+      this.sirenLenses = { red: r, blue: b };
       this.attached.push({ obj: base, base: base.position.clone() }, { obj: r, base: r.position.clone() }, { obj: b, base: b.position.clone() });
       for (const m of [base, r, b]) this.livery.push({ mesh: m, mat: m.material as THREE.Material });
       if (kind === 'police') {
@@ -864,6 +876,7 @@ export class VehicleView {
     this.spin = 0;
     this.wreckRoll = (Math.imul(v.id, 0x9e3779b1) >>> 16) & 1 ? WRECK_ROLL : -WRECK_ROLL;
     this.vehicle = v;
+    this.lit = { lights: false, siren: null };
     this.group.visible = true;
   }
 
@@ -879,6 +892,51 @@ export class VehicleView {
     if (this.burnt) return 0;
     let n = 0;
     for (const l of this.lamps) if (l.head && !l.broken) n++;
+    return n;
+  }
+
+  /** Whether the head and running tail lamps were lit at the last sync. */
+  get lightsOn(): boolean {
+    return this.lit.lights;
+  }
+
+  /**
+   * Writes the glows of the lamps lit at the last sync into `out` from index `n` (reusing its entries) and returns the
+   * new count: head and tail lamps with the lights on, brake lamps while braking, reverse lamps while reversing and the
+   * light bar's lit lens. Smashed lamps and wrecks have none. World positions come from the transform sync set.
+   */
+  lampWorldPositions(out: LampGlow[], n = 0): number {
+    const v = this.vehicle;
+    if (!v || v.destroyed || this.burnt) return n;
+    const m = this.group.matrix;
+    const e = m.elements;
+    // The body's forward axis (local +z), flattened.
+    const fl = Math.hypot(e[8]!, e[10]!) || 1;
+    const fx = e[8]! / fl;
+    const fz = e[10]! / fl;
+    const add = (obj: THREE.Object3D, kind: LampGlow['kind'], dir: number): void => {
+      const p = this.lampTmp.copy(obj.position).applyMatrix4(m);
+      const g = out[n] ?? (out[n] = { kind, x: 0, y: 0, z: 0, fx: 0, fz: 0 });
+      g.kind = kind;
+      g.x = p.x;
+      g.y = p.y;
+      g.z = p.z;
+      g.fx = fx * dir;
+      g.fz = fz * dir;
+      n++;
+    };
+    const lights = this.lit.lights;
+    for (const l of this.lamps) {
+      if (l.broken) continue;
+      if (l.role === 'head') {
+        if (lights) add(l.mesh, 'head', 1);
+      } else if (l.role === 'tail') {
+        if (v.braking) add(l.mesh, 'brake', -1);
+        else if (lights) add(l.mesh, 'tail', -1);
+      } else if (v.reversing && v.driver) add(l.mesh, 'reverse', -1);
+    }
+    const lens = this.sirenLenses;
+    if (lens && this.lit.siren) add(this.lit.siren === 'red' ? lens.red : lens.blue, this.lit.siren === 'red' ? 'sirenRed' : 'sirenBlue', 0);
     return n;
   }
 
@@ -1093,12 +1151,14 @@ export class VehicleView {
     const powered = !v.destroyed && (v.driver !== null || v.siren);
     const lightsOn = night > 0.35 && powered;
     this.headMat.emissiveIntensity = powered ? 0.4 + night * 5 : 0.3;
-    // Braking stays at 1.8: brighter red saturates under ACES tone mapping and turns orange (3 renders as 255, 130, 67).
-    this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? BRAKE_GLOW : lightsOn ? 1.2 : 0.3;
+    this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? BRAKE_GLOW : lightsOn ? TAIL_RUNNING : TAIL_OFF;
     this.reverseMat.emissiveIntensity = v.reversing && v.driver ? 4 : 0;
+    this.lit.lights = lightsOn;
+    this.lit.siren = null;
     if (this.sirenRed && this.sirenBlue) {
       const on = v.siren && !v.destroyed;
       const phase = Math.floor(time * 6) % 2 === 0;
+      if (on) this.lit.siren = phase ? 'red' : 'blue';
       const lit = SIREN[glow ? 'glow' : 'flat'];
       if (on && phase) this.sirenRed.emissive.setRGB(...lit.red);
       else this.sirenRed.emissive.setRGB(0.1, 0, 0);
