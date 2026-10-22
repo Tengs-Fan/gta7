@@ -76,6 +76,21 @@ const DIRECT_WADE = 0.45;
 const DIRECT_BLOCK = 1.2;
 const DIRECT_SUPPRESS = 4;
 /**
+ * A driver standing held up this long (s) by a vehicle nobody drives (or a wreck) re-plans, and for DETOUR_MEMORY s
+ * takes no turn that passes within reach of it (see DriverAI.trackEmptyBlock), when another turn is there.
+ */
+const DETOUR_BLOCK = 2;
+const DETOUR_MEMORY = 20;
+/** How far into the lane after a turn (m) the detour check looks for the vehicle it avoids. */
+const DETOUR_EXIT = 12;
+/** How far along its way ahead (m) a driver looks for a vehicle nobody drives to plan round, and how long (s) it backs out of a junction to do so. */
+const DETOUR_LOOK = 40;
+const DETOUR_BACK = 2.5;
+/** Room (m) a detour leaves between the side of the vehicle and the body of the one it goes round. */
+const DETOUR_MARGIN = 0.4;
+/** A vehicle in the way short of this far (m) before the end of the lane stands on it, not in the junction after it. */
+const DETOUR_LANE_END = 2;
+/**
  * What a turn from the wrong lane (a late lane change into it) costs the route planner, in metres:
  * route drivers keep to lane discipline unless the legal way round is that much longer. Strict
  * discipline would send a car in the inner lane of a border avenue all the way to the corner.
@@ -215,6 +230,46 @@ function steerSpeed(spec: VehicleSpec, radius: number): number {
   return 15 * (spec.steer / Math.atan((spec.length * 0.6) / radius) - 1);
 }
 
+/** Distance (m) from the stretch from (ax, az) to (bx, bz) to the footprint of `o`; 0 where it crosses it. */
+function boxGap(o: Vehicle, ax: number, az: number, bx: number, bz: number): number {
+  // In the frame of `o`: x across it, z along it.
+  const fx = Math.sin(o.heading);
+  const fz = Math.cos(o.heading);
+  const loc = (x: number, z: number) => [(x - o.pos.x) * fz - (z - o.pos.z) * fx, (x - o.pos.x) * fx + (z - o.pos.z) * fz] as const;
+  const [px, pz] = loc(ax, az);
+  const [qx, qz] = loc(bx, bz);
+  const w = o.halfW;
+  const l = o.halfL;
+  // Clip the stretch to the box (Liang-Barsky): any part left inside means it crosses.
+  let t0 = 0;
+  let t1 = 1;
+  const dx = qx - px;
+  const dz = qz - pz;
+  const clip = (p: number, q: number) => {
+    if (p === 0) return q >= 0;
+    const r = q / p;
+    if (p < 0) t0 = Math.max(t0, r);
+    else t1 = Math.min(t1, r);
+    return t0 <= t1;
+  };
+  if (clip(-dx, px + w) && clip(dx, w - px) && clip(-dz, pz + l) && clip(dz, l - pz)) return 0;
+  const boxDist = (x: number, z: number) => Math.hypot(Math.max(0, Math.abs(x) - w), Math.max(0, Math.abs(z) - l));
+  let best = Math.min(boxDist(px, pz), boxDist(qx, qz));
+  for (const [cx, cz] of [[w, l], [w, -l], [-w, l], [-w, -l]] as const) best = Math.min(best, pointSegDist(cx, cz, px, pz, qx, qz));
+  return best;
+}
+
+/** True if a body following the stretch from (ax, az) to (bx, bz) keeps `margin` clear of the body of `o`. */
+function stretchClearOf(o: Vehicle, margin: number, ax: number, az: number, bx: number, bz: number): boolean {
+  const len = Math.hypot(bx - ax, bz - az) || 1;
+  const tx = (bx - ax) / len;
+  const tz = (bz - az) / len;
+  const ofx = Math.sin(o.heading);
+  const ofz = Math.cos(o.heading);
+  const across = Math.abs(ofx * tz - ofz * tx) * o.halfL + Math.abs(ofx * tx + ofz * tz) * o.halfW;
+  return pointSegDist(o.pos.x, o.pos.z, ax, az, bx, bz) - across >= margin;
+}
+
 function turnSeg(turn: Turn, lateralAccel: number, spec: VehicleSpec | null): PathSeg {
   const n = turn.pts.length / 2;
   const cum = new Float64Array(n);
@@ -260,6 +315,10 @@ export class DriverAI {
   /** Seconds direct mode has stood held up by a vehicle (decays otherwise), and until when direct mode is off after that. */
   private directBlocked = 0;
   private directOffUntil = -Infinity;
+  /** Seconds held up by a standing vehicle nobody drives (decays otherwise), the last such vehicle, and when it was met. */
+  private emptyBlocked = 0;
+  private avoid: Vehicle | null = null;
+  private avoidAt = -Infinity;
   private holdUntil = -Infinity;
   private reverseTimer = 0;
   private reverseSteer = 0;
@@ -331,6 +390,12 @@ export class DriverAI {
   private idle = 0;
   /** Debug/telemetry: why the car is slowing down. */
   limiter: 'none' | 'light' | 'obstacle' | 'turn' | 'yield' = 'none';
+
+  /** The vehicle this driver stands held up behind, if any. */
+  get heldUpBy(): Vehicle | null {
+    const b = this.blocker;
+    return b && 'kind' in b && this.limiter === 'obstacle' && Math.abs(this.vehicle.forwardSpeed) < 0.5 ? b : null;
+  }
 
   constructor(
     private readonly host: DriverHost,
@@ -480,8 +545,33 @@ export class DriverAI {
     return t.vehicle ? t.vehicle.pos : t.pos;
   }
 
-  private chooseTurn(lane: Lane): Turn | null {
+  /**
+   * The turns off `lane` worth taking: while the driver remembers a vehicle nobody drives that held it up (see
+   * trackEmptyBlock), those that keep clear of it, its path through the junction and the first DETOUR_EXIT m of the
+   * lane after it, when there are any; otherwise all of them.
+   */
+  private detourTurns(lane: Lane): readonly Turn[] {
     const turns = lane.turns;
+    const o = this.avoid;
+    if (!o || !this.avoiding()) return turns;
+    const margin = this.vehicle.halfW + DETOUR_MARGIN;
+    const ok = turns.filter((t) => {
+      const p = t.pts;
+      for (let i = 0; i + 3 < p.length; i += 2) if (boxGap(o, p[i]!, p[i + 1]!, p[i + 2]!, p[i + 3]!) < margin) return false;
+      const to = t.to;
+      const e = Math.min(DETOUR_EXIT, to.length);
+      return boxGap(o, to.sx, to.sz, to.sx + to.dx * e, to.sz + to.dz * e) >= margin;
+    });
+    return ok.length > 0 ? ok : turns;
+  }
+
+  /** Whether the driver still remembers a vehicle to detour round. */
+  private avoiding(): boolean {
+    return !!this.avoid && !this.avoid.removed && this.host.time - this.avoidAt < DETOUR_MEMORY;
+  }
+
+  private chooseTurn(lane: Lane): Turn | null {
+    const turns = this.detourTurns(lane);
     if (turns.length === 0) return null;
     const rng = this.host.rng;
     const roads = this.host.roads;
@@ -495,13 +585,13 @@ export class DriverAI {
           if (route && route.length > 1 && route[1] === lane.from) route = roads.findRoute(lane.to, goal.id, lane.from);
           if (route && route.length > 1) {
             const t = roads.turnTowards(lane, route[1]!);
-            if (t) return t;
+            if (t && turns.includes(t)) return t;
           }
         }
       }
     }
     if (this.policy === 'route') {
-      const t = this.routeTurn(lane);
+      const t = this.routeTurn(lane, turns);
       if (t) return t;
     }
     if (this.policy === 'flee') {
@@ -534,12 +624,12 @@ export class DriverAI {
    * there), from the wrong lane only when the legal way round is much longer (WRONG_LANE_COST).
    * A turn tighter than the vehicle steers is still taken, at a crawl (see turnSeg).
    */
-  private routeTurn(lane: Lane): Turn | null {
+  private routeTurn(lane: Lane, turns: readonly Turn[] = lane.turns): Turn | null {
     const field = this.routeTo();
     if (!field) return null;
     let best: Turn | null = null;
     let bestCost = Infinity;
-    for (const t of lane.turns) {
+    for (const t of turns) {
       const c = turnCost(t) + field.start[t.to.id]!;
       if (c < bestCost) {
         bestCost = c;
@@ -614,6 +704,46 @@ export class DriverAI {
     }
     this.drive(dt);
     this.trackDirectBlock(dt);
+    this.trackEmptyBlock(dt);
+  }
+
+  /**
+   * Round a vehicle standing in the way that nobody drives (abandoned, or a wreck). A driver still on its lane that sees
+   * one on its way ahead re-plans its way on round it there and then (see detourTurns). One held up by it, standing
+   * still for over DETOUR_BLOCK s, re-plans too; brief stops do not count (the time decays otherwise). Already in the
+   * junction on a way that passes it, it backs out first, behind the stop line, and plans again from there. One parked
+   * on the lane the driver is on is left to overtaking: no turn goes round it.
+   */
+  private trackEmptyBlock(dt: number): void {
+    // Pursuers get out of a hold-up their own way (trackDirectBlock, and the police deploy and recycle rules).
+    if (this.policy === 'chase') return;
+    const v = this.vehicle;
+    const b = this.blocker as Vehicle | Character | null;
+    const margin = v.halfW + DETOUR_MARGIN;
+    let o = b && 'kind' in b && (!b.driver || b.destroyed) && b.speed < 0.5 ? b : null;
+    const seg = this.segs[0];
+    const lane = seg?.lane;
+    if (o && seg && lane) {
+      const from = lane.length - seg.length + this.s;
+      const to = Math.max(from, lane.length - DETOUR_LANE_END);
+      if (boxGap(o, lane.sx + lane.dx * from, lane.sz + lane.dz * from, lane.sx + lane.dx * to, lane.sz + lane.dz * to) < margin) o = null;
+    }
+    if (o && o !== this.avoid && lane && !this.pathClearOf(o, margin, DETOUR_LOOK, true)) {
+      this.avoid = o;
+      this.avoidAt = this.host.time;
+      this.resetPath();
+    }
+    if (o && this.limiter === 'obstacle' && Math.abs(v.forwardSpeed) < 0.5) this.emptyBlocked += dt;
+    else this.emptyBlocked = Math.max(0, this.emptyBlocked - dt);
+    if (!o || this.emptyBlocked <= DETOUR_BLOCK) return;
+    this.emptyBlocked = 0;
+    this.avoid = o;
+    this.avoidAt = this.host.time;
+    this.resetPath();
+    const now = this.segs[0]?.lane;
+    // On its lane with every turn off it passing the vehicle, backing up makes no way round it.
+    if (lane && now && this.detourTurns(now) === now.turns) return;
+    if (!this.pathClearOf(o, margin, 12, true)) this.startReverse(0, 'queue', DETOUR_BACK);
   }
 
   /**
@@ -1857,10 +1987,11 @@ export class DriverAI {
     return true;
   }
 
-  /** True if the planned path over the next `ahead` metres keeps `margin` clear of the body of `o`. */
-  private pathClearOf(o: Vehicle, margin: number, ahead: number): boolean {
-    const ofx = Math.sin(o.heading);
-    const ofz = Math.cos(o.heading);
+  /**
+   * True if the planned path over the next `ahead` metres keeps `margin` clear of the body of `o`; with `exact`, measured
+   * to its footprint (beyond the ends of the path's stretches too) rather than across the stretches only.
+   */
+  private pathClearOf(o: Vehicle, margin: number, ahead: number, exact = false): boolean {
     let start = -this.s;
     for (const seg of this.segs) {
       if (start > ahead) break;
@@ -1868,15 +1999,7 @@ export class DriverAI {
       for (let i = 0; i + 3 < p.length; i += 2) {
         if (start + seg.cum[i / 2 + 1]! < 0) continue;
         if (start + seg.cum[i / 2]! > ahead) break;
-        const ax = p[i]!;
-        const az = p[i + 1]!;
-        const bx = p[i + 2]!;
-        const bz = p[i + 3]!;
-        const len = Math.hypot(bx - ax, bz - az) || 1;
-        const tx = (bx - ax) / len;
-        const tz = (bz - az) / len;
-        const across = Math.abs(ofx * tz - ofz * tx) * o.halfL + Math.abs(ofx * tx + ofz * tz) * o.halfW;
-        if (pointSegDist(o.pos.x, o.pos.z, ax, az, bx, bz) - across < margin) return false;
+        if (exact ? boxGap(o, p[i]!, p[i + 1]!, p[i + 2]!, p[i + 3]!) < margin : !stretchClearOf(o, margin, p[i]!, p[i + 1]!, p[i + 2]!, p[i + 3]!)) return false;
       }
       start += seg.length;
     }
@@ -1989,6 +2112,8 @@ export class DriverAI {
       const margin = o.speed < 0.5 ? standingMargin : carMargin;
       if (lat > v.halfW + extSide + margin) continue;
       if (onPath && ofx * hx + ofz * hz < -0.7 && this.pathClearOf(o, v.halfW + 0.8, range + 6)) continue;
+      // The vehicle a detour goes round sits ahead of a straight look at the start of the turn that passes it.
+      if (onPath && o === this.avoid && this.avoiding() && o.speed < 0.5 && this.pathClearOf(o, v.halfW + DETOUR_MARGIN, range + 6, true)) continue;
       const gap = along - v.halfL - extAlong;
       if (gap < best && !(beside && beside(o, gap, margin))) {
         best = gap;
