@@ -16,7 +16,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { chromium } from '@playwright/test';
+import { currentBrowserLaunch } from './browserFlags.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name, def) => {
@@ -39,13 +41,8 @@ const software = flag('swiftshader') || process.env.GTA7_SWIFTSHADER === '1';
 
 mkdirSync(out, { recursive: true });
 
-const browser = await chromium.launch({
-  headless: !flag('headed'),
-  executablePath: process.env.GTA7_BROWSER,
-  args: software
-    ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required']
-    : [`--use-angle=${process.env.GTA7_ANGLE ?? 'vulkan'}`, '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
-});
+const launch = currentBrowserLaunch(chromium, software);
+const browser = await chromium.launch({ headless: !flag('headed'), ...launch });
 const page = await browser.newPage({ viewport: { width: vw, height: vh } });
 // Headless Chromium that grants pointer lock can stop delivering frames and grow without bound,
 // so automated runs refuse the lock (clicks then shoot unlocked); --pointer-lock opts back in.
@@ -57,7 +54,7 @@ if (!flag('pointer-lock')) {
   });
 }
 const IGNORED = [/GPU stall due to ReadPixels/i, /requestPointerLock/i, /pointer lock/i];
-const report = { url, scenario: scenario ?? scriptPath, errors: [], shots: [], snapshots: [], segments: [], notes: [] };
+const report = { url, scenario: scenario ?? scriptPath, browser: { executablePath: launch.executablePath ?? chromium.executablePath(), args: launch.args }, errors: [], shots: [], snapshots: [], segments: [], notes: [] };
 page.on('console', (m) => {
   if ((m.type() === 'error' || m.type() === 'warning') && !IGNORED.some((r) => r.test(m.text()))) report.errors.push(`[${m.type()}] ${m.text()}`);
 });
@@ -126,13 +123,26 @@ const t = {
       const cdp = await browser.newBrowserCDPSession();
       try {
         const { processInfo } = await cdp.send('SystemInfo.getProcessInfo');
+        const pids = processInfo.map((p) => p.id).filter((id) => Number.isInteger(id) && id > 0);
         let kb = 0;
-        for (const { id } of processInfo) {
+        if (process.platform === 'darwin') {
+          if (pids.length === 0) return null;
+          let out = '';
           try {
-            const m = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${id}/status`, 'utf8'));
-            if (m) kb += Number(m[1]);
-          } catch {
-            // The process just exited.
+            out = execFileSync('ps', ['-o', 'rss=', '-p', pids.join(',')], { encoding: 'utf8' });
+          } catch (e) {
+            // ps exits with 1 when one of the processes just exited, but still prints the others.
+            out = e.stdout ?? '';
+          }
+          for (const line of out.split('\n')) kb += Number(line.trim()) || 0;
+        } else {
+          for (const id of pids) {
+            try {
+              const m = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${id}/status`, 'utf8'));
+              if (m) kb += Number(m[1]);
+            } catch {
+              // The process just exited.
+            }
           }
         }
         return kb > 0 ? Math.round(kb / 1024) : null;
@@ -140,7 +150,7 @@ const t = {
         await cdp.detach();
       }
     } catch {
-      // No CDP (another browser) or no /proc (not Linux): measuring memory is optional.
+      // No CDP (another browser) or no /proc or ps: measuring memory is optional.
       return null;
     }
   },
