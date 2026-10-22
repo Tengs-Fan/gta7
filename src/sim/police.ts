@@ -48,6 +48,14 @@ const SEARCH_FLOOR = COP_SIGHT * 1.5;
 const RECYCLE_DIST = 150;
 const RECYCLE_WINDOW = 4;
 const RECYCLE_CLOSING = 5;
+/** A unit that has made no progress for this long (s) within this distance (m) of a player on foot or sitting in a stopped car sends its crew on foot. */
+const STUCK_DEPLOY_TIME = 2.5;
+const STUCK_DEPLOY_DIST = 55;
+/** A player whose car has not got this far (m) from where it was for STUCK_DEPLOY_TIME s is going nowhere (boxed in, rocking back and forth). */
+const NOWHERE_RADIUS = 6;
+/** A unit that has made no progress for this long (s), out of sight and further than this from the player (m), is replaced by dispatch. */
+const HOPELESS_STUCK = 12;
+const HOPELESS_DIST = 60;
 /** Pursuit units cut off a fast player from lanes this far ahead of him. */
 const AHEAD_MIN = 90;
 const AHEAD_MAX = 180;
@@ -139,6 +147,9 @@ export class PoliceSystem {
   private playerStill = 0;
   /** Seconds the player's vehicle has been stopped (below 1.2 m/s). */
   private playerStopped = 0;
+  /** Seconds since the player's vehicle last got NOWHERE_RADIUS m from `idleAt`. */
+  private playerIdle = 0;
+  private idleAt = { x: 0, z: 0 };
   /** The officer walking up to arrest the player this frame, and whether everyone else holds fire (see pickArrester). */
   private arrester: Character | null = null;
   private holdFire = false;
@@ -146,6 +157,8 @@ export class PoliceSystem {
   private arrestWalk = 0;
   /** Seconds the police on the scene have waited for an officer to cuff a player who stopped fighting, since they last lost him (see pickArrester). */
   private surrenderTime = 0;
+  /** Officers sent out on foot from a stuck unit round a player whose car goes nowhere (see deploy). */
+  private readonly sentOut = new WeakSet<Character>();
   /** This frame's roadEnd: where the units pull up for a player out of their cars' reach, and how far he is from it. */
   private reach: { x: number; z: number; gap: number } | null = null;
 
@@ -163,6 +176,12 @@ export class PoliceSystem {
     const pv = p.vehicle;
     this.playerStill = pv && pv.speed < 1.5 ? this.playerStill + dt : 0;
     this.playerStopped = pv && pv.speed < 1.2 ? this.playerStopped + dt : 0;
+    if (pv && Math.hypot(pv.pos.x - this.idleAt.x, pv.pos.z - this.idleAt.z) <= NOWHERE_RADIUS) this.playerIdle += dt;
+    else {
+      const pp = sim.playerPos();
+      this.idleAt = { x: pp.x, z: pp.z };
+      this.playerIdle = 0;
+    }
     this.calm = level === 0 ? this.calm + dt : 0;
     this.reach = this.roadEnd(level);
     this.pickArrester(dt, level);
@@ -174,6 +193,12 @@ export class PoliceSystem {
     this.patrols(dt, level);
     this.cleanup(dt, level);
     this.dispatcher.update();
+  }
+
+  /** The player's car is stopped, or has gone nowhere for a while (boxed in, rocking back and forth). */
+  private goingNowhere(): boolean {
+    const pv = this.sim.player.vehicle;
+    return !!pv && ((pv.speed < 1.5 && this.playerStill > STUCK_DEPLOY_TIME) || this.playerIdle > STUCK_DEPLOY_TIME);
   }
 
   /** The police have lost sight of the player and look around his last sighting instead. */
@@ -566,9 +591,9 @@ export class PoliceSystem {
       // Officers get out to arrest a player on foot, or one sitting in a stopped car.
       const playerStopped = !!pv && pv.speed < 1.5 && this.playerStill > 2.5;
       const close = d < 26 && v.speed < 4.5;
-      // A unit stuck behind others near an on-foot player sends its crew on foot.
-      const stuckNear = !pv && d < 55 && v.stuckTime > 2.5;
-      if ((!pv || playerStopped) && (close || stuckNear)) this.deploy(v);
+      // A unit stuck behind others near a player on foot, or near one whose car goes nowhere, sends its crew on foot.
+      const stuckNear = d < STUCK_DEPLOY_DIST && v.stuckTime > STUCK_DEPLOY_TIME && (!pv || this.goingNowhere());
+      if (((!pv || playerStopped) && close) || stuckNear) this.deploy(v, stuckNear && !!pv);
       // The hold's handbrake only to stop the last bit of a shove: at speed, braking for the car
       // ahead (no longer the target) keeps the unit steering.
       else {
@@ -693,13 +718,18 @@ export class PoliceSystem {
     return false;
   }
 
-  /** Crew leaves the car to pursue on foot. */
-  private deploy(v: Vehicle): void {
+  /**
+   * Crew leaves the car to pursue on foot. With `sendOut` (a unit stuck round a player whose car goes nowhere), the
+   * officers from its other seats keep on at him on foot from further off than usual (see sentOut); the driver goes
+   * back to the car under the usual rule.
+   */
+  private deploy(v: Vehicle, sendOut = false): void {
     const sim = this.sim;
     const sx = Math.cos(v.heading);
     const sz = -Math.sin(v.heading);
     let side = 1;
     for (const c of v.occupants()) {
+      if (sendOut && c !== v.driver) this.sentOut.add(c);
       sim.unseat(c);
       const spot = sim.world.findFreeSpot(v.pos.x + sx * side * (v.halfW + 0.8), v.pos.z + sz * side * (v.halfW + 0.8), 0.4, 6) ?? { x: v.pos.x + sx * side * 2, z: v.pos.z + sz * side * 2 };
       c.pos.x = spot.x;
@@ -781,7 +811,10 @@ export class PoliceSystem {
       // Run back to the car while the player drives off, as long as the car can still take this officer (not to one
       // that cannot drive up to where he stopped, see roadEnd).
       const ride = car && carDist < 60 && (!car.driver || (car.speed < 3 && car.passengers.includes(null))) ? car : null;
-      if (pv && d > 34 && ride && carDist < 45 && !this.reach) b.mode = 'return';
+      // Officers sent out of a unit stuck near a player sitting in a stopped car (see updateUnits) keep on at him while he sits there.
+      const sentOut = this.sentOut.has(c) && !!pv && this.goingNowhere();
+      if (!sentOut) this.sentOut.delete(c);
+      if (pv && d > (sentOut ? STUCK_DEPLOY_DIST : 34) && ride && carDist < 45 && !this.reach) b.mode = 'return';
       if (b.mode === 'return') {
         if (!ride || this.reach || (!searching && (d < 25 || (!!pv && pv.speed < 1.5 && d < 34)))) b.mode = 'chase';
         else {
@@ -1403,7 +1436,7 @@ export class PoliceSystem {
       const d = Math.min(Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z), searching ? Math.hypot(v.pos.x - w.lastSeenX, v.pos.z - w.lastSeenZ) : Infinity);
       const visible = sim.isVisible(v.pos.x, v.pos.y, v.pos.z);
       const lagging = this.lagging(v, d, visible, level, searching);
-      if ((d > 290 && !visible) || lagging || (v.destroyed && v.wreckTime > 40 && !visible) || (level === 0 && this.calm > 25 && d > 110 && !visible && v.ai?.policy !== 'traffic')) {
+      if ((d > 290 && !visible) || lagging || (level > 0 && !visible && this.hopeless(v)) || (v.destroyed && v.wreckTime > 40 && !visible) || (level === 0 && this.calm > 25 && d > 110 && !visible && v.ai?.policy !== 'traffic')) {
         // Remove the crew of an abandoned unit as well.
         for (const c of sim.characters) if (c.brain?.car === v && c.state !== 'inVehicle') c.brain.car = null;
         sim.removeVehicle(v);
@@ -1436,6 +1469,18 @@ export class PoliceSystem {
     if (!s || now - s.t >= RECYCLE_WINDOW) this.trail.set(v, { t: now, d });
     if (!s || now - s.t < RECYCLE_WINDOW) return false;
     return d > RECYCLE_DIST && !visible && d > s.d - RECYCLE_CLOSING;
+  }
+
+  /**
+   * A crewed pursuit unit wedged somewhere (no progress for HOPELESS_STUCK s) further than HOPELESS_DIST m from the
+   * player: freeing its slot lets dispatch send a fresh one. Never the player's car, nor one he sits in.
+   */
+  private hopeless(v: Vehicle): boolean {
+    const sim = this.sim;
+    const p = sim.player;
+    if (v.destroyed || !v.ai || !v.driver?.isLaw || v === p.vehicle || v.occupants().includes(p) || v.stuckTime <= HOPELESS_STUCK) return false;
+    const pp = sim.playerPos();
+    return Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z) > HOPELESS_DIST;
   }
 
   /** Removes every police unit (used on respawn). */

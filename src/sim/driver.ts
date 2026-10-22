@@ -69,6 +69,13 @@ export const ARRIVE_RADIUS = 20;
 /** Going straight at a pursuit target, a car stops short of water deeper than this (m), well short of the depth that sinks it. */
 const DIRECT_WADE = 0.45;
 /**
+ * A pursuer going straight at its target that stands held up by a vehicle for this long (s) drops the
+ * straight-at-him mode for DIRECT_SUPPRESS s: only lane following overtakes, reverses out of a stuck
+ * spot or sorts out a face-off, none of which direct mode does (see DriverAI.trackDirectBlock).
+ */
+const DIRECT_BLOCK = 1.2;
+const DIRECT_SUPPRESS = 4;
+/**
  * What a turn from the wrong lane (a late lane change into it) costs the route planner, in metres:
  * route drivers keep to lane discipline unless the legal way round is that much longer. Strict
  * discipline would send a car in the inner lane of a border avenue all the way to the corner.
@@ -250,6 +257,9 @@ export class DriverAI {
   private routeZ = NaN;
   /** Pursuit: drive straight at the target when close and visible. */
   direct = false;
+  /** Seconds direct mode has stood held up by a vehicle (decays otherwise), and until when direct mode is off after that. */
+  private directBlocked = 0;
+  private directOffUntil = -Infinity;
   private holdUntil = -Infinity;
   private reverseTimer = 0;
   private reverseSteer = 0;
@@ -594,6 +604,36 @@ export class DriverAI {
   }
 
   update(dt: number): void {
+    if (this.policy === 'chase' && this.host.time < this.directOffUntil) {
+      // Keep the sight check from switching direct mode back on until the time is up.
+      this.sightTimer = 1;
+      if (this.direct) {
+        this.direct = false;
+        this.resetPath();
+      }
+    }
+    this.drive(dt);
+    this.trackDirectBlock(dt);
+  }
+
+  /**
+   * Direct mode never overtakes, reverses out of a stuck spot or backs out of a face-off: a pursuer driving straight at
+   * its target that a vehicle holds up (standing, for over DIRECT_BLOCK s) goes back to following the lanes for
+   * DIRECT_SUPPRESS s, which do. Brief stops do not count: the time decays while the way is clear.
+   */
+  private trackDirectBlock(dt: number): void {
+    const b = this.blocker as Vehicle | Character | null;
+    if (this.policy === 'chase' && this.direct && this.limiter === 'obstacle' && Math.abs(this.vehicle.forwardSpeed) < 1 && b && 'kind' in b) this.directBlocked += dt;
+    else this.directBlocked = Math.max(0, this.directBlocked - dt);
+    if (this.directBlocked > DIRECT_BLOCK) {
+      this.directBlocked = 0;
+      this.directOffUntil = this.host.time + DIRECT_SUPPRESS;
+      this.direct = false;
+      this.resetPath();
+    }
+  }
+
+  private drive(dt: number): void {
     const v = this.vehicle;
     const c = v.controls;
     if (!v.drivable || !v.driver) {
