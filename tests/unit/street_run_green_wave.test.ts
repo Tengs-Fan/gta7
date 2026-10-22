@@ -4,6 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StreetRunJob } from '../../src/sim/activities';
+import { makeBrain } from '../../src/sim/brains';
 import type { Vehicle } from '../../src/sim/entities';
 import { Sim } from '../../src/sim/sim';
 import { buildStreetRunCourses, type StreetRunCourse } from '../../src/sim/streetRuns';
@@ -349,6 +350,36 @@ describe('street run green wave', () => {
       for (const v of waiting) if (!v.removed && nodes.some((n) => inBox(v.pos.x, v.pos.z, n))) through.add(v);
     }
     expect(through.size).toBeGreaterThan(0);
+  });
+});
+
+describe('pedestrians at a held junction', () => {
+  it('wait at the kerb for as long as the junction is held, and cross once it is released', () => {
+    const sim = new Sim({ world: freshWorld(), ambient: false, police: false });
+    const walk = sim.world.walk;
+    const from = walk.nodes.find((n) => n.edges.some((e) => e.crosswalk && sim.roads.nodes[e.roadNode]!.signal))!;
+    const edge = from.edges.find((e) => e.crosswalk && sim.roads.nodes[e.roadNode]!.signal)!;
+    // Held along the road this crosswalk crosses: no crossing until the racer is through.
+    sim.roads.holdSignal(edge.roadNode, edge.axis!);
+    expect(sim.roads.pedCanCross(edge.roadNode, edge.axis!, sim.time)).toBe(false);
+    const ped = sim.spawnCharacter('civilian', from.x, from.z);
+    ped.owner = 'ped';
+    const brain = makeBrain('cross');
+    brain.fromNode = from.id;
+    brain.toNode = edge.to;
+    ped.brain = brain;
+    // Past the 40 s after which a pedestrian gives up on a light that never changes.
+    step(sim, 50);
+    expect(ped.brain.mode).toBe('cross');
+    expect(Math.hypot(ped.pos.x - from.x, ped.pos.z - from.z)).toBeLessThan(1.5);
+    sim.roads.releaseSignal(edge.roadNode);
+    const to = walk.nodes[edge.to]!;
+    let crossed = false;
+    for (let f = 0; f < 60 * (SIGNAL_CYCLE + 20) && !crossed; f++) {
+      step(sim, 1 / 60);
+      crossed = Math.hypot(ped.pos.x - to.x, ped.pos.z - to.z) < 1.5;
+    }
+    expect(crossed).toBe(true);
   });
 });
 

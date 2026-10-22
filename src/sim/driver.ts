@@ -91,6 +91,12 @@ const DETOUR_MARGIN = 0.4;
 /** A vehicle in the way short of this far (m) before the end of the lane stands on it, not in the junction after it. */
 const DETOUR_LANE_END = 2;
 /**
+ * A left turner yields to an oncoming car within 38 m, and to the player's car up to ONCOMING_REACH m away if it gets
+ * there within ONCOMING_TIME s: at racing speed 38 m takes under 2 s, less than a turn takes to clear.
+ */
+const ONCOMING_REACH = 120;
+const ONCOMING_TIME = 4;
+/**
  * What a turn from the wrong lane (a late lane change into it) costs the route planner, in metres:
  * route drivers keep to lane discipline unless the legal way round is that much longer. Strict
  * discipline would send a car in the inner lane of a border avenue all the way to the corner.
@@ -1915,12 +1921,15 @@ export class DriverAI {
       const dx = node.x - o.pos.x;
       const dz = node.z - o.pos.z;
       const d = Math.hypot(dx, dz);
-      if (d > 38) continue;
+      if (d > ONCOMING_REACH) continue;
       // Heading towards the node, roughly opposite to us.
       const ofx = Math.sin(o.heading);
       const ofz = Math.cos(o.heading);
       if (ofx * lane.dx + ofz * lane.dz > -0.7) continue;
-      if ((dx * o.vel.x + dz * o.vel.z) / (d || 1) < 1) continue;
+      const closing = (dx * o.vel.x + dz * o.vel.z) / (d || 1);
+      if (closing < 1) continue;
+      // Other drivers brake for a turner they meet; the player's car is judged by when it gets here.
+      if (d > 38 && (!o.driver?.isPlayer || d / closing > ONCOMING_TIME)) continue;
       return true;
     }
     return false;
