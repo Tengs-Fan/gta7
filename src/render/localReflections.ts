@@ -3,6 +3,9 @@ import * as THREE from 'three';
 type ReflectiveMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 interface Finish { source: THREE.MeshStandardMaterial; local: THREE.MeshStandardMaterial }
 
+// Hour differences carry float error (12.05 - 12 = 0.05000000000000071), so exactly 0.05 h needs slack.
+const RECAPTURE_HOURS = 0.05 + 1e-9;
+
 /** Local city reflections on the player's car, captured one cube face per frame. */
 export class LocalReflections {
   private readonly cube = new THREE.WebGLCubeRenderTarget(128, { type: THREE.HalfFloatType, generateMipmaps: false });
@@ -45,7 +48,7 @@ export class LocalReflections {
     // a refresh every 12 metres, capped at twice per second; a teleport starts a coherent new cube.
     if (this.face >= 0 && this.camera.position.distanceToSquared(position) > 50 * 50) this.face = -1;
     if (this.face < 0 && time - this.captureTime >= 0.5 &&
-      (this.capturedAt.distanceToSquared(position) > 12 * 12 || Math.min(hourDelta, 24 - hourDelta) > 0.05 || !this.filtered)) {
+      (this.capturedAt.distanceToSquared(position) > 12 * 12 || Math.min(hourDelta, 24 - hourDelta) > RECAPTURE_HOURS || !this.filtered)) {
       this.camera.position.copy(position);
       this.camera.updateMatrixWorld(true);
       this.face = 0;
