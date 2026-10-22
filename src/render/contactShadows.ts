@@ -34,7 +34,8 @@ export class ContactShadows extends GTAOPass {
       const mesh = object as THREE.Mesh;
       if (!mesh.isMesh) return;
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      if (materials.every((m) => !m.depthWrite || m.transparent || m.opacity < 1 || m.userData.contactShadow === false)) {
+      // A batch can opt out on its own (a pole or trunk dissolving in front of the camera, PropsView.setOccluderView).
+      if (mesh.userData.contactShadow === false || materials.every((m) => !m.depthWrite || m.transparent || m.opacity < 1 || m.userData.contactShadow === false)) {
         this.hidden.push(object);
       }
     });
