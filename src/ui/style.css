@@ -68,10 +68,22 @@ body {
   inset: 0;
 }
 
-.hud-tr {
+/*
+ * The top-right column: the status cluster with the toasts stacked under it, in one flex column, so the toasts always
+ * sit below whatever the cluster shows (armor, a job or mission line, the evade bar, DISPATCH) and move with it.
+ */
+.hud-right {
   position: absolute;
   top: 22px;
   right: 26px;
+  width: 190px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.hud-tr {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -79,7 +91,6 @@ body {
   padding: 12px 14px;
   min-width: 174px;
   width: 190px;
-  anchor-name: --status-cluster;
   border-top: 2px solid var(--accent);
   background: linear-gradient(135deg, rgba(14, 23, 27, 0.86), rgba(14, 23, 27, 0.55));
 }
@@ -567,6 +578,9 @@ body {
   top: 0;
   /* Down to just above what stands at the bottom centre, a subtitle or the prompt slot (Hud measures its top edge into --stack-top). */
   bottom: calc(var(--stack-top, 0px) + 12px);
+  /* Clear of the top-right column where it reaches down beside the card (Hud.fitTitle). */
+  padding-left: var(--title-left, 0px);
+  padding-right: var(--title-clear, 0px);
   display: flex;
   flex-direction: column;
   text-align: center;
@@ -859,23 +873,50 @@ body {
   opacity: 1;
 }
 
-.toast {
-  position: absolute;
-  right: 22px;
-  top: 240px;
-  top: calc(anchor(--status-cluster bottom, 232px) + 8px);
-  max-width: 220px;
+.toasts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
+/* The newest toast (.toast) and the older ones above it (.toast-prev); an empty slot takes no room (see Hud.renderToasts). */
+.toast,
+.toast-prev {
+  max-width: 100%;
   background: var(--panel);
   padding: 8px 14px;
   border-radius: 6px;
   font-weight: 700;
   font-size: 18px;
-  opacity: 0;
-  transition: opacity 0.3s;
+  line-height: 1.25;
+  text-align: right;
+  overflow-wrap: anywhere;
+  transition: opacity 0.25s;
 }
 
-.toast.show {
-  opacity: 1;
+.toast:not(.show),
+.toast-prev:not(.show) {
+  display: none;
+}
+
+.toast.leaving,
+.toast-prev.leaving {
+  opacity: 0;
+}
+
+.toast.enter {
+  animation: toastin 0.25s ease-out;
+}
+
+@keyframes toastin {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* ------------------------------------------------------------------ Menus */
@@ -2045,7 +2086,9 @@ body {
   .district { left: 18px; }
   .district span { display: none; }
   .help { left: 18px; top: 56px; font-size: 15px; max-width: calc(100vw - 216px); }
-  .hud-tr { right: 18px; min-width: 148px; width: 148px; padding: 9px 11px; }
+  .hud-right { right: 18px; width: 148px; }
+  .hud-tr { min-width: 148px; width: 148px; padding: 9px 11px; }
+  .toast, .toast-prev { font-size: 15px; padding: 6px 10px; }
   .hud-tr .money { font-size: 24px; }
   .bars { width: 126px; }
   .hud-tr .stars svg { width: 21px; height: 21px; }
@@ -2093,6 +2136,8 @@ body {
   .hud.in-vehicle .zone { bottom: 198px; }
   .help { font-size: 15px; }
   .subtitle { font-size: 19px; }
+  .toasts { gap: 4px; }
+  .toast, .toast-prev { font-size: 15px; padding: 5px 10px; }
   .runs-panel .runs-intro { display: none; }
   .runs-panel h2 { font-size: 32px; }
   .runs-panel .panel-eyebrow { margin-bottom: 4px; }

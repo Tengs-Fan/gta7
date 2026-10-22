@@ -78,9 +78,51 @@ const ROUTE_OBJECTIVE = '#ffd23d';
 
 // What the DOM shows initially; bind() returns to these for every new session.
 const initialShown = () => ({ money: -1, health: -1, armor: -1, weapon: '', ammo: '', clock: '', stars: -1, flash: false, status: '', zone: '' });
-const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, toast: 0, delta: 0, hurt: 0, objective: 0, gate: 0 });
+const initialTimers = () => ({ help: 0, subtitle: 0, zone: 0, radio: 0, delta: 0, hurt: 0, objective: 0, gate: 0 });
 /** Elements shown with the 'show' class for a while. */
-const TIMED = ['help', 'subtitle', 'objective', 'zone', 'radio', 'toast', 'delta', 'big'];
+const TIMED = ['help', 'subtitle', 'objective', 'zone', 'radio', 'delta', 'big'];
+/**
+ * Pop-up messages ("Waypoint reached", "Autosaved"): at most MAX_TOASTS at once, stacked under the status cluster in the
+ * same column (oldest on top, so the oldest leaves first and the rest move up), each up for TOAST_SECONDS and then
+ * fading out over TOAST_FADE before it gives up its place. A fourth pushes the oldest out at once.
+ */
+const MAX_TOASTS = 3;
+const TOAST_SECONDS = 2.5;
+const TOAST_FADE = 0.25;
+/** The gap (px) kept between the top-right column (the cluster and its toasts) and a title card or what stands below it. */
+const COLUMN_GAP = 8;
+/** A title card stays centred in the window while the band beside the column on both sides is at least this wide (px). */
+const TITLE_MIN_BAND = 560;
+
+/**
+ * The radar's GPS route as drawn this frame: from the player's position (x, z) on along `route`, without the points he
+ * has already passed. The route is planned once a second from where he was then; at 30 m/s its start would trail 30 m
+ * behind him. Its segment nearest to him (within the first ROUTE_TRIM_REACH m) is where he is: the line starts at him
+ * and runs on from that segment's end.
+ */
+export function trimRoute(route: ReadonlyArray<{ x: number; z: number }>, x: number, z: number): Array<{ x: number; z: number }> {
+  if (route.length < 2) return route.slice();
+  let best = 0;
+  let bestD = Infinity;
+  let along = 0;
+  for (let i = 0; i < route.length - 1 && along < ROUTE_TRIM_REACH; i++) {
+    const a = route[i]!;
+    const b = route[i + 1]!;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const l2 = dx * dx + dz * dz;
+    const t = l2 > 1e-9 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2)) : 0;
+    const d = Math.hypot(a.x + dx * t - x, a.z + dz * t - z);
+    if (d < bestD - 1e-6) {
+      bestD = d;
+      best = i;
+    }
+    along += Math.sqrt(l2);
+  }
+  return [{ x, z }, ...route.slice(best + 1)];
+}
+/** How far along the planned route (m) trimRoute looks for the player: well past a second's drive at top speed. */
+const ROUTE_TRIM_REACH = 150;
 /** Damage kinds that show the hitmarker when the player deals them. */
 const WEAPON_HIT: Readonly<Record<DamageKind, boolean>> = { bullet: true, melee: true, explosion: true, vehicle: false, fall: false, fire: false, impact: false, drown: false };
 /** Hitmarker display time (s) for a hit and for a kill; the kill colour keeps its own time, whatever hits follow. */
@@ -115,7 +157,13 @@ export class Hud {
   private moneyDelta = 0;
   private unsub: Array<() => void> = [];
   private route: Array<{ x: number; z: number }> = [];
+  /** The route as the radar drew it last (trimRoute). */
+  private routeShown: Array<{ x: number; z: number }> = [];
   private routeTimer = 0;
+  /** The toasts up (oldest first) and the seconds each has left; under 0 it is fading out (TOAST_FADE). */
+  private toasts: Array<{ text: string; t: number }> = [];
+  /** The title card's side padding as last written ('left right', '' for none; see fitTitle). */
+  private titleClear = '';
   private lastHealth = 100;
   private fade: { startedAt: number; duration: number } | null = null;
   /** Hitmarker: seconds it stays up, seconds the kill colour has left, and the sim frame of the hits it shows (a shotgun's pellets are one hit). */
@@ -175,6 +223,7 @@ export class Hud {
     this.root.innerHTML = `
       <div class="vignette" data-el="vignette"></div>
       <div class="district"><span>SAN AZURA</span><b data-el="district"></b></div>
+      <div class="hud-right" data-el="column">
       <div class="hud-tr">
         <div class="hud-row"><div class="clock" data-el="clock">00:00</div><div class="weapon" data-el="weapon"><span data-el="wicon"></span><span class="ammo" data-el="ammo"></span></div></div>
         <div class="bars"><div class="bar health" data-el="hbar"><i data-el="health"></i></div><div class="bar armor" data-el="abar"><i data-el="armor"></i></div></div>
@@ -184,6 +233,8 @@ export class Hud {
         <div class="status hidden" data-el="status"></div>
         <div class="evade hidden" data-el="evade"><i data-el="evadeFill"></i></div>
         <div class="scanner" data-el="scanner"></div>
+      </div>
+      <div class="toasts"><div class="toast-prev" data-el="toast2"></div><div class="toast-prev" data-el="toast1"></div><div class="toast" data-el="toast"></div></div>
       </div>
       <div class="radar"><canvas width="220" height="220" data-el="radar"></canvas></div>
       <div class="navigation hidden" data-el="navigation">
@@ -205,7 +256,6 @@ export class Hud {
       <div class="objective" data-el="objective"></div>
       <div class="big" data-el="big"><div class="t" data-el="bigT"></div><div class="s" data-el="bigS"></div></div>
       <div class="zone" data-el="zone"></div>
-      <div class="toast" data-el="toast"></div>
       <div class="crosshair" data-el="cross"><i></i></div>
       <div class="hitmarker" data-el="hitmarker"><b></b><b></b><b></b><b></b></div>
       <div class="dmg-dirs">${Array.from({ length: ARCS }, (_, i) => `<div class="dmg-dir" data-el="dmg${i}"></div>`).join('')}</div>
@@ -424,7 +474,11 @@ export class Hud {
     this.bigTimer = 0;
     this.moneyDelta = 0;
     this.route = [];
+    this.routeShown = [];
     this.routeTimer = 0;
+    this.toasts = [];
+    this.renderToasts(false);
+    this.setTitleClear('');
     this.lastHealth = sim.player.health;
     this.waypoint = null;
     this.helpCur = null;
@@ -638,10 +692,111 @@ export class Hud {
     this.root.style.setProperty?.('--stack-top', `${top}px`);
   }
 
+  /** Raises a pop-up message under the status cluster (see MAX_TOASTS); the same one again just stays up longer. */
   toast(text: string): void {
-    this.el.toast!.textContent = text;
-    this.el.toast!.classList.add('show');
-    this.timers.toast = 2.5;
+    const last = this.toasts[this.toasts.length - 1];
+    if (last && last.text === text) {
+      last.t = TOAST_SECONDS;
+      this.renderToasts(false);
+      return;
+    }
+    this.toasts.push({ text, t: TOAST_SECONDS });
+    while (this.toasts.length > MAX_TOASTS) this.toasts.shift();
+    this.renderToasts(true);
+  }
+
+  /**
+   * Writes the toasts into their three slots, the newest in the bottom one (data-el toast), the others above it in
+   * order; an empty slot is not laid out, so the stack closes up. `fresh`: the newest just arrived (it pops in).
+   */
+  private renderToasts(fresh: boolean): void {
+    const slots = [this.el.toast2!, this.el.toast1!, this.el.toast!];
+    const n = this.toasts.length;
+    slots.forEach((e, k) => {
+      const item = this.toasts[n - slots.length + k];
+      if (!item) {
+        e.classList.remove('show', 'leaving');
+        return;
+      }
+      if (e.textContent !== item.text) e.textContent = item.text;
+      e.classList.add('show');
+      e.classList.toggle('leaving', item.t <= 0);
+    });
+    if (fresh) {
+      const e = this.el.toast!;
+      e.classList.remove('enter');
+      void e.offsetWidth;
+      e.classList.add('enter');
+    }
+  }
+
+  /** Counts the toasts down, takes off those faded out, and keeps the stack clear of what stands below it. */
+  private updateToasts(dt: number): void {
+    if (this.toasts.length === 0) return;
+    let changed = false;
+    for (const t of this.toasts) {
+      const was = t.t > 0;
+      t.t -= dt;
+      if (was && t.t <= 0) changed = true;
+    }
+    while (this.toasts.length > 0 && this.toasts[0]!.t <= -TOAST_FADE) {
+      this.toasts.shift();
+      changed = true;
+    }
+    if (changed) this.renderToasts(false);
+    this.fitToasts();
+  }
+
+  /**
+   * In a short window the column can reach down to what stands at the bottom right (the vehicle panel, the zone or
+   * vehicle name, the controls line): the oldest toasts then go early, so the stack never runs into them.
+   */
+  private fitToasts(): void {
+    if (this.toasts.length < 2) return;
+    const col = this.el.column!.getBoundingClientRect();
+    if (!(col.height > 0)) return;
+    const below = [this.el.drive!, this.el.zone!, this.el.quickControls!];
+    let limit = Infinity;
+    for (const e of below) {
+      if (e.classList.contains('hidden') || (e === this.el.zone && !e.classList.contains('show'))) continue;
+      const r = e.getBoundingClientRect();
+      // Only what lies under the column, side by side with it.
+      if (!(r.height > 0) || r.top <= col.top || r.left >= col.left + col.width || r.left + r.width <= col.left) continue;
+      limit = Math.min(limit, r.top - COLUMN_GAP);
+    }
+    while (this.toasts.length > 1 && col.top + this.el.column!.getBoundingClientRect().height > limit) {
+      this.toasts.shift();
+      this.renderToasts(false);
+    }
+  }
+
+  /**
+   * A title card is centred across the window, but where the top-right column (the cluster and its toasts) reaches down
+   * beside it, it keeps to the band clear of the column: centred still while the band either side is wide enough
+   * (TITLE_MIN_BAND), otherwise in the part of the window left of the column. style.css pads the card by --title-clear
+   * (and --title-left when centred).
+   */
+  private fitTitle(): void {
+    // A card fading out keeps its place: the next one is measured on its first frame.
+    if (!this.bigCur) return;
+    const col = this.el.column!.getBoundingClientRect();
+    const t = this.el.bigT!.getBoundingClientRect();
+    const root = this.root.getBoundingClientRect();
+    const w = root.width;
+    let clear = '';
+    if (col.height > 0 && t.height > 0 && w > 0 && col.top + col.height + COLUMN_GAP > t.top) {
+      const right = Math.max(0, Math.ceil(root.left + w - col.left + COLUMN_GAP));
+      clear = w - 2 * right >= TITLE_MIN_BAND ? `${right}px ${right}px` : `0px ${right}px`;
+    }
+    this.setTitleClear(clear);
+  }
+
+  private setTitleClear(clear: string): void {
+    if (clear === this.titleClear) return;
+    this.titleClear = clear;
+    const [left, right] = clear ? clear.split(' ') : ['0px', '0px'];
+    this.el.big!.style.setProperty?.('--title-left', left!);
+    this.el.big!.style.setProperty?.('--title-clear', right!);
   }
 
   showRadio(name: string): void {
@@ -695,7 +850,6 @@ export class Hud {
     this.updateSubtitle(dt);
     if (this.timers.zone <= 0) el.zone!.classList.remove('show');
     if (this.timers.radio <= 0) el.radio!.classList.remove('show');
-    if (this.timers.toast <= 0) el.toast!.classList.remove('show');
     if (this.timers.delta <= 0) this.moneyDelta = 0;
     const racing = sim.activities.job?.kind === 'streetRun' && sim.activities.job.stage === 'racing';
     const objText = sim.missions.active?.objectiveText ?? (sim.activities.busy ? this.activityObjective : '');
@@ -786,6 +940,7 @@ export class Hud {
       el.status!.classList.toggle('hidden', !status);
     }
     this.updatePolice(dt, sim);
+    this.updateToasts(dt);
 
     // Zone changes.
     const pos = sim.playerPos();
@@ -818,6 +973,7 @@ export class Hud {
     this.updateNavigation(sim, camYaw);
     this.updateDriving(sim);
     this.drawRadar(sim, camYaw, time, dt);
+    this.fitTitle();
   }
 
   /** A bearing and a real distance to the same destination used by the radar's route. */
@@ -1049,12 +1205,14 @@ export class Hud {
       this.route = [];
       this.routeColor = '';
     }
-    if (this.route.length > 1) {
+    // Planned once a second, drawn from where he is now.
+    this.routeShown = trimRoute(this.route, p.x, p.z);
+    if (this.routeShown.length > 1) {
       ctx.strokeStyle = this.routeColor;
       ctx.lineWidth = 6 / zoom;
       ctx.lineJoin = 'round';
       ctx.beginPath();
-      this.route.forEach((pt, i) => {
+      this.routeShown.forEach((pt, i) => {
         const x = (pt.x - this.map.minX) * MAP_SCALE;
         const y = (pt.z - this.map.minZ) * MAP_SCALE;
         if (i === 0) ctx.moveTo(x, y);
