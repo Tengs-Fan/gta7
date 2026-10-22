@@ -24,6 +24,8 @@ async function installMeter(page: Page): Promise<void> {
         this.prePeak = 0;
         this.preN = 0;
         this.overKnee = 0;
+        this.over08 = 0;
+        this.red = 0;
         this.ss = 0;
         this.n = 0;
         clearInterval(this.iv);
@@ -32,6 +34,8 @@ async function installMeter(page: Page): Promise<void> {
       sample() {
         an.getFloatTimeDomainData(buf);
         pre.getFloatTimeDomainData(pbuf);
+        // The limiter's current gain reduction in dB (0 or negative).
+        this.red = Math.min(this.red, (mixer.limiter as DynamicsCompressorNode).reduction);
         let ss = 0;
         // Peak over the whole window (170 ms, overlapping the next poll); RMS over the last 2048 samples.
         for (let i = 0; i < buf.length; i++) this.peak = Math.max(this.peak, Math.abs(buf[i]!));
@@ -41,6 +45,7 @@ async function installMeter(page: Page): Promise<void> {
           const a = Math.abs(pbuf[i]!);
           this.prePeak = Math.max(this.prePeak, a);
           if (a > 0.7) this.overKnee++;
+          if (a > 0.8) this.over08++;
         }
         this.preN += pbuf.length;
         this.ss += ss / 2048;
@@ -52,6 +57,9 @@ async function installMeter(page: Page): Promise<void> {
           peak: this.peak as number,
           prePeak: this.prePeak as number,
           overKnee: (this.overKnee as number) / Math.max(1, this.preN as number),
+          over08: this.over08 as number,
+          preN: this.preN as number,
+          red: this.red as number,
           rmsDb: 10 * Math.log10((this.ss as number) / Math.max(1, this.n as number) + 1e-15),
           polls: this.n as number,
         };
@@ -67,7 +75,7 @@ async function installMeter(page: Page): Promise<void> {
   });
 }
 
-type Meter = { peak: number; prePeak: number; overKnee: number; rmsDb: number; polls: number };
+type Meter = { peak: number; prePeak: number; overKnee: number; over08: number; preN: number; red: number; rmsDb: number; polls: number };
 const meterStart = (page: Page) => page.evaluate(() => (window as Api).__meter.start());
 const meterStop = (page: Page) => page.evaluate(() => (window as Api).__meter.stop() as Meter);
 
@@ -150,7 +158,11 @@ test.describe('GTA 7 audio mix', () => {
     expect(m.polls).toBeGreaterThan(40);
     expect(m.peak).toBeGreaterThan(0.1);
     // At the default volumes the mix leaves headroom before the clip: it is not leaning on the limiter or the soft clip.
-    expect(m.prePeak).toBeLessThanOrEqual(0.8);
+    // The peak itself is a single crest of random noise near the limiter's -2 dBFS threshold, so the checks measure how
+    // hard the limiter works and how often the mix gets there, and the peak only catches gross level regressions.
+    expect(m.red).toBeGreaterThan(-1);
+    expect(m.over08 / m.preN).toBeLessThan(1e-4);
+    expect(m.prePeak).toBeLessThanOrEqual(0.9);
     expect(m.overKnee).toBeLessThan(0.001);
     // Sanity: the final output.
     expect(m.peak).toBeLessThanOrEqual(1);

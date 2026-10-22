@@ -37,6 +37,8 @@ const SMOKE_CONDITION = 0.45;
  * The siren's light: intensity by day plus at night, and a short reach with inverse-square falloff, so it washes the
  * street around the car red and blue but leaves the facades a few metres away their own colour (P27).
  */
+/** Full-beam intensity of the player's headlight at night (both lamps intact). */
+export const HEADLIGHT_INTENSITY = 160;
 const SIREN_DAY = 25;
 const SIREN_NIGHT = 25;
 const SIREN_RANGE = 12;
@@ -520,7 +522,7 @@ export class GameRenderer {
       this.headlight.target.updateMatrixWorld();
       // Each smashed head lamp takes its half of the beam with it.
       const lamps = this.vehicleViews.get(v.id)?.headLamps ?? 2;
-      this.headlight.intensity = 160 * night * (lamps / 2);
+      this.headlight.intensity = HEADLIGHT_INTENSITY * night * (lamps / 2);
     } else {
       this.headlight.intensity = 0;
     }
