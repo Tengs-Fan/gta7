@@ -14,7 +14,7 @@
 import { clamp, smoothstep } from '../core/math';
 import { WATER_Y } from '../world/constants';
 import { beachOffsetAt, type Bounds, type District } from '../world/layout';
-import { Glider, OPEN_HZ, dbToGain } from './mixer';
+import { Glider, OPEN_HZ, dbToGain, withinParam } from './mixer';
 
 export type AmbienceDistrict = District | 'beach' | 'sea';
 
@@ -360,7 +360,7 @@ export class Ambience {
     const filter = (type: BiquadFilterType, hz: number, q: number) => {
       const f = ctx.createBiquadFilter();
       f.type = type;
-      f.frequency.value = hz;
+      f.frequency.value = withinParam(f.frequency, hz);
       f.Q.value = q;
       return f;
     };

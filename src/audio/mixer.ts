@@ -21,6 +21,15 @@ export const gainToDb = (g: number): number => 20 * Math.log10(Math.max(1e-9, g)
 /** A low-pass at this cutoff is transparent. */
 export const OPEN_HZ = 20000;
 
+/**
+ * `v` capped at the param's own maximum. A filter's frequency maximum is the context's Nyquist rate, which is 12 kHz on
+ * a 24 kHz output (Bluetooth headsets in call mode); Chrome warns on every value above it.
+ */
+export function withinParam(param: AudioParam, v: number): number {
+  const max = param.maxValue;
+  return typeof max === 'number' && v > max ? max : v;
+}
+
 /** Low-pass cutoff for a sound `d` metres away: the air absorbs the highs of distant sounds. */
 export function distanceCutoff(d: number): number {
   return Math.max(900, OPEN_HZ * Math.exp(-Math.max(0, d) / 120));
@@ -102,6 +111,7 @@ export class Glider {
   /** Changes within `relEps` of the last target (or `absEps` absolute) are skipped. */
   set(param: AudioParam, target: number, now: number, tau: number, relEps = 0.004, absEps = 1e-5): void {
     if (!Number.isFinite(target) || !Number.isFinite(now) || !(tau > 0)) return;
+    target = withinParam(param, target);
     const last = this.sent.get(param);
     if (last !== undefined && Math.abs(target - last) <= Math.max(absEps, Math.abs(last) * relEps)) return;
     this.sent.set(param, target);
@@ -172,7 +182,7 @@ export class Mixer {
     const filter = (type: BiquadFilterType, hz: number, q = Math.SQRT1_2) => {
       const f = ctx.createBiquadFilter();
       f.type = type;
-      f.frequency.value = hz;
+      f.frequency.value = withinParam(f.frequency, hz);
       f.Q.value = q;
       return f;
     };

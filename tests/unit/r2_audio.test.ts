@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ambienceTargets, IN_CAR, shoreInfo, type AmbienceDistrict, type AmbienceInput } from '../../src/audio/ambience';
 import { AudioEngine } from '../../src/audio/audio';
-import { dbToGain, distanceCutoff, EXPLOSION_DUCK_RANGE, gainToDb, MIX_DB, mixTargets, OPEN_HZ, softClipCurve, type MixInput } from '../../src/audio/mixer';
+import { dbToGain, distanceCutoff, EXPLOSION_DUCK_RANGE, gainToDb, Glider, MIX_DB, mixTargets, OPEN_HZ, softClipCurve, withinParam, type MixInput } from '../../src/audio/mixer';
 import { ENGINE_PROFILES, engineParams, engineWave, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
@@ -755,5 +755,28 @@ describe('round-2 audio fixes', () => {
     // The band centre is jittered by +-10% around a pitch that rises with speed.
     expect(fast.hz).toBeGreaterThan(slow.hz * 1.3);
     expect(faster.hz).toBeGreaterThan(fast.hz);
+  });
+});
+
+describe('filter frequencies on a low-rate output', () => {
+  // A 24 kHz context (Bluetooth headset in call mode) caps a filter's frequency at 12 kHz.
+  const param = (maxValue?: number) => {
+    const sent: number[] = [];
+    return { sent, p: { maxValue, setTargetAtTime: (v: number) => sent.push(v) } as unknown as AudioParam };
+  };
+
+  it('caps a value at the param maximum and leaves values below it alone', () => {
+    expect(withinParam(param(12000).p, OPEN_HZ)).toBe(12000);
+    expect(withinParam(param(12000).p, 900)).toBe(900);
+    expect(withinParam(param().p, OPEN_HZ)).toBe(OPEN_HZ);
+  });
+
+  it('never schedules a glide above the maximum', () => {
+    const g = new Glider();
+    const { p, sent } = param(12000);
+    g.set(p, OPEN_HZ, 0, 0.1);
+    g.set(p, 1800, 0.5, 0.1);
+    expect(sent).toEqual([12000, 1800]);
+    expect(g.target(p)).toBe(1800);
   });
 });
