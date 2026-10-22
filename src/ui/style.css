@@ -2136,6 +2136,12 @@ body {
   .hud.in-vehicle .zone { bottom: 198px; }
   .help { font-size: 15px; }
   .subtitle { font-size: 19px; }
+  /* A crowded cluster (armour, a job line, stars with the evade bar and a four-line DISPATCH) must still leave room
+     for the newest toast above the vehicle panel. */
+  .hud-right { top: 14px; gap: 6px; }
+  .hud-tr { padding: 8px 12px; gap: 3px; }
+  .weapon { height: 32px; }
+  .scanner { font-size: 12px; letter-spacing: 1px; line-height: 1.25; }
   .toasts { gap: 4px; }
   .toast, .toast-prev { font-size: 15px; padding: 5px 10px; }
   .runs-panel .runs-intro { display: none; }
