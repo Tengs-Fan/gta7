@@ -5,7 +5,7 @@ import { makeBrain } from './brains';
 import type { Character, Vehicle } from './entities';
 import { setTimeoutLike } from './pickups';
 import type { Sim } from './sim';
-import { buildStreetRunCourses, formatRunTime, runMedal, type StreetRunCourse } from './streetRuns';
+import { buildStreetRunCourses, formatRunTime, greenWave, runMedal, type StreetRunCourse } from './streetRuns';
 
 export interface Objective {
   x: number;
@@ -94,6 +94,8 @@ const DOOR_OUT = 0.6;
 export class Activities {
   job: Job | null = null;
   private courses: StreetRunCourse[] | null = null;
+  /** Junctions the green wave holds for the racer (see syncGreenWave). */
+  private greenWaveHeld: number[] = [];
   /**
    * Set by the game each frame: the player's last way out of a vehicle may yet be undone. FIXMYRIDE puts him back in
    * the seat its own F got him out of, and that F acts at once (see exitAtStake in game.ts), so a taxi or vigilante job
@@ -192,6 +194,7 @@ export class Activities {
     const sim = this.sim;
     const j = this.job;
     this.job = null;
+    this.syncGreenWave(null);
     if (!j) return;
     if (j.kind === 'taxi' && j.fare && !j.fare.removed) {
       const cab = j.fare.vehicle;
@@ -379,6 +382,7 @@ export class Activities {
       j.stage = 'racing';
       if (sim.controlLock <= 0.101) sim.controlLock = 0;
       car.controls.handbrake = false;
+      this.syncGreenWave(j);
       this.streetRunObjective(j);
       return;
     }
@@ -403,8 +407,10 @@ export class Activities {
     const hit = Math.hypot(j.previousX + dx * t - gate.x, j.previousZ + dz * t - gate.z) <= gate.radius && !car.airborne;
     j.previousX = car.pos.x;
     j.previousZ = car.pos.z;
+    if (hit) j.checkpoint++;
+    // Re-asserted every tick: another Sim built on this world meanwhile (see RoadNetwork.holdSignal) clears holds.
+    this.syncGreenWave(j);
     if (!hit) return;
-    j.checkpoint++;
     sim.events.emit('streetRunCheckpoint', { index: j.checkpoint, total: j.course.checkpoints.length, elapsed: j.elapsed });
     if (j.checkpoint === j.course.checkpoints.length) {
       this.finishStreetRun(j);
@@ -417,6 +423,18 @@ export class Activities {
   private streetRunObjective(j: StreetRunJob): void {
     const gate = j.course.checkpoints[j.checkpoint]!;
     this.sim.events.emit('objective', { text: `${j.course.name} · ${gate.label === 'Finish' ? 'FINISH LINE' : `Gate ${j.checkpoint + 1}/${j.course.checkpoints.length} · ${gate.label}`}` });
+  }
+
+  /**
+   * The green wave: while racing, the next course junctions are held green along the course for the racer (cross
+   * streets red, pedestrians kept off his road), moving on gate by gate. Null releases every junction it held.
+   */
+  private syncGreenWave(j: StreetRunJob | null): void {
+    const roads = this.sim.roads;
+    const want = j && j.stage === 'racing' ? greenWave(j.course, roads, j.checkpoint) : [];
+    for (const id of this.greenWaveHeld) if (!want.some((h) => h.nodeId === id)) roads.releaseSignal(id);
+    for (const h of want) roads.holdSignal(h.nodeId, h.axis);
+    this.greenWaveHeld = want.map((h) => h.nodeId);
   }
 
   private finishStreetRun(j: StreetRunJob): void {
