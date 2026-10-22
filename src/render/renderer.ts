@@ -15,14 +15,23 @@ import { CityView } from './city';
 import { CrowdView } from './crowd';
 import { Effects, FLASH_SIZE, WADE_MIN } from './effects';
 import { Environment } from './environment';
+import { FinishPass } from './finishPass';
+import { gradeAt, type Grade } from './grade';
 import { MarkerView } from './markers';
 import { PropsView } from './props';
-import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier } from './quality';
+import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
 import { STATIC_CHUNK_SIZE } from './spatial';
 import { SoftwareMaterials } from './softwareMaterials';
 import { VehicleView, VehicleViewPool } from './vehicleView';
 
 export type Quality = QualityTier;
+
+/** What FinishPass is doing: `aa` is the anti-aliasing actually in effect. */
+export interface PostState {
+  aa: 'msaa' | 'fxaa' | 'none';
+  grade: boolean;
+  vignette: number;
+}
 
 export interface RenderSettings {
   quality: Quality;
@@ -100,6 +109,8 @@ export class GameRenderer {
   private readonly siren: THREE.PointLight;
   private bloom: UnrealBloomPass | null = null;
   private contactShadows: ContactShadows | null = null;
+  private finish: FinishPass | null = null;
+  private readonly gradeNow: Grade = gradeAt(17.5);
   private localReflections: LocalReflections | null = null;
   private readonly reflectionPosition = new THREE.Vector3();
   private readonly hdr: boolean;
@@ -229,7 +240,7 @@ export class GameRenderer {
       (shadow as { map: THREE.WebGLRenderTarget | null }).map = null;
       shadow.mapSize.set(t.shadowSize, t.shadowSize);
     }
-    this.setBloom(t.bloom);
+    this.setPost(t);
     // Without a bloom halo the coloured lamps (traffic lights) must carry their hue in the lamp itself.
     this.props.setGlow(this.bloom !== null);
     // Dynamic lights: on 'few' the sources stay hidden and feed the pool (see syncLightPool).
@@ -248,28 +259,62 @@ export class GameRenderer {
     if (this.warmedUp) this.warmup();
   }
 
-  private setBloom(on: boolean): void {
+  /**
+   * The effects chain: High [ContactShadows, Bloom, Finish], Medium [Bloom, Finish], Low [Finish].
+   * Without half-float output (software, hdr=false) three allows no effects at all.
+   */
+  private setPost(t: Readonly<TierSpec>): void {
     if (!this.hdr) return;
     // High adds local contact shading; all tiers retain their existing native render scale.
-    if (on && this.quality === 'high') {
+    if (t.bloom && this.quality === 'high') {
       this.contactShadows ??= new ContactShadows(this.scene, this.cameraCtl.camera);
     } else {
       this.contactShadows?.dispose();
       this.contactShadows = null;
     }
-    if (!on) {
+    if (t.bloom) {
+      if (!this.bloom) {
+        const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+        // Threshold sits above sun-lit albedo so only emissive lights, the sun and explosions bloom.
+        this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.6, 0.5, 2.6);
+      }
+    } else {
       // Off on Low: free its render targets too (a fresh pass is made if it comes back).
-      this.renderer.setEffects([]);
       this.bloom?.dispose();
       this.bloom = null;
-      return;
     }
-    if (!this.bloom) {
-      const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-      // Threshold sits above sun-lit albedo so only emissive lights, the sun and explosions bloom.
-      this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.6, 0.5, 2.6);
+    if (t.aa === 'fxaa' || t.grade) {
+      // Kept across tier switches: they only change its uniforms, so its program is never rebuilt.
+      this.finish ??= new FinishPass();
+      this.finish.fxaa = t.aa === 'fxaa';
+      this.finish.grade = t.grade;
+      this.finish.vignetteOverride = null;
+    } else {
+      this.finish?.dispose();
+      this.finish = null;
     }
-    this.renderer.setEffects(this.contactShadows ? [this.contactShadows, this.bloom] : [this.bloom]);
+    this.renderer.setEffects([this.contactShadows, this.bloom, this.finish].filter((p) => p !== null));
+  }
+
+  /** Debug override of FinishPass until the next setQuality. A vignette of null returns it to the time of day. */
+  overridePost(o: { aa?: 'none' | 'fxaa'; grade?: boolean; vignette?: number | null }): PostState {
+    const f = this.finish;
+    if (f) {
+      if (o.aa !== undefined) f.fxaa = o.aa === 'fxaa';
+      if (o.grade !== undefined) f.grade = o.grade;
+      if (o.vignette !== undefined) f.vignetteOverride = o.vignette;
+      f.setGrade(this.gradeNow);
+    }
+    return this.post;
+  }
+
+  get post(): PostState {
+    const f = this.finish;
+    return {
+      aa: f?.fxaa ? 'fxaa' : this.msaa ? 'msaa' : 'none',
+      grade: f?.grade ?? false,
+      vignette: f ? f.vignetteOverride ?? this.gradeNow.vignette : 0,
+    };
   }
 
   /** Every point light in the scene except the pool's own: the siren, the effects' flashes, and any added later. */
@@ -593,6 +638,7 @@ export class GameRenderer {
       this.localReflections ??= new LocalReflections(this.renderer, this.scene);
       this.localReflections.applyCurrent(view.group);
     } else if (this.localReflections) this.clearLocalReflections();
+    if (this.finish) this.finish.setGrade(gradeAt(hours, undefined, this.gradeNow));
     this.renderer.render(this.scene, cam);
     if (reflect && this.localReflections) {
       // Draw the main scene first: quality changes and context recovery rebuild shadow maps here.
@@ -648,6 +694,7 @@ export class GameRenderer {
     canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.bloom?.dispose();
     this.contactShadows?.dispose();
+    this.finish?.dispose();
     this.env.dispose();
     this.softwareMaterials?.dispose();
     this.renderer.dispose();
