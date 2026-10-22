@@ -194,11 +194,15 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Dynamic lights (sirens, muzzle flashes, explosions) | all | two, shared | none |
 | Your headlight beam at night | on | on | off |
 | Headlight patches on the road at night (nearest cars, yours included on Low) | 40 | 24 | 12 |
+| Rain streaks around the camera | 6,000 | 3,500 | 1,500 |
+| Wet streets | puddles and ripples | puddles and ripples | darker and glossier |
+| Tyre spray on wet roads | on | on | off |
+| Sea waves | the surface rises and falls | in the lighting | in the lighting |
 | Traffic and pedestrians | 100% | 90% | 75% |
 | Ambient cars drawn | all | all | within 150 m |
 
-Colors are the same on every tier; Low loses the bloom, the shadows and some of the sky's detail. Head, tail, brake and reverse lamps glow at night on every tier.
-Everything applies at once except MSAA, which changes after a reload (the Settings screen says so); Low's FXAA follows the tier at once. Software renderers get neither anti-aliasing nor the colour grade.
+Colors are the same on every tier; Low loses the bloom, the shadows and some of the sky's detail. Head, tail, brake and reverse lamps glow at night (and in dark weather) on every tier, wet roads reflect them in streaks, and the shallows, surf and quay foam are drawn on every tier.
+Everything applies at once except MSAA, which changes after a reload (the Settings screen says so); Low's FXAA follows the tier at once. So a page started on Low and switched to Medium or High has no anti-aliasing until you reload. Software renderers get neither anti-aliasing nor the colour grade.
 A lower tier's traffic and pedestrian numbers take effect as cars and people come and go: nobody is removed on the spot.
 
 If the graphics driver resets, the game pauses behind "Graphics reset - restoring..." and returns to the pause menu once WebGL is back; choose RESUME to carry on.
@@ -265,7 +269,6 @@ All of these are minor; the most noticeable come first.
 
 - Pedestrians can pop into existence on sidewalks far down the street, in plain view, most of all in the first seconds of a new game and when you drive into new streets.
 - Old wrecks and dead bodies can vanish in a single frame while you are looking straight at them from 40 to 60 meters away.
-- At dawn and dusk the brightness and tint of the whole picture can take a small step every 15 seconds or so instead of shifting smoothly, on every graphics tier.
 - A shot-down police helicopter tumbles out of the sky with no fire or smoke, leaving only the first puff where it was hit.
 - While your car burns, your character vanishes from his seat until you get out; this shows from the side and through the windscreen, and the default chase view mostly hides it.
 - On older or low-end GPUs that cannot render to high-precision buffers, paint, glass and chrome don't reflect the sky and bright lights don't glow, at any setting.
@@ -331,7 +334,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-64 files with 1407 tests run in Node, with no browser.
+70 files with 1485 tests run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission completed by a scripted bot with its failure paths and retries, side jobs, saves, and a 10-minute chaotic soak test (36,000 frames with a seeded random player).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
@@ -339,7 +342,7 @@ The police tests are statistics over many deterministic seeds, and they set the 
 
 ### End-to-end tests
 
-81 tests in 21 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
+87 tests in 24 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
 They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, a murder that brings the police, WASTED, the menus, the gun shop, saving and continuing after a reload, the side jobs, night rendering and the quality tiers, WebGL context loss, crash screens, all nine cheats, and a two-minute chaos session that must average over 30 fps.
 Most tests also fail on any console error, console warning or page error.
 
@@ -375,7 +378,7 @@ node scripts/playtest.mjs --script my-steps.mjs --url http://localhost:4173/
 
 | Flag | Meaning | Default |
 | --- | --- | --- |
-| `--scenario <name>` | `tour`, `drive`, `chase`, `night`, `rainnight` (a storm at night on foot and in a fast car, on High) or `perf` | `tour` |
+| `--scenario <name>` | `tour`, `drive`, `chase`, `night`, `rainnight` (rain at 23:00 on High in the `perf` places: the start, downtown, a four-star pursuit and the beach) or `perf` | `tour` |
 | `--script <file.mjs>` | your own steps: a module exporting `default async function (t)`, where `t` is the helper object documented at the top of `scripts/playtest.mjs` (`boot`, `newGame`, `game`, `state`, `shot`, `press`, `hold`, `measure` and more) | |
 | `--url <url>`, `--port <n>` | the page to open | `http://localhost:4173/` |
 | `--out <dir>` | screenshots and `report.json` | `/tmp/gta7-playtest` |
@@ -403,12 +406,13 @@ scripts/with-slot.sh cpu npx vitest run
 - `?intro=0` turns off Mama Lou's opening call, which otherwise starts the first mission 2.5 s into a new game; the end-to-end tests and playtests add it.
 - `?lock=1` allows pointer lock under automation (see above).
 - `window.__gta7` (`src/debug.ts`) is the console and test API, present in every build, production included.
-  `state()` reports the mode, the player, money, the clock, the wanted level, the mission, entity counts, render stats and frame timings; `game` and `sim` are the live objects; `newGame`, `teleport`, `place`, `spawnVehicle`, `give`, `setWanted`, `setTime`, `godMode`, `startMission`, `markDone`, `setCamera` and `spawnPedAhead` set up a scene; and `poi`, `samplePixels` and `characterAlive` look things up.
+  `state()` reports the mode, the player, money, the clock, the wanted level, the mission, entity counts, render stats and frame timings; `game` and `sim` are the live objects; `newGame`, `teleport`, `place`, `spawnVehicle`, `give`, `setWanted`, `setTime`, `setClockRate`, `setWeather`, `clearWeather`, `lightning`, `forceWeather`, `setPost`, `godMode`, `startMission`, `markDone`, `setCamera` and `spawnPedAhead` set up a scene; and `poi`, `weather`, `envStats`, `samplePixels` and `characterAlive` look things up.
 
 ## Performance
 
 The game targets 60 fps on desktop hardware.
-The upgraded build measured 60 fps at native 1920x1080 High on an RX 6600 XT in the perf playtest's starting street, Downtown, four-star pursuit and beach-at-dusk scenes. These short samples were refresh-capped; their last CPU frames took 5.9–8.3 ms. See [graphics notes](docs/graphics.md) for the measurement scope, detailed changes and earlier software-rendering results.
+The upgraded build measured 60 fps at native 1920x1080 High on an RX 6600 XT in the perf playtest's starting street, Downtown, four-star pursuit and beach-at-dusk scenes. These short samples were refresh-capped; their last CPU frames took 5.9–8.3 ms.
+With the dawn/dusk smoothing, colour grade, night lights, weather, rain and waves, an Apple M4 Pro at 1920x1080 High measured 60/60/58/60 fps in the same four scenes, and 60 fps in all four segments of `--scenario rainnight` (rain at 23:00). See [graphics notes](docs/graphics.md) for the measurement scope, detailed changes and earlier software-rendering results.
 Nothing adjusts itself at runtime: there is no dynamic resolution, and the tier only changes when you pick another one (see [Settings and graphics quality](#settings-and-graphics-quality) for what each tier trades away).
 `node scripts/playtest.mjs --scenario perf` prints fps, draw calls, triangles and heap at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
 `window.__gta7.state()` reports actual wall-clock `fps`, plus `render.calls` and the latest CPU timings in `perf.frameMs`, `simMs` and `renderMs`. `perf.frameIntervalMs` measures the time between animation frames, including GPU or browser delays that CPU timings miss. Physics still clamps long frames for stability; the FPS counter does not. Sample many frames when comparing performance.

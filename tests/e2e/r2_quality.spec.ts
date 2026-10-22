@@ -52,7 +52,7 @@ test.describe('graphics quality', () => {
     await expect(note).toBeHidden();
     await select.selectOption('low');
     expect((await state(page)).render.tier).toBe('low');
-    if (builtMsaa) await expect(note).toHaveText('Anti-aliasing turns off after a reload.');
+    if (builtMsaa) await expect(note).toHaveText('FXAA applies now; MSAA turns off after a reload.');
     else await expect(note).toBeHidden();
     let r = await rendererFacts(page);
     expect(r).toMatchObject({ tier: 'low', msaa: builtMsaa, antialias: builtMsaa, shadows: false, point: 0, spot: 0 });
@@ -60,7 +60,7 @@ test.describe('graphics quality', () => {
     await select.selectOption('high');
     expect((await state(page)).render.tier).toBe('high');
     if (builtMsaa) await expect(note).toBeHidden();
-    else await expect(note).toHaveText('Anti-aliasing turns on after a reload.');
+    else await expect(note).toHaveText('MSAA anti-aliasing turns on after a reload.');
     r = await rendererFacts(page);
     expect(r).toMatchObject({ tier: 'high', shadows: true, point: 3, spot: 7 });
     await page.getByRole('button', { name: 'BACK', exact: true }).click();

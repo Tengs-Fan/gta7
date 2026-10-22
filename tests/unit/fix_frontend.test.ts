@@ -2366,7 +2366,7 @@ describe('r2 quality: tiers in the game and the settings row', () => {
     pick('low');
     expect(applied!.quality).toBe('low');
     expect(note.classList.contains('hidden')).toBe(false);
-    expect(note.textContent).toBe('Anti-aliasing turns off after a reload.');
+    expect(note.textContent).toBe('FXAA applies now; MSAA turns off after a reload.');
     pick('medium');
     expect(note.classList.contains('hidden')).toBe(true);
     pick('auto');
@@ -2391,7 +2391,7 @@ describe('r2 quality: tiers in the game and the settings row', () => {
     expect(note2.classList.contains('hidden')).toBe(true);
     select2.value = 'high';
     select2.dispatchEvent(new Event('change'));
-    expect(note2.textContent).toBe('Anti-aliasing turns on after a reload.');
+    expect(note2.textContent).toBe('MSAA anti-aliasing turns on after a reload.');
   });
 });
 

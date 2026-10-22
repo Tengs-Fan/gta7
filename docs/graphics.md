@@ -40,7 +40,7 @@ Street Run gates use open ground outlines and slim illuminated posts, with a sep
 
 `src/render/wetGround.ts` patches the shared road, sidewalk and plaza materials in `city.ts` once (`onBeforeCompile` with a fixed cache key, uniforms only), so weather changes compile no shaders. `uWet` follows `weather.wet`: albedo darkens up to 35 %, roughness drops, and on High and Medium a noise mask thresholded by the wetness forms puddles, with ripple rings while it rains. Covered cells stay dry. Low only darkens and lowers roughness; the software path's Lambert stand-ins take the darkening alone. The ground dries with `weather.wet` after the rain stops.
 
-On a wet road, the light-streak batch in `lightSprites.ts` draws a reflection under the 64 lights nearest the camera (lamps, head and tail lights together), placed at the mirror point between the light and the camera and scaled by the wetness; dry roads get none. On High and Medium, cars within 60 m faster than 8 m/s on a road wetter than 0.3 throw spray off their rear wheels on the existing smoke layer. Rain is visual only: grip and handling are unchanged. `state().render` reports `rainDrops` and `wet`. `node scripts/playtest.mjs --scenario rainnight --size 1920x1080` (a storm at night on foot and in a fast car, High) measured 60 fps in both segments on the M4 Pro.
+On a wet road, the light-streak batch in `lightSprites.ts` draws a reflection under the 64 lights nearest the camera (lamps, head and tail lights together), placed at the mirror point between the light and the camera and scaled by the wetness; dry roads get none. On High and Medium, cars within 60 m faster than 8 m/s on a road wetter than 0.3 throw spray off their rear wheels on the existing smoke layer. Rain is visual only: grip and handling are unchanged. `state().render` reports `rainDrops` and `wet`. `node scripts/playtest.mjs --scenario rainnight --size 1920x1080` runs rain at 23:00 on High through the perf scenario's places (see the measurements below). Wet-road streaks are scaled by how dark it is (`max(night, weather dim)`), so by day in the rain, when the weather's dimming turns car lights on, their reflections stay faint.
 
 ## Sea
 
@@ -51,6 +51,36 @@ On High (`TierSpec.waterGrid`) the sea is a grid around the camera: 1 m cells to
 The shoreline is analytic, from the layout bounds and `BEACH_W`, `SAND_DROP`, `CURB_H`, `SEABED_Y`: the shader works out the water depth over the beach's sand slope and its drop-off (blending into deep water off the beach's ends), tints the shallows turquoise over the first 4 m of depth (and toward wet sand at the waterline), draws surf bands that move shoreward and grow with the sea state, and a noisy, gently pulsing foam strip 0.5 to 1.5 m wide along the west, north and south quay walls. Foam is part of the albedo, so it darkens at night. The software sea gets the shallows and the surf bands.
 
 The renderer ends a bullet's tracer where its path crosses the surface over water and draws a small splash there instead of the seabed impact (render only). A rocket that crosses the surface over water before it hits anything goes off at the surface (`combat.ts`) with a big `splash` event; a blast within 0.3 m of the surface over water is drawn as a water plume (a white column, a spray ring, mist and a wide foam ring, with no fire, smoke, sparks or flash light). Splashes throw a crown of droplets that streak along their flight, a mist puff and a foam ring (`src/render/foamRings.ts`, one instanced draw) that spreads on the sea and rides its waves through the shared uniforms; a bullet's ring spreads to 3 m across over 1.5 s. On the M4 Pro at 1920x1080 High the perf playtest measured 60/60/55/60 fps and `rainnight` 60/60.
+
+## Per-tier summary
+
+| | High | Medium | Low | Software renderers |
+| --- | --- | --- | --- | --- |
+| Effects chain | contact shadows, bloom, finish | bloom, finish | finish | none |
+| Anti-aliasing | 4x MSAA | 4x MSAA | proxy FXAA | none |
+| Colour grade and vignette | yes | yes | yes | no |
+| Dawn/dusk env-map compensation | yes | yes | yes | n/a (analytic fill) |
+| Lamp glows, wet-road streaks, lamp heads | yes | yes | yes | yes |
+| Headlight pools | 40 | 24 | 12 (the player's car too) | 12 |
+| Rain drops | 6000 | 3500 | 1500 | 500 |
+| Wet ground | puddles, ripples, roof cover | same | darken and gloss | darken only |
+| Tyre spray | yes | yes | no | no |
+| Sea | displaced wave grid + wave normals | wave normals | wave normals | 2-wave `simpleWater` |
+
+MSAA comes from the WebGL context, so it only changes after a reload; FXAA, the grade and everything else follow a tier switch at once. A page started on Low and switched to Medium or High therefore has no anti-aliasing until it is reloaded (the Settings screen says so). Tier switches and context restores rebuild the effects chain, rain count, wet-ground mode and sea geometry without leaking scene objects (`tests/unit/gfx_integration.test.ts`); `tests/e2e/gfx_tiers.spec.ts` boots each saved tier and checks these limits in clear weather and rain, by day and night.
+
+## Measurements (Apple M4 Pro, Chrome with ANGLE Metal, 1920x1080, High)
+
+After the whole graphics milestone (dawn/dusk smoothing, finish pass, night lights, weather, rain, sea), on 2026-10-22:
+
+| Run | Segments (fps) | Final CPU frame |
+| --- | --- | ---: |
+| `--scenario perf` | start 60, downtown 60, pursuit-4-stars 58, beach-dusk 60 | — |
+| `--scenario rainnight` (rain 1.0, 23:00, 6000 drops) | start 60, downtown 60, pursuit 60, beach 60 | 3.3–7.3 ms |
+| Dusk sweep: `setTime(18.2)`, `setClockRate(10)`, a 20 s storm ramp, 30 s | 60 | env map re-baked 1.8 times a second |
+| Software (SwiftShader, `--swiftshader`) | day, night and night rain render (35–47 colours); no post, no MSAA, 500 drops, `simpleWater` | — |
+
+The two-minute chaos e2e stays above its 30 fps floor. The rainnight segments drew 31–49 glows, 4–11 headlight pools and 14–27 wet-road streaks.
 
 ## Software fallback
 

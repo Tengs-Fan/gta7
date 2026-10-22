@@ -275,31 +275,72 @@ const SCENARIOS = {
     }
     await t.snap('end');
   },
-  /** Night storm downtown: rain, wet-road streaks, a fast drive throwing spray; measures the frame rate. */
+  /**
+   * Rain at 23:00 on High through the perf scenario's places: the new-game street, downtown, a four-star pursuit and the
+   * beach; each segment records the weather and the hour. Prints a table.
+   */
   async rainnight() {
     await t.boot();
     await t.newGame();
+    const measure = async (label, ms) => {
+      const seg = await t.measure(label, ms);
+      const w = await t.game((g) => ({ weather: g.weather(), hours: g.sim.clock.hours }));
+      seg.weather = { kind: w.weather.kind, rain: w.weather.rain, wet: w.weather.wet, dim: w.weather.dim };
+      seg.hours = w.hours;
+      return seg;
+    };
     await t.game((g) => {
       g.godMode(true);
       g.game.applySettings({ ...g.game.settings, quality: 'high' }, false);
       g.setClockRate(0);
-      g.setTime(22.5);
-      g.setWeather('storm', { instant: true });
+      g.setTime(23);
+      g.setWeather('rain', { instant: true });
+    });
+    await t.wait(1500);
+    await t.shot('rain-night-start');
+    await measure('rain-night-start', 4000);
+    await t.game((g) => {
       const n = g.sim.roads.node(4, 4);
       g.teleport(n.x + n.halfX + 2.2, n.z + n.halfZ + 9);
       g.setCamera(0, -0.1);
     });
-    await t.wait(2500);
-    await t.shot('rain-night-street');
-    await t.measure('rain-night-walk', 4000);
-    await t.game((g) => g.spawnVehicle('sports', true));
+    await t.wait(1500);
+    await t.shot('rain-night-downtown');
+    await measure('rain-night-downtown', 5000);
+    await t.game((g) => {
+      g.spawnVehicle('sports', true);
+      g.setWanted(4);
+    });
     await t.page.keyboard.down('KeyW');
-    await t.wait(2500);
-    await t.shot('rain-night-drive');
-    await t.measure('rain-night-drive', 4000);
+    await t.wait(1500);
+    await t.shot('rain-night-pursuit');
+    await measure('rain-night-pursuit', 6000);
     await t.page.keyboard.up('KeyW');
+    await t.game((g) => {
+      g.setWanted(0);
+      const b = g.sim.world.layout.bounds;
+      if (g.sim.player.vehicle) g.sim.playerCtl.ejectPlayer(true);
+      g.teleport(b.beachStartX + 12, 20);
+      g.setCamera(Math.PI / 2, -0.05);
+    });
+    await t.wait(1500);
+    await t.shot('rain-night-beach');
+    await measure('rain-night-beach', 4000);
     await t.snap('end');
-    console.table(report.segments.map((s) => ({ label: s.label, fps: s.fps, rainDrops: s.render?.rainDrops, wet: s.render?.wet, streaks: s.render?.streaks, particles: s.render?.particles })));
+    console.table(
+      report.segments.map((s) => ({
+        label: s.label,
+        fps: s.fps,
+        kind: s.weather?.kind,
+        rain: s.weather?.rain,
+        hours: s.hours,
+        rainDrops: s.render?.rainDrops,
+        glows: s.render?.glows,
+        pools: s.render?.pools,
+        streaks: s.render?.streaks,
+        calls: s.render?.calls,
+      })),
+    );
   },
   /** Frame rate in a few demanding places; prints a table. */
   async perf() {

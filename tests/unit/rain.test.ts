@@ -364,6 +364,37 @@ describe('wet-road streaks from street lamps and car lights', () => {
     expect(far).toBeLessThan(32.5);
     ls.dispose();
   });
+
+  it('streaks scale with how dark it is, so daytime rain reflects car lights more faintly than night', () => {
+    const streakRed = (dark: number): number => {
+      const ls = new LightSprites();
+      ls.wet = 1;
+      ls.dark = dark;
+      ls.begin(new THREE.Vector3(0, 2, 0), 800);
+      ls.addGlow({ kind: 'tail', x: 0, y: 0.8, z: 10, fx: 0, fz: 0 });
+      ls.finish(() => 0);
+      const c = new THREE.Color();
+      ls.streaks.getColorAt(0, c);
+      ls.dispose();
+      return c.r;
+    };
+    const night = streakRed(1);
+    expect(night).toBeGreaterThan(0);
+    expect(streakRed(0.65)).toBeCloseTo(night * 0.65, 6);
+  });
+
+  it('the renderer hands max(night, weather dim) to the streaks', () => {
+    const { r, sim, frame } = setup('high');
+    sim.weather.override('rain', 0);
+    sim.clock.set(12);
+    frame();
+    expect(r.lightSprites.dark).toBeCloseTo(sim.weather.state.dim, 6);
+    expect(r.lightSprites.dark).toBeLessThan(1);
+    sim.clock.set(23);
+    frame();
+    expect(r.lightSprites.dark).toBeCloseTo(1, 2);
+    r.dispose();
+  });
 });
 
 describe('tyre spray', () => {

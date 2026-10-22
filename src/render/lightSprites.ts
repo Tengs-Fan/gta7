@@ -185,6 +185,12 @@ export class LightSprites {
   readonly streaks: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   /** Ground wetness 0..1 (set before begin): streaks are drawn only on a wet road. */
   wet = 0;
+  /**
+   * How dark the scene is (max(night, weather dim)), set before finish. Streaks scale with it once more: by day the
+   * sky-lit road outshines a lamp's reflection, and lamps lit only by the weather's dimming would otherwise streak as
+   * brightly as at night.
+   */
+  dark = 1;
   private glowCount = 0;
   private poolCount = 0;
   private streakCount = 0;
@@ -421,7 +427,7 @@ export class LightSprites {
         this.m.compose(this.p.set(mx - (Math.sin(heading) * length) / 2, ground(mx, mz) + 0.04, mz - (Math.cos(heading) * length) / 2), this.q, this.s.set(0.55, 1, length));
         s.setMatrixAt(n, this.m);
         // Faded out close to the camera, where the mirror point runs under it and a streak would fill the view.
-        const k = this.wet * 0.5 * THREE.MathUtils.smoothstep(dist, STREAK_NEAR, STREAK_NEAR * 3);
+        const k = this.wet * this.dark * 0.5 * THREE.MathUtils.smoothstep(dist, STREAK_NEAR, STREAK_NEAR * 3);
         if (glow) s.setColorAt(n, this.c.setRGB(col[o]! * k, col[o + 1]! * k, col[o + 2]! * k));
         else s.setColorAt(n, this.c.setRGB(L[o + 3]! * k, L[o + 4]! * k, L[o + 5]! * k));
         n++;
