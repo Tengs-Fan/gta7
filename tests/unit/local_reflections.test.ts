@@ -63,6 +63,24 @@ describe('local reflection lifecycle', () => {
     expect(t.renderer.shadowMap.autoUpdate).toBe(true);
   });
 
+  it('recaptures after more than 0.05 game hours, still at most one capture start per half second', () => {
+    const t = setup();
+    t.complete();
+    const renders = () => t.renderer.render.mock.calls.length;
+    const base = renders();
+    t.probe.update(t.car, new THREE.Vector3(), 12.04, 2, [t.car, t.hidden]);
+    expect(renders(), 'a change of 0.04 h does not recapture').toBe(base);
+    t.probe.update(t.car, new THREE.Vector3(), 12.06, 2.1, [t.car, t.hidden]);
+    expect(renders(), 'a change of 0.06 h starts a capture').toBe(base + 1);
+    for (let i = 1; i < 6; i++) t.probe.update(t.car, new THREE.Vector3(), 12.06, 2.1 + i / 60, [t.car, t.hidden]);
+    const done = renders();
+    t.probe.update(t.car, new THREE.Vector3(), 12.2, 2.3, [t.car, t.hidden]);
+    expect(renders(), 'within half a second of the last capture start').toBe(done);
+    t.probe.update(t.car, new THREE.Vector3(), 12.2, 2.6, [t.car, t.hidden]);
+    expect(renders()).toBe(done + 1);
+    t.probe.dispose();
+  });
+
   it('honors repaint and burning material changes without altering other vehicles', () => {
     const t = setup();
     t.complete();
