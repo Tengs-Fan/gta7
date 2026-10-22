@@ -33,6 +33,17 @@ const CROSS_LEAD = 3;
  * different heights do not collide (see collideVehicles).
  */
 const BAY_SPACING = 3.5;
+/**
+ * A vehicle nobody is in, standing in a junction, that has held up traffic for TOW_BLOCK s is towed away out of the
+ * player's view, as drivers that cannot detour round it would otherwise wait for good. Drivers held up by it back off,
+ * re-plan and wait out red lights in between (a red phase is about 16 s): the hold-up only ends once nobody has stood
+ * held up by it for TOW_GAP s.
+ * The car the player left is kept while he is within TOW_KEEP_NEAR m of it, in view or not, and a car someone is
+ * getting into, a police unit or a mission car is never towed.
+ */
+const TOW_BLOCK = 30;
+const TOW_GAP = 20;
+const TOW_KEEP_NEAR = 20;
 
 /** A stretch of lane to spawn on: distances s0-s1 along it. */
 interface SpawnSpan {
@@ -55,6 +66,8 @@ export class TrafficSystem {
   /** The lanes of the road a fast player is about to drive down, his way (see refreshAhead). */
   private aheadPath = new Set<Lane>();
   readonly parkedBySpot = new Map<number, Vehicle>();
+  /** Since when each vehicle nobody is in has held up traffic in a junction, and when it last did (see TOW_BLOCK). */
+  private readonly blockTime = new Map<Vehicle, { since: number; last: number }>();
   /** Multiplier for traffic density (settings / tests). */
   density = 1;
 
@@ -76,6 +89,7 @@ export class TrafficSystem {
     if (this.timer <= 0) {
       this.timer = 0.4;
       this.streamTraffic();
+      this.towBlockers();
     }
     this.parkedTimer -= dt;
     if (this.parkedTimer <= 0) {
@@ -146,6 +160,33 @@ export class TrafficSystem {
       if (!this.trySpawnTraffic()) break;
       spawned++;
       count++;
+    }
+  }
+
+  /** Tow away vehicles nobody is in that have stood in a junction holding up traffic for TOW_BLOCK s. */
+  private towBlockers(): void {
+    const sim = this.sim;
+    const held = new Set<Vehicle>();
+    for (const v of sim.vehicles) {
+      const b = !v.removed && v.driver ? v.ai?.heldUpBy : null;
+      if (b && !b.removed && !b.driver) held.add(b);
+    }
+    const now = sim.time;
+    for (const [v, b] of this.blockTime) if (v.removed || now - b.last > TOW_GAP) this.blockTime.delete(v);
+    const pp = sim.playerPos();
+    for (const v of held) {
+      if (v.persistent || v.owner === 'police' || v.owner === 'mission' || v.occupants().length > 0) continue;
+      const n = sim.roads.nearestNode(v.pos.x, v.pos.z);
+      if (Math.abs(v.pos.x - n.x) > n.halfX + 2 || Math.abs(v.pos.z - n.z) > n.halfZ + 2) continue;
+      const b = this.blockTime.get(v) ?? { since: now, last: now };
+      b.last = now;
+      this.blockTime.set(v, b);
+      if (now - b.since < TOW_BLOCK) continue;
+      if (v.usedByPlayer && Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z) <= TOW_KEEP_NEAR) continue;
+      if (sim.characters.some((c) => !c.removed && c.enterTarget === v)) continue;
+      if (sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) continue;
+      this.blockTime.delete(v);
+      sim.removeVehicle(v);
     }
   }
 
