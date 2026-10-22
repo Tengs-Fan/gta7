@@ -468,7 +468,7 @@ describe('render fixes', () => {
       cam.update(DT, sim, true);
     }
     const ray = cam.aimRay();
-    const hit = sim.combat.castRay(ray.origin.x, ray.origin.y, ray.origin.z, ray.dir.x, ray.dir.y, ray.dir.z, 300, sim.player, true);
+    const hit = sim.combat.castRay(ray.origin.x, ray.origin.y, ray.origin.z, ray.dir.x, ray.dir.y, ray.dir.z, 300, sim.player);
     expect(hit.heli).toBe(0);
   });
 

@@ -474,8 +474,7 @@ export class PedSystem {
       if (canSee && d < 30) {
         const yaw = Math.atan2(tp.x - c.pos.x, tp.z - c.pos.z);
         c.moveSpeed = 0;
-        c.aiming = true;
-        c.aimYaw = yaw;
+        sim.combat.holdAim(c, t);
         c.heading = moveAngleTowards(c.heading, yaw, 10 * dt);
         // Don't shoot through a crewmate, or into a van that hides the target: side-step for a clear line. With no way
         // left to step (in a narrow gap between a wall and a bus, say), he fires all the same when the shot itself
