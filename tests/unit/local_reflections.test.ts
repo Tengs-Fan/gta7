@@ -81,6 +81,21 @@ describe('local reflection lifecycle', () => {
     t.probe.dispose();
   });
 
+  it.each([
+    [12, 12.05], [12.05, 12], [6.3, 6.35], [18.55, 18.6], [23.95, 24], [23.95, 0], [0, 23.95], [0.02, 23.97],
+  ])('treats an hour change of exactly 0.05 h (%f -> %f) as no lighting change', (from, to) => {
+    const t = setup();
+    for (let i = 0; i < 6; i++) t.update(i / 60, new THREE.Vector3(), from);
+    const renders = () => t.renderer.render.mock.calls.length;
+    const base = renders();
+    t.probe.update(t.car, new THREE.Vector3(), to, 2, [t.car, t.hidden]);
+    expect(renders(), `${from} -> ${to} does not recapture`).toBe(base);
+    const clearlyAbove = (from + 0.06) % 24;
+    t.probe.update(t.car, new THREE.Vector3(), clearlyAbove, 2.1, [t.car, t.hidden]);
+    expect(renders(), `${from} -> ${clearlyAbove} starts a capture`).toBe(base + 1);
+    t.probe.dispose();
+  });
+
   it('honors repaint and burning material changes without altering other vehicles', () => {
     const t = setup();
     t.complete();
