@@ -851,7 +851,7 @@ const ui = (over: Partial<UiActions> = {}): UiActions => ({ pause: false, map: f
 function mapRig() {
   const sim = new Sim({ world: world(), ambient: false, police: false });
   let waypoint: { x: number; z: number } | null = null;
-  const settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [] };
+  const settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true };
   const host = {
     hasSave: () => true,
     newGame: vi.fn(),

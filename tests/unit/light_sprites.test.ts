@@ -14,7 +14,7 @@ import { VehicleView } from '../../src/render/vehicleView';
 import type { Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import type { StaticWorld } from '../../src/world/staticWorld';
-import { makeSim, placeInCar, world } from './helpers';
+import { input, makeSim, placeInCar, world } from './helpers';
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
@@ -291,7 +291,7 @@ describe('headlight pools', () => {
     r.dispose();
   });
 
-  it('weatherDim turns lights on by day', () => {
+  it('dark weather turns lights on by day, and clear weather turns them off again', () => {
     const sim = makeSim({ world: W });
     sim.clock.set(13);
     driven(sim);
@@ -299,11 +299,25 @@ describe('headlight pools', () => {
     r.attach(sim);
     r.cameraCtl.mode = 'play';
     r.cameraCtl.reset(sim);
-    r.render(0, false);
-    expect(r.stats().pools).toBe(0);
-    r.weatherDim = 0.8;
-    r.render(0, false);
-    expect(r.stats().pools).toBeGreaterThan(0);
+    const frame = () => {
+      sim.update(DT, input());
+      r.render(DT, false);
+      return r.stats();
+    };
+    const clear = frame();
+    expect(clear.pools).toBe(0);
+    for (const kind of ['rain', 'storm'] as const) {
+      sim.weather.override(kind, 0);
+      const dark = frame();
+      expect(sim.weather.state.dim).toBeGreaterThanOrEqual(0.5);
+      expect(r.weatherDim).toBe(sim.weather.state.dim);
+      expect(dark.pools, kind).toBeGreaterThan(0);
+      expect(dark.glows, kind).toBeGreaterThan(clear.glows);
+    }
+    sim.weather.override('cloudy', 0);
+    expect(frame().pools).toBe(0);
+    sim.weather.override(null, 0);
+    expect(frame().pools).toBe(0);
     r.dispose();
   });
 });

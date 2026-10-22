@@ -301,7 +301,7 @@ function aSave(money = 4321): SaveData {
 
 function makeMenus(over: Partial<MenuHost> = {}) {
   let saved = true;
-  let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [] };
+  let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true };
   let waypoint: { x: number; z: number } | null = null;
   const host = {
     hasSave: () => saved,
@@ -425,10 +425,10 @@ describe('NEW GAME over a save asks first (critical)', () => {
 });
 
 describe('every confirmation opens on NO (medium)', () => {
-  it('DELETE SAVE: down x8, confirm, confirm keeps the save; up then confirm deletes it', () => {
+  it('DELETE SAVE: down x10, confirm, confirm keeps the save; up then confirm deletes it', () => {
     const { menus, button, press, saved } = makeMenus();
     menus.showSettings();
-    for (let i = 0; i < 8; i++) press({ down: true });
+    for (let i = 0; i < 10; i++) press({ down: true });
     press({ confirm: true });
     expect(button('NO')!.classList.contains('sel')).toBe(true);
     press({ confirm: true });

@@ -3,6 +3,7 @@
 
 import type { Game } from './game';
 import type { VehicleKind, WeaponId } from './sim/specs';
+import { WEATHER_KINDS, type WeatherFields, type WeatherKind, type WeatherMode } from './sim/weather';
 
 export function installDebugApi(game: Game): void {
   const api = {
@@ -82,6 +83,39 @@ export function installDebugApi(game: Game): void {
     /** Overrides FinishPass (FXAA, grade, vignette; vignette null = time of day) until the next quality change. */
     setPost(o: { aa?: 'none' | 'fxaa'; grade?: boolean; vignette?: number | null }) {
       return game.renderer.overridePost(o);
+    },
+    /**
+     * Forces a weather kind (ramping over 20 s unless `instant`), or pins single fields ({ seaState: 1 }) on top of the
+     * weather; clearWeather releases both.
+     */
+    setWeather(w: WeatherKind | WeatherFields, opts: { instant?: boolean; ramp?: number } = {}) {
+      const ws = game.sim.weather;
+      const ramp = opts.instant ? 0 : opts.ramp;
+      if (typeof w === 'string') {
+        if (!WEATHER_KINDS.includes(w)) throw new Error(`unknown weather ${w}`);
+        ws.override(w, ramp);
+      } else {
+        ws.setFields(w);
+      }
+      return api.weather();
+    },
+    weather() {
+      const ws = game.sim.weather;
+      return { ...ws.state, wind: { ...ws.state.wind }, mode: ws.mode, overridden: ws.overridden };
+    },
+    /** Back to the forecast (or the clear mode): drops a forced kind and pinned fields. */
+    clearWeather(opts: { instant?: boolean } = {}) {
+      game.sim.weather.override(null, opts.instant ? 0 : undefined);
+      return api.weather();
+    },
+    /** A lightning strike now, at (x, z) or at a spot 300-1500 m from the player. */
+    lightning(x?: number, z?: number) {
+      const sim = game.sim;
+      sim.weather.strike(sim.events, sim.playerPos(), x, z, sim.frame);
+    },
+    /** Imposes a weather mode over the setting for this and later games (the e2e helpers keep it clear); null releases it. */
+    forceWeather(mode: WeatherMode | null) {
+      game.forceWeather(mode);
     },
     /** Clock speed relative to the default (1 = one game minute per real second). */
     setClockRate(r: number) {
@@ -173,5 +207,9 @@ export function installDebugApi(game: Game): void {
       return c ? c.alive : false;
     },
   };
-  (window as unknown as { __gta7: typeof api }).__gta7 = api;
+  const w = window as unknown as { __gta7: typeof api; __gta7Test?: { weather?: WeatherMode } };
+  w.__gta7 = api;
+  // Set by an init script before the page loads (tests/e2e/helpers.ts boot), so it holds across reloads too.
+  const forced = w.__gta7Test?.weather;
+  if (forced === 'clear' || forced === 'dynamic') game.forceWeather(forced);
 }

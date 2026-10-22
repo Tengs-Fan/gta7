@@ -2,6 +2,7 @@
 
 import type { QualitySetting } from './render/quality';
 import { parseSave, type SaveData } from './sim/progress';
+import type { WeatherMode } from './sim/weather';
 
 export interface Settings {
   /** 'auto' follows the tier picked from the GPU at boot. */
@@ -16,6 +17,10 @@ export interface Settings {
   hints: boolean;
   /** Hints already shown once (ids from src/ui/hints.ts). Replaced, never changed in place. */
   hintsSeen: readonly string[];
+  /** 'dynamic' follows the forecast; 'clear' keeps clear skies. */
+  weather: WeatherMode;
+  /** The sky and light flash of lightning (off for photosensitivity; the storm and its thunder go on). */
+  lightningFlashes: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -28,6 +33,8 @@ export const DEFAULT_SETTINGS: Settings = {
   fov: 68,
   hints: true,
   hintsSeen: [],
+  weather: 'dynamic',
+  lightningFlashes: true,
 };
 
 /** At most this many hint ids are kept: a corrupt or hand-edited file can't grow without bound. */
@@ -84,6 +91,8 @@ export function loadSettings(): Settings {
       // Files from before hints existed lack both fields: hints on, nothing seen yet.
       hints: typeof raw.hints === 'boolean' ? raw.hints : DEFAULT_SETTINGS.hints,
       hintsSeen: hintIds(raw.hintsSeen),
+      weather: raw.weather === 'clear' || raw.weather === 'dynamic' ? raw.weather : DEFAULT_SETTINGS.weather,
+      lightningFlashes: typeof raw.lightningFlashes === 'boolean' ? raw.lightningFlashes : DEFAULT_SETTINGS.lightningFlashes,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

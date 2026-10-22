@@ -82,6 +82,7 @@ Progress stays in this browser: the game autosaves after every mission passed an
   Parody shopfronts (DONUTS, PAWN, TACOS, BAIL BONDS and more), tower lobbies and house porches line the streets, and lamp posts, traffic signals, fire hydrants, bins and benches break.
 - **Day and night.** A day lasts 24 minutes.
   Clouds catch the sunset, a moon and stars come out, windows light up building by building through the evening and thin out after midnight, and at night the Ferris wheel lights up and the lighthouse beam sweeps round.
+- **Weather.** Clear, cloudy, overcast, rain and storm skies change every three game hours (the first day is always clear), with greyer skies, softer shadows, closer fog, lightning in storms, and cars turning their lights on when it gets dark. Weather is visual only: it does not change grip or traffic.
 - **Living streets.** Traffic follows its lanes, stops at red lights, yields on left turns, honks, overtakes and backs out of blockages, from about 14 cars around you late at night to 30 at rush hour.
   Pedestrians cross on the walk signal, flee from gunfire and explosions, put their hands up, cower or run at gunpoint, and some fight back, above all the Tiburones gang, who wear teal, often carry pistols and fight as a crew on their own turf.
 - **Driving.** Ten vehicles: the Pipsqueak compact, Velora sedan, Azura Cab, Nightjar GT sports car, Thunderhoof muscle car, Dustrunner pickup, Breadbox van, Citybus, Patrol Cruiser and Riot Van, and you can steal any of them, even with someone inside.
@@ -145,7 +146,7 @@ Press T during a run to cancel. Running out of time, leaving the car, or losing 
 ## Cheats
 
 Type a code during play: no Enter, any mix of upper and lower case, each letter within 1.5 seconds of the one before.
-A message confirms it ("Cheat activated", or "Cheat: god mode on" and "Cheat: god mode off" for IMMORTAL).
+A message confirms it ("Cheat activated", "Cheat: god mode on" and "Cheat: god mode off" for IMMORTAL, or the new weather for RAINDANCE).
 The first letters of a code may briefly do their usual job (M opens the map, F gets you out of your car), and the game undoes that once the code is complete.
 
 | Code | Effect |
@@ -159,6 +160,7 @@ The first letters of a code may briefly do their usual job (M opens the map, F g
 | `NIGHTOWL` | Sets the clock to 23:00 |
 | `SPAWNSPORTS` | An empty Nightjar GT about 6 m ahead of you, if there is room for one within 20 m |
 | `COPMAGNET` | Two more wanted stars, up to five |
+| `RAINDANCE` | Steps the weather: rain, storm, overcast, clear, then back to the forecast (not saved) |
 
 ## Settings and graphics quality
 
@@ -173,6 +175,8 @@ Changes apply at once and are stored in the browser (`localStorage` key `gta7.se
 | Field of view (wider at speed in a vehicle, narrower when aiming) | 55–90° | 68° |
 | Invert look Y (mouse and right stick) | On / Off | Off |
 | Tutorial hints (first-time hints and the "Press F to steal" prompt) | On / Off | On |
+| Weather (Always clear ramps the sky to clear and keeps it so) | Dynamic, Always clear | Dynamic |
+| Lightning flashes (off: storms keep their rain and lightning events, without the sky and light flash) | On / Off | On |
 | DELETE SAVE | asks first | |
 
 **Auto** picks a tier once per page load from the GPU, and the row shows its choice, such as AUTO (HIGH).

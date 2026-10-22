@@ -22,6 +22,8 @@ export interface SimEvents {
   /** A vehicle grinding along a wall or another vehicle (at most 15 per second per vehicle); a grinding pair is reported once, for the faster car, with the slower as `other`. */
   scrape: { x: number; y: number; z: number; speed: number; vehicle: Vehicle; other?: Vehicle | null };
   splash: { x: number; y: number; z: number; big: boolean };
+  /** A lightning strike in a storm, `dist` metres from the player (for the flash and the thunder's delay). */
+  lightning: { x: number; z: number; dist: number };
   horn: { vehicle: Vehicle };
   vehicleEnter: { vehicle: Vehicle; character: Character; jacked: boolean };
   vehicleExit: { vehicle: Vehicle; character: Character };

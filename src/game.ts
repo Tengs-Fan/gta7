@@ -13,6 +13,7 @@ import { applySave, serialize, type SaveData } from './sim/progress';
 import { Sim } from './sim/sim';
 import { WEAPON_ORDER, type WeaponId } from './sim/specs';
 import { findVehicleRoom } from './sim/vehicleRoom';
+import type { WeatherKind, WeatherMode } from './sim/weather';
 import { HintSystem } from './ui/hints';
 import { Hud } from './ui/hud';
 import { MapImage } from './ui/mapRender';
@@ -37,6 +38,9 @@ const TITLE_UNMUTE_DELAY = 0.8;
  */
 const BAIL_SPEED = 11;
 const BAIL_DAMAGE = 6;
+/** RAINDANCE steps the weather through these, then back to the forecast (null); each change ramps over CHEAT_RAMP s. */
+const RAINDANCE: ReadonlyArray<WeatherKind | null> = ['rain', 'storm', 'overcast', 'clear', null];
+const CHEAT_RAMP = 6;
 /** Keys are named by their QWERTY binding: the HUD draws them for the player's layout or pad. */
 const WELCOME = 'Welcome to San Azura. Mama Lou has work for you: follow the <b class="lou">pink route</b> to the <b class="lou">L</b> on your radar. Steal a ride with <kbd>F</kbd>.';
 /** With her call coming in, the route to her is no longer the thing to read. */
@@ -92,6 +96,8 @@ export class Game {
   /** Seconds until the world is un-muted after QUIT TO TITLE (see TITLE_UNMUTE_DELAY); not positive when none is due. */
   private titleUnmute = 0;
   private gfxTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A weather mode the tests impose over the setting (see debug.ts forceWeather), or null. */
+  private forcedWeather: WeatherMode | null = null;
   /** Total real time spent in frames (for tests). */
   readonly perf = { frameMs: 0, simMs: 0, renderMs: 0, frameIntervalMs: 0 };
   /** ?intro=0 in the URL, read once. */
@@ -217,11 +223,25 @@ export class Game {
     // Not yet during construction, which applies the settings before the first sim exists.
     if (this.sim) this.applyDensity(this.sim);
     this.renderer.setFov(s.fov);
+    this.renderer.lightningFlashes = s.lightningFlashes;
+    // The title flyover stays clear; a game in progress ramps to the new mode.
+    if (this.sim && this.mode === 'game') this.sim.weather.mode = this.weatherMode;
     this.renderer.cameraCtl.sensitivity = s.sensitivity;
     this.renderer.cameraCtl.invertY = s.invertY;
     this.audio.setVolumes(s.master, s.music, s.sfx);
     if (!s.hints) this.hud.clearHints();
     if (persist) saveSettings(this.settings);
+  }
+
+  /** The weather mode of gameplay sims: the setting, unless a test has forced one. */
+  get weatherMode(): WeatherMode {
+    return this.forcedWeather ?? this.settings.weather;
+  }
+
+  /** Test hook: imposes a weather mode over the setting (null: the setting again), now and for later games. */
+  forceWeather(mode: WeatherMode | null): void {
+    this.forcedWeather = mode;
+    if (this.mode === 'game') this.sim.weather.mode = this.weatherMode;
   }
 
   /** The concrete tier a quality setting stands for. */
@@ -255,7 +275,7 @@ export class Game {
     this.pendingAutosave = false;
     this.world.resetBroken();
     this.renderer.props.restoreAll();
-    const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5 });
+    const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5, weather: this.weatherMode });
     this.applyDensity(sim);
     if (save) {
       applySave(sim.progress, save);
@@ -699,6 +719,12 @@ export class Game {
       case 'COPMAGNET':
         sim.wanted.setLevel(Math.min(5, sim.wanted.level + 2));
         break;
+      case 'RAINDANCE': {
+        const next = RAINDANCE[(RAINDANCE.indexOf(sim.weather.overridden) + 1) % RAINDANCE.length] ?? null;
+        sim.weather.override(next, CHEAT_RAMP);
+        this.hud.toast(`Weather: ${next ?? 'forecast'}`);
+        return;
+      }
     }
     this.hud.toast(code === 'IMMORTAL' ? `Cheat: god mode ${sim.cheats.godMode ? 'on' : 'off'}` : 'Cheat activated');
   }

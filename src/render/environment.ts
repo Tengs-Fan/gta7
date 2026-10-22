@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { clamp, lerp, smoothstep } from '../core/math';
 import { darkness, sunIntensity } from '../sim/clock';
+import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 
@@ -211,6 +212,31 @@ function relDiff(a: THREE.Color, b: THREE.Color): number {
   return Math.max(Math.abs(a.r - b.r), Math.abs(a.g - b.g), Math.abs(a.b - b.b)) / Math.max(b.r, b.g, b.b, BAKE_FLOOR);
 }
 
+/** The weather inputs the atmosphere reads (sim/weather.ts WeatherState). */
+export type EnvWeather = Pick<WeatherState, 'cloud' | 'rain' | 'storm' | 'fog'>;
+const CLEAR_SKY: Readonly<EnvWeather> = { cloud: 0, rain: 0, storm: 0, fog: 0 };
+/** Extra cloud cover at full cloud. */
+const WEATHER_COVER = 0.6;
+/** How far the sky's colours go to grey at full cloud, and how much rain and storm darken it. */
+const SKY_GREY = 0.8;
+const RAIN_DARK = 0.35;
+const STORM_DARK = 0.3;
+/** The sun's light lost at full cloud, and the shadows' strength left. */
+const CLOUD_SUN_LOSS = 0.8;
+const CLOUD_SHADOW = 0.4;
+/** Fog distances at full haze, as a share of the clear ones. */
+const HAZE_FAR = 0.45;
+const HAZE_NEAR = 0.5;
+/** Exposure boost at full cloud: overcast light is flat, not dim. */
+const CLOUD_EXPOSURE = 0.1;
+/** Lightning: what a full flash adds to the hemisphere fill and to the sky (linear). */
+const FLASH_HEMI = 1.0;
+
+/** Moves a palette colour by `k` towards a cool grey of luminance `l`, then scales it. */
+function weatherTint(c: THREE.Color, l: number, k: number, scale: number): void {
+  c.lerp(cA.setRGB(l * 0.96, l, l * 1.05), k).multiplyScalar(scale);
+}
+
 /** Share of the key light a puff of smoke scatters, against a surface facing the light. */
 const PUFF_KEY = 0.5;
 /** The smoke light never drops below this luminance (lamps, headlights and lit windows light the smoke too). */
@@ -370,6 +396,10 @@ uniform vec2 uWind2;
 uniform int uOctaves;
 uniform int uHighOctaves;
 uniform float uLightTap;
+// Weather: cloud greyness 0..1, darkening of rain clouds 0..1, lightning flash 0..1.
+uniform float uOvercast;
+uniform float uStormDark;
+uniform float uFlash;
 varying vec3 vDir;
 
 float hash12(vec2 p) {
@@ -456,7 +486,9 @@ vec4 clouds(vec3 d) {
   vec2 q = d.xz / max(d.y, 0.05) * 0.065 + uWind1 * 0.035;
   float n = texture2D(uNoise, q).r;
   float a = smoothstep(0.52, 0.61, n) * smoothstep(0.01, 0.25, d.y);
+  a = max(a, smoothstep(0.52 - 0.32 * uOvercast, 0.61 - 0.2 * uOvercast, n) * smoothstep(0.01, 0.25, d.y));
   vec3 day = mix(vec3(0.75, 0.78, 0.86), uSunColor * 1.1, uGolden * 0.8);
+  day = mix(day, vec3(0.56, 0.58, 0.62), uOvercast) * (1.0 - uStormDark);
   return vec4(mix(day, vec3(0.025, 0.03, 0.045) + uGlow * 0.5, uNight), a);
 #else
   vec2 p = d.xz / max(d.y, 0.03);
@@ -482,11 +514,17 @@ vec4 clouds(vec3 d) {
   // Low sun: undersides and edges take its orange.
   shade = mix(shade, uSunColor * vec3(1.0, 0.6, 0.42) * 0.95, uGolden);
   bright = mix(bright, mix(uSunColor, vec3(1.0, 0.86, 0.7), 0.35) * 1.2, uGolden);
+  // Overcast: flat grey decks, darker and heavier in rain and storms.
+  bright = mix(bright, vec3(0.62, 0.64, 0.68), uOvercast) * (1.0 - uStormDark);
+  shade = mix(shade, vec3(0.4, 0.42, 0.46), uOvercast) * (1.0 - 1.2 * uStormDark);
   // Night: dim moonlit tops; low clouds catch the city's glow from below.
   vec3 glowLit = max(uGlow, vec3(0.0)) * exp(-d.y * 5.0);
   bright = mix(bright, vec3(0.04, 0.044, 0.058) + glowLit * 0.6, uNight);
   shade = mix(shade, vec3(0.02, 0.021, 0.028) + glowLit * 0.9, uNight);
   vec3 col = mix(shade, bright, lit);
+  // An overcast night: the deck takes the city's light from below, a little brighter than the sky behind it.
+  vec3 under = mix(uHorizon + uGlow, uTop, pow(clamp(d.y, 0.0, 1.0), 0.55)) * 1.15 + glowLit * 0.5;
+  col = mix(col, under, uOvercast * uNight);
   float sd = max(dot(d, uSunDir), 0.0);
   col += uSunColor * pow(sd, 10.0) * (1.0 - dens) * 0.9 * (1.0 - uNight);
   vec3 highCol = mix(bright, uHorizon, 0.25);
@@ -571,6 +609,8 @@ void main() {
       col = mix(col, nearCol, near);
     }
   }
+  // Lightning lights the whole sky, the clouds most.
+  col += vec3(0.55, 0.6, 0.75) * uFlash * (0.6 + 0.6 * c.a);
   gl_FragColor = vec4(col, 1.0);
   // No-ops when three draws into its HDR target (its output pass tone-maps); else this is the output.
   #include <tonemapping_fragment>
@@ -666,6 +706,9 @@ export class Environment {
         uOctaves: { value: 5 },
         uHighOctaves: { value: 4 },
         uLightTap: { value: 1 },
+        uOvercast: { value: 0 },
+        uStormDark: { value: 0 },
+        uFlash: { value: 0 },
       },
       side: THREE.BackSide,
       // Drawn after the opaque scene at the far plane: pixels already covered fail the depth test
@@ -844,9 +887,25 @@ export class Environment {
     this.highSd = CLOUD_SD[high]!;
   }
 
-  /** Updates lighting for the given time of day and moves the shadow frustum with the camera focus. */
-  update(hours: number, focus: THREE.Vector3, camera: THREE.Camera, time: number, renderer: THREE.WebGLRenderer): void {
+  /**
+   * Updates lighting for the given time of day and weather (clear when absent), and moves the shadow frustum with the
+   * camera focus. `flash` (0..1) is the lightning flash; the caller leaves it 0 when flashes are turned off.
+   */
+  update(hours: number, focus: THREE.Vector3, camera: THREE.Camera, time: number, renderer: THREE.WebGLRenderer, weather: Readonly<EnvWeather> = CLEAR_SKY, flash = 0): void {
     const s = sample(hours);
+    const cloud = clamp(weather.cloud, 0, 1);
+    const rain = clamp(weather.rain, 0, 1);
+    const storm = clamp(weather.storm, 0, 1);
+    const haze = clamp(weather.fog, 0, 1);
+    if (cloud > 0 || rain > 0 || storm > 0) {
+      // Cloud turns the sky one even grey; rain and storms darken it. Everything below (fog, fill, the baked sky) follows.
+      const l = 0.5 * (luminance(s.top) + luminance(s.horizon));
+      const darken = 1 - RAIN_DARK * rain - STORM_DARK * storm;
+      // By night the zenith keeps its own darkness: a grey deck lit from below by the city, not a lighter sky.
+      const n = darkness(hours);
+      weatherTint(s.top, lerp(l * 0.85, luminance(s.top), n), SKY_GREY * cloud, darken);
+      weatherTint(s.horizon, l * 1.05, SKY_GREY * cloud, darken);
+    }
     skyPath(hours, this.sunDir, this.moonDir);
     const sunDir = this.sunDir;
     const moonDir = this.moonDir;
@@ -869,17 +928,20 @@ export class Environment {
     (u.uMoonDir!.value as THREE.Vector3).copy(moonDir);
     // The key light: the sun while the sky shows it, else the moon once the sun's light is gone (see SUN_LO).
     const sunVis = sunVisibility(sunDir.y);
-    const sunI = s.sunI * sunVis;
+    const sunI = s.sunI * sunVis * (1 - CLOUD_SUN_LOSS * cloud);
     const moonUp = moonRamp(sunDir.y);
-    const moonI = MOON_I * night * moonUp;
+    const moonI = MOON_I * night * moonUp * (1 - CLOUD_SUN_LOSS * cloud);
     const useMoon = moonI > sunI;
     (u.uLightDir!.value as THREE.Vector3).copy(useMoon ? moonDir : sunDir);
-    u.uLightAmt!.value = useMoon ? moonUp : sunVis;
-    u.uStars!.value = starsAt(night);
-    u.uMoon!.value = smoothstep(0.3, 0.85, night);
+    u.uLightAmt!.value = (useMoon ? moonUp : sunVis) * (1 - 0.7 * cloud);
+    u.uStars!.value = starsAt(night) * (1 - cloud);
+    u.uMoon!.value = smoothstep(0.3, 0.85, night) * (1 - 0.8 * cloud);
     u.uNight!.value = night;
-    u.uGolden!.value = goldenHour(hours);
-    const cover = coverAt(hours, night);
+    u.uGolden!.value = goldenHour(hours) * (1 - 0.8 * cloud);
+    u.uOvercast!.value = cloud;
+    u.uStormDark!.value = RAIN_DARK * rain + STORM_DARK * storm;
+    u.uFlash!.value = flash;
+    const cover = Math.min(0.97, coverAt(hours, night) + WEATHER_COVER * cloud);
     u.uCloudT!.value = cloudThreshold(cover, this.cloudSd);
     u.uCloudW!.value = CLOUD_EDGE * this.cloudSd;
     u.uHighT!.value = cloudThreshold(cover * 0.5, this.highSd);
@@ -900,13 +962,16 @@ export class Environment {
     else lightDir.set(sunDir.x, KEY_MIN_Y, sunDir.z).normalize();
     this.sun.color.copy(useMoon ? MOON_COLOR : s.sun);
     this.sun.intensity = Math.max(sunI, moonI);
+    // Under cloud the light is diffuse: softer shadows.
+    this.sun.shadow.intensity = 1 - (1 - CLOUD_SHADOW) * cloud;
     this.placeShadow(focus, lightDir);
 
-    this.hemi.intensity = hemiLight(s, night, this.hemi.color, this.hemi.groundColor);
+    this.hemi.intensity = hemiLight(s, night, this.hemi.color, this.hemi.groundColor) * (1 + 0.25 * cloud) * (1 - 0.15 * rain - 0.15 * storm) + FLASH_HEMI * flash;
+    if (cloud > 0) weatherTint(this.hemi.color, luminance(this.hemi.color), 0.6 * cloud, 1);
 
     this.fog.color.copy(s.horizon).lerp(NIGHT_HORIZON_GLOW, dark * FOG_GLOW_STRENGTH).lerp(s.top, 0.15 * (1 - night));
-    this.fog.near = this.software ? lerp(70, 50, night) : lerp(180, 90, night);
-    this.fog.far = this.software ? 220 : lerp(780, 520, night);
+    this.fog.near = (this.software ? lerp(70, 50, night) : lerp(180, 90, night)) * (1 - (1 - HAZE_NEAR) * haze);
+    this.fog.far = (this.software ? 220 : lerp(780, 520, night)) * (1 - (1 - HAZE_FAR) * haze);
     const envI = envIntensity(night);
     // The baked sky's sun, which sets with the sky's own (sunVisibility).
     const envSun = this.envSun.copy(s.sun).multiplyScalar(Math.min(1.5, s.sunI / 2) * sunVis);
@@ -947,7 +1012,7 @@ export class Environment {
       this.scene.environmentIntensity = envI * k;
     }
     this.updateSmokeLight(s);
-    renderer.toneMappingExposure = s.exposure;
+    renderer.toneMappingExposure = s.exposure * (1 + CLOUD_EXPOSURE * cloud);
 
     // Each ripple sample's offset wraps by whole tiles of its own (see twoLayerRipples).
     this.rippleA.value.set((time * RIPPLE_A_DRIFT[0]) % 1, (time * RIPPLE_A_DRIFT[1]) % 1);

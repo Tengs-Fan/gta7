@@ -30,6 +30,7 @@ import { VEHICLE_SPECS, type VehicleKind } from './specs';
 import { TrafficSystem } from './traffic';
 import { collideVehicles, collideVehicleStatic, stepVehicle, type VehiclePhysicsHost } from './vehiclePhysics';
 import { WantedSystem } from './wanted';
+import { WeatherSystem, type WeatherMode } from './weather';
 
 export interface SimOptions {
   seed?: number;
@@ -39,6 +40,8 @@ export interface SimOptions {
   /** Police respond to crimes. */
   police?: boolean;
   startHour?: number;
+  /** 'dynamic' follows the seed's weather schedule; 'clear' (the default) keeps clear skies. */
+  weather?: WeatherMode;
 }
 
 const PHYSICS_STEP = 1 / 120;
@@ -49,6 +52,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   readonly events = new Emitter<SimEvents>();
   readonly rng: Rng;
   readonly clock: GameClock;
+  readonly weather: WeatherSystem;
   readonly progress = new Progress();
   time = 0;
   frame = 0;
@@ -93,6 +97,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.roads = this.world.roads;
     this.rng = new Rng(((opts.seed ?? 7) * 2654435761) >>> 0);
     this.clock = new GameClock(opts.startHour ?? 16);
+    this.weather = new WeatherSystem(opts.seed ?? 7, opts.weather ?? 'clear');
     this.ambient = opts.ambient ?? true;
     this.policeEnabled = opts.police ?? true;
 
@@ -467,6 +472,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.time += dt;
     this.frame++;
     this.clock.update(dt);
+    this.weather.update(dt, this.clock, this.events, this.playerPos());
     this.progress.stats.playTime += dt;
     this.lastInput = input;
     this.cam.x = input.aimOrigin.x;

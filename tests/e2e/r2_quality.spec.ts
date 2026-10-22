@@ -45,7 +45,7 @@ test.describe('graphics quality', () => {
     const builtMsaa = QUALITY[auto].msaa;
     expect((await state(page)).render.tier).toBe(auto);
     await page.getByRole('button', { name: 'SETTINGS', exact: true }).click();
-    const select = page.locator('.setting select');
+    const select = page.locator('.setting select[aria-label="Graphics quality"]');
     const note = page.locator('.setting-note');
     await expect(select).toHaveValue('auto');
     await expect(select.locator('option').first()).toHaveText(`AUTO (${auto.toUpperCase()})`);
