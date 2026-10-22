@@ -371,7 +371,9 @@ export class PedSystem {
     c.moveSpeed = 0;
     b.waitTimer += dt;
     const e = sim.world.walk.edge(b.fromNode, b.toNode);
-    if (!e || !e.crosswalk || sim.roads.pedCanCross(e.roadNode, e.axis!, sim.time) || b.waitTimer > 40) b.mode = 'wander';
+    if (!e || !e.crosswalk || sim.roads.pedCanCross(e.roadNode, e.axis!, sim.time)) b.mode = 'wander';
+    // Tired of a broken light, a pedestrian crosses anyway; not at a junction held for a racer coming through.
+    else if (b.waitTimer > 40 && sim.roads.signalHold(e.roadNode) === null) b.mode = 'wander';
   }
 
   private doFlee(c: Character, b: PedBrain, dt: number): void {
