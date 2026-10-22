@@ -124,6 +124,7 @@ describe('twilight key light (no phantom sun)', () => {
     const phantom: Array<{ h: number; y: number; i: number }> = [];
     const reflected: Array<{ h: number; y: number; sun: number }> = [];
     const frames = Math.round((h1 - h0) / FRAME_H);
+    let below: number | null = null;
     for (let k = 0; k <= frames; k++) {
       const h = (h0 + k * FRAME_H) % 24;
       env.update(h, focus, cam, k * DT, r);
@@ -142,8 +143,13 @@ describe('twilight key light (no phantom sun)', () => {
       prevC = C;
       const moon = env.sun.color.equals(MOON_COLOR);
       if (env.sunDir.y < -0.05 && !moon && i > 1e-3) phantom.push({ h, y: env.sunDir.y, i });
-      // The sun reflected by the baked sky (the sea's glare) sets with the sky's too.
-      if (env.sunDir.y < -0.05 && lum(envSun) > 0) reflected.push({ h, y: env.sunDir.y, sun: lum(envSun) });
+      // The sun reflected by the baked sky (the sea's glare) sets with the sky's too: at most an invisible trace
+      // of it until the next bake is due, half a real second (30 frames) on, and none after.
+      if (env.sunDir.y < -0.05) {
+        below ??= k;
+        const sun = lum(envSun);
+        if (sun > 1e-4 || (k - below >= 30 && sun > 0)) reflected.push({ h, y: env.sunDir.y, sun });
+      }
       // While the sun lights the scene, its light comes from where the sky shows it (within the low-sun guard).
       if (!moon && i > 1e-3) off = Math.max(off, keyDir(env).angleTo(env.sunDir));
     }

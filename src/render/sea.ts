@@ -18,8 +18,9 @@ export interface SeaUniforms {
   uSeaAmp: { value: number };
   uDisplace: { value: number };
   uSeaOrigin: { value: THREE.Vector2 };
-  /** Surf bands' phase (rad, wrapped) and the foam noise's drift. */
+  /** Surf bands' and quay-foam pulse's phases (rad, each wrapped after its own rate), and the foam noise's drift. */
   uSurfPhase: { value: number };
+  uQuayPhase: { value: number };
   uFoamDrift: { value: THREE.Vector2 };
   /** landMinX, landMinZ, landMaxZ, beachEndX. */
   uShoreLand: { value: THREE.Vector4 };
@@ -36,6 +37,7 @@ export function seaUniforms(): SeaUniforms {
     uDisplace: { value: 0 },
     uSeaOrigin: { value: new THREE.Vector2() },
     uSurfPhase: { value: 0 },
+    uQuayPhase: { value: 0 },
     uFoamDrift: { value: new THREE.Vector2() },
     // No land until setShore: deep water everywhere.
     uShoreLand: { value: new THREE.Vector4(1e6, 1e6, -1e6, -1e6) },
@@ -53,6 +55,14 @@ export function setShore(u: SeaUniforms, b: Bounds): void {
 
 const tmpPhases = [0, 0, 0, 0];
 const SURF_RATE = 1.2;
+/** The quay foam pulses this much faster than the surf bands roll in. */
+const QUAY_PULSE = 1.4;
+
+/** The surf bands' and quay pulse's phases at renderer time `time`, wrapped to [0, 2pi) after their rates apply. */
+export function surfPhases(time: number): { surf: number; quay: number } {
+  const TAU = Math.PI * 2;
+  return { surf: (time * SURF_RATE) % TAU, quay: (time * SURF_RATE * QUAY_PULSE) % TAU };
+}
 
 /** Per frame: the waves' phases at renderer time `time`, the sea state, and the grid's centre. */
 export function updateSea(u: SeaUniforms, time: number, seaState: number, originX: number, originZ: number): void {
@@ -60,7 +70,9 @@ export function updateSea(u: SeaUniforms, time: number, seaState: number, origin
   u.uWavePhase.value.set(p[0]!, p[1]!, p[2]!, p[3]!);
   u.uSeaAmp.value = Math.min(1, Math.max(0, seaState));
   u.uSeaOrigin.value.set(originX, originZ);
-  u.uSurfPhase.value = (time * SURF_RATE) % (Math.PI * 2);
+  const phases = surfPhases(time);
+  u.uSurfPhase.value = phases.surf;
+  u.uQuayPhase.value = phases.quay;
   u.uFoamDrift.value.set((time * 0.013) % 1, (time * 0.009) % 1);
 }
 
@@ -75,6 +87,7 @@ export const SHORE_GLSL = /* glsl */ `
 uniform vec4 uShoreLand;
 uniform vec4 uShoreBeach;
 uniform float uSurfPhase;
+uniform float uQuayPhase;
 uniform vec2 uFoamDrift;
 uniform vec3 uShallow;
 uniform vec3 uSandTint;
@@ -111,7 +124,7 @@ float seaFoam(vec2 p, float depth, float noise, float sea) {
   float beach = clamp((bands * (0.55 + 0.6 * sea) + swash * 0.8) * onBeach, 0.0, 1.0);
   float d = seaQuay(p);
   float width = 0.5 + 1.0 * smoothstep(0.3, 0.7, noise);
-  float pulse = 0.8 + 0.2 * sin(uSurfPhase * 1.4 + (p.x + p.y) * 0.21);
+  float pulse = 0.8 + 0.2 * sin(uQuayPhase + (p.x + p.y) * 0.21);
   float notBeach = 1.0 - smoothstep(seaWaterlineX() - 5.0, seaWaterlineX() + 10.0, p.x);
   float quay = (1.0 - smoothstep(width * 0.4, width, d)) * step(1e-3, d) * pulse * notBeach * (0.85 + 0.3 * sea) * (0.75 + 0.5 * noise);
   return clamp(max(beach, quay), 0.0, 1.0);

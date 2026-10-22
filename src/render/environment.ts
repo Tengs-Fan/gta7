@@ -996,16 +996,16 @@ export class Environment {
       this.skyReflection.horizon.value.copy(s.horizon);
       this.skyReflection.intensity.value = envI;
     } else {
-      // Re-bake when the sky has visibly changed since the last bake (at most every half real second:
-      // a bake costs about a millisecond), when the sun has just fully set or risen (so its reflection
-      // is gone, or whole, with the sky's), and at once after a jump in time or a quarter game hour;
-      // NaN (first frame, context restore) forces a bake.
+      // Re-bake when the sky has visibly changed since the last bake or the sun has fully set or risen
+      // (so its reflection is gone, or whole, with the sky's), at most every half real second (a bake
+      // costs about a millisecond); and at once after a jump in time or a quarter game hour. NaN
+      // (first frame, context restore) forces a bake.
       const diff = Math.abs(hours - this.envHours);
       const jumped = !(Math.min(diff, 24 - diff) <= 0.25);
       const settled = (sunVis === 0 || sunVis === 1) && sunVis !== this.envSunVis;
       const changed = relDiff(s.top, this.bakedTop) > BAKE_REL || relDiff(s.horizon, this.bakedHorizon) > BAKE_REL || relDiff(envSun, this.bakedSun) > BAKE_REL;
       const due = time - this.lastBakeTime >= BAKE_INTERVAL || time < this.lastBakeTime;
-      if (jumped || settled || (changed && due)) {
+      if (jumped || ((changed || settled) && due)) {
         this.envHours = hours;
         this.envSunVis = sunVis;
         this.lastBakeTime = time;

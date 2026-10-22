@@ -368,6 +368,11 @@ export class GameRenderer {
     return this.post;
   }
 
+  /** Whether this renderer can run post-processing at all (FinishPass, Low's FXAA): it needs half-float output. */
+  get postProcessing(): boolean {
+    return this.hdr;
+  }
+
   get post(): PostState {
     const f = this.finish;
     return {

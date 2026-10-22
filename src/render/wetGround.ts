@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { COVER_NONE } from './rainCover';
-import { cloudNoiseTexture } from './textures';
+import { CLOUD_NOISE_SIZE, cloudNoiseTexture } from './textures';
 
 export type WetMode = 'full' | 'simple';
 
@@ -17,6 +17,53 @@ const PUDDLE_DARKEN = 0.2;
 /** Roughness at full wetness, and in a puddle. */
 export const WET_ROUGHNESS = 0.12;
 const PUDDLE_ROUGHNESS = 0.03;
+/** Puddles fade in over the first 1 / PUDDLE_FADE_IN of wetness. */
+const PUDDLE_FADE_IN = 8;
+/** A roof this far above the ground keeps it dry. */
+const COVER_CLEARANCE = 0.3;
+/** World-space scales and offset of the two puddle-noise samples, and their weights. */
+const PUDDLE_UV_A = 0.045;
+const PUDDLE_UV_B = 0.13;
+const PUDDLE_UV_B_OFFSET = 0.37;
+
+const smoothstep = (e0: number, e1: number, x: number): number => {
+  const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
+
+/** CPU mirror of the full-mode shader: ground wetness at height y under a roof at `roof` (COVER_NONE when open). */
+export function coverWetness(wet: number, roof: number, y: number): number {
+  return roof > y + COVER_CLEARANCE ? 0 : wet;
+}
+
+/** CPU mirror of the shader's puddle mask for cover-adjusted wetness wetK and puddle noise n. */
+export function puddleMask(wetK: number, n: number): number {
+  const th = 0.8 + (0.6 - 0.8) * smoothstep(0.35, 1, wetK);
+  return smoothstep(th, th + 0.05, n) * Math.min(1, wetK * PUDDLE_FADE_IN);
+}
+
+/** CPU mirror of the gain the shader puts on the rain rings' slope (zero outside puddles or when dry above). */
+export function rippleGain(puddle: number, rain: number): number {
+  return puddle > 0 && rain > 0.01 ? 0.6 * puddle * rain : 0;
+}
+
+/** CPU mirror of the shader's puddle noise at (x, z), sampled bilinearly from the base level of cloudNoiseData(). */
+export function puddleNoise(data: Uint8Array, x: number, z: number): number {
+  const S = CLOUD_NOISE_SIZE;
+  const tex = (u: number, v: number) => {
+    const tx = u * S - 0.5;
+    const ty = v * S - 0.5;
+    const x0 = Math.floor(tx);
+    const y0 = Math.floor(ty);
+    const fx = tx - x0;
+    const fy = ty - y0;
+    const at = (i: number, j: number) => data[(((j % S) + S) % S) * S + (((i % S) + S) % S)]! / 255;
+    const top = at(x0, y0) * (1 - fx) + at(x0 + 1, y0) * fx;
+    const bot = at(x0, y0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1) * fx;
+    return top * (1 - fy) + bot * fy;
+  };
+  return tex(x * PUDDLE_UV_A, z * PUDDLE_UV_A) * 0.65 + tex(x * PUDDLE_UV_B + PUDDLE_UV_B_OFFSET, z * PUDDLE_UV_B + PUDDLE_UV_B_OFFSET) * 0.35;
+}
 
 const VS_PARS = /* glsl */ `
 varying vec3 vWetPos;`;
@@ -46,10 +93,11 @@ if ( uWet > 0.001 ) {
   wetK = uWet;
   if ( uWetMode > 0.5 ) {
     float roof = texture2D( uCover, ( vWetPos.xz - uCoverRect.xy ) * uCoverRect.zw ).r;
-    if ( roof > vWetPos.y + 0.3 ) wetK = 0.0;
-    float n = texture2D( uPuddleTex, vWetPos.xz * 0.045 ).r * 0.65 + texture2D( uPuddleTex, vWetPos.xz * 0.13 + 0.37 ).r * 0.35;
+    if ( roof > vWetPos.y + ${COVER_CLEARANCE.toFixed(1)} ) wetK = 0.0;
+    float n = texture2D( uPuddleTex, vWetPos.xz * ${PUDDLE_UV_A} ).r * 0.65 + texture2D( uPuddleTex, vWetPos.xz * ${PUDDLE_UV_B} + ${PUDDLE_UV_B_OFFSET} ).r * 0.35;
     float th = mix( 0.8, 0.6, smoothstep( 0.35, 1.0, wetK ) );
-    wetPuddle = smoothstep( th, th + 0.05, n );
+    // Scaled by the cover-adjusted wetness: dry ground under a roof gets no puddle, however high the noise.
+    wetPuddle = smoothstep( th, th + 0.05, n ) * min( 1.0, wetK * ${PUDDLE_FADE_IN.toFixed(1)} );
     if ( wetPuddle > 0.0 && uRainNow > 0.01 ) {
       // Rain rings: one per 0.6 m cell in each of two offset grids, each expanding and fading on its own phase.
       for ( int k = 0; k < 2; k++ ) {

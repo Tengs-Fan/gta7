@@ -170,8 +170,8 @@ describe('smooth dawn and dusk sky light', () => {
       expect(s.worstIdealErr, 'largest difference from baking every frame (share of the total)').toBeLessThan(0.02);
       expect(s.bakes).toBeGreaterThan(20);
       expect(s.bakes).toBeLessThan(300);
-      // Only the sun having just fully set or risen may bake inside the half-second gap.
-      expect(s.shortGaps).toBeLessThanOrEqual(1);
+      // Ordinary bakes, the sun fully setting or rising included, are at least half a real second apart.
+      expect(s.shortGaps).toBe(0);
     });
   }
 
@@ -179,6 +179,25 @@ describe('smooth dawn and dusk sky light', () => {
     const s = sweep(11, 13);
     expect(s.bakes).toBeLessThan(10);
     expect(s.worstStep).toBeLessThan(0.005);
+    expect(s.shortGaps).toBe(0);
+  });
+
+  it('the sun fully setting waits for the half-second interval, then bakes', () => {
+    const r = rig();
+    // Find the frame where the baked sky's sun first reaches zero visibility at dusk.
+    const priv = r.env as unknown as { envSunVis: number };
+    let h = 18;
+    let t = 10;
+    r.update(h, t);
+    while (priv.envSunVis !== 0 && h < 21) {
+      h += FRAME_H;
+      t += DT;
+      r.update(h, t);
+    }
+    expect(priv.envSunVis).toBe(0);
+    const settledAt = r.bakeTimes[r.bakeTimes.length - 1]!;
+    const prior = r.bakeTimes[r.bakeTimes.length - 2]!;
+    expect(settledAt - prior).toBeGreaterThanOrEqual(0.5 - 1e-9);
   });
 
   it('bakes on the same frame after a jump in time and after a context restore', () => {

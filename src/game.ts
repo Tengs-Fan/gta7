@@ -211,7 +211,7 @@ export class Game {
       }),
       waypoint: () => this.hud.waypoint,
       click: () => this.audio.chime('ui'),
-      quality: () => ({ auto: this.autoTier, msaa: this.renderer.msaa, software: this.renderer.software }),
+      quality: () => ({ auto: this.autoTier, msaa: this.renderer.msaa, software: this.renderer.software, post: this.renderer.postProcessing }),
     };
   }
 

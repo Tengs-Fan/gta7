@@ -461,7 +461,12 @@ describe('GameRenderer quality tiers', () => {
       }
       expect(r.post).toEqual({ aa: 'none', grade: false, vignette: 0 });
       expect(r.overridePost({ aa: 'fxaa', grade: true })).toMatchObject({ aa: 'none', grade: false });
+      // What the Settings note is told: no FXAA to promise here.
+      expect(r.postProcessing).toBe(false);
     }
+    const hdr = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    expect(hdr.postProcessing).toBe(true);
+    hdr.dispose();
   });
 
   it('FinishPass follows the time of day; the debug override lasts until the next tier change', () => {
