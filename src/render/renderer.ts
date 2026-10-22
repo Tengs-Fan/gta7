@@ -112,6 +112,18 @@ export function guardStaleDeletes(gl: object): () => void {
   };
 }
 
+/** A blast this close to the sea's surface over water is drawn as a water plume (Effects.explosion). */
+const WATER_BLAST_BAND = 0.3;
+
+/** Where a segment from above the sea passes down through its surface over water, or null. */
+export function seaCrossing(world: StaticWorld, fx: number, fy: number, fz: number, tx: number, ty: number, tz: number): { x: number; z: number } | null {
+  if (!(fy > WATER_Y) || !(ty < WATER_Y)) return null;
+  const k = (fy - WATER_Y) / (fy - ty);
+  const x = fx + (tx - fx) * k;
+  const z = fz + (tz - fz) * k;
+  return world.waterDepth(x, z) > 0 ? { x, z } : null;
+}
+
 export class GameRenderer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -200,6 +212,8 @@ export class GameRenderer {
 
     // Without half-float targets there is no environment map (three's PMREM needs them).
     this.env = new Environment(this.scene, this.renderer, { hdr: this.hdr, software: this.software });
+    this.env.setShore(world.layout.bounds);
+    this.effects.foam.bindSea(this.env.sea);
     this.city = new CityView(world, STATIC_CHUNK_SIZE, this.software);
     this.props = new PropsView(world);
     this.streetLighting = new StreetLighting(world);
@@ -297,6 +311,7 @@ export class GameRenderer {
     this.lightSprites.setPoolCap(t.headlightPools);
     this.rain.setCount(this.software ? SOFTWARE_RAIN_DROPS : t.rainDrops);
     this.city.wet.setMode(t.wetGround);
+    this.env.setWaterGrid(!this.software && t.waterGrid);
     this.streetLighting.group.visible = !this.software && q === 'high';
     if (q !== 'high') this.clearLocalReflections();
     this.resize();
@@ -473,12 +488,19 @@ export class GameRenderer {
           this.lastAutoRound = sim.time;
           traced = this.autoRounds++ % 2 === 0;
         }
+        // A round into the sea ends at its surface in a splash: the sim lets it run on to the seabed.
+        const sea = seaCrossing(this.world, e.fx, e.fy, e.fz, e.tx, e.ty, e.tz);
+        if (sea) {
+          if (traced) fx.tracer(e.fx, e.fy, e.fz, sea.x, WATER_Y, sea.z);
+          fx.splash(sea.x, WATER_Y, sea.z, 'small');
+          return;
+        }
         if (traced) fx.tracer(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz);
         // Flesh hits bleed through 'blood', except helicopter rounds, which come without one.
         if (e.hit === 'world' || e.hit === 'vehicle' || (e.hit === 'flesh' && !e.shooter)) fx.impact(e.tx, e.ty, e.tz, e.nx, e.ny, e.nz, e.hit);
       }),
       ev.on('explosion', (e) => {
-        fx.explosion(e.x, e.y, e.z, e.radius);
+        fx.explosion(e.x, e.y, e.z, e.radius, Math.abs(e.y - WATER_Y) < WATER_BLAST_BAND && this.world.waterDepth(e.x, e.z) > 0);
         const c = this.cameraCtl.camera.position;
         const d = Math.hypot(c.x - e.x, c.y - e.y, c.z - e.z);
         // The only blast shake: grows with the radius and fades out by about 70 m.
@@ -761,9 +783,9 @@ export class GameRenderer {
     this.localReflections = null;
   }
 
-  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number; rainDrops: number; wet: number } {
+  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number; rainDrops: number; wet: number; waterGrid: boolean } {
     const info = this.renderer.info;
-    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts, rainDrops: this.rain.drops, wet: this.wet };
+    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts, rainDrops: this.rain.drops, wet: this.wet, waterGrid: this.env.waterGrid };
   }
 
   /** True between 'webglcontextlost' and 'webglcontextrestored'; nothing can be drawn meanwhile. */
