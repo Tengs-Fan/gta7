@@ -20,6 +20,12 @@ High and Medium keep 4x MSAA from the WebGL context. Low uses FXAA inside the sa
 
 On the M4 Pro at 1920x1080 High the perf playtest stayed at 60 fps in all four segments (final frames 5.3–6.8 ms).
 
+## Night lights
+
+`src/render/lightSprites.ts` draws three instanced batches, one draw call each, on every tier including software renderers. Lamp glows are camera-facing sprites at each working head, tail, brake, reverse and siren lamp (`VehicleView.lampWorldPositions()`), so smashed lamps and destroyed cars leave no glow. Each glow's colour times intensity stays below the bloom threshold (2.6), so bloom does not flicker on them; brake glows are about 2.2 times the running tail glow. Headlight pools are soft patches on the road ahead of cars with their lights on, nearest first, capped at 40 (High), 24 (Medium) and 12 (Low). On Low, which has no headlight spot light, the player's car gets a pool too. A third batch, light streaks, is ready for wet roads and stays empty until rain enables it. Lights turn on at night or when `GameRenderer.weatherDim` is high (the input for dark weather). `state().render` reports `glows`, `pools` and `streaks`.
+
+Street lamps have a plinth, a lighter metal tapered pole, a curved arm and a luminaire head with a lit lens. The head position (`LAMP_HEAD` in `src/render/props.ts`) is shared by the lens, halo, ground pool and High's street lights, so they line up. A knocked-down lamp hides every part, including its halo and pool.
+
 Street Run gates use open ground outlines and slim illuminated posts, with a separate readable turn instruction, road name, gate count and distance. This keeps traffic visible through a checkpoint.
 
 ## Software fallback

@@ -189,10 +189,11 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Nearby street lamps illuminate cars and facades | six pooled lights | off | off |
 | Dynamic lights (sirens, muzzle flashes, explosions) | all | two, shared | none |
 | Your headlight beam at night | on | on | off |
+| Headlight patches on the road at night (nearest cars, yours included on Low) | 40 | 24 | 12 |
 | Traffic and pedestrians | 100% | 90% | 75% |
 | Ambient cars drawn | all | all | within 150 m |
 
-Colors are the same on every tier; Low loses the glow, the shadows and some of the sky's detail.
+Colors are the same on every tier; Low loses the bloom, the shadows and some of the sky's detail. Head, tail, brake and reverse lamps glow at night on every tier.
 Everything applies at once except MSAA, which changes after a reload (the Settings screen says so); Low's FXAA follows the tier at once. Software renderers get neither anti-aliasing nor the colour grade.
 A lower tier's traffic and pedestrian numbers take effect as cars and people come and go: nobody is removed on the spot.
 
@@ -261,7 +262,6 @@ All of these are minor; the most noticeable come first.
 - Pedestrians can pop into existence on sidewalks far down the street, in plain view, most of all in the first seconds of a new game and when you drive into new streets.
 - Old wrecks and dead bodies can vanish in a single frame while you are looking straight at them from 40 to 60 meters away.
 - At dawn and dusk the brightness and tint of the whole picture can take a small step every 15 seconds or so instead of shifting smoothly, on every graphics tier.
-- At night, tail and brake lights stay plain red without the glow that headlights and street lamps get on High and Medium, and braking barely brightens them.
 - A shot-down police helicopter tumbles out of the sky with no fire or smoke, leaving only the first puff where it was hit.
 - While your car burns, your character vanishes from his seat until you get out; this shows from the side and through the windscreen, and the default chase view mostly hides it.
 - On older or low-end GPUs that cannot render to high-precision buffers, paint, glass and chrome don't reflect the sky and bright lights don't glow, at any setting.

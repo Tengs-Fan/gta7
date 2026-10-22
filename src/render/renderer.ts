@@ -9,6 +9,7 @@ import { WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
 import { CameraController } from './camera';
 import { ContactShadows } from './contactShadows';
+import { LightSprites, BLOOM_THRESHOLD, type LampGlow } from './lightSprites';
 import { LocalReflections } from './localReflections';
 import { StreetLighting } from './streetLighting';
 import { CityView } from './city';
@@ -103,6 +104,14 @@ export class GameRenderer {
   readonly crowd = new CrowdView();
   readonly effects = new Effects();
   readonly markers = new MarkerView();
+  readonly lightSprites = new LightSprites();
+  /**
+   * How dark the weather makes the day (0 clear .. 1): vehicles light up at max(night, weatherDim). The weather
+   * renderer sets it; until then it stays 0 and only the night turns lights on.
+   */
+  weatherDim = 0;
+  private readonly lampGlows: LampGlow[] = [];
+  private readonly bufferSize = new THREE.Vector2();
   private readonly vehicleViews = new Map<number, VehicleView>();
   private readonly pool = new VehicleViewPool();
   private readonly headlight: THREE.SpotLight;
@@ -170,7 +179,7 @@ export class GameRenderer {
     this.props = new PropsView(world);
     this.streetLighting = new StreetLighting(world);
     this.scene.add(this.streetLighting.group);
-    this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group);
+    this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group, this.lightSprites.group);
     this.softwareMaterials?.apply(this.city.group);
     this.softwareMaterials?.apply(this.props.group);
     this.softwareMaterials?.apply(this.crowd.group);
@@ -252,6 +261,7 @@ export class GameRenderer {
       l.intensity = 0;
     }
     this.headlight.visible = t.headlight;
+    this.lightSprites.setPoolCap(t.headlightPools);
     this.streetLighting.group.visible = !this.software && q === 'high';
     if (q !== 'high') this.clearLocalReflections();
     this.resize();
@@ -276,7 +286,7 @@ export class GameRenderer {
       if (!this.bloom) {
         const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
         // Threshold sits above sun-lit albedo so only emissive lights, the sun and explosions bloom.
-        this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.6, 0.5, 2.6);
+        this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.6, 0.5, BLOOM_THRESHOLD);
       }
     } else {
       // Off on Low: free its render targets too (a fresh pass is made if it comes back).
@@ -446,6 +456,7 @@ export class GameRenderer {
         this.props.breakProp(e.index, e.dirX, e.dirZ);
         const p = this.world.layout.props[e.index];
         if (p?.kind === 'hydrant') fx.hydrantSpray(p.x, p.y, p.z);
+        if (p?.kind === 'lamp') fx.debris(p.x, p.y + 0.6, p.z);
       }),
       ev.on('splash', (e) => fx.splash(e.x, e.y, e.z, e.big)),
       ev.on('blood', (e) => fx.impact(e.x, e.y, e.z, -e.dx, -e.dy, -e.dz, 'flesh')),
@@ -557,6 +568,29 @@ export class GameRenderer {
     }
   }
 
+  /** Lamp glows of every drawn vehicle, and headlight pools for the nearest lit ones (the player's only without a headlight spot). */
+  private syncLightSprites(sim: Sim, lights: number): void {
+    const ls = this.lightSprites;
+    const cam = this.cameraCtl.camera;
+    this.renderer.getDrawingBufferSize(this.bufferSize);
+    ls.begin(cam.position, this.bufferSize.y / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)));
+    const playerCar = sim.player.vehicle;
+    const spot = this.headlight.visible;
+    const strength = THREE.MathUtils.smoothstep(lights, 0.35, 0.6);
+    const glows = this.lampGlows;
+    for (const view of this.vehicleViews.values()) {
+      const v = view.vehicle;
+      if (!v || v.removed || !view.group.visible) continue;
+      const n = view.lampWorldPositions(glows);
+      for (let i = 0; i < n; i++) ls.addGlow(glows[i]!);
+      if (view.lightsOn && !(spot && v === playerCar)) {
+        const lamps = view.headLamps;
+        if (lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * (lamps / 2));
+      }
+    }
+    ls.finish((x, z) => sim.world.groundHeight(x, z));
+  }
+
   private syncLights(sim: Sim, night: number): void {
     const v = sim.player.vehicle;
     if (v && night > 0.25 && !v.destroyed) {
@@ -610,7 +644,9 @@ export class GameRenderer {
     // Signals run on the sim clock, the one drivers and pedestrians obey.
     this.props.update(this.time, night, sim ? sim.time : this.time);
     if (sim) {
-      this.syncVehicles(sim, dt, night);
+      const lights = Math.max(night, this.weatherDim);
+      this.syncVehicles(sim, dt, lights);
+      this.syncLightSprites(sim, lights);
       this.effects.syncRockets(sim.projectiles);
       this.vehicleEffects(sim, dt);
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt);
@@ -619,7 +655,7 @@ export class GameRenderer {
       this.markers.syncObjectives(objectives, (x, z) => sim.world.groundHeight(x, z), this.time);
       this.markers.syncPickups(sim.pickups, this.time, cam.position.x, cam.position.z);
       this.markers.syncHelis(sim.helis, night, (x, z) => sim.world.groundHeight(x, z));
-      this.syncLights(sim, night);
+      this.syncLights(sim, lights);
     }
     this.effects.update(dt, this.time);
     this.syncLightPool();
@@ -654,9 +690,9 @@ export class GameRenderer {
     this.localReflections = null;
   }
 
-  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean } {
+  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number } {
     const info = this.renderer.info;
-    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false };
+    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts };
   }
 
   /** True between 'webglcontextlost' and 'webglcontextrestored'; nothing can be drawn meanwhile. */
@@ -695,6 +731,7 @@ export class GameRenderer {
     this.bloom?.dispose();
     this.contactShadows?.dispose();
     this.finish?.dispose();
+    this.lightSprites.dispose();
     this.env.dispose();
     this.softwareMaterials?.dispose();
     this.renderer.dispose();

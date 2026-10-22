@@ -799,7 +799,7 @@ describe('vehicle views', () => {
     view.sync(v, DT, 0, 1);
     expect(mat().emissive.getHex()).toBe(0xff0000);
     expect(mat().color.getHex()).toBe(0x2a0000);
-    expect(mat().emissiveIntensity).toBeCloseTo(1.2, 6);
+    expect(mat().emissiveIntensity).toBeCloseTo(1.0, 6);
     v.braking = true;
     view.sync(v, DT, 0, 1);
     expect(mat().emissiveIntensity).toBeCloseTo(1.8, 6);

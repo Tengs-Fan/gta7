@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { StaticWorld } from '../world/staticWorld';
+import { LAMP_HEAD } from './props';
 
 /** A small, stable pool of real lamp light: cars and facades pick up warm light as they pass. */
 export class StreetLighting {
@@ -39,9 +40,10 @@ export class StreetLighting {
         continue;
       }
       const p = this.world.layout.props[slot.lamp]!;
-      const x = p.x + Math.sin(p.rot) * 1.55 * p.scale;
-      const z = p.z + Math.cos(p.rot) * 1.55 * p.scale;
-      slot.light.position.set(x, p.y + 6.23 * p.scale, z);
+      const x = p.x + Math.sin(p.rot) * LAMP_HEAD.reach * p.scale;
+      const z = p.z + Math.cos(p.rot) * LAMP_HEAD.reach * p.scale;
+      // Just under the lens, so the head does not shadow its own light.
+      slot.light.position.set(x, p.y + (LAMP_HEAD.y - 0.06) * p.scale, z);
       slot.light.target.position.set(x, p.y, z);
       slot.light.target.updateMatrixWorld();
       slot.light.intensity = 55 * night * slot.fade;
