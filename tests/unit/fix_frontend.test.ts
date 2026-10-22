@@ -2392,6 +2392,19 @@ describe('r2 quality: tiers in the game and the settings row', () => {
     select2.value = 'high';
     select2.dispatchEvent(new Event('change'));
     expect(note2.textContent).toBe('MSAA anti-aliasing turns on after a reload.');
+    // Hardware without half-float targets has no post-processing, so Low brings no FXAA there.
+    m2.closeAll();
+    current = { ...current, quality: 'high' };
+    const noPostHost = stubHost({ settings: () => current, quality: () => ({ auto: 'high', msaa: true, post: false }) });
+    const m3 = new Menus(new FakeElement('div') as unknown as HTMLElement, noPostHost, new MapImage(world()));
+    m3.showSettings();
+    const top3 = m3.top!.el as unknown as FakeElement;
+    const select3 = top3.all().find((e) => e.tagName === 'SELECT')!;
+    const note3 = top3.all().find((e) => e.classList.contains('setting-note'))!;
+    select3.value = 'low';
+    select3.dispatchEvent(new Event('change'));
+    expect(note3.classList.contains('hidden')).toBe(false);
+    expect(note3.textContent).toBe('MSAA turns off after a reload.');
   });
 });
 

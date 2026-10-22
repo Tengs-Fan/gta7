@@ -11,7 +11,9 @@ import { buildCoverMap, COVER_NONE, coverAt } from '../../src/render/rainCover';
 import { GameRenderer } from '../../src/render/renderer';
 import type { Sim } from '../../src/sim/sim';
 import { WATER_Y } from '../../src/world/constants';
-import { rectD, rectW } from '../../src/world/layout';
+import { cloudNoiseData } from '../../src/render/textures';
+import { coverWetness, puddleMask, puddleNoise, rippleGain } from '../../src/render/wetGround';
+import { rectD, rectW, type Rect } from '../../src/world/layout';
 import type { StaticWorld } from '../../src/world/staticWorld';
 import { freshWorld, input, makeSim, placeInCar, teleport, world } from './helpers';
 
@@ -294,6 +296,66 @@ describe('wet ground', () => {
     const soft = setup('high', SOFTWARE);
     expect(soft.r.city.wet.mode).toBe('simple');
     soft.r.dispose();
+  });
+
+  it('no puddle or ripple where cover keeps the ground dry, as in the docks spray garage; open ground still gets them', () => {
+    const m = buildCoverMap(W);
+    const noise = cloudNoiseData();
+    const at = (x: number, z: number, wet = 1, rain = 1) => {
+      const wetK = coverWetness(wet, coverAt(m, x, z), W.groundHeight(x, z));
+      const n = puddleNoise(noise, x, z);
+      const puddle = puddleMask(wetK, n);
+      return { wetK, n, puddle, ripple: rippleGain(puddle, rain) };
+    };
+    // Inside the docks spray garage, where the noise alone would make a full puddle.
+    const docks = W.layout.garages.find((g) => g.poi === 'spray_docks')!;
+    const inDocks = at(-325.7, 291.6);
+    expect(-325.7).toBeGreaterThan(docks.rect.minX);
+    expect(291.6).toBeLessThan(docks.rect.maxZ);
+    expect(inDocks.n).toBeGreaterThan(0.85);
+    expect(puddleMask(1, inDocks.n)).toBe(1);
+    expect(inDocks).toMatchObject({ wetK: 0, puddle: 0, ripple: 0 });
+    // Every covered cell of every garage, deck and pier, in heavy rain on soaked ground.
+    let covered = 0;
+    const cells: Rect[] = [...W.layout.garages.map((g) => g.rect), ...W.layout.decks.map((d) => d.rect)];
+    for (const r of cells) {
+      for (let x = r.minX + 0.25; x < r.maxX; x += 0.5) {
+        for (let z = r.minZ + 0.25; z < r.maxZ; z += 0.5) {
+          if (coverAt(m, x, z) <= W.groundHeight(x, z) + 0.3) continue;
+          covered++;
+          const c = at(x, z);
+          expect(c.puddle, `${x},${z}`).toBe(0);
+          expect(c.ripple, `${x},${z}`).toBe(0);
+        }
+      }
+    }
+    expect(covered).toBeGreaterThan(500);
+    // Open ground near the docks still floods where the noise is high, and ripples while it rains.
+    let open: ReturnType<typeof at> | null = null;
+    for (let x = docks.rect.minX - 60; x < docks.rect.maxX + 60 && !open; x += 0.5) {
+      for (let z = docks.rect.minZ - 60; z < docks.rect.maxZ + 60 && !open; z += 0.5) {
+        if (coverAt(m, x, z) !== COVER_NONE) continue;
+        const c = at(x, z);
+        if (c.n > 0.85) open = c;
+      }
+    }
+    expect(open).not.toBeNull();
+    expect(open!.wetK).toBe(1);
+    expect(open!.puddle).toBe(1);
+    expect(open!.ripple).toBeCloseTo(0.6, 6);
+    expect(rippleGain(open!.puddle, 0)).toBe(0);
+    // Puddles fade in as the ground first gets wet rather than appearing whole.
+    expect(puddleMask(0.05, open!.n)).toBeCloseTo(0.4, 6);
+  });
+
+  it('the shader gates the puddle mask by the cover-adjusted wetness', () => {
+    const { r } = setup('high');
+    const s = compiled(r.city.wet.materials[0]!);
+    expect(s.fragmentShader).toContain('if ( roof > vWetPos.y + 0.3 ) wetK = 0.0;');
+    expect(s.fragmentShader).toContain('wetPuddle = smoothstep( th, th + 0.05, n ) * min( 1.0, wetK * 8.0 );');
+    expect(s.fragmentShader).toContain('texture2D( uPuddleTex, vWetPos.xz * 0.045 ).r * 0.65 + texture2D( uPuddleTex, vWetPos.xz * 0.13 + 0.37 ).r * 0.35');
+    expect(s.fragmentShader).toContain('wetRipple *= 0.6 * wetPuddle * uRainNow;');
+    r.dispose();
   });
 
   it("the software path's Lambert stand-ins darken with the same uniform and skip gloss and puddles", () => {

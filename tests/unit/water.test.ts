@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { QUALITY } from '../../src/render/quality';
 import { GameRenderer, seaCrossing } from '../../src/render/renderer';
-import { seaGrid } from '../../src/render/sea';
+import { SHORE_GLSL, seaGrid, seaUniforms, surfPhases, updateSea } from '../../src/render/sea';
 import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_WAVES_GLSL, SKIRT_EXTENT, WAVES, waveDisplacement, wavePhases } from '../../src/render/waves';
 import { Projectile } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
@@ -200,6 +200,32 @@ describe('the wave grid', () => {
       expect(Math.abs(morph[1]! - at(x, FINE_EXTENT)[1])).toBeLessThan(0.05);
     }
     expect(SEA_WAVES_GLSL).toContain('seaDisplaceEdge');
+  });
+});
+
+describe('shoreline foam', () => {
+  it('the quay pulse has no step when the surf phase wraps', () => {
+    // The pulse is sin(quay phase); a frame apart it may move by at most the rate's own slope.
+    const pulse = (t: number) => Math.sin(surfPhases(t).quay);
+    const rate = 1.2 * 1.4 / 60;
+    let worst = 0;
+    let wraps = 0;
+    for (let t = 0; t < 120; t += 1 / 60) {
+      if (surfPhases(t + 1 / 60).surf < surfPhases(t).surf) wraps++;
+      worst = Math.max(worst, Math.abs(pulse(t + 1 / 60) - pulse(t)));
+    }
+    expect(wraps).toBeGreaterThan(20);
+    expect(worst).toBeLessThanOrEqual(rate + 1e-9);
+    // Far into a session, too (float precision of the wrapped phase).
+    for (const t0 of [5000, 86_000]) {
+      for (let t = t0; t < t0 + 20; t += 1 / 60) expect(Math.abs(pulse(t + 1 / 60) - pulse(t))).toBeLessThanOrEqual(rate + 1e-6);
+    }
+    const u = seaUniforms();
+    updateSea(u, 17.3, CALM_SEA, 0, 0);
+    expect(u.uQuayPhase.value).toBeCloseTo((17.3 * 1.2 * 1.4) % (Math.PI * 2), 9);
+    expect(u.uQuayPhase.value).toBeLessThan(Math.PI * 2);
+    expect(SHORE_GLSL).toContain('sin(uQuayPhase + (p.x + p.y) * 0.21)');
+    expect(SHORE_GLSL).not.toContain('uSurfPhase * 1.4');
   });
 });
 

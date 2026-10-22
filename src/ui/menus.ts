@@ -32,8 +32,11 @@ export interface MenuHost {
   setWaypoint(p: { x: number; z: number } | null): void;
   waypoint(): { x: number; z: number } | null;
   click(): void;
-  /** The tier 'auto' picked at boot, and whether the renderer was created with MSAA (only a reload changes that). */
-  quality?(): { auto: QualityTier; msaa: boolean; software?: boolean };
+  /**
+   * The tier 'auto' picked at boot, whether the renderer was created with MSAA (only a reload changes that), and
+   * whether it can post-process at all (without half-float targets there is no FXAA; absent means it can).
+   */
+  quality?(): { auto: QualityTier; msaa: boolean; software?: boolean; post?: boolean };
 }
 
 interface Screen {
@@ -589,7 +592,8 @@ export class Menus {
       if (s.quality === q) o.selected = true;
       qsel.appendChild(o);
     }
-    // Everything else applies at once (Low's FXAA included); MSAA is fixed when the renderer is created.
+    // Everything else applies at once (Low's FXAA included, where the renderer post-processes); MSAA is fixed
+    // when the renderer is created.
     const qnote = h('div', 'setting-note');
     const showNote = () => {
       if (qinfo?.software) {
@@ -603,7 +607,9 @@ export class Menus {
       qnote.textContent = pending
         ? msaa
           ? 'MSAA anti-aliasing turns on after a reload.'
-          : 'FXAA applies now; MSAA turns off after a reload.'
+          : qinfo.post === false
+            ? 'MSAA turns off after a reload.'
+            : 'FXAA applies now; MSAA turns off after a reload.'
         : '';
       qnote.classList.toggle('hidden', !pending);
     };

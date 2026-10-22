@@ -1857,7 +1857,7 @@ export function storefrontAtlas(): StorefrontAtlas {
 
 /** Lattice cells across one tile of the cloud noise (each cell is CLOUD_NOISE_SIZE / CLOUD_NOISE_CELLS texels). */
 export const CLOUD_NOISE_CELLS = 16;
-const CLOUD_NOISE_SIZE = 128;
+export const CLOUD_NOISE_SIZE = 128;
 /** Noise values v (within about ±0.71) are stored as 0.5 + v * CLOUD_NOISE_SCALE. */
 export const CLOUD_NOISE_SCALE = 0.7;
 
