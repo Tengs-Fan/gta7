@@ -589,7 +589,7 @@ export class Menus {
       if (s.quality === q) o.selected = true;
       qsel.appendChild(o);
     }
-    // Everything else applies at once; anti-aliasing is fixed when the renderer is created.
+    // Everything else applies at once (Low's FXAA included); MSAA is fixed when the renderer is created.
     const qnote = h('div', 'setting-note');
     const showNote = () => {
       if (qinfo?.software) {
@@ -600,7 +600,11 @@ export class Menus {
       const tier = s.quality === 'auto' ? qinfo?.auto : s.quality;
       const msaa = tier ? QUALITY[tier].msaa : null;
       const pending = qinfo !== null && msaa !== null && msaa !== qinfo.msaa;
-      qnote.textContent = pending ? `Anti-aliasing turns ${msaa ? 'on' : 'off'} after a reload.` : '';
+      qnote.textContent = pending
+        ? msaa
+          ? 'MSAA anti-aliasing turns on after a reload.'
+          : 'FXAA applies now; MSAA turns off after a reload.'
+        : '';
       qnote.classList.toggle('hidden', !pending);
     };
     const setQuality = (q: Settings['quality']) => {

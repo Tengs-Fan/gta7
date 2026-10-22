@@ -38,7 +38,7 @@ export function installDebugApi(game: Game): void {
         police: sim.vehicles.filter((v) => v.owner === 'police').length,
         characters: sim.characters.length,
         deathKind: sim.deathKind,
-        render: { ...game.renderer.stats(), tier: game.renderer.currentQuality, post: game.renderer.post },
+        render: { ...game.renderer.stats(), tier: game.renderer.currentQuality, post: game.renderer.post, software: game.renderer.software, msaa: game.renderer.msaa },
         perf: { ...game.perf },
       };
     },

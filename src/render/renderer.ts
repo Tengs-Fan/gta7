@@ -739,6 +739,7 @@ export class GameRenderer {
     if (sim) {
       const lights = Math.max(night, this.weatherDim);
       this.syncVehicles(sim, dt, lights);
+      this.lightSprites.dark = lights;
       this.syncLightSprites(sim, lights);
       this.effects.syncRockets(sim.projectiles);
       this.vehicleEffects(sim, dt);
