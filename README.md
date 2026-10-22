@@ -83,7 +83,7 @@ Progress stays in this browser: the game autosaves after every mission passed an
 - **Day and night.** A day lasts 24 minutes.
   Clouds catch the sunset, a moon and stars come out, windows light up building by building through the evening and thin out after midnight, and at night the Ferris wheel lights up and the lighthouse beam sweeps round.
 - **Weather.** Clear, cloudy, overcast, rain and storm skies change every three game hours (the first day is always clear), with greyer skies, softer shadows, closer fog, lightning in storms, and cars turning their lights on when it gets dark. Rain falls around the camera (but not under roofs, in garages or under the pier), wets and darkens the streets with puddles that dry out after the shower, reflects lamps and car lights in streaks on the road, and fast cars throw up spray. Weather is visual only: it does not change grip or traffic. The sea rolls with waves that grow in a storm (on High the surface itself rises and falls), with turquoise shallows, surf on the beach and foam along the quay walls; bullets and rockets fired into it splash or throw up a column of water at the surface. Swimming and floating stay level whatever the waves.
-- **Living streets.** Traffic follows its lanes, stops at red lights, yields on left turns, honks, overtakes and backs out of blockages, from about 14 cars around you late at night to 30 at rush hour.
+- **Living streets.** Traffic follows its lanes, stops at red lights, yields on left turns, honks, overtakes, steers round cars left empty in the road and backs out of blockages, from about 14 cars around you late at night to 30 at rush hour.
   Pedestrians cross on the walk signal, flee from gunfire and explosions, put their hands up, cower or run at gunpoint, and some fight back, above all the Tiburones gang, who wear teal, often carry pistols and fight as a crew on their own turf.
 - **Driving.** Ten vehicles: the Pipsqueak compact, Velora sedan, Azura Cab, Nightjar GT sports car, Thunderhoof muscle car, Dustrunner pickup, Breadbox van, Citybus, Patrol Cruiser and Riot Van, and you can steal any of them, even with someone inside.
   Arcade handling with handbrake drifts, skid marks and tire smoke; cars dent, lose their lamps and glass, spark along walls, catch fire when they land on their roof and blow up, and you can see who is inside through the glass.
@@ -103,7 +103,7 @@ Progress stays in this browser: the game autosaves after every mission passed an
   BUSTED costs bail ($100 plus $150 a star) and, from two stars, your guns; WASTED costs a hospital bill ($100 plus $100 a star) and your armor.
 - **Story.** You are Kai Navarro, just out after six years inside, and a new game opens with a call from Mama Lou.
   Six missions: Wheels, Hot Delivery and Repo Man for Lou, then Loose Lips, Heatwave and The Big Score for Dex Moreau, the last a raid on the First Azura Bank with a getaway to the Marina; Hot Delivery, Repo Man and Heatwave pit you against the Tiburones.
-  The contacts are the pink L and the teal D on the radar, shown while they have a job for you; a failed mission can be retried with E within 20 seconds, and Heatwave and The Big Score have checkpoints.
+  The contacts are the pink L and the teal D on the radar, shown while they have a job for you; a failed mission can be retried with E within 20 seconds, or later from the pause menu, on foot or in a vehicle, as long as you are not wanted or on a rampage; Heatwave and The Big Score have checkpoints.
 - **Side content.** Taxi fares in an Azura Cab and vigilante jobs in a police vehicle (press T), three gang rampages, twenty hidden packages ($25,000 for finding them all), unique stunt jumps, health, armor and weapon pickups, and two Bang Bang Guns stores (from the Pistol at $250 to the Rocket Launcher at $8,000, Body Armor $300, First Aid $80).
 - **Radio and sound.** In a vehicle, NEON DRIVE 88.7 (synthwave), BOOM BAP 101.3 (hip-hop) and PULSE 96.1 (house) play endless music generated live, with RADIO OFF as the fourth stop.
   An ambience of city hum, traffic, surf, gulls, birds by day and crickets at night, an engine voice for every kind of vehicle, music that ducks under dialogue and nearby explosions, and the world muffled inside a car.
@@ -132,12 +132,13 @@ During free roam, press **T** (D-pad down) in an ordinary road car to enter the 
 
 Follow the GPS route and stop inside the start gate. The car lines up for a three-second countdown; hold W or RT to launch at GO.
 Pass every glowing checkpoint in order, using the turn direction above the radar and the route to prepare for corners. The clock shows your next medal target, and the last gate is the finish line.
+During a run the next two junctions with traffic lights on the course hold green for you: cross traffic waits at red and pedestrians stay off your road. Each gate covers the whole junction, so a tight line through a corner still counts.
 
 | Course | Start area | Gold | Silver | Bronze | Gold payout |
 | --- | --- | --- | --- | --- | --- |
-| Magnolia Rush | Azura Ave / Magnolia Ave | 1:05 | 1:25 | 1:55 | $1,000 |
-| Coastline Circuit | Sunset Ave / Magnolia Ave | 1:25 | 1:50 | 2:25 | $1,400 |
-| Dockside Switchback | Vista Ave / Southgate Ave | 1:18 | 1:40 | 2:10 | $1,250 |
+| Magnolia Rush | Azura Ave / Magnolia Ave | 0:55 | 1:10 | 1:35 | $1,000 |
+| Coastline Circuit | Sunset Ave / Magnolia Ave | 1:05 | 1:25 | 1:55 | $1,400 |
+| Dockside Switchback | Vista Ave / Southgate Ave | 0:52 | 1:06 | 1:30 | $1,250 |
 
 Silver pays 70% of the gold prize and bronze pays 45%. Every successful finish saves your reward and personal best; slower replays retain your faster record.
 The courses loop back to their starts, so press T after a finish to line up again. Drive to another start area to enter its nearest course, or choose it from the title screen.
@@ -215,13 +216,10 @@ All of these are minor; the most noticeable come first.
 **Camera**
 
 - With your back against a wall, your character fades out (fully, or to a speckled ghost) because the camera has no room behind you; step about a meter away.
-- Brushing past a street tree on foot, its trunk can hang in view for about half a second before the camera jumps in front of it.
-- Aiming while standing in a save, shop or mission marker puts the marker's floating diamond big in front of the camera; step out of the marker first.
 - Swimming a couple of meters off a quay or a Marina pier, swinging the camera over the edge makes it hop up in one frame; right against a pier a fast swing with the far camera (V) can make it jump for a frame, and near the edge a wall, a crane leg or a change of camera distance can make it dive in toward you and back out.
 
 **Traffic and driving**
 
-- In big police chases, police cars sometimes jam against each other or traffic at a junction and sit stuck for a while.
 - Traffic cannot squeeze between two cars left less than about a car and a half apart on opposite sides of a narrow street, and queues there honking while you stay nearby; move one of the cars or drive off.
 - When a car overtaking one left in the road meets oncoming traffic, the drivers can spend half a minute or more backing up and taking turns.
 - City buses turning at the four outer corners of the ring road crawl round the bend and swing into the oncoming lanes for a couple of seconds.
@@ -240,13 +238,9 @@ All of these are minor; the most noticeable come first.
 - At two stars or more, standing still on top of a stunt ramp to be arrested does not work: no officer climbs up, and about 45 seconds after they arrive they shoot you dead; come down off the ramp first.
 - If a car you left behind kills a pedestrian, either because another vehicle smashed it into them or because it was still rolling after you bailed out and died, the death can be pinned on you, with a wanted star, even when you are far away.
 - In a rampage, gang members' stray shots sometimes kill their own crew, and those kills don't count, but new gang members keep coming.
-- With an enemy right at your right shoulder, an aimed pistol shot at his head or neck can miss; aim at his chest, fire from the hip or step back.
-- Shots at the head and shoulders of someone who has been knocked down or killed pass straight through, though the hips and legs still register.
-- An enemy firing an SMG, rifle or shotgun from a step or two away keeps his gun slightly to one side of you and jerks it onto you with each shot.
 - People who flee onto the narrow Marina piers walk off the side into the sea, and some stay paddling against a pier or a moored boat; on the beach beside a pier or the Marina deck a fleeing person can get boxed in and stand frozen for up to about ten seconds.
 - When a car with people in it sinks in deep water, they vanish on the spot instead of swimming or dying, and nothing is counted as a kill or a crime.
 - Stunt ramps look solid, but bullets, officers' line of sight and explosions pass straight through them.
-- While you climb into a car (about half a second, longer for a carjack or a bus) you cannot be shot or run over: bullets and cars pass through you until you are seated.
 - At one star, an officer who ends up in the sea while you are swimming treads water until you leave it; swimming away still loses the star.
 - Officers on a pier cannot get back to a cruiser standing in the surf beside it: while you are wanted they pace back and forth at the pier's land end, and once you are not they give up and leave the car sitting dark in the water.
 - A police helicopter shot down over a garage (Lou's, for one) falls through the roof and explodes inside among whatever is parked there, and the lighthouse, the crane legs and the Ferris wheel do not stop its fall either.
@@ -259,8 +253,7 @@ All of these are minor; the most noticeable come first.
 
 **Missions and jobs**
 
-- After you fail a mission, once MISSION FAILED fades, the objective line and a pink route on the radar can send you to Mama Lou ("Next: Mama Lou has work") while the prompt still says to press E to retry; retrying with E is quicker than driving to her.
-- A fade to black that hides a jump (a mission retry or a car hand-over in Lou's garage, say) can run out behind the pause menu if you pause just as it starts, so you watch the jump when you resume, and it can happen the same way below about 10 fps; a Spray Shack respray also shows its new paint a moment before the screen is fully dark.
+- A Spray Shack respray shows the car's new paint a moment before the screen is fully dark.
 - The low-health hint suggests saving at the safehouse, but during a mission the safehouse refuses to save or heal, and the hint shows only once, so you will not see it again when its advice would work.
 - Pressing E at the safehouse within a second or so of stepping out of a taxi or vigilante car can wrongly answer "You can't save during a rampage"; press E again.
 - Quitting to the title on the BUSTED or WASTED screen just after passing a mission keeps the pass and its pay but skips the bail or hospital bill.
@@ -277,7 +270,6 @@ All of these are minor; the most noticeable come first.
 
 **Menus, input and small windows**
 
-- When the top-right corner is crowded (armor, a job or mission status, the evade bar and the DISPATCH line), pop-up messages such as "Waypoint reached", "Cheat activated" and "Autosaved" sit on top of it for a couple of seconds, and in a 1024x768 window a title card such as TAXI DRIVER can land on the DISPATCH line.
 - In small windows (about 500 px tall or 800 px wide, or less), on-screen text can overlap: MISSION PASSED over a help message or an offer card, or the objective over the district name or the radar.
 - Typing a cheat with a menu open can make its first letter do its menu job (MONEYTREE typed on the map closes the map until the code is finished); type cheats during play.
 - Switching to another window during the WASTED or BUSTED screen, or at any time while the mouse is not captured, does not pause the game, so the city and any mission timer keep running in the background; pause with Esc or P before you switch away.
@@ -285,7 +277,6 @@ All of these are minor; the most noticeable come first.
 - If you open the map while holding a movement key, then press and release the opposite key, the map keeps scrolling until you let go of the first key.
 - On a touchpad, a sideways two-finger swipe over the game now and then switches your weapon by one.
 - On a gamepad in a vehicle, LB steps through all your weapons, including ones that cannot be fired from a car, on its way to the Pistol or SMG.
-- At speed, the radar's route line starts a little behind your arrow, because the route is planned again only once a second.
 - If the browser will not capture the mouse (in an embedded page, say), the camera on foot cannot be turned at all and nothing says why; open the game in its own tab.
 - On the title screen, the ambient hum and wind keep playing while the tab is in the background; mute the tab.
 
@@ -334,7 +325,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-70 files with 1497 tests run in Node, with no browser.
+79 files with 1588 tests run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission completed by a scripted bot with its failure paths and retries, side jobs, saves, and a 10-minute chaotic soak test (36,000 frames with a seeded random player).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
@@ -342,8 +333,8 @@ The police tests are statistics over many deterministic seeds, and they set the 
 
 ### End-to-end tests
 
-87 tests in 24 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
-They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, a murder that brings the police, WASTED, the menus, the gun shop, saving and continuing after a reload, the side jobs, night rendering and the quality tiers, WebGL context loss, crash screens, all nine cheats, and a two-minute chaos session that must average over 30 fps.
+93 tests in 26 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
+They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, a murder that brings the police, WASTED, mission retries from the pause menu, the menus, the HUD layout in small windows, the gun shop, saving and continuing after a reload, the side jobs, street runs, night rendering and the quality tiers, WebGL context loss, crash screens, all nine cheats, and a two-minute chaos session that must average over 30 fps.
 Most tests also fail on any console error, console warning or page error.
 
 `npm run test:e2e` builds the game and serves it on port 4173, but if a server already answers there (a leftover `npm run preview`), Playwright tests that one without building; set `CI=1` to always build (it then fails if the port is busy).
