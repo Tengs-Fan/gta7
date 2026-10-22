@@ -720,6 +720,22 @@ export class CombatSystem {
   }
 
   /**
+   * Someone standing whom the crosshair ray (from `o` along the unit `d`) is on, looking from the shooter's own depth
+   * along it out to `range` past that, and the point of the ray nearest his axis (where the shot through him goes, see
+   * cameraTarget); null when the ray meets anything else first, or nothing. Things between the camera and the shooter
+   * are passed over.
+   */
+  crosshairPerson(o: V3, d: V3, range: number, shooter: Character): V3 | null {
+    const t0 = Math.max(0, (shooter.pos.x - o.x) * d.x + (shooter.pos.y + CHEST * shooter.height - o.y) * d.y + (shooter.pos.z - o.z) * d.z);
+    const r = this.castRay(o.x, o.y, o.z, d.x, d.y, d.z, t0 + range, shooter, t0);
+    const c = r.character;
+    const flat = d.x * d.x + d.z * d.z;
+    if (!c || !onFeet(c) || !(flat > 1e-9)) return null;
+    const t = Math.max(r.t, ((c.pos.x - o.x) * d.x + (c.pos.z - o.z) * d.z) / flat);
+    return { x: o.x + d.x * t, y: o.y + d.y * t, z: o.z + d.z * t };
+  }
+
+  /**
    * Nearest hit along a ray against world, vehicles, characters and helicopters. Nothing nearer than
    * `minT` counts: the world is cast from there, and anything else the ray entered before it is skipped,
    * except a person who stands past it. The dead count too: the crosshair on a body on the ground is on him.
