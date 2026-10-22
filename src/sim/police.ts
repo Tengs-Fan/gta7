@@ -798,8 +798,7 @@ export class PoliceSystem {
       const yaw = Math.atan2(pp.x - c.pos.x, pp.z - c.pos.z);
       if (shoot) {
         c.moveSpeed = 0;
-        c.aiming = true;
-        c.aimYaw = yaw;
+        sim.combat.holdAim(c, p);
         c.heading = moveAngleTowards(c.heading, yaw, 9 * dt);
         // Never through anyone else in the line of fire (a colleague, a bystander): a step aside for a clear line instead.
         const inLine = holdFire ? null : sim.combat.inLineOfFire(c, p, () => true);

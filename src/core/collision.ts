@@ -469,6 +469,68 @@ export function rayCylinderY(
   return best;
 }
 
+/**
+ * Ray vs capsule: the points within `r` of the segment from A to B. Returns the first intersection distance (in
+ * direction units) up to `maxT`, 0 if the origin is inside, or -1.
+ */
+export function rayCapsule(
+  ox: number, oy: number, oz: number,
+  dx: number, dy: number, dz: number,
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  r: number, maxT: number,
+): number {
+  const len = Math.hypot(dx, dy, dz);
+  if (!(len > 1e-12)) return -1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const uz = dz / len;
+  const max = maxT * len;
+  const bax = bx - ax;
+  const bay = by - ay;
+  const baz = bz - az;
+  const oax = ox - ax;
+  const oay = oy - ay;
+  const oaz = oz - az;
+  const baba = bax * bax + bay * bay + baz * baz;
+  const baoa = bax * oax + bay * oay + baz * oaz;
+  const oaoa = oax * oax + oay * oay + oaz * oaz;
+  const r2 = r * r;
+  // The origin within r of the segment.
+  const h0 = baba > 1e-12 ? Math.min(1, Math.max(0, baoa / baba)) : 0;
+  const ix = oax - bax * h0;
+  const iy = oay - bay * h0;
+  const iz = oaz - baz * h0;
+  if (ix * ix + iy * iy + iz * iz <= r2) return 0;
+  let best = -1;
+  // The side: an infinite cylinder about AB, kept between its end planes.
+  const bard = bax * ux + bay * uy + baz * uz;
+  const rdoa = ux * oax + uy * oay + uz * oaz;
+  const a = baba - bard * bard;
+  if (baba > 1e-12 && a > 1e-12) {
+    const b = baba * rdoa - baoa * bard;
+    const c = baba * oaoa - baoa * baoa - r2 * baba;
+    const h = b * b - a * c;
+    if (h >= 0) {
+      const t = (-b - Math.sqrt(h)) / a;
+      const y = baoa + t * bard;
+      if (t >= 0 && t <= max && y > 0 && y < baba) best = t;
+    }
+  }
+  // The end caps: spheres at A and B.
+  for (let k = 0; k < 2; k++) {
+    const cx = k === 0 ? oax : ox - bx;
+    const cy = k === 0 ? oay : oy - by;
+    const cz = k === 0 ? oaz : oz - bz;
+    const b = ux * cx + uy * cy + uz * cz;
+    const h = b * b - (cx * cx + cy * cy + cz * cz - r2);
+    if (h < 0) continue;
+    const t = -b - Math.sqrt(h);
+    if (t >= 0 && t <= max && (best < 0 || t < best)) best = t;
+  }
+  return best < 0 ? -1 : best / len;
+}
+
 /** True if the 2D segment AB intersects the box. */
 export function segmentHitsAabb(ax: number, az: number, bx: number, bz: number, b: AABB): boolean {
   return rayAabb3(ax, 0, az, bx - ax, 0, bz - az, b.minX, -1, b.minZ, b.maxX, 1, b.maxZ, 1) >= 0;

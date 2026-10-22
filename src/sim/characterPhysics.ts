@@ -186,7 +186,11 @@ export function collideCharactersVehicles(chars: Character[], vehicles: Vehicle[
     const rv = Math.hypot(v.halfW, v.halfL) + 0.5;
     vehicleObb(v, obb);
     for (const c of chars) {
-      if (c.removed || c.state === 'inVehicle' || c.state === 'entering' || c.state === 'dead') continue;
+      if (c.removed || c.state === 'inVehicle' || c.state === 'dead') continue;
+      // Climbing in, he stands in the doorway of his own car (the entry walk keeps him clear of its body); any other
+      // vehicle meets him as it would anyone on his feet.
+      const boarding = c.state === 'entering';
+      if (boarding && c.enterTarget === v) continue;
       const dx = c.pos.x - v.pos.x;
       const dz = c.pos.z - v.pos.z;
       if (dx * dx + dz * dz > rv * rv) continue;
@@ -202,7 +206,7 @@ export function collideCharactersVehicles(chars: Character[], vehicles: Vehicle[
       const approach = vpx * contact.nx + vpz * contact.nz;
       const vn = c.vel.x * contact.nx + c.vel.z * contact.nz;
       const rel = approach - vn;
-      if (approach > 4.5 && rel > 4.5 && c.state === 'normal') {
+      if (approach > 4.5 && rel > 4.5 && (c.state === 'normal' || boarding)) {
         host.onCharacterHitByVehicle(c, v, rel, contact.nx, contact.nz);
       } else if (c.state === 'knocked' && approach > 6 && rel > 6) {
         host.onCharacterHitByVehicle(c, v, rel, contact.nx, contact.nz);

@@ -1,22 +1,25 @@
 // Weapons, damage, deaths, burning vehicles, explosions and rockets.
 
-import { rayCylinderY, rayObb3, type OBB } from '../core/collision';
+import { rayCapsule, rayCylinderY, rayObb3, type OBB } from '../core/collision';
 import { clamp, pointSegDist, wrapAngle, type V3 } from '../core/math';
 import { makeRayHit, type RayHit } from '../world/colliders';
 import { makeBrain } from './brains';
-import type { Character, Vehicle } from './entities';
+import type { CharState, Character, Vehicle } from './entities';
 import { Projectile } from './entities';
 import type { HitKind } from './events';
 import type { PlayerInput } from './input';
 import { cowerCrouched } from './peds';
-import { makeWeaponPose, seatSide, upright, weaponPose, weaponPoseInto, windowMuzzle, type WeaponPose } from './pose';
+import { makeWeaponPose, reloading, seatSide, SKELETON, upright, weaponPose, weaponPoseInto, windowMuzzle, type WeaponPose } from './pose';
 import type { Sim } from './sim';
-import { WEAPONS, type WeaponSpec } from './specs';
+import { WEAPONS, type WeaponId, type WeaponSpec } from './specs';
 import { launchVehicle, vehicleObb } from './vehiclePhysics';
 import type { CrimeType } from './wanted';
 
 export type DamageKind = 'bullet' | 'melee' | 'explosion' | 'vehicle' | 'fall' | 'fire' | 'impact' | 'drown';
-/** Where a hit landed: standing characters have a head volume above the body; everyone else is all body. */
+/**
+ * Where a hit landed: standing characters have a head volume above the body, lying ones a head at the end of the
+ * torso (see LIE_HIP); everyone else is all body.
+ */
 export type HitZone = 'head' | 'body';
 
 const hit = makeRayHit();
@@ -85,10 +88,84 @@ const RAISE_SETTLED = 1e-7;
 const RAISE_MISS = 0.02;
 /** Scratch pose of raiseGun. */
 const raisePose: WeaponPose = makeWeaponPose();
+/**
+ * An NPC's held aim (holdAim) is raised again once he or the point he aims at has moved this share of the range
+ * between them (about 0.2 degrees of aim), and at most HOLD_MOVED (m).
+ */
+const HOLD_ANGLE = 0.0035;
+const HOLD_MOVED = 0.02;
+
+/** What an NPC's held aim was last raised for (see holdAim). */
+interface HeldAim {
+  x: number;
+  y: number;
+  z: number;
+  tx: number;
+  ty: number;
+  tz: number;
+  bearing: number;
+  weapon: WeaponId;
+  state: CharState;
+  reload: boolean;
+  yaw: number;
+  pitch: number;
+}
+
+/**
+ * A body on its back (knocked down or dead) is hit as CrowdView.lying draws it, along his heading: the pelvis LIE_HIP
+ * m behind his position and LIE_Y up, the legs out ahead of it and the torso and head behind it. Lengths are in his
+ * skeleton scale (appearance.height). Three capsules: the legs and hips from the pelvis to LIE_LEGS ahead of it,
+ * LIE_LEGS_R thick; the torso from the pelvis to the neck pivot (SKELETON.neckY behind it), LIE_TORSO_R thick; and the
+ * head, LIE_HEAD_R thick between LIE_HEAD0 and LIE_HEAD1 beyond the neck pivot (the drawn skull runs from 0.025 to
+ * about 0.32 past it, hair included).
+ */
+const LIE_HIP = 0.5;
+const LIE_Y = 0.16;
+const LIE_LEGS = 0.85;
+const LIE_LEGS_R = 0.19;
+const LIE_TORSO_R = 0.17;
+const LIE_HEAD0 = 0.12;
+const LIE_HEAD1 = 0.2;
+const LIE_HEAD_R = 0.13;
+/** Result of lyingHit (shared scratch object): ray distance (-1 for a miss) and the zone hit. */
+const lieHit: { t: number; zone: HitZone } = { t: -1, zone: 'body' };
+
+function lying(c: Character): boolean {
+  return c.state === 'dead' || c.state === 'knocked';
+}
+
+/** Up on his feet as far as being hit goes: standing, or climbing into a car beside it. */
+function onFeet(c: Character): boolean {
+  return c.state === 'normal' || c.state === 'entering';
+}
+
+/** Where a ray first enters a lying body (see LIE_HIP): its legs, torso or head. */
+function lyingHit(c: Character, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxT: number): typeof lieHit {
+  const s = c.appearance.height;
+  const fx = Math.sin(c.heading);
+  const fz = Math.cos(c.heading);
+  const px = c.pos.x - fx * LIE_HIP;
+  const pz = c.pos.z - fz * LIE_HIP;
+  const y = c.pos.y + LIE_Y;
+  const neck = SKELETON.neckY * s;
+  const legs = rayCapsule(ox, oy, oz, dx, dy, dz, px, y, pz, px + fx * LIE_LEGS * s, y, pz + fz * LIE_LEGS * s, LIE_LEGS_R, maxT);
+  const torso = rayCapsule(ox, oy, oz, dx, dy, dz, px, y, pz, px - fx * neck, y, pz - fz * neck, LIE_TORSO_R, maxT);
+  const h0 = neck + LIE_HEAD0 * s;
+  const h1 = neck + LIE_HEAD1 * s;
+  const head = rayCapsule(ox, oy, oz, dx, dy, dz, px - fx * h0, y, pz - fz * h0, px - fx * h1, y, pz - fz * h1, LIE_HEAD_R, maxT);
+  lieHit.t = legs >= 0 && (torso < 0 || legs < torso) ? legs : torso;
+  lieHit.zone = 'body';
+  if (head >= 0 && (lieHit.t < 0 || head < lieHit.t)) {
+    lieHit.t = head;
+    lieHit.zone = 'head';
+  }
+  return lieHit;
+}
 
 /**
  * The upright cylinder a character occupies as a whole (shared scratch object): axis at (x, z), radius r, from y0 to y1.
- * `crouch`: he cowers crouched (see CROUCH_TOP).
+ * `crouch`: he cowers crouched (see CROUCH_TOP). For a lying body this is only a rough footprint about his position:
+ * shots hit the drawn pose (lyingHit).
  */
 const body = { x: 0, z: 0, r: 0, y0: 0, y1: 0 };
 function bodyOf(c: Character, crouch = false): typeof body {
@@ -102,10 +179,10 @@ function bodyOf(c: Character, crouch = false): typeof body {
     body.y1 = c.pos.y + CROUCH_TOP * c.height;
     return body;
   }
-  const lying = c.state === 'dead' || c.state === 'knocked';
-  body.r = lying ? 0.6 : BODY_R;
+  const down = lying(c);
+  body.r = down ? 0.6 : BODY_R;
   body.y0 = c.state === 'swimming' ? c.pos.y + 0.9 : c.pos.y;
-  body.y1 = c.state === 'swimming' ? c.pos.y + c.height : c.pos.y + (lying ? 0.45 : c.height);
+  body.y1 = c.state === 'swimming' ? c.pos.y + c.height : c.pos.y + (down ? 0.45 : c.height);
   return body;
 }
 
@@ -117,7 +194,7 @@ const zoneVol = { x: 0, z: 0, r: 0, y0: 0, y1: 0 };
 function zoneOf(c: Character, zone: HitZone, crouch = false): typeof zoneVol {
   zoneVol.x = c.pos.x;
   zoneVol.z = c.pos.z;
-  if (c.state !== 'normal' || crouch) {
+  if (!onFeet(c) || crouch) {
     const b = bodyOf(c, crouch);
     zoneVol.x = b.x;
     zoneVol.z = b.z;
@@ -181,6 +258,8 @@ export class CombatSystem {
   private readonly assaulted = new WeakMap<object, number>();
   /** Sim time each rocket was launched (or first seen), for its arming delay. */
   private readonly launched = new WeakMap<Projectile, number>();
+  /** What each NPC shooter's held aim was last raised for. */
+  private readonly held = new WeakMap<Character, HeldAim>();
 
   constructor(private readonly sim: Sim) {}
 
@@ -229,7 +308,7 @@ export class CombatSystem {
     // Sideways offsets are measured to the left: (fz, -fx).
     const line = (tip.x - c.pos.x) * fz - (tip.z - c.pos.z) * fx;
     for (const o of this.sim.characters) {
-      if (o === c || o.removed || o.state === 'inVehicle' || o.state === 'entering') continue;
+      if (o === c || o.removed || o.state === 'inVehicle') continue;
       const b = bodyOf(o, this.crouched(o));
       const dx = b.x - c.pos.x;
       const dz = b.z - c.pos.z;
@@ -436,6 +515,58 @@ export class CombatSystem {
   }
 
   /**
+   * Holds an NPC's gun on `target` between shots, raised as npcFire raises it for each shot (the barrel through the
+   * point it aims at), so the shot itself no longer swings it. Raised again only once the shooter, or the point he
+   * aims at, has moved HOLD_ANGLE of the range between them (at most HOLD_MOVED), or his gun, his state or how he holds
+   * it has changed, or something else has turned his aim. Brought in for a reload, the gun turns with the bearing to
+   * the target instead (raising it then would point the reload pose instead); with fists, in a car, or down on the
+   * ground he faces the plain bearing.
+   */
+  holdAim(c: Character, target: Character): void {
+    const tp = target.vehicle ? target.vehicle.pos : target.pos;
+    const ty = target.vehicle ? tp.y + 0.9 : tp.y + target.height * 0.62;
+    const bearing = Math.atan2(tp.x - c.pos.x, tp.z - c.pos.z);
+    c.aiming = true;
+    if (c.vehicle || c.inventory.current === 'fists' || !(upright(c) || c.state === 'swimming')) {
+      c.aimYaw = bearing;
+      this.held.delete(c);
+      return;
+    }
+    const reload = reloading(c) && !(c.shotTimer > 0);
+    let h = this.held.get(c);
+    if (h) {
+      const tol = Math.min(HOLD_MOVED, HOLD_ANGLE * Math.hypot(tp.x - c.pos.x, ty - c.pos.y, tp.z - c.pos.z));
+      const still =
+        h.weapon === c.inventory.current &&
+        h.state === c.state &&
+        h.reload === reload &&
+        h.yaw === c.aimYaw &&
+        h.pitch === c.aimPitch &&
+        Math.hypot(c.pos.x - h.x, c.pos.y - h.y, c.pos.z - h.z) < tol &&
+        Math.hypot(tp.x - h.tx, ty - h.ty, tp.z - h.tz) < tol;
+      if (still) return;
+    }
+    if (!reload) this.raiseGun(c, tp.x, ty, tp.z);
+    else c.aimYaw = h ? wrapAngle(c.aimYaw + wrapAngle(bearing - h.bearing)) : bearing;
+    if (!h) {
+      h = { x: 0, y: 0, z: 0, tx: 0, ty: 0, tz: 0, bearing: 0, weapon: c.inventory.current, state: c.state, reload, yaw: 0, pitch: 0 };
+      this.held.set(c, h);
+    }
+    h.x = c.pos.x;
+    h.y = c.pos.y;
+    h.z = c.pos.z;
+    h.tx = tp.x;
+    h.ty = ty;
+    h.tz = tp.z;
+    h.bearing = bearing;
+    h.weapon = c.inventory.current;
+    h.state = c.state;
+    h.reload = reload;
+    h.yaw = c.aimYaw;
+    h.pitch = c.aimPitch;
+  }
+
+  /**
    * Starts the cooldown after a shot.
    * What the last frame overran the previous cooldown by counts towards this one (up to MAX_CARRY),
    * so weapons keep their rate of fire at any frame rate.
@@ -549,7 +680,7 @@ export class CombatSystem {
   cameraTarget(o: V3, d: V3, range: number, shooter: Character, muzzle: V3): AimPoint {
     const t0 = Math.max(0, (muzzle.x - o.x) * d.x + (muzzle.y - o.y) * d.y + (muzzle.z - o.z) * d.z);
     const far = t0 + range + 12;
-    const r = this.castRay(o.x, o.y, o.z, d.x, d.y, d.z, far, shooter, true, t0);
+    const r = this.castRay(o.x, o.y, o.z, d.x, d.y, d.z, far, shooter, t0);
     // A prop the ray is inside at the muzzle's depth gives no direction: aim along the crosshair.
     const t = r.kind === 'none' || r.t <= t0 ? far : r.t;
     const c = r.character;
@@ -591,9 +722,9 @@ export class CombatSystem {
   /**
    * Nearest hit along a ray against world, vehicles, characters and helicopters. Nothing nearer than
    * `minT` counts: the world is cast from there, and anything else the ray entered before it is skipped,
-   * except a person who stands past it.
+   * except a person who stands past it. The dead count too: the crosshair on a body on the ground is on him.
    */
-  castRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, range: number, ignore: Character | null, forAim = false, minT = 0): RayResult {
+  castRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, range: number, ignore: Character | null, minT = 0): RayResult {
     const sim = this.sim;
     const res: RayResult = { t: range, kind: 'none', character: null, zone: 'body', vehicle: null, heli: -1, nx: 0, ny: 1, nz: 0 };
     if (sim.world.grid.raycast(ox + dx * minT, oy + dy * minT, oz + dz * minT, dx, dy, dz, range - minT, hit)) {
@@ -640,16 +771,23 @@ export class CombatSystem {
     }
     const flat = dx * dx + dz * dz;
     for (const c of sim.characters) {
-      if (c.removed || c === ignore || c.state === 'inVehicle' || c.state === 'entering') continue;
-      if (c.state === 'dead' && forAim) continue;
+      // Someone climbing into a car is still on his feet beside it: hit as standing.
+      if (c.removed || c === ignore || c.state === 'inVehicle') continue;
       const cx = c.pos.x - ox;
       const cz = c.pos.z - oz;
       const along = cx * dx + cz * dz;
-      if (along < -1 || along > res.t + 1) continue;
+      const down = lying(c);
+      const span = down ? 2 : 1;
+      if (along < -span || along > res.t + span) continue;
       let t: number;
       let zone: HitZone = 'body';
       const crouch = this.crouched(c);
-      if (c.state === 'normal' && !crouch) {
+      const standing = onFeet(c) && !crouch;
+      if (down) {
+        const l = lyingHit(c, ox, oy, oz, dx, dy, dz, res.t);
+        t = l.t;
+        zone = l.zone;
+      } else if (standing) {
         // Standing: a body cylinder up to the shoulders and a narrower head on top; the nearer hit counts.
         const neck = c.pos.y + NECK * c.height;
         t = rayCylinderY(ox, oy, oz, dx, dy, dz, c.pos.x, c.pos.z, BODY_R, c.pos.y, neck, res.t);
@@ -670,7 +808,7 @@ export class CombatSystem {
         const tc = flat > 1e-9 ? along / flat : -1;
         let reach = tc >= minT;
         if (!reach && ignore && flat > 1e-9) {
-          const r = c.state === 'normal' && !crouch ? BODY_R : bodyOf(c, crouch).r;
+          const r = standing ? BODY_R : bodyOf(c, crouch).r;
           const ahead = ((c.pos.x - ignore.pos.x) * dx + (c.pos.z - ignore.pos.z) * dz) / Math.sqrt(flat);
           reach = tc >= minT - r && ahead >= r;
         }
@@ -717,7 +855,7 @@ export class CombatSystem {
       // (at close range nearly always).
       // A round still on course for that head is the headshot aimed.
       const aimed = this.aimed;
-      if (zone === 'body' && aimed && aimed.character === c && aimed.zone === 'head' && c.state === 'normal' && !this.crouched(c)) {
+      if (zone === 'body' && aimed && aimed.character === c && aimed.zone === 'head' && onFeet(c) && !this.crouched(c)) {
         const head = zoneOf(c, 'head');
         if (rayCylinderY(from.x, from.y, from.z, dx, dy, dz, c.pos.x, c.pos.z, head.r, head.y0, head.y1, w.range) >= 0) zone = 'head';
       }
