@@ -95,6 +95,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   constructor(opts: SimOptions = {}) {
     this.world = opts.world ?? new StaticWorld(opts.seed);
     this.roads = this.world.roads;
+    // The world outlives the Sim it served (QUIT TO TITLE, a new game): a run it dropped mid-race held junctions.
+    this.roads.clearSignalHolds();
     this.rng = new Rng(((opts.seed ?? 7) * 2654435761) >>> 0);
     this.clock = new GameClock(opts.startHour ?? 16);
     this.weather = new WeatherSystem(opts.seed ?? 7, opts.weather ?? 'clear');

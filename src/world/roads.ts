@@ -88,6 +88,8 @@ export class RoadNetwork {
   private readonly lanesByEdge = new Map<number, Lane[]>();
   /** distanceField() results by goal node. */
   private readonly fields = new Map<number, Float64Array>();
+  /** Junctions held green along one axis (see holdSignal). */
+  private readonly holds = new Map<number, Axis>();
   private readonly n: number;
 
   constructor(readonly layout: CityLayout) {
@@ -219,7 +221,48 @@ export class RoadNetwork {
     return list[Math.min(index, list.length - 1)]!;
   }
 
+  /**
+   * Holds a signalised junction green for `axis` (the cross axis red, pedestrians kept off the held road) until
+   * released. Drivers, pedestrians and the signal heads all read signalState/pedCanCross, so they all see the hold.
+   * The road network belongs to a world that outlives a Sim (the title and each new game share it): whoever holds a
+   * junction releases it, and a new Sim clears what a discarded one left behind.
+   */
+  holdSignal(nodeId: number, axis: Axis): void {
+    if (this.nodes[nodeId]?.signal) this.holds.set(nodeId, axis);
+  }
+
+  releaseSignal(nodeId: number): void {
+    this.holds.delete(nodeId);
+  }
+
+  clearSignalHolds(): void {
+    this.holds.clear();
+  }
+
+  /** The axis a junction is held green for, or null when it runs its normal cycle. */
+  signalHold(nodeId: number): Axis | null {
+    return this.holds.get(nodeId) ?? null;
+  }
+
+  get heldSignals(): ReadonlyMap<number, Axis> {
+    return this.holds;
+  }
+
   signalState(nodeId: number, axis: Axis, t: number): SignalState {
+    const hold = this.holds.get(nodeId);
+    if (hold !== undefined) return axis === hold ? 'green' : 'red';
+    return this.cycleSignalState(nodeId, axis, t);
+  }
+
+  /** Pedestrians may start crossing a road carrying `crossedAxis` traffic. */
+  pedCanCross(nodeId: number, crossedAxis: Axis, t: number): boolean {
+    const hold = this.holds.get(nodeId);
+    if (hold !== undefined) return crossedAxis !== hold;
+    return this.cyclePedCanCross(nodeId, crossedAxis, t);
+  }
+
+  /** The junction's normal signal cycle, ignoring any hold. */
+  cycleSignalState(nodeId: number, axis: Axis, t: number): SignalState {
     const node = this.nodes[nodeId]!;
     if (!node.signal) return 'green';
     const c = (((t + node.offset) % SIGNAL_CYCLE) + SIGNAL_CYCLE) % SIGNAL_CYCLE;
@@ -230,8 +273,8 @@ export class RoadNetwork {
     return local < SIGNAL_GREEN ? 'green' : local < SIGNAL_GREEN + SIGNAL_YELLOW ? 'yellow' : 'red';
   }
 
-  /** Pedestrians may start crossing a road carrying `crossedAxis` traffic. */
-  pedCanCross(nodeId: number, crossedAxis: Axis, t: number): boolean {
+  /** Pedestrian crossings in the junction's normal signal cycle, ignoring any hold. */
+  cyclePedCanCross(nodeId: number, crossedAxis: Axis, t: number): boolean {
     const node = this.nodes[nodeId]!;
     if (!node.signal) return true;
     const c = (((t + node.offset) % SIGNAL_CYCLE) + SIGNAL_CYCLE) % SIGNAL_CYCLE;
