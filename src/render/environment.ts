@@ -188,6 +188,29 @@ function skyIrradiance(top: THREE.Color, horizon: THREE.Color, sun: THREE.Color,
   down.setRGB(HAZE.r * (horizon.r + 0.2), HAZE.g * (horizon.g + 0.2), HAZE.b * (horizon.b + 0.2));
 }
 
+/** Relative change of any sky colour (top, horizon, baked sun) since the last bake that triggers a re-bake. */
+const BAKE_REL = 0.02;
+/**
+ * Shortest real-time gap (seconds) between colour-triggered bakes: about two a second. A little over
+ * half a second, as the renderer's clock runs slightly ahead of the wall clock when extra frames are
+ * rendered (the debug samplePixels does).
+ */
+const BAKE_INTERVAL = 0.55;
+/** Below this a colour counts as this bright, so near-black night skies do not re-bake all the time. */
+const BAKE_FLOOR = 0.002;
+
+function luminance(c: THREE.Color): number {
+  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+}
+
+/**
+ * Largest change of an RGB channel from b to a, relative to b's strongest channel: a weak channel
+ * (the red of the noon sky) drifting by half its value is not a visible change of the light.
+ */
+function relDiff(a: THREE.Color, b: THREE.Color): number {
+  return Math.max(Math.abs(a.r - b.r), Math.abs(a.g - b.g), Math.abs(a.b - b.b)) / Math.max(b.r, b.g, b.b, BAKE_FLOOR);
+}
+
 /** Share of the key light a puff of smoke scatters, against a surface facing the light. */
 const PUFF_KEY = 0.5;
 /** The smoke light never drops below this luminance (lamps, headlights and lit windows light the smoke too). */
@@ -758,6 +781,21 @@ export class Environment {
   private readonly envUp = new THREE.Color();
   private readonly envDown = new THREE.Color();
   private readonly envSun = new THREE.Color();
+  /** The analytic sky the environment map was last baked from (see update). */
+  private readonly bakedTop = new THREE.Color();
+  private readonly bakedHorizon = new THREE.Color();
+  private readonly bakedSun = new THREE.Color();
+  /** skyIrradiance (up) of the baked sky, and of the sky as it is now. */
+  readonly bakedUp = new THREE.Color();
+  readonly upNow = new THREE.Color();
+  /** Renderer time (real seconds) of the last bake. */
+  private lastBakeTime = -Infinity;
+  /** Environment-map bakes so far. */
+  envBakes = 0;
+  /** Game hour of the last bake (NaN until the first, and after a context restore). */
+  get lastBakeHour(): number {
+    return this.envHours;
+  }
 
   /**
    * Re-bakes the environment map for the current sky (cheap: a 24-segment sphere). The sky is
@@ -870,29 +908,45 @@ export class Environment {
     this.fog.near = this.software ? lerp(70, 50, night) : lerp(180, 90, night);
     this.fog.far = this.software ? 220 : lerp(780, 520, night);
     const envI = envIntensity(night);
-    this.scene.environmentIntensity = envI;
-    this.updateSmokeLight(s);
     // The baked sky's sun, which sets with the sky's own (sunVisibility).
     const envSun = this.envSun.copy(s.sun).multiplyScalar(Math.min(1.5, s.sunI / 2) * sunVis);
+    skyIrradiance(s.top, s.horizon, envSun, sunDir.y, this.envUp, this.envDown);
+    this.upNow.copy(this.envUp);
     if (this.envFill) {
-      skyIrradiance(s.top, s.horizon, envSun, sunDir.y, this.envUp, this.envDown);
+      this.scene.environmentIntensity = envI;
       // A hemisphere light's colour is irradiance; the sky's diffuse light is PI x its average radiance.
       this.envFill.color.copy(this.envUp).multiplyScalar(Math.PI * envI);
       this.envFill.groundColor.copy(this.envDown).multiplyScalar(Math.PI * envI);
       this.skyReflection.top.value.copy(s.top);
       this.skyReflection.horizon.value.copy(s.horizon);
       this.skyReflection.intensity.value = envI;
+    } else {
+      // Re-bake when the sky has visibly changed since the last bake (at most every half real second:
+      // a bake costs about a millisecond), when the sun has just fully set or risen (so its reflection
+      // is gone, or whole, with the sky's), and at once after a jump in time or a quarter game hour;
+      // NaN (first frame, context restore) forces a bake.
+      const diff = Math.abs(hours - this.envHours);
+      const jumped = !(Math.min(diff, 24 - diff) <= 0.25);
+      const settled = (sunVis === 0 || sunVis === 1) && sunVis !== this.envSunVis;
+      const changed = relDiff(s.top, this.bakedTop) > BAKE_REL || relDiff(s.horizon, this.bakedHorizon) > BAKE_REL || relDiff(envSun, this.bakedSun) > BAKE_REL;
+      const due = time - this.lastBakeTime >= BAKE_INTERVAL || time < this.lastBakeTime;
+      if (jumped || settled || (changed && due)) {
+        this.envHours = hours;
+        this.envSunVis = sunVis;
+        this.lastBakeTime = time;
+        this.envBakes++;
+        this.bakedTop.copy(s.top);
+        this.bakedHorizon.copy(s.horizon);
+        this.bakedSun.copy(envSun);
+        this.bakedUp.copy(this.envUp);
+        this.refreshEnv(s, envSun, sunDir);
+      }
+      // Between bakes the map holds an older sky: scale its light by how much brighter the sky is now,
+      // so the scene brightens and darkens every frame rather than in a step at each bake.
+      const k = clamp(luminance(this.envUp) / Math.max(luminance(this.bakedUp), 1e-4), 0.5, 2);
+      this.scene.environmentIntensity = envI * k;
     }
-    // Re-bake reflections every quarter game hour (or after a jump in time), and while the sun sets or
-    // rises, so its reflection fades with the sky's instead of in quarter-hour steps and is gone (or
-    // whole) with it; NaN forces the first bake.
-    const diff = Math.abs(hours - this.envHours);
-    const settled = (sunVis === 0 || sunVis === 1) && sunVis !== this.envSunVis;
-    if (!(Math.min(diff, 24 - diff) <= 0.25) || !(Math.abs(sunVis - this.envSunVis) <= 0.1) || settled) {
-      this.envHours = hours;
-      this.envSunVis = sunVis;
-      this.refreshEnv(s, envSun, sunDir);
-    }
+    this.updateSmokeLight(s);
     renderer.toneMappingExposure = s.exposure;
 
     // Each ripple sample's offset wraps by whole tiles of its own (see twoLayerRipples).

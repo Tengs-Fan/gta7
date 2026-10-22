@@ -79,6 +79,22 @@ export function installDebugApi(game: Game): void {
     setTime(h: number) {
       game.sim.clock.set(h);
     },
+    /** Clock speed relative to the default (1 = one game minute per real second). */
+    setClockRate(r: number) {
+      game.sim.clock.rate = r / 60;
+    },
+    /** The environment map's bake count, last bake hour and current sky-light compensation. */
+    envStats() {
+      const env = game.renderer.env;
+      const rgb = (c: { r: number; g: number; b: number }) => ({ r: c.r, g: c.g, b: c.b });
+      return {
+        bakes: env.envBakes,
+        lastBakeHour: env.lastBakeHour,
+        envIntensity: game.renderer.scene.environmentIntensity,
+        bakedUp: rgb(env.bakedUp),
+        upNow: rgb(env.upNow),
+      };
+    },
     godMode(on = true) {
       game.sim.cheats.godMode = on;
     },

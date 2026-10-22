@@ -45,7 +45,7 @@ export class LocalReflections {
     // a refresh every 12 metres, capped at twice per second; a teleport starts a coherent new cube.
     if (this.face >= 0 && this.camera.position.distanceToSquared(position) > 50 * 50) this.face = -1;
     if (this.face < 0 && time - this.captureTime >= 0.5 &&
-      (this.capturedAt.distanceToSquared(position) > 12 * 12 || Math.min(hourDelta, 24 - hourDelta) > 0.2 || !this.filtered)) {
+      (this.capturedAt.distanceToSquared(position) > 12 * 12 || Math.min(hourDelta, 24 - hourDelta) > 0.05 || !this.filtered)) {
       this.camera.position.copy(position);
       this.camera.updateMatrixWorld(true);
       this.face = 0;
