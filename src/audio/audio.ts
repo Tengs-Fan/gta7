@@ -10,7 +10,7 @@ import type { Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { Ambience, shoreInfo, type AmbienceFrame, type ShoreInfo } from './ambience';
 import { EngineVoice } from './engineVoice';
-import { distanceCutoff, EXPLOSION_DUCK_RANGE, Glider, Mixer, mixTargets, OPEN_HZ, type MixTargets } from './mixer';
+import { distanceCutoff, EXPLOSION_DUCK_RANGE, Glider, Mixer, mixTargets, OPEN_HZ, withinParam, type MixTargets } from './mixer';
 import { Radio } from './radio';
 import { DEFAULT_HORN, ENGINE_PROFILES } from './vehicleProfiles';
 
@@ -276,7 +276,7 @@ export class AudioEngine {
     if (finite(cutoff) && cutoff < OPEN_HZ) {
       const f = ctx.createBiquadFilter();
       f.type = 'lowpass';
-      f.frequency.value = cutoff;
+      f.frequency.value = withinParam(f.frequency, cutoff);
       f.connect(dest);
       dest = f;
     }
