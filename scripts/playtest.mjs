@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { chromium } from '@playwright/test';
-import { currentBrowserLaunch } from './browserFlags.mjs';
+import { bundledExecutables, currentBrowserLaunch } from './browserFlags.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name, def) => {
@@ -37,12 +37,12 @@ const out = resolve(opt('out', '/tmp/gta7-playtest'));
 const scenario = opt('scenario', opt('script') ? null : 'tour');
 const scriptPath = opt('script', null);
 const [vw, vh] = opt('size', '1600x900').split('x').map(Number);
-const software = flag('swiftshader') || process.env.GTA7_SWIFTSHADER === '1';
+const headless = !flag('headed');
 
 mkdirSync(out, { recursive: true });
 
-const launch = currentBrowserLaunch(chromium, software);
-const browser = await chromium.launch({ headless: !flag('headed'), ...launch });
+const launch = currentBrowserLaunch(chromium, { headless, software: flag('swiftshader'), swiftshaderEnv: 'one' });
+const browser = await chromium.launch({ headless, ...launch });
 const page = await browser.newPage({ viewport: { width: vw, height: vh } });
 // Headless Chromium that grants pointer lock can stop delivering frames and grow without bound,
 // so automated runs refuse the lock (clicks then shoot unlocked); --pointer-lock opts back in.
@@ -54,7 +54,7 @@ if (!flag('pointer-lock')) {
   });
 }
 const IGNORED = [/GPU stall due to ReadPixels/i, /requestPointerLock/i, /pointer lock/i];
-const report = { url, scenario: scenario ?? scriptPath, browser: { executablePath: launch.executablePath ?? chromium.executablePath(), args: launch.args }, errors: [], shots: [], snapshots: [], segments: [], notes: [] };
+const report = { url, scenario: scenario ?? scriptPath, browser: { executablePath: launch.executablePath ?? bundledExecutables(chromium)[headless ? 'headlessShell' : 'chromium'], args: launch.args }, errors: [], shots: [], snapshots: [], segments: [], notes: [] };
 page.on('console', (m) => {
   if ((m.type() === 'error' || m.type() === 'warning') && !IGNORED.some((r) => r.test(m.text()))) report.errors.push(`[${m.type()}] ${m.text()}`);
 });

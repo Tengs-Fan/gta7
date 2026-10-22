@@ -2,9 +2,14 @@ import { chromium, defineConfig } from '@playwright/test';
 import { currentBrowserLaunch } from './scripts/browserFlags.mjs';
 
 // Hardware GPU through ANGLE (Metal on macOS, Vulkan elsewhere; GTA7_ANGLE overrides); set
-// GTA7_SWIFTSHADER=1 on machines without a GPU. On macOS without Playwright's Chromium, the
+// GTA7_SWIFTSHADER=1 on machines without a GPU ("0" and "" mean off). On macOS without the
+// Playwright browser this run would launch (the headless shell, or full Chromium when headed), the
 // installed Google Chrome is used unless GTA7_BROWSER names another executable.
-const launch = currentBrowserLaunch(chromium);
+// Workers reload this config without the CLI arguments, so the headed decision travels in the env.
+if (process.argv.some((a) => a === '--headed' || a.startsWith('--debug')) || process.env.PWDEBUG) {
+  process.env.GTA7_PW_HEADED = '1';
+}
+const launch = currentBrowserLaunch(chromium, { headless: process.env.GTA7_PW_HEADED !== '1' });
 
 // GTA7_PORT lets several checkouts run the suite side by side: with it set, every run builds and
 // serves its own checkout (GTA7_REUSE=1 reuses a server already on the port, which must serve
