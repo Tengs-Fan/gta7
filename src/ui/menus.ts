@@ -7,18 +7,23 @@ import { QUALITY, type QualityTier } from '../render/quality';
 import type { Sim } from '../sim/sim';
 import { shopItems } from '../sim/interactions';
 import { PACKAGE_COUNT } from '../sim/pickups';
-import { formatRunTime } from '../sim/streetRuns';
+import { formatRunTime, type StreetRunCourse, type StreetRunMedal } from '../sim/streetRuns';
 import type { Settings } from '../settings';
 import { padGlyph, type InputDevice } from './glyphs';
 import { escapeHtml } from './hud';
 import { collectBlips, drawBlip, drawPoliceOverlay, MAP_SCALE, type Blip, type MapImage } from './mapRender';
+
+/** A course's medal target times in seconds, as the sim judges them. */
+export type StreetRunMedalTimes = Pick<StreetRunCourse, StreetRunMedal>;
+
+const MEDAL_ORDER: readonly StreetRunMedal[] = ['gold', 'silver', 'bronze'];
 
 export interface MenuHost {
   hasSave(): boolean;
   newGame(): void;
   /** Start the standalone driving challenge from the title screen. */
   startStreetRun?(id?: string): void;
-  streetRunCourses?(): Array<{ id: string; title: string; description: string; best?: number; target?: number; distance?: number; reward?: number }>;
+  streetRunCourses?(): Array<{ id: string; title: string; description: string; best?: number; medals?: StreetRunMedalTimes; distance?: number; reward?: number }>;
   continueGame(): void;
   resume(): void;
   quitToTitle(): void;
@@ -85,17 +90,18 @@ class ButtonList {
   private sel = 0;
 
   /** `initial`: the item selected at first, or the first enabled one after it (else the first enabled one). */
-  constructor(items: Array<{ label: string; action: () => void; disabled?: boolean; id?: string; description?: string }>, private readonly click: () => void, initial = 0) {
+  /** `detail`: an extra element inside the button (after the label); its text joins the accessible description. */
+  constructor(items: Array<{ label: string; action: () => void; disabled?: boolean; id?: string; description?: string; detail?: HTMLElement }>, private readonly click: () => void, initial = 0) {
     for (const it of items) {
       const b = h('button');
       b.textContent = it.label;
       b.ariaLabel = it.label;
       b.disabled = !!it.disabled;
       if (it.id) b.dataset.id = it.id;
-      if (it.description) {
-        b.dataset.description = it.description;
-        b.ariaDescription = it.description;
-      }
+      if (it.description) b.dataset.description = it.description;
+      if (it.detail) b.appendChild(it.detail);
+      const spoken = [it.description, it.detail?.textContent].filter(Boolean).join('\n');
+      if (spoken) b.ariaDescription = spoken;
       b.addEventListener('click', () => {
         if (b.disabled) return;
         this.click();
@@ -304,12 +310,21 @@ export class Menus {
       ...courses.map((c) => {
         const meta = [
           c.distance !== undefined ? `${(c.distance / 1000).toFixed(1)} KM` : '',
-          c.target !== undefined ? `GOLD ${formatRunTime(c.target)}` : '',
           c.best !== undefined ? `BEST ${formatRunTime(c.best)}` : 'NO TIME SET',
           c.reward !== undefined ? `UP TO ${formatMoney(c.reward)}` : '',
         ].filter(Boolean).join('  /  ');
+        const medals = c.medals;
+        const detail = medals ? h('span', 'course-medals') : undefined;
+        if (medals && detail) {
+          for (const m of MEDAL_ORDER) {
+            if (m !== MEDAL_ORDER[0]) detail.appendChild(h('span', 'course-medal-sep', ' · '));
+            const time = h('span', `course-medal ${m}`, `<b>${m.toUpperCase()}</b> ${formatRunTime(medals[m])}`);
+            time.dataset.medal = m;
+            detail.appendChild(time);
+          }
+        }
         return {
-          label: c.title.toUpperCase(), description: `${c.description}\n${meta}`,
+          label: c.title.toUpperCase(), description: `${c.description}\n${meta}`, detail,
           action: () => this.host.startStreetRun?.(c.id), id: `course-${c.id}`,
         };
       }),

@@ -16,6 +16,7 @@ import { missionSpots } from '../../src/sim/missions/spots';
 import { Progress, serialize } from '../../src/sim/progress';
 import { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
+import { formatRunTime, runMedal } from '../../src/sim/streetRuns';
 import { vehicleObb } from '../../src/sim/vehiclePhysics';
 import { Hud } from '../../src/ui/hud';
 import { MAP_SCALE, MapImage } from '../../src/ui/mapRender';
@@ -4858,7 +4859,7 @@ describe('San Azura driving HUD', () => {
     const startStreetRun = vi.fn();
     const menus = new Menus(new FakeElement('div') as unknown as HTMLElement, stubHost({
       startStreetRun,
-      streetRunCourses: () => [{ id: 'coastline', title: 'Coastline Circuit', description: 'Along the water.', target: 85, best: 80.5, distance: 1400, reward: 1400 }],
+      streetRunCourses: () => [{ id: 'coastline', title: 'Coastline Circuit', description: 'Along the water.', medals: { gold: 65, silver: 85, bronze: 115 }, best: 80.5, distance: 1400, reward: 1400 }],
     }), new MapImage(world()));
     menus.showTitle();
     (menus.top!.el as unknown as FakeElement).all().find(e => e.dataset.id === 'street-run')!.click();
@@ -4866,8 +4867,32 @@ describe('San Azura driving HUD', () => {
     const course = (menus.top!.el as unknown as FakeElement).all().find(e => e.dataset.id === 'course-coastline')!;
     expect(course.dataset.description).toContain('BEST 1:20.5');
     expect(course.dataset.description).toContain('1.4 KM');
+    expect((course as unknown as { ariaDescription: string }).ariaDescription).toContain('GOLD 1:05.0 · SILVER 1:25.0 · BRONZE 1:55.0');
     course.click();
     expect(startStreetRun).toHaveBeenCalledWith('coastline');
+  });
+
+  it('the course picker lists every course with the gold, silver and bronze times the sim judges finishes by', () => {
+    const { game } = makeQualityGame();
+    game.menus.showStreetRuns();
+    const rows = (game.menus.top!.el as unknown as FakeElement).all();
+    const courses = game.sim.activities.streetRunCourses();
+    expect(courses.length).toBe(3);
+    for (const c of courses) {
+      const row = rows.find(e => e.dataset.id === `course-${c.id}`)!;
+      expect(row).toBeDefined();
+      const medals = row.all().filter(e => e.dataset.medal);
+      expect(medals.map(e => e.dataset.medal)).toEqual(['gold', 'silver', 'bronze']);
+      expect(medals.map(e => e.textContent)).toEqual([
+        `GOLD ${formatRunTime(c.gold)}`, `SILVER ${formatRunTime(c.silver)}`, `BRONZE ${formatRunTime(c.bronze)}`,
+      ]);
+      // The boundaries shown are the ones runMedal awards on.
+      expect([runMedal(c, c.gold), runMedal(c, c.silver), runMedal(c, c.bronze), runMedal(c, c.bronze + 0.1)]).toEqual(['gold', 'silver', 'bronze', null]);
+      expect(medals.every(e => e.classList.contains(e.dataset.medal!))).toBe(true);
+      expect((row as unknown as { ariaDescription: string }).ariaDescription)
+        .toContain(`GOLD ${formatRunTime(c.gold)} · SILVER ${formatRunTime(c.silver)} · BRONZE ${formatRunTime(c.bronze)}`);
+      expect(row.dataset.description).not.toContain('GOLD');
+    }
   });
 
   it('software rendering explains the performance limit without promising anti-aliasing after reload', () => {

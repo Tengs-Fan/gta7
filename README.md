@@ -127,7 +127,7 @@ Progress stays in this browser: the game autosaves after every mission passed an
 
 ## Street runs
 
-Choose **STREET RUN** on the title screen, select a course, and launch in a Nightjar GT. Existing saved money, story progress and personal bests carry over.
+Choose **STREET RUN** on the title screen, select a course (each one lists its gold, silver and bronze times and your best), and launch in a Nightjar GT. Existing saved money, story progress and personal bests carry over.
 During free roam, press **T** (D-pad down) in an ordinary road car to enter the nearest course. Finish any mission and lose the cops first; taxis and police vehicles keep their own jobs.
 
 Follow the GPS route and stop inside the start gate. The car lines up for a three-second countdown; hold W or RT to launch at GO.
@@ -325,7 +325,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-81 files with 1599 tests run in Node, with no browser.
+82 files with 1603 tests run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission completed by a scripted bot with its failure paths and retries, side jobs, saves, and a 10-minute chaotic soak test (36,000 frames with a seeded random player).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.

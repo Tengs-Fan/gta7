@@ -150,6 +150,12 @@ export class PoliceSystem {
   /** Seconds since the player's vehicle last got NOWHERE_RADIUS m from `idleAt`. */
   private playerIdle = 0;
   private idleAt = { x: 0, z: 0 };
+  /**
+   * The player's car has dropped below 1.5 m/s since `idleAt` was set. Rocking or ramming a boxed-in car
+   * keeps passing through a near stop, while steady slow driving (2 m/s covers only 5 m in
+   * STUCK_DEPLOY_TIME) never does, so this tells the two apart.
+   */
+  private idleFaltered = false;
   /** The officer walking up to arrest the player this frame, and whether everyone else holds fire (see pickArrester). */
   private arrester: Character | null = null;
   private holdFire = false;
@@ -176,11 +182,14 @@ export class PoliceSystem {
     const pv = p.vehicle;
     this.playerStill = pv && pv.speed < 1.5 ? this.playerStill + dt : 0;
     this.playerStopped = pv && pv.speed < 1.2 ? this.playerStopped + dt : 0;
-    if (pv && Math.hypot(pv.pos.x - this.idleAt.x, pv.pos.z - this.idleAt.z) <= NOWHERE_RADIUS) this.playerIdle += dt;
-    else {
+    if (pv && Math.hypot(pv.pos.x - this.idleAt.x, pv.pos.z - this.idleAt.z) <= NOWHERE_RADIUS) {
+      this.playerIdle += dt;
+      if (pv.speed < 1.5) this.idleFaltered = true;
+    } else {
       const pp = sim.playerPos();
       this.idleAt = { x: pp.x, z: pp.z };
       this.playerIdle = 0;
+      this.idleFaltered = false;
     }
     this.calm = level === 0 ? this.calm + dt : 0;
     this.reach = this.roadEnd(level);
@@ -198,7 +207,7 @@ export class PoliceSystem {
   /** The player's car is stopped, or has gone nowhere for a while (boxed in, rocking back and forth). */
   private goingNowhere(): boolean {
     const pv = this.sim.player.vehicle;
-    return !!pv && ((pv.speed < 1.5 && this.playerStill > STUCK_DEPLOY_TIME) || this.playerIdle > STUCK_DEPLOY_TIME);
+    return !!pv && ((pv.speed < 1.5 && this.playerStill > STUCK_DEPLOY_TIME) || (this.playerIdle > STUCK_DEPLOY_TIME && this.idleFaltered));
   }
 
   /** The police have lost sight of the player and look around his last sighting instead. */

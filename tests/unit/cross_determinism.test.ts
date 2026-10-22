@@ -20,8 +20,12 @@ interface Run {
   events: string[];
   heldSeen: number;
   crewsOnFoot: number;
-  heldUp: boolean;
-  towed: boolean;
+  abandoned: Vehicle | null;
+  /** First driver to hold the abandoned car as the vehicle it detours round, and when (sim time). */
+  detour: { at: number; frame: number; driver: number } | null;
+  /** When the abandoned car was first holding up a driver, and when it was towed. */
+  firstHeldAt: number | null;
+  tow: { at: number; frame: number; vehicle: number; heldFor: number; playerDist: number } | null;
   gates: number;
   frames: number;
 }
@@ -57,7 +61,7 @@ function scripted(seed: number): Run {
   sim.clock.day = rainyDay(seed);
   // The chase is about the police finding a way to the car, not about the player dying in it.
   sim.cheats.godMode = true;
-  const run: Run = { sim, events: [], heldSeen: 0, crewsOnFoot: 0, heldUp: false, towed: false, gates: 0, frames: 0 };
+  const run: Run = { sim, events: [], heldSeen: 0, crewsOnFoot: 0, abandoned: null, detour: null, firstHeldAt: null, tow: null, gates: 0, frames: 0 };
   const emit = sim.events.emit.bind(sim.events);
   sim.events.emit = ((type: string, payload: unknown) => {
     run.events.push(`${run.frames} ${serialise(type, payload)}`);
@@ -97,25 +101,42 @@ function scripted(seed: number): Run {
     run.crewsOnFoot = Math.max(run.crewsOnFoot, onFoot);
   }
 
-  // A car abandoned in a junction, away from the player, with traffic held up behind it.
+  // A car abandoned across the end of a lane into a junction, so that every turn off the lane passes it, with a
+  // driver coming up behind it. Held up for over 2 s, the driver takes it as the vehicle to detour round (and backs
+  // off); as no detour gets past it, it keeps holding traffic up and is towed once that has gone on for 30 s, the
+  // player well away from it and looking the other way.
   sim.wanted.setLevel(0);
   const n = sim.roads.node(5, 5);
   const lane = sim.roads.lanes.find((l) => l.to === n.id && l.length > 45 && l.turns.length >= 2 && l.turns.some((t) => t.kind === 'straight'))!;
-  const straight = lane.turns.find((t) => t.kind === 'straight')!;
-  const k = Math.floor(straight.pts.length / 4) * 2;
-  const left = sim.spawnVehicle('sedan', straight.pts[k]!, straight.pts[k + 1]!, Math.PI / 4);
-  const s0 = lane.length - 40;
+  const e = lane.length + 2;
+  const left = sim.spawnVehicle('sedan', lane.sx + lane.dx * e, lane.sz + lane.dz * e, lane.heading + Math.PI / 2);
+  run.abandoned = left;
+  const s0 = lane.length - 30;
   const behind = sim.spawnVehicle('sedan', lane.sx + lane.dx * s0, lane.sz + lane.dz * s0, lane.heading);
-  sim.addDriver(behind, 'civilian', 'route');
-  const far = straight.to;
-  behind.ai!.setDestination(far.sx + far.dx * Math.min(60, far.length - 5), far.sz + far.dz * Math.min(60, far.length - 5));
+  sim.addDriver(behind, 'civilian', 'traffic');
   behind.ai!.setLane(lane, s0);
-  teleport(sim, n.x + n.halfX + 30, n.z + n.halfZ + 30);
-  for (let f = 0; f < 60 * 45; f++) {
-    tick(input({ handbrake: true }), Math.PI / 4);
-    if (sim.vehicles.some((v) => !v.removed && (v.ai?.heldUpBy === left || (v.ai as unknown as { avoid: Vehicle | null } | null)?.avoid === left))) run.heldUp = true;
+  const s1 = lane.length - 80;
+  teleport(sim, lane.sx + lane.dx * s1, lane.sz + lane.dz * s1);
+  const away = Math.atan2(-lane.dx, -lane.dz);
+  let removedSeen = false;
+  for (let f = 0; f < 60 * 70 && !removedSeen; f++) {
+    tick(input({ handbrake: true }), away);
+    // Out of view all along, so the tow is the rule that takes it, not one waiting for the player to look away.
+    if (!left.removed) expect(sim.isVisible(left.pos.x, left.pos.y, left.pos.z)).toBe(false);
+    for (const v of sim.vehicles) {
+      if (v.removed || !v.ai) continue;
+      if (!run.detour && (v.ai as unknown as { avoid: Vehicle | null }).avoid === left) run.detour = { at: sim.time, frame: run.frames, driver: v.id };
+      if (run.firstHeldAt === null && v.ai.heldUpBy === left) run.firstHeldAt = sim.time;
+    }
+    if (left.removed) {
+      removedSeen = true;
+      const pp = sim.playerPos();
+      run.tow = { at: sim.time, frame: run.frames, vehicle: left.id, heldFor: sim.time - (run.firstHeldAt ?? sim.time), playerDist: Math.hypot(left.pos.x - pp.x, left.pos.z - pp.z) };
+    }
   }
-  run.towed = left.removed;
+  // A few seconds of traffic flowing on after the tow.
+  for (let f = 0; f < 60 * 3; f++) tick(input({ handbrake: true }), away);
+  teleport(sim, n.x + n.halfX + 30, n.z + n.halfZ + 30);
 
   // Point-blank shots on foot, then shots into the body lying on the ground.
   sim.unseat(sim.player);
@@ -157,8 +178,20 @@ describe('same-seed determinism of the newer behaviour', () => {
     expect(a.sim.vehicles.some((v) => v.spec.police)).toBe(true);
     expect(a.events.some((e) => / damage /.test(e))).toBe(true);
     expect(a.crewsOnFoot).toBeGreaterThan(0);
-    expect(a.heldUp).toBe(true);
-    console.log(`[determinism] gates ${a.gates}, held junctions ${a.heldSeen}, crews on foot ${a.crewsOnFoot}, abandoned car towed ${a.towed}, ${a.events.length} events over ${a.frames} frames`);
+    for (const [name, r] of [['a', a], ['b', b]] as const) {
+      console.log(`[determinism] run ${name}: abandoned V${r.abandoned?.id}, detour ${JSON.stringify(r.detour)}, first held up at ${r.firstHeldAt}, tow ${JSON.stringify(r.tow)}`);
+      // A driver took the abandoned car as the one to detour round, and it was towed after holding traffic up 30 s.
+      expect(r.detour, name).not.toBeNull();
+      expect(r.firstHeldAt, name).not.toBeNull();
+      expect(r.tow, name).not.toBeNull();
+      expect(r.abandoned!.removed, name).toBe(true);
+      expect(r.tow!.at, name).toBeGreaterThan(r.detour!.at);
+      expect(r.tow!.heldFor, name).toBeGreaterThanOrEqual(30);
+      expect(r.tow!.playerDist, name).toBeLessThan(200);
+    }
+    expect(b.detour).toEqual(a.detour);
+    expect(b.tow).toEqual(a.tow);
+    console.log(`[determinism] gates ${a.gates}, held junctions ${a.heldSeen}, crews on foot ${a.crewsOnFoot}, ${a.events.length} events over ${a.frames} frames`);
     const killedAt = a.events.findIndex((e) => / characterKilled /.test(e));
     expect(killedAt).toBeGreaterThan(0);
     // Shots into the body on the ground land on it.
