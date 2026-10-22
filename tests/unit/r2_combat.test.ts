@@ -1597,6 +1597,8 @@ describe('point blank: the crosshair on someone in front of the gun hits him; be
    * when negative) standing so that the crosshair ray passes `u` m to the left of his axis, crossing it at `k` of his
    * height. The shoulder camera's ray always runs through a point over the player's right shoulder (the shoulder offset
    * to his right, 0.18 m over his head height), so the pitch follows from where it has to cross the enemy.
+   * The player's body is free to turn: aiming, it turns to the point-blank aim convergence (PlayerController.convergeAim),
+   * the gun towards the crosshair's point on him.
    */
   function pointBlank(weapon: WeaponId, aiming: boolean, ahead: number, u: number, k = 0.68) {
     const sim = makeSim({ police: false });
@@ -1611,7 +1613,6 @@ describe('point blank: the crosshair on someone in front of the gun hits him; be
     // Both stand still where they were put (at point blank they would push each other apart).
     const pin = () => {
       teleport(sim, home.x, home.z);
-      p.heading = f.h;
       e.pos.x = spot.x;
       e.pos.z = spot.z;
       e.vel.x = 0;
@@ -1636,9 +1637,11 @@ describe('point blank: the crosshair on someone in front of the gun hits him; be
     expect(tc).toBeGreaterThan(0.5);
     expect(Math.hypot(o.x + d.x * tc - e.pos.x, o.z + d.z * tc - e.pos.z)).toBeCloseTo(Math.abs(u), 6);
     expect(o.y + d.y * tc).toBeCloseTo(y, 6);
+    // The bearing from the player to the crosshair's point on him (the ray's nearest approach to his axis).
+    const toPoint = Math.atan2(o.x + d.x * tc - home.x, o.z + d.z * tc - home.z);
     const shots = record(sim, 'shot');
     sim.update(DT, aim({ fire: true, firePressed: true }));
-    return { sim, e, f, shots: shots.filter((s) => s.shooter === p), home };
+    return { sim, e, f, shots: shots.filter((s) => s.shooter === p), home, aimYaw: p.aimYaw, toPoint };
   }
 
   it.each([
@@ -1651,9 +1654,23 @@ describe('point blank: the crosshair on someone in front of the gun hits him; be
     ['smg', false, 0.55, 0.15, 0.9],
     ['rifle', false, 0.6, 0.15, 0.9],
   ] as const)('a %s shot (aimed: %s) hits an enemy %f m ahead with the crosshair %f m in from his axis at %f of his height', (weapon, aiming, ahead, u, k) => {
-    const { e, shots } = pointBlank(weapon, aiming, ahead, u, k);
+    const { e, shots, aimYaw, toPoint } = pointBlank(weapon, aiming, ahead, u, k);
     expect(shots.map((s) => s.hit)).toEqual(['flesh']);
     expect(e.armor).toBeLessThan(5000);
+    // Aimed (held 0.3 s), within about 1 m the gun has turned onto the crosshair's point on him.
+    if (aiming) expect(Math.abs(wrapAngle(aimYaw - toPoint))).toBeLessThan(0.05);
+  });
+
+  it.each([
+    ['pistol', 0.3, 0.1, 0.9],
+    ['rifle', 0.25, 0.1, 0.9],
+    ['pistol', 0.22, 0.1, 0.93],
+  ] as const)('aimed, the converged %s hits someone just %f m ahead by the shoulder with the crosshair on him (%f m in, at %f of his height)', (weapon, ahead, u, k) => {
+    // These stood beside the gun before aim convergence (and were never hit): the body now turns the gun onto him.
+    const { e, shots, aimYaw, toPoint } = pointBlank(weapon, true, ahead, u, k);
+    expect(shots.map((s) => s.hit)).toEqual(['flesh']);
+    expect(e.armor).toBeLessThan(5000);
+    expect(Math.abs(wrapAngle(aimYaw - toPoint))).toBeLessThan(0.05);
   });
 
   it('a head-aimed pistol shot at an enemy 0.6 m ahead, the crosshair through his axis, is a headshot', () => {
@@ -1664,9 +1681,11 @@ describe('point blank: the crosshair on someone in front of the gun hits him; be
   });
 
   it.each([
-    ['pistol', true, 0.3, 0.1, 0.9],
+    // Right beside the player (0.2 m ahead or less; 0.25 and 0.3 m were here before aim convergence, see above): the
+    // crosshair is on him short of the player's own depth along its ray, and the aim does not reach round to him.
+    ['pistol', true, 0.15, 0.1, 0.9],
     ['pistol', true, 0.2, 0.1, 0.93],
-    ['rifle', true, 0.25, 0.1, 0.9],
+    ['rifle', true, 0.12, 0.1, 0.9],
     ['smg', false, 0.2, 0.1, 0.93],
     ['shotgun', false, 0.25, 0.1, 0.9],
     ['pistol', true, -0.6, 0.1, 0.9],

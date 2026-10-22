@@ -1,7 +1,7 @@
 // Authored time trials resolved onto San Azura's actual road graph. Every gate
 // sits at a connected intersection; there are no straight lines through blocks.
 
-import type { RoadNetwork } from '../world/roads';
+import type { Axis, RoadNetwork } from '../world/roads';
 
 export const STREET_RUN_IDS = ['magnolia', 'coastline', 'dockside'] as const;
 export type StreetRunId = typeof STREET_RUN_IDS[number];
@@ -42,24 +42,27 @@ interface CourseDesign {
   reward: number;
 }
 
+// Medal times come from the course bot's laps with whole-junction gates and the green wave: about 35, 40 and 39 s
+// through an empty city, a median 1-4 s slower through traffic. Gold asks for at most a 20 m/s average (1.35-1.6 times
+// the bot's clear lap), silver allows a lift or two, bronze a crash.
 const DESIGNS: readonly CourseDesign[] = [
   {
     id: 'magnolia', name: 'Magnolia Rush',
     description: 'Wide avenues, four fast corners. Find your rhythm through the city.',
     corners: [[5, 2], [8, 2], [8, 5], [5, 5], [5, 2]],
-    gold: 65, silver: 85, bronze: 115, reward: 1000,
+    gold: 55, silver: 70, bronze: 95, reward: 1000,
   },
   {
     id: 'coastline', name: 'Coastline Circuit',
     description: 'Open the throttle on Ocean Drive, then bring it home along Sunset.',
     corners: [[8, 2], [10, 2], [10, 7], [8, 7], [8, 2]],
-    gold: 85, silver: 110, bronze: 145, reward: 1400,
+    gold: 65, silver: 85, bronze: 115, reward: 1400,
   },
   {
     id: 'dockside', name: 'Dockside Switchback',
     description: 'A technical run through the docks. Brake early and link the turns.',
     corners: [[2, 8], [5, 8], [5, 9], [3, 9], [3, 10], [2, 10], [2, 8]],
-    gold: 78, silver: 100, bronze: 130, reward: 1250,
+    gold: 52, silver: 66, bronze: 90, reward: 1250,
   },
 ];
 
@@ -73,6 +76,27 @@ export function runMedal(course: StreetRunCourse, seconds: number): StreetRunMed
   if (!Number.isFinite(seconds) || seconds <= 0 || seconds > course.bronze) return null;
   if (seconds <= course.gold) return 'gold';
   return seconds <= course.silver ? 'silver' : 'bronze';
+}
+
+/** How many course junctions ahead of the racer the green wave holds. */
+export const GREEN_WAVE_GATES = 2;
+
+/**
+ * The junctions held green for a racer whose next gate is `checkpoint` (gate k is at course.nodes[k + 1]): the next
+ * GREEN_WAVE_GATES course junctions still ahead, each along the axis the course comes into it on (the first time,
+ * if the course passes a junction twice). Unsignalised junctions have nothing to hold.
+ */
+export function greenWave(course: StreetRunCourse, roads: RoadNetwork, checkpoint: number): Array<{ nodeId: number; axis: Axis }> {
+  const out: Array<{ nodeId: number; axis: Axis }> = [];
+  for (let k = checkpoint + 1; k <= checkpoint + GREEN_WAVE_GATES && k < course.nodes.length; k++) {
+    const nodeId = course.nodes[k]!;
+    const node = roads.nodes[nodeId]!;
+    if (!node.signal || out.some((h) => h.nodeId === nodeId)) continue;
+    const first = course.nodes.indexOf(nodeId, 1);
+    const previous = roads.nodes[course.nodes[first - 1]!]!;
+    out.push({ nodeId, axis: previous.i === node.i ? 'NS' : 'EW' });
+  }
+  return out;
 }
 
 export function buildStreetRunCourses(roads: RoadNetwork): StreetRunCourse[] {
@@ -106,7 +130,8 @@ export function buildStreetRunCourses(roads: RoadNetwork): StreetRunCourse[] {
       const turn = Math.atan2(Math.sin(outDir - inDir), Math.cos(outDir - inDir));
       const road = next.i === node.i ? roads.layout.vLines[node.i]! : roads.layout.hLines[node.j]!;
       const instruction = Math.abs(turn) < 0.1 ? 'Straight' : turn < 0 ? 'Right' : 'Left';
-      checkpoints.push({ x: node.x, z: node.z, radius: Math.max(node.halfX, node.halfZ) + 3, label: `${instruction} · ${road.name}`, nodeId: node.id });
+      // The whole junction box plus 3 m: a tight inside line through a corner passes near the box's corner.
+      checkpoints.push({ x: node.x, z: node.z, radius: Math.hypot(node.halfX, node.halfZ) + 3, label: `${instruction} · ${road.name}`, nodeId: node.id });
       distance += Math.hypot(node.x - px, node.z - pz);
       px = node.x;
       pz = node.z;

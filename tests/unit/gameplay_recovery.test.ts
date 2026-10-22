@@ -184,7 +184,7 @@ describe('pause-menu retry preserves recovery after the quick prompt expires', (
     expect(sim.player.inventory.total('pistol')).toBe(48);
   });
 
-  it('explains blocked retries and never abandons a live rampage or retries while seated or wanted', () => {
+  it('explains blocked retries and never abandons a live rampage or retries while wanted', () => {
     const sim = setup();
     expect(sim.missions.start('wheels')).toBe(true);
     sim.missions.active!.fail('No car.');
@@ -193,11 +193,6 @@ describe('pause-menu retry preserves recovery after the quick prompt expires', (
     expect(sim.missions.retryMenuOffer()?.blocked).toMatch(/cops/);
     expect(sim.missions.retryNow(true)).toBe(false);
     sim.wanted.clear();
-    const road = roadPoint(sim);
-    placeInCar(sim, sim.spawnVehicle('sedan', road.x, road.z, road.heading));
-    expect(sim.missions.retryMenuOffer()?.blocked).toMatch(/vehicle/);
-    expect(sim.missions.retryNow(true)).toBe(false);
-    sim.playerCtl.ejectPlayer(true);
     expect(sim.activities.startRampage('rampage:0')).toBe(true);
     expect(sim.missions.retryMenuOffer()?.blocked).toMatch(/rampage/);
     expect(sim.missions.retryNow(true)).toBe(false);
@@ -215,6 +210,120 @@ describe('pause-menu retry preserves recovery after the quick prompt expires', (
     expect(sim.activities.job).toBeNull();
     step(sim, 0.8);
     expect(sim.missions.active?.retrying).toBe(true);
+  });
+
+  /** The objective a fresh retry of `id` opens with. */
+  function firstObjective(id: string, done: string[] = []): string {
+    const fresh = setup();
+    for (const d of done) fresh.progress.markDone(d);
+    expect(fresh.missions.start(id, { retrying: true })).toBe(true);
+    step(fresh, 0.1);
+    return fresh.missions.active!.objectiveText;
+  }
+
+  it('retries from the pause menu while seated in a car, taking him out of it at the mission start', () => {
+    const sim = setup();
+    expect(sim.missions.start('wheels')).toBe(true);
+    sim.missions.active!.fail('No car.');
+    step(sim, 21);
+    expect(sim.missions.retryOffer()).toBeNull();
+    const road = roadPoint(sim);
+    const car = sim.spawnVehicle('taxi', road.x, road.z, road.heading);
+    placeInCar(sim, car);
+    // A taxi job running in the car he sits in: the retry ends it.
+    sim.activities.toggleJob();
+    expect(sim.activities.job?.kind).toBe('taxi');
+    expect(sim.player.onFoot).toBe(false);
+    expect(sim.missions.retryMenuOffer()).toEqual({ id: 'wheels', title: 'Wheels', checkpoint: 0, blocked: null });
+    const fades: number[] = [];
+    sim.events.on('fade', (e) => fades.push(e.duration));
+    expect(sim.missions.retryNow(true)).toBe(true);
+    expect(fades).toEqual([1.2]);
+    expect(sim.activities.job).toBeNull();
+    expect(sim.controlLock).toBeGreaterThan(0);
+    step(sim, 0.8);
+    const m = sim.missions.active!;
+    expect(m.def.id).toBe('wheels');
+    expect(m.retrying).toBe(true);
+    expect(m.objectiveText).toBe(firstObjective('wheels'));
+    // On foot at the mission start, the old car empty behind him.
+    const p = sim.player;
+    expect(p.onFoot).toBe(true);
+    expect(p.vehicle).toBeNull();
+    expect(car.driver).toBeNull();
+    const def = sim.missions.defs.find((d) => d.id === 'wheels')!;
+    const giver = sim.world.layout.pois.find((q) => q.id === def.giver)!;
+    const at = def.retryAt?.(sim.world) ?? giver;
+    expect(Math.hypot(p.pos.x - at.x, p.pos.z - at.z)).toBeLessThan(8.5);
+    // Once the fade is over he walks again.
+    step(sim, 1);
+    expect(sim.controlLock).toBe(0);
+    const x0 = p.pos.x;
+    const z0 = p.pos.z;
+    step(sim, 1, input({ moveZ: 1 }));
+    expect(Math.hypot(p.pos.x - x0, p.pos.z - z0)).toBeGreaterThan(1);
+    expect(p.vehicle).toBeNull();
+  });
+
+  it('a seated retry from the checkpoint resumes at the checkpoint', () => {
+    const sim = setup();
+    const before = ['wheels', 'delivery', 'repo', 'loose_lips'];
+    for (const id of before) sim.progress.markDone(id);
+    sim.cheats.godMode = true;
+    expect(sim.missions.start('heatwave', { retrying: true })).toBe(true);
+    step(sim, 0.1);
+    const first = sim.missions.active!;
+    for (const van of first.vehicles) sim.combat.damageVehicle(van, 100_000, sim.player, 'explosion');
+    step(sim, 0.2);
+    expect(first.checkpointReached).toBe(1);
+    first.fail('The crew got away.');
+    step(sim, 0.1);
+    sim.wanted.clear();
+    step(sim, 30);
+    const road = roadPoint(sim);
+    const car = sim.spawnVehicle('sedan', road.x, road.z, road.heading);
+    placeInCar(sim, car);
+    expect(sim.missions.retryMenuOffer()).toEqual({ id: 'heatwave', title: 'Heatwave', checkpoint: 1, blocked: null });
+    const fades: number[] = [];
+    sim.events.on('fade', (e) => fades.push(e.duration));
+    expect(sim.missions.retryNow(true)).toBe(true);
+    expect(fades).toEqual([1.2]);
+    step(sim, 0.8);
+    const retried = sim.missions.active!;
+    expect(retried).not.toBe(first);
+    expect(retried.resume).toBe(1);
+    expect(retried.objectiveText).toBe('Lose the cops');
+    expect(retried.objectiveText).not.toBe(firstObjective('heatwave', before));
+    expect(sim.player.onFoot).toBe(true);
+    expect(sim.player.vehicle).toBeNull();
+    expect(car.driver).toBeNull();
+  });
+
+  it('still refuses a seated retry while wanted, on a rampage or down', () => {
+    const sim = setup();
+    expect(sim.missions.start('wheels')).toBe(true);
+    sim.missions.active!.fail('No car.');
+    step(sim, 21);
+    const road = roadPoint(sim);
+    const car = sim.spawnVehicle('sedan', road.x, road.z, road.heading);
+    placeInCar(sim, car);
+    sim.wanted.setLevel(1);
+    expect(sim.missions.retryMenuOffer()?.blocked).toBe('Lose the cops before retrying.');
+    expect(sim.missions.retryNow(true)).toBe(false);
+    sim.wanted.clear();
+    sim.playerCtl.ejectPlayer(true);
+    expect(sim.activities.startRampage('rampage:0')).toBe(true);
+    placeInCar(sim, car);
+    expect(sim.missions.retryMenuOffer()?.blocked).toBe('Finish the rampage first.');
+    expect(sim.missions.retryNow(true)).toBe(false);
+    expect(sim.activities.job?.kind).toBe('rampage');
+    sim.activities.cancelAll('mission');
+    expect(sim.missions.retryMenuOffer()?.blocked).toBeNull();
+    sim.player.health = 0;
+    sim.playerDied();
+    expect(sim.missions.retryMenuOffer()?.blocked).toBe('Wait until you recover to retry.');
+    expect(sim.missions.retryNow(true)).toBe(false);
+    expect(sim.missions.active).toBeNull();
   });
 
   it('clears the durable offer when another mission is deliberately started, and never offers abandoned missions', () => {

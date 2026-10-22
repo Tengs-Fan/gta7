@@ -4,17 +4,29 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { boot, newGame, type Api } from './helpers';
 
-/** Points the shoulder camera at a world point (it swings round the player as it turns, so a few passes settle it). */
+/**
+ * Points the crosshair at a world point. The shoulder camera swings round the player as it turns and tilts its view
+ * a little off its pitch, so each pass re-aims from where the crosshair ray (rayFor) now starts and corrects the pitch by
+ * the view's remaining error, until the ray passes within 2 cm of the point.
+ */
 async function aimCamera(page: Page, target: { x: number; y: number; z: number }): Promise<void> {
-  for (let k = 0; k < 4; k++) {
-    await page.evaluate((t) => {
+  let miss = Infinity;
+  for (let k = 0; k < 12 && miss > 0.02; k++) {
+    miss = await page.evaluate((t) => {
       const cam = (window as Api).__gta7.game.renderer.cameraCtl;
-      const cp = cam.camera.position;
-      cam.yaw = Math.atan2(t.x - cp.x, t.z - cp.z);
-      cam.pitch = Math.atan2(t.y - cp.y, Math.hypot(t.x - cp.x, t.z - cp.z));
+      const { origin: o, dir: d } = cam.rayFor();
+      const tx = t.x - o.x;
+      const ty = t.y - o.y;
+      const tz = t.z - o.z;
+      const along = tx * d.x + ty * d.y + tz * d.z;
+      const err = Math.hypot(tx - d.x * along, ty - d.y * along, tz - d.z * along);
+      cam.yaw = Math.atan2(tx, tz);
+      cam.pitch += Math.atan2(ty, Math.hypot(tx, tz)) - Math.asin(Math.max(-1, Math.min(1, d.y)));
+      return err;
     }, target);
     await page.waitForTimeout(60);
   }
+  expect(miss, 'crosshair settled on the point').toBeLessThanOrEqual(0.02);
 }
 
 /** Records when the hitmarker next shows, relative to the next mouse press on the canvas, and what the next shots hit. */
