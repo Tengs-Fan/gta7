@@ -307,6 +307,31 @@ describe('firefighter', () => {
     expect(j.level).toBe(1);
   });
 
+  it('lets go of a fire car destroyed by something else, so the wreck streams out after the job', () => {
+    const { sim, truck } = fireSim();
+    sim.cheats.godMode = true;
+    sim.activities.toggleJob();
+    const j = sim.activities.job as FireJob;
+    const target = j.fires.find((f) => f.vehicle)?.vehicle;
+    expect(target, 'level 1 has a burning car').toBeDefined();
+    sim.combat.damageVehicle(target!, target!.spec.health * 2, null, 'explosion');
+    step(sim, 1 / 60);
+    expect(target!.destroyed).toBe(true);
+    expect(target!.persistent).toBe(false);
+    expect(target!.owner).toBe('none');
+    expect(target!.missionTag).toBe('');
+    step(sim, 2.6);
+    sim.activities.toggleJob();
+    expect(sim.activities.job).toBeNull();
+    // Far away with ambient streaming on, the wreck is cleaned up like any other.
+    sim.ambient = true;
+    const far = [...sim.world.layout.pois].sort((a, b) => Math.hypot(b.x - target!.pos.x, b.z - target!.pos.z) - Math.hypot(a.x - target!.pos.x, a.z - target!.pos.z))[0]!;
+    const spot = sim.world.findFreeSpot(far.x, far.z, 0.4, 8) ?? far;
+    moveCar(sim, truck, spot.x, spot.z);
+    step(sim, 50);
+    expect(target!.removed).toBe(true);
+  });
+
   const endCases: Array<[string, (sim: Sim, truck: Vehicle) => void]> = [
     ['the timer reaches zero', (sim) => step(sim, fireTime(1) + 1)],
     ['the player stays out of the truck past the grace time', (sim) => {
