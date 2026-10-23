@@ -72,8 +72,9 @@ describe('the single save of earlier versions becomes slot 1', () => {
 
 describe('three independent slots', () => {
   it('saving or deleting one slot leaves the other two byte-identical', () => {
-    storeSlot(1, aSave(1000, ['wheels'], { garage: ['a'] }));
-    storeSlot(2, aSave(2000, ['wheels', 'delivery'], { garage: ['b'] }));
+    // Ext keys no save codec owns (the economy's real 'garage' codec would drop these made-up values on load).
+    storeSlot(1, aSave(1000, ['wheels'], { slotTest: ['a'] }));
+    storeSlot(2, aSave(2000, ['wheels', 'delivery'], { slotTest: ['b'] }));
     storeSlot(3, aSave(3000, [], { exports: [1] }));
     const h = () => [1, 2, 3].map((s) => hash(slotKey(s)));
     const before = h();
@@ -87,7 +88,7 @@ describe('three independent slots', () => {
     expect([after[0], after[2]]).toEqual([before[0], before[2]]);
     expect(after[1]).not.toBe(before[1]);
     expect(loadSlot(1)!.money).toBe(1000);
-    expect(loadSlot(1)!.ext).toEqual({ garage: ['a'] });
+    expect(loadSlot(1)!.ext).toEqual({ slotTest: ['a'] });
     expect(loadSlot(3)!.ext).toEqual({ exports: [1] });
     deleteSlot(3);
     expect(h()[0]).toBe(after[0]);
