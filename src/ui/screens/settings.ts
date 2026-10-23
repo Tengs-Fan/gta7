@@ -4,6 +4,7 @@ import { clamp } from '../../core/math';
 import { QUALITY } from '../../render/quality';
 import { FPS_CAPS, SUBTITLE_SIZES, type Settings } from '../../settings';
 import { showBindings } from './bindings';
+import { showSlots } from './slots';
 import { h, showConfirm, type MenuCtx } from './shared';
 
 export function showSettings(ctx: MenuCtx): void {
@@ -208,12 +209,15 @@ export function showSettings(ctx: MenuCtx): void {
   const row = h('div', 'row-end');
   const del = h('button', 'btn', 'DELETE SAVE');
   del.disabled = !ctx.host.hasSave();
+  // With save slots it asks which one (and confirms there); the button greys out once none is left.
   del.addEventListener('click', () =>
-    showConfirm(ctx, 'Delete your saved game? This cannot be undone.', () => {
-      ctx.host.deleteSave();
-      del.disabled = true;
-      if (rows[sel]?.el === del) move(1);
-    }),
+    ctx.host.slots
+      ? showSlots(ctx, 'delete')
+      : showConfirm(ctx, 'Delete your saved game? This cannot be undone.', () => {
+          ctx.host.deleteSave();
+          del.disabled = true;
+          if (rows[sel]?.el === del) move(1);
+        }),
   );
   const back = h('button', 'btn primary', 'BACK');
   back.addEventListener('click', () => ctx.pop());
@@ -236,6 +240,11 @@ export function showSettings(ctx: MenuCtx): void {
       if (ui.left) r.adjust?.(-1);
       if (ui.right) r.adjust?.(1);
       if (ui.confirm) r.activate?.();
+    },
+    // Back from the slot picker: DELETE SAVE greys out once no slot holds a save.
+    refresh: () => {
+      del.disabled = !ctx.host.hasSave();
+      if (rows[sel]?.el === del && del.disabled) move(1);
     },
   });
 }

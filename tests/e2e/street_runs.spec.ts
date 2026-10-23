@@ -130,7 +130,7 @@ test.describe('street runs: player journeys', () => {
     await page.waitForFunction(() => !(window as Api).__gta7.sim.activities.busy, null, { timeout: RUN_TIMEOUT });
     const ended = await page.evaluate(() => {
       const g = (window as Api).__gta7;
-      return { money: g.sim.progress.money, records: g.sim.progress.streetRuns, objectives: g.sim.activities.objectives(), status: g.sim.activities.status(), save: localStorage.getItem('gta7.save.v1') };
+      return { money: g.sim.progress.money, records: g.sim.progress.streetRuns, objectives: g.sim.activities.objectives(), status: g.sim.activities.status(), save: [1, 2, 3].map((i) => localStorage.getItem(`gta7.save.slot${i}`)).find((x) => x !== null) ?? null };
     });
     expect(ended).toEqual({ money: paused.money, records: {}, objectives: [], status: null, save: null });
     expect((await state(page)).crashed).toBe(false);
@@ -159,7 +159,8 @@ test.describe('street runs: player journeys', () => {
     expect(loaded).toEqual({ course: 'coastline', money: 4321, missions: ['wheels'], records: progress.streetRuns, ammo: 41, armor: 35 });
     await page.keyboard.press('KeyT');
     await page.waitForFunction(() => !(window as Api).__gta7.sim.activities.busy, null, { timeout: RUN_TIMEOUT });
-    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('gta7.save.v1')!))).toEqual(saved);
+    // The old single save moved into slot 1 (wave 1 save slots) and stays as it was.
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('gta7.save.slot1')!))).toEqual(saved);
     expect((await state(page)).crashed).toBe(false);
     expect(errors).toEqual([]);
   });

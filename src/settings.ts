@@ -154,27 +154,166 @@ export function saveSettings(settings: Settings): void {
   }
 }
 
-export function loadGame(): SaveData | null {
+// ---------------------------------------------------------------------------
+// Save slots. Three slots, each its own key holding one save as the single save used to (version 1, ext and all).
+// The single save of earlier versions (SAVE_KEY) moves into slot 1, or the first empty slot, the first time any slot
+// is read: it is copied byte for byte and removed only once the copy is written (with every slot full it stays).
+// The game saves to the current slot: the one it was loaded from or last saved to; a new game's is the first empty
+// slot (none when all are full: then it autosaves only once saved at the safehouse into a slot).
+
+export const SLOT_COUNT = 3;
+const SLOT_KEY_PREFIX = 'gta7.save.slot';
+/** Which slot was used last ({ last: n }): CONTINUE's and the title Street Run's slot after a reload. */
+const SLOTS_META_KEY = 'gta7.saves.v1';
+
+export function slotKey(slot: number): string {
+  return `${SLOT_KEY_PREFIX}${slot}`;
+}
+
+export type SlotState = 'empty' | 'ok' | 'corrupt';
+
+export interface SlotInfo {
+  slot: number;
+  state: SlotState;
+  /** The save in it ('ok' only). */
+  data: SaveData | null;
+}
+
+function validSlot(slot: number): boolean {
+  return Number.isInteger(slot) && slot >= 1 && slot <= SLOT_COUNT;
+}
+
+function lastSlot(s: Storage): number | null {
   try {
-    return parseSave(JSON.parse(storage()?.getItem(SAVE_KEY) ?? 'null'));
+    const m = JSON.parse(s.getItem(SLOTS_META_KEY) ?? 'null') as { last?: unknown } | null;
+    return typeof m?.last === 'number' && validSlot(m.last) ? m.last : null;
   } catch {
     return null;
   }
 }
 
-/**
- * Writes the save game. Returns null once it is stored, else a line for the player saying why it was
- * not: the origin's storage is full (the save that was there stays as it was), or there is none.
- */
-export function storeGame(data: SaveData): string | null {
-  const s = storage();
-  if (!s) return 'Could not save: browser storage is unavailable';
+function setLastSlot(s: Storage, slot: number): void {
   try {
-    s.setItem(SAVE_KEY, JSON.stringify(data));
-    return null;
+    s.setItem(SLOTS_META_KEY, JSON.stringify({ last: slot }));
+  } catch {
+    // Storage full: CONTINUE then offers every slot as it is, which is all this was for.
+  }
+}
+
+/** Moves the save of earlier versions into a slot (see above). */
+function migrateLegacy(s: Storage): void {
+  try {
+    const legacy = s.getItem(SAVE_KEY);
+    if (legacy === null) return;
+    let target = 0;
+    for (let i = 1; i <= SLOT_COUNT && target === 0; i++) if (s.getItem(slotKey(i)) === null) target = i;
+    if (target === 0) return;
+    s.setItem(slotKey(target), legacy);
+    if (s.getItem(slotKey(target)) !== legacy) return;
+    if (lastSlot(s) === null) setLastSlot(s, target);
+    s.removeItem(SAVE_KEY);
+  } catch {
+    // Full or blocked: the old save stays where it is and is tried again next time.
+  }
+}
+
+function slotStorage(): Storage | null {
+  const s = storage();
+  if (s) migrateLegacy(s);
+  return s;
+}
+
+/** What slot `slot` holds: nothing, a save, or something that is not one (corrupt JSON, a hand edit). */
+export function slotInfo(slot: number): SlotInfo {
+  const s = slotStorage();
+  let raw: string | null = null;
+  try {
+    raw = validSlot(slot) ? (s?.getItem(slotKey(slot)) ?? null) : null;
+  } catch {
+    raw = null;
+  }
+  if (raw === null) return { slot, state: 'empty', data: null };
+  try {
+    const data = parseSave(JSON.parse(raw));
+    return data ? { slot, state: 'ok', data } : { slot, state: 'corrupt', data: null };
+  } catch {
+    return { slot, state: 'corrupt', data: null };
+  }
+}
+
+export function slotInfos(): SlotInfo[] {
+  return Array.from({ length: SLOT_COUNT }, (_, i) => slotInfo(i + 1));
+}
+
+export function loadSlot(slot: number): SaveData | null {
+  return slotInfo(slot).data;
+}
+
+/** Writes slot `slot` (null once stored, else why not, as storeGame) and makes it the last used. */
+export function storeSlot(slot: number, data: SaveData): string | null {
+  const s = slotStorage();
+  if (!s) return 'Could not save: browser storage is unavailable';
+  if (!validSlot(slot)) return 'Could not save: no such save slot';
+  try {
+    s.setItem(slotKey(slot), JSON.stringify(data));
   } catch (err) {
     return quotaExceeded(err) ? 'Could not save: browser storage is full' : 'Could not save: browser storage is unavailable';
   }
+  setLastSlot(s, slot);
+  return null;
+}
+
+/** Empties slot `slot` and no other. */
+export function deleteSlot(slot: number): void {
+  try {
+    if (validSlot(slot)) slotStorage()?.removeItem(slotKey(slot));
+  } catch {
+    // Removing needs no quota: only blocked storage throws here, and no slot can be read there either.
+  }
+}
+
+/** The first slot with nothing in it, or 0 when all three are used. */
+export function firstEmptySlot(): number {
+  return slotInfos().find((i) => i.state === 'empty')?.slot ?? 0;
+}
+
+/** Whether some slot holds a save CONTINUE can load. */
+export function anySave(): boolean {
+  return slotInfos().some((i) => i.state === 'ok');
+}
+
+/** The slot the running game saves to (0: none, see above); null until the game picks one: the last used. */
+let current: number | null = null;
+/** The storage `current` was chosen in: another one (a test's fresh store) has its own last slot. */
+let currentIn: Storage | null = null;
+
+export function currentSlot(): number {
+  const s = slotStorage();
+  if (current !== null && currentIn === s) return current;
+  current = null;
+  return (s && lastSlot(s)) ?? 1;
+}
+
+export function setCurrentSlot(slot: number): void {
+  current = validSlot(slot) ? slot : 0;
+  currentIn = storage();
+}
+
+/** The save in the current slot. */
+export function loadGame(): SaveData | null {
+  const slot = currentSlot();
+  return slot > 0 ? loadSlot(slot) : null;
+}
+
+/**
+ * Writes the save game to the current slot. Returns null once it is stored, else a line for the player saying why
+ * it was not: the origin's storage is full (the save that was there stays as it was), there is none, or this game
+ * has no slot yet.
+ */
+export function storeGame(data: SaveData): string | null {
+  const slot = currentSlot();
+  if (slot === 0) return 'Not saved: all three slots are full. Save at the safehouse to choose one.';
+  return storeSlot(slot, data);
 }
 
 /** Writes the save game; false when it could not be stored (see storeGame for why). */
@@ -182,10 +321,8 @@ export function writeGame(data: SaveData): boolean {
   return storeGame(data) === null;
 }
 
+/** Empties the current slot. */
 export function deleteGame(): void {
-  try {
-    storage()?.removeItem(SAVE_KEY);
-  } catch {
-    // Removing needs no quota: only blocked storage throws here, and loadGame finds no save there either.
-  }
+  const slot = currentSlot();
+  if (slot > 0) deleteSlot(slot);
 }

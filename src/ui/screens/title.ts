@@ -4,6 +4,7 @@ import { escapeHtml } from '../hud';
 import { ButtonList, h, pushScrolling, showConfirm, type MenuCtx } from './shared';
 import { showControls } from './controls';
 import { showSettings } from './settings';
+import { showSlots } from './slots';
 import { showStreetRuns } from './streetRuns';
 
 /** NEW GAME's question when there is a save: the new game's first save replaces it. */
@@ -22,11 +23,11 @@ export function showTitle(ctx: MenuCtx, notice?: string): void {
   wrap.appendChild(intro);
   const list = new ButtonList(
     [
-      { label: 'CONTINUE', action: () => ctx.host.continueGame(), disabled: !ctx.host.hasSave(), id: 'continue', description: 'Pick up where you left off' },
-      // There is one save slot, and the new game's first save (a passed mission, the safehouse) overwrites it.
+      // With save slots CONTINUE asks which one; a new game autosaves into an empty slot, never over a save.
+      { label: 'CONTINUE', action: () => (ctx.host.slots ? showSlots(ctx, 'load') : ctx.host.continueGame()), disabled: !ctx.host.hasSave(), id: 'continue', description: 'Pick up where you left off' },
       {
         label: 'NEW GAME',
-        action: () => (ctx.host.hasSave() ? showConfirm(ctx, NEW_GAME_WARNING, () => ctx.host.newGame()) : ctx.host.newGame()),
+        action: () => (ctx.host.hasSave() ? showConfirm(ctx, ctx.host.newGameNote?.() ?? NEW_GAME_WARNING, () => ctx.host.newGame()) : ctx.host.newGame()),
         id: 'new',
         description: 'Meet the city. Make a name for yourself.',
       },

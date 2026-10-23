@@ -6,7 +6,7 @@ import type { TypedCheat } from './input/cheats';
 import { Input, type FrameInput } from './input/input';
 import { pickTier, probeGpu, QUALITY, type QualitySetting, type QualityTier } from './render/quality';
 import { GameRenderer } from './render/renderer';
-import { deleteGame, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, storeGame, SUBTITLE_SIZES, type Settings } from './settings';
+import { anySave, currentSlot, deleteGame, deleteSlot, firstEmptySlot, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, setCurrentSlot, slotInfos, storeGame, SUBTITLE_SIZES, type Settings } from './settings';
 import type { Vehicle } from './sim/entities';
 import { neutralInput } from './sim/input';
 import { applySave, serialize, type SaveData } from './sim/progress';
@@ -223,7 +223,7 @@ export class Game {
 
   private menuHost(): MenuHost {
     return {
-      hasSave: () => loadGame() !== null,
+      hasSave: () => anySave(),
       newGame: this.guard(() => this.newGame()),
       startStreetRun: this.guard((id?: string) => this.startStreetRun(id)),
       streetRunCourses: () => {
@@ -235,7 +235,22 @@ export class Game {
           distance: course.distance, reward: course.reward,
         }));
       },
-      continueGame: this.guard(() => this.continueGame()),
+      continueGame: this.guard((slot?: number) => this.continueGame(slot)),
+      slots: () => slotInfos(),
+      saveToSlot: this.guard((slot: number) => {
+        setCurrentSlot(slot);
+        this.save(false);
+      }),
+      deleteSlot: (slot: number) => {
+        deleteSlot(slot);
+        // The game saving there carries on, into the now empty slot.
+      },
+      newGameNote: () => {
+        const free = firstEmptySlot();
+        return free > 0
+          ? `Start a new game? It will autosave into empty slot ${free}; your other saves stay as they are.`
+          : 'Start a new game? All three slots hold a save: this game will not autosave until you save it at the safehouse and choose a slot.';
+      },
       resume: this.guard(() => this.resume()),
       quitToTitle: this.guard(() => this.quitToTitle()),
       abandonMission: this.guard(() => {
@@ -403,7 +418,10 @@ export class Game {
 
   /** Starts a fresh game; Lou's opening call is on unless opts.intro is false or the URL has intro=0. */
   newGame(opts: { intro?: boolean } = {}): void {
+    // Its autosaves go to the first empty slot; with none, nowhere until it is saved at the safehouse.
+    setCurrentSlot(firstEmptySlot());
     this.startSim(null, opts.intro !== false && !this.introOff);
+    if (currentSlot() === 0) this.hud.toast('All save slots are full: save at the safehouse to choose one');
   }
 
   /** A quick route into driving; keep the player's saved story, money and equipment. */
@@ -443,7 +461,9 @@ export class Game {
     if (!sim.missions.active) this.showNextStep();
   }
 
-  continueGame(): void {
+  /** Loads slot `slot` (absent: the current slot), which this game then saves to. */
+  continueGame(slot?: number): void {
+    if (slot !== undefined) setCurrentSlot(slot);
     const save = loadGame();
     if (!save) {
       // The save went away after the title was built (deleted in another tab, site data
@@ -452,6 +472,13 @@ export class Game {
       return;
     }
     this.startSim(save);
+  }
+
+  /** The safehouse: which slot to save in (the game holds still under it). */
+  private openSavePicker(): void {
+    if (this.mode !== 'game' || this.menus.open) return;
+    this.suspendPlay();
+    this.menus.showSlots('save', this.guard(() => this.resume()));
   }
 
   private save(auto: boolean): void {
@@ -466,7 +493,7 @@ export class Game {
   private bindSaves(sim: Sim): Array<() => void> {
     const queue = () => { this.pendingAutosave = true; };
     return [
-      sim.events.on('saveRequested', (e) => isLocal(e) && (e.poi === 'auto' ? queue() : this.save(false))),
+      sim.events.on('saveRequested', (e) => isLocal(e) && (e.poi === 'auto' ? queue() : this.openSavePicker())),
       sim.events.on('streetRunFinished', queue),
       sim.events.on('activityMilestone', queue),
       sim.events.on('pickup', (e) => { if (e.kind === 'package') queue(); }),

@@ -9,6 +9,7 @@ import { showControls } from './screens/controls';
 import { showMap } from './screens/map';
 import { showPause } from './screens/pause';
 import { showSettings } from './screens/settings';
+import { showSlots, type SlotPickerMode } from './screens/slots';
 import { showShop } from './screens/shop';
 import { showStats } from './screens/stats';
 import { showStreetRuns } from './screens/streetRuns';
@@ -173,6 +174,11 @@ export class Menus {
 
   showStats(): void {
     showStats(this.ctx);
+  }
+
+  /** The save slot picker (CONTINUE, the safehouse, SETTINGS' DELETE SAVE); `onClose` runs when it closes. */
+  showSlots(mode: SlotPickerMode, onClose?: () => void): void {
+    showSlots(this.ctx, mode, onClose);
   }
 
   showSettings(): void {

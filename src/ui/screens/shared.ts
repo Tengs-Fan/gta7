@@ -4,7 +4,7 @@ import type { KeyLabels, UiActions } from '../../input/input';
 import type { QualityTier } from '../../render/quality';
 import { playerOf, type PlayerView, type ViewState } from '../../sim/viewState';
 import type { StreetRunCourse, StreetRunMedal } from '../../sim/streetRuns';
-import type { Settings } from '../../settings';
+import type { Settings, SlotInfo } from '../../settings';
 import type { InputDevice } from '../glyphs';
 import { escapeHtml } from '../hud';
 import type { MapImage } from '../mapRender';
@@ -18,7 +18,8 @@ export interface MenuHost {
   /** Start the standalone driving challenge from the title screen. */
   startStreetRun?(id?: string): void;
   streetRunCourses?(): Array<{ id: string; title: string; description: string; best?: number; medals?: StreetRunMedalTimes; distance?: number; reward?: number }>;
-  continueGame(): void;
+  /** Loads a save: slot `slot`, or the current slot when absent. */
+  continueGame(slot?: number): void;
   resume(): void;
   quitToTitle(): void;
   abandonMission(): void;
@@ -40,6 +41,13 @@ export interface MenuHost {
   quality?(): { auto: QualityTier; msaa: boolean; software?: boolean; post?: boolean };
   /** Hands the next key press (its code) to `cb` and nothing else, for a rebind; cancelCapture drops the wait. */
   captureKey?(cb: (code: string) => void): void;
+  /** The save slots (see settings.ts); absent: a single save, as before slots. */
+  slots?(): SlotInfo[];
+  /** Saves the running game into slot `slot` (the safehouse's picker). */
+  saveToSlot?(slot: number): void;
+  deleteSlot?(slot: number): void;
+  /** NEW GAME's question when some slot holds a save: where the new game will autosave. */
+  newGameNote?(): string;
   cancelCapture?(): void;
 }
 
