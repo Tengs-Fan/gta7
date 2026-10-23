@@ -31,6 +31,11 @@ registerCommand('respawn', (room, m) => {
   if (room.sim.playerDown && room.sim.deathTimer > 2) room.sim.finishRespawn();
 });
 
+/** Resend everything: the client missed a snapshot, so what it was sent since only as changes may be lost to it. */
+registerCommand('resync', (_room, m) => {
+  m.resync();
+});
+
 interface DebugArgs {
   wanted?: number;
   teleport?: [number, number];
