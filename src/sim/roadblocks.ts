@@ -115,6 +115,15 @@ export class RoadblockSystem implements SimSystem {
     return this.posted.has(c);
   }
 
+  /**
+   * An officer of a roadblock that still stands. Its cruisers (isParked) and officers stay until the roadblock itself is
+   * taken down (remove), never by the police's generic distance cleanup: it stands up to 340 m ahead, out of sight.
+   */
+  holds(c: Character): boolean {
+    for (const rb of this.roadblocks) if (rb.removedAt < 0 && rb.officers.includes(c)) return true;
+    return false;
+  }
+
   reset(): void {
     this.roadblocks.length = 0;
     this.strips.length = 0;
@@ -136,6 +145,7 @@ export class RoadblockSystem implements SimSystem {
     if (this.wasLevel < ROADBLOCK_LEVEL) this.timer = ROADBLOCK_FIRST;
     this.wasLevel = level;
     this.removeBehind(dt);
+    this.dropEmpty();
     this.makeWay(dt);
     for (const s of this.strips) if (!s.removed && sim.time - s.createdAt > STRIP_LIFE) s.removed = true;
     this.compact();
@@ -293,6 +303,13 @@ export class RoadblockSystem implements SimSystem {
           sim.removeVehicle(v);
         }
       }
+    }
+  }
+
+  /** A roadblock whose cruisers and officers are all gone (removed some other way, or dead) no longer stands. */
+  private dropEmpty(): void {
+    for (const rb of this.roadblocks) {
+      if (rb.removedAt < 0 && rb.cars.every((v) => v.removed) && rb.officers.every((o) => o.removed || !o.alive)) this.remove(rb);
     }
   }
 

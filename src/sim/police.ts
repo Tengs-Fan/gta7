@@ -1461,6 +1461,7 @@ export class PoliceSystem {
     const searching = this.searching(level);
     for (const v of sim.vehicles) {
       if (v.owner !== 'police' || v.removed || v.driver === sim.player) continue;
+      if (sim.roadblocks.isParked(v) && !v.destroyed) continue;
       // Units sweeping the area around the last sighting are still on duty.
       const d = Math.min(Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z), searching ? Math.hypot(v.pos.x - w.lastSeenX, v.pos.z - w.lastSeenZ) : Infinity);
       const visible = sim.isVisible(v.pos.x, v.pos.y, v.pos.z);
@@ -1473,6 +1474,7 @@ export class PoliceSystem {
     }
     for (const c of sim.characters) {
       if (c.removed || !c.isLaw || c.state === 'inVehicle') continue;
+      if (c.alive && sim.roadblocks.holds(c)) continue;
       const d = Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z);
       const visible = sim.isVisible(c.pos.x, c.pos.y, c.pos.z);
       if (!c.alive) {
