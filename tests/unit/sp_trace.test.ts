@@ -1,7 +1,13 @@
 // Single-player same-seed results stay identical to the trace recorded at 72d0b98, before the PlayerSlot refactor.
 // Regenerate the fixture only at 72d0b98 (see scripts/record-sp-trace.ts); a diff here is a behaviour change.
-// Exception: Hotel Salgado's entrance (Vera's SPECIALS row) displaced one street lamp, so propBroken indices past it
-// are one lower than at 72d0b98; that is the only difference in the fixture.
+// Exceptions, all intentional wave-1 changes; the fixture was re-recorded once after merging them (army/integrate-w1):
+// - Track C (vehicles): motorbikes join traffic (~5% of spawns, TRAFFIC_BIKE_SALT) and the parked bays, so from the first
+//   bike spawn on vehicle kinds, positions and the characters riding them differ; no car is spawned to wait at a red
+//   light across a wanted player's road (traffic.ts aheadCross); the handbrake above 8 m/s drifts; people in a sinking
+//   car swim out or drown instead of vanishing. Seeds 11 and 29 still end wasted / busted after a Street Run start.
+// - Story chapter 2: Hotel Salgado's entrance (Vera's SPECIALS row) displaced one street lamp, so propBroken indices
+//   past it are one lower; against the trace track C recorded on its own branch that is the only difference.
+// The economy, ui, audio and render tracks and the multiplayer server change nothing in it.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
