@@ -418,7 +418,8 @@ export class CrowdView {
         continue;
       }
       if ((c.pos.x - camX) ** 2 + (c.pos.z - camZ) ** 2 > 200 * 200) continue;
-      const fade = this.fadeFor(c, c === this.player, dt);
+      // Player characters (the local one and the other players' in multiplayer) are whole at once; pedestrians fade in.
+      const fade = this.fadeFor(c, c === this.player || c.role === 'player', dt);
       fade.foot = true;
       this.drawFade = fade.f;
       this.trackShot(c);

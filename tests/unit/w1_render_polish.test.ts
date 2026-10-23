@@ -105,6 +105,16 @@ describe('pedestrian fades', () => {
     expect(fadesDrawn(cv)).toEqual([1, 1]);
   });
 
+  it('another player\'s character (role player) arriving in view is whole at once, like the local one', () => {
+    const sim = makeSim();
+    const p = sim.player.pos;
+    const other = sim.spawnCharacter('player', p.x + 8, p.z + 3);
+    const cv = new CrowdView();
+    cv.sync([sim.player, other], p.x, p.z, DT, sim.player.id);
+    expect(cv.fadeOf(other)).toBe(1);
+    expect(cv.firstDrawn.map((e) => e.id)).not.toContain(other.id);
+  });
+
   it('the shadow fades with the body: the depth material carries the same per-instance fade', () => {
     const cv = new CrowdView();
     const depth = headOf(cv).customDepthMaterial!;

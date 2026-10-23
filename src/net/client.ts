@@ -8,7 +8,8 @@ import type { StaticWorld } from '../world/staticWorld';
 import type { CombatView } from '../sim/viewState';
 import { Mirror } from './mirror';
 import { placeOccupant } from './mirror';
-import { Predictor, serverOwnState, type Pose } from './predictor';
+import { WEAPONS } from '../sim/specs';
+import { Predictor, serverOwnState, type PredictedShot, type Pose } from './predictor';
 import { decodeMessage, encodeMessage, peekType, PROTOCOL_VERSION, quantizeInput, type Message, type SnapshotMsg } from './protocol';
 import { BadAddressError, type Transport, type TransportFactory } from './transport';
 
@@ -400,9 +401,27 @@ export class NetClient {
     const p = this.predictor;
     if (p.active) {
       if (p.tick !== t) p.stop();
-      else p.step(q, this.mirror);
+      else {
+        p.step(q, this.mirror);
+        this.showShots(p.fired.splice(0));
+      }
     }
     this.ctick = t + 1;
+  }
+
+  /**
+   * The local player's own trigger pulls show at once (muzzle flash, bang); the tracer and what it hit follow with the
+   * server's events. A pull is only shown while the server's last report says the gun has a round in it, counting
+   * the pulls it has not reported yet.
+   */
+  private showShots(shots: PredictedShot[]): void {
+    const m = this.mirror;
+    for (const f of shots) {
+      const spec = WEAPONS[f.weapon];
+      if (spec.kind !== undefined || spec.id === 'fists') continue;
+      if (m.hud.clip - m.predictedShotsPending <= 0) continue;
+      m.showPredictedShot(f.weapon, { x: f.x, y: f.y, z: f.z, dx: f.dx, dy: f.dy, dz: f.dz, pellets: f.pellets });
+    }
   }
 
   private lastHeld(): PlayerInput {

@@ -39,6 +39,9 @@ const REQUIRED_REFS: Readonly<Record<string, readonly string[]>> = {
 /** Seconds after a death past the server's respawn (4.8 s) at which the client stops waiting for its respawn event. */
 const RESPAWN_FALLBACK = 6.5;
 
+/** A shot shown from the prediction that the server never reports (it did not fire) is forgotten after this long. */
+const SHOWN_SHOT_TTL_MS = 2000;
+
 /** World events are shown this many ticks before their broadcast tick on the render timeline (they happened in the ticks since the last snapshot). */
 const EVENT_LEAD_TICKS = 2;
 
@@ -202,6 +205,9 @@ export class Mirror implements ViewState {
   private readonly colliderOfProp = new Map<number, StaticCollider>();
   private readonly scratch: MotionSample = emptySample(0);
   private snapTime = 0;
+  /** Shots of the local player shown at once from the prediction, until the server's own event for them arrives. */
+  private readonly shown: Array<{ weapon: string; at: number }> = [];
+  private nowMs = 0;
 
   constructor(opts: MirrorOptions) {
     this.world = opts.world;
@@ -390,10 +396,33 @@ export class Mirror implements ViewState {
         this.stats.eventsDropped++;
         continue;
       }
+      if (ev.type === 'weaponFired' && mine !== null && payload.shooter === mine && this.takePredictedShot(String(payload.weapon))) continue;
       const aboutMe = ev.playerId !== 0 || (mine !== null && Object.values(payload).some((v) => v === mine || (v instanceof Vehicle && v.driver === mine)));
       if (aboutMe) this.emit(ev.type, payload);
       else this.queued.push({ tick: m.tick - EVENT_LEAD_TICKS, type: ev.type, payload });
     }
+  }
+
+  /** Shows a trigger pull of the local player now (flash and bang) instead of when the server's event arrives. */
+  showPredictedShot(weapon: string, payload: Record<string, unknown>): void {
+    const mine = this.localCharacter;
+    if (!mine) return;
+    this.shown.push({ weapon, at: this.nowMs });
+    if (this.shown.length > 32) this.shown.shift();
+    this.emit('weaponFired', { shooter: mine, weapon, ...payload, playerId: this.playerId });
+  }
+
+  /** Trigger pulls shown from the prediction that the server has not reported yet. */
+  get predictedShotsPending(): number {
+    return this.shown.length;
+  }
+
+  /** The server's event for a shot already shown: consumes the shown one (and any older that never came). */
+  private takePredictedShot(weapon: string): boolean {
+    const i = this.shown.findIndex((s) => s.weapon === weapon);
+    if (i < 0) return false;
+    this.shown.splice(0, i + 1);
+    return true;
   }
 
   /**
@@ -419,6 +448,8 @@ export class Mirror implements ViewState {
   /** Advances the render timeline by `dt` s at local time `nowMs`: interpolates remote entities, plays due events. */
   update(dt: number, nowMs: number): void {
     this.frame++;
+    this.nowMs = nowMs;
+    while (this.shown.length && nowMs - this.shown[0]!.at > SHOWN_SHOT_TTL_MS) this.shown.shift();
     for (const i of this.pendingBroken.splice(0)) this.emit('propBroken', { index: i, dirX: 0, dirZ: 0 });
     const rt = this.renderClock.advance(dt, nowMs);
     this.clock.update(dt);
