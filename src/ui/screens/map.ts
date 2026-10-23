@@ -147,6 +147,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     ctx.scale(k / MAP_SCALE, k / MAP_SCALE);
     ctx.translate(-(cx - menus.map.minX) * MAP_SCALE, -(cz - menus.map.minZ) * MAP_SCALE);
     ctx.drawImage(menus.map.canvas, 0, 0);
+    if (layerOn('turf')) ctx.drawImage(menus.map.turf, 0, 0);
     drawPoliceOverlay(ctx, sim, menus.map, time, k / MAP_SCALE, localId);
     ctx.restore();
     // District labels.
