@@ -133,7 +133,7 @@ const WAR_RANGE = 220;
 const WAR_CHANCE = 0.3;
 /** A war lasts at most this long (s), and the next waits this long (s) after one ends. */
 export const WAR_MAX = 75;
-export const WAR_COOLDOWN = 130;
+export const WAR_COOLDOWN = 190;
 const WAR_SIDE = 3;
 
 export interface GangWar {
