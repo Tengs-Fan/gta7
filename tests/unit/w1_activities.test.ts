@@ -201,6 +201,58 @@ describe('ambulance', () => {
     expect(car.passengers.every((p) => p === null || p.removed)).toBe(true);
   });
 
+  it('keeps a boarded patient aboard when the player gets out and back in with F, and delivers him', () => {
+    const { sim, car } = ambulanceSim();
+    sim.activities.toggleJob();
+    const j = sim.activities.job as AmbulanceJob;
+    const patient = j.waiting[0]!;
+    moveCar(sim, car, patient.pos.x + 3.2, patient.pos.z);
+    step(sim, 1.3);
+    expect(patient.vehicle).toBe(car);
+    sim.update(1 / 60, input({ enterExit: true }));
+    expect(sim.player.vehicle).toBeNull();
+    step(sim, 0.25);
+    sim.update(1 / 60, input({ enterExit: true }));
+    let t = 0;
+    for (; t < 8 && sim.player.vehicle !== car; t += 1 / 60) sim.update(1 / 60, input());
+    expect(sim.player.vehicle, 'back at the wheel').toBe(car);
+    expect(t).toBeLessThan(LEAVE_GRACE);
+    expect(patient.vehicle, 'the patient stays in his seat').toBe(car);
+    expect(j.aboard).toEqual([patient]);
+    const money = sim.progress.money;
+    const drop = places(sim.world).hospitalDrop;
+    moveCar(sim, car, drop.x, drop.z);
+    step(sim, 0.2);
+    expect(sim.progress.money - money).toBe(ambulanceReward(1));
+    expect(activityRecords(sim.progress).patientsSaved).toBe(1);
+    expect(patient.removed).toBe(true);
+  });
+
+  it('pays nothing for a patient who is no longer in the ambulance, and has him picked up again', () => {
+    const { sim, car } = ambulanceSim();
+    sim.activities.toggleJob();
+    const j = sim.activities.job as AmbulanceJob;
+    const patient = j.waiting[0]!;
+    moveCar(sim, car, patient.pos.x + 3.2, patient.pos.z);
+    step(sim, 1.3);
+    expect(j.aboard).toEqual([patient]);
+    // Out of his seat by some other way (not the job's), left behind as the ambulance drives on to the hospital.
+    sim.unseat(patient);
+    const money = sim.progress.money;
+    const saved = activityRecords(sim.progress).patientsSaved;
+    const drop = places(sim.world).hospitalDrop;
+    moveCar(sim, car, drop.x, drop.z);
+    step(sim, 0.5);
+    expect(Math.hypot(patient.pos.x - drop.x, patient.pos.z - drop.z)).toBeGreaterThan(drop.radius);
+    expect(sim.progress.money).toBe(money);
+    expect(activityRecords(sim.progress).patientsSaved).toBe(saved);
+    expect(patient.removed).toBe(false);
+    expect(j.level).toBe(1);
+    expect(j.aboard).toEqual([]);
+    expect(j.waiting).toEqual([patient]);
+    expect(sim.activities.status()).toMatch(/ABOARD 0/);
+  });
+
   it('keeps waiting while the player is out of the ambulance for less than the grace time', () => {
     const { sim } = ambulanceSim();
     sim.activities.toggleJob();

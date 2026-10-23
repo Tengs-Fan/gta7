@@ -89,6 +89,11 @@ export interface ActivityDef<J extends ActivityJob = ActivityJob> {
   status(job: J): string | null;
   /** The text that closes the job when the game ends it (death, arrest, a mission starting). Absent: '' for a mission, 'Job over.' otherwise. */
   abortText?(reason: CancelReason): string;
+  /**
+   * Whether `passenger` keeps his seat when the job's player takes the wheel of `vehicle` (getting back into the job's
+   * car). Absent or false: he gets out, as every passenger does when the player takes a wheel.
+   */
+  keepsAboard?(job: J, passenger: Character, vehicle: Vehicle): boolean;
   /** Called once as each Activities facade is built, for listeners the activity keeps on the sim. */
   attach?(host: ActivityHost): void;
   /** Its row in the completion checklist (map screen, STATS): what counts as done of how much. Absent: no row. */
