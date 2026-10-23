@@ -2,6 +2,7 @@
 
 import { circleVsObb, makeContact, segmentHitsAabb } from '../core/collision';
 import { clamp, moveAngleTowards, moveTowards, smoothstep, wrapAngle } from '../core/math';
+import { throwDamage } from './bikes';
 import { MAX_STEP, SWIM_SPEED } from './characterPhysics';
 import type { Character, Vehicle } from './entities';
 import type { PlayerInput } from './input';
@@ -164,8 +165,9 @@ export class PlayerController {
       if (firing) sim.combat.playerFire(p, input, false);
     }
 
-    if (input.enterExit && !swimming) {
-      const v = this.findEnterable(p);
+    // Swimming, he can only climb into a boat.
+    if (input.enterExit) {
+      const v = this.findEnterable(p, swimming);
       if (v) this.beginEnter(p, v);
     }
   }
@@ -194,11 +196,27 @@ export class PlayerController {
     return this.converge;
   }
 
-  /** Nearest vehicle whose body is in reach and has a walkable approach to a door. */
-  findEnterable(p: Character): Vehicle | null {
+  /**
+   * Nearest vehicle whose body is in reach and has a walkable approach to a door; or a boat whose hull is within
+   * BOARD_REACH of him (from the quay, a pier or the water: he steps or climbs straight in). Only boats when `swimming`.
+   */
+  findEnterable(p: Character, swimming = false): Vehicle | null {
     let best: Vehicle | null = null;
     let bd = Infinity;
     for (const v of this.sim.vehicles) {
+      if (v.spec.class === 'boat') {
+        if (v.removed || !v.drivable || v.speed > 3 || (v.driver && v.driver.isPlayer)) continue;
+        const d = Math.hypot(v.pos.x - p.pos.x, v.pos.z - p.pos.z);
+        if (d > 12 || Math.abs(v.pos.y - p.pos.y) > BOARD_RISE) continue;
+        vehicleObb(v, obb);
+        if (!circleVsObb(p.pos.x, p.pos.z, BOARD_REACH, obb, contact)) continue;
+        if (d < bd) {
+          bd = d;
+          best = v;
+        }
+        continue;
+      }
+      if (swimming) continue;
       if (v.removed || !v.drivable || v.airborne || v.speed > 7) continue;
       const d = Math.hypot(v.pos.x - p.pos.x, v.pos.z - p.pos.z);
       if (d > 12 || Math.abs(v.pos.y - p.pos.y) > 2.5) continue;
@@ -214,7 +232,8 @@ export class PlayerController {
   }
 
   private beginEnter(p: Character, v: Vehicle): void {
-    const route = this.entryRoute(p, v);
+    const boat = v.spec.class === 'boat';
+    const route = boat ? { points: [], side: 1 as const, length: 0 } : this.entryRoute(p, v);
     if (!route) return;
     this.entryPoints = route.points;
     this.entrySide = route.side;
@@ -315,6 +334,10 @@ export class PlayerController {
       this.abortEnter();
       return;
     }
+    if (v.spec.class === 'boat') {
+      this.boarding(dt, v);
+      return;
+    }
     p.enterTimer += dt;
     const currentDoor = this.doorPos(v, this.entrySide);
     if (p.enterTimer > 8 || Math.hypot(currentDoor.x - p.pos.x, currentDoor.z - p.pos.z) > this.enterReach) {
@@ -371,15 +394,55 @@ export class PlayerController {
       this.p.wanted.crime('carjack', v.pos.x, v.pos.z, this.p);
     }
     const seatTime = this.jacked ? Math.max(0.95, this.jackedAt + 0.6) : 0.45;
-    if (atDoor && p.enterTimer >= seatTime && (!v.driver || v.driver === p)) {
+    if (atDoor && p.enterTimer >= seatTime && (!v.driver || v.driver === p)) this.takeWheel(p, v);
+  }
+
+  /**
+   * Climbing into a boat from the quay, a pier or the water: no walk to a door, BOARD_TIME s and he is at the helm. Its
+   * NPC skipper, if any, goes over the side.
+   */
+  private boarding(dt: number, v: Vehicle): void {
+    const sim = this.sim;
+    const p = this.p.character;
+    p.enterTimer += dt;
+    vehicleObb(v, obb);
+    if (p.enterTimer > 4 || v.speed > 4 || !circleVsObb(p.pos.x, p.pos.z, BOARD_REACH + 1.5, obb, contact)) {
+      this.abortEnter();
+      return;
+    }
+    p.vel.x = 0;
+    p.vel.z = 0;
+    p.heading = moveAngleTowards(p.heading, Math.atan2(v.pos.x - p.pos.x, v.pos.z - p.pos.z), 10 * dt);
+    if (p.enterTimer < BOARD_TIME) return;
+    if (v.driver && v.driver !== p) {
+      const victim = v.driver;
+      sim.unseat(victim);
+      const sx = Math.cos(v.heading);
+      const sz = -Math.sin(v.heading);
+      victim.pos.x = v.pos.x - sx * (v.halfW + 0.9);
+      victim.pos.z = v.pos.z - sz * (v.halfW + 0.9);
+      victim.pos.y = Math.max(sim.world.groundHeight(victim.pos.x, victim.pos.z), v.pos.y);
+      victim.state = 'normal';
+      sim.peds.onJacked(victim);
+      this.jacked = true;
+      this.p.wanted.crime('carjack', v.pos.x, v.pos.z, this.p);
+    }
+    this.takeWheel(p, v);
+  }
+
+  /** Seats the player at the wheel of `v` (passengers get out), which becomes his. */
+  private takeWheel(p: Character, v: Vehicle): void {
+    const sim = this.sim;
+    {
+      const boat = v.spec.class === 'boat';
       for (const o of v.passengers) {
         if (o) {
           sim.unseat(o);
-          const spot = sim.world.findFreeSpot(v.pos.x - Math.cos(v.heading) * (v.halfW + 0.8), v.pos.z + Math.sin(v.heading) * (v.halfW + 0.8), 0.4, 5);
+          const spot = sim.world.findFreeSpot(v.pos.x - Math.cos(v.heading) * (v.halfW + 0.8), v.pos.z + Math.sin(v.heading) * (v.halfW + 0.8), 0.4, 5, boat);
           if (spot) {
             o.pos.x = spot.x;
             o.pos.z = spot.z;
-            o.pos.y = sim.world.groundHeight(spot.x, spot.z);
+            o.pos.y = Math.max(sim.world.groundHeight(spot.x, spot.z), boat ? v.pos.y : -Infinity);
           }
           o.state = 'normal';
           sim.peds.onJacked(o);
@@ -387,6 +450,8 @@ export class PlayerController {
       }
       sim.seat(p, v, 0);
       v.ai = null;
+      // Getting on a bike that lies on its side stands it up.
+      v.toppled = false;
       // The car is the player's now: police, traffic and parking systems let go of it.
       // Only taking a cruiser from the police is a theft, not getting back into it later.
       const fromPolice = v.owner === 'police';
@@ -545,6 +610,7 @@ export class PlayerController {
    * (a car in the water, nothing but water and drops around) any open spot, the water included.
    */
   private findExitSpot(v: Vehicle): { x: number; z: number } | null {
+    if (v.spec.class === 'boat') return this.boatExitSpot(v);
     const sim = this.sim;
     const fx = Math.sin(v.heading);
     const fz = Math.cos(v.heading);
@@ -568,6 +634,42 @@ export class PlayerController {
     return null;
   }
 
+  /**
+   * Where the player gets out of boat `v`: the nearest dry footing within BOARD_REACH of the hull that he can climb up to
+   * (a pier, the Marina deck, a quay, the beach; decks count as dry, so never under one), else the water beside it.
+   */
+  private boatExitSpot(v: Vehicle): { x: number; z: number } | null {
+    const world = this.sim.world;
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const sx = Math.cos(v.heading);
+    const sz = -Math.sin(v.heading);
+    let best: { x: number; z: number } | null = null;
+    let bd = Infinity;
+    const consider = (x: number, z: number, d: number): void => {
+      if (d >= bd || world.waterDepth(x, z) > 0) return;
+      if (world.groundHeight(x, z) > v.pos.y + BOARD_RISE || !world.isFree(x, z, 0.38) || this.vehicleAt(x, z, v)) return;
+      bd = d;
+      best = { x, z };
+    };
+    for (let out = 0.6; out <= BOARD_REACH + 0.01; out += 0.4) {
+      for (const along of [0, 0.35, -0.35, 0.7, -0.7]) {
+        for (const side of [1, -1]) {
+          const r = v.halfW + out;
+          consider(v.pos.x + sx * side * r + fx * along * v.halfL, v.pos.z + sz * side * r + fz * along * v.halfL, out + Math.abs(along) * 0.5);
+        }
+      }
+      for (const end of [1, -1]) consider(v.pos.x + fx * end * (v.halfL + out), v.pos.z + fz * end * (v.halfL + out), out + 0.3);
+    }
+    if (best) return best;
+    for (const side of [1, -1]) {
+      const x = v.pos.x + sx * side * (v.halfW + 0.9);
+      const z = v.pos.z + sz * side * (v.halfW + 0.9);
+      if (world.isFree(x, z, 0.38, true) && !this.vehicleAt(x, z, v)) return { x, z };
+    }
+    return null;
+  }
+
   /** Another vehicle than `v` covers (x, z), give or take a person's width. */
   private vehicleAt(x: number, z: number, v: Vehicle): boolean {
     for (const o of this.sim.vehicles) {
@@ -577,6 +679,36 @@ export class PlayerController {
       if (circleVsObb(x, z, 0.45, obb, contact)) return true;
     }
     return false;
+  }
+
+  /**
+   * Thrown off a bike in a crash at `speed` m/s (sim/bikes.ts), which was moving at (vx, vz) just before: knocked down
+   * beside it with some of that speed, and hurt by the fall.
+   */
+  thrownOff(speed: number, vx: number, vz: number): void {
+    const sim = this.sim;
+    const p = this.p.character;
+    const v = p.vehicle;
+    if (!v) return;
+    const spot = this.findExitSpot(v) ?? { x: v.pos.x, z: v.pos.z };
+    sim.unseat(p);
+    p.state = 'knocked';
+    p.knockTimer = 2.2;
+    p.pos.x = spot.x;
+    p.pos.z = spot.z;
+    p.pos.y = Math.max(sim.world.groundHeight(spot.x, spot.z), v.pos.y) + 0.3;
+    p.heading = v.heading;
+    p.vel.x = vx * 0.5;
+    p.vel.z = vz * 0.5;
+    p.vel.y = 3;
+    p.onGround = false;
+    this.exitPending = false;
+    v.controls.throttle = 0;
+    v.controls.brake = 0;
+    v.controls.steer = 0;
+    v.controls.handbrake = false;
+    sim.events.emit('vehicleExit', { vehicle: v, character: p });
+    sim.combat.damageCharacter(p, throwDamage(speed), null, 'fall', vx, -1, vz);
   }
 
   /** Forcibly removes the player from a vehicle (sinking, despawn, explosion). */
@@ -599,6 +731,11 @@ export class PlayerController {
     sim.events.emit('vehicleExit', { vehicle: v, character: p });
   }
 }
+
+/** Boats: how far from the hull he can board one or step off it (m), how high a deck he can climb to, and the time it takes. */
+const BOARD_REACH = 3.2;
+const BOARD_RISE = 3;
+const BOARD_TIME = 0.5;
 
 /** Keyboard steering: wind-in rate (full lock per second) at walking pace, and the rate back to the centre. */
 const KEY_STEER_RATE = 4.2;

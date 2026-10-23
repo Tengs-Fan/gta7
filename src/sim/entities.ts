@@ -22,7 +22,7 @@ export type CharacterRole = 'player' | 'civilian' | 'cop' | 'swat' | 'gang' | 'm
 export type CharState = 'normal' | 'knocked' | 'dead' | 'inVehicle' | 'entering' | 'swimming';
 
 /** Which system manages an entity's lifecycle (spawning / streaming out). */
-export type Owner = 'none' | 'traffic' | 'parked' | 'ped' | 'police' | 'mission';
+export type Owner = 'none' | 'traffic' | 'parked' | 'ped' | 'police' | 'mission' | 'moored';
 
 export interface Appearance {
   skin: number;
@@ -252,6 +252,13 @@ export class Vehicle {
   launchRamp = -1;
   inWater = false;
   sinkTimer = 0;
+  /**
+   * Motorbikes (sim/bikePhysics.ts): lean into the turn (rad, positive to the right, the steer's sign), the front lifted
+   * in a wheelie (rad, nose up), and lying on its side after a crash threw its rider off (until someone gets on again).
+   */
+  lean = 0;
+  wheelie = 0;
+  toppled = false;
   driver: Character | null = null;
   readonly passengers: (Character | null)[];
   ai: DriverAI | null = null;

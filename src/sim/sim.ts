@@ -31,6 +31,8 @@ import type { Progress } from './progress';
 import { VEHICLE_SPECS, type VehicleKind } from './specs';
 import { TrafficSystem } from './traffic';
 import { registeredSystems, SystemSlots, type SimSystem, type SystemSlot } from './systems';
+import { abandonSinkingCar } from './sinking';
+import './vehicleSystems';
 import { collideVehicles, collideVehicleStatic, stepVehicle, type VehiclePhysicsHost } from './vehiclePhysics';
 import type { WantedSystem } from './wanted';
 import { WeatherSystem, type WeatherMode } from './weather';
@@ -560,11 +562,11 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   onVehicleEnteredWater(v: Vehicle): void {
     this.events.emit('splash', { x: v.pos.x, y: WATER_Y, z: v.pos.z, big: true });
     v.burning = false;
-    for (const o of v.occupants()) {
-      const slot = this.slotOf(o);
-      if (slot) slot.ctl.ejectPlayer(false);
-      else this.removeCharacter(o);
-    }
+    // The others swim out or drown (sinking.ts), charged to the player if he drove it in.
+    const culprit = v.driver && this.slotOf(v.driver) ? v.driver : null;
+    const npcs = v.occupants().filter((o) => !this.slotOf(o));
+    for (const o of v.occupants()) this.slotOf(o)?.ctl.ejectPlayer(false);
+    abandonSinkingCar(this, v, npcs, culprit);
   }
 
   onCharacterHitByVehicle(c: Character, v: Vehicle, relSpeed: number, nx: number, nz: number): void {

@@ -7,7 +7,7 @@ import { WATER_Y } from '../world/constants';
 import { STOP_MARGIN } from './driver';
 import type { Vehicle } from './entities';
 import type { Sim } from './sim';
-import { PARKED_MIX, TRAFFIC_MIX, VEHICLE_SPECS, type VehicleKind } from './specs';
+import { PARKED_MIX, parkedBike, TRAFFIC_MIX, trafficBike, VEHICLE_SPECS, type VehicleKind } from './specs';
 import { clearOfVehicles } from './vehicleRoom';
 
 /** Above this speed (m/s) the player outruns the traffic streamed around him: spawn ahead too. */
@@ -65,6 +65,11 @@ export class TrafficSystem {
   private aheadTime = -Infinity;
   /** The lanes of the road a fast player is about to drive down, his way (see refreshAhead). */
   private aheadPath = new Set<Lane>();
+  /**
+   * Every cross-street lane into those junctions (and the one he is driving through), whether or not its green comes in
+   * time for aheadSpans: while he is wanted no car spawns on one at a red light, where it would wait right in his way.
+   */
+  private aheadCross = new Set<Lane>();
   readonly parkedBySpot = new Map<number, Vehicle>();
   /** Since when each vehicle nobody is in has held up traffic in a junction, and when it last did (see TOW_BLOCK). */
   private readonly blockTime = new Map<Vehicle, { since: number; last: number }>();
@@ -218,6 +223,7 @@ export class TrafficSystem {
     this.aheadSpans = [];
     this.aheadCum = [];
     this.aheadPath.clear();
+    this.aheadCross.clear();
     this.aheadTime = this.sim.time;
     const pv = this.playerVel();
     const speed = Math.hypot(pv.x, pv.z);
@@ -227,15 +233,21 @@ export class TrafficSystem {
     let lane: Lane | null = roads.nearestLane(pp.x, pp.z, Math.atan2(pv.x, pv.z)).lane;
     // Only along a lane, not across a plaza or the beach.
     if (lane.dx * pv.x + lane.dz * pv.z < 0.7 * speed) return;
+    const from = roads.nodes[lane.from]!;
+    for (const turn of [1, 3]) {
+      const side = from.neighbors[(lane.dir + turn) % 4]!;
+      if (side >= 0) for (const l of roads.lanesBetween(side, from.id)) this.aheadCross.add(l);
+    }
     for (let n = 0; n < AHEAD_JUNCTIONS && lane; n++) {
       for (const l of roads.lanesBetween(lane.from, lane.to)) this.aheadPath.add(l);
       const node = roads.nodes[lane.to]!;
       const lead = Math.hypot(node.x - pp.x, node.z - pp.z) / speed - CROSS_LEAD;
       for (const turn of [1, 3]) {
         const side = node.neighbors[(lane.dir + turn) % 4]!;
-        if (side < 0 || lead < 0) continue;
+        if (side < 0) continue;
         for (const l of roads.lanesBetween(side, node.id)) {
-          if (!this.greenWithin(node.id, l, lead)) continue;
+          this.aheadCross.add(l);
+          if (lead < 0 || !this.greenWithin(node.id, l, lead)) continue;
           const a = Math.max(6, l.length - QUEUE_FAR);
           const b = l.length - QUEUE_NEAR;
           if (b > a) this.aheadSpans.push({ lane: l, s0: a, s1: b });
@@ -297,11 +309,11 @@ export class TrafficSystem {
       // A car spawned behind a fast player is left behind at once (and recycled): pure churn.
       if (!ahead && fast && (x - pp.x) * pv.x + (z - pp.z) * pv.z < 0) continue;
       const red = sim.roads.signalState(lane.to, axisOf(lane.dir), sim.time) !== 'green';
-      if (red && sim.wanted.level > 0 && (ahead || this.aheadPath.has(lane))) continue;
+      if (red && sim.wanted.level > 0 && (ahead || this.aheadPath.has(lane) || this.aheadCross.has(lane))) continue;
       // Spawn ranges lie inside the fog-free distance: never pop a car into view.
       if (sim.isVisible(x, 1, z)) continue;
       if (!this.isClear(x, z, 11)) continue;
-      let k = kind ?? sim.rng.weighted(TRAFFIC_MIX);
+      let k = kind ?? trafficBike(sim.rng.weighted(TRAFFIC_MIX), x, z);
       if (k === 'bus' && !lane.line.avenue) k = 'sedan';
       // Queued at a light that is not green, the front bumper waits STOP_MARGIN short of the line (see DriverAI). A bus
       // queued nearer than that would already be in the junction for its driver and pull out against the light: it
@@ -385,7 +397,7 @@ export class TrafficSystem {
       if (hash(i) % 100 >= 55) continue;
       if (sim.isVisible(s.x, 0.5, s.z)) continue;
       if (!this.isClear(s.x, s.z, BAY_SPACING)) continue;
-      const kind = PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0];
+      const kind = parkedBike(PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0], i);
       if (!clearOfVehicles(sim, kind, s.x, s.z, s.heading)) continue;
       const v = sim.spawnVehicle(kind, s.x, s.z, s.heading);
       v.owner = 'parked';
