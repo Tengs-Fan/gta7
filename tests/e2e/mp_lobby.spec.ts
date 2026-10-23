@@ -93,6 +93,26 @@ async function setKeys(page: Page, held: BotKeys, want: BotKeys): Promise<void> 
   }
 }
 
+interface Driver { page: Page; bot: KeyboardBot; held: BotKeys }
+const noKeys = (): BotKeys => ({ KeyW: false, KeyS: false, KeyA: false, KeyD: false, Space: false });
+
+/** Drives every page's car with its own keyboard bot (real key events) until each has finished or been put out. */
+async function driveBots(drivers: Driver[], seconds: number): Promise<void> {
+  const deadline = Date.now() + seconds * 1000;
+  const live = new Set(drivers);
+  try {
+    while (live.size > 0 && Date.now() < deadline) {
+      for (const d of [...live]) {
+        const seen = await look(d.page);
+        if (seen.stage !== 'racing' || seen.status !== 'racing' || !seen.car) live.delete(d);
+        else await setKeys(d.page, d.held, d.bot.decide(seen.car, seen.obstacles));
+      }
+    }
+  } finally {
+    for (const d of drivers) await setKeys(d.page, d.held, noKeys());
+  }
+}
+
 const appErrors = (errors: string[]) => errors.filter((e) => !/WebSocket connection to .* failed/i.test(e));
 
 test.describe('multiplayer lobby', () => {
@@ -211,38 +231,77 @@ test.describe('multiplayer lobby', () => {
     const world = new StaticWorld();
     const course = buildStreetRunCourses(world.roads).find((c) => c.id === 'magnolia')!;
     const bot = new KeyboardBot(coursePath(world.roads, course));
-    const held: BotKeys = { KeyW: false, KeyS: false, KeyA: false, KeyD: false, Space: false };
-    const deadline = Date.now() + (course.bronze + 20) * 1000;
-    try {
-      for (;;) {
-        const seen = await look(page);
-        if (seen.stage !== 'racing' || seen.status !== 'racing' || !seen.car || Date.now() > deadline) break;
-        await setKeys(page, held, bot.decide(seen.car, seen.obstacles));
-      }
-    } finally {
-      await setKeys(page, held, { KeyW: false, KeyS: false, KeyA: false, KeyD: false, Space: false });
-    }
+    await driveBots([{ page, bot, held: noKeys() }], course.bronze + 20);
     for (const p of [page, pageB]) await p.waitForFunction(() => (window as Api).__gta7.net.room().state?.race?.stage === 'results', null, { timeout: 30_000 });
     const resA = (await room(page)).state.race.entrants;
     const resB = (await room(pageB)).state.race.entrants;
     console.log(`[mplobby] results ${JSON.stringify(resA.map((e: Api) => [e.name, e.position, e.status, e.time && e.time.toFixed(2), e.medal]))}`);
     expect(resA).toEqual(resB);
-    // The bot through live traffic on a networked car may be held up past the bronze time (an angry driver it touched
-    // pulls it out): the race then ends out of time for it, as it must. Either way the results agree and B is DNF.
     expect(resA.map((e: Api) => e.name)).toEqual(['Ann', 'Bea']);
-    expect(['finished', 'timeout']).toContain(resA[0].status);
+    expect(resA[0].status).toBe('finished');
     expect(resA[1]).toMatchObject({ status: 'dnf', reason: 'quit', position: 0 });
-    if (resA[0].status === 'finished') {
-      expect(resA[0].position).toBe(1);
-      expect(resA[0].time).toBeLessThanOrEqual(course.bronze);
-      expect(resA[0].time).toBeCloseTo((resA[0].finishTick - (await room(page)).state.race.goTick) / 60, 6);
-    }
+    expect(resA[0].position).toBe(1);
+    expect(resA[0].time).toBeLessThanOrEqual(course.bronze);
+    expect(resA[0].time).toBeCloseTo((resA[0].finishTick - (await room(page)).state.race.goTick) / 60, 6);
     for (const p of [page, pageB]) await expect(p.locator('.mp-results')).toBeVisible();
     expect(await page.locator('.mp-results').innerText()).toBe(await pageB.locator('.mp-results').innerText());
     await page.screenshot({ path: testInfo.outputPath('mplobby-results-a.png') });
     await pageB.screenshot({ path: testInfo.outputPath('mplobby-results-b.png') });
     // Nothing was saved in single player's save.
     expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('gta7.save')))).toEqual([]);
+    for (const p of [page, pageB]) {
+      const s = await p.evaluate(() => (window as Api).__gta7.state());
+      expect(s.crashed).toBe(false);
+      expect(s.listenerErrors).toBe(0);
+    }
+    await ctx.close();
+    expect(appErrors(errorsA)).toEqual([]);
+    expect(appErrors(errorsB)).toEqual([]);
+  });
+
+  test('two keyboard bots race head to head to the line and both clients show the same results', async ({ browser, page }, testInfo) => {
+    test.setTimeout(420_000);
+    const url = (name: string) => `/?intro=0&mp=1&server=127.0.0.1:${MP_PORT}&room=${ROOM}-two&name=${name}`;
+    const errorsA = await boot(page, url('Ann'));
+    await connected(page);
+    const ctx = await browser.newContext();
+    const pageB = await ctx.newPage();
+    const errorsB = await boot(pageB, url('Bea'));
+    await connected(pageB);
+    await page.waitForFunction(() => (window as Api).__gta7.net.players().length === 2);
+
+    await raceMenu(page, 'race-open-magnolia');
+    await pageB.waitForFunction(() => (window as Api).__gta7.net.room().state?.race?.stage === 'lobby');
+    await raceMenu(pageB, 'race-join');
+    await page.waitForFunction(() => (window as Api).__gta7.net.room().state?.race?.entrants.length === 2);
+    await raceMenu(page, 'race-start');
+    for (const p of [page, pageB]) await p.waitForFunction(() => (window as Api).__gta7.net.room().goAt !== null, null, { timeout: 8000 });
+
+    const world = new StaticWorld();
+    const course = buildStreetRunCourses(world.roads).find((c) => c.id === 'magnolia')!;
+    const drivers: Driver[] = [page, pageB].map((p) => ({ page: p, bot: new KeyboardBot(coursePath(world.roads, course)), held: noKeys() }));
+    await driveBots(drivers, course.bronze + 25);
+    for (const p of [page, pageB]) await p.waitForFunction(() => (window as Api).__gta7.net.room().state?.race?.stage === 'results', null, { timeout: 30_000 });
+
+    const raceA = (await room(page)).state.race;
+    const raceB = (await room(pageB)).state.race;
+    console.log(`[mplobby] two bots ${JSON.stringify(raceA.entrants.map((e: Api) => [e.name, e.position, e.status, e.time && e.time.toFixed(2), e.finishTick, e.medal]))}`);
+    expect(raceA.entrants).toEqual(raceB.entrants);
+    expect(raceA.entrants.map((e: Api) => e.status)).toEqual(['finished', 'finished']);
+    expect(raceA.entrants.map((e: Api) => e.position)).toEqual([1, 2]);
+    const [first, second] = raceA.entrants;
+    expect(first.finishTick).toBeLessThanOrEqual(second.finishTick);
+    for (const e of raceA.entrants) {
+      expect(e.time).toBeLessThanOrEqual(course.bronze);
+      expect(e.time).toBeCloseTo((e.finishTick - raceA.goTick) / 60, 6);
+      expect(e.medal).toBe(e.time <= course.gold ? 'gold' : e.time <= course.silver ? 'silver' : 'bronze');
+    }
+    for (const p of [page, pageB]) await expect(p.locator('.mp-results')).toBeVisible();
+    expect(await page.locator('.mp-results').innerText()).toBe(await pageB.locator('.mp-results').innerText());
+    await page.screenshot({ path: testInfo.outputPath('mplobby-two-results-a.png') });
+    await pageB.screenshot({ path: testInfo.outputPath('mplobby-two-results-b.png') });
+    expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('gta7.save')))).toEqual([]);
+    expect(await pageB.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('gta7.save')))).toEqual([]);
     for (const p of [page, pageB]) {
       const s = await p.evaluate(() => (window as Api).__gta7.state());
       expect(s.crashed).toBe(false);

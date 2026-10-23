@@ -451,3 +451,115 @@ describe('radar blips for other players', () => {
     expect(otherPlayerBlips(sp, 0)).toEqual([]);
   });
 });
+
+describe('a busted player in multiplayer', () => {
+  it('is arrested and bailed out on his own at the police station; the others play on untouched', () => {
+    const r = room();
+    const a = join(r, 1, 'Ann');
+    const b = join(r, 2, 'Bea');
+    const c = join(r, 3, 'Cal');
+    steps(r, 3);
+    const [sa, sb, sc] = [slotOf(r, a), slotOf(r, b), slotOf(r, c)];
+    for (const s of [sa, sb, sc]) s.progress.money = 1000;
+    sa.character.inventory.give('smg', 90);
+    sb.character.inventory.give('smg', 90);
+    sa.wanted.setLevel(3);
+    sb.wanted.setLevel(2);
+    const bBefore = { x: sb.character.pos.x, z: sb.character.pos.z, wanted: sb.wanted.level, guns: sb.character.inventory.owned().join() };
+    r.sim.bustPlayer(sa);
+    expect(sa.deathKind).toBe('busted');
+    expect(sb.deathKind).toBeNull();
+    expect(sc.deathKind).toBeNull();
+    let lockedOthers = 0;
+    steps(r, 6 * TICK, () => {
+      for (const p of [a, b, c]) send(r, p);
+      if (sb.controlLock > 0 || sc.controlLock > 0 || sb.down || sc.down) lockedOthers++;
+    });
+    expect(lockedOthers).toBe(0);
+    expect(sa.deathKind).toBeNull();
+    const station = r.sim.world.layout.pois.find((p) => p.id === 'police')!;
+    expect(Math.hypot(sa.character.pos.x - station.x, sa.character.pos.z - station.z)).toBeLessThan(20);
+    // Ann pays 100 + 150 per star and loses her guns (3 stars); nobody else is charged or disarmed.
+    expect(sa.progress.money).toBe(1000 - (100 + 150 * 3));
+    expect(sa.wanted.level).toBe(0);
+    expect(sa.character.inventory.owned()).toEqual(['fists']);
+    expect(sb.progress.money).toBe(1000);
+    expect(sc.progress.money).toBe(1000);
+    expect(sb.wanted.level).toBe(bBefore.wanted);
+    expect(sb.character.inventory.owned().join()).toBe(bBefore.guns);
+    expect(Math.hypot(sb.character.pos.x - bBefore.x, sb.character.pos.z - bBefore.z)).toBeLessThan(0.5);
+    // The room hears of it in the feed; only Ann got the BUSTED banner and the bail message.
+    for (const p of [a, b, c]) expect(events(p, FEED_EVENT).map((e) => e.data.text)).toContain('Ann was busted');
+    expect(events(a, 'big').some((e) => e.data.style === 'busted')).toBe(true);
+    expect(events(a, 'message').some((e) => /^Bail paid: \$/.test(String(e.data.text)))).toBe(true);
+    for (const p of [b, c]) {
+      expect(events(p, 'big').some((e) => e.data.style === 'busted')).toBe(false);
+      expect(events(p, 'message').some((e) => /^Bail paid/.test(String(e.data.text)))).toBe(false);
+    }
+  });
+
+  it('a racer who is busted is out of the race (DNF) and the other racer carries on', () => {
+    const r = room();
+    const a = join(r, 1, 'Ann');
+    const b = join(r, 2, 'Bea');
+    r.command(a.m, 'race', JSON.stringify({ action: 'open', course: 'dockside' }));
+    r.command(b.m, 'race', JSON.stringify({ action: 'join' }));
+    r.command(a.m, 'race', JSON.stringify({ action: 'start' }));
+    const race = r.rules.race!;
+    steps(r, RACE_COUNTDOWN * TICK + 2);
+    const sa = slotOf(r, a);
+    const sb = slotOf(r, b);
+    r.sim.bustPlayer(sb);
+    steps(r, 3);
+    expect(race.racer(sb)).toMatchObject({ status: 'dnf', reason: 'busted' });
+    expect(race.racer(sa)!.status).toBe('racing');
+    expect(sa.controlLock).toBe(0);
+    driveCourse(r, race, sa);
+    expect(race.stage).toBe('results');
+    steps(r, 3);
+    expect(lastState(a).race!.entrants.map((e) => [e.name, e.status, e.reason])).toEqual([['Ann', 'finished', ''], ['Bea', 'dnf', 'busted']]);
+  });
+});
+
+describe('racers are not car-jacked by angry drivers', () => {
+  /** Rams `n` parked civilian cars hard with player `by`, counting the drivers who get out. */
+  function hardHits(sim: Sim, by: PlayerSlot, n: number): number {
+    sim.streetCrime.angryDrivers = true;
+    let out = 0;
+    const base = sim.players[0]!.character.pos;
+    for (let i = 0; i < n; i++) {
+      const v = sim.spawnVehicle('sedan', base.x + 20 + i * 6, base.z + 40, 0);
+      v.owner = 'traffic';
+      const d = sim.addDriver(v, 'civilian', 'traffic');
+      d.owner = 'traffic';
+      sim.events.emit('vehicleRammed', { vehicle: v, by: by.character, deltaV: 8 });
+      if (sim.angryDrivers.active.some((g) => g.driver === d)) out++;
+    }
+    return out;
+  }
+
+  it('a hard hit brings drivers out for a player in free roam, but not in a single-player Street Run or a head-to-head race', () => {
+    const mk = () => new Sim({ world: new StaticWorld(), ambient: false, police: false, multiplayer: true, seed: 5 });
+    const free = mk();
+    expect(hardHits(free, free.players[0]!, 20)).toBeGreaterThan(0);
+
+    const sim = mk();
+    const s1 = sim.players[0]!;
+    const course = streetRunCourses(sim).find((c) => c.id === 'magnolia')!;
+    const race = new HeadToHead(sim, course);
+    race.join(s1);
+    race.begin(0);
+    expect(s1.racing).toBe(true);
+    expect(hardHits(sim, s1, 20)).toBe(0);
+    race.leave(s1, 'quit');
+    expect(s1.racing).toBe(false);
+    expect(hardHits(sim, s1, 20)).toBeGreaterThan(0);
+
+    const solo = new Sim({ world: new StaticWorld(), ambient: false, police: false, seed: 5 });
+    const job = { kind: 'streetRun', stage: 'racing' } as never;
+    solo.activities.job = job;
+    expect(hardHits(solo, solo.players[0]!, 20)).toBe(0);
+    (solo.activities.job as { stage: string }).stage = 'approach';
+    expect(hardHits(solo, solo.players[0]!, 20)).toBeGreaterThan(0);
+  });
+});
