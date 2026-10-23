@@ -2,7 +2,7 @@
 // bodies of far cars) as a few instanced meshes shared by all cars, instead of one draw per part per car. VehicleView
 // keeps each part as an ordinary mesh (its transform, material and visibility stay the source of truth for the
 // simulation-facing code and the tests); those meshes live on PART_LAYER, which no camera renders, and are copied in
-// here every frame.
+// here every frame. A car fading out stays in the same draws: each instance carries its own fade.
 
 import * as THREE from 'three';
 
@@ -37,6 +37,14 @@ interface Bucket {
   capacity: number;
   style: PartStyle;
   lamps: boolean;
+  /** The part geometry the instances draw (the mesh draws it through a geometry of its own, see wrap). */
+  geometry: THREE.BufferGeometry;
+  /** The part material the instances draw, and the bucket's own copy of it that the mesh is drawn with. */
+  source: THREE.Material;
+  material: THREE.Material;
+  key: string;
+  /** Retires the bucket once its part material or geometry is disposed. */
+  onGone: () => void;
 }
 
 /**
@@ -48,6 +56,73 @@ export function isPlainPart(m: THREE.Material): m is THREE.MeshStandardMaterial 
 }
 
 /**
+ * Each instance keeps its `instanceFade` (0..1) share of its pixels through a 4x4 Bayer dither (as the characters do,
+ * crowd.ts): a car fading out stays in the shared draws, opaque, with no extra draw and no other program.
+ */
+function fadeByInstance(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nattribute float instanceFade;\nvarying float vInstanceFade;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvInstanceFade = instanceFade;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+varying float vInstanceFade;
+float partBayer4( vec2 frag ) {
+  const float m[ 16 ] = float[ 16 ]( 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 );
+  ivec2 p = ivec2( mod( floor( frag ), 4.0 ) );
+  return ( m[ p.x + p.y * 4 ] + 0.5 ) / 16.0;
+}`,
+    )
+    .replace(
+      '#include <clipping_planes_fragment>',
+      `#include <clipping_planes_fragment>
+if ( vInstanceFade < 1.0 && partBayer4( gl_FragCoord.xy ) >= vInstanceFade ) discard;`,
+    );
+}
+
+/** One key for every bucket's copy, so a bucket made mid-game draws with a program its kind already compiled. */
+const PART_PROGRAM_KEY = 'vehicle-part-fade';
+
+/** The bucket's copy of a part material: the same surface, with the per-instance fade. */
+function partMaterial(source: THREE.Material): THREE.Material {
+  const m = source.clone();
+  const own = source.onBeforeCompile;
+  const ownKey = source.customProgramCacheKey();
+  m.onBeforeCompile = (shader, renderer) => {
+    own.call(source, shader, renderer);
+    fadeByInstance(shader);
+  };
+  m.customProgramCacheKey = () => `${PART_PROGRAM_KEY}:${ownKey}`;
+  return m;
+}
+
+/** Keeps a bucket's copy in step with what the views (and local reflections) do to the part material. */
+function syncMaterial(to: THREE.Material, from: THREE.Material): void {
+  to.opacity = from.opacity;
+  to.visible = from.visible;
+  if (to instanceof THREE.MeshStandardMaterial && from instanceof THREE.MeshStandardMaterial) {
+    to.color.copy(from.color);
+    to.emissive.copy(from.emissive);
+    to.emissiveIntensity = from.emissiveIntensity;
+    to.roughness = from.roughness;
+    to.metalness = from.metalness;
+    to.map = from.map;
+    to.envMap = from.envMap;
+    to.envMapIntensity = from.envMapIntensity;
+  }
+}
+
+/** The shadow of the far bodies: three's depth material with the same per-instance fade. */
+function partDepthMaterial(): THREE.MeshDepthMaterial {
+  const m = new THREE.MeshDepthMaterial();
+  m.name = 'vehicle-part-depth';
+  m.onBeforeCompile = fadeByInstance;
+  m.customProgramCacheKey = () => `${PART_PROGRAM_KEY}-depth`;
+  return m;
+}
+
+/**
  * The material of the plain-parts draw: base colour from the instance colour, and the emissive colour (times its
  * intensity), roughness and metalness from per-instance attributes. Patched into the standard (or the software tier's
  * Lambert) shader, so every lamp state is one program.
@@ -56,6 +131,7 @@ function lampMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff });
   m.name = 'vehicle-lamps';
   m.onBeforeCompile = (shader) => {
+    fadeByInstance(shader);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec3 partEmissive;\nattribute vec2 partFinish;\nvarying vec3 vPartEmissive;\nvarying vec2 vPartFinish;')
       .replace('#include <color_vertex>', '#include <color_vertex>\nvPartEmissive = partEmissive;\nvPartFinish = partFinish;');
@@ -65,7 +141,37 @@ function lampMaterial(): THREE.MeshStandardMaterial {
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vPartFinish.x;')
       .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vPartFinish.y;');
   };
+  m.customProgramCacheKey = () => `${PART_PROGRAM_KEY}-lamps`;
   return m;
+}
+
+/**
+ * A geometry of the bucket's own over a part geometry: it shares the part's vertex buffers (uploaded once for every
+ * bucket and view drawing them) and adds the per-instance attributes the bucket fills.
+ */
+function wrap(geometry: THREE.BufferGeometry, capacity: number, lamps: boolean): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  for (const [name, a] of Object.entries(geometry.attributes)) g.setAttribute(name, a);
+  g.setIndex(geometry.index);
+  for (const group of geometry.groups) g.addGroup(group.start, group.count, group.materialIndex);
+  g.setDrawRange(geometry.drawRange.start, geometry.drawRange.count);
+  g.setAttribute('instanceFade', new THREE.InstancedBufferAttribute(new Float32Array(capacity).fill(1), 1).setUsage(THREE.DynamicDrawUsage));
+  if (lamps) {
+    g.setAttribute('partEmissive', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('partFinish', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 2), 2).setUsage(THREE.DynamicDrawUsage));
+  }
+  return g;
+}
+
+/**
+ * Frees a wrap geometry's own buffers. The shared ones are detached first: three deletes the buffers of every
+ * attribute a disposed geometry holds, and the part geometry still draws with them.
+ */
+function release(g: THREE.BufferGeometry, part: THREE.BufferGeometry): void {
+  const shared = new Set<unknown>(Object.values(part.attributes));
+  for (const [name, a] of Object.entries(g.attributes)) if (shared.has(a)) g.deleteAttribute(name);
+  g.setIndex(null);
+  g.dispose();
 }
 
 const styleKey = (s: PartStyle): string => `${s.receiveShadow ? 'r' : ''}${s.castShadow ? 'c' : ''}${s.noContact ? 'n' : ''}${s.tinted ? 't' : ''}`;
@@ -77,36 +183,43 @@ export class VehiclePartBatches {
   /** All plain box parts (lamps, smashed and charred lamps, light bars). */
   private readonly lamps: Bucket;
   private readonly lampMat = lampMaterial();
+  private readonly depthMat = partDepthMaterial();
   private readonly tmp = new THREE.Matrix4();
   /** Buckets created or regrown since the last call to takeChanged (their meshes are new objects). */
   private changed = false;
+  /** Buckets whose part material or geometry was disposed: retired at the next begin, after the frame they drew in. */
+  private readonly retiring = new Set<Bucket>();
+  /** Bucket materials retired since the last call to takeRetired. */
+  private retired: THREE.Material[] = [];
 
   constructor() {
     this.group.name = 'vehicle-parts';
-    this.lamps = this.bucket(UNIT_BOX, this.lampMat, {}, true);
+    this.lamps = this.bucket(UNIT_BOX, this.lampMat, {}, true, '');
   }
 
-  /** Starts a frame: every bucket empties. */
+  /** Starts a frame: every bucket empties, and those of disposed parts are freed. */
   begin(): void {
+    for (const b of this.retiring) this.retire(b);
+    this.retiring.clear();
     for (const b of this.shared.values()) b.n = 0;
     this.lamps.n = 0;
   }
 
-  /** Adds one instance of `geometry` drawn with `material` at `matrix` (world); `tint` for a tinted style. */
-  add(geometry: THREE.BufferGeometry, material: THREE.Material, matrix: THREE.Matrix4, style: PartStyle = {}, tint?: THREE.Color): void {
+  /** Adds one instance of `geometry` drawn with `material` at `matrix` (world); `tint` for a tinted style; `fade` 0..1. */
+  add(geometry: THREE.BufferGeometry, material: THREE.Material, matrix: THREE.Matrix4, style: PartStyle = {}, tint?: THREE.Color, fade = 1): void {
     const key = `${geometry.uuid}:${material.uuid}:${styleKey(style)}`;
     let b = this.shared.get(key);
     if (!b) {
-      b = this.bucket(geometry, material, style, false);
+      b = this.bucket(geometry, material, style, false, key);
       this.shared.set(key, b);
     }
     const i = b.n;
-    this.push(b, matrix);
+    this.push(b, matrix, fade);
     if (style.tinted) (tint ?? WHITE).toArray(b.mesh.instanceColor!.array, i * 3);
   }
 
-  /** Adds a box part: a unit box scaled to sx x sy x sz in the part's frame `matrix`. */
-  addBox(material: THREE.Material, matrix: THREE.Matrix4, sx: number, sy: number, sz: number): void {
+  /** Adds a box part: a unit box scaled to sx x sy x sz in the part's frame `matrix`; `fade` 0..1. */
+  addBox(material: THREE.Material, matrix: THREE.Matrix4, sx: number, sy: number, sz: number, fade = 1): void {
     const m = this.tmp.copy(matrix);
     const e = m.elements;
     e[0]! *= sx;
@@ -119,12 +232,12 @@ export class VehiclePartBatches {
     e[9]! *= sz;
     e[10]! *= sz;
     if (!isPlainPart(material)) {
-      this.add(UNIT_BOX, material, m);
+      this.add(UNIT_BOX, material, m, {}, undefined, fade);
       return;
     }
     const b = this.lamps;
     const i = b.n;
-    this.push(b, m);
+    this.push(b, m, fade);
     const mesh = b.mesh;
     material.color.toArray(mesh.instanceColor!.array, i * 3);
     const em = mesh.geometry.getAttribute('partEmissive') as THREE.InstancedBufferAttribute;
@@ -140,6 +253,7 @@ export class VehiclePartBatches {
       mesh.count = b.n;
       mesh.visible = b.n > 0;
       if (b.n === 0) continue;
+      if (!b.lamps) syncMaterial(b.material, b.source);
       for (const a of this.attributes(b)) {
         a.clearUpdateRanges();
         a.addUpdateRange(0, b.n * a.itemSize);
@@ -153,6 +267,13 @@ export class VehiclePartBatches {
     const c = this.changed;
     this.changed = false;
     return c;
+  }
+
+  /** The bucket materials freed since the last call (for the software tier to drop its stand-ins). */
+  takeRetired(): THREE.Material[] {
+    const r = this.retired;
+    this.retired = [];
+    return r;
   }
 
   /** Draw meshes and instances currently in use, for stats and tests. */
@@ -173,51 +294,73 @@ export class VehiclePartBatches {
   /** Instances drawn this frame with `geometry` (any material; box parts all draw the unit box). */
   instancesOf(geometry: THREE.BufferGeometry): number {
     let n = 0;
-    for (const b of this.shared.values()) if (b.mesh.geometry === geometry) n += b.n;
+    for (const b of this.shared.values()) if (b.geometry === geometry) n += b.n;
     return n;
   }
 
+  /** The part geometry and material an instanced mesh of the batches draws (for tests). */
+  partOf(mesh: THREE.Object3D): { geometry: THREE.BufferGeometry; material: THREE.Material } | null {
+    for (const b of [...this.shared.values(), this.lamps]) if (b.mesh === mesh) return { geometry: b.geometry, material: b.source };
+    return null;
+  }
+
   dispose(): void {
-    for (const b of [...this.shared.values(), this.lamps]) {
-      this.group.remove(b.mesh);
-      b.mesh.dispose();
-    }
-    this.lamps.mesh.geometry.dispose();
+    for (const b of [...this.shared.values(), this.lamps]) this.free(b);
     this.lampMat.dispose();
+    this.depthMat.dispose();
     this.shared.clear();
+    this.retiring.clear();
+    this.retired = [];
     this.lamps.n = 0;
+  }
+
+  /** Takes a bucket of a disposed part out of the batches and frees its mesh, geometry and material copy. */
+  private retire(b: Bucket): void {
+    if (this.shared.get(b.key) !== b) return;
+    this.shared.delete(b.key);
+    this.free(b);
+    this.retired.push(b.material);
+  }
+
+  private free(b: Bucket): void {
+    b.source.removeEventListener('dispose', b.onGone);
+    b.geometry.removeEventListener('dispose', b.onGone);
+    this.group.remove(b.mesh);
+    b.mesh.dispose();
+    release(b.mesh.geometry, b.geometry);
+    if (!b.lamps) b.material.dispose();
   }
 
   /** The per-instance attributes of a bucket. */
   private attributes(b: Bucket): THREE.BufferAttribute[] {
+    const g = b.mesh.geometry;
     const out: THREE.BufferAttribute[] = [b.mesh.instanceMatrix];
     if (b.mesh.instanceColor) out.push(b.mesh.instanceColor);
-    if (b.lamps) out.push(b.mesh.geometry.getAttribute('partEmissive') as THREE.BufferAttribute, b.mesh.geometry.getAttribute('partFinish') as THREE.BufferAttribute);
+    out.push(g.getAttribute('instanceFade') as THREE.BufferAttribute);
+    if (b.lamps) out.push(g.getAttribute('partEmissive') as THREE.BufferAttribute, g.getAttribute('partFinish') as THREE.BufferAttribute);
     return out;
   }
 
-  private bucket(geometry: THREE.BufferGeometry, material: THREE.Material, style: PartStyle, lamps: boolean): Bucket {
-    const b: Bucket = { mesh: this.instanced(geometry, material, START_CAPACITY, style, lamps), n: 0, capacity: START_CAPACITY, style, lamps };
+  private bucket(geometry: THREE.BufferGeometry, source: THREE.Material, style: PartStyle, lamps: boolean, key: string): Bucket {
+    const material = lamps ? source : partMaterial(source);
+    const b: Bucket = { mesh: this.instanced(geometry, material, START_CAPACITY, style, lamps), n: 0, capacity: START_CAPACITY, style, lamps, geometry, source, material, key, onGone: () => {} };
+    if (!lamps) {
+      b.onGone = () => this.retiring.add(b);
+      source.addEventListener('dispose', b.onGone);
+      geometry.addEventListener('dispose', b.onGone);
+    }
     this.group.add(b.mesh);
     return b;
   }
 
   private instanced(geometry: THREE.BufferGeometry, material: THREE.Material, capacity: number, style: PartStyle, lamps: boolean): THREE.InstancedMesh {
-    let geo = geometry;
-    if (lamps) {
-      // Its own copy of the unit box, carrying the per-instance glow and finish.
-      geo = new THREE.BufferGeometry();
-      for (const name of ['position', 'normal', 'uv'] as const) geo.setAttribute(name, UNIT_BOX.getAttribute(name).clone());
-      geo.setIndex(UNIT_BOX.getIndex()!.clone());
-      geo.setAttribute('partEmissive', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3).setUsage(THREE.DynamicDrawUsage));
-      geo.setAttribute('partFinish', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 2), 2).setUsage(THREE.DynamicDrawUsage));
-    }
-    const mesh = new THREE.InstancedMesh(geo, material, capacity);
+    const mesh = new THREE.InstancedMesh(wrap(geometry, capacity, lamps), material, capacity);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     if (lamps || style.tinted) mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3).setUsage(THREE.DynamicDrawUsage);
     mesh.name = 'vehicle-part';
     mesh.receiveShadow = style.receiveShadow === true;
     mesh.castShadow = style.castShadow === true;
+    if (mesh.castShadow) mesh.customDepthMaterial = this.depthMat;
     if (style.noContact) mesh.userData.contactShadow = false;
     // Instances span the whole city; GameRenderer only adds the parts of cars in view.
     mesh.frustumCulled = false;
@@ -227,24 +370,26 @@ export class VehiclePartBatches {
     return mesh;
   }
 
-  private push(b: Bucket, matrix: THREE.Matrix4): void {
+  private push(b: Bucket, matrix: THREE.Matrix4, fade: number): void {
     if (b.n >= b.capacity) this.grow(b);
     matrix.toArray(b.mesh.instanceMatrix.array as Float32Array, b.n * 16);
+    (b.mesh.geometry.getAttribute('instanceFade').array as Float32Array)[b.n] = fade;
     b.n++;
   }
 
   private grow(b: Bucket): void {
     const capacity = b.capacity * 2;
     const old = b.mesh;
-    const grown = this.instanced(b.lamps ? UNIT_BOX : old.geometry, old.material as THREE.Material, capacity, b.style, b.lamps);
+    // The bucket's material, not the mesh's: on software GPUs the mesh draws a stand-in, reapplied to new meshes.
+    const grown = this.instanced(b.geometry, b.material, capacity, b.style, b.lamps);
     const from = this.attributes(b);
     const bigger = { ...b, mesh: grown };
     this.attributes(bigger).forEach((to, k) => {
       (to.array as Float32Array).set((from[k]!.array as Float32Array).subarray(0, b.n * to.itemSize));
     });
-    if (b.lamps) old.geometry.dispose();
     this.group.remove(old);
     old.dispose();
+    release(old.geometry, b.geometry);
     this.group.add(grown);
     b.mesh = grown;
     b.capacity = capacity;

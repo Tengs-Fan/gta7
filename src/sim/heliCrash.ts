@@ -34,20 +34,24 @@ export interface HeliCrash {
 /**
  * Whether a falling helicopter now at (x, y, z), having come down `fell` m this step, has hit something: landed on a
  * roof or wall top it came down onto (resting with its skids on it), or run into the side of a solid structure (ending
- * where it is). Null while its way is clear.
+ * where it is). Null while its way is clear. The whole height swept this step is tested, so a long frame (the game
+ * allows 0.1 s, 4 m of fall at full speed) cannot carry it through a thin slab such as a garage roof.
  */
 export function heliCrashHit(world: StaticWorld, x: number, y: number, z: number, fell: number): HeliCrash | null {
   const R = HELI_RADIUS;
   const bottom = y - HELI_BOTTOM;
   const before = bottom + Math.max(0, fell);
+  const sweptTop = before + HELI_BOTTOM + HELI_TOP;
   let hit: HeliCrash | null = null;
   world.grid.query(x - R, z - R, x + R, z + R, (c) => {
     if (!isSolidForSight(c) || c.tag === 'boat') return;
     const near = c.circle ? Math.hypot(x - c.cx, z - c.cz) <= c.r + R : Math.hypot(Math.max(c.minX - x, 0, x - c.maxX), Math.max(c.minZ - z, 0, z - c.maxZ)) <= R;
-    if (!near || bottom > c.y1 || y + HELI_TOP < c.y0) return;
+    if (!near || bottom > c.y1 || sweptTop < c.y0) return;
     // Coming down onto the top this step (its skids were still above it): it rests there.
     const onTop = before >= c.y1 - 0.05;
-    const at: HeliCrash = onTop ? { y: c.y1 + HELI_BOTTOM, garageRoof: c.tag === 'wall' } : { y, garageRoof: false };
+    // Otherwise it met the side; if the step carried it below the solid, it stops where it last touched it.
+    const side = y + HELI_TOP < c.y0 ? before + HELI_BOTTOM : y;
+    const at: HeliCrash = onTop ? { y: c.y1 + HELI_BOTTOM, garageRoof: c.tag === 'wall' } : { y: side, garageRoof: false };
     if (!hit || at.y > hit.y) hit = at;
   });
   if (hit) return hit;

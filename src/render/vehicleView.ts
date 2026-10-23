@@ -783,8 +783,6 @@ interface FadeEntry {
   material: THREE.Material;
   clone: THREE.Material;
   opacity: number;
-  /** One of the parts the batches draw for live cars. */
-  part: boolean;
 }
 
 /**
@@ -849,6 +847,8 @@ export class VehicleView {
   /** Wheel visibility saved by hideParts. */
   private readonly partsShown = new Uint8Array(8);
   private fadeState: { entries: FadeEntry[]; depth: THREE.MeshDepthMaterial } | null = null;
+  /** How much of the view is left while it fades (setFade): its instances in the part batches carry it. */
+  private fadeLeft = 1;
   /** Wheels with their pivot's place on the body: they stay planted on the road while the body leans. */
   /** `flat`: the wheel's index in Vehicle.flat (front left, front right, rear left, rear right). */
   private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean; base: THREE.Vector3; flat: number }> = [];
@@ -1168,12 +1168,13 @@ export class VehicleView {
    */
   drawParts(batches: VehiclePartBatches): void {
     const m = this.group.matrix;
+    const fade = this.fadeLeft;
     if (this.distant !== 'coarse') {
       for (const w of this.wheels) {
         w.pivot.updateMatrix();
         const pm = this.partTmp.multiplyMatrices(m, w.pivot.matrix);
-        this.addWheelPart(batches, pm, w.tire);
-        this.addWheelPart(batches, pm, w.rim);
+        this.addWheelPart(batches, pm, w.tire, fade);
+        this.addWheelPart(batches, pm, w.rim, fade);
       }
     }
     if (this.distant === 'far') {
@@ -1181,18 +1182,18 @@ export class VehicleView {
       // An undented body joins its kind's batch (the dented one draws itself, see applyVisibility).
       if (!this.body.visible) {
         const paint = this.body.material as THREE.MeshStandardMaterial;
-        if (this.burnt) batches.add(a.body, burntMat, m, FAR_BODY);
-        else batches.add(a.body, farPaintMat, m, FAR_PAINT, paint.color);
+        if (this.burnt) batches.add(a.body, burntMat, m, FAR_BODY, undefined, fade);
+        else batches.add(a.body, farPaintMat, m, FAR_PAINT, paint.color, fade);
       }
-      if (!this.burnt) batches.add(a.cabin, this.cabin.material as THREE.Material, m);
-      batches.add(a.exterior, this.exterior.material as THREE.Material, m, FAR_FITTINGS);
-      if (this.stripe) batches.add(stripeGeometry(this.kind), this.stripe.mesh.material as THREE.Material, m);
+      if (!this.burnt) batches.add(a.cabin, this.cabin.material as THREE.Material, m, {}, undefined, fade);
+      batches.add(a.exterior, this.exterior.material as THREE.Material, m, FAR_FITTINGS, undefined, fade);
+      if (this.stripe) batches.add(stripeGeometry(this.kind), this.stripe.mesh.material as THREE.Material, m, {}, undefined, fade);
     }
     for (const p of this.boxParts) {
       if (!p.visible) continue;
       p.updateMatrix();
       const g = (p.geometry as THREE.BoxGeometry).parameters;
-      batches.addBox(p.material as THREE.Material, this.partTmp.multiplyMatrices(m, p.matrix), g.width, g.height, g.depth);
+      batches.addBox(p.material as THREE.Material, this.partTmp.multiplyMatrices(m, p.matrix), g.width, g.height, g.depth, fade);
     }
   }
 
@@ -1202,29 +1203,28 @@ export class VehicleView {
   }
 
   /**
-   * Starts fading the view out where it is (its vehicle was removed in view): every mesh it draws, the parts the
-   * batches drew included, takes a hashed-alpha copy of its material (glass a see-through one), and the shadow body a
-   * hashed-alpha depth material, so the car and its shadow dissolve together. setFade sets how much is left.
+   * Starts fading the view out where it is (its vehicle was removed in view), in the version it was drawn in (near or
+   * far): every mesh it draws itself takes a hashed-alpha copy of its material (glass a see-through one), and the shadow
+   * body a hashed-alpha depth material, so the car and its shadow dissolve together. Its parts stay in the shared part
+   * batches, fading per instance, so the fade adds no draws. setFade sets how much is left.
    */
   beginFade(): void {
     if (this.fadeState) return;
-    if (this.distant === 'far') this.setDistant(false);
     const entries: FadeEntry[] = [];
+    const depth = new THREE.MeshDepthMaterial({ alphaHash: true });
     this.group.traverse((o) => {
-      if (!(o instanceof THREE.Mesh) || o === this.shadowCaster || Array.isArray(o.material)) return;
+      // Hidden meshes keep their materials: the far version's batched glass and fittings are drawn with those.
+      if (!(o instanceof THREE.Mesh) || !o.visible || o.userData.batched || o === this.shadowCaster || Array.isArray(o.material)) return;
       const material = o.material as THREE.Material;
       const clone = fadeMaterial(material);
-      entries.push({ mesh: o, material, clone, opacity: material.opacity, part: o.userData.batched === true });
+      entries.push({ mesh: o, material, clone, opacity: material.opacity });
       o.material = clone;
-      if (o.userData.batched) {
-        // Drawn by the view itself while it fades (the batches only draw live cars).
-        o.layers.set(0);
-        o.userData.batched = false;
-      }
+      // A far car's own caster (a dented or coarse body) fades its shadow too.
+      if (o.castShadow) o.customDepthMaterial = depth;
     });
-    const depth = new THREE.MeshDepthMaterial({ alphaHash: true });
     this.shadowCaster.customDepthMaterial = depth;
     this.fadeState = { entries, depth };
+    this.fadeLeft = 1;
   }
 
   /** How much of a fading view is left (1 whole .. 0 gone). */
@@ -1233,22 +1233,21 @@ export class VehicleView {
     if (!s) return;
     for (const e of s.entries) e.clone.opacity = e.clone.transparent ? e.opacity * f : f;
     s.depth.opacity = f;
+    this.fadeLeft = f;
     this.group.visible = f > 0;
   }
 
-  /** Ends a fade: the view's own materials and layers come back. Returns the fade materials for the caller to dispose. */
+  /** Ends a fade: the view's own materials come back. Returns the fade materials for the caller to dispose. */
   endFade(): THREE.Material[] {
     const s = this.fadeState;
     if (!s) return [];
     for (const e of s.entries) {
       e.mesh.material = e.material;
-      if (e.part) {
-        e.mesh.layers.set(PART_LAYER);
-        e.mesh.userData.batched = true;
-      }
+      if (e.mesh.customDepthMaterial === s.depth) e.mesh.customDepthMaterial = undefined;
     }
     this.shadowCaster.customDepthMaterial = undefined;
     this.fadeState = null;
+    this.fadeLeft = 1;
     return [...s.entries.map((e) => e.clone), s.depth];
   }
 
@@ -1271,10 +1270,10 @@ export class VehicleView {
     }
   }
 
-  private addWheelPart(batches: VehiclePartBatches, pivot: THREE.Matrix4, part: THREE.Mesh): void {
+  private addWheelPart(batches: VehiclePartBatches, pivot: THREE.Matrix4, part: THREE.Mesh, fade: number): void {
     if (!part.visible) return;
     part.updateMatrix();
-    batches.add(part.geometry, part.material as THREE.Material, this.partTmp2.multiplyMatrices(pivot, part.matrix));
+    batches.add(part.geometry, part.material as THREE.Material, this.partTmp2.multiplyMatrices(pivot, part.matrix), {}, undefined, fade);
   }
 
   /** Back to the kind's shared, undamaged geometry and working lamps. */
