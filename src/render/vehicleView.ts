@@ -996,13 +996,7 @@ export class VehicleView {
       this.attached.push({ obj: sign, base: sign.position.clone() });
       this.livery.push({ mesh: sign, mat: taxiSignMat });
     }
-    // Every box part but the stripe (bent per car with its dents) is drawn through the part batches.
-    for (const o of this.group.children) {
-      if (o instanceof THREE.Mesh && o.geometry instanceof THREE.BoxGeometry && o !== this.stripe?.mesh) {
-        markPart(o);
-        this.boxParts.push(o);
-      }
-    }
+    // The service vehicles' gear (spec data) are plain boxes too, so the loop below batches them.
     for (const gear of s.gear ?? []) {
       const mat = new THREE.MeshStandardMaterial({ color: gear.color, emissive: gear.emissive ?? 0x000000, emissiveIntensity: gear.emissive === undefined ? 0 : 1.6, roughness: 0.4, metalness: 0.3 });
       const m = new THREE.Mesh(new THREE.BoxGeometry(...gear.size), mat);
@@ -1011,6 +1005,13 @@ export class VehicleView {
       this.group.add(m);
       this.attached.push({ obj: m, base: m.position.clone() });
       this.livery.push({ mesh: m, mat });
+    }
+    // Every box part but the stripe (bent per car with its dents) is drawn through the part batches.
+    for (const o of this.group.children) {
+      if (o instanceof THREE.Mesh && o.geometry instanceof THREE.BoxGeometry && o !== this.stripe?.mesh) {
+        markPart(o);
+        this.boxParts.push(o);
+      }
     }
     this.group.rotation.order = 'YXZ';
     // Never moved within the car: their local matrices stay identity.
