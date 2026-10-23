@@ -130,7 +130,31 @@ export interface RoomStatus {
   droppedTicks: number;
   tickErrors: number;
   entities: { vehicles: number; characters: number; pickups: number; projectiles: number; helis: number };
-  members: Array<{ playerId: number; name: string; slot: number; snapshots: number; skipped: number; ackSeq: number; bytesOut: number; interest: number }>;
+  /** The shared clock and weather (a late joiner must see the same). */
+  hours: number;
+  weather: { kind: string; rain: number; cloud: number };
+  /** Prop indices broken in this room, in the order they broke (a late joiner must see all of them broken). */
+  brokenProps: number[];
+  /** Wrecked (destroyed) vehicles still in the world. */
+  wrecks: number[];
+  members: Array<{ playerId: number; name: string; slot: number; snapshots: number; skipped: number; ackSeq: number; bytesOut: number; interest: number; player: MemberPlayer | null }>;
+}
+
+/** Where a member's player is on the server (validation compares the clients' views with it). */
+export interface MemberPlayer {
+  x: number;
+  y: number;
+  z: number;
+  heading: number;
+  state: string;
+  health: number;
+  vehicle: { id: number; kind: string } | null;
+  wanted: number;
+  /**
+   * Police tagged to this player's pursuit (untagged patrols count for slot 0, so read `chasing`, the police cars
+   * whose driver targets him, for "is he being chased").
+   */
+  police: { units: number; chasing: number; officers: number; helis: number; nearest: number | null };
 }
 
 export class Room {
@@ -506,7 +530,39 @@ export class Room {
       droppedTicks: this.droppedTicks,
       tickErrors: this.tickErrors,
       entities: { vehicles: live(sim.vehicles), characters: live(sim.characters), pickups: live(sim.pickups), projectiles: live(sim.projectiles), helis: live(sim.helis) },
-      members: [...this.members.values()].map((m) => ({ playerId: m.playerId, name: m.name, slot: m.slot ?? -1, snapshots: m.snapshots, skipped: m.snapshotsSkipped, ackSeq: m.latch.ackSeq, bytesOut: m.bytesOut, interest: m.interest?.size ?? 0 })),
+      hours: r3(sim.clock.hours),
+      weather: { kind: sim.weather.state.kind, rain: r3(sim.weather.state.rain), cloud: r3(sim.weather.state.cloud) },
+      brokenProps: this.brokenLog.slice(),
+      wrecks: sim.vehicles.filter((v) => !v.removed && v.destroyed).map((v) => v.id),
+      members: [...this.members.values()].map((m) => ({ playerId: m.playerId, name: m.name, slot: m.slot ?? -1, snapshots: m.snapshots, skipped: m.snapshotsSkipped, ackSeq: m.latch.ackSeq, bytesOut: m.bytesOut, interest: m.interest?.size ?? 0, player: this.memberPlayer(m) })),
+    };
+  }
+
+  private memberPlayer(m: Member): MemberPlayer | null {
+    if (m.slot === null) return null;
+    const c = this.slots.character(m.slot);
+    const at = c.vehicle ?? c;
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const police = this.sim.police;
+    const id = this.sim.slotOf(c)?.id ?? -1;
+    let units = 0;
+    let officers = 0;
+    let helis = 0;
+    let chasing = 0;
+    let nearest = Infinity;
+    const near = (p: { x: number; z: number }) => (nearest = Math.min(nearest, Math.hypot(p.x - at.pos.x, p.z - at.pos.z)));
+    for (const v of this.sim.vehicles) {
+      if (v.removed || v.owner !== 'police') continue;
+      if (v.ai?.target === c) chasing++;
+      if (police.targetSlotOf(v) === id) units++, near(v.pos);
+    }
+    for (const o of this.sim.characters) if (!o.removed && o.alive && o.isLaw && !o.vehicle && police.targetSlotOf(o) === id) officers++, near(o.pos);
+    for (const h of this.sim.helis) if (!h.removed && police.targetSlotOf(h) === id) helis++;
+    return {
+      x: r2(at.pos.x), y: r2(at.pos.y), z: r2(at.pos.z), heading: r2(at.heading), state: c.state, health: Math.round(c.health),
+      vehicle: c.vehicle ? { id: c.vehicle.id, kind: c.vehicle.kind } : null,
+      wanted: this.slots.hud(m.slot).wanted,
+      police: { units, chasing, officers, helis, nearest: Number.isFinite(nearest) ? Math.round(nearest) : null },
     };
   }
 
