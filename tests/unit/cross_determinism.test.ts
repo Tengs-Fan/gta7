@@ -1,18 +1,29 @@
 // The simulation is a pure function of its seed and inputs, also with dynamic weather and the newer behaviours (the
 // Street Run green wave, police unjamming round a stopped car, detours and towing round a car left in a junction,
-// point-blank and downed-body shots); and core, world and sim stay free of three.js and the browser.
+// point-blank and downed-body shots) and the wave-1 features: gangs, gang cars and war, roadblocks, spike strips and
+// fire; motorbikes and boats; thrown grenades and molotovs; witnesses phoning crimes in and angry drivers; the
+// ambulance, firefighter, courier and car export activities; and a business's takings over a game day. Each scripted
+// run is made twice with one seed (identical events and final state) and once with another (not identical).
+// Core, world and sim also stay free of three.js and the browser.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { StreetRunJob } from '../../src/sim/activities';
+import type { AmbulanceJob, CourierJob, FireJob, StreetRunJob } from '../../src/sim/activities';
+import { EXPORT_LIST, exportDone } from '../../src/sim/activities/carExport';
+import { places } from '../../src/sim/activities/places';
+import { activityRecords } from '../../src/sim/activities/records';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { PlayerInput } from '../../src/sim/input';
 import type { Sim } from '../../src/sim/sim';
+import { FIRE_PATCH_R } from '../../src/sim/fire';
+import { BUSINESS_DAILY, propertyState } from '../../src/sim/properties';
+import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
 import { scheduledWeather } from '../../src/sim/weather';
+import { WATER_Y } from '../../src/world/constants';
 import { coursePath, KeyboardBot, type BotKeys } from '../e2e/keyboardBot';
 import { turfBorders } from '../../src/sim/gangs';
-import { aimAt, input, makeSim, placeInCar, teleport } from './helpers';
+import { aimAt, input, makeSim, placeInCar, roadPoint, teleport } from './helpers';
 import { getaway } from './r2_police_helpers';
 
 const DT = 1 / 60;
@@ -242,6 +253,382 @@ describe('same-seed determinism of the wave-1 street systems', () => {
     const snap = (s: Sim) => ({ v: s.vehicles.map((v) => [v.id, v.kind, v.removed, v.pos.x, v.pos.z, v.health, ...v.flat]), c: s.characters.map((c) => [c.id, c.role, c.gang, c.removed, c.pos.x, c.pos.z, c.health]), w: s.wanted.level });
     expect(b.events).toEqual(a.events);
     expect(snap(b.sim)).toEqual(snap(a.sim));
+  }, 120_000);
+});
+
+/** Every event the sim emits, with the frame it came on. */
+function tape(sim: Sim): string[] {
+  const events: string[] = [];
+  const emit = sim.events.emit.bind(sim.events);
+  sim.events.emit = ((type: string, payload: unknown) => {
+    events.push(`${sim.frame} ${serialise(type, payload)}`);
+    (emit as (t: string, p: unknown) => void)(type, payload);
+  }) as typeof sim.events.emit;
+  return events;
+}
+
+/** Everything a run leaves behind that the seed could change. */
+function finalState(sim: Sim, events: string[], extra: unknown = null) {
+  const v3 = (v: { x: number; y?: number; z: number }) => [v.x, v.y, v.z];
+  return {
+    frame: sim.frame,
+    time: sim.time,
+    clock: [sim.clock.day, sim.clock.hours],
+    money: sim.progress.money,
+    wanted: sim.wanted.level,
+    player: { pos: v3(sim.player.pos), heading: sim.player.heading, health: sim.player.health, state: sim.player.state },
+    vehicles: sim.vehicles.map((v) => ({ id: v.id, kind: v.kind, removed: v.removed, pos: v3(v.pos), vel: v3(v.vel), heading: v.heading, health: v.health, lean: v.lean, wheelie: v.wheelie, burning: v.burning })),
+    characters: sim.characters.map((c) => ({ id: c.id, role: c.role, removed: c.removed, pos: v3(c.pos), state: c.state, health: c.health, burn: c.burnTimer })),
+    weather: JSON.parse(JSON.stringify(sim.weather.state)) as unknown,
+    fires: sim.combat.fire.areas.map((a) => ({ x: a.x, z: a.z, radius: a.radius, patches: a.patches })),
+    extra,
+    events,
+  };
+}
+
+/** The same scripted run twice with one seed matches exactly; with another seed it does not. */
+function expectDeterministic<T extends { state: unknown }>(run: (seed: number) => T, seed: number, otherSeed: number): T {
+  const a = run(seed);
+  const b = run(seed);
+  expect(JSON.stringify(b.state)).toBe(JSON.stringify(a.state));
+  expect(b.state).toEqual(a.state);
+  expect(JSON.stringify(run(otherSeed).state)).not.toBe(JSON.stringify(a.state));
+  return a;
+}
+
+/** The player on foot on a stretch of road clear for 30 m ahead and 6 m to either side, facing along it. */
+function openRoad(sim: Sim) {
+  for (const lane of sim.roads.lanes) {
+    if (lane.length < 60) continue;
+    const x = lane.sx + lane.dx * 15;
+    const z = lane.sz + lane.dz * 15;
+    const rx = -Math.cos(lane.heading);
+    const rz = Math.sin(lane.heading);
+    let open = true;
+    for (let a = -6; a <= 32 && open; a += 2) for (let l = -6; l <= 6 && open; l++) open = sim.world.isFree(x + lane.dx * a + rx * l, z + lane.dz * a + rz * l, 0.5) && sim.world.waterDepth(x + lane.dx * a, z + lane.dz * a) < -0.5;
+    if (!open) continue;
+    teleport(sim, x, z);
+    sim.player.heading = lane.heading;
+    return { x, z, h: lane.heading, fx: Math.sin(lane.heading), fz: Math.cos(lane.heading), rx, rz };
+  }
+  throw new Error('no open road');
+}
+
+describe('same-seed determinism of the wave-1 vehicles: motorbikes and boats', () => {
+  function vehicleRun(seed: number) {
+    const sim = makeSim({ ambient: true, police: false, seed });
+    sim.cheats.godMode = true;
+    const events = tape(sim);
+    const rp = roadPoint(sim);
+    const trips: Record<string, number> = {};
+    const maxLean: Record<string, number> = {};
+    const ride = (key: string, v: Vehicle, seconds: number, drive: (f: number) => PlayerInput) => {
+      const x0 = v.pos.x;
+      const z0 = v.pos.z;
+      let lean = 0;
+      for (let f = 0; f < seconds * 60; f++) {
+        sim.update(DT, look(sim, drive(f)));
+        lean = Math.max(lean, Math.abs(v.lean));
+      }
+      trips[key] = Math.hypot(v.pos.x - x0, v.pos.z - z0);
+      maxLean[key] = lean;
+    };
+    const winding = (f: number) => input({ throttle: f % 200 < 150 ? 1 : 0, brake: f % 200 >= 170 ? 1 : 0, steer: Math.sin(f / 50) * 0.6 });
+    for (const kind of ['sportbike', 'scooter'] as const) {
+      const bike = sim.spawnVehicle(kind, rp.x, rp.z, rp.heading);
+      placeInCar(sim, bike);
+      ride(kind, bike, 8, winding);
+      sim.playerCtl.exitVehicle(false);
+      sim.update(DT, look(sim, input()));
+    }
+    // Open water east of the beach.
+    teleport(sim, 700, -300);
+    let onWater = true;
+    for (const kind of ['speedboat', 'dinghy'] as const) {
+      const boat = sim.spawnVehicle(kind, 700, -300, 0);
+      boat.pos.y = WATER_Y;
+      placeInCar(sim, boat);
+      ride(kind, boat, 12, (f) => input({ throttle: 1, steer: Math.sin(f / 40) }));
+      onWater &&= sim.world.waterDepth(boat.pos.x, boat.pos.z) > 0 && Math.abs(boat.pos.y - WATER_Y) < 0.3;
+      sim.playerCtl.exitVehicle(false);
+      sim.update(DT, look(sim, input()));
+      teleport(sim, 700, -300);
+    }
+    return { events, onWater, trips, maxLean, state: finalState(sim, events, { trips, maxLean }) };
+  }
+
+  it('two runs with one seed match: a sport bike and a scooter on the road, a speedboat and a dinghy on the sea', () => {
+    const r = expectDeterministic(vehicleRun, 31, 32);
+    expect(r.trips.sportbike).toBeGreaterThan(20);
+    expect(r.trips.scooter).toBeGreaterThan(10);
+    expect(r.maxLean.sportbike).toBeGreaterThan(0.05);
+    expect(r.trips.speedboat).toBeGreaterThan(60);
+    expect(r.trips.dinghy).toBeGreaterThan(30);
+    expect(r.onWater).toBe(true);
+  }, 120_000);
+});
+
+describe('same-seed determinism of the wave-1 weapons: grenade and molotov', () => {
+  function weaponRun(seed: number) {
+    const sim = makeSim({ ambient: true, police: true, seed, streetCrime: true });
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    const events = tape(sim);
+    const f = openRoad(sim);
+    for (const d of [14, 17, 21]) {
+      const c = sim.spawnCharacter('civilian', f.x + f.fx * d + f.rx * ((d % 3) - 1) * 1.5, f.z + f.fz * d + f.rz * ((d % 3) - 1) * 1.5);
+      c.owner = 'mission';
+      c.persistent = true;
+    }
+    const throwAt = (id: 'grenade' | 'molotov') => {
+      sim.player.inventory.give(id, 2);
+      sim.player.inventory.current = id;
+      // Taking a weapon out holds the throw back for a moment.
+      for (let i = 0; i < 30; i++) sim.update(DT, look(sim, input()));
+      sim.update(DT, look(sim, input({ fire: true, firePressed: true, aimDir: { x: f.fx * 0.95, y: 0.3, z: f.fz * 0.95 } })));
+    };
+    throwAt('grenade');
+    for (let i = 0; i < 60 * 6; i++) sim.update(DT, look(sim, input()));
+    const fireStart = events.length;
+    throwAt('molotov');
+    let maxRadius = 0;
+    for (let i = 0; i < 60 * 14; i++) {
+      sim.update(DT, look(sim, input()));
+      for (const a of sim.combat.fire.areas) maxRadius = Math.max(maxRadius, a.radius);
+    }
+    return { events, fireStart, maxRadius, state: finalState(sim, events, { maxRadius }) };
+  }
+
+  it('two runs with one seed match: a thrown grenade blast and a thrown molotov whose fire spreads', () => {
+    const r = expectDeterministic(weaponRun, 41, 42);
+    const grenadeEvents = r.events.slice(0, r.fireStart);
+    expect(grenadeEvents.some((e) => / thrown /.test(e) && /grenade/.test(e))).toBe(true);
+    expect(grenadeEvents.some((e) => / explosion /.test(e))).toBe(true);
+    expect(r.events.slice(r.fireStart).some((e) => / thrown /.test(e) && /molotov/.test(e))).toBe(true);
+    expect(r.events.some((e) => / fireStarted /.test(e))).toBe(true);
+    expect(r.maxRadius).toBeGreaterThan(FIRE_PATCH_R + 1);
+  }, 120_000);
+});
+
+describe('same-seed determinism of the wave-1 NPCs: witnesses and angry drivers', () => {
+  function witnessRun(seed: number) {
+    const sim = makeSim({ ambient: false, police: true, seed, streetCrime: true });
+    const events = tape(sim);
+    const f = openRoad(sim);
+    const bystander = (x: number, z: number) => {
+      const c = sim.spawnCharacter('civilian', x, z);
+      c.owner = 'ped';
+      c.persistent = true;
+      c.brain = sim.peds.makeGangBrain(x, z);
+      c.brain.brave = false;
+      c.brain.mode = 'idle';
+      c.brain.modeTimer = 1e6;
+      return c;
+    };
+    const victim = bystander(f.x + f.fx * 1.2, f.z + f.fz * 1.2);
+    victim.heading = f.h + Math.PI;
+    const witnesses = [0, 1].map((k) => bystander(f.x + f.rx * (8 + k * 1.5) + f.fx * 2, f.z + f.rz * (8 + k * 1.5) + f.fz * 2));
+    let calledAt = -1;
+    sim.events.on('wanted', (e) => {
+      if (e.level > 0 && calledAt < 0) calledAt = sim.time;
+    });
+    sim.combat.melee(sim.player);
+    const levelRightAfter = sim.wanted.level;
+    let phoned = false;
+    for (let i = 0; i < 60 * 14; i++) {
+      sim.update(DT, look(sim, input()));
+      phoned ||= witnesses.some((w) => w.phoneTimer > 0);
+    }
+    return { events, levelRightAfter, phoned, calledAt, calls: sim.witnesses.log.map((l) => l.state), state: finalState(sim, events, { calledAt }) };
+  }
+
+  it('two runs with one seed match: a civilian phones a punch in and the star comes seconds later', () => {
+    const r = expectDeterministic(witnessRun, 51, 52);
+    const a = r.state;
+    expect(r.levelRightAfter).toBe(0);
+    expect(r.phoned).toBe(true);
+    expect(r.calledAt).toBeGreaterThanOrEqual(2);
+    expect(r.calledAt).toBeLessThanOrEqual(10);
+    expect(r.calls.length).toBe(1);
+    expect(a.wanted).toBe(1);
+  }, 120_000);
+
+  /** A civilian car stopped on a lane and the player's sedan driven into it at 11 m/s. */
+  function angryRun(seed: number) {
+    const sim = makeSim({ ambient: true, police: false, seed, streetCrime: true });
+    sim.cheats.godMode = true;
+    const events = tape(sim);
+    const lanes = sim.roads.lanes.filter((l) => l.length > 70);
+    const lane = lanes[(seed * 7) % lanes.length]!;
+    const tx = lane.sx + lane.dx * 50;
+    const tz = lane.sz + lane.dz * 50;
+    for (const v of sim.vehicles) if (!v.removed && Math.hypot(v.pos.x - tx, v.pos.z - tz) < 30) sim.removeVehicle(v);
+    const target = sim.spawnVehicle('sedan', tx, tz, lane.heading);
+    target.owner = 'traffic';
+    const driver = sim.addDriver(target, 'civilian', 'traffic');
+    driver.owner = 'traffic';
+    target.ai!.setLane(lane, 50);
+    target.ai!.hold = true;
+    const mine = sim.spawnVehicle('sedan', lane.sx + lane.dx * 30, lane.sz + lane.dz * 30, lane.heading);
+    placeInCar(sim, mine);
+    mine.vel.x = lane.dx * 11;
+    mine.vel.z = lane.dz * 11;
+    let hit = false;
+    sim.events.on('impact', (e) => {
+      if (e.vehicle === target) hit = true;
+    });
+    for (let i = 0; i < 60 * 6 && !hit; i++) {
+      target.ai!.hold = true;
+      const sp = mine.vel.x * lane.dx + mine.vel.z * lane.dz;
+      sim.update(DT, look(sim, input({ throttle: sp < 11 ? 1 : 0 })));
+    }
+    for (let i = 0; i < 60 * 8; i++) sim.update(DT, look(sim, input({ brake: 1 })));
+    const g = sim.angryDrivers.log.find((l) => l.car === target.id);
+    const out = driver.state !== 'inVehicle' && driver.vehicle === null;
+    return { hit, out, fights: g?.fights ?? null, logged: !!g, state: finalState(sim, events, { out, fights: g?.fights ?? null }) };
+  }
+
+  /** Not every hard hit has the driver get out; this seed's does. */
+  const ANGRY_SEED = 3;
+
+  it('two runs with one seed match: a driver hit hard gets out of his car', () => {
+    const r = expectDeterministic(angryRun, ANGRY_SEED, ANGRY_SEED + 1);
+    expect(r.hit).toBe(true);
+    expect(r.logged).toBe(true);
+    expect(r.out).toBe(true);
+  }, 120_000);
+});
+
+describe('same-seed determinism of the wave-1 activities', () => {
+  const carAt = (sim: Sim, kind: VehicleKind, x: number, z: number, heading = 0, color?: number) => {
+    const v = sim.spawnVehicle(kind, x, z, heading, color);
+    placeInCar(sim, v);
+    return v;
+  };
+  const moveCar = (sim: Sim, v: Vehicle, x: number, z: number) => {
+    v.pos.x = x;
+    v.pos.z = z;
+    v.pos.y = sim.world.groundHeight(x, z);
+    v.vel.x = 0;
+    v.vel.z = 0;
+    v.angVel = 0;
+  };
+  const run = (sim: Sim, seconds: number, inp: PlayerInput = input()) => {
+    for (let f = 0; f < Math.round(seconds / DT); f++) sim.update(DT, look(sim, { ...inp }));
+  };
+
+  function activityRun(kind: 'ambulance' | 'firefighter' | 'courier' | 'carExport', seed: number) {
+    const sim = makeSim({ ambient: true, police: true, seed });
+    sim.cheats.godMode = true;
+    const events = tape(sim);
+    const p = places(sim.world);
+    const money = sim.progress.money;
+    const stages: string[] = [];
+    if (kind === 'ambulance') {
+      const d = p.depots.find((q) => q.kind === 'ambulance')!;
+      const car = carAt(sim, 'ambulance', d.x, d.z, d.heading);
+      sim.activities.toggleJob();
+      const j = sim.activities.job as AmbulanceJob;
+      stages.push(j.kind);
+      while (j.waiting.length > 0) {
+        const c = j.waiting[0]!;
+        moveCar(sim, car, c.pos.x + 3.2, c.pos.z);
+        run(sim, 1.3);
+      }
+      stages.push(`aboard ${j.aboard.length}`);
+      moveCar(sim, car, p.hospitalDrop.x, p.hospitalDrop.z);
+      run(sim, 3);
+      stages.push(`level ${j.level}`);
+    } else if (kind === 'firefighter') {
+      const d = p.depots.find((q) => q.kind === 'firetruck')!;
+      const truck = carAt(sim, 'firetruck', d.x, d.z, d.heading);
+      sim.activities.toggleJob();
+      const j = sim.activities.job as FireJob;
+      stages.push(j.kind);
+      for (const f of [...j.fires]) {
+        moveCar(sim, truck, f.x + 12, f.z);
+        for (let t = 0; f.strength > 0 && t < 8 * 60; t++) {
+          const dx = f.x - truck.pos.x;
+          const dz = f.z - truck.pos.z;
+          const l = Math.hypot(dx, dz) || 1;
+          sim.update(DT, input({ fire: true, aimDir: { x: dx / l, y: -0.05, z: dz / l }, aimOrigin: { x: truck.pos.x - (dx / l) * 6, y: truck.pos.y + 4, z: truck.pos.z - (dz / l) * 6 } }));
+        }
+      }
+      run(sim, 3);
+      stages.push(`level ${j.level}`);
+    } else if (kind === 'courier') {
+      const o = p.courier;
+      const car = carAt(sim, 'sedan', o.x, o.z, o.heading);
+      sim.activities.toggleJob();
+      const j = sim.activities.job as CourierJob;
+      stages.push(j.kind);
+      const drops = [...j.drops];
+      for (const d of drops) {
+        run(sim, 2, input({ throttle: 0.6 }));
+        moveCar(sim, car, d.x, d.z);
+        run(sim, 0.5);
+      }
+      stages.push(`index ${j.index}`);
+    } else {
+      sim.player.pos.x = p.exportBoard.x;
+      sim.player.pos.z = p.exportBoard.z;
+      sim.interactions.interact();
+      stages.push(sim.activities.job?.kind ?? 'none');
+      const first = EXPORT_LIST[0]!;
+      const crane = p.crane;
+      carAt(sim, first.kind, (crane.minX + crane.maxX) / 2, (crane.minZ + crane.maxZ) / 2, 0, first.color ?? VEHICLE_SPECS[first.kind].colors[0]);
+      run(sim, 1);
+      stages.push(`shipped ${[...exportDone(sim.progress)].join(',')}`);
+    }
+    return { stages, paid: sim.progress.money - money, records: JSON.stringify(activityRecords(sim.progress)), events, state: finalState(sim, events, { stages, records: activityRecords(sim.progress) }) };
+  }
+
+  it.each([
+    ['ambulance', 61, 62],
+    ['firefighter', 63, 64],
+    ['courier', 65, 66],
+    ['carExport', 67, 68],
+  ] as const)('%s: two runs with one seed match, with a payout, and another seed differs', (kind, seed, other) => {
+    const a = expectDeterministic((s) => activityRun(kind, s), seed, other);
+    expect(a.stages[0]).toBe(kind);
+    expect(a.paid).toBeGreaterThan(0);
+    expect(a.events.some((e) => / activityMilestone /.test(e))).toBe(true);
+    if (kind === 'ambulance') expect(a.stages).toContain('level 2');
+    if (kind === 'firefighter') expect(a.stages).toContain('level 2');
+    if (kind === 'courier') expect(a.records).toContain('"courierRuns":1');
+    if (kind === 'carExport') expect(a.stages.at(-1)).toBe(`shipped ${EXPORT_LIST[0]!.id}`);
+  }, 120_000);
+});
+
+describe('same-seed determinism of the wave-1 economy: a business over a game day', () => {
+  function businessRun(seed: number) {
+    const sim = makeSim({ ambient: false, police: false, seed, startHour: 10, weather: 'dynamic' });
+    sim.cheats.godMode = true;
+    const events = tape(sim);
+    sim.progress.money = 30000;
+    const m = sim.interactions.markers.find((k) => k.kind === 'business')!;
+    teleport(sim, m.x, m.z);
+    sim.update(DT, input({ interact: true }));
+    const bought = propertyState(sim.progress).business;
+    const home = sim.interactions.markers.find((k) => k.kind === 'save')!;
+    // A little over one game day (1 game hour is 60 s) in steps of the sim's largest frame.
+    teleport(sim, home.x + 8, home.z + 8);
+    for (let f = 0; f < 14500; f++) sim.update(0.1, input());
+    const takings = propertyState(sim.progress).uncollected;
+    const money = sim.progress.money;
+    teleport(sim, home.x, home.z);
+    sim.update(DT, input());
+    const collected = sim.progress.money - money;
+    return { bought, takings, collected, state: finalState(sim, events, { takings, collected }) };
+  }
+
+  it('two runs with one seed match: the takings after a game day are the same and are collected at the safehouse', () => {
+    const r = expectDeterministic(businessRun, 71, 72);
+    const a = r.state;
+    expect(r.bought).toBe(true);
+    expect(r.takings).toBe(BUSINESS_DAILY);
+    expect(r.collected).toBe(BUSINESS_DAILY);
+    expect(a.events.some((e) => / activityMilestone /.test(e) && /"kind":"business"/.test(e))).toBe(true);
   }, 120_000);
 });
 

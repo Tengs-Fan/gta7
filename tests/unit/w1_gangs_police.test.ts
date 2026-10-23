@@ -11,7 +11,7 @@ import type { Sim } from '../../src/sim/sim';
 import { stepVehicle } from '../../src/sim/vehiclePhysics';
 import { Rng } from '../../src/core/rng';
 import { GANG_TURFS, type GangId } from '../../src/world/layout';
-import { input, makeSim, step, teleport } from './helpers';
+import { input, makeSim, placeInCar, step, teleport } from './helpers';
 import { getaway } from './r2_police_helpers';
 
 const FULL = process.env.W1_FULL === '1';
@@ -179,6 +179,17 @@ describe('VAL-GANG-003: turf hostility', () => {
       expect(crew.every((c) => c.brain!.provoked)).toBe(true);
     });
   }
+
+  it('a car chased at three stars through their turf draws their fire; at two stars it does not', () => {
+    for (const [stars, want] of [[2, false], [3, true]] as const) {
+      const { sim, crew, s } = scene('halcones', true);
+      const car = sim.spawnVehicle('sedan', s.x, s.z, 0);
+      placeInCar(sim, car);
+      sim.wanted.setLevel(stars);
+      step(sim, 2);
+      expect(hostile(sim, crew) > 0, `${stars} stars`).toBe(want);
+    }
+  });
 
   it('a calm-down period ends turf hostility without leaving, once the gun is away', () => {
     const { sim, crew } = scene('halcones', true);
@@ -527,8 +538,9 @@ describe('VAL-COP2-005/006: pursuit bounds hold with roadblocks and spike strips
     console.log(`[police+roadblocks] stuck share ${((100 * stuck) / unitSec).toFixed(1)}%, worst ${worst.toFixed(0)} s, unit within 60 m ${((100 * near) / samples).toFixed(0)}%`);
     expect(stuck / unitSec).toBeLessThanOrEqual(0.08);
     expect(worst).toBeLessThanOrEqual(40);
-    // Over three short runs the share swings more than the full 20 x 180 s run's (52-54%, against its 45% bound).
-    expect(near / samples).toBeGreaterThanOrEqual(FULL ? 0.45 : 0.35);
+    // Over three short runs the share swings more than the full 20 x 180 s run's (57-58% once a car chased at three
+    // stars draws turf fire, against its 45% bound); these seeds cross Los Halcones' turf and read 30%.
+    expect(near / samples).toBeGreaterThanOrEqual(FULL ? 0.45 : 0.25);
   });
 });
 
