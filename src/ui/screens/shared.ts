@@ -4,6 +4,7 @@ import type { KeyLabels, UiActions } from '../../input/input';
 import type { QualityTier } from '../../render/quality';
 import { playerOf, type PlayerView, type ViewState } from '../../sim/viewState';
 import type { StreetRunCourse, StreetRunMedal } from '../../sim/streetRuns';
+import type { RaceCommand, RaceView } from '../../net/lobby';
 import type { Settings, SlotInfo } from '../../settings';
 import type { InputDevice } from '../glyphs';
 import { escapeHtml } from '../hud';
@@ -49,6 +50,39 @@ export interface MenuHost {
   /** NEW GAME's question when some slot holds a save: where the new game will autosave. */
   newGameNote?(): string;
   cancelCapture?(): void;
+  /** Joins a multiplayer room with the MULTIPLAYER screen's values; absent: no MULTIPLAYER entry on the title. */
+  joinMultiplayer?(opts: MultiplayerFields): void;
+  /** The MULTIPLAYER screen's values to start from (the last ones joined with, else the defaults). */
+  multiplayerFields?(): MultiplayerFields;
+  /** The room this game plays in (players, the head-to-head race); null in single player. */
+  multiplayer?(): MultiplayerMenuHost | null;
+}
+
+export interface MultiplayerFields {
+  name: string;
+  server: string;
+  room: string;
+}
+
+export interface MultiplayerPlayerRow {
+  playerId: number;
+  name: string;
+  /** css colour of his name tag and blip. */
+  color: string;
+  you: boolean;
+  watching: boolean;
+  kills: number;
+  deaths: number;
+}
+
+export interface MultiplayerMenuHost {
+  roomId(): string;
+  players(): MultiplayerPlayerRow[];
+  race(): RaceView | null;
+  /** Seconds left to join an open race (0 when none is open). */
+  raceJoinLeft(): number;
+  courses(): Array<{ id: string; name: string; description: string; distance: number }>;
+  raceCommand(cmd: RaceCommand): void;
 }
 
 /** The player this menu belongs to, once a game is running. */

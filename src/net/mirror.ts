@@ -21,6 +21,7 @@ import { clearWeather } from '../sim/weather';
 import type { StaticCollider } from '../world/colliders';
 import type { StaticWorld } from '../world/staticWorld';
 import { emptySample, MotionTrack, RenderClock, type MotionSample } from './interp';
+import { multiplayerInteractions } from './mpPlaces';
 import type { Objective } from '../sim/activities/types';
 import type { EventMsg, Hud, JobHud, NetEvent, NetRef, RosterEntry, SnapshotMsg, WelcomeMsg } from './protocol';
 
@@ -105,15 +106,6 @@ const NO_MISSIONS: MissionView = {
   retryAfterCops: () => null,
 };
 
-const NO_INTERACTIONS: InteractionsView = {
-  markers: [],
-  current: () => null,
-  canSave: () => false,
-  prompt: () => null,
-  priceOf: () => 0,
-  buy: () => 'Not available in multiplayer.',
-};
-
 const NO_COMBAT: CombatView = { muzzleBlocked: () => false };
 
 type Kind = 'vehicle' | 'character' | 'projectile' | 'heli' | 'pickup';
@@ -170,7 +162,8 @@ export class Mirror implements ViewState {
   readonly missions = NO_MISSIONS;
   /** The local player's own side job, from the snapshots (status line and objective markers; no job object). */
   readonly activities: ActivitiesView;
-  readonly interactions = NO_INTERACTIONS;
+  /** The race starts and the single-player places, each saying what it does here (see mpPlaces). */
+  readonly interactions: InteractionsView;
   readonly combat: CombatView;
 
   /** This client's player id (0 before the welcome). */
@@ -213,6 +206,7 @@ export class Mirror implements ViewState {
     this.world = opts.world;
     this.roads = opts.world.roads;
     this.combat = opts.combat ?? NO_COMBAT;
+    this.interactions = multiplayerInteractions(opts.world);
     this.tickRate = opts.tickRate ?? 60;
     this.renderClock = new RenderClock(this.tickRate, opts.delayTicks ?? 7);
     for (const c of this.world.grid.colliders) if (c.breakable && c.propIndex >= 0) this.colliderOfProp.set(c.propIndex, c);

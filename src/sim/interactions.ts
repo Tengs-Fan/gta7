@@ -13,7 +13,7 @@ import type { PlayerView } from './viewState';
 import { WEAPON_ORDER, WEAPONS, weaponKindOf, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
 
-export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs';
+export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun';
 
 export interface Marker {
   id: string;
@@ -44,6 +44,9 @@ export interface ShopItem {
 export const SPRAY_COST = 100;
 /** Why the safehouse does not save in a multiplayer sim. */
 export const MP_NO_SAVE = 'Saving is off in multiplayer.';
+/** Why properties and Lou's export list do nothing in a multiplayer sim. */
+export const MP_NO_PROPERTY = 'Properties are single-player only.';
+export const MP_NO_EXPORT = "Lou's export list is single-player only.";
 
 /** Whether `ammo` more rounds of `weapon` would add any (Inventory.give caps a gun's reserve): a full gun takes no more. */
 function roomFor(inv: Inventory, weapon: WeaponId, ammo: number): boolean {
@@ -222,6 +225,10 @@ export class Interactions {
         sim.missions.start(m.ref);
         break;
       case 'exportBoard':
+        if (sim.multiplayer) {
+          sim.events.emit('message', { text: MP_NO_EXPORT, duration: 3, ...slot.tag });
+          return;
+        }
         // The list belongs to slot 0's job, as the other jobs do.
         if (slot.id !== 0) return;
         if (sim.activities.job?.kind !== 'carExport') {
@@ -233,9 +240,14 @@ export class Interactions {
         break;
       case 'courier':
       case 'customs':
+      case 'streetRun':
         break;
       case 'garage':
       case 'business': {
+        if (sim.multiplayer) {
+          sim.events.emit('message', { text: MP_NO_PROPERTY, duration: 3, ...slot.tag });
+          return;
+        }
         if (slot.id !== 0) return;
         const err = propertyState(sim.progress)[m.kind === 'garage' ? 'garage' : 'business'] ? null : buyProperty(sim, m.kind);
         if (err) sim.events.emit('message', { text: err, duration: 3 });
