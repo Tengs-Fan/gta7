@@ -51,7 +51,7 @@ const RECYCLE_CLOSING = 5;
 /** A unit that has made no progress for this long (s) within this distance (m) of a player on foot or sitting in a stopped car sends its crew on foot. */
 const STUCK_DEPLOY_TIME = 2.5;
 const STUCK_DEPLOY_DIST = 55;
-/** A player whose car has not got this far (m) from where it was for STUCK_DEPLOY_TIME s is going nowhere (boxed in, rocking back and forth). */
+/** A player whose car has not got this far (m) from where it was for STUCK_DEPLOY_TIME s is boxed in if it has driven both ways meanwhile. */
 const NOWHERE_RADIUS = 6;
 /** A unit that has made no progress for this long (s), out of sight and further than this from the player (m), is replaced by dispatch. */
 const HOPELESS_STUCK = 12;
@@ -150,12 +150,8 @@ export class PoliceSystem {
   /** Seconds since the player's vehicle last got NOWHERE_RADIUS m from `idleAt`. */
   private playerIdle = 0;
   private idleAt = { x: 0, z: 0 };
-  /**
-   * The player's car has dropped below 1.5 m/s since `idleAt` was set. Rocking or ramming a boxed-in car
-   * keeps passing through a near stop, while steady slow driving (2 m/s covers only 5 m in
-   * STUCK_DEPLOY_TIME) never does, so this tells the two apart.
-   */
-  private idleFaltered = false;
+  /** Directions driven since `idleAt` was set: bit 1 forwards (> 0.5 m/s), bit 2 backwards (< -0.5 m/s). */
+  private idleDirs = 0;
   /** The officer walking up to arrest the player this frame, and whether everyone else holds fire (see pickArrester). */
   private arrester: Character | null = null;
   private holdFire = false;
@@ -184,12 +180,12 @@ export class PoliceSystem {
     this.playerStopped = pv && pv.speed < 1.2 ? this.playerStopped + dt : 0;
     if (pv && Math.hypot(pv.pos.x - this.idleAt.x, pv.pos.z - this.idleAt.z) <= NOWHERE_RADIUS) {
       this.playerIdle += dt;
-      if (pv.speed < 1.5) this.idleFaltered = true;
+      if (pv.forwardSpeed > 0.5) this.idleDirs |= 1;
+      if (pv.forwardSpeed < -0.5) this.idleDirs |= 2;
     } else {
-      const pp = sim.playerPos();
-      this.idleAt = { x: pp.x, z: pp.z };
+      this.idleAt = { x: pv ? pv.pos.x : 0, z: pv ? pv.pos.z : 0 };
       this.playerIdle = 0;
-      this.idleFaltered = false;
+      this.idleDirs = 0;
     }
     this.calm = level === 0 ? this.calm + dt : 0;
     this.reach = this.roadEnd(level);
@@ -204,10 +200,14 @@ export class PoliceSystem {
     this.dispatcher.update();
   }
 
-  /** The player's car is stopped, or has gone nowhere for a while (boxed in, rocking back and forth). */
+  /**
+   * The player's car has been below 1.5 m/s without a break for over STUCK_DEPLOY_TIME s, or is boxed in: it has stayed
+   * within NOWHERE_RADIUS m for that long while driving both forwards and backwards (ramming back and forth, often
+   * past 1.5 m/s). One moment at walking pace or more restarts the stopped count, so a car pulling away from a near
+   * stop never qualifies.
+   */
   private goingNowhere(): boolean {
-    const pv = this.sim.player.vehicle;
-    return !!pv && ((pv.speed < 1.5 && this.playerStill > STUCK_DEPLOY_TIME) || (this.playerIdle > STUCK_DEPLOY_TIME && this.idleFaltered));
+    return !!this.sim.player.vehicle && (this.playerStill > STUCK_DEPLOY_TIME || (this.playerIdle > STUCK_DEPLOY_TIME && this.idleDirs === 3));
   }
 
   /** The police have lost sight of the player and look around his last sighting instead. */

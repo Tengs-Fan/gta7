@@ -154,7 +154,17 @@ describe('crews deploy round a player stopped in a car (B)', () => {
     }
   });
 
-  it('counts a player rocking back and forth in a car boxed in as stopped', () => {
+  /** Rocks the player's car `amp` m either way about where it stands, at a peak speed of 2.5 * `amp` m/s. */
+  const rock = (sim: Sim, home: { x: number; z: number }, amp: number, t: number) => {
+    const pv = sim.player.vehicle!;
+    const v = amp * 2.5 * Math.cos(t * 2.5);
+    pv.pos.x = home.x + Math.sin(pv.heading) * amp * Math.sin(t * 2.5);
+    pv.pos.z = home.z + Math.cos(pv.heading) * amp * Math.sin(t * 2.5);
+    pv.vel.x = Math.sin(pv.heading) * v;
+    pv.vel.z = Math.cos(pv.heading) * v;
+  };
+
+  it('counts a player nudging back and forth in a car boxed in (below 1.5 m/s) as stopped', () => {
     const { sim, unit, crew } = stoppedPlayerScene(45);
     const x = unit.pos.x;
     const z = unit.pos.z;
@@ -162,16 +172,16 @@ describe('crews deploy round a player stopped in a car (B)', () => {
     const pv = sim.player.vehicle!;
     const home = { x: pv.pos.x, z: pv.pos.z };
     const before = crew();
+    let peak = 0;
     step(sim, 4, (t) => {
       pin(sim, unit, x, z, h);
-      // Rocking 2 m either way at up to 5 m/s.
-      const v = 5 * Math.cos(t * 2.5);
-      pv.pos.x = home.x + Math.sin(pv.heading) * 2 * Math.sin(t * 2.5);
-      pv.pos.z = home.z + Math.cos(pv.heading) * 2 * Math.sin(t * 2.5);
-      pv.vel.x = Math.sin(pv.heading) * v;
-      pv.vel.z = Math.cos(pv.heading) * v;
+      peak = Math.max(peak, pv.speed);
+      // 0.5 m either way at up to 1.25 m/s.
+      rock(sim, home, 0.5, t);
       return input({ handbrake: true });
     });
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThan(1.5);
     expect(crew()).toBeLessThan(before);
   });
 
@@ -270,29 +280,107 @@ describe('crews deploy round a player stopped in a car (B)', () => {
     }
   });
 
-  it('still sends the crew out round a boxed-in player rocking back and forth at up to 5 m/s', () => {
+  /**
+   * The player pulls away from 40 m ahead of a pinned unit, starting at `initialSpeed` and holding 2 m/s on real
+   * throttle input after that. Returns whether any original crew member left the unit, the longest unbroken stretch
+   * below 1.5 m/s, and the speed range once at 2 m/s.
+   */
+  function pullAway(initialSpeed: number) {
     const { sim, unit } = stoppedPlayerScene(40);
     const x = unit.pos.x;
     const z = unit.pos.z;
     const h = unit.heading;
     const pv = sim.player.vehicle!;
-    const home = { x: pv.pos.x, z: pv.pos.z };
-    const { crew } = seated(unit);
-    const passengers = crew.filter((c) => c !== unit.driver);
-    expect(passengers.length).toBeGreaterThan(0);
-    let outAt = -1;
-    step(sim, 5, (t) => {
+    const fx = Math.sin(pv.heading);
+    const fz = Math.cos(pv.heading);
+    pv.vel.x = fx * initialSpeed;
+    pv.vel.z = fz * initialSpeed;
+    pv.speed = pv.forwardSpeed = initialSpeed;
+    const { crew, all } = seated(unit);
+    expect(crew.length).toBeGreaterThan(1);
+    let deployed = false;
+    let below = 0;
+    let longestBelow = 0;
+    let steady = false;
+    let steadyMin = Infinity;
+    let steadyMax = -Infinity;
+    let stuckClose = false;
+    step(sim, 6, (t) => {
       pin(sim, unit, x, z, h);
-      if (outAt < 0 && passengers.every((c) => c.state !== 'inVehicle')) outAt = t;
-      const v = 5 * Math.cos(t * 2.5);
-      pv.pos.x = home.x + Math.sin(pv.heading) * 2 * Math.sin(t * 2.5);
-      pv.pos.z = home.z + Math.cos(pv.heading) * 2 * Math.sin(t * 2.5);
-      pv.vel.x = Math.sin(pv.heading) * v;
-      pv.vel.z = Math.cos(pv.heading) * v;
-      return input({ handbrake: true });
+      if (!all()) deployed = true;
+      if (t > 0) {
+        below = pv.speed < 1.5 ? below + 1 / 60 : 0;
+        longestBelow = Math.max(longestBelow, below);
+        if (pv.speed > 1.9) steady = true;
+        if (steady) {
+          steadyMin = Math.min(steadyMin, pv.speed);
+          steadyMax = Math.max(steadyMax, pv.speed);
+        }
+        if (unit.stuckTime > 2.5 && Math.hypot(pv.pos.x - unit.pos.x, pv.pos.z - unit.pos.z) < 55) stuckClose = true;
+      }
+      const throttle = (0.35 + 0.012 * pv.speed + 10 * (2 - pv.speed)) / (pv.spec.accel * (1 - (pv.speed / pv.spec.maxSpeed) ** 2));
+      return input({ throttle, handbrake: false });
     });
-    expect(outAt).toBeGreaterThan(2.5);
-    expect(outAt).toBeLessThan(4);
+    return { crew, unit, deployed, longestBelow, steadyMin, steadyMax, stuckClose };
+  }
+
+  it('keeps every original crew member seated when the player pulls away after a brief dip below 1.5 m/s', () => {
+    const r = pullAway(1.3);
+    expect(r.longestBelow).toBeGreaterThan(0);
+    expect(r.longestBelow).toBeLessThan(0.1);
+    expect(r.steadyMin).toBeGreaterThan(1.9);
+    expect(r.steadyMax).toBeLessThan(2.1);
+    expect(r.stuckClose).toBe(true);
+    expect(r.deployed).toBe(false);
+    for (const c of r.crew) {
+      expect(c.state).toBe('inVehicle');
+      expect(c.vehicle).toBe(r.unit);
+    }
+  });
+
+  it('keeps every original crew member seated when the player never drops below 1.5 m/s (control)', () => {
+    const r = pullAway(2);
+    expect(r.longestBelow).toBe(0);
+    expect(r.steadyMin).toBeGreaterThan(1.9);
+    expect(r.stuckClose).toBe(true);
+    expect(r.deployed).toBe(false);
+  });
+
+  it('sends the crew out round a boxed-in player nudging below 1.5 m/s or ramming back and forth past it', () => {
+    const scene = (amp: number) => {
+      const { sim, unit } = stoppedPlayerScene(40);
+      const x = unit.pos.x;
+      const z = unit.pos.z;
+      const h = unit.heading;
+      const pv = sim.player.vehicle!;
+      const home = { x: pv.pos.x, z: pv.pos.z };
+      const { crew, all } = seated(unit);
+      const passengers = crew.filter((c) => c !== unit.driver);
+      expect(passengers.length).toBeGreaterThan(0);
+      let outAt = -1;
+      let firstOut = -1;
+      let below = 0;
+      let longestBelow = 0;
+      step(sim, 5, (t) => {
+        pin(sim, unit, x, z, h);
+        if (firstOut < 0 && !all()) firstOut = t;
+        if (outAt < 0 && passengers.every((c) => c.state !== 'inVehicle')) outAt = t;
+        rock(sim, home, amp, t);
+        below = pv.speed < 1.5 ? below + 1 / 60 : 0;
+        longestBelow = Math.max(longestBelow, below);
+        return input({ handbrake: true });
+      });
+      return { outAt, firstOut, longestBelow };
+    };
+    const nudging = scene(0.55);
+    expect(nudging.outAt).toBeGreaterThan(2.5);
+    expect(nudging.outAt).toBeLessThan(4);
+    // 2 m either way at up to 5 m/s: the car passes 1.5 m/s on every swing, so only the boxed-in rule can send the crew.
+    const rocking = scene(2);
+    expect(rocking.longestBelow).toBeLessThan(1);
+    expect(rocking.firstOut).toBeGreaterThan(2.5);
+    expect(rocking.outAt).toBeGreaterThan(2.5);
+    expect(rocking.outAt).toBeLessThan(4);
   });
 
   it('keeps the crew seated while the police search', () => {
