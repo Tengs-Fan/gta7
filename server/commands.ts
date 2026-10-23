@@ -60,6 +60,8 @@ interface DebugArgs {
   godMode?: boolean;
   /** No crime raises this player's wanted level (a measurement that must not end in a bust). */
   neverWanted?: boolean;
+  /** Blow up the nearest empty vehicle within 25 m (scene setup: a wreck for a late joiner to see). */
+  wreck?: boolean;
 }
 
 registerCommand('debug', (room, m, arg) => {
@@ -94,4 +96,8 @@ registerCommand('debug', (room, m, arg) => {
     p.inventory.current = a.give[0] as WeaponId;
   }
   if (a.wanted !== undefined) slot.wanted.setLevel(a.wanted);
+  if (a.wreck) {
+    const v = sim.nearestVehicle(p.pos.x, p.pos.z, 25, (o) => !o.destroyed && o.occupants().length === 0 && o.spec.class !== 'boat');
+    if (v) sim.combat.explodeVehicle(v);
+  }
 });
