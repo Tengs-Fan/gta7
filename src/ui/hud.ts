@@ -1053,11 +1053,13 @@ export class Hud {
       el.drive!.classList.toggle('damaged', condition < 0.3);
       el.conditionLabel!.textContent = condition < 0.3 ? 'CRITICAL DAMAGE' : 'CONDITION';
     }
-    const mode = `${this.device}:${inVehicle}:${this.keys.keymap.version}`;
+    // A boat has no handbrake.
+    const boat = v?.spec.class === 'boat';
+    const mode = `${this.device}:${inVehicle}:${boat}:${this.keys.keymap.version}`;
     if (mode === this.controlMode) return;
     this.controlMode = mode;
     const line = inVehicle
-      ? `<span>${this.device === 'pad' ? `${padGlyph('rt')} / ${padGlyph('lt')}` : '<kbd>W</kbd><kbd>S</kbd>'} Drive</span><span><kbd>Space</kbd> Handbrake</span><span><kbd>F</kbd> Exit</span>`
+      ? `<span>${this.device === 'pad' ? `${padGlyph('rt')} / ${padGlyph('lt')}` : '<kbd>W</kbd><kbd>S</kbd>'} Drive</span>${boat ? '' : '<span><kbd>Space</kbd> Handbrake</span>'}<span><kbd>F</kbd> Exit</span>`
       : '<span><kbd>Shift</kbd> Sprint</span><span><kbd>F</kbd> Enter car</span>';
     el.quickControls!.innerHTML = formatKeys(`${line}<span><kbd>M</kbd> Map</span>`, this.device, { labels: this.keys, inVehicle });
   }

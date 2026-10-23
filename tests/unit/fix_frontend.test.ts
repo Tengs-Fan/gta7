@@ -806,6 +806,25 @@ describe('HUD', () => {
     expect(el.ammo!.textContent).toBe('');
   });
 
+  it('shows the handbrake in a car or on a bike but not in a boat, which offers no Street Run either', () => {
+    const { hud, el, run } = makeHud();
+    const sim = quickSim();
+    hud.bind(sim);
+    const controls = (kind: 'sedan' | 'sportbike' | 'speedboat') => {
+      const v = sim.spawnVehicle(kind, 700, -300, 0);
+      placeInCar(sim, v);
+      run(sim, 1 / 60);
+      const html = el.quickControls!.innerHTML;
+      const prompt = sim.activities.jobPrompt();
+      sim.unseat(sim.player);
+      sim.removeVehicle(v);
+      return { handbrake: html.includes('Handbrake'), exit: html.includes('Exit'), prompt };
+    };
+    expect(controls('sedan')).toEqual({ handbrake: true, exit: true, prompt: 'Press T to start a street run' });
+    expect(controls('sportbike')).toEqual({ handbrake: true, exit: true, prompt: 'Press T to start a street run' });
+    expect(controls('speedboat')).toEqual({ handbrake: false, exit: true, prompt: null });
+  });
+
   it('hides the objective as soon as the mission ends', () => {
     const { hud, el, run } = makeHud();
     const sim = quickSim();
