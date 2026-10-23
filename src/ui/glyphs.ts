@@ -28,6 +28,7 @@ const PAD: Record<string, [onFoot: PadButton, inVehicle: PadButton]> = {
   V: ['r3', 'r3'], // camera distance
   P: ['start', 'start'], // pause
   Esc: ['start', 'start'],
+  Tab: ['right', 'right'], // phone (on foot)
   Space: ['x', 'rb'], // jump / handbrake
   Shift: ['a', 'a'], // sprint
   LMB: ['rt', 'x'], // shoot (drive-by in a vehicle, where RT is the throttle)
@@ -41,9 +42,9 @@ const DPAD_ARM: Partial<Record<PadButton, string>> = { up: 'M9 2h6v7H9z', down: 
 const DPAD_CROSS = 'M9 2h6v7h7v6h-7v7H9v-7H2V9h7z';
 
 /** Keys named in full rather than by a letter. */
-const NAMED = ['Esc', 'Space', 'Shift', 'Enter'];
+const NAMED = ['Esc', 'Space', 'Shift', 'Enter', 'Tab'];
 /** Keys that '(X)' may name: the bound shortcuts only, so '(A)' in prose stays prose. */
-const PAREN = ['E', 'F', 'T', 'R', 'Q', 'H', 'M', 'V', 'P', 'Esc', 'Space', 'Shift'];
+const PAREN = ['E', 'F', 'T', 'R', 'Q', 'H', 'M', 'V', 'P', 'Esc', 'Space', 'Shift', 'Tab'];
 
 const KEY = `([A-Z]|${NAMED.join('|')})`;
 // One pass over all four forms, so a keycap written for one key is never read again as another

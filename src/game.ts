@@ -12,6 +12,9 @@ import { neutralInput } from './sim/input';
 import { applySave, serialize, type SaveData } from './sim/progress';
 import { applyExt, serializeExt } from './sim/saveExt';
 import { Sim } from './sim/sim';
+import { cabState, callCab, setCabDestination } from './sim/activities/cab';
+import { contactById } from './sim/missions/contacts';
+import { registerDebug } from './debug';
 import { WEAPON_ORDER, type WeaponId } from './sim/specs';
 import { findVehicleRoom } from './sim/vehicleRoom';
 import type { WeatherKind, WeatherMode } from './sim/weather';
@@ -19,6 +22,7 @@ import { HintSystem } from './ui/hints';
 import { Hud } from './ui/hud';
 import { MapImage } from './ui/mapRender';
 import { Menus, type MenuHost } from './ui/menus';
+import { offerLine, PhoneCalls, phoneContacts, PhoneLog, PhoneWidget, type PhoneHost } from './ui/widgets/phone';
 import { StaticWorld } from './world/staticWorld';
 
 export { CHEAT_CODES as CHEATS } from './input/cheats';
@@ -117,6 +121,10 @@ export class Game {
   private introTimer = -1;
   /** Completed achievements waiting for the end of the simulation frame (and any pending respawn bill). */
   private pendingAutosave = false;
+  /** The phone's text log, its incoming calls and the HUD card that shows one ringing. */
+  readonly phoneLog = new PhoneLog();
+  readonly calls = new PhoneCalls();
+  private phoneCard!: PhoneWidget;
   /** First-time tutorial hints and the steal prompt, remembered in the settings. */
   readonly hints = new HintSystem({
     enabled: () => this.settings.hints,
@@ -140,7 +148,18 @@ export class Game {
     this.input.guardNavigation = () => this.mode === 'game' && !this.crashed;
     this.hud = new Hud(ui, this.mapImage, this.input.labels);
     this.hud.setVisible(false);
+    this.phoneCard = new PhoneWidget(this.hud.root);
     this.menus = new Menus(ui, this.menuHost(), this.mapImage, this.input.labels);
+    registerDebug('phone', {
+      log: () => this.phoneLog.entries,
+      ringing: () => this.calls.ringing?.contact.id ?? null,
+      contacts: () => phoneContacts(this.sim, this.sim.players[this.localPlayerId]!).map((c) => c.id),
+      cab: () => {
+        const j = cabState(this.sim);
+        return j && { stage: j.stage, x: j.cab.pos.x, z: j.cab.pos.z, stopX: j.stopX, stopZ: j.stopZ, dest: j.dest, elapsed: j.elapsed, odometer: j.odometer, id: j.cab.id };
+      },
+      routeContact: () => this.hud.routeContact,
+    });
     this.applySettings(this.settings, false);
     this.sim = this.makeTitleSim();
     this.renderer.attach(this.sim, this.localPlayerId);
@@ -317,6 +336,13 @@ export class Game {
         if (isLocal(e)) this.hud.waypoint = null;
       }),
     );
+    this.phoneLog.bind(sim, this.localPlayerId);
+    this.calls.reset(sim);
+    this.unsub.push(() => {
+      this.phoneLog.unbind();
+      this.calls.answer();
+      this.phoneCard.update(null, 'kb', this.input.labels, false);
+    });
     this.noteEvent('session', save ? 'continued' : 'new game');
     this.unsub.push(...this.recordEvents(sim));
     this.lastExit = null;
@@ -503,6 +529,80 @@ export class Game {
   }
 
   // ---------------------------------------------------------------------------
+  // Phone
+
+  /**
+   * The phone key in play: it answers a ringing call, else opens the phone. The phone is used on foot: in a vehicle the
+   * key only answers (calls are hands-free there), and it does nothing while down, in a cutscene or climbing in.
+   * Returns true when the phone opened (the frame stops there, as for the map).
+   */
+  private phoneKey(): boolean {
+    const sim = this.sim;
+    if (sim.playerDown) return false;
+    if (this.calls.ringing) {
+      this.answerCall();
+      return false;
+    }
+    const p = sim.player;
+    if (p.vehicle || (p.state !== 'normal' && p.state !== 'swimming') || sim.controlLock > 0) return false;
+    this.suspendPlay();
+    this.menus.showPhone(this.phoneHost(), this.guard(() => this.resume()));
+    return true;
+  }
+
+  private phoneHost(): PhoneHost {
+    return {
+      view: () => this.sim,
+      me: () => this.sim.players[this.localPlayerId]!,
+      texts: () => this.phoneLog.entries,
+      callContact: this.guard((id: string) => {
+        this.contactCall(id);
+        this.menus.closeAll();
+      }),
+      callCab: this.guard(() => {
+        const r = callCab(this.sim);
+        this.sim.events.emit('message', { text: r.text, duration: 4 });
+        this.menus.closeAll();
+      }),
+      openMap: this.guard(() => this.menus.showMap()),
+      pause: this.guard(() => this.menus.showPause()),
+      click: () => this.audio.chime('ui'),
+    };
+  }
+
+  /** A call with a contact (answered or made): their offer line as a subtitle, and the GPS to them if they have work. */
+  private contactCall(id: string): void {
+    const sim = this.sim;
+    const c = contactById(id);
+    const offer = sim.missions.offers().find((d) => d.giver === id);
+    const busy = !!sim.missions.active;
+    const text = busy ? "You've got your hands full. Call me when you're done." : offerLine(c, offer);
+    sim.events.emit('subtitle', { speaker: c.phoneName, text, duration: 5 });
+    this.phoneLog.text(sim, c.name, text, c.color);
+    if (offer && !busy) {
+      this.hud.routeContact = id;
+      this.hud.waypoint = null;
+    }
+  }
+
+  private answerCall(): void {
+    const r = this.calls.answer();
+    if (r) this.contactCall(r.contact.id);
+  }
+
+  /** Incoming calls ring, end unanswered or are taken hands-free; the card on the HUD follows. */
+  private updateCalls(dt: number, device: 'kb' | 'pad'): void {
+    const sim = this.sim;
+    const me = sim.players[this.localPlayerId]!;
+    const inVehicle = !!me.character.vehicle;
+    const ringing = this.calls.ringing;
+    const ended = this.calls.update(dt, sim, me, { talking: this.hud.talking, inVehicle });
+    if (ended === 'answer') this.answerCall();
+    else if (ended === 'missed' && ringing) this.phoneLog.text(sim, ringing.contact.name, `Missed call. ${offerLine(ringing.contact, ringing.mission)}`, ringing.contact.color, 'call');
+    this.phoneCard.update(this.calls.ringing, device, this.input.labels, inVehicle);
+  }
+
+  // ---------------------------------------------------------------------------
   // Frame loop
 
   start(): void {
@@ -591,6 +691,7 @@ export class Game {
       this.keyScreen = { screen: this.menus.top, press: this.input.screenKeyPress };
       return;
     }
+    if (fi.ui.phone && this.phoneKey()) return;
     if (fi.ui.camera) cam.zoomLevel = cam.zoomLevel === 0 ? 1 : 0;
     if (fi.ui.radioNext) this.hud.showRadio(this.audio.radio.next());
     if (fi.ui.radioPrev) this.hud.showRadio(this.audio.radio.prev());
@@ -618,7 +719,9 @@ export class Game {
     const exitPress = this.input.exitKeyPress;
     sim.activities.exitUndoable = this.input.typingCode(exitPress) && (pv !== null || this.lastExit?.press === exitPress);
     const ts = performance.now();
+    setCabDestination(sim, this.hud.waypoint);
     sim.update(dt, inp);
+    this.phoneLog.flush(sim);
     this.flushAutosave();
     this.perf.simMs = performance.now() - ts;
     this.input.inVehicle = !!sim.player.vehicle;
@@ -639,6 +742,7 @@ export class Game {
     const prompt = sim.interactions.prompt(sim.players[this.localPlayerId]) ?? sim.activities.jobPrompt(sim.players[this.localPlayerId]) ?? this.hints.stealPrompt(sim);
     this.hud.device = fi.device;
     this.hud.update(dt, sim, cam.yaw, aiming, prompt, this.renderer.time);
+    this.updateCalls(dt, fi.device);
     const down = sim.deathKind;
     this.canvas.classList.toggle('wasted', down === 'wasted');
     this.canvas.classList.toggle('busted', down === 'busted');

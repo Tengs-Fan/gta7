@@ -16,6 +16,8 @@ export interface UiActions {
   down: boolean;
   left: boolean;
   right: boolean;
+  /** The phone: Tab, or the pad's D-pad right on foot (in a vehicle it changes the radio station). */
+  phone?: boolean;
   /** Map zoom: the keys typing + and - (and the keypad's), the pad's RB and LB. */
   zoomIn?: boolean;
   zoomOut?: boolean;
@@ -55,7 +57,7 @@ export const WHEEL_STEP = 100;
 /** Every physical key that poll() reads by code. */
 const BOUND_CODES = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'Space',
-  'KeyF', 'Enter', 'KeyE', 'KeyH', 'KeyR', 'KeyQ', 'KeyT', 'KeyP', 'KeyM', 'KeyV', 'Escape', 'Backspace',
+  'KeyF', 'Enter', 'KeyE', 'KeyH', 'KeyR', 'KeyQ', 'KeyT', 'KeyP', 'KeyM', 'KeyV', 'Escape', 'Backspace', 'Tab',
   'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract',
 ]);
 /** The number-row keys that can select a weapon: key N selects WEAPON_ORDER[N - 1], keys past its end select nothing. */
@@ -604,6 +606,7 @@ export class Input {
     ui.pause = this.pressed('Escape', 'KeyP');
     ui.map = this.pressed('KeyM');
     ui.camera = this.pressed('KeyV');
+    ui.phone = this.pressed('Tab');
     ui.confirm = this.pressed('Enter', 'Space');
     ui.back = this.pressed('Escape', 'Backspace');
     ui.up = this.pressed('ArrowUp', 'KeyW');
@@ -674,6 +677,7 @@ export class Input {
       ui.pause = ui.pause || tap(9);
       ui.map = ui.map || tap(8);
       ui.camera = ui.camera || tap(11);
+      ui.phone = ui.phone || (!this.inVehicle && tap(15));
       ui.confirm = ui.confirm || tap(0);
       ui.back = ui.back || tap(1);
       ui.up = ui.up || tap(12);
