@@ -308,12 +308,12 @@ src/
   input/       keyboard with layout-aware key names, mouse with pointer lock, gamepad, cheat codes
   audio/       synthesized effects, mixer and ducking, ambience, engine voices, procedural radio, talk station
                and formant voices, police barks, gun echo, Doppler
-  net/         the multiplayer wire protocol (protocol.ts, wire.ts); the server's side of it lives in server/
+  net/         the multiplayer wire protocol (protocol.ts, wire.ts), the client mirror, prediction and the lobby types; the server's side lives in server/
   game.ts      frame loop, title and play modes, menus, cheats, crash screen, context-loss notice
   main.ts      boot, WebGL 2 check, fonts, error hooks
   settings.ts  settings and the save slot in localStorage
   debug.ts     window.__gta7, the console and test API (in every build)
-server/        optional Node multiplayer server (rooms, protocol I/O, static file serving); see docs/multiplayer.md
+server/        optional Node multiplayer server (rooms, room rules and head-to-head races in lobby.ts, protocol I/O, static file serving); see docs/multiplayer.md
 ```
 
 `src/core`, `src/world` and `src/sim` never touch the DOM, WebGL, audio, storage or three.js, so the whole simulation runs in Node.
@@ -418,7 +418,12 @@ The game is single player by default and needs no server (the GitHub Pages build
 Join with `http://<host>:4210/?mp=1&room=<id>&name=<name>` (or `&server=host:port` from another page). Each player has his own character, wanted level, police, money, ammo and side job on his own HUD; story missions, cheats, saving and shops are single player only.
 Your own movement, driving and trigger pulls are predicted locally (the muzzle flash and the shot sound come at once, the tracer and hit follow the server's events); other players and the traffic are drawn about 117 ms behind the newest snapshot.
 If the server goes away the screen says so within 3 s and offers RECONNECT (you rejoin as a new player) or RETURN TO TITLE; a server address that does not answer gives COULD NOT JOIN with TRY AGAIN or BACK TO TITLE.
-For testing, `&lag=<ms>&jitter=<ms>&loss=<fraction>` simulates a slow link and `&predict=0` turns off prediction; `window.__gta7.net` (`state()`, `local()`, `players()`, `events()`, `command()`, `reconnect()`, `leave()`) exists once a session starts.
+From the title, MULTIPLAYER asks for a name (required, up to 24 characters), a server (the page's own host and port when the game server served it, else `ws://localhost:4210`) and a room (default `lobby`), remembers them in the browser and joins with JOIN or Enter; a failed join offers TRY AGAIN or BACK.
+Tab (or pause > PLAYERS) lists the room with kills and deaths. Other players have name tags (up to 150 m, faint behind buildings, none behind the camera) and diamond blips on the radar and map; each player has their own colour and a look drawn from their name.
+PvP damage is on. Kills ("Ann killed Bea") and damage to another player's car are credited to the attacker, and each player respawns on their own at the hospital or, when busted, the police station; the shared clock does not jump.
+Head-to-head Street Runs: pause > STREET RUNS opens a course for the room (or press T at a course start); others join within 20 s and the opener can START NOW. Everyone lines up on one grid in a fresh car, one countdown holds all until GO, each racer sees their own gates and place, and the results (finish order, times, medals; DNF for quitters, leavers and busted or wrecked racers; OUT OF TIME past bronze) are the same on every screen. No money is paid and nothing is saved. Drivers a racer bumps do not get out to fight.
+Story contacts, the safehouse, properties, Lou's export board, gun shops and the phone are marked as single player only, and typed cheats answer "Cheats are off in multiplayer."
+For testing, `&lag=<ms>&jitter=<ms>&loss=<fraction>` simulates a slow link and `&predict=0` turns off prediction; `window.__gta7.net` (`state()`, `local()`, `players()`, `events()`, `room()`, `race()`, `command()`, `reconnect()`, `leave()`) exists once a session starts.
 `docs/multiplayer.md` covers the Dockerfile and running `wss://` behind a TLS proxy; no cloud hosting is set up.
 `npm run typecheck` also checks `server/` (`tsc -p server/tsconfig.json`).
 
