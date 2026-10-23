@@ -1,5 +1,7 @@
 // Single-player same-seed results stay identical to the trace recorded at 72d0b98, before the PlayerSlot refactor.
 // Regenerate the fixture only at 72d0b98 (see scripts/record-sp-trace.ts); a diff here is a behaviour change.
+// Exception: Hotel Salgado's entrance (Vera's SPECIALS row) displaced one street lamp, so propBroken indices past it
+// are one lower than at 72d0b98; that is the only difference in the fixture.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
