@@ -6,6 +6,7 @@
 import { formatMoney } from '../../core/math';
 import type { Vehicle } from '../entities';
 import type { Progress } from '../progress';
+import { registerCompletion } from '../completion';
 import { registerSaveCodec } from '../saveExt';
 import { VEHICLE_SPECS, type VehicleKind } from '../specs';
 import { places } from './places';
@@ -158,4 +159,11 @@ registerSaveCodec<string[]>({
     done.clear();
     for (const id of value) done.add(id);
   },
+});
+
+registerCompletion({
+  id: 'carExport',
+  label: "Lou's export list",
+  weight: 0,
+  progress: ({ player }) => [activityRecords(player.progress).exportLists > 0 ? EXPORT_LIST.length : exportDone(player.progress).size, EXPORT_LIST.length],
 });
