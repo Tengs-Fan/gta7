@@ -190,6 +190,8 @@ describe('join and leave', () => {
     const stay = connect(mgr, 'Stay', 'cyc');
     const room: Room = mgr.room('cyc')!;
     const handlers = () => [...((room.sim.events as unknown as { handlers: Map<string, unknown[]> }).handlers.values())].reduce((n, l) => n + l.length, 0);
+    // Some systems (the garage runtime in properties.ts) subscribe once per Sim on their first update; count from after it.
+    room.step();
     const baseHandlers = handlers();
     let heap5 = 0;
     const charsAt: number[] = [];
