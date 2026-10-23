@@ -82,6 +82,45 @@ test.describe('wave 1: the phone', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a long text log opens on the newest text and the arrow keys scroll it to the oldest', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7.game;
+      for (let i = 1; i <= 14; i++) {
+        g.sim.events.emit('activityMilestone', { kind: 'taxi', reward: 100 + i });
+        g.phoneLog.flush(g.sim);
+      }
+    });
+    await page.keyboard.press('Tab');
+    await expect(page.locator('.phone-screen')).toBeVisible();
+    await page.waitForTimeout(350); // a screen takes no input for its first 0.25 s
+    // One press a frame at most is read: space them out.
+    const down = async (n: number) => {
+      for (let i = 0; i < n; i++) {
+        await page.keyboard.press('ArrowDown');
+        await page.waitForTimeout(80);
+      }
+    };
+    await down(3);
+    await expect(page.locator('.phone-row.sel b')).toHaveText('Texts');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.phone-title')).toHaveText('TEXTS');
+    const list = page.locator('.phone-list');
+    const scroll = () => list.evaluate((l) => ({ top: l.scrollTop, max: l.scrollHeight - l.clientHeight }));
+    await expect(page.locator('.phone-text.sel')).toContainText('+$114');
+    const opened = await scroll();
+    expect(opened.max).toBeGreaterThan(0);
+    expect(opened.top).toBe(0);
+    await down(13);
+    await expect(page.locator('.phone-text.sel')).toContainText('+$101');
+    await expect(page.locator('.phone-text.sel')).toBeInViewport();
+    expect((await scroll()).top).toBeGreaterThan(0);
+    await down(1);
+    await expect(page.locator('.phone-row.sel b')).toHaveText('Back');
+    expect(errors).toEqual([]);
+  });
+
   test('a contact calls when new work turns up; Tab answers', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
