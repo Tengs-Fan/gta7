@@ -7,6 +7,7 @@ import { makeBrain, type PedBrain } from './brains';
 import { MAX_STEP } from './characterPhysics';
 import type { Character } from './entities';
 import type { Sim } from './sim';
+import { isGun } from './specs';
 import { vehicleObb } from './vehiclePhysics';
 
 const contact = makeContact();
@@ -17,7 +18,7 @@ const obb = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
  * his head (cowerCrouched). CrowdView draws him by this rule, and combat hits him by it.
  */
 export function cowerHandsUp(c: Character, p: Character | null): boolean {
-  if (!p || p === c || !p.aiming || p.state !== 'normal' || p.inventory.current === 'fists') return false;
+  if (!p || p === c || !p.aiming || p.state !== 'normal' || !isGun(p.inventory.current)) return false;
   if (c.brain?.threat === p) return true;
   // Peds that freeze when a gun is pointed at them keep no threat: judge by the aim line instead.
   const dx = c.pos.x - p.pos.x;
@@ -235,7 +236,7 @@ export class PedSystem {
     const sim = this.sim;
     const p = sim.player;
     // Civilians react to a gun being pointed at them.
-    const aimingGun = p.aiming && p.inventory.current !== 'fists' && p.state === 'normal';
+    const aimingGun = p.aiming && isGun(p.inventory.current) && p.state === 'normal';
     for (const c of sim.characters) {
       if (c.removed || !c.brain || c.isLaw || c.isPlayer) continue;
       if (c.state !== 'normal' && c.state !== 'swimming') {
@@ -469,7 +470,7 @@ export class PedSystem {
       b.modeTimer = 0;
       return;
     }
-    const armed = c.inventory.current !== 'fists';
+    const armed = isGun(c.inventory.current);
     c.aiming = false;
     if (armed) {
       const canSee = d < 38 && sim.world.lineOfSight(c.pos.x, c.pos.y + 1.5, c.pos.z, tp.x, tp.y + 1.2, tp.z);

@@ -69,6 +69,14 @@ export class PickupSystem {
       const s = next();
       this.add('rampage', s.x, s.z, 0, null, 0, `rampage:${k}`);
     }
+    // After everything older, so the spots of the pickups above stay where they were.
+    if (sim.streetCrime.pickups) {
+      add('weapon', 2, 1, 'bat', 200);
+      add('weapon', 2, 1, 'knife', 200);
+      add('weapon', 2, 3, 'grenade', 240);
+      add('weapon', 2, 3, 'molotov', 240);
+      add('weapon', 1, 10, 'sniper', 300);
+    }
     this.syncCollected();
   }
 

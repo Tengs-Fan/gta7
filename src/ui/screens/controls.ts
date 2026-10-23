@@ -1,5 +1,6 @@
 // Controls reference.
 
+import { weaponKeyCount } from '../../sim/specs';
 import { escapeHtml } from '../hud';
 import { h, pushScrolling, type MenuCtx } from './shared';
 
@@ -13,12 +14,12 @@ export function showControls(ctx: MenuCtx): void {
     ['Look / Aim', 'Mouse'],
     ['Sprint', 'Shift'],
     ['Jump / Handbrake', 'Space'],
-    ['Shoot / Punch', 'Left click'],
+    ['Shoot / Punch / Throw', 'Left click'],
     ['Aim', 'Right click'],
     ['Enter / Exit vehicle', k('KeyF')],
     ['Interact / Horn', k('KeyE')],
     ['Reload / Next radio', k('KeyR')],
-    ['Weapons', `1-6, ${k('KeyQ')}, wheel`],
+    ['Weapons', `1-${weaponKeyCount()}, ${k('KeyQ')}, wheel`],
     ['Side job / Street run', k('KeyT')],
     ['Camera distance', k('KeyV')],
     ['Map', k('KeyM')],

@@ -2,6 +2,7 @@
 
 import { formatMoney } from '../../core/math';
 import { shopItems } from '../../sim/interactions';
+import { weaponKindOf } from '../../sim/specs';
 import { padGlyph, type InputDevice } from '../glyphs';
 import { escapeHtml } from '../hud';
 import { h, localPlayer, type MenuCtx } from './shared';
@@ -26,7 +27,14 @@ export function showShop(ctx: MenuCtx, onClose: () => void): void {
       const r = rows[i]!;
       const owned = it.weapon ? me.character.inventory.has(it.weapon) : false;
       const price = sim.interactions.priceOf(it, me);
-      r.innerHTML = `<span>${escapeHtml(it.label)}${owned ? ' <span class="own">(ammo +' + it.ammo + ')</span>' : it.weapon ? ` <span class="own">+${it.ammo} rounds</span>` : ''}</span><span class="own">${it.weapon ? me.character.inventory.total(it.weapon) + ' owned' : ''}</span><span class="price">${formatMoney(price)}</span>`;
+      const kind = it.weapon ? weaponKindOf(it.weapon) : null;
+      if (kind === 'melee') {
+        // A bat or a knife has no ammo: owned or not, and its price until it is.
+        r.innerHTML = `<span>${escapeHtml(it.label)}</span><span class="own">${owned ? 'owned' : ''}</span><span class="price">${owned ? '—' : formatMoney(price)}</span>`;
+      } else {
+        const unit = kind === 'thrown' ? '' : ' rounds';
+        r.innerHTML = `<span>${escapeHtml(it.label)}${owned ? ' <span class="own">(ammo +' + it.ammo + ')</span>' : it.weapon ? ` <span class="own">+${it.ammo}${unit}</span>` : ''}</span><span class="own">${it.weapon ? me.character.inventory.total(it.weapon) + ' owned' : ''}</span><span class="price">${formatMoney(price)}</span>`;
+      }
       r.classList.toggle('sel', i === sel);
     });
   };

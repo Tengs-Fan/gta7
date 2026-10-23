@@ -62,5 +62,11 @@ export interface SimEvents {
   /** Emitted after cash and records are committed, so autosave sees the result. */
   streetRunFinished: { id: StreetRunId; time: number; medal: StreetRunMedal; personalBest: boolean; reward: number } & PlayerScoped;
   reload: { character: Character };
+  /** A grenade or molotov leaves the hand of `by` at (x, y, z). */
+  thrown: { by: Character; weapon: WeaponId; x: number; y: number; z: number };
+  /** A molotov's bottle breaks. */
+  glassBreak: { x: number; y: number; z: number };
+  /** A ground fire (a molotov's) starts at (x, y, z). */
+  fireStarted: { x: number; y: number; z: number };
   fade: { duration: number } & PlayerScoped;
 }
