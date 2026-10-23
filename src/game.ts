@@ -2,20 +2,25 @@
 // HUD, menus and audio, and runs the frame loop.
 
 import { AudioEngine } from './audio/audio';
+import { registerDebug } from './debug';
 import type { TypedCheat } from './input/cheats';
 import { Input, type FrameInput } from './input/input';
+import type { NetClient, NetFailure, NetState } from './net/client';
+import type { Mirror } from './net/mirror';
+import type { NetSession } from './net/session';
+import type { NetJoinOptions } from './net/url';
 import { pickTier, probeGpu, QUALITY, type QualitySetting, type QualityTier } from './render/quality';
 import { GameRenderer } from './render/renderer';
 import { anySave, currentSlot, deleteGame, deleteSlot, firstEmptySlot, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, setCurrentSlot, slotInfos, storeGame, SUBTITLE_SIZES, type Settings } from './settings';
 import type { Vehicle } from './sim/entities';
-import { neutralInput } from './sim/input';
+import { neutralInput, type PlayerInput } from './sim/input';
 import { applySave, serialize, type SaveData } from './sim/progress';
 import { applyExt, serializeExt } from './sim/saveExt';
 import { Sim } from './sim/sim';
 import { cabState, callCab, setCabDestination } from './sim/activities/cab';
 import { contactById } from './sim/missions/contacts';
-import { registerDebug } from './debug';
 import { WEAPON_ORDER, type WeaponId } from './sim/specs';
+import { playerOf, type ViewState } from './sim/viewState';
 import { findVehicleRoom } from './sim/vehicleRoom';
 import type { WeatherKind, WeatherMode } from './sim/weather';
 import { HintSystem } from './ui/hints';
@@ -25,6 +30,7 @@ import { MapImage } from './ui/mapRender';
 import { Menus, type MenuHost } from './ui/menus';
 import { ExportListWidget } from './ui/widgets/exportList';
 import { offerLine, PhoneCalls, phoneContacts, PhoneLog, PhoneWidget, type PhoneHost } from './ui/widgets/phone';
+import { NetStatus } from './ui/widgets/netStatus';
 import { StaticWorld } from './world/staticWorld';
 
 export { CHEAT_CODES as CHEATS } from './input/cheats';
@@ -119,8 +125,13 @@ export class Game {
   private forcedWeather: WeatherMode | null = null;
   /** Total real time spent in frames (for tests). */
   readonly perf = { frameMs: 0, simMs: 0, renderMs: 0, frameIntervalMs: 0 };
-  /** The player slot this screen shows; single player always plays slot 0. */
-  private readonly localPlayerId = LOCAL_PLAYER_ID;
+  /** The player this screen shows: slot 0 in single player, the server's player id in multiplayer. */
+  private localPlayerId = LOCAL_PLAYER_ID;
+  /** The multiplayer session while one is on (connecting, playing or lost), else null. */
+  private net: NetSession | null = null;
+  /** The mirror the renderer, HUD and audio show in multiplayer (kept through a lost connection until a reconnect). */
+  private netView: Mirror | null = null;
+  private readonly netStatus: NetStatus;
   /** ?intro=0 in the URL, read once. */
   private readonly introOff = introOffByUrl();
   /** Seconds until Lou's opening call on a fresh game; not positive when no call is pending. */
@@ -172,6 +183,7 @@ export class Game {
       },
       routeContact: () => this.hud.routeContact,
     });
+    this.netStatus = new NetStatus(ui);
     this.applySettings(this.settings, false);
     this.sim = this.makeTitleSim();
     this.renderer.attach(this.sim, this.localPlayerId);
@@ -195,6 +207,8 @@ export class Game {
     window.addEventListener('blur', () => {
       if (this.mode === 'game' && this.running) this.blurPause = true;
     });
+    // Leaving the page leaves the room at once (a navigation may close the socket only seconds later).
+    window.addEventListener('pagehide', () => this.net?.close());
     canvas.addEventListener('webglcontextlost', (e) => this.onContextLost(e));
     canvas.addEventListener('webglcontextrestored', () => this.onContextRestored());
   }
@@ -269,7 +283,7 @@ export class Game {
       settings: () => this.settings,
       applySettings: this.guard((s: Settings) => this.applySettings(s, true)),
       deleteSave: () => deleteGame(),
-      sim: () => (this.mode === 'game' ? this.sim : null),
+      sim: () => (this.mode === 'game' ? this.view : null),
       localPlayerId: () => this.localPlayerId,
       setWaypoint: this.guard((p: { x: number; z: number } | null) => {
         this.hud.waypoint = p;
@@ -457,7 +471,7 @@ export class Game {
 
   /** The 'Next: ...' line, unless Lou's call is about to tell the player anyway. */
   private showNextStep(): void {
-    if (this.mode === 'game' && this.introTimer <= 0) this.hud.showNextStep(this.sim);
+    if (this.mode === 'game' && this.introTimer <= 0 && !this.netView) this.hud.showNextStep(this.sim);
   }
 
   /** Counts down to Lou's call; menus and the wasted / busted screens hold the clock. */
@@ -555,6 +569,7 @@ export class Game {
   }
 
   private quitToTitle(): void {
+    if (this.net || this.netView) this.leaveNet();
     // A passed mission may be waiting for the hospital/bail bill before its final autosave.
     // Resolve that transaction while the save listener is still attached.
     this.sim.missions.settleOnQuit();
@@ -722,10 +737,17 @@ export class Game {
       return;
     }
     // Every frame, also while a screen is open: a code's first letters can open the map or the pause menu.
-    for (const typed of this.input.takeCheats()) if (this.mode === 'game') this.applyCheat(typed);
+    // Cheats are single player only.
+    for (const typed of this.input.takeCheats()) if (this.mode === 'game' && !this.netView) this.applyCheat(typed);
     const cam = this.renderer.cameraCtl;
+    if (this.netView && this.mode === 'game') {
+      this.stepNet(dt, fi);
+      return;
+    }
     if (this.mode === 'title') {
-      this.menus.input(fi.ui, dt, fi.device);
+      if (this.netStatus.open) this.netStatus.input(fi.ui);
+      else this.menus.input(fi.ui, dt, fi.device);
+      this.net?.client.frame(dt, null);
       const inp = neutralInput();
       inp.aimOrigin = { x: cam.camera.position.x, y: cam.camera.position.y, z: cam.camera.position.z };
       const d = cam.aimRay().dir;
@@ -821,6 +843,229 @@ export class Game {
     this.canvas.classList.toggle('busted', down === 'busted');
     if (this.wasDown && !down) cam.reset(sim);
     this.wasDown = !!down;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Multiplayer (optional: only a ?mp=1 URL or the MULTIPLAYER menu starts it; the client code loads on demand)
+
+  /** What the screens show: the multiplayer mirror while one is attached, else the single-player (or title) Sim. */
+  get view(): ViewState {
+    return this.netView ?? this.sim;
+  }
+
+  /** The player this screen belongs to (the server's player id in multiplayer). */
+  get localPlayer(): number {
+    return this.localPlayerId;
+  }
+
+  /** The multiplayer session, if one is on. */
+  get netSession(): NetSession | null {
+    return this.net;
+  }
+
+  /** Joins a multiplayer room: "connecting" over the title until the first snapshot, then the game from the mirror. */
+  async joinMultiplayer(opts: NetJoinOptions): Promise<void> {
+    if (this.mode === 'game') this.quitToTitle();
+    this.leaveNet();
+    const where = `room "${opts.room}" on ${opts.server}`;
+    this.netStatus.show('connecting', 'CONNECTING', `Joining ${where}`, '', [{ id: 'net-cancel', label: 'CANCEL', run: this.guard(() => this.leaveNet()) }]);
+    const { NetSession } = await import('./net/session');
+    // Cancelled while the client code loaded.
+    if (this.netStatus.kind !== 'connecting' || this.net) return;
+    const session = new NetSession(opts, { world: this.world });
+    this.net = session;
+    registerDebug('net', this.netDebugApi(), { topLevel: true });
+    this.noteEvent('session', `multiplayer: ${where}`);
+    this.bindNetClient(session.client);
+  }
+
+  private bindNetClient(c: NetClient): void {
+    c.onReady = this.guard(() => this.enterNet());
+    c.onState = this.guard((s: NetState, f: NetFailure | null) => this.onNetState(c, s, f));
+    if (c.state === 'failed' || c.state === 'lost') this.onNetState(c, c.state, c.failure);
+  }
+
+  private onNetState(c: NetClient, s: NetState, f: NetFailure | null): void {
+    const net = this.net;
+    if (!net || net.client !== c) return;
+    const detail = `Server ${c.url}, room "${net.opts.room}", name "${net.opts.name}"`;
+    if (s === 'failed') {
+      this.netStatus.show('failed', 'COULD NOT JOIN', f?.text ?? 'The server could not be reached.', detail, [
+        { id: 'net-retry', label: 'TRY AGAIN', run: this.guard(() => this.reconnectNet()) },
+        { id: 'net-title', label: 'BACK TO TITLE', run: this.guard(() => this.netToTitle()) },
+      ]);
+    } else if (s === 'lost') {
+      this.input.exitPointerLock();
+      this.netStatus.setBanner(null);
+      this.netStatus.show('lost', 'CONNECTION LOST', f?.text ?? 'Connection to the server was lost.', detail, [
+        { id: 'net-reconnect', label: 'RECONNECT', run: this.guard(() => this.reconnectNet()) },
+        { id: 'net-title', label: 'RETURN TO TITLE', run: this.guard(() => this.netToTitle()) },
+      ]);
+    }
+  }
+
+  private reconnectNet(): void {
+    const net = this.net;
+    if (!net) return;
+    this.netStatus.show('connecting', 'RECONNECTING', `Joining room "${net.opts.room}" on ${net.opts.server}`, '', [
+      { id: 'net-title', label: 'BACK TO TITLE', run: this.guard(() => this.netToTitle()) },
+    ]);
+    this.bindNetClient(net.reconnect());
+  }
+
+  private netToTitle(): void {
+    if (this.mode === 'game') this.quitToTitle();
+    else this.leaveNet();
+  }
+
+  /** Ends the multiplayer session (if any) and gives the world back to single player; the caller shows the title. */
+  private leaveNet(): void {
+    const had = this.net !== null || this.netView !== null;
+    this.net?.close();
+    this.net = null;
+    this.netStatus.hide();
+    this.netStatus.setBanner(null);
+    if (!had) return;
+    if (this.netView) {
+      this.netView = null;
+      this.world.resetBroken();
+      this.renderer.props.restoreAll();
+      this.world.roads.clearSignalHolds();
+    }
+    this.localPlayerId = LOCAL_PLAYER_ID;
+  }
+
+  /** The first snapshot is in: the screens show the mirror. */
+  private enterNet(): void {
+    const net = this.net;
+    if (!net) return;
+    const m = net.client.mirror;
+    for (const u of this.unsub) u();
+    this.unsub = [];
+    this.introTimer = -1;
+    this.pendingAutosave = false;
+    this.world.resetBroken();
+    this.renderer.props.restoreAll();
+    this.netView = m;
+    this.localPlayerId = m.playerId;
+    const id = m.playerId;
+    this.renderer.crowd.hiddenId = -1;
+    this.renderer.attach(m, id);
+    this.hud.bind(m, id);
+    this.audio.attach(m, id);
+    m.replayBroken();
+    this.unsub.push(m.events.on('respawn', (e) => e.playerId === id && this.renderer.cameraCtl.reset(m)));
+    this.input.inVehicle = false;
+    this.input.exitAtStake = false;
+    this.input.skipLine = false;
+    this.mode = 'game';
+    this.renderer.cameraCtl.mode = 'play';
+    this.renderer.cameraCtl.reset(m);
+    this.menus.closeAll();
+    this.netStatus.hide();
+    this.hud.setVisible(true);
+    this.audio.unlock();
+    this.openAudio();
+    this.input.requestPointerLock();
+    this.hud.help(`Multiplayer: room <b>${escapeHtml(m.roomId)}</b> as <b>${escapeHtml(net.opts.name)}</b>. Story missions, cheats and saving are off.`, 6);
+  }
+
+  /** Neutral input aimed where the camera looks (a menu or a connection screen has the keys). */
+  private idleInput(): PlayerInput {
+    const cam = this.renderer.cameraCtl;
+    const inp = neutralInput();
+    const aim = cam.rayFor();
+    inp.aimOrigin = aim.origin;
+    inp.aimDir = aim.dir;
+    inp.cameraYaw = cam.yaw;
+    return inp;
+  }
+
+  /** One multiplayer frame: the local player's input to the client, the mirror through the usual renderer, HUD and audio. */
+  private stepNet(dt: number, fi: FrameInput): void {
+    const m = this.netView!;
+    const client = this.net?.client ?? null;
+    const cam = this.renderer.cameraCtl;
+    const me = playerOf(m, this.localPlayerId);
+    const live = client !== null && client.mirror === m && client.state === 'connected';
+    let inp: PlayerInput | null = null;
+    if (this.netStatus.open) {
+      this.netStatus.input(fi.ui);
+    } else if (this.menus.open) {
+      this.menus.input(fi.ui, dt, fi.device);
+    } else if (fi.ui.pause) {
+      this.pause();
+    } else if (fi.ui.map) {
+      this.openMap();
+    } else {
+      if (fi.ui.camera) cam.zoomLevel = cam.zoomLevel === 0 ? 1 : 0;
+      if (fi.ui.radioNext) this.hud.showRadio(this.audio.radio.next());
+      if (fi.ui.radioPrev) this.hud.showRadio(this.audio.radio.prev());
+      cam.look(fi.lookX, fi.lookY);
+      const aim = cam.rayFor();
+      inp = fi.player;
+      inp.aimOrigin = aim.origin;
+      inp.aimDir = aim.dir;
+      inp.cameraYaw = cam.yaw;
+    }
+    const ts = performance.now();
+    client?.frame(dt, live ? inp ?? this.idleInput() : null);
+    if (client && !live) m.update(dt, performance.now());
+    this.perf.simMs = performance.now() - ts;
+    const p = me.character;
+    this.input.inVehicle = !!p.vehicle;
+    this.input.exitAtStake = false;
+    this.input.skipLine = false;
+    const aiming = p.aimZoom && !p.vehicle;
+    const tr = performance.now();
+    this.renderer.render(dt, aiming && inp !== null);
+    this.perf.renderMs = performance.now() - tr;
+    const cp = cam.camera.position;
+    this.audio.setListener(cp.x, cp.y, cp.z, cam.yaw);
+    this.audio.update(dt, m, true);
+    this.countUnmute(dt);
+    this.hud.device = fi.device;
+    this.hud.update(dt, m, cam.yaw, aiming, null, this.renderer.time);
+    const watching = m.slot < 0 && live;
+    const followed = watching ? m.players.find((x) => x.slot === 0) : undefined;
+    this.netStatus.setBanner(watching ? `Watching ${followed?.name ?? 'the room'}: the room's player slot is taken.` : null);
+    const down = me.deathKind;
+    this.canvas.classList.toggle('wasted', down === 'wasted');
+    this.canvas.classList.toggle('busted', down === 'busted');
+    if (this.wasDown && !down) cam.reset(m);
+    this.wasDown = !!down;
+  }
+
+  /** window.__gta7.net: the multiplayer client's state for tests and the console. */
+  private netDebugApi(): Record<string, unknown> {
+    const mirror = () => this.netView ?? this.net?.client.mirror ?? null;
+    const pos = (e: { pos: { x: number; y: number; z: number }; heading: number } | null | undefined) => (e ? { x: e.pos.x, y: e.pos.y, z: e.pos.z, heading: e.heading } : null);
+    return {
+      state: () => this.net?.debug() ?? { state: 'off' },
+      /** The local player as drawn this frame: his character and the vehicle he sits in. */
+      local: () => {
+        const m = mirror();
+        if (!m) return null;
+        const me = playerOf(m, this.localPlayerId);
+        const c = me.character;
+        return { id: c.id, state: c.state, character: pos(c), vehicle: c.vehicle ? { id: c.vehicle.id, kind: c.vehicle.kind, ...pos(c.vehicle) } : null, wanted: me.wanted.level, money: me.progress.money, deathKind: me.deathKind };
+      },
+      /** An entity as drawn this frame (interpolated, or predicted for the local player). */
+      entity: (id: number) => {
+        const e = mirror()?.entity(id);
+        return e && 'heading' in e ? { id, ...pos(e as { pos: { x: number; y: number; z: number }; heading: number }) } : e ? { id, x: e.pos.x, y: e.pos.y, z: e.pos.z } : null;
+      },
+      players: () => mirror()?.players.map((p) => ({ playerId: p.id, name: p.name, slot: p.slot, characterId: p.character.id, wanted: p.wanted.level, ...pos(p.character.vehicle ?? p.character) })) ?? [],
+      roster: () => mirror()?.roster ?? [],
+      /** Recent world events the mirror re-emitted (ids for entities), newest last. */
+      events: (n = 100) => this.net?.log.slice(-n) ?? [],
+      /** Sends a command ('debug' needs a server started with --dev). */
+      command: (name: string, arg: unknown = '') => this.net?.client.command(name, typeof arg === 'string' ? arg : JSON.stringify(arg)),
+      join: (opts: NetJoinOptions) => this.joinMultiplayer(opts),
+      reconnect: () => this.reconnectNet(),
+      leave: () => this.netToTitle(),
+      overlay: () => (this.netStatus.open ? { kind: this.netStatus.kind, text: this.ui.querySelector('.net-status')?.textContent ?? '' } : null),
+    };
   }
 
   private applyCheat(typed: TypedCheat): void {
@@ -1166,6 +1411,10 @@ export class Game {
 
 /** How long a lost WebGL context may take to come back before the player is told to reload. */
 export const GFX_RESTORE_TIMEOUT_MS = 10_000;
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
 
 /** Display facts for the Auto tier pick (CSS screen size, so a window opened small still counts the full screen). */
 function displayInfo(): { devicePixelRatio: number; screenWidth: number; screenHeight: number } {
