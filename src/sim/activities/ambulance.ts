@@ -93,6 +93,19 @@ function updateAmbulance(host: ActivityHost, j: AmbulanceJob, dt: number): void 
       return;
     }
   }
+  // Only who sits in the ambulance is aboard: anyone out of his seat by another way waits to be picked up again.
+  const out = j.aboard.filter((c) => c.vehicle !== car);
+  if (out.length > 0) {
+    for (const c of out) {
+      if (c.vehicle) sim.unseat(c);
+      c.brain = makeBrain('stand');
+      c.state = 'knocked';
+      c.knockTimer = 1e9;
+      j.aboard.splice(j.aboard.indexOf(c), 1);
+      j.waiting.push(c);
+    }
+    host.say(out.length === 1 ? 'A patient is out of the ambulance. Pick him up again.' : `${out.length} patients are out of the ambulance. Pick them up again.`, 2.5);
+  }
   j.timer -= dt;
   if (j.timer <= 0) {
     host.end(`Out of time. Paramedic job over at level ${j.level}.`);
@@ -154,6 +167,7 @@ function updateAmbulance(host: ActivityHost, j: AmbulanceJob, dt: number): void 
 export const ambulanceActivity: ActivityDef<AmbulanceJob> = {
   kind: 'ambulance',
   toggleEndText: 'Paramedic job ended.',
+  site: { label: 'A', name: 'Paramedic', at: (world) => places(world).depots.find((d) => d.kind === 'ambulance')! },
   completion: (_view, me) => ({ label: 'Paramedic level 5', done: Math.min(5, activityRecords(me.progress).ambulanceLevel), total: 5 }),
 
   canStart: (_host, _slot, vehicle) => vehicle?.kind === 'ambulance',
@@ -174,6 +188,8 @@ export const ambulanceActivity: ActivityDef<AmbulanceJob> = {
   },
 
   update: updateAmbulance,
+
+  keepsAboard: (j, passenger, vehicle) => vehicle === j.car && j.aboard.includes(passenger),
 
   end(host, j) {
     for (const c of j.aboard) {

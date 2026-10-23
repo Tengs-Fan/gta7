@@ -91,6 +91,7 @@ function updateCourier(host: ActivityHost, j: CourierJob, dt: number): void {
 export const courierActivity: ActivityDef<CourierJob> = {
   kind: 'courier',
   toggleEndText: 'Courier run cancelled.',
+  site: { label: 'C', name: 'Courier', at: (world) => places(world).courier },
   completion: (_view, me) => ({ label: 'Azura Express courier run', done: Math.min(1, activityRecords(me.progress).courierRuns), total: 1 }),
 
   canStart: (host, _slot, vehicle) => courierVehicle(vehicle) && atOffice(host, vehicle),

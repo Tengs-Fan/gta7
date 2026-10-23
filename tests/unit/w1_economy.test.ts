@@ -204,9 +204,29 @@ describe('garage', () => {
       expect(() => applyExt(t, s.ext)).not.toThrow();
       for (const v of storedCars(t)) {
         expect(v.kind).toBe('sedan');
-        expect(v.mods).toEqual({ engine: MAX_MOD_LEVEL, brakes: 0, tyres: 0 });
+        // VAL-ECON-008: a corrupt mods entry leaves the car at stock, not at the nearest valid level.
+        expect(v.mods).toEqual({ engine: 0, brakes: 0, tyres: 0 });
+        expect(v.tune).toMatchObject({ accel: 1, brake: 1, grip: 1 });
       }
     }
+  });
+
+  it('restores a stored car with any corrupt mod level to stock, and keeps valid or missing levels', () => {
+    const cars = (mods: Record<string, unknown>) => ({ owned: true, cars: [{ kind: 'sedan', color: 0xeeeeee, ...mods }] });
+    const loaded = (raw: unknown) => {
+      const s = parseSave({ ...legacy(), ext: { [GARAGE_KEY]: raw } })!;
+      expect(s.money).toBe(18450);
+      const t = makeSim();
+      applySave(t.progress, s);
+      applyExt(t, s.ext);
+      expect(storedCars(t)).toHaveLength(1);
+      return { ...storedCars(t)[0]!.mods };
+    };
+    for (const bad of [{ engine: 99 }, { engine: 2, brakes: MAX_MOD_LEVEL + 1 }, { tyres: 1.5 }, { engine: '2' }, { brakes: -1, engine: 1 }, { engine: Number.NaN }, { tyres: null }]) {
+      expect(loaded(cars(bad)), JSON.stringify(bad)).toEqual({ engine: 0, brakes: 0, tyres: 0 });
+    }
+    expect(loaded(cars({ engine: MAX_MOD_LEVEL, brakes: 1, tyres: 2 }))).toEqual({ engine: MAX_MOD_LEVEL, brakes: 1, tyres: 2 });
+    expect(loaded(cars({ engine: 2 }))).toEqual({ engine: 2, brakes: 0, tyres: 0 });
   });
 });
 

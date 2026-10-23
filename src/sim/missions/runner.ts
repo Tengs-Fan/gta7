@@ -49,8 +49,8 @@ export interface MissionDef {
   reward: number;
   requires: string[];
   blurb: string;
-  /** Where a retry puts the player (by default, the giver's marker). */
-  retryAt?(world: StaticWorld): { x: number; z: number; heading?: number };
+  /** Where a retry from checkpoint `resume` puts the player (undefined or absent: the giver's marker). */
+  retryAt?(world: StaticWorld, resume: number): { x: number; z: number; heading?: number } | undefined;
   /** A title card shown after MISSION PASSED (The Big Score's CHAPTER 1 COMPLETE). */
   outro?: { text: string; sub: string; duration: number };
   run(m: MissionCtx): Script;
@@ -918,7 +918,7 @@ export class MissionSystem {
     this.base = keepGains(p, r, r.failed ?? takeLoadout(p));
     restoreLoadout(p, this.base);
     const giver = sim.world.layout.pois.find((q) => q.id === contactById(def.giver).poiId)!;
-    const at = def.retryAt?.(sim.world) ?? { x: giver.x, z: giver.z, heading: giver.heading };
+    const at = def.retryAt?.(sim.world, r.resume) ?? { x: giver.x, z: giver.z, heading: giver.heading };
     const spot = sim.world.findFreeSpot(at.x, at.z, 0.5, 8) ?? at;
     p.state = 'normal';
     p.pos.x = spot.x;
