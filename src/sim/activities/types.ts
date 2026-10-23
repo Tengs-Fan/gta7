@@ -1,5 +1,6 @@
 import type { Character, Vehicle } from '../entities';
 import type { Sim } from '../sim';
+import type { PlayerView, ViewState } from '../viewState';
 import type { RampageJob } from './rampage';
 import type { StreetRunJob } from './streetRun';
 import type { TaxiJob } from './taxi';
@@ -90,4 +91,6 @@ export interface ActivityDef<J extends ActivityJob = ActivityJob> {
   abortText?(reason: CancelReason): string;
   /** Called once as each Activities facade is built, for listeners the activity keeps on the sim. */
   attach?(host: ActivityHost): void;
+  /** Its row in the completion checklist (map screen, STATS): what counts as done of how much. Absent: no row. */
+  completion?(view: ViewState, me: PlayerView): { label: string; done: number; total: number } | null;
 }

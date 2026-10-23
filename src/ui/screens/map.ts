@@ -4,10 +4,9 @@ import { clamp } from '../../core/math';
 import { WHEEL_GESTURE_GAP, WHEEL_STEP } from '../../input/input';
 import { padGlyph, type InputDevice } from '../glyphs';
 import { escapeHtml } from '../hud';
-import { collectBlips, drawBlip, drawPoliceOverlay, MAP_SCALE, type Blip } from '../mapRender';
-import { completionEntries } from '../../sim/completion';
+import { COMPLETION_GROUP_NAMES, COMPLETION_GROUPS, completionPercent, completionRows } from '../../sim/completion';
+import { collectBlips, drawBlip, drawPoliceOverlay, MAP_CATEGORIES, MAP_SCALE, type Blip, type MapCategory } from '../mapRender';
 import { h, localPlayer, type MenuCtx } from './shared';
-import './mapChecklist.css';
 
 /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
 export function showMap(menus: MenuCtx, onClose?: () => void): void {
@@ -22,44 +21,70 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   // drawn at the middle of the canvas, which fills the screen, so CSS puts it there at any pixel ratio.
   el.appendChild(h('div', 'map-cross'));
   el.appendChild(h('div', 'map-title', 'SAN AZURA'));
-  el.appendChild(
-    h(
-      'div',
-      'map-legend',
-      [
-        ['#ffffff', 'You'],
-        ['#ff4fa3', 'Mama Lou (missions)'],
-        ['#38e1d2', 'Dex Moreau (missions)'],
-        ['#ffd23d', 'Objective'],
-        ['#4aa8ff', 'Safehouse (save)'],
-        ['#ff8a1f', 'Gun shop'],
-        ['#3fd96b', 'Spray Shack'],
-        ['#ff4a4a', 'Hospital'],
-        ['#3a6bff', 'Police station'],
-        ['#ff3030', 'Police unit'],
-        ['rgba(255, 48, 48, 0.55)', 'Search area'],
-        ['#c04fff', 'Waypoint'],
-        ['#3fd96b', 'Property (owned)'],
-        ['#9aa3ad', 'Property for sale'],
-        ['#b36bff', 'Azura Customs'],
-      ]
-        .map(([c, t]) => `<div><i style="background:${c}"></i>${t}</div>`)
-        .join(''),
-    ),
-  );
-  // The completion checklist, from the completion registry (sim/completion.ts).
-  el.appendChild(
-    h(
-      'div',
-      'map-checklist',
-      `<b>CHECKLIST</b>${completionEntries()
-        .map((e) => {
-          const [done, total] = e.progress({ sim, player: me });
-          return `<div class="${done >= total ? 'done' : ''}"><span>${escapeHtml(e.label)}</span><span>${Math.min(done, total)} / ${total}</span></div>`;
-        })
-        .join('')}`,
-    ),
-  );
+  // The legend: a row per category the player can switch off (number keys, a pad's Y to pick and X to switch, a
+  // click) and the markers that always show. Off states are kept in the settings (mapLayers).
+  const legend = h('div', 'map-legend');
+  const fixed = [
+    ['#ffffff', 'You'],
+    ['#ffd23d', 'Objective'],
+    ['#ff3030', 'Police unit'],
+    ['rgba(255, 48, 48, 0.55)', 'Search area'],
+    ['#c04fff', 'Waypoint'],
+  ];
+  const layerOn = (id: string) => menus.host.settings().mapLayers[id] !== false;
+  let pick = 0;
+  const catRows: HTMLElement[] = [];
+  const swatch = (w: MapCategory['swatches'][number]) =>
+    `<i class="${w.hollow ? 'hollow' : ''}" style="${w.hollow ? `border-color:${w.color}` : `background:${w.color}`}">${w.label ? escapeHtml(w.label) : ''}</i>`;
+  const drawLegend = () => {
+    catRows.forEach((r, i) => {
+      const c = MAP_CATEGORIES[i]!;
+      const on = layerOn(c.id);
+      r.classList.toggle('off', !on);
+      r.classList.toggle('sel', menus.device === 'pad' && i === pick);
+      const st = r.children[r.children.length - 1];
+      if (st) st.textContent = on ? 'ON' : 'OFF';
+    });
+  };
+  const toggleLayer = (i: number) => {
+    const c = MAP_CATEGORIES[i];
+    if (!c) return;
+    const s = menus.host.settings();
+    menus.host.applySettings({ ...s, mapLayers: { ...s.mapLayers, [c.id]: !layerOn(c.id) } });
+    menus.host.click();
+    drawLegend();
+  };
+  legend.appendChild(h('div', 'legend-head', 'LEGEND'));
+  MAP_CATEGORIES.forEach((c, i) => {
+    const row = h('div', 'legend-row', `<span class="legend-key">${i < 9 ? i + 1 : ''}</span>${c.swatches.map(swatch).join('')}<span class="legend-name">${escapeHtml(c.label)}</span>`);
+    row.appendChild(h('span', 'legend-state', ''));
+    row.addEventListener('click', () => {
+      pick = i;
+      toggleLayer(i);
+    });
+    catRows.push(row);
+    legend.appendChild(row);
+  });
+  for (const [c, t] of fixed) legend.appendChild(h('div', 'legend-row fixed', `<span class="legend-key"></span><i style="background:${c}"></i><span class="legend-name">${t}</span>`));
+  el.appendChild(legend);
+  drawLegend();
+  // The completion checklist: the same rows as STATS (the completion registry).
+  const list = h('div', 'map-checklist');
+  const drawChecklist = () => {
+    const rows = completionRows(sim, me);
+    const groups = [...new Set([...COMPLETION_GROUPS, ...rows.map((r) => r.group)])];
+    list.innerHTML = `<div class="legend-head">CHECKLIST · ${completionPercent(sim, me)}%</div>${groups
+      .map((g) => {
+        const rs = rows.filter((r) => r.group === g);
+        const body = rs.length
+          ? rs.map((r) => `<div class="check-row${r.done >= r.total && r.total > 0 ? ' done' : ''}"><span>${escapeHtml(r.label)}</span><b>${r.done} / ${r.total}</b></div>`).join('')
+          : '<div class="check-row none"><span>None yet</span><b>—</b></div>';
+        return `<div class="check-group">${escapeHtml(COMPLETION_GROUP_NAMES[g] ?? g)}</div>${body}`;
+      })
+      .join('')}`;
+  };
+  drawChecklist();
+  el.appendChild(list);
   // What to press, for the device in use: the keyboard and a pad set the waypoint at the cross in the middle.
   const hint = h('div', 'map-hint');
   el.appendChild(hint);
@@ -68,8 +93,9 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     hintDevice = menus.device;
     hint.innerHTML =
       menus.device === 'pad'
-        ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('b')} to close`
-        : `Click, or <kbd>Enter</kbd> at the cross, to set a waypoint (again to clear it) · Drag or arrow keys to pan · Wheel or <kbd>+</kbd> <kbd>-</kbd> to zoom · <kbd>${escapeHtml(menus.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`;
+        ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('y')} pick a legend row, ${padGlyph('x')} switch it · ${padGlyph('b')} to close`
+        : `Click, or <kbd>Enter</kbd> at the cross, to set a waypoint (again to clear it) · Drag or arrow keys to pan · Wheel or <kbd>+</kbd> <kbd>-</kbd> to zoom · <kbd>1</kbd>-<kbd>${Math.min(9, MAP_CATEGORIES.length)}</kbd> legend on / off · <kbd>${escapeHtml(menus.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`;
+    drawLegend();
   };
   showHint();
   const ctx = canvas.getContext('2d')!;
@@ -153,7 +179,9 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top.
     const wp = menus.host.waypoint();
     const blips: Blip[] = wp ? [{ x: wp.x, z: wp.z, color: '#c04fff', label: 'W', sticky: true, shape: 'circle' }] : [];
-    blips.push(...collectBlips(sim, time, localId));
+    const s = menus.host.settings();
+    const hidden = new Set(MAP_CATEGORIES.filter((c) => s.mapLayers[c.id] === false).map((c) => c.id));
+    blips.push(...collectBlips(sim, time, localId, { map: true, hidden }));
     for (const b of blips) drawBlip(ctx, b, vw / 2 + (b.x - cx) * k, vh / 2 + (b.z - cz) * k, 18);
     const p = me.pos();
     const ph = me.character.vehicle ? me.character.vehicle.heading : me.character.heading;
@@ -246,6 +274,12 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
         return;
       }
       if (ui.confirm) toggleWaypointAt({ x: cx, z: cz });
+      if (ui.digit) toggleLayer(ui.digit - 1);
+      if (ui.padY && MAP_CATEGORIES.length > 0) {
+        pick = (pick + 1) % MAP_CATEGORIES.length;
+        drawLegend();
+      }
+      if (ui.padX) toggleLayer(pick);
       if (ui.zoomIn) zoom = clamp(zoom + 0.5, 0, 4);
       if (ui.zoomOut) zoom = clamp(zoom - 0.5, 0, 4);
       // Each press (arrows / WASD, the D-pad) steps the view 60 px, also a tap whose key is up again before

@@ -4,6 +4,7 @@ import type { Character, Vehicle } from '../entities';
 import type { PlayerSlot } from '../playerSlot';
 import type { Sim } from '../sim';
 import type { StreetRunCourse } from '../streetRuns';
+import { cabActivity } from './cab';
 import { rampageActivity } from './rampage';
 import { onVehicleLanded } from './stunts';
 import { streetRunActivity, streetRunCourses } from './streetRun';
@@ -16,6 +17,7 @@ import { firefighterActivity } from './firefighter';
 import './serviceVehicles';
 import type { ActivityDef, ActivityHost, ActivityJob, CancelReason, Job, Objective } from './types';
 
+export type { CabJob } from './cab';
 export type { RampageJob } from './rampage';
 export type { StreetRunJob } from './streetRun';
 export type { TaxiJob } from './taxi';
@@ -58,6 +60,7 @@ registerActivity(firefighterActivity);
 registerActivity(courierActivity);
 registerActivity(carExportActivity);
 registerActivity(streetRunActivity);
+registerActivity(cabActivity);
 
 export class Activities {
   job: Job | null = null;

@@ -6,7 +6,6 @@
 import { formatMoney } from '../../core/math';
 import type { Vehicle } from '../entities';
 import type { Progress } from '../progress';
-import { registerCompletion } from '../completion';
 import { registerSaveCodec } from '../saveExt';
 import { VEHICLE_SPECS, type VehicleKind } from '../specs';
 import { places } from './places';
@@ -113,6 +112,11 @@ function updateExport(host: ActivityHost, j: ExportJob): void {
 export const carExportActivity: ActivityDef<ExportJob> = {
   kind: 'carExport',
   toggleEndText: 'Export job stopped. The list stays on Lou\'s board.',
+  completion: (_view, me) => ({
+    label: "Lou's export list",
+    done: activityRecords(me.progress).exportLists > 0 ? EXPORT_LIST.length : exportDone(me.progress).size,
+    total: EXPORT_LIST.length,
+  }),
   onFoot: true,
 
   canStart: () => false,
@@ -159,11 +163,4 @@ registerSaveCodec<string[]>({
     done.clear();
     for (const id of value) done.add(id);
   },
-});
-
-registerCompletion({
-  id: 'carExport',
-  label: "Lou's export list",
-  weight: 0,
-  progress: ({ player }) => [activityRecords(player.progress).exportLists > 0 ? EXPORT_LIST.length : exportDone(player.progress).size, EXPORT_LIST.length],
 });

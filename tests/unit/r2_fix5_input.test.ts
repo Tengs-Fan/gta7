@@ -4,6 +4,7 @@
 // Node has no DOM or Web Audio: the browser pieces run against the small fakes below (copied from
 // r2_fix4_input.test.ts, whose fakes follow fix_frontend.test.ts), and the WebGL renderer is mocked.
 
+import { DEFAULT_BINDINGS } from '../../src/input/bindings';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Game } from '../../src/game';
 import type { UiActions } from '../../src/input/input';
@@ -851,7 +852,7 @@ const ui = (over: Partial<UiActions> = {}): UiActions => ({ pause: false, map: f
 function mapRig() {
   const sim = new Sim({ world: world(), ambient: false, police: false });
   let waypoint: { x: number; z: number } | null = null;
-  const settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true };
+  const settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true, bindings: DEFAULT_BINDINGS, resolutionScale: 1, fpsCap: 0, subtitleSize: 'normal', cameraShake: true, mapLayers: {} };
   const host = {
     hasSave: () => true,
     newGame: vi.fn(),
