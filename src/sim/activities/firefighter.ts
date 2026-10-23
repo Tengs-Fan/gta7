@@ -173,7 +173,7 @@ function updateFire(host: ActivityHost, j: FireJob, dt: number): void {
 export const firefighterActivity: ActivityDef<FireJob> = {
   kind: 'firefighter',
   toggleEndText: 'Firefighter job ended.',
-  site: { label: 'F', name: 'Firefighter', at: (world) => places(world).depots.find((d) => d.kind === 'firetruck')! },
+  site: { label: 'F', name: 'Fire', at: (world) => places(world).depots.find((d) => d.kind === 'firetruck')! },
   completion: (_view, me) => ({ label: 'Firefighter level 5', done: Math.min(5, activityRecords(me.progress).fireLevel), total: 5 }),
 
   canStart: (_host, _slot, vehicle) => vehicle?.kind === 'firetruck',

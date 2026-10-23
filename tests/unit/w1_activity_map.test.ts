@@ -36,4 +36,14 @@ describe('activity sites on the map', () => {
     expect(hidden.some((b) => b.category === 'activities')).toBe(false);
     expect(hidden.length).toBe(collectBlips(sim, 0, 0, { map: true }).length - sites.length);
   });
+
+  it("draws Lou's mission marker over her export board's icon beside it", () => {
+    const sim = makeSim({ ambient: false });
+    const blips = collectBlips(sim, 0, 0, { map: true });
+    const lou = blips.findIndex((b) => b.category === 'missions' && b.label === 'L');
+    const board = blips.findIndex((b) => b.category === 'activities' && b.label === 'E');
+    expect(lou, "Lou's offer").toBeGreaterThanOrEqual(0);
+    expect(board).toBeGreaterThanOrEqual(0);
+    expect(lou, 'drawn later, on top').toBeGreaterThan(board);
+  });
 });
