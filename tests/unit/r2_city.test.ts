@@ -253,8 +253,9 @@ function specialPoi(W: StaticWorld, b: Building): { side: Side; x: number; z: nu
 
 describe('round 2 city: layout', () => {
   it('ground floors leave the generated layout bit-identical to the base commit', () => {
-    // Captured on 8788242 (round 2 base) with the same canonical JSON.
-    expect(layoutHash()).toBe('845117c784a8f32c1b1d3d2dea4648ac91e109e2c016e07e1473fc5199b3215c');
+    // Captured on 8788242 (round 2 base) with the same canonical JSON, re-captured when Hotel Salgado (Vera's
+    // SPECIALS row) was added; without that row the layout still hashes to 845117c784a8f32c1b1d3d2dea4648ac91e109e2c016e07e1473fc5199b3215c.
+    expect(layoutHash()).toBe('435d93c418a5948f8bfcfeec00dcc6d7f12dc736e7fe7db5b281b4b702610955');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
@@ -377,7 +378,7 @@ describe('round 2 city: ground-floor geometry', () => {
       expect(sign.position.y + h / 2, b.sign.text).toBeLessThan(b.height);
       checked++;
     }
-    expect(checked).toBe(7);
+    expect(checked).toBe(8);
   });
 
   it('keeps every atlas cell inside its own slot, clear of its neighbours', () => {
@@ -444,7 +445,7 @@ describe('round 2 fix: entrances where the sim puts them', () => {
 
   it("draws every special's door within 2 m along its entrance wall of its POI marker", () => {
     const specials = W.layout.buildings.filter((b) => specialPoi(W, b));
-    expect(specials.map((b) => b.special).sort()).toEqual(['bank', 'contactDex', 'gunshop', 'gunshop', 'hospital', 'police', 'safehouse']);
+    expect(specials.map((b) => b.special).sort()).toEqual(['bank', 'contactDex', 'contactVera', 'gunshop', 'gunshop', 'hospital', 'police', 'safehouse']);
     for (const b of specials) {
       const poi = specialPoi(W, b)!;
       const w = wallOf(b, poi.side);
@@ -512,8 +513,8 @@ describe('round 2 fix: entrances where the sim puts them', () => {
       expect(Math.abs(c - d) < 0.05 || atEnd, `${b.sign.text}: sign ${c.toFixed(2)}, door ${d.toFixed(2)}`).toBe(true);
       checked++;
     }
-    // The bank, SAPD, the hospital, Moreau Tower, both gun shops and the stadium.
-    expect(checked).toBe(7);
+    // The bank, SAPD, the hospital, Moreau Tower, Hotel Salgado, both gun shops and the stadium.
+    expect(checked).toBe(8);
   });
 
   it('centres the door of every ordinary lobby on its wall', () => {

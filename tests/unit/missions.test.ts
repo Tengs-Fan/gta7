@@ -175,7 +175,8 @@ describe('story missions are completable', () => {
     parkIn(sim, car, spots.marina.x - 3, spots.marina.z);
     expectPassed(sim, 'big_score', money, 25000);
     expect(sim.wanted.level).toBe(0);
-    expect(sim.missions.offers()).toEqual([]);
+    // The Big Score ends chapter 1: Vera Salgado has chapter 2.
+    expect(sim.missions.offers().map((d) => d.id)).toEqual(['shadow_play']);
   });
 
   it('fails the active mission when the player is wasted and allows a retry', () => {
