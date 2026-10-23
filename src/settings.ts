@@ -157,7 +157,8 @@ export function saveSettings(settings: Settings): void {
 // ---------------------------------------------------------------------------
 // Save slots. Three slots, each its own key holding one save as the single save used to (version 1, ext and all).
 // The single save of earlier versions (SAVE_KEY) moves into slot 1, or the first empty slot, the first time any slot
-// is read: it is copied byte for byte and removed only once the copy is written (with every slot full it stays).
+// is read: it is copied byte for byte and removed only once the copy is written (with every slot full it stays). While
+// the copy cannot be written (storage full) it is read from its old key as that slot's save.
 // The game saves to the current slot: the one it was loaded from or last saved to; a new game's is the first empty
 // slot (none when all are full: then it autosaves only once saved at the safehouse into a slot).
 
@@ -200,14 +201,22 @@ function setLastSlot(s: Storage, slot: number): void {
   }
 }
 
+/**
+ * The slot the save of earlier versions belongs in while it is still under its old key (0: none, or every slot full):
+ * the first empty one. Until the copy is written (a full storage refuses it) the save shows and loads from there.
+ */
+function legacySlot(s: Storage): number {
+  if (s.getItem(SAVE_KEY) === null) return 0;
+  for (let i = 1; i <= SLOT_COUNT; i++) if (s.getItem(slotKey(i)) === null) return i;
+  return 0;
+}
+
 /** Moves the save of earlier versions into a slot (see above). */
 function migrateLegacy(s: Storage): void {
   try {
-    const legacy = s.getItem(SAVE_KEY);
-    if (legacy === null) return;
-    let target = 0;
-    for (let i = 1; i <= SLOT_COUNT && target === 0; i++) if (s.getItem(slotKey(i)) === null) target = i;
+    const target = legacySlot(s);
     if (target === 0) return;
+    const legacy = s.getItem(SAVE_KEY)!;
     s.setItem(slotKey(target), legacy);
     if (s.getItem(slotKey(target)) !== legacy) return;
     if (lastSlot(s) === null) setLastSlot(s, target);
@@ -228,7 +237,7 @@ export function slotInfo(slot: number): SlotInfo {
   const s = slotStorage();
   let raw: string | null = null;
   try {
-    raw = validSlot(slot) ? (s?.getItem(slotKey(slot)) ?? null) : null;
+    raw = validSlot(slot) && s ? (s.getItem(slotKey(slot)) ?? (legacySlot(s) === slot ? s.getItem(SAVE_KEY) : null)) : null;
   } catch {
     raw = null;
   }
@@ -254,19 +263,34 @@ export function storeSlot(slot: number, data: SaveData): string | null {
   const s = slotStorage();
   if (!s) return 'Could not save: browser storage is unavailable';
   if (!validSlot(slot)) return 'Could not save: no such save slot';
+  let replacesLegacy = false;
   try {
+    replacesLegacy = legacySlot(s) === slot;
     s.setItem(slotKey(slot), JSON.stringify(data));
   } catch (err) {
     return quotaExceeded(err) ? 'Could not save: browser storage is full' : 'Could not save: browser storage is unavailable';
   }
+  // The old save shown in this slot is what was just saved over: it must not move into the next empty one.
+  if (replacesLegacy) removeLegacy(s);
   setLastSlot(s, slot);
   return null;
 }
 
-/** Empties slot `slot` and no other. */
+function removeLegacy(s: Storage): void {
+  try {
+    s.removeItem(SAVE_KEY);
+  } catch {
+    // Only blocked storage throws on a removal.
+  }
+}
+
+/** Empties slot `slot` and no other (the old save showing in it, see legacySlot, included). */
 export function deleteSlot(slot: number): void {
   try {
-    if (validSlot(slot)) slotStorage()?.removeItem(slotKey(slot));
+    const s = validSlot(slot) ? slotStorage() : null;
+    if (!s) return;
+    if (legacySlot(s) === slot) s.removeItem(SAVE_KEY);
+    s.removeItem(slotKey(slot));
   } catch {
     // Removing needs no quota: only blocked storage throws here, and no slot can be read there either.
   }

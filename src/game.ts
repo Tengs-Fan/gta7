@@ -6,7 +6,7 @@ import type { TypedCheat } from './input/cheats';
 import { Input, type FrameInput } from './input/input';
 import { pickTier, probeGpu, QUALITY, type QualitySetting, type QualityTier } from './render/quality';
 import { GameRenderer } from './render/renderer';
-import { anySave, currentSlot, deleteGame, deleteSlot, firstEmptySlot, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, setCurrentSlot, slotInfos, storeGame, SUBTITLE_SIZES, type Settings } from './settings';
+import { anySave, currentSlot, deleteGame, deleteSlot, firstEmptySlot, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, setCurrentSlot, slotInfos, storeGame, storeSlot, SUBTITLE_SIZES, type Settings } from './settings';
 import type { Vehicle } from './sim/entities';
 import { neutralInput } from './sim/input';
 import { applySave, serialize, type SaveData } from './sim/progress';
@@ -243,10 +243,7 @@ export class Game {
       },
       continueGame: this.guard((slot?: number) => this.continueGame(slot)),
       slots: () => slotInfos(),
-      saveToSlot: this.guard((slot: number) => {
-        setCurrentSlot(slot);
-        this.save(false);
-      }),
+      saveToSlot: this.guard((slot: number) => this.save(false, slot)),
       deleteSlot: (slot: number) => {
         deleteSlot(slot);
         // The game saving there carries on, into the now empty slot.
@@ -492,11 +489,13 @@ export class Game {
     this.menus.showSlots('save', this.guard(() => this.resume()));
   }
 
-  private save(auto: boolean): void {
+  /** Saves to the current slot, or to `slot`, which becomes the current slot only once the save is stored there. */
+  private save(auto: boolean, slot?: number): void {
     const sim = this.sim;
     const weapons = sim.player.inventory.owned().filter((w): w is Exclude<WeaponId, 'fists'> => w !== 'fists').map((id) => ({ id, ammo: sim.player.inventory.total(id) }));
     const data = serialize(sim.progress, weapons, sim.player.armor, sim.clock.hours, sim.clock.day, serializeExt(sim));
-    const failed = storeGame(data);
+    const failed = slot === undefined ? storeGame(data) : storeSlot(slot, data);
+    if (failed === null && slot !== undefined) setCurrentSlot(slot);
     this.hud.toast(failed ?? (auto ? 'Autosaved' : 'Game saved'));
   }
 
@@ -530,6 +529,8 @@ export class Game {
   private suspendPlay(): void {
     this.input.exitPointerLock();
     this.audio.setPaused(true);
+    // The scope's opaque mask sits above the screens; the next gameplay frame shows it again if still aiming.
+    this.scope.update(false);
   }
 
   resume(): void {
@@ -750,6 +751,7 @@ export class Game {
         this.keyClosed = { map: shown.el.classList.contains('map-screen'), under: this.menus.top, press: this.input.screenKeyPress };
       }
       this.renderer.render(0, false);
+      this.scope.update(false);
       return;
     }
     if (fi.ui.pause) {
