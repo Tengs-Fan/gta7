@@ -443,7 +443,8 @@ test.describe('GTA 7 devices', () => {
     });
     await page.keyboard.down('KeyW');
     await page.waitForTimeout(1500);
-    // Cycle through every radio station and back to the first.
+    // Step through the stations: from the first, four presses visit the other two music stations and the talk
+    // station and end on RADIO OFF (the fifth stop).
     for (let i = 0; i < 4; i++) {
       await page.keyboard.press('KeyR');
       await page.waitForTimeout(700);
