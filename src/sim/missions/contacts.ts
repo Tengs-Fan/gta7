@@ -24,6 +24,7 @@ export interface ContactDef {
 export const CONTACTS: ContactDef[] = [
   { id: 'lou', name: 'Mama Lou', phoneName: 'Mama Lou (phone)', color: '#ff4fa3', cssClass: 'lou', poiId: 'lou', mapLabel: 'L' },
   { id: 'dex', name: 'Dex Moreau', phoneName: 'Dex Moreau (phone)', color: '#38e1d2', cssClass: 'dex', poiId: 'dex', mapLabel: 'D' },
+  { id: 'vera', name: 'Vera Salgado', phoneName: 'Vera Salgado (phone)', color: '#b8e62e', cssClass: 'vera', poiId: 'vera', mapLabel: 'V' },
 ];
 
 export function findContact(id: ContactId): ContactDef | undefined {
