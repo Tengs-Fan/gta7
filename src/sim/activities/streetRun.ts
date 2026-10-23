@@ -167,14 +167,14 @@ export const streetRunActivity: ActivityDef<StreetRunJob> = {
   // The job key falls back to a run in any vehicle that is not a cab or a police car; `start` explains a refusal.
   canStart: (_host, _slot, vehicle) => !!vehicle,
 
-  prompt: (host, _slot, v) => (v && v.drivable && !v.burning && v.speed < 1 && host.sim.wanted.level === 0 ? 'Press T to start a street run' : null),
+  prompt: (host, _slot, v) => (v && v.spec.class !== 'boat' && v.drivable && !v.burning && v.speed < 1 && host.sim.wanted.level === 0 ? 'Press T to start a street run' : null),
 
   /** Starts the course with id `courseId`, or the nearest start gate in free roam. */
   start(host, _slot, _vehicle, courseId) {
     const sim = host.sim;
     const car = sim.player.vehicle;
     if (host.job || sim.missions.active || sim.playerDown || !sim.player.alive) return false;
-    if (!car || car.driver !== sim.player || !car.drivable || car.removed || car.burning || car.kind === 'taxi' || car.spec.police) {
+    if (!car || car.driver !== sim.player || !car.drivable || car.removed || car.burning || car.kind === 'taxi' || car.spec.police || car.spec.class === 'boat') {
       host.say('Street runs: get into a road car and press T. Taxis and police cars have their own jobs.', 5);
       return false;
     }

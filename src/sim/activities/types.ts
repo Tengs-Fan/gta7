@@ -1,9 +1,14 @@
 import type { Character, Vehicle } from '../entities';
 import type { Sim } from '../sim';
+import type { PlayerView, ViewState } from '../viewState';
 import type { RampageJob } from './rampage';
 import type { StreetRunJob } from './streetRun';
 import type { TaxiJob } from './taxi';
 import type { VigilanteJob } from './vigilante';
+import type { AmbulanceJob } from './ambulance';
+import type { CourierJob } from './courier';
+import type { ExportJob } from './carExport';
+import type { FireJob } from './firefighter';
 
 export interface Objective {
   x: number;
@@ -31,6 +36,10 @@ export interface JobKinds {
   vigilante: VigilanteJob;
   rampage: RampageJob;
   streetRun: StreetRunJob;
+  ambulance: AmbulanceJob;
+  firefighter: FireJob;
+  courier: CourierJob;
+  carExport: ExportJob;
 }
 
 export type Job = JobKinds[keyof JobKinds];
@@ -64,6 +73,8 @@ export interface ActivityDef<J extends ActivityJob = ActivityJob> {
    * -1 so that it stays the fallback for any vehicle nobody else claims.
    */
   readonly priority?: number;
+  /** The job carries on on foot: E at a marker does not end it (as it does a vehicle job the player got out of). */
+  readonly onFoot?: boolean;
   /** Whether the job key starts this activity for a player in `vehicle`. The first registered def to say yes is the one. */
   canStart(host: ActivityHost, slot: ActivitySlot, vehicle?: Vehicle | null): boolean;
   /** The prompt offered while `canStart` holds, or null when the activity is not on offer right now. */
@@ -80,4 +91,6 @@ export interface ActivityDef<J extends ActivityJob = ActivityJob> {
   abortText?(reason: CancelReason): string;
   /** Called once as each Activities facade is built, for listeners the activity keeps on the sim. */
   attach?(host: ActivityHost): void;
+  /** Its row in the completion checklist (map screen, STATS): what counts as done of how much. Absent: no row. */
+  completion?(view: ViewState, me: PlayerView): { label: string; done: number; total: number } | null;
 }

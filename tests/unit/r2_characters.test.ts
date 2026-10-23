@@ -744,7 +744,8 @@ describe('drivers and passengers', () => {
     for (let i = 0; i < leaned.length; i++) expect(leaned[i]!.distanceTo(before[i]!)).toBeLessThan(1e-3);
   });
 
-  it.each(Object.keys(VEHICLE_SPECS) as VehicleKind[])('a %s seats the tallest rider in a cap under its roof, and the shortest with his head in the windows', (kind) => {
+  // Cars: bikes and boats have no roof (their riders: w1_vehicle_views.test.ts).
+  it.each((Object.keys(VEHICLE_SPECS) as VehicleKind[]).filter((k) => VEHICLE_SPECS[k].class === 'car'))('a %s seats the tallest rider in a cap under its roof, and the shortest with his head in the windows', (kind) => {
     const sim = makeSim({ world: world() });
     const b = sim.world.layout.bounds;
     const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.3);
@@ -784,7 +785,8 @@ describe('drivers and passengers', () => {
     });
   });
 
-  it(`occupants are drawn within ${OCCUPANT_RANGE} m only, never in wrecks or burning cars, and the seated player unless hidden`, () => {
+  // Wave 1 (VAL-DRIVE-006): occupants of a burning car used to be hidden; they now stay drawn until it blows up.
+  it(`occupants are drawn within ${OCCUPANT_RANGE} m only, in burning cars too but never in wrecks, and the seated player unless hidden`, () => {
     const { sim, v, driver, passenger } = sedanWithTwo();
     const count = (cv: CrowdView) => parts(cv).head!.mesh.count;
     const cv = new CrowdView();
@@ -794,7 +796,7 @@ describe('drivers and passengers', () => {
     expect(count(cv)).toBe(2);
     v.burning = true;
     cv.sync([driver, passenger], v.pos.x, v.pos.z, 1 / 60);
-    expect(count(cv)).toBe(0);
+    expect(count(cv)).toBe(2);
     v.burning = false;
     v.destroyed = true;
     cv.sync([driver, passenger], v.pos.x, v.pos.z, 1 / 60);

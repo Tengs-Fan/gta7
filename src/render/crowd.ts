@@ -15,6 +15,7 @@ import {
 import type { VehicleKind, WeaponId } from '../sim/specs';
 import { characterGeometries, type CharacterPartName } from './characterGeometry';
 import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
+import { riderMount } from './riders';
 import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
 
 const MAX = 240;
@@ -53,10 +54,28 @@ export const LENS_FADE_FULL = 0.9;
  * and no extra draws; shadows come from the default depth material, so a faded player keeps his.
  */
 function fadeNearLens(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  fadeByInstance(shader);
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <clipping_planes_fragment>',
+    `#include <clipping_planes_fragment>
+if ( vViewPosition.z < ${LENS_FADE_FULL.toFixed(2)} && lensBayer4( gl_FragCoord.xy ) >= smoothstep( ${LENS_FADE_GONE.toFixed(2)}, ${LENS_FADE_FULL.toFixed(2)}, vViewPosition.z ) ) discard;`,
+  );
+}
+
+/**
+ * A character fading in (just come into view) or out (just removed): each instance's `instanceFade` (0..1) keeps that
+ * share of its pixels through the same 4x4 Bayer dither, so a fade needs no transparency, sorting or extra draw, and
+ * every tier draws it with the program it already has.
+ */
+function fadeByInstance(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nattribute float instanceFade;\nvarying float vInstanceFade;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvInstanceFade = instanceFade;');
   shader.fragmentShader = shader.fragmentShader
     .replace(
       '#include <common>',
       `#include <common>
+varying float vInstanceFade;
 float lensBayer4( vec2 frag ) {
   const float m[ 16 ] = float[ 16 ]( 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 );
   ivec2 p = ivec2( mod( floor( frag ), 4.0 ) );
@@ -66,8 +85,33 @@ float lensBayer4( vec2 frag ) {
     .replace(
       '#include <clipping_planes_fragment>',
       `#include <clipping_planes_fragment>
-if ( vViewPosition.z < ${LENS_FADE_FULL.toFixed(2)} && lensBayer4( gl_FragCoord.xy ) >= smoothstep( ${LENS_FADE_GONE.toFixed(2)}, ${LENS_FADE_FULL.toFixed(2)}, vViewPosition.z ) ) discard;`,
+if ( vInstanceFade < 1.0 && lensBayer4( gl_FragCoord.xy ) >= vInstanceFade ) discard;`,
     );
+}
+
+/**
+ * The characters' shadow: three's depth material with the same per-instance fade (dithered in the shadow map), and no
+ * lens fade, so a player dissolved by the camera keeps his shadow.
+ */
+function characterDepthMaterial(): THREE.MeshDepthMaterial {
+  const m = new THREE.MeshDepthMaterial();
+  m.onBeforeCompile = fadeByInstance;
+  return m;
+}
+
+/** A character coming into view fades in over this long (s); one removed in view fades out over PED_FADE_OUT. */
+export const PED_FADE_IN = 0.5;
+export const PED_FADE_OUT = 0.6;
+
+const FIRST_DRAWN_LOG = 400;
+
+/** Per character drawn: its fade (0..1), whether it is fading out after removal, and the frame it was last drawn. */
+interface Fade {
+  f: number;
+  out: boolean;
+  frame: number;
+  /** Last drawn on foot (a rider removed with his car does not linger). */
+  foot: boolean;
 }
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
@@ -199,6 +243,15 @@ export class CrowdView {
   private readonly pivots = new Map<VehicleKind, number>();
   private readonly seat: RiderSeat = { y: 0, z: 0, recline: 0 };
   private readonly muzzle = { x: 0, y: 0, z: 0 };
+  /** Fades by character (object identity: ids start again in a new session). */
+  private readonly fades = new Map<Character, Fade>();
+  /** The fade every instance put now is drawn with. */
+  private drawFade = 1;
+  /**
+   * The latest characters drawn for the first time (on foot): id, place, and the fade of that first frame. For checks
+   * in the browser (`__gta7.game.renderer.crowd.firstDrawn`); holds the last FIRST_DRAWN_LOG.
+   */
+  readonly firstDrawn: Array<{ id: number; x: number; z: number; fade: number; frame: number }> = [];
 
   constructor() {
     this.group.name = 'crowd';
@@ -208,9 +261,12 @@ export class CrowdView {
       m.userData.contactShadow = false; // Keep dissolved character parts out of the contact depth pass.
       return m;
     };
+    const depth = characterDepthMaterial();
     const make = (geo: THREE.BufferGeometry, count: number): Part => {
+      geo.setAttribute('instanceFade', new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1).setUsage(THREE.DynamicDrawUsage));
       const mesh = new THREE.InstancedMesh(geo, mat(geo.hasAttribute('color')), count);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.customDepthMaterial = depth;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
@@ -278,7 +334,19 @@ export class CrowdView {
     if (part.n >= part.mesh.instanceMatrix.count) return;
     part.mesh.setMatrixAt(part.n, m);
     part.mesh.setColorAt(part.n, colorOf(color));
+    (part.mesh.geometry.getAttribute('instanceFade').array as Float32Array)[part.n] = this.drawFade;
     part.n++;
+  }
+
+  /** The fade (0..1) `c` was last drawn with, or undefined when it was not drawn. */
+  fadeOf(c: Character): number | undefined {
+    return this.fades.get(c)?.f;
+  }
+
+  /** Clears every fade (a new session: none of the old characters fade out over the new one). */
+  reset(): void {
+    this.fades.clear();
+    this.firstDrawn.length = 0;
   }
 
   /**
@@ -300,32 +368,79 @@ export class CrowdView {
     for (const c of chars) {
       if (c.removed || c.id === this.hiddenId) continue;
       if (c.state === 'inVehicle') {
+        // Riders come and go with their car, which does not fade: whole, and whole when they get out.
+        this.fadeFor(c, true, dt).foot = false;
         const v = c.vehicle;
-        if (!v || v.removed || v.destroyed || v.burning) continue;
+        // A burning car still shows who is in it (until he gets out or it blows up).
+        if (!v || v.removed || v.destroyed) continue;
         if ((v.pos.x - camX) ** 2 + (v.pos.z - camZ) ** 2 > OCCUPANT_RANGE * OCCUPANT_RANGE) continue;
+        this.drawFade = 1;
         this.trackShot(c);
         this.seated(c, v);
         continue;
       }
       if ((c.pos.x - camX) ** 2 + (c.pos.z - camZ) ** 2 > 200 * 200) continue;
+      const fade = this.fadeFor(c, c === this.player, dt);
+      fade.foot = true;
+      this.drawFade = fade.f;
       this.trackShot(c);
-      let anim = this.lie.get(c.id);
-      if (!anim) {
-        anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, frame: 0 };
-        this.lie.set(c.id, anim);
-      }
-      anim.frame = this.frame;
-      this.pose(c, anim, dt);
+      this.poseOnFoot(c, dt);
     }
+    // Characters removed while drawn on foot (a body or a despawned ped) fade out where they were; the rest are gone.
+    for (const [c, s] of this.fades) {
+      if (s.frame === this.frame) continue;
+      if (!s.out && c.removed && s.f > 0 && s.foot) s.out = true;
+      if (s.out) s.f -= dt / PED_FADE_OUT;
+      if (!s.out || s.f <= 0) {
+        this.fades.delete(c);
+        continue;
+      }
+      s.frame = this.frame;
+      this.drawFade = s.f;
+      this.poseOnFoot(c, dt);
+    }
+    this.drawFade = 1;
     for (const [id, a] of this.lie) if (a.frame !== this.frame) this.lie.delete(id);
     for (const [id, s] of this.shots) if (s.frame !== this.frame) this.shots.delete(id);
     const finish = (p: Part) => {
       p.mesh.count = p.n;
       p.mesh.instanceMatrix.needsUpdate = true;
       if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true;
+      p.mesh.geometry.getAttribute('instanceFade').needsUpdate = true;
     };
     for (const p of Object.values(this.parts)) finish(p);
     for (const p of this.weapons.values()) finish(p);
+  }
+
+  /**
+   * The fade `c` is drawn with this frame: 0 the first time (the player and riders whole at once), then up by
+   * dt / PED_FADE_IN a frame.
+   */
+  private fadeFor(c: Character, whole: boolean, dt: number): Fade {
+    let s = this.fades.get(c);
+    if (!s) {
+      s = { f: whole ? 1 : 0, out: false, frame: this.frame, foot: false };
+      this.fades.set(c, s);
+      if (!whole) {
+        this.firstDrawn.push({ id: c.id, x: c.pos.x, z: c.pos.z, fade: 0, frame: this.frame });
+        if (this.firstDrawn.length > FIRST_DRAWN_LOG) this.firstDrawn.shift();
+      }
+    } else {
+      s.f = whole ? 1 : Math.min(1, s.f + dt / PED_FADE_IN);
+      s.out = false;
+    }
+    s.frame = this.frame;
+    return s;
+  }
+
+  private poseOnFoot(c: Character, dt: number): void {
+    let anim = this.lie.get(c.id);
+    if (!anim) {
+      anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, frame: 0 };
+      this.lie.set(c.id, anim);
+    }
+    anim.frame = this.frame;
+    this.pose(c, anim, dt);
   }
 
   // ---------------------------------------------------------------------------
@@ -787,6 +902,10 @@ export class CrowdView {
    * and in front of the low seat back), carried by the car body as drawn; the driver's hands on the wheel the car draws.
    */
   private seated(c: Character, v: Vehicle): void {
+    if (v.spec.class !== 'car') {
+      this.riding(c, v);
+      return;
+    }
     const layout = cabinLayout(v.kind);
     const weapon = c.inventory.current;
     const shooting = weapon !== 'fists' && c.shotTimer > 0;
@@ -843,6 +962,57 @@ export class CrowdView {
         pole.copy(S.vfwd).multiplyScalar(-0.4).addScaledVector(S.vleft, sd * 0.4).sub(S.vup);
       }
       this.armTo(sd > 0 ? S.shL : S.shR, target, pole, S.left, c);
+    }
+  }
+
+  /**
+   * A rider on a bike or a boat, on the seat its view publishes (riders.ts): hips on the seat, the torso tilted as the
+   * seat says, the hands on the bars, wheel or tiller and the soles on the pegs or the deck, all carried by the body as
+   * drawn (a bike's lean and wheelie). A shooter holds his gun out to his side instead of the grip on that side.
+   */
+  private riding(c: Character, v: Vehicle): void {
+    const mount = riderMount(v);
+    if (!mount || mount.seats.length === 0) return;
+    const seat = mount.seats[Math.min(c.seat, mount.seats.length - 1)]!;
+    const a = c.appearance;
+    const s = a.height;
+    const frame = S.frame.copy(mount.frame.matrixWorld);
+    const vrot = S.vrot.extractRotation(frame);
+    S.vleft.set(1, 0, 0).transformDirection(vrot);
+    S.vup.set(0, 1, 0).transformDirection(vrot);
+    S.vfwd.set(0, 0, 1).transformDirection(vrot);
+    const P = S.pelvis.set(seat.hip.x, seat.hip.y, seat.hip.z).applyMatrix4(frame);
+    S.body.copy(vrot).multiply(S.rot2.makeRotationX(-seat.recline));
+    // Leaning forward over the bars he lifts his head to look ahead; leaning back he tips it forward.
+    this.torso(c, P, seat.recline * 0.85);
+    this.shoulders(c, P);
+    const hx = hipSpread(a.build);
+    for (const sd of [1, -1] as const) {
+      const hip = (sd > 0 ? S.hipL : S.hipR).copy(P).addScaledVector(S.vleft, sd * hx);
+      const f = seat.feet[sd > 0 ? 0 : 1];
+      const foot = S.ankle.set(f.x, f.y + SKELETON.ankleY * s, f.z).applyMatrix4(frame);
+      S.pole.copy(S.vfwd).addScaledVector(S.vleft, sd * 0.35);
+      solveTwoBone(hip.x, hip.y, hip.z, foot.x, foot.y, foot.z, SKELETON.thigh * s, SKELETON.shin * s, S.pole.x, S.pole.y, S.pole.z, ik);
+      S.knee.set(ik.mx, ik.my, ik.mz);
+      const ankle = S.wrist.set(ik.ex, ik.ey, ik.ez);
+      this.bone(this.parts.thigh, hip, S.knee, S.vleft, s, a.pants);
+      this.bone(this.parts.shin, S.knee, ankle, S.vleft, s, a.pants);
+      S.inst.copy(vrot).scale(S.sc.set(1, s, s)).setPosition(ankle);
+      this.put(this.parts.shoe, S.inst, 0xffffff);
+    }
+    const weapon = c.inventory.current;
+    const side = seatSide(c.seat);
+    let busy = 0;
+    if (weapon !== 'fists' && c.shotTimer > 0) {
+      busy = side;
+      this.windowGun(c, v, weapon, side > 0 ? S.shL : S.shR, side);
+    }
+    for (const sd of [1, -1] as const) {
+      if (sd === busy) continue;
+      const h = seat.hands[sd > 0 ? 0 : 1];
+      const target = (sd > 0 ? S.targetL : S.targetR).set(h.x, h.y, h.z).applyMatrix4(frame);
+      S.pole.copy(S.vup).negate().addScaledVector(S.vleft, sd * 0.6).addScaledVector(S.vfwd, -0.3);
+      this.armTo(sd > 0 ? S.shL : S.shR, target, S.pole, S.left, c);
     }
   }
 

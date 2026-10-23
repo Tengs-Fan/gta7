@@ -239,8 +239,9 @@ describe('the HUD and the game treat an event without a playerId as slot 0', () 
 
   it('the game saves on a saveRequested without a playerId or with playerId 0, not for another player', () => {
     const sim = new Sim({ world: world(), ambient: false, police: false });
+    // The safehouse opens the save slot picker (wave 1: three slots), which saves once a slot is chosen.
     const save = vi.fn();
-    const game = { save, pendingAutosave: false };
+    const game = { save, openSavePicker: save, pendingAutosave: false };
     const bindSaves = (Game.prototype as unknown as { bindSaves(sim: Sim): Array<() => void> }).bindSaves;
     bindSaves.call(game, sim);
     sim.events.emit('saveRequested', { poi: 'safehouse' });

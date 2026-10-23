@@ -136,7 +136,8 @@ function steerRun(kind: VehicleKind, speed: number, mode: SteerMode, secs: numbe
   return { v, turned };
 }
 
-const KINDS = Object.keys(VEHICLE_SPECS) as VehicleKind[];
+// Road vehicles: boats steer on the water (w1_boats.test.ts).
+const KINDS = (Object.keys(VEHICLE_SPECS) as VehicleKind[]).filter((k) => VEHICLE_SPECS[k].class !== 'boat');
 /** Kinds whose top speed is above 30 m/s. */
 const FAST = KINDS.filter((k) => VEHICLE_SPECS[k].maxSpeed > 31);
 
@@ -432,7 +433,9 @@ describe('traffic ahead of a fast driver (P41)', () => {
         spawned++;
         if (sim.isVisible(o.pos.x, 1, o.pos.z)) spawnedInView++;
         const lane = o.ai?.currentLane();
-        const atLine = !!lane && lane.length - ((o.pos.x - lane.sx) * lane.dx + (o.pos.z - lane.sz) * lane.dz) < 12;
+        // Wave 1: at the avenue's junctions, his way; a car waiting at a red light a block or more off to the side is
+        // not in his way (it only showed up once motorbikes in the mix reshuffled the traffic).
+        const atLine = !!lane && lane.length - ((o.pos.x - lane.sx) * lane.dx + (o.pos.z - lane.sz) * lane.dz) < 12 && Math.abs(sim.roads.nodes[lane.to]!.x - n.x) < AVENUE_W;
         if (lane && lane.dir % 2 === 1 && atLine && isRed(lane)) {
           expect(o.speed).toBe(0);
           held.set(o, lane);

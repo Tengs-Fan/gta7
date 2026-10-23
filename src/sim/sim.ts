@@ -31,6 +31,8 @@ import type { Progress } from './progress';
 import { VEHICLE_SPECS, type VehicleKind } from './specs';
 import { TrafficSystem } from './traffic';
 import { registeredSystems, SystemSlots, type SimSystem, type SystemSlot } from './systems';
+import { abandonSinkingCar } from './sinking';
+import './vehicleSystems';
 import { collideVehicles, collideVehicleStatic, stepVehicle, type VehiclePhysicsHost } from './vehiclePhysics';
 import type { WantedSystem } from './wanted';
 import { WeatherSystem, type WeatherMode } from './weather';
@@ -45,6 +47,8 @@ export interface SimOptions {
   startHour?: number;
   /** 'dynamic' follows the seed's weather schedule; 'clear' (the default) keeps clear skies. */
   weather?: WeatherMode;
+  /** Keep the activity vehicles (ambulance, fire truck) standing at their depots; off by default. */
+  serviceVehicles?: boolean;
 }
 
 const PHYSICS_STEP = 1 / 120;
@@ -83,6 +87,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
 
   ambient: boolean;
   policeEnabled: boolean;
+  /** See SimOptions.serviceVehicles. */
+  serviceVehicles: boolean;
   /** Simulation-time callbacks (see pickups.setTimeoutLike). */
   readonly timers: Array<{ at: number; fn: () => void }> = [];
 
@@ -96,6 +102,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.weather = new WeatherSystem(opts.seed ?? 7, opts.weather ?? 'clear');
     this.ambient = opts.ambient ?? true;
     this.policeEnabled = opts.police ?? true;
+    this.serviceVehicles = opts.serviceVehicles ?? false;
 
     // Start on the sidewalk a few steps from the safehouse door, facing the street.
     const home = this.world.layout.pois.find((p) => p.id === 'safehouse')!;
@@ -555,11 +562,11 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   onVehicleEnteredWater(v: Vehicle): void {
     this.events.emit('splash', { x: v.pos.x, y: WATER_Y, z: v.pos.z, big: true });
     v.burning = false;
-    for (const o of v.occupants()) {
-      const slot = this.slotOf(o);
-      if (slot) slot.ctl.ejectPlayer(false);
-      else this.removeCharacter(o);
-    }
+    // The others swim out or drown (sinking.ts), charged to the player if he drove it in.
+    const culprit = v.driver && this.slotOf(v.driver) ? v.driver : null;
+    const npcs = v.occupants().filter((o) => !this.slotOf(o));
+    for (const o of v.occupants()) this.slotOf(o)?.ctl.ejectPlayer(false);
+    abandonSinkingCar(this, v, npcs, culprit);
   }
 
   onCharacterHitByVehicle(c: Character, v: Vehicle, relSpeed: number, nx: number, nz: number): void {

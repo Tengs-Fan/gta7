@@ -9,11 +9,16 @@ import { showControls } from './screens/controls';
 import { showMap } from './screens/map';
 import { showPause } from './screens/pause';
 import { showSettings } from './screens/settings';
+import { showSlots, type SlotPickerMode } from './screens/slots';
 import { showShop } from './screens/shop';
 import { showStats } from './screens/stats';
 import { showStreetRuns } from './screens/streetRuns';
 import { showCredits, showTitle } from './screens/title';
 import { h, showConfirm, type MenuCtx, type MenuHost, type Screen } from './screens/shared';
+import { screenOpener } from './screens/registry';
+import './screens/exportBoard';
+import './screens/customs';
+import { showPhone, type PhoneHost } from './widgets/phone';
 
 export { NEW_GAME_WARNING } from './screens/title';
 export type { MenuHost, StreetRunMedalTimes } from './screens/shared';
@@ -174,6 +179,11 @@ export class Menus {
     showStats(this.ctx);
   }
 
+  /** The save slot picker (CONTINUE, the safehouse, SETTINGS' DELETE SAVE); `onClose` runs when it closes. */
+  showSlots(mode: SlotPickerMode, onClose?: () => void): void {
+    showSlots(this.ctx, mode, onClose);
+  }
+
   showSettings(): void {
     showSettings(this.ctx);
   }
@@ -182,8 +192,18 @@ export class Menus {
     showShop(this.ctx, onClose);
   }
 
+  /** A screen registered by name (screens/registry.ts); false if there is none or it has nothing to show. */
+  showScreen(name: string, onClose: () => void): boolean {
+    return screenOpener(name)?.(this.ctx, onClose) ?? false;
+  }
+
   /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
   showMap(onClose?: () => void): void {
     showMap(this.ctx, onClose);
+  }
+
+  /** The phone; `onClose` runs when it closes (resume the game). */
+  showPhone(host: PhoneHost, onClose?: () => void): void {
+    showPhone(this.ctx, host, onClose);
   }
 }

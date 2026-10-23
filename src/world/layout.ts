@@ -311,6 +311,7 @@ export const SPECIALS: readonly SpecialDef[] = [
     name: 'Moreau Tower',
     build: { type: 'tower', height: 128, podium: 14, shaft: 112, style: 'glassTeal', roof: 'helipad', sign: { text: 'MOREAU', color: '#38e1d2' } },
   },
+  { id: 'vera', kind: 'contactVera', bi: 5, bj: 9, side: 'E', name: 'Hotel Salgado', build: { type: 'tower', height: 30, podium: 6, shaft: 24, style: 'hotel', roof: 'flat', sign: { text: 'HOTEL SALGADO', color: '#b8e62e' } } },
 ];
 
 /** The building kinds that are towers: their ground floor is a lobby. */

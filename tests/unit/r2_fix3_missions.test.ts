@@ -278,13 +278,13 @@ describe("The Big Score's finale at the Marina", () => {
     return { sim, m, car, marina };
   }
 
-  it('stops the getaway car on the deck at any arrival speed: no plunge off its end, and THE END follows MISSION PASSED', () => {
+  it('stops the getaway car on the deck at any arrival speed: no plunge off its end, and CHAPTER 1 COMPLETE follows MISSION PASSED', () => {
     for (const speed of [18, 30, 50]) {
       const { sim, car } = finale();
       const big = record(sim, 'big');
       let atEnd: { x: number; inWater: boolean; inCar: boolean; state: string } | null = null;
       sim.events.on('big', (e) => {
-        if (e.text === 'THE END') atEnd = { x: car.pos.x, inWater: car.inWater, inCar: sim.player.vehicle === car, state: sim.player.state };
+        if (e.text === 'CHAPTER 1 COMPLETE') atEnd = { x: car.pos.x, inWater: car.inWater, inCar: sim.player.vehicle === car, state: sim.player.state };
       });
       // Flat out down the deck, kept at `speed` until the marker locks the controls; then hands off.
       for (let t = 0; t < 3 && sim.controlLock === 0; t += 1 / 60) {
@@ -297,7 +297,7 @@ describe("The Big Score's finale at the Marina", () => {
       expect(atEnd, `speed ${speed}`).toEqual({ x: expect.any(Number), inWater: false, inCar: true, state: 'inVehicle' });
       // On the deck, short of its end (x 664).
       expect(atEnd!.x, `speed ${speed}`).toBeLessThan(660);
-      expect(big.map((b) => b.text).slice(-2)).toEqual(['MISSION PASSED', 'THE END']);
+      expect(big.map((b) => b.text).slice(-2)).toEqual(['MISSION PASSED', 'CHAPTER 1 COMPLETE']);
       expect(sim.progress.missionsDone).toContain('big_score');
     }
   });
@@ -575,10 +575,10 @@ describe('a failure with stars', () => {
   });
 });
 
-// --- THE END after MISSION PASSED ------------------------------------------------------
+// --- CHAPTER 1 COMPLETE after MISSION PASSED ------------------------------------------------------
 
 describe("The Big Score's last cards", () => {
-  it('shows MISSION PASSED, with its sting and money, before THE END', () => {
+  it('shows MISSION PASSED, with its sting and money, before CHAPTER 1 COMPLETE', () => {
     const sim = setup(before('big_score'), { police: false });
     expect(sim.missions.start('big_score', { resume: 1 })).toBe(true);
     step(sim, 0.1);
@@ -588,8 +588,8 @@ describe("The Big Score's last cards", () => {
     const big = record(sim, 'big');
     parkIn(sim, car, marina.x - 3, marina.z);
     stepUntil(sim, () => sim.missions.active === null, 15);
-    expect(big.map((b) => b.text)).toEqual(['MISSION PASSED', 'THE END']);
-    expect(big[1]).toEqual({ text: 'THE END', sub: 'Thanks for playing GTA 7: Grand Turbo Anarchy', style: 'title', duration: 6 });
+    expect(big.map((b) => b.text)).toEqual(['MISSION PASSED', 'CHAPTER 1 COMPLETE']);
+    expect(big[1]).toEqual({ text: 'CHAPTER 1 COMPLETE', sub: 'Vera Salgado has work: the lime V, Hotel Salgado', style: 'title', duration: 6 });
   });
 });
 

@@ -23,7 +23,8 @@ const summary = (d: MissionDef) => ({ id: d.id, title: d.title, giver: d.giver, 
 
 describe('contact table', () => {
   it('has Lou and Dex with the colours, labels and names they always had', () => {
-    expect(CONTACTS.map((c) => c.id)).toEqual(['lou', 'dex']);
+    // Vera Salgado (chapter 2) comes after them.
+    expect(CONTACTS.map((c) => c.id)).toEqual(['lou', 'dex', 'vera']);
     const lou = contactById('lou');
     expect(lou).toMatchObject({ name: 'Mama Lou', phoneName: 'Mama Lou (phone)', color: '#ff4fa3', cssClass: 'lou', poiId: 'lou', mapLabel: 'L' });
     expect(contactColorNumber(lou)).toBe(0xff4fa3);
@@ -41,7 +42,8 @@ describe('contact table', () => {
 
 describe('story per contact', () => {
   it('keeps the ids, order, titles, givers and unlock requirements of the single story file', () => {
-    expect(STORY.map(summary)).toEqual(BASELINE);
+    // Chapter 2 is appended after them (see story2_contact.test.ts).
+    expect(STORY.slice(0, BASELINE.length).map(summary)).toEqual(BASELINE);
     expect(REEXPORTED).toBe(STORY);
   });
 
@@ -112,6 +114,6 @@ describe('a contact added by a table row and a missions array', () => {
   it('leaves the real tables as they were', () => {
     expect(CONTACTS).toEqual(ORIGINAL_CONTACTS);
     expect(STORY).toEqual(ORIGINAL_STORY);
-    expect(STORY.map(summary)).toEqual(BASELINE);
+    expect(STORY.slice(0, BASELINE.length).map(summary)).toEqual(BASELINE);
   });
 });

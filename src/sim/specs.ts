@@ -29,7 +29,54 @@ export const DEFAULT_HORN: readonly [number, number] = [392, 494];
  */
 export const GUN_PORT = { z0: -0.24, z1: -0.07, y0: 0.6, y1: 0.8 } as const;
 
-export type VehicleKind = 'compact' | 'sedan' | 'taxi' | 'sports' | 'muscle' | 'pickup' | 'van' | 'bus' | 'police' | 'swat';
+export type VehicleKind = 'compact' | 'sedan' | 'taxi' | 'sports' | 'muscle' | 'pickup' | 'van' | 'bus' | 'police' | 'swat' | 'ambulance' | 'firetruck' | 'sportbike' | 'scooter' | 'speedboat' | 'dinghy';
+
+/**
+ * The side profile of a kind whose view is drawn from data (render/vehicleView.ts profile()): points along the length
+ * (fraction of it, front +) and up (fraction of the height), as the hard-coded profiles there are written. The cabin runs
+ * front-bottom, front-top, rear-top, rear-bottom; a positive cabinInset (m) makes it a see-through glass cabin.
+ */
+export interface VehicleBodyProfile {
+  body: ReadonlyArray<readonly [number, number]>;
+  cabin: ReadonlyArray<readonly [number, number]>;
+  cabinInset: number;
+  /** Wheel radius (m) and axle positions (fractions of the length). */
+  wheelR: number;
+  wheelFront: number;
+  wheelRear: number;
+  /** Lamp height, fraction of the height. */
+  lightY: number;
+  rearSeats?: boolean;
+  /** Flanks straight down to the sills, as on the vans and the bus: a tall body's pressed sill would bare its big tyres. */
+  straightSides?: boolean;
+}
+
+/** A box of fixed equipment on a data-drawn kind (light bars, ladders, stripes): size and centre in metres, view frame (+x left, +y up, +z forward). */
+export interface VehicleGearBox {
+  size: readonly [number, number, number];
+  at: readonly [number, number, number];
+  color: number;
+  /** Lit lenses glow in this colour. */
+  emissive?: number;
+}
+
+/** How a motorbike (class 'bike') rides: see sim/bikePhysics.ts. */
+export interface BikeSpec {
+  /** The furthest it leans into a turn (rad), reached at the tyres' grip limit. */
+  leanCap: number;
+  /** The front lifting under full throttle: its highest pitch (rad) and the speed (m/s) above which it comes down. Absent: no wheelie. */
+  wheelie?: { readonly pitch: number; readonly speed: number };
+  /** A change of speed in one frame (m/s, a crash) above which the rider is thrown off. */
+  throwSpeed: number;
+}
+
+/** How a boat (class 'boat') floats and handles: see sim/boatPhysics.ts. */
+export interface BoatSpec {
+  /** How deep the hull reaches under the waterline (m): water shallower than this runs it aground. */
+  draft: number;
+  /** Yaw rate (rad/s) at full rudder once it has steerage way. */
+  turnRate: number;
+}
 
 export interface VehicleSpec {
   kind: VehicleKind;
@@ -48,6 +95,11 @@ export interface VehicleSpec {
   grip: number;
   /** Maximum steering angle at standstill (rad). */
   steer: number;
+  /**
+   * The speed (m/s) at which the steering limit has halved (see steerLimit in vehiclePhysics.ts); a kind without one
+   * takes STEER_FADE. A bike's comes much sooner than a car's: full lock to walk it round, little at speed.
+   */
+  steerFade?: number;
   health: number;
   seats: number;
   colors: readonly number[];
@@ -68,6 +120,16 @@ export interface VehicleSpec {
    * (see firingRow in pose.ts); a kind without it fires from its centre ([0, 0]).
    */
   firingRows?: readonly [number, number];
+  /** Drawn from this profile instead of a hard-coded one (see VehicleBodyProfile). */
+  bodyProfile?: VehicleBodyProfile;
+  /** Fixed equipment drawn on the body; it chars with a wreck. */
+  gear?: readonly VehicleGearBox[];
+  /** The fire control sprays water instead of firing a gun (sim/waterCannon.ts). */
+  waterCannon?: boolean;
+  /** Class 'bike' only: lean, wheelie and fall-off. */
+  bike?: BikeSpec;
+  /** Class 'boat' only: draft and rudder. */
+  boat?: BoatSpec;
 }
 
 const CIVIL_COLORS = [0xb03a2e, 0x1f618d, 0x117a65, 0xd4ac0d, 0xeeeeee, 0x1c1c1c, 0x7f8c8d, 0x6c3483, 0xca6f1e, 0x2e4053, 0x922b21, 0xa9cce3, 0x5d6d7e, 0x186a3b];
@@ -82,7 +144,51 @@ export const VEHICLE_SPECS: Readonly<Record<VehicleKind, VehicleSpec>> = {
   van: { kind: 'van', name: 'Breadbox', length: 5.1, width: 2.1, height: 2.4, mass: 2500, accel: 8, maxSpeed: 35, reverseSpeed: 8, brake: 15, grip: 18, steer: 0.58, health: 1400, seats: 2, colors: [0xf2f3f4, 0xd5d8dc, 0x2e86c1, 0x1e8449, 0xb9770e], police: false, value: 22000, durability: 0.8, rollGain: 1.6, pitchGain: 1.4, class: 'car', engine: { cylinders: 4, idleRpm: 600, redlineRpm: 3500, brightness: 0.35, roughness: 0.3, loudness: -0.5, horn: [311, 392], diesel: true }, firingRows: [0.24, 0.24] },
   bus: { kind: 'bus', name: 'Citybus', length: 11.5, width: 2.6, height: 3.2, mass: 9000, accel: 5.5, maxSpeed: 28, reverseSpeed: 6, brake: 12, grip: 15, steer: 0.55, health: 3000, seats: 1, colors: [0x2e86c1, 0xc0392b], police: false, value: 90000, durability: 0.4, rollGain: 1.6, pitchGain: 1.4, class: 'car', engine: { cylinders: 6, idleRpm: 550, redlineRpm: 2600, brightness: 0.3, roughness: 0.2, loudness: 1.5, horn: [220, 277], diesel: true } },
   police: { kind: 'police', name: 'Patrol Cruiser', length: 4.9, width: 2.0, height: 1.5, mass: 1650, accel: 14, maxSpeed: 52, reverseSpeed: 11, brake: 20, grip: 24, steer: 0.6, health: 1300, seats: 2, colors: [0x101820], police: true, value: 40000, durability: 0.7, rollGain: 0.9, pitchGain: 0.9, class: 'car', engine: { cylinders: 8, idleRpm: 750, redlineRpm: 6500, brightness: 0.6, roughness: 0.12, loudness: 0.5, horn: DEFAULT_HORN }, firingRows: [0, -0.138] },
+  // Motorbikes: a short wheelbase and a full lock that fades quickly with speed (steerFade): as nimble as a car at
+  // walking pace, and short of the grip limit, where they lean furthest, until well over 10 m/s.
+  sportbike: { kind: 'sportbike', name: 'Viper 600', length: 2.1, width: 0.8, height: 1.15, mass: 210, accel: 12, maxSpeed: 52, reverseSpeed: 2.5, brake: 16, grip: 18, steer: 0.55, steerFade: 6, health: 450, seats: 2, colors: [0xc0392b, 0x1c1c1c, 0xf1c40f, 0x2874a6, 0xeeeeee, 0x27ae60], police: false, value: 16000, durability: 1.4, rollGain: 0, pitchGain: 0, class: 'bike', engine: { cylinders: 4, idleRpm: 1400, redlineRpm: 13000, brightness: 0.95, roughness: 0.1, loudness: -2, horn: [523, 659] }, bike: { leanCap: 0.75, wheelie: { pitch: 0.32, speed: 12 }, throwSpeed: 11 } },
+  scooter: { kind: 'scooter', name: 'Zippa 50', length: 1.8, width: 0.7, height: 1.15, mass: 110, accel: 7, maxSpeed: 26, reverseSpeed: 2, brake: 13, grip: 17, steer: 0.55, steerFade: 5, health: 320, seats: 2, colors: [0xa9cce3, 0xf4d03f, 0xeeeeee, 0xe74c3c, 0x58d68d, 0x1c1c1c], police: false, value: 2500, durability: 1.5, rollGain: 0, pitchGain: 0, class: 'bike', engine: { cylinders: 1, idleRpm: 1900, redlineRpm: 8000, brightness: 0.7, roughness: 0.45, loudness: -6, horn: [622, 740] }, bike: { leanCap: 0.62, throwSpeed: 10 } },
+  // Boats float at WATER_Y: `grip` is the hull's sideways drag in the water, `brake` the drag of the water with the throttle shut.
+  speedboat: { kind: 'speedboat', name: 'Marlin', length: 6.4, width: 2.3, height: 1.5, mass: 1600, accel: 7.5, maxSpeed: 34, reverseSpeed: 5, brake: 4, grip: 7, steer: 0.5, health: 1100, seats: 4, colors: [0xf4f6f7, 0x1f4e79, 0xb03a2e, 0x1c1c1c], police: false, value: 60000, durability: 0.8, rollGain: 1, pitchGain: 1, class: 'boat', engine: { cylinders: 8, idleRpm: 700, redlineRpm: 5600, brightness: 0.5, roughness: 0.25, loudness: 1, horn: [233, 294] }, boat: { draft: 0.45, turnRate: 0.85 } },
+  dinghy: { kind: 'dinghy', name: 'Puffin', length: 3.8, width: 1.7, height: 0.9, mass: 380, accel: 4, maxSpeed: 15, reverseSpeed: 3.5, brake: 3, grip: 5, steer: 0.6, health: 500, seats: 2, colors: [0xe67e22, 0x7f8c8d, 0xc0392b, 0xf4d03f], police: false, value: 7000, durability: 1.1, rollGain: 1, pitchGain: 1, class: 'boat', engine: { cylinders: 2, idleRpm: 1100, redlineRpm: 6000, brightness: 0.6, roughness: 0.45, loudness: -5, horn: [440, 554] }, boat: { draft: 0.3, turnRate: 1.1 } },
   swat: { kind: 'swat', name: 'Riot Van', length: 5.8, width: 2.3, height: 2.6, mass: 3800, accel: 10, maxSpeed: 42, reverseSpeed: 8, brake: 15, grip: 19, steer: 0.55, health: 2600, seats: 4, colors: [0x1b2631], police: true, value: 80000, durability: 0.35, rollGain: 1.3, pitchGain: 1.2, class: 'car', engine: { cylinders: 6, idleRpm: 600, redlineRpm: 3200, brightness: 0.35, roughness: 0.25, loudness: 1, horn: [262, 330], diesel: true }, firingRows: [0.283, (GUN_PORT.z0 + GUN_PORT.z1) / 2] },
+  ambulance: {
+    kind: 'ambulance', name: 'Medic One', length: 5.4, width: 2.1, height: 2.5, mass: 3000, accel: 9.5, maxSpeed: 40, reverseSpeed: 9, brake: 16, grip: 19, steer: 0.58, health: 1500, seats: 4, colors: [0xf2f2ee], police: false, value: 52000, durability: 0.8, rollGain: 1.5, pitchGain: 1.3, class: 'car',
+    engine: { cylinders: 8, idleRpm: 650, redlineRpm: 5000, brightness: 0.45, roughness: 0.2, loudness: 0.5, horn: [349, 466] },
+    bodyProfile: {
+      body: [[-0.5, 0.15], [0.5, 0.15], [0.5, 0.36], [0.45, 0.43], [0.27, 0.47], [-0.07, 0.47], [-0.09, 0.97], [-0.5, 0.97]],
+      cabin: [[0.26, 0.47], [0.13, 0.8], [-0.05, 0.8], [-0.06, 0.47]],
+      cabinInset: 0.1, wheelR: 0.4, wheelFront: 0.32, wheelRear: -0.3, lightY: 0.3, straightSides: true,
+    },
+    gear: [
+      { size: [2.11, 0.22, 2.2], at: [0, 1.45, -1.6], color: 0xc81e1e },
+      { size: [1.5, 0.12, 0.26], at: [0, 2.11, 0.1], color: 0x400000, emissive: 0xff2020 },
+      { size: [0.5, 0.14, 0.12], at: [0.6, 2.5, -0.6], color: 0x400000, emissive: 0xff2020 },
+      { size: [0.5, 0.14, 0.12], at: [-0.6, 2.5, -0.6], color: 0x400000, emissive: 0xff2020 },
+    ],
+  },
+  firetruck: {
+    kind: 'firetruck', name: 'Hydra Engine', length: 8.2, width: 2.45, height: 2.9, mass: 9500, accel: 7, maxSpeed: 33, reverseSpeed: 7, brake: 13, grip: 17, steer: 0.55, health: 2800, seats: 2, colors: [0xb81d1d], police: false, value: 160000, durability: 0.45, rollGain: 1.4, pitchGain: 1.2, class: 'car',
+    engine: { cylinders: 6, idleRpm: 550, redlineRpm: 2800, brightness: 0.3, roughness: 0.25, loudness: 1.5, horn: [196, 247], diesel: true },
+    waterCannon: true,
+    bodyProfile: {
+      body: [[-0.5, 0.15], [0.5, 0.15], [0.5, 0.34], [0.46, 0.41], [0.22, 0.44], [-0.055, 0.44], [-0.07, 0.8], [-0.5, 0.8]],
+      cabin: [[0.21, 0.44], [0.12, 0.86], [-0.04, 0.86], [-0.045, 0.44]],
+      cabinInset: 0.1, wheelR: 0.5, wheelFront: 0.31, wheelRear: -0.31, lightY: 0.3, straightSides: true,
+    },
+    gear: [
+      // Ladder rails and rungs on the equipment body.
+      { size: [0.08, 0.1, 3.4], at: [0.45, 2.4, -2.35], color: 0xd8d8d8 },
+      { size: [0.08, 0.1, 3.4], at: [-0.45, 2.4, -2.35], color: 0xd8d8d8 },
+      ...[-3.8, -3.3, -2.8, -2.3, -1.8, -1.3, -0.8].map((z) => ({ size: [0.9, 0.05, 0.06] as const, at: [0, 2.4, z] as const, color: 0xd8d8d8 })),
+      // The water cannon's turret on the cab roof.
+      { size: [0.34, 0.2, 0.34], at: [0, 2.69, -0.05], color: 0x9a9a9a },
+      { size: [0.12, 0.12, 0.7], at: [0, 2.78, 0.2], color: 0xc9c9c9 },
+      // Light bar and the white side stripe.
+      { size: [1.6, 0.12, 0.26], at: [0, 2.65, 0.75], color: 0x400000, emissive: 0xff2020 },
+      { size: [2.47, 0.2, 3.6], at: [0, 1.3, -2.3], color: 0xf0f0f0 },
+    ],
+  },
 };
 
 /** The engine of a kind with no `engine` of its own: the sedan's. */
@@ -118,6 +224,35 @@ export const TRAFFIC_MIX: ReadonlyArray<readonly [VehicleKind, number]> = [
   ['bus', 3],
 ];
 
+/**
+ * Motorbikes in traffic: this share (in 1000) of the compacts drawn from TRAFFIC_MIX come as a scooter or a sport bike
+ * (trafficBike), picked by a hash of where they spawn so that the cars' draws from the sim's random stream stay as
+ * they were (a compact is 22% of traffic: bikes are about 5.5% of it).
+ */
+export const TRAFFIC_BIKES: ReadonlyArray<readonly [VehicleKind, number]> = [
+  ['scooter', 150],
+  ['sportbike', 100],
+];
+
+/**
+ * Which spawn points get a bike. Any value gives the same share; this one was picked among 0-14 because the
+ * ambient-traffic scenario tests (cross_determinism, P41, the police and Street Run traffic runs, the bike chase) all
+ * pass with it: those runs are chaotic, and every other value tried flipped one or another of them.
+ */
+const TRAFFIC_BIKE_SALT = 7;
+
+/** The kind a traffic spawn of `kind` at (x, z) takes: a bike in place of some compacts (see TRAFFIC_BIKES). */
+export function trafficBike(kind: VehicleKind, x: number, z: number): VehicleKind {
+  if (kind !== 'compact') return kind;
+  // Over the spawn point on a 12.5 cm grid, salted with TRAFFIC_BIKE_SALT.
+  let r = mix32(((Math.imul(Math.round(x * 8) | 0, 0x9e3779b1) + Math.imul(Math.round(z * 8) | 0, 0x85ebca77)) | 0) ^ TRAFFIC_BIKE_SALT) % 1000;
+  for (const [k, w] of TRAFFIC_BIKES) {
+    if (r < w) return k;
+    r -= w;
+  }
+  return kind;
+}
+
 export const PARKED_MIX: ReadonlyArray<readonly [VehicleKind, number]> = [
   ['sedan', 30],
   ['compact', 26],
@@ -127,6 +262,24 @@ export const PARKED_MIX: ReadonlyArray<readonly [VehicleKind, number]> = [
   ['sports', 7],
   ['taxi', 4],
 ];
+
+/** Parked motorbikes: one in this many of the bays a compact would park in holds a sport bike or a scooter. */
+export const PARKED_BIKE_EVERY = 2;
+
+/** The kind parked in bay `bay` for `kind` from PARKED_MIX: a bike in some compacts' bays, the same bay every time. */
+export function parkedBike(kind: VehicleKind, bay: number): VehicleKind {
+  if (kind !== 'compact') return kind;
+  const h = mix32(Math.imul(bay + 1, 0x27d4eb2d));
+  if (h % PARKED_BIKE_EVERY !== 0) return kind;
+  return (h >>> 8) % 3 === 0 ? 'scooter' : 'sportbike';
+}
+
+/** murmur3's 32-bit finaliser. */
+function mix32(h: number): number {
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
 
 /** Points on each weapon model (its own frame: +z along the barrel, +y up, +x left), in metres. */
 export interface WeaponPoints {

@@ -6,12 +6,15 @@ import type { TypedCheat } from './input/cheats';
 import { Input, type FrameInput } from './input/input';
 import { pickTier, probeGpu, QUALITY, type QualitySetting, type QualityTier } from './render/quality';
 import { GameRenderer } from './render/renderer';
-import { deleteGame, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, storeGame, type Settings } from './settings';
+import { anySave, currentSlot, deleteGame, deleteSlot, firstEmptySlot, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, setCurrentSlot, slotInfos, storeGame, SUBTITLE_SIZES, type Settings } from './settings';
 import type { Vehicle } from './sim/entities';
 import { neutralInput } from './sim/input';
 import { applySave, serialize, type SaveData } from './sim/progress';
 import { applyExt, serializeExt } from './sim/saveExt';
 import { Sim } from './sim/sim';
+import { cabState, callCab, setCabDestination } from './sim/activities/cab';
+import { contactById } from './sim/missions/contacts';
+import { registerDebug } from './debug';
 import { WEAPON_ORDER, type WeaponId } from './sim/specs';
 import { findVehicleRoom } from './sim/vehicleRoom';
 import type { WeatherKind, WeatherMode } from './sim/weather';
@@ -19,6 +22,8 @@ import { HintSystem } from './ui/hints';
 import { Hud } from './ui/hud';
 import { MapImage } from './ui/mapRender';
 import { Menus, type MenuHost } from './ui/menus';
+import { ExportListWidget } from './ui/widgets/exportList';
+import { offerLine, PhoneCalls, phoneContacts, PhoneLog, PhoneWidget, type PhoneHost } from './ui/widgets/phone';
 import { StaticWorld } from './world/staticWorld';
 
 export { CHEAT_CODES as CHEATS } from './input/cheats';
@@ -31,6 +36,8 @@ export const INTRO_DELAY = 2.5;
  * those of a game started meanwhile. Four time constants of the slowest leave under 2% of them.
  */
 const TITLE_UNMUTE_DELAY = 0.8;
+/** An FPS-capped frame may come this much (ms) before it is due: a 60 Hz display's frames jitter around 16.7 ms. */
+const FRAME_SLACK_MS = 1;
 /**
  * Getting out at BAIL_SPEED (m/s) or faster is a bail that costs BAIL_DAMAGE health, armour or not
  * (PlayerController.driving and exitVehicle). The exit is decided before the frame's physics step, at the speed the
@@ -72,6 +79,7 @@ export class Game {
   readonly menus: Menus;
   readonly audio = new AudioEngine();
   readonly mapImage: MapImage;
+  private readonly exportList: ExportListWidget;
   sim: Sim;
   mode: 'title' | 'game' = 'title';
   settings: Settings;
@@ -117,6 +125,14 @@ export class Game {
   private introTimer = -1;
   /** Completed achievements waiting for the end of the simulation frame (and any pending respawn bill). */
   private pendingAutosave = false;
+  /** The window lost focus: pause at the end of the next frame. */
+  private blurPause = false;
+  /** When the next frame is due under an FPS cap (performance.now() ms). */
+  private nextFrameAt = 0;
+  /** The phone's text log, its incoming calls and the HUD card that shows one ringing. */
+  readonly phoneLog = new PhoneLog();
+  readonly calls = new PhoneCalls();
+  private phoneCard!: PhoneWidget;
   /** First-time tutorial hints and the steal prompt, remembered in the settings. */
   readonly hints = new HintSystem({
     enabled: () => this.settings.hints,
@@ -140,7 +156,19 @@ export class Game {
     this.input.guardNavigation = () => this.mode === 'game' && !this.crashed;
     this.hud = new Hud(ui, this.mapImage, this.input.labels);
     this.hud.setVisible(false);
+    this.phoneCard = new PhoneWidget(this.hud.root);
     this.menus = new Menus(ui, this.menuHost(), this.mapImage, this.input.labels);
+    this.exportList = new ExportListWidget(ui);
+    registerDebug('phone', {
+      log: () => this.phoneLog.entries,
+      ringing: () => this.calls.ringing?.contact.id ?? null,
+      contacts: () => phoneContacts(this.sim, this.sim.players[this.localPlayerId]!).map((c) => c.id),
+      cab: () => {
+        const j = cabState(this.sim);
+        return j && { stage: j.stage, x: j.cab.pos.x, z: j.cab.pos.z, stopX: j.stopX, stopZ: j.stopZ, dest: j.dest, elapsed: j.elapsed, odometer: j.odometer, id: j.cab.id };
+      },
+      routeContact: () => this.hud.routeContact,
+    });
     this.applySettings(this.settings, false);
     this.sim = this.makeTitleSim();
     this.renderer.attach(this.sim, this.localPlayerId);
@@ -157,6 +185,12 @@ export class Game {
     });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.mode === 'game' && !this.menus.open) this.pause();
+    });
+    // Switching to another window pauses too, with the mouse free as much as captured, and on the WASTED / BUSTED
+    // screen (its countdown waits under the pause menu). Coming back does not resume: RESUME does.
+    // The pause waits for the end of the next frame: a key the blur lets go of (Input's held F) still acts first.
+    window.addEventListener('blur', () => {
+      if (this.mode === 'game' && this.running) this.blurPause = true;
     });
     canvas.addEventListener('webglcontextlost', (e) => this.onContextLost(e));
     canvas.addEventListener('webglcontextrestored', () => this.onContextRestored());
@@ -192,7 +226,7 @@ export class Game {
 
   private menuHost(): MenuHost {
     return {
-      hasSave: () => loadGame() !== null,
+      hasSave: () => anySave(),
       newGame: this.guard(() => this.newGame()),
       startStreetRun: this.guard((id?: string) => this.startStreetRun(id)),
       streetRunCourses: () => {
@@ -204,7 +238,22 @@ export class Game {
           distance: course.distance, reward: course.reward,
         }));
       },
-      continueGame: this.guard(() => this.continueGame()),
+      continueGame: this.guard((slot?: number) => this.continueGame(slot)),
+      slots: () => slotInfos(),
+      saveToSlot: this.guard((slot: number) => {
+        setCurrentSlot(slot);
+        this.save(false);
+      }),
+      deleteSlot: (slot: number) => {
+        deleteSlot(slot);
+        // The game saving there carries on, into the now empty slot.
+      },
+      newGameNote: () => {
+        const free = firstEmptySlot();
+        return free > 0
+          ? `Start a new game? It will autosave into empty slot ${free}; your other saves stay as they are.`
+          : 'Start a new game? All three slots hold a save: this game will not autosave until you save it at the safehouse and choose a slot.';
+      },
       resume: this.guard(() => this.resume()),
       quitToTitle: this.guard(() => this.quitToTitle()),
       abandonMission: this.guard(() => {
@@ -225,6 +274,8 @@ export class Game {
       waypoint: () => this.hud.waypoint,
       click: () => this.audio.chime('ui'),
       quality: () => ({ auto: this.autoTier, msaa: this.renderer.msaa, software: this.renderer.software, post: this.renderer.postProcessing }),
+      captureKey: (cb: (code: string) => void) => this.input.captureKey(this.guard(cb)),
+      cancelCapture: () => this.input.cancelCapture(),
     };
   }
 
@@ -241,6 +292,10 @@ export class Game {
     if (this.sim && this.mode === 'game') this.sim.weather.mode = this.weatherMode;
     this.renderer.cameraCtl.sensitivity = s.sensitivity;
     this.renderer.cameraCtl.invertY = s.invertY;
+    this.renderer.cameraCtl.shakeEnabled = s.cameraShake;
+    this.renderer.resolutionScale = s.resolutionScale;
+    this.input.keymap.set(s.bindings);
+    for (const size of SUBTITLE_SIZES) this.hud.root.classList.toggle(`sub-${size}`, s.subtitleSize === size);
     this.audio.setVolumes(s.master, s.music, s.sfx);
     if (!s.hints) this.hud.clearHints();
     if (persist) saveSettings(this.settings);
@@ -288,7 +343,7 @@ export class Game {
     this.pendingAutosave = false;
     this.world.resetBroken();
     this.renderer.props.restoreAll();
-    const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5, weather: this.weatherMode });
+    const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5, weather: this.weatherMode, serviceVehicles: true });
     this.applyDensity(sim);
     sim.resetSystems();
     if (save) {
@@ -311,12 +366,24 @@ export class Game {
         this.suspendPlay();
         this.menus.showShop(this.guard(() => this.resume()));
       }),
+      ev.on('screenOpen', (e) => {
+        if (!isLocal(e)) return;
+        this.suspendPlay();
+        if (!this.menus.showScreen(e.screen, this.guard(() => this.resume()))) this.resume();
+      }),
       ...this.bindSaves(sim),
       ev.on('respawn', (e) => isLocal(e) && this.renderer.cameraCtl.reset(sim)),
       ev.on('missionStarted', (e) => {
         if (isLocal(e)) this.hud.waypoint = null;
       }),
     );
+    this.phoneLog.bind(sim, this.localPlayerId);
+    this.calls.reset(sim);
+    this.unsub.push(() => {
+      this.phoneLog.unbind();
+      this.calls.answer();
+      this.phoneCard.update(null, 'kb', this.input.labels, false);
+    });
     this.noteEvent('session', save ? 'continued' : 'new game');
     this.unsub.push(...this.recordEvents(sim));
     this.lastExit = null;
@@ -359,7 +426,10 @@ export class Game {
 
   /** Starts a fresh game; Lou's opening call is on unless opts.intro is false or the URL has intro=0. */
   newGame(opts: { intro?: boolean } = {}): void {
+    // Its autosaves go to the first empty slot; with none, nowhere until it is saved at the safehouse.
+    setCurrentSlot(firstEmptySlot());
     this.startSim(null, opts.intro !== false && !this.introOff);
+    if (currentSlot() === 0) this.hud.toast('All save slots are full: save at the safehouse to choose one');
   }
 
   /** A quick route into driving; keep the player's saved story, money and equipment. */
@@ -399,7 +469,9 @@ export class Game {
     if (!sim.missions.active) this.showNextStep();
   }
 
-  continueGame(): void {
+  /** Loads slot `slot` (absent: the current slot), which this game then saves to. */
+  continueGame(slot?: number): void {
+    if (slot !== undefined) setCurrentSlot(slot);
     const save = loadGame();
     if (!save) {
       // The save went away after the title was built (deleted in another tab, site data
@@ -408,6 +480,13 @@ export class Game {
       return;
     }
     this.startSim(save);
+  }
+
+  /** The safehouse: which slot to save in (the game holds still under it). */
+  private openSavePicker(): void {
+    if (this.mode !== 'game' || this.menus.open) return;
+    this.suspendPlay();
+    this.menus.showSlots('save', this.guard(() => this.resume()));
   }
 
   private save(auto: boolean): void {
@@ -422,7 +501,7 @@ export class Game {
   private bindSaves(sim: Sim): Array<() => void> {
     const queue = () => { this.pendingAutosave = true; };
     return [
-      sim.events.on('saveRequested', (e) => isLocal(e) && (e.poi === 'auto' ? queue() : this.save(false))),
+      sim.events.on('saveRequested', (e) => isLocal(e) && (e.poi === 'auto' ? queue() : this.openSavePicker())),
       sim.events.on('streetRunFinished', queue),
       sim.events.on('activityMilestone', queue),
       sim.events.on('pickup', (e) => { if (e.kind === 'package') queue(); }),
@@ -485,6 +564,8 @@ export class Game {
     this.mode = 'title';
     this.introTimer = -1;
     this.hud.setVisible(false);
+    // (Absent on the stand-in hosts the quit tests call this on.)
+    this.exportList?.update(null, this.localPlayerId, false);
     // Still paused (by the pause menu): the title's audio updates fade the frozen game's voices out under the closed
     // stage first, then step() opens it.
     this.audio.setPaused(true);
@@ -503,6 +584,80 @@ export class Game {
   }
 
   // ---------------------------------------------------------------------------
+  // Phone
+
+  /**
+   * The phone key in play: it answers a ringing call, else opens the phone. The phone is used on foot: in a vehicle the
+   * key only answers (calls are hands-free there), and it does nothing while down, in a cutscene or climbing in.
+   * Returns true when the phone opened (the frame stops there, as for the map).
+   */
+  private phoneKey(): boolean {
+    const sim = this.sim;
+    if (sim.playerDown) return false;
+    if (this.calls.ringing) {
+      this.answerCall();
+      return false;
+    }
+    const p = sim.player;
+    if (p.vehicle || (p.state !== 'normal' && p.state !== 'swimming') || sim.controlLock > 0) return false;
+    this.suspendPlay();
+    this.menus.showPhone(this.phoneHost(), this.guard(() => this.resume()));
+    return true;
+  }
+
+  private phoneHost(): PhoneHost {
+    return {
+      view: () => this.sim,
+      me: () => this.sim.players[this.localPlayerId]!,
+      texts: () => this.phoneLog.entries,
+      callContact: this.guard((id: string) => {
+        this.contactCall(id);
+        this.menus.closeAll();
+      }),
+      callCab: this.guard(() => {
+        const r = callCab(this.sim);
+        this.sim.events.emit('message', { text: r.text, duration: 4 });
+        this.menus.closeAll();
+      }),
+      openMap: this.guard(() => this.menus.showMap()),
+      pause: this.guard(() => this.menus.showPause()),
+      click: () => this.audio.chime('ui'),
+    };
+  }
+
+  /** A call with a contact (answered or made): their offer line as a subtitle, and the GPS to them if they have work. */
+  private contactCall(id: string): void {
+    const sim = this.sim;
+    const c = contactById(id);
+    const offer = sim.missions.offers().find((d) => d.giver === id);
+    const busy = !!sim.missions.active;
+    const text = busy ? "You've got your hands full. Call me when you're done." : offerLine(c, offer);
+    sim.events.emit('subtitle', { speaker: c.phoneName, text, duration: 5 });
+    this.phoneLog.text(sim, c.name, text, c.color);
+    if (offer && !busy) {
+      this.hud.routeContact = id;
+      this.hud.waypoint = null;
+    }
+  }
+
+  private answerCall(): void {
+    const r = this.calls.answer();
+    if (r) this.contactCall(r.contact.id);
+  }
+
+  /** Incoming calls ring, end unanswered or are taken hands-free; the card on the HUD follows. */
+  private updateCalls(dt: number, device: 'kb' | 'pad'): void {
+    const sim = this.sim;
+    const me = sim.players[this.localPlayerId]!;
+    const inVehicle = !!me.character.vehicle;
+    const ringing = this.calls.ringing;
+    const ended = this.calls.update(dt, sim, me, { talking: this.hud.talking, inVehicle });
+    if (ended === 'answer') this.answerCall();
+    else if (ended === 'missed' && ringing) this.phoneLog.text(sim, ringing.contact.name, `Missed call. ${offerLine(ringing.contact, ringing.mission)}`, ringing.contact.color, 'call');
+    this.phoneCard.update(this.calls.ringing, device, this.input.labels, inVehicle);
+  }
+
+  // ---------------------------------------------------------------------------
   // Frame loop
 
   start(): void {
@@ -515,6 +670,13 @@ export class Game {
   private readonly frame = (now: number): void => {
     if (!this.running) return;
     requestAnimationFrame(this.frame);
+    // FPS cap: a display frame that comes before the next capped frame is due is skipped (its time counts in the next).
+    const cap = this.settings.fpsCap;
+    if (cap > 0) {
+      const interval = 1000 / cap;
+      if (now < this.nextFrameAt - FRAME_SLACK_MS) return;
+      this.nextFrameAt = Math.max(this.nextFrameAt + interval, now + interval * 0.5);
+    }
     const elapsed = Math.max(0, (now - this.last) / 1000);
     const dt = Math.min(0.1, elapsed);
     this.last = now;
@@ -524,6 +686,10 @@ export class Game {
       // Reading the input can fail too (a gamepad API that throws): that shows the error screen, not a frozen black one.
       const fi = this.input.poll(dt);
       this.step(dt, fi);
+      if (this.blurPause) {
+        this.blurPause = false;
+        this.pause();
+      }
       this.input.menuOpen = this.menus.open;
       this.input.endFrame();
     } catch (err) {
@@ -571,6 +737,7 @@ export class Game {
       return;
     }
     if (this.menus.open) {
+      this.exportList.update(this.sim, this.localPlayerId, false);
       const shown = this.menus.top;
       this.menus.input(fi.ui, dt, fi.device);
       // Its key (P, M) closed the pause menu or a map, back to play or to the pause menu under it: a cheat code's letter
@@ -591,6 +758,7 @@ export class Game {
       this.keyScreen = { screen: this.menus.top, press: this.input.screenKeyPress };
       return;
     }
+    if (fi.ui.phone && this.phoneKey()) return;
     if (fi.ui.camera) cam.zoomLevel = cam.zoomLevel === 0 ? 1 : 0;
     if (fi.ui.radioNext) this.hud.showRadio(this.audio.radio.next());
     if (fi.ui.radioPrev) this.hud.showRadio(this.audio.radio.prev());
@@ -618,7 +786,9 @@ export class Game {
     const exitPress = this.input.exitKeyPress;
     sim.activities.exitUndoable = this.input.typingCode(exitPress) && (pv !== null || this.lastExit?.press === exitPress);
     const ts = performance.now();
+    setCabDestination(sim, this.hud.waypoint);
     sim.update(dt, inp);
+    this.phoneLog.flush(sim);
     this.flushAutosave();
     this.perf.simMs = performance.now() - ts;
     this.input.inVehicle = !!sim.player.vehicle;
@@ -639,6 +809,8 @@ export class Game {
     const prompt = sim.interactions.prompt(sim.players[this.localPlayerId]) ?? sim.activities.jobPrompt(sim.players[this.localPlayerId]) ?? this.hints.stealPrompt(sim);
     this.hud.device = fi.device;
     this.hud.update(dt, sim, cam.yaw, aiming, prompt, this.renderer.time);
+    this.exportList.update(sim, this.localPlayerId);
+    this.updateCalls(dt, fi.device);
     const down = sim.deathKind;
     this.canvas.classList.toggle('wasted', down === 'wasted');
     this.canvas.classList.toggle('busted', down === 'busted');

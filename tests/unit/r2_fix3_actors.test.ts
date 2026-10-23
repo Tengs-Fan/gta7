@@ -149,8 +149,15 @@ describe('the camera with his back to a wall, and his car parked against one', (
       expect(fs).toMatch(new RegExp(`vViewPosition\\.z < ${LENS_FADE_FULL.toFixed(2)}.*smoothstep\\( ${LENS_FADE_GONE.toFixed(2)}, ${LENS_FADE_FULL.toFixed(2)}, vViewPosition\\.z \\)\\s*\\)\\s*discard`));
       expect(fs.indexOf('discard;')).toBeLessThan(fs.indexOf('#include <lights_fragment_begin>'));
       expect(fs.indexOf('float lensBayer4')).toBeGreaterThan(0);
-      // Shadows come from the default depth material: a faded player keeps his.
-      expect(o.customDepthMaterial).toBeUndefined();
+      // A faded player keeps his shadow: the depth material has no lens fade (revised for track D, which gives the
+      // crowd a depth material carrying the per-character fade-in and fade-out only).
+      const depth = o.customDepthMaterial;
+      if (depth) {
+        const ds = { vertexShader: THREE.ShaderLib.depth.vertexShader, fragmentShader: THREE.ShaderLib.depth.fragmentShader, uniforms: {} } as unknown as THREE.WebGLProgramParametersWithUniforms;
+        depth.onBeforeCompile(ds, undefined as unknown as THREE.WebGLRenderer);
+        expect(ds.fragmentShader).not.toContain('vViewPosition.z <');
+        expect(ds.fragmentShader).toContain('vInstanceFade');
+      }
       expect(o.castShadow).toBe(true);
     });
     expect(meshes).toBeGreaterThanOrEqual(16);

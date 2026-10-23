@@ -1,0 +1,31 @@
+/* The wanted list while the export job runs, under the status cluster. */
+.export-widget {
+  position: absolute;
+  right: 24px;
+  top: 300px;
+  min-width: 210px;
+  padding: 8px 12px;
+  background: rgba(8, 12, 18, 0.72);
+  border-left: 3px solid #ffa020;
+  font: 600 15px Rajdhani, sans-serif;
+  color: #e8ecf2;
+  pointer-events: none;
+}
+
+.export-widget b {
+  display: block;
+  margin-bottom: 2px;
+  font: 400 16px Anton, Impact, sans-serif;
+  letter-spacing: 1px;
+  color: #ffbf66;
+}
+
+.export-widget div.done {
+  color: #7dff9e;
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.export-widget.hidden {
+  display: none;
+}

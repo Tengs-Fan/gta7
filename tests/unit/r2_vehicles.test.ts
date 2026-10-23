@@ -13,6 +13,9 @@ import { cabinLayout, leanRoom, VehicleView, VehicleViewPool, vehicleGlass } fro
 import { MAX_DENTS, type Dent, type Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
+
+/** The kinds VehicleView draws: bikes and boats have views of their own (w1_vehicle_views.test.ts). */
+const CAR_KINDS = (Object.keys(VEHICLE_SPECS) as VehicleKind[]).filter((k) => VEHICLE_SPECS[k].class === 'car');
 import { rectCX, rectCZ } from '../../src/world/layout';
 import type { StaticWorld } from '../../src/world/staticWorld';
 import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
@@ -438,7 +441,7 @@ describe('cap triangulation', () => {
   });
 
   it('every vehicle flank is watertight: its boundary is exactly the side walls\' outline, with no T-junctions', () => {
-    for (const kind of Object.keys(VEHICLE_SPECS) as VehicleKind[]) {
+    for (const kind of CAR_KINDS) {
       for (const mesh of ['body', 'glass'] as const) {
         const g = meshNamed(new VehicleView(kind), mesh).geometry;
         const pos = g.getAttribute('position');
@@ -450,8 +453,8 @@ describe('cap triangulation', () => {
         const edge = (a: number, b: number): string => [key(a), key(b)].sort().join('|');
         for (const side of [-1, 1]) {
           const onCap = (i: number): boolean => {
-            const shaped = mesh === 'body' && !['bus', 'van', 'swat', 'pickup'].includes(kind);
             const spec = VEHICLE_SPECS[kind];
+            const shaped = mesh === 'body' && !['bus', 'van', 'swat', 'pickup'].includes(kind) && !spec.bodyProfile?.straightSides;
             let capX = shaped ? bodySideX(half, spec.height, pos.getY(i)) : half;
             if (mesh === 'glass' && !['bus', 'van', 'swat'].includes(kind)) capX = cabinSideX(half, pos.getY(i), spec.height, spec.width / 2);
             return Math.abs(pos.getX(i) - side * capX) < 1e-6;
@@ -750,7 +753,7 @@ describe('vehicle views', () => {
   it('front wheels steer like the physics and wheels spin by their own radius', () => {
     const sim = makeSim({ world: W });
     const p = spot(sim);
-    for (const kind of Object.keys(VEHICLE_SPECS) as VehicleKind[]) {
+    for (const kind of CAR_KINDS) {
       const v = sim.spawnVehicle(kind, p.x, p.z, 0);
       const view = new VehicleView(kind);
       view.bind(v);
@@ -1395,7 +1398,7 @@ describe('round-2 fixes 2: each class leans on its own suspension', () => {
     for (const kind of ['van', 'pickup', 'swat', 'bus'] as const) expect(deepestDive(kind), kind).toBeGreaterThan(sports);
   });
 
-  it.each(Object.keys(VEHICLE_SPECS) as VehicleKind[])('no %s tyre comes up through the bodywork, standing, braking hard, cornering hard or both', (kind) => {
+  it.each(CAR_KINDS)('no %s tyre comes up through the bodywork, standing, braking hard, cornering hard or both', (kind) => {
     const { v, view } = car(kind);
     expect(tyrePointsThroughBody(view), 'standing').toBe(0);
     // Braking from 20 m/s: checked through the dive.
