@@ -121,6 +121,9 @@ export function guardStaleDeletes(gl: object): () => void {
 export const FAR_LOD_DISTANCE = 40;
 const FAR_LOD_BAND = 2;
 const SOFTWARE_FAR_DISTANCE = 32;
+/** A vehicle removed within this distance (m) of the camera and in view fades out over VEHICLE_FADE_OUT s. */
+export const VEHICLE_FADE_RANGE = 150;
+export const VEHICLE_FADE_OUT = 0.6;
 
 /** A blast this close to the sea's surface over water is drawn as a water plume (Effects.explosion). */
 const WATER_BLAST_BAND = 0.3;
@@ -166,6 +169,10 @@ export class GameRenderer {
   private readonly frustum = new THREE.Frustum();
   private readonly viewProjection = new THREE.Matrix4();
   private readonly partSphere = new THREE.Sphere();
+  /** Views of vehicles removed in view, fading out (t: seconds since the fade began). */
+  private readonly fadingViews: Array<{ view: VehicleView; t: number }> = [];
+  /** Fade copies compiled by the warm-up and kept, so their programs stay alive for the fades of the session. */
+  private fadeKeepers: THREE.Material[] = [];
   private readonly headlight: THREE.SpotLight;
   private readonly siren: THREE.PointLight;
   private bloom: UnrealBloomPass | null = null;
@@ -300,6 +307,15 @@ export class GameRenderer {
     }
     this.vehicleParts.end();
     if (this.vehicleParts.takeChanged()) this.softwareMaterials?.apply(this.vehicleParts.group);
+    // And the fade copies of a car fading out (hashed alpha), with the hashed-alpha depth of its shadow.
+    for (const v of tmp) {
+      v.beginFade();
+      v.setFade(0.5);
+      this.softwareMaterials?.apply(v.group);
+    }
+    const depthProbe = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshDepthMaterial({ alphaHash: true }));
+    depthProbe.position.set(0, -50, 0);
+    this.scene.add(depthProbe);
     // With the HDR output three draws the scene into its half-float target with tone mapping off and
     // a linear colour space. Compiling for the canvas would build the tone-mapped sRGB variants,
     // which are never drawn, so a stand-in half-float target is bound while compiling.
@@ -319,6 +335,13 @@ export class GameRenderer {
     }
     target?.dispose();
     this.rain.mesh.visible = rainShown;
+    this.scene.remove(depthProbe);
+    depthProbe.geometry.dispose();
+    // Kept, undisposed, so the programs they compiled stay for the session's fades (a program goes with its last user).
+    const kept = [depthProbe.material, ...tmp.flatMap((v) => v.endFade())];
+    this.softwareMaterials?.forget(this.fadeKeepers);
+    for (const m of this.fadeKeepers) m.dispose();
+    this.fadeKeepers = kept;
     for (const v of tmp) this.pool.release(v);
     this.vehicleParts.begin();
     this.vehicleParts.end();
@@ -509,8 +532,10 @@ export class GameRenderer {
       this.pool.release(v);
     }
     this.vehicleViews.clear();
+    this.endFades();
     this.farHidden.clear();
     this.effects.reset();
+    this.crowd.reset();
     this.flashAge = Infinity;
     // A new session's clock starts again from 0.
     this.autoRounds = 0;
@@ -608,17 +633,67 @@ export class GameRenderer {
       this.softwareMaterials?.apply(view.group);
       this.cullFar(view, v);
     }
+    this.updateFrustum();
     for (const [id, view] of this.vehicleViews) {
       if (!seen.has(id)) {
         this.farHidden.delete(view);
-        this.scene.remove(view.group);
-        this.pool.release(view);
         this.vehicleViews.delete(id);
         this.effects.skids.break(`${id}:l`);
         this.effects.skids.break(`${id}:r`);
+        // Removed in view (a cleared wreck, a mission car): it fades out where it was instead of vanishing.
+        if (view.group.visible && this.inView(view, VEHICLE_FADE_RANGE)) {
+          view.beginFade();
+          this.softwareMaterials?.apply(view.group);
+          this.fadingViews.push({ view, t: 0 });
+        } else {
+          this.scene.remove(view.group);
+          this.pool.release(view);
+        }
+      }
+    }
+    for (let i = this.fadingViews.length - 1; i >= 0; i--) {
+      const e = this.fadingViews[i]!;
+      e.t += dt;
+      const f = 1 - e.t / VEHICLE_FADE_OUT;
+      if (f > 0) e.view.setFade(f);
+      else {
+        this.endFade(e.view);
+        this.fadingViews.splice(i, 1);
       }
     }
     this.drawVehicleParts();
+  }
+
+  /** Whether a view's vehicle is within `range` m of the camera and its bounds in the view (updateFrustum). */
+  private inView(view: VehicleView, range: number): boolean {
+    const v = view.vehicle;
+    if (!v) return false;
+    const cam = this.cameraCtl.camera.position;
+    if ((v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2 > range * range) return false;
+    const s = v.spec;
+    this.partSphere.center.set(v.pos.x, v.pos.y + s.height / 2, v.pos.z);
+    this.partSphere.radius = Math.hypot(s.length, s.width, s.height) / 2 + 0.5;
+    return this.frustum.intersectsSphere(this.partSphere);
+  }
+
+  private endFade(view: VehicleView): void {
+    const used = view.endFade();
+    this.softwareMaterials?.forget(used);
+    for (const m of used) m.dispose();
+    this.scene.remove(view.group);
+    this.pool.release(view);
+  }
+
+  /** Ends every fade at once (a new session). */
+  private endFades(): void {
+    for (const e of this.fadingViews) this.endFade(e.view);
+    this.fadingViews.length = 0;
+  }
+
+  private updateFrustum(): void {
+    const cam = this.cameraCtl.camera;
+    cam.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
   }
 
   /** The merged far version for every car but the player's beyond FAR_LOD_DISTANCE (software: its own distance). */
@@ -636,9 +711,6 @@ export class GameRenderer {
 
   /** Refills the part batches with the cars drawn this frame whose bounds are in the camera's view. */
   private drawVehicleParts(): void {
-    const cam = this.cameraCtl.camera;
-    cam.updateMatrixWorld();
-    this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
     const parts = this.vehicleParts;
     const sphere = this.partSphere;
     parts.begin();
@@ -835,6 +907,8 @@ export class GameRenderer {
       this.markers.syncObjectives(objectives, (x, z) => sim.world.groundHeight(x, z), this.time);
       this.markers.syncPickups(sim.pickups, this.time, cam.position.x, cam.position.z);
       this.markers.syncHelis(sim.helis, night, (x, z) => sim.world.groundHeight(x, z));
+      // Paused (dt 0), nothing new is emitted.
+      if (dt > 0) for (const h of sim.helis) if (h.crashing && !h.removed) this.effects.heliCrash(h.pos.x, h.pos.y, h.pos.z, dt);
       this.syncLights(sim, lights);
     }
     this.effects.update(dt, this.time);

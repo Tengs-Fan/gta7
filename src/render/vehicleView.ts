@@ -774,6 +774,28 @@ export function glassFor(condition: number): THREE.Material {
   return condition < 0.25 ? shatteredGlassMat : condition < 0.55 ? crackedGlassMat : glassMat;
 }
 
+/** A mesh of a fading view: its own material, the fade copy drawn instead, and its own opacity. */
+interface FadeEntry {
+  mesh: THREE.Mesh;
+  material: THREE.Material;
+  clone: THREE.Material;
+  opacity: number;
+  /** One of the parts the batches draw for live cars. */
+  part: boolean;
+}
+
+/**
+ * The fade copy of a vehicle material: hashed alpha (three's own alphaHash, so it stays opaque, sorted with the rest and
+ * casts no partial shadow artefacts), or for glass, which is see-through already, the same material with its opacity
+ * scaled. Either way a uniform drives it, on a program the warm-up compiled.
+ */
+function fadeMaterial(m: THREE.Material): THREE.Material {
+  const c = m.clone();
+  c.name = `${m.name || 'vehicle'}-fade`;
+  if (!m.transparent) c.alphaHash = true;
+  return c;
+}
+
 /** While set, batched parts skip three's per-frame world-matrix update: drawParts places their instances itself. */
 let partsFrozen = false;
 
@@ -823,6 +845,7 @@ export class VehicleView {
   private readonly partTmp2 = new THREE.Matrix4();
   /** Wheel visibility saved by hideParts. */
   private readonly partsShown = new Uint8Array(8);
+  private fadeState: { entries: FadeEntry[]; depth: THREE.MeshDepthMaterial } | null = null;
   /** Wheels with their pivot's place on the body: they stay planted on the road while the body leans. */
   private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean; base: THREE.Vector3 }> = [];
   /** Head, tail and reverse lamps with their working material (smashed and burnt ones swap theirs out) and place. */
@@ -1153,6 +1176,62 @@ export class VehicleView {
       const g = (p.geometry as THREE.BoxGeometry).parameters;
       batches.addBox(p.material as THREE.Material, this.partTmp.multiplyMatrices(m, p.matrix), g.width, g.height, g.depth);
     }
+  }
+
+  /** Whether the view is fading out (beginFade). */
+  get fading(): boolean {
+    return this.fadeState !== null;
+  }
+
+  /**
+   * Starts fading the view out where it is (its vehicle was removed in view): every mesh it draws, the parts the
+   * batches drew included, takes a hashed-alpha copy of its material (glass a see-through one), and the shadow body a
+   * hashed-alpha depth material, so the car and its shadow dissolve together. setFade sets how much is left.
+   */
+  beginFade(): void {
+    if (this.fadeState) return;
+    if (this.distant === 'far') this.setDistant(false);
+    const entries: FadeEntry[] = [];
+    this.group.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || o === this.shadowCaster || Array.isArray(o.material)) return;
+      const material = o.material as THREE.Material;
+      const clone = fadeMaterial(material);
+      entries.push({ mesh: o, material, clone, opacity: material.opacity, part: o.userData.batched === true });
+      o.material = clone;
+      if (o.userData.batched) {
+        // Drawn by the view itself while it fades (the batches only draw live cars).
+        o.layers.set(0);
+        o.userData.batched = false;
+      }
+    });
+    const depth = new THREE.MeshDepthMaterial({ alphaHash: true });
+    this.shadowCaster.customDepthMaterial = depth;
+    this.fadeState = { entries, depth };
+  }
+
+  /** How much of a fading view is left (1 whole .. 0 gone). */
+  setFade(f: number): void {
+    const s = this.fadeState;
+    if (!s) return;
+    for (const e of s.entries) e.clone.opacity = e.clone.transparent ? e.opacity * f : f;
+    s.depth.opacity = f;
+    this.group.visible = f > 0;
+  }
+
+  /** Ends a fade: the view's own materials and layers come back. Returns the fade materials for the caller to dispose. */
+  endFade(): THREE.Material[] {
+    const s = this.fadeState;
+    if (!s) return [];
+    for (const e of s.entries) {
+      e.mesh.material = e.material;
+      if (e.part) {
+        e.mesh.layers.set(PART_LAYER);
+        e.mesh.userData.batched = true;
+      }
+    }
+    this.shadowCaster.customDepthMaterial = undefined;
+    this.fadeState = null;
+    return [...s.entries.map((e) => e.clone), s.depth];
   }
 
   /**
