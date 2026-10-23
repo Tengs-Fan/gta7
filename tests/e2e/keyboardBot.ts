@@ -54,6 +54,12 @@ const CORNER_SPEED = 11;
 const CORNER_ACCEL = 5;
 /** Planned deceleration for corners and traffic (m/s²), well inside the sports car's brakes. */
 const DECEL = 6;
+/** Speed (m/s) at which the bot edges past something standing still beside its line. */
+const CREEP_SPEED = 3;
+/** Clearance (m) the bot gives a person standing still by the line by aiming off it (a turning car's tail cuts in). */
+const SIDESTEP_BERTH = 1.4;
+/** Clearance (m) to something standing still, under which the bot will not pass it; the usual wide berth is 0.8. */
+const TIGHT_BERTH = 0.3;
 
 /** The course as a polyline along its racing lane, from the start gate round to just past the finish. */
 export function coursePath(roads: RoadNetwork, course: StreetRunCourse): PathPoint[] {
@@ -123,7 +129,7 @@ export class KeyboardBot {
       along += Math.hypot(path[aim + 1]!.x - path[aim]!.x, path[aim + 1]!.z - path[aim]!.z);
       aim++;
     }
-    const target = path[aim]!;
+    const target = this.sidestep(aim, car, obstacles);
     const fx = Math.sin(car.heading);
     const fz = Math.cos(car.heading);
     const dx = target.x - car.x;
@@ -153,11 +159,40 @@ export class KeyboardBot {
     return keys;
   }
 
-  /** The speed that stops short of the first obstacle on the path ahead (moving its way, it may be followed). */
+  /** The aim point, moved off the line away from people standing beside it (up to 1.5 m, not at all if they flank it). */
+  private sidestep(aim: number, car: BotCar, obstacles: readonly BotObstacle[]): { x: number; z: number } {
+    const path = this.path;
+    const p = path[aim]!;
+    const before = path[Math.max(0, aim - 2)]!;
+    const step = Math.hypot(p.x - before.x, p.z - before.z) || 1;
+    // Right of the line, as the steering reads it.
+    const rx = -(p.z - before.z) / step;
+    const rz = (p.x - before.x) / step;
+    let left = 0;
+    let right = 0;
+    for (const o of obstacles) {
+      if (o.halfL > 0.6 || Math.hypot(o.vx, o.vz) >= 0.5 || Math.hypot(o.x - p.x, o.z - p.z) > 5) continue;
+      const side = (o.x - p.x) * rx + (o.z - p.z) * rz;
+      const room = car.halfW + o.halfW + SIDESTEP_BERTH - Math.abs(side);
+      if (room <= 0) continue;
+      if (side > 0) left = Math.max(left, room);
+      else right = Math.max(right, room);
+    }
+    if (left > 0 && right > 0) return p;
+    const shift = Math.min(1.5, left > 0 ? -left : right);
+    return { x: p.x + rx * shift, z: p.z + rz * shift };
+  }
+
+  /**
+   * The speed that stops short of the first obstacle on the path ahead (moving its way, it may be followed). Something
+   * standing still beside the line (a pedestrian waiting at the kerb for a light held for the racer never leaves) is
+   * passed at a creep once the car fits by; only what actually blocks the line holds the bot back.
+   */
   private clearSpeed(car: BotCar, obstacles: readonly BotObstacle[]): number {
     const path = this.path;
     const look = 10 + car.speed * 1.2 + car.speed * car.speed / (2 * DECEL);
     let along = 0;
+    let creep = Infinity;
     for (let i = this.nearest; i + 1 < path.length && along < look; i++) {
       const p = path[i]!;
       const q = path[i + 1]!;
@@ -168,26 +203,34 @@ export class KeyboardBot {
       const eta = Math.min(2.5, along / Math.max(3, car.speed));
       for (const o of obstacles) {
         if (Math.abs(o.x - p.x) > 30 || Math.abs(o.z - p.z) > 30) continue;
+        const standing = Math.hypot(o.vx, o.vz) < 0.5;
         // The obstacle's footprint as circles along its length, against the car's width on the path.
         const ox = Math.sin(o.heading);
         const oz = Math.cos(o.heading);
         const reach = Math.max(0, o.halfL - o.halfW);
         let hit = false;
-        for (const t of [0, eta * 0.5, eta]) {
+        let blocks = false;
+        for (const t of standing ? [0] : [0, eta * 0.5, eta]) {
           const cx = o.x + o.vx * t;
           const cz = o.z + o.vz * t;
           for (const s of [-reach, 0, reach]) {
+            const d = Math.hypot(cx + ox * s - p.x, cz + oz * s - p.z);
             // Wider the further ahead it is guessed: a turning car does not keep to a straight line.
-            if (Math.hypot(cx + ox * s - p.x, cz + oz * s - p.z) < car.halfW + o.halfW + 0.8 + 0.6 * t) hit = true;
+            if (d < car.halfW + o.halfW + 0.8 + 0.6 * t) hit = true;
+            if (d < car.halfW + o.halfW + TIGHT_BERTH) blocks = true;
           }
         }
         if (!hit) continue;
+        if (standing && !blocks) {
+          creep = CREEP_SPEED;
+          continue;
+        }
         const gap = along - car.halfL - o.halfL - 2.5;
         const follow = Math.max(0, o.vx * tx + o.vz * tz);
-        return gap <= 0 ? 0 : Math.sqrt(2 * DECEL * gap) + follow * 0.8;
+        return Math.min(creep, gap <= 0 ? 0 : Math.sqrt(2 * DECEL * gap) + follow * 0.8);
       }
       along += step;
     }
-    return Infinity;
+    return creep;
   }
 }

@@ -28,7 +28,7 @@ function view(sim: Sim, car: Vehicle): { car: BotCar; obstacles: BotObstacle[] }
   };
 }
 
-function run(seed: number) {
+function run(seed: number, standing: Array<[number, number]> = []) {
   // As Game.startStreetRun: a new game with traffic and police, the car in the start gate at 18:06, the run at once.
   const sim = makeSim({ ambient: true, police: true, seed, startHour: 18.1 });
   const course = sim.activities.streetRunCourses().find((c) => c.id === 'magnolia')!;
@@ -36,6 +36,8 @@ function run(seed: number) {
   placeInCar(sim, car);
   expect(sim.activities.startStreetRun('magnolia')).toBe(true);
   const bot = new KeyboardBot(coursePath(sim.roads, course));
+  const pinned = standing.map(([x, z]) => sim.spawnCharacter('civilian', x, z));
+  let closest = Infinity;
   const contacts: string[] = [];
   const impact = sim.onVehicleImpact.bind(sim);
   sim.onVehicleImpact = (v: Vehicle, other: Vehicle | null, ...rest: unknown[]) => {
@@ -58,8 +60,18 @@ function run(seed: number) {
     const p = sim.playerPos();
     inp.aimOrigin = { x: p.x, y: p.y + 3, z: p.z - 6 };
     sim.update(1 / 60, inp);
+    for (const [k, c] of pinned.entries()) {
+      c.pos.x = standing[k]![0];
+      c.pos.z = standing[k]![1];
+      // Gap between the pedestrian's circle and the car's footprint.
+      const dx = c.pos.x - car.pos.x;
+      const dz = c.pos.z - car.pos.z;
+      const along = Math.abs(dx * Math.sin(car.heading) + dz * Math.cos(car.heading)) - car.halfL;
+      const across = Math.abs(dx * Math.cos(car.heading) - dz * Math.sin(car.heading)) - car.halfW;
+      closest = Math.min(closest, Math.hypot(Math.max(0, along), Math.max(0, across)) - 0.4);
+    }
   }
-  return { finish: finish as { time: number; medal: string; reward: number } | null, contacts, gates, total: course.checkpoints.length, bronze: course.bronze, end: `${car.pos.x.toFixed(0)},${car.pos.z.toFixed(0)}` };
+  return { closest, finish: finish as { time: number; medal: string; reward: number } | null, contacts, gates, total: course.checkpoints.length, bronze: course.bronze, end: `${car.pos.x.toFixed(0)},${car.pos.z.toFixed(0)}` };
 }
 
 describe('street run keyboard bot', () => {
@@ -71,5 +83,49 @@ describe('street run keyboard bot', () => {
     expect(r.finish!.time).toBeLessThanOrEqual(r.bronze);
     expect(r.finish!.reward).toBeGreaterThan(0);
     expect(r.contacts).toEqual([]);
+  });
+});
+
+describe('street run keyboard bot around people standing at the kerb (whole run)', () => {
+  // Two pedestrians pinned on the corner Magnolia Rush turns right round at gate 11, as a held light leaves them.
+  it('finishes without touching them', () => {
+    const r = run(4, [[5.1, -259.2], [6.4, -257.2]]);
+    console.log(`[kbbot] pedestrians at the corner: ${r.finish ? r.finish.time.toFixed(1) + 's' : `DNF at ${r.end}`}; closest ${r.closest.toFixed(2)} m; contacts ${r.contacts.length}`);
+    expect(r.finish, `gates ${r.gates.join(',')} at ${r.end}`).not.toBeNull();
+    expect(r.contacts).toEqual([]);
+    expect(r.closest).toBeGreaterThan(0.1);
+  });
+});
+
+describe('street run keyboard bot around people standing at the kerb', () => {
+  // Magnolia Rush turns right at the signalled junction (-4,-268). While the light is held for the racer, pedestrians
+  // wait for the crossing on the corner it turns round, and never leave (Pedestrians' crossWait). The bot must drive
+  // on past them, not wait for them to move.
+  const sim = makeSim({ ambient: false, police: false, seed: 1, startHour: 18.1 });
+  const course = sim.activities.streetRunCourses().find((c) => c.id === 'magnolia')!;
+  const sports = sim.spawnVehicle('sports', 2, -230, Math.PI);
+  const car: BotCar = { x: 2, z: -254, heading: Math.PI, speed: 0, wheel: 0, halfL: sports.halfL, halfW: sports.halfW, length: sports.spec.length, steer: sports.spec.steer };
+
+  /** A bot that has driven up to the car's place at the head of the junction. */
+  function arrived(): KeyboardBot {
+    const path = coursePath(sim.roads, course);
+    const bot = new KeyboardBot(path);
+    for (const p of path) {
+      if (p.z < -254 && p.x === 2) break;
+      bot.decide({ ...car, x: p.x, z: p.z }, []);
+    }
+    return bot;
+  }
+
+  it.each([[5.4, -256.7], [5.4, -258.9], [6.2, -257.8], [7, -256.7], [7, -258.9]])('sets off with a pedestrian standing at (%f, %f)', (x, z) => {
+    const bot = arrived();
+    let keys: BotKeys = { KeyW: false, KeyS: false, KeyA: false, KeyD: false, Space: false };
+    for (let i = 0; i < 4; i++) keys = bot.decide(car, [{ x, z, heading: 0, halfL: 0.4, halfW: 0.4, vx: 0, vz: 0 }]);
+    expect(keys.KeyW).toBe(true);
+  });
+
+  it('still stops for a pedestrian standing in its lane', () => {
+    const keys = arrived().decide(car, [{ x: 2.1, z: -257.1, heading: 0, halfL: 0.4, halfW: 0.4, vx: 0, vz: 0 }]);
+    expect(keys.KeyW).toBe(false);
   });
 });
