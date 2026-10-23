@@ -33,6 +33,8 @@ export class PlayerSlot {
   deathKind: 'wasted' | 'busted' | null = null;
   /** Wanted level when the player was wasted or busted: the hospital bill and the bail scale with it. */
   deathLevel = 0;
+  /** On the grid or on the course of a head-to-head race (set by the race each tick). */
+  racing = false;
   readonly tag: PlayerTag;
   /**
    * Out of the world while nobody plays it (multiplayer: slot 0 between holders): its character is not in

@@ -135,6 +135,7 @@ export class HeadToHead {
       this.emit('streetRunCountdown', { count: RACE_COUNTDOWN }, r.slot);
       this.emit('objective', { text: `Get ready · ${this.course.name}` }, r.slot);
     }
+    this.flagRacers();
   }
 
   /** One tick, after the sim's update; `tick` is the room tick that update made. */
@@ -144,6 +145,7 @@ export class HeadToHead {
       if (tick - this.endTick >= RACE_RESULTS_TIME * this.tickRate) this.done = true;
       return;
     }
+    this.flagRacers();
     for (const r of this.racers) {
       if (r.status === 'racing') this.check(r);
       // A leaver's race car would stand on the grid, which is also the finish: once nobody sits in it, it goes.
@@ -184,6 +186,7 @@ export class HeadToHead {
 
   /** Ends everything now (the room closing or the race abandoned): signals released. */
   release(): void {
+    for (const r of this.racers) r.slot.racing = false;
     this.held.forEach((id) => this.sim.roads.releaseSignal(id));
     this.held = [];
   }
@@ -247,6 +250,10 @@ export class HeadToHead {
 
   // ---------------------------------------------------------------------------
 
+  private flagRacers(): void {
+    for (const r of this.racers) r.slot.racing = r.status === 'racing';
+  }
+
   private live(): Racer[] {
     return this.racers.filter((r) => r.status === 'racing');
   }
@@ -265,6 +272,7 @@ export class HeadToHead {
   private out(r: Racer, reason: string): void {
     r.status = 'dnf';
     r.reason = reason;
+    r.slot.racing = false;
 
     if (this.stage === 'countdown' && this.present(r) && r.slot.controlLock <= RACE_COUNTDOWN + 0.2) r.slot.controlLock = 0;
     if (this.present(r)) this.emit('objective', { text: '' }, r.slot);

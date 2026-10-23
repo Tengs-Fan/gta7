@@ -72,11 +72,21 @@ export class AngryDriverSystem implements SimSystem {
     return d;
   }
 
+  private racing(by: Character): boolean {
+    const slot = this.sim.slotOf(by);
+    if (!slot) return false;
+    if (slot.racing) return true;
+    const job = this.sim.activities.jobOf(slot);
+    return job?.kind === 'streetRun' && job.stage !== 'approach';
+  }
+
   private onRammed(v: Vehicle, deltaV: number, by: Character): void {
     const sim = this.sim;
     if (deltaV < HARD_HIT) return;
     const d = this.eligible(v);
     if (!d || this.active.some((g) => g.driver === d)) return;
+    // A racer's bump is part of the race: nobody gets out to fight him mid-course, where he would hold up the run.
+    if (this.racing(by)) return;
     const last = this.lastHit.get(v);
     if (last !== undefined && sim.time - last < 2) return;
     this.lastHit.set(v, sim.time);
