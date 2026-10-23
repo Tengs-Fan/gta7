@@ -12,6 +12,20 @@ import type { Vehicle } from './entities';
 import type { VehicleSpec } from './specs';
 
 export const VEHICLE_GRAVITY = 17;
+/**
+ * The handbrake drift (AI and police drivers only hold the handbrake once they are all but stopped, so it is the
+ * player's): above DRIFT_MIN_SPEED a car on the handbrake gets DRIFT_YAW_ASSIST times its yaw target, fading out as the slip angle
+ * passes DRIFT_SLIP (over DRIFT_SLIP_SOFT more), lateral grip DRIFT_GRIP of its own, DRIFT_FRICTION of drag instead
+ * of the locked-wheel stop, and DRIFT_CARRY of the sideways speed it scrubs off back as forward speed.
+ */
+export const DRIFT_MIN_SPEED = 8;
+export const DRIFT_YAW_ASSIST = 1.35;
+export const DRIFT_SLIP = 0.4;
+export const DRIFT_SLIP_SOFT = 0.25;
+export const DRIFT_GRIP = 0.8;
+export const DRIFT_FRICTION = 3;
+export const DRIFT_CARRY = 0.35;
+
 /** The speed (m/s) at which a car's steering limit has halved (see steerLimit). */
 export const STEER_FADE = 15;
 
@@ -250,6 +264,55 @@ function sinkBlocked(v: Vehicle, world: StaticWorld, x: number, z: number): bool
   return sinkFloor(v, world, x, z) > v.pos.y + 0.05;
 }
 
+/**
+ * A car whose centre is past the edge of a roof it is on still rests on it while its footprint overlaps the roof's by
+ * more than ROOF_EDGE (m), sliding off at ROOF_SLIDE m/s^2; when it drops, the bodies barely overlap, so the collision
+ * that separates them is a nudge rather than a jump.
+ */
+const ROOF_EDGE = 0.1;
+const ROOF_SLIDE = 6;
+/** A roof counts as under a car whose bottom is at most this far below its top (m): one step of a fall, a settled rest. */
+const ROOF_REACH = 0.3;
+
+const roofHit = { y: -Infinity, edge: false, nx: 0, nz: 0 };
+
+/** The highest car roof under the centre of `v` (bottom at `y`), and whether the centre is past that roof's edge (with its outward direction). */
+function roofUnder(v: Vehicle, vehicles: readonly Vehicle[], y: number): typeof roofHit {
+  roofHit.y = -Infinity;
+  roofHit.edge = false;
+  if (v.spec.class === 'boat' || v.inWater) return roofHit;
+  for (const o of vehicles) {
+    if (o === v || o.removed || o.inWater || o.spec.class === 'boat') continue;
+    const top = o.pos.y + o.spec.height;
+    if (top > y + ROOF_REACH || top <= roofHit.y) continue;
+    const dx = v.pos.x - o.pos.x;
+    const dz = v.pos.z - o.pos.z;
+    const r = o.halfL + o.halfW + v.halfW;
+    if (dx * dx + dz * dz > r * r) continue;
+    const ofx = Math.sin(o.heading);
+    const ofz = Math.cos(o.heading);
+    const along = dx * ofx + dz * ofz;
+    const across = dx * ofz - dz * ofx;
+    // The top car's half extents along the lower one's axes: it rests on the roof for as long as its footprint
+    // overlaps the roof's, so that once it drops off there is nothing left for the collision to shove apart.
+    const c = Math.abs(Math.sin(v.heading) * ofx + Math.cos(v.heading) * ofz);
+    const sn = Math.sqrt(Math.max(0, 1 - c * c));
+    const outA = Math.abs(along) - o.halfL;
+    const outX = Math.abs(across) - o.halfW;
+    if (outA > c * v.halfL + sn * v.halfW - ROOF_EDGE || outX > sn * v.halfL + c * v.halfW - ROOF_EDGE) continue;
+    roofHit.y = top;
+    roofHit.edge = outA > 0 || outX > 0;
+    if (outA > outX) {
+      roofHit.nx = ofx * Math.sign(along);
+      roofHit.nz = ofz * Math.sign(along);
+    } else {
+      roofHit.nx = ofz * Math.sign(across);
+      roofHit.nz = -ofx * Math.sign(across);
+    }
+  }
+  return roofHit;
+}
+
 export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): void {
   if (v.removed) return;
   const s = v.spec;
@@ -304,6 +367,9 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   let fx = Math.sin(v.heading);
   let fz = Math.cos(v.heading);
   let vF = v.vel.x * fx + v.vel.z * fz;
+  // The handbrake drift (a car at speed, on the ground): see DRIFT_*.
+  const drift = handbrake && !v.airborne && s.class === 'car' && Math.abs(vF) > DRIFT_MIN_SPEED;
+  const slipNow = drift ? Math.atan2(v.vel.x * -fz + v.vel.z * fx, Math.abs(vF)) : 0;
 
   if (!v.airborne) {
     // --- Yaw (kinematic bicycle model limited by tyre grip) ---
@@ -314,6 +380,13 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     let yawTarget = (vF * Math.tan(delta)) / wheelbase;
     const gripLimit = ((handbrake ? 2.0 : 1.12) * s.grip) / Math.max(speedAbs, 2.5);
     yawTarget = clamp(yawTarget, -gripLimit, gripLimit);
+    if (drift) {
+      // Yaw assist into the slide, easing off as the slip angle passes DRIFT_SLIP so the tail does not swing all the
+      // way round (slip and yaw share a sign: turning left, heading gains on the velocity, which falls to its right).
+      yawTarget *= DRIFT_YAW_ASSIST;
+      const over = clamp((Math.abs(slipNow) - DRIFT_SLIP) / DRIFT_SLIP_SOFT, 0, 1);
+      if (Math.sign(yawTarget) === Math.sign(slipNow)) yawTarget *= 1 - over;
+    }
     if (v.destroyed || v.flipped || v.toppled) yawTarget = 0;
     const resp = handbrake ? 5.5 : 9;
     v.angVel += (yawTarget - v.angVel) * Math.min(1, resp * dt);
@@ -371,15 +444,18 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     let friction = 0.35 + 0.012 * Math.abs(vF);
     if (throttle < 0.01 && brake < 0.01) friction += ENGINE_BRAKE;
     if (!hasDriver) friction += 5.5; // parked: handbrake on
-    if (handbrake) friction += 7.5;
+    if (handbrake) friction += drift ? DRIFT_FRICTION : 7.5;
     if (v.destroyed || v.flipped || v.toppled) friction += 9;
     friction += wade * (WADE_DRAG * s.accel + 0.04 * vF * vF);
     vF = moveTowards(vF, 0, friction * dt);
 
     // --- Lateral grip ---
-    const grip = (handbrake ? s.grip * 0.3 : v.destroyed || v.flipped || v.toppled ? s.grip * 1.5 : s.grip) * (1 - 0.4 * wade);
+    const grip = (drift ? s.grip * DRIFT_GRIP : handbrake ? s.grip * 0.3 : v.destroyed || v.flipped || v.toppled ? s.grip * 1.5 : s.grip) * (1 - 0.4 * wade);
     const skidLat = Math.abs(vR);
+    const vR0 = vR;
     vR = moveTowards(vR, 0, grip * dt);
+    // Drifting, the sliding rear wheels turn part of the sideways speed they scrub off into forward speed.
+    if (drift) vF += Math.sign(vF) * Math.abs(vR0 - vR) * DRIFT_CARRY;
     const skidTarget = clamp((skidLat - 2.2) / 6, 0, 1) + (handbrake && Math.abs(vF) > 5 ? 0.6 : 0) + (v.braking && Math.abs(vF) > 12 && brake > 0.8 ? 0.35 : 0);
     // Tyres sliding under water neither squeal nor smoke nor leave marks (all three follow v.skid).
     v.skid = damp(v.skid, clamp(skidTarget, 0, 1) * clamp(1 - wade * 10, 0, 1), 10, dt);
@@ -418,7 +494,14 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   v.pos.z = nz;
 
   // --- Vertical ---
-  const gy = world.groundHeight(v.pos.x, v.pos.z);
+  // Another car's roof under this one is ground too: a car landing on top settles there (or slides off its edge)
+  // instead of being shoved out sideways by the collision once it has sunk into the other's body.
+  const roof = roofUnder(v, host.vehicles, v.pos.y);
+  if (roof.edge && !v.airborne) {
+    v.vel.x += roof.nx * ROOF_SLIDE * dt;
+    v.vel.z += roof.nz * ROOF_SLIDE * dt;
+  }
+  const gy = Math.max(world.groundHeight(v.pos.x, v.pos.z), roof.y);
   if (v.airborne) {
     v.vy -= VEHICLE_GRAVITY * dt;
     v.pos.y += v.vy * dt;

@@ -8,6 +8,7 @@ import { Rng } from '../../src/core/rng';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import { missionSpots } from '../../src/sim/missions/spots';
 import type { Sim, SimOptions } from '../../src/sim/sim';
+import { drownsInSinkingCar } from '../../src/sim/sinking';
 import { WATER_Y } from '../../src/world/constants';
 import { rectContains, rectCX, rectCZ, type Rect } from '../../src/world/layout';
 import type { StaticCollider } from '../../src/world/colliders';
@@ -163,7 +164,9 @@ describe('Loose Lips tracks Benny himself', () => {
     expect(sim.progress.money).toBe(money + 4000);
   });
 
-  it('passes when Benny drowns with his car (removed, never killed)', () => {
+  // Wave 1 (VAL-DRIVE-005): people in a sinking car used to vanish (Benny "removed", and the mission passed); they now
+  // swim out or drown (sim/sinking.ts). Drowned, Benny is down and the mission passes; swimming, he is still the target.
+  it('passes when Benny drowns with his car; swimming out of it he is still the target', () => {
     const sim = setup(['wheels', 'delivery', 'repo'], { police: false });
     startMission(sim, 'loose_lips');
     stepUntil(sim, () => objective(sim) === 'Take out Benny', 20);
@@ -172,8 +175,17 @@ describe('Loose Lips tracks Benny himself', () => {
     car.pos.x = sim.world.bounds.landMinX - 40;
     car.pos.z = 0;
     car.pos.y = WATER_Y;
-    stepUntil(sim, () => benny.removed, 3);
-    expect(benny.alive).toBe(true);
+    stepUntil(sim, () => benny.vehicle === null, 3);
+    expect(benny.removed).toBe(false);
+    if (drownsInSinkingCar(benny)) {
+      stepUntil(sim, () => !benny.alive, 6);
+    } else {
+      step(sim, 2);
+      expect(benny.alive).toBe(true);
+      expect(benny.state).toBe('swimming');
+      expect(sim.missions.active?.def.id).toBe('loose_lips');
+      sim.combat.damageCharacter(benny, 500, sim.player, 'bullet', 0, 0, 1);
+    }
     stepUntil(sim, () => sim.missions.active === null, 30);
     expect(sim.progress.missionsDone).toContain('loose_lips');
   });

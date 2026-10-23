@@ -302,7 +302,8 @@ export class CrowdView {
       if (c.removed || c.id === this.hiddenId) continue;
       if (c.state === 'inVehicle') {
         const v = c.vehicle;
-        if (!v || v.removed || v.destroyed || v.burning) continue;
+        // A burning car still shows who is in it (until he gets out or it blows up).
+        if (!v || v.removed || v.destroyed) continue;
         if ((v.pos.x - camX) ** 2 + (v.pos.z - camZ) ** 2 > OCCUPANT_RANGE * OCCUPANT_RANGE) continue;
         this.trackShot(c);
         this.seated(c, v);
