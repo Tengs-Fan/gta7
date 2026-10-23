@@ -9,12 +9,21 @@ import { onVehicleLanded } from './stunts';
 import { streetRunActivity, streetRunCourses } from './streetRun';
 import { placeOnSidewalk, taxiActivity } from './taxi';
 import { vigilanteActivity } from './vigilante';
+import { ambulanceActivity } from './ambulance';
+import { carExportActivity } from './carExport';
+import { courierActivity } from './courier';
+import { firefighterActivity } from './firefighter';
+import './serviceVehicles';
 import type { ActivityDef, ActivityHost, ActivityJob, CancelReason, Job, Objective } from './types';
 
 export type { RampageJob } from './rampage';
 export type { StreetRunJob } from './streetRun';
 export type { TaxiJob } from './taxi';
 export type { VigilanteJob } from './vigilante';
+export type { AmbulanceJob } from './ambulance';
+export type { CourierJob } from './courier';
+export type { ExportJob } from './carExport';
+export type { FireJob } from './firefighter';
 export type { ActivityDef, ActivityHost, ActivityJob, ActivitySlot, CancelReason, Job, JobKinds, Objective } from './types';
 
 /** In the job key's order: the first def whose `canStart` holds starts, and its prompt is the one offered. */
@@ -44,6 +53,10 @@ export function activityKinds(): string[] {
 registerActivity(taxiActivity);
 registerActivity(vigilanteActivity);
 registerActivity(rampageActivity);
+registerActivity(ambulanceActivity);
+registerActivity(firefighterActivity);
+registerActivity(courierActivity);
+registerActivity(carExportActivity);
 registerActivity(streetRunActivity);
 
 export class Activities {
@@ -142,6 +155,12 @@ export class Activities {
 
   startRampage(tag: string): boolean {
     return rampageActivity.start(this.host, this.sim.player, this.sim.player.vehicle, tag);
+  }
+
+  /** Takes Lou's export list (her board's marker): false while a job or a mission runs. */
+  startExport(): boolean {
+    if (this.busy || this.sim.missions.active) return false;
+    return carExportActivity.start(this.host, this.sim.player, this.sim.player.vehicle);
   }
 
   /** Lets a fare out of `v` on the curb side (also called directly by tests). */

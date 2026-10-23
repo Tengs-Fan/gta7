@@ -310,6 +310,8 @@ function profile(kind: VehicleKind): Profile {
   const hw = s.width / 2;
   const P = (pts: Array<[number, number]>): Pt[] => pts.map(([x, y]) => [x * L, y * H]);
   const base = { panes: [] as Pane[], ports: [] as Pt[][], rearSeats: false };
+  const data = s.bodyProfile;
+  if (data) return { ...base, rearSeats: !!data.rearSeats, body: P(data.body.map(([x, y]) => [x, y])), cabin: P(data.cabin.map(([x, y]) => [x, y])), cabinInset: data.cabinInset, wheelR: data.wheelR, wheelFront: data.wheelFront, wheelRear: data.wheelRear, lightY: data.lightY };
   switch (kind) {
     case 'compact':
       return { ...base, body: P([[-0.5, 0.22], [0.49, 0.22], [0.5, 0.4], [0.47, 0.56], [0.24, 0.62], [-0.46, 0.63], [-0.5, 0.5]]), cabin: P([[0.25, 0.61], [0.07, 0.98], [-0.39, 0.98], [-0.47, 0.62]]), cabinInset: 0.1, wheelR: 0.31, wheelFront: 0.33, wheelRear: -0.32, lightY: 0.45 };
@@ -860,6 +862,15 @@ export class VehicleView {
       this.group.add(sign);
       this.attached.push({ obj: sign, base: sign.position.clone() });
       this.livery.push({ mesh: sign, mat: signMats });
+    }
+    for (const gear of s.gear ?? []) {
+      const mat = new THREE.MeshStandardMaterial({ color: gear.color, emissive: gear.emissive ?? 0x000000, emissiveIntensity: gear.emissive === undefined ? 0 : 1.6, roughness: 0.4, metalness: 0.3 });
+      const m = new THREE.Mesh(new THREE.BoxGeometry(...gear.size), mat);
+      m.position.set(...gear.at);
+      m.castShadow = true;
+      this.group.add(m);
+      this.attached.push({ obj: m, base: m.position.clone() });
+      this.livery.push({ mesh: m, mat });
     }
     this.group.rotation.order = 'YXZ';
     // Includes roof gear (light bar, taxi sign), so a car on its roof rests on it.

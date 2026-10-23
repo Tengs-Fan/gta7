@@ -19,6 +19,7 @@ import { HintSystem } from './ui/hints';
 import { Hud } from './ui/hud';
 import { MapImage } from './ui/mapRender';
 import { Menus, type MenuHost } from './ui/menus';
+import { ExportListWidget } from './ui/widgets/exportList';
 import { StaticWorld } from './world/staticWorld';
 
 export { CHEAT_CODES as CHEATS } from './input/cheats';
@@ -72,6 +73,7 @@ export class Game {
   readonly menus: Menus;
   readonly audio = new AudioEngine();
   readonly mapImage: MapImage;
+  private readonly exportList: ExportListWidget;
   sim: Sim;
   mode: 'title' | 'game' = 'title';
   settings: Settings;
@@ -141,6 +143,7 @@ export class Game {
     this.hud = new Hud(ui, this.mapImage, this.input.labels);
     this.hud.setVisible(false);
     this.menus = new Menus(ui, this.menuHost(), this.mapImage, this.input.labels);
+    this.exportList = new ExportListWidget(ui);
     this.applySettings(this.settings, false);
     this.sim = this.makeTitleSim();
     this.renderer.attach(this.sim, this.localPlayerId);
@@ -288,7 +291,7 @@ export class Game {
     this.pendingAutosave = false;
     this.world.resetBroken();
     this.renderer.props.restoreAll();
-    const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5, weather: this.weatherMode });
+    const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5, weather: this.weatherMode, serviceVehicles: true });
     this.applyDensity(sim);
     sim.resetSystems();
     if (save) {
@@ -310,6 +313,11 @@ export class Game {
         if (!isLocal(e)) return;
         this.suspendPlay();
         this.menus.showShop(this.guard(() => this.resume()));
+      }),
+      ev.on('screenOpen', (e) => {
+        if (!isLocal(e)) return;
+        this.suspendPlay();
+        if (!this.menus.showScreen(e.screen, this.guard(() => this.resume()))) this.resume();
       }),
       ...this.bindSaves(sim),
       ev.on('respawn', (e) => isLocal(e) && this.renderer.cameraCtl.reset(sim)),
@@ -485,6 +493,8 @@ export class Game {
     this.mode = 'title';
     this.introTimer = -1;
     this.hud.setVisible(false);
+    // (Absent on the stand-in hosts the quit tests call this on.)
+    this.exportList?.update(null, this.localPlayerId, false);
     // Still paused (by the pause menu): the title's audio updates fade the frozen game's voices out under the closed
     // stage first, then step() opens it.
     this.audio.setPaused(true);
@@ -571,6 +581,7 @@ export class Game {
       return;
     }
     if (this.menus.open) {
+      this.exportList.update(this.sim, this.localPlayerId, false);
       const shown = this.menus.top;
       this.menus.input(fi.ui, dt, fi.device);
       // Its key (P, M) closed the pause menu or a map, back to play or to the pause menu under it: a cheat code's letter
@@ -639,6 +650,7 @@ export class Game {
     const prompt = sim.interactions.prompt(sim.players[this.localPlayerId]) ?? sim.activities.jobPrompt(sim.players[this.localPlayerId]) ?? this.hints.stealPrompt(sim);
     this.hud.device = fi.device;
     this.hud.update(dt, sim, cam.yaw, aiming, prompt, this.renderer.time);
+    this.exportList.update(sim, this.localPlayerId);
     const down = sim.deathKind;
     this.canvas.classList.toggle('wasted', down === 'wasted');
     this.canvas.classList.toggle('busted', down === 'busted');

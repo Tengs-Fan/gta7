@@ -48,6 +48,8 @@ export interface SimEvents {
   objective: { text: string } & PlayerScoped;
   stunt: { airTime: number; distance: number; bonus: number; unique: boolean } & PlayerScoped;
   shopOpen: { poi: string } & PlayerScoped;
+  /** A sim-side marker asks the game to open one of its screens (ui/screens registry), e.g. 'exportBoard' or 'customs'. */
+  screenOpen: { screen: string } & PlayerScoped;
   saveRequested: { poi: string } & PlayerScoped;
   sprayed: { cost: number } & PlayerScoped;
   scream: { x: number; y: number; z: number };

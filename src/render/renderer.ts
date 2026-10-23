@@ -1,5 +1,7 @@
 // Owns the three.js renderer and scene; mirrors the simulation every frame.
 
+import { ActivityFxView } from './activityFx';
+import { SiteView } from './siteView';
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
@@ -136,6 +138,9 @@ export class GameRenderer {
   readonly effects = new Effects();
   readonly markers = new MarkerView();
   readonly lightSprites = new LightSprites();
+  /** The wave-1 jobs' bins and water jet, and the signs and structures of their places. */
+  readonly activityFx = new ActivityFxView();
+  readonly sites: SiteView;
   readonly rain: Rain;
   /** Roof heights over the world (rain and dry ground under cover, no tyre spray in a garage). */
   readonly cover: CoverMap;
@@ -219,6 +224,10 @@ export class GameRenderer {
     this.city = new CityView(world, STATIC_CHUNK_SIZE, this.software);
     this.props = new PropsView(world);
     this.streetLighting = new StreetLighting(world);
+    this.sites = new SiteView(world);
+    this.scene.add(this.activityFx.group, this.sites.group);
+    this.softwareMaterials?.apply(this.sites.group);
+    this.softwareMaterials?.apply(this.activityFx.group);
     this.scene.add(this.streetLighting.group);
     this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group, this.lightSprites.group);
     this.softwareMaterials?.apply(this.city.group);
@@ -470,6 +479,7 @@ export class GameRenderer {
     this.vehicleViews.clear();
     this.farHidden.clear();
     this.effects.reset();
+    this.activityFx.clear();
     this.flashAge = Infinity;
     // A new session's clock starts again from 0.
     this.autoRounds = 0;
@@ -757,6 +767,7 @@ export class GameRenderer {
       this.syncLightSprites(sim, lights);
       this.effects.syncRockets(sim.projectiles);
       this.vehicleEffects(sim, dt);
+      this.activityFx.sync(sim, dt, this.effects, this.time);
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt, this.me(sim).character.id);
       this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming);
       const objectives = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
