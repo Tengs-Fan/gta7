@@ -450,8 +450,8 @@ describe('cap triangulation', () => {
         const edge = (a: number, b: number): string => [key(a), key(b)].sort().join('|');
         for (const side of [-1, 1]) {
           const onCap = (i: number): boolean => {
-            const shaped = mesh === 'body' && !['bus', 'van', 'swat', 'pickup'].includes(kind);
             const spec = VEHICLE_SPECS[kind];
+            const shaped = mesh === 'body' && !['bus', 'van', 'swat', 'pickup'].includes(kind) && !spec.bodyProfile?.straightSides;
             let capX = shaped ? bodySideX(half, spec.height, pos.getY(i)) : half;
             if (mesh === 'glass' && !['bus', 'van', 'swat'].includes(kind)) capX = cabinSideX(half, pos.getY(i), spec.height, spec.width / 2);
             return Math.abs(pos.getX(i) - side * capX) < 1e-6;

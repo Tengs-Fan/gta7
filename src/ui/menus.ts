@@ -14,6 +14,8 @@ import { showStats } from './screens/stats';
 import { showStreetRuns } from './screens/streetRuns';
 import { showCredits, showTitle } from './screens/title';
 import { h, showConfirm, type MenuCtx, type MenuHost, type Screen } from './screens/shared';
+import { screenOpener } from './screens/registry';
+import './screens/exportBoard';
 
 export { NEW_GAME_WARNING } from './screens/title';
 export type { MenuHost, StreetRunMedalTimes } from './screens/shared';
@@ -180,6 +182,11 @@ export class Menus {
 
   showShop(onClose: () => void): void {
     showShop(this.ctx, onClose);
+  }
+
+  /** A screen registered by name (screens/registry.ts); false if there is none or it has nothing to show. */
+  showScreen(name: string, onClose: () => void): boolean {
+    return screenOpener(name)?.(this.ctx, onClose) ?? false;
   }
 
   /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */

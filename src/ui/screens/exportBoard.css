@@ -1,0 +1,28 @@
+.export-intro {
+  margin: 0 0 12px;
+  font-size: 18px;
+  color: var(--muted);
+}
+
+.export-chip {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.export-chip.any {
+  background: linear-gradient(135deg, #c0392b 0 33%, #f1c40f 33% 66%, #2874a6 66%);
+}
+
+.export-row.shipped {
+  opacity: 0.55;
+}
+
+.export-row.shipped .own {
+  color: #7dff9e;
+}
+
