@@ -112,6 +112,7 @@ function updateExport(host: ActivityHost, j: ExportJob): void {
 export const carExportActivity: ActivityDef<ExportJob> = {
   kind: 'carExport',
   toggleEndText: 'Export job stopped. The list stays on Lou\'s board.',
+  site: { label: 'E', name: 'Export', at: (world) => places(world).exportBoard },
   completion: (_view, me) => ({
     label: "Lou's export list",
     done: activityRecords(me.progress).exportLists > 0 ? EXPORT_LIST.length : exportDone(me.progress).size,

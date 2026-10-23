@@ -1,6 +1,7 @@
 import type { Character, Vehicle } from '../entities';
 import type { Sim } from '../sim';
 import type { PlayerView, ViewState } from '../viewState';
+import type { StaticWorld } from '../../world/staticWorld';
 import type { RampageJob } from './rampage';
 import type { StreetRunJob } from './streetRun';
 import type { TaxiJob } from './taxi';
@@ -89,8 +90,15 @@ export interface ActivityDef<J extends ActivityJob = ActivityJob> {
   status(job: J): string | null;
   /** The text that closes the job when the game ends it (death, arrest, a mission starting). Absent: '' for a mission, 'Job over.' otherwise. */
   abortText?(reason: CancelReason): string;
+  /**
+   * Whether `passenger` keeps his seat when the job's player takes the wheel of `vehicle` (getting back into the job's
+   * car). Absent or false: he gets out, as every passenger does when the player takes a wheel.
+   */
+  keepsAboard?(job: J, passenger: Character, vehicle: Vehicle): boolean;
   /** Called once as each Activities facade is built, for listeners the activity keeps on the sim. */
   attach?(host: ActivityHost): void;
+  /** Where the activity is taken up, for its icon in the map legend's activities row. Absent: no icon. */
+  readonly site?: { label: string; name: string; at(world: StaticWorld): { x: number; z: number } };
   /** Its row in the completion checklist (map screen, STATS): what counts as done of how much. Absent: no row. */
   completion?(view: ViewState, me: PlayerView): { label: string; done: number; total: number } | null;
 }

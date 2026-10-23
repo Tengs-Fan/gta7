@@ -6,6 +6,7 @@ import type { Vehicle } from '../entities';
 import { VEHICLE_SPECS, type VehicleKind } from '../specs';
 import { clearOfVehicles } from '../vehicleRoom';
 import { jetReaches, waterJetOf } from '../waterCannon';
+import { places } from './places';
 import { activityRecords } from './records';
 import { awayStatus, outOfVehicle } from './service';
 import type { ActivityDef, ActivityHost, Objective } from './types';
@@ -131,8 +132,10 @@ function updateFire(host: ActivityHost, j: FireJob, dt: number): void {
   for (const f of j.fires) {
     const v = f.vehicle;
     if (v) {
-      if (v.removed || v.destroyed) f.strength = 0;
-      else {
+      // Blown up or gone by some other way: the record is dropped with the level, so let go of the car now.
+      if (v.removed || v.destroyed) {
+        if (f.strength > 0 || v.persistent) douse(f);
+      } else {
         f.x = v.pos.x;
         f.y = v.pos.y;
         f.z = v.pos.z;
@@ -170,6 +173,7 @@ function updateFire(host: ActivityHost, j: FireJob, dt: number): void {
 export const firefighterActivity: ActivityDef<FireJob> = {
   kind: 'firefighter',
   toggleEndText: 'Firefighter job ended.',
+  site: { label: 'F', name: 'Fire', at: (world) => places(world).depots.find((d) => d.kind === 'firetruck')! },
   completion: (_view, me) => ({ label: 'Firefighter level 5', done: Math.min(5, activityRecords(me.progress).fireLevel), total: 5 }),
 
   canStart: (_host, _slot, vehicle) => vehicle?.kind === 'firetruck',

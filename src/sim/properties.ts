@@ -10,7 +10,7 @@ import { places } from './activities/places';
 import { registerCompletion } from './completion';
 import { registerStatRow } from './statRows';
 import type { Vehicle } from './entities';
-import { applyMods, cleanLevel, customsRefusal, setMods, type ModLevels } from './mods';
+import { applyMods, customsRefusal, MAX_MOD_LEVEL, MOD_CATEGORIES, setMods, type ModLevels } from './mods';
 import type { Progress } from './progress';
 import { registerSaveCodec } from './saveExt';
 import type { Sim } from './sim';
@@ -244,6 +244,22 @@ interface GarageSave {
   cars: StoredCarRecord[];
 }
 
+/**
+ * A stored car's saved mod levels. A missing level is stock; if any level is not a whole number from 0 to MAX_MOD_LEVEL
+ * the entry is corrupt and the car comes back at stock (VAL-ECON-008), never at a clamped, maybe higher, level.
+ */
+function savedModLevels(e: Record<string, unknown>): ModLevels {
+  const stock: ModLevels = { engine: 0, brakes: 0, tyres: 0 };
+  const out = { ...stock };
+  for (const c of MOD_CATEGORIES) {
+    const n = e[c];
+    if (n === undefined) continue;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > MAX_MOD_LEVEL) return stock;
+    out[c] = n;
+  }
+  return out;
+}
+
 /** A garage entry as saved; corrupt cars are dropped (a car of a kind that no longer exists, say). */
 export function parseGarage(raw: unknown): GarageSave | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
@@ -256,7 +272,7 @@ export function parseGarage(raw: unknown): GarageSave | undefined {
       const kind = e.kind;
       if (typeof kind !== 'string' || !Object.prototype.hasOwnProperty.call(VEHICLE_SPECS, kind)) continue;
       const color = typeof e.color === 'number' && Number.isInteger(e.color) && e.color >= 0 && e.color <= 0xffffff ? e.color : VEHICLE_SPECS[kind as VehicleKind].colors[0]!;
-      cars.push({ kind: kind as VehicleKind, color, engine: cleanLevel(e.engine), brakes: cleanLevel(e.brakes), tyres: cleanLevel(e.tyres) });
+      cars.push({ kind: kind as VehicleKind, color, ...savedModLevels(e) });
       if (cars.length >= GARAGE_SLOTS) break;
     }
   }
