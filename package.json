@@ -9,21 +9,25 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 4173 --strictPort",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p server/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "check": "npm run typecheck && npm run test && npm run build && npm run test:e2e"
+    "check": "npm run typecheck && npm run test && npm run build && npm run test:e2e",
+    "server": "tsx server/main.ts --port 4210"
   },
   "dependencies": {
     "@fontsource/anton": "5.3.0",
     "@fontsource/rajdhani": "5.3.0",
-    "three": "0.186.1"
+    "three": "0.186.1",
+    "ws": "8.22.0"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",
     "@types/node": "22.20.5",
     "@types/three": "0.186.0",
+    "@types/ws": "8.18.2",
+    "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vite": "8.3.4",
     "vitest": "5.0.5"
