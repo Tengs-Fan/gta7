@@ -7,6 +7,16 @@ import type { StreetRunId, StreetRunMedal } from './streetRuns';
 export type BigStyle = 'title' | 'passed' | 'failed' | 'wasted' | 'busted' | 'stunt' | 'info';
 export type HitKind = 'none' | 'world' | 'flesh' | 'vehicle';
 
+/**
+ * Event types about one player (his HUD, money, wanted level, respawn, activities) rather than the world: their payload's
+ * `playerId` names the slot (absent: slot 0), and a server sends them to that player only.
+ */
+export const PLAYER_SCOPED_EVENTS: ReadonlySet<string> = new Set([
+  'money', 'wanted', 'dispatch', 'wasted', 'busted', 'respawn', 'message', 'subtitle', 'big', 'objective', 'stunt',
+  'shopOpen', 'screenOpen', 'saveRequested', 'sprayed', 'fade', 'missionStarted', 'missionEnded', 'activityEnded',
+  'activityMilestone', 'streetRunCountdown', 'streetRunCheckpoint', 'streetRunFinished',
+]);
+
 /** The player an event is about; absent means player slot 0, the single-player seat. */
 export interface PlayerScoped {
   playerId?: number;
@@ -15,11 +25,11 @@ export interface PlayerScoped {
 /** Everything the presentation layer (renderer, audio, HUD) reacts to. Events about one player carry `playerId`. */
 export interface SimEvents {
   /** One bullet, pellet or rocket launch; `pellet` is its 0-based index within the trigger pull (0 for single-shot weapons and helicopter rounds). */
-  shot: { shooter: Character | null; weapon: WeaponId; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; hit: HitKind; nx: number; ny: number; nz: number; pellet: number };
+  shot: { shooter: Character | null; weapon: WeaponId; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; hit: HitKind; nx: number; ny: number; nz: number; pellet: number } & PlayerScoped;
   /** Exactly one per trigger pull of a gun (player, NPC, rocket launch) from the muzzle along the aim before spread. Not for melee or helicopter rounds. */
-  weaponFired: { shooter: Character | null; weapon: WeaponId; x: number; y: number; z: number; dx: number; dy: number; dz: number; pellets: number };
+  weaponFired: { shooter: Character | null; weapon: WeaponId; x: number; y: number; z: number; dx: number; dy: number; dz: number; pellets: number } & PlayerScoped;
   /** Every hit CombatSystem.damageCharacter applies, also one the armour absorbed completely; (dirX, dirZ) is the normalised hit direction, 0 when it has none. */
-  damage: { victim: Character; attacker: Character | null; healthLoss: number; armourLoss: number; kind: DamageKind; zone: HitZone; killed: boolean; dirX: number; dirZ: number };
+  damage: { victim: Character; attacker: Character | null; healthLoss: number; armourLoss: number; kind: DamageKind; zone: HitZone; killed: boolean; dirX: number; dirZ: number } & PlayerScoped;
   explosion: { x: number; y: number; z: number; radius: number };
   impact: { x: number; y: number; z: number; strength: number; vehicle: Vehicle | null };
   blood: { x: number; y: number; z: number; dx: number; dy: number; dz: number };
@@ -34,7 +44,8 @@ export interface SimEvents {
   vehicleEnter: { vehicle: Vehicle; character: Character; jacked: boolean };
   vehicleExit: { vehicle: Vehicle; character: Character };
   vehicleDestroyed: { vehicle: Vehicle };
-  characterKilled: { victim: Character; killer: Character | null };
+  /** `playerId`: the killer's slot, when a player made the kill (world events of a player's doing carry it too: shot, weaponFired, damage). */
+  characterKilled: { victim: Character; killer: Character | null } & PlayerScoped;
   pickup: { kind: PickupKind; x: number; y: number; z: number };
   money: { amount: number } & PlayerScoped;
   wanted: { level: number; previous: number } & PlayerScoped;

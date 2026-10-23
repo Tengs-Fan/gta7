@@ -66,8 +66,13 @@ function input(over: Partial<PlayerInput>): PlayerInput {
   return { ...neutralInput(), ...over };
 }
 
-function record(seed: number, end: 'wasted' | 'busted'): SeedTrace {
-  const sim = new Sim({ world: new StaticWorld(), ambient: true, police: true, seed, weather: 'dynamic', startHour: 20 });
+/** Extra Sim options for a variant of the trace (the baseline uses none, as 72d0b98 had none of them). */
+export interface TraceOptions {
+  streetCrime?: boolean;
+}
+
+function record(seed: number, end: 'wasted' | 'busted', extra: TraceOptions = {}): SeedTrace {
+  const sim = new Sim({ world: new StaticWorld(), ambient: true, police: true, seed, weather: 'dynamic', startHour: 20, ...extra });
   let pending: Array<[string, unknown]> = [];
   const emit = sim.events.emit.bind(sim.events);
   sim.events.emit = ((type: string, payload: unknown) => {
@@ -161,6 +166,6 @@ function record(seed: number, end: 'wasted' | 'busted'): SeedTrace {
   return out;
 }
 
-export function recordSpTrace(): SpTrace {
-  return { dt: DT, frameCount: TRACE_FRAMES, seeds: TRACE_SEEDS.map((seed, i) => record(seed, TRACE_END[i]!)) };
+export function recordSpTrace(extra: TraceOptions = {}): SpTrace {
+  return { dt: DT, frameCount: TRACE_FRAMES, seeds: TRACE_SEEDS.map((seed, i) => record(seed, TRACE_END[i]!, extra)) };
 }

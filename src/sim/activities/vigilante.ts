@@ -16,7 +16,7 @@ export interface VigilanteJob {
 
 function spawnSuspect(host: ActivityHost, j: VigilanteJob): void {
   const sim = host.sim;
-  const v = sim.traffic.trySpawnTraffic(110, 260, sim.rng.pick(['sedan', 'muscle', 'sports', 'pickup'] as const));
+  const v = sim.traffic.trySpawnTraffic(110, 260, sim.rng.pick(['sedan', 'muscle', 'sports', 'pickup'] as const), host.slot);
   if (!v) {
     j.pause = 2;
     return;
@@ -76,7 +76,8 @@ function updateVigilante(host: ActivityHost, j: VigilanteJob, dt: number): void 
     host.end(`Out of time. Vigilante ended at level ${j.level}.`);
     return;
   }
-  if (sim.distToPlayer(t.pos.x, t.pos.z) > 480) host.end('The suspect got away.');
+  const pp = sim.playerPos();
+  if (Math.hypot(t.pos.x - pp.x, t.pos.z - pp.z) > 480) host.end('The suspect got away.');
 }
 
 function releaseVehicle(v: Vehicle): void {

@@ -6,6 +6,7 @@ import type { Rng } from '../core/rng';
 import { WATER_Y } from '../world/constants';
 import { STOP_MARGIN } from './driver';
 import type { Vehicle } from './entities';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import { PARKED_MIX, parkedBike, TRAFFIC_MIX, trafficBike, VEHICLE_SPECS, type VehicleKind } from './specs';
 import { clearOfVehicles } from './vehicleRoom';
@@ -44,6 +45,8 @@ const BAY_SPACING = 3.5;
 const TOW_BLOCK = 30;
 const TOW_GAP = 20;
 const TOW_KEEP_NEAR = 20;
+/** Multiplayer: nothing is towed this near (m) any player. */
+const TOW_FAR_MP = 40;
 
 /** A stretch of lane to spawn on: distances s0-s1 along it. */
 interface SpawnSpan {
@@ -52,31 +55,102 @@ interface SpawnSpan {
   s1: number;
 }
 
-export class TrafficSystem {
-  private timer = 0;
-  private parkedTimer = 0;
-  private laneTimer = 0;
-  private nearLanes: Lane[] = [];
+/**
+ * Multiplayer: players within CLUSTER_RADIUS m of a group's first player share its traffic and pedestrians. Each group
+ * streams its own ring round its players, its share of the budget: n groups together get the single-player target
+ * count times mpBudget(n) (1.6 for two, 2.2 for three, 2.8 for four, at most 3), split evenly between them.
+ */
+export const CLUSTER_RADIUS = 150;
+export function mpBudget(groups: number): number {
+  return Math.min(1 + 0.6 * (groups - 1), 3);
+}
+
+/** Groups the players (slot order; a player joins the first group whose first player is within CLUSTER_RADIUS m). */
+export function playerClusters(players: readonly PlayerSlot[]): PlayerSlot[][] {
+  const out: PlayerSlot[][] = [];
+  for (const s of players) {
+    const p = s.pos();
+    const g = out.find((c) => {
+      const q = c[0]!.pos();
+      return Math.hypot(p.x - q.x, p.z - q.z) <= CLUSTER_RADIUS;
+    });
+    if (g) g.push(s);
+    else out.push([s]);
+  }
+  return out;
+}
+
+/** Each group's share of a single-player target count. */
+export function clusterTarget(target: number, groups: number): number {
+  return groups <= 1 ? target : Math.round((target * mpBudget(groups)) / groups);
+}
+
+/** What the spawner knows about the roads round one player (see refreshNearLanes and refreshAhead). */
+class Ring {
+  nearLanes: Lane[] = [];
   /** Running totals of the near lanes' pick weights. */
-  private nearCum: number[] = [];
+  nearCum: number[] = [];
   /** Where cross traffic queues at the junctions ahead of a fast player (see refreshAhead). */
-  private aheadSpans: SpawnSpan[] = [];
-  private aheadCum: number[] = [];
-  private aheadTime = -Infinity;
+  aheadSpans: SpawnSpan[] = [];
+  aheadCum: number[] = [];
+  aheadTime = -Infinity;
   /** The lanes of the road a fast player is about to drive down, his way (see refreshAhead). */
-  private aheadPath = new Set<Lane>();
+  aheadPath = new Set<Lane>();
   /**
    * Every cross-street lane into those junctions (and the one he is driving through), whether or not its green comes in
    * time for aheadSpans: while he is wanted no car spawns on one at a red light, where it would wait right in his way.
    */
-  private aheadCross = new Set<Lane>();
+  aheadCross = new Set<Lane>();
+}
+
+export class TrafficSystem {
+  private timer = 0;
+  private parkedTimer = 0;
+  private laneTimer = 0;
+  /** Each player's Ring, by slot id; `ring` and `anchor` are the ones the spawner works round right now (slot 0's between calls). */
+  private readonly rings = new Map<number, Ring>();
+  private ring = new Ring();
+  private anchor: PlayerSlot;
+  /** Turns through a group's players for its spawns (multiplayer). */
+  private turn = 0;
   readonly parkedBySpot = new Map<number, Vehicle>();
   /** Since when each vehicle nobody is in has held up traffic in a junction, and when it last did (see TOW_BLOCK). */
   private readonly blockTime = new Map<Vehicle, { since: number; last: number }>();
   /** Multiplier for traffic density (settings / tests). */
   density = 1;
 
-  constructor(private readonly sim: Sim) {}
+  constructor(private readonly sim: Sim) {
+    this.anchor = sim.players[0]!;
+    this.rings.set(0, this.ring);
+  }
+
+  private get nearLanes(): Lane[] { return this.ring.nearLanes; }
+  private set nearLanes(v: Lane[]) { this.ring.nearLanes = v; }
+  private get nearCum(): number[] { return this.ring.nearCum; }
+  private set nearCum(v: number[]) { this.ring.nearCum = v; }
+  private get aheadSpans(): SpawnSpan[] { return this.ring.aheadSpans; }
+  private set aheadSpans(v: SpawnSpan[]) { this.ring.aheadSpans = v; }
+  private get aheadCum(): number[] { return this.ring.aheadCum; }
+  private set aheadCum(v: number[]) { this.ring.aheadCum = v; }
+  private get aheadTime(): number { return this.ring.aheadTime; }
+  private set aheadTime(v: number) { this.ring.aheadTime = v; }
+  private get aheadPath(): Set<Lane> { return this.ring.aheadPath; }
+  private get aheadCross(): Set<Lane> { return this.ring.aheadCross; }
+
+  /** Works round player `slot` until the next call (see ring). */
+  private use(slot: PlayerSlot): void {
+    this.anchor = slot;
+    let r = this.rings.get(slot.id);
+    if (!r) {
+      r = new Ring();
+      this.rings.set(slot.id, r);
+    }
+    this.ring = r;
+  }
+
+  private anchorPos(): { x: number; y: number; z: number } {
+    return this.anchor.pos();
+  }
 
   get targetCount(): number {
     const h = this.sim.clock.hours;
@@ -85,15 +159,24 @@ export class TrafficSystem {
   }
 
   updateStreaming(dt: number): void {
+    const active = this.sim.activePlayers();
     this.laneTimer -= dt;
     if (this.laneTimer <= 0) {
       this.laneTimer = 1.5;
-      this.refreshNearLanes();
+      if (active.length <= 1) this.refreshNearLanes();
+      else {
+        for (const s of active) {
+          this.use(s);
+          this.refreshNearLanes();
+        }
+        this.use(this.sim.players[0]!);
+      }
     }
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = 0.4;
-      this.streamTraffic();
+      if (active.length <= 1) this.streamTraffic();
+      else this.streamTrafficMulti(active);
       this.towBlockers();
     }
     this.parkedTimer -= dt;
@@ -105,13 +188,16 @@ export class TrafficSystem {
 
   private streamTraffic(): void {
     const sim = this.sim;
-    const pp = sim.playerPos();
+    // The one player in the world (slot 0 in single player).
+    this.use(sim.activePlayers()[0] ?? sim.players[0]!);
+    const me = this.anchor.character;
+    const pp = this.anchorPos();
     const pv = this.playerVel();
     const fast = this.outrunsTraffic(pv);
     let count = 0;
     for (const v of sim.vehicles) {
       if (v.removed || v.persistent || v.owner === 'police' || v.owner === 'mission') continue;
-      if (v.driver === sim.player) continue;
+      if (v.driver === me) continue;
       const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
       // Sunk cars go before the wreck rule: sinking marks them destroyed after 4 s. One resting in
       // the surf, partly above the water, only goes out of view (or later as an ordinary wreck).
@@ -147,7 +233,7 @@ export class TrafficSystem {
     if (count >= this.targetCount && fast) {
       const behind: Array<{ v: Vehicle; d: number }> = [];
       for (const v of sim.vehicles) {
-        if (v.removed || v.persistent || v.owner !== 'traffic' || !v.driver || v.driver === sim.player) continue;
+        if (v.removed || v.persistent || v.owner !== 'traffic' || !v.driver || v.driver === me) continue;
         const dx = v.pos.x - pp.x;
         const dz = v.pos.z - pp.z;
         const d = Math.hypot(dx, dz);
@@ -166,6 +252,94 @@ export class TrafficSystem {
       spawned++;
       count++;
     }
+  }
+
+  /**
+   * Multiplayer streaming: what goes, goes only far from every player and out of everyone's view; each group of
+   * players (playerClusters) keeps its share of the cars (clusterTarget) streaming round its players in turn.
+   */
+  private streamTrafficMulti(active: readonly PlayerSlot[]): void {
+    const sim = this.sim;
+    const groups = playerClusters(active);
+    const groupOf = new Map<PlayerSlot, number>();
+    groups.forEach((g, i) => g.forEach((s) => groupOf.set(s, i)));
+    const target = clusterTarget(this.targetCount, groups.length);
+    // Groups near each other share cars (the nearest player's group counts each): the total holds the budget too.
+    const cap = Math.round(this.targetCount * mpBudget(groups.length));
+    const counts = groups.map(() => 0);
+    const vels = active.map((s) => this.playerVel(s));
+    for (const v of sim.vehicles) {
+      if (v.removed || v.persistent || v.owner === 'police' || v.owner === 'mission') continue;
+      if (sim.slotOf(v.driver)) continue;
+      const near = sim.nearestPlayer(v.pos.x, v.pos.z);
+      const np = near.pos();
+      const d = Math.hypot(v.pos.x - np.x, v.pos.z - np.z);
+      // With several players nothing goes while any of them may see it, sunk or burnt out.
+      if (v.inWater && v.sinkTimer > 6 && d > 60 && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
+        sim.removeVehicle(v);
+        continue;
+      }
+      if (v.destroyed) {
+        if (((v.wreckTime > 40 && d > 60) || d > 280) && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) sim.removeVehicle(v);
+        continue;
+      }
+      if (v.owner === 'parked') continue;
+      // A fast player is about to reach the cars in front of him.
+      const comingUp = active.some((s, i) => {
+        const pv = vels[i]!;
+        if (!this.outrunsTraffic(pv)) return false;
+        const p = s.pos();
+        return Math.hypot(v.pos.x - p.x, v.pos.z - p.z) <= AHEAD_MAX && (v.pos.x - p.x) * pv.x + (v.pos.z - p.z) * pv.z > 0;
+      });
+      if (d > 175 && !comingUp && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
+        sim.removeVehicle(v);
+        continue;
+      }
+      if (v.owner === 'traffic' && v.driver) {
+        if (d > 130 && v.stuckTime > 14 && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
+          sim.removeVehicle(v);
+          continue;
+        }
+        counts[groupOf.get(near) ?? 0]!++;
+      } else if (!v.driver && d > 200 && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
+        sim.removeVehicle(v);
+      }
+    }
+    let total = counts.reduce((x, y) => x + y, 0);
+    groups.forEach((g, gi) => {
+      let count = counts[gi]!;
+      // A group whose fast player leaves its cars behind retires the furthest one behind him, far from everyone.
+      const fast = g.find((s) => this.outrunsTraffic(this.playerVel(s)));
+      if (count >= target && fast) {
+        const fp = fast.pos();
+        const fv = this.playerVel(fast);
+        let gone: Vehicle | null = null;
+        let gd = 0;
+        for (const v of sim.vehicles) {
+          if (v.removed || v.persistent || v.owner !== 'traffic' || !v.driver || sim.slotOf(v.driver)) continue;
+          const dx = v.pos.x - fp.x;
+          const dz = v.pos.z - fp.z;
+          const d = sim.distToPlayer(v.pos.x, v.pos.z);
+          if (d > RECYCLE_BEHIND && dx * fv.x + dz * fv.z < 0 && d > gd && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
+            gone = v;
+            gd = d;
+          }
+        }
+        if (gone) {
+          sim.removeVehicle(gone);
+          count--;
+          total--;
+        }
+      }
+      let spawned = 0;
+      while (count < target && total < cap && spawned < 2) {
+        const at = g[this.turn++ % g.length]!;
+        if (!this.trySpawnTraffic(undefined, undefined, undefined, at)) break;
+        spawned++;
+        count++;
+        total++;
+      }
+    });
   }
 
   /** Tow away vehicles nobody is in that have stood in a junction holding up traffic for TOW_BLOCK s. */
@@ -187,7 +361,9 @@ export class TrafficSystem {
       b.last = now;
       this.blockTime.set(v, b);
       if (now - b.since < TOW_BLOCK) continue;
-      if (v.usedByPlayer && Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z) <= TOW_KEEP_NEAR) continue;
+      if (v.usedByPlayer && (this.sim.players.length > 1 ? sim.distToPlayer(v.pos.x, v.pos.z) : Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z)) <= TOW_KEEP_NEAR) continue;
+      // Several players: never towed from under anyone's nose, in view or not.
+      if (this.sim.players.length > 1 && sim.distToPlayer(v.pos.x, v.pos.z) <= TOW_FAR_MP) continue;
       if (sim.characters.some((c) => !c.removed && c.enterTarget === v)) continue;
       if (sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) continue;
       this.blockTime.delete(v);
@@ -196,13 +372,13 @@ export class TrafficSystem {
   }
 
   private refreshNearLanes(): void {
-    const pp = this.sim.playerPos();
+    const pp = this.anchorPos();
     this.nearLanes = this.sim.roads.lanes.filter((l) => pointSegDist(pp.x, pp.z, l.sx, l.sz, l.ex, l.ez) < 235);
     this.nearCum = runningWeights(this.nearLanes.map((l) => l.lanesInDir));
   }
 
-  private playerVel(): { x: number; z: number } {
-    const p = this.sim.player;
+  private playerVel(slot: PlayerSlot = this.anchor): { x: number; z: number } {
+    const p = slot.character;
     return p.vehicle ? p.vehicle.vel : p.vel;
   }
 
@@ -229,7 +405,7 @@ export class TrafficSystem {
     const speed = Math.hypot(pv.x, pv.z);
     if (!this.outrunsTraffic(pv)) return;
     const roads = this.sim.roads;
-    const pp = this.sim.playerPos();
+    const pp = this.anchorPos();
     let lane: Lane | null = roads.nearestLane(pp.x, pp.z, Math.atan2(pv.x, pv.z)).lane;
     // Only along a lane, not across a plaza or the beach.
     if (lane.dx * pv.x + lane.dz * pv.z < 0.7 * speed) return;
@@ -276,8 +452,18 @@ export class TrafficSystem {
    * ahead his way, where it would queue at the stop line. Cross traffic with a green light, oncoming
    * traffic and cars moving his way still come.
    */
-  trySpawnTraffic(minDist?: number, maxDist?: number, kind?: VehicleKind): Vehicle | null {
+  trySpawnTraffic(minDist?: number, maxDist?: number, kind?: VehicleKind, around?: PlayerSlot): Vehicle | null {
+    if (around && around !== this.anchor) {
+      const was = this.anchor;
+      this.use(around);
+      try {
+        return this.trySpawnTraffic(minDist, maxDist, kind);
+      } finally {
+        this.use(was);
+      }
+    }
     const sim = this.sim;
+    const others = sim.players.length > 1;
     const nearMin = minDist ?? 45;
     const nearMax = maxDist ?? 165;
     const aheadMin = Math.max(AHEAD_MIN, nearMin);
@@ -286,7 +472,7 @@ export class TrafficSystem {
     if (this.nearLanes.length === 0) return null;
     // Missions spawn through here too, with or without the streaming that refreshes these.
     if (sim.time - this.aheadTime >= 0.4) this.refreshAhead();
-    const pp = sim.playerPos();
+    const pp = this.anchorPos();
     const pv = this.playerVel();
     const fast = this.outrunsTraffic(pv);
     for (let tries = 0; tries < 12; tries++) {
@@ -306,10 +492,12 @@ export class TrafficSystem {
       let z = lane.sz + lane.dz * s;
       const d = Math.hypot(x - pp.x, z - pp.z);
       if (ahead ? d < aheadMin || d > aheadMax : d < nearMin || d > nearMax) continue;
+      // Not into another player's lap either.
+      if (others && sim.distToPlayer(x, z) < Math.min(d, ahead ? aheadMin : nearMin)) continue;
       // A car spawned behind a fast player is left behind at once (and recycled): pure churn.
       if (!ahead && fast && (x - pp.x) * pv.x + (z - pp.z) * pv.z < 0) continue;
       const red = sim.roads.signalState(lane.to, axisOf(lane.dir), sim.time) !== 'green';
-      if (red && sim.wanted.level > 0 && (ahead || this.aheadPath.has(lane) || this.aheadCross.has(lane))) continue;
+      if (red && this.anchor.wanted.level > 0 && (ahead || this.aheadPath.has(lane) || this.aheadCross.has(lane))) continue;
       // Spawn ranges lie inside the fog-free distance: never pop a car into view.
       if (sim.isVisible(x, 1, z)) continue;
       if (!this.isClear(x, z, 11)) continue;
@@ -326,6 +514,7 @@ export class TrafficSystem {
         z = lane.sz + lane.dz * s;
         const dq = Math.hypot(x - pp.x, z - pp.z);
         if (dq < aheadMin || dq > aheadMax || sim.isVisible(x, 1, z) || !this.isClear(x, z, 11)) continue;
+        if (others && sim.distToPlayer(x, z) < aheadMin) continue;
       }
       const v = sim.spawnVehicle(k, x, z, lane.heading);
       v.owner = 'traffic';
@@ -376,6 +565,8 @@ export class TrafficSystem {
   private streamParked(): void {
     const sim = this.sim;
     const pp = sim.playerPos();
+    // With several players a bay streams by its distance to the nearest of them.
+    const multi = sim.players.length > 1;
     const spots = sim.world.layout.parking;
     for (const [i, v] of this.parkedBySpot) {
       if (v.removed || v.usedByPlayer || v.driver || v.owner !== 'parked') {
@@ -383,7 +574,7 @@ export class TrafficSystem {
         if (!v.removed && v.owner === 'parked') v.owner = 'none';
         continue;
       }
-      const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
+      const d = multi ? sim.distToPlayer(v.pos.x, v.pos.z) : Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
       if (d > 235 && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
         sim.removeVehicle(v);
         this.parkedBySpot.delete(i);
@@ -392,10 +583,11 @@ export class TrafficSystem {
     for (let i = 0; i < spots.length; i++) {
       if (this.parkedBySpot.has(i)) continue;
       const s = spots[i]!;
-      const d = Math.hypot(s.x - pp.x, s.z - pp.z);
+      const d = multi ? sim.distToPlayer(s.x, s.z) : Math.hypot(s.x - pp.x, s.z - pp.z);
       if (d > 175 || d < 35) continue;
       if (hash(i) % 100 >= 55) continue;
-      if (sim.isVisible(s.x, 0.5, s.z)) continue;
+      // Several players: no higher than a moving car's check either (a roof can show over a wall).
+      if (sim.isVisible(s.x, 0.5, s.z) || (multi && sim.isVisible(s.x, 1, s.z))) continue;
       if (!this.isClear(s.x, s.z, BAY_SPACING)) continue;
       const kind = parkedBike(PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0], i);
       if (!clearOfVehicles(sim, kind, s.x, s.z, s.heading)) continue;

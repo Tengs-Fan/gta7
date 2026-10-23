@@ -9,6 +9,7 @@ import { DriverAI } from './driver';
 import type { Character, Vehicle } from './entities';
 import type { Sim } from './sim';
 import type { SimSystem } from './systems';
+import { mpBudget, playerClusters } from './traffic';
 
 /** A hit that jolts the car by this much (m/s) is a hard one; below GENTLE nobody gets out. */
 export const HARD_HIT = 3.2;
@@ -27,6 +28,8 @@ const BACK_TIMEOUT = 12;
 interface Grievance {
   driver: Character;
   car: Vehicle;
+  /** The player who rammed him. */
+  by: Character;
   /** Decided at the hit: what he does once out. */
   fights: boolean;
   hitAt: number;
@@ -53,7 +56,7 @@ export class AngryDriverSystem implements SimSystem {
     this.rng = new Rng(((sim.seed * 2654435789) ^ 0x616e6772) >>> 0);
     sim.events.on('vehicleRammed', (e) => {
       if (!sim.streetCrime.angryDrivers) return;
-      this.onRammed(e.vehicle, e.deltaV);
+      this.onRammed(e.vehicle, e.deltaV, e.by);
     });
   }
 
@@ -69,7 +72,7 @@ export class AngryDriverSystem implements SimSystem {
     return d;
   }
 
-  private onRammed(v: Vehicle, deltaV: number): void {
+  private onRammed(v: Vehicle, deltaV: number, by: Character): void {
     const sim = this.sim;
     if (deltaV < HARD_HIT) return;
     const d = this.eligible(v);
@@ -82,16 +85,19 @@ export class AngryDriverSystem implements SimSystem {
     const fights = this.rng.chance(FIGHT_CHANCE);
     let grievance: Grievance | null = null;
     if (out) {
-      grievance = { driver: d, car: v, fights, hitAt: sim.time, state: 'waiting', outAt: -1, backSince: -1, end: 'none' };
+      grievance = { driver: d, car: v, by, fights, hitAt: sim.time, state: 'waiting', outAt: -1, backSince: -1, end: 'none' };
       this.active.push(grievance);
     }
     this.log.push({ at: sim.time, deltaV, car: v.id, out, fights, grievance });
   }
 
   update(sim: Sim, _dt: number): void {
-    const p = sim.player;
-    const pp = sim.playerPos();
+    const multi = sim.players.length > 1;
     for (const g of this.active) {
+      // The player who rammed him (slot 0 in single player).
+      const slot = (multi ? sim.slotOf(g.by) : undefined) ?? sim.players[0]!;
+      const p = slot.character;
+      const pp = slot.pos();
       const c = g.driver;
       if (c.removed || !c.alive) {
         g.state = 'done';
@@ -121,7 +127,7 @@ export class AngryDriverSystem implements SimSystem {
         case 'fighting': {
           const far = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) > GIVE_UP;
           const over = c.brain?.mode !== 'fight';
-          if (far || over || sim.playerDown) {
+          if (far || over || slot.down) {
             g.backSince = sim.time;
             if (c.brain && c.brain.mode === 'fight') {
               c.brain.mode = 'idle';
@@ -197,7 +203,7 @@ export class AngryDriverSystem implements SimSystem {
     // The city's traffic made up for his car while it stood: at its number he leaves it there (for the tow) and walks off.
     let traffic = 0;
     for (const o of sim.vehicles) if (!o.removed && o.owner === 'traffic' && o.driver && !o.driver.isPlayer && !o.destroyed) traffic++;
-    if (traffic >= sim.traffic.targetCount) {
+    if (traffic >= (sim.players.length > 1 ? Math.round(sim.traffic.targetCount * mpBudget(playerClusters(sim.activePlayers()).length)) : sim.traffic.targetCount)) {
       if (c.brain) {
         c.brain.angryCar = null;
         c.brain.mode = 'wander';

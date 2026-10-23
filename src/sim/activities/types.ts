@@ -1,4 +1,5 @@
 import type { Character, Vehicle } from '../entities';
+import type { PlayerSlot } from '../playerSlot';
 import type { Sim } from '../sim';
 import type { PlayerView, ViewState } from '../viewState';
 import type { StaticWorld } from '../../world/staticWorld';
@@ -52,7 +53,12 @@ export type CancelReason = 'wasted' | 'busted' | 'mission';
 
 /** What a def sees of the facade. Defs are shared by every Sim, so all per-run state lives in the job or the sim. */
 export interface ActivityHost {
+  /** The sim as this host's player sees it (see slotSim): sim.player, sim.progress and the like are his. */
   readonly sim: Sim;
+  /** The player slot whose job this host runs. */
+  readonly slot: PlayerSlot;
+  /** The host of another slot's job (listeners attached once, by slot 0's host, look up the job a kill counts for). */
+  hostOf(slot: PlayerSlot): ActivityHost;
   /** The running job; a def's `start` sets it. */
   job: ActivityJob | null;
   say(text: string, duration?: number): void;
@@ -95,7 +101,7 @@ export interface ActivityDef<J extends ActivityJob = ActivityJob> {
    * car). Absent or false: he gets out, as every passenger does when the player takes a wheel.
    */
   keepsAboard?(job: J, passenger: Character, vehicle: Vehicle): boolean;
-  /** Called once as each Activities facade is built, for listeners the activity keeps on the sim. */
+  /** Called once as each Activities facade is built (with slot 0's host), for listeners the activity keeps on the sim. */
   attach?(host: ActivityHost): void;
   /** Where the activity is taken up, for its icon in the map legend's activities row. Absent: no icon. */
   readonly site?: { label: string; name: string; at(world: StaticWorld): { x: number; z: number } };

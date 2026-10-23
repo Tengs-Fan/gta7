@@ -5,9 +5,11 @@
 import { Rng } from '../core/rng';
 import { GANG_TURFS, type CityLayout, type GangId, type GangTurf } from '../world/layout';
 import type { Character, Vehicle } from './entities';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import { isGun, type VehicleKind } from './specs';
 import type { SimSystem } from './systems';
+import { mpBudget, playerClusters } from './traffic';
 
 export interface GangSpec {
   id: GangId;
@@ -182,13 +184,18 @@ export class GangSystem implements SimSystem {
 
   update(sim: Sim, dt: number): void {
     if (!sim.streetCrime.gangs) return;
-    const pp = sim.playerPos();
-    const here = gangAt(sim.world.layout, pp.x, pp.z);
-    if (here) this.lastIn[here] = sim.time;
+    // Every player's turf (lastIn is any player's last visit).
+    const players = sim.activePlayers();
+    const heres = players.map((s) => {
+      const pp = s.pos();
+      const here = gangAt(sim.world.layout, pp.x, pp.z);
+      if (here) this.lastIn[here] = sim.time;
+      return here;
+    });
     this.checkTimer -= dt;
     if (this.checkTimer <= 0) {
       this.checkTimer = CHECK_EVERY;
-      this.turfRules(here);
+      players.forEach((s, i) => this.turfRules(heres[i]!, s));
     }
     this.updateWars();
     if (!sim.ambient) return;
@@ -220,12 +227,12 @@ export class GangSystem implements SimSystem {
    * Members in their own turf turn on a player who walks in there on foot with a gun in hand, once they can see him;
    * those who turned on him only for that calm down once he has left their turf, or after TURF_CALM s without it.
    */
-  private turfRules(here: GangId | null): void {
+  private turfRules(here: GangId | null, slot: PlayerSlot): void {
     const sim = this.sim;
-    const p = sim.player;
-    const pp = sim.playerPos();
+    const p = slot.character;
+    const pp = slot.pos();
     // A fugitive driving through at three stars or more counts as armed: the crew shoots at the car as it passes.
-    const armed = p.alive && !sim.playerDown && (p.vehicle ? sim.wanted.level >= TURF_CHASE_STARS : p.state === 'normal' && isGun(p.inventory.current));
+    const armed = p.alive && !slot.down && (p.vehicle ? slot.wanted.level >= TURF_CHASE_STARS : p.state === 'normal' && isGun(p.inventory.current));
     for (const c of sim.characters) {
       if (c.removed || !c.alive || c.role !== 'gang' || !c.gang || !c.brain || c.brain.hostile || c.isPlayer) continue;
       const b = c.brain;
@@ -264,15 +271,19 @@ export class GangSystem implements SimSystem {
   private streamCars(): void {
     const sim = this.sim;
     const layout = sim.world.layout;
-    const pp = sim.playerPos();
     for (let i = this.cars.length - 1; i >= 0; i--) {
       const v = this.cars[i]!;
       if (v.removed || !v.driver || v.driver.isPlayer || v.driver.gang === null || !v.driver.alive) this.cars.splice(i, 1);
     }
     for (const gang of Object.keys(GANGS) as GangId[]) {
-      if (distToTurf(layout, gang, pp.x, pp.z) > CAR_RANGE) continue;
+      // Round the first player near the turf.
+      const at = sim.activePlayers().find((s) => {
+        const pp = s.pos();
+        return distToTurf(layout, gang, pp.x, pp.z) <= CAR_RANGE;
+      });
+      if (!at) continue;
       if (this.cars.filter((v) => v.driver?.gang === gang).length >= CARS_PER_GANG) continue;
-      this.spawnCar(gang);
+      this.spawnCar(gang, false, at);
     }
   }
 
@@ -280,9 +291,10 @@ export class GangSystem implements SimSystem {
    * Gang cars count towards the traffic the city streams round the player (TrafficSystem.targetCount): at that number,
    * an ordinary car well out of his view makes way for the next one.
    */
-  private makeRoom(): boolean {
+  private makeRoom(around: PlayerSlot): boolean {
     const sim = this.sim;
-    const pp = sim.playerPos();
+    const pp = around.pos();
+    const multi = sim.players.length > 1;
     let count = 0;
     let spare: Vehicle | null = null;
     let spareD = 0;
@@ -290,23 +302,23 @@ export class GangSystem implements SimSystem {
       if (v.removed || v.owner !== 'traffic' || !v.driver || v.driver.isPlayer || v.destroyed) continue;
       count++;
       if (v.driver.gang || v.persistent) continue;
-      const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
+      const d = multi ? sim.distToPlayer(v.pos.x, v.pos.z) : Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
       if (d > 90 && d > spareD && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
         spare = v;
         spareD = d;
       }
     }
-    if (count < sim.traffic.targetCount) return true;
+    if (count < (multi ? Math.round(sim.traffic.targetCount * mpBudget(playerClusters(sim.activePlayers()).length)) : sim.traffic.targetCount)) return true;
     if (!spare) return false;
     sim.removeVehicle(spare);
     return true;
   }
 
   /** A gang car on a lane inside `gang`'s turf, 70-170 m from the player and out of his view, its driver a member. */
-  spawnCar(gang: GangId, near = false): Vehicle | null {
+  spawnCar(gang: GangId, near = false, around: PlayerSlot = this.sim.players[0]!): Vehicle | null {
     const sim = this.sim;
-    const pp = sim.playerPos();
-    if (!this.makeRoom()) return null;
+    const pp = around.pos();
+    if (!this.makeRoom(around)) return null;
     const lanes = this.turfLanes(gang);
     if (lanes.length === 0) return null;
     for (let tries = 0; tries < 12; tries++) {
@@ -316,6 +328,7 @@ export class GangSystem implements SimSystem {
       const z = lane.sz + lane.dz * s;
       const d = Math.hypot(x - pp.x, z - pp.z);
       if (!near && (d < 70 || d > 170 || sim.isVisible(x, 1, z))) continue;
+      if (!near && sim.players.length > 1 && sim.distToPlayer(x, z) < 70) continue;
       if (gangAt(sim.world.layout, x, z) !== gang || !sim.traffic.isClear(x, z, 11)) continue;
       const spec = GANGS[gang];
       const kind = spec.cars[this.rng.int(0, spec.cars.length - 1)]!;
@@ -379,12 +392,20 @@ export class GangSystem implements SimSystem {
 
   private maybeStartWar(): void {
     const sim = this.sim;
-    if (this.wars.some((w) => w.endedAt < 0) || sim.time - this.lastWarEnd < WAR_COOLDOWN || sim.wanted.level > 0) return;
-    const pp = sim.playerPos();
-    const border = this.nearestBorder(pp.x, pp.z);
-    if (!border || border.d > WAR_RANGE) return;
-    if (!this.rng.chance(WAR_CHANCE)) return;
-    this.startWar(border.b, false);
+    if (this.wars.some((w) => w.endedAt < 0) || sim.time - this.lastWarEnd < WAR_COOLDOWN) return;
+    // Near the first player with no stars and a turf border in range.
+    for (const s of sim.activePlayers()) {
+      if (s.wanted.level > 0) {
+        if (sim.players.length > 1) continue;
+        return;
+      }
+      const pp = s.pos();
+      const border = this.nearestBorder(pp.x, pp.z);
+      if (!border || border.d > WAR_RANGE) continue;
+      if (!this.rng.chance(WAR_CHANCE)) return;
+      this.startWar(border.b, false, s);
+      return;
+    }
   }
 
   private nearestBorder(x: number, z: number): { b: Border; d: number; t: number } | null {
@@ -405,9 +426,9 @@ export class GangSystem implements SimSystem {
    * street between their turfs, 40-110 m from him (`near`: 15-60 m, the debug trigger), each going for the nearest of
    * the other gang. Null when no spot for it turns up.
    */
-  startWar(border?: Border, near = false): GangWar | null {
+  startWar(border?: Border, near = false, around: PlayerSlot = this.sim.players[0]!): GangWar | null {
     const sim = this.sim;
-    const pp = sim.playerPos();
+    const pp = around.pos();
     const nb = border ? null : this.nearestBorder(pp.x, pp.z);
     const b = border ?? nb?.b;
     if (!b) return null;
@@ -421,6 +442,7 @@ export class GangSystem implements SimSystem {
       const cz = b.az + dz * t;
       const d = Math.hypot(cx - pp.x, cz - pp.z);
       if (near ? d < 15 || d > 60 : d < 40 || d > 110) continue;
+      if (!near && sim.players.length > 1 && sim.distToPlayer(cx, cz) < 40) continue;
       // Across the border: the normal to the street.
       const nx = -dz / len;
       const nz = dx / len;

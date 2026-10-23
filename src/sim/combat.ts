@@ -659,9 +659,9 @@ export class CombatSystem {
       const ax = shooter.pos.x;
       const ay = shooter.pos.y + CHEST * shooter.height;
       const az = shooter.pos.z;
-      sim.events.emit('weaponFired', { shooter, weapon: w.id, x: ax, y: ay, z: az, dx, dy, dz, pellets: w.pellets });
+      sim.events.emit('weaponFired', { shooter, weapon: w.id, x: ax, y: ay, z: az, dx, dy, dz, pellets: w.pellets, ...this.tagOf(shooter) });
       for (let i = 0; i < w.pellets; i++) {
-        sim.events.emit('shot', { shooter, weapon: w.id, fx: ax, fy: ay, fz: az, tx: wall.x, ty: wall.y, tz: wall.z, hit: 'world', nx: wall.nx, ny: wall.ny, nz: wall.nz, pellet: i });
+        sim.events.emit('shot', { shooter, weapon: w.id, fx: ax, fy: ay, fz: az, tx: wall.x, ty: wall.y, tz: wall.z, hit: 'world', nx: wall.nx, ny: wall.ny, nz: wall.nz, pellet: i, ...this.tagOf(shooter) });
       }
       if (w.projectile) {
         // The rocket goes off in the shooter's face, just short of the wall like a rocket in flight.
@@ -673,7 +673,7 @@ export class CombatSystem {
       }
       return;
     }
-    sim.events.emit('weaponFired', { shooter, weapon: w.id, x: from.x, y: from.y, z: from.z, dx, dy, dz, pellets: w.pellets });
+    sim.events.emit('weaponFired', { shooter, weapon: w.id, x: from.x, y: from.y, z: from.z, dx, dy, dz, pellets: w.pellets, ...this.tagOf(shooter) });
     if (w.projectile) {
       this.launchRocket(shooter, from, dx, dy, dz);
       return;
@@ -969,7 +969,7 @@ export class CombatSystem {
       if (shooter.isPlayer) h.shotBy = shooter;
       if (shooter.isPlayer) this.reportAttack(h, 'assaultCop', h.pos.x, h.pos.z, shooter);
     }
-    sim.events.emit('shot', { shooter, weapon: w.id, fx: from.x, fy: from.y, fz: from.z, tx, ty, tz, hit: r.kind, nx: r.nx, ny: r.ny, nz: r.nz, pellet });
+    sim.events.emit('shot', { shooter, weapon: w.id, fx: from.x, fy: from.y, fz: from.z, tx, ty, tz, hit: r.kind, nx: r.nx, ny: r.ny, nz: r.nz, pellet, ...this.tagOf(shooter) });
   }
 
   /**
@@ -1131,7 +1131,7 @@ export class CombatSystem {
     const dir = Number.isFinite(hl) && hl > 1e-9;
     const dirX = dir ? dx / hl : 0;
     const dirZ = dir ? dz / hl : 0;
-    sim.events.emit('damage', { victim: c, attacker, healthLoss, armourLoss, kind, zone, killed, dirX, dirZ });
+    sim.events.emit('damage', { victim: c, attacker, healthLoss, armourLoss, kind, zone, killed, dirX, dirZ, ...this.tagOf(attacker) });
     if (killed) {
       this.kill(c, attacker ?? credit, kind, dx, dz);
       return true;
@@ -1163,6 +1163,11 @@ export class CombatSystem {
     if (last !== undefined && this.sim.time - last < ASSAULT_GAP) return;
     byVictim.set(victim, this.sim.time);
     this.sim.wanted.crime(type, x, z, by);
+  }
+
+  /** The playerId of a world event a player's action caused (none for slot 0's, or nobody's). */
+  private tagOf(c: Character | null | undefined): { playerId?: number } {
+    return (c && c.isPlayer ? this.sim.slotOf(c)?.tag : undefined) ?? {};
   }
 
   /** The slot of a player character; a stray 'player' character outside any slot counts for slot 0. */
@@ -1267,7 +1272,7 @@ export class CombatSystem {
       c.cash = 0;
       if (c.owner === 'traffic') c.owner = 'ped';
     }
-    sim.events.emit('characterKilled', { victim: c, killer });
+    sim.events.emit('characterKilled', { victim: c, killer, ...this.tagOf(killer) });
   }
 
   damageVehicle(v: Vehicle, amount: number, attacker: Character | null, kind: DamageKind): void {
@@ -1410,7 +1415,7 @@ export class CombatSystem {
     p.life = ROCKET_LIFE;
     this.launched.set(p, this.sim.time);
     this.sim.projectiles.push(p);
-    this.sim.events.emit('shot', { shooter: owner, weapon: 'rocket', fx: from.x, fy: from.y, fz: from.z, tx: from.x + dx, ty: from.y + dy, tz: from.z + dz, hit: 'none', nx: 0, ny: 1, nz: 0, pellet: 0 });
+    this.sim.events.emit('shot', { shooter: owner, weapon: 'rocket', fx: from.x, fy: from.y, fz: from.z, tx: from.x + dx, ty: from.y + dy, tz: from.z + dz, hit: 'none', nx: 0, ny: 1, nz: 0, pellet: 0, ...this.tagOf(owner) });
   }
 
   private updateProjectiles(dt: number): void {

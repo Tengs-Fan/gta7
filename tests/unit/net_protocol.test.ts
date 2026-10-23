@@ -48,7 +48,11 @@ function snapshot(over: Partial<SnapshotMsg> = {}): SnapshotMsg {
   return {
     type: 'snapshot', tick: 0xffffffff, ackSeq: 0, time: 1234.5678, full: true,
     clock: { day: 65535, hours: 23.999, rate: 1 / 60 },
-    hud: { wanted: 5, searching: true, money: 999_999_999 },
+    hud: { wanted: 5, searching: true, money: 999_999_999, clip: 30, ammo: 9999 },
+    job: { kind: 'taxi', status: 'FARE 3 · $120 · 0:42', objectives: [
+      { x: -83886, z: 83886, label: 'Pick up the fare', color: 0x55ccff, radius: 4, vehicle: 0, character: 4_294_967_295 },
+      { x: 12.34, z: -5.67, label: 'Zoë 🚗 東京', color: 0xffffffff, radius: 0, vehicle: 7, character: 0 },
+    ] },
     roster: [{ playerId: 1, characterId: 1, slot: 0, name: 'Zoë 🚗 東京' }, { playerId: 2, characterId: 0, slot: -1, name: '' }],
     weather: { kind: 'storm', cloud: 1, rain: 0.5, storm: 0, wet: 0.25, dim: 0.75, fog: 0.1, wind: { x: -12.5, z: 3 }, seaState: 0.3 },
     signalHolds: [[0, 'NS'], [120, 'EW']],
@@ -86,7 +90,7 @@ const SAMPLES: { [K in MessageType]: Array<MessageOf<K>> } = {
   ],
   snapshot: [
     snapshot(),
-    snapshot({ full: false, roster: null, weather: null, signalHolds: null, brokenProps: [], vehicles: [], characters: [], projectiles: [], helis: [], pickups: [], removed: [], time: 0, tick: 0, clock: { day: 0, hours: 0, rate: 0 }, hud: { wanted: 0, searching: false, money: 0 } }),
+    snapshot({ full: false, roster: null, weather: null, signalHolds: null, brokenProps: [], vehicles: [], characters: [], projectiles: [], helis: [], pickups: [], removed: [], time: 0, tick: 0, clock: { day: 0, hours: 0, rate: 0 }, hud: { wanted: 0, searching: false, money: 0, clip: 0, ammo: 0 }, job: null }),
     // A full entity list: hundreds of vehicles and characters in one snapshot.
     snapshot({ vehicles: Array.from({ length: 300 }, (_, i) => vehicle(1000 + i, i % 2 ? 1 : -1)), characters: Array.from({ length: 300 }, (_, i) => character(5000 + i)) }),
   ],

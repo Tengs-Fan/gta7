@@ -2,6 +2,7 @@
 
 import { WATER_Y } from '../world/constants';
 import { Pickup } from './entities';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import { WEAPONS, type WeaponId } from './specs';
 
@@ -109,10 +110,10 @@ export class PickupSystem {
     p.expires = sim.time + 30;
   }
 
+  /** Pickups are shared: whoever reaches an active one first (slot order on the same frame) takes it, for himself. */
   update(dt: number): void {
     const sim = this.sim;
-    const pl = sim.player;
-    const pp = sim.playerPos();
+    const players = sim.activePlayers();
     for (const p of sim.pickups) {
       if (p.removed) continue;
       if (sim.time > p.expires) {
@@ -126,29 +127,35 @@ export class PickupSystem {
         }
         continue;
       }
-      if (!pl.alive || sim.playerDown) continue;
-      const onFoot = pl.state === 'normal';
-      if (!onFoot && p.kind !== 'money') continue;
-      const reach = pl.vehicle ? 2.6 : 1.3;
-      if (Math.hypot(p.pos.x - pp.x, p.pos.z - pp.z) > reach || Math.abs(p.pos.y - pp.y) > 2.2) continue;
-      if (this.collect(p)) {
-        sim.events.emit('pickup', { kind: p.kind, x: p.pos.x, y: p.pos.y, z: p.pos.z });
-        if (p.respawn > 0) {
-          p.active = false;
-          p.respawnTimer = p.respawn;
-        } else if (p.kind === 'money') {
-          p.removed = true;
-        } else {
-          p.active = false;
+      for (const slot of players) {
+        const pl = slot.character;
+        const pp = slot.pos();
+        if (!pl.alive || slot.down) continue;
+        const onFoot = pl.state === 'normal';
+        if (!onFoot && p.kind !== 'money') continue;
+        const reach = pl.vehicle ? 2.6 : 1.3;
+        if (Math.hypot(p.pos.x - pp.x, p.pos.z - pp.z) > reach || Math.abs(p.pos.y - pp.y) > 2.2) continue;
+        if (this.collect(p, slot)) {
+          sim.events.emit('pickup', { kind: p.kind, x: p.pos.x, y: p.pos.y, z: p.pos.z, ...slot.tag });
+          if (p.respawn > 0) {
+            p.active = false;
+            p.respawnTimer = p.respawn;
+          } else if (p.kind === 'money') {
+            p.removed = true;
+          } else {
+            p.active = false;
+          }
+          break;
         }
       }
     }
   }
 
-  private collect(p: Pickup): boolean {
+  private collect(p: Pickup, slot: PlayerSlot): boolean {
     const sim = this.sim;
-    const pl = sim.player;
-    const say = (text: string) => sim.events.emit('message', { text, duration: 2.5 });
+    const pl = slot.character;
+    const progress = slot.progress;
+    const say = (text: string) => sim.events.emit('message', { text, duration: 2.5, ...slot.tag });
     switch (p.kind) {
       case 'health':
         if (pl.health >= pl.maxHealth) return false;
@@ -172,31 +179,31 @@ export class PickupSystem {
         return true;
       }
       case 'money':
-        sim.progress.addMoney(p.amount);
-        sim.events.emit('money', { amount: p.amount });
+        progress.addMoney(p.amount);
+        sim.events.emit('money', { amount: p.amount, ...slot.tag });
         return true;
       case 'package': {
         const idx = packageIndex(p.tag);
-        if (sim.progress.packages.includes(idx)) return false;
-        sim.progress.packages.push(idx);
-        const n = sim.progress.packages.length;
-        sim.progress.addMoney(PACKAGE_REWARD);
-        sim.events.emit('money', { amount: PACKAGE_REWARD });
+        if (progress.packages.includes(idx)) return false;
+        progress.packages.push(idx);
+        const n = progress.packages.length;
+        progress.addMoney(PACKAGE_REWARD);
+        sim.events.emit('money', { amount: PACKAGE_REWARD, ...slot.tag });
         if (n >= PACKAGE_COUNT) {
-          sim.progress.addMoney(PACKAGE_BONUS);
-          sim.events.emit('money', { amount: PACKAGE_BONUS });
-          sim.events.emit('big', { text: 'ALL PACKAGES FOUND', sub: `$${PACKAGE_BONUS.toLocaleString('en-US')} bonus`, style: 'passed', duration: 5 });
+          progress.addMoney(PACKAGE_BONUS);
+          sim.events.emit('money', { amount: PACKAGE_BONUS, ...slot.tag });
+          sim.events.emit('big', { text: 'ALL PACKAGES FOUND', sub: `$${PACKAGE_BONUS.toLocaleString('en-US')} bonus`, style: 'passed', duration: 5, ...slot.tag });
         } else {
-          sim.events.emit('big', { text: `PACKAGE ${n} OF ${PACKAGE_COUNT}`, sub: '', style: 'info', duration: 3 });
+          sim.events.emit('big', { text: `PACKAGE ${n} OF ${PACKAGE_COUNT}`, sub: '', style: 'info', duration: 3, ...slot.tag });
         }
         return true;
       }
       case 'rampage':
-        if (sim.missions.active || sim.activities.busy) {
+        if ((slot.id === 0 && sim.missions.active) || sim.activities.busyFor(slot)) {
           say('Finish what you are doing first.');
           return false;
         }
-        return sim.activities.startRampage(p.tag);
+        return sim.activities.startRampage(p.tag, slot);
       case 'parcel':
         // The mission script watches for it (see Hot Delivery).
         return true;
@@ -206,7 +213,7 @@ export class PickupSystem {
   }
 
   /** Re-enables a rampage pickup after a failed attempt. */
-  rearmRampage(tag: string, delay: number): void {
+  rearmRampage(tag: string, delay: number, progress = this.sim.progress): void {
     for (const p of this.sim.pickups) {
       if (p.kind === 'rampage' && p.tag === tag) {
         p.active = false;
@@ -214,7 +221,7 @@ export class PickupSystem {
         p.expires = Infinity;
         // Use the respawn timer manually: pickups with respawn = 0 never come back by themselves.
         setTimeoutLike(this.sim, delay, () => {
-          if (!this.sim.progress.rampages.includes(tag)) p.active = true;
+          if (!progress.rampages.includes(tag)) p.active = true;
         });
       }
     }
