@@ -6,6 +6,7 @@
 // never while a subtitle is up).
 
 import type { Vehicle } from '../sim/entities';
+import { isGun } from '../sim/specs';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { InputDevice } from './glyphs';
 import type { HintOptions } from './hud';
@@ -58,7 +59,7 @@ const RULES: readonly Rule[] = [
     id: 'weapon',
     text: 'Right-click to aim, left-click to shoot. <kbd>R</kbd> reloads.',
     duration: 7,
-    when: (_sim, me) => me.character.state === 'normal' && me.character.inventory.current !== 'fists' && !me.down,
+    when: (_sim, me) => me.character.state === 'normal' && isGun(me.character.inventory.current) && !me.down,
   },
   {
     id: 'health',

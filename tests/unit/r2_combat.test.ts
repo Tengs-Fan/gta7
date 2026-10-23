@@ -1116,6 +1116,12 @@ describe('P32: table-driven numbers', () => {
       ['shotgun', 1.5],
       ['rifle', 4],
       ['rocket', 1],
+      // Wave 1 (w1-weapons): melee weapons and throwables have no head multiplier; the sniper rifle's is 5.
+      ['bat', 1],
+      ['knife', 1],
+      ['grenade', 1],
+      ['molotov', 1],
+      ['sniper', 5],
     ]);
     const sim = makeSim();
     const f = standOnOpenRoad(sim);

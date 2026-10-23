@@ -45,6 +45,23 @@ export interface SimOptions {
   startHour?: number;
   /** 'dynamic' follows the seed's weather schedule; 'clear' (the default) keeps clear skies. */
   weather?: WeatherMode;
+  /**
+   * The wave-1 street systems (see StreetCrime): all of them on or off together; off by default (the old behaviour), on
+   * in the real game. Single systems can be switched afterwards through sim.streetCrime.
+   */
+  streetCrime?: boolean;
+}
+
+/**
+ * Street systems added in wave 1, each a switch: a second gang with turf, gang cars and gang wars; police roadblocks and
+ * spike strips; witnesses who phone crimes in; drivers who get out angry; and world pickups of the newer weapons.
+ */
+export interface StreetCrime {
+  gangs: boolean;
+  roadblocks: boolean;
+  witnesses: boolean;
+  angryDrivers: boolean;
+  pickups: boolean;
 }
 
 const PHYSICS_STEP = 1 / 120;
@@ -83,6 +100,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
 
   ambient: boolean;
   policeEnabled: boolean;
+  readonly streetCrime: StreetCrime;
   /** Simulation-time callbacks (see pickups.setTimeoutLike). */
   readonly timers: Array<{ at: number; fn: () => void }> = [];
 
@@ -96,6 +114,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.weather = new WeatherSystem(opts.seed ?? 7, opts.weather ?? 'clear');
     this.ambient = opts.ambient ?? true;
     this.policeEnabled = opts.police ?? true;
+    const extras = opts.streetCrime ?? false;
+    this.streetCrime = { gangs: extras, roadblocks: extras, witnesses: extras, angryDrivers: extras, pickups: extras };
 
     // Start on the sidewalk a few steps from the safehouse door, facing the street.
     const home = this.world.layout.pois.find((p) => p.id === 'safehouse')!;

@@ -43,7 +43,8 @@ export interface PlayerView {
 export type MissionView = Pick<MissionSystem, 'active' | 'defs' | 'offers' | 'retryOffer' | 'retryMenuOffer' | 'retryAfterCops'>;
 export type ActivitiesView = Pick<Activities, 'busy' | 'job' | 'objectives' | 'status' | 'streetRunCourses' | 'jobPrompt'>;
 export type InteractionsView = Pick<Interactions, 'markers' | 'current' | 'canSave' | 'prompt' | 'priceOf' | 'buy'>;
-export type CombatView = Pick<CombatSystem, 'muzzleBlocked'>;
+/** Throws in flight and ground fires are optional: a view without them draws none. */
+export type CombatView = Pick<CombatSystem, 'muzzleBlocked'> & Partial<Pick<CombatSystem, 'throws' | 'fire'>>;
 
 export interface ViewState {
   readonly world: StaticWorld;

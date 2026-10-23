@@ -12,7 +12,7 @@
 
 import { clamp, lerp, smoothstep, TAU, wrapAngle, type V3 } from '../core/math';
 import type { Character, Vehicle } from './entities';
-import { firingRowsOf, GUN_PORT, WEAPONS, weaponPointsOf, type VehicleKind, type WeaponId, type WeaponPoints } from './specs';
+import { firingRowsOf, GUN_PORT, isGun, WEAPONS, weaponPointsOf, type VehicleKind, type WeaponId, type WeaponPoints } from './specs';
 
 export const SKELETON = {
   /**
@@ -413,7 +413,7 @@ export function trunkPose(c: Character, out: Trunk = makeTrunk()): Trunk {
     const pitch = Number.isFinite(c.aimPitch) ? c.aimPitch : 0;
     // A long gun or launcher keeps the bladed stance through its reloads, so the chest never snaps round.
     const w = c.inventory.current;
-    const bladed = w !== 'fists' && w !== 'pistol';
+    const bladed = isGun(w) && w !== 'pistol';
     out.armYaw = aimYaw;
     out.chestYaw = bladed ? wrapAngle(aimYaw - BLADE) : aimYaw;
     // Lean into a low aim, back from a high one; into the gun when it is shouldered.
@@ -437,7 +437,7 @@ export type { WeaponPoints };
 /** The current guns' points, by gun (read from the specs when this module loads); weaponPointsOf also answers weapons added later. */
 export const WEAPON_POINTS: { readonly [K in Gun]: WeaponPoints } = Object.fromEntries(
   Object.values(WEAPONS)
-    .filter((w) => w.id !== 'fists')
+    .filter((w) => isGun(w.id))
     .map((w) => [w.id, weaponPointsOf(w.id)]),
 ) as { readonly [K in Gun]: WeaponPoints };
 
@@ -536,7 +536,7 @@ function reloadHeld(c: Character): boolean {
  * top of this and is not part of it. `trunk` may be passed when already computed for `c`.
  */
 export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): WeaponPose {
-  const weapon: Gun = c.inventory.current === 'fists' ? 'pistol' : c.inventory.current;
+  const weapon: Gun = isGun(c.inventory.current) ? (c.inventory.current as Gun) : 'pistol';
   const pts = weaponPointsOf(weapon);
   const t = trunk ?? trunkPose(c, trunkTmp);
   const s = c.appearance.height;
@@ -712,7 +712,7 @@ function swimmerGun(c: Character, out: WeaponPose, weapon: Gun, s: number, b: nu
   return out;
 }
 
-/** Pose of the gun `c` holds (fists are treated as a pistol): see weaponPoseInto. */
+/** Pose of the gun `c` holds (fists, melee weapons and throwables are treated as a pistol): see weaponPoseInto. */
 export function weaponPose(c: Character): WeaponPose {
   return weaponPoseInto(c, makeWeaponPose());
 }

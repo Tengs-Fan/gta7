@@ -8,7 +8,7 @@ import type { BigStyle, SimEvents } from '../sim/events';
 import { CONTACTS, contactById } from '../sim/missions/contacts';
 import type { MissionDef } from '../sim/missions/runner';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
-import { WEAPONS, weaponIconOf, type WeaponId } from '../sim/specs';
+import { isGun, WEAPONS, weaponIconOf, weaponKindOf, type WeaponId } from '../sim/specs';
 import { formatRunTime } from '../sim/streetRuns';
 import { formatKeys, padGlyph, type InputDevice } from './glyphs';
 import { collectBlips, drawBlip, drawPoliceOverlay, gpsRoute, MAP_SCALE, type Blip, type MapImage } from './mapRender';
@@ -936,7 +936,9 @@ export class Hud {
       el.wicon!.innerHTML = weaponIconOf(w);
     }
     const slot = p.inventory.slot();
-    const ammo = w === 'fists' ? '' : p.reloadTimer > 0 ? 'RELOAD' : `${slot.clip}/${slot.ammo}`;
+    const kind = weaponKindOf(w);
+    // Melee weapons carry no ammo; throwables count what is left.
+    const ammo = kind === 'melee' ? '' : kind === 'thrown' ? String(slot.ammo + slot.clip) : p.reloadTimer > 0 ? 'RELOAD' : `${slot.clip}/${slot.ammo}`;
     if (ammo !== this.shown.ammo) {
       this.shown.ammo = ammo;
       el.ammo!.textContent = ammo;
@@ -979,7 +981,7 @@ export class Hud {
     if (this.stackDirty || (typeof window !== 'undefined' && (window.innerWidth !== this.stackW || window.innerHeight !== this.stackH))) this.restack();
     // A reticle whenever a gun is out on foot: small and faint for hip fire, full while aiming (`aiming` is the aim button),
     // red while the muzzle is inside a wall (the shot would only hit that wall).
-    const showCross = p.state === 'normal' && p.alive && !this.me(sim).down && p.inventory.current !== 'fists';
+    const showCross = p.state === 'normal' && p.alive && !this.me(sim).down && (isGun(p.inventory.current) || kind === 'thrown');
     el.cross!.classList.toggle('show', showCross);
     el.cross!.classList.toggle('hip', showCross && !aiming);
     el.cross!.classList.toggle('blocked', showCross && sim.combat.muzzleBlocked(p));
