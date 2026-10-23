@@ -25,7 +25,8 @@ import { buildCoverMap, coverAt, type CoverMap } from './rainCover';
 import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
 import { STATIC_CHUNK_SIZE } from './spatial';
 import { SoftwareMaterials } from './softwareMaterials';
-import { VehicleView, VehicleViewPool } from './vehicleView';
+import { SHADOW_LAYER, VehiclePartBatches } from './vehicleBatches';
+import { freezeVehicleParts, VehicleView, VehicleViewPool } from './vehicleView';
 
 export type Quality = QualityTier;
 
@@ -112,6 +113,15 @@ export function guardStaleDeletes(gl: object): () => void {
   };
 }
 
+/**
+ * Cars other than the player's beyond this distance from the camera (m) are drawn as their merged far version; a band
+ * of FAR_LOD_BAND either side keeps one that hovers at the distance from switching back and forth. Software GPUs keep
+ * their own, nearer switch without the band.
+ */
+export const FAR_LOD_DISTANCE = 40;
+const FAR_LOD_BAND = 2;
+const SOFTWARE_FAR_DISTANCE = 32;
+
 /** A blast this close to the sea's surface over water is drawn as a water plume (Effects.explosion). */
 const WATER_BLAST_BAND = 0.3;
 
@@ -151,6 +161,11 @@ export class GameRenderer {
   private readonly bufferSize = new THREE.Vector2();
   private readonly vehicleViews = new Map<number, VehicleView>();
   private readonly pool = new VehicleViewPool();
+  /** Tyres, rims, lamps and roof gear of every detailed car, drawn instanced. */
+  readonly vehicleParts = new VehiclePartBatches();
+  private readonly frustum = new THREE.Frustum();
+  private readonly viewProjection = new THREE.Matrix4();
+  private readonly partSphere = new THREE.Sphere();
   private readonly headlight: THREE.SpotLight;
   private readonly siren: THREE.PointLight;
   private bloom: UnrealBloomPass | null = null;
@@ -207,6 +222,18 @@ export class GameRenderer {
     this.renderer.toneMappingExposure = 1;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // The shadow pass tests objects against the main camera's layers: only there may it see the shadow-only casters.
+    const shadowMap = this.renderer.shadowMap;
+    const renderShadows = shadowMap.render;
+    shadowMap.render = (lights, scene, camera) => {
+      const had = camera.layers.isEnabled(SHADOW_LAYER);
+      camera.layers.enable(SHADOW_LAYER);
+      try {
+        renderShadows.call(shadowMap, lights, scene, camera);
+      } finally {
+        if (!had) camera.layers.disable(SHADOW_LAYER);
+      }
+    };
     // The HDR output pass would otherwise reset the counters; reset them per frame instead.
     this.renderer.info.autoReset = false;
     this.cameraCtl = new CameraController(canvas.clientWidth / Math.max(1, canvas.clientHeight));
@@ -220,7 +247,7 @@ export class GameRenderer {
     this.props = new PropsView(world);
     this.streetLighting = new StreetLighting(world);
     this.scene.add(this.streetLighting.group);
-    this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group, this.lightSprites.group);
+    this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group, this.lightSprites.group, this.vehicleParts.group);
     this.softwareMaterials?.apply(this.city.group);
     this.softwareMaterials?.apply(this.props.group);
     this.softwareMaterials?.apply(this.crowd.group);
@@ -261,6 +288,18 @@ export class GameRenderer {
       this.softwareMaterials?.apply(v.group);
       tmp.push(v);
     }
+    // The part batches' instanced variants are compiled too.
+    this.vehicleParts.begin();
+    for (const v of tmp) {
+      v.group.updateMatrix();
+      v.drawParts(this.vehicleParts);
+      // And the far version's (with the software tier's own instead).
+      v.setDistant(true, this.software);
+      v.drawParts(this.vehicleParts);
+      v.setDistant(false);
+    }
+    this.vehicleParts.end();
+    if (this.vehicleParts.takeChanged()) this.softwareMaterials?.apply(this.vehicleParts.group);
     // With the HDR output three draws the scene into its half-float target with tone mapping off and
     // a linear colour space. Compiling for the canvas would build the tone-mapped sRGB variants,
     // which are never drawn, so a stand-in half-float target is bound while compiling.
@@ -281,6 +320,8 @@ export class GameRenderer {
     target?.dispose();
     this.rain.mesh.visible = rainShown;
     for (const v of tmp) this.pool.release(v);
+    this.vehicleParts.begin();
+    this.vehicleParts.end();
   }
 
   /** Applies a tier from the QUALITY table live (MSAA excepted, see the constructor). */
@@ -446,7 +487,7 @@ export class GameRenderer {
     // Re-read on every resize: zooming or moving to another monitor changes devicePixelRatio.
     const ratio = this.software
       ? softwarePixelRatioFor(this.quality, w, h, window.devicePixelRatio || 1)
-      : pixelRatioFor(this.quality, window.devicePixelRatio || 1);
+      : pixelRatioFor(this.quality, window.devicePixelRatio || 1, w, h);
     if (ratio !== this.ratio) {
       this.ratio = ratio;
       this.renderer.setPixelRatio(ratio);
@@ -563,10 +604,7 @@ export class GameRenderer {
       }
       // Without a bloom halo the light bars, like the traffic lights, must carry their hue in the lamp itself.
       view.sync(v, dt, this.time, night, this.bloom !== null);
-      if (this.software) {
-        const cam = this.cameraCtl.camera.position;
-        view.setDistant(v.driver !== this.me(sim).character && (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2 > 32 * 32);
-      }
+      this.chooseDetail(view, v, sim);
       this.softwareMaterials?.apply(view.group);
       this.cullFar(view, v);
     }
@@ -580,6 +618,40 @@ export class GameRenderer {
         this.effects.skids.break(`${id}:r`);
       }
     }
+    this.drawVehicleParts();
+  }
+
+  /** The merged far version for every car but the player's beyond FAR_LOD_DISTANCE (software: its own distance). */
+  private chooseDetail(view: VehicleView, v: Vehicle, sim: ViewState): void {
+    const cam = this.cameraCtl.camera.position;
+    const d2 = (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2;
+    const mine = v.driver === this.me(sim).character;
+    if (this.software) {
+      view.setDistant(!mine && d2 > SOFTWARE_FAR_DISTANCE * SOFTWARE_FAR_DISTANCE, true);
+      return;
+    }
+    const d = FAR_LOD_DISTANCE + (view.isDistant ? -FAR_LOD_BAND : FAR_LOD_BAND);
+    view.setDistant(!mine && d2 > d * d);
+  }
+
+  /** Refills the part batches with the cars drawn this frame whose bounds are in the camera's view. */
+  private drawVehicleParts(): void {
+    const cam = this.cameraCtl.camera;
+    cam.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    const parts = this.vehicleParts;
+    const sphere = this.partSphere;
+    parts.begin();
+    for (const view of this.vehicleViews.values()) {
+      const v = view.vehicle;
+      if (!v || !view.group.visible) continue;
+      const s = v.spec;
+      sphere.center.set(v.pos.x, v.pos.y + s.height / 2, v.pos.z);
+      sphere.radius = Math.hypot(s.length, s.width, s.height) / 2 + 0.5;
+      if (this.frustum.intersectsSphere(sphere)) view.drawParts(parts);
+    }
+    parts.end();
+    if (parts.takeChanged()) this.softwareMaterials?.apply(parts.group);
   }
 
   /**
@@ -783,13 +855,31 @@ export class GameRenderer {
       this.localReflections.applyCurrent(view.group);
     } else if (this.localReflections) this.clearLocalReflections();
     if (this.finish) this.finish.setGrade(gradeAt(hours, weather, this.gradeNow));
-    this.renderer.render(this.scene, cam);
+    this.contactShadows?.track(dt);
+    // The batches draw the vehicles' part meshes: no pass need walk them or update their matrices.
+    freezeVehicleParts(true);
+    for (const view of this.vehicleViews.values()) view.hideParts(true);
+    try {
+      this.renderer.render(this.scene, cam);
+    } finally {
+      for (const view of this.vehicleViews.values()) view.hideParts(false);
+      freezeVehicleParts(false);
+    }
     if (reflect && this.localReflections) {
       // Draw the main scene first: quality changes and context recovery rebuild shadow maps here.
       // Capturing with shadow updates disabled before that draw would sample an uninitialised map.
       this.reflectionPosition.set(car.pos.x, car.pos.y + car.spec.height * 0.7, car.pos.z);
-      this.localReflections.update(view.group, this.reflectionPosition, hours, this.time,
-        [this.crowd.group, this.effects.group, this.markers.group, ...Array.from(this.vehicleViews.values(), (v) => v.group)]);
+      // The frame's draw has just updated every world matrix; a cube face need not walk the scene for them again.
+      const matrices = this.scene.matrixWorldAutoUpdate;
+      this.scene.matrixWorldAutoUpdate = false;
+      try {
+        // Street furniture is left out with the moving things: in a 128-pixel cube it is a few texels, but it was
+        // about half the draws of every face, and a face is drawn on most frames while driving.
+        this.localReflections.update(view.group, this.reflectionPosition, hours, this.time,
+          [this.crowd.group, this.effects.group, this.markers.group, this.props.group, this.vehicleParts.group, ...Array.from(this.vehicleViews.values(), (v) => v.group)]);
+      } finally {
+        this.scene.matrixWorldAutoUpdate = matrices;
+      }
     }
   }
 
@@ -844,6 +934,7 @@ export class GameRenderer {
     this.city.wet.dispose();
     this.env.dispose();
     this.softwareMaterials?.dispose();
+    this.vehicleParts.dispose();
     this.renderer.dispose();
   }
 }

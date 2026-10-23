@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Rng } from '../../src/core/rng';
 import type { V3 } from '../../src/core/math';
 import { CameraController } from '../../src/render/camera';
-import { ContactShadows } from '../../src/render/contactShadows';
+import { shadesContact } from '../../src/render/contactShadows';
 import { MarkerView } from '../../src/render/markers';
 import {
   OCCLUDER_AXIS,
@@ -387,18 +387,12 @@ describe('the props view dissolves poles and trunks through uniforms only', () =
     expect(priv.occUniforms.uOccFade.value.toArray()).toEqual([...OCCLUDER_FADE_EDGES]);
     expect(priv.occUniforms.uOccCam.value.toArray()).toEqual([camAt.x, camAt.y, camAt.z]);
     for (const m of meshesOf(lamp)) expect(m.userData.contactShadow).toBe(false);
-    // The contact-shadow pass hides such a batch for its depth and normal render.
-    const scene = new THREE.Scene();
+    // The contact-shadow pass leaves such a batch out of its depth and normal draws (revised for track D: the pass
+    // picks draws from the frame's render list with shadesContact instead of hiding objects for a second walk).
     const flagged = meshesOf(lamp)[0]!;
-    scene.add(flagged);
-    const pass = new ContactShadows(scene, new THREE.PerspectiveCamera());
-    const seen: boolean[] = [];
-    const spy = vi.spyOn(Object.getPrototypeOf(ContactShadows.prototype), 'render').mockImplementation(() => void seen.push(flagged.visible));
-    pass.render({ shadowMap: { autoUpdate: true } } as unknown as THREE.WebGLRenderer, new THREE.WebGLRenderTarget(4, 4), new THREE.WebGLRenderTarget(4, 4));
-    spy.mockRestore();
-    pass.dispose();
-    props.group.add(flagged);
-    expect(seen).toEqual([false]);
+    flagged.updateMatrixWorld(true);
+    const at = new THREE.Vector3(q.x, q.y, q.z);
+    expect(shadesContact({ object: flagged, geometry: flagged.geometry, material: flagged.material as THREE.Material, group: null }, at, 110)).toBe(false);
     expect(flagged.visible).toBe(true);
     // Stepping 3 m to the side: drawn in full and back in the contact shadows.
     expect(props.setOccluderView(v(camAt.x, camAt.y, camAt.z + 3), v(head.x, head.y, head.z + 3))).not.toContain(lamp);
