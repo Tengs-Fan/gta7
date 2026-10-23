@@ -61,7 +61,7 @@ export function showCredits(ctx: MenuCtx): void {
   const panel = h('div', 'panel credits-roll');
   panel.innerHTML = `<h2>CREDITS</h2>
     <p><b>GTA 7: Grand Turbo Anarchy</b><br>An original open-world sandbox built for the browser.</p>
-    <p>Everything you see and hear is generated at runtime: the city, the cars, the people, the textures, the sound effects and the three radio stations.</p>
+    <p>Everything you see and hear is generated at runtime: the city, the cars, the people, the textures, the sound effects, the three music stations and the talk station.</p>
     <p>Built with three.js, TypeScript and Vite. Fonts: Anton &amp; Rajdhani (SIL Open Font License).</p>
     <p>All characters, places, vehicles and brands are fictional. Any resemblance to real persons or businesses is coincidental. This is a fan-made parody and is not affiliated with Rockstar Games or Take-Two Interactive.</p>`;
   pushScrolling(ctx, el, panel);
