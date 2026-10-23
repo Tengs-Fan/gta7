@@ -575,7 +575,8 @@ test.describe('GTA 7 menus', () => {
       await expect(page.locator('button[data-id="new"]')).toBeVisible();
       await page.waitForTimeout(300);
     }
-    // STATS from the pause menu.
+    // STATS from the pause menu. Its last row is the last Street Run record, below the registry rows and the checklist.
+    const statsLast = 'Dockside Switchback';
     await newGame(page);
     for (const [width, height] of SIZES) {
       const at = `${width}x${height}`;
@@ -587,13 +588,13 @@ test.describe('GTA 7 menus', () => {
       await key('ArrowDown');
       await key('Enter');
       await expect(page.locator('.panel h2:visible')).toHaveText('STATS');
-      await readToEnd(() => key('ArrowDown'), 'Best stunt airtime', `${at}, keyboard`);
+      await readToEnd(() => key('ArrowDown'), statsLast, `${at}, keyboard`);
       await key('Escape');
       await expect(page.locator('.panel h2:visible')).toHaveText('PAUSED');
       await page.waitForTimeout(300);
       await padTap(page, 0); // A on STATS, still selected
       await expect(page.locator('.panel h2:visible')).toHaveText('STATS');
-      await readToEnd(() => padTap(page, 13), 'Best stunt airtime', `${at}, pad`);
+      await readToEnd(() => padTap(page, 13), statsLast, `${at}, pad`);
       await padTap(page, 1); // B: back to the pause menu
       await expect(page.locator('.panel h2:visible')).toHaveText('PAUSED');
       await page.waitForTimeout(300);
