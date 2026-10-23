@@ -116,6 +116,8 @@ export function turfBorders(layout: CityLayout): Border[] {
 
 /** Members in their turf turn on an armed player within this range (m) who they can see. */
 export const TURF_SIGHT = 22;
+/** Wanted stars from which a car driven through a gang's turf draws their fire. */
+export const TURF_CHASE_STARS = 3;
 /** An attack on a member brings in his crew this close (m). */
 export const CREW_CALL = 30;
 /** After the player has been out of their turf this long (s) the members who turned on him only for that calm down. */
@@ -222,7 +224,8 @@ export class GangSystem implements SimSystem {
     const sim = this.sim;
     const p = sim.player;
     const pp = sim.playerPos();
-    const armed = !p.vehicle && p.alive && !sim.playerDown && p.state === 'normal' && isGun(p.inventory.current);
+    // A fugitive driving through at three stars or more counts as armed: the crew shoots at the car as it passes.
+    const armed = p.alive && !sim.playerDown && (p.vehicle ? sim.wanted.level >= TURF_CHASE_STARS : p.state === 'normal' && isGun(p.inventory.current));
     for (const c of sim.characters) {
       if (c.removed || !c.alive || c.role !== 'gang' || !c.gang || !c.brain || c.brain.hostile || c.isPlayer) continue;
       const b = c.brain;
