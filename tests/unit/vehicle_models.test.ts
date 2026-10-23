@@ -42,7 +42,8 @@ vi.hoisted(() => {
   g.window ??= { devicePixelRatio: 1, innerWidth: 1280, innerHeight: 720, addEventListener: () => {} };
 });
 
-const KINDS = Object.keys(VEHICLE_SPECS) as VehicleKind[];
+// The kinds VehicleView draws: bikes and boats have views of their own (w1_vehicle_views.test.ts).
+const KINDS = (Object.keys(VEHICLE_SPECS) as VehicleKind[]).filter((k) => VEHICLE_SPECS[k].class === 'car');
 
 /** What the main camera draws of an object itself: tyres, rims, lamps and roof gear go through the part batches. */
 const CAMERA = new THREE.Layers();

@@ -10,7 +10,7 @@ import { axisOf, reverseDir, type Lane, type RoadNetwork, type Turn } from '../w
 import type { StaticWorld } from '../world/staticWorld';
 import type { Character, Vehicle } from './entities';
 import type { VehicleSpec } from './specs';
-import { ENGINE_BRAKE } from './vehiclePhysics';
+import { ENGINE_BRAKE, STEER_FADE, steerLimit } from './vehiclePhysics';
 
 export type DriverPolicy = 'traffic' | 'chase' | 'flee' | 'route';
 
@@ -235,7 +235,7 @@ function turnRadius(turn: Turn): number {
 
 /** Highest speed at which full steering lock still follows a curve of `radius` (vehiclePhysics' bicycle model). */
 function steerSpeed(spec: VehicleSpec, radius: number): number {
-  return 15 * (spec.steer / Math.atan((spec.length * 0.6) / radius) - 1);
+  return (spec.steerFade ?? STEER_FADE) * (spec.steer / Math.atan((spec.length * 0.6) / radius) - 1);
 }
 
 /** Distance (m) from the stretch from (ax, az) to (bx, bz) to the footprint of `o`; 0 where it crosses it. */
@@ -1129,7 +1129,7 @@ export class DriverAI {
     const L2 = Math.max(1, lx * lx + lz * lz);
     const curvature = (2 * lx) / L2;
     const wheelbase = v.spec.length * 0.6;
-    const maxSteer = v.spec.steer / (1 + Math.abs(speed) / 15);
+    const maxSteer = steerLimit(v.spec, speed);
     let steer = Math.atan(curvature * wheelbase) / maxSteer;
     if (lz < 0) steer = lx >= 0 ? 1 : -1;
     c.steer = clamp(steer, -1, 1);
@@ -1644,7 +1644,7 @@ export class DriverAI {
     const lz = dx * fx + dz * fz;
     if (lz > -1) return 0;
     // Moving backwards, the same wheel angle turns the car's tail towards a point on that side.
-    const maxSteer = v.spec.steer / (1 + Math.abs(v.forwardSpeed) / 15);
+    const maxSteer = steerLimit(v.spec, v.forwardSpeed);
     return clamp(Math.atan(((2 * lx) / Math.max(1, lx * lx + lz * lz)) * v.spec.length * 0.6) / maxSteer, -1, 1);
   }
 
@@ -1991,7 +1991,7 @@ export class DriverAI {
     // Pure pursuit, as update() steers (> 0 turns right: the heading decreases), within full lock.
     const lx = dx * -fz + dz * fx;
     const lz = dx * fx + dz * fz;
-    const maxCurve = Math.tan(v.spec.steer / (1 + Math.abs(v.forwardSpeed) / 15)) / (v.spec.length * 0.6);
+    const maxCurve = Math.tan(steerLimit(v.spec, v.forwardSpeed)) / (v.spec.length * 0.6);
     const curve = lz < 0 ? (lx >= 0 ? maxCurve : -maxCurve) : clamp((2 * lx) / Math.max(1, lx * lx + lz * lz), -maxCurve, maxCurve);
     const reach = Math.min(range, 10);
     for (let k = 0; k < 2; k++) {

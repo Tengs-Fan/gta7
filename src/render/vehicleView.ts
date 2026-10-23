@@ -13,6 +13,7 @@ import { taxiSignTexture } from './textures';
 import { addPanel, addPrism, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
 import { crackedGlassTexture, exteriorTextures, GLASS_TINT } from './vehicleTextures';
 import { alloyGeometry, exteriorGeometry, sculptBody, taperCabin, tireGeometry } from './vehicleDetails';
+import type { Suspension } from './suspension';
 import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
 
 const BEVEL = 0.07;
@@ -791,7 +792,7 @@ interface FadeEntry {
  * casts no partial shadow artefacts), or for glass, which is see-through already, the same material with its opacity
  * scaled. Either way a uniform drives it, on a program the warm-up compiled.
  */
-function fadeMaterial(m: THREE.Material): THREE.Material {
+export function fadeMaterial(m: THREE.Material): THREE.Material {
   const c = m.clone();
   c.name = `${m.name || 'vehicle'}-fade`;
   if (!m.transparent) c.alphaHash = true;
@@ -900,6 +901,8 @@ export class VehicleView {
   /** The vehicle this view shows (null while pooled). */
   vehicle: Vehicle | null = null;
   color = -1;
+  /** The body's response to the ground under its wheels (suspension.ts); none without a world to read (tests). */
+  suspension: Suspension | null = null;
 
   constructor(readonly kind: VehicleKind) {
     const a = kindAssets(kind);
@@ -1026,6 +1029,7 @@ export class VehicleView {
     this.color = -1;
     this.leanX = 0;
     this.leanZ = 0;
+    this.suspension?.reset();
     this.lastSpeed = v.forwardSpeed;
     this.spin = 0;
     this.wreckRoll = (Math.imul(v.id, 0x9e3779b1) >>> 16) & 1 ? WRECK_ROLL : -WRECK_ROLL;
@@ -1426,7 +1430,8 @@ export class VehicleView {
     // The body leans on its springs about the axis through its tyres' tops, so the wheel arches stay over the planted
     // tyres instead of swinging off them sideways.
     const rot = this.group.rotation;
-    rot.set(-v.pitch + this.leanX, v.heading, bodyRoll + this.leanZ);
+    const sus = this.suspension?.update(v, dt);
+    rot.set(-v.pitch + this.leanX + (sus?.rotX ?? 0), v.heading, bodyRoll + this.leanZ + (sus?.rotZ ?? 0));
     this.qBody.setFromEuler(rot);
     const lean = this.leanAxis;
     const a = this.centre.copy(lean).applyQuaternion(this.qPlanted);
