@@ -120,3 +120,105 @@ export function missionSpots(world: StaticWorld): MissionSpots {
   cache.set(world, spots);
   return spots;
 }
+
+/** A point on a lane: `s` m along it, its position and heading. */
+export interface LaneSpot {
+  lane: Lane;
+  s: number;
+  x: number;
+  z: number;
+  heading: number;
+}
+
+/** Where Vera Salgado's chapter 2 missions happen. */
+export interface Chapter2Spots {
+  vera: Poi;
+  /** The lane in front of Hotel Salgado: the car Vera leaves for a job, and where deliveries end. */
+  curb: LaneSpot;
+  /** Shadow Play: the courier waits here, drives to `tailMeet`, then on to `tailEnd`. */
+  tailStart: LaneSpot;
+  tailMeet: LaneSpot;
+  tailEnd: LaneSpot;
+  /** Shadow Play's retry from its checkpoint: the player on the sidewalk, his car on the lane, behind the meeting. */
+  tailResume: { x: number; z: number; heading: number };
+  tailResumeCar: LaneSpot;
+  /** Showroom Condition: the yellow Nightjar (by Hillcrest), its two minders, and where a retry puts the player. */
+  stealCar: ParkingSpot;
+  stealGuards: Array<{ x: number; z: number }>;
+  stealResume: { x: number; z: number; heading: number };
+  /** Rush Hour: the three pickups, in order (the last stop is the curb). */
+  pickupStops: LaneSpot[];
+  /** Last Call: the evidence box in the impound lot by SAPD Central. */
+  evidence: { x: number; z: number };
+}
+
+const cache2 = new WeakMap<StaticWorld, Chapter2Spots>();
+
+function laneSpot(lane: Lane, s: number): LaneSpot {
+  const at = Math.min(Math.max(s, 8), lane.length - 8);
+  return { lane, s: at, x: lane.sx + lane.dx * at, z: lane.sz + lane.dz * at, heading: lane.heading };
+}
+
+/** The lane nearest (x, z) (travelling along `heading` when given), at the point nearest it. */
+function laneAt(world: StaticWorld, x: number, z: number, heading?: number): LaneSpot {
+  const near = world.roads.nearestLane(x, z, heading);
+  return laneSpot(near.lane, near.s);
+}
+
+/** A free spot `out` m to the side of a lane point, on the side away from the road (the kerb's). */
+function besideLane(world: StaticWorld, p: LaneSpot, out: number): { x: number; z: number; heading: number } {
+  const sides = [1, -1].map((k) => ({ x: p.x + p.lane.dz * out * k, z: p.z - p.lane.dx * out * k }));
+  const off = (q: { x: number; z: number }) => world.roads.nearestLane(q.x, q.z).dist;
+  const side = off(sides[0]!) >= off(sides[1]!) ? sides[0]! : sides[1]!;
+  const at = world.findFreeSpot(side.x, side.z, 0.5, 6) ?? side;
+  return { x: at.x, z: at.z, heading: p.heading };
+}
+
+export function chapter2Spots(world: StaticWorld): Chapter2Spots {
+  const cached = cache2.get(world);
+  if (cached) return cached;
+  const vera = world.layout.pois.find((p) => p.id === 'vera');
+  if (!vera) throw new Error('Missing POI vera');
+  const out = laneAt(world, vera.x + Math.sin(vera.heading) * 8, vera.z + Math.cos(vera.heading) * 8);
+  const curb = laneSpot(out.lane, out.s + 10);
+
+  // The courier waits up the street from the hotel, meets his contact by the Midtown line and ends downtown.
+  const ahead = { x: curb.x + curb.lane.dx * 75, z: curb.z + curb.lane.dz * 75 };
+  const tailStart = laneAt(world, ahead.x, ahead.z, curb.heading);
+  const meet = world.roads.node(7, 6);
+  const meetNext = world.roads.node(7, 7);
+  const tailMeet = laneAt(world, (meet.x + meetNext.x) / 2, (meet.z + meetNext.z) / 2);
+  const end = world.roads.node(4, 5);
+  const endNext = world.roads.node(4, 6);
+  const tailEnd = laneAt(world, (end.x + endNext.x) / 2, (end.z + endNext.z) / 2);
+  const tailResumeCar = laneSpot(tailMeet.lane, tailMeet.s - 45);
+  const tailResume = besideLane(world, tailResumeCar, 6.5);
+
+  const hill = blockCenter(world, 3, 1);
+  // Hillcrest has no lots: this is the street-side bay nearest to it (Vera names its district, see Showroom Condition).
+  const stealCar = found(nearestParking(world, hill.x, hill.z, { street: true }));
+  const stealGuards: Array<{ x: number; z: number }> = [];
+  for (const [ox, oz] of [[3.5, 3], [-3.5, -3], [4, -3.5], [-4, 3.5]] as const) {
+    const s = world.findFreeSpot(stealCar.x + ox, stealCar.z + oz, 0.5, 4);
+    if (s && stealGuards.length < 2) stealGuards.push(s);
+  }
+  const sx = Math.cos(stealCar.heading);
+  const sz = -Math.sin(stealCar.heading);
+  const nextTo = world.findFreeSpot(stealCar.x + sx * 2.6, stealCar.z + sz * 2.6, 0.5, 5) ?? { x: stealCar.x + sx * 2.6, z: stealCar.z + sz * 2.6 };
+  const stealResume = { x: nextTo.x, z: nextTo.z, heading: stealCar.heading };
+
+  const pickupStops = ([[7, 7], [8, 4], [5, 6]] as const).map(([bi, bj]) => {
+    const c = blockCenter(world, bi, bj);
+    const spot = found(nearestParking(world, c.x, c.z, { street: true }));
+    return laneAt(world, spot.x, spot.z);
+  });
+
+  const police = world.layout.pois.find((p) => p.id === 'police');
+  if (!police) throw new Error('Missing POI police');
+  const lot = found(nearestParking(world, police.x, police.z));
+  const evidence = aisleSpot(world, lot);
+
+  const spots: Chapter2Spots = { vera, curb, tailStart, tailMeet, tailEnd, tailResume, tailResumeCar, stealCar, stealGuards, stealResume, pickupStops, evidence };
+  cache2.set(world, spots);
+  return spots;
+}

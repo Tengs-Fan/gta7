@@ -4,8 +4,9 @@ import { findContact, type ContactId } from './contacts';
 import { DEX } from './dex';
 import { LOU } from './lou';
 import type { MissionDef } from './runner';
+import { VERA_MISSIONS } from './vera';
 
-const story: MissionDef[] = [...LOU, ...DEX];
+const story: MissionDef[] = [...LOU, ...DEX, ...VERA_MISSIONS];
 
 /** Every mission, a contact's after another's. The array itself is shared (MissionSystem.defs), so registrations show up in it. */
 export const STORY: readonly MissionDef[] = story;

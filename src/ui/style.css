@@ -468,6 +468,10 @@ body {
   --card: var(--accent2);
 }
 
+.prompt.vera {
+  --card: #b8e62e;
+}
+
 .prompt .card-head {
   display: flex;
   justify-content: space-between;
