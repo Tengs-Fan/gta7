@@ -46,7 +46,7 @@ export function taperCabin(g: THREE.BufferGeometry, kind: VehicleKind): void {
 export function sculptBody(g: THREE.BufferGeometry, kind: VehicleKind, profile: ExteriorProfile): THREE.BufferGeometry {
   const s = VEHICLE_SPECS[kind];
   // Tall commercial vehicles have vertical load-bearing sides; cars get a pressed sill and subtle beltline crown.
-  if (kind !== 'bus' && kind !== 'van' && kind !== 'swat' && kind !== 'pickup') {
+  if (kind !== 'bus' && kind !== 'van' && kind !== 'swat' && kind !== 'pickup' && !s.bodyProfile?.straightSides) {
     const p = g.getAttribute('position');
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i);
@@ -155,7 +155,7 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
     const middle = a.clone().add(b).multiplyScalar(0.5);
     add(g, finish, middle.x, middle.y, middle.z);
   };
-  const flank = (side: number, y: number): number => side * ((commercial || kind === 'pickup' ? hw : bodySideX(hw, H, y)) + 0.008);
+  const flank = (side: number, y: number): number => side * ((commercial || kind === 'pickup' || s.bodyProfile?.straightSides ? hw : bodySideX(hw, H, y)) + 0.008);
   const ly = p.lightY * H;
   const end = L / 2 + 0.091;
   const sill = p.body[0]![1] + 0.035;

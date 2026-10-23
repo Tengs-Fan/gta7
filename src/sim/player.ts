@@ -451,7 +451,8 @@ export class PlayerController {
     if (input.nextWeapon) p.inventory.cycle(1);
     if (input.prevWeapon) p.inventory.cycle(-1);
     if (input.reload) sim.combat.startReload(p);
-    if (input.fire || input.firePressed) {
+    // The fire truck's fire control is its water cannon (waterCannon.ts), not a drive-by.
+    if ((input.fire || input.firePressed) && !v.spec.waterCannon) {
       const w = p.inventory.current;
       if (w === 'pistol' || w === 'smg') sim.combat.playerFire(p, input, true);
     }

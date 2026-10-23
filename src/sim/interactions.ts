@@ -2,6 +2,10 @@
 // and drive-in garages (Spray Shack).
 
 import { rectContains, type Poi } from '../world/layout';
+import { getActivity } from './activities';
+import { places } from './activities/places';
+import { formatMoney } from '../core/math';
+import { BUSINESS_DAILY, BUSINESS_NAME, BUSINESS_PRICE, buyProperty, GARAGE_PRICE, GARAGE_SLOTS, propertyState, storedCars } from './properties';
 import { Inventory } from './entities';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
@@ -9,7 +13,7 @@ import type { PlayerView } from './viewState';
 import { WEAPONS, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
 
-export type MarkerKind = 'mission' | 'gunshop' | 'save';
+export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs';
 
 export interface Marker {
   id: string;
@@ -21,7 +25,13 @@ export interface Marker {
   color: number;
   /** Mission markers carry the mission id. */
   ref: string;
+  /** A radar and map icon for the place (properties), or none. */
+  blip?: { color: string; label: string };
 }
+
+/** Property icons: grey while for sale, green once owned. */
+const FOR_SALE = '#9aa3ad';
+const OWNED = '#3fd96b';
 
 export interface ShopItem {
   id: string;
@@ -64,6 +74,15 @@ export class Interactions {
       if (poi.kind === 'gunshop') this.markers.push({ id: poi.id, kind: 'gunshop', x: poi.x, z: poi.z, radius: 1.5, label: 'Press E to shop at Bang Bang Guns', color: 0xff8a1f, ref: poi.id });
       if (poi.kind === 'safehouse') this.markers.push({ id: poi.id, kind: 'save', x: poi.x, z: poi.z, radius: 1.5, label: 'Press E to save your game', color: 0x55ccff, ref: poi.id });
     }
+    const at = places(sim.world);
+    this.markers.push({ id: 'export_board', kind: 'exportBoard', x: at.exportBoard.x, z: at.exportBoard.z, radius: 1.5, label: "Press E to take Lou's export list", color: 0xffa020, ref: 'carExport' });
+    // On the sidewalk by the courier office's stop, which a car or bike pulls up at (Activities' job prompt).
+    this.markers.push({ id: 'garage', kind: 'garage', x: at.garageMarker.x, z: at.garageMarker.z, radius: 1.5, label: '', color: 0x3fd96b, ref: 'garage', blip: { color: FOR_SALE, label: 'G' } });
+    this.markers.push({ id: 'pier_arcade', kind: 'business', x: at.arcade.x, z: at.arcade.z, radius: 1.5, label: '', color: 0x3fd96b, ref: 'business', blip: { color: FOR_SALE, label: '$' } });
+    // The drive-in bay: a beam over it, never a prompt on foot (radius 0).
+    const bay = at.customsBay;
+    this.markers.push({ id: 'azura_customs', kind: 'customs', x: (bay.minX + bay.maxX) / 2, z: (bay.minZ + bay.maxZ) / 2, radius: 0, label: '', color: 0xb36bff, ref: 'customs', blip: { color: '#b36bff', label: 'C' } });
+    this.markers.push({ id: 'courier_office', kind: 'courier', x: at.courier.x + 3.6, z: at.courier.z, radius: 1.5, label: 'Azura Express: stop a car or bike here and press T for a courier run', color: 0xffd23d, ref: 'courier' });
   }
 
   /** The marker under the player (on foot), if any. `slot` is slot 0 by default. */
@@ -91,6 +110,8 @@ export class Interactions {
       if (sim.missions.active) return null;
       return this.startBlock(slot, false) ?? m.label;
     }
+    if (m.kind === 'garage' || m.kind === 'business') return this.propertyPrompt(m.kind);
+    if (m.kind === 'exportBoard') return sim.activities.job?.kind === 'carExport' ? "Press E to read Lou's export list" : m.label;
     if (m.kind === 'save') {
       // As interact() would answer, before E is pressed.
       if (slot.wanted.level > 0) return 'Lose the cops before saving.';
@@ -184,13 +205,48 @@ export class Interactions {
         if (slot.id !== 0 || sim.missions.active || this.startBlock(slot, false)) return;
         sim.missions.start(m.ref);
         break;
+      case 'exportBoard':
+        // The list belongs to slot 0's job, as the other jobs do.
+        if (slot.id !== 0) return;
+        if (sim.activities.job?.kind !== 'carExport') {
+          if (sim.missions.active) sim.events.emit('message', { text: 'Finish the mission first.', duration: 3 });
+          else if (sim.activities.busy) sim.events.emit('message', { text: 'Finish what you are doing first.', duration: 3 });
+          else sim.activities.startExport();
+        }
+        sim.events.emit('screenOpen', { screen: 'exportBoard', ...slot.tag });
+        break;
+      case 'courier':
+      case 'customs':
+        break;
+      case 'garage':
+      case 'business': {
+        if (slot.id !== 0) return;
+        const err = propertyState(sim.progress)[m.kind === 'garage' ? 'garage' : 'business'] ? null : buyProperty(sim, m.kind);
+        if (err) sim.events.emit('message', { text: err, duration: 3 });
+        break;
+      }
     }
+  }
+
+  /** What a property's marker says: its price while for sale, what it does once owned. */
+  private propertyPrompt(kind: 'garage' | 'business'): string {
+    const sim = this.sim;
+    const s = propertyState(sim.progress);
+    if (kind === 'garage') {
+      return s.garage
+        ? `Your garage: ${storedCars(sim).length}/${GARAGE_SLOTS} cars stored. Park a car in a bay and get out to store it.`
+        : `Press E to buy the garage for ${formatMoney(GARAGE_PRICE)} (stores ${GARAGE_SLOTS} cars)`;
+    }
+    return s.business
+      ? `${BUSINESS_NAME}: yours. ${formatMoney(BUSINESS_DAILY)} a day, collected at the safehouse (${formatMoney(s.uncollected)} waiting).`
+      : `Press E to buy the ${BUSINESS_NAME} for ${formatMoney(BUSINESS_PRICE)} (${formatMoney(BUSINESS_DAILY)} a day)`;
   }
 
   /** An on-foot interaction confirms the exit instead of keeping its vehicle job alive for a possible cheat. */
   private finishExitedJob(): void {
     const sim = this.sim;
-    if (sim.player.onFoot && sim.activities.job && sim.activities.job.kind !== 'rampage') {
+    const job = sim.activities.job;
+    if (sim.player.onFoot && job && job.kind !== 'rampage' && !getActivity(job.kind)?.onFoot) {
       sim.activities.exitUndoable = false;
       sim.activities.toggleJob();
     }
@@ -229,6 +285,11 @@ export class Interactions {
 
   update(_dt: number): void {
     for (const slot of this.sim.players) this.updateSpray(slot);
+    const s = propertyState(this.sim.progress);
+    for (const m of this.markers) {
+      if (m.kind === 'garage' && m.blip) m.blip.color = s.garage ? OWNED : FOR_SALE;
+      if (m.kind === 'business' && m.blip) m.blip.color = s.business ? OWNED : FOR_SALE;
+    }
   }
 
   private updateSpray(slot: PlayerSlot): void {

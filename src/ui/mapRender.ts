@@ -84,6 +84,8 @@ export function collectBlips(sim: ViewState, time: number, localPlayerId = 0): B
     const b = POI_BLIPS[p.kind];
     if (b) out.push({ x: p.x, z: p.z, color: b.color, label: b.label, sticky: false, shape: 'circle' });
   }
+  // Places a marker carries an icon for (the properties and Azura Customs).
+  for (const m of sim.interactions.markers) if (m.blip) out.push({ x: m.x, z: m.z, color: m.blip.color, label: m.blip.label, sticky: false, shape: 'circle' });
   if (!sim.missions.active) {
     for (const d of sim.missions.offers()) {
       const contact = contactById(d.giver);
