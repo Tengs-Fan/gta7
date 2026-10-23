@@ -2,7 +2,8 @@
 
 import { clamp } from '../../core/math';
 import { QUALITY } from '../../render/quality';
-import type { Settings } from '../../settings';
+import { FPS_CAPS, SUBTITLE_SIZES, type Settings } from '../../settings';
+import { showBindings } from './bindings';
 import { h, showConfirm, type MenuCtx } from './shared';
 
 export function showSettings(ctx: MenuCtx): void {
@@ -10,13 +11,19 @@ export function showSettings(ctx: MenuCtx): void {
   const el = h('div', 'screen dim');
   const panel = h('div', 'panel');
   panel.appendChild(h('h2', '', 'SETTINGS'));
-  const apply = () => ctx.host.applySettings({ ...s });
+  // Key bindings (their own screen) and the map legend change settings under this one: keep theirs.
+  const apply = () => {
+    const now = ctx.host.settings();
+    ctx.host.applySettings({ ...s, bindings: now.bindings, mapLayers: now.mapLayers });
+  };
   // Keyboard / gamepad: up / down pick a row, left / right adjust it, confirm activates it.
   const rows: Array<{ el: HTMLElement; adjust?(d: number): void; activate?(): void; skip?(): boolean }> = [];
   let sel = 0;
   const select = (i: number) => {
     sel = i;
     rows.forEach((r, k) => r.el.classList.toggle('sel', k === i));
+    // The panel scrolls in short windows (1280 x 560): the picked row stays in view.
+    rows[i]?.el.scrollIntoView?.({ block: 'nearest' });
   };
   const move = (d: number) => {
     const n = rows.length;
@@ -39,7 +46,7 @@ export function showSettings(ctx: MenuCtx): void {
       if (!r.skip?.()) select(i);
     });
   };
-  const slider = (label: string, key: 'master' | 'music' | 'sfx' | 'sensitivity' | 'fov', min: number, max: number, stepv: number, keyStep: number, fmt: (v: number) => string) => {
+  const slider = (label: string, key: 'master' | 'music' | 'sfx' | 'sensitivity' | 'fov' | 'resolutionScale', min: number, max: number, stepv: number, keyStep: number, fmt: (v: number) => string) => {
     const row = h('div', 'setting');
     const lab = h('span', '', label);
     const input = h('input');
@@ -121,7 +128,7 @@ export function showSettings(ctx: MenuCtx): void {
   slider('Mouse sensitivity', 'sensitivity', 0.2, 3, 0.05, 0.1, (v) => v.toFixed(2));
   slider('Field of view', 'fov', 55, 90, 1, 5, (v) => `${v}°`);
   // On / off rows: a checkbox, with its state spelled out in the value column like the sliders'.
-  const toggle = (label: string, key: 'invertY' | 'hints' | 'lightningFlashes') => {
+  const toggle = (label: string, key: 'invertY' | 'hints' | 'lightningFlashes' | 'cameraShake') => {
     const row = h('div', 'setting');
     const box = h('input');
     box.type = 'checkbox';
@@ -163,6 +170,41 @@ export function showSettings(ctx: MenuCtx): void {
   panel.appendChild(wrow);
   addRow({ el: wrow, adjust: () => setWeather(s.weather === 'clear' ? 'dynamic' : 'clear'), activate: () => setWeather(s.weather === 'clear' ? 'dynamic' : 'clear') });
   toggle('Lightning flashes', 'lightningFlashes');
+  slider('Resolution scale', 'resolutionScale', 0.5, 1, 0.05, 0.05, pct);
+  // A row of fixed choices: a select, stepped by left / right and cycled by confirm.
+  const choice = <K extends 'fpsCap' | 'subtitleSize'>(label: string, key: K, values: ReadonlyArray<Settings[K]>, name: (v: Settings[K]) => string) => {
+    const row = h('div', 'setting');
+    const sel = h('select');
+    sel.ariaLabel = label;
+    values.forEach((v, i) => {
+      const o = h('option');
+      o.value = String(i);
+      o.textContent = name(v);
+      if (s[key] === v) o.selected = true;
+      sel.appendChild(o);
+    });
+    const set = (v: Settings[K]) => {
+      s[key] = v;
+      sel.value = String(values.indexOf(v));
+      apply();
+    };
+    sel.addEventListener('change', () => set(values[Number(sel.value)] ?? values[0]!));
+    row.append(h('span', '', label), sel, h('span', '', ''));
+    panel.appendChild(row);
+    const step = (d: number) => set(values[clamp(values.indexOf(s[key]) + d, 0, values.length - 1)]!);
+    addRow({ el: row, adjust: step, activate: () => set(values[(values.indexOf(s[key]) + 1) % values.length]!) });
+  };
+  choice('FPS cap', 'fpsCap', FPS_CAPS, (v) => (v === 0 ? 'Unlimited' : `${v} FPS`));
+  choice('Subtitle size', 'subtitleSize', SUBTITLE_SIZES, (v) => v.charAt(0).toUpperCase() + v.slice(1));
+  toggle('Camera shake', 'cameraShake');
+  const keysRow = h('div', 'setting setting-link');
+  keysRow.append(h('span', '', 'Key bindings'), h('span', 'setting-go', 'Change keyboard keys ›'), h('span', '', ''));
+  keysRow.addEventListener('click', () => {
+    ctx.host.click();
+    showBindings(ctx);
+  });
+  panel.appendChild(keysRow);
+  addRow({ el: keysRow, activate: () => showBindings(ctx) });
   const row = h('div', 'row-end');
   const del = h('button', 'btn', 'DELETE SAVE');
   del.disabled = !ctx.host.hasSave();

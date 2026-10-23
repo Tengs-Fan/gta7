@@ -4,6 +4,7 @@
 // Node has no DOM: the browser pieces run on the small fakes below (as in fix_frontend.test.ts), and the
 // WebGL renderer is mocked.
 
+import { DEFAULT_BINDINGS } from '../../src/input/bindings';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Game } from '../../src/game';
 import { Input, type UiActions } from '../../src/input/input';
@@ -301,7 +302,7 @@ function aSave(money = 4321): SaveData {
 
 function makeMenus(over: Partial<MenuHost> = {}) {
   let saved = true;
-  let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true };
+  let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true, bindings: DEFAULT_BINDINGS, resolutionScale: 1, fpsCap: 0, subtitleSize: 'normal', cameraShake: true, mapLayers: {} };
   let waypoint: { x: number; z: number } | null = null;
   const host = {
     hasSave: () => saved,
@@ -425,10 +426,11 @@ describe('NEW GAME over a save asks first (critical)', () => {
 });
 
 describe('every confirmation opens on NO (medium)', () => {
-  it('DELETE SAVE: down x10, confirm, confirm keeps the save; up then confirm deletes it', () => {
+  it('DELETE SAVE: up x2 (round past BACK), confirm, confirm keeps the save; up then confirm deletes it', () => {
     const { menus, button, press, saved } = makeMenus();
     menus.showSettings();
-    for (let i = 0; i < 10; i++) press({ down: true });
+    // DELETE SAVE sits just above BACK, the last row (wave 1 added rows above it).
+    for (let i = 0; i < 2; i++) press({ up: true });
     press({ confirm: true });
     expect(button('NO')!.classList.contains('sel')).toBe(true);
     press({ confirm: true });

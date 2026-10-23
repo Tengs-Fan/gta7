@@ -11,8 +11,8 @@ export function showControls(ctx: MenuCtx): void {
   const kb: Array<[string, string]> = [
     ['Move / Drive', ['KeyW', 'KeyA', 'KeyS', 'KeyD'].map(k).join(' ')],
     ['Look / Aim', 'Mouse'],
-    ['Sprint', 'Shift'],
-    ['Jump / Handbrake', 'Space'],
+    ['Sprint', k('ShiftLeft')],
+    ['Jump / Handbrake', k('Space')],
     ['Shoot / Punch', 'Left click'],
     ['Aim', 'Right click'],
     ['Enter / Exit vehicle', k('KeyF')],

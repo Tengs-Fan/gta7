@@ -439,14 +439,29 @@ export class GameRenderer {
     this.cameraCtl.baseFov = fov;
   }
 
+  /** The player's Resolution scale (0.5-1): multiplies the tier's pixel ratio (and its software pixel budget). */
+  get resolutionScale(): number {
+    return this.userScale;
+  }
+
+  set resolutionScale(v: number) {
+    const s = Number.isFinite(v) ? Math.max(0.5, Math.min(1, v)) : 1;
+    if (s === this.userScale) return;
+    this.userScale = s;
+    this.resize();
+  }
+
+  private userScale = 1;
+
   resize(): void {
     const canvas = this.renderer.domElement;
     const w = Math.max(1, canvas.clientWidth || window.innerWidth);
     const h = Math.max(1, canvas.clientHeight || window.innerHeight);
     // Re-read on every resize: zooming or moving to another monitor changes devicePixelRatio.
-    const ratio = this.software
-      ? softwarePixelRatioFor(this.quality, w, h, window.devicePixelRatio || 1)
-      : pixelRatioFor(this.quality, window.devicePixelRatio || 1);
+    const ratio =
+      (this.software
+        ? softwarePixelRatioFor(this.quality, w, h, window.devicePixelRatio || 1)
+        : pixelRatioFor(this.quality, window.devicePixelRatio || 1)) * this.userScale;
     if (ratio !== this.ratio) {
       this.ratio = ratio;
       this.renderer.setPixelRatio(ratio);

@@ -414,8 +414,29 @@ export class CameraController {
     if (dx !== 0 || dy !== 0) this.lookIdle = 0;
   }
 
+  /** The Camera shake setting: off, blasts add no shake and crashes no kick (the speed rumble stays). */
+  get shakeEnabled(): boolean {
+    return this.shakeOn;
+  }
+
+  set shakeEnabled(on: boolean) {
+    this.shakeOn = on;
+    if (on) return;
+    this.shakeAmt = 0;
+    this.kickPos.set(0, 0, 0);
+    this.kickVel.set(0, 0, 0);
+  }
+
+  private shakeOn = true;
+
   addShake(amount: number): void {
+    if (!this.shakeOn) return;
     this.shakeAmt = Math.min(2, this.shakeAmt + amount);
+  }
+
+  /** How much blast shake the camera carries now (0: none). */
+  get shake(): number {
+    return this.shakeAmt;
   }
 
   /**
@@ -424,7 +445,7 @@ export class CameraController {
    * A hit with no horizontal direction (a landing) dips the camera instead.
    */
   addKick(dirX: number, dirZ: number, strength: number): void {
-    if (!(strength > 0) || !Number.isFinite(strength)) return;
+    if (!this.shakeOn || !(strength > 0) || !Number.isFinite(strength)) return;
     const amp = Math.min(KICK_MAX, strength / 60);
     const len = Number.isFinite(dirX) && Number.isFinite(dirZ) ? Math.hypot(dirX, dirZ) : 0;
     const dir = len > 1e-3 ? new THREE.Vector3(dirX / len, 0, dirZ / len) : new THREE.Vector3(0, -1, 0);

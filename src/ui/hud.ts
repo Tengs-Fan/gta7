@@ -1053,7 +1053,7 @@ export class Hud {
       el.drive!.classList.toggle('damaged', condition < 0.3);
       el.conditionLabel!.textContent = condition < 0.3 ? 'CRITICAL DAMAGE' : 'CONDITION';
     }
-    const mode = `${this.device}:${inVehicle}`;
+    const mode = `${this.device}:${inVehicle}:${this.keys.keymap.version}`;
     if (mode === this.controlMode) return;
     this.controlMode = mode;
     const line = inVehicle

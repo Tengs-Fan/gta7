@@ -1,5 +1,6 @@
 // User settings and save-game persistence (localStorage, defensively guarded).
 
+import { DEFAULT_BINDINGS, parseBindings, type KeyBindings } from './input/bindings';
 import type { QualitySetting } from './render/quality';
 import { parseSave, type SaveData } from './sim/progress';
 import type { WeatherMode } from './sim/weather';
@@ -21,7 +22,24 @@ export interface Settings {
   weather: WeatherMode;
   /** The sky and light flash of lightning (off for photosensitivity; the storm and its thunder go on). */
   lightningFlashes: boolean;
+  /** The keyboard actions' keys (see input/bindings.ts). */
+  bindings: KeyBindings;
+  /** Resolution scale, 0.5-1 in RESOLUTION_STEP steps: multiplies the quality tier's own pixel ratio. */
+  resolutionScale: number;
+  /** Frames per second at most: 30, 60, or 0 for no cap (the display's refresh rate). */
+  fpsCap: FpsCap;
+  subtitleSize: SubtitleSize;
+  /** Blast shake and crash kicks of the camera. */
+  cameraShake: boolean;
+  /** Map legend categories switched off or on by the player (absent: on). */
+  mapLayers: Readonly<Record<string, boolean>>;
 }
+
+export type FpsCap = 0 | 30 | 60;
+export const FPS_CAPS: readonly FpsCap[] = [30, 60, 0];
+export type SubtitleSize = 'small' | 'normal' | 'large';
+export const SUBTITLE_SIZES: readonly SubtitleSize[] = ['small', 'normal', 'large'];
+export const RESOLUTION_STEP = 0.05;
 
 export const DEFAULT_SETTINGS: Settings = {
   quality: 'auto',
@@ -35,7 +53,29 @@ export const DEFAULT_SETTINGS: Settings = {
   hintsSeen: [],
   weather: 'dynamic',
   lightningFlashes: true,
+  bindings: DEFAULT_BINDINGS,
+  resolutionScale: 1,
+  fpsCap: 0,
+  subtitleSize: 'normal',
+  cameraShake: true,
+  mapLayers: {},
 };
+
+/** A stored resolution scale: 0.5-1 on a RESOLUTION_STEP step, else the default (a typo, 10%, is not clamped into range). */
+function resolutionScale(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0.5 - 1e-9 || v > 1 + 1e-9) return DEFAULT_SETTINGS.resolutionScale;
+  return Math.round(v / RESOLUTION_STEP) * RESOLUTION_STEP;
+}
+
+/** At most this many map legend toggles are kept. */
+const MAX_MAP_LAYERS = 32;
+
+function mapLayers(v: unknown): Record<string, boolean> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const out: Record<string, boolean> = {};
+  for (const [k, on] of Object.entries(v as Record<string, unknown>).slice(0, MAX_MAP_LAYERS)) if (/^[a-z][a-zA-Z0-9_-]{0,31}$/.test(k) && typeof on === 'boolean') out[k] = on;
+  return out;
+}
 
 /** At most this many hint ids are kept: a corrupt or hand-edited file can't grow without bound. */
 export const MAX_HINTS_SEEN = 50;
@@ -93,6 +133,13 @@ export function loadSettings(): Settings {
       hintsSeen: hintIds(raw.hintsSeen),
       weather: raw.weather === 'clear' || raw.weather === 'dynamic' ? raw.weather : DEFAULT_SETTINGS.weather,
       lightningFlashes: typeof raw.lightningFlashes === 'boolean' ? raw.lightningFlashes : DEFAULT_SETTINGS.lightningFlashes,
+      // Files from before wave 1 lack these: defaults.
+      bindings: parseBindings(raw.bindings),
+      resolutionScale: resolutionScale(raw.resolutionScale),
+      fpsCap: FPS_CAPS.includes(raw.fpsCap as FpsCap) ? (raw.fpsCap as FpsCap) : DEFAULT_SETTINGS.fpsCap,
+      subtitleSize: SUBTITLE_SIZES.includes(raw.subtitleSize as SubtitleSize) ? (raw.subtitleSize as SubtitleSize) : DEFAULT_SETTINGS.subtitleSize,
+      cameraShake: typeof raw.cameraShake === 'boolean' ? raw.cameraShake : DEFAULT_SETTINGS.cameraShake,
+      mapLayers: mapLayers(raw.mapLayers),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
