@@ -10,6 +10,7 @@ import { makeBrain, type PedBrain } from './brains';
 import { DispatchSystem } from './dispatch';
 import { DriverAI } from './driver';
 import { Helicopter, type Character, type Vehicle } from './entities';
+import { HELI_ROOF_BLAST, heliCrashHit } from './heliCrash';
 import type { Sim } from './sim';
 import { COP_SIGHT } from './wanted';
 
@@ -1258,14 +1259,14 @@ export class PoliceSystem {
         const gy = sim.world.groundHeight(h.pos.x, h.pos.z);
         const wet = gy < WATER_Y;
         const floor = wet ? WATER_Y : gy;
-        let hitBuilding = false;
-        sim.world.grid.query(h.pos.x - 1, h.pos.z - 1, h.pos.x + 1, h.pos.z + 1, (c) => {
-          if (c.tag === 'building' && h.pos.y < c.y1 && h.pos.y > c.y0) hitBuilding = true;
-        });
-        if (h.pos.y <= floor + (wet ? 0.3 : 1) || hitBuilding) {
+        // Roofs (garages and the police station included) and structures stop it too (heliCrash.ts).
+        const hit = heliCrashHit(sim.world, h.pos.x, h.pos.y, h.pos.z, -h.vel.y * dt);
+        if (h.pos.y <= floor + (wet ? 0.3 : 1) || hit) {
           h.removed = true;
-          if (wet && !hitBuilding) sim.events.emit('splash', { x: h.pos.x, y: WATER_Y, z: h.pos.z, big: true });
-          sim.combat.explosion(h.pos.x, Math.max(floor, h.pos.y), h.pos.z, 9, 450, null, null);
+          if (hit) h.pos.y = hit.y;
+          if (wet && !hit) sim.events.emit('splash', { x: h.pos.x, y: WATER_Y, z: h.pos.z, big: true });
+          // On a garage roof the blast is kept small enough to spare the cars parked under it.
+          sim.combat.explosion(h.pos.x, Math.max(floor, h.pos.y), h.pos.z, hit?.garageRoof ? HELI_ROOF_BLAST : 9, 450, null, null);
         }
         continue;
       }
