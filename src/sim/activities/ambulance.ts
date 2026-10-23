@@ -167,6 +167,7 @@ function updateAmbulance(host: ActivityHost, j: AmbulanceJob, dt: number): void 
 export const ambulanceActivity: ActivityDef<AmbulanceJob> = {
   kind: 'ambulance',
   toggleEndText: 'Paramedic job ended.',
+  site: { label: 'A', name: 'Paramedic', at: (world) => places(world).depots.find((d) => d.kind === 'ambulance')! },
   completion: (_view, me) => ({ label: 'Paramedic level 5', done: Math.min(5, activityRecords(me.progress).ambulanceLevel), total: 5 }),
 
   canStart: (_host, _slot, vehicle) => vehicle?.kind === 'ambulance',
