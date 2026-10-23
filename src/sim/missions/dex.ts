@@ -319,8 +319,8 @@ const bigScore: MissionDef = {
     yield* m.say(DEX_NAME, 'Twenty-five grand for you, the rest for me. Welcome to the top of San Azura, Kai.');
     m.unwatch(hold);
   },
-  // After MISSION PASSED, which the runner shows once the script is over.
-  outro: { text: 'THE END', sub: 'Thanks for playing GTA 7: Grand Turbo Anarchy', duration: 6 },
+  // After MISSION PASSED, which the runner shows once the script is over. Chapter 2 (Vera Salgado) opens with it.
+  outro: { text: 'CHAPTER 1 COMPLETE', sub: 'Vera Salgado has work: the lime V, Hotel Salgado', duration: 6 },
 };
 
 export const DEX: MissionDef[] = [looseLips, heatwave, bigScore];
