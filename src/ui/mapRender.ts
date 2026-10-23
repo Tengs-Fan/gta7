@@ -199,7 +199,8 @@ registerMapCategory({
   },
 });
 
-const ACTIVITY_COLOR = '#ffd23d';
+// Not the objective yellow: the legend's fixed rows already use that for mission and job markers.
+const ACTIVITY_COLOR = '#00e5ff';
 const activitySites = () => activityKinds().flatMap((k) => {
   const site = getActivity(k)?.site;
   return site ? [site] : [];
@@ -233,6 +234,8 @@ export function collectBlips(sim: ViewState, time: number, localPlayerId = 0, op
   }
   // Places a marker carries an icon for (the properties and Azura Customs).
   for (const m of sim.interactions.markers) if (m.blip) out.push({ x: m.x, z: m.z, color: m.blip.color, label: m.blip.label, sticky: false, shape: 'circle', category: MAP_POIS[m.kind]?.category });
+  // Before the contacts' offers, so that one is never hidden under an icon beside it (Lou's export board).
+  if (opts.map) for (const c of MAP_CATEGORIES) if (c.blips) out.push(...c.blips(sim, localPlayerId).map((b) => ({ ...b, category: b.category ?? c.id })));
   if (!sim.missions.active) {
     for (const d of sim.missions.offers()) {
       const contact = contactById(d.giver);
@@ -240,7 +243,6 @@ export function collectBlips(sim: ViewState, time: number, localPlayerId = 0, op
       out.push({ x: poi.x, z: poi.z, color: contact.color, label: contact.mapLabel, sticky: true, shape: 'circle', category: 'missions' });
     }
   }
-  if (opts.map) for (const c of MAP_CATEGORIES) if (c.blips) out.push(...c.blips(sim, localPlayerId).map((b) => ({ ...b, category: b.category ?? c.id })));
   const objectives: Objective[] = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
   for (const o of objectives) {
     const t = o.vehicle ?? o.character;
