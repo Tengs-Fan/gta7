@@ -2,7 +2,7 @@
 // gang wars, rampage friendly fire, roadblocks, spike strips and flat tyres. Long runs use reduced seeds here; set
 // W1_FULL=1 for the full seed counts of the assertions.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { randomAppearance } from '../../src/sim/appearance';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import { GANGS, gangAt, setGang, turfBorders, turfZones, TURF_LEAVE_CALM } from '../../src/sim/gangs';
@@ -15,6 +15,8 @@ import { input, makeSim, step, teleport } from './helpers';
 import { getaway } from './r2_police_helpers';
 
 const FULL = process.env.W1_FULL === '1';
+// The full seed counts take minutes per case.
+if (FULL) vi.setConfig({ testTimeout: 1_800_000 });
 const GANG_IDS: GangId[] = ['tiburones', 'halcones'];
 
 function zoneOf(sim: Sim, gang: GangId) {
