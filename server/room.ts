@@ -19,6 +19,7 @@ import { RateMeter, Rolling } from './stats';
 import { classifyEvent, eventRelevant, type RoutedEvent } from './events';
 import type { PlayerInput } from '../src/sim/input';
 import { runCommand } from './commands';
+import { RoomRules } from './lobby';
 
 /** What a room needs of a client connection. */
 export interface Peer {
@@ -136,6 +137,8 @@ export class Room {
   readonly world: StaticWorld;
   readonly sim: Sim;
   readonly slots: SlotProvider;
+  /** Multiplayer rules: looks, kill credit, the head-to-head race, the room state for the clients. */
+  readonly rules: RoomRules;
   readonly members = new Map<number, Member>();
   readonly opts: RoomOptions;
   readonly dt: number;
@@ -167,6 +170,7 @@ export class Room {
     this.sim = new Sim({ ambient: true, police: true, weather: 'dynamic', streetCrime: true, multiplayer: true, seed, ...this.opts.sim, world: this.world });
     this.slots = this.opts.slotProvider(this.sim);
     this.captureEvents();
+    this.rules = new RoomRules(this);
     this.loop = this.opts.realtime ? new FixedLoop(() => this.step(), { hz: this.opts.tickRate, maxCatchUp: 5, maxLagMs: 250, now: this.opts.now }) : null;
     this.createdAt = this.opts.now();
     this.loop?.start();
@@ -186,6 +190,7 @@ export class Room {
     m.slot = this.slots.claim(playerId);
     this.members.set(playerId, m);
     this.rosterVersion++;
+    this.rules.onJoin(m);
     return m;
   }
 
@@ -218,6 +223,7 @@ export class Room {
 
   leave(m: Member): void {
     if (!this.members.delete(m.playerId)) return;
+    this.rules.onLeave(m, m.slot);
     if (m.slot !== null) {
       const slot = m.slot;
       this.slots.release(slot);
@@ -229,6 +235,7 @@ export class Room {
         if (got === null) break;
         other.slot = got;
         other.latch.clear();
+        this.rules.onSlot(other);
         break;
       }
     }
@@ -278,6 +285,7 @@ export class Room {
   }
 
   private onSimEvent(type: string, payload: unknown): void {
+    this.rules?.onSimEvent(type, payload);
     if (type === 'propBroken') this.brokenLog.push((payload as { index: number }).index);
     const routed = classifyEvent(type, payload, (pid) => {
       const holder = this.memberOfSlot(this.slots.slotOfEvent(pid));
@@ -296,6 +304,7 @@ export class Room {
       const inp = m.latch.next();
       if (m.slot !== null) inputs.set(m.slot, inp);
     }
+    this.rules.beforeStep(inputs);
     try {
       this.slots.step(this.dt, inputs);
     } catch (err) {
@@ -303,6 +312,12 @@ export class Room {
       if (this.tickErrors <= 3 || this.tickErrors % 600 === 0) this.opts.log(`[room ${this.id}] tick ${this.tick} failed (${this.tickErrors}): ${err instanceof Error ? err.stack : String(err)}`);
     }
     this.tick++;
+    try {
+      this.rules.afterStep();
+    } catch (err) {
+      this.tickErrors++;
+      if (this.tickErrors <= 3) this.opts.log(`[room ${this.id}] rules at tick ${this.tick} failed: ${err instanceof Error ? err.stack : String(err)}`);
+    }
     const r = this.opts.snapshotRate / this.opts.tickRate;
     if (Math.floor(this.tick * r) > Math.floor((this.tick - 1) * r)) this.broadcast();
     const now = this.opts.now();
@@ -371,7 +386,7 @@ export class Room {
       const w = this.writer;
       w.reset();
       const slot = m.slot ?? 0;
-      const job = this.slots.job(slot);
+      const job = (m.slot !== null ? this.rules.jobFor(m.slot) : null) ?? this.slots.job(slot);
       const jobBytes = this.jobBytes(job);
       const jobChanged = !m.sentFirst || !sameBytes(m.job, jobBytes);
       writeSnapshotHead(w, {
@@ -454,6 +469,14 @@ export class Room {
       this.leave(m);
       return false;
     }
+  }
+
+  /**
+   * An event of the room's own (not the sim's) for the next broadcast: to one member (`toPlayerId`), shown by its client
+   * at once, or with 0 to every client.
+   */
+  pushEvent(type: string, data: Record<string, unknown>, toPlayerId = 0): void {
+    this.events.push({ ev: { type, playerId: toPlayerId, data }, tick: this.tick + 1, scoped: toPlayerId !== 0, x: null, z: null, refs: [] });
   }
 
   /** Sends a message to every member (roster-independent notices, shutdown). */

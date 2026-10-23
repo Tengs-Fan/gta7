@@ -1,0 +1,117 @@
+.mp-join-intro {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 17px;
+}
+
+.mp-field {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  column-gap: 14px;
+  padding: 6px 10px;
+  margin: 0 -10px 4px;
+  border-left: 2px solid transparent;
+  pointer-events: auto;
+}
+
+.mp-field.sel {
+  border-left-color: var(--accent);
+  background: rgba(246, 238, 219, 0.07);
+}
+
+.mp-field-label {
+  font-family: 'Anton', Impact, sans-serif;
+  font-size: 22px;
+  letter-spacing: 1.2px;
+}
+
+.mp-input {
+  pointer-events: auto;
+  font: 600 20px Rajdhani, sans-serif;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 6px 10px;
+  min-width: 0;
+  outline: none;
+}
+
+.mp-input:focus {
+  border-color: var(--accent);
+}
+
+.mp-field-hint {
+  grid-column: 2;
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.mp-join-error {
+  min-height: 24px;
+  margin: 6px 0 4px;
+  color: #ff6b5e;
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.mp-join-buttons {
+  margin-top: 4px;
+}
+
+/* Players and races screens */
+.mp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 6px 0 14px;
+  font-size: 18px;
+}
+
+.mp-table th {
+  text-align: left;
+  font: 400 15px 'Anton', Impact, sans-serif;
+  letter-spacing: 1px;
+  color: var(--muted);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mp-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mp-table td.num,
+.mp-table th.num {
+  text-align: right;
+}
+
+.mp-table tr.you td {
+  background: rgba(246, 238, 219, 0.07);
+  font-weight: 700;
+}
+
+.mp-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  transform: rotate(45deg);
+  border: 1px solid #fff;
+  vertical-align: 0;
+}
+
+.mp-you {
+  margin-left: 8px;
+  font-size: 13px;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+.mp-note {
+  color: var(--muted);
+  font-size: 15px;
+  margin: 4px 0 10px;
+}

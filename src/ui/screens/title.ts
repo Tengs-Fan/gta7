@@ -6,6 +6,7 @@ import { showControls } from './controls';
 import { showSettings } from './settings';
 import { showSlots } from './slots';
 import { showStreetRuns } from './streetRuns';
+import { showMultiplayer } from './multiplayer';
 
 /** NEW GAME's question when there is a save: the new game's first save replaces it. */
 export const NEW_GAME_WARNING = 'Start a new game? Your saved game will be replaced the next time the game saves (after a mission or at the safehouse).';
@@ -34,6 +35,10 @@ export function showTitle(ctx: MenuCtx, notice?: string): void {
       ...(ctx.host.startStreetRun ? [{
         label: 'STREET RUN', id: 'street-run', description: 'Get behind the wheel. Beat the clock.',
         action: () => showStreetRuns(ctx),
+      }] : []),
+      ...(ctx.host.joinMultiplayer ? [{
+        label: 'MULTIPLAYER', id: 'multiplayer', description: 'Free roam and head-to-head races on a game server.',
+        action: () => showMultiplayer(ctx),
       }] : []),
       { label: 'CONTROLS', action: () => showControls(ctx) },
       { label: 'SETTINGS', action: () => showSettings(ctx) },

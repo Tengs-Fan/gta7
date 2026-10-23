@@ -2,7 +2,7 @@
 // the root (dot segments, encoded slashes, NUL bytes) is refused before the file system is touched.
 
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, resolve, sep } from 'node:path';
@@ -55,6 +55,29 @@ function plain(res: ServerResponse, code: number, text: string, head: boolean): 
   res.end(head ? undefined : text);
 }
 
+/** What the game server adds to the pages it serves: the MULTIPLAYER screen then offers this server by default. */
+export const SERVER_META = '<meta name="gta7-server" content="1">';
+
+/** An HTML page with SERVER_META in its head. */
+async function serveHtml(file: string, res: ServerResponse, head: boolean): Promise<void> {
+  let html: string;
+  try {
+    html = await readFile(file, 'utf8');
+  } catch {
+    return plain(res, 404, 'Not found\n', head);
+  }
+  if (res.destroyed) return;
+  const i = html.search(/<\/head>/i);
+  const body = Buffer.from(i >= 0 ? html.slice(0, i) + SERVER_META + html.slice(i) : SERVER_META + html, 'utf8');
+  res.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'content-length': body.length,
+    'cache-control': 'no-cache',
+    'x-content-type-options': 'nosniff',
+  });
+  res.end(head ? undefined : body);
+}
+
 export async function serveStatic(root: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const head = req.method === 'HEAD';
   if (req.method !== 'GET' && !head) {
@@ -73,6 +96,7 @@ export async function serveStatic(root: string, req: IncomingMessage, res: Serve
   if (res.destroyed) return;
   if (!info.isFile()) return plain(res, 404, 'Not found\n', head);
   const type = TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
+  if (type.startsWith('text/html')) return serveHtml(file, res, head);
   const hashed = /[.-][A-Za-z0-9_-]{8,}\.(?:js|css|woff2?|png|svg|webp)$/.test(file);
   res.writeHead(200, {
     'content-type': type,

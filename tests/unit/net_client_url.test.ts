@@ -38,12 +38,12 @@ describe('where a multiplayer game connects to', () => {
 
 describe('layering: the client modules run without three.js or the DOM', () => {
   const ROOT = join(__dirname, '../..');
-  const files = ['client.ts', 'mirror.ts', 'predictor.ts', 'interp.ts', 'transport.ts', 'url.ts', 'session.ts'].map((f) => join(ROOT, 'src/net', f));
+  const files = ['client.ts', 'mirror.ts', 'predictor.ts', 'interp.ts', 'transport.ts', 'url.ts', 'session.ts', 'lobby.ts', 'mpPlaces.ts'].map((f) => join(ROOT, 'src/net', f));
   const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`/g, '""');
 
   it('covers every file in src/net', () => {
     const all = readdirSync(join(ROOT, 'src/net')).filter((f) => f.endsWith('.ts'));
-    expect(all.sort()).toEqual(['client.ts', 'interp.ts', 'mirror.ts', 'predictor.ts', 'protocol.ts', 'session.ts', 'transport.ts', 'url.ts', 'wire.ts']);
+    expect(all.sort()).toEqual(['client.ts', 'interp.ts', 'lobby.ts', 'mirror.ts', 'mpPlaces.ts', 'predictor.ts', 'protocol.ts', 'session.ts', 'transport.ts', 'url.ts', 'wire.ts']);
   });
 
   it('imports no three, render, ui, audio or input code, and references no document, window or localStorage', () => {

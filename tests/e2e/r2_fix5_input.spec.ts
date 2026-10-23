@@ -153,6 +153,8 @@ test.describe('GTA 7 input fixes (round 2, pass 5)', () => {
     await push(1, 1);
     expect(await sel()).toBe('STREET RUN');
     await push(1, 1);
+    expect(await sel()).toBe('MULTIPLAYER');
+    await push(1, 1);
     expect(await sel()).toBe('CONTROLS');
     await push(1, 1);
     expect(await sel()).toBe('SETTINGS');
