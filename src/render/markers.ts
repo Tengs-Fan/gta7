@@ -140,11 +140,13 @@ export const MARKER_LENS_FAR = 2;
 const MARKER_ALPHA = 0.28;
 /**
  * Aiming in a marker swings the short aiming boom round its axis, its floating diamond hanging in front of the lens: while
- * the aim button is held there the diamond shrinks away (by how far in the marker he is, the band MARKER_LEAVE uses), at
- * MARKER_AIM_RATE (1/s, about the aiming camera's zoom), and comes back as fast once he lets go or steps out.
+ * the aim button is held there the diamond fades out (by how far in the marker he is, the band MARKER_LEAVE uses), at
+ * MARKER_AIM_RATE (1/s, a fifth of a second for the whole fade), shrinking by up to MARKER_AIM_SHRINK as it goes, and
+ * comes back as fast once he lets go or steps out.
  * The beam stays: it is a faint, see-through column, and it is what shows him he is in the marker.
  */
-export const MARKER_AIM_RATE = 8;
+export const MARKER_AIM_RATE = 5;
+export const MARKER_AIM_SHRINK = 0.25;
 
 /** The distance from a camera at `cam` to the axis of a marker at (x, z), 0.15-2.3 m up, where its beam and icon are. */
 function axisDist(cam: { x: number; y: number; z: number }, x: number, z: number): number {
@@ -251,14 +253,15 @@ export class MarkerView {
         g = new THREE.Group();
         let mats = this.markerMats.get(m.color);
         if (!mats) {
-          mats = { beam: beamMaterial(m.color, MARKER_ALPHA), icon: new THREE.MeshStandardMaterial({ color: m.color, emissive: m.color, emissiveIntensity: 1.2, roughness: 0.3 }) };
+          // The icon is always `transparent`: flipping it when the aim fade starts would change its shader program.
+          mats = { beam: beamMaterial(m.color, MARKER_ALPHA), icon: new THREE.MeshStandardMaterial({ color: m.color, emissive: m.color, emissiveIntensity: 1.2, roughness: 0.3, transparent: true }) };
           this.markerMats.set(m.color, mats);
         }
-        // Its own beam material: each marker fades on its own.
+        // Its own beam and icon materials (clones share the cached one's program): each marker fades on its own.
         const beam = new THREE.Mesh(this.beamGeo, mats.beam.clone());
         beam.scale.set(1.1, 1.3, 1.1);
         beam.name = 'beam';
-        const icon = new THREE.Mesh(this.markerIconGeo, mats.icon);
+        const icon = new THREE.Mesh(this.markerIconGeo, mats.icon.clone());
         icon.position.y = 1.7;
         icon.name = 'icon';
         g.add(beam, icon);
@@ -283,17 +286,24 @@ export class MarkerView {
       let aimK = (g.userData.aimK as number | undefined) ?? 0;
       aimK = aimWant > aimK ? Math.min(aimWant, aimK + MARKER_AIM_RATE * dt) : Math.max(aimWant, aimK - MARKER_AIM_RATE * dt);
       g.userData.aimK = aimK;
-      const icon = g.getObjectByName('icon');
+      const icon = g.getObjectByName('icon') as THREE.Mesh | undefined;
       if (icon) {
+        const k = smooth(0, 1, aimK);
+        const mat = icon.material as THREE.MeshStandardMaterial;
         icon.rotation.y = time * 2;
         icon.position.y = 1.7 + Math.sin(time * 3) * 0.12;
-        icon.scale.setScalar(fade * (1 - smooth(0, 1, aimK)));
+        icon.scale.setScalar(fade * (1 - MARKER_AIM_SHRINK * k));
+        mat.opacity = 1 - k;
+        // Solid, it writes depth as an opaque diamond would; fading, it must not hide the beam or what is behind it.
+        mat.depthWrite = k === 0;
+        icon.visible = k < 1;
       }
     }
     for (const [id, g] of this.markerViews) {
       if (!seen.has(id)) {
         this.group.remove(g);
         ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.Material).dispose();
+        ((g.getObjectByName('icon') as THREE.Mesh).material as THREE.Material).dispose();
         this.markerViews.delete(id);
       }
     }
