@@ -108,7 +108,7 @@ const looseLips: MissionDef = {
     t.ai?.setDestination(police.x, police.z);
     // Track Benny himself, in his car or on foot (carjacked, bailed out).
     const bennyPos = () => benny.vehicle?.pos ?? benny.pos;
-    // removed = drowned with a sinking car
+    // Removed: gone from the world some other way (a sinking car's occupants now swim out or drown, see sinking.ts).
     const bennyDown = () => !benny.alive || benny.removed;
     const mk = m.mark(benny, 'Benny');
     m.objective('Take out Benny');
