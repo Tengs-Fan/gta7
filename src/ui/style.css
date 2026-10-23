@@ -1247,6 +1247,13 @@ body {
   gap: 4px;
 }
 
+/* A long stock scrolls inside the panel, so the message, how to buy and LEAVE stay in view in a short window. */
+.shop-scroll {
+  max-height: max(160px, calc(100vh - 330px));
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
 .shop-item {
   display: grid;
   grid-template-columns: 1fr auto auto;

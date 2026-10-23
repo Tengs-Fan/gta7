@@ -271,6 +271,7 @@ All of these are minor; the most noticeable come first.
 
 - On older or low-end GPUs that cannot render to high-precision buffers, paint, glass and chrome don't reflect the sky and bright lights don't glow, at any setting.
 - The small porches in front of houses (deck, posts and roof) and the bank's front steps are decoration only: cars, people and bullets pass through them.
+- Motorbikes and boats are drawn part by part (about 25-30 draw calls per bike and 15-17 per boat, against about 7 for a nearby car), have no lighter far version, and boats leave no wake or spray.
 - At around 10 fps, water from a knocked-over fire hydrant comes out in separate puffs instead of a steady jet.
 
 **Menus, input and small windows**
@@ -335,7 +336,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-123 files with 2094 tests (one is skipped unless a multiplayer server is reachable) run in Node, with no browser.
+123 files with 2094 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set) run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, properties, gangs, roadblocks and witnesses, saves in three slots, the multiplayer wire protocol and server rooms, a 10-minute chaotic soak test (36,000 frames with a seeded random player), and same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.

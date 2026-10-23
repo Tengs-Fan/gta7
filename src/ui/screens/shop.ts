@@ -16,7 +16,7 @@ export function showShop(ctx: MenuCtx, onClose: () => void): void {
   panel.style.width = 'min(620px, 92vw)';
   const head = h('h2', '', 'BANG BANG GUNS');
   const money = h('div', 'money');
-  const list = h('div', 'shop-list');
+  const list = h('div', 'shop-list shop-scroll');
   const msg = h('div', 'shop-msg');
   const items = shopItems();
   let sel = 0;
@@ -37,6 +37,7 @@ export function showShop(ctx: MenuCtx, onClose: () => void): void {
       }
       r.classList.toggle('sel', i === sel);
     });
+    rows[sel]?.scrollIntoView?.({ block: 'nearest' });
   };
   const buy = (i: number) => {
     const err = sim.interactions.buy(items[i]!.id, me);
