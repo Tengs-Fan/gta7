@@ -30,6 +30,11 @@ const PROXY_RADIUS = 60;
 const PROXY_EXTRAPOLATE = 30;
 /** Ticks a state difference (on foot, seated, which car) may last before the server's state replaces the prediction's. */
 const STATE_GRACE_TICKS = 4;
+/**
+ * Seconds a knocked-down prediction stays down. The wire carries no knock timer, so the prediction holds the knock until
+ * the server reports the player on his feet again, and the first snapshot that does stands him up.
+ */
+const KNOCK_HOLD = 10;
 /** Ticks of predicted history kept for comparison and replay. */
 const HISTORY = 180;
 /** A car the player got out of stays predicted this long (ticks), until the server's view of it has caught up. */
@@ -72,6 +77,7 @@ interface Hist {
   time: number;
   frame: number;
   controlLock: number;
+  weapon: WeaponId;
 }
 
 /** What the renderer is shown of the predicted player at one tick. */
@@ -87,7 +93,18 @@ export interface ServerOwnState {
   motion: CharacterMotion;
   status: CharacterStatus;
   combat?: CharacterCombat;
+  /** Rounds in the magazine of the gun in his hand, as the server's HUD data says (when known). */
+  clip?: number;
   vehicle: { id: number; motion: VehicleMotion; engine?: VehicleEngine; status?: VehicleStatus; kind: VehicleKind } | null;
+}
+
+/** A trigger pull the prediction made at `tick` (the first time that tick was simulated). */
+export interface PredictedShot {
+  tick: number;
+  weapon: WeaponId;
+  x: number; y: number; z: number;
+  dx: number; dy: number; dz: number;
+  pellets: number;
 }
 
 export interface PredictorStats {
@@ -101,6 +118,8 @@ export interface PredictorStats {
   maxError: number;
   /** Largest per-frame move of the rendered pose that came from taking up a correction (m). */
   maxCorrectionStep: number;
+  /** Largest jump of the rendered pose in a hard snap (m). */
+  maxSnapJump: number;
 }
 
 export class Predictor {
@@ -125,10 +144,13 @@ export class Predictor {
   readonly prevPose: Pose = { x: 0, y: 0, z: 0, heading: 0 };
   readonly curPose: Pose = { x: 0, y: 0, z: 0, heading: 0 };
   readonly offset: Pose = { x: 0, y: 0, z: 0, heading: 0 };
-  readonly stats: PredictorStats = { ticks: 0, replays: 0, replayedTicks: 0, softCorrections: 0, hardSnaps: 0, lastError: 0, maxError: 0, maxCorrectionStep: 0 };
+  readonly stats: PredictorStats = { ticks: 0, replays: 0, replayedTicks: 0, softCorrections: 0, hardSnaps: 0, lastError: 0, maxError: 0, maxCorrectionStep: 0, maxSnapJump: 0 };
   /** Prediction error (m) per compared tick, kept for measurements: [tick, error]. */
   readonly errors: Array<[number, number]> = [];
   recordErrors = false;
+  /** Trigger pulls of ticks simulated for the first time since the last drain (replays after a correction add none). */
+  readonly fired: PredictedShot[] = [];
+  private recording = false;
 
   constructor(world: StaticWorld = new StaticWorld()) {
     this.sim = new Sim({ world, ambient: false, police: false, weather: 'clear', seed: 1 });
@@ -148,6 +170,10 @@ export class Predictor {
       sys[owner]![fn] = off;
     }
     sim.events.clear();
+    sim.events.on('weaponFired', (e) => {
+      if (!this.recording || e.shooter !== this.char) return;
+      this.fired.push({ tick: this.tick, weapon: e.weapon, x: e.x, y: e.y, z: e.z, dx: e.dx, dy: e.dy, dz: e.dz, pellets: e.pellets });
+    });
     for (const w of Object.keys(WEAPONS) as WeaponId[]) if (w !== 'fists') this.char.inventory.give(w, 9999);
     this.char.inventory.current = 'fists';
   }
@@ -184,6 +210,7 @@ export class Predictor {
     // The ticks between the snapshot and the next one this client sends input for run on what it sent for them already
     // (nothing, before its first input).
     while (this.tick < firstTick) this.step(inputAt(this.tick) ?? neutralInput(), mirror);
+    this.fired.length = 0;
     this.snapPose();
   }
 
@@ -198,7 +225,9 @@ export class Predictor {
   step(input: PlayerInput, mirror: Mirror): void {
     const t = this.tick;
     this.inputs.set(t, input);
+    this.recording = true;
     this.simulate(t, input, mirror);
+    this.recording = false;
     this.record(t);
     this.prevPose.x = this.curPose.x;
     this.prevPose.y = this.curPose.y;
@@ -246,16 +275,22 @@ export class Predictor {
     this.stats.lastError = err;
     this.stats.maxError = Math.max(this.stats.maxError, err);
     if (this.recordErrors) this.errors.push([s.tick, err]);
+    // Being knocked down or getting up is the server's doing, not a press that may act a tick apart: it is taken over
+    // at once, and (both states being on foot) the pose absorbs it as a correction.
+    const onFoot = (st: string) => st !== 'inVehicle' && st !== 'entering';
+    const knockFlip = stateDiffers && onFoot(s.status.state) && onFoot(h.char.state as string) && (s.status.state === 'knocked') !== (h.char.state === 'knocked');
     // A press (getting in or out) may act a tick or two apart on the server and here: a state that differs is only
     // replaced once it still differs a few ticks on.
-    if (stateDiffers) {
+    if (stateDiffers && !knockFlip) {
       if (this.mismatchSince < 0) this.mismatchSince = s.tick;
       if (s.tick - this.mismatchSince <= STATE_GRACE_TICKS) return err;
     } else {
       this.mismatchSince = -1;
     }
     const hard = stateDiffers || err > SNAP_DIST;
-    if (!hard && err <= EPS_POS && headErr <= EPS_HEADING) return err;
+    const weaponDiffers = !!s.combat && s.combat.weapon !== h.weapon;
+    if (!hard && err <= EPS_POS && headErr <= EPS_HEADING && !weaponDiffers) return err;
+    const smooth = !hard || (knockFlip && err <= SNAP_DIST);
 
     const before: Pose = { ...this.curPose };
     if (!hard) this.restore(h);
@@ -273,8 +308,9 @@ export class Predictor {
     this.stats.replays++;
     const prevDelta = { x: this.prevPose.x - before.x, y: this.prevPose.y - before.y, z: this.prevPose.z - before.z };
     this.poseNow(this.curPose);
-    if (hard) {
+    if (!smooth) {
       this.stats.hardSnaps++;
+      this.stats.maxSnapJump = Math.max(this.stats.maxSnapJump, Math.hypot(this.curPose.x - before.x, this.curPose.y - before.y, this.curPose.z - before.z));
       this.snapPose();
     } else {
       this.stats.softCorrections++;
@@ -379,6 +415,7 @@ export class Predictor {
       time: this.sim.time,
       frame: this.sim.frame,
       controlLock: this.slot.controlLock,
+      weapon: c.inventory.current,
     });
   }
 
@@ -393,6 +430,7 @@ export class Predictor {
     ctl.entryPoints = h.entryPoints.map((p) => ({ ...p }));
     ctl.steerCar = h.steerCarId ? this.vehicles.get(h.steerCarId) ?? null : null;
     this.slot.controlLock = h.controlLock;
+    c.inventory.current = h.weapon;
     const vid = h.vehId || (h.char.state === 'entering' ? h.enterId : 0);
     const v = vid ? this.vehicles.get(vid) ?? null : null;
     if (v && h.veh && h.vpos && h.vvel && h.vctl) {
@@ -433,10 +471,14 @@ export class Predictor {
     c.onGround = m.onGround;
     const st = s.status;
     c.state = (st.state === 'entering' ? 'normal' : st.state) as CharState;
+    c.knockTimer = st.state === 'knocked' ? KNOCK_HOLD : 0;
     if (s.combat) {
       const w = s.combat.weapon;
+      const changed = c.inventory.current !== w;
       if (!c.inventory.has(w)) c.inventory.give(w, 9999);
       c.inventory.current = w;
+      const slot = c.inventory.slots.get(w);
+      if ((full || changed) && slot && s.clip !== undefined && WEAPONS[w].mag > 0) slot.clip = Math.min(s.clip, WEAPONS[w].mag);
     }
     const sv = st.state === 'inVehicle' && st.seat === 0 ? s.vehicle : null;
     if (sv) {
@@ -570,5 +612,5 @@ export function serverOwnState(mirror: Mirror, charId: number): ServerOwnState |
     const vg = vr?.groups as { motion?: VehicleMotion; engine?: VehicleEngine; status?: VehicleStatus; rare?: { kind: string } } | undefined;
     if (vg?.motion) vehicle = { id: g.status.vehicle, motion: vg.motion, engine: vg.engine, status: vg.status, kind: (vg.rare?.kind ?? 'sedan') as VehicleKind };
   }
-  return { tick: mirror.tick, motion: g.motion, status: g.status, combat: g.combat, vehicle };
+  return { tick: mirror.tick, motion: g.motion, status: g.status, combat: g.combat, clip: mirror.hud.clip, vehicle };
 }
