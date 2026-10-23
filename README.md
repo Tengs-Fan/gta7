@@ -73,7 +73,7 @@ Progress stays in this browser: the game autosaves after every mission passed an
   The wheel, Q and LB / RB step through the weapons you own that still have ammo; in a vehicle only the pistol and SMG fire, Q changes the station, and on a gamepad LB steps the weapons (RB is the handbrake).
 - Getting out of a moving car: below 3.5 m/s you step out, up to 11 m/s the car brakes first, and faster than that you bail out, tumble and lose 6 health.
 - Map: click, or press Enter, Space or A at the center cross, to set a waypoint, and do it again on the waypoint to clear it.
-  Drag, the arrow keys, W A S D, the D-pad or the left stick pan; the wheel, + and -, or LB and RB zoom; the number keys 1–5 (or a pad's Y to pick a row and X to switch it) turn legend categories on and off; M, Esc or Back close it.
+  Drag, the arrow keys, W A S D, the D-pad or the left stick pan; the wheel, + and -, or LB and RB zoom; the number keys 1–7 (or a pad's Y to pick a row and X to switch it) turn legend categories on and off; M, Esc or Back close it.
   The game is paused while the map is open.
 - Gamepads: the first pad the browser reports with the standard mapping is used.
   Buttons are named Xbox-style, and prompts switch to pad buttons as soon as you use the pad, and back to keys when you press a key.
@@ -120,7 +120,7 @@ Progress stays in this browser: the game autosaves after every mission passed an
   The music drives harder while you are wanted and calms down after; police radio barks crackle over each dispatch line; sirens drop in pitch as they pass (Doppler); gunfire echoes by district, ringing on between downtown towers and hardly at all on the open beach.
   An ambience of city hum, traffic, surf, gulls, birds by day and crickets at night, an engine voice for every kind of vehicle, music that ducks under dialogue and nearby explosions, and the world muffled inside a car.
 - **HUD, map and saves.** A radar that turns with the camera, with a road-following GPS route to your waypoint, the objective or the contact who has work, and the police, the helicopter and the search area on the radar and the map while you are wanted.
-  Prompts and first-time hints drawn for your keyboard layout or gamepad, a full-screen map with district names, a waypoint you can set, a legend with five categories you can switch off (missions, shops including Azura Customs, places, properties grey for sale and green owned, collectibles) and another for gang turf, a completion checklist (story per contact, collectibles, activities, properties), and a STATS screen with a game completion percentage (story 50%, packages 20%, stunts 15%, rampages 15%; jobs and properties are checklist-only).
+  Prompts and first-time hints drawn for your keyboard layout or gamepad, a full-screen map with district names, a waypoint you can set, a legend with seven categories you can switch off (missions, shops including Azura Customs, places, properties grey for sale and green owned, gang turf, collectibles, and the cyan A, F, C and E marks of the paramedic, firefighter, courier and car export jobs), a completion checklist (story per contact, collectibles, activities, properties), and a STATS screen with a game completion percentage (story 50%, packages 20%, stunts 15%, rampages 15%; jobs and properties are checklist-only).
   Three save slots in the browser: save at the safehouse with E, which asks for a slot (not while wanted, on a mission or on a rampage), plus an autosave after every mission passed. A slot with a save asks before it is replaced; CONTINUE asks which slot to load; autosaves go to the slot the game was loaded from or last saved to, a new game autosaves into the first empty slot, and with all three full it does not autosave until you save at the safehouse. A save from an earlier version moves into slot 1 on first start.
 
 <table>
@@ -336,7 +336,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-123 files with 2094 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set) run in Node, with no browser.
+129 files with 2132 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set) run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, properties, gangs, roadblocks and witnesses, saves in three slots, the multiplayer wire protocol and server rooms, a 10-minute chaotic soak test (36,000 frames with a seeded random player), and same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
@@ -344,7 +344,7 @@ The police tests are statistics over many deterministic seeds, and they set the 
 
 ### End-to-end tests
 
-132 tests in 38 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
+136 tests in 38 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
 They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, a murder that brings the police, WASTED, mission retries from the pause menu, the menus, the HUD layout in small windows, the gun shop, saving and continuing after a reload, the side jobs and the wave-1 jobs, the phone, properties, save slots, key bindings, the talk radio, street runs, night rendering and the quality tiers, WebGL context loss, crash screens, all nine cheats, and a two-minute chaos session that must average over 30 fps.
 Most tests also fail on any console error, console warning or page error.
 
