@@ -1,6 +1,7 @@
 // Keeps the job vehicles standing ready: an ambulance at San Azura General and a fire truck at the station beside SAPD
-// Central (places.ts depots). One is put there, out of the player's sight, whenever its depot is empty; one he drives
-// away becomes an ordinary car. Only in sims made with serviceVehicles (the game's), so headless runs are unchanged.
+// Central (places.ts depots). One is put there, out of the player's sight, whenever its depot is empty and he is in the
+// neighbourhood; like any parked car it is streamed out once he is far away (traffic.ts), and put back when he comes
+// near again. Only in sims made with serviceVehicles (the game's), so headless runs are unchanged.
 
 import type { Vehicle } from '../entities';
 import type { Sim } from '../sim';
@@ -9,8 +10,10 @@ import { registerSystem } from '../systems';
 import { clearOfVehicles } from '../vehicleRoom';
 import { places } from './places';
 
-/** The depot is restocked only with the player this far off (m) and the spot out of his sight. */
+/** The depot is restocked only with the player between these distances (m) and the spot out of his sight; beyond the
+ * far one (inside traffic's 200 m streaming radius) a vehicle put there would be streamed straight out again. */
 const RESTOCK_DIST = 45;
+const RESTOCK_FAR = 180;
 /** A depot vehicle driven this far (m) from its depot is the player's to keep. */
 const TAKEN_DIST = 30;
 const CHECK_FRAMES = 30;
@@ -34,15 +37,12 @@ function restock(sim: Sim): void {
     if (v) {
       const gone = v.removed || v.destroyed || (v.usedByPlayer && Math.hypot(v.pos.x - d.x, v.pos.z - d.z) > TAKEN_DIST);
       if (!gone) return;
-      if (!v.removed) v.persistent = false;
       held![i] = null;
     }
-    if (sim.distToPlayer(d.x, d.z) < RESTOCK_DIST || sim.isVisible(d.x, 1, d.z)) return;
+    const dist = sim.distToPlayer(d.x, d.z);
+    if (dist < RESTOCK_DIST || dist > RESTOCK_FAR || sim.isVisible(d.x, 1, d.z)) return;
     if (!clearOfVehicles(sim, d.kind, d.x, d.z, d.heading)) return;
-    const car = sim.spawnVehicle(d.kind, d.x, d.z, d.heading, VEHICLE_SPECS[d.kind].colors[0]);
-    // Kept while it waits: abandoned cars far from the player are streamed out.
-    car.persistent = true;
-    held![i] = car;
+    held![i] = sim.spawnVehicle(d.kind, d.x, d.z, d.heading, VEHICLE_SPECS[d.kind].colors[0]);
   });
 }
 
