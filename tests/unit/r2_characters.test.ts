@@ -2,6 +2,8 @@
 // the drawn barrel tip, and drivers and passengers drawn in their seats. CrowdView runs headless with the
 // canvas and WebGL stubs of fix_render.test.ts (copied: vi.mock cannot be shared between files).
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { CameraController, chaseOffset, CHASE_TARGET_Y } from '../../src/render/camera';
@@ -16,6 +18,7 @@ import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind, type WeaponId } from '../../src/sim/specs';
 import { WATER_Y } from '../../src/world/constants';
 import type { StaticWorld } from '../../src/world/staticWorld';
+import { CROWD_SAMPLES, recordCrowdScene, type CrowdBaseline } from '../support/crowdScene';
 import { makeSim, world } from './helpers';
 
 vi.hoisted(() => {
@@ -1348,7 +1351,35 @@ describe('the crowd draws the local player by id', () => {
     expect(parts(cv).hat!.mesh.count + parts(cv).hair!.mesh.count).toBeGreaterThanOrEqual(2);
   });
 
-  it('with a single player the output is the same whichever way the local character is given', () => {
+  it('with a single player the crowd reproduces the output recorded at 72d0b98', () => {
+    const baseline = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'crowd_sp_72d0b98.json'), 'utf8')) as CrowdBaseline;
+    const now = recordCrowdScene(new CrowdView(), (sim) => sim.player.id);
+    expect(baseline.samples.map((s) => s.frame)).toEqual([...CROWD_SAMPLES]);
+    expect(now.samples.length).toBe(baseline.samples.length);
+    // The baseline must hold the player and the people around him, drawn with a gun.
+    expect(baseline.samples[0]!.parts.torso!.count).toBe(4);
+    expect(baseline.samples[0]!.parts.shirtInset!.count).toBeGreaterThanOrEqual(1);
+    expect(baseline.samples[0]!.weapons.pistol!.count).toBe(1);
+    for (let i = 0; i < baseline.samples.length; i++) {
+      const want = baseline.samples[i]!;
+      const got = now.samples[i]!;
+      expect(Object.keys(got.parts).sort(), `frame ${want.frame} meshes`).toEqual(Object.keys(want.parts).sort());
+      expect(Object.keys(got.weapons).sort(), `frame ${want.frame} weapons`).toEqual(Object.keys(want.weapons).sort());
+      for (const [group, wantGroup] of [['parts', want.parts], ['weapons', want.weapons]] as const) {
+        for (const [name, w] of Object.entries(wantGroup)) {
+          const g = got[group][name]!;
+          const label = `frame ${want.frame} ${group}.${name}`;
+          expect(g.count, `${label} count`).toBe(w.count);
+          expect(g.colors, `${label} colours`).toEqual(w.colors);
+          for (let k = 0; k < w.matrices.length; k++) {
+            for (let e = 0; e < 16; e++) expect(Math.abs(g.matrices[k]![e]! - w.matrices[k]![e]!), `${label} instance ${k} element ${e}`).toBeLessThan(1e-4);
+          }
+        }
+      }
+    }
+  });
+
+  it('with a single player the local character’s id does not change what is drawn about the others', () => {
     const sim = makeSim({ police: false });
     const npc = sim.spawnCharacter('civilian', sim.player.pos.x + 3, sim.player.pos.z);
     const counts = (id: number) => {
@@ -1356,7 +1387,6 @@ describe('the crowd draws the local player by id', () => {
       for (let i = 0; i < 20; i++) cv.sync([sim.player, npc], sim.player.pos.x, sim.player.pos.z, 1 / 60, id);
       return Object.fromEntries(Object.entries(parts(cv)).map(([k, p]) => [k, p.mesh.count]));
     };
-    expect(counts(sim.player.id)).toEqual(counts(sim.player.id));
     expect(counts(sim.player.id).shirtInset).toBeGreaterThanOrEqual(1);
     expect(counts(-1).torso).toBe(counts(sim.player.id).torso);
   });

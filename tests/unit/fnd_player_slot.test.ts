@@ -355,6 +355,42 @@ describe('wanted.crime and its culprit', () => {
     expect(sim.wanted.level).toBe(0);
   });
 
+  it('two culprits hitting one victim within the assault gap are each recorded', () => {
+    const sim = makeSim({ police: true });
+    const a = sim.players[0]!;
+    const b = sim.addPlayer(a.character.pos.x + 1, a.character.pos.z);
+    const p = b.character.pos;
+    sim.spawnCharacter('cop', p.x, p.z - 4);
+    const victim = sim.spawnCharacter('civilian', p.x + 2, p.z);
+    sim.combat.damageCharacter(victim, 5, a.character, 'melee', 1, 0, 0);
+    expect(a.wanted.heat).toBeGreaterThan(0);
+    expect(b.wanted.heat).toBe(0);
+    sim.combat.damageCharacter(victim, 5, b.character, 'melee', 1, 0, 0);
+    expect(b.wanted.heat).toBeGreaterThan(0);
+  });
+
+  it('each culprit stays rate-limited on a shared victim: a repeat hit inside the gap adds no heat, one after it does', () => {
+    const sim = makeSim({ police: true });
+    const a = sim.players[0]!;
+    const b = sim.addPlayer(a.character.pos.x + 1, a.character.pos.z);
+    const p = b.character.pos;
+    sim.spawnCharacter('cop', p.x, p.z - 4);
+    const victim = sim.spawnCharacter('civilian', p.x + 2, p.z);
+    const hit = (by: Character) => sim.combat.damageCharacter(victim, 1, by, 'melee', 1, 0, 0);
+    hit(a.character);
+    hit(b.character);
+    const heat = [a.wanted.heat, b.wanted.heat];
+    expect(heat[0]).toBeGreaterThan(0);
+    expect(heat[1]).toBeGreaterThan(0);
+    hit(a.character);
+    hit(b.character);
+    expect([a.wanted.heat, b.wanted.heat]).toEqual(heat);
+    for (let i = 0; i < 20; i++) sim.update(DT, new Map([[0, input()], [1, input()]]));
+    hit(b.character);
+    expect(b.wanted.heat).toBeGreaterThan(heat[1]!);
+    expect(a.wanted.heat).toBeLessThanOrEqual(heat[0]!);
+  });
+
   it('every .crime( call in src/sim passes the attacker where it is known', async () => {
     const { readFileSync, readdirSync, statSync } = await import('node:fs');
     const { join } = await import('node:path');
