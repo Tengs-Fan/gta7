@@ -24,6 +24,8 @@ test.describe('wave-1 activities', () => {
       await page.keyboard.press('KeyT');
       await page.waitForFunction(() => (window as Api).__gta7.sim.activities.job === null);
       await page.evaluate(() => (window as Api).__gta7.sim.playerCtl.ejectPlayer(false));
+      // The HUD queues title cards: the next job's title waits until this one's 3 s card has gone.
+      await expect(page.locator('.big.show')).toHaveCount(0, { timeout: 5000 });
     }
     expect(errors).toEqual([]);
   });
