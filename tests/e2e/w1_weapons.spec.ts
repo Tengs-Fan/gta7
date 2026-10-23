@@ -119,3 +119,35 @@ test('number keys, the wheel and the pad cycle draw the new weapons; a bat floor
   expect(after.fov).toBeGreaterThan(before - 2);
   expect(errors).toEqual([]);
 });
+
+test('the scope mask leaves when the map or the pause menu opens while scoped, and comes back only in play', async ({ page }) => {
+  const errors = await boot(page);
+  await newGame(page);
+  await page.evaluate(() => {
+    const g = (window as Api).__gta7;
+    g.godMode(true);
+    g.sim.cheats.neverWanted = true;
+    g.give('sniper', 10);
+  });
+  await page.mouse.move(640, 360);
+  await page.keyboard.press('Digit9');
+  await page.waitForTimeout(300);
+  const overlay = page.locator('[data-el=scope]');
+  for (const key of ['KeyM', 'KeyP']) {
+    await page.mouse.down({ button: 'right' });
+    await expect(overlay).toBeVisible();
+    await page.keyboard.press(key);
+    await page.waitForFunction(() => (window as Api).__gta7.game.menus.open);
+    await page.waitForTimeout(300);
+    await expect(overlay).toBeHidden();
+    expect((await combat(page)).scopeOverlay).toBe(false);
+    await page.mouse.up({ button: 'right' });
+    await page.waitForTimeout(300);
+    await expect(overlay).toBeHidden();
+    await page.keyboard.press(key);
+    await page.waitForFunction(() => !(window as Api).__gta7.game.menus.open);
+    await page.waitForTimeout(300);
+    await expect(overlay).toBeHidden();
+  }
+  expect(errors).toEqual([]);
+});

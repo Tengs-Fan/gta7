@@ -142,6 +142,7 @@ export class Hud {
   private timers = initialTimers();
   private bigQueue: BigMsg[] = [];
   private bigCur: BigMsg | null = null;
+  private bigInVehicle = false;
   private bigTimer = 0;
   private moneyDelta = 0;
   private unsub: Array<() => void> = [];
@@ -190,7 +191,9 @@ export class Hud {
    * has no longer applied.
    */
   private helpCur: (HelpEntry & { shown: number; read: boolean; stale: number }) | null = null;
-  private helpDevice: InputDevice = 'kb';
+  /** Device and keymap version the help box and the big message's sub-line were drawn for (see labelsFor). */
+  private helpLabels = '';
+  private bigLabels = '';
   private hintQueue: HelpEntry[] = [];
   private hintGap = 0;
   /** showNextStep() was called; the line appears once no big title card is up. */
@@ -601,8 +604,13 @@ export class Hud {
   private renderHelp(): void {
     const cur = this.helpCur;
     if (!cur) return;
-    this.helpDevice = this.device;
+    this.helpLabels = this.labelsFor();
     this.el.help!.innerHTML = formatKeys(cur.text, this.device, { labels: this.keys, inVehicle: cur.inVehicle });
+  }
+
+  /** What key glyphs drawn now depend on: the device and the bindings. Text drawn for another value is stale. */
+  private labelsFor(): string {
+    return `${this.device}:${this.keys.keymap.version}`;
   }
 
   /** Expires the help box, redraws it for a new device and lets the next queued hint in. */
@@ -625,7 +633,7 @@ export class Hud {
       // Never while it no longer applies: a hint taken off in that grace (the situation over just before half its time,
       // the low-health hint under WASTED) goes unread, and its rule can raise it again in the right situation.
       if (cur.kind === 'hint' && !cur.read && cur.stale === 0 && cur.shown >= cur.duration / 2) this.markRead(cur);
-      if (this.helpDevice !== this.device) this.renderHelp();
+      if (this.helpLabels !== this.labelsFor()) this.renderHelp();
       return;
     }
     if (cur) {
@@ -837,8 +845,14 @@ export class Hud {
     const big = this.el.big!;
     big.className = `big show ${m.style}`;
     this.el.bigT!.textContent = m.text;
+    this.bigInVehicle = !!this.localCharacter()?.vehicle;
+    this.renderBigSub(m);
+  }
+
+  private renderBigSub(m: BigMsg): void {
+    this.bigLabels = this.labelsFor();
     // The sub-line is plain sim text, but it may name a key ('MISSION FAILED ... Press E to retry').
-    this.el.bigS!.innerHTML = formatKeys(escapeHtml(m.sub), this.device, { labels: this.keys, inVehicle: !!this.localCharacter()?.vehicle });
+    this.el.bigS!.innerHTML = formatKeys(escapeHtml(m.sub), this.device, { labels: this.keys, inVehicle: this.bigInVehicle });
   }
 
   setVisible(v: boolean): void {
@@ -888,7 +902,7 @@ export class Hud {
       if (this.bigTimer <= 0) {
         this.bigCur = null;
         el.big!.classList.remove('show');
-      }
+      } else if (this.bigLabels !== this.labelsFor()) this.renderBigSub(this.bigCur);
     } else if (this.bigQueue.length > 0) {
       this.showBig(this.bigQueue.shift()!);
     }

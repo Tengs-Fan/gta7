@@ -266,7 +266,8 @@ export interface PhoneHost {
 
 interface Row {
   el: HTMLElement;
-  action: () => void;
+  /** None for a text: it is selected only to bring it into view. */
+  action?: () => void;
 }
 
 /** The phone: a contact list with Azura Cab, the texts and the map. Arrow keys / W S or the D-pad and Enter / A; Esc / B or the phone key closes it. */
@@ -288,12 +289,12 @@ export function showPhone(ctx: MenuCtx, host: PhoneHost, onClose?: () => void): 
     rows.forEach((r, k) => r.el.classList.toggle('sel', k === i));
     rows[i]?.el.scrollIntoView?.({ block: 'nearest' });
   };
-  const addRow = (cls: string, html: string, action: () => void, color?: string) => {
-    const r = h('div', `phone-row ${cls}`, html);
+  const addEntry = (r: HTMLElement, action?: () => void, color?: string) => {
     if (color) r.style.setProperty?.('--who', color);
     const i = rows.length;
     r.addEventListener('click', () => {
       select(i);
+      if (!action) return;
       host.click();
       action();
     });
@@ -303,6 +304,7 @@ export function showPhone(ctx: MenuCtx, host: PhoneHost, onClose?: () => void): 
     rows.push({ el: r, action });
     list.appendChild(r);
   };
+  const addRow = (cls: string, html: string, action: () => void, color?: string) => addEntry(h('div', `phone-row ${cls}`, html), action, color);
   const render = () => {
     const v = host.view();
     top.textContent = `${v.clock.label()}  ·  DAY ${v.clock.day}`;
@@ -327,11 +329,10 @@ export function showPhone(ctx: MenuCtx, host: PhoneHost, onClose?: () => void): 
       title.textContent = 'TEXTS';
       const texts = host.texts();
       if (texts.length === 0) list.appendChild(h('div', 'phone-empty', 'No messages yet.'));
+      // Each text is a row of its own (newest first, selected on opening), so up / down scroll a long log into view.
       for (const t of texts) {
         const amount = t.amount !== undefined ? `<span class="amount">+${formatMoney(t.amount)}</span>` : '';
-        const r = h('div', `phone-text ${t.kind}`, `<div class="phone-text-head"><b>${escapeHtml(t.from)}</b><span>Day ${t.day} ${escapeHtml(t.time)}</span></div><div>${escapeHtml(t.text)}${amount}</div>`);
-        if (t.color) r.style.setProperty?.('--who', t.color);
-        list.appendChild(r);
+        addEntry(h('div', `phone-text ${t.kind}`, `<div class="phone-text-head"><b>${escapeHtml(t.from)}</b><span>Day ${t.day} ${escapeHtml(t.time)}</span></div><div>${escapeHtml(t.text)}${amount}</div>`), undefined, t.color);
       }
       addRow('back', '<b>Back</b>', () => {
         view = 'home';
@@ -346,9 +347,13 @@ export function showPhone(ctx: MenuCtx, host: PhoneHost, onClose?: () => void): 
     if (footDevice === ctx.device) return;
     footDevice = ctx.device;
     foot.innerHTML =
-      ctx.device === 'pad'
-        ? `${padGlyph('up')}${padGlyph('down')} choose · ${padGlyph('a')} select · ${padGlyph('b')} ${view === 'texts' ? 'back' : 'close'}`
-        : formatKeys(`<kbd>Enter</kbd> select · <kbd>Esc</kbd> ${view === 'texts' ? 'back' : 'close'} · <kbd>Tab</kbd> phone`, 'kb', { labels: ctx.keys });
+      view === 'texts'
+        ? ctx.device === 'pad'
+          ? `${padGlyph('up')}${padGlyph('down')} scroll · ${padGlyph('b')} back`
+          : formatKeys('<kbd>↑</kbd><kbd>↓</kbd> scroll · <kbd>Esc</kbd> back · <kbd>Tab</kbd> phone', 'kb', { labels: ctx.keys })
+        : ctx.device === 'pad'
+          ? `${padGlyph('up')}${padGlyph('down')} choose · ${padGlyph('a')} select · ${padGlyph('b')} close`
+          : formatKeys('<kbd>Enter</kbd> select · <kbd>Esc</kbd> close · <kbd>Tab</kbd> phone', 'kb', { labels: ctx.keys });
   };
   render();
   select(0);
@@ -381,9 +386,10 @@ export function showPhone(ctx: MenuCtx, host: PhoneHost, onClose?: () => void): 
       if (n === 0) return;
       if (ui.up) select((sel + n - 1) % n);
       if (ui.down) select((sel + 1) % n);
-      if (ui.confirm) {
+      const action = rows[sel]?.action;
+      if (ui.confirm && action) {
         host.click();
-        rows[sel]?.action();
+        action();
       }
     },
     refresh: () => render(),
