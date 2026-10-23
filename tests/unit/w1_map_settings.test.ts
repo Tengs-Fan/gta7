@@ -198,6 +198,17 @@ describe('map legend', () => {
     expect(c.filter((b) => b.shape === 'ring')).toHaveLength(2);
     expect(c.filter((b) => b.shape !== 'ring')).toHaveLength(PACKAGE_COUNT + 1);
   });
+
+  it("files the garage and Pier Arcade under properties and Azura Customs under shops, by the economy's marker kinds", () => {
+    const sim = makeSim({ ambient: false });
+    const icons = (hidden: string[]) => collectBlips(sim, 0, 0, { map: true, hidden: new Set(hidden) }).map((b) => `${b.category ?? '-'}:${b.label}`);
+    const all = icons([]);
+    expect(all).toEqual(expect.arrayContaining(['properties:G', 'properties:$', 'shops:C']));
+    expect(icons(['properties'])).not.toEqual(expect.arrayContaining(['properties:G']));
+    expect(icons(['shops'])).not.toContain('shops:C');
+    const props = MAP_CATEGORIES.find((c) => c.id === 'properties')!;
+    expect(props.swatches.map((w) => w.label ?? '')).toEqual(['G', '$', '']);
+  });
 });
 
 describe('completion checklist', () => {
