@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "savedAt": 1767225600000,
+  "money": 18450,
+  "missionsDone": ["wheels", "delivery", "repo"],
+  "packages": [0, 3, 7, 12],
+  "stunts": [1, 4],
+  "rampages": ["docks"],
+  "streetRuns": {
+    "dockside": { "bestTime": 74.5, "medal": "gold", "finishes": 3 }
+  },
+  "stats": {
+    "kills": 41,
+    "copsKilled": 6,
+    "carsStolen": 12,
+    "vehiclesDestroyed": 5,
+    "shotsFired": 603,
+    "headshots": 9,
+    "distanceDriven": 52340.5,
+    "distanceOnFoot": 8120.25,
+    "maxWanted": 4,
+    "timesWasted": 3,
+    "timesBusted": 2,
+    "moneyEarned": 31200,
+    "moneySpent": 12750,
+    "taxiFares": 7,
+    "vigilanteLevel": 4,
+    "stuntBonuses": 2,
+    "bestStuntAir": 2.75,
+    "playTime": 5400.5
+  },
+  "weapons": [
+    { "id": "pistol", "ammo": 96 },
+    { "id": "smg", "ammo": 210 },
+    { "id": "shotgun", "ammo": 24 }
+  ],
+  "armor": 55,
+  "hours": 21.5,
+  "day": 6
+}

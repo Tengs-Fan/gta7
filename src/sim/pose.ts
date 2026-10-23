@@ -12,7 +12,7 @@
 
 import { clamp, lerp, smoothstep, TAU, wrapAngle, type V3 } from '../core/math';
 import type { Character, Vehicle } from './entities';
-import type { VehicleKind, WeaponId } from './specs';
+import { firingRowsOf, GUN_PORT, WEAPONS, weaponPointsOf, type VehicleKind, type WeaponId, type WeaponPoints } from './specs';
 
 export const SKELETON = {
   /**
@@ -432,30 +432,14 @@ export function trunkPose(c: Character, out: Trunk = makeTrunk()): Trunk {
 
 type Gun = Exclude<WeaponId, 'fists'>;
 
-/** Points on each weapon model (its own frame: +z along the barrel, +y up, +x left), in metres. */
-export interface WeaponPoints {
-  /** Barrel end, where shots leave from. */
-  tip: V3;
-  /** Centre of the trigger hand. */
-  grip: V3;
-  /** Centre of the supporting hand when aiming. */
-  fore: V3;
-  /** Butt end that sits in the shoulder (long guns) or rests on it (rocket launcher, the tube centre). */
-  stock: V3;
-  /** Where the off hand goes while reloading: the magazine, the shotgun's pump or the tube's rear. */
-  reload: V3;
-}
+export type { WeaponPoints };
 
-const P = (x: number, y: number, z: number): V3 => ({ x, y, z });
-
-/** Kept in step with the weapon geometry in render/crowd.ts (barrel ends 0.21, 0.37, 0.75, 0.705, 0.775 m). */
-export const WEAPON_POINTS: Readonly<Record<Gun, WeaponPoints>> = {
-  pistol: { tip: P(0, 0, 0.21), grip: P(0, -0.065, 0.02), fore: P(0.03, -0.085, 0.005), stock: P(0, 0, -0.01), reload: P(0, -0.15, 0.02) },
-  smg: { tip: P(0, 0, 0.37), grip: P(0, -0.1, 0.06), fore: P(0, -0.075, 0.25), stock: P(0, -0.01, -0.05), reload: P(0, -0.15, 0.2) },
-  shotgun: { tip: P(0, 0, 0.75), grip: P(0, -0.07, 0.05), fore: P(0, -0.055, 0.31), stock: P(0, -0.04, -0.245), reload: P(0, -0.055, 0.3) },
-  rifle: { tip: P(0, 0, 0.705), grip: P(0, -0.1, 0.06), fore: P(0, -0.065, 0.29), stock: P(0, -0.03, -0.25), reload: P(0, -0.2, 0.12) },
-  rocket: { tip: P(0, 0.08, 0.775), grip: P(0, -0.075, 0.1), fore: P(0, -0.02, 0.32), stock: P(0, 0.08, 0.2), reload: P(0, 0.06, -0.36) },
-};
+/** The current guns' points, by gun (read from the specs when this module loads); weaponPointsOf also answers weapons added later. */
+export const WEAPON_POINTS: { readonly [K in Gun]: WeaponPoints } = Object.fromEntries(
+  Object.values(WEAPONS)
+    .filter((w) => w.id !== 'fists')
+    .map((w) => [w.id, weaponPointsOf(w.id)]),
+) as { readonly [K in Gun]: WeaponPoints };
 
 export type HoldMode = 'raised' | 'lowered' | 'reload';
 
@@ -553,7 +537,7 @@ function reloadHeld(c: Character): boolean {
  */
 export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): WeaponPose {
   const weapon: Gun = c.inventory.current === 'fists' ? 'pistol' : c.inventory.current;
-  const pts = WEAPON_POINTS[weapon];
+  const pts = weaponPointsOf(weapon);
   const t = trunk ?? trunkPose(c, trunkTmp);
   const s = c.appearance.height;
   const b = c.appearance.build;
@@ -659,38 +643,21 @@ export function seatSide(seat: number): number {
   return seat === 0 || seat === 2 ? 1 : -1;
 }
 
-/**
- * The riot van's gun ports: windows in the sides of its windowless back, for the crew in its rear seats, as fractions of
- * its length (ahead of the centre) and of its height. VehicleView cuts them; windowMuzzle fires from their middle.
- */
-export const GUN_PORT = { z0: -0.24, z1: -0.07, y0: 0.6, y1: 0.8 } as const;
+export { GUN_PORT };
 
 /**
- * Where along each vehicle its front and rear rows of seats fire from, as a fraction of its length ahead of its centre:
- * the side window beside the row. A car's riders fire beside their seats; its rear row sits here too (VehicleView seats
- * it here, its heads under the roof's rear edge). The van's and the riot van's side windows are in the cab, well forward
- * of the centre; the riot van's crew in the back fire through its gun ports. A bus's windows run its whole length.
+ * How far ahead of a vehicle's centre (m) its front or rear row of seats fires from: the side window beside the row
+ * (VehicleSpec.firingRows, as a fraction of the length; [0, 0] for a kind without). A car's riders fire beside their
+ * seats; its rear row sits here too (VehicleView seats it here, its heads under the roof's rear edge). The van's and the
+ * riot van's side windows are in the cab, well forward of the centre; the riot van's crew in the back fire through its
+ * gun ports. A bus's windows run its whole length.
  */
-const FIRING_ROWS: Readonly<Record<VehicleKind, readonly [number, number]>> = {
-  compact: [0, 0],
-  sedan: [0, -0.135],
-  taxi: [0, -0.135],
-  sports: [0, 0],
-  muscle: [0, 0],
-  pickup: [0, 0],
-  van: [0.24, 0.24],
-  bus: [0, 0],
-  police: [0, -0.138],
-  swat: [0.283, (GUN_PORT.z0 + GUN_PORT.z1) / 2],
-};
-
-/** How far ahead of a vehicle's centre (m) its front or rear row of seats fires from (FIRING_ROWS). */
 export function firingRow(kind: VehicleKind, length: number, rear: boolean): number {
-  return FIRING_ROWS[kind][rear ? 1 : 0] * length;
+  return firingRowsOf(kind)[rear ? 1 : 0] * length;
 }
 
 /**
- * Where a shot fired from seat `seat` of vehicle `v` leaves: out of that seat's own window (FIRING_ROWS), 0.2 m outside
+ * Where a shot fired from seat `seat` of vehicle `v` leaves: out of that seat's own window (VehicleSpec.firingRows), 0.2 m outside
  * the body side at three quarters of the vehicle's height, pitched with the body (about its centre, half its height up,
  * as VehicleView draws it) on a slope or a ramp. This is the point CombatSystem.muzzle(c, true) fires from (the shooter's
  * own window by seat), and CrowdView draws the barrel end of a drive-by gun on it.
@@ -720,7 +687,7 @@ export function windowMuzzle(v: Pick<Vehicle, 'pos' | 'heading' | 'pitch' | 'hal
  * surface, from the gun CrowdView draws in his hand.
  */
 function swimmerGun(c: Character, out: WeaponPose, weapon: Gun, s: number, b: number): WeaponPose {
-  const pts = WEAPON_POINTS[weapon];
+  const pts = weaponPointsOf(weapon);
   const h = Number.isFinite(c.heading) ? c.heading : 0;
   const ch = Math.cos(h);
   const sh = Math.sin(h);

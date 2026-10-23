@@ -1,6 +1,7 @@
 // Keyboard, mouse (pointer lock) and gamepad input mapped to game actions.
 
 import { neutralInput, type PlayerInput } from '../sim/input';
+import { WEAPON_ORDER } from '../sim/specs';
 import { cheatPrefixLength, completedCheat, type TypedCheat } from './cheats';
 
 export interface UiActions {
@@ -55,8 +56,23 @@ export const WHEEL_STEP = 100;
 const BOUND_CODES = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'Space',
   'KeyF', 'Enter', 'KeyE', 'KeyH', 'KeyR', 'KeyQ', 'KeyT', 'KeyP', 'KeyM', 'KeyV', 'Escape', 'Backspace',
-  'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract',
+  'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract',
 ]);
+/** The number-row keys that can select a weapon: key N selects WEAPON_ORDER[N - 1], keys past its end select nothing. */
+const SLOT_KEY = /^Digit([1-9])$/;
+
+/** The WEAPON_ORDER index the physical key `code` selects, or -1 (not a number key, or past the last weapon). */
+function slotOfCode(code: string): number {
+  const m = SLOT_KEY.exec(code);
+  const i = m ? Number(m[1]) - 1 : -1;
+  return i < WEAPON_ORDER.length ? i : -1;
+}
+
+/** Whether the physical key `code` has a binding (the fixed ones, and the number keys of weapons that exist). */
+function isBoundCode(code: string): boolean {
+  return BOUND_CODES.has(code) || slotOfCode(code) >= 0;
+}
+
 /** Pseudo-codes for a press that types + or - on any key: QWERTZ has them elsewhere, AZERTY's - is the 6. */
 const TYPED_ZOOM: Record<string, string> = { '+': 'Typed+', '=': 'Typed+', '-': 'Typed-' };
 const LETTER_SHORTCUTS = new Set(['e', 'f', 'h', 'm', 'p', 'q', 'r', 't', 'v']);
@@ -127,7 +143,7 @@ interface KeyPress {
  * (AZERTY's 'q' stays strafe-left, Dvorak's 'p' on KeyR stays reload).
  */
 function letterAlias(ev: KeyboardEvent): string | null {
-  if (BOUND_CODES.has(ev.code) || typeof ev.key !== 'string') return null;
+  if (isBoundCode(ev.code) || typeof ev.key !== 'string') return null;
   const k = ev.key.toLowerCase();
   return LETTER_SHORTCUTS.has(k) ? `Key${k.toUpperCase()}` : null;
 }
@@ -187,7 +203,7 @@ export class KeyLabels {
     if (m[1] === 'Digit') return q;
     const printed = this.codeTyping(q);
     // A letter shortcut also answers to the key printed with its letter if that key is free (see letterAlias).
-    if (printed !== undefined && LETTER_SHORTCUTS.has(q) && !BOUND_CODES.has(printed)) return q.toUpperCase();
+    if (printed !== undefined && LETTER_SHORTCUTS.has(q) && !isBoundCode(printed)) return q.toUpperCase();
     // Not seen yet while its QWERTY letter sits on another key: such layouts swap the pair (AZERTY's A / Q, Z / W).
     const own = this.typed.get(code) ?? (printed?.startsWith('Key') ? printed.slice(3).toLowerCase() : q);
     return own.toUpperCase();
@@ -316,7 +332,7 @@ export class Input {
       const alias = letterAlias(ev);
       const press = ev.repeat ? -1 : ++this.presses;
       // A key typing a cheat code does nothing else, also while it auto-repeats, until it is released.
-      const typing = ev.repeat ? this.swallowed.has(ev.code) : this.typeLetter(ev.key, BOUND_CODES.has(ev.code) || alias !== null, press, ev.code);
+      const typing = ev.repeat ? this.swallowed.has(ev.code) : this.typeLetter(ev.key, isBoundCode(ev.code) || alias !== null, press, ev.code);
       // A modifier (Shift for a capital I) says nothing about whether a held key starts a code.
       const released = ev.repeat || MODIFIER_KEYS.has(ev.key) ? null : this.settleHeldKey(press);
       if (typing) {
@@ -580,7 +596,7 @@ export class Input {
       p.prevWeapon = this.pressed('KeyQ') || wheel < 0;
       p.nextWeapon = wheel > 0;
       p.job = this.pressed('KeyT');
-      for (let i = 0; i < 6; i++) if (this.pressed(`Digit${i + 1}`)) p.selectSlot = i;
+      for (let i = 0; i < Math.min(9, WEAPON_ORDER.length); i++) if (this.pressed(`Digit${i + 1}`)) p.selectSlot = i;
       ui.radioNext = this.inVehicle && this.pressed('KeyR');
       ui.radioPrev = this.inVehicle && this.pressed('KeyQ');
       if (this.inVehicle) p.prevWeapon = wheel < 0;

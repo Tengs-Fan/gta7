@@ -12,7 +12,7 @@
 import type { Vehicle } from '../sim/entities';
 import type { VehicleKind } from '../sim/specs';
 import { Glider } from './mixer';
-import { ENGINE_PROFILES, engineParams, engineWave, squealParams, type EngineParams } from './vehicleProfiles';
+import { engineProfile, engineParams, engineWave, squealParams, type EngineParams } from './vehicleProfiles';
 
 /** The upshift dip: -6 dB for about 80 ms. */
 export const SHIFT_DIP = { gain: 0.5, fall: 0.015, hold: 0.05, rise: 0.02 } as const;
@@ -114,7 +114,7 @@ export class EngineVoice {
     this.kind = kind;
     let wave = this.waves.get(kind);
     if (!wave) {
-      const { real, imag } = engineWave(ENGINE_PROFILES[kind]);
+      const { real, imag } = engineWave(engineProfile(kind));
       wave = this.ctx.createPeriodicWave(real, imag, { disableNormalization: true });
       this.waves.set(kind, wave);
       this.wavesBuilt++;

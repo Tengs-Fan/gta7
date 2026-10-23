@@ -28,6 +28,7 @@ import { PoliceSystem } from './police';
 import { Progress } from './progress';
 import { VEHICLE_SPECS, type VehicleKind } from './specs';
 import { TrafficSystem } from './traffic';
+import { registeredSystems, SystemSlots, type SimSystem, type SystemSlot } from './systems';
 import { collideVehicles, collideVehicleStatic, stepVehicle, type VehiclePhysicsHost } from './vehiclePhysics';
 import { WantedSystem } from './wanted';
 import { WeatherSystem, type WeatherMode } from './weather';
@@ -75,6 +76,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   readonly interactions: Interactions;
   readonly activities: Activities;
   readonly missions: MissionSystem;
+  private readonly systems = new SystemSlots();
 
   ambient: boolean;
   policeEnabled: boolean;
@@ -122,6 +124,25 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.activities = new Activities(this);
     this.missions = new MissionSystem(this);
     this.playerCtl = new PlayerController(this);
+    for (const system of registeredSystems()) this.systems.add(system);
+  }
+
+  /** Registers a system into its slot; within a slot, systems run in registration order. */
+  addSystem(system: SimSystem): void {
+    this.systems.add(system);
+  }
+
+  removeSystem(id: string): void {
+    this.systems.remove(id);
+  }
+
+  /** Lets every system drop state it holds outside the sim (a new game starts from here). */
+  resetSystems(): void {
+    this.systems.reset(this);
+  }
+
+  private runSystems(slot: SystemSlot, dt: number): void {
+    this.systems.run(slot, this, dt);
   }
 
   // ---------------------------------------------------------------------------
@@ -486,12 +507,15 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.camDir.z = input.aimDir.z;
     if (this.controlLock > 0) this.controlLock = Math.max(0, this.controlLock - dt);
 
+    this.runSystems('preInput', dt);
     this.playerCtl.update(dt, input);
+    this.runSystems('afterPlayers', dt);
     for (const v of this.vehicles) {
       if (v.ai && v.driver && !v.driver.isPlayer && v.driver.alive) v.ai.update(dt);
     }
     this.peds.updateAI(dt);
     this.police.update(dt);
+    this.runSystems('afterTraffic', dt);
 
     const steps = Math.max(1, Math.ceil(dt / PHYSICS_STEP - 1e-6));
     const h = dt / steps;
@@ -508,22 +532,27 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     // A physics blow-up is repaired before anything below indexes grids or aims with it.
     this.sanitize();
     for (const c of this.characters) if (c.vehicle && c.state === 'inVehicle') this.syncOccupant(c);
+    this.runSystems('afterPhysics', dt);
 
     this.combat.update(dt);
     this.updateTimers(dt);
     this.wanted.update(dt);
+    this.runSystems('afterCombat', dt);
     if (this.ambient) {
       this.traffic.updateStreaming(dt);
       this.peds.updateStreaming(dt);
     }
     this.pickupSys.update(dt);
     this.interactions.update(dt);
+    this.runSystems('afterInteractions', dt);
     this.activities.update(dt);
     this.missions.update(dt);
+    this.runSystems('afterMissions', dt);
     this.runTimers();
     this.updateDeath(dt);
     this.compact();
     this.sanitize();
+    this.runSystems('late', dt);
   }
 
   private runTimers(): void {

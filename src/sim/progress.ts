@@ -1,6 +1,7 @@
 // Persistent player progress (money, story, collectibles, statistics) and its
 // (de)serialisation. Validation is strict: corrupted saves never crash the game.
 
+import { parseExt } from './saveExt';
 import { WEAPONS, type WeaponId } from './specs';
 import { STREET_RUN_IDS, type StreetRunId, type StreetRunMedal } from './streetRuns';
 
@@ -117,10 +118,12 @@ export interface SaveData {
   armor: number;
   hours: number;
   day: number;
+  /** Per-module state by codec key (sim/saveExt.ts). Added without bumping the save version: old saves have none. */
+  ext?: Record<string, unknown>;
 }
 
-export function serialize(p: Progress, weapons: Array<{ id: WeaponId; ammo: number }>, armor: number, hours: number, day: number): SaveData {
-  return {
+export function serialize(p: Progress, weapons: Array<{ id: WeaponId; ammo: number }>, armor: number, hours: number, day: number, ext?: Record<string, unknown>): SaveData {
+  const data: SaveData = {
     version: SAVE_VERSION,
     savedAt: Date.now(),
     money: p.money,
@@ -135,6 +138,8 @@ export function serialize(p: Progress, weapons: Array<{ id: WeaponId; ammo: numb
     hours,
     day,
   };
+  if (ext) data.ext = ext;
+  return data;
 }
 
 function num(v: unknown, lo: number, hi: number, fallback: number): number {
@@ -185,7 +190,7 @@ export function parseSave(raw: unknown): SaveData | null {
       weapons.push({ id: id as WeaponId, ammo: Math.floor(num((w as Record<string, unknown>).ammo, 0, max, 0)) });
     }
   }
-  return {
+  const save: SaveData = {
     version: SAVE_VERSION,
     savedAt: num(o.savedAt, 0, 1e15, 0),
     money: Math.floor(num(o.money, 0, 999_999_999, 0)),
@@ -200,6 +205,9 @@ export function parseSave(raw: unknown): SaveData | null {
     hours: num(o.hours, 0, 23.99, 12),
     day: Math.floor(num(o.day, 1, 1e6, 1)),
   };
+  const ext = parseExt(o.ext);
+  if (ext) save.ext = ext;
+  return save;
 }
 
 export function applySave(p: Progress, s: SaveData): void {

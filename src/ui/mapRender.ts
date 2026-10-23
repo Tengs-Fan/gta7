@@ -2,6 +2,7 @@
 // radar and the full-screen map.
 
 import type { Objective } from '../sim/activities';
+import { contactById } from '../sim/missions/contacts';
 import type { Sim } from '../sim/sim';
 import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
@@ -85,8 +86,9 @@ export function collectBlips(sim: Sim, time: number): Blip[] {
   }
   if (!sim.missions.active) {
     for (const d of sim.missions.offers()) {
-      const poi = sim.world.layout.pois.find((q) => q.id === d.giver)!;
-      out.push({ x: poi.x, z: poi.z, color: d.giver === 'lou' ? '#ff4fa3' : '#38e1d2', label: d.giver === 'lou' ? 'L' : 'D', sticky: true, shape: 'circle' });
+      const contact = contactById(d.giver);
+      const poi = sim.world.layout.pois.find((q) => q.id === contact.poiId)!;
+      out.push({ x: poi.x, z: poi.z, color: contact.color, label: contact.mapLabel, sticky: true, shape: 'circle' });
     }
   }
   const objectives: Objective[] = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];

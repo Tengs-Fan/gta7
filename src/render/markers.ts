@@ -5,6 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Objective } from '../sim/activities';
 import type { Helicopter, Pickup, PickupKind } from '../sim/entities';
 import type { Marker } from '../sim/interactions';
+import { pickupIconColor } from '../sim/pickups';
 import { SPOT_RADIUS, SPOTLIGHT_DARK } from '../sim/wanted';
 import { beamTexture, glowTexture } from './textures';
 
@@ -189,18 +190,11 @@ function iconGeometry(kind: PickupKind): THREE.BufferGeometry {
         new THREE.BoxGeometry(0.1, 0.44, 0.48).translate(0.18, 0, 0),
         new THREE.BoxGeometry(0.1, 0.44, 0.48).translate(-0.18, 0, 0),
       ]);
+    default:
+      // A kind with no shape of its own shows a plain octahedron.
+      return new THREE.OctahedronGeometry(0.36, 0);
   }
 }
-
-const ICON_COLOR: Record<PickupKind, number> = {
-  health: 0xff3a3a,
-  armor: 0x4aa8ff,
-  weapon: 0xd8d8d8,
-  money: 0x3fd96b,
-  package: 0xf5c542,
-  rampage: 0xd01818,
-  parcel: 0x8a5a2c,
-};
 
 export class MarkerView {
   readonly group = new THREE.Group();
@@ -393,7 +387,7 @@ export class MarkerView {
         g = new THREE.Group();
         let mat = this.iconMats.get(p.kind);
         if (!mat) {
-          const c = ICON_COLOR[p.kind];
+          const c = pickupIconColor(p.kind);
           mat = new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: p.kind === 'weapon' ? 0.4 : 0.9, roughness: 0.35, metalness: p.kind === 'weapon' ? 0.7 : 0.1 });
           this.iconMats.set(p.kind, mat);
         }
@@ -410,7 +404,7 @@ export class MarkerView {
           mat.transparent = true;
           icon.renderOrder = 1;
         }
-        g.add(icon, this.glowSprite(ICON_COLOR[p.kind], p.kind === 'package' ? 2.2 : 1.6));
+        g.add(icon, this.glowSprite(pickupIconColor(p.kind), p.kind === 'package' ? 2.2 : 1.6));
         this.pickupViews.set(p.id, g);
         this.group.add(g);
       }
