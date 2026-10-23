@@ -81,4 +81,27 @@ test.describe('chapter 2: Vera Salgado', () => {
     }
     expect(errors).toEqual([]);
   });
+
+  test('the map legend and checklist keep Vera secret until The Big Score is done', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    await page.evaluate((done) => (window as Api).__gta7.markDone(...done), CHAPTER1.slice(0, 5));
+    await page.keyboard.press('KeyM');
+    await expect(page.locator('.map-legend')).toBeVisible();
+    const legend = await page.locator('.map-legend').innerText();
+    const checklist = await page.locator('.map-checklist').innerText();
+    expect(legend + checklist).not.toMatch(/Vera|Salgado/);
+    expect(await page.locator('.map-legend').innerHTML()).not.toMatch(/>V</);
+    // The map ignores keys for a moment after it opens.
+    await page.waitForTimeout(500);
+    await page.keyboard.press('KeyM');
+    await expect(page.locator('.map-screen')).toHaveCount(0);
+    await page.evaluate(() => (window as Api).__gta7.markDone('big_score'));
+    await page.keyboard.press('KeyM');
+    await expect(page.locator('.map-legend')).toBeVisible();
+    await expect(page.locator('.map-checklist')).toContainText('Vera Salgado');
+    await expect(page.locator('.map-legend')).toContainText('Missions (contacts)');
+    expect(await page.locator('.map-legend').innerHTML()).toMatch(/>V</);
+    expect(errors).toEqual([]);
+  });
 });

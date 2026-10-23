@@ -56,7 +56,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   };
   legend.appendChild(h('div', 'legend-head', 'LEGEND'));
   MAP_CATEGORIES.forEach((c, i) => {
-    const row = h('div', 'legend-row', `<span class="legend-key">${i < 9 ? i + 1 : ''}</span>${c.swatches.map(swatch).join('')}<span class="legend-name">${escapeHtml(c.label)}</span>`);
+    const row = h('div', 'legend-row', `<span class="legend-key">${i < 9 ? i + 1 : ''}</span>${(c.legendSwatches?.(sim, localId) ?? c.swatches).map(swatch).join('')}<span class="legend-name">${escapeHtml(c.label)}</span>`);
     row.appendChild(h('span', 'legend-state', ''));
     row.addEventListener('click', () => {
       pick = i;

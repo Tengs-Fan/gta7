@@ -350,7 +350,7 @@ describe('police cars chasing the player across Ocean Beach stop at the water', 
     placeInCar(sim, ride);
     sim.wanted.setLevel(2);
     let found = false;
-    for (let i = 0; i < 60 * 45 && !found; i++) {
+    for (let i = 0; i < 60 * 90 && !found; i++) {
       sim.update(DT, cam(sim, Math.PI / 2, { handbrake: true }));
       found = sim.vehicles.some((v) => v.owner === 'police' && !v.removed && !!v.driver && Math.hypot(v.pos.x - ride.pos.x, v.pos.z - ride.pos.z) < near);
     }

@@ -46,6 +46,12 @@ const QUEUE_PATIENCE = 40;
 /** Seconds two cars may stand nose to nose before the one out of its lane backs into it. */
 const FACE_OFF_PATIENCE = 3;
 /**
+ * Seconds a car waits in a ring of cars that all hold each other up (two nose to nose in a junction, three crossing
+ * it) before the one chosen by deadlockLoser backs out; WAIT_REVERSE applies to a blockage that is no ring.
+ */
+const DEADLOCK_PATIENCE = 3;
+const WAIT_REVERSE = 9;
+/**
  * Squeezing past (see DriverAI.squeeze): how far beyond the front of what we pass a car standing in
  * the passing lane (or beside it) makes the pass a squeeze, the clearance kept from what we pass,
  * and the corridor margin to standing cars meanwhile (0.5 m otherwise).
@@ -751,6 +757,34 @@ export class DriverAI {
     if (!this.pathClearOf(o, margin, 12, true)) this.startReverse(0, 'queue', DETOUR_BACK);
   }
 
+  /**
+   * The car of a ring of standing cars, all inside a junction, that hold each other up (each one's blocker is the next,
+   * back round to us) that backs out for the rest: the lowest id with room behind it, so every car in the ring picks
+   * the same one and they do not all back up into each other at once. Null if we are in no ring or none of its cars has
+   * room. On a street the face-off rules (yieldsTo) sort out who gives way.
+   */
+  private deadlockLoser(): DriverAI | null {
+    if (!this.obeyLights || !this.segs[0]?.turn) return null;
+    const ring: DriverAI[] = [this];
+    let ai: DriverAI = this;
+    for (let hops = 0; hops < 6; hops++) {
+      const b = ai.blocker;
+      if (!b || !('kind' in b) || b.speed > 0.5) return null;
+      const next = this.driven(b);
+      if (!next || next.reverseTimer > 0 || !next.segs[0]?.turn) return null;
+      if (next === this) break;
+      ring.push(next);
+      ai = next;
+      if (hops === 5) return null;
+    }
+    let loser: DriverAI | null = null;
+    for (const c of ring) {
+      if (c.vehicle.speed > 0.5 || !c.roomBehind()) continue;
+      if (!loser || c.vehicle.id < loser.vehicle.id) loser = c;
+    }
+    return loser;
+  }
+
   /** Whether `o` stands on the rest of the lane we are on, short of its last DETOUR_LANE_END m (not in the junction after it). */
   private onLaneAhead(o: Vehicle): boolean {
     const seg = this.segs[0];
@@ -1172,7 +1206,7 @@ export class DriverAI {
         this.honkCooldown = this.host.rng.range(2.5, 6);
         this.host.onHorn(v);
       }
-      if (this.waitObstacle > 9) {
+      if (this.waitObstacle > WAIT_REVERSE || (this.waitObstacle > DEADLOCK_PATIENCE && this.deadlockLoser() === this)) {
         // Make room, nose towards the passing side (not the curb), less so if it points out already.
         this.waitObstacle = 0;
         this.startReverse(this.outSteer(), 'queue');

@@ -86,6 +86,21 @@ export const TYRE_SPRAY_SPEED = 8;
 const TYRE_SPRAY_FULL = 28;
 const TYRE_SPRAY_RATE = 45;
 
+/**
+ * A boat under way (Effects.boatWake) leaves foam behind its stern and throws spray off its bow: from BOAT_WAKE_MIN m/s,
+ * full at BOAT_WAKE_FULL; particles a second per emitter at full strength.
+ */
+export const BOAT_WAKE_MIN = 1.5;
+const BOAT_WAKE_FULL = 18;
+const BOAT_FOAM_RATE = 34;
+const BOAT_SPRAY_RATE = 40;
+const BOAT_TAIL_RATE = 30;
+
+/** How strong a boat's wake is at `speed` m/s, 0 (none: at rest or drifting) to 1. */
+export function boatWakeLevel(speed: number): number {
+  return clamp((speed - BOAT_WAKE_MIN) / (BOAT_WAKE_FULL - BOAT_WAKE_MIN), 0, 1);
+}
+
 /** How big a splash is: a bullet, a person falling in, a car or a crash, a blast on the water. */
 export type SplashSize = 'small' | 'body' | 'big' | 'plume';
 /** Per size: scale of the droplet crown, droplets, mist puffs, and the foam ring's final radius (m) and life (s). */
@@ -829,6 +844,11 @@ export class Effects {
   private readonly rocketSeen = new Set<number>();
   private readonly rocketDir = new THREE.Vector3();
   private launch: { x: number; y: number; z: number } | null = null;
+  /** Boats that left a wake, and the wake particles they emitted, in the last update (boatWake counts into the open frame). */
+  wakeBoats = 0;
+  wakeSprites = 0;
+  private wakeBoatsOpen = 0;
+  private wakeSpritesOpen = 0;
 
   constructor() {
     this.group.add(this.glow.mesh, this.smoke.mesh, this.skids.mesh, this.tracers.mesh);
@@ -846,6 +866,7 @@ export class Effects {
    */
   reset(): void {
     this.sprays.length = 0;
+    this.wakeBoats = this.wakeSprites = this.wakeBoatsOpen = this.wakeSpritesOpen = 0;
     this.syncRockets([]);
     this.tracers.clear();
     this.parts.clear();
@@ -1327,6 +1348,56 @@ export class Effects {
   }
 
   /**
+   * The wake of a boat under way over a sea whose surface is `surfaceY` here: foam spreading from its stern (its bow when
+   * it backs), spray thrown out and up off the bow, and a mist tail behind it at speed. All grow with its speed
+   * (boatWakeLevel). Flat foam and spray on the smoke layer, so in the scene's light; the layer is a fixed pool, so
+   * nothing is allocated here.
+   */
+  boatWake(v: Vehicle, surfaceY: number, dt: number): void {
+    const k = boatWakeLevel(Math.hypot(v.vel.x, v.vel.z));
+    if (!(k > 0)) return;
+    this.wakeBoatsOpen++;
+    if (!(dt > 0)) return;
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    const lx = fz;
+    const lz = -fx;
+    // 1 going forwards, -1 backing: which end trails.
+    const dir = v.vel.x * fx + v.vel.z * fz < 0 ? -1 : 1;
+    const hl = v.halfL;
+    const hw = v.halfW;
+    const y = surfaceY + 0.06;
+    let n = 0;
+    for (const side of [1, -1, 0]) {
+      const sx = v.pos.x - fx * dir * hl * 0.92 + lx * hw * 0.7 * side;
+      const sz = v.pos.z - fz * dir * hl * 0.92 + lz * hw * 0.7 * side;
+      for (let c = this.count(BOAT_FOAM_RATE * k * (side === 0 ? 1 : 0.7), dt); c > 0; c--, n++) {
+        const lag = this.r(0, dt);
+        const out = this.r(0.3, 1.1) * (0.4 + 0.6 * k);
+        this.smoke.emit(sx - v.vel.x * lag + this.r(-0.2, 0.2), y, sz - v.vel.z * lag + this.r(-0.2, 0.2), v.vel.x * 0.1 + lx * side * out, 0, v.vel.z * 0.1 + lz * side * out, this.r(1.3, 2.2), hw * 0.45, hw * (0.9 + 1.4 * k), 0xf2f9fc, 0xd6e8f0, 0.2 + 0.22 * k, 0, 1.2, 0, 4, 0);
+      }
+    }
+    for (const side of [1, -1]) {
+      const bx = v.pos.x + fx * dir * hl * 0.75 + lx * hw * 0.9 * side;
+      const bz = v.pos.z + fz * dir * hl * 0.75 + lz * hw * 0.9 * side;
+      for (let c = this.count(BOAT_SPRAY_RATE * k, dt); c > 0; c--, n++) {
+        const lag = this.r(0, dt);
+        const out = this.r(1, 2.8) * (0.5 + 0.5 * k);
+        this.smoke.emit(bx - v.vel.x * lag + this.r(-0.1, 0.1), y, bz - v.vel.z * lag + this.r(-0.1, 0.1), v.vel.x * 0.45 + lx * side * out, this.r(1.8, 4) * (0.5 + 0.5 * k), v.vel.z * 0.45 + lz * side * out, this.r(0.4, 0.75), 0.07 + 0.05 * k, 0.04, 0xffffff, 0xd6eaf4, 0.7, 9.8, 0.5, 0, 4, 0, DROPLET_STYLE);
+      }
+    }
+    if (k > 0.45) {
+      const tx = v.pos.x - fx * dir * (hl + 0.2);
+      const tz = v.pos.z - fz * dir * (hl + 0.2);
+      for (let c = this.count(BOAT_TAIL_RATE * (k - 0.45), dt); c > 0; c--, n++) {
+        const lag = this.r(0, dt);
+        this.smoke.emit(tx - v.vel.x * lag + this.r(-hw, hw) * 0.4, y, tz - v.vel.z * lag + this.r(-hw, hw) * 0.4, v.vel.x * 0.3 - fx * dir * this.r(0.5, 2), this.r(1.5, 3.2) * k, v.vel.z * 0.3 - fz * dir * this.r(0.5, 2), this.r(0.5, 0.9), 0.3, 0.9 + 0.8 * k, 0xf4faff, 0xdce9f0, 0.3, 4, 1, this.r(-0.5, 0.5));
+      }
+    }
+    this.wakeSpritesOpen += n;
+  }
+
+  /**
    * Spray thrown up behind the rear wheels of a car driving on a wet road (`wet` 0..1): none below TYRE_SPRAY_SPEED,
    * growing with speed to TYRE_SPRAY_FULL and with wetness. A fine mist on the smoke layer, so in the scene's light.
    */
@@ -1398,6 +1469,9 @@ export class Effects {
       s.acc += dt * 180;
       for (; s.acc >= 1; s.acc--) this.smoke.emit(s.x + this.r(-0.1, 0.1), s.y + 0.6, s.z + this.r(-0.1, 0.1), this.r(-0.8, 0.8), this.r(7, 10), this.r(-0.8, 0.8), this.r(1, 1.6), 0.2, 0.7, 0xffffff, 0xd8ecf8, 0.75, 9, 0.1);
     }
+    this.wakeBoats = this.wakeBoatsOpen;
+    this.wakeSprites = this.wakeSpritesOpen;
+    this.wakeBoatsOpen = this.wakeSpritesOpen = 0;
     this.glow.update(dt, 1);
     this.smoke.update(dt, 1);
     this.parts.update(dt);

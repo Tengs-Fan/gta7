@@ -2,6 +2,9 @@
 // cards, the HUD's cards and phone names, the map's blips) reads this table; a new contact is a row here, a
 // missions file and one line in missions/index.ts.
 
+import type { Progress } from '../progress';
+import type { MissionDef } from './runner';
+
 /** A row of CONTACTS (checked at registration, and by contactById). */
 export type ContactId = string;
 
@@ -50,4 +53,27 @@ export function registerContact(def: ContactDef): void {
 export function unregisterContact(id: ContactId): void {
   const i = CONTACTS.findIndex((c) => c.id === id);
   if (i >= 0) CONTACTS.splice(i, 1);
+}
+
+/**
+ * Whether a contact is revealed to the player (phone, map legend, checklist). A contact is listed once nothing locks it: no story finale (a mission with an
+ * outro title card, The Big Score's CHAPTER 1 COMPLETE) stands undone among what its first mission requires, directly or through
+ * the missions before it. Lou and Dex are in a new game's phone; a chapter 2 contact comes in after The Big Score. A
+ * contact with no missions at all is listed.
+ */
+export function contactUnlocked(defs: readonly MissionDef[], progress: Pick<Progress, 'hasDone'>, id: string): boolean {
+  const first = defs.find((d) => d.giver === id);
+  if (!first) return true;
+  const seen = new Set<string>();
+  const todo = [...first.requires];
+  while (todo.length > 0) {
+    const r = todo.pop()!;
+    if (seen.has(r)) continue;
+    seen.add(r);
+    const d = defs.find((x) => x.id === r);
+    if (!d) continue;
+    if (d.outro && !progress.hasDone(d.id)) return false;
+    todo.push(...d.requires);
+  }
+  return true;
 }

@@ -5,7 +5,7 @@
 // shows the completion it always did. The STATS screen's rows beyond its core ones come from statRows.ts.
 
 import { activityKinds, getActivity } from './activities';
-import { CONTACTS } from './missions/contacts';
+import { CONTACTS, contactUnlocked } from './missions/contacts';
 import { PACKAGE_COUNT } from './pickups';
 import type { PlayerView, ViewState } from './viewState';
 
@@ -21,6 +21,8 @@ export interface CompletionRow {
   label: string;
   done: number;
   total: number;
+  /** Counts towards the completion percentage but is not listed (a locked contact's story must not give them away). */
+  hidden?: boolean;
 }
 
 export interface CompletionEntry {
@@ -60,7 +62,7 @@ export function completionEntries(): readonly CompletionEntry[] {
 /** Every checklist row, grouped in COMPLETION_GROUPS order (registration order within a group). */
 export function completionRows(view: ViewState, me: PlayerView): CompletionRow[] {
   const rows: CompletionRow[] = [];
-  for (const e of entries) rows.push(...e.rows(view, me));
+  for (const e of entries) rows.push(...e.rows(view, me).filter((r) => !r.hidden));
   const order = (g: string) => {
     const i = (COMPLETION_GROUPS as readonly string[]).indexOf(g);
     return i < 0 ? COMPLETION_GROUPS.length : i;
@@ -88,7 +90,8 @@ registerCompletion({
     CONTACTS.flatMap((c) => {
       const defs = view.missions.defs.filter((d) => d.giver === c.id);
       if (defs.length === 0) return [];
-      return [{ id: `story:${c.id}`, group: 'story', label: c.name, done: defs.filter((d) => me.progress.hasDone(d.id)).length, total: defs.length }];
+      const hidden = !contactUnlocked(view.missions.defs, me.progress, c.id);
+      return [{ id: `story:${c.id}`, group: 'story', label: c.name, done: defs.filter((d) => me.progress.hasDone(d.id)).length, total: defs.length, ...(hidden ? { hidden } : {}) }];
     }),
 });
 

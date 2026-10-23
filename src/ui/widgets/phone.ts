@@ -4,9 +4,8 @@
 
 import './phone.css';
 import { formatMoney } from '../../core/math';
-import { CONTACTS, contactById, type ContactDef } from '../../sim/missions/contacts';
+import { CONTACTS, contactById, contactUnlocked, type ContactDef } from '../../sim/missions/contacts';
 import type { MissionDef } from '../../sim/missions/runner';
-import type { Progress } from '../../sim/progress';
 import { playerOf, type PlayerView, type ViewState } from '../../sim/viewState';
 import { formatKeys, padGlyph } from '../glyphs';
 import { escapeHtml } from '../hud';
@@ -19,29 +18,6 @@ export const CALL_DELAY = 4;
 /** ...and rings for this long (s) before it counts as missed; in a vehicle the call is answered hands-free after CALL_HANDS_FREE s. */
 export const CALL_RING = 12;
 export const CALL_HANDS_FREE = 2;
-
-/**
- * Whether a contact is in the phone. A contact is listed once nothing locks it: no story finale (a mission with an
- * outro title card, The Big Score's CHAPTER 1 COMPLETE) stands undone among what its first mission requires, directly or through
- * the missions before it. Lou and Dex are in a new game's phone; a chapter 2 contact comes in after The Big Score. A
- * contact with no missions at all is listed.
- */
-export function contactUnlocked(defs: readonly MissionDef[], progress: Pick<Progress, 'hasDone'>, id: string): boolean {
-  const first = defs.find((d) => d.giver === id);
-  if (!first) return true;
-  const seen = new Set<string>();
-  const todo = [...first.requires];
-  while (todo.length > 0) {
-    const r = todo.pop()!;
-    if (seen.has(r)) continue;
-    seen.add(r);
-    const d = defs.find((x) => x.id === r);
-    if (!d) continue;
-    if (d.outro && !progress.hasDone(d.id)) return false;
-    todo.push(...d.requires);
-  }
-  return true;
-}
 
 /** The phone's contacts, in registry order. */
 export function phoneContacts(view: ViewState, me: PlayerView): ContactDef[] {

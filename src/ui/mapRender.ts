@@ -4,7 +4,7 @@
 import { activityKinds, getActivity, type Objective } from '../sim/activities';
 import { GANGS, turfZones } from '../sim/gangs';
 import { FOR_SALE, OWNED } from '../sim/interactions';
-import { CONTACTS, contactById } from '../sim/missions/contacts';
+import { CONTACTS, contactById, contactUnlocked } from '../sim/missions/contacts';
 import { playerOf, type ViewState } from '../sim/viewState';
 import { packageIndex } from '../sim/pickups';
 import { HELI_SIGHT } from '../sim/wanted';
@@ -122,6 +122,8 @@ export interface MapCategory {
   label: string;
   /** Swatches drawn in its legend row: colour and the blip's letter. */
   swatches: Array<{ color: string; label?: string; hollow?: boolean }>;
+  /** The swatches the legend shows for this player, where they depend on progress; absent: `swatches`. */
+  legendSwatches?(sim: ViewState, localPlayerId: number): Array<{ color: string; label?: string; hollow?: boolean }>;
   /** More blips of its own (collectibles, turf); POIs come in through MAP_POIS. */
   blips?(sim: ViewState, localPlayerId: number): Blip[];
 }
@@ -161,10 +163,17 @@ export function unregisterMapCategory(id: string): boolean {
   return true;
 }
 
+const LOCKED_CONTACT = '#8a8f98';
 const poiSwatches = (category: string) => Object.values(MAP_POIS).filter((p) => p.category === category).map((p) => ({ color: p.color, label: p.label }));
 
 registerMapCategory({ id: 'missions', label: 'Missions (contacts)', get swatches() {
   return CONTACTS.map((c) => ({ color: c.color, label: c.mapLabel }));
+}, legendSwatches(sim, localPlayerId) {
+  const progress = playerOf(sim, localPlayerId).progress;
+  const open = CONTACTS.filter((c) => contactUnlocked(sim.missions.defs, progress, c.id));
+  const swatches = open.map((c) => ({ color: c.color, label: c.mapLabel }));
+  // A locked contact stays anonymous: neutral grey and no letter.
+  return open.length < CONTACTS.length ? [...swatches, { color: LOCKED_CONTACT, label: '?' }] : swatches;
 } });
 registerMapCategory({ id: 'shops', label: 'Shops (guns, Spray Shack, Azura Customs)', get swatches() {
   return poiSwatches('shops');

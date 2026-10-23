@@ -153,8 +153,16 @@ test.describe('GTA 7 wave-1 audio', () => {
     expect(quiet).toBe(0);
     expect(band).toBeGreaterThan(0.7);
     for (const kind of ['ad', 'jingle'] as const) {
-      await page.evaluate((k) => (window as Api).__gta7.game.audio.radio.cueTalk(k, 0.3), kind);
-      const s = (await record(page, 'music', 2500)).filter((x) => x.kind === kind && x.into > 0.5 && x.left > 0.4);
+      await page.evaluate((k) => (window as Api).__gta7.game.audio.radio.cueTalk(k, k === 'jingle' ? 0 : 0.3), kind);
+      const all = await record(page, 'music', kind === 'jingle' ? 3900 : 2500);
+      const s = all.filter((x) => x.kind === kind && x.into > 0.5 && x.left > 0.4);
+      if (kind === 'jingle') {
+        // The whole declared jingle is audible, tail included.
+        const whole = all.filter((x) => x.kind === 'jingle' && x.into > 0.15 && x.left > 0.15);
+        console.log(`[talk] jingle: ${whole.length} windows, min ${Math.min(...whole.map((x) => x.db)).toFixed(1)} dBFS`);
+        expect(whole.length).toBeGreaterThan(40);
+        expect(whole.filter((x) => x.db < -50)).toEqual([]);
+      }
       console.log(`[talk] ${kind}: mean ${meanDb(s).toFixed(1)} dBFS, voice-band share ${(s.reduce((p, x) => p + x.band, 0) / Math.max(1, s.length)).toFixed(3)}`);
       expect(meanDb(s)).toBeGreaterThan(-40);
     }
