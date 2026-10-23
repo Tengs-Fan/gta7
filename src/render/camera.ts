@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { rayAabb3 } from '../core/collision';
 import { clamp, damp, dampAngle, smoothstep, wrapAngle, type V3 } from '../core/math';
 import type { Vehicle } from '../sim/entities';
+import { WEAPONS } from '../sim/specs';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
 import { CURB_H, WATER_Y } from '../world/constants';
@@ -392,6 +393,14 @@ export class CameraController {
   private readonly wantNow = { reach: 0, y: 0, moved: false };
   private readonly wantAhead = { reach: 0, y: 0, moved: false };
   baseFov = 68;
+  /**
+   * Looking through a rifle scope (the aim button with a scoped weapon on foot, see ScopeSpec): the view from the eye,
+   * narrowed by the zoom level and swaying a little. The eye and the sway as of the last update().
+   */
+  scoped = false;
+  private readonly eye = new THREE.Vector3();
+  private swayYaw = 0;
+  private swayPitch = 0;
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(68, aspect, 0.3, 2400);
@@ -400,7 +409,8 @@ export class CameraController {
 
   /** Mouse / stick look input in pixels (or equivalent). */
   look(dx: number, dy: number): void {
-    const k = 0.0024 * this.sensitivity;
+    // Through a scope the mouse turns the view as much on screen as without it.
+    const k = 0.0024 * this.sensitivity * (this.scoped ? Math.min(1, this.fov / this.baseFov) : 1);
     const ky = (this.invertY ? -1 : 1) * k;
     if (this.wasInVehicle) {
       this.orbitYaw = wrapAngle(this.orbitYaw - dx * k);
@@ -473,6 +483,12 @@ export class CameraController {
    * It changes nothing.
    */
   rayFor(): { origin: V3; dir: V3 } {
+    if (this.scoped) {
+      const yaw = this.yaw + this.swayYaw;
+      const pitch = this.pitch + this.swayPitch;
+      const cp = Math.cos(pitch);
+      return { origin: { x: this.eye.x, y: this.eye.y, z: this.eye.z }, dir: { x: Math.sin(yaw) * cp, y: Math.sin(pitch), z: Math.cos(yaw) * cp } };
+    }
     if (!this.footView) return this.aimRay();
     const cy = Math.cos(this.pitch);
     const dx = Math.sin(this.yaw) * cy;
@@ -507,6 +523,8 @@ export class CameraController {
 
   update(dt: number, sim: ViewState, aiming: boolean): void {
     this.lookIdle += dt;
+    const wasScoped = this.scoped;
+    this.scoped = false;
     this.footView = false;
     this.footLift = 0;
     this.footSide = 0;
@@ -589,6 +607,8 @@ export class CameraController {
       // swimmers cannot aim either, so they keep the wider camera.
       if (swimming && this.pitch > 0.3) this.pitch = 0.3;
       const aim = aiming && !swimming;
+      const scope = aim && p.state === 'normal' && p.alive ? WEAPONS[p.inventory.current]?.scope : undefined;
+      if (scope) return this.scopeView(dt, p, scope.zooms[Math.min(scope.zooms.length - 1, Math.max(0, p.scopeLevel))] ?? scope.zooms[0]!, scope.sway, wasScoped);
       lookOver = !aim && (swimming || p.pos.y < WATER_Y);
       const lying = p.state === 'knocked' || p.state === 'dead';
       const headY = swimming ? 1.6 : lying ? 0.7 : 1.58 * p.appearance.height;
@@ -734,6 +754,40 @@ export class CameraController {
     }
     cam.lookAt(cam.position.x + this.dir.x, cam.position.y + this.dir.y, cam.position.z + this.dir.z);
     this.subject.copy(this.footView ? this.head : this.target);
+  }
+
+  /**
+   * The scope's view from the shooter's eye (just ahead of it, clear of his head): narrowed `zoom` times from the base
+   * field of view, swaying by up to about `sway` rad. The field of view snaps in on raising the scope and between zoom
+   * levels eases quickly.
+   */
+  private scopeView(dt: number, p: { pos: V3; appearance: { height: number } }, zoom: number, sway: number, was: boolean): void {
+    const cam = this.camera;
+    this.scoped = true;
+    this.noiseT += dt;
+    const t = this.noiseT;
+    this.swayYaw = sway * (Math.sin(t * 1.3) + 0.5 * Math.sin(t * 2.9 + 1.1));
+    this.swayPitch = sway * 0.8 * (Math.sin(t * 1.7 + 0.4) + 0.5 * Math.sin(t * 3.4 + 2));
+    const yaw = this.yaw + this.swayYaw;
+    const pitch = this.pitch + this.swayPitch;
+    const cp = Math.cos(pitch);
+    this.dir.set(Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp);
+    this.eye.set(p.pos.x + Math.sin(this.yaw) * 0.15, p.pos.y + 1.62 * p.appearance.height, p.pos.z + Math.cos(this.yaw) * 0.15);
+    this.target.set(p.pos.x, p.pos.y + 1.58 * p.appearance.height, p.pos.z);
+    this.head.copy(this.target);
+    this.desired.copy(this.eye);
+    cam.position.copy(this.eye);
+    const want = this.baseFov / Math.max(1, zoom);
+    this.fov = was ? damp(this.fov, want, 18, dt) : want;
+    if (Math.abs(cam.fov - this.fov) > 0.01) {
+      cam.fov = this.fov;
+      cam.updateProjectionMatrix();
+    }
+    cam.lookAt(cam.position.x + this.dir.x, cam.position.y + this.dir.y, cam.position.z + this.dir.z);
+    this.subject.copy(this.eye);
+    // Back out of the scope the boom starts afresh (no glide from the eye).
+    this.freshBoom = true;
+    this.dist = 2.4;
   }
 
   /**

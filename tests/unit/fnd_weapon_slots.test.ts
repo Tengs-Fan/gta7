@@ -1,4 +1,6 @@
 // Weapon slot keys come from WEAPON_ORDER: key N selects WEAPON_ORDER[N - 1], and keys past the last weapon select nothing.
+// Wave 1 (w1-weapons) filled keys 7-9 (bat or knife, grenade or molotov, sniper rifle); the fixture cases below run on
+// the six baseline weapons so they still check that a seventh weapon gets Digit7 without an input.ts edit.
 // Input is driven headless, with key events dispatched on a stand-in window.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,10 +25,12 @@ beforeEach(() => {
   inp.attach();
 });
 
+const FULL_ORDER = [...WEAPON_ORDER];
+const BASELINE: WeaponId[] = ['fists', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket'];
+
 afterEach(() => {
   vi.unstubAllGlobals();
-  const i = WEAPON_ORDER.indexOf(FIXTURE);
-  if (i >= 0) WEAPON_ORDER.splice(i, 1);
+  WEAPON_ORDER.splice(0, WEAPON_ORDER.length, ...FULL_ORDER);
   delete (WEAPONS as unknown as Record<string, WeaponSpec>)[FIXTURE];
 });
 
@@ -41,16 +45,17 @@ function tap(n: number): number {
 }
 
 describe('weapon slot keys', () => {
-  it('select the weapons of WEAPON_ORDER in order, as at the baseline', () => {
-    expect([...WEAPON_ORDER]).toEqual(['fists', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket']);
-    for (let n = 1; n <= 6; n++) {
+  it('select the weapons of WEAPON_ORDER in order, the first six as at the baseline', () => {
+    expect([...WEAPON_ORDER]).toEqual([...BASELINE, 'bat', 'grenade', 'sniper', 'knife', 'molotov']);
+    for (let n = 1; n <= 9; n++) {
       const slot = tap(n);
       expect(slot).toBe(n - 1);
-      expect(WEAPON_ORDER[slot]).toBe(['fists', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket'][n - 1]);
+      expect(WEAPON_ORDER[slot]).toBe([...BASELINE, 'bat', 'grenade', 'sniper'][n - 1]);
     }
   });
 
   it('keys 7 to 9 select nothing with six weapons', () => {
+    WEAPON_ORDER.splice(0, WEAPON_ORDER.length, ...BASELINE);
     for (const n of [7, 8, 9]) expect(tap(n)).toBe(-1);
   });
 
@@ -61,7 +66,7 @@ describe('weapon slot keys', () => {
 
   it('a seventh weapon in WEAPON_ORDER gets Digit7 and is drawn by the player, without an input.ts edit', () => {
     (WEAPONS as unknown as Record<string, WeaponSpec>)[FIXTURE] = { ...WEAPONS.rifle, id: FIXTURE, name: 'Fixture Gun', slot: 6 };
-    WEAPON_ORDER.push(FIXTURE);
+    WEAPON_ORDER.splice(0, WEAPON_ORDER.length, ...BASELINE, FIXTURE);
     expect(tap(7)).toBe(6);
     expect(tap(8)).toBe(-1);
 
@@ -75,7 +80,8 @@ describe('weapon slot keys', () => {
     expect(inv.current).toBe('fists');
   });
 
-  it('after the fixture is removed, Digit7 selects nothing again', () => {
+  it('after the fixture is removed, Digit7 selects nothing again with six weapons', () => {
+    WEAPON_ORDER.splice(0, WEAPON_ORDER.length, ...BASELINE);
     expect(tap(7)).toBe(-1);
   });
 });

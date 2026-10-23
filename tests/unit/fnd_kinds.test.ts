@@ -115,13 +115,17 @@ describe('exhaustive kind maps outside the specs are gone', () => {
   const vehicleKinds = Object.keys(BASE_FIRING_ROWS) as VehicleKind[];
   const weaponIds = Object.keys(BASE_FLASH) as WeaponId[];
 
-  it('the spec tables still hold exactly the baseline kinds, plus the wave-1 vehicles', () => {
+  // Wave 1 (w1-weapons) added five weapons through their spec entries alone; the baseline ones are unchanged.
+  const WAVE1_WEAPONS = ['bat', 'knife', 'grenade', 'molotov', 'sniper'];
+
+  it('the spec tables still hold the baseline kinds, plus the wave-1 vehicles and weapons', () => {
     // Wave 1 added the ambulance and the fire truck (their view is drawn from spec data), two motorbikes and two boats
     // as spec rows only.
     expect(Object.keys(VEHICLE_SPECS).sort()).toEqual([...vehicleKinds, 'ambulance', 'firetruck', ...WAVE1_VEHICLES].sort());
-    expect(Object.keys(WEAPONS).sort()).toEqual([...weaponIds].sort());
+    expect(Object.keys(WEAPONS).sort()).toEqual([...weaponIds, ...WAVE1_WEAPONS].sort());
     expect(Object.keys(PICKUP_SPECS).sort()).toEqual(Object.keys(BASE_PICKUP_COLOR).sort());
-    expect([...WEAPON_ORDER]).toEqual(['fists', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket']);
+    expect([...WEAPON_ORDER].slice(0, 6)).toEqual(['fists', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket']);
+    expect([...WEAPON_ORDER].slice(6).sort()).toEqual([...WAVE1_WEAPONS].sort());
   });
 
   it('firing rows equal the baseline for every vehicle kind', () => {

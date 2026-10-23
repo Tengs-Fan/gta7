@@ -1366,7 +1366,10 @@ describe('the crowd draws the local player by id', () => {
       const want = baseline.samples[i]!;
       const got = now.samples[i]!;
       expect(Object.keys(got.parts).sort(), `frame ${want.frame} meshes`).toEqual(Object.keys(want.parts).sort());
-      expect(Object.keys(got.weapons).sort(), `frame ${want.frame} weapons`).toEqual(Object.keys(want.weapons).sort());
+      // Wave 1 added weapon meshes (bat, knife, grenade, molotov, sniper); nobody in the recorded scene holds one, so
+      // they exist with no instances and every recorded mesh is unchanged.
+      expect(Object.keys(got.weapons).filter((k) => !(k in want.weapons) && got.weapons[k]!.count > 0), `frame ${want.frame} extra weapons drawn`).toEqual([]);
+      expect(Object.keys(got.weapons).sort(), `frame ${want.frame} weapons`).toEqual(expect.arrayContaining(Object.keys(want.weapons).sort()));
       for (const [group, wantGroup] of [['parts', want.parts], ['weapons', want.weapons]] as const) {
         for (const [name, w] of Object.entries(wantGroup)) {
           const g = got[group][name]!;

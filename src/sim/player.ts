@@ -8,7 +8,7 @@ import type { Character, Vehicle } from './entities';
 import type { PlayerInput } from './input';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
-import { WEAPON_ORDER } from './specs';
+import { isGun, WEAPONS, weaponForKey } from './specs';
 import { vehicleObb } from './vehiclePhysics';
 
 const contact = makeContact();
@@ -134,8 +134,9 @@ export class PlayerController {
     const weapon = p.inventory.spec();
     // A queued semi-automatic shot (see CombatSystem.playerFire) still fires once the trigger is released.
     const firing = (input.fire || input.firePressed || p.fireQueued > 0) && !swimming;
+    const gun = isGun(weapon.id);
     // Keep the aiming pose briefly after shooting so the character doesn't snap around.
-    p.aiming = !swimming && (input.aim || (firing && weapon.id !== 'fists') || (p.aimHold > 0 && weapon.id !== 'fists'));
+    p.aiming = !swimming && (input.aim || (firing && gun) || (p.aimHold > 0 && gun));
     // Only the aim button zooms in and slows the walk; hip fire keeps the view and the pace.
     p.aimZoom = !swimming && input.aim;
 
@@ -146,7 +147,7 @@ export class PlayerController {
     p.moveSpeed = m > 0.05 ? speed * m : 0;
 
     const rayYaw = Math.atan2(input.aimDir.x, input.aimDir.z);
-    const aimYaw = wrapAngle(rayYaw + this.convergeAim(p, input, rayYaw, p.aiming && weapon.id !== 'fists', dt));
+    const aimYaw = wrapAngle(rayYaw + this.convergeAim(p, input, rayYaw, p.aiming && gun, dt));
     p.aimYaw = aimYaw;
     p.aimPitch = Math.asin(clamp(input.aimDir.y, -1, 1));
     if (p.aiming || p.punchTimer > 0) p.heading = moveAngleTowards(p.heading, aimYaw, 16 * dt);
@@ -155,12 +156,17 @@ export class PlayerController {
     if (input.jump && !swimming) p.wantJump = true;
 
     if (!swimming) {
-      if (input.selectSlot >= 0) {
-        const id = WEAPON_ORDER[input.selectSlot];
-        if (id && p.inventory.has(id)) p.inventory.current = id;
+      this.selectWeapon(input);
+      // Held up to the eye, a scoped rifle's wheel (and weapon-step keys) zoom the scope instead of changing weapons.
+      const scope = p.aimZoom ? weapon.scope : undefined;
+      if (scope) {
+        if (input.nextWeapon) p.scopeLevel = Math.min(scope.zooms.length - 1, p.scopeLevel + 1);
+        if (input.prevWeapon) p.scopeLevel = Math.max(0, p.scopeLevel - 1);
+      } else {
+        p.scopeLevel = 0;
+        if (input.nextWeapon) p.inventory.cycle(1);
+        if (input.prevWeapon) p.inventory.cycle(-1);
       }
-      if (input.nextWeapon) p.inventory.cycle(1);
-      if (input.prevWeapon) p.inventory.cycle(-1);
       if (input.reload) sim.combat.startReload(p);
       if (firing) sim.combat.playerFire(p, input, false);
     }
@@ -194,6 +200,14 @@ export class PlayerController {
     }
     this.converge = moveTowards(this.converge, want, CONVERGE_RATE * dt);
     return this.converge;
+  }
+
+  /** A number key draws its weapon (see weaponForKey: a key shared by two weapons steps between them). */
+  private selectWeapon(input: PlayerInput): void {
+    if (input.selectSlot < 0) return;
+    const inv = this.p.character.inventory;
+    const id = weaponForKey(input.selectSlot, (w) => inv.has(w) && !!WEAPONS[w], inv.current);
+    if (id) inv.current = id;
   }
 
   /**
@@ -509,10 +523,8 @@ export class PlayerController {
 
     p.aimYaw = Math.atan2(input.aimDir.x, input.aimDir.z);
     p.aimPitch = Math.asin(clamp(input.aimDir.y, -1, 1));
-    if (input.selectSlot >= 0) {
-      const id = WEAPON_ORDER[input.selectSlot];
-      if (id && p.inventory.has(id)) p.inventory.current = id;
-    }
+    p.scopeLevel = 0;
+    this.selectWeapon(input);
     if (input.nextWeapon) p.inventory.cycle(1);
     if (input.prevWeapon) p.inventory.cycle(-1);
     if (input.reload) sim.combat.startReload(p);

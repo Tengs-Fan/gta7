@@ -17,6 +17,7 @@ import { StreetLighting } from './streetLighting';
 import { CityView } from './city';
 import { CrowdView } from './crowd';
 import { Effects, flashSize, TYRE_SPRAY_SPEED, WADE_MIN } from './effects';
+import { ThrowView } from './throwView';
 import { Environment } from './environment';
 import { FinishPass } from './finishPass';
 import { gradeAt, type Grade } from './grade';
@@ -155,6 +156,8 @@ export class GameRenderer {
   /** The wave-1 jobs' bins and water jet, and the signs and structures of their places. */
   readonly activityFx = new ActivityFxView();
   readonly sites: SiteView;
+  /** Grenades and molotovs in flight, the throw's aiming arc and molotov fires. */
+  readonly throwView = new ThrowView();
   readonly rain: Rain;
   /** Roof heights over the world (rain and dry ground under cover, no tyre spray in a garage). */
   readonly cover: CoverMap;
@@ -267,10 +270,11 @@ export class GameRenderer {
     this.softwareMaterials?.apply(this.sites.group);
     this.softwareMaterials?.apply(this.activityFx.group);
     this.scene.add(this.streetLighting.group);
-    this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group, this.lightSprites.group, this.vehicleParts.group);
+    this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group, this.lightSprites.group, this.vehicleParts.group, this.throwView.group);
     this.softwareMaterials?.apply(this.city.group);
     this.softwareMaterials?.apply(this.props.group);
     this.softwareMaterials?.apply(this.crowd.group);
+    this.softwareMaterials?.apply(this.throwView.group);
     this.cover = buildCoverMap(world);
     this.rain = new Rain(this.cover);
     this.scene.add(this.rain.mesh);
@@ -565,6 +569,7 @@ export class GameRenderer {
     this.effects.reset();
     this.activityFx.clear();
     this.crowd.reset();
+    this.throwView.reset();
     this.flashAge = Infinity;
     // A new session's clock starts again from 0.
     this.autoRounds = 0;
@@ -929,8 +934,10 @@ export class GameRenderer {
       this.lightSprites.dark = lights;
       this.syncLightSprites(sim, lights);
       this.effects.syncRockets(sim.projectiles);
+      this.throwView.sync(sim, this.me(sim).character, this.cameraCtl.aimRay().dir, this.effects, dt, this.time, cam.position);
       this.vehicleEffects(sim, dt);
       this.activityFx.sync(sim, dt, this.effects, this.time);
+      this.crowd.scopeHiddenId = this.cameraCtl.scoped ? this.me(sim).character.id : -1;
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt, this.me(sim).character.id);
       this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming);
       const objectives = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
@@ -1034,6 +1041,7 @@ export class GameRenderer {
     this.contactShadows?.dispose();
     this.finish?.dispose();
     this.lightSprites.dispose();
+    this.throwView.dispose();
     this.rain.dispose();
     this.city.wet.dispose();
     this.env.dispose();

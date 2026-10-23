@@ -1471,7 +1471,8 @@ describe('key names follow the keyboard layout', () => {
     await flush();
     const { rows } = controls();
     expect(rows['Move / Drive']).toBe('Z Q S D');
-    expect(rows['Weapons']).toBe('1-6, A, wheel');
+    // Keys 7-9 hold the wave-1 weapons (w1-weapons), so the hint counts nine keys.
+    expect(rows['Weapons']).toBe('1-9, A, wheel');
     // M works on its printed key too (letter alias), and the other shortcuts sit where QWERTY has them.
     expect([rows['Map'], rows['Enter / Exit vehicle'], rows['Interact / Horn'], rows['Reload / Next radio'], rows['Side job / Street run'], rows['Camera distance'], rows['Pause']]).toEqual(['M', 'F', 'E', 'R', 'T', 'V', 'Esc / P']);
   });
@@ -1541,7 +1542,7 @@ describe('key names follow the keyboard layout', () => {
     press('KeyW', 'z');
     press('KeyA', 'q');
     expect(names()).toBe('Z Q S D A M 1');
-    expect(controls().rows['Weapons']).toBe('1-6, A, wheel');
+    expect(controls().rows['Weapons']).toBe('1-9, A, wheel');
     press('KeyM', ',');
     expect(inp.labels.label('KeyM')).toBe(',');
     press('Semicolon', 'm'); // the key printed M opens the map through its letter alias
@@ -1554,7 +1555,7 @@ describe('key names follow the keyboard layout', () => {
     await flush();
     const { rows } = controls();
     expect(rows['Move / Drive']).toBe('W A S D');
-    expect(rows['Weapons']).toBe('1-6, Q, wheel');
+    expect(rows['Weapons']).toBe('1-9, Q, wheel');
   });
 });
 

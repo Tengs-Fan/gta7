@@ -1,6 +1,7 @@
 import type { DamageKind, HitZone } from './combat';
 import type { Character, PickupKind, Vehicle } from './entities';
 import type { WeaponId } from './specs';
+import type { GangId } from '../world/layout';
 import type { StreetRunId, StreetRunMedal } from './streetRuns';
 
 export type BigStyle = 'title' | 'passed' | 'failed' | 'wasted' | 'busted' | 'stunt' | 'info';
@@ -64,5 +65,21 @@ export interface SimEvents {
   /** Emitted after cash and records are committed, so autosave sees the result. */
   streetRunFinished: { id: StreetRunId; time: number; medal: StreetRunMedal; personalBest: boolean; reward: number } & PlayerScoped;
   reload: { character: Character };
+  /** A grenade or molotov leaves the hand of `by` at (x, y, z). */
+  thrown: { by: Character; weapon: WeaponId; x: number; y: number; z: number };
+  /** A molotov's bottle breaks. */
+  glassBreak: { x: number; y: number; z: number };
+  /** A ground fire (a molotov's) starts at (x, y, z). */
+  fireStarted: { x: number; y: number; z: number };
+  /** A war between two street gangs starts (or ends) at the border of their turfs near (x, z). */
+  gangWar: { a: GangId; b: GangId; x: number; z: number; started: boolean };
+  /** A police spike strip bursts a tyre (wheel 0-3: front left, front right, rear left, rear right). */
+  tyreBurst: { vehicle: Vehicle; wheel: number; x: number; y: number; z: number };
+  /** Police set up a roadblock across the road at (x, z). */
+  roadblock: { x: number; z: number; strip: boolean };
+  /** A witness starts (or ends: through, or stopped) a call to the police about a crime at (x, z). */
+  witnessCall: { caller: Character; x: number; z: number; started: boolean };
+  /** The player's car hit `vehicle` hard enough to jolt it by deltaV (m/s). */
+  vehicleRammed: { vehicle: Vehicle; by: Character; deltaV: number };
   fade: { duration: number } & PlayerScoped;
 }

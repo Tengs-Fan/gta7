@@ -13,7 +13,9 @@ import type { PlayerSlot } from './playerSlot';
 import { cowerCrouched } from './peds';
 import { makeWeaponPose, reloading, seatSide, SKELETON, upright, weaponPose, weaponPoseInto, windowMuzzle, type WeaponPose } from './pose';
 import type { Sim } from './sim';
-import { WEAPONS, type WeaponId, type WeaponSpec } from './specs';
+import { FireSystem, BURN_DPS } from './fire';
+import { isGun, weaponKindOf, WEAPONS, type WeaponId, type WeaponSpec } from './specs';
+import { ThrowSystem } from './throwables';
 import { launchVehicle, vehicleObb } from './vehiclePhysics';
 import type { CrimeType } from './wanted';
 
@@ -262,8 +264,17 @@ export class CombatSystem {
   private readonly launched = new WeakMap<Projectile, number>();
   /** What each NPC shooter's held aim was last raised for. */
   private readonly held = new WeakMap<Character, HeldAim>();
+  /** Set while bleeding and burning are dealt: those hits are no fresh attack to react to. */
+  private lingering = false;
+  /** Grenades and molotovs in flight. */
+  readonly throws: ThrowSystem;
+  /** Ground fires (molotovs). */
+  readonly fire: FireSystem;
 
-  constructor(private readonly sim: Sim) {}
+  constructor(private readonly sim: Sim) {
+    this.throws = new ThrowSystem(sim);
+    this.fire = new FireSystem(sim);
+  }
 
   update(dt: number): void {
     this.followVigilante();
@@ -274,8 +285,45 @@ export class CombatSystem {
       if (c.fireQueued > 0) c.fireQueued -= dt;
     }
     this.updateProjectiles(dt);
+    this.throws.update(dt);
+    this.fire.update(dt);
     this.updateBurning(dt);
+    this.updateWounds(dt);
     if (this.fireWarnCooldown > 0) this.fireWarnCooldown -= dt;
+  }
+
+  /**
+   * Knife wounds bleed and the flames of a molotov burn on: each a hit with no attacker, the one who cut or lit him
+   * credited with a death by it. Water puts the flames out.
+   */
+  private updateWounds(dt: number): void {
+    this.lingering = true;
+    try {
+      for (const c of this.sim.characters) {
+        if (c.removed || !c.alive) {
+          c.bleedTimer = 0;
+          c.burnTimer = 0;
+          continue;
+        }
+        if (c.bleedTimer > 0) {
+          const t = Math.min(dt, c.bleedTimer);
+          c.bleedTimer -= dt;
+          this.damageCharacter(c, c.bleedRate * t, null, 'melee', 0, 0, 0, 'body', c.bleedBy);
+          if (c.bleedTimer <= 0) c.bleedBy = null;
+        }
+        if (c.burnTimer > 0 && c.alive) {
+          if (c.state === 'swimming' || c.state === 'inVehicle') c.burnTimer = 0;
+          else {
+            const t = Math.min(dt, c.burnTimer);
+            c.burnTimer -= dt;
+            this.damageCharacter(c, BURN_DPS * t, null, 'fire', 0, 0, 0, 'body', c.burnBy);
+          }
+          if (c.burnTimer <= 0) c.burnBy = null;
+        }
+      }
+    } finally {
+      this.lingering = false;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -293,7 +341,7 @@ export class CombatSystem {
     // On foot a gun fires from its barrel tip as drawn (sim/pose.ts). With someone in front nearer than the
     // barrel reaches, the barrel ends beside or inside him: the shot then leaves from the chest, where a punch
     // lands, which the point-blank aiming of cameraTarget is built around.
-    if (c.inventory.current !== 'fists') {
+    if (isGun(c.inventory.current)) {
       const tip = weaponPose(c).tip;
       if (!this.barrelCrowded(c, tip, fx, fz)) return tip;
     }
@@ -325,8 +373,13 @@ export class CombatSystem {
   playerFire(p: Character, input: PlayerInput, fromVehicle: boolean): void {
     this.syncWeapon(p);
     const w = p.inventory.spec();
-    if (w.id === 'fists') {
+    const kind = weaponKindOf(w.id);
+    if (kind === 'melee') {
       if (input.firePressed && !fromVehicle) this.melee(p);
+      return;
+    }
+    if (kind === 'thrown') {
+      if (input.firePressed && !fromVehicle) this.throwNow(p, input);
       return;
     }
     if (p.reloadTimer > 0) return;
@@ -377,11 +430,28 @@ export class CombatSystem {
     if (slot.clip === 0 && slot.ammo > 0) this.startReload(p);
   }
 
+  /** The player throws the grenade or molotov in hand along his crosshair ray, when it is ready and he has one left. */
+  private throwNow(p: Character, input: PlayerInput): void {
+    if (p.fireCooldown > 0) return;
+    const w = p.inventory.spec();
+    const slot = p.inventory.slot();
+    if (slot.ammo <= 0 && !p.inventory.infinite) {
+      p.inventory.current = 'fists';
+      this.sim.events.emit('message', { text: 'Out of ' + w.name + 's.', duration: 2 });
+      return;
+    }
+    this.throws.throwFrom(p, input.aimDir);
+    if (!p.inventory.infinite) slot.ammo--;
+    this.startCooldown(p, 1 / w.rate);
+    p.punchTimer = 0.32;
+    p.meleeCombo = 0;
+  }
+
   /** NPC shooting at a target character (or the vehicle it is in), on foot or from the vehicle it sits in. */
   npcFire(c: Character, target: Character, accuracy: number, fromVehicle = false): void {
     this.syncWeapon(c);
     const w = c.inventory.spec();
-    if (w.id === 'fists' || c.fireCooldown > 0 || c.reloadTimer > 0) return;
+    if (!isGun(w.id) || c.fireCooldown > 0 || c.reloadTimer > 0) return;
     const slot = c.inventory.slot();
     if (slot.clip <= 0) {
       this.startReload(c);
@@ -529,7 +599,7 @@ export class CombatSystem {
     const ty = target.vehicle ? tp.y + 0.9 : tp.y + target.height * 0.62;
     const bearing = Math.atan2(tp.x - c.pos.x, tp.z - c.pos.z);
     c.aiming = true;
-    if (c.vehicle || c.inventory.current === 'fists' || !(upright(c) || c.state === 'swimming')) {
+    if (c.vehicle || !isGun(c.inventory.current) || !(upright(c) || c.state === 'swimming')) {
       c.aimYaw = bearing;
       this.held.delete(c);
       return;
@@ -888,8 +958,8 @@ export class CombatSystem {
       }
       if (w.id === 'shotgun' && r.t < 8) dmg *= 1.3;
       if (!shooter.isPlayer && c.isPlayer) dmg *= NPC_ON_PLAYER;
-      this.damageCharacter(c, dmg, shooter, 'bullet', dx, dy, dz, zone);
-      sim.events.emit('blood', { x: tx, y: ty, z: tz, dx, dy, dz });
+      // A hit that does no damage (god mode, the player while down) draws no blood.
+      if (this.damageCharacter(c, dmg, shooter, 'bullet', dx, dy, dz, zone)) sim.events.emit('blood', { x: tx, y: ty, z: tz, dx, dy, dz });
     } else if (r.vehicle) {
       const mult = shooter.isPlayer ? 1.4 : 0.8;
       this.damageVehicle(r.vehicle, w.damage * mult, shooter, 'bullet');
@@ -902,18 +972,30 @@ export class CombatSystem {
     sim.events.emit('shot', { shooter, weapon: w.id, fx: from.x, fy: from.y, fz: from.z, tx, ty, tz, hit: r.kind, nx: r.nx, ny: r.ny, nz: r.nz, pellet });
   }
 
+  /**
+   * A punch, or a swing of the bat or knife in hand. A swing made soon after the last one was ready again chains on it
+   * (MeleeSpec.combo) and is ready again sooner.
+   */
   melee(c: Character): void {
     const sim = this.sim;
     this.syncWeapon(c);
     if (c.fireCooldown > 0) return;
-    c.fireCooldown = 1 / WEAPONS.fists.rate;
+    const id: WeaponId = weaponKindOf(c.inventory.current) === 'melee' ? c.inventory.current : 'fists';
+    const w = WEAPONS[id];
+    const m = w.melee;
+    let cooldown = 1 / w.rate;
+    if (m) {
+      if (sim.time <= c.comboUntil) cooldown *= m.combo.mul;
+      c.comboUntil = sim.time + cooldown + m.combo.gap;
+    }
+    c.fireCooldown = cooldown;
     c.inventory.slot().readyAt = sim.time + c.fireCooldown;
     c.punchTimer = 0.32;
     c.meleeCombo = (c.meleeCombo + 1) % 3;
     const fx = Math.sin(c.heading);
     const fz = Math.cos(c.heading);
     let best: Character | null = null;
-    let bd = 1.75;
+    let bd = id === 'fists' ? 1.75 : w.range;
     for (const o of sim.characters) {
       if (o === c || o.removed || !o.alive || (o.state !== 'normal' && o.state !== 'knocked')) continue;
       // Gang members crowding the player never punch each other.
@@ -932,15 +1014,16 @@ export class CombatSystem {
     const hx = c.pos.x + fx * 0.8;
     const hz = c.pos.z + fz * 0.8;
     if (best) {
-      const dmg = WEAPONS.fists.damage * (c.isPlayer ? 1 : 0.7);
+      const dmg = w.damage * (c.isPlayer ? 1 : 0.7);
       // Only blows to a man on his feet, past his first moments back up, build up to a knockdown: on the ground, or
-      // just up, he takes the damage and the shove.
+      // just up, he takes the damage and the shove. A bat floors him with every such blow.
       const counts = best.state === 'normal' && !(best.getUpTimer > 0);
       if (counts) {
         best.staggerHits++;
         best.meleeComboTimer = 2;
       }
-      if (counts && best.staggerHits >= 3) {
+      const spared = best.isPlayer && m?.knockdown === true && (this.slotFor(best).cheats.godMode || this.slotFor(best).down);
+      if (counts && !spared && (best.staggerHits >= 3 || m?.knockdown)) {
         best.state = 'knocked';
         best.knockTimer = 1.6;
         best.vel.x = fx * 3.5;
@@ -952,7 +1035,14 @@ export class CombatSystem {
         best.vel.x += fx * 1.5;
         best.vel.z += fz * 1.5;
       }
-      this.damageCharacter(best, dmg, c, 'melee', fx, 0, fz);
+      const hurt = this.damageCharacter(best, dmg, c, 'melee', fx, 0, fz);
+      if (hurt && m?.bleed && best.alive) {
+        best.bleedTimer = m.bleed.seconds;
+        best.bleedRate = m.bleed.dps;
+        best.bleedBy = c;
+      }
+      // A bat or a blade draws blood; a hit that does no damage (god mode) does not.
+      if (hurt && id !== 'fists') sim.events.emit('blood', { x: best.pos.x - fx * 0.3, y: best.pos.y + (best.state === 'knocked' ? 0.4 : best.height * 0.7), z: best.pos.z - fz * 0.3, dx: fx, dy: 0, dz: fz });
       sim.events.emit('melee', { x: hx, y: c.pos.y + 1.3, z: hz, hit: true });
     } else {
       sim.events.emit('melee', { x: hx, y: c.pos.y + 1.3, z: hz, hit: false });
@@ -1013,12 +1103,15 @@ export class CombatSystem {
    * Ignored, with no event, on the dead, the removed, and the player in god mode or while wasted / busted.
    * (dx, dz) is the direction the hit travels in. `credit` is who answers for a death by a hit with no attacker (the
    * flames of a car someone set alight): it counts for the kill only, not for the hit or the victim's reaction to it.
+   * Returns whether the hit was applied.
    */
-  damageCharacter(c: Character, amount: number, attacker: Character | null, kind: DamageKind, dx: number, _dy: number, dz: number, zone: HitZone = 'body', credit: Character | null = null): void {
+  damageCharacter(c: Character, amount: number, attacker: Character | null, kind: DamageKind, dx: number, _dy: number, dz: number, zone: HitZone = 'body', credit: Character | null = null): boolean {
     const sim = this.sim;
-    if (c.removed || !c.alive || !(amount > 0)) return;
-    if (c.isPlayer && this.slotFor(c).down) return;
-    if (c.isPlayer && this.slotFor(c).cheats.godMode) return;
+    if (c.removed || !c.alive || !(amount > 0)) return false;
+    if (c.isPlayer && this.slotFor(c).down) return false;
+    if (c.isPlayer && this.slotFor(c).cheats.godMode) return false;
+    // One crew never hurts its own (a stray round or a punch in the crowd round the player): no damage, no blood.
+    if (attacker && !attacker.isPlayer && !c.isPlayer && sim.peds.allied(c, attacker)) return false;
     let armourLoss = 0;
     if (c.armor > 0 && kind !== 'fall' && kind !== 'drown') {
       armourLoss = Math.min(c.armor, amount);
@@ -1041,16 +1134,17 @@ export class CombatSystem {
     sim.events.emit('damage', { victim: c, attacker, healthLoss, armourLoss, kind, zone, killed, dirX, dirZ });
     if (killed) {
       this.kill(c, attacker ?? credit, kind, dx, dz);
-      return;
+      return true;
     }
     if (attacker && attacker.isPlayer && !c.isPlayer && !this.isOutlaw(c)) {
       if (c.isLaw) this.reportAttack(c, 'assaultCop', c.pos.x, c.pos.z, attacker);
       else if (kind === 'melee' || kind === 'bullet') this.reportAttack(c, 'assault', c.pos.x, c.pos.z, attacker);
     }
-    if (!c.isPlayer) {
+    if (!c.isPlayer && !this.lingering) {
       if (c.isLaw) sim.police.onCopAttacked(c, attacker);
       else sim.peds.onAttacked(c, attacker);
     }
+    return true;
   }
 
   /**
@@ -1058,7 +1152,7 @@ export class CombatSystem {
    * hits by one culprit on one victim within ASSAULT_GAP of the last reported one: automatic fire adds heat no faster
    * than the pistol does.
    */
-  private reportAttack(victim: object, type: CrimeType, x: number, z: number, by: Character): void {
+  reportAttack(victim: object, type: CrimeType, x: number, z: number, by: Character): void {
     if (this.volley) {
       if (this.volley.has(victim)) return;
       this.volley.add(victim);
@@ -1193,6 +1287,13 @@ export class CombatSystem {
     if (v.health <= 0 && !v.burning) this.igniteVehicle(v, this.sim.rng.range(3.5, 5.5));
   }
 
+  /** Sets the vehicle alight as the doing of the one given (a molotov's flames): he answers for it when it burns out or blows up. */
+  igniteVehicleBy(v: Vehicle, seconds: number, by: Character | null): void {
+    if (v.destroyed || v.burning || this.sim.slotOf(v.driver)?.cheats.godMode) return;
+    if (by) this.damagedBy.set(v, by);
+    this.igniteVehicle(v, seconds);
+  }
+
   igniteVehicle(v: Vehicle, seconds: number): void {
     if (v.destroyed || v.burning) return;
     v.burning = true;
@@ -1225,9 +1326,14 @@ export class CombatSystem {
     this.explosion(v.pos.x, v.pos.y + 0.8, v.pos.z, 7.5, 360, blame, v);
   }
 
-  explosion(x: number, y: number, z: number, radius: number, damage: number, owner: Character | null, source: Vehicle | null): void {
+  /**
+   * A blast at (x, y, z). With water set it goes off in the sea (a rocket or a grenade there), which is no crime of
+   * itself: only one that catches someone or something is reported.
+   */
+  explosion(x: number, y: number, z: number, radius: number, damage: number, owner: Character | null, source: Vehicle | null, water = false): void {
     const sim = this.sim;
     sim.events.emit('explosion', { x, y, z, radius });
+    let caught = false;
     for (const c of sim.characters) {
       if (c.removed || c.state === 'inVehicle') continue;
       const dx = c.pos.x - x;
@@ -1235,6 +1341,7 @@ export class CombatSystem {
       const dz = c.pos.z - z;
       const d = Math.hypot(dx, dy, dz);
       if (d > radius) continue;
+      if (c !== owner) caught = true;
       // Walls shelter: the blast hurts and throws as much of him as it can see.
       const e = this.exposure(c, x, y, z);
       const f = (1 - d / radius) * e;
@@ -1255,6 +1362,7 @@ export class CombatSystem {
       const dz = v.pos.z - z;
       const d = Math.hypot(dx, v.pos.y + 0.8 - y, dz);
       if (d > radius + v.halfL * 0.5) continue;
+      caught = true;
       const f = clamp(1 - d / (radius + v.halfL * 0.5), 0, 1);
       const hl = Math.hypot(dx, dz) || 1;
       const massScale = clamp(1600 / v.spec.mass, 0.2, 1.4);
@@ -1278,7 +1386,7 @@ export class CombatSystem {
         if (owner && owner.isPlayer) h.shotBy = owner;
       }
     }
-    if (owner && owner.isPlayer) sim.wanted.crime('explosion', x, z, owner);
+    if (owner && owner.isPlayer && (!water || caught)) sim.wanted.crime('explosion', x, z, owner);
     sim.peds.onViolence(x, z, owner, 60);
   }
 
@@ -1331,7 +1439,7 @@ export class CombatSystem {
         if (tw <= step && (r.kind === 'none' || tw < r.t) && sim.world.waterDepth(wx, wz) > 0) {
           p.removed = true;
           sim.events.emit('splash', { x: wx, y: WATER_Y, z: wz, big: true });
-          this.explosion(wx, WATER_Y, wz, ROCKET_BLAST, WEAPONS.rocket.damage, p.owner, null);
+          this.explosion(wx, WATER_Y, wz, ROCKET_BLAST, WEAPONS.rocket.damage, p.owner, null, true);
           continue;
         }
       }

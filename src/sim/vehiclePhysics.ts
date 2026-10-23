@@ -313,6 +313,25 @@ function roofUnder(v: Vehicle, vehicles: readonly Vehicle[], y: number): typeof 
   return roofHit;
 }
 
+const NO_FLATS = { grip: 1, speed: 1, drag: 0, pull: 0 };
+
+/**
+ * What flat tyres (a police spike strip, Vehicle.flat) do to a car: a share of its grip (a flat front tyre costs the
+ * most, it steers on its rim), of its top speed, extra rolling drag (m/s^2), and a pull (rad/s at speed) towards the
+ * side with more flats.
+ */
+export function flatTyreEffect(v: Vehicle): { grip: number; speed: number; drag: number; pull: number } {
+  const f = v.flat;
+  if (!f[0] && !f[1] && !f[2] && !f[3]) return NO_FLATS;
+  const front = (f[0] ? 1 : 0) + (f[1] ? 1 : 0);
+  const rear = (f[2] ? 1 : 0) + (f[3] ? 1 : 0);
+  const left = (f[0] ? 1 : 0) + (f[2] ? 1 : 0);
+  const right = (f[1] ? 1 : 0) + (f[3] ? 1 : 0);
+  const n = front + rear;
+  // Positive yaw turns left (see the bicycle model: positive steer is right and gives negative yaw).
+  return { grip: 1 - 0.28 * Math.min(front, 1) - 0.06 * Math.max(front - 1, 0) - 0.05 * rear, speed: 1 - 0.035 * n, drag: 0.25 * n, pull: 0.05 * (left - right) };
+}
+
 export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): void {
   if (v.removed) return;
   const s = v.spec;
@@ -370,6 +389,7 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
   // The handbrake drift (a car at speed, on the ground): see DRIFT_*.
   const drift = handbrake && !v.airborne && s.class === 'car' && Math.abs(vF) > DRIFT_MIN_SPEED;
   const slipNow = drift ? Math.atan2(v.vel.x * -fz + v.vel.z * fx, Math.abs(vF)) : 0;
+  const tyres = flatTyreEffect(v);
 
   if (!v.airborne) {
     // --- Yaw (kinematic bicycle model limited by tyre grip) ---
@@ -377,8 +397,8 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     const wheelbase = s.length * 0.6;
     const maxSteer = steerLimit(s, speedAbs);
     const delta = -v.steer * maxSteer;
-    let yawTarget = (vF * Math.tan(delta)) / wheelbase;
-    const gripLimit = ((handbrake ? 2.0 : 1.12) * s.grip * v.tune.grip) / Math.max(speedAbs, 2.5);
+    let yawTarget = (vF * Math.tan(delta)) / wheelbase + tyres.pull * Math.min(1, speedAbs / 12);
+    const gripLimit = ((handbrake ? 2.0 : 1.12) * s.grip * v.tune.grip * tyres.grip) / Math.max(speedAbs, 2.5);
     yawTarget = clamp(yawTarget, -gripLimit, gripLimit);
     if (drift) {
       // Yaw assist into the slide, easing off as the slip angle passes DRIFT_SLIP so the tail does not swing all the
@@ -419,7 +439,7 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     // --- Longitudinal ---
     let accel = 0;
     if (throttle > 0.01) {
-      if (vF >= -0.5) accel += throttle * s.accel * v.tune.accel * engine * Math.max(0, 1 - (vF / s.maxSpeed) ** 2);
+      if (vF >= -0.5) accel += throttle * s.accel * v.tune.accel * engine * Math.max(0, 1 - (vF / (s.maxSpeed * tyres.speed)) ** 2);
       else {
         accel += throttle * s.brake * v.tune.brake;
         v.braking = true;
@@ -446,11 +466,12 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     if (!hasDriver) friction += 5.5; // parked: handbrake on
     if (handbrake) friction += drift ? DRIFT_FRICTION : 7.5;
     if (v.destroyed || v.flipped || v.toppled) friction += 9;
+    friction += tyres.drag;
     friction += wade * (WADE_DRAG * s.accel + 0.04 * vF * vF);
     vF = moveTowards(vF, 0, friction * dt);
 
     // --- Lateral grip ---
-    const grip = v.tune.grip * (drift ? s.grip * DRIFT_GRIP : handbrake ? s.grip * 0.3 : v.destroyed || v.flipped || v.toppled ? s.grip * 1.5 : s.grip) * (1 - 0.4 * wade);
+    const grip = v.tune.grip * (drift ? s.grip * DRIFT_GRIP : handbrake ? s.grip * 0.3 : v.destroyed || v.flipped || v.toppled ? s.grip * 1.5 : s.grip * tyres.grip) * (1 - 0.4 * wade);
     const skidLat = Math.abs(vR);
     const vR0 = vR;
     vR = moveTowards(vR, 0, grip * dt);

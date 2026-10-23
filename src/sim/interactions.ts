@@ -10,7 +10,7 @@ import { Inventory } from './entities';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import type { PlayerView } from './viewState';
-import { WEAPONS, type WeaponId } from './specs';
+import { WEAPON_ORDER, WEAPONS, weaponKindOf, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
 
 export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs';
@@ -55,7 +55,11 @@ function roomFor(inv: Inventory, weapon: WeaponId, ammo: number): boolean {
 
 export function shopItems(): ShopItem[] {
   const items: ShopItem[] = [];
-  for (const id of ['pistol', 'smg', 'shotgun', 'rifle', 'rocket'] as const) {
+  // Every weapon with a price: the first guns in key order, then the newer weapons from the cheapest up.
+  const sold = WEAPON_ORDER.filter((id) => WEAPONS[id] && WEAPONS[id].price > 0);
+  const first = sold.slice(0, 5);
+  const rest = sold.slice(5).sort((a, b) => WEAPONS[a].price - WEAPONS[b].price);
+  for (const id of [...first, ...rest]) {
     const w = WEAPONS[id];
     items.push({ id: `buy:${id}`, label: w.name, price: w.price, weapon: id, ammo: w.ammoPack });
   }
@@ -262,6 +266,8 @@ export class Interactions {
     if (item.weapon && p.inventory.has(item.weapon)) price = WEAPONS[item.weapon].ammoPrice;
     if (item.id === 'armor' && p.armor >= 100) return 'You are already wearing armor.';
     if (item.id === 'health' && p.health >= p.maxHealth) return 'You are already healthy.';
+    // A bat or a knife is bought once: there is no ammo to top up.
+    if (item.weapon && p.inventory.has(item.weapon) && weaponKindOf(item.weapon) === 'melee') return `You already have the ${WEAPONS[item.weapon].name}.`;
     if (item.weapon && !roomFor(p.inventory, item.weapon, item.ammo)) return "You can't carry any more.";
     if (!slot.progress.spend(price)) return "You can't afford that.";
     if (item.weapon) {

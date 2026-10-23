@@ -297,7 +297,41 @@ export interface WeaponPoints {
 
 const P = (x: number, y: number, z: number): V3 => ({ x, y, z });
 
-export type WeaponId = 'fists' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'rocket';
+export type WeaponId = 'fists' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'rocket' | 'bat' | 'knife' | 'grenade' | 'molotov' | 'sniper';
+
+/** How a weapon is used: swung (fists, bat, knife), fired (guns and the launcher) or thrown (grenade, molotov). */
+export type WeaponKind = 'melee' | 'gun' | 'thrown';
+
+/** A melee weapon's blow, beyond its spec's damage, rate and range. */
+export interface MeleeSpec {
+  /** Every hit on a man on his feet floors him (fists need three in a row). */
+  knockdown?: boolean;
+  /** A cut keeps bleeding: `dps` hit points a second for `seconds` after the hit. */
+  bleed?: { dps: number; seconds: number };
+  /**
+   * Combo: a swing made within `gap` seconds of the last one being ready again chains on it, and is ready again after
+   * `mul` of the full cooldown.
+   */
+  combo: { gap: number; mul: number };
+}
+
+/** A thrown weapon: how hard it leaves the hand, and what it does when it lands. */
+export interface ThrownSpec {
+  /** Launch speed (m/s) along the aim, tilted up by `loft` (rad). */
+  speed: number;
+  loft: number;
+  /** Grenade: seconds from the throw to the blast, and the blast's radius (m); its damage is the spec's. */
+  fuse?: number;
+  blast?: number;
+  /** Molotov: breaks on its first impact and sets the ground there alight. */
+  fire?: boolean;
+}
+
+/** A scoped rifle: field-of-view divisors of its zoom levels (the first is where the scope starts), and its sway (rad). */
+export interface ScopeSpec {
+  zooms: readonly number[];
+  sway: number;
+}
 
 export interface WeaponSpec {
   id: WeaponId;
@@ -331,6 +365,11 @@ export interface WeaponSpec {
    * ends 0.21, 0.37, 0.75, 0.705, 0.775 m); a weapon without it is held like the pistol. Fists have none.
    */
   points?: WeaponPoints;
+  /** How it is used; a weapon without one is a gun (fists are melee). */
+  kind?: WeaponKind;
+  melee?: MeleeSpec;
+  thrown?: ThrownSpec;
+  scope?: ScopeSpec;
 }
 
 export const WEAPONS: Readonly<Record<WeaponId, WeaponSpec>> = {
@@ -340,6 +379,12 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponSpec>> = {
   shotgun: { id: 'shotgun', name: 'Shotgun', slot: 3, damage: 13, rate: 1.15, mag: 6, reload: 2.3, spread: 0.075, range: 42, pellets: 9, auto: false, projectile: false, price: 1400, ammoPrice: 140, ammoPack: 24, twoHanded: true, headMul: 1.5, flashSize: 0.55, icon: '<svg viewBox="0 0 64 40"><path d="M2 15h48l10 1v3H40l-4 2H26l-8 9H8l7-10H2z"/></svg>', points: { tip: P(0, 0, 0.75), grip: P(0, -0.07, 0.05), fore: P(0, -0.055, 0.31), stock: P(0, -0.04, -0.245), reload: P(0, -0.055, 0.3) } },
   rifle: { id: 'rifle', name: 'Assault Rifle', slot: 4, damage: 32, rate: 7, mag: 30, reload: 2.0, spread: 0.018, range: 180, pellets: 1, auto: true, projectile: false, price: 3500, ammoPrice: 200, ammoPack: 120, twoHanded: true, headMul: 4, flashSize: 0.4, icon: '<svg viewBox="0 0 64 40"><path d="M2 14h52l8 2v3H44l-3 3h-5l-2 10h-6l2-10h-5l-5 9h-8l5-10H2z M30 12h8v2h-8z"/></svg>', points: { tip: P(0, 0, 0.705), grip: P(0, -0.1, 0.06), fore: P(0, -0.065, 0.29), stock: P(0, -0.03, -0.25), reload: P(0, -0.2, 0.12) } },
   rocket: { id: 'rocket', name: 'Rocket Launcher', slot: 5, damage: 420, rate: 0.7, mag: 1, reload: 2.2, spread: 0.004, range: 260, pellets: 1, auto: false, projectile: true, price: 8000, ammoPrice: 900, ammoPack: 4, twoHanded: true, headMul: 1, flashSize: 0.6, icon: '<svg viewBox="0 0 64 40"><path d="M2 14h50l8 4-8 4H2z M18 22h6l2 10h-6z M34 22h5l1 6h-5z"/></svg>', points: { tip: P(0, 0.08, 0.775), grip: P(0, -0.075, 0.1), fore: P(0, -0.02, 0.32), stock: P(0, 0.08, 0.2), reload: P(0, 0.06, -0.36) } },
+  // Melee weapons and throwables keep no magazine: a melee weapon's ammo means nothing, a throwable's is how many are left.
+  bat: { id: 'bat', name: 'Baseball Bat', slot: 6, damage: 30, rate: 1.5, mag: 0, reload: 0, spread: 0, range: 2.0, pellets: 1, auto: false, projectile: false, price: 100, ammoPrice: 0, ammoPack: 1, twoHanded: false, headMul: 1, flashSize: 0, kind: 'melee', melee: { knockdown: true, combo: { gap: 0.6, mul: 0.6 } }, icon: '<svg viewBox="0 0 64 40"><path d="M6 25l40-12c4-1 9-1 12 1 2 2 1 5-2 6L16 30c-3 1-6 1-8 0z M4 26l4 4-3 2-3-3z"/></svg>' },
+  knife: { id: 'knife', name: 'Combat Knife', slot: 6, damage: 20, rate: 2.4, mag: 0, reload: 0, spread: 0, range: 1.5, pellets: 1, auto: false, projectile: false, price: 180, ammoPrice: 0, ammoPack: 1, twoHanded: false, headMul: 1, flashSize: 0, kind: 'melee', melee: { bleed: { dps: 6, seconds: 4 }, combo: { gap: 0.5, mul: 0.55 } }, icon: '<svg viewBox="0 0 64 40"><path d="M4 22h18v-5h4v5h4c12 0 22-6 30-12-4 9-14 18-30 18h-4v4h-4v-4H4z"/></svg>' },
+  grenade: { id: 'grenade', name: 'Grenade', slot: 7, damage: 330, rate: 1.1, mag: 0, reload: 0, spread: 0, range: 40, pellets: 1, auto: false, projectile: false, price: 600, ammoPrice: 450, ammoPack: 4, twoHanded: false, headMul: 1, flashSize: 0, kind: 'thrown', thrown: { speed: 15, loft: 0.3, fuse: 3, blast: 7 }, icon: '<svg viewBox="0 0 64 40"><path d="M32 12c8 0 13 6 13 13s-5 12-13 12-13-5-13-12 5-13 13-13z M27 6h10v5H27z M37 7l8-3 1 3-8 3z"/></svg>' },
+  molotov: { id: 'molotov', name: 'Molotov Cocktail', slot: 7, damage: 0, rate: 1.1, mag: 0, reload: 0, spread: 0, range: 40, pellets: 1, auto: false, projectile: false, price: 400, ammoPrice: 300, ammoPack: 4, twoHanded: false, headMul: 1, flashSize: 0, kind: 'thrown', thrown: { speed: 14, loft: 0.3, fire: true }, icon: '<svg viewBox="0 0 64 40"><path d="M28 4h8v9c5 3 7 7 7 12v11H21V25c0-5 2-9 7-12z M30 0c3 1 4 3 2 5-2-1-3-3-2-5z"/></svg>' },
+  sniper: { id: 'sniper', name: 'Sniper Rifle', slot: 8, damage: 120, rate: 0.8, mag: 5, reload: 2.6, spread: 0.0015, range: 320, pellets: 1, auto: false, projectile: false, price: 6500, ammoPrice: 400, ammoPack: 20, twoHanded: true, headMul: 5, flashSize: 0.45, scope: { zooms: [4, 8], sway: 0.0022 }, icon: '<svg viewBox="0 0 64 40"><path d="M0 16h56l8 1v2H38l-3 2h-5l-4 9h-8l4-9h-5l-6 8H3l5-9H0z M22 10h14v4H22z"/></svg>', points: { tip: P(0, 0, 1.02), grip: P(0, -0.1, 0.06), fore: P(0, -0.06, 0.36), stock: P(0, -0.03, -0.27), reload: P(0, -0.16, 0.14) } },
 };
 
 /** Muzzle flash of a weapon with no `flashSize` of its own (m across). */
@@ -363,8 +408,43 @@ export function weaponIconOf(id: WeaponId): string {
   return weaponSpecOf(id)?.icon ?? DEFAULT_WEAPON_ICON;
 }
 
+/** How a weapon is used (see WeaponSpec.kind): fists and any weapon with no spec of its own count as melee. */
+export function weaponKindOf(id: WeaponId): WeaponKind {
+  const s = weaponSpecOf(id);
+  if (!s || id === 'fists') return 'melee';
+  return s.kind ?? 'gun';
+}
+
+/** A gun (or the launcher): something aimed and fired from a barrel, posed and drawn as one. */
+export function isGun(id: WeaponId): boolean {
+  return weaponKindOf(id) === 'gun';
+}
+
 /**
  * The weapons in number-key order: key N selects WEAPON_ORDER[N - 1] (input/input.ts), and a weapon added to WEAPONS
- * gets the next key by being added here. Mutable so that tests can add a fixture weapon at runtime.
+ * gets the next key by being added here. Weapons that share a spec `slot` share the key of the first of them (see
+ * weaponForKey): key 7 is the bat or the knife, key 8 a grenade or a molotov, key 9 the sniper rifle. Mutable so that
+ * tests can add a fixture weapon at runtime.
  */
-export const WEAPON_ORDER: WeaponId[] = ['fists', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket'];
+export const WEAPON_ORDER: WeaponId[] = ['fists', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket', 'bat', 'grenade', 'sniper', 'knife', 'molotov'];
+
+/**
+ * The weapon number key `index` (0 for key 1) draws for someone who owns `has` and holds `current`: WEAPON_ORDER[index]
+ * and the weapons of its spec slot, in WEAPON_ORDER order; pressed again while one of them is in hand, the next one owned.
+ * Null when he owns none of them.
+ */
+export function weaponForKey(index: number, has: (id: WeaponId) => boolean, current: WeaponId): WeaponId | null {
+  const base = WEAPON_ORDER[index];
+  if (!base) return null;
+  const slot = weaponSpecOf(base)?.slot;
+  const group = WEAPON_ORDER.filter((id) => id === base || (slot !== undefined && weaponSpecOf(id)?.slot === slot));
+  const owned = group.filter(has);
+  if (owned.length === 0) return null;
+  const i = owned.indexOf(current);
+  return i < 0 ? owned[0]! : owned[(i + 1) % owned.length]!;
+}
+
+/** How many number keys select weapons (input/input.ts reads keys 1-9). */
+export function weaponKeyCount(): number {
+  return Math.min(9, WEAPON_ORDER.length);
+}

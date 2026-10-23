@@ -15,6 +15,7 @@ import type { MissionSystem } from './missions/runner';
 import type { PlayerController } from './player';
 import type { PlayerCheats, PlayerTag } from './playerSlot';
 import type { Progress } from './progress';
+import type { SpikeStrip } from './roadblocks';
 import type { WantedSystem } from './wanted';
 import type { WeatherSystem } from './weather';
 
@@ -43,7 +44,8 @@ export interface PlayerView {
 export type MissionView = Pick<MissionSystem, 'active' | 'defs' | 'offers' | 'retryOffer' | 'retryMenuOffer' | 'retryAfterCops'>;
 export type ActivitiesView = Pick<Activities, 'busy' | 'job' | 'objectives' | 'status' | 'streetRunCourses' | 'jobPrompt'>;
 export type InteractionsView = Pick<Interactions, 'markers' | 'current' | 'canSave' | 'prompt' | 'priceOf' | 'buy'>;
-export type CombatView = Pick<CombatSystem, 'muzzleBlocked'>;
+/** Throws in flight and ground fires are optional: a view without them draws none. */
+export type CombatView = Pick<CombatSystem, 'muzzleBlocked'> & Partial<Pick<CombatSystem, 'throws' | 'fire'>>;
 
 export interface ViewState {
   readonly world: StaticWorld;
@@ -64,6 +66,8 @@ export interface ViewState {
   readonly activities: ActivitiesView;
   readonly interactions: InteractionsView;
   readonly combat: CombatView;
+  /** Police spike strips on the road (optional: a view without them draws none). */
+  readonly roadblocks?: { readonly strips: readonly SpikeStrip[] };
 }
 
 /** The local player's seat: the slot with that id, or the first one while it has not joined yet. */
