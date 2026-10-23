@@ -3,7 +3,8 @@
 // nothing is charged to the driver for him.
 
 import { describe, expect, it } from 'vitest';
-import type { Character, DamageKind } from '../../src/sim/entities';
+import type { DamageKind } from '../../src/sim/combat';
+import type { Character } from '../../src/sim/entities';
 import { DROWN_AFTER, drownsInSinkingCar } from '../../src/sim/sinking';
 import { SWIM_DEPTH, WATER_Y } from '../../src/world/constants';
 import { makeSim, step } from './helpers';
