@@ -227,12 +227,17 @@ test.describe('GTA 7', () => {
     });
     await page.waitForTimeout(300);
     await page.keyboard.press('KeyE');
+    // Three save slots (wave 1): the picker opens on the first, empty slot.
+    await expect(page.locator('button[data-id="slot1"]')).toBeVisible();
+    await page.waitForTimeout(350);
+    await page.keyboard.press('Enter');
     await expect(page.locator('.toast')).toContainText('saved');
     const saved = await state(page);
     await page.reload();
     await page.waitForFunction(() => (window as Api).__gta7?.state().frames > 20, null, { timeout: 90_000 });
     await expect(page.locator('button[data-id="continue"]')).toBeEnabled();
     await page.click('button[data-id="continue"]');
+    await page.click('button[data-id="slot1"]');
     await page.waitForFunction(() => (window as Api).__gta7.state().mode === 'game');
     const s = await state(page);
     expect(s.money).toBe(saved.money);
@@ -478,9 +483,11 @@ test.describe('GTA 7 menus', () => {
     await page.reload();
     await page.waitForFunction(() => (window as Api).__gta7?.state().frames > 20, null, { timeout: 90_000 });
   };
-  /** Saves the game as at the safehouse. */
+  /** Saves the game as at the safehouse, into slot 1 (asked to overwrite it, says yes). */
   const save = async (page: Page) => {
     await page.evaluate(() => (window as Api).__gta7.sim.events.emit('saveRequested', { poi: 'safehouse' }));
+    await page.click('button[data-id="slot1"]');
+    if (await page.locator('button[data-id="yes"]').isVisible()) await page.click('button[data-id="yes"]');
     await expect(page.locator('.toast')).toHaveText('Game saved');
   };
 
@@ -491,7 +498,8 @@ test.describe('GTA 7 menus', () => {
     await save(page);
     await reboot(page);
     await page.click('button[data-id="new"]');
-    await expect(page.locator('.panel p:visible')).toContainText('Start a new game? Your saved game will be replaced the next time the game saves');
+    // With three save slots the new game autosaves into an empty one, and says which.
+    await expect(page.locator('.panel p:visible')).toContainText('Start a new game? It will autosave into empty slot 2');
     await expect(page.locator('button[data-id="no"]')).toHaveClass(/sel/);
     await expect(page.locator('button[data-id="yes"]')).not.toHaveClass(/sel/);
     // A second press of the key (mashing through the menu) answers NO.
@@ -499,7 +507,7 @@ test.describe('GTA 7 menus', () => {
     await page.keyboard.press('Enter');
     await expect(page.locator('button[data-id="continue"]')).toBeVisible();
     expect((await state(page)).mode).toBe('title');
-    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('gta7.save.v1')!).money)).toBe(250 + 1234);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('gta7.save.slot1')!).money)).toBe(250 + 1234);
     // The e2e helper (and the playtest script's) says YES.
     await newGame(page);
     expect((await state(page)).money).toBe(250);
@@ -678,6 +686,7 @@ test.describe('GTA 7 menus', () => {
     await reboot(page);
     await expect(page.locator('button[data-id="continue"]')).toBeEnabled();
     await page.click('button[data-id="continue"]');
+    await page.click('button[data-id="slot1"]');
     await page.waitForFunction(() => (window as Api).__gta7.state().mode === 'game');
     expect((await state(page)).money).toBe(money);
     await page.evaluate(() => {
@@ -685,6 +694,8 @@ test.describe('GTA 7 menus', () => {
       g.markDone('wheels', 'delivery', 'repo');
       g.sim.events.emit('saveRequested', { poi: 'safehouse' });
     });
+    await page.click('button[data-id="slot1"]');
+    await page.click('button[data-id="yes"]');
     await expect(page.locator('.toast')).toHaveText('Could not save: browser storage is full');
     expect(errors).toEqual([]);
   });

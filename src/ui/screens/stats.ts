@@ -53,6 +53,6 @@ export function showStats(ctx: MenuCtx): void {
   const checklist = completionRows(sim, me)
     .map((r) => `<span>${escapeHtml(`${COMPLETION_GROUP_NAMES[r.group] ?? r.group}: ${r.label}`)}</span><span>${r.done} / ${r.total}</span>`)
     .join('');
-  panel.innerHTML = `<h2>STATS</h2><div class="stat-grid">${rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('')}</div><h3>Checklist</h3><div class="stat-grid stat-checklist">${checklist}</div><h3>Street run records</h3><div class="run-records">${runs}</div>`;
+  panel.innerHTML = `<h2>STATS</h2><div class="stat-grid">${rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('')}</div><h3>Checklist</h3><div class="stat-checklist">${checklist}</div><h3>Street run records</h3><div class="run-records">${runs}</div>`;
   pushScrolling(ctx, el, panel);
 }

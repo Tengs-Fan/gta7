@@ -2370,3 +2370,17 @@ body {
 .check-row.none {
   color: var(--muted);
 }
+
+/* STATS: the completion checklist, as on the map screen. */
+.stat-checklist {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 20px;
+  font-size: 17px;
+}
+
+.stat-checklist span:nth-child(2n) {
+  font-weight: 700;
+  color: #ffe3a0;
+  text-align: right;
+}
