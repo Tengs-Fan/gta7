@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ContactShadows } from '../../src/render/contactShadows';
+import { ContactShadows, shadesContact } from '../../src/render/contactShadows';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -15,32 +15,50 @@ describe('contact shadow scene isolation', () => {
     expect(blend).toHaveBeenCalledOnce();
   });
 
-  it.each([false, true])('keeps glass and light pools out of depth and restores scene state (error=%s)', (fail) => {
+  // Revised for track D: the depth and normal pass now redraws the frame's opaque render list instead of hiding
+  // objects and walking the scene again, so the selection is checked on render items (shadesContact).
+  it('keeps glass, light pools, opted-out batches, points and far things out of depth', () => {
+    const geometry = new THREE.BoxGeometry();
+    geometry.computeBoundingSphere();
+    const item = (object: THREE.Object3D, material: THREE.Material) => ({ object, geometry, material, group: null });
+    const mesh = (m: THREE.Material, x = 0) => {
+      const o = new THREE.Mesh(geometry, m);
+      o.position.set(x, 0, 0);
+      o.updateMatrixWorld();
+      return o;
+    };
+    const eye = new THREE.Vector3();
+    const solid = new THREE.MeshStandardMaterial();
+    expect(shadesContact(item(mesh(solid), solid), eye, 110)).toBe(true);
+    const glass = new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.4 });
+    expect(shadesContact(item(mesh(glass), glass), eye, 110)).toBe(false);
+    const glow = new THREE.MeshBasicMaterial({ depthWrite: false });
+    expect(shadesContact(item(mesh(glow), glow), eye, 110)).toBe(false);
+    const foliage = new THREE.MeshStandardMaterial();
+    foliage.userData.contactShadow = false;
+    expect(shadesContact(item(mesh(foliage), foliage), eye, 110)).toBe(false);
+    const optedOut = mesh(solid);
+    optedOut.userData.contactShadow = false;
+    expect(shadesContact(item(optedOut, solid), eye, 110)).toBe(false);
+    const points = new THREE.PointsMaterial();
+    expect(shadesContact(item(new THREE.Points(geometry, points), points), eye, 110)).toBe(false);
+    // Beyond the range (a unit box's bounding sphere reaches 0.87 m towards the eye).
+    expect(shadesContact(item(mesh(solid, 110.5), solid), eye, 110)).toBe(true);
+    expect(shadesContact(item(mesh(solid, 111.5), solid), eye, 110)).toBe(false);
+    for (const m of [solid, glass, glow, foliage, points]) m.dispose();
+    geometry.dispose();
+  });
+
+  it.each([false, true])('restores scene state after the pass (error=%s)', (fail) => {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x123456);
     const background = scene.background;
     const override = new THREE.MeshBasicMaterial();
     scene.overrideMaterial = override;
-    const geometry = new THREE.BoxGeometry();
-    const solid = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
-    const glass = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.4 }));
-    const glow = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ depthWrite: false }));
-    const hidden = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ transparent: true }));
-    hidden.visible = false;
-    const foliage = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
-    foliage.material.userData.contactShadow = false;
-    const particles = new THREE.Points(geometry, new THREE.PointsMaterial());
-    scene.add(solid, glass, glow, hidden, particles, foliage);
     const renderer = { shadowMap: { autoUpdate: true } } as unknown as THREE.WebGLRenderer;
     const pass = new ContactShadows(scene, new THREE.PerspectiveCamera());
     const buffer = new THREE.WebGLRenderTarget(32, 32);
     vi.spyOn(GTAOPass.prototype, 'render').mockImplementation(() => {
-      expect(solid.visible).toBe(true);
-      expect(glass.visible).toBe(false);
-      expect(glow.visible).toBe(false);
-      expect(hidden.visible).toBe(false);
-      expect(particles.visible).toBe(false);
-      expect(foliage.visible).toBe(false);
       expect(scene.background).toBeNull();
       expect(renderer.shadowMap.autoUpdate).toBe(false);
       scene.overrideMaterial = pass.normalMaterial;
@@ -48,20 +66,11 @@ describe('contact shadow scene isolation', () => {
     });
     if (fail) expect(() => pass.render(renderer, buffer, buffer)).toThrow('context unavailable');
     else pass.render(renderer, buffer, buffer);
-    expect(glass.visible).toBe(true);
-    expect(glow.visible).toBe(true);
-    expect(hidden.visible).toBe(false);
-    expect(particles.visible).toBe(true);
-    expect(foliage.visible).toBe(true);
     expect(scene.background).toBe(background);
     expect(scene.overrideMaterial).toBe(override);
     expect(renderer.shadowMap.autoUpdate).toBe(true);
     pass.dispose();
     buffer.dispose();
-    geometry.dispose();
-    for (const mesh of [solid, glass, glow, hidden]) mesh.material.dispose();
     override.dispose();
-    particles.material.dispose();
-    foliage.material.dispose();
   });
 });

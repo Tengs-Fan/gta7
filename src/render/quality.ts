@@ -53,11 +53,22 @@ export const QUALITY: Readonly<Record<QualityTier, Readonly<TierSpec>>> = {
   low: { dprCap: 1, renderScale: 0.67, msaa: false, aa: 'fxaa', grade: true, shadows: false, shadowSize: 1024, bloom: false, pointLights: 'none', headlight: false, headlightPools: 12, rainDrops: 1500, wetGround: 'simple', tyreSpray: false, waterGrid: false, vehicleDistance: 150, trafficDensity: 0.75, pedDensity: 0.75 },
 };
 
-/** The renderer's pixel ratio at a tier on a display with this devicePixelRatio. */
-export function pixelRatioFor(tier: QualityTier, devicePixelRatio: number): number {
+/**
+ * Most pixels High draws (its drawing buffer). A Retina laptop at High's dprCap of 1.5 would draw 2880 x 1620 = 4.7 MP
+ * for a 1920 x 1080 window and be held back by the GPU; at a 1080p dpr-1 window (2.1 MP) the budget changes nothing.
+ */
+export const HIGH_PIXEL_BUDGET = 3.5e6;
+
+/**
+ * The renderer's pixel ratio at a tier on a display with this devicePixelRatio. Given the canvas size in CSS pixels,
+ * High also keeps its drawing buffer within HIGH_PIXEL_BUDGET.
+ */
+export function pixelRatioFor(tier: QualityTier, devicePixelRatio: number, cssWidth?: number, cssHeight?: number): number {
   const t = QUALITY[tier];
   const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
-  return Math.min(dpr, t.dprCap) * t.renderScale;
+  const r = Math.min(dpr, t.dprCap) * t.renderScale;
+  if (tier !== 'high' || !cssWidth || !cssHeight || !(cssWidth > 0) || !(cssHeight > 0)) return r;
+  return Math.min(r, Math.sqrt(HIGH_PIXEL_BUDGET / (cssWidth * cssHeight)));
 }
 
 /**

@@ -81,7 +81,8 @@ export class SoftwareMaterials {
   /** Safe to repeat: vehicle damage swaps original material references during sync. */
   apply(root: THREE.Object3D): void {
     root.traverse((o) => {
-      if (!(o instanceof THREE.Mesh)) return;
+      // Vehicle parts are drawn by the part batches, whose own meshes get software materials.
+      if (!(o instanceof THREE.Mesh) || o.userData.batched) return;
       o.material = Array.isArray(o.material) ? o.material.map((m) => this.material(m)) : this.material(o.material);
       if (Array.isArray(o.material) && o.material.every((m) => m === o.material[0])) o.material = o.material[0]!;
     });
