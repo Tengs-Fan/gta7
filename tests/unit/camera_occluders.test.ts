@@ -428,43 +428,80 @@ describe('the props view dissolves poles and trunks through uniforms only', () =
 
 describe('the floating diamond of the marker he stands in fades while he aims there', () => {
   const m = { id: 'save:t', kind: 'save' as const, x: 0, z: 0, radius: 1.5, label: '', color: 0x55ccff, ref: '' };
-  /** The diamond's size (its fade) after `frames` frames at 60 fps, the camera 2.4 m behind him as when aiming. */
-  function diamond(view: MarkerView, player: { x: number; z: number }, aiming: boolean, frames: number, t0: number): { icon: number; beam: number; t: number } {
+  /** The diamond's opacity, size and material after `frames` frames at 60 fps, the camera 2.4 m behind him as when aiming. */
+  function diamond(view: MarkerView, player: { x: number; z: number }, aiming: boolean, frames: number, t0: number) {
     let t = t0;
     for (let i = 0; i < frames; i++) {
       t += 1 / 60;
       view.syncMarkers([m], t, { x: player.x - 0.62, y: 2.0, z: player.z - 2.4 }, player, aiming);
     }
     const g = view.group.children[0]!;
-    return { icon: g.getObjectByName('icon')!.scale.x, beam: ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity, t };
+    const icon = g.getObjectByName('icon') as THREE.Mesh;
+    const mat = icon.material as THREE.MeshStandardMaterial;
+    return {
+      opacity: icon.visible ? mat.opacity : 0,
+      scale: icon.scale.x,
+      mat,
+      beam: ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity,
+      t,
+    };
   }
 
-  it('in a marker: gone within about a quarter second of aiming, back once he lets go, the beam untouched', () => {
+  it('in a marker: faded out by opacity within about a fifth of a second of aiming, back once he lets go, the beam untouched', () => {
     const view = new MarkerView();
     const at = { x: 0.3, z: 0.2 };
     let d = diamond(view, at, false, 30, 0);
-    expect(d.icon).toBe(1);
-    d = diamond(view, at, true, 2, d.t);
+    expect(d.opacity).toBe(1);
+    expect(d.scale).toBe(1);
+    expect(d.mat.depthWrite).toBe(true);
+    const mat = d.mat;
+    const version = mat.version;
+    d = diamond(view, at, true, 3, d.t);
     // Fading, not popping.
-    expect(d.icon).toBeLessThan(1);
-    expect(d.icon).toBeGreaterThan(0.5);
-    d = diamond(view, at, true, 15, d.t);
-    expect(d.icon).toBe(0);
+    expect(d.opacity).toBeLessThan(1);
+    expect(d.opacity).toBeGreaterThan(0.5);
+    expect(d.mat.depthWrite).toBe(false);
+    // Not after 0.1 s, but by 0.25 s.
+    d = diamond(view, at, true, 3, d.t);
+    expect(d.opacity).toBeGreaterThan(0);
+    d = diamond(view, at, true, 9, d.t);
+    expect(d.opacity).toBe(0);
+    // It fades rather than shrinking away.
+    expect(d.scale).toBeGreaterThanOrEqual(0.75);
     expect(d.beam).toBe(0.28);
     d = diamond(view, at, false, 15, d.t);
-    expect(d.icon).toBe(1);
+    expect(d.opacity).toBe(1);
+    expect(d.scale).toBe(1);
+    expect(d.mat.depthWrite).toBe(true);
+    // The same always-transparent material throughout: no new shader program for the fade.
+    expect(d.mat).toBe(mat);
+    expect(mat.transparent).toBe(true);
+    expect(mat.version).toBe(version);
   });
 
   it('aiming outside a marker leaves its diamond alone, and stepping out while aiming brings it back', () => {
     const view = new MarkerView();
     // 6 m away, the camera far from it: drawn in full whether or not he aims.
     let d = diamond(view, { x: 0, z: -6 }, true, 30, 0);
-    expect(d.icon).toBe(1);
-    // In it and aiming: gone.
+    expect(d.opacity).toBe(1);
+    // In it and aiming: faded out.
     d = diamond(view, { x: 0, z: 0 }, true, 30, d.t);
-    expect(d.icon).toBe(0);
+    expect(d.opacity).toBe(0);
     // Walked well out of it, still aiming, with the camera far from it again: back in full.
     d = diamond(view, { x: 0, z: -7 }, true, 30, d.t);
-    expect(d.icon).toBe(1);
+    expect(d.opacity).toBe(1);
+  });
+
+  it('one marker fading leaves another of the same colour solid', () => {
+    const view = new MarkerView();
+    const other = { ...m, id: 'save:u', x: 30 };
+    let t = 0;
+    for (let i = 0; i < 30; i++) {
+      t += 1 / 60;
+      view.syncMarkers([m, other], t, { x: -0.62, y: 2.0, z: -2.4 }, { x: 0, z: 0 }, true);
+    }
+    const [a, b] = view.group.children.map((g) => (g.getObjectByName('icon') as THREE.Mesh).material as THREE.MeshStandardMaterial);
+    expect(a!.opacity).toBe(0);
+    expect(b!.opacity).toBe(1);
   });
 });
