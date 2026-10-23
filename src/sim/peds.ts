@@ -318,6 +318,12 @@ export class PedSystem {
       case 'guard':
         this.doGuard(c, b, dt);
         break;
+      case 'phone':
+        // On the phone to the police (witnesses.ts): he stands and talks until the call is over.
+        c.moveSpeed = 0;
+        b.modeTimer -= dt;
+        if (c.phoneTimer <= 0 || b.modeTimer <= 0) b.mode = 'wander';
+        break;
       case 'stand':
       case 'chase':
       case 'return':

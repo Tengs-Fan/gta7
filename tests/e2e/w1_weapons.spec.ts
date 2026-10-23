@@ -14,6 +14,8 @@ test('number keys, the wheel and the pad cycle draw the new weapons; a bat floor
   await page.evaluate(() => {
     const g = (window as Api).__gta7;
     g.godMode(true);
+    // Witnesses would phone the bat swing and the blasts in, and the police would come for him mid-test.
+    g.sim.cheats.neverWanted = true;
     for (const w of ['bat', 'knife', 'grenade', 'molotov', 'sniper']) g.give(w, 6);
     g.sim.player.inventory.current = 'fists';
   });

@@ -41,6 +41,7 @@ const PASSED = 30;
 const PASSED_FAR = 90;
 /** A cruiser holding up a police unit this long (s) drives off to make way. */
 const MAKE_WAY = 2.5;
+const MAX_UNITS = 7;
 
 export interface SpikeStrip {
   id: number;
@@ -323,7 +324,10 @@ export class RoadblockSystem implements SimSystem {
     this.parked.delete(v);
     if (o) this.posted.delete(o);
     if (v.removed || v.destroyed || v.driver) return;
-    if (!o || o.removed || !o.alive || o.state !== 'normal' || Math.hypot(o.pos.x - v.pos.x, o.pos.z - v.pos.z) > 8) {
+    // No more crewed units than the police ever send out (PoliceSystem's UNITS_BY_LEVEL tops out at 7).
+    let units = 0;
+    for (const u of sim.vehicles) if (!u.removed && u.owner === 'police' && u.drivable && u.occupants().some((c) => c.isLaw && c.alive)) units++;
+    if (units >= MAX_UNITS || !o || o.removed || !o.alive || o.state !== 'normal' || Math.hypot(o.pos.x - v.pos.x, o.pos.z - v.pos.z) > 8) {
       if (!sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) sim.removeVehicle(v);
       return;
     }

@@ -202,6 +202,8 @@ export class CrowdView {
   readonly group = new THREE.Group();
   private readonly parts: Record<PartName, Part>;
   private readonly weapons = new Map<WeaponId, Part>();
+  /** A witness's phone held to his ear (Character.phoneTimer). */
+  private readonly phone: Part;
   /** Per-character pose smoothing: the lying angle, and the gait and airborne weights. */
   private readonly lie = new Map<number, Anim>();
   /** Hide this character id (e.g. the player in first-person-ish shots). */
@@ -261,6 +263,8 @@ export class CrowdView {
       rocket: mergeAll([new THREE.CylinderGeometry(0.09, 0.09, 1.15, 10).rotateX(Math.PI / 2).translate(0, 0.08, 0.2), box(0.05, 0.14, 0.06, 0, -0.06, 0.1)]),
     };
     weaponGeo.sniper = mergeAll([box(0.05, 0.08, 1.2, 0, 0, 0.42), box(0.05, 0.16, 0.06, 0, -0.11, 0.06), box(0.06, 0.12, 0.25, 0, -0.03, -0.15), new THREE.CylinderGeometry(0.03, 0.03, 0.3, 8).rotateX(Math.PI / 2).translate(0, 0.08, 0.15)]);
+    this.phone = make(box(0.05, 0.1, 0.016, 0, 0.03, 0), MAX);
+    this.phone.mesh.name = 'held-phone';
     for (const id of ['bat', 'knife', 'grenade', 'molotov'] as const) {
       const geo = heldGeometry(id);
       if (!geo) continue;
@@ -321,6 +325,7 @@ export class CrowdView {
   sync(chars: readonly Character[], camX: number, camZ: number, dt: number, localCharacterId = -1): void {
     for (const p of Object.values(this.parts)) p.n = 0;
     for (const p of this.weapons.values()) p.n = 0;
+    this.phone.n = 0;
     this.frame++;
     this.time += dt;
     this.player = null;
@@ -359,6 +364,7 @@ export class CrowdView {
     };
     for (const p of Object.values(this.parts)) finish(p);
     for (const p of this.weapons.values()) finish(p);
+    finish(this.phone);
   }
 
   // ---------------------------------------------------------------------------
@@ -677,6 +683,14 @@ export class CrowdView {
       pole.copy(up).negate().addScaledVector(left, -0.4).addScaledVector(fwd, -0.3);
       this.armTo(S.shR, S.targetR, pole, left, c);
       rightDone = true;
+    } else if (c.phoneTimer > 0 && !held) {
+      // On the phone to the police: the right hand up at the ear, the phone in it.
+      S.targetR.copy(S.neck).addScaledVector(up, 0.17 * s).addScaledVector(left, -0.11).addScaledVector(fwd, 0.03);
+      pole.copy(up).negate().addScaledVector(left, -0.9).addScaledVector(fwd, 0.2);
+      this.armTo(S.shR, S.targetR, pole, left, c);
+      rightDone = true;
+      S.inst.makeBasis(S.bx.copy(fwd), S.by.copy(up), S.bz.copy(left).negate()).setPosition(S.hand.x + left.x * 0.03, S.hand.y, S.hand.z + left.z * 0.03);
+      this.put(this.phone, S.inst, 0x1c1c22);
     }
     // Free arms swing with the gait, and go out for balance in the air.
     const air = anim.air;

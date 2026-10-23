@@ -273,10 +273,37 @@ export class GangSystem implements SimSystem {
     }
   }
 
+  /**
+   * Gang cars count towards the traffic the city streams round the player (TrafficSystem.targetCount): at that number,
+   * an ordinary car well out of his view makes way for the next one.
+   */
+  private makeRoom(): boolean {
+    const sim = this.sim;
+    const pp = sim.playerPos();
+    let count = 0;
+    let spare: Vehicle | null = null;
+    let spareD = 0;
+    for (const v of sim.vehicles) {
+      if (v.removed || v.owner !== 'traffic' || !v.driver || v.driver.isPlayer || v.destroyed) continue;
+      count++;
+      if (v.driver.gang || v.persistent) continue;
+      const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
+      if (d > 90 && d > spareD && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
+        spare = v;
+        spareD = d;
+      }
+    }
+    if (count < sim.traffic.targetCount) return true;
+    if (!spare) return false;
+    sim.removeVehicle(spare);
+    return true;
+  }
+
   /** A gang car on a lane inside `gang`'s turf, 70-170 m from the player and out of his view, its driver a member. */
   spawnCar(gang: GangId, near = false): Vehicle | null {
     const sim = this.sim;
     const pp = sim.playerPos();
+    if (!this.makeRoom()) return null;
     const lanes = this.turfLanes(gang);
     if (lanes.length === 0) return null;
     for (let tries = 0; tries < 12; tries++) {

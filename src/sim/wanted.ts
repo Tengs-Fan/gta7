@@ -130,7 +130,23 @@ export class WantedSystem {
     }
     if (!sim.policeEnabled || this.slot.cheats.neverWanted || this.slot.down) return;
     const def = CRIMES[type];
-    if (def.witness === 'cop' && !this.copWitness(x, z)) return;
+    if (def.witness === 'cop' && !this.copWitness(x, z)) {
+      // No officer saw it: a civilian who did may phone it in (witnesses.ts).
+      if (sim.streetCrime.witnesses) sim.witnesses.witnessed(type, x, z, this.slot);
+      return;
+    }
+    this.commit(type, x, z);
+  }
+
+  /** A crime a witness phoned in (see WitnessSystem): it counts as if the police had seen it, where it happened. */
+  reported(type: CrimeType, x: number, z: number): void {
+    if (!this.sim.policeEnabled || this.slot.cheats.neverWanted || this.slot.down) return;
+    this.commit(type, x, z);
+  }
+
+  private commit(type: CrimeType, x: number, z: number): void {
+    const sim = this.sim;
+    const def = CRIMES[type];
     if (this.lastCrime === null || this.lastCrimeFrame !== sim.frame || def.heat >= CRIMES[this.lastCrime].heat) {
       this.lastCrime = type;
       this.lastCrimeFrame = sim.frame;
