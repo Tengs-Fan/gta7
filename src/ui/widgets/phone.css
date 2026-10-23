@@ -1,0 +1,133 @@
+/* The phone (widgets/phone.ts): a handset at the right of the screen over the frozen game, and the incoming-call card. */
+.phone-screen {
+  justify-content: flex-end;
+  align-items: flex-end;
+  padding: 0 min(6vw, 80px) min(6vh, 48px) 0;
+  box-sizing: border-box;
+}
+.phone {
+  pointer-events: auto;
+  width: min(300px, 80vw);
+  max-height: min(520px, calc(100vh - 40px));
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--accent);
+  border-radius: 18px;
+  padding: 14px 14px 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  box-sizing: border-box;
+}
+.phone-top {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--muted);
+  text-align: center;
+}
+.phone-title {
+  font-family: 'Anton', Impact, sans-serif;
+  font-size: 24px;
+  letter-spacing: 1.4px;
+  margin: 6px 4px 8px;
+}
+.phone-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  scrollbar-color: var(--accent) transparent;
+}
+.phone-row {
+  cursor: pointer;
+  padding: 7px 10px;
+  border-left: 3px solid var(--who, var(--line));
+  border-radius: 4px;
+  background: rgba(246, 238, 219, 0.04);
+}
+.phone-row b {
+  display: block;
+  font-size: 18px;
+  color: var(--who, var(--text));
+}
+.phone-row small {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.phone-row.work small {
+  color: var(--gold);
+}
+.phone-row.sel {
+  background: rgba(246, 238, 219, 0.14);
+}
+.phone-text {
+  padding: 6px 10px;
+  border-left: 3px solid var(--who, var(--money));
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.phone-text-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.phone-text-head b {
+  color: var(--who, var(--text));
+}
+.phone-text .amount {
+  margin-left: 6px;
+  color: var(--money);
+  font-weight: 700;
+}
+.phone-text.call {
+  border-left-color: var(--who, var(--accent));
+}
+.phone-empty {
+  padding: 10px;
+  color: var(--muted);
+}
+.phone-foot {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+}
+.phone-call {
+  position: absolute;
+  left: 26px;
+  bottom: 300px;
+  width: 240px;
+  padding: 9px 12px;
+  background: var(--panel);
+  border-left: 3px solid var(--who, var(--accent));
+  animation: phone-ring 0.9s ease-in-out infinite alternate;
+}
+.phone-call b {
+  display: block;
+  font-size: 19px;
+  color: var(--who, var(--text));
+}
+.phone-call small {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+.phone-call-head {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+}
+@keyframes phone-ring {
+  from { box-shadow: 0 0 0 0 transparent; }
+  to { box-shadow: 0 0 18px 0 var(--who, var(--accent)); }
+}

@@ -9,9 +9,13 @@ import type { VehicleKind, WeaponId } from '../sim/specs';
 import type { Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { Ambience, shoreInfo, type AmbienceFrame, type ShoreInfo } from './ambience';
+import { dopplerFactor } from './doppler';
+import { EchoBank } from './echo';
 import { EngineVoice } from './engineVoice';
 import { distanceCutoff, EXPLOSION_DUCK_RANGE, Glider, Mixer, mixTargets, OPEN_HZ, withinParam, type MixTargets } from './mixer';
 import { Radio } from './radio';
+import { PoliceScanner } from './scanner';
+import { NodeTally } from './tally';
 import { DEFAULT_HORN, engineProfile } from './vehicleProfiles';
 
 interface Listener {
@@ -34,6 +38,11 @@ function finite(...xs: number[]): boolean {
 const HORN_LEVEL = 0.15;
 /** Peak gain of the nearest police siren. */
 const SIREN_LEVEL = 0.4;
+/** Siren pitch and wail depth (Hz) before the Doppler shift. */
+const SIREN_HZ = 950;
+const SIREN_SWEEP = 380;
+/** Time constant of the Doppler glide: the pitch slides through a pass-by instead of stepping. */
+const DOPPLER_TAU = 0.06;
 /** Scream peak: 14 dB above the old 0.12. */
 const SCREAM_LEVEL = 0.12 * Math.pow(10, 14 / 20);
 /** Seconds an explosion keeps the music ducked before it recovers. */
@@ -62,7 +71,13 @@ export class AudioEngine {
   private hornNodes: { osc1: OscillatorNode; osc2: OscillatorNode; gain: GainNode } | null = null;
   private hornKind: VehicleKind | null = null;
   private sirenNodes: { osc: OscillatorNode; gain: GainNode; lfo: OscillatorNode; lfoGain: GainNode } | null = null;
+  /** Doppler factor last applied to the siren. */
+  private sirenDoppler = 1;
   readonly radio = new Radio();
+  /** Sources started by the talk station, the barks and the echoes, and how many still play. */
+  readonly nodes = new NodeTally();
+  private scanner: PoliceScanner | null = null;
+  private echo: EchoBank | null = null;
   private readonly listener: Listener = { x: 0, y: 0, z: 0, yaw: 0 };
   private unsub: Array<() => void> = [];
   /** Id of the player slot this listener belongs to: player-scoped events about others are not for it. */
@@ -101,7 +116,7 @@ export class AudioEngine {
   private softWorld: StaticWorld | null = null;
   private softPatches: Rect[] = [];
   /** Instrumentation for tests: sounds started since the page loaded. */
-  readonly counters = { gunshots: 0, doorThunks: 0, scrapes: 0 };
+  readonly counters = { gunshots: 0, doorThunks: 0, scrapes: 0, dispatches: 0, barks: 0, echoes: 0 };
   private failed = false;
   private warned = false;
 
@@ -127,7 +142,9 @@ export class AudioEngine {
         this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
         const d = this.noise.getChannelData(0);
         for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-        this.radio.init(ctx, this.musicBus, this.noise);
+        this.radio.init(ctx, this.musicBus, this.noise, this.nodes);
+        this.scanner = new PoliceScanner(ctx, this.sfx, this.noise, this.nodes);
+        this.echo = new EchoBank(ctx, this.sfx, this.nodes);
         this.engine = new EngineVoice(ctx, this.vehicleBus, this.noise);
         this.ambience = new Ambience(ctx, mixer.ambBus);
         this.buildHorn();
@@ -189,9 +206,14 @@ export class AudioEngine {
     this.confirm = null;
     this.unsub.push(
       // One bang per trigger pull; helicopter rounds come only as 'shot' events.
-      on('weaponFired', (e) => this.gunshot(e.weapon, e.x, e.y, e.z, !!e.shooter && e.shooter === this.me(sim).character)),
+      on('weaponFired', (e) => this.gunshot(e.weapon, e.x, e.y, e.z, !!e.shooter && e.shooter === this.me(sim).character, sim.world.districtAt(e.x, e.z))),
       on('shot', (e) => {
-        if (!e.shooter) this.gunshot(e.weapon, e.fx, e.fy, e.fz, false);
+        if (!e.shooter) this.gunshot(e.weapon, e.fx, e.fy, e.fz, false, sim.world.districtAt(e.fx, e.fz));
+      }),
+      on('dispatch', (e) => {
+        if (!this.mine(e)) return;
+        this.counters.dispatches++;
+        this.policeBark(e.text);
       }),
       on('damage', (e) => {
         // The player's weapon hits: bullets, fists and explosions, not people run over.
@@ -364,7 +386,19 @@ export class AudioEngine {
     return !!this.ctx && this.ctx.state === 'running';
   }
 
-  gunshot(w: WeaponId, x: number, y: number, z: number, player: boolean): void {
+  /** A police radio bark for a dispatch line (rate-limited: one at a time, BARK_MIN_GAP apart). */
+  policeBark(text: string): boolean {
+    if (!this.ready() || !this.scanner) return false;
+    if (!this.scanner.bark(text)) return false;
+    this.counters.barks++;
+    return true;
+  }
+
+  /**
+   * A gunshot at (x, y, z). `district` (where the shooter stands) picks the echo: a downtown canyon rings on, the open
+   * beach hardly at all; without it the shot is dry.
+   */
+  gunshot(w: WeaponId, x: number, y: number, z: number, player: boolean, district?: string): void {
     if (!this.ready()) return;
     const ctx = this.ctx!;
     const now = ctx.currentTime;
@@ -380,8 +414,12 @@ export class AudioEngine {
     const s = this.spatial(x, y, z, 14, 260);
     if (!s) return;
     // The player's own shots from a car ring inside it, not through the in-car muffling.
-    const out = this.out(s.pan, s.cutoff, player && this.inVehicle ? this.vehicleBus : this.sfx);
+    const dry = this.out(s.pan, s.cutoff, player && this.inVehicle ? this.vehicleBus : this.sfx);
+    const out = ctx.createGain();
+    out.connect(dry);
     const g = s.gain * (player ? 1 : 0.8);
+    // Far shots are mostly echo: the send rises as the direct sound falls with distance.
+    if (district !== undefined && this.echo?.send(out, district, clamp(1 / Math.sqrt(Math.max(0.05, s.gain)), 1, 2.5))) this.counters.echoes++;
     const t = now + 0.005;
     this.counters.gunshots++;
     switch (w) {
@@ -653,12 +691,12 @@ export class AudioEngine {
     const ctx = this.ctx!;
     const osc = ctx.createOscillator();
     osc.type = 'triangle';
-    osc.frequency.value = 950;
+    osc.frequency.value = SIREN_HZ;
     const lfo = ctx.createOscillator();
     lfo.type = 'sine';
     lfo.frequency.value = 0.32;
     const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 380;
+    lfoGain.gain.value = SIREN_SWEEP;
     lfo.connect(lfoGain);
     lfoGain.connect(osc.frequency);
     const gain = ctx.createGain();
@@ -692,6 +730,7 @@ export class AudioEngine {
     this.engine!.update(live, t, live ? this.softGround(sim.world, live.pos.x, live.pos.z) : false);
     this.updateHorn(live, t);
     this.updateSiren(sim, inGame, t);
+    this.radio.setWanted(inGame ? this.me(sim).wanted.level : 0);
     this.radio.update(dt, inGame && !!pv && !pv.destroyed);
     this.subtitleTimer = Math.max(0, this.subtitleTimer - step);
     this.bigTimer = Math.max(0, this.bigTimer - step);
@@ -724,20 +763,46 @@ export class AudioEngine {
     this.glide.set(h.gain.gain, on ? HORN_LEVEL : 0, t, on ? 0.005 : 0.02);
   }
 
-  /** Siren loudness from the closest police car with its siren on. */
+  /** Siren loudness from the closest police car with its siren on, its pitch shifted by their relative motion. */
   private updateSiren(sim: ViewState, inGame: boolean, t: number): void {
     const s = this.sirenNodes!;
     let best = Infinity;
+    let near: Vehicle | null = null;
     if (inGame) {
       for (const u of sim.vehicles) {
         if (!u.siren || u.removed || u.destroyed) continue;
         const d = Math.hypot(u.pos.x - this.listener.x, u.pos.z - this.listener.z);
-        if (d < best) best = d;
+        if (d < best) {
+          best = d;
+          near = u;
+        }
       }
     }
     const sg = best < 260 ? (1 / (1 + Math.pow(best / 35, 1.5))) * SIREN_LEVEL : 0;
     this.glide.set(s.gain.gain, sg, t, 0.2);
+    let f = 1;
+    if (near && sg > 0) {
+      // The listener moves with the player (the camera follows him).
+      const me = this.me(sim).character;
+      const lv = me.vehicle ? me.vehicle.vel : me.vel;
+      f = dopplerFactor(near.pos.x, near.pos.z, near.vel.x, near.vel.z, this.listener.x, this.listener.z, lv.x, lv.z);
+    }
+    this.sirenDoppler = f;
+    this.glide.set(s.osc.frequency, SIREN_HZ * f, t, DOPPLER_TAU, 0.0005);
+    this.glide.set(s.lfoGain.gain, SIREN_SWEEP * f, t, DOPPLER_TAU, 0.0005);
     this.glide.set(s.lfo.frequency, this.me(sim).wanted.level >= 3 ? 1.6 : 0.32, t, 0.3);
+  }
+
+  /** The siren voice now: its pitch before the wail (Doppler-shifted), the factor, its gain and wail rate. */
+  sirenInfo(): { frequency: number; doppler: number; gain: number; wail: number } | null {
+    const s = this.sirenNodes;
+    if (!s) return null;
+    return { frequency: s.osc.frequency.value, doppler: this.sirenDoppler, gain: s.gain.gain.value, wail: s.lfo.frequency.value };
+  }
+
+  /** Sources the new voices (talk station, barks) still have playing, per kind and in total; echo sends started. */
+  liveNodes(): { live: Record<string, number>; started: Record<string, number>; total: number; echoSpaces: number } {
+    return { live: { ...this.nodes.live }, started: { ...this.nodes.started }, total: this.nodes.total, echoSpaces: this.echo?.built ?? 0 };
   }
 
   /** Sand, grass, yards and dirt make the tyres roar louder than asphalt and paving. */

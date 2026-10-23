@@ -2,6 +2,7 @@
 
 import { neutralInput, type PlayerInput } from '../sim/input';
 import { WEAPON_ORDER } from '../sim/specs';
+import { Keymap } from './bindings';
 import { cheatPrefixLength, completedCheat, type TypedCheat } from './cheats';
 
 export interface UiActions {
@@ -16,6 +17,13 @@ export interface UiActions {
   down: boolean;
   left: boolean;
   right: boolean;
+  /** The phone: Tab, or the pad's D-pad right on foot (in a vehicle it changes the radio station). */
+  phone?: boolean;
+  /** The pad's X and Y (screens with extra choices: the map legend). */
+  padX?: boolean;
+  padY?: boolean;
+  /** A number key 1-9 pressed this frame (1-based), else 0: the map legend toggles its rows with them. */
+  digit?: number;
   /** Map zoom: the keys typing + and - (and the keypad's), the pad's RB and LB. */
   zoomIn?: boolean;
   zoomOut?: boolean;
@@ -52,12 +60,6 @@ const TRIGGER_RELEASE = 0.3;
  */
 export const WHEEL_GESTURE_GAP = 60;
 export const WHEEL_STEP = 100;
-/** Every physical key that poll() reads by code. */
-const BOUND_CODES = new Set([
-  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'Space',
-  'KeyF', 'Enter', 'KeyE', 'KeyH', 'KeyR', 'KeyQ', 'KeyT', 'KeyP', 'KeyM', 'KeyV', 'Escape', 'Backspace',
-  'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract',
-]);
 /** The number-row keys that can select a weapon: key N selects WEAPON_ORDER[N - 1], keys past its end select nothing. */
 const SLOT_KEY = /^Digit([1-9])$/;
 
@@ -68,10 +70,20 @@ function slotOfCode(code: string): number {
   return i < WEAPON_ORDER.length ? i : -1;
 }
 
-/** Whether the physical key `code` has a binding (the fixed ones, and the number keys of weapons that exist). */
-function isBoundCode(code: string): boolean {
-  return BOUND_CODES.has(code) || slotOfCode(code) >= 0;
+/**
+ * Whether the physical key `code` has a binding: an action's (see Keymap), a reserved key's, or a number key of a
+ * weapon that exists.
+ */
+function isBoundCode(keymap: Keymap, code: string): boolean {
+  return (keymap.isBound(code) && !code.startsWith('Digit')) || slotOfCode(code) >= 0;
 }
+
+/** Names of keys that type nothing printable. */
+const KEY_NAMES: Record<string, string> = {
+  Space: 'Space', Tab: 'Tab', ShiftLeft: 'Shift', ShiftRight: 'Right Shift', ControlLeft: 'Ctrl', ControlRight: 'Right Ctrl', AltLeft: 'Alt',
+  AltRight: 'Right Alt', CapsLock: 'Caps Lock', Enter: 'Enter', Escape: 'Esc', Backspace: 'Backspace', Insert: 'Insert', Delete: 'Delete',
+  Home: 'Home', End: 'End', PageUp: 'Page Up', PageDown: 'Page Down', NumpadEnter: 'Num Enter', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+};
 
 /** Pseudo-codes for a press that types + or - on any key: QWERTZ has them elsewhere, AZERTY's - is the 6. */
 const TYPED_ZOOM: Record<string, string> = { '+': 'Typed+', '=': 'Typed+', '-': 'Typed-' };
@@ -142,10 +154,12 @@ interface KeyPress {
  * letter shortcut printed on it. Bound keys never alias, so one key can't fire two actions
  * (AZERTY's 'q' stays strafe-left, Dvorak's 'p' on KeyR stays reload).
  */
-function letterAlias(ev: KeyboardEvent): string | null {
-  if (isBoundCode(ev.code) || typeof ev.key !== 'string') return null;
+function letterAlias(keymap: Keymap, ev: KeyboardEvent): string | null {
+  if (isBoundCode(keymap, ev.code) || typeof ev.key !== 'string') return null;
   const k = ev.key.toLowerCase();
-  return LETTER_SHORTCUTS.has(k) ? `Key${k.toUpperCase()}` : null;
+  const code = `Key${k.toUpperCase()}`;
+  // Only for a shortcut still on its own key: once moved, the player has said which key does it.
+  return LETTER_SHORTCUTS.has(k) && keymap.atDefault(code) ? code : null;
 }
 
 /** A character worth printing as a key label. Keyboards for other scripts also carry the Latin letters. */
@@ -162,6 +176,9 @@ type LayoutNavigator = { keyboard?: { getLayoutMap?(): Promise<Iterable<[string,
 export class KeyLabels {
   /** What each physical key types on this layout (lower case). */
   private readonly typed = new Map<string, string>();
+
+  /** `keymap`: the player's bindings, so that a label names the key now doing the action. */
+  constructor(readonly keymap: Keymap = new Keymap()) {}
 
   /** Reads the whole layout from navigator.keyboard.getLayoutMap(), where there is one. */
   async load(): Promise<void> {
@@ -194,19 +211,34 @@ export class KeyLabels {
     return undefined;
   }
 
-  /** The printed name of the key bound to a Key* or Digit* code. */
+  /**
+   * The printed name of the key doing the action whose default key is `code` (the sim and the HUD name keys by their
+   * defaults), or of `code` itself when it is no action's default.
+   */
   label(code: string): string {
+    const now = this.keymap.current(code);
+    if (now !== code) return this.keyName(now);
     const m = /^(Key|Digit)([A-Z0-9])$/.exec(code);
-    if (!m) return code;
+    if (!m) return KEY_NAMES[code] ?? code;
     const q = m[2]!.toLowerCase();
     // The number row carries its digits on every layout (AZERTY types & é " ' ( - there unshifted).
     if (m[1] === 'Digit') return q;
     const printed = this.codeTyping(q);
     // A letter shortcut also answers to the key printed with its letter if that key is free (see letterAlias).
-    if (printed !== undefined && LETTER_SHORTCUTS.has(q) && !isBoundCode(printed)) return q.toUpperCase();
+    if (printed !== undefined && LETTER_SHORTCUTS.has(q) && !isBoundCode(this.keymap, printed)) return q.toUpperCase();
     // Not seen yet while its QWERTY letter sits on another key: such layouts swap the pair (AZERTY's A / Q, Z / W).
     const own = this.typed.get(code) ?? (printed?.startsWith('Key') ? printed.slice(3).toLowerCase() : q);
     return own.toUpperCase();
+  }
+
+  /** The printed name of physical key `code`, whatever it does (the key rebinding list). */
+  keyName(code: string): string {
+    const m = /^(Key|Digit)([A-Z0-9])$/.exec(code);
+    if (m) return m[1] === 'Digit' ? m[2]! : (this.typed.get(code) ?? m[2]!).toUpperCase();
+    if (KEY_NAMES[code]) return KEY_NAMES[code]!;
+    const t = this.typed.get(code);
+    if (t) return /^Numpad/.test(code) ? `Num ${t}` : t.toUpperCase();
+    return code.replace(/^Numpad/, 'Num ');
   }
 }
 
@@ -312,8 +344,14 @@ export class Input {
    * under a menu, where the pointer is free and the browser would navigate.
    */
   guardNavigation: () => boolean = () => false;
+  /** The player's key bindings (see bindings.ts); the game reads actions by their default keys through it. */
+  readonly keymap = new Keymap();
   /** Names of the keys on the player's keyboard layout, for prompts and menus. */
-  readonly labels = new KeyLabels();
+  readonly labels = new KeyLabels(this.keymap);
+  /** A rebind waits for the next key press: it gets the key and nothing else does. */
+  private capture: ((code: string) => void) | null = null;
+  /** The code the game read for each physical key held (see Keymap.virtual), released with it. */
+  private readonly virt = new Map<string, string>();
   private readonly listeners: Array<[EventTarget, string, EventListener]> = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {}
@@ -326,27 +364,39 @@ export class Input {
     void this.labels.load();
     on(window, 'keydown', (e) => {
       const ev = e as KeyboardEvent;
-      if (PREVENT.has(ev.code)) ev.preventDefault();
+      // A key moved onto an action does not also do its browser job (Firefox's quick find on ' and /).
+      if (PREVENT.has(ev.code) || (this.keymap.hasAction(ev.code) && !ev.ctrlKey && !ev.metaKey && !ev.code.startsWith('Key'))) ev.preventDefault();
       this.labels.learn(ev);
       this.device = 'kb';
-      const alias = letterAlias(ev);
+      if (this.capture && !ev.repeat) {
+        const cb = this.capture;
+        this.capture = null;
+        ev.preventDefault();
+        cb(ev.code);
+        return;
+      }
+      const raw = ev.code;
+      // An action's default key that now does nothing still holds its own name, under a prefix nothing reads.
+      const vcode = this.keymap.virtual(raw) ?? `Unbound:${raw}`;
+      const alias = letterAlias(this.keymap, ev);
       const press = ev.repeat ? -1 : ++this.presses;
       // A key typing a cheat code does nothing else, also while it auto-repeats, until it is released.
-      const typing = ev.repeat ? this.swallowed.has(ev.code) : this.typeLetter(ev.key, isBoundCode(ev.code) || alias !== null, press, ev.code);
+      const typing = ev.repeat ? this.swallowed.has(raw) : this.typeLetter(ev.key, isBoundCode(this.keymap, raw) || alias !== null, press, raw);
       // A modifier (Shift for a capital I) says nothing about whether a held key starts a code.
       const released = ev.repeat || MODIFIER_KEYS.has(ev.key) ? null : this.settleHeldKey(press);
       if (typing) {
-        this.swallowed.add(ev.code);
+        this.swallowed.add(raw);
         return;
       }
-      this.swallowed.delete(ev.code);
-      const codes = alias ? [ev.code, alias] : [ev.code];
-      if (alias) this.aliases.set(ev.code, alias);
+      this.swallowed.delete(raw);
+      const codes = alias ? [vcode, alias] : [vcode];
+      if (alias) this.aliases.set(raw, alias);
+      this.virt.set(raw, vcode);
       for (const code of codes) this.held.add(code);
       if (ev.repeat) return;
       // A key typing + or - also zooms the map, whatever the layout (TYPED_ZOOM): part of this press, never held.
       const typed = typeof ev.key === 'string' ? TYPED_ZOOM[ev.key] : undefined;
-      const key: KeyPress = { press, codes: typed ? [...codes, typed] : codes, action: alias ?? ev.code };
+      const key: KeyPress = { press, codes: typed ? [...codes, typed] : codes, action: alias ?? vcode };
       // The same key again while one was held back (F F, P P): that one acts now, and this one is the same request.
       if (released === key.action) return;
       const hold = this.menuOpen ? press === this.menuHoldPress && SCREEN_KEYS.has(key.action) : key.action === 'KeyF' && this.inVehicle && this.exitAtStake;
@@ -356,7 +406,8 @@ export class Input {
     on(window, 'keyup', (e) => {
       const code = (e as KeyboardEvent).code;
       this.swallowed.delete(code);
-      this.held.delete(code);
+      this.held.delete(this.virt.get(code) ?? this.keymap.virtual(code) ?? `Unbound:${code}`);
+      this.virt.delete(code);
       const alias = this.aliases.get(code);
       if (alias) {
         this.held.delete(alias);
@@ -367,6 +418,7 @@ export class Input {
       // No letter of a code can follow a held key now: it acts, as it would have at once without the hold.
       this.releaseHeldKey();
       this.held.clear();
+      this.virt.clear();
       this.aliases.clear();
       this.swallowed.clear();
       this.mouseHeld = 0;
@@ -534,6 +586,22 @@ export class Input {
     return !this.lockUnavailable;
   }
 
+  /**
+   * Hands the next key press (its KeyboardEvent.code) to `cb` and to nothing else: a rebind in SETTINGS. A later call
+   * replaces it; cancelCapture() drops it.
+   */
+  captureKey(cb: (code: string) => void): void {
+    this.capture = cb;
+  }
+
+  cancelCapture(): void {
+    this.capture = null;
+  }
+
+  get capturing(): boolean {
+    return this.capture !== null;
+  }
+
   private key(...codes: string[]): boolean {
     return codes.some((c) => this.held.has(c));
   }
@@ -604,6 +672,7 @@ export class Input {
     ui.pause = this.pressed('Escape', 'KeyP');
     ui.map = this.pressed('KeyM');
     ui.camera = this.pressed('KeyV');
+    ui.phone = this.pressed('Tab');
     ui.confirm = this.pressed('Enter', 'Space');
     ui.back = this.pressed('Escape', 'Backspace');
     ui.up = this.pressed('ArrowUp', 'KeyW');
@@ -614,6 +683,8 @@ export class Input {
     ui.zoomOut = this.pressed('Minus', 'NumpadSubtract', 'Typed-');
     ui.panX = (this.key('ArrowRight', 'KeyD') ? 1 : 0) - (this.key('ArrowLeft', 'KeyA') ? 1 : 0);
     ui.panY = (this.key('ArrowDown', 'KeyS') ? 1 : 0) - (this.key('ArrowUp', 'KeyW') ? 1 : 0);
+    ui.digit = 0;
+    for (let i = 1; i <= 9; i++) if (this.pressed(`Digit${i}`)) ui.digit = i;
 
     // Gamepad (standard mapping).
     const pad = this.standardPad();
@@ -674,6 +745,7 @@ export class Input {
       ui.pause = ui.pause || tap(9);
       ui.map = ui.map || tap(8);
       ui.camera = ui.camera || tap(11);
+      ui.phone = ui.phone || (!this.inVehicle && tap(15));
       ui.confirm = ui.confirm || tap(0);
       ui.back = ui.back || tap(1);
       ui.up = ui.up || tap(12);
@@ -682,6 +754,8 @@ export class Input {
       ui.right = ui.right || tap(15);
       ui.zoomIn = ui.zoomIn || tap(5);
       ui.zoomOut = ui.zoomOut || tap(4);
+      ui.padX = tap(2);
+      ui.padY = tap(3);
       ui.panX = Math.max(-1, Math.min(1, (ui.panX ?? 0) + lx + (b(15) ? 1 : 0) - (b(14) ? 1 : 0)));
       ui.panY = Math.max(-1, Math.min(1, (ui.panY ?? 0) + ly + (b(13) ? 1 : 0) - (b(12) ? 1 : 0)));
       ui.stickX = lx;

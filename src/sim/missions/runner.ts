@@ -51,7 +51,7 @@ export interface MissionDef {
   blurb: string;
   /** Where a retry puts the player (by default, the giver's marker). */
   retryAt?(world: StaticWorld): { x: number; z: number; heading?: number };
-  /** A title card shown after MISSION PASSED (The Big Score's THE END). */
+  /** A title card shown after MISSION PASSED (The Big Score's CHAPTER 1 COMPLETE). */
   outro?: { text: string; sub: string; duration: number };
   run(m: MissionCtx): Script;
 }

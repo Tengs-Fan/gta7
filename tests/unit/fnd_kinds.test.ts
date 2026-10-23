@@ -51,6 +51,10 @@ const BASE_ENGINES: Record<string, object> = {
   bus: { cylinders: 6, idleRpm: 550, redlineRpm: 2600, brightness: 0.3, roughness: 0.2, loudness: 1.5, horn: [220, 277], diesel: true },
 };
 
+/** The vehicle kinds wave 1 added (track C), with their classes. */
+const WAVE1_VEHICLES = ['sportbike', 'scooter', 'speedboat', 'dinghy'];
+const WAVE1_CLASSES: Record<string, string> = { sportbike: 'bike', scooter: 'bike', speedboat: 'boat', dinghy: 'boat' };
+
 const BASE_FLASH: Record<string, number> = { fists: 0, pistol: 0.3, smg: 0.32, rifle: 0.4, shotgun: 0.55, rocket: 0.6 };
 
 const BASE_PICKUP_COLOR: Record<string, number> = {
@@ -111,8 +115,10 @@ describe('exhaustive kind maps outside the specs are gone', () => {
   const vehicleKinds = Object.keys(BASE_FIRING_ROWS) as VehicleKind[];
   const weaponIds = Object.keys(BASE_FLASH) as WeaponId[];
 
-  it('the spec tables still hold exactly the baseline kinds', () => {
-    expect(Object.keys(VEHICLE_SPECS).sort()).toEqual([...vehicleKinds].sort());
+  it('the spec tables still hold exactly the baseline kinds, plus the wave-1 vehicles', () => {
+    // Wave 1 added the ambulance and the fire truck (their view is drawn from spec data), two motorbikes and two boats
+    // as spec rows only.
+    expect(Object.keys(VEHICLE_SPECS).sort()).toEqual([...vehicleKinds, 'ambulance', 'firetruck', ...WAVE1_VEHICLES].sort());
     expect(Object.keys(WEAPONS).sort()).toEqual([...weaponIds].sort());
     expect(Object.keys(PICKUP_SPECS).sort()).toEqual(Object.keys(BASE_PICKUP_COLOR).sort());
     expect([...WEAPON_ORDER]).toEqual(['fists', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket']);
@@ -218,6 +224,8 @@ describe('a kind added to the specs alone', () => {
 
 describe('VehicleSpec.class', () => {
   it('is present on every spec and is "car" for all current vehicles', () => {
-    for (const spec of Object.values(VEHICLE_SPECS)) expect(spec.class, spec.kind).toBe('car');
+    // The baseline kinds are cars; wave 1's motorbikes and boats are classed as such.
+    for (const spec of Object.values(VEHICLE_SPECS)) expect(spec.class, spec.kind).toBe(WAVE1_CLASSES[spec.kind] ?? 'car');
+    for (const k of Object.keys(BASE_FIRING_ROWS)) expect(VEHICLE_SPECS[k as VehicleKind].class, k).toBe('car');
   });
 });

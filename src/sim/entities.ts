@@ -22,7 +22,7 @@ export type CharacterRole = 'player' | 'civilian' | 'cop' | 'swat' | 'gang' | 'm
 export type CharState = 'normal' | 'knocked' | 'dead' | 'inVehicle' | 'entering' | 'swimming';
 
 /** Which system manages an entity's lifecycle (spawning / streaming out). */
-export type Owner = 'none' | 'traffic' | 'parked' | 'ped' | 'police' | 'mission';
+export type Owner = 'none' | 'traffic' | 'parked' | 'ped' | 'police' | 'mission' | 'moored';
 
 export interface Appearance {
   skin: number;
@@ -252,6 +252,13 @@ export class Vehicle {
   launchRamp = -1;
   inWater = false;
   sinkTimer = 0;
+  /**
+   * Motorbikes (sim/bikePhysics.ts): lean into the turn (rad, positive to the right, the steer's sign), the front lifted
+   * in a wheelie (rad, nose up), and lying on its side after a crash threw its rider off (until someone gets on again).
+   */
+  lean = 0;
+  wheelie = 0;
+  toppled = false;
   driver: Character | null = null;
   readonly passengers: (Character | null)[];
   ai: DriverAI | null = null;
@@ -279,6 +286,9 @@ export class Vehicle {
   dentVersion = 0;
   /** Ever driven by the player (no longer counts as a parked car). */
   usedByPlayer = false;
+  /** Azura Customs upgrade levels (0 = stock) and the multipliers on this car's spec they give (sim/mods.ts). */
+  readonly mods = { engine: 0, brakes: 0, tyres: 0 };
+  readonly tune = { accel: 1, brake: 1, grip: 1 };
   /** Seconds since the AI driver last got 5 m from where it was; waits at a red light, a yield or in a queue don't count. */
   stuckTime = 0;
   spawnTime = 0;

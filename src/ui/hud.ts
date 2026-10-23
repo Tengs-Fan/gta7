@@ -177,6 +177,8 @@ export class Hud {
   private scannerTimer = 0;
   private shownEvade = '';
   waypoint: { x: number; z: number } | null = null;
+  /** The contact a phone call routed the GPS to (their offer comes first while they have one); null: the first offer. */
+  routeContact: string | null = null;
   visible = true;
   /** Device of the last input (Game writes it every frame); keys in HUD text are drawn for it. */
   device: InputDevice = 'kb';
@@ -365,6 +367,7 @@ export class Hud {
       // A mission starting (a retry above all) makes any MISSION FAILED still up or waiting old news.
       ev.on('missionStarted', (e) => {
         if (!this.mine(e)) return;
+        this.routeContact = null;
         this.bigQueue = this.bigQueue.filter((m) => m.style !== 'failed');
         if (this.bigCur?.style === 'failed') {
           this.bigCur = null;
@@ -497,6 +500,7 @@ export class Hud {
     this.setTitleClear('');
     this.lastHealth = this.me(sim).character.health;
     this.waypoint = null;
+    this.routeContact = null;
     this.helpCur = null;
     this.hintQueue = [];
     this.hintGap = 0;
@@ -1005,7 +1009,7 @@ export class Hud {
     el.navigation!.classList.toggle('gate-hit', !!race && this.timers.gate > 0);
     const gate = race?.course.checkpoints[race.checkpoint];
     const objective = [...(active?.markers ?? []), ...sim.activities.objectives()][0];
-    const offer = !active && !sim.activities.busy ? sim.missions.offers()[0] : undefined;
+    const offer = !active && !sim.activities.busy ? this.routedOffer(sim) : undefined;
     const instruction = gate?.label.split(' · ')[0];
     const turn: keyof typeof NAV_PATHS = !gate ? 'bearing' : instruction === 'Finish' ? 'finish' : instruction === 'Left' ? 'left' : instruction === 'Right' ? 'right' : 'straight';
     const name = gate ? turn === 'finish' ? 'Finish line' : turn === 'left' ? 'Turn left' : turn === 'right' ? 'Turn right' : 'Straight ahead' : this.waypoint ? 'Your waypoint' : objective?.label || (offer ? contactById(offer.giver).name : active?.def.title || 'Objective');
@@ -1049,11 +1053,13 @@ export class Hud {
       el.drive!.classList.toggle('damaged', condition < 0.3);
       el.conditionLabel!.textContent = condition < 0.3 ? 'CRITICAL DAMAGE' : 'CONDITION';
     }
-    const mode = `${this.device}:${inVehicle}`;
+    // A boat has no handbrake.
+    const boat = v?.spec.class === 'boat';
+    const mode = `${this.device}:${inVehicle}:${boat}:${this.keys.keymap.version}`;
     if (mode === this.controlMode) return;
     this.controlMode = mode;
     const line = inVehicle
-      ? `<span>${this.device === 'pad' ? `${padGlyph('rt')} / ${padGlyph('lt')}` : '<kbd>W</kbd><kbd>S</kbd>'} Drive</span><span><kbd>Space</kbd> Handbrake</span><span><kbd>F</kbd> Exit</span>`
+      ? `<span>${this.device === 'pad' ? `${padGlyph('rt')} / ${padGlyph('lt')}` : '<kbd>W</kbd><kbd>S</kbd>'} Drive</span>${boat ? '' : '<span><kbd>Space</kbd> Handbrake</span>'}<span><kbd>F</kbd> Exit</span>`
       : '<span><kbd>Shift</kbd> Sprint</span><span><kbd>F</kbd> Enter car</span>';
     el.quickControls!.innerHTML = formatKeys(`${line}<span><kbd>M</kbd> Map</span>`, this.device, { labels: this.keys, inVehicle });
   }
@@ -1064,7 +1070,8 @@ export class Hud {
    * one set during the job stays until reached.
    */
   private updateWaypoint(sim: ViewState): void {
-    const busy = sim.activities.busy;
+    // A cab ride goes to the waypoint: calling one keeps it.
+    const busy = sim.activities.busy && sim.activities.job?.kind !== 'cab';
     if (busy && !this.jobRunning) this.waypoint = null;
     this.jobRunning = busy;
     const w = this.waypoint;
@@ -1318,6 +1325,17 @@ export class Hud {
     return Math.hypot(t.x - p.x, t.z - p.z) < ROUTE_NEAR ? null : t;
   }
 
+  /** The offer the GPS leads to: that of the contact a call routed it to while they have one, else the first. */
+  private routedOffer(sim: ViewState): MissionDef | undefined {
+    const offers = sim.missions.offers();
+    return offers.find((d) => d.giver === this.routeContact) ?? offers[0];
+  }
+
+  /** A line of dialogue or a title card is up (an incoming call waits for them). */
+  get talking(): boolean {
+    return this.timers.subtitle > 0 || this.bigCur !== null || this.bigQueue.length > 0;
+  }
+
   private routeGoal(sim: ViewState): { x: number; z: number; color: string } | null {
     if (this.waypoint) return { x: this.waypoint.x, z: this.waypoint.z, color: ROUTE_WAYPOINT };
     const objs = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
@@ -1329,7 +1347,7 @@ export class Hud {
     // The local retry prompt is the next action after a failure. Sending the player
     // back across town at the same time would imply that trip is required to retry.
     if (sim.missions.active || sim.activities.busy || this.fade || sim.missions.retryMenuOffer()) return null;
-    const d = sim.missions.offers()[0];
+    const d = this.routedOffer(sim);
     if (!d) return null;
     const contact = contactById(d.giver);
     const poi = sim.world.layout.pois.find((p) => p.id === contact.poiId);

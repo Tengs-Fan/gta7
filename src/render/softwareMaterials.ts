@@ -36,7 +36,7 @@ export class SoftwareMaterials {
         map: source.map, emissiveMap: source.emissiveMap, alphaMap: source.alphaMap,
         color: source.color, emissive: source.emissive, emissiveIntensity: source.emissiveIntensity,
         vertexColors: source.vertexColors, side: source.side, shadowSide: source.shadowSide,
-        transparent: source.transparent, opacity: source.opacity, alphaTest: source.alphaTest,
+        transparent: source.transparent, opacity: source.opacity, alphaTest: source.alphaTest, alphaHash: source.alphaHash,
         depthTest: source.depthTest, depthWrite: source.depthWrite, blending: source.blending,
         polygonOffset: source.polygonOffset, polygonOffsetFactor: source.polygonOffsetFactor,
         polygonOffsetUnits: source.polygonOffsetUnits, flatShading: source.flatShading,
@@ -81,7 +81,8 @@ export class SoftwareMaterials {
   /** Safe to repeat: vehicle damage swaps original material references during sync. */
   apply(root: THREE.Object3D): void {
     root.traverse((o) => {
-      if (!(o instanceof THREE.Mesh)) return;
+      // Vehicle parts are drawn by the part batches, whose own meshes get software materials.
+      if (!(o instanceof THREE.Mesh) || o.userData.batched) return;
       o.material = Array.isArray(o.material) ? o.material.map((m) => this.material(m)) : this.material(o.material);
       if (Array.isArray(o.material) && o.material.every((m) => m === o.material[0])) o.material = o.material[0]!;
     });
@@ -94,6 +95,17 @@ export class SoftwareMaterials {
       material.emissiveIntensity = source.emissiveIntensity;
       material.opacity = source.opacity;
       material.visible = source.visible;
+    }
+  }
+
+  /** Drops (and disposes) the stand-ins of materials that are going away (a faded-out car's fade copies). */
+  forget(sources: readonly THREE.Material[]): void {
+    for (const s of sources) {
+      if (!(s instanceof THREE.MeshStandardMaterial)) continue;
+      const m = this.replacements.get(s);
+      if (!m) continue;
+      m.dispose();
+      this.replacements.delete(s);
     }
   }
 

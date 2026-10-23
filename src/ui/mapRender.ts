@@ -2,14 +2,18 @@
 // radar and the full-screen map.
 
 import type { Objective } from '../sim/activities';
-import { contactById } from '../sim/missions/contacts';
+import { FOR_SALE, OWNED } from '../sim/interactions';
+import { CONTACTS, contactById } from '../sim/missions/contacts';
 import { playerOf, type ViewState } from '../sim/viewState';
+import { packageIndex } from '../sim/pickups';
 import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
 import { beachOffsetAt, rectContains } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 
 export const MAP_SCALE = 1; // pixels per metre in the pre-rendered image
+const PACKAGE_COLOR = '#f5cd80';
+const RAMPAGE_COLOR = '#e8402c';
 
 export class MapImage {
   readonly canvas: HTMLCanvasElement;
@@ -66,31 +70,115 @@ export interface Blip {
   label: string;
   /** Keep on the radar rim when out of range. */
   sticky: boolean;
-  /** 'pip': a small dot (officers on foot). */
-  shape: 'circle' | 'square' | 'dot' | 'pip';
+  /** 'pip': a small dot (officers on foot); 'ring': a hollow circle (a collectible already found). */
+  shape: 'circle' | 'square' | 'dot' | 'pip' | 'ring';
+  /** The map legend category that can hide it (see MAP_CATEGORIES); absent: always shown. */
+  category?: string;
 }
 
-const POI_BLIPS: Record<string, { color: string; label: string }> = {
-  safehouse: { color: '#4aa8ff', label: 'H' },
-  hospital: { color: '#ff4a4a', label: '+' },
-  police: { color: '#3a6bff', label: 'P' },
-  spray: { color: '#3fd96b', label: 'S' },
-  gunshop: { color: '#ff8a1f', label: 'G' },
+/** A map legend category the player can switch off and on. */
+export interface MapCategory {
+  id: string;
+  label: string;
+  /** Swatches drawn in its legend row: colour and the blip's letter. */
+  swatches: Array<{ color: string; label?: string; hollow?: boolean }>;
+  /** More blips of its own (collectibles, turf); POIs come in through MAP_POIS. */
+  blips?(sim: ViewState, localPlayerId: number): Blip[];
+}
+
+/**
+ * Each POI kind's blip and the category it belongs to, for the layout's POIs and for interaction markers that carry
+ * a blip (their marker kind). Systems that add POI kinds register theirs (registerMapPoi).
+ */
+const MAP_POIS: Record<string, { color: string; label: string; category: string; name: string }> = {
+  safehouse: { color: '#4aa8ff', label: 'H', category: 'places', name: 'Safehouse (save)' },
+  hospital: { color: '#ff4a4a', label: '+', category: 'places', name: 'Hospital' },
+  police: { color: '#3a6bff', label: 'P', category: 'places', name: 'Police station' },
+  spray: { color: '#3fd96b', label: 'S', category: 'shops', name: 'Spray Shack' },
+  gunshop: { color: '#ff8a1f', label: 'G', category: 'shops', name: 'Gun shop' },
+  // Interaction markers (sim/interactions.ts): the properties' blips turn from grey to green once owned.
+  customs: { color: '#b36bff', label: 'C', category: 'shops', name: 'Azura Customs' },
+  garage: { color: FOR_SALE, label: 'G', category: 'properties', name: 'Safehouse garage' },
+  business: { color: FOR_SALE, label: '$', category: 'properties', name: 'Pier Arcade' },
 };
 
-export function collectBlips(sim: ViewState, time: number, localPlayerId = 0): Blip[] {
+export function registerMapPoi(kind: string, def: { color: string; label: string; category: string; name: string }): void {
+  MAP_POIS[kind] = def;
+}
+
+/** The legend's categories in order. Systems add theirs (turf) with registerMapCategory. */
+export const MAP_CATEGORIES: MapCategory[] = [];
+
+export function registerMapCategory(c: MapCategory): void {
+  if (MAP_CATEGORIES.some((x) => x.id === c.id)) throw new Error(`Map category "${c.id}" is already registered`);
+  MAP_CATEGORIES.push(c);
+}
+
+export function unregisterMapCategory(id: string): boolean {
+  const i = MAP_CATEGORIES.findIndex((c) => c.id === id);
+  if (i < 0) return false;
+  MAP_CATEGORIES.splice(i, 1);
+  return true;
+}
+
+const poiSwatches = (category: string) => Object.values(MAP_POIS).filter((p) => p.category === category).map((p) => ({ color: p.color, label: p.label }));
+
+registerMapCategory({ id: 'missions', label: 'Missions (contacts)', get swatches() {
+  return CONTACTS.map((c) => ({ color: c.color, label: c.mapLabel }));
+} });
+registerMapCategory({ id: 'shops', label: 'Shops (guns, Spray Shack, Azura Customs)', get swatches() {
+  return poiSwatches('shops');
+} });
+registerMapCategory({ id: 'places', label: 'Safehouse, hospital, police', get swatches() {
+  return poiSwatches('places');
+} });
+registerMapCategory({ id: 'properties', label: 'Properties (grey: for sale, green: owned)', get swatches() {
+  return [...poiSwatches('properties'), { color: OWNED }];
+} });
+registerMapCategory({
+  id: 'collectibles',
+  label: 'Packages, rampages (hollow: found)',
+  swatches: [{ color: PACKAGE_COLOR }, { color: RAMPAGE_COLOR, label: 'R' }, { color: PACKAGE_COLOR, hollow: true }],
+  blips: (sim, localPlayerId) => {
+    const prog = playerOf(sim, localPlayerId).progress;
+    const out: Blip[] = [];
+    for (const p of sim.pickups) {
+      if (p.removed) continue;
+      if (p.kind === 'package') {
+        const found = prog.packages.includes(packageIndex(p.tag));
+        out.push({ x: p.pos.x, z: p.pos.z, color: PACKAGE_COLOR, label: '', sticky: false, shape: found ? 'ring' : 'square', category: 'collectibles' });
+      } else if (p.kind === 'rampage') {
+        const found = prog.rampages.includes(p.tag);
+        out.push({ x: p.pos.x, z: p.pos.z, color: RAMPAGE_COLOR, label: found ? '' : 'R', sticky: false, shape: found ? 'ring' : 'circle', category: 'collectibles' });
+      }
+    }
+    return out;
+  },
+});
+
+export interface BlipOptions {
+  /** The full-screen map: collectibles and the categories' own blips too. */
+  map?: boolean;
+  /** Categories switched off in the map legend: their blips are left out. */
+  hidden?: ReadonlySet<string>;
+}
+
+export function collectBlips(sim: ViewState, time: number, localPlayerId = 0, opts: BlipOptions = {}): Blip[] {
   const out: Blip[] = [];
   for (const p of sim.world.layout.pois) {
-    const b = POI_BLIPS[p.kind];
-    if (b) out.push({ x: p.x, z: p.z, color: b.color, label: b.label, sticky: false, shape: 'circle' });
+    const b = MAP_POIS[p.kind];
+    if (b) out.push({ x: p.x, z: p.z, color: b.color, label: b.label, sticky: false, shape: 'circle', category: b.category });
   }
+  // Places a marker carries an icon for (the properties and Azura Customs).
+  for (const m of sim.interactions.markers) if (m.blip) out.push({ x: m.x, z: m.z, color: m.blip.color, label: m.blip.label, sticky: false, shape: 'circle', category: MAP_POIS[m.kind]?.category });
   if (!sim.missions.active) {
     for (const d of sim.missions.offers()) {
       const contact = contactById(d.giver);
       const poi = sim.world.layout.pois.find((q) => q.id === contact.poiId)!;
-      out.push({ x: poi.x, z: poi.z, color: contact.color, label: contact.mapLabel, sticky: true, shape: 'circle' });
+      out.push({ x: poi.x, z: poi.z, color: contact.color, label: contact.mapLabel, sticky: true, shape: 'circle', category: 'missions' });
     }
   }
+  if (opts.map) for (const c of MAP_CATEGORIES) if (c.blips) out.push(...c.blips(sim, localPlayerId).map((b) => ({ ...b, category: b.category ?? c.id })));
   const objectives: Objective[] = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
   for (const o of objectives) {
     const t = o.vehicle ?? o.character;
@@ -105,7 +193,8 @@ export function collectBlips(sim: ViewState, time: number, localPlayerId = 0): B
     for (const c of sim.characters) if (c.isLaw && c.alive && !c.removed && c.state !== 'inVehicle') out.push({ x: c.pos.x, z: c.pos.z, color: blink ? '#ff3030' : '#3060ff', label: '', sticky: false, shape: 'pip' });
     for (const h of sim.helis) if (!h.removed) out.push({ x: h.pos.x, z: h.pos.z, color: blink ? '#3060ff' : '#ff3030', label: '', sticky: false, shape: 'square' });
   }
-  return out;
+  const hidden = opts.hidden;
+  return hidden && hidden.size > 0 ? out.filter((b) => !b.category || !hidden.has(b.category)) : out;
 }
 
 /** The police search area while the stars flash (null while they see the player, or he is not wanted). */
@@ -149,7 +238,16 @@ export function drawPoliceOverlay(ctx: CanvasRenderingContext2D, sim: ViewState,
 export function drawBlip(ctx: CanvasRenderingContext2D, b: Blip, x: number, y: number, size: number): void {
   ctx.save();
   ctx.translate(x, y);
-  if (b.shape === 'dot' || b.shape === 'pip') {
+  if (b.shape === 'ring') {
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.42, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = b.color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  } else if (b.shape === 'dot' || b.shape === 'pip') {
     ctx.fillStyle = b.color;
     ctx.beginPath();
     // Callers size pips like full blips (14 px on the radar, 18 on the map): about 2.5 and 3 px.

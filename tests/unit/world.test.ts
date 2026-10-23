@@ -50,7 +50,7 @@ describe('city layout', () => {
 
   it('places every special point of interest exactly once', () => {
     const ids = L.pois.map((p) => p.id).sort();
-    expect(ids).toEqual(['bank', 'dex', 'guns_south', 'guns_west', 'hospital', 'lou', 'marina', 'police', 'safehouse', 'spray_docks', 'spray_hill', 'spray_south']);
+    expect(ids).toEqual(['bank', 'dex', 'guns_south', 'guns_west', 'hospital', 'lou', 'marina', 'police', 'safehouse', 'spray_docks', 'spray_hill', 'spray_south', 'vera']);
     for (const p of L.pois) {
       expect(world.isFree(p.x, p.z, 0.6), `poi ${p.id} marker blocked`).toBe(true);
       expect(world.waterDepth(p.x, p.z)).toBeLessThan(0);

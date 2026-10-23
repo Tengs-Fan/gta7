@@ -11,8 +11,8 @@ export function showControls(ctx: MenuCtx): void {
   const kb: Array<[string, string]> = [
     ['Move / Drive', ['KeyW', 'KeyA', 'KeyS', 'KeyD'].map(k).join(' ')],
     ['Look / Aim', 'Mouse'],
-    ['Sprint', 'Shift'],
-    ['Jump / Handbrake', 'Space'],
+    ['Sprint', k('ShiftLeft')],
+    ['Jump / Handbrake', k('Space')],
     ['Shoot / Punch', 'Left click'],
     ['Aim', 'Right click'],
     ['Enter / Exit vehicle', k('KeyF')],
@@ -20,6 +20,7 @@ export function showControls(ctx: MenuCtx): void {
     ['Reload / Next radio', k('KeyR')],
     ['Weapons', `1-6, ${k('KeyQ')}, wheel`],
     ['Side job / Street run', k('KeyT')],
+    ['Phone (on foot) / Answer a call', k('Tab')],
     ['Camera distance', k('KeyV')],
     ['Map', k('KeyM')],
     ['Pause', `Esc / ${k('KeyP')}`],
@@ -42,6 +43,7 @@ export function showControls(ctx: MenuCtx): void {
     ['Interact', 'D-pad up'],
     ['Radio', 'D-pad left/right'],
     ['Side job / Street run', 'D-pad down'],
+    ['Phone (on foot) / Answer a call', 'D-pad right'],
     ['Map / Pause', 'Back / Start'],
   ];
   const grid = (rows: Array<[string, string]>) => `<div class="keys">${rows.map(([a, b]) => `<div><span>${a}</span><span>${escapeHtml(b)}</span></div>`).join('')}</div>`;

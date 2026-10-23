@@ -3,6 +3,7 @@
 // Node has no DOM: the menus run on the small fakes below (as in r2_fix3_menus.test.ts), whose canvases record
 // every 2D drawing call.
 
+import { DEFAULT_BINDINGS } from '../../src/input/bindings';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UiActions } from '../../src/input/input';
 import type { Settings } from '../../src/settings';
@@ -179,7 +180,7 @@ const ui = (over: Partial<UiActions> = {}): UiActions => ({ pause: false, map: f
 
 function makeMenus(sim: Sim | null) {
   let waypoint: { x: number; z: number } | null = null;
-  const settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true };
+  const settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true, bindings: DEFAULT_BINDINGS, resolutionScale: 1, fpsCap: 0, subtitleSize: 'normal', cameraShake: true, mapLayers: {} };
   const host = {
     hasSave: () => true,
     newGame: vi.fn(),

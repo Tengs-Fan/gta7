@@ -155,7 +155,10 @@ export class PickupSystem {
       case 'weapon': {
         if (!p.weapon) return false;
         const had = pl.inventory.has(p.weapon);
+        const before = pl.inventory.total(p.weapon);
         pl.inventory.give(p.weapon, p.amount);
+        // A gun whose reserve is full takes nothing: the pickup stays for when it has room.
+        if (had && pl.inventory.total(p.weapon) <= before) return false;
         if (!had) pl.inventory.current = p.weapon;
         say(`${WEAPONS[p.weapon].name}${had ? ' ammo' : ''}.`);
         return true;

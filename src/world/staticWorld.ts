@@ -4,7 +4,7 @@
 import { circleVsAabb, makeContact } from '../core/collision';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
-import { generateCity, rectContains, sandHeight, type CityLayout, type District, type Prop, type Ramp } from './layout';
+import { generateCity, rectContains, sandHeight, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
 
@@ -44,6 +44,8 @@ export class StaticWorld {
   /** Collider id for each prop index (or -1). */
   readonly propColliders: number[] = [];
   private readonly contact = makeContact();
+  /** Decks and ramps by grid cell, for groundHeight. */
+  private readonly surfaces: SurfaceGrid;
   readonly scratchHit = makeRayHit();
 
   constructor(seed: number = CITY_SEED) {
@@ -53,6 +55,7 @@ export class StaticWorld {
     const b = this.layout.bounds;
     this.grid = new StaticGrid(b.worldMinX, b.worldMinZ, b.worldMaxX, b.worldMaxZ, 12);
     this.buildColliders();
+    this.surfaces = buildSurfaceGrid(this.layout.decks.map((d) => d.rect), this.layout.ramps.map(rampBounds));
   }
 
   private buildColliders(): void {
@@ -177,18 +180,26 @@ export class StaticWorld {
     return CURB_H;
   }
 
+  /** Height of the ground, a deck or a ramp's surface at (x, z), whichever is highest. */
   groundHeight(x: number, z: number): number {
-    let h = this.baseGround(x, z);
+    const base = this.baseGround(x, z);
+    const s = this.surfaces;
+    const cx = Math.floor((x - s.minX) / SURFACE_CELL);
+    const cz = Math.floor((z - s.minZ) / SURFACE_CELL);
+    // Also false for NaN.
+    if (!(cx >= 0 && cx < s.nx && cz >= 0 && cz < s.nz)) return base;
+    const c = cz * s.nx + cx;
+    let h = base;
     const decks = this.layout.decks;
-    for (let i = 0; i < decks.length; i++) {
-      const d = decks[i]!;
+    for (let i = s.deckStart[c]!, end = s.deckStart[c + 1]!; i < end; i++) {
+      const d = decks[s.deckIndex[i]!]!;
       if (d.y > h && rectContains(d.rect, x, z)) h = d.y;
     }
     const ramps = this.layout.ramps;
-    for (let i = 0; i < ramps.length; i++) {
-      const rh = rampHeight(ramps[i]!, x, z);
+    for (let i = s.rampStart[c]!, end = s.rampStart[c + 1]!; i < end; i++) {
+      const rh = rampHeight(ramps[s.rampIndex[i]!]!, x, z);
       if (rh > 0) {
-        const top = this.baseGround(x, z) + rh;
+        const top = base + rh;
         if (top > h) h = top;
       }
     }
@@ -297,6 +308,69 @@ export class StaticWorld {
     }
     return l.blocks[bj * l.n + bi]!.district;
   }
+}
+
+/** Side of a groundHeight grid cell (m). */
+const SURFACE_CELL = 16;
+/** Bounds are widened by this much (m) so float rounding at an edge can never leave a deck or ramp out of a cell. */
+const SURFACE_PAD = 0.05;
+
+/**
+ * Decks and ramps listed per cell of a uniform grid over their joint bounds (compressed rows: the indices of cell c are
+ * index[start[c] .. start[c + 1]]), in their layout order.
+ */
+interface SurfaceGrid {
+  minX: number;
+  minZ: number;
+  nx: number;
+  nz: number;
+  deckStart: Int32Array;
+  deckIndex: Int32Array;
+  rampStart: Int32Array;
+  rampIndex: Int32Array;
+}
+
+/** The world-axis box round a ramp's footprint. */
+function rampBounds(r: Ramp): Rect {
+  const ex = (Math.abs(Math.sin(r.heading)) * r.length + Math.abs(Math.cos(r.heading)) * r.width) / 2;
+  const ez = (Math.abs(Math.cos(r.heading)) * r.length + Math.abs(Math.sin(r.heading)) * r.width) / 2;
+  return { minX: r.x - ex, maxX: r.x + ex, minZ: r.z - ez, maxZ: r.z + ez };
+}
+
+function buildSurfaceGrid(decks: readonly Rect[], ramps: readonly Rect[]): SurfaceGrid {
+  const all = [...decks, ...ramps];
+  let minX = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxZ = -Infinity;
+  for (const r of all) {
+    minX = Math.min(minX, r.minX - SURFACE_PAD);
+    minZ = Math.min(minZ, r.minZ - SURFACE_PAD);
+    maxX = Math.max(maxX, r.maxX + SURFACE_PAD);
+    maxZ = Math.max(maxZ, r.maxZ + SURFACE_PAD);
+  }
+  if (!all.length) {
+    minX = minZ = 0;
+    maxX = maxZ = 0;
+  }
+  const nx = Math.max(1, Math.ceil((maxX - minX) / SURFACE_CELL));
+  const nz = Math.max(1, Math.ceil((maxZ - minZ) / SURFACE_CELL));
+  const bucket = (rects: readonly Rect[]): { start: Int32Array; index: Int32Array } => {
+    const cells: number[][] = Array.from({ length: nx * nz }, () => []);
+    rects.forEach((r, i) => {
+      const x0 = Math.max(0, Math.floor((r.minX - SURFACE_PAD - minX) / SURFACE_CELL));
+      const x1 = Math.min(nx - 1, Math.floor((r.maxX + SURFACE_PAD - minX) / SURFACE_CELL));
+      const z0 = Math.max(0, Math.floor((r.minZ - SURFACE_PAD - minZ) / SURFACE_CELL));
+      const z1 = Math.min(nz - 1, Math.floor((r.maxZ + SURFACE_PAD - minZ) / SURFACE_CELL));
+      for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) cells[cz * nx + cx]!.push(i);
+    });
+    const start = new Int32Array(nx * nz + 1);
+    for (let c = 0; c < cells.length; c++) start[c + 1] = start[c]! + cells[c]!.length;
+    return { start, index: Int32Array.from(cells.flat()) };
+  };
+  const d = bucket(decks);
+  const r = bucket(ramps);
+  return { minX, minZ, nx, nz, deckStart: d.start, deckIndex: d.index, rampStart: r.start, rampIndex: r.index };
 }
 
 /** Height of a ramp surface above its base at (x, z), or 0 when outside. */
