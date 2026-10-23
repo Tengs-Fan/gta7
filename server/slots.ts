@@ -45,14 +45,32 @@ export function withCamera(c: Character, inp: PlayerInput): PlayerInput {
 
 const NO_JOB: JobHud = { kind: '', status: '', objectives: [] };
 
-/** Where the n-th player to join stands: on the sidewalk by the safehouse door, a couple of metres apart. */
+/** Joining spots on the sidewalk by the safehouse door. */
+export const SPAWN_SPOTS = 8;
+/** Metres a joiner keeps from a player already standing on a spot. */
+const SPAWN_CLEARANCE = 1.5;
+
+/**
+ * Where the n-th spawn spot is: players stand side by side across their facing direction (two rows of four, the second
+ * a step behind), so the first step forward of one never walks into another and a car pulling away has nobody ahead.
+ */
 function spawnSpot(sim: Sim, n: number): { x: number; z: number } {
   const home = sim.world.layout.pois.find((p) => p.id === 'safehouse')!;
-  const along = (n % 4) * 1.6 - 2.4;
-  const out = 3.2 + Math.floor(n / 4) * 1.6;
-  const x = home.x + Math.cos(home.heading) * out + Math.sin(home.heading) * along;
-  const z = home.z - Math.sin(home.heading) * out + Math.cos(home.heading) * along;
+  const side = 3.2 + (n % 4) * 1.6 + Math.floor(n / 4) * 0.8;
+  const back = -Math.floor(n / 4) * 2.4;
+  const x = home.x + Math.cos(home.heading) * side + Math.sin(home.heading) * back;
+  const z = home.z - Math.sin(home.heading) * side + Math.cos(home.heading) * back;
   return sim.world.findFreeSpot(x, z, 0.5, 8) ?? { x, z };
+}
+
+/** The first spot, starting at the n-th, nobody stands on (the n-th again when they are all taken). */
+function freeSpawnSpot(sim: Sim, n: number): { x: number; z: number } {
+  const others = sim.activePlayers().map((s) => s.character);
+  for (let k = 0; k < SPAWN_SPOTS; k++) {
+    const at = spawnSpot(sim, (n + k) % SPAWN_SPOTS);
+    if (!others.some((c) => Math.hypot(c.pos.x - at.x, c.pos.z - at.z) < SPAWN_CLEARANCE)) return at;
+  }
+  return spawnSpot(sim, n % SPAWN_SPOTS);
 }
 
 /**
@@ -75,7 +93,7 @@ export class PlayerSlotProvider implements SlotProvider {
   claim(playerId: number): number | null {
     if (this.holders.size >= this.capacity) return null;
     const sim = this.sim;
-    const at = spawnSpot(sim, this.joins++ % 12);
+    const at = freeSpawnSpot(sim, this.joins++ % SPAWN_SPOTS);
     let slot: PlayerSlot;
     if (!this.holders.has(0)) {
       slot = sim.players[0]!;

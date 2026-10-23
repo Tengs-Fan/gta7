@@ -921,6 +921,29 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     }
   }
 
+  /**
+   * The free spot nearest the respawn point. With other players about (multiplayer), one that none of them stands on, so
+   * players who die together come back side by side instead of in one pile.
+   */
+  private respawnSpot(slot: PlayerSlot, x: number, z: number): { x: number; z: number } {
+    const others = this.activePlayers().filter((s) => s !== slot).map((s) => s.character);
+    if (others.length === 0) return this.world.findFreeSpot(x, z, 0.5, 10) ?? { x, z };
+    const taken = (at: { x: number; z: number }) => others.some((c) => Math.hypot(c.pos.x - at.x, c.pos.z - at.z) < 1.5);
+    let first: { x: number; z: number } | null = null;
+    for (let ring = 0; ring * 1.5 <= 12; ring++) {
+      const rad = ring * 1.5;
+      const steps = ring === 0 ? 1 : Math.max(8, Math.round(rad * 4));
+      for (let k = 0; k < steps; k++) {
+        const a = (k / steps) * Math.PI * 2;
+        const at = this.world.findFreeSpot(x + Math.cos(a) * rad, z + Math.sin(a) * rad, 0.5, 0);
+        if (!at) continue;
+        first ??= at;
+        if (!taken(at)) return at;
+      }
+    }
+    return first ?? { x, z };
+  }
+
   /** Resolve an existing wasted/busted state once, including its bill and confiscation. */
   finishRespawn(slot: PlayerSlot = this.players[0]!): void {
     if (!slot.deathKind) return;
@@ -942,7 +965,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     p.vel.x = 0;
     p.vel.y = 0;
     p.vel.z = 0;
-    const spot = this.world.findFreeSpot(poi.x, poi.z, 0.5, 10) ?? { x: poi.x, z: poi.z };
+    const spot = this.respawnSpot(slot, poi.x, poi.z);
     p.pos.x = spot.x;
     p.pos.z = spot.z;
     p.pos.y = this.world.groundHeight(spot.x, spot.z);

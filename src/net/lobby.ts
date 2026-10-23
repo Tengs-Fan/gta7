@@ -27,6 +27,8 @@ export interface RoomPlayer {
   slot: number;
   kills: number;
   deaths: number;
+  /** Stars the player has now, so everyone's PLAYERS list shows them (snapshots carry only the viewer's own HUD). */
+  wanted: number;
   /** Damage this player did to other players' cars. */
   carDamage: number;
 }

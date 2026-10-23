@@ -73,6 +73,7 @@ export interface MultiplayerPlayerRow {
   watching: boolean;
   kills: number;
   deaths: number;
+  wanted: number;
 }
 
 export interface MultiplayerMenuHost {

@@ -279,7 +279,7 @@ describe('same seed, same inputs: same game with 2-4 players (VAL-MPSIM-008)', (
     return inp;
   }
 
-  function run(players: number, seed: number): { hash: string; log: string; events: number; deaths: number; wanted: number[] } {
+  function run(players: number, seed: number): { hash: string; log: string; events: number; deaths: number; wanted: number[]; peakWanted: number } {
     const room = new Room(`det${players}`, seed, { realtime: false, log: () => {}, dev: true });
     const sim = room.sim;
     const lines: string[] = [];
@@ -303,6 +303,7 @@ describe('same seed, same inputs: same game with 2-4 players (VAL-MPSIM-008)', (
     }
     let seq = 0;
     let deaths = 0;
+    let peakWanted = 0;
     sim.events.on('wasted', () => deaths++);
     for (let tick = 0; tick < 60 * 60; tick++) {
       seq++;
@@ -312,9 +313,10 @@ describe('same seed, same inputs: same game with 2-4 players (VAL-MPSIM-008)', (
         room.input(m, seq, script(room, slot, i, tick), room.tick);
       });
       room.step();
+      for (const s of sim.players) peakWanted = Math.max(peakWanted, s.wanted.level);
     }
     const log = lines.join('\n');
-    const out = { hash: stateHash(sim), log: createHash('sha256').update(log).digest('hex'), events: lines.length, deaths, wanted: sim.players.map((s) => s.wanted.level) };
+    const out = { hash: stateHash(sim), log: createHash('sha256').update(log).digest('hex'), events: lines.length, deaths, wanted: sim.players.map((s) => s.wanted.level), peakWanted };
     room.close();
     return out;
   }
@@ -331,7 +333,8 @@ describe('same seed, same inputs: same game with 2-4 players (VAL-MPSIM-008)', (
       expect(c.hash).not.toBe(a.hash);
       expect(c.log).not.toBe(a.log);
       if (n >= 4) expect(a.deaths).toBeGreaterThan(0);
-      expect(a.wanted.some((w) => w > 0)).toBe(true);
+      // A bust or a death ends a pursuit, so the levels at the end of the run may all be 0.
+      expect(a.peakWanted).toBeGreaterThan(0);
     }, 120_000);
   }
 });

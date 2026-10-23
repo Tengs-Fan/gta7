@@ -15,13 +15,13 @@ const REFRESH = 0.25;
 
 function playersTable(mp: MultiplayerMenuHost): HTMLElement {
   const t = h('table', 'mp-table mp-players');
-  t.innerHTML = '<thead><tr><th>PLAYER</th><th class="num">KILLS</th><th class="num">DEATHS</th></tr></thead>';
+  t.innerHTML = '<thead><tr><th>PLAYER</th><th class="num">STARS</th><th class="num">KILLS</th><th class="num">DEATHS</th></tr></thead>';
   const body = h('tbody');
   for (const p of mp.players()) {
     const tr = h('tr', p.you ? 'you' : '');
     tr.dataset.playerId = String(p.playerId);
     const watching = p.watching ? ' <span class="mp-you">WATCHING</span>' : '';
-    tr.innerHTML = `<td><span class="mp-swatch" style="background:${p.color}"></span><span class="mp-name">${escapeHtml(p.name)}</span>${p.you ? '<span class="mp-you">YOU</span>' : ''}${watching}</td><td class="num">${p.kills}</td><td class="num">${p.deaths}</td>`;
+    tr.innerHTML = `<td><span class="mp-swatch" style="background:${p.color}"></span><span class="mp-name">${escapeHtml(p.name)}</span>${p.you ? '<span class="mp-you">YOU</span>' : ''}${watching}</td><td class="num mp-stars">${p.wanted > 0 ? '\u2605'.repeat(p.wanted) : '-'}</td><td class="num">${p.kills}</td><td class="num">${p.deaths}</td>`;
     body.appendChild(tr);
   }
   t.appendChild(body);
