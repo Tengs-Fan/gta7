@@ -167,9 +167,10 @@ describe('snapshot stream', () => {
     const room = new Room('t', 7, { realtime: false, snapshotRate: 30, sim: { ambient: false } });
     const sim = room.sim;
     const pk = sim.pickups[0]!;
-    teleport(sim, pk.pos.x + 30, pk.pos.z);
     const peer = new FakePeer();
     const m = room.join(1, 'Ann', peer) as Exclude<ReturnType<Room['join']>, 'full'>;
+    // A joining player stands at the safehouse (his slot is made for him then): moved after joining.
+    teleport(sim, pk.pos.x + 30, pk.pos.z);
     const welcome = decodeMessage(room.welcome(m));
     if (welcome.type !== 'welcome') throw new Error('no welcome');
     expect(welcome.pickups.map((p) => p.id)).toContain(pk.id);
@@ -192,7 +193,7 @@ describe('capture, encode, decode, apply', () => {
     const cs = sim.characters.filter((c) => !c.removed);
     expect(vs.length).toBeGreaterThan(10);
     const msg: SnapshotMsg = {
-      type: 'snapshot', tick: 1, ackSeq: 0, time: sim.time, full: true, clock: { day: 1, hours: 12, rate: 1 / 60 }, hud: { wanted: 3, searching: false, money: 0 },
+      type: 'snapshot', tick: 1, ackSeq: 0, time: sim.time, full: true, clock: { day: 1, hours: 12, rate: 1 / 60 }, hud: { wanted: 3, searching: false, money: 0, clip: 0, ammo: 0 }, job: null,
       roster: null, weather: null, signalHolds: null, brokenProps: [], projectiles: [], helis: [], pickups: [], removed: [],
       vehicles: vs.map((v) => captureVehicle(v)),
       characters: cs.map((c) => captureCharacter(c)),

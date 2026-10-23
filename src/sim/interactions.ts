@@ -42,6 +42,8 @@ export interface ShopItem {
 }
 
 export const SPRAY_COST = 100;
+/** Why the safehouse does not save in a multiplayer sim. */
+export const MP_NO_SAVE = 'Saving is off in multiplayer.';
 
 /** Whether `ammo` more rounds of `weapon` would add any (Inventory.give caps a gun's reserve): a full gun takes no more. */
 function roomFor(inv: Inventory, weapon: WeaponId, ammo: number): boolean {
@@ -102,7 +104,12 @@ export class Interactions {
   /** The safehouse can restore health and save now; an exited vehicle job can be ended by saving. */
   canSave(slot: PlayerView = this.sim.players[0]!): boolean {
     const sim = this.sim;
-    return !slot.down && slot.wanted.level === 0 && !sim.missions.active && sim.activities.job?.kind !== 'rampage';
+    return !sim.multiplayer && !slot.down && slot.wanted.level === 0 && !sim.missions.active && this.jobKind(slot) !== 'rampage';
+  }
+
+  /** The kind of the job `slot`'s player runs, if any. */
+  private jobKind(slot: PlayerView): string | undefined {
+    return this.sim.activities.jobOf(slot.id)?.kind;
   }
 
   /** HUD prompt for the marker under the player, or for retrying a failed mission. */
@@ -118,9 +125,10 @@ export class Interactions {
     if (m.kind === 'exportBoard') return sim.activities.job?.kind === 'carExport' ? "Press E to read Lou's export list" : m.label;
     if (m.kind === 'save') {
       // As interact() would answer, before E is pressed.
+      if (sim.multiplayer) return MP_NO_SAVE;
       if (slot.wanted.level > 0) return 'Lose the cops before saving.';
       if (sim.missions.active) return "You can't save during a mission.";
-      if (sim.activities.job?.kind === 'rampage') return "You can't save during a rampage.";
+      if (this.jobKind(slot) === 'rampage') return "You can't save during a rampage.";
     }
     return m.label;
   }
@@ -132,7 +140,7 @@ export class Interactions {
   private startBlock(slot: PlayerView, retry: boolean): string | null {
     const sim = this.sim;
     if (slot.wanted.level > 0) return retry ? 'Lose the cops before retrying.' : 'Lose the cops before starting a mission.';
-    if (sim.activities.job?.kind === 'rampage') return 'Finish the rampage first.';
+    if (sim.activities.jobOf(slot.id)?.kind === 'rampage') return 'Finish the rampage first.';
     return null;
   }
 
@@ -188,6 +196,10 @@ export class Interactions {
         sim.events.emit('shopOpen', { poi: m.ref, ...slot.tag });
         break;
       case 'save':
+        if (sim.multiplayer) {
+          sim.events.emit('message', { text: MP_NO_SAVE, duration: 3, ...slot.tag });
+          return;
+        }
         if (slot.wanted.level > 0) {
           sim.events.emit('message', { text: "You can't save while the cops are after you.", duration: 3, ...slot.tag });
           return;
@@ -197,7 +209,7 @@ export class Interactions {
           return;
         }
         // A rampage continues on foot: the heal is no free top-up mid-fight.
-        if (sim.activities.job?.kind === 'rampage') {
+        if (this.jobKind(slot) === 'rampage') {
           sim.events.emit('message', { text: "You can't save during a rampage.", duration: 3, ...slot.tag });
           return;
         }

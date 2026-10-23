@@ -4,6 +4,7 @@
 // and reconnecting (VAL-MPCL-006), and the clean failures of a bad, unreachable or wrong-version server (VAL-MPCL-007).
 
 import { describe, expect, it } from 'vitest';
+import { SingleSlotProvider } from '../../server/slots';
 import { NetClient } from '../../src/net/client';
 import { MAX_CORRECTION_STEP, SNAP_DIST } from '../../src/net/predictor';
 import { PROTOCOL_VERSION } from '../../src/net/protocol';
@@ -78,7 +79,8 @@ describe('prediction and reconciliation under 100 ms latency, ±15 ms jitter and
     const room = mgr.room('r')!;
     const sim = room.sim;
     const route = loopRoute(sim.roads);
-    c.command('debug', JSON.stringify({ teleport: [route[0]!.x, route[0]!.z], godMode: true }));
+    // Rooms run the street systems: a witness phoning in a pedestrian the autopilot clips would end the drive in a bust.
+    c.command('debug', JSON.stringify({ teleport: [route[0]!.x, route[0]!.z], godMode: true, neverWanted: true }));
     run(mgr, clock, [c], 0.5);
     c.command('debug', JSON.stringify({ drive: 'sedan' }));
     run(mgr, clock, [c], 1.5);
@@ -94,6 +96,12 @@ describe('prediction and reconciliation under 100 ms latency, ±15 ms jitter and
     });
     sim.events.on('damage', (e) => {
       if (e.victim === sim.player) impacts.push(room.tick);
+    });
+    // A punch that lands on him is contact too (in god mode it knocks him down without a damage event): an angry
+    // driver the autopilot rammed gets out to fight (sim.streetCrime.angryDrivers, on in rooms).
+    sim.events.on('melee', (e) => {
+      const p = sim.player.pos;
+      if (e.hit && Math.hypot(e.x - p.x, e.z - p.z) < 2.5) impacts.push(room.tick);
     });
     let rec = c.predictor.tick;
     const snapsBefore = c.predictor.stats.hardSnaps;
@@ -256,7 +264,8 @@ describe('the local player responds at once (VAL-MPCL-004, unit)', () => {
 describe('joining a room whose slot is taken, and taking it over', () => {
   it('the second client watches the first player, then plays when the slot frees', () => {
     const clock = new VirtualClock();
-    const mgr = testManager({ dev: true });
+    // Rooms give every player a slot of his own; the one-slot provider still has players watching.
+    const mgr = testManager({ dev: true, slotProvider: (sim) => new SingleSlotProvider(sim) });
     const a = makeClient(mgr, clock, { name: 'A' });
     run(mgr, clock, [a], 0.5);
     const b = makeClient(mgr, clock, { name: 'B' });

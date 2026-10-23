@@ -7,7 +7,9 @@ import { makeBrain, type PedBrain } from './brains';
 import { MAX_STEP } from './characterPhysics';
 import type { Character } from './entities';
 import { gangAt, setGang } from './gangs';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
+import { clusterTarget, playerClusters } from './traffic';
 import { isGun } from './specs';
 import { vehicleObb } from './vehiclePhysics';
 
@@ -56,6 +58,8 @@ export class PedSystem {
   private timer = 0;
   private screamCooldown = 0;
   density = 1;
+  /** Turns through a group's players for its spawns (multiplayer). */
+  private turn = 0;
 
   constructor(private readonly sim: Sim) {
     // Once per trigger pull (a shotgun blast is one bang, not nine), from the muzzle.
@@ -82,7 +86,13 @@ export class PedSystem {
     if (this.timer > 0) return;
     this.timer = 0.5;
     const sim = this.sim;
-    const pp = sim.playerPos();
+    const active = sim.activePlayers();
+    if (active.length > 1) {
+      this.streamMulti(active);
+      return;
+    }
+    const me = active[0] ?? sim.players[0]!;
+    const pp = me.pos();
     let count = 0;
     for (const c of sim.characters) {
       if (c.removed || c.persistent || c.isPlayer) continue;
@@ -100,21 +110,63 @@ export class PedSystem {
     }
     let spawned = 0;
     while (count < this.targetCount && spawned < 4) {
-      if (!this.trySpawn()) break;
+      if (!this.trySpawn(me)) break;
       spawned++;
       count++;
     }
   }
 
-  private trySpawn(): Character | null {
+  /**
+   * Multiplayer streaming: a pedestrian goes only far from every player and out of everyone's view; each group of
+   * players (playerClusters) keeps its share of the crowd (clusterTarget), spawned round its players in turn.
+   */
+  private streamMulti(active: readonly PlayerSlot[]): void {
     const sim = this.sim;
-    const pp = sim.playerPos();
+    const groups = playerClusters(active);
+    const groupOf = new Map<PlayerSlot, number>();
+    groups.forEach((g, i) => g.forEach((s) => groupOf.set(s, i)));
+    const target = clusterTarget(this.targetCount, groups.length);
+    const counts = groups.map(() => 0);
+    for (const c of sim.characters) {
+      if (c.removed || c.persistent || c.isPlayer) continue;
+      if (c.owner !== 'ped' && !(c.owner === 'traffic' && c.state !== 'inVehicle')) continue;
+      const near = sim.nearestPlayer(c.pos.x, c.pos.z);
+      const np = near.pos();
+      const d = Math.hypot(c.pos.x - np.x, c.pos.z - np.z);
+      // With several players nobody goes while any of them may see him, alive or dead.
+      if (!c.alive) {
+        if (((c.deadTime > 30 && d > 40) || d > 170) && !sim.isVisible(c.pos.x, c.pos.y, c.pos.z)) sim.removeCharacter(c);
+        continue;
+      }
+      if (d > 110 && !sim.isVisible(c.pos.x, c.pos.y, c.pos.z)) {
+        sim.removeCharacter(c);
+        continue;
+      }
+      if (c.owner === 'ped') counts[groupOf.get(near) ?? 0]!++;
+    }
+    groups.forEach((g, gi) => {
+      let count = counts[gi]!;
+      let spawned = 0;
+      while (count < target && spawned < 4) {
+        if (!this.trySpawn(g[this.turn++ % g.length]!)) break;
+        spawned++;
+        count++;
+      }
+    });
+  }
+
+  private trySpawn(around: PlayerSlot): Character | null {
+    const sim = this.sim;
+    const pp = around.pos();
+    const others = sim.players.length > 1;
     for (let tries = 0; tries < 6; tries++) {
       // Keep the crowd close: hidden spots (behind the camera or buildings) may be near.
       const pt = sim.world.walk.randomPointNear(sim.rng, pp.x, pp.z, 22, sim.rng.range(45, 100));
       if (!pt) return null;
       const d = Math.hypot(pt.x - pp.x, pt.z - pp.z);
       if (d < 55 && sim.isVisible(pt.x, 1, pt.z)) continue;
+      // Never closer to another player, or nearer in his view, than the spawn ring allows round this one.
+      if (others && (sim.distToPlayer(pt.x, pt.z) < Math.min(d, 22) || (sim.distToPlayer(pt.x, pt.z) < 55 && sim.isVisible(pt.x, 1, pt.z)))) continue;
       if (sim.world.waterDepth(pt.x, pt.z) > -0.2) continue;
       if (!sim.traffic.isClear(pt.x, pt.z, 2.5)) continue;
       const zone = sim.world.zoneName(pt.x, pt.z);
@@ -205,10 +257,11 @@ export class PedSystem {
     return b;
   }
 
-  onJacked(victim: Character): void {
+  /** `victim` was pulled out of his car (or left a sinking one) by player `by` (slot 0's by default). */
+  onJacked(victim: Character, by: Character = this.sim.player): void {
     if (!victim.brain) victim.brain = makeBrain('flee');
     victim.owner = victim.owner === 'traffic' ? 'ped' : victim.owner;
-    const p = this.sim.player;
+    const p = by;
     if (victim.isLaw) return;
     if (victim.brain.brave || victim.role === 'gang') this.fight(victim, p);
     else this.flee(victim, p.pos.x, p.pos.z, p);
@@ -249,24 +302,29 @@ export class PedSystem {
 
   updateAI(dt: number): void {
     const sim = this.sim;
-    const p = sim.player;
-    // Civilians react to a gun being pointed at them.
-    const aimingGun = p.aiming && isGun(p.inventory.current) && p.state === 'normal';
+    // Civilians react to a gun being pointed at them (by any player: in slot order, the first one aiming at him).
+    const aiming = sim.players.filter((s) => {
+      const p = s.character;
+      return !s.parked && p.aiming && isGun(p.inventory.current) && p.state === 'normal';
+    });
     for (const c of sim.characters) {
       if (c.removed || !c.brain || c.isLaw || c.isPlayer) continue;
       if (c.state !== 'normal' && c.state !== 'swimming') {
         c.moveSpeed = 0;
         continue;
       }
-      if (aimingGun && (c.brain.mode === 'wander' || c.brain.mode === 'idle' || c.brain.mode === 'cross')) this.checkAimedAt(c);
+      for (const s of aiming) {
+        if (c.brain.mode !== 'wander' && c.brain.mode !== 'idle' && c.brain.mode !== 'cross') break;
+        this.checkAimedAt(c, s);
+      }
       this.think(c, c.brain, dt);
     }
   }
 
-  private checkAimedAt(c: Character): void {
+  private checkAimedAt(c: Character, slot: PlayerSlot): void {
     const sim = this.sim;
-    const dir = sim.lastInput.aimDir;
-    const o = sim.lastInput.aimOrigin;
+    const dir = slot.input.aimDir;
+    const o = slot.input.aimOrigin;
     const dx = c.pos.x - o.x;
     const dy = c.pos.y + 1.2 - o.y;
     const dz = c.pos.z - o.z;
@@ -276,19 +334,19 @@ export class PedSystem {
     if (cos < 0.985) return;
     // Only someone who can see the gun: not round a corner, through a wall or from outside a garage he is in
     // (from his eyes, as the police judge it: the camera can sit beyond a corner he cannot see past).
-    const p = sim.player;
+    const p = slot.character;
     if (!sim.world.lineOfSight(p.pos.x, p.pos.y + 1.5, p.pos.z, c.pos.x, c.pos.y + 1.2, c.pos.z)) return;
     const b = c.brain!;
     if (c.role === 'gang') {
       // With turf (sim.streetCrime.gangs), a gun pointed at a member outside his gang's turf is no cause to fight.
       if (!sim.streetCrime.gangs || !c.gang || sim.gangs.inOwnTurf(c)) {
-        this.fight(c, sim.player);
+        this.fight(c, p);
         if (sim.streetCrime.gangs) b.turfAggroAt = sim.time;
       }
     } else if (sim.rng.chance(0.5)) {
       b.mode = 'cower';
       b.modeTimer = sim.rng.range(2.5, 4.5);
-    } else this.flee(c, sim.player.pos.x, sim.player.pos.z, sim.player);
+    } else this.flee(c, p.pos.x, p.pos.z, p);
   }
 
   think(c: Character, b: PedBrain, dt: number): void {
@@ -310,7 +368,10 @@ export class PedSystem {
       case 'cower':
         c.moveSpeed = 0;
         b.modeTimer -= dt;
-        if (b.modeTimer <= 0) this.flee(c, this.sim.player.pos.x, this.sim.player.pos.z, this.sim.player);
+        if (b.modeTimer <= 0) {
+          const near = this.sim.players.length > 1 ? this.sim.nearestPlayer(c.pos.x, c.pos.z).character : this.sim.player;
+          this.flee(c, near.pos.x, near.pos.z, near);
+        }
         break;
       case 'fight':
         this.doFight(c, b, dt);
@@ -478,7 +539,7 @@ export class PedSystem {
     const sim = this.sim;
     const t = b.target;
     b.modeTimer -= dt;
-    if (!t || t.removed || !t.alive || b.modeTimer <= 0 || (t.isPlayer && sim.playerDown)) {
+    if (!t || t.removed || !t.alive || b.modeTimer <= 0 || (t.isPlayer && (sim.players.length > 1 ? !!sim.slotOf(t)?.down : sim.playerDown))) {
       b.target = null;
       if (b.hostile && b.homeX !== 0) {
         b.mode = 'guard';
@@ -567,10 +628,12 @@ export class PedSystem {
 
   private doGuard(c: Character, b: PedBrain, dt: number): void {
     const sim = this.sim;
-    const p = sim.player;
-    const pp = sim.playerPos();
+    // The nearest player is the one a guard watches.
+    const slot = sim.players.length > 1 ? sim.nearestPlayer(c.pos.x, c.pos.z) : sim.players[0]!;
+    const p = slot.character;
+    const pp = slot.pos();
     const dp = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z);
-    if (b.hostile && p.alive && !sim.playerDown && dp < 16 && sim.world.lineOfSight(c.pos.x, c.pos.y + 1.5, c.pos.z, pp.x, pp.y + 1.2, pp.z)) {
+    if (b.hostile && p.alive && !slot.down && dp < 16 && sim.world.lineOfSight(c.pos.x, c.pos.y + 1.5, c.pos.z, pp.x, pp.y + 1.2, pp.z)) {
       this.fight(c, p);
       return;
     }

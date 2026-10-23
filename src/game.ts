@@ -18,11 +18,11 @@ import { applySave, serialize, type SaveData } from './sim/progress';
 import { applyExt, serializeExt } from './sim/saveExt';
 import { Sim } from './sim/sim';
 import { cabState, callCab, setCabDestination } from './sim/activities/cab';
+import { applySimCheat, cheatRefusal } from './sim/cheats';
 import { contactById } from './sim/missions/contacts';
-import { WEAPON_ORDER, type WeaponId } from './sim/specs';
+import type { WeaponId } from './sim/specs';
 import { playerOf, type ViewState } from './sim/viewState';
-import { findVehicleRoom } from './sim/vehicleRoom';
-import type { WeatherKind, WeatherMode } from './sim/weather';
+import type { WeatherMode } from './sim/weather';
 import { HintSystem } from './ui/hints';
 import { Hud } from './ui/hud';
 import { ScopeOverlay } from './ui/widgets/scope';
@@ -53,9 +53,6 @@ const FRAME_SLACK_MS = 1;
  */
 const BAIL_SPEED = 11;
 const BAIL_DAMAGE = 6;
-/** RAINDANCE steps the weather through these, then back to the forecast (null); each change ramps over CHEAT_RAMP s. */
-const RAINDANCE: ReadonlyArray<WeatherKind | null> = ['rain', 'storm', 'overcast', 'clear', null];
-const CHEAT_RAMP = 6;
 /** Keys are named by their QWERTY binding: the HUD draws them for the player's layout or pad. */
 const WELCOME = 'Welcome to San Azura. Mama Lou has work for you: follow the <b class="lou">pink route</b> to the <b class="lou">L</b> on your radar. Steal a ride with <kbd>F</kbd>.';
 /** With her call coming in, the route to her is no longer the thing to read. */
@@ -1086,13 +1083,12 @@ export class Game {
         else this.pause();
       } else if (kc.under !== null && kc.map && this.menus.top === kc.under) this.menus.showMap();
     }
+    const refused = cheatRefusal(sim);
+    if (refused) {
+      this.hud.toast(refused);
+      return;
+    }
     switch (code) {
-      case 'CHILLOUT':
-        sim.wanted.clear();
-        break;
-      case 'GUNSGALORE':
-        for (const w of WEAPON_ORDER) if (w !== 'fists') p.inventory.give(w, 300);
-        break;
       case 'FIXMYRIDE': {
         // Its F gets the player out of the car (bailing out at speed): put him back in his seat, refunding the fall.
         // Only an exit the code's own F asked for: one he made himself before typing it stands. Where that exit could
@@ -1124,36 +1120,12 @@ export class Game {
         }
         break;
       }
-      case 'IMMORTAL':
-        sim.cheats.godMode = !sim.cheats.godMode;
-        break;
-      case 'MONEYTREE':
-        sim.progress.addMoney(50000);
-        sim.events.emit('money', { amount: 50000 });
-        break;
-      case 'SUNSET':
-        sim.clock.set(18.3);
-        break;
-      case 'NIGHTOWL':
-        sim.clock.set(23);
-        break;
-      case 'SPAWNSPORTS': {
-        const fx = Math.sin(p.heading);
-        const fz = Math.cos(p.heading);
-        // In front of him where it fits: clear of walls and props, and of the cars and people there (him too).
-        const spot = findVehicleRoom(sim, 'sports', p.pos.x + fx * 6, p.pos.z + fz * 6, p.heading, 20);
-        if (spot) sim.spawnVehicle('sports', spot.x, spot.z, p.heading);
-        break;
-      }
-      case 'COPMAGNET':
-        sim.wanted.setLevel(Math.min(5, sim.wanted.level + 2));
-        break;
-      case 'RAINDANCE': {
-        const next = RAINDANCE[(RAINDANCE.indexOf(sim.weather.overridden) + 1) % RAINDANCE.length] ?? null;
-        sim.weather.override(next, CHEAT_RAMP);
-        this.hud.toast(`Weather: ${next ?? 'forecast'}`);
+      case 'RAINDANCE':
+        applySimCheat(sim, code);
+        this.hud.toast(`Weather: ${sim.weather.overridden ?? 'forecast'}`);
         return;
-      }
+      default:
+        applySimCheat(sim, code);
     }
     this.hud.toast(code === 'IMMORTAL' ? `Cheat: god mode ${sim.cheats.godMode ? 'on' : 'off'}` : 'Cheat activated');
   }

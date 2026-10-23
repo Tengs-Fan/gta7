@@ -313,7 +313,7 @@ describe('remote entities move smoothly between snapshots (VAL-MPCL-003, unit)',
       const id = 500;
       const rnd = linkRandom(hz);
       const base = (tick: number): SnapshotMsg => ({
-        type: 'snapshot', tick, ackSeq: 0, time: tick / 60, full: tick === every, clock: { day: 1, hours: 12, rate: 0 }, hud: { wanted: 0, searching: false, money: 0 },
+        type: 'snapshot', tick, ackSeq: 0, time: tick / 60, full: tick === every, clock: { day: 1, hours: 12, rate: 0 }, hud: { wanted: 0, searching: false, money: 0, clip: 0, ammo: 0 }, job: null,
         roster: tick === every ? [{ playerId: 2, characterId: 0, slot: 1, name: 'B' }] : null, weather: null, signalHolds: null, brokenProps: [], vehicles: [], characters: [], projectiles: [], helis: [], pickups: [], removed: [],
       });
       const motion = (tick: number) => {

@@ -50,7 +50,7 @@ export function abandonSinkingCar(sim: Sim, v: Vehicle, npcs: readonly Character
     c.state = 'normal';
     if (c.owner === 'traffic') c.owner = 'ped';
     // He swims for the shore: away from the player who drove him in, or on his way otherwise.
-    if (culprit) sim.peds.onJacked(c);
+    if (culprit) sim.peds.onJacked(c, culprit);
     else if (!c.brain) c.brain = makeBrain('wander');
     if (drownsInSinkingCar(c)) list.push({ c, at: sim.time + DROWN_AFTER, culprit });
   }
