@@ -8,13 +8,13 @@ import {
 import { Sim, type SimOptions } from '../src/sim/sim';
 import { StaticWorld } from '../src/world/staticWorld';
 import {
-  encodeGroup, encodeMessage, writeIds, writeRecord, writeSnapshotHead, writeWeather, Writer, type NetEvent, type RosterEntry,
-  type SectionKey,
+  encodeGroup, encodeMessage, writeIds, writeJobHud, writeRecord, writeSnapshotHead, writeWeather, Writer, type JobHud, type NetEvent,
+  type RosterEntry, type SectionKey,
 } from '../src/net/protocol';
 import type { PickupUpdate } from '../src/sim/snapshot';
 import { InputLatch } from './latch';
 import { FixedLoop } from './loop';
-import { SingleSlotProvider, type SlotProvider } from './slots';
+import { PlayerSlotProvider, type SlotProvider } from './slots';
 import { RateMeter, Rolling } from './stats';
 import { classifyEvent, eventRelevant, type RoutedEvent } from './events';
 import type { PlayerInput } from '../src/sim/input';
@@ -60,7 +60,7 @@ export const DEFAULT_ROOM_OPTIONS: RoomOptions = {
   maxBufferedBytes: 512 * 1024,
   closeBufferedBytes: 8 * 1024 * 1024,
   log: (line) => console.log(line),
-  slotProvider: (sim) => new SingleSlotProvider(sim),
+  slotProvider: (sim) => new PlayerSlotProvider(sim),
   sim: {},
   now: () => performance.now(),
 };
@@ -78,6 +78,8 @@ export class Member {
   sentFirst = false;
   rosterVersion = -1;
   weather: Uint8Array | null = null;
+  /** The job HUD block last sent (see JobHud), as encoded. */
+  job: Uint8Array | null = null;
   holdsKey = '';
   brokenSent = 0;
   bytesOut = 0;
@@ -89,6 +91,17 @@ export class Member {
 
   constructor(readonly playerId: number, readonly name: string, readonly peer: Peer, now: number) {
     this.joinedAt = now;
+  }
+
+  /** The next snapshot is a full one again (every entity, globals and broken props), as after joining. */
+  resync(): void {
+    this.known.clear();
+    this.sentFirst = false;
+    this.rosterVersion = -1;
+    this.weather = null;
+    this.job = null;
+    this.holdsKey = '';
+    this.brokenSent = 0;
   }
 }
 
@@ -116,7 +129,7 @@ export interface RoomStatus {
   droppedTicks: number;
   tickErrors: number;
   entities: { vehicles: number; characters: number; pickups: number; projectiles: number; helis: number };
-  members: Array<{ playerId: number; name: string; slot: number; snapshots: number; skipped: number; ackSeq: number; bytesOut: number }>;
+  members: Array<{ playerId: number; name: string; slot: number; snapshots: number; skipped: number; ackSeq: number; bytesOut: number; interest: number }>;
 }
 
 export class Room {
@@ -149,7 +162,9 @@ export class Room {
     this.opts = { ...DEFAULT_ROOM_OPTIONS, ...opts };
     this.dt = 1 / this.opts.tickRate;
     this.world = new StaticWorld();
-    this.sim = new Sim({ ambient: true, police: true, weather: 'dynamic', seed, ...this.opts.sim, world: this.world });
+    // The single-player game's street systems (gangs, roadblocks, witnesses, angry drivers, world weapon pickups),
+    // with story missions, cheats and saving off (SimOptions.multiplayer).
+    this.sim = new Sim({ ambient: true, police: true, weather: 'dynamic', streetCrime: true, multiplayer: true, seed, ...this.opts.sim, world: this.world });
     this.slots = this.opts.slotProvider(this.sim);
     this.captureEvents();
     this.loop = this.opts.realtime ? new FixedLoop(() => this.step(), { hz: this.opts.tickRate, maxCatchUp: 5, maxLagMs: 250, now: this.opts.now }) : null;
@@ -356,6 +371,9 @@ export class Room {
       const w = this.writer;
       w.reset();
       const slot = m.slot ?? 0;
+      const job = this.slots.job(slot);
+      const jobBytes = this.jobBytes(job);
+      const jobChanged = !m.sentFirst || !sameBytes(m.job, jobBytes);
       writeSnapshotHead(w, {
         tick: this.tick,
         ackSeq: m.latch.ackSeq,
@@ -363,6 +381,7 @@ export class Room {
         full: !m.sentFirst,
         clock,
         hud: this.slots.hud(slot),
+        job: jobChanged ? job : null,
         roster: m.rosterVersion !== this.rosterVersion ? roster : null,
         weather: sameBytes(m.weather, weather) ? null : (sim.weather.state),
         signalHolds: m.sentFirst && m.holdsKey === holdsKey ? null : holds,
@@ -395,6 +414,7 @@ export class Room {
       m.sentFirst = true;
       m.rosterVersion = this.rosterVersion;
       m.weather = weather;
+      m.job = jobBytes;
       m.holdsKey = holdsKey;
       m.brokenSent = this.brokenLog.length;
       m.snapshots++;
@@ -402,13 +422,26 @@ export class Room {
       this.snapshotBytes.add(bytes.length);
       this.bytesMeter.mark(now, bytes.length);
 
-      const mine = events.filter((e) => eventRelevant(e, m.playerId, viewers, interest, this.opts.interest.keepRadius)).map((e) => e.ev);
+      const mine = events.filter((e) => eventRelevant(e, m.playerId, viewers, interest, this.opts.interest.keepRadius)).map((e) => this.forMember(e.ev, viewers));
       if (mine.length > 0) {
         const buf = encodeMessage({ type: 'event', tick: this.tick, events: mine.slice(0, 4000) as NetEvent[] }, this.scratch);
         if (this.sendTo(m, new Uint8Array(buf))) this.bytesMeter.mark(now, buf.byteLength);
       }
     }
     this.snapshotMeter.mark(now);
+  }
+
+  private jobBytes(job: JobHud): Uint8Array {
+    this.scratch.reset();
+    writeJobHud(this.scratch, job);
+    return this.scratch.view8().slice();
+  }
+
+  /** An event as one member gets it: a lightning strike's distance is from him (the thunder's delay), not from slot 0. */
+  private forMember(ev: NetEvent, viewers: readonly { x: number; z: number }[]): NetEvent {
+    const v = viewers[0];
+    if (ev.type !== 'lightning' || !v || typeof ev.data.x !== 'number' || typeof ev.data.z !== 'number') return ev;
+    return { ...ev, data: { ...ev.data, dist: Math.hypot(ev.data.x - v.x, ev.data.z - v.z) } };
   }
 
   private sendTo(m: Member, bytes: Uint8Array): boolean {
@@ -450,7 +483,7 @@ export class Room {
       droppedTicks: this.droppedTicks,
       tickErrors: this.tickErrors,
       entities: { vehicles: live(sim.vehicles), characters: live(sim.characters), pickups: live(sim.pickups), projectiles: live(sim.projectiles), helis: live(sim.helis) },
-      members: [...this.members.values()].map((m) => ({ playerId: m.playerId, name: m.name, slot: m.slot ?? -1, snapshots: m.snapshots, skipped: m.snapshotsSkipped, ackSeq: m.latch.ackSeq, bytesOut: m.bytesOut })),
+      members: [...this.members.values()].map((m) => ({ playerId: m.playerId, name: m.name, slot: m.slot ?? -1, snapshots: m.snapshots, skipped: m.snapshotsSkipped, ackSeq: m.latch.ackSeq, bytesOut: m.bytesOut, interest: m.interest?.size ?? 0 })),
     };
   }
 

@@ -82,7 +82,7 @@ export const rampageActivity: ActivityDef<RampageJob> = {
   end(host, j) {
     const sim = host.sim;
     for (const c of sim.characters) if (c.missionTag === 'rampage') releaseCharacter(c);
-    if (!sim.progress.rampages.includes(j.tag)) sim.pickupSys.rearmRampage(j.tag, 25);
+    if (!sim.progress.rampages.includes(j.tag)) sim.pickupSys.rearmRampage(j.tag, 25, sim.progress);
   },
 
   objectives: () => [],
@@ -95,10 +95,14 @@ export const rampageActivity: ActivityDef<RampageJob> = {
 
   attach(host) {
     host.sim.events.on('characterKilled', (e) => {
-      const j = host.job as RampageJob | null;
-      if (j && j.kind === 'rampage' && e.victim.missionTag === 'rampage' && e.killer?.isPlayer) {
+      // The kill counts for the rampage of the player who made it.
+      const slot = e.killer?.isPlayer ? host.sim.slotOf(e.killer) : undefined;
+      if (!slot) return;
+      const h = host.hostOf(slot);
+      const j = h.job as RampageJob | null;
+      if (j && j.kind === 'rampage' && e.victim.missionTag === 'rampage') {
         j.kills++;
-        if (j.kills < j.need) host.sim.events.emit('objective', { text: `Rampage: ${j.kills}/${j.need} gang members` });
+        if (j.kills < j.need) h.sim.events.emit('objective', { text: `Rampage: ${j.kills}/${j.need} gang members` });
       }
     });
   },

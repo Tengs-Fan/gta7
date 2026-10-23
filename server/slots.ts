@@ -1,11 +1,13 @@
-// How a room's players map onto PlayerSlots of its Sim. The Sim of this milestone has a single player (slot 0):
-// SingleSlotProvider lets the first player control it and leaves later players watching. The multi-player Sim
-// (mp-core) supplies a provider with one slot per player behind the same interface.
+// How a room's players map onto PlayerSlots of its Sim. PlayerSlotProvider (the default) gives every joining player
+// his own PlayerSlot in sim.players; SingleSlotProvider (one player drives slot 0, the others watch) and
+// PuppetSlotProvider (--dev --puppets: inert walkers) remain for tests and measurements.
 
 import type { Character } from '../src/sim/entities';
 import { neutralInput, type PlayerInput } from '../src/sim/input';
+import type { PlayerSlot } from '../src/sim/playerSlot';
 import type { Sim } from '../src/sim/sim';
-import type { Hud } from '../src/net/protocol';
+import { captureHud, captureJob } from '../src/sim/snapshot';
+import type { Hud, JobHud } from '../src/net/protocol';
 
 export interface SlotProvider {
   /** PlayerSlots players can control. */
@@ -22,6 +24,8 @@ export interface SlotProvider {
   /** Every claimed slot's character: all of them go to every client at any distance. */
   characters(): Character[];
   hud(slot: number): Hud;
+  /** The slot's side job for its HUD (kind '' when it runs none). */
+  job(slot: number): JobHud;
   /** The slot a player-scoped sim event belongs to (its payload's playerId; undefined means slot 0). */
   slotOfEvent(playerId: number | undefined): number;
   /** One fixed tick: each claimed slot's input (a slot without one gets a neutral input). */
@@ -37,6 +41,86 @@ export function withCamera(c: Character, inp: PlayerInput): PlayerInput {
   inp.aimOrigin = { x: p.x - Math.sin(h) * 6, y: p.y + 3, z: p.z - Math.cos(h) * 6 };
   inp.aimDir = { x: Math.sin(h), y: -0.15, z: Math.cos(h) };
   return inp;
+}
+
+const NO_JOB: JobHud = { kind: '', status: '', objectives: [] };
+
+/** Where the n-th player to join stands: on the sidewalk by the safehouse door, a couple of metres apart. */
+function spawnSpot(sim: Sim, n: number): { x: number; z: number } {
+  const home = sim.world.layout.pois.find((p) => p.id === 'safehouse')!;
+  const along = (n % 4) * 1.6 - 2.4;
+  const out = 3.2 + Math.floor(n / 4) * 1.6;
+  const x = home.x + Math.cos(home.heading) * out + Math.sin(home.heading) * along;
+  const z = home.z - Math.sin(home.heading) * out + Math.cos(home.heading) * along;
+  return sim.world.findFreeSpot(x, z, 0.5, 8) ?? { x, z };
+}
+
+/**
+ * Every player is a real PlayerSlot of the room's Sim (controller, weapons, wanted level, pursuit, job): the first to
+ * join takes slot 0 (parked while nobody holds it, see Sim.parkPlayer), later ones get sim.addPlayer slots, and a
+ * player who leaves is taken out of the sim (his car stays behind, empty).
+ */
+export class PlayerSlotProvider implements SlotProvider {
+  private readonly holders = new Map<number, number>();
+  private joins = 0;
+
+  constructor(private readonly sim: Sim, readonly capacity = 8) {
+    sim.parkPlayer(sim.players[0]!);
+  }
+
+  private slot(id: number): PlayerSlot | undefined {
+    return this.sim.players.find((s) => s.id === id);
+  }
+
+  claim(playerId: number): number | null {
+    if (this.holders.size >= this.capacity) return null;
+    const sim = this.sim;
+    const at = spawnSpot(sim, this.joins++ % 12);
+    let slot: PlayerSlot;
+    if (!this.holders.has(0)) {
+      slot = sim.players[0]!;
+      sim.unparkPlayer(slot, at.x, at.z);
+    } else slot = sim.addPlayer(at.x, at.z);
+    const home = sim.world.layout.pois.find((p) => p.id === 'safehouse')!;
+    slot.character.heading = home.heading;
+    this.holders.set(slot.id, playerId);
+    return slot.id;
+  }
+
+  release(id: number): void {
+    if (!this.holders.delete(id)) return;
+    const slot = this.slot(id);
+    if (!slot) return;
+    if (id === 0) this.sim.parkPlayer(slot);
+    else this.sim.removePlayer(slot);
+  }
+
+  character(id: number): Character {
+    return (this.slot(id) ?? this.sim.players[0]!).character;
+  }
+
+  characters(): Character[] {
+    return this.sim.activePlayers().map((s) => s.character);
+  }
+
+  hud(id: number): Hud {
+    return captureHud(this.slot(id) ?? this.sim.players[0]!);
+  }
+
+  job(id: number): JobHud {
+    const slot = this.slot(id);
+    return slot ? captureJob(this.sim, slot) : NO_JOB;
+  }
+
+  slotOfEvent(playerId: number | undefined): number {
+    return playerId ?? 0;
+  }
+
+  step(dt: number, inputs: ReadonlyMap<number, PlayerInput>): void {
+    const map = new Map<number, PlayerInput>();
+    for (const s of this.sim.activePlayers()) map.set(s.id, withCamera(s.character, inputs.get(s.id) ?? neutralInput()));
+    this.sim.update(dt, map);
+  }
 }
 
 export class SingleSlotProvider implements SlotProvider {
@@ -64,7 +148,11 @@ export class SingleSlotProvider implements SlotProvider {
   }
 
   hud(): Hud {
-    return { wanted: this.sim.wanted.level, searching: this.sim.wanted.searching, money: this.sim.progress.money };
+    return captureHud(this.sim.players[0]!);
+  }
+
+  job(): JobHud {
+    return captureJob(this.sim, this.sim.players[0]!);
   }
 
   slotOfEvent(): number {
@@ -130,8 +218,12 @@ export class PuppetSlotProvider implements SlotProvider {
   }
 
   hud(slot: number): Hud {
-    if (slot === 0) return { wanted: this.sim.wanted.level, searching: this.sim.wanted.searching, money: this.sim.progress.money };
-    return { wanted: 0, searching: false, money: 0 };
+    if (slot === 0) return captureHud(this.sim.players[0]!);
+    return { wanted: 0, searching: false, money: 0, clip: 0, ammo: 0 };
+  }
+
+  job(slot: number): JobHud {
+    return slot === 0 ? captureJob(this.sim, this.sim.players[0]!) : NO_JOB;
   }
 
   slotOfEvent(): number {

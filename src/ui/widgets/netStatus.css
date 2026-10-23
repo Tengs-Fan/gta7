@@ -1,0 +1,79 @@
+/* Multiplayer connection screens (connecting, could not join, connection lost) and the watching banner. */
+
+.net-status {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 7, 12, 0.72);
+  pointer-events: auto;
+  text-align: center;
+  padding: 30px;
+}
+
+.net-status .net-box {
+  min-width: min(520px, 90vw);
+  max-width: 760px;
+  padding: 26px 34px 24px;
+  background: rgba(10, 14, 24, 0.92);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--accent);
+  border-radius: 4px;
+}
+
+.net-status h2 {
+  font-family: 'Anton', Impact, sans-serif;
+  font-size: 40px;
+  letter-spacing: 1px;
+  font-weight: 400;
+  margin: 0 0 10px;
+}
+
+.net-status p {
+  font-size: 21px;
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+
+.net-status .net-detail {
+  font-size: 16px;
+  opacity: 0.7;
+}
+
+.net-status .net-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.net-status.connecting .net-box h2::after {
+  content: '';
+  display: inline-block;
+  width: 0.9em;
+  text-align: left;
+  animation: net-dots 1.2s steps(4) infinite;
+}
+
+@keyframes net-dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+}
+
+.net-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  padding: 6px 16px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffd1a8;
+  background: rgba(10, 14, 24, 0.78);
+  border-left: 4px solid var(--accent);
+  pointer-events: none;
+}

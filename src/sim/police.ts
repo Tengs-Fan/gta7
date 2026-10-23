@@ -11,8 +11,9 @@ import { DispatchSystem } from './dispatch';
 import { DriverAI } from './driver';
 import { Helicopter, type Character, type Vehicle } from './entities';
 import { HELI_ROOF_BLAST, heliCrashHit } from './heliCrash';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
-import { COP_SIGHT } from './wanted';
+import { COP_SIGHT, type WantedSystem } from './wanted';
 
 const UNITS_BY_LEVEL = [0, 2, 3, 4, 6, 7];
 /** Seconds after a shot or a punch by the player during which officers treat him as fighting (no arrest, return fire). */
@@ -113,73 +114,279 @@ const HELI_SPOTS: ReadonlyArray<readonly [number, number]> = [24, 16, 8]
   .flatMap((r) => [0, 1, -1, 2, -2, 3, -3, 4].map((k) => [r, (k * Math.PI) / 4] as const))
   .concat([[0, 0]]);
 
-export class PoliceSystem {
-  private dispatchTimer = 0;
-  private patrolTimer = 3;
-  private cleanupTimer = 0;
+/** Multiplayer: a unit on patrol this close (m) to a wanted player joins his pursuit (see claimPatrols). */
+const PATROL_JOIN = 200;
+/** ...but not for this long (s) after its own pursuit was called off in front of the players. */
+const RELEASE_PATROL = 30;
+
+/** One player's police pursuit: what the police know and do about him, apart from everyone else's. */
+export class Pursuit {
+  dispatchTimer = 0;
+  patrolTimer = 3;
+  cleanupTimer = 0;
   bustTimer = 0;
-  private calm = 0;
+  calm = 0;
+  wasSearching = false;
+  /** Sim time of the player's last shot or punch. */
+  hostileAt = -Infinity;
+  /** Alternates the pursuit spawns for a fast player between lanes ahead of him and the usual ring. */
+  aheadTurn = false;
+  /** Sim time a police unit was last within CONTACT of the player. */
+  contactAt = -Infinity;
+  /** No helicopter is sent before this sim time (one was just shot down). */
+  heliCooldownUntil = -Infinity;
+  /** Seconds the player's vehicle has been (nearly) stationary. */
+  still = 0;
+  /** Seconds the player's vehicle has been stopped (below 1.2 m/s). */
+  stopped = 0;
+  /** Seconds since the player's vehicle last got NOWHERE_RADIUS m from `idleAt`. */
+  idle = 0;
+  idleAt = { x: 0, z: 0 };
+  /** Directions driven since `idleAt` was set: bit 1 forwards (> 0.5 m/s), bit 2 backwards (< -0.5 m/s). */
+  idleDirs = 0;
+  /** The officer walking up to arrest the player this frame, and whether everyone else holds fire (see pickArrester). */
+  arrester: Character | null = null;
+  holdFire = false;
+  /** Seconds that arrester has been walking up to the player without a bust under way. */
+  arrestWalk = 0;
+  /** Seconds the police on the scene have waited for an officer to cuff a player who stopped fighting, since they last lost him (see pickArrester). */
+  surrenderTime = 0;
+  /** This frame's roadEnd: where the units pull up for a player out of their cars' reach, and how far he is from it. */
+  reach: { x: number; z: number; gap: number } | null = null;
+  /** Police radio chatter for this player's HUD, updated after everything else in his pursuit. */
+  readonly dispatcher: DispatchSystem;
+
+  constructor(sim: Sim, readonly slot: PlayerSlot) {
+    this.dispatcher = new DispatchSystem(sim, slot);
+  }
+}
+
+export class PoliceSystem {
   /** Seconds each unit has been waiting for its crew to get back in. */
   private readonly crewWait = new WeakMap<Vehicle, number>();
   /** Destinations handed out to units searching for the player: when, and how far from the last sighting the unit was then. */
   private readonly searchDests = new WeakMap<object, { at: number; from: number }>();
-  private wasSearching = false;
-  /** Sim time of the player's last shot or punch. */
-  private playerHostileAt = -Infinity;
   /** Per officer firing from a car: when he last checked for a line of fire to the player, and the answer. */
   private readonly carSight = new WeakMap<Character, { at: number; clear: boolean }>();
   /** Per pursuit unit: when its recycle window started and how far from the player it was then. */
   private readonly trail = new WeakMap<Vehicle, { t: number; d: number }>();
-  /** Alternates the pursuit spawns for a fast player between lanes ahead of him and the usual ring. */
-  private aheadTurn = false;
-  /** Sim time a police unit was last within CONTACT of the player. */
-  private contactAt = -Infinity;
-  /** No helicopter is sent before this sim time (one was just shot down). */
-  heliCooldownUntil = -Infinity;
   /** Helicopters on the scene since they were sent: their crew has made the player out, or, while the police search, they reached their spot (see HELI_SPAWN_DIST). */
   private readonly heliArrived = new WeakSet<Helicopter>();
-  /** Police radio chatter for the HUD, updated after everything else here. */
-  readonly dispatcher: DispatchSystem;
   /** The sidewalk node each officer without a car walks off to once the stars are gone, the one before, and how long he may take (see walkOff). */
   private readonly walkingOff = new WeakMap<Character, { node: number; prev: number; until: number }>();
   /** The deck each officer keeping to one walks along (see deckWay), and his line along it. */
   private readonly deckLines = new WeakMap<Character, { deck: Deck; w: number }>();
 
-  constructor(private readonly sim: Sim) {
-    this.dispatcher = new DispatchSystem(sim);
-  }
-
-  /** Seconds the player's vehicle has been (nearly) stationary. */
-  private playerStill = 0;
-  /** Seconds the player's vehicle has been stopped (below 1.2 m/s). */
-  private playerStopped = 0;
-  /** Seconds since the player's vehicle last got NOWHERE_RADIUS m from `idleAt`. */
-  private playerIdle = 0;
-  private idleAt = { x: 0, z: 0 };
-  /** Directions driven since `idleAt` was set: bit 1 forwards (> 0.5 m/s), bit 2 backwards (< -0.5 m/s). */
-  private idleDirs = 0;
-  /** The officer walking up to arrest the player this frame, and whether everyone else holds fire (see pickArrester). */
-  private arrester: Character | null = null;
-  private holdFire = false;
-  /** Seconds that arrester has been walking up to the player without a bust under way. */
-  private arrestWalk = 0;
-  /** Seconds the police on the scene have waited for an officer to cuff a player who stopped fighting, since they last lost him (see pickArrester). */
-  private surrenderTime = 0;
   /** Officers sent out on foot from a stuck unit round a player whose car goes nowhere (see deploy). */
   private readonly sentOut = new WeakSet<Character>();
-  /** This frame's roadEnd: where the units pull up for a player out of their cars' reach, and how far he is from it. */
-  private reach: { x: number; z: number; gap: number } | null = null;
+  /** One pursuit per player slot, in slot order; pursuits[0] is slot 0's (single player has only that one). */
+  readonly pursuits: Pursuit[] = [];
+  /** The pursuit the per-player code below works for: the one being updated, else slot 0's. */
+  private cur: Pursuit;
+  /** The slot id each unit, officer and helicopter works for (targetSlotOf); untagged ones work for slot 0. */
+  private readonly targets = new WeakMap<object, number>();
+  /** Units whose pursuit was called off in someone's sight (see dismiss): when, as they patrol a while before joining another. */
+  private readonly releasedAt = new WeakMap<Vehicle, number>();
 
+  constructor(private readonly sim: Sim) {
+    this.cur = new Pursuit(sim, sim.players[0]!);
+    this.pursuits.push(this.cur);
+  }
+
+  // Slot 0's pursuit under the names single-player code and tests use.
+  get bustTimer(): number {
+    return this.cur.bustTimer;
+  }
+
+  set bustTimer(t: number) {
+    this.cur.bustTimer = t;
+  }
+
+  get heliCooldownUntil(): number {
+    return this.cur.heliCooldownUntil;
+  }
+
+  set heliCooldownUntil(t: number) {
+    this.cur.heliCooldownUntil = t;
+  }
+
+  /** Police radio chatter for slot 0's HUD. */
+  get dispatcher(): DispatchSystem {
+    return this.pursuits[0]!.dispatcher;
+  }
+
+  /** The pursuit of player slot `id` (slot 0's when there is none). */
+  pursuitOf(id: number): Pursuit {
+    return this.pursuits.find((pu) => pu.slot.id === id) ?? this.pursuits[0]!;
+  }
+
+  /** The player slot a police unit, officer or helicopter works for: the one it chases once that player is wanted. */
+  targetSlotOf(e: Vehicle | Character | Helicopter): number {
+    let id = this.targets.get(e);
+    if (id === undefined && !(e instanceof Helicopter)) {
+      const c = e as Character;
+      const car = 'brain' in c ? (c.brain?.car ?? c.vehicle) : null;
+      if (car) id = this.targets.get(car);
+    }
+    if (id === undefined || id === 0) return 0;
+    return this.sim.players.some((s) => s.id === id) ? id : 0;
+  }
+
+  /** Puts a unit (its crew too), officer or helicopter on slot `id`'s pursuit. */
+  assign(e: Vehicle | Character | Helicopter, id: number): void {
+    this.targets.set(e, id);
+    if ('occupants' in e) for (const c of e.occupants()) if (c.isLaw) this.targets.set(c, id);
+  }
+
+  private mine(e: Vehicle | Character | Helicopter): boolean {
+    return this.targetSlotOf(e) === this.cur.slot.id;
+  }
+
+  /** More than one player: the code paths only multiplayer takes (single player must stay as it was). */
+  private get multi(): boolean {
+    return this.sim.players.length > 1;
+  }
+
+  // The current pursuit's state under the names this file has always used.
+  private get p(): Character {
+    return this.cur.slot.character;
+  }
+
+  private pp(): { x: number; y: number; z: number } {
+    return this.cur.slot.pos();
+  }
+
+  private get w(): WantedSystem {
+    return this.cur.slot.wanted;
+  }
+
+  private get down(): boolean {
+    return this.cur.slot.down;
+  }
+
+  private get dispatchTimer(): number { return this.cur.dispatchTimer; }
+  private set dispatchTimer(v: number) { this.cur.dispatchTimer = v; }
+  private get patrolTimer(): number { return this.cur.patrolTimer; }
+  private set patrolTimer(v: number) { this.cur.patrolTimer = v; }
+  private get cleanupTimer(): number { return this.cur.cleanupTimer; }
+  private set cleanupTimer(v: number) { this.cur.cleanupTimer = v; }
+  private get calm(): number { return this.cur.calm; }
+  private set calm(v: number) { this.cur.calm = v; }
+  private get wasSearching(): boolean { return this.cur.wasSearching; }
+  private set wasSearching(v: boolean) { this.cur.wasSearching = v; }
+  private get playerHostileAt(): number { return this.cur.hostileAt; }
+  private set playerHostileAt(v: number) { this.cur.hostileAt = v; }
+  private get aheadTurn(): boolean { return this.cur.aheadTurn; }
+  private set aheadTurn(v: boolean) { this.cur.aheadTurn = v; }
+  private get contactAt(): number { return this.cur.contactAt; }
+  private set contactAt(v: number) { this.cur.contactAt = v; }
+  private get playerStill(): number { return this.cur.still; }
+  private set playerStill(v: number) { this.cur.still = v; }
+  private get playerStopped(): number { return this.cur.stopped; }
+  private set playerStopped(v: number) { this.cur.stopped = v; }
+  private get playerIdle(): number { return this.cur.idle; }
+  private set playerIdle(v: number) { this.cur.idle = v; }
+  private get idleAt(): { x: number; z: number } { return this.cur.idleAt; }
+  private set idleAt(v: { x: number; z: number }) { this.cur.idleAt = v; }
+  private get idleDirs(): number { return this.cur.idleDirs; }
+  private set idleDirs(v: number) { this.cur.idleDirs = v; }
+  private get arrester(): Character | null { return this.cur.arrester; }
+  private set arrester(v: Character | null) { this.cur.arrester = v; }
+  private get holdFire(): boolean { return this.cur.holdFire; }
+  private set holdFire(v: boolean) { this.cur.holdFire = v; }
+  private get arrestWalk(): number { return this.cur.arrestWalk; }
+  private set arrestWalk(v: number) { this.cur.arrestWalk = v; }
+  private get surrenderTime(): number { return this.cur.surrenderTime; }
+  private set surrenderTime(v: number) { this.cur.surrenderTime = v; }
+  private get reach(): { x: number; z: number; gap: number } | null { return this.cur.reach; }
+  private set reach(v: { x: number; z: number; gap: number } | null) { this.cur.reach = v; }
+
+  /**
+   * Every player has his own pursuit (Pursuit): units, officers and helicopters work for one slot (targetSlotOf) and
+   * only chase, shoot at and arrest that player. Pursuits update in slot order; with one player this is the
+   * single-player police exactly.
+   */
   update(dt: number): void {
     const sim = this.sim;
     if (!sim.policeEnabled) return;
-    const p = sim.player;
+    this.syncPursuits();
+    for (const pu of this.pursuits) {
+      if (pu.slot.parked) continue;
+      this.cur = pu;
+      this.updatePursuit(dt);
+    }
+    this.cur = this.pursuits[0]!;
+  }
+
+  /** A pursuit for every slot, none for a slot that left; in multiplayer, idle units near a wanted player join his. */
+  private syncPursuits(): void {
+    const sim = this.sim;
+    if (this.pursuits.length === sim.players.length && this.pursuits.every((pu, i) => pu.slot === sim.players[i])) return;
+    const next = sim.players.map((s) => this.pursuits.find((pu) => pu.slot === s) ?? new Pursuit(sim, s));
+    this.pursuits.length = 0;
+    this.pursuits.push(...next);
+  }
+
+  /**
+   * Units on patrol for a player with no stars (and none of their crew out on foot) join the pursuit of a wanted player
+   * within PATROL_JOIN m, while that pursuit has fewer units than its level sends: they would have joined his chase in
+   * single player. Multiplayer only.
+   */
+  private claimPatrols(): void {
+    const sim = this.sim;
+    const level = this.down ? 0 : this.w.level;
+    if (level === 0) return;
+    const pp = this.pp();
+    let n = this.chasingUnits();
+    for (const v of sim.vehicles) {
+      if (n >= UNITS_BY_LEVEL[level]!) return;
+      if (v.owner !== 'police' || v.removed || this.mine(v) || !this.isUnit(v) || !v.ai || v.ai.policy !== 'traffic') continue;
+      if (sim.time - (this.releasedAt.get(v) ?? -Infinity) < RELEASE_PATROL) continue;
+      const owner = sim.players.find((s) => s.id === this.targetSlotOf(v));
+      // Not from a player still wanted, nor from one down (his units stand by him until he is back on his feet).
+      if (owner && !owner.parked && (owner.wanted.level > 0 || owner.down)) continue;
+      if (Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z) > PATROL_JOIN) continue;
+      this.assign(v, this.cur.slot.id);
+      for (const c of sim.characters) if (!c.removed && c.isLaw && c.brain?.car === v) this.targets.set(c, this.cur.slot.id);
+      n++;
+    }
+  }
+
+  /**
+   * Ends slot `slot`'s pursuit (its player respawned): its units, officers and helicopters go. With other players in the
+   * sim, those in sight of one of them stay where they are instead and go back on patrol (their player has no stars).
+   */
+  dismiss(slot: PlayerSlot): void {
+    const sim = this.sim;
+    if (!this.multi) {
+      this.dismissAll();
+      return;
+    }
+    const id = slot.id;
+    const seen = (x: number, y: number, z: number) => sim.isVisible(x, y, z);
+    for (const v of sim.vehicles) {
+      if (v.owner !== 'police' || v.removed || sim.slotOf(v.driver) || this.targetSlotOf(v) !== id) continue;
+      if (!seen(v.pos.x, v.pos.y, v.pos.z)) sim.removeVehicle(v);
+      else this.releasedAt.set(v, sim.time);
+    }
+    for (const c of sim.characters) {
+      if (c.removed || !c.isLaw || this.targetSlotOf(c) !== id) continue;
+      if (c.state !== 'inVehicle' && !seen(c.pos.x, c.pos.y, c.pos.z)) sim.removeCharacter(c);
+    }
+    for (const h of sim.helis) if (this.targetSlotOf(h) === id && !h.crashing) h.removed = true;
+    this.pursuitOf(id).bustTimer = 0;
+  }
+
+  private updatePursuit(dt: number): void {
+    const sim = this.sim;
+    if (this.multi) this.claimPatrols();
+    const p = this.p;
     if (p.shotTimer > 0 || p.punchTimer > 0) this.playerHostileAt = sim.time;
-    const level = sim.playerDown ? 0 : sim.wanted.level;
+    const level = this.down ? 0 : this.w.level;
     if (level > 0 && this.aimThreat()) {
       // Holding officers at gunpoint: they fire back (at any level) and nobody walks up to cuff him.
       this.playerHostileAt = sim.time;
-      sim.wanted.lastCopAssaultAt = sim.time;
+      this.w.lastCopAssaultAt = sim.time;
     }
     const pv = p.vehicle;
     this.playerStill = pv && pv.speed < 1.5 ? this.playerStill + dt : 0;
@@ -203,7 +410,7 @@ export class PoliceSystem {
     this.dispatch(dt, level);
     this.patrols(dt, level);
     this.cleanup(dt, level);
-    this.dispatcher.update();
+    this.cur.dispatcher.update();
   }
 
   /**
@@ -213,7 +420,7 @@ export class PoliceSystem {
    * stop never qualifies.
    */
   private goingNowhere(): boolean {
-    return !!this.sim.player.vehicle && (this.playerStill > STUCK_DEPLOY_TIME || (this.playerIdle > STUCK_DEPLOY_TIME && this.idleDirs === 3));
+    return !!this.p.vehicle && (this.playerStill > STUCK_DEPLOY_TIME || (this.playerIdle > STUCK_DEPLOY_TIME && this.idleDirs === 3));
   }
 
   /** How far from a player whose car goes nowhere stuck units send their crews on foot (see STUCK_DEPLOY_DIST_ROADBLOCKS). */
@@ -223,7 +430,7 @@ export class PoliceSystem {
 
   /** The police have lost sight of the player and look around his last sighting instead. */
   private searching(level: number): boolean {
-    return level > 0 && this.sim.wanted.searching;
+    return level > 0 && this.w.searching;
   }
 
   /** The player shot or punched in the last HOSTILE_WINDOW seconds. */
@@ -233,7 +440,7 @@ export class PoliceSystem {
 
   /** The player is on foot with a weapon in hand. */
   private playerArmed(): boolean {
-    const p = this.sim.player;
+    const p = this.p;
     return !p.vehicle && p.inventory.current !== 'fists';
   }
 
@@ -243,14 +450,14 @@ export class PoliceSystem {
    */
   private aimThreat(): boolean {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p;
     if (!this.playerArmed() || !p.aiming || p.state !== 'normal') return false;
-    const o = sim.cam;
-    const l = Math.hypot(sim.camDir.x, sim.camDir.y, sim.camDir.z);
+    const o = this.cur.slot.cam;
+    const l = Math.hypot(this.cur.slot.camDir.x, this.cur.slot.camDir.y, this.cur.slot.camDir.z);
     if (l < 1e-6) return false;
-    const ax = sim.camDir.x / l;
-    const ay = sim.camDir.y / l;
-    const az = sim.camDir.z / l;
+    const ax = this.cur.slot.camDir.x / l;
+    const ay = this.cur.slot.camDir.y / l;
+    const az = this.cur.slot.camDir.z / l;
     // Only beyond the gun: the ray starts at the camera, behind him.
     const gun = (p.pos.x - o.x) * ax + (p.pos.y + 1.5 - o.y) * ay + (p.pos.z - o.z) * az + 0.5;
     let first: Character | null = null;
@@ -280,9 +487,9 @@ export class PoliceSystem {
    */
   private arrestAllowed(level: number): boolean {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p;
     const pv = p.vehicle;
-    if (level === 0 || sim.playerDown || !p.alive || sim.missions.noBust || this.playerHostile()) return false;
+    if (level === 0 || this.down || !p.alive || sim.missions.noBust || this.playerHostile()) return false;
     if (level <= 2) {
       const unarmed = !pv && p.inventory.current === 'fists';
       const aiming = level === 2 && !unarmed && p.state !== 'knocked' && p.aiming;
@@ -293,14 +500,14 @@ export class PoliceSystem {
   }
 
   private playerSpeed(): number {
-    const p = this.sim.player;
+    const p = this.p;
     return p.vehicle ? p.vehicle.speed : p.speed;
   }
 
   /** Where the police believe the player is. */
   private knownPos(level: number): { x: number; z: number } {
-    const w = this.sim.wanted;
-    return this.searching(level) ? { x: w.lastSeenX, z: w.lastSeenZ } : this.sim.playerPos();
+    const w = this.w;
+    return this.searching(level) ? { x: w.lastSeenX, z: w.lastSeenZ } : this.pp();
   }
 
   /**
@@ -311,7 +518,7 @@ export class PoliceSystem {
    */
   private roadEnd(level: number): { x: number; z: number; gap: number } | null {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p;
     const pv = p.vehicle;
     if (level === 0) return null;
     const onFoot = !pv && (p.state === 'normal' || p.state === 'knocked') && p.pos.y < sim.world.groundHeight(p.pos.x, p.pos.z) + 1;
@@ -333,13 +540,13 @@ export class PoliceSystem {
 
   /** A police unit on duty within `r` m of (x, z)? */
   private unitNear(p: { x: number; z: number }, r: number): boolean {
-    for (const v of this.sim.vehicles) if (Math.hypot(v.pos.x - p.x, v.pos.z - p.z) < r && this.isUnit(v)) return true;
+    for (const v of this.sim.vehicles) if (Math.hypot(v.pos.x - p.x, v.pos.z - p.z) < r && this.isUnit(v) && this.mine(v)) return true;
     return false;
   }
 
   private chasingUnits(): number {
     let n = 0;
-    for (const v of this.sim.vehicles) if (this.isUnit(v)) n++;
+    for (const v of this.sim.vehicles) if (this.isUnit(v) && this.mine(v)) n++;
     return n;
   }
 
@@ -356,24 +563,35 @@ export class PoliceSystem {
     this.patrolTimer -= dt;
     if (this.patrolTimer > 0) return;
     this.patrolTimer = 7;
-    const pp = this.sim.playerPos();
+    const pp = this.pp();
     let n = 0;
     for (const v of this.sim.vehicles) if (this.isUnit(v) && Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z) < 300) n++;
     if (n < 2) this.spawnUnit('police', false);
   }
 
   /**
-   * Spawns a police car on a lane 95-215 m from the player, preferably out of sight.
+   * Spawns a police car on a lane 95-215 m from the player (`forSlot`'s, else the current pursuit's: slot 0's outside
+   * an update), preferably out of sight.
    * While the police are searching, pursuit units join the search around the last sighting,
    * heading its way from near it, or at least from its side of that ring.
    * From two stars a player driving off fast is cut off instead (see CUT_OFF_LEVEL): every second pursuit
    * unit comes at him from ahead, round the corner of a junction he is about to reach or down a road
    * towards him.
    */
-  spawnUnit(kind: 'police' | 'swat', pursuit: boolean): Vehicle | null {
+  spawnUnit(kind: 'police' | 'swat', pursuit: boolean, forSlot?: PlayerSlot): Vehicle | null {
+    if (forSlot && forSlot !== this.cur.slot) {
+      this.syncPursuits();
+      const was = this.cur;
+      this.cur = this.pursuitOf(forSlot.id);
+      try {
+        return this.spawnUnit(kind, pursuit);
+      } finally {
+        this.cur = was;
+      }
+    }
     const sim = this.sim;
-    const pp = sim.playerPos();
-    const w = sim.wanted;
+    const pp = this.pp();
+    const w = this.w;
     const searching = pursuit && this.searching(w.level);
     // Until a unit catches up with him; after that, below SWARM_LEVEL only once he has been clear of them
     // for a while (CUT_OFF_GAP) and none is on his tail, at SWARM_LEVEL as soon as he gets away (SWARM_GAP).
@@ -407,6 +625,8 @@ export class PoliceSystem {
       const z = lane.sz + lane.dz * s;
       const d = Math.hypot(x - pp.x, z - pp.z);
       if (d < floor || d > 215) continue;
+      // Never into another player's lap either.
+      if (this.multi && sim.distToPlayer(x, z) < Math.min(floor, 95)) continue;
       if (searching && Math.hypot(x - goal.x, z - goal.z) > (first ? reach : seenDist)) continue;
       if (pursuit && (goal.x - x) * lane.dx + (goal.z - z) * lane.dz < 0 && (tries < 20 || searching)) continue;
       if (away && (x - pp.x) * lane.dx + (z - pp.z) * lane.dz < 0) continue;
@@ -431,7 +651,7 @@ export class PoliceSystem {
     v.ai!.setLane(lane, s);
     if (pursuit) {
       if (searching) this.assignSearch(v.ai!);
-      else v.ai!.target = sim.player;
+      else v.ai!.target = this.p;
       v.siren = true;
     }
     const crew = kind === 'swat' ? 3 : pursuit ? 1 : 0;
@@ -443,6 +663,7 @@ export class PoliceSystem {
     const sp = lane.speedLimit * (pursuit ? 1 : 0.6);
     v.vel.x = lane.dx * sp;
     v.vel.z = lane.dz * sp;
+    this.assign(v, this.cur.slot.id);
     return v;
   }
 
@@ -452,8 +673,8 @@ export class PoliceSystem {
    */
   private laneAhead(): { lane: Lane; s: number } | null {
     const sim = this.sim;
-    const p = sim.player;
-    const pp = sim.playerPos();
+    const p = this.p;
+    const pp = this.pp();
     const vx = p.vehicle ? p.vehicle.vel.x : p.vel.x;
     const vz = p.vehicle ? p.vehicle.vel.z : p.vel.z;
     const sp = Math.hypot(vx, vz);
@@ -487,8 +708,8 @@ export class PoliceSystem {
   private cornerAhead(): { lane: Lane; s: number } | null {
     const sim = this.sim;
     const roads = sim.roads;
-    const p = sim.player;
-    const pp = sim.playerPos();
+    const p = this.p;
+    const pp = this.pp();
     const vx = p.vehicle ? p.vehicle.vel.x : p.vel.x;
     const vz = p.vehicle ? p.vehicle.vel.z : p.vel.z;
     const sp = Math.hypot(vx, vz);
@@ -525,9 +746,10 @@ export class PoliceSystem {
     return null;
   }
 
-  /** Arms and briefs an officer on foot (a roadblock's), with the car he belongs to, if any. */
-  equipOfficer(c: Character, car: Vehicle | null): void {
+  /** Arms and briefs an officer on foot (a roadblock's), with the car he belongs to, if any, for player slot `slot`. */
+  equipOfficer(c: Character, car: Vehicle | null, slot = 0): void {
     this.equip(c, car);
+    if (slot !== 0) this.targets.set(c, slot);
   }
 
   private equip(c: Character, car: Vehicle | null): void {
@@ -544,10 +766,10 @@ export class PoliceSystem {
 
   private updateUnits(dt: number, level: number): void {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p;
     const pv = p.vehicle;
-    const pp = sim.playerPos();
-    const w = sim.wanted;
+    const pp = this.pp();
+    const w = this.w;
     const searching = this.searching(level);
     // Spotted again after a search: drop the search routes.
     const resumed = !searching && this.wasSearching;
@@ -559,11 +781,12 @@ export class PoliceSystem {
       // back to it (it drives off as a patrol), nor on one they left behind. (A cruiser the player took is his.)
       // The stars themselves, not `level`: busted or wasted, the player keeps them until he is back on his feet
       // (see Sim.updateDeath), and the cars around him keep flashing.
+      if (v.owner === 'police' && !this.mine(v)) continue;
       if (w.level === 0 && v.owner === 'police') v.siren = false;
       if (v.owner !== 'police' || v.removed || !v.drivable || !v.driver || !v.driver.isLaw || !v.ai) continue;
       const ai = v.ai;
-      // Keep still while the player climbs in to take the car.
-      const boarding = p.state === 'entering' && p.enterTarget === v;
+      // Keep still while a player climbs in to take the car.
+      const boarding = this.multi ? sim.players.some((s) => s.character.state === 'entering' && s.character.enterTarget === v) : p.state === 'entering' && p.enterTarget === v;
       if (level === 0) {
         if (ai.policy === 'chase') {
           ai.setPolicy('traffic');
@@ -636,10 +859,10 @@ export class PoliceSystem {
    */
   private fireFromCar(v: Vehicle, d: number, level: number): void {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p;
     const pv = p.vehicle;
-    if (d > CAR_FIRE_RANGE || sim.playerDown || !p.alive || this.holdFire || (v.kind === 'swat' && level < 4)) return;
-    const pp = sim.playerPos();
+    if (d > CAR_FIRE_RANGE || this.down || !p.alive || this.holdFire || (v.kind === 'swat' && level < 4)) return;
+    const pp = this.pp();
     const closing = ((v.vel.x - (pv ? pv.vel.x : p.vel.x)) * (pp.x - v.pos.x) + (v.vel.z - (pv ? pv.vel.z : p.vel.z)) * (pp.z - v.pos.z)) / Math.max(d, 1e-6);
     if ((d < 8 && closing > 4) || (!pv && d < 6)) return;
     for (const c of v.passengers) {
@@ -665,7 +888,7 @@ export class PoliceSystem {
   private assignSearch(ai: DriverAI): void {
     const sim = this.sim;
     const roads = sim.roads;
-    const w = sim.wanted;
+    const w = this.w;
     const r = w.searchRadius();
     const v = ai.vehicle;
     const fx = Math.sin(v.heading);
@@ -791,9 +1014,9 @@ export class PoliceSystem {
 
   private updateFootCops(dt: number, level: number): void {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p;
     const pv = p.vehicle;
-    const pp = sim.playerPos();
+    const pp = this.pp();
     const searching = this.searching(level);
     // At 2+ stars officers shoot on sight, and at any level right after an attack on one of them,
     // except the arrester (see pickArrester), while the others hold fire as he makes the arrest.
@@ -801,13 +1024,13 @@ export class PoliceSystem {
     // stars nobody walks up to an armed or fighting player.
     const arrester = this.arrester;
     const holdFire = this.holdFire;
-    const fireAtWill = level >= 2 || sim.time - sim.wanted.lastCopAssaultAt < HOSTILE_WINDOW;
+    const fireAtWill = level >= 2 || sim.time - this.w.lastCopAssaultAt < HOSTILE_WINDOW;
     const standOff = level >= 3 && (this.playerArmed() || this.playerHostile());
     // Officers walk up to the driver's door: the arrest radius around a long vehicle's centre does not reach its ends.
     const ax = pv ? pv.pos.x + Math.cos(pv.heading) * (pv.halfW + 0.6) : pp.x;
     const az = pv ? pv.pos.z - Math.sin(pv.heading) * (pv.halfW + 0.6) : pp.z;
     for (const c of sim.characters) {
-      if (c.removed || !c.isLaw || !c.alive || !c.brain) continue;
+      if (c.removed || !c.isLaw || !c.alive || !c.brain || !this.mine(c)) continue;
       const b = c.brain;
       // A cruiser someone else took (the player stole it) is no longer this officer's car.
       if (b.car && (b.car.owner !== 'police' || (b.car.driver && !b.car.driver.isLaw))) b.car = null;
@@ -826,7 +1049,7 @@ export class PoliceSystem {
       if (level === 0) {
         // The player busted or wasted: the officers by him stand by, facing him, until the scene is cleared.
         const dp = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z);
-        if (sim.playerDown && dp < STAND_BY) {
+        if (this.down && dp < STAND_BY) {
           c.moveSpeed = 0;
           c.heading = moveAngleTowards(c.heading, Math.atan2(pp.x - c.pos.x, pp.z - c.pos.z), 10 * dt);
           continue;
@@ -857,7 +1080,7 @@ export class PoliceSystem {
         continue;
       }
       const canSee = d < 48 && sim.world.lineOfSight(c.pos.x, c.pos.y + 1.6, c.pos.z, pp.x, pp.y + 1.2, pp.z);
-      const shoot = fireAtWill && canSee && d < 32 && !sim.playerDown && c !== arrester;
+      const shoot = fireAtWill && canSee && d < 32 && !this.down && c !== arrester;
       const yaw = Math.atan2(pp.x - c.pos.x, pp.z - c.pos.z);
       if (shoot) {
         c.moveSpeed = 0;
@@ -902,10 +1125,9 @@ export class PoliceSystem {
    * to shoot such a player dead before an officer who could came (in 27% of runs at 4 stars).
    */
   private pickArrester(dt: number, level: number): void {
-    const sim = this.sim;
-    const p = sim.player;
+    const p = this.p;
     const pv = p.vehicle;
-    const pp = sim.playerPos();
+    const pp = this.pp();
     const arrestable = pv ? pv.speed < 1.2 : p.speed < 2.2 || p.state === 'knocked';
     const allowed = !this.searching(level) && this.arrestAllowed(level);
     const a = allowed ? this.nearestOfficer(pp.x, pp.z, ARREST_RANGE, pp.y) : null;
@@ -929,7 +1151,7 @@ export class PoliceSystem {
     let best: Character | null = null;
     let bd = range;
     for (const c of this.sim.characters) {
-      if (c.removed || c.role !== 'cop' || !c.alive || c.state !== 'normal' || !c.brain || c.brain.mode === 'return') continue;
+      if (c.removed || c.role !== 'cop' || !c.alive || c.state !== 'normal' || !c.brain || c.brain.mode === 'return' || !this.mine(c)) continue;
       if (y !== undefined && Math.abs(c.pos.y - y) >= 1.2) continue;
       const d = Math.hypot(c.pos.x - x, c.pos.z - z);
       if (d < bd) {
@@ -947,15 +1169,15 @@ export class PoliceSystem {
   private onScene(p: { x: number; z: number }): boolean {
     const sim = this.sim;
     for (const c of sim.characters) {
-      if (!c.removed && c.isLaw && c.alive && (c.state === 'normal' || c.state === 'swimming') && Math.hypot(c.pos.x - p.x, c.pos.z - p.z) < ARREST_RANGE) return true;
+      if (!c.removed && c.isLaw && c.alive && (c.state === 'normal' || c.state === 'swimming') && Math.hypot(c.pos.x - p.x, c.pos.z - p.z) < ARREST_RANGE && this.mine(c)) return true;
     }
-    return sim.helis.some((h) => sim.wanted.heliSees(h, p.x, p.z));
+    return sim.helis.some((h) => this.mine(h) && this.w.heliSees(h, p.x, p.z));
   }
 
   /** An officer who lost the player runs to where he was last seen, then checks the sidewalks around it. */
   private searchOnFoot(c: Character, b: PedBrain, dt: number): void {
     const sim = this.sim;
-    const w = sim.wanted;
+    const w = this.w;
     b.modeTimer -= dt;
     if (Math.hypot(b.searchX - w.lastSeenX, b.searchZ - w.lastSeenZ) > 40) {
       b.searchX = w.lastSeenX;
@@ -1026,7 +1248,7 @@ export class PoliceSystem {
   private walkOff(c: Character, b: PedBrain, dt: number): void {
     const sim = this.sim;
     const walk = sim.world.walk;
-    const pp = sim.playerPos();
+    const pp = this.pp();
     b.car = null;
     if (walk.nodes.length === 0) {
       // No sidewalks at all: straight away from the player.
@@ -1109,7 +1331,7 @@ export class PoliceSystem {
       return null;
     }
     const r = deck.rect;
-    const pp = this.sim.playerPos();
+    const pp = this.pp();
     const clear = Math.min(2.5, Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) - 0.1);
     // Along the deck (u) and across it (w).
     const alongX = exit.nx !== 0;
@@ -1191,10 +1413,10 @@ export class PoliceSystem {
         car.ai = ai;
         // Back on patrol without the siren once the stars are gone; a unit back in the chase has it on, and so does
         // one whose crew gets in while the player is down with his stars still up (see updateUnits).
-        car.siren = sim.wanted.level > 0;
+        car.siren = this.w.level > 0;
         if (level > 0) {
           if (this.searching(level)) this.assignSearch(ai);
-          else ai.target = sim.player;
+          else ai.target = this.p;
         }
         // Wait for the rest of the crew before driving off.
         ai.hold = this.crewOnFoot(car, level);
@@ -1215,7 +1437,7 @@ export class PoliceSystem {
 
   private updateBust(dt: number, level: number): void {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p;
     if (level === 0 || !this.arrestAllowed(level)) {
       this.bustTimer = 0;
       return;
@@ -1223,7 +1445,7 @@ export class PoliceSystem {
     const v = p.vehicle;
     let close = false;
     for (const c of sim.characters) {
-      if (c.removed || !c.isLaw || !c.alive || c.state !== 'normal') continue;
+      if (c.removed || !c.isLaw || !c.alive || c.state !== 'normal' || !this.mine(c)) continue;
       if (v) {
         if (v.speed >= 1.2 || Math.hypot(c.pos.x - v.pos.x, c.pos.z - v.pos.z) >= v.halfW + 1.9) continue;
       } else if (Math.hypot(c.pos.x - p.pos.x, c.pos.z - p.pos.z) >= 1.7 || (p.speed >= 2.2 && p.state !== 'knocked')) continue;
@@ -1238,7 +1460,7 @@ export class PoliceSystem {
     const need = p.vehicle ? 2.2 : level === 1 ? 1.0 : 1.6;
     if (this.bustTimer > need) {
       this.bustTimer = 0;
-      sim.bustPlayer();
+      sim.bustPlayer(this.cur.slot);
     }
   }
 
@@ -1247,25 +1469,26 @@ export class PoliceSystem {
 
   private updateHelis(dt: number, level: number): void {
     const sim = this.sim;
-    const pp = sim.playerPos();
+    const pp = this.pp();
     // It circles, and lights up, where the police think the player is.
     const kp = this.knownPos(level);
-    if (level >= 3 && sim.time >= this.heliCooldownUntil && sim.helis.filter((h) => !h.destroyed).length === 0 && sim.ambient) {
+    if (level >= 3 && sim.time >= this.heliCooldownUntil && sim.helis.filter((h) => !h.destroyed && this.mine(h)).length === 0 && sim.ambient) {
       const a = sim.rng.range(0, Math.PI * 2);
       const x = kp.x + Math.cos(a) * HELI_SPAWN_DIST;
       const z = kp.z + Math.sin(a) * HELI_SPAWN_DIST;
       const h = new Helicopter(sim.newId(), x, Math.max(sim.world.groundHeight(kp.x, kp.z) + 60, this.skyTop(x, z) + HELI_CLEARANCE), z);
+      this.assign(h, this.cur.slot.id);
       sim.helis.push(h);
     }
     for (const h of sim.helis) {
-      if (h.removed) continue;
+      if (h.removed || !this.mine(h)) continue;
       h.rotor += dt * (h.crashing ? 18 : 32);
       if (!h.destroyed && h.health <= 0) {
         h.destroyed = true;
         h.crashing = true;
         this.heliCooldownUntil = sim.time + HELI_RESPAWN_DELAY;
         sim.events.emit('explosion', { x: h.pos.x, y: h.pos.y, z: h.pos.z, radius: 4 });
-        sim.wanted.crime('destroyPolice', h.pos.x, h.pos.z, h.shotBy);
+        this.w.crime('destroyPolice', h.pos.x, h.pos.z, h.shotBy);
         (sim.slotOf(h.shotBy) ?? sim.players[0]!).progress.stats.vehiclesDestroyed++;
       }
       if (h.crashing) {
@@ -1326,7 +1549,7 @@ export class PoliceSystem {
       }
       // Towards its spot, and along with the player while the police know where he is: it keeps pace with
       // anything up to its own speed instead of trailing it.
-      const p = sim.player;
+      const p = this.p;
       const searching = this.searching(level);
       const qv = searching ? null : p.vehicle ? p.vehicle.vel : p.vel;
       let dvx = (tx - h.pos.x) * 0.9 + (qv ? qv.x : 0);
@@ -1347,7 +1570,7 @@ export class PoliceSystem {
       const lag = Math.hypot(tx - h.pos.x, tz - h.pos.z);
       // On the scene: once its crew makes him out; while the police search, once at its spot over the place. (Being
       // near him is not enough: at night, or high over the towers, the crew may still not see him.)
-      if (!this.heliArrived.has(h) && (sim.wanted.heliSees(h, pp.x, pp.z) || (searching && lag <= HELI_CATCH_UP))) this.heliArrived.add(h);
+      if (!this.heliArrived.has(h) && (this.w.heliSees(h, pp.x, pp.z) || (searching && lag <= HELI_CATCH_UP))) this.heliArrived.add(h);
       const quarry = searching ? 0 : this.playerSpeed();
       const dash = !this.heliArrived.has(h) || (quarry < HELI_SPEED && lag > HELI_CATCH_UP);
       const maxV = dash ? HELI_DASH_SPEED : HELI_SPEED;
@@ -1371,7 +1594,7 @@ export class PoliceSystem {
       const k = sl > SPOT_REACH ? SPOT_REACH / sl : 1;
       h.spotlight.x = h.pos.x + sx * k;
       h.spotlight.z = h.pos.z + sz * k;
-      if (level >= 4 && !sim.playerDown && !this.searching(level) && !this.holdFire) {
+      if (level >= 4 && !this.down && !this.searching(level) && !this.holdFire) {
         h.fireCooldown -= dt;
         if (h.fireCooldown <= 0) {
           h.fireCooldown = 0.16;
@@ -1418,9 +1641,9 @@ export class PoliceSystem {
 
   private heliShot(h: Helicopter): void {
     const sim = this.sim;
-    const pp = sim.playerPos();
+    const pp = this.pp();
     // Only at someone the crew can make out (a car that outran it, or one in the dark, is not fired on).
-    if (!sim.wanted.heliSees(h, pp.x, pp.z)) return;
+    if (!this.w.heliSees(h, pp.x, pp.z)) return;
     const tx = pp.x;
     const ty = pp.y + 1;
     const tz = pp.z;
@@ -1456,26 +1679,31 @@ export class PoliceSystem {
     if (this.cleanupTimer > 0) return;
     this.cleanupTimer = 1;
     const sim = this.sim;
-    const pp = sim.playerPos();
-    const w = sim.wanted;
+    const pp = this.pp();
+    const w = this.w;
     const searching = this.searching(level);
+    // With several players, nothing goes near any of them: `far` is the distance to the nearest, whoever it chases.
+    const multi = this.multi;
     for (const v of sim.vehicles) {
-      if (v.owner !== 'police' || v.removed || v.driver === sim.player) continue;
+      if (v.owner !== 'police' || v.removed || sim.slotOf(v.driver) || !this.mine(v)) continue;
       if (sim.roadblocks.isParked(v) && !v.destroyed) continue;
       // Units sweeping the area around the last sighting are still on duty.
       const d = Math.min(Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z), searching ? Math.hypot(v.pos.x - w.lastSeenX, v.pos.z - w.lastSeenZ) : Infinity);
+      const far = multi ? Math.min(d, sim.distToPlayer(v.pos.x, v.pos.z)) : d;
       const visible = sim.isVisible(v.pos.x, v.pos.y, v.pos.z);
-      const lagging = this.lagging(v, d, visible, level, searching);
-      if ((d > 290 && !visible) || lagging || (level > 0 && !visible && this.hopeless(v)) || (v.destroyed && v.wreckTime > 40 && !visible) || (level === 0 && this.calm > 25 && d > 110 && !visible && v.ai?.policy !== 'traffic')) {
+      const lagging = this.lagging(v, d, visible, level, searching) && (!multi || far > RECYCLE_DIST);
+      const hopeless = level > 0 && !visible && this.hopeless(v) && (!multi || far > HOPELESS_DIST);
+      if ((far > 290 && !visible) || lagging || hopeless || (v.destroyed && v.wreckTime > 40 && !visible) || (level === 0 && this.calm > 25 && far > 110 && !visible && v.ai?.policy !== 'traffic')) {
         // Remove the crew of an abandoned unit as well.
         for (const c of sim.characters) if (c.brain?.car === v && c.state !== 'inVehicle') c.brain.car = null;
         sim.removeVehicle(v);
       }
     }
     for (const c of sim.characters) {
-      if (c.removed || !c.isLaw || c.state === 'inVehicle') continue;
+      if (c.removed || !c.isLaw || c.state === 'inVehicle' || !this.mine(c)) continue;
       if (c.alive && sim.roadblocks.holds(c)) continue;
-      const d = Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z);
+      const own = Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z);
+      const d = multi ? Math.min(own, sim.distToPlayer(c.pos.x, c.pos.z)) : own;
       const visible = sim.isVisible(c.pos.x, c.pos.y, c.pos.z);
       if (!c.alive) {
         if ((c.deadTime > 30 && !visible) || d > 200) sim.removeCharacter(c);
@@ -1508,19 +1736,20 @@ export class PoliceSystem {
    */
   private hopeless(v: Vehicle): boolean {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p;
     if (v.destroyed || !v.ai || !v.driver?.isLaw || v === p.vehicle || v.occupants().includes(p) || v.stuckTime <= HOPELESS_STUCK) return false;
-    const pp = sim.playerPos();
+    if (this.multi && v.occupants().some((o) => sim.slotOf(o))) return false;
+    const pp = this.pp();
     return Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z) > HOPELESS_DIST;
   }
 
   /** Removes every police unit (used on respawn). */
   dismissAll(): void {
     const sim = this.sim;
-    for (const v of sim.vehicles) if (v.owner === 'police' && v.driver !== sim.player) sim.removeVehicle(v);
+    for (const v of sim.vehicles) if (v.owner === 'police' && !sim.slotOf(v.driver)) sim.removeVehicle(v);
     for (const c of sim.characters) if (c.isLaw) sim.removeCharacter(c);
     for (const h of sim.helis) h.removed = true;
-    this.bustTimer = 0;
+    for (const pu of this.pursuits) pu.bustTimer = 0;
   }
 }
 

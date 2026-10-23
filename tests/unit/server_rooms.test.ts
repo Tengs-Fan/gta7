@@ -9,7 +9,7 @@ import { neutralInput } from '../../src/sim/input';
 import { Connection, type ConnectionOptions } from '../../server/connection';
 import type { Room } from '../../server/room';
 import { RoomManager } from '../../server/rooms';
-import { PuppetSlotProvider } from '../../server/slots';
+import { PuppetSlotProvider, SingleSlotProvider } from '../../server/slots';
 import { FakePeer } from './net_helpers';
 
 const connOpts: ConnectionOptions = { defaultRoom: 'lobby', maxErrors: 32, ratePerSec: 10_000, rateBurst: 10_000, log: () => {}, now: () => performance.now() };
@@ -102,7 +102,9 @@ describe('join and leave', () => {
     expect(wb.roomSeed).toBe(mgr.room('r')!.seed);
     expect(wb.tick).toBe(20);
     expect(wa.slot).toBe(0);
-    expect(wb.slot).toBe(-1); // one-slot Sim: watches until mp-core
+    // Each player gets his own PlayerSlot of the room's Sim.
+    expect(wb.slot).toBe(1);
+    expect(mgr.room('r')!.sim.players.map((s) => s.id)).toEqual([0, 1]);
     expect(Array.isArray(wb.brokenProps) && Array.isArray(wb.signalHolds) && Array.isArray(wb.pickups)).toBe(true);
     stepAll(mgr, 2);
     expect(a.peer.last('snapshot')!.roster!.map((r) => r.name)).toEqual(['Ann', 'Bea']);
@@ -110,7 +112,8 @@ describe('join and leave', () => {
   });
 
   it('bye and a closed socket remove the player at once; the others stop seeing it; a watcher takes the freed slot', () => {
-    const mgr = manager();
+    // Watching happens with a provider short of slots: the one-slot provider shows it with three players.
+    const mgr = manager({ room: { slotProvider: (sim) => new SingleSlotProvider(sim) } });
     const a = connect(mgr, 'Ann', 'r');
     const b = connect(mgr, 'Bea', 'r');
     const c = connect(mgr, 'Cy', 'r');

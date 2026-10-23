@@ -31,7 +31,7 @@ import { PickupSystem } from './pickups';
 import type { PlayerController } from './player';
 import { PlayerSlot, type PlayerCheats } from './playerSlot';
 import { PoliceSystem } from './police';
-import type { Progress } from './progress';
+import { Progress } from './progress';
 import { VEHICLE_SPECS, type VehicleKind } from './specs';
 import { TrafficSystem } from './traffic';
 import { registeredSystems, SystemSlots, type SimSystem, type SystemSlot } from './systems';
@@ -58,6 +58,11 @@ export interface SimOptions {
    * in the real game. Single systems can be switched afterwards through sim.streetCrime.
    */
   streetCrime?: boolean;
+  /**
+   * A multiplayer room's sim (the server's): story missions, cheats and saving are off, and a respawn does not move the
+   * shared clock on. Off by default (single player).
+   */
+  multiplayer?: boolean;
 }
 
 /**
@@ -117,6 +122,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   /** See SimOptions.serviceVehicles. */
   serviceVehicles: boolean;
   readonly streetCrime: StreetCrime;
+  /** See SimOptions.multiplayer. */
+  readonly multiplayer: boolean;
   /** Simulation-time callbacks (see pickups.setTimeoutLike). */
   readonly timers: Array<{ at: number; fn: () => void }> = [];
 
@@ -134,6 +141,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.serviceVehicles = opts.serviceVehicles ?? false;
     const extras = opts.streetCrime ?? false;
     this.streetCrime = { gangs: extras, roadblocks: extras, witnesses: extras, angryDrivers: extras, pickups: extras };
+    this.multiplayer = opts.multiplayer ?? false;
 
     // Start on the sidewalk a few steps from the safehouse door, facing the street.
     const home = this.world.layout.pois.find((p) => p.id === 'safehouse')!;
@@ -234,16 +242,93 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.players[0]!.deathLevel = level;
   }
 
-  /** Seats another human player at (x, z); its id is the next free slot number. */
+  /** Seats another human player at (x, z); its id is the lowest free slot number above 0, and slots stay in id order. */
   addPlayer(x: number, z: number, appearance?: Appearance): PlayerSlot {
     const c = this.spawnCharacter('player', x, z, appearance ?? randomAppearance(this.rng, 'player'));
     c.persistent = true;
-    const slot = new PlayerSlot(this, this.players.length, c);
+    let id = 1;
+    while (this.players.some((s) => s.id === id)) id++;
+    const slot = new PlayerSlot(this, id, c);
     slot.cam.x = x;
     slot.cam.y = c.pos.y + 3;
     slot.cam.z = z;
-    this.players.push(slot);
+    const at = this.players.findIndex((s) => s.id > id);
+    if (at < 0) this.players.push(slot);
+    else this.players.splice(at, 0, slot);
     return slot;
+  }
+
+  /**
+   * Takes a player (not slot 0) out of the sim: out of his seat (his car stays behind, empty), his job ended, his
+   * police pursuit called off, his character gone.
+   */
+  removePlayer(slot: PlayerSlot): void {
+    const i = this.players.indexOf(slot);
+    if (i <= 0) return;
+    this.leaveWorld(slot);
+    this.players.splice(i, 1);
+    slot.character.removed = true;
+  }
+
+  /** The players in the world: every slot but a parked one (see parkPlayer). */
+  activePlayers(): readonly PlayerSlot[] {
+    if (this.players.length === 1 && !this.players[0]!.parked) return this.players;
+    return this.players.filter((s) => !s.parked);
+  }
+
+  /**
+   * Multiplayer: slot 0 with nobody playing it leaves the world (it cannot be removed, sim.player aliases it). Its
+   * character is out of sim.characters until unparkPlayer brings it back.
+   */
+  parkPlayer(slot: PlayerSlot = this.players[0]!): void {
+    if (slot.parked) return;
+    this.leaveWorld(slot);
+    slot.parked = true;
+    const i = this.characters.indexOf(slot.character);
+    if (i >= 0) this.characters.splice(i, 1);
+  }
+
+  /** Brings a parked slot back as a fresh player standing at (x, z). */
+  unparkPlayer(slot: PlayerSlot, x: number, z: number): void {
+    if (!slot.parked) return;
+    slot.parked = false;
+    const c = slot.character;
+    c.state = 'normal';
+    c.health = c.maxHealth;
+    c.armor = 0;
+    c.inventory.clear();
+    c.vel.x = 0;
+    c.vel.y = 0;
+    c.vel.z = 0;
+    c.knockTimer = 0;
+    c.deadTime = 0;
+    c.pos.x = x;
+    c.pos.z = z;
+    c.pos.y = this.world.groundHeight(x, z);
+    c.onGround = true;
+    slot.deathKind = null;
+    slot.deathTimer = -1;
+    slot.deathLevel = 0;
+    slot.controlLock = 0;
+    slot.wanted.clear();
+    // A new player in the seat: none of the last one's money or record.
+    Object.assign(slot.progress, new Progress());
+    slot.cam.x = x;
+    slot.cam.y = c.pos.y + 3;
+    slot.cam.z = z;
+    this.characters.push(c);
+  }
+
+  /** What leaving the world does to a player: out of his seat, job over, pursuit called off, wanted level gone. */
+  private leaveWorld(slot: PlayerSlot): void {
+    const c = slot.character;
+    if (c.state === 'entering') c.state = 'normal';
+    if (c.vehicle) this.unseat(c);
+    this.activities.cancelAll('mission', slot);
+    slot.wanted.floor = 0;
+    slot.wanted.clear();
+    this.police.dismiss(slot);
+    this.combat.forgetCulprit(c);
   }
 
   /** The slot a player character sits in; undefined for every other character. */
@@ -417,7 +502,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   nearestPlayer(x: number, z: number): PlayerSlot {
     let best = this.players[0]!;
     let bd = Infinity;
-    for (const slot of this.players) {
+    for (const slot of this.activePlayers()) {
       const p = slot.pos();
       const d = Math.hypot(x - p.x, z - p.z);
       if (d < bd) {
@@ -430,16 +515,17 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
 
   /** Where player `id` is (slot 0 by default): the vehicle he sits in, else himself. */
   playerPos(id = 0): V3 {
-    return (this.players[id] ?? this.players[0]!).pos();
+    return (this.players.find((s) => s.id === id) ?? this.players[0]!).pos();
   }
 
   /** Rough "could a player see this point" test using every player's camera pose. */
   isVisible(x: number, y: number, z: number, maxDist = 320): boolean {
-    for (const slot of this.players) if (this.seenFrom(slot, x, y, z, maxDist)) return true;
+    for (const slot of this.activePlayers()) if (this.seenFrom(slot, x, y, z, maxDist)) return true;
     return false;
   }
 
-  private seenFrom(slot: PlayerSlot, x: number, y: number, z: number, maxDist: number): boolean {
+  /** The same test for one player's camera. */
+  seenFrom(slot: PlayerSlot, x: number, y: number, z: number, maxDist: number): boolean {
     const cam = slot.cam;
     const dx = x - cam.x;
     const dy = y - cam.y;
@@ -662,8 +748,10 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.time += dt;
     this.frame++;
     this.clock.update(dt);
-    this.weather.update(dt, this.clock, this.events, this.playerPos());
+    // Strikes land round the first player in the world (a server sends each player his own distance to them).
+    this.weather.update(dt, this.clock, this.events, (this.activePlayers()[0] ?? this.players[0]!).pos());
     for (const slot of this.players) {
+      if (slot.parked) continue;
       const given = isInputMap(input) ? input.get(slot.id) : slot.id === 0 ? (input as PlayerInput) : undefined;
       const inp = given ?? neutralInput();
       slot.progress.stats.playTime += dt;
@@ -678,7 +766,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     }
 
     this.runSystems('preInput', dt);
-    for (const slot of this.players) slot.ctl.update(dt, slot.input);
+    for (const slot of this.players) if (!slot.parked) slot.ctl.update(dt, slot.input);
     this.runSystems('afterPlayers', dt);
     for (const v of this.vehicles) {
       if (v.ai && v.driver && !v.driver.isPlayer && v.driver.alive) v.ai.update(dt);
@@ -706,7 +794,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
 
     this.combat.update(dt);
     this.updateTimers(dt);
-    for (const slot of this.players) slot.wanted.update(dt);
+    for (const slot of this.players) if (!slot.parked) slot.wanted.update(dt);
     this.runSystems('afterCombat', dt);
     if (this.ambient) {
       this.traffic.updateStreaming(dt);
@@ -795,10 +883,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     slot.progress.stats.timesWasted++;
     this.events.emit('wasted', { ...slot.tag });
     this.events.emit('big', { text: 'WASTED', sub: '', style: 'wasted', duration: 4.5, ...slot.tag });
-    if (slot.id === 0) {
-      this.missions.onPlayerDown('wasted');
-      this.activities.cancelAll('wasted');
-    }
+    if (slot.id === 0) this.missions.onPlayerDown('wasted');
+    this.activities.cancelAll('wasted', slot);
   }
 
   bustPlayer(slot: PlayerSlot = this.players[0]!): void {
@@ -812,10 +898,13 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     slot.character.vel.z = 0;
     this.events.emit('busted', { ...slot.tag });
     this.events.emit('big', { text: 'BUSTED', sub: '', style: 'busted', duration: 4.5, ...slot.tag });
-    if (slot.id === 0) {
-      this.missions.onPlayerDown('busted');
-      this.activities.cancelAll('busted');
-    }
+    if (slot.id === 0) this.missions.onPlayerDown('busted');
+    this.activities.cancelAll('busted', slot);
+  }
+
+  /** The clock belongs to several players (a multiplayer sim, or more than one slot): nothing one of them does moves it. */
+  get sharedClock(): boolean {
+    return this.multiplayer || this.players.length > 1;
   }
 
   /** Slot 0 is down (wasted or busted). */
@@ -825,7 +914,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
 
   private updateDeath(dt: number): void {
     for (const slot of this.players) {
-      if (!slot.deathKind) continue;
+      if (!slot.deathKind || slot.parked) continue;
       slot.deathTimer += dt;
       if (slot.deathTimer < 4.8) continue;
       this.finishRespawn(slot);
@@ -861,14 +950,15 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     p.onGround = true;
     const fee = slot.progress.charge(100 + (busted ? 150 : 100) * stars);
     slot.wanted.clear();
-    this.police.dismissAll();
+    this.police.dismiss(slot);
     // A new life: cars he damaged before (one he set alight, one a rocket of his lit during the WASTED screen) no longer
     // charge him when they burn out or blow up.
     this.combat.forgetCulprit(p);
     slot.deathKind = null;
     slot.deathTimer = -1;
     slot.deathLevel = 0;
-    this.clock.advance(busted ? 12 / 60 : 6);
+    // Single player skips the hours spent in hospital or a cell; a shared multiplayer clock runs on for the others.
+    if (!this.sharedClock) this.clock.advance(busted ? 12 / 60 : 6);
     this.events.emit('respawn', { where: busted ? 'police' : 'hospital', ...slot.tag });
     if (fee > 0) this.events.emit('money', { amount: -fee, ...slot.tag });
     const weapons = !armed ? '' : confiscated ? ' Your weapons were confiscated.' : ' You kept your weapons.';

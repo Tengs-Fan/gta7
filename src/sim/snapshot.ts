@@ -6,6 +6,7 @@
 import type { V3 } from '../core/math';
 import type { Axis } from '../world/roads';
 import type { Appearance, Character, CharacterRole, CharState, Dent, Helicopter, Owner, Pickup, PickupKind, Projectile, Vehicle } from './entities';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import type { WeaponId } from './specs';
 import type { WeatherState } from './weather';
@@ -369,6 +370,24 @@ export interface InterestOptions {
 export const DEFAULT_INTEREST: InterestOptions = { radius: 250, keepRadius: 258 };
 
 /** Where a character is for distance purposes: its vehicle's position when seated. */
+/** A player's own HUD numbers, from his slot. */
+export function captureHud(slot: PlayerSlot): { wanted: number; searching: boolean; money: number; clip: number; ammo: number } {
+  const inv = slot.character.inventory;
+  const w = inv.slots.get(inv.current);
+  return { wanted: slot.wanted.level, searching: slot.wanted.searching, money: slot.progress.money, clip: w?.clip ?? 0, ammo: w?.ammo ?? 0 };
+}
+
+/** A player's own side job for his HUD: kind ('' for none), status line, objective markers (entities by id). */
+export function captureJob(sim: Sim, slot: PlayerSlot): { kind: string; status: string; objectives: Array<{ x: number; z: number; label: string; color: number; radius: number; vehicle: number; character: number }> } {
+  const job = sim.activities.jobOf(slot);
+  if (!job) return { kind: '', status: '', objectives: [] };
+  const objectives = sim.activities.objectives(slot).map((o) => {
+    const at = o.vehicle && !o.vehicle.removed ? o.vehicle.pos : o.character && !o.character.removed ? o.character.pos : o;
+    return { x: at.x, z: at.z, label: o.label, color: o.color, radius: o.radius, vehicle: o.vehicle && !o.vehicle.removed ? o.vehicle.id : 0, character: o.character && !o.character.removed ? o.character.id : 0 };
+  });
+  return { kind: job.kind, status: sim.activities.status(slot) ?? '', objectives };
+}
+
 export function viewerAt(c: Character, wanted = 0): Viewer {
   const p: V3 = c.vehicle ? c.vehicle.pos : c.pos;
   return { x: p.x, z: p.z, character: c, wanted };
@@ -395,7 +414,8 @@ export function selectInterest(sim: Sim, viewers: readonly Viewer[], players: re
   const inRange = (id: number, x: number, z: number) => near(viewers, x, z, prev && prev.has(id) ? opts.keepRadius : opts.radius);
   const own = new Set<Vehicle>();
   const targets = new Set<Character | Vehicle>();
-  let wanted = false;
+  // The pursuits of wanted viewers: their helicopters are relevant at any distance.
+  const hunted = new Set<number>();
   for (const v of viewers) {
     if (!v.character) continue;
     targets.add(v.character);
@@ -403,7 +423,8 @@ export function selectInterest(sim: Sim, viewers: readonly Viewer[], players: re
       own.add(v.character.vehicle);
       targets.add(v.character.vehicle);
     }
-    if (v.wanted > 0) wanted = true;
+    const slot = sim.slotOf(v.character);
+    if (v.wanted > 0) hunted.add(slot ? slot.id : 0);
   }
   for (const p of players) {
     if (p.removed) continue;
@@ -433,7 +454,7 @@ export function selectInterest(sim: Sim, viewers: readonly Viewer[], players: re
   }
   for (const h of sim.helis) {
     if (h.removed) continue;
-    if (wanted || inRange(h.id, h.pos.x, h.pos.z)) out.add(h.id);
+    if ((hunted.size > 0 && hunted.has(sim.police.targetSlotOf(h))) || inRange(h.id, h.pos.x, h.pos.z)) out.add(h.id);
   }
   for (const p of sim.pickups) {
     if (p.removed) continue;

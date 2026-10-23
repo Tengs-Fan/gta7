@@ -34,6 +34,11 @@ export class PlayerSlot {
   /** Wanted level when the player was wasted or busted: the hospital bill and the bail scale with it. */
   deathLevel = 0;
   readonly tag: PlayerTag;
+  /**
+   * Out of the world while nobody plays it (multiplayer: slot 0 between holders): its character is not in
+   * sim.characters, and the sim leaves the slot out of everything players do or draw (streaming, police, pickups).
+   */
+  parked = false;
 
   constructor(sim: Sim, readonly id: number, public character: Character) {
     this.tag = id === 0 ? {} : { playerId: id };

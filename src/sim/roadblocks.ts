@@ -8,6 +8,7 @@ import { Rng } from '../core/rng';
 import type { Lane } from '../world/roads';
 import { DriverAI } from './driver';
 import type { Character, Vehicle } from './entities';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import type { SimSystem } from './systems';
 import { vehicleObb } from './vehiclePhysics';
@@ -56,6 +57,15 @@ export interface SpikeStrip {
   removed: boolean;
   /** Tyres it burst. */
   bursts: number;
+  /** The player slot whose roadblock laid it (absent: slot 0). */
+  slot?: number;
+}
+
+/** Each player's roadblock timing: every wanted player gets his own roadblocks. */
+interface SlotState {
+  timer: number;
+  lastPlaced: number;
+  wasLevel: number;
 }
 
 export interface Roadblock {
@@ -77,6 +87,8 @@ export interface Roadblock {
   /** Seconds it has been behind the player without a break, and holding up a police unit. */
   behindFor: number;
   blockedFor: number;
+  /** The player slot it was placed for. */
+  slot: number;
 }
 
 const contact = makeContact();
@@ -90,10 +102,11 @@ export class RoadblockSystem implements SimSystem {
   /** Every roadblock placed (also the removed ones), for tests and telemetry. */
   readonly log: Roadblock[] = [];
   private readonly rng: Rng;
-  private timer = ROADBLOCK_FIRST;
-  private lastPlaced = -Infinity;
-  private wasLevel = 0;
   private ids = 0;
+  /** Timing by slot id, and the player (and timing) the code below works for: the one updating, else slot 0. */
+  private readonly states = new Map<number, SlotState>();
+  private cur: PlayerSlot;
+  private st: SlotState = { timer: ROADBLOCK_FIRST, lastPlaced: -Infinity, wasLevel: 0 };
   /** Cruisers parked in a roadblock (see isParked). */
   private readonly parked = new WeakSet<Vehicle>();
   /** Last wheel positions per vehicle, for strips crossed between two frames. */
@@ -103,6 +116,32 @@ export class RoadblockSystem implements SimSystem {
 
   constructor(private readonly sim: Sim) {
     this.rng = new Rng(((sim.seed * 3266489917) ^ 0x726f6164) >>> 0);
+    this.cur = sim.players[0]!;
+    this.states.set(0, this.st);
+  }
+
+  private get timer(): number { return this.st.timer; }
+  private set timer(v: number) { this.st.timer = v; }
+  private get lastPlaced(): number { return this.st.lastPlaced; }
+  private set lastPlaced(v: number) { this.st.lastPlaced = v; }
+  private get wasLevel(): number { return this.st.wasLevel; }
+  private set wasLevel(v: number) { this.st.wasLevel = v; }
+
+  /** Works for player `slot` until the next call. */
+  private use(slot: PlayerSlot): void {
+    this.cur = slot;
+    let st = this.states.get(slot.id);
+    if (!st) {
+      st = { timer: ROADBLOCK_FIRST, lastPlaced: -Infinity, wasLevel: 0 };
+      this.states.set(slot.id, st);
+    }
+    this.st = st;
+  }
+
+  /** The current player's standing roadblocks. */
+  private mine(): Roadblock[] {
+    const id = this.cur.id;
+    return this.sim.players.length > 1 ? this.roadblocks.filter((rb) => rb.slot === id) : this.roadblocks;
   }
 
   /** A cruiser parked across the road in a roadblock that still stands. */
@@ -128,17 +167,30 @@ export class RoadblockSystem implements SimSystem {
     this.roadblocks.length = 0;
     this.strips.length = 0;
     this.posted.clear();
-    this.timer = ROADBLOCK_FIRST;
-    this.lastPlaced = -Infinity;
+    for (const st of this.states.values()) {
+      st.timer = ROADBLOCK_FIRST;
+      st.lastPlaced = -Infinity;
+    }
   }
 
+  /** Every wanted player gets his own roadblocks, in slot order. */
   update(sim: Sim, dt: number): void {
-    const on = sim.streetCrime.roadblocks && sim.policeEnabled;
-    const level = !on || sim.playerDown ? 0 : sim.wanted.level;
     this.checkStrips();
     this.releaseOfficers();
+    for (const slot of sim.activePlayers()) {
+      this.use(slot);
+      this.updateFor(sim, dt);
+    }
+    this.use(sim.players[0]!);
+  }
+
+  private updateFor(sim: Sim, dt: number): void {
+    const on = sim.streetCrime.roadblocks && sim.policeEnabled;
+    const slot = this.cur;
+    const level = !on || slot.down ? 0 : slot.wanted.level;
+    const multi = sim.players.length > 1;
     if (level < ROADBLOCK_LEVEL) {
-      if (this.roadblocks.length > 0 || this.strips.some((s) => !s.removed)) this.clearAll();
+      if (this.mine().length > 0 || this.strips.some((s) => !s.removed && (!multi || (s.slot ?? 0) === slot.id))) this.clearAll();
       this.wasLevel = level;
       return;
     }
@@ -149,7 +201,7 @@ export class RoadblockSystem implements SimSystem {
     this.makeWay(dt);
     for (const s of this.strips) if (!s.removed && sim.time - s.createdAt > STRIP_LIFE) s.removed = true;
     this.compact();
-    if (this.roadblocks.length >= 1 || sim.time - this.lastPlaced < ROADBLOCK_GAP) return;
+    if (this.mine().length >= 1 || sim.time - this.lastPlaced < ROADBLOCK_GAP) return;
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = ROADBLOCK_RETRY;
@@ -162,7 +214,7 @@ export class RoadblockSystem implements SimSystem {
    */
   private route(): Array<{ lane: Lane; s: number; ahead: number }> {
     const sim = this.sim;
-    const pv = sim.player.vehicle;
+    const pv = this.cur.character.vehicle;
     if (!pv) return [];
     const start = sim.roads.nearestLane(pv.pos.x, pv.pos.z, pv.heading);
     if (start.dist > 8) return [];
@@ -188,9 +240,10 @@ export class RoadblockSystem implements SimSystem {
    * Places a roadblock on the player's way: mid-block (16 m clear of either junction), at least ROADBLOCK_MIN_AHEAD m
    * from him and out of his view, the two cruisers clear of buildings, other vehicles and him. Returns it, or null.
    */
-  place(level = this.sim.wanted.level): Roadblock | null {
+  place(level = this.cur.wanted.level): Roadblock | null {
     const sim = this.sim;
-    const pp = sim.playerPos();
+    const pp = this.cur.pos();
+    const slotId = this.cur.id;
     const spots = this.route();
     // Nearer spots first, a little shuffled so they do not always stand at the same distance.
     const order = spots.map((sp, i) => ({ sp, k: i + this.rng.range(0, 3) })).sort((a, b) => a.k - b.k);
@@ -220,7 +273,9 @@ export class RoadblockSystem implements SimSystem {
       const carSpots = cruiserLayout(half, Math.abs(laneOff)).map((c) => ({ x: cx + ax * c.off - ux * c.back, z: cz + az * c.off - uz * c.back, heading: c.cross ? lane.heading + Math.PI / 2 : lane.heading }));
       const heads = carSpots.map((c) => c.heading);
       if (!carSpots.every((c) => sim.traffic.isClear(c.x, c.z, 6.5) && Math.hypot(c.x - pp.x, c.z - pp.z) > 30 && this.bodyClear(c.x, c.z, c.heading))) continue;
-      const rb: Roadblock = { id: ++this.ids, x: cx, z: cz, ux, uz, cars: [], officers: [], strip: null, createdAt: sim.time, level, ahead: sp.ahead, visibleAtSpawn: sim.isVisible(cx, 1, cz), removedAt: -1, behindFor: 0, blockedFor: 0 };
+      // Nor on top of another player.
+      if (sim.players.length > 1 && carSpots.some((c) => sim.distToPlayer(c.x, c.z) <= 30)) continue;
+      const rb: Roadblock = { id: ++this.ids, x: cx, z: cz, ux, uz, cars: [], officers: [], strip: null, createdAt: sim.time, level, ahead: sp.ahead, visibleAtSpawn: sim.isVisible(cx, 1, cz), removedAt: -1, behindFor: 0, blockedFor: 0, slot: slotId };
       carSpots.forEach((c, i) => {
         const v = sim.spawnVehicle(level >= 5 && i === 0 ? 'swat' : 'police', c.x, c.z, heads[i]!);
         v.owner = 'police';
@@ -232,7 +287,8 @@ export class RoadblockSystem implements SimSystem {
         const oz = c.z - rb.uz * 2.6;
         const spot = sim.world.findFreeSpot(ox, oz, 0.4, 4) ?? { x: ox, z: oz };
         const o = sim.spawnCharacter(v.kind === 'swat' ? 'swat' : 'cop', spot.x, spot.z);
-        sim.police.equipOfficer(o, null);
+        sim.police.equipOfficer(o, null, slotId);
+        if (slotId !== 0) sim.police.assign(v, slotId);
         o.heading = Math.atan2(rb.ux, rb.uz);
         rb.officers.push(o);
         this.posted.set(o, sim.time + POST_MAX);
@@ -241,6 +297,7 @@ export class RoadblockSystem implements SimSystem {
       const sx = cx + rb.ux * STRIP_SHORT;
       const sz = cz + rb.uz * STRIP_SHORT;
       const strip: SpikeStrip = { id: rb.id, x: sx, y: sim.world.groundHeight(sx, sz), z: sz, ux: rb.ux, uz: rb.uz, halfLen: half, createdAt: sim.time, removed: false, bursts: 0 };
+      if (slotId !== 0) strip.slot = slotId;
       rb.strip = strip;
       this.strips.push(strip);
       this.roadblocks.push(rb);
@@ -265,21 +322,24 @@ export class RoadblockSystem implements SimSystem {
   private releaseOfficers(): void {
     const sim = this.sim;
     const pp = sim.playerPos();
+    const multi = sim.players.length > 1;
     for (const [o, until] of this.posted) {
-      if (o.removed || !o.alive || sim.time > until || Math.hypot(o.pos.x - pp.x, o.pos.z - pp.z) < POST_RANGE) this.posted.delete(o);
+      // His own player, the one his roadblock was placed for.
+      const op = multi ? sim.playerPos(sim.police.targetSlotOf(o)) : pp;
+      if (o.removed || !o.alive || sim.time > until || Math.hypot(o.pos.x - op.x, o.pos.z - op.z) < POST_RANGE) this.posted.delete(o);
     }
   }
 
   private removeBehind(dt: number): void {
     const sim = this.sim;
-    const p = sim.player;
-    const pp = sim.playerPos();
+    const p = this.cur.character;
+    const pp = this.cur.pos();
     const vx = p.vehicle ? p.vehicle.vel.x : p.vel.x;
     const vz = p.vehicle ? p.vehicle.vel.z : p.vel.z;
     const sp = Math.hypot(vx, vz);
     const hx = sp > 1 ? vx / sp : Math.sin(p.vehicle?.heading ?? p.heading);
     const hz = sp > 1 ? vz / sp : Math.cos(p.vehicle?.heading ?? p.heading);
-    for (const rb of this.roadblocks) {
+    for (const rb of this.mine()) {
       const dx = rb.x - pp.x;
       const dz = rb.z - pp.z;
       const d = Math.hypot(dx, dz);
@@ -325,18 +385,18 @@ export class RoadblockSystem implements SimSystem {
       const b = v.ai.heldUpBy;
       if (b && this.parked.has(b)) blocking.add(b);
     }
-    for (const rb of this.roadblocks) {
+    for (const rb of this.mine()) {
       if (rb.cars.some((c) => blocking.has(c))) rb.blockedFor += dt;
       else rb.blockedFor = 0;
       if (rb.blockedFor < MAKE_WAY) continue;
       rb.blockedFor = 0;
       if (rb.strip) rb.strip.removed = true;
-      rb.cars.forEach((v, i) => this.driveOff(v, rb.officers[i] ?? null));
+      rb.cars.forEach((v, i) => this.driveOff(v, rb.officers[i] ?? null, rb.slot));
     }
   }
 
   /** The officer posted at a cruiser takes its wheel (he stands beside it) and chases the player in it. */
-  private driveOff(v: Vehicle, o: Character | null): void {
+  private driveOff(v: Vehicle, o: Character | null, slotId = 0): void {
     const sim = this.sim;
     this.parked.delete(v);
     if (o) this.posted.delete(o);
@@ -351,8 +411,9 @@ export class RoadblockSystem implements SimSystem {
     sim.seat(o, v, 0);
     if (o.brain) o.brain.car = v;
     v.ai = new DriverAI(sim, v, 'chase');
-    v.ai.target = sim.player;
+    v.ai.target = sim.players.find((s) => s.id === slotId)?.character ?? sim.player;
     v.siren = true;
+    if (slotId !== 0) sim.police.assign(v, slotId);
   }
 
   /** Takes a roadblock down: its strip at once; its cruisers and officers too, where the player cannot see them go. */
@@ -370,9 +431,11 @@ export class RoadblockSystem implements SimSystem {
     }
   }
 
+  /** Takes down the current player's roadblocks and strips (all of them in single player). */
   private clearAll(): void {
-    for (const rb of this.roadblocks) if (rb.removedAt < 0) this.remove(rb);
-    for (const s of this.strips) s.removed = true;
+    const multi = this.sim.players.length > 1;
+    for (const rb of this.mine()) if (rb.removedAt < 0) this.remove(rb);
+    for (const s of this.strips) if (!multi || (s.slot ?? 0) === this.cur.id) s.removed = true;
     this.compact();
   }
 

@@ -258,22 +258,26 @@ describe('a controller, interactions and jobs for each slot', () => {
     expect(b.character.health).toBe(40);
   });
 
-  it('slot 1 pressing the job key in a taxi starts nothing, and slot 0 still can', () => {
+  // Revised by mp-core: every slot now runs its own job (it used to be slot 0's only, so slot 1's key did nothing).
+  it('slot 1 pressing the job key in a taxi starts slot 1’s own job; each key starts and ends only its own', () => {
     const sim = makeSim();
     const taxi = sim.spawnVehicle('taxi', 0, 0, 0);
     const other = sim.spawnVehicle('taxi', 20, 0, 0);
     const b = sim.addPlayer(20, 0);
     sim.seat(b.character, other, 0);
+    expect(sim.activities.jobPrompt(b)).toBe('Press T to start a taxi job');
     sim.update(DT, new Map([[1, lookAt(b.character, { job: true })]]));
     expect(sim.activities.job).toBeNull();
+    expect(sim.activities.jobOf(b)?.kind).toBe('taxi');
     expect(sim.activities.jobPrompt(b)).toBeNull();
     sim.seat(sim.player, taxi, 0);
     expect(sim.activities.jobPrompt(sim.players[0]!)).toBe('Press T to start a taxi job');
     sim.update(DT, new Map([[0, lookAt(sim.player, { job: true })]]));
     expect(sim.activities.job?.kind).toBe('taxi');
-    // Slot 1's key does not end slot 0's job either.
+    // Slot 1's key ends slot 1's job, never slot 0's.
     sim.update(DT, new Map([[1, lookAt(b.character, { job: true })]]));
     expect(sim.activities.job?.kind).toBe('taxi');
+    expect(sim.activities.jobOf(b)).toBeNull();
     sim.update(DT, new Map([[0, lookAt(sim.player, { job: true })]]));
     expect(sim.activities.job).toBeNull();
   });
