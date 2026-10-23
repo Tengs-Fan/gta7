@@ -264,6 +264,8 @@ export class TrafficSystem {
     const groupOf = new Map<PlayerSlot, number>();
     groups.forEach((g, i) => g.forEach((s) => groupOf.set(s, i)));
     const target = clusterTarget(this.targetCount, groups.length);
+    // Groups near each other share cars (the nearest player's group counts each): the total holds the budget too.
+    const cap = Math.round(this.targetCount * mpBudget(groups.length));
     const counts = groups.map(() => 0);
     const vels = active.map((s) => this.playerVel(s));
     for (const v of sim.vehicles) {
@@ -303,6 +305,7 @@ export class TrafficSystem {
         sim.removeVehicle(v);
       }
     }
+    let total = counts.reduce((x, y) => x + y, 0);
     groups.forEach((g, gi) => {
       let count = counts[gi]!;
       // A group whose fast player leaves its cars behind retires the furthest one behind him, far from everyone.
@@ -325,14 +328,16 @@ export class TrafficSystem {
         if (gone) {
           sim.removeVehicle(gone);
           count--;
+          total--;
         }
       }
       let spawned = 0;
-      while (count < target && spawned < 2) {
+      while (count < target && total < cap && spawned < 2) {
         const at = g[this.turn++ % g.length]!;
         if (!this.trySpawnTraffic(undefined, undefined, undefined, at)) break;
         spawned++;
         count++;
+        total++;
       }
     });
   }
@@ -581,7 +586,8 @@ export class TrafficSystem {
       const d = multi ? sim.distToPlayer(s.x, s.z) : Math.hypot(s.x - pp.x, s.z - pp.z);
       if (d > 175 || d < 35) continue;
       if (hash(i) % 100 >= 55) continue;
-      if (sim.isVisible(s.x, 0.5, s.z)) continue;
+      // Several players: no higher than a moving car's check either (a roof can show over a wall).
+      if (sim.isVisible(s.x, 0.5, s.z) || (multi && sim.isVisible(s.x, 1, s.z))) continue;
       if (!this.isClear(s.x, s.z, BAY_SPACING)) continue;
       const kind = parkedBike(PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0], i);
       if (!clearOfVehicles(sim, kind, s.x, s.z, s.heading)) continue;
