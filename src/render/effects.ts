@@ -1064,6 +1064,17 @@ export class Effects {
     return { group: g, x: 0, y: 0, z: 0, carry: 0 };
   }
 
+  /**
+   * A shot-down helicopter on its way down (called every frame): flames on the fuselage and a puff of thick smoke each
+   * frame, which hang where it was and so trail behind the fall. The particle systems are the tier's own (fewer and
+   * simpler on Low and software renderers).
+   */
+  heliCrash(x: number, y: number, z: number, dt: number): void {
+    const flames = 1 + (this.rng.next() < dt * 30 ? 1 : 0);
+    for (let i = 0; i < flames; i++) this.glow.emit(x + this.r(-1, 1), y + this.r(-0.4, 0.8), z + this.r(-1, 1), this.r(-0.6, 0.6), this.r(0.5, 2), this.r(-0.6, 0.6), this.r(0.3, 0.6), this.r(1.1, 1.7), this.r(0.3, 0.5), 0xffc040, 0xd02000, 1, -0.5, 1, this.r(-1, 1));
+    this.smoke.emit(x + this.r(-0.6, 0.6), y + this.r(0, 0.6), z + this.r(-0.6, 0.6), this.r(-0.4, 0.4), this.r(0.3, 1.2), this.r(-0.4, 0.4), this.r(3.5, 5), 1.4, 4.8, 0x1a1816, 0x3a3836, 0.75, -0.2, 0.3);
+  }
+
   /** Damaged / burning vehicle emitters (called per frame). */
   vehicleSmoke(x: number, y: number, z: number, condition: number, burning: boolean, wreck: boolean, dt: number): void {
     if (burning || wreck) {

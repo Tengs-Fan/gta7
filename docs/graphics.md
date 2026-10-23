@@ -16,6 +16,12 @@ High's drawing buffer is capped at 3.5 million pixels (`HIGH_PIXEL_BUDGET` in `q
 
 High adds local ambient occlusion before bloom and six nearby street lamps that light car bodies and facades at night. Lamp selection cross-fades, and broken lamps switch off immediately. Transparent effects and camera-dissolving foliage/characters are excluded from the contact-depth pass so invisible geometry cannot leave dark artifacts; sun and moon shadows still apply normally. Medium and Low keep the same resolution settings as before this visual pass.
 
+### Fades and helicopter crashes
+
+Characters on foot fade in over `PED_FADE_IN` (0.5 s) the first time they are drawn within 200 m, so peds spawning nearby no longer pop in; the player and car occupants are always drawn whole. The fade is a per-instance `instanceFade` attribute on the crowd's instanced parts, applied as an ordered (Bayer) dither in the existing character shaders, and the characters' `customDepthMaterial` applies the same dither so the shadow fades with the body. A character removed while drawn on foot (a cleared body or a despawned ped) keeps its last pose and fades out over `PED_FADE_OUT` (0.6 s). `crowd.firstDrawn` in the browser logs the last 400 first-drawn characters with their position and fade. Vehicles removed within `VEHICLE_FADE_RANGE` (150 m) of the camera and in view (cleared wrecks, despawned traffic) fade out over `VEHICLE_FADE_OUT` (0.6 s): `VehicleView.beginFade()` swaps in `alphaHash` copies of the car's materials, moves its batched parts back onto the drawn layer for the fade, and gives its shadow body an `alphaHash` depth material; `endFade()` restores everything before the view returns to the pool. Warmup compiles the fade copies, so a fade does not compile new shader programs mid-play. Software renderers pass `alphaHash` through to their simplified materials.
+
+A crashing police helicopter trails fire and smoke every frame while it falls (`effects.heliCrash`). Its descent is tested against the solid colliders and the Ferris wheel's disc (`src/sim/heliCrash.ts`): it comes to rest on top of the first roof it meets, including the garages and the police station, with a smaller blast on a garage roof (`HELI_ROOF_BLAST`) so a car parked inside is not destroyed, and it stops against the lighthouse, crane legs and the Ferris wheel instead of falling through them.
+
 ## Time of day
 
 The sky's image-based light (the baked environment map) is re-baked whenever the analytic sky colours change by about 2 % or the sun has fully set or risen, never less than half a real second after the previous bake, and at once after a jump in time (or every quarter game hour otherwise). Between bakes `scene.environmentIntensity` is scaled by the ratio of the sky's current to its baked irradiance (clamped to 0.5–2), so dawn and dusk brighten and darken every frame instead of in steps. This applies to every hardware tier with half-float targets; without them (and on software renderers) the sky light is an analytic hemisphere fill that was already continuous. The player car's local reflection probe recaptures after 0.05 game hours, still at most one capture start per half second. `__gta7.setClockRate(r)` and `__gta7.envStats()` help check this in the browser.
@@ -160,3 +166,6 @@ visible-index compaction and restoration, real-bounds culling, live emissive mat
 software pixel budgets, and skid-buffer expiry. Vehicle-model tests check distant dimensions,
 triangle reduction, and restoration of the detailed model. Renderer/environment/prop tests cover
 quality switching, context loss, signal colours, clipping over the pier, and break/restore behaviour.
+`tests/unit/w1_render_polish.test.ts` covers ped fade-in timing and shadow fade, body and wreck
+fade-out, the fade state reset on a new game, and helicopter crashes against roofs, the lighthouse,
+crane legs and the Ferris wheel.

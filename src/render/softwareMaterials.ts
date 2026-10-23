@@ -36,7 +36,7 @@ export class SoftwareMaterials {
         map: source.map, emissiveMap: source.emissiveMap, alphaMap: source.alphaMap,
         color: source.color, emissive: source.emissive, emissiveIntensity: source.emissiveIntensity,
         vertexColors: source.vertexColors, side: source.side, shadowSide: source.shadowSide,
-        transparent: source.transparent, opacity: source.opacity, alphaTest: source.alphaTest,
+        transparent: source.transparent, opacity: source.opacity, alphaTest: source.alphaTest, alphaHash: source.alphaHash,
         depthTest: source.depthTest, depthWrite: source.depthWrite, blending: source.blending,
         polygonOffset: source.polygonOffset, polygonOffsetFactor: source.polygonOffsetFactor,
         polygonOffsetUnits: source.polygonOffsetUnits, flatShading: source.flatShading,
@@ -95,6 +95,17 @@ export class SoftwareMaterials {
       material.emissiveIntensity = source.emissiveIntensity;
       material.opacity = source.opacity;
       material.visible = source.visible;
+    }
+  }
+
+  /** Drops (and disposes) the stand-ins of materials that are going away (a faded-out car's fade copies). */
+  forget(sources: readonly THREE.Material[]): void {
+    for (const s of sources) {
+      if (!(s instanceof THREE.MeshStandardMaterial)) continue;
+      const m = this.replacements.get(s);
+      if (!m) continue;
+      m.dispose();
+      this.replacements.delete(s);
     }
   }
 

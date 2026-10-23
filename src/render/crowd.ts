@@ -53,10 +53,28 @@ export const LENS_FADE_FULL = 0.9;
  * and no extra draws; shadows come from the default depth material, so a faded player keeps his.
  */
 function fadeNearLens(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  fadeByInstance(shader);
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <clipping_planes_fragment>',
+    `#include <clipping_planes_fragment>
+if ( vViewPosition.z < ${LENS_FADE_FULL.toFixed(2)} && lensBayer4( gl_FragCoord.xy ) >= smoothstep( ${LENS_FADE_GONE.toFixed(2)}, ${LENS_FADE_FULL.toFixed(2)}, vViewPosition.z ) ) discard;`,
+  );
+}
+
+/**
+ * A character fading in (just come into view) or out (just removed): each instance's `instanceFade` (0..1) keeps that
+ * share of its pixels through the same 4x4 Bayer dither, so a fade needs no transparency, sorting or extra draw, and
+ * every tier draws it with the program it already has.
+ */
+function fadeByInstance(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nattribute float instanceFade;\nvarying float vInstanceFade;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvInstanceFade = instanceFade;');
   shader.fragmentShader = shader.fragmentShader
     .replace(
       '#include <common>',
       `#include <common>
+varying float vInstanceFade;
 float lensBayer4( vec2 frag ) {
   const float m[ 16 ] = float[ 16 ]( 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 );
   ivec2 p = ivec2( mod( floor( frag ), 4.0 ) );
@@ -66,8 +84,33 @@ float lensBayer4( vec2 frag ) {
     .replace(
       '#include <clipping_planes_fragment>',
       `#include <clipping_planes_fragment>
-if ( vViewPosition.z < ${LENS_FADE_FULL.toFixed(2)} && lensBayer4( gl_FragCoord.xy ) >= smoothstep( ${LENS_FADE_GONE.toFixed(2)}, ${LENS_FADE_FULL.toFixed(2)}, vViewPosition.z ) ) discard;`,
+if ( vInstanceFade < 1.0 && lensBayer4( gl_FragCoord.xy ) >= vInstanceFade ) discard;`,
     );
+}
+
+/**
+ * The characters' shadow: three's depth material with the same per-instance fade (dithered in the shadow map), and no
+ * lens fade, so a player dissolved by the camera keeps his shadow.
+ */
+function characterDepthMaterial(): THREE.MeshDepthMaterial {
+  const m = new THREE.MeshDepthMaterial();
+  m.onBeforeCompile = fadeByInstance;
+  return m;
+}
+
+/** A character coming into view fades in over this long (s); one removed in view fades out over PED_FADE_OUT. */
+export const PED_FADE_IN = 0.5;
+export const PED_FADE_OUT = 0.6;
+
+const FIRST_DRAWN_LOG = 400;
+
+/** Per character drawn: its fade (0..1), whether it is fading out after removal, and the frame it was last drawn. */
+interface Fade {
+  f: number;
+  out: boolean;
+  frame: number;
+  /** Last drawn on foot (a rider removed with his car does not linger). */
+  foot: boolean;
 }
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
@@ -199,6 +242,15 @@ export class CrowdView {
   private readonly pivots = new Map<VehicleKind, number>();
   private readonly seat: RiderSeat = { y: 0, z: 0, recline: 0 };
   private readonly muzzle = { x: 0, y: 0, z: 0 };
+  /** Fades by character (object identity: ids start again in a new session). */
+  private readonly fades = new Map<Character, Fade>();
+  /** The fade every instance put now is drawn with. */
+  private drawFade = 1;
+  /**
+   * The latest characters drawn for the first time (on foot): id, place, and the fade of that first frame. For checks
+   * in the browser (`__gta7.game.renderer.crowd.firstDrawn`); holds the last FIRST_DRAWN_LOG.
+   */
+  readonly firstDrawn: Array<{ id: number; x: number; z: number; fade: number; frame: number }> = [];
 
   constructor() {
     this.group.name = 'crowd';
@@ -208,9 +260,12 @@ export class CrowdView {
       m.userData.contactShadow = false; // Keep dissolved character parts out of the contact depth pass.
       return m;
     };
+    const depth = characterDepthMaterial();
     const make = (geo: THREE.BufferGeometry, count: number): Part => {
+      geo.setAttribute('instanceFade', new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1).setUsage(THREE.DynamicDrawUsage));
       const mesh = new THREE.InstancedMesh(geo, mat(geo.hasAttribute('color')), count);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.customDepthMaterial = depth;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
@@ -278,7 +333,19 @@ export class CrowdView {
     if (part.n >= part.mesh.instanceMatrix.count) return;
     part.mesh.setMatrixAt(part.n, m);
     part.mesh.setColorAt(part.n, colorOf(color));
+    (part.mesh.geometry.getAttribute('instanceFade').array as Float32Array)[part.n] = this.drawFade;
     part.n++;
+  }
+
+  /** The fade (0..1) `c` was last drawn with, or undefined when it was not drawn. */
+  fadeOf(c: Character): number | undefined {
+    return this.fades.get(c)?.f;
+  }
+
+  /** Clears every fade (a new session: none of the old characters fade out over the new one). */
+  reset(): void {
+    this.fades.clear();
+    this.firstDrawn.length = 0;
   }
 
   /**
@@ -300,32 +367,78 @@ export class CrowdView {
     for (const c of chars) {
       if (c.removed || c.id === this.hiddenId) continue;
       if (c.state === 'inVehicle') {
+        // Riders come and go with their car, which does not fade: whole, and whole when they get out.
+        this.fadeFor(c, true, dt).foot = false;
         const v = c.vehicle;
         if (!v || v.removed || v.destroyed || v.burning) continue;
         if ((v.pos.x - camX) ** 2 + (v.pos.z - camZ) ** 2 > OCCUPANT_RANGE * OCCUPANT_RANGE) continue;
+        this.drawFade = 1;
         this.trackShot(c);
         this.seated(c, v);
         continue;
       }
       if ((c.pos.x - camX) ** 2 + (c.pos.z - camZ) ** 2 > 200 * 200) continue;
+      const fade = this.fadeFor(c, c === this.player, dt);
+      fade.foot = true;
+      this.drawFade = fade.f;
       this.trackShot(c);
-      let anim = this.lie.get(c.id);
-      if (!anim) {
-        anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, frame: 0 };
-        this.lie.set(c.id, anim);
-      }
-      anim.frame = this.frame;
-      this.pose(c, anim, dt);
+      this.poseOnFoot(c, dt);
     }
+    // Characters removed while drawn on foot (a body or a despawned ped) fade out where they were; the rest are gone.
+    for (const [c, s] of this.fades) {
+      if (s.frame === this.frame) continue;
+      if (!s.out && c.removed && s.f > 0 && s.foot) s.out = true;
+      if (s.out) s.f -= dt / PED_FADE_OUT;
+      if (!s.out || s.f <= 0) {
+        this.fades.delete(c);
+        continue;
+      }
+      s.frame = this.frame;
+      this.drawFade = s.f;
+      this.poseOnFoot(c, dt);
+    }
+    this.drawFade = 1;
     for (const [id, a] of this.lie) if (a.frame !== this.frame) this.lie.delete(id);
     for (const [id, s] of this.shots) if (s.frame !== this.frame) this.shots.delete(id);
     const finish = (p: Part) => {
       p.mesh.count = p.n;
       p.mesh.instanceMatrix.needsUpdate = true;
       if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true;
+      p.mesh.geometry.getAttribute('instanceFade').needsUpdate = true;
     };
     for (const p of Object.values(this.parts)) finish(p);
     for (const p of this.weapons.values()) finish(p);
+  }
+
+  /**
+   * The fade `c` is drawn with this frame: 0 the first time (the player and riders whole at once), then up by
+   * dt / PED_FADE_IN a frame.
+   */
+  private fadeFor(c: Character, whole: boolean, dt: number): Fade {
+    let s = this.fades.get(c);
+    if (!s) {
+      s = { f: whole ? 1 : 0, out: false, frame: this.frame, foot: false };
+      this.fades.set(c, s);
+      if (!whole) {
+        this.firstDrawn.push({ id: c.id, x: c.pos.x, z: c.pos.z, fade: 0, frame: this.frame });
+        if (this.firstDrawn.length > FIRST_DRAWN_LOG) this.firstDrawn.shift();
+      }
+    } else {
+      s.f = whole ? 1 : Math.min(1, s.f + dt / PED_FADE_IN);
+      s.out = false;
+    }
+    s.frame = this.frame;
+    return s;
+  }
+
+  private poseOnFoot(c: Character, dt: number): void {
+    let anim = this.lie.get(c.id);
+    if (!anim) {
+      anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, frame: 0 };
+      this.lie.set(c.id, anim);
+    }
+    anim.frame = this.frame;
+    this.pose(c, anim, dt);
   }
 
   // ---------------------------------------------------------------------------
