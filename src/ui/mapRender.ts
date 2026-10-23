@@ -1,7 +1,7 @@
 // Top-down map image (pre-rendered once) plus blip drawing, shared by the
 // radar and the full-screen map.
 
-import type { Objective } from '../sim/activities';
+import { activityKinds, getActivity, type Objective } from '../sim/activities';
 import { GANGS, turfZones } from '../sim/gangs';
 import { FOR_SALE, OWNED } from '../sim/interactions';
 import { CONTACTS, contactById } from '../sim/missions/contacts';
@@ -197,6 +197,25 @@ registerMapCategory({
     }
     return out;
   },
+});
+
+const ACTIVITY_COLOR = '#ffd23d';
+const activitySites = () => activityKinds().flatMap((k) => {
+  const site = getActivity(k)?.site;
+  return site ? [site] : [];
+});
+registerMapCategory({
+  id: 'activities',
+  get label() {
+    return `Activities (${activitySites().map((s) => s.name.toLowerCase()).join(', ')})`;
+  },
+  get swatches() {
+    return activitySites().map((s) => ({ color: ACTIVITY_COLOR, label: s.label }));
+  },
+  blips: (sim) => activitySites().map((s) => {
+    const at = s.at(sim.world);
+    return { x: at.x, z: at.z, color: ACTIVITY_COLOR, label: s.label, sticky: false, shape: 'circle', category: 'activities' };
+  }),
 });
 
 export interface BlipOptions {

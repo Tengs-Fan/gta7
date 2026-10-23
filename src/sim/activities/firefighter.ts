@@ -6,6 +6,7 @@ import type { Vehicle } from '../entities';
 import { VEHICLE_SPECS, type VehicleKind } from '../specs';
 import { clearOfVehicles } from '../vehicleRoom';
 import { jetReaches, waterJetOf } from '../waterCannon';
+import { places } from './places';
 import { activityRecords } from './records';
 import { awayStatus, outOfVehicle } from './service';
 import type { ActivityDef, ActivityHost, Objective } from './types';
@@ -172,6 +173,7 @@ function updateFire(host: ActivityHost, j: FireJob, dt: number): void {
 export const firefighterActivity: ActivityDef<FireJob> = {
   kind: 'firefighter',
   toggleEndText: 'Firefighter job ended.',
+  site: { label: 'F', name: 'Firefighter', at: (world) => places(world).depots.find((d) => d.kind === 'firetruck')! },
   completion: (_view, me) => ({ label: 'Firefighter level 5', done: Math.min(5, activityRecords(me.progress).fireLevel), total: 5 }),
 
   canStart: (_host, _slot, vehicle) => vehicle?.kind === 'firetruck',
