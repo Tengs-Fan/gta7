@@ -31,6 +31,7 @@ import type { Progress } from './progress';
 import { VEHICLE_SPECS, type VehicleKind } from './specs';
 import { TrafficSystem } from './traffic';
 import { registeredSystems, SystemSlots, type SimSystem, type SystemSlot } from './systems';
+import './vehicleSystems';
 import { collideVehicles, collideVehicleStatic, stepVehicle, type VehiclePhysicsHost } from './vehiclePhysics';
 import type { WantedSystem } from './wanted';
 import { WeatherSystem, type WeatherMode } from './weather';

@@ -41,7 +41,8 @@ vi.hoisted(() => {
   g.window ??= { devicePixelRatio: 1, innerWidth: 1280, innerHeight: 720, addEventListener: () => {} };
 });
 
-const KINDS = Object.keys(VEHICLE_SPECS) as VehicleKind[];
+// The kinds VehicleView draws: bikes and boats have views of their own (w1_vehicle_views.test.ts).
+const KINDS = (Object.keys(VEHICLE_SPECS) as VehicleKind[]).filter((k) => VEHICLE_SPECS[k].class === 'car');
 
 function view(kind: VehicleKind): VehicleView {
   const v = new VehicleView(kind);

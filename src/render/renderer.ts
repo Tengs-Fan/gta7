@@ -25,7 +25,7 @@ import { buildCoverMap, coverAt, type CoverMap } from './rainCover';
 import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
 import { STATIC_CHUNK_SIZE } from './spatial';
 import { SoftwareMaterials } from './softwareMaterials';
-import { VehicleView, VehicleViewPool } from './vehicleView';
+import { ClassViewPool, type AnyVehicleView } from './classViews';
 
 export type Quality = QualityTier;
 
@@ -149,8 +149,9 @@ export class GameRenderer {
   private flashAge = Infinity;
   private readonly lampGlows: LampGlow[] = [];
   private readonly bufferSize = new THREE.Vector2();
-  private readonly vehicleViews = new Map<number, VehicleView>();
-  private readonly pool = new VehicleViewPool();
+  private readonly vehicleViews = new Map<number, AnyVehicleView>();
+  /** Views by the vehicle's class (cars, bikes): see classViews.ts. */
+  private readonly pool = new ClassViewPool();
   private readonly headlight: THREE.SpotLight;
   private readonly siren: THREE.PointLight;
   private bloom: UnrealBloomPass | null = null;
@@ -169,7 +170,7 @@ export class GameRenderer {
   /** On 'few', the lights actually drawn: the most visible sources are copied into them each frame. */
   private readonly lightPool: THREE.PointLight[] = [];
   /** Ambient vehicle views hidden beyond the tier's vehicle draw distance. */
-  private readonly farHidden = new Set<VehicleView>();
+  private readonly farHidden = new Set<AnyVehicleView>();
   private readonly tmpV = new THREE.Vector3();
   private contextLost = false;
   /** Set up on the first context loss (see guardStaleDeletes). */
@@ -253,7 +254,7 @@ export class GameRenderer {
 
   /** Builds one view per vehicle kind and compiles every shader up front to avoid hitches later. */
   private warmup(): void {
-    const tmp: VehicleView[] = [];
+    const tmp: AnyVehicleView[] = [];
     for (const kind of Object.keys(VEHICLE_SPECS) as VehicleKind[]) {
       const v = this.pool.acquire(kind);
       v.group.position.set(0, -50, 0);
@@ -589,7 +590,7 @@ export class GameRenderer {
    * draws every car: it circles 260 m out and 95 m up, where all of them are far yet clearly seen,
    * and the title sim has only a few dozen.
    */
-  private cullFar(view: VehicleView, v: Vehicle): void {
+  private cullFar(view: AnyVehicleView, v: Vehicle): void {
     const far = this.cameraCtl.mode === 'title' ? Infinity : QUALITY[this.software ? 'low' : this.quality].vehicleDistance;
     const cam = this.cameraCtl.camera.position;
     const plain = (v.owner === 'traffic' || v.owner === 'parked') && !v.destroyed && !v.burning && v.condition >= SMOKE_CONDITION;
