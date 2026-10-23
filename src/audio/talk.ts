@@ -106,6 +106,58 @@ const JINGLE_VOICE_LEVEL = 0.42;
 const HOST_BED = 0.05;
 const AD_BED = 0.05;
 
+/** Seconds a pad takes to fade in and out: the segment is audible from its first sample to its last. */
+export const PAD_FADE = 0.01;
+/** The pad's tremolo is gain = TREMOLO_BASE + TREMOLO_DEPTH * lfo, which never drops under TREMOLO_BASE - TREMOLO_DEPTH. */
+export const TREMOLO_BASE = 0.75;
+export const TREMOLO_DEPTH = 0.25;
+/** Seconds into the jingle its voice and first bell start. */
+export const JINGLE_LEAD = 0.01;
+/** The closing chord starts this long after JINGLE_LEAD, on the beat after the last melody note while that note is still ringing, and rings to the jingle's end. */
+export const CHORD_AT = 1.68;
+/** Fade to silence after a bell's decay (it lands inside the declared segment). */
+export const BELL_FADE = 0.03;
+/** Level a bell has decayed to when its decay ends: high enough that the next note, or the end of the segment, is reached while it is still audible. */
+const BELL_FLOOR = 0.012;
+const LATE_BELL = 0.1;
+
+export interface Bell {
+  /** Seconds from the jingle's start. */
+  t: number;
+  /** Semitones over the jingle's root. */
+  m: number;
+  /** Decay seconds. */
+  dur: number;
+  level: number;
+  /** Level when the decay ends, before the fade to zero. */
+  floor: number;
+}
+
+/** The jingle's bells: four melody notes and the closing chord, which rings to the end of the declared segment. */
+export function jingleBells(): Bell[] {
+  const bells: Bell[] = [];
+  [0, 4, 7, 12].forEach((m, i) => bells.push({ t: JINGLE_LEAD + i * 0.42, m: m + 12, dur: 0.6, level: 0.12, floor: BELL_FLOOR }));
+  const t = JINGLE_LEAD + CHORD_AT;
+  for (const m of [0, 4, 7]) bells.push({ t, m: m + 12, dur: JINGLE_LEN - t - BELL_FADE - 0.005, level: 0.07, floor: BELL_FLOOR });
+  return bells;
+}
+
+/** A bell partial's gain `x` seconds after its start: 5 ms attack, exponential decay, then a short fade to zero. */
+export function bellGain(b: Bell, x: number, k = 1): number {
+  if (x < 0 || x > b.dur + BELL_FADE) return 0;
+  const peak = b.level * k;
+  if (x < 0.005) return (peak * x) / 0.005;
+  const floor = b.floor * k;
+  if (x <= b.dur) return peak * Math.pow(floor / peak, (x - 0.005) / (b.dur - 0.005));
+  return floor * (1 - (x - b.dur) / BELL_FADE);
+}
+
+/** The pad's gain envelope (0..1) `x` seconds into a segment of `dur` seconds. */
+export function padEnvelope(x: number, dur: number): number {
+  if (x < 0 || x > dur) return 0;
+  return Math.min(1, x / PAD_FADE, (dur - x) / PAD_FADE);
+}
+
 interface Part {
   gain: GainNode;
   sources: AudioScheduledSourceNode[];
@@ -169,12 +221,12 @@ export class TalkShow {
       this.voices.push(new FormantVoice(this.ctx, this.out, this.noise, plan, start, { highpass: 200, lowpass: 4000, level }, this.tally, 'talk'));
     switch (seg.kind) {
       case 'host': {
-        voice(speechPlan(seg.seed, seg.dur - 0.5, HOST_VOICE), t0 + 0.2, HOST_LEVEL);
+        voice(speechPlan(seg.seed, seg.dur - 0.3, HOST_VOICE), t0 + 0.1, HOST_LEVEL);
         this.pad(seg.seed, t0, end, 'sine', 1100, HOST_BED, 0);
         break;
       }
       case 'ad': {
-        voice(speechPlan(seg.seed, seg.dur - 1.0, AD_VOICE), t0 + 0.5, AD_LEVEL);
+        voice(speechPlan(seg.seed, seg.dur - 0.6, AD_VOICE), t0 + 0.2, AD_LEVEL);
         this.pad(seg.seed, t0, end, 'square', 1400, AD_BED, 6);
         break;
       }
@@ -214,17 +266,17 @@ export class TalkShow {
     const a = Math.max(now, t0);
     gain.gain.value = 0;
     gain.gain.setValueAtTime(0, a);
-    gain.gain.linearRampToValueAtTime(level, a + 0.15);
-    gain.gain.setValueAtTime(level, Math.max(a + 0.15, end - 0.15));
-    gain.gain.linearRampToValueAtTime(0, Math.max(a + 0.2, end - 0.02));
+    gain.gain.linearRampToValueAtTime(level, a + PAD_FADE);
+    gain.gain.setValueAtTime(level, Math.max(a + PAD_FADE, end - PAD_FADE));
+    gain.gain.linearRampToValueAtTime(0, Math.max(a + 2 * PAD_FADE, end));
     const sources: AudioScheduledSourceNode[] = [];
     if (tremolo > 0) {
       const trem = ctx.createGain();
-      trem.gain.value = 0.55;
+      trem.gain.value = TREMOLO_BASE;
       const lfo = ctx.createOscillator();
       lfo.frequency.value = tremolo;
       const depth = ctx.createGain();
-      depth.gain.value = 0.45;
+      depth.gain.value = TREMOLO_DEPTH;
       lfo.connect(depth);
       depth.connect(trem.gain);
       lp.connect(trem);
@@ -268,34 +320,36 @@ export class TalkShow {
       const k = 1.1;
       return { t: i * 0.42, dur: i === 3 ? 1.2 : 0.4, f1: v[0] * k, f2: v[1] * k, f3: v[2] * k, pitch: midi(root + m - 12), amp: 1, onset: i === 1 ? 'fric' : i === 3 ? 'stop' : 'none' };
     });
-    voice(plan, t0 + 0.1, JINGLE_VOICE_LEVEL);
+    voice(plan, t0 + JINGLE_LEAD, JINGLE_VOICE_LEVEL);
     const gain = ctx.createGain();
     gain.gain.value = 1;
     gain.connect(this.out);
     const sources: AudioScheduledSourceNode[] = [];
     const now = ctx.currentTime;
-    const bell = (t: number, m: number, dur: number, level: number) => {
-      if (t < now) return;
+    const bell = (b: Bell) => {
+      // A segment is rendered on the first frame it is current, a little after its start: a bell that late still rings from now
+      // (otherwise the opening of the jingle would be silent); a bell long past is part of what tuning in mid-jingle missed.
+      if (now - (t0 + b.t) > LATE_BELL) return;
+      const t = Math.max(now, t0 + b.t);
       for (const [mul, k] of [
         [1, 1],
         [2.76, 0.35],
       ] as const) {
         const o = ctx.createOscillator();
-        o.frequency.value = midi(root + m) * mul;
+        o.frequency.value = midi(root + b.m) * mul;
         const g = ctx.createGain();
         g.gain.value = 0;
         g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(level * k, t + 0.005);
-        g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
-        g.gain.linearRampToValueAtTime(0, t + dur + 0.02);
+        g.gain.linearRampToValueAtTime(b.level * k, t + 0.005);
+        g.gain.exponentialRampToValueAtTime(b.floor * k, t + b.dur);
+        g.gain.linearRampToValueAtTime(0, t + b.dur + BELL_FADE);
         o.connect(g);
         g.connect(gain);
-        this.source(o, t, t + dur + 0.03);
+        this.source(o, t, t + b.dur + BELL_FADE + 0.01);
         sources.push(o);
       }
     };
-    melody.forEach((m, i) => bell(t0 + 0.1 + i * 0.42, m + 12, 0.6, 0.12));
-    for (const m of [0, 4, 7]) bell(t0 + 1.9, m + 12, 1.5, 0.07);
+    for (const b of jingleBells()) bell(b);
     this.parts.push({ gain, sources });
   }
 }

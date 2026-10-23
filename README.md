@@ -84,7 +84,7 @@ Progress stays in this browser: the game autosaves after every mission passed an
   Parody shopfronts (DONUTS, PAWN, TACOS, BAIL BONDS and more), tower lobbies and house porches line the streets, and lamp posts, traffic signals, fire hydrants, bins and benches break.
 - **Day and night.** A day lasts 24 minutes.
   Clouds catch the sunset, a moon and stars come out, windows light up building by building through the evening and thin out after midnight, and at night the Ferris wheel lights up and the lighthouse beam sweeps round.
-- **Weather.** Clear, cloudy, overcast, rain and storm skies change every three game hours (the first day is always clear), with greyer skies, softer shadows, closer fog, lightning in storms, and cars turning their lights on when it gets dark. Rain falls around the camera (but not under roofs, in garages or under the pier), wets and darkens the streets with puddles that dry out after the shower, reflects lamps and car lights in streaks on the road, and fast cars throw up spray. Weather is visual only: it does not change grip or traffic. The sea rolls with waves that grow in a storm (on High the surface itself rises and falls), with turquoise shallows, surf on the beach and foam along the quay walls; bullets and rockets fired into it splash or throw up a column of water at the surface. Swimming and floating stay level whatever the waves.
+- **Weather.** Clear, cloudy, overcast, rain and storm skies change every three game hours (the first day is always clear), with greyer skies, softer shadows, closer fog, lightning in storms, and cars turning their lights on when it gets dark. Rain falls around the camera (but not under roofs, in garages or under the pier), wets and darkens the streets with puddles that dry out after the shower, reflects lamps and car lights in streaks on the road, and fast cars throw up spray. Boats under way leave a foam wake and throw spray off the bow (High and Medium). Weather is visual only: it does not change grip or traffic. The sea rolls with waves that grow in a storm (on High the surface itself rises and falls), with turquoise shallows, surf on the beach and foam along the quay walls; bullets and rockets fired into it splash or throw up a column of water at the surface. Swimming and floating stay level whatever the waves.
 - **Living streets.** Traffic follows its lanes, stops at red lights, yields on left turns (judging a fast player car by when it gets there, not only how near it is), honks, overtakes, steers round cars left empty in the road and backs out of blockages, from about 14 cars around you late at night to 30 at rush hour.
   Pedestrians cross on the walk signal, flee from gunfire and explosions, put their hands up, cower or run at gunpoint, and some fight back, above all the street gangs: Los Tiburones (teal; Docks and Westside) and Los Halcones (red and gold; Southgate), each with its own cars and turf, shown on the map.
   Walk into their turf with a gun out, or attack one of them, and the whole crew comes for you; now and then the two gangs fight it out where their turfs meet.
@@ -215,6 +215,7 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Rain streaks around the camera | 6,000 | 3,500 | 1,500 |
 | Wet streets | puddles and ripples | puddles and ripples | darker and glossier |
 | Tyre spray on wet roads | on | on | off |
+| Boat wake and bow spray | on | on | off |
 | Sea waves | the surface rises and falls | in the lighting | in the lighting |
 | Traffic and pedestrians | 100% | 90% | 75% |
 | Ambient cars drawn | all | all | within 150 m |
@@ -271,7 +272,7 @@ All of these are minor; the most noticeable come first.
 
 - On older or low-end GPUs that cannot render to high-precision buffers, paint, glass and chrome don't reflect the sky and bright lights don't glow, at any setting.
 - The small porches in front of houses (deck, posts and roof) and the bank's front steps are decoration only: cars, people and bullets pass through them.
-- Motorbikes and boats are drawn part by part (about 25-30 draw calls per bike and 15-17 per boat, against about 7 for a nearby car), have no lighter far version, and boats leave no wake or spray.
+- Motorbikes and boats are drawn part by part (about 25-30 draw calls per bike and 15-17 per boat, against about 7 for a nearby car), and have no lighter far version.
 - At around 10 fps, water from a knocked-over fire hydrant comes out in separate puffs instead of a steady jet.
 
 **Menus, input and small windows**
@@ -336,7 +337,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-129 files with 2132 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set) run in Node, with no browser.
+133 files with 2148 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set) run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, properties, gangs, roadblocks and witnesses, saves in three slots, the multiplayer wire protocol and server rooms, a 10-minute chaotic soak test (36,000 frames with a seeded random player), and same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
@@ -344,7 +345,7 @@ The police tests are statistics over many deterministic seeds, and they set the 
 
 ### End-to-end tests
 
-136 tests in 38 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
+137 tests in 39 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
 They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, a murder that brings the police, WASTED, mission retries from the pause menu, the menus, the HUD layout in small windows, the gun shop, saving and continuing after a reload, the side jobs and the wave-1 jobs, the phone, properties, save slots, key bindings, the talk radio, street runs, night rendering and the quality tiers, WebGL context loss, crash screens, all nine cheats, and a two-minute chaos session that must average over 30 fps.
 Most tests also fail on any console error, console warning or page error.
 

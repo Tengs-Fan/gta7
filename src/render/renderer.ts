@@ -63,6 +63,8 @@ const SIREN_DECAY = 2;
 /** Tyre spray needs a road at least this wet, and a car within this range (m) of the camera. */
 const TYRE_SPRAY_WET = 0.3;
 const TYRE_SPRAY_RANGE = 60;
+/** A boat's wake is drawn within this range (m) of the camera. */
+const BOAT_WAKE_RANGE = 150;
 const NO_WIND = { x: 0, z: 0 } as const;
 /** A street lamp's wet-road streak against its halo's colour: the lamp's own light pool already brightens the road. */
 const LAMP_STREAK = 0.3;
@@ -797,7 +799,8 @@ export class GameRenderer {
 
   private vehicleEffects(sim: ViewState, dt: number): void {
     const fx = this.effects;
-    const spray = this.wet > TYRE_SPRAY_WET && QUALITY[this.software ? 'low' : this.quality].tyreSpray;
+    const wake = QUALITY[this.software ? 'low' : this.quality].tyreSpray;
+    const spray = this.wet > TYRE_SPRAY_WET && wake;
     this.smokeTimer += dt;
     const tireSmoke = this.smokeTimer > 0.05;
     if (tireSmoke) this.smokeTimer = 0;
@@ -816,6 +819,11 @@ export class GameRenderer {
       // Nothing smokes or burns in the sea (cars that drown are marked destroyed, with no health left).
       if (!v.inWater && (v.burning || (v.destroyed && v.wreckTime < 25) || v.condition < 0.45)) {
         fx.vehicleSmoke(v.destroyed ? v.pos.x : hx, v.pos.y + v.spec.height * 0.55, v.destroyed ? v.pos.z : hz, v.condition, v.burning, v.destroyed && v.wreckTime < 25, dt);
+      }
+      if (v.spec.class === 'boat') {
+        // Foam and spray on the tiers that draw tyre spray; a boat in its own view rides the drawn swell.
+        if (wake && !v.destroyed && d2 < BOAT_WAKE_RANGE * BOAT_WAKE_RANGE && Math.abs(v.pos.y - WATER_Y) < 0.5) fx.boatWake(v, view?.group.position.y ?? WATER_Y, dt);
+        continue;
       }
       // Wading (its wheels on the sand under the sea; deeper than the sim's flooding depth it is inWater): spray and a wake.
       const depth = WATER_Y - v.pos.y;
@@ -1019,9 +1027,9 @@ export class GameRenderer {
     this.localReflections = null;
   }
 
-  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number; rainDrops: number; wet: number; waterGrid: boolean } {
+  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number; rainDrops: number; wet: number; waterGrid: boolean; wakeBoats: number; wakeSprites: number } {
     const info = this.renderer.info;
-    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts, rainDrops: this.rain.drops, wet: this.wet, waterGrid: this.env.waterGrid };
+    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, wakeBoats: this.effects.wakeBoats, wakeSprites: this.effects.wakeSprites, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts, rainDrops: this.rain.drops, wet: this.wet, waterGrid: this.env.waterGrid };
   }
 
   /** True between 'webglcontextlost' and 'webglcontextrestored'; nothing can be drawn meanwhile. */
