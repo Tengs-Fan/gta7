@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
+import { PART_LAYER, SHADOW_LAYER } from '../../src/render/vehicleBatches';
 import { VehicleView } from '../../src/render/vehicleView';
 import { Vehicle } from '../../src/sim/entities';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
@@ -43,6 +44,10 @@ vi.hoisted(() => {
 
 const KINDS = Object.keys(VEHICLE_SPECS) as VehicleKind[];
 
+/** What the main camera draws of an object itself: tyres, rims, lamps and roof gear go through the part batches. */
+const CAMERA = new THREE.Layers();
+const drawnByCamera = (o: THREE.Object3D): boolean => o instanceof THREE.Mesh && o.layers.test(CAMERA);
+
 function view(kind: VehicleKind): VehicleView {
   const v = new VehicleView(kind);
   v.group.updateMatrixWorld(true);
@@ -71,14 +76,15 @@ function glassHits(v: VehicleView, fromFront: boolean, x = 0): number[] {
 }
 
 describe('vehicle models', () => {
-  it('distant traffic preserves vehicle dimensions in one draw and restores the articulated model', () => {
+  it('distant traffic on software GPUs preserves vehicle dimensions in one draw and restores the articulated model', () => {
+    // The coarse far version (software GPUs); w1_render_perf.test.ts covers the far version of the other tiers.
     for (const kind of KINDS) {
       const v = view(kind);
       const count = () => {
         let meshes = 0;
         let triangles = 0;
         v.group.traverseVisible((o) => {
-          if (o instanceof THREE.Mesh) {
+          if (o instanceof THREE.Mesh && drawnByCamera(o)) {
             meshes++;
             triangles += (o.geometry.index?.count ?? o.geometry.getAttribute('position').count) / 3;
           }
@@ -86,7 +92,7 @@ describe('vehicle models', () => {
         return { meshes, triangles };
       };
       const full = count();
-      v.setDistant(true);
+      v.setDistant(true, true);
       const far = count();
       expect(far.meshes, kind).toBe(1);
       expect(far.triangles, kind).toBeLessThan(full.triangles * 0.6);
@@ -153,6 +159,8 @@ describe('vehicle models', () => {
         const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
         const side = Math.sign(c.x);
         const rc = new THREE.Raycaster(new THREE.Vector3(side * 6, c.y + 0.05, c.z), new THREE.Vector3(-side, 0, 0), 0, 20);
+        // Wheels are drawn by the part batches; their meshes sit on the parts layer.
+        rc.layers.enable(PART_LAYER);
         const first = rc.intersectObject(v.group, true)[0];
         expect(first?.object.name, `${kind} wheel at z ${c.z.toFixed(2)}`).toMatch(/tire|rim/);
       });
@@ -200,24 +208,31 @@ describe('vehicle models', () => {
     expect(fittings.material).toBe(finish);
   });
 
-  it('batches all exterior fittings into one extra draw per detailed vehicle', () => {
-    const count = (kind: VehicleKind): number => {
-      let n = 0;
+  it('a detailed vehicle draws body, glass and fittings itself, casts one shadow, and batches its small parts', () => {
+    // Revised for the track-D draw-call cut: the 16-20 meshes per car (P22) are now 3 drawn by the camera (4 with the
+    // police stripe), one shadow-only caster, and the tyres, rims, lamps and roof gear drawn instanced across cars.
+    const count = (kind: VehicleKind): { camera: number; parts: number; casters: number } => {
+      let camera = 0;
+      let parts = 0;
+      let casters = 0;
       view(kind).group.traverse((o) => {
-        if (o instanceof THREE.Mesh) n++;
+        if (!(o instanceof THREE.Mesh)) return;
+        if (drawnByCamera(o)) camera++;
+        if (o.layers.isEnabled(PART_LAYER)) parts++;
+        if (o.castShadow && (drawnByCamera(o) || o.layers.isEnabled(SHADOW_LAYER))) casters++;
       });
-      return n;
+      return { camera, parts, casters };
     };
-    expect(count('sedan')).toBe(16);
-    expect(count('police')).toBe(20);
-    expect(count('taxi')).toBe(17);
-    expect(count('swat')).toBe(19);
-    for (const kind of ['compact', 'sports', 'muscle', 'pickup', 'van', 'bus'] as const) expect(count(kind), kind).toBe(16);
+    expect(count('sedan')).toEqual({ camera: 3, parts: 13, casters: 1 });
+    expect(count('police')).toEqual({ camera: 4, parts: 16, casters: 1 });
+    expect(count('taxi')).toEqual({ camera: 3, parts: 14, casters: 1 });
+    expect(count('swat')).toEqual({ camera: 3, parts: 16, casters: 1 });
+    for (const kind of ['compact', 'sports', 'muscle', 'pickup', 'van', 'bus'] as const) expect(count(kind), kind).toEqual({ camera: 3, parts: 13, casters: 1 });
     // Named for tests and tools.
     const names = new Set<string>();
     view('sedan').group.traverse((o) => {
       if (o instanceof THREE.Mesh) names.add(o.name);
     });
-    expect([...names].sort()).toEqual(['body', 'exterior', 'glass', 'lamp', 'rim', 'tire']);
+    expect([...names].sort()).toEqual(['body', 'exterior', 'glass', 'lamp', 'rim', 'shadow', 'tire']);
   });
 });

@@ -2,6 +2,7 @@
 // that follow the simulation (wheels, lights, sirens, damage).
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import { firingRow, GUN_PORT, SKELETON } from '../sim/pose';
@@ -12,6 +13,7 @@ import { taxiSignTexture } from './textures';
 import { addPanel, addPrism, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
 import { crackedGlassTexture, exteriorTextures, GLASS_TINT } from './vehicleTextures';
 import { alloyGeometry, exteriorGeometry, sculptBody, taperCabin, tireGeometry } from './vehicleDetails';
+import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
 
 const BEVEL = 0.07;
 /** Vertex shade of the cabin interior, window backings and wheel wells (paint is 1). */
@@ -556,6 +558,7 @@ interface KindAssets {
   wheel: THREE.BufferGeometry;
   rim: THREE.BufferGeometry;
   lamp: THREE.BufferGeometry;
+  reverse: THREE.BufferGeometry;
   prof: Profile;
 }
 
@@ -640,9 +643,59 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
   const rim = alloyGeometry(prof.wheelR, kind);
   const exterior = coarse ? new THREE.BufferGeometry() : exteriorGeometry(kind, prof);
   const lamp = new THREE.BoxGeometry(0.34, kind === 'sports' ? 0.07 : 0.14, 0.06);
-  a = { body, cabin, exterior, wheel, rim, lamp, prof };
+  const reverse = new THREE.BoxGeometry(0.18, 0.08, 0.05);
+  a = { body, cabin, exterior, wheel, rim, lamp, reverse, prof };
   assets.set(key, a);
   return a;
+}
+
+/** A box of these sides, shared by every view that has one (roof gear, reverse lamps). */
+const boxes = new Map<string, THREE.BoxGeometry>();
+function sharedBox(w: number, h: number, d: number): THREE.BoxGeometry {
+  const key = `${w}|${h}|${d}`;
+  let g = boxes.get(key);
+  if (!g) {
+    g = new THREE.BoxGeometry(w, h, d);
+    boxes.set(key, g);
+  }
+  return g;
+}
+
+/** Position-only, non-indexed copy of `g` (moved by `m`), for merging into a shadow body. */
+function positionsOnly(g: THREE.BufferGeometry, m?: THREE.Matrix4): THREE.BufferGeometry {
+  const src = g.index ? g.toNonIndexed() : g;
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', src.getAttribute('position').clone());
+  if (src !== g) src.dispose();
+  if (m) out.applyMatrix4(m);
+  return out;
+}
+
+const shadowBodies = new Map<string, THREE.BufferGeometry>();
+
+/**
+ * The one shadow caster of a detailed vehicle of `kind`: its body, fittings, glass and tyres at rest merged into one
+ * geometry, so a car costs one draw in the shadow pass. A burnt-out wreck has lost its glass and tyres.
+ */
+export function shadowBody(kind: VehicleKind, burnt: boolean): THREE.BufferGeometry {
+  const key = `${kind}:${burnt}`;
+  let g = shadowBodies.get(key);
+  if (g) return g;
+  const a = kindAssets(kind);
+  const s = VEHICLE_SPECS[kind];
+  const parts = [positionsOnly(a.body), positionsOnly(a.exterior)];
+  if (!burnt) {
+    parts.push(positionsOnly(a.cabin));
+    for (const z of [a.prof.wheelFront * s.length, a.prof.wheelRear * s.length]) {
+      for (const side of [-1, 1]) parts.push(positionsOnly(a.wheel, new THREE.Matrix4().makeTranslation(side * (s.width / 2 - 0.15), a.prof.wheelR, z)));
+    }
+  }
+  g = mergeGeometries(parts)!;
+  for (const p of parts) p.dispose();
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  shadowBodies.set(key, g);
+  return g;
 }
 
 // Shared materials.
@@ -674,6 +727,33 @@ const exteriorMat = new THREE.MeshStandardMaterial({ map: exteriorMaps.color, ro
 const burntMat = new THREE.MeshStandardMaterial({ color: 0x1d1b19, roughness: 1, metalness: 0.1 });
 /** A smashed lamp: dark, never lit. */
 const brokenLampMat = new THREE.MeshStandardMaterial({ color: 0x161616, emissive: 0x000000, emissiveIntensity: 0, roughness: 0.7 });
+const barBaseMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4, metalness: 0.3 });
+/** Body paint of the far version's batches: white, tinted per car by the instance colour. */
+const farPaintMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.48, clearcoat: 0.95, clearcoatRoughness: 0.16, vertexColors: true });
+farPaintMat.name = 'vehicle-far-paint';
+/** Far bodies cast the car's shadow and stay out of the contact-shadow pass, like the dented body drawn by itself. */
+const FAR_BODY = { castShadow: true, receiveShadow: true, noContact: true } as const;
+const FAR_PAINT = { ...FAR_BODY, tinted: true } as const;
+const FAR_FITTINGS = { receiveShadow: true, noContact: true } as const;
+
+const stripes = new Map<VehicleKind, THREE.BufferGeometry>();
+
+/** The police livery stripe of `kind`, undented (each view bends its own copy; the far version draws this one). */
+function stripeGeometry(kind: VehicleKind): THREE.BufferGeometry {
+  let g = stripes.get(kind);
+  if (!g) {
+    const s = VEHICLE_SPECS[kind];
+    // Subdivided so a side dent bends it with the doors under it.
+    g = new THREE.BoxGeometry(s.width + 0.02, 0.3, s.length * 0.42, 1, 2, 10);
+    g.translate(0, s.height * 0.45, 0.02 * s.length);
+    stripes.set(kind, g);
+  }
+  return g;
+}
+/** The shadow body is only ever drawn into the shadow map (SHADOW_LAYER), with three's depth material. */
+const shadowOnlyMat = new THREE.MeshBasicMaterial();
+
 const bodyMats = new Map<number, THREE.MeshPhysicalMaterial>();
 
 /** Body paint; the geometry's vertex shade darkens the interior and wheel wells within the same draw. */
@@ -696,6 +776,47 @@ export function glassFor(condition: number): THREE.Material {
   return condition < 0.25 ? shatteredGlassMat : condition < 0.55 ? crackedGlassMat : glassMat;
 }
 
+/** A mesh of a fading view: its own material, the fade copy drawn instead, and its own opacity. */
+interface FadeEntry {
+  mesh: THREE.Mesh;
+  material: THREE.Material;
+  clone: THREE.Material;
+  opacity: number;
+  /** One of the parts the batches draw for live cars. */
+  part: boolean;
+}
+
+/**
+ * The fade copy of a vehicle material: hashed alpha (three's own alphaHash, so it stays opaque, sorted with the rest and
+ * casts no partial shadow artefacts), or for glass, which is see-through already, the same material with its opacity
+ * scaled. Either way a uniform drives it, on a program the warm-up compiled.
+ */
+function fadeMaterial(m: THREE.Material): THREE.Material {
+  const c = m.clone();
+  c.name = `${m.name || 'vehicle'}-fade`;
+  if (!m.transparent) c.alphaHash = true;
+  return c;
+}
+
+/** While set, batched parts skip three's per-frame world-matrix update: drawParts places their instances itself. */
+let partsFrozen = false;
+
+/** GameRenderer freezes the parts around its main draw; at any other time they update like any object. */
+export function freezeVehicleParts(frozen: boolean): void {
+  partsFrozen = frozen;
+}
+
+function updateUnlessFrozen(this: THREE.Object3D, force?: boolean): void {
+  if (!partsFrozen) THREE.Object3D.prototype.updateMatrixWorld.call(this, force);
+}
+
+/** A part drawn through VehiclePartBatches: no camera draws the mesh itself. */
+function markPart(m: THREE.Object3D): void {
+  m.layers.set(PART_LAYER);
+  m.userData.batched = true;
+  m.updateMatrixWorld = updateUnlessFrozen;
+}
+
 /** The view that last drew each vehicle (see drawnFrame). */
 const drawing = new WeakMap<Vehicle, VehicleView>();
 
@@ -715,8 +836,18 @@ export class VehicleView {
   private readonly cabin: THREE.Mesh;
   private readonly exterior: THREE.Mesh;
   private readonly kindAssets: KindAssets;
-  private detailGroup: THREE.Group | null = null;
+  /** Casts the car's shadow in one draw (shadowBody); the meshes the camera sees cast none. */
+  private readonly shadowCaster: THREE.Mesh;
   private distantMesh: THREE.Mesh | null = null;
+  /** Drawn as the merged far version (setDistant). */
+  private distant: false | 'far' | 'coarse' = false;
+  /** Box-shaped parts drawn through VehiclePartBatches: lamps, light-bar base and lenses, taxi sign. */
+  private readonly boxParts: THREE.Mesh[] = [];
+  private readonly partTmp = new THREE.Matrix4();
+  private readonly partTmp2 = new THREE.Matrix4();
+  /** Wheel visibility saved by hideParts. */
+  private readonly partsShown = new Uint8Array(8);
+  private fadeState: { entries: FadeEntry[]; depth: THREE.MeshDepthMaterial } | null = null;
   /** Wheels with their pivot's place on the body: they stay planted on the road while the body leans. */
   private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean; base: THREE.Vector3 }> = [];
   /** Head, tail and reverse lamps with their working material (smashed and burnt ones swap theirs out) and place. */
@@ -726,7 +857,7 @@ export class VehicleView {
   /** Livery and roof gear that char with a wreck (police stripe, light bar, taxi sign), with what they wear intact. */
   private readonly livery: Array<{ mesh: THREE.Mesh; mat: THREE.Material | THREE.Material[] }> = [];
   /** The police livery stripe: its own subdivided geometry, bent with the body, and its undamaged positions. */
-  private stripe: { geo: THREE.BufferGeometry; base: Float32Array } | null = null;
+  private stripe: { geo: THREE.BufferGeometry; base: Float32Array; mesh: THREE.Mesh } | null = null;
   private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xfffbe8, emissive: 0xfff2c8, emissiveIntensity: 0.3, roughness: 0.2 });
   private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x2a0000, emissive: 0xff0000, emissiveIntensity: 0.3, roughness: 0.3 });
   private readonly reverseMat = new THREE.MeshStandardMaterial({ color: 0x777777, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.3 });
@@ -778,14 +909,15 @@ export class VehicleView {
     this.cabin = new THREE.Mesh(a.cabin, glassMat);
     this.exterior = new THREE.Mesh(a.exterior, exteriorMat);
     this.exterior.name = 'exterior';
-    this.exterior.castShadow = true;
     this.exterior.receiveShadow = true;
     this.body.name = 'body';
     this.cabin.name = 'glass';
-    this.body.castShadow = true;
-    this.cabin.castShadow = true;
     this.body.receiveShadow = true;
-    this.group.add(this.body, this.cabin, this.exterior);
+    this.shadowCaster = new THREE.Mesh(shadowBody(kind, false), shadowOnlyMat);
+    this.shadowCaster.name = 'shadow';
+    this.shadowCaster.castShadow = true;
+    this.shadowCaster.layers.set(SHADOW_LAYER);
+    this.group.add(this.body, this.cabin, this.exterior, this.shadowCaster);
     const halfW = s.width / 2;
     for (const [front, z] of [[true, a.prof.wheelFront * s.length], [false, a.prof.wheelRear * s.length]] as const) {
       for (const side of [-1, 1]) {
@@ -798,6 +930,9 @@ export class VehicleView {
         rim.name = 'rim';
         tire.castShadow = true;
         pivot.add(tire, rim);
+        markPart(tire);
+        markPart(rim);
+        pivot.updateMatrixWorld = updateUnlessFrozen;
         this.group.add(pivot);
         this.wheels.push({ pivot, tire, rim, front, base: pivot.position.clone() });
       }
@@ -820,7 +955,7 @@ export class VehicleView {
       this.group.add(h, t);
       this.lamps.push({ mesh: h, mat: this.headMat, broken: false, base: h.position.clone(), head: true, role: 'head' }, { mesh: t, mat: this.tailMat, broken: false, base: t.position.clone(), head: false, role: 'tail' });
     }
-    const rev = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.05), this.reverseMat);
+    const rev = new THREE.Mesh(a.reverse, this.reverseMat);
     rev.position.set(0, ly - 0.05, -front);
     rev.name = 'lamp';
     this.group.add(rev);
@@ -835,33 +970,38 @@ export class VehicleView {
       // The cruiser's bar stands on its painted roof panel (see addRoof).
       const roofY = kind === 'swat' ? 0.95 * s.height : 0.98 * s.height + 0.085;
       const barZ = kind === 'swat' ? s.length * 0.3 : -0.1 * s.length;
-      const base = new THREE.Mesh(new THREE.BoxGeometry(s.width * 0.7, 0.08, 0.32), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+      const base = new THREE.Mesh(sharedBox(s.width * 0.7, 0.08, 0.32), barBaseMat);
       base.position.set(0, roofY + 0.04, barZ);
-      const r = new THREE.Mesh(new THREE.BoxGeometry(s.width * 0.32, 0.14, 0.28), red);
+      const r = new THREE.Mesh(sharedBox(s.width * 0.32, 0.14, 0.28), red);
       r.position.set(s.width * 0.18, roofY + 0.14, barZ);
-      const b = new THREE.Mesh(new THREE.BoxGeometry(s.width * 0.32, 0.14, 0.28), blue);
+      const b = new THREE.Mesh(sharedBox(s.width * 0.32, 0.14, 0.28), blue);
       b.position.set(-s.width * 0.18, roofY + 0.14, barZ);
       this.group.add(base, r, b);
       this.sirenLenses = { red: r, blue: b };
       this.attached.push({ obj: base, base: base.position.clone() }, { obj: r, base: r.position.clone() }, { obj: b, base: b.position.clone() });
       for (const m of [base, r, b]) this.livery.push({ mesh: m, mat: m.material as THREE.Material });
       if (kind === 'police') {
-        // White doors livery stripe, subdivided so a side dent bends it with the doors under it.
-        const geo = new THREE.BoxGeometry(s.width + 0.02, 0.3, s.length * 0.42, 1, 2, 10);
-        geo.translate(0, s.height * 0.45, 0.02 * s.length);
-        const stripe = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4, metalness: 0.3 }));
+        // White doors livery stripe.
+        const geo = stripeGeometry(kind).clone();
+        const stripe = new THREE.Mesh(geo, stripeMat);
         this.group.add(stripe);
-        this.stripe = { geo, base: Float32Array.from(geo.getAttribute('position').array) };
+        this.stripe = { geo, base: Float32Array.from(geo.getAttribute('position').array), mesh: stripe };
         this.livery.push({ mesh: stripe, mat: stripe.material as THREE.Material });
       }
     }
     if (kind === 'taxi') {
-      const signMats = [taxiSignMat, taxiSignMat, taxiSignMat, taxiSignMat, taxiSignMat, taxiSignMat];
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.22, 0.32), signMats);
+      const sign = new THREE.Mesh(sharedBox(0.75, 0.22, 0.32), taxiSignMat);
       sign.position.set(0, s.height * 0.98 + 0.085 + 0.11, -0.08 * s.length);
       this.group.add(sign);
       this.attached.push({ obj: sign, base: sign.position.clone() });
-      this.livery.push({ mesh: sign, mat: signMats });
+      this.livery.push({ mesh: sign, mat: taxiSignMat });
+    }
+    // Every box part but the stripe (bent per car with its dents) is drawn through the part batches.
+    for (const o of this.group.children) {
+      if (o instanceof THREE.Mesh && o.geometry instanceof THREE.BoxGeometry && o !== this.stripe?.mesh) {
+        markPart(o);
+        this.boxParts.push(o);
+      }
     }
     for (const gear of s.gear ?? []) {
       const mat = new THREE.MeshStandardMaterial({ color: gear.color, emissive: gear.emissive ?? 0x000000, emissiveIntensity: gear.emissive === undefined ? 0 : 1.6, roughness: 0.4, metalness: 0.3 });
@@ -873,6 +1013,8 @@ export class VehicleView {
       this.livery.push({ mesh: m, mat });
     }
     this.group.rotation.order = 'YXZ';
+    // Never moved within the car: their local matrices stay identity.
+    for (const m of [this.body, this.cabin, this.exterior, this.shadowCaster, this.stripe?.mesh]) if (m) m.matrixAutoUpdate = false;
     // Includes roof gear (light bar, taxi sign), so a car on its roof rests on it.
     this.pivotY = new THREE.Box3().setFromObject(this.group).max.y / 2;
   }
@@ -951,9 +1093,22 @@ export class VehicleView {
     return n;
   }
 
-  /** A shape-preserving, single-draw model for distant traffic on software GPUs. */
-  setDistant(distant: boolean): void {
-    if (distant && !this.distantMesh) {
+  /** Whether a far version is drawn (setDistant). */
+  get isDistant(): boolean {
+    return this.distant !== false;
+  }
+
+  /**
+   * The far version, in two draws a car: its body, which then casts the car's shadow itself and stays out of the
+   * contact-shadow pass. Its glass, fittings and livery join the wheels and lamps in the part batches, drawn from the
+   * kind's undented geometry, so nothing but those small dents and the shadow's glass and tyres changes at the switch.
+   * `coarse` (software GPUs) instead merges a low-poly body, dark glass and wheels into one mesh, with only the lamps and
+   * roof gear batched.
+   */
+  setDistant(distant: boolean, coarse = false): void {
+    const mode = distant ? (coarse ? 'coarse' : 'far') : false;
+    if (mode === this.distant) return;
+    if (mode === 'coarse' && !this.distantMesh) {
       const a = kindAssets(this.kind, true);
       const b = new GeoBuilder();
       const m = new THREE.Matrix4();
@@ -966,19 +1121,153 @@ export class VehicleView {
           b.geometry(a.wheel, m, 0.055);
         }
       }
-      if (s.police) b.box(-s.width * 0.3, s.height, -0.3, s.width * 0.3, s.height + 0.2, 0, 0.35);
       this.distantMesh = new THREE.Mesh(b.build(), this.body.material);
       this.distantMesh.name = 'distant-vehicle';
       this.distantMesh.castShadow = true;
-      this.detailGroup = new THREE.Group();
-      for (const child of [...this.group.children]) this.detailGroup.add(child);
-      this.group.add(this.detailGroup, this.distantMesh);
+      this.distantMesh.receiveShadow = true;
+      this.distantMesh.userData.contactShadow = false;
+      this.distantMesh.matrixAutoUpdate = false;
+      this.group.add(this.distantMesh);
     }
-    if (this.detailGroup && this.distantMesh) {
-      this.detailGroup.visible = !distant;
-      this.distantMesh.visible = distant;
+    this.distant = mode;
+    this.applyVisibility();
+  }
+
+  /** Shows the near or a far version, and what a burnt-out wreck has lost. */
+  private applyVisibility(): void {
+    const near = this.distant === false;
+    const coarse = this.distant === 'coarse';
+    this.body.visible = near || (this.distant === 'far' && this.dentBody !== null);
+    this.body.castShadow = this.distant === 'far';
+    this.body.userData.contactShadow = near ? undefined : false;
+    this.exterior.visible = near;
+    this.cabin.visible = near && !this.burnt;
+    this.shadowCaster.visible = near;
+    this.shadowCaster.geometry = shadowBody(this.kind, this.burnt);
+    if (this.stripe) this.stripe.mesh.visible = near;
+    for (const w of this.wheels) {
+      w.pivot.visible = !coarse;
+      w.tire.visible = !this.burnt;
+    }
+    if (this.distantMesh) {
+      this.distantMesh.visible = coarse;
       this.distantMesh.material = this.body.material;
     }
+  }
+
+  /**
+   * Adds this car's tyres, rims, lamps and roof gear to the shared part batches, placed by the transform the last sync
+   * set; the far version adds its glass, fittings and livery too (the coarse one has its wheels merged in).
+   */
+  drawParts(batches: VehiclePartBatches): void {
+    const m = this.group.matrix;
+    if (this.distant !== 'coarse') {
+      for (const w of this.wheels) {
+        w.pivot.updateMatrix();
+        const pm = this.partTmp.multiplyMatrices(m, w.pivot.matrix);
+        this.addWheelPart(batches, pm, w.tire);
+        this.addWheelPart(batches, pm, w.rim);
+      }
+    }
+    if (this.distant === 'far') {
+      const a = this.kindAssets;
+      // An undented body joins its kind's batch (the dented one draws itself, see applyVisibility).
+      if (!this.body.visible) {
+        const paint = this.body.material as THREE.MeshStandardMaterial;
+        if (this.burnt) batches.add(a.body, burntMat, m, FAR_BODY);
+        else batches.add(a.body, farPaintMat, m, FAR_PAINT, paint.color);
+      }
+      if (!this.burnt) batches.add(a.cabin, this.cabin.material as THREE.Material, m);
+      batches.add(a.exterior, this.exterior.material as THREE.Material, m, FAR_FITTINGS);
+      if (this.stripe) batches.add(stripeGeometry(this.kind), this.stripe.mesh.material as THREE.Material, m);
+    }
+    for (const p of this.boxParts) {
+      if (!p.visible) continue;
+      p.updateMatrix();
+      const g = (p.geometry as THREE.BoxGeometry).parameters;
+      batches.addBox(p.material as THREE.Material, this.partTmp.multiplyMatrices(m, p.matrix), g.width, g.height, g.depth);
+    }
+  }
+
+  /** Whether the view is fading out (beginFade). */
+  get fading(): boolean {
+    return this.fadeState !== null;
+  }
+
+  /**
+   * Starts fading the view out where it is (its vehicle was removed in view): every mesh it draws, the parts the
+   * batches drew included, takes a hashed-alpha copy of its material (glass a see-through one), and the shadow body a
+   * hashed-alpha depth material, so the car and its shadow dissolve together. setFade sets how much is left.
+   */
+  beginFade(): void {
+    if (this.fadeState) return;
+    if (this.distant === 'far') this.setDistant(false);
+    const entries: FadeEntry[] = [];
+    this.group.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || o === this.shadowCaster || Array.isArray(o.material)) return;
+      const material = o.material as THREE.Material;
+      const clone = fadeMaterial(material);
+      entries.push({ mesh: o, material, clone, opacity: material.opacity, part: o.userData.batched === true });
+      o.material = clone;
+      if (o.userData.batched) {
+        // Drawn by the view itself while it fades (the batches only draw live cars).
+        o.layers.set(0);
+        o.userData.batched = false;
+      }
+    });
+    const depth = new THREE.MeshDepthMaterial({ alphaHash: true });
+    this.shadowCaster.customDepthMaterial = depth;
+    this.fadeState = { entries, depth };
+  }
+
+  /** How much of a fading view is left (1 whole .. 0 gone). */
+  setFade(f: number): void {
+    const s = this.fadeState;
+    if (!s) return;
+    for (const e of s.entries) e.clone.opacity = e.clone.transparent ? e.opacity * f : f;
+    s.depth.opacity = f;
+    this.group.visible = f > 0;
+  }
+
+  /** Ends a fade: the view's own materials and layers come back. Returns the fade materials for the caller to dispose. */
+  endFade(): THREE.Material[] {
+    const s = this.fadeState;
+    if (!s) return [];
+    for (const e of s.entries) {
+      e.mesh.material = e.material;
+      if (e.part) {
+        e.mesh.layers.set(PART_LAYER);
+        e.mesh.userData.batched = true;
+      }
+    }
+    this.shadowCaster.customDepthMaterial = undefined;
+    this.fadeState = null;
+    return [...s.entries.map((e) => e.clone), s.depth];
+  }
+
+  /**
+   * Takes the part meshes out of three's walks of the scene for the frame's draw (no camera draws them; the batches do),
+   * or puts them back as they were.
+   */
+  hideParts(hidden: boolean): void {
+    const shown = this.partsShown;
+    if (hidden) {
+      for (let i = 0; i < this.wheels.length; i++) {
+        const p = this.wheels[i]!.pivot;
+        shown[i] = p.visible ? 1 : 0;
+        p.visible = false;
+      }
+      for (const b of this.boxParts) b.visible = false;
+    } else {
+      for (let i = 0; i < this.wheels.length; i++) this.wheels[i]!.pivot.visible = shown[i] === 1;
+      for (const b of this.boxParts) b.visible = true;
+    }
+  }
+
+  private addWheelPart(batches: VehiclePartBatches, pivot: THREE.Matrix4, part: THREE.Mesh): void {
+    if (!part.visible) return;
+    part.updateMatrix();
+    batches.add(part.geometry, part.material as THREE.Material, this.partTmp2.multiplyMatrices(pivot, part.matrix));
   }
 
   /** Back to the kind's shared, undamaged geometry and working lamps. */
@@ -1009,6 +1298,7 @@ export class VehicleView {
     for (const l of this.lamps) l.broken = false;
     this.dentVersion = -1;
     this.applyLampMaterials();
+    this.applyVisibility();
   }
 
   /** Whether the stripe's geometry is bent (restoreShape puts it back). */
@@ -1060,6 +1350,7 @@ export class VehicleView {
       l.broken = v.dents.some((d) => Math.hypot(p.x - d.lx, p.y - d.ly, p.z - d.lz) < lampBreakRadius(d.depth));
     }
     this.applyLampMaterials();
+    this.applyVisibility();
   }
 
   private applyLampMaterials(): void {
@@ -1070,13 +1361,9 @@ export class VehicleView {
     if (this.burnt === b) return;
     this.burnt = b;
     // The glass of a burnt-out wreck is gone, and its livery, light bar and taxi sign are charred with the rest.
-    this.cabin.visible = !b;
     this.cabin.material = glassMat;
     this.exterior.material = b ? burntMat : exteriorMat;
-    for (const w of this.wheels) {
-      w.tire.visible = !b;
-      w.rim.material = b ? burntMat : rimMat;
-    }
+    for (const w of this.wheels) w.rim.material = b ? burntMat : rimMat;
     for (const l of this.livery) l.mesh.material = b ? burntMat : l.mat;
     // Views are pooled, so the lamps must also be restored when b is false.
     this.applyLampMaterials();
@@ -1084,6 +1371,7 @@ export class VehicleView {
       this.body.material = burntMat;
       this.color = -1;
     }
+    this.applyVisibility();
   }
 
   /** `glow`: whether bloom draws halos round bright lights (GameRenderer: on the tiers with bloom), which picks the light bars' colours (SIREN). */
@@ -1098,6 +1386,7 @@ export class VehicleView {
       this.body.material = bodyMaterial(v.color);
       this.color = v.color;
     }
+    if (this.distantMesh) this.distantMesh.material = this.body.material;
     if (v.dentVersion !== this.dentVersion) this.applyDents(v);
     if (!this.burnt) {
       const glass = glassFor(v.condition);
