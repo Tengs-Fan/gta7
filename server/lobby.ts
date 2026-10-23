@@ -28,6 +28,7 @@ export class RoomRules {
   /** Tick the race's entries close. */
   private closeTick = -1;
   private readonly stats = new Map<number, Stats>();
+  private readonly stars = new Map<number, number>();
   private version = 0;
   private sentVersion = -1;
   private lastSentTick = -Infinity;
@@ -55,6 +56,10 @@ export class RoomRules {
 
   private slotOf(m: Member): PlayerSlot | undefined {
     return m.slot === null ? undefined : this.sim.players.find((s) => s.id === m.slot);
+  }
+
+  private wantedOf(m: Member): number {
+    return m.slot === null ? 0 : this.room.slots.hud(m.slot).wanted;
   }
 
   private memberOfCharacter(c: Character | null | undefined): Member | null {
@@ -87,6 +92,7 @@ export class RoomRules {
       else if (this.race.stage === 'lobby' && this.raceHost === m.playerId) this.raceHost = this.room.memberOfSlot(this.race.racers[0]!.slot.id)?.playerId ?? 0;
     }
     this.stats.delete(m.playerId);
+    this.stars.delete(m.playerId);
     this.feed({ kind: 'leave', text: `${m.name} left` });
     this.changed();
   }
@@ -142,6 +148,13 @@ export class RoomRules {
       if (race.done) this.dropRace();
       // Gates and finishes show in the panel as they happen.
       else if (race.stage === 'racing' && tick % 15 === 0) this.changed();
+    }
+    for (const m of this.room.members.values()) {
+      const wanted = this.wantedOf(m);
+      if (this.stars.get(m.playerId) !== wanted) {
+        this.stars.set(m.playerId, wanted);
+        this.changed();
+      }
     }
     if (this.version !== this.sentVersion || (tick - this.lastSentTick) / this.room.opts.tickRate >= STATE_EVERY) this.sendState();
   }
@@ -326,7 +339,7 @@ export class RoomRules {
   state(): RoomState {
     const players: RoomPlayer[] = [...this.room.members.values()].map((m) => {
       const s = this.statsOf(m.playerId);
-      return { playerId: m.playerId, name: m.name, slot: m.slot ?? -1, kills: s.kills, deaths: s.deaths, carDamage: Math.round(s.carDamage) };
+      return { playerId: m.playerId, name: m.name, slot: m.slot ?? -1, kills: s.kills, deaths: s.deaths, wanted: this.wantedOf(m), carDamage: Math.round(s.carDamage) };
     });
     return { version: this.version, tick: this.room.tick, tickRate: this.room.opts.tickRate, players, race: this.raceView() };
   }

@@ -76,3 +76,76 @@ describe('room status for cross-area validation (VAL-MPX-001/002/005)', () => {
     room.close();
   });
 });
+
+describe('spread spawns and the room list (VAL-MPX-001/002)', () => {
+  const peer = () => ({ send() {}, close() {}, bufferedAmount: 0 });
+
+  it('players joining the safehouse stand side by side: nobody is in front of or behind another along his facing', () => {
+    const room = new Room('sp', 9, { realtime: false, dev: false, log: () => {} });
+    const members = [1, 2, 3, 4, 5].map((id) => room.join(id, 'P' + id, peer()));
+    const chars = members.map((m) => {
+      if (m === 'full') throw new Error('room full');
+      return room.slots.character(m.slot!);
+    });
+    for (const [i, c] of chars.entries()) {
+      const fx = Math.sin(c.heading);
+      const fz = Math.cos(c.heading);
+      for (const o of chars.slice(i + 1)) {
+        const dx = o.pos.x - c.pos.x;
+        const dz = o.pos.z - c.pos.z;
+        expect(Math.hypot(dx, dz)).toBeGreaterThan(1.4);
+        const ahead = dx * fx + dz * fz;
+        const lateral = Math.abs(dx * fz - dz * fx);
+        // One standing within 1.4 m across of another would be walked into by whichever steps forward first.
+        if (Math.abs(ahead) < 6) expect(lateral).toBeGreaterThan(0.7);
+      }
+    }
+    room.close();
+  });
+
+  it('a player joining after others left takes a spot nobody stands on', () => {
+    const room = new Room('sp2', 10, { realtime: false, dev: false, log: () => {} });
+    const a = room.join(1, 'Ann', peer());
+    const b = room.join(2, 'Bea', peer());
+    if (a === 'full' || b === 'full') throw new Error('room full');
+    room.leave(a);
+    const c = room.join(3, 'Cal', peer());
+    if (c === 'full') throw new Error('room full');
+    const cb = room.slots.character(b.slot!);
+    const cc = room.slots.character(c.slot!);
+    expect(Math.hypot(cb.pos.x - cc.pos.x, cb.pos.z - cc.pos.z)).toBeGreaterThan(1.4);
+    room.close();
+  });
+
+  it('players who die together respawn at the hospital side by side', () => {
+    const sim = makeSim({ ambient: false, police: false, multiplayer: true, seed: 11 });
+    const b = sim.addPlayer(0, 0);
+    for (const s of [sim.players[0]!, b]) {
+      s.deathKind = 'wasted';
+      s.deathTimer = 5;
+    }
+    sim.finishRespawn(sim.players[0]!);
+    sim.finishRespawn(b);
+    const [pa, pb] = [sim.players[0]!.character.pos, b.character.pos];
+    expect(Math.hypot(pa.x - pb.x, pa.z - pb.z)).toBeGreaterThan(1.4);
+    const hospital = sim.world.layout.pois.find((p) => p.id === 'hospital')!;
+    expect(Math.hypot(pb.x - hospital.x, pb.z - hospital.z)).toBeLessThan(15);
+  });
+
+  it("the room state carries every player's wanted level and is re-sent when it changes", () => {
+    const room = new Room('wl', 12, { realtime: false, dev: true, log: () => {} });
+    const a = room.join(1, 'Ann', peer());
+    const b = room.join(2, 'Bea', peer());
+    if (a === 'full' || b === 'full') throw new Error('room full');
+    for (let i = 0; i < 30; i++) room.step();
+    expect(room.rules.state().players.map((p) => p.wanted)).toEqual([0, 0]);
+    const before = room.rules.state().version;
+    room.command(b, 'debug', JSON.stringify({ wanted: 3 }));
+    room.step();
+    const st = room.rules.state();
+    expect(st.players.find((p) => p.name === 'Bea')!.wanted).toBe(3);
+    expect(st.players.find((p) => p.name === 'Ann')!.wanted).toBe(0);
+    expect(st.version).toBeGreaterThan(before);
+    room.close();
+  });
+});

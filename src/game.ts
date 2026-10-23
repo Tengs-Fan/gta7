@@ -1088,7 +1088,7 @@ export class Game {
         const e = mirror()?.entity(id);
         return e && 'heading' in e ? { id, ...pos(e as { pos: { x: number; y: number; z: number }; heading: number }) } : e ? { id, x: e.pos.x, y: e.pos.y, z: e.pos.z } : null;
       },
-      players: () => mirror()?.players.map((p) => ({ playerId: p.id, name: p.name, slot: p.slot, characterId: p.character.id, wanted: p.wanted.level, ...pos(p.character.vehicle ?? p.character) })) ?? [],
+      players: () => mirror()?.players.map((p) => ({ playerId: p.id, name: p.name, slot: p.slot, characterId: p.character.id, wanted: p.id === this.localPlayerId ? p.wanted.level : this.mpOverlay.state?.players.find((x) => x.playerId === p.id)?.wanted ?? 0, ...pos(p.character.vehicle ?? p.character) })) ?? [],
       /** The police this client is sent: cars, officers on foot and helicopters, as drawn. */
       police: () => {
         const m = mirror();
@@ -1126,7 +1126,7 @@ export class Game {
         const stats = this.mpOverlay.state?.players ?? [];
         return m.roster.map((r) => {
           const s = stats.find((x) => x.playerId === r.playerId);
-          return { playerId: r.playerId, name: r.name, color: '#' + playerColor(Math.max(0, r.slot)).toString(16).padStart(6, '0'), you: r.playerId === this.localPlayerId, watching: r.slot < 0, kills: s?.kills ?? 0, deaths: s?.deaths ?? 0 };
+          return { playerId: r.playerId, name: r.name, color: '#' + playerColor(Math.max(0, r.slot)).toString(16).padStart(6, '0'), you: r.playerId === this.localPlayerId, watching: r.slot < 0, kills: s?.kills ?? 0, deaths: s?.deaths ?? 0, wanted: r.playerId === this.localPlayerId ? m.me.wanted.level : s?.wanted ?? 0 };
         });
       },
       race: () => this.mpOverlay.race,

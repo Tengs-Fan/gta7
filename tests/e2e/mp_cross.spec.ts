@@ -137,10 +137,10 @@ test.describe('multiplayer cross-area flows', () => {
     await A.page.waitForFunction(() => (window as Api).__gta7.net.players().length === 2, null, { timeout: 5000 });
     expect(await names(A)).toEqual(['Ann', 'Bea']);
     expect(await names(B)).toEqual(['Ann', 'Bea']);
-    // B steps aside so A's walk does not push him (they spawn one behind the other).
-    await B.page.keyboard.down('d');
-    await B.page.waitForTimeout(500);
-    await B.page.keyboard.up('d');
+    // They spawn side by side: A's first W does not push B.
+    const bBefore = (await serverPlayers('x-see')).Bea!;
+    const aBefore = (await serverPlayers('x-see')).Ann!;
+    expect(Math.hypot(aBefore.x - bBefore.x, aBefore.z - bBefore.z)).toBeGreaterThan(1.4);
     // A walks with real W; B's view of A is within 2 m of the server's A throughout.
     await A.page.bringToFront();
     await A.page.keyboard.down('w');
@@ -153,6 +153,8 @@ test.describe('multiplayer cross-area flows', () => {
       walked = Math.max(walked, e.speed);
     }
     await A.page.keyboard.up('w');
+    const bAfter = (await serverPlayers('x-see')).Bea!;
+    expect(Math.hypot(bAfter.x - bBefore.x, bAfter.z - bBefore.z), 'B is not pushed by A walking off').toBeLessThan(0.3);
     expect(walked).toBeGreaterThan(1);
     // A gets a car next to him and drives it with real W; B sees him in it, moving, within 2 m of where the server had
     // him during the last interpolation delay plus a snapshot interval and the round trip (VAL-MPX-001 allows for it).
@@ -215,6 +217,7 @@ test.describe('multiplayer cross-area flows', () => {
     await debug(A, { godMode: true, wanted: 3 });
     let chased = false;
     let bSawChase = false;
+    let bSawStars = false;
     let aHud = 0;
     const t0 = Date.now();
     while (Date.now() - t0 < 25_000) {
@@ -230,11 +233,17 @@ test.describe('multiplayer cross-area flows', () => {
       const pol = await B.page.evaluate(() => (window as Api).__gta7.net.police());
       const nearA = [...pol.cars, ...pol.officers].filter((c: { x: number; z: number }) => Math.hypot(c.x - s.Ann!.x, c.z - s.Ann!.z) < 60).length;
       if (nearA > 0 && s.Ann!.wanted > 0) bSawChase = true;
+      if (s.Ann!.wanted > 0 && (await seen(B, 'Ann'))!.wanted === s.Ann!.wanted) bSawStars = true;
       if (chased && bSawChase && Date.now() - t0 > 12_000) break;
     }
     expect(chased, 'police units chase A').toBe(true);
     expect(bSawChase, "B's client draws police round A").toBe(true);
     expect(aHud).toBeGreaterThanOrEqual(1);
+    expect(bSawStars, "B's client knows A's stars (PLAYERS list, __gta7.net.players())").toBe(true);
+    expect((await seen(A, 'Bea'))!.wanted).toBe(0);
+    await B.page.keyboard.press('Tab');
+    await expect(B.page.locator('.mp-players tbody tr', { hasText: 'Ann' }).locator('.mp-stars')).toContainText('\u2605');
+    await B.page.keyboard.press('Escape');
     // Nothing the police did hurt B or arrested him.
     const bLog = (await B.page.evaluate(() => (window as Api).__gta7.net.events(400))) as Array<{ type: string; refs: Record<string, number>; playerId?: number }>;
     const lawIds = new Set(await B.page.evaluate(() => (window as Api).__gta7.game.view.characters.filter((c: { isLaw: boolean }) => c.isLaw).map((c: { id: number }) => c.id)));

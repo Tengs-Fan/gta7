@@ -337,7 +337,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-133 files with 2148 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set) run in Node, with no browser.
+141 files with 2218 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set) run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, properties, gangs, roadblocks and witnesses, saves in three slots, the multiplayer wire protocol and server rooms, a 10-minute chaotic soak test (36,000 frames with a seeded random player), and same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks).
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
@@ -345,7 +345,7 @@ The police tests are statistics over many deterministic seeds, and they set the 
 
 ### End-to-end tests
 
-137 tests in 39 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
+148 tests in 42 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
 They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, a murder that brings the police, WASTED, mission retries from the pause menu, the menus, the HUD layout in small windows, the gun shop, saving and continuing after a reload, the side jobs and the wave-1 jobs, the phone, properties, save slots, key bindings, the talk radio, street runs, night rendering and the quality tiers, WebGL context loss, crash screens, all nine cheats, and a two-minute chaos session that must average over 30 fps.
 Most tests also fail on any console error, console warning or page error.
 
@@ -419,11 +419,14 @@ Join with `http://<host>:4210/?mp=1&room=<id>&name=<name>` (or `&server=host:por
 Your own movement, driving and trigger pulls are predicted locally (the muzzle flash and the shot sound come at once, the tracer and hit follow the server's events); other players and the traffic are drawn about 117 ms behind the newest snapshot.
 If the server goes away the screen says so within 3 s and offers RECONNECT (you rejoin as a new player) or RETURN TO TITLE; a server address that does not answer gives COULD NOT JOIN with TRY AGAIN or BACK TO TITLE.
 From the title, MULTIPLAYER asks for a name (required, up to 24 characters), a server (the page's own host and port when the game server served it, else `ws://localhost:4210`) and a room (default `lobby`), remembers them in the browser and joins with JOIN or Enter; a failed join offers TRY AGAIN or BACK.
-Tab (or pause > PLAYERS) lists the room with kills and deaths. Other players have name tags (up to 150 m, faint behind buildings, none behind the camera) and diamond blips on the radar and map; each player has their own colour and a look drawn from their name.
+Players join side by side on the sidewalk by the safehouse, and players who die together respawn side by side. Tab (or pause > PLAYERS) lists the room with each player's stars, kills and deaths (the server sends every player's wanted level in the room state). Other players have name tags (up to 150 m, faint behind buildings, none behind the camera) and diamond blips on the radar and map; each player has their own colour and a look drawn from their name.
 PvP damage is on. Kills ("Ann killed Bea") and damage to another player's car are credited to the attacker, and each player respawns on their own at the hospital or, when busted, the police station; the shared clock does not jump.
 Head-to-head Street Runs: pause > STREET RUNS opens a course for the room (or press T at a course start); others join within 20 s and the opener can START NOW. Everyone lines up on one grid in a fresh car, one countdown holds all until GO, each racer sees their own gates and place, and the results (finish order, times, medals; DNF for quitters, leavers and busted or wrecked racers; OUT OF TIME past bronze) are the same on every screen. No money is paid and nothing is saved. Drivers a racer bumps do not get out to fight.
 Story contacts, the safehouse, properties, Lou's export board, gun shops and the phone are marked as single player only, and typed cheats answer "Cheats are off in multiplayer."
 For testing, `&lag=<ms>&jitter=<ms>&loss=<fraction>` simulates a slow link and `&predict=0` turns off prediction; `window.__gta7.net` (`state()`, `local()`, `players()`, `events()`, `room()`, `race()`, `command()`, `reconnect()`, `leave()`) exists once a session starts.
+`GET /status` also lists, per room, the clock, weather, broken props and wrecked vehicles, and for each member his position, state, health, vehicle, wanted level and the police chasing him; a server started with `--dev` takes `debug` commands (`teleport`, `drive`, `wanted`, `give`, `godMode`, `neverWanted`, `wreck`) for setting up scenes.
+A player left standing at 2-3 stars is busted in 15-20 s, as in single player, and a late joiner is sent only the police within 250 m of him.
+`tests/e2e/mp_cross.spec.ts` starts a `--dev` server on `GTA7_MP_PORT` (default 4210) and plays two to three clients through the cross-area flows: seeing each other walk and drive, a chase of one player only, the Marina boats for the second player, and leaving and joining; `mp_lobby.spec.ts` races two clients head to head.
 `docs/multiplayer.md` covers the Dockerfile and running `wss://` behind a TLS proxy; no cloud hosting is set up.
 `npm run typecheck` also checks `server/` (`tsc -p server/tsconfig.json`).
 
