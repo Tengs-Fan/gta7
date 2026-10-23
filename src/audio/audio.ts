@@ -435,16 +435,22 @@ export class AudioEngine {
         this.noiseBurst(out, t, 0.42, 'lowpass', 2600, 0.6, 1.1 * g, 300);
         this.tone(out, t, 'sine', 110, 38, 0.3, 0.8 * g);
         break;
-      case 'rifle':
-        this.noiseBurst(out, t, 0.14, 'lowpass', 6000, 0.6, 0.85 * g, 1400);
-        this.noiseBurst(out, t, 0.03, 'highpass', 3000, 0.7, 0.4 * g);
-        this.tone(out, t, 'sine', 150, 45, 0.1, 0.5 * g);
+      case 'sniper':
+        // A heavier crack than the rifle's, with a longer, deeper boom under it.
+        this.noiseBurst(out, t, 0.24, 'lowpass', 5600, 0.6, 1.05 * g, 900);
+        this.noiseBurst(out, t, 0.04, 'highpass', 3400, 0.7, 0.6 * g);
+        this.tone(out, t, 'sine', 125, 36, 0.2, 0.75 * g);
         break;
       case 'rocket':
         this.noiseBurst(out, t, 0.9, 'bandpass', 600, 1.2, 0.8 * g, 2400);
         this.tone(out, t, 'sine', 90, 40, 0.25, 0.7 * g);
         break;
+      case 'rifle':
       default:
+        // Also the report of any gun without its own, so a fired gun is never silent.
+        this.noiseBurst(out, t, 0.14, 'lowpass', 6000, 0.6, 0.85 * g, 1400);
+        this.noiseBurst(out, t, 0.03, 'highpass', 3000, 0.7, 0.4 * g);
+        this.tone(out, t, 'sine', 150, 45, 0.1, 0.5 * g);
         break;
     }
   }

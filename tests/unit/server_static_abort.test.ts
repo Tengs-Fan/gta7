@@ -45,7 +45,8 @@ let sock: string;
 let server: Server;
 const closedResponses: number[] = [];
 
-const openStreams = (from = 0) => streams.slice(from).filter((s) => typeof s.fd === 'number' && !s.destroyed);
+/** Streams still holding a descriptor (`fd` is set while the file is open; it is not in @types/node). */
+const openStreams = (from = 0) => streams.slice(from).filter((s) => typeof (s as unknown as { fd?: unknown }).fd === 'number' && !s.destroyed);
 
 async function settle(from: number): Promise<void> {
   for (let i = 0; i < 40 && openStreams(from).length > 0; i++) await delay(25);
