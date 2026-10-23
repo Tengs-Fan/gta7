@@ -90,6 +90,16 @@ export class Member {
   constructor(readonly playerId: number, readonly name: string, readonly peer: Peer, now: number) {
     this.joinedAt = now;
   }
+
+  /** The next snapshot is a full one again (every entity, globals and broken props), as after joining. */
+  resync(): void {
+    this.known.clear();
+    this.sentFirst = false;
+    this.rosterVersion = -1;
+    this.weather = null;
+    this.holdsKey = '';
+    this.brokenSent = 0;
+  }
 }
 
 const SECTION_ORDER: readonly SectionKey[] = ['vehicles', 'characters', 'projectiles', 'helis', 'pickups'];
@@ -116,7 +126,7 @@ export interface RoomStatus {
   droppedTicks: number;
   tickErrors: number;
   entities: { vehicles: number; characters: number; pickups: number; projectiles: number; helis: number };
-  members: Array<{ playerId: number; name: string; slot: number; snapshots: number; skipped: number; ackSeq: number; bytesOut: number }>;
+  members: Array<{ playerId: number; name: string; slot: number; snapshots: number; skipped: number; ackSeq: number; bytesOut: number; interest: number }>;
 }
 
 export class Room {
@@ -450,7 +460,7 @@ export class Room {
       droppedTicks: this.droppedTicks,
       tickErrors: this.tickErrors,
       entities: { vehicles: live(sim.vehicles), characters: live(sim.characters), pickups: live(sim.pickups), projectiles: live(sim.projectiles), helis: live(sim.helis) },
-      members: [...this.members.values()].map((m) => ({ playerId: m.playerId, name: m.name, slot: m.slot ?? -1, snapshots: m.snapshots, skipped: m.snapshotsSkipped, ackSeq: m.latch.ackSeq, bytesOut: m.bytesOut })),
+      members: [...this.members.values()].map((m) => ({ playerId: m.playerId, name: m.name, slot: m.slot ?? -1, snapshots: m.snapshots, skipped: m.snapshotsSkipped, ackSeq: m.latch.ackSeq, bytesOut: m.bytesOut, interest: m.interest?.size ?? 0 })),
     };
   }
 

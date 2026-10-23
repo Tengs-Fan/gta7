@@ -5,6 +5,7 @@ import '@fontsource/rajdhani/latin-700.css';
 import './ui/style.css';
 import { Game } from './game';
 import { installDebugApi } from './debug';
+import { netOptionsFromUrl } from './net/url';
 
 function webgl2Available(): boolean {
   try {
@@ -56,6 +57,9 @@ async function boot(): Promise<void> {
       game.noteEvent('rejection', String(e.reason instanceof Error ? e.reason.message : e.reason));
     });
     game.start();
+    // ?mp=1 joins a multiplayer room straight away (no WebSocket is opened otherwise).
+    const mp = netOptionsFromUrl(location.search, location);
+    if (mp) void game.joinMultiplayer(mp);
   } catch (err) {
     console.error(err);
     showError(ui, 'COULD NOT START', `The game failed to initialise: ${String(err instanceof Error ? err.message : err).replace(/</g, '&lt;')}`);

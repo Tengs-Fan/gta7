@@ -2,19 +2,27 @@
 // handy for poking at the game from the browser console.
 
 import type { Game } from './game';
+import { playerOf, type ViewState } from './sim/viewState';
 import type { VehicleKind, WeaponId } from './sim/specs';
 import { WEATHER_KINDS, type WeatherFields, type WeatherKind, type WeatherMode } from './sim/weather';
 
 const registered = new Map<string, unknown>();
 let installedExt: Record<string, unknown> | null = null;
+/** Hooks that also sit on window.__gta7 itself once registered (multiplayer's __gta7.net); none in single player. */
+const topLevel = new Map<string, unknown>();
+let installedApi: Record<string, unknown> | null = null;
 
 /**
  * Exposes `api` as `window.__gta7.ext[name]`. Works before or after installDebugApi; registering a name again replaces
  * the earlier API.
  */
-export function registerDebug(name: string, api: unknown): void {
+export function registerDebug(name: string, api: unknown, opts: { topLevel?: boolean } = {}): void {
   registered.set(name, api);
   if (installedExt) installedExt[name] = api;
+  if (opts.topLevel) {
+    topLevel.set(name, api);
+    if (installedApi) installedApi[name] = api;
+  }
 }
 
 export function installDebugApi(game: Game): void {
@@ -31,6 +39,9 @@ export function installDebugApi(game: Game): void {
     newGame: (opts?: { intro?: boolean }) => game.newGame(opts),
     startStreetRun: (courseId?: string) => game.startStreetRun(courseId),
     state: () => {
+      // In multiplayer the screens show the mirror; the same fields come from it.
+      const view = game.view;
+      if (view && view !== game.sim) return viewState(game, view);
       const sim = game.sim;
       const p = sim.player;
       const pos = sim.playerPos();
@@ -225,7 +236,39 @@ export function installDebugApi(game: Game): void {
   };
   const w = window as unknown as { __gta7: typeof api; __gta7Test?: { weather?: WeatherMode } };
   w.__gta7 = api;
+  installedApi = api as unknown as Record<string, unknown>;
+  for (const [name, entry] of topLevel) installedApi[name] = entry;
   // Set by an init script before the page loads (tests/e2e/helpers.ts boot), so it holds across reloads too.
   const forced = w.__gta7Test?.weather;
   if (forced === 'clear' || forced === 'dynamic') game.forceWeather(forced);
+}
+
+/** state() over a ViewState (the multiplayer mirror): the same fields as for the single-player Sim. */
+function viewState(game: Game, view: ViewState): Record<string, unknown> {
+  const me = playerOf(view, game.localPlayer);
+  const p = me.character;
+  const pos = me.pos();
+  return {
+    mode: game.mode,
+    crashed: game.isCrashed,
+    listenerErrors: view.events.errors,
+    fps: Math.round(game.fps * 10) / 10,
+    frames: game.frames,
+    menuOpen: game.menus.open,
+    player: { x: pos.x, y: pos.y, z: pos.z, state: p.state, health: p.health, armor: p.armor, weapon: p.inventory.current, vehicle: p.vehicle?.kind ?? null, speed: p.vehicle ? p.vehicle.speed : p.speed },
+    wanted: me.wanted.level,
+    money: me.progress.money,
+    mission: view.missions.active?.def.id ?? null,
+    objective: view.missions.active?.objectiveText ?? null,
+    missionsDone: [...me.progress.missionsDone],
+    activity: view.activities.job?.kind ?? null,
+    activityStatus: view.activities.status(),
+    hours: view.clock.hours,
+    vehicles: view.vehicles.length,
+    police: view.vehicles.filter((v) => v.owner === 'police').length,
+    characters: view.characters.length,
+    deathKind: me.deathKind,
+    render: { ...game.renderer.stats(), tier: game.renderer.currentQuality, post: game.renderer.post, software: game.renderer.software, msaa: game.renderer.msaa },
+    perf: { ...game.perf },
+  };
 }
