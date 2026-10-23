@@ -1053,6 +1053,17 @@ export class Game {
         return e && 'heading' in e ? { id, ...pos(e as { pos: { x: number; y: number; z: number }; heading: number }) } : e ? { id, x: e.pos.x, y: e.pos.y, z: e.pos.z } : null;
       },
       players: () => mirror()?.players.map((p) => ({ playerId: p.id, name: p.name, slot: p.slot, characterId: p.character.id, wanted: p.wanted.level, ...pos(p.character.vehicle ?? p.character) })) ?? [],
+      /** The police this client is sent: cars, officers on foot and helicopters, as drawn. */
+      police: () => {
+        const m = mirror();
+        if (!m) return null;
+        const at = (e: { id: number; pos: { x: number; z: number } }) => ({ id: e.id, x: e.pos.x, z: e.pos.z });
+        return {
+          cars: m.vehicles.filter((v) => v.owner === 'police' && !v.removed).map(at),
+          officers: m.characters.filter((c) => c.isLaw && c.alive && !c.vehicle && !c.removed).map(at),
+          helis: m.helis.filter((h) => !h.removed && !h.destroyed).map(at),
+        };
+      },
       roster: () => mirror()?.roster ?? [],
       /** Recent world events the mirror re-emitted (ids for entities), newest last. */
       events: (n = 100) => this.net?.log.slice(-n) ?? [],
