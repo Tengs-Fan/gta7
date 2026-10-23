@@ -308,12 +308,12 @@ test.describe('GTA 7 wave-1 audio', () => {
     expect(errors).toEqual([]);
   });
 
-  test('a pistol shot downtown rings on at least 1.5 times longer than one on the open beach', async ({ page }) => {
+  for (const weapon of ['pistol', 'sniper'] as const) test(`a ${weapon} shot downtown rings on at least 1.5 times longer than one on the open beach`, async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
     await installTaps(page);
     const shot = (where: string) =>
-      page.evaluate(async (where) => {
+      page.evaluate(async ({ where, weapon }) => {
         const g = (window as Api).__gta7;
         const sim = g.sim;
         const w = sim.world;
@@ -329,15 +329,18 @@ test.describe('GTA 7 wave-1 audio', () => {
         await new Promise((r) => setTimeout(r, 1500));
         const p = sim.playerPos();
         const r = await (window as Api).__w1.decay(2500, () =>
-          sim.events.emit('weaponFired', { shooter: sim.player, weapon: 'pistol', x: p.x, y: p.y + 1.4, z: p.z, dx: 1, dy: 0, dz: 0, pellets: 1 }),
+          sim.events.emit('weaponFired', { shooter: sim.player, weapon, x: p.x, y: p.y + 1.4, z: p.z, dx: 1, dy: 0, dz: 0, pellets: 1 }),
         );
         return { district: w.districtAt(p.x, p.z), ...r };
-      }, where);
+      }, { where, weapon });
     const down = await shot('downtown');
     const beach = await shot('beach');
-    console.log(`[echo] ${down.district}: peak ${down.peakDb.toFixed(1)} dB, -30 dB after ${down.decay.toFixed(3)} s; ${beach.district}: peak ${beach.peakDb.toFixed(1)} dB, -30 dB after ${beach.decay.toFixed(3)} s`);
+    console.log(`[echo] ${weapon} ${down.district}: peak ${down.peakDb.toFixed(1)} dB, -30 dB after ${down.decay.toFixed(3)} s; ${beach.district}: peak ${beach.peakDb.toFixed(1)} dB, -30 dB after ${beach.decay.toFixed(3)} s`);
     expect(down.district).toBe('downtown');
     expect(beach.district).toBe('beach');
+    // A real report on the effects bus, well over the city's own sound there (about -40 dB without a shot).
+    expect(down.peakDb).toBeGreaterThan(-25);
+    expect(beach.peakDb).toBeGreaterThan(-25);
     expect(down.decay).toBeGreaterThanOrEqual(1.5 * beach.decay);
     expect(errors).toEqual([]);
   });
