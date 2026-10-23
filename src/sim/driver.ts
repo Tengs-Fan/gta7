@@ -343,8 +343,10 @@ export class DriverAI {
   private honkCooldown = 0;
   private sightTimer = 0;
   private visibleTarget = false;
-  /** Route policy: within ARRIVE_RADIUS of `dest`; the car then stops and holds there. */
+  /** Route policy: within arriveRadius of `dest`; the car then stops and holds there. */
   arrived = false;
+  /** How close (straight-line, m) a route car comes to its destination before it counts as arrived. */
+  arriveRadius = ARRIVE_RADIUS;
   /** Lane whose signal we committed to stop for (prevents yellow-light dithering). */
   private stopLane = -1;
   /** Seconds an overtaking manoeuvre may still last (path shifted into the oncoming lane). */
@@ -985,7 +987,7 @@ export class DriverAI {
       targetSpeed = Math.min(this.segs[0]!.speed * this.speedMul, this.maxSpeed);
       targetSpeed = Math.min(targetSpeed, this.planSpeed());
       const dest = this.policy === 'route' ? this.dest : null;
-      if (dest && !this.arrived && Math.hypot(v.pos.x - dest.x, v.pos.z - dest.z) <= ARRIVE_RADIUS) this.arrived = true;
+      if (dest && !this.arrived && Math.hypot(v.pos.x - dest.x, v.pos.z - dest.z) <= this.arriveRadius) this.arrived = true;
       // There: brake to a stop on the lane (the hold above takes over once stopped).
       if (dest && this.arrived) targetSpeed = 0;
     }

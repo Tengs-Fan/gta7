@@ -14,6 +14,7 @@ import { showStats } from './screens/stats';
 import { showStreetRuns } from './screens/streetRuns';
 import { showCredits, showTitle } from './screens/title';
 import { h, showConfirm, type MenuCtx, type MenuHost, type Screen } from './screens/shared';
+import { showPhone, type PhoneHost } from './widgets/phone';
 
 export { NEW_GAME_WARNING } from './screens/title';
 export type { MenuHost, StreetRunMedalTimes } from './screens/shared';
@@ -185,5 +186,10 @@ export class Menus {
   /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
   showMap(onClose?: () => void): void {
     showMap(this.ctx, onClose);
+  }
+
+  /** The phone; `onClose` runs when it closes (resume the game). */
+  showPhone(host: PhoneHost, onClose?: () => void): void {
+    showPhone(this.ctx, host, onClose);
   }
 }
