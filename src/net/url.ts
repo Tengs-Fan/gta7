@@ -34,6 +34,18 @@ export function defaultServerAddress(loc: PageLocation): string {
   return `ws://${loc.hostname || 'localhost'}:${DEFAULT_PORT}`;
 }
 
+/**
+ * The MULTIPLAYER screen's server address before the player types one: the page's own host and port when the game
+ * server served the page (its pages say so), else ws://localhost:4210.
+ */
+export function menuServerAddress(loc: PageLocation, servedByGameServer: boolean): string {
+  if (servedByGameServer && loc.hostname) {
+    const port = loc.port || (loc.protocol === 'https:' ? '443' : '80');
+    return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.hostname}:${port}`;
+  }
+  return `ws://localhost:${DEFAULT_PORT}`;
+}
+
 /** The WebSocket URL for a typed server address (path /ws unless one is given). Throws BadAddressError. */
 export function socketUrl(address: string): string {
   let a = address.trim();
@@ -60,8 +72,8 @@ export function cleanName(name: string): string {
   return s || 'Player';
 }
 
-/** The multiplayer settings in a page URL, or null when it does not ask for multiplayer (?mp=1). */
-export function netOptionsFromUrl(search: string, loc: PageLocation): NetJoinOptions | null {
+/** The multiplayer settings in a page URL, or null when it does not ask for multiplayer (?mp=1). `servedByGameServer`: the page says so (see menuServerAddress). */
+export function netOptionsFromUrl(search: string, loc: PageLocation, servedByGameServer = false): NetJoinOptions | null {
   const q = new URLSearchParams(search);
   if (q.get('mp') !== '1') return null;
   const num = (k: string) => {
@@ -72,7 +84,8 @@ export function netOptionsFromUrl(search: string, loc: PageLocation): NetJoinOpt
   const jitter = num('jitter');
   const loss = Math.min(0.5, num('loss') > 1 ? num('loss') / 100 : num('loss'));
   return {
-    server: q.get('server') || defaultServerAddress(loc),
+    // A page the game server served joins that server, whatever port it runs on.
+    server: q.get('server') || (servedByGameServer ? menuServerAddress(loc, true) : defaultServerAddress(loc)),
     room: q.get('room') || DEFAULT_ROOM,
     name: cleanName(q.get('name') ?? ''),
     link: lag || jitter || loss ? { latencyMs: lag, jitterMs: jitter, loss } : undefined,

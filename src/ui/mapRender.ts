@@ -6,6 +6,7 @@ import { GANGS, turfZones } from '../sim/gangs';
 import { FOR_SALE, OWNED } from '../sim/interactions';
 import { CONTACTS, contactById, contactUnlocked } from '../sim/missions/contacts';
 import { playerOf, type ViewState } from '../sim/viewState';
+import { playerColor } from '../sim/appearance';
 import { packageIndex } from '../sim/pickups';
 import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
@@ -110,8 +111,8 @@ export interface Blip {
   label: string;
   /** Keep on the radar rim when out of range. */
   sticky: boolean;
-  /** 'pip': a small dot (officers on foot); 'ring': a hollow circle (a collectible already found). */
-  shape: 'circle' | 'square' | 'dot' | 'pip' | 'ring';
+  /** 'pip': a small dot (officers on foot); 'ring': a hollow circle (a collectible already found); 'player': another player. */
+  shape: 'circle' | 'square' | 'dot' | 'pip' | 'ring' | 'player';
   /** The map legend category that can hide it (see MAP_CATEGORIES); absent: always shown. */
   category?: string;
 }
@@ -259,6 +260,7 @@ export function collectBlips(sim: ViewState, time: number, localPlayerId = 0, op
     const z = t ? t.pos.z : o.z;
     out.push({ x, z, color: '#' + o.color.toString(16).padStart(6, '0'), label: '', sticky: true, shape: t ? 'square' : 'circle' });
   }
+  out.push(...otherPlayerBlips(sim, localPlayerId));
   if (playerOf(sim, localPlayerId).wanted.level > 0) {
     const blink = Math.floor(time * 4) % 2 === 0;
     for (const v of sim.vehicles) if (v.owner === 'police' && !v.removed && !v.destroyed) out.push({ x: v.pos.x, z: v.pos.z, color: blink ? '#ff3030' : '#3060ff', label: '', sticky: false, shape: 'dot' });
@@ -268,6 +270,23 @@ export function collectBlips(sim: ViewState, time: number, localPlayerId = 0, op
   }
   const hidden = opts.hidden;
   return hidden && hidden.size > 0 ? out.filter((b) => !b.category || !hidden.has(b.category)) : out;
+}
+
+/**
+ * Multiplayer: every other player as a diamond in his colour with his initial, kept on the radar's rim when out of
+ * range. Single player has only the local player, so none.
+ */
+export function otherPlayerBlips(sim: ViewState, localPlayerId: number): Blip[] {
+  const out: Blip[] = [];
+  for (const pl of sim.players) {
+    if (pl.id === localPlayerId || pl.slot === undefined || pl.slot < 0) continue;
+    const c = pl.character;
+    if (c.removed || c.id === 0) continue;
+    const at = pl.pos();
+    const color = '#' + playerColor(pl.slot).toString(16).padStart(6, '0');
+    out.push({ x: at.x, z: at.z, color, label: (pl.name ?? '').trim().charAt(0).toUpperCase(), sticky: true, shape: 'player' });
+  }
+  return out;
 }
 
 /** The police search area while the stars flash (null while they see the player, or he is not wanted). */
@@ -329,6 +348,26 @@ export function drawBlip(ctx: CanvasRenderingContext2D, b: Blip, x: number, y: n
     ctx.strokeStyle = '#000';
     ctx.lineWidth = b.shape === 'pip' ? 1 : 1.5;
     ctx.stroke();
+  } else if (b.shape === 'player') {
+    const r = size * 0.72;
+    ctx.beginPath();
+    ctx.moveTo(0, -r);
+    ctx.lineTo(r, 0);
+    ctx.lineTo(0, r);
+    ctx.lineTo(-r, 0);
+    ctx.closePath();
+    ctx.fillStyle = b.color;
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    if (b.label) {
+      ctx.fillStyle = '#101010';
+      ctx.font = `700 ${Math.round(size * 0.8)}px Rajdhani, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(b.label, 0, size * 0.05);
+    }
   } else if (b.shape === 'square') {
     ctx.fillStyle = b.color;
     ctx.strokeStyle = '#000';

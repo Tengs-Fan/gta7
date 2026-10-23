@@ -39,6 +39,9 @@ export interface PlayerView {
   readonly down: boolean;
   /** Where the player is: the vehicle he sits in, else himself. */
   pos(): V3;
+  /** Multiplayer: the name he joined with and the PlayerSlot he plays (-1 while watching); absent in single player. */
+  readonly name?: string;
+  readonly slot?: number;
 }
 
 export type MissionView = Pick<MissionSystem, 'active' | 'defs' | 'offers' | 'retryOffer' | 'retryMenuOffer' | 'retryAfterCops'>;

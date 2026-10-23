@@ -13,6 +13,7 @@ import { showSlots, type SlotPickerMode } from './screens/slots';
 import { showShop } from './screens/shop';
 import { showStats } from './screens/stats';
 import { showStreetRuns } from './screens/streetRuns';
+import { showPlayers, showRaces } from './screens/mpRoom';
 import { showCredits, showTitle } from './screens/title';
 import { h, showConfirm, type MenuCtx, type MenuHost, type Screen } from './screens/shared';
 import { screenOpener } from './screens/registry';
@@ -200,6 +201,16 @@ export class Menus {
   /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
   showMap(onClose?: () => void): void {
     showMap(this.ctx, onClose);
+  }
+
+  /** Multiplayer: the room's players; `onClose` runs when it closes (back to play). False in single player. */
+  showPlayers(onClose?: () => void): boolean {
+    return showPlayers(this.ctx, onClose);
+  }
+
+  /** Multiplayer: the head-to-head Street Runs. False in single player. */
+  showRaces(onClose?: () => void): boolean {
+    return showRaces(this.ctx, onClose);
   }
 
   /** The phone; `onClose` runs when it closes (resume the game). */
