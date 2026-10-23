@@ -11,7 +11,9 @@ import type { PlayerInput } from '../../src/sim/input';
 import type { Sim } from '../../src/sim/sim';
 import { scheduledWeather } from '../../src/sim/weather';
 import { coursePath, KeyboardBot, type BotKeys } from '../e2e/keyboardBot';
+import { turfBorders } from '../../src/sim/gangs';
 import { aimAt, input, makeSim, placeInCar, teleport } from './helpers';
+import { getaway } from './r2_police_helpers';
 
 const DT = 1 / 60;
 
@@ -201,6 +203,45 @@ describe('same-seed determinism of the newer behaviour', () => {
     const sb = snapshot(b);
     expect(sa.events.length).toBe(sb.events.length);
     expect(sa).toEqual(sb);
+  }, 120_000);
+});
+
+describe('same-seed determinism of the wave-1 street systems', () => {
+  // Both gangs, their cars and a war at the border, a 4-star chase into roadblocks and spike strips, and a molotov fire.
+  function streetRun(seed: number) {
+    const sim = makeSim({ ambient: true, police: true, seed, streetCrime: true });
+    sim.cheats.godMode = true;
+    sim.missions.noBust = true;
+    const events: string[] = [];
+    for (const type of ['gangWar', 'roadblock', 'tyreBurst', 'fireStarted', 'damage', 'characterKilled'] as const) {
+      sim.events.on(type, (e) => events.push(serialise(type, e)));
+    }
+    const b = turfBorders(sim.world.layout)[0]!;
+    teleport(sim, (b.ax + b.bx) / 2 + 24, (b.az + b.bz) / 2);
+    for (let f = 0; f < 120; f++) sim.update(1 / 60, input({}));
+    sim.gangs.startWar(b, true);
+    sim.combat.fire.ignite(sim.player.pos.x + 6, sim.player.pos.y, sim.player.pos.z, sim.player);
+    for (let f = 0; f < 60 * 20; f++) sim.update(1 / 60, input({}));
+    const { bot } = getaway(sim, seed);
+    sim.wanted.setLevel(4);
+    for (let f = 0; f < 60 * 50; f++) {
+      if (sim.wanted.level < 4) sim.wanted.setLevel(4);
+      sim.update(1 / 60, bot(1 / 60));
+    }
+    return { sim, events };
+  }
+
+  it('two runs with one seed match: gangs, gang cars, a war, roadblocks, strips and fire', () => {
+    const a = streetRun(13);
+    const b = streetRun(13);
+    expect(a.events.some((e) => e.startsWith('gangWar '))).toBe(true);
+    expect(a.events.some((e) => e.startsWith('roadblock '))).toBe(true);
+    expect(a.events.some((e) => e.startsWith('tyreBurst '))).toBe(true);
+    expect(a.events.some((e) => e.startsWith('fireStarted '))).toBe(true);
+    expect(a.sim.gangs.cars.length + a.sim.gangs.wars.length).toBeGreaterThan(0);
+    const snap = (s: Sim) => ({ v: s.vehicles.map((v) => [v.id, v.kind, v.removed, v.pos.x, v.pos.z, v.health, ...v.flat]), c: s.characters.map((c) => [c.id, c.role, c.gang, c.removed, c.pos.x, c.pos.z, c.health]), w: s.wanted.level });
+    expect(b.events).toEqual(a.events);
+    expect(snap(b.sim)).toEqual(snap(a.sim));
   }, 120_000);
 });
 
