@@ -15,6 +15,7 @@ import {
 import type { VehicleKind, WeaponId } from '../sim/specs';
 import { characterGeometries, type CharacterPartName } from './characterGeometry';
 import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
+import { riderMount } from './riders';
 import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
 
 const MAX = 240;
@@ -787,6 +788,10 @@ export class CrowdView {
    * and in front of the low seat back), carried by the car body as drawn; the driver's hands on the wheel the car draws.
    */
   private seated(c: Character, v: Vehicle): void {
+    if (v.spec.class !== 'car') {
+      this.riding(c, v);
+      return;
+    }
     const layout = cabinLayout(v.kind);
     const weapon = c.inventory.current;
     const shooting = weapon !== 'fists' && c.shotTimer > 0;
@@ -843,6 +848,57 @@ export class CrowdView {
         pole.copy(S.vfwd).multiplyScalar(-0.4).addScaledVector(S.vleft, sd * 0.4).sub(S.vup);
       }
       this.armTo(sd > 0 ? S.shL : S.shR, target, pole, S.left, c);
+    }
+  }
+
+  /**
+   * A rider on a bike or a boat, on the seat its view publishes (riders.ts): hips on the seat, the torso tilted as the
+   * seat says, the hands on the bars, wheel or tiller and the soles on the pegs or the deck, all carried by the body as
+   * drawn (a bike's lean and wheelie). A shooter holds his gun out to his side instead of the grip on that side.
+   */
+  private riding(c: Character, v: Vehicle): void {
+    const mount = riderMount(v);
+    if (!mount || mount.seats.length === 0) return;
+    const seat = mount.seats[Math.min(c.seat, mount.seats.length - 1)]!;
+    const a = c.appearance;
+    const s = a.height;
+    const frame = S.frame.copy(mount.frame.matrixWorld);
+    const vrot = S.vrot.extractRotation(frame);
+    S.vleft.set(1, 0, 0).transformDirection(vrot);
+    S.vup.set(0, 1, 0).transformDirection(vrot);
+    S.vfwd.set(0, 0, 1).transformDirection(vrot);
+    const P = S.pelvis.set(seat.hip.x, seat.hip.y, seat.hip.z).applyMatrix4(frame);
+    S.body.copy(vrot).multiply(S.rot2.makeRotationX(-seat.recline));
+    // Leaning forward over the bars he lifts his head to look ahead; leaning back he tips it forward.
+    this.torso(c, P, seat.recline * 0.85);
+    this.shoulders(c, P);
+    const hx = hipSpread(a.build);
+    for (const sd of [1, -1] as const) {
+      const hip = (sd > 0 ? S.hipL : S.hipR).copy(P).addScaledVector(S.vleft, sd * hx);
+      const f = seat.feet[sd > 0 ? 0 : 1];
+      const foot = S.ankle.set(f.x, f.y + SKELETON.ankleY * s, f.z).applyMatrix4(frame);
+      S.pole.copy(S.vfwd).addScaledVector(S.vleft, sd * 0.35);
+      solveTwoBone(hip.x, hip.y, hip.z, foot.x, foot.y, foot.z, SKELETON.thigh * s, SKELETON.shin * s, S.pole.x, S.pole.y, S.pole.z, ik);
+      S.knee.set(ik.mx, ik.my, ik.mz);
+      const ankle = S.wrist.set(ik.ex, ik.ey, ik.ez);
+      this.bone(this.parts.thigh, hip, S.knee, S.vleft, s, a.pants);
+      this.bone(this.parts.shin, S.knee, ankle, S.vleft, s, a.pants);
+      S.inst.copy(vrot).scale(S.sc.set(1, s, s)).setPosition(ankle);
+      this.put(this.parts.shoe, S.inst, 0xffffff);
+    }
+    const weapon = c.inventory.current;
+    const side = seatSide(c.seat);
+    let busy = 0;
+    if (weapon !== 'fists' && c.shotTimer > 0) {
+      busy = side;
+      this.windowGun(c, v, weapon, side > 0 ? S.shL : S.shR, side);
+    }
+    for (const sd of [1, -1] as const) {
+      if (sd === busy) continue;
+      const h = seat.hands[sd > 0 ? 0 : 1];
+      const target = (sd > 0 ? S.targetL : S.targetR).set(h.x, h.y, h.z).applyMatrix4(frame);
+      S.pole.copy(S.vup).negate().addScaledVector(S.vleft, sd * 0.6).addScaledVector(S.vfwd, -0.3);
+      this.armTo(sd > 0 ? S.shL : S.shR, target, S.pole, S.left, c);
     }
   }
 

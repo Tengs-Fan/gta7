@@ -136,7 +136,8 @@ function steerRun(kind: VehicleKind, speed: number, mode: SteerMode, secs: numbe
   return { v, turned };
 }
 
-const KINDS = Object.keys(VEHICLE_SPECS) as VehicleKind[];
+// Road vehicles: boats steer on the water (w1_boats.test.ts).
+const KINDS = (Object.keys(VEHICLE_SPECS) as VehicleKind[]).filter((k) => VEHICLE_SPECS[k].class !== 'boat');
 /** Kinds whose top speed is above 30 m/s. */
 const FAST = KINDS.filter((k) => VEHICLE_SPECS[k].maxSpeed > 31);
 

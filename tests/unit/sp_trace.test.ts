@@ -1,5 +1,7 @@
 // Single-player same-seed results stay identical to the trace recorded at 72d0b98, before the PlayerSlot refactor.
 // Regenerate the fixture only at 72d0b98 (see scripts/record-sp-trace.ts); a diff here is a behaviour change.
+// Wave 1 track C (vehicles) changed single-player behaviour on purpose (motorbikes in traffic and parked bays) and
+// re-recorded the fixture on its branch.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

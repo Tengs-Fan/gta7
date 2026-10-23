@@ -2,6 +2,7 @@
 
 import { circleVsObb, makeContact, segmentHitsAabb } from '../core/collision';
 import { clamp, moveAngleTowards, moveTowards, smoothstep, wrapAngle } from '../core/math';
+import { throwDamage } from './bikes';
 import { MAX_STEP, SWIM_SPEED } from './characterPhysics';
 import type { Character, Vehicle } from './entities';
 import type { PlayerInput } from './input';
@@ -387,6 +388,8 @@ export class PlayerController {
       }
       sim.seat(p, v, 0);
       v.ai = null;
+      // Getting on a bike that lies on its side stands it up.
+      v.toppled = false;
       // The car is the player's now: police, traffic and parking systems let go of it.
       // Only taking a cruiser from the police is a theft, not getting back into it later.
       const fromPolice = v.owner === 'police';
@@ -576,6 +579,36 @@ export class PlayerController {
       if (circleVsObb(x, z, 0.45, obb, contact)) return true;
     }
     return false;
+  }
+
+  /**
+   * Thrown off a bike in a crash at `speed` m/s (sim/bikes.ts), which was moving at (vx, vz) just before: knocked down
+   * beside it with some of that speed, and hurt by the fall.
+   */
+  thrownOff(speed: number, vx: number, vz: number): void {
+    const sim = this.sim;
+    const p = this.p.character;
+    const v = p.vehicle;
+    if (!v) return;
+    const spot = this.findExitSpot(v) ?? { x: v.pos.x, z: v.pos.z };
+    sim.unseat(p);
+    p.state = 'knocked';
+    p.knockTimer = 2.2;
+    p.pos.x = spot.x;
+    p.pos.z = spot.z;
+    p.pos.y = Math.max(sim.world.groundHeight(spot.x, spot.z), v.pos.y) + 0.3;
+    p.heading = v.heading;
+    p.vel.x = vx * 0.5;
+    p.vel.z = vz * 0.5;
+    p.vel.y = 3;
+    p.onGround = false;
+    this.exitPending = false;
+    v.controls.throttle = 0;
+    v.controls.brake = 0;
+    v.controls.steer = 0;
+    v.controls.handbrake = false;
+    sim.events.emit('vehicleExit', { vehicle: v, character: p });
+    sim.combat.damageCharacter(p, throwDamage(speed), null, 'fall', vx, -1, vz);
   }
 
   /** Forcibly removes the player from a vehicle (sinking, despawn, explosion). */

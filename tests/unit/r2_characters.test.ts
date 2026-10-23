@@ -741,7 +741,8 @@ describe('drivers and passengers', () => {
     for (let i = 0; i < leaned.length; i++) expect(leaned[i]!.distanceTo(before[i]!)).toBeLessThan(1e-3);
   });
 
-  it.each(Object.keys(VEHICLE_SPECS) as VehicleKind[])('a %s seats the tallest rider in a cap under its roof, and the shortest with his head in the windows', (kind) => {
+  // Cars: bikes and boats have no roof (their riders: w1_vehicle_views.test.ts).
+  it.each((Object.keys(VEHICLE_SPECS) as VehicleKind[]).filter((k) => VEHICLE_SPECS[k].class === 'car'))('a %s seats the tallest rider in a cap under its roof, and the shortest with his head in the windows', (kind) => {
     const sim = makeSim({ world: world() });
     const b = sim.world.layout.bounds;
     const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.3);

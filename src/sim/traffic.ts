@@ -7,7 +7,7 @@ import { WATER_Y } from '../world/constants';
 import { STOP_MARGIN } from './driver';
 import type { Vehicle } from './entities';
 import type { Sim } from './sim';
-import { PARKED_MIX, TRAFFIC_MIX, VEHICLE_SPECS, type VehicleKind } from './specs';
+import { PARKED_MIX, parkedBike, TRAFFIC_MIX, trafficBike, VEHICLE_SPECS, type VehicleKind } from './specs';
 import { clearOfVehicles } from './vehicleRoom';
 
 /** Above this speed (m/s) the player outruns the traffic streamed around him: spawn ahead too. */
@@ -301,7 +301,7 @@ export class TrafficSystem {
       // Spawn ranges lie inside the fog-free distance: never pop a car into view.
       if (sim.isVisible(x, 1, z)) continue;
       if (!this.isClear(x, z, 11)) continue;
-      let k = kind ?? sim.rng.weighted(TRAFFIC_MIX);
+      let k = kind ?? trafficBike(sim.rng.weighted(TRAFFIC_MIX), x, z);
       if (k === 'bus' && !lane.line.avenue) k = 'sedan';
       // Queued at a light that is not green, the front bumper waits STOP_MARGIN short of the line (see DriverAI). A bus
       // queued nearer than that would already be in the junction for its driver and pull out against the light: it
@@ -385,7 +385,7 @@ export class TrafficSystem {
       if (hash(i) % 100 >= 55) continue;
       if (sim.isVisible(s.x, 0.5, s.z)) continue;
       if (!this.isClear(s.x, s.z, BAY_SPACING)) continue;
-      const kind = PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0];
+      const kind = parkedBike(PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0], i);
       if (!clearOfVehicles(sim, kind, s.x, s.z, s.heading)) continue;
       const v = sim.spawnVehicle(kind, s.x, s.z, s.heading);
       v.owner = 'parked';

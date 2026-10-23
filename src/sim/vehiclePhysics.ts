@@ -6,9 +6,18 @@ import type { StaticCollider } from '../world/colliders';
 import { DECK_SLAB, WATER_Y } from '../world/constants';
 import { rectContains } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
+import { bikeTouchdown, stepBike } from './bikePhysics';
 import type { Vehicle } from './entities';
+import type { VehicleSpec } from './specs';
 
 export const VEHICLE_GRAVITY = 17;
+/** The speed (m/s) at which a car's steering limit has halved (see steerLimit). */
+export const STEER_FADE = 15;
+
+/** The most the front wheels of a `spec` turn at `speed` m/s (rad): its full lock, shrinking as it goes faster. */
+export function steerLimit(spec: VehicleSpec, speed: number): number {
+  return spec.steer / (1 + Math.abs(speed) / (spec.steerFade ?? STEER_FADE));
+}
 /** Deceleration (m/s^2) of a driven car with neither throttle nor brake pressed. */
 export const ENGINE_BRAKE = 1.4;
 const MAX_STEP_UP = 1.0;
@@ -294,12 +303,12 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     // --- Yaw (kinematic bicycle model limited by tyre grip) ---
     const speedAbs = Math.abs(vF);
     const wheelbase = s.length * 0.6;
-    const maxSteer = s.steer / (1 + speedAbs / 15);
+    const maxSteer = steerLimit(s, speedAbs);
     const delta = -v.steer * maxSteer;
     let yawTarget = (vF * Math.tan(delta)) / wheelbase;
     const gripLimit = ((handbrake ? 2.0 : 1.12) * s.grip) / Math.max(speedAbs, 2.5);
     yawTarget = clamp(yawTarget, -gripLimit, gripLimit);
-    if (v.destroyed || v.flipped) yawTarget = 0;
+    if (v.destroyed || v.flipped || v.toppled) yawTarget = 0;
     const resp = handbrake ? 5.5 : 9;
     v.angVel += (yawTarget - v.angVel) * Math.min(1, resp * dt);
   } else {
@@ -357,12 +366,12 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     if (throttle < 0.01 && brake < 0.01) friction += ENGINE_BRAKE;
     if (!hasDriver) friction += 5.5; // parked: handbrake on
     if (handbrake) friction += 7.5;
-    if (v.destroyed || v.flipped) friction += 9;
+    if (v.destroyed || v.flipped || v.toppled) friction += 9;
     friction += wade * (WADE_DRAG * s.accel + 0.04 * vF * vF);
     vF = moveTowards(vF, 0, friction * dt);
 
     // --- Lateral grip ---
-    const grip = (handbrake ? s.grip * 0.3 : v.destroyed || v.flipped ? s.grip * 1.5 : s.grip) * (1 - 0.4 * wade);
+    const grip = (handbrake ? s.grip * 0.3 : v.destroyed || v.flipped || v.toppled ? s.grip * 1.5 : s.grip) * (1 - 0.4 * wade);
     const skidLat = Math.abs(vR);
     vR = moveTowards(vR, 0, grip * dt);
     const skidTarget = clamp((skidLat - 2.2) / 6, 0, 1) + (handbrake && Math.abs(vF) > 5 ? 0.6 : 0) + (v.braking && Math.abs(vF) > 12 && brake > 0.8 ? 0.35 : 0);
@@ -420,6 +429,8 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
       v.pitchVel = 0;
       v.rollVel = 0;
       v.flipped = landsUpsideDown(v);
+      // A bike off upright falls on its side instead of resting on its roof (and catching fire like a car there).
+      if (s.class === 'bike') bikeTouchdown(v);
       host.onVehicleLanded(v, impact);
     }
   } else {
@@ -455,6 +466,8 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
       v.pitch = dampAngle(v.pitch, 0, 6, dt);
     }
   }
+
+  if (s.class === 'bike') stepBike(v, dt, throttle);
 
   // --- Water ---
   if (v.pos.y < WATER_Y + 0.15 && world.waterDepth(v.pos.x, v.pos.z) > SINK_DEPTH) {
@@ -514,7 +527,7 @@ function rampAt(world: StaticWorld, x: number, z: number): number {
   return -1;
 }
 
-function updateDerived(v: Vehicle, dt: number, throttle: number): void {
+export function updateDerived(v: Vehicle, dt: number, throttle: number): void {
   const fx = Math.sin(v.heading);
   const fz = Math.cos(v.heading);
   v.forwardSpeed = v.vel.x * fx + v.vel.z * fz;
