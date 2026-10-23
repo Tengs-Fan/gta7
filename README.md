@@ -415,7 +415,10 @@ scripts/with-slot.sh cpu npx vitest run
 
 The game is single player by default and needs no server (the GitHub Pages build has none).
 `npm run build && npm run server` serves the game and the multiplayer socket on port 4210 (all interfaces; LAN players open `http://<host>:4210/`), with rooms chosen by `?room=<id>` (default `lobby`, 8 players) and `GET /status` for tick time and rates.
-In this version the server accepts connections and runs the room, but the game client does not join one yet: a first player drives and others watch until the multi-player simulation and client land.
+Join with `http://<host>:4210/?mp=1&room=<id>&name=<name>` (or `&server=host:port` from another page). Each player has his own character, wanted level, police, money, ammo and side job on his own HUD; story missions, cheats, saving and shops are single player only.
+Your own movement, driving and trigger pulls are predicted locally (the muzzle flash and the shot sound come at once, the tracer and hit follow the server's events); other players and the traffic are drawn about 117 ms behind the newest snapshot.
+If the server goes away the screen says so within 3 s and offers RECONNECT (you rejoin as a new player) or RETURN TO TITLE; a server address that does not answer gives COULD NOT JOIN with TRY AGAIN or BACK TO TITLE.
+For testing, `&lag=<ms>&jitter=<ms>&loss=<fraction>` simulates a slow link and `&predict=0` turns off prediction; `window.__gta7.net` (`state()`, `local()`, `players()`, `events()`, `command()`, `reconnect()`, `leave()`) exists once a session starts.
 `docs/multiplayer.md` covers the Dockerfile and running `wss://` behind a TLS proxy; no cloud hosting is set up.
 `npm run typecheck` also checks `server/` (`tsc -p server/tsconfig.json`).
 
