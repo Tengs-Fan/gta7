@@ -131,8 +131,10 @@ function updateFire(host: ActivityHost, j: FireJob, dt: number): void {
   for (const f of j.fires) {
     const v = f.vehicle;
     if (v) {
-      if (v.removed || v.destroyed) f.strength = 0;
-      else {
+      // Blown up or gone by some other way: the record is dropped with the level, so let go of the car now.
+      if (v.removed || v.destroyed) {
+        if (f.strength > 0 || v.persistent) douse(f);
+      } else {
         f.x = v.pos.x;
         f.y = v.pos.y;
         f.z = v.pos.z;
