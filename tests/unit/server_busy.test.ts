@@ -1,12 +1,13 @@
-// Snapshot size, bandwidth and tick cost in a busy scene (VAL-MPNET-008 / -010): four players downtown (slot 0 the
-// Sim's real player at 3 stars with a pursuit, a helicopter and gunfire; slots 1-3 stand-in players walking nearby),
-// ambient traffic and pedestrians, 60 s of sim time, each client's snapshots measured as the encoded bytes it is sent.
+// Snapshot size, bandwidth and tick cost in a busy scene (VAL-MPNET-008 / -010): four real players (PlayerSlots with
+// controllers; slot 0 at 3 stars with a pursuit, a helicopter and gunfire, slots 1-3 walking), ambient traffic and
+// pedestrians streamed round every player, 60 s of sim time, each client's snapshots measured as the encoded bytes it is
+// sent. Downtown the four stand a block apart; spread out, each is in his own district with his own traffic.
 
 import { describe, expect, it } from 'vitest';
 import { encodeMessage, PROTOCOL_VERSION } from '../../src/net/protocol';
 import { neutralInput, type PlayerInput } from '../../src/sim/input';
 import { Room } from '../../server/room';
-import { PuppetSlotProvider } from '../../server/slots';
+import { playerClusters } from '../../src/sim/traffic';
 import { FakePeer } from './net_helpers';
 
 const SIM_SECONDS = 60;
@@ -21,11 +22,14 @@ function stats(a: number[]): { mean: number; p95: number; max: number } {
 }
 
 describe('busy scene budget', () => {
-  it('4 players downtown, 3-star pursuit with a helicopter and gunfire: snapshot bytes, bandwidth and tick cost', () => {
-    const room = new Room('busy', 11, { realtime: false, slotProvider: (sim) => new PuppetSlotProvider(sim, 8), log: () => {} });
+  for (const spread of [false, true]) {
+  it(`4 players ${spread ? 'in four districts' : 'downtown'}, 3-star pursuit with a helicopter and gunfire: snapshot bytes, bandwidth and tick cost`, () => {
+    const room = new Room('busy', 11, { realtime: false, log: () => {} });
     const sim = room.sim;
-    // Downtown: the player at one junction, the other three one block away each.
-    const spots = [sim.roads.node(4, 4), sim.roads.node(5, 4), sim.roads.node(4, 5), sim.roads.node(5, 5)];
+    // Downtown: the player at one junction, the other three one block away each. Spread: one in each corner district.
+    const spots = spread
+      ? [sim.roads.node(4, 4), sim.roads.node(1, 1), sim.roads.node(7, 1), sim.roads.node(1, 7)]
+      : [sim.roads.node(4, 4), sim.roads.node(5, 4), sim.roads.node(4, 5), sim.roads.node(5, 5)];
     const place = (i: number) => {
       const c = room.slots.character(i);
       const n = spots[i]!;
@@ -36,9 +40,6 @@ describe('busy scene budget', () => {
     };
     const player = sim.player;
     place(0);
-    sim.cheats.godMode = true;
-    player.inventory.give('smg', 9999);
-    player.inventory.current = 'smg';
     // Traffic and pedestrians stream in round the new spot before anyone joins.
     for (let i = 0; i < 300; i++) room.step();
     const peers = [0, 1, 2, 3].map(() => new FakePeer());
@@ -49,6 +50,12 @@ describe('busy scene budget', () => {
       p.send(room.welcome(m));
       return m;
     });
+    expect(sim.players.map((s) => s.id)).toEqual([0, 1, 2, 3]);
+    const clusters = playerClusters(sim.activePlayers()).length;
+    expect(clusters).toBe(spread ? 4 : clusters);
+    for (const s of sim.players) s.cheats.godMode = true;
+    player.inventory.give('smg', 9999);
+    player.inventory.current = 'smg';
     sim.wanted.setLevel(3);
     const welcomeBytes = peers.map((p) => p.sent[0]!.length);
     let late: { welcome: number; first: number; entities: number } | null = null;
@@ -80,8 +87,9 @@ describe('busy scene budget', () => {
         inputBytes.push(buf.byteLength);
         room.input(m, seq, inp, room.tick);
       }
-      // Three stars throughout (shooting at the police would raise it).
+      // Three stars throughout for slot 0 (shooting at the police would raise it), none for the walkers.
       if (sim.wanted.level !== 3) sim.wanted.setLevel(3);
+      for (const s of sim.players) if (s.id !== 0 && s.wanted.level > 0) s.wanted.clear();
       const t0 = performance.now();
       room.step();
       tickMs.push(performance.now() - t0);
@@ -116,11 +124,11 @@ describe('busy scene budget', () => {
     const upKBs = (inputBytes.reduce((a, b) => a + b, 0) / members.length / SIM_SECONDS) / 1024;
     const tick = stats(tickMs);
     const n = counts.samples;
-    console.log(`[busy] scene (mean over ${SIM_SECONDS} s): ${(counts.cars / n).toFixed(1)} vehicles (${(counts.police / n).toFixed(1)} police), ${(counts.chars / n).toFixed(1)} characters, ${(counts.helis / n).toFixed(2)} helicopters, ${counts.shots} trigger pulls, wanted ${sim.wanted.level}`);
-    per.forEach((p, i) => console.log(`[busy] client ${i + 1}: welcome ${welcomeBytes[i]} B, first (full) snapshot ${p.first} B, all snapshots mean ${p.mean.toFixed(0)} B, p95 ${p.p95} B, max ${p.max} B over ${p.count} snapshots; down ${p.downKBs.toFixed(1)} KB/s (events ${p.eventKBs.toFixed(1)} KB/s)`));
-    console.log(`[busy] late joiner: welcome ${late!.welcome} B, first (full) snapshot ${late!.first} B with ${late!.entities} entities`);
-    console.log(`[busy] up ${upKBs.toFixed(2)} KB/s per client (${inputBytes[0]} B per input at 60 Hz); tick (sim update + snapshots for 4) mean ${tick.mean.toFixed(3)} ms, p95 ${tick.p95.toFixed(3)} ms, max ${tick.max.toFixed(2)} ms`);
-    console.log(`[busy] status: ${JSON.stringify({ players: status.players, tickMs: status.tickMs, snapshotBytes: status.snapshotBytes, entities: status.entities })}`);
+    console.log(`[busy ${spread ? 'spread' : 'downtown'}] ${clusters} player groups; scene (mean over ${SIM_SECONDS} s): ${(counts.cars / n).toFixed(1)} vehicles (${(counts.police / n).toFixed(1)} police), ${(counts.chars / n).toFixed(1)} characters, ${(counts.helis / n).toFixed(2)} helicopters, ${counts.shots} trigger pulls, wanted ${sim.wanted.level}`);
+    per.forEach((p, i) => console.log(`[busy ${spread ? 'spread' : 'downtown'}] client ${i + 1}: welcome ${welcomeBytes[i]} B, first (full) snapshot ${p.first} B, all snapshots mean ${p.mean.toFixed(0)} B, p95 ${p.p95} B, max ${p.max} B over ${p.count} snapshots; down ${p.downKBs.toFixed(1)} KB/s (events ${p.eventKBs.toFixed(1)} KB/s)`));
+    console.log(`[busy ${spread ? 'spread' : 'downtown'}] late joiner: welcome ${late!.welcome} B, first (full) snapshot ${late!.first} B with ${late!.entities} entities`);
+    console.log(`[busy ${spread ? 'spread' : 'downtown'}] up ${upKBs.toFixed(2)} KB/s per client (${inputBytes[0]} B per input at 60 Hz); tick (sim update + snapshots for 4) mean ${tick.mean.toFixed(3)} ms, p95 ${tick.p95.toFixed(3)} ms, max ${tick.max.toFixed(2)} ms`);
+    console.log(`[busy ${spread ? 'spread' : 'downtown'}] status: ${JSON.stringify({ players: status.players, tickMs: status.tickMs, snapshotBytes: status.snapshotBytes, entities: status.entities })}`);
     expect(counts.helis / n).toBeGreaterThan(0.5);
     expect(counts.police / n).toBeGreaterThanOrEqual(2);
     expect(counts.shots).toBeGreaterThan(100);
@@ -135,7 +143,9 @@ describe('busy scene budget', () => {
     expect(upKBs).toBeLessThanOrEqual(10);
     expect(tick.mean).toBeLessThanOrEqual(5);
     expect(tick.p95).toBeLessThanOrEqual(12);
-    expect(PROTOCOL_VERSION).toBe(1);
+    // Version 2 added each player's ammo and job HUD (status line, objective markers) to the snapshot head.
+    expect(PROTOCOL_VERSION).toBe(2);
     room.close();
   }, 120_000);
+  }
 });

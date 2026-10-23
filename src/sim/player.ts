@@ -402,7 +402,7 @@ export class PlayerController {
       victim.vel.z = sz * 3;
       victim.vel.y = 2;
       victim.onGround = false;
-      sim.peds.onJacked(victim);
+      sim.peds.onJacked(victim, this.p.character);
       this.jacked = true;
       this.jackedAt = p.enterTimer;
       this.p.wanted.crime('carjack', v.pos.x, v.pos.z, this.p);
@@ -437,7 +437,7 @@ export class PlayerController {
       victim.pos.z = v.pos.z - sz * (v.halfW + 0.9);
       victim.pos.y = Math.max(sim.world.groundHeight(victim.pos.x, victim.pos.z), v.pos.y);
       victim.state = 'normal';
-      sim.peds.onJacked(victim);
+      sim.peds.onJacked(victim, this.p.character);
       this.jacked = true;
       this.p.wanted.crime('carjack', v.pos.x, v.pos.z, this.p);
     }
@@ -459,7 +459,7 @@ export class PlayerController {
             o.pos.y = Math.max(sim.world.groundHeight(spot.x, spot.z), boat ? v.pos.y : -Infinity);
           }
           o.state = 'normal';
-          sim.peds.onJacked(o);
+          sim.peds.onJacked(o, this.p.character);
         }
       }
       sim.seat(p, v, 0);

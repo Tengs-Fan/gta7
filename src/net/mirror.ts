@@ -21,7 +21,8 @@ import { clearWeather } from '../sim/weather';
 import type { StaticCollider } from '../world/colliders';
 import type { StaticWorld } from '../world/staticWorld';
 import { emptySample, MotionTrack, RenderClock, type MotionSample } from './interp';
-import type { EventMsg, Hud, NetEvent, NetRef, RosterEntry, SnapshotMsg, WelcomeMsg } from './protocol';
+import type { Objective } from '../sim/activities/types';
+import type { EventMsg, Hud, JobHud, NetEvent, NetRef, RosterEntry, SnapshotMsg, WelcomeMsg } from './protocol';
 
 /** Event fields that must resolve to a known entity; an event missing one is dropped (its effect has no subject). */
 const REQUIRED_REFS: Readonly<Record<string, readonly string[]>> = {
@@ -101,15 +102,6 @@ const NO_MISSIONS: MissionView = {
   retryAfterCops: () => null,
 };
 
-const NO_ACTIVITIES: ActivitiesView = {
-  busy: false,
-  job: null,
-  objectives: () => [],
-  status: () => null,
-  streetRunCourses: () => [],
-  jobPrompt: () => null,
-};
-
 const NO_INTERACTIONS: InteractionsView = {
   markers: [],
   current: () => null,
@@ -173,7 +165,8 @@ export class Mirror implements ViewState {
   readonly helis: Helicopter[] = [];
   readonly players: NetPlayer[] = [];
   readonly missions = NO_MISSIONS;
-  readonly activities = NO_ACTIVITIES;
+  /** The local player's own side job, from the snapshots (status line and objective markers; no job object). */
+  readonly activities: ActivitiesView;
   readonly interactions = NO_INTERACTIONS;
   readonly combat: CombatView;
 
@@ -188,7 +181,8 @@ export class Mirror implements ViewState {
   /** Tick of the newest snapshot applied (-1: none yet). */
   tick = -1;
   ackSeq = 0;
-  hud: Hud = { wanted: 0, searching: false, money: 0 };
+  hud: Hud = { wanted: 0, searching: false, money: 0, clip: 0, ammo: 0 };
+  jobHud: JobHud = { kind: '', status: '', objectives: [] };
   roster: RosterEntry[] = [];
   readonly renderClock: RenderClock;
   /** Entities a predictor draws itself (the local player and his car): update() leaves their motion alone. */
@@ -220,6 +214,27 @@ export class Mirror implements ViewState {
     this.placeholder = new Character(0, 'player', home?.x ?? 0, this.world.groundHeight(home?.x ?? 0, home?.z ?? 0), home?.z ?? 0, PLACEHOLDER_LOOK);
     this.me = new NetPlayer(0, this.placeholder);
     this.players.push(this.me);
+    const self = this;
+    this.activities = {
+      get busy() {
+        return self.jobHud.kind !== '';
+      },
+      job: null,
+      objectives: () => this.jobObjectives(),
+      status: () => this.jobHud.status || null,
+      streetRunCourses: () => [],
+      jobPrompt: () => null,
+    };
+  }
+
+  /** The job's markers, following the entities the mirror knows (a point where it does not). */
+  private jobObjectives(): Objective[] {
+    return this.jobHud.objectives.map((o) => {
+      const vehicle = o.vehicle ? this.vehicle(o.vehicle) : null;
+      const character = o.character ? this.character(o.character) : null;
+      const at = vehicle?.pos ?? character?.pos ?? o;
+      return { x: at.x, z: at.z, label: o.label, color: o.color, radius: o.radius, vehicle, character };
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -309,6 +324,7 @@ export class Mirror implements ViewState {
     const present = s.full && this.tick >= 0 ? new Set<number>() : null;
 
     this.hud = s.hud;
+    if (s.job) this.jobHud = s.job;
     if (s.roster) this.roster = s.roster;
     if (s.weather) Object.assign(this.weather.state, s.weather, { wind: { ...s.weather.wind } });
     if (s.signalHolds) this.applyHolds(s.signalHolds);
@@ -709,6 +725,15 @@ export class Mirror implements ViewState {
     }
     me.wanted.level = this.hud.wanted;
     me.wanted.searching = this.hud.searching;
+    // The rounds of the gun in his hand (snapshots carry no inventories, only the weapon held).
+    const c = this.localCharacter;
+    if (c && this.slot >= 0 && c.inventory.current !== 'fists') {
+      const w = c.inventory.slots.get(c.inventory.current);
+      if (w) {
+        w.clip = this.hud.clip;
+        w.ammo = this.hud.ammo;
+      } else c.inventory.slots.set(c.inventory.current, { clip: this.hud.clip, ammo: this.hud.ammo, readyAt: 0 });
+    }
   }
 }
 

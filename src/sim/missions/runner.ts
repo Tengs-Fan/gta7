@@ -655,6 +655,9 @@ interface RetryOffer extends RetryBase {
   until: number | null;
 }
 
+/** Why story missions do not start in a multiplayer sim. */
+export const MP_NO_STORY = 'Story missions are single-player only.';
+
 export class MissionSystem {
   readonly defs: readonly MissionDef[] = STORY;
   active: MissionCtx | null = null;
@@ -681,9 +684,15 @@ export class MissionSystem {
     return this.defs.filter((d) => !prog.hasDone(d.id) && d.requires.every((r) => prog.hasDone(r)));
   }
 
-  /** The next mission each contact offers. */
+  /** Why no story mission can start in this sim at all (multiplayer), or null. */
+  get refusal(): string | null {
+    return this.sim.multiplayer ? MP_NO_STORY : null;
+  }
+
+  /** The next mission each contact offers (none in multiplayer). */
   offers(): MissionDef[] {
     const out: MissionDef[] = [];
+    if (this.refusal) return out;
     for (const contact of CONTACTS) {
       const d = this.available().find((m) => m.giver === contact.id);
       if (d) out.push(d);
@@ -705,6 +714,10 @@ export class MissionSystem {
 
   start(id: string, opts: { retrying?: boolean; resume?: number } = {}): boolean {
     const sim = this.sim;
+    if (this.refusal) {
+      sim.events.emit('message', { text: this.refusal, duration: 3 });
+      return false;
+    }
     if (this.active || sim.playerDown) return false;
     const def = this.defs.find((d) => d.id === id);
     if (!def || !this.available().includes(def)) return false;
@@ -728,6 +741,8 @@ export class MissionSystem {
 
   update(dt: number): void {
     const sim = this.sim;
+    // Multiplayer: no markers, no missions, no autosaves.
+    if (this.refusal) return;
     const press = sim.lastInput.interact;
     this.skipPressed = press && !this.interactWas;
     this.interactWas = press;

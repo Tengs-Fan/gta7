@@ -3,6 +3,7 @@
 // uses the subtitle channel, which belongs to the story.
 
 import type { Vehicle } from './entities';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import type { CrimeType } from './wanted';
 
@@ -76,18 +77,19 @@ export class DispatchSystem {
   private lastAt = -Infinity;
   private readonly queue: Array<{ text: string; at: number }> = [];
 
-  constructor(private readonly sim: Sim) {
-    this.evasions = sim.wanted.evasions;
+  /** Narrates the pursuit of `slot`'s player (slot 0 by default), on his own scanner line. */
+  constructor(private readonly sim: Sim, private readonly slot: PlayerSlot = sim.players[0]!) {
+    this.evasions = slot.wanted.evasions;
   }
 
   update(): void {
     const sim = this.sim;
-    const w = sim.wanted;
+    const w = this.slot.wanted;
     const level = w.level;
     const searching = level > 0 && w.searching;
     let helis = 0;
-    if (level > 0) for (const h of sim.helis) if (!h.removed && !h.destroyed) helis++;
-    if (sim.playerDown) {
+    if (level > 0) for (const h of sim.helis) if (!h.removed && !h.destroyed && sim.police.targetSlotOf(h) === this.slot.id) helis++;
+    if (this.slot.down) {
       // Wasted or busted: the chase is over, and the respawn clears the stars without a word.
       this.queue.length = 0;
     } else if (level === 0 && this.level > 0) {
@@ -120,7 +122,7 @@ export class DispatchSystem {
     if (this.queue.length === 0 || now - this.lastAt < DISPATCH_GAP) return;
     const line = this.queue.shift()!;
     this.lastAt = now;
-    this.sim.events.emit('dispatch', { text: line.text });
+    this.sim.events.emit('dispatch', { text: line.text, ...this.slot.tag });
   }
 
   private zone(x: number, z: number): string {
@@ -128,19 +130,17 @@ export class DispatchSystem {
   }
 
   private opening(): string {
-    const sim = this.sim;
-    const pp = sim.playerPos();
-    const crime = sim.wanted.lastCrime;
+    const pp = this.slot.pos();
+    const crime = this.slot.wanted.lastCrime;
     const what = crime ? CRIME_PHRASES[crime] : 'a disturbance';
-    const v = sim.player.vehicle;
+    const v = this.slot.character.vehicle;
     return `All units, ${what} reported in ${this.zone(pp.x, pp.z)}. Suspect ${v ? `in ${describe(v)}` : 'on foot'}.`;
   }
 
   private spotted(): string {
-    const sim = this.sim;
-    const p = sim.player;
+    const p = this.slot.character;
     const v = p.vehicle;
-    const pp = sim.playerPos();
+    const pp = this.slot.pos();
     const vx = v ? v.vel.x : p.vel.x;
     const vz = v ? v.vel.z : p.vel.z;
     const h = v ? v.heading : p.heading;

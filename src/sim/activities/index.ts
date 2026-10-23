@@ -2,6 +2,7 @@
 
 import type { Character, Vehicle } from '../entities';
 import type { PlayerSlot } from '../playerSlot';
+import { slotSim } from '../slotView';
 import type { Sim } from '../sim';
 import type { StreetRunCourse } from '../streetRuns';
 import { cabActivity } from './cab';
@@ -63,6 +64,7 @@ registerActivity(streetRunActivity);
 registerActivity(cabActivity);
 
 export class Activities {
+  /** Slot 0's job (single player's only one); other slots' jobs are behind jobOf. */
   job: Job | null = null;
   /**
    * Set by the game each frame: the player's last way out of a vehicle may yet be undone. FIXMYRIDE puts him back in
@@ -72,11 +74,17 @@ export class Activities {
   exitUndoable = false;
 
   private readonly host: ActivityHost;
+  /** The hosts (and jobs) of the slots other than 0, by slot id: every player runs his own job. */
+  private readonly others = new Map<number, { host: ActivityHost; job: Job | null }>();
 
   constructor(private readonly sim: Sim) {
     const self = this;
     this.host = {
       sim,
+      get slot() {
+        return sim.players[0]!;
+      },
+      hostOf: (slot) => this.hostOf(slot),
       get job() {
         return self.job;
       },
@@ -90,74 +98,119 @@ export class Activities {
     for (const def of registry) def.attach?.(this.host);
   }
 
+  /** The activity host of a slot: slot 0's runs on the sim itself, another's on that slot's view of it (slotSim). */
+  hostOf(who: PlayerSlot): ActivityHost {
+    if (who.id === 0) return this.host;
+    const id = who.id;
+    let entry = this.others.get(id);
+    if (!entry) {
+      const sim = this.sim;
+      const e: { host: ActivityHost; job: Job | null } = { host: null as unknown as ActivityHost, job: null };
+      const slotNow = () => sim.players.find((s) => s.id === id) ?? who;
+      e.host = {
+        sim: slotSim(sim, who),
+        get slot() {
+          return slotNow();
+        },
+        hostOf: (slot) => this.hostOf(slot),
+        get job() {
+          return e.job;
+        },
+        set job(j: ActivityJob | null) {
+          e.job = j as Job | null;
+        },
+        say: (text, duration) => this.say(text, duration, slotNow()),
+        end: (text) => this.end(text, slotNow()),
+        // FIXMYRIDE (single player only) is the only way out of a car that may yet be undone.
+        waitsForPlayer: () => false,
+      };
+      entry = e;
+      this.others.set(id, entry);
+    }
+    return entry.host;
+  }
+
+  /** The job player `who` runs (slot 0 by default), or null. */
+  jobOf(who: PlayerSlot | Character | number = this.sim.players[0]!): Job | null {
+    const slot = this.sim.resolveSlot(who);
+    if (!slot || slot.id === 0) return slot ? this.job : null;
+    return this.others.get(slot.id)?.job ?? null;
+  }
+
   get busy(): boolean {
     return this.job !== null;
   }
 
-  /** Current objective markers for the HUD / renderer. */
-  objectives(): Objective[] {
-    const j = this.job;
+  /** Whether player `who` runs a job. */
+  busyFor(who: PlayerSlot | Character | number): boolean {
+    return this.jobOf(who) !== null;
+  }
+
+  /** Current objective markers for the HUD / renderer (slot 0's by default). */
+  objectives(who: PlayerSlot | Character | number = this.sim.players[0]!): Objective[] {
+    const j = this.jobOf(who);
     return j ? (getActivity(j.kind)?.objectives(j) ?? []) : [];
   }
 
-  /** HUD timer / counter text. */
-  status(): string | null {
-    const j = this.job;
+  /** HUD timer / counter text (slot 0's by default). */
+  status(who: PlayerSlot | Character | number = this.sim.players[0]!): string | null {
+    const j = this.jobOf(who);
     return j ? (getActivity(j.kind)?.status(j) ?? null) : null;
+  }
+
+  /** Story missions are slot 0's: one running keeps slot 0 from starting a job, never another slot. */
+  private missionFor(slot: PlayerSlot): boolean {
+    return slot.id === 0 && this.sim.missions.active !== null;
   }
 
   /** The T-key prompt for the player's vehicle: what the job key would start there right now, if anything. */
   jobPrompt(who: PlayerSlot | Character = this.sim.players[0]!): string | null {
-    const slot = this.jobSeat(who);
-    const v = slot?.vehicle;
-    if (!slot || !v || this.busy || this.sim.missions.active) return null;
-    const def = this.startableBy(slot, v);
-    return def ? def.prompt(this.host, slot, v) : null;
+    const slot = this.sim.resolveSlot(who);
+    const c = slot?.character;
+    const v = c?.vehicle;
+    if (!slot || !c || !v || this.busyFor(slot) || this.missionFor(slot)) return null;
+    const host = this.hostOf(slot);
+    const def = this.startableBy(host, c, v);
+    return def ? def.prompt(host, c, v) : null;
   }
 
-  /**
-   * The job key pressed by a player (slot 0 by default). There is one job at a time and it belongs to slot 0, so the
-   * key does nothing for any other slot: it neither starts a job for it nor ends slot 0's.
-   */
+  /** The job key pressed by a player (slot 0 by default): it ends or starts that player's own job only. */
   toggleJob(who: PlayerSlot | Character = this.sim.players[0]!): void {
-    const slot = this.jobSeat(who);
+    const slot = this.sim.resolveSlot(who);
     if (!slot) return;
-    const v = slot.vehicle;
-    const running = this.job ? getActivity(this.job.kind) : undefined;
-    if (this.job && running?.toggleEndText !== undefined) {
-      this.end(running.toggleEndText);
+    const c = slot.character;
+    const v = c.vehicle;
+    const job = this.jobOf(slot);
+    const running = job ? getActivity(job.kind) : undefined;
+    if (job && running?.toggleEndText !== undefined) {
+      this.end(running.toggleEndText, slot);
       return;
     }
-    if (this.job || this.sim.missions.active) return;
+    if (job || this.missionFor(slot)) return;
     if (!v) return;
-    this.startableBy(slot, v)?.start(this.host, slot, v);
+    const host = this.hostOf(slot);
+    this.startableBy(host, c, v)?.start(host, c, v);
   }
 
-  /** The character of the player the single job belongs to, if `who` is that player. */
-  private jobSeat(who: PlayerSlot | Character): Character | null {
-    const owner = this.sim.players[0]!;
-    const c = this.sim.resolveSlot(who)?.character ?? (who as Character);
-    return c === owner.character ? c : null;
-  }
-
-  cancelAll(reason: CancelReason): void {
-    const j = this.job;
+  /** Ends the job of `slot` (slot 0 by default) for `reason`, with its def's closing text. */
+  cancelAll(reason: CancelReason, slot: PlayerSlot = this.sim.players[0]!): void {
+    const j = this.jobOf(slot);
     if (!j) return;
     const abort = getActivity(j.kind)?.abortText;
-    this.end(abort ? abort(reason) : reason === 'mission' ? '' : 'Job over.');
+    this.end(abort ? abort(reason) : reason === 'mission' ? '' : 'Job over.', slot);
   }
 
   streetRunCourses(): readonly StreetRunCourse[] {
     return streetRunCourses(this.sim);
   }
 
-  /** Start the requested course, or the nearest start gate in free roam. */
-  startStreetRun(courseId?: string): boolean {
-    return streetRunActivity.start(this.host, this.sim.player, this.sim.player.vehicle, courseId);
+  /** Start the requested course, or the nearest start gate in free roam (for slot 0 by default). */
+  startStreetRun(courseId?: string, who: PlayerSlot = this.sim.players[0]!): boolean {
+    return streetRunActivity.start(this.hostOf(who), who.character, who.character.vehicle, courseId);
   }
 
-  startRampage(tag: string): boolean {
-    return rampageActivity.start(this.host, this.sim.player, this.sim.player.vehicle, tag);
+  startRampage(tag: string, who: PlayerSlot = this.sim.players[0]!): boolean {
+    return rampageActivity.start(this.hostOf(who), who.character, who.character.vehicle, tag);
   }
 
   /** Takes Lou's export list (her board's marker): false while a job or a mission runs. */
@@ -172,29 +225,38 @@ export class Activities {
   }
 
   onVehicleLanded(v: Vehicle): void {
-    onVehicleLanded(this.sim, v);
+    // The bonus is the driver's: his money, his record, his HUD.
+    const slot = this.sim.slotOf(v.driver);
+    onVehicleLanded(slot ? slotSim(this.sim, slot) : this.sim, v);
   }
 
   update(dt: number): void {
+    if (!(dt > 0) || !Number.isFinite(dt)) return;
     const j = this.job;
-    if (!j || this.sim.playerDown || !(dt > 0) || !Number.isFinite(dt)) return;
-    getActivity(j.kind)?.update(this.host, j, dt);
+    if (j && !this.sim.playerDown) getActivity(j.kind)?.update(this.host, j, dt);
+    if (this.others.size === 0) return;
+    for (const slot of this.sim.players) {
+      if (slot.id === 0 || slot.down || slot.parked) continue;
+      const e = this.others.get(slot.id);
+      if (e?.job) getActivity(e.job.kind)?.update(e.host, e.job, dt);
+    }
   }
 
-  private startableBy(slot: Character, v: Vehicle): ActivityDef | undefined {
-    return registry.find((d) => d.canStart(this.host, slot, v));
+  private startableBy(host: ActivityHost, c: Character, v: Vehicle): ActivityDef | undefined {
+    return registry.find((d) => d.canStart(host, c, v));
   }
 
-  private say(text: string, duration = 3): void {
-    if (text) this.sim.events.emit('message', { text, duration });
+  private say(text: string, duration = 3, slot?: PlayerSlot): void {
+    if (text) this.sim.events.emit('message', { text, duration, ...slot?.tag });
   }
 
-  private end(text: string): void {
-    const j = this.job;
-    this.job = null;
+  private end(text: string, slot: PlayerSlot = this.sim.players[0]!): void {
+    const j = this.jobOf(slot);
     if (!j) return;
-    getActivity(j.kind)?.end(this.host, j, text);
-    this.sim.events.emit('activityEnded', { kind: j.kind });
-    this.say(text);
+    const host = this.hostOf(slot);
+    host.job = null;
+    getActivity(j.kind)?.end(host, j, text);
+    this.sim.events.emit('activityEnded', { kind: j.kind, ...slot.tag });
+    this.say(text, 3, slot);
   }
 }

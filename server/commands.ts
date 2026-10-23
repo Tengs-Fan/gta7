@@ -1,6 +1,9 @@
-// Client commands (menu actions). Story missions, cheats and saving stay single-player: there are no commands for them.
+// Client commands (menu actions). Story missions, cheats and saving stay single-player: 'cheat' is refused with a
+// reason (the room's Sim is a multiplayer one), and there are no commands for the others.
 // 'debug' exists only on a server started with --dev (tests, measurements, validation of busy scenes).
 
+import { applySimCheat } from '../src/sim/cheats';
+import type { PlayerSlot } from '../src/sim/playerSlot';
 import { WEAPONS, type VehicleKind, type WeaponId } from '../src/sim/specs';
 import { VEHICLE_SPECS } from '../src/sim/specs';
 import type { Member, Room } from './room';
@@ -25,10 +28,22 @@ export function runCommand(room: Room, m: Member, name: string, arg: string): bo
   return true;
 }
 
+function slotOf(room: Room, m: Member): PlayerSlot | undefined {
+  return m.slot === null ? undefined : room.sim.players.find((s) => s.id === m.slot);
+}
+
 /** Skip the wasted/busted screen once it has run its course on the client. */
 registerCommand('respawn', (room, m) => {
-  if (m.slot !== 0) return;
-  if (room.sim.playerDown && room.sim.deathTimer > 2) room.sim.finishRespawn();
+  const slot = slotOf(room, m);
+  if (slot && slot.down && slot.deathTimer > 2) room.sim.finishRespawn(slot);
+});
+
+/** A cheat code typed in multiplayer: refused, and the player is told why. */
+registerCommand('cheat', (room, m, arg) => {
+  const slot = slotOf(room, m);
+  if (!slot) return;
+  const refused = applySimCheat(room.sim, arg, slot);
+  if (refused) room.sim.events.emit('message', { text: refused, duration: 3, ...slot.tag });
 });
 
 /** Resend everything: the client missed a snapshot, so what it was sent since only as changes may be lost to it. */
@@ -43,6 +58,8 @@ interface DebugArgs {
   /** Spawn a vehicle of this kind next to the player and seat him in it. */
   drive?: string;
   godMode?: boolean;
+  /** No crime raises this player's wanted level (a measurement that must not end in a bust). */
+  neverWanted?: boolean;
 }
 
 registerCommand('debug', (room, m, arg) => {
@@ -50,7 +67,9 @@ registerCommand('debug', (room, m, arg) => {
   const sim = room.sim;
   const a = JSON.parse(arg) as DebugArgs;
   const p = room.slots.character(m.slot);
-  if (a.godMode !== undefined) sim.cheats.godMode = !!a.godMode;
+  const slot = sim.slotOf(p) ?? sim.players[0]!;
+  if (a.godMode !== undefined) slot.cheats.godMode = !!a.godMode;
+  if (a.neverWanted !== undefined) slot.cheats.neverWanted = !!a.neverWanted;
   if (a.teleport && Number.isFinite(a.teleport[0]) && Number.isFinite(a.teleport[1])) {
     if (p.vehicle) sim.unseat(p);
     p.state = 'normal';
@@ -74,5 +93,5 @@ registerCommand('debug', (room, m, arg) => {
     p.inventory.give(a.give[0] as WeaponId, Math.max(0, Math.min(9999, a.give[1] | 0)));
     p.inventory.current = a.give[0] as WeaponId;
   }
-  if (a.wanted !== undefined) sim.wanted.setLevel(a.wanted);
+  if (a.wanted !== undefined) slot.wanted.setLevel(a.wanted);
 });

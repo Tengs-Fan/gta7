@@ -23,7 +23,7 @@ import { ProtocolError, Reader, Writer } from './wire';
 export { ProtocolError, Reader, Writer } from './wire';
 
 export const MAGIC = 0x47;
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const HEADER_BYTES = 3;
 
 export const MESSAGE_TYPES = ['hello', 'welcome', 'reject', 'input', 'snapshot', 'event', 'cmd', 'ping', 'pong', 'bye'] as const;
@@ -62,7 +62,14 @@ export interface InputMsg { type: 'input'; seq: number; tick: number; input: Pla
 
 export interface RosterEntry { playerId: number; characterId: number; slot: number; name: string }
 
-export interface Hud { wanted: number; searching: boolean; money: number }
+/** The receiving player's own HUD numbers, from his slot: stars, money and the rounds of the weapon in his hand. */
+export interface Hud { wanted: number; searching: boolean; money: number; clip: number; ammo: number }
+
+/** A job objective marker (Activities' Objective) with its followed entity as an id (0: a fixed point). */
+export interface NetObjective { x: number; z: number; label: string; color: number; radius: number; vehicle: number; character: number }
+
+/** The receiving player's own side job: its kind ('' for none), HUD status line and objective markers. */
+export interface JobHud { kind: string; status: string; objectives: NetObjective[] }
 
 export interface SnapshotMsg {
   type: 'snapshot';
@@ -74,6 +81,8 @@ export interface SnapshotMsg {
   full: boolean;
   clock: ClockState;
   hud: Hud;
+  /** Sent when it changes. */
+  job: JobHud | null;
   /** Sent when it changes. */
   roster: RosterEntry[] | null;
   weather: WeatherState | null;
@@ -742,10 +751,44 @@ export interface SnapshotHead {
   full: boolean;
   clock: ClockState;
   hud: Hud;
+  job: JobHud | null;
   roster: RosterEntry[] | null;
   weather: WeatherState | null;
   signalHolds: ReadonlyArray<readonly [number, Axis]> | null;
   brokenProps: readonly number[];
+}
+
+const MAX_OBJECTIVES = 32;
+const MAX_JOB_TEXT = 256;
+
+/** A job HUD block on its own (the server compares these bytes to send it only on change). */
+export function writeJobHud(w: Writer, j: JobHud): void {
+  w.str(j.kind, 64);
+  w.str(j.status, MAX_JOB_TEXT);
+  const list = j.objectives.slice(0, MAX_OBJECTIVES);
+  w.varu(list.length);
+  for (const o of list) {
+    w.i24(clampInt(fin(o.x) / POS_STEP, -0x800000, 0x7fffff));
+    w.i24(clampInt(fin(o.z) / POS_STEP, -0x800000, 0x7fffff));
+    w.str(o.label, MAX_JOB_TEXT);
+    w.u32(clampInt(o.color, 0, 0xffffffff) >>> 0);
+    w.f32(fin(o.radius));
+    w.varu(clampInt(o.vehicle, 0, 0xffffffff));
+    w.varu(clampInt(o.character, 0, 0xffffffff));
+  }
+}
+
+function readJobHud(r: Reader): JobHud {
+  const kind = r.str(64);
+  const status = r.str(MAX_JOB_TEXT);
+  const n = r.count(12, MAX_OBJECTIVES);
+  const objectives: NetObjective[] = [];
+  for (let i = 0; i < n; i++) {
+    const x = r.i24() * POS_STEP;
+    const z = r.i24() * POS_STEP;
+    objectives.push({ x, z, label: r.str(MAX_JOB_TEXT), color: r.u32(), radius: rFinite(r, r.f32), vehicle: r.varu(), character: r.varu() });
+  }
+  return { kind, status, objectives };
 }
 
 /** Header and globals of a snapshot; the five entity sections and the removal list follow (see writeSnapshot). */
@@ -754,11 +797,14 @@ export function writeSnapshotHead(w: Writer, h: SnapshotHead): void {
   w.u32(h.tick >>> 0);
   w.u32(h.ackSeq >>> 0);
   w.f64(fin(h.time));
-  flagsOut(w, [h.full, h.roster !== null, h.weather !== null, h.signalHolds !== null]);
+  flagsOut(w, [h.full, h.roster !== null, h.weather !== null, h.signalHolds !== null, h.job !== null]);
   writeClock(w, h.clock);
   w.u8(clampInt(h.hud.wanted, 0, 255));
   wBool(w, h.hud.searching);
   w.varu(clampInt(h.hud.money, 0, 0xffffffff));
+  w.varu(clampInt(h.hud.clip, 0, 0xffffffff));
+  w.varu(clampInt(h.hud.ammo, 0, 0xffffffff));
+  if (h.job) writeJobHud(w, h.job);
   if (h.roster) {
     w.varu(h.roster.length);
     for (const p of h.roster) {
@@ -895,9 +941,10 @@ function decodeBody(type: MessageType, r: Reader): Message {
       const tick = r.u32();
       const ackSeq = r.u32();
       const time = rFinite(r, r.f64);
-      const [full, hasRoster, hasWeather, hasHolds] = flagsIn(r, 4) as [boolean, boolean, boolean, boolean];
+      const [full, hasRoster, hasWeather, hasHolds, hasJob] = flagsIn(r, 5) as [boolean, boolean, boolean, boolean, boolean];
       const clock = readClock(r);
-      const hud: Hud = { wanted: r.u8(), searching: rBool(r), money: r.varu() };
+      const hud: Hud = { wanted: r.u8(), searching: rBool(r), money: r.varu(), clip: r.varu(), ammo: r.varu() };
+      const job = hasJob ? readJobHud(r) : null;
       let roster: RosterEntry[] | null = null;
       if (hasRoster) {
         const n = r.count(4, 256);
@@ -910,7 +957,7 @@ function decodeBody(type: MessageType, r: Reader): Message {
       const sec = SECTIONS.map((def) => readSection(r, def));
       const removed = readIds(r);
       return {
-        type, tick, ackSeq, time, full, clock, hud, roster, weather, signalHolds, brokenProps,
+        type, tick, ackSeq, time, full, clock, hud, job, roster, weather, signalHolds, brokenProps,
         vehicles: sec[0] as unknown as VehicleUpdate[],
         characters: sec[1] as unknown as CharacterUpdate[],
         projectiles: sec[2] as unknown as ProjectileUpdate[],

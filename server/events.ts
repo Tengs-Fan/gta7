@@ -2,14 +2,11 @@
 // that are near them or see an entity they involve.
 
 import { toNetEvent, type NetEvent, type NetRef } from '../src/net/protocol';
+import { PLAYER_SCOPED_EVENTS } from '../src/sim/events';
 import type { Viewer } from '../src/sim/snapshot';
 
 /** Events about one player (HUD, money, wanted level, respawn, activities), not about the world. */
-export const PLAYER_SCOPED_EVENTS: ReadonlySet<string> = new Set([
-  'money', 'wanted', 'dispatch', 'wasted', 'busted', 'respawn', 'message', 'subtitle', 'big', 'objective', 'stunt',
-  'shopOpen', 'saveRequested', 'sprayed', 'fade', 'missionStarted', 'missionEnded', 'activityEnded', 'activityMilestone',
-  'streetRunCountdown', 'streetRunCheckpoint', 'streetRunFinished',
-]);
+export { PLAYER_SCOPED_EVENTS };
 
 /** World events heard further than the interest radius. */
 const FAR_EVENTS: ReadonlyMap<string, number> = new Map([['explosion', 600]]);
