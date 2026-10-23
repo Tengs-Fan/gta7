@@ -16,7 +16,7 @@ import type { Vehicle } from '../../src/sim/entities';
 import type { PlayerInput } from '../../src/sim/input';
 import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
-import { input, makeSim, placeInCar, step } from './helpers';
+import { input, makeSim, placeInCar, step, teleport } from './helpers';
 
 function carAt(sim: Sim, kind: VehicleKind, x: number, z: number, heading = 0, color?: number): Vehicle {
   const v = sim.spawnVehicle(kind, x, z, heading, color);
@@ -576,5 +576,26 @@ describe('export list save extension', () => {
     const b = makeSim();
     applyExt(b, parsed.ext);
     expect(activityRecords(b.progress)).toMatchObject({ ambulanceLevel: 3, courierRuns: 2, exportCars: 5 });
+  });
+});
+
+describe('service vehicle depots', () => {
+  it('stand ready near the player in the game sim only, and are streamed out like parked cars once he is far away', () => {
+    expect(makeSim().serviceVehicles).toBe(false);
+    const sim = makeSim({ serviceVehicles: true, ambient: true, police: false });
+    const d = places(sim.world).depots.find((p) => p.kind === 'ambulance')!;
+    teleport(sim, d.x + 120, d.z - 60);
+    step(sim, 1.2);
+    const amb = sim.vehicles.find((v) => v.kind === 'ambulance' && !v.removed);
+    expect(amb).toBeDefined();
+    expect(amb!.persistent).toBe(false);
+    expect(Math.hypot(amb!.pos.x - d.x, amb!.pos.z - d.z)).toBeLessThan(0.5);
+    teleport(sim, d.x - 600, d.z + 300);
+    step(sim, 6);
+    expect(amb!.removed).toBe(true);
+    // And back when he returns to the neighbourhood.
+    teleport(sim, d.x + 120, d.z - 60);
+    step(sim, 1.2);
+    expect(sim.vehicles.some((v) => v.kind === 'ambulance' && !v.removed)).toBe(true);
   });
 });
