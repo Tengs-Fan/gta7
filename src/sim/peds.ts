@@ -9,7 +9,7 @@ import type { Character } from './entities';
 import { gangAt, setGang } from './gangs';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
-import { clusterTarget, playerClusters } from './traffic';
+import { clusterTarget, mpBudget, playerClusters } from './traffic';
 import { isGun } from './specs';
 import { vehicleObb } from './vehiclePhysics';
 
@@ -126,6 +126,8 @@ export class PedSystem {
     const groupOf = new Map<PlayerSlot, number>();
     groups.forEach((g, i) => g.forEach((s) => groupOf.set(s, i)));
     const target = clusterTarget(this.targetCount, groups.length);
+    // Groups near each other share the crowd (the nearest player's group counts each): the total holds the budget too.
+    const cap = Math.round(this.targetCount * mpBudget(groups.length));
     const counts = groups.map(() => 0);
     for (const c of sim.characters) {
       if (c.removed || c.persistent || c.isPlayer) continue;
@@ -144,13 +146,15 @@ export class PedSystem {
       }
       if (c.owner === 'ped') counts[groupOf.get(near) ?? 0]!++;
     }
+    let total = counts.reduce((x, y) => x + y, 0);
     groups.forEach((g, gi) => {
       let count = counts[gi]!;
       let spawned = 0;
-      while (count < target && spawned < 4) {
+      while (count < target && total < cap && spawned < 4) {
         if (!this.trySpawn(g[this.turn++ % g.length]!)) break;
         spawned++;
         count++;
+        total++;
       }
     });
   }
