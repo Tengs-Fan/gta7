@@ -6,7 +6,9 @@ import { SWIM_DEPTH, WATER_Y } from '../world/constants';
 import { makeBrain, type PedBrain } from './brains';
 import { MAX_STEP } from './characterPhysics';
 import type { Character } from './entities';
+import { gangAt, setGang } from './gangs';
 import type { Sim } from './sim';
+import { isGun } from './specs';
 import { vehicleObb } from './vehiclePhysics';
 
 const contact = makeContact();
@@ -17,7 +19,7 @@ const obb = { x: 0, z: 0, hw: 0, hl: 0, h: 0 };
  * his head (cowerCrouched). CrowdView draws him by this rule, and combat hits him by it.
  */
 export function cowerHandsUp(c: Character, p: Character | null): boolean {
-  if (!p || p === c || !p.aiming || p.state !== 'normal' || p.inventory.current === 'fists') return false;
+  if (!p || p === c || !p.aiming || p.state !== 'normal' || !isGun(p.inventory.current)) return false;
   if (c.brain?.threat === p) return true;
   // Peds that freeze when a gun is pointed at them keep no threat: judge by the aim line instead.
   const dx = c.pos.x - p.pos.x;
@@ -116,9 +118,12 @@ export class PedSystem {
       if (sim.world.waterDepth(pt.x, pt.z) > -0.2) continue;
       if (!sim.traffic.isClear(pt.x, pt.z, 2.5)) continue;
       const zone = sim.world.zoneName(pt.x, pt.z);
-      const gangTurf = zone === 'Port Azura Docks' || zone === 'Westside' || zone === 'Southgate';
+      // With the gangs (sim.streetCrime.gangs) each turf has its own gang (GANG_TURFS); without, the Tiburones all over.
+      const turfGang = sim.streetCrime.gangs ? gangAt(sim.world.layout, pt.x, pt.z) : null;
+      const gangTurf = sim.streetCrime.gangs ? turfGang !== null : zone === 'Port Azura Docks' || zone === 'Westside' || zone === 'Southgate';
       const role = gangTurf && sim.rng.chance(0.14) ? 'gang' : 'civilian';
       const c = sim.spawnCharacter(role, pt.x, pt.z);
+      if (role === 'gang' && turfGang) setGang(c, turfGang);
       c.owner = 'ped';
       const b = makeBrain('wander');
       b.fromNode = pt.a;
@@ -186,7 +191,18 @@ export class PedSystem {
    * the guards it hires, such as the bank's in The Big Score).
    */
   allied(a: Character, b: Character): boolean {
-    return a !== b && ((a.role === 'gang' && b.role === 'gang') || (a.missionTag === 'enemy' && b.missionTag === 'enemy'));
+    return a !== b && ((a.role === 'gang' && b.role === 'gang' && (a.gang ?? 'tiburones') === (b.gang ?? 'tiburones')) || (a.missionTag === 'enemy' && b.missionTag === 'enemy'));
+  }
+
+  /** A street gang member's brain, walking the sidewalks from (x, z): he fights instead of running. */
+  makeGangBrain(x: number, z: number): PedBrain {
+    const b = makeBrain('wander');
+    b.toNode = this.sim.world.walk.nearestNode(x, z);
+    b.fromNode = b.toNode;
+    b.brave = true;
+    b.accuracy = 0.35;
+    b.speedMul = 1;
+    return b;
   }
 
   onJacked(victim: Character): void {
@@ -235,7 +251,7 @@ export class PedSystem {
     const sim = this.sim;
     const p = sim.player;
     // Civilians react to a gun being pointed at them.
-    const aimingGun = p.aiming && p.inventory.current !== 'fists' && p.state === 'normal';
+    const aimingGun = p.aiming && isGun(p.inventory.current) && p.state === 'normal';
     for (const c of sim.characters) {
       if (c.removed || !c.brain || c.isLaw || c.isPlayer) continue;
       if (c.state !== 'normal' && c.state !== 'swimming') {
@@ -263,8 +279,13 @@ export class PedSystem {
     const p = sim.player;
     if (!sim.world.lineOfSight(p.pos.x, p.pos.y + 1.5, p.pos.z, c.pos.x, c.pos.y + 1.2, c.pos.z)) return;
     const b = c.brain!;
-    if (c.role === 'gang') this.fight(c, sim.player);
-    else if (sim.rng.chance(0.5)) {
+    if (c.role === 'gang') {
+      // With turf (sim.streetCrime.gangs), a gun pointed at a member outside his gang's turf is no cause to fight.
+      if (!sim.streetCrime.gangs || !c.gang || sim.gangs.inOwnTurf(c)) {
+        this.fight(c, sim.player);
+        if (sim.streetCrime.gangs) b.turfAggroAt = sim.time;
+      }
+    } else if (sim.rng.chance(0.5)) {
       b.mode = 'cower';
       b.modeTimer = sim.rng.range(2.5, 4.5);
     } else this.flee(c, sim.player.pos.x, sim.player.pos.z, sim.player);
@@ -296,6 +317,12 @@ export class PedSystem {
         break;
       case 'guard':
         this.doGuard(c, b, dt);
+        break;
+      case 'phone':
+        // On the phone to the police (witnesses.ts): he stands and talks until the call is over.
+        c.moveSpeed = 0;
+        b.modeTimer -= dt;
+        if (c.phoneTimer <= 0 || b.modeTimer <= 0) b.mode = 'wander';
         break;
       case 'stand':
       case 'chase':
@@ -469,7 +496,7 @@ export class PedSystem {
       b.modeTimer = 0;
       return;
     }
-    const armed = c.inventory.current !== 'fists';
+    const armed = isGun(c.inventory.current);
     c.aiming = false;
     if (armed) {
       const canSee = d < 38 && sim.world.lineOfSight(c.pos.x, c.pos.y + 1.5, c.pos.z, tp.x, tp.y + 1.2, tp.z);

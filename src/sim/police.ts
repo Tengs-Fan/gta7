@@ -52,6 +52,11 @@ const RECYCLE_CLOSING = 5;
 /** A unit that has made no progress for this long (s) within this distance (m) of a player on foot or sitting in a stopped car sends its crew on foot. */
 const STUCK_DEPLOY_TIME = 2.5;
 const STUCK_DEPLOY_DIST = 55;
+/**
+ * With roadblocks and spike strips (sim.streetCrime.roadblocks) a player brought to a stop is common, and the units
+ * caught in the traffic queued behind him lie further back: out to this far (m) they send their crews on foot.
+ */
+const STUCK_DEPLOY_DIST_ROADBLOCKS = 75;
 /** A player whose car has not got this far (m) from where it was for STUCK_DEPLOY_TIME s is boxed in if it has driven both ways meanwhile. */
 const NOWHERE_RADIUS = 6;
 /** A unit that has made no progress for this long (s), out of sight and further than this from the player (m), is replaced by dispatch. */
@@ -209,6 +214,11 @@ export class PoliceSystem {
    */
   private goingNowhere(): boolean {
     return !!this.sim.player.vehicle && (this.playerStill > STUCK_DEPLOY_TIME || (this.playerIdle > STUCK_DEPLOY_TIME && this.idleDirs === 3));
+  }
+
+  /** How far from a player whose car goes nowhere stuck units send their crews on foot (see STUCK_DEPLOY_DIST_ROADBLOCKS). */
+  private stuckDeployDist(): number {
+    return this.sim.streetCrime.roadblocks ? STUCK_DEPLOY_DIST_ROADBLOCKS : STUCK_DEPLOY_DIST;
   }
 
   /** The police have lost sight of the player and look around his last sighting instead. */
@@ -515,7 +525,12 @@ export class PoliceSystem {
     return null;
   }
 
-  private equip(c: Character, car: Vehicle): void {
+  /** Arms and briefs an officer on foot (a roadblock's), with the car he belongs to, if any. */
+  equipOfficer(c: Character, car: Vehicle | null): void {
+    this.equip(c, car);
+  }
+
+  private equip(c: Character, car: Vehicle | null): void {
     c.owner = 'police';
     c.inventory.infinite = true;
     c.inventory.give(c.role === 'swat' ? 'smg' : 'pistol', 999);
@@ -602,7 +617,7 @@ export class PoliceSystem {
       const playerStopped = !!pv && pv.speed < 1.5 && this.playerStill > 2.5;
       const close = d < 26 && v.speed < 4.5;
       // A unit stuck behind others near a player on foot, or near one whose car goes nowhere, sends its crew on foot.
-      const stuckNear = d < STUCK_DEPLOY_DIST && v.stuckTime > STUCK_DEPLOY_TIME && (!pv || this.goingNowhere());
+      const stuckNear = d < this.stuckDeployDist() && v.stuckTime > STUCK_DEPLOY_TIME && (!pv || this.goingNowhere());
       if (((!pv || playerStopped) && close) || stuckNear) this.deploy(v, stuckNear && !!pv);
       // The hold's handbrake only to stop the last bit of a shove: at speed, braking for the car
       // ahead (no longer the target) keeps the unit steering.
@@ -801,6 +816,11 @@ export class PoliceSystem {
         continue;
       }
       c.aiming = false;
+      // Posted at a roadblock: wait by the cruisers, facing the way he comes, until he is near (roadblocks.ts).
+      if (level > 0 && sim.roadblocks.isPosted(c)) {
+        c.moveSpeed = 0;
+        continue;
+      }
       const car = b.car && !b.car.removed && b.car.drivable ? b.car : null;
       const carDist = car ? Math.hypot(car.pos.x - c.pos.x, car.pos.z - c.pos.z) : Infinity;
       if (level === 0) {
@@ -824,7 +844,7 @@ export class PoliceSystem {
       // Officers sent out of a unit stuck near a player sitting in a stopped car (see updateUnits) keep on at him while he sits there.
       const sentOut = this.sentOut.has(c) && !!pv && this.goingNowhere();
       if (!sentOut) this.sentOut.delete(c);
-      if (pv && d > (sentOut ? STUCK_DEPLOY_DIST : 34) && ride && carDist < 45 && !this.reach) b.mode = 'return';
+      if (pv && d > (sentOut ? this.stuckDeployDist() : 34) && ride && carDist < 45 && !this.reach) b.mode = 'return';
       if (b.mode === 'return') {
         if (!ride || this.reach || (!searching && (d < 25 || (!!pv && pv.speed < 1.5 && d < 34)))) b.mode = 'chase';
         else {

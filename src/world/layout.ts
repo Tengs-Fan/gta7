@@ -319,6 +319,28 @@ const TOWER_KINDS: ReadonlySet<string> = new Set(SPECIALS.filter((s) => s.build?
 
 const STADIUM_BLOCK = { bi: 6, bj: 9 };
 
+/** The street gangs of San Azura. */
+export type GangId = 'tiburones' | 'halcones';
+
+/**
+ * A gang's turf: the blocks bi minBi..maxBi, bj minBj..maxBj (inclusive) out to the centre lines of the roads round
+ * them. Turfs never overlap, so a point lies in at most one gang's turf.
+ */
+export interface GangTurf {
+  gang: GangId;
+  name: string;
+  minBi: number;
+  maxBi: number;
+  minBj: number;
+  maxBj: number;
+}
+
+export const GANG_TURFS: readonly GangTurf[] = [
+  { gang: 'tiburones', name: 'Port Azura Docks', minBi: 0, maxBi: 2, minBj: 7, maxBj: 9 },
+  { gang: 'tiburones', name: 'Westside', minBi: 0, maxBi: 1, minBj: 2, maxBj: 6 },
+  { gang: 'halcones', name: 'Southgate', minBi: 3, maxBi: 8, minBj: 7, maxBj: 9 },
+];
+
 export function districtOf(bi: number, bj: number): District {
   if (PARKS.some((p) => p.bi === bi && p.bj === bj)) return 'park';
   if (bi === GRID_N - 1) return 'beachfront';

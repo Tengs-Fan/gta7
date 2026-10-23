@@ -12,7 +12,7 @@ import {
   aimed, aimFrame, anchor, hipSpread, makeTrunk, makeWeaponPose, shoulderSpread, SKELETON, trunkPose, weaponPoint, weaponPoseInto,
   SWIM_HIP, SWIM_TREAD_LEAN, WEAPON_POINTS, seatSide, windowMuzzle, type Trunk, type WeaponPose,
 } from '../sim/pose';
-import type { VehicleKind, WeaponId } from '../sim/specs';
+import { isGun, type VehicleKind, type WeaponId } from '../sim/specs';
 import { characterGeometries, type CharacterPartName } from './characterGeometry';
 import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
 import { riderMount } from './riders';
@@ -32,7 +32,7 @@ type Gun = Exclude<WeaponId, 'fists'>;
  * Recoil kick (rad) of each weapon just after a shot; it is drawn only, never part of the muzzle. The frame a shot is
  * fired on shows the gun as the shot left it, the flash and tracer on its barrel end; the kick comes in from the next.
  */
-export const KICK: Readonly<Partial<Record<Gun, number>>> = { pistol: 0.12, smg: 0.06, shotgun: 0.3, rifle: 0.1, rocket: 0.15 };
+export const KICK: Readonly<Partial<Record<Gun, number>>> = { pistol: 0.12, smg: 0.06, shotgun: 0.3, rifle: 0.1, rocket: 0.15, sniper: 0.2 };
 /** The kick of a weapon with no entry in KICK. */
 const DEFAULT_KICK = 0.1;
 const gunKick = (gun: Gun): number => KICK[gun] ?? DEFAULT_KICK;
@@ -193,7 +193,30 @@ const S = {
   bx: V(),
   by: V(),
   bz: V(),
+  // The right hand and elbow as last posed, for a bat, knife or throwable held in it.
+  heldHand: V(),
+  heldElbow: V(),
 };
+
+/**
+ * Melee weapons and throwables in the hand: geometry along its +y from the grip (origin), and its colour. CrowdView points
+ * +y out of the fist (see heldItem).
+ */
+const HELD_COLOR: Readonly<Partial<Record<WeaponId, number>>> = { bat: 0x9b6b3c, knife: 0xb8bec6, grenade: 0x4c5a2c, molotov: 0x3d7a42 };
+function heldGeometry(id: WeaponId): THREE.BufferGeometry | null {
+  switch (id) {
+    case 'bat':
+      return new THREE.CylinderGeometry(0.035, 0.018, 0.86, 8).translate(0, 0.37, 0);
+    case 'knife':
+      return mergeAll([box(0.03, 0.1, 0.03, 0, 0.0, 0), box(0.012, 0.17, 0.035, 0, 0.13, 0)]);
+    case 'grenade':
+      return mergeAll([new THREE.SphereGeometry(0.045, 8, 6).scale(1, 1.25, 1).translate(0, 0.04, 0.02), box(0.02, 0.03, 0.02, 0, 0.1, 0.02)]);
+    case 'molotov':
+      return mergeAll([new THREE.CylinderGeometry(0.035, 0.035, 0.16, 8).translate(0, 0.05, 0), new THREE.CylinderGeometry(0.012, 0.03, 0.08, 8).translate(0, 0.17, 0), box(0.02, 0.05, 0.02, 0, 0.23, 0)]);
+    default:
+      return null;
+  }
+}
 
 const ik = makeTwoBone();
 
@@ -223,10 +246,14 @@ export class CrowdView {
   readonly group = new THREE.Group();
   private readonly parts: Record<PartName, Part>;
   private readonly weapons = new Map<WeaponId, Part>();
+  /** A witness's phone held to his ear (Character.phoneTimer). */
+  private readonly phone: Part;
   /** Per-character pose smoothing: the lying angle, and the gait and airborne weights. */
   private readonly lie = new Map<number, Anim>();
   /** Hide this character id (e.g. the player in first-person-ish shots). */
   hiddenId = -1;
+  /** Also hidden: the player looking through a rifle scope from his own eye. */
+  scopeHiddenId = -1;
   private frame = 0;
   private time = 0;
   /** The character this screen's player controls: dressed as the player, and the one a gun-pointed ped reacts to. */
@@ -291,6 +318,16 @@ export class CrowdView {
       rifle: mergeAll([box(0.06, 0.1, 0.85, 0, 0, 0.28), box(0.05, 0.18, 0.06, 0, -0.12, 0.12), box(0.06, 0.12, 0.22, 0, -0.03, -0.14)]),
       rocket: mergeAll([new THREE.CylinderGeometry(0.09, 0.09, 1.15, 10).rotateX(Math.PI / 2).translate(0, 0.08, 0.2), box(0.05, 0.14, 0.06, 0, -0.06, 0.1)]),
     };
+    weaponGeo.sniper = mergeAll([box(0.05, 0.08, 1.2, 0, 0, 0.42), box(0.05, 0.16, 0.06, 0, -0.11, 0.06), box(0.06, 0.12, 0.25, 0, -0.03, -0.15), new THREE.CylinderGeometry(0.03, 0.03, 0.3, 8).rotateX(Math.PI / 2).translate(0, 0.08, 0.15)]);
+    this.phone = make(box(0.05, 0.1, 0.016, 0, 0.03, 0), MAX);
+    this.phone.mesh.name = 'held-phone';
+    for (const id of ['bat', 'knife', 'grenade', 'molotov'] as const) {
+      const geo = heldGeometry(id);
+      if (!geo) continue;
+      const p = make(geo, MAX);
+      p.mesh.name = 'held-' + id;
+      this.weapons.set(id, p);
+    }
     for (const [id, geo] of Object.entries(weaponGeo) as Array<[Gun, THREE.BufferGeometry]>) {
       const p = make(geo, MAX);
       (p.mesh.material as THREE.MeshStandardMaterial).color.setHex(id === 'rocket' ? 0x3d4a2f : 0x1e1e20);
@@ -356,6 +393,7 @@ export class CrowdView {
   sync(chars: readonly Character[], camX: number, camZ: number, dt: number, localCharacterId = -1): void {
     for (const p of Object.values(this.parts)) p.n = 0;
     for (const p of this.weapons.values()) p.n = 0;
+    this.phone.n = 0;
     this.frame++;
     this.time += dt;
     this.player = null;
@@ -366,7 +404,7 @@ export class CrowdView {
       }
     }
     for (const c of chars) {
-      if (c.removed || c.id === this.hiddenId) continue;
+      if (c.removed || c.id === this.hiddenId || c.id === this.scopeHiddenId) continue;
       if (c.state === 'inVehicle') {
         // Riders come and go with their car, which does not fade: whole, and whole when they get out.
         this.fadeFor(c, true, dt).foot = false;
@@ -410,6 +448,7 @@ export class CrowdView {
     };
     for (const p of Object.values(this.parts)) finish(p);
     for (const p of this.weapons.values()) finish(p);
+    finish(this.phone);
   }
 
   /**
@@ -624,8 +663,9 @@ export class CrowdView {
     const handsUp = cower && cowerHandsUp(c, this.player);
     const crouch = cower && !handsUp;
     const weapon = c.inventory.current;
-    const armed = weapon !== 'fists' && !cower && !entering;
-    const fists = weapon === 'fists' && !cower && !entering && (c.punchTimer > 0 || aimed(c));
+    const armed = isGun(weapon) && !cower && !entering;
+    const fists = !isGun(weapon) && !cower && !entering && (c.punchTimer > 0 || aimed(c));
+    const held = !isGun(weapon) && weapon !== 'fists' && !cower && !entering ? weapon : null;
     const punch = fists && c.punchTimer > 0 ? Math.sin(Math.PI * clamp(1 - c.punchTimer / 0.32, 0, 1)) : 0;
     // Place of the punch in the combo: CombatSystem.melee counts meleeCombo on before the punch is thrown.
     const combo = (((c.meleeCombo + 2) % 3) + 3) % 3;
@@ -731,6 +771,10 @@ export class CrowdView {
         }
         pole.copy(up).negate().addScaledVector(left, side * 0.9).addScaledVector(fwd, -0.2);
         this.armTo(sh, target, pole, left, c);
+        if (side < 0) {
+          S.heldHand.copy(S.hand);
+          S.heldElbow.copy(S.elbow);
+        }
       }
       leftDone = rightDone = true;
     } else if (cower) {
@@ -754,6 +798,14 @@ export class CrowdView {
       pole.copy(up).negate().addScaledVector(left, -0.4).addScaledVector(fwd, -0.3);
       this.armTo(S.shR, S.targetR, pole, left, c);
       rightDone = true;
+    } else if (c.phoneTimer > 0 && !held) {
+      // On the phone to the police: the right hand up at the ear, the phone in it.
+      S.targetR.copy(S.neck).addScaledVector(up, 0.17 * s).addScaledVector(left, -0.11).addScaledVector(fwd, 0.03);
+      pole.copy(up).negate().addScaledVector(left, -0.9).addScaledVector(fwd, 0.2);
+      this.armTo(S.shR, S.targetR, pole, left, c);
+      rightDone = true;
+      S.inst.makeBasis(S.bx.copy(fwd), S.by.copy(up), S.bz.copy(left).negate()).setPosition(S.hand.x + left.x * 0.03, S.hand.y, S.hand.z + left.z * 0.03);
+      this.put(this.phone, S.inst, 0x1c1c22);
     }
     // Free arms swing with the gait, and go out for balance in the air.
     const air = anim.air;
@@ -764,7 +816,33 @@ export class CrowdView {
       const abduct = lerp(lerp(0.09, sw.abduct, walk), 0.55, air);
       const elbow = lerp(lerp(0.18, sw.elbow, walk), 0.8, air);
       this.armFK(i === 0 ? S.shL : S.shR, i === 0 ? 1 : -1, pitch, abduct, elbow, 0, c);
+      if (i === 1) {
+        S.heldHand.copy(S.hand);
+        S.heldElbow.copy(S.elbow);
+      }
     }
+    if (held) this.heldItem(held, punch, S.heldHand, S.heldElbow, up, fwd);
+  }
+
+  /**
+   * A bat, knife, grenade or molotov in the right hand: out of the fist along the forearm, a bat held up over the
+   * shoulder that comes round forward with the swing (`swing` 0..1), a knife's blade forward.
+   */
+  private heldItem(id: WeaponId, swing: number, hand: THREE.Vector3, elbow: THREE.Vector3, up: THREE.Vector3, fwd: THREE.Vector3): void {
+    const part = this.weapons.get(id);
+    if (!part) return;
+    const Y = S.by.subVectors(hand, elbow);
+    if (Y.lengthSq() < 1e-10) Y.copy(up);
+    Y.normalize();
+    if (id === 'bat') Y.multiplyScalar(0.35).addScaledVector(up, 1 - swing).addScaledVector(fwd, 0.3 + 1.2 * swing).normalize();
+    else if (id === 'knife') Y.addScaledVector(fwd, 0.9).normalize();
+    else Y.addScaledVector(up, 0.6).normalize();
+    const X = S.bx.copy(fwd).cross(Y);
+    if (X.lengthSq() < 1e-8) X.set(1, 0, 0).cross(Y);
+    X.normalize();
+    const Z = S.bz.crossVectors(X, Y);
+    S.inst.makeBasis(X, Y, Z).setPosition(hand);
+    this.put(part, S.inst, HELD_COLOR[id] ?? 0x888888);
   }
 
   /** Blends a gait leg towards the standing pose, the crouch and the airborne tuck, and re-solves it. */
@@ -830,7 +908,7 @@ export class CrowdView {
   private swim(c: Character): void {
     const bw = c.appearance.build;
     const weapon = c.inventory.current;
-    const shooting = weapon !== 'fists' && (c.aiming || c.shotTimer > 0);
+    const shooting = isGun(weapon) && (c.aiming || c.shotTimer > 0);
     const moving = c.speed > 0.3 && !shooting;
     const ph = moving ? c.animPhase : this.time * 3 + c.id;
     S.rot.makeRotationY(c.heading);
@@ -908,12 +986,12 @@ export class CrowdView {
     }
     const layout = cabinLayout(v.kind);
     const weapon = c.inventory.current;
-    const shooting = weapon !== 'fists' && c.shotTimer > 0;
+    const shooting = isGun(weapon) && c.shotTimer > 0;
     const side = seatSide(c.seat);
     if (!layout) {
       // Nobody shows through the dark windows of a van, a riot van or a bus: only a gun held out of one, and the arm
       // holding it.
-      if (shooting) this.windowGun(c, v, weapon, null, side);
+      if (shooting) this.windowGun(c, v, weapon as Gun, null, side);
       return;
     }
     const a = c.appearance;
@@ -942,7 +1020,7 @@ export class CrowdView {
     if (shooting) {
       // Drive-by: the gun held out of the shooter's own window.
       busy = side;
-      this.windowGun(c, v, weapon, side > 0 ? S.shL : S.shR, side);
+      this.windowGun(c, v, weapon as Gun, side > 0 ? S.shL : S.shR, side);
     }
     const w = layout.wheel;
     for (const sd of [1, -1]) {

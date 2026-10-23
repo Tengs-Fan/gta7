@@ -1,0 +1,51 @@
+.scope-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.scope-overlay.hidden {
+  display: none;
+}
+.scope-lens {
+  position: relative;
+  width: min(86vh, 86vw);
+  height: min(86vh, 86vw);
+  border-radius: 50%;
+  /* The mask round the lens: a shadow far larger than the screen. */
+  box-shadow: 0 0 0 200vmax #050505, inset 0 0 6vmin 2vmin rgba(0, 0, 0, 0.85);
+  border: 3px solid #111;
+}
+.scope-lens i {
+  position: absolute;
+  background: rgba(10, 10, 10, 0.85);
+}
+.scope-lens .h {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+}
+.scope-lens .v {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+}
+.scope-lens .dot {
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: #d02020;
+}
+.scoped .crosshair {
+  visibility: hidden;
+}

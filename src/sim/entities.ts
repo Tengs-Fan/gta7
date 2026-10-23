@@ -5,7 +5,8 @@ import { Rng } from '../core/rng';
 import type { DriverAI } from './driver';
 import type { PedBrain } from './brains';
 import type { PickupKind } from './pickups';
-import { VEHICLE_SPECS, WEAPONS, type VehicleKind, type VehicleSpec, type WeaponId, type WeaponSpec } from './specs';
+import type { GangId } from '../world/layout';
+import { VEHICLE_SPECS, WEAPON_ORDER, WEAPONS, weaponKindOf, type VehicleKind, type VehicleSpec, type WeaponId, type WeaponSpec } from './specs';
 
 /**
  * A generator for an entity's own random choices (a helicopter's orbit, the tumble of an explosion
@@ -87,15 +88,15 @@ export class Inventory {
     this.current = 'fists';
   }
 
-  /** Weapon ids owned, in slot order. */
+  /** Weapon ids owned, in slot order (weapons sharing a slot in WEAPON_ORDER order). */
   owned(): WeaponId[] {
-    return [...this.slots.keys()].sort((a, b) => WEAPONS[a].slot - WEAPONS[b].slot);
+    return [...this.slots.keys()].sort((a, b) => WEAPONS[a].slot - WEAPONS[b].slot || WEAPON_ORDER.indexOf(a) - WEAPON_ORDER.indexOf(b));
   }
 
-  /** Selects the next/previous owned weapon that has ammunition (fists always qualify). */
+  /** Selects the next/previous owned weapon that has ammunition (fists and other melee weapons always qualify). */
   cycle(dir: 1 | -1): void {
     // Keep the current weapon even when it is empty, so stepping starts from its slot.
-    const list = this.owned().filter((id) => id === this.current || id === 'fists' || this.total(id) > 0 || this.infinite);
+    const list = this.owned().filter((id) => id === this.current || weaponKindOf(id) === 'melee' || this.total(id) > 0 || this.infinite);
     if (list.length === 0) return;
     const i = list.indexOf(this.current);
     const next = list[(i + dir + list.length) % list.length]!;
@@ -169,6 +170,21 @@ export class Character {
   staggerHits = 0;
   /** Seconds left of the moment after getting up from a knockdown in which blows do not count towards the next one. */
   getUpTimer = 0;
+  /** Sim time until which this character's next melee swing chains on his last one (see MeleeSpec.combo). */
+  comboUntil = -Infinity;
+  /** A knife wound: seconds it still bleeds, hit points a second, and who cut him (he answers for a death by it). */
+  bleedTimer = 0;
+  bleedRate = 0;
+  bleedBy: Character | null = null;
+  /** On fire (a molotov's flames): seconds left, and who answers for a death by it. */
+  burnTimer = 0;
+  burnBy: Character | null = null;
+  /** Zoom level index of a scoped weapon while the aim button holds the scope up (see ScopeSpec). */
+  scopeLevel = 0;
+  /** The street gang a gang member belongs to (see gangs.ts); null for everyone else. */
+  gang: GangId | null = null;
+  /** A witness on the phone to the police: seconds left of the call (witnesses.ts), 0 when not calling. */
+  phoneTimer = 0;
 
   constructor(
     readonly id: number,
@@ -294,6 +310,8 @@ export class Vehicle {
   spawnTime = 0;
   /** This vehicle's own randomness (the tumble of explosion kicks), see entityRng. */
   readonly rng: Rng;
+  /** Flat tyres (a police spike strip), front left, front right, rear left, rear right: less grip and speed. */
+  readonly flat: [boolean, boolean, boolean, boolean] = [false, false, false, false];
 
   constructor(
     readonly id: number,

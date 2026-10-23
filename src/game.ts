@@ -20,6 +20,7 @@ import { findVehicleRoom } from './sim/vehicleRoom';
 import type { WeatherKind, WeatherMode } from './sim/weather';
 import { HintSystem } from './ui/hints';
 import { Hud } from './ui/hud';
+import { ScopeOverlay } from './ui/widgets/scope';
 import { MapImage } from './ui/mapRender';
 import { Menus, type MenuHost } from './ui/menus';
 import { ExportListWidget } from './ui/widgets/exportList';
@@ -76,6 +77,7 @@ export class Game {
   readonly renderer: GameRenderer;
   readonly input: Input;
   readonly hud: Hud;
+  readonly scope: ScopeOverlay;
   readonly menus: Menus;
   readonly audio = new AudioEngine();
   readonly mapImage: MapImage;
@@ -157,6 +159,7 @@ export class Game {
     this.hud = new Hud(ui, this.mapImage, this.input.labels);
     this.hud.setVisible(false);
     this.phoneCard = new PhoneWidget(this.hud.root);
+    this.scope = new ScopeOverlay(ui);
     this.menus = new Menus(ui, this.menuHost(), this.mapImage, this.input.labels);
     this.exportList = new ExportListWidget(ui);
     registerDebug('phone', {
@@ -197,7 +200,7 @@ export class Game {
   }
 
   private makeTitleSim(): Sim {
-    const sim = new Sim({ world: this.world, ambient: true, police: false, startHour: 18.6 });
+    const sim = new Sim({ world: this.world, ambient: true, police: false, startHour: 18.6, streetCrime: true });
     const p = sim.player;
     const node = sim.roads.node(5, 5);
     p.pos.x = node.x + node.halfX + 2.2;
@@ -343,7 +346,7 @@ export class Game {
     this.pendingAutosave = false;
     this.world.resetBroken();
     this.renderer.props.restoreAll();
-    const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5, weather: this.weatherMode, serviceVehicles: true });
+    const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5, weather: this.weatherMode, serviceVehicles: true, streetCrime: true });
     this.applyDensity(sim);
     sim.resetSystems();
     if (save) {
@@ -729,6 +732,7 @@ export class Game {
       inp.aimDir = { x: d.x, y: d.y, z: d.z };
       this.sim.update(dt, inp);
       this.renderer.render(dt, false);
+      this.scope.update(false);
       // The flyover aims with lookAt and never sets cam.yaw: the listener faces where the view looks.
       const view = cam.aimRay().dir;
       this.audio.setListener(cam.camera.position.x, cam.camera.position.y, cam.camera.position.z, Math.atan2(view.x, view.z));
@@ -799,6 +803,7 @@ export class Game {
     const aiming = sim.player.aimZoom && !sim.player.vehicle;
     const tr = performance.now();
     this.renderer.render(dt, aiming);
+    this.scope.update(cam.scoped);
     this.perf.renderMs = performance.now() - tr;
     const cp = cam.camera.position;
     this.audio.setListener(cp.x, cp.y, cp.z, cam.yaw);

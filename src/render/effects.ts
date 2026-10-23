@@ -1087,6 +1087,32 @@ export class Effects {
   }
 
   /**
+   * Lends the explosion light to a fire at (x, y, z) for this frame, while no explosion flash needs it (a fire needs no
+   * light of its own, so the scene's light count, and every shader, stays as it was). Returns whether it took it.
+   */
+  fireLight(x: number, y: number, z: number, intensity: number): boolean {
+    if (this.flashFresh || this.flashLife > 0) return false;
+    this.flash.position.set(x, y, z);
+    this.flash.intensity = intensity;
+    return true;
+  }
+
+  /**
+   * Burning ground (a patch of a molotov's fire, radius r) or a person on fire (a small r) at (x, y, z): flames licking up
+   * from points across it, and a little dark smoke. `strength` 0..1 thins the flames as the patch dies down.
+   */
+  groundFire(x: number, y: number, z: number, r: number, dt: number, strength = 1): void {
+    let n = dt * (14 + 12 * r) * strength;
+    for (; n > 0; n--) {
+      if (n < 1 && this.rng.next() >= n) break;
+      const a = this.r(0, Math.PI * 2);
+      const d = Math.sqrt(this.rng.next()) * r * 0.85;
+      this.glow.emit(x + Math.sin(a) * d, y + this.r(0, 0.15), z + Math.cos(a) * d, this.r(-0.3, 0.3), this.r(1.2, 2.6), this.r(-0.3, 0.3), this.r(0.35, 0.7), this.r(0.45, 0.8) * (0.6 + 0.4 * strength), this.r(0.15, 0.3), 0xffc040, 0xd02000, 1, -0.5, 1, this.r(-1, 1));
+    }
+    if (this.rng.next() < dt * 3 * r * strength) this.smoke.emit(x + this.r(-r, r) * 0.5, y + 1, z + this.r(-r, r) * 0.5, this.r(-0.4, 0.4), this.r(1.2, 2), this.r(-0.4, 0.4), this.r(2, 3.2), 0.6, 2.6, 0x1a1816, 0x3a3836, 0.55, -0.3, 0.3);
+  }
+
+  /**
    * Sparks of metal grinding on a wall or another car, thrown along (vx, vz): streaks along their flight on screen,
    * white-hot past the bloom threshold at first (SPARK_GLOW), cooling to orange, short-lived.
    */

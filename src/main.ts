@@ -4,6 +4,7 @@ import '@fontsource/rajdhani/latin-600.css';
 import '@fontsource/rajdhani/latin-700.css';
 import './ui/style.css';
 import { Game } from './game';
+import { installCombatDebug } from './combatDebug';
 import { installDebugApi } from './debug';
 
 function webgl2Available(): boolean {
@@ -45,6 +46,7 @@ async function boot(): Promise<void> {
     ui.innerHTML = '';
     const game = new Game(canvas, ui);
     installDebugApi(game);
+    installCombatDebug(game);
     // Errors outside the frame loop (DOM handlers, promises) never stop the game: they are logged, and the
     // crash report lists them should the game break later.
     window.addEventListener('error', (e) => {
