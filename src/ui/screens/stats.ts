@@ -4,13 +4,14 @@ import { formatMoney } from '../../core/math';
 import { PACKAGE_COUNT } from '../../sim/pickups';
 import { formatRunTime } from '../../sim/streetRuns';
 import { escapeHtml } from '../hud';
-import { h, pushScrolling, type MenuCtx } from './shared';
+import { h, localPlayer, pushScrolling, type MenuCtx } from './shared';
 
 export function showStats(ctx: MenuCtx): void {
   const sim = ctx.host.sim();
-  if (!sim) return;
-  const s = sim.progress.stats;
-  const p = sim.progress;
+  const me = localPlayer(ctx.host);
+  if (!sim || !me) return;
+  const s = me.progress.stats;
+  const p = me.progress;
   const story = sim.missions.defs.length;
   const done = sim.missions.defs.filter((d) => p.hasDone(d.id)).length;
   const completion = Math.round(((done / story) * 0.5 + (p.packages.length / PACKAGE_COUNT) * 0.2 + (p.stunts.length / sim.world.layout.ramps.length) * 0.15 + (p.rampages.length / 3) * 0.15) * 100);

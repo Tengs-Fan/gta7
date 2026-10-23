@@ -3,10 +3,11 @@
 import { formatMoney, formatTime, wrapAngle } from '../core/math';
 import { KeyLabels } from '../input/input';
 import type { DamageKind } from '../sim/combat';
+import type { Character } from '../sim/entities';
 import type { BigStyle, SimEvents } from '../sim/events';
 import { CONTACTS, contactById } from '../sim/missions/contacts';
 import type { MissionDef } from '../sim/missions/runner';
-import type { Sim } from '../sim/sim';
+import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import { WEAPONS, weaponIconOf, type WeaponId } from '../sim/specs';
 import { formatRunTime } from '../sim/streetRuns';
 import { formatKeys, padGlyph, type InputDevice } from './glyphs';
@@ -179,7 +180,9 @@ export class Hud {
   visible = true;
   /** Device of the last input (Game writes it every frame); keys in HUD text are drawn for it. */
   device: InputDevice = 'kb';
-  private sim: Sim | null = null;
+  private sim: ViewState | null = null;
+  /** Id of the player slot this HUD shows; player-scoped events about others are ignored. */
+  private localPlayerId = 0;
   /**
    * What the help box shows, for how long it has, and (for a hint) whether it counts as read yet and for how long it
    * has no longer applied.
@@ -258,10 +261,25 @@ export class Hud {
     this.radarCtx = this.radar.getContext('2d')!;
   }
 
-  bind(sim: Sim): void {
+  private me(sim: ViewState): PlayerView {
+    return playerOf(sim, this.localPlayerId);
+  }
+
+  /** An event about the local player; one without a playerId is about slot 0. */
+  private mine(e: { playerId?: number }): boolean {
+    return (e.playerId ?? 0) === this.localPlayerId;
+  }
+
+  /** The local player's character, once the HUD is bound. */
+  private localCharacter(): Character | null {
+    return this.sim ? this.me(this.sim).character : null;
+  }
+
+  bind(sim: ViewState, localPlayerId = 0): void {
     for (const u of this.unsub) u();
     this.unsub = [];
     this.sim = sim;
+    this.localPlayerId = localPlayerId;
     this.reset(sim);
     const ev = sim.events;
     // A finished mission's or rampage's last objective must not linger next to its PASSED / FAILED.
@@ -272,6 +290,7 @@ export class Hud {
     };
     this.unsub.push(
       ev.on('message', (e) => {
+        if (!this.mine(e)) return;
         const job = sim.activities.job;
         // Checkpoint sound + the gate pulse confirm progress; the navigation
         // card already names the next turn, so don't repeat it in the help box.
@@ -279,6 +298,7 @@ export class Hud {
         this.help(e.text, e.duration);
       }),
       ev.on('subtitle', (e) => {
+        if (!this.mine(e)) return;
         const sub = this.el.subtitle!;
         // An empty line (a skipped one, or one a failure cut short) only takes the last line off: it fades out as it was.
         if (!e.text) {
@@ -295,6 +315,7 @@ export class Hud {
         if (this.helpCur?.kind === 'hint' && !this.helpCur.read) this.interruptHint();
       }),
       ev.on('objective', (e) => {
+        if (!this.mine(e)) return;
         this.activityObjective = e.text;
         this.el.objective!.classList.remove('next');
         const job = sim.activities.job;
@@ -313,6 +334,7 @@ export class Hud {
         this.timers.objective = 7;
       }),
       ev.on('big', (e) => {
+        if (!this.mine(e)) return;
         // Wasted / busted replace everything immediately.
         if (e.style === 'wasted' || e.style === 'busted') {
           this.bigQueue = [];
@@ -322,15 +344,17 @@ export class Hud {
       // Countdown beats are tied to simulation time. They replace a title immediately;
       // queuing them behind that title would say GO after the car was already released.
       ev.on('streetRunCountdown', (e) => {
+        if (!this.mine(e)) return;
         const j = sim.activities.job;
         this.bigQueue = [];
         this.showBig({ text: e.count === 0 ? 'GO' : String(e.count), sub: j?.kind === 'streetRun' ? j.course.name : 'STREET RUN', style: 'info', duration: e.count === 0 ? 1.1 : 1.2 });
         this.el.big!.classList.add('countdown');
       }),
       ev.on('streetRunCheckpoint', (e) => {
-        if (e.index < e.total) this.timers.gate = 0.65;
+        if (this.mine(e) && e.index < e.total) this.timers.gate = 0.65;
       }),
       ev.on('streetRunFinished', (e) => {
+        if (!this.mine(e)) return;
         const text = `${e.medal.toUpperCase()} FINISH`;
         const course = sim.activities.streetRunCourses().find((c) => c.id === e.id);
         this.bigQueue = this.bigQueue.filter((m) => m.text !== text);
@@ -339,7 +363,8 @@ export class Hud {
         this.el.bigS!.innerHTML = `<strong class="result-clock">${formatRunTime(e.time)}</strong><span class="result-meta">${escapeHtml(course?.name ?? 'Street run')} · ${formatMoney(e.reward)}${e.personalBest ? ' · NEW PERSONAL BEST' : ''}</span>`;
       }),
       // A mission starting (a retry above all) makes any MISSION FAILED still up or waiting old news.
-      ev.on('missionStarted', () => {
+      ev.on('missionStarted', (e) => {
+        if (!this.mine(e)) return;
         this.bigQueue = this.bigQueue.filter((m) => m.style !== 'failed');
         if (this.bigCur?.style === 'failed') {
           this.bigCur = null;
@@ -348,26 +373,28 @@ export class Hud {
         }
       }),
       ev.on('money', (e) => {
+        if (!this.mine(e)) return;
         this.moneyDelta += e.amount;
         this.timers.delta = 2.5;
       }),
       ev.on('vehicleEnter', (e) => {
-        if (e.character.isPlayer) this.flashZone(e.vehicle.spec.name, '');
+        if (e.character === this.me(sim).character) this.flashZone(e.vehicle.spec.name, '');
       }),
       ev.on('fade', (e) => {
+        if (!this.mine(e)) return;
         this.fade = { startedAt: sim.time, duration: Math.max(FADE_EDGE_SECONDS * 2, e.duration) };
         this.el.fade!.style.opacity = '0';
         this.el.fade!.classList.add('on');
       }),
-      ev.on('respawn', () => {
-        this.lastHealth = sim.player.health;
+      ev.on('respawn', (e) => {
+        if (this.mine(e)) this.lastHealth = this.me(sim).character.health;
       }),
-      ev.on('missionEnded', clearObjective),
-      ev.on('activityEnded', clearObjective),
+      ev.on('missionEnded', (e) => this.mine(e) && clearObjective()),
+      ev.on('activityEnded', (e) => this.mine(e) && clearObjective()),
       ev.on('damage', (e) => this.onDamage(e)),
     );
     // Police radio on its own line: the subtitle belongs to the story.
-    this.unsub.push(ev.on('dispatch', (e) => this.showScanner(e.text)));
+    this.unsub.push(ev.on('dispatch', (e) => this.mine(e) && this.showScanner(e.text)));
   }
 
   private showScanner(text: string): void {
@@ -380,12 +407,12 @@ export class Hud {
    * The dispatch line's timer, and the evade bar: how close the player is to losing the stars, while they
    * flash (not while a mission pins them, as nothing can lose those).
    */
-  private updatePolice(dt: number, sim: Sim): void {
+  private updatePolice(dt: number, sim: ViewState): void {
     if (this.scannerTimer > 0) {
       this.scannerTimer -= dt;
       if (this.scannerTimer <= 0) this.el.scanner!.classList.remove('show');
     }
-    const w = sim.wanted;
+    const w = this.me(sim).wanted;
     const evade = w.level > 0 && w.searching && w.floor === 0 ? `${(w.evadeProgress() * 100).toFixed(1)}%` : '';
     if (evade !== this.shownEvade) {
       this.el.evade!.classList.toggle('hidden', !evade);
@@ -396,7 +423,8 @@ export class Hud {
 
   /** Hitmarkers for the player's hits; a damage-direction arc for hits on him that came from somewhere. */
   private onDamage(e: SimEvents['damage']): void {
-    if (e.attacker?.isPlayer && !e.victim.isPlayer) {
+    const local = this.localCharacter();
+    if (e.attacker && e.attacker === local && !e.victim.isPlayer) {
       // Weapon feedback: bullets, fists and explosions, not people run over.
       if (!WEAPON_HIT[e.kind]) return;
       const el = this.el.hitmarker!;
@@ -416,7 +444,7 @@ export class Hud {
         el.classList.add('kill');
       }
       this.hitTimer = Math.max(this.hitTimer, e.killed ? KILL_TIME : HIT_TIME);
-    } else if (e.victim.isPlayer && (e.dirX !== 0 || e.dirZ !== 0) && Number.isFinite(e.dirX + e.dirZ)) {
+    } else if (e.victim === local && (e.dirX !== 0 || e.dirZ !== 0) && Number.isFinite(e.dirX + e.dirZ)) {
       // The hit travels along (dirX, dirZ): it came from the opposite way.
       const bearing = Math.atan2(-e.dirX, -e.dirZ);
       let arc = this.arcs.find((a) => a.t > 0 && Math.abs(wrapAngle(a.bearing - bearing)) < ARC_MERGE);
@@ -454,7 +482,7 @@ export class Hud {
   }
 
   /** Clears everything the previous session left on screen (the HUD is reused across games). */
-  private reset(sim: Sim): void {
+  private reset(sim: ViewState): void {
     this.shown = initialShown();
     this.timers = initialTimers();
     this.bigQueue = [];
@@ -467,7 +495,7 @@ export class Hud {
     this.toasts = [];
     this.renderToasts(false);
     this.setTitleClear('');
-    this.lastHealth = sim.player.health;
+    this.lastHealth = this.me(sim).character.health;
     this.waypoint = null;
     this.helpCur = null;
     this.hintQueue = [];
@@ -520,7 +548,7 @@ export class Hud {
    * MAX_QUEUED_HINTS. Returns false when a hint was refused because that queue is full.
    */
   help(text: string, duration = 4, kind: HelpKind = 'message', hint?: HintOptions): boolean {
-    const entry: HelpEntry = { text, duration, kind, inVehicle: !!this.sim?.player.vehicle, hint };
+    const entry: HelpEntry = { text, duration, kind, inVehicle: !!this.localCharacter()?.vehicle, hint };
     if (kind === 'hint') {
       if (this.helpCur || this.hintGap > 0 || this.timers.subtitle > 0 || this.hintQueue.length > 0) {
         if (this.hintQueue.length >= MAX_QUEUED_HINTS) return false;
@@ -806,7 +834,7 @@ export class Hud {
     big.className = `big show ${m.style}`;
     this.el.bigT!.textContent = m.text;
     // The sub-line is plain sim text, but it may name a key ('MISSION FAILED ... Press E to retry').
-    this.el.bigS!.innerHTML = formatKeys(escapeHtml(m.sub), this.device, { labels: this.keys, inVehicle: !!this.sim?.player.vehicle });
+    this.el.bigS!.innerHTML = formatKeys(escapeHtml(m.sub), this.device, { labels: this.keys, inVehicle: !!this.localCharacter()?.vehicle });
   }
 
   setVisible(v: boolean): void {
@@ -814,10 +842,10 @@ export class Hud {
     this.root.classList.toggle('hidden', !v);
   }
 
-  update(dt: number, sim: Sim, camYaw: number, aiming: boolean, prompt: string | null, time: number): void {
+  update(dt: number, sim: ViewState, camYaw: number, aiming: boolean, prompt: string | null, time: number): void {
     if (!this.visible) return;
-    const p = sim.player;
-    const prog = sim.progress;
+    const p = this.me(sim).character;
+    const prog = this.me(sim).progress;
     const el = this.el;
 
     // Fade and teleport share the same clock. CSS transitions and wall-clock timers keep
@@ -913,8 +941,8 @@ export class Hud {
       this.shown.ammo = ammo;
       el.ammo!.textContent = ammo;
     }
-    const stars = sim.wanted.level;
-    const flash = sim.wanted.searching;
+    const stars = this.me(sim).wanted.level;
+    const flash = this.me(sim).wanted.searching;
     if (stars !== this.shown.stars || flash !== this.shown.flash) {
       this.shown.stars = stars;
       this.shown.flash = flash;
@@ -931,7 +959,7 @@ export class Hud {
     this.updateToasts(dt);
 
     // Zone changes.
-    const pos = sim.playerPos();
+    const pos = this.me(sim).pos();
     const zone = sim.world.zoneName(pos.x, pos.z);
     if (zone !== this.shown.zone) {
       if (this.shown.zone) this.flashZone(zone, '');
@@ -951,7 +979,7 @@ export class Hud {
     if (this.stackDirty || (typeof window !== 'undefined' && (window.innerWidth !== this.stackW || window.innerHeight !== this.stackH))) this.restack();
     // A reticle whenever a gun is out on foot: small and faint for hip fire, full while aiming (`aiming` is the aim button),
     // red while the muzzle is inside a wall (the shot would only hit that wall).
-    const showCross = p.state === 'normal' && p.alive && !sim.playerDown && p.inventory.current !== 'fists';
+    const showCross = p.state === 'normal' && p.alive && !this.me(sim).down && p.inventory.current !== 'fists';
     el.cross!.classList.toggle('show', showCross);
     el.cross!.classList.toggle('hip', showCross && !aiming);
     el.cross!.classList.toggle('blocked', showCross && sim.combat.muzzleBlocked(p));
@@ -965,10 +993,10 @@ export class Hud {
   }
 
   /** A bearing and a real distance to the same destination used by the radar's route. */
-  private updateNavigation(sim: Sim, camYaw: number): void {
+  private updateNavigation(sim: ViewState, camYaw: number): void {
     const target = this.routeGoal(sim);
     const el = this.el;
-    el.navigation!.classList.toggle('hidden', !target || sim.playerDown);
+    el.navigation!.classList.toggle('hidden', !target || this.me(sim).down);
     if (!target) return;
     const active = sim.missions.active;
     const job = sim.activities.job;
@@ -992,7 +1020,7 @@ export class Hud {
       el.navDetail!.classList.toggle('hidden', !detail);
       el.navArrow!.innerHTML = navIcon(turn);
     }
-    const p = sim.playerPos();
+    const p = this.me(sim).pos();
     const dx = target.x - p.x;
     const dz = target.z - p.z;
     const distance = Math.hypot(dx, dz);
@@ -1004,12 +1032,12 @@ export class Hud {
   }
 
   /** Speed, mechanical condition and a compact reminder of the controls for the current device. */
-  private updateDriving(sim: Sim): void {
-    const v = sim.player.vehicle;
+  private updateDriving(sim: ViewState): void {
+    const v = this.me(sim).character.vehicle;
     const el = this.el;
     const inVehicle = !!v;
     this.root.classList.toggle('in-vehicle', inVehicle);
-    el.drive!.classList.toggle('hidden', !v || sim.playerDown);
+    el.drive!.classList.toggle('hidden', !v || this.me(sim).down);
     if (v) {
       if (el.vname!.textContent !== v.spec.name) el.vname!.textContent = v.spec.name;
       const speed = String(Math.round(v.speed * 3.6)).padStart(3, '0');
@@ -1035,13 +1063,13 @@ export class Hud {
    * and the GPS leads to the objective or the contact again. A side job starting clears it as a mission does (game.ts);
    * one set during the job stays until reached.
    */
-  private updateWaypoint(sim: Sim): void {
+  private updateWaypoint(sim: ViewState): void {
     const busy = sim.activities.busy;
     if (busy && !this.jobRunning) this.waypoint = null;
     this.jobRunning = busy;
     const w = this.waypoint;
     if (!w) return;
-    const p = sim.playerPos();
+    const p = this.me(sim).pos();
     if (Math.hypot(w.x - p.x, w.z - p.z) >= ROUTE_NEAR) return;
     this.waypoint = null;
     this.toast('Waypoint reached');
@@ -1068,12 +1096,12 @@ export class Hud {
   }
 
   /** The prompt slot: an offer card at a contact's marker, else the prompt with its key glyphs. */
-  private renderPrompt(sim: Sim, prompt: string): void {
-    const m = sim.interactions.current();
+  private renderPrompt(sim: ViewState, prompt: string): void {
+    const m = sim.interactions.current(this.me(sim));
     const def = m?.kind === 'mission' && !sim.missions.active ? sim.missions.defs.find((d) => d.id === m.ref) : undefined;
     // The card names the mission already, so its start line drops the quoted title.
     const line = def ? prompt.replace(/\s*"[^"]*"\s*$/, '') : prompt;
-    const start = formatKeys(line, this.device, { labels: this.keys, inVehicle: !!sim.player.vehicle });
+    const start = formatKeys(line, this.device, { labels: this.keys, inVehicle: !!this.me(sim).character.vehicle });
     const el = this.el.prompt!;
     el.classList.toggle('card', !!def);
     const cardClass = offerCardClass(def);
@@ -1091,11 +1119,11 @@ export class Hud {
    * seconds, once no title card is up, unless a mission or a side job is running by then or the
    * player stands on that contact's marker.
    */
-  showNextStep(sim: Sim): void {
+  showNextStep(sim: ViewState): void {
     if (!sim.missions.active && !sim.activities.busy && sim.missions.offers().length > 0) this.nextPending = true;
   }
 
-  private updateNextStep(sim: Sim): void {
+  private updateNextStep(sim: ViewState): void {
     const o = this.el.objective!;
     const busy = !!sim.missions.active || sim.activities.busy || !!this.fade;
     const retry = this.retryOffered(sim);
@@ -1110,7 +1138,7 @@ export class Hud {
     // Keep its pause-menu recovery discoverable instead of sending the player back
     // to the contact as if starting over were the only option.
     if (retained) {
-      if (!busy && !retry && !sim.playerDown && !this.waypoint && !this.onNextMarker(sim) && !this.bigCur && this.bigQueue.length === 0) {
+      if (!busy && !retry && !this.me(sim).down && !this.waypoint && !this.onNextMarker(sim) && !this.bigCur && this.bigQueue.length === 0) {
         o.textContent = `Retry "${retained.title}" from the pause menu`;
         o.classList.add('show', 'next');
         this.timers.objective = 0;
@@ -1131,17 +1159,17 @@ export class Hud {
   }
 
   /** A failed mission can be retried here, or as soon as the police are lost. */
-  private retryOffered(sim: Sim): boolean {
+  private retryOffered(sim: ViewState): boolean {
     return !!(sim.missions.retryOffer() || sim.missions.retryAfterCops());
   }
 
   /** The player stands on the marker of the next mission on offer, the one the next-step line names. */
-  private onNextMarker(sim: Sim): boolean {
-    const here = sim.interactions.current();
+  private onNextMarker(sim: ViewState): boolean {
+    const here = sim.interactions.current(this.me(sim));
     return here?.kind === 'mission' && here.ref === sim.missions.offers()[0]?.id;
   }
 
-  private statusText(sim: Sim): string {
+  private statusText(sim: ViewState): string {
     const m = sim.missions.active;
     if (m) {
       if (m.timer) return `${m.timer.label} ${formatTime(m.timer.endsAt - sim.time)}`;
@@ -1150,7 +1178,7 @@ export class Hud {
     return sim.activities.status() ?? '';
   }
 
-  private drawRadar(sim: Sim, camYaw: number, time: number, dt: number): void {
+  private drawRadar(sim: ViewState, camYaw: number, time: number, dt: number): void {
     const ctx = this.radarCtx;
     // Drawn in RADAR_SIZE units whatever the backing store's size (resizing it also resets the transform).
     const k = this.fitRadar();
@@ -1159,8 +1187,8 @@ export class Hud {
     const H = RADAR_SIZE;
     const cx = W / 2;
     const cy = H / 2;
-    const p = sim.playerPos();
-    const v = sim.player.vehicle;
+    const p = this.me(sim).pos();
+    const v = this.me(sim).character.vehicle;
     const speed = v ? v.speed : 0;
     const zoom = 0.75 - Math.min(0.3, speed / 120); // px per metre; zooms out at speed
     ctx.save();
@@ -1177,7 +1205,7 @@ export class Hud {
     ctx.translate(-(p.x - this.map.minX) * MAP_SCALE, -(p.z - this.map.minZ) * MAP_SCALE);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.map.canvas, 0, 0);
-    drawPoliceOverlay(ctx, sim, this.map, time, zoom / MAP_SCALE);
+    drawPoliceOverlay(ctx, sim, this.map, time, zoom / MAP_SCALE, this.localPlayerId);
     // GPS route to the waypoint or first objective.
     this.routeTimer -= dt;
     const target = this.routeTarget(sim);
@@ -1187,7 +1215,7 @@ export class Hud {
       this.routeTimer = 1;
       this.routeColor = target.color;
       this.routeWaypoint = this.waypoint;
-      this.route = gpsRoute(sim, target.x, target.z);
+      this.route = gpsRoute(sim, target.x, target.z, this.localPlayerId);
     }
     if (!target) {
       this.route = [];
@@ -1222,7 +1250,7 @@ export class Hud {
     };
     // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top.
     const blips: Blip[] = this.waypoint ? [{ x: this.waypoint.x, z: this.waypoint.z, color: ROUTE_WAYPOINT, label: '', sticky: true, shape: 'square' }] : [];
-    blips.push(...collectBlips(sim, time));
+    blips.push(...collectBlips(sim, time, this.localPlayerId));
     for (const b of blips) {
       let s = toScreen(b.x, b.z);
       const dx = s.x - cx;
@@ -1248,7 +1276,8 @@ export class Hud {
     ctx.strokeText('N', nx, ny);
     ctx.fillText('N', nx, ny);
     // Player arrow (relative to the camera).
-    const ph = sim.player.vehicle ? sim.player.vehicle.heading : sim.player.heading;
+    const meChar = this.me(sim).character;
+    const ph = meChar.vehicle ? meChar.vehicle.heading : meChar.heading;
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(-(ph - camYaw));
@@ -1265,7 +1294,7 @@ export class Hud {
     ctx.stroke();
     ctx.restore();
     // Health / armour ring.
-    const hp = Math.max(0, sim.player.health) / sim.player.maxHealth;
+    const hp = Math.max(0, this.me(sim).character.health) / this.me(sim).character.maxHealth;
     ctx.lineWidth = 5;
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.beginPath();
@@ -1282,14 +1311,14 @@ export class Hud {
    * job objective, else (with neither going on) the contact who has work next. Null with none of
    * them, or once the player is within ROUTE_NEAR of it.
    */
-  private routeTarget(sim: Sim): { x: number; z: number; color: string } | null {
+  private routeTarget(sim: ViewState): { x: number; z: number; color: string } | null {
     const t = this.routeGoal(sim);
     if (!t) return null;
-    const p = sim.playerPos();
+    const p = this.me(sim).pos();
     return Math.hypot(t.x - p.x, t.z - p.z) < ROUTE_NEAR ? null : t;
   }
 
-  private routeGoal(sim: Sim): { x: number; z: number; color: string } | null {
+  private routeGoal(sim: ViewState): { x: number; z: number; color: string } | null {
     if (this.waypoint) return { x: this.waypoint.x, z: this.waypoint.z, color: ROUTE_WAYPOINT };
     const objs = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
     const o = objs[0];

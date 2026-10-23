@@ -5,12 +5,14 @@ import { WHEEL_GESTURE_GAP, WHEEL_STEP } from '../../input/input';
 import { padGlyph, type InputDevice } from '../glyphs';
 import { escapeHtml } from '../hud';
 import { collectBlips, drawBlip, drawPoliceOverlay, MAP_SCALE, type Blip } from '../mapRender';
-import { h, type MenuCtx } from './shared';
+import { h, localPlayer, type MenuCtx } from './shared';
 
 /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
 export function showMap(menus: MenuCtx, onClose?: () => void): void {
   const sim = menus.host.sim();
-  if (!sim) return;
+  const me = localPlayer(menus.host);
+  if (!sim || !me) return;
+  const localId = me.id;
   const el = h('div', 'map-screen');
   const canvas = h('canvas');
   el.appendChild(canvas);
@@ -101,7 +103,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     ctx.scale(k / MAP_SCALE, k / MAP_SCALE);
     ctx.translate(-(cx - menus.map.minX) * MAP_SCALE, -(cz - menus.map.minZ) * MAP_SCALE);
     ctx.drawImage(menus.map.canvas, 0, 0);
-    drawPoliceOverlay(ctx, sim, menus.map, time, k / MAP_SCALE);
+    drawPoliceOverlay(ctx, sim, menus.map, time, k / MAP_SCALE, localId);
     ctx.restore();
     // District labels.
     ctx.font = '700 15px Rajdhani, sans-serif';
@@ -133,10 +135,10 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top.
     const wp = menus.host.waypoint();
     const blips: Blip[] = wp ? [{ x: wp.x, z: wp.z, color: '#c04fff', label: 'W', sticky: true, shape: 'circle' }] : [];
-    blips.push(...collectBlips(sim, time));
+    blips.push(...collectBlips(sim, time, localId));
     for (const b of blips) drawBlip(ctx, b, vw / 2 + (b.x - cx) * k, vh / 2 + (b.z - cz) * k, 18);
-    const p = sim.playerPos();
-    const ph = sim.player.vehicle ? sim.player.vehicle.heading : sim.player.heading;
+    const p = me.pos();
+    const ph = me.character.vehicle ? me.character.vehicle.heading : me.character.heading;
     ctx.save();
     ctx.translate(vw / 2 + (p.x - cx) * k, vh / 2 + (p.z - cz) * k);
     ctx.rotate(Math.PI - ph);

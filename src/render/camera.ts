@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { rayAabb3 } from '../core/collision';
 import { clamp, damp, dampAngle, smoothstep, wrapAngle, type V3 } from '../core/math';
 import type { Vehicle } from '../sim/entities';
-import type { Sim } from '../sim/sim';
+import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
 import { CURB_H, WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
@@ -209,7 +209,7 @@ function leavesClear(cam: V3, yaw: number, pitch: number, fovDeg: number, aspect
  * the boom back (`held`). Trunk colliders are vertical cylinders taller than the boom is high, so this is
  * the boom's track over the ground against each trunk's circle grown by LENS.
  */
-function trunkStop(sim: Sim, from: V3, d: V3, len: number, hugged: ReadonlySet<number>, turning: boolean, held: number, hugging: Set<number>): { t: number; id: number } {
+function trunkStop(sim: ViewState, from: V3, d: V3, len: number, hugged: ReadonlySet<number>, turning: boolean, held: number, hugging: Set<number>): { t: number; id: number } {
   const stop = { t: Infinity, id: -1 };
   const h2 = d.x * d.x + d.z * d.z;
   if (h2 < 1e-6) return stop;
@@ -477,7 +477,14 @@ export class CameraController {
     };
   }
 
-  update(dt: number, sim: Sim, aiming: boolean): void {
+  /** Id of the player slot the camera follows. */
+  localPlayerId = 0;
+
+  private me(sim: ViewState): PlayerView {
+    return playerOf(sim, this.localPlayerId);
+  }
+
+  update(dt: number, sim: ViewState, aiming: boolean): void {
     this.lookIdle += dt;
     this.footView = false;
     this.footLift = 0;
@@ -487,7 +494,8 @@ export class CameraController {
       this.updateTitle(dt);
       return;
     }
-    const p = sim.player;
+    const me = this.me(sim);
+    const p = me.character;
     const v = p.vehicle;
     const cam = this.camera;
     if (!this.initialized) {
@@ -515,7 +523,7 @@ export class CameraController {
     // In the water and not aiming: raised ground is looked over (liftSight) rather than stopping the boom.
     let lookOver = false;
     this.rumbleAmt = 0;
-    if (sim.playerDown && sim.deathKind === 'wasted') {
+    if (me.down && me.deathKind === 'wasted') {
       this.deathT += dt;
       const tx = p.pos.x;
       const tz = p.pos.z;
@@ -614,7 +622,7 @@ export class CameraController {
     // few frames and lets it back out slowly, so the camera glides instead of popping.
     const d = this.desired.clone().sub(lookFrom);
     const len = d.length();
-    const onFoot = !v && !(sim.playerDown && sim.deathKind === 'wasted');
+    const onFoot = !v && !(me.down && me.deathKind === 'wasted');
     if (onFoot) {
       // How long the view has held still, for the trunk hysteresis (HUG_HOLD), and how fast it turns (GLIDE_LEAD; a cut,
       // such as the one leaving a car, is no turn).
@@ -720,7 +728,7 @@ export class CameraController {
    * A wall right behind the player (the on-foot boom cut to `reach` m, shorter than CLOSE_BOOM): the camera rises and
    * slides out over the shoulder it is on, as far as nothing solid comes within 0.3 m of the lens.
    */
-  private closeBoom(sim: Sim, reach: number): void {
+  private closeBoom(sim: ViewState, reach: number): void {
     const k = 1 - smoothstep(CLOSE_FULL, CLOSE_BOOM, reach);
     if (k <= 0) return;
     const p = this.desired;
@@ -884,7 +892,7 @@ export class CameraController {
    * (whose right is (rx, rz)): the right one, unless raised ground beside him hides him from it so much more than from
    * the left one that the view from there needs less of the rise (SIDE_SWAP, SIDE_BACK).
    */
-  private openSide(sim: Sim, across: number, rx: number, rz: number): number {
+  private openSide(sim: ViewState, across: number, rx: number, rz: number): number {
     const w = sim.world;
     const h = this.head;
     const t = this.target;
@@ -905,7 +913,7 @@ export class CameraController {
    * as far as a ceiling lets it, and looks at the car from there. The body frame is the vehicle's as drawn: turned,
    * pitched and rolled about the middle of its height.
    */
-  private clearBody(sim: Sim, v: Vehicle): void {
+  private clearBody(sim: ViewState, v: Vehicle): void {
     const p = this.desired;
     const h = v.spec.height;
     const turn = this.bodyTurn.setFromEuler(this.bodyEuler.set(-v.pitch, v.heading, v.roll, 'YXZ')).invert();
@@ -925,7 +933,7 @@ export class CameraController {
   }
 
   /** The lens stays on the player's side of nearby vehicles, including tilted wrecks. */
-  private vehicleStop(sim: Sim, from: THREE.Vector3, dir: THREE.Vector3, length: number): number {
+  private vehicleStop(sim: ViewState, from: THREE.Vector3, dir: THREE.Vector3, length: number): number {
     let reach = length;
     const pad = 0.16;
     for (const v of sim.vehicles) {
@@ -994,8 +1002,8 @@ export class CameraController {
    * leaves dissolving (see leavesClear). Where no yaw does both, the nearest one clear of the trunks;
    * then the heading.
    */
-  private clearYaw(sim: Sim): number {
-    const p = sim.player;
+  private clearYaw(sim: ViewState): number {
+    const p = this.me(sim).character;
     const boom = this.zoomLevel === 1 ? FOOT_BOOM_FAR : FOOT_BOOM;
     const props = sim.world.layout.props.filter((q) => (q.kind === 'tree' || q.kind === 'palm' || q.kind === 'bush') && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < boom + 8);
     if (props.length === 0) return p.heading;
@@ -1019,8 +1027,8 @@ export class CameraController {
   }
 
   /** Snap behind the player (after respawn / teleport). */
-  reset(sim: Sim): void {
-    const p = sim.player;
+  reset(sim: ViewState): void {
+    const p = this.me(sim).character;
     this.yaw = p.vehicle ? p.vehicle.heading : this.clearYaw(sim);
     this.vehYaw = this.yaw;
     this.orbitYaw = 0;
@@ -1044,7 +1052,7 @@ export class CameraController {
     this.sideTarget = 1;
     this.glideOn = false;
     this.yawRate = 0;
-    const pos = sim.playerPos();
+    const pos = this.me(sim).pos();
     this.target.set(pos.x, pos.y + 1.5, pos.z);
     this.subject.copy(this.target);
     this.wasInVehicle = !!p.vehicle;

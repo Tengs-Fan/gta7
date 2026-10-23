@@ -4,11 +4,12 @@ import { formatMoney } from '../../core/math';
 import { shopItems } from '../../sim/interactions';
 import { padGlyph, type InputDevice } from '../glyphs';
 import { escapeHtml } from '../hud';
-import { h, type MenuCtx } from './shared';
+import { h, localPlayer, type MenuCtx } from './shared';
 
 export function showShop(ctx: MenuCtx, onClose: () => void): void {
   const sim = ctx.host.sim();
-  if (!sim) return;
+  const me = localPlayer(ctx.host);
+  if (!sim || !me) return;
   const el = h('div', 'screen dim');
   const panel = h('div', 'panel');
   panel.style.width = 'min(620px, 92vw)';
@@ -20,17 +21,17 @@ export function showShop(ctx: MenuCtx, onClose: () => void): void {
   let sel = 0;
   const rows: HTMLDivElement[] = [];
   const render = () => {
-    money.textContent = formatMoney(sim.progress.money);
+    money.textContent = formatMoney(me.progress.money);
     items.forEach((it, i) => {
       const r = rows[i]!;
-      const owned = it.weapon ? sim.player.inventory.has(it.weapon) : false;
-      const price = sim.interactions.priceOf(it);
-      r.innerHTML = `<span>${escapeHtml(it.label)}${owned ? ' <span class="own">(ammo +' + it.ammo + ')</span>' : it.weapon ? ` <span class="own">+${it.ammo} rounds</span>` : ''}</span><span class="own">${it.weapon ? sim.player.inventory.total(it.weapon) + ' owned' : ''}</span><span class="price">${formatMoney(price)}</span>`;
+      const owned = it.weapon ? me.character.inventory.has(it.weapon) : false;
+      const price = sim.interactions.priceOf(it, me);
+      r.innerHTML = `<span>${escapeHtml(it.label)}${owned ? ' <span class="own">(ammo +' + it.ammo + ')</span>' : it.weapon ? ` <span class="own">+${it.ammo} rounds</span>` : ''}</span><span class="own">${it.weapon ? me.character.inventory.total(it.weapon) + ' owned' : ''}</span><span class="price">${formatMoney(price)}</span>`;
       r.classList.toggle('sel', i === sel);
     });
   };
   const buy = (i: number) => {
-    const err = sim.interactions.buy(items[i]!.id);
+    const err = sim.interactions.buy(items[i]!.id, me);
     msg.textContent = err ?? `Bought: ${items[i]!.label}`;
     ctx.host.click();
     render();

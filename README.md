@@ -309,8 +309,10 @@ src/
 `src/core`, `src/world` and `src/sim` never touch the DOM, WebGL, audio, storage or three.js, so the whole simulation runs in Node.
 The layers only import downwards: `core` ← `world` ← `sim` ← `render`, `audio`, `input` ← `ui` ← `game.ts`.
 `Sim.update(dt, input)` clamps a frame to 0.1 s and runs every system in a fixed order, with physics in substeps of at most 1/120 s.
+The sim keeps one `PlayerSlot` per human player in `sim.players` (character, controller, wanted record, progress, camera pose, death state), and `sim.player`, `sim.wanted`, `sim.progress` and the like are aliases for slot 0, the single-player seat; `update` also takes a `Map` of one input per slot id, and player-scoped events carry an optional `playerId` (absent means slot 0).
+Police pursuits, traffic streaming and PvP still follow slot 0 only.
 Missions are generator scripts resumed synchronously inside `Sim.update`, and all randomness in the sim comes from a seeded RNG, so a run from the same seed and inputs repeats exactly; the game itself passes no seed, so San Azura is the same city in every game.
-The renderer, HUD and audio subscribe to the typed events in `src/sim/events.ts` (shots, explosions, impacts, messages) and read entity state each frame.
+The renderer, HUD and audio subscribe to the typed events in `src/sim/events.ts` (shots, explosions, impacts, messages) and read entity state each frame, through the read-only `ViewState` interface of `src/sim/viewState.ts` and the id of the local player slot rather than the `Sim` class.
 Conventions: +X is east, +Z south and +Y up, and heading h faces (sin h, cos h).
 
 ## Testing

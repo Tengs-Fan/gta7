@@ -2,7 +2,7 @@
 
 import type { KeyLabels, UiActions } from '../../input/input';
 import type { QualityTier } from '../../render/quality';
-import type { Sim } from '../../sim/sim';
+import { playerOf, type PlayerView, type ViewState } from '../../sim/viewState';
 import type { StreetRunCourse, StreetRunMedal } from '../../sim/streetRuns';
 import type { Settings } from '../../settings';
 import type { InputDevice } from '../glyphs';
@@ -27,7 +27,9 @@ export interface MenuHost {
   settings(): Settings;
   applySettings(s: Settings): void;
   deleteSave(): void;
-  sim(): Sim | null;
+  sim(): ViewState | null;
+  /** Id of the player slot this screen belongs to (slot 0 when absent). */
+  localPlayerId?(): number;
   setWaypoint(p: { x: number; z: number } | null): void;
   waypoint(): { x: number; z: number } | null;
   click(): void;
@@ -36,6 +38,12 @@ export interface MenuHost {
    * whether it can post-process at all (without half-float targets there is no FXAA; absent means it can).
    */
   quality?(): { auto: QualityTier; msaa: boolean; software?: boolean; post?: boolean };
+}
+
+/** The player this menu belongs to, once a game is running. */
+export function localPlayer(host: MenuHost): PlayerView | null {
+  const sim = host.sim();
+  return sim ? playerOf(sim, host.localPlayerId?.() ?? 0) : null;
 }
 
 export interface Screen {

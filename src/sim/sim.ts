@@ -18,6 +18,7 @@ import { CombatSystem, GET_UP_GRACE } from './combat';
 import { DriverAI, type DriverHost, type DriverPolicy } from './driver';
 import { Character, Helicopter, MAX_DENTS, Pickup, Projectile, Vehicle, type Appearance, type CharacterRole, type Dent } from './entities';
 import type { SimEvents } from './events';
+import type { ViewState } from './viewState';
 import { neutralInput, type PlayerInput } from './input';
 import { Interactions } from './interactions';
 import { MissionSystem } from './missions/runner';
@@ -52,7 +53,7 @@ function isInputMap(input: PlayerInput | ReadonlyMap<number, PlayerInput>): inpu
   return typeof (input as ReadonlyMap<number, PlayerInput>).get === 'function';
 }
 
-export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost {
+export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost, ViewState {
   readonly world: StaticWorld;
   readonly roads: RoadNetwork;
   readonly events = new Emitter<SimEvents>();

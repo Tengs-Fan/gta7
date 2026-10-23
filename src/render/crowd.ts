@@ -185,6 +185,7 @@ export class CrowdView {
   hiddenId = -1;
   private frame = 0;
   private time = 0;
+  /** The character this screen's player controls: dressed as the player, and the one a gun-pointed ped reacts to. */
   private player: Character | null = null;
   private readonly trunk: Trunk = makeTrunk();
   private readonly gaitOut = makeGaitOut();
@@ -280,14 +281,18 @@ export class CrowdView {
     part.n++;
   }
 
-  sync(chars: readonly Character[], camX: number, camZ: number, dt: number): void {
+  /**
+   * `localCharacterId` is the id of the character the local player controls. Other players' characters are drawn as
+   * ordinary characters in their own appearance.
+   */
+  sync(chars: readonly Character[], camX: number, camZ: number, dt: number, localCharacterId = -1): void {
     for (const p of Object.values(this.parts)) p.n = 0;
     for (const p of this.weapons.values()) p.n = 0;
     this.frame++;
     this.time += dt;
     this.player = null;
     for (const c of chars) {
-      if (c.isPlayer && !c.removed) {
+      if (c.id === localCharacterId && !c.removed) {
         this.player = c;
         break;
       }
@@ -413,9 +418,10 @@ export class CrowdView {
     this.put(this.parts.neck, S.inst, a.skin);
     // The player's jacket has a light inset and rear yoke. Civilians mix zip jackets and plain tops;
     // uniforms instead carry a badge, name plate and radio. Choice is stable across streaming and saves.
-    const jacket = c.isPlayer || (!c.isLaw && seeded(c.id, 21) > 0.4);
+    const local = c === this.player;
+    const jacket = local || (!c.isLaw && seeded(c.id, 21) > 0.4);
     if (jacket) {
-      this.put(this.parts.shirtInset, S.inst, c.isPlayer ? 0xc8c7bc : seeded(c.id, 22) > 0.5 ? 0xe1ddd0 : 0x283b48);
+      this.put(this.parts.shirtInset, S.inst, local ? 0xc8c7bc : seeded(c.id, 22) > 0.5 ? 0xe1ddd0 : 0x283b48);
       this.put(this.parts.jacketTrim, S.inst, a.shirt);
     }
     if (c.isLaw) this.put(this.parts.badge, S.inst, 0xffffff);
@@ -427,9 +433,9 @@ export class CrowdView {
     if (a.hat) this.put(this.parts.hat, S.inst, a.hat);
     else {
       this.put(this.parts.hair, S.inst, a.hair);
-      if (!c.isPlayer && seeded(c.id, 23) > 0.55) this.put(this.parts.hairSweep, S.inst, a.hair);
+      if (!local && seeded(c.id, 23) > 0.55) this.put(this.parts.hairSweep, S.inst, a.hair);
     }
-    if (!c.isPlayer && seeded(c.id, 24) > 0.72) this.put(this.parts.glasses, S.inst, 0xffffff);
+    if (!local && seeded(c.id, 24) > 0.72) this.put(this.parts.glasses, S.inst, 0xffffff);
   }
 
   /** Body frame axes into S.left/up/fwd and the shoulder joints into S.shL/shR. */

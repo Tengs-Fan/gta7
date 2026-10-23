@@ -1,7 +1,7 @@
 // Pause menu.
 
 import { escapeHtml } from '../hud';
-import { ButtonList, h, showConfirm, type MenuCtx } from './shared';
+import { ButtonList, h, localPlayer, showConfirm, type MenuCtx } from './shared';
 import { showControls } from './controls';
 import { showMap } from './map';
 import { showSettings } from './settings';
@@ -11,6 +11,7 @@ export function showPause(ctx: MenuCtx): void {
   const sim = ctx.host.sim();
   const m = sim?.missions.active ?? null;
   const retry = ctx.host.retryMission ? sim?.missions.retryMenuOffer() : null;
+  const here = localPlayer(ctx.host)?.pos() ?? { x: 0, y: 0, z: 0 };
   const el = h('div', 'screen dim');
   const panel = h('div', 'panel pause-panel');
   panel.style.width = 'min(520px, 92vw)';
@@ -43,7 +44,7 @@ export function showPause(ctx: MenuCtx): void {
     const doing = m ? (m.won ? 'complete' : escapeHtml(m.objectiveText || m.def.blurb)) : '';
     const job = sim.activities.job;
     const activity = job?.kind === 'streetRun' ? `<b>${escapeHtml(job.course.name)}</b><br>${escapeHtml(sim.activities.status() ?? '')}` : escapeHtml(sim.activities.status() ?? '');
-    panel.appendChild(h('p', 'pause-context', m ? `Mission: <b>${escapeHtml(m.def.title)}</b> — ${doing}` : activity || `Zone: <b>${escapeHtml(sim.world.zoneName(sim.playerPos().x, sim.playerPos().z))}</b> · ${sim.clock.label()} · Day ${sim.clock.day}`));
+    panel.appendChild(h('p', 'pause-context', m ? `Mission: <b>${escapeHtml(m.def.title)}</b> — ${doing}` : activity || `Zone: <b>${escapeHtml(sim.world.zoneName(here.x, here.z))}</b> · ${sim.clock.label()} · Day ${sim.clock.day}`));
   }
   el.appendChild(panel);
   ctx.push({ el, input: (ui) => (ui.back || ui.pause ? ctx.host.resume() : list.input(ui)) });

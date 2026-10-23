@@ -56,6 +56,14 @@ function introOffByUrl(): boolean {
   }
 }
 
+/** Single player plays slot 0. */
+const LOCAL_PLAYER_ID = 0;
+
+/** An event about the local player; one without a playerId is about slot 0. */
+function isLocal(e: { playerId?: number }): boolean {
+  return (e.playerId ?? 0) === LOCAL_PLAYER_ID;
+}
+
 export class Game {
   readonly world: StaticWorld;
   readonly renderer: GameRenderer;
@@ -101,6 +109,8 @@ export class Game {
   private forcedWeather: WeatherMode | null = null;
   /** Total real time spent in frames (for tests). */
   readonly perf = { frameMs: 0, simMs: 0, renderMs: 0, frameIntervalMs: 0 };
+  /** The player slot this screen shows; single player always plays slot 0. */
+  private readonly localPlayerId = LOCAL_PLAYER_ID;
   /** ?intro=0 in the URL, read once. */
   private readonly introOff = introOffByUrl();
   /** Seconds until Lou's opening call on a fresh game; not positive when no call is pending. */
@@ -133,7 +143,7 @@ export class Game {
     this.menus = new Menus(ui, this.menuHost(), this.mapImage, this.input.labels);
     this.applySettings(this.settings, false);
     this.sim = this.makeTitleSim();
-    this.renderer.attach(this.sim);
+    this.renderer.attach(this.sim, this.localPlayerId);
     this.renderer.cameraCtl.mode = 'title';
     this.menus.showTitle();
 
@@ -208,6 +218,7 @@ export class Game {
       applySettings: this.guard((s: Settings) => this.applySettings(s, true)),
       deleteSave: () => deleteGame(),
       sim: () => (this.mode === 'game' ? this.sim : null),
+      localPlayerId: () => this.localPlayerId,
       setWaypoint: this.guard((p: { x: number; z: number } | null) => {
         this.hud.waypoint = p;
       }),
@@ -290,19 +301,20 @@ export class Game {
     }
     this.sim = sim;
     this.renderer.crowd.hiddenId = -1;
-    this.renderer.attach(sim);
-    this.hud.bind(sim);
-    this.audio.attach(sim);
+    this.renderer.attach(sim, this.localPlayerId);
+    this.hud.bind(sim, this.localPlayerId);
+    this.audio.attach(sim, this.localPlayerId);
     const ev = sim.events;
     this.unsub.push(
-      ev.on('shopOpen', () => {
+      ev.on('shopOpen', (e) => {
+        if (!isLocal(e)) return;
         this.suspendPlay();
         this.menus.showShop(this.guard(() => this.resume()));
       }),
       ...this.bindSaves(sim),
-      ev.on('respawn', () => this.renderer.cameraCtl.reset(sim)),
-      ev.on('missionStarted', () => {
-        this.hud.waypoint = null;
+      ev.on('respawn', (e) => isLocal(e) && this.renderer.cameraCtl.reset(sim)),
+      ev.on('missionStarted', (e) => {
+        if (isLocal(e)) this.hud.waypoint = null;
       }),
     );
     this.noteEvent('session', save ? 'continued' : 'new game');
@@ -320,11 +332,11 @@ export class Game {
       }),
     );
     this.unsub.push(
-      ev.on('respawn', () => this.showNextStep()),
+      ev.on('respawn', (e) => isLocal(e) && this.showNextStep()),
       ev.on('missionEnded', (e) => {
-        if (e.passed) this.showNextStep();
+        if (isLocal(e) && e.passed) this.showNextStep();
       }),
-      this.hints.bind(sim),
+      this.hints.bind(sim, this.localPlayerId),
     );
     this.mode = 'game';
     this.renderer.cameraCtl.mode = 'play';
@@ -410,7 +422,7 @@ export class Game {
   private bindSaves(sim: Sim): Array<() => void> {
     const queue = () => { this.pendingAutosave = true; };
     return [
-      sim.events.on('saveRequested', (e) => e.poi === 'auto' ? queue() : this.save(false)),
+      sim.events.on('saveRequested', (e) => isLocal(e) && (e.poi === 'auto' ? queue() : this.save(false))),
       sim.events.on('streetRunFinished', queue),
       sim.events.on('activityMilestone', queue),
       sim.events.on('pickup', (e) => { if (e.kind === 'package') queue(); }),
@@ -478,8 +490,8 @@ export class Game {
     this.audio.setPaused(true);
     this.titleUnmute = TITLE_UNMUTE_DELAY;
     this.sim = this.makeTitleSim();
-    this.renderer.attach(this.sim);
-    this.audio.attach(this.sim);
+    this.renderer.attach(this.sim, this.localPlayerId);
+    this.audio.attach(this.sim, this.localPlayerId);
     this.renderer.cameraCtl.mode = 'title';
     this.canvas.classList.remove('wasted', 'busted');
     this.menus.showTitle();
@@ -624,7 +636,7 @@ export class Game {
     this.countUnmute(dt);
     this.updateIntro(dt);
     this.hints.update(dt, sim, { device: fi.device, mouseFree: !this.input.pointerLocked && this.input.lockAvailable });
-    const prompt = sim.interactions.prompt() ?? sim.activities.jobPrompt() ?? this.hints.stealPrompt(sim);
+    const prompt = sim.interactions.prompt(sim.players[this.localPlayerId]) ?? sim.activities.jobPrompt(sim.players[this.localPlayerId]) ?? this.hints.stealPrompt(sim);
     this.hud.device = fi.device;
     this.hud.update(dt, sim, cam.yaw, aiming, prompt, this.renderer.time);
     const down = sim.deathKind;
