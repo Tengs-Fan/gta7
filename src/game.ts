@@ -6,7 +6,7 @@ import type { TypedCheat } from './input/cheats';
 import { Input, type FrameInput } from './input/input';
 import { pickTier, probeGpu, QUALITY, type QualitySetting, type QualityTier } from './render/quality';
 import { GameRenderer } from './render/renderer';
-import { deleteGame, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, storeGame, type Settings } from './settings';
+import { deleteGame, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, storeGame, SUBTITLE_SIZES, type Settings } from './settings';
 import type { Vehicle } from './sim/entities';
 import { neutralInput } from './sim/input';
 import { applySave, serialize, type SaveData } from './sim/progress';
@@ -35,6 +35,8 @@ export const INTRO_DELAY = 2.5;
  * those of a game started meanwhile. Four time constants of the slowest leave under 2% of them.
  */
 const TITLE_UNMUTE_DELAY = 0.8;
+/** An FPS-capped frame may come this much (ms) before it is due: a 60 Hz display's frames jitter around 16.7 ms. */
+const FRAME_SLACK_MS = 1;
 /**
  * Getting out at BAIL_SPEED (m/s) or faster is a bail that costs BAIL_DAMAGE health, armour or not
  * (PlayerController.driving and exitVehicle). The exit is decided before the frame's physics step, at the speed the
@@ -121,6 +123,10 @@ export class Game {
   private introTimer = -1;
   /** Completed achievements waiting for the end of the simulation frame (and any pending respawn bill). */
   private pendingAutosave = false;
+  /** The window lost focus: pause at the end of the next frame. */
+  private blurPause = false;
+  /** When the next frame is due under an FPS cap (performance.now() ms). */
+  private nextFrameAt = 0;
   /** The phone's text log, its incoming calls and the HUD card that shows one ringing. */
   readonly phoneLog = new PhoneLog();
   readonly calls = new PhoneCalls();
@@ -176,6 +182,12 @@ export class Game {
     });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.mode === 'game' && !this.menus.open) this.pause();
+    });
+    // Switching to another window pauses too, with the mouse free as much as captured, and on the WASTED / BUSTED
+    // screen (its countdown waits under the pause menu). Coming back does not resume: RESUME does.
+    // The pause waits for the end of the next frame: a key the blur lets go of (Input's held F) still acts first.
+    window.addEventListener('blur', () => {
+      if (this.mode === 'game' && this.running) this.blurPause = true;
     });
     canvas.addEventListener('webglcontextlost', (e) => this.onContextLost(e));
     canvas.addEventListener('webglcontextrestored', () => this.onContextRestored());
@@ -244,6 +256,8 @@ export class Game {
       waypoint: () => this.hud.waypoint,
       click: () => this.audio.chime('ui'),
       quality: () => ({ auto: this.autoTier, msaa: this.renderer.msaa, software: this.renderer.software, post: this.renderer.postProcessing }),
+      captureKey: (cb: (code: string) => void) => this.input.captureKey(this.guard(cb)),
+      cancelCapture: () => this.input.cancelCapture(),
     };
   }
 
@@ -260,6 +274,10 @@ export class Game {
     if (this.sim && this.mode === 'game') this.sim.weather.mode = this.weatherMode;
     this.renderer.cameraCtl.sensitivity = s.sensitivity;
     this.renderer.cameraCtl.invertY = s.invertY;
+    this.renderer.cameraCtl.shakeEnabled = s.cameraShake;
+    this.renderer.resolutionScale = s.resolutionScale;
+    this.input.keymap.set(s.bindings);
+    for (const size of SUBTITLE_SIZES) this.hud.root.classList.toggle(`sub-${size}`, s.subtitleSize === size);
     this.audio.setVolumes(s.master, s.music, s.sfx);
     if (!s.hints) this.hud.clearHints();
     if (persist) saveSettings(this.settings);
@@ -615,6 +633,13 @@ export class Game {
   private readonly frame = (now: number): void => {
     if (!this.running) return;
     requestAnimationFrame(this.frame);
+    // FPS cap: a display frame that comes before the next capped frame is due is skipped (its time counts in the next).
+    const cap = this.settings.fpsCap;
+    if (cap > 0) {
+      const interval = 1000 / cap;
+      if (now < this.nextFrameAt - FRAME_SLACK_MS) return;
+      this.nextFrameAt = Math.max(this.nextFrameAt + interval, now + interval * 0.5);
+    }
     const elapsed = Math.max(0, (now - this.last) / 1000);
     const dt = Math.min(0.1, elapsed);
     this.last = now;
@@ -624,6 +649,10 @@ export class Game {
       // Reading the input can fail too (a gamepad API that throws): that shows the error screen, not a frozen black one.
       const fi = this.input.poll(dt);
       this.step(dt, fi);
+      if (this.blurPause) {
+        this.blurPause = false;
+        this.pause();
+      }
       this.input.menuOpen = this.menus.open;
       this.input.endFrame();
     } catch (err) {

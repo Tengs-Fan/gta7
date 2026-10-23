@@ -38,6 +38,9 @@ export interface MenuHost {
    * whether it can post-process at all (without half-float targets there is no FXAA; absent means it can).
    */
   quality?(): { auto: QualityTier; msaa: boolean; software?: boolean; post?: boolean };
+  /** Hands the next key press (its code) to `cb` and nothing else, for a rebind; cancelCapture drops the wait. */
+  captureKey?(cb: (code: string) => void): void;
+  cancelCapture?(): void;
 }
 
 /** The player this menu belongs to, once a game is running. */

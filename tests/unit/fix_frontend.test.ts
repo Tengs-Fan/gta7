@@ -3,6 +3,7 @@
 // Node has no DOM or Web Audio, so the browser pieces run against small fakes defined below,
 // and the WebGL renderer is mocked.
 
+import { DEFAULT_BINDINGS } from '../../src/input/bindings';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AudioEngine } from '../../src/audio/audio';
 import { circleVsObb, makeContact, obbVsObb, type OBB } from '../../src/core/collision';
@@ -863,7 +864,7 @@ describe('menus', () => {
 
   function makeMenus(over: Partial<MenuHost> = {}) {
     let saved = true;
-    let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true };
+    let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true, bindings: DEFAULT_BINDINGS, resolutionScale: 1, fpsCap: 0, subtitleSize: 'normal', cameraShake: true, mapLayers: {} };
     let waypoint: { x: number; z: number } | null = null;
     const host: MenuHost = {
       hasSave: () => saved,
@@ -941,6 +942,19 @@ describe('menus', () => {
     press({ down: true }); // lightning flashes
     press({ confirm: true });
     expect(settings().lightningFlashes).toBe(false);
+    press({ down: true }); // resolution scale (wave 1)
+    press({ left: true });
+    expect(settings().resolutionScale).toBe(0.95);
+    press({ down: true }); // FPS cap
+    press({ left: true });
+    expect(settings().fpsCap).toBe(60);
+    press({ down: true }); // subtitle size
+    press({ right: true });
+    expect(settings().subtitleSize).toBe('large');
+    press({ down: true }); // camera shake
+    press({ confirm: true });
+    expect(settings().cameraShake).toBe(false);
+    press({ down: true }); // key bindings (opens its own screen on confirm)
     press({ down: true }); // DELETE SAVE is disabled without a save: straight to BACK
     press({ confirm: true });
     expect(menus.open).toBe(false);
@@ -1189,7 +1203,7 @@ function stubHost(over: Partial<MenuHost> = {}): MenuHost {
     resume: vi.fn(),
     quitToTitle: vi.fn(),
     abandonMission: vi.fn(),
-    settings: () => ({ quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true }),
+    settings: () => ({ quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true, bindings: DEFAULT_BINDINGS, resolutionScale: 1, fpsCap: 0, subtitleSize: 'normal', cameraShake: true, mapLayers: {} }),
     applySettings: () => undefined,
     deleteSave: () => undefined,
     sim: () => null,
@@ -2343,7 +2357,7 @@ describe('r2 quality: tiers in the game and the settings row', () => {
 
   it('the settings row offers AUTO (tier) and says when the anti-aliasing change waits for a reload', () => {
     let applied: Settings | null = null;
-    let current: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true };
+    let current: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true, bindings: DEFAULT_BINDINGS, resolutionScale: 1, fpsCap: 0, subtitleSize: 'normal', cameraShake: true, mapLayers: {} };
     const host = stubHost({
       settings: () => current,
       applySettings: (s) => {

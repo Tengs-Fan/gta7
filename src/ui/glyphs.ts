@@ -43,6 +43,8 @@ const DPAD_CROSS = 'M9 2h6v7h7v6h-7v7H9v-7H2V9h7z';
 
 /** Keys named in full rather than by a letter. */
 const NAMED = ['Esc', 'Space', 'Shift', 'Enter', 'Tab'];
+/** The keys a named mention stands for that can be rebound (Esc and Enter cannot). */
+const NAMED_CODES: Record<string, string> = { Space: 'Space', Shift: 'ShiftLeft', Tab: 'Tab' };
 /** Keys that '(X)' may name: the bound shortcuts only, so '(A)' in prose stays prose. */
 const PAREN = ['E', 'F', 'T', 'R', 'Q', 'H', 'M', 'V', 'P', 'Esc', 'Space', 'Shift', 'Tab'];
 
@@ -66,7 +68,8 @@ function keyGlyph(key: string, device: InputDevice, ctx: GlyphContext): string {
   const pad = device === 'pad' ? PAD[key] : undefined;
   if (pad) return padGlyph(pad[ctx.inVehicle ? 1 : 0]);
   // Keys without a pad button (W A S D, digits...) keep their keycap on a pad too.
-  const label = key.length === 1 ? (ctx.labels?.label(`Key${key}`) ?? key) : key;
+  const code = key.length === 1 ? `Key${key}` : NAMED_CODES[key];
+  const label = code ? (ctx.labels?.label(code) ?? key) : key;
   return `<kbd>${escapeText(label)}</kbd>`;
 }
 
