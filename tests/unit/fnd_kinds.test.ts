@@ -52,8 +52,8 @@ const BASE_ENGINES: Record<string, object> = {
 };
 
 /** The vehicle kinds wave 1 added (track C), with their classes. */
-const WAVE1_VEHICLES = ['sportbike', 'scooter'];
-const WAVE1_CLASSES: Record<string, string> = { sportbike: 'bike', scooter: 'bike' };
+const WAVE1_VEHICLES = ['sportbike', 'scooter', 'speedboat', 'dinghy'];
+const WAVE1_CLASSES: Record<string, string> = { sportbike: 'bike', scooter: 'bike', speedboat: 'boat', dinghy: 'boat' };
 
 const BASE_FLASH: Record<string, number> = { fists: 0, pistol: 0.3, smg: 0.32, rifle: 0.4, shotgun: 0.55, rocket: 0.6 };
 
@@ -116,7 +116,7 @@ describe('exhaustive kind maps outside the specs are gone', () => {
   const weaponIds = Object.keys(BASE_FLASH) as WeaponId[];
 
   it('the spec tables still hold exactly the baseline kinds', () => {
-    // Wave 1 (track C) added two motorbikes as spec rows only.
+    // Wave 1 (track C) added two motorbikes and two boats as spec rows only.
     expect(Object.keys(VEHICLE_SPECS).sort()).toEqual([...vehicleKinds, ...WAVE1_VEHICLES].sort());
     expect(Object.keys(WEAPONS).sort()).toEqual([...weaponIds].sort());
     expect(Object.keys(PICKUP_SPECS).sort()).toEqual(Object.keys(BASE_PICKUP_COLOR).sort());

@@ -29,7 +29,7 @@ export const DEFAULT_HORN: readonly [number, number] = [392, 494];
  */
 export const GUN_PORT = { z0: -0.24, z1: -0.07, y0: 0.6, y1: 0.8 } as const;
 
-export type VehicleKind = 'compact' | 'sedan' | 'taxi' | 'sports' | 'muscle' | 'pickup' | 'van' | 'bus' | 'police' | 'swat' | 'sportbike' | 'scooter';
+export type VehicleKind = 'compact' | 'sedan' | 'taxi' | 'sports' | 'muscle' | 'pickup' | 'van' | 'bus' | 'police' | 'swat' | 'sportbike' | 'scooter' | 'speedboat' | 'dinghy';
 
 /** How a motorbike (class 'bike') rides: see sim/bikePhysics.ts. */
 export interface BikeSpec {
@@ -113,6 +113,9 @@ export const VEHICLE_SPECS: Readonly<Record<VehicleKind, VehicleSpec>> = {
   // walking pace, and short of the grip limit, where they lean furthest, until well over 10 m/s.
   sportbike: { kind: 'sportbike', name: 'Viper 600', length: 2.1, width: 0.8, height: 1.15, mass: 210, accel: 12, maxSpeed: 52, reverseSpeed: 2.5, brake: 16, grip: 18, steer: 0.55, steerFade: 6, health: 450, seats: 2, colors: [0xc0392b, 0x1c1c1c, 0xf1c40f, 0x2874a6, 0xeeeeee, 0x27ae60], police: false, value: 16000, durability: 1.4, rollGain: 0, pitchGain: 0, class: 'bike', engine: { cylinders: 4, idleRpm: 1400, redlineRpm: 13000, brightness: 0.95, roughness: 0.1, loudness: -2, horn: [523, 659] }, bike: { leanCap: 0.75, wheelie: { pitch: 0.32, speed: 12 }, throwSpeed: 11 } },
   scooter: { kind: 'scooter', name: 'Zippa 50', length: 1.8, width: 0.7, height: 1.15, mass: 110, accel: 7, maxSpeed: 26, reverseSpeed: 2, brake: 13, grip: 17, steer: 0.55, steerFade: 5, health: 320, seats: 2, colors: [0xa9cce3, 0xf4d03f, 0xeeeeee, 0xe74c3c, 0x58d68d, 0x1c1c1c], police: false, value: 2500, durability: 1.5, rollGain: 0, pitchGain: 0, class: 'bike', engine: { cylinders: 1, idleRpm: 1900, redlineRpm: 8000, brightness: 0.7, roughness: 0.45, loudness: -6, horn: [622, 740] }, bike: { leanCap: 0.62, throwSpeed: 10 } },
+  // Boats float at WATER_Y: `grip` is the hull's sideways drag in the water, `brake` the drag of the water with the throttle shut.
+  speedboat: { kind: 'speedboat', name: 'Marlin', length: 6.4, width: 2.3, height: 1.5, mass: 1600, accel: 7.5, maxSpeed: 34, reverseSpeed: 5, brake: 4, grip: 7, steer: 0.5, health: 1100, seats: 4, colors: [0xf4f6f7, 0x1f4e79, 0xb03a2e, 0x1c1c1c], police: false, value: 60000, durability: 0.8, rollGain: 1, pitchGain: 1, class: 'boat', engine: { cylinders: 8, idleRpm: 700, redlineRpm: 5600, brightness: 0.5, roughness: 0.25, loudness: 1, horn: [233, 294] }, boat: { draft: 0.45, turnRate: 0.85 } },
+  dinghy: { kind: 'dinghy', name: 'Puffin', length: 3.8, width: 1.7, height: 0.9, mass: 380, accel: 4, maxSpeed: 15, reverseSpeed: 3.5, brake: 3, grip: 5, steer: 0.6, health: 500, seats: 2, colors: [0xe67e22, 0x7f8c8d, 0xc0392b, 0xf4d03f], police: false, value: 7000, durability: 1.1, rollGain: 1, pitchGain: 1, class: 'boat', engine: { cylinders: 2, idleRpm: 1100, redlineRpm: 6000, brightness: 0.6, roughness: 0.45, loudness: -5, horn: [440, 554] }, boat: { draft: 0.3, turnRate: 1.1 } },
   swat: { kind: 'swat', name: 'Riot Van', length: 5.8, width: 2.3, height: 2.6, mass: 3800, accel: 10, maxSpeed: 42, reverseSpeed: 8, brake: 15, grip: 19, steer: 0.55, health: 2600, seats: 4, colors: [0x1b2631], police: true, value: 80000, durability: 0.35, rollGain: 1.3, pitchGain: 1.2, class: 'car', engine: { cylinders: 6, idleRpm: 600, redlineRpm: 3200, brightness: 0.35, roughness: 0.25, loudness: 1, horn: [262, 330], diesel: true }, firingRows: [0.283, (GUN_PORT.z0 + GUN_PORT.z1) / 2] },
 };
 

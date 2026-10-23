@@ -7,6 +7,7 @@ import { DECK_SLAB, WATER_Y } from '../world/constants';
 import { rectContains } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { bikeTouchdown, stepBike } from './bikePhysics';
+import { stepBoat } from './boatPhysics';
 import type { Vehicle } from './entities';
 import type { VehicleSpec } from './specs';
 
@@ -292,6 +293,11 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     v.roll = dampAngle(v.roll, nearerFace(v.roll), 3, dt);
     v.sinkTimer += dt;
     updateDerived(v, dt, 0);
+    return;
+  }
+  // Boats float and steer by their own rules, and never take the sinking path above while they are afloat.
+  if (s.class === 'boat') {
+    stepBoat(v, dt, host, throttle, brake);
     return;
   }
 

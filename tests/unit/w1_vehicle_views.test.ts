@@ -35,6 +35,10 @@ vi.hoisted(() => {
   g.window ??= { devicePixelRatio: 1, innerWidth: 1280, innerHeight: 720, addEventListener: () => {} };
 });
 import { BikeView, bikeKinds } from '../../src/render/bikeView';
+import { BoatView, boatKinds, boatSwell } from '../../src/render/boatView';
+import { seaUniforms, updateSea } from '../../src/render/sea';
+import { CALM_SEA } from '../../src/render/waves';
+import { WATER_Y } from '../../src/world/constants';
 import { ClassViewPool } from '../../src/render/classViews';
 import { CrowdView } from '../../src/render/crowd';
 import { riderMount } from '../../src/render/riders';
@@ -66,6 +70,76 @@ function riddenBike(kind: VehicleKind, riders = 1): { sim: Sim; v: Vehicle; peop
   }
   return { sim, v, people };
 }
+
+describe('BoatView', () => {
+  it.each(boatKinds())('the %s model fits its spec below and above the waterline, and the pool hands it a BoatView', (kind) => {
+    const view = new BoatView(kind);
+    view.group.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(view.group, true);
+    const s = VEHICLE_SPECS[kind];
+    expect(box.max.z - box.min.z).toBeGreaterThan(s.length * 0.95);
+    expect(box.max.z - box.min.z).toBeLessThan(s.length + 0.6);
+    expect(box.max.x - box.min.x).toBeLessThan(s.width + 0.1);
+    expect(box.min.y).toBeCloseTo(-s.boat!.draft, 1);
+    expect(box.max.y).toBeLessThan(s.height + 0.15);
+    const pool = new ClassViewPool();
+    expect(pool.acquire(kind)).toBeInstanceOf(BoatView);
+  });
+
+  /** Heave range (m) and the largest pitch (rad) of a speedboat's drawn hull over `seconds` on `sea`. */
+  function swellRange(displace: number, seaState: number, seconds = 20): { heave: number; pitch: number } {
+    const sim = makeSim({ world: world() });
+    const v = sim.spawnVehicle('speedboat', 700, -200, 0.3);
+    v.pos.y = WATER_Y;
+    const u = seaUniforms();
+    u.uDisplace.value = displace;
+    const out = { heave: 0, pitch: 0, roll: 0 };
+    let lo = Infinity;
+    let hi = -Infinity;
+    let pitch = 0;
+    for (let t = 0; t < seconds; t += 1 / 30) {
+      updateSea(u, t, seaState, v.pos.x - 10, v.pos.z);
+      boatSwell(v, u, t, out);
+      lo = Math.min(lo, out.heave);
+      hi = Math.max(hi, out.heave);
+      pitch = Math.max(pitch, Math.abs(out.pitch));
+    }
+    return { heave: hi - lo, pitch };
+  }
+
+  it('on the wave grid the hull rides the drawn waves, more in a storm; without it a gentle bob of under 0.1 m', () => {
+    const calm = swellRange(1, CALM_SEA);
+    const storm = swellRange(1, 1);
+    const gentle = swellRange(0, 1);
+    console.log(`[boat] swell: calm heave ${calm.heave.toFixed(2)} m pitch ${calm.pitch.toFixed(3)}; storm heave ${storm.heave.toFixed(2)} m pitch ${storm.pitch.toFixed(3)}; no grid heave ${gentle.heave.toFixed(3)} m`);
+    expect(calm.heave).toBeGreaterThan(0.02);
+    expect(storm.heave).toBeGreaterThan(calm.heave * 1.5);
+    expect(storm.pitch).toBeGreaterThan(calm.pitch);
+    expect(gentle.heave / 2).toBeLessThanOrEqual(0.1);
+    expect(gentle.heave).toBeGreaterThan(0);
+  });
+
+  it('a driver at the helm of each boat is drawn aboard, above its floor and inside its hull', () => {
+    for (const kind of boatKinds()) {
+      const sim = makeSim({ world: world() });
+      const v = sim.spawnVehicle(kind, 700, -200, 0.3);
+      v.pos.y = WATER_Y;
+      const c = sim.spawnCharacter('civilian', v.pos.x, v.pos.z);
+      sim.seat(c, v, 0);
+      const view = new BoatView(kind);
+      view.bind(v);
+      view.sync(v, 1 / 60, 3, 0);
+      const cv = new CrowdView();
+      cv.sync([c], v.pos.x + 6, v.pos.z, 1 / 60);
+      const inv = riderMount(v)!.frame.matrixWorld.clone().invert();
+      const heads = matrices(parts(cv).head!).map((m) => new THREE.Vector3().setFromMatrixPosition(m).applyMatrix4(inv));
+      expect(heads.length).toBe(1);
+      expect(Math.abs(heads[0]!.x)).toBeLessThan(v.halfW);
+      expect(Math.abs(heads[0]!.z)).toBeLessThan(v.halfL);
+      expect(heads[0]!.y).toBeGreaterThan(0.6);
+    }
+  });
+});
 
 describe('BikeView', () => {
   it.each(bikeKinds())('the %s model fits its spec, and the pool hands bikes a BikeView and cars a VehicleView', (kind) => {
