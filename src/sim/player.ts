@@ -5,6 +5,7 @@ import { clamp, moveAngleTowards, moveTowards, smoothstep, wrapAngle } from '../
 import { MAX_STEP, SWIM_SPEED } from './characterPhysics';
 import type { Character, Vehicle } from './entities';
 import type { PlayerInput } from './input';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import { WEAPON_ORDER } from './specs';
 import { vehicleObb } from './vehiclePhysics';
@@ -44,25 +45,27 @@ export class PlayerController {
   private steerCar: Vehicle | null = null;
   private steerFrame = -1;
 
-  constructor(private readonly sim: Sim) {
-    this.lastX = sim.player.pos.x;
-    this.lastZ = sim.player.pos.z;
+  /** `p` is the slot this controller drives; every controller keeps its own state. */
+  constructor(private readonly sim: Sim, readonly p: PlayerSlot) {
+    this.lastX = p.character.pos.x;
+    this.lastZ = p.character.pos.z;
   }
 
   update(dt: number, input: PlayerInput): void {
     const sim = this.sim;
-    const p = sim.player;
+    const slot = this.p;
+    const p = slot.character;
     p.aiming = false;
     p.aimZoom = false;
     p.moveSpeed = 0;
     this.trackDistance();
     // Dying or being busted mid-entry must release the car's AI hold.
-    if (p.enterTarget && (sim.playerDown || p.state !== 'entering')) this.abortEnter();
-    if (sim.playerDown || !p.alive) {
+    if (p.enterTarget && (slot.down || p.state !== 'entering')) this.abortEnter();
+    if (slot.down || !p.alive) {
       if (p.vehicle) this.neutralVehicle(p.vehicle);
       return;
     }
-    if (sim.controlLock > 0) {
+    if (slot.controlLock > 0) {
       if (p.vehicle) {
         const c = p.vehicle.controls;
         c.throttle = 0;
@@ -87,18 +90,17 @@ export class PlayerController {
       default:
         break;
     }
-    if (input.interact && p.state !== 'entering') sim.interactions.interact();
-    if (input.job) sim.activities.toggleJob();
+    if (input.interact && p.state !== 'entering') sim.interactions.interact(slot);
+    if (input.job) sim.activities.toggleJob(slot);
   }
 
   private trackDistance(): void {
-    const sim = this.sim;
-    const p = sim.player;
-    const pos = sim.playerPos();
+    const p = this.p.character;
+    const pos = this.p.pos();
     const d = Math.hypot(pos.x - this.lastX, pos.z - this.lastZ);
     if (d < 20) {
-      if (p.vehicle) sim.progress.stats.distanceDriven += d;
-      else sim.progress.stats.distanceOnFoot += d;
+      if (p.vehicle) this.p.progress.stats.distanceDriven += d;
+      else this.p.progress.stats.distanceOnFoot += d;
     }
     this.lastX = pos.x;
     this.lastZ = pos.z;
@@ -113,7 +115,7 @@ export class PlayerController {
 
   private onFoot(dt: number, input: PlayerInput): void {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p.character;
     const yaw = input.cameraYaw;
     const fx = Math.sin(yaw);
     const fz = Math.cos(yaw);
@@ -307,7 +309,7 @@ export class PlayerController {
 
   private entering(dt: number): void {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p.character;
     const v = p.enterTarget;
     if (!v || v.removed || !v.drivable || v.airborne) {
       this.abortEnter();
@@ -366,7 +368,7 @@ export class PlayerController {
       sim.peds.onJacked(victim);
       this.jacked = true;
       this.jackedAt = p.enterTimer;
-      sim.wanted.crime('carjack', v.pos.x, v.pos.z);
+      this.p.wanted.crime('carjack', v.pos.x, v.pos.z, this.p);
     }
     const seatTime = this.jacked ? Math.max(0.95, this.jackedAt + 0.6) : 0.45;
     if (atDoor && p.enterTimer >= seatTime && (!v.driver || v.driver === p)) {
@@ -390,9 +392,9 @@ export class PlayerController {
       const fromPolice = v.owner === 'police';
       if (v.owner !== 'mission') v.owner = 'none';
       v.controls.handbrake = false;
-      if (!v.usedByPlayer) sim.progress.stats.carsStolen++;
+      if (!v.usedByPlayer) this.p.progress.stats.carsStolen++;
       v.usedByPlayer = true;
-      if (fromPolice) sim.wanted.crime('stealPoliceCar', v.pos.x, v.pos.z);
+      if (fromPolice) this.p.wanted.crime('stealPoliceCar', v.pos.x, v.pos.z, this.p);
       this.lastVehicle = v;
       this.exitPending = false;
       p.enterTarget = null;
@@ -402,7 +404,7 @@ export class PlayerController {
   }
 
   private abortEnter(): void {
-    const p = this.sim.player;
+    const p = this.p.character;
     if (p.enterTarget?.ai) p.enterTarget.ai.hold = false;
     // A player who died mid-entry stays dead.
     if (p.state === 'entering') p.state = 'normal';
@@ -412,7 +414,7 @@ export class PlayerController {
 
   private driving(dt: number, input: PlayerInput): void {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p.character;
     const v = p.vehicle;
     if (!v || v.removed) {
       this.ejectPlayer(false);
@@ -497,12 +499,12 @@ export class PlayerController {
   /** Gets the player out of the current vehicle. Returns false if there was no room. */
   exitVehicle(bail: boolean): boolean {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p.character;
     const v = p.vehicle;
     if (!v) return false;
     const spot = this.findExitSpot(v) ?? (bail ? this.doorPos(v) : null);
     if (!spot) {
-      sim.events.emit('message', { text: 'No room to get out here.', duration: 2 });
+      sim.events.emit('message', { text: 'No room to get out here.', duration: 2, ...this.p.tag });
       this.exitPending = false;
       return false;
     }
@@ -579,7 +581,7 @@ export class PlayerController {
   /** Forcibly removes the player from a vehicle (sinking, despawn, explosion). */
   ejectPlayer(_safe: boolean): void {
     const sim = this.sim;
-    const p = sim.player;
+    const p = this.p.character;
     const v = p.vehicle;
     if (!v) return;
     const spot = this.findExitSpot(v) ?? { x: v.pos.x, z: v.pos.z };

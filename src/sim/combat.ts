@@ -9,6 +9,7 @@ import type { CharState, Character, Vehicle } from './entities';
 import { Projectile } from './entities';
 import type { HitKind } from './events';
 import type { PlayerInput } from './input';
+import type { PlayerSlot } from './playerSlot';
 import { cowerCrouched } from './peds';
 import { makeWeaponPose, reloading, seatSide, SKELETON, upright, weaponPose, weaponPoseInto, windowMuzzle, type WeaponPose } from './pose';
 import type { Sim } from './sim';
@@ -353,7 +354,7 @@ export class CombatSystem {
     this.startCooldown(p, 1 / w.rate);
     p.shotTimer = 0.07;
     p.aimHold = 1.0;
-    this.sim.progress.stats.shotsFired++;
+    this.slotFor(p).progress.stats.shotsFired++;
     const from = this.muzzle(p, fromVehicle);
     const target = this.cameraTarget(input.aimOrigin, input.aimDir, w.range + 8, p, from);
     let dx = target.x - from.x;
@@ -372,7 +373,7 @@ export class CombatSystem {
       this.aimed = null;
     }
     // Shots from the cruiser on vigilante duty are the law's, not gunfire in the street (hits on anyone else still count).
-    if (!(fromVehicle && this.onDuty(p))) this.sim.wanted.crime('gunfire', p.pos.x, p.pos.z);
+    if (!(fromVehicle && this.onDuty(p))) this.sim.wanted.crime('gunfire', p.pos.x, p.pos.z, p);
     if (slot.clip === 0 && slot.ammo > 0) this.startReload(p);
   }
 
@@ -881,7 +882,7 @@ export class CombatSystem {
         const mul = shooter.isPlayer ? w.headMul : NPC_HEAD_MUL;
         dmg *= c.role === 'swat' ? Math.max(1, mul * HELMET) : mul;
         if (shooter.isPlayer && c.alive && !this.headshotsThisPull?.has(c)) {
-          sim.progress.stats.headshots++;
+          this.slotFor(shooter).progress.stats.headshots++;
           this.headshotsThisPull?.add(c);
         }
       }
@@ -895,7 +896,8 @@ export class CombatSystem {
     } else if (r.heli >= 0) {
       const h = sim.helis[r.heli]!;
       h.health -= w.damage * (shooter.isPlayer ? 1.2 : 0);
-      if (shooter.isPlayer) this.reportAttack(h, 'assaultCop', h.pos.x, h.pos.z);
+      if (shooter.isPlayer) h.shotBy = shooter;
+      if (shooter.isPlayer) this.reportAttack(h, 'assaultCop', h.pos.x, h.pos.z, shooter);
     }
     sim.events.emit('shot', { shooter, weapon: w.id, fx: from.x, fy: from.y, fz: from.z, tx, ty, tz, hit: r.kind, nx: r.nx, ny: r.ny, nz: r.nz, pellet });
   }
@@ -1015,8 +1017,8 @@ export class CombatSystem {
   damageCharacter(c: Character, amount: number, attacker: Character | null, kind: DamageKind, dx: number, _dy: number, dz: number, zone: HitZone = 'body', credit: Character | null = null): void {
     const sim = this.sim;
     if (c.removed || !c.alive || !(amount > 0)) return;
-    if (c.isPlayer && sim.playerDown) return;
-    if (c.isPlayer && sim.cheats.godMode) return;
+    if (c.isPlayer && this.slotFor(c).down) return;
+    if (c.isPlayer && this.slotFor(c).cheats.godMode) return;
     let armourLoss = 0;
     if (c.armor > 0 && kind !== 'fall' && kind !== 'drown') {
       armourLoss = Math.min(c.armor, amount);
@@ -1042,8 +1044,8 @@ export class CombatSystem {
       return;
     }
     if (attacker && attacker.isPlayer && !c.isPlayer && !this.isOutlaw(c)) {
-      if (c.isLaw) this.reportAttack(c, 'assaultCop', c.pos.x, c.pos.z);
-      else if (kind === 'melee' || kind === 'bullet') this.reportAttack(c, 'assault', c.pos.x, c.pos.z);
+      if (c.isLaw) this.reportAttack(c, 'assaultCop', c.pos.x, c.pos.z, attacker);
+      else if (kind === 'melee' || kind === 'bullet') this.reportAttack(c, 'assault', c.pos.x, c.pos.z, attacker);
     }
     if (!c.isPlayer) {
       if (c.isLaw) sim.police.onCopAttacked(c, attacker);
@@ -1056,7 +1058,7 @@ export class CombatSystem {
    * hits on one victim within ASSAULT_GAP of the last reported one: automatic fire adds heat no faster
    * than the pistol does.
    */
-  private reportAttack(victim: object, type: CrimeType, x: number, z: number): void {
+  private reportAttack(victim: object, type: CrimeType, x: number, z: number, by: Character): void {
     if (this.volley) {
       if (this.volley.has(victim)) return;
       this.volley.add(victim);
@@ -1064,12 +1066,17 @@ export class CombatSystem {
     const last = this.assaulted.get(victim);
     if (last !== undefined && this.sim.time - last < ASSAULT_GAP) return;
     this.assaulted.set(victim, this.sim.time);
-    this.sim.wanted.crime(type, x, z);
+    this.sim.wanted.crime(type, x, z, by);
+  }
+
+  /** The slot of a player character; a stray 'player' character outside any slot counts for slot 0. */
+  private slotFor(c: Character): PlayerSlot {
+    return this.sim.slotOf(c) ?? this.sim.players[0]!;
   }
 
   /** A cowering civilian crouched as CrowdView draws him (hit by CROUCH_TOP's volume). */
   private crouched(c: Character): boolean {
-    return cowerCrouched(c, this.sim.player);
+    return cowerCrouched(c, this.sim.nearestPlayer(c.pos.x, c.pos.z).character);
   }
 
   /** A vigilante suspect or his car (see outlaws): the player's attacks on them are no crime. */
@@ -1144,19 +1151,20 @@ export class CombatSystem {
       c.vel.z += dz * 2.5;
     }
     if (c.isPlayer) {
-      sim.playerDied();
+      sim.playerDied(this.slotFor(c));
     } else {
       if (killer && killer.isPlayer) {
-        sim.progress.stats.kills++;
+        const stats = this.slotFor(killer).progress.stats;
+        stats.kills++;
         if (c.isLaw) {
-          sim.progress.stats.copsKilled++;
-          sim.wanted.crime('killCop', c.pos.x, c.pos.z);
+          stats.copsKilled++;
+          sim.wanted.crime('killCop', c.pos.x, c.pos.z, killer);
         } else if (this.isOutlaw(c)) {
           // The vigilante's suspect: stopped for the law.
         } else if (c.role === 'gang' || c.missionTag === 'enemy') {
-          sim.wanted.crime('killGang', c.pos.x, c.pos.z);
+          sim.wanted.crime('killGang', c.pos.x, c.pos.z, killer);
         } else {
-          sim.wanted.crime('murder', c.pos.x, c.pos.z);
+          sim.wanted.crime('murder', c.pos.x, c.pos.z, killer);
         }
       }
       if (c.cash > 0) sim.pickupSys.dropMoney(c.pos.x, c.pos.z, c.cash);
@@ -1168,13 +1176,13 @@ export class CombatSystem {
 
   damageVehicle(v: Vehicle, amount: number, attacker: Character | null, kind: DamageKind): void {
     if (v.destroyed || v.removed || !(amount > 0)) return;
-    if (this.sim.cheats.godMode && v.driver?.isPlayer) return;
+    if (this.sim.slotOf(v.driver)?.cheats.godMode) return;
     v.health -= amount;
     const blowsUp = kind === 'explosion' && v.health < -v.spec.health * 0.35;
     // Who set it alight answers for it: a later hit takes that over only by blowing it up there and then
     // (a stray round on a car someone else lit does not).
     if (attacker && (!v.burning || blowsUp)) this.damagedBy.set(v, attacker);
-    if (attacker && attacker.isPlayer && v.spec.police && kind === 'bullet') this.reportAttack(v, 'assaultCop', v.pos.x, v.pos.z);
+    if (attacker && attacker.isPlayer && v.spec.police && kind === 'bullet') this.reportAttack(v, 'assaultCop', v.pos.x, v.pos.z, attacker);
     if (v.driver && !v.driver.isPlayer && v.driver.brain && attacker) v.driver.brain.threat = attacker;
     if (blowsUp) {
       this.explodeVehicle(v);
@@ -1208,8 +1216,8 @@ export class CombatSystem {
     for (const o of v.occupants()) this.damageCharacter(o, 1000, blame, 'explosion', 0, 1, 0);
     launchVehicle(v, 0, 0, 6.5, 2.5);
     if (culprit && culprit.isPlayer) {
-      sim.progress.stats.vehiclesDestroyed++;
-      if (blame) sim.wanted.crime(v.spec.police ? 'destroyPolice' : 'destroyVehicle', v.pos.x, v.pos.z);
+      this.slotFor(culprit).progress.stats.vehiclesDestroyed++;
+      if (blame) sim.wanted.crime(v.spec.police ? 'destroyPolice' : 'destroyVehicle', v.pos.x, v.pos.z, culprit);
     }
     sim.events.emit('vehicleDestroyed', { vehicle: v });
     this.explosion(v.pos.x, v.pos.y + 0.8, v.pos.z, 7.5, 360, blame, v);
@@ -1263,9 +1271,12 @@ export class CombatSystem {
     for (const h of sim.helis) {
       if (h.removed || h.destroyed) continue;
       const d = Math.hypot(h.pos.x - x, h.pos.y - y, h.pos.z - z);
-      if (d < radius * 1.6) h.health -= damage * 3 * (1 - d / (radius * 1.6));
+      if (d < radius * 1.6) {
+        h.health -= damage * 3 * (1 - d / (radius * 1.6));
+        if (owner && owner.isPlayer) h.shotBy = owner;
+      }
     }
-    if (owner && owner.isPlayer) sim.wanted.crime('explosion', x, z);
+    if (owner && owner.isPlayer) sim.wanted.crime('explosion', x, z, owner);
     sim.peds.onViolence(x, z, owner, 60);
   }
 

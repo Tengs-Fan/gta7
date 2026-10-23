@@ -1244,8 +1244,8 @@ export class PoliceSystem {
         h.crashing = true;
         this.heliCooldownUntil = sim.time + HELI_RESPAWN_DELAY;
         sim.events.emit('explosion', { x: h.pos.x, y: h.pos.y, z: h.pos.z, radius: 4 });
-        sim.wanted.crime('destroyPolice', h.pos.x, h.pos.z);
-        sim.progress.stats.vehiclesDestroyed++;
+        sim.wanted.crime('destroyPolice', h.pos.x, h.pos.z, h.shotBy);
+        (sim.slotOf(h.shotBy) ?? sim.players[0]!).progress.stats.vehiclesDestroyed++;
       }
       if (h.crashing) {
         h.vel.y -= 11 * dt;

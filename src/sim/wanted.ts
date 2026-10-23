@@ -3,7 +3,8 @@
 
 import { clamp } from '../core/math';
 import { darkness } from './clock';
-import type { Helicopter } from './entities';
+import type { Character, Helicopter } from './entities';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 
 export type CrimeType =
@@ -110,16 +111,24 @@ export class WantedSystem {
   /** How many times the player has shaken the police off. */
   evasions = 0;
 
-  constructor(private readonly sim: Sim) {}
+  constructor(private readonly sim: Sim, readonly slot: PlayerSlot) {}
 
   evadeTime(level = this.level): number {
     return EVADE_TIME[Math.max(0, Math.min(MAX_STARS, Math.round(level)))]!;
   }
 
-  /** Reports a crime by the player at (x, z). */
-  crime(type: CrimeType, x: number, z: number): void {
+  /**
+   * Reports a crime at (x, z) by the player `by` (a slot, its id, or its character); the record of that slot changes,
+   * whichever slot's system is called. Left out, the culprit is the slot this system belongs to (slot 0 for sim.wanted).
+   */
+  crime(type: CrimeType, x: number, z: number, by?: PlayerSlot | Character | number | null): void {
     const sim = this.sim;
-    if (!sim.policeEnabled || sim.cheats.neverWanted || sim.playerDown) return;
+    const culprit = by === undefined || by === null ? this.slot : sim.resolveSlot(by);
+    if (culprit && culprit !== this.slot) {
+      culprit.wanted.crime(type, x, z);
+      return;
+    }
+    if (!sim.policeEnabled || this.slot.cheats.neverWanted || this.slot.down) return;
     const def = CRIMES[type];
     if (def.witness === 'cop' && !this.copWitness(x, z)) return;
     if (this.lastCrime === null || this.lastCrimeFrame !== sim.frame || def.heat >= CRIMES[this.lastCrime].heat) {
@@ -136,7 +145,7 @@ export class WantedSystem {
   setLevel(level: number): void {
     const lvl = Math.max(0, Math.min(MAX_STARS, Math.round(level)));
     this.heat = STAR_HEAT[lvl];
-    const pp = this.sim.playerPos();
+    const pp = this.slot.pos();
     this.see(pp.x, pp.z);
     this.apply(lvl, true);
   }
@@ -179,8 +188,8 @@ export class WantedSystem {
       this.responseUntil = -Infinity;
       this.lastCrime = null;
     }
-    if (level > sim.progress.stats.maxWanted) sim.progress.stats.maxWanted = level;
-    sim.events.emit('wanted', { level, previous: prev });
+    if (level > this.slot.progress.stats.maxWanted) this.slot.progress.stats.maxWanted = level;
+    sim.events.emit('wanted', { level, previous: prev, ...this.slot.tag });
   }
 
   private see(x: number, z: number): void {
@@ -203,7 +212,7 @@ export class WantedSystem {
 
   /** The player is beyond the search area around his last sighting. */
   get outside(): boolean {
-    const pp = this.sim.playerPos();
+    const pp = this.slot.pos();
     return Math.hypot(pp.x - this.lastSeenX, pp.z - this.lastSeenZ) > this.searchRadius();
   }
 
@@ -260,9 +269,9 @@ export class WantedSystem {
 
   update(dt: number): void {
     const sim = this.sim;
-    if (this.floor > this.level && !sim.playerDown) this.setLevel(this.floor);
-    if (this.level === 0 || sim.playerDown) return;
-    const pp = sim.playerPos();
+    if (this.floor > this.level && !this.slot.down) this.setLevel(this.floor);
+    if (this.level === 0 || this.slot.down) return;
+    const pp = this.slot.pos();
     if (sim.time < this.responseUntil) {
       // The units just called in are told where he is.
       this.see(pp.x, pp.z);
@@ -285,7 +294,7 @@ export class WantedSystem {
       this.heat = 0;
       this.evasions++;
       this.apply(0, true);
-      sim.events.emit('message', { text: 'You lost the cops.', duration: 3 });
+      sim.events.emit('message', { text: 'You lost the cops.', duration: 3, ...this.slot.tag });
     }
   }
 }

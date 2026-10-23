@@ -6,7 +6,12 @@ import type { StreetRunId, StreetRunMedal } from './streetRuns';
 export type BigStyle = 'title' | 'passed' | 'failed' | 'wasted' | 'busted' | 'stunt' | 'info';
 export type HitKind = 'none' | 'world' | 'flesh' | 'vehicle';
 
-/** Everything the presentation layer (renderer, audio, HUD) reacts to. */
+/** The player an event is about; absent means player slot 0, the single-player seat. */
+export interface PlayerScoped {
+  playerId?: number;
+}
+
+/** Everything the presentation layer (renderer, audio, HUD) reacts to. Events about one player carry `playerId`. */
 export interface SimEvents {
   /** One bullet, pellet or rocket launch; `pellet` is its 0-based index within the trigger pull (0 for single-shot weapons and helicopter rounds). */
   shot: { shooter: Character | null; weapon: WeaponId; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; hit: HitKind; nx: number; ny: number; nz: number; pellet: number };
@@ -30,32 +35,32 @@ export interface SimEvents {
   vehicleDestroyed: { vehicle: Vehicle };
   characterKilled: { victim: Character; killer: Character | null };
   pickup: { kind: PickupKind; x: number; y: number; z: number };
-  money: { amount: number };
-  wanted: { level: number; previous: number };
+  money: { amount: number } & PlayerScoped;
+  wanted: { level: number; previous: number } & PlayerScoped;
   /** A police radio line for the HUD's dispatch scanner (never a subtitle). */
-  dispatch: { text: string };
-  wasted: Record<string, never>;
-  busted: Record<string, never>;
-  respawn: { where: 'hospital' | 'police' };
-  message: { text: string; duration: number };
-  subtitle: { speaker: string; text: string; duration: number };
-  big: { text: string; sub: string; style: BigStyle; duration: number };
-  objective: { text: string };
-  stunt: { airTime: number; distance: number; bonus: number; unique: boolean };
-  shopOpen: { poi: string };
-  saveRequested: { poi: string };
-  sprayed: { cost: number };
+  dispatch: { text: string } & PlayerScoped;
+  wasted: PlayerScoped;
+  busted: PlayerScoped;
+  respawn: { where: 'hospital' | 'police' } & PlayerScoped;
+  message: { text: string; duration: number } & PlayerScoped;
+  subtitle: { speaker: string; text: string; duration: number } & PlayerScoped;
+  big: { text: string; sub: string; style: BigStyle; duration: number } & PlayerScoped;
+  objective: { text: string } & PlayerScoped;
+  stunt: { airTime: number; distance: number; bonus: number; unique: boolean } & PlayerScoped;
+  shopOpen: { poi: string } & PlayerScoped;
+  saveRequested: { poi: string } & PlayerScoped;
+  sprayed: { cost: number } & PlayerScoped;
   scream: { x: number; y: number; z: number };
-  missionStarted: { id: string; title: string };
-  missionEnded: { id: string; passed: boolean };
+  missionStarted: { id: string; title: string } & PlayerScoped;
+  missionEnded: { id: string; passed: boolean } & PlayerScoped;
   /** A side activity is over, whatever the outcome. */
-  activityEnded: { kind: string };
+  activityEnded: { kind: string } & PlayerScoped;
   /** A paid side-activity milestone, after all of its cash, bonuses and progress have been committed. */
-  activityMilestone: { kind: string; reward: number };
-  streetRunCountdown: { count: 0 | 1 | 2 | 3 };
-  streetRunCheckpoint: { index: number; total: number; elapsed: number };
+  activityMilestone: { kind: string; reward: number } & PlayerScoped;
+  streetRunCountdown: { count: 0 | 1 | 2 | 3 } & PlayerScoped;
+  streetRunCheckpoint: { index: number; total: number; elapsed: number } & PlayerScoped;
   /** Emitted after cash and records are committed, so autosave sees the result. */
-  streetRunFinished: { id: StreetRunId; time: number; medal: StreetRunMedal; personalBest: boolean; reward: number };
+  streetRunFinished: { id: StreetRunId; time: number; medal: StreetRunMedal; personalBest: boolean; reward: number } & PlayerScoped;
   reload: { character: Character };
-  fade: { duration: number };
+  fade: { duration: number } & PlayerScoped;
 }
