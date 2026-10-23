@@ -79,13 +79,15 @@ export const MARINA_SYSTEM: SimSystem = {
     if (sim.time < st.next) return;
     st.next = sim.time + CHECK_EVERY;
     const pp = sim.playerPos();
+    // With several players any of them near the Marina brings its boats (slot 0 may be parked or across town).
+    const multi = sim.players.length > 1;
     for (let i = 0; i < st.moorings.length; i++) {
       const m = st.moorings[i]!;
       const b = st.boats[i];
       // Taken (by the player: no longer moored), sunk or streamed away: the mooring is free again.
       if (b && (b.removed || b.owner !== 'moored')) st.boats[i] = null;
       if (st.boats[i]) continue;
-      if (Math.hypot(m.x - pp.x, m.z - pp.z) > MOOR_RANGE) continue;
+      if ((multi ? sim.distToPlayer(m.x, m.z) : Math.hypot(m.x - pp.x, m.z - pp.z)) > MOOR_RANGE) continue;
       if (st.filled[i] && sim.isVisible(m.x, WATER_Y + 0.5, m.z)) continue;
       const len = VEHICLE_SPECS[m.kind].length;
       if (sim.vehicles.some((o) => !o.removed && Math.hypot(o.pos.x - m.x, o.pos.z - m.z) < len)) continue;
