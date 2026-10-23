@@ -18,6 +18,8 @@ const RAMPAGE_COLOR = '#e8402c';
 
 export class MapImage {
   readonly canvas: HTMLCanvasElement;
+  /** The gang turf tint, drawn over `canvas` when the legend has it on. */
+  readonly turf: HTMLCanvasElement;
   readonly minX: number;
   readonly minZ: number;
 
@@ -61,7 +63,10 @@ export class MapImage {
       rect(bd.rect.minX, bd.rect.minZ, bd.rect.maxX, bd.rect.maxZ, tall ? '#1d2228' : '#22282e');
     }
     for (const d of world.layout.decks) rect(d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ, '#7b5a3a');
-    drawTurf(ctx, world, X, Z);
+    this.turf = document.createElement('canvas');
+    this.turf.width = w;
+    this.turf.height = h;
+    drawTurf(this.turf.getContext('2d')!, world, X, Z);
   }
 }
 
@@ -169,6 +174,9 @@ registerMapCategory({ id: 'places', label: 'Safehouse, hospital, police', get sw
 } });
 registerMapCategory({ id: 'properties', label: 'Properties (grey: for sale, green: owned)', get swatches() {
   return [...poiSwatches('properties'), { color: OWNED }];
+} });
+registerMapCategory({ id: 'turf', label: 'Gang turf', get swatches() {
+  return Object.values(GANGS).map((g) => ({ color: g.mapColor }));
 } });
 registerMapCategory({
   id: 'collectibles',
