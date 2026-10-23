@@ -5,6 +5,7 @@ import { rectContains, type Poi } from '../world/layout';
 import { Inventory } from './entities';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
+import type { PlayerView } from './viewState';
 import { WEAPONS, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
 
@@ -66,7 +67,7 @@ export class Interactions {
   }
 
   /** The marker under the player (on foot), if any. `slot` is slot 0 by default. */
-  current(slot: PlayerSlot = this.sim.players[0]!): Marker | null {
+  current(slot: PlayerView = this.sim.players[0]!): Marker | null {
     const p = slot.character;
     if (p.state !== 'normal' || slot.down) return null;
     for (const m of this.markers) {
@@ -76,13 +77,13 @@ export class Interactions {
   }
 
   /** The safehouse can restore health and save now; an exited vehicle job can be ended by saving. */
-  canSave(slot: PlayerSlot = this.sim.players[0]!): boolean {
+  canSave(slot: PlayerView = this.sim.players[0]!): boolean {
     const sim = this.sim;
     return !slot.down && slot.wanted.level === 0 && !sim.missions.active && sim.activities.job?.kind !== 'rampage';
   }
 
   /** HUD prompt for the marker under the player, or for retrying a failed mission. */
-  prompt(slot: PlayerSlot = this.sim.players[0]!): string | null {
+  prompt(slot: PlayerView = this.sim.players[0]!): string | null {
     const sim = this.sim;
     const m = this.current(slot);
     if (!m) return this.vehiclePrompt(slot) ?? this.retryPrompt(slot);
@@ -103,7 +104,7 @@ export class Interactions {
    * Why a mission cannot be started (or `retry`, retried) right now, as the prompt says it; null if it can. On a
    * rampage: starting a mission would call it off.
    */
-  private startBlock(slot: PlayerSlot, retry: boolean): string | null {
+  private startBlock(slot: PlayerView, retry: boolean): string | null {
     const sim = this.sim;
     if (slot.wanted.level > 0) return retry ? 'Lose the cops before retrying.' : 'Lose the cops before starting a mission.';
     if (sim.activities.job?.kind === 'rampage') return 'Finish the rampage first.';
@@ -114,7 +115,7 @@ export class Interactions {
    * In a vehicle over a contact's marker, which only works on foot: E is the horn there (see Input), so the
    * prompt says to get out. The car's body may cover the marker without its centre being on it.
    */
-  private vehiclePrompt(slot: PlayerSlot): string | null {
+  private vehiclePrompt(slot: PlayerView): string | null {
     const sim = this.sim;
     const p = slot.character;
     const v = p.vehicle;
@@ -128,7 +129,7 @@ export class Interactions {
   }
 
   /** Offers the retry of a mission that just failed (markers under the player come first). */
-  private retryPrompt(slot: PlayerSlot): string | null {
+  private retryPrompt(slot: PlayerView): string | null {
     const sim = this.sim;
     const def = sim.missions.retryOffer();
     // Failed with the police on him: the offer opens once they are lost.
@@ -146,7 +147,7 @@ export class Interactions {
    * The player in `slot` (slot 0 by default) presses E. Story missions belong to slot 0 only, so a marker that starts
    * one does nothing for another slot.
    */
-  interact(slot: PlayerSlot = this.sim.players[0]!): void {
+  interact(slot: PlayerView = this.sim.players[0]!): void {
     const sim = this.sim;
     const m = this.current(slot);
     if (!m) {
@@ -196,7 +197,7 @@ export class Interactions {
   }
 
   /** Gun shop purchase. Returns an error message or null on success. */
-  buy(itemId: string, slot: PlayerSlot = this.sim.players[0]!): string | null {
+  buy(itemId: string, slot: PlayerView = this.sim.players[0]!): string | null {
     const sim = this.sim;
     const item = shopItems().find((i) => i.id === itemId);
     if (!item) return 'Unknown item.';
@@ -221,7 +222,7 @@ export class Interactions {
   }
 
   /** Price the shop shows for an item right now (ammo refill if already owned). */
-  priceOf(item: ShopItem, slot: PlayerSlot = this.sim.players[0]!): number {
+  priceOf(item: ShopItem, slot: PlayerView = this.sim.players[0]!): number {
     if (item.weapon && slot.character.inventory.has(item.weapon)) return WEAPONS[item.weapon].ammoPrice;
     return item.price;
   }

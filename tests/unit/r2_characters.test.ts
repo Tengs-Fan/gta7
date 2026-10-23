@@ -428,7 +428,7 @@ describe('action poses', () => {
     p.heading = 0.3;
     c.brain.threat = null;
     const up = new CrowdView();
-    for (let i = 0; i < 30; i++) up.sync([p, c], c.pos.x, c.pos.z, 1 / 60);
+    for (let i = 0; i < 30; i++) up.sync([p, c], c.pos.x, c.pos.z, 1 / 60, p.id);
     const heads = all(parts(up).head!).map((m) => new THREE.Vector3(0, 0.15, 0).applyMatrix4(m));
     const pedHead = heads.reduce((a, b) => (a.distanceTo(new THREE.Vector3(c.pos.x, a.y, c.pos.z)) < b.distanceTo(new THREE.Vector3(c.pos.x, b.y, c.pos.z)) ? a : b));
     expect(pedHead.y - c.pos.y).toBeGreaterThan(headStand - 0.15);
@@ -437,7 +437,7 @@ describe('action poses', () => {
     for (const h of pedHands) expect(h.y).toBeGreaterThan(pedHead.y);
     // Not aimed at (the player looks away): back to the crouch.
     p.aimYaw = 0.3 + Math.PI / 2;
-    for (let i = 0; i < 5; i++) up.sync([p, c], c.pos.x, c.pos.z, 1 / 60);
+    for (let i = 0; i < 5; i++) up.sync([p, c], c.pos.x, c.pos.z, 1 / 60, p.id);
     const crouched = all(parts(up).head!).map((m) => new THREE.Vector3(0, 0.15, 0).applyMatrix4(m).y - c.pos.y);
     expect(Math.min(...crouched)).toBeLessThan(1.2);
   });
@@ -1284,5 +1284,80 @@ describe('a natural walk over slightly bent stance knees', () => {
         expect(hi, label).toBeLessThanOrEqual(25);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The local player is found by id, not as the first character with the player role.
+
+describe('the crowd draws the local player by id', () => {
+  /** The jacket CrowdView gives a character by chance (its salt 21), mirrored here to pick one that has none. */
+  const hasChanceJacket = (id: number): boolean => {
+    const x = Math.sin(id * 12.9898 + 21 * 78.233) * 43758.5453;
+    return x - Math.floor(x) > 0.4;
+  };
+
+  function twoPlayers() {
+    const sim = makeSim({ police: false });
+    const home = sim.player.pos;
+    // A second player character with no chance jacket, standing far from the local one and listed before it.
+    let other = sim.addPlayer(home.x + 30, home.z).character;
+    while (hasChanceJacket(other.id)) other = sim.addPlayer(home.x + 30, home.z).character;
+    other.appearance = { ...sim.player.appearance, shirt: 0x112233, hair: 0x445566 };
+    return { sim, local: sim.player, other };
+  }
+
+  /** The origins of the jacket insets drawn: only the player in the local seat wears one here. */
+  const insets = (cv: CrowdView): THREE.Vector3[] => all(parts(cv).shirtInset!).map((m) => new THREE.Vector3().setFromMatrixPosition(m));
+  const near = (p: THREE.Vector3, c: Character): boolean => Math.hypot(p.x - c.pos.x, p.z - c.pos.z) < 1.5;
+
+  it('dresses the local player as the player even when another player character comes first', () => {
+    const { local, other } = twoPlayers();
+    for (const order of [[other, local], [local, other]]) {
+      const cv = new CrowdView();
+      cv.sync(order, local.pos.x, local.pos.z, 1 / 60, local.id);
+      const found = insets(cv);
+      expect(found.length).toBe(1);
+      expect(near(found[0]!, local)).toBe(true);
+    }
+  });
+
+  it('follows the id it is given: the other player is the local one for the other screen', () => {
+    const { local, other } = twoPlayers();
+    const cv = new CrowdView();
+    cv.sync([other, local], other.pos.x, other.pos.z, 1 / 60, other.id);
+    // The local player's jacket now sits on the other character; the first one (by chance, no jacket) has none of its own.
+    const found = insets(cv).filter((p) => near(p, other));
+    expect(found.length).toBe(1);
+  });
+
+  it('draws a player character that is not the local one as an ordinary character in its own appearance', () => {
+    const { local, other } = twoPlayers();
+    const cv = new CrowdView();
+    cv.sync([other, local], local.pos.x, local.pos.z, 1 / 60, local.id);
+    // The torso instances carry each character's shirt: the other player's is its own.
+    const torso = parts(cv).torso!.mesh;
+    const colors: number[] = [];
+    const c = new THREE.Color();
+    for (let i = 0; i < torso.count; i++) {
+      torso.getColorAt!(i, c);
+      colors.push(c.getHex());
+    }
+    expect(colors).toContain(new THREE.Color(0x112233).getHex());
+    expect(colors).toContain(new THREE.Color(local.appearance.shirt).getHex());
+    expect(parts(cv).hat!.mesh.count + parts(cv).hair!.mesh.count).toBeGreaterThanOrEqual(2);
+  });
+
+  it('with a single player the output is the same whichever way the local character is given', () => {
+    const sim = makeSim({ police: false });
+    const npc = sim.spawnCharacter('civilian', sim.player.pos.x + 3, sim.player.pos.z);
+    const counts = (id: number) => {
+      const cv = new CrowdView();
+      for (let i = 0; i < 20; i++) cv.sync([sim.player, npc], sim.player.pos.x, sim.player.pos.z, 1 / 60, id);
+      return Object.fromEntries(Object.entries(parts(cv)).map(([k, p]) => [k, p.mesh.count]));
+    };
+    expect(counts(sim.player.id)).toEqual(counts(sim.player.id));
+    expect(counts(sim.player.id).shirtInset).toBeGreaterThanOrEqual(1);
+    expect(counts(-1).torso).toBe(counts(sim.player.id).torso);
   });
 });

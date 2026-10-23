@@ -6,7 +6,7 @@
 // never while a subtitle is up).
 
 import type { Vehicle } from '../sim/entities';
-import type { Sim } from '../sim/sim';
+import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { InputDevice } from './glyphs';
 import type { HintOptions } from './hud';
 
@@ -38,7 +38,7 @@ interface Rule {
   /** HUD text; keys are named by their QWERTY binding and drawn for the active device. */
   text: string;
   duration: number;
-  when(sim: Sim, hints: HintSystem): boolean;
+  when(sim: ViewState, me: PlayerView, hints: HintSystem): boolean;
 }
 
 const RULES: readonly Rule[] = [
@@ -46,25 +46,25 @@ const RULES: readonly Rule[] = [
     id: 'drive',
     text: 'Hold <kbd>Space</kbd> for the handbrake. <kbd>R</kbd> changes the radio station.',
     duration: 7,
-    when: (sim) => sim.player.vehicle?.driver === sim.player && !sim.playerDown,
+    when: (_sim, me) => me.character.vehicle?.driver === me.character && !me.down,
   },
   {
     id: 'wanted',
     text: 'Break line of sight and leave the search area, or drive into a Spray Shack (S on the radar).',
     duration: 8,
-    when: (sim) => sim.wanted.level > 0 && !sim.playerDown,
+    when: (_sim, me) => me.wanted.level > 0 && !me.down,
   },
   {
     id: 'weapon',
     text: 'Right-click to aim, left-click to shoot. <kbd>R</kbd> reloads.',
     duration: 7,
-    when: (sim) => sim.player.state === 'normal' && sim.player.inventory.current !== 'fists' && !sim.playerDown,
+    when: (_sim, me) => me.character.state === 'normal' && me.character.inventory.current !== 'fists' && !me.down,
   },
   {
     id: 'health',
     text: 'Health is low: buy First Aid at Bang Bang Guns or save at the safehouse.',
     duration: 7,
-    when: (sim) => lowHealth(sim) && sim.interactions.canSave(),
+    when: (sim, me) => lowHealth(me) && sim.interactions.canSave(me),
   },
   {
     id: 'health:restricted',
@@ -72,18 +72,19 @@ const RULES: readonly Rule[] = [
     duration: 7,
     // Saving is unavailable during a mission, a rampage or a police chase. Keep this separate
     // from the safehouse lesson so reading it does not consume advice that only helps later.
-    when: (sim) => lowHealth(sim) && !sim.interactions.canSave(),
+    when: (sim, me) => lowHealth(me) && !sim.interactions.canSave(me),
   },
   {
     id: 'mouse',
     text: 'Click the game to control the camera.',
     duration: 5,
-    when: (_sim, hints) => hints.mouseFreeFor > 1,
+    when: (_sim, _me, hints) => hints.mouseFreeFor > 1,
   },
 ];
 
-function lowHealth(sim: Sim): boolean {
-  return sim.player.alive && !sim.playerDown && sim.player.health < sim.player.maxHealth * 0.35;
+function lowHealth(me: PlayerView): boolean {
+  const p = me.character;
+  return p.alive && !me.down && p.health < p.maxHealth * 0.35;
 }
 
 /** A car worth suggesting: it drives and is not about to blow up. */
@@ -95,13 +96,17 @@ export class HintSystem {
   /** Seconds the mouse has been free in play on a keyboard (see HintFrame.mouseFree). */
   mouseFreeFor = 0;
 
+  /** Id of the player slot the hints are for. */
+  localPlayerId = 0;
+
   constructor(private readonly host: HintHost) {}
 
   /** Counts the player's vehicle entries for the steal prompt. Returns the unsubscribe function. */
-  bind(sim: Sim): () => void {
+  bind(sim: ViewState, localPlayerId = 0): () => void {
     this.mouseFreeFor = 0;
+    this.localPlayerId = localPlayerId;
     return sim.events.on('vehicleEnter', (e) => {
-      if (!e.character.isPlayer) return;
+      if (e.character !== playerOf(sim, this.localPlayerId).character) return;
       const n = this.stealCount();
       if (n < STEAL_PROMPTS) this.host.markSeen(`steal:${n + 1}`);
     });
@@ -113,23 +118,25 @@ export class HintSystem {
   }
 
   /** Call once per frame of play, after Sim.update. */
-  update(dt: number, sim: Sim, frame: HintFrame): void {
+  update(dt: number, sim: ViewState, frame: HintFrame): void {
     // A pad player has no use for the mouse.
     this.mouseFreeFor = frame.mouseFree && frame.device === 'kb' ? this.mouseFreeFor + dt : 0;
     if (!this.host.enabled()) return;
+    const me = playerOf(sim, this.localPlayerId);
     for (const r of RULES) {
-      if (this.host.seen().includes(r.id) || this.host.pending(r.id) || !r.when(sim, this)) continue;
-      this.host.show(r.text, r.duration, { id: r.id, valid: () => r.when(sim, this), onRead: () => this.host.markSeen(r.id) });
+      if (this.host.seen().includes(r.id) || this.host.pending(r.id) || !r.when(sim, me, this)) continue;
+      this.host.show(r.text, r.duration, { id: r.id, valid: () => r.when(sim, playerOf(sim, this.localPlayerId), this), onRead: () => this.host.markSeen(r.id) });
     }
   }
 
   /** 'Press F to steal the ...' next to an enterable car, for the first few entries (null otherwise). */
-  stealPrompt(sim: Sim): string | null {
+  stealPrompt(sim: ViewState): string | null {
     if (!this.host.enabled() || this.stealCount() >= STEAL_PROMPTS) return null;
-    const p = sim.player;
+    const me = playerOf(sim, this.localPlayerId);
+    const p = me.character;
     // Markers and the job prompt have the prompt slot first.
-    if (p.state !== 'normal' || sim.playerDown || sim.interactions.current()) return null;
-    const v = sim.playerCtl.findEnterable(p);
+    if (p.state !== 'normal' || me.down || sim.interactions.current(me)) return null;
+    const v = me.ctl.findEnterable(p);
     if (!v || !intact(v)) return null;
     // Nobody steals the car they just got out of.
     return `Press F to ${v.lastDriver === p ? 'get in' : 'steal'} the ${v.spec.name}`;

@@ -3,7 +3,7 @@
 
 import type { Objective } from '../sim/activities';
 import { contactById } from '../sim/missions/contacts';
-import type { Sim } from '../sim/sim';
+import { playerOf, type ViewState } from '../sim/viewState';
 import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
 import { beachOffsetAt, rectContains } from '../world/layout';
@@ -78,7 +78,7 @@ const POI_BLIPS: Record<string, { color: string; label: string }> = {
   gunshop: { color: '#ff8a1f', label: 'G' },
 };
 
-export function collectBlips(sim: Sim, time: number): Blip[] {
+export function collectBlips(sim: ViewState, time: number, localPlayerId = 0): Blip[] {
   const out: Blip[] = [];
   for (const p of sim.world.layout.pois) {
     const b = POI_BLIPS[p.kind];
@@ -98,7 +98,7 @@ export function collectBlips(sim: Sim, time: number): Blip[] {
     const z = t ? t.pos.z : o.z;
     out.push({ x, z, color: '#' + o.color.toString(16).padStart(6, '0'), label: '', sticky: true, shape: t ? 'square' : 'circle' });
   }
-  if (sim.wanted.level > 0) {
+  if (playerOf(sim, localPlayerId).wanted.level > 0) {
     const blink = Math.floor(time * 4) % 2 === 0;
     for (const v of sim.vehicles) if (v.owner === 'police' && !v.removed && !v.destroyed) out.push({ x: v.pos.x, z: v.pos.z, color: blink ? '#ff3030' : '#3060ff', label: '', sticky: false, shape: 'dot' });
     // Every officer on foot too, smaller.
@@ -109,8 +109,8 @@ export function collectBlips(sim: Sim, time: number): Blip[] {
 }
 
 /** The police search area while the stars flash (null while they see the player, or he is not wanted). */
-export function searchArea(sim: Sim): { x: number; z: number; r: number } | null {
-  const w = sim.wanted;
+export function searchArea(sim: ViewState, localPlayerId = 0): { x: number; z: number; r: number } | null {
+  const w = playerOf(sim, localPlayerId).wanted;
   if (w.level === 0 || !w.searching) return null;
   return { x: w.lastSeenX, z: w.lastSeenZ, r: w.searchRadius() };
 }
@@ -123,8 +123,8 @@ export const HELI_SIGHT_RANGE = HELI_SIGHT;
  * image): the search area pulsing red with a red/blue outline, and from 3 stars a faint ring around each
  * helicopter. `pxPerUnit` is the screen size of one map pixel, so outlines keep their screen width.
  */
-export function drawPoliceOverlay(ctx: CanvasRenderingContext2D, sim: Sim, map: { minX: number; minZ: number }, time: number, pxPerUnit: number): void {
-  const area = searchArea(sim);
+export function drawPoliceOverlay(ctx: CanvasRenderingContext2D, sim: ViewState, map: { minX: number; minZ: number }, time: number, pxPerUnit: number, localPlayerId = 0): void {
+  const area = searchArea(sim, localPlayerId);
   if (area) {
     ctx.beginPath();
     ctx.arc((area.x - map.minX) * MAP_SCALE, (area.z - map.minZ) * MAP_SCALE, area.r * MAP_SCALE, 0, Math.PI * 2);
@@ -134,7 +134,7 @@ export function drawPoliceOverlay(ctx: CanvasRenderingContext2D, sim: Sim, map: 
     ctx.strokeStyle = Math.floor(time * 4) % 2 === 0 ? '#ff3030' : '#3060ff';
     ctx.stroke();
   }
-  if (sim.wanted.level >= 3) {
+  if (playerOf(sim, localPlayerId).wanted.level >= 3) {
     ctx.lineWidth = 1.5 / pxPerUnit;
     ctx.strokeStyle = 'rgba(150, 190, 255, 0.4)';
     for (const h of sim.helis) {
@@ -195,11 +195,12 @@ const ROUTE_TURN_BACK = 40;
  * junction ahead and on from there without turning straight back (as DriverAI plans), unless turning back to the
  * junction behind is clearly shorter (the target is behind him); on foot, or off the road, it starts at the nearest one.
  */
-export function gpsRoute(sim: Sim, tx: number, tz: number): Array<{ x: number; z: number }> {
-  const pp = sim.playerPos();
+export function gpsRoute(sim: ViewState, tx: number, tz: number, localPlayerId = 0): Array<{ x: number; z: number }> {
+  const me = playerOf(sim, localPlayerId);
+  const pp = me.pos();
   const roads = sim.roads;
   const b = roads.nearestNode(tx, tz);
-  const v = sim.player.vehicle;
+  const v = me.character.vehicle;
   const on = v ? roads.nearestLane(pp.x, pp.z, v.heading) : null;
   let route: number[] | null;
   if (on && on.dist <= ROUTE_ON_ROAD) {
@@ -222,7 +223,7 @@ export function gpsRoute(sim: Sim, tx: number, tz: number): Array<{ x: number; z
   return pts;
 }
 
-export function insideLand(sim: Sim, x: number, z: number): boolean {
+export function insideLand(sim: ViewState, x: number, z: number): boolean {
   const b = sim.world.layout.bounds;
   return rectContains({ minX: b.landMinX, minZ: b.landMinZ, maxX: b.beachEndX, maxZ: b.landMaxZ }, x, z);
 }

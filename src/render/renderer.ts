@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import type { Sim } from '../sim/sim';
+import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { Vehicle } from '../sim/entities';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
@@ -175,7 +175,9 @@ export class GameRenderer {
   /** Set up on the first context loss (see guardStaleDeletes). */
   private newGlGeneration: (() => void) | null = null;
   private ratio = 0;
-  private sim: Sim | null = null;
+  private sim: ViewState | null = null;
+  /** Id of the player slot this screen belongs to: its car, camera target and reflections. */
+  private localPlayerId = 0;
   private unsub: Array<() => void> = [];
   private smokeTimer = 0;
   /** Rounds of the player's current automatic burst (every second one draws a tracer), and the sim time of the last. */
@@ -455,8 +457,10 @@ export class GameRenderer {
     cam.updateProjectionMatrix();
   }
 
-  attach(sim: Sim): void {
+  attach(sim: ViewState, localPlayerId = 0): void {
     this.clearLocalReflections();
+    this.localPlayerId = localPlayerId;
+    this.cameraCtl.localPlayerId = localPlayerId;
     for (const u of this.unsub) u();
     this.unsub = [];
     for (const v of this.vehicleViews.values()) {
@@ -488,7 +492,7 @@ export class GameRenderer {
         // The player's automatic fire traces every second round of a burst (its first one always).
         // Everyone else's traces every round.
         let traced = true;
-        if (e.shooter?.isPlayer && WEAPONS[e.weapon].auto) {
+        if (e.shooter && e.shooter === this.me(sim).character && WEAPONS[e.weapon].auto) {
           if (sim.time - this.lastAutoRound > 0.25) this.autoRounds = 0;
           this.lastAutoRound = sim.time;
           traced = this.autoRounds++ % 2 === 0;
@@ -513,7 +517,7 @@ export class GameRenderer {
       }),
       ev.on('impact', (e) => {
         if (e.strength > 7) fx.debris(e.x, e.y, e.z);
-        if (e.vehicle && e.vehicle.driver === sim.player) this.cameraCtl.addKick(e.x - e.vehicle.pos.x, e.z - e.vehicle.pos.z, e.strength);
+        if (e.vehicle && e.vehicle.driver === this.me(sim).character) this.cameraCtl.addKick(e.x - e.vehicle.pos.x, e.z - e.vehicle.pos.z, e.strength);
       }),
       ev.on('propBroken', (e) => {
         this.props.breakProp(e.index, e.dirX, e.dirZ);
@@ -534,14 +538,18 @@ export class GameRenderer {
       ev.on('impact', (e) => {
         const v = e.vehicle;
         // God mode keeps the player's car whole, so nothing comes off it; a burnt-out wreck has no glass left.
-        if (v && sim.cheats.godMode && v.driver === sim.player) return;
+        if (v && v.driver && sim.players.some((p) => p.cheats.godMode && p.character === v.driver)) return;
         if (e.strength > 15 && !v?.destroyed) fx.glassShards(e.x, e.y, e.z);
         if (e.strength > 20 && v) fx.shedParts(v, e.x, e.y, e.z, e.strength, ground);
       }),
     );
   }
 
-  private syncVehicles(sim: Sim, dt: number, night: number): void {
+  private me(sim: ViewState): PlayerView {
+    return playerOf(sim, this.localPlayerId);
+  }
+
+  private syncVehicles(sim: ViewState, dt: number, night: number): void {
     const seen = new Set<number>();
     for (const v of sim.vehicles) {
       if (v.removed) continue;
@@ -557,7 +565,7 @@ export class GameRenderer {
       view.sync(v, dt, this.time, night, this.bloom !== null);
       if (this.software) {
         const cam = this.cameraCtl.camera.position;
-        view.setDistant(v.driver !== sim.player && (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2 > 32 * 32);
+        view.setDistant(v.driver !== this.me(sim).character && (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2 > 32 * 32);
       }
       this.softwareMaterials?.apply(view.group);
       this.cullFar(view, v);
@@ -592,7 +600,7 @@ export class GameRenderer {
     else this.farHidden.delete(view);
   }
 
-  private vehicleEffects(sim: Sim, dt: number): void {
+  private vehicleEffects(sim: ViewState, dt: number): void {
     const fx = this.effects;
     const spray = this.wet > TYRE_SPRAY_WET && QUALITY[this.software ? 'low' : this.quality].tyreSpray;
     this.smokeTimer += dt;
@@ -639,12 +647,12 @@ export class GameRenderer {
   }
 
   /** Lamp glows of every drawn vehicle, and headlight pools for the nearest lit ones (the player's only without a headlight spot). */
-  private syncLightSprites(sim: Sim, lights: number): void {
+  private syncLightSprites(sim: ViewState, lights: number): void {
     const ls = this.lightSprites;
     const cam = this.cameraCtl.camera;
     this.renderer.getDrawingBufferSize(this.bufferSize);
     ls.begin(cam.position, this.bufferSize.y / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)));
-    const playerCar = sim.player.vehicle;
+    const playerCar = this.me(sim).character.vehicle;
     const spot = this.headlight.visible;
     const strength = THREE.MathUtils.smoothstep(lights, 0.35, 0.6);
     const glows = this.lampGlows;
@@ -679,8 +687,8 @@ export class GameRenderer {
     }
   }
 
-  private syncLights(sim: Sim, night: number): void {
-    const v = sim.player.vehicle;
+  private syncLights(sim: ViewState, night: number): void {
+    const v = this.me(sim).character.vehicle;
     if (v && night > 0.25 && !v.destroyed) {
       const fx = Math.sin(v.heading);
       const fz = Math.cos(v.heading);
@@ -723,7 +731,7 @@ export class GameRenderer {
     const cam = this.cameraCtl.camera;
     if (sim) this.cameraCtl.update(dt, sim, aiming);
     const hours = sim ? sim.clock.hours : 17.5;
-    const focus = sim && this.cameraCtl.mode === 'play' ? new THREE.Vector3(cam.position.x * 0.5 + sim.playerPos().x * 0.5, 0, cam.position.z * 0.5 + sim.playerPos().z * 0.5) : new THREE.Vector3(cam.position.x * 0.3, 0, cam.position.z * 0.3);
+    const focus = sim && this.cameraCtl.mode === 'play' ? new THREE.Vector3(cam.position.x * 0.5 + this.me(sim).pos().x * 0.5, 0, cam.position.z * 0.5 + this.me(sim).pos().z * 0.5) : new THREE.Vector3(cam.position.x * 0.3, 0, cam.position.z * 0.3);
     const weather = sim?.weather.state;
     this.weatherDim = weather?.dim ?? 0;
     this.flashAge += dt;
@@ -749,8 +757,8 @@ export class GameRenderer {
       this.syncLightSprites(sim, lights);
       this.effects.syncRockets(sim.projectiles);
       this.vehicleEffects(sim, dt);
-      this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt);
-      this.markers.syncMarkers(sim.missions.active || sim.wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, sim.playerPos(), aiming);
+      this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt, this.me(sim).character.id);
+      this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming);
       const objectives = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
       this.markers.syncObjectives(objectives, (x, z) => sim.world.groundHeight(x, z), this.time);
       this.markers.syncPickups(sim.pickups, this.time, cam.position.x, cam.position.z);
@@ -767,7 +775,7 @@ export class GameRenderer {
       this.softwareMaterials?.sync();
     }
     this.renderer.info.reset();
-    const car = sim?.player.vehicle;
+    const car = sim ? this.me(sim).character.vehicle : null;
     const view = car ? this.vehicleViews.get(car.id) : null;
     const reflect = this.hdr && this.quality === 'high' && this.cameraCtl.mode === 'play' && car && view && !car.destroyed;
     if (reflect) {

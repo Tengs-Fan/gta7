@@ -4,7 +4,7 @@
 import { clamp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import type { SimEvents } from '../sim/events';
-import type { Sim } from '../sim/sim';
+import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { VehicleKind, WeaponId } from '../sim/specs';
 import type { Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
@@ -65,6 +65,17 @@ export class AudioEngine {
   readonly radio = new Radio();
   private readonly listener: Listener = { x: 0, y: 0, z: 0, yaw: 0 };
   private unsub: Array<() => void> = [];
+  /** Id of the player slot this listener belongs to: player-scoped events about others are not for it. */
+  private localPlayerId = 0;
+
+  private me(sim: ViewState): PlayerView {
+    return playerOf(sim, this.localPlayerId);
+  }
+
+  /** An event about the local player; one without a playerId is about slot 0. */
+  private mine(e: { playerId?: number }): boolean {
+    return (e.playerId ?? 0) === this.localPlayerId;
+  }
   private volumes = { master: 0.8, music: 0.6, sfx: 0.85 };
   private lastShot = new Map<WeaponId, number>();
   /**
@@ -164,7 +175,8 @@ export class AudioEngine {
     }
   }
 
-  attach(sim: Sim): void {
+  attach(sim: ViewState, localPlayerId = 0): void {
+    this.localPlayerId = localPlayerId;
     for (const u of this.unsub) u();
     this.unsub = [];
     this.subtitleTimer = 0;
@@ -177,29 +189,29 @@ export class AudioEngine {
     this.confirm = null;
     this.unsub.push(
       // One bang per trigger pull; helicopter rounds come only as 'shot' events.
-      on('weaponFired', (e) => this.gunshot(e.weapon, e.x, e.y, e.z, e.shooter?.isPlayer ?? false)),
+      on('weaponFired', (e) => this.gunshot(e.weapon, e.x, e.y, e.z, !!e.shooter && e.shooter === this.me(sim).character)),
       on('shot', (e) => {
         if (!e.shooter) this.gunshot(e.weapon, e.fx, e.fy, e.fz, false);
       }),
       on('damage', (e) => {
         // The player's weapon hits: bullets, fists and explosions, not people run over.
-        if (!e.attacker?.isPlayer || e.victim.isPlayer || !(e.kind === 'bullet' || e.kind === 'melee' || e.kind === 'explosion')) return;
+        if (!e.attacker || e.attacker !== this.me(sim).character || e.victim.isPlayer || !(e.kind === 'bullet' || e.kind === 'melee' || e.kind === 'explosion')) return;
         const kind: HitConfirm = e.killed ? 'kill' : e.zone === 'head' ? 'head' : 'hit';
         if (this.confirm === null || CONFIRM_RANK[kind] > CONFIRM_RANK[this.confirm]) this.confirm = kind;
       }),
       on('explosion', (e) => this.explosion(e.x, e.y, e.z, e.radius)),
       // The player's own crashes (his car hitting something, landing, running someone over) sound inside the car,
       // not through the in-car muffling of the world outside.
-      on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength, !!e.vehicle && e.vehicle === sim.player.vehicle)),
+      on('impact', (e) => this.impact(e.x, e.y, e.z, e.strength, !!e.vehicle && e.vehicle === this.me(sim).character.vehicle)),
       // His car grinding along something, or a faster car grinding along his (reported as that car's scrape, his as `other`).
       on('scrape', (e) => {
-        const own = sim.player.vehicle;
+        const own = this.me(sim).character.vehicle;
         this.scrape(e.x, e.y, e.z, e.speed, !!own && (e.vehicle === own || e.other === own));
       }),
       on('melee', (e) => this.punch(e.x, e.y, e.z, e.hit)),
       on('horn', (e) => {
         // The player's own horn is a continuous voice (updateHorn); AI taps play here.
-        if (e.vehicle === sim.player.vehicle) return;
+        if (e.vehicle === this.me(sim).character.vehicle) return;
         this.horn(e.vehicle.pos.x, e.vehicle.pos.y, e.vehicle.pos.z, e.vehicle.spec.police);
       }),
       on('pickup', (e) => this.chime(e.kind === 'money' ? 'cash' : 'pickup')),
@@ -208,17 +220,18 @@ export class AudioEngine {
         if (e.index < e.total) this.chime('checkpoint');
       }),
       on('money', (e) => {
-        if (e.amount >= 500) this.chime('cash');
+        if (this.mine(e) && e.amount >= 500) this.chime('cash');
       }),
       on('splash', (e) => this.splash(e.x, e.y, e.z, e.big)),
       on('propBroken', () => this.thud(0.5)),
       on('reload', (e) => {
-        if (e.character.isPlayer) this.reloadClick();
+        if (e.character === this.me(sim).character) this.reloadClick();
       }),
       on('wanted', (e) => {
-        if (e.level > e.previous) this.chime('alert');
+        if (this.mine(e) && e.level > e.previous) this.chime('alert');
       }),
       on('big', (e) => {
+        if (!this.mine(e)) return;
         if (e.style === 'passed') this.chime('passed');
         else if (e.style === 'failed' || e.style === 'wasted' || e.style === 'busted') this.chime('fail');
         else if (e.style === 'stunt') this.chime('stunt');
@@ -229,19 +242,19 @@ export class AudioEngine {
       }),
       // A mission starting (a retry above all) takes a MISSION FAILED card down, showing or waiting (as the HUD does),
       // and its duck with it.
-      on('missionStarted', () => {
-        this.failTimer = 0;
+      on('missionStarted', (e) => {
+        if (this.mine(e)) this.failTimer = 0;
       }),
       on('subtitle', (e) => {
         // Dialogue ducks the music and the ambience for as long as the line shows (as in the HUD).
-        if (finite(e.duration)) this.subtitleTimer = e.duration;
+        if (this.mine(e) && finite(e.duration)) this.subtitleTimer = e.duration;
       }),
       on('scream', (e) => this.scream(e.x, e.y, e.z)),
       on('vehicleEnter', (e) => {
-        if (e.character.isPlayer) this.doorThunk(e.vehicle);
+        if (e.character === this.me(sim).character) this.doorThunk(e.vehicle);
       }),
       on('vehicleExit', (e) => {
-        if (e.character.isPlayer) this.doorThunk(e.vehicle);
+        if (e.character === this.me(sim).character) this.doorThunk(e.vehicle);
       }),
     );
   }
@@ -657,7 +670,7 @@ export class AudioEngine {
     this.sirenNodes = { osc, gain, lfo, lfoGain };
   }
 
-  update(dt: number, sim: Sim, inGame: boolean): void {
+  update(dt: number, sim: ViewState, inGame: boolean): void {
     this.frame++;
     // One confirmation per frame, the strongest (a shotgun blast is one tick, a multi-kill one thump).
     const confirm = this.confirm;
@@ -669,10 +682,10 @@ export class AudioEngine {
     this.safely(() => this.updateVoices(dt, sim, inGame));
   }
 
-  private updateVoices(dt: number, sim: Sim, inGame: boolean): void {
+  private updateVoices(dt: number, sim: ViewState, inGame: boolean): void {
     const t = this.ctx!.currentTime;
     const step = finite(dt) && dt > 0 ? Math.min(dt, 0.25) : 0;
-    const pv = inGame ? sim.player.vehicle : null;
+    const pv = inGame ? this.me(sim).character.vehicle : null;
     // A wreck or a sinking car has no engine; the radio dies with a wreck.
     const live = pv && !pv.destroyed && !pv.inWater && !pv.removed ? pv : null;
     this.inVehicle = !!pv;
@@ -712,7 +725,7 @@ export class AudioEngine {
   }
 
   /** Siren loudness from the closest police car with its siren on. */
-  private updateSiren(sim: Sim, inGame: boolean, t: number): void {
+  private updateSiren(sim: ViewState, inGame: boolean, t: number): void {
     const s = this.sirenNodes!;
     let best = Infinity;
     if (inGame) {
@@ -724,7 +737,7 @@ export class AudioEngine {
     }
     const sg = best < 260 ? (1 / (1 + Math.pow(best / 35, 1.5))) * SIREN_LEVEL : 0;
     this.glide.set(s.gain.gain, sg, t, 0.2);
-    this.glide.set(s.lfo.frequency, sim.wanted.level >= 3 ? 1.6 : 0.32, t, 0.3);
+    this.glide.set(s.lfo.frequency, this.me(sim).wanted.level >= 3 ? 1.6 : 0.32, t, 0.3);
   }
 
   /** Sand, grass, yards and dirt make the tyres roar louder than asphalt and paving. */
@@ -740,7 +753,7 @@ export class AudioEngine {
     return false;
   }
 
-  private updateAmbience(dt: number, sim: Sim, inGame: boolean, t: number): void {
+  private updateAmbience(dt: number, sim: ViewState, inGame: boolean, t: number): void {
     const L = this.listener;
     // A broken camera pose keeps the bed as it was rather than reading NaN places.
     if (!finite(L.x, L.y, L.z, L.yaw)) return;
@@ -752,7 +765,7 @@ export class AudioEngine {
     let w = 0;
     let sx = 0;
     let sz = 0;
-    const own = sim.player.vehicle;
+    const own = this.me(sim).character.vehicle;
     for (const v of sim.vehicles) {
       if (v === own || v.removed || v.destroyed || !(v.speed > 1)) continue;
       const dx = v.pos.x - L.x;
@@ -769,10 +782,10 @@ export class AudioEngine {
     f.district = world.districtAt(L.x, L.z);
     f.hours = sim.clock.hours;
     f.shoreDist = shore.dist;
-    f.height = inGame ? sim.player.pos.y : L.y;
+    f.height = inGame ? this.me(sim).character.pos.y : L.y;
     f.traffic = clamp(w / 2.5, 0, 1);
     f.inVehicle = this.inVehicle;
-    f.wanted = sim.wanted.level;
+    f.wanted = this.me(sim).wanted.level;
     f.seaPan = shore.dirX * rx + shore.dirZ * rz;
     f.trafficPan = w > 0 ? (sx * rx + sz * rz) / w : 0;
     this.ambience!.update(dt, t, f);
