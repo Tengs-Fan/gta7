@@ -279,6 +279,9 @@ export class Vehicle {
   dentVersion = 0;
   /** Ever driven by the player (no longer counts as a parked car). */
   usedByPlayer = false;
+  /** Azura Customs upgrade levels (0 = stock) and the multipliers on this car's spec they give (sim/mods.ts). */
+  readonly mods = { engine: 0, brakes: 0, tyres: 0 };
+  readonly tune = { accel: 1, brake: 1, grip: 1 };
   /** Seconds since the AI driver last got 5 m from where it was; waits at a red light, a yield or in a queue don't count. */
   stuckTime = 0;
   spawnTime = 0;

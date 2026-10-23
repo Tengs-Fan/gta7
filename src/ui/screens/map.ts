@@ -5,7 +5,9 @@ import { WHEEL_GESTURE_GAP, WHEEL_STEP } from '../../input/input';
 import { padGlyph, type InputDevice } from '../glyphs';
 import { escapeHtml } from '../hud';
 import { collectBlips, drawBlip, drawPoliceOverlay, MAP_SCALE, type Blip } from '../mapRender';
+import { completionEntries } from '../../sim/completion';
 import { h, localPlayer, type MenuCtx } from './shared';
+import './mapChecklist.css';
 
 /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
 export function showMap(menus: MenuCtx, onClose?: () => void): void {
@@ -37,9 +39,25 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
         ['#ff3030', 'Police unit'],
         ['rgba(255, 48, 48, 0.55)', 'Search area'],
         ['#c04fff', 'Waypoint'],
+        ['#3fd96b', 'Property (owned)'],
+        ['#9aa3ad', 'Property for sale'],
+        ['#b36bff', 'Azura Customs'],
       ]
         .map(([c, t]) => `<div><i style="background:${c}"></i>${t}</div>`)
         .join(''),
+    ),
+  );
+  // The completion checklist, from the completion registry (sim/completion.ts).
+  el.appendChild(
+    h(
+      'div',
+      'map-checklist',
+      `<b>CHECKLIST</b>${completionEntries()
+        .map((e) => {
+          const [done, total] = e.progress({ sim, player: me });
+          return `<div class="${done >= total ? 'done' : ''}"><span>${escapeHtml(e.label)}</span><span>${Math.min(done, total)} / ${total}</span></div>`;
+        })
+        .join('')}`,
     ),
   );
   // What to press, for the device in use: the keyboard and a pad set the waypoint at the cross in the middle.

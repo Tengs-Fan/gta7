@@ -111,8 +111,9 @@ describe('exhaustive kind maps outside the specs are gone', () => {
   const vehicleKinds = Object.keys(BASE_FIRING_ROWS) as VehicleKind[];
   const weaponIds = Object.keys(BASE_FLASH) as WeaponId[];
 
-  it('the spec tables still hold exactly the baseline kinds', () => {
-    expect(Object.keys(VEHICLE_SPECS).sort()).toEqual([...vehicleKinds].sort());
+  it('the spec tables still hold exactly the baseline kinds, plus the wave-1 service vehicles', () => {
+    // Wave 1 added the ambulance and the fire truck as spec entries only (their view is drawn from spec data).
+    expect(Object.keys(VEHICLE_SPECS).sort()).toEqual([...vehicleKinds, 'ambulance', 'firetruck'].sort());
     expect(Object.keys(WEAPONS).sort()).toEqual([...weaponIds].sort());
     expect(Object.keys(PICKUP_SPECS).sort()).toEqual(Object.keys(BASE_PICKUP_COLOR).sort());
     expect([...WEAPON_ORDER]).toEqual(['fists', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket']);
