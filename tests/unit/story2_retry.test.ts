@@ -55,6 +55,40 @@ describe('chapter 2 retry and checkpoints', () => {
     expect(m.markers.filter((o) => o.label === 'Courier').length).toBe(1);
   });
 
+  it('Shadow Play failed before the meeting starts over at the hotel, next to the Pipsqueak and the courier', () => {
+    const sim = storySim('shadow_play');
+    startAtMarker(sim, 'shadow_play');
+    stepUntil(sim, objectiveIs(sim, 'Tail the courier: take the Pipsqueak first'), 30);
+    const m = active(sim);
+    const [car, courier] = [m.vehicles[0]!, m.vehicles[1]!];
+    enterVehicle(sim, car);
+    // Spotted on the first leg, before checkpoint 1.
+    stepUntil(sim, () => sim.missions.active === null, 20, () => {
+      const fx = Math.sin(courier.heading);
+      const fz = Math.cos(courier.heading);
+      parkAt(sim, courier.pos.x - fx * 8, courier.pos.z - fz * 8, courier.heading);
+    });
+    expect(m.checkpointReached).toBe(0);
+    retry(sim, 'shadow_play');
+    const r = active(sim);
+    expect(r.resume).toBe(0);
+    stepUntil(sim, objectiveIs(sim, 'Tail the courier: take the Pipsqueak first'), 2);
+    const s = chapter2Spots(sim.world);
+    const [pipsqueak, fresh] = [r.vehicles[0]!, r.vehicles[1]!];
+    const toCar = Math.hypot(sim.player.pos.x - pipsqueak.pos.x, sim.player.pos.z - pipsqueak.pos.z);
+    const toCourier = Math.hypot(sim.player.pos.x - fresh.pos.x, sim.player.pos.z - fresh.pos.z);
+    console.log(`Shadow Play retried from the start: player ${toCar.toFixed(1)} m from the Pipsqueak, ${toCourier.toFixed(1)} m from the courier`);
+    expect(Math.hypot(fresh.pos.x - s.tailStart.x, fresh.pos.z - s.tailStart.z)).toBeLessThan(3);
+    expect(toCar).toBeLessThan(20);
+    expect(toCourier).toBeLessThan(100);
+    // Any car will do (getIn): taking one right where he stands must not lose the courier at once.
+    const near = sim.world.findFreeSpot(sim.player.pos.x + 4, sim.player.pos.z, 1.6, 15)!;
+    const other = sim.spawnVehicle('sedan', near.x, near.z, 0);
+    enterVehicle(sim, other);
+    step(sim, 6);
+    expect(sim.missions.active?.def.id).toBe('shadow_play');
+  });
+
   it('Room Service resumes at the wave it was lost on, its attackers only, after a WASTED', () => {
     const sim = storySim('room_service');
     startAtMarker(sim, 'room_service');
@@ -94,7 +128,9 @@ describe('chapter 2 retry and checkpoints', () => {
     stepUntil(sim, objectiveIs(sim, 'Steal the yellow Nightjar GT'), 2);
     expect(tagged(sim, 'showroom').length).toBe(1);
     expect(m.characters.filter((c) => c.role === 'gang').length).toBe(2);
-    console.log(`from the start: ${tagged(sim, 'showroom').length} Nightjar, ${gangUp(sim).length} minders`);
+    const vera = sim.world.layout.pois.find((q) => q.id === 'vera')!;
+    console.log(`from the start: ${tagged(sim, 'showroom').length} Nightjar, ${gangUp(sim).length} minders, player ${Math.hypot(sim.player.pos.x - vera.x, sim.player.pos.z - vera.z).toFixed(1)} m from Vera`);
+    expect(Math.hypot(sim.player.pos.x - vera.x, sim.player.pos.z - vera.z)).toBeLessThan(8.5);
 
     enterVehicle(sim, m.vehicles[0]!);
     stepUntil(sim, () => m.checkpointReached === 1, 2);
