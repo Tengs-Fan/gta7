@@ -382,6 +382,8 @@ export class Helicopter {
   /** Angle round the circle it flies above the target (police.ts advances it). */
   orbit: number;
   spotlight = { x: 0, z: 0 };
+  /** The player whose fire or blast last hit it: the one who answers for bringing it down. */
+  shotBy: Character | null = null;
   constructor(readonly id: number, x: number, y: number, z: number) {
     this.pos = { x, y, z };
     this.orbit = entityRng(id).range(0, Math.PI * 2);

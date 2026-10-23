@@ -1,6 +1,7 @@
 // Side activities: the registry of what the job key can start, and the facade the rest of the sim talks to.
 
 import type { Character, Vehicle } from '../entities';
+import type { PlayerSlot } from '../playerSlot';
 import type { Sim } from '../sim';
 import type { StreetRunCourse } from '../streetRuns';
 import { rampageActivity } from './rampage';
@@ -90,14 +91,21 @@ export class Activities {
   }
 
   /** The T-key prompt for the player's vehicle: what the job key would start there right now, if anything. */
-  jobPrompt(slot: Character = this.sim.player): string | null {
-    const v = slot.vehicle;
-    if (!v || this.busy || this.sim.missions.active) return null;
+  jobPrompt(who: PlayerSlot | Character = this.sim.players[0]!): string | null {
+    const slot = this.jobSeat(who);
+    const v = slot?.vehicle;
+    if (!slot || !v || this.busy || this.sim.missions.active) return null;
     const def = this.startableBy(slot, v);
     return def ? def.prompt(this.host, slot, v) : null;
   }
 
-  toggleJob(slot: Character = this.sim.player): void {
+  /**
+   * The job key pressed by a player (slot 0 by default). There is one job at a time and it belongs to slot 0, so the
+   * key does nothing for any other slot: it neither starts a job for it nor ends slot 0's.
+   */
+  toggleJob(who: PlayerSlot | Character = this.sim.players[0]!): void {
+    const slot = this.jobSeat(who);
+    if (!slot) return;
     const v = slot.vehicle;
     const running = this.job ? getActivity(this.job.kind) : undefined;
     if (this.job && running?.toggleEndText !== undefined) {
@@ -107,6 +115,13 @@ export class Activities {
     if (this.job || this.sim.missions.active) return;
     if (!v) return;
     this.startableBy(slot, v)?.start(this.host, slot, v);
+  }
+
+  /** The character of the player the single job belongs to, if `who` is that player. */
+  private jobSeat(who: PlayerSlot | Character): Character | null {
+    const owner = this.sim.players[0]!;
+    const c = this.sim.resolveSlot(who)?.character ?? (who as Character);
+    return c === owner.character ? c : null;
   }
 
   cancelAll(reason: CancelReason): void {

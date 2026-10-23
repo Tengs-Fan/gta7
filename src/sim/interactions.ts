@@ -3,6 +3,7 @@
 
 import { rectContains, type Poi } from '../world/layout';
 import { Inventory } from './entities';
+import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import { WEAPONS, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
@@ -54,7 +55,8 @@ export function shopItems(): ShopItem[] {
 
 export class Interactions {
   readonly markers: Marker[] = [];
-  private sprayBusy: string | null = null;
+  /** The spray bay each slot's car is in and has been served at. */
+  private readonly sprayBusy = new Map<number, string | null>();
 
   constructor(private readonly sim: Sim) {
     for (const poi of sim.world.layout.pois) {
@@ -63,11 +65,10 @@ export class Interactions {
     }
   }
 
-  /** The marker under the player (on foot), if any. */
-  current(): Marker | null {
-    const sim = this.sim;
-    const p = sim.player;
-    if (p.state !== 'normal' || sim.playerDown) return null;
+  /** The marker under the player (on foot), if any. `slot` is slot 0 by default. */
+  current(slot: PlayerSlot = this.sim.players[0]!): Marker | null {
+    const p = slot.character;
+    if (p.state !== 'normal' || slot.down) return null;
     for (const m of this.markers) {
       if (Math.hypot(m.x - p.pos.x, m.z - p.pos.z) <= m.radius) return m;
     }
@@ -75,23 +76,23 @@ export class Interactions {
   }
 
   /** The safehouse can restore health and save now; an exited vehicle job can be ended by saving. */
-  canSave(): boolean {
+  canSave(slot: PlayerSlot = this.sim.players[0]!): boolean {
     const sim = this.sim;
-    return !sim.playerDown && sim.wanted.level === 0 && !sim.missions.active && sim.activities.job?.kind !== 'rampage';
+    return !slot.down && slot.wanted.level === 0 && !sim.missions.active && sim.activities.job?.kind !== 'rampage';
   }
 
   /** HUD prompt for the marker under the player, or for retrying a failed mission. */
-  prompt(): string | null {
+  prompt(slot: PlayerSlot = this.sim.players[0]!): string | null {
     const sim = this.sim;
-    const m = this.current();
-    if (!m) return this.vehiclePrompt() ?? this.retryPrompt();
+    const m = this.current(slot);
+    if (!m) return this.vehiclePrompt(slot) ?? this.retryPrompt(slot);
     if (m.kind === 'mission') {
       if (sim.missions.active) return null;
-      return this.startBlock(false) ?? m.label;
+      return this.startBlock(slot, false) ?? m.label;
     }
     if (m.kind === 'save') {
       // As interact() would answer, before E is pressed.
-      if (sim.wanted.level > 0) return 'Lose the cops before saving.';
+      if (slot.wanted.level > 0) return 'Lose the cops before saving.';
       if (sim.missions.active) return "You can't save during a mission.";
       if (sim.activities.job?.kind === 'rampage') return "You can't save during a rampage.";
     }
@@ -102,9 +103,9 @@ export class Interactions {
    * Why a mission cannot be started (or `retry`, retried) right now, as the prompt says it; null if it can. On a
    * rampage: starting a mission would call it off.
    */
-  private startBlock(retry: boolean): string | null {
+  private startBlock(slot: PlayerSlot, retry: boolean): string | null {
     const sim = this.sim;
-    if (sim.wanted.level > 0) return retry ? 'Lose the cops before retrying.' : 'Lose the cops before starting a mission.';
+    if (slot.wanted.level > 0) return retry ? 'Lose the cops before retrying.' : 'Lose the cops before starting a mission.';
     if (sim.activities.job?.kind === 'rampage') return 'Finish the rampage first.';
     return null;
   }
@@ -113,27 +114,27 @@ export class Interactions {
    * In a vehicle over a contact's marker, which only works on foot: E is the horn there (see Input), so the
    * prompt says to get out. The car's body may cover the marker without its centre being on it.
    */
-  private vehiclePrompt(): string | null {
+  private vehiclePrompt(slot: PlayerSlot): string | null {
     const sim = this.sim;
-    const p = sim.player;
+    const p = slot.character;
     const v = p.vehicle;
-    if (!v || p.state !== 'inVehicle' || sim.playerDown || sim.missions.active) return null;
+    if (!v || p.state !== 'inVehicle' || slot.down || sim.missions.active) return null;
     for (const m of this.markers) {
       if (m.kind !== 'mission' || Math.hypot(m.x - v.pos.x, m.z - v.pos.z) > m.radius + v.halfW + 0.5) continue;
       const def = sim.missions.defs.find((d) => d.id === m.ref);
-      return this.startBlock(false) ?? `Get out of the vehicle to start "${def?.title ?? ''}"`;
+      return this.startBlock(slot, false) ?? `Get out of the vehicle to start "${def?.title ?? ''}"`;
     }
     return null;
   }
 
   /** Offers the retry of a mission that just failed (markers under the player come first). */
-  private retryPrompt(): string | null {
+  private retryPrompt(slot: PlayerSlot): string | null {
     const sim = this.sim;
     const def = sim.missions.retryOffer();
     // Failed with the police on him: the offer opens once they are lost.
     if (!def) return sim.missions.retryAfterCops() ? 'Lose the cops before retrying.' : null;
-    const p = sim.player;
-    const block = this.startBlock(true);
+    const p = slot.character;
+    const block = this.startBlock(slot, true);
     if (block) return block;
     // In a vehicle the key is the horn (see Input), so the retry is taken on foot.
     if (p.state === 'inVehicle') return `Get out of the vehicle to retry "${def.title}"`;
@@ -141,40 +142,45 @@ export class Interactions {
     return `Press E to retry "${def.title}"`;
   }
 
-  interact(): void {
+  /**
+   * The player in `slot` (slot 0 by default) presses E. Story missions belong to slot 0 only, so a marker that starts
+   * one does nothing for another slot.
+   */
+  interact(slot: PlayerSlot = this.sim.players[0]!): void {
     const sim = this.sim;
-    const m = this.current();
+    const m = this.current(slot);
     if (!m) {
+      if (slot.id !== 0) return;
       // E commits the player's exit. A taxi/vigilante job may still be waiting for FIXMYRIDE's
       // opening F to be undone, but it must not silently block the retry advertised on screen.
-      if (sim.missions.retryOffer() && !this.startBlock(true) && sim.player.onFoot) this.finishExitedJob();
+      if (sim.missions.retryOffer() && !this.startBlock(slot, true) && slot.character.onFoot) this.finishExitedJob();
       sim.missions.retryNow();
       return;
     }
     switch (m.kind) {
       case 'gunshop':
-        sim.events.emit('shopOpen', { poi: m.ref });
+        sim.events.emit('shopOpen', { poi: m.ref, ...slot.tag });
         break;
       case 'save':
-        if (sim.wanted.level > 0) {
-          sim.events.emit('message', { text: "You can't save while the cops are after you.", duration: 3 });
+        if (slot.wanted.level > 0) {
+          sim.events.emit('message', { text: "You can't save while the cops are after you.", duration: 3, ...slot.tag });
           return;
         }
         if (sim.missions.active) {
-          sim.events.emit('message', { text: "You can't save during a mission.", duration: 3 });
+          sim.events.emit('message', { text: "You can't save during a mission.", duration: 3, ...slot.tag });
           return;
         }
         // A rampage continues on foot: the heal is no free top-up mid-fight.
         if (sim.activities.job?.kind === 'rampage') {
-          sim.events.emit('message', { text: "You can't save during a rampage.", duration: 3 });
+          sim.events.emit('message', { text: "You can't save during a rampage.", duration: 3, ...slot.tag });
           return;
         }
-        this.finishExitedJob();
-        sim.player.health = sim.player.maxHealth;
-        sim.events.emit('saveRequested', { poi: m.ref });
+        if (slot.id === 0) this.finishExitedJob();
+        slot.character.health = slot.character.maxHealth;
+        sim.events.emit('saveRequested', { poi: m.ref, ...slot.tag });
         break;
       case 'mission':
-        if (sim.missions.active || this.startBlock(false)) return;
+        if (slot.id !== 0 || sim.missions.active || this.startBlock(slot, false)) return;
         sim.missions.start(m.ref);
         break;
     }
@@ -190,17 +196,17 @@ export class Interactions {
   }
 
   /** Gun shop purchase. Returns an error message or null on success. */
-  buy(itemId: string): string | null {
+  buy(itemId: string, slot: PlayerSlot = this.sim.players[0]!): string | null {
     const sim = this.sim;
     const item = shopItems().find((i) => i.id === itemId);
     if (!item) return 'Unknown item.';
-    const p = sim.player;
+    const p = slot.character;
     let price = item.price;
     if (item.weapon && p.inventory.has(item.weapon)) price = WEAPONS[item.weapon].ammoPrice;
     if (item.id === 'armor' && p.armor >= 100) return 'You are already wearing armor.';
     if (item.id === 'health' && p.health >= p.maxHealth) return 'You are already healthy.';
     if (item.weapon && !roomFor(p.inventory, item.weapon, item.ammo)) return "You can't carry any more.";
-    if (!sim.progress.spend(price)) return "You can't afford that.";
+    if (!slot.progress.spend(price)) return "You can't afford that.";
     if (item.weapon) {
       const had = p.inventory.has(item.weapon);
       p.inventory.give(item.weapon, item.ammo);
@@ -210,22 +216,25 @@ export class Interactions {
     } else if (item.id === 'health') {
       p.health = p.maxHealth;
     }
-    sim.events.emit('money', { amount: -price });
+    sim.events.emit('money', { amount: -price, ...slot.tag });
     return null;
   }
 
   /** Price the shop shows for an item right now (ammo refill if already owned). */
-  priceOf(item: ShopItem): number {
-    if (item.weapon && this.sim.player.inventory.has(item.weapon)) return WEAPONS[item.weapon].ammoPrice;
+  priceOf(item: ShopItem, slot: PlayerSlot = this.sim.players[0]!): number {
+    if (item.weapon && slot.character.inventory.has(item.weapon)) return WEAPONS[item.weapon].ammoPrice;
     return item.price;
   }
 
   update(_dt: number): void {
+    for (const slot of this.sim.players) this.updateSpray(slot);
+  }
+
+  private updateSpray(slot: PlayerSlot): void {
     const sim = this.sim;
-    const p = sim.player;
-    const v = p.vehicle;
-    if (!v || sim.playerDown) {
-      this.sprayBusy = null;
+    const v = slot.character.vehicle;
+    if (!v || slot.down) {
+      this.sprayBusy.set(slot.id, null);
       return;
     }
     let inside: Poi | null = null;
@@ -233,21 +242,22 @@ export class Interactions {
       if (poi.kind === 'spray' && poi.bay && rectContains(poi.bay, v.pos.x, v.pos.z)) inside = poi;
     }
     if (!inside) {
-      this.sprayBusy = null;
+      this.sprayBusy.set(slot.id, null);
       return;
     }
-    if (this.sprayBusy === inside.id || v.speed > 4) return;
-    this.sprayBusy = inside.id;
+    if (this.sprayBusy.get(slot.id) === inside.id || v.speed > 4) return;
+    this.sprayBusy.set(slot.id, inside.id);
+    const wantedSys = slot.wanted;
     // A mission has pinned a minimum wanted level (The Big Score): a respray would wipe it.
-    if (sim.wanted.floor > 0) {
-      sim.events.emit('message', { text: "Spray Shack: not with the whole city watching. Nobody's touching this car.", duration: 3.5 });
+    if (wantedSys.floor > 0) {
+      sim.events.emit('message', { text: "Spray Shack: not with the whole city watching. Nobody's touching this car.", duration: 3.5, ...slot.tag });
       return;
     }
-    const level = sim.wanted.level;
+    const level = wantedSys.level;
     const wanted = level > 0;
     const damaged = v.health < v.spec.health * 0.98 || v.burning;
     if (!wanted && !damaged) {
-      sim.events.emit('message', { text: "Spray Shack: your ride's already clean. Come back with some heat.", duration: 3.5 });
+      sim.events.emit('message', { text: "Spray Shack: your ride's already clean. Come back with some heat.", duration: 3.5, ...slot.tag });
       return;
     }
     if (!v.drivable) return;
@@ -257,26 +267,26 @@ export class Interactions {
     const bx = (bay.minX + bay.maxX) / 2;
     const bz = (bay.minZ + bay.maxZ) / 2;
     const heli = sim.helis.some((h) => !h.removed && !h.destroyed && Math.hypot(h.pos.x - bx, h.pos.z - bz) <= HELI_SIGHT);
-    if (wanted && !sim.wanted.searching && (heli || sim.wanted.copWitness(bx, bz, 40))) {
-      sim.events.emit('message', { text: 'Spray Shack: They saw you drive in!', duration: 3.5 });
+    if (wanted && !wantedSys.searching && (heli || wantedSys.copWitness(bx, bz, 40))) {
+      sim.events.emit('message', { text: 'Spray Shack: They saw you drive in!', duration: 3.5, ...slot.tag });
       return;
     }
     // A repair costs the base price; a respray costs it once per star.
     const price = SPRAY_COST * Math.max(1, level);
-    if (!sim.progress.spend(price)) {
-      sim.events.emit('message', { text: `No money, no spray! ($${price})`, duration: 3 });
+    if (!slot.progress.spend(price)) {
+      sim.events.emit('message', { text: `No money, no spray! ($${price})`, duration: 3, ...slot.tag });
       return;
     }
-    sim.controlLock = 2.2;
-    sim.events.emit('fade', { duration: 2.2 });
+    slot.controlLock = 2.2;
+    sim.events.emit('fade', { duration: 2.2, ...slot.tag });
     v.health = v.spec.health;
     v.burning = false;
     v.burnTimer = 0;
     const colors = v.spec.colors.filter((c) => c !== v.color);
     if (colors.length > 0) v.color = sim.rng.pick(colors);
-    sim.wanted.clear();
-    sim.events.emit('sprayed', { cost: price });
-    sim.events.emit('money', { amount: -price });
-    sim.events.emit('message', { text: `${wanted ? 'New paint, new plates. The cops have lost you.' : 'Good as new.'} ($${price})`, duration: 3.5 });
+    wantedSys.clear();
+    sim.events.emit('sprayed', { cost: price, ...slot.tag });
+    sim.events.emit('money', { amount: -price, ...slot.tag });
+    sim.events.emit('message', { text: `${wanted ? 'New paint, new plates. The cops have lost you.' : 'Good as new.'} ($${price})`, duration: 3.5, ...slot.tag });
   }
 }
