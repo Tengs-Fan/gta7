@@ -3,40 +3,17 @@
 // so the numbers can be unit tested without Web Audio.
 
 import { clamp } from '../core/math';
-import type { VehicleKind } from '../sim/specs';
+import { DEFAULT_HORN, engineProfileOf, VEHICLE_SPECS, type EngineProfile, type VehicleKind } from '../sim/specs';
 
-export interface EngineProfile {
-  cylinders: number;
-  idleRpm: number;
-  redlineRpm: number;
-  /** 0..1: how sharp the firing pulses are and how far the throttle opens the low-pass. */
-  brightness: number;
-  /** 0..1: cylinder-to-cylinder variation of the firing pulses (a lumpy, uneven idle). */
-  roughness: number;
-  /** Engine level in dB relative to a sedan. */
-  loudness: number;
-  /** The two horn notes in Hz. */
-  horn: readonly [number, number];
-  /** Cross-plane V8 burble: alternate firing pulses are weaker and late, which adds a strong component at half the firing frequency. */
-  uneven?: boolean;
-  /** Diesel knock: a sharp click on every firing pulse. */
-  diesel?: boolean;
-}
+export { DEFAULT_HORN, type EngineProfile };
 
-export const DEFAULT_HORN: readonly [number, number] = [392, 494];
+/** The engine voice of `kind`: its spec's `engine`, else DEFAULT_ENGINE_PROFILE (the sedan's). */
+export const engineProfile = engineProfileOf;
 
-export const ENGINE_PROFILES: Readonly<Record<VehicleKind, EngineProfile>> = {
-  compact: { cylinders: 3, idleRpm: 900, redlineRpm: 6500, brightness: 0.65, roughness: 0.35, loudness: -3, horn: [466, 587] },
-  sedan: { cylinders: 4, idleRpm: 800, redlineRpm: 6500, brightness: 0.5, roughness: 0.12, loudness: -1.5, horn: DEFAULT_HORN },
-  taxi: { cylinders: 4, idleRpm: 800, redlineRpm: 6500, brightness: 0.5, roughness: 0.15, loudness: -1.5, horn: DEFAULT_HORN },
-  sports: { cylinders: 6, idleRpm: 900, redlineRpm: 8500, brightness: 0.85, roughness: 0.08, loudness: 0, horn: [440, 554] },
-  muscle: { cylinders: 8, idleRpm: 700, redlineRpm: 6000, brightness: 0.55, roughness: 0.3, loudness: 1, horn: [349, 440], uneven: true },
-  pickup: { cylinders: 8, idleRpm: 650, redlineRpm: 5200, brightness: 0.4, roughness: 0.22, loudness: 0.5, horn: [330, 415] },
-  police: { cylinders: 8, idleRpm: 750, redlineRpm: 6500, brightness: 0.6, roughness: 0.12, loudness: 0.5, horn: DEFAULT_HORN },
-  van: { cylinders: 4, idleRpm: 600, redlineRpm: 3500, brightness: 0.35, roughness: 0.3, loudness: -0.5, horn: [311, 392], diesel: true },
-  swat: { cylinders: 6, idleRpm: 600, redlineRpm: 3200, brightness: 0.35, roughness: 0.25, loudness: 1, horn: [262, 330], diesel: true },
-  bus: { cylinders: 6, idleRpm: 550, redlineRpm: 2600, brightness: 0.3, roughness: 0.2, loudness: 1.5, horn: [220, 277], diesel: true },
-};
+/** The current kinds' profiles, by kind (read from the specs when this module loads); engineProfile also answers kinds added later. */
+export const ENGINE_PROFILES: { readonly [K in VehicleKind]: EngineProfile } = Object.fromEntries(
+  Object.values(VEHICLE_SPECS).map((spec) => [spec.kind, engineProfileOf(spec.kind)]),
+) as { readonly [K in VehicleKind]: EngineProfile };
 
 export const dbToGain = (db: number): number => Math.pow(10, db / 20);
 
@@ -69,7 +46,7 @@ const WIND_K = 0.07;
  * `soft` ground (sand, grass) makes the tyres roar 3 dB louder.
  */
 export function engineParams(kind: VehicleKind, rpm01: number, throttle: number, speed: number, soft = false, out?: EngineParams): EngineParams {
-  const p = ENGINE_PROFILES[kind];
+  const p = engineProfileOf(kind);
   const r = Number.isFinite(rpm01) ? clamp(rpm01, 0, 1) : 0;
   const th = Number.isFinite(throttle) ? clamp(throttle, 0, 1) : 0;
   const sp = Number.isFinite(speed) ? clamp(Math.abs(speed), 0, 90) : 0;

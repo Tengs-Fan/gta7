@@ -24,7 +24,8 @@ export type GroundKind = 'grass' | 'plaza' | 'parking' | 'dirt' | 'yard';
 export type PropKind =
   | 'tree' | 'palm' | 'lamp' | 'signal' | 'hydrant' | 'bench' | 'bin' | 'container' | 'bush'
   | 'fountain' | 'crane' | 'boat' | 'lighthouse' | 'ferris' | 'billboard';
-export type PoiKind = 'safehouse' | 'hospital' | 'police' | 'spray' | 'gunshop' | 'bank' | 'contactLou' | 'contactDex' | 'marina';
+/** The `contact...` kinds are mission givers' places: which one a POI is, and how it is built, is the SPECIALS row's business. */
+export type PoiKind = 'safehouse' | 'hospital' | 'police' | 'spray' | 'gunshop' | 'bank' | 'marina' | `contact${string}`;
 export type RoofPropKind = 'ac' | 'tank' | 'antenna' | 'billboard' | 'helipad';
 /** Street-level treatment of a building's ground floor (drawn by the renderer only). */
 export type GroundFloor = 'shops' | 'lobby' | 'house' | 'loading' | 'none';
@@ -259,6 +260,24 @@ const PARKS: ReadonlyArray<{ bi: number; bj: number; name: string }> = [
   { bi: 4, bj: 8, name: 'Southgate Square' },
 ];
 
+/** A garage with its own sidewalk marker, `markerOffset` m along the frontage. */
+interface GarageBuild {
+  type: 'garage';
+  color: number;
+  markerOffset: number;
+}
+
+/** A stepped tower: a podium up to `podium`, a shaft up to `shaft`, a top up to `height`. */
+interface TowerBuild {
+  type: 'tower';
+  height: number;
+  podium: number;
+  shaft: number;
+  style: FacadeStyle;
+  roof: RoofStyle;
+  sign: { text: string; color: string };
+}
+
 interface SpecialDef {
   id: string;
   kind: PoiKind;
@@ -266,7 +285,11 @@ interface SpecialDef {
   bj: number;
   side: Side;
   name: string;
+  /** How a contact's place is built (the other kinds are built by kind). */
+  build?: GarageBuild | TowerBuild;
 }
+
+const SPRAY_GARAGE: GarageBuild = { type: 'garage', color: 0x2f8f5b, markerOffset: 0 };
 
 export const SPECIALS: readonly SpecialDef[] = [
   { id: 'safehouse', kind: 'safehouse', bi: 4, bj: 1, side: 'S', name: 'Safehouse' },
@@ -278,9 +301,20 @@ export const SPECIALS: readonly SpecialDef[] = [
   { id: 'guns_south', kind: 'gunshop', bi: 5, bj: 7, side: 'N', name: 'Bang Bang Guns' },
   { id: 'guns_west', kind: 'gunshop', bi: 0, bj: 3, side: 'E', name: 'Bang Bang Guns' },
   { id: 'bank', kind: 'bank', bi: 5, bj: 3, side: 'W', name: 'First Azura Bank' },
-  { id: 'lou', kind: 'contactLou', bi: 2, bj: 9, side: 'N', name: "Lou's Auto Repair" },
-  { id: 'dex', kind: 'contactDex', bi: 4, bj: 5, side: 'S', name: 'Moreau Tower' },
+  { id: 'lou', kind: 'contactLou', bi: 2, bj: 9, side: 'N', name: "Lou's Auto Repair", build: { type: 'garage', color: 0x8a4b2a, markerOffset: 11 } },
+  {
+    id: 'dex',
+    kind: 'contactDex',
+    bi: 4,
+    bj: 5,
+    side: 'S',
+    name: 'Moreau Tower',
+    build: { type: 'tower', height: 128, podium: 14, shaft: 112, style: 'glassTeal', roof: 'helipad', sign: { text: 'MOREAU', color: '#38e1d2' } },
+  },
 ];
+
+/** The building kinds that are towers: their ground floor is a lobby. */
+const TOWER_KINDS: ReadonlySet<string> = new Set(SPECIALS.filter((s) => s.build?.type === 'tower').map((s) => s.kind));
 
 const STADIUM_BLOCK = { bi: 6, bj: 9 };
 
@@ -582,11 +616,11 @@ function buildBlock(layout: CityLayout, block: Block, rng: Rng, specials: Specia
 
   for (const def of specials) {
     const heading = sideHeading(def.side);
-    if (def.kind === 'spray' || def.kind === 'contactLou') {
-      const color = def.kind === 'spray' ? 0x2f8f5b : 0x8a4b2a;
-      const g = addGarage(layout, block, def, 0, color, reserved);
+    const garage = def.kind === 'spray' ? SPRAY_GARAGE : def.build?.type === 'garage' ? def.build : null;
+    if (garage) {
+      const g = addGarage(layout, block, def, 0, garage.color, reserved);
       blocked.push(insetRect(g, -1.5));
-      const marker = def.kind === 'spray' ? sidewalkMarker(block, def.side, 0) : sidewalkMarker(block, def.side, 11);
+      const marker = sidewalkMarker(block, def.side, garage.markerOffset);
       layout.pois.push({ id: def.id, kind: def.kind, name: def.name, x: marker.x, z: marker.z, heading, bay: bayOf(g, def.side), block: block.id });
     } else {
       const p = sidePoint(block.lot, def.side);
@@ -839,21 +873,22 @@ function specialBuilding(id: number, parcel: Rect, def: SpecialDef, district: Di
       style = 'office';
       sign = { text: 'FIRST AZURA BANK', color: '#f5c542', side: def.side };
       break;
-    case 'contactDex':
-      height = 128;
-      style = 'glassTeal';
-      roof = 'helipad';
-      sign = { text: 'MOREAU', color: '#38e1d2', side: def.side };
-      break;
     default:
       break;
   }
+  const tower = def.build?.type === 'tower' ? def.build : null;
+  if (tower) {
+    height = tower.height;
+    style = tower.style;
+    roof = tower.roof;
+    sign = { text: tower.sign.text, color: tower.sign.color, side: def.side };
+  }
   const tiers: Tier[] = [];
-  if (def.kind === 'contactDex') {
-    tiers.push({ ...fp, y0: CURB_H, y1: 14 });
+  if (tower) {
+    tiers.push({ ...fp, y0: CURB_H, y1: tower.podium });
     const t = insetRect(fp, Math.min(3, Math.min(rectW(fp), rectD(fp)) / 2 - 4));
-    tiers.push({ ...t, y0: 14, y1: 112 });
-    tiers.push({ ...insetRect(t, Math.min(2.5, Math.min(rectW(t), rectD(t)) / 2 - 3)), y0: 112, y1: height });
+    tiers.push({ ...t, y0: tower.podium, y1: tower.shaft });
+    tiers.push({ ...insetRect(t, Math.min(2.5, Math.min(rectW(t), rectD(t)) / 2 - 3)), y0: tower.shaft, y1: height });
   } else {
     tiers.push({ ...fp, y0: CURB_H, y1: height });
   }
@@ -1091,7 +1126,7 @@ function assignGroundFloors(layout: CityLayout): void {
     const special = b.special;
     let ground: GroundFloor;
     let h: number;
-    if (special === 'bank' || special === 'police' || special === 'hospital' || special === 'contactDex' || special === 'stadium' || (!special && b.district === 'downtown')) {
+    if (special === 'bank' || special === 'police' || special === 'hospital' || (special !== null && TOWER_KINDS.has(special)) || special === 'stadium' || (!special && b.district === 'downtown')) {
       ground = 'lobby';
       h = rng.range(GROUND_H.lobbyMin, GROUND_H.lobbyMax);
     } else if (special === 'safehouse' || b.style === 'house') {

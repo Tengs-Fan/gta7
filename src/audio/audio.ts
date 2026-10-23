@@ -12,7 +12,7 @@ import { Ambience, shoreInfo, type AmbienceFrame, type ShoreInfo } from './ambie
 import { EngineVoice } from './engineVoice';
 import { distanceCutoff, EXPLOSION_DUCK_RANGE, Glider, Mixer, mixTargets, OPEN_HZ, withinParam, type MixTargets } from './mixer';
 import { Radio } from './radio';
-import { DEFAULT_HORN, ENGINE_PROFILES } from './vehicleProfiles';
+import { DEFAULT_HORN, engineProfile } from './vehicleProfiles';
 
 interface Listener {
   x: number;
@@ -702,7 +702,7 @@ export class AudioEngine {
     const h = this.hornNodes!;
     if (v && v.kind !== this.hornKind) {
       this.hornKind = v.kind;
-      const [f1, f2] = ENGINE_PROFILES[v.kind].horn;
+      const [f1, f2] = engineProfile(v.kind).horn;
       h.osc1.frequency.setValueAtTime(f1, t);
       h.osc2.frequency.setValueAtTime(f2, t);
     }

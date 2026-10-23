@@ -5,9 +5,25 @@ import type { Game } from './game';
 import type { VehicleKind, WeaponId } from './sim/specs';
 import { WEATHER_KINDS, type WeatherFields, type WeatherKind, type WeatherMode } from './sim/weather';
 
+const registered = new Map<string, unknown>();
+let installedExt: Record<string, unknown> | null = null;
+
+/**
+ * Exposes `api` as `window.__gta7.ext[name]`. Works before or after installDebugApi; registering a name again replaces
+ * the earlier API.
+ */
+export function registerDebug(name: string, api: unknown): void {
+  registered.set(name, api);
+  if (installedExt) installedExt[name] = api;
+}
+
 export function installDebugApi(game: Game): void {
+  const ext: Record<string, unknown> = {};
+  for (const [name, entry] of registered) ext[name] = entry;
+  installedExt = ext;
   const api = {
     game,
+    ext,
     get sim() {
       return game.sim;
     },

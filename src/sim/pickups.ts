@@ -1,9 +1,36 @@
 // World pickups: health, armour, weapons, dropped cash, hidden packages and rampage icons.
 
 import { WATER_Y } from '../world/constants';
-import { Pickup, type PickupKind } from './entities';
+import { Pickup } from './entities';
 import type { Sim } from './sim';
 import { WEAPONS, type WeaponId } from './specs';
+
+/** Static data of a pickup kind. */
+export interface PickupSpec {
+  /** Colour (0xRRGGBB) of its floating icon and glow (render/markers.ts). */
+  iconColor: number;
+}
+
+/** Adding a pickup kind is one line here; PickupKind follows from the keys. */
+export const PICKUP_SPECS = {
+  health: { iconColor: 0xff3a3a },
+  armor: { iconColor: 0x4aa8ff },
+  weapon: { iconColor: 0xd8d8d8 },
+  money: { iconColor: 0x3fd96b },
+  package: { iconColor: 0xf5c542 },
+  rampage: { iconColor: 0xd01818 },
+  parcel: { iconColor: 0x8a5a2c },
+} as const satisfies Readonly<Record<string, PickupSpec>>;
+
+export type PickupKind = keyof typeof PICKUP_SPECS;
+
+/** Icon colour of a pickup kind with no spec. */
+export const DEFAULT_PICKUP_ICON_COLOR = 0xd8d8d8;
+
+/** The icon colour of a pickup kind (DEFAULT_PICKUP_ICON_COLOR if it has no spec). */
+export function pickupIconColor(kind: PickupKind): number {
+  return (PICKUP_SPECS as Readonly<Partial<Record<PickupKind, PickupSpec>>>)[kind]?.iconColor ?? DEFAULT_PICKUP_ICON_COLOR;
+}
 
 export const PACKAGE_COUNT = 20;
 export const PACKAGE_REWARD = 100;
@@ -162,6 +189,8 @@ export class PickupSystem {
       case 'parcel':
         // The mission script watches for it (see Hot Delivery).
         return true;
+      default:
+        return false;
     }
   }
 

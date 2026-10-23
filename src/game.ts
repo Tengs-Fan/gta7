@@ -10,6 +10,7 @@ import { deleteGame, loadGame, loadSettings, MAX_HINTS_SEEN, saveSettings, store
 import type { Vehicle } from './sim/entities';
 import { neutralInput } from './sim/input';
 import { applySave, serialize, type SaveData } from './sim/progress';
+import { applyExt, serializeExt } from './sim/saveExt';
 import { Sim } from './sim/sim';
 import { WEAPON_ORDER, type WeaponId } from './sim/specs';
 import { findVehicleRoom } from './sim/vehicleRoom';
@@ -278,12 +279,14 @@ export class Game {
     this.renderer.props.restoreAll();
     const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5, weather: this.weatherMode });
     this.applyDensity(sim);
+    sim.resetSystems();
     if (save) {
       applySave(sim.progress, save);
       sim.clock.day = save.day;
       for (const w of save.weapons) sim.player.inventory.give(w.id, w.ammo);
       sim.player.armor = save.armor;
       sim.pickupSys.syncCollected();
+      applyExt(sim, save.ext);
     }
     this.sim = sim;
     this.renderer.crowd.hiddenId = -1;
@@ -398,7 +401,7 @@ export class Game {
   private save(auto: boolean): void {
     const sim = this.sim;
     const weapons = sim.player.inventory.owned().filter((w): w is Exclude<WeaponId, 'fists'> => w !== 'fists').map((id) => ({ id, ammo: sim.player.inventory.total(id) }));
-    const data = serialize(sim.progress, weapons, sim.player.armor, sim.clock.hours, sim.clock.day);
+    const data = serialize(sim.progress, weapons, sim.player.armor, sim.clock.hours, sim.clock.day, serializeExt(sim));
     const failed = storeGame(data);
     this.hud.toast(failed ?? (auto ? 'Autosaved' : 'Game saved'));
   }
@@ -621,7 +624,7 @@ export class Game {
     this.countUnmute(dt);
     this.updateIntro(dt);
     this.hints.update(dt, sim, { device: fi.device, mouseFree: !this.input.pointerLocked && this.input.lockAvailable });
-    const prompt = sim.interactions.prompt() ?? this.jobPrompt(sim) ?? this.hints.stealPrompt(sim);
+    const prompt = sim.interactions.prompt() ?? sim.activities.jobPrompt() ?? this.hints.stealPrompt(sim);
     this.hud.device = fi.device;
     this.hud.update(dt, sim, cam.yaw, aiming, prompt, this.renderer.time);
     const down = sim.deathKind;
@@ -629,15 +632,6 @@ export class Game {
     this.canvas.classList.toggle('busted', down === 'busted');
     if (this.wasDown && !down) cam.reset(sim);
     this.wasDown = !!down;
-  }
-
-  private jobPrompt(sim: Sim): string | null {
-    const v = sim.player.vehicle;
-    if (!v || sim.activities.busy || sim.missions.active) return null;
-    if (v.kind === 'taxi' && v.speed < 1) return 'Press T to start a taxi job';
-    if (v.spec.police && v.speed < 1) return 'Press T to start a vigilante job';
-    if (v.drivable && !v.burning && v.speed < 1 && sim.wanted.level === 0) return 'Press T to start a street run';
-    return null;
   }
 
   private applyCheat(typed: TypedCheat): void {

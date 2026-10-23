@@ -14,7 +14,7 @@ import { LocalReflections } from './localReflections';
 import { StreetLighting } from './streetLighting';
 import { CityView } from './city';
 import { CrowdView } from './crowd';
-import { Effects, FLASH_SIZE, TYRE_SPRAY_SPEED, WADE_MIN } from './effects';
+import { Effects, flashSize, TYRE_SPRAY_SPEED, WADE_MIN } from './effects';
 import { Environment } from './environment';
 import { FinishPass } from './finishPass';
 import { gradeAt, type Grade } from './grade';
@@ -476,13 +476,13 @@ export class GameRenderer {
     this.unsub.push(
       // One flash per trigger pull (a shotgun blast is one flash, not nine).
       ev.on('weaponFired', (e) => {
-        fx.muzzleFlash(e.x, e.y, e.z, FLASH_SIZE[e.weapon], e);
+        fx.muzzleFlash(e.x, e.y, e.z, flashSize(e.weapon), e);
         if (e.weapon === 'rocket') fx.rocketLaunched(e.x, e.y, e.z);
       }),
       // Every bullet or pellet: its tracer and its impact.
       ev.on('shot', (e) => {
         // Helicopter rounds have no weaponFired of their own.
-        if (!e.shooter) fx.muzzleFlash(e.fx, e.fy, e.fz, FLASH_SIZE[e.weapon]);
+        if (!e.shooter) fx.muzzleFlash(e.fx, e.fy, e.fz, flashSize(e.weapon));
         else if (e.hit !== 'none') fx.shotLanded(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz, e.nx, e.ny, e.nz);
         if (e.weapon === 'rocket' || e.weapon === 'fists') return;
         // The player's automatic fire traces every second round of a burst (its first one always).

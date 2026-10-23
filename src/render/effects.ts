@@ -4,11 +4,15 @@ import * as THREE from 'three';
 import { clamp } from '../core/math';
 import { Rng } from '../core/rng';
 import type { Character, Projectile, Vehicle } from '../sim/entities';
-import type { WeaponId } from '../sim/specs';
+import { flashSizeOf, WEAPONS, type WeaponId } from '../sim/specs';
 import { FoamRings } from './foamRings';
 
-/** Muzzle flash size (m, across the star) per weapon. */
-export const FLASH_SIZE: Readonly<Record<WeaponId, number>> = { fists: 0, pistol: 0.3, smg: 0.32, rifle: 0.4, shotgun: 0.55, rocket: 0.6 };
+/** Muzzle flash size (m, across the star) per weapon: WeaponSpec.flashSize, DEFAULT_FLASH_SIZE for a weapon without. */
+export const flashSize = flashSizeOf;
+/** The current weapons' flash sizes, by weapon (read from the specs when this module loads); flashSize also answers weapons added later. */
+export const FLASH_SIZE: { readonly [K in WeaponId]: number } = Object.fromEntries(
+  Object.values(WEAPONS).map((w) => [w.id, flashSizeOf(w.id)]),
+) as { readonly [K in WeaponId]: number };
 /** The muzzle light's intensity per metre of flash, and its cap (a shotgun used to white the screen out). */
 const FLASH_LIGHT = 55;
 const FLASH_LIGHT_MAX = 30;

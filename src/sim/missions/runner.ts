@@ -13,7 +13,8 @@ import type { Character, CharacterRole, Pickup, Vehicle, WeaponSlot } from '../e
 import type { Sim } from '../sim';
 import type { VehicleKind, WeaponId } from '../specs';
 import { findVehicleRoom, vehiclesInTheWay } from '../vehicleRoom';
-import { STORY } from './story';
+import { CONTACTS, contactById, contactColorNumber, type ContactId } from './contacts';
+import { STORY } from './index';
 
 /**
  * A wait condition: the script resumes once it returns true. `dt` is the mission
@@ -44,7 +45,7 @@ const BUSTED = 'You got busted.';
 export interface MissionDef {
   id: string;
   title: string;
-  giver: 'lou' | 'dex';
+  giver: ContactId;
   reward: number;
   requires: string[];
   blurb: string;
@@ -683,8 +684,8 @@ export class MissionSystem {
   /** The next mission each contact offers. */
   offers(): MissionDef[] {
     const out: MissionDef[] = [];
-    for (const giver of ['lou', 'dex'] as const) {
-      const d = this.available().find((m) => m.giver === giver);
+    for (const contact of CONTACTS) {
+      const d = this.available().find((m) => m.giver === contact.id);
       if (d) out.push(d);
     }
     return out;
@@ -696,8 +697,9 @@ export class MissionSystem {
     for (let i = markers.length - 1; i >= 0; i--) if (markers[i]!.kind === 'mission') markers.splice(i, 1);
     if (this.active) return;
     for (const d of this.offers()) {
-      const poi = sim.world.layout.pois.find((p) => p.id === d.giver)!;
-      markers.push({ id: `mission:${d.id}`, kind: 'mission', x: poi.x, z: poi.z, radius: MARKER_RADIUS, label: `Press E to start "${d.title}"`, color: d.giver === 'lou' ? 0xff4fa3 : 0x38e1d2, ref: d.id });
+      const contact = contactById(d.giver);
+      const poi = sim.world.layout.pois.find((p) => p.id === contact.poiId)!;
+      markers.push({ id: `mission:${d.id}`, kind: 'mission', x: poi.x, z: poi.z, radius: MARKER_RADIUS, label: `Press E to start "${d.title}"`, color: contactColorNumber(contact), ref: d.id });
     }
   }
 
@@ -715,7 +717,7 @@ export class MissionSystem {
     this.refreshMarkers();
     sim.events.emit('missionStarted', { id: def.id, title: def.title });
     // A retry goes straight back to work, as it skips the intro: no title card.
-    if (!opts.retrying) sim.events.emit('big', { text: def.title.toUpperCase(), sub: def.giver === 'lou' ? 'Mama Lou' : 'Dex Moreau', style: 'title', duration: 3.5 });
+    if (!opts.retrying) sim.events.emit('big', { text: def.title.toUpperCase(), sub: contactById(def.giver).name, style: 'title', duration: 3.5 });
     return true;
   }
 
@@ -915,7 +917,7 @@ export class MissionSystem {
     // A later retry starts from the same loadout, and keeps what he got this time too.
     this.base = keepGains(p, r, r.failed ?? takeLoadout(p));
     restoreLoadout(p, this.base);
-    const giver = sim.world.layout.pois.find((q) => q.id === def.giver)!;
+    const giver = sim.world.layout.pois.find((q) => q.id === contactById(def.giver).poiId)!;
     const at = def.retryAt?.(sim.world) ?? { x: giver.x, z: giver.z, heading: giver.heading };
     const spot = sim.world.findFreeSpot(at.x, at.z, 0.5, 8) ?? at;
     p.state = 'normal';

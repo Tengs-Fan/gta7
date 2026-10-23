@@ -4,9 +4,10 @@ import { formatMoney, formatTime, wrapAngle } from '../core/math';
 import { KeyLabels } from '../input/input';
 import type { DamageKind } from '../sim/combat';
 import type { BigStyle, SimEvents } from '../sim/events';
+import { CONTACTS, contactById } from '../sim/missions/contacts';
 import type { MissionDef } from '../sim/missions/runner';
 import type { Sim } from '../sim/sim';
-import { WEAPONS, type WeaponId } from '../sim/specs';
+import { WEAPONS, weaponIconOf, type WeaponId } from '../sim/specs';
 import { formatRunTime } from '../sim/streetRuns';
 import { formatKeys, padGlyph, type InputDevice } from './glyphs';
 import { collectBlips, drawBlip, drawPoliceOverlay, gpsRoute, MAP_SCALE, type Blip, type MapImage } from './mapRender';
@@ -21,15 +22,6 @@ const NAV_PATHS = {
 const navIcon = (kind: keyof typeof NAV_PATHS) => '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + NAV_PATHS[kind] + '"/></svg>';
 
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 1.8l3.1 6.6 7.2.9-5.3 5 1.4 7.2L12 18l-6.4 3.5L7 14.3l-5.3-5 7.2-.9z"/></svg>';
-
-export const WEAPON_ICONS: Record<WeaponId, string> = {
-  fists: '<svg viewBox="0 0 64 40"><path d="M18 10c0-3 2-5 5-5h16c4 0 7 3 7 7v6l4 2v9c0 4-3 7-7 7H25c-4 0-7-3-7-7z M24 10v8 M30 9v9 M36 9v9 M42 10v8" stroke="#222" stroke-width="1.5"/></svg>',
-  pistol: '<svg viewBox="0 0 64 40"><path d="M8 10h42l4 4v4H30l-3 3h-5l-4 13H9l5-15-6-2z"/></svg>',
-  smg: '<svg viewBox="0 0 64 40"><path d="M4 13h46l6 3v4H38l-2 3h-6l-2 12h-7l2-12h-6l-3 8H8l3-10-7-2zM50 11h8v2h-8z"/></svg>',
-  shotgun: '<svg viewBox="0 0 64 40"><path d="M2 15h48l10 1v3H40l-4 2H26l-8 9H8l7-10H2z"/></svg>',
-  rifle: '<svg viewBox="0 0 64 40"><path d="M2 14h52l8 2v3H44l-3 3h-5l-2 10h-6l2-10h-5l-5 9h-8l5-10H2z M30 12h8v2h-8z"/></svg>',
-  rocket: '<svg viewBox="0 0 64 40"><path d="M2 14h50l8 4-8 4H2z M18 22h6l2 10h-6z M34 22h5l1 6h-5z"/></svg>',
-};
 
 interface BigMsg {
   text: string;
@@ -68,10 +60,6 @@ const HINT_GAP = 0.5;
 const NEXT_STEP_SECONDS = 8;
 /** Fade edges use simulation time, so a pause also freezes the actual opacity. */
 const FADE_EDGE_SECONDS = 0.5;
-const CONTACTS = {
-  lou: { name: 'Mama Lou', letter: 'L', color: '#ff4fa3' },
-  dex: { name: 'Dex Moreau', letter: 'D', color: '#38e1d2' },
-} as const;
 /** GPS route colours: the player's own waypoint, a mission or job objective. */
 const ROUTE_WAYPOINT = '#c04fff';
 const ROUTE_OBJECTIVE = '#ffd23d';
@@ -496,7 +484,7 @@ export class Hud {
     this.el.navigation!.classList.add('hidden');
     this.el.help!.classList.remove('hint');
     this.el.objective!.classList.remove('next');
-    this.el.prompt!.classList.remove('card', 'lou', 'dex');
+    this.el.prompt!.classList.remove('card', ...CONTACTS.map((c) => c.cssClass));
     this.fade = null;
     const el = this.el;
     for (const k of TIMED) el[k]!.classList.remove('show');
@@ -917,7 +905,7 @@ export class Hud {
     const w = p.inventory.current;
     if (w !== this.shown.weapon) {
       this.shown.weapon = w;
-      el.wicon!.innerHTML = WEAPON_ICONS[w];
+      el.wicon!.innerHTML = weaponIconOf(w);
     }
     const slot = p.inventory.slot();
     const ammo = w === 'fists' ? '' : p.reloadTimer > 0 ? 'RELOAD' : `${slot.clip}/${slot.ammo}`;
@@ -992,7 +980,7 @@ export class Hud {
     const offer = !active && !sim.activities.busy ? sim.missions.offers()[0] : undefined;
     const instruction = gate?.label.split(' · ')[0];
     const turn: keyof typeof NAV_PATHS = !gate ? 'bearing' : instruction === 'Finish' ? 'finish' : instruction === 'Left' ? 'left' : instruction === 'Right' ? 'right' : 'straight';
-    const name = gate ? turn === 'finish' ? 'Finish line' : turn === 'left' ? 'Turn left' : turn === 'right' ? 'Turn right' : 'Straight ahead' : this.waypoint ? 'Your waypoint' : objective?.label || (offer ? CONTACTS[offer.giver].name : active?.def.title || 'Objective');
+    const name = gate ? turn === 'finish' ? 'Finish line' : turn === 'left' ? 'Turn left' : turn === 'right' ? 'Turn right' : 'Straight ahead' : this.waypoint ? 'Your waypoint' : objective?.label || (offer ? contactById(offer.giver).name : active?.def.title || 'Objective');
     const label = race ? turn === 'finish' ? 'FINAL GATE' : `GATE ${race.checkpoint + 1} / ${race.course.checkpoints.length}` : this.waypoint ? 'WAYPOINT' : active ? 'MISSION ROUTE' : sim.activities.busy ? 'ACTIVITY ROUTE' : 'NEXT CONTACT';
     const detail = gate ? gate.label.split(' · ').slice(1).join(' · ') || race!.course.name : '';
     const text = `${label}:${name}:${detail}`;
@@ -1088,8 +1076,8 @@ export class Hud {
     const start = formatKeys(line, this.device, { labels: this.keys, inVehicle: !!sim.player.vehicle });
     const el = this.el.prompt!;
     el.classList.toggle('card', !!def);
-    el.classList.toggle('lou', def?.giver === 'lou');
-    el.classList.toggle('dex', def?.giver === 'dex');
+    const cardClass = offerCardClass(def);
+    for (const c of CONTACTS) el.classList.toggle(c.cssClass, c.cssClass === cardClass);
     const html = def ? missionCard(def, start) : start;
     if (html !== this.promptHtml) {
       this.promptHtml = html;
@@ -1136,8 +1124,8 @@ export class Hud {
     const d = busy ? undefined : sim.missions.offers()[0];
     // Already on that marker (Wheels hands over at Lou's): the card says it.
     if (!d || this.onNextMarker(sim)) return;
-    const c = CONTACTS[d.giver];
-    o.textContent = `Next: ${c.name} has work - ${c.letter} on your radar`;
+    const c = contactById(d.giver);
+    o.textContent = `Next: ${c.name} has work - ${c.mapLabel} on your radar`;
     o.classList.add('show', 'next');
     this.timers.objective = NEXT_STEP_SECONDS;
   }
@@ -1314,14 +1302,20 @@ export class Hud {
     if (sim.missions.active || sim.activities.busy || this.fade || sim.missions.retryMenuOffer()) return null;
     const d = sim.missions.offers()[0];
     if (!d) return null;
-    const poi = sim.world.layout.pois.find((p) => p.id === d.giver);
-    return poi ? { x: poi.x, z: poi.z, color: CONTACTS[d.giver].color } : null;
+    const contact = contactById(d.giver);
+    const poi = sim.world.layout.pois.find((p) => p.id === contact.poiId);
+    return poi ? { x: poi.x, z: poi.z, color: contact.color } : null;
   }
 }
 
+/** The class the offer card of `def` wears for the contact who offers it (none off a marker). */
+export function offerCardClass(def: MissionDef | undefined): string | null {
+  return def ? contactById(def.giver).cssClass : null;
+}
+
 /** The prompt at a contact's marker: who offers what for how much, and how to start it. */
-function missionCard(def: MissionDef, start: string): string {
-  const c = CONTACTS[def.giver];
+export function missionCard(def: MissionDef, start: string): string {
+  const c = contactById(def.giver);
   return (
     `<div class="card-head"><span class="card-giver">${c.name}</span><span class="card-reward">${formatMoney(def.reward)}</span></div>` +
     `<div class="card-title">${escapeHtml(def.title)}</div><div class="card-blurb">${escapeHtml(def.blurb)}</div><div class="card-start">${start}</div>`

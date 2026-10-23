@@ -4,6 +4,7 @@ import type { V3 } from '../core/math';
 import { Rng } from '../core/rng';
 import type { DriverAI } from './driver';
 import type { PedBrain } from './brains';
+import type { PickupKind } from './pickups';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind, type VehicleSpec, type WeaponId, type WeaponSpec } from './specs';
 
 /**
@@ -331,7 +332,7 @@ export class Vehicle {
   }
 }
 
-export type PickupKind = 'health' | 'armor' | 'weapon' | 'money' | 'package' | 'rampage' | 'parcel';
+export type { PickupKind };
 
 export class Pickup {
   active = true;

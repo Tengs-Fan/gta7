@@ -31,7 +31,10 @@ type Gun = Exclude<WeaponId, 'fists'>;
  * Recoil kick (rad) of each weapon just after a shot; it is drawn only, never part of the muzzle. The frame a shot is
  * fired on shows the gun as the shot left it, the flash and tracer on its barrel end; the kick comes in from the next.
  */
-export const KICK: Readonly<Record<Gun, number>> = { pistol: 0.12, smg: 0.06, shotgun: 0.3, rifle: 0.1, rocket: 0.15 };
+export const KICK: Readonly<Partial<Record<Gun, number>>> = { pistol: 0.12, smg: 0.06, shotgun: 0.3, rifle: 0.1, rocket: 0.15 };
+/** The kick of a weapon with no entry in KICK. */
+const DEFAULT_KICK = 0.1;
+const gunKick = (gun: Gun): number => KICK[gun] ?? DEFAULT_KICK;
 /** The kick is at full strength while shotTimer is above this, then dies away with it. */
 const KICK_HOLD = 0.05;
 const KICK_BACK = 0.05;
@@ -224,7 +227,7 @@ export class CrowdView {
       return [name, p];
     })) as Record<PartName, Part>;
     // Barrel ends (front face centres) are the WEAPON_POINTS tips of sim/pose.ts.
-    const weaponGeo: Record<Gun, THREE.BufferGeometry> = {
+    const weaponGeo: Partial<Record<Gun, THREE.BufferGeometry>> = {
       pistol: mergeAll([box(0.05, 0.08, 0.22, 0, 0, 0.1), box(0.045, 0.13, 0.06, 0, -0.07, 0.02)]),
       smg: mergeAll([box(0.06, 0.1, 0.42, 0, 0, 0.16), box(0.05, 0.16, 0.06, 0, -0.1, 0.06), box(0.04, 0.12, 0.05, 0, -0.08, 0.2)]),
       shotgun: mergeAll([box(0.06, 0.08, 0.9, 0, 0, 0.3), box(0.06, 0.12, 0.25, 0, -0.04, -0.12)]),
@@ -238,6 +241,11 @@ export class CrowdView {
       (p.mesh.material as THREE.MeshStandardMaterial).roughness = 0.4;
       this.weapons.set(id, p);
     }
+  }
+
+  /** The drawn gun of `gun`; a weapon with no model of its own is drawn as the pistol. */
+  private weaponPart(gun: Gun): Part {
+    return this.weapons.get(gun) ?? this.weapons.get('pistol')!;
   }
 
   /** Notes `c`'s shot timer for this frame: one that went up since the last frame is a shot fired on this one. */
@@ -525,7 +533,7 @@ export class CrowdView {
         step = 0.1 * punch;
       } else chestYaw += (combo === 0 ? 0.18 : -0.14) * punch;
     }
-    if (kick > 0) lean -= 0.04 * kick * (KICK[this.wp.weapon] / 0.12);
+    if (kick > 0) lean -= 0.04 * kick * (gunKick(this.wp.weapon) / 0.12);
 
     const hipYaw = t.hipYaw;
     const hc = Math.cos(hipYaw);
@@ -570,8 +578,8 @@ export class CrowdView {
       const w = this.wp;
       const gun = w.weapon;
       // The muzzle kicks up about the grip (pistol) or the shoulder (long guns, launcher) and pushes back.
-      const m = this.weaponMatrix(w, kick * KICK[gun], gun === 'pistol' ? WEAPON_POINTS.pistol.grip : WEAPON_POINTS[gun].stock, KICK_BACK * kick);
-      this.put(this.weapons.get(gun)!, m, 0xffffff);
+      const m = this.weaponMatrix(w, kick * gunKick(gun), gun === 'pistol' ? WEAPON_POINTS.pistol.grip : WEAPON_POINTS[gun].stock, KICK_BACK * kick);
+      this.put(this.weaponPart(gun), m, 0xffffff);
       const grip = S.targetR.set(WEAPON_POINTS[gun].grip.x, WEAPON_POINTS[gun].grip.y, WEAPON_POINTS[gun].grip.z).applyMatrix4(m);
       pole.copy(up).negate().addScaledVector(left, w.mode === 'lowered' ? -0.4 : -0.8).addScaledVector(fwd, w.mode === 'lowered' ? -0.6 : -0.2);
       this.armTo(S.shR, grip, pole, left, c);
@@ -713,8 +721,8 @@ export class CrowdView {
       const w = weaponPoseInto(c, this.wp);
       const gun = w.weapon;
       const kick = this.kickOf(c);
-      const m = this.weaponMatrix(w, kick * KICK[gun], WEAPON_POINTS[gun].grip, KICK_BACK * kick);
-      this.put(this.weapons.get(gun)!, m, 0xffffff);
+      const m = this.weaponMatrix(w, kick * gunKick(gun), WEAPON_POINTS[gun].grip, KICK_BACK * kick);
+      this.put(this.weaponPart(gun), m, 0xffffff);
       const g = WEAPON_POINTS[gun].grip;
       S.pole.copy(S.up).negate().addScaledVector(S.left, -0.6);
       this.armTo(S.shR, S.targetR.set(g.x, g.y, g.z).applyMatrix4(m), S.pole, S.left, c);
@@ -861,6 +869,6 @@ export class CrowdView {
       this.armTo(S.shR, S.d1.set(grip.x, grip.y, grip.z), S.pole, S.vleft, c);
     }
     const kick = this.kickOf(c);
-    this.put(this.weapons.get(gun)!, this.weaponMatrix(w, kick * KICK[gun], pts.grip, KICK_BACK * kick), 0xffffff);
+    this.put(this.weaponPart(gun), this.weaponMatrix(w, kick * gunKick(gun), pts.grip, KICK_BACK * kick), 0xffffff);
   }
 }
