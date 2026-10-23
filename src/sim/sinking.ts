@@ -2,7 +2,9 @@
 // gets out into the water beside it and either swims for it or drowns a few seconds later. Each NPC's fate is fixed by
 // his id (DROWN_SHARE of them drown), so same-seed runs agree. A drowning is a death by 'drown' charged to the player
 // when he was at the wheel as the car went in (a kill and its crime, like any other he causes), to no one otherwise.
+// Only someone still in the water goes under: one who reaches dry ground (or a seat) first has made it, for good.
 
+import { SWIM_DEPTH } from '../world/constants';
 import { makeBrain } from './brains';
 import type { Character, Vehicle } from './entities';
 import type { Sim } from './sim';
@@ -19,6 +21,12 @@ interface Drowning {
 }
 
 const pending = new WeakMap<Sim, Drowning[]>();
+
+/** `c` is out of the water: standing (or lying) on ground too shallow to swim in, or seated in a vehicle. */
+function escaped(sim: Sim, c: Character): boolean {
+  if (c.vehicle) return true;
+  return c.state !== 'swimming' && c.onGround && sim.world.waterDepth(c.pos.x, c.pos.z) < SWIM_DEPTH;
+}
 
 /** Whether `c` drowns when his car sinks (fixed by his id). */
 export function drownsInSinkingCar(c: Character): boolean {
@@ -64,9 +72,10 @@ export const SINKING_SYSTEM: SimSystem = {
     if (!list || list.length === 0) return;
     for (let i = list.length - 1; i >= 0; i--) {
       const d = list[i]!;
-      if (sim.time < d.at && !d.c.removed) continue;
+      const gone = d.c.removed || !d.c.alive || escaped(sim, d.c);
+      if (sim.time < d.at && !gone) continue;
       list.splice(i, 1);
-      if (d.c.removed || !d.c.alive) continue;
+      if (gone || d.c.state !== 'swimming') continue;
       sim.combat.damageCharacter(d.c, d.c.health + d.c.armor + 1000, d.culprit, 'drown', 0, -1, 0);
     }
   },

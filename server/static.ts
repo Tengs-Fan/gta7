@@ -3,6 +3,7 @@
 
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
+import { pipeline } from 'node:stream';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, resolve, sep } from 'node:path';
 
@@ -68,6 +69,8 @@ export async function serveStatic(root: string, req: IncomingMessage, res: Serve
   } catch {
     return plain(res, 404, 'Not found\n', head);
   }
+  // The client may have gone while stat was pending; opening the file now would leak its descriptor.
+  if (res.destroyed) return;
   if (!info.isFile()) return plain(res, 404, 'Not found\n', head);
   const type = TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
   const hashed = /[.-][A-Za-z0-9_-]{8,}\.(?:js|css|woff2?|png|svg|webp)$/.test(file);
@@ -81,7 +84,6 @@ export async function serveStatic(root: string, req: IncomingMessage, res: Serve
     res.end();
     return;
   }
-  const stream = createReadStream(file);
-  stream.on('error', () => res.destroy());
-  stream.pipe(res);
+  // pipeline (unlike pipe) destroys the file stream, closing its descriptor, when the response closes early.
+  pipeline(createReadStream(file), res, () => {});
 }

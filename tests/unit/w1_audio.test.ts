@@ -16,6 +16,7 @@ import { JINGLE_LEN, talkProgramme, TalkProgramme } from '../../src/audio/talk';
 import { HOST_VOICE, speechPlan, voicedSeconds } from '../../src/audio/voice';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
+import { isGun, WEAPONS, type WeaponId } from '../../src/sim/specs';
 import { input, makeSim, placeInCar, roadPoint, teleport } from './helpers';
 
 // ---------------------------------------------------------------------------
@@ -558,6 +559,28 @@ describe('gunfire echo by district', () => {
     frames(10);
     audio.gunshot('pistol', p.x, p.y + 1.4, p.z, true);
     expect(audio.counters.echoes).toBe(e0);
+  });
+
+  it('every gun, the sniper rifle included, plays a report of real sources into its echo when it fires', () => {
+    const sim = makeSim({ police: false });
+    const { audio, ctx, frames } = rig(sim);
+    const p = sim.playerPos();
+    const district = sim.world.districtAt(p.x, p.z);
+    const guns = (Object.keys(WEAPONS) as WeaponId[]).filter(isGun);
+    expect(guns).toContain('sniper');
+    const rows: string[] = [];
+    for (const w of guns) {
+      frames(10);
+      const n0 = ctx.nodes.length;
+      const e0 = audio.counters.echoes;
+      sim.events.emit('weaponFired', { shooter: sim.player, weapon: w, x: p.x, y: p.y + 1.4, z: p.z, dx: 1, dy: 0, dz: 0, pellets: 1 });
+      const fresh = ctx.nodes.slice(n0);
+      const sources = fresh.filter((n) => (n.kind === 'source' || n.kind === 'oscillator') && n.started);
+      rows.push(`${w}: ${sources.length} sources, echo ${audio.counters.echoes - e0}`);
+      expect(sources.length, w).toBeGreaterThan(0);
+      expect(audio.counters.echoes - e0, w).toBe(1);
+    }
+    console.log(`[echo] gun reports in ${district}: ${rows.join('; ')}`);
   });
 });
 

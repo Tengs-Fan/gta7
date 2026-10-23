@@ -366,7 +366,9 @@ describe('VAL-DRIVE-005: people in a sinking car swim out or drown, and are coun
       return crime(type, x, z, by);
     };
     const kills0 = sim.progress.stats.kills;
-    v.vel.x = 14;
+    // Fast enough to land ~9 m out: from 6-7 m (14 m/s) the passenger fated to drown swims back onto the deck
+    // within DROWN_AFTER, and someone who has made it out of the water no longer drowns.
+    v.vel.x = 20;
     let under = -1;
     for (let f = 0; f < 60 * 16; f++) {
       const c = v.controls;
