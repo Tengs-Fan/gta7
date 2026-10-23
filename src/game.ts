@@ -31,6 +31,13 @@ import { Menus, type MenuHost } from './ui/menus';
 import { ExportListWidget } from './ui/widgets/exportList';
 import { offerLine, PhoneCalls, phoneContacts, PhoneLog, PhoneWidget, type PhoneHost } from './ui/widgets/phone';
 import { NetStatus } from './ui/widgets/netStatus';
+import { MpOverlay, RACE_COMMAND } from './ui/widgets/mpOverlay';
+import { rememberedFields } from './ui/screens/multiplayer';
+import type { MultiplayerMenuHost } from './ui/screens/shared';
+import type { RaceCommand } from './net/lobby';
+import { playerColor } from './sim/appearance';
+import { buildStreetRunCourses } from './sim/streetRuns';
+import { MP_NO_CHEATS } from './sim/cheats';
 import { StaticWorld } from './world/staticWorld';
 
 export { CHEAT_CODES as CHEATS } from './input/cheats';
@@ -129,6 +136,10 @@ export class Game {
   /** The mirror the renderer, HUD and audio show in multiplayer (kept through a lost connection until a reconnect). */
   private netView: Mirror | null = null;
   private readonly netStatus: NetStatus;
+  /** Multiplayer name tags, kill feed and race panels. */
+  private readonly mpOverlay: MpOverlay;
+  /** The session was joined from the MULTIPLAYER screen: a failure goes back to it, fields kept. */
+  private netFromMenu = false;
   /** ?intro=0 in the URL, read once. */
   private readonly introOff = introOffByUrl();
   /** Seconds until Lou's opening call on a fresh game; not positive when no call is pending. */
@@ -181,6 +192,7 @@ export class Game {
       routeContact: () => this.hud.routeContact,
     });
     this.netStatus = new NetStatus(ui);
+    this.mpOverlay = new MpOverlay(ui);
     this.applySettings(this.settings, false);
     this.sim = this.makeTitleSim();
     this.renderer.attach(this.sim, this.localPlayerId);
@@ -287,6 +299,9 @@ export class Game {
       quality: () => ({ auto: this.autoTier, msaa: this.renderer.msaa, software: this.renderer.software, post: this.renderer.postProcessing }),
       captureKey: (cb: (code: string) => void) => this.input.captureKey(this.guard(cb)),
       cancelCapture: () => this.input.cancelCapture(),
+      joinMultiplayer: this.guard((o: NetJoinOptions) => void this.joinMultiplayer(o, true)),
+      multiplayerFields: () => rememberedFields(),
+      multiplayer: () => (this.netView && this.mode === 'game' ? this.multiplayerMenuHost() : null),
     };
   }
 
@@ -736,7 +751,11 @@ export class Game {
     }
     // Every frame, also while a screen is open: a code's first letters can open the map or the pause menu.
     // Cheats are single player only.
-    for (const typed of this.input.takeCheats()) if (this.mode === 'game' && !this.netView) this.applyCheat(typed);
+    for (const typed of this.input.takeCheats()) {
+      if (this.mode !== 'game') continue;
+      if (this.netView) this.refuseCheat(typed);
+      else this.applyCheat(typed);
+    }
     const cam = this.renderer.cameraCtl;
     if (this.netView && this.mode === 'game') {
       this.stepNet(dt, fi);
@@ -863,9 +882,10 @@ export class Game {
   }
 
   /** Joins a multiplayer room: "connecting" over the title until the first snapshot, then the game from the mirror. */
-  async joinMultiplayer(opts: NetJoinOptions): Promise<void> {
+  async joinMultiplayer(opts: NetJoinOptions, fromMenu = false): Promise<void> {
     if (this.mode === 'game') this.quitToTitle();
     this.leaveNet();
+    this.netFromMenu = fromMenu;
     const where = `room "${opts.room}" on ${opts.server}`;
     this.netStatus.show('connecting', 'CONNECTING', `Joining ${where}`, '', [{ id: 'net-cancel', label: 'CANCEL', run: this.guard(() => this.leaveNet()) }]);
     const { NetSession } = await import('./net/session');
@@ -889,9 +909,12 @@ export class Game {
     if (!net || net.client !== c) return;
     const detail = `Server ${c.url}, room "${net.opts.room}", name "${net.opts.name}"`;
     if (s === 'failed') {
+      // From the MULTIPLAYER screen, BACK returns to it with what was typed, to edit and join again.
       this.netStatus.show('failed', 'COULD NOT JOIN', f?.text ?? 'The server could not be reached.', detail, [
         { id: 'net-retry', label: 'TRY AGAIN', run: this.guard(() => this.reconnectNet()) },
-        { id: 'net-title', label: 'BACK TO TITLE', run: this.guard(() => this.netToTitle()) },
+        this.netFromMenu && this.mode === 'title'
+          ? { id: 'net-back', label: 'BACK', run: this.guard(() => this.leaveNet()) }
+          : { id: 'net-title', label: 'BACK TO TITLE', run: this.guard(() => this.netToTitle()) },
       ]);
     } else if (s === 'lost') {
       this.input.exitPointerLock();
@@ -925,6 +948,7 @@ export class Game {
     this.netStatus.hide();
     this.netStatus.setBanner(null);
     if (!had) return;
+    this.mpOverlay.unbind();
     if (this.netView) {
       this.netView = null;
       this.world.resetBroken();
@@ -952,6 +976,7 @@ export class Game {
     this.renderer.attach(m, id);
     this.hud.bind(m, id);
     this.audio.attach(m, id);
+    this.mpOverlay.bind(m, id);
     m.replayBroken();
     this.unsub.push(m.events.on('respawn', (e) => e.playerId === id && this.renderer.cameraCtl.reset(m)));
     this.input.inVehicle = false;
@@ -966,7 +991,7 @@ export class Game {
     this.audio.unlock();
     this.openAudio();
     this.input.requestPointerLock();
-    this.hud.help(`Multiplayer: room <b>${escapeHtml(m.roomId)}</b> as <b>${escapeHtml(net.opts.name)}</b>. Story missions, cheats and saving are off.`, 6);
+    this.hud.help(`Multiplayer: room <b>${escapeHtml(m.roomId)}</b> as <b>${escapeHtml(net.opts.name)}</b>. <kbd>Tab</kbd> lists the players; the pause menu has head-to-head STREET RUNS. Story missions, cheats and saving are off.`, 7);
   }
 
   /** Neutral input aimed where the camera looks (a menu or a connection screen has the keys). */
@@ -994,8 +1019,14 @@ export class Game {
       this.menus.input(fi.ui, dt, fi.device);
     } else if (fi.ui.pause) {
       this.pause();
+      this.keyScreen = { screen: this.menus.top, press: this.input.screenKeyPress };
     } else if (fi.ui.map) {
       this.openMap();
+      this.keyScreen = { screen: this.menus.top, press: this.input.screenKeyPress };
+    } else if (fi.ui.phone) {
+      // No phone in multiplayer: its key lists the room's players (the screen says the phone is single-player only).
+      this.suspendPlay();
+      if (!this.menus.showPlayers(this.guard(() => this.resume()))) this.resume();
     } else {
       if (fi.ui.camera) cam.zoomLevel = cam.zoomLevel === 0 ? 1 : 0;
       if (fi.ui.radioNext) this.hud.showRadio(this.audio.radio.next());
@@ -1006,6 +1037,8 @@ export class Game {
       inp.aimOrigin = aim.origin;
       inp.aimDir = aim.dir;
       inp.cameraYaw = cam.yaw;
+      // A race countdown holds everyone on the grid until GO: no throttle sent, so nothing to predict and correct.
+      if (this.mpOverlay.locked) inp = this.idleInput();
     }
     const ts = performance.now();
     client?.frame(dt, live ? inp ?? this.idleInput() : null);
@@ -1024,7 +1057,8 @@ export class Game {
     this.audio.update(dt, m, true);
     this.countUnmute(dt);
     this.hud.device = fi.device;
-    this.hud.update(dt, m, cam.yaw, aiming, null, this.renderer.time);
+    this.hud.update(dt, m, cam.yaw, aiming, this.mpOverlay.inRace ? null : m.interactions.prompt(me), this.renderer.time);
+    this.mpOverlay.update(dt, m, cam.camera, m.tick, this.menus.open || this.netStatus.open);
     const watching = m.slot < 0 && live;
     const followed = watching ? m.players.find((x) => x.slot === 0) : undefined;
     this.netStatus.setBanner(watching ? `Watching ${followed?.name ?? 'the room'}: the room's player slot is taken.` : null);
@@ -1075,7 +1109,41 @@ export class Game {
       reconnect: () => this.reconnectNet(),
       leave: () => this.netToTitle(),
       overlay: () => (this.netStatus.open ? { kind: this.netStatus.kind, text: this.ui.querySelector('.net-status')?.textContent ?? '' } : null),
+      /** The room state the server last sent (players' kills and deaths, the race), the kill feed, name tags, GO time. */
+      room: () => this.mpOverlay.debug(),
+      race: (cmd: RaceCommand) => this.net?.client.command(RACE_COMMAND, JSON.stringify(cmd)),
     };
+  }
+
+  /** What the multiplayer screens (PLAYERS, STREET RUNS, the pause menu) read of the room. */
+  private multiplayerMenuHost(): MultiplayerMenuHost {
+    const mirror = () => this.netView;
+    return {
+      roomId: () => mirror()?.roomId ?? '',
+      players: () => {
+        const m = mirror();
+        if (!m) return [];
+        const stats = this.mpOverlay.state?.players ?? [];
+        return m.roster.map((r) => {
+          const s = stats.find((x) => x.playerId === r.playerId);
+          return { playerId: r.playerId, name: r.name, color: '#' + playerColor(Math.max(0, r.slot)).toString(16).padStart(6, '0'), you: r.playerId === this.localPlayerId, watching: r.slot < 0, kills: s?.kills ?? 0, deaths: s?.deaths ?? 0 };
+        });
+      },
+      race: () => this.mpOverlay.race,
+      raceJoinLeft: () => this.mpOverlay.joinLeft(mirror()?.tick ?? 0),
+      courses: () => buildStreetRunCourses(this.world.roads).map((c) => ({ id: c.id, name: c.name, description: c.description, distance: c.distance })),
+      raceCommand: (cmd) => this.net?.client.command(RACE_COMMAND, JSON.stringify(cmd)),
+    };
+  }
+
+  /**
+   * A cheat code typed in multiplayer does nothing but say so; a screen one of its letters opened (the M of MONEYTREE
+   * opens the map) closes again, as in single player.
+   */
+  private refuseCheat(typed: TypedCheat): void {
+    const ks = this.keyScreen;
+    if (ks?.screen && this.menus.top === ks.screen && typed.presses.includes(ks.press)) this.resume();
+    this.hud.toast(MP_NO_CHEATS);
   }
 
   private applyCheat(typed: TypedCheat): void {

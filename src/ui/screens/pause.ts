@@ -6,6 +6,7 @@ import { showControls } from './controls';
 import { showMap } from './map';
 import { showSettings } from './settings';
 import { showStats } from './stats';
+import { showPlayers, showRaces } from './mpRoom';
 
 export function showPause(ctx: MenuCtx): void {
   const sim = ctx.host.sim();
@@ -35,7 +36,12 @@ export function showPause(ctx: MenuCtx): void {
     disabled: !!retry.blocked,
     action: () => ctx.host.retryMission?.(),
   });
-  const quitWarning = retry ? 'Quit to the title screen? This mission retry and its checkpoint will be lost. Completed missions remain saved.' : 'Quit to the title screen? Unsaved progress will be lost.';
+  const mp = ctx.host.multiplayer?.() ?? null;
+  if (mp) {
+    items.push({ label: 'PLAYERS', id: 'mp-players', action: () => showPlayers(ctx) });
+    items.push({ label: 'STREET RUNS', id: 'mp-races', description: 'Head-to-head races for the room', action: () => showRaces(ctx) });
+  }
+  const quitWarning = mp ? `Leave room "${mp.roomId()}" and go back to the title screen?` : retry ? 'Quit to the title screen? This mission retry and its checkpoint will be lost. Completed missions remain saved.' : 'Quit to the title screen? Unsaved progress will be lost.';
   items.push({ label: 'QUIT TO TITLE', action: () => showConfirm(ctx, quitWarning, () => ctx.host.quitToTitle()) });
   const list = new ButtonList(items, () => ctx.host.click());
   panel.appendChild(list.el);

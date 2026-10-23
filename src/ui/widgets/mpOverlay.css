@@ -1,0 +1,171 @@
+.mp-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  /* Over the HUD and the wasted / busted screen: the feed names who killed whom there too. */
+  z-index: 6;
+}
+
+.mp-overlay.hidden {
+  display: none;
+}
+
+.mp-tags {
+  position: absolute;
+  inset: 0;
+}
+
+.mp-tags.hidden {
+  display: none;
+}
+
+.mp-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font: 700 16px Rajdhani, sans-serif;
+  letter-spacing: 0.4px;
+  color: #fff;
+  padding: 1px 8px 1px 6px;
+  background: rgba(8, 10, 14, 0.55);
+  border-radius: 3px;
+  text-shadow: 0 1px 2px #000;
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+
+.mp-tag-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  transform: rotate(45deg);
+  border: 1px solid #fff;
+  vertical-align: 1px;
+}
+
+.mp-feed {
+  position: absolute;
+  /* Under the money and wanted panel, which grows with a dispatch line. */
+  top: 250px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: min(420px, 46vw);
+}
+
+.mp-feed-line {
+  font: 600 17px Rajdhani, sans-serif;
+  color: #f2f2f2;
+  background: rgba(8, 10, 14, 0.62);
+  padding: 3px 10px;
+  border-right: 3px solid rgba(255, 255, 255, 0.4);
+  text-shadow: 0 1px 2px #000;
+}
+
+.mp-feed-line.kill,
+.mp-feed-line.wreck {
+  border-right-color: #ff4d5e;
+}
+
+.mp-feed-line.race {
+  border-right-color: #50f1d1;
+}
+
+.mp-feed-verb {
+  color: #c9c9c9;
+  font-weight: 500;
+}
+
+.mp-race {
+  position: absolute;
+  left: 24px;
+  top: 38%;
+  min-width: 220px;
+  max-width: 300px;
+  background: rgba(8, 10, 14, 0.66);
+  border-left: 3px solid #50f1d1;
+  padding: 8px 12px 10px;
+  font: 600 16px Rajdhani, sans-serif;
+  color: #f2f2f2;
+}
+
+.mp-race.hidden,
+.mp-results.hidden {
+  display: none;
+}
+
+.mp-race-head {
+  font: 400 14px 'Anton', Impact, sans-serif;
+  letter-spacing: 1px;
+  color: #50f1d1;
+}
+
+.mp-race-course {
+  font: 400 20px 'Anton', Impact, sans-serif;
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+}
+
+.mp-race-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.mp-race-list li {
+  display: list-item;
+}
+
+.mp-race-list li.you {
+  color: #fff3b0;
+}
+
+.mp-race-what {
+  float: right;
+  margin-left: 14px;
+}
+
+.mp-race-hint {
+  margin-top: 6px;
+  font-size: 14px;
+  color: #c9c9c9;
+}
+
+.mp-results {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  transform: translate(-50%, 0);
+  width: min(520px, 90vw);
+  background: rgba(8, 10, 14, 0.82);
+  border-top: 2px solid #ffd23d;
+  padding: 12px 18px 6px;
+  color: #f2f2f2;
+  font: 600 18px Rajdhani, sans-serif;
+}
+
+.mp-results-head {
+  font: 400 22px 'Anton', Impact, sans-serif;
+  letter-spacing: 1px;
+}
+
+.mp-medal {
+  font: 400 14px 'Anton', Impact, sans-serif;
+  letter-spacing: 1px;
+}
+
+.mp-medal.gold {
+  color: #ffd23d;
+}
+
+.mp-medal.silver {
+  color: #d6dde4;
+}
+
+.mp-medal.bronze {
+  color: #d68a4c;
+}

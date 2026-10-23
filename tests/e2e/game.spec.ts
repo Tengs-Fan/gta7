@@ -558,7 +558,8 @@ test.describe('GTA 7 menus', () => {
     // CONTROLS from the title (NEW GAME is selected on a fresh profile).
     await page.waitForTimeout(300);
     await key('ArrowDown');
-    await key('ArrowDown'); // STREET RUN now sits between NEW GAME and CONTROLS.
+    await key('ArrowDown');
+    await key('ArrowDown'); // STREET RUN and MULTIPLAYER now sit between NEW GAME and CONTROLS.
     for (const [width, height] of SIZES) {
       const at = `${width}x${height}`;
       await page.setViewportSize({ width, height });

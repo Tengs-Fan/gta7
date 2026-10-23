@@ -740,6 +740,8 @@ describe('gamepad: the left stick steps through the menus as the D-pad does (med
     frames(20);
     expect(selected(game)).toBe('STREET RUN');
     frames(6);
+    expect(selected(game)).toBe('MULTIPLAYER');
+    frames(8);
     expect(selected(game)).toBe('CONTROLS');
     frames(8);
     expect(selected(game)).toBe('SETTINGS');

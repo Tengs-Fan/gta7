@@ -60,7 +60,7 @@ async function boot(): Promise<void> {
     });
     game.start();
     // ?mp=1 joins a multiplayer room straight away (no WebSocket is opened otherwise).
-    const mp = netOptionsFromUrl(location.search, location);
+    const mp = netOptionsFromUrl(location.search, location, !!document.querySelector('meta[name="gta7-server"]'));
     if (mp) void game.joinMultiplayer(mp);
   } catch (err) {
     console.error(err);

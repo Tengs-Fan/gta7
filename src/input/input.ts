@@ -44,6 +44,14 @@ export interface FrameInput {
   device: 'kb' | 'pad';
 }
 
+/** A text field that has the keyboard. */
+function isTextEntry(t: EventTarget | null): boolean {
+  const el = t as { tagName?: string; isContentEditable?: boolean; type?: string } | null;
+  if (!el || typeof el.tagName !== 'string') return false;
+  if (el.isContentEditable) return true;
+  return el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'submit'].includes(el.type ?? ''));
+}
+
 const PREVENT = new Set(['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F1']);
 const DEADZONE = 0.18;
 /** Right-stick turn rate in look units per second (the old per-frame 14 / 10 at 60 fps). */
@@ -364,6 +372,9 @@ export class Input {
     void this.labels.load();
     on(window, 'keydown', (e) => {
       const ev = e as KeyboardEvent;
+      // Typing into a text field (the MULTIPLAYER screen's name, server and room) is the field's alone: no menu step,
+      // no Backspace back, no cheat letter. The screen handles Enter, Escape and the arrows itself.
+      if (isTextEntry(ev.target)) return;
       // A key moved onto an action does not also do its browser job (Firefox's quick find on ' and /).
       if (PREVENT.has(ev.code) || (this.keymap.hasAction(ev.code) && !ev.ctrlKey && !ev.metaKey && !ev.code.startsWith('Key'))) ev.preventDefault();
       this.labels.learn(ev);

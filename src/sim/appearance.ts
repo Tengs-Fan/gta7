@@ -31,3 +31,41 @@ export function randomAppearance(rng: Rng, role: CharacterRole): Appearance {
       };
   }
 }
+
+/**
+ * Multiplayer players' colours, one per PlayerSlot id (mod 8): their shirt, and the name tag, radar blip and race car
+ * that go with them. Far apart in hue, and none the police blue or the contacts' pink.
+ */
+export const PLAYER_COLORS: readonly number[] = [0xff7a1a, 0x22b8ff, 0x7cdc3c, 0xffd21f, 0xb36bff, 0xff4d5e, 0x2fe0c0, 0xf5f5f5];
+
+export function playerColor(slotId: number): number {
+  return PLAYER_COLORS[((slotId % PLAYER_COLORS.length) + PLAYER_COLORS.length) % PLAYER_COLORS.length]!;
+}
+
+/** FNV-1a of a string: a stable seed from a player's name (no sim randomness is used). */
+function nameHash(name: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/**
+ * A multiplayer player's look: the slot's colour for the shirt (so two players in a room never wear the same one), skin,
+ * hair, trousers and cap picked from the name. Height stays the hero's: Character.height is fixed when it is built.
+ */
+export function playerAppearance(slotId: number, name: string): Appearance {
+  const h = nameHash(name.trim().toLowerCase());
+  const pick = <T>(list: readonly T[], shift: number): T => list[(h >>> shift) % list.length]!;
+  return {
+    skin: pick(SKINS, 0),
+    shirt: playerColor(slotId),
+    pants: pick(PANTS, 5),
+    hair: pick(HAIR, 10),
+    hat: (h >>> 15) % 3 === 0 ? pick(SHIRTS, 17) : 0,
+    height: 1.02,
+    build: 0.98 + ((h >>> 22) % 9) * 0.02,
+  };
+}
