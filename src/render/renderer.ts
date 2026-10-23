@@ -204,6 +204,8 @@ export class GameRenderer {
   private readonly farHidden = new Set<AnyVehicleView>();
   private readonly tmpV = new THREE.Vector3();
   private contextLost = false;
+  /** The shadow map hookShadowMap last wrapped. */
+  private hookedShadowMap: THREE.WebGLShadowMap | null = null;
   /** Set up on the first context loss (see guardStaleDeletes). */
   private newGlGeneration: (() => void) | null = null;
   private ratio = 0;
@@ -239,18 +241,7 @@ export class GameRenderer {
     this.renderer.toneMappingExposure = 1;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    // The shadow pass tests objects against the main camera's layers: only there may it see the shadow-only casters.
-    const shadowMap = this.renderer.shadowMap;
-    const renderShadows = shadowMap.render;
-    shadowMap.render = (lights, scene, camera) => {
-      const had = camera.layers.isEnabled(SHADOW_LAYER);
-      camera.layers.enable(SHADOW_LAYER);
-      try {
-        renderShadows.call(shadowMap, lights, scene, camera);
-      } finally {
-        if (!had) camera.layers.disable(SHADOW_LAYER);
-      }
-    };
+    this.hookShadowMap();
     // The HDR output pass would otherwise reset the counters; reset them per frame instead.
     this.renderer.info.autoReset = false;
     this.cameraCtl = new CameraController(canvas.clientWidth / Math.max(1, canvas.clientHeight));
@@ -300,6 +291,27 @@ export class GameRenderer {
     this.env.update(17.5, new THREE.Vector3(), this.cameraCtl.camera, 0, this.renderer);
     this.warmup();
     this.warmedUp = true;
+  }
+
+  /**
+   * The shadow pass tests objects against the main camera's layers: only there may it see the shadow-only casters.
+   * three builds a new shadow map when the WebGL context is restored (copying only its flags), so this runs again
+   * then; it wraps each shadow map once.
+   */
+  private hookShadowMap(): void {
+    const shadowMap = this.renderer.shadowMap;
+    if (shadowMap === this.hookedShadowMap) return;
+    this.hookedShadowMap = shadowMap;
+    const renderShadows = shadowMap.render;
+    shadowMap.render = (lights, scene, camera) => {
+      const had = camera.layers.isEnabled(SHADOW_LAYER);
+      camera.layers.enable(SHADOW_LAYER);
+      try {
+        renderShadows.call(shadowMap, lights, scene, camera);
+      } finally {
+        if (!had) camera.layers.disable(SHADOW_LAYER);
+      }
+    };
   }
 
   /** Builds one view per vehicle kind and compiles every shader up front to avoid hitches later. */
@@ -743,21 +755,26 @@ export class GameRenderer {
     view.setDistant(!mine && d2 > d * d);
   }
 
-  /** Refills the part batches with the cars drawn this frame whose bounds are in the camera's view. */
+  /** Refills the part batches with the cars drawn this frame (fading ones included) whose bounds are in the camera's view. */
   private drawVehicleParts(): void {
     const parts = this.vehicleParts;
-    const sphere = this.partSphere;
     parts.begin();
-    for (const view of this.vehicleViews.values()) {
-      const v = view.vehicle;
-      if (!v || !view.group.visible) continue;
-      const s = v.spec;
-      sphere.center.set(v.pos.x, v.pos.y + s.height / 2, v.pos.z);
-      sphere.radius = Math.hypot(s.length, s.width, s.height) / 2 + 0.5;
-      if (this.frustum.intersectsSphere(sphere)) view.drawParts(parts);
-    }
+    for (const view of this.vehicleViews.values()) this.drawPartsInView(view);
+    for (const e of this.fadingViews) this.drawPartsInView(e.view);
     parts.end();
     if (parts.takeChanged()) this.softwareMaterials?.apply(parts.group);
+    const retired = parts.takeRetired();
+    if (retired.length) this.softwareMaterials?.forget(retired);
+  }
+
+  private drawPartsInView(view: AnyVehicleView): void {
+    const v = view.vehicle;
+    if (!v || !view.group.visible) return;
+    const s = v.spec;
+    const sphere = this.partSphere;
+    sphere.center.set(v.pos.x, v.pos.y + s.height / 2, v.pos.z);
+    sphere.radius = Math.hypot(s.length, s.width, s.height) / 2 + 0.5;
+    if (this.frustum.intersectsSphere(sphere)) view.drawParts(this.vehicleParts);
   }
 
   /**
@@ -904,6 +921,7 @@ export class GameRenderer {
   /** Mirrors the sim (if any) and renders one frame. */
   render(dt: number, aiming: boolean): void {
     if (this.contextLost) return;
+    this.hookShadowMap();
     this.time += dt;
     const sim = this.sim;
     const cam = this.cameraCtl.camera;
@@ -970,10 +988,12 @@ export class GameRenderer {
     // The batches draw the vehicles' part meshes: no pass need walk them or update their matrices.
     freezeVehicleParts(true);
     for (const view of this.vehicleViews.values()) view.hideParts(true);
+    for (const e of this.fadingViews) e.view.hideParts(true);
     try {
       this.renderer.render(this.scene, cam);
     } finally {
       for (const view of this.vehicleViews.values()) view.hideParts(false);
+      for (const e of this.fadingViews) e.view.hideParts(false);
       freezeVehicleParts(false);
     }
     if (reflect && this.localReflections) {
@@ -1026,6 +1046,7 @@ export class GameRenderer {
    */
   private readonly onContextRestored = (): void => {
     this.contextLost = false;
+    this.hookShadowMap();
     this.clearLocalReflections();
     this.env.contextRestored();
     this.warmup();

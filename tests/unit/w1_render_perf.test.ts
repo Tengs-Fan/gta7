@@ -143,7 +143,7 @@ describe('vehicle part batches', () => {
     expect(batches.instancesOf(tire.geometry)).toBe(4);
     const live = (batches.group.children as THREE.InstancedMesh[]).filter((m) => m.count > 0);
     // Charred rims are drawn with the wreck's burnt material.
-    expect(live.some((m) => (m.material as THREE.MeshStandardMaterial).color.getHex() === 0x1d1b19 && m.geometry === (wreck.view.group.getObjectByName('rim') as THREE.Mesh).geometry)).toBe(true);
+    expect(live.some((m) => (m.material as THREE.MeshStandardMaterial).color.getHex() === 0x1d1b19 && batches.partOf(m)?.geometry === (wreck.view.group.getObjectByName('rim') as THREE.Mesh).geometry)).toBe(true);
     // The lamps share one draw; the smashed one is dark and unlit, the charred ones too.
     const lamps = live.find((m) => m.instanceColor)!;
     const colours = new Set<number>();
@@ -225,7 +225,7 @@ describe('vehicle draw structure', () => {
       expect(batches.instancesOf(exterior.geometry), kind).toBe(3);
       expect(batches.instancesOf((view.group.getObjectByName('tire') as THREE.Mesh).geometry), kind).toBe(12);
       // One draw for the three bodies, casting their shadows, out of the contact pass, each in its own paint.
-      const bodies = (batches.group.children as THREE.InstancedMesh[]).filter((m) => m.geometry === body.geometry && m.count > 0);
+      const bodies = (batches.group.children as THREE.InstancedMesh[]).filter((m) => batches.partOf(m)?.geometry === body.geometry && m.count > 0);
       expect(bodies.length).toBe(1);
       expect(bodies[0]!.castShadow).toBe(true);
       expect(bodies[0]!.userData.contactShadow).toBe(false);

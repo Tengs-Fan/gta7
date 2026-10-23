@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { CrowdView, PED_FADE_IN, PED_FADE_OUT } from '../../src/render/crowd';
 import { GameRenderer, VEHICLE_FADE_OUT } from '../../src/render/renderer';
-import { PART_LAYER } from '../../src/render/vehicleBatches';
+import { PART_LAYER, VehiclePartBatches } from '../../src/render/vehicleBatches';
 import { VehicleView } from '../../src/render/vehicleView';
 import { Helicopter, type Character, type Vehicle } from '../../src/sim/entities';
 import { ferrisDisc, HELI_BOTTOM } from '../../src/sim/heliCrash';
@@ -165,7 +165,7 @@ describe('pedestrian fades', () => {
 });
 
 describe('vehicle fades', () => {
-  it('a fading view draws its own parts with hashed-alpha copies, its shadow fades, and it comes back as it was', () => {
+  it('a fading view draws its own meshes with hashed-alpha copies, fades its parts inside the batches, its shadow fades, and it comes back as it was', () => {
     const sim = makeSim();
     const v = sim.spawnVehicle('police', 0, 0, 0);
     v.destroyed = true;
@@ -176,8 +176,10 @@ describe('vehicle fades', () => {
     view.group.traverse((o) => {
       if (o instanceof THREE.Mesh) materials.set(o, o.material as THREE.Material);
     });
+    const batches = new VehiclePartBatches();
     view.beginFade();
     view.setFade(0.4);
+    let own = 0;
     for (const [mesh, original] of materials) {
       if (mesh.name === 'shadow') {
         expect((mesh.customDepthMaterial as THREE.MeshDepthMaterial).alphaHash).toBe(true);
@@ -185,23 +187,50 @@ describe('vehicle fades', () => {
         continue;
       }
       const m = mesh.material as THREE.Material;
+      // The parts the batches draw stay batched (no camera draws the mesh), with their own materials.
+      if (mesh.userData.batched || !mesh.visible) {
+        expect(m).toBe(original);
+        if (mesh.userData.batched) expect(mesh.layers.isEnabled(PART_LAYER)).toBe(true);
+        continue;
+      }
+      own++;
       expect(m).not.toBe(original);
       if (original.transparent) expect(m.opacity).toBeCloseTo(original.opacity * 0.4);
       else {
         expect(m.alphaHash).toBe(true);
         expect(m.opacity).toBeCloseTo(0.4);
       }
-      // The parts the batches drew are drawn by the view itself for the fade.
-      expect(mesh.layers.isEnabled(0)).toBe(true);
     }
+    expect(own).toBeGreaterThan(0);
+    // Its instances in the batches carry what is left of it.
+    batches.begin();
+    view.drawParts(batches);
+    batches.end();
+    const fades = new Set<number>();
+    for (const m of batches.group.children as THREE.InstancedMesh[]) {
+      const a = m.geometry.getAttribute('instanceFade');
+      for (let i = 0; i < m.count; i++) fades.add(Math.round(a.getX(i) * 100) / 100);
+    }
+    expect([...fades]).toEqual([0.4]);
     view.setFade(0);
     expect(view.group.visible).toBe(false);
     const used = view.endFade();
-    expect(used.length).toBe(materials.size);
+    expect(used.length).toBe(own + 1);
     for (const [mesh, original] of materials) {
       expect(mesh.material).toBe(original);
       if (mesh.userData.batched) expect(mesh.layers.isEnabled(PART_LAYER)).toBe(true);
     }
+    // Whole again afterwards.
+    batches.begin();
+    view.group.visible = true;
+    view.drawParts(batches);
+    batches.end();
+    for (const m of batches.group.children as THREE.InstancedMesh[]) {
+      const a = m.geometry.getAttribute('instanceFade');
+      for (let i = 0; i < m.count; i++) expect(a.getX(i)).toBe(1);
+    }
+    for (const m of used) m.dispose();
+    batches.dispose();
   });
 
   describe('in the renderer', () => {
