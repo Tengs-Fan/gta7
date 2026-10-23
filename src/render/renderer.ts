@@ -217,6 +217,7 @@ export class GameRenderer {
     this.env = new Environment(this.scene, this.renderer, { hdr: this.hdr, software: this.software });
     this.env.setShore(world.layout.bounds);
     this.effects.foam.bindSea(this.env.sea);
+    this.pool.bindSea(this.env.sea);
     this.city = new CityView(world, STATIC_CHUNK_SIZE, this.software);
     this.props = new PropsView(world);
     this.streetLighting = new StreetLighting(world);

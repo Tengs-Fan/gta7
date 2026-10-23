@@ -94,4 +94,83 @@ test.describe('wave 1 vehicles', () => {
     expect(last.textures as number).toBeLessThanOrEqual(first.textures as number);
     expect(errors).toEqual([]);
   });
+
+  test('boats at the Marina render on every tier, ride the drawn waves on High and bob gently elsewhere', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    const ids = await page.evaluate(async () => {
+      const g = (window as Api).__gta7;
+      g.godMode(true);
+      g.setClockRate(0);
+      g.setTime(15);
+      g.setWeather('clear', { instant: true });
+      g.teleport(644, 466);
+      await new Promise((res) => setTimeout(res, 1500));
+      const boats = g.sim.vehicles.filter((v: { spec: { class: string } }) => v.spec.class === 'boat');
+      const speed = boats.find((v: { kind: string }) => v.kind === 'speedboat');
+      // Aboard the speedboat, which lies on the pier's west side; the camera looks back along the pier at both.
+      g.sim.seat(g.sim.player, speed, 0);
+      return { boats: boats.map((v: { id: number }) => v.id) };
+    });
+    expect(ids.boats.length).toBe(2);
+    const results: Array<Record<string, unknown>> = [];
+    for (const [i, tier] of TIERS.entries()) {
+      const r = await page.evaluate(
+        async ([tier, ids]) => {
+          const g = (window as Api).__gta7;
+          const R = g.game.renderer;
+          R.setQuality(tier);
+          const views = (R as unknown as { vehicleViews: Map<number, { kind: string; group: { visible: boolean; position: { y: number } }; swell?: unknown }> }).vehicleViews;
+          const c = R.cameraCtl;
+          let lo = Infinity;
+          let hi = -Infinity;
+          for (let k = 0; k < 90; k++) {
+            c.orbitYaw = 2.6;
+            c.orbitPitch = 0.25;
+            c.lookIdle = 0;
+            await new Promise((res) => requestAnimationFrame(res));
+            const y = views.get(ids.boats[0]!)?.group.position.y ?? 0;
+            lo = Math.min(lo, y);
+            hi = Math.max(hi, y);
+          }
+          const boats = ids.boats.map((id: number) => {
+            const view = views.get(id);
+            return { id, boatView: !!view && 'swell' in view, visible: view?.group.visible ?? false };
+          });
+          const st = g.state();
+          return {
+            tier: st.render.tier,
+            software: st.render.software,
+            waterGrid: st.render.waterGrid,
+            geometries: R.renderer.info.memory.geometries as number,
+            textures: R.renderer.info.memory.textures as number,
+            colors: g.samplePixels().colors as number,
+            crashed: st.crashed,
+            bob: hi - lo,
+            simY: g.sim.vehicles.find((v: { id: number }) => v.id === ids.boats[0])!.pos.y as number,
+            boats,
+          };
+        },
+        [tier, ids] as const,
+      );
+      results.push({ step: i, ...r });
+      await shot(page, `w1-boats-${i}-${tier}`);
+    }
+    console.log(`[w1-boats] ${results.map((r) => `${r.step}:${r.tier}${r.software ? '(software)' : ''} grid ${r.waterGrid} bob ${(r.bob as number).toFixed(3)} m geo ${r.geometries} tex ${r.textures} colors ${r.colors}`).join('; ')}`);
+    for (const r of results) {
+      expect(r.crashed).toBe(false);
+      expect(r.colors as number).toBeGreaterThan(6);
+      expect(r.simY).toBe(-1);
+      for (const b of r.boats as Array<{ boatView: boolean; visible: boolean }>) {
+        expect(b.boatView).toBe(true);
+        expect(b.visible).toBe(true);
+      }
+      // The gentle bob without the wave grid stays within 0.1 m each way.
+      if (!r.waterGrid) expect(r.bob as number).toBeLessThanOrEqual(0.2);
+    }
+    const highs = results.filter((r) => r.tier === 'high');
+    expect(highs[highs.length - 1]!.geometries as number).toBeLessThanOrEqual((highs[1]!.geometries as number) + 1);
+    expect(highs[highs.length - 1]!.textures as number).toBeLessThanOrEqual(highs[1]!.textures as number);
+    expect(errors).toEqual([]);
+  });
 });
