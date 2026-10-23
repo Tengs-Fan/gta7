@@ -22,7 +22,7 @@ export const CALL_HANDS_FREE = 2;
 
 /**
  * Whether a contact is in the phone. A contact is listed once nothing locks it: no story finale (a mission with an
- * outro title card, The Big Score's THE END) stands undone among what its first mission requires, directly or through
+ * outro title card, The Big Score's CHAPTER 1 COMPLETE) stands undone among what its first mission requires, directly or through
  * the missions before it. Lou and Dex are in a new game's phone; a chapter 2 contact comes in after The Big Score. A
  * contact with no missions at all is listed.
  */
@@ -63,7 +63,17 @@ export interface PhoneEntry {
 }
 
 /** What a payout's activity kind reads as in the log. */
-const PAYOUT_NAMES: Record<string, string> = { taxi: 'Taxi fare', vigilante: 'Vigilante reward', rampage: 'Rampage bonus', streetRun: 'Street Run prize' };
+const PAYOUT_NAMES: Record<string, string> = {
+  taxi: 'Taxi fare',
+  vigilante: 'Vigilante reward',
+  rampage: 'Rampage bonus',
+  streetRun: 'Street Run prize',
+  ambulance: 'Paramedic pay',
+  firefighter: 'Firefighter pay',
+  courier: 'Azura Express pay',
+  carExport: 'Export list payment',
+  business: 'Pier Arcade takings',
+};
 
 function payoutName(kind: string): string {
   return PAYOUT_NAMES[kind] ?? `${kind.charAt(0).toUpperCase()}${kind.slice(1).replace(/([A-Z])/g, ' $1').toLowerCase()} payout`;

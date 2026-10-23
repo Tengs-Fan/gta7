@@ -150,6 +150,7 @@ export function collectTakings(sim: Sim): number {
   s.uncollected = 0;
   sim.progress.addMoney(amount);
   sim.events.emit('money', { amount });
+  sim.events.emit('activityMilestone', { kind: 'business', reward: amount });
   say(sim, `${BUSINESS_NAME} takings collected: ${formatMoney(amount)}.`, 4);
   return amount;
 }
