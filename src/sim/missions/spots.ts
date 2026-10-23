@@ -142,7 +142,7 @@ export interface Chapter2Spots {
   /** Shadow Play's retry from its checkpoint: the player on the sidewalk, his car on the lane, behind the meeting. */
   tailResume: { x: number; z: number; heading: number };
   tailResumeCar: LaneSpot;
-  /** Showroom Condition: the yellow Nightjar in Hillcrest, its two minders, and where a retry puts the player. */
+  /** Showroom Condition: the yellow Nightjar (by Hillcrest), its two minders, and where a retry puts the player. */
   stealCar: ParkingSpot;
   stealGuards: Array<{ x: number; z: number }>;
   stealResume: { x: number; z: number; heading: number };
@@ -195,7 +195,8 @@ export function chapter2Spots(world: StaticWorld): Chapter2Spots {
   const tailResume = besideLane(world, tailResumeCar, 6.5);
 
   const hill = blockCenter(world, 3, 1);
-  const stealCar = nearestParking(world, hill.x, hill.z, { zone: 'Hillcrest', street: true }) ?? found(nearestParking(world, hill.x, hill.z, { street: true }));
+  // Hillcrest has no lots: this is the street-side bay nearest to it (Vera names its district, see Showroom Condition).
+  const stealCar = found(nearestParking(world, hill.x, hill.z, { street: true }));
   const stealGuards: Array<{ x: number; z: number }> = [];
   for (const [ox, oz] of [[3.5, 3], [-3.5, -3], [4, -3.5], [-4, 3.5]] as const) {
     const s = world.findFreeSpot(stealCar.x + ox, stealCar.z + oz, 0.5, 4);
