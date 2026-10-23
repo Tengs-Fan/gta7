@@ -3,6 +3,7 @@ import { cabRefusal, cabState, callCab } from '../../src/sim/activities/cab';
 import { registerContact, unregisterContact } from '../../src/sim/missions/contacts';
 import { registerContactMissions, unregisterContactMissions } from '../../src/sim/missions/index';
 import type { MissionDef } from '../../src/sim/missions/runner';
+import { BUSINESS_DAILY, collectTakings, gameHours, propertyState } from '../../src/sim/properties';
 import { CALL_DELAY, CALL_HANDS_FREE, CALL_RING, MAX_TEXTS, PhoneCalls, phoneContacts, PhoneLog } from '../../src/ui/widgets/phone';
 import { input, makeSim } from './helpers';
 
@@ -144,6 +145,20 @@ describe('the text log', () => {
     expect(log.entries).toHaveLength(MAX_TEXTS);
     expect(log.entries[0]!.amount).toBe(MAX_TEXTS + 5);
     expect(log.entries[MAX_TEXTS - 1]!.amount).toBe(6);
+    log.unbind();
+  });
+
+  it("books the Pier Arcade's takings, collected at the safehouse, by name", () => {
+    const sim = makeSim({ ambient: false });
+    const log = new PhoneLog();
+    log.bind(sim);
+    const s = propertyState(sim.progress);
+    s.business = true;
+    s.accrueFrom = gameHours(sim) - 48;
+    const paid = collectTakings(sim);
+    log.flush(sim);
+    expect(paid).toBe(2 * BUSINESS_DAILY);
+    expect(log.entries.map((x) => [x.text, x.amount])).toEqual([['Pier Arcade takings', paid]]);
     log.unbind();
   });
 });
