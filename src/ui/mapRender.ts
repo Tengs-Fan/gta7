@@ -2,6 +2,7 @@
 // radar and the full-screen map.
 
 import type { Objective } from '../sim/activities';
+import { GANGS, turfZones } from '../sim/gangs';
 import { contactById } from '../sim/missions/contacts';
 import { playerOf, type ViewState } from '../sim/viewState';
 import { HELI_SIGHT } from '../sim/wanted';
@@ -56,7 +57,41 @@ export class MapImage {
       rect(bd.rect.minX, bd.rect.minZ, bd.rect.maxX, bd.rect.maxZ, tall ? '#1d2228' : '#22282e');
     }
     for (const d of world.layout.decks) rect(d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ, '#7b5a3a');
+    drawTurf(ctx, world, X, Z);
   }
+}
+
+/** Gang turf on the map: each gang's zones tinted and outlined in its colour, its name over its largest zone. */
+function drawTurf(ctx: CanvasRenderingContext2D, world: StaticWorld, X: (x: number) => number, Z: (z: number) => number): void {
+  const zones = turfZones(world.layout);
+  ctx.save();
+  for (const t of zones) {
+    const g = GANGS[t.turf.gang];
+    const w = (t.maxX - t.minX) * MAP_SCALE;
+    const h = (t.maxZ - t.minZ) * MAP_SCALE;
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = g.mapColor;
+    ctx.fillRect(X(t.minX), Z(t.minZ), w, h);
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = g.mapColor;
+    ctx.lineWidth = 4;
+    ctx.setLineDash([14, 8]);
+    ctx.strokeRect(X(t.minX) + 2, Z(t.minZ) + 2, w - 4, h - 4);
+  }
+  ctx.setLineDash([]);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 30px sans-serif';
+  for (const gang of Object.keys(GANGS) as Array<keyof typeof GANGS>) {
+    const mine = zones.filter((t) => t.turf.gang === gang);
+    const big = mine.sort((a, b) => (b.maxX - b.minX) * (b.maxZ - b.minZ) - (a.maxX - a.minX) * (a.maxZ - a.minZ))[0];
+    if (!big) continue;
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = GANGS[gang].mapColor;
+    // Above the middle, clear of the district name the map writes there.
+    ctx.fillText(GANGS[gang].name.toUpperCase(), X((big.minX + big.maxX) / 2), Z(big.minZ + (big.maxZ - big.minZ) * 0.28));
+  }
+  ctx.restore();
 }
 
 export interface Blip {

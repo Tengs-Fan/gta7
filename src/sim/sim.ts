@@ -21,6 +21,8 @@ import type { SimEvents } from './events';
 import type { ViewState } from './viewState';
 import { neutralInput, type PlayerInput } from './input';
 import { Interactions } from './interactions';
+import { GangSystem } from './gangs';
+import { RoadblockSystem } from './roadblocks';
 import { MissionSystem } from './missions/runner';
 import { PedSystem } from './peds';
 import { PickupSystem } from './pickups';
@@ -96,6 +98,10 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   readonly interactions: Interactions;
   readonly activities: Activities;
   readonly missions: MissionSystem;
+  readonly gangs: GangSystem;
+  readonly roadblocks: RoadblockSystem;
+  /** The seed of this run (SimOptions.seed, default 7). */
+  readonly seed: number;
   private readonly systems = new SystemSlots();
 
   ambient: boolean;
@@ -109,6 +115,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.roads = this.world.roads;
     // The world outlives the Sim it served (QUIT TO TITLE, a new game): a run it dropped mid-race held junctions.
     this.roads.clearSignalHolds();
+    this.seed = opts.seed ?? 7;
     this.rng = new Rng(((opts.seed ?? 7) * 2654435761) >>> 0);
     this.clock = new GameClock(opts.startHour ?? 16);
     this.weather = new WeatherSystem(opts.seed ?? 7, opts.weather ?? 'clear');
@@ -135,6 +142,11 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.interactions = new Interactions(this);
     this.activities = new Activities(this);
     this.missions = new MissionSystem(this);
+    // The wave-1 street systems (each idle unless its sim.streetCrime switch is on).
+    this.gangs = new GangSystem(this);
+    this.systems.add(this.gangs);
+    this.roadblocks = new RoadblockSystem(this);
+    this.systems.add(this.roadblocks);
     for (const system of registeredSystems()) this.systems.add(system);
   }
 
@@ -261,6 +273,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   spawnCharacter(role: CharacterRole, x: number, z: number, appearance?: Appearance): Character {
     const y = this.world.groundHeight(x, z);
     const c = new Character(this.newId(), role, x, y, z, appearance ?? randomAppearance(this.rng, role));
+    if (role === 'gang') c.gang = 'tiburones';
     this.characters.push(c);
     return c;
   }

@@ -8,11 +8,15 @@ import { predictThrow, throwLaunch, type Thrown } from '../sim/throwables';
 import type { ViewState } from '../sim/viewState';
 import type { Effects } from './effects';
 
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const MAX_THROWN = 32;
 const ARC_POINTS = 160;
 /** Dots drawn along the aiming arc, this far apart (m), so it reads at any distance; and the most of them. */
 const DOT_STEP = 0.55;
 const MAX_DOTS = 140;
+/** Spike strip plates (m long) and the most drawn. */
+const STRIP_PLATE = 1.1;
+const MAX_PLATES = 64;
 /** The fire light's intensity at the fire nearest the camera, flickering. */
 const FIRE_LIGHT = 9;
 
@@ -24,6 +28,9 @@ export class ThrowView {
   private readonly arcPos: Float32Array;
   private readonly ring: THREE.Mesh;
   private readonly dots: THREE.InstancedMesh;
+  /** Police spike strips: hinged plates across the road, each with a row of spikes. */
+  private readonly stripPlates: THREE.InstancedMesh;
+  private readonly stripSpikes: THREE.InstancedMesh;
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly e = new THREE.Euler();
@@ -65,7 +72,16 @@ export class ThrowView {
     this.dots.count = 0;
     this.dots.frustumCulled = false;
     this.dots.name = 'throw-arc-dots';
-    this.group.add(this.grenades, this.molotovs, this.arc, this.ring, this.dots);
+    this.stripPlates = new THREE.InstancedMesh(new THREE.BoxGeometry(STRIP_PLATE, 0.05, 0.42), new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.5, metalness: 0.6 }), MAX_PLATES);
+    this.stripSpikes = new THREE.InstancedMesh(new THREE.ConeGeometry(0.035, 0.12, 5).translate(0, 0.06, 0), new THREE.MeshStandardMaterial({ color: 0xd9dde2, roughness: 0.3, metalness: 0.8 }), MAX_PLATES * 4);
+    for (const m of [this.stripPlates, this.stripSpikes]) {
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.count = 0;
+      m.frustumCulled = false;
+      m.receiveShadow = true;
+    }
+    this.stripPlates.name = 'spike-strip';
+    this.group.add(this.grenades, this.molotovs, this.arc, this.ring, this.dots, this.stripPlates, this.stripSpikes);
   }
 
   /**
@@ -123,6 +139,8 @@ export class ThrowView {
     } else if (this.lightHeld) fx.fireLight(0, 0, 0, 0);
     this.lightHeld = this.fireLit;
 
+    this.syncStrips(view);
+
     // The aiming arc.
     const w = me.inventory.current;
     const show = me.aimZoom && me.state === 'normal' && me.alive && weaponKindOf(w) === 'thrown';
@@ -177,6 +195,38 @@ export class ThrowView {
     }
   }
 
+  /** Each strip as plates end to end across the road, a hair above it, with spikes along each plate. */
+  private syncStrips(view: ViewState): void {
+    let np = 0;
+    let ns = 0;
+    for (const s of view.roadblocks?.strips ?? []) {
+      if (s.removed) continue;
+      const n = Math.max(1, Math.round((s.halfLen * 2) / STRIP_PLATE));
+      // Plates run across the road (w), each turned to it.
+      const wx = -s.uz;
+      const wz = s.ux;
+      this.q.setFromAxisAngle(Y_AXIS, Math.atan2(wx, wz) + Math.PI / 2);
+      for (let i = 0; i < n && np < MAX_PLATES; i++) {
+        const k = (i + 0.5) / n - 0.5;
+        const x = s.x + wx * k * s.halfLen * 2;
+        const z = s.z + wz * k * s.halfLen * 2;
+        this.v.set(x, s.y + 0.03, z);
+        this.m.compose(this.v, this.q, this.s);
+        this.stripPlates.setMatrixAt(np++, this.m);
+        for (let j = 0; j < 4 && ns < MAX_PLATES * 4; j++) {
+          const kk = (j - 1.5) * 0.25;
+          this.v.set(x + wx * kk, s.y + 0.05, z + wz * kk);
+          this.m.compose(this.v, this.q, this.s);
+          this.stripSpikes.setMatrixAt(ns++, this.m);
+        }
+      }
+    }
+    this.stripPlates.count = np;
+    this.stripSpikes.count = ns;
+    this.stripPlates.instanceMatrix.needsUpdate = true;
+    this.stripSpikes.instanceMatrix.needsUpdate = true;
+  }
+
   private place(t: Thrown): void {
     // Tumbling in the air, still once it lies on the ground.
     const spin = t.resting || t.inWater ? 0 : t.age * 9 + t.id;
@@ -197,7 +247,7 @@ export class ThrowView {
   }
 
   dispose(): void {
-    for (const o of [this.grenades, this.molotovs, this.arc, this.ring, this.dots]) {
+    for (const o of [this.grenades, this.molotovs, this.arc, this.ring, this.dots, this.stripPlates, this.stripSpikes]) {
       o.geometry.dispose();
       (o.material as THREE.Material).dispose();
     }

@@ -6,6 +6,7 @@ import { SWIM_DEPTH, WATER_Y } from '../world/constants';
 import { makeBrain, type PedBrain } from './brains';
 import { MAX_STEP } from './characterPhysics';
 import type { Character } from './entities';
+import { gangAt, setGang } from './gangs';
 import type { Sim } from './sim';
 import { isGun } from './specs';
 import { vehicleObb } from './vehiclePhysics';
@@ -117,9 +118,12 @@ export class PedSystem {
       if (sim.world.waterDepth(pt.x, pt.z) > -0.2) continue;
       if (!sim.traffic.isClear(pt.x, pt.z, 2.5)) continue;
       const zone = sim.world.zoneName(pt.x, pt.z);
-      const gangTurf = zone === 'Port Azura Docks' || zone === 'Westside' || zone === 'Southgate';
+      // With the gangs (sim.streetCrime.gangs) each turf has its own gang (GANG_TURFS); without, the Tiburones all over.
+      const turfGang = sim.streetCrime.gangs ? gangAt(sim.world.layout, pt.x, pt.z) : null;
+      const gangTurf = sim.streetCrime.gangs ? turfGang !== null : zone === 'Port Azura Docks' || zone === 'Westside' || zone === 'Southgate';
       const role = gangTurf && sim.rng.chance(0.14) ? 'gang' : 'civilian';
       const c = sim.spawnCharacter(role, pt.x, pt.z);
+      if (role === 'gang' && turfGang) setGang(c, turfGang);
       c.owner = 'ped';
       const b = makeBrain('wander');
       b.fromNode = pt.a;
@@ -187,7 +191,18 @@ export class PedSystem {
    * the guards it hires, such as the bank's in The Big Score).
    */
   allied(a: Character, b: Character): boolean {
-    return a !== b && ((a.role === 'gang' && b.role === 'gang') || (a.missionTag === 'enemy' && b.missionTag === 'enemy'));
+    return a !== b && ((a.role === 'gang' && b.role === 'gang' && (a.gang ?? 'tiburones') === (b.gang ?? 'tiburones')) || (a.missionTag === 'enemy' && b.missionTag === 'enemy'));
+  }
+
+  /** A street gang member's brain, walking the sidewalks from (x, z): he fights instead of running. */
+  makeGangBrain(x: number, z: number): PedBrain {
+    const b = makeBrain('wander');
+    b.toNode = this.sim.world.walk.nearestNode(x, z);
+    b.fromNode = b.toNode;
+    b.brave = true;
+    b.accuracy = 0.35;
+    b.speedMul = 1;
+    return b;
   }
 
   onJacked(victim: Character): void {
@@ -264,8 +279,13 @@ export class PedSystem {
     const p = sim.player;
     if (!sim.world.lineOfSight(p.pos.x, p.pos.y + 1.5, p.pos.z, c.pos.x, c.pos.y + 1.2, c.pos.z)) return;
     const b = c.brain!;
-    if (c.role === 'gang') this.fight(c, sim.player);
-    else if (sim.rng.chance(0.5)) {
+    if (c.role === 'gang') {
+      // With turf (sim.streetCrime.gangs), a gun pointed at a member outside his gang's turf is no cause to fight.
+      if (!sim.streetCrime.gangs || !c.gang || sim.gangs.inOwnTurf(c)) {
+        this.fight(c, sim.player);
+        if (sim.streetCrime.gangs) b.turfAggroAt = sim.time;
+      }
+    } else if (sim.rng.chance(0.5)) {
       b.mode = 'cower';
       b.modeTimer = sim.rng.range(2.5, 4.5);
     } else this.flee(c, sim.player.pos.x, sim.player.pos.z, sim.player);

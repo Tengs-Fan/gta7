@@ -1110,6 +1110,8 @@ export class CombatSystem {
     if (c.removed || !c.alive || !(amount > 0)) return false;
     if (c.isPlayer && this.slotFor(c).down) return false;
     if (c.isPlayer && this.slotFor(c).cheats.godMode) return false;
+    // One crew never hurts its own (a stray round or a punch in the crowd round the player): no damage, no blood.
+    if (attacker && !attacker.isPlayer && !c.isPlayer && sim.peds.allied(c, attacker)) return false;
     let armourLoss = 0;
     if (c.armor > 0 && kind !== 'fall' && kind !== 'drown') {
       armourLoss = Math.min(c.armor, amount);

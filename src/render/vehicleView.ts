@@ -716,7 +716,8 @@ export class VehicleView {
   private detailGroup: THREE.Group | null = null;
   private distantMesh: THREE.Mesh | null = null;
   /** Wheels with their pivot's place on the body: they stay planted on the road while the body leans. */
-  private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean; base: THREE.Vector3 }> = [];
+  /** `flat`: the wheel's index in Vehicle.flat (front left, front right, rear left, rear right). */
+  private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean; base: THREE.Vector3; flat: number }> = [];
   /** Head, tail and reverse lamps with their working material (smashed and burnt ones swap theirs out) and place. */
   private readonly lamps: Array<{ mesh: THREE.Mesh; mat: THREE.Material; broken: boolean; base: THREE.Vector3; head: boolean; role: 'head' | 'tail' | 'reverse' }> = [];
   /** Separate parts on the body (lamps, roof gear) and where they sit undamaged: dents carry them along. */
@@ -797,7 +798,8 @@ export class VehicleView {
         tire.castShadow = true;
         pivot.add(tire, rim);
         this.group.add(pivot);
-        this.wheels.push({ pivot, tire, rim, front, base: pivot.position.clone() });
+        // The view's +x is the car's left.
+        this.wheels.push({ pivot, tire, rim, front, base: pivot.position.clone(), flat: (front ? 0 : 2) + (side > 0 ? 0 : 1) });
       }
     }
     // As the body leans, the arch over the furthest axle and the outer track comes down the most.
@@ -1146,6 +1148,10 @@ export class VehicleView {
       if (w.front) w.pivot.quaternion.multiply(this.qSteer.setFromAxisAngle(this.yAxis, steerAngle));
       w.tire.rotation.x = this.spin;
       w.rim.rotation.x = this.spin;
+      // A flat tyre (a spike strip): squashed down onto its rim, the wheel lower by what the tyre lost.
+      const flat = v.flat[w.flat] === true;
+      w.pivot.scale.set(flat ? 1.08 : 1, flat ? 0.62 : 1, 1);
+      if (flat) w.pivot.position.y -= this.kindAssets.prof.wheelR * 0.38;
     }
     // Parked, abandoned and wrecked cars keep their lights off (a deployed police car keeps its siren running).
     const powered = !v.destroyed && (v.driver !== null || v.siren);

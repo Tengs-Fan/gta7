@@ -15,6 +15,7 @@ import type { MissionSystem } from './missions/runner';
 import type { PlayerController } from './player';
 import type { PlayerCheats, PlayerTag } from './playerSlot';
 import type { Progress } from './progress';
+import type { SpikeStrip } from './roadblocks';
 import type { WantedSystem } from './wanted';
 import type { WeatherSystem } from './weather';
 
@@ -65,6 +66,8 @@ export interface ViewState {
   readonly activities: ActivitiesView;
   readonly interactions: InteractionsView;
   readonly combat: CombatView;
+  /** Police spike strips on the road (optional: a view without them draws none). */
+  readonly roadblocks?: { readonly strips: readonly SpikeStrip[] };
 }
 
 /** The local player's seat: the slot with that id, or the first one while it has not joined yet. */

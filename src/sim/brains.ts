@@ -12,7 +12,8 @@ export type PedMode =
   | 'guard' // stand around a post, attack the player when provoked or close
   | 'chase' // cops: run to the player
   | 'return' // cops: walk back to their car
-  | 'stand'; // mission characters waiting for something
+  | 'stand' // mission characters waiting for something
+  | 'phone'; // a witness on the phone to the police (see witnesses.ts)
 
 export interface PedBrain {
   mode: PedMode;
@@ -50,6 +51,14 @@ export interface PedBrain {
    */
   stepSide: number;
   stepTurned: boolean;
+  /**
+   * Gang members (gangs.ts): when they turned on the player for coming armed into their turf (-Infinity: not so), and
+   * whether he attacked them or their crew (then leaving the turf does not calm them).
+   */
+  turfAggroAt: number;
+  provoked: boolean;
+  /** A driver who got out of his car angry after the player hit it (angryDrivers.ts), and the car he left. */
+  angryCar: Vehicle | null;
 }
 
 export function makeBrain(mode: PedMode): PedBrain {
@@ -79,5 +88,8 @@ export function makeBrain(mode: PedMode): PedBrain {
     lastZ: 0,
     stepSide: 0,
     stepTurned: false,
+    turfAggroAt: -Infinity,
+    provoked: false,
+    angryCar: null,
   };
 }

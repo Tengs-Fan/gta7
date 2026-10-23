@@ -5,6 +5,7 @@ import { Rng } from '../core/rng';
 import type { DriverAI } from './driver';
 import type { PedBrain } from './brains';
 import type { PickupKind } from './pickups';
+import type { GangId } from '../world/layout';
 import { VEHICLE_SPECS, WEAPON_ORDER, WEAPONS, weaponKindOf, type VehicleKind, type VehicleSpec, type WeaponId, type WeaponSpec } from './specs';
 
 /**
@@ -180,6 +181,8 @@ export class Character {
   burnBy: Character | null = null;
   /** Zoom level index of a scoped weapon while the aim button holds the scope up (see ScopeSpec). */
   scopeLevel = 0;
+  /** The street gang a gang member belongs to (see gangs.ts); null for everyone else. */
+  gang: GangId | null = null;
 
   constructor(
     readonly id: number,
@@ -295,6 +298,8 @@ export class Vehicle {
   spawnTime = 0;
   /** This vehicle's own randomness (the tumble of explosion kicks), see entityRng. */
   readonly rng: Rng;
+  /** Flat tyres (a police spike strip), front left, front right, rear left, rear right: less grip and speed. */
+  readonly flat: [boolean, boolean, boolean, boolean] = [false, false, false, false];
 
   constructor(
     readonly id: number,
