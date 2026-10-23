@@ -149,8 +149,9 @@ const shadowPlay: MissionDef = {
   reward: 7000,
   requires: ['big_score'],
   blurb: 'Tail a Tiburones courier to his buyer without being seen.',
-  retryAt(world) {
-    return chapter2Spots(world).tailResume;
+  // Must match run()'s choice of setup: before the meeting the Pipsqueak and the courier are back at the hotel.
+  retryAt(world, resume) {
+    return resume >= 1 ? chapter2Spots(world).tailResume : undefined;
   },
   outro: { text: 'THE COURIER TALKED', sub: 'Vera knows who buys from the Tiburones', duration: 4 },
   *run(m) {
@@ -327,8 +328,8 @@ const showroom: MissionDef = {
   reward: 9000,
   requires: ['big_score', 'room_service'],
   blurb: 'Steal a yellow Nightjar GT across town and bring it in without a scratch.',
-  retryAt(world) {
-    return chapter2Spots(world).stealResume;
+  retryAt(world, resume) {
+    return resume >= 1 ? chapter2Spots(world).stealResume : undefined;
   },
   outro: { text: 'SOLD', sub: 'One yellow Nightjar GT, one happy collector', duration: 4 },
   *run(m) {

@@ -253,7 +253,7 @@ describe('pause-menu retry preserves recovery after the quick prompt expires', (
     expect(car.driver).toBeNull();
     const def = sim.missions.defs.find((d) => d.id === 'wheels')!;
     const giver = sim.world.layout.pois.find((q) => q.id === def.giver)!;
-    const at = def.retryAt?.(sim.world) ?? giver;
+    const at = def.retryAt?.(sim.world, 0) ?? giver;
     expect(Math.hypot(p.pos.x - at.x, p.pos.z - at.z)).toBeLessThan(8.5);
     // Once the fade is over he walks again.
     step(sim, 1);
