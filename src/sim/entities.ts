@@ -183,6 +183,8 @@ export class Character {
   scopeLevel = 0;
   /** The street gang a gang member belongs to (see gangs.ts); null for everyone else. */
   gang: GangId | null = null;
+  /** A witness on the phone to the police: seconds left of the call (witnesses.ts), 0 when not calling. */
+  phoneTimer = 0;
 
   constructor(
     readonly id: number,

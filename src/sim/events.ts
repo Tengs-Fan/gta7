@@ -75,6 +75,8 @@ export interface SimEvents {
   tyreBurst: { vehicle: Vehicle; wheel: number; x: number; y: number; z: number };
   /** Police set up a roadblock across the road at (x, z). */
   roadblock: { x: number; z: number; strip: boolean };
+  /** A witness starts (or ends: through, or stopped) a call to the police about a crime at (x, z). */
+  witnessCall: { caller: Character; x: number; z: number; started: boolean };
   /** The player's car hit `vehicle` hard enough to jolt it by deltaV (m/s). */
   vehicleRammed: { vehicle: Vehicle; by: Character; deltaV: number };
   fade: { duration: number } & PlayerScoped;

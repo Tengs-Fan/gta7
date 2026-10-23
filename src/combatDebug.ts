@@ -121,6 +121,14 @@ export function installCombatDebug(game: Game): void {
       const r = game.sim.roadblocks.place();
       return r ? { id: r.id, x: r.x, z: r.z, ahead: r.ahead } : null;
     },
+    /** Witness calls (under way and done) and angry drivers (every hard hit on a civilian's car, and what came of it). */
+    npc() {
+      const sim = game.sim;
+      return {
+        calls: sim.witnesses.log.map((c) => ({ id: c.id, caller: c.caller.id, type: c.type, at: c.at, due: c.due, state: c.state, endedAt: c.endedAt })),
+        hits: sim.angryDrivers.log.map((l) => ({ at: l.at, car: l.car, deltaV: l.deltaV, out: l.out, fights: l.fights, state: l.grievance?.state ?? null, end: l.grievance?.end ?? null, driver: l.grievance?.driver.id ?? null })),
+      };
+    },
     /** A vehicle's id and position, and whether it burns. */
     vehicle(id: number) {
       const v = game.sim.vehicles.find((o) => o.id === id);

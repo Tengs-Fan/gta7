@@ -23,6 +23,8 @@ import { neutralInput, type PlayerInput } from './input';
 import { Interactions } from './interactions';
 import { GangSystem } from './gangs';
 import { RoadblockSystem } from './roadblocks';
+import { WitnessSystem } from './witnesses';
+import { AngryDriverSystem } from './angryDrivers';
 import { MissionSystem } from './missions/runner';
 import { PedSystem } from './peds';
 import { PickupSystem } from './pickups';
@@ -100,6 +102,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   readonly missions: MissionSystem;
   readonly gangs: GangSystem;
   readonly roadblocks: RoadblockSystem;
+  readonly witnesses: WitnessSystem;
+  readonly angryDrivers: AngryDriverSystem;
   /** The seed of this run (SimOptions.seed, default 7). */
   readonly seed: number;
   private readonly systems = new SystemSlots();
@@ -147,6 +151,10 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.systems.add(this.gangs);
     this.roadblocks = new RoadblockSystem(this);
     this.systems.add(this.roadblocks);
+    this.witnesses = new WitnessSystem(this);
+    this.systems.add(this.witnesses);
+    this.angryDrivers = new AngryDriverSystem(this);
+    this.systems.add(this.angryDrivers);
     for (const system of registeredSystems()) this.systems.add(system);
   }
 
@@ -472,6 +480,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     }
     // Hitting police cars is a crime; the police notice rammers.
     if (playerRammed && v.spec.police && deltaV > 3) this.wanted.crime('hitPolice', v.pos.x, v.pos.z, rammer);
+    if (playerRammed && v.driver && !v.driver.isPlayer) this.events.emit('vehicleRammed', { vehicle: v, by: rammer!.character, deltaV });
     // Wake up AI drivers that got hit by a player.
     if (rammer && v.driver && !v.driver.isPlayer && v.driver.brain) {
       v.driver.brain.threat = rammer.character;
