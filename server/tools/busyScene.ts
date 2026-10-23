@@ -1,9 +1,9 @@
-// Busy-scene measurement against a running server started with --dev --puppets:
-//   npm run server -- --port 4210 --dev --puppets
-//   npx tsx server/tools/busyScene.ts --url ws://127.0.0.1:4210/ws --seconds 60
-// Four players join one room downtown: the Sim's player at 3 stars (god mode, SMG gunfire in bursts) with the pursuit
-// and helicopter that brings, three stand-in players walking a block away. Prints the server's /status line every
-// 10 s and each client's snapshot sizes and bandwidth at the end.
+// Busy-scene measurement against a running server started with --dev (every player is a real PlayerSlot):
+//   npm run server -- --port 4210 --dev
+//   npx tsx server/tools/busyScene.ts --url ws://127.0.0.1:4210/ws --seconds 60 [--spread]
+// Four players join one room downtown (with --spread: one in each corner district, each with his own traffic): the
+// first at 3 stars (god mode, SMG gunfire in bursts) with the pursuit and helicopter that brings, three walking a block
+// away. Prints the server's /status line every 10 s and each client's snapshot sizes and bandwidth at the end.
 
 import { StaticWorld } from '../../src/world/staticWorld';
 import { statusLine, type ServerStatus } from '../server';
@@ -32,11 +32,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main(): Promise<void> {
   const world = new StaticWorld();
-  const nodes = [world.roads.node(4, 4), world.roads.node(5, 4), world.roads.node(4, 5), world.roads.node(5, 5)];
+  const nodes = process.argv.includes('--spread')
+    ? [world.roads.node(4, 4), world.roads.node(1, 1), world.roads.node(7, 1), world.roads.node(1, 7)]
+    : [world.roads.node(4, 4), world.roads.node(5, 4), world.roads.node(4, 5), world.roads.node(5, 5)];
   const bots: Bot[] = [];
   for (let i = 0; i < 4; i++) bots.push(await Bot.connect({ url: `${url}?room=${room}`, name: `busy${i + 1}` }));
   const slots = bots.map((b) => b.welcome?.slot ?? -1);
-  if (slots.some((s) => s < 0)) throw new Error(`every bot needs a slot (start the server with --dev --puppets); got ${slots.join(',')}`);
+  if (slots.some((s) => s < 0)) throw new Error(`every bot needs a slot; got ${slots.join(',')}`);
   bots.forEach((b, i) => b.cmd('debug', { teleport: [nodes[i]!.x + 12, nodes[i]!.z + 12] }));
   bots[0]!.cmd('debug', { godMode: true, give: ['smg', 9999] });
   let t = 0;
