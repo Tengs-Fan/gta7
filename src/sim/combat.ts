@@ -256,8 +256,8 @@ export class CombatSystem {
   private aimed: { character: Character; zone: HitZone } | null = null;
   /** Victims of a headshot in the trigger pull being resolved: the stat counts one per victim per pull. */
   private headshotsThisPull: Set<Character> | null = null;
-  /** Sim time each victim was last reported as assaulted. */
-  private readonly assaulted = new WeakMap<object, number>();
+  /** Sim time each culprit last reported each victim as assaulted; culprits are rate-limited separately. */
+  private readonly assaulted = new WeakMap<Character, WeakMap<object, number>>();
   /** Sim time each rocket was launched (or first seen), for its arming delay. */
   private readonly launched = new WeakMap<Projectile, number>();
   /** What each NPC shooter's held aim was last raised for. */
@@ -1055,7 +1055,7 @@ export class CombatSystem {
 
   /**
    * Reports the player attacking `victim`. The pellets of one shot are one crime per victim, and so are
-   * hits on one victim within ASSAULT_GAP of the last reported one: automatic fire adds heat no faster
+   * hits by one culprit on one victim within ASSAULT_GAP of the last reported one: automatic fire adds heat no faster
    * than the pistol does.
    */
   private reportAttack(victim: object, type: CrimeType, x: number, z: number, by: Character): void {
@@ -1063,9 +1063,11 @@ export class CombatSystem {
       if (this.volley.has(victim)) return;
       this.volley.add(victim);
     }
-    const last = this.assaulted.get(victim);
+    let byVictim = this.assaulted.get(by);
+    if (!byVictim) this.assaulted.set(by, (byVictim = new WeakMap()));
+    const last = byVictim.get(victim);
     if (last !== undefined && this.sim.time - last < ASSAULT_GAP) return;
-    this.assaulted.set(victim, this.sim.time);
+    byVictim.set(victim, this.sim.time);
     this.sim.wanted.crime(type, x, z, by);
   }
 
