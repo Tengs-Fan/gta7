@@ -169,7 +169,8 @@ const shadowPlay: MissionDef = {
     const ai = courier.ai!;
     ai.maxSpeed = COURIER_SPEED;
     const driver = courier.driver!;
-    const mk = m.mark(courier, 'Courier');
+    // On the radar from the start, but behind the car's marker: the GPS leads to the Pipsqueak first.
+    let mk = m.markEnemy(courier, 'Courier');
     const dist = () => {
       const p = sim.playerPos();
       return Math.hypot(p.x - courier.pos.x, p.z - courier.pos.z);
@@ -198,6 +199,8 @@ const shadowPlay: MissionDef = {
     moving = true;
     ai.hold = false;
     m.unwatch(wait);
+    m.unmark(mk);
+    mk = m.mark(courier, 'Courier');
     const tail = `Tail the courier (stay ${TAIL_SPOT_DIST}-${TAIL_LOST_DIST} m back)`;
     m.objective(tail);
     if (!resumed) {
@@ -323,7 +326,7 @@ const showroom: MissionDef = {
   giver: 'vera',
   reward: 9000,
   requires: ['big_score', 'room_service'],
-  blurb: 'Steal a yellow Nightjar GT in Hillcrest and bring it in without a scratch.',
+  blurb: 'Steal a yellow Nightjar GT across town and bring it in without a scratch.',
   retryAt(world) {
     return chapter2Spots(world).stealResume;
   },
@@ -333,7 +336,7 @@ const showroom: MissionDef = {
     const spots = chapter2Spots(sim.world);
     clearLeftovers(m);
     yield* m.intro([
-      [VERA, 'A collector wants a yellow Nightjar GT. One is parked in Hillcrest, with two Tiburones minding it.'],
+      [VERA, `A collector wants a yellow Nightjar GT. One is parked in ${sim.world.zoneName(spots.stealCar.x, spots.stealCar.z)}, with two Tiburones minding it.`],
       [VERA, `He pays for showroom condition. Below ${Math.round(SHOWROOM_CONDITION * 100)} percent, he pays half. Drive like it is your mother's.`],
     ]);
     const car = m.spawnVehicle('sports', spots.stealCar.x, spots.stealCar.z, spots.stealCar.heading, SHOWROOM_YELLOW);
