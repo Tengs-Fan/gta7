@@ -98,6 +98,8 @@ After the whole graphics milestone (dawn/dusk smoothing, finish pass, night ligh
 
 The two-minute chaos e2e stays above its 30 fps floor. The rainnight segments drew 31–49 glows, 4–11 headlight pools and 14–27 wet-road streaks.
 
+After the second update (wave-1 content and multiplayer, release preparation on 2026-10-23, machine load average 8-13 from other work): `--scenario perf` start 60, downtown 60, pursuit-4-stars 58, beach-dusk 60 (CPU frame 4.3–5.4 ms, 648–1886 draw calls); `--scenario rainnight` (rain 1.0, 23:00) 60 in all four segments (CPU frame 3.1–5.9 ms); High tier and no console errors in both. The two-minute chaos e2e averaged 59.9 fps. The draw-structure work above (instanced vehicle parts, merged shadow bodies, far batches, the High pixel budget, cheaper contact shadows and the ground-height grid) cut the JavaScript frame time p95 by 26–55% against the previous release in the four perf scenes, measured back to back, and the plaza at 2880x1620 (dpr 2, uncapped) went from 42 to 137 fps.
+
 ## Software fallback
 
 Hardware rendering keeps the existing physical materials, procedural sky, reflections, shadows,
