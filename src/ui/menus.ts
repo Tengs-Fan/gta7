@@ -16,6 +16,7 @@ import { showCredits, showTitle } from './screens/title';
 import { h, showConfirm, type MenuCtx, type MenuHost, type Screen } from './screens/shared';
 import { screenOpener } from './screens/registry';
 import './screens/exportBoard';
+import './screens/customs';
 
 export { NEW_GAME_WARNING } from './screens/title';
 export type { MenuHost, StreetRunMedalTimes } from './screens/shared';

@@ -1,0 +1,42 @@
+.customs-sub {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: var(--muted);
+}
+
+.customs .pip {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.customs .pip.on {
+  background: #b36bff;
+  border-color: #d8b4ff;
+}
+
+.customs .swatches {
+  display: flex;
+  gap: 3px;
+}
+
+.customs .swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 2px;
+}
+
+.customs .swatch.cur {
+  outline: 1px dashed rgba(255, 255, 255, 0.7);
+}
+
+.customs .swatch.on {
+  border: 2px solid #ffffff;
+  transform: scale(1.25);
+}

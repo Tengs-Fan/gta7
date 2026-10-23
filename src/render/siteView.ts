@@ -44,8 +44,50 @@ export class SiteView {
       const amb = d.kind === 'ambulance';
       this.sign(amb ? 'AMBULANCE' : 'SAFD STATION 1', amb ? '#ff3a3a' : '#ffffff', amb ? '#f2f2ee' : '#a8191b', d.x + Math.cos(d.heading) * side, d.z - Math.sin(d.heading) * side, d.heading, 2.8, 0.7, 2.6);
     }
+    // The safehouse garage: a carport over its four bays, a back wall, bay lines and a sign over the aisle.
+    const g = at.garageArea;
+    this.carport(g.minX, g.minZ, g.maxX, g.maxZ, 3.1, 0x6b7179, 'x+');
+    for (let k = 0; k <= at.garageBays.length; k++) {
+      const z = at.garageBays[0]!.z - 1.7 + k * 3.4;
+      this.box(g.minX + 0.6, z - 0.06, g.maxX - 0.3, z + 0.06, 0.03, 0xf2f2f2, 0.01);
+    }
+    this.sign('SAFEHOUSE GARAGE', '#3fd96b', '#101614', g.minX + 0.1, (g.minZ + g.maxZ) / 2, -Math.PI / 2, 4, 0.8, 3.25);
+    // Azura Customs: a canopy over its drive-in bay, a purple floor and its sign over the way in.
+    const c = at.customsBay;
+    this.carport(c.minX, c.minZ, c.maxX, c.maxZ, 4.2, 0x2a2238, 'z-');
+    this.box(c.minX + 0.3, c.minZ + 0.3, c.maxX - 0.3, c.maxZ - 0.3, 0.02, 0x4b2a6e, 0.01);
+    this.sign('AZURA CUSTOMS', '#d8b4ff', '#1a1024', (c.minX + c.maxX) / 2, c.maxZ, 0, 6, 1.1, 4.35);
+    // The Pier Arcade's sign on the pier's south rail, facing the boardwalk.
+    this.sign('PIER ARCADE', '#ff5fd2', '#140a1c', at.arcade.x, at.arcade.z - 3.7, 0, 4.2, 1.1, 2.0);
   }
 
+  /** A flat box from (x0, z0) to (x1, z1), `h` thick, its bottom `lift` m over the ground. */
+  private box(x0: number, z0: number, x1: number, z1: number, h: number, color: number, lift: number): THREE.Mesh {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, h, z1 - z0), new THREE.MeshStandardMaterial({ color, roughness: 0.8 }));
+    const x = (x0 + x1) / 2;
+    const z = (z0 + z1) / 2;
+    m.position.set(x, this.world.groundHeight(x, z) + lift + h / 2, z);
+    m.receiveShadow = true;
+    this.group.add(m);
+    return m;
+  }
+
+  /** A roof on posts over a rect, `height` m up, with a back wall on the side `wall` names. */
+  private carport(x0: number, z0: number, x1: number, z1: number, height: number, color: number, wall: 'x+' | 'z-'): void {
+    const roof = this.box(x0 - 0.2, z0 - 0.2, x1 + 0.2, z1 + 0.2, 0.18, color, height);
+    roof.castShadow = true;
+    const y = this.world.groundHeight((x0 + x1) / 2, (z0 + z1) / 2);
+    for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]] as const) {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.16, height, 0.16), this.post);
+      p.position.set(x, y + height / 2, z);
+      p.castShadow = true;
+      this.group.add(p);
+    }
+    const w = wall === 'x+' ? this.box(x1 - 0.12, z0, x1, z1, height, color, 0) : this.box(x0, z0, x1, z0 + 0.12, height, color, 0);
+    w.castShadow = true;
+  }
+
+  /** A double-sided sign board
   /** A double-sided sign board on two posts facing `heading`, its bottom edge at `bottom` m. */
   protected sign(text: string, fg: string, bg: string, x: number, z: number, heading: number, w: number, h: number, bottom: number): THREE.Group {
     const g = new THREE.Group();

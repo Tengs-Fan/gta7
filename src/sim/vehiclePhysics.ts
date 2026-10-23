@@ -297,7 +297,7 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     const maxSteer = s.steer / (1 + speedAbs / 15);
     const delta = -v.steer * maxSteer;
     let yawTarget = (vF * Math.tan(delta)) / wheelbase;
-    const gripLimit = ((handbrake ? 2.0 : 1.12) * s.grip) / Math.max(speedAbs, 2.5);
+    const gripLimit = ((handbrake ? 2.0 : 1.12) * s.grip * v.tune.grip) / Math.max(speedAbs, 2.5);
     yawTarget = clamp(yawTarget, -gripLimit, gripLimit);
     if (v.destroyed || v.flipped) yawTarget = 0;
     const resp = handbrake ? 5.5 : 9;
@@ -331,18 +331,18 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     // --- Longitudinal ---
     let accel = 0;
     if (throttle > 0.01) {
-      if (vF >= -0.5) accel += throttle * s.accel * engine * Math.max(0, 1 - (vF / s.maxSpeed) ** 2);
+      if (vF >= -0.5) accel += throttle * s.accel * v.tune.accel * engine * Math.max(0, 1 - (vF / s.maxSpeed) ** 2);
       else {
-        accel += throttle * s.brake;
+        accel += throttle * s.brake * v.tune.brake;
         v.braking = true;
       }
     }
     if (brake > 0.01) {
       if (vF > 0.5) {
-        accel -= brake * s.brake;
+        accel -= brake * s.brake * v.tune.brake;
         v.braking = true;
       } else {
-        accel -= brake * s.accel * engine * 0.65 * Math.max(0, 1 - (-vF / s.reverseSpeed) ** 2);
+        accel -= brake * s.accel * v.tune.accel * engine * 0.65 * Math.max(0, 1 - (-vF / s.reverseSpeed) ** 2);
         v.reversing = vF < 0.3;
       }
     }
@@ -362,7 +362,7 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     vF = moveTowards(vF, 0, friction * dt);
 
     // --- Lateral grip ---
-    const grip = (handbrake ? s.grip * 0.3 : v.destroyed || v.flipped ? s.grip * 1.5 : s.grip) * (1 - 0.4 * wade);
+    const grip = v.tune.grip * (handbrake ? s.grip * 0.3 : v.destroyed || v.flipped ? s.grip * 1.5 : s.grip) * (1 - 0.4 * wade);
     const skidLat = Math.abs(vR);
     vR = moveTowards(vR, 0, grip * dt);
     const skidTarget = clamp((skidLat - 2.2) / 6, 0, 1) + (handbrake && Math.abs(vF) > 5 ? 0.6 : 0) + (v.braking && Math.abs(vF) > 12 && brake > 0.8 ? 0.35 : 0);

@@ -2,6 +2,7 @@
 // Progress (one record per Progress, so per player slot) and saved in the save's `ext` under ACTIVITY_RECORDS_KEY.
 
 import type { Progress } from '../progress';
+import { registerCompletion, registerStatRow, type CompletionView } from '../completion';
 import { registerSaveCodec } from '../saveExt';
 
 export interface ActivityRecords {
@@ -55,3 +56,16 @@ registerSaveCodec<ActivityRecords>({
     Object.assign(activityRecords(sim.progress), value);
   },
 });
+
+const rec = (v: CompletionView): ActivityRecords => activityRecords(v.player.progress);
+registerStatRow({ id: 'ambulanceLevel', label: 'Highest paramedic level', value: (v) => String(rec(v).ambulanceLevel) });
+registerStatRow({ id: 'patientsSaved', label: 'Patients saved', value: (v) => String(rec(v).patientsSaved) });
+registerStatRow({ id: 'fireLevel', label: 'Highest firefighter level', value: (v) => String(rec(v).fireLevel) });
+registerStatRow({ id: 'firesOut', label: 'Fires put out', value: (v) => String(rec(v).firesOut) });
+registerStatRow({ id: 'courierRuns', label: 'Courier runs', value: (v) => String(rec(v).courierRuns) });
+registerStatRow({ id: 'parcelsDelivered', label: 'Parcels delivered', value: (v) => String(rec(v).parcelsDelivered) });
+registerStatRow({ id: 'exportCars', label: 'Export cars delivered', value: (v) => String(rec(v).exportCars) });
+registerStatRow({ id: 'exportLists', label: 'Export lists completed', value: (v) => String(rec(v).exportLists) });
+registerCompletion({ id: 'paramedic', label: 'Paramedic level 5', weight: 0, progress: (v) => [Math.min(5, rec(v).ambulanceLevel), 5] });
+registerCompletion({ id: 'firefighter', label: 'Firefighter level 5', weight: 0, progress: (v) => [Math.min(5, rec(v).fireLevel), 5] });
+registerCompletion({ id: 'courier', label: 'Azura Express courier run', weight: 0, progress: (v) => [Math.min(1, rec(v).courierRuns), 1] });
