@@ -444,13 +444,13 @@ export class PlayerController {
     this.takeWheel(p, v);
   }
 
-  /** Seats the player at the wheel of `v` (passengers get out), which becomes his. */
+  /** Seats the player at the wheel of `v` (passengers get out, but for those his job keeps aboard), which becomes his. */
   private takeWheel(p: Character, v: Vehicle): void {
     const sim = this.sim;
     {
       const boat = v.spec.class === 'boat';
       for (const o of v.passengers) {
-        if (o) {
+        if (o && !sim.activities.keepsPassenger(p, v, o)) {
           sim.unseat(o);
           const spot = sim.world.findFreeSpot(v.pos.x - Math.cos(v.heading) * (v.halfW + 0.8), v.pos.z + Math.sin(v.heading) * (v.halfW + 0.8), 0.4, 5, boat);
           if (spot) {

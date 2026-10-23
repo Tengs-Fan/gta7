@@ -140,6 +140,13 @@ export class Activities {
     return c === owner.character ? c : null;
   }
 
+  /** Whether `passenger` stays seated as `driver` takes the wheel of `v`: the running job of that player says so. */
+  keepsPassenger(driver: Character, v: Vehicle, passenger: Character): boolean {
+    const j = this.job;
+    if (!j || this.jobSeat(driver) === null) return false;
+    return getActivity(j.kind)?.keepsAboard?.(j, passenger, v) ?? false;
+  }
+
   cancelAll(reason: CancelReason): void {
     const j = this.job;
     if (!j) return;
