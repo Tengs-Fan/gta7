@@ -2,7 +2,7 @@
 // Progress (one record per Progress, so per player slot) and saved in the save's `ext` under ACTIVITY_RECORDS_KEY.
 
 import type { Progress } from '../progress';
-import { registerCompletion, registerStatRow, type CompletionView } from '../completion';
+import { registerStatRow, type CompletionView } from '../statRows';
 import { registerSaveCodec } from '../saveExt';
 
 export interface ActivityRecords {
@@ -66,6 +66,3 @@ registerStatRow({ id: 'courierRuns', label: 'Courier runs', value: (v) => String
 registerStatRow({ id: 'parcelsDelivered', label: 'Parcels delivered', value: (v) => String(rec(v).parcelsDelivered) });
 registerStatRow({ id: 'exportCars', label: 'Export cars delivered', value: (v) => String(rec(v).exportCars) });
 registerStatRow({ id: 'exportLists', label: 'Export lists completed', value: (v) => String(rec(v).exportLists) });
-registerCompletion({ id: 'paramedic', label: 'Paramedic level 5', weight: 0, progress: (v) => [Math.min(5, rec(v).ambulanceLevel), 5] });
-registerCompletion({ id: 'firefighter', label: 'Firefighter level 5', weight: 0, progress: (v) => [Math.min(5, rec(v).fireLevel), 5] });
-registerCompletion({ id: 'courier', label: 'Azura Express courier run', weight: 0, progress: (v) => [Math.min(1, rec(v).courierRuns), 1] });

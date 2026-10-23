@@ -30,8 +30,8 @@ export interface Marker {
 }
 
 /** Property icons: grey while for sale, green once owned. */
-const FOR_SALE = '#9aa3ad';
-const OWNED = '#3fd96b';
+export const FOR_SALE = '#9aa3ad';
+export const OWNED = '#3fd96b';
 
 export interface ShopItem {
   id: string;

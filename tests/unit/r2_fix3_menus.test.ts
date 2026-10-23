@@ -4,10 +4,11 @@
 // Node has no DOM: the browser pieces run on the small fakes below (as in fix_frontend.test.ts), and the
 // WebGL renderer is mocked.
 
+import { DEFAULT_BINDINGS } from '../../src/input/bindings';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Game } from '../../src/game';
 import { Input, type UiActions } from '../../src/input/input';
-import { deleteGame, loadGame, loadSettings, writeGame, type Settings } from '../../src/settings';
+import { currentSlot, deleteGame, loadGame, loadSettings, loadSlot, slotKey, storeSlot, writeGame, type Settings } from '../../src/settings';
 import { Progress, serialize, type SaveData } from '../../src/sim/progress';
 import { Sim } from '../../src/sim/sim';
 import { MAP_SCALE, MapImage } from '../../src/ui/mapRender';
@@ -301,7 +302,7 @@ function aSave(money = 4321): SaveData {
 
 function makeMenus(over: Partial<MenuHost> = {}) {
   let saved = true;
-  let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true };
+  let settings: Settings = { quality: 'high', master: 0.8, music: 0.6, sfx: 0.85, sensitivity: 1, invertY: false, fov: 68, hints: true, hintsSeen: [], weather: 'dynamic', lightningFlashes: true, bindings: DEFAULT_BINDINGS, resolutionScale: 1, fpsCap: 0, subtitleSize: 'normal', cameraShake: true, mapLayers: {} };
   let waypoint: { x: number; z: number } | null = null;
   const host = {
     hasSave: () => saved,
@@ -412,23 +413,26 @@ describe('NEW GAME over a save asks first (critical)', () => {
     button('NO')!.click();
     expect(game.mode).toBe('title');
     expect(loadGame()!.missionsDone).toEqual(['wheels']);
-    // Saying YES is the player's choice: the game starts, and its first save replaces the old one.
+    // Saying YES is the player's choice: the game starts, and with save slots (wave 1) it autosaves into the first
+    // empty slot, never over the save in slot 1.
     button('NEW GAME')!.click();
     button('YES')!.click();
     expect(game.mode).toBe('game');
     game.sim.events.emit('saveRequested', { poi: 'auto' });
     // Autosaves are queued and written after the next sim frame.
-    expect(loadGame()!.missionsDone).toEqual(['wheels']);
+    expect(loadSlot(2)).toBeNull();
     harness.frames(1);
-    expect(loadGame()!.missionsDone).toEqual([]);
+    expect(loadSlot(2)!.missionsDone).toEqual([]);
+    expect(loadSlot(1)!.missionsDone).toEqual(['wheels']);
   });
 });
 
 describe('every confirmation opens on NO (medium)', () => {
-  it('DELETE SAVE: down x10, confirm, confirm keeps the save; up then confirm deletes it', () => {
+  it('DELETE SAVE: up x2 (round past BACK), confirm, confirm keeps the save; up then confirm deletes it', () => {
     const { menus, button, press, saved } = makeMenus();
     menus.showSettings();
-    for (let i = 0; i < 10; i++) press({ down: true });
+    // DELETE SAVE sits just above BACK, the last row (wave 1 added rows above it).
+    for (let i = 0; i < 2; i++) press({ up: true });
     press({ confirm: true });
     expect(button('NO')!.classList.contains('sel')).toBe(true);
     press({ confirm: true });
@@ -502,11 +506,15 @@ describe('a full localStorage keeps the save reachable (medium)', () => {
     const { game, button, toast } = makeGame();
     expect(button('CONTINUE')!.disabled).toBe(false);
     button('CONTINUE')!.click();
+    // The slot picker (wave 1): the save is in slot 1.
+    button('SLOT 1')!.click();
     expect(game.mode).toBe('game');
     expect(game.sim.progress.money).toBe(save.money);
     // More progress, a longer save: it does not fit.
     for (const id of ['delivery', 'repo', 'loose_lips', 'heatwave']) game.sim.progress.markDone(id);
     game.sim.events.emit('saveRequested', { poi: 'safehouse' });
+    button('SLOT 1')!.click();
+    button('YES')!.click(); // overwrite slot 1
     expect(toast()).toBe('Could not save: browser storage is full');
     expect(loadGame()!.missionsDone).toEqual(['wheels']);
   });
@@ -521,6 +529,7 @@ describe('a full localStorage keeps the save reachable (medium)', () => {
     expect(button('CONTINUE')!.disabled).toBe(true);
     game.newGame({ intro: false });
     game.sim.events.emit('saveRequested', { poi: 'safehouse' });
+    button('SLOT 1')!.click();
     expect(toast()).toBe('Could not save: browser storage is unavailable');
   });
 });
@@ -800,5 +809,81 @@ describe('the gun shop says what to press on the device in use (low)', () => {
     expect(line()).not.toContain('Enter');
     press({}, 'kb');
     expect(line()).toContain('<kbd>Enter</kbd>');
+  });
+});
+
+describe('wave 1: three save slots through the game', () => {
+  const raw = (slot: number) => (window.localStorage as unknown as QuotaStorage).getItem(slotKey(slot));
+
+  it('the safehouse asks for a slot: BACK saves nothing, an empty slot saves at once, a filled one asks first', () => {
+    expect(storeSlot(1, aSave(1111))).toBeNull();
+    const { game, button, toast, uiRoot, frames } = makeGame();
+    button('CONTINUE')!.click();
+    button('SLOT 1')!.click();
+    expect(game.mode).toBe('game');
+    const slot1 = raw(1);
+    game.sim.progress.addMoney(5);
+    game.sim.events.emit('saveRequested', { poi: 'safehouse' });
+    expect(['SLOT 1', 'SLOT 2', 'SLOT 3', 'BACK'].every((l) => button(l))).toBe(true);
+    expect(game.menus.open).toBe(true);
+    button('BACK')!.click();
+    expect(game.menus.open).toBe(false);
+    expect([raw(1), raw(2), raw(3)]).toEqual([slot1, null, null]);
+    // Slot 2 is empty: saved there at once.
+    game.sim.events.emit('saveRequested', { poi: 'safehouse' });
+    button('SLOT 2')!.click();
+    expect(toast()).toBe('Game saved');
+    expect(game.menus.open).toBe(false);
+    expect(loadSlot(2)!.money).toBe(250 + 1111 + 5);
+    expect(raw(1)).toBe(slot1);
+    // Slot 1 holds a save: it asks, naming it; NO leaves it as it was and goes back to the picker.
+    game.sim.events.emit('saveRequested', { poi: 'safehouse' });
+    button('SLOT 1')!.click();
+    const question = uiRoot.all().find((e) => e.tagName === 'P' && e.textContent.startsWith('Overwrite'))!.textContent;
+    expect(question).toContain('slot 1');
+    expect(question).toContain('Missions 1/');
+    button('NO')!.click();
+    expect(raw(1)).toBe(slot1);
+    expect(button('SLOT 3')).toBeDefined();
+    button('SLOT 1')!.click();
+    button('YES')!.click();
+    expect(loadSlot(1)!.money).toBe(250 + 1111 + 5);
+    // An autosave goes to the slot last saved to (1), not to 2.
+    const slot2 = raw(2);
+    game.sim.progress.addMoney(7);
+    game.sim.events.emit('saveRequested', { poi: 'auto' });
+    frames(1);
+    expect(loadSlot(1)!.money).toBe(250 + 1111 + 12);
+    expect(raw(2)).toBe(slot2);
+  });
+
+  it('CONTINUE lists the three slots: empty and unreadable ones cannot be loaded, the chosen one loads', () => {
+    expect(storeSlot(1, aSave(100))).toBeNull();
+    (window.localStorage as unknown as QuotaStorage).setItem(slotKey(2), '{"broken');
+    expect(storeSlot(3, aSave(300))).toBeNull();
+    const { game, button, uiRoot } = makeGame();
+    button('CONTINUE')!.click();
+    expect([button('SLOT 1')!.disabled, button('SLOT 2')!.disabled, button('SLOT 3')!.disabled]).toEqual([false, true, false]);
+    expect(uiRoot.all().some((e) => e.classList.contains('slot-summary') && e.textContent === 'Unreadable save')).toBe(true);
+    button('SLOT 3')!.click();
+    expect(game.sim.progress.money).toBe(250 + 300);
+    expect(currentSlot()).toBe(3);
+  });
+
+  it("SETTINGS' DELETE SAVE asks which slot, confirms, and removes that one only", () => {
+    expect(storeSlot(1, aSave(100))).toBeNull();
+    expect(storeSlot(2, aSave(200))).toBeNull();
+    const { button } = makeGame();
+    button('SETTINGS')!.click();
+    button('DELETE SAVE')!.click();
+    expect(button('SLOT 3')!.disabled).toBe(true);
+    const slot1 = raw(1);
+    button('SLOT 2')!.click();
+    button('NO')!.click();
+    expect(raw(2)).not.toBeNull();
+    button('SLOT 2')!.click();
+    button('YES')!.click();
+    expect(raw(2)).toBeNull();
+    expect(raw(1)).toBe(slot1);
   });
 });

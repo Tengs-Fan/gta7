@@ -1,7 +1,7 @@
 // Stats and Street Run records.
 
 import { formatMoney } from '../../core/math';
-import { completionPercent, statRows } from '../../sim/completion';
+import { COMPLETION_GROUP_NAMES, completionPercent, completionRows, statRows } from '../../sim/completion';
 import { PACKAGE_COUNT } from '../../sim/pickups';
 import { formatRunTime } from '../../sim/streetRuns';
 import { escapeHtml } from '../hud';
@@ -16,7 +16,7 @@ export function showStats(ctx: MenuCtx): void {
   const story = sim.missions.defs.length;
   const done = sim.missions.defs.filter((d) => p.hasDone(d.id)).length;
   const view = { sim, player: me };
-  const completion = completionPercent(view);
+  const completion = completionPercent(sim, me);
   const km = (m: number) => `${(m / 1000).toFixed(1)} km`;
   const time = `${Math.floor(s.playTime / 3600)}h ${Math.floor((s.playTime % 3600) / 60)}m`;
   const rows: Array<[string, string]> = [
@@ -43,7 +43,7 @@ export function showStats(ctx: MenuCtx): void {
     ['Vigilante level', String(s.vigilanteLevel)],
     ['Stunt bonuses', String(s.stuntBonuses)],
     ['Best stunt airtime', `${s.bestStuntAir.toFixed(1)} s`],
-    // Rows other features registered (sim/completion.ts).
+    // Rows other features registered (sim/statRows.ts).
     ...statRows().map((r): [string, string] => [r.label, r.value(view)]),
   ];
   const el = h('div', 'screen dim');
@@ -52,6 +52,10 @@ export function showStats(ctx: MenuCtx): void {
     const record = p.streetRuns[c.id];
     return `<span>${escapeHtml(c.name)}</span><span>${record ? `${formatRunTime(record.bestTime)} · ${record.medal.toUpperCase()} · ${record.finishes} finish${record.finishes === 1 ? '' : 'es'}` : 'NO TIME SET'}</span>`;
   }).join('');
-  panel.innerHTML = `<h2>STATS</h2><div class="stat-grid">${rows.map(([a, b]) => `<span>${escapeHtml(a)}</span><span>${escapeHtml(b)}</span>`).join('')}</div><h3>Street run records</h3><div class="run-records">${runs}</div>`;
+  // The map screen's checklist, row for row (both read the completion registry).
+  const checklist = completionRows(sim, me)
+    .map((r) => `<span>${escapeHtml(`${COMPLETION_GROUP_NAMES[r.group] ?? r.group}: ${r.label}`)}</span><span>${r.done} / ${r.total}</span>`)
+    .join('');
+  panel.innerHTML = `<h2>STATS</h2><div class="stat-grid">${rows.map(([a, b]) => `<span>${escapeHtml(a)}</span><span>${escapeHtml(b)}</span>`).join('')}</div><h3>Checklist</h3><div class="stat-checklist">${checklist}</div><h3>Street run records</h3><div class="run-records">${runs}</div>`;
   pushScrolling(ctx, el, panel);
 }

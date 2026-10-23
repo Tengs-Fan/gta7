@@ -7,7 +7,8 @@
 import { formatMoney } from '../core/math';
 import { rectContains } from '../world/layout';
 import { places } from './activities/places';
-import { registerCompletion, registerStatRow } from './completion';
+import { registerCompletion } from './completion';
+import { registerStatRow } from './statRows';
 import type { Vehicle } from './entities';
 import { applyMods, cleanLevel, customsRefusal, setMods, type ModLevels } from './mods';
 import type { Progress } from './progress';
@@ -317,5 +318,14 @@ registerStatRow({ id: 'properties', label: 'Properties owned', value: ({ player 
   return `${Number(s.garage) + Number(s.business)} / 2`;
 } });
 registerStatRow({ id: 'business', label: `${BUSINESS_NAME} income`, value: ({ player }) => (propertyState(player.progress).business ? `${formatMoney(BUSINESS_DAILY)} a day` : 'Not owned') });
-registerCompletion({ id: 'garage', label: 'Safehouse garage', weight: 0, progress: ({ player }) => [Number(propertyState(player.progress).garage), 1] });
-registerCompletion({ id: 'business', label: BUSINESS_NAME, weight: 0, progress: ({ player }) => [Number(propertyState(player.progress).business), 1] });
+registerCompletion({
+  id: 'properties',
+  group: 'properties',
+  rows: (_view, me) => {
+    const s = propertyState(me.progress);
+    return [
+      { id: 'garage', group: 'properties', label: 'Safehouse garage', done: Number(s.garage), total: 1 },
+      { id: 'business', group: 'properties', label: BUSINESS_NAME, done: Number(s.business), total: 1 },
+    ];
+  },
+});

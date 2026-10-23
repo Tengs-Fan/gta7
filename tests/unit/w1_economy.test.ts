@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { places } from '../../src/sim/activities/places';
 import { activityRecords } from '../../src/sim/activities/records';
-import { completionEntries, completionPercent, statRows } from '../../src/sim/completion';
+import { completionEntries, completionPercent, completionRows, statRows } from '../../src/sim/completion';
 import type { Vehicle } from '../../src/sim/entities';
 import { buyMod, buyPaint, MAX_MOD_LEVEL, MOD_CATEGORIES, MOD_TABLE, PAINT_COLORS, PAINT_PRICE, setMods, type ModCategory } from '../../src/sim/mods';
 import { PACKAGE_COUNT } from '../../src/sim/pickups';
@@ -444,17 +444,21 @@ describe('stats and completion registry', () => {
     const view = { sim, player: sim.players[0]! };
     const ids = statRows().map((r) => r.id);
     for (const id of ['ambulanceLevel', 'fireLevel', 'courierRuns', 'exportCars', 'properties']) expect(ids).toContain(id);
-    const entries = completionEntries().map((e) => e.id);
-    for (const id of ['story', 'packages', 'stunts', 'rampages', 'paramedic', 'firefighter', 'courier', 'carExport', 'garage', 'business']) expect(entries).toContain(id);
-    const counted = completionEntries().filter((e) => e.weight > 0);
-    expect(counted.reduce((s, e) => s + e.weight, 0)).toBeCloseTo(1, 12);
+    const me = sim.players[0]!;
+    // The checklist rows: the activities' come from ActivityDef.completion, the properties' from one registry entry.
+    const rowIds = completionRows(sim, me).map((r) => r.id);
+    for (const id of ['packages', 'stunts', 'rampages', 'activity:ambulance', 'activity:firefighter', 'activity:courier', 'activity:carExport', 'garage', 'business']) expect(rowIds).toContain(id);
+    expect(rowIds.filter((id) => id.startsWith('story:'))).not.toHaveLength(0);
+    const counted = completionEntries().filter((e) => (e.weight ?? 0) > 0);
+    expect(counted.map((e) => e.id).sort()).toEqual(['packages', 'rampages', 'story', 'stunts']);
+    expect(counted.reduce((s, e) => s + (e.weight ?? 0), 0)).toBeCloseTo(1, 12);
     // The baseline formula, for a legacy save: the same number.
     const save = parseSave(legacy())!;
     applySave(sim.progress, save);
     const p = sim.progress;
     const done = sim.missions.defs.filter((d) => p.hasDone(d.id)).length;
     const old = Math.round(((done / sim.missions.defs.length) * 0.5 + (p.packages.length / PACKAGE_COUNT) * 0.2 + (p.stunts.length / sim.world.layout.ramps.length) * 0.15 + (p.rampages.length / 3) * 0.15) * 100);
-    expect(completionPercent(view)).toBe(old);
+    expect(completionPercent(sim, me)).toBe(old);
     // Everything done: 100%.
     for (const d of sim.missions.defs) p.markDone(d.id);
     p.packages.splice(0, p.packages.length, ...Array.from({ length: PACKAGE_COUNT }, (_v, i) => i));
@@ -463,13 +467,14 @@ describe('stats and completion registry', () => {
     Object.assign(activityRecords(p), { ambulanceLevel: 6, fireLevel: 5, courierRuns: 2, exportLists: 1 });
     propertyState(p).garage = true;
     propertyState(p).business = true;
-    expect(completionPercent(view)).toBe(100);
-    for (const e of completionEntries()) {
-      const [d, t] = e.progress(view);
-      expect(d, e.id).toBeGreaterThanOrEqual(t);
+    expect(completionPercent(sim, me)).toBe(100);
+    for (const r of completionRows(sim, me)) {
+      // The taxi, vigilante and Street Run rows are older activities this test does not play.
+      if (['taxi', 'vigilante', 'streetRuns'].includes(r.id)) continue;
+      expect(r.done, r.id).toBeGreaterThanOrEqual(r.total);
     }
     console.log(statRows().map((r) => `${r.label}: ${r.value(view)}`).join('\n'));
-    console.log(completionEntries().map((e) => `${e.label} (${e.weight}): ${e.progress(view).join('/')}`).join('\n'));
+    console.log(completionRows(sim, me).map((r) => `${r.group}/${r.label}: ${r.done}/${r.total}`).join('\n'));
   });
 });
 

@@ -58,15 +58,18 @@ function fixture(calls: { updates: number[]; ends: string[] }): ActivityDef<Fixt
   };
 }
 
-/** The registry's kinds: the four built-in ones, wave 1's four service jobs (w1_activities.test.ts), the street run last. */
-const KINDS = ['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'streetRun'];
+/**
+ * The registry's kinds: the four built-in ones, wave 1's four service jobs (w1_activities.test.ts), the street run,
+ * then the cab (called from the phone, never by the job key, so it sits after the street run).
+ */
+const KINDS = ['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'streetRun', 'cab'];
 
 describe('activity registry', () => {
   afterEach(() => {
     unregisterActivity('fixture');
   });
 
-  it('holds taxi, vigilante, rampage and street run (and the wave-1 jobs), each implementing the full ActivityDef', () => {
+  it('holds taxi, vigilante, rampage, street run and cab (and the wave-1 jobs), each implementing the full ActivityDef', () => {
     expect(activityKinds()).toEqual(KINDS);
     for (const kind of activityKinds()) {
       const def = getActivity(kind)!;
@@ -129,7 +132,7 @@ describe('activity registry', () => {
     it('is offered, started, updated, reported and ended without touching the facade', () => {
       const calls = { updates: [] as number[], ends: [] as string[] };
       registerActivity(fixture(calls));
-      expect(activityKinds()).toEqual([...KINDS.slice(0, -1), 'fixture', 'streetRun']);
+      expect(activityKinds()).toEqual([...KINDS.slice(0, -2), 'fixture', 'streetRun', 'cab']);
 
       const sim = makeSim();
       const ended: Array<SimEvents['activityEnded']> = [];
