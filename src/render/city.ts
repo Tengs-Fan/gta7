@@ -365,7 +365,8 @@ export class CityView {
       this.softwareMeshes.push(mesh);
       return;
     }
-    const parts = spatialGeometry(geo, this.chunkSize);
+    // Layers that cast no shadow are thin ground surfaces: a few triangles a cell, so culling them saves nothing but draws.
+    const parts = spatialGeometry(geo, opts.shadow ? this.chunkSize : Infinity);
     for (const part of parts) {
       const m = new THREE.Mesh(part, mat);
       m.castShadow = opts.shadow ?? false;

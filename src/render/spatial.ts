@@ -3,6 +3,12 @@ import * as THREE from 'three';
 /** About one city block: a batch stays large enough to amortise a draw but small enough to cull. */
 export const STATIC_CHUNK_SIZE = 128;
 
+/**
+ * Cell size of the static batches on hardware GPUs. They are CPU-bound on draw submission, not on triangles, so the
+ * cells are twice the software tier's, whose rasteriser pays for every triangle it is given.
+ */
+export const HARDWARE_CHUNK_SIZE = 256;
+
 export function spatialKey(x: number, z: number, size = STATIC_CHUNK_SIZE): string {
   return `${Math.floor(x / size)},${Math.floor(z / size)}`;
 }

@@ -10,7 +10,7 @@ import { SEABED_Y } from '../world/constants';
 import { rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { adTexture, AD_COUNT, glowTexture, groundTexture } from './textures';
-import { spatialKey, StaticVisibility } from './spatial';
+import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
 import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, occluderOpacity, SIGNAL_BULB_AXIS, type OccluderKind } from './occluderFade';
 import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
 
@@ -396,7 +396,8 @@ export class PropsView {
   private readonly occFlagged = new Set<THREE.Object3D>();
   private readonly occFallen = new Set<Occluder>();
 
-  constructor(private readonly world: StaticWorld) {
+  /** `chunk`: the cell size instances are batched in (one draw per prop shape and cell). */
+  constructor(private readonly world: StaticWorld, private readonly chunk = STATIC_CHUNK_SIZE) {
     this.group.name = 'props';
     this.poolMat = new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xffc27a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
     clipToRect(this.poolMat);
@@ -449,7 +450,7 @@ export class PropsView {
       const buckets = new Map<string, number[]>();
       props.forEach((pi, i) => {
         const p = this.world.layout.props[pi]!;
-        const key = spatialKey(p.x, p.z);
+        const key = spatialKey(p.x, p.z, this.chunk);
         let bucket = buckets.get(key);
         if (!bucket) buckets.set(key, bucket = []);
         bucket.push(i);
@@ -648,7 +649,7 @@ export class PropsView {
     const cells = new Map<string, number[]>();
     signals.forEach((pi, k) => {
       const p = L.props[pi]!;
-      const key = spatialKey(p.x, p.z);
+      const key = spatialKey(p.x, p.z, this.chunk);
       let slots = cells.get(key);
       if (!slots) cells.set(key, slots = []);
       slots.push(k * 3, k * 3 + 1, k * 3 + 2);
@@ -894,7 +895,7 @@ export class PropsView {
       if (!chunked) {
         const cells = new Map<string, typeof all>();
         for (const r of list) {
-          const key = spatialKey(r.x, r.z);
+          const key = spatialKey(r.x, r.z, this.chunk);
           let cell = cells.get(key);
           if (!cell) cells.set(key, cell = []);
           cell.push(r);
@@ -925,7 +926,7 @@ export class PropsView {
     if (antennas.length > 0) {
       const cells = new Map<string, typeof antennas>();
       for (const r of antennas) {
-        const key = spatialKey(r.x, r.z);
+        const key = spatialKey(r.x, r.z, this.chunk);
         let cell = cells.get(key);
         if (!cell) cells.set(key, cell = []);
         cell.push(r);
