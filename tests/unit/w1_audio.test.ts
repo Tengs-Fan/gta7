@@ -254,6 +254,8 @@ describe('talk station', () => {
     frames(30);
     const music = { veh: mixer.vehMix.gain.value, hp: mixer.vehHighpass.frequency.value, music: mixer.musicMix.gain.value };
     while (audio.radio.stationName !== 'AZURA TALK 104.5') audio.radio.next();
+    // Tuning in lands at a random point of the show, and the 0.5-0.8 s gaps between segments are silent on purpose.
+    audio.radio.cueTalk('host');
     frames(30);
     expect(audio.radio.playing).toBe(true);
     expect(audio.radio.talkInfo().rendering).not.toBeNull();

@@ -283,7 +283,6 @@ All of these are minor; the most noticeable come first.
 **Missions and jobs**
 
 - A Spray Shack respray shows the car's new paint a moment before the screen is fully dark.
-- Quitting to the title on the BUSTED or WASTED screen just after passing a mission keeps the pass and its pay but skips the bail or hospital bill.
 
 **Graphics**
 
