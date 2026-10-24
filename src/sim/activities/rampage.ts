@@ -1,5 +1,6 @@
 import { makeBrain } from '../brains';
 import { releaseCharacter } from './shared';
+import type { Character } from '../entities';
 import type { ActivityDef, ActivityHost } from './types';
 
 export interface RampageJob {
@@ -11,6 +12,17 @@ export interface RampageJob {
   spawnTimer: number;
   centerX: number;
   centerZ: number;
+}
+
+/**
+ * The rampage each gang member was spawned for. Several players may run rampages at once (multiplayer): each counts,
+ * credits and releases only its own enemies. A 'rampage'-tagged character with no entry (tagged by hand) belongs to
+ * whichever rampage looks at it, as every tagged one did when there could be only one.
+ */
+const owners = new WeakMap<Character, RampageJob>();
+
+function ownedBy(c: Character, j: RampageJob): boolean {
+  return c.missionTag === 'rampage' && (owners.get(c) ?? j) === j;
 }
 
 function updateRampage(host: ActivityHost, j: RampageJob, dt: number): void {
@@ -33,7 +45,7 @@ function updateRampage(host: ActivityHost, j: RampageJob, dt: number): void {
   j.spawnTimer -= dt;
   if (j.spawnTimer > 0) return;
   j.spawnTimer = 1.2;
-  const alive = sim.characters.filter((c) => c.missionTag === 'rampage' && c.alive && !c.removed).length;
+  const alive = sim.characters.filter((c) => ownedBy(c, j) && c.alive && !c.removed).length;
   if (alive >= 7) return;
   const pp = sim.playerPos();
   const pt = sim.world.walk.randomPointNear(sim.rng, pp.x, pp.z, 22, 48);
@@ -42,6 +54,7 @@ function updateRampage(host: ActivityHost, j: RampageJob, dt: number): void {
   g.owner = 'mission';
   g.persistent = true;
   g.missionTag = 'rampage';
+  owners.set(g, j);
   g.cash = 25;
   const b = makeBrain('fight');
   b.hostile = true;
@@ -81,7 +94,11 @@ export const rampageActivity: ActivityDef<RampageJob> = {
 
   end(host, j) {
     const sim = host.sim;
-    for (const c of sim.characters) if (c.missionTag === 'rampage') releaseCharacter(c);
+    for (const c of sim.characters) {
+      if (!ownedBy(c, j)) continue;
+      owners.delete(c);
+      releaseCharacter(c);
+    }
     if (!sim.progress.rampages.includes(j.tag)) sim.pickupSys.rearmRampage(j.tag, 25, sim.progress);
   },
 
@@ -100,7 +117,7 @@ export const rampageActivity: ActivityDef<RampageJob> = {
       if (!slot) return;
       const h = host.hostOf(slot);
       const j = h.job as RampageJob | null;
-      if (j && j.kind === 'rampage' && e.victim.missionTag === 'rampage') {
+      if (j && j.kind === 'rampage' && ownedBy(e.victim, j)) {
         j.kills++;
         if (j.kills < j.need) h.sim.events.emit('objective', { text: `Rampage: ${j.kills}/${j.need} gang members` });
       }
