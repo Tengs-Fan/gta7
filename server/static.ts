@@ -7,7 +7,8 @@ import { pipeline } from 'node:stream';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, resolve, sep } from 'node:path';
 
-const TYPES: Record<string, string> = {
+/** Content types by extension; exported so the unit test can check the full list. */
+export const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
@@ -26,10 +27,20 @@ const TYPES: Record<string, string> = {
   '.ttf': 'font/ttf',
   '.txt': 'text/plain; charset=utf-8',
   '.wasm': 'application/wasm',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.bin': 'application/octet-stream',
+  '.hdr': 'image/vnd.radiance',
+  '.ktx2': 'image/ktx2',
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',
   '.wav': 'audio/wav',
 };
+
+/** Vite's content-hashed file names (`name-AbCd1234.ext`) never change under the same name, so they cache for a year. */
+const HASHED = /[.-][A-Za-z0-9_-]{8,}\.(?:js|css|woff2?|png|svg|webp)$/;
+/** Models, HDRIs, decoders and the asset manifest only count as hashed inside Vite's assets folder, so a long unhashed name stays revalidated. */
+const HASHED_ASSET = /\/assets\/[^/]*-[A-Za-z0-9_-]{8}\.(?:jpe?g|glb|gltf|bin|hdr|ktx2|wasm|json)$/;
 
 /** The file a request path maps to inside `root`, or null when it is malformed or would leave the root. */
 export function resolveStatic(root: string, url: string): string | null {
@@ -97,7 +108,7 @@ export async function serveStatic(root: string, req: IncomingMessage, res: Serve
   if (!info.isFile()) return plain(res, 404, 'Not found\n', head);
   const type = TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
   if (type.startsWith('text/html')) return serveHtml(file, res, head);
-  const hashed = /[.-][A-Za-z0-9_-]{8,}\.(?:js|css|woff2?|png|svg|webp)$/.test(file);
+  const hashed = HASHED.test(file) || HASHED_ASSET.test(file.split(sep).join('/'));
   res.writeHead(200, {
     'content-type': type,
     'content-length': info.size,

@@ -69,7 +69,7 @@ function coverAt(hours: number, night: number): number {
 
 /**
  * Standard deviation of the sky shader's cloud fbm (mean 0.5) per octave count, measured with
- * textures.ts cloudFbm over the cloud noise texture (r2_city.test.ts checks these); the cloud
+ * textures/misc.ts cloudFbm over the cloud noise texture (r2_city.test.ts checks these); the cloud
  * threshold for a coverage is mean + sd * probit(1 - coverage).
  */
 export const CLOUD_SD: Readonly<Record<number, number>> = { 2: 0.1595, 3: 0.1399, 4: 0.1313, 5: 0.1272 };

@@ -9,7 +9,7 @@ import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
 
 /**
- * The roof slab over a garage's walls, as render/city.ts draws it: from the top of the walls up this
+ * The roof slab over a garage's walls, as render/city/structures.ts draws it: from the top of the walls up this
  * thick (m), overhanging the garage's rectangle by GARAGE_EAVE on every side.
  */
 export const GARAGE_ROOF = 0.4;

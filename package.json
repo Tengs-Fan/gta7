@@ -14,7 +14,9 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run test && npm run build && npm run test:e2e",
-    "server": "tsx server/main.ts --port 4210"
+    "server": "tsx server/main.ts --port 4210",
+    "assets": "node scripts/assets/build.mjs",
+    "assets:fetch": "node scripts/assets/fetch.mjs"
   },
   "dependencies": {
     "@fontsource/anton": "5.3.0",
@@ -23,10 +25,16 @@
     "ws": "8.22.0"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "4.5.1",
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
     "@playwright/test": "1.64.1",
     "@types/node": "22.20.5",
     "@types/three": "0.186.0",
     "@types/ws": "8.18.2",
+    "meshoptimizer": "1.3.0",
+    "sharp": "0.35.5",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vite": "8.3.4",

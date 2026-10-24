@@ -319,7 +319,11 @@ src/
                pickups, markers and shops, properties, side activities, story missions, money, stats
                and the save format (three slots, with per-system data in the save's ext section)
   render/      three.js views that mirror the sim each frame: city, props, sky and ocean, vehicles,
-               instanced crowd with a planted-foot gait, particles, markers, cameras, quality tiers
+               instanced crowd with a planted-foot gait, particles, markers, cameras, quality tiers;
+               city/ and textures/ hold the city builders and the procedural canvas textures per family
+  render/assets/  the asset library: preload with progress, synchronous lookup, clones, procedural fallback
+  assets/      committed models (GLB, meshopt), PBR textures (WebP), the sky HDRI and manifest.json,
+               built by `npm run assets` (see Assets)
   ui/          HUD and radar, the phone, menus and the full-screen map, first-time hints, key and button glyphs
   input/       keyboard with layout-aware key names, mouse with pointer lock, gamepad, cheat codes
   audio/       synthesized effects, mixer and ducking, ambience, engine voices, procedural radio, talk station
@@ -329,9 +333,10 @@ src/
                snapshot mirror, interpolation, local prediction, the single-player-only places (mpPlaces.ts) and the
                address/URL parsing (client.ts, session.ts, transport.ts, mirror.ts, interp.ts, predictor.ts, url.ts)
   game.ts      frame loop, title and play modes, menus, cheats, crash screen, context-loss notice
-  main.ts      boot, WebGL 2 check, fonts, error hooks
+  main.ts      boot (WebGL 2 check, fonts, asset preload behind the loading screen, then the game), error hooks
   settings.ts  settings and the three save slots in localStorage
   debug.ts     window.__gta7, the console and test API (in every build)
+scripts/assets/ downloads the asset sources (fetch.mjs, sources.json) and builds src/assets (build.mjs, catalog.mjs)
 server/        optional Node multiplayer server (rooms, room rules and head-to-head races in lobby.ts, protocol I/O, static file serving); see docs/multiplayer.md
 Dockerfile     builds the client and runs the multiplayer server in a container (untested)
 ```
@@ -362,6 +367,19 @@ New content goes through registries, so a feature adds its own files and a line 
 | A console or test hook | `registerDebug(name, api)` (`src/debug.ts`) puts it at `window.__gta7.ext[name]`; the existing hooks and `state()` fields stay as they are |
 
 Render features declare what they do on each quality tier and free their GPU resources on a tier switch or a lost context; new randomness in the sim must not draw from `sim.rng` unless the feature means to change the seeded run (presentation uses `Math.random`).
+
+## Assets
+
+The look of the game comes from free models and textures that are committed in optimised form under `src/assets/`: `models/` (GLB, meshopt-compressed, welded and deduplicated, textures as WebP of at most 1024 px, 512 by default), `textures/<set>/` (PBR sets as albedo, normal and ORM WebP), `env/sky_1k.hdr` and `manifest.json` (per asset: file, kind, bounds, license id, and for characters a bone map, for vehicles wheel sockets).
+All of it is CC0 (or credited CC-BY); `LICENSES-ASSETS.md` lists every source with author, URL and license and is generated with the manifest.
+
+```sh
+npm run assets:fetch   # downloads the sources listed in scripts/assets/sources.json into ~/Projects/gta7-assets-src (GTA7_ASSETS_SRC overrides) and checks size and sha256; a second run downloads nothing
+npm run assets         # rebuilds src/assets/**, manifest.json and LICENSES-ASSETS.md from those sources (scripts/assets/catalog.mjs says what is built); two runs give identical bytes
+```
+
+The raw downloads (zips, FBX, JPG sets) are never committed. To add an asset, add its source to `sources.json`, run `assets:fetch -- --record` once to fill in size and hash, add a line to `catalog.mjs` and run `npm run assets`.
+At boot `main.ts` waits for the fonts, then calls `assets.preload(onProgress)` (`src/render/assets/`), which fetches the manifest and every file by its content-hashed relative URL (so the game also runs from a sub-path such as GitHub Pages `/gta7/`), decodes them, and moves the bar of the loading screen with the bytes received. Preload waits at most 12 s (`PRELOAD_TIMEOUT_MS`) and never rejects: an asset that fails or stalls simply stays out of the library, logs one `console.warn`, and its view builds today's procedural model. Views ask the library synchronously (`assets.model(id)`, `assets.clone(id)`, `assets.texture(id)`), so Node tests and `?assets=0` run entirely on the procedural models, and a test can load the real files with `loadAssetsFromDisk()` from `src/render/assets/testing.ts`. After preload the renderer's warm-up compiles the asset materials once, and again after a lost WebGL context is restored. `window.__gta7.ext.assets` lists what loaded.
 
 ## Testing
 
@@ -512,6 +530,17 @@ Nothing adjusts itself at runtime: there is no dynamic resolution, and the tier 
 `node scripts/playtest.mjs --scenario perf` prints fps, draw calls, triangles and heap at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
 `window.__gta7.game.renderer.vehicleParts.counts` reports the vehicle part batches and `contactShadows.drawn` the contact-shadow depth draws; `window.__gta7.game.renderer.crowd.firstDrawn` lists the last 400 characters drawn for the first time.
 `window.__gta7.state()` reports actual wall-clock `fps`, plus `render.calls` and the latest CPU timings in `perf.frameMs`, `simMs` and `renderMs`. `perf.frameIntervalMs` measures the time between animation frames, including GPU or browser delays that CPU timings miss. Physics still clamps long frames for stability; the FPS counter does not. Sample many frames when comparing performance.
+
+## Credits
+
+Models, textures and the sky come from CC0 sources, listed one by one in [LICENSES-ASSETS.md](LICENSES-ASSETS.md):
+
+- [Quaternius](https://quaternius.com) (via [Poly Pizza](https://poly.pizza)): the Ultimate Modular Men and Women characters, cars, trucks, street props and the palm tree.
+- [Kenney](https://kenney.nl): Car Kit, Watercraft Kit, City Kit (Commercial, Suburban, Roads) and Nature Kit.
+- [Poly Haven](https://polyhaven.com): PBR ground and wall textures and the Kloofendal sky HDRI (Greg Zaal, Jarod Guest).
+- [ambientCG](https://ambientcg.com): facade materials.
+
+No asset needs attribution; CC-BY assets, if one is ever added, are credited here by the text in their `LICENSES-ASSETS.md` row.
 
 ## License
 

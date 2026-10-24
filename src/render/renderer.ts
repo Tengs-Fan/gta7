@@ -31,6 +31,7 @@ import { SoftwareMaterials } from './softwareMaterials';
 import { ClassViewPool, type AnyVehicleView } from './classViews';
 import { SHADOW_LAYER, VehiclePartBatches } from './vehicleBatches';
 import { freezeVehicleParts } from './vehicleView';
+import { assets } from './assets';
 
 export type Quality = QualityTier;
 
@@ -348,6 +349,10 @@ export class GameRenderer {
     const depthProbe = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshDepthMaterial({ alphaHash: true }));
     depthProbe.position.set(0, -50, 0);
     this.scene.add(depthProbe);
+    // Loaded asset models are in the scene only while compiling, so their programs exist before the first use.
+    const assetProbe = assets.warmGroup();
+    this.softwareMaterials?.apply(assetProbe);
+    this.scene.add(assetProbe);
     // With the HDR output three draws the scene into its half-float target with tone mapping off and
     // a linear colour space. Compiling for the canvas would build the tone-mapped sRGB variants,
     // which are never drawn, so a stand-in half-float target is bound while compiling.
@@ -367,6 +372,7 @@ export class GameRenderer {
     }
     target?.dispose();
     this.rain.mesh.visible = rainShown;
+    this.scene.remove(assetProbe);
     this.scene.remove(depthProbe);
     depthProbe.geometry.dispose();
     // Kept, undisposed, so the programs they compiled stay for the session's fades (a program goes with its last user).

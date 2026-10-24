@@ -5,6 +5,8 @@ export default defineConfig({
   base: './',
   build: {
     target: 'es2022',
+    // Models and textures are fetched by URL at boot; none may become a data: URI.
+    assetsInlineLimit: 0,
     sourcemap: true,
     chunkSizeWarningLimit: 1500,
   },

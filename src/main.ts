@@ -5,8 +5,12 @@ import '@fontsource/rajdhani/latin-700.css';
 import './ui/style.css';
 import { Game } from './game';
 import { installCombatDebug } from './combatDebug';
-import { installDebugApi } from './debug';
+import { installDebugApi, registerDebug } from './debug';
 import { netOptionsFromUrl } from './net/url';
+import { runBoot } from './boot';
+import { loadingMarkup, setLoadingProgress } from './loadingScreen';
+import { assets, type AssetKind } from './render/assets';
+import { browserBackend } from './render/assets/browser';
 
 function webgl2Available(): boolean {
   try {
@@ -27,45 +31,67 @@ function showError(ui: HTMLElement, title: string, text: string): void {
 async function boot(): Promise<void> {
   const ui = document.getElementById('ui')!;
   const canvas = document.getElementById('game') as HTMLCanvasElement;
-  ui.innerHTML = '<div class="loading"><div>LOADING SAN AZURA<div class="bar"><i style="width:100%;display:block;height:100%;background:#ff4fa3;animation:pulse .8s infinite alternate"></i></div></div></div>';
-  if (!webgl2Available()) {
-    showError(ui, 'WEBGL 2 REQUIRED', 'Your browser or graphics driver does not support WebGL 2. Try a recent Chrome, Edge or Firefox with hardware acceleration enabled.');
-    return;
-  }
-  // Fonts are used for canvas-drawn signs; wait briefly so they render with the right typeface.
+  // ?assets=0 skips the asset preload: every view then builds its procedural model.
+  const useAssets = new URLSearchParams(location.search).get('assets') !== '0';
   try {
-    await Promise.race([
-      Promise.all([document.fonts.load('400 40px Anton'), document.fonts.load('700 40px Rajdhani'), document.fonts.load('600 40px Rajdhani')]),
-      new Promise((r) => setTimeout(r, 2500)),
-    ]);
-  } catch {
-    // Fall back to system fonts.
-  }
-  // Let the loading screen paint before the heavy synchronous build.
-  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-  try {
-    ui.innerHTML = '';
-    const game = new Game(canvas, ui);
-    installDebugApi(game);
-    installCombatDebug(game);
-    // Errors outside the frame loop (DOM handlers, promises) never stop the game: they are logged, and the
-    // crash report lists them should the game break later.
-    window.addEventListener('error', (e) => {
-      console.error('GTA7 uncaught error', e.error ?? e.message);
-      game.noteEvent('error', String(e.message || e.error));
+    await runBoot({
+      showLoading() {
+        ui.innerHTML = loadingMarkup();
+        if (webgl2Available()) return true;
+        showError(ui, 'WEBGL 2 REQUIRED', 'Your browser or graphics driver does not support WebGL 2. Try a recent Chrome, Edge or Firefox with hardware acceleration enabled.');
+        return false;
+      },
+      // Fonts are used for canvas-drawn signs; wait briefly so they render with the right typeface.
+      async fonts() {
+        try {
+          await Promise.race([
+            Promise.all([document.fonts.load('400 40px Anton'), document.fonts.load('700 40px Rajdhani'), document.fonts.load('600 40px Rajdhani')]),
+            new Promise((r) => setTimeout(r, 2500)),
+          ]);
+        } catch {
+          // Fall back to system fonts.
+        }
+      },
+      // Never rejects: assets that fail or stall fall back to the procedural models.
+      assets: (onProgress) => (useAssets ? assets.preload(onProgress, { backend: browserBackend }) : Promise.resolve()),
+      onProgress: (f) => setLoadingProgress(ui, f),
+      paint: () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))),
+      startGame: () => startGame(ui, canvas),
     });
-    window.addEventListener('unhandledrejection', (e) => {
-      console.error('GTA7 unhandled rejection', e.reason);
-      game.noteEvent('rejection', String(e.reason instanceof Error ? e.reason.message : e.reason));
-    });
-    game.start();
-    // ?mp=1 joins a multiplayer room straight away (no WebSocket is opened otherwise).
-    const mp = netOptionsFromUrl(location.search, location, !!document.querySelector('meta[name="gta7-server"]'));
-    if (mp) void game.joinMultiplayer(mp);
   } catch (err) {
     console.error(err);
     showError(ui, 'COULD NOT START', `The game failed to initialise: ${String(err instanceof Error ? err.message : err).replace(/</g, '&lt;')}`);
   }
 }
+
+function startGame(ui: HTMLElement, canvas: HTMLCanvasElement): void {
+  ui.innerHTML = '';
+  const game = new Game(canvas, ui);
+  installDebugApi(game);
+  installCombatDebug(game);
+  // Errors outside the frame loop (DOM handlers, promises) never stop the game: they are logged, and the
+  // crash report lists them should the game break later.
+  window.addEventListener('error', (e) => {
+    console.error('GTA7 uncaught error', e.error ?? e.message);
+    game.noteEvent('error', String(e.message || e.error));
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    console.error('GTA7 unhandled rejection', e.reason);
+    game.noteEvent('rejection', String(e.reason instanceof Error ? e.reason.message : e.reason));
+  });
+  game.start();
+  // ?mp=1 joins a multiplayer room straight away (no WebSocket is opened otherwise).
+  const mp = netOptionsFromUrl(location.search, location, !!document.querySelector('meta[name="gta7-server"]'));
+  if (mp) void game.joinMultiplayer(mp);
+}
+
+// window.__gta7.ext.assets: what the preload loaded, for the tests and the console.
+registerDebug('assets', {
+  report: () => ({ ...assets.report, ready: assets.ready, loadedIds: assets.ids().length }),
+  ids: (kind?: AssetKind) => assets.ids(kind),
+  entry: (id: string) => assets.entry(id),
+  warmGroup: () => assets.warmGroup(),
+  list: () => (assets.manifest?.entries ?? []).map((e) => ({ id: e.id, kind: e.kind, bytes: e.bytes, loaded: assets.has(e.id) })),
+});
 
 void boot();

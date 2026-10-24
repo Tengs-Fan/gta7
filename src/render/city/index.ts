@@ -1,0 +1,100 @@
+// Static city geometry: terrain, roads, markings, sidewalks, buildings, roofs,
+// coast, piers, ramps, garages and signs. Spatial batches retain material sharing and culling.
+
+import * as THREE from 'three';
+import { BOARDWALK_W } from '../../world/constants';
+import type { StaticWorld } from '../../world/staticWorld';
+import { CulledStaticMesh, spatialGeometry, StaticVisibility } from '../spatial';
+import { WetGround } from '../wetGround';
+import { groundSurface, type GroundTex } from '../textures';
+import { buildBuildings, occupancy, shopOccupancy } from './buildings';
+import { buildGround } from './ground';
+import { buildRoads } from './roads';
+import { buildCoast } from './coast';
+import { buildStructures } from './structures';
+import type { CityMaterials, Entrance, NightUniforms } from './shared';
+
+export { frontageSplit, occupancy, shopOccupancy } from './buildings';
+export type { FrontageSplit } from './buildings';
+export type { CityMaterials, Entrance } from './shared';
+
+export class CityView {
+  readonly group = new THREE.Group();
+  readonly materials: CityMaterials = { facades: new Map(), signs: [], storefront: null, decor: null };
+  /** The drawn main door of every building with one, by building id (a special's stands in front of its POI marker). */
+  readonly entrances = new Map<number, Entrance>();
+  readonly nightU: NightUniforms = { occupancy: { value: 0 }, shopOccupancy: { value: 0 }, time: { value: 0 } };
+  readonly visibility = new StaticVisibility();
+  /** The wet-ground patch on the paved surfaces (roads, markings, pavements, plazas, car parks, boardwalk, piers). */
+  readonly wet = new WetGround();
+  private readonly softwareMeshes: CulledStaticMesh[] = [];
+  private readonly frustum = new THREE.Frustum();
+  private readonly projection = new THREE.Matrix4();
+
+  constructor(readonly world: StaticWorld, private readonly chunkSize = Infinity, private readonly software = false) {
+    this.group.name = 'city';
+    buildBuildings(this);
+    buildGround(this);
+    buildRoads(this);
+    buildCoast(this);
+    buildStructures(this);
+    this.group.traverse((o) => {
+      if (o instanceof THREE.Mesh && !(o instanceof CulledStaticMesh)) this.visibility.add(o);
+    });
+  }
+
+  cull(camera: THREE.Camera, distance: number): void {
+    camera.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    this.visibility.update(camera.position.x, camera.position.z, distance);
+    for (const mesh of this.softwareMeshes) mesh.prepare(this.frustum, camera.position.x, camera.position.z, distance);
+  }
+
+  add(geo: THREE.BufferGeometry, mat: THREE.Material, opts: { shadow?: boolean; receive?: boolean; name?: string } = {}): void {
+    if (this.software) {
+      const mesh = new CulledStaticMesh(geo, mat, this.chunkSize);
+      mesh.name = opts.name ?? '';
+      this.group.add(mesh);
+      this.softwareMeshes.push(mesh);
+      return;
+    }
+    // Layers that cast no shadow are thin ground surfaces: a few triangles a cell, so culling them saves nothing but draws.
+    const parts = spatialGeometry(geo, opts.shadow ? this.chunkSize : Infinity);
+    for (const part of parts) {
+      const m = new THREE.Mesh(part, mat);
+      m.castShadow = opts.shadow ?? false;
+      m.receiveShadow = opts.receive ?? true;
+      m.matrixAutoUpdate = false;
+      m.updateMatrix();
+      if (opts.name) m.name = opts.name;
+      this.group.add(m);
+    }
+    if (parts[0] !== geo) geo.dispose();
+  }
+
+  /** Albedo, grain/joints and roughness share one UV scale on each ground surface. */
+  surface(kind: GroundTex, roughness = 1, seed = 1): THREE.MeshStandardMaterial {
+    const surface = groundSurface(kind, seed);
+    return new THREE.MeshStandardMaterial({
+      map: surface.map,
+      roughnessMap: surface.rough,
+      normalMap: surface.normal,
+      normalScale: new THREE.Vector2(0.55, 0.55),
+      roughness,
+      metalness: kind === 'metal' ? 0.35 : 0,
+    });
+  }
+
+  /** Night factor 0..1, the time of day in hours (lit windows and shops) and the render time in seconds (TV flicker). */
+  update(night: number, hours: number, time: number): void {
+    this.nightU.occupancy.value = occupancy(hours);
+    this.nightU.shopOccupancy.value = shopOccupancy(hours);
+    // Wrapped daily: float precision stays fine for the flicker, and it jumps once a day at most.
+    this.nightU.time.value = time % 86400;
+    for (const m of this.materials.facades.values()) m.emissiveIntensity = night * 1.4;
+    if (this.materials.storefront) this.materials.storefront.emissiveIntensity = night * 1.5;
+    for (const m of this.materials.signs) m.emissiveIntensity = 0.35 + night * 3.2;
+  }
+}
+
+export { BOARDWALK_W };
