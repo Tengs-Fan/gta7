@@ -319,7 +319,10 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     this.characters.push(c);
   }
 
-  /** What leaving the world does to a player: out of his seat, job over, pursuit called off, wanted level gone. */
+  /**
+   * What leaving the world does to a player: out of his seat, job over, pursuit called off, wanted level gone, and the
+   * witness calls and angry drivers after him dropped.
+   */
   private leaveWorld(slot: PlayerSlot): void {
     const c = slot.character;
     if (c.state === 'entering') c.state = 'normal';
@@ -329,6 +332,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     slot.wanted.clear();
     this.police.dismiss(slot);
     this.combat.forgetCulprit(c);
+    this.witnesses.forget(slot);
+    this.angryDrivers.forget(c);
   }
 
   /** The slot a player character sits in; undefined for every other character. */

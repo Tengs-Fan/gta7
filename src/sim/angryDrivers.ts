@@ -101,11 +101,37 @@ export class AngryDriverSystem implements SimSystem {
     this.log.push({ at: sim.time, deltaV, car: v.id, out, fights, grievance });
   }
 
+  /**
+   * The player `by` left the world (multiplayer): whoever he rammed lets it go. One still in his car drives on, one
+   * fighting him heads back to his car; nobody else takes his place as the target (slot 0 goes to the next player).
+   */
+  forget(by: Character): void {
+    for (const g of this.active) if (g.by === by) this.letGo(g);
+    for (let i = this.active.length - 1; i >= 0; i--) if (this.active[i]!.state === 'done') this.active.splice(i, 1);
+  }
+
+  private letGo(g: Grievance): void {
+    const c = g.driver;
+    if (g.state === 'waiting') {
+      g.state = 'done';
+    } else if (g.state === 'fighting') {
+      g.backSince = this.sim.time;
+      if (c.brain && c.brain.mode === 'fight') {
+        c.brain.mode = 'idle';
+        c.brain.target = null;
+        c.brain.modeTimer = 0.5;
+      }
+      g.state = 'returning';
+    }
+  }
+
   update(sim: Sim, _dt: number): void {
     const multi = sim.players.length > 1;
     for (const g of this.active) {
-      // The player who rammed him (slot 0 in single player).
-      const slot = (multi ? sim.slotOf(g.by) : undefined) ?? sim.players[0]!;
+      // The player who rammed him (slot 0 in single player); gone from the world, the grievance goes with him.
+      const found = multi ? sim.slotOf(g.by) : sim.players[0]!;
+      if (!found || found.parked) this.letGo(g);
+      const slot = found ?? sim.players[0]!;
       const p = slot.character;
       const pp = slot.pos();
       const c = g.driver;

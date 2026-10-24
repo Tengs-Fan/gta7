@@ -544,6 +544,20 @@ export class PoliceSystem {
     return false;
   }
 
+  /**
+   * Whether player slot `id`'s pursuit has room for one more unit: fewer on duty for it than its level sends
+   * (UNITS_BY_LEVEL), the admission dispatch and patrol claiming use. No room for a player with no stars, down, out of
+   * the world or gone.
+   */
+  hasRoom(id: number): boolean {
+    const slot = this.sim.players.find((s) => s.id === id);
+    if (!slot || slot.parked) return false;
+    const level = slot.down ? 0 : slot.wanted.level;
+    let n = 0;
+    for (const v of this.sim.vehicles) if (this.isUnit(v) && this.targetSlotOf(v) === id) n++;
+    return n < UNITS_BY_LEVEL[level]!;
+  }
+
   private chasingUnits(): number {
     let n = 0;
     for (const v of this.sim.vehicles) if (this.isUnit(v) && this.mine(v)) n++;
