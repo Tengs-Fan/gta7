@@ -1,6 +1,7 @@
 // The on-foot camera with no room behind the player (his back to a wall downtown, in a narrow alley, in a garage and
 // its corner): it rises and looks down over his shoulder so that he stays drawn whole, instead of dissolving at the
-// lens, and it glides there. Elsewhere (an open street, aiming, a trunk behind him) it frames him as before.
+// lens, and it glides there, aiming or not (the crosshair ray stays the view drawn). Elsewhere (an open street, a trunk
+// behind him, the sniper's scope) it frames him as before.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
@@ -78,6 +79,32 @@ function drawn(crowd: CrowdView, cam: THREE.PerspectiveCamera): { total: number;
       }
     }
   });
+  return out;
+}
+
+/** The fraction of the drawn parts `names`' vertices in the frame and not dissolving at the lens (nearer than LENS_FADE_FULL). */
+function readable(crowd: CrowdView, cam: THREE.PerspectiveCamera, names: string[]): Record<string, number> {
+  cam.updateMatrixWorld(true);
+  crowd.group.updateMatrixWorld(true);
+  const parts = (crowd as unknown as { parts: Record<string, { mesh: THREE.InstancedMesh }> }).parts;
+  const v = new THREE.Vector3();
+  const q = new THREE.Vector3();
+  const m = new THREE.Matrix4();
+  const out: Record<string, number> = {};
+  for (const name of names) {
+    const mesh = parts[name]!.mesh;
+    const pos = mesh.geometry.getAttribute('position');
+    let ok = 0;
+    for (let k = 0; k < pos.count; k++) {
+      mesh.getMatrixAt(0, m);
+      m.premultiply(mesh.matrixWorld);
+      v.fromBufferAttribute(pos, k).applyMatrix4(m);
+      const depth = -q.copy(v).applyMatrix4(cam.matrixWorldInverse).z;
+      const s = q.copy(v).project(cam);
+      if (depth >= LENS_FADE_FULL && Math.abs(s.x) <= 1 && Math.abs(s.y) <= 1) ok++;
+    }
+    out[name] = ok / pos.count;
+  }
   return out;
 }
 
@@ -247,18 +274,6 @@ describe('his back to a wall, the camera rises over his shoulder and he stays dr
     expect(cases).toBe(160);
   });
 
-  it('aiming there keeps the aim view where the look puts it: no tilt, only the close-boom rise', () => {
-    const W = world();
-    const f = openFaces(W)[0]!;
-    const r = standAt(W, f.x + f.ox * 0.36, f.z + f.oz * 0.36, Math.atan2(f.ox, f.oz));
-    for (let k = 0; k < 60; k++) frame(r, { aim: true }, true);
-    // Aiming the crosshair stays where the look puts it: no tilt, and the old close-boom rise only.
-    expect(viewPitch(r.cam)).toBeCloseTo(REST, 6);
-    const head = headCentre(r.crowd);
-    expect(r.cam.camera.position.y - head.y).toBeLessThan(0.6);
-    expectSoundView(r, 'aiming');
-  });
-
   it('in narrow alleys, his back to either wall', () => {
     const W = world();
     const list = alleys(W).slice(0, 6);
@@ -399,7 +414,7 @@ describe('getting there glides, and he never dissolves on the way', () => {
     expect(viewPitch(tilt.cam)).toBeGreaterThan(1.3);
   });
 
-  it('starting to aim against the wall eases the view back level, and paused it holds still', () => {
+  it('starting to aim against the wall keeps him framed from above without a jump, and paused it holds still', () => {
     const W = world();
     const f = openFaces(W)[2]!;
     const r = standAt(W, f.x + f.ox * 0.36, f.z + f.oz * 0.36, Math.atan2(f.ox, f.oz));
@@ -412,15 +427,192 @@ describe('getting there glides, and he never dissolves on the way', () => {
     expect(viewPitch(r.cam)).toBeCloseTo(raised, 9);
     let last = raised;
     let most = 0;
-    for (let k = 0; k < 60; k++) {
+    let moved = 0;
+    let prev = r.cam.camera.position.clone();
+    for (let k = 0; k < 90; k++) {
       frame(r, { aim: true }, true);
       const v = viewPitch(r.cam);
       most = Math.max(most, Math.abs(v - last));
       last = v;
+      moved = Math.max(moved, r.cam.camera.position.distanceTo(prev));
+      prev = r.cam.camera.position.clone();
       expectSoundView(r, `aiming, frame ${k}`);
+      const seen = readable(r.crowd, r.cam.camera, ['head', 'torso']);
+      expect(seen.head, `frame ${k}`).toBeGreaterThan(0.98);
+      expect(seen.torso, `frame ${k}`).toBeGreaterThan(0.98);
     }
-    expect(most).toBeLessThan(0.15);
-    expect(last).toBeCloseTo(REST, 4);
+    // Neither the view nor the camera jumps as the aim narrows the field of view and draws the boom in.
+    expect(most).toBeLessThan(0.1);
+    expect(moved).toBeLessThan(0.3);
+    expect(last).toBeLessThan(-0.7);
+  });
+});
+
+describe('aiming with his back to a wall keeps his head and torso in the frame', () => {
+  /** Settles `r` aiming for 90 frames and checks what every aimed framing must keep. */
+  function settleAim(r: Run, label: string, off: number): void {
+    for (let k = 0; k < 90; k++) frame(r, { aim: true }, true);
+    const seen = readable(r.crowd, r.cam.camera, ['head', 'torso']);
+    expect(seen.head, `${label}: ${JSON.stringify(seen)}`).toBeGreaterThan(off === 0 ? 0.99 : 0.9);
+    // (Turned toward a corner the torso's far side may leave the frame, as the whole body does unaimed.)
+    expect(seen.torso, `${label}: ${JSON.stringify(seen)}`).toBeGreaterThan(off === 0 ? 0.9 : 0.4);
+    const d = drawn(r.crowd, r.cam.camera);
+    expect(d.dissolving, `${label}: ${JSON.stringify(d)}`).toBeLessThanOrEqual(0.02 * d.inFrame);
+    expectSoundView(r, label);
+    expect(r.cam.scoped, label).toBe(false);
+  }
+
+  it('downtown faces facing every way, 0.36 to 1.2 m off, the view straight out or turned half a radian', () => {
+    const W = world();
+    let cases = 0;
+    for (const f of openFaces(W)) {
+      for (const gap of [0.36, 0.8, 1.2]) {
+        for (const off of [0, -0.5, 0.5]) {
+          const r = standAt(W, f.x + f.ox * gap, f.z + f.oz * gap, Math.atan2(f.ox, f.oz), off);
+          settleAim(r, `${f.side} face, ${gap} m, view ${off} rad`, off);
+          cases++;
+        }
+      }
+    }
+    expect(cases).toBe(72);
+  });
+
+  it('in narrow alleys, his back to either wall', () => {
+    const W = world();
+    const list = alleys(W).slice(0, 6);
+    expect(list.length).toBe(6);
+    for (const a of list) {
+      for (const [x, heading] of [[a.west + 0.4, Math.PI / 2], [a.east - 0.4, -Math.PI / 2]] as const) {
+        for (const off of [0, 0.5, -0.5]) {
+          const r = standAt(W, x, a.z, heading, off);
+          settleAim(r, `alley ${a.west.toFixed(1)}..${a.east.toFixed(1)} at z ${a.z.toFixed(1)}, facing ${heading > 0 ? 'east' : 'west'}, view ${off}`, off);
+          const c = r.cam.camera.position;
+          expect(c.x).toBeGreaterThan(a.west);
+          expect(c.x).toBeLessThan(a.east);
+        }
+      }
+    }
+  });
+
+  it('inside each garage, his back to its back wall and in its back corners, under its roof', () => {
+    const W = world();
+    let cases = 0;
+    for (const g of W.layout.garages) {
+      const rc = g.rect;
+      const n = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] }[g.side] as [number, number];
+      const inner = { minX: rc.minX + 0.5, maxX: rc.maxX - 0.5, minZ: rc.minZ + 0.5, maxZ: rc.maxZ - 0.5 };
+      const cx = (rc.minX + rc.maxX) / 2;
+      const cz = (rc.minZ + rc.maxZ) / 2;
+      const face = { x: n[0] !== 0 ? (n[0] > 0 ? inner.minX : inner.maxX) : cx, z: n[1] !== 0 ? (n[1] > 0 ? inner.minZ : inner.maxZ) : cz };
+      const heading = Math.atan2(n[0], n[1]);
+      const right = { x: -Math.cos(heading), z: Math.sin(heading) };
+      for (const along of [0, 4.6, -4.6]) {
+        const x = face.x + n[0] * 0.4 + right.x * along;
+        const z = face.z + n[1] * 0.4 + right.z * along;
+        for (const off of [0, 0.5, -0.5]) {
+          const r = standAt(W, x, z, heading, off);
+          const label = `${g.poi}, ${along === 0 ? 'back wall' : along > 0 ? 'right corner' : 'left corner'}, view ${off}`;
+          settleAim(r, label, off);
+          const c = r.cam.camera.position;
+          expect(c.x > inner.minX && c.x < inner.maxX && c.z > inner.minZ && c.z < inner.maxZ, `${label}: camera ${c.toArray()}`).toBe(true);
+          expect(c.y, label).toBeLessThan(r.sim.player.pos.y + g.height - 0.3);
+          cases++;
+        }
+      }
+    }
+    expect(cases).toBe(W.layout.garages.length * 9);
+  });
+
+  it('the crosshair ray is the camera ray every frame, through a turn of the look while aiming at the wall', () => {
+    const W = world();
+    const f = openFaces(W)[0]!;
+    const r = standAt(W, f.x + f.ox * 0.36, f.z + f.oz * 0.36, Math.atan2(f.ox, f.oz));
+    for (let k = 0; k < 120; k++) {
+      r.cam.look(k < 60 ? 3 : -3, k < 30 ? 2 : k < 90 ? -1 : 1);
+      frame(r, { aim: true }, true);
+      expectSoundView(r, `frame ${k}`);
+    }
+  });
+
+  it('a shot along the crosshair, with his back to the wall, hits someone it passes through', () => {
+    const W = world();
+    const f = openFaces(W)[1]!;
+    const heading = Math.atan2(f.ox, f.oz);
+    const r = standAt(W, f.x + f.ox * 0.36, f.z + f.oz * 0.36, heading);
+    for (let k = 0; k < 90; k++) frame(r, { aim: true }, true);
+    const p = r.sim.player;
+    // The ray's crossing of the vertical plane 3 m ahead of him, and the pitch that puts it at chest height there.
+    const crossing = (pitch: number) => {
+      r.cam.pitch = pitch;
+      const ray = r.cam.rayFor();
+      const ahead = Math.hypot(ray.dir.x, ray.dir.z);
+      const t = (3 - ((ray.origin.x - p.pos.x) * f.ox + (ray.origin.z - p.pos.z) * f.oz)) / ((ray.dir.x * f.ox + ray.dir.z * f.oz) || ahead);
+      return { y: ray.origin.y + ray.dir.y * t, x: ray.origin.x + ray.dir.x * t, z: ray.origin.z + ray.dir.z * t };
+    };
+    for (let pass = 0; pass < 6; pass++) {
+      let lo = -1.2;
+      let hi = 1.3;
+      for (let i = 0; i < 40; i++) {
+        const mid = (lo + hi) / 2;
+        if (crossing(mid).y < p.pos.y + 1.2) lo = mid;
+        else hi = mid;
+      }
+      r.cam.pitch = (lo + hi) / 2;
+      for (let k = 0; k < 40; k++) frame(r, { aim: true }, true);
+    }
+    const at = crossing(r.cam.pitch);
+    expect(Math.abs(at.y - (p.pos.y + 1.2))).toBeLessThan(0.05);
+    const e = r.sim.spawnCharacter('gang', at.x, at.z);
+    e.armor = 5000;
+    const spot = { x: e.pos.x, z: e.pos.z };
+    const shots: Array<{ shooter: unknown; hit: string }> = [];
+    r.sim.events.on('shot', (s) => shots.push(s));
+    const home = { x: p.pos.x, z: p.pos.z };
+    for (let k = 0; k < 20; k++) {
+      p.pos.x = home.x;
+      p.pos.z = home.z;
+      e.pos.x = spot.x;
+      e.pos.z = spot.z;
+      e.vel.x = 0;
+      e.vel.z = 0;
+      frame(r, { aim: true, fire: k === 10, firePressed: k === 10 }, true);
+    }
+    expect(shots.filter((s) => s.shooter === p).map((s) => s.hit)).toEqual(['flesh']);
+    expect(e.armor).toBeLessThan(5000);
+  });
+});
+
+describe('aiming with room behind him, and through the scope, is framed as before', () => {
+  it('in an open street the aim view is the look and the boom is 2.4 m, with no rise', () => {
+    const W = world();
+    const f = openFaces(W)[3]!;
+    const r = standAt(W, f.x + f.ox * 8, f.z + f.oz * 8, Math.atan2(f.ox, f.oz) + Math.PI);
+    for (let k = 0; k < 90; k++) frame(r, { aim: true }, true);
+    expect(viewPitch(r.cam)).toBeCloseTo(REST, 9);
+    const head = headCentre(r.crowd);
+    expect(Math.hypot(r.cam.camera.position.x - head.x, r.cam.camera.position.z - head.z)).toBeGreaterThan(2.2);
+    expect(r.cam.camera.position.y - head.y).toBeLessThan(0.6);
+    expectSoundView(r, 'open street');
+  });
+
+  it('with a sniper rifle and his back to the wall the scope is still the eye view: no rise, no tilt, narrowed field of view', () => {
+    const W = world();
+    const f = openFaces(W)[0]!;
+    const r = standAt(W, f.x + f.ox * 0.36, f.z + f.oz * 0.36, Math.atan2(f.ox, f.oz));
+    r.sim.player.inventory.give('sniper', 20);
+    r.sim.player.inventory.current = 'sniper';
+    const baseFov = r.cam.camera.fov;
+    for (let k = 0; k < 90; k++) frame(r, { aim: true }, true);
+    expect(r.cam.scoped).toBe(true);
+    expect(viewPitch(r.cam)).toBeCloseTo(REST + (r.cam as unknown as { swayPitch: number }).swayPitch, 6);
+    expect(r.cam.camera.fov).toBeLessThan(baseFov / 2);
+    const p = r.sim.player;
+    expect(r.cam.camera.position.y - (p.pos.y + 1.62 * p.appearance.height)).toBeCloseTo(0, 9);
+    const ray = r.cam.rayFor();
+    const c = r.cam.camera.position;
+    const dir = r.cam.camera.getWorldDirection(new THREE.Vector3());
+    expect(Math.hypot(ray.origin.x - c.x, ray.origin.y - c.y, ray.origin.z - c.z)).toBeLessThan(1e-9);
+    expect(Math.hypot(ray.dir.x - dir.x, ray.dir.y - dir.y, ray.dir.z - dir.z)).toBeLessThan(1e-9);
   });
 });
 

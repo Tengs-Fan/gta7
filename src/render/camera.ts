@@ -71,7 +71,7 @@ const CLOSE_FULL = 0.35;
 const CLOSE_LIFT = 0.35;
 const CLOSE_SIDE = 0.2;
 /**
- * Not aiming, a wall (or a van) that leaves the boom no room to stand RAISE_DEPTH m back from his head raises the camera
+ * On land, aiming or not (the scope has its own eye view), a wall (or a van) that leaves the boom no room to stand RAISE_DEPTH m back from his head raises the camera
  * instead and looks down over his shoulder. CrowdView dissolves whatever is nearer the lens than LENS_FADE_FULL (0.9 m
  * of depth along the view; the extra 0.3 m covers the crown of his head, a hat, and a chest or swinging arm nearer the
  * lens than his head while the view is still level), and the view's yaw is his, so with his back to the wall depth can
@@ -84,6 +84,11 @@ const CLOSE_SIDE = 0.2;
  */
 const RAISE_DEPTH = 1.2;
 const RAISE_KEEP = 0.5;
+/**
+ * The aim's narrower field of view (16 degrees less) leaves less of his body below his head in the frame at the same
+ * depth, so in step with it his head rises toward the frame's middle by this fraction of RAISE_KEEP.
+ */
+const RAISE_KEEP_AIM_CUT = 0.8;
 const RAISE_BOTTOM = 0.05;
 const RAISE_MAX = 1.4;
 const RAISE_SIDE = 0.2;
@@ -608,7 +613,7 @@ export class CameraController {
     let swimming = false;
     // In the water and not aiming: raised ground is looked over (liftSight) rather than stopping the boom.
     let lookOver = false;
-    // On land and not aiming: a wall close behind raises the camera over him (see RAISE_DEPTH).
+    // On land: a wall close behind raises the camera over him (see RAISE_DEPTH), aiming or not.
     let raise = false;
     this.rumbleAmt = 0;
     if (me.down && me.deathKind === 'wasted') {
@@ -659,7 +664,7 @@ export class CameraController {
       const scope = aim && p.state === 'normal' && p.alive ? WEAPONS[p.inventory.current]?.scope : undefined;
       if (scope) return this.scopeView(dt, p, scope.zooms[Math.min(scope.zooms.length - 1, Math.max(0, p.scopeLevel))] ?? scope.zooms[0]!, scope.sway, wasScoped);
       lookOver = !aim && (swimming || p.pos.y < WATER_Y);
-      raise = !aim && !lookOver;
+      raise = !lookOver;
       const lying = p.state === 'knocked' || p.state === 'dead';
       const headY = swimming ? 1.6 : lying ? 0.7 : 1.58 * p.appearance.height;
       this.target.lerp(new THREE.Vector3(p.pos.x, p.pos.y + headY, p.pos.z), 1 - Math.exp(-22 * dt));
@@ -858,7 +863,7 @@ export class CameraController {
   /**
    * A wall right behind the player (the on-foot boom cut to `reach` m, shorter than CLOSE_BOOM): the camera rises and
    * slides out over the shoulder it is on, as far as nothing solid comes within 0.3 m of the lens. Where it may `raise`
-   * (on land, not aiming) it goes on up and tilts the view down to frame him (see RAISE_DEPTH), gliding over the `dt` s
+   * (on land) it goes on up and tilts the view down to frame him (see RAISE_DEPTH), gliding over the `dt` s
    * of this frame unless the boom is `fresh`.
    */
   private closeBoom(sim: ViewState, reach: number, raise: boolean, dt: number, fresh: boolean): void {
@@ -868,7 +873,8 @@ export class CameraController {
     const fx = Math.sin(this.yaw);
     const fz = Math.cos(this.yaw);
     const vhalf = THREE.MathUtils.degToRad(this.camera.fov) / 2;
-    const keep = RAISE_KEEP * vhalf;
+    const narrowed = clamp((this.baseFov - this.camera.fov) / 16, 0, 1);
+    const keep = RAISE_KEEP * (1 - RAISE_KEEP_AIM_CUT * narrowed) * vhalf;
     // How far from his head (m) the camera must be to frame it RAISE_DEPTH deep, `keep` below the frame's middle.
     const need = RAISE_DEPTH / Math.cos(keep);
     // (Where he will be RAISE_LEAD s on, backing toward the lens: walking, he closes the last metre in a quarter second.)
