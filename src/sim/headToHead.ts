@@ -22,8 +22,17 @@ export type RaceStage = 'lobby' | 'countdown' | 'racing' | 'results';
 /** 'timeout': still on the course when the course's time ran out. */
 export type RacerStatus = 'waiting' | 'racing' | 'finished' | 'dnf' | 'timeout';
 
+/** Who entered: fixed at join, so results keep naming him after his slot is freed and handed to someone else. */
+export interface RaceEntrant {
+  readonly id: number;
+  readonly name: string;
+}
+
 export interface Racer {
   readonly slot: PlayerSlot;
+  readonly entrant: RaceEntrant;
+  /** He has left the room: his slot is no longer his (it may already hold a newcomer), only his result stays. */
+  gone: boolean;
   /** The car the race gave him (null before the countdown). */
   car: Vehicle | null;
   /** Index of the next gate to cross. */
@@ -43,7 +52,11 @@ export interface Racer {
 }
 
 export interface RaceResult {
+  /** The slot he raced in; a gone entrant's slot may hold someone else now. */
   slotId: number;
+  entrantId: number;
+  name: string;
+  gone: boolean;
   /** 1-based for finishers, 0 for everyone else. */
   position: number;
   status: RacerStatus;
@@ -69,16 +82,16 @@ export class HeadToHead {
 
   racer(slot: PlayerSlot | number): Racer | undefined {
     const id = typeof slot === 'number' ? slot : slot.id;
-    return this.racers.find((r) => r.slot.id === id);
+    return this.racers.find((r) => !r.gone && r.slot.id === id);
   }
 
   /** Enters a player while the race is still open. Returns why not, or null. */
-  join(slot: PlayerSlot): string | null {
+  join(slot: PlayerSlot, entrant: RaceEntrant = { id: slot.id, name: '' }): string | null {
     if (this.stage !== 'lobby') return 'That race has already started.';
     if (this.racer(slot)) return null;
     if (slot.down) return 'You are in no state to race.';
     if (slot.wanted.level > 0) return 'Lose the cops before joining a race.';
-    this.racers.push({ slot, car: null, gate: 0, prevX: 0, prevZ: 0, status: 'waiting', finishTick: null, time: null, medal: null, reason: '', grid: this.racers.length });
+    this.racers.push({ slot, car: null, gate: 0, prevX: 0, prevZ: 0, status: 'waiting', finishTick: null, time: null, medal: null, reason: '', grid: this.racers.length, entrant, gone: false });
     return null;
   }
 
@@ -92,6 +105,14 @@ export class HeadToHead {
       return;
     }
     if (r.status === 'racing' || r.status === 'waiting') this.out(r, reason);
+  }
+
+  /** A player leaves the room: as leave(), and his entry lets go of the slot, which the room may hand to a newcomer. */
+  depart(slot: PlayerSlot | number, reason = 'left'): void {
+    const r = this.racer(slot);
+    if (!r) return;
+    this.leave(slot, reason);
+    r.gone = true;
   }
 
   /** Where grid position `i` stands: lane by lane across the start road, rows back along it. */
@@ -115,7 +136,9 @@ export class HeadToHead {
     this.goTick = tick + Math.round(RACE_COUNTDOWN * this.tickRate);
     for (const r of [...this.racers]) {
       if (!this.present(r) || r.slot.down) {
+        const absent = !this.present(r);
         this.out(r, 'not ready');
+        if (absent) r.gone = true;
         continue;
       }
       sim.activities.cancelAll('mission', r.slot);
@@ -186,21 +209,19 @@ export class HeadToHead {
 
   /** Ends everything now (the room closing or the race abandoned): signals released. */
   release(): void {
-    for (const r of this.racers) r.slot.racing = false;
+    for (const r of this.racers) if (!r.gone) r.slot.racing = false;
     this.held.forEach((id) => this.sim.roads.releaseSignal(id));
     this.held = [];
   }
 
   /** Ordered results: finishers by their finish tick, then those out of time by gates, then the rest. */
   results(): RaceResult[] {
-    const rank = (r: Racer) => (r.status === 'finished' ? 0 : r.status === 'timeout' || r.status === 'racing' ? 1 : 2);
-    const sorted = [...this.racers].sort((a, b) => rank(a) - rank(b)
-      || (a.status === 'finished' && b.status === 'finished' ? a.finishTick! - b.finishTick! : 0)
-      || b.gate - a.gate
-      || a.grid - b.grid);
     let pos = 0;
-    return sorted.map((r) => ({
+    return this.ranked().map((r) => ({
       slotId: r.slot.id,
+      entrantId: r.entrant.id,
+      name: r.entrant.name,
+      gone: r.gone,
       position: r.status === 'finished' ? ++pos : 0,
       status: r.status,
       time: r.time,
@@ -209,6 +230,15 @@ export class HeadToHead {
       gates: r.gate,
       reason: r.reason,
     }));
+  }
+
+  private ranked(): Racer[] {
+    const rank = (r: Racer) => (r.status === 'finished' ? 0 : r.status === 'timeout' || r.status === 'racing' ? 1 : 2);
+    const sorted = [...this.racers].sort((a, b) => rank(a) - rank(b)
+      || (a.status === 'finished' && b.status === 'finished' ? a.finishTick! - b.finishTick! : 0)
+      || b.gate - a.gate
+      || a.grid - b.grid);
+    return sorted;
   }
 
   /** Where a racer stands in the running order now (1-based), by gates and the distance to the next one. */
@@ -235,7 +265,7 @@ export class HeadToHead {
     if (this.stage === 'lobby') return { status: `${name} · HEAD-TO-HEAD · ${this.racers.length} IN`, objectives: [start] };
     if (this.stage === 'countdown') return { status: `${name} · ${Math.max(1, Math.ceil((this.goTick - tick) / this.tickRate))}`, objectives: [] };
     if (this.stage === 'results' || r.status !== 'racing') {
-      const res = this.results().find((x) => x.slotId === slot.id)!;
+      const res = this.results()[this.ranked().indexOf(r)]!;
       const what = res.status === 'finished' ? `FINISHED P${res.position} · ${formatRunTime(res.time ?? 0)}` : res.status === 'timeout' ? 'OUT OF TIME' : 'DNF';
       return { status: `${name} · ${what}`, objectives: [] };
     }
@@ -251,7 +281,7 @@ export class HeadToHead {
   // ---------------------------------------------------------------------------
 
   private flagRacers(): void {
-    for (const r of this.racers) r.slot.racing = r.status === 'racing';
+    for (const r of this.racers) if (!r.gone) r.slot.racing = r.status === 'racing';
   }
 
   private live(): Racer[] {
@@ -259,12 +289,16 @@ export class HeadToHead {
   }
 
   private present(r: Racer): boolean {
-    return this.sim.players.includes(r.slot) && !r.slot.parked;
+    return !r.gone && this.sim.players.includes(r.slot) && !r.slot.parked;
   }
 
   /** DNF checks: gone from the room, down, or the race car wrecked. */
   private check(r: Racer): void {
-    if (!this.present(r)) this.out(r, 'left');
+    if (!this.present(r)) {
+      this.out(r, 'left');
+      // Gone from the sim (removed, or slot 0 parked): whoever takes the slot later is not this entrant.
+      r.gone = true;
+    }
     else if (r.slot.deathKind) this.out(r, r.slot.deathKind);
     else if (!r.car || r.car.removed || r.car.destroyed || !r.car.drivable) this.out(r, 'wrecked');
   }
@@ -272,7 +306,7 @@ export class HeadToHead {
   private out(r: Racer, reason: string): void {
     r.status = 'dnf';
     r.reason = reason;
-    r.slot.racing = false;
+    if (!r.gone) r.slot.racing = false;
 
     if (this.stage === 'countdown' && this.present(r) && r.slot.controlLock <= RACE_COUNTDOWN + 0.2) r.slot.controlLock = 0;
     if (this.present(r)) this.emit('objective', { text: '' }, r.slot);
