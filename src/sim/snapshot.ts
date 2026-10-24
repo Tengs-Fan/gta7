@@ -371,10 +371,10 @@ export const DEFAULT_INTEREST: InterestOptions = { radius: 250, keepRadius: 258 
 
 /** Where a character is for distance purposes: its vehicle's position when seated. */
 /** A player's own HUD numbers, from his slot. */
-export function captureHud(slot: PlayerSlot): { wanted: number; searching: boolean; money: number; clip: number; ammo: number } {
+export function captureHud(slot: PlayerSlot): { wanted: number; searching: boolean; money: number; clip: number; ammo: number; down: 'wasted' | 'busted' | null; locked: boolean } {
   const inv = slot.character.inventory;
   const w = inv.slots.get(inv.current);
-  return { wanted: slot.wanted.level, searching: slot.wanted.searching, money: slot.progress.money, clip: w?.clip ?? 0, ammo: w?.ammo ?? 0 };
+  return { wanted: slot.wanted.level, searching: slot.wanted.searching, money: slot.progress.money, clip: w?.clip ?? 0, ammo: w?.ammo ?? 0, down: slot.deathKind, locked: slot.controlLock > 0 };
 }
 
 /** A player's own side job for his HUD: kind ('' for none), status line, objective markers (entities by id). */

@@ -177,7 +177,7 @@ export class Mirror implements ViewState {
   /** Tick of the newest snapshot applied (-1: none yet). */
   tick = -1;
   ackSeq = 0;
-  hud: Hud = { wanted: 0, searching: false, money: 0, clip: 0, ammo: 0 };
+  hud: Hud = { wanted: 0, searching: false, money: 0, clip: 0, ammo: 0, down: null, locked: false };
   jobHud: JobHud = { kind: '', status: '', objectives: [] };
   roster: RosterEntry[] = [];
   readonly renderClock: RenderClock;
@@ -194,7 +194,11 @@ export class Mirror implements ViewState {
   private readonly placeholder: Character;
   private readonly queued: Array<{ tick: number; type: string; payload: Record<string, unknown> }> = [];
   private readonly broken = new Set<number>();
-  private readonly pendingBroken: number[] = [];
+  /**
+   * Props a snapshot reported broken whose propBroken has not been emitted yet, with the tick it reported them at: the
+   * server's own event (which has the direction) normally plays first; this plays it at that tick if the event is lost.
+   */
+  private readonly pendingBroken: Array<{ index: number; tick: number }> = [];
   private readonly colliderOfProp = new Map<number, StaticCollider>();
   private readonly scratch: MotionSample = emptySample(0);
   private snapTime = 0;
@@ -293,7 +297,7 @@ export class Mirror implements ViewState {
     this.playersById.set(w.playerId, this.me);
     this.me.id = w.playerId;
     this.me.tag = { playerId: w.playerId };
-    this.markBroken(w.brokenProps, true);
+    this.markBroken(w.brokenProps, true, 0);
     this.applyHolds(w.signalHolds);
     for (const u of w.pickups) this.applyPickup(u);
   }
@@ -323,12 +327,14 @@ export class Mirror implements ViewState {
     // out the pickups the welcome brought.
     const present = s.full && this.tick >= 0 ? new Set<number>() : null;
 
+    const wasDown = this.hud.down;
     this.hud = s.hud;
+    if (this.slot >= 0) this.syncDown(wasDown);
     if (s.job) this.jobHud = s.job;
     if (s.roster) this.roster = s.roster;
     if (s.weather) Object.assign(this.weather.state, s.weather, { wind: { ...s.weather.wind } });
     if (s.signalHolds) this.applyHolds(s.signalHolds);
-    this.markBroken(s.brokenProps, false);
+    this.markBroken(s.brokenProps, false, s.tick);
     for (const id of s.removed) this.remove(id);
 
     // Build what is new first, so seat references between vehicles and characters resolve in either order.
@@ -434,6 +440,7 @@ export class Mirror implements ViewState {
   /** Re-emits every queued event now (tests; leaving a session). */
   flushEvents(): void {
     for (const q of this.queued.splice(0)) this.emit(q.type, q.payload);
+    this.playBroken(Infinity);
   }
 
   // ---------------------------------------------------------------------------
@@ -444,7 +451,6 @@ export class Mirror implements ViewState {
     this.frame++;
     this.nowMs = nowMs;
     while (this.shown.length && nowMs - this.shown[0]!.at > SHOWN_SHOT_TTL_MS) this.shown.shift();
-    for (const i of this.pendingBroken.splice(0)) this.emit('propBroken', { index: i, dirX: 0, dirZ: 0 });
     const rt = this.renderClock.advance(dt, nowMs);
     this.clock.update(dt);
     for (const p of this.players) if (p.deathKind) p.deathTimer += dt;
@@ -508,6 +514,7 @@ export class Mirror implements ViewState {
       while (n < this.queued.length && this.queued[n]!.tick <= rt) n++;
       for (const q of this.queued.splice(0, n)) this.emit(q.type, q.payload);
     }
+    this.playBroken(rt);
   }
 
   /** Server sim time at a (fractional) server tick. */
@@ -522,8 +529,8 @@ export class Mirror implements ViewState {
     this.stats.events++;
     if (type === 'propBroken') {
       const i = payload.index as number;
-      if (this.broken.has(i) && !this.pendingBroken.includes(i)) return;
-      const k = this.pendingBroken.indexOf(i);
+      const k = this.pendingBroken.findIndex((p) => p.index === i);
+      if (this.broken.has(i) && k < 0) return;
       if (k >= 0) this.pendingBroken.splice(k, 1);
       this.breakLocal(i);
     }
@@ -552,12 +559,33 @@ export class Mirror implements ViewState {
     return out;
   }
 
-  private markBroken(indices: readonly number[], immediate: boolean): void {
+  private markBroken(indices: readonly number[], immediate: boolean, tick: number): void {
     for (const i of indices) {
       if (this.broken.has(i)) continue;
       this.breakLocal(i);
       if (immediate) this.emit('propBroken', { index: i, dirX: 0, dirZ: 0 });
-      else this.pendingBroken.push(i);
+      else this.pendingBroken.push({ index: i, tick });
+    }
+  }
+
+  /** Emits the propBroken of every pending prop reported at or before render tick `rt` (emit takes it off the list). */
+  private playBroken(rt: number): void {
+    if (this.pendingBroken.length === 0) return;
+    for (const p of this.pendingBroken.filter((q) => q.tick <= rt)) this.emit('propBroken', { index: p.index, dirX: 0, dirZ: 0 });
+  }
+
+  /**
+   * Takes the local player's down state from the snapshot as well as from the wasted/busted/respawn events, which a
+   * lossy link may lose: the screen and the prediction follow the server either way.
+   */
+  private syncDown(wasDown: Hud['down']): void {
+    const down = this.hud.down;
+    if (down && this.me.deathKind !== down) {
+      this.me.deathKind = down;
+      this.me.deathTimer = 0;
+    } else if (!down && wasDown && this.me.deathKind) {
+      this.me.deathKind = null;
+      this.me.deathTimer = -1;
     }
   }
 
