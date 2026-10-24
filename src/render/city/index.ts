@@ -13,6 +13,7 @@ import { buildRoads } from './roads';
 import { buildCoast } from './coast';
 import { buildStructures } from './structures';
 import type { CityMaterials, Entrance, NightUniforms } from './shared';
+import { GroundSurfaces, registerGroundDebug, type AnisoTier } from './surfaces';
 
 export { frontageSplit, occupancy, shopOccupancy } from './buildings';
 export type { FrontageSplit } from './buildings';
@@ -27,12 +28,15 @@ export class CityView {
   readonly visibility = new StaticVisibility();
   /** The wet-ground patch on the paved surfaces (roads, markings, pavements, plazas, car parks, boardwalk, piers). */
   readonly wet = new WetGround();
+  /** The ground's PBR materials, detail patches and anisotropy (roads, sidewalks, lawns, sand). */
+  readonly ground: GroundSurfaces;
   private readonly softwareMeshes: CulledStaticMesh[] = [];
   private readonly frustum = new THREE.Frustum();
   private readonly projection = new THREE.Matrix4();
 
   constructor(readonly world: StaticWorld, private readonly chunkSize = Infinity, private readonly software = false) {
     this.group.name = 'city';
+    this.ground = new GroundSurfaces(software);
     buildBuildings(this);
     buildGround(this);
     buildRoads(this);
@@ -41,6 +45,12 @@ export class CityView {
     this.group.traverse((o) => {
       if (o instanceof THREE.Mesh && !(o instanceof CulledStaticMesh)) this.visibility.add(o);
     });
+    registerGroundDebug(this);
+  }
+
+  /** Anisotropic filtering of the ground textures for a tier (the software tier gets none). */
+  setAnisotropy(tier: AnisoTier, maxAnisotropy: number): number {
+    return this.ground.setAnisotropy(tier, maxAnisotropy);
   }
 
   cull(camera: THREE.Camera, distance: number): void {
@@ -91,6 +101,7 @@ export class CityView {
     this.nightU.shopOccupancy.value = shopOccupancy(hours);
     // Wrapped daily: float precision stays fine for the flicker, and it jumps once a day at most.
     this.nightU.time.value = time % 86400;
+    this.ground.update(time);
     for (const m of this.materials.facades.values()) m.emissiveIntensity = night * 1.4;
     if (this.materials.storefront) this.materials.storefront.emissiveIntensity = night * 1.5;
     for (const m of this.materials.signs) m.emissiveIntensity = 0.35 + night * 3.2;
