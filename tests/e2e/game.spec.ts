@@ -346,6 +346,7 @@ test.describe('GTA 7', () => {
       }
     }
     const avg = fps.reduce((a, b) => a + b, 0) / Math.max(1, fps.length);
+    console.log(`[chaos] average sampled FPS ${avg.toFixed(1)} over ${fps.length} samples (min ${Math.min(...fps)})`);
     expect(avg).toBeGreaterThan(30);
     expect(errors).toEqual([]);
   });

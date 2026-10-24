@@ -37,6 +37,7 @@ npm run preview    # serves dist/ at http://localhost:4173
 Choose NEW GAME on the title screen, and a few seconds later Mama Lou calls with your first job: steal a car (walk up to one and press F) and drive it into her garage in the Docks, following the route on the radar.
 Choose STREET RUN for an immediate drive in a Nightjar GT and a choice of three timed courses.
 Progress stays in this browser: the game autosaves after every mission passed and street run finished, E at the safehouse saves, and CONTINUE on the title screen picks up from there.
+To play with friends on your network, run the optional multiplayer server (see [Multiplayer](#multiplayer-optional)).
 
 ## Controls
 
@@ -48,7 +49,7 @@ Progress stays in this browser: the game autosaves after every mission passed an
 | Jump (on foot) | Space | X |
 | Shoot / punch / throw (on foot) | Left click | RT |
 | Aim, or the throwing arc for grenades and molotovs, or the sniper scope (on foot) | Right click | LT |
-| Scope zoom (sniper rifle, while aiming) | Mouse wheel | |
+| Scope zoom (sniper rifle, while aiming) | Mouse wheel (Q zooms back out) | LB / RB |
 | Reload (on foot) | R | B |
 | Choose a weapon | 1–9, mouse wheel, Q (previous) | LB / RB on foot, LB in a vehicle |
 | Accelerate / brake and reverse (vehicle) | W or Up / S or Down | RT / LT |
@@ -69,9 +70,13 @@ Progress stays in this browser: the game autosaves after every mission passed an
   In the game, prompts and the CONTROLS screen show the names printed on your own layout, so on AZERTY you move with Z Q S D; Firefox and Safari learn the layout as you press keys.
 - The game captures the mouse when you start or resume play, or when you click the game view.
   Mouse look works only while it is captured, and losing it (Esc) pauses the game, as does switching to another tab or window, also on the WASTED or BUSTED screen; RESUME continues.
-- Weapon slots: 1 Fists, 2 Pistol, 3 SMG, 4 Shotgun, 5 Assault Rifle, 6 Rocket Launcher, 7 Baseball Bat / Knife, 8 Grenade / Molotov, 9 Sniper Rifle; pressing 7 or 8 again switches between the two weapons on that key.
+- Weapon slots: 1 Fists, 2 Pistol, 3 SMG, 4 Shotgun, 5 Assault Rifle, 6 Rocket Launcher, 7 Baseball Bat / Combat Knife, 8 Grenade / Molotov Cocktail, 9 Sniper Rifle; pressing 7 or 8 again switches between the two weapons on that key.
   The wheel, Q and LB / RB step through the weapons you own that still have ammo; in a vehicle only the pistol and SMG fire, Q changes the station, and on a gamepad LB steps the weapons (RB is the handbrake).
 - Getting out of a moving car: below 3.5 m/s you step out, up to 11 m/s the car brakes first, and faster than that you bail out, tumble and lose 6 health.
+- Motorbikes and boats use the vehicle controls: W / S (RT / LT) for throttle and brake or reverse, A / D (left stick) to lean or steer, F (Y) to get on or off.
+  The Viper 600 pulls a wheelie at full throttle below about 12 m/s; a boat steers only with way on, has no handbrake and no street runs, and you board it from the pier or climb in from the water with F.
+- In multiplayer the same keys apply (see [Multiplayer](#multiplayer-optional)).
+  There the phone key, Tab (D-pad right), lists the room's players instead, and T at a course start, or pause > STREET RUNS, opens a head-to-head Street Run for the room.
 - Map: click, or press Enter, Space or A at the center cross, to set a waypoint, and do it again on the waypoint to clear it.
   Drag, the arrow keys, W A S D, the D-pad or the left stick pan; the wheel, + and -, or LB and RB zoom; the number keys 1–7 (or a pad's Y to pick a row and X to switch it) turn legend categories on and off; M, Esc or Back close it.
   The game is paused while the map is open.
@@ -122,6 +127,7 @@ Progress stays in this browser: the game autosaves after every mission passed an
 - **HUD, map and saves.** A radar that turns with the camera, with a road-following GPS route to your waypoint, the objective or the contact who has work, and the police, the helicopter and the search area on the radar and the map while you are wanted.
   Prompts and first-time hints drawn for your keyboard layout or gamepad, a full-screen map with district names, a waypoint you can set, a legend with seven categories you can switch off (missions, shops including Azura Customs, places, properties grey for sale and green owned, gang turf, collectibles, and the cyan A, F, C and E marks of the paramedic, firefighter, courier and car export jobs), a completion checklist (story per contact, collectibles, activities, properties), and a STATS screen with a game completion percentage (story 50%, packages 20%, stunts 15%, rampages 15%; jobs and properties are checklist-only).
   Three save slots in the browser: save at the safehouse with E, which asks for a slot (not while wanted, on a mission or on a rampage), plus an autosave after every mission passed. A slot with a save asks before it is replaced; CONTINUE asks which slot to load; autosaves go to the slot the game was loaded from or last saved to, a new game autosaves into the first empty slot, and with all three full it does not autosave until you save at the safehouse. A save from an earlier version moves into slot 1 on first start.
+- **Multiplayer (optional).** Free roam for up to 8 players per room on your own machine or LAN, with a small Node server you run yourself: each player with his own wanted level, police and side jobs in a shared city. Single player stays the default and needs no server; see [Multiplayer](#multiplayer-optional).
 
 <table>
   <tr>
@@ -178,7 +184,8 @@ The first letters of a code may briefly do their usual job (M opens the map, F g
 ## Settings and graphics quality
 
 SETTINGS is on the title screen and in the pause menu.
-Changes apply at once and are stored in the browser (`localStorage` key `gta7.settings.v1`); the three save slots are stored in the browser too (the first is `gta7.save.v1`).
+Changes apply at once and are stored in the browser (`localStorage` key `gta7.settings.v1`); the three save slots are stored in the browser too (`gta7.save.slot1` to `gta7.save.slot3`, with the last slot used in `gta7.saves.v1`). A single save from an earlier version (`gta7.save.v1`) is moved into the first empty slot the first time the slots are read, byte for byte, and still loads with all its progress.
+The map's legend toggles are remembered with the settings.
 
 | Setting | Range | Default |
 | --- | --- | --- |
@@ -247,6 +254,17 @@ All of these are minor; the most noticeable come first.
 - Near the land end of Azura Pier or the Marina deck, getting out of a car on the side that faces the edge can drop you about a meter onto the sand, where you cannot climb back up (walk round to the land end), and a wreck sunk under the deck can block getting out of a car parked above it ("No room to get out here") until you drive off.
 - Now and then a new city bus appears slightly overlapping the bus ahead of it in the same lane, usually out of sight, and both end up dented.
 
+**Multiplayer (limits of this version)**
+
+- Nothing is saved in multiplayer: money, weapons and records last only as long as you stay in the room, and RECONNECT after a lost connection joins you as a new player.
+- Story missions, cheats, saving and shops are single player only; properties, Lou's export board and the phone's cab are single-player features too.
+- Your own movement and driving are predicted on your machine. On a slow or lossy link (a few hundred milliseconds of lag, or lost packets) the server's answer can differ from the prediction, and your character or car is eased back, or jumps when it is more than 3 m off; other players and the traffic are drawn about 0.1 s behind the server and can stutter when snapshots are lost. Play on a LAN or a nearby server.
+- A page that the game server did not serve (`npm run dev`, `npm run preview`, the GitHub Pages build) looks for the server on its own host at port 4210 with `?mp=1`, and the MULTIPLAYER screen suggests `ws://localhost:4210`; for any other server, type its address or add `&server=<host>:<port>`.
+- An `https://` page (such as the GitHub Pages build) can only reach a `wss://` server or `ws://localhost`; playing over the internet needs your own hosting behind a TLS proxy (see [docs/multiplayer.md](docs/multiplayer.md)).
+- The Docker image has not been built or run (Docker was not available where it was written).
+- Shooting another player gives you wanted stars like any gunfire the police see, and with stars you cannot open or join a head-to-head Street Run until you lose them.
+- A racer who quits a head-to-head Street Run but stays in his race car keeps it: only the empty cars of racers who did not finish are removed, so one left on the grid (which is also the finish line) stays in the way.
+
 <details><summary>More, by area</summary>
 
 **Police, combat and people**
@@ -308,22 +326,44 @@ src/
   input/       keyboard with layout-aware key names, mouse with pointer lock, gamepad, cheat codes
   audio/       synthesized effects, mixer and ducking, ambience, engine voices, procedural radio, talk station
                and formant voices, police barks, gun echo, Doppler
-  net/         the multiplayer wire protocol (protocol.ts, wire.ts), the client mirror, prediction and the lobby types; the server's side lives in server/
+  net/         multiplayer: the wire protocol (protocol.ts, wire.ts, shared with server/), the room and race types
+               (lobby.ts), and the browser client, loaded only for a multiplayer game: session, socket transport,
+               snapshot mirror, interpolation, local prediction, the single-player-only places (mpPlaces.ts) and the
+               address/URL parsing (client.ts, session.ts, transport.ts, mirror.ts, interp.ts, predictor.ts, url.ts)
   game.ts      frame loop, title and play modes, menus, cheats, crash screen, context-loss notice
   main.ts      boot, WebGL 2 check, fonts, error hooks
-  settings.ts  settings and the save slot in localStorage
+  settings.ts  settings and the three save slots in localStorage
   debug.ts     window.__gta7, the console and test API (in every build)
 server/        optional Node multiplayer server (rooms, room rules and head-to-head races in lobby.ts, protocol I/O, static file serving); see docs/multiplayer.md
+Dockerfile     builds the client and runs the multiplayer server in a container (untested)
 ```
 
-`src/core`, `src/world` and `src/sim` never touch the DOM, WebGL, audio, storage or three.js, so the whole simulation runs in Node.
+`src/core`, `src/world`, `src/sim` and `src/net/protocol.ts` never touch the DOM, WebGL, audio, storage or three.js, so the whole simulation runs in Node (the multiplayer server runs it from source); `server/` uses Node but never three.js or the DOM. `tests/unit/cross_determinism.test.ts` and `tests/unit/net_layering.test.ts` check this.
 The layers only import downwards: `core` ← `world` ← `sim` ← `render`, `audio`, `input` ← `ui` ← `game.ts`.
 `Sim.update(dt, input)` clamps a frame to 0.1 s and runs every system in a fixed order, with physics in substeps of at most 1/120 s.
 The sim keeps one `PlayerSlot` per human player in `sim.players` (character, controller, wanted record, progress, camera pose, death state), and `sim.player`, `sim.wanted`, `sim.progress` and the like are aliases for slot 0, the single-player seat; `update` also takes a `Map` of one input per slot id, and player-scoped events carry an optional `playerId` (absent means slot 0).
-Police pursuits, traffic streaming and PvP still follow slot 0 only.
+With several slots (multiplayer), each player has his own police pursuit, respawn, side job and pickups, traffic and pedestrians stream round every group of players, and players can hurt each other; with one slot everything runs exactly as single player always has.
 Missions are generator scripts resumed synchronously inside `Sim.update`, and all randomness in the sim comes from a seeded RNG, so a run from the same seed and inputs repeats exactly; the game itself passes no seed, so San Azura is the same city in every game.
 The renderer, HUD and audio subscribe to the typed events in `src/sim/events.ts` (shots, explosions, impacts, messages) and read entity state each frame, through the read-only `ViewState` interface of `src/sim/viewState.ts` and the id of the local player slot rather than the `Sim` class.
 Conventions: +X is east, +Z south and +Y up, and heading h faces (sin h, cos h).
+
+### Adding content
+
+New content goes through registries, so a feature adds its own files and a line or two in a table instead of editing the core loops:
+
+| To add | Where |
+| --- | --- |
+| A story contact and his missions | a row in `CONTACTS` (`src/sim/missions/contacts.ts`, or `registerContact`), a file of `MissionDef` generator scripts like `missions/vera.ts`, and one line in `missions/index.ts` (or `registerContactMissions`); the map, phone, HUD colours and checklist follow the table |
+| A side activity (job key T, or a marker) | a file in `src/sim/activities/` implementing `ActivityDef` (`canStart`, `prompt`, `start`, `update`, `end`, `objectives`, `status`, optional completion rows) and `registerActivity` in `activities/index.ts`; the `Activities` facade and the HUD call it by kind |
+| A vehicle or weapon | an entry in `VEHICLE_SPECS` or `WEAPONS` in `src/sim/specs.ts` (a vehicle's `class: 'car' \| 'bike' \| 'boat'` and engine voice, a weapon's damage, ammo, shop price and icon are fields there; systems branch on the class, not the kind); number keys follow `WEAPON_ORDER`, and weapons with the same spec `slot` share a key, as on 7 and 8 |
+| Saved state | a `SaveCodec` (`key`, `serialize`, `parse`, `apply`) passed to `registerSaveCodec` (`src/sim/saveExt.ts`): it is stored in the save's `ext` section, `SAVE_VERSION` stays 1, a rejected or corrupt entry is dropped without touching the rest of the save, and unknown keys are kept |
+| A per-frame system | a `SimSystem` in one of the ordered `SYSTEM_SLOTS` (`src/sim/systems.ts`: `preInput`, `afterPlayers`, `afterTraffic`, `afterPhysics`, `afterCombat`, `afterInteractions`, `afterMissions`, `late`) with `registerSystem` or `sim.addSystem`; within a slot, registration order |
+| Checklist, completion and STATS rows | `registerCompletion` (`src/sim/completion.ts`) and `registerStatRow` (`src/sim/statRows.ts`) |
+| Map blips and legend rows | `registerMapPoi` and `registerMapCategory` (`src/ui/mapRender.ts`); the legend keys 1-7 follow the category order |
+| A screen or HUD widget | a file in `src/ui/screens/` (opened by name from a marker with `registerScreen`) or `src/ui/widgets/` with its own CSS file imported by the module |
+| A console or test hook | `registerDebug(name, api)` (`src/debug.ts`) puts it at `window.__gta7.ext[name]`; the existing hooks and `state()` fields stay as they are |
+
+Render features declare what they do on each quality tier and free their GPU resources on a tier switch or a lost context; new randomness in the sim must not draw from `sim.rng` unless the feature means to change the seeded run (presentation uses `Math.random`).
 
 ## Testing
 
@@ -337,16 +377,16 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-141 files with 2218 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set) run in Node, with no browser.
-They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, properties, gangs, roadblocks and witnesses, saves in three slots, the multiplayer wire protocol and server rooms, a 10-minute chaotic soak test (36,000 frames with a seeded random player), and same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks).
+140 files with 2201 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set to a free port) run in Node, with no browser.
+They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, properties, gangs, roadblocks and witnesses, saves in three slots (with an old single save, extension data per slot and corrupt entries), the content registries, the multiplayer wire protocol, server rooms, room rules and head-to-head races, interest management, the multi-player sim (per-player wanted, pursuits, respawns and streaming), the client's mirror and prediction, a 10-minute chaotic soak test (36,000 frames with a seeded random player), same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks), the layering rules (no three.js or browser code in the sim, the protocol or the server), and this README's Controls table against the real key bindings.
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
 `DUMP_MAP=city.svg npx vitest run tests/unit/world.test.ts` also writes a top-down SVG of the city.
 
 ### End-to-end tests
 
-148 tests in 42 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
-They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, a murder that brings the police, WASTED, mission retries from the pause menu, the menus, the HUD layout in small windows, the gun shop, saving and continuing after a reload, the side jobs and the wave-1 jobs, the phone, properties, save slots, key bindings, the talk radio, street runs, night rendering and the quality tiers, WebGL context loss, crash screens, all nine cheats, and a two-minute chaos session that must average over 30 fps.
+142 tests in 40 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
+They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, chapter 2, a murder that brings the police, WASTED, mission retries from the pause menu, the menus, the HUD layout in small windows, the gun shop, saving and continuing after a reload, the side jobs and the wave-1 jobs, the phone, properties and the mod shop, save slots, key bindings and the map legend, bikes, boats and drifting, the new weapons, gangs, roadblocks, witnesses and angry drivers, the talk radio and a five-star hot mix with the talk station on air throughout, street runs, night rendering and the quality tiers, WebGL context loss, crash screens, nine of the ten cheats (RAINDANCE has unit tests), the multiplayer client against a real server (joining by URL, a lost server, an address with nothing behind it, and single player opening no socket), two and three clients in one room (seeing each other, a chase of one player, the Marina boats, leaving and joining), a head-to-head Street Run between two clients,, and a two-minute chaos session that must average over 30 fps.
 Most tests also fail on any console error, console warning or page error.
 
 `npm run test:e2e` builds the game and serves it on port 4173, but if a server already answers there (a leftover `npm run preview`), Playwright tests that one without building; set `CI=1` to always build (it then fails if the port is busy).
@@ -395,6 +435,7 @@ node scripts/playtest.mjs --script my-steps.mjs --url http://localhost:4173/
 
 - `GTA7_PORT=<port> npm run test:e2e` builds and serves this checkout on its own port, so several worktrees can run the suite side by side.
   Add `GTA7_REUSE=1` to test a server already running on that port instead; it must serve this checkout and be up to date.
+  `tests/e2e/mp_client.spec.ts` starts its own multiplayer server on `GTA7_MP_PORT` (default 4210): give each checkout its own.
 - `scripts/with-slot.sh browser|cpu <command...>` runs a command while holding one of a few machine-wide slots, so several test runs on one machine don't start more browsers or test suites than it can hold.
   `GTA7_BROWSER_SLOTS` (default 4) and `GTA7_CPU_SLOTS` (default 3) set the number of slots, and the script needs Linux `flock` and bash 4.1 or newer.
   Where `flock` is missing (macOS), it simply runs the command without a slot; it is not required for testing there.
@@ -410,24 +451,54 @@ scripts/with-slot.sh cpu npx vitest run
 - `?lock=1` allows pointer lock under automation (see above).
 - `window.__gta7` (`src/debug.ts`) is the console and test API, present in every build, production included.
   `state()` reports the mode, the player, money, the clock, the wanted level, the mission, entity counts, render stats and frame timings; `game` and `sim` are the live objects; `newGame`, `teleport`, `place`, `spawnVehicle`, `give`, `setWanted`, `setTime`, `setClockRate`, `setWeather`, `clearWeather`, `lightning`, `forceWeather`, `setPost`, `godMode`, `startMission`, `markDone`, `setCamera` and `spawnPedAhead` set up a scene; and `poi`, `weather`, `envStats`, `samplePixels` and `characterAlive` look things up.
+  Modules add their own hooks under `window.__gta7.ext` with `registerDebug` (`ext.phone` for the phone log, calls and cab, `ext.combat` for fire, throws and the scope), and a multiplayer session adds `window.__gta7.net` (see [Multiplayer](#multiplayer-optional)).
 
-## Multiplayer server (optional)
+## Multiplayer (optional)
 
-The game is single player by default and needs no server (the GitHub Pages build has none).
-`npm run build && npm run server` serves the game and the multiplayer socket on port 4210 (all interfaces; LAN players open `http://<host>:4210/`), with rooms chosen by `?room=<id>` (default `lobby`, 8 players) and `GET /status` for tick time and rates.
-Join with `http://<host>:4210/?mp=1&room=<id>&name=<name>` (or `&server=host:port` from another page). Each player has his own character, wanted level, police, money, ammo and side job on his own HUD; story missions, cheats, saving and shops are single player only.
-Your own movement, driving and trigger pulls are predicted locally (the muzzle flash and the shot sound come at once, the tracer and hit follow the server's events); other players and the traffic are drawn about 117 ms behind the newest snapshot.
+The game is single player by default and needs no server: the GitHub Pages build has none, and a single-player game never opens a network connection.
+Multiplayer is free roam for 2 to 8 players per room, on a small Node server that runs the game for every room: each player has his own character, weapons, money, wanted level and police, side jobs and respawns, players can shoot and run each other over, and the city (traffic, people, gangs, police, weather and the clock) is shared.
+
+**Local or LAN game** (on the machine that hosts it, from a checkout of this repository):
+
+```sh
+npm ci
+npm run build      # the server serves the built game from dist/
+npm run server     # the game and its WebSocket on port 4210, on all interfaces
+```
+
+The server prints the addresses to open. On the host open `http://127.0.0.1:4210/?mp=1&room=<id>&name=<name>`; other people on the same network open `http://<your-ip>:4210/?mp=1&room=<id>&name=<name>`, with one of the LAN addresses it printed (on macOS, allow incoming connections for `node` if the firewall asks).
+Everyone with the same room id plays together (rooms are separate worlds; without `room` it is `lobby`; a 9th player is told the room is full). `GET /status` reports the rooms, players and tick times.
+
+**Joining:** a page served by the game server joins that server, whatever port it was started on (`npm run server -- --port <n>`); from any other page (`npm run dev`, `npm run preview`, the GitHub Pages build) `?mp=1` looks on the page's own host at port 4210, so add `&server=<host>:<port>` (or a full `ws://` / `wss://` address) for any other server.
+The URL form is `?mp=1&server=<host:port>&room=<id>&name=<name>`, where everything but `mp=1` is optional.
+
+**In the game:** your own movement, driving and trigger pulls are predicted locally (the muzzle flash and the shot sound come at once, the tracer and the hit follow the server's events); other players and the traffic are drawn about 0.1 s behind the newest snapshot.
 If the server goes away the screen says so within 3 s and offers RECONNECT (you rejoin as a new player) or RETURN TO TITLE; a server address that does not answer gives COULD NOT JOIN with TRY AGAIN or BACK TO TITLE.
 From the title, MULTIPLAYER asks for a name (required, up to 24 characters), a server (the page's own host and port when the game server served it, else `ws://localhost:4210`) and a room (default `lobby`), remembers them in the browser and joins with JOIN or Enter; a failed join offers TRY AGAIN or BACK.
-Players join side by side on the sidewalk by the safehouse, and players who die together respawn side by side. Tab (or pause > PLAYERS) lists the room with each player's stars, kills and deaths (the server sends every player's wanted level in the room state). Other players have name tags (up to 150 m, faint behind buildings, none behind the camera) and diamond blips on the radar and map; each player has their own colour and a look drawn from their name.
-PvP damage is on. Kills ("Ann killed Bea") and damage to another player's car are credited to the attacker, and each player respawns on their own at the hospital or, when busted, the police station; the shared clock does not jump.
-Head-to-head Street Runs: pause > STREET RUNS opens a course for the room (or press T at a course start); others join within 20 s and the opener can START NOW. Everyone lines up on one grid in a fresh car, one countdown holds all until GO, each racer sees their own gates and place, and the results (finish order, times, medals; DNF for quitters, leavers and busted or wrecked racers; OUT OF TIME past bronze) are the same on every screen. No money is paid and nothing is saved. Drivers a racer bumps do not get out to fight.
-Story contacts, the safehouse, properties, Lou's export board, gun shops and the phone are marked as single player only, and typed cheats answer "Cheats are off in multiplayer."
-For testing, `&lag=<ms>&jitter=<ms>&loss=<fraction>` simulates a slow link and `&predict=0` turns off prediction; `window.__gta7.net` (`state()`, `local()`, `players()`, `events()`, `room()`, `race()`, `command()`, `reconnect()`, `leave()`) exists once a session starts.
+
+**In the room:** players join side by side on the sidewalk by the safehouse, and players who die together respawn side by side.
+Tab (D-pad right), the phone key, or pause > PLAYERS lists the room with each player's stars, kills and deaths.
+Other players have name tags (up to 150 m, faint behind buildings, none behind the camera) and diamond blips on the radar and map; each player has their own colour (shirt, name tag, blip and race car) and a look drawn from their name.
+PvP damage is on. Kills appear in a kill feed ("Ann killed Bea"), and kills and damage to another player's car are credited to the attacker; each player respawns on their own at the hospital or, when busted, the police station, and the shared clock does not jump.
+Head-to-head Street Runs: pause > STREET RUNS opens a course for the room (or press T at a course start); others join within 20 s and the opener can START NOW. Everyone lines up on one grid in a fresh car, one countdown holds all until GO, each racer sees their own gates and place, and the results (finish order, times, medals; DNF for quitters, leavers and busted or wrecked racers; OUT OF TIME past bronze) are the same on every screen. No money is paid and nothing is saved. Drivers a racer bumps do not get out to fight, and a player with stars has to lose the cops before opening or joining a race.
+Story contacts, the safehouse, properties, Lou's export board, gun shops and the phone are marked as single player only and say so when used (the safehouse "Saving is off in multiplayer.", the phone key "The phone (calls, texts and cabs) is single-player only." above the player list), and a typed cheat answers "Cheats are off in multiplayer." See [Known issues](#known-issues) for the other limits.
+
+**Docker** (untested: Docker was not available where this was written):
+
+```sh
+docker build -t gta7-server .
+docker run --rm -p 4210:4210 gta7-server
+# then open http://127.0.0.1:4210/?mp=1 (or http://<host>:4210/?mp=1&room=<id>)
+```
+
+**Over the internet:** an `https://` page, such as the GitHub Pages build, may only open `wss://` connections (or `ws://localhost`), so it cannot join a plain `ws://` server on another machine.
+Internet play needs your own hosting with the server behind a TLS reverse proxy that forwards the page and the `/ws` WebSocket path; open the game through the proxy's `https://` address, or join it with `&server=wss://<your-host>`.
+No cloud hosting is set up and nothing in this repository deploys a server; [docs/multiplayer.md](docs/multiplayer.md) has the server options, the protocol, proxy examples for Caddy and nginx, and the measurements.
+
+For testing, `&lag=<ms>&jitter=<ms>&loss=<fraction>` simulates a slow link and `&predict=0` turns off prediction; `window.__gta7.net` (`state()`, `local()`, `entity()`, `players()`, `police()`, `roster()`, `events()`, `room()`, `race()`, `command()`, `join()`, `reconnect()`, `leave()`, `overlay()`) exists once a session starts.
 `GET /status` also lists, per room, the clock, weather, broken props and wrecked vehicles, and for each member his position, state, health, vehicle, wanted level and the police chasing him; a server started with `--dev` takes `debug` commands (`teleport`, `drive`, `wanted`, `give`, `godMode`, `neverWanted`, `wreck`) for setting up scenes.
 A player left standing at 2-3 stars is busted in 15-20 s, as in single player, and a late joiner is sent only the police within 250 m of him.
-`tests/e2e/mp_cross.spec.ts` starts a `--dev` server on `GTA7_MP_PORT` (default 4210) and plays two to three clients through the cross-area flows: seeing each other walk and drive, a chase of one player only, the Marina boats for the second player, and leaving and joining; `mp_lobby.spec.ts` races two clients head to head.
-`docs/multiplayer.md` covers the Dockerfile and running `wss://` behind a TLS proxy; no cloud hosting is set up.
+`tests/e2e/mp_client.spec.ts`, `mp_cross.spec.ts` and `mp_lobby.spec.ts` start their own server on `GTA7_MP_PORT` (default 4210; `mp_cross` with `--dev`): `mp_client` plays one browser against server-side players, `mp_cross` plays two to three clients through the cross-area flows (seeing each other walk and drive, a chase of one player only, the Marina boats for the second player, and leaving and joining), and `mp_lobby` races two clients head to head.
 `npm run typecheck` also checks `server/` (`tsc -p server/tsconfig.json`).
 
 ## Performance
@@ -435,6 +506,10 @@ A player left standing at 2-3 stars is busted in 15-20 s, as in single player, a
 The game targets 60 fps on desktop hardware.
 The upgraded build measured 60 fps at native 1920x1080 High on an RX 6600 XT in the perf playtest's starting street, Downtown, four-star pursuit and beach-at-dusk scenes. These short samples were refresh-capped; their last CPU frames took 5.9–8.3 ms.
 With the dawn/dusk smoothing, colour grade, night lights, weather, rain and waves, an Apple M4 Pro at 1920x1080 High measured 60/60/58/60 fps in the same four scenes, and 60 fps in all four segments of `--scenario rainnight` (rain at 23:00). See [graphics notes](docs/graphics.md) for the measurement scope, detailed changes and earlier software-rendering results.
+The second update made the busy scenes cheaper before adding to them: a car's tyres, rims, lamps, light bar and taxi sign are drawn in a few shared instanced batches and its shadow by one merged body, so a nearby sedan costs about 7 draw calls on High instead of 38 and a car beyond 40 m about 2; High caps its drawing buffer at 3.5 million pixels (a 1920x1080 window on a Retina screen draws 2494x1403); contact shadows are cheaper; and ground-height lookups use a grid.
+Measured back to back against the previous release on the M4 Pro, the JavaScript frame time (95th percentile) fell by 26-55% in the four perf scenes, and the plaza at 2880x1620 uncapped ran at 137 fps (42 before).
+With every feature of the update in place (bikes and boats, the new weapons and fire, gangs and roadblocks; the multiplayer client is loaded only for a multiplayer game), the perf playtest measured 60/60/58/60 fps and `rainnight` 60/60/60/60 fps at 1920x1080 High on the M4 Pro, and the two-minute chaos test averaged 59.9 fps.
+Motorbikes and boats are drawn part by part and have no lighter far version yet (see Known issues).
 Nothing adjusts itself at runtime: there is no dynamic resolution, and the tier only changes when you pick another one (see [Settings and graphics quality](#settings-and-graphics-quality) for what each tier trades away).
 `node scripts/playtest.mjs --scenario perf` prints fps, draw calls, triangles and heap at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
 `window.__gta7.game.renderer.vehicleParts.counts` reports the vehicle part batches and `contactShadows.drawn` the contact-shadow depth draws; `window.__gta7.game.renderer.crowd.firstDrawn` lists the last 400 characters drawn for the first time.

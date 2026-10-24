@@ -21,6 +21,9 @@ function codeOnly(src: string): string {
 }
 
 const importsOf = (src: string) => [...src.matchAll(/(?:from|import|require\()\s*['"]([^'"]+)['"]/g)].map((m) => m[1]!);
+const importsThree = (src: string) => importsOf(src).some((s) => s === 'three' || s.startsWith('three/'));
+const importsPresentation = (src: string) => importsOf(src).filter((s) => /(^|\/)(render|ui|audio|input)\//.test(s));
+const browserRefs = (src: string) => [...codeOnly(src).matchAll(/(?<![\w$.])(document|window|localStorage)\b/g)].map((m) => m[1]!);
 
 const PURE_NET = ['src/net/protocol.ts', 'src/net/wire.ts', 'src/sim/snapshot.ts'].map((f) => join(ROOT, f));
 const SERVER = sources(join(ROOT, 'server'));
@@ -29,20 +32,42 @@ const SCANNED = [...PURE_NET, ...SERVER];
 describe('layering: the protocol and the server stay free of three.js and the browser', () => {
   it('scans the protocol and every server file', () => {
     const names = SCANNED.map((f) => relative(ROOT, f));
-    console.log(`[layering] scanned ${names.length} files: ${names.join(', ')}`);
+    console.log(`[layering] scanned ${names.length} files (${PURE_NET.length} pure net/sim, ${SERVER.length} server): ${names.join(', ')}`);
     expect(names).toContain('src/net/protocol.ts');
     expect(names).toContain('server/main.ts');
+    expect(names.filter((n) => n.startsWith('server/')).length).toBe(SERVER.length);
     expect(SERVER.length).toBeGreaterThanOrEqual(10);
   });
 
   it('nothing imports three or three/addons', () => {
-    const bad = SCANNED.filter((f) => importsOf(readFileSync(f, 'utf8')).some((s) => s === 'three' || s.startsWith('three/')));
+    const bad = SCANNED.filter((f) => importsThree(readFileSync(f, 'utf8')));
     expect(bad).toEqual([]);
   });
 
   it('no code references document, window or localStorage', () => {
-    const bad = SCANNED.flatMap((f) => [...codeOnly(readFileSync(f, 'utf8')).matchAll(/(?<![\w$.])(document|window|localStorage)\b/g)].map((m) => `${relative(ROOT, f)}: ${m[1]}`));
+    const bad = SCANNED.flatMap((f) => browserRefs(readFileSync(f, 'utf8')).map((r) => `${relative(ROOT, f)}: ${r}`));
     expect(bad).toEqual([]);
+  });
+
+  it('the server imports nothing from src/render, src/ui, src/audio or src/input', () => {
+    const bad = SERVER.flatMap((f) => importsPresentation(readFileSync(f, 'utf8')).map((s) => `${relative(ROOT, f)}: ${s}`));
+    expect(bad).toEqual([]);
+  });
+
+  it('the checks catch a three import, a presentation import and a DOM reference in server-like source', () => {
+    const server = [
+      "import { createServer } from 'node:http';",
+      "import { Vector3 } from 'three';",
+      "import { FXAAPass } from 'three/addons/postprocessing/FXAAPass.js';",
+      "import { Hud } from '../src/ui/hud';",
+      'const w = window.innerWidth;',
+    ].join('\n');
+    expect(importsThree(server)).toBe(true);
+    expect(importsThree("import * as THREE from 'three/addons/x.js';")).toBe(true);
+    expect(importsThree("import { WebSocketServer } from 'ws';\nimport { Sim } from '../src/sim/sim';")).toBe(false);
+    expect(importsPresentation(server)).toEqual(['../src/ui/hud']);
+    expect(browserRefs(server)).toEqual(['window']);
+    expect(browserRefs("// document.title\nconst s = 'localStorage';")).toEqual([]);
   });
 
   it('the protocol imports nothing from render, ui, audio or input, and no Node module', () => {
