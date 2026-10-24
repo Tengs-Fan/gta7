@@ -14,8 +14,10 @@ export interface PlayerCheats {
   neverWanted: boolean;
 }
 
-/** `playerId` of the events a slot emits: absent for slot 0, so single-player listeners see the payloads they always did. */
+/** `playerId` of the events a slot emits: explicit for every slot of a multiplayer sim, absent for the single-player seat. */
 export type PlayerTag = { playerId?: number };
+
+const NO_TAG: PlayerTag = {};
 
 export class PlayerSlot {
   readonly ctl: PlayerController;
@@ -35,17 +37,22 @@ export class PlayerSlot {
   deathLevel = 0;
   /** On the grid or on the course of a head-to-head race (set by the race each tick). */
   racing = false;
-  readonly tag: PlayerTag;
+  private readonly explicitTag: PlayerTag;
   /**
    * Out of the world while nobody plays it (multiplayer: slot 0 between holders): its character is not in
    * sim.characters, and the sim leaves the slot out of everything players do or draw (streaming, police, pickups).
    */
   parked = false;
 
-  constructor(sim: Sim, readonly id: number, public character: Character) {
-    this.tag = id === 0 ? {} : { playerId: id };
+  constructor(private readonly sim: Sim, readonly id: number, public character: Character) {
+    this.explicitTag = { playerId: id };
     this.wanted = new WantedSystem(sim, this);
     this.ctl = new PlayerController(sim, this);
+  }
+
+  /** Slot 0 of a sim with one slot and no server stays untagged, so single-player listeners see the payloads they always did. */
+  get tag(): PlayerTag {
+    return this.id !== 0 || this.sim.multiplayer || this.sim.players.length > 1 ? this.explicitTag : NO_TAG;
   }
 
   get down(): boolean {

@@ -551,8 +551,12 @@ export class Mirror implements ViewState {
   private resolveEvent(ev: NetEvent): Record<string, unknown> | null {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(ev.data)) {
-      if (isRef(v)) out[k] = this.entity(v.$id) ?? null;
-      else out[k] = v;
+      if (isRef(v)) {
+        const e = this.entity(v.$id);
+        out[k] = e ?? null;
+        // An entity outside the interest set has no mirror object; listeners still learn who it was.
+        if (!e) out[`${k}Id`] = v.$id;
+      } else out[k] = v;
     }
     for (const k of REQUIRED_REFS[ev.type] ?? []) if (!out[k]) return null;
     if (ev.playerId !== 0) out.playerId = ev.playerId;

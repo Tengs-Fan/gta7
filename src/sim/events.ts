@@ -22,6 +22,12 @@ export interface PlayerScoped {
   playerId?: number;
 }
 
+/** A multiplayer client's events name an entity it has no object for (outside its interest set) by id: `attackerId` beside a null `attacker`. */
+export interface UnresolvedIds {
+  attackerId?: number;
+  killerId?: number;
+}
+
 /** Everything the presentation layer (renderer, audio, HUD) reacts to. Events about one player carry `playerId`. */
 export interface SimEvents {
   /** One bullet, pellet or rocket launch; `pellet` is its 0-based index within the trigger pull (0 for single-shot weapons and helicopter rounds). */
@@ -29,7 +35,7 @@ export interface SimEvents {
   /** Exactly one per trigger pull of a gun (player, NPC, rocket launch) from the muzzle along the aim before spread. Not for melee or helicopter rounds. */
   weaponFired: { shooter: Character | null; weapon: WeaponId; x: number; y: number; z: number; dx: number; dy: number; dz: number; pellets: number } & PlayerScoped;
   /** Every hit CombatSystem.damageCharacter applies, also one the armour absorbed completely; (dirX, dirZ) is the normalised hit direction, 0 when it has none. */
-  damage: { victim: Character; attacker: Character | null; healthLoss: number; armourLoss: number; kind: DamageKind; zone: HitZone; killed: boolean; dirX: number; dirZ: number } & PlayerScoped;
+  damage: { victim: Character; attacker: Character | null; healthLoss: number; armourLoss: number; kind: DamageKind; zone: HitZone; killed: boolean; dirX: number; dirZ: number } & PlayerScoped & UnresolvedIds;
   explosion: { x: number; y: number; z: number; radius: number };
   impact: { x: number; y: number; z: number; strength: number; vehicle: Vehicle | null };
   blood: { x: number; y: number; z: number; dx: number; dy: number; dz: number };
@@ -45,7 +51,7 @@ export interface SimEvents {
   vehicleExit: { vehicle: Vehicle; character: Character };
   vehicleDestroyed: { vehicle: Vehicle };
   /** `playerId`: the killer's slot, when a player made the kill (world events of a player's doing carry it too: shot, weaponFired, damage). */
-  characterKilled: { victim: Character; killer: Character | null } & PlayerScoped;
+  characterKilled: { victim: Character; killer: Character | null } & PlayerScoped & UnresolvedIds;
   pickup: { kind: PickupKind; x: number; y: number; z: number };
   money: { amount: number } & PlayerScoped;
   wanted: { level: number; previous: number } & PlayerScoped;

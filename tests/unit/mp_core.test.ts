@@ -7,6 +7,7 @@ import type { Character, Vehicle } from '../../src/sim/entities';
 import { applySimCheat, MP_NO_CHEATS } from '../../src/sim/cheats';
 import { MP_NO_SAVE } from '../../src/sim/interactions';
 import { MP_NO_STORY } from '../../src/sim/missions/runner';
+import { PLAYER_SCOPED_EVENTS } from '../../src/sim/events';
 import type { PlayerSlot } from '../../src/sim/playerSlot';
 import type { Sim } from '../../src/sim/sim';
 import { input, makeSim } from './helpers';
@@ -114,7 +115,9 @@ describe('wanted levels and crimes per player (VAL-MPSIM-001)', () => {
 
     const scoped = (type: string) => log.filter((e) => e.type === type);
     const wanted = scoped('wanted');
-    for (const e of wanted) expect([0, 1]).toContain(e.payload.playerId ?? 0);
+    // Slot 0's events name it too: a multiplayer sim never leaves the field to the single-player undefined-means-0 rule.
+    for (const e of wanted) expect([0, 1]).toContain(e.payload.playerId);
+    expect(wanted.some((e) => e.payload.playerId === 0)).toBe(true);
     const w1 = wanted.filter((e) => e.payload.playerId === 1);
     expect(w1.length).toBeGreaterThanOrEqual(3);
     // Each wanted event belongs to the slot whose level it reports.
@@ -133,6 +136,7 @@ describe('wanted levels and crimes per player (VAL-MPSIM-001)', () => {
     expect(lv0).toBe(lvA);
     const lost = scoped('message').filter((e) => e.payload.text === 'You lost the cops.');
     expect(lost.map((e) => e.payload.playerId)).toEqual([1]);
+    for (const type of PLAYER_SCOPED_EVENTS) for (const e of scoped(type)) expect(typeof e.payload.playerId, `${type} carries an explicit playerId`).toBe('number');
     // Dispatch lines for slot 1's chase and for slot 0's are each on their own player's scanner.
     const dispatch = scoped('dispatch');
     expect(dispatch.some((e) => e.payload.playerId === 1)).toBe(true);
@@ -150,10 +154,28 @@ describe('wanted levels and crimes per player (VAL-MPSIM-001)', () => {
     const shots = scoped('shot').filter((e) => (e.payload.shooter as Character | null) === p);
     expect(shots.length).toBeGreaterThan(0);
     expect(shots.every((e) => e.payload.playerId === 1)).toBe(true);
+    const shots0 = scoped('shot').filter((e) => (e.payload.shooter as Character | null) === a.character);
+    expect(shots0.every((e) => e.payload.playerId === 0)).toBe(true);
     expect(scoped('weaponFired').filter((e) => e.payload.shooter === p).every((e) => e.payload.playerId === 1)).toBe(true);
     const kill = scoped('characterKilled').find((e) => e.payload.victim === target)!;
     expect(kill.payload.playerId).toBe(1);
+    const target0 = sim.spawnCharacter('civilian', a.character.pos.x + 2, a.character.pos.z + 2);
+    sim.combat.damageCharacter(target0, 500, a.character, 'bullet', 1, 0, 0);
+    expect(scoped('characterKilled').find((e) => e.payload.victim === target0)!.payload.playerId).toBe(0);
     console.log(`[mpsim-001] events: wanted ${wanted.map((e) => `${e.payload.previous}->${e.payload.level}@${e.payload.playerId ?? 0}`).join(' ')}; dispatch ${dispatch.map((e) => `${e.payload.playerId ?? 0}:"${e.payload.text}"`).join(' | ')}; lost ${lost.length}; shots by slot 1 ${shots.length}, kill playerId ${kill.payload.playerId}`);
+  });
+});
+
+describe('player tags in a sim with one seat (single player)', () => {
+  it('leaves slot 0 untagged until a second slot or a server room exists', () => {
+    const sim = makeSim({ police: true });
+    const log = recordEvents(sim);
+    sim.players[0]!.wanted.setLevel(2);
+    expect(log.filter((e) => e.type === 'wanted').length).toBeGreaterThan(0);
+    for (const e of log) expect('playerId' in e.payload).toBe(false);
+    sim.addPlayer(sim.player.pos.x + 20, sim.player.pos.z);
+    sim.players[0]!.wanted.setLevel(0);
+    expect(log.filter((e) => e.type === 'wanted').pop()!.payload.playerId).toBe(0);
   });
 });
 
@@ -235,8 +257,9 @@ describe('the police pursue the right player (VAL-MPSIM-002)', () => {
       const pol = policeBySlot(sim);
       const u0 = pol.units.get(0) ?? [];
       const u1 = pol.units.get(1) ?? [];
-      for (const v of u0) if (v.ai?.target === b.character || v.ai?.target === b.character.vehicle) shared++;
-      for (const v of u1) if (v.ai?.target === a.character || v.ai?.target === a.character.vehicle) shared++;
+      const aimsAt = (v: Vehicle, s: PlayerSlot) => !!v.ai?.target && (v.ai.target === s.character || v.ai.target === s.character.vehicle);
+      for (const v of u0) if (aimsAt(v, b)) shared++;
+      for (const v of u1) if (aimsAt(v, a)) shared++;
       max0 = Math.max(max0, u0.filter((v) => v.ai?.policy === 'chase').length);
       max1 = Math.max(max1, u1.filter((v) => v.ai?.policy === 'chase').length);
       helis0 = Math.max(helis0, pol.helis.get(0) ?? 0);

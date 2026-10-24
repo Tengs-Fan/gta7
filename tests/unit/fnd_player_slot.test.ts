@@ -253,7 +253,7 @@ describe('a controller, interactions and jobs for each slot', () => {
     const saved: Array<number | undefined> = [];
     sim.events.on('saveRequested', (e) => saved.push(e.playerId));
     sim.update(DT, new Map([[0, lookAt(sim.player, { interact: true })]]));
-    expect(saved).toEqual([undefined]);
+    expect(saved).toEqual([0]);
     expect(sim.player.health).toBe(sim.player.maxHealth);
     expect(b.character.health).toBe(40);
   });

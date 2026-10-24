@@ -20,6 +20,8 @@ const UNITS_BY_LEVEL = [0, 2, 3, 4, 6, 7];
 export const HOSTILE_WINDOW = 4;
 /** From 3 stars, officers keep at least this far from an armed or fighting player instead of walking up to him. */
 const STANDOFF = 12;
+/** An officer whose shot at the player would go on into another player waits for a clear line from this close (m), and closes in from further out. */
+const BYSTANDER_WAIT = 12;
 /** A wanted player aiming a gun at an officer this close (m) is attacking the police (see aimThreat). */
 const AIM_THREAT_RANGE = 15;
 /** ...when the crosshair ray passes this close (m) to the officer's chest, before anyone else's. */
@@ -890,7 +892,7 @@ export class PoliceSystem {
         this.carSight.set(c, sight);
       }
       // Nor through anyone on foot in the way (an officer by the car, a bystander).
-      if (sight.clear && !sim.combat.inLineOfFire(c, p, () => true)) sim.combat.npcFire(c, p, carAccuracy(level), true);
+      if (sight.clear && !sim.combat.inLineOfFire(c, p, () => true) && !sim.combat.bystanderInFire(c, p)) sim.combat.npcFire(c, p, carAccuracy(level), true);
     }
   }
 
@@ -1102,8 +1104,12 @@ export class PoliceSystem {
         c.heading = moveAngleTowards(c.heading, yaw, 9 * dt);
         // Never through anyone else in the line of fire (a colleague, a bystander): a step aside for a clear line instead.
         const inLine = holdFire ? null : sim.combat.inLineOfFire(c, p, () => true);
+        const bystander = holdFire || inLine ? null : sim.combat.bystanderInFire(c, p);
         if (inLine) this.stepAside(c, inLine, pp);
-        else {
+        else if (bystander) {
+          if (d > BYSTANDER_WAIT) this.runTo(c, pp.x, pp.z, 3.2, dt);
+          else this.stepAside(c, bystander, pp, bystander.beyond);
+        } else {
           if (!holdFire && Math.abs(wrapAngle(yaw - c.heading)) < 0.3) sim.combat.npcFire(c, p, b.accuracy);
           // Close in a bit when far.
           if (d > 22) this.runTo(c, pp.x, pp.z, 3.2, dt);
@@ -1236,12 +1242,13 @@ export class PoliceSystem {
    * on his own level (not off a deck or a quay, into the sea or into a wall), else the other way; where both are shut he
    * stands his ground (holding his fire).
    */
-  private stepAside(c: Character, by: { pos: { x: number; z: number } }, pp: { x: number; z: number }): void {
+  private stepAside(c: Character, by: { pos: { x: number; z: number } }, pp: { x: number; z: number }, beyondTarget = false): void {
     const world = this.sim.world;
     const d = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) || 1;
     let sx = -(pp.z - c.pos.z) / d;
     let sz = (pp.x - c.pos.x) / d;
-    if ((by.pos.x - c.pos.x) * sx + (by.pos.z - c.pos.z) * sz > 0) {
+    // Behind the target the line to him swings the other way: the step towards the one in the way takes the line off him.
+    if (((by.pos.x - c.pos.x) * sx + (by.pos.z - c.pos.z) * sz > 0) !== beyondTarget) {
       sx = -sx;
       sz = -sz;
     }
