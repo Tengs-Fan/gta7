@@ -298,6 +298,13 @@ export class NetClient {
       if (Math.abs(this.slack - TARGET_SLACK) > 30) this.retime(s.tick);
     }
     if (!this.opts.predict) return;
+    if (this.held) {
+      if (p.active) {
+        p.stop();
+        m.locallyDriven.clear();
+      }
+      return;
+    }
     const st = serverOwnState(m, own);
     const ok = st && !gap && (st.status.state === 'normal' || st.status.state === 'swimming' || st.status.state === 'knocked' || (st.status.state === 'inVehicle' && st.status.seat === 0 && st.vehicle !== null));
     if (!st || !ok) {
@@ -312,6 +319,15 @@ export class NetClient {
     } else {
       p.reconcile(st, m);
     }
+  }
+
+  /**
+   * The server holds the local player (busted, wasted, or his controls locked) and ignores his inputs: predicting them
+   * would show movement and shots that never happen. The prediction starts over from the first snapshot after.
+   */
+  private get held(): boolean {
+    const m = this.mirror;
+    return m.me.down || m.hud.down !== null || m.hud.locked;
   }
 
   /** Renumbers the client's ticks after the server's clock jumped (stall, catch-up): the prediction starts over. */
@@ -400,7 +416,7 @@ export class NetClient {
     this.sentInputs.delete(t - 240);
     const p = this.predictor;
     if (p.active) {
-      if (p.tick !== t) p.stop();
+      if (p.tick !== t || this.held) p.stop();
       else {
         p.step(q, this.mirror);
         this.showShots(p.fired.splice(0));

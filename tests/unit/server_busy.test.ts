@@ -143,8 +143,9 @@ describe('busy scene budget', () => {
     expect(upKBs).toBeLessThanOrEqual(10);
     expect(tick.mean).toBeLessThanOrEqual(5);
     expect(tick.p95).toBeLessThanOrEqual(12);
-    // Version 2 added each player's ammo and job HUD (status line, objective markers) to the snapshot head.
-    expect(PROTOCOL_VERSION).toBe(2);
+    // Version 2 added each player's ammo and job HUD (status line, objective markers) to the snapshot head; version 3
+    // whether he is down or his controls are locked (in the byte that held the searching flag).
+    expect(PROTOCOL_VERSION).toBe(3);
     room.close();
   }, 120_000);
   }

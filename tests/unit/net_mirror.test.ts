@@ -249,10 +249,7 @@ describe('the mirror reproduces the server view of the player (VAL-MPCL-002)', (
     const recv = Object.fromEntries(h.received);
     const emitted = Object.fromEntries(h.emitted);
     console.log(`[mirror] events received ${JSON.stringify(recv)}; dropped (subject unknown) ${h.mirror.stats.eventsDropped}`);
-    for (const [type, n] of h.received) {
-      if (type === 'propBroken') continue;
-      expect(emitted[type] ?? 0, type).toBe(n);
-    }
+    for (const [type, n] of h.received) expect(emitted[type] ?? 0, type).toBe(n);
     expect((recv.shot ?? 0) + (recv.weaponFired ?? 0)).toBeGreaterThan(10);
     expect(recv.wanted ?? 0).toBeGreaterThan(0);
     expect(h.mirror.stats.eventsDropped).toBe(0);
@@ -313,7 +310,7 @@ describe('remote entities move smoothly between snapshots (VAL-MPCL-003, unit)',
       const id = 500;
       const rnd = linkRandom(hz);
       const base = (tick: number): SnapshotMsg => ({
-        type: 'snapshot', tick, ackSeq: 0, time: tick / 60, full: tick === every, clock: { day: 1, hours: 12, rate: 0 }, hud: { wanted: 0, searching: false, money: 0, clip: 0, ammo: 0 }, job: null,
+        type: 'snapshot', tick, ackSeq: 0, time: tick / 60, full: tick === every, clock: { day: 1, hours: 12, rate: 0 }, hud: { wanted: 0, searching: false, money: 0, clip: 0, ammo: 0, down: null, locked: false }, job: null,
         roster: tick === every ? [{ playerId: 2, characterId: 0, slot: 1, name: 'B' }] : null, weather: null, signalHolds: null, brokenProps: [], vehicles: [], characters: [], projectiles: [], helis: [], pickups: [], removed: [],
       });
       const motion = (tick: number) => {
