@@ -100,7 +100,7 @@ To play with friends on your network, run the optional multiplayer server (see [
   Five stunt ramps pay stunt bonuses, doubled for the first jump off each one.
   The bikes lean into turns, the sport bike pulls wheelies, a hard crash throws the rider off, and bikes ride in traffic, park in the bays and can be stolen like cars.
   Boats wait at the Marina: step aboard from the pier (or climb in from the water) with F, run them on the open sea where they ride the waves; they run aground on the beach, stop at quays and piers, and leaving one puts you on the pier or in the water.
-- **On foot and in the water.** Walk, sprint and jump (long falls hurt), and swim in deep water: there is no drowning, but no shooting, weapon switching or getting into cars either.
+- **On foot and in the water.** Walk, sprint and jump (long falls hurt); with your back to a wall the camera rises over your shoulder and looks down at you, and aiming keeps the level view. Swim in deep water: there is no drowning, but no shooting, weapon switching or getting into cars either.
 - **Street runs.** Three repeatable timed courses with a launch countdown, ordered checkpoints, turn directions, bronze/silver/gold medals, cash payouts and saved personal bests. Take the fast avenues of Magnolia Rush, the long coastal sweep of Coastline Circuit, or the tight corners of Dockside Switchback.
 - **Combat.** Fists, Pistol, SMG, Shotgun, Assault Rifle and Rocket Launcher, and a Baseball Bat and Combat Knife (combos: the bat floors people, the knife makes them bleed), Grenades and Molotov cocktails (hold right mouse for the throwing arc; grenades bounce and blow 3 s later, molotovs start a spreading fire that sets people and cars alight) and a Sniper Rifle (right mouse for the scope, the wheel zooms), sold at Bang Bang Guns and found around the city.
   Hip fire is quick and loose, while aiming zooms over the shoulder and tightens the spread; hit markers show hits, headshots and kills, and red arcs show where fire is coming from.
@@ -241,7 +241,6 @@ All of these are minor; the most noticeable come first.
 
 **Camera**
 
-- With your back against a wall, your character fades out (fully, or to a speckled ghost) because the camera has no room behind you; step about a meter away.
 - Swimming a couple of meters off a quay or a Marina pier, swinging the camera over the edge makes it hop up in one frame; right against a pier a fast swing with the far camera (V) can make it jump for a frame, and near the edge a wall, a crane leg or a change of camera distance can make it dive in toward you and back out.
 
 **Traffic and driving**
@@ -377,15 +376,15 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-140 files with 2201 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set to a free port) run in Node, with no browser.
-They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, properties, gangs, roadblocks and witnesses, saves in three slots (with an old single save, extension data per slot and corrupt entries), the content registries, the multiplayer wire protocol, server rooms, room rules and head-to-head races, interest management, the multi-player sim (per-player wanted, pursuits, respawns and streaming), the client's mirror and prediction, a 10-minute chaotic soak test (36,000 frames with a seeded random player), same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks), the layering rules (no three.js or browser code in the sim, the protocol or the server), and this README's Controls table against the real key bindings.
+143 files with 2239 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set to a free port) run in Node, with no browser.
+They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the camera with your back to a wall, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, properties, gangs, roadblocks and witnesses, saves in three slots (with an old single save, extension data per slot and corrupt entries), the content registries, the multiplayer wire protocol, server rooms, room rules and head-to-head races, interest management, the multi-player sim (per-player wanted, pursuits, respawns and streaming), the client's mirror and prediction, a 10-minute chaotic soak test (36,000 frames with a seeded random player), same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks), the layering rules (no three.js or browser code in the sim, the protocol or the server), and this README's Controls table against the real key bindings.
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
 `DUMP_MAP=city.svg npx vitest run tests/unit/world.test.ts` also writes a top-down SVG of the city.
 
 ### End-to-end tests
 
-142 tests in 40 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
+148 tests in 42 files boot the production build in Chromium (1280x720, one worker) and play it with real keyboard and mouse events and a stubbed standard gamepad.
 They cover stealing and driving a car, the first mission, Hot Delivery and The Big Score, chapter 2, a murder that brings the police, WASTED, mission retries from the pause menu, the menus, the HUD layout in small windows, the gun shop, saving and continuing after a reload, the side jobs and the wave-1 jobs, the phone, properties and the mod shop, save slots, key bindings and the map legend, bikes, boats and drifting, the new weapons, gangs, roadblocks, witnesses and angry drivers, the talk radio and a five-star hot mix with the talk station on air throughout, street runs, night rendering and the quality tiers, WebGL context loss, crash screens, nine of the ten cheats (RAINDANCE has unit tests), the multiplayer client against a real server (joining by URL, a lost server, an address with nothing behind it, and single player opening no socket), two and three clients in one room (seeing each other, a chase of one player, the Marina boats, leaving and joining), a head-to-head Street Run between two clients,, and a two-minute chaos session that must average over 30 fps.
 Most tests also fail on any console error, console warning or page error.
 
