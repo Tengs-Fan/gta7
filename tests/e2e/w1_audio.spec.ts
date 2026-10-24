@@ -467,17 +467,29 @@ test.describe('GTA 7 wave-1 audio', () => {
     await page.evaluate(() => {
       const g = (window as Api).__gta7;
       g.setWanted(5);
+      // A player sitting in a stopped car at 5 stars is busted within seconds, which takes him out of the car and the
+      // talk station off the air. With arrests off the chase goes on as before (sirens, rams, dispatch, gunfire) and
+      // he stays at the wheel, so the whole fixture is measured with TALK on air.
+      g.sim.missions.noBust = true;
       const w = window as Api;
       w.__car = g.sim.player.vehicle;
       w.__prePeak = 0;
       w.__peak = 0;
       w.__tallies = [];
+      w.__onAir = { polls: 0, off: [] as Array<[number, string, boolean, string | null]>, wanted: [] as number[] };
       const t0 = performance.now();
       // Gunfire around the player all along, and the meters polled.
       w.__iv = setInterval(() => {
         const a = g.game.audio;
         const p = g.sim.playerPos();
-        // The car must survive the rams and the player stay at the wheel (crews drag him out), or the radio stops.
+        // Checked before the re-seat below, so a player taken out of the car between two polls is still caught.
+        const st = g.state();
+        w.__onAir.polls++;
+        w.__onAir.wanted.push(st.wanted);
+        if (!a.radio.playing || a.radio.stationName !== 'AZURA TALK 104.5' || st.player.vehicle !== 'sedan') {
+          w.__onAir.off.push([Math.round((performance.now() - t0) / 100) / 10, a.radio.stationName, a.radio.playing, st.player.vehicle]);
+        }
+        // The car must survive the rams and the player stay at the wheel, or the radio stops.
         const v = w.__car;
         v.health = v.spec.health;
         if (!g.sim.player.vehicle && !v.destroyed && g.sim.player.state === 'normal') g.sim.seat(g.sim.player, v, 0);
@@ -497,12 +509,20 @@ test.describe('GTA 7 wave-1 audio', () => {
       const w = window as Api;
       clearInterval(w.__iv);
       clearInterval(w.__iv2);
-      return { prePeak: w.__prePeak as number, peak: w.__peak as number, tallies: w.__tallies as Array<{ s: number; total: number; live: Record<string, number>; started: Record<string, number> }>, counters: w.__gta7.game.audio.counters };
+      return { prePeak: w.__prePeak as number, peak: w.__peak as number, tallies: w.__tallies as Array<{ s: number; total: number; live: Record<string, number>; started: Record<string, number> }>, counters: w.__gta7.game.audio.counters, onAir: w.__onAir as { polls: number; off: Array<[number, string, boolean, string | null]>; wanted: number[] } };
     });
     const at = (s: number) => r.tallies.filter((x) => x.s >= s - 15 && x.s <= s + 15).map((x) => x.total);
     const mean = (a: number[]) => a.reduce((p, x) => p + x, 0) / Math.max(1, a.length);
     console.log(`[hot mix] tallies ${JSON.stringify(r.tallies.map((x) => [Math.round(x.s), x.total, (x as Api).playing, (x as Api).seg, (x as Api).car]))}`);
     console.log(`[hot mix] limiter peak ${r.prePeak.toFixed(3)}, output peak ${r.peak.toFixed(3)}; live voices ~${early} s ${mean(at(early)).toFixed(1)}, ~${late} s ${mean(at(late)).toFixed(1)}; counters ${JSON.stringify(r.counters)}`);
+    console.log(`[hot mix] on air: ${r.onAir.polls - r.onAir.off.length}/${r.onAir.polls} polls with TALK playing in the sedan; wanted min ${Math.min(...r.onAir.wanted)}; off ${JSON.stringify(r.onAir.off.slice(0, 10))}`);
+    // TALK is on air, in the car, at every 150 ms poll from the start of the fixture to its end, and the chase runs at
+    // 5 stars all along: the peaks and tallies above are those of the full hot mix.
+    expect(r.onAir.polls).toBeGreaterThan((soak * 1000) / 150 * 0.8);
+    expect(r.onAir.off).toEqual([]);
+    expect(Math.min(...r.onAir.wanted)).toBe(5);
+    expect(r.tallies.length).toBeGreaterThanOrEqual(Math.floor(soak / 5) - 1);
+    expect(r.tallies.every((x) => (x as Api).playing && (x as Api).station === 'AZURA TALK 104.5' && (x as Api).car === 'sedan')).toBe(true);
     expect(r.prePeak).toBeLessThanOrEqual(1);
     expect(r.peak).toBeLessThan(1);
     expect(r.counters.barks).toBeGreaterThan(0);

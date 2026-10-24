@@ -71,6 +71,50 @@ const CLOSE_FULL = 0.35;
 const CLOSE_LIFT = 0.35;
 const CLOSE_SIDE = 0.2;
 /**
+ * Not aiming, a wall (or a van) that leaves the boom no room to stand RAISE_DEPTH m back from his head raises the camera
+ * instead and looks down over his shoulder. CrowdView dissolves whatever is nearer the lens than LENS_FADE_FULL (0.9 m
+ * of depth along the view; the extra 0.3 m covers the crown of his head, a hat, and a chest or swinging arm nearer the
+ * lens than his head while the view is still level), and the view's yaw is his, so with his back to the wall depth can
+ * only come from looking down at him from above. The camera rises (up to RAISE_MAX m, as far as the eaves let it) to
+ * where his head can sit RAISE_DEPTH deep and RAISE_KEEP of the half-height below the frame's middle, slides out over
+ * the shoulder by up to RAISE_SIDE, and the rest pitch tilts down to frame him there (see raisedView), never so steep
+ * that the frame's bottom edge comes within RAISE_BOTTOM (rad) of straight down (it would look back at the wall
+ * behind the lens). Rise and tilt glide (RAISE_EASE, 1/s, exponentially, but never slower than RAISE_RATE m/s or
+ * rad/s, so the last of it does not crawl in with him half dissolved): the wall stop itself is a cut at a corner.
+ */
+const RAISE_DEPTH = 1.2;
+const RAISE_KEEP = 0.5;
+const RAISE_BOTTOM = 0.05;
+const RAISE_MAX = 1.4;
+const RAISE_SIDE = 0.2;
+/** The slide reaches RAISE_SIDE once the camera has risen this far (m). */
+const RAISE_SIDE_AT = 0.8;
+const RAISE_EASE = 10;
+const RAISE_RATE = 1;
+const RAISE_LEAD = 0.25;
+/** Past the near plane's half-width (0.36 m at 0.3 m out) from a wall beside the raised camera (m). */
+const RAISE_CLEAR = 0.42;
+/**
+ * The tilt is anchored at the rest pitch (RESET_PITCH), for the camera as the boom leaves it there; from this far out
+ * (x the reach that framing needs) the camera is far enough back whatever the pitch, and the tilt fades out by then.
+ */
+const RAISE_GATE = 1.25;
+/** The look's pitch limits (rad, + up). */
+const PITCH_MIN = -1.25;
+const PITCH_MAX = 1.35;
+
+/**
+ * The view pitch for the look's `pitch` when the rest pitch (RESET_PITCH) is to look at `rest` instead (no higher than
+ * RESET_PITCH): piecewise linear through (PITCH_MIN, PITCH_MIN), (RESET_PITCH, rest) and (PITCH_MAX, PITCH_MAX), so the
+ * whole look range stays reachable and the view always turns the way the look does.
+ */
+export function raisedView(pitch: number, rest: number): number {
+  const r = Math.min(RESET_PITCH, Math.max(PITCH_MIN, rest));
+  const p = clamp(pitch, PITCH_MIN, PITCH_MAX);
+  if (p <= RESET_PITCH) return PITCH_MIN + ((p - PITCH_MIN) * (r - PITCH_MIN)) / (RESET_PITCH - PITCH_MIN);
+  return r + ((p - RESET_PITCH) * (PITCH_MAX - r)) / (PITCH_MAX - RESET_PITCH);
+}
+/**
  * On foot a wall stops the boom 0.3 m short of it, but never nearer his head than 0.35 m, unless the wall itself is
  * nearer: then the camera stays this far (m) in front of it along the boom, on his side of it, where closeBoom can lift
  * it and slide it out. That holds while the wall is behind the view; where the view runs along it (its face inside the
@@ -374,6 +418,9 @@ export class CameraController {
   private readonly vehicleRay = new THREE.Vector3();
   /** Come back out gently after a bus or van moves away, but never travel through it. */
   private vehicleBoom = Infinity;
+  /** The raised framing as it glides (see RAISE_DEPTH): how far (m) the camera is up, and how far (rad, <= 0) the rest pitch is tilted. */
+  private raiseUp = 0;
+  private raiseTilt = 0;
   /** What closeBoom put on the on-foot camera beside its boom, while liftSight shortens that. */
   private readonly boomOff = new THREE.Vector3();
   /**
@@ -418,7 +465,7 @@ export class CameraController {
     } else {
       this.yaw = wrapAngle(this.yaw - dx * k);
       // Steep enough to aim at the police helicopter orbiting overhead (about 1 rad up).
-      this.pitch = clamp(this.pitch - dy * ky, -1.25, 1.35);
+      this.pitch = clamp(this.pitch - dy * ky, PITCH_MIN, PITCH_MAX);
     }
     // Any look input counts: a gentle stick pan at a high frame rate is well under a pixel per frame.
     if (dx !== 0 || dy !== 0) this.lookIdle = 0;
@@ -506,7 +553,7 @@ export class CameraController {
     const pz = t.z - dz * this.dist + rz * s;
     const k = this.boom;
     const side = this.footSide;
-    const view = this.pitch + this.footTilt;
+    const view = this.raiseTilt !== 0 ? raisedView(this.pitch, RESET_PITCH + this.raiseTilt) : this.pitch + this.footTilt;
     const cv = Math.cos(view);
     return {
       origin: { x: lx + (px - lx) * k + rx * side, y: Math.max(t.y + (py - t.y) * k + this.footLift, this.floorY), z: lz + (pz - lz) * k + rz * side },
@@ -561,6 +608,8 @@ export class CameraController {
     let swimming = false;
     // In the water and not aiming: raised ground is looked over (liftSight) rather than stopping the boom.
     let lookOver = false;
+    // On land and not aiming: a wall close behind raises the camera over him (see RAISE_DEPTH).
+    let raise = false;
     this.rumbleAmt = 0;
     if (me.down && me.deathKind === 'wasted') {
       this.deathT += dt;
@@ -610,6 +659,7 @@ export class CameraController {
       const scope = aim && p.state === 'normal' && p.alive ? WEAPONS[p.inventory.current]?.scope : undefined;
       if (scope) return this.scopeView(dt, p, scope.zooms[Math.min(scope.zooms.length - 1, Math.max(0, p.scopeLevel))] ?? scope.zooms[0]!, scope.sway, wasScoped);
       lookOver = !aim && (swimming || p.pos.y < WATER_Y);
+      raise = !aim && !lookOver;
       const lying = p.state === 'knocked' || p.state === 'dead';
       const headY = swimming ? 1.6 : lying ? 0.7 : 1.58 * p.appearance.height;
       this.target.lerp(new THREE.Vector3(p.pos.x, p.pos.y + headY, p.pos.z), 1 - Math.exp(-22 * dt));
@@ -675,6 +725,7 @@ export class CameraController {
       this.lastPitch = this.pitch;
     }
     let reach = len;
+    const fresh = this.freshBoom;
     if (len > 0.01) {
       d.divideScalar(len);
       if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) {
@@ -729,8 +780,13 @@ export class CameraController {
       this.hugging.clear();
       this.heldBy = -1;
     }
+    if (!onFoot || lookOver) {
+      // In the water liftSight frames him; in a car or wasted the camera has no on-foot boom to raise.
+      this.raiseUp = 0;
+      this.raiseTilt = 0;
+    }
     if (onFoot && len > 0.01) {
-      this.closeBoom(sim, reach);
+      this.closeBoom(sim, reach, raise, dt, fresh);
       if (lookOver) this.liftSight(sim.world, lookFrom, d, len, dt);
     } else if (v) {
       this.clearBody(sim, v);
@@ -801,27 +857,82 @@ export class CameraController {
 
   /**
    * A wall right behind the player (the on-foot boom cut to `reach` m, shorter than CLOSE_BOOM): the camera rises and
-   * slides out over the shoulder it is on, as far as nothing solid comes within 0.3 m of the lens.
+   * slides out over the shoulder it is on, as far as nothing solid comes within 0.3 m of the lens. Where it may `raise`
+   * (on land, not aiming) it goes on up and tilts the view down to frame him (see RAISE_DEPTH), gliding over the `dt` s
+   * of this frame unless the boom is `fresh`.
    */
-  private closeBoom(sim: ViewState, reach: number): void {
+  private closeBoom(sim: ViewState, reach: number, raise: boolean, dt: number, fresh: boolean): void {
     const k = 1 - smoothstep(CLOSE_FULL, CLOSE_BOOM, reach);
-    if (k <= 0) return;
     const p = this.desired;
+    const h = this.head;
+    const fx = Math.sin(this.yaw);
+    const fz = Math.cos(this.yaw);
+    const vhalf = THREE.MathUtils.degToRad(this.camera.fov) / 2;
+    const keep = RAISE_KEEP * vhalf;
+    // How far from his head (m) the camera must be to frame it RAISE_DEPTH deep, `keep` below the frame's middle.
+    const need = RAISE_DEPTH / Math.cos(keep);
+    // (Where he will be RAISE_LEAD s on, backing toward the lens: walking, he closes the last metre in a quarter second.)
+    const vel = this.me(sim).character.vel;
+    const closing = Math.max(0, -(vel.x * fx + vel.z * fz)) * RAISE_LEAD;
+    const ahead = Math.max(0, (h.x - p.x) * fx + (h.z - p.z) * fz - closing);
+    const wantUp = raise && ahead < need ? Math.min(RAISE_MAX, Math.max(0, Math.sqrt(need * need - ahead * ahead) - (p.y - h.y))) : 0;
+    const ease = 1 - Math.exp(-RAISE_EASE * dt);
+    const glide = (from: number, to: number): number => {
+      if (fresh) return to;
+      const gap = Math.abs(to - from);
+      return from + Math.sign(to - from) * Math.min(gap, Math.max(gap * ease, RAISE_RATE * dt));
+    };
+    this.raiseUp = glide(this.raiseUp, wantUp);
+    if (k <= 0 && this.raiseUp === 0 && this.raiseTilt === 0 && !raise) return;
     const grid = sim.world.grid;
-    let lift = CLOSE_LIFT * k;
-    if (grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight)) lift = Math.max(0, hit.t - 0.3);
+    let lift = Math.max(CLOSE_LIFT * k, this.raiseUp);
+    if (lift > 0 && grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight)) lift = Math.max(0, hit.t - 0.3);
     p.y += lift;
     // Out to his right, or his left with a swimmer's camera over that shoulder (between the two while it changes).
     const out = this.shoulderSide;
     const ox = -Math.cos(this.yaw) * Math.sign(out);
     const oz = Math.sin(this.yaw) * Math.sign(out);
-    let slide = CLOSE_SIDE * k * Math.abs(out);
+    let slide = Math.max(CLOSE_SIDE * k, RAISE_SIDE * Math.min(1, this.raiseUp / RAISE_SIDE_AT)) * Math.abs(out);
     if (slide > 0 && grid.raycast(p.x, p.y, p.z, ox, 0, oz, slide + 0.3, hit, isSolidForSight)) slide = Math.max(0, hit.t - 0.3);
     p.x += ox * slide;
     p.z += oz * slide;
     this.footLift += lift;
     // (footSide is along his right.)
     this.footSide += slide * Math.sign(out);
+    if (this.raiseUp > 0) {
+      // In a corner the raised camera also stands RAISE_CLEAR off the wall beside it (where the other side has room):
+      // nearer, the near plane cut into that wall and the frame's edge showed through it.
+      const rx = -Math.cos(this.yaw);
+      const rz = Math.sin(this.yaw);
+      const room = (s: number) => (grid.raycast(p.x, p.y, p.z, rx * s, 0, rz * s, RAISE_CLEAR + 0.3, hit, isSolidForSight) ? hit.t : RAISE_CLEAR + 0.3);
+      const right = room(1);
+      const left = room(-1);
+      let shift = Math.max(0, RAISE_CLEAR - right) - Math.max(0, RAISE_CLEAR - left);
+      shift = shift > 0 ? Math.min(shift, Math.max(0, left - 0.3)) : -Math.min(-shift, Math.max(0, right - 0.3));
+      shift *= Math.min(1, this.raiseUp / RAISE_SIDE_AT);
+      p.x -= rx * shift;
+      p.z -= rz * shift;
+      this.footSide -= shift;
+    }
+    // The rest pitch's view that frames his head from here: within the band round the line to it where it is RAISE_DEPTH
+    // deep, and no more than `keep` below the middle (only ever tilting down).
+    let wantTilt = 0;
+    if (raise) {
+      const a = Math.max(0, (h.x - p.x) * fx + (h.z - p.z) * fz - closing);
+      const b = h.y - p.y;
+      const rho = Math.hypot(a, b);
+      const band = rho > RAISE_DEPTH ? Math.min(Math.acos(RAISE_DEPTH / rho), keep) : 0;
+      const gate = 1 - smoothstep(need, need * RAISE_GATE, a);
+      // Never so steep that the frame's bottom edge looks back past straight down, at the wall behind the lens.
+      const steepest = vhalf + RAISE_BOTTOM - Math.PI / 2;
+      wantTilt = Math.min(0, Math.max(steepest, Math.atan2(b, a) + band) - RESET_PITCH) * gate;
+    }
+    this.raiseTilt = glide(this.raiseTilt, wantTilt);
+    if (this.raiseTilt === 0) return;
+    const view = raisedView(this.pitch, RESET_PITCH + this.raiseTilt);
+    this.footTilt = view - this.pitch;
+    const cv = Math.cos(view);
+    this.dir.set(fx * cv, Math.sin(view), fz * cv);
   }
 
   /**
@@ -1123,6 +1234,8 @@ export class CameraController {
     this.stillFor = Infinity;
     this.floorY = -Infinity;
     this.vehicleBoom = Infinity;
+    this.raiseUp = 0;
+    this.raiseTilt = 0;
     this.shoulderSide = 1;
     this.sideTarget = 1;
     this.glideOn = false;
