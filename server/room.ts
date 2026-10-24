@@ -20,6 +20,7 @@ import { classifyEvent, eventRelevant, type RoutedEvent } from './events';
 import type { PlayerInput } from '../src/sim/input';
 import { runCommand } from './commands';
 import { RoomRules } from './lobby';
+import { PoliceWatch, type PoliceTally, type PoliceUnitStatus } from './policeWatch';
 
 /** What a room needs of a client connection. */
 export interface Peer {
@@ -137,6 +138,8 @@ export interface RoomStatus {
   brokenProps: number[];
   /** Wrecked (destroyed) vehicles still in the world. */
   wrecks: number[];
+  /** Every police unit with the player it works for and the one it targets (see PoliceWatch). */
+  policeUnits: PoliceUnitStatus[];
   members: Array<{ playerId: number; name: string; slot: number; snapshots: number; skipped: number; ackSeq: number; bytesOut: number; interest: number; player: MemberPlayer | null }>;
 }
 
@@ -154,7 +157,7 @@ export interface MemberPlayer {
    * Police tagged to this player's pursuit (untagged patrols count for slot 0, so read `chasing`, the police cars
    * whose driver targets him, for "is he being chased").
    */
-  police: { units: number; chasing: number; officers: number; helis: number; nearest: number | null };
+  police: { units: number; chasing: number; officers: number; helis: number; nearest: number | null } & PoliceTally;
 }
 
 export class Room {
@@ -170,6 +173,7 @@ export class Room {
   tickErrors = 0;
   private events: RoutedEvent[] = [];
   private readonly brokenLog: number[] = [];
+  readonly policeWatch = new PoliceWatch(this);
   private rosterVersion = 0;
   private readonly loop: FixedLoop | null;
   private readonly writer = new Writer(16 * 1024);
@@ -310,6 +314,7 @@ export class Room {
 
   private onSimEvent(type: string, payload: unknown): void {
     this.rules?.onSimEvent(type, payload);
+    this.policeWatch.onSimEvent(type, payload);
     if (type === 'propBroken') this.brokenLog.push((payload as { index: number }).index);
     const routed = classifyEvent(type, payload, (pid) => {
       const holder = this.memberOfSlot(this.slots.slotOfEvent(pid));
@@ -534,6 +539,7 @@ export class Room {
       weather: { kind: sim.weather.state.kind, rain: r3(sim.weather.state.rain), cloud: r3(sim.weather.state.cloud) },
       brokenProps: this.brokenLog.slice(),
       wrecks: sim.vehicles.filter((v) => !v.removed && v.destroyed).map((v) => v.id),
+      policeUnits: this.policeWatch.units(),
       members: [...this.members.values()].map((m) => ({ playerId: m.playerId, name: m.name, slot: m.slot ?? -1, snapshots: m.snapshots, skipped: m.snapshotsSkipped, ackSeq: m.latch.ackSeq, bytesOut: m.bytesOut, interest: m.interest?.size ?? 0, player: this.memberPlayer(m) })),
     };
   }
@@ -562,7 +568,7 @@ export class Room {
       x: r2(at.pos.x), y: r2(at.pos.y), z: r2(at.pos.z), heading: r2(at.heading), state: c.state, health: Math.round(c.health),
       vehicle: c.vehicle ? { id: c.vehicle.id, kind: c.vehicle.kind } : null,
       wanted: this.slots.hud(m.slot).wanted,
-      police: { units, chasing, officers, helis, nearest: Number.isFinite(nearest) ? Math.round(nearest) : null },
+      police: { units, chasing, officers, helis, nearest: Number.isFinite(nearest) ? Math.round(nearest) : null, ...this.policeWatch.tally(m.playerId) },
     };
   }
 
