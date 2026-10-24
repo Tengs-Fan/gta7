@@ -114,7 +114,7 @@ Every 10 s the server also logs one line per room, for example:
 | `welcome` | server | playerId, slot (-1 while watching), room id, room seed, tick, tick and snapshot rates, broken props, signal holds, nearby pickups |
 | `reject` | server | `full`, `version`, `badHello`, `shutdown` or `kicked`, with a message (the socket then closes) |
 | `input` | client | seq, client tick, packed `PlayerInput` (41 bytes) |
-| `snapshot` | server | tick, ackSeq, sim time, clock, HUD (wanted, searching, money, ammo, side job), roster/weather/holds when changed, new broken props, entity records, removals |
+| `snapshot` | server | tick, ackSeq, sim time, clock, HUD (wanted, searching, money, clip and ammo, and whether the server holds the player: wasted or busted, or controls locked), side job/roster/weather/holds when changed, new broken props, entity records, removals |
 | `event` | server | tick and events (entity references as ids) |
 | `cmd` | client | seq, command name, argument (`respawn`; `debug` with `--dev`) |
 | `ping` / `pong` | both | client time, server time and tick (round-trip time) |
@@ -161,8 +161,8 @@ the Dockerfile was checked by reading it.
 - `server/tools/busyScene.ts`: the busy-scene measurement against a running `--dev` server:
   `npx tsx server/tools/busyScene.ts --url ws://127.0.0.1:4210/ws --seconds 60 [--spread]` prints the `/status` line
   every 10 s and each client's snapshot sizes and bandwidth (`--spread` puts the players in four districts).
-- `tests/e2e/mp_client.spec.ts`, `mp_cross.spec.ts` (with `--dev`) and `mp_lobby.spec.ts` start their own server on
-  `GTA7_MP_PORT` (default 4210): one browser joining by URL, two to three clients through the cross-area flows, and a
+- `tests/e2e/mp_client.spec.ts` (with `--dev --puppets`), `mp_cross.spec.ts` and `mp_lobby.spec.ts` (both with `--dev`)
+  start their own server on `GTA7_MP_PORT` (default 4210): one browser joining by URL, two to three clients through the cross-area flows, and a
   head-to-head race between two clients.
 - Tests: `tests/unit/net_*.test.ts` and `tests/unit/server_*.test.ts`. The server tests listen on Unix sockets, not
   TCP ports; `GTA7_MP_TEST_PORT=<port>` adds a TCP and LAN check, `GTA7_MP_SOAK_SECONDS=60` lengthens the 60 Hz run.
