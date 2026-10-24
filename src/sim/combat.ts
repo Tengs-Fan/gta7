@@ -554,6 +554,37 @@ export class CombatSystem {
     return null;
   }
 
+  /**
+   * Another player (on foot, or in his car) in the way of a police shot at `target`, null when the way is clear and
+   * always in single player: within inLineOfFire's tolerance of the line from the muzzle to the target, and also of its
+   * continuation as far as the shooter's weapon reaches, since a round that misses the target flies on and hits whoever
+   * stands behind him. `beyond` tells which side of the target he is on.
+   */
+  bystanderInFire(shooter: Character, target: Character): { pos: { x: number; z: number }; beyond: boolean } | null {
+    const sim = this.sim;
+    if (sim.players.length < 2) return null;
+    const tp = target.vehicle ? target.vehicle.pos : target.pos;
+    const m = this.muzzle(shooter, !!shooter.vehicle);
+    const dx = tp.x - m.x;
+    const dz = tp.z - m.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-3) return null;
+    const reach = len + shooter.inventory.spec().range;
+    for (const s of sim.players) {
+      const o = s.character;
+      if (o === target || s.down || !o.alive || o.removed) continue;
+      const body = o.vehicle ?? o;
+      if (o.vehicle && o.vehicle === target.vehicle) continue;
+      if (!o.vehicle && o.state !== 'normal' && o.state !== 'swimming') continue;
+      const ox = body.pos.x - m.x;
+      const oz = body.pos.z - m.z;
+      const along = (ox * dx + oz * dz) / len;
+      const radius = o.vehicle ? (o.vehicle.halfL + o.vehicle.halfW) / 2 : LINE_CLEAR;
+      if (along > -BODY_R && along < reach && Math.abs(ox * dz - oz * dx) / len < radius + Math.max(0, along) * LINE_SPREAD) return { pos: body.pos, beyond: along >= len };
+    }
+    return null;
+  }
+
   /** Points a character's aim (yaw and pitch, as drawn and as the barrel tip follows) along (dx, dy, dz). */
   private aimAlong(c: Character, dx: number, dy: number, dz: number): void {
     const l = Math.hypot(dx, dy, dz);
@@ -1110,6 +1141,8 @@ export class CombatSystem {
     if (c.removed || !c.alive || !(amount > 0)) return false;
     if (c.isPlayer && this.slotFor(c).down) return false;
     if (c.isPlayer && this.slotFor(c).cheats.godMode) return false;
+    // A stray round or blast (a cruiser the chase shot burning) of the police after one player never hurts another.
+    if (attacker?.isLaw && c.isPlayer && sim.players.length > 1 && sim.police.targetSlotOf(attacker) !== this.slotFor(c).id) return false;
     // One crew never hurts its own (a stray round or a punch in the crowd round the player): no damage, no blood.
     if (attacker && !attacker.isPlayer && !c.isPlayer && sim.peds.allied(c, attacker)) return false;
     let armourLoss = 0;

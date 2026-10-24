@@ -86,7 +86,15 @@ describe('player-scoped events carry an optional playerId', () => {
     for (const name of SCOPED) expect(src, name).toMatch(new RegExp(`^  ${name}: .*PlayerScoped`, 'm'));
   });
 
-  it('slot 0’s events come without a playerId and another slot’s carry its id', () => {
+  it('slot 0’s events come without a playerId in a one-seat sim, and every slot of a two-seat sim carries its id', () => {
+    const single = new Sim({ world: world(), ambient: false, police: false });
+    const one: Array<[string, number | undefined]> = [];
+    single.events.on('wanted', (e) => one.push(['wanted', e.playerId]));
+    single.events.on('wasted', (e) => one.push(['wasted', e.playerId]));
+    single.wanted.setLevel(2);
+    single.playerDied();
+    expect(one).toEqual([['wanted', undefined], ['wasted', undefined]]);
+
     const sim = new Sim({ world: world(), ambient: false, police: false });
     const b = sim.addPlayer(sim.player.pos.x + 5, sim.player.pos.z);
     const seen: Array<[string, number | undefined]> = [];
@@ -97,7 +105,7 @@ describe('player-scoped events carry an optional playerId', () => {
     sim.playerDied();
     b.wanted.setLevel(1);
     sim.playerDied(b);
-    expect(seen).toEqual([['wanted', undefined], ['wasted', undefined], ['big', undefined], ['wanted', 1], ['wasted', 1], ['big', 1]]);
+    expect(seen).toEqual([['wanted', 0], ['wasted', 0], ['big', 0], ['wanted', 1], ['wasted', 1], ['big', 1]]);
   });
 });
 

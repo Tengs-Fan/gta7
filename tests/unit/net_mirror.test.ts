@@ -298,6 +298,33 @@ describe('the mirror reproduces the server view of the player (VAL-MPCL-002)', (
     expect(c.bad).toEqual([]);
     expect(h.mirror.vehicle(car.id)).toBeNull();
   });
+
+  it('an attacker outside the interest set keeps its id beside a null entity', () => {
+    const h = harness();
+    const room = h.mgr.room('mir')!;
+    const sim = room.sim;
+    for (let i = 0; i < 60; i++) {
+      room.step();
+      h.apply();
+    }
+    const me = [...room.members.values()][0]!;
+    const victim = sim.slotOf(sim.characters.find((c) => c.isPlayer)!)!.character;
+    const far = sim.spawnCharacter('civilian', victim.pos.x + 900, victim.pos.z);
+    sim.combat.damageCharacter(victim, 5, far, 'melee', 1, 0, 0);
+    const seen: Array<Record<string, unknown>> = [];
+    h.mirror.events.on('damage', (e) => seen.push(e as unknown as Record<string, unknown>));
+    for (let i = 0; i < 5; i++) {
+      room.step();
+      h.apply();
+    }
+    expect(me.interest!.has(far.id)).toBe(false);
+    expect(h.mirror.entity(far.id)).toBeUndefined();
+    expect(seen.length).toBe(1);
+    expect(seen[0]!.attacker).toBeNull();
+    expect(seen[0]!.attackerId).toBe(far.id);
+    expect(seen[0]!.victim).toBe(h.mirror.entity(victim.id));
+    console.log(`[mirror] unknown attacker ${far.id} -> attacker ${String(seen[0]!.attacker)}, attackerId ${String(seen[0]!.attackerId)}`);
+  });
 });
 
 describe('remote entities move smoothly between snapshots (VAL-MPCL-003, unit)', () => {
