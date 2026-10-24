@@ -237,7 +237,7 @@ export class PuppetSlotProvider implements SlotProvider {
 
   hud(slot: number): Hud {
     if (slot === 0) return captureHud(this.sim.players[0]!);
-    return { wanted: 0, searching: false, money: 0, clip: 0, ammo: 0 };
+    return { wanted: 0, searching: false, money: 0, clip: 0, ammo: 0, down: null, locked: false };
   }
 
   job(slot: number): JobHud {

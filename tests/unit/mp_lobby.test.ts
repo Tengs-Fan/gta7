@@ -318,7 +318,101 @@ describe('the head-to-head Street Run', () => {
     driveCourse(r, race, sa);
     expect(race.stage).toBe('results');
     steps(r, 3);
-    expect(lastState(a).race!.entrants.map((e) => [e.name, e.position, e.status, e.reason])).toEqual([['Ann', 1, 'finished', ''], ['Gone', 0, 'dnf', 'left']]);
+    expect(lastState(a).race!.entrants.map((e) => [e.name, e.position, e.status, e.reason])).toEqual([['Ann', 1, 'finished', ''], ['Bea', 0, 'dnf', 'left']]);
+    expect(lastState(a).race!.entrants.map((e) => e.playerId)).toEqual([1, 2]);
+  });
+
+  it("a newcomer on a finished leaver's slot inherits neither his win nor his finish, and the results name the leaver", () => {
+    const r = room();
+    const a = join(r, 1, 'Ann');
+    const b = join(r, 2, 'Bea');
+    r.command(a.m, 'race', JSON.stringify({ action: 'open', course: 'magnolia' }));
+    r.command(b.m, 'race', JSON.stringify({ action: 'join' }));
+    r.command(a.m, 'race', JSON.stringify({ action: 'start' }));
+    const race = r.rules.race!;
+    steps(r, RACE_COUNTDOWN * TICK + 2);
+    const sa = slotOf(r, a);
+    const sb = slotOf(r, b);
+    const bSlot = sb.id;
+    driveCourse(r, race, sb);
+    const bTick = race.racer(sb)!.finishTick!;
+    r.leave(b.m);
+    const c = join(r, 3, 'Cal');
+    expect(c.m.slot).toBe(bSlot);
+    steps(r, 2);
+    const mid = r.rules.raceView()!;
+    expect(mid.entrants.map((e) => [e.playerId, e.name, e.status, e.finishTick])).toEqual([[2, 'Bea', 'finished', bTick], [1, 'Ann', 'racing', null]]);
+    expect(mid.entrants.some((e) => e.playerId === 3)).toBe(false);
+    expect(race.racer(bSlot)).toBeUndefined();
+    expect(r.rules.jobFor(bSlot)).toBeNull();
+    expect(r.rules.racing(bSlot)).toBe(false);
+    expect(slotOf(r, c).racing).toBe(false);
+    driveCourse(r, race, sa);
+    expect(race.stage).toBe('results');
+    steps(r, 3);
+    for (const p of [a, c]) {
+      expect(lastState(p).race!.entrants.map((e) => [e.playerId, e.name, e.position, e.status])).toEqual([[2, 'Bea', 1, 'finished'], [1, 'Ann', 2, 'finished']]);
+    }
+    const feed = events(a, FEED_EVENT).map((e) => e.data.text);
+    expect(feed).toContain('Bea won the Magnolia Rush race');
+    expect(feed).not.toContain('Cal won the Magnolia Rush race');
+  });
+
+  it("a newcomer on a DNF leaver's slot does not inherit his DNF or race HUD, and can play on free of the race", () => {
+    for (const how of ['quit', 'left'] as const) {
+      const r = room();
+      const a = join(r, 1, 'Ann');
+      const b = join(r, 2, 'Bea');
+      r.command(a.m, 'race', JSON.stringify({ action: 'open', course: 'magnolia' }));
+      r.command(b.m, 'race', JSON.stringify({ action: 'join' }));
+      r.command(a.m, 'race', JSON.stringify({ action: 'start' }));
+      const race = r.rules.race!;
+      steps(r, RACE_COUNTDOWN * TICK + 2);
+      const sa = slotOf(r, a);
+      const bSlot = b.m.slot!;
+      if (how === 'quit') r.command(b.m, 'race', JSON.stringify({ action: 'leave' }));
+      r.leave(b.m);
+      const c = join(r, 3, 'Cal');
+      expect(c.m.slot).toBe(bSlot);
+      steps(r, 2);
+      const mid = r.rules.raceView()!;
+      expect(mid.entrants.map((e) => [e.playerId, e.name, e.status, e.reason])).toEqual([[1, 'Ann', 'racing', ''], [2, 'Bea', 'dnf', how]]);
+      expect(r.rules.jobFor(bSlot)).toBeNull();
+      expect(r.rules.racing(bSlot)).toBe(false);
+      driveCourse(r, race, sa);
+      expect(race.stage).toBe('results');
+      steps(r, 3);
+      expect(lastState(c).race!.entrants.map((e) => [e.playerId, e.name, e.position, e.status])).toEqual([[1, 'Ann', 1, 'finished'], [2, 'Bea', 0, 'dnf']]);
+      expect(events(a, FEED_EVENT).map((e) => e.data.text)).toContain('Ann won the Magnolia Rush race');
+    }
+  });
+
+  it('slot 0 handed on mid race (the host leaves after finishing) keeps the host as the winner, not the newcomer', () => {
+    const r = room();
+    const a = join(r, 1, 'Ann');
+    const b = join(r, 2, 'Bea');
+    r.command(a.m, 'race', JSON.stringify({ action: 'open', course: 'magnolia' }));
+    r.command(b.m, 'race', JSON.stringify({ action: 'join' }));
+    r.command(a.m, 'race', JSON.stringify({ action: 'start' }));
+    const race = r.rules.race!;
+    steps(r, RACE_COUNTDOWN * TICK + 2);
+    const sa = slotOf(r, a);
+    const sb = slotOf(r, b);
+    expect(sa.id).toBe(0);
+    driveCourse(r, race, sa);
+    r.leave(a.m);
+    const c = join(r, 3, 'Cal');
+    expect(c.m.slot).toBe(0);
+    expect(slotOf(r, c)).toBe(sa);
+    steps(r, 2);
+    expect(race.racer(0)).toBeUndefined();
+    expect(sa.racing).toBe(false);
+    driveCourse(r, race, sb);
+    steps(r, 3);
+    const view = lastState(b).race!;
+    expect(view.entrants.map((e) => [e.playerId, e.name, e.position])).toEqual([[1, 'Ann', 1], [2, 'Bea', 2]]);
+    expect(view.hostName).toBe('Ann');
+    expect(events(b, FEED_EVENT).map((e) => e.data.text)).toContain('Ann won the Magnolia Rush race');
   });
 
   it('the job key at a course start opens its race (no solo run), and a second player there joins it', () => {

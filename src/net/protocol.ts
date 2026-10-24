@@ -23,7 +23,7 @@ import { ProtocolError, Reader, Writer } from './wire';
 export { ProtocolError, Reader, Writer } from './wire';
 
 export const MAGIC = 0x47;
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const HEADER_BYTES = 3;
 
 export const MESSAGE_TYPES = ['hello', 'welcome', 'reject', 'input', 'snapshot', 'event', 'cmd', 'ping', 'pong', 'bye'] as const;
@@ -62,8 +62,11 @@ export interface InputMsg { type: 'input'; seq: number; tick: number; input: Pla
 
 export interface RosterEntry { playerId: number; characterId: number; slot: number; name: string }
 
-/** The receiving player's own HUD numbers, from his slot: stars, money and the rounds of the weapon in his hand. */
-export interface Hud { wanted: number; searching: boolean; money: number; clip: number; ammo: number }
+/**
+ * The receiving player's own HUD numbers, from his slot: stars, money and the rounds of the weapon in his hand; and
+ * whether the server holds him (down: wasted or busted; locked: his controls are), when nothing of his may be predicted.
+ */
+export interface Hud { wanted: number; searching: boolean; money: number; clip: number; ammo: number; down: 'wasted' | 'busted' | null; locked: boolean }
 
 /** A job objective marker (Activities' Objective) with its followed entity as an id (0: a fixed point). */
 export interface NetObjective { x: number; z: number; label: string; color: number; radius: number; vehicle: number; character: number }
@@ -800,7 +803,7 @@ export function writeSnapshotHead(w: Writer, h: SnapshotHead): void {
   flagsOut(w, [h.full, h.roster !== null, h.weather !== null, h.signalHolds !== null, h.job !== null]);
   writeClock(w, h.clock);
   w.u8(clampInt(h.hud.wanted, 0, 255));
-  wBool(w, h.hud.searching);
+  flagsOut(w, [h.hud.searching, h.hud.down === 'wasted', h.hud.down === 'busted', h.hud.locked]);
   w.varu(clampInt(h.hud.money, 0, 0xffffffff));
   w.varu(clampInt(h.hud.clip, 0, 0xffffffff));
   w.varu(clampInt(h.hud.ammo, 0, 0xffffffff));
@@ -943,7 +946,10 @@ function decodeBody(type: MessageType, r: Reader): Message {
       const time = rFinite(r, r.f64);
       const [full, hasRoster, hasWeather, hasHolds, hasJob] = flagsIn(r, 5) as [boolean, boolean, boolean, boolean, boolean];
       const clock = readClock(r);
-      const hud: Hud = { wanted: r.u8(), searching: rBool(r), money: r.varu(), clip: r.varu(), ammo: r.varu() };
+      const wanted = r.u8();
+      const [searching, wasted, busted, locked] = flagsIn(r, 4) as [boolean, boolean, boolean, boolean];
+      if (wasted && busted) throw new ProtocolError('value', 'wasted and busted at once');
+      const hud: Hud = { wanted, searching, money: r.varu(), clip: r.varu(), ammo: r.varu(), down: wasted ? 'wasted' : busted ? 'busted' : null, locked };
       const job = hasJob ? readJobHud(r) : null;
       let roster: RosterEntry[] | null = null;
       if (hasRoster) {

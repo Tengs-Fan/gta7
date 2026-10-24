@@ -88,6 +88,21 @@ export class WitnessSystem implements SimSystem {
     sim.events.emit('witnessCall', { caller: best, x, z, started: true });
   }
 
+  /**
+   * The player of `slot` left the world (multiplayer): his calls under way are lost. Slot 0 is reused by the next player
+   * to join, who must not get the stars for what the last one did.
+   */
+  forget(slot: PlayerSlot): void {
+    for (const call of this.calls) {
+      if (call.state !== 'calling' || call.slot !== slot) continue;
+      call.state = 'lost';
+      call.endedAt = this.sim.time;
+      call.caller.phoneTimer = 0;
+      this.sim.events.emit('witnessCall', { caller: call.caller, x: call.x, z: call.z, started: false });
+    }
+    for (let i = this.calls.length - 1; i >= 0; i--) if (this.calls[i]!.state !== 'calling') this.calls.splice(i, 1);
+  }
+
   update(sim: Sim, _dt: number): void {
     for (const call of this.calls) {
       if (call.state !== 'calling') continue;
