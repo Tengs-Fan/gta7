@@ -86,10 +86,10 @@ export class RoomRules {
   }
 
   onLeave(m: Member, slot: number | null): void {
-    if (this.race && slot !== null) {
-      this.race.leave(slot, 'left');
+    if (this.race && slot !== null && this.race.racer(slot)?.entrant.id === m.playerId) {
+      this.race.depart(slot, 'left');
       if (this.race.stage === 'lobby' && this.race.racers.length === 0) this.dropRace();
-      else if (this.race.stage === 'lobby' && this.raceHost === m.playerId) this.raceHost = this.room.memberOfSlot(this.race.racers[0]!.slot.id)?.playerId ?? 0;
+      else if (this.race.stage === 'lobby' && this.raceHost === m.playerId) this.raceHost = this.race.racers[0]!.entrant.id;
     }
     this.stats.delete(m.playerId);
     this.stars.delete(m.playerId);
@@ -217,7 +217,7 @@ export class RoomRules {
         const course = streetRunCourses(this.sim).find((c) => c.id === cmd.course);
         if (!course) return;
         const next = new HeadToHead(this.sim, course, this.room.opts.tickRate);
-        const why = next.join(slot);
+        const why = next.join(slot, { id: m.playerId, name: m.name });
         if (why) return this.message(m, why);
         this.race = next;
         this.raceHost = m.playerId;
@@ -231,7 +231,7 @@ export class RoomRules {
         if (!race || race.stage !== 'lobby') return this.message(m, 'No race is open to join.');
         if (cmd.course && cmd.course !== race.course.id) return this.message(m, `The open race is ${race.course.name}.`);
         if (race.racer(slot)) return;
-        const why = race.join(slot);
+        const why = race.join(slot, { id: m.playerId, name: m.name });
         if (why) return this.message(m, why);
         this.feed({ kind: 'race', text: `${m.name} joined the ${race.course.name} race` });
         this.changed();
@@ -242,7 +242,7 @@ export class RoomRules {
         race.leave(slot, 'quit');
         this.message(m, race.stage === 'lobby' ? 'You left the race.' : 'You quit the race.');
         if (race.stage === 'lobby' && race.racers.length === 0) this.dropRace();
-        else if (race.stage === 'lobby' && this.raceHost === m.playerId) this.raceHost = this.room.memberOfSlot(race.racers[0]!.slot.id)?.playerId ?? 0;
+        else if (race.stage === 'lobby' && this.raceHost === m.playerId) this.raceHost = race.racers[0]!.entrant.id;
         this.changed();
         return;
       }
@@ -257,7 +257,7 @@ export class RoomRules {
   }
 
   private hostName(): string {
-    return this.room.members.get(this.raceHost)?.name ?? 'Someone';
+    return this.room.members.get(this.raceHost)?.name ?? this.race?.racers.find((r) => r.entrant.id === this.raceHost)?.entrant.name ?? 'Someone';
   }
 
   private startRace(): void {
@@ -278,7 +278,7 @@ export class RoomRules {
   private announceResults(): void {
     const race = this.race!;
     const winner = race.results().find((r) => r.position === 1);
-    const name = winner ? this.room.memberOfSlot(winner.slotId)?.name : null;
+    const name = winner?.name || null;
     this.feed({ kind: 'race', text: name ? `${name} won the ${race.course.name} race` : `Nobody finished the ${race.course.name} race` });
   }
 
@@ -318,21 +318,17 @@ export class RoomRules {
       endTick: race.endTick,
       gates: c.checkpoints.length,
       medals: { gold: c.gold, silver: c.silver, bronze: c.bronze },
-      entrants: res.map((r) => {
-        const m = this.room.memberOfSlot(r.slotId);
-        const racer = race.racer(r.slotId)!;
-        return {
-          playerId: m?.playerId ?? 0,
-          name: m?.name ?? 'Gone',
-          status: r.status,
-          gate: r.gates,
-          position: r.position,
-          time: r.time,
-          finishTick: r.finishTick,
-          medal: r.medal,
-          reason: r.reason || (r.status === 'racing' ? '' : racer.reason),
-        };
-      }),
+      entrants: res.map((r) => ({
+        playerId: r.entrantId,
+        name: r.name,
+        status: r.status,
+        gate: r.gates,
+        position: r.position,
+        time: r.time,
+        finishTick: r.finishTick,
+        medal: r.medal,
+        reason: r.reason,
+      })),
     };
   }
 
