@@ -10,7 +10,8 @@ import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
 import { CameraController } from './camera';
-import { ContactShadows } from './contactShadows';
+import { ContactShadows, FootShadows } from './contactShadows';
+import { installInteriorLight, interiorsOf } from './interiorLight';
 import { LightSprites, BLOOM_THRESHOLD, STREAK_RANGE, type LampGlow } from './lightSprites';
 import { LocalReflections } from './localReflections';
 import { StreetLighting } from './streetLighting';
@@ -156,6 +157,8 @@ export class GameRenderer {
   readonly effects = new Effects();
   readonly markers = new MarkerView();
   readonly lightSprites = new LightSprites();
+  /** Contact shadows under the people near the camera (every tier). */
+  readonly footShadows = new FootShadows();
   /** The wave-1 jobs' bins and water jet, and the signs and structures of their places. */
   readonly activityFx = new ActivityFxView();
   readonly sites: SiteView;
@@ -229,6 +232,8 @@ export class GameRenderer {
     this.software = gpuClass(gpu.renderer) === 'software';
     this.softwareMaterials = this.software ? new SoftwareMaterials() : null;
     this.hdr = gpu.halfFloat && !this.software;
+    // Garage interiors: patched into three's lighting chunks before the first program is built.
+    installInteriorLight(interiorsOf(world.layout.garages, (x, z) => world.groundHeight(x, z)));
     // MSAA is a context attribute that also sizes three's internal HDR scene target, so it can only
     // be chosen here, from the starting tier. Hardware tiers keep the HDR output pass. Software
     // GPUs use an LDR canvas, with the same tone mapping/sRGB conversion in each material shader.
@@ -264,8 +269,9 @@ export class GameRenderer {
     this.scene.add(this.activityFx.group, this.sites.group);
     this.softwareMaterials?.apply(this.sites.group);
     this.softwareMaterials?.apply(this.activityFx.group);
-    this.scene.add(this.streetLighting.group);
+    this.scene.add(this.streetLighting.group, this.footShadows.mesh);
     this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group, this.lightSprites.group, this.vehicleParts.group, this.throwView.group);
+    this.lightSprites.haze.attach(this.props.group.getObjectByName('lampHalos'));
     this.softwareMaterials?.apply(this.city.group);
     this.softwareMaterials?.apply(this.props.group);
     this.softwareMaterials?.apply(this.crowd.group);
@@ -360,6 +366,10 @@ export class GameRenderer {
     // Hidden until it rains; compiled now so the first shower costs no program build.
     const rainShown = this.rain.mesh.visible;
     this.rain.mesh.visible = true;
+    // The lamp haze too: it shows only at night.
+    const haze = this.lightSprites.haze.points;
+    const hazeShown = haze?.visible ?? false;
+    if (haze) haze.visible = true;
     try {
       if (target) this.renderer.setRenderTarget(target);
       try {
@@ -372,6 +382,7 @@ export class GameRenderer {
     }
     target?.dispose();
     this.rain.mesh.visible = rainShown;
+    if (haze) haze.visible = hazeShown;
     this.scene.remove(assetProbe);
     this.scene.remove(depthProbe);
     depthProbe.geometry.dispose();
@@ -876,7 +887,11 @@ export class GameRenderer {
         if (lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * (lamps / 2));
       }
     }
-    if (this.wet > 0.01) this.offerLampStreaks();
+    if (this.wet > 0.01) {
+      this.offerLampStreaks();
+      // By day the sky-lit road outshines a signal's reflection (streaks scale with the dark too).
+      if (lights > 0.05) this.streetLighting.offerSignalStreaks(ls, cam.position, sim.time);
+    }
     ls.finish((x, z) => sim.world.groundHeight(x, z));
   }
 
@@ -956,6 +971,8 @@ export class GameRenderer {
     this.renderer.getDrawingBufferSize(this.bufferSize);
     this.rain.update(dt, cam.position, rain, weather?.wind ?? NO_WIND, this.env.smokeLight, (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / Math.max(1, this.bufferSize.y));
     const night = this.env.night;
+    this.renderer.getDrawingBufferSize(this.bufferSize);
+    this.lightSprites.haze.update(night, rain, this.bufferSize.y / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)));
     this.streetLighting.update(cam.position, night, dt);
     this.city.update(night, hours, this.time);
     // Signals run on the sim clock, the one drivers and pedestrians obey.
@@ -972,6 +989,7 @@ export class GameRenderer {
       this.activityFx.sync(sim, dt, this.effects, this.time);
       this.crowd.scopeHiddenId = this.cameraCtl.scoped ? this.me(sim).character.id : -1;
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt, this.me(sim).character.id);
+      this.footShadows.update(sim.characters, cam.position, this.crowd.scopeHiddenId);
       this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming);
       const objectives = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
       this.markers.syncObjectives(objectives, (x, z) => sim.world.groundHeight(x, z), this.time);
@@ -1034,9 +1052,9 @@ export class GameRenderer {
     this.localReflections = null;
   }
 
-  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number; rainDrops: number; wet: number; waterGrid: boolean; wakeBoats: number; wakeSprites: number } {
+  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number; rainDrops: number; wet: number; waterGrid: boolean; wakeBoats: number; wakeSprites: number; footShadows: number; lampHaze: number } {
     const info = this.renderer.info;
-    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, wakeBoats: this.effects.wakeBoats, wakeSprites: this.effects.wakeSprites, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts, rainDrops: this.rain.drops, wet: this.wet, waterGrid: this.env.waterGrid };
+    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, wakeBoats: this.effects.wakeBoats, wakeSprites: this.effects.wakeSprites, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts, rainDrops: this.rain.drops, wet: this.wet, waterGrid: this.env.waterGrid, footShadows: this.footShadows.count, lampHaze: this.lightSprites.haze.points?.visible ? this.lightSprites.haze.gain : 0 };
   }
 
   /** True between 'webglcontextlost' and 'webglcontextrestored'; nothing can be drawn meanwhile. */
@@ -1077,6 +1095,7 @@ export class GameRenderer {
     this.contactShadows?.dispose();
     this.finish?.dispose();
     this.lightSprites.dispose();
+    this.footShadows.dispose();
     this.throwView.dispose();
     this.rain.dispose();
     this.city.wet.dispose();

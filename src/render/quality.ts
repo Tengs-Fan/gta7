@@ -42,6 +42,21 @@ export interface TierSpec {
   pedDensity: number;
 }
 
+/** The lighting and sky features and what each tier draws of them (docs/graphics.md has the same table). */
+export type LightingFeature = 'hdriIbl' | 'lampHalos' | 'tintedReflections' | 'cityGlow' | 'nightBlackLevel' | 'sunsetGrade' | 'garageDarkening' | 'contactShadows';
+export type LightingTier = QualityTier | 'software';
+
+export const LIGHTING_TIERS: Readonly<Record<LightingFeature, Readonly<Record<LightingTier, string>>>> = {
+  hdriIbl: { high: 'sky HDRI blended into the baked environment map', medium: 'sky HDRI blended into the baked environment map', low: 'sky HDRI blended into the baked environment map', software: 'none: analytic hemisphere fill (no environment map)' },
+  lampHalos: { high: 'lamp halo + haze, stronger in rain', medium: 'lamp halo + haze, stronger in rain', low: 'lamp halo + haze, stronger in rain', software: 'lamp halo + haze, stronger in rain' },
+  tintedReflections: { high: 'wet-road streaks in each light\'s colour (lamps, signals, car lamps)', medium: 'wet-road streaks in each light\'s colour (lamps, signals, car lamps)', low: 'wet-road streaks in each light\'s colour (lamps, signals, car lamps)', software: 'wet-road streaks in each light\'s colour (lamps, signals, car lamps)' },
+  cityGlow: { high: 'warm glow on the night sky over the horizon', medium: 'warm glow on the night sky over the horizon', low: 'warm glow on the night sky over the horizon', software: 'warm glow on the night sky over the horizon' },
+  nightBlackLevel: { high: 'grade black-level lift + night city fill', medium: 'grade black-level lift + night city fill', low: 'grade black-level lift + night city fill', software: 'night city fill only (no FinishPass)' },
+  sunsetGrade: { high: 'golden key light + yellow-leaning grade', medium: 'golden key light + yellow-leaning grade', low: 'golden key light + yellow-leaning grade', software: 'golden key light only (no FinishPass)' },
+  garageDarkening: { high: 'sky and sun light cut under garage roofs', medium: 'sky and sun light cut under garage roofs', low: 'sky and sun light cut under garage roofs', software: 'none (vertex-lit stand-ins)' },
+  contactShadows: { high: 'GTAO + foot contact shadows', medium: 'foot contact shadows', low: 'foot contact shadows', software: 'foot contact shadows' },
+};
+
 /** Dynamic point lights shared by the siren, muzzle flash and explosion flash on 'few'. */
 export const FEW_POINT_LIGHTS = 2;
 
