@@ -193,7 +193,7 @@ describe('capture, encode, decode, apply', () => {
     const cs = sim.characters.filter((c) => !c.removed);
     expect(vs.length).toBeGreaterThan(10);
     const msg: SnapshotMsg = {
-      type: 'snapshot', tick: 1, ackSeq: 0, time: sim.time, full: true, clock: { day: 1, hours: 12, rate: 1 / 60 }, hud: { wanted: 3, searching: false, money: 0, clip: 0, ammo: 0 }, job: null,
+      type: 'snapshot', tick: 1, ackSeq: 0, time: sim.time, full: true, clock: { day: 1, hours: 12, rate: 1 / 60 }, hud: { wanted: 3, searching: false, money: 0, clip: 0, ammo: 0, down: null, locked: false }, job: null,
       roster: null, weather: null, signalHolds: null, brokenProps: [], projectiles: [], helis: [], pickups: [], removed: [],
       vehicles: vs.map((v) => captureVehicle(v)),
       characters: cs.map((c) => captureCharacter(c)),
