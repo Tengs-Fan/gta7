@@ -5,6 +5,7 @@
 // kind, so it costs about ten draws and keeps the same look on every tier.
 
 import * as THREE from 'three';
+import { burntMaterial } from './fx/burnt';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Vehicle } from '../sim/entities';
 import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
@@ -180,7 +181,8 @@ const tyreMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9
 const rimMat = new THREE.MeshStandardMaterial({ color: 0x9a9da0, roughness: 0.3, metalness: 0.85 });
 const darkMat = new THREE.MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.65, metalness: 0.2 });
 const chromeMat = new THREE.MeshStandardMaterial({ color: 0xd0d2d4, roughness: 0.18, metalness: 0.95 });
-const burntMat = new THREE.MeshStandardMaterial({ color: 0x1d1b19, roughness: 1, metalness: 0.1 });
+/** Soot, char and bare metal (fx/burnt.ts), shared by every wreck. */
+const burntMat = burntMaterial();
 const paints = new Map<number, THREE.MeshStandardMaterial>();
 function paint(color: number): THREE.MeshStandardMaterial {
   let m = paints.get(color);

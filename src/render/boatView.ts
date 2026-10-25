@@ -6,6 +6,7 @@
 // Riders sit in its frame (riders.ts, posed by CrowdView).
 
 import * as THREE from 'three';
+import { burntMaterial } from './fx/burnt';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
@@ -190,7 +191,8 @@ const darkMat = new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.7
 const trimMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.6 });
 const tubeMat = new THREE.MeshStandardMaterial({ color: 0x3b3f45, roughness: 0.6 });
 const glassMat = new THREE.MeshStandardMaterial({ color: 0x9fb8c8, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.45 });
-const burntMat = new THREE.MeshStandardMaterial({ color: 0x1d1b19, roughness: 1, metalness: 0.1 });
+/** Soot, char and bare metal (fx/burnt.ts), shared by every wreck. */
+const burntMat = burntMaterial();
 const paints = new Map<number, THREE.MeshStandardMaterial>();
 function paint(color: number): THREE.MeshStandardMaterial {
   let m = paints.get(color);

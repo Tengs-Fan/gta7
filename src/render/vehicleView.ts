@@ -2,6 +2,7 @@
 // that follow the simulation (wheels, lights, sirens, damage).
 
 import * as THREE from 'three';
+import { burntMaterial } from './fx/burnt';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
@@ -1048,7 +1049,8 @@ tireMat.name = 'vehicle-tyre';
 const rimMat = new THREE.MeshStandardMaterial({ color: 0xc4c6c8, roughness: 0.24, metalness: 0.92, vertexColors: true });
 const exteriorMaps = exteriorTextures();
 const exteriorMat = new THREE.MeshStandardMaterial({ map: exteriorMaps.color, roughnessMap: exteriorMaps.surface, metalnessMap: exteriorMaps.surface, roughness: 1, metalness: 1 });
-const burntMat = new THREE.MeshStandardMaterial({ color: 0x1d1b19, roughness: 1, metalness: 0.1 });
+/** Soot, char and bare metal (fx/burnt.ts), shared by every wreck. */
+const burntMat = burntMaterial();
 /** A smashed lamp: dark, never lit. */
 const brokenLampMat = new THREE.MeshStandardMaterial({ color: 0x161616, emissive: 0x000000, emissiveIntensity: 0, roughness: 0.7 });
 const barBaseMat = new THREE.MeshStandardMaterial({ color: 0x222222 });

@@ -132,6 +132,29 @@ The sea's colour follows a drawn seabed that keeps falling offshore. Past 25 m o
 
 The renderer ends a bullet's tracer where its path crosses the surface over water and draws a small splash there instead of the seabed impact (render only). A rocket that crosses the surface over water before it hits anything goes off at the surface (`combat.ts`) with a big `splash` event; a blast within 0.3 m of the surface over water is drawn as a water plume (a white column, a spray ring, mist and a wide foam ring, with no fire, smoke, sparks or flash light). Splashes throw a crown of droplets that streak along their flight, a mist puff and a foam ring (`src/render/foamRings.ts`, one instanced draw) that spreads on the sea and rides its waves through the shared uniforms; a bullet's ring spreads to 3 m across over 1.5 s. On the M4 Pro at 1920x1080 High the perf playtest measured 60/60/55/60 fps and `rainnight` 60/60.
 
+## Effects and weapons
+
+Guns are modelled (`src/render/weaponModels.ts`): slide or receiver, raked grip, trigger guard, sights, a hollow muzzle and, per gun, a magazine, pump, handguard, stock or scope, built from parts in the weapon's own frame and merged with vertex colours into one geometry per gun (430 to 860 triangles). Their sockets are read off the parts (muzzle front face, grip centre, butt or tube centre) and sit on `WEAPON_POINTS` (sim/pose.ts) to under 0.5 cm, so the sim's shot origins, the drawn muzzle and the tracer start agree. The crowd draws them as before: one InstancedMesh per gun kind for everyone holding it, placed by the sim's `WeaponPose`.
+
+Explosions (`src/render/effects.ts`, `src/render/fx/`) are a fireball of volume puffs whose sizes, heat and opacity are pure functions of age and a presentation seed (`fx/fireball.ts`, never `sim.rng`): it reaches full size within about 0.35 s, burns yellow-white to orange, cools into dark smoke and is gone by 1.85 s, scaled to the blast radius (car 7.5 m, rocket 8 m, grenade 6 m, helicopter 4 to 9 m). Spark streaks (life at most 0.6 s), a dust ring and the first dark smoke come with it, the flash light lights the road as before, and a blast near the ground leaves a scorch. Puffs (`fx/puffs.ts`) are camera-facing quads shaded with a tileable noise texture into lumpy, top-lit volumes, with an HDR temperature ramp for fire and the scene light for smoke; premultiplied alpha lets hot cores glow while cool smoke occludes, and every fireball, flame and smoke puff is one instanced draw, sorted back to front. They fade where they meet the ground and when the eye is inside them. A burning wreck gives flame tongues and a dense dark plume rising past 8 m within 3 s and widening with height; it thins over the burn's last 10 s and stops when the sim's burn ends (25 s). Molotov fires give flames and a smaller plume, never a fireball, and scorch the ground under them.
+
+Vehicle explosions throw modelled debris (`fx/debris.ts`: bent panels, bumpers, burnt wheels, struts, mirrors, crumpled chunks; crash parts use the same pieces). All shapes are in one geometry and a per-instance shape index collapses the others in the vertex shader, so any mix of pieces is one draw and one shadow draw. Pieces bounce off walls (the sim's line of sight), settle flat with their lowest vertex on the highest ground under them and shrink away after 12 s. Scorches (`fx/scorch.ts`) are 17 x 17 grids draped on `groundHeight`, a centimetre up and depth-offset; points over water or beside a height step drop out, so nothing is drawn on the sea or across a kerb's face. They multiply what is under them (wet ground, night light), last 26 s and fade over 4 s, with a cap where the oldest starts fading as the cap is reached. Wrecks of cars, bikes and boats share one burnt material (`fx/burnt.ts`): soot and char with flaking bare metal and a little rust from 3D noise of the model-space position, on the near body, its dents and the far batches.
+
+Counters and caps are in `state().render.effects` (live, peak and cap per type) and `__gta7.ext.fx` (`stats`, `lobes`, `debris`, `scorches`, `scorchAt`). Pools are built for High once; a tier switch only lowers or raises the caps, and the warm-up compiles the puff, decal and debris programs, the debris shadow program and the burnt material's plain, instanced and fade variants.
+
+| Feature | High | Medium | Low | Software renderers |
+| --- | --- | --- | --- | --- |
+| guns | modelled, lit, shadows | modelled, lit, shadows | modelled, lit | modelled, vertex-lit |
+| fireball | 14 noise puffs, HDR core | 11 noise puffs, HDR core | 8 noise puffs | 6 noise puffs |
+| flames | noise puffs + embers | noise puffs (0.7x) + embers | noise puffs (0.45x) + embers | noise puffs (0.3x) + embers |
+| smoke | dense plume, 1600 puffs cap | plume 0.7x, 1100 cap | plume 0.45x, 650 cap | plume 0.3x, 360 cap |
+| debris | 12 per car, 64 cap, shadows | 10 per car, 48 cap, shadows | 9 per car, 32 cap | 8 per car, 20 cap |
+| sparks | streaks, 2500 cap | streaks, 2000 cap | streaks, 1300 cap | streaks, 800 cap |
+| scorch | draped decal, 24 cap | draped decal, 18 cap | draped decal, 12 cap | draped decal, 8 cap |
+| wreck | burnt material (soot, char, bare metal) | burnt material | burnt material | burnt material, vertex-lit |
+
+`FX_TIERS` in `src/render/fx/budget.ts` holds the same table and `FX_BUDGETS` the caps; `tests/unit/m3_effects_weapons.test.ts` checks both against this page and the pools.
+
 ## Per-tier summary
 
 | | High | Medium | Low | Software renderers |

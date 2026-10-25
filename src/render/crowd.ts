@@ -23,6 +23,7 @@ import { bodyTypeOf, LOOKS, lookOf, slotColors } from './crowd/looks';
 import { completePose, HAVE, makeRigPose, SLOTS, type RigPose } from './crowd/rig';
 import { SkinnedCrowd } from './crowd/skinnedCrowd';
 import { registerDebug } from '../debug';
+import { GUN_IDS, gunGeometry } from './weaponModels';
 
 export { LENS_FADE_FULL, LENS_FADE_GONE } from './crowd/fade';
 
@@ -342,15 +343,8 @@ export class CrowdView {
       p.minor = MINOR_PARTS.has(name as PartName);
       return [name, p];
     })) as Record<PartName, Part>;
-    // Barrel ends (front face centres) are the WEAPON_POINTS tips of sim/pose.ts.
-    const weaponGeo: Partial<Record<Gun, THREE.BufferGeometry>> = {
-      pistol: mergeAll([box(0.05, 0.08, 0.22, 0, 0, 0.1), box(0.045, 0.13, 0.06, 0, -0.07, 0.02)]),
-      smg: mergeAll([box(0.06, 0.1, 0.42, 0, 0, 0.16), box(0.05, 0.16, 0.06, 0, -0.1, 0.06), box(0.04, 0.12, 0.05, 0, -0.08, 0.2)]),
-      shotgun: mergeAll([box(0.06, 0.08, 0.9, 0, 0, 0.3), box(0.06, 0.12, 0.25, 0, -0.04, -0.12)]),
-      rifle: mergeAll([box(0.06, 0.1, 0.85, 0, 0, 0.28), box(0.05, 0.18, 0.06, 0, -0.12, 0.12), box(0.06, 0.12, 0.22, 0, -0.03, -0.14)]),
-      rocket: mergeAll([new THREE.CylinderGeometry(0.09, 0.09, 1.15, 10).rotateX(Math.PI / 2).translate(0, 0.08, 0.2), box(0.05, 0.14, 0.06, 0, -0.06, 0.1)]),
-    };
-    weaponGeo.sniper = mergeAll([box(0.05, 0.08, 1.2, 0, 0, 0.42), box(0.05, 0.16, 0.06, 0, -0.11, 0.06), box(0.06, 0.12, 0.25, 0, -0.03, -0.15), new THREE.CylinderGeometry(0.03, 0.03, 0.3, 8).rotateX(Math.PI / 2).translate(0, 0.08, 0.15)]);
+    // Modelled guns (weaponModels.ts): muzzle, grip and stock on the WEAPON_POINTS of sim/pose.ts.
+    const weaponGeo = Object.fromEntries(GUN_IDS.map((g) => [g, gunGeometry(g)])) as Partial<Record<Gun, THREE.BufferGeometry>>;
     this.phone = make(box(0.05, 0.1, 0.016, 0, 0.03, 0), MAX);
     this.phone.mesh.name = 'held-phone';
     for (const id of ['bat', 'knife', 'grenade', 'molotov'] as const) {
@@ -362,9 +356,10 @@ export class CrowdView {
     }
     for (const [id, geo] of Object.entries(weaponGeo) as Array<[Gun, THREE.BufferGeometry]>) {
       const p = make(geo, MAX);
-      (p.mesh.material as THREE.MeshStandardMaterial).color.setHex(id === 'rocket' ? 0x3d4a2f : 0x1e1e20);
-      (p.mesh.material as THREE.MeshStandardMaterial).metalness = 0.6;
-      (p.mesh.material as THREE.MeshStandardMaterial).roughness = 0.4;
+      // The model's vertex colours carry its finish (steel, polymer, wood); the material only shades it.
+      p.mesh.name = 'gun-' + id;
+      (p.mesh.material as THREE.MeshStandardMaterial).metalness = 0.45;
+      (p.mesh.material as THREE.MeshStandardMaterial).roughness = 0.5;
       this.weapons.set(id, p);
     }
     this.useModels(true);
