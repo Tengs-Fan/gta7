@@ -28,12 +28,20 @@ interface PbrSpec {
   tile: number;
   tint: [number, number, number];
   normalScale: number;
+  /** How much the set's ambient-occlusion channel darkens the indirect (sky) light; 0.6 when left out. */
+  ao?: number;
 }
 
-/** Tints bring each set's mean albedo to the d98da7b surface colour, so detail rises without changing brightness. */
+/**
+ * Tints bring each set's mean albedo to the d98da7b surface colour, so detail rises without changing brightness. The
+ * asphalt keeps little of its AO channel (ASPHALT_AO): at 0.6 it darkened only the sky-lit part, so the road matched
+ * d98da7b in the sun but lost a fifth of its luma in building shade at noon (the 09 avenue framing), while its relief
+ * still shows through the normal map and the detail patch.
+ */
+export const ASPHALT_AO = 0.1;
 export const PBR_SURFACES: Readonly<Partial<Record<GroundDetail, PbrSpec>>> = {
-  road: { set: 'worn_asphalt', tile: 4, tint: [0.76, 1.12, 1.65], normalScale: 1 },
-  lot: { set: 'worn_asphalt', tile: 4, tint: [0.76, 1.12, 1.65], normalScale: 1 },
+  road: { set: 'worn_asphalt', tile: 4, tint: [0.76, 1.12, 1.65], normalScale: 1, ao: ASPHALT_AO },
+  lot: { set: 'worn_asphalt', tile: 4, tint: [0.76, 1.12, 1.65], normalScale: 1, ao: ASPHALT_AO },
   grass: { set: 'leafy_grass', tile: 3, tint: [0.52, 1.02, 0.56], normalScale: 1 },
   sand: { set: 'coast_sand_01', tile: 4, tint: [2.3, 2.38, 2.5], normalScale: 0.8 },
 };
@@ -284,7 +292,7 @@ export class GroundSurfaces {
         normalScale: new THREE.Vector2(set.spec.normalScale, set.spec.normalScale),
         roughnessMap: set.orm,
         aoMap: set.orm,
-        aoMapIntensity: 0.6,
+        aoMapIntensity: set.spec.ao ?? 0.6,
         roughness: 1,
         metalness: 0,
       });

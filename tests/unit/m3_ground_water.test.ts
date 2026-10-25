@@ -9,7 +9,7 @@ import { assets } from '../../src/render/assets';
 import { loadAssetsFromDisk, unloadAssets } from '../../src/render/assets/testing';
 import { CityView } from '../../src/render/city';
 import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/render/city/roads';
-import { anisotropyFor, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
+import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
 import { MAX_PILING_DECKS, PILING_FOAM, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_C, RIPPLE_D, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases } from '../../src/render/sea';
@@ -123,6 +123,13 @@ describe('PBR ground with the asset library (VAL-GND-001, 003, 004)', () => {
         expect(licenses).toContain(`| ${e.license} |`);
       }
     }
+    // Fix pass 2 (VAL-LIT-003): the asphalt's AO channel barely darkens its sky light, so the shaded noon road keeps
+    // d98da7b's luma; the lawns and sand keep 0.6.
+    expect(matOf(city, 'roads').aoMapIntensity).toBe(ASPHALT_AO);
+    expect(matOf(city, 'ground-asphalt').aoMapIntensity).toBe(ASPHALT_AO);
+    expect(ASPHALT_AO).toBeLessThan(0.3);
+    expect(matOf(city, 'ground-grass').aoMapIntensity).toBe(0.6);
+    expect(matOf(city, 'beach').aoMapIntensity).toBe(0.6);
   });
 
   it('the road shader carries the world-space detail layer: repairs, cracks and lane wear', () => {
