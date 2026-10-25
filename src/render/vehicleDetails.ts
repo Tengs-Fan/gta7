@@ -116,12 +116,13 @@ export class EndRounding {
   private readonly front: EndRound;
   private readonly rear: EndRound;
 
-  constructor(kind: VehicleKind, p: ExteriorProfile, archGap: number) {
+  /** `square`: no rounding (an imported body has its own shape). */
+  constructor(kind: VehicleKind, p: ExteriorProfile, archGap: number, square = false) {
     const s = VEHICLE_SPECS[kind];
     this.hw = s.width / 2;
     this.half = s.length / 2;
-    this.front = END_ROUND[kind]?.front ?? SQUARE;
-    this.rear = END_ROUND[kind]?.rear ?? SQUARE;
+    this.front = (!square && END_ROUND[kind]?.front) || SQUARE;
+    this.rear = (!square && END_ROUND[kind]?.rear) || SQUARE;
     // The rounding starts where the arch behind the nose (ahead of the tail) ends.
     this.zFront = Math.min(this.half - 0.2, p.wheelFront * s.length + p.wheelR + archGap);
     this.zRear = Math.max(-this.half + 0.2, p.wheelRear * s.length - p.wheelR - archGap);
@@ -319,6 +320,8 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
   const L = s.length;
   const H = s.height;
   const commercial = p.cabinInset < 0;
+  /** Box-bodied working vehicles: the vans, the bus, the ambulance and the fire engine. */
+  const boxy = commercial || !!s.bodyProfile?.straightSides;
   const pieces: THREE.BufferGeometry[] = [];
   const add = (geo: THREE.BufferGeometry, finish: Finish, x = 0, y = 0, z = 0): void => {
     geo.translate(x, y, z);
@@ -392,7 +395,15 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
     // Lower side sill only between the arches, leaving steering and spring travel unobstructed.
     const sillRear = p.wheelRear * L + p.wheelR + 0.13;
     const sillFront = p.wheelFront * L - p.wheelR - 0.13;
-    box(flank(side, sill), sill + 0.018, (sillRear + sillFront) / 2, 0.035, 0.055, sillFront - sillRear);
+    if (boxy) {
+      // The working vehicles wear dark rubbing strips along their flanks, between and outside the arches.
+      const strip = (z0: number, z1: number): void => {
+        if (z1 - z0 > 0.2) box(flank(side, sill), sill + 0.11, (z0 + z1) / 2, 0.03, 0.22, z1 - z0);
+      };
+      strip(sillRear, sillFront);
+      strip(p.wheelFront * L + p.wheelR + 0.13, L / 2 - 0.12);
+      strip(-L / 2 + 0.12, p.wheelRear * L - p.wheelR - 0.13);
+    } else box(flank(side, sill), sill + 0.018, (sillRear + sillFront) / 2, 0.035, 0.055, sillFront - sillRear);
     const handles = p.rearSeats ? [rearDoor + 0.18, rearLimit + 0.18] : [rearDoor + 0.18];
     for (const z of handles) {
       box(flank(side, handleY), handleY, z, 0.029, 0.060, 0.22);
@@ -427,6 +438,8 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
     }
   }
   if (kind === 'sports') sportsKit(p, s.width, L, H, box, flank);
+  if (kind === 'firetruck') fireEngineKit(p, s.width, L, H, box, flank);
+  if (kind === 'bus') busKit(p, s.width, L, H, box);
   if (kind === 'muscle') {
     // A raised intake on the bonnet.
     const z = L * 0.22;
@@ -441,6 +454,68 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
 }
 
 type BoxFn = (x: number, y: number, z: number, w: number, h: number, d: number, finish?: Finish) => void;
+
+/**
+ * The fire engine's equipment body: satin aluminium roller shutters over its lockers (grooved across), between the
+ * arches and over and behind the rear one, a broad chrome grille and bumper on the nose, and a chrome rail at the
+ * waist of the equipment body.
+ */
+function fireEngineKit(p: ExteriorProfile, width: number, L: number, H: number, box: BoxFn, flank: (side: number, y: number) => number): void {
+  const archGap = 0.11;
+  const rearArch0 = p.wheelRear * L - p.wheelR - archGap;
+  const rearArch1 = p.wheelRear * L + p.wheelR + archGap;
+  const cabBack = -0.07 * L;
+  const top = 0.78 * H;
+  const low = p.body[0]![1] + 0.12;
+  const overArch = 2 * p.wheelR + archGap + 0.08;
+  const lockers: Array<[number, number, number]> = [
+    [rearArch1 + 0.08, cabBack - 0.1, low],
+    [rearArch0 + 0.05, rearArch1 - 0.05, overArch],
+    [-L / 2 + 0.12, rearArch0 - 0.08, low],
+  ];
+  for (const side of [-1, 1]) {
+    for (const [z0, z1, y0] of lockers) {
+      if (z1 - z0 < 0.3) continue;
+      const x = flank(side, (y0 + top) / 2);
+      box(x, (y0 + top) / 2, (z0 + z1) / 2, 0.025, top - y0, z1 - z0, 1);
+      // The shutter's slats.
+      for (let y = y0 + 0.1; y < top - 0.05; y += 0.1) box(x + side * 0.012, y, (z0 + z1) / 2, 0.008, 0.012, z1 - z0 - 0.04);
+      // A lift bar along its foot.
+      box(x + side * 0.02, y0 + 0.05, (z0 + z1) / 2, 0.02, 0.03, (z1 - z0) * 0.7, 1);
+    }
+    // The chrome rail along the top of the equipment body.
+    box(flank(side, top + 0.06), top + 0.07, (cabBack - 0.1 - L / 2 + 0.12) / 2, 0.03, 0.03, cabBack - 0.1 + L / 2 - 0.12, 1);
+  }
+  // Grille and bumper.
+  const ly = p.lightY * H;
+  box(0, ly + 0.28, L / 2 + 0.005, width * 0.56, 0.42, 0.024, 1);
+  for (let i = 0; i < 6; i++) box(0, ly + 0.11 + i * 0.07, L / 2 + 0.022, width * 0.54, 0.018, 0.012);
+  box(0, ly - 0.22, L / 2 + 0.012, width * 0.98, 0.16, 0.05, 1);
+}
+
+/** The bus's window pillars over its long side windows, and its doors on the kerb side (its right, -x). */
+function busKit(p: ExteriorProfile, width: number, L: number, H: number, box: BoxFn): void {
+  const fb = p.cabin[0]!;
+  const ft = p.cabin[1]!;
+  const rt = p.cabin[2]!;
+  const y0 = fb[1];
+  const y1 = ft[1];
+  const hw = width / 2;
+  const z0 = rt[0];
+  const z1 = fb[0];
+  const panes = Math.round((z1 - z0) / 1.25);
+  for (const side of [-1, 1]) {
+    for (let k = 1; k < panes; k++) {
+      const z = z0 + ((z1 - z0) * k) / panes;
+      box(side * (hw + 0.025), (y0 + y1) / 2, z, 0.02, y1 - y0, 0.09);
+    }
+  }
+  // Two doors on the right: dark glazed leaves with a bright frame.
+  for (const zc of [L * 0.4, -L * 0.02]) {
+    box(-(hw + 0.02), H * 0.47, zc, 0.02, H * 0.74, 1.1, 1);
+    box(-(hw + 0.03), H * 0.47, zc, 0.012, H * 0.7, 0.03);
+  }
+}
 
 /** The sports car's aero kit: front splitter, side intakes ahead of the rear wheels, rear diffuser and bonnet vents. */
 function sportsKit(p: ExteriorProfile, width: number, L: number, H: number, box: BoxFn, flank: (side: number, y: number) => number): void {

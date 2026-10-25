@@ -255,7 +255,8 @@ describe('vehicle draw structure', () => {
       view.setDistant(false);
       expect(body.castShadow).toBe(false);
       expect(body.userData.contactShadow).toBeUndefined();
-      expect(own().map((m) => m.name).sort()).toEqual(['body', 'exterior', 'shadow', ...(kind === 'police' ? [''] : [])].sort());
+      // (Revised, mission 3 cars: the police livery mesh is named 'livery' now.)
+      expect(own().map((m) => m.name).sort()).toEqual(['body', 'exterior', 'shadow', ...(kind === 'police' ? ['livery'] : [])].sort());
     }
     batches.dispose();
   });

@@ -6,13 +6,14 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import { firingRow, GUN_PORT, SKELETON } from '../sim/pose';
-import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
+import { VEHICLE_SPECS, type VehicleBodyProfile, type VehicleKind } from '../sim/specs';
 import { chaseOffset, CHASE_TARGET_Y } from './camera';
 import type { LampGlow } from './lightSprites';
 import { taxiSignTexture } from './textures';
 import { addPanel, addPrism, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
 import { crackedGlassTexture, exteriorTextures, GLASS_TINT } from './vehicleTextures';
 import { alloyGeometry, EndRounding, exteriorGeometry, lensGeometry, sculptBody, taperCabin, tireGeometry } from './vehicleDetails';
+import { carModel, type CarModel, type ModelLamp } from './vehicleModels';
 import type { Suspension } from './suspension';
 import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
 
@@ -121,6 +122,11 @@ export interface CabinLayout {
   readonly glass: readonly Pt[];
   /** The painted roof panel over the glass: its span along the car and its underside. */
   readonly roof: { readonly z0: number; readonly z1: number; readonly y: number };
+  /**
+   * How far above the glass's side outline a rider's head may reach under the sloping glass: into the procedural glass
+   * prism's bevel, or (negative) clear of an imported model's thin panes.
+   */
+  readonly glassMargin: number;
 }
 
 /** A seated rider: hip joint height above the contact point and place along the car, and the torso's recline. */
@@ -130,6 +136,8 @@ export interface RiderSeat {
   recline: number;
 }
 
+/** A rider's head stays this far under an imported model's glass (its panes are thin). */
+const MODEL_GLASS_CLEAR = 0.03;
 /** A rider's shoulder joints sit this far above the cabin floor, so his shoulders show over the waistline. */
 export const SEAT_SHOULDER_CLEAR = 0.02;
 /** Room kept between a rider's head (or cap) and the roof or glass. */
@@ -160,8 +168,9 @@ const WHEEL_REACH = WHEEL_AHEAD + SKELETON.shoulderY * REF_RIDER * Math.sin(SEAT
 /** The lowest the roof or the glass comes over length position z of a cabin (what a rider's head must stay under). */
 export function cabinCeiling(c: CabinLayout, z: number): number {
   if (z >= c.roof.z0 && z <= c.roof.z1) return c.roof.y;
-  // Under the sloping glass: its outer surface lies a bevel off the profile; keep most of that as margin.
-  return topAt(c.glass, z) + CABIN_GLASS_BEVEL * 0.4;
+  // Under the sloping glass: the procedural glass's outer surface lies a bevel off the profile (most of that is
+  // margin); an imported model's panes are the outline itself.
+  return topAt(c.glass, z) + c.glassMargin;
 }
 
 /** Head points that reach highest or furthest (hair or cap top, front and back; the cap's peak), head-local, x height. */
@@ -227,20 +236,26 @@ export function riderSeat(c: CabinLayout, rear: boolean, height: number, hat: bo
   return out;
 }
 
-const layouts = new Map<VehicleKind, CabinLayout | null>();
+const layouts = new Map<string, CabinLayout | null>();
+
+/** Caches of a kind's drawn shapes: keyed by the kind and the imported model it is drawn with (if any). */
+function shapeKey(kind: VehicleKind): string {
+  return carModel(kind)?.key ?? kind;
+}
 
 /** The seat frame of a vehicle kind, or null when nobody inside can be seen (vans and buses have dark windows). */
 export function cabinLayout(kind: VehicleKind): CabinLayout | null {
-  let l = layouts.get(kind);
+  const key = shapeKey(kind);
+  let l = layouts.get(key);
   if (l === undefined) {
     const prof = profile(kind);
-    l = prof.cabinInset < 0 ? null : computeLayout(kind, prof);
-    layouts.set(kind, l);
+    l = prof.cabinInset < 0 ? null : computeLayout(kind, prof, carModel(kind));
+    layouts.set(key, l);
   }
   return l;
 }
 
-function computeLayout(kind: VehicleKind, prof: Profile): CabinLayout {
+function computeLayout(kind: VehicleKind, prof: Profile, model: CarModel | null): CabinLayout {
   const s = VEHICLE_SPECS[kind];
   const hw = s.width / 2;
   const [, ft, rt] = prof.cabin as [Pt, Pt, Pt, Pt];
@@ -264,7 +279,9 @@ function computeLayout(kind: VehicleKind, prof: Profile): CabinLayout {
   const rearZ = prof.rearSeats ? firingRow(kind, s.length, true) : null;
   // Riders sit no lower than their thighs' depth over the body's bevelled floor pan.
   const seatLow = prof.body[0]![1] - BEVEL + THIGH_LOW;
-  const layout = { floor, frontZ, rearZ, recline: SEAT_RECLINE, seatLow, wheel, glass: prof.cabin, roof: { z0: rt[0] - 0.03, z1: ft[0] + 0.03, y: top - 0.015 } };
+  const layout = { floor, frontZ, rearZ, recline: SEAT_RECLINE, seatLow, wheel, glass: prof.cabin, roof: { z0: rt[0] - 0.03, z1: ft[0] + 0.03, y: model ? model.roofY : top - 0.015 }, glassMargin: model ? -MODEL_GLASS_CLEAR : CABIN_GLASS_BEVEL * 0.4 };
+  // An imported body's roof is its own (it is not cut back for the chase camera): the riders sit under it.
+  if (model) return layout;
   // The player's head must show through the rear window from the chase camera (camera.ts chaseOffset), which looks
   // steeply down past the roof's rear edge, most steeply at rest (at speed it drops and pulls back, zoomed out it stands
   // further off). Where the roof runs too far back for CHASE_HEAD of the back of his head to show under it, its painted
@@ -327,19 +344,35 @@ const ROOF_STACK = CABIN_GLASS_BEVEL + 0.035 + 0.012;
 /** The highest a glass cabin's roof may stand, as a share of the spec height. */
 const ROOF_FIT = 1.025;
 
-const profiles = new Map<VehicleKind, Profile>();
+const profiles = new Map<string, Profile>();
 
 /**
  * The drawn profile of a kind, fitted to its spec: shortened by the body's bevel at both ends so the body is as long
- * as the simulation's hitbox, a glass cabin's roof brought down to the spec height, and the wheels on the axles.
+ * as the simulation's hitbox, a glass cabin's roof brought down to the spec height, and the wheels on the axles. For
+ * a kind drawn with an imported model, the model's outline (modelProfile).
  */
 function profile(kind: VehicleKind): Profile {
-  let p = profiles.get(kind);
+  const key = shapeKey(kind);
+  let p = profiles.get(key);
   if (!p) {
-    p = fitProfile(kind, baseProfile(kind));
-    profiles.set(kind, p);
+    const model = carModel(kind);
+    p = model ? modelProfile(kind, model) : fitProfile(kind, baseProfile(kind));
+    profiles.set(key, p);
   }
   return p;
+}
+
+/**
+ * An imported body as the seat frame and interior read it: its windows' side outline as the cabin, a body whose top
+ * under the cabin is the beltline (less the bevel the procedural profile adds), its ground clearance, its wheels.
+ */
+function modelProfile(kind: VehicleKind, m: CarModel): Profile {
+  const s = VEHICLE_SPECS[kind];
+  const half = s.length / 2;
+  const top = m.beltY - BEVEL;
+  const body: Pt[] = [[-half, m.bottom], [half, m.bottom], [half, top], [-half, top]];
+  const base = baseProfile(kind);
+  return { body, cabin: m.cabin.map((p) => [p[0], p[1]] as Pt), cabinInset: s.width / 2 - m.cabinHalf, wheelR: m.wheelR, wheelFront: AXLE, wheelRear: -AXLE, lightY: base.lightY, panes: [], ports: [], rearSeats: base.rearSeats, drop: 0 };
 }
 
 function fitProfile(kind: VehicleKind, p: Profile): Profile {
@@ -361,6 +394,22 @@ function fitProfile(kind: VehicleKind, p: Profile): Profile {
   return { ...p, body, cabin, drop, lightY: p.lightY - drop / s.height, panes: p.panes.map((w) => ({ ...w, a: zk(w.a), b: zk(w.b) })), wheelFront: AXLE, wheelRear: -AXLE };
 }
 
+/**
+ * The fire engine as drawn (the spec's profile reshaped, sim-neutral): a tall, square nose over a short bonnet instead
+ * of a long low one, an upright windscreen, and the cab's waistline raised to the nose; the equipment body behind it
+ * stays at the spec's height under the ladder (gear), and the crew still sits round the sim's seats.
+ */
+const FIRE_ENGINE: VehicleBodyProfile = {
+  body: [[-0.5, 0.15], [0.5, 0.15], [0.5, 0.44], [0.48, 0.5], [0.3, 0.515], [0.2, 0.52], [-0.055, 0.52], [-0.07, 0.8], [-0.5, 0.8]],
+  cabin: [[0.19, 0.52], [0.15, 0.86], [-0.04, 0.86], [-0.045, 0.52]],
+  cabinInset: 0.1,
+  wheelR: 0.5,
+  wheelFront: 0.31,
+  wheelRear: -0.31,
+  lightY: 0.3,
+  straightSides: true,
+};
+
 function baseProfile(kind: VehicleKind): Profile {
   const s = VEHICLE_SPECS[kind];
   const L = s.length;
@@ -368,7 +417,7 @@ function baseProfile(kind: VehicleKind): Profile {
   const hw = s.width / 2;
   const P = (pts: Array<[number, number]>): Pt[] => pts.map(([x, y]) => [x * L, y * H]);
   const base = { panes: [] as Pane[], ports: [] as Pt[][], rearSeats: false, drop: 0 };
-  const data = s.bodyProfile;
+  const data = kind === 'firetruck' ? FIRE_ENGINE : s.bodyProfile;
   if (data) return { ...base, rearSeats: !!data.rearSeats, body: P(data.body.map(([x, y]) => [x, y])), cabin: P(data.cabin.map(([x, y]) => [x, y])), cabinInset: data.cabinInset, wheelR: data.wheelR, wheelFront: data.wheelFront, wheelRear: data.wheelRear, lightY: data.lightY };
   switch (kind) {
     case 'compact':
@@ -437,30 +486,29 @@ function baseProfile(kind: VehicleKind): Profile {
       };
     }
     case 'bus': {
-      // The roof's bevelled top at the spec height.
+      // A city bus: an upright bumper, a tall windscreen raked back a little to the destination sign, and a roof
+      // rounded down at both ends (the roof's bevelled top at the spec height).
       const roof = 1 - BEVEL / H;
-      const body = P([[-0.5, 0.12], [0.5, 0.12], [0.5, roof], [-0.5, roof]]);
-      const fb = body[1]!;
-      const ft = body[2]!;
-      const rt = body[3]!;
+      const body = P([[-0.5, 0.12], [0.5, 0.12], [0.5, 0.36], [0.488, 0.86], [0.482, 0.95], [0.468, roof], [-0.476, roof], [-0.493, 0.95], [-0.5, 0.86]]);
+      const screen0 = body[2]!;
+      const screen1 = body[3]!;
+      const sign1 = body[4]!;
+      const rt = body[8]!;
       const rb = body[0]!;
-      const span = roof - 0.12;
-      const front = (t: number): Pt => lerpPt(fb, ft, (t - 0.12) / span);
-      const rear = (t: number): Pt => lerpPt(rt, rb, (roof - t) / span);
       return {
         ...base,
         body,
-        cabin: P([[0.49, 0.42], [0.49, 0.86], [-0.47, 0.86], [-0.47, 0.42]]),
+        cabin: P([[0.47, 0.42], [0.47, 0.86], [-0.47, 0.86], [-0.47, 0.42]]),
         cabinInset: -GLASS_LIFT,
         wheelR: 0.5,
         wheelFront: 0.36,
         wheelRear: -0.3,
         lightY: 0.22,
         panes: [
-          { a: front(0.42), b: front(0.86), x0: -(hw - 0.12), x1: hw - 0.12 },
+          { a: lerpPt(screen0, screen1, 0.12), b: lerpPt(screen0, screen1, 0.98), x0: -(hw - 0.12), x1: hw - 0.12 },
           // Destination sign above the windshield.
-          { a: front(0.885), b: front(0.935), x0: -(hw - 0.3), x1: hw - 0.3 },
-          { a: rear(0.86), b: rear(0.55), x0: -(hw - 0.3), x1: hw - 0.3 },
+          { a: lerpPt(screen1, sign1, 0.15), b: lerpPt(screen1, sign1, 0.85), x0: -(hw - 0.3), x1: hw - 0.3 },
+          { a: lerpPt(rt, rb, 0), b: lerpPt(rt, rb, (0.86 - 0.55) / 0.74), x0: -(hw - 0.3), x1: hw - 0.3 },
         ],
       };
     }
@@ -646,9 +694,19 @@ interface KindAssets {
   prof: Profile;
   /** The plan-view rounding of the nose and tail its body, glass, fittings and lamps share. */
   round: EndRounding;
+  /** What the far version draws from the part batches (the same as the near version's, or an imported body unrefined). */
+  farBody: THREE.BufferGeometry;
+  farCabin: THREE.BufferGeometry;
+  farExterior: THREE.BufferGeometry;
+  /** The imported body this kind is drawn with, or null (procedural). */
+  model: CarModel | null;
 }
 
 type LensSize = readonly [number, number, number];
+
+/** Depth of the lenses on an imported body's lamps, and how far their faces stand off the model's lamp faces (m). */
+const MODEL_LENS_DEPTH = 0.02;
+const MODEL_LENS_PROUD = 0.004;
 
 /** The one lamp lens shape every vehicle shares, scaled per lamp (its instances are drawn in one batch). */
 export const LAMP_LENS = lensGeometry();
@@ -656,9 +714,15 @@ export const LAMP_LENS = lensGeometry();
 const assets = new Map<string, KindAssets>();
 
 function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
-  const key = `${kind}:${coarse}`;
+  const key = `${shapeKey(kind)}:${coarse}`;
   let a = assets.get(key);
   if (a) return a;
+  const model = carModel(kind);
+  if (model) {
+    a = modelAssets(kind, model, coarse);
+    assets.set(key, a);
+    return a;
+  }
   const s = VEHICLE_SPECS[kind];
   const prof = profile(kind);
   const hw = s.width / 2;
@@ -748,9 +812,64 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
   const exterior = coarse ? new THREE.BufferGeometry() : round.geometry(exteriorGeometry(kind, prof), false);
   const lamp: LensSize = [0.36, kind === 'sports' ? 0.085 : 0.14, 0.05];
   const reverse: LensSize = [0.18, 0.08, 0.04];
-  a = { body, cabin, exterior, wheel, rim, lamp, reverse, prof, round };
+  a = { body, cabin, exterior, wheel, rim, lamp, reverse, prof, round, farBody: body, farCabin: cabin, farExterior: exterior, model: null };
   assets.set(key, a);
   return a;
+}
+
+/** A copy of `g` with every vertex shaded `shade` and texture coordinates kept (for merging into a painted body). */
+function shaded(g: THREE.BufferGeometry, shade: number): THREE.BufferGeometry {
+  const src = g.index ? g.toNonIndexed() : g;
+  const c = new THREE.BufferGeometry();
+  c.setAttribute('position', src.getAttribute('position'));
+  c.setAttribute('normal', src.getAttribute('normal'));
+  c.setAttribute('uv', src.getAttribute('uv'));
+  const n = src.getAttribute('position').count;
+  const own = src.getAttribute('color');
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n * 3; i++) col[i] = (own ? own.array[i]! : 1) * shade;
+  c.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return c;
+}
+
+/**
+ * The parts of a kind drawn with an imported model (vehicleModels): its painted body with the view's procedural
+ * interior (floor, seats, dash and steering wheel, laid out by cabinLayout) merged in, its windows as the glass, its trim
+ * as the fittings, and the unrefined parts for the far versions. Tyres and rims are the view's own, at the model's size.
+ */
+function modelAssets(kind: VehicleKind, m: CarModel, coarse: boolean): KindAssets {
+  const prof = profile(kind);
+  const layout = cabinLayout(kind);
+  let body: THREE.BufferGeometry;
+  if (coarse) body = mergeGeometries([shaded(m.farPaint, 1), shaded(m.farTrim, 0.12)])!;
+  else {
+    const bb = new GeoBuilder();
+    if (layout) addInterior(bb, prof, kind, layout);
+    const interior = bb.build();
+    body = interior.getAttribute('position').count > 0 ? mergeGeometries([m.paint, interior])! : m.paint;
+    if (body !== m.paint) {
+      interior.dispose();
+      body.computeBoundingBox();
+      body.computeBoundingSphere();
+    }
+  }
+  const wheel = coarse ? new THREE.CylinderGeometry(m.wheelR, m.wheelR, 0.26, 6) : tireGeometry(m.wheelR);
+  if (coarse) wheel.rotateZ(Math.PI / 2);
+  return {
+    body,
+    cabin: coarse ? m.farGlass : m.glass,
+    exterior: coarse ? new THREE.BufferGeometry() : m.trim,
+    wheel,
+    rim: alloyGeometry(m.wheelR, kind),
+    lamp: [0.36, 0.14, 0.05],
+    reverse: [0.18, 0.08, 0.04],
+    prof,
+    round: new EndRounding(kind, prof, ARCH_GAP, true),
+    farBody: m.farPaint,
+    farCabin: m.farGlass,
+    farExterior: m.farTrim,
+    model: m,
+  };
 }
 
 /** The plan-view rounding of a kind's nose and tail (shared by its body, glass, fittings and lamps). */
@@ -760,9 +879,21 @@ export function endRounding(kind: VehicleKind): EndRounding {
 
 /** The top of a glass cabin's painted roof panel (addRoof), where roof gear stands. */
 function roofTop(kind: VehicleKind): number {
+  const model = carModel(kind);
+  if (model) return model.roofTopY;
   const c = cabinLayout(kind);
   return c ? c.roof.y + 0.05 : VEHICLE_SPECS[kind].height;
 }
+
+/** The drawn wheels' distance from the centre line: an imported body's own, kept within 4.5 cm of the physics' track. */
+function wheelTrack(kind: VehicleKind): number {
+  const hw = VEHICLE_SPECS[kind].width / 2;
+  const model = carModel(kind);
+  if (!model) return hw - 0.15;
+  return clamp(model.wheelX, TRACK_SHARE * hw - 0.045, TRACK_SHARE * hw + 0.045);
+}
+/** The physics' track as a share of the half width (roadblocks.ts wheelPoints). */
+const TRACK_SHARE = 0.85;
 
 /** A box of these sides, shared by every view that has one (roof gear). */
 const boxes = new Map<string, THREE.BoxGeometry>();
@@ -793,7 +924,7 @@ const shadowBodies = new Map<string, THREE.BufferGeometry>();
  * geometry, so a car costs one draw in the shadow pass. A burnt-out wreck has lost its glass and tyres.
  */
 export function shadowBody(kind: VehicleKind, burnt: boolean): THREE.BufferGeometry {
-  const key = `${kind}:${burnt}`;
+  const key = `${shapeKey(kind)}:${burnt}`;
   let g = shadowBodies.get(key);
   if (g) return g;
   const a = kindAssets(kind);
@@ -802,7 +933,7 @@ export function shadowBody(kind: VehicleKind, burnt: boolean): THREE.BufferGeome
   if (!burnt) {
     parts.push(positionsOnly(a.cabin));
     for (const z of [a.prof.wheelFront * s.length, a.prof.wheelRear * s.length]) {
-      for (const side of [-1, 1]) parts.push(positionsOnly(a.wheel, new THREE.Matrix4().makeTranslation(side * (s.width / 2 - 0.15), a.prof.wheelR, z)));
+      for (const side of [-1, 1]) parts.push(positionsOnly(a.wheel, new THREE.Matrix4().makeTranslation(side * wheelTrack(kind), a.prof.wheelR, z)));
     }
   }
   g = mergeGeometries(parts)!;
@@ -892,7 +1023,7 @@ const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0
  * Car paint: a satin metallic base under a glossy clearcoat that mirrors the sky and street (the scene environment),
  * shared by the near bodies and the far batches so a car keeps its colour across the switch.
  */
-const PAINT = { roughness: 0.36, metalness: 0.32, clearcoat: 1, clearcoatRoughness: 0.05, vertexColors: true } as const;
+const PAINT = { roughness: 0.36, metalness: 0.32, clearcoat: 1, clearcoatRoughness: 0.12, vertexColors: true } as const;
 const farPaintMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, ...PAINT });
 farPaintMat.name = 'vehicle-far-paint';
 /** Far bodies cast the car's shadow and stay out of the contact-shadow pass, like the dented body drawn by itself. */
@@ -955,6 +1086,9 @@ const stripes = new Map<VehicleKind, THREE.BufferGeometry>();
 
 /** The police livery stripe of `kind`, undented (each view bends its own copy; the far version draws this one). */
 function stripeGeometry(kind: VehicleKind): THREE.BufferGeometry {
+  // An imported cruiser's own white panels (refined, so dents bend them).
+  const livery = carModel(kind)?.livery;
+  if (livery) return livery;
   let g = stripes.get(kind);
   if (!g) {
     const s = VEHICLE_SPECS[kind];
@@ -1085,7 +1219,7 @@ export class VehicleView {
   /** The police livery stripe: its own subdivided geometry, bent with the body, and its undamaged positions. */
   private stripe: { geo: THREE.BufferGeometry; base: Float32Array; mesh: THREE.Mesh } | null = null;
   /** Lenses over a chrome reflector: clear and bright for the head lamps, deep red for the tails. */
-  private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xe8ecef, emissive: 0xfff2c8, emissiveIntensity: 0, roughness: 0.12, metalness: 0.55 });
+  private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xbcc3c9, emissive: 0xfff2c8, emissiveIntensity: 0, roughness: 0.1, metalness: 0.75 });
   private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x6a0606, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.16, metalness: 0.2 });
   private readonly reverseMat = new THREE.MeshStandardMaterial({ color: 0xa8acae, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.14, metalness: 0.45 });
   private sirenRed: THREE.MeshStandardMaterial | null = null;
@@ -1160,7 +1294,7 @@ export class VehicleView {
       for (const side of [-1, 1]) {
         const pivot = new THREE.Group();
         // Inset so the tyre's outer face stays inside the body outline; the wheel arch shows it.
-        pivot.position.set(side * (halfW - 0.15), a.prof.wheelR, z);
+        pivot.position.set(side * wheelTrack(kind), a.prof.wheelR, z);
         const tire = new THREE.Mesh(a.wheel, tireMat);
         const rim = new THREE.Mesh(a.rim, rimMat);
         tire.name = 'tire';
@@ -1179,7 +1313,7 @@ export class VehicleView {
     }
     // As the body leans, the arch over the furthest axle and the outer track comes down the most.
     this.axle = Math.max(Math.abs(a.prof.wheelFront), Math.abs(a.prof.wheelRear)) * s.length;
-    this.track = halfW - 0.15;
+    this.track = wheelTrack(kind);
     this.room = leanRoom(kind);
     this.noseRoom = Math.max(NOSE_DROP, a.prof.body[0]![1] - BEVEL - NOSE_CLEAR) / (s.length / 2);
     this.leanAxis = new THREE.Vector3(0, 2 * a.prof.wheelR, 0);
@@ -1198,16 +1332,39 @@ export class VehicleView {
       m.position.copy(a.round.apply(new THREE.Vector3(x, y, rear ? -front : front)));
       m.rotation.y = rear ? Math.PI - a.round.yaw(x, false) : a.round.yaw(x, true);
     };
+    // An imported body's lenses sit on its own lamps, square to each lamp's face and a little proud of it.
+    const onLamp = (l: ModelLamp, mat: THREE.Material): THREE.Mesh => {
+      const m = new THREE.Mesh(LAMP_LENS, mat);
+      m.scale.set(l.size[0], l.size[1], MODEL_LENS_DEPTH);
+      m.quaternion.setFromRotationMatrix(this.partTmp.makeBasis(l.across, this.leanTmp.crossVectors(l.normal, l.across), l.normal));
+      // Mostly sunk into the lamp it covers: its face stands MODEL_LENS_PROUD off the model's.
+      m.position.copy(l.at).addScaledVector(l.normal, MODEL_LENS_PROUD - MODEL_LENS_DEPTH / 2);
+      m.name = 'lamp';
+      return m;
+    };
+    const model = a.model;
     for (const side of [-1, 1]) {
-      const h = lens(a.lamp, this.headMat, false);
-      onEnd(h, side * (halfW - 0.32), ly, false);
-      const t = lens(a.lamp, this.tailMat, true);
-      onEnd(t, side * (halfW - 0.3), ly + 0.05, true);
+      let h: THREE.Mesh;
+      let t: THREE.Mesh;
+      if (model) {
+        // (The model's lamps are listed left (+x) first.)
+        h = onLamp(model.head[side > 0 ? 0 : Math.min(1, model.head.length - 1)]!, this.headMat);
+        t = onLamp(model.tail[side > 0 ? 0 : Math.min(1, model.tail.length - 1)]!, this.tailMat);
+      } else {
+        h = lens(a.lamp, this.headMat, false);
+        onEnd(h, side * (halfW - 0.32), ly, false);
+        t = lens(a.lamp, this.tailMat, true);
+        onEnd(t, side * (halfW - 0.3), ly + 0.05, true);
+      }
       this.group.add(h, t);
       this.lamps.push({ mesh: h, mat: this.headMat, broken: false, base: h.position.clone(), head: true, role: 'head' }, { mesh: t, mat: this.tailMat, broken: false, base: t.position.clone(), head: false, role: 'tail' });
     }
-    const rev = lens(a.reverse, this.reverseMat, true);
-    onEnd(rev, 0, ly - 0.05, true);
+    let rev: THREE.Mesh;
+    if (model) rev = onLamp(model.reverse, this.reverseMat);
+    else {
+      rev = lens(a.reverse, this.reverseMat, true);
+      onEnd(rev, 0, ly - 0.05, true);
+    }
     this.group.add(rev);
     this.lamps.push({ mesh: rev, mat: this.reverseMat, broken: false, base: rev.position.clone(), head: false, role: 'reverse' });
     for (const l of this.lamps) {
@@ -1238,6 +1395,7 @@ export class VehicleView {
         // White doors livery stripe.
         const geo = stripeGeometry(kind).clone();
         const stripe = new THREE.Mesh(geo, stripeMat);
+        stripe.name = 'livery';
         this.group.add(stripe);
         this.stripe = { geo, base: Float32Array.from(geo.getAttribute('position').array), mesh: stripe };
         this.livery.push({ mesh: stripe, mat: stripe.material as THREE.Material });
@@ -1366,6 +1524,29 @@ export class VehicleView {
   setDistant(distant: boolean, coarse = false): void {
     const mode = distant ? (coarse ? 'coarse' : 'far') : false;
     if (mode === this.distant) return;
+    if (mode === 'coarse' && !this.distantMesh && this.kindAssets.model) {
+      // An imported body: its unrefined paint (with its painted stripe) and trim, dark glass and the wheels in one mesh.
+      const a = kindAssets(this.kind, true);
+      const s = VEHICLE_SPECS[this.kind];
+      const parts = [a.body, shaded(a.cabin, 0.1)];
+      for (const z of [a.prof.wheelFront * s.length, a.prof.wheelRear * s.length]) {
+        for (const side of [-1, 1]) {
+          const w = shaded(a.wheel, 0.055);
+          w.applyMatrix4(new THREE.Matrix4().makeTranslation(side * wheelTrack(this.kind), a.prof.wheelR, z));
+          parts.push(w);
+        }
+      }
+      const g = mergeGeometries(parts)!;
+      g.computeBoundingBox();
+      g.computeBoundingSphere();
+      this.distantMesh = new THREE.Mesh(g, this.body.material);
+      this.distantMesh.name = 'distant-vehicle';
+      this.distantMesh.castShadow = true;
+      this.distantMesh.receiveShadow = true;
+      this.distantMesh.userData.contactShadow = false;
+      this.distantMesh.matrixAutoUpdate = false;
+      this.group.add(this.distantMesh);
+    }
     if (mode === 'coarse' && !this.distantMesh) {
       const a = kindAssets(this.kind, true);
       const b = new GeoBuilder();
@@ -1375,7 +1556,7 @@ export class VehicleView {
       const s = VEHICLE_SPECS[this.kind];
       for (const z of [a.prof.wheelFront * s.length, a.prof.wheelRear * s.length]) {
         for (const side of [-1, 1]) {
-          m.makeTranslation(side * (s.width / 2 - 0.15), a.prof.wheelR, z);
+          m.makeTranslation(side * wheelTrack(this.kind), a.prof.wheelR, z);
           b.geometry(a.wheel, m, 0.055);
         }
       }
@@ -1453,11 +1634,11 @@ export class VehicleView {
       // An undented body joins its kind's batch (the dented one draws itself, see applyVisibility).
       if (!this.body.visible) {
         const paint = this.body.material as THREE.MeshStandardMaterial;
-        if (this.burnt) batches.add(a.body, burntMat, m, FAR_BODY, undefined, fade);
-        else batches.add(a.body, farPaintMat, m, FAR_PAINT, paint.color, fade);
+        if (this.burnt) batches.add(a.farBody, burntMat, m, FAR_BODY, undefined, fade);
+        else batches.add(a.farBody, farPaintMat, m, FAR_PAINT, paint.color, fade);
       }
-      if (!this.burnt) batches.add(a.cabin, this.cabin.material as THREE.Material, m, {}, undefined, fade);
-      batches.add(a.exterior, this.exterior.material as THREE.Material, m, FAR_FITTINGS, undefined, fade);
+      if (!this.burnt) batches.add(a.farCabin, this.cabin.material as THREE.Material, m, {}, undefined, fade);
+      batches.add(a.farExterior, this.exterior.material as THREE.Material, m, FAR_FITTINGS, undefined, fade);
       if (this.stripe) batches.add(stripeGeometry(this.kind), this.stripe.mesh.material as THREE.Material, m, {}, undefined, fade);
     }
     for (const p of this.boxParts) {
