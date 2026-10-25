@@ -90,7 +90,15 @@ vi.mock('three', async (importOriginal) => {
     getRenderTarget(): unknown {
       return this.target;
     }
-    compile(): void {
+    /** Compiles of the shadow stand-ins (Effects.shadowProbes: their own scene, the main scene's lights). */
+    shadowCompiles = 0;
+    compile(_scene?: unknown, _camera?: unknown, targetScene?: unknown): void {
+      // (Revised, mission 3 effects: the warm-up also compiles the shadow stand-ins in a scene of their own, with the
+      // scene's lights; that compile is counted apart, so each warm-up is still one compile of the scene.)
+      if (targetScene) {
+        this.shadowCompiles++;
+        return;
+      }
       this.compiles++;
       this.compileTargets.push(this.target);
     }
@@ -122,6 +130,7 @@ interface Fake {
   pixelRatio: number;
   effects: unknown[];
   compiles: number;
+  shadowCompiles: number;
   compileTargets: unknown[];
   getRenderTarget(): unknown;
   draws: number;
@@ -513,8 +522,11 @@ describe('GameRenderer quality tiers', () => {
     expect(bound).toBeInstanceOf(THREE.WebGLRenderTarget);
     expect(bound.texture.type).toBe(THREE.HalfFloatType);
     expect(f.getRenderTarget()).toBe(null); // unbound again afterwards
+    // High has shadows: the shadow stand-ins are compiled too; Low has none.
+    expect(f.shadowCompiles).toBe(1);
     r.setQuality('low');
     expect(f.compiles).toBe(2);
+    expect(f.shadowCompiles).toBe(1);
     // Without the HDR output there is no scene target: compile for the canvas.
     const plain = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat: false } });
     expect(fakeOf(plain).compileTargets).toEqual([null]);

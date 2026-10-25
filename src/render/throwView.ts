@@ -19,6 +19,8 @@ const STRIP_PLATE = 1.1;
 const MAX_PLATES = 64;
 /** The fire light's intensity at the fire nearest the camera, flickering. */
 const FIRE_LIGHT = 9;
+/** A fire scorches the ground this far round (m) when first seen, and again once it has spread past that. */
+const FIRE_SCORCH = 2.2;
 
 export class ThrowView {
   readonly group = new THREE.Group();
@@ -38,6 +40,8 @@ export class ThrowView {
   private readonly s = new THREE.Vector3(1, 1, 1);
   /** Whether a fire holds the light this frame, and held it last frame (it is put out once the fire is). */
   fireLit = false;
+  /** The scorch radius laid for each fire so far, by fire id. */
+  private readonly scorched = new Map<number, number>();
   private lightHeld = false;
   /** Whether the arc was shown last frame (for tests and the debug state). */
   arcShown = false;
@@ -112,12 +116,19 @@ export class ThrowView {
     let best: FireArea | null = null;
     let bd = Infinity;
     for (const a of fires) {
-      if (a.removed) continue;
+      if (a.removed) {
+        this.scorched.delete(a.id);
+        continue;
+      }
       for (const p of a.patches) {
         if (p.age >= p.life) continue;
         const left = p.life - p.age;
         if (dt > 0) fx.groundFire(p.x, p.y, p.z, p.r, dt, Math.min(1, left / 1.5) * Math.min(1, 0.4 + p.age * 1.5));
       }
+      // A burnt patch under it, and a wider one once it spreads.
+      const laid = this.scorched.get(a.id) ?? 0;
+      const want = Math.max(FIRE_SCORCH, a.radius + 0.8);
+      if (want > laid * 1.4 && fx.scorchAt(a.x, a.z, want, 0.8)) this.scorched.set(a.id, want);
       const d = Math.hypot(a.x - cam.x, a.z - cam.z);
       if (d < bd) {
         bd = d;
@@ -237,6 +248,7 @@ export class ThrowView {
   }
 
   reset(): void {
+    this.scorched.clear();
     this.grenades.count = 0;
     this.molotovs.count = 0;
     this.arc.visible = false;

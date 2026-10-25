@@ -5,7 +5,15 @@ import { clamp } from '../core/math';
 import { Rng } from '../core/rng';
 import type { Character, Projectile, Vehicle } from '../sim/entities';
 import { flashSizeOf, WEAPONS, type WeaponId } from '../sim/specs';
+import { registerDebug } from '../debug';
 import { FoamRings } from './foamRings';
+import { burntMaterial } from './fx/burnt';
+import { FX_BUDGETS, FX_POOL_SIZES, type FxBudget, type FxTier } from './fx/budget';
+import { Debris, type DebrisShape, type DebrisWorld } from './fx/debris';
+import { FIREBALL_LIFE, FIREBALL_SCALE, fireballLobes, lobeAt, type FireballLobe, type LobeState } from './fx/fireball';
+import { hash01 } from './fx/noise';
+import { PuffKind, PuffLayer } from './fx/puffs';
+import { ScorchDecals, type ScorchGround } from './fx/scorch';
 
 /** Muzzle flash size (m, across the star) per weapon: WeaponSpec.flashSize, DEFAULT_FLASH_SIZE for a weapon without. */
 export const flashSize = flashSizeOf;
@@ -218,6 +226,8 @@ class ParticleLayer {
   private readonly fresh: Uint8Array;
   private next = 0;
   active = 0;
+  /** How many may be alive (a tier's cap, at most `max`). */
+  private cap: number;
 
   /** The scene light the particles scatter (a `lit` layer's uniform), or null for a self-lit layer. */
   readonly light: THREE.Color | null;
@@ -255,6 +265,7 @@ class ParticleLayer {
       fog: true,
     });
     this.light = lit ? (mat.uniforms.uLight!.value as THREE.Color) : null;
+    this.cap = max;
     this.mesh = new THREE.Mesh(this.geo, mat);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = additive ? 5 : 4;
@@ -283,11 +294,11 @@ class ParticleLayer {
   }
 
   /** `stretch` > 1 draws an elongated sprite (length:width), turned by `rot` on screen (or see `style.align`). */
-  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size0: number, size1: number, color0: number, color1: number, alpha: number, gravity = 0, drag = 0, spin = 0, stretch = 1, rot = Math.random() * 6.28, style?: EmitStyle): void {
+  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size0: number, size1: number, color0: number, color1: number, alpha: number, gravity = 0, drag = 0, spin = 0, stretch = 1, rot = Math.random() * 6.28, style?: EmitStyle): number {
     const glow0 = style?.glow ?? 1;
     const glow1 = style?.glowEnd ?? 1;
     const i = this.next;
-    this.next = (this.next + 1) % this.max;
+    this.next = (this.next + 1) % this.cap;
     this.px[i] = x;
     this.py[i] = y;
     this.pz[i] = z;
@@ -313,6 +324,15 @@ class ParticleLayer {
     this.align[i] = style?.align && this.iVel ? 1 : 0;
     this.instant[i] = style?.instant ? 1 : 0;
     this.fresh[i] = 1;
+    return i;
+  }
+
+  /** Moves live particle i by (dx, dy, dz) (a muzzle flash riding its kicking gun). */
+  shift(i: number, dx: number, dy: number, dz: number): void {
+    if (!(this.life[i]! > 0)) return;
+    this.px[i] = this.px[i]! + dx;
+    this.py[i] = this.py[i]! + dy;
+    this.pz[i] = this.pz[i]! + dz;
   }
 
   update(dt: number, intensity: number): void {
@@ -364,6 +384,17 @@ class ParticleLayer {
     (this.geo.getAttribute('iColor') as THREE.InstancedBufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('iSizeRot') as THREE.InstancedBufferAttribute).needsUpdate = true;
     if (this.iVel) (this.geo.getAttribute('iVel') as THREE.InstancedBufferAttribute).needsUpdate = true;
+  }
+
+  /** The tier's cap; particles past a lowered cap go at once. */
+  setCap(cap: number): void {
+    this.cap = Math.max(1, Math.min(this.max, cap));
+    for (let i = this.cap; i < this.max; i++) this.life[i] = 0;
+    if (this.next >= this.cap) this.next = 0;
+  }
+
+  get capacity(): number {
+    return this.cap;
   }
 
   /** Drops every particle (a new session). */
@@ -621,6 +652,18 @@ class Tracers {
     this.state[i] = 2;
   }
 
+  /** Moves the start of the tracers leaving (x, y, z) that are still held at the muzzle by (dx, dy, dz). */
+  shiftHeld(x: number, y: number, z: number, dx: number, dy: number, dz: number): void {
+    for (let i = 0; i < this.max; i++) {
+      if (this.state[i] === 0 || this.age[i]! > TRACER_HOLD) continue;
+      const o = i * 3;
+      if (Math.abs(this.from[o]! - x) + Math.abs(this.from[o + 1]! - y) + Math.abs(this.from[o + 2]! - z) > 1e-4) continue;
+      this.from[o] = this.from[o]! + dx;
+      this.from[o + 1] = this.from[o + 1]! + dy;
+      this.from[o + 2] = this.from[o + 2]! + dz;
+    }
+  }
+
   update(dt: number): void {
     let n = 0;
     for (let i = 0; i < this.max; i++) {
@@ -656,143 +699,38 @@ class Tracers {
   }
 }
 
-/** Body parts a hard crash knocks off: sizes (x, y, z) of the shared unit box. */
-const PART_SIZES = { bumper: [1.6, 0.25, 0.15], hood: [1.2, 0.05, 0.9], mirror: [0.15, 0.1, 0.08] } as const;
-export type PartKind = keyof typeof PART_SIZES;
-const MAX_PARTS = 16;
-/** Parts lie on the road this long, then shrink away over PART_FADE. */
+/** Body parts a hard crash knocks off, and the debris shape each is drawn with. */
+const PART_SHAPES = { bumper: 'bumper', hood: 'panel', mirror: 'mirror' } as const;
+export type PartKind = keyof typeof PART_SHAPES;
+/** Crash parts lie on the road this long, then shrink away over PART_FADE. */
 const PART_LIFE = 8;
 const PART_FADE = 1;
-const PART_GRAVITY = 12;
+/** Explosion debris lies longer. */
+const DEBRIS_LIFE = 12;
+const DEBRIS_FADE = 1.5;
 const BURNT_COLOR = 0x1d1b19;
-const UP = new THREE.Vector3(0, 1, 0);
+/** Wreck smoke and flames thin out over this last stretch of the sim's burn (wreckTime < 25). */
+const WRECK_BURN = 25;
+const WRECK_THIN = 15;
+/** Drift of smoke plumes (m/s): a light sea breeze. */
+const WIND_X = 0.55;
+const WIND_Z = 0.25;
+/** Scorch radius per metre of blast radius, and the least a blast near the ground leaves. */
+const SCORCH_PER_RADIUS = 0.5;
 
-interface Part {
-  pos: THREE.Vector3;
-  vel: THREE.Vector3;
-  quat: THREE.Quaternion;
-  spin: THREE.Vector3;
-  size: THREE.Vector3;
-  color: THREE.Color;
+interface Fireball {
+  x: number;
+  y: number;
+  z: number;
+  ground: number;
+  R: number;
   age: number;
-  resting: boolean;
+  fresh: boolean;
+  lobes: FireballLobe[];
 }
 
-/** Up to MAX_PARTS rigid parts (one InstancedMesh, per-instance scale and colour) that tumble, bounce and settle flat. */
-class BodyParts {
-  readonly mesh: THREE.InstancedMesh;
-  private readonly parts: Part[] = [];
-  private readonly m = new THREE.Matrix4();
-  private readonly q = new THREE.Quaternion();
-  private readonly axis = new THREE.Vector3();
-  private readonly s = new THREE.Vector3();
-  /** Ground height under the parts (the world of the latest crash; reset() drops the parts with their world). */
-  private ground: (x: number, z: number) => number = () => 0;
-
-  constructor() {
-    this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.5 }), MAX_PARTS);
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    // Creates the colour attribute up front, so the shader compiled at warm-up is the one used later.
-    this.mesh.setColorAt(0, new THREE.Color(1, 1, 1));
-    this.mesh.count = 0;
-    this.mesh.castShadow = true;
-    this.mesh.frustumCulled = false;
-    this.mesh.name = 'bodyParts';
-  }
-
-  get active(): number {
-    return this.parts.length;
-  }
-
-  spawn(kind: PartKind, x: number, y: number, z: number, vx: number, vy: number, vz: number, color: number, spin: THREE.Vector3, ground: (x: number, z: number) => number): void {
-    // A full pool recycles its oldest part.
-    if (this.parts.length >= MAX_PARTS) this.parts.shift();
-    this.ground = ground;
-    const sz = PART_SIZES[kind];
-    this.parts.push({
-      pos: new THREE.Vector3(x, y, z),
-      vel: new THREE.Vector3(vx, vy, vz),
-      quat: new THREE.Quaternion().setFromEuler(new THREE.Euler(spin.x * 0.1, Math.atan2(vx, vz), spin.z * 0.1)),
-      spin: spin.clone(),
-      size: new THREE.Vector3(sz[0], sz[1], sz[2]),
-      color: new THREE.Color(color),
-      age: 0,
-      resting: false,
-    });
-  }
-
-  /** Half the height of a part's rotated box: how far its lowest corner is below its centre. */
-  private halfHeight(p: Part): number {
-    this.m.makeRotationFromQuaternion(p.quat);
-    const e = this.m.elements;
-    // Row 1 of the rotation matrix: the world Y of each local axis.
-    return (Math.abs(e[1]!) * p.size.x + Math.abs(e[5]!) * p.size.y + Math.abs(e[9]!) * p.size.z) / 2;
-  }
-
-  /** Rotation that lays the part on its largest face: its thinnest local axis turned straight up or down. */
-  private flatten(p: Part): THREE.Quaternion {
-    this.m.makeRotationFromQuaternion(p.quat);
-    const e = this.m.elements;
-    const size = [p.size.x, p.size.y, p.size.z];
-    let k = 0;
-    for (let i = 1; i < 3; i++) if (size[i]! < size[k]!) k = i;
-    this.axis.set(e[k * 4]!, e[k * 4 + 1]!, e[k * 4 + 2]!).normalize();
-    return this.q.setFromUnitVectors(this.axis, e[k * 4 + 1]! >= 0 ? UP : this.s.set(0, -1, 0)).multiply(p.quat);
-  }
-
-  update(dt: number): void {
-    for (let i = this.parts.length - 1; i >= 0; i--) {
-      const p = this.parts[i]!;
-      p.age += dt;
-      if (p.age >= PART_LIFE + PART_FADE) {
-        this.parts.splice(i, 1);
-        continue;
-      }
-      if (dt <= 0) continue;
-      if (!p.resting) {
-        p.vel.y -= PART_GRAVITY * dt;
-        p.pos.addScaledVector(p.vel, dt);
-        const w = p.spin.length();
-        if (w > 1e-6) p.quat.premultiply(this.q.setFromAxisAngle(this.axis.copy(p.spin).divideScalar(w), w * dt));
-      } else {
-        // Settle flat on the road.
-        p.quat.slerp(this.flatten(p), 1 - Math.exp(-14 * dt));
-      }
-      const floor = this.ground(p.pos.x, p.pos.z) + this.halfHeight(p);
-      if (p.pos.y < floor || p.resting) {
-        p.pos.y = floor;
-        if (!p.resting) {
-          if (p.vel.y < 0) p.vel.y = -p.vel.y * 0.35;
-          p.vel.x *= 0.65;
-          p.vel.z *= 0.65;
-          p.spin.multiplyScalar(0.55);
-          if (Math.hypot(p.vel.x, p.vel.z) < 0.7 && p.vel.y < 1.2) {
-            p.resting = true;
-            p.vel.set(0, 0, 0);
-            p.spin.set(0, 0, 0);
-          }
-        }
-      }
-    }
-    let n = 0;
-    for (const p of this.parts) {
-      const k = p.age > PART_LIFE ? Math.max(0, 1 - (p.age - PART_LIFE) / PART_FADE) : 1;
-      this.m.compose(p.pos, p.quat, this.s.copy(p.size).multiplyScalar(Math.max(1e-4, k)));
-      this.mesh.setMatrixAt(n, this.m);
-      this.mesh.setColorAt(n, p.color);
-      n++;
-    }
-    this.mesh.count = n;
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
-  }
-
-  clear(): void {
-    this.parts.length = 0;
-    this.mesh.count = 0;
-    this.ground = () => 0;
-  }
-}
+/** The world the effects land in: ground height, water, walls (StaticWorld). */
+export type EffectsWorld = DebrisWorld & ScorchGround;
 
 // Rocket parts, shared by every rocket view. The body points along local +Z.
 const rocketBodyGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.62, 8).rotateX(Math.PI / 2);
@@ -821,7 +759,26 @@ export class Effects {
   private readonly smoke = new ParticleLayer(3000, false, true, true);
   readonly skids = new SkidMarks(3000);
   private readonly tracers = new Tracers(160);
-  private readonly parts = new BodyParts();
+  private readonly parts = new Debris(FX_POOL_SIZES.debris);
+  private readonly puffs = new PuffLayer(FX_POOL_SIZES.puffs, FX_POOL_SIZES.fireballs * FX_POOL_SIZES.fireballPuffs);
+  readonly scorch = new ScorchDecals(FX_POOL_SIZES.scorches);
+  private readonly fireballs: Fireball[] = [];
+  private readonly fireballPool: Fireball[] = [];
+  private readonly lobe: LobeState = { x: 0, y: 0, z: 0, size: 0, heat: 0, alpha: 0, rot: 0 };
+  private budget: FxBudget = FX_BUDGETS.high;
+  private tierName: FxTier = 'high';
+  private world: EffectsWorld | null = null;
+  /** Presentation seeds: a count of blasts, hashed (never the sim's rng). */
+  private blasts = 0;
+  private readonly tmpColor = new THREE.Color();
+  private readonly tmpColor2 = new THREE.Color();
+  private readonly tmpSpin = new THREE.Vector3();
+  /** Peaks of the per-type counters since the last stats read (debug, budgets). */
+  private readonly peak = { fireballs: 0, puffs: 0, debris: 0, sparks: 0, scorches: 0 };
+  /** The latest muzzle flash: its sprites and point, kept on the shooter's drawn muzzle while it kicks (trackMuzzles). */
+  private readonly flashTrack = { shooter: null as Character | null, a: 0, b: 0, x: 0, y: 0, z: 0, age: 0 };
+  private shadowProbeGroup: THREE.Group | null = null;
+  private muzzleOf: ((c: Character) => { x: number; y: number; z: number } | null) | null = null;
   readonly foam = new FoamRings();
   readonly flash: THREE.PointLight;
   readonly muzzle: THREE.PointLight;
@@ -852,12 +809,21 @@ export class Effects {
 
   constructor() {
     this.group.add(this.glow.mesh, this.smoke.mesh, this.skids.mesh, this.tracers.mesh);
-    this.group.add(this.parts.mesh, this.foam.mesh);
+    this.group.add(this.parts.mesh, this.foam.mesh, this.puffs.mesh, this.scorch.mesh);
+    for (let i = 0; i < FX_POOL_SIZES.fireballs; i++) this.fireballPool.push({ x: 0, y: 0, z: 0, ground: 0, R: 1, age: 0, fresh: false, lobes: [] });
     this.flash = new THREE.PointLight(0xffa040, 0, 40, 1.6);
     this.muzzle = new THREE.PointLight(0xffd080, 0, 12, 2);
     this.group.add(this.flash, this.muzzle);
     // One pooled rocket up front, so the renderer's warm-up compiles its materials.
     this.rocketPool.push(this.newRocket());
+    // __gta7.ext.fx: counters and caps, live fireball lobes (world spheres), debris and scorch lives.
+    registerDebug('fx', {
+      stats: () => this.stats(),
+      lobes: () => this.liveLobes(),
+      debris: () => this.debrisProbe(),
+      scorches: () => ({ clock: this.scorch.clock, lives: this.scorch.lives() }),
+      scorchAt: (x: number, z: number, r: number, k?: number) => this.scorchAt(x, z, r, k),
+    });
   }
 
   /**
@@ -870,6 +836,11 @@ export class Effects {
     this.syncRockets([]);
     this.tracers.clear();
     this.parts.clear();
+    this.puffs.clear();
+    this.scorch.clear();
+    while (this.fireballs.length) this.fireballPool.push(this.fireballs.pop()!);
+    this.blasts = 0;
+    for (const k of Object.keys(this.peak) as Array<keyof typeof this.peak>) this.peak[k] = 0;
     this.foam.clear();
     this.glow.clear();
     this.smoke.clear();
@@ -885,6 +856,7 @@ export class Effects {
     // The last pull belongs to the old simulation (and holds on to its shooter).
     this.pull.aimed = false;
     this.pull.shooter = null;
+    this.flashTrack.shooter = null;
   }
 
   /**
@@ -893,12 +865,165 @@ export class Effects {
    */
   setLight(c: THREE.Color): void {
     this.smoke.light!.copy(c);
+    this.puffs.light.copy(c);
     this.skids.light.copy(c);
     this.foam.light.copy(c);
   }
 
   private r(a: number, b: number): number {
     return this.rng.range(a, b);
+  }
+
+  /** The tier's effect caps (fx/budget.ts): pools keep their size, only the caps change. */
+  setTier(tier: FxTier): void {
+    this.tierName = tier;
+    this.budget = FX_BUDGETS[tier];
+    this.puffs.setCap(this.budget.puffs);
+    this.parts.setCap(this.budget.debris, this.budget.debrisShadows);
+    this.scorch.setCap(this.budget.scorches);
+    this.glow.setCap(this.budget.sparks);
+    while (this.fireballs.length > this.budget.fireballs) this.fireballPool.push(this.fireballs.shift()!);
+  }
+
+  get tier(): FxTier {
+    return this.tierName;
+  }
+
+  /** Where a character's drawn gun has its muzzle now (CrowdView.muzzleOf): flashes and held tracers follow its recoil. */
+  trackMuzzles(fn: ((c: Character) => { x: number; y: number; z: number } | null) | null): void {
+    this.muzzleOf = fn;
+  }
+
+  /** Keeps the latest flash's sprites and held tracers on its shooter's drawn muzzle as the gun kicks. */
+  private followMuzzle(dt: number): void {
+    const t = this.flashTrack;
+    if (!t.shooter || !this.muzzleOf) return;
+    t.age += dt;
+    if (t.age > FLASH_LIFE * 2) {
+      t.shooter = null;
+      return;
+    }
+    const p = this.muzzleOf(t.shooter);
+    if (!p || !Number.isFinite(p.x + p.y + p.z)) return;
+    const dx = p.x - t.x;
+    const dy = p.y - t.y;
+    const dz = p.z - t.z;
+    if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) < 1e-6 || Math.hypot(dx, dy, dz) > 0.6) return;
+    this.glow.shift(t.a, dx, dy, dz);
+    this.glow.shift(t.b, dx, dy, dz);
+    this.tracers.shiftHeld(t.x, t.y, t.z, dx, dy, dz);
+    // The light stays where the shot placed it (shotLanded, the shooter's head limit).
+    t.x = p.x;
+    t.y = p.y;
+    t.z = p.z;
+  }
+
+  /** The world blasts land in (ground heights for scorches and debris, water, walls). */
+  bindWorld(world: EffectsWorld | null): void {
+    this.world = world;
+  }
+
+  /** Live counts and caps of every effect type (state().render.effects). */
+  stats(): Record<string, number | string> {
+    const b = this.budget;
+    const c = this.puffs.counts;
+    const live = { fireballs: this.fireballs.length, puffs: this.puffs.active, debris: this.parts.active, sparks: this.glow.active, scorches: this.scorch.live };
+    for (const k of Object.keys(live) as Array<keyof typeof live>) this.peak[k] = Math.max(this.peak[k], live[k]);
+    return {
+      tier: this.tierName,
+      ...live,
+      fireballPuffs: c.fireball, flamePuffs: c.flame, smokePuffs: c.smoke, dustPuffs: c.dust,
+      fireballCap: b.fireballs, puffCap: this.puffs.capacity, debrisCap: this.parts.capacity, sparkCap: this.glow.capacity, scorchCap: this.scorch.capacity,
+      peakFireballs: this.peak.fireballs, peakPuffs: this.peak.puffs, peakDebris: this.peak.debris, peakSparks: this.peak.sparks, peakScorches: this.peak.scorches,
+      scorchesPlaced: this.scorch.placed,
+    };
+  }
+
+  /** Debris pieces now: lowest point, ground under it, resting (tests and the debug hook). */
+  debrisProbe(): ReturnType<Debris['probe']> {
+    return this.parts.probe();
+  }
+
+  /**
+   * Stand-ins compiled by the renderer's warm-up (added to the scene only while it compiles): the debris shadow
+   * material, and the burnt-wreck material as a plain mesh, an instanced one (far batches) and a fade copy.
+   */
+  warmupProbes(fade: (m: THREE.Material) => THREE.Material): THREE.Group {
+    const g = new THREE.Group();
+    g.name = 'fx-warmup';
+    const box = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    const burnt = burntMaterial();
+    const inst = new THREE.InstancedMesh(box, burnt, 1);
+    inst.setMatrixAt(0, new THREE.Matrix4());
+    const meshes: THREE.Mesh[] = [new THREE.Mesh(box, burnt), inst, new THREE.Mesh(box, fade(burnt))];
+    for (const m of meshes) {
+      m.position.set(0, -60, 0);
+      m.frustumCulled = false;
+      g.add(m);
+    }
+    return g;
+  }
+
+  /**
+   * Stand-ins for the shadow pass of instanced meshes with their own depth material (the debris; the vehicle parts' far
+   * bodies, passed in): compiling the scene builds no shadow programs. The shadow pass draws back faces (shadowSide) with
+   * no fog, so these stand-ins are back-sided, fog-less copies, compiled with the scene's lights (compile's targetScene).
+   */
+  shadowProbes(instancedDepth: Iterable<THREE.Material>): THREE.Group {
+    // Built once and kept: a program lives only while a material using it does, so the copies stay for the session.
+    if (this.shadowProbeGroup) return this.shadowProbeGroup;
+    const g = new THREE.Group();
+    const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    geo.setAttribute('instanceFade', new THREE.InstancedBufferAttribute(new Float32Array([1]), 1));
+    const copy = (d: THREE.Material): THREE.Material => {
+      const c = d.clone();
+      c.onBeforeCompile = d.onBeforeCompile;
+      c.customProgramCacheKey = d.customProgramCacheKey;
+      c.side = THREE.BackSide;
+      // The shadow pass draws without fog.
+      (c as THREE.Material & { fog: boolean }).fog = false;
+      return c;
+    };
+    for (const d of [...instancedDepth, this.parts.depth]) {
+      // Instanced, tinted (instance colours, as the paint batches) and plain, each with its own copy: compiling builds
+      // a material's program for its first object only.
+      const m = new THREE.InstancedMesh(geo, copy(d), 1);
+      m.setMatrixAt(0, new THREE.Matrix4());
+      const tinted = new THREE.InstancedMesh(geo, copy(d), 1);
+      tinted.setMatrixAt(0, new THREE.Matrix4());
+      tinted.setColorAt(0, new THREE.Color(1, 1, 1));
+      for (const o of [m, tinted, new THREE.Mesh(geo, copy(d))]) {
+        o.position.set(0, -60, 0);
+        o.frustumCulled = false;
+        g.add(o);
+      }
+    }
+    this.shadowProbeGroup = g;
+    return g;
+  }
+
+  /** A flame tongue at (x, y, z) `size` m across, rising and cooling into a wisp of smoke. */
+  private flame(x: number, y: number, z: number, size: number, vy: number, life: number, ground: number): void {
+    const c = this.tmpColor.setRGB(0.06, 0.055, 0.05);
+    this.puffs.emit(PuffKind.Flame, x, y, z, this.r(-0.25, 0.25), vy, this.r(-0.25, 0.25), life, size, size * this.r(0.45, 0.7), this.r(0.85, 1.05), this.r(0.05, 0.2), 0.95, c, this.rng.next(), this.r(0, 6.28), this.r(-1.5, 1.5), 0.8, -1.2, ground);
+  }
+
+  /** A puff of thick dark smoke at (x, y, z), `s0` -> `s1` m across over `life` s. */
+  private smokePuff(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, s0: number, s1: number, alpha: number, grey: number, ground: number, heat = 0): void {
+    const c = this.tmpColor.setRGB(grey, grey * 0.96, grey * 0.92);
+    this.puffs.emit(PuffKind.Smoke, x, y, z, vx, vy, vz, life, s0, s1, heat, 0, alpha, c, this.rng.next(), this.r(0, 6.28), this.r(-0.25, 0.25), 0.18, -0.32, ground);
+  }
+
+  /** The surface under (x, z): ground, a deck, or the sea's surface over water. */
+  private groundAt(x: number, y: number, z: number): number {
+    const g = this.world?.groundHeight(x, z);
+    if (g === undefined || !Number.isFinite(g) || g > y + 0.5) return y - 0.6;
+    const depth = this.world?.waterDepth?.(x, z) ?? -1;
+    return depth > 0 ? g + depth : g;
+  }
+
+  private overWater(x: number, z: number): boolean {
+    return (this.world?.waterDepth?.(x, z) ?? -1) > 0;
   }
 
   /**
@@ -909,7 +1034,15 @@ export class Effects {
   muzzleFlash(x: number, y: number, z: number, size: number, aim: FlashAim | null = null): void {
     if (!(size > 0) || !Number.isFinite(x + y + z)) return;
     const rot = Math.random() * Math.PI;
-    for (const r of [rot, rot + Math.PI / 2]) this.glow.emit(x, y, z, 0, 0, 0, FLASH_LIFE, size, size * 1.3, 0xfff0b0, 0xff8020, 1, 0, 0, 0, 3, r);
+    const ids = [rot, rot + Math.PI / 2].map((r) => this.glow.emit(x, y, z, 0, 0, 0, FLASH_LIFE, size, size * 1.3, 0xfff0b0, 0xff8020, 1, 0, 0, 0, 3, r));
+    const tr = this.flashTrack;
+    tr.shooter = aim?.shooter ?? null;
+    tr.a = ids[0]!;
+    tr.b = ids[1]!;
+    tr.x = x;
+    tr.y = y;
+    tr.z = z;
+    tr.age = 0;
     const p = this.pull;
     p.x = x;
     p.y = y;
@@ -974,35 +1107,103 @@ export class Effects {
       return;
     }
     const n = kind === 'vehicle' ? 7 : 4;
-    for (let i = 0; i < n; i++) this.glow.emit(x, y, z, nx * 4 + this.r(-2.5, 2.5), ny * 4 + this.r(0, 3), nz * 4 + this.r(-2.5, 2.5), this.r(0.15, 0.35), 0.08, 0.03, 0xffd27a, 0xff6a00, 1, 14);
+    // Spark streaks off the hit, falling and gone within 0.45 s.
+    for (let i = 0; i < n; i++) this.glow.emit(x + nx * 0.03, y + ny * 0.03, z + nz * 0.03, nx * 4 + this.r(-2.5, 2.5), ny * 4 + this.r(0.5, 3.5), nz * 4 + this.r(-2.5, 2.5), this.r(0.18, 0.4), this.r(0.18, 0.28), 0.06, 0xfff0c0, 0xff6a00, 1, 14, 0.6, 0, 4, 0, SPARK_STYLE);
     if (kind === 'world') for (let i = 0; i < 3; i++) this.smoke.emit(x, y, z, nx + this.r(-0.4, 0.4), ny * 0.6 + this.r(0, 0.6), nz + this.r(-0.4, 0.4), this.r(0.5, 0.9), 0.15, 0.7, 0x9a958a, 0x7a766e, 0.55, 0, 1.5);
   }
 
-  /** `water`: the blast is on the sea's surface, a column of water and spray instead of fire, smoke and sparks. */
+  /**
+   * A blast at (x, y, z) of `radius` m. `water`: on the sea's surface, a column of water and spray instead. Otherwise a
+   * fireball (fx/fireball.ts) scaled to the radius, spark streaks, a dust ring along the ground, the first dark smoke,
+   * the flash light, and a scorch mark when it went off near the ground.
+   */
   explosion(x: number, y: number, z: number, radius: number, water = false): void {
+    if (!Number.isFinite(x + y + z + radius)) return;
     const s = radius / 7.5;
     if (water) {
       this.waterPlume(x, y, z, s);
       return;
     }
-    // Flash, rolling fireball, dark smoke column, sparks.
-    this.glow.emit(x, y + 0.6, z, 0, 0, 0, 0.16, 3 * s, 9 * s, 0xffd890, 0xff7020, 0.8);
-    for (let i = 0; i < 36; i++) {
+    const ground = this.groundAt(x, y, z);
+    const seed = Math.floor(hash01(++this.blasts * 7919 + Math.round(x * 3) * 31 + Math.round(z * 3)) * 1e6);
+    this.addFireball(x, Math.max(y, ground + 0.4), z, ground, radius * FIREBALL_SCALE, seed);
+    // A short white flash core under the fireball (it blooms) on the first frames.
+    this.glow.emit(x, y + 0.6, z, 0, 0, 0, 0.09, 2 * s, 4.5 * s, 0xffd890, 0xff8030, 0.55, 0, 0, 0, 1, 0, { instant: true });
+    // Sparks and burning bits flung out, falling and gone within 0.6 s.
+    const sparks = Math.round(26 * Math.min(1.5, Math.max(0.6, s)));
+    for (let i = 0; i < sparks; i++) {
       const a = this.r(0, Math.PI * 2);
-      const sp = this.r(2, 8) * s;
-      const hot = i % 4 === 0;
-      this.glow.emit(x + Math.cos(a) * this.r(0, 1.5) * s, y + this.r(0, 2) * s, z + Math.sin(a) * this.r(0, 1.5) * s, Math.cos(a) * sp, this.r(3, 10) * s, Math.sin(a) * sp, this.r(0.5, 1.1), this.r(1.8, 3.4) * s, this.r(3.5, 6.5) * s, hot ? 0xffc860 : 0xff8a28, 0x801200, 0.55, -1.5, 2.6, this.r(-1.5, 1.5));
+      const sp = this.r(7, 17) * Math.sqrt(s);
+      this.glow.emit(x, y + 0.5, z, Math.cos(a) * sp, this.r(4, 14), Math.sin(a) * sp, this.r(0.3, 0.6), this.r(0.3, 0.5) * Math.sqrt(s), 0.1, 0xfff4cc, 0xff6010, 1, 16, 0.4, 0, 6, 0, SPARK_STYLE);
     }
-    for (let i = 0; i < 22; i++) {
-      this.smoke.emit(x + this.r(-2, 2) * s, y + this.r(0.5, 3) * s, z + this.r(-2, 2) * s, this.r(-2.5, 2.5), this.r(2, 5.5), this.r(-2.5, 2.5), this.r(2.5, 4.5), this.r(1.8, 3) * s, this.r(5, 8) * s, 0x24201c, 0x55514c, 0.6, -0.7, 0.7, this.r(-0.4, 0.4));
+    // Dust and grit thrown along the ground in a ring (not off the sea's surface).
+    const dust = this.tmpColor2.setRGB(0.22, 0.2, 0.17);
+    for (let i = this.overWater(x, z) ? 10 : 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + this.r(-0.2, 0.2);
+      const sp = this.r(6, 10) * s;
+      this.puffs.emit(PuffKind.Dust, x + Math.cos(a) * 0.8 * s, ground + 0.5 * s, z + Math.sin(a) * 0.8 * s, Math.cos(a) * sp, this.r(0.3, 1.2), Math.sin(a) * sp, this.r(1.3, 2.2), 1.2 * s, 3.4 * s, 0, 0, 0.42, dust, this.rng.next(), this.r(0, 6.28), this.r(-0.4, 0.4), 2.6, -0.1, ground);
     }
-    for (let i = 0; i < 18; i++) {
-      this.glow.emit(x, y + 0.5, z, this.r(-14, 14), this.r(5, 16), this.r(-14, 14), this.r(0.6, 1.4), 0.15, 0.08, 0xffe0a0, 0xff5000, 1, 18);
+    // The first of the smoke: dark, still warm, rolling up through the fireball.
+    for (let i = 0; i < 8; i++) {
+      this.smokePuff(x + this.r(-1.2, 1.2) * s, y + this.r(1.5, 3.5) * s, z + this.r(-1.2, 1.2) * s, this.r(-1, 1) + WIND_X, this.r(3, 5.5), this.r(-1, 1) + WIND_Z, this.r(3.5, 5.5), this.r(2, 3) * s, this.r(5.5, 8) * s, 0.85, this.r(0.03, 0.055), ground, this.r(0.08, 0.14));
     }
     this.flash.position.set(x, y + 2, z);
     this.flash.intensity = 900 * s;
     this.flashLife = 0.5;
     this.flashFresh = true;
+    // A blast near the ground scorches it (not one high on a wall or in the air).
+    if (y - ground < Math.max(1.5, radius * 0.6)) this.scorchAt(x, z, Math.max(1.4, radius * SCORCH_PER_RADIUS), Math.min(1, 0.65 + s * 0.3));
+  }
+
+  /** A scorch mark `radius` m round at (x, z), darkness 0..1 (nothing over water). */
+  scorchAt(x: number, z: number, radius: number, strength = 0.85): boolean {
+    if (!this.world) return false;
+    return this.scorch.add(x, z, radius, strength, this.r(0, Math.PI * 2), this.world);
+  }
+
+  private addFireball(x: number, y: number, z: number, ground: number, R: number, seed: number): void {
+    if (this.fireballs.length >= this.budget.fireballs) this.fireballPool.push(this.fireballs.shift()!);
+    const f = this.fireballPool.pop();
+    if (!f) return;
+    f.x = x;
+    f.y = y;
+    f.z = z;
+    f.ground = ground;
+    f.R = R;
+    f.age = 0;
+    f.fresh = true;
+    fireballLobes(seed, this.budget.fireballPuffs, f.lobes);
+    this.fireballs.push(f);
+  }
+
+  /**
+   * A vehicle blew up: modelled debris (fx/debris.ts) flung out of it, panels in its scorched paint, wheels, struts and
+   * charred chunks, which bounce, settle on the ground and shrink away after DEBRIS_LIFE.
+   */
+  vehicleExploded(v: Vehicle): void {
+    const n = this.budget.vehicleDebris;
+    const paint = this.tmpColor.set(v.color);
+    const char = this.tmpColor2.set(BURNT_COLOR);
+    // A boat has no wheels or axles to lose.
+    const kinds: DebrisShape[] = v.spec.class === 'boat'
+      ? ['panel', 'panel', 'chunk', 'panel', 'chunk', 'chunk', 'panel', 'chunk', 'mirror', 'chunk', 'panel', 'chunk']
+      : ['panel', 'panel', 'bumper', 'wheel', 'chunk', 'chunk', 'strut', 'panel', 'chunk', 'mirror', 'chunk', 'wheel'];
+    const world: DebrisWorld | ((x: number, z: number) => number) = this.world ?? (() => v.pos.y - v.spec.height * 0.5);
+    const scale = Math.min(1.3, Math.max(0.55, (v.halfL * 2) / 4.6));
+    const col = new THREE.Color();
+    for (let i = 0; i < n; i++) {
+      const kind = kinds[i % kinds.length]!;
+      const a = (i / n) * Math.PI * 2 + this.r(-0.35, 0.35);
+      const sp = this.r(5, 11);
+      const spin = this.tmpSpin.set(this.r(-12, 12), this.r(-8, 8), this.r(-12, 12));
+      // Panels keep some of their paint under the soot; the rest is charred.
+      if (kind === 'panel' || kind === 'bumper' || kind === 'mirror') col.copy(paint).lerp(char, this.r(0.25, 0.55));
+      else if (kind === 'wheel' || kind === 'strut') col.setRGB(1, 1, 1);
+      else col.copy(char).multiplyScalar(this.r(0.9, 1.6));
+      const px = v.pos.x + Math.cos(a) * v.halfW * 0.6;
+      const pz = v.pos.z + Math.sin(a) * v.halfW * 0.6;
+      this.parts.spawn(kind, px, v.pos.y + v.spec.height * this.r(0.4, 0.9), pz, Math.cos(a) * sp + v.vel.x, this.r(5, 12), Math.sin(a) * sp + v.vel.z, spin, scale * this.r(0.8, 1.15), col, DEBRIS_LIFE + this.r(0, 2), DEBRIS_FADE, world);
+    }
   }
 
   /** Muzzle point of a rocket just fired, where the next new rocket's trail starts. */
@@ -1093,14 +1294,29 @@ export class Effects {
   heliCrash(x: number, y: number, z: number, dt: number): void {
     const flames = 1 + (this.rng.next() < dt * 30 ? 1 : 0);
     for (let i = 0; i < flames; i++) this.glow.emit(x + this.r(-1, 1), y + this.r(-0.4, 0.8), z + this.r(-1, 1), this.r(-0.6, 0.6), this.r(0.5, 2), this.r(-0.6, 0.6), this.r(0.3, 0.6), this.r(1.1, 1.7), this.r(0.3, 0.5), 0xffc040, 0xd02000, 1, -0.5, 1, this.r(-1, 1));
-    this.smoke.emit(x + this.r(-0.6, 0.6), y + this.r(0, 0.6), z + this.r(-0.6, 0.6), this.r(-0.4, 0.4), this.r(0.3, 1.2), this.r(-0.4, 0.4), this.r(3.5, 5), 1.4, 4.8, 0x1a1816, 0x3a3836, 0.75, -0.2, 0.3);
+    const k = this.budget.plumeRate;
+    const ground = y - 3;
+    for (let i = this.count(26 * k, dt); i > 0; i--) this.flame(x + this.r(-1, 1), y + this.r(-0.3, 0.6), z + this.r(-1, 1), this.r(1.2, 1.9), this.r(1.5, 3), this.r(0.5, 0.8), ground);
+    for (let i = this.count(12 * k, dt); i > 0; i--) this.smokePuff(x + this.r(-0.6, 0.6), y + this.r(0.3, 1), z + this.r(-0.6, 0.6), this.r(-0.4, 0.4) + WIND_X, this.r(1, 2.5), this.r(-0.4, 0.4) + WIND_Z, this.r(4, 5.5), 1.8, 6.5, 0.88, this.r(0.03, 0.05), ground);
   }
 
   /** Damaged / burning vehicle emitters (called per frame). */
-  vehicleSmoke(x: number, y: number, z: number, condition: number, burning: boolean, wreck: boolean, dt: number): void {
+  /** `wreckAge`: seconds since it blew up, or -1 when it has not. */
+  vehicleSmoke(x: number, y: number, z: number, condition: number, burning: boolean, wreck: boolean, dt: number, wreckAge = -1): void {
     if (burning || wreck) {
       if (this.rng.next() < dt * (wreck ? 18 : 40)) this.glow.emit(x + this.r(-0.5, 0.5), y + this.r(0, 0.3), z + this.r(-0.5, 0.5), this.r(-0.4, 0.4), this.r(1.5, 3.2), this.r(-0.4, 0.4), this.r(0.4, 0.8), this.r(0.6, 1.0), this.r(0.2, 0.4), 0xffc040, 0xd02000, 1, -0.5, 1, this.r(-1, 1));
-      if (this.rng.next() < dt * 14) this.smoke.emit(x + this.r(-0.4, 0.4), y + 0.8, z + this.r(-0.4, 0.4), this.r(-0.5, 0.5), this.r(1.5, 2.5), this.r(-0.5, 0.5), this.r(2.5, 4), 0.8, 3.2, 0x1a1816, 0x3a3836, 0.7, -0.3, 0.3);
+      // A burnt-out wreck burns hard, then dies down over its last WRECK_THIN..WRECK_BURN seconds; a car on fire burns smaller.
+      const k = this.budget.plumeRate * (wreck ? Math.max(0.15, Math.min(1, (WRECK_BURN - wreckAge) / (WRECK_BURN - WRECK_THIN))) : 0.55);
+      const ground = y - 1.2;
+      for (let i = this.count(16 * k, dt); i > 0; i--) this.flame(x + this.r(-0.7, 0.7), y + this.r(-0.2, 0.3), z + this.r(-0.7, 0.7), this.r(0.9, 1.4), this.r(1.8, 3), this.r(0.55, 0.9), ground);
+      // The plume: thick, dark, rising well above the wreck and widening as it goes.
+      for (let i = this.count(10 * k, dt); i > 0; i--) {
+        this.smokePuff(x + this.r(-0.5, 0.5), y + this.r(0.8, 1.4), z + this.r(-0.5, 0.5), this.r(-0.8, 0.8) + WIND_X, this.r(3.8, 4.8), this.r(-0.8, 0.8) + WIND_Z, this.r(6.5, 8), this.r(1.5, 2.2), this.r(8.5, 12), 0.92, this.r(0.03, 0.055), ground);
+      }
+    } else if (wreckAge >= WRECK_BURN) {
+      // Burnt out: the last thin wisps for a few seconds, then nothing (not a damaged car's grey smoke).
+      const k = Math.max(0, 1 - (wreckAge - WRECK_BURN) / 6);
+      if (k > 0 && this.rng.next() < dt * 4 * k) this.smokePuff(x + this.r(-0.4, 0.4), y + 0.6, z + this.r(-0.4, 0.4), WIND_X, this.r(1.5, 2.2), WIND_Z, this.r(3, 4), 0.8, 3.5, 0.45 * k, 0.07, y - 1.2);
     } else if (condition < 0.45) {
       const dark = condition < 0.25;
       if (this.rng.next() < dt * (dark ? 16 : 7)) this.smoke.emit(x + this.r(-0.3, 0.3), y, z + this.r(-0.3, 0.3), this.r(-0.3, 0.3), this.r(0.9, 1.8), this.r(-0.3, 0.3), this.r(1.2, 2.2), 0.4, 1.8, dark ? 0x3a3836 : 0x9a9894, dark ? 0x55524e : 0xb8b6b2, dark ? 0.6 : 0.4, -0.2, 0.6);
@@ -1131,6 +1347,14 @@ export class Effects {
       this.glow.emit(x + Math.sin(a) * d, y + this.r(0, 0.15), z + Math.cos(a) * d, this.r(-0.3, 0.3), this.r(1.2, 2.6), this.r(-0.3, 0.3), this.r(0.35, 0.7), this.r(0.45, 0.8) * (0.6 + 0.4 * strength), this.r(0.15, 0.3), 0xffc040, 0xd02000, 1, -0.5, 1, this.r(-1, 1));
     }
     if (this.rng.next() < dt * 3 * r * strength) this.smoke.emit(x + this.r(-r, r) * 0.5, y + 1, z + this.r(-r, r) * 0.5, this.r(-0.4, 0.4), this.r(1.2, 2), this.r(-0.4, 0.4), this.r(2, 3.2), 0.6, 2.6, 0x1a1816, 0x3a3836, 0.55, -0.3, 0.3);
+    // Flame tongues and a smaller dark plume (a molotov's fire is flames, not a fireball).
+    const k = this.budget.plumeRate * strength;
+    for (let i = this.count((4 + 6 * r) * k, dt); i > 0; i--) {
+      const a = this.r(0, Math.PI * 2);
+      const d = Math.sqrt(this.rng.next()) * r * 0.8;
+      this.flame(x + Math.sin(a) * d, y + 0.2, z + Math.cos(a) * d, this.r(0.5, 0.85) * (0.55 + 0.45 * Math.min(1, r)), this.r(1.2, 2.2), this.r(0.4, 0.7), y);
+    }
+    if (r > 0.3) for (let i = this.count(2.2 * r * k, dt); i > 0; i--) this.smokePuff(x + this.r(-r, r) * 0.4, y + 1.2, z + this.r(-r, r) * 0.4, this.r(-0.3, 0.3) + WIND_X * 0.6, this.r(1.8, 2.6), this.r(-0.3, 0.3) + WIND_Z * 0.6, this.r(3.5, 4.5), 0.9, 3.6, 0.8, this.r(0.04, 0.06), y);
   }
 
   /**
@@ -1209,7 +1433,7 @@ export class Effects {
       const py = Math.max(y + 0.1, ground(px, pz) + 0.3);
       const vx = v.vel.x - oz * side - ox * back + this.r(-0.5, 0.5);
       const vz = v.vel.z + ox * side - oz * back + this.r(-0.5, 0.5);
-      this.parts.spawn(kinds[i]!, px, py, pz, vx, this.r(2.5, 5), vz, color, spin, ground);
+      this.parts.spawn(PART_SHAPES[kinds[i]!], px, py, pz, vx, this.r(2.5, 5), vz, spin, kinds[i] === 'hood' ? 0.85 : 1, this.tmpColor.set(color), PART_LIFE, PART_FADE, this.world ?? ground);
     }
   }
 
@@ -1457,7 +1681,55 @@ export class Effects {
     for (let i = 0; i < 8; i++) this.smoke.emit(x, y + 0.8, z, this.r(-3, 3), this.r(2, 5), this.r(-3, 3), this.r(0.4, 0.8), 0.12, 0.08, 0x555555, 0x333333, 1, 16);
   }
 
-  update(dt: number, now: number): void {
+  /** Every drawn lobe of the live fireballs: world centre, quad size, heat and opacity. */
+  liveLobes(): Array<{ x: number; y: number; z: number; size: number; heat: number; alpha: number; age: number }> {
+    const out: Array<{ x: number; y: number; z: number; size: number; heat: number; alpha: number; age: number }> = [];
+    for (const f of this.fireballs) {
+      for (const l of f.lobes) {
+        const s = lobeAt(l, f.R, f.age, this.lobe);
+        if (s.alpha > 0.002 && s.size > 0) out.push({ x: f.x + s.x, y: f.y + s.y, z: f.z + s.z, size: s.size, heat: s.heat, alpha: s.alpha, age: f.age });
+      }
+    }
+    return out;
+  }
+
+  /** Ages the fireballs and hands this frame's lobes to the puff layer. */
+  private updateFireballs(dt: number): void {
+    for (let i = this.fireballs.length - 1; i >= 0; i--) {
+      const f = this.fireballs[i]!;
+      // Drawn at its very start on its first frame, whatever the frame time.
+      if (f.fresh) {
+        if (dt > 0) f.fresh = false;
+      } else {
+        f.age += dt;
+      }
+      if (f.age >= FIREBALL_LIFE) {
+        this.fireballs.splice(i, 1);
+        this.fireballPool.push(f);
+        continue;
+      }
+      for (const l of f.lobes) {
+        const s = lobeAt(l, f.R, f.age, this.lobe);
+        if (s.alpha <= 0.002 || s.size <= 0) continue;
+        const d = this.puffs.push();
+        if (!d) return;
+        d.x = f.x + s.x;
+        d.y = f.y + s.y;
+        d.z = f.z + s.z;
+        d.size = s.size;
+        d.rot = s.rot;
+        d.heat = s.heat;
+        d.alpha = s.alpha;
+        d.seed = l.seed;
+        d.r = l.grey;
+        d.g = l.grey * 0.96;
+        d.b = l.grey * 0.92;
+        d.ground = f.ground;
+      }
+    }
+  }
+
+  update(dt: number, now: number, eye: THREE.Vector3 | null = null): void {
     for (let i = this.sprays.length - 1; i >= 0; i--) {
       const s = this.sprays[i]!;
       s.t -= dt;
@@ -1472,8 +1744,12 @@ export class Effects {
     this.wakeBoats = this.wakeBoatsOpen;
     this.wakeSprites = this.wakeSpritesOpen;
     this.wakeBoatsOpen = this.wakeSpritesOpen = 0;
+    this.followMuzzle(dt);
     this.glow.update(dt, 1);
     this.smoke.update(dt, 1);
+    this.updateFireballs(dt);
+    this.puffs.update(dt, eye);
+    this.scorch.update(dt);
     this.parts.update(dt);
     this.foam.update(dt);
     this.tracers.update(dt);
@@ -1496,7 +1772,12 @@ export class Effects {
   }
 
   get particleCount(): number {
-    return this.glow.active + this.smoke.active;
+    return this.glow.active + this.smoke.active + this.puffs.counts.total;
+  }
+
+  /** Fireballs burning now. */
+  get fireballCount(): number {
+    return this.fireballs.length;
   }
 
   /** Glow particles (flashes, sparks, fire) drawn this frame. */

@@ -32,7 +32,7 @@ import { HARDWARE_CHUNK_SIZE, STATIC_CHUNK_SIZE } from './spatial';
 import { SoftwareMaterials } from './softwareMaterials';
 import { ClassViewPool, type AnyVehicleView } from './classViews';
 import { SHADOW_LAYER, VehiclePartBatches } from './vehicleBatches';
-import { freezeVehicleParts } from './vehicleView';
+import { fadeMaterial, freezeVehicleParts, VehicleView } from './vehicleView';
 import { assets } from './assets';
 
 export type Quality = QualityTier;
@@ -360,6 +360,27 @@ export class GameRenderer {
       v.drawParts(this.vehicleParts);
       v.setDistant(false);
     }
+    // And a burnt-out wreck of each car kind, near and far (the burnt material on its own meshes and in the part batches).
+    const burnt: VehicleView[] = [];
+    for (const kind of Object.keys(VEHICLE_SPECS) as VehicleKind[]) {
+      const v = this.pool.acquire(kind);
+      if (!(v instanceof VehicleView)) {
+        this.pool.release(v);
+        continue;
+      }
+      v.group.position.set(0, -50, 0);
+      this.scene.add(v.group);
+      burnt.push(v);
+    }
+    for (const v of burnt) {
+      v.warmBurnt(true);
+      this.softwareMaterials?.apply(v.group);
+      v.group.updateMatrix();
+      v.drawParts(this.vehicleParts);
+      v.setDistant(true, this.software);
+      v.drawParts(this.vehicleParts);
+      v.setDistant(false);
+    }
     this.vehicleParts.end();
     if (this.vehicleParts.takeChanged()) this.softwareMaterials?.apply(this.vehicleParts.group);
     // And the fade copies of a car fading out (hashed alpha), with the hashed-alpha depth of its shadow.
@@ -378,6 +399,13 @@ export class GameRenderer {
     const assetProbe = assets.warmGroup();
     this.softwareMaterials?.apply(assetProbe);
     this.scene.add(assetProbe);
+    // The effects' shadow material and the burnt-wreck variants (plain, instanced, fade copy).
+    const fxProbe = this.effects.warmupProbes(fadeMaterial);
+    // And the shadow programs of instanced batches with their own depth material (debris, far vehicle bodies).
+    const shadowScene = new THREE.Scene();
+    shadowScene.add(this.effects.shadowProbes([this.vehicleParts.shadowDepthMaterial]));
+    this.softwareMaterials?.apply(fxProbe);
+    this.scene.add(fxProbe);
     // The player car's reflective finishes and the cube filter, so the first drive compiles neither.
     if (reflections) {
       this.localReflections ??= new LocalReflections(this.renderer, this.scene);
@@ -398,6 +426,16 @@ export class GameRenderer {
       if (target) this.renderer.setRenderTarget(target);
       try {
         this.renderer.compile(this.scene, this.cameraCtl.camera);
+        if (this.renderer.shadowMap.enabled) {
+          // With the scene's lights but without its fog, as the shadow pass draws.
+          const fog = this.scene.fog;
+          this.scene.fog = null;
+          try {
+            this.renderer.compile(shadowScene, this.cameraCtl.camera, this.scene);
+          } finally {
+            this.scene.fog = fog;
+          }
+        }
       } finally {
         if (target) this.renderer.setRenderTarget(null);
       }
@@ -410,6 +448,7 @@ export class GameRenderer {
     for (const p of crowdProbes) this.scene.remove(p);
     this.crowd.models?.endWarmup(crowdProbes);
     this.scene.remove(assetProbe);
+    this.scene.remove(fxProbe);
     this.scene.remove(depthProbe);
     depthProbe.geometry.dispose();
     // Kept, undisposed, so the programs they compiled stay for the session's fades (a program goes with its last user).
@@ -417,7 +456,8 @@ export class GameRenderer {
     this.softwareMaterials?.forget(this.fadeKeepers);
     for (const m of this.fadeKeepers) m.dispose();
     this.fadeKeepers = kept;
-    for (const v of [...tmp, ...whole, ...shiny]) this.pool.release(v);
+    for (const v of burnt) v.warmBurnt(false);
+    for (const v of [...tmp, ...whole, ...shiny, ...burnt]) this.pool.release(v);
     this.vehicleParts.begin();
     this.vehicleParts.end();
   }
@@ -438,6 +478,7 @@ export class GameRenderer {
       shadow.mapSize.set(t.shadowSize, t.shadowSize);
     }
     this.setPost(t);
+    this.effects.setTier(this.software ? 'software' : q);
     // Without a bloom halo the coloured lamps (traffic lights) must carry their hue in the lamp itself.
     this.props.setGlow(this.bloom !== null);
     this.props.setWindEnabled(!this.software && q !== 'low');
@@ -640,7 +681,12 @@ export class GameRenderer {
     this.sim = sim;
     const fx = this.effects;
     const ev = sim.events;
+    fx.bindWorld(sim.world);
+    fx.trackMuzzles((c) => this.crowd.muzzleOf(c));
     this.unsub.push(
+      ev.on('vehicleDestroyed', (e) => {
+        if (!e.vehicle.inWater) fx.vehicleExploded(e.vehicle);
+      }),
       // One flash per trigger pull (a shotgun blast is one flash, not nine).
       ev.on('weaponFired', (e) => {
         fx.muzzleFlash(e.x, e.y, e.z, flashSize(e.weapon), e);
@@ -868,7 +914,7 @@ export class GameRenderer {
       const hz = v.pos.z + fzh * v.halfL * 0.62;
       // Nothing smokes or burns in the sea (cars that drown are marked destroyed, with no health left).
       if (!v.inWater && (v.burning || (v.destroyed && v.wreckTime < 25) || v.condition < 0.45)) {
-        fx.vehicleSmoke(v.destroyed ? v.pos.x : hx, v.pos.y + v.spec.height * 0.55, v.destroyed ? v.pos.z : hz, v.condition, v.burning, v.destroyed && v.wreckTime < 25, dt);
+        fx.vehicleSmoke(v.destroyed ? v.pos.x : hx, v.pos.y + v.spec.height * 0.55, v.destroyed ? v.pos.z : hz, v.condition, v.burning, v.destroyed && v.wreckTime < 25, dt, v.destroyed && !v.inWater ? v.wreckTime : -1);
       }
       if (v.spec.class === 'boat') {
         // Foam and spray on the tiers that draw tyre spray; a boat in its own view rides the drawn swell.
@@ -1031,7 +1077,7 @@ export class GameRenderer {
       if (dt > 0) for (const h of sim.helis) if (h.crashing && !h.removed) this.effects.heliCrash(h.pos.x, h.pos.y, h.pos.z, dt);
       this.syncLights(sim, lights);
     }
-    this.effects.update(dt, this.time);
+    this.effects.update(dt, this.time, this.cameraCtl.camera.position);
     this.syncLightPool();
     if (this.software) {
       // Culling ends at the fog horizon, where geometry has already faded into the sky.
@@ -1084,9 +1130,9 @@ export class GameRenderer {
     this.localReflections = null;
   }
 
-  stats(): { calls: number; triangles: number; programs: number; particles: number; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number; rainDrops: number; wet: number; waterGrid: boolean; wakeBoats: number; wakeSprites: number; footShadows: number; lampHaze: number } {
+  stats(): { calls: number; triangles: number; programs: number; particles: number; effects: Record<string, number | string>; vehicles: number; localReflections: boolean; glows: number; pools: number; streaks: number; rainDrops: number; wet: number; waterGrid: boolean; wakeBoats: number; wakeSprites: number; footShadows: number; lampHaze: number } {
     const info = this.renderer.info;
-    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, wakeBoats: this.effects.wakeBoats, wakeSprites: this.effects.wakeSprites, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts, rainDrops: this.rain.drops, wet: this.wet, waterGrid: this.env.waterGrid, footShadows: this.footShadows.count, lampHaze: this.lightSprites.haze.points?.visible ? this.lightSprites.haze.gain : 0 };
+    return { calls: info.render.calls, triangles: info.render.triangles, programs: info.programs?.length ?? 0, particles: this.effects.particleCount, effects: this.effects.stats(), wakeBoats: this.effects.wakeBoats, wakeSprites: this.effects.wakeSprites, vehicles: this.vehicleViews.size, localReflections: this.localReflections?.ready ?? false, ...this.lightSprites.counts, rainDrops: this.rain.drops, wet: this.wet, waterGrid: this.env.waterGrid, footShadows: this.footShadows.count, lampHaze: this.lightSprites.haze.points?.visible ? this.lightSprites.haze.gain : 0 };
   }
 
   /** True between 'webglcontextlost' and 'webglcontextrestored'; nothing can be drawn meanwhile. */

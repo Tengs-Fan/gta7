@@ -47,7 +47,10 @@ vi.mock('three', async (importOriginal) => {
       return v.set(1280, 720);
     }
     setEffects(): void {}
-    compile(scene: InstanceType<typeof actual.Object3D>): void {
+    compile(scene: InstanceType<typeof actual.Object3D>, _camera?: unknown, targetScene?: unknown): void {
+      // The shadow stand-ins (Effects.shadowProbes) compile in a scene of their own with the main scene's lights: not a
+      // compile of the scene's cars.
+      if (targetScene) return;
       const out: Array<{ name: string; material: THREE.Material }> = [];
       scene.traverse((o) => {
         const m = (o as InstanceType<typeof actual.Mesh>).material as THREE.Material | THREE.Material[] | undefined;
