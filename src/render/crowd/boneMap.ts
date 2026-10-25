@@ -274,6 +274,7 @@ export function fitCharacter(id: string, scene: THREE.Object3D, bones: Readonly<
       position.set([acc.x, acc.y, acc.z], i * 3);
       accN.normalize();
       normal.set([accN.x, accN.y, accN.z], i * 3);
+      shoulderBlend(acc, w);
       const top = [...w.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
       const sum = top.reduce((s, e) => s + e[1], 0);
       top.forEach(([bone, weight], k) => {
@@ -303,6 +304,26 @@ export function fitCharacter(id: string, scene: THREE.Object3D, bones: Readonly<
   }
   const joints: ModelJoints = { legY, shoulderY, neckY, headY, z0, get: pos, ankle: (side) => ankles[side].clone() };
   return { id, primitives, joints };
+}
+
+/**
+ * The models weight the whole shoulder cap, out past the arm joint, mostly to the clavicle, which hardly turns: an arm
+ * lowered from the T-pose then leaves the cap standing out level, a yoke over the arm. Out from the clavicle (from
+ * SHOULDER_BLEND of the way to the shoulder joint, all of it at the joint) its weight moves to the upper arm, so the
+ * deltoid turns down with the arm and the bend spreads over the shoulder.
+ */
+export const SHOULDER_BLEND = 0.35;
+function shoulderBlend(p: THREE.Vector3, w: Map<number, number>): void {
+  for (const [clav, arm] of [[BONE.clavL, BONE.armL], [BONE.clavR, BONE.armR]] as const) {
+    const wc = w.get(clav);
+    if (!wc) continue;
+    const x0 = Math.abs(REST.clavL[0]);
+    const x1 = Math.abs(REST.armL[0]);
+    const t = THREE.MathUtils.smoothstep(Math.abs(p.x), x0 + SHOULDER_BLEND * (x1 - x0), x1);
+    if (t <= 0) continue;
+    w.set(clav, wc * (1 - t));
+    w.set(arm, (w.get(arm) ?? 0) + wc * t);
+  }
 }
 
 /** Normals closer than this (rad) are averaged where faces meet; sharper edges keep their crease. */
