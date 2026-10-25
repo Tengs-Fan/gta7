@@ -48,6 +48,7 @@ The assets are used under CC0 (no attribution required, credited here anyway) or
 | ph-coast_sand_01 | coast_sand_01 (Poly Haven texture, 1K) | Rob Tuytel | https://polyhaven.com/a/coast_sand_01 | CC0 |  | tex.coast_sand_01.albedo, tex.coast_sand_01.normal, tex.coast_sand_01.orm |
 | ph-white_plaster_02 | white_plaster_02 (Poly Haven texture, 1K) | Rob Tuytel | https://polyhaven.com/a/white_plaster_02 | CC0 |  | tex.white_plaster_02.albedo, tex.white_plaster_02.normal, tex.white_plaster_02.orm |
 | ph-leafy_grass | leafy_grass (Poly Haven texture, 1K) | Charlotte Baglioni | https://polyhaven.com/a/leafy_grass | CC0 |  | tex.leafy_grass.albedo, tex.leafy_grass.normal, tex.leafy_grass.orm |
+| ph-box_profile_metal_sheet | box_profile_metal_sheet (Poly Haven texture, 1K) | Amal Kumar | https://polyhaven.com/a/box_profile_metal_sheet | CC0 |  | tex.box_profile_metal_sheet.albedo, tex.box_profile_metal_sheet.normal, tex.box_profile_metal_sheet.orm |
 | ph-kloofendal_48d_partly_cloudy_puresky | Kloofendal 48d Partly Cloudy (Pure Sky) HDRI, 1K | Greg Zaal, Jarod Guest | https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky | CC0 |  | env.sky |
 | acg-Facade001 | Facade001 (ambientCG material, 1K) | ambientCG | https://ambientcg.com/a/Facade001 | CC0 |  | tex.facade001.albedo, tex.facade001.normal, tex.facade001.orm |
 | acg-Facade002 | Facade002 (ambientCG material, 1K) | ambientCG | https://ambientcg.com/a/Facade002 | CC0 |  | tex.facade002.albedo, tex.facade002.emissive, tex.facade002.normal, tex.facade002.orm |

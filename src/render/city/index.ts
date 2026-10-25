@@ -7,7 +7,10 @@ import type { StaticWorld } from '../../world/staticWorld';
 import { CulledStaticMesh, spatialGeometry, StaticVisibility } from '../spatial';
 import { WetGround } from '../wetGround';
 import { groundSurface, type GroundTex } from '../textures';
-import { buildBuildings, occupancy, shopOccupancy } from './buildings';
+import { buildBuildings, buildingTextures, occupancy, shopOccupancy } from './buildings';
+import type { BuildingUniforms } from './facadeShader';
+import type { ShopFrontage } from './storefronts';
+import type { QualityTier } from '../quality';
 import { buildGround } from './ground';
 import { buildRoads } from './roads';
 import { buildCoast } from './coast';
@@ -23,7 +26,11 @@ export class CityView {
   readonly materials: CityMaterials = { facades: new Map(), signs: [], storefront: null, decor: null };
   /** The drawn main door of every building with one, by building id (a special's stands in front of its POI marker). */
   readonly entrances = new Map<number, Entrance>();
+  /** The design of every shop frontage, by frontKey(building, side, quad). */
+  readonly storefronts = new Map<string, ShopFrontage>();
   readonly nightU: NightUniforms = { occupancy: { value: 0 }, shopOccupancy: { value: 0 }, time: { value: 0 } };
+  /** Tier switches of the building shading (uniforms: no program changes). */
+  readonly buildingU: BuildingUniforms = { parallax: { value: 1 }, skyline: { value: 1 } };
   readonly visibility = new StaticVisibility();
   /** The wet-ground patch on the paved surfaces (roads, markings, pavements, plazas, car parks, boardwalk, piers). */
   readonly wet = new WetGround();
@@ -33,6 +40,7 @@ export class CityView {
 
   constructor(readonly world: StaticWorld, private readonly chunkSize = Infinity, private readonly software = false) {
     this.group.name = 'city';
+    if (software) this.buildingU.skyline.value = 0;
     buildBuildings(this);
     buildGround(this);
     buildRoads(this);
@@ -85,6 +93,22 @@ export class CityView {
     });
   }
 
+  /**
+   * Per-tier building detail: texture anisotropy (High min(8, the GPU's maximum), Medium 4, Low 2, software 1) and
+   * the recessed windows and interiors (High and Medium; Low and software draw them flat). Only uniforms and texture
+   * parameters change, so no geometry is rebuilt and no program is compiled.
+   */
+  setQuality(tier: QualityTier, maxAnisotropy: number, software = this.software): void {
+    const aniso = software ? 1 : Math.max(1, Math.min(tier === 'high' ? 8 : tier === 'medium' ? 4 : 2, maxAnisotropy));
+    for (const t of buildingTextures(this)) {
+      if (t.anisotropy === aniso) continue;
+      t.anisotropy = aniso;
+      t.needsUpdate = true;
+    }
+    this.buildingU.parallax.value = !software && tier !== 'low' ? 1 : 0;
+    this.buildingU.skyline.value = software ? 0 : 1;
+  }
+
   /** Night factor 0..1, the time of day in hours (lit windows and shops) and the render time in seconds (TV flicker). */
   update(night: number, hours: number, time: number): void {
     this.nightU.occupancy.value = occupancy(hours);
@@ -92,7 +116,7 @@ export class CityView {
     // Wrapped daily: float precision stays fine for the flicker, and it jumps once a day at most.
     this.nightU.time.value = time % 86400;
     for (const m of this.materials.facades.values()) m.emissiveIntensity = night * 1.4;
-    if (this.materials.storefront) this.materials.storefront.emissiveIntensity = night * 1.5;
+    if (this.materials.storefront) this.materials.storefront.emissiveIntensity = night * 2.8;
     for (const m of this.materials.signs) m.emissiveIntensity = 0.35 + night * 3.2;
   }
 }

@@ -6,6 +6,25 @@ import { FACADE_CELL } from './textures';
 
 const UV = { kind: 'world' as const, scale: 3 };
 
+/** How far (m) the cornice at the top of each tier stands out from the wall plane. */
+export function corniceProjection(b: Building): number {
+  switch (b.style) {
+    case 'glassBlue':
+    case 'glassTeal':
+      return 0.18;
+    case 'hotel':
+      return 0.32;
+    case 'brick':
+      return 0.36;
+    case 'office':
+      return 0.28;
+    case 'warehouse':
+      return 0.2;
+    default:
+      return 0.26;
+  }
+}
+
 /** Sills, cornices and structural piers give the window atlases a real silhouette. */
 export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number, color: RGB): void {
   const width = t.maxX - t.minX;
@@ -30,7 +49,10 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
   // A continuous shadow line above the storefront and a second at each setback.
   if (first > t.y0 + 0.5 && first < t.y1 - 0.5) band(first - 0.07, 0.14, 0.12, cap);
   if (t.y0 > baseY + 1) band(t.y0 + 0.02, 0.16, 0.12, cap);
-  band(t.y1 - 0.17, 0.16, glass ? 0.08 : 0.14, cap);
+  // The crowning cornice: a real shadow line under every roof edge.
+  const cornice = corniceProjection(b);
+  band(t.y1 - 0.34, 0.12, cornice * 0.55, scaleRgb(cap, 0.92));
+  band(t.y1 - 0.22, 0.22, cornice, cap);
 
   const floorH = FACADE_CELL[b.style].h;
   const every = b.style === 'brick' ? 3 : b.style === 'stucco' ? 2 : glass ? 4 : 1;
