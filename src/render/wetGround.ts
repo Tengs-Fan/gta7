@@ -121,7 +121,7 @@ roughnessFactor = mix( roughnessFactor, ${WET_ROUGHNESS}, wetK );
 roughnessFactor = mix( roughnessFactor, ${PUDDLE_ROUGHNESS}, wetPuddle );`;
 
 /** Water filling the surface's pores flattens WET_FLATTEN of its relief (no glitter off the normal map at roughness 0.12). */
-export const WET_FLATTEN = 0.6;
+export const WET_FLATTEN = 0.8;
 
 /** In a puddle the water's surface is flat (the texture's relief is under it) but for the ripples. */
 const FS_NORMAL = /* glsl */ `

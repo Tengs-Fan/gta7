@@ -432,8 +432,8 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     const luma = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     expect(luma(u.uSeaDeep.value)).toBeLessThan(luma(u.uShallow.value) * 0.5);
     expect(luma(u.uSeaAbyss.value)).toBeLessThan(luma(u.uSeaDeep.value));
-    expect(SHORE_GLSL).toContain('c = mix(c, uSeaDeep, smoothstep(5.0, 16.0, shelf));');
-    expect(SHORE_GLSL).toContain('c = mix(c, uSeaAbyss, smoothstep(15.0, 40.0, shelf));');
+    expect(SHORE_GLSL).toContain('c = mix(c, uSeaDeep, smoothstep(4.0, 18.0, shelf));');
+    expect(SHORE_GLSL).toContain('c = mix(c, uSeaAbyss, smoothstep(10.0, 45.0, shelf));');
   });
 
   it('the sea and the software sea draw the gradient', () => {
@@ -463,7 +463,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
     expect(fs).toContain('vec2 seaRippleUv = vNormalMapUv + seaWarp;');
     expect(fs).toContain('#define vNormalMapUv seaRippleUv');
-    expect(fs).toContain('vec2 seaNormalScale = normalScale * ( 0.75 + 0.5 * smoothstep(');
+    expect(fs).toContain('vec2 seaNormalScale = normalScale * ( 0.85 + 0.3 * smoothstep(');
     expect(fs).toContain('vec2 seaCuv = mat2(');
     // The second layer turns 37 degrees; the third layer turns another way and drifts with uFoamDrift (whole tiles at wrap).
     expect(Math.atan2(RIPPLE_B.sin, RIPPLE_B.cos)).not.toBeCloseTo(Math.atan2(RIPPLE_C.sin, RIPPLE_C.cos), 2);

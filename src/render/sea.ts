@@ -11,7 +11,7 @@ import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_SLOPE2_GLSL, SEA
 /** The sand's drop-off into deep water past the beach's end (CityView.buildCoast), m. */
 const DROP_OFF = 25;
 /** Shallows colour over sand, and the wet sand seen through the thinnest water (sRGB). */
-const SHALLOW = 0x2fa8a6;
+const SHALLOW = 0x2fa89e;
 const SAND_TINT = 0x86a89a;
 /** Open water past ~15 m and far offshore (sRGB): the albedo the shelf fades to (seaShallows). */
 const DEEP = 0x0b4f78;
@@ -35,10 +35,10 @@ export const PILING_FOAM = 0.7;
 
 /**
  * World-space scales of the sea's ripple warp and macro modulation samples (1 / m), see patchSeaMaterial. The gains
- * (in ripple tiles) keep the warp's stretch of the ripples under about 30 %: stronger warps fold the tile into
- * streaks that fan out across the foreground.
+ * (in ripple tiles) keep the warp gentle enough not to fold the tile: about twice these fold it into streaks that fan
+ * out across the foreground, and a third of them leaves the tiles' repeats lined up a few metres apart.
  */
-export const RIPPLE_WARP = { a: 1 / 263, b: 1 / 97, gainA: 0.4, gainB: 0.12, macro: 1 / 181 } as const;
+export const RIPPLE_WARP = { a: 1 / 263, b: 1 / 97, gainA: 1.1, gainB: 0.35, macro: 1 / 181 } as const;
 /** The third ripple layer: its tile (m) against the first layer's 6000 / 900 m, and its turn. */
 export const RIPPLE_C = { tile: 2.43, cos: 0.37, sin: 0.93, weight: 0.5 } as const;
 /**
@@ -261,8 +261,9 @@ float seaFoam(vec2 p, float depth, float noise, float sea) {
 vec3 seaShallows(vec3 mid, float depth, vec2 p) {
   float shelf = seaShelf(p, depth);
   vec3 c = mix(uShallow, mid, smoothstep(0.0, 4.0, depth));
-  c = mix(c, uSeaDeep, smoothstep(5.0, 16.0, shelf));
-  c = mix(c, uSeaAbyss, smoothstep(15.0, 40.0, shelf));
+  // Overlapping ramps, so the colour keeps darkening steadily with depth rather than pausing between them.
+  c = mix(c, uSeaDeep, smoothstep(4.0, 18.0, shelf));
+  c = mix(c, uSeaAbyss, smoothstep(10.0, 45.0, shelf));
   return mix(uSandTint, c, smoothstep(0.0, 0.15, depth));
 }
 `;
@@ -324,7 +325,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   vec2 seaWarp = ( texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.a)} + vec2( 0.21, 0.57 ) ).xy - 0.5 ) * ${n(RIPPLE_WARP.gainA)}
     + ( texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.b)} + vec2( 0.63, 0.12 ) ).yx - 0.5 ) * ${n(RIPPLE_WARP.gainB)};
   vec2 seaRippleUv = vNormalMapUv + seaWarp;
-  vec2 seaNormalScale = normalScale * ( 0.75 + 0.5 * smoothstep( 0.4, 0.6, texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.macro)} + vec2( 0.4, 0.9 ) ).x ) );
+  vec2 seaNormalScale = normalScale * ( 0.85 + 0.3 * smoothstep( 0.4, 0.6, texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.macro)} + vec2( 0.4, 0.9 ) ).x ) );
   vec2 seaNormalScaleAB = seaNormalScale * ${n(RIPPLE_AB_GAIN)};
 #define vNormalMapUv seaRippleUv
 #define normalScale seaNormalScaleAB
