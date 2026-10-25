@@ -11,7 +11,7 @@ import { bikeModel, headFrame, TREAD } from '../../src/render/bikeModels';
 import { boatModel, mooredBoat, mooredBoatGeometry } from '../../src/render/boatModels';
 import { BoatView, boatKinds, FOAM_LIFT, foamMaterial, seaHeightAt } from '../../src/render/boatView';
 import { seaUniforms, updateSea } from '../../src/render/sea';
-import { vehicleGlass } from '../../src/render/vehicleView';
+import { HEAD_OFF, vehicleGlass } from '../../src/render/vehicleView';
 import { WATER_Y } from '../../src/world/constants';
 import { BOAT_CABIN, BOAT_DECK, BOAT_HULL, BOAT_ROOF } from '../../src/world/staticWorld';
 import { CrowdView } from '../../src/render/crowd';
@@ -204,6 +204,23 @@ describe('riders on the new bikes (VAL-BKB-004)', () => {
         expect(hand.distanceTo(want)).toBeLessThan(1e-6);
       }
     }
+  });
+});
+
+describe('parked bike lamps', () => {
+  it.each(bikeKinds())('a parked %s has its head lamp unlit by day and glimmering at night, as a parked car does', (kind) => {
+    const sim = makeSim({ world: world() });
+    const b = sim.world.layout.bounds;
+    const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.4);
+    const view = new BikeView(kind);
+    view.bind(v);
+    const head = (night: number) => {
+      view.sync(v, 1 / 60, 0, night);
+      return (view as unknown as { headMat: THREE.MeshStandardMaterial }).headMat.emissiveIntensity;
+    };
+    expect(head(0)).toBe(0);
+    expect(head(1)).toBeCloseTo(HEAD_OFF, 6);
+    expect(head(0.5)).toBeCloseTo(HEAD_OFF * 0.5, 6);
   });
 });
 

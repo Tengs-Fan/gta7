@@ -14,7 +14,7 @@ import type { LampGlow } from './lightSprites';
 import { setRiderMount, type RiderMount, type RiderSeatLayout } from './riders';
 import { paintMaterial as paint, paletteMaterial } from './shapeKit';
 import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
-import { LAMP_LENS } from './vehicleView';
+import { HEAD_OFF, LAMP_LENS } from './vehicleView';
 import { GroupFade } from './viewFade';
 import { burntMaterial } from './fx/burnt';
 
@@ -257,7 +257,7 @@ export class BikeView {
     // Lights with a rider aboard (a parked bike is dark), as VehicleView does for cars.
     const powered = !v.destroyed && v.driver !== null;
     this.lit = night > 0.35 && powered && !this.burnt;
-    this.headMat.emissiveIntensity = powered ? 0.4 + night * 5 : 0.3;
+    this.headMat.emissiveIntensity = powered ? 0.4 + night * 5 : HEAD_OFF * night;
     this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? BRAKE_GLOW : this.lit ? TAIL_RUNNING : TAIL_OFF;
     this.group.updateMatrixWorld(true);
     setRiderMount(v, this, this.mount);

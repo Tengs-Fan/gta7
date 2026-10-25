@@ -68,7 +68,7 @@ const TAIL_RUNNING = 1.0;
  * A switched-off lamp's lens at night (times the night factor): its moulded lens still glows softly, casting no light
  * and no glow sprite, so a parked car's lamps read after dark (VAL-CAR-005). By day an off lens is unlit.
  */
-const HEAD_OFF = 0.3;
+export const HEAD_OFF = 0.3;
 const TAIL_OFF = 0.62;
 /** The off tail lens's glow: red with a touch of orange (dim pure red is too dark to read next to the white heads). */
 const TAIL_GLIMMER = new THREE.Color(0xff3a1a);
