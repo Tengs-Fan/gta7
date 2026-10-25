@@ -169,12 +169,17 @@ describe('VAL-CAR-002 bodies, wheels and seats fit VEHICLE_SPECS and the physics
   });
 
   it('every wheel sits on the physics axles and track, and the drawn tyre radius is the radius it spins by', () => {
+    const rows: string[] = [];
     for (const kind of KINDS) {
+      let axleErr = 0;
+      let trackErr = 0;
       const s = VEHICLE_SPECS[kind];
       const v = view(kind);
       const pivots = v.group.children.filter((o) => o instanceof THREE.Group && o.children.some((c) => c.name === 'tire'));
       expect(pivots.length, kind).toBe(4);
       for (const p of pivots) {
+        axleErr = Math.max(axleErr, Math.abs(Math.abs(p.position.z) - AXLE * s.length));
+        trackErr = Math.max(trackErr, Math.abs(Math.abs(p.position.x) - TRACK * (s.width / 2)));
         expect(Math.abs(Math.abs(p.position.z) - AXLE * s.length), `${kind} axle`).toBeLessThanOrEqual(0.03);
         expect(Math.abs(Math.abs(p.position.x) - TRACK * (s.width / 2)), `${kind} track`).toBeLessThanOrEqual(0.05);
         const tire = p.children.find((c) => c.name === 'tire') as THREE.Mesh;
@@ -187,8 +192,11 @@ describe('VAL-CAR-002 bodies, wheels and seats fit VEHICLE_SPECS and the physics
         expect(Math.abs(tire.rotation.x) * r, kind).toBeCloseTo(1, 3);
         expect(Math.abs(r - p.position.y), `${kind} rests on its tyre`).toBeLessThan(1e-6);
         if (kind === 'sedan' || kind === 'police' || kind === 'taxi') expect(Math.abs(r - SPIN_RADIUS), kind).toBeLessThanOrEqual(0.02);
+        if (p === pivots[0]) rows.push(`${kind}: tyre radius ${r.toFixed(3)} (spins by it)`);
       }
+      rows[rows.length - 1] += `, axle error ${axleErr.toFixed(4)} m, track error ${trackErr.toFixed(4)} m`;
     }
+    console.log(rows.join('\n'));
   });
 
   it('seats and the steering wheel come from cabinLayout, and a seated driver\'s head clears the roof and glass', () => {
@@ -214,6 +222,7 @@ describe('VAL-CAR-002 bodies, wheels and seats fit VEHICLE_SPECS and the physics
 
 describe('VAL-CAR-004 dents bend the new bodies and their shadows', () => {
   it('a front-corner impact moves the body near it by 5 cm or more, nothing a metre away, and the shadow follows', () => {
+    const rows: string[] = [];
     for (const kind of KINDS) {
       const s = VEHICLE_SPECS[kind];
       const v = view(kind);
@@ -242,6 +251,8 @@ describe('VAL-CAR-004 dents bend the new bodies and their shadows', () => {
         return { near, far };
       };
       const body = moved(src, mesh(v, 'body').geometry.getAttribute('position'));
+      const shadowMoved = moved(shadowSrc, mesh(v, 'shadow').geometry.getAttribute('position'));
+      rows.push(`${kind}: body near ${body.near.toFixed(3)} far ${body.far.toFixed(4)}; shadow near ${shadowMoved.near.toFixed(3)} far ${shadowMoved.far.toFixed(4)}`);
       expect(body.near, `${kind} near`).toBeGreaterThanOrEqual(0.05);
       expect(body.far, `${kind} far`).toBeLessThanOrEqual(0.01);
       const shadow = moved(shadowSrc, mesh(v, 'shadow').geometry.getAttribute('position'));
@@ -254,6 +265,7 @@ describe('VAL-CAR-004 dents bend the new bodies and their shadows', () => {
       v.bind(new Vehicle(2, kind, 0, 0, 0, 0, 0xffffff));
       expect(mesh(v, 'shadow').geometry.getAttribute('position')).toBe(shadowSrc);
     }
+    console.log(rows.join('\n'));
   });
 });
 

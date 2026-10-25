@@ -21,9 +21,12 @@ async function quietStreet(page: Page, hour = 12): Promise<void> {
   }, hour);
 }
 
-/** Parks `kinds` in a row across the view 14 m ahead of the camera (kept: owned by a mission); returns their ids. */
-async function parkRow(page: Page, kinds: string[]): Promise<number[]> {
-  return page.evaluate((kinds) => {
+/**
+ * Parks `kinds` pointing away from the camera in two rows of six, 14 and 26 m ahead (well inside the view, and clear
+ * of each other whatever their length), the first at slot `first`; kept: owned by a mission. Returns their ids.
+ */
+async function parkRow(page: Page, kinds: string[], first = 0): Promise<number[]> {
+  return page.evaluate(([kinds, first]) => {
     const g = (window as Api).__gta7;
     const cam = g.game.renderer.cameraCtl.camera;
     const dir = cam.getWorldDirection(cam.position.clone());
@@ -32,16 +35,17 @@ async function parkRow(page: Page, kinds: string[]): Promise<number[]> {
     const p = g.sim.player.pos;
     const w = window as Api;
     w.__row ??= [];
-    return kinds.map((kind: string, i: number) => {
-      const across = (i - (kinds.length - 1) / 2) * 3.2;
-      const d = 14 + (i % 2) * 7;
-      const v = g.sim.spawnVehicle(kind, p.x + fx * d - fz * across, p.z + fz * d + fx * across, Math.atan2(fx, fz) + Math.PI / 2);
+    return (kinds as string[]).map((kind: string, k: number) => {
+      const i = (first as number) + k;
+      const across = ((i % 6) - 2.5) * 3.4;
+      const d = 14 + Math.floor(i / 6) * 12;
+      const v = g.sim.spawnVehicle(kind, p.x + fx * d - fz * across, p.z + fz * d + fx * across, Math.atan2(fx, fz));
       v.owner = 'mission';
       v.persistent = true;
       w.__row.push(v);
       return v.id;
     });
-  }, kinds);
+  }, [kinds, first] as const);
 }
 
 async function clearRow(page: Page): Promise<void> {
@@ -87,8 +91,10 @@ test.describe('GTA 7 mission 3 cars', () => {
     // The first seconds of play compile a few programs of their own (the sky, the sea in view): let them settle.
     await page.waitForTimeout(6000);
     const programs = await page.evaluate(() => (window as Api).__gta7.state().render.programs);
-    for (const kind of KINDS) {
-      const [id] = await parkRow(page, [kind]);
+    const keys0 = await page.evaluate(() => (window as Api).__gta7.game.renderer.renderer.info.programs.map((p: Api) => `${p.name}|${p.cacheKey}`));
+    // Each kind joins the row in turn and stays (a car removed in view fades out, which is not a first spawn).
+    for (const [i, kind] of KINDS.entries()) {
+      const [id] = await parkRow(page, [kind], i);
       await page.waitForTimeout(500);
       const v = await page.evaluate((id) => {
         const g = (window as Api).__gta7;
@@ -96,15 +102,14 @@ test.describe('GTA 7 mission 3 cars', () => {
         const glass = view.group.getObjectByName('glass');
         return { programs: g.state().render.programs, near: !view.isDistant, glass: glass?.material?.name, glassVisible: glass?.visible, opacity: glass?.material?.opacity, lamps: view.lamps.length };
       }, id);
-      expect(v.programs, `${kind}: no new program`).toBe(programs);
+      const added = await page.evaluate((k0) => (window as Api).__gta7.game.renderer.renderer.info.programs.map((p: Api) => `${p.name}|${p.cacheKey}`).filter((k: string) => !k0.includes(k)).map((k: string) => k.slice(0, 40) + " ... " + k.slice(-140)), keys0);
+      expect(v.programs, `${kind}: no new program (${added.join(' / ')})`).toBe(programs);
       expect(v.near, kind).toBe(true);
       expect(v.glass, kind).toBe('vehicle-glass');
       expect(v.glassVisible, kind).toBe(true);
       expect(v.opacity, kind).toBeGreaterThanOrEqual(0.7);
       expect(v.lamps, kind).toBe(5);
-      await clearRow(page);
     }
-    await parkRow(page, KINDS);
     await page.waitForTimeout(800);
     const c = await partCensus(page);
     expect(c.inView).toBeGreaterThanOrEqual(6);
