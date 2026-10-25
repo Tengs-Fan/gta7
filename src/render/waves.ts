@@ -71,9 +71,9 @@ function smooth(a: number, b: number, x: number): number {
 
 /**
  * CPU twin of the shader's seaDisplace: the offset (dx, dy, dz) of the sea surface at world (x, z) for a grid
- * centred on (ox, oz), at the given phases and sea state.
+ * centred on (ox, oz), at the given phases and sea state (written into `out` when given).
  */
-export function waveDisplacement(x: number, z: number, ox: number, oz: number, phases: readonly number[], seaState: number): [number, number, number] {
+export function waveDisplacement(x: number, z: number, ox: number, oz: number, phases: readonly number[], seaState: number, out: [number, number, number] = [0, 0, 0]): [number, number, number] {
   const c = Math.max(Math.abs(x - ox), Math.abs(z - oz));
   const s = Math.min(1, Math.max(0, seaState));
   let dx = 0;
@@ -89,7 +89,10 @@ export function waveDisplacement(x: number, z: number, ox: number, oz: number, p
     dx += ux * h;
     dz += uz * h;
   }
-  return [dx, dy, dz];
+  out[0] = dx;
+  out[1] = dy;
+  out[2] = dz;
+  return out;
 }
 
 const f = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));

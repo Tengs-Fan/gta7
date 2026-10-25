@@ -189,6 +189,8 @@ export class VehiclePartBatches {
    * colour, glow and finish per instance.
    */
   private readonly shaped = new Map<THREE.BufferGeometry, Bucket>();
+  /** all()'s list, null after a bucket is added or removed. */
+  private buckets: Bucket[] | null = null;
   private readonly lampMat = lampMaterial();
   private readonly depthMat = partDepthMaterial();
 
@@ -223,6 +225,7 @@ export class VehiclePartBatches {
     if (!b) {
       b = this.bucket(geometry, material, style, false, key);
       this.shared.set(key, b);
+      this.buckets = null;
     }
     const i = b.n;
     this.push(b, matrix, fade);
@@ -262,6 +265,7 @@ export class VehiclePartBatches {
     if (!b) {
       b = this.bucket(geometry, this.lampMat, {}, true, '');
       this.shaped.set(geometry, b);
+      this.buckets = null;
     }
     this.pushPlain(b, material, matrix, fade);
   }
@@ -277,9 +281,9 @@ export class VehiclePartBatches {
     (mesh.geometry.getAttribute('partFinish') as THREE.InstancedBufferAttribute).setXY(i, material.roughness, material.metalness);
   }
 
-  /** Every bucket: the shared ones, the box parts' and the shaped parts'. */
-  private all(): Bucket[] {
-    return [...this.shared.values(), this.lamps, ...this.shaped.values()];
+  /** Every bucket: the shared ones, the box parts' and the shaped parts' (rebuilt only when a bucket comes or goes). */
+  private all(): readonly Bucket[] {
+    return (this.buckets ??= [...this.shared.values(), this.lamps, ...this.shaped.values()]);
   }
 
   /** Ends a frame: uploads the instances added since begin and hides the empty buckets. */
@@ -347,6 +351,7 @@ export class VehiclePartBatches {
     this.depthMat.dispose();
     this.shared.clear();
     this.shaped.clear();
+    this.buckets = null;
     this.retiring.clear();
     this.retired = [];
     this.lamps.n = 0;
@@ -356,6 +361,7 @@ export class VehiclePartBatches {
   private retire(b: Bucket): void {
     if (this.shared.get(b.key) !== b) return;
     this.shared.delete(b.key);
+    this.buckets = null;
     this.free(b);
     this.retired.push(b.material);
   }

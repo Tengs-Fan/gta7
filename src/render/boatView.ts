@@ -161,12 +161,20 @@ function foamRing(m: BoatModel): { base: Float32Array; geometry: THREE.BufferGeo
   return { base, geometry: g };
 }
 
+/** Scratch for boatSwell (it runs per boat per frame). */
+const SWELL_PHASES = [0, 0, 0, 0];
+const SWELL_OUT: [number, number, number] = [0, 0, 0];
+
 /** The hull's drawn heave (m), pitch and roll (rad) on the sea at time `time`, for the boat's pose: see BoatView.sync. */
 export function boatSwell(v: Vehicle, sea: SeaUniforms | null, time: number, out: { heave: number; pitch: number; roll: number }): { heave: number; pitch: number; roll: number } {
   const displace = sea ? sea.uDisplace.value : 0;
   if (sea && displace > 0) {
     const ph = sea.uWavePhase.value;
-    const phases = [ph.x, ph.y, ph.z, ph.w];
+    const phases = SWELL_PHASES;
+    phases[0] = ph.x;
+    phases[1] = ph.y;
+    phases[2] = ph.z;
+    phases[3] = ph.w;
     const amp = sea.uSeaAmp.value;
     const ox = sea.uSeaOrigin.value.x;
     const oz = sea.uSeaOrigin.value.y;
@@ -174,11 +182,12 @@ export function boatSwell(v: Vehicle, sea: SeaUniforms | null, time: number, out
     const fz = Math.cos(v.heading);
     const a = v.halfL * 0.8;
     const b = v.halfW;
-    const at = (u: number, w: number) => waveDisplacement(v.pos.x + fx * u - fz * w, v.pos.z + fz * u + fx * w, ox, oz, phases, amp)[1] * displace;
-    const bow = at(a, 0);
-    const stern = at(-a, 0);
-    const left = at(0, b);
-    const right = at(0, -b);
+    const x = v.pos.x;
+    const z = v.pos.z;
+    const bow = waveDisplacement(x + fx * a, z + fz * a, ox, oz, phases, amp, SWELL_OUT)[1] * displace;
+    const stern = waveDisplacement(x - fx * a, z - fz * a, ox, oz, phases, amp, SWELL_OUT)[1] * displace;
+    const left = waveDisplacement(x - fz * b, z + fx * b, ox, oz, phases, amp, SWELL_OUT)[1] * displace;
+    const right = waveDisplacement(x + fz * b, z - fx * b, ox, oz, phases, amp, SWELL_OUT)[1] * displace;
     out.heave = (bow + stern + left + right) / 4;
     out.pitch = Math.atan2(bow - stern, 2 * a);
     out.roll = Math.atan2(left - right, 2 * b);

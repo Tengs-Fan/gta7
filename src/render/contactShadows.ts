@@ -254,11 +254,14 @@ export interface FootCharacter {
   removed?: boolean;
 }
 
+const byDistance = (a: { d2: number }, b: { d2: number }): number => a.d2 - b.d2;
+
 export class FootShadows {
   readonly mesh: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   count = 0;
   private readonly m = new THREE.Matrix4();
   private readonly order: Array<{ c: FootCharacter; d2: number }> = [];
+  private readonly entries: Array<{ c: FootCharacter; d2: number }> = [];
 
   constructor() {
     const geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -294,12 +297,19 @@ export class FootShadows {
   update(characters: readonly FootCharacter[], camera: THREE.Vector3, hiddenId = -1): void {
     const order = this.order;
     order.length = 0;
+    let k = 0;
     for (const c of characters) {
       if (c.removed || c.id === hiddenId || (c.state !== 'normal' && c.state !== 'entering')) continue;
       const d2 = (c.pos.x - camera.x) ** 2 + (c.pos.z - camera.z) ** 2;
-      if (d2 <= FOOT_RANGE * FOOT_RANGE) order.push({ c, d2 });
+      if (d2 > FOOT_RANGE * FOOT_RANGE) continue;
+      // The entries are reused frame to frame.
+      const e = this.entries[k] ?? (this.entries[k] = { c, d2 });
+      k++;
+      e.c = c;
+      e.d2 = d2;
+      order.push(e);
     }
-    if (order.length > FOOT_CAPACITY) order.sort((a, b) => a.d2 - b.d2);
+    if (order.length > FOOT_CAPACITY) order.sort(byDistance);
     const n = Math.min(FOOT_CAPACITY, order.length);
     const s = FOOT_RADIUS * 2;
     for (let i = 0; i < n; i++) {

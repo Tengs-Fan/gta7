@@ -290,10 +290,12 @@ export class BikeView {
   }
 
   private readonly mid = new THREE.Mesh();
+  private readonly midA = new THREE.Vector3();
+  private readonly midB = new THREE.Vector3();
   /** A stand-in between a twin pair of head lamps, for their one glow. */
   private midLamp(): THREE.Mesh {
-    const a = this.heads[0]!.getWorldPosition(new THREE.Vector3());
-    const b = this.heads[1]!.getWorldPosition(new THREE.Vector3());
+    const a = this.heads[0]!.getWorldPosition(this.midA);
+    const b = this.heads[1]!.getWorldPosition(this.midB);
     this.mid.position.copy(a.add(b).multiplyScalar(0.5));
     this.mid.updateMatrixWorld();
     return this.mid;

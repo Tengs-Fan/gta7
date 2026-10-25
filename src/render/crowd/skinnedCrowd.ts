@@ -29,6 +29,8 @@ interface PoolSlot {
   skeleton: DirectSkeleton;
   /** Character id drawn last frame (-1 none). */
   id: number;
+  /** This slot's index in the pool. */
+  index: number;
 }
 
 export interface SkinnedStats {
@@ -55,6 +57,9 @@ export class SkinnedCrowd {
   private drawn = 0;
   /** Per character id drawn this frame: 'near' pool slot or crowd instance (tests, browser checks). */
   readonly where = new Map<number, { near: boolean; index: number }>();
+  /** The `where` values, reused frame to frame (valid until the next draw). */
+  private readonly whereEntries: Array<{ near: boolean; index: number }> = [];
+  private placed = 0;
   readonly stats: SkinnedStats = { near: 0, crowd: 0, boneMs: 0 };
   private warming = false;
 
@@ -110,7 +115,7 @@ export class SkinnedCrowd {
       mesh.frustumCulled = false;
       mesh.visible = false;
       this.group.add(mesh);
-      this.pool.push({ mesh, skeleton, id: -1 });
+      this.pool.push({ mesh, skeleton, id: -1, index: this.pool.length });
     }
   }
 
@@ -127,6 +132,7 @@ export class SkinnedCrowd {
     if (this.warming) return;
     const t0 = performance.now();
     this.where.clear();
+    this.placed = 0;
     // Nearest first, for the pool.
     const order = SCRATCH.order;
     order.length = 0;
@@ -179,7 +185,7 @@ export class SkinnedCrowd {
         slot.mesh.visible = true;
         poseBones(p, slot.skeleton.boneMatrices!, 0, this.root);
         slot.skeleton.boneTexture!.needsUpdate = true;
-        this.where.set(p.id, { near: true, index: this.pool.indexOf(slot) });
+        this.place(p.id, true, slot.index);
         continue;
       }
       if (crowd >= CROWD_MAX) continue;
@@ -188,7 +194,7 @@ export class SkinnedCrowd {
       batched.setGeometryIdAt(inst, this.geometryIds[p.look] ?? this.geometryIds[0]!);
       batched.setMatrixAt(inst, this.instMatrix.makeTranslation(this.root.x, this.root.y, this.root.z));
       batched.setVisibleAt(inst, true);
-      this.where.set(p.id, { near: false, index: inst });
+      this.place(p.id, false, inst);
     }
     for (let i = crowd; i < this.drawn; i++) batched.setVisibleAt(i, false);
     this.drawn = crowd;
@@ -205,6 +211,14 @@ export class SkinnedCrowd {
     this.stats.near = nearIds.size;
     this.stats.crowd = crowd;
     this.stats.boneMs = performance.now() - t0;
+  }
+
+  private place(id: number, near: boolean, index: number): void {
+    const e = this.whereEntries[this.placed] ?? (this.whereEntries[this.placed] = { near, index });
+    this.placed++;
+    e.near = near;
+    e.index = index;
+    this.where.set(id, e);
   }
 
   /** The bone block a character was drawn with this frame (its pool skeleton or its crowd row), or null. */
