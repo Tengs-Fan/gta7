@@ -869,7 +869,8 @@ function modelAssets(kind: VehicleKind, m: CarModel, coarse: boolean): KindAsset
     if (layout) addInterior(bb, prof, kind, layout);
     // Dark bulkheads closing the cabin off from the bonnet and the boot below the windows: the model's panels are
     // single surfaces facing out, so a look through the windscreen down past the rear seats saw out of the boot.
-    const half = Math.min(VEHICLE_SPECS[kind].width / 2 - 0.03, m.cabinHalf + 0.06);
+    // (Inside the glass's own half width: the body draws in above the beltline, and wider they showed through it.)
+    const half = m.cabinHalf - 0.06;
     const [fb, , , rb] = m.cabin as [Pt, Pt, Pt, Pt];
     for (const z of [fb[0] - 0.02, rb[0] + 0.02]) bb.box(-half, m.bottom + 0.05, z - 0.02, half, m.beltY + 0.04, z + 0.02, DARK);
     // And the parcel shelf under the rear window, filled down to the floor pan, so no look passes under its foot.

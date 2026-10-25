@@ -7,6 +7,7 @@
 // centres land on the physics axles (wheelbase = 0.6 x length). The fitted mesh is then refined until no edge is
 // longer than MAX_EDGE (conforming: every split edge is split for both triangles sharing it), so dents can bend it.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
 import { assets } from './assets';
 import type { Pt } from './vehicleGeometry';
@@ -617,7 +618,8 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
     // Everything from under the beltline up, along the whole car: through the windows a look reaches the bonnet's and
     // the boot lid's insides too.
     liner: linerOf(fine.positions, fine.tris, fine.parts, fineNormals, -Infinity, Infinity, yLo - 0.12, roofTopY + 0.05),
-    farPaint: make(coarse, ['paint'], 'paint'),
+    // (With the cabin's lining, so the far version's windows are as dark a band as the near one's.)
+    farPaint: mergeGeometries([make(coarse, ['paint'], 'paint'), linerOf(coarse.positions, coarse.tris, coarse.parts, coarseNormals, -Infinity, Infinity, yLo - 0.12, roofTopY + 0.05)])!,
     farTrim: make(coarse, ['dark', 'metal', 'plate'], 'trim'),
     farGlass: make(coarse, ['glass'], 'glass'),
     head,
