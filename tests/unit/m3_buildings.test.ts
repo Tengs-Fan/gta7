@@ -17,7 +17,7 @@ import { corniceProjection } from '../../src/render/cityArchitecture';
 import { HARDWARE_CHUNK_SIZE } from '../../src/render/spatial';
 import { assets } from '../../src/render/assets';
 import { loadAssetsFromDisk, unloadAssets } from '../../src/render/assets/testing';
-import { FACADE_LOOK, FACADE_WINDOW, LOBBY_GLASS, SHOPS, facadeMapIds } from '../../src/render/textures';
+import { CELL_DESIGN, FACADE_LOOK, FACADE_WINDOW, LOBBY_GLASS, SHOP_DOOR_H, SHOPS, facadeMapIds } from '../../src/render/textures';
 import type { FacadeStyle } from '../../src/world/layout';
 import type { StaticWorld } from '../../src/world/staticWorld';
 import { world } from './helpers';
@@ -360,6 +360,18 @@ describe('m3 buildings: storefronts (VAL-BLD-006/007)', () => {
   beforeAll(() => {
     W = world();
     city = new CityView(W);
+  });
+
+  it('draws a shop door leaf 2.0-2.5 m tall on every shop band (VAL-V3X-005)', () => {
+    // The shop cell is drawn for a CELL_DESIGN.shop.h band and stretched over the building's own band height.
+    const bands = W.layout.buildings.filter((b) => b.ground === 'shops').map((b) => b.groundH);
+    expect(bands.length).toBeGreaterThan(100);
+    const leaf = (h: number) => (SHOP_DOOR_H * h) / CELL_DESIGN.shop.h;
+    console.log(`[buildings] shop door leaf ${leaf(Math.min(...bands)).toFixed(2)}-${leaf(Math.max(...bands)).toFixed(2)} m over ${bands.length} shop bands`);
+    for (const h of bands) {
+      expect(leaf(h)).toBeGreaterThanOrEqual(2.0);
+      expect(leaf(h)).toBeLessThanOrEqual(2.5);
+    }
   });
 
   it('uses 12+ designs with no identical front within 40 m and no shop twice in a row, deterministically', () => {

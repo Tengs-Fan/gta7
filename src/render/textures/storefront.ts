@@ -96,6 +96,8 @@ const HOUSE_DOOR_U = { a: 0.3, b: 0.5 } as const;
 /** A shop door is this wide (metres), its left edge SHOP_DOOR_INSET from the cell edge on its side. */
 const SHOP_DOOR_W = 1.0;
 const SHOP_DOOR_INSET = 0.5;
+/** A shop door leaf's height (m, frame included) on the 4.5 m shop band; the transom fills the rest up to the window head. */
+export const SHOP_DOOR_H = 2.25;
 /** A house door's sill stands this far above the bottom of the cell (a porch deck meets it). */
 export const HOUSE_SILL = 0.3;
 
@@ -674,22 +676,27 @@ function drawShop(p: Pair, d: ShopDesign): void {
   // Bulkhead under the window.
   m.rect(winX - 0.05, winY + winH, winW + 0.1, H - winY - winH, '#2f2f33');
   m.rect(winX - 0.05, winY + winH, winW + 0.1, 0.06, '#55555c');
-  // Door: glass with a frame and a transom.
-  m.rect(doorX, winY, 1.0, 0.55, '#1e2a33');
-  e.rect(doorX + 0.06, winY + 0.06, 0.88, 0.43, d.light);
-  m.rect(doorX + 0.06, winY + 0.06, 0.88, 0.43, '#6d8597');
-  const dy = winY + 0.6;
-  m.rect(doorX, dy, 1.0, H - dy - 0.04, '#1e2a33');
-  m.vgrad(doorX + 0.09, dy + 0.08, 0.82, H - dy - 0.3, [
+  // Door: a glass leaf SHOP_DOOR_H tall standing on the threshold, under a two-light transom up to the window head.
+  const sill = H - 0.04;
+  const dy = sill - SHOP_DOOR_H;
+  const th = dy - 0.05 - winY;
+  m.rect(doorX, winY, 1.0, th, '#1e2a33');
+  for (const [ty, tl] of [[winY + 0.06, th / 2 - 0.08], [winY + th / 2 + 0.02, th / 2 - 0.08]] as const) {
+    e.rect(doorX + 0.06, ty, 0.88, tl, d.light);
+    m.rect(doorX + 0.06, ty, 0.88, tl, '#6d8597');
+  }
+  m.rect(doorX, dy, 1.0, SHOP_DOOR_H, '#1e2a33');
+  m.vgrad(doorX + 0.09, dy + 0.08, 0.82, SHOP_DOOR_H - 0.26, [
     [0, '#9fb3c2'],
     [1, '#4f6271'],
   ]);
-  e.vgrad(doorX + 0.09, dy + 0.08, 0.82, H - dy - 0.3, [
+  e.vgrad(doorX + 0.09, dy + 0.08, 0.82, SHOP_DOOR_H - 0.26, [
     [0, d.light],
     [1, '#3a3530'],
   ]);
-  m.rect(doorX + 0.12, dy + 1.1, 0.76, 0.05, '#c8c8c8');
-  m.rect(doorX + (d.doorLeft ? 0.78 : 0.12), dy + 1.0, 0.06, 0.3, '#ddd');
+  // Push bar and pull handle at about 1.0-1.2 m above the threshold.
+  m.rect(doorX + 0.12, sill - 1.05, 0.76, 0.05, '#c8c8c8');
+  m.rect(doorX + (d.doorLeft ? 0.78 : 0.12), sill - 1.25, 0.06, 0.3, '#ddd');
   // Glass reflections (daytime only: the colour map).
   for (const [gx, gw] of [
     [winX, winW],
