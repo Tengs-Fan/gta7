@@ -306,7 +306,12 @@ function weld(tris: Tri[]): { positions: THREE.Vector3[]; tris: Array<[number, n
   };
   const out: Array<[number, number, number]> = [];
   const parts: Part[] = [];
+  const ab = new THREE.Vector3();
+  const ac = new THREE.Vector3();
   for (const t of tris) {
+    // Slivers with no area (the models have a few) would have no normal: a zero normal is NaN in the shaders, and
+    // bloom spreads one NaN pixel over the whole frame.
+    if (ab.subVectors(t.p[1], t.p[0]).cross(ac.subVectors(t.p[2], t.p[0])).lengthSq() < 1e-12) continue;
     const a = id(t.p[0]);
     const b = id(t.p[1]);
     const c = id(t.p[2]);
@@ -353,7 +358,8 @@ function cornerNormals(positions: readonly THREE.Vector3[], tris: ReadonlyArray<
     for (let k = 0; k < 3; k++) {
       n.set(0, 0, 0);
       for (const o of around[tri[k]!]!) if (parts[o] === parts[t] && unit[o]!.dot(unit[t]!) > CREASE) n.add(face[o]!);
-      if (n.lengthSq() === 0) n.copy(unit[t]!);
+      if (n.lengthSq() < 1e-20) n.copy(unit[t]!);
+      if (n.lengthSq() < 1e-20) n.set(0, 1, 0);
       n.normalize();
       out.set([n.x, n.y, n.z], t * 9 + k * 3);
     }

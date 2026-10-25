@@ -182,6 +182,21 @@ describe('imported car bodies', () => {
     }
   });
 
+  it('no drawn model part has a zero-length normal (one NaN pixel blackens the frame through bloom)', () => {
+    for (const kind of MODEL_KINDS) {
+      const v = view(kind);
+      const m = carModel(kind)!;
+      const parts: Array<[string, THREE.BufferGeometry]> = [['body', mesh(v, 'body').geometry], ['glass', mesh(v, 'glass').geometry], ['exterior', mesh(v, 'exterior').geometry], ['far paint', m.farPaint], ['far glass', m.farGlass], ['far trim', m.farTrim]];
+      if (m.livery) parts.push(['livery', m.livery]);
+      for (const [name, g] of parts) {
+        const n = g.getAttribute('normal');
+        let bad = 0;
+        for (let i = 0; i < n.count; i++) if (!(Math.hypot(n.getX(i), n.getY(i), n.getZ(i)) > 0.5)) bad++;
+        expect(bad, `${kind} ${name}`).toBe(0);
+      }
+    }
+  });
+
   it('a camera inside a model body draws it without its dark lining (pressed against a wall), outside with it', () => {
     for (const kind of MODEL_KINDS) {
       const v = view(kind);
