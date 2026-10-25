@@ -570,7 +570,7 @@ describe('fades and dissolves (VAL-CHR-008)', () => {
     const lib = THREE.ShaderLib.standard;
     const shader = { vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader, uniforms: { ...lib.uniforms } } as unknown as THREE.WebGLProgramParametersWithUniforms;
     characterMaterial().onBeforeCompile(shader, undefined as unknown as THREE.WebGLRenderer);
-    expect(shader.vertexShader).toMatch(/vCharCloth = s == 3 \? 1\.0 : s == 4 \? 0\.55 : s == 5 \? 0\.5 : 0\.0;/);
+    expect(shader.vertexShader).toMatch(/vCharCloth = s == 3 \? 1\.0 : s == 4 \? 0\.4 : s == 5 \? 0\.4 : 0\.0;/);
     expect(shader.vertexShader).toMatch(/if \( vCharCloth > 0\.0 \) slotCol = clothFloor\( slotCol \);/);
     // The bump comes after the normal is set up, and fades out where a crease is under a pixel or two.
     const f = shader.fragmentShader;

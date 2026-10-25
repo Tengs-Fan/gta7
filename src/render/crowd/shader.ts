@@ -15,8 +15,8 @@ const DATA = RIG_BONES.toFixed(1);
  */
 export const CLOTH_FLOOR = 0.07;
 export const CLOTH_LIFT_MAX = 2.5;
-/** Fold relief (m) of the cloth bump. */
-export const CLOTH_FOLD_DEPTH = 0.024;
+/** Height scale (m) of the cloth fold bump (its broad folds are 11 cm cells up the body). */
+export const CLOTH_FOLD_DEPTH = 0.07;
 
 /** The cloth floor in JS (the vertex shader's clothFloor), for tests and tools. */
 export function clothFloor(r: number, g: number, b: number): [number, number, number] {
@@ -36,17 +36,27 @@ vec3 clothFloor( vec3 c ) {
 }`;
 
 /**
- * Cloth folds as a bump on the normal: soft creases round the body and a diagonal pull, from the rest-pose position
- * (so they move with the cloth, not the screen), faded out once a crease is smaller than about a pixel.
+ * Cloth folds as a bump on the normal: broad folds and smaller creases, from value noise on the rest-pose position
+ * (so they move with the cloth, not the screen), faded out once a crease is smaller than a couple of pixels.
  */
 const CLOTH_FOLDS = /* glsl */ `
 varying float vCharCloth;
 varying vec3 vCharRest;
+float clothHash( vec3 c ) {
+  return fract( sin( dot( c, vec3( 127.1, 311.7, 74.7 ) ) ) * 43758.5453 );
+}
+float clothNoise( vec3 p ) {
+  vec3 i = floor( p );
+  vec3 f = fract( p );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( mix( clothHash( i ), clothHash( i + vec3( 1, 0, 0 ) ), f.x ), mix( clothHash( i + vec3( 0, 1, 0 ) ), clothHash( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
+    mix( mix( clothHash( i + vec3( 0, 0, 1 ) ), clothHash( i + vec3( 1, 0, 1 ) ), f.x ), mix( clothHash( i + vec3( 0, 1, 1 ) ), clothHash( i + vec3( 1, 1, 1 ) ), f.x ), f.y ), f.z );
+}
 float clothFoldHeight( vec3 p ) {
-  float a = sin( p.y * 47.0 + sin( p.x * 19.0 + p.z * 13.0 ) * 1.8 );
-  float b = sin( p.y * 23.0 - p.x * 29.0 + sin( p.z * 31.0 + p.y * 7.0 ) * 1.3 );
-  float c = sin( p.y * 13.0 + p.x * 8.0 + sin( p.z * 11.0 ) );
-  return ${CLOTH_FOLD_DEPTH.toFixed(4)} * ( 0.55 * a + 0.45 * b + 1.6 * c );
+  // Rumpled rather than striped: value noise stretched across the body (creases run round it more than down it).
+  float broad = clothNoise( p * vec3( 5.0, 9.0, 5.0 ) + 3.3 );
+  float crease = clothNoise( p * vec3( 11.0, 24.0, 11.0 ) );
+  return ${CLOTH_FOLD_DEPTH.toFixed(4)} * ( 1.6 * broad + 0.35 * crease );
 }
 vec3 clothPerturb( vec3 surfPos, vec3 n, vec2 dHdxy, float face ) {
   vec3 sx = dFdx( surfPos );
@@ -60,10 +70,10 @@ vec3 clothPerturb( vec3 surfPos, vec3 n, vec2 dHdxy, float face ) {
 
 const CLOTH_NORMAL = /* glsl */ `
 {
-  // Derivatives outside any branch; the bump fades once the main crease spans under about a pixel and a half.
+  // Derivatives outside any branch; the bump fades once a crease cell spans under about two pixels.
   float fh = clothFoldHeight( vCharRest );
   vec2 dH = vec2( dFdx( fh ), dFdy( fh ) );
-  float fw = length( fwidth( vCharRest ) ) * 47.0 / 6.2832;
+  float fw = length( fwidth( vCharRest ) ) * 24.0;
   dH *= vCharCloth * ( 1.0 - smoothstep( 0.35, 0.7, fw ) );
   normal = clothPerturb( - vViewPosition, normal, dH, faceDirection );
 }`;
@@ -153,7 +163,7 @@ ${colors ? `    mat4 d1 = CHAR_BONE( CHAR_INST, ${DATA2} );
     vec3 slotCol = s == 1 ? d0[ 1 ].rgb : s == 2 ? d0[ 2 ].rgb : s == 3 ? d0[ 3 ].rgb : s == 4 ? d1[ 0 ].rgb : s == 5 ? d1[ 1 ].rgb : s == 6 ? d1[ 2 ].rgb : s == 7 ? d1[ 3 ].rgb : vec3( 1.0 );
     // Cloth (shirt, trousers, cap): very dark fabric is lifted to a charcoal floor, so its folds and the light still
     // read; vCharCloth is the fold relief (trousers and caps crease less than a loose shirt).
-    vCharCloth = s == 3 ? 1.0 : s == 4 ? 0.55 : s == 5 ? 0.5 : 0.0;
+    vCharCloth = s == 3 ? 1.0 : s == 4 ? 0.4 : s == 5 ? 0.4 : 0.0;
     vCharRest = position;
     if ( vCharCloth > 0.0 ) slotCol = clothFloor( slotCol );
     vColor.rgb *= slotCol;` : ''}
