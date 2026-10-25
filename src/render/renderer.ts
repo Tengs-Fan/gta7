@@ -24,6 +24,7 @@ import { gradeAt, type Grade } from './grade';
 import { MarkerView } from './markers';
 import { PropsView } from './props';
 import { Rain, SOFTWARE_RAIN_DROPS } from './rain';
+import { setPilings } from './sea';
 import { buildCoverMap, coverAt, type CoverMap } from './rainCover';
 import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
 import { HARDWARE_CHUNK_SIZE, STATIC_CHUNK_SIZE } from './spatial';
@@ -253,6 +254,7 @@ export class GameRenderer {
     // Without half-float targets there is no environment map (three's PMREM needs them).
     this.env = new Environment(this.scene, this.renderer, { hdr: this.hdr, software: this.software });
     this.env.setShore(world.layout.bounds);
+    setPilings(this.env.sea, world.layout.decks);
     this.effects.foam.bindSea(this.env.sea);
     this.pool.bindSea(this.env.sea);
     this.pool.bindGround(world);
@@ -415,6 +417,7 @@ export class GameRenderer {
     this.lightSprites.setPoolCap(t.headlightPools);
     this.rain.setCount(this.software ? SOFTWARE_RAIN_DROPS : t.rainDrops);
     this.city.wet.setMode(t.wetGround);
+    this.city.setAnisotropy(this.software ? 'software' : q, this.renderer.capabilities?.getMaxAnisotropy?.() ?? 1);
     this.env.setWaterGrid(!this.software && t.waterGrid);
     this.streetLighting.group.visible = !this.software && q === 'high';
     if (q !== 'high') this.clearLocalReflections();

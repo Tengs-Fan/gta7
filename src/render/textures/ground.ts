@@ -330,6 +330,33 @@ export function waterNormalTexture(): THREE.Texture {
   return toTexture(c, false);
 }
 
+/**
+ * Rubber left on the road by a skidding tyre (white; the material colours it): opaque streaks along the strip (v),
+ * broken by gaps, thinning to nothing at both long edges (u = 0 and 1).
+ */
+export function tyreMarkTexture(): THREE.Texture {
+  const W = 32;
+  const H = 128;
+  const rng = new Rng(4242);
+  const [c, ctx] = canvas(W, H);
+  const img = ctx.createImageData(W, H);
+  const streak = Array.from({ length: W }, () => rng.range(0.55, 1));
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const u = (x + 0.5) / W;
+      const edge = Math.min(1, Math.min(u, 1 - u) * 6);
+      const gap = 0.75 + 0.25 * Math.sin((y / H) * Math.PI * 6 + x * 0.7);
+      const a = Math.max(0, Math.min(1, streak[x]! * edge * gap * rng.range(0.85, 1)));
+      const i = (y * W + x) * 4;
+      img.data[i] = 255;
+      img.data[i + 1] = 255;
+      img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(a * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return toTexture(c);
+}
 export function helipadTexture(): THREE.Texture {
   const [c, ctx] = canvas(256, 256);
   ctx.fillStyle = '#4a4d52';

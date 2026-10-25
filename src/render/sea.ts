@@ -1,16 +1,99 @@
 // The sea surface: the Gerstner waves (render/waves.ts) and the analytic shoreline patched into the sea's
-// standard material, the camera-snapped wave grid drawn on High, and the software sea's shader.
+// standard material, the camera-snapped wave grid drawn on High, and the software sea's shader. The sea's colour
+// follows a render-only shelf that keeps falling offshore (turquoise shallows, deep blue open water), its ripples are
+// warped and modulated by low-frequency noise so their tiles do not line up, and foam rings the piers' pilings.
 
 import * as THREE from 'three';
 import { BEACH_W, CURB_H, SAND_DROP, SEABED_Y, WATER_Y } from '../world/constants';
-import type { Bounds } from '../world/layout';
+import type { Bounds, Rect } from '../world/layout';
 import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_SLOPE2_GLSL, SEA_WAVES_GLSL, SKIRT_EXTENT, wavePhases } from './waves';
 
 /** The sand's drop-off into deep water past the beach's end (CityView.buildCoast), m. */
 const DROP_OFF = 25;
 /** Shallows colour over sand, and the wet sand seen through the thinnest water (sRGB). */
-const SHALLOW = 0x2fa8a6;
-const SAND_TINT = 0x9c9475;
+const SHALLOW = 0x2fa89e;
+const SAND_TINT = 0x86a89a;
+/** Open water past ~15 m and far offshore (sRGB): the albedo the shelf fades to (seaShallows). */
+const DEEP = 0x0b4f78;
+const ABYSS = 0x062c52;
+/**
+ * The drawn seabed keeps falling offshore past the sim's flat SEABED_Y (render only; the sim's waterDepth stays as it
+ * is): SHELF_SLOPE m per m beyond SHELF_START m outside the land rectangle (where the beach's drop-off ends).
+ */
+export const SHELF_SLOPE = 0.11;
+export const SHELF_START = DROP_OFF;
+
+/** The piers' pilings (CityView.buildCoast): along each deck from minX + PILING_START every PILING_STEP m, PILING_INSET in from both long sides. */
+export const PILING_START = 2;
+export const PILING_STEP = 7;
+export const PILING_INSET = 0.6;
+export const PILING_RADIUS = 0.25;
+/** Decks the sea shader looks for pilings under (the layout has five). */
+export const MAX_PILING_DECKS = 8;
+/** Piling foam reaches at most this far (m) out from a piling's side. */
+export const PILING_FOAM = 0.7;
+
+/**
+ * World-space scales of the sea's ripple warp and macro modulation samples (1 / m), see patchSeaMaterial. The gains
+ * (in ripple tiles) keep the warp gentle enough not to fold the tile: about twice these fold it into streaks that fan
+ * out across the foreground, and a third of them leaves the tiles' repeats lined up a few metres apart.
+ */
+export const RIPPLE_WARP = { a: 1 / 263, b: 1 / 97, gainA: 1.1, gainB: 0.35, macro: 1 / 181 } as const;
+/** The third ripple layer: its tile (m) against the first layer's 6000 / 900 m, and its turn. */
+export const RIPPLE_C = { tile: 2.43, cos: 0.37, sin: 0.93, weight: 0.5 } as const;
+/**
+ * The fourth ripple layer: the first layer's tile turned 53 degrees the other way and shrunk by `scale` (tile 4.0 m;
+ * against the other layers 1.66, 4.46 and 1.65 times, all far from whole numbers). Its share of the ripple power, with
+ * the first two layers turned down by RIPPLE_AB_GAIN, keeps the longest trains of the first layer from showing as a
+ * regular pattern a few metres across.
+ */
+export const RIPPLE_D = { scale: 1.66, cos: 0.6, sin: 0.8, weight: 0.55 } as const;
+/** The first two (Environment) ripple layers' strength under the third and fourth. */
+export const RIPPLE_AB_GAIN = 0.8;
+/** The first ripple layer's tile (m): the 6 km plane's UV repeated 900 times (Environment). */
+export const RIPPLE_A_TILE = 6000 / 900;
+
+/** Centres of a deck's pilings that stand in water deeper than -0.1 m (as drawn by CityView.buildCoast). */
+export function pilingCentres(rect: Rect, baseGround: (x: number, z: number) => number): Array<{ x: number; z: number }> {
+  const out: Array<{ x: number; z: number }> = [];
+  for (let x = rect.minX + PILING_START; x < rect.maxX; x += PILING_STEP) {
+    for (const z of [rect.minZ + PILING_INSET, rect.maxZ - PILING_INSET]) if (WATER_Y > baseGround(x, z) - 0.1) out.push({ x, z });
+  }
+  return out;
+}
+
+/** CPU twin of the shader's seaShelf: the drawn seabed's depth at sim depth `simDepth`, `outside` m out of the land rectangle. */
+export function seaShelfDepth(simDepth: number, outside: number): number {
+  return simDepth + SHELF_SLOPE * Math.max(0, outside - SHELF_START);
+}
+
+/** Distance (m) of (x, z) outside the land rectangle with the beach (the shader's seaQuay). */
+export function outsideLand(b: Bounds, x: number, z: number): number {
+  const dx = Math.max(b.landMinX - x, x - b.beachEndX, 0);
+  const dz = Math.max(b.landMinZ - z, z - b.landMaxZ, 0);
+  return Math.hypot(dx, dz);
+}
+
+const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v));
+const smooth = (a: number, b: number, x: number): number => {
+  const t = clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+/** CPU twin of the shader's seaDepthAt: the analytic water depth over the beach slope, its drop-off and the deep. */
+export function seaDepthCpu(b: Bounds, x: number, z: number): number {
+  const xc = clamp(x, b.beachStartX, b.beachEndX + DROP_OFF);
+  const endY = CURB_H - SAND_DROP;
+  const sand = xc <= b.beachEndX ? CURB_H - ((xc - b.beachStartX) / BEACH_W) * SAND_DROP : endY + (SEABED_Y - endY) * ((xc - b.beachEndX) / DROP_OFF);
+  const out = Math.hypot(x - xc, z - clamp(z, b.landMinZ, b.landMaxZ));
+  const shelf = WATER_Y - sand;
+  return shelf + (WATER_Y - SEABED_Y - shelf) * smooth(0, 40, out);
+}
+
+/** The depth the sea's colour is drawn with at (x, z): seaDepthCpu, falling on along the shelf offshore. */
+export function seaDrawnDepth(b: Bounds, x: number, z: number): number {
+  return seaShelfDepth(seaDepthCpu(b, x, z), outsideLand(b, x, z));
+}
 
 /** Uniforms shared by every material that follows the sea: the sea itself and the foam rings on it. */
 export interface SeaUniforms {
@@ -28,6 +111,10 @@ export interface SeaUniforms {
   uShoreBeach: { value: THREE.Vector4 };
   uShallow: { value: THREE.Color };
   uSandTint: { value: THREE.Color };
+  uSeaDeep: { value: THREE.Color };
+  uSeaAbyss: { value: THREE.Color };
+  /** Deck rectangles (minX, minZ, maxX, maxZ) whose pilings get foam; unused slots lie far away. */
+  uPilings: { value: THREE.Vector4[] };
 }
 
 export function seaUniforms(): SeaUniforms {
@@ -44,6 +131,9 @@ export function seaUniforms(): SeaUniforms {
     uShoreBeach: { value: new THREE.Vector4(1e6, BEACH_W, SAND_DROP, CURB_H) },
     uShallow: { value: new THREE.Color(SHALLOW) },
     uSandTint: { value: new THREE.Color(SAND_TINT) },
+    uSeaDeep: { value: new THREE.Color(DEEP) },
+    uSeaAbyss: { value: new THREE.Color(ABYSS) },
+    uPilings: { value: Array.from({ length: MAX_PILING_DECKS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
   };
 }
 
@@ -51,6 +141,15 @@ export function seaUniforms(): SeaUniforms {
 export function setShore(u: SeaUniforms, b: Bounds): void {
   u.uShoreLand.value.set(b.landMinX, b.landMinZ, b.landMaxZ, b.beachEndX);
   u.uShoreBeach.value.set(b.beachStartX, BEACH_W, SAND_DROP, CURB_H);
+}
+
+/** Feeds the piling foam the piers' deck rectangles (layout.decks). */
+export function setPilings(u: SeaUniforms, decks: ReadonlyArray<{ rect: Rect }>): void {
+  u.uPilings.value.forEach((v, i) => {
+    const d = decks[i];
+    if (d) v.set(d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ);
+    else v.set(1e6, 1e6, 1e6, 1e6);
+  });
 }
 
 const tmpPhases = [0, 0, 0, 0];
@@ -91,6 +190,9 @@ uniform float uQuayPhase;
 uniform vec2 uFoamDrift;
 uniform vec3 uShallow;
 uniform vec3 uSandTint;
+uniform vec3 uSeaDeep;
+uniform vec3 uSeaAbyss;
+uniform vec4 uPilings[${MAX_PILING_DECKS}];
 float seaBeachOut(vec2 p) {
   vec2 c = vec2(clamp(p.x, uShoreBeach.x, uShoreLand.w + ${n(DROP_OFF)}), clamp(p.y, uShoreLand.y, uShoreLand.z));
   return length(p - c);
@@ -110,16 +212,39 @@ float seaQuay(vec2 p) {
   float dz = max(max(uShoreLand.y - p.y, p.y - uShoreLand.z), 0.0);
   return length(vec2(dx, dz));
 }
+/** The drawn seabed's depth: the sim's near land, falling on along the shelf offshore (seaShelfDepth). */
+float seaShelf(vec2 p, float depth) {
+  return depth + ${n(SHELF_SLOPE)} * max(seaQuay(p) - ${n(SHELF_START)}, 0.0);
+}
+/** Foam 0..1 round the pilings of the decks in uPilings (the lattice of CityView.buildCoast). */
+float seaPilingFoam(vec2 p, float noise) {
+  float best = 1e3;
+  for (int i = 0; i < ${MAX_PILING_DECKS}; i++) {
+    vec4 r = uPilings[i];
+    if (p.x < r.x - 2.0 || p.x > r.z + 2.0 || p.y < r.y - 2.0 || p.y > r.w + 2.0) continue;
+    float last = floor((r.z - r.x - ${n(PILING_START)} - 1e-3) / ${n(PILING_STEP)});
+    float k = clamp(floor((p.x - r.x - ${n(PILING_START)}) / ${n(PILING_STEP)} + 0.5), 0.0, last);
+    float z0 = r.y + ${n(PILING_INSET)};
+    float z1 = r.w - ${n(PILING_INSET)};
+    vec2 c = vec2(r.x + ${n(PILING_START)} + ${n(PILING_STEP)} * k, abs(p.y - z0) < abs(p.y - z1) ? z0 : z1);
+    best = min(best, length(p - c));
+  }
+  float side = best - ${n(PILING_RADIUS)};
+  float width = min(0.3 + 0.35 * noise, ${n(PILING_FOAM)});
+  float pulse = 0.75 + 0.25 * sin(uQuayPhase * 1.3 - best * 5.0);
+  return (1.0 - smoothstep(width * 0.55, width, side)) * step(-0.05, side) * pulse * (0.8 + 0.4 * noise);
+}
 float seaWaterlineX() {
   return uShoreBeach.x + uShoreBeach.y * (uShoreBeach.w - ${n(WATER_Y)}) / uShoreBeach.z;
 }
-/** Foam 0..1: surf bands moving shoreward over the beach, and a pulsing strip along the quay walls. */
+/** Foam 0..1: surf bands moving shoreward over the beach, a pulsing strip along the quay walls, and rings round the pilings. */
 float seaFoam(vec2 p, float depth, float noise, float sea) {
   float onBeach = 1.0 - smoothstep(0.0, 4.0, seaBeachOut(p));
   float reach = 0.6 + 0.9 * sea;
   float shore = 1.0 - smoothstep(0.0, reach, depth);
   float band = 0.5 + 0.5 * sin(depth * 12.566 + uSurfPhase + noise * 2.0);
-  float bands = smoothstep(0.55, 0.9, band + (noise - 0.5) * 0.5) * shore;
+  // The bands dissolve into the swash a couple of metres out, so the foam at the waterline stays a band along it.
+  float bands = smoothstep(0.55, 0.9, band + (noise - 0.5) * 0.5) * shore * smoothstep(0.05, 0.12, depth);
   float swash = 1.0 - smoothstep(0.0, 0.05 + 0.08 * sea, depth);
   float beach = clamp((bands * (0.55 + 0.6 * sea) + swash * 0.8) * onBeach, 0.0, 1.0);
   float d = seaQuay(p);
@@ -127,28 +252,43 @@ float seaFoam(vec2 p, float depth, float noise, float sea) {
   float pulse = 0.8 + 0.2 * sin(uQuayPhase + (p.x + p.y) * 0.21);
   float notBeach = 1.0 - smoothstep(seaWaterlineX() - 5.0, seaWaterlineX() + 10.0, p.x);
   float quay = (1.0 - smoothstep(width * 0.4, width, d)) * step(1e-3, d) * pulse * notBeach * (0.85 + 0.3 * sea) * (0.75 + 0.5 * noise);
-  return clamp(max(beach, quay), 0.0, 1.0);
+  return clamp(max(max(beach, quay), seaPilingFoam(p, noise)), 0.0, 1.0);
 }
-/** The sea's albedo over the shallows: wet sand through the thinnest water, turquoise, then the deep colour. */
-vec3 seaShallows(vec3 deep, float depth) {
-  vec3 c = mix(uShallow, deep, smoothstep(0.0, 4.0, depth));
-  return mix(uSandTint, c, smoothstep(0.0, 0.45, depth));
+/**
+ * The sea's albedo by depth: wet sand through the thinnest water, turquoise shallows, the material's own colour (mid)
+ * by 4 m, then deep blue and the dark offshore blue as the drawn shelf falls away (seaShelf).
+ */
+vec3 seaShallows(vec3 mid, float depth, vec2 p) {
+  float shelf = seaShelf(p, depth);
+  vec3 c = mix(uShallow, mid, smoothstep(0.0, 4.0, depth));
+  // Overlapping ramps, so the colour keeps darkening steadily with depth rather than pausing between them.
+  c = mix(c, uSeaDeep, smoothstep(4.0, 18.0, shelf));
+  c = mix(c, uSeaAbyss, smoothstep(10.0, 45.0, shelf));
+  return mix(uSandTint, c, smoothstep(0.0, 0.15, depth));
 }
 `;
 
+/** Waves damp to this share of their height where the water is shallowest, so the waterline stays near the sim's. */
+export const SHORE_DAMP = 0.35;
+
 /**
  * Patches the sea's (already ripple-patched) standard material: world-anchored ripple UVs (the mesh follows the
- * camera), vertex displacement scaled by uDisplace, the wave slopes added to the ripple normal, the shallows' colour
- * and foam. Only uniforms change at runtime: the grid on or off and the sea state never rebuild the program.
+ * camera), vertex displacement scaled by uDisplace (damped over the shallows), the ripples warped and their strength
+ * modulated by low-frequency samples of the ripple tile itself, a third and a fourth ripple layer, the wave slopes added to the
+ * ripple normal, the shallows' colour and foam. Only uniforms change at runtime: the grid on or off and the sea state
+ * never rebuild the program.
  */
 export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms): void {
   const ripples = mat.onBeforeCompile.bind(mat);
   const key = mat.customProgramCacheKey.bind(mat);
+  const c = RIPPLE_C;
+  const cScale = RIPPLE_A_TILE / c.tile;
+  const d = RIPPLE_D;
   mat.onBeforeCompile = (shader, renderer) => {
     ripples(shader, renderer);
     Object.assign(shader.uniforms, u);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${SEA_WAVES_GLSL}\nattribute vec2 aEdge;\nvarying vec2 vSeaXZ;`)
+      .replace('#include <common>', `#include <common>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\nattribute vec2 aEdge;\nvarying vec2 vSeaXZ;`)
       .replace(
         '#include <uv_vertex>',
         `#include <uv_vertex>
@@ -159,7 +299,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   vNormalMapUv = ( normalMapTransform * vec3( seaBase.x / 6000.0 + 0.5, 0.5 - seaBase.z / 6000.0, 1.0 ) ).xy;
 #endif`,
       )
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed += uDisplace * seaDisplaceEdge( seaBase.xz, aEdge );');
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n  transformed += uDisplace * seaDisplaceEdge( seaBase.xz, aEdge ) * mix( ${n(SHORE_DAMP)}, 1.0, smoothstep( 0.0, 2.0, seaDepthAt( seaBase.xz ) ) );`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\nvarying vec2 vSeaXZ;`)
       .replace(
@@ -174,13 +314,35 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
     seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp );
   }
 #endif
-  diffuseColor.rgb = mix( seaShallows( diffuseColor.rgb, seaDepth ), vec3( 0.82, 0.86, 0.86 ), seaFoamAmt );`,
+  diffuseColor.rgb = mix( seaShallows( diffuseColor.rgb, seaDepth, vSeaXZ ), vec3( 0.82, 0.86, 0.86 ), seaFoamAmt );`,
       )
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( roughnessFactor, 0.85, seaFoamAmt );')
+      .replace(
+        '#include <normal_fragment_begin>',
+        `#include <normal_fragment_begin>
+#ifdef USE_NORMALMAP
+  // Low-frequency samples of the ripple tile warp its UV (so its repeats never line up) and scale its strength.
+  vec2 seaWarp = ( texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.a)} + vec2( 0.21, 0.57 ) ).xy - 0.5 ) * ${n(RIPPLE_WARP.gainA)}
+    + ( texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.b)} + vec2( 0.63, 0.12 ) ).yx - 0.5 ) * ${n(RIPPLE_WARP.gainB)};
+  vec2 seaRippleUv = vNormalMapUv + seaWarp;
+  vec2 seaNormalScale = normalScale * ( 0.85 + 0.3 * smoothstep( 0.4, 0.6, texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.macro)} + vec2( 0.4, 0.9 ) ).x ) );
+  vec2 seaNormalScaleAB = seaNormalScale * ${n(RIPPLE_AB_GAIN)};
+#define vNormalMapUv seaRippleUv
+#define normalScale seaNormalScaleAB
+#endif`,
+      )
       .replace(
         '#include <emissivemap_fragment>',
         `{
     vec2 seaS = seaSlope( vSeaXZ, distance( cameraPosition.xz, vSeaXZ ) ) * ( 1.0 - 0.6 * seaFoamAmt );
+#ifdef USE_NORMALMAP
+    // A third, finer ripple layer, turned and drifting its own way (uFoamDrift wraps at 1: whole tiles of this layer).
+    vec2 seaCuv = mat2( ${n(c.cos)}, ${n(-c.sin)}, ${n(c.sin)}, ${n(c.cos)} ) * seaRippleUv * ${n(cScale)} + uFoamDrift.yx * 3.0;
+    seaS += ( texture2D( normalMap, seaCuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(c.weight)};
+    // A fourth layer at the first one's scale, turned the other way (uFoamDrift times a whole number wraps by whole tiles).
+    vec2 seaDuv = mat2( ${n(d.cos)}, ${n(d.sin)}, ${n(-d.sin)}, ${n(d.cos)} ) * seaRippleUv * ${n(d.scale)} - uFoamDrift * 2.0 + vec2( 0.37, 0.71 );
+    seaS += ( texture2D( normalMap, seaDuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(d.weight)};
+#endif
     normal = normalize( normal + mat3( viewMatrix ) * vec3( -seaS.x, 0.0, -seaS.y ) );
   }
 #include <emissivemap_fragment>`,
@@ -189,7 +351,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   mat.customProgramCacheKey = () => `${key()}-waves`;
 }
 
-/** The software sea: two waves on the ripple, the shallows and the beach's surf. Shares SeaUniforms. */
+/** The software sea: two waves on a warped ripple, the shallows and the beach's surf. Shares SeaUniforms. */
 export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.IUniform>): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     fog: true,
@@ -209,7 +371,8 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
       ${SEA_SLOPE2_GLSL}
       ${SHORE_GLSL}
       void main() {
-        vec3 ripple = texture2D(uNormal, vWorld.xz * 0.15 + uDrift).xyz;
+        vec2 warp = (texture2D(uNormal, vWorld.xz * ${n(RIPPLE_WARP.a)} + vec2(0.21, 0.57)).xy - 0.5) * ${n(RIPPLE_WARP.gainA)};
+        vec3 ripple = texture2D(uNormal, vWorld.xz * 0.15 + uDrift + warp).xyz;
         vec2 wave = ripple.xy * 2.0 - 1.0;
         vec2 swell = seaSlope2(vWorld.xz);
         vec3 n = normalize(vec3(wave.x * 0.18 - swell.x, 1.0, wave.y * 0.18 - swell.y));
@@ -220,7 +383,7 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
         fresnel *= fresnel;
         float depth = seaDepthAt(vWorld.xz);
         float light = 1.0 - uNight * 0.94;
-        vec3 sea = seaShallows(vec3(0.018, 0.17, 0.23), depth) * light;
+        vec3 sea = seaShallows(vec3(0.018, 0.17, 0.23), depth, vWorld.xz) * light;
         float onBeach = 1.0 - smoothstep(0.0, 4.0, seaBeachOut(vWorld.xz));
         float shore = 1.0 - smoothstep(0.0, 0.6 + 0.9 * uSeaAmp, depth);
         float band = smoothstep(0.6, 0.9, 0.5 + 0.5 * sin(depth * 12.566 + uSurfPhase + ripple.z * 2.0));
@@ -233,7 +396,6 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
       }`,
   });
 }
-
 /** The plane drawn on every tier but High (and on software), centred on the camera like the grid. */
 export function seaPlane(): THREE.BufferGeometry {
   const g = new THREE.PlaneGeometry(SKIRT_EXTENT * 2, SKIRT_EXTENT * 2).rotateX(-Math.PI / 2);
