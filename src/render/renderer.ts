@@ -340,6 +340,12 @@ export class GameRenderer {
 
   /** Builds one view per vehicle kind and compiles every shader up front to avoid hitches later. */
   private warmup(): void {
+    // The previous warm-up's fade copies go first, so the part-batch buckets drawn with them retire at the begin() below,
+    // before this compile: retired after it, a bucket's program (new for a new tier) was deleted while still linking,
+    // and Chrome logged GL_INVALID_VALUE for it.
+    this.softwareMaterials?.forget(this.fadeKeepers);
+    for (const m of this.fadeKeepers) m.dispose();
+    this.fadeKeepers = [];
     const tmp: AnyVehicleView[] = [];
     // A second view of each kind stays whole while the first fades (below), so the one compile covers a vehicle's own
     // materials (its paint and fittings, drawn whole) as well as their fade copies.
@@ -459,8 +465,6 @@ export class GameRenderer {
     depthProbe.geometry.dispose();
     // Kept, undisposed, so the programs they compiled stay for the session's fades (a program goes with its last user).
     const kept = [depthProbe.material, ...tmp.flatMap((v) => v.endFade()), ...(reflections ? this.localReflections?.endWarm() ?? [] : [])];
-    this.softwareMaterials?.forget(this.fadeKeepers);
-    for (const m of this.fadeKeepers) m.dispose();
     this.fadeKeepers = kept;
     for (const v of burnt) v.warmBurnt(false);
     for (const v of [...tmp, ...whole, ...shiny, ...burnt]) this.pool.release(v);
