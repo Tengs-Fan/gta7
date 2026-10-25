@@ -169,6 +169,37 @@ describe('VAL-FXW-003: the fireball is a layered volume with a deterministic lif
     expect(src).not.toMatch(/from '\.\.\/sim\/sim'/);
   });
 
+  it('builds its warm-up stand-ins once: repeated warm-ups (tier switches, context restores) add no geometry or copy', () => {
+    const fx = new Effects();
+    let fades = 0;
+    const fade = (m: THREE.Material): THREE.Material => {
+      fades++;
+      return m.clone();
+    };
+    const parts = (g: THREE.Object3D) => {
+      const geometries = new Set<THREE.BufferGeometry>();
+      const materials = new Set<THREE.Material>();
+      let meshes = 0;
+      g.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        meshes++;
+        geometries.add(o.geometry);
+        materials.add(o.material as THREE.Material);
+      });
+      return { geometries: geometries.size, materials: materials.size, meshes };
+    };
+    const first = fx.warmupProbes(fade);
+    const shadows = fx.shadowProbes([]);
+    const before = { warm: parts(first), shadow: parts(shadows) };
+    for (let i = 0; i < 4; i++) {
+      expect(fx.warmupProbes(fade)).toBe(first);
+      expect(fx.shadowProbes([])).toBe(shadows);
+    }
+    expect({ warm: parts(first), shadow: parts(shadows) }).toEqual(before);
+    expect(before.warm.geometries).toBe(1);
+    expect(fades).toBe(1);
+  });
+
   it('a molotov fire gives flames and smoke, never a fireball', () => {
     const fx = new Effects();
     fx.bindWorld(flat);

@@ -424,10 +424,13 @@ export class GameRenderer {
     this.scene.add(assetProbe);
     // The effects' shadow material and the burnt-wreck variants (plain, instanced, fade copy).
     const fxProbe = this.effects.warmupProbes(fadeMaterial);
+    // The probes are kept across warm-ups: their software stand-ins are swapped in once.
+    const fxFresh = !fxProbe.userData.warmed;
+    fxProbe.userData.warmed = true;
     // And the shadow programs of instanced batches with their own depth material (debris, far vehicle bodies).
     const shadowScene = new THREE.Scene();
     shadowScene.add(this.effects.shadowProbes([this.vehicleParts.shadowDepthMaterial]), this.shadowStandIns());
-    this.softwareMaterials?.apply(fxProbe);
+    if (fxFresh) this.softwareMaterials?.apply(fxProbe);
     this.scene.add(fxProbe);
     // With the HDR output three draws the scene into its half-float target with tone mapping off and
     // a linear colour space. Compiling for the canvas would build the tone-mapped sRGB variants,

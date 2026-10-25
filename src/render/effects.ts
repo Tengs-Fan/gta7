@@ -778,6 +778,7 @@ export class Effects {
   /** The latest muzzle flash: its sprites and point, kept on the shooter's drawn muzzle while it kicks (trackMuzzles). */
   private readonly flashTrack = { shooter: null as Character | null, a: 0, b: 0, x: 0, y: 0, z: 0, age: 0 };
   private shadowProbeGroup: THREE.Group | null = null;
+  private warmupProbeGroup: THREE.Group | null = null;
   private muzzleOf: ((c: Character) => { x: number; y: number; z: number } | null) | null = null;
   readonly foam = new FoamRings();
   readonly flash: THREE.PointLight;
@@ -949,6 +950,9 @@ export class Effects {
    * material, and the burnt-wreck material as a plain mesh, an instanced one (far batches) and a fade copy.
    */
   warmupProbes(fade: (m: THREE.Material) => THREE.Material): THREE.Group {
+    // Built once and kept (like shadowProbes): every warm-up (tier switch, context restore) reuses them, and the fade
+    // copy keeps its program alive for the session.
+    if (this.warmupProbeGroup) return this.warmupProbeGroup;
     const g = new THREE.Group();
     g.name = 'fx-warmup';
     const box = new THREE.BoxGeometry(0.1, 0.1, 0.1);
@@ -961,6 +965,7 @@ export class Effects {
       m.frustumCulled = false;
       g.add(m);
     }
+    this.warmupProbeGroup = g;
     return g;
   }
 
