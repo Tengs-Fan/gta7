@@ -14,13 +14,14 @@ import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
 import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, SIGNAL_BULB_AXIS, type OccluderKind } from './occluderFade';
 import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
 import {
-  benchGeometry, binGeometry, bollardGeometry, drumGeometry, fenceGeometry, hydrantGeometry, jackGeometry, lampHeadGeometry, lampHousingGeometry, lampLensGeometry,
+  benchGeometry, binGeometry, bollardGeometry, drumGeometry, fenceGeometry, hydrantGeometry, jackGeometry, lampHeadGeometry, lampHousingGeometry, lampLensGeometry, lampShadowGeometry,
   lampPoleGeometry, lampTubeGeometry, lifeguardGeometry, loungerGeometry, mailboxGeometry, planterGeometry, posterGeometry, railGeometry, shelvingGeometry, shrubGeometry,
   signalBulbAt, signalPoleGeometry, surfboardGeometry, toolChestGeometry, toolWallGeometry, towelGeometry, tyreRackGeometry, tyreStackGeometry, umbrellaGeometry,
   volleyballGeometry, wheelieBinGeometry, workbenchGeometry,
 } from './furniture';
 import { dressingItems, type DressingItem, type DressingKind } from './dressing';
 import { WIND_GLSL, windAmplitude } from './wind';
+import { SHADOW_LAYER } from './vehicleBatches';
 
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
@@ -483,6 +484,8 @@ export class PropsView {
   readonly group = new THREE.Group();
   readonly visibility = new StaticVisibility();
   private readonly refs = new Map<number, InstanceRef[]>();
+  /** Shadow-only stand-ins (SHADOW_LAYER) by prop index, moved with their prop by breakProp and restoreAll. */
+  private readonly shadowRefs = new Map<number, InstanceRef[]>();
   private readonly bulbMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
   private readonly poolMat: THREE.MeshBasicMaterial;
   private signalBulbs: THREE.InstancedMesh | null = null;
@@ -637,6 +640,41 @@ export class PropsView {
     m.compose(new THREE.Vector3(p.x, p.y, p.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot), new THREE.Vector3(p.scale, p.scale, p.scale));
   }
 
+  /**
+   * A low-poly shadow caster for detailed props, one instanced mesh per cell drawn only into the shadow map
+   * (SHADOW_LAYER; the renderer's shadow pass enables it). `mat` is never drawn by the camera; reusing the prop's own
+   * material keeps the program set unchanged.
+   */
+  private shadowProxies(geo: THREE.BufferGeometry, mat: THREE.Material, props: number[], matrixFor: (p: Prop, m: THREE.Matrix4) => void): void {
+    const buckets = new Map<string, number[]>();
+    for (const pi of props) {
+      const p = this.world.layout.props[pi]!;
+      const key = spatialKey(p.x, p.z, this.chunk);
+      let bucket = buckets.get(key);
+      if (!bucket) buckets.set(key, bucket = []);
+      bucket.push(pi);
+    }
+    const m = new THREE.Matrix4();
+    for (const cell of buckets.values()) {
+      const mesh = new THREE.InstancedMesh(geo, mat, cell.length);
+      mesh.name = geo.name;
+      mesh.layers.set(SHADOW_LAYER);
+      mesh.castShadow = true;
+      mesh.receiveShadow = false;
+      mesh.userData.contactShadow = false;
+      cell.forEach((pi, k) => {
+        matrixFor(this.world.layout.props[pi]!, m);
+        mesh.setMatrixAt(k, m);
+        let l = this.shadowRefs.get(pi);
+        if (!l) this.shadowRefs.set(pi, l = []);
+        l.push({ mesh, index: k, base: m.clone() });
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      this.group.add(mesh);
+    }
+  }
+
   private buildSimple(props: number[], geo: THREE.BufferGeometry, mat: THREE.Material): void {
     this.makeInstanced(geo, mat, props, PropsView.standard);
   }
@@ -699,12 +737,14 @@ export class PropsView {
     // The pole, its head and its lens dissolve together, all by the pole's axis.
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b9199, vertexColors: true, roughness: 0.42, metalness: 0.55 });
     dissolveOccluder(poleMat, OCCLUDER_AXIS.lamp, this.occUniforms);
-    this.makeInstanced(pole, poleMat, lamps, PropsView.standard);
+    // The drawn pole and head cast no shadow: a low-poly stand-in does (shadowProxies), one draw per cell.
+    this.makeInstanced(pole, poleMat, lamps, PropsView.standard, { shadow: false });
+    this.shadowProxies(lampShadowGeometry(LAMP_HEAD), poleMat, lamps, PropsView.standard);
     // The cobra head: a low dome 0.78 m long and 0.36 m wide on a closed rim, the lens set into its underside.
     const head = lampHeadGeometry(LAMP_HEAD);
     const headMat = new THREE.MeshStandardMaterial({ color: 0x9ea4ab, vertexColors: true, roughness: 0.38, metalness: 0.5 });
     dissolveOccluder(headMat, OCCLUDER_AXIS.lamp, this.occUniforms);
-    this.makeInstanced(head, headMat, lamps, PropsView.standard);
+    this.makeInstanced(head, headMat, lamps, PropsView.standard, { shadow: false });
     const lens = lampLensGeometry(LAMP_HEAD);
     dissolveOccluder(this.bulbMat, OCCLUDER_AXIS.lamp, this.occUniforms);
     this.makeInstanced(lens, this.bulbMat, lamps, PropsView.standard, { shadow: false });
@@ -1162,7 +1202,7 @@ export class PropsView {
     const back = new THREE.Matrix4().makeTranslation(p.x, p.y + (p.kind === 'lamp' || p.kind === 'signal' ? 0.15 : 0.2), p.z);
     // A knocked-down lamp goes completely, light and all, so no head, lens or glow is left hanging where it stood.
     const hide = p.kind === 'hydrant' || p.kind === 'lamp';
-    for (const r of refs) {
+    for (const r of [...refs, ...(this.shadowRefs.get(index) ?? [])]) {
       let m: THREE.Matrix4;
       if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat || r.mesh === this.signalBulbs || r.mesh.userData.signalBulbs) m = new THREE.Matrix4().makeScale(0, 0, 0);
       else m = back.clone().multiply(fall).multiply(toOrigin).multiply(r.base);
@@ -1293,7 +1333,7 @@ export class PropsView {
 
   /** Puts every knocked-over prop back in place (new game). */
   restoreAll(): void {
-    for (const refs of this.refs.values()) {
+    for (const refs of [...this.refs.values(), ...this.shadowRefs.values()]) {
       for (const r of refs) {
         r.mesh.setMatrixAt(r.index, r.base);
         r.mesh.instanceMatrix.needsUpdate = true;

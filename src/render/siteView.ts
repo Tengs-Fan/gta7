@@ -6,6 +6,7 @@ import { places } from '../sim/activities/places';
 import { VEHICLE_SPECS } from '../sim/specs';
 import type { StaticWorld } from '../world/staticWorld';
 import { SAFEHOUSE_BAY_LENGTH } from './dressing';
+import { signFrameGeometry } from './furniture';
 
 function signTexture(text: string, fg: string, bg: string): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -34,6 +35,8 @@ export class SiteView {
   private readonly post = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.6, metalness: 0.5 });
   /** A sign's unprinted back: painted sheet metal. */
   private readonly back = new THREE.MeshStandardMaterial({ color: 0x8c9096, roughness: 0.55, metalness: 0.45 });
+  /** The signs' posts and rims, shaded per part by vertex colour. */
+  private readonly metal = new THREE.MeshStandardMaterial({ color: 0x3a3d42, vertexColors: true, roughness: 0.6, metalness: 0.5 });
 
   constructor(private readonly world: StaticWorld) {
     const at = places(world);
@@ -107,12 +110,11 @@ export class SiteView {
     panel.position.y = bottom + h / 2;
     panel.castShadow = true;
     g.add(panel);
-    for (const s of [-1, 1]) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.1, bottom + h, 0.1), this.post);
-      p.position.set((s * w) / 2 - s * 0.1, (bottom + h) / 2, -0.06);
-      p.castShadow = true;
-      g.add(p);
-    }
+    // Round posts on flanges, clamps and a rim round the plate (furniture.ts).
+    const frame = new THREE.Mesh(signFrameGeometry(w, h, bottom), this.metal);
+    frame.name = 'sign-frame';
+    frame.castShadow = true;
+    g.add(frame);
     this.group.add(g);
     return g;
   }

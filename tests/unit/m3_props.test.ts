@@ -12,10 +12,12 @@ import { DRESSING_SIZE, DressingRules, dressingItems, footprint, GARAGE_ITEM_HEI
 import {
   broadleafClusters, broadleafGeometry, broadleafTexture, BROADLEAF_SCALE, LEAF_ATLAS_ID, LEAF_CARDS, LEAF_TILES, PALM_RING, palmCurve, palmTrunkGeometry, TREE_LIMBS,
 } from '../../src/render/foliage';
-import { benchGeometry, binGeometry, bollardGeometry, hydrantGeometry, lampHeadGeometry, lampLensGeometry, lampPoleGeometry, railGeometry, signalBulbAt, signalPoleGeometry, triangles } from '../../src/render/furniture';
+import { benchGeometry, binGeometry, bollardGeometry, hydrantGeometry, lampHeadGeometry, lampLensGeometry, lampPoleGeometry, lampShadowGeometry, railGeometry, signalBulbAt, signalPoleGeometry, triangles } from '../../src/render/furniture';
 import { OCCLUDER_AXIS, occluderOpacity } from '../../src/render/occluderFade';
 import { foliageSpheres, LAMP_HEAD, palmAxis, palmLean, palmMatrix, PropsView } from '../../src/render/props';
-import { HARDWARE_CHUNK_SIZE } from '../../src/render/spatial';
+import { SiteView } from '../../src/render/siteView';
+import { HARDWARE_CHUNK_SIZE, spatialKey } from '../../src/render/spatial';
+import { SHADOW_LAYER } from '../../src/render/vehicleBatches';
 import { WIND_AMP_MAX, windAmplitude, windMaxDisplacement, windOffset } from '../../src/render/wind';
 import { Sim } from '../../src/sim/sim';
 import type { Prop } from '../../src/world/layout';
@@ -111,6 +113,49 @@ describe('VAL-PRP-001 street furniture is modelled and fits the old models', () 
       expect(Math.abs(minY(...gs)), kind).toBeLessThanOrEqual(0.02);
     }
     console.log(['[props] furniture vs d98da7b', ...report].join('\n'));
+  });
+
+  it('signs: round posts and a rim round a plate with a printed face and a plain back, fitted to the d98da7b sign', () => {
+    const sites = new SiteView(W);
+    const report: string[] = [];
+    let signs = 0;
+    sites.group.traverse((o) => {
+      const plate = o.children.find((c) => c.name === 'sign-plate') as THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial[]> | undefined;
+      if (!plate) return;
+      signs++;
+      const frame = o.children.find((c) => c.name === 'sign-frame') as THREE.Mesh;
+      expect(frame, 'frame').toBeTruthy();
+      expect(count(frame.geometry, 'post')).toBe(2);
+      expect(partsOf(frame.geometry)).toEqual(expect.arrayContaining(['base', 'cap', 'clamp', 'frame']));
+      // BoxGeometry groups: +x, -x, +y, -y, +z (the printed face), -z (the back).
+      const face = plate.material[4]!;
+      const back = plate.material[5]!;
+      expect(face.map, 'printed face').toBeTruthy();
+      expect(back.map, 'plain back').toBeNull();
+      expect(back.emissiveMap).toBeNull();
+      // d98da7b: the plate and two 10 cm square posts behind it, 6 cm back, from the ground to its top edge.
+      const { width: w, height: h } = plate.geometry.parameters;
+      const bottom = plate.position.y - h / 2;
+      const was = [w, bottom + h, 0.15];
+      const box3 = new THREE.Box3();
+      for (const m of [plate, frame] as THREE.Mesh[]) {
+        m.updateMatrix();
+        m.geometry.computeBoundingBox();
+        box3.union(m.geometry.boundingBox!.clone().applyMatrix4(m.matrix));
+      }
+      const size = box3.getSize(new THREE.Vector3()).toArray();
+      const tris = triangles(plate.geometry) + triangles(frame.geometry);
+      report.push(`sign ${w}x${h} at ${bottom}: ${tris} tris (was 36), size ${size.map((s) => s.toFixed(3)).join(' x ')} (was ${was.map((s) => s.toFixed(3)).join(' x ')}), foot ${box3.min.y.toFixed(3)}`);
+      expect(tris).toBeGreaterThanOrEqual(2 * 36);
+      expect(tris).toBeLessThanOrEqual(3000);
+      size.forEach((s, i) => {
+        expect(s / was[i]!, `axis ${i}`).toBeGreaterThanOrEqual(0.85);
+        expect(s / was[i]!, `axis ${i}`).toBeLessThanOrEqual(1.15);
+      });
+      expect(Math.abs(box3.min.y)).toBeLessThanOrEqual(0.02);
+    });
+    console.log(['[props] signs vs d98da7b', ...report].join('\n'));
+    expect(signs).toBeGreaterThanOrEqual(6);
   });
 
   it('the props view draws these models', () => {
@@ -546,6 +591,49 @@ describe('VAL-PRP-009 the dissolve, halo and clip patches are on the new materia
 });
 
 describe('VAL-PRP-010 props stay instanced within budget', () => {
+  it('the lamps cast their shadow with one low-poly stand-in per cell on the shadow layer, which goes when a lamp is knocked down', () => {
+    const props = new PropsView(W, HARDWARE_CHUNK_SIZE);
+    const lamps = W.layout.props.flatMap((p, i) => (p.kind === 'lamp' ? [i] : []));
+    const stand: THREE.InstancedMesh[] = [];
+    props.group.traverse((o) => {
+      if (!(o instanceof THREE.InstancedMesh)) return;
+      if (o.geometry.name === 'shadow-lamp') stand.push(o);
+      // The drawn lamp parts cast none.
+      if (o.geometry.name.startsWith('lamp-')) expect(o.castShadow, o.geometry.name).toBe(false);
+    });
+    const cells = new Set(lamps.map((i) => spatialKey(W.layout.props[i]!.x, W.layout.props[i]!.z, HARDWARE_CHUNK_SIZE)));
+    expect(stand.length).toBe(cells.size);
+    expect(stand.reduce((n, m) => n + m.count, 0)).toBe(lamps.length);
+    for (const m of stand) {
+      expect(m.castShadow).toBe(true);
+      expect(m.layers.isEnabled(SHADOW_LAYER)).toBe(true);
+      expect(m.layers.isEnabled(0)).toBe(false);
+    }
+    // A fraction of the drawn lamp's triangles, with the same outline (within 15 cm) as its pole, arm and head.
+    const drawn = sizeOf(lampPoleGeometry(LAMP_HEAD), lampHeadGeometry(LAMP_HEAD));
+    const proxy = lampShadowGeometry(LAMP_HEAD);
+    const ps = sizeOf(proxy);
+    const tris = triangles(proxy);
+    const full = triangles(lampPoleGeometry(LAMP_HEAD)) + triangles(lampHeadGeometry(LAMP_HEAD));
+    console.log(`[props] lamp shadow caster: ${tris} triangles for the drawn ${full}, size ${ps.toArray().map((s) => s.toFixed(2)).join(' x ')} (drawn ${drawn.toArray().map((s) => s.toFixed(2)).join(' x ')})`);
+    expect(tris).toBeLessThan(full / 5);
+    for (let k = 0; k < 3; k++) expect(Math.abs(ps.getComponent(k) - drawn.getComponent(k)), `axis ${k}`).toBeLessThan(0.15);
+    // Knocked down: its stand-in goes with it; a new game brings it back.
+    const target = lamps[3]!;
+    const refs = (props as unknown as { shadowRefs: Map<number, Array<{ mesh: THREE.InstancedMesh; index: number }>> }).shadowRefs.get(target)!;
+    expect(refs.length).toBe(1);
+    const scale = () => {
+      const m = new THREE.Matrix4();
+      refs[0]!.mesh.getMatrixAt(refs[0]!.index, m);
+      return new THREE.Vector3().setFromMatrixScale(m).length();
+    };
+    expect(scale()).toBeGreaterThan(0);
+    props.breakProp(target, 1, 0);
+    expect(scale()).toBe(0);
+    props.restoreAll();
+    expect(scale()).toBeGreaterThan(0);
+  });
+
   it('at most 1.5 times the d98da7b prop meshes (387) at the hardware cell size, and no more per kind than cells', () => {
     const props = new PropsView(W, HARDWARE_CHUNK_SIZE);
     let meshes = 0;

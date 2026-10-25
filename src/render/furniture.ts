@@ -120,6 +120,22 @@ export function lampHeadGeometry(head: Head): THREE.BufferGeometry {
   return b.build('lamp-head');
 }
 
+/**
+ * The lamp's shadow caster (drawn only into the shadow map): the pole, arm and head as a few boxes and a six-sided
+ * shaft, about 70 triangles for the drawn lamp's 500, so the 1,345 lamps cost the shadow pass little.
+ */
+export function lampShadowGeometry(head: Head): THREE.BufferGeometry {
+  const { y, reach } = head;
+  const b = new ModelBuilder();
+  b.add('base', box(0.34, 0.5, 0.34, 0, 0.25, 0));
+  b.add('pole', cyl(0.065, 0.1, 6.1, 6, 0, 0.5, 0, true));
+  const curve = new THREE.QuadraticBezierCurve3(v3(0, 6.3, 0), v3(0, 6.75, 0.3), v3(0, y + 0.12, reach - 0.32));
+  const pts = [0, 1 / 3, 2 / 3, 1].map((t) => curve.getPoint(t));
+  for (let k = 0; k < 3; k++) b.add('arm', beam(pts[k]!, pts[k + 1]!, 0.09));
+  b.add('head', box(0.36, 0.14, 0.78, 0, y + 0.09, reach));
+  return b.build('shadow-lamp');
+}
+
 /** The lens plate set in the head's underside: its underside is the head point. */
 export function lampLensGeometry(head: Head): THREE.BufferGeometry {
   const { y, reach } = head;
@@ -212,6 +228,29 @@ export function bollardGeometry(): THREE.BufferGeometry {
   b.add('band', cyl(0.135, 0.135, 0.05, 12, 0, 0.3, 0), 0xd9c35a);
   b.add('cap', new THREE.SphereGeometry(0.19, 12, 4, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.5, 1).translate(0, 0.42, 0), 0x2e3135);
   return b.build('bollard');
+}
+
+/**
+ * A site sign's metalwork round its plate (the plate, `w` x `h` and 8 cm thick with its bottom edge at `bottom`, is
+ * drawn by SiteView with its printed face to +z and a plain back): two round posts behind it on base flanges with
+ * domed caps, clamps, and a rim framing the plate's outer edges, clear of the print.
+ */
+export function signFrameGeometry(w: number, h: number, bottom: number): THREE.BufferGeometry {
+  const b = new ModelBuilder();
+  const top = bottom + h;
+  const rim = 0.03;
+  for (const s of [-1, 1]) {
+    const x = s * (w / 2 - 0.1);
+    b.add('base', cyl(0.055, 0.06, 0.03, 10, x, 0, -0.06), 0xffffff, 0.8);
+    b.add('post', cyl(0.045, 0.045, top, 10, x, 0, -0.06, true));
+    b.add('cap', new THREE.SphereGeometry(0.045, 10, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(x, top, -0.06), 0xffffff, 0.9);
+    b.add('clamp', box(0.13, 0.05, 0.03, x, bottom + 0.12, -0.055), 0xffffff, 0.75);
+    b.add('clamp', box(0.13, 0.05, 0.03, x, top - 0.12, -0.055), 0xffffff, 0.75);
+  }
+  b.add('frame', box(w + 2 * rim, rim, 0.1, 0, top + rim / 2, 0), 0xffffff, 0.85);
+  b.add('frame', box(w + 2 * rim, rim, 0.1, 0, bottom - rim / 2, 0), 0xffffff, 0.85);
+  for (const s of [-1, 1]) b.add('frame', box(rim, h, 0.1, s * (w / 2 + rim / 2), bottom + h / 2, 0), 0xffffff, 0.85);
+  return b.build('sign-frame');
 }
 
 /** A 2.4 m run of deck railing (centred on its post): a post, a top rail and a mid rail, along local x. */
