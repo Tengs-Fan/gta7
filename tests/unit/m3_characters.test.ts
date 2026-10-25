@@ -19,7 +19,8 @@ import { isGun, type WeaponId } from '../../src/sim/specs';
 import { BASE_LOOK, compareJoints, flat, personFor, poseCases, runPose, segmentJoints, skinnedJoints } from '../support/characterRig';
 import { makeSim } from './helpers';
 
-vi.hoisted(async () => {
+// Awaited, so the stubs exist before the imports above evaluate (vehicleView builds a canvas texture on import).
+await vi.hoisted(async () => {
   const m = await import('../support/canvasStub');
   m.installCanvasStubs();
 });
