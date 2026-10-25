@@ -26,7 +26,7 @@ import { PART_LAYER, SHADOW_LAYER, VehiclePartBatches } from '../../src/render/v
 import { TYRE_LETTERING, TYRE_SIDEWALL, TYRE_TREAD } from '../../src/render/vehicleDetails';
 import { manhole, stormDrain } from '../../src/render/cityArchitecture';
 import { GeoBuilder } from '../../src/render/geo';
-import { AXLE, cabinCeiling, cabinLayout, endRounding, GLASS_OPACITY, LAMP_LENS, riderSeat, VehicleView, vehicleGlass } from '../../src/render/vehicleView';
+import { AXLE, cabinCeiling, cabinLayout, endRounding, GLASS_OPACITY, LAMP_LENS, riderSeat, UNDER_GEOMETRY, UNDER_REACH, underShadeMat, VehicleView, vehicleGlass } from '../../src/render/vehicleView';
 import { Vehicle } from '../../src/sim/entities';
 import { SKELETON } from '../../src/sim/pose';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
@@ -473,6 +473,84 @@ describe('VAL-CAR-006 no pale disc under parked cars', () => {
       expect(max).toBeLessThanOrEqual(ground * 2);
       g.dispose();
     }
+  });
+});
+
+describe('VAL-CAR-006 the shade under a car', () => {
+  it('every car lays one soft dark pad on the road under it, all in one draw first among the transparent ones, casting nothing', () => {
+    const batches = new VehiclePartBatches();
+    const views = KINDS.map((kind, i) => {
+      const v = view(kind);
+      const car = new Vehicle(i + 1, kind, i * 9, 0.4, -3, 0.6, 0x8a96a6);
+      v.bind(car);
+      v.sync(car, 1 / 60, 0, 0);
+      return { v, car };
+    });
+    batches.begin();
+    for (const { v } of views) v.drawParts(batches);
+    batches.end();
+    const pads = (batches.group.children as THREE.InstancedMesh[]).filter((m) => batches.partOf(m)?.geometry === UNDER_GEOMETRY && m.count > 0);
+    expect(pads.length).toBe(1);
+    const pad = pads[0]!;
+    expect(pad.count).toBe(KINDS.length);
+    expect(pad.renderOrder).toBeLessThan(0);
+    expect(pad.castShadow).toBe(false);
+    expect((pad.material as THREE.Material).transparent).toBe(true);
+    expect((pad.material as THREE.Material).depthWrite).toBe(false);
+    const m = new THREE.Matrix4();
+    const c = new THREE.Color();
+    const at = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    views.forEach(({ car }, i) => {
+      pad.getMatrixAt(i, m);
+      pad.getColorAt(i, c);
+      m.decompose(at, q, scale);
+      // On the road under the car (a little over it), as wide and long as the car plus the reach, turned with it.
+      expect(at.x).toBeCloseTo(car.pos.x, 5);
+      expect(at.z).toBeCloseTo(car.pos.z, 5);
+      expect(at.y - car.pos.y).toBeGreaterThan(0.005);
+      expect(at.y - car.pos.y).toBeLessThan(0.05);
+      expect(c.r).toBeCloseTo(car.spec.width / 2, 5);
+      expect(c.g).toBeCloseTo(car.spec.length / 2, 5);
+      expect(scale.x).toBeCloseTo(car.spec.width / 2 + UNDER_REACH, 5);
+      expect(scale.z).toBeCloseTo(car.spec.length / 2 + UNDER_REACH, 5);
+      expect(new THREE.Vector3(0, 0, 1).applyQuaternion(q).angleTo(new THREE.Vector3(Math.sin(car.heading), 0, Math.cos(car.heading)))).toBeLessThan(1e-4);
+    });
+    // Dark under the middle, fading to nothing past the footprint.
+    const s = { vertexShader: THREE.ShaderLib.basic.vertexShader, fragmentShader: THREE.ShaderLib.basic.fragmentShader, uniforms: {} } as unknown as THREE.WebGLProgramParametersWithUniforms;
+    underShadeMat.onBeforeCompile(s, undefined as unknown as THREE.WebGLRenderer);
+    expect(s.fragmentShader).toContain('diffuseColor.a *=');
+    expect(underShadeMat.color.getHex()).toBe(0);
+    batches.dispose();
+  });
+
+  it('the shade goes with a car that is airborne or on its roof, and fades with a fading car', () => {
+    const batches = new VehiclePartBatches();
+    const v = view('sedan');
+    const car = new Vehicle(1, 'sedan', 0, 0, 0, 0, 0x8a96a6);
+    v.bind(car);
+    v.sync(car, 1 / 60, 0, 0);
+    const fadeOf = (): number | null => {
+      batches.begin();
+      v.drawParts(batches);
+      batches.end();
+      const pad = (batches.group.children as THREE.InstancedMesh[]).find((m) => batches.partOf(m)?.geometry === UNDER_GEOMETRY && m.count > 0);
+      return pad ? pad.geometry.getAttribute('instanceFade').getX(0) : null;
+    };
+    expect(fadeOf()).toBe(1);
+    v.beginFade();
+    v.setFade(0.4);
+    expect(fadeOf()).toBeCloseTo(0.4, 6);
+    v.endFade();
+    car.airborne = true;
+    for (let i = 0; i < 60; i++) v.sync(car, 1 / 60, 0, 0);
+    expect(fadeOf()).toBeNull();
+    car.airborne = false;
+    car.roll = Math.PI;
+    for (let i = 0; i < 60; i++) v.sync(car, 1 / 60, 0, 0);
+    expect(fadeOf()).toBeNull();
+    batches.dispose();
   });
 });
 

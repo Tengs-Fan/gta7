@@ -900,6 +900,57 @@ const FAR_BODY = { castShadow: true, receiveShadow: true, noContact: true } as c
 const FAR_PAINT = { ...FAR_BODY, tinted: true } as const;
 const FAR_FITTINGS = { receiveShadow: true, noContact: true } as const;
 
+/**
+ * The shade under a car. The ground beneath it sees almost none of the sky, which neither the sun's shadow (none in a
+ * building's shade, at dusk or at night, nor on Low) nor the contact-shadow pass (screen space: it never sees the
+ * car's underside) draws, so a parked car stood on a road as bright as the open street round it. A soft dark pad on
+ * the road: UNDER_SHADE dark under the middle, from UNDER_INSET inside the footprint fading out UNDER_REACH past it.
+ * Every car's is one instanced unit quad (its half width and length per instance, in the instance colour), drawn first
+ * among the transparent draws, so glass seen over it blends on top.
+ */
+export const UNDER_SHADE = 0.7;
+export const UNDER_REACH = 0.45;
+const UNDER_INSET = 0.25;
+/** Over the road and its markings (and the street ironwork), under every tyre's contact patch. */
+const UNDER_LIFT = 0.025;
+export const UNDER_GEOMETRY = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
+const UNDER_STYLE = { tinted: true, first: true } as const;
+
+function underShadeMaterial(): THREE.MeshBasicMaterial {
+  const m = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
+  m.name = 'vehicle-under-shade';
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vUnderAt;\nvarying vec2 vUnderHalf;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+#ifdef USE_INSTANCING_COLOR
+vUnderHalf = instanceColor.rg;
+#else
+vUnderHalf = vec2( 1.0 );
+#endif
+vUnderAt = position.xz * ( vUnderHalf + ${UNDER_REACH.toFixed(3)} );`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vUnderAt;\nvarying vec2 vUnderHalf;')
+      .replace(
+        '#include <alphamap_fragment>',
+        `#include <alphamap_fragment>
+{
+  float underOut = length( max( abs( vUnderAt ) - ( vUnderHalf - ${UNDER_INSET.toFixed(3)} ), 0.0 ) );
+  float underK = 1.0 - smoothstep( 0.0, ${(UNDER_INSET + UNDER_REACH).toFixed(3)}, underOut );
+  diffuseColor.a *= ${UNDER_SHADE.toFixed(3)} * underK * underK;
+}`,
+      );
+  };
+  m.customProgramCacheKey = () => 'vehicle-under-shade';
+  return m;
+}
+
+/** The under-car shade's material (one for every car; see UNDER_SHADE). */
+export const underShadeMat = underShadeMaterial();
+
 const stripes = new Map<VehicleKind, THREE.BufferGeometry>();
 
 /** The police livery stripe of `kind`, undented (each view bends its own copy; the far version draws this one). */
@@ -1011,6 +1062,12 @@ export class VehicleView {
   private readonly lensParts: THREE.Mesh[] = [];
   private readonly partTmp = new THREE.Matrix4();
   private readonly partTmp2 = new THREE.Matrix4();
+  /** The shade under the car (UNDER_SHADE): its world transform, how much of it is drawn, and its half sizes. */
+  private readonly under = new THREE.Matrix4();
+  private underLevel = 1;
+  private readonly underHalf = new THREE.Color();
+  private readonly underAt = new THREE.Vector3();
+  private readonly underScale = new THREE.Vector3();
   /** Wheel visibility saved by hideParts. */
   private readonly partsShown = new Uint8Array(8);
   private fadeState: { entries: FadeEntry[]; depth: THREE.MeshDepthMaterial } | null = null;
@@ -1095,6 +1152,10 @@ export class VehicleView {
     this.shadowCaster.layers.set(SHADOW_LAYER);
     this.group.add(this.body, this.cabin, this.exterior, this.shadowCaster);
     const halfW = s.width / 2;
+    // (Warm-up views, never synced, draw it at the origin.)
+    this.underHalf.setRGB(halfW, s.length / 2, 0);
+    this.underScale.set(halfW + UNDER_REACH, 1, s.length / 2 + UNDER_REACH);
+    this.under.makeScale(this.underScale.x, 1, this.underScale.z);
     for (const [front, z] of [[true, a.prof.wheelFront * s.length], [false, a.prof.wheelRear * s.length]] as const) {
       for (const side of [-1, 1]) {
         const pivot = new THREE.Group();
@@ -1226,6 +1287,8 @@ export class VehicleView {
     this.vehicle = v;
     this.lit = { lights: false, siren: null };
     this.group.visible = true;
+    // Taken as it is at the first sync (not faded in).
+    this.underLevel = -1;
   }
 
   /** Hands the view back to the pool: frees its dented geometry. */
@@ -1369,12 +1432,14 @@ export class VehicleView {
   }
 
   /**
-   * Adds this car's tyres, rims, lamps and roof gear to the shared part batches, placed by the transform the last sync
-   * set; the far version adds its glass, fittings and livery too (the coarse one has its wheels merged in).
+   * Adds this car's tyres, rims, lamps, roof gear and the shade under it to the shared part batches, placed by the
+   * transform the last sync set; the far version adds its glass, fittings and livery too (the coarse one has its wheels
+   * merged in).
    */
   drawParts(batches: VehiclePartBatches): void {
     const m = this.group.matrix;
     const fade = this.fadeLeft;
+    if (this.underLevel > 0.02) batches.add(UNDER_GEOMETRY, underShadeMat, this.under, UNDER_STYLE, this.underHalf, fade * this.underLevel);
     if (this.distant !== 'coarse') {
       for (const w of this.wheels) {
         w.pivot.updateMatrix();
@@ -1639,6 +1704,10 @@ export class VehicleView {
     // The planted pose rotates about the body centre, not the wheel contact point at v.pos: a car on its roof (roll = PI)
     // then rests on the road instead of being mirrored underneath it.
     this.qPlanted.setFromEuler(this.euler.set(-v.pitch, v.heading, bodyRoll, 'YXZ'));
+    // The shade under the car lies on the road, square to the ground it stands on, and goes as it lifts off or rolls over.
+    const flat = onGround ? Math.max(0, Math.cos(v.roll)) * Math.max(0, Math.cos(v.pitch)) : 0;
+    this.underLevel = this.underLevel < 0 ? flat : damp(this.underLevel, flat, 10, dt);
+    this.under.compose(this.underAt.set(v.pos.x, v.pos.y + UNDER_LIFT, v.pos.z), this.qPlanted, this.underScale);
     const c = this.centre.set(0, this.pivotY, 0).applyQuaternion(this.qPlanted);
     const px = v.pos.x - c.x;
     const py = v.pos.y + this.pivotY - c.y - WRECK_SAG * upright;

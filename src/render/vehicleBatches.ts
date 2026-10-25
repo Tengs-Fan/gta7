@@ -29,6 +29,8 @@ export interface PartStyle {
   noContact?: boolean;
   /** Tinted per instance (a far body's paint). */
   tinted?: boolean;
+  /** Drawn before the other transparent draws (the shade under the cars, under any glass seen over it). */
+  first?: boolean;
 }
 
 interface Bucket {
@@ -174,7 +176,7 @@ function release(g: THREE.BufferGeometry, part: THREE.BufferGeometry): void {
   g.dispose();
 }
 
-const styleKey = (s: PartStyle): string => `${s.receiveShadow ? 'r' : ''}${s.castShadow ? 'c' : ''}${s.noContact ? 'n' : ''}${s.tinted ? 't' : ''}`;
+const styleKey = (s: PartStyle): string => `${s.receiveShadow ? 'r' : ''}${s.castShadow ? 'c' : ''}${s.noContact ? 'n' : ''}${s.tinted ? 't' : ''}${s.first ? 'f' : ''}`;
 
 export class VehiclePartBatches {
   readonly group = new THREE.Group();
@@ -393,6 +395,7 @@ export class VehiclePartBatches {
     mesh.castShadow = style.castShadow === true;
     if (mesh.castShadow) mesh.customDepthMaterial = this.depthMat;
     if (style.noContact) mesh.userData.contactShadow = false;
+    if (style.first) mesh.renderOrder = -1;
     // Instances span the whole city; GameRenderer only adds the parts of cars in view.
     mesh.frustumCulled = false;
     mesh.count = 0;
