@@ -55,3 +55,4 @@ The assets are used under CC0 (no attribution required, credited here anyway) or
 | acg-Facade005 | Facade005 (ambientCG material, 1K) | ambientCG | https://ambientcg.com/a/Facade005 | CC0 |  | tex.facade005.albedo, tex.facade005.normal, tex.facade005.orm |
 | acg-Facade006 | Facade006 (ambientCG material, 1K) | ambientCG | https://ambientcg.com/a/Facade006 | CC0 |  | tex.facade006.albedo, tex.facade006.normal, tex.facade006.orm |
 | acg-Facade009 | Facade009 (ambientCG material, 1K) | ambientCG | https://ambientcg.com/a/Facade009 | CC0 |  | tex.facade009.albedo, tex.facade009.emissive, tex.facade009.normal, tex.facade009.orm |
+| acg-LeafSet024 | LeafSet024 (ambientCG leaf atlas, 1K) | ambientCG | https://ambientcg.com/a/LeafSet024 | CC0 |  | tex.leaf_atlas.albedo |

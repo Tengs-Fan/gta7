@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Logger } from '@gltf-transform/core';
 import { resample } from '@gltf-transform/functions';
-import { boats, characters, CHARACTER_BONES, clips, envs, props, SPEC_DIMS, textureSets, vehicles } from './catalog.mjs';
+import { atlases, boats, characters, CHARACTER_BONES, clips, envs, props, SPEC_DIMS, textureSets, vehicles } from './catalog.mjs';
+import { buildLeafAtlas } from './leafAtlas.mjs';
 import { OUT_DIR, ROOT, readSources, srcPath } from './lib.mjs';
 import {
   boundsOf, dropAnimations, dropMeshes, io, nodeCentre, normalize, optimize, recenterNode, renameNodes, sceneOf, triangleCount, writeGlb,
@@ -136,6 +137,13 @@ async function buildTextures(def) {
   }
 }
 
+async function buildAtlas(def) {
+  const { buffer, width, height } = await buildLeafAtlas(def);
+  const file = `textures/${def.set}/albedo.webp`;
+  emit(file, buffer);
+  addEntry({ id: `tex.${def.set}.albedo`, file, kind: 'texture', set: def.set, map: 'albedo', bytes: buffer.length, bounds: { width, height }, license: def.license });
+}
+
 function buildEnv(def) {
   const buffer = fs.readFileSync(srcPath(def.src));
   emit(def.out, buffer);
@@ -148,6 +156,7 @@ for (const def of vehicles) await buildVehicle(def);
 for (const def of boats) await buildBoat(def);
 for (const def of props) await buildProp(def);
 for (const def of textureSets) await buildTextures(def);
+for (const def of atlases) await buildAtlas(def);
 for (const def of envs) buildEnv(def);
 
 entries.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

@@ -11,8 +11,17 @@ import { rectContains, type Prop, type PropKind, type Rect } from '../world/layo
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { adTexture, AD_COUNT, glowTexture, groundTexture } from './textures';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
-import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, occluderOpacity, SIGNAL_BULB_AXIS, type OccluderKind } from './occluderFade';
-import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
+import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, SIGNAL_BULB_AXIS, type OccluderKind } from './occluderFade';
+import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
+import {
+  benchGeometry, binGeometry, bollardGeometry, drumGeometry, fenceGeometry, hydrantGeometry, jackGeometry, lampHeadGeometry, lampHousingGeometry, lampLensGeometry, lampShadowGeometry,
+  lampPoleGeometry, lampTubeGeometry, lifeguardGeometry, loungerGeometry, mailboxGeometry, planterGeometry, posterGeometry, railGeometry, shelvingGeometry, shrubGeometry,
+  signalBulbAt, signalPoleGeometry, surfboardGeometry, toolChestGeometry, toolWallGeometry, towelGeometry, tyreRackGeometry, tyreStackGeometry, umbrellaGeometry,
+  volleyballGeometry, wheelieBinGeometry, workbenchGeometry,
+} from './furniture';
+import { dressingItems, type DressingItem, type DressingKind } from './dressing';
+import { WIND_GLSL, windAmplitude } from './wind';
+import { SHADOW_LAYER } from './vehicleBatches';
 
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
@@ -86,9 +95,10 @@ export function foliagePoints(q: Prop): number[] {
  * so a canopy the camera pushes into turns see-through instead of filling the screen. Opaque, so no
  * sorting and no extra draws; shadows come from the default depth material and are unaffected.
  */
-function fadeNearCamera(mat: THREE.Material): void {
+function fadeNearCamera(mat: THREE.Material, wind?: WindPatch): void {
   mat.userData.contactShadow = false; // The normal override cannot reproduce the near-camera dissolve.
   mat.onBeforeCompile = (shader) => {
+    if (wind) windVertex(shader, wind);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vFadeWorld;')
       .replace(
@@ -125,6 +135,44 @@ float fadeBayer4( vec2 frag ) {
   };
 }
 
+/** The wind every foliage material shares (wind.ts), and where one material's foliage hangs from. */
+interface WindUniforms {
+  uWindTime: { value: number };
+  uWindAmp: { value: number };
+  uWindDir: { value: THREE.Vector2 };
+}
+
+interface WindPatch {
+  shared: WindUniforms;
+  /** Local point the foliage grows from and the reach (m) over which its sway builds up (w 0: none, full sway). */
+  pivot: THREE.Vector4;
+}
+
+/**
+ * Sways foliage vertices (leaf cards, palm fronds) by wind.ts's windOffset, in world space, before anything else reads
+ * `transformed`. Uniforms only, so the weather and the time change no program. Shadows keep the unswayed shape.
+ */
+function windVertex(shader: THREE.WebGLProgramParametersWithUniforms, wind: WindPatch): void {
+  Object.assign(shader.uniforms, wind.shared, { uWindPivot: { value: wind.pivot } });
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>
+uniform vec4 uWindPivot;
+${WIND_GLSL}`)
+    .replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+{
+  mat4 windFrame = modelMatrix;
+  #ifdef USE_INSTANCING
+  windFrame = modelMatrix * instanceMatrix;
+  #endif
+  vec3 windWorld = ( windFrame * vec4( transformed, 1.0 ) ).xyz;
+  float windReach = uWindPivot.w > 0.0 ? clamp( distance( transformed, uWindPivot.xyz ) / uWindPivot.w, 0.0, 1.0 ) : 1.0;
+  transformed += inverse( mat3( windFrame ) ) * windOffset( windWorld, windWorld.y - windFrame[ 3 ].y, windReach );
+}`,
+    );
+}
+
 /** The camera and the subject it frames, and the fade edges (OCCLUDER_FADE_EDGES; all negative: no dissolve). */
 interface OccluderUniforms {
   uOccCam: { value: THREE.Vector3 };
@@ -141,10 +189,10 @@ const OCCLUDER_OFF = [-2, -1, -2, -1] as const;
  * for foliage. Opaque, so no sorting; uniforms only, so switching it on and off compiles nothing. Shadows come from
  * the default depth material and are unaffected; PropsView keeps a dissolving batch out of the contact-shadow pass.
  */
-function dissolveOccluder(mat: THREE.Material, axis: { readonly from: number; readonly to: number }, shared: OccluderUniforms): void {
+function dissolveOccluder(mat: THREE.Material, axis: { readonly from: number; readonly to: number }, shared: OccluderUniforms, bend = 0): void {
   const span = { value: new THREE.Vector2(axis.from, axis.to) };
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, shared, { uOccSpan: span });
+    Object.assign(shader.uniforms, shared, { uOccSpan: span, uOccBend: { value: bend } });
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -153,6 +201,7 @@ uniform vec3 uOccCam;
 uniform vec3 uOccSubject;
 uniform vec4 uOccFade;
 uniform vec2 uOccSpan;
+uniform float uOccBend;
 varying float vOccKeep;
 ${OCCLUDER_GLSL}`,
       )
@@ -164,10 +213,19 @@ ${OCCLUDER_GLSL}`,
   #ifdef USE_INSTANCING
   occFrame = modelMatrix * instanceMatrix;
   #endif
-  vec3 occBase = ( occFrame * vec4( 0.0, uOccSpan.x, 0.0, 1.0 ) ).xyz;
-  vec3 occTop = ( occFrame * vec4( 0.0, uOccSpan.y, 0.0, 1.0 ) ).xyz;
-  float occLine = occSegSeg( uOccCam, uOccSubject, occBase, occTop );
-  float occLens = occPointSeg( uOccCam, occBase, occTop );
+  // The axis in its own frame: straight up, or leaning uOccBend * y^2 along +x (a curved palm), in segments.
+  int occN = uOccBend == 0.0 ? 1 : ${OCCLUDER_SEGMENTS};
+  vec3 occA = ( occFrame * vec4( uOccBend * uOccSpan.x * uOccSpan.x, uOccSpan.x, 0.0, 1.0 ) ).xyz;
+  float occLine = 1e9;
+  float occLens = 1e9;
+  for ( int occI = 1; occI <= ${OCCLUDER_SEGMENTS}; occI ++ ) {
+    if ( occI > occN ) break;
+    float occY = mix( uOccSpan.x, uOccSpan.y, float( occI ) / float( occN ) );
+    vec3 occB = ( occFrame * vec4( uOccBend * occY * occY, occY, 0.0, 1.0 ) ).xyz;
+    occLine = min( occLine, occSegSeg( uOccCam, uOccSubject, occA, occB ) );
+    occLens = min( occLens, occPointSeg( uOccCam, occA, occB ) );
+    occA = occB;
+  }
   vOccKeep = min( smoothstep( uOccFade.x, uOccFade.y, occLine ), smoothstep( uOccFade.z, uOccFade.w, occLens ) );
 }`,
       );
@@ -197,8 +255,39 @@ interface Occluder {
   kind: OccluderKind;
   base: V3;
   top: V3;
+  /** The axis as a polyline from base to top (two points unless it bends). */
+  path: V3[];
   hidden: boolean;
   fallen: boolean;
+}
+
+/** A palm trunk's built-in curve as the occluder shader takes it: the lean is PALM_BEND x (y / PALM_TOP)^2. */
+const PALM_OCC_BEND = PALM_BEND / (PALM_TOP * PALM_TOP);
+
+/** How far (m) a palm's trunk top stands off its foot, by a hash of its position: 0.45 to 1.4 m. */
+export function palmLean(p: Prop): number {
+  let h = Math.imul(Math.round(p.x * 10) | 0, 0x27d4eb2d) ^ Math.imul(Math.round(p.z * 10) | 0, 0x165667b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h ^= h >>> 13;
+  return 0.45 + 0.95 * ((h >>> 0) / 4294967296);
+}
+
+/** A palm's instance matrix: its turn and scale, and a shear that sets the lean of its top to palmLean (see palmCurve). */
+export function palmMatrix(p: Prop, m: THREE.Matrix4): THREE.Matrix4 {
+  const a = (palmLean(p) / p.scale - PALM_BEND) / PALM_TOP;
+  const shear = new THREE.Matrix4().set(1, a, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+  m.compose(new THREE.Vector3(p.x, p.y, p.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot), new THREE.Vector3(p.scale, p.scale, p.scale));
+  return m.multiply(shear);
+}
+
+/** The centre line of a palm's trunk in world space, OCCLUDER_SEGMENTS straight pieces from its foot to its crown. */
+export function palmAxis(p: Prop): V3[] {
+  const m = palmMatrix(p, new THREE.Matrix4());
+  const v = new THREE.Vector3();
+  return occluderAxisPoints(OCCLUDER_AXIS.palm, PALM_OCC_BEND).map(([x, y, z]) => {
+    v.set(x, y, z).applyMatrix4(m);
+    return { x: v.x, y: v.y, z: v.z };
+  });
 }
 
 /** Bucket size (m) of PropsView's occluder lookup. */
@@ -359,10 +448,44 @@ if ( vClipXZ.x < vClipRect.x || vClipXZ.y < vClipRect.y || vClipXZ.x > vClipRect
   mat.customProgramCacheKey = () => 'gta7-clip-rect';
 }
 
+/** The garage posters: two designs side by side (a tyre brand and a hot-rod pin-up), drawn once. */
+function posterTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 256;
+  const ctx = c.getContext('2d');
+  if (ctx) {
+    const sheet = (x: number, bg: string, fg: string, title: string, sub: string) => {
+      ctx.fillStyle = '#ece6d6';
+      ctx.fillRect(x, 0, 256, 256);
+      ctx.fillStyle = bg;
+      ctx.fillRect(x + 14, 14, 228, 228);
+      ctx.fillStyle = fg;
+      ctx.font = '700 46px Anton, Impact, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(title, x + 128, 70, 210);
+      ctx.font = '600 22px Inter, Arial, sans-serif';
+      ctx.fillText(sub, x + 128, 226, 210);
+      ctx.beginPath();
+      ctx.arc(x + 128, 140, 52, 0, Math.PI * 2);
+      ctx.lineWidth = 22;
+      ctx.strokeStyle = fg;
+      ctx.stroke();
+    };
+    sheet(0, '#b8241c', '#f4d03f', 'AZURA', 'TYRES & RUBBER');
+    sheet(256, '#1d3557', '#f1faee', 'V8 CLUB', 'SAN AZURA 1987');
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 export class PropsView {
   readonly group = new THREE.Group();
   readonly visibility = new StaticVisibility();
   private readonly refs = new Map<number, InstanceRef[]>();
+  /** Shadow-only stand-ins (SHADOW_LAYER) by prop index, moved with their prop by breakProp and restoreAll. */
+  private readonly shadowRefs = new Map<number, InstanceRef[]>();
   private readonly bulbMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
   private readonly poolMat: THREE.MeshBasicMaterial;
   private signalBulbs: THREE.InstancedMesh | null = null;
@@ -395,6 +518,12 @@ export class PropsView {
   /** Batches holding an occluder that is dissolving now: kept out of the contact-shadow pass (see setOccluderView). */
   private readonly occFlagged = new Set<THREE.Object3D>();
   private readonly occFallen = new Set<Occluder>();
+  /** Shared by every foliage material (windVertex); setWind and setWindEnabled drive it. */
+  private readonly windUniforms: WindUniforms = { uWindTime: { value: 0 }, uWindAmp: { value: windAmplitude(0) }, uWindDir: { value: new THREE.Vector2(1, 0) } };
+  private windOn = true;
+  private windSpeed = 0;
+  /** The dressing's instanced meshes by kind (beach, yards, decks, garages). */
+  readonly dressing = new Map<DressingKind, THREE.InstancedMesh[]>();
 
   /** `chunk`: the cell size instances are batched in (one draw per prop shape and cell). */
   constructor(private readonly world: StaticWorld, private readonly chunk = STATIC_CHUNK_SIZE) {
@@ -416,9 +545,9 @@ export class PropsView {
     this.buildPalms(get('palm'));
     this.buildLamps(get('lamp'));
     this.buildSignals(get('signal'));
-    this.buildSimple(get('hydrant'), merged([cyl(0.17, 0.2, 0.62, 8), new THREE.SphereGeometry(0.16, 8, 6).translate(0, 0.65, 0), cyl(0.06, 0.06, 0.3, 6, 0, 0.32, 0).rotateZ(Math.PI / 2).translate(0.3, 0.1, 0)]), new THREE.MeshStandardMaterial({ color: 0xc0281c, roughness: 0.5 }));
-    this.buildSimple(get('bench'), merged([box(1.8, 0.08, 0.45, 0, 0.45, 0), box(1.8, 0.4, 0.06, 0, 0.75, -0.2), box(0.08, 0.45, 0.4, -0.8, 0.22, 0), box(0.08, 0.45, 0.4, 0.8, 0.22, 0)]), new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: 0.85 }));
-    this.buildSimple(get('bin'), cyl(0.3, 0.26, 1.0, 10), new THREE.MeshStandardMaterial({ color: 0x1e4d2b, roughness: 0.7, metalness: 0.2 }));
+    this.buildSimple(get('hydrant'), hydrantGeometry(), new THREE.MeshStandardMaterial({ color: 0xc0281c, vertexColors: true, roughness: 0.45, metalness: 0.1 }));
+    this.buildSimple(get('bench'), benchGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.78, metalness: 0.15 }));
+    this.buildSimple(get('bin'), binGeometry(), new THREE.MeshStandardMaterial({ color: 0x1e4d2b, vertexColors: true, roughness: 0.6, metalness: 0.3 }));
     this.buildContainers(get('container'));
     for (const i of get('fountain')) this.buildFountain(world.layout.props[i]!);
     for (const i of get('crane')) this.buildCrane(world.layout.props[i]!);
@@ -427,9 +556,10 @@ export class PropsView {
     for (const i of get('boat')) this.buildBoat(world.layout.props[i]!);
     get('billboard').forEach((i, k) => this.buildBillboard(world.layout.props[i]!, k));
     this.buildRoofProps();
+    this.buildDressing(dressingItems(world));
     world.layout.props.forEach((p, i) => {
       if (p.kind !== 'lamp' && p.kind !== 'signal' && p.kind !== 'tree' && p.kind !== 'palm') return;
-      const o: Occluder = { index: i, kind: p.kind, base: { x: 0, y: 0, z: 0 }, top: { x: 0, y: 0, z: 0 }, hidden: false, fallen: false };
+      const o: Occluder = { index: i, kind: p.kind, base: { x: 0, y: 0, z: 0 }, top: { x: 0, y: 0, z: 0 }, path: [], hidden: false, fallen: false };
       this.standUp(o);
       this.occluders.push(o);
       this.occByProp.set(i, o);
@@ -510,6 +640,41 @@ export class PropsView {
     m.compose(new THREE.Vector3(p.x, p.y, p.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot), new THREE.Vector3(p.scale, p.scale, p.scale));
   }
 
+  /**
+   * A low-poly shadow caster for detailed props, one instanced mesh per cell drawn only into the shadow map
+   * (SHADOW_LAYER; the renderer's shadow pass enables it). `mat` is never drawn by the camera; reusing the prop's own
+   * material keeps the program set unchanged.
+   */
+  private shadowProxies(geo: THREE.BufferGeometry, mat: THREE.Material, props: number[], matrixFor: (p: Prop, m: THREE.Matrix4) => void): void {
+    const buckets = new Map<string, number[]>();
+    for (const pi of props) {
+      const p = this.world.layout.props[pi]!;
+      const key = spatialKey(p.x, p.z, this.chunk);
+      let bucket = buckets.get(key);
+      if (!bucket) buckets.set(key, bucket = []);
+      bucket.push(pi);
+    }
+    const m = new THREE.Matrix4();
+    for (const cell of buckets.values()) {
+      const mesh = new THREE.InstancedMesh(geo, mat, cell.length);
+      mesh.name = geo.name;
+      mesh.layers.set(SHADOW_LAYER);
+      mesh.castShadow = true;
+      mesh.receiveShadow = false;
+      mesh.userData.contactShadow = false;
+      cell.forEach((pi, k) => {
+        matrixFor(this.world.layout.props[pi]!, m);
+        mesh.setMatrixAt(k, m);
+        let l = this.shadowRefs.get(pi);
+        if (!l) this.shadowRefs.set(pi, l = []);
+        l.push({ mesh, index: k, base: m.clone() });
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      this.group.add(mesh);
+    }
+  }
+
   private buildSimple(props: number[], geo: THREE.BufferGeometry, mat: THREE.Material): void {
     this.makeInstanced(geo, mat, props, PropsView.standard);
   }
@@ -519,17 +684,20 @@ export class PropsView {
     const trunk = new THREE.MeshStandardMaterial({ color: 0x725440, vertexColors: true, roughness: 0.96 });
     dissolveOccluder(trunk, OCCLUDER_AXIS.tree, this.occUniforms);
     this.makeInstanced(treeTrunkGeometry(), trunk, trees, PropsView.standard);
-    const leaves = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: broadleafTexture(), bumpMap: broadleafTexture(), bumpScale: 0.035, roughness: 0.92 });
-    leaves.name = 'broadleaf-canopy';
-    fadeNearCamera(leaves);
-    this.makeInstanced(broadleafGeometry('tree'), leaves, trees, PropsView.standard, {
-      color: (_p, c) => c.setHSL(0.26 + rng.range(-0.035, 0.035), rng.range(0.34, 0.52), rng.range(0.27, 0.37)),
+    // Leaf cards: alpha-tested (never sorted), the atlas's own greens with a per-tree tint, swaying in the wind.
+    const leafMaterial = (name: string): THREE.MeshStandardMaterial => {
+      const m = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: broadleafTexture(), alphaTest: 0.5, roughness: 0.86 });
+      m.name = name;
+      fadeNearCamera(m, { shared: this.windUniforms, pivot: new THREE.Vector4(0, 0, 0, 0) });
+      m.customProgramCacheKey = () => 'gta7-foliage-leaves';
+      return m;
+    };
+    const tint = new THREE.Color();
+    this.makeInstanced(broadleafGeometry('tree'), leafMaterial('broadleaf-canopy'), trees, PropsView.standard, {
+      color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.24 + rng.range(-0.04, 0.04), rng.range(0.34, 0.52), rng.range(0.42, 0.55)), 0.45),
     });
-    const bushMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: broadleafTexture(), bumpMap: broadleafTexture(), bumpScale: 0.025, roughness: 0.94 });
-    bushMat.name = 'broadleaf-shrub';
-    fadeNearCamera(bushMat);
-    this.makeInstanced(broadleafGeometry('bush'), bushMat, bushes, PropsView.standard, {
-      color: (_p, c) => c.setHSL(0.27 + rng.range(-0.03, 0.03), 0.43, rng.range(0.26, 0.35)),
+    this.makeInstanced(broadleafGeometry('bush'), leafMaterial('broadleaf-shrub'), bushes, PropsView.standard, {
+      color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.27 + rng.range(-0.03, 0.03), 0.43, rng.range(0.4, 0.5)), 0.5),
       shadow: false,
     });
   }
@@ -537,12 +705,15 @@ export class PropsView {
   private buildPalms(palms: number[]): void {
     const rng = new Rng(78);
     const trunk = new THREE.MeshStandardMaterial({ color: 0xb29875, vertexColors: true, roughness: 0.95 });
-    dissolveOccluder(trunk, OCCLUDER_AXIS.palm, this.occUniforms);
-    this.makeInstanced(palmTrunkGeometry(), trunk, palms, PropsView.standard);
+    dissolveOccluder(trunk, OCCLUDER_AXIS.palm, this.occUniforms, PALM_OCC_BEND);
+    const lean = (p: Prop, m: THREE.Matrix4) => palmMatrix(p, m);
+    this.makeInstanced(palmTrunkGeometry(), trunk, palms, lean);
     const frondMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.84, side: THREE.DoubleSide });
     frondMat.name = 'palm-fronds';
-    fadeNearCamera(frondMat);
-    this.makeInstanced(palmFrondsGeometry(), frondMat, palms, PropsView.standard, {
+    // The fronds sway more the further they reach from the crown (3 m to full sway).
+    fadeNearCamera(frondMat, { shared: this.windUniforms, pivot: new THREE.Vector4(PALM_CROWN[0], PALM_CROWN[1], PALM_CROWN[2], 3) });
+    frondMat.customProgramCacheKey = () => 'gta7-foliage-fronds';
+    this.makeInstanced(palmFrondsGeometry(), frondMat, palms, lean, {
       color: (_p, c) => c.setHSL(0.25 + rng.range(-0.025, 0.025), 0.48, rng.range(0.29, 0.37)),
     });
   }
@@ -561,25 +732,20 @@ export class PropsView {
   }
 
   private buildLamps(lamps: number[]): void {
-    const { y, reach } = LAMP_HEAD;
-    // Plinth, tapered octagonal pole and an arm curving up and out to the back of the head.
-    const arm = new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 6.3, 0), new THREE.Vector3(0, 6.75, 0.3), new THREE.Vector3(0, y + 0.12, reach - 0.32)), 6, 0.045, 5);
-    const pole = merged([cyl(0.17, 0.21, 0.5, 8), cyl(0.065, 0.1, 6.05, 8, 0, 0.5, 0), arm]);
-    pole.name = 'lamp-pole';
+    // Cast base, tapered pole with collars and an arm curving up and out to the back of the head (furniture.ts).
+    const pole = lampPoleGeometry(LAMP_HEAD);
     // The pole, its head and its lens dissolve together, all by the pole's axis.
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b9199, roughness: 0.42, metalness: 0.55 });
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b9199, vertexColors: true, roughness: 0.42, metalness: 0.55 });
     dissolveOccluder(poleMat, OCCLUDER_AXIS.lamp, this.occUniforms);
-    this.makeInstanced(pole, poleMat, lamps, PropsView.standard);
+    // The drawn pole and head cast no shadow: a low-poly stand-in does (shadowProxies), one draw per cell.
+    this.makeInstanced(pole, poleMat, lamps, PropsView.standard, { shadow: false });
+    this.shadowProxies(lampShadowGeometry(LAMP_HEAD), poleMat, lamps, PropsView.standard);
     // The cobra head: a low dome 0.78 m long and 0.36 m wide on a closed rim, the lens set into its underside.
-    const dome = new THREE.SphereGeometry(1, 10, 3, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.18, 0.15, 0.39).translate(0, y + 0.05, reach);
-    const rim = new THREE.CylinderGeometry(1, 1, 1, 10).scale(0.18, 0.04, 0.39).translate(0, y + 0.03, reach);
-    const head = merged([dome, rim]);
-    head.name = 'lamp-head';
-    const headMat = new THREE.MeshStandardMaterial({ color: 0x9ea4ab, roughness: 0.38, metalness: 0.5 });
+    const head = lampHeadGeometry(LAMP_HEAD);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0x9ea4ab, vertexColors: true, roughness: 0.38, metalness: 0.5 });
     dissolveOccluder(headMat, OCCLUDER_AXIS.lamp, this.occUniforms);
-    this.makeInstanced(head, headMat, lamps, PropsView.standard);
-    const lens = box(0.26, 0.025, 0.56, 0, y + 0.0125, reach);
-    lens.name = 'lamp-lens';
+    this.makeInstanced(head, headMat, lamps, PropsView.standard, { shadow: false });
+    const lens = lampLensGeometry(LAMP_HEAD);
     dissolveOccluder(this.bulbMat, OCCLUDER_AXIS.lamp, this.occUniforms);
     this.makeInstanced(lens, this.bulbMat, lamps, PropsView.standard, { shadow: false });
     const pool = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -615,8 +781,8 @@ export class PropsView {
 
   private buildSignals(signals: number[]): void {
     const L = this.world.layout;
-    const pole = merged([cyl(0.09, 0.11, 5.2, 6), box(0.36, 1.05, 0.28, 0, 4.55, 0.05), box(0.42, 0.06, 0.36, 0, 5.1, 0.05)]);
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x2b2d30, roughness: 0.6, metalness: 0.4 });
+    const pole = signalPoleGeometry();
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x2b2d30, vertexColors: true, roughness: 0.55, metalness: 0.4 });
     dissolveOccluder(poleMat, OCCLUDER_AXIS.signal, this.occUniforms);
     this.makeInstanced(pole, poleMat, signals, PropsView.standard);
     this.signalProps = signals.map((i) => L.props[i]!);
@@ -634,7 +800,7 @@ export class PropsView {
       const p = L.props[pi]!;
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot);
       for (let b = 0; b < 3; b++) {
-        v.set(0, 4.88 - b * 0.33, 0.21).applyQuaternion(q);
+        v.set(...signalBulbAt(b)).applyQuaternion(q);
         m.makeTranslation(p.x + v.x, p.y + v.y, p.z + v.z);
         mesh.setMatrixAt(k * 3 + b, m);
         mesh.setColorAt(k * 3 + b, new THREE.Color(0x111111));
@@ -960,6 +1126,70 @@ export class PropsView {
     });
   }
 
+  /**
+   * The render-only dressing (dressing.ts): one instanced mesh per kind and cell, sharing one vertex-coloured material
+   * (posters and the garage lamps' tubes have their own). Nothing here is tracked by breakProp or the occluders.
+   */
+  private buildDressing(items: readonly DressingItem[]): void {
+    const builders: Record<DressingKind, () => THREE.BufferGeometry> = {
+      umbrella: umbrellaGeometry, towel: towelGeometry, lounger: loungerGeometry, lifeguard: lifeguardGeometry, volleyball: volleyballGeometry, surfboard: surfboardGeometry,
+      fence: fenceGeometry, mailbox: mailboxGeometry, shrub: shrubGeometry, planter: planterGeometry, wheelie: wheelieBinGeometry,
+      rail: railGeometry, bollard: bollardGeometry,
+      workbench: workbenchGeometry, toolwall: toolWallGeometry, shelving: () => shelvingGeometry(0.5), wallshelf: () => shelvingGeometry(0.26), tyres: tyreStackGeometry,
+      tyrerack: tyreRackGeometry, drum: drumGeometry, chest: toolChestGeometry, jack: jackGeometry, poster: posterGeometry, lamphousing: lampHousingGeometry, lamptube: lampTubeGeometry,
+    };
+    const byKind = new Map<DressingKind, DressingItem[]>();
+    for (const it of items) {
+      let l = byKind.get(it.kind);
+      if (!l) byKind.set(it.kind, l = []);
+      l.push(it);
+    }
+    // Flat or small pieces cast no shadow map shadow; the flattest also stay out of the contact-shadow pass.
+    const shadowless: ReadonlySet<DressingKind> = new Set(['towel', 'poster', 'lamptube', 'toolwall', 'fence', 'mailbox', 'planter', 'shrub', 'bollard', 'surfboard']);
+    const noContact: ReadonlySet<DressingKind> = new Set(['towel', 'poster', 'lamptube', 'toolwall', 'fence']);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const one = new THREE.Vector3(1, 1, 1);
+    const c = new THREE.Color();
+    for (const [kind, list] of byKind) {
+      const geo = builders[kind]();
+      const mat = kind === 'poster' ? this.posterMat : kind === 'lamptube' ? this.tubeMat : this.dressMat;
+      const cells = new Map<string, DressingItem[]>();
+      for (const it of list) {
+        const key = spatialKey(it.x, it.z, this.chunk);
+        let cell = cells.get(key);
+        if (!cell) cells.set(key, cell = []);
+        cell.push(it);
+      }
+      const meshes: THREE.InstancedMesh[] = [];
+      for (const cell of cells.values()) {
+        const mesh = new THREE.InstancedMesh(geo, mat, cell.length);
+        mesh.name = `dress-${kind}`;
+        mesh.userData.dressing = kind;
+        mesh.castShadow = !shadowless.has(kind);
+        mesh.receiveShadow = kind !== 'lamptube';
+        if (noContact.has(kind)) mesh.userData.contactShadow = false;
+        cell.forEach((it, k) => {
+          m.compose(new THREE.Vector3(it.x, it.y, it.z), q.setFromAxisAngle(up, it.rot), one);
+          mesh.setMatrixAt(k, m);
+          mesh.setColorAt(k, c.setHex(it.color));
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        mesh.computeBoundingSphere();
+        this.group.add(mesh);
+        meshes.push(mesh);
+      }
+      this.dressing.set(kind, meshes);
+    }
+  }
+
+  private readonly dressMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.78, metalness: 0.05 });
+  private readonly posterMat = new THREE.MeshStandardMaterial({ map: posterTexture(), roughness: 0.7 });
+  /** Garage strip lights: always on, a soft white just under the bloom threshold. */
+  private readonly tubeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.5, 1.45, 1.3) });
+
   /** Knocks over a breakable prop in the given direction. */
   breakProp(index: number, dirX: number, dirZ: number): void {
     const refs = this.refs.get(index);
@@ -972,7 +1202,7 @@ export class PropsView {
     const back = new THREE.Matrix4().makeTranslation(p.x, p.y + (p.kind === 'lamp' || p.kind === 'signal' ? 0.15 : 0.2), p.z);
     // A knocked-down lamp goes completely, light and all, so no head, lens or glow is left hanging where it stood.
     const hide = p.kind === 'hydrant' || p.kind === 'lamp';
-    for (const r of refs) {
+    for (const r of [...refs, ...(this.shadowRefs.get(index) ?? [])]) {
       let m: THREE.Matrix4;
       if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat || r.mesh === this.signalBulbs || r.mesh.userData.signalBulbs) m = new THREE.Matrix4().makeScale(0, 0, 0);
       else m = back.clone().multiply(fall).multiply(toOrigin).multiply(r.base);
@@ -988,10 +1218,12 @@ export class PropsView {
       else {
         const m = back.clone().multiply(fall).multiply(toOrigin);
         const v = new THREE.Vector3();
-        v.set(occ.base.x, occ.base.y, occ.base.z).applyMatrix4(m);
-        occ.base = { x: v.x, y: v.y, z: v.z };
-        v.set(occ.top.x, occ.top.y, occ.top.z).applyMatrix4(m);
-        occ.top = { x: v.x, y: v.y, z: v.z };
+        occ.path = occ.path.map((q) => {
+          v.set(q.x, q.y, q.z).applyMatrix4(m);
+          return { x: v.x, y: v.y, z: v.z };
+        });
+        occ.base = occ.path[0]!;
+        occ.top = occ.path[occ.path.length - 1]!;
         occ.fallen = true;
         this.occFallen.add(occ);
       }
@@ -1022,8 +1254,9 @@ export class PropsView {
   private standUp(o: Occluder): void {
     const p = this.world.layout.props[o.index]!;
     const a = OCCLUDER_AXIS[o.kind];
-    o.base = { x: p.x, y: p.y + a.from * p.scale, z: p.z };
-    o.top = { x: p.x, y: p.y + a.to * p.scale, z: p.z };
+    o.path = o.kind === 'palm' ? palmAxis(p) : [{ x: p.x, y: p.y + a.from * p.scale, z: p.z }, { x: p.x, y: p.y + a.to * p.scale, z: p.z }];
+    o.base = o.path[0]!;
+    o.top = o.path[o.path.length - 1]!;
     o.hidden = false;
     o.fallen = false;
     this.occFallen.delete(o);
@@ -1048,14 +1281,15 @@ export class PropsView {
     u.uOccCam.value.set(cam.x, cam.y, cam.z);
     u.uOccSubject.value.set(subject.x, subject.y, subject.z);
     const check = (o: Occluder) => {
-      if (o.hidden || occluderOpacity(cam, subject, o.base, o.top) >= 1) return;
+      if (o.hidden || occluderOpacityPath(cam, subject, o.path) >= 1) return;
       out.push(o.index);
       for (const r of this.refs.get(o.index) ?? []) {
         r.mesh.userData.contactShadow = false;
         this.occFlagged.add(r.mesh);
       }
     };
-    const pad = OCCLUDER_LENS_FAR;
+    // A curved palm's top leans up to 1.5 m off its foot.
+    const pad = OCCLUDER_LENS_FAR + 1.5;
     const x0 = Math.floor((Math.min(cam.x, subject.x) - pad) / OCC_CELL);
     const x1 = Math.floor((Math.max(cam.x, subject.x) + pad) / OCC_CELL);
     const z0 = Math.floor((Math.min(cam.z, subject.z) - pad) / OCC_CELL);
@@ -1072,6 +1306,26 @@ export class PropsView {
     return out;
   }
 
+  /** The weather's wind (m/s, sim.weather.state.wind) for the foliage sway; none on the title screen. */
+  setWind(wind: { readonly x: number; readonly z: number }): void {
+    const speed = Math.hypot(wind.x, wind.z);
+    this.windSpeed = speed;
+    if (speed > 1e-3) this.windUniforms.uWindDir.value.set(wind.x / speed, wind.z / speed);
+    this.windUniforms.uWindAmp.value = this.windOn ? windAmplitude(speed) : 0;
+  }
+
+  /** Foliage sways on High and Medium; Low and the software tier keep it still (GameRenderer.setQuality). */
+  setWindEnabled(on: boolean): void {
+    this.windOn = on;
+    this.windUniforms.uWindAmp.value = on ? windAmplitude(this.windSpeed) : 0;
+  }
+
+  /** The wind uniforms now (tests, debug). */
+  get wind(): { time: number; amp: number; dir: [number, number] } {
+    const u = this.windUniforms;
+    return { time: u.uWindTime.value, amp: u.uWindAmp.value, dir: [u.uWindDir.value.x, u.uWindDir.value.y] };
+  }
+
   /** Whether bloom draws halos round bright lights (GameRenderer.setQuality): without it the coloured lamps use LAMPS.flat. */
   setGlow(on: boolean): void {
     this.glow = on;
@@ -1079,7 +1333,7 @@ export class PropsView {
 
   /** Puts every knocked-over prop back in place (new game). */
   restoreAll(): void {
-    for (const refs of this.refs.values()) {
+    for (const refs of [...this.refs.values(), ...this.shadowRefs.values()]) {
       for (const r of refs) {
         r.mesh.setMatrixAt(r.index, r.base);
         r.mesh.instanceMatrix.needsUpdate = true;
@@ -1102,6 +1356,7 @@ export class PropsView {
    * (sim.time) so the bulbs show the phase that drivers and pedestrians obey.
    */
   update(time: number, night: number, signalTime: number): void {
+    this.windUniforms.uWindTime.value = time;
     // Lamps: the bulb, its halo added on top and the pool under it (see LAMP_HALO).
     const k = night;
     this.bulbMat.color.setRGB(0.25 + k * 1.35, 0.24 + k * 1.1, 0.22 + k * 0.7);

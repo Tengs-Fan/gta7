@@ -137,6 +137,11 @@ export const textureSets = [
   acg('Facade001'), acg('Facade002', 512, true), acg('Facade005'), acg('Facade006'), acg('Facade009', 512, true),
 ];
 
+// Alpha atlases built from scanned sets (scripts/assets/leafAtlas.mjs): the broadleaf canopy's leaf cards.
+export const atlases = [
+  { set: 'leaf_atlas', license: 'acg-LeafSet024', size: 1024, maps: { albedo: 'ambientcg/LeafSet024/LeafSet024_1K-JPG_Color.jpg', opacity: 'ambientcg/LeafSet024/LeafSet024_1K-JPG_Opacity.jpg' } },
+];
+
 export const envs = [
   { id: 'env.sky', kind: 'env', src: 'polyhaven/kloofendal_48d_partly_cloudy_puresky_1k.hdr', license: 'ph-kloofendal_48d_partly_cloudy_puresky', out: 'env/sky_1k.hdr' },
 ];

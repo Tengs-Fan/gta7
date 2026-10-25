@@ -420,6 +420,7 @@ export class GameRenderer {
     this.setPost(t);
     // Without a bloom halo the coloured lamps (traffic lights) must carry their hue in the lamp itself.
     this.props.setGlow(this.bloom !== null);
+    this.props.setWindEnabled(!this.software && q !== 'low');
     // Dynamic lights: on 'few' the sources stay hidden and feed the pool (see syncLightPool).
     // The number of visible lights only changes here, so shaders are not rebuilt during play.
     this.collectPointSources();
@@ -985,6 +986,7 @@ export class GameRenderer {
     this.city.update(night, hours, this.time);
     // Signals run on the sim clock, the one drivers and pedestrians obey.
     this.props.update(this.time, night, sim ? sim.time : this.time);
+    this.props.setWind(weather?.wind ?? NO_WIND);
     this.props.setOccluderView(cam.position, sim ? this.cameraCtl.occlusionSubject() : null);
     if (sim) {
       const lights = Math.max(night, this.weatherDim);
