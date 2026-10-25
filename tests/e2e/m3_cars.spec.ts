@@ -57,17 +57,21 @@ async function clearRow(page: Page): Promise<void> {
 }
 
 /** Per drawn frame: cars whose parts are drawn (in the camera's view), and the under-car shades and lenses drawn. */
-async function partCensus(page: Page): Promise<{ inView: number; shades: number; lenses: number; geometries: number; textures: number }> {
+async function partCensus(page: Page): Promise<{ inView: number; shades: number; lenses: number; otherLenses: number; geometries: number; textures: number }> {
   return page.evaluate(() => {
     const r = (window as Api).__gta7.game.renderer;
     const sphere = r.partSphere.clone();
     let inView = 0;
+    // Bikes and boats put their lamp lenses in the same batch (a bike its head and tail lamps, a boat its bow and stern).
+    let otherLenses = 0;
     for (const view of r.vehicleViews.values()) {
       const v = view.vehicle;
-      if (!v || !view.group.visible || v.spec.class !== 'car') continue;
+      if (!v || !view.group.visible) continue;
       sphere.center.set(v.pos.x, v.pos.y + v.spec.height / 2, v.pos.z);
       sphere.radius = Math.hypot(v.spec.length, v.spec.width, v.spec.height) / 2 + 0.5;
-      if (r.frustum.intersectsSphere(sphere)) inView++;
+      if (!r.frustum.intersectsSphere(sphere)) continue;
+      if (v.spec.class === 'car') inView++;
+      else otherLenses += v.spec.class === 'bike' ? view.lenses.length : 2;
     }
     let shades = 0;
     let lenses = 0;
@@ -78,7 +82,7 @@ async function partCensus(page: Page): Promise<{ inView: number; shades: number;
       if (part.geometry.type === 'ExtrudeGeometry') lenses += m.count;
     }
     const mem = r.renderer.info.memory;
-    return { inView, shades, lenses, geometries: mem.geometries, textures: mem.textures };
+    return { inView, shades, lenses, otherLenses, geometries: mem.geometries, textures: mem.textures };
   });
 }
 
@@ -114,7 +118,7 @@ test.describe('GTA 7 mission 3 cars', () => {
     const c = await partCensus(page);
     expect(c.inView).toBeGreaterThanOrEqual(6);
     expect(c.shades).toBe(c.inView);
-    expect(c.lenses).toBe(5 * c.inView);
+    expect(c.lenses).toBe(5 * c.inView + c.otherLenses);
     expect(errors).toEqual([]);
   });
 
@@ -138,7 +142,7 @@ test.describe('GTA 7 mission 3 cars', () => {
       cycles.push(c);
       // One shade (and five lenses) per car whose parts are drawn, whatever the tier history.
       expect(c.shades, `cycle ${cycle}`).toBe(c.inView);
-      expect(c.lenses, `cycle ${cycle}`).toBe(5 * c.inView);
+      expect(c.lenses, `cycle ${cycle}`).toBe(5 * c.inView + c.otherLenses);
       await clearRow(page);
       await page.waitForTimeout(800);
     }
