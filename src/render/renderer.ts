@@ -338,8 +338,11 @@ export class GameRenderer {
     // A second view of each kind stays whole while the first fades (below), so the one compile covers a vehicle's own
     // materials (its paint and fittings, drawn whole) as well as their fade copies.
     const whole: AnyVehicleView[] = [];
+    // And a third wears the player car's reflective finishes (High), see below.
+    const reflections = this.hdr && !this.software && this.quality === 'high';
+    const shiny: AnyVehicleView[] = [];
     for (const kind of Object.keys(VEHICLE_SPECS) as VehicleKind[]) {
-      for (const list of [tmp, whole]) {
+      for (const list of reflections ? [tmp, whole, shiny] : [tmp, whole]) {
         const v = this.pool.acquire(kind);
         v.group.position.set(0, -50, 0);
         this.scene.add(v.group);
@@ -403,6 +406,11 @@ export class GameRenderer {
     shadowScene.add(this.effects.shadowProbes([this.vehicleParts.shadowDepthMaterial]));
     this.softwareMaterials?.apply(fxProbe);
     this.scene.add(fxProbe);
+    // The player car's reflective finishes and the cube filter, so the first drive compiles neither.
+    if (reflections) {
+      this.localReflections ??= new LocalReflections(this.renderer, this.scene);
+      this.localReflections.warm(shiny.map((v) => v.group));
+    }
     // With the HDR output three draws the scene into its half-float target with tone mapping off and
     // a linear colour space. Compiling for the canvas would build the tone-mapped sRGB variants,
     // which are never drawn, so a stand-in half-float target is bound while compiling.
@@ -444,12 +452,12 @@ export class GameRenderer {
     this.scene.remove(depthProbe);
     depthProbe.geometry.dispose();
     // Kept, undisposed, so the programs they compiled stay for the session's fades (a program goes with its last user).
-    const kept = [depthProbe.material, ...tmp.flatMap((v) => v.endFade())];
+    const kept = [depthProbe.material, ...tmp.flatMap((v) => v.endFade()), ...(reflections ? this.localReflections?.endWarm() ?? [] : [])];
     this.softwareMaterials?.forget(this.fadeKeepers);
     for (const m of this.fadeKeepers) m.dispose();
     this.fadeKeepers = kept;
     for (const v of burnt) v.warmBurnt(false);
-    for (const v of [...tmp, ...whole, ...burnt]) this.pool.release(v);
+    for (const v of [...tmp, ...whole, ...shiny, ...burnt]) this.pool.release(v);
     this.vehicleParts.begin();
     this.vehicleParts.end();
   }
@@ -649,7 +657,8 @@ export class GameRenderer {
   }
 
   attach(sim: ViewState, localPlayerId = 0): void {
-    this.clearLocalReflections();
+    // Released, not disposed: the warm-up's cube filter stays compiled for the new session's first drive.
+    this.localReflections?.release();
     this.localPlayerId = localPlayerId;
     this.cameraCtl.localPlayerId = localPlayerId;
     for (const u of this.unsub) u();
@@ -1084,7 +1093,7 @@ export class GameRenderer {
     if (reflect) {
       this.localReflections ??= new LocalReflections(this.renderer, this.scene);
       this.localReflections.applyCurrent(view.group);
-    } else if (this.localReflections) this.clearLocalReflections();
+    } else this.localReflections?.release();
     if (this.finish) this.finish.setGrade(gradeAt(hours, weather, this.gradeNow));
     this.contactShadows?.track(dt);
     // The batches draw the vehicles' part meshes: no pass need walk them or update their matrices.

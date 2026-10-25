@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LocalReflections } from '../../src/render/localReflections';
+import { keepLights, LocalReflections } from '../../src/render/localReflections';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -134,6 +134,64 @@ describe('local reflection lifecycle', () => {
     expect(t.renderer.toneMapping).toBe(THREE.ACESFilmicToneMapping);
     expect(t.renderer.autoClear).toBe(true);
     expect(t.renderer.shadowMap.autoUpdate).toBe(true);
+    t.probe.dispose();
+  });
+});
+
+describe('local reflections build no programs in play', () => {
+  it('hides an excluded group with lights child by child, so a cube face sees the frame\'s light set', () => {
+    const t = setup();
+    const fx = new THREE.Group();
+    const smoke = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    const flash = new THREE.PointLight(0xffa040, 0, 40);
+    const sparks = new THREE.Group();
+    sparks.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+    fx.add(smoke, flash, sparks);
+    t.car.parent!.add(fx);
+    expect(keepLights([fx, t.car])).toEqual([smoke, sparks, t.car]);
+    const lightsAt: number[] = [];
+    t.renderer.render.mockImplementation(() => {
+      let n = 0;
+      t.car.parent!.traverseVisible((o) => { if ((o as THREE.Light).isLight) n++; });
+      lightsAt.push(n);
+      expect(smoke.visible).toBe(false);
+      expect(sparks.visible).toBe(false);
+    });
+    t.probe.update(t.car, new THREE.Vector3(), 12, 0, [fx, t.car]);
+    expect(lightsAt).toEqual([1]);
+    expect(smoke.visible && sparks.visible && fx.visible && flash.visible).toBe(true);
+    t.probe.dispose();
+  });
+
+  it('a release keeps the filter but neither shows the old map nor reports ready until the next car is captured', () => {
+    const t = setup();
+    t.complete();
+    expect(t.body.material).not.toBe(t.source);
+    t.probe.release();
+    expect(t.body.material).toBe(t.source);
+    expect(t.probe.ready).toBe(false);
+    for (let i = 0; i < 5; i++) t.update(10 + i / 60);
+    expect(t.body.material, 'no stale map while the next cube is captured').toBe(t.source);
+    t.update(10 + 5 / 60);
+    expect(t.probe.ready).toBe(true);
+    expect(t.body.material.envMap).toBe(t.target.texture);
+    t.probe.dispose();
+  });
+
+  it('the warm-up puts the finishes on, and hands them back undisposed with the shared materials restored', () => {
+    const t = setup();
+    t.probe.warm([t.car]);
+    expect(t.filter).toHaveBeenCalledOnce();
+    const local = t.body.material;
+    expect(local).not.toBe(t.source);
+    expect(local.envMap).toBe(t.target.texture);
+    const release = vi.spyOn(local, 'dispose');
+    expect(t.probe.endWarm()).toEqual([local]);
+    expect(t.body.material).toBe(t.source);
+    expect(release).not.toHaveBeenCalled();
+    expect(t.probe.ready).toBe(false);
+    t.update(0);
+    expect(t.body.material, 'the blank warm-up map is never shown').toBe(t.source);
     t.probe.dispose();
   });
 });

@@ -290,7 +290,7 @@ export function buildRoads(view: CityView): void {
   const roadMat = surfaces.patch(wet.patch(surfaces.material('road')), 'road');
   view.add(setGroundAttribute(asphalt.build(), asphaltRanges), roadMat, { name: 'roads' });
   view.add(setGroundAttribute(gutters.build(), []), surfaces.patch(wet.patch(surfaces.material('curb')), 'curb'), { name: 'road-gutters' });
-  view.add(ironwork.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.64, metalness: 0.35 }), { name: 'street-ironwork' });
+  view.add(ironwork.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.15 }), { name: 'street-ironwork' });
   const mk = (color: number) => wet.patch(new THREE.MeshStandardMaterial({ color, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   view.add(white.build(), mk(0xe6e6e0), { name: 'markings-white' });
   view.add(yellow.build(), mk(0xe8b923), { name: 'markings-yellow' });

@@ -267,8 +267,9 @@ export class AssetLibrary {
 
   /**
    * One clone of every loaded model, parked below the map. The renderer adds it to the scene while it compiles shaders
-   * so the first use of an asset costs no program build; it is not part of the scene during play. Cached so a
-   * second warm-up (tier switch, context restore) reuses the same objects.
+   * so the first use of an asset costs no program build; it is not part of the scene during play. Cached once the
+   * preload has settled, so a second warm-up (tier switch, context restore) reuses the same objects; a group built
+   * while models are still arriving is not cached, or the models that land later would never be warmed.
    */
   warmGroup(): THREE.Group {
     if (this.warm) return this.warm;
@@ -283,7 +284,7 @@ export class AssetLibrary {
       });
       group.add(copy);
     }
-    this.warm = group;
+    if (this.sealed) this.warm = group;
     return group;
   }
 

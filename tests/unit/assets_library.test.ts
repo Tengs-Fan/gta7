@@ -38,6 +38,27 @@ afterEach(() => {
   unloadAssets();
 });
 
+describe('warm-up group', () => {
+  it('is not cached before the preload settles, so models that arrive later are warmed too', async () => {
+    let release!: (b: ArrayBuffer) => void;
+    const late = new Promise<ArrayBuffer>((r) => (release = r));
+    const lib = new AssetLibrary();
+    const done = lib.preload(undefined, { backend: fakeBackend(['early', 'late'], { fetch: (e, onBytes) => (e.id === 'late' ? late : (onBytes(e.bytes), Promise.resolve(new ArrayBuffer(e.bytes)))) }) });
+    for (let i = 0; i < 20 && !lib.has('early'); i++) await new Promise((r) => setTimeout(r, 0));
+    expect(lib.has('early')).toBe(true);
+    expect(lib.ready).toBe(false);
+    const before = lib.warmGroup();
+    expect(before.children).toHaveLength(1);
+    release(new ArrayBuffer(100));
+    await done;
+    expect(lib.ready).toBe(true);
+    const after = lib.warmGroup();
+    expect(after).not.toBe(before);
+    expect(after.children).toHaveLength(2);
+    expect(lib.warmGroup()).toBe(after);
+  });
+});
+
 describe('empty library (the Node default)', () => {
   it('answers every lookup synchronously with undefined and builds no warm-up objects', () => {
     const lib = new AssetLibrary();

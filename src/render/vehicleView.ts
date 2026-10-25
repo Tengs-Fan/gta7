@@ -1862,9 +1862,17 @@ export class VehicleView {
 
   /** The renderer's warm-up draws each kind burnt out too (its wreck parts' programs); a bound view never calls this. */
   warmBurnt(b: boolean): void {
+    if (b) this.warmBody = this.body.material;
     this.setBurnt(b);
-    if (!b) this.color = -1;
+    if (!b && this.warmBody) {
+      // Back to exactly what it wore (a pooled view keeps its own paint until it is bound again).
+      this.body.material = this.warmBody;
+      if (this.distantMesh) this.distantMesh.material = this.warmBody;
+      this.warmBody = null;
+    }
   }
+
+  private warmBody: THREE.Material | THREE.Material[] | null = null;
 
   private setBurnt(b: boolean): void {
     if (this.burnt === b) return;
