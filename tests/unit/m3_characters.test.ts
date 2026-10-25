@@ -10,7 +10,7 @@ import { CrowdView, PED_FADE_IN, SKIN_RANGE } from '../../src/render/crowd';
 import { buildLookTemplates, type LookTemplate } from '../../src/render/crowd/characterModels';
 import { bodyTypeOf, LOOKS, lookOf, slotColors } from '../../src/render/crowd/looks';
 import { BODY_TYPES, BONE, drawnJoint, FLOATS_PER_CHAR, IDLE_ELBOW, PALM, REST, RIG, RIG_BONES, skinPoint } from '../../src/render/crowd/rig';
-import { characterDepthMaterial, characterMaterial } from '../../src/render/crowd/shader';
+import { CLOTH_FLOOR, characterDepthMaterial, characterMaterial, clothFloor } from '../../src/render/crowd/shader';
 import { CROWD_MAX, NEAR_MAX, NEAR_RANGE } from '../../src/render/crowd/skinnedCrowd';
 import { stepCharacter } from '../../src/sim/characterPhysics';
 import { Character } from '../../src/sim/entities';
@@ -553,6 +553,29 @@ describe('fades and dissolves (VAL-CHR-008)', () => {
     const cv = new CrowdView();
     expect(cv.models!.pool.every((s) => s.mesh.customDepthMaterial === cv.models!.nearDepth)).toBe(true);
     expect(cv.models!.batched.customDepthMaterial).toBe(cv.models!.crowdDepth);
+  });
+
+  it('very dark cloth keeps visible form: a charcoal floor and a fold bump on shirts, trousers and caps only', () => {
+    const lum = (c: readonly number[]) => 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+    const lin = (hex: number) => new THREE.Color(hex).toArray();
+    // The hero's dark slate T-shirt, black and navy cloth are lifted to the floor; their hue survives (blue stays bluest).
+    for (const hex of [0x2a2c33, 0x101010, 0x101a3a, 0x000000]) {
+      const c = clothFloor(...(lin(hex) as [number, number, number]));
+      expect(lum(c), hex.toString(16)).toBeCloseTo(CLOTH_FLOOR, 6);
+    }
+    const navy = clothFloor(...(lin(0x101a3a) as [number, number, number]));
+    expect(navy[2]).toBeGreaterThan(navy[0]);
+    // Anything at or above the floor is untouched.
+    for (const hex of [0x34557f, 0xc9ccd1, 0x7cdc3c, 0xff7a1a]) expect(clothFloor(...(lin(hex) as [number, number, number]))).toEqual(lin(hex));
+    const lib = THREE.ShaderLib.standard;
+    const shader = { vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader, uniforms: { ...lib.uniforms } } as unknown as THREE.WebGLProgramParametersWithUniforms;
+    characterMaterial().onBeforeCompile(shader, undefined as unknown as THREE.WebGLRenderer);
+    expect(shader.vertexShader).toMatch(/vCharCloth = s == 3 \? 1\.0 : s == 4 \? 0\.55 : s == 5 \? 0\.5 : 0\.0;/);
+    expect(shader.vertexShader).toMatch(/if \( vCharCloth > 0\.0 \) slotCol = clothFloor\( slotCol \);/);
+    // The bump comes after the normal is set up, and fades out where a crease is under a pixel or two.
+    const f = shader.fragmentShader;
+    expect(f.indexOf('clothPerturb( - vViewPosition, normal, dH, faceDirection )')).toBeGreaterThan(f.indexOf('#include <normal_fragment_maps>'));
+    expect(f).toMatch(/dH \*= vCharCloth \* \( 1\.0 - smoothstep\( 0\.35, 0\.7, fw \) \);/);
   });
 
   it('a removed pedestrian fades out where he was; remote players are whole and not lens-dissolved', () => {

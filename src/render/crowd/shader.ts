@@ -7,12 +7,74 @@ import { LENS_FADE_FULL, LENS_FADE_GONE } from './fade';
 import { BONES_PER_CHAR, RIG_BONES } from './rig';
 
 const DATA = RIG_BONES.toFixed(1);
+
+/**
+ * Linear luminance below which a cloth slot colour is lifted (about sRGB 63, charcoal): first scaled up by at most
+ * CLOTH_LIFT_MAX (keeping its hue), then the rest made up with grey. A black T-shirt otherwise renders as a flat slab
+ * in shade, where only a few levels separate its lit and unlit sides.
+ */
+export const CLOTH_FLOOR = 0.07;
+export const CLOTH_LIFT_MAX = 2.5;
+/** Fold relief (m) of the cloth bump. */
+export const CLOTH_FOLD_DEPTH = 0.024;
+
+/** The cloth floor in JS (the vertex shader's clothFloor), for tests and tools. */
+export function clothFloor(r: number, g: number, b: number): [number, number, number] {
+  const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  if (l >= CLOTH_FLOOR) return [r, g, b];
+  const k = Math.min(CLOTH_FLOOR / Math.max(l, 1e-4), CLOTH_LIFT_MAX);
+  const grey = CLOTH_FLOOR - l * k;
+  return [r * k + grey, g * k + grey, b * k + grey];
+}
+
+const CLOTH_FLOOR_GLSL = /* glsl */ `
+vec3 clothFloor( vec3 c ) {
+  float l = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+  if ( l >= ${CLOTH_FLOOR.toFixed(4)} ) return c;
+  float k = min( ${CLOTH_FLOOR.toFixed(4)} / max( l, 1e-4 ), ${CLOTH_LIFT_MAX.toFixed(2)} );
+  return c * k + ( ${CLOTH_FLOOR.toFixed(4)} - l * k );
+}`;
+
+/**
+ * Cloth folds as a bump on the normal: soft creases round the body and a diagonal pull, from the rest-pose position
+ * (so they move with the cloth, not the screen), faded out once a crease is smaller than about a pixel.
+ */
+const CLOTH_FOLDS = /* glsl */ `
+varying float vCharCloth;
+varying vec3 vCharRest;
+float clothFoldHeight( vec3 p ) {
+  float a = sin( p.y * 47.0 + sin( p.x * 19.0 + p.z * 13.0 ) * 1.8 );
+  float b = sin( p.y * 23.0 - p.x * 29.0 + sin( p.z * 31.0 + p.y * 7.0 ) * 1.3 );
+  float c = sin( p.y * 13.0 + p.x * 8.0 + sin( p.z * 11.0 ) );
+  return ${CLOTH_FOLD_DEPTH.toFixed(4)} * ( 0.55 * a + 0.45 * b + 1.6 * c );
+}
+vec3 clothPerturb( vec3 surfPos, vec3 n, vec2 dHdxy, float face ) {
+  vec3 sx = dFdx( surfPos );
+  vec3 sy = dFdy( surfPos );
+  vec3 r1 = cross( sy, n );
+  vec3 r2 = cross( n, sx );
+  float det = dot( sx, r1 ) * face;
+  vec3 grad = sign( det ) * ( dHdxy.x * r1 + dHdxy.y * r2 );
+  return normalize( abs( det ) * n - grad );
+}`;
+
+const CLOTH_NORMAL = /* glsl */ `
+{
+  // Derivatives outside any branch; the bump fades once the main crease spans under about a pixel and a half.
+  float fh = clothFoldHeight( vCharRest );
+  vec2 dH = vec2( dFdx( fh ), dFdy( fh ) );
+  float fw = length( fwidth( vCharRest ) ) * 47.0 / 6.2832;
+  dH *= vCharCloth * ( 1.0 - smoothstep( 0.35, 0.7, fw ) );
+  normal = clothPerturb( - vViewPosition, normal, dH, faceDirection );
+}`;
 const DATA2 = (RIG_BONES + 1).toFixed(1);
 
 const VERTEX_COMMON = /* glsl */ `
-attribute float slot;
+attribute float slot;${CLOTH_FLOOR_GLSL}
 varying float vCharFade;
 varying float vCharLens;
+varying float vCharCloth;
+varying vec3 vCharRest;
 #ifdef USE_BATCHING
 attribute vec4 skinIndex;
 attribute vec4 skinWeight;
@@ -89,6 +151,11 @@ function vertex(shader: THREE.WebGLProgramParametersWithUniforms, colors: boolea
 ${colors ? `    mat4 d1 = CHAR_BONE( CHAR_INST, ${DATA2} );
     int s = int( slot + 0.5 );
     vec3 slotCol = s == 1 ? d0[ 1 ].rgb : s == 2 ? d0[ 2 ].rgb : s == 3 ? d0[ 3 ].rgb : s == 4 ? d1[ 0 ].rgb : s == 5 ? d1[ 1 ].rgb : s == 6 ? d1[ 2 ].rgb : s == 7 ? d1[ 3 ].rgb : vec3( 1.0 );
+    // Cloth (shirt, trousers, cap): very dark fabric is lifted to a charcoal floor, so its folds and the light still
+    // read; vCharCloth is the fold relief (trousers and caps crease less than a loose shirt).
+    vCharCloth = s == 3 ? 1.0 : s == 4 ? 0.55 : s == 5 ? 0.5 : 0.0;
+    vCharRest = position;
+    if ( vCharCloth > 0.0 ) slotCol = clothFloor( slotCol );
     vColor.rgb *= slotCol;` : ''}
   }`;
   v = colors ? replaceOnce(v, '#include <color_vertex>', `#include <color_vertex>\n${read}`) : replaceOnce(v, '#include <begin_vertex>', `#include <begin_vertex>\n${read}`);
@@ -110,6 +177,9 @@ function charMain(shader: THREE.WebGLProgramParametersWithUniforms): void {
   shader.uniforms.crowdBones = crowdUniforms.crowdBones;
   vertex(shader, true);
   fragment(shader, true);
+  let f = replaceOnce(shader.fragmentShader, '#include <common>', `#include <common>\n${CLOTH_FOLDS}`);
+  f = replaceOnce(f, '#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${CLOTH_NORMAL}`);
+  shader.fragmentShader = f;
 }
 
 function charDepth(shader: THREE.WebGLProgramParametersWithUniforms): void {
