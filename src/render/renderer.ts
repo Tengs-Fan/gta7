@@ -234,6 +234,7 @@ export class GameRenderer {
   private lastAutoRound = -Infinity;
   private quality: Quality = 'high';
   private warmedUp = false;
+  private shadowStandInGroup: THREE.Group | null = null;
   time = 0;
 
   constructor(canvas: HTMLCanvasElement, private readonly world: StaticWorld, settings: RenderSettings) {
@@ -425,7 +426,7 @@ export class GameRenderer {
     const fxProbe = this.effects.warmupProbes(fadeMaterial);
     // And the shadow programs of instanced batches with their own depth material (debris, far vehicle bodies).
     const shadowScene = new THREE.Scene();
-    shadowScene.add(this.effects.shadowProbes([this.vehicleParts.shadowDepthMaterial]));
+    shadowScene.add(this.effects.shadowProbes([this.vehicleParts.shadowDepthMaterial]), this.shadowStandIns());
     this.softwareMaterials?.apply(fxProbe);
     this.scene.add(fxProbe);
     // With the HDR output three draws the scene into its half-float target with tone mapping off and
@@ -475,6 +476,28 @@ export class GameRenderer {
     for (const v of [...tmp, ...whole, ...shiny, ...burnt]) this.pool.release(v);
     this.vehicleParts.begin();
     this.vehicleParts.end();
+  }
+
+  /**
+   * Shadow-pass stand-ins, built once and kept: a fading vehicle's hashed-alpha depth material (bikes and boats fade in
+   * where they appear) and three's shared depth material taking a textured caster's map. Back-sided, as
+   * the shadow pass draws them, so the first fade or textured caster in the sun builds no program in play.
+   */
+  private shadowStandIns(): THREE.Group {
+    if (this.shadowStandInGroup) return this.shadowStandInGroup;
+    const g = new THREE.Group();
+    const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    const map = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    map.needsUpdate = true;
+    for (const m of [new THREE.MeshDepthMaterial({ alphaHash: true }), new THREE.MeshDepthMaterial({ map })]) {
+      m.side = THREE.BackSide;
+      const o = new THREE.Mesh(geo, m);
+      o.position.set(0, -60, 0);
+      o.frustumCulled = false;
+      g.add(o);
+    }
+    this.shadowStandInGroup = g;
+    return g;
   }
 
   /** Applies a tier from the QUALITY table live (MSAA excepted, see the constructor). */
