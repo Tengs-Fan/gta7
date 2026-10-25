@@ -158,6 +158,8 @@ export function installDebugApi(game: Game): void {
         envIntensity: game.renderer.scene.environmentIntensity,
         bakedUp: rgb(env.bakedUp),
         upNow: rgb(env.upNow),
+        source: env.envSource,
+        hdriMix: env.bakedHdriMix,
       };
     },
     godMode(on = true) {

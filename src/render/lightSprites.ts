@@ -183,6 +183,8 @@ export class LightSprites {
   readonly glows: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
   readonly pools: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   readonly streaks: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  /** The street lamps' haze (see LampHaze), attached once the props are built. */
+  readonly haze: LampHaze;
   /** Ground wetness 0..1 (set before begin): streaks are drawn only on a wet road. */
   wet = 0;
   /**
@@ -234,6 +236,7 @@ export class LightSprites {
       o.renderOrder = 2;
       this.group.add(o);
     }
+    this.haze = new LampHaze(this.group);
   }
 
   private decals(name: string, fs: string, capacity: number): THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial> {
@@ -449,5 +452,107 @@ export class LightSprites {
     }
     this.pools.dispose();
     this.streaks.dispose();
+    this.haze.dispose();
+  }
+}
+
+/**
+ * Street-lamp haze: a wide, faint glow round every lamp head at night, on top of the lamp's own halo (props.ts), as the
+ * air scatters the light. In rain the drops scatter far more: the haze grows by HAZE_RAIN_SIZE and brightens by
+ * HAZE_RAIN_GAIN. It shares the lamp halos' position and on/off attributes (a knocked-over lamp's goes dark with its
+ * halo), so it is one static batch, one draw call, on every tier. Depth-tested: a lamp behind a building shows none.
+ */
+export const HAZE_SIZE = 4.2;
+export const HAZE_COLOR: Rgb = [0.34, 0.27, 0.17];
+export const HAZE_RAIN_SIZE = 1.4;
+export const HAZE_RAIN_GAIN = 1.6;
+/** The haze never draws larger than this many pixels across (a lamp next to the camera would fill the screen). */
+const HAZE_MAX_PX = 420;
+const HAZE_PULL = 0.6;
+
+const HAZE_VS = /* glsl */ `
+uniform float uPixelsPerMetre;
+uniform float uSize;
+varying float vOn;
+#include <fog_pars_vertex>
+void main() {
+  vOn = color.r;
+  vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+  gl_PointSize = vOn > 0.5 ? min( uSize * uPixelsPerMetre / max( 0.05, - mvPosition.z ), ${HAZE_MAX_PX.toFixed(1)} ) : 0.0;
+  gl_Position = projectionMatrix * vec4( mvPosition.xyz * max( 0.0, 1.0 - ${HAZE_PULL.toFixed(2)} / length( mvPosition.xyz ) ), 1.0 );
+  #include <fog_vertex>
+}`;
+
+const HAZE_FS = /* glsl */ `
+uniform vec3 uColor;
+varying float vOn;
+#include <fog_pars_fragment>
+void main() {
+  vec2 c = gl_PointCoord * 2.0 - 1.0;
+  float r2 = dot( c, c );
+  if ( r2 >= 1.0 || vOn < 0.5 ) discard;
+  float a = exp( - r2 * 4.5 ) * ( 1.0 - r2 );
+  ${FOG_FADE}
+  gl_FragColor = vec4( uColor * a, 1.0 );
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+
+/** The haze's size (m) and brightness (0 by day) at a darkness and rain. */
+export function hazeLevel(night: number, rain: number): { size: number; gain: number } {
+  const r = Math.max(0, Math.min(1, rain));
+  return { size: HAZE_SIZE * (1 + (HAZE_RAIN_SIZE - 1) * r), gain: THREE.MathUtils.smoothstep(night, 0.35, 0.8) * (1 + (HAZE_RAIN_GAIN - 1) * r) };
+}
+
+export class LampHaze {
+  readonly material: THREE.ShaderMaterial;
+  points: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null;
+  gain = 0;
+  size = HAZE_SIZE;
+
+  constructor(private readonly group: THREE.Group) {
+    this.material = new THREE.ShaderMaterial({
+      vertexShader: HAZE_VS,
+      fragmentShader: HAZE_FS,
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uPixelsPerMetre: { value: 800 }, uSize: { value: HAZE_SIZE }, uColor: { value: new THREE.Color() } }]),
+      vertexColors: true,
+      fog: true,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.material.name = 'lamp-haze';
+  }
+
+  /** Draws round the lamp halos' points (PropsView's 'lampHalos'), sharing their position and on/off colour attributes. */
+  attach(halos: THREE.Object3D | undefined): void {
+    const src = (halos as THREE.Points | undefined)?.geometry;
+    if (!src?.getAttribute('position') || !src.getAttribute('color')) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', src.getAttribute('position'));
+    geo.setAttribute('color', src.getAttribute('color'));
+    const points = new THREE.Points(geo, this.material);
+    points.name = 'lamp-haze';
+    points.frustumCulled = false;
+    points.renderOrder = 3;
+    points.visible = false;
+    this.group.add(points);
+    this.points = points;
+  }
+
+  update(night: number, rain: number, pixelsPerMetre: number): void {
+    const { size, gain } = hazeLevel(night, rain);
+    this.gain = gain;
+    this.size = size;
+    const u = this.material.uniforms;
+    u.uSize!.value = size;
+    u.uPixelsPerMetre!.value = pixelsPerMetre;
+    (u.uColor!.value as THREE.Color).setRGB(HAZE_COLOR[0] * gain, HAZE_COLOR[1] * gain, HAZE_COLOR[2] * gain);
+    if (this.points) this.points.visible = gain > 0.005;
+  }
+
+  dispose(): void {
+    // The attributes belong to the lamp halos.
+    this.material.dispose();
   }
 }

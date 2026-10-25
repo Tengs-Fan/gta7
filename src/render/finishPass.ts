@@ -32,6 +32,7 @@ const GRADE = /* glsl */ `
 		uniform float uContrast;
 		uniform float uVignette;
 		uniform float uSplit;
+		uniform float uLift;
 
 		const vec3 LUMA = vec3( 0.2126, 0.7152, 0.0722 );
 
@@ -43,6 +44,9 @@ const GRADE = /* glsl */ `
 			float k = smoothstep( -2.5, 2.5, log2( max( dot( c, LUMA ), 1e-6 ) / 0.18 ) );
 			vec3 tone = mix( vec3( 0.92, 0.98, 1.1 ), vec3( 1.08, 1.0, 0.9 ), k );
 			c *= mix( vec3( 1.0 ), tone / dot( tone, LUMA ), uSplit );
+			// Night black level: a cool grey floor under what the ACES toe would crush (uLift, 0 by day). It fades out
+			// above a few times the lift, so lit facades and the sky keep their brightness (and the curve stays monotonic).
+			c += uLift * vec3( 0.92, 0.98, 1.1 ) * exp( - dot( c, LUMA ) / max( 3.0 * uLift, 1e-6 ) );
 			vec2 q = uv - 0.5;
 			c *= 1.0 - uVignette * smoothstep( 0.35, 1.0, dot( q, q ) * 2.0 );
 			return c;
@@ -92,6 +96,7 @@ export class FinishPass extends Pass {
         uContrast: { value: 1 },
         uVignette: { value: 0 },
         uSplit: { value: 0 },
+        uLift: { value: 0 },
       },
       vertexShader: FXAAShader.vertexShader,
       fragmentShader: finishFragmentShader,
@@ -124,6 +129,7 @@ export class FinishPass extends Pass {
     u.uContrast!.value = g.contrast;
     u.uVignette!.value = this.vignetteOverride ?? g.vignette;
     u.uSplit!.value = g.splitTone;
+    u.uLift!.value = g.lift;
   }
 
   override setSize(width: number, height: number): void {

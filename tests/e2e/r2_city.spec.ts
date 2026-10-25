@@ -119,12 +119,15 @@ test.describe('GTA 7 round 2 city look', () => {
   test('windows light up through the evening and go dark late at night', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
-    // The round 2 "ts" street corner downtown, looking up the tower across the street.
+    // The round 2 "ts" street corner downtown, looking up the tower across the street. Measured without the finish
+    // pass's grade: its night black-level lift adds the same floor to both dark frames, which would shrink their ratio
+    // though the windows change as much as before.
     const meanLuminance = (hours: number) =>
       page.evaluate((h) => {
         const g = (window as Api).__gta7;
         const R = g.game.renderer;
         g.godMode(true);
+        g.setPost({ grade: false });
         g.sim.clock.rate = 0;
         g.setTime(h);
         g.teleport(-80, -95);

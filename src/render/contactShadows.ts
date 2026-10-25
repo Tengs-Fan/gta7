@@ -205,3 +205,116 @@ export class ContactShadows extends GTAOPass {
     }
   }
 }
+
+/**
+ * Contact shadows under people: a soft dark blob on the ground under each standing character near the camera, multiplied
+ * into the frame (no light of its own), so feet meet the ground on the shaded side of a street and on tiers without
+ * shadow maps or GTAO (the crowd stays out of the GTAO depth pass). One instanced draw call on every tier.
+ */
+export const FOOT_RADIUS = 0.45;
+/** Darkening at the blob's centre (0..1). */
+export const FOOT_STRENGTH = 0.6;
+export const FOOT_RANGE = 45;
+export const FOOT_CAPACITY = 96;
+
+const FOOT_VS = /* glsl */ `
+varying vec2 vUv;
+#include <fog_pars_vertex>
+void main() {
+  vUv = uv;
+  vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+
+const FOOT_FS = /* glsl */ `
+uniform float uStrength;
+varying vec2 vUv;
+#include <fog_pars_fragment>
+void main() {
+  vec2 c = vUv * 2.0 - 1.0;
+  float r2 = dot( c, c );
+  if ( r2 >= 1.0 ) discard;
+  float a = uStrength * exp( - r2 * 2.6 ) * ( 1.0 - r2 );
+  #ifdef USE_FOG
+    a *= 1.0 - smoothstep( fogNear, fogFar, vFogDepth );
+  #endif
+  // A multiply factor: never tone-mapped (toneMapped is off). Straight into the canvas (no output pass) it is
+  // sRGB-encoded like the colours it multiplies, which keeps the darkening linear there too.
+  gl_FragColor = vec4( vec3( 1.0 - a ), 1.0 );
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+
+/** The characters FootShadows draws under: standing or walking, not in a car, not dead, swimming or knocked down. */
+export interface FootCharacter {
+  id: number;
+  state: string;
+  pos: { x: number; y: number; z: number };
+  removed?: boolean;
+}
+
+export class FootShadows {
+  readonly mesh: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  count = 0;
+  private readonly m = new THREE.Matrix4();
+  private readonly order: Array<{ c: FootCharacter; d2: number }> = [];
+
+  constructor() {
+    const geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: FOOT_VS,
+      fragmentShader: FOOT_FS,
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uStrength: { value: FOOT_STRENGTH } }]),
+      fog: true,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.ZeroFactor,
+      blendDst: THREE.SrcColorFactor,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+    });
+    mat.name = 'foot-shadows';
+    this.mesh = new THREE.InstancedMesh(geo, mat, FOOT_CAPACITY);
+    this.mesh.name = 'foot-shadows';
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.frustumCulled = false;
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = false;
+    // Before the additive glows and halos, after the opaque scene.
+    this.mesh.renderOrder = 1;
+    this.mesh.count = 0;
+  }
+
+  /** Lays a blob under each of the FOOT_CAPACITY nearest standing characters within FOOT_RANGE (`hiddenId`: none, a scoped player). */
+  update(characters: readonly FootCharacter[], camera: THREE.Vector3, hiddenId = -1): void {
+    const order = this.order;
+    order.length = 0;
+    for (const c of characters) {
+      if (c.removed || c.id === hiddenId || (c.state !== 'normal' && c.state !== 'entering')) continue;
+      const d2 = (c.pos.x - camera.x) ** 2 + (c.pos.z - camera.z) ** 2;
+      if (d2 <= FOOT_RANGE * FOOT_RANGE) order.push({ c, d2 });
+    }
+    if (order.length > FOOT_CAPACITY) order.sort((a, b) => a.d2 - b.d2);
+    const n = Math.min(FOOT_CAPACITY, order.length);
+    const s = FOOT_RADIUS * 2;
+    for (let i = 0; i < n; i++) {
+      const p = order[i]!.c.pos;
+      this.m.makeScale(s, 1, s).setPosition(p.x, p.y + 0.02, p.z);
+      this.mesh.setMatrixAt(i, this.m);
+    }
+    this.count = n;
+    this.mesh.count = n;
+    if (n > 0) this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+    this.mesh.dispose();
+  }
+}
