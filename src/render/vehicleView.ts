@@ -1032,7 +1032,7 @@ const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0
  * Car paint: a satin metallic base under a glossy clearcoat that mirrors the sky and street (the scene environment),
  * shared by the near bodies and the far batches so a car keeps its colour across the switch.
  */
-const PAINT = { roughness: 0.36, metalness: 0.32, clearcoat: 1, clearcoatRoughness: 0.12, vertexColors: true } as const;
+const PAINT = { roughness: 0.38, metalness: 0.3, clearcoat: 1, clearcoatRoughness: 0.2, vertexColors: true } as const;
 const farPaintMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, ...PAINT });
 farPaintMat.name = 'vehicle-far-paint';
 /** Far bodies cast the car's shadow and stay out of the contact-shadow pass, like the dented body drawn by itself. */
@@ -1227,8 +1227,8 @@ export class VehicleView {
   private readonly livery: Array<{ mesh: THREE.Mesh; mat: THREE.Material | THREE.Material[] }> = [];
   /** The police livery stripe: its own subdivided geometry, bent with the body, and its undamaged positions. */
   private stripe: { geo: THREE.BufferGeometry; base: Float32Array; mesh: THREE.Mesh } | null = null;
-  /** Lenses over a chrome reflector: clear and bright for the head lamps, deep red for the tails. */
-  private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xbcc3c9, emissive: 0xfff2c8, emissiveIntensity: 0, roughness: 0.1, metalness: 0.75 });
+  /** Lenses: a pale, satin head lamp (a mirror finish flared in the sun like a lit lamp), a deep red tail lamp. */
+  private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xd2d7dc, emissive: 0xfff2c8, emissiveIntensity: 0, roughness: 0.3, metalness: 0.35 });
   private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x6a0606, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.16, metalness: 0.2 });
   private readonly reverseMat = new THREE.MeshStandardMaterial({ color: 0xa8acae, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.14, metalness: 0.45 });
   private sirenRed: THREE.MeshStandardMaterial | null = null;
