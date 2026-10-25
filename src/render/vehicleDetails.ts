@@ -68,6 +68,122 @@ export function sculptBody(g: THREE.BufferGeometry, kind: VehicleKind, profile: 
   return g;
 }
 
+/** How a body's nose or tail is rounded in plan: its corners draw back by `bow` and its flanks in by `pinch` (m). */
+interface EndRound {
+  readonly bow: number;
+  readonly pinch: number;
+}
+
+type EndRounds = { readonly front: EndRound; readonly rear: EndRound };
+
+/**
+ * Plan-view rounding per kind, front and rear: cars get a rounded nose and a softer tail, the sports car the most;
+ * load-carrying ends (a pickup's tailgate, a box body's back doors) stay nearly square.
+ */
+const END_ROUND: Readonly<Partial<Record<VehicleKind, EndRounds>>> = (() => {
+  const car: EndRounds = { front: { bow: 0.11, pinch: 0.06 }, rear: { bow: 0.08, pinch: 0.05 } };
+  const box: EndRounds = { front: { bow: 0.07, pinch: 0.035 }, rear: { bow: 0.025, pinch: 0.01 } };
+  return {
+    compact: { front: { bow: 0.12, pinch: 0.07 }, rear: { bow: 0.07, pinch: 0.05 } },
+    sedan: car,
+    taxi: car,
+    police: car,
+    sports: { front: { bow: 0.16, pinch: 0.1 }, rear: { bow: 0.08, pinch: 0.06 } },
+    muscle: { front: { bow: 0.08, pinch: 0.04 }, rear: { bow: 0.06, pinch: 0.04 } },
+    pickup: { front: { bow: 0.09, pinch: 0.05 }, rear: { bow: 0.02, pinch: 0 } },
+    van: box,
+    swat: { front: { bow: 0.05, pinch: 0.03 }, rear: { bow: 0.02, pinch: 0 } },
+    bus: { front: { bow: 0.06, pinch: 0.03 }, rear: { bow: 0.04, pinch: 0.02 } },
+    ambulance: box,
+    firetruck: box,
+  };
+})();
+
+/** Exponent of the bow across the width: flat over the middle, drawing back towards the corners. */
+const BOW_POWER = 2.5;
+const SQUARE: EndRound = { bow: 0, pinch: 0 };
+
+/**
+ * Rounds a body's nose and tail in plan beyond its wheel arches, so a car reads as a moulded shell instead of an
+ * extruded slab. One shape moves the body, its glass, fittings and lamps alike (and so its shadow and far versions),
+ * and leaves everything between the arches (the cabin, the seats, the wheels) where it was.
+ */
+export class EndRounding {
+  private readonly hw: number;
+  private readonly half: number;
+  private readonly zFront: number;
+  private readonly zRear: number;
+  private readonly front: EndRound;
+  private readonly rear: EndRound;
+
+  constructor(kind: VehicleKind, p: ExteriorProfile, archGap: number) {
+    const s = VEHICLE_SPECS[kind];
+    this.hw = s.width / 2;
+    this.half = s.length / 2;
+    this.front = END_ROUND[kind]?.front ?? SQUARE;
+    this.rear = END_ROUND[kind]?.rear ?? SQUARE;
+    // The rounding starts where the arch behind the nose (ahead of the tail) ends.
+    this.zFront = Math.min(this.half - 0.2, p.wheelFront * s.length + p.wheelR + archGap);
+    this.zRear = Math.max(-this.half + 0.2, p.wheelRear * s.length - p.wheelR - archGap);
+  }
+
+  /** How far into its rounded end z lies: 0 between the arches, 1 at the end face and beyond. */
+  private reach(z: number): number {
+    const t = z >= 0 ? (z - this.zFront) / (this.half - this.zFront) : (this.zRear - z) / (this.zRear + this.half);
+    const c = THREE.MathUtils.clamp(t, 0, 1);
+    return c * c * (3 - 2 * c);
+  }
+
+  /** Moves the vehicle-local point v (x across, z along) onto the rounded shape. */
+  apply(v: THREE.Vector3): THREE.Vector3 {
+    const e = this.reach(v.z);
+    if (e === 0) return v;
+    const end = v.z >= 0 ? this.front : this.rear;
+    const across = Math.min(1, Math.abs(v.x) / this.hw);
+    v.z -= Math.sign(v.z) * end.bow * across ** BOW_POWER * e;
+    v.x *= 1 - (end.pinch / this.hw) * e * e;
+    return v;
+  }
+
+  /**
+   * Rounds every vertex of `g` in place and refreshes its bounds; `flat` recomputes its (faceted) normals, otherwise
+   * the smooth normals of round fittings are kept (the rounding turns a surface by a few degrees at most).
+   */
+  geometry(g: THREE.BufferGeometry, flat = true): THREE.BufferGeometry {
+    const p = g.getAttribute('position');
+    const v = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) {
+      this.apply(v.fromBufferAttribute(p, i));
+      p.setXYZ(i, v.x, v.y, v.z);
+    }
+    if (flat && g.getAttribute('normal')) g.computeVertexNormals();
+    g.computeBoundingBox();
+    g.computeBoundingSphere();
+    return g;
+  }
+
+  /**
+   * The rounded x of a flank point that stood at |x| = `x` before the rounding and lies at `z` after it (solving for its
+   * z before the rounding, which the bow moved), with the sign of `x`.
+   */
+  flankX(x: number, z: number): number {
+    let z0 = z;
+    const end = z >= 0 ? this.front : this.rear;
+    const across = Math.min(1, Math.abs(x) / this.hw);
+    for (let k = 0; k < 60; k++) z0 = z + Math.sign(z) * end.bow * across ** BOW_POWER * this.reach(z0);
+    const e = this.reach(z0);
+    return x * (1 - (end.pinch / this.hw) * e * e);
+  }
+
+  /** The turn (rad, about +y) that squares a part at x on the front (or rear) end face to the rounded face there. */
+  yaw(x: number, front: boolean): number {
+    const end = front ? this.front : this.rear;
+    const across = Math.min(1, Math.abs(x) / this.hw);
+    const slope = (end.bow * BOW_POWER * across ** (BOW_POWER - 1)) / this.hw / (1 - end.pinch / this.hw);
+    return Math.sign(x) * Math.atan(slope);
+  }
+}
+
 /**
  * Tyre tones (linear, times the tyre material's white): worn black tread, a lighter moulded sidewall and the raised
  * lettering band round it, so a close-up reads as rubber with a sidewall instead of one flat black ring.

@@ -1,5 +1,6 @@
-// Mission 3 cars (VAL-CAR-001..010): real tinted glass, bodies fitted to VEHICLE_SPECS and the physics, dents on the
-// body and its shadow, moulded lamp lenses, lettered tyres, wheels that steer and spin, and batched part draws.
+// Mission 3 cars (VAL-CAR-001..010): real tinted glass, bodies fitted to VEHICLE_SPECS and the physics, rounded noses
+// and tails with moulded arch lips, dents on the body and its shadow, moulded lamp lenses, lettered tyres, wheels that
+// steer and spin, dark street ironwork under parked cars, batched part draws, and far versions and fades that agree.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
@@ -23,7 +24,9 @@ vi.hoisted(() => {
 
 import { PART_LAYER, SHADOW_LAYER, VehiclePartBatches } from '../../src/render/vehicleBatches';
 import { TYRE_LETTERING, TYRE_SIDEWALL, TYRE_TREAD } from '../../src/render/vehicleDetails';
-import { AXLE, cabinCeiling, cabinLayout, GLASS_OPACITY, LAMP_LENS, riderSeat, VehicleView, vehicleGlass } from '../../src/render/vehicleView';
+import { manhole, stormDrain } from '../../src/render/cityArchitecture';
+import { GeoBuilder } from '../../src/render/geo';
+import { AXLE, cabinCeiling, cabinLayout, endRounding, GLASS_OPACITY, LAMP_LENS, riderSeat, VehicleView, vehicleGlass } from '../../src/render/vehicleView';
 import { Vehicle } from '../../src/sim/entities';
 import { SKELETON } from '../../src/sim/pose';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
@@ -368,6 +371,169 @@ describe('VAL-CAR-007 batched parts and draw structure', () => {
       });
       expect(own, kind).toBe(kind === 'police' ? 4 : 3);
       expect(casters, kind).toEqual(['shadow']);
+    }
+  });
+});
+
+describe('VAL-CAR-003 rebuilt bodies', () => {
+  /** The body's vertices beyond the arches at one end: the furthest reach along the car at the middle and at the flanks. */
+  const endReach = (g: THREE.BufferGeometry, front: boolean, hw: number): { middle: number; corner: number; flank: number } => {
+    const p = g.getAttribute('position');
+    let middle = 0;
+    let corner = 0;
+    let flank = 0;
+    for (let i = 0; i < p.count; i++) {
+      const z = front ? p.getZ(i) : -p.getZ(i);
+      const x = Math.abs(p.getX(i));
+      if (x < 0.1) middle = Math.max(middle, z);
+      if (x > hw - 0.03) corner = Math.max(corner, z);
+      if (z > 0 && z < 0.2) flank = Math.max(flank, x);
+    }
+    return { middle, corner, flank };
+  };
+
+  it('every kind keeps its length at the middle and draws its corners back in plan (a rounded nose and tail)', () => {
+    for (const kind of KINDS) {
+      const s = VEHICLE_SPECS[kind];
+      const g = mesh(view(kind), 'body').geometry;
+      const front = endReach(g, true, s.width / 2);
+      const rear = endReach(g, false, s.width / 2);
+      // The ends stay at the spec length in the middle (VAL-CAR-002 holds), and the nose's corners stand back from it:
+      // by 5 cm or more on every kind's nose, the tail's on the cars.
+      expect(Math.abs(front.middle - s.length / 2), kind).toBeLessThanOrEqual(0.04);
+      expect(Math.abs(rear.middle - s.length / 2), kind).toBeLessThanOrEqual(0.04);
+      expect(front.middle - front.corner, `${kind} nose`).toBeGreaterThanOrEqual(0.05);
+      if (['compact', 'sedan', 'taxi', 'police', 'sports', 'muscle', 'bus'].includes(kind)) expect(rear.middle - rear.corner, `${kind} tail`).toBeGreaterThanOrEqual(0.04);
+      // Between the arches the flanks are where they were: the rounding stays out of the cabin and off the wheels.
+      const r = endRounding(kind);
+      expect(Math.abs(r.flankX(s.width / 2, 0.1)), kind).toBeCloseTo(s.width / 2, 6);
+    }
+  });
+
+  it('the wheel arches carry moulded lips standing proud of the flank, which dent with the body', () => {
+    for (const kind of KINDS) {
+      const s = VEHICLE_SPECS[kind];
+      const v = view(kind);
+      const p = mesh(v, 'body').geometry.getAttribute('position');
+      let lip = 0;
+      for (let i = 0; i < p.count; i++) {
+        const z = Math.abs(p.getZ(i));
+        // Over the front and rear axles, above the tyres' centres.
+        if (Math.abs(z - AXLE * s.length) < 0.6 && p.getY(i) > 0.3 && Math.abs(p.getX(i)) > s.width / 2 + 0.015) lip++;
+      }
+      expect(lip, kind).toBeGreaterThan(40);
+    }
+  });
+
+  it('the sports car is a low wedge: its nose sits lower against its height than the sedan\'s, under a rear wing', () => {
+    const noseTop = (kind: VehicleKind): number => {
+      const s = VEHICLE_SPECS[kind];
+      const p = mesh(view(kind), 'body').geometry.getAttribute('position');
+      let top = 0;
+      for (let i = 0; i < p.count; i++) if (p.getZ(i) > 0.46 * s.length && Math.abs(p.getX(i)) < 0.3) top = Math.max(top, p.getY(i));
+      return top / s.height;
+    };
+    expect(noseTop('sports')).toBeLessThan(noseTop('sedan') - 0.05);
+    const s = VEHICLE_SPECS.sports;
+    const p = mesh(view('sports'), 'body').geometry.getAttribute('position');
+    let wing = 0;
+    for (let i = 0; i < p.count; i++) if (p.getZ(i) < -0.38 * s.length && Math.abs(p.getX(i)) > 0.8) wing = Math.max(wing, p.getY(i));
+    expect(wing).toBeGreaterThan(0.6 * s.height);
+  });
+});
+
+describe('VAL-CAR-006 no pale disc under parked cars', () => {
+  it('manhole covers and storm drains are cast-iron dark: no lighter than the asphalt round them, the rim a little lighter', () => {
+    // The asphalt's base colour (textures/ground.ts '#3a3b3e'), in the linear space the vertex colours are in.
+    const asphalt = new THREE.Color('#3a3b3e');
+    const luma = (r: number, g: number, b: number): number => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const ground = luma(asphalt.r, asphalt.g, asphalt.b);
+    for (const build of [(b: GeoBuilder) => manhole(b, 0, 0), (b: GeoBuilder) => stormDrain(b, 0, 0, false)]) {
+      const b = new GeoBuilder(true);
+      build(b);
+      const built = b.build();
+      const g = built.index ? built.toNonIndexed() : built;
+      const c = g.getAttribute('color');
+      const p = g.getAttribute('position');
+      let area = 0;
+      let sum = 0;
+      let max = 0;
+      for (let i = 0; i < c.count; i += 3) {
+        const a = new THREE.Vector3().fromBufferAttribute(p, i);
+        const ab = new THREE.Vector3().fromBufferAttribute(p, i + 1).sub(a);
+        const ac = new THREE.Vector3().fromBufferAttribute(p, i + 2).sub(a);
+        const w = ab.cross(ac).length() / 2;
+        const l = luma(c.getX(i), c.getY(i), c.getZ(i));
+        area += w;
+        sum += w * l;
+        max = Math.max(max, l);
+      }
+      // Seen from above the top layer covers the rest; the area-weighted mean over every layer is a fair upper bound.
+      expect(sum / area).toBeLessThanOrEqual(ground * 1.25);
+      expect(max).toBeLessThanOrEqual(ground * 2);
+      g.dispose();
+    }
+  });
+});
+
+describe('VAL-CAR-009 far versions, fades and shadows agree', () => {
+  it('the far version draws the same body, glass and fittings geometry from the part batches, glass in its own material', () => {
+    for (const kind of ['sedan', 'bus', 'firetruck'] as const) {
+      const batches = new VehiclePartBatches();
+      const v = view(kind);
+      const car = new Vehicle(1, kind, 0, 0, 0, 0, 0x2e86c1);
+      v.bind(car);
+      v.sync(car, 1 / 60, 0, 0);
+      const body = mesh(v, 'body').geometry;
+      const glass = mesh(v, 'glass');
+      v.setDistant(true);
+      batches.begin();
+      v.drawParts(batches);
+      batches.end();
+      const drawn = new Map<THREE.BufferGeometry, THREE.Material>();
+      for (const m of batches.group.children) {
+        const part = batches.partOf(m);
+        if (part && (m as THREE.InstancedMesh).count > 0) drawn.set(part.geometry, part.material);
+      }
+      // The same undented geometry as the near version, so nothing jumps in size or place at the switch.
+      expect(drawn.has(body), kind).toBe(true);
+      expect(drawn.get(glass.geometry), kind).toBe(glass.material);
+      // The far glass is the tinted, env-mapped glass (a dark band), not paint.
+      expect((glass.material as THREE.MeshStandardMaterial).color.getHex(), kind).not.toBe(0xffffff);
+      batches.dispose();
+    }
+  });
+
+  it('a fading car fades its glass, lenses and shadow with its body, and casts nothing once it is gone', () => {
+    for (const kind of KINDS) {
+      const batches = new VehiclePartBatches();
+      const v = view(kind);
+      const car = new Vehicle(1, kind, 0, 0, 0, 0, 0xb03a2e);
+      v.bind(car);
+      v.sync(car, 1 / 60, 0, 1);
+      v.beginFade();
+      v.setFade(0.5);
+      const body = mesh(v, 'body').material as THREE.Material;
+      const glass = mesh(v, 'glass').material as THREE.Material;
+      expect(body.alphaHash && body.opacity, kind).toBeCloseTo(0.5, 6);
+      // Never more opaque than the body: the Fresnel edge brings it up to the fade, not to 1.
+      expect(glass.transparent && glass.opacity, kind).toBeCloseTo(0.5 * GLASS_OPACITY, 6);
+      expect(patchedFragment(glass)).toContain('min( 1.0, diffuseColor.a');
+      const depth = mesh(v, 'shadow').customDepthMaterial as THREE.MeshDepthMaterial;
+      expect(depth.alphaHash && depth.opacity, kind).toBeCloseTo(0.5, 6);
+      batches.begin();
+      v.drawParts(batches);
+      batches.end();
+      // Lenses (and wheels) are drawn by the batches at the same fade.
+      for (const m of batches.group.children) {
+        const inst = m as THREE.InstancedMesh;
+        if (inst.count === 0) continue;
+        const fade = inst.geometry.getAttribute('instanceFade');
+        for (let i = 0; i < inst.count; i++) expect(fade.getX(i), kind).toBeCloseTo(0.5, 6);
+      }
+      v.setFade(0);
+      expect(v.group.visible, kind).toBe(false);
+      batches.dispose();
     }
   });
 });

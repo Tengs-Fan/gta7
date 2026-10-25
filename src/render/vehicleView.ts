@@ -12,7 +12,7 @@ import type { LampGlow } from './lightSprites';
 import { taxiSignTexture } from './textures';
 import { addPanel, addPrism, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
 import { crackedGlassTexture, exteriorTextures, GLASS_TINT } from './vehicleTextures';
-import { alloyGeometry, exteriorGeometry, lensGeometry, sculptBody, taperCabin, tireGeometry } from './vehicleDetails';
+import { alloyGeometry, EndRounding, exteriorGeometry, lensGeometry, sculptBody, taperCabin, tireGeometry } from './vehicleDetails';
 import type { Suspension } from './suspension';
 import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
 
@@ -62,9 +62,15 @@ const LAMP_BREAK_DIST = 0.8;
  */
 const BRAKE_GLOW = 1.8;
 const TAIL_RUNNING = 1.0;
-const TAIL_OFF = 0.3;
-/** A switched-off head lamp's lens at night (times the night factor). */
+/**
+ * A switched-off lamp's lens at night (times the night factor): its moulded lens still glows softly, casting no light
+ * and no glow sprite, so a parked car's lamps read after dark (VAL-CAR-005). By day an off lens is unlit.
+ */
 const HEAD_OFF = 0.3;
+const TAIL_OFF = 0.62;
+/** The off tail lens's glow: red with a touch of orange (dim pure red is too dark to read next to the white heads). */
+const TAIL_GLIMMER = new THREE.Color(0xff3a1a);
+const TAIL_LIT = new THREE.Color(0xff0000);
 
 type Rgb = readonly [number, number, number];
 /**
@@ -529,6 +535,30 @@ function withArches(body: Pt[], prof: Profile, L: number): { pts: Pt[]; arches: 
   return { pts: out, arches };
 }
 
+/** Radial width of the moulded lip round a wheel arch, and how far it stands proud of the flank (m). */
+const ARCH_LIP = 0.055;
+const ARCH_LIP_OUT = 0.025;
+/** The working vehicles' lips are dark plastic trim (a shade of the paint's vertex colour); the cars' are painted. */
+const TRIM_SHADE = 0.16;
+
+/**
+ * Moulded lips round the wheel arches on both flanks (merged into the body, so they dent with it): painted and flared
+ * a little further on the sports and muscle cars, dark trim on the pickup, vans, trucks and bus.
+ */
+function addArchLips(b: GeoBuilder, arches: ReadonlyArray<readonly [Pt, Pt]>, kind: VehicleKind, half: number): void {
+  const trim = kind === 'pickup' || kind === 'swat' || kind === 'van' || kind === 'bus' || kind === 'ambulance' || kind === 'firetruck';
+  // (The body stays within 3 % of the spec width: VAL-CAR-002.)
+  const out = kind === 'sports' || kind === 'muscle' ? 0.028 : ARCH_LIP_OUT;
+  for (const [p, q] of arches) {
+    for (const side of [-1, 1]) {
+      const x0 = side < 0 ? -(half + out) : half - 0.02;
+      const x1 = side < 0 ? -(half - 0.02) : half + out;
+      // Inward of the arch edge, over the panel round it (a counter-clockwise profile's outward is into the arch).
+      b.bar(x0, x1, p, q, ARCH_LIP, -ARCH_LIP / 2, trim ? TRIM_SHADE : 1, 0.004);
+    }
+  }
+}
+
 /**
  * Dark interior inside a glass cabin, merged into the body, laid out by the seat frame (cabinLayout): a floor over the
  * painted body top, a steering wheel and a dashboard under the windshield, and low seat backs (and a rear bench) just
@@ -614,6 +644,8 @@ interface KindAssets {
   lamp: LensSize;
   reverse: LensSize;
   prof: Profile;
+  /** The plan-view rounding of the nose and tail its body, glass, fittings and lamps share. */
+  round: EndRounding;
 }
 
 type LensSize = readonly [number, number, number];
@@ -653,7 +685,8 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
     steps: coarse ? 1 : 4,
     maxEdge: spacing,
     steiner: coarse ? 0 : spacing,
-    extraX: prof.panes.flatMap((w) => [w.x0, w.x1]),
+    // (And the middle: the rounded nose and tail keep their centre at the spec length.)
+    extraX: [0, ...prof.panes.flatMap((w) => [w.x0, w.x1])],
     // Side windows of box-shaped vehicles: dark backing behind the glass, cut into the flanks.
     holes: box ? [prof.cabin, ...prof.ports] : [],
     holeShade: DARK,
@@ -685,12 +718,14 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
     bb.box(-0.84, deck + 0.13, zc - 0.17, 0.84, deck + 0.16, zc + 0.15, 1, -0.06);
     for (const side of [-1, 1]) bb.box(side * 0.84 - 0.02, deck + 0.06, zc - 0.2, side * 0.84 + 0.02, deck + 0.2, zc + 0.17, 1);
   }
+  if (!coarse) addArchLips(bb, arches, kind, s.width / 2);
   const layout = cabinLayout(kind);
   if (layout) {
     if (!coarse) addInterior(bb, prof, kind, layout);
     addRoof(bb, prof, kind, layout, coarse);
   }
-  const body = coarse ? bb.build() : sculptBody(bb.build(), kind, prof);
+  const round = new EndRounding(kind, prof, ARCH_GAP);
+  const body = round.geometry(coarse ? bb.build() : sculptBody(bb.build(), kind, prof));
   const gb = new GeoBuilder();
   for (const glass of [prof.cabin, ...prof.ports]) addPrism(gb, glass, { width: s.width - prof.cabinInset * 2, bevel: prof.cabinInset > 0 ? 0.05 : 0.01, steps: coarse ? 1 : 4, maxEdge: spacing, steiner: coarse ? 0 : spacing });
   for (const w of prof.panes) {
@@ -706,15 +741,21 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
   }
   const cabin = gb.build();
   if (!coarse) taperCabin(cabin, kind);
+  round.geometry(cabin);
   const wheel = coarse ? new THREE.CylinderGeometry(prof.wheelR, prof.wheelR, 0.26, 6) : tireGeometry(prof.wheelR);
   if (coarse) wheel.rotateZ(Math.PI / 2);
   const rim = alloyGeometry(prof.wheelR, kind);
-  const exterior = coarse ? new THREE.BufferGeometry() : exteriorGeometry(kind, prof);
+  const exterior = coarse ? new THREE.BufferGeometry() : round.geometry(exteriorGeometry(kind, prof), false);
   const lamp: LensSize = [0.36, kind === 'sports' ? 0.085 : 0.14, 0.05];
   const reverse: LensSize = [0.18, 0.08, 0.04];
-  a = { body, cabin, exterior, wheel, rim, lamp, reverse, prof };
+  a = { body, cabin, exterior, wheel, rim, lamp, reverse, prof, round };
   assets.set(key, a);
   return a;
+}
+
+/** The plan-view rounding of a kind's nose and tail (shared by its body, glass, fittings and lamps). */
+export function endRounding(kind: VehicleKind): EndRounding {
+  return kindAssets(kind).round;
 }
 
 /** The top of a glass cabin's painted roof panel (addRoof), where roof gear stands. */
@@ -1091,16 +1132,21 @@ export class VehicleView {
       m.name = 'lamp';
       return m;
     };
+    // On the rounded nose and tail (EndRounding), turned square to the face where they sit.
+    const onEnd = (m: THREE.Mesh, x: number, y: number, rear: boolean): void => {
+      m.position.copy(a.round.apply(new THREE.Vector3(x, y, rear ? -front : front)));
+      m.rotation.y = rear ? Math.PI - a.round.yaw(x, false) : a.round.yaw(x, true);
+    };
     for (const side of [-1, 1]) {
       const h = lens(a.lamp, this.headMat, false);
-      h.position.set(side * (halfW - 0.32), ly, front);
+      onEnd(h, side * (halfW - 0.32), ly, false);
       const t = lens(a.lamp, this.tailMat, true);
-      t.position.set(side * (halfW - 0.3), ly + 0.05, -front);
+      onEnd(t, side * (halfW - 0.3), ly + 0.05, true);
       this.group.add(h, t);
       this.lamps.push({ mesh: h, mat: this.headMat, broken: false, base: h.position.clone(), head: true, role: 'head' }, { mesh: t, mat: this.tailMat, broken: false, base: t.position.clone(), head: false, role: 'tail' });
     }
     const rev = lens(a.reverse, this.reverseMat, true);
-    rev.position.set(0, ly - 0.05, -front);
+    onEnd(rev, 0, ly - 0.05, true);
     this.group.add(rev);
     this.lamps.push({ mesh: rev, mat: this.reverseMat, broken: false, base: rev.position.clone(), head: false, role: 'reverse' });
     for (const l of this.lamps) {
@@ -1633,6 +1679,7 @@ export class VehicleView {
     // Unlit lenses only glimmer after dark (none by day, so a parked car's lamps are not lit at noon).
     this.headMat.emissiveIntensity = powered ? 0.4 + night * 5 : HEAD_OFF * night;
     this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? BRAKE_GLOW : lightsOn ? TAIL_RUNNING : TAIL_OFF * night;
+    this.tailMat.emissive.copy(v.braking || lightsOn ? TAIL_LIT : TAIL_GLIMMER);
     this.reverseMat.emissiveIntensity = v.reversing && v.driver ? 4 : 0;
     this.lit.lights = lightsOn;
     this.lit.siren = null;

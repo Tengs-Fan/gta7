@@ -74,7 +74,11 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
   }
 }
 
-/** Flush ironwork sits below the road paint and cannot affect driving. */
+/**
+ * Flush ironwork sits below the road paint and cannot affect driving. Cast iron is about as dark as the asphalt round
+ * it (#3a3b3e, 0.04 linear), with a worn rim and darker slots: a pale cover read as a light disc under the cars parked
+ * over it (they stop on a lane's centre, where the covers are).
+ */
 export function manhole(g: GeoBuilder, x: number, z: number): void {
   const r = 0.48;
   const segments = 20;
@@ -85,28 +89,28 @@ export function manhole(g: GeoBuilder, x: number, z: number): void {
     const az = z + Math.sin(a) * r;
     const bx = x + Math.cos(b) * r;
     const bz = z + Math.sin(b) * r;
-    g.tri(x, 0.009, z, bx, 0.009, bz, ax, 0.009, az, [0.5, 0.5, 1, 0, 0, 0], [0.19, 0.2, 0.21]);
+    g.tri(x, 0.009, z, bx, 0.009, bz, ax, 0.009, az, [0.5, 0.5, 1, 0, 0, 0], [0.05, 0.05, 0.052]);
     const aiX = x + Math.cos(a) * (r - 0.045);
     const aiZ = z + Math.sin(a) * (r - 0.045);
     const biX = x + Math.cos(b) * (r - 0.045);
     const biZ = z + Math.sin(b) * (r - 0.045);
-    g.quad(ax, 0.011, az, aiX, 0.011, aiZ, biX, 0.011, biZ, bx, 0.011, bz, [0, 0, 1, 0, 1, 1, 0, 1], [0.3, 0.31, 0.31]);
+    g.quad(ax, 0.011, az, aiX, 0.011, aiZ, biX, 0.011, biZ, bx, 0.011, bz, [0, 0, 1, 0, 1, 1, 0, 1], [0.075, 0.074, 0.072]);
   }
   for (let k = -2; k <= 2; k++) {
     const half = Math.sqrt(0.36 * 0.36 - (k * 0.12) ** 2);
-    g.flat(x - half, z + k * 0.12 - 0.018, x + half, z + k * 0.12 + 0.018, 0.012, UV, [0.095, 0.1, 0.11]);
+    g.flat(x - half, z + k * 0.12 - 0.018, x + half, z + k * 0.12 + 0.018, 0.012, UV, [0.022, 0.022, 0.024]);
   }
 }
 
 export function stormDrain(g: GeoBuilder, x: number, z: number, vertical: boolean): void {
   const halfX = vertical ? 0.19 : 0.48;
   const halfZ = vertical ? 0.48 : 0.19;
-  g.flat(x - halfX, z - halfZ, x + halfX, z + halfZ, 0.009, UV, [0.09, 0.105, 0.11]);
+  g.flat(x - halfX, z - halfZ, x + halfX, z + halfZ, 0.009, UV, [0.03, 0.032, 0.034]);
   for (let k = -3; k <= 3; k++) {
     const cx = x + (vertical ? 0 : k * 0.12);
     const cz = z + (vertical ? k * 0.12 : 0);
     const sx = vertical ? halfX : 0.024;
     const sz = vertical ? 0.024 : halfZ;
-    g.flat(cx - sx, cz - sz, cx + sx, cz + sz, 0.013, UV, [0.27, 0.28, 0.27]);
+    g.flat(cx - sx, cz - sz, cx + sx, cz + sz, 0.013, UV, [0.07, 0.07, 0.068]);
   }
 }

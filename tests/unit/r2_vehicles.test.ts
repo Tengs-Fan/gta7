@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Effects } from '../../src/render/effects';
 import { GameRenderer, HEADLIGHT_INTENSITY } from '../../src/render/renderer';
 import { DentedGeometry, displace, triangulateCDT, type Pt } from '../../src/render/vehicleGeometry';
-import { cabinLayout, leanRoom, VehicleView, VehicleViewPool, vehicleGlass } from '../../src/render/vehicleView';
+import { cabinLayout, endRounding, leanRoom, VehicleView, VehicleViewPool, vehicleGlass } from '../../src/render/vehicleView';
 import { MAX_DENTS, type Dent, type Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
@@ -445,6 +445,7 @@ describe('cap triangulation', () => {
       for (const mesh of ['body', 'glass'] as const) {
         const g = meshNamed(new VehicleView(kind), mesh).geometry;
         const pos = g.getAttribute('position');
+        const round = endRounding(kind);
         // The body's flanks are at the spec's half width (the pickup's bed walls stand 2 mm proud); the glass's are outermost.
         let half = 0;
         for (let i = 0; i < pos.count; i++) half = Math.max(half, Math.abs(pos.getX(i)));
@@ -457,7 +458,10 @@ describe('cap triangulation', () => {
             const shaped = mesh === 'body' && !['bus', 'van', 'swat', 'pickup'].includes(kind) && !spec.bodyProfile?.straightSides;
             let capX = shaped ? bodySideX(half, spec.height, pos.getY(i)) : half;
             if (mesh === 'glass' && !['bus', 'van', 'swat'].includes(kind)) capX = cabinSideX(half, pos.getY(i), spec.height, spec.width / 2);
-            return Math.abs(pos.getX(i) - side * capX) < 1e-6;
+            // Revised for mission 3 (VAL-CAR-004/010): the flanks are drawn in towards the rounded nose and tail
+            // (EndRounding), so the cap's x follows that shape there; between the arches it is the side wall as before.
+            // The bound is the same: every cap vertex within 1e-6 m of the (rounded) side wall.
+            return Math.abs(pos.getX(i) - side * Math.abs(round.flankX(capX, pos.getZ(i)))) < 1e-6;
           };
           const capCount = new Map<string, number>();
           const wall = new Set<string>();
@@ -813,7 +817,11 @@ describe('vehicle views', () => {
     expect(mat().emissiveIntensity).toBeCloseTo(0, 6);
     sim.unseat(sim.player);
     view.sync(v, DT, 0, 1);
-    expect(mat().emissiveIntensity).toBeCloseTo(0.3, 6);
+    // Revised (mission 3 cars, VAL-CAR-005): a parked car's off lens still glows softly after dark (no glow sprite, no
+    // light cast), a warm red bright enough to read; the running and brake lamps stay pure red.
+    expect(mat().emissiveIntensity).toBeCloseTo(0.62, 6);
+    expect(mat().emissive.getHex()).toBe(0xff3a1a);
+    expect(view.lightsOn).toBe(false);
   });
 });
 
