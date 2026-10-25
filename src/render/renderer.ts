@@ -387,6 +387,16 @@ export class GameRenderer {
       v.drawParts(this.vehicleParts);
       v.setDistant(false);
     }
+    // The player car's reflective finishes and the cube filter, so the first drive compiles neither; the finished rims
+    // join the part batches too, whose copies of them have a program of their own.
+    if (reflections) {
+      this.localReflections ??= new LocalReflections(this.renderer, this.scene);
+      this.localReflections.warm(shiny.map((v) => v.group));
+      for (const v of shiny) {
+        v.group.updateMatrix();
+        v.drawParts(this.vehicleParts);
+      }
+    }
     this.vehicleParts.end();
     if (this.vehicleParts.takeChanged()) this.softwareMaterials?.apply(this.vehicleParts.group);
     // And the fade copies of a car fading out (hashed alpha), with the hashed-alpha depth of its shadow.
@@ -412,11 +422,6 @@ export class GameRenderer {
     shadowScene.add(this.effects.shadowProbes([this.vehicleParts.shadowDepthMaterial]));
     this.softwareMaterials?.apply(fxProbe);
     this.scene.add(fxProbe);
-    // The player car's reflective finishes and the cube filter, so the first drive compiles neither.
-    if (reflections) {
-      this.localReflections ??= new LocalReflections(this.renderer, this.scene);
-      this.localReflections.warm(shiny.map((v) => v.group));
-    }
     // With the HDR output three draws the scene into its half-float target with tone mapping off and
     // a linear colour space. Compiling for the canvas would build the tone-mapped sRGB variants,
     // which are never drawn, so a stand-in half-float target is bound while compiling.
