@@ -1,4 +1,4 @@
-// Landmark towers: the tallest downtown towers with a flat roof get a crown of their own above the roof (visual only:
+// Landmark towers: four of the tallest downtown towers with a flat roof get a crown of their own above the roof (visual only:
 // footprints, heights and colliders stay those of the layout, and every addition stands inside the top tier's plan).
 
 import { rectD, rectW, type Building, type CityLayout } from '../../world/layout';
@@ -23,12 +23,39 @@ export interface Landmark {
 
 const ORDER: LandmarkKind[] = ['stepped', 'pyramid', 'crown', 'wedge'];
 
-/** The landmark towers: the four tallest flat-roofed downtown and midtown towers, one crown kind each. */
+/**
+ * The skyline is seen from the sea, to the east, along sight lines running west (along x). The towers stand in a grid,
+ * so the tallest four line up in pairs from the sea and one crown hides another: landmarks stand at least CLEAR_Z apart
+ * across those sight lines, and none stands behind a nearer tower that reaches within HIDE_H of its roof.
+ */
+const CLEAR_Z = 45;
+const HIDE_H = 4;
+
+/** Whether a tower nearer the sea covers at least half of `b`'s width and reaches within HIDE_H of its roof. */
+function hiddenFromSea(b: Building, all: readonly Building[]): boolean {
+  return all.some((o) => {
+    if (o === b || o.rect.minX <= b.rect.maxX || o.height < b.height - HIDE_H) return false;
+    const overlap = Math.min(o.rect.maxZ, b.rect.maxZ) - Math.max(o.rect.minZ, b.rect.minZ);
+    return overlap > 0.5 * rectD(b.rect);
+  });
+}
+
+/**
+ * The landmark towers, one crown kind each: the tallest flat-roofed downtown and midtown towers, taken in height order
+ * and skipping any that stands in line with one already chosen or behind a nearer tower, so every crown reads on its
+ * own on the skyline from the sea.
+ */
 export function landmarkTowers(layout: CityLayout): Landmark[] {
-  const towers = layout.buildings
+  const candidates = layout.buildings
     .filter((b) => (b.district === 'downtown' || b.district === 'midtown') && b.roof === 'flat' && b.tiers.length > 0)
-    .sort((a, b) => b.height - a.height || a.id - b.id)
-    .slice(0, ORDER.length);
+    .sort((a, b) => b.height - a.height || a.id - b.id);
+  const cz = (b: Building) => (b.rect.minZ + b.rect.maxZ) / 2;
+  const towers: Building[] = [];
+  for (const b of candidates) {
+    if (towers.length === ORDER.length) break;
+    if (towers.some((t) => Math.abs(cz(t) - cz(b)) < CLEAR_Z) || hiddenFromSea(b, layout.buildings)) continue;
+    towers.push(b);
+  }
   return towers.map((b, i) => describe(b, ORDER[i]!));
 }
 
@@ -127,28 +154,32 @@ export function drawLandmark(facade: GeoBuilder, trim: GeoBuilder, b: Building, 
       break;
     }
     case 'crown': {
-      const fin = 0.7;
-      const ht = 10;
+      // Sized to read on the skyline from the sea (about 0.9 m a pixel at 700 m): corner pylons, an open ring and fins.
+      const fin = 1.3;
+      const ht = 11;
       const i0 = 0.35;
+      const rh = 1.8;
+      const rd = 0.8;
+      const mid = 0.6;
       for (const fx of [t.minX + i0, t.maxX - i0 - fin]) {
         for (const fz of [t.minZ + i0, t.maxZ - i0 - fin]) trim.box(fx, y, fz, fx + fin, y + ht, fz + fin, { uv: W, color: metal });
       }
-      // The open ring at the top of the fins, and mid-height fins along the long sides.
-      const ry = y + ht - 1.1;
-      trim.box(t.minX + i0, ry, t.minZ + i0, t.maxX - i0, ry + 1.1, t.minZ + i0 + 0.45, { uv: W, color: metal });
-      trim.box(t.minX + i0, ry, t.maxZ - i0 - 0.45, t.maxX - i0, ry + 1.1, t.maxZ - i0, { uv: W, color: metal });
-      trim.box(t.minX + i0, ry, t.minZ + i0 + 0.45, t.minX + i0 + 0.45, ry + 1.1, t.maxZ - i0 - 0.45, { uv: W, color: metal });
-      trim.box(t.maxX - i0 - 0.45, ry, t.minZ + i0 + 0.45, t.maxX - i0, ry + 1.1, t.maxZ - i0 - 0.45, { uv: W, color: metal });
+      // The open ring at the top of the pylons, and mid-height fins along the long sides.
+      const ry = y + ht - rh;
+      trim.box(t.minX + i0, ry, t.minZ + i0, t.maxX - i0, ry + rh, t.minZ + i0 + rd, { uv: W, color: metal });
+      trim.box(t.minX + i0, ry, t.maxZ - i0 - rd, t.maxX - i0, ry + rh, t.maxZ - i0, { uv: W, color: metal });
+      trim.box(t.minX + i0, ry, t.minZ + i0 + rd, t.minX + i0 + rd, ry + rh, t.maxZ - i0 - rd, { uv: W, color: metal });
+      trim.box(t.maxX - i0 - rd, ry, t.minZ + i0 + rd, t.maxX - i0, ry + rh, t.maxZ - i0 - rd, { uv: W, color: metal });
       const long = w >= d;
       for (let k = 1; k < 4; k++) {
         const a = long ? t.minX + (w * k) / 4 : t.minZ + (d * k) / 4;
         for (const side of [0, 1]) {
           if (long) {
-            const z = side ? t.maxZ - i0 - 0.35 : t.minZ + i0;
-            trim.box(a - 0.18, y, z, a + 0.18, y + ht * 0.75, z + 0.35, { uv: W, color: metal });
+            const z = side ? t.maxZ - i0 - mid : t.minZ + i0;
+            trim.box(a - mid / 2, y, z, a + mid / 2, y + ht * 0.75, z + mid, { uv: W, color: metal });
           } else {
-            const x = side ? t.maxX - i0 - 0.35 : t.minX + i0;
-            trim.box(x, y, a - 0.18, x + 0.35, y + ht * 0.75, a + 0.18, { uv: W, color: metal });
+            const x = side ? t.maxX - i0 - mid : t.minX + i0;
+            trim.box(x, y, a - mid / 2, x + mid, y + ht * 0.75, a + mid / 2, { uv: W, color: metal });
           }
         }
       }
@@ -157,7 +188,7 @@ export function drawLandmark(facade: GeoBuilder, trim: GeoBuilder, b: Building, 
       for (const s of [-1, 1]) {
         const mx = long ? cx + s * off : cx;
         const mz = long ? cz : cz + s * off;
-        prism(trim, mx, mz, 0.35, 0.1, y, y + lm.spire * (s > 0 ? 1 : 0.8), 6, [0.85, 0.85, 0.86]);
+        prism(trim, mx, mz, 0.6, 0.15, y, y + lm.spire * (s > 0 ? 1 : 0.8), 6, [0.85, 0.85, 0.86]);
       }
       break;
     }

@@ -332,6 +332,16 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     expect(lms.length).toBeGreaterThanOrEqual(3);
     expect(new Set(lms.map((l) => l.kind)).size).toBe(lms.length);
     expect(lms.filter((l) => W.layout.buildings[l.id]!.height >= p90).length).toBeGreaterThanOrEqual(2);
+    // Seen from the sea (sight lines run west, along x) no crown stands in line with another or behind a nearer tower
+    // that reaches within 4 m of its roof over half its breadth.
+    const lmB = lms.map((l) => W.layout.buildings[l.id]!);
+    const cz = (b: (typeof lmB)[number]) => (b.rect.minZ + b.rect.maxZ) / 2;
+    for (let i = 0; i < lmB.length; i++) {
+      for (let j = i + 1; j < lmB.length; j++) expect(Math.abs(cz(lmB[i]!) - cz(lmB[j]!)), `landmarks ${lmB[i]!.id}/${lmB[j]!.id}`).toBeGreaterThanOrEqual(45);
+      const b = lmB[i]!;
+      const blockers = W.layout.buildings.filter((o) => o !== b && o.rect.minX > b.rect.maxX && o.height >= b.height - 4 && Math.min(o.rect.maxZ, b.rect.maxZ) - Math.max(o.rect.minZ, b.rect.minZ) > 0.5 * (b.rect.maxZ - b.rect.minZ));
+      expect(blockers.map((o) => o.id), `towers in front of landmark ${b.id} from the sea`).toEqual([]);
+    }
   });
 
   it('leaves building footprints, heights, tiers and the colliders as at d98da7b (VAL-BLD-010)', () => {
