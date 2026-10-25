@@ -60,7 +60,7 @@ export const LOOKS: readonly Look[] = [
   { id: 'womanShades', model: 'char.woman_casual', group: 'civilian', slots: womanCasual, accessories: ['sunglasses', 'watch'], female: true },
   { id: 'commuter', model: 'char.businessman', group: 'civilian', slots: suit, accessories: ['shoulderBag', 'watch'], female: false },
   // Police patrol kit on a plain shirt and trousers; SWAT in armour.
-  { id: 'cop', model: 'char.casual2', group: 'cop', slots: { ...casual2, Red_Dark: 'fixed' }, accessories: ['policeCap', 'dutyBelt', 'radio', 'badge'], female: false },
+  { id: 'cop', model: 'char.casual2', group: 'cop', slots: casual2, accessories: ['policeCap', 'dutyBelt', 'radio', 'badge'], female: false },
   { id: 'copWoman', model: 'char.woman_casual', group: 'cop', slots: { ...womanCasual, Grey: 'fixed' }, accessories: ['policeCap', 'dutyBelt', 'radio', 'badge'], female: true },
   { id: 'swat', model: 'char.swat', group: 'swat', slots: swat, accessories: ['radio'], female: false },
   // The gangs: Los Tiburones in hoodies and bandanas, Los Halcones in bomber jackets with gold.

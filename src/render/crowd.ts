@@ -385,12 +385,12 @@ export class CrowdView {
   }
 
   /** The look, body type and path a character was drawn with last frame (undefined when he was not drawn skinned). */
-  drawnLook(id: number): { look: string; lookIndex: number; body: number; near: boolean } | undefined {
+  drawnLook(id: number): { look: string; lookIndex: number; body: number; near: boolean; lens: boolean; fade: number } | undefined {
     for (let i = 0; i < this.rigCount; i++) {
       const r = this.rigs[i]!;
       if (r.id !== id) continue;
       const w = this.skinned?.where.get(id);
-      return { look: LOOKS[r.look]!.id, lookIndex: r.look, body: r.bodyType, near: !!w?.near };
+      return { look: LOOKS[r.look]!.id, lookIndex: r.look, body: r.bodyType, near: !!w?.near, lens: r.lens, fade: r.fade };
     }
     return undefined;
   }

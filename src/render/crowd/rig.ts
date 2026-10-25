@@ -188,6 +188,8 @@ export interface IdleAngles {
 }
 
 const DEG = Math.PI / 180;
+/** Share of the upper arm's drop below the shoulder line that the clavicle follows. */
+export const CLAV_DROP = 0.4;
 /** Extra elbow bend standing idle, on top of the segment pose's (rad). */
 export const IDLE_ELBOW = 0.035;
 
@@ -381,7 +383,13 @@ export function poseBones(p: RigPose, out: Float32Array, o: number, root: V, idl
     const u = rest;
     const e = T.l.identity().elements;
     for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) e[c * 4 + r] = (r === c ? s : 0) + (k - s) * u.getComponent(r) * u.getComponent(c);
-    T.l.premultiply(T.r).premultiply(body);
+    T.l.premultiply(T.r);
+    // A lowered arm takes the shoulder top down with it a little (about the clavicle pivot, as the models' own
+    // clips do), so the deltoid rounds over instead of standing up as a pad.
+    T.c.subVectors(el, sh).applyMatrix4(T.r2.copy(body).transpose());
+    const drop = Math.asin(THREE.MathUtils.clamp(-T.c.y / Math.max(T.c.length(), 1e-6), 0, 1));
+    if (drop > 0) T.l.premultiply(T.r.makeRotationZ((L ? -1 : 1) * CLAV_DROP * drop));
+    T.l.premultiply(body);
     writeBone(out, o + BONE[clav] * 16, T.l, pc, root, REST[clav]);
     const ga = girth(type, BONE[arm]);
     frameScale(T.l, upper.extractRotation(upper), ga * s, s, ga * s, REST_FRAME[arm]);
