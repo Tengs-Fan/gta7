@@ -62,7 +62,8 @@ void main() {
   float n = a.r * 0.6 + b.g * 0.4;
   // A lumpy outline: the radius pushed in and out by the noise.
   float shape = 1.0 - r + (n - 0.5) * 0.85 + (a.a - 0.5) * 0.3;
-  float dens = smoothstep(0.02, 0.38, shape);
+  // Never cut by the quad's circle: the density always falls to 0 before r = 1.
+  float dens = smoothstep(0.02, 0.38, shape) * smoothstep(1.0, 0.72, r);
   float cover = dens * vParam.z * clamp(vAbove, 0.0, 1.0) * smoothstep(0.15, 0.6, vNear);
   if (cover < 0.003) discard;
   // Lit from above: the quad's up on screen in texture space is (sin rot, cos rot).

@@ -63,7 +63,9 @@ function drawn(crowd: CrowdView, cam: THREE.PerspectiveCamera): { total: number;
   const m = new THREE.Matrix4();
   const out = { total: 0, inFrame: 0, dissolving: 0 };
   crowd.group.traverse((o) => {
-    if (!(o instanceof THREE.InstancedMesh) || o.count === 0) return;
+    // (Revised, mission 3 effects: his body only. A modelled gun has some 20 times the vertices of the old box gun and
+    // would outweigh the body in these vertex fractions.)
+    if (!(o instanceof THREE.InstancedMesh) || o.count === 0 || o.name.startsWith('gun-')) return;
     const pos = o.geometry.getAttribute('position');
     for (let i = 0; i < o.count; i++) {
       o.getMatrixAt(i, m);

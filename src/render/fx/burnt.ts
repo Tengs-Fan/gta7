@@ -69,7 +69,7 @@ export function burntMaterial(): THREE.MeshStandardMaterial {
   if (shared) return shared;
   // The base colour is a char tone: batched plain parts (rims, lamps, livery: vehicleBatches isPlainPart) draw with it
   // through the shared parts material, without the patch; the bodies draw the patch over it.
-  const m = new THREE.MeshStandardMaterial({ color: 0x2b2826, roughness: 0.9, metalness: 0.1 });
+  const m = new THREE.MeshStandardMaterial({ color: 0x1d1b19, roughness: 0.9, metalness: 0.1 });
   m.name = 'wreck-burnt';
   m.onBeforeCompile = burntPatch;
   m.customProgramCacheKey = () => 'wreck-burnt-v1';
