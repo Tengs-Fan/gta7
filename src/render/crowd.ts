@@ -478,7 +478,7 @@ export class CrowdView {
     const s = this.shots.get(c.id);
     // Another player's shot timer comes in his snapshots, which can run ahead of the shot itself: his gun kicks
     // only once the frame that draws his tracer is past, so that tracer too leaves the barrel end as drawn.
-    if (c.role === 'player' && c !== this.player && (s?.event === undefined || this.frame <= s.event + 1)) return 0;
+    if (this.player && c.role === 'player' && c !== this.player && (s?.event === undefined || this.frame <= s.event + 1)) return 0;
     return t > 0 && t === s?.fired ? 0 : kickAmount(t);
   }
 
