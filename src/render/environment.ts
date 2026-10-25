@@ -147,6 +147,14 @@ export interface PreparedHdri {
   texture: THREE.DataTexture;
   /** Cosine-weighted mean radiance over the upper hemisphere (above the horizon blend): what an up-facing surface gets. */
   up: THREE.Color;
+  /**
+   * The same split by the analytic sky's gradient (top weight smoothstep(0, 0.6, elevation)): the up-facing light from
+   * the HDRI's top part and from its horizon part (sum = up), and the mean radiance of each part by solid angle.
+   */
+  upTop: THREE.Color;
+  upHorizon: THREE.Color;
+  meanTop: THREE.Color;
+  meanHorizon: THREE.Color;
 }
 
 /** Fades the HDRI in above the horizon; below it the bake keeps the analytic haze. Mirrored in the bake's shader. */
@@ -210,6 +218,12 @@ export function prepareHdri(src: THREE.Texture | null | undefined): PreparedHdri
   }
   const cap = HDRI_CLAMP * (lsum / Math.max(wsum, 1e-9));
   const up = new THREE.Color(0, 0, 0);
+  const upTop = new THREE.Color(0, 0, 0);
+  const upHorizon = new THREE.Color(0, 0, 0);
+  const meanTop = new THREE.Color(0, 0, 0);
+  const meanHorizon = new THREE.Color(0, 0, 0);
+  let wt = 0;
+  let wh = 0;
   let cw = 0;
   const texel = new Uint16Array(HDRI_W * HDRI_H * 4);
   for (let j = 0; j < HDRI_H; j++) {
@@ -217,6 +231,8 @@ export function prepareHdri(src: THREE.Texture | null | undefined): PreparedHdri
     const y = Math.sin(e);
     // Solid angle x cosine to the zenith x the horizon blend: the up-facing irradiance the bake will see.
     const k = Math.cos(e) * Math.max(0, y) * hdriAbove(y);
+    const st = smoothstep(0, 0.6, y);
+    const sa = Math.cos(e) * hdriAbove(y) * (y > 0 ? 1 : 0);
     for (let i = 0; i < HDRI_W; i++) {
       const o = (j * HDRI_W + i) * 3;
       const l = 0.2126 * out[o]! + 0.7152 * out[o + 1]! + 0.0722 * out[o + 2]!;
@@ -227,6 +243,17 @@ export function prepareHdri(src: THREE.Texture | null | undefined): PreparedHdri
       up.r += r * k;
       up.g += g * k;
       up.b += b * k;
+      upTop.r += r * k * st;
+      upTop.g += g * k * st;
+      upTop.b += b * k * st;
+      meanTop.r += r * sa * st;
+      meanTop.g += g * sa * st;
+      meanTop.b += b * sa * st;
+      meanHorizon.r += r * sa * (1 - st);
+      meanHorizon.g += g * sa * (1 - st);
+      meanHorizon.b += b * sa * (1 - st);
+      wt += sa * st;
+      wh += sa * (1 - st);
       cw += Math.cos(e) * Math.max(0, y);
       const t = (j * HDRI_W + i) * 4;
       texel[t] = THREE.DataUtils.toHalfFloat(r);
@@ -236,6 +263,10 @@ export function prepareHdri(src: THREE.Texture | null | undefined): PreparedHdri
     }
   }
   up.multiplyScalar(1 / Math.max(cw, 1e-9));
+  upTop.multiplyScalar(1 / Math.max(cw, 1e-9));
+  upHorizon.copy(up).sub(upTop);
+  meanTop.multiplyScalar(1 / Math.max(wt, 1e-9));
+  meanHorizon.multiplyScalar(1 / Math.max(wh, 1e-9));
   const texture = new THREE.DataTexture(texel, HDRI_W, HDRI_H, THREE.RGBAFormat, THREE.HalfFloatType);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
@@ -245,7 +276,7 @@ export function prepareHdri(src: THREE.Texture | null | undefined): PreparedHdri
   texture.colorSpace = THREE.LinearSRGBColorSpace;
   texture.name = 'sky-hdri-reduced';
   texture.needsUpdate = true;
-  return { texture, up };
+  return { texture, up, upTop, upHorizon, meanTop, meanHorizon };
 }
 
 /** Share of the sky covered by cloud at a time of day (hours): about 0.35 by day and 0.25 at night. */
@@ -349,7 +380,7 @@ const NIGHT_SKY_LIGHT = new THREE.Color(0.36, 0.46, 0.8);
 const NIGHT_GROUND_LIGHT = new THREE.Color(0.35, 0.27, 0.18);
 const NIGHT_HORIZON_GLOW = new THREE.Color(0.16, 0.11, 0.08);
 /** The hemisphere fill's floor at full night: the city's light scattered back down from the sky and the facades. */
-const NIGHT_FILL = 0.5;
+const NIGHT_FILL = 0.45;
 /** How much of that glow the night sky takes on at the horizon. */
 const GLOW_STRENGTH = 0.45;
 /** ...and the fog: less, so the sea and distant buildings stay darker than the glowing sky above them. */
@@ -981,9 +1012,10 @@ export class Environment {
     scene.add(water);
 
     // Image based lighting: a tiny sky scene re-baked whenever the palette changes. With the sky HDRI loaded, its
-    // clouds and gradient replace the analytic sky above the horizon by day (uHdriMix), recoloured and scaled per
-    // channel (uHdriGain) so that an up-facing surface gets exactly the analytic sky's light: the HDRI adds structure
-    // to reflections, the time of day keeps the colour and brightness.
+    // clouds and gradient replace the analytic sky above the horizon (uHdriMix), recoloured and scaled per channel and
+    // by height (uHdriGain towards the zenith, uHdriGainH at the horizon, blended as the analytic gradient is) so that
+    // surfaces facing up and sideways get the analytic sky's light: the HDRI adds structure to reflections, the time of
+    // day keeps the colour and brightness.
     this.hdri = opts.hdri === undefined ? (hdr && !this.software ? prepareHdri(assets.texture('env.sky')) : null) : opts.hdri;
     this.noHdri = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
     this.noHdri.needsUpdate = true;
@@ -991,17 +1023,18 @@ export class Environment {
       side: THREE.BackSide,
       uniforms: {
         uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uSun: { value: new THREE.Color() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) },
-        uHdri: { value: this.hdri?.texture ?? this.noHdri }, uHdriMix: { value: 0 }, uHdriGain: { value: new THREE.Color(1, 1, 1) },
+        uHdri: { value: this.hdri?.texture ?? this.noHdri }, uHdriMix: { value: 0 }, uHdriGain: { value: new THREE.Color(1, 1, 1) }, uHdriGainH: { value: new THREE.Color(1, 1, 1) },
       },
       vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
       fragmentShader: `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSun; uniform vec3 uSunDir; varying vec3 vP;
-        uniform sampler2D uHdri; uniform float uHdriMix; uniform vec3 uHdriGain;
+        uniform sampler2D uHdri; uniform float uHdriMix; uniform vec3 uHdriGain; uniform vec3 uHdriGainH;
         void main(){ vec3 d = normalize(vP); float h = d.y;
           vec3 c = mix(uHorizon, uTop, smoothstep(0.0, 0.6, h));
           c = mix(c, vec3(0.16, 0.15, 0.14) * (uHorizon + 0.2), 1.0 - smoothstep(-0.25, 0.0, h));
           if (uHdriMix > 0.0) {
             vec2 uv = vec2(atan(d.z, d.x) * 0.15915494 + 0.5, asin(clamp(h, -1.0, 1.0)) * 0.31830989 + 0.5);
-            c = mix(c, texture2D(uHdri, uv).rgb * uHdriGain, uHdriMix * smoothstep(-0.02, 0.06, h));
+            vec3 gain = mix(uHdriGainH, uHdriGain, smoothstep(0.0, 0.6, h));
+            c = mix(c, texture2D(uHdri, uv).rgb * gain, uHdriMix * smoothstep(-0.02, 0.06, h));
           }
           c += uSun * pow(max(dot(d, uSunDir), 0.0), 24.0) * 2.5;
           gl_FragColor = vec4(c, 1.0); }`,
@@ -1029,6 +1062,8 @@ export class Environment {
   private ratioNow = 1;
   private bakedHourForTint = 12;
   private readonly tmpGrad = new THREE.Color();
+  private readonly tmpTop = new THREE.Color();
+  private readonly tmpHor = new THREE.Color();
   private readonly tmpGold = new THREE.Color();
   private readonly envMat: THREE.ShaderMaterial;
   private pmrem: THREE.PMREMGenerator | null;
@@ -1077,14 +1112,30 @@ export class Environment {
       // included) times bakedRatio (iblSmoothing): the gradient's share, plus the change of the whole, over the HDRI's.
       // At golden hour the HDRI's colour leans from the sunset sky's red and violet towards a warm neutral (same
       // luminance), so the light it gives the streets is warm rather than magenta; the analytic part keeps the sky's.
-      const up = this.hdri.up;
       const all = this.envUp;
       const d = this.bakedRatio - 1;
       const grad = this.tmpGrad.setRGB(0.892 * s.top.r + 0.108 * s.horizon.r, 0.892 * s.top.g + 0.108 * s.horizon.g, 0.892 * s.top.b + 0.108 * s.horizon.b);
       const k = DUSK_NEUTRAL_MIX * goldenHour(this.bakedHourForTint);
       if (k > 0) grad.lerp(this.tmpGold.copy(DUSK_NEUTRAL).multiplyScalar(luminance(grad) / luminance(DUSK_NEUTRAL)), k);
-      const gain = (c: 'r' | 'g' | 'b') => Math.max(0, grad[c] + all[c] * d) / Math.max(up[c], 1e-6);
-      (u.uHdriGain!.value as THREE.Color).setRGB(gain('r'), gain('g'), gain('b'));
+      // The zenith and horizon gains follow the analytic top and horizon colours over the HDRI's own means (the
+      // golden-hour lean applied to both), then one factor per channel brings the up-facing light to the target.
+      const hdri = this.hdri;
+      const top = this.tmpTop.copy(s.top);
+      const hor = this.tmpHor.copy(s.horizon);
+      if (k > 0) {
+        top.lerp(this.tmpGold.copy(DUSK_NEUTRAL).multiplyScalar(luminance(top) / luminance(DUSK_NEUTRAL)), k);
+        hor.lerp(this.tmpGold.copy(DUSK_NEUTRAL).multiplyScalar(luminance(hor) / luminance(DUSK_NEUTRAL)), k);
+      }
+      const gt = u.uHdriGain!.value as THREE.Color;
+      const gh = u.uHdriGainH!.value as THREE.Color;
+      for (const c of ['r', 'g', 'b'] as const) {
+        const t0 = top[c] / Math.max(hdri.meanTop[c], 1e-6);
+        const h0 = hor[c] / Math.max(hdri.meanHorizon[c], 1e-6);
+        const got = t0 * hdri.upTop[c] + h0 * hdri.upHorizon[c];
+        const kc = Math.max(0, grad[c] + all[c] * d) / Math.max(got, 1e-6);
+        gt[c] = t0 * kc;
+        gh[c] = h0 * kc;
+      }
     }
     (u.uSun!.value as THREE.Color).copy(sun);
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);

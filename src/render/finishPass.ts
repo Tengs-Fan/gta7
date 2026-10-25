@@ -44,8 +44,9 @@ const GRADE = /* glsl */ `
 			float k = smoothstep( -2.5, 2.5, log2( max( dot( c, LUMA ), 1e-6 ) / 0.18 ) );
 			vec3 tone = mix( vec3( 0.92, 0.98, 1.1 ), vec3( 1.08, 1.0, 0.9 ), k );
 			c *= mix( vec3( 1.0 ), tone / dot( tone, LUMA ), uSplit );
-			// Night black level: a cool grey floor that lifts what the ACES toe would crush (uLift, 0 by day).
-			c += uLift * vec3( 0.92, 0.98, 1.1 );
+			// Night black level: a cool grey floor under what the ACES toe would crush (uLift, 0 by day). It fades out
+			// above a few times the lift, so lit facades and the sky keep their brightness (and the curve stays monotonic).
+			c += uLift * vec3( 0.92, 0.98, 1.1 ) * exp( - dot( c, LUMA ) / max( 3.0 * uLift, 1e-6 ) );
 			vec2 q = uv - 0.5;
 			c *= 1.0 - uVignette * smoothstep( 0.35, 1.0, dot( q, q ) * 2.0 );
 			return c;

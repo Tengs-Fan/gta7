@@ -37,7 +37,7 @@ interface Key {
 }
 
 /** Night black level (Grade.lift) at full night. */
-export const NIGHT_LIFT = 0.014;
+export const NIGHT_LIFT = 0.0165;
 
 const NIGHT = { sat: 0.92, contrast: 1.06, tint: [0.95, 0.99, 1.06], vignette: 0.26, splitTone: 0.04, lift: NIGHT_LIFT } as const;
 const DAY = { sat: 1.03, contrast: 1.02, tint: [1, 1, 1], vignette: 0.1, splitTone: 0, lift: 0 } as const;

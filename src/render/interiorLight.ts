@@ -11,9 +11,13 @@ import type { Garage } from '../world/layout';
 
 /** Garages the shader can hold (the city has four). */
 export const MAX_INTERIORS = 8;
-/** Share of the sky's light (hemisphere and image-based) kept deep inside, and of the sun's. */
+/**
+ * Share of the sky's diffuse light (hemisphere and image-based) kept deep inside, of the sun's, and of the sky's
+ * reflections: glossy paint inside still mirrors the bright doorway, so reflections lose less.
+ */
 export const INTERIOR_SKY = 0.5;
 export const INTERIOR_SUN = 0.2;
+export const INTERIOR_REFLECT = 0.85;
 /** Fade across the open door, in metres from the door line: none from DOOR_OUT outside, full from DOOR_IN inside. */
 export const DOOR_OUT = 0.6;
 export const DOOR_IN = 0.8;
@@ -58,10 +62,10 @@ export function insideness(list: readonly Interior[], x: number, y: number, z: n
   return k;
 }
 
-/** The [sky, sun] light factors at a point: 1 outdoors, INTERIOR_SKY / INTERIOR_SUN deep inside. */
-export function interiorLight(list: readonly Interior[], x: number, y: number, z: number): [number, number] {
+/** The [sky, sun, reflection] light factors at a point: 1 outdoors, INTERIOR_SKY / INTERIOR_SUN / INTERIOR_REFLECT deep inside. */
+export function interiorLight(list: readonly Interior[], x: number, y: number, z: number): [number, number, number] {
   const k = insideness(list, x, y, z);
-  return [1 + (INTERIOR_SKY - 1) * k, 1 + (INTERIOR_SUN - 1) * k];
+  return [1 + (INTERIOR_SKY - 1) * k, 1 + (INTERIOR_SUN - 1) * k, 1 + (INTERIOR_REFLECT - 1) * k];
 }
 
 const PARS = /* glsl */ `
@@ -69,10 +73,10 @@ uniform vec4 gta7InteriorRect[ ${MAX_INTERIORS} ];
 uniform vec4 gta7InteriorDoor[ ${MAX_INTERIORS} ];
 uniform vec4 gta7InteriorSpan[ ${MAX_INTERIORS} ];
 uniform int gta7InteriorCount;
-uniform vec2 gta7InteriorLight;
-// x: the sky's light kept here, y: the sun's (1, 1 outdoors). viewPos is geometryPosition (view space).
-vec2 gta7Interior( vec3 viewPos ) {
-  if ( gta7InteriorCount <= 0 ) return vec2( 1.0 );
+uniform vec3 gta7InteriorLight;
+// x: the sky's diffuse light kept here, y: the sun's, z: the sky's reflections (1 outdoors). viewPos: view space.
+vec3 gta7Interior( vec3 viewPos ) {
+  if ( gta7InteriorCount <= 0 ) return vec3( 1.0 );
   vec3 p = ( ( vec4( viewPos, 1.0 ) - viewMatrix[ 3 ] ) * viewMatrix ).xyz;
   float k = 0.0;
   for ( int i = 0; i < ${MAX_INTERIORS}; i ++ ) {
@@ -89,7 +93,7 @@ vec2 gta7Interior( vec3 viewPos ) {
       * ( 1.0 - smoothstep( span.y + 0.02, span.y + 0.2, p.y ) ) * step( span.x - 1.0, p.y );
     k = max( k, v );
   }
-  return mix( vec2( 1.0 ), gta7InteriorLight, k );
+  return mix( vec3( 1.0 ), gta7InteriorLight, k );
 }
 `;
 
@@ -117,8 +121,8 @@ function patchChunk(name: keyof typeof THREE.ShaderChunk, find: string, add: str
 export function installInteriorLight(list: readonly Interior[]): void {
   if (!installed) {
     const chunks = THREE.ShaderChunk as unknown as Record<string, string>;
-    if (!chunks.lights_pars_begin!.includes('vec2 gta7Interior(')) chunks.lights_pars_begin = PARS + chunks.lights_pars_begin;
-    patchChunk('lights_fragment_begin', VIEW_DIR, 'vec2 gta7In = gta7Interior( geometryPosition );');
+    if (!chunks.lights_pars_begin!.includes('vec3 gta7Interior(')) chunks.lights_pars_begin = PARS + chunks.lights_pars_begin;
+    patchChunk('lights_fragment_begin', VIEW_DIR, 'vec3 gta7In = gta7Interior( geometryPosition );');
     patchChunk('lights_fragment_begin', DIR_INFO, 'directLight.color *= gta7In.y;');
     const end = chunks.lights_fragment_end!;
     if (!end.includes(MARK)) {
@@ -128,8 +132,8 @@ export function installInteriorLight(list: readonly Interior[]): void {
   iblIrradiance *= gta7In.x;
 #endif
 #if defined( RE_IndirectSpecular )
-  radiance *= gta7In.x;
-  clearcoatRadiance *= gta7In.x;
+  radiance *= gta7In.z;
+  clearcoatRadiance *= gta7In.z;
 #endif
 ${end}`;
     }
@@ -149,12 +153,12 @@ ${end}`;
     u.gta7InteriorDoor = { value: door };
     u.gta7InteriorSpan = { value: span };
     u.gta7InteriorCount = { value: Math.min(MAX_INTERIORS, list.length) };
-    u.gta7InteriorLight = { value: new THREE.Vector2(INTERIOR_SKY, INTERIOR_SUN) };
+    u.gta7InteriorLight = { value: new THREE.Vector3(INTERIOR_SKY, INTERIOR_SUN, INTERIOR_REFLECT) };
   }
 }
 
 /** Whether the chunks carry the patch (tests). */
 export function interiorLightInstalled(): boolean {
   const c = THREE.ShaderChunk as unknown as Record<string, string>;
-  return installed && c.lights_fragment_end!.includes(MARK) && c.lights_fragment_begin!.includes('gta7In.y') && c.lights_pars_begin!.includes('vec2 gta7Interior(');
+  return installed && c.lights_fragment_end!.includes(MARK) && c.lights_fragment_begin!.includes('gta7In.y') && c.lights_pars_begin!.includes('vec3 gta7Interior(');
 }

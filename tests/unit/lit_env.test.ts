@@ -84,7 +84,7 @@ function rig(opts: { hdri?: PreparedHdri | null; hdr?: boolean } = {}) {
   const u = (priv.envMat as THREE.ShaderMaterial).uniforms;
   priv.pmrem = {
     fromCubemap: () => {
-      bakes.push({ top: (u.uTop!.value as THREE.Color).clone(), horizon: (u.uHorizon!.value as THREE.Color).clone(), sun: (u.uSun!.value as THREE.Color).clone(), mix: u.uHdriMix!.value, gain: (u.uHdriGain!.value as THREE.Color).clone() });
+      bakes.push({ top: (u.uTop!.value as THREE.Color).clone(), horizon: (u.uHorizon!.value as THREE.Color).clone(), sun: (u.uSun!.value as THREE.Color).clone(), mix: u.uHdriMix!.value, gain: (u.uHdriGain!.value as THREE.Color).clone(), gainH: (u.uHdriGainH!.value as THREE.Color).clone() });
       return target;
     },
     dispose: () => {},
@@ -109,12 +109,15 @@ function shaderUp(r: ReturnType<typeof rig>): THREE.Color {
   const top = b.top as THREE.Color;
   const hor = b.horizon as THREE.Color;
   const gain = b.gain as THREE.Color;
+  const gainH = b.gainH as THREE.Color;
   const mix = b.mix as number;
   const sunY = r.env.sunDir.y;
   const sun = (b.sun as THREE.Color).clone().multiplyScalar(0.2 * Math.max(0, sunY));
   const grad = new THREE.Color(0.892 * top.r + 0.108 * hor.r, 0.892 * top.g + 0.108 * hor.g, 0.892 * top.b + 0.108 * hor.b);
-  const h = hdri!.up;
-  return grad.multiplyScalar(1 - mix).add(new THREE.Color(h.r * gain.r, h.g * gain.g, h.b * gain.b).multiplyScalar(mix)).add(sun);
+  const t = hdri!.upTop;
+  const h = hdri!.upHorizon;
+  const fromHdri = new THREE.Color(t.r * gain.r + h.r * gainH.r, t.g * gain.g + h.g * gainH.g, t.b * gain.b + h.b * gainH.b);
+  return grad.multiplyScalar(1 - mix).add(fromHdri.multiplyScalar(mix)).add(sun);
 }
 
 function totalUp(r: ReturnType<typeof rig>, ibl: number): number {

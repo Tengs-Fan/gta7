@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FOOT_CAPACITY, FOOT_RANGE, FootShadows } from '../../src/render/contactShadows';
 import { gradeAt, NIGHT_LIFT } from '../../src/render/grade';
-import { DOOR_IN, DOOR_OUT, INTERIOR_SKY, INTERIOR_SUN, insideness, installInteriorLight, interiorLight, interiorLightInstalled, interiorsOf } from '../../src/render/interiorLight';
+import { DOOR_IN, DOOR_OUT, INTERIOR_REFLECT, INTERIOR_SKY, INTERIOR_SUN, insideness, installInteriorLight, interiorLight, interiorLightInstalled, interiorsOf } from '../../src/render/interiorLight';
 import { GLOW, HAZE_RAIN_GAIN, HAZE_RAIN_SIZE, hazeLevel, LightSprites } from '../../src/render/lightSprites';
 import { LIGHTING_TIERS, type LightingTier } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
@@ -110,6 +110,7 @@ describe('garage interiors', () => {
       const inside = interiorLight(list, cx, y, cz);
       expect(inside[0]).toBeCloseTo(INTERIOR_SKY, 9);
       expect(inside[1]).toBeCloseTo(INTERIOR_SUN, 9);
+      expect(inside[2]).toBeCloseTo(INTERIOR_REFLECT, 9);
       // The roof's underside is inside, its top is not.
       expect(insideness(list, cx, r.ceiling, cz)).toBeCloseTo(1, 9);
       expect(insideness(list, cx, r.ceiling + 0.4, cz)).toBeLessThan(1e-6);
@@ -134,7 +135,7 @@ describe('garage interiors', () => {
         prev = v;
       }
     }
-    expect(interiorLight(list, 0, 1, 0)).toEqual([1, 1]);
+    expect(interiorLight(list, 0, 1, 0)).toEqual([1, 1, 1]);
   });
 
   it('is patched into three\'s lighting chunks in order, with the interiors in the lit shaders\' uniforms', () => {
@@ -144,8 +145,8 @@ describe('garage interiors', () => {
     const resolve = (s: string): string => s.replace(/#include <(\w+)>/g, (_m, name: string) => resolve(chunks[name] ?? ''));
     for (const id of ['standard', 'physical', 'lambert', 'phong', 'toon'] as const) {
       const fs = resolve(THREE.ShaderLib[id].fragmentShader);
-      const def = fs.indexOf('vec2 gta7Interior(');
-      const call = fs.indexOf('vec2 gta7In = gta7Interior( geometryPosition );');
+      const def = fs.indexOf('vec3 gta7Interior(');
+      const call = fs.indexOf('vec3 gta7In = gta7Interior( geometryPosition );');
       const use = fs.indexOf('irradiance *= gta7In.x;');
       expect(def, id).toBeGreaterThan(0);
       expect(call, id).toBeGreaterThan(def);
@@ -153,7 +154,8 @@ describe('garage interiors', () => {
       expect(fs.includes('directLight.color *= gta7In.y;'), id).toBe(true);
       const u = THREE.ShaderLib[id].uniforms as Record<string, THREE.IUniform>;
       expect(u.gta7InteriorCount!.value).toBe(W.layout.garages.length);
-      expect((u.gta7InteriorLight!.value as THREE.Vector2).toArray()).toEqual([INTERIOR_SKY, INTERIOR_SUN]);
+      expect((u.gta7InteriorLight!.value as THREE.Vector3).toArray()).toEqual([INTERIOR_SKY, INTERIOR_SUN, INTERIOR_REFLECT]);
+      expect(INTERIOR_SKY).toBeLessThan(0.7);
     }
     // Installing again (a second renderer) does not patch twice.
     installInteriorLight(interiorsOf(W.layout.garages, (x, z) => W.groundHeight(x, z)));
@@ -319,7 +321,7 @@ describe('night black level and sunset grade', () => {
     for (const h of [22.5, 23, 0, 3]) expect(gradeAt(h).lift).toBeCloseTo(NIGHT_LIFT, 9);
     let worst = 0;
     for (let m = 1; m <= 1440; m++) worst = Math.max(worst, Math.abs(gradeAt(m / 60).lift - gradeAt((m - 1) / 60).lift));
-    expect(worst).toBeLessThan(1e-4);
+    expect(worst).toBeLessThan(2e-4);
   });
 
   it('leans the golden hour towards yellow rather than magenta, still warmer than noon', () => {
