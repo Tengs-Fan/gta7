@@ -234,10 +234,14 @@ const T = {
   el: v3(),
   wr: v3(),
   axis: v3(),
+  euler: new THREE.Euler(),
   idle: { breath: 0, sway: 0, headYaw: 0, headPitch: 0, armL: 0, armR: 0, elbow: 0 } as IdleAngles,
   limb: [m4(), m4()] as [THREE.Matrix4, THREE.Matrix4],
   fore: [m4(), m4()] as [THREE.Matrix4, THREE.Matrix4],
 };
+
+/** The spine bones and how far each turns from the pelvis towards the chest. */
+const SPINE = [['abdomen', 0.4], ['torso', 0.75], ['chest', 1]] as const;
 
 /** Writes K' = T(p - root) * L * T(-rest) into out[o .. o+16] (column-major) where L is the 3x3 part of `l`. */
 function writeBone(out: Float32Array, o: number, l: THREE.Matrix4, p: V, root: V, rest: readonly [number, number, number]): void {
@@ -320,20 +324,20 @@ export function poseBones(p: RigPose, out: Float32Array, o: number, root: V, idl
   };
   trunk('hips', T.pelvisRot);
   // The spine turns from the pelvis to the chest; idle breathing pitches the chest and the weight shift rolls the waist.
-  for (const [b, f] of [['abdomen', 0.4], ['torso', 0.75], ['chest', 1]] as const) {
+  for (const [b, f] of SPINE) {
     T.q2.slerpQuaternions(T.q0, T.q1, f);
     T.r.makeRotationFromQuaternion(T.q2);
     if (ia) {
       const pitch = b === 'chest' ? ia.breath * w : b === 'torso' ? ia.breath * 0.5 * w : 0;
       const roll = (b === 'abdomen' ? ia.sway : b === 'torso' ? -ia.sway * 0.4 : -ia.sway * 0.3) * w;
-      T.r.multiply(T.r2.makeRotationFromEuler(new THREE.Euler(-pitch, 0, roll, 'YXZ')));
+      T.r.multiply(T.r2.makeRotationFromEuler(T.euler.set(-pitch, 0, roll, 'YXZ')));
     }
     trunk(b, T.r);
   }
 
   // Head: the segment head frame (about the neck pivot), turned a little by the idle motion; the neck between.
   T.headRot.extractRotation(p.head);
-  if (ia) T.headRot.multiply(T.r2.makeRotationFromEuler(new THREE.Euler(-ia.headPitch * w, ia.headYaw * w, 0, 'YXZ')));
+  if (ia) T.headRot.multiply(T.r2.makeRotationFromEuler(T.euler.set(-ia.headPitch * w, ia.headYaw * w, 0, 'YXZ')));
   T.q2.setFromRotationMatrix(T.headRot);
   T.q0.copy(T.q1).slerp(T.q2, 0.6);
   T.r.makeRotationFromQuaternion(T.q0);

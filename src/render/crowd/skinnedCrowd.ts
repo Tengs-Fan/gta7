@@ -132,7 +132,10 @@ export class SkinnedCrowd {
     order.length = 0;
     for (let i = 0; i < n; i++) {
       const p = poses[i]!;
-      order.push({ i, d: (p.pelvis.x - camX) ** 2 + (p.pelvis.z - camZ) ** 2 });
+      const e = SCRATCH.entries[i] ?? (SCRATCH.entries[i] = { i: 0, d: 0 });
+      e.i = i;
+      e.d = (p.pelvis.x - camX) ** 2 + (p.pelvis.z - camZ) ** 2;
+      order.push(e);
     }
     order.sort((a, b) => a.d - b.d);
     const nearIds = SCRATCH.near;
@@ -144,8 +147,10 @@ export class SkinnedCrowd {
     // Pool: characters already in a slot keep it.
     const slotOf = SCRATCH.slotOf;
     slotOf.clear();
-    const free: PoolSlot[] = [];
-    const wanted = new Map<number, number>();
+    const free = SCRATCH.free;
+    free.length = 0;
+    const wanted = SCRATCH.wanted;
+    wanted.clear();
     for (const i of nearIds) wanted.set(poses[i]!.id, i);
     for (const s of this.pool) {
       if (s.id >= 0 && wanted.has(s.id)) slotOf.set(wanted.get(s.id)!, s);
@@ -276,6 +281,9 @@ function identityBlock(out: Float32Array): void {
 
 const SCRATCH = {
   order: [] as Array<{ i: number; d: number }>,
+  entries: [] as Array<{ i: number; d: number }>,
+  free: [] as PoolSlot[],
+  wanted: new Map<number, number>(),
   near: new Set<number>(),
   slotOf: new Map<number, PoolSlot>(),
   pose: null as RigPose | null,
