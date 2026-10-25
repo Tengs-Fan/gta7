@@ -9,11 +9,11 @@ import { assets } from '../../src/render/assets';
 import { loadAssetsFromDisk, unloadAssets } from '../../src/render/assets/testing';
 import { CityView } from '../../src/render/city';
 import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/render/city/roads';
-import { anisotropyFor, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND } from '../../src/render/city/surfaces';
+import { anisotropyFor, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
-import { MAX_PILING_DECKS, PILING_FOAM, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_C, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases } from '../../src/render/sea';
-import { coverWetness, puddleMask, WET_DARKEN, WET_ROUGHNESS } from '../../src/render/wetGround';
+import { MAX_PILING_DECKS, PILING_FOAM, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_C, RIPPLE_D, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases } from '../../src/render/sea';
+import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
 import { sandHeight } from '../../src/world/layout';
 import { input, makeSim, world } from './helpers';
@@ -192,8 +192,9 @@ describe('PBR ground with the asset library (VAL-GND-001, 003, 004)', () => {
     const s = compiled(matOf(city, 'beach')).fragmentShader;
     expect(s).toContain(`float inland = ( vGroundPos.y - ( -1.0 ) ) * ${BEACH_W / SAND_DROP};`);
     expect(s).toContain('gWetSand = 1.0 - smoothstep( edge, edge + 2.6, inland );');
-    expect(s).toContain('diffuseColor.rgb *= 1.0 - 0.56 * gWetSand;');
-    expect(s).toContain('roughnessFactor = mix( roughnessFactor, 0.55, gWetSand );');
+    expect(s).toContain(`diffuseColor.rgb *= 1.0 - ${WET_SAND_DARKEN} * gWetSand;`);
+    expect(s).toContain(`roughnessFactor = mix( roughnessFactor, ${WET_SAND_ROUGHNESS}, gWetSand );`);
+    expect(WET_SAND_ROUGHNESS).toBeLessThan(0.8);
     expect(s).toContain('normal = normalize( normal + mat3( viewMatrix ) * vec3( - rdir.x * s, 0.0, - rdir.y * s ) );');
     expect(s).toContain('uGroundSurf');
     // The shader's inland distance is 0 exactly on the sim's shoreline at 20 points along Ocean Beach.
@@ -355,6 +356,8 @@ describe('wet ground on the new materials (VAL-GND-006)', () => {
       const fs = s.fragmentShader;
       expect(fs, n).toContain('diffuseColor.rgb *= 1.0 - 0.35 * wetK - 0.2 * wetPuddle;');
       expect(fs, n).toContain('roughnessFactor = mix( roughnessFactor, 0.12, wetK );');
+      // Wetness flattens the normal map's relief, so the glossy asphalt does not glitter.
+      expect(fs, n).toContain(`normal = normalize( mix( normal, nonPerturbedNormal, ${WET_FLATTEN} * wetK ) );`);
       if (n !== 'road-decals') expect(fs.indexOf('roughnessFactor = clamp( roughnessFactor + gRough'), n).toBeLessThan(fs.indexOf('roughnessFactor = mix( roughnessFactor, 0.12, wetK )'));
     }
     r.dispose();
@@ -443,10 +446,19 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect((sw.env.water.material as THREE.ShaderMaterial).fragmentShader).toContain('seaShallows(vec3(0.018, 0.17, 0.23), depth, vWorld.xz)');
   });
 
-  it('ripples: three layers at scale ratios at least 0.2 from whole numbers, drifting apart, warped and modulated by low-frequency noise', () => {
+  it('ripples: four layers at scale ratios at least 0.2 from whole numbers, drifting apart, warped and modulated by low-frequency noise', () => {
     const frac = (v: number) => Math.abs(v - Math.round(v));
-    const ratios = [1 / RIPPLE_B.scale, RIPPLE_A_TILE / RIPPLE_C.tile, RIPPLE_A_TILE / RIPPLE_B.scale / RIPPLE_C.tile];
-    for (const k of ratios) expect(frac(k), String(k)).toBeGreaterThanOrEqual(0.2);
+    // Every pair of layer tiles (m): A, B (Environment), C and D.
+    const tiles = [RIPPLE_A_TILE, RIPPLE_A_TILE / RIPPLE_B.scale, RIPPLE_C.tile, RIPPLE_A_TILE / RIPPLE_D.scale];
+    for (let i = 0; i < tiles.length; i++) {
+      for (let j = i + 1; j < tiles.length; j++) {
+        const k = Math.max(tiles[i]!, tiles[j]!) / Math.min(tiles[i]!, tiles[j]!);
+        expect(frac(k), `layers ${i} and ${j}: ${k}`).toBeGreaterThanOrEqual(0.2);
+      }
+    }
+    // Four different turns.
+    const turns = [0, Math.atan2(RIPPLE_B.sin, RIPPLE_B.cos), Math.atan2(-RIPPLE_C.sin, RIPPLE_C.cos), Math.atan2(RIPPLE_D.sin, RIPPLE_D.cos)];
+    expect(new Set(turns.map((a) => a.toFixed(2))).size).toBe(4);
     const r = renderer('high');
     const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
     expect(fs).toContain('vec2 seaRippleUv = vNormalMapUv + seaWarp;');
@@ -456,6 +468,10 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     // The second layer turns 37 degrees; the third layer turns another way and drifts with uFoamDrift (whole tiles at wrap).
     expect(Math.atan2(RIPPLE_B.sin, RIPPLE_B.cos)).not.toBeCloseTo(Math.atan2(RIPPLE_C.sin, RIPPLE_C.cos), 2);
     expect(fs).toContain('uFoamDrift.yx * 3.0');
+    expect(fs).toContain('vec2 seaDuv = mat2(');
+    expect(fs).toContain(`* seaRippleUv * ${RIPPLE_D.scale} - uFoamDrift * 2.0`);
+    expect(fs).toContain(`vec2 seaNormalScaleAB = seaNormalScale * ${RIPPLE_AB_GAIN};`);
+    expect(fs).toContain('#define normalScale seaNormalScaleAB');
   });
 
   it('pilings: the shader\'s lattice is the drawn one, and every piling has foam on all four sides within 0.5 m', () => {

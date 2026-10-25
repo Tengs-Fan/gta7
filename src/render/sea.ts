@@ -33,10 +33,23 @@ export const MAX_PILING_DECKS = 8;
 /** Piling foam reaches at most this far (m) out from a piling's side. */
 export const PILING_FOAM = 0.7;
 
-/** World-space scales of the sea's ripple warp and macro modulation samples (1 / m), see patchSeaMaterial. */
-export const RIPPLE_WARP = { a: 1 / 263, b: 1 / 97, gainA: 2.6, gainB: 1.1, macro: 1 / 181 } as const;
+/**
+ * World-space scales of the sea's ripple warp and macro modulation samples (1 / m), see patchSeaMaterial. The gains
+ * (in ripple tiles) keep the warp's stretch of the ripples under about 30 %: stronger warps fold the tile into
+ * streaks that fan out across the foreground.
+ */
+export const RIPPLE_WARP = { a: 1 / 263, b: 1 / 97, gainA: 0.4, gainB: 0.12, macro: 1 / 181 } as const;
 /** The third ripple layer: its tile (m) against the first layer's 6000 / 900 m, and its turn. */
 export const RIPPLE_C = { tile: 2.43, cos: 0.37, sin: 0.93, weight: 0.5 } as const;
+/**
+ * The fourth ripple layer: the first layer's tile turned 53 degrees the other way and shrunk by `scale` (tile 4.0 m;
+ * against the other layers 1.66, 4.46 and 1.65 times, all far from whole numbers). Its share of the ripple power, with
+ * the first two layers turned down by RIPPLE_AB_GAIN, keeps the longest trains of the first layer from showing as a
+ * regular pattern a few metres across.
+ */
+export const RIPPLE_D = { scale: 1.66, cos: 0.6, sin: 0.8, weight: 0.55 } as const;
+/** The first two (Environment) ripple layers' strength under the third and fourth. */
+export const RIPPLE_AB_GAIN = 0.8;
 /** The first ripple layer's tile (m): the 6 km plane's UV repeated 900 times (Environment). */
 export const RIPPLE_A_TILE = 6000 / 900;
 
@@ -230,7 +243,8 @@ float seaFoam(vec2 p, float depth, float noise, float sea) {
   float reach = 0.6 + 0.9 * sea;
   float shore = 1.0 - smoothstep(0.0, reach, depth);
   float band = 0.5 + 0.5 * sin(depth * 12.566 + uSurfPhase + noise * 2.0);
-  float bands = smoothstep(0.55, 0.9, band + (noise - 0.5) * 0.5) * shore;
+  // The bands dissolve into the swash a couple of metres out, so the foam at the waterline stays a band along it.
+  float bands = smoothstep(0.55, 0.9, band + (noise - 0.5) * 0.5) * shore * smoothstep(0.05, 0.12, depth);
   float swash = 1.0 - smoothstep(0.0, 0.05 + 0.08 * sea, depth);
   float beach = clamp((bands * (0.55 + 0.6 * sea) + swash * 0.8) * onBeach, 0.0, 1.0);
   float d = seaQuay(p);
@@ -259,7 +273,7 @@ export const SHORE_DAMP = 0.35;
 /**
  * Patches the sea's (already ripple-patched) standard material: world-anchored ripple UVs (the mesh follows the
  * camera), vertex displacement scaled by uDisplace (damped over the shallows), the ripples warped and their strength
- * modulated by low-frequency samples of the ripple tile itself, a third ripple layer, the wave slopes added to the
+ * modulated by low-frequency samples of the ripple tile itself, a third and a fourth ripple layer, the wave slopes added to the
  * ripple normal, the shallows' colour and foam. Only uniforms change at runtime: the grid on or off and the sea state
  * never rebuild the program.
  */
@@ -268,6 +282,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   const key = mat.customProgramCacheKey.bind(mat);
   const c = RIPPLE_C;
   const cScale = RIPPLE_A_TILE / c.tile;
+  const d = RIPPLE_D;
   mat.onBeforeCompile = (shader, renderer) => {
     ripples(shader, renderer);
     Object.assign(shader.uniforms, u);
@@ -310,8 +325,9 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
     + ( texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.b)} + vec2( 0.63, 0.12 ) ).yx - 0.5 ) * ${n(RIPPLE_WARP.gainB)};
   vec2 seaRippleUv = vNormalMapUv + seaWarp;
   vec2 seaNormalScale = normalScale * ( 0.75 + 0.5 * smoothstep( 0.4, 0.6, texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.macro)} + vec2( 0.4, 0.9 ) ).x ) );
+  vec2 seaNormalScaleAB = seaNormalScale * ${n(RIPPLE_AB_GAIN)};
 #define vNormalMapUv seaRippleUv
-#define normalScale seaNormalScale
+#define normalScale seaNormalScaleAB
 #endif`,
       )
       .replace(
@@ -322,6 +338,9 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
     // A third, finer ripple layer, turned and drifting its own way (uFoamDrift wraps at 1: whole tiles of this layer).
     vec2 seaCuv = mat2( ${n(c.cos)}, ${n(-c.sin)}, ${n(c.sin)}, ${n(c.cos)} ) * seaRippleUv * ${n(cScale)} + uFoamDrift.yx * 3.0;
     seaS += ( texture2D( normalMap, seaCuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(c.weight)};
+    // A fourth layer at the first one's scale, turned the other way (uFoamDrift times a whole number wraps by whole tiles).
+    vec2 seaDuv = mat2( ${n(d.cos)}, ${n(d.sin)}, ${n(-d.sin)}, ${n(d.cos)} ) * seaRippleUv * ${n(d.scale)} - uFoamDrift * 2.0 + vec2( 0.37, 0.71 );
+    seaS += ( texture2D( normalMap, seaDuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(d.weight)};
 #endif
     normal = normalize( normal + mat3( viewMatrix ) * vec3( -seaS.x, 0.0, -seaS.y ) );
   }

@@ -32,8 +32,8 @@ interface PbrSpec {
 
 /** Tints bring each set's mean albedo to the d98da7b surface colour, so detail rises without changing brightness. */
 export const PBR_SURFACES: Readonly<Partial<Record<GroundDetail, PbrSpec>>> = {
-  road: { set: 'worn_asphalt', tile: 4, tint: [0.7, 1.04, 1.53], normalScale: 1 },
-  lot: { set: 'worn_asphalt', tile: 4, tint: [0.7, 1.04, 1.53], normalScale: 1 },
+  road: { set: 'worn_asphalt', tile: 4, tint: [0.76, 1.12, 1.65], normalScale: 1 },
+  lot: { set: 'worn_asphalt', tile: 4, tint: [0.76, 1.12, 1.65], normalScale: 1 },
   grass: { set: 'leafy_grass', tile: 3, tint: [0.52, 1.02, 0.56], normalScale: 1 },
   sand: { set: 'coast_sand_01', tile: 4, tint: [2.3, 2.38, 2.5], normalScale: 0.8 },
 };
@@ -42,6 +42,9 @@ export const PBR_SURFACES: Readonly<Partial<Record<GroundDetail, PbrSpec>>> = {
 export const LAWN_OVERHANG = 0.18;
 /** Sand within this distance (m) of the waterline is wet and dark (the shader frays the band's inland edge). */
 export const WET_SAND_BAND = 8.8;
+/** Wet sand keeps this share less of its albedo, and its roughness falls to WET_SAND_ROUGHNESS (dry sand is rougher). */
+export const WET_SAND_DARKEN = 0.62;
+export const WET_SAND_ROUGHNESS = 0.65;
 
 const n = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));
 
@@ -88,7 +91,7 @@ const FS_UNTILE = /* glsl */ `
 const FS_ASPHALT = (lanes: boolean) => /* glsl */ `
 {
   float macro = gN( gp * 0.0113 ) * 0.6 + gN( gp * 0.0291 + 0.37 ) * 0.4;
-  float tone = mix( 0.72, 1.26, smoothstep( 0.25, 0.75, macro ) ) * mix( 0.85, 1.12, gN( gp * 0.137 + 0.61 ) );
+  float tone = mix( 0.68, 1.3, smoothstep( 0.25, 0.75, macro ) ) * mix( 0.82, 1.15, gN( gp * 0.137 + 0.61 ) );
   float cn = gN( gp * 0.071 + 0.13 ) * 0.62 + gN( gp * 0.173 + 0.71 ) * 0.38;
   float zone = smoothstep( 0.45, 0.55, gN( gp * 0.0197 + 0.53 ) );
   float cfw = max( fwidth( cn ), 1e-5 );
@@ -169,15 +172,22 @@ const FS_SAND = /* glsl */ `
   float m1 = gN( gp * 0.037 + 0.15 );
   float m2 = gN( gp * 0.13 + 0.45 );
   float edgeN = gN( vec2( gp.y * 0.021, 0.61 ) ) * 0.7 + gN( gp * 0.27 + 0.33 ) * 0.3;
-  float lace = gN( gp * vec2( 2.3, 0.9 ) + vec2( 0.0, 0.31 ) );
+  // Bubbles of 10-50 cm (the noise tile holds 16 cells): finer ones alias into a knitted pattern from a few metres up.
+  float lace = gN( mat2( 0.92, - 0.39, 0.39, 0.92 ) * gp * vec2( 0.29, 0.13 ) + vec2( 0.0, 0.31 ) ) * 0.6 + gN( gp * 0.61 + 0.53 ) * 0.4;
+  float laceFade = 1.0 - smoothstep( 0.03, 0.09, gpx );
   diffuseColor.rgb *= mix( 0.9, 1.08, m1 ) * mix( vec3( 0.97, 0.98, 1.02 ), vec3( 1.04, 1.01, 0.95 ), m2 );
   float edge = ${n(WET_SAND_BAND)} + 2.6 * edgeN;
   gWetSand = 1.0 - smoothstep( edge, edge + 2.6, inland );
-  float reach = 0.5 + 1.5 * ( 0.5 + 0.5 * sin( uGroundSurf + gp.y * 0.043 ) );
-  float rim = 1.0 - smoothstep( 0.0, 0.35, abs( inland - reach ) );
-  float behind = ( 1.0 - smoothstep( 0.0, reach, inland ) ) * 0.45;
-  gFoam = clamp( ( rim * 0.9 + behind ) * smoothstep( 0.35, 0.65, lace ), 0.0, 1.0 ) * step( - 0.2, inland );
-  diffuseColor.rgb *= 1.0 - 0.56 * gWetSand;
+  // The swash's reach runs up and back with the surf, scalloped along the shore (cusps of a few metres).
+  float cusp = gN( vec2( gp.y * 0.021, 0.71 ) ) * 0.7 + gN( vec2( gp.y * 0.067, 0.29 ) ) * 0.3;
+  float reach = 0.4 + 1.3 * ( 0.5 + 0.5 * sin( uGroundSurf + gp.y * 0.043 ) ) + 1.2 * ( cusp - 0.5 );
+  // The swash's edge breaks into irregular runs (gaps of a few metres and of half a metre), fainter further off.
+  float rimGaps = gN( vec2( gp.y * 0.031, 0.47 ) ) * 0.6 + gN( vec2( gp.y * 0.13, 0.83 ) ) * 0.4;
+  float rim = ( 1.0 - smoothstep( 0.0, 0.3, abs( inland - reach ) ) ) * smoothstep( 0.4, 0.62, rimGaps ) * mix( 0.45, 1.0, laceFade );
+  float behind = ( 1.0 - smoothstep( 0.0, max( reach, 0.2 ), inland ) ) * 0.4;
+  float bubbles = mix( 0.5, smoothstep( 0.38, 0.68, lace ), laceFade );
+  gFoam = clamp( ( rim * 0.85 + behind ) * bubbles, 0.0, 1.0 ) * step( - 0.2, inland );
+  diffuseColor.rgb *= 1.0 - ${n(WET_SAND_DARKEN)} * gWetSand;
   diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.78, 0.8, 0.8 ), gFoam );
 }`;
 
@@ -190,7 +200,7 @@ const FS_ROUGH_ALL = /* glsl */ `
 roughnessFactor = clamp( roughnessFactor + gRough, 0.04, 1.0 );`;
 
 const FS_ROUGH_SAND = /* glsl */ `
-roughnessFactor = mix( roughnessFactor, 0.55, gWetSand );
+roughnessFactor = mix( roughnessFactor, ${n(WET_SAND_ROUGHNESS)}, gWetSand );
 roughnessFactor = mix( roughnessFactor, 0.75, gFoam );`;
 
 /** Wind ripples on dry sand: a warped crest train whose slope tilts the normal, faded where it would alias and on wet sand. */
