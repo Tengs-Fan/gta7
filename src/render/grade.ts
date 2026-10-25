@@ -43,15 +43,17 @@ const NIGHT = { sat: 0.92, contrast: 1.06, tint: [0.95, 0.99, 1.06], vignette: 0
 const DAY = { sat: 1.03, contrast: 1.02, tint: [1, 1, 1], vignette: 0.1, splitTone: 0, lift: 0 } as const;
 
 // The golden hour leans yellow (green kept up against red and blue) rather than towards magenta, and saturates less:
-// the low sun's red sky already colours the scene.
+// the low sun's red sky already colours the scene. The 19:00 key (its other values on the 18.4-19.3 line) holds the
+// green lean at the sunset itself, where wet streets mirror the red sky, within the grade's per-minute rate limit.
 const KEYS: readonly Key[] = [
   { h: 0, ...NIGHT },
   { h: 3.5, ...NIGHT },
   { h: 6, sat: 1.04, contrast: 1.03, tint: [1.03, 1.01, 0.95], vignette: 0.18, splitTone: 0.03, lift: 0.002 },
   { h: 9, ...DAY },
   { h: 16, ...DAY },
-  { h: 18.4, sat: 0.98, contrast: 1.04, tint: [0.99, 1.04, 0.9], vignette: 0.15, splitTone: 0.02, lift: 0 },
-  { h: 19.3, sat: 0.94, contrast: 1.05, tint: [0.95, 1.06, 0.95], vignette: 0.19, splitTone: 0.03, lift: 0.003 },
+  { h: 18.4, sat: 0.98, contrast: 1.04, tint: [0.97, 1.08, 0.91], vignette: 0.15, splitTone: 0.02, lift: 0 },
+  { h: 19, sat: 0.94 + 0.04 / 3, contrast: 1.05 - 0.01 / 3, tint: [0.945, 1.105, 0.935], vignette: 0.19 - 0.04 / 3, splitTone: 0.03 - 0.01 / 3, lift: 0.002 },
+  { h: 19.3, sat: 0.94, contrast: 1.05, tint: [0.955, 1.09, 0.95], vignette: 0.19, splitTone: 0.03, lift: 0.003 },
   { h: 21.2, ...NIGHT },
   { h: 24, ...NIGHT },
 ];
