@@ -15,8 +15,11 @@ import * as THREE from 'three';
 import { CURB_H } from '../world/constants';
 import type { CityLayout, Garage, Rect } from '../world/layout';
 
-/** Garages the shader can hold (the city has four). */
-export const MAX_INTERIORS = 8;
+/**
+ * Garages the shader can hold (the city has four). Each has its own vec4/vec2 uniforms rather than one array: three
+ * re-sends array uniforms on every material switch, while single vectors are compared with its cache first.
+ */
+export const MAX_INTERIORS = 4;
 /**
  * Share of the sky's diffuse light (hemisphere and image-based) kept deep inside, of the sun's, and of the sky's
  * reflections: glossy paint inside still mirrors the bright doorway, so reflections lose less.
@@ -153,10 +156,10 @@ export function interiorLight(list: readonly Interior[], x: number, y: number, z
   return [1 + (INTERIOR_SKY - 1) * k, 1 + (INTERIOR_SUN - 1) * k, 1 + (INTERIOR_REFLECT - 1) * k];
 }
 
+const IDS = Array.from({ length: MAX_INTERIORS }, (_, i) => i);
+
 const PARS = /* glsl */ `
-uniform vec4 gta7InteriorRect[ ${MAX_INTERIORS} ];
-uniform vec4 gta7InteriorDoor[ ${MAX_INTERIORS} ];
-uniform vec4 gta7InteriorSpan[ ${MAX_INTERIORS} ];
+${IDS.map((i) => `uniform vec4 gta7InteriorRect${i};\nuniform vec4 gta7InteriorDoor${i};\nuniform vec2 gta7InteriorSpan${i};`).join('\n')}
 uniform int gta7InteriorCount;
 uniform vec3 gta7InteriorLight;
 uniform sampler2D gta7WallField;
@@ -170,6 +173,16 @@ float gta7WallOcclusion( vec3 p ) {
   float d = ${FIELD_MIN.toFixed(1)} + textureLod( gta7WallField, uv, 0.0 ).r * ${(FIELD_MAX - FIELD_MIN).toFixed(1)};
   return 1.0 - gta7WallAO * exp( - max( d, 0.0 ) / ${WALL_AO_REACH.toFixed(3)} ) * exp( - max( p.y - ${CURB_H.toFixed(3)}, 0.0 ) / ${WALL_AO_REACH.toFixed(3)} );
 }
+// How far inside one interior a world point is (0..1): r its footprint, door the open edge (one-hot W, N, E, S), span its floor and ceiling.
+float gta7InsideOne( vec3 p, vec4 r, vec4 door, vec2 span ) {
+  // Distances inside each edge: west, north, east, south.
+  vec4 d = vec4( p.x - r.x, p.z - r.y, r.z - p.x, r.w - p.z );
+  float dd = dot( d, door );
+  vec4 c = d + door * 1e4;
+  float dc = min( min( c.x, c.y ), min( c.z, c.w ) );
+  return smoothstep( ${WALL_OUT.toFixed(2)}, ${WALL_IN.toFixed(2)}, dc ) * smoothstep( ${(-DOOR_OUT).toFixed(2)}, ${DOOR_IN.toFixed(2)}, dd )
+    * ( 1.0 - smoothstep( span.y + 0.02, span.y + 0.2, p.y ) ) * step( span.x - 1.0, p.y );
+}
 // x: the sky's diffuse light kept here, y: the sun's, z: the sky's reflections (1 in the open). viewPos: view space.
 vec3 gta7Interior( vec3 viewPos ) {
   vec3 p = ( ( vec4( viewPos, 1.0 ) - viewMatrix[ 3 ] ) * viewMatrix ).xyz;
@@ -177,20 +190,7 @@ vec3 gta7Interior( vec3 viewPos ) {
   vec3 open = vec3( occ, 1.0, mix( 1.0, occ, ${WALL_AO_SPEC.toFixed(2)} ) );
   if ( gta7InteriorCount <= 0 ) return open;
   float k = 0.0;
-  for ( int i = 0; i < ${MAX_INTERIORS}; i ++ ) {
-    if ( i >= gta7InteriorCount ) break;
-    vec4 r = gta7InteriorRect[ i ];
-    vec4 door = gta7InteriorDoor[ i ];
-    vec4 span = gta7InteriorSpan[ i ];
-    // Distances inside each edge: west, north, east, south.
-    vec4 d = vec4( p.x - r.x, p.z - r.y, r.z - p.x, r.w - p.z );
-    float dd = dot( d, door );
-    vec4 c = d + door * 1e4;
-    float dc = min( min( c.x, c.y ), min( c.z, c.w ) );
-    float v = smoothstep( ${WALL_OUT.toFixed(2)}, ${WALL_IN.toFixed(2)}, dc ) * smoothstep( ${(-DOOR_OUT).toFixed(2)}, ${DOOR_IN.toFixed(2)}, dd )
-      * ( 1.0 - smoothstep( span.y + 0.02, span.y + 0.2, p.y ) ) * step( span.x - 1.0, p.y );
-    k = max( k, v );
-  }
+${IDS.map((i) => `  if ( gta7InteriorCount > ${i} ) k = max( k, gta7InsideOne( p, gta7InteriorRect${i}, gta7InteriorDoor${i}, gta7InteriorSpan${i} ) );`).join('\n')}
   return open * mix( vec3( 1.0 ), gta7InteriorLight, k );
 }
 `;
@@ -252,19 +252,21 @@ ${end}`;
     }
     installed = true;
   }
-  const rect = Array.from({ length: MAX_INTERIORS }, () => new THREE.Vector4());
-  const door = Array.from({ length: MAX_INTERIORS }, () => new THREE.Vector4());
-  const span = Array.from({ length: MAX_INTERIORS }, () => new THREE.Vector4());
+  const rect = IDS.map(() => new THREE.Vector4());
+  const door = IDS.map(() => new THREE.Vector4());
+  const span = IDS.map(() => new THREE.Vector2());
   list.slice(0, MAX_INTERIORS).forEach((r, i) => {
     rect[i]!.set(r.minX, r.minZ, r.maxX, r.maxZ);
     door[i]!.set(r.door === 'W' ? 1 : 0, r.door === 'N' ? 1 : 0, r.door === 'E' ? 1 : 0, r.door === 'S' ? 1 : 0);
-    span[i]!.set(r.floor, r.ceiling, 0, 0);
+    span[i]!.set(r.floor, r.ceiling);
   });
   for (const id of LIT) {
     const u = THREE.ShaderLib[id].uniforms as Record<string, THREE.IUniform>;
-    u.gta7InteriorRect = { value: rect };
-    u.gta7InteriorDoor = { value: door };
-    u.gta7InteriorSpan = { value: span };
+    for (const i of IDS) {
+      u[`gta7InteriorRect${i}`] = { value: rect[i] };
+      u[`gta7InteriorDoor${i}`] = { value: door[i] };
+      u[`gta7InteriorSpan${i}`] = { value: span[i] };
+    }
     u.gta7InteriorCount = { value: Math.min(MAX_INTERIORS, list.length) };
     u.gta7InteriorLight = { value: new THREE.Vector3(INTERIOR_SKY, INTERIOR_SUN, INTERIOR_REFLECT) };
     u.gta7WallField = { value: field?.texture ?? null };

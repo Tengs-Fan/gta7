@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FOOT_CAPACITY, FOOT_RANGE, FootShadows } from '../../src/render/contactShadows';
 import { gradeAt, NIGHT_LIFT } from '../../src/render/grade';
-import { DOOR_IN, DOOR_OUT, FIELD_TEXEL, INTERIOR_REFLECT, INTERIOR_SKY, INTERIOR_SUN, insideness, installInteriorLight, interiorLight, interiorLightInstalled, interiorsOf, WALL_AO, wallDistance, wallField, wallFieldOf, wallOcclusion } from '../../src/render/interiorLight';
+import { DOOR_IN, DOOR_OUT, FIELD_TEXEL, MAX_INTERIORS, INTERIOR_REFLECT, INTERIOR_SKY, INTERIOR_SUN, insideness, installInteriorLight, interiorLight, interiorLightInstalled, interiorsOf, WALL_AO, wallDistance, wallField, wallFieldOf, wallOcclusion } from '../../src/render/interiorLight';
 import { GLOW, HAZE_RAIN_GAIN, HAZE_RAIN_SIZE, hazeLevel, LightSprites } from '../../src/render/lightSprites';
 import { LIGHTING_TIERS, type LightingTier } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
@@ -155,7 +155,12 @@ describe('garage interiors', () => {
       expect(use, id).toBeGreaterThan(call);
       expect(fs.includes('directLight.color *= gta7In.y;'), id).toBe(true);
       const u = THREE.ShaderLib[id].uniforms as Record<string, THREE.IUniform>;
+      // Every garage of the city fits the shader's per-garage uniforms (vectors, not arrays: three re-sends arrays on
+      // every material switch).
       expect(u.gta7InteriorCount!.value).toBe(W.layout.garages.length);
+      expect(W.layout.garages.length).toBeLessThanOrEqual(MAX_INTERIORS);
+      for (let i = 0; i < W.layout.garages.length; i++) expect((u[`gta7InteriorRect${i}`]!.value as THREE.Vector4).z, id).toBeCloseTo(W.layout.garages[i]!.rect.maxX, 6);
+      expect(Object.values(u).some((x) => Array.isArray(x.value) && x.value.length > 0 && Object.keys(u).find((k) => u[k] === x)!.startsWith('gta7')), id).toBe(false);
       expect((u.gta7InteriorLight!.value as THREE.Vector3).toArray()).toEqual([INTERIOR_SKY, INTERIOR_SUN, INTERIOR_REFLECT]);
       expect(INTERIOR_SKY).toBeLessThan(0.7);
     }
