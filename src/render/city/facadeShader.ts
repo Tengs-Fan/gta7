@@ -55,6 +55,15 @@ export function patchBuildingFog(shader: THREE.WebGLProgramParametersWithUniform
     .replace('#include <fog_fragment>', BUILDING_FOG);
 }
 
+/** The program of the street decor (awnings, planters): vertex colours, double sided, the building fog. */
+export const DECOR_PROGRAM = 'gta7-building-decor';
+
+/**
+ * Building-fog uniforms that leave three's own fog as it is (uSkyline 0), for a city material that shares a building
+ * program without taking the skyline fog.
+ */
+export const PLAIN_FOG: BuildingUniforms = { parallax: { value: 0 }, skyline: { value: 0 } };
+
 /** A material (trim, roofs, decor) that only takes the building fog; `key` names its program. */
 export function withBuildingFog<T extends THREE.Material>(mat: T, key: string, u: BuildingUniforms): T {
   const prev = mat.onBeforeCompile.bind(mat);

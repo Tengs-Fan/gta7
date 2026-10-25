@@ -13,7 +13,7 @@ import { facadeRelief } from '../cityArchitecture';
 import { drawLandmark, landmarkTowers } from './landmarks';
 import { PARAPET_H, drawRooftopItem, parapetThickness, rooftopItems } from './rooftops';
 import { createStorefrontMaterial, frontKey, storefrontPlan, type AwningStyle } from './storefronts';
-import { NIGHT_HASH, createFacadeMaterial, facadeTexturesOf, withBuildingFog } from './facadeShader';
+import { DECOR_PROGRAM, NIGHT_HASH, createFacadeMaterial, facadeTexturesOf, withBuildingFog } from './facadeShader';
 import {
   CELLS, CELL_DESIGN, DOOR_U, LOBBY_GLASS, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
   signTexture, storefrontAtlas, storefrontUv, swatchUv,
@@ -321,7 +321,7 @@ export function buildBuildings(view: CityView): void {
   const frontMat = createStorefrontMaterial(atlas, { uOccupancy: nu.occupancy, uShopOcc: nu.shopOccupancy }, FRONT_FRAG_MAIN, NIGHT_HASH, bu);
   view.materials.storefront = frontMat;
   view.add(front.build(), frontMat, { shadow: true, name: 'storefronts' });
-  const decorMat = withBuildingFog(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide }), 'gta7-building-decor', bu);
+  const decorMat = withBuildingFog(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide }), DECOR_PROGRAM, bu);
   view.materials.decor = decorMat;
   view.add(decor.build(), decorMat, { shadow: true, name: 'ground-decor' });
   const reliefMat = view.surface('concrete');

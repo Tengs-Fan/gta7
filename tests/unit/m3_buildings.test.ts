@@ -8,7 +8,7 @@ import sharp from 'sharp';
 import * as THREE from 'three';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CityView, shopOccupancy } from '../../src/render/city';
-import { FACADE_PROGRAM, createFacadeMaterial } from '../../src/render/city/facadeShader';
+import { DECOR_PROGRAM, FACADE_PROGRAM, createFacadeMaterial } from '../../src/render/city/facadeShader';
 import { landmarkTowers } from '../../src/render/city/landmarks';
 import { PARAPET_H, ROOF_ITEM_CLEARANCE, parapetThickness, rooftopItems, storeys } from '../../src/render/city/rooftops';
 import { FRONT_REPEAT_DISTANCE, STOREFRONT_PROGRAM, storefrontPlan } from '../../src/render/city/storefronts';
@@ -429,5 +429,25 @@ describe('m3 buildings: batching (VAL-BLD-011)', () => {
     console.log(`[VAL-BLD-011] city meshes ${all.length} (limit ${Math.floor(174 * 1.5)}): ${[...names].map(([n, c]) => `${n} ${c}`).join(', ')}`);
     expect(all.length).toBeLessThanOrEqual(Math.floor(174 * 1.5));
     for (const n of names.keys()) expect(['hvac', 'stair', 'tank', 'vent', 'antenna', 'garden', 'awning', 'planter', 'landmark']).not.toContain(n);
+  });
+
+  it("draws the stunt ramp sides with the street decor program (three's own fog), so no program of theirs compiles when a ramp first comes into view at night", () => {
+    // At d98da7b the ramp sides shared the plain decor program, compiled as soon as any street was in view. With a
+    // program of their own they compiled in the frame a ramp first came into view under the night lights (+9 ms).
+    const c = new CityView(world(), HARDWARE_CHUNK_SIZE);
+    const mat = (name: string) => (c.group.getObjectByName(name) as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    const sides = mat('ramp-sides');
+    const decor = mat('ground-decor');
+    expect(sides.customProgramCacheKey()).toBe(DECOR_PROGRAM);
+    expect(decor.customProgramCacheKey()).toBe(DECOR_PROGRAM);
+    for (const k of ['vertexColors', 'side', 'map', 'transparent', 'alphaTest', 'flatShading'] as const) expect(sides[k], k).toEqual(decor[k]);
+    const a = standardShader();
+    const b = standardShader();
+    sides.onBeforeCompile(a, {} as THREE.WebGLRenderer);
+    decor.onBeforeCompile(b, {} as THREE.WebGLRenderer);
+    expect(a.vertexShader).toBe(b.vertexShader);
+    expect(a.fragmentShader).toBe(b.fragmentShader);
+    expect((a.uniforms.uSkyline as { value: number }).value).toBe(0);
+    expect((b.uniforms.uSkyline as { value: number }).value).toBe(1);
   });
 });
