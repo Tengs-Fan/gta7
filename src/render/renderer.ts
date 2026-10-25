@@ -32,7 +32,7 @@ import { HARDWARE_CHUNK_SIZE, STATIC_CHUNK_SIZE } from './spatial';
 import { SoftwareMaterials } from './softwareMaterials';
 import { ClassViewPool, type AnyVehicleView } from './classViews';
 import { SHADOW_LAYER, VehiclePartBatches } from './vehicleBatches';
-import { fadeMaterial, freezeVehicleParts } from './vehicleView';
+import { fadeMaterial, freezeVehicleParts, VehicleView } from './vehicleView';
 import { assets } from './assets';
 
 export type Quality = QualityTier;
@@ -357,6 +357,27 @@ export class GameRenderer {
       v.drawParts(this.vehicleParts);
       v.setDistant(false);
     }
+    // And a burnt-out wreck of each car kind, near and far (the burnt material on its own meshes and in the part batches).
+    const burnt: VehicleView[] = [];
+    for (const kind of Object.keys(VEHICLE_SPECS) as VehicleKind[]) {
+      const v = this.pool.acquire(kind);
+      if (!(v instanceof VehicleView)) {
+        this.pool.release(v);
+        continue;
+      }
+      v.group.position.set(0, -50, 0);
+      this.scene.add(v.group);
+      burnt.push(v);
+    }
+    for (const v of burnt) {
+      v.warmBurnt(true);
+      this.softwareMaterials?.apply(v.group);
+      v.group.updateMatrix();
+      v.drawParts(this.vehicleParts);
+      v.setDistant(true, this.software);
+      v.drawParts(this.vehicleParts);
+      v.setDistant(false);
+    }
     this.vehicleParts.end();
     if (this.vehicleParts.takeChanged()) this.softwareMaterials?.apply(this.vehicleParts.group);
     // And the fade copies of a car fading out (hashed alpha), with the hashed-alpha depth of its shadow.
@@ -427,7 +448,8 @@ export class GameRenderer {
     this.softwareMaterials?.forget(this.fadeKeepers);
     for (const m of this.fadeKeepers) m.dispose();
     this.fadeKeepers = kept;
-    for (const v of [...tmp, ...whole]) this.pool.release(v);
+    for (const v of burnt) v.warmBurnt(false);
+    for (const v of [...tmp, ...whole, ...burnt]) this.pool.release(v);
     this.vehicleParts.begin();
     this.vehicleParts.end();
   }

@@ -84,7 +84,8 @@ function wheel(): THREE.BufferGeometry {
 }
 
 function chunk(): THREE.BufferGeometry {
-  const g = new THREE.IcosahedronGeometry(0.22, 0).scale(1.2, 0.55, 0.9).toNonIndexed();
+  // Polyhedra are non-indexed already.
+  const g = new THREE.IcosahedronGeometry(0.22, 0).scale(1.2, 0.55, 0.9);
   return tint(crumple(g, 0.09, 7), 0xffffff);
 }
 

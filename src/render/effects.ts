@@ -1145,7 +1145,7 @@ export class Effects {
     }
     // The first of the smoke: dark, still warm, rolling up through the fireball.
     for (let i = 0; i < 8; i++) {
-      this.smokePuff(x + this.r(-1.2, 1.2) * s, y + this.r(1.5, 3.5) * s, z + this.r(-1.2, 1.2) * s, this.r(-1, 1) + WIND_X, this.r(3, 5.5), this.r(-1, 1) + WIND_Z, this.r(3.5, 5.5), this.r(2, 3) * s, this.r(5.5, 8) * s, 0.85, this.r(0.03, 0.055), ground, this.r(0.25, 0.4));
+      this.smokePuff(x + this.r(-1.2, 1.2) * s, y + this.r(1.5, 3.5) * s, z + this.r(-1.2, 1.2) * s, this.r(-1, 1) + WIND_X, this.r(3, 5.5), this.r(-1, 1) + WIND_Z, this.r(3.5, 5.5), this.r(2, 3) * s, this.r(5.5, 8) * s, 0.85, this.r(0.03, 0.055), ground, this.r(0.08, 0.14));
     }
     this.flash.position.set(x, y + 2, z);
     this.flash.intensity = 900 * s;

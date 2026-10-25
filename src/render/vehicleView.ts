@@ -1860,6 +1860,12 @@ export class VehicleView {
     for (const l of this.lamps) l.mesh.material = this.burnt ? burntMat : l.broken ? brokenLampMat : l.mat;
   }
 
+  /** The renderer's warm-up draws each kind burnt out too (its wreck parts' programs); a bound view never calls this. */
+  warmBurnt(b: boolean): void {
+    this.setBurnt(b);
+    if (!b) this.color = -1;
+  }
+
   private setBurnt(b: boolean): void {
     if (this.burnt === b) return;
     this.burnt = b;
