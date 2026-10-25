@@ -236,7 +236,11 @@ describe('BikeView', () => {
 });
 
 describe('bike and boat views beside the car part batches and fades (render track)', () => {
-  it('draw nothing through the part batches and fade out like a car, giving back their own materials after', () => {
+  // Revised in mission 3 (m3-bikes-boats): bikes now draw their tyres, rims and lamp lenses, and boats their bow and
+  // stern lights, through the shared part batches (one draw for every vehicle showing them) instead of a draw each.
+  // The bound is stricter, not looser: every batched part is drawn once per view, carries the view's fade, and the
+  // fade still swaps every mesh the view draws itself (and its shadow) and gives all of them back.
+  it('draw their wheels and lamps through the part batches and fade out like a car, giving back their own materials after', () => {
     const batches = new VehiclePartBatches();
     for (const kind of [...bikeKinds(), ...boatKinds()]) {
       const view = new ClassViewPool().acquire(kind);
@@ -245,31 +249,49 @@ describe('bike and boat views beside the car part batches and fades (render trac
       view.group.traverse((o) => {
         if (o instanceof THREE.Mesh) meshes.push(o);
       });
-      const own = meshes.map((m) => m.material);
-      batches.begin();
-      view.drawParts(batches);
+      const own = meshes.filter((m) => !m.userData.batched);
+      const parts = meshes.filter((m) => m.userData.batched);
+      expect(parts.length, kind).toBeGreaterThan(0);
+      const ownMats = own.map((m) => m.material);
+      const partMats = parts.map((m) => m.material);
+      const drawn = (): number[] => {
+        batches.begin();
+        view.drawParts(batches);
+        batches.end();
+        const fades: number[] = [];
+        for (const o of batches.group.children) {
+          const m = o as THREE.InstancedMesh;
+          if (!m.visible) continue;
+          const a = m.geometry.getAttribute('instanceFade');
+          for (let i = 0; i < m.count; i++) fades.push(a.getX(i));
+        }
+        return fades;
+      };
+      expect(drawn().length, kind).toBe(parts.length);
       view.hideParts(true);
+      expect(parts.every((m) => !m.visible), kind).toBe(true);
       view.hideParts(false);
-      batches.end();
-      expect(batches.group.children.filter((m) => (m as THREE.Mesh).visible).length, kind).toBe(0);
+      expect(parts.every((m) => m.visible), kind).toBe(true);
       view.setDistant(true, true);
       expect(view.isDistant, kind).toBe(false);
       view.beginFade();
       expect(view.fading, kind).toBe(true);
-      for (const [i, m] of meshes.entries()) {
+      for (const [i, m] of own.entries()) {
         const mat = m.material as THREE.Material;
-        expect(mat, `${kind} ${m.name}`).not.toBe(own[i]);
+        expect(mat, `${kind} ${m.name}`).not.toBe(ownMats[i]);
         expect(mat.alphaHash || mat.transparent, `${kind} ${m.name}`).toBe(true);
         if (m.castShadow) expect((m.customDepthMaterial as THREE.MeshDepthMaterial | undefined)?.alphaHash, `${kind} ${m.name} shadow`).toBe(true);
       }
+      expect(parts.map((m) => m.material), kind).toEqual(partMats);
       view.setFade(0.25);
-      expect(meshes.filter((m) => !(m.material as THREE.Material).transparent).every((m) => (m.material as THREE.Material).opacity === 0.25), kind).toBe(true);
+      expect(own.filter((m) => !(m.material as THREE.Material).transparent).every((m) => (m.material as THREE.Material).opacity === 0.25), kind).toBe(true);
+      expect(drawn().every((f) => f === 0.25), kind).toBe(true);
       view.setFade(0);
       expect(view.group.visible, kind).toBe(false);
       const used = view.endFade();
-      expect(used.length, kind).toBe(meshes.length + 1);
-      expect(meshes.map((m) => m.material), kind).toEqual(own);
-      expect(meshes.every((m) => m.customDepthMaterial === undefined), kind).toBe(true);
+      expect(used.length, kind).toBe(own.length + 1);
+      expect(own.map((m) => m.material), kind).toEqual(ownMats);
+      expect(own.every((m) => m.customDepthMaterial === undefined), kind).toBe(true);
       expect(view.fading, kind).toBe(false);
       for (const m of used) m.dispose();
     }

@@ -2,6 +2,8 @@
 // live traffic signal bulbs and breakable props.
 
 import * as THREE from 'three';
+import { mooredBoat } from './boatModels';
+import { paletteMaterial } from './shapeKit';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { smoothstep, type V3 } from '../core/math';
 import { Rng } from '../core/rng';
@@ -1012,20 +1014,9 @@ export class PropsView {
     this.ferris = { wheel, gondolas, lights, halos, x: p.x, y: hubY, z: p.z, rot: p.rot };
   }
 
+  /** A moored cabin cruiser on the hull and cabin the sim's colliders use (boatModels.ts mooredBoat). */
   private buildBoat(p: Prop): void {
-    const shape = new THREE.Shape();
-    shape.moveTo(-5, 0.6);
-    shape.lineTo(4, 0.6);
-    shape.quadraticCurveTo(6.5, 0.6, 7, 1.8);
-    shape.lineTo(-5, 1.8);
-    shape.lineTo(-5, 0.6);
-    const hull = new THREE.ExtrudeGeometry(shape, { depth: 2.6, bevelEnabled: false });
-    hull.translate(0, -0.6, -1.3);
-    const g = new THREE.Group();
-    const hullMesh = new THREE.Mesh(hull, new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.4 }));
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.4, 2.0), new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4 }));
-    cabin.position.set(-0.5, 1.8, 0);
-    g.add(hullMesh, cabin);
+    const g = mooredBoat(p.color, paletteMaterial());
     g.position.set(p.x, p.y, p.z);
     g.rotation.y = p.rot + Math.PI / 2;
     this.group.add(g);

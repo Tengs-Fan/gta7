@@ -1,197 +1,50 @@
-// Motorbikes (class 'bike'), drawn by their own view: a frame and bodywork in the bike's paint, the engine, seat and
-// running gear, two spinning wheels, the front fork turning with the steering, and head and tail lamps. The whole bike
-// leans into turns about its tyres' contact line (Vehicle.lean) and lifts its front about the rear tyre in a wheelie
-// (Vehicle.wheelie); riders sit in its frame (riders.ts, posed by CrowdView). Built from a few shared geometries per
-// kind, so it costs about ten draws and keeps the same look on every tier.
+// Motorbikes (class 'bike'), drawn by their own view from the sculpted models in bikeModels.ts: the painted bodywork,
+// the frame and running gear, and the parts that steer (fork, bars, mudguard) turning about the raked steering head,
+// each one draw; the tyres, rims and lamp lenses go through the shared vehicle part batches (vehicleBatches.ts), one
+// draw for every bike and car showing them; a coarse proxy casts the shadow. The whole bike leans into turns about its
+// tyres' contact line (Vehicle.lean) and lifts its front about the rear tyre in a wheelie (Vehicle.wheelie); riders
+// sit in its frame (riders.ts, posed by CrowdView), the driver's hands on the grips as the bars turn.
 
 import * as THREE from 'three';
-import { burntMaterial } from './fx/burnt';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Vehicle } from '../sim/entities';
 import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
 import { steerLimit } from '../sim/vehiclePhysics';
+import { bikeModel, type BikeModel, type LensPlace } from './bikeModels';
 import type { LampGlow } from './lightSprites';
 import { setRiderMount, type RiderMount, type RiderSeatLayout } from './riders';
-import type { VehiclePartBatches } from './vehicleBatches';
+import { paintMaterial as paint, paletteMaterial } from './shapeKit';
+import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
+import { LAMP_LENS } from './vehicleView';
 import { GroupFade } from './viewFade';
+import { burntMaterial } from './fx/burnt';
 
 /** Tail lamp emissive intensity braking, with running lights on, and off (as VehicleView's). */
 const BRAKE_GLOW = 1.8;
 const TAIL_RUNNING = 1.0;
 const TAIL_OFF = 0.3;
 
-type Style = 'sport' | 'scooter';
-
-interface BikeModel {
-  wheelR: number;
-  rearZ: number;
-  frontZ: number;
-  /** Steering head (where the fork pivots) and the fork's rake back from vertical. */
-  headY: number;
-  headZ: number;
-  rake: number;
-  painted: THREE.BufferGeometry;
-  dark: THREE.BufferGeometry;
-  chrome: THREE.BufferGeometry;
-  /** Fork, bars and (scooter) front shield trim, in the steering head's frame (y down the fork, z forward). */
-  fork: THREE.BufferGeometry;
-  tyre: THREE.BufferGeometry;
-  rim: THREE.BufferGeometry;
-  lamp: THREE.BufferGeometry;
-  headLamp: THREE.Vector3;
-  /** The head lamp sits on the bars (scooter) and turns with them, or on the fairing. */
-  headOnFork: boolean;
-  tailLamp: THREE.Vector3;
-  seats: RiderSeatLayout[];
-}
-
-function box(w: number, h: number, d: number, x: number, y: number, z: number, rx = 0): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(w, h, d);
-  if (rx) g.rotateX(rx);
-  return g.translate(x, y, z);
-}
-
-/** A cylinder of radius r from a to b (y, z in the bike's side plane, x across). */
-function rod(r: number, x: number, ay: number, az: number, by: number, bz: number): THREE.BufferGeometry {
-  const len = Math.hypot(by - ay, bz - az);
-  const g = new THREE.CylinderGeometry(r, r, len, 8);
-  // The cylinder's axis is y; tilt it into the side plane towards (by - ay, bz - az).
-  g.rotateX(Math.atan2(bz - az, by - ay));
-  return g.translate(x, (ay + by) / 2, (az + bz) / 2);
-}
-
-function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const m = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false);
-  if (!m) throw new Error('bike geometry merge failed');
-  m.computeVertexNormals();
-  return m;
-}
-
-const P = (x: number, y: number, z: number) => ({ x, y, z });
-
-function sportModel(): BikeModel {
-  const wheelR = 0.31;
-  const rearZ = -0.7;
-  const frontZ = 0.72;
-  const headY = 0.98;
-  const headZ = 0.5;
-  const rake = Math.atan2(frontZ - headZ, headY - wheelR);
-  return {
-    wheelR,
-    rearZ,
-    frontZ,
-    headY,
-    headZ,
-    rake,
-    painted: merge([
-      box(0.34, 0.22, 0.5, 0, 0.95, 0.12, 0.08),
-      box(0.44, 0.4, 0.34, 0, 0.82, 0.55, -0.55),
-      box(0.26, 0.15, 0.55, 0, 0.92, -0.52, -0.22),
-      box(0.3, 0.18, 0.62, 0, 0.47, 0.06),
-      box(0.12, 0.28, 0.32, 0.17, 0.66, 0.1),
-      box(0.12, 0.28, 0.32, -0.17, 0.66, 0.1),
-    ]),
-    dark: merge([
-      box(0.32, 0.3, 0.44, 0, 0.58, -0.02),
-      box(0.27, 0.07, 0.42, 0, 1.03, -0.3, -0.1),
-      box(0.06, 0.07, 0.62, 0.13, 0.38, -0.4, 0.12),
-      box(0.06, 0.07, 0.62, -0.13, 0.38, -0.4, 0.12),
-      box(0.24, 0.16, 0.06, 0, 1.05, 0.66, -0.9),
-      box(0.05, 0.05, 0.22, 0.2, 0.45, -0.1),
-      box(0.05, 0.05, 0.22, -0.2, 0.45, -0.1),
-    ]),
-    chrome: merge([rod(0.055, -0.2, 0.5, -0.25, 0.62, -0.82), rod(0.045, 0.2, 0.52, -0.2, 0.5, 0.2)]),
-    fork: merge([
-      rod(0.03, 0.1, 0, 0, -(headY - wheelR) / Math.cos(rake), 0),
-      rod(0.03, -0.1, 0, 0, -(headY - wheelR) / Math.cos(rake), 0),
-      box(0.62, 0.035, 0.035, 0, 0.06, -0.06),
-      box(0.12, 0.05, 0.08, 0, 0.02, -0.02),
-    ]),
-    tyre: new THREE.TorusGeometry(wheelR - 0.06, 0.06, 8, 22).rotateY(Math.PI / 2),
-    rim: new THREE.CylinderGeometry(wheelR - 0.09, wheelR - 0.09, 0.07, 14).rotateZ(Math.PI / 2),
-    lamp: new THREE.BoxGeometry(0.16, 0.09, 0.05),
-    headLamp: new THREE.Vector3(0, 0.84, 0.75),
-    headOnFork: false,
-    tailLamp: new THREE.Vector3(0, 0.95, -0.81),
-    seats: [
-      { hip: P(0, 1.06, -0.24), recline: -0.6, hands: [P(0.29, 1.05, 0.45), P(-0.29, 1.05, 0.45)], feet: [P(0.2, 0.44, -0.16), P(-0.2, 0.44, -0.16)] },
-      { hip: P(0, 1.14, -0.56), recline: -0.25, hands: [P(0.17, 1.2, -0.3), P(-0.17, 1.2, -0.3)], feet: [P(0.21, 0.5, -0.46), P(-0.21, 0.5, -0.46)] },
-    ],
-  };
-}
-
-function scooterModel(): BikeModel {
-  const wheelR = 0.22;
-  const rearZ = -0.6;
-  const frontZ = 0.62;
-  const headY = 0.92;
-  const headZ = 0.48;
-  const rake = Math.atan2(frontZ - headZ, headY - wheelR);
-  return {
-    wheelR,
-    rearZ,
-    frontZ,
-    headY,
-    headZ,
-    rake,
-    painted: merge([
-      box(0.5, 0.62, 0.1, 0, 0.62, 0.42, -0.22),
-      box(0.36, 0.07, 0.62, 0, 0.3, 0.0),
-      box(0.42, 0.34, 0.72, 0, 0.53, -0.42),
-      box(0.22, 0.08, 0.3, 0, 0.36, 0.6, 0.2),
-    ]),
-    dark: merge([
-      box(0.32, 0.08, 0.56, 0, 0.74, -0.36),
-      box(0.16, 0.18, 0.46, -0.13, 0.26, -0.5),
-      box(0.4, 0.04, 0.6, 0, 0.27, 0.0),
-    ]),
-    chrome: merge([rod(0.035, -0.15, 0.32, -0.55, 0.36, -0.82)]),
-    fork: merge([
-      rod(0.04, 0, 0, 0, -(headY - wheelR) / Math.cos(rake), 0),
-      box(0.58, 0.035, 0.035, 0, 0.1, -0.04),
-      box(0.2, 0.12, 0.14, 0, 0.1, 0.0),
-    ]),
-    tyre: new THREE.TorusGeometry(wheelR - 0.05, 0.05, 8, 20).rotateY(Math.PI / 2),
-    rim: new THREE.CylinderGeometry(wheelR - 0.075, wheelR - 0.075, 0.08, 12).rotateZ(Math.PI / 2),
-    lamp: new THREE.BoxGeometry(0.14, 0.08, 0.04),
-    headLamp: new THREE.Vector3(0, 0.12, 0.08),
-    headOnFork: true,
-    tailLamp: new THREE.Vector3(0, 0.6, -0.79),
-    seats: [
-      { hip: P(0, 0.86, -0.32), recline: 0.05, hands: [P(0.27, 1.02, 0.4), P(-0.27, 1.02, 0.4)], feet: [P(0.13, 0.31, 0.12), P(-0.13, 0.31, 0.12)] },
-      { hip: P(0, 0.9, -0.62), recline: 0.1, hands: [P(0.2, 0.95, -0.38), P(-0.2, 0.95, -0.38)], feet: [P(0.15, 0.31, -0.22), P(-0.15, 0.31, -0.22)] },
-    ],
-  };
-}
-
-/** The look of each bike kind; a bike kind with none is drawn as a sport bike. */
-const STYLES: Partial<Record<VehicleKind, Style>> = { sportbike: 'sport', scooter: 'scooter' };
-
-const models = new Map<VehicleKind, BikeModel>();
-function modelOf(kind: VehicleKind): BikeModel {
-  let m = models.get(kind);
-  if (!m) {
-    m = (STYLES[kind] ?? 'sport') === 'scooter' ? scooterModel() : sportModel();
-    models.set(kind, m);
-  }
-  return m;
-}
-
-const tyreMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
-const rimMat = new THREE.MeshStandardMaterial({ color: 0x9a9da0, roughness: 0.3, metalness: 0.85 });
-const darkMat = new THREE.MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.65, metalness: 0.2 });
-const chromeMat = new THREE.MeshStandardMaterial({ color: 0xd0d2d4, roughness: 0.18, metalness: 0.95 });
 /** Soot, char and bare metal (fx/burnt.ts), shared by every wreck. */
 const burntMat = burntMaterial();
-const paints = new Map<number, THREE.MeshStandardMaterial>();
-function paint(color: number): THREE.MeshStandardMaterial {
-  let m = paints.get(color);
-  if (!m) {
-    m = new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.35 });
-    paints.set(color, m);
-  }
+/** Never drawn by a camera (SHADOW_LAYER): the proxy only writes the shadow map, with three's depth material. */
+const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+/** A part drawn through the part batches: the mesh holds its place, no camera draws it. */
+function markPart(m: THREE.Object3D): void {
+  m.layers.set(PART_LAYER);
+  m.userData.batched = true;
+}
+
+function lens(place: LensPlace, mat: THREE.Material): THREE.Mesh {
+  const m = new THREE.Mesh(LAMP_LENS, mat);
+  m.name = 'lamp';
+  m.position.copy(place.at);
+  m.scale.copy(place.size);
+  m.rotation.y = place.yaw + (place.facing < 0 ? Math.PI : 0);
+  markPart(m);
   return m;
 }
+
+type Mutable3 = { x: number; y: number; z: number };
 
 export class BikeView {
   readonly group = new THREE.Group();
@@ -201,17 +54,26 @@ export class BikeView {
   private readonly wheelieGroup = new THREE.Group();
   /** The bike's own frame (+x left, +y up from the ground, +z forward): what riders sit in. */
   private readonly body = new THREE.Group();
+  private readonly head = new THREE.Group();
   private readonly steerGroup = new THREE.Group();
   private readonly painted: THREE.Mesh;
-  private readonly wheels: Array<{ tyre: THREE.Mesh; rim: THREE.Mesh }> = [];
-  private readonly parts: THREE.Mesh[] = [];
+  private readonly frame: THREE.Mesh;
+  private readonly steer: THREE.Mesh;
+  private readonly shadow: THREE.Mesh;
+  /** Spinning wheel pivots, and their tyre and rim part meshes (drawn by the batches). */
+  private readonly wheels: Array<{ pivot: THREE.Object3D; tyre: THREE.Mesh; rim: THREE.Mesh }> = [];
+  private readonly lenses: THREE.Mesh[] = [];
   private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xfffbe8, emissive: 0xfff2c8, emissiveIntensity: 0.3, roughness: 0.2 });
   private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x2a0000, emissive: 0xff0000, emissiveIntensity: 0.3, roughness: 0.3 });
-  private readonly headLamp: THREE.Mesh;
+  private readonly heads: THREE.Mesh[] = [];
   private readonly tailLamp: THREE.Mesh;
   private readonly model: BikeModel;
+  /** This view's seat layouts: the driver's hands follow the grips as the bars turn. */
+  private readonly seats: RiderSeatLayout[];
+  private readonly hands: [Mutable3, Mutable3];
   private readonly mount: RiderMount;
   private readonly tmp = new THREE.Vector3();
+  private readonly mtx = new THREE.Matrix4();
   private spin = 0;
   private burnt = false;
   private lit = false;
@@ -220,7 +82,7 @@ export class BikeView {
   vehicle: Vehicle | null = null;
 
   constructor(readonly kind: VehicleKind) {
-    const m = modelOf(kind);
+    const m = bikeModel(kind);
     this.model = m;
     this.group.rotation.order = 'YXZ';
     this.group.add(this.leanGroup);
@@ -228,46 +90,58 @@ export class BikeView {
     this.wheelieGroup.position.z = m.rearZ;
     this.body.position.z = -m.rearZ;
     this.wheelieGroup.add(this.body);
-    this.painted = this.mesh(m.painted, paint(0xffffff), 'body');
-    this.mesh(m.dark, darkMat, 'frame');
-    this.mesh(m.chrome, chromeMat, 'exhaust');
+    const pal = paletteMaterial();
+    this.painted = this.own(m.painted, paint(0xffffff), 'body', this.body);
+    this.frame = this.own(m.frame, pal, 'frame', this.body);
     // The fork turns about the steering head, tilted back by the rake.
-    const head = new THREE.Group();
-    head.position.set(0, m.headY, m.headZ);
-    head.rotation.x = -m.rake;
-    head.add(this.steerGroup);
-    this.body.add(head);
-    this.mesh(m.fork, darkMat, 'fork', this.steerGroup);
-    const forkLen = (m.headY - m.wheelR) / Math.cos(m.rake);
+    this.head.position.set(0, m.headY, m.headZ);
+    this.head.rotation.x = -m.rake;
+    this.head.add(this.steerGroup);
+    this.body.add(this.head);
+    this.steer = this.own(m.steer, pal, 'fork', this.steerGroup);
+    this.shadow = new THREE.Mesh(m.shadow, shadowMat);
+    this.shadow.name = 'shadow';
+    this.shadow.castShadow = true;
+    this.shadow.layers.set(SHADOW_LAYER);
+    this.body.add(this.shadow);
     for (const front of [true, false]) {
-      const tyre = this.mesh(m.tyre, tyreMat, 'tire', front ? this.steerGroup : this.body);
-      const rim = this.mesh(m.rim, rimMat, 'rim', front ? this.steerGroup : this.body);
-      if (front) {
-        // At the fork's foot, in the steering head's frame (the fork runs down its -y).
-        tyre.position.set(0, -forkLen, 0);
-        rim.position.set(0, -forkLen, 0);
-        tyre.rotation.x = rim.rotation.x = 0;
-      } else {
-        tyre.position.set(0, m.wheelR, m.rearZ);
-        rim.position.set(0, m.wheelR, m.rearZ);
-      }
-      this.wheels.push({ tyre, rim });
+      const pivot = new THREE.Group();
+      if (front) pivot.position.set(0, -m.forkLen, 0);
+      else pivot.position.set(0, m.wheelR, m.rearZ);
+      (front ? this.steerGroup : this.body).add(pivot);
+      const tyre = new THREE.Mesh(m.tyre, pal);
+      tyre.name = 'tire';
+      tyre.scale.x = front ? m.frontTyreScale : m.rearTyreScale;
+      const rim = new THREE.Mesh(front ? m.frontRim : m.rearRim, pal);
+      rim.name = 'rim';
+      markPart(tyre);
+      markPart(rim);
+      pivot.add(tyre, rim);
+      this.wheels.push({ pivot, tyre, rim });
     }
-    this.headLamp = this.mesh(m.lamp, this.headMat, 'lamp', m.headOnFork ? this.steerGroup : this.body);
-    this.headLamp.position.copy(m.headLamp);
-    this.tailLamp = this.mesh(m.lamp, this.tailMat, 'lamp');
-    this.tailLamp.position.copy(m.tailLamp);
-    this.tailLamp.scale.set(0.9, 0.6, 1);
-    this.mount = { frame: this.body, seats: m.seats };
+    for (const h of m.headLamps) {
+      const l = lens(h, this.headMat);
+      (m.headOnFork ? this.steerGroup : this.body).add(l);
+      this.heads.push(l);
+      this.lenses.push(l);
+    }
+    this.tailLamp = lens(m.tailLamp, this.tailMat);
+    this.body.add(this.tailLamp);
+    this.lenses.push(this.tailLamp);
+    const d = m.seats[0]!;
+    this.hands = [{ ...d.hands[0] }, { ...d.hands[1] }];
+    this.seats = [{ ...d, hands: this.hands }, ...m.seats.slice(1)];
+    const fade = this.fade;
+    this.mount = { frame: this.body, seats: this.seats, get level() { return fade.level; } };
   }
 
-  private mesh(geo: THREE.BufferGeometry, mat: THREE.Material, name: string, parent: THREE.Object3D = this.body): THREE.Mesh {
+  private own(geo: THREE.BufferGeometry, mat: THREE.Material, name: string, parent: THREE.Object3D): THREE.Mesh {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name = name;
-    mesh.castShadow = true;
-    mesh.receiveShadow = name === 'body' || name === 'frame';
+    // The proxy casts the shadow; these only take it.
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
     parent.add(mesh);
-    this.parts.push(mesh);
     return mesh;
   }
 
@@ -291,22 +165,39 @@ export class BikeView {
     return false;
   }
 
-  /** Nothing of a bike is drawn through the car part batches (vehicleBatches.ts). */
-  drawParts(_batches: VehiclePartBatches): void {}
+  /** Adds the tyres, rims and lamp lenses to the shared part batches, where the last sync (or a warm-up) put them. */
+  drawParts(batches: VehiclePartBatches): void {
+    if (!this.vehicle) this.group.updateMatrixWorld(true);
+    const f = this.fade.level;
+    for (const w of this.wheels) {
+      if (!this.burnt) batches.add(w.tyre.geometry, w.tyre.material as THREE.Material, w.tyre.matrixWorld, {}, undefined, f);
+      batches.add(w.rim.geometry, this.burnt ? burntMat : (w.rim.material as THREE.Material), w.rim.matrixWorld, {}, undefined, f);
+    }
+    for (const l of this.lenses) batches.addShaped(LAMP_LENS, this.burnt ? burntMat : (l.material as THREE.Material), l.matrixWorld, f);
+  }
 
-  hideParts(_hidden: boolean): void {}
+  /** Takes the part meshes out of three's walks of the scene for the frame's draw (the batches draw them). */
+  hideParts(hidden: boolean): void {
+    for (const w of this.wheels) w.tyre.visible = w.rim.visible = !hidden;
+    for (const l of this.lenses) l.visible = !hidden;
+  }
 
   get fading(): boolean {
     return this.fade.active;
   }
 
-  /** Starts fading the view out where it is (its vehicle was removed in view); setFade sets how much is left. */
+  /** Starts a fade (in, as the vehicle appears, or out where it is, its vehicle removed); setFade sets how much shows. */
   beginFade(): void {
     this.fade.begin(this.group);
   }
 
   setFade(f: number): void {
     this.fade.set(this.group, f);
+  }
+
+  /** How much of the view is drawn (1 unless fading). */
+  get fadeLevel(): number {
+    return this.fade.level;
   }
 
   /** Ends a fade; returns the fade materials for the caller to dispose. */
@@ -325,14 +216,11 @@ export class BikeView {
   private setBurnt(b: boolean): void {
     if (this.burnt === b) return;
     this.burnt = b;
-    for (const p of this.parts) {
-      if (p.name === 'tire') p.visible = !b;
-      else if (p !== this.painted && p.name !== 'lamp') p.material = b ? burntMat : p.name === 'fork' || p.name === 'frame' ? darkMat : p.name === 'rim' ? rimMat : chromeMat;
-    }
-    this.headLamp.material = b ? burntMat : this.headMat;
-    this.tailLamp.material = b ? burntMat : this.tailMat;
+    const pal = paletteMaterial();
+    this.fade.swap(this.frame, b ? burntMat : pal);
+    this.fade.swap(this.steer, b ? burntMat : pal);
     if (b) {
-      this.painted.material = burntMat;
+      this.fade.swap(this.painted, burntMat);
       this.color = -1;
     }
   }
@@ -341,7 +229,7 @@ export class BikeView {
     this.vehicle = v;
     if (v.destroyed && !v.inWater) this.setBurnt(true);
     else if (!this.burnt && this.color !== v.color) {
-      this.painted.material = paint(v.color);
+      this.fade.swap(this.painted, paint(v.color));
       this.color = v.color;
     }
     const s = v.spec;
@@ -354,9 +242,17 @@ export class BikeView {
     this.steerGroup.rotation.y = -v.steer * steerLimit(s, v.forwardSpeed);
     this.spin += (v.forwardSpeed / m.wheelR) * dt;
     if (Math.abs(this.spin) > 1e4) this.spin %= Math.PI * 2;
-    for (const w of this.wheels) {
-      w.tyre.rotation.x = this.spin;
-      w.rim.rotation.x = this.spin;
+    for (const w of this.wheels) w.pivot.rotation.x = this.spin;
+    // The driver's hands on the grips, where the bars have turned to (in the bike's frame).
+    this.head.updateMatrix();
+    this.steerGroup.updateMatrix();
+    this.mtx.multiplyMatrices(this.head.matrix, this.steerGroup.matrix);
+    const hands = this.hands;
+    for (let i = 0; i < 2; i++) {
+      const p = this.tmp.copy(m.handsOnBars[i]!).applyMatrix4(this.mtx);
+      hands[i]!.x = p.x;
+      hands[i]!.y = p.y;
+      hands[i]!.z = p.z;
     }
     // Lights with a rider aboard (a parked bike is dark), as VehicleView does for cars.
     const powered = !v.destroyed && v.driver !== null;
@@ -386,10 +282,21 @@ export class BikeView {
       g.fz = fz * dir;
       n++;
     };
-    if (this.lit) add(this.headLamp, 'head', 1);
+    // One glow for the head lamps (a twin pair sits a hand's width apart: one light).
+    if (this.lit) add(this.heads.length > 1 ? this.midLamp() : this.heads[0]!, 'head', 1);
     if (v.braking) add(this.tailLamp, 'brake', -1);
     else if (this.lit) add(this.tailLamp, 'tail', -1);
     return n;
+  }
+
+  private readonly mid = new THREE.Mesh();
+  /** A stand-in between a twin pair of head lamps, for their one glow. */
+  private midLamp(): THREE.Mesh {
+    const a = this.heads[0]!.getWorldPosition(new THREE.Vector3());
+    const b = this.heads[1]!.getWorldPosition(new THREE.Vector3());
+    this.mid.position.copy(a.add(b).multiplyScalar(0.5));
+    this.mid.updateMatrixWorld();
+    return this.mid;
   }
 }
 

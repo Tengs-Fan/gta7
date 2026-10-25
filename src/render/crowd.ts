@@ -644,7 +644,8 @@ export class CrowdView {
         if (!v || v.removed || v.destroyed) continue;
         const vd2 = (v.pos.x - camX) ** 2 + (v.pos.z - camZ) ** 2;
         if (vd2 > OCCUPANT_RANGE * OCCUPANT_RANGE) continue;
-        this.drawFade = 1;
+        // A bike's or boat's riders fade with it (riders.ts RiderMount.level).
+        this.drawFade = v.spec.class === 'car' ? 1 : (riderMount(v)?.level ?? 1);
         this.trackShot(c);
         // Nobody is drawn behind a van's dark windows, only a gun arm held out of one: that stays a segment arm.
         this.beginRig(c, vd2, v.spec.class !== 'car' || cabinLayout(v.kind) !== null);

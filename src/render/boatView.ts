@@ -1,23 +1,27 @@
-// Boats (class 'boat'), drawn by their own view: an open hull in the boat's paint with a floor, seats and (speedboat) a
-// console with a windscreen and wheel, or (dinghy) side tubes and an outboard with a tiller. The sim floats a boat flat
-// at WATER_Y; this view bobs, pitches and rolls the hull on the waves the sea draws (render/waves.ts, through the sea's
-// own uniforms: on High the displaced wave grid, elsewhere a gentle bob of a few centimetres), lifts the bow as it
-// planes and leans it a little out of a turn. All of that is presentation: nothing here feeds back into the sim.
-// Riders sit in its frame (riders.ts, posed by CrowdView).
+// Boats (class 'boat'), drawn by their own view from the procedural hulls in boatModels.ts: the painted topsides, one
+// palette draw for the rest (bottom, cockpit, seats, console and wheel, rails, outboard), the speedboat's glass
+// windscreen, and a foam ring at the waterline; the bow and stern lights go through the shared part batches, and a
+// coarse proxy casts the shadow. The sim floats a boat flat at WATER_Y; this view bobs, pitches and rolls the hull on
+// the waves the sea draws (render/waves.ts, through the sea's own uniforms: on High the displaced wave grid, elsewhere
+// a gentle bob of a few centimetres), lifts the bow as it planes and leans it a little out of a turn, and lays the
+// foam ring on the drawn sea surface round the hull. All of that is presentation: nothing here feeds back into the
+// sim. Riders sit in its frame (riders.ts, posed by CrowdView).
 
 import * as THREE from 'three';
-import { burntMaterial } from './fx/burnt';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
+import { boatModel, type BoatLamp, type BoatModel } from './boatModels';
 import type { LampGlow } from './lightSprites';
-import { setRiderMount, type RiderMount, type RiderSeatLayout } from './riders';
+import { setRiderMount, type RiderMount } from './riders';
 import type { SeaUniforms } from './sea';
+import { paintMaterial, paletteMaterial } from './shapeKit';
+import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
+import { LAMP_LENS, vehicleGlass } from './vehicleView';
 import { CALM_SEA, waveDisplacement } from './waves';
-import type { VehiclePartBatches } from './vehicleBatches';
 import { GroupFade } from './viewFade';
+import { burntMaterial } from './fx/burnt';
 
 /** Without the wave grid (Medium, Low, software) the hull bobs this much (m) and pitches this much (rad). */
 export const GENTLE_BOB = 0.05;
@@ -25,182 +29,136 @@ const GENTLE_PITCH = 0.012;
 /** Bow lift (rad) at full planing speed, and lean (rad) per rad/s of yaw rate. */
 const PLANE_PITCH = 0.07;
 const TURN_LEAN = 0.06;
+/** The foam ring floats this far over the drawn sea (m), from FOAM_IN to FOAM_OUT outside the waterline. */
+export const FOAM_LIFT = 0.03;
+export const FOAM_IN = 0.02;
+export const FOAM_OUT = 0.5;
 
-type Style = 'speedboat' | 'dinghy';
-
-interface BoatModel {
-  length: number;
-  width: number;
-  /** Top of the gunwale, the floor inside and the keel, above the waterline (m). */
-  gunwale: number;
-  floor: number;
-  keel: number;
-  hull: THREE.BufferGeometry;
-  deck: THREE.BufferGeometry;
-  dark: THREE.BufferGeometry;
-  trim: THREE.BufferGeometry;
-  glass: THREE.BufferGeometry | null;
-  lamp: THREE.Vector3 | null;
-  stern: THREE.Vector3;
-  seats: RiderSeatLayout[];
-}
-
-/** The hull's plan: a square stern, parallel sides and a bow drawn to a point, in (x across, z forward). */
-function outline(length: number, width: number, inset: number): THREE.Vector2[] {
-  const hl = length / 2 - inset;
-  const hw = width / 2 - inset;
-  const shoulder = length * 0.12;
-  const pts: THREE.Vector2[] = [new THREE.Vector2(-hw, -hl), new THREE.Vector2(hw, -hl), new THREE.Vector2(hw, shoulder)];
-  for (let i = 1; i <= 8; i++) {
-    const t = i / 8;
-    // A quarter ellipse from the shoulder to the stem.
-    pts.push(new THREE.Vector2(hw * Math.cos((t * Math.PI) / 2), shoulder + (hl - shoulder) * Math.sin((t * Math.PI) / 2)));
-  }
-  for (let i = 7; i >= 1; i--) {
-    const t = i / 8;
-    pts.push(new THREE.Vector2(-hw * Math.cos((t * Math.PI) / 2), shoulder + (hl - shoulder) * Math.sin((t * Math.PI) / 2)));
-  }
-  pts.push(new THREE.Vector2(-hw, shoulder));
-  return pts;
-}
-
-/** A shape in (x, z) laid flat at height y: the shape's second axis is the boat's forward axis. */
-function flat(shape: THREE.Shape, y: number, up: boolean): THREE.BufferGeometry {
-  const g = new THREE.ShapeGeometry(shape);
-  // ShapeGeometry lies in xy facing +z: a quarter turn about x keeps its y forward (+z) and faces it down; mirrored
-  // across x (the outlines are symmetric) it faces up.
-  g.rotateX(Math.PI / 2);
-  if (up) g.scale(-1, 1, 1);
-  return g.translate(0, y, 0);
-}
-
-function box(w: number, h: number, d: number, x: number, y: number, z: number, rx = 0): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(w, h, d);
-  if (rx) g.rotateX(rx);
-  return g.translate(x, y, z);
-}
-
-function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const m = mergeGeometries(parts.map((g) => {
-    const n = g.index ? g.toNonIndexed() : g;
-    for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') n.deleteAttribute(k);
-    return n;
-  }), false);
-  if (!m) throw new Error('boat geometry merge failed');
-  m.computeVertexNormals();
-  return m;
-}
-
-const P = (x: number, y: number, z: number) => ({ x, y, z });
-
-function model(style: Style, kind: VehicleKind): BoatModel {
-  const s = VEHICLE_SPECS[kind];
-  const length = s.length;
-  const width = s.width;
-  const keel = -(s.boat?.draft ?? 0.4);
-  const gunwale = style === 'speedboat' ? 0.75 : 0.42;
-  const floor = style === 'speedboat' ? 0.15 : 0.05;
-  const wall = style === 'speedboat' ? 0.1 : 0.08;
-  const outer = new THREE.Shape(outline(length, width, 0));
-  const inner = new THREE.Path(outline(length, width, wall).reverse());
-  const shell = new THREE.Shape(outline(length, width, 0));
-  shell.holes.push(inner);
-  // The walls: the outline less the inner one, extruded from the keel up to the gunwale.
-  const walls = new THREE.ExtrudeGeometry(shell, { depth: gunwale - keel, bevelEnabled: false, curveSegments: 4 });
-  // Extruded along z: stood up (the extrusion to +y) and turned half about y (det +1, so the faces keep their winding)
-  // to bring the bow back to +z.
-  walls.rotateX(-Math.PI / 2);
-  walls.scale(-1, 1, -1);
-  walls.translate(0, keel, 0);
-  const hull = merge([walls, flat(outer, keel, false)]);
-  const deck = merge([flat(new THREE.Shape(outline(length, width, wall)), floor, true)]);
-  const hl = length / 2;
-  if (style === 'speedboat') {
-    const consoleZ = 0.35;
-    return {
-      length,
-      width,
-      gunwale,
-      floor,
-      keel,
-      hull,
-      deck,
-      dark: merge([
-        box(0.9, 0.7, 0.5, 0.45, floor + 0.35, consoleZ),
-        box(0.55, 0.42, 0.55, 0.45, floor + 0.21, -0.45),
-        box(0.55, 0.42, 0.55, -0.45, floor + 0.21, -0.45),
-        box(width - 0.3, 0.42, 0.55, 0, floor + 0.21, -hl + 0.6),
-        box(0.7, 0.75, 0.55, 0, 0.55, -hl - 0.2),
-      ]),
-      trim: merge([
-        box(width + 0.04, 0.08, length * 0.7, 0, gunwale - 0.12, -length * 0.1),
-        new THREE.TorusGeometry(0.17, 0.025, 6, 16).rotateX(-0.9).translate(0.45, floor + 0.85, consoleZ - 0.18),
-      ]),
-      glass: box(width - 0.3, 0.42, 0.05, 0, gunwale + 0.18, consoleZ + 0.35, -0.5),
-      lamp: new THREE.Vector3(0, gunwale + 0.05, hl - 0.35),
-      stern: new THREE.Vector3(0, gunwale + 0.05, -hl + 0.1),
-      seats: [
-        { hip: P(0.45, floor + 0.45, -0.45), recline: 0.05, hands: [P(0.6, floor + 0.88, consoleZ - 0.22), P(0.3, floor + 0.88, consoleZ - 0.22)], feet: [P(0.56, floor, -0.02), P(0.34, floor, -0.02)] },
-        { hip: P(-0.45, floor + 0.45, -0.45), recline: 0.15, hands: [P(-0.2, floor + 0.62, -0.25), P(-0.7, floor + 0.62, -0.25)], feet: [P(-0.34, floor, -0.02), P(-0.56, floor, -0.02)] },
-        { hip: P(0.4, floor + 0.45, -hl + 0.6), recline: 0.2, hands: [P(0.6, floor + 0.55, -hl + 0.75), P(0.2, floor + 0.55, -hl + 0.75)], feet: [P(0.5, floor, -hl + 1.05), P(0.3, floor, -hl + 1.05)] },
-        { hip: P(-0.4, floor + 0.45, -hl + 0.6), recline: 0.2, hands: [P(-0.2, floor + 0.55, -hl + 0.75), P(-0.6, floor + 0.55, -hl + 0.75)], feet: [P(-0.3, floor, -hl + 1.05), P(-0.5, floor, -hl + 1.05)] },
-      ],
-    };
-  }
-  // Dinghy: side tubes over a low hull, a thwart and an outboard steered by its tiller.
-  const tube = (side: number) => new THREE.CylinderGeometry(0.2, 0.2, length * 0.78, 10).rotateX(Math.PI / 2).translate(side * (width / 2 - 0.2), gunwale - 0.12, -length * 0.08);
-  return {
-    length,
-    width,
-    gunwale,
-    floor,
-    keel,
-    hull,
-    deck,
-    dark: merge([
-      box(width - 0.3, 0.06, 0.32, 0, floor + 0.3, -hl + 0.95),
-      box(width - 0.3, 0.06, 0.32, 0, floor + 0.3, 0.2),
-      box(0.26, 0.42, 0.3, 0, 0.42, -hl - 0.1),
-      box(0.08, 0.5, 0.1, 0, 0.0, -hl - 0.1),
-      box(0.05, 0.05, 0.55, 0, 0.55, -hl + 0.2, -0.15),
-    ]),
-    trim: merge([tube(1), tube(-1)]),
-    glass: null,
-    lamp: null,
-    stern: new THREE.Vector3(0, 0.66, -hl - 0.1),
-    seats: [
-      { hip: P(0.0, floor + 0.36, -hl + 0.95), recline: 0.05, hands: [P(0.05, 0.58, -hl + 0.45), P(-0.25, floor + 0.36, -hl + 0.95)], feet: [P(0.15, floor, -hl + 1.4), P(-0.15, floor, -hl + 1.4)] },
-      { hip: P(0.0, floor + 0.36, 0.2), recline: 0.1, hands: [P(0.4, gunwale, 0.25), P(-0.4, gunwale, 0.25)], feet: [P(0.15, floor, 0.65), P(-0.15, floor, 0.65)] },
-    ],
-  };
-}
-
-const STYLES: Partial<Record<VehicleKind, Style>> = { speedboat: 'speedboat', dinghy: 'dinghy' };
-const models = new Map<VehicleKind, BoatModel>();
-function modelOf(kind: VehicleKind): BoatModel {
-  let m = models.get(kind);
-  if (!m) {
-    m = model(STYLES[kind] ?? 'speedboat', kind);
-    models.set(kind, m);
-  }
-  return m;
-}
-
-const deckMat = new THREE.MeshStandardMaterial({ color: 0xcfc6b3, roughness: 0.85 });
-const darkMat = new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.7, metalness: 0.15 });
-const trimMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.6 });
-const tubeMat = new THREE.MeshStandardMaterial({ color: 0x3b3f45, roughness: 0.6 });
-const glassMat = new THREE.MeshStandardMaterial({ color: 0x9fb8c8, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.45 });
 /** Soot, char and bare metal (fx/burnt.ts), shared by every wreck. */
 const burntMat = burntMaterial();
-const paints = new Map<number, THREE.MeshStandardMaterial>();
-function paint(color: number): THREE.MeshStandardMaterial {
-  let m = paints.get(color);
-  if (!m) {
-    m = new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.1 });
-    paints.set(color, m);
+/** Never drawn by a camera (SHADOW_LAYER): the proxy only writes the shadow map, with three's depth material. */
+const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+/** Soft foam blobs (alpha in G, as three's alphaMap reads it), tiling. */
+function foamTexture(): THREE.DataTexture {
+  const n = 64;
+  const data = new Uint8Array(n * n * 4);
+  const hash = (x: number, y: number) => {
+    const h = Math.sin((x % n) * 127.1 + (y % n) * 311.7) * 43758.5453;
+    return h - Math.floor(h);
+  };
+  const noise = (x: number, y: number, cell: number) => {
+    const gx = Math.floor(x / cell);
+    const gy = Math.floor(y / cell);
+    const fx = x / cell - gx;
+    const fy = y / cell - gy;
+    const c = n / cell;
+    const v = (i: number, j: number) => hash(((gx + i) % c) * cell, ((gy + j) % c) * cell);
+    const sx = fx * fx * (3 - 2 * fx);
+    const sy = fy * fy * (3 - 2 * fy);
+    return (v(0, 0) * (1 - sx) + v(1, 0) * sx) * (1 - sy) + (v(0, 1) * (1 - sx) + v(1, 1) * sx) * sy;
+  };
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const f = 0.55 * noise(x, y, 16) + 0.3 * noise(x, y, 8) + 0.15 * noise(x, y, 4);
+      const a = 0.25 + 0.75 * Math.min(1, Math.max(0, (f - 0.3) / 0.35));
+      data.set([255, Math.round(a * 255), 255, 255], (y * n + x) * 4);
+    }
   }
-  return m;
+  const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.needsUpdate = true;
+  return t;
+}
+
+let foam: THREE.MeshStandardMaterial | null = null;
+/** The foam ring's material: lit white, its alpha from the vertex (dense at the hull, none at the rim) times the blobs. */
+export function foamMaterial(): THREE.MeshStandardMaterial {
+  if (foam) return foam;
+  foam = new THREE.MeshStandardMaterial({
+    color: 0xf3f7f8,
+    roughness: 0.9,
+    metalness: 0,
+    vertexColors: true,
+    alphaMap: foamTexture(),
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -4,
+  });
+  foam.name = 'boat-foam';
+  return foam;
+}
+
+/** Rows of the foam ring: distance out from the waterline and alpha. */
+const FOAM_ROWS: ReadonlyArray<readonly [number, number]> = [[FOAM_IN, 0.92], [0.12, 0.72], [0.28, 0.34], [FOAM_OUT, 0]];
+
+/** The ring's layout in the boat's frame (x, z per vertex) and its geometry (positions filled per frame). */
+function foamRing(m: BoatModel): { base: Float32Array; geometry: THREE.BufferGeometry } {
+  const wl = m.waterline;
+  const n = wl.length;
+  const rows = FOAM_ROWS.length;
+  const base = new Float32Array(n * rows * 2);
+  const color = new Float32Array(n * rows * 4);
+  const uv = new Float32Array(n * rows * 2);
+  const normal = new Float32Array(n * rows * 3);
+  let perimeter = 0;
+  for (let i = 0; i < n; i++) perimeter += wl[i]!.distanceTo(wl[(i + 1) % n]!);
+  // Winding: the outline's signed area says which side is out.
+  let area = 0;
+  for (let i = 0; i < n; i++) area += wl[i]!.x * wl[(i + 1) % n]!.y - wl[(i + 1) % n]!.x * wl[i]!.y;
+  const outSign = area > 0 ? 1 : -1;
+  let along = 0;
+  for (let i = 0; i < n; i++) {
+    const p = wl[i]!;
+    const a = wl[(i + n - 1) % n]!;
+    const b = wl[(i + 1) % n]!;
+    // Outward normal of the outline at p (perpendicular to its tangent).
+    const tx = b.x - a.x;
+    const tz = b.y - a.y;
+    const tl = Math.hypot(tx, tz) || 1;
+    const nx = (tz / tl) * outSign;
+    const nz = (-tx / tl) * outSign;
+    if (i > 0) along += p.distanceTo(wl[i - 1]!);
+    // A little ragged at the rim, the same way for every boat of the kind.
+    const ragged = 0.85 + 0.3 * (0.5 + 0.5 * Math.sin(i * 2.3) * Math.cos(i * 0.7));
+    for (let r = 0; r < rows; r++) {
+      const [d, alpha] = FOAM_ROWS[r]!;
+      const k = i * rows + r;
+      const dist = r === rows - 1 ? d * ragged : d;
+      base[k * 2] = p.x + nx * dist;
+      base[k * 2 + 1] = p.y + nz * dist;
+      color.set([1, 1, 1, alpha], k * 4);
+      uv[k * 2] = (along / perimeter) * Math.round(perimeter / 1.4);
+      uv[k * 2 + 1] = d / 1.4;
+      normal.set([0, 1, 0], k * 3);
+    }
+  }
+  const idx: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    for (let r = 0; r < rows - 1; r++) {
+      const a = i * rows + r;
+      const b = j * rows + r;
+      const c = i * rows + r + 1;
+      const d = j * rows + r + 1;
+      // Faces up whichever way the outline runs (counter-clockwise in x-z is clockwise seen from above).
+      if (outSign > 0) idx.push(a, b, c, b, d, c);
+      else idx.push(a, c, b, b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * rows * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(color, 4));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), m.length / 2 + FOAM_OUT + 1);
+  return { base, geometry: g };
 }
 
 /** The hull's drawn heave (m), pitch and roll (rad) on the sea at time `time`, for the boat's pose: see BoatView.sync. */
@@ -236,15 +194,54 @@ export function boatSwell(v: Vehicle, sea: SeaUniforms | null, time: number, out
   return out;
 }
 
+/** The drawn sea's height over WATER_Y at world (x, z): the wave grid's surface (one step back along its sideways push). */
+export function seaHeightAt(sea: SeaUniforms | null, x: number, z: number): number {
+  return seaSampler(sea)(x, z);
+}
+
+const phaseScratch = [0, 0, 0, 0];
+
+/** seaHeightAt for many points of one frame: the sea's uniforms read once (0 everywhere without the wave grid). */
+function seaSampler(sea: SeaUniforms | null): (x: number, z: number) => number {
+  const displace = sea ? sea.uDisplace.value : 0;
+  if (!sea || displace <= 0) return () => 0;
+  const ph = sea.uWavePhase.value;
+  phaseScratch[0] = ph.x;
+  phaseScratch[1] = ph.y;
+  phaseScratch[2] = ph.z;
+  phaseScratch[3] = ph.w;
+  const ox = sea.uSeaOrigin.value.x;
+  const oz = sea.uSeaOrigin.value.y;
+  const amp = sea.uSeaAmp.value;
+  return (x, z) => {
+    const d = waveDisplacement(x, z, ox, oz, phaseScratch, amp);
+    return waveDisplacement(x - d[0] * displace, z - d[2] * displace, ox, oz, phaseScratch, amp)[1] * displace;
+  };
+}
+
+function lampMesh(l: BoatLamp, mat: THREE.Material): THREE.Mesh {
+  const m = new THREE.Mesh(LAMP_LENS, mat);
+  m.name = 'lamp';
+  m.position.copy(l.at);
+  m.scale.copy(l.size);
+  if (l.facing < 0) m.rotation.y = Math.PI;
+  m.layers.set(PART_LAYER);
+  m.userData.batched = true;
+  return m;
+}
+
 export class BoatView {
   readonly group = new THREE.Group();
   /** The boat's own frame (+x left, +y up from the waterline, +z forward) as drawn: what riders sit in. */
   private readonly body = new THREE.Group();
   private readonly hull: THREE.Mesh;
-  private readonly parts: THREE.Mesh[] = [];
+  private readonly fittings: THREE.Mesh;
+  private readonly glass: THREE.Mesh | null = null;
+  private readonly foam: THREE.Mesh;
+  private readonly foamBase: Float32Array;
   private readonly lampMat = new THREE.MeshStandardMaterial({ color: 0xfffbe8, emissive: 0xfff2c8, emissiveIntensity: 0.2, roughness: 0.2 });
   private readonly sternMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.2, roughness: 0.3 });
-  private readonly lamp: THREE.Mesh | null = null;
+  private readonly bowLamp: THREE.Mesh;
   private readonly sternLamp: THREE.Mesh;
   private readonly model: BoatModel;
   private readonly mount: RiderMount;
@@ -260,33 +257,44 @@ export class BoatView {
   vehicle: Vehicle | null = null;
 
   constructor(readonly kind: VehicleKind) {
-    const m = modelOf(kind);
+    const m = boatModel(kind);
     this.model = m;
     this.group.rotation.order = 'YXZ';
     this.body.rotation.order = 'YXZ';
     this.group.add(this.body);
-    this.hull = this.mesh(m.hull, paint(0xffffff), 'body');
-    this.mesh(m.deck, deckMat, 'deck');
-    this.mesh(m.dark, darkMat, 'fittings');
-    this.mesh(m.trim, (STYLES[kind] ?? 'speedboat') === 'dinghy' ? tubeMat : trimMat, 'trim');
-    if (m.glass) this.mesh(m.glass, glassMat, 'glass').castShadow = false;
-    const lampGeo = new THREE.SphereGeometry(0.06, 8, 6);
-    if (m.lamp) {
-      this.lamp = this.mesh(lampGeo, this.lampMat, 'lamp');
-      this.lamp.position.copy(m.lamp);
+    this.hull = this.own(m.painted, paintMaterial(0xffffff), 'body');
+    this.fittings = this.own(m.fittings, paletteMaterial(), 'fittings');
+    if (m.glass) {
+      this.glass = this.own(m.glass, vehicleGlass.intact, 'glass');
+      this.glass.receiveShadow = false;
     }
-    this.sternLamp = this.mesh(lampGeo, this.sternMat, 'lamp');
-    this.sternLamp.position.copy(m.stern);
-    this.mount = { frame: this.body, seats: m.seats };
+    const shadow = new THREE.Mesh(m.shadow, shadowMat);
+    shadow.name = 'shadow';
+    shadow.castShadow = true;
+    shadow.layers.set(SHADOW_LAYER);
+    this.body.add(shadow);
+    this.bowLamp = lampMesh(m.bowLamp, this.lampMat);
+    this.sternLamp = lampMesh(m.sternLamp, this.sternMat);
+    this.body.add(this.bowLamp, this.sternLamp);
+    // The foam ring rides the sea, not the hull: in the outer group, laid on the drawn surface each sync. Until the
+    // first sync every vertex sits at the boat's origin (drawing nothing and adding nothing to its bounds).
+    const ring = foamRing(m);
+    this.foamBase = ring.base;
+    this.foam = new THREE.Mesh(ring.geometry, foamMaterial());
+    this.foam.name = 'foam';
+    this.foam.receiveShadow = true;
+    this.foam.renderOrder = 1;
+    this.group.add(this.foam);
+    const fade = this.fade;
+    this.mount = { frame: this.body, seats: m.seats, get level() { return fade.level; } };
   }
 
-  private mesh(geo: THREE.BufferGeometry, mat: THREE.Material, name: string): THREE.Mesh {
+  private own(geo: THREE.BufferGeometry, mat: THREE.Material, name: string): THREE.Mesh {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name = name;
-    mesh.castShadow = name !== 'lamp';
-    mesh.receiveShadow = name === 'deck' || name === 'body';
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
     this.body.add(mesh);
-    this.parts.push(mesh);
     return mesh;
   }
 
@@ -316,16 +324,22 @@ export class BoatView {
     return false;
   }
 
-  /** Nothing of a boat is drawn through the car part batches (vehicleBatches.ts). */
-  drawParts(_batches: VehiclePartBatches): void {}
+  /** Adds the bow and stern lights to the shared part batches, where the last sync (or a warm-up) put them. */
+  drawParts(batches: VehiclePartBatches): void {
+    if (!this.vehicle) this.group.updateMatrixWorld(true);
+    const f = this.fade.level;
+    for (const l of [this.bowLamp, this.sternLamp]) batches.addShaped(LAMP_LENS, this.burnt ? burntMat : (l.material as THREE.Material), l.matrixWorld, f);
+  }
 
-  hideParts(_hidden: boolean): void {}
+  hideParts(hidden: boolean): void {
+    this.bowLamp.visible = this.sternLamp.visible = !hidden;
+  }
 
   get fading(): boolean {
     return this.fade.active;
   }
 
-  /** Starts fading the view out where it is (its vehicle was removed in view); setFade sets how much is left. */
+  /** Starts a fade (in, as the vehicle appears, or out where it is, its vehicle removed); setFade sets how much shows. */
   beginFade(): void {
     this.fade.begin(this.group);
   }
@@ -334,13 +348,18 @@ export class BoatView {
     this.fade.set(this.group, f);
   }
 
+  /** How much of the view is drawn (1 unless fading). */
+  get fadeLevel(): number {
+    return this.fade.level;
+  }
+
   /** Ends a fade; returns the fade materials for the caller to dispose. */
   endFade(): THREE.Material[] {
     return this.fade.end();
   }
 
   get headLamps(): number {
-    return this.lamp && !this.burnt ? 2 : 0;
+    return this.model.headLamp && !this.burnt ? 2 : 0;
   }
 
   get lightsOn(): boolean {
@@ -350,13 +369,10 @@ export class BoatView {
   private setBurnt(b: boolean): void {
     if (this.burnt === b) return;
     this.burnt = b;
-    for (const p of this.parts) {
-      if (p.name === 'deck') p.material = b ? burntMat : deckMat;
-      else if (p.name === 'fittings') p.material = b ? burntMat : darkMat;
-      else if (p.name === 'glass') p.visible = !b;
-    }
+    this.fade.swap(this.fittings, b ? burntMat : paletteMaterial());
+    if (this.glass) this.glass.visible = !b;
     if (b) {
-      this.hull.material = burntMat;
+      this.fade.swap(this.hull, burntMat);
       this.color = -1;
     }
   }
@@ -365,7 +381,7 @@ export class BoatView {
     this.vehicle = v;
     if (v.destroyed) this.setBurnt(true);
     else if (!this.burnt && this.color !== v.color) {
-      this.hull.material = paint(v.color);
+      this.fade.swap(this.hull, paintMaterial(v.color));
       this.color = v.color;
     }
     // Waves move a boat afloat, not one sinking, or standing on the sand or on a trailer.
@@ -378,12 +394,50 @@ export class BoatView {
     this.group.position.set(v.pos.x, v.pos.y + (afloat ? sw.heave : 0), v.pos.z);
     this.group.rotation.set(-v.pitch, v.heading, v.roll);
     this.body.rotation.set(afloat ? -(sw.pitch + this.plane) : 0, 0, afloat ? sw.roll - this.lean : 0);
+    this.layFoam(v, afloat && !v.destroyed);
     const powered = !v.destroyed && v.driver !== null;
     this.lit = night > 0.35 && powered && !this.burnt;
     this.lampMat.emissiveIntensity = this.lit ? 0.6 + night * 4 : 0.2;
     this.sternMat.emissiveIntensity = this.lit ? 1.2 : 0.2;
     this.group.updateMatrixWorld(true);
     setRiderMount(v, this, this.mount);
+  }
+
+  /** Lays the foam ring on the drawn sea round the hull (in the outer group's frame: turned by the heading only). */
+  private layFoam(v: Vehicle, shown: boolean): void {
+    this.foam.visible = shown;
+    if (!shown) return;
+    const pos = this.foam.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    const base = this.foamBase;
+    const c = Math.cos(v.heading);
+    const s = Math.sin(v.heading);
+    const y0 = WATER_Y + FOAM_LIFT - this.group.position.y;
+    const height = seaSampler(this.sea);
+    // Two samples of the sea per column of the ring, one for its inner rows and one for its outer (the rows lie within
+    // FOAM_OUT of each other, a small part of a wave's length).
+    const rows = FOAM_ROWS.length;
+    const n = base.length / 2 / rows;
+    const at = (k: number) => y0 + height(v.pos.x + base[k * 2]! * c + base[k * 2 + 1]! * s, v.pos.z - base[k * 2]! * s + base[k * 2 + 1]! * c);
+    for (let i = 0; i < n; i++) {
+      const k0 = i * rows;
+      const inner = at(k0);
+      const outer = at(k0 + rows - 2);
+      for (let r = 0; r < rows; r++) {
+        const k = k0 + r;
+        arr[k * 3] = base[k * 2]!;
+        arr[k * 3 + 1] = r < rows / 2 ? inner : outer;
+        arr[k * 3 + 2] = base[k * 2 + 1]!;
+      }
+    }
+    pos.needsUpdate = true;
+  }
+
+  /** The foam ring's vertices in world space, as last laid (for tests and probes). */
+  foamWorld(): THREE.Vector3[] {
+    const pos = this.foam.geometry.getAttribute('position');
+    this.foam.updateMatrixWorld();
+    return Array.from({ length: pos.count }, (_, i) => new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(this.foam.matrixWorld));
   }
 
   lampWorldPositions(out: LampGlow[], n = 0): number {
@@ -402,8 +456,9 @@ export class BoatView {
       g.fz = (e[10]! / fl) * dir;
       n++;
     };
-    if (this.lamp) add(this.lamp, 'head', 1);
-    add(this.sternLamp, 'tail', -1);
+    // A speedboat's bow lamp lights the water like a head lamp; a dinghy's is a running light, white like the stern's.
+    add(this.bowLamp, this.model.headLamp ? 'head' : 'reverse', 1);
+    add(this.sternLamp, 'reverse', -1);
     return n;
   }
 }

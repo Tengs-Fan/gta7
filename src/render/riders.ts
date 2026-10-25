@@ -23,6 +23,8 @@ export interface RiderMount {
   readonly frame: THREE.Object3D;
   /** Seat layouts by seat index (0: the driver); a seat past the end sits in the last one. */
   readonly seats: readonly RiderSeatLayout[];
+  /** How much of the vehicle is drawn (its fade, 0..1): its riders are drawn as much. Whole if absent. */
+  readonly level?: number;
 }
 
 const mounts = new WeakMap<Vehicle, { owner: { vehicle: Vehicle | null }; mount: RiderMount }>();
