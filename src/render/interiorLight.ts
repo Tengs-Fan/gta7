@@ -167,7 +167,7 @@ float gta7WallOcclusion( vec3 p ) {
   if ( gta7WallAO <= 0.0 ) return 1.0;
   vec2 uv = ( p.xz - gta7WallFieldRect.xy ) * gta7WallFieldRect.zw;
   if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) ) return 1.0;
-  float d = ${FIELD_MIN.toFixed(1)} + texture2D( gta7WallField, uv ).r * ${(FIELD_MAX - FIELD_MIN).toFixed(1)};
+  float d = ${FIELD_MIN.toFixed(1)} + textureLod( gta7WallField, uv, 0.0 ).r * ${(FIELD_MAX - FIELD_MIN).toFixed(1)};
   return 1.0 - gta7WallAO * exp( - max( d, 0.0 ) / ${WALL_AO_REACH.toFixed(3)} ) * exp( - max( p.y - ${CURB_H.toFixed(3)}, 0.0 ) / ${WALL_AO_REACH.toFixed(3)} );
 }
 // x: the sky's diffuse light kept here, y: the sun's, z: the sky's reflections (1 in the open). viewPos: view space.
