@@ -335,12 +335,17 @@ export class GameRenderer {
   /** Builds one view per vehicle kind and compiles every shader up front to avoid hitches later. */
   private warmup(): void {
     const tmp: AnyVehicleView[] = [];
+    // A second view of each kind stays whole while the first fades (below), so the one compile covers a vehicle's own
+    // materials (its paint and fittings, drawn whole) as well as their fade copies.
+    const whole: AnyVehicleView[] = [];
     for (const kind of Object.keys(VEHICLE_SPECS) as VehicleKind[]) {
-      const v = this.pool.acquire(kind);
-      v.group.position.set(0, -50, 0);
-      this.scene.add(v.group);
-      this.softwareMaterials?.apply(v.group);
-      tmp.push(v);
+      for (const list of [tmp, whole]) {
+        const v = this.pool.acquire(kind);
+        v.group.position.set(0, -50, 0);
+        this.scene.add(v.group);
+        this.softwareMaterials?.apply(v.group);
+        list.push(v);
+      }
     }
     // The part batches' instanced variants are compiled too.
     this.vehicleParts.begin();
@@ -404,7 +409,7 @@ export class GameRenderer {
     this.softwareMaterials?.forget(this.fadeKeepers);
     for (const m of this.fadeKeepers) m.dispose();
     this.fadeKeepers = kept;
-    for (const v of tmp) this.pool.release(v);
+    for (const v of [...tmp, ...whole]) this.pool.release(v);
     this.vehicleParts.begin();
     this.vehicleParts.end();
   }

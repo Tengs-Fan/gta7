@@ -99,9 +99,8 @@ function worldPoint(view: VehicleView, x: number, y: number, z: number): THREE.V
 function headGlow(view: VehicleView): number {
   let best = -1;
   view.group.traverse((o) => {
-    if (!(o instanceof THREE.Mesh) || !(o.geometry instanceof THREE.BoxGeometry)) return;
-    const p = o.geometry.parameters;
-    if (p.width !== 0.34 || p.height !== 0.14 || o.position.z <= 0) return;
+    // Revised (mission 3 cars): head lamps are moulded lens meshes now (not 0.34 m boxes): the front 'lamp' meshes.
+    if (!(o instanceof THREE.Mesh) || o.name !== 'lamp' || o.position.z <= 0) return;
     const m = o.material as THREE.MeshStandardMaterial;
     best = Math.max(best, m.emissiveIntensity * Math.max(m.emissive.r, m.emissive.g, m.emissive.b));
   });

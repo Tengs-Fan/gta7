@@ -73,9 +73,10 @@ describe('vehicle part batches', () => {
     const thirty = cars('sedan', 30);
     frame(batches, thirty);
     const at30 = batches.counts;
-    // Tyres, rims, and every head, tail and reverse lamp in one more draw.
+    // Tyres, rims, and every head, tail and reverse lamp in one more draw. Revised (mission 3 cars, VAL-CAR-006):
+    // plus the shade under every car, one more instanced draw for all of them (it does not grow with the cars either).
     expect(at30.meshes).toBe(at10.meshes);
-    expect(at30.meshes).toBe(3);
+    expect(at30.meshes).toBe(4);
     const s = ten[0]!.view.group;
     const tire = s.getObjectByName('tire') as THREE.Mesh;
     const rim = s.getObjectByName('rim') as THREE.Mesh;
@@ -84,7 +85,7 @@ describe('vehicle part batches', () => {
     // Cars removed from the frame hold no slots.
     frame(batches, thirty.slice(0, 3));
     expect(batches.instancesOf(tire.geometry)).toBe(12);
-    expect(batches.counts.instances).toBe(3 * 13);
+    expect(batches.counts.instances).toBe(3 * 14);
     frame(batches, []);
     expect(batches.counts).toMatchObject({ meshes: 0, instances: 0 });
     for (const m of batches.group.children) expect(m.visible).toBe(false);
@@ -145,7 +146,8 @@ describe('vehicle part batches', () => {
     // Charred rims are drawn with the wreck's burnt material.
     expect(live.some((m) => (m.material as THREE.MeshStandardMaterial).color.getHex() === 0x1d1b19 && batches.partOf(m)?.geometry === (wreck.view.group.getObjectByName('rim') as THREE.Mesh).geometry)).toBe(true);
     // The lamps share one draw; the smashed one is dark and unlit, the charred ones too.
-    const lamps = live.find((m) => m.instanceColor)!;
+    // (Revised, mission 3 cars: the under-car shade is tinted per instance too; the lamps' draw carries their glow.)
+    const lamps = live.find((m) => m.geometry.getAttribute('partEmissive'))!;
     const colours = new Set<number>();
     const glows: number[] = [];
     const c = new THREE.Color();
@@ -167,6 +169,7 @@ describe('vehicle part batches', () => {
     const list = cars('sedan', 8);
     const sim = makeSim();
     let most = 0;
+    let buckets = 0;
     for (let f = 0; f < 200; f++) {
       const night = f / 200;
       list.forEach(({ v, view }, i) => {
@@ -175,10 +178,14 @@ describe('vehicle part batches', () => {
         view.sync(v, 1 / 60, f / 60, night);
       });
       frame(batches, list);
-      most = Math.max(most, batches.counts.buckets);
+      most = Math.max(most, batches.counts.meshes);
+      buckets = Math.max(buckets, batches.counts.buckets);
     }
-    // Tyres, rims and one draw for every lamp, whatever state each is in.
-    expect(most).toBe(3);
+    // Tyres, rims and one draw for every lamp, whatever state each is in. Revised (mission 3 cars): the lamps are lens
+    // shapes in a batch of their own, so the box parts' bucket stays empty on a sedan, and the shade under the cars is
+    // one more shared draw (5 buckets, 4 draws).
+    expect(most).toBe(4);
+    expect(buckets).toBe(5);
     batches.dispose();
   });
 });
@@ -248,7 +255,8 @@ describe('vehicle draw structure', () => {
       view.setDistant(false);
       expect(body.castShadow).toBe(false);
       expect(body.userData.contactShadow).toBeUndefined();
-      expect(own().map((m) => m.name).sort()).toEqual(['body', 'exterior', 'shadow', ...(kind === 'police' ? [''] : [])].sort());
+      // (Revised, mission 3 cars: the police livery mesh is named 'livery' now.)
+      expect(own().map((m) => m.name).sort()).toEqual(['body', 'exterior', 'shadow', ...(kind === 'police' ? ['livery'] : [])].sort());
     }
     batches.dispose();
   });
