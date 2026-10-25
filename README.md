@@ -87,8 +87,16 @@ To play with friends on your network, run the optional multiplayer server (see [
 
 - **A whole city.** San Azura is ten by ten blocks across seven districts (Downtown towers, Midtown, the Hillcrest suburbs, Westside, Port Azura Docks, Southgate and the Ocean Beach strip) and three parks, with the Azura Bowl stadium, Azura Pier and its Ferris wheel, the Marina, a lighthouse, and the cranes and containers of the docks.
   Parody shopfronts (DONUTS, PAWN, TACOS, BAIL BONDS and more), tower lobbies and house porches line the streets, and lamp posts, traffic signals, fire hydrants, bins and benches break.
+- **The look.** Stylised low-poly models with PBR materials, all CC0 (see [Assets](#assets) and [Credits](#credits)).
+  People are skinned low-poly Quaternius models posed by the game's own skeleton: 14 civilian looks, police with a brimmed cap, duty belt and radio, SWAT in armour, Los Tiburones and Los Halcones, one look per multiplayer colour slot, four body types, modelled hands and hair, and idle breathing, weight shift and head turns. The nearest 8 are drawn as SkinnedMeshes and the rest by one batched skinned crowd (one draw per pass); beyond 110 m, and on the software renderer, the original segment characters are drawn.
+  Cars: seven kinds (compact, sedan, taxi, sports, muscle, pickup and police) are low-poly Quaternius models fitted to the cars' real sizes and axles, with number plates, lined cabins and riders seated inside; the van, bus, SWAT van, ambulance and fire engine are rebuilt procedural bodies. Every car has tinted glass that mirrors the sky and street, clearcoat paint, moulded lamp lenses that glow softly after dark, tyres with sidewalls, and a soft shade under it; dents, broken lamps and wrecks show on the new bodies.
+  Buildings have PBR stone, brick, plaster and metal facades with recessed windows, sills, cornices and parapets. Roofs carry HVAC units, water tanks, stair housings, antennas, vents and roof gardens. Four landmark towers (a stepped crown with a spire, a pyramid, an open crown and a wedge) mark the skyline, and the skyline keeps its outline in the afternoon haze. Shops have 178 storefront designs with rooms behind the glass, signs and awnings, lit at night.
+  Ground and water: PBR asphalt with repairs, cracks, lane wear, cast-iron manholes and junction tyre marks; kerb grime; lawns with colour variation and a frayed edge; beach sand with wind ripples, a wet band and the swash's foam. The sea darkens from turquoise shallows to deep blue offshore, its ripples no longer tile, and foam rings the pier and Marina pilings.
+  Modelled street furniture (lamps, benches, bins, hydrants, traffic signals, site signs, deck rails and bollards), leaf-card trees with branching trunks, curved ringed palms, foliage that sways in the wind on High and Medium, beach and yard dressing (umbrellas, towels, loungers, lifeguard towers, volleyball nets, surfboards; picket fences, mailboxes, shrubs, planters, wheelie bins), and furnished garages at Lou's, the spray shacks and the safehouse.
+  Lighting: the city is lit by a sky HDRI blended with the time-of-day sky (smooth dawn and dusk kept); at night a warm city glow on the sky, a lifted black level so streets read, lamp haze that grows in rain and wet-road reflections in each light's colour, traffic signals included; a golden sunset; darker garage interiors; ambient occlusion at the foot of walls and contact shadows under people.
 - **Day and night.** A day lasts 24 minutes.
   Clouds catch the sunset, a moon and stars come out, windows light up building by building through the evening and thin out after midnight, and at night the Ferris wheel lights up and the lighthouse beam sweeps round.
+  Shops stay open late: about two thirds are lit at 22:30, then they close one by one until shortly after 02:00.
 - **Weather.** Clear, cloudy, overcast, rain and storm skies change every three game hours (the first day is always clear), with greyer skies, softer shadows, closer fog, lightning in storms, and cars turning their lights on when it gets dark. Rain falls around the camera (but not under roofs, in garages or under the pier), wets and darkens the streets with puddles that dry out after the shower, reflects lamps and car lights in streaks on the road, and fast cars throw up spray. Boats under way leave a foam wake and throw spray off the bow (High and Medium). Weather is visual only: it does not change grip or traffic. The sea rolls with waves that grow in a storm (on High the surface itself rises and falls), with turquoise shallows, surf on the beach and foam along the quay walls; bullets and rockets fired into it splash or throw up a column of water at the surface. Swimming and floating stay level whatever the waves.
 - **Living streets.** Traffic follows its lanes, stops at red lights, yields on left turns (judging a fast player car by when it gets there, not only how near it is), honks, overtakes, steers round cars left empty in the road and backs out of blockages, from about 14 cars around you late at night to 30 at rush hour.
   Pedestrians cross on the walk signal, flee from gunfire and explosions, put their hands up, cower or run at gunpoint, and some fight back, above all the street gangs: Los Tiburones (teal; Docks and Westside) and Los Halcones (red and gold; Southgate), each with its own cars and turf, shown on the map.
@@ -215,6 +223,9 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Sun shadows | 2048 map | 1024 map | off |
 | Bloom | on | on | off |
 | Contact shadows on streets and vehicles | on | off | off |
+| Building facades (recessed windows, sills, shop interiors) | full depth | full depth | flat |
+| Texture filtering on the ground / on facades | 16x / 8x anisotropic | 8x / 4x | 4x / 2x |
+| Foliage sways in the wind | yes | yes | still |
 | Nearby street lamps illuminate cars and facades | six pooled lights | off | off |
 | Dynamic lights (sirens, muzzle flashes, explosions) | all | two, shared | none |
 | Your headlight beam at night | on | on | off |
@@ -228,6 +239,8 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Ambient cars drawn | all | all | within 150 m |
 
 Cars beyond about 40 m use a lighter far version on every tier, and contact shadows are worked out at half resolution, reach about 110 m and fade out while the camera moves fast.
+People within 110 m are the skinned models and cars the new models on every tier.
+Software renderers draw the segment characters, flat facades, the procedural ground maps without anisotropic filtering and still foliage, and keep the analytic hemisphere fill with no grade lift and no garage or wall darkening; [graphics notes](docs/graphics.md) has the per-tier lighting table ("Lighting and sky") and the full per-tier summary.
 Colors are the same on every tier; Low loses the bloom, the shadows and some of the sky's detail. Head, tail, brake and reverse lamps glow at night (and in dark weather) on every tier, wet roads reflect them in streaks, and the shallows, surf and quay foam are drawn on every tier.
 Everything applies at once except MSAA, which changes after a reload (the Settings screen says so); Low's FXAA follows the tier at once. So a page started on Low and switched to Medium or High has no anti-aliasing until you reload. Software renderers get neither anti-aliasing nor the colour grade.
 A lower tier's traffic and pedestrian numbers take effect as cars and people come and go: nobody is removed on the spot.
@@ -467,7 +480,7 @@ scripts/with-slot.sh cpu npx vitest run
 - `?lock=1` allows pointer lock under automation (see above).
 - `window.__gta7` (`src/debug.ts`) is the console and test API, present in every build, production included.
   `state()` reports the mode, the player, money, the clock, the wanted level, the mission, entity counts, render stats and frame timings; `game` and `sim` are the live objects; `newGame`, `teleport`, `place`, `spawnVehicle`, `give`, `setWanted`, `setTime`, `setClockRate`, `setWeather`, `clearWeather`, `lightning`, `forceWeather`, `setPost`, `godMode`, `startMission`, `markDone`, `setCamera` and `spawnPedAhead` set up a scene; and `poi`, `weather`, `envStats`, `samplePixels` and `characterAlive` look things up.
-  Modules add their own hooks under `window.__gta7.ext` with `registerDebug` (`ext.phone` for the phone log, calls and cab, `ext.combat` for fire, throws and the scope), and a multiplayer session adds `window.__gta7.net` (see [Multiplayer](#multiplayer-optional)).
+  Modules add their own hooks under `window.__gta7.ext` with `registerDebug` (`ext.phone` for the phone log, calls and cab, `ext.combat` for fire, throws and the scope, `ext.assets` for what the asset library loaded, `ext.characters` with `looks()`, `lookOf(id)`, `setLook(id, look, body)`, `clearLooks()` and `stats()`, `ext.ground` for the ground textures, manholes, tyre marks and sea depth), and a multiplayer session adds `window.__gta7.net` (see [Multiplayer](#multiplayer-optional)).
 
 ## Multiplayer (optional)
 
@@ -537,8 +550,8 @@ Models, textures and the sky come from CC0 sources, listed one by one in [LICENS
 
 - [Quaternius](https://quaternius.com) (via [Poly Pizza](https://poly.pizza)): the Ultimate Modular Men and Women characters, cars, trucks, street props and the palm tree.
 - [Kenney](https://kenney.nl): Car Kit, Watercraft Kit, City Kit (Commercial, Suburban, Roads) and Nature Kit.
-- [Poly Haven](https://polyhaven.com): PBR ground and wall textures and the Kloofendal sky HDRI (Greg Zaal, Jarod Guest).
-- [ambientCG](https://ambientcg.com): facade materials.
+- [Poly Haven](https://polyhaven.com): PBR ground and wall textures (worn asphalt, leafy grass, coast sand and more) and the Kloofendal sky HDRI (Greg Zaal, Jarod Guest).
+- [ambientCG](https://ambientcg.com): facade materials, and the leaf atlas built from [LeafSet024](https://ambientcg.com/a/LeafSet024).
 
 No asset needs attribution; CC-BY assets, if one is ever added, are credited here by the text in their `LICENSES-ASSETS.md` row.
 
