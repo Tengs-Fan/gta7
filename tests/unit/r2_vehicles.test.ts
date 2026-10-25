@@ -702,8 +702,9 @@ describe('vehicle views', () => {
   it('see-through tinted glass over a dark interior, in the same meshes', () => {
     for (const m of [vehicleGlass.intact, vehicleGlass.cracked, vehicleGlass.shattered]) {
       expect(m.transparent).toBe(true);
-      expect(m.opacity).toBeGreaterThanOrEqual(0.4);
-      expect(m.opacity).toBeLessThanOrEqual(0.7);
+      // Revised (mission 3 cars, VAL-CAR-001): the glass is tinted and at least 0.7 opaque, so cabins no longer read open.
+      expect(m.opacity).toBeGreaterThanOrEqual(0.7);
+      expect(m.opacity).toBeLessThanOrEqual(0.85);
       expect(m.depthWrite).toBe(false);
     }
     expect(vehicleGlass.cracked.map).not.toBe(vehicleGlass.shattered.map);
@@ -801,13 +802,17 @@ describe('vehicle views', () => {
     const mat = (): THREE.MeshStandardMaterial => tail.material as THREE.MeshStandardMaterial;
     view.sync(v, DT, 0, 1);
     expect(mat().emissive.getHex()).toBe(0xff0000);
-    expect(mat().color.getHex()).toBe(0x2a0000);
+    // Revised (mission 3 cars): a deep red lens over a reflector, and not lit at all by day when off (VAL-CAR-005).
+    expect(mat().color.getHex()).toBe(0x6a0606);
     expect(mat().emissiveIntensity).toBeCloseTo(1.0, 6);
     v.braking = true;
     view.sync(v, DT, 0, 1);
     expect(mat().emissiveIntensity).toBeCloseTo(1.8, 6);
     v.braking = false;
     view.sync(v, DT, 0, 0);
+    expect(mat().emissiveIntensity).toBeCloseTo(0, 6);
+    sim.unseat(sim.player);
+    view.sync(v, DT, 0, 1);
     expect(mat().emissiveIntensity).toBeCloseTo(0.3, 6);
   });
 });
@@ -1007,7 +1012,8 @@ function lowestPoint(view: VehicleView, v: Vehicle, filter: (o: THREE.Mesh) => b
 
 function headGlows(view: VehicleView): number[] {
   return view.group.children
-    .filter((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.name === 'lamp' && o.position.z > 0 && (o.geometry as THREE.BoxGeometry).parameters?.width === 0.34)
+    // Revised (mission 3 cars): lamps are moulded lens meshes now, not 0.34 m boxes; the head lamps are the front ones.
+    .filter((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.name === 'lamp' && o.position.z > 0)
     .sort((a, b) => b.position.x - a.position.x)
     .map((o) => {
       const m = o.material as THREE.MeshStandardMaterial;

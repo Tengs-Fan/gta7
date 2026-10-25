@@ -167,6 +167,7 @@ describe('vehicle part batches', () => {
     const list = cars('sedan', 8);
     const sim = makeSim();
     let most = 0;
+    let buckets = 0;
     for (let f = 0; f < 200; f++) {
       const night = f / 200;
       list.forEach(({ v, view }, i) => {
@@ -175,10 +176,13 @@ describe('vehicle part batches', () => {
         view.sync(v, 1 / 60, f / 60, night);
       });
       frame(batches, list);
-      most = Math.max(most, batches.counts.buckets);
+      most = Math.max(most, batches.counts.meshes);
+      buckets = Math.max(buckets, batches.counts.buckets);
     }
-    // Tyres, rims and one draw for every lamp, whatever state each is in.
+    // Tyres, rims and one draw for every lamp, whatever state each is in. Revised (mission 3 cars): the lamps are lens
+    // shapes in a batch of their own, so the box parts' bucket stays empty on a sedan (4 buckets, 3 draws).
     expect(most).toBe(3);
+    expect(buckets).toBe(4);
     batches.dispose();
   });
 });

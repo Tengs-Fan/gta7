@@ -68,27 +68,89 @@ export function sculptBody(g: THREE.BufferGeometry, kind: VehicleKind, profile: 
   return g;
 }
 
-/** Adds a tyre with round shoulders and circumferential grooves, keeping the original tyre contact radius. */
+/**
+ * Tyre tones (linear, times the tyre material's white): worn black tread, a lighter moulded sidewall and the raised
+ * lettering band round it, so a close-up reads as rubber with a sidewall instead of one flat black ring.
+ */
+export const TYRE_TREAD = 0.012;
+export const TYRE_SIDEWALL = 0.034;
+export const TYRE_LETTERING = 0.16;
+
+/** Adds a tyre with round shoulders, circumferential grooves and a lettered sidewall, keeping the contact radius. */
 export function tireGeometry(radius: number): THREE.BufferGeometry {
-  const section = [
-    [0, -0.114], [radius * 0.63, -0.114], [radius * 0.84, -0.13], [radius * 0.95, -0.12],
-    [radius, -0.09], [radius, -0.065], [radius * 0.985, -0.06], [radius * 0.985, -0.053],
-    [radius, -0.048], [radius, -0.006], [radius * 0.985, 0], [radius, 0.006],
-    [radius, 0.048], [radius * 0.985, 0.053], [radius * 0.985, 0.06], [radius, 0.065],
-    [radius, 0.09], [radius * 0.95, 0.12], [radius * 0.84, 0.13], [radius * 0.63, 0.114], [0, 0.114],
+  const T = TYRE_TREAD;
+  const S = TYRE_SIDEWALL;
+  const Lt = TYRE_LETTERING;
+  // [r, axial, tone]; the lettering band's points are doubled so its edges stay crisp.
+  const wall = (sign: number): Array<[number, number, number]> => {
+    const z = (h: number): number => sign * h;
+    return [
+      [radius * 0.63, z(0.114), S], [radius * 0.7, z(0.121), S],
+      [radius * 0.74, z(0.124), S], [radius * 0.74, z(0.1255), Lt], [radius * 0.8, z(0.1285), Lt], [radius * 0.8, z(0.127), S],
+      [radius * 0.84, z(0.13), S], [radius * 0.95, z(0.12), S],
+    ];
+  };
+  const tread: Array<[number, number, number]> = [
+    [radius, -0.09, T], [radius, -0.065, T], [radius * 0.985, -0.06, T], [radius * 0.985, -0.053, T],
+    [radius, -0.048, T], [radius, -0.006, T], [radius * 0.985, 0, T], [radius, 0.006, T],
+    [radius, 0.048, T], [radius * 0.985, 0.053, T], [radius * 0.985, 0.06, T], [radius, 0.065, T], [radius, 0.09, T],
   ];
-  const g = new THREE.LatheGeometry(section.map(([r, h]) => new THREE.Vector2(r!, h!)), 28);
+  const section: Array<[number, number, number]> = [[0, -0.114, S], ...wall(-1), ...tread, ...wall(1).reverse(), [0, 0.114, S]];
+  const g = new THREE.LatheGeometry(section.map(([r, h]) => new THREE.Vector2(r, h)), 28);
+  const n = g.getAttribute('position').count;
+  const colors = new Float32Array(n * 3);
+  // LatheGeometry lays out (segments + 1) rings of the section's points in order.
+  for (let i = 0; i < n; i++) colors.fill(section[i % section.length]![2], i * 3, i * 3 + 3);
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   g.rotateZ(Math.PI / 2);
   return g;
 }
 
-/** Machined lip, open spokes, hub and wheel nuts, in one wheel draw and inside the existing tyre width. */
+/**
+ * A lamp lens one unit wide, high and deep (as BoxGeometry(1, 1, 1)), scaled per lamp: a rounded rectangle whose face
+ * (+z) bulges out over bevelled edges, so head and tail lamps read as moulded lenses rather than flat boxes.
+ */
+export function lensGeometry(): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  const w = 0.5;
+  const h = 0.5;
+  const r = 0.22;
+  shape.moveTo(-w + r, -h);
+  shape.lineTo(w - r, -h);
+  shape.quadraticCurveTo(w, -h, w, -h + r);
+  shape.lineTo(w, h - r);
+  shape.quadraticCurveTo(w, h, w - r, h);
+  shape.lineTo(-w + r, h);
+  shape.quadraticCurveTo(-w, h, -w, h - r);
+  shape.lineTo(-w, -h + r);
+  shape.quadraticCurveTo(-w, -h, -w + r, -h);
+  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.4, bevelEnabled: true, bevelThickness: 0.3, bevelSize: 0.12, bevelSegments: 3, curveSegments: 3 });
+  g.computeBoundingBox();
+  const b = g.boundingBox!;
+  const size = b.getSize(new THREE.Vector3());
+  const c = b.getCenter(new THREE.Vector3());
+  g.translate(-c.x, -c.y, -c.z);
+  g.scale(1 / size.x, 1 / size.y, 1 / size.z);
+  g.deleteAttribute('uv');
+  g.computeVertexNormals();
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  return g;
+}
+
+/**
+ * Machined lip, open spokes, hub and wheel nuts on the wheel's outboard face (+x; the view turns the right-hand
+ * wheels round), over a brake rotor and a dark inboard backing, in one wheel draw inside the tyre width. The inboard
+ * face is the tyre's dark closed side: a second bright alloy there showed under the car as a pale disc through the
+ * opposite wheel arch.
+ */
 export function alloyGeometry(radius: number, kind: VehicleKind): THREE.BufferGeometry {
   const pieces: THREE.BufferGeometry[] = [];
   const sporty = kind === 'sports' || kind === 'muscle';
   const rim = radius * (sporty ? 0.74 : 0.65);
   const count = sporty ? 5 : kind === 'pickup' || kind === 'swat' ? 6 : 7;
-  for (const side of [-1, 1]) {
+  {
+    const side = 1;
     const face = side * 0.128;
     const ring = new THREE.TorusGeometry(rim - 0.012, 0.018, 5, 28);
     ring.rotateY(Math.PI / 2);
@@ -115,13 +177,21 @@ export function alloyGeometry(radius: number, kind: VehicleKind): THREE.BufferGe
     const colors = new Float32Array(piece.getAttribute('position').count * 3).fill(1);
     piece.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   }
-  for (const side of [-1, 1]) {
-    const rotor = new THREE.CylinderGeometry(rim * 0.83, rim * 0.83, 0.008, 28);
-    rotor.rotateZ(Math.PI / 2);
-    rotor.translate(side * 0.117, 0, 0);
-    rotor.setAttribute('color', new THREE.BufferAttribute(new Float32Array(rotor.getAttribute('position').count * 3).fill(0.24), 3));
-    pieces.push(rotor);
-  }
+  const tone = (g: THREE.BufferGeometry, r: number, gg = r, b = r): THREE.BufferGeometry => {
+    const n = g.getAttribute('position').count;
+    const c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) c.set([r, gg, b], i * 3);
+    g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    return g;
+  };
+  const rotor = new THREE.CylinderGeometry(rim * 0.83, rim * 0.83, 0.008, 28);
+  rotor.rotateZ(Math.PI / 2);
+  rotor.translate(0.117, 0, 0);
+  pieces.push(tone(rotor, 0.24));
+  // A caliper over the rotor, red on the sporty kinds. The tyre's own closed side is the dark inboard backing.
+  const caliper = new THREE.BoxGeometry(0.03, rim * 0.34, rim * 0.22);
+  caliper.translate(0.105, rim * 0.55, -rim * 0.32);
+  pieces.push(sporty ? tone(caliper, 0.75, 0.05, 0.03) : tone(caliper, 0.3));
   const result = mergeGeometries(pieces)!;
   for (const p of pieces) p.dispose();
   return result;
@@ -157,7 +227,9 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
   };
   const flank = (side: number, y: number): number => side * ((commercial || kind === 'pickup' || s.bodyProfile?.straightSides ? hw : bodySideX(hw, H, y)) + 0.008);
   const ly = p.lightY * H;
-  const end = L / 2 + 0.091;
+  // The body's end faces are at +-L/2 (vehicleView fits the profile and its bevel to the spec length): bumpers, plates
+  // and grilles stand at most 3 cm proud of them.
+  const end = L / 2 + 0.004;
   const sill = p.body[0]![1] + 0.035;
   const bumperY = Math.max(sill + 0.06, ly - 0.19);
   for (const endSign of [-1, 1]) {
@@ -183,7 +255,7 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
     if (kind !== 'bus' && kind !== 'van' && (side < 0 || kind === 'sports' || kind === 'muscle')) {
       const pipe = new THREE.CylinderGeometry(0.038, 0.038, 0.14, 12, 1, true);
       pipe.rotateX(Math.PI / 2);
-      add(pipe, 1, side * s.width * 0.29, bumperY - 0.075, -end + 0.01);
+      add(pipe, 1, side * s.width * 0.29, bumperY - 0.075, -end + 0.05);
     }
     const frontDoor = p.cabin[0]![0] - 0.05;
     const rearLimit = Math.max(p.cabin[3]![0] + 0.12, p.wheelRear * L + p.wheelR + 0.13);
@@ -238,9 +310,34 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
       }
     }
   }
+  if (kind === 'sports') sportsKit(p, s.width, L, H, box, flank);
+  if (kind === 'muscle') {
+    // A raised intake on the bonnet.
+    const z = L * 0.22;
+    box(0, topAt(p.body, z) + 0.1, z, s.width * 0.3, 0.07, 0.62);
+    box(0, topAt(p.body, z) + 0.11, z + 0.3, s.width * 0.26, 0.05, 0.03, 1);
+  }
   const g = mergeGeometries(pieces)!;
   for (const piece of pieces) piece.dispose();
   g.computeBoundingBox();
   g.computeBoundingSphere();
   return g;
+}
+
+type BoxFn = (x: number, y: number, z: number, w: number, h: number, d: number, finish?: Finish) => void;
+
+/** The sports car's aero kit: front splitter, side intakes ahead of the rear wheels, rear diffuser and bonnet vents. */
+function sportsKit(p: ExteriorProfile, width: number, L: number, H: number, box: BoxFn, flank: (side: number, y: number) => number): void {
+  const floor = p.body[0]![1] - 0.05;
+  box(0, floor, L / 2 - 0.2, width * 0.9, 0.028, 0.42);
+  for (let i = -2; i <= 2; i++) box(i * width * 0.12, floor + 0.05, -L / 2 + 0.12, 0.025, 0.11, 0.3);
+  for (const side of [-1, 1]) {
+    const y = H * 0.4;
+    const z = p.wheelRear * L + p.wheelR + 0.42;
+    box(flank(side, y) - side * 0.01, y, z, 0.03, 0.13, 0.46);
+    box(flank(side, y) + side * 0.004, y + 0.075, z, 0.02, 0.018, 0.5, 1);
+    // Twin vents on the bonnet, either side of its crown.
+    const vz = L * 0.27;
+    box(side * width * 0.2, topAt(p.body, vz) + 0.075, vz, width * 0.13, 0.02, 0.3);
+  }
 }

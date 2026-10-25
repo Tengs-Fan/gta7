@@ -180,8 +180,13 @@ export class VehiclePartBatches {
   readonly group = new THREE.Group();
   /** Buckets drawing a part's own (shared) material, by geometry, material and style. */
   private readonly shared = new Map<string, Bucket>();
-  /** All plain box parts (lamps, smashed and charred lamps, light bars). */
+  /** All plain box parts (smashed and charred gear, light bars, service gear). */
   private readonly lamps: Bucket;
+  /**
+   * Plain parts of a shape of their own (the lamp lenses), one draw per shape for every car, drawn like the box parts:
+   * colour, glow and finish per instance.
+   */
+  private readonly shaped = new Map<THREE.BufferGeometry, Bucket>();
   private readonly lampMat = lampMaterial();
   private readonly depthMat = partDepthMaterial();
   private readonly tmp = new THREE.Matrix4();
@@ -201,8 +206,7 @@ export class VehiclePartBatches {
   begin(): void {
     for (const b of this.retiring) this.retire(b);
     this.retiring.clear();
-    for (const b of this.shared.values()) b.n = 0;
-    this.lamps.n = 0;
+    for (const b of this.all()) b.n = 0;
   }
 
   /** Adds one instance of `geometry` drawn with `material` at `matrix` (world); `tint` for a tinted style; `fade` 0..1. */
@@ -235,9 +239,29 @@ export class VehiclePartBatches {
       this.add(UNIT_BOX, material, m, {}, undefined, fade);
       return;
     }
-    const b = this.lamps;
+    this.pushPlain(this.lamps, material, m, fade);
+  }
+
+  /**
+   * Adds a part of shape `geometry` (shared by many cars, scaled and placed by `matrix`); `fade` 0..1. A plain material
+   * joins the shape's one draw for every car, carrying its colour, glow and finish per instance (like addBox).
+   */
+  addShaped(geometry: THREE.BufferGeometry, material: THREE.Material, matrix: THREE.Matrix4, fade = 1): void {
+    if (!isPlainPart(material)) {
+      this.add(geometry, material, matrix, {}, undefined, fade);
+      return;
+    }
+    let b = this.shaped.get(geometry);
+    if (!b) {
+      b = this.bucket(geometry, this.lampMat, {}, true, '');
+      this.shaped.set(geometry, b);
+    }
+    this.pushPlain(b, material, matrix, fade);
+  }
+
+  private pushPlain(b: Bucket, material: THREE.MeshStandardMaterial, matrix: THREE.Matrix4, fade: number): void {
     const i = b.n;
-    this.push(b, m, fade);
+    this.push(b, matrix, fade);
     const mesh = b.mesh;
     material.color.toArray(mesh.instanceColor!.array, i * 3);
     const em = mesh.geometry.getAttribute('partEmissive') as THREE.InstancedBufferAttribute;
@@ -246,9 +270,14 @@ export class VehiclePartBatches {
     (mesh.geometry.getAttribute('partFinish') as THREE.InstancedBufferAttribute).setXY(i, material.roughness, material.metalness);
   }
 
+  /** Every bucket: the shared ones, the box parts' and the shaped parts'. */
+  private all(): Bucket[] {
+    return [...this.shared.values(), this.lamps, ...this.shaped.values()];
+  }
+
   /** Ends a frame: uploads the instances added since begin and hides the empty buckets. */
   end(): void {
-    for (const b of [...this.shared.values(), this.lamps]) {
+    for (const b of this.all()) {
       const mesh = b.mesh;
       mesh.count = b.n;
       mesh.visible = b.n > 0;
@@ -281,7 +310,7 @@ export class VehiclePartBatches {
     let meshes = 0;
     let instances = 0;
     let buckets = 0;
-    for (const b of [...this.shared.values(), this.lamps]) {
+    for (const b of this.all()) {
       buckets++;
       if (b.n > 0) {
         meshes++;
@@ -295,20 +324,22 @@ export class VehiclePartBatches {
   instancesOf(geometry: THREE.BufferGeometry): number {
     let n = 0;
     for (const b of this.shared.values()) if (b.geometry === geometry) n += b.n;
+    n += this.shaped.get(geometry)?.n ?? 0;
     return n;
   }
 
   /** The part geometry and material an instanced mesh of the batches draws (for tests). */
   partOf(mesh: THREE.Object3D): { geometry: THREE.BufferGeometry; material: THREE.Material } | null {
-    for (const b of [...this.shared.values(), this.lamps]) if (b.mesh === mesh) return { geometry: b.geometry, material: b.source };
+    for (const b of this.all()) if (b.mesh === mesh) return { geometry: b.geometry, material: b.source };
     return null;
   }
 
   dispose(): void {
-    for (const b of [...this.shared.values(), this.lamps]) this.free(b);
+    for (const b of this.all()) this.free(b);
     this.lampMat.dispose();
     this.depthMat.dispose();
     this.shared.clear();
+    this.shaped.clear();
     this.retiring.clear();
     this.retired = [];
     this.lamps.n = 0;

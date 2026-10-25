@@ -333,7 +333,8 @@ describe('fading cars stay in the part batches', () => {
       }
     }
     // One fixed cache key for every shared bucket (plus the lamps' own), so a new bucket reuses a compiled program.
-    expect(keys.size).toBeLessThanOrEqual(2);
+    // Revised (mission 3 cars): plus the far glass's, whose Fresnel patch is a program family of its own.
+    expect(keys.size).toBeLessThanOrEqual(3);
     batches.dispose();
   });
 });

@@ -12,7 +12,7 @@ import type { LampGlow } from './lightSprites';
 import { taxiSignTexture } from './textures';
 import { addPanel, addPrism, DentedGeometry, displace, GeoBuilder, spanAt, topAt, type DentLike, type Pt } from './vehicleGeometry';
 import { crackedGlassTexture, exteriorTextures, GLASS_TINT } from './vehicleTextures';
-import { alloyGeometry, exteriorGeometry, sculptBody, taperCabin, tireGeometry } from './vehicleDetails';
+import { alloyGeometry, exteriorGeometry, lensGeometry, sculptBody, taperCabin, tireGeometry } from './vehicleDetails';
 import type { Suspension } from './suspension';
 import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
 
@@ -46,6 +46,10 @@ export function leanRoom(kind: VehicleKind): number {
 const GLASS_LIFT = 0.015;
 /** Bevel of a see-through cabin's glass (the glass prism bulges this far out of the cabin profile). */
 const CABIN_GLASS_BEVEL = 0.05;
+/** The lowest the ends of a pitching body come to the road (m). */
+const NOSE_CLEAR = 0.12;
+/** ... though any body may bring its ends down this far (m). */
+const NOSE_DROP = 0.15;
 /** Wrecks settle this much lower, tilted by WRECK_ROLL to one side. */
 const WRECK_SAG = 0.12;
 const WRECK_ROLL = 0.05;
@@ -59,6 +63,8 @@ const LAMP_BREAK_DIST = 0.8;
 const BRAKE_GLOW = 1.8;
 const TAIL_RUNNING = 1.0;
 const TAIL_OFF = 0.3;
+/** A switched-off head lamp's lens at night (times the night factor). */
+const HEAD_OFF = 0.3;
 
 type Rgb = readonly [number, number, number];
 /**
@@ -299,6 +305,8 @@ interface Profile {
   ports: Pt[][];
   /** A rear bench behind the front seats. */
   rearSeats: boolean;
+  /** How far the fitted body was brought down from its profile data (fitProfile), m. */
+  drop: number;
 }
 
 /** The point at fraction k along a -> b. */
@@ -306,20 +314,62 @@ function lerpPt(a: Pt, b: Pt, k: number): Pt {
   return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
 }
 
+/** Drawn wheel centres: the physics' axles (wheelbase = 0.6 x length, vehiclePhysics.ts), as fractions of the length. */
+export const AXLE = 0.3;
+/** How far the painted roof's top stands over the cabin profile's top: the glass bevel, the panel and its bevel. */
+const ROOF_STACK = CABIN_GLASS_BEVEL + 0.035 + 0.012;
+/** The highest a glass cabin's roof may stand, as a share of the spec height. */
+const ROOF_FIT = 1.025;
+
+const profiles = new Map<VehicleKind, Profile>();
+
+/**
+ * The drawn profile of a kind, fitted to its spec: shortened by the body's bevel at both ends so the body is as long
+ * as the simulation's hitbox, a glass cabin's roof brought down to the spec height, and the wheels on the axles.
+ */
 function profile(kind: VehicleKind): Profile {
+  let p = profiles.get(kind);
+  if (!p) {
+    p = fitProfile(kind, baseProfile(kind));
+    profiles.set(kind, p);
+  }
+  return p;
+}
+
+function fitProfile(kind: VehicleKind, p: Profile): Profile {
+  const s = VEHICLE_SPECS[kind];
+  const k = (s.length - 2 * BEVEL) / s.length;
+  const zk = (q: Pt): Pt => [q[0] * k, q[1]];
+  let cabin = p.cabin.map(zk);
+  let body = p.body.map(zk);
+  let drop = 0;
+  if (p.cabinInset >= 0) {
+    // A roof over the spec height brings the whole body down on its wheels (a little less ground clearance), so the
+    // cabin keeps the headroom and floor pan its riders are seated by.
+    // The low sports car keeps a little more of its height: lower still and a hard corner rolls a tyre into its wheel
+    // arch, or a tall rider's shoulders under the waistline.
+    drop = Math.max(0, Math.max(...cabin.map((q) => q[1])) + ROOF_STACK - s.height * (kind === 'sports' ? 1.028 : ROOF_FIT));
+    cabin = cabin.map(([z, y]) => [z, y - drop]);
+    body = body.map(([z, y]) => [z, y - drop]);
+  }
+  return { ...p, body, cabin, drop, lightY: p.lightY - drop / s.height, panes: p.panes.map((w) => ({ ...w, a: zk(w.a), b: zk(w.b) })), wheelFront: AXLE, wheelRear: -AXLE };
+}
+
+function baseProfile(kind: VehicleKind): Profile {
   const s = VEHICLE_SPECS[kind];
   const L = s.length;
   const H = s.height;
   const hw = s.width / 2;
   const P = (pts: Array<[number, number]>): Pt[] => pts.map(([x, y]) => [x * L, y * H]);
-  const base = { panes: [] as Pane[], ports: [] as Pt[][], rearSeats: false };
+  const base = { panes: [] as Pane[], ports: [] as Pt[][], rearSeats: false, drop: 0 };
   const data = s.bodyProfile;
   if (data) return { ...base, rearSeats: !!data.rearSeats, body: P(data.body.map(([x, y]) => [x, y])), cabin: P(data.cabin.map(([x, y]) => [x, y])), cabinInset: data.cabinInset, wheelR: data.wheelR, wheelFront: data.wheelFront, wheelRear: data.wheelRear, lightY: data.lightY };
   switch (kind) {
     case 'compact':
       return { ...base, body: P([[-0.5, 0.22], [0.49, 0.22], [0.5, 0.4], [0.47, 0.56], [0.24, 0.62], [-0.46, 0.63], [-0.5, 0.5]]), cabin: P([[0.25, 0.61], [0.07, 0.98], [-0.39, 0.98], [-0.47, 0.62]]), cabinInset: 0.1, wheelR: 0.31, wheelFront: 0.33, wheelRear: -0.32, lightY: 0.45 };
     case 'sports':
-      return { ...base, body: P([[-0.5, 0.2], [0.5, 0.2], [0.5, 0.36], [0.32, 0.545], [-0.4, 0.545], [-0.5, 0.52]]), cabin: P([[0.22, 0.55], [0.02, 0.97], [-0.2, 0.97], [-0.4, 0.54]]), cabinInset: 0.14, wheelR: 0.32, wheelFront: 0.32, wheelRear: -0.31, lightY: 0.38 };
+      // A wedge: a low, pointed nose rising to the front wheels, a cab-forward glasshouse and a high ducktail.
+      return { ...base, body: P([[-0.5, 0.2], [0.5, 0.2], [0.505, 0.28], [0.47, 0.4], [0.4, 0.52], [0.33, 0.57], [0.26, 0.5455], [-0.4, 0.545], [-0.47, 0.565], [-0.505, 0.56], [-0.505, 0.38]]), cabin: P([[0.24, 0.55], [0.07, 0.955], [-0.2, 0.955], [-0.4, 0.54]]), cabinInset: 0.14, wheelR: 0.32, wheelFront: 0.32, wheelRear: -0.31, lightY: 0.36 };
     case 'muscle':
       return { ...base, body: P([[-0.5, 0.22], [0.5, 0.22], [0.5, 0.5], [0.14, 0.62], [-0.3, 0.62], [-0.5, 0.56]]), cabin: P([[0.12, 0.61], [-0.02, 0.97], [-0.22, 0.97], [-0.34, 0.61]]), cabinInset: 0.12, wheelR: 0.36, wheelFront: 0.33, wheelRear: -0.31, lightY: 0.45 };
     case 'pickup': {
@@ -381,14 +431,16 @@ function profile(kind: VehicleKind): Profile {
       };
     }
     case 'bus': {
-      const body = P([[-0.5, 0.12], [0.5, 0.12], [0.5, 0.95], [-0.5, 0.95]]);
+      // The roof's bevelled top at the spec height.
+      const roof = 1 - BEVEL / H;
+      const body = P([[-0.5, 0.12], [0.5, 0.12], [0.5, roof], [-0.5, roof]]);
       const fb = body[1]!;
       const ft = body[2]!;
       const rt = body[3]!;
       const rb = body[0]!;
-      const span = 0.95 - 0.12;
+      const span = roof - 0.12;
       const front = (t: number): Pt => lerpPt(fb, ft, (t - 0.12) / span);
-      const rear = (t: number): Pt => lerpPt(rt, rb, (0.95 - t) / span);
+      const rear = (t: number): Pt => lerpPt(rt, rb, (roof - t) / span);
       return {
         ...base,
         body,
@@ -558,10 +610,16 @@ interface KindAssets {
   exterior: THREE.BufferGeometry;
   wheel: THREE.BufferGeometry;
   rim: THREE.BufferGeometry;
-  lamp: THREE.BufferGeometry;
-  reverse: THREE.BufferGeometry;
+  /** Width, height and depth of the head and tail lamp lenses, and of the reverse lamp's. */
+  lamp: LensSize;
+  reverse: LensSize;
   prof: Profile;
 }
+
+type LensSize = readonly [number, number, number];
+
+/** The one lamp lens shape every vehicle shares, scaled per lamp (its instances are drawn in one batch). */
+export const LAMP_LENS = lensGeometry();
 
 const assets = new Map<string, KindAssets>();
 
@@ -605,8 +663,9 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
     // Bed walls and tailgate, standing on the bed floor's edge up to just under the cab's beltline.
     const floorTop = 0.42 * s.height;
     const top = 0.58 * s.height + 0.05;
-    const tail = -s.length / 2 - BEVEL;
-    const cabBack = -0.16 * s.length - BEVEL;
+    // (The fitted profile ends a bevel inside the spec length; see fitProfile.)
+    const tail = -s.length / 2;
+    const cabBack = -0.16 * (s.length - 2 * BEVEL) - BEVEL;
     const floorEdge = floorTop - BEVEL;
     bb.box(hw - 0.09, floorEdge, tail, hw + 0.002, top, cabBack, 1);
     bb.box(-hw - 0.002, floorEdge, tail, -hw + 0.09, top, cabBack, 1);
@@ -617,6 +676,14 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
     const reach = prof.wheelR + 0.1;
     bb.box(hw - 0.38, floorTop - 0.02, wz - reach, hw - 0.09, hump, wz + reach, 1);
     bb.box(-hw + 0.09, floorTop - 0.02, wz - reach, -hw + 0.38, hump, wz + reach, 1);
+  }
+  if (kind === 'sports') {
+    // A painted rear wing on two stands over the tail.
+    const zc = -0.43 * s.length;
+    const deck = topAt(prof.body, zc) + BEVEL;
+    for (const side of [-1, 1]) bb.box(side * 0.55 - 0.035, deck - 0.03, zc - 0.06, side * 0.55 + 0.035, deck + 0.13, zc + 0.06, 1);
+    bb.box(-0.84, deck + 0.13, zc - 0.17, 0.84, deck + 0.16, zc + 0.15, 1, -0.06);
+    for (const side of [-1, 1]) bb.box(side * 0.84 - 0.02, deck + 0.06, zc - 0.2, side * 0.84 + 0.02, deck + 0.2, zc + 0.17, 1);
   }
   const layout = cabinLayout(kind);
   if (layout) {
@@ -643,14 +710,20 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
   if (coarse) wheel.rotateZ(Math.PI / 2);
   const rim = alloyGeometry(prof.wheelR, kind);
   const exterior = coarse ? new THREE.BufferGeometry() : exteriorGeometry(kind, prof);
-  const lamp = new THREE.BoxGeometry(0.34, kind === 'sports' ? 0.07 : 0.14, 0.06);
-  const reverse = new THREE.BoxGeometry(0.18, 0.08, 0.05);
+  const lamp: LensSize = [0.36, kind === 'sports' ? 0.085 : 0.14, 0.05];
+  const reverse: LensSize = [0.18, 0.08, 0.04];
   a = { body, cabin, exterior, wheel, rim, lamp, reverse, prof };
   assets.set(key, a);
   return a;
 }
 
-/** A box of these sides, shared by every view that has one (roof gear, reverse lamps). */
+/** The top of a glass cabin's painted roof panel (addRoof), where roof gear stands. */
+function roofTop(kind: VehicleKind): number {
+  const c = cabinLayout(kind);
+  return c ? c.roof.y + 0.05 : VEHICLE_SPECS[kind].height;
+}
+
+/** A box of these sides, shared by every view that has one (roof gear). */
 const boxes = new Map<string, THREE.BoxGeometry>();
 function sharedBox(w: number, h: number, d: number): THREE.BoxGeometry {
   const key = `${w}|${h}|${d}`;
@@ -693,6 +766,8 @@ export function shadowBody(kind: VehicleKind, burnt: boolean): THREE.BufferGeome
   }
   g = mergeGeometries(parts)!;
   for (const p of parts) p.dispose();
+  // Flat normals let a dented car bend its own copy (DentedGeometry), so its shadow shows the dent too.
+  g.computeVertexNormals();
   g.computeBoundingBox();
   g.computeBoundingSphere();
   shadowBodies.set(key, g);
@@ -700,8 +775,47 @@ export function shadowBody(kind: VehicleKind, burnt: boolean): THREE.BufferGeome
 }
 
 // Shared materials.
-/** Transparent tinted glass. A white map keeps it on the same shader as the cracked variants (no hitch on first damage). */
-const GLASS = { transparent: true, opacity: 0.55, depthWrite: false, roughness: 0.08, metalness: 0.12 } as const;
+/**
+ * Tinted window glass: dark, smooth and env-mapped (the scene's environment, or the player car's local reflection
+ * probe), drawn on both faces so a look through the cabin passes two panes, and most opaque at grazing angles (a
+ * Fresnel term on its opacity), so the cabin reads as closed glass with the interior and riders dim behind it. No
+ * transmission. A white map keeps it on the same shader as the cracked variants (no hitch on first damage).
+ */
+export const GLASS_OPACITY = 0.74;
+/** At grazing angles the glass's opacity rises by up to this factor (to 1 when whole; a fading copy scales with it). */
+const GLASS_EDGE = 1 / GLASS_OPACITY;
+const GLASS = { transparent: true, opacity: GLASS_OPACITY, depthWrite: false, roughness: 0.04, metalness: 0, side: THREE.DoubleSide } as const;
+const GLASS_PROGRAM = 'vehicle-glass-fresnel';
+/** Extra share of the environment reflection the glass adds on top of the standard BRDF's. */
+const GLASS_SHEEN = 2;
+
+/**
+ * The glass's Fresnel term (Schlick, power 4) on its opacity. It reads only varyings every lit material declares, so it
+ * also works under the software tier's vertex-lit swap (which drops the per-fragment normal).
+ */
+function glassFresnel(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <opaque_fragment>',
+    `{
+  float glassFacing = abs( dot( normalize( vNormal ), normalize( vViewPosition ) ) );
+  float glassFresnel = pow( 1.0 - clamp( glassFacing, 0.0, 1.0 ), 4.0 );
+  diffuseColor.a = min( 1.0, diffuseColor.a * mix( 1.0, ${GLASS_EDGE.toFixed(4)}, glassFresnel ) );
+  // Glass mirrors more of the sky and street than a 4 % dielectric shows on a dark tint (none under the software tier).
+  outgoingLight += reflectedLight.indirectSpecular * ${GLASS_SHEEN.toFixed(1)};
+}
+#include <opaque_fragment>`,
+  );
+}
+
+function glassMaterial(color: number, map: THREE.Texture): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ color, map, ...GLASS });
+  m.name = 'vehicle-glass';
+  // One draw for both faces: three would otherwise draw a double-sided transparent mesh twice (back, then front).
+  m.forceSinglePass = true;
+  m.onBeforeCompile = glassFresnel;
+  m.customProgramCacheKey = () => GLASS_PROGRAM;
+  return m;
+}
 
 function plainTexture(): THREE.Texture {
   const c = document.createElement('canvas');
@@ -717,11 +831,13 @@ function plainTexture(): THREE.Texture {
   return t;
 }
 
-const glassMat = new THREE.MeshStandardMaterial({ color: GLASS_TINT, map: plainTexture(), ...GLASS });
+const glassMat = glassMaterial(GLASS_TINT, plainTexture());
 /** Cracked (condition < 0.55) and shattered (< 0.25) glass; the tint is part of the texture. */
-const crackedGlassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: crackedGlassTexture(false), ...GLASS });
-const shatteredGlassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: crackedGlassTexture(true), ...GLASS });
-const tireMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.92 });
+const crackedGlassMat = glassMaterial(0xffffff, crackedGlassTexture(false));
+const shatteredGlassMat = glassMaterial(0xffffff, crackedGlassTexture(true));
+/** Rubber: the tyre geometry's vertex tones give the tread, sidewall and lettering (TYRE_*). */
+const tireMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.88, vertexColors: true });
+tireMat.name = 'vehicle-tyre';
 const rimMat = new THREE.MeshStandardMaterial({ color: 0xc4c6c8, roughness: 0.24, metalness: 0.92, vertexColors: true });
 const exteriorMaps = exteriorTextures();
 const exteriorMat = new THREE.MeshStandardMaterial({ map: exteriorMaps.color, roughnessMap: exteriorMaps.surface, metalnessMap: exteriorMaps.surface, roughness: 1, metalness: 1 });
@@ -731,7 +847,12 @@ const brokenLampMat = new THREE.MeshStandardMaterial({ color: 0x161616, emissive
 const barBaseMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
 const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4, metalness: 0.3 });
 /** Body paint of the far version's batches: white, tinted per car by the instance colour. */
-const farPaintMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.48, clearcoat: 0.95, clearcoatRoughness: 0.16, vertexColors: true });
+/**
+ * Car paint: a satin metallic base under a glossy clearcoat that mirrors the sky and street (the scene environment),
+ * shared by the near bodies and the far batches so a car keeps its colour across the switch.
+ */
+const PAINT = { roughness: 0.36, metalness: 0.32, clearcoat: 1, clearcoatRoughness: 0.05, vertexColors: true } as const;
+const farPaintMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, ...PAINT });
 farPaintMat.name = 'vehicle-far-paint';
 /** Far bodies cast the car's shadow and stay out of the contact-shadow pass, like the dented body drawn by itself. */
 const FAR_BODY = { castShadow: true, receiveShadow: true, noContact: true } as const;
@@ -747,7 +868,7 @@ function stripeGeometry(kind: VehicleKind): THREE.BufferGeometry {
     const s = VEHICLE_SPECS[kind];
     // Subdivided so a side dent bends it with the doors under it.
     g = new THREE.BoxGeometry(s.width + 0.02, 0.3, s.length * 0.42, 1, 2, 10);
-    g.translate(0, s.height * 0.45, 0.02 * s.length);
+    g.translate(0, s.height * 0.45 - profile(kind).drop, 0.02 * s.length);
     stripes.set(kind, g);
   }
   return g;
@@ -761,7 +882,7 @@ const bodyMats = new Map<number, THREE.MeshPhysicalMaterial>();
 function bodyMaterial(color: number): THREE.MeshPhysicalMaterial {
   let m = bodyMats.get(color);
   if (!m) {
-    m = new THREE.MeshPhysicalMaterial({ color, roughness: 0.3, metalness: 0.48, clearcoat: 0.95, clearcoatRoughness: 0.16, vertexColors: true });
+    m = new THREE.MeshPhysicalMaterial({ color, ...PAINT });
     bodyMats.set(color, m);
   }
   return m;
@@ -793,6 +914,9 @@ interface FadeEntry {
 export function fadeMaterial(m: THREE.Material): THREE.Material {
   const c = m.clone();
   c.name = `${m.name || 'vehicle'}-fade`;
+  // clone() drops shader patches (the glass's Fresnel): the fade copy keeps them, on the same program family.
+  c.onBeforeCompile = m.onBeforeCompile;
+  c.customProgramCacheKey = m.customProgramCacheKey;
   if (!m.transparent) c.alphaHash = true;
   return c;
 }
@@ -840,8 +964,10 @@ export class VehicleView {
   private distantMesh: THREE.Mesh | null = null;
   /** Drawn as the merged far version (setDistant). */
   private distant: false | 'far' | 'coarse' = false;
-  /** Box-shaped parts drawn through VehiclePartBatches: lamps, light-bar base and lenses, taxi sign. */
+  /** Box-shaped parts drawn through VehiclePartBatches: light-bar base and lenses, taxi sign, service gear. */
   private readonly boxParts: THREE.Mesh[] = [];
+  /** The lamp lenses (LAMP_LENS), drawn through VehiclePartBatches' lens batch. */
+  private readonly lensParts: THREE.Mesh[] = [];
   private readonly partTmp = new THREE.Matrix4();
   private readonly partTmp2 = new THREE.Matrix4();
   /** Wheel visibility saved by hideParts. */
@@ -860,9 +986,10 @@ export class VehicleView {
   private readonly livery: Array<{ mesh: THREE.Mesh; mat: THREE.Material | THREE.Material[] }> = [];
   /** The police livery stripe: its own subdivided geometry, bent with the body, and its undamaged positions. */
   private stripe: { geo: THREE.BufferGeometry; base: Float32Array; mesh: THREE.Mesh } | null = null;
-  private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xfffbe8, emissive: 0xfff2c8, emissiveIntensity: 0.3, roughness: 0.2 });
-  private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x2a0000, emissive: 0xff0000, emissiveIntensity: 0.3, roughness: 0.3 });
-  private readonly reverseMat = new THREE.MeshStandardMaterial({ color: 0x777777, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.3 });
+  /** Lenses over a chrome reflector: clear and bright for the head lamps, deep red for the tails. */
+  private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xe8ecef, emissive: 0xfff2c8, emissiveIntensity: 0, roughness: 0.12, metalness: 0.55 });
+  private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x6a0606, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.16, metalness: 0.2 });
+  private readonly reverseMat = new THREE.MeshStandardMaterial({ color: 0xa8acae, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.14, metalness: 0.45 });
   private sirenRed: THREE.MeshStandardMaterial | null = null;
   private sirenBlue: THREE.MeshStandardMaterial | null = null;
   private sirenLenses: { red: THREE.Mesh; blue: THREE.Mesh } | null = null;
@@ -876,6 +1003,8 @@ export class VehicleView {
   private readonly track: number;
   /** How far the body may come down onto a wheel as it leans (leanRoom). */
   private readonly room: number;
+  /** The most the body may pitch (rad) before its ends come within NOSE_CLEAR of the road. */
+  private readonly noseRoom: number;
   private readonly centre = new THREE.Vector3();
   /** The point the body leans about on its springs: over the centre, at the height of the tyres' tops. */
   private readonly leanAxis: THREE.Vector3;
@@ -899,6 +1028,8 @@ export class VehicleView {
   private dentBody: DentedGeometry | null = null;
   private dentGlass: DentedGeometry | null = null;
   private dentExterior: DentedGeometry | null = null;
+  /** The dented copy of the shadow body (of the shadow body it was made from), so the shadow shows the dents too. */
+  private dentShadow: DentedGeometry | null = null;
   /** The vehicle this view shows (null while pooled). */
   vehicle: Vehicle | null = null;
   color = -1;
@@ -932,6 +1063,8 @@ export class VehicleView {
         const rim = new THREE.Mesh(a.rim, rimMat);
         tire.name = 'tire';
         rim.name = 'rim';
+        // The alloy face is on the rim's +x side: the right-hand wheels (-x) turn theirs round to face out.
+        if (side < 0) rim.rotation.y = Math.PI;
         tire.castShadow = true;
         pivot.add(tire, rim);
         markPart(tire);
@@ -946,26 +1079,35 @@ export class VehicleView {
     this.axle = Math.max(Math.abs(a.prof.wheelFront), Math.abs(a.prof.wheelRear)) * s.length;
     this.track = halfW - 0.15;
     this.room = leanRoom(kind);
+    this.noseRoom = Math.max(NOSE_DROP, a.prof.body[0]![1] - BEVEL - NOSE_CLEAR) / (s.length / 2);
     this.leanAxis = new THREE.Vector3(0, 2 * a.prof.wheelR, 0);
-    // Lights sit just outside the bevelled body surface so they are never buried.
+    // Lenses stand just proud of the body's end faces (at +-length / 2), facing out of each end.
     const ly = a.prof.lightY * s.height;
-    const front = s.length / 2 + BEVEL + 0.02;
+    const front = s.length / 2 + 0.005;
+    const lens = (size: LensSize, mat: THREE.Material, rear: boolean): THREE.Mesh => {
+      const m = new THREE.Mesh(LAMP_LENS, mat);
+      m.scale.set(...size);
+      if (rear) m.rotation.y = Math.PI;
+      m.name = 'lamp';
+      return m;
+    };
     for (const side of [-1, 1]) {
-      const h = new THREE.Mesh(a.lamp, this.headMat);
+      const h = lens(a.lamp, this.headMat, false);
       h.position.set(side * (halfW - 0.32), ly, front);
-      const t = new THREE.Mesh(a.lamp, this.tailMat);
+      const t = lens(a.lamp, this.tailMat, true);
       t.position.set(side * (halfW - 0.3), ly + 0.05, -front);
-      h.name = 'lamp';
-      t.name = 'lamp';
       this.group.add(h, t);
       this.lamps.push({ mesh: h, mat: this.headMat, broken: false, base: h.position.clone(), head: true, role: 'head' }, { mesh: t, mat: this.tailMat, broken: false, base: t.position.clone(), head: false, role: 'tail' });
     }
-    const rev = new THREE.Mesh(a.reverse, this.reverseMat);
+    const rev = lens(a.reverse, this.reverseMat, true);
     rev.position.set(0, ly - 0.05, -front);
-    rev.name = 'lamp';
     this.group.add(rev);
     this.lamps.push({ mesh: rev, mat: this.reverseMat, broken: false, base: rev.position.clone(), head: false, role: 'reverse' });
-    for (const l of this.lamps) this.attached.push({ obj: l.mesh, base: l.base });
+    for (const l of this.lamps) {
+      this.attached.push({ obj: l.mesh, base: l.base });
+      markPart(l.mesh);
+      this.lensParts.push(l.mesh);
+    }
     if (s.police) {
       // Emissive colours set by sync() (SIREN).
       const red = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0x000000, emissiveIntensity: 1, roughness: 0.3 });
@@ -973,7 +1115,7 @@ export class VehicleView {
       this.sirenRed = red;
       this.sirenBlue = blue;
       // The cruiser's bar stands on its painted roof panel (see addRoof).
-      const roofY = kind === 'swat' ? 0.95 * s.height : 0.98 * s.height + 0.085;
+      const roofY = kind === 'swat' ? 0.95 * s.height : roofTop(kind);
       const barZ = kind === 'swat' ? s.length * 0.3 : -0.1 * s.length;
       const base = new THREE.Mesh(sharedBox(s.width * 0.7, 0.08, 0.32), barBaseMat);
       base.position.set(0, roofY + 0.04, barZ);
@@ -996,7 +1138,7 @@ export class VehicleView {
     }
     if (kind === 'taxi') {
       const sign = new THREE.Mesh(sharedBox(0.75, 0.22, 0.32), taxiSignMat);
-      sign.position.set(0, s.height * 0.98 + 0.085 + 0.11, -0.08 * s.length);
+      sign.position.set(0, roofTop(kind) + 0.11, -0.08 * s.length);
       this.group.add(sign);
       this.attached.push({ obj: sign, base: sign.position.clone() });
       this.livery.push({ mesh: sign, mat: taxiSignMat });
@@ -1150,7 +1292,7 @@ export class VehicleView {
     this.exterior.visible = near;
     this.cabin.visible = near && !this.burnt;
     this.shadowCaster.visible = near;
-    this.shadowCaster.geometry = shadowBody(this.kind, this.burnt);
+    this.syncShadow();
     if (this.stripe) this.stripe.mesh.visible = near;
     for (const w of this.wheels) {
       w.pivot.visible = !coarse;
@@ -1160,6 +1302,24 @@ export class VehicleView {
       this.distantMesh.visible = coarse;
       this.distantMesh.material = this.body.material;
     }
+  }
+
+  /** The shadow caster's geometry: the kind's shadow body, or while the body is dented a copy bent by the same dents. */
+  private syncShadow(): void {
+    const src = shadowBody(this.kind, this.burnt);
+    const dents = this.dentBody ? this.vehicle?.dents : undefined;
+    if (!dents || dents.length === 0) {
+      this.dentShadow?.dispose();
+      this.dentShadow = null;
+      this.shadowCaster.geometry = src;
+      return;
+    }
+    if (this.dentShadow?.source !== src) {
+      this.dentShadow?.dispose();
+      this.dentShadow = new DentedGeometry(src);
+    }
+    this.dentShadow.update(dents);
+    this.shadowCaster.geometry = this.dentShadow.geometry;
   }
 
   /**
@@ -1194,6 +1354,11 @@ export class VehicleView {
       p.updateMatrix();
       const g = (p.geometry as THREE.BoxGeometry).parameters;
       batches.addBox(p.material as THREE.Material, this.partTmp.multiplyMatrices(m, p.matrix), g.width, g.height, g.depth, fade);
+    }
+    for (const p of this.lensParts) {
+      if (!p.visible) continue;
+      p.updateMatrix();
+      batches.addShaped(p.geometry, p.material as THREE.Material, this.partTmp.multiplyMatrices(m, p.matrix), fade);
     }
   }
 
@@ -1264,9 +1429,11 @@ export class VehicleView {
         p.visible = false;
       }
       for (const b of this.boxParts) b.visible = false;
+      for (const b of this.lensParts) b.visible = false;
     } else {
       for (let i = 0; i < this.wheels.length; i++) this.wheels[i]!.pivot.visible = shown[i] === 1;
       for (const b of this.boxParts) b.visible = true;
+      for (const b of this.lensParts) b.visible = true;
     }
   }
 
@@ -1416,6 +1583,8 @@ export class VehicleView {
       pitch *= this.room / drop;
       roll *= this.room / drop;
     }
+    // A long overhang (the bus's, ahead of its axle) keeps its nose and tail off the road as the body pitches.
+    pitch = clamp(pitch, -this.noseRoom, this.noseRoom);
     this.leanX = damp(this.leanX, onGround ? pitch : 0, 8, dt);
     this.leanZ = damp(this.leanZ, onGround ? roll : 0, 8, dt);
     // A burnt-out wreck sits low on its rims, tilted, while it stands on its wheels; on its roof or side it rests on that.
@@ -1461,8 +1630,9 @@ export class VehicleView {
     // Parked, abandoned and wrecked cars keep their lights off (a deployed police car keeps its siren running).
     const powered = !v.destroyed && (v.driver !== null || v.siren);
     const lightsOn = night > 0.35 && powered;
-    this.headMat.emissiveIntensity = powered ? 0.4 + night * 5 : 0.3;
-    this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? BRAKE_GLOW : lightsOn ? TAIL_RUNNING : TAIL_OFF;
+    // Unlit lenses only glimmer after dark (none by day, so a parked car's lamps are not lit at noon).
+    this.headMat.emissiveIntensity = powered ? 0.4 + night * 5 : HEAD_OFF * night;
+    this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? BRAKE_GLOW : lightsOn ? TAIL_RUNNING : TAIL_OFF * night;
     this.reverseMat.emissiveIntensity = v.reversing && v.driver ? 4 : 0;
     this.lit.lights = lightsOn;
     this.lit.siren = null;
