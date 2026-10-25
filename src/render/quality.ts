@@ -54,7 +54,7 @@ export const LIGHTING_TIERS: Readonly<Record<LightingFeature, Readonly<Record<Li
   nightBlackLevel: { high: 'grade black-level lift + night city fill', medium: 'grade black-level lift + night city fill', low: 'grade black-level lift + night city fill', software: 'night city fill only (no FinishPass)' },
   sunsetGrade: { high: 'golden key light + yellow-leaning grade', medium: 'golden key light + yellow-leaning grade', low: 'golden key light + yellow-leaning grade', software: 'golden key light only (no FinishPass)' },
   garageDarkening: { high: 'sky and sun light cut under garage roofs', medium: 'sky and sun light cut under garage roofs', low: 'sky and sun light cut under garage roofs', software: 'none (vertex-lit stand-ins)' },
-  contactShadows: { high: 'GTAO + foot contact shadows', medium: 'foot contact shadows', low: 'foot contact shadows', software: 'foot contact shadows' },
+  contactShadows: { high: 'GTAO + wall-foot occlusion + foot contact shadows', medium: 'wall-foot occlusion + foot contact shadows', low: 'wall-foot occlusion + foot contact shadows', software: 'foot contact shadows' },
 };
 
 /** Dynamic point lights shared by the siren, muzzle flash and explosion flash on 'few'. */

@@ -213,7 +213,7 @@ export class ContactShadows extends GTAOPass {
  */
 export const FOOT_RADIUS = 0.45;
 /** Darkening at the blob's centre (0..1). */
-export const FOOT_STRENGTH = 0.45;
+export const FOOT_STRENGTH = 0.6;
 export const FOOT_RANGE = 45;
 export const FOOT_CAPACITY = 96;
 

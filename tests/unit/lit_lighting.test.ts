@@ -1,13 +1,15 @@
 // Lighting track: garage interiors darker than outdoors (VAL-LIT-008), street-lamp haze stronger in rain (VAL-LIT-004),
-// wet-road reflections in their light's colour (VAL-LIT-005), contact shadows under people (VAL-LIT-009), the night
+// wet-road reflections in their light's colour (VAL-LIT-005), contact shadows under people and occlusion at the foot of
+// walls (VAL-LIT-009), the night
 // black level and sunset grade (VAL-LIT-003, -007), and the lighting tier table (VAL-LIT-010). Headless, with the stub
 // header of light_sprites.test.ts.
 
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FOOT_CAPACITY, FOOT_RANGE, FootShadows } from '../../src/render/contactShadows';
 import { gradeAt, NIGHT_LIFT } from '../../src/render/grade';
-import { DOOR_IN, DOOR_OUT, INTERIOR_REFLECT, INTERIOR_SKY, INTERIOR_SUN, insideness, installInteriorLight, interiorLight, interiorLightInstalled, interiorsOf } from '../../src/render/interiorLight';
+import { DOOR_IN, DOOR_OUT, FIELD_TEXEL, INTERIOR_REFLECT, INTERIOR_SKY, INTERIOR_SUN, insideness, installInteriorLight, interiorLight, interiorLightInstalled, interiorsOf, WALL_AO, wallDistance, wallField, wallFieldOf, wallOcclusion } from '../../src/render/interiorLight';
 import { GLOW, HAZE_RAIN_GAIN, HAZE_RAIN_SIZE, hazeLevel, LightSprites } from '../../src/render/lightSprites';
 import { LIGHTING_TIERS, type LightingTier } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
@@ -160,6 +162,59 @@ describe('garage interiors', () => {
     // Installing again (a second renderer) does not patch twice.
     installInteriorLight(interiorsOf(W.layout.garages, (x, z) => W.groundHeight(x, z)));
     expect(chunks.lights_fragment_end!.split('gta7-interior').length).toBe(2);
+  });
+});
+
+describe('occlusion at the foot of walls', () => {
+  it('stores the signed distance to the nearest footprint, exact along a wall between texel centres', () => {
+    const f = wallField([{ minX: 10.2, minZ: 10.2, maxX: 30.2, maxZ: 40.2 }], 0, 0, 64);
+    expect(f.size).toBe(64 / FIELD_TEXEL);
+    for (const d of [-1.5, -0.4, 0, 0.15, 0.6, 1, 2.5, 3.5]) expect(wallDistance(f, 10.2 - d, 25), `${d} m from the west wall`).toBeCloseTo(d, 1);
+    expect(wallDistance(f, 20, 25)).toBeCloseTo(-2, 1);
+    expect(wallDistance(f, 50, 50)).toBeCloseTo(4, 6);
+  });
+
+  it('darkens the sky light in the corner, fades out within a couple of metres and up the wall, and nowhere in the open', () => {
+    const f = wallField([{ minX: 10.2, minZ: 10.2, maxX: 30.2, maxZ: 40.2 }], 0, 0, 64);
+    const ground = 0.15;
+    const at = (d: number, h = 0) => wallOcclusion(f, 10.2 - d, ground + h, 25);
+    expect(at(0)).toBeCloseTo(1 - WALL_AO, 1);
+    // The band the validators measure: 0.15 m out is at least 15% darker than the ground 1 m out (sky-lit ground).
+    expect(at(0.15) / at(1)).toBeLessThan(0.85);
+    expect(at(2)).toBeGreaterThan(0.98);
+    expect(at(3.9)).toBeGreaterThan(0.999);
+    // Up the wall: the lowest metre only.
+    expect(at(0, 0.3)).toBeLessThan(at(0, 1));
+    expect(at(0, 2.5)).toBeGreaterThan(0.99);
+    // Monotonic away from the wall: no ring or halo.
+    let prev = at(0);
+    for (let d = 0.05; d < 3.5; d += 0.05) {
+      const v = at(d);
+      expect(v).toBeGreaterThanOrEqual(prev - 1e-6);
+      prev = v;
+    }
+    expect(wallOcclusion(f, 50, ground, 55)).toBeGreaterThan(0.999);
+  });
+
+  it('covers every building and garage wall of the city, and reaches the lit shaders', () => {
+    const f = wallFieldOf(W.layout);
+    for (const b of W.layout.buildings.slice(0, 50)) {
+      const cz = (b.rect.minZ + b.rect.maxZ) / 2;
+      expect(wallDistance(f, b.rect.minX - 0.15, cz), `building ${b.id}`).toBeLessThan(0.25);
+      expect(wallOcclusion(f, b.rect.minX - 0.15, 0.15, cz)).toBeLessThan(1 - 0.6 * WALL_AO);
+    }
+    for (const g of W.layout.garages) for (const w of g.walls) expect(wallDistance(f, (w.minX + w.maxX) / 2, (w.minZ + w.maxZ) / 2)).toBeLessThanOrEqual(0.05);
+    // A garage's floor in the middle keeps its (interior) sky light; next to a side wall it loses more.
+    const lou = W.layout.garages[0]!;
+    const cx = (lou.rect.minX + lou.rect.maxX) / 2;
+    const cz = (lou.rect.minZ + lou.rect.maxZ) / 2;
+    expect(wallOcclusion(f, cx, 0.15, cz)).toBeGreaterThan(0.99);
+    new GameRenderer(canvas(), W, { quality: 'low', fov: 68, gpu: HDR });
+    for (const id of ['standard', 'physical', 'lambert'] as const) {
+      const u = THREE.ShaderLib[id].uniforms as Record<string, THREE.IUniform>;
+      expect(u.gta7WallAO!.value, id).toBe(WALL_AO);
+      expect((u.gta7WallField!.value as THREE.DataTexture).image.width, id).toBe(f.size);
+    }
   });
 });
 
@@ -339,6 +394,12 @@ describe('lighting tier table', () => {
 
   it('gives every lighting feature a behaviour on every tier', () => {
     for (const [feature, row] of Object.entries(LIGHTING_TIERS)) for (const t of tiers) expect(row[t], `${feature} on ${t}`).toMatch(/\S/);
+  });
+
+  it('is the table docs/graphics.md gives', () => {
+    const doc = readFileSync(new URL('../../docs/graphics.md', import.meta.url), 'utf8');
+    const rows = doc.split('\n').filter((l) => l.startsWith('| ')).map((l) => l.split('|').slice(2, 6).map((c) => c.trim()).join(' / '));
+    for (const [feature, row] of Object.entries(LIGHTING_TIERS)) expect(rows, feature).toContain(tiers.map((t) => row[t]).join(' / '));
   });
 
   it('matches what each tier\'s renderer builds', () => {

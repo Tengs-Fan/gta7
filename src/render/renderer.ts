@@ -11,7 +11,7 @@ import { WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
 import { CameraController } from './camera';
 import { ContactShadows, FootShadows } from './contactShadows';
-import { installInteriorLight, interiorsOf } from './interiorLight';
+import { installInteriorLight, interiorsOf, wallFieldOf, wallFieldTexture } from './interiorLight';
 import { LightSprites, BLOOM_THRESHOLD, STREAK_RANGE, type LampGlow } from './lightSprites';
 import { LocalReflections } from './localReflections';
 import { StreetLighting } from './streetLighting';
@@ -159,6 +159,8 @@ export class GameRenderer {
   readonly lightSprites = new LightSprites();
   /** Contact shadows under the people near the camera (every tier). */
   readonly footShadows = new FootShadows();
+  /** The wall-occlusion field's texture (hardware tiers; null on software renderers, whose stand-ins skip it). */
+  private wallField: THREE.DataTexture | null = null;
   /** The wave-1 jobs' bins and water jet, and the signs and structures of their places. */
   readonly activityFx = new ActivityFxView();
   readonly sites: SiteView;
@@ -232,8 +234,10 @@ export class GameRenderer {
     this.software = gpuClass(gpu.renderer) === 'software';
     this.softwareMaterials = this.software ? new SoftwareMaterials() : null;
     this.hdr = gpu.halfFloat && !this.software;
-    // Garage interiors: patched into three's lighting chunks before the first program is built.
-    installInteriorLight(interiorsOf(world.layout.garages, (x, z) => world.groundHeight(x, z)));
+    // Garage interiors and the occlusion at the foot of walls: patched into three's lighting chunks before the first program is built.
+    const field = this.software ? null : wallFieldOf(world.layout);
+    this.wallField = field ? wallFieldTexture(field) : null;
+    installInteriorLight(interiorsOf(world.layout.garages, (x, z) => world.groundHeight(x, z)), field && this.wallField ? { texture: this.wallField, field } : null);
     // MSAA is a context attribute that also sizes three's internal HDR scene target, so it can only
     // be chosen here, from the starting tier. Hardware tiers keep the HDR output pass. Software
     // GPUs use an LDR canvas, with the same tone mapping/sRGB conversion in each material shader.
@@ -971,7 +975,6 @@ export class GameRenderer {
     this.renderer.getDrawingBufferSize(this.bufferSize);
     this.rain.update(dt, cam.position, rain, weather?.wind ?? NO_WIND, this.env.smokeLight, (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / Math.max(1, this.bufferSize.y));
     const night = this.env.night;
-    this.renderer.getDrawingBufferSize(this.bufferSize);
     this.lightSprites.haze.update(night, rain, this.bufferSize.y / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)));
     this.streetLighting.update(cam.position, night, dt);
     this.city.update(night, hours, this.time);
@@ -1096,6 +1099,7 @@ export class GameRenderer {
     this.finish?.dispose();
     this.lightSprites.dispose();
     this.footShadows.dispose();
+    this.wallField?.dispose();
     this.throwView.dispose();
     this.rain.dispose();
     this.city.wet.dispose();
