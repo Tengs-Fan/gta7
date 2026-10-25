@@ -12,7 +12,7 @@ import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/rende
 import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
-import { MAX_PILING_DECKS, PILING_FOAM, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_C, RIPPLE_D, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases } from '../../src/render/sea';
+import { FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_C, RIPPLE_D, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases } from '../../src/render/sea';
 import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
 import { sandHeight } from '../../src/world/layout';
@@ -526,8 +526,26 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
         expect(side).toBeLessThan(0.3 * 0.55);
       }
     }
-    expect(SHORE_GLSL).toContain('max(max(beach, quay), seaPilingFoam(p, noise))');
+    expect(SHORE_GLSL).toContain('max(max(beach, quay), seaPilingFoam(p, noise, px))');
     expect(PILING_FOAM).toBeLessThanOrEqual(0.7);
+    // Far off the ring widens with the pixel footprint (fix pass 2: at audit-15 range it had thinned to a faint arc),
+    // and foam's sky light is lifted so it stays white in a deck's shadow.
+    expect(SHORE_GLSL).toContain(`min(${PILING_FOAM_PX} * px, ${PILING_FOAM_FAR})`);
+    expect(PILING_FOAM_FAR).toBeGreaterThan(PILING_FOAM);
+    const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
+    expect(fs).toContain('seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp, length( fwidth( vSeaXZ ) ) )');
+    expect(fs).toContain(`reflectedLight.indirectDiffuse *= 1.0 + ${FOAM_SKY_LIFT} * seaFoamAmt;`);
+  });
+
+  it('the beach foam hugs the waterline: the surf bands fade in seaward of the swash\'s furthest surge', () => {
+    // Depth (m) on the sand slope at a distance (m) out from the waterline; the swash's surge at sea states up to 0.5.
+    const slope = SAND_DROP / BEACH_W;
+    const swashMax = (sea: number) => (0.04 + 0.06 * sea) * 1.25;
+    for (const sea of [0, 0.3, 0.5]) expect(swashMax(sea)).toBeLessThan(SURF_BAND_FADE[0]);
+    expect(swashMax(0.3) / slope).toBeLessThan(2.6);
+    expect(SURF_BAND_FADE[0] / slope).toBeGreaterThan(4);
+    expect(SHORE_GLSL).toContain(`smoothstep(${SURF_BAND_FADE[0]}, ${SURF_BAND_FADE[1]}, depth)`);
+    expect(SHORE_GLSL).toContain('float surge = 0.5 + 0.5 * sin(uSurfPhase');
   });
 
   it('waves damp over the shallows so the drawn waterline stays on the sim\'s', () => {

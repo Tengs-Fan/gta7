@@ -30,8 +30,22 @@ export const PILING_INSET = 0.6;
 export const PILING_RADIUS = 0.25;
 /** Decks the sea shader looks for pilings under (the layout has five). */
 export const MAX_PILING_DECKS = 8;
+/** Water depths (m) over which the beach's surf bands fade in seaward of the swash (4.1-7.6 m out on the 1:34 sand). */
+export const SURF_BAND_FADE = [0.12, 0.22] as const;
 /** Piling foam reaches at most this far (m) out from a piling's side. */
 export const PILING_FOAM = 0.7;
+/**
+ * Far off, the ring widens to cover at least PILING_FOAM_PX screen pixels (its footprint, m per pixel, grows with
+ * distance and grazing angle), up to PILING_FOAM_FAR m: at 0.7 m it thins to a pixel at 30 m and vanishes.
+ */
+export const PILING_FOAM_PX = 2.5;
+export const PILING_FOAM_FAR = 1.1;
+/**
+ * Foam scatters the sky's light more than the water's albedo does: its indirect light is raised by this share. Under a
+ * deck (in the sun's shadow) that keeps it a white ring rather than a faint arc against the sky the water reflects;
+ * at night it scales the dim sky light, so it does not glow.
+ */
+export const FOAM_SKY_LIFT = 1.6;
 
 /**
  * World-space scales of the sea's ripple warp and macro modulation samples (1 / m), see patchSeaMaterial. The gains
@@ -216,8 +230,8 @@ float seaQuay(vec2 p) {
 float seaShelf(vec2 p, float depth) {
   return depth + ${n(SHELF_SLOPE)} * max(seaQuay(p) - ${n(SHELF_START)}, 0.0);
 }
-/** Foam 0..1 round the pilings of the decks in uPilings (the lattice of CityView.buildCoast). */
-float seaPilingFoam(vec2 p, float noise) {
+/** Foam 0..1 round the pilings of the decks in uPilings (the lattice of CityView.buildCoast); px: m per screen pixel. */
+float seaPilingFoam(vec2 p, float noise, float px) {
   float best = 1e3;
   for (int i = 0; i < ${MAX_PILING_DECKS}; i++) {
     vec4 r = uPilings[i];
@@ -230,29 +244,36 @@ float seaPilingFoam(vec2 p, float noise) {
     best = min(best, length(p - c));
   }
   float side = best - ${n(PILING_RADIUS)};
-  float width = min(0.3 + 0.35 * noise, ${n(PILING_FOAM)});
-  float pulse = 0.75 + 0.25 * sin(uQuayPhase * 1.3 - best * 5.0);
-  return (1.0 - smoothstep(width * 0.55, width, side)) * step(-0.05, side) * pulse * (0.8 + 0.4 * noise);
+  float far = smoothstep(0.03, 0.15, px);
+  float width = max(min(0.3 + 0.35 * noise, ${n(PILING_FOAM)}), min(${n(PILING_FOAM_PX)} * px, ${n(PILING_FOAM_FAR)}));
+  float pulse = mix(0.75 + 0.25 * sin(uQuayPhase * 1.3 - best * 5.0), 1.0, far);
+  return clamp((1.0 - smoothstep(width * 0.55, width, side)) * step(-0.05, side) * pulse * (0.8 + 0.4 * mix(noise, 1.0, far)), 0.0, 1.0);
 }
 float seaWaterlineX() {
   return uShoreBeach.x + uShoreBeach.y * (uShoreBeach.w - ${n(WATER_Y)}) / uShoreBeach.z;
 }
-/** Foam 0..1: surf bands moving shoreward over the beach, a pulsing strip along the quay walls, and rings round the pilings. */
-float seaFoam(vec2 p, float depth, float noise, float sea) {
+/**
+ * Foam 0..1: surf bands moving shoreward over the beach, the swash along the waterline, a pulsing strip along the quay
+ * walls, and rings round the pilings (px: m per screen pixel).
+ */
+float seaFoam(vec2 p, float depth, float noise, float sea, float px) {
   float onBeach = 1.0 - smoothstep(0.0, 4.0, seaBeachOut(p));
   float reach = 0.6 + 0.9 * sea;
   float shore = 1.0 - smoothstep(0.0, reach, depth);
   float band = 0.5 + 0.5 * sin(depth * 12.566 + uSurfPhase + noise * 2.0);
-  // The bands dissolve into the swash a couple of metres out, so the foam at the waterline stays a band along it.
-  float bands = smoothstep(0.55, 0.9, band + (noise - 0.5) * 0.5) * shore * smoothstep(0.05, 0.12, depth);
-  float swash = 1.0 - smoothstep(0.0, 0.05 + 0.08 * sea, depth);
+  // The bands dissolve 4-8 m out (0.12-0.22 m deep), short of the swash, so they never merge with it into a sheet and
+  // the foam at the waterline stays a band that hugs it.
+  float bands = smoothstep(0.55, 0.9, band + (noise - 0.5) * 0.5) * shore * smoothstep(${n(SURF_BAND_FADE[0])}, ${n(SURF_BAND_FADE[1])}, depth);
+  // The swash surges up the sand and draws back with the surf phase (1.3-2.5 m out at sea state 0.3).
+  float surge = 0.5 + 0.5 * sin(uSurfPhase + 1.7 + noise * 1.5);
+  float swash = 1.0 - smoothstep(0.0, (0.04 + 0.06 * sea) * (0.65 + 0.6 * surge), depth);
   float beach = clamp((bands * (0.55 + 0.6 * sea) + swash * 0.8) * onBeach, 0.0, 1.0);
   float d = seaQuay(p);
   float width = 0.5 + 1.0 * smoothstep(0.3, 0.7, noise);
   float pulse = 0.8 + 0.2 * sin(uQuayPhase + (p.x + p.y) * 0.21);
   float notBeach = 1.0 - smoothstep(seaWaterlineX() - 5.0, seaWaterlineX() + 10.0, p.x);
   float quay = (1.0 - smoothstep(width * 0.4, width, d)) * step(1e-3, d) * pulse * notBeach * (0.85 + 0.3 * sea) * (0.75 + 0.5 * noise);
-  return clamp(max(max(beach, quay), seaPilingFoam(p, noise)), 0.0, 1.0);
+  return clamp(max(max(beach, quay), seaPilingFoam(p, noise, px)), 0.0, 1.0);
 }
 /**
  * The sea's albedo by depth: wet sand through the thinnest water, turquoise shallows, the material's own colour (mid)
@@ -311,12 +332,13 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   {
     vec2 fuv = vSeaXZ * 0.031 + uFoamDrift;
     float seaNoise = texture2D( normalMap, fuv ).x * 0.6 + texture2D( normalMap, fuv * 2.37 + 0.31 ).y * 0.4;
-    seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp );
+    seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp, length( fwidth( vSeaXZ ) ) );
   }
 #endif
   diffuseColor.rgb = mix( seaShallows( diffuseColor.rgb, seaDepth, vSeaXZ ), vec3( 0.82, 0.86, 0.86 ), seaFoamAmt );`,
       )
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( roughnessFactor, 0.85, seaFoamAmt );')
+      .replace('#include <aomap_fragment>', `reflectedLight.indirectDiffuse *= 1.0 + ${n(FOAM_SKY_LIFT)} * seaFoamAmt;\n#include <aomap_fragment>`)
       .replace(
         '#include <normal_fragment_begin>',
         `#include <normal_fragment_begin>
