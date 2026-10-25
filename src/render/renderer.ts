@@ -377,6 +377,9 @@ export class GameRenderer {
     this.scene.add(assetProbe);
     // The effects' shadow material and the burnt-wreck variants (plain, instanced, fade copy).
     const fxProbe = this.effects.warmupProbes(fadeMaterial);
+    // And the shadow programs of instanced batches with their own depth material (debris, far vehicle bodies).
+    const shadowScene = new THREE.Scene();
+    shadowScene.add(this.effects.shadowProbes([this.vehicleParts.shadowDepthMaterial]));
     this.softwareMaterials?.apply(fxProbe);
     this.scene.add(fxProbe);
     // With the HDR output three draws the scene into its half-float target with tone mapping off and
@@ -394,6 +397,16 @@ export class GameRenderer {
       if (target) this.renderer.setRenderTarget(target);
       try {
         this.renderer.compile(this.scene, this.cameraCtl.camera);
+        if (this.renderer.shadowMap.enabled) {
+          // With the scene's lights but without its fog, as the shadow pass draws.
+          const fog = this.scene.fog;
+          this.scene.fog = null;
+          try {
+            this.renderer.compile(shadowScene, this.cameraCtl.camera, this.scene);
+          } finally {
+            this.scene.fog = fog;
+          }
+        }
       } finally {
         if (target) this.renderer.setRenderTarget(null);
       }
@@ -638,6 +651,7 @@ export class GameRenderer {
     const fx = this.effects;
     const ev = sim.events;
     fx.bindWorld(sim.world);
+    fx.trackMuzzles((c) => this.crowd.muzzleOf(c));
     this.unsub.push(
       ev.on('vehicleDestroyed', (e) => {
         if (!e.vehicle.inWater) fx.vehicleExploded(e.vehicle);

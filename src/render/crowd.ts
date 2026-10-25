@@ -477,6 +477,24 @@ export class CrowdView {
     return t > 0 && t === s?.fired ? 0 : kickAmount(t);
   }
 
+  private readonly muzzlePose = makeWeaponPose();
+  private readonly muzzleOut = new THREE.Vector3();
+
+  /**
+   * Where `c`'s drawn gun has its muzzle this frame: the sim's barrel end moved by the drawn recoil (kickOf), for a
+   * character on foot; null without a gun. Effects keeps a muzzle flash on it while the gun kicks.
+   */
+  muzzleOf(c: Character): THREE.Vector3 | null {
+    const gun = c.inventory.current;
+    if (!isGun(gun) || c.removed || c.state === 'inVehicle' || c.state === 'swimming') return null;
+    const w = weaponPoseInto(c, this.muzzlePose);
+    const g = gun as Gun;
+    const pts = WEAPON_POINTS[g];
+    const kick = this.kickOf(c);
+    const m = this.weaponMatrix(w, kick * gunKick(g), g === 'pistol' ? pts.grip : pts.stock, KICK_BACK * kick);
+    return this.muzzleOut.set(pts.tip.x, pts.tip.y, pts.tip.z).applyMatrix4(m);
+  }
+
   /** A shot by character `id` is drawn from the next frame (the renderer's shot events): see kickOf. */
   noteShot(id: number): void {
     const s = this.shots.get(id);

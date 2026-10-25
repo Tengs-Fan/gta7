@@ -191,6 +191,11 @@ export class VehiclePartBatches {
   private readonly shaped = new Map<THREE.BufferGeometry, Bucket>();
   private readonly lampMat = lampMaterial();
   private readonly depthMat = partDepthMaterial();
+
+  /** The batches' shadow material (the renderer's warm-up compiles its shadow programs: see Effects.shadowProbes). */
+  get shadowDepthMaterial(): THREE.Material {
+    return this.depthMat;
+  }
   private readonly tmp = new THREE.Matrix4();
   /** Buckets created or regrown since the last call to takeChanged (their meshes are new objects). */
   private changed = false;

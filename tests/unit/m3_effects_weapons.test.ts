@@ -402,7 +402,7 @@ describe('VAL-FXW-007: the burnt-wreck material', () => {
     const sw = new SoftwareMaterials();
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(), burntMaterial());
     sw.apply(mesh);
-    const lam = mesh.material as THREE.MeshLambertMaterial;
+    const lam = mesh.material as unknown as THREE.MeshLambertMaterial;
     expect(lam).toBeInstanceOf(THREE.MeshLambertMaterial);
     const shader = { vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader, uniforms: {} } as unknown as THREE.WebGLProgramParametersWithUniforms;
     lam.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
@@ -493,5 +493,46 @@ describe('VAL-FXW-009: the per-tier table', () => {
     expect(fx.stats().scorchCap).toBe(FX_BUDGETS.low.scorches);
     fx.setTier('high');
     expect(fx.stats().puffCap).toBe(FX_BUDGETS.high.puffs);
+  });
+});
+
+describe('VAL-FXW-002: the flash and the held tracer ride the drawn muzzle as the gun kicks', () => {
+  it('flash sprites and a tracer still held at the barrel follow the muzzle the crowd draws; the muzzle light stays put', () => {
+    const fx = new Effects();
+    const c = new Character(1, 'civilian', 0, 0, 0, { ...LOOK });
+    const drawn = new THREE.Vector3(0, 1.4, 0.5);
+    fx.trackMuzzles(() => drawn);
+    fx.muzzleFlash(0, 1.4, 0.5, 0.3, { dx: 0, dy: 0, dz: 1, shooter: c } as never);
+    fx.tracer(0, 1.4, 0.5, 0, 1.4, 30);
+    fx.update(DT, 0);
+    const light0 = fx.muzzle.position.clone();
+    const glow = (fx as unknown as { glow: { mesh: THREE.Mesh } }).glow.mesh.geometry as THREE.InstancedBufferGeometry;
+    const tr = (fx as unknown as { tracers: { mesh: THREE.Mesh } }).tracers.mesh.geometry as THREE.InstancedBufferGeometry;
+    // The gun kicks up 4 cm and back 2 cm.
+    drawn.set(0, 1.44, 0.48);
+    fx.update(DT, DT);
+    const iPos = glow.getAttribute('iPos') as THREE.InstancedBufferAttribute;
+    for (let i = 0; i < fx.glowCount; i++) expect(new THREE.Vector3(iPos.getX(i), iPos.getY(i), iPos.getZ(i)).distanceTo(drawn)).toBeLessThan(1e-5);
+    const from = tr.getAttribute('iFrom') as THREE.InstancedBufferAttribute;
+    expect(new THREE.Vector3(from.getX(0), from.getY(0), from.getZ(0)).distanceTo(drawn)).toBeLessThan(1e-5);
+    expect(fx.muzzle.position.distanceTo(light0)).toBeLessThan(1e-9);
+  });
+
+  it('CrowdView.muzzleOf is the sim tip with no kick, and moves with the recoil', () => {
+    const c = new Character(1, 'civilian', 0, 0, 0, { ...LOOK });
+    c.inventory.give('pistol', 100);
+    c.inventory.current = 'pistol';
+    c.aiming = true;
+    const cv = new CrowdView();
+    for (let i = 0; i < 30; i++) cv.sync([c], 0, 0, 1 / 60);
+    expect(cv.muzzleOf(c)!.distanceTo(v3(weaponPose(c).tip))).toBeLessThan(1e-4);
+    c.shotTimer = 0.05;
+    cv.sync([c], 0, 0, 1 / 60);
+    const kicked = cv.muzzleOf(c)!.clone();
+    const part = (cv as unknown as { weapons: Map<WeaponId, Part> }).weapons.get('pistol')!;
+    const mat = new THREE.Matrix4();
+    part.mesh.getMatrixAt(0, mat);
+    // The same point the gun is drawn with.
+    expect(gunModel('pistol').sockets.muzzle.clone().applyMatrix4(mat).distanceTo(kicked)).toBeLessThan(1e-4);
   });
 });

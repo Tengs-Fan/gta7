@@ -294,7 +294,7 @@ class ParticleLayer {
   }
 
   /** `stretch` > 1 draws an elongated sprite (length:width), turned by `rot` on screen (or see `style.align`). */
-  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size0: number, size1: number, color0: number, color1: number, alpha: number, gravity = 0, drag = 0, spin = 0, stretch = 1, rot = Math.random() * 6.28, style?: EmitStyle): void {
+  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size0: number, size1: number, color0: number, color1: number, alpha: number, gravity = 0, drag = 0, spin = 0, stretch = 1, rot = Math.random() * 6.28, style?: EmitStyle): number {
     const glow0 = style?.glow ?? 1;
     const glow1 = style?.glowEnd ?? 1;
     const i = this.next;
@@ -324,6 +324,15 @@ class ParticleLayer {
     this.align[i] = style?.align && this.iVel ? 1 : 0;
     this.instant[i] = style?.instant ? 1 : 0;
     this.fresh[i] = 1;
+    return i;
+  }
+
+  /** Moves live particle i by (dx, dy, dz) (a muzzle flash riding its kicking gun). */
+  shift(i: number, dx: number, dy: number, dz: number): void {
+    if (!(this.life[i]! > 0)) return;
+    this.px[i] = this.px[i]! + dx;
+    this.py[i] = this.py[i]! + dy;
+    this.pz[i] = this.pz[i]! + dz;
   }
 
   update(dt: number, intensity: number): void {
@@ -643,6 +652,18 @@ class Tracers {
     this.state[i] = 2;
   }
 
+  /** Moves the start of the tracers leaving (x, y, z) that are still held at the muzzle by (dx, dy, dz). */
+  shiftHeld(x: number, y: number, z: number, dx: number, dy: number, dz: number): void {
+    for (let i = 0; i < this.max; i++) {
+      if (this.state[i] === 0 || this.age[i]! > TRACER_HOLD) continue;
+      const o = i * 3;
+      if (Math.abs(this.from[o]! - x) + Math.abs(this.from[o + 1]! - y) + Math.abs(this.from[o + 2]! - z) > 1e-4) continue;
+      this.from[o] = this.from[o]! + dx;
+      this.from[o + 1] = this.from[o + 1]! + dy;
+      this.from[o + 2] = this.from[o + 2]! + dz;
+    }
+  }
+
   update(dt: number): void {
     let n = 0;
     for (let i = 0; i < this.max; i++) {
@@ -754,6 +775,10 @@ export class Effects {
   private readonly tmpSpin = new THREE.Vector3();
   /** Peaks of the per-type counters since the last stats read (debug, budgets). */
   private readonly peak = { fireballs: 0, puffs: 0, debris: 0, sparks: 0, scorches: 0 };
+  /** The latest muzzle flash: its sprites and point, kept on the shooter's drawn muzzle while it kicks (trackMuzzles). */
+  private readonly flashTrack = { shooter: null as Character | null, a: 0, b: 0, x: 0, y: 0, z: 0, age: 0 };
+  private shadowProbeGroup: THREE.Group | null = null;
+  private muzzleOf: ((c: Character) => { x: number; y: number; z: number } | null) | null = null;
   readonly foam = new FoamRings();
   readonly flash: THREE.PointLight;
   readonly muzzle: THREE.PointLight;
@@ -831,6 +856,7 @@ export class Effects {
     // The last pull belongs to the old simulation (and holds on to its shooter).
     this.pull.aimed = false;
     this.pull.shooter = null;
+    this.flashTrack.shooter = null;
   }
 
   /**
@@ -861,6 +887,35 @@ export class Effects {
 
   get tier(): FxTier {
     return this.tierName;
+  }
+
+  /** Where a character's drawn gun has its muzzle now (CrowdView.muzzleOf): flashes and held tracers follow its recoil. */
+  trackMuzzles(fn: ((c: Character) => { x: number; y: number; z: number } | null) | null): void {
+    this.muzzleOf = fn;
+  }
+
+  /** Keeps the latest flash's sprites and held tracers on its shooter's drawn muzzle as the gun kicks. */
+  private followMuzzle(dt: number): void {
+    const t = this.flashTrack;
+    if (!t.shooter || !this.muzzleOf) return;
+    t.age += dt;
+    if (t.age > FLASH_LIFE * 2) {
+      t.shooter = null;
+      return;
+    }
+    const p = this.muzzleOf(t.shooter);
+    if (!p || !Number.isFinite(p.x + p.y + p.z)) return;
+    const dx = p.x - t.x;
+    const dy = p.y - t.y;
+    const dz = p.z - t.z;
+    if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) < 1e-6 || Math.hypot(dx, dy, dz) > 0.6) return;
+    this.glow.shift(t.a, dx, dy, dz);
+    this.glow.shift(t.b, dx, dy, dz);
+    this.tracers.shiftHeld(t.x, t.y, t.z, dx, dy, dz);
+    // The light stays where the shot placed it (shotLanded, the shooter's head limit).
+    t.x = p.x;
+    t.y = p.y;
+    t.z = p.z;
   }
 
   /** The world blasts land in (ground heights for scorches and debris, water, walls). */
@@ -900,12 +955,50 @@ export class Effects {
     const burnt = burntMaterial();
     const inst = new THREE.InstancedMesh(box, burnt, 1);
     inst.setMatrixAt(0, new THREE.Matrix4());
-    const meshes = [new THREE.Mesh(box, this.parts.depth), new THREE.Mesh(box, burnt), inst, new THREE.Mesh(box, fade(burnt))];
+    const meshes: THREE.Mesh[] = [new THREE.Mesh(box, burnt), inst, new THREE.Mesh(box, fade(burnt))];
     for (const m of meshes) {
       m.position.set(0, -60, 0);
       m.frustumCulled = false;
       g.add(m);
     }
+    return g;
+  }
+
+  /**
+   * Stand-ins for the shadow pass of instanced meshes with their own depth material (the debris; the vehicle parts' far
+   * bodies, passed in): compiling the scene builds no shadow programs. The shadow pass draws back faces (shadowSide) with
+   * no fog, so these stand-ins are back-sided, fog-less copies, compiled with the scene's lights (compile's targetScene).
+   */
+  shadowProbes(instancedDepth: Iterable<THREE.Material>): THREE.Group {
+    // Built once and kept: a program lives only while a material using it does, so the copies stay for the session.
+    if (this.shadowProbeGroup) return this.shadowProbeGroup;
+    const g = new THREE.Group();
+    const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    geo.setAttribute('instanceFade', new THREE.InstancedBufferAttribute(new Float32Array([1]), 1));
+    const copy = (d: THREE.Material): THREE.Material => {
+      const c = d.clone();
+      c.onBeforeCompile = d.onBeforeCompile;
+      c.customProgramCacheKey = d.customProgramCacheKey;
+      c.side = THREE.BackSide;
+      // The shadow pass draws without fog.
+      (c as THREE.Material & { fog: boolean }).fog = false;
+      return c;
+    };
+    for (const d of [...instancedDepth, this.parts.depth]) {
+      // Instanced, tinted (instance colours, as the paint batches) and plain, each with its own copy: compiling builds
+      // a material's program for its first object only.
+      const m = new THREE.InstancedMesh(geo, copy(d), 1);
+      m.setMatrixAt(0, new THREE.Matrix4());
+      const tinted = new THREE.InstancedMesh(geo, copy(d), 1);
+      tinted.setMatrixAt(0, new THREE.Matrix4());
+      tinted.setColorAt(0, new THREE.Color(1, 1, 1));
+      for (const o of [m, tinted, new THREE.Mesh(geo, copy(d))]) {
+        o.position.set(0, -60, 0);
+        o.frustumCulled = false;
+        g.add(o);
+      }
+    }
+    this.shadowProbeGroup = g;
     return g;
   }
 
@@ -921,9 +1014,16 @@ export class Effects {
     this.puffs.emit(PuffKind.Smoke, x, y, z, vx, vy, vz, life, s0, s1, heat, 0, alpha, c, this.rng.next(), this.r(0, 6.28), this.r(-0.25, 0.25), 0.18, -0.32, ground);
   }
 
+  /** The surface under (x, z): ground, a deck, or the sea's surface over water. */
   private groundAt(x: number, y: number, z: number): number {
     const g = this.world?.groundHeight(x, z);
-    return g !== undefined && Number.isFinite(g) && g <= y + 0.5 ? g : y - 0.6;
+    if (g === undefined || !Number.isFinite(g) || g > y + 0.5) return y - 0.6;
+    const depth = this.world?.waterDepth?.(x, z) ?? -1;
+    return depth > 0 ? g + depth : g;
+  }
+
+  private overWater(x: number, z: number): boolean {
+    return (this.world?.waterDepth?.(x, z) ?? -1) > 0;
   }
 
   /**
@@ -934,7 +1034,15 @@ export class Effects {
   muzzleFlash(x: number, y: number, z: number, size: number, aim: FlashAim | null = null): void {
     if (!(size > 0) || !Number.isFinite(x + y + z)) return;
     const rot = Math.random() * Math.PI;
-    for (const r of [rot, rot + Math.PI / 2]) this.glow.emit(x, y, z, 0, 0, 0, FLASH_LIFE, size, size * 1.3, 0xfff0b0, 0xff8020, 1, 0, 0, 0, 3, r);
+    const ids = [rot, rot + Math.PI / 2].map((r) => this.glow.emit(x, y, z, 0, 0, 0, FLASH_LIFE, size, size * 1.3, 0xfff0b0, 0xff8020, 1, 0, 0, 0, 3, r));
+    const tr = this.flashTrack;
+    tr.shooter = aim?.shooter ?? null;
+    tr.a = ids[0]!;
+    tr.b = ids[1]!;
+    tr.x = x;
+    tr.y = y;
+    tr.z = z;
+    tr.age = 0;
     const p = this.pull;
     p.x = x;
     p.y = y;
@@ -1028,9 +1136,9 @@ export class Effects {
       const sp = this.r(7, 17) * Math.sqrt(s);
       this.glow.emit(x, y + 0.5, z, Math.cos(a) * sp, this.r(4, 14), Math.sin(a) * sp, this.r(0.3, 0.6), this.r(0.3, 0.5) * Math.sqrt(s), 0.1, 0xfff4cc, 0xff6010, 1, 16, 0.4, 0, 6, 0, SPARK_STYLE);
     }
-    // Dust and grit thrown along the ground in a ring.
+    // Dust and grit thrown along the ground in a ring (not off the sea's surface).
     const dust = this.tmpColor2.setRGB(0.22, 0.2, 0.17);
-    for (let i = 0; i < 10; i++) {
+    for (let i = this.overWater(x, z) ? 10 : 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2 + this.r(-0.2, 0.2);
       const sp = this.r(6, 10) * s;
       this.puffs.emit(PuffKind.Dust, x + Math.cos(a) * 0.8 * s, ground + 0.5 * s, z + Math.sin(a) * 0.8 * s, Math.cos(a) * sp, this.r(0.3, 1.2), Math.sin(a) * sp, this.r(1.3, 2.2), 1.2 * s, 3.4 * s, 0, 0, 0.42, dust, this.rng.next(), this.r(0, 6.28), this.r(-0.4, 0.4), 2.6, -0.1, ground);
@@ -1076,7 +1184,10 @@ export class Effects {
     const n = this.budget.vehicleDebris;
     const paint = this.tmpColor.set(v.color);
     const char = this.tmpColor2.set(BURNT_COLOR);
-    const kinds: DebrisShape[] = ['panel', 'panel', 'bumper', 'wheel', 'chunk', 'chunk', 'strut', 'panel', 'chunk', 'mirror', 'chunk', 'wheel'];
+    // A boat has no wheels or axles to lose.
+    const kinds: DebrisShape[] = v.spec.class === 'boat'
+      ? ['panel', 'panel', 'chunk', 'panel', 'chunk', 'chunk', 'panel', 'chunk', 'mirror', 'chunk', 'panel', 'chunk']
+      : ['panel', 'panel', 'bumper', 'wheel', 'chunk', 'chunk', 'strut', 'panel', 'chunk', 'mirror', 'chunk', 'wheel'];
     const world: DebrisWorld | ((x: number, z: number) => number) = this.world ?? (() => v.pos.y - v.spec.height * 0.5);
     const scale = Math.min(1.3, Math.max(0.55, (v.halfL * 2) / 4.6));
     const col = new THREE.Color();
@@ -1633,6 +1744,7 @@ export class Effects {
     this.wakeBoats = this.wakeBoatsOpen;
     this.wakeSprites = this.wakeSpritesOpen;
     this.wakeBoatsOpen = this.wakeSpritesOpen = 0;
+    this.followMuzzle(dt);
     this.glow.update(dt, 1);
     this.smoke.update(dt, 1);
     this.updateFireballs(dt);

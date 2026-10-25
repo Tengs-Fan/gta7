@@ -15,6 +15,8 @@ export const DEBRIS_GRAVITY = 12;
 /** The ground and walls a piece moves among (StaticWorld has both). */
 export interface DebrisWorld {
   groundHeight(x: number, z: number): number;
+  /** Positive where the point is that deep under water: pieces sink out of sight there instead of lying on the seabed. */
+  waterDepth?(x: number, z: number): number;
   lineOfSight?(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean;
 }
 
@@ -243,7 +245,12 @@ export class Debris {
       p.world = null;
     } else {
       p.world = world;
-      p.ground = (gx, gz) => world.groundHeight(gx, gz);
+      p.ground = (gx, gz) => {
+        const h = world.groundHeight(gx, gz);
+        const d = world.waterDepth?.(gx, gz) ?? -1;
+        // Over water a piece goes down to just under the surface and lies there, out of sight, until it fades.
+        return d > 0.6 ? h + d - 0.6 : h;
+      };
     }
     this.pieces.push(p);
   }
