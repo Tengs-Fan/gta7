@@ -32,8 +32,8 @@ export function writeLicenses(sources, entries, file) {
     if (!LICENSES[s.license]) throw new Error(`${s.id}: license ${s.license} is not allowed (CC0 or CC-BY only)`);
     if (s.license === 'CC-BY' && !s.credit) throw new Error(`${s.id}: CC-BY sources need a credit`);
     const ids = usedBy.get(s.id) ?? [];
-    const used = ids.length > 6 ? `${ids.slice(0, 6).join(', ')} and ${ids.length - 6} more` : ids.join(', ');
-    lines.push(`| ${cell(s.id)} | ${cell(s.name)} | ${cell(s.author)} | ${s.page} | ${s.license} | ${cell(s.credit ?? '')} | ${cell(used)} |`);
+    // Every id is named, never truncated: the table is the per-asset license record.
+    lines.push(`| ${cell(s.id)} | ${cell(s.name)} | ${cell(s.author)} | ${s.page} | ${s.license} | ${cell(s.credit ?? '')} | ${cell(ids.join(', '))} |`);
   }
   lines.push('');
   fs.writeFileSync(file, lines.join('\n'));

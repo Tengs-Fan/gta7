@@ -50,6 +50,19 @@ describe('LICENSES-ASSETS.md', () => {
     for (const id of used) expect(table.some((r) => r.id === id)).toBe(true);
   });
 
+  it('names every manifest id in its source row, with no truncated lists', () => {
+    const usedBy = new Map<string, string[]>();
+    for (const l of licensesMd.split('\n').filter((x) => x.startsWith('| ') && !x.startsWith('| ID') && !x.startsWith('| ---'))) {
+      const c = l.slice(1, -1).split(/(?<!\\)\|/).map((x) => x.trim());
+      usedBy.set(c[0]!, c[6] ? c[6].split(', ') : []);
+    }
+    const missing = manifest.entries.filter((e) => !(usedBy.get(e.license) ?? []).includes(e.id)).map((e) => `${e.id} (${e.license})`);
+    expect(missing).toEqual([]);
+    expect(licensesMd).not.toMatch(/ and \d+ more/);
+    const named = [...usedBy.values()].flat();
+    expect(named.length).toBe(manifest.entries.length);
+  });
+
   it('every source records a size and sha256 for every file, and an author', () => {
     for (const s of sources) {
       expect(s.author, s.id).toBeTruthy();
