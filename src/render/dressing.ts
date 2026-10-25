@@ -320,7 +320,7 @@ function yards(world: StaticWorld, rules: DressingRules, out: DressingItem[]): v
   }
 }
 
-/** Azura Pier: railings down both long edges (gaps at its landward end and round the Ferris wheel); bollards on the marina. */
+/** Azura Pier: railings down both long edges (gaps at its landward end and round the Ferris wheel); the Marina's railings and bollards. */
 function decks(world: StaticWorld, rules: DressingRules, out: DressingItem[]): void {
   const L = world.layout;
   const pier = L.decks.find((d) => d.name === 'Azura Pier');
@@ -341,8 +341,35 @@ function decks(world: StaticWorld, rules: DressingRules, out: DressingItem[]): v
       if (!rules.violation(it)) out.push(it);
     }
   }
-  for (const d of L.decks) {
-    if (d.name !== 'Marina') continue;
+  // The Marina: railings along the main deck's open edges out over the water (gaps where the finger piers join, and
+  // none on its landward stretch over the sand) and across the fingers' far ends; bollards on the fingers, where the
+  // boats lie, and on the unrailed part of the main deck.
+  const marina = L.decks.filter((d) => d.name === 'Marina');
+  const main = marina.find((d) => d.rect.maxX - d.rect.minX > d.rect.maxZ - d.rect.minZ);
+  const fingers = marina.filter((d) => d !== main);
+  const railFrom = Math.min(...fingers.map((f) => f.rect.minX)) - MARINA_RAIL_LEAD;
+  const railed = (x: number, z: number): boolean => !!main && x > railFrom && rectContains(main.rect, x, z, 0.01);
+  if (main) {
+    const r = main.rect;
+    const joins = (x: number) => fingers.some((f) => x > f.rect.minX - RAIL_CLEAR && x < f.rect.maxX + RAIL_CLEAR && Math.abs(f.rect.minZ - r.maxZ) < 0.5);
+    for (const [z, rot, edge] of [[r.minZ + 0.1, 0, 'min'], [r.maxZ - 0.1, Math.PI, 'max']] as const) {
+      for (let x = railFrom + 1.2; x + 1.2 <= r.maxX - 0.2; x += 2.4) {
+        if (edge === 'max' && (joins(x - 1.2) || joins(x + 1.2))) continue;
+        const it = item('rail', 'deck', x, main.y, z, rot, 0xffffff);
+        if (!rules.violation(it) && !lamps.some((l) => Math.hypot(l.x - x, l.z - z) < 1.4)) out.push(it);
+      }
+    }
+    for (let z = r.minZ + 1.3; z + 1.2 <= r.maxZ - 0.1; z += 2.4) {
+      const it = item('rail', 'deck', r.maxX - 0.1, main.y, z, Math.PI / 2, 0xffffff);
+      if (!rules.violation(it)) out.push(it);
+    }
+  }
+  for (const f of fingers) {
+    const r = f.rect;
+    const it = item('rail', 'deck', (r.minX + r.maxX) / 2, f.y, r.maxZ - 0.1, Math.PI, 0xffffff);
+    if (!rules.violation(it)) out.push(it);
+  }
+  for (const d of marina) {
     const r = d.rect;
     const long = r.maxZ - r.minZ > r.maxX - r.minX;
     const len = long ? r.maxZ - r.minZ : r.maxX - r.minX;
@@ -350,13 +377,18 @@ function decks(world: StaticWorld, rules: DressingRules, out: DressingItem[]): v
       for (const s of [0, 1]) {
         const x = long ? (s ? r.maxX - 0.3 : r.minX + 0.3) : r.minX + t;
         const z = long ? r.minZ + t : (s ? r.maxZ - 0.3 : r.minZ + 0.3);
-        if (long ? false : x < L.bounds.beachStartX + 4) continue;
+        if (long ? false : x < L.bounds.beachStartX + 4 || railed(x, z)) continue;
         const it = item('bollard', 'deck', x, d.y, z, 0);
         if (!rules.violation(it) && !lamps.some((l) => Math.hypot(l.x - x, l.z - z) < 1)) out.push(it);
       }
     }
   }
 }
+
+/** The Marina's main-deck railings start this far (m) landward of its first finger pier. */
+const MARINA_RAIL_LEAD = 12;
+/** Railings keep this far (m) clear of a finger pier's sides where it joins the main deck. */
+const RAIL_CLEAR = 0.4;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Garages
