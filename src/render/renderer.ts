@@ -432,7 +432,9 @@ export class GameRenderer {
     this.lightSprites.setPoolCap(t.headlightPools);
     this.rain.setCount(this.software ? SOFTWARE_RAIN_DROPS : t.rainDrops);
     this.city.wet.setMode(t.wetGround);
-    this.city.setAnisotropy(this.software ? 'software' : q, this.renderer.capabilities?.getMaxAnisotropy?.() ?? 1);
+    const maxAnisotropy = this.renderer.capabilities?.getMaxAnisotropy?.() ?? 1;
+    this.city.setAnisotropy(this.software ? 'software' : q, maxAnisotropy);
+    this.city.setQuality(q, maxAnisotropy, this.software);
     this.env.setWaterGrid(!this.software && t.waterGrid);
     this.streetLighting.group.visible = !this.software && q === 'high';
     if (q !== 'high') this.clearLocalReflections();

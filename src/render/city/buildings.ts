@@ -10,9 +10,13 @@ import {
 } from '../../world/layout';
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB, type UvMode } from '../geo';
 import { facadeRelief } from '../cityArchitecture';
+import { drawLandmark, landmarkTowers } from './landmarks';
+import { PARAPET_H, drawRooftopItem, parapetThickness, rooftopItems } from './rooftops';
+import { createStorefrontMaterial, frontKey, storefrontPlan, type AwningStyle } from './storefronts';
+import { DECOR_PROGRAM, NIGHT_HASH, createFacadeMaterial, facadeTexturesOf, withBuildingFog } from './facadeShader';
 import {
-  CELLS, CELL_DESIGN, DOOR_U, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
-  facadeTextures, signTexture, storefrontAtlas, storefrontUv, swatchUv,
+  CELLS, CELL_DESIGN, DOOR_U, LOBBY_GLASS, FACADE_CELL, FACADE_COLS, FACADE_ROWS, HOUSE_SILL, SHOP_AWNING_TOP, SHOP_FASCIA_FRAC, SHOPS, SWATCHES,
+  signTexture, storefrontAtlas, storefrontUv, swatchUv,
 } from '../textures';
 import type { CityView } from './index';
 
@@ -62,26 +66,14 @@ const OCCUPANCY_KEYS: ReadonlyArray<readonly [number, number]> = [
 ];
 
 /**
- * Share of shops still lit: about 70% from dusk, closing one by one until the last go dark a little
- * after 02:00. Shops keep evening hours only: the early risers before dawn are at home.
+ * Share of shops still lit: about 70% from dusk until late evening (two thirds at 22:30), closing one by
+ * one after that until the last go dark a little after 02:00. Shops keep evening hours only: the early risers before dawn are at home.
  */
 export function shopOccupancy(hours: number): number {
   const h = ((hours % 24) + 24) % 24;
   if (h >= 3 && h < 12) return 0;
-  return 0.7 * clamp01((occupancy(h) - 0.2) / 0.4);
+  return 0.7 * clamp01((occupancy(h) - 0.2) / 0.25);
 }
-
-/** How strongly each facade style follows the occupancy, and the share of its floors lit as a whole (offices, towers). */
-const STYLE_NIGHT: Record<FacadeStyle, { occ: number; floors: number }> = {
-  glassBlue: { occ: 0.8, floors: 0.5 },
-  glassTeal: { occ: 0.8, floors: 0.5 },
-  office: { occ: 0.85, floors: 0.5 },
-  brick: { occ: 1, floors: 0 },
-  stucco: { occ: 1, floors: 0 },
-  house: { occ: 1.05, floors: 0 },
-  warehouse: { occ: 0.35, floors: 0 },
-  hotel: { occ: 1.1, floors: 0 },
-};
 
 /** Storefront classes, stored in the integer part of a frontage's aSeed (the fraction is its random seed). */
 const FRONT_SHOP = 0;
@@ -89,38 +81,8 @@ const FRONT_LOBBY = 1;
 const FRONT_HOME = 2;
 const FRONT_LAMP = 3;
 
-const NIGHT_HASH = /* glsl */ `
-float nightHash(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.x + p3.y) * p3.z);
-}`;
-
 /**
- * Lit windows at night: the emissive map is only a glass mask; which windows glow is decided per
- * window (its cell on the building, never wrapping) and per building (aSeed) against the time of
- * day's occupancy, with warm, cool and flickering-TV tints. Only the colour pass changes: shadow and
- * depth passes use three's own depth materials.
- */
-const FACADE_FRAG_MAIN = /* glsl */ `
-{
-  vec2 cell = floor(vMapUv * vec2(${FACADE_COLS.toFixed(1)}, ${FACADE_ROWS.toFixed(1)}));
-  // Whole numbers only: the hash would turn the slightest float error into per-pixel noise.
-  float s = floor(vSeed * 1000.0 + 0.5);
-  float hCell = nightHash(cell + vec2(s, s * 1.37 + 11.0));
-  float hFloor = nightHash(vec2(cell.y * 1.13 + s, s * 0.71 + 17.0));
-  float wholeFloor = step(nightHash(vec2(cell.y + 41.0, s + 3.0)), uFloorShare);
-  float lit = step(mix(hCell, hFloor, wholeFloor), uOccupancy * uStyleOcc);
-  float ht = nightHash(cell * 1.71 + vec2(s * 0.37 + 5.0, 9.0));
-  vec3 tint = vec3(1.0, 0.66, 0.36);
-  if (ht > 0.75) tint = vec3(0.75, 0.86, 1.0);
-  if (ht > 0.95) tint = vec3(0.32, 0.5, 1.0) * (0.6 + 0.4 * sin(uTime * 7.0 + ht * 60.0) * sin(uTime * 2.3 + ht * 17.0));
-  float bright = 0.7 + 0.3 * nightHash(cell * 0.73 + vec2(9.0, s));
-  totalEmissiveRadiance *= lit * bright * tint;
-}`;
-
-/**
- * Shops switch off one by one through the night; lobbies stay lit but dim after the evening;
+ * Shops switch off one by one through the night (down to a dim night light); lobbies stay lit but dim after the evening;
  * porch lights follow the occupants; loading-bay lamps (and the gun shops) never go out.
  */
 const FRONT_FRAG_MAIN = /* glsl */ `
@@ -128,29 +90,13 @@ const FRONT_FRAG_MAIN = /* glsl */ `
   float cls = floor(vSeed);
   float sd = fract(vSeed);
   float on = 1.0;
-  if (cls < 0.5) on = step(sd, uShopOcc);
-  else if (cls < 1.5) on = 0.3 + 0.7 * clamp(uOccupancy / 0.6, 0.0, 1.0);
+  // A closed shop keeps a dim night light on behind its glass.
+  if (cls < 0.5) on = mix(0.15, 1.0, step(sd, uShopOcc));
+  // Lobbies are big lit rooms: a little dimmer per square metre than a shop window.
+  else if (cls < 1.5) on = 0.75 * (0.3 + 0.7 * clamp(uOccupancy / 0.6, 0.0, 1.0));
   else if (cls < 2.5) on = step(sd, uOccupancy * 1.3);
   totalEmissiveRadiance *= on;
 }`;
-
-/** Adds the per-vertex aSeed attribute and a fragment block after the emissive map to a standard material. */
-function nightShader(mat: THREE.MeshStandardMaterial, key: string, uniforms: Record<string, { value: number }>, main: string): void {
-  const decl = Object.keys(uniforms)
-    .map((k) => `uniform float ${k};`)
-    .join('\n');
-  mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aSeed;\nflat varying float vSeed;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSeed = aSeed;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nflat varying float vSeed;\n${decl}\n${NIGHT_HASH}`)
-      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\nif (dot(totalEmissiveRadiance, vec3(1.0)) > 0.001) ${main}`);
-  };
-  // Every material sharing this key gets identical GLSL (per-material values are uniforms), so they share one program.
-  mat.customProgramCacheKey = () => key;
-}
 
 /** One wall of a ground tier, walked like GeoBuilder.box so the facade UVs stay continuous round the corners. */
 interface TierWall {
@@ -167,8 +113,6 @@ interface TierWall {
 
 const SIDE_INDEX: Record<Side, number> = { N: 0, E: 1, S: 2, W: 3 };
 const PAWN = SHOPS.findIndex((s) => s.name === 'PAWN');
-const BEACH_SHOPS = SHOPS.map((s, i) => (s.beach ? i : -1)).filter((i) => i >= 0);
-const INLAND_SHOPS = SHOPS.map((s, i) => (s.name === 'SURF SHOP' ? -1 : i)).filter((i) => i >= 0);
 const WHITE: RGB = [1, 1, 1];
 
 function linearRgb(hex: number): RGB {
@@ -292,6 +236,15 @@ function mirrored(uv: readonly [number, number, number, number]): [number, numbe
   return [uv[2], uv[1], uv[0], uv[3]];
 }
 
+/** Every texture the building materials sample (facade walls, glass and night masks, the storefront atlases). */
+export function buildingTextures(view: CityView): THREE.Texture[] {
+  const out = new Set<THREE.Texture>();
+  for (const m of view.materials.facades.values()) for (const t of facadeTexturesOf(m)) out.add(t);
+  const front = view.materials.storefront;
+  if (front) for (const t of [front.map, front.emissiveMap, front.userData.interior as THREE.Texture | undefined]) if (t) out.add(t);
+  return [...out];
+}
+
 export function buildBuildings(view: CityView): void {
   const layout = view.world.layout;
   const builders = new Map<FacadeStyle, GeoBuilder>();
@@ -301,6 +254,10 @@ export function buildBuildings(view: CityView): void {
   const decor = new GeoBuilder(true);
   const relief = new GeoBuilder(true);
   const rng = new Rng(4242);
+  const landmarks = new Map(landmarkTowers(layout).map((l) => [l.id, l]));
+  const atlas = storefrontAtlas();
+  view.storefronts.clear();
+  for (const f of storefrontPlan(layout)) view.storefronts.set(frontKey(f.building, f.side, f.index), f);
 
   for (const b of layout.buildings) {
     const gb = builders.get(b.style)!;
@@ -327,38 +284,27 @@ export function buildBuildings(view: CityView): void {
       else {
         const rc = scaleRgb([0.55, 0.54, 0.52], 0.85 + rng.next() * 0.3);
         roofs.flat(t.minX, t.minZ, t.maxX, t.maxZ, t.y1, { kind: 'world', scale: 6 }, rc);
-        // Parapet lip.
-        const lip = 0.6;
+        // Parapet round every flat roof, flush with the walls below.
+        const lip = PARAPET_H;
+        const th = parapetThickness(t);
         const lc: RGB = [color[0] * 0.8, color[1] * 0.8, color[2] * 0.8];
-        if (rectW(t) > 6 && rectD(t) > 6) {
-          roofs.box(t.minX, t.y1, t.minZ, t.maxX, t.y1 + lip, t.minZ + 0.3, { uv: { kind: 'world', scale: 4 }, color: lc });
-          roofs.box(t.minX, t.y1, t.maxZ - 0.3, t.maxX, t.y1 + lip, t.maxZ, { uv: { kind: 'world', scale: 4 }, color: lc });
-          roofs.box(t.minX, t.y1, t.minZ + 0.3, t.minX + 0.3, t.y1 + lip, t.maxZ - 0.3, { uv: { kind: 'world', scale: 4 }, color: lc });
-          roofs.box(t.maxX - 0.3, t.y1, t.minZ + 0.3, t.maxX, t.y1 + lip, t.maxZ - 0.3, { uv: { kind: 'world', scale: 4 }, color: lc });
-        }
+        const pu = { kind: 'world' as const, scale: 4 };
+        roofs.box(t.minX, t.y1, t.minZ, t.maxX, t.y1 + lip, t.minZ + th, { uv: pu, color: lc });
+        roofs.box(t.minX, t.y1, t.maxZ - th, t.maxX, t.y1 + lip, t.maxZ, { uv: pu, color: lc });
+        roofs.box(t.minX, t.y1, t.minZ + th, t.minX + th, t.y1 + lip, t.maxZ - th, { uv: pu, color: lc });
+        roofs.box(t.maxX - th, t.y1, t.minZ + th, t.maxX, t.y1 + lip, t.maxZ - th, { uv: pu, color: lc });
       }
     }
+    const lm = landmarks.get(b.id);
+    if (lm) drawLandmark(gb, relief, b, lm, { kind: 'facade', w: cell.w * FACADE_COLS, h: cell.h * FACADE_ROWS, offU, offV, baseY }, color);
+    else for (const it of rooftopItems(b)) drawRooftopItem(relief, it);
     if (b.sign) addSign(view, b, b.sign.text, b.sign.color, b.sign.side);
   }
 
   const nu = view.nightU;
+  const bu = view.buildingU;
   STYLES.forEach((style, i) => {
-    const tex = facadeTextures(style, 100 + i);
-    const glass = style === 'glassBlue' || style === 'glassTeal';
-    const mat = new THREE.MeshStandardMaterial({
-      map: tex.map,
-      emissiveMap: tex.emissive,
-      emissive: new THREE.Color(0xffffff),
-      emissiveIntensity: 0,
-      roughnessMap: tex.rough,
-      normalMap: tex.normal,
-      normalScale: new THREE.Vector2(glass ? 0.5 : 0.65, glass ? 0.5 : 0.65),
-      roughness: 1,
-      metalness: glass ? 0.15 : 0.02,
-      vertexColors: true,
-    });
-    const sn = STYLE_NIGHT[style];
-    nightShader(mat, 'gta7-facade-night', { uOccupancy: nu.occupancy, uTime: nu.time, uStyleOcc: { value: sn.occ }, uFloorShare: { value: sn.floors } }, FACADE_FRAG_MAIN);
+    const mat = createFacadeMaterial(style, 100 + i, nu, bu);
     view.materials.facades.set(style, mat);
     const geo = builders.get(style)!.build();
     if (geo.getAttribute('position').count > 0) view.add(geo, mat, { shadow: true, name: `facade-${style}` });
@@ -369,22 +315,13 @@ export function buildBuildings(view: CityView): void {
   roofMat.vertexColors = true;
   roofMat.side = THREE.DoubleSide;
   roofMat.shadowSide = THREE.BackSide;
+  withBuildingFog(roofMat, 'gta7-roof', bu);
   view.add(roofs.build(), roofMat, { shadow: true, name: 'roofs' });
 
-  const atlas = storefrontAtlas();
-  const frontMat = new THREE.MeshStandardMaterial({
-    map: atlas.map,
-    emissiveMap: atlas.emissive,
-    emissive: new THREE.Color(0xffffff),
-    emissiveIntensity: 0,
-    vertexColors: true,
-    roughness: 0.55,
-    metalness: 0.05,
-  });
-  nightShader(frontMat, 'gta7-storefront-night', { uOccupancy: nu.occupancy, uShopOcc: nu.shopOccupancy }, FRONT_FRAG_MAIN);
+  const frontMat = createStorefrontMaterial(atlas, { uOccupancy: nu.occupancy, uShopOcc: nu.shopOccupancy }, FRONT_FRAG_MAIN, NIGHT_HASH, bu);
   view.materials.storefront = frontMat;
   view.add(front.build(), frontMat, { shadow: true, name: 'storefronts' });
-  const decorMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide });
+  const decorMat = withBuildingFog(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide }), DECOR_PROGRAM, bu);
   view.materials.decor = decorMat;
   view.add(decor.build(), decorMat, { shadow: true, name: 'ground-decor' });
   const reliefMat = view.surface('concrete');
@@ -392,6 +329,7 @@ export function buildBuildings(view: CityView): void {
   reliefMat.map = null;
   reliefMat.vertexColors = true;
   reliefMat.roughness = 0.78;
+  withBuildingFog(reliefMat, 'gta7-building-trim', bu);
   view.add(relief.build(), reliefMat, { shadow: true, name: 'architectural-trim' });
 }
 
@@ -454,7 +392,6 @@ function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Build
   // A marker's spot is where the sim puts the entrance; mid-wall is only tidier.
   const spot = marker ? { at: clamp((marker.x - wl.x0) * ux + (marker.z - wl.z0) * uz, 0, len), u: doorU, pull: 2 } : { at: len / 2, u: doorU, pull: 0.3 };
   const split = frontageSplit(len, doorCell >= 0 ? spot : null);
-  let prevShop = -1;
   for (let i = 0; i + 1 < split.edges.length; i++) {
     const s0 = split.edges[i]!;
     const seg = split.edges[i + 1]! - s0;
@@ -484,18 +421,18 @@ function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Build
           quadUv(front, ax, az, bx, bz, fascia, y1, swatchUv(SWATCHES.gunFascia), WHITE);
           continue;
         }
-        const pool = b.district === 'beachfront' && rnd(2) < 0.75 ? BEACH_SHOPS : INLAND_SHOPS;
-        cell = pool[Math.floor(rnd(3) * pool.length)]!;
-        if (cell === prevShop) cell = pool[(pool.indexOf(cell) + 1) % pool.length]!;
-        prevShop = cell;
+        const plan = view.storefronts.get(frontKey(b.id, wl.side, i));
+        cell = plan?.shop ?? 0;
         cls = FRONT_SHOP;
-        const awningHex = SHOPS[cell]!.awning;
-        if (awningHex >= 0 && rnd(4) < 0.75) awning(decor, ax, az, bx, bz, ux, uz, y0, y1, wl.gap, linearRgb(awningHex), rnd(5) < 0.5);
+        if (plan && plan.awning !== 'none') awning(decor, ax, az, bx, bz, ux, uz, y0, y1, wl.gap, linearRgb(plan.color), plan.awning);
+        else if (rnd(6) < 0.5) planter(decor, ax + ux * seg * 0.5, az + uz * seg * 0.5, ux, uz, y0, Math.min(1.6, seg * 0.3), rnd(7));
         break;
       }
       case 'lobby': {
-        cell = door ? doorCell : CELLS.lobbyGlass;
+        // The plain lobby glass takes its three designs in turn, so neighbours never match.
+        cell = door ? doorCell : LOBBY_GLASS[(i + (hashInts(b.id, sideIx, 0x10bb) % 3)) % 3]!;
         cls = FRONT_LOBBY;
+        if (!door && i % 2 === 0) planter(decor, ax + ux * seg * 0.5, az + uz * seg * 0.5, ux, uz, y0, Math.min(2.2, seg * 0.36), rnd(7));
         if (door && special === 'bank') steps(decor, ax, az, bx, bz, ux, uz, y0);
         else if (door) canopy(decor, ax, az, bx, bz, ux, uz, y0, y1, wl.gap, special);
         break;
@@ -517,26 +454,61 @@ function frontage(view: CityView, front: GeoBuilder, decor: GeoBuilder, b: Build
     front.seed = seed(cls);
     // Plain glass and window cells are mirrored on every other quad to break up the repeat; a door
     // quad is mirrored when that brings its door to its spot.
-    const flip = door ? split.mirror : (cell === CELLS.lobbyGlass || cell === CELLS.houseWindows) && i % 2 === 1;
+    const flip = door ? split.mirror : ((LOBBY_GLASS as readonly number[]).includes(cell) || cell === CELLS.houseWindows) && i % 2 === 1;
     const uv = storefrontUv(cell);
     quadUv(front, ax, az, bx, bz, y0, y1, flip ? mirrored(uv) : uv, tint);
   }
 }
 
-/** Striped fabric awning over a shop window: a sloped top, a valance and two side cheeks. */
-function awning(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, ux: number, uz: number, y0: number, y1: number, gap: number, color: RGB, striped: boolean): void {
+/** Awning depth (m) out from the wall over a frontage whose wall stands `gap` m from its lot edge. */
+export function awningDepth(gap: number): number {
+  return Math.min(1.5, Math.max(0.8, gap + 0.3));
+}
+
+/**
+ * A fabric awning over a shop window: sloped (plain or striped, with a valance and side cheeks), a rounded dome, or
+ * a flat box canopy. All are double-sided geometry, so their undersides show from the street.
+ */
+function awning(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, ux: number, uz: number, y0: number, y1: number, gap: number, color: RGB, style: AwningStyle): void {
   const nx = -uz;
   const nz = ux;
-  const depth = Math.min(1.5, Math.max(0.8, gap + 0.3));
+  const depth = awningDepth(gap);
   const top = y0 + (y1 - y0) * (1 - SHOP_AWNING_TOP / CELL_DESIGN.shop.h);
-  const low = top - 0.45;
-  const val = 0.28;
   const m = 0.22;
   const sx = ax + ux * m;
   const sz = az + uz * m;
   const len = Math.hypot(bx - ax, bz - az) - 2 * m;
-  const stripes = striped ? Math.max(2, Math.round(len / 0.45)) : 1;
   const cream: RGB = [0.92, 0.89, 0.82];
+  const uv4 = [0, 0, 1, 0, 1, 1, 0, 1];
+  if (style === 'box') {
+    const mx = sx + (ux * len) / 2;
+    const mz = sz + (uz * len) / 2;
+    boxAround(g, mx + nx * (depth / 2), mz + nz * (depth / 2), Math.abs(ux) * len + Math.abs(nx) * depth, Math.abs(uz) * len + Math.abs(nz) * depth, top - 0.3, top - 0.08, color);
+    boxAround(g, mx + nx * (depth - 0.02), mz + nz * (depth - 0.02), Math.abs(ux) * len + Math.abs(nx) * 0.04, Math.abs(uz) * len + Math.abs(nz) * 0.04, top - 0.42, top - 0.08, scaleRgb(color, 0.7));
+    return;
+  }
+  if (style === 'dome') {
+    // A quarter-round profile from the wall out and down, in strips along the window.
+    const seg = 5;
+    const rise = 0.75;
+    const prof = Array.from({ length: seg + 1 }, (_, k) => {
+      const a = (k / seg) * (Math.PI / 2);
+      return [Math.sin(a) * depth, top - (1 - Math.cos(a)) * rise] as const;
+    });
+    for (let k = 0; k < seg; k++) {
+      const [o0, h0] = prof[k]!;
+      const [o1, h1] = prof[k + 1]!;
+      const c = scaleRgb(color, 0.9 + 0.1 * (k % 2));
+      g.quad(sx + nx * o1, h1, sz + nz * o1, sx + ux * len + nx * o1, h1, sz + uz * len + nz * o1, sx + ux * len + nx * o0, h0, sz + uz * len + nz * o0, sx + nx * o0, h0, sz + nz * o0, uv4, c);
+      g.tri(sx, h1, sz, sx + nx * o1, h1, sz + nz * o1, sx + nx * o0, h0, sz + nz * o0, [0, 0, 1, 0, 1, 1], color);
+      g.tri(sx + ux * len + nx * o0, h0, sz + uz * len + nz * o0, sx + ux * len + nx * o1, h1, sz + uz * len + nz * o1, sx + ux * len, h1, sz + uz * len, [0, 0, 1, 0, 1, 1], color);
+    }
+    return;
+  }
+  const striped = style === 'striped';
+  const low = top - 0.45;
+  const val = 0.28;
+  const stripes = striped ? Math.max(2, Math.round(len / 0.45)) : 1;
   for (let k = 0; k < stripes; k++) {
     const c = striped && k % 2 === 1 ? cream : color;
     const p0x = sx + ux * ((len * k) / stripes);
@@ -544,14 +516,38 @@ function awning(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, u
     const p1x = sx + ux * ((len * (k + 1)) / stripes);
     const p1z = sz + uz * ((len * (k + 1)) / stripes);
     // Sloped top, from the wall out and down.
-    g.quad(p0x + nx * depth, low, p0z + nz * depth, p1x + nx * depth, low, p1z + nz * depth, p1x, top, p1z, p0x, top, p0z, [0, 0, 1, 0, 1, 1, 0, 1], c);
+    g.quad(p0x + nx * depth, low, p0z + nz * depth, p1x + nx * depth, low, p1z + nz * depth, p1x, top, p1z, p0x, top, p0z, uv4, c);
     // Valance hanging from the front edge.
-    g.quad(p0x + nx * depth, low - val, p0z + nz * depth, p1x + nx * depth, low - val, p1z + nz * depth, p1x + nx * depth, low, p1z + nz * depth, p0x + nx * depth, low, p0z + nz * depth, [0, 0, 1, 0, 1, 1, 0, 1], c);
+    g.quad(p0x + nx * depth, low - val, p0z + nz * depth, p1x + nx * depth, low - val, p1z + nz * depth, p1x + nx * depth, low, p1z + nz * depth, p0x + nx * depth, low, p0z + nz * depth, uv4, c);
   }
   const ex = sx + ux * len;
   const ez = sz + uz * len;
   g.tri(sx, top, sz, sx + nx * depth, low, sz + nz * depth, sx + nx * depth, low - val, sz + nz * depth, [0, 0, 1, 0, 1, 1], color);
   g.tri(ex + nx * depth, low - val, ez + nz * depth, ex + nx * depth, low, ez + nz * depth, ex, top, ez, [0, 0, 1, 0, 1, 1], color);
+}
+
+/** Depth (m) of a planter standing against a wall. */
+export const PLANTER_DEPTH = 0.55;
+
+/** A planter box with clipped shrubs, `w` m long, its back against the wall at (cx, cz). */
+function planter(g: GeoBuilder, cx: number, cz: number, ux: number, uz: number, y0: number, w: number, r: number): void {
+  const nx = -uz;
+  const nz = ux;
+  const d = PLANTER_DEPTH;
+  const box = r < 0.5 ? ([0.56, 0.36, 0.26] as RGB) : ([0.6, 0.6, 0.58] as RGB);
+  const px = cx + nx * (0.03 + d / 2);
+  const pz = cz + nz * (0.03 + d / 2);
+  const span = (a: number, b: number): [number, number] => [Math.abs(ux) * a + Math.abs(nx) * b, Math.abs(uz) * a + Math.abs(nz) * b];
+  let [sx, sz] = span(w, d);
+  boxAround(g, px, pz, sx, sz, y0 - 0.02, y0 + 0.5, box);
+  const n = Math.max(2, Math.round(w / 0.5));
+  for (let k = 0; k < n; k++) {
+    const t = (k + 0.5) / n - 0.5;
+    const h = 0.35 + 0.25 * (((k * 7 + Math.floor(r * 13)) % 5) / 4);
+    const green: RGB = [0.15 + 0.05 * (k % 3), 0.34 + 0.06 * ((k + 1) % 3), 0.13];
+    [sx, sz] = span(w / n - 0.04, d - 0.12);
+    boxAround(g, px + ux * t * w, pz + uz * t * w, sx, sz, y0 + 0.5, y0 + 0.5 + h, green);
+  }
 }
 
 /** A cantilevered slab over a lobby entrance. */
@@ -560,7 +556,7 @@ function canopy(g: GeoBuilder, ax: number, az: number, bx: number, bz: number, u
   const nz = ux;
   const len = Math.hypot(bx - ax, bz - az);
   const width = Math.min(len * 0.8, 4.6);
-  const depth = Math.min(2.6, Math.max(1.4, gap + 0.8));
+  const depth = Math.min(2.4, Math.max(1.4, gap + 0.8));
   const y = y0 + Math.min(4.3, (y1 - y0) * 0.62);
   const mx = (ax + bx) / 2;
   const mz = (az + bz) / 2;

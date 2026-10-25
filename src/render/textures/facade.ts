@@ -173,8 +173,7 @@ export function facadeTextures(style: FacadeStyle, seed: number): FacadeTextures
           glassBottom = '#2c5a78';
           break;
       }
-      if (style === 'house' && (col + row) % 3 === 1) continue; // blank walls on houses
-      if (style === 'warehouse' && row % 2 === 1) continue;
+      if (!facadeWindowAt(style, col, row)) continue;
       // Recess and runoff live on the opaque wall. Glazing below stays perfectly planar.
       m.fillStyle = 'rgba(23,30,35,0.22)';
       m.fillRect(wx - 2, wy - 2, ww + 4, wh + 5);
@@ -305,3 +304,105 @@ function glassMask(e: CanvasRenderingContext2D, rng: Rng, style: FacadeStyle, wx
     for (let k = 0; k < 4; k++) e.fillRect(x0 + (cell / 4) * k, wy, 2, wh);
   }
 }
+
+/**
+ * The window opening of every cell of a style, as fractions of the cell (x from the cell's left, y from its bottom,
+ * as the facade UVs run). `ribbon` openings run on into the next cell (no side reveals). These are the glass
+ * rectangles the canvas above paints, so the night mask and the recessed glass line up.
+ */
+export interface FacadeWindow {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  ribbon: boolean;
+  /** How far (m) the glass sits behind the wall plane. */
+  depth: number;
+  /** Height (m) of the sill under the opening (drawn in relief by the facade shader). */
+  sill: number;
+  /** Cells with no window: 0 none, 1 every other row (warehouse), 2 one cell in three (house). */
+  skip: 0 | 1 | 2;
+}
+
+const px = (v: number): number => v / 64;
+
+export const FACADE_WINDOW: Record<FacadeStyle, FacadeWindow> = {
+  glassBlue: { x0: px(3), y0: 1 - px(60), x1: px(61), y1: 1 - px(6), ribbon: false, depth: 0.14, sill: 0.04, skip: 0 },
+  glassTeal: { x0: px(3), y0: 1 - px(60), x1: px(61), y1: 1 - px(6), ribbon: false, depth: 0.14, sill: 0.04, skip: 0 },
+  office: { x0: 0, y0: 1 - px(50), x1: 1, y1: 1 - px(18), ribbon: true, depth: 0.3, sill: 0.08, skip: 0 },
+  brick: { x0: px(18), y0: 1 - px(52), x1: px(46), y1: 1 - px(14), ribbon: false, depth: 0.3, sill: 0.09, skip: 0 },
+  stucco: { x0: px(14), y0: 1 - px(52), x1: px(50), y1: 1 - px(14), ribbon: false, depth: 0.26, sill: 0.08, skip: 0 },
+  house: { x0: px(18), y0: 1 - px(50), x1: px(46), y1: 1 - px(16), ribbon: false, depth: 0.16, sill: 0.06, skip: 2 },
+  warehouse: { x0: px(8), y0: 1 - px(24), x1: px(56), y1: 1 - px(10), ribbon: false, depth: 0.16, sill: 0.05, skip: 1 },
+  hotel: { x0: px(6), y0: 1 - px(48), x1: px(58), y1: 1 - px(10), ribbon: false, depth: 0.32, sill: 0.08, skip: 0 },
+};
+
+/** Whether the canvas paints a window in a cell (col, row counted on the canvas, row 0 at its top). */
+export function facadeWindowAt(style: FacadeStyle, col: number, row: number): boolean {
+  if (style === 'house') return (col + row) % 3 !== 1;
+  if (style === 'warehouse') return row % 2 === 0;
+  return true;
+}
+
+/**
+ * The PBR wall of each style: a texture set from src/assets/textures (albedo, normal, ORM), the metres one repeat
+ * covers, how far its colour is replaced by the style's base colour (keeping the set's light and shade), the
+ * roughness factor on its ORM green channel, and the glass in the openings.
+ */
+export interface FacadeLook {
+  set: string;
+  tile: number;
+  /** sRGB base colour of the wall (multiplied by the per-building tint). */
+  base: number;
+  /** 0: the set's own colour (brick); 1: its luminance times the base colour. */
+  desaturate: number;
+  /** Mean linear luminance of the set's albedo, which the detail is divided by. */
+  meanLuma: number;
+  roughness: number;
+  metalness: number;
+  normalScale: number;
+  glassRoughness: number;
+  glassMetalness: number;
+  /** Mean linear colour of the glass seen from afar (the far shading blends towards it). */
+  glassAlbedo: number;
+}
+
+export const FACADE_LOOK: Record<FacadeStyle, FacadeLook> = {
+  glassBlue: { set: 'white_plaster_02', tile: 2.2, base: 0x232a33, desaturate: 1, meanLuma: 0.2477, roughness: 0.55, metalness: 0.2, normalScale: 0.35, glassRoughness: 0.05, glassMetalness: 0.55, glassAlbedo: 0x2d4f73 },
+  glassTeal: { set: 'white_plaster_02', tile: 2.2, base: 0x1f2c2b, desaturate: 1, meanLuma: 0.2477, roughness: 0.55, metalness: 0.2, normalScale: 0.35, glassRoughness: 0.05, glassMetalness: 0.55, glassAlbedo: 0x2a5d58 },
+  office: { set: 'concrete_pavement', tile: 3.6, base: 0xcdbb98, desaturate: 0.7, meanLuma: 0.1827, roughness: 1, metalness: 0, normalScale: 0.8, glassRoughness: 0.08, glassMetalness: 0.25, glassAlbedo: 0x34495e },
+  brick: { set: 'brick_wall_001', tile: 1.6, base: 0x8d3d2c, desaturate: 0, meanLuma: 0.0881, roughness: 1, metalness: 0, normalScale: 1, glassRoughness: 0.08, glassMetalness: 0.15, glassAlbedo: 0x3b4d5e },
+  stucco: { set: 'white_plaster_02', tile: 2.6, base: 0xe8dcc4, desaturate: 1, meanLuma: 0.2477, roughness: 1, metalness: 0, normalScale: 0.9, glassRoughness: 0.08, glassMetalness: 0.15, glassAlbedo: 0x3b4d5e },
+  house: { set: 'white_plaster_02', tile: 2.6, base: 0xefe5d6, desaturate: 1, meanLuma: 0.2477, roughness: 1, metalness: 0, normalScale: 0.9, glassRoughness: 0.08, glassMetalness: 0.1, glassAlbedo: 0x44586a },
+  warehouse: { set: 'box_profile_metal_sheet', tile: 3, base: 0x8f9aa5, desaturate: 1, meanLuma: 0.0454, roughness: 1.3, metalness: 0.3, normalScale: 1, glassRoughness: 0.1, glassMetalness: 0.1, glassAlbedo: 0x3b4d5e },
+  hotel: { set: 'white_plaster_02', tile: 2.6, base: 0xf1efe9, desaturate: 1, meanLuma: 0.2477, roughness: 1, metalness: 0, normalScale: 0.9, glassRoughness: 0.07, glassMetalness: 0.2, glassAlbedo: 0x2f5470 },
+};
+
+/** Asset ids of a style's wall maps. */
+export function facadeMapIds(style: FacadeStyle): { albedo: string; normal: string; orm: string } {
+  const s = FACADE_LOOK[style].set;
+  return { albedo: `tex.${s}.albedo`, normal: `tex.${s}.normal`, orm: `tex.${s}.orm` };
+}
+
+/**
+ * Stand-ins for the wall maps when the WebP sets are not loaded (Node tests, `?assets=0`): a light grain at the
+ * set's mean luminance, a flat normal and the set's roughness.
+ */
+export function facadeWallFallback(style: FacadeStyle): { map: THREE.Texture; normal: THREE.Texture; orm: THREE.Texture } {
+  const S = 64;
+  const [cm, m] = canvas(S, S);
+  const grey = Math.round(Math.pow(FACADE_LOOK[style].meanLuma, 1 / 2.2) * 255);
+  m.fillStyle = `rgb(${grey},${grey},${grey})`;
+  m.fillRect(0, 0, S, S);
+  noise(m, S, S, new Rng(0x77a11 + STYLE_SEED[style]), 14, 2);
+  const flat = (r: number, g: number, b: number, srgb: boolean): THREE.DataTexture => {
+    const t = new THREE.DataTexture(new Uint8Array([r, g, b, 255]), 1, 1);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  return { map: toTexture(cm), normal: flat(128, 128, 255, false), orm: flat(255, 230, 0, false) };
+}
+
+const STYLE_SEED: Record<FacadeStyle, number> = { glassBlue: 1, glassTeal: 2, office: 3, brick: 4, stucco: 5, house: 6, warehouse: 7, hotel: 8 };

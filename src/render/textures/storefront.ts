@@ -6,17 +6,19 @@ import { canvas, toTexture } from './misc';
 
 // ---------------------------------------------------------------------------
 // Storefront atlas: the street-level ground floors (shops, lobbies, the bank, loading bays and
-// house fronts). One 2048x1024 colour canvas and a matching emissive canvas hold 24 cells of
-// 256x336 px in three rows of eight, plus a 16 px strip of swatches along the bottom.
+// house fronts). One 2048x1360 colour canvas and matching emissive and interior canvases hold up to 32 cells of
+// 256x336 px in four rows of eight, plus a 16 px strip of swatches along the bottom. The interior canvas holds
+// what is seen through each cell's glass (its alpha is the see-through mask); the storefront shader shows it as a
+// room behind the glass that shifts with the view.
 // Each cell is drawn for a physical frontage (CELL_DESIGN, in metres) and squeezed into its
 // square-ish slot, so text and shapes come out undistorted on a quad of that size.
 
 const ATLAS_W = 2048;
-const ATLAS_H = 1024;
+const ATLAS_H = 1360;
 const ATLAS_COLS = 8;
 const CELL_PX_W = 256;
 const CELL_PX_H = 336;
-const SWATCH_Y = 3 * CELL_PX_H;
+const SWATCH_Y = 4 * CELL_PX_H;
 const SWATCH_PX_W = 256;
 const SWATCH_PX_H = ATLAS_H - SWATCH_Y;
 /**
@@ -37,7 +39,42 @@ export const CELLS = {
   houseDoorA: 21,
   houseDoorB: 22,
   houseWindows: 23,
+  lobbyLounge: 24,
+  lobbyGallery: 25,
 } as const;
+/** Cells drawn in the atlas (the last row has room for more). */
+export const ATLAS_CELLS = 26;
+export const ATLAS_SIZE = { w: ATLAS_W, h: ATLAS_H, cols: ATLAS_COLS, cellW: CELL_PX_W, cellH: CELL_PX_H } as const;
+/** The plain lobby glass cells, used in turn along a lobby wall. */
+export const LOBBY_GLASS = [CELLS.lobbyGlass, CELLS.lobbyLounge, CELLS.lobbyGallery] as const;
+
+/**
+ * The room seen through a cell's glass: its window rectangle in the cell (metres from the cell's top left, as the
+ * cell is drawn) and the room's depth behind the glass (m). Cells without one show their glass flat.
+ */
+export interface InteriorRoom {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  depth: number;
+  design: { w: number; h: number };
+}
+export const INTERIORS: Record<number, InteriorRoom> = {};
+
+/** UV rectangle [u0, v0, u1, v1] of a cell's room window (see storefrontUv). */
+export function interiorUv(cell: number): [number, number, number, number] | null {
+  const room = INTERIORS[cell];
+  if (!room) return null;
+  const r = cellRect(cell);
+  const sx = r.w / room.design.w;
+  const sy = r.h / room.design.h;
+  const x0 = r.x + room.x * sx;
+  const x1 = r.x + (room.x + room.w) * sx;
+  const yTop = r.y + room.y * sy;
+  const yBot = r.y + (room.y + room.h) * sy;
+  return [x0 / ATLAS_W, 1 - yBot / ATLAS_H, x1 / ATLAS_W, 1 - yTop / ATLAS_H];
+}
 export const SWATCHES = { gunFascia: 0 } as const;
 
 /** Frontage (width, height in metres) each kind of cell is drawn for. */
@@ -243,7 +280,27 @@ class Painter {
 interface Pair {
   m: Painter;
   e: Painter;
+  /** The interior canvas (what is seen through the glass, alpha = see-through). */
+  i: Painter;
   rng: Rng;
+  cell: number;
+}
+
+/** Copies what has been painted so far in a window rectangle onto the interior canvas and registers the room. */
+function room(p: Pair, x: number, y: number, w: number, h: number, depth: number, design: { w: number; h: number }): void {
+  const { m, i } = p;
+  const px = m.x(x);
+  const py = m.y(y);
+  const pw = w * m.sx;
+  const ph = h * m.sy;
+  const src = (m.c as CanvasRenderingContext2D & { canvas?: HTMLCanvasElement }).canvas;
+  if (src && typeof i.c.drawImage === 'function') i.c.drawImage(src, px, py, pw, ph, px, py, pw, ph);
+  INTERIORS[p.cell] = { x, y, w, h, depth, design };
+}
+
+/** Something in front of the glass (a bar, a shutter, a sign): not see-through. */
+function cut(p: Pair, x: number, y: number, w: number, h: number): void {
+  p.i.c.clearRect(p.i.x(x), p.i.y(y), w * p.i.sx, h * p.i.sy);
 }
 
 interface ShopDesign extends ShopFront {
@@ -272,6 +329,7 @@ function windowSign(p: Pair, win: { x: number; y: number; w: number }, cy: numbe
   const cx = win.x + win.w * 0.75;
   const y = win.y + cy;
   const rim = 0.03;
+  cut(p, cx - sw / 2, y - sh / 2, sw, sh);
   m.rect(cx - sw / 2, y - sh / 2, sw, sh, neon);
   m.rect(cx - sw / 2 + rim, y - sh / 2 + rim, sw - 2 * rim, sh - 2 * rim, plate);
   e.rect(cx - sw / 2, y - sh / 2, sw, sh, neon);
@@ -609,6 +667,8 @@ function drawShop(p: Pair, d: ShopDesign): void {
     [1, '#4a4038'],
   ]);
   d.goods(p, winX, winY, winW, winH);
+  room(p, winX, winY, winW, winH, d.grille ? 1.6 : 2.4, CELL_DESIGN.shop);
+  cut(p, winX + winW / 2 - 0.04, winY, 0.08, winH);
   m.rect(winX + winW / 2 - 0.04, winY, 0.08, winH, d.trim);
   e.rect(winX + winW / 2 - 0.04, winY, 0.08, winH, '#000');
   // Bulkhead under the window.
@@ -650,15 +710,19 @@ function drawShop(p: Pair, d: ShopDesign): void {
     for (let y = 0; y < sh; y += 0.09) m.rect(winX, winY + y, winW, 0.05, '#9aa1a8');
     m.rect(winX, winY, winW, sh, 'rgba(110,116,122,0.45)');
     m.rect(winX - 0.05, winY + sh - 0.06, winW + 0.1, 0.08, '#555b61');
+    cut(p, winX, winY, winW, sh + 0.02);
     e.rect(winX, winY, winW, sh, '#000');
   }
   if (d.grille) {
     for (let x = winX + 0.1; x < winX + winW; x += 0.18) {
       m.rect(x, winY, 0.035, winH, '#3a3a3a');
       e.rect(x, winY, 0.035, winH, '#000');
+      cut(p, x, winY, 0.035, winH);
     }
     m.rect(winX, winY + winH * 0.33, winW, 0.03, '#3a3a3a');
     m.rect(winX, winY + winH * 0.66, winW, 0.03, '#3a3a3a');
+    cut(p, winX, winY + winH * 0.33, winW, 0.03);
+    cut(p, winX, winY + winH * 0.66, winW, 0.03);
   }
   d.sign?.(p, winX, winY, winW, winH);
   m.speckle(0, 1.0, W, H - 1.0, p.rng, 260, 'rgba(0,0,0,0.12)', 'rgba(255,255,255,0.07)');
@@ -680,10 +744,10 @@ function lobbyBase(p: Pair, wall: string): { W: number; H: number } {
   ]);
   // A softly lit interior: bright downlights, the walls in their warm spill.
   e.vgrad(0.15, 0.4, W - 0.3, H - 0.45, [
-    [0, '#6a5c46'],
-    [0.3, '#3a332a'],
-    [0.85, '#211e1a'],
-    [1, '#100f0d'],
+    [0, '#d2b98e'],
+    [0.3, '#a08868'],
+    [0.85, '#6c5c48'],
+    [1, '#4a3f33'],
   ]);
   for (let k = 0; k < 4; k++) {
     const lx = 0.5 + k * ((W - 1) / 3);
@@ -702,9 +766,11 @@ function lobbyMullions(p: Pair, W: number, H: number): void {
   for (const x of [0.15, 1.7, W - 1.7, W - 0.15]) {
     m.rect(x - 0.05, 0.38, 0.1, H - 0.38, '#2c3138');
     e.rect(x - 0.05, 0.38, 0.1, H - 0.38, '#000');
+    cut(p, x - 0.05, 0.38, 0.1, H - 0.38);
   }
   m.rect(0, 3.15, W, 0.07, '#2c3138');
   e.rect(0, 3.15, W, 0.07, '#000');
+  cut(p, 0, 3.15, W, 0.07);
   // Sky reflection on the glass.
   const c = m.c;
   c.fillStyle = 'rgba(200,225,255,0.16)';
@@ -718,15 +784,6 @@ function lobbyMullions(p: Pair, W: number, H: number): void {
   m.rect(0, H - 0.08, W, 0.08, '#3d4148');
 }
 
-function plant(p: Pair, x: number, floor: number): void {
-  p.m.rect(x - 0.2, floor - 0.45, 0.4, 0.45, '#5a4636');
-  p.m.circle(x, floor - 0.85, 0.42, '#2f6b35');
-  p.m.circle(x - 0.2, floor - 1.12, 0.26, '#3e8a45');
-  p.m.circle(x + 0.2, floor - 1.08, 0.24, '#357a3d');
-  p.e.circle(x, floor - 0.9, 0.42, '#14140f');
-  p.e.rect(x - 0.2, floor - 0.45, 0.4, 0.45, '#14140f');
-}
-
 function drawLobbyRevolving(p: Pair): void {
   const { W, H } = lobbyBase(p, '#8f897d');
   const { m, e } = p;
@@ -734,10 +791,12 @@ function drawLobbyRevolving(p: Pair): void {
   m.rect(4.6, H - 1.2, 1.4, 1.1, '#4a3628');
   m.rect(4.6, H - 1.25, 1.4, 0.08, '#d8c9a8');
   e.rect(4.6, H - 1.2, 1.4, 1.1, '#18120e');
-  plant(p, 0.85, H - 0.1);
+  lobbyArt(p, 0.6, 2.2, 1.3, 1.1, ['#c75b39', '#e9c46a', '#264653']);
+  room(p, 0.15, 0.4, W - 0.3, H - 0.45, 4.5, CELL_DESIGN.lobby);
   lobbyMullions(p, W, H);
   // Revolving door drum.
   const cx = W / 2;
+  cut(p, cx - 1.3, H - 3.05, 2.6, 3.05);
   m.rect(cx - 1.3, H - 3.05, 2.6, 0.28, '#23272d');
   m.rect(cx - 1.3, H - 3.05, 2.6, 0.05, '#7d8794');
   m.vgrad(cx - 1.2, H - 2.77, 2.4, 2.72, [
@@ -754,12 +813,14 @@ function drawLobbyRevolving(p: Pair): void {
 function drawLobbyDoors(p: Pair): void {
   const { W, H } = lobbyBase(p, '#8b8579');
   const { m, e } = p;
-  plant(p, 0.9, H - 0.1);
-  plant(p, W - 0.9, H - 0.1);
   m.rect(2.6, H - 2.3, 1.3, 0.45, '#3a2f28');
+  lobbyChair(p, 0.7, H - 0.1, '#7a4b33');
+  lobbyChair(p, W - 1.5, H - 0.1, '#7a4b33');
+  room(p, 0.15, 0.4, W - 0.3, H - 0.45, 4.5, CELL_DESIGN.lobby);
   lobbyMullions(p, W, H);
   // Stone surround with double glass doors, and the street number over them.
   const cx = W / 2;
+  cut(p, cx - 1.25, H - 3.3, 2.5, 3.3);
   m.rect(cx - 1.25, H - 3.3, 2.5, 3.3, '#bdb6aa');
   m.rect(cx - 1.25, H - 3.3, 2.5, 0.1, '#d8d2c6');
   m.rect(cx - 0.95, H - 2.8, 1.9, 2.8, '#1e2329');
@@ -786,7 +847,69 @@ function drawLobbyGlass(p: Pair): void {
   m.rect(1.55, H - 0.53, 0.12, 0.45, '#2a2724');
   m.rect(3.73, H - 0.53, 0.12, 0.45, '#2a2724');
   e.rect(1.4, H - 0.85, 2.6, 0.75, '#141210');
-  plant(p, W - 1.1, H - 0.1);
+  // A wall clock row and a reception counter at the back.
+  for (let k = 0; k < 3; k++) {
+    m.circle(4.4 + k * 0.55, 1.6, 0.18, '#f4f1ea');
+    m.circle(4.4 + k * 0.55, 1.6, 0.03, '#222');
+  }
+  m.rect(4.1, H - 1.15, 1.9, 1.05, '#c9c2b5');
+  m.rect(4.1, H - 1.2, 1.9, 0.08, '#6b5a48');
+  room(p, 0.15, 0.4, W - 0.3, H - 0.45, 4.5, CELL_DESIGN.lobby);
+  lobbyMullions(p, W, H);
+}
+
+/** Framed art on a lobby's back wall. */
+function lobbyArt(p: Pair, x: number, y: number, w: number, h: number, cols: string[]): void {
+  const { m } = p;
+  m.rect(x - 0.05, y - 0.05, w + 0.1, h + 0.1, '#2a2622');
+  const n = cols.length;
+  for (let k = 0; k < n; k++) m.rect(x + (w * k) / n, y, w / n, h, cols[k]!);
+  m.circle(x + w * 0.62, y + h * 0.4, Math.min(w, h) * 0.22, '#f1e9da');
+}
+
+/** A lounge armchair seen from the street, standing on the lobby floor at `floor`. */
+function lobbyChair(p: Pair, x: number, floor: number, col: string): void {
+  const { m, e } = p;
+  m.rect(x, floor - 0.85, 0.8, 0.5, col);
+  m.rect(x - 0.08, floor - 0.6, 0.96, 0.32, col);
+  m.rect(x + 0.05, floor - 0.28, 0.08, 0.28, '#1d1b19');
+  m.rect(x + 0.67, floor - 0.28, 0.08, 0.28, '#1d1b19');
+  e.rect(x - 0.08, floor - 0.85, 0.96, 0.85, '#120f0c');
+}
+
+function drawLobbyLounge(p: Pair): void {
+  const { W, H } = lobbyBase(p, '#9a8e7c');
+  const { m, e } = p;
+  m.rect(0.5, H - 0.2, W - 1.0, 0.12, '#6e3b2f');
+  lobbyChair(p, 0.9, H - 0.15, '#2f5d62');
+  lobbyChair(p, 2.4, H - 0.15, '#2f5d62');
+  m.rect(1.8, H - 0.6, 0.55, 0.06, '#d9d2c4');
+  m.rect(2.0, H - 0.55, 0.12, 0.45, '#3a3430');
+  // Floor lamp and a long bookcase.
+  m.rect(4.0, H - 2.2, 0.05, 2.1, '#2a2622');
+  m.ellipse(4.02, H - 2.25, 0.25, 0.15, '#f6e7c1');
+  e.ellipse(4.02, H - 2.25, 0.3, 0.2, '#ffe2a6');
+  e.glow(4.02, H - 2.0, 0.9, 'rgba(255,220,160,0.45)');
+  m.rect(4.4, H - 2.6, 1.7, 2.5, '#5a4030');
+  for (let k = 0; k < 5; k++) {
+    m.rect(4.45, H - 2.55 + k * 0.5, 1.6, 0.04, '#3b2a1f');
+    for (let j = 0; j < 9; j++) m.rect(4.5 + j * 0.17, H - 2.5 + k * 0.5, 0.11, 0.4, ['#a63d40', '#e9b872', '#90a959', '#6494aa', '#d9d2c4'][(j + k) % 5]!);
+  }
+  room(p, 0.15, 0.4, W - 0.3, H - 0.45, 4.5, CELL_DESIGN.lobby);
+  lobbyMullions(p, W, H);
+}
+
+function drawLobbyGallery(p: Pair): void {
+  const { W, H } = lobbyBase(p, '#d8d2c6');
+  const { m } = p;
+  lobbyArt(p, 0.5, 1.4, 1.6, 1.3, ['#1d3557', '#457b9d', '#a8dadc']);
+  lobbyArt(p, 2.6, 1.2, 1.3, 1.7, ['#e63946', '#f1faee']);
+  lobbyArt(p, 4.4, 1.5, 1.6, 1.1, ['#2a9d8f', '#e9c46a', '#f4a261', '#e76f51']);
+  // A plinth with a sculpture, and a bench.
+  m.rect(3.0, H - 1.0, 0.6, 0.9, '#efebe4');
+  m.ellipse(3.3, H - 1.35, 0.22, 0.35, '#8a6f4d');
+  m.rect(4.6, H - 0.6, 1.4, 0.18, '#3d3a36');
+  room(p, 0.15, 0.4, W - 0.3, H - 0.45, 4.5, CELL_DESIGN.lobby);
   lobbyMullions(p, W, H);
 }
 
@@ -990,12 +1113,16 @@ function drawSwatches(m: CanvasRenderingContext2D, e: CanvasRenderingContext2D):
 export interface StorefrontAtlas {
   map: THREE.Texture;
   emissive: THREE.Texture;
+  /** What is seen through each cell's glass; alpha is the see-through mask. */
+  interior: THREE.Texture;
 }
 
 /** Colour and emissive atlas of every ground-floor frontage. */
 export function storefrontAtlas(): StorefrontAtlas {
   const [cm, m] = canvas(ATLAS_W, ATLAS_H);
   const [ce, e] = canvas(ATLAS_W, ATLAS_H);
+  const [ci, ic] = canvas(ATLAS_W, ATLAS_H);
+  ic.clearRect(0, 0, ATLAS_W, ATLAS_H);
   m.fillStyle = '#808080';
   m.fillRect(0, 0, ATLAS_W, ATLAS_H);
   e.fillStyle = '#000';
@@ -1004,17 +1131,19 @@ export function storefrontAtlas(): StorefrontAtlas {
   const paint = (cell: number, design: { w: number; h: number }, draw: (p: Pair) => void): void => {
     const r = cellRect(cell);
     // Keep every cell's drawing inside its own rectangle, then pad the gutter around it.
-    for (const c of [m, e]) {
+    for (const c of [m, e, ic]) {
       c.save();
       c.beginPath();
       c.rect(r.x, r.y, r.w, r.h);
       c.clip();
     }
-    draw({ m: new Painter(m, r.x, r.y, design.w, design.h, r.w, r.h), e: new Painter(e, r.x, r.y, design.w, design.h, r.w, r.h), rng });
+    draw({ m: new Painter(m, r.x, r.y, design.w, design.h, r.w, r.h), e: new Painter(e, r.x, r.y, design.w, design.h, r.w, r.h), i: new Painter(ic, r.x, r.y, design.w, design.h, r.w, r.h), rng, cell });
     m.restore();
     e.restore();
+    ic.restore();
     extrude(m, cm, r.x, r.y, r.w, r.h, CELL_GUTTER);
     extrude(e, ce, r.x, r.y, r.w, r.h, CELL_GUTTER);
+    extrude(ic, ci, r.x, r.y, r.w, r.h, CELL_GUTTER);
   };
   SHOP_DESIGNS.forEach((d, i) => paint(i, CELL_DESIGN.shop, (p) => drawShop(p, d)));
   paint(CELLS.lobbyRevolving, CELL_DESIGN.lobby, drawLobbyRevolving);
@@ -1025,8 +1154,12 @@ export function storefrontAtlas(): StorefrontAtlas {
   paint(CELLS.houseDoorA, CELL_DESIGN.house, drawHouseDoorA);
   paint(CELLS.houseDoorB, CELL_DESIGN.house, drawHouseDoorB);
   paint(CELLS.houseWindows, CELL_DESIGN.house, drawHouseWindows);
+  paint(CELLS.lobbyLounge, CELL_DESIGN.lobby, drawLobbyLounge);
+  paint(CELLS.lobbyGallery, CELL_DESIGN.lobby, drawLobbyGallery);
   drawSwatches(m, e);
   const map = toTexture(cm, true, false);
   const emissive = toTexture(ce, true, false);
-  return { map, emissive };
+  const interior = toTexture(ci, true, false);
+  interior.name = 'storefront-interior';
+  return { map, emissive, interior };
 }

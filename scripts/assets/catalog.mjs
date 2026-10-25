@@ -133,7 +133,7 @@ const acg = (id, size = 512, emissive = false) => ({
 });
 export const textureSets = [
   ph('asphalt_02', 1024), ph('worn_asphalt'), ph('concrete_pavement'), ph('brick_wall_001'), ph('brick_pavement_02'),
-  ph('coast_sand_01'), ph('white_plaster_02'), ph('leafy_grass'),
+  ph('coast_sand_01'), ph('white_plaster_02'), ph('leafy_grass'), ph('box_profile_metal_sheet'),
   acg('Facade001'), acg('Facade002', 512, true), acg('Facade005'), acg('Facade006'), acg('Facade009', 512, true),
 ];
 
