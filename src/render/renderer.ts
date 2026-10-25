@@ -31,8 +31,10 @@ import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwareP
 import { HARDWARE_CHUNK_SIZE, STATIC_CHUNK_SIZE } from './spatial';
 import { SoftwareMaterials } from './softwareMaterials';
 import { ClassViewPool, type AnyVehicleView } from './classViews';
+import type { BikeView } from './bikeView';
+import type { BoatView } from './boatView';
 import { SHADOW_LAYER, VehiclePartBatches } from './vehicleBatches';
-import { freezeVehicleParts } from './vehicleView';
+import { freezeVehicleParts, VehicleView } from './vehicleView';
 import { assets } from './assets';
 
 export type Quality = QualityTier;
@@ -133,6 +135,8 @@ const SOFTWARE_FAR_DISTANCE = 32;
 /** A vehicle removed within this distance (m) of the camera and in view fades out over VEHICLE_FADE_OUT s. */
 export const VEHICLE_FADE_RANGE = 150;
 export const VEHICLE_FADE_OUT = 0.6;
+/** A bike or boat fades in over this long (s) where it appears (cars appear whole). */
+export const VEHICLE_FADE_IN = 0.5;
 
 /** A blast this close to the sea's surface over water is drawn as a water plume (Effects.explosion). */
 const WATER_BLAST_BAND = 0.3;
@@ -190,6 +194,8 @@ export class GameRenderer {
   private readonly partSphere = new THREE.Sphere();
   /** Views of vehicles removed in view, fading out (t: seconds since the fade began). */
   private readonly fadingViews: Array<{ view: AnyVehicleView; t: number }> = [];
+  /** Bikes and boats fading in where they appeared (VEHICLE_FADE_IN). */
+  private readonly fadingIn: Array<{ view: BikeView | BoatView; t: number }> = [];
   /** Fade copies compiled by the warm-up and kept, so their programs stay alive for the fades of the session. */
   private fadeKeepers: THREE.Material[] = [];
   private readonly headlight: THREE.SpotLight;
@@ -715,6 +721,11 @@ export class GameRenderer {
         view.bind(v);
         this.scene.add(view.group);
         this.vehicleViews.set(v.id, view);
+        if (!(view instanceof VehicleView)) {
+          view.beginFade();
+          view.setFade(0);
+          this.fadingIn.push({ view, t: 0 });
+        }
       }
       // Without a bloom halo the light bars, like the traffic lights, must carry their hue in the lamp itself.
       view.sync(v, dt, this.time, night, this.bloom !== null);
@@ -729,15 +740,29 @@ export class GameRenderer {
         this.vehicleViews.delete(id);
         this.effects.skids.break(`${id}:l`);
         this.effects.skids.break(`${id}:r`);
+        // A bike or boat still fading in fades out from where it got to.
+        const k = this.fadingIn.findIndex((e) => e.view === view);
+        const left = k >= 0 ? this.fadingIn[k]!.view.fadeLevel : 1;
+        if (k >= 0) this.fadingIn.splice(k, 1);
         // Removed in view (a cleared wreck, a mission car): it fades out where it was instead of vanishing.
         if (view.group.visible && this.inView(view, VEHICLE_FADE_RANGE)) {
           view.beginFade();
           this.softwareMaterials?.apply(view.group);
-          this.fadingViews.push({ view, t: 0 });
-        } else {
+          this.fadingViews.push({ view, t: (1 - left) * VEHICLE_FADE_OUT });
+        } else if (view.fading) this.endFade(view);
+        else {
           this.scene.remove(view.group);
           this.pool.release(view);
         }
+      }
+    }
+    for (let i = this.fadingIn.length - 1; i >= 0; i--) {
+      const e = this.fadingIn[i]!;
+      e.t += dt;
+      if (e.t < VEHICLE_FADE_IN) e.view.setFade(e.t / VEHICLE_FADE_IN);
+      else {
+        this.disposeFade(e.view.endFade());
+        this.fadingIn.splice(i, 1);
       }
     }
     for (let i = this.fadingViews.length - 1; i >= 0; i--) {
@@ -766,17 +791,22 @@ export class GameRenderer {
   }
 
   private endFade(view: AnyVehicleView): void {
-    const used = view.endFade();
-    this.softwareMaterials?.forget(used);
-    for (const m of used) m.dispose();
+    this.disposeFade(view.endFade());
     this.scene.remove(view.group);
     this.pool.release(view);
+  }
+
+  private disposeFade(used: THREE.Material[]): void {
+    this.softwareMaterials?.forget(used);
+    for (const m of used) m.dispose();
   }
 
   /** Ends every fade at once (a new session). */
   private endFades(): void {
     for (const e of this.fadingViews) this.endFade(e.view);
     this.fadingViews.length = 0;
+    for (const e of this.fadingIn) this.disposeFade(e.view.endFade());
+    this.fadingIn.length = 0;
   }
 
   private updateFrustum(): void {
