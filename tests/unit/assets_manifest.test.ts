@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
-import { CHARACTER_BONES, SPEC_DIMS } from '../../scripts/assets/catalog.mjs';
+import { atlases, CHARACTER_BONES, SPEC_DIMS } from '../../scripts/assets/catalog.mjs';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
 import { CHARACTER_JOINTS, parseManifest, WHEEL_SOCKETS, type ManifestEntry } from '../../src/render/assets/types';
 
@@ -106,11 +106,25 @@ describe('GLB files', () => {
 
   it('every PBR set has albedo, normal and orm maps of one size', () => {
     const sets = new Map<string, ManifestEntry[]>();
-    for (const e of manifest.entries.filter((x) => x.kind === 'texture')) sets.set(e.set!, [...(sets.get(e.set!) ?? []), e]);
+    // Alpha atlases (the leaf cards) are a single albedo-with-alpha map, not PBR sets; checked below.
+    const alpha = new Set(atlases.map((a) => a.set));
+    for (const e of manifest.entries.filter((x) => x.kind === 'texture' && !alpha.has(x.set!))) sets.set(e.set!, [...(sets.get(e.set!) ?? []), e]);
     for (const [set, maps] of sets) {
       const names = maps.map((m) => m.map);
       expect(names, set).toEqual(expect.arrayContaining(['albedo', 'normal', 'orm']));
       expect(new Set(maps.map((m) => `${dims(m).width}x${dims(m).height}`)).size, set).toBe(1);
+    }
+  });
+
+  it('every alpha atlas is one square albedo map with an alpha channel', () => {
+    for (const a of atlases) {
+      const maps = manifest.entries.filter((e) => e.kind === 'texture' && e.set === a.set);
+      expect(maps.map((m) => m.map), a.set).toEqual(['albedo']);
+      expect(dims(maps[0]!).width, a.set).toBe(dims(maps[0]!).height);
+      // WebP "VP8X" header with the alpha flag (0x10).
+      const head = readFileSync(join(ROOT, maps[0]!.file)).subarray(0, 21);
+      expect(head.subarray(12, 16).toString('latin1'), a.set).toBe('VP8X');
+      expect(head[20]! & 0x10, a.set).toBe(0x10);
     }
   });
 

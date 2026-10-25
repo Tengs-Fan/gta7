@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { places } from '../sim/activities/places';
 import { VEHICLE_SPECS } from '../sim/specs';
 import type { StaticWorld } from '../world/staticWorld';
+import { SAFEHOUSE_BAY_LENGTH } from './dressing';
 
 function signTexture(text: string, fg: string, bg: string): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -31,6 +32,8 @@ function signTexture(text: string, fg: string, bg: string): THREE.CanvasTexture 
 export class SiteView {
   readonly group = new THREE.Group();
   private readonly post = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.6, metalness: 0.5 });
+  /** A sign's unprinted back: painted sheet metal. */
+  private readonly back = new THREE.MeshStandardMaterial({ color: 0x8c9096, roughness: 0.55, metalness: 0.45 });
 
   constructor(private readonly world: StaticWorld) {
     const at = places(world);
@@ -44,13 +47,17 @@ export class SiteView {
       const amb = d.kind === 'ambulance';
       this.sign(amb ? 'AMBULANCE' : 'SAFD STATION 1', amb ? '#ff3a3a' : '#ffffff', amb ? '#f2f2ee' : '#a8191b', d.x + Math.cos(d.heading) * side, d.z - Math.sin(d.heading) * side, d.heading, 2.8, 0.7, 2.6);
     }
-    // The safehouse garage: a carport over its four bays, a back wall, bay lines and a sign over the aisle.
+    // The safehouse garage: a carport over its four bays, a back wall, bay lines with a stop line at the head of each
+    // bay (its furnishing keeps behind it, dressing.ts) and a sign over the aisle.
     const g = at.garageArea;
     this.carport(g.minX, g.minZ, g.maxX, g.maxZ, 3.1, 0x6b7179, 'x+');
+    const bx = at.garageBays[0]!.x;
+    const half = SAFEHOUSE_BAY_LENGTH / 2;
     for (let k = 0; k <= at.garageBays.length; k++) {
       const z = at.garageBays[0]!.z - 1.7 + k * 3.4;
-      this.box(g.minX + 0.6, z - 0.06, g.maxX - 0.3, z + 0.06, 0.03, 0xf2f2f2, 0.01);
+      this.box(bx - half, z - 0.06, bx + half, z + 0.06, 0.03, 0xf2f2f2, 0.01);
     }
+    this.box(bx + half - 0.12, at.garageBays[0]!.z - 1.7, bx + half, at.garageBays[at.garageBays.length - 1]!.z + 1.7, 0.03, 0xf2c94c, 0.01);
     this.sign('SAFEHOUSE GARAGE', '#3fd96b', '#101614', g.minX + 0.1, (g.minZ + g.maxZ) / 2, -Math.PI / 2, 4, 0.8, 3.25);
     // Azura Customs: a canopy over its drive-in bay, a purple floor and its sign over the way in.
     const c = at.customsBay;
@@ -87,8 +94,7 @@ export class SiteView {
     w.castShadow = true;
   }
 
-  /** A double-sided sign board
-  /** A double-sided sign board on two posts facing `heading`, its bottom edge at `bottom` m. */
+  /** A sign board on two posts facing `heading` (its printed face; the back is plain), its bottom edge at `bottom` m. */
   protected sign(text: string, fg: string, bg: string, x: number, z: number, heading: number, w: number, h: number, bottom: number): THREE.Group {
     const g = new THREE.Group();
     const y = this.world.groundHeight(x, z);
@@ -96,7 +102,8 @@ export class SiteView {
     g.rotation.y = heading;
     const tex = signTexture(text, fg, bg);
     const face = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.6 });
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.08), [this.post, this.post, this.post, this.post, face, face]);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.08), [this.post, this.post, this.post, this.post, face, this.back]);
+    panel.name = 'sign-plate';
     panel.position.y = bottom + h / 2;
     panel.castShadow = true;
     g.add(panel);

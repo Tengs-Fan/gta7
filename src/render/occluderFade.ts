@@ -99,6 +99,36 @@ export function occluderOpacity(cam: V3, subject: V3, base: V3, top: V3): number
   return Math.min(smooth(OCCLUDER_CAPSULE_R, OCCLUDER_CAPSULE_FULL, line), smooth(OCCLUDER_LENS_NEAR, OCCLUDER_LENS_FAR, lens));
 }
 
+/**
+ * The same for an occluder whose axis bends (a curved palm trunk): the polyline `path` (at least two points), drawn as
+ * little as its segment nearest the sight line or the lens allows.
+ */
+export function occluderOpacityPath(cam: V3, subject: V3, path: readonly V3[]): number {
+  let line = Infinity;
+  let lens = Infinity;
+  for (let i = 0; i + 1 < path.length; i++) {
+    line = Math.min(line, segmentDistance(cam, subject, path[i]!, path[i + 1]!));
+    lens = Math.min(lens, pointSegmentDistance(cam, path[i]!, path[i + 1]!));
+  }
+  return Math.min(smooth(OCCLUDER_CAPSULE_R, OCCLUDER_CAPSULE_FULL, line), smooth(OCCLUDER_LENS_NEAR, OCCLUDER_LENS_FAR, lens));
+}
+
+/**
+ * Segments of an occluder's axis in the shader and on the CPU. The axis runs from (0, from, 0) to (0, to, 0) in its
+ * instance's frame, leaning `bend` x y^2 along local +x (0 for every straight pole and trunk).
+ */
+export const OCCLUDER_SEGMENTS = 3;
+
+/** The axis points in the prop's own frame for a span and bend (see OCCLUDER_SEGMENTS). */
+export function occluderAxisPoints(axis: { readonly from: number; readonly to: number }, bend: number): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = [];
+  for (let k = 0; k <= OCCLUDER_SEGMENTS; k++) {
+    const y = axis.from + ((axis.to - axis.from) * k) / OCCLUDER_SEGMENTS;
+    out.push([bend * y * y, y, 0]);
+  }
+  return out;
+}
+
 /** The four fade edges as the shader takes them (uOccFade): capsule near and far, lens near and far. */
 export const OCCLUDER_FADE_EDGES = [OCCLUDER_CAPSULE_R, OCCLUDER_CAPSULE_FULL, OCCLUDER_LENS_NEAR, OCCLUDER_LENS_FAR] as const;
 

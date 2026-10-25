@@ -92,6 +92,7 @@
   {"id":"tex.facade009.emissive","file":"textures/facade009/emissive.webp","kind":"texture","set":"facade009","map":"emissive","bytes":20876,"bounds":{"width":512,"height":512},"license":"acg-Facade009"},
   {"id":"tex.facade009.normal","file":"textures/facade009/normal.webp","kind":"texture","set":"facade009","map":"normal","bytes":28118,"bounds":{"width":512,"height":512},"license":"acg-Facade009"},
   {"id":"tex.facade009.orm","file":"textures/facade009/orm.webp","kind":"texture","set":"facade009","map":"orm","bytes":30178,"bounds":{"width":512,"height":512},"license":"acg-Facade009"},
+  {"id":"tex.leaf_atlas.albedo","file":"textures/leaf_atlas/albedo.webp","kind":"texture","set":"leaf_atlas","map":"albedo","bytes":100054,"bounds":{"width":1024,"height":1024},"license":"acg-LeafSet024"},
   {"id":"tex.leafy_grass.albedo","file":"textures/leafy_grass/albedo.webp","kind":"texture","set":"leafy_grass","map":"albedo","bytes":93540,"bounds":{"width":512,"height":512},"license":"ph-leafy_grass"},
   {"id":"tex.leafy_grass.normal","file":"textures/leafy_grass/normal.webp","kind":"texture","set":"leafy_grass","map":"normal","bytes":129578,"bounds":{"width":512,"height":512},"license":"ph-leafy_grass"},
   {"id":"tex.leafy_grass.orm","file":"textures/leafy_grass/orm.webp","kind":"texture","set":"leafy_grass","map":"orm","bytes":43164,"bounds":{"width":512,"height":512},"license":"ph-leafy_grass"},
