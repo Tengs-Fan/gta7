@@ -606,6 +606,28 @@ describe('bone update cost and fallbacks (VAL-CHR-009, VAL-CHR-011, VAL-CHR-012)
     expect(mean).toBeLessThanOrEqual(2);
   });
 
+  it('uploads only the bone-texture rows the batched crowd uses', () => {
+    const cv = new CrowdView();
+    const chars: Character[] = [];
+    for (let i = 0; i < 48; i++) {
+      const c = personFor(7600 + i);
+      c.pos.x = (i % 8) * 1.5;
+      c.pos.z = Math.floor(i / 8) * 1.5;
+      chars.push(c);
+    }
+    cv.sync(chars, 5, 5, 1 / 60);
+    const m = cv.models!;
+    const tex = m.boneTexture;
+    const rowFloats = tex.image.width * 4;
+    const rows = Math.ceil((m.stats.crowd * FLOATS_PER_CHAR) / rowFloats);
+    expect(m.stats.crowd).toBeGreaterThan(0);
+    expect(rows).toBeLessThan(tex.image.height);
+    expect(tex.updateRanges).toEqual(Array.from({ length: rows }, (_, r) => ({ start: r * rowFloats, count: rowFloats })));
+    // A frame that was not uploaded leaves no ranges behind to pile up.
+    cv.sync(chars, 5, 5, 1 / 60);
+    expect(tex.updateRanges).toHaveLength(rows);
+  });
+
   it('the software tier and a missing model use the segment crowd and create no SkinnedMesh', () => {
     const cv = new CrowdView();
     cv.useModels(false);

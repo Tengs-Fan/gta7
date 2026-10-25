@@ -192,7 +192,16 @@ export class SkinnedCrowd {
     }
     for (let i = crowd; i < this.drawn; i++) batched.setVisibleAt(i, false);
     this.drawn = crowd;
-    if (crowd > 0) this.boneTexture.needsUpdate = true;
+    if (crowd > 0) {
+      // Only the rows the crowd uses this frame go up: the whole texture is 21 rows of floats, and uploading it every
+      // frame cost about 0.7 ms of render JS in a busy plaza (40 batched characters use 4 rows).
+      const rowFloats = TEXTURE_WIDTH * 4;
+      const rows = Math.ceil((crowd * FLOATS_PER_CHAR) / rowFloats);
+      // A frame whose batch was not drawn left its ranges unsent; only this frame's rows matter, so they replace them.
+      this.boneTexture.clearUpdateRanges();
+      for (let r = 0; r < rows; r++) this.boneTexture.addUpdateRange(r * rowFloats, rowFloats);
+      this.boneTexture.needsUpdate = true;
+    }
     this.stats.near = nearIds.size;
     this.stats.crowd = crowd;
     this.stats.boneMs = performance.now() - t0;
