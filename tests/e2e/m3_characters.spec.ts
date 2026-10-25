@@ -261,7 +261,7 @@ test.describe('mission 3 characters', () => {
   test('the software renderer keeps the segment crowd and creates no SkinnedMesh', async () => {
     const browser = await chromium.launch(currentBrowserLaunch(chromium, { software: true }));
     try {
-      const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
+      const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
       const errors = await boot(page);
       await page.evaluate(() => (window as Api).__gta7.newGame({ intro: false }));
       await page.waitForFunction(() => (window as Api).__gta7.state().mode === 'game');

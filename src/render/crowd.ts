@@ -395,6 +395,25 @@ export class CrowdView {
     return undefined;
   }
 
+  /**
+   * Where every head drawn last frame turns (the neck pivot, the segment head's origin), on either path: the far
+   * segment characters' head instances and the skinned characters' heads. With the models loaded `parts.head` holds
+   * only the far ones; this is its equivalent for tests and browser checks.
+   */
+  drawnHeads(): THREE.Vector3[] {
+    const out: THREE.Vector3[] = [];
+    const head = this.parts.head.mesh;
+    const m = new THREE.Matrix4();
+    if (head.visible) {
+      for (let i = 0; i < head.count; i++) {
+        head.getMatrixAt(i, m);
+        out.push(new THREE.Vector3().setFromMatrixPosition(m));
+      }
+    }
+    if (this.skinned?.group.visible) for (let i = 0; i < this.rigCount; i++) out.push(this.rigs[i]!.neck.clone());
+    return out;
+  }
+
   /** Characters drawn last frame by each path. */
   characterStats(): { models: boolean; skinnedMeshes: number; crowd: number; segments: number; boneMs: number } {
     return {

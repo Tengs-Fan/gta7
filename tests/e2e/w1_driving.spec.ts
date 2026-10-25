@@ -219,7 +219,7 @@ test.describe('wave 1 driving', () => {
         v.health = v.spec.health;
         v.burning = false;
         g.sim.combat.igniteVehicle(v, 30);
-        const crowd = (R as unknown as { crowd: { parts: Record<string, { mesh: { count: number; visible: boolean } }> } }).crowd;
+        const crowd = (R as unknown as { crowd: { drawnHeads(): Array<{ x: number; y: number; z: number }> } }).crowd;
         const out: { tier: string; side: boolean[]; front: boolean[] } = { tier, side: [], front: [] };
         for (const [k, yaw] of [['side', Math.PI / 2], ['front', Math.PI]] as const) {
           for (let f = 0; f < 40; f++) {
@@ -227,8 +227,9 @@ test.describe('wave 1 driving', () => {
             R.cameraCtl.orbitPitch = 0.1;
             R.cameraCtl.lookIdle = 0;
             await new Promise((res) => requestAnimationFrame(res));
-            const head = crowd.parts.head!.mesh;
-            out[k].push(v.burning && g.sim.player.vehicle === v && head.visible && head.count >= 1);
+            // His head is drawn in the car (mission 3: segment or skinned, so not parts.head, which holds only far ones).
+            const heads = crowd.drawnHeads().filter((h) => Math.hypot(h.x - v.pos.x, h.z - v.pos.z) < v.halfL);
+            out[k].push(v.burning && g.sim.player.vehicle === v && heads.length >= 1);
           }
         }
         return out;

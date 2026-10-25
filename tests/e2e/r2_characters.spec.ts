@@ -52,13 +52,10 @@ test.describe('character rig', () => {
       const d = sim.spawnCharacter('civilian', v.pos.x, v.pos.z);
       sim.seat(d, v, 0);
       await new Promise((r) => setTimeout(r, 500));
-      const heads = g.game.renderer.crowd.parts.head.mesh;
-      const a = heads.instanceMatrix.array as Float32Array;
+      // Every drawn head, segment or skinned (mission 3: parts.head holds only the far segment characters).
+      const heads = g.game.renderer.crowd.drawnHeads() as Array<{ x: number; y: number; z: number }>;
       let inside = 0;
-      for (let i = 0; i < heads.count; i++) {
-        const x = a[i * 16 + 12]!;
-        const y = a[i * 16 + 13]!;
-        const z = a[i * 16 + 14]!;
+      for (const { x, y, z } of heads) {
         if (Math.hypot(x - v.pos.x, z - v.pos.z) < v.halfL && y > v.pos.y + 0.8 && y < v.pos.y + v.spec.height) inside++;
       }
       return inside;
