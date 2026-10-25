@@ -90,7 +90,13 @@ test.describe('multiplayer characters', () => {
     await page.waitForTimeout(2500);
     await lookAtOther(page);
     await lookAtOther(pageB);
-    await page.waitForTimeout(1200);
+    // Both players drawn on both clients (the teleports reach each client with its next snapshots).
+    for (const p of [page, pageB]) {
+      await p.waitForFunction(() => {
+        const g = (window as Api).__gta7;
+        return (g.net.players() as Array<{ characterId: number }>).every((q) => g.ext.characters.lookOf(q.characterId)?.fade === 1);
+      }, null, { timeout: 15_000 });
+    }
     const a = await looks(page);
     const b = await looks(pageB);
     console.log(`[m3-mp-characters] client A ${JSON.stringify(a)}; client B ${JSON.stringify(b)}`);
@@ -134,6 +140,22 @@ test.describe('multiplayer characters', () => {
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
     await page.mouse.down({ button: 'right' });
     await page.waitForTimeout(900);
+    // Ben sees Ana's gun come up and hold still before she fires.
+    await pageB.evaluate(async () => {
+      const g = (window as Api).__gta7;
+      const T = g.game.renderer.crowd.weapons.get('pistol');
+      const M = g.game.renderer.cameraCtl.camera.matrixWorld.clone();
+      let last: number[] | null = null;
+      let still = 0;
+      for (let f = 0; f < 600 && still < 15; f++) {
+        await new Promise((res) => requestAnimationFrame(res));
+        if (T.mesh.count < 1) continue;
+        T.mesh.getMatrixAt(0, M);
+        const e = Array.from(M.elements as number[]).slice(12, 15);
+        still = last && Math.hypot(e[0]! - last[0]!, e[1]! - last[1]!, e[2]! - last[2]!) < 0.001 ? still + 1 : 0;
+        last = e;
+      }
+    });
     await page.mouse.down();
     await page.waitForTimeout(80);
     await page.mouse.up();

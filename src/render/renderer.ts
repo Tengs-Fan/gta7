@@ -613,6 +613,7 @@ export class GameRenderer {
       }),
       // Every bullet or pellet: its tracer and its impact.
       ev.on('shot', (e) => {
+        if (e.shooter) this.crowd.noteShot(e.shooter.id);
         // Helicopter rounds have no weaponFired of their own.
         if (!e.shooter) fx.muzzleFlash(e.fx, e.fy, e.fz, flashSize(e.weapon));
         else if (e.hit !== 'none') fx.shotLanded(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz, e.nx, e.ny, e.nz);
