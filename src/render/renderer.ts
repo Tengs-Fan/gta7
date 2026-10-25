@@ -228,6 +228,8 @@ export class GameRenderer {
     const gpu = settings.gpu ?? probeGpu();
     this.software = gpuClass(gpu.renderer) === 'software';
     this.softwareMaterials = this.software ? new SoftwareMaterials() : null;
+    // The software tier keeps the segment characters (no skinning there).
+    if (this.software) this.crowd.useModels(false);
     this.hdr = gpu.halfFloat && !this.software;
     // MSAA is a context attribute that also sizes three's internal HDR scene target, so it can only
     // be chosen here, from the starting tier. Hardware tiers keep the HDR output pass. Software
@@ -349,6 +351,9 @@ export class GameRenderer {
     const depthProbe = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshDepthMaterial({ alphaHash: true }));
     depthProbe.position.set(0, -50, 0);
     this.scene.add(depthProbe);
+    // The skinned characters: a near mesh and a crowd instance shown while compiling, and stand-ins for their shadows.
+    const crowdProbes = this.crowd.models?.beginWarmup() ?? [];
+    for (const p of crowdProbes) this.scene.add(p);
     // Loaded asset models are in the scene only while compiling, so their programs exist before the first use.
     const assetProbe = assets.warmGroup();
     this.softwareMaterials?.apply(assetProbe);
@@ -372,6 +377,8 @@ export class GameRenderer {
     }
     target?.dispose();
     this.rain.mesh.visible = rainShown;
+    for (const p of crowdProbes) this.scene.remove(p);
+    this.crowd.models?.endWarmup(crowdProbes);
     this.scene.remove(assetProbe);
     this.scene.remove(depthProbe);
     depthProbe.geometry.dispose();

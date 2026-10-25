@@ -17,6 +17,14 @@ import { characterGeometries, type CharacterPartName } from './characterGeometry
 import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
 import { riderMount } from './riders';
 import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
+import { buildLookTemplates } from './crowd/characterModels';
+import { LENS_FADE_FULL, LENS_FADE_GONE } from './crowd/fade';
+import { bodyTypeOf, LOOKS, lookOf, slotColors } from './crowd/looks';
+import { completePose, HAVE, makeRigPose, SLOTS, type RigPose } from './crowd/rig';
+import { SkinnedCrowd } from './crowd/skinnedCrowd';
+import { registerDebug } from '../debug';
+
+export { LENS_FADE_FULL, LENS_FADE_GONE } from './crowd/fade';
 
 const MAX = 240;
 /** Seated drivers and passengers are drawn within this distance of the camera. */
@@ -41,12 +49,10 @@ const KICK_HOLD = 0.05;
 const KICK_BACK = 0.05;
 
 /**
- * Characters dissolve right in front of the camera, by depth along the view (m): nothing nearer than LENS_FADE_GONE is
- * drawn, and they are whole again from LENS_FADE_FULL. The near plane (0.3 m) then never cuts one open into a hollow
- * shell, whether a wall has pulled the camera in to the player's head or a passer-by brushes the lens.
+ * With the character models loaded, characters within this distance of the camera are drawn skinned (crowd/); the
+ * segment crowd draws those further away, and everyone on the software tier or without the models.
  */
-export const LENS_FADE_GONE = 0.45;
-export const LENS_FADE_FULL = 0.9;
+export const SKIN_RANGE = 110;
 
 /**
  * Makes a character material dissolve near the lens (LENS_FADE_GONE .. LENS_FADE_FULL of depth) through a 4x4 Bayer
@@ -127,7 +133,14 @@ function mergeAll(gs: THREE.BufferGeometry[]): THREE.BufferGeometry {
 interface Part {
   mesh: THREE.InstancedMesh;
   n: number;
+  /** The body part it draws (null for weapons and the phone), recorded instead for a skinned character. */
+  body: PartName | null;
+  /** Too small to see on a far segment character (see SKIN_RANGE): left out for those. */
+  minor: boolean;
 }
+
+/** Parts a far segment character is drawn without when the skinned models draw the near ones. */
+const MINOR_PARTS: ReadonlySet<PartName> = new Set(['face', 'glasses', 'hairSweep', 'shirtInset', 'jacketTrim', 'badge', 'neck', 'hand']);
 
 type PartName = CharacterPartName;
 
@@ -139,6 +152,8 @@ interface Anim {
   walk: number;
   /** 0 on the ground .. 1 airborne (knees tucked). */
   air: number;
+  /** Weight of the skinned models' standing idle motion (0..1). */
+  idle: number;
   /** Frame the character was last drawn. */
   frame: number;
 }
@@ -279,6 +294,21 @@ export class CrowdView {
    * in the browser (`__gta7.game.renderer.crowd.firstDrawn`); holds the last FIRST_DRAWN_LOG.
    */
   readonly firstDrawn: Array<{ id: number; x: number; z: number; fade: number; frame: number }> = [];
+  /** The skinned models (crowd/), or null: everyone is drawn with segments. */
+  private skinned: SkinnedCrowd | null = null;
+  /** The pose being recorded for a skinned character instead of drawn (null: drawing segments). */
+  private rec: RigPose | null = null;
+  private readonly rigs: RigPose[] = [];
+  private rigCount = 0;
+  /** Side (0 left, 1 right) of the arm and the leg being posed, for the recorder. */
+  private armSide = 0;
+  private legSide = 0;
+  /** The character being posed is a far segment one (models on, beyond SKIN_RANGE): no minor parts. */
+  private far = false;
+  private readonly slotHex: number[] = [];
+  /** Debug and lineup overrides of a character's look and body type (crowd/looks.ts), by id. */
+  readonly lookOverride = new Map<number, number>();
+  readonly bodyOverride = new Map<number, number>();
 
   constructor() {
     this.group.name = 'crowd';
@@ -301,13 +331,15 @@ export class CrowdView {
       // Allocate the colour buffer up front.
       mesh.setColorAt(0, new THREE.Color(1, 1, 1));
       this.group.add(mesh);
-      return { mesh, n: 0 };
+      return { mesh, n: 0, body: null, minor: false };
     };
     const geometry = characterGeometries();
     const pairs = new Set<PartName>(['upperArm', 'forearm', 'hand', 'thigh', 'shin', 'shoe']);
     this.parts = Object.fromEntries(Object.entries(geometry).map(([name, geo]) => {
       const p = make(geo, MAX * (pairs.has(name as PartName) ? 2 : 1));
       p.mesh.name = 'character-' + name;
+      p.body = name as PartName;
+      p.minor = MINOR_PARTS.has(name as PartName);
       return [name, p];
     })) as Record<PartName, Part>;
     // Barrel ends (front face centres) are the WEAPON_POINTS tips of sim/pose.ts.
@@ -335,6 +367,66 @@ export class CrowdView {
       (p.mesh.material as THREE.MeshStandardMaterial).roughness = 0.4;
       this.weapons.set(id, p);
     }
+    this.useModels(true);
+    registerDebug('characters', {
+      looks: () => LOOKS.map((l, i) => ({ index: i, id: l.id, model: l.model, group: l.group, accessories: [...l.accessories] })),
+      lookOf: (id: number) => this.drawnLook(id),
+      setLook: (id: number, look: number | string, body?: number) => {
+        const i = typeof look === 'number' ? look : LOOKS.findIndex((l) => l.id === look);
+        if (i >= 0) this.lookOverride.set(id, i);
+        if (body !== undefined) this.bodyOverride.set(id, body);
+      },
+      clearLooks: () => {
+        this.lookOverride.clear();
+        this.bodyOverride.clear();
+      },
+      stats: () => this.characterStats(),
+    });
+  }
+
+  /** The look, body type and path a character was drawn with last frame (undefined when he was not drawn skinned). */
+  drawnLook(id: number): { look: string; lookIndex: number; body: number; near: boolean } | undefined {
+    for (let i = 0; i < this.rigCount; i++) {
+      const r = this.rigs[i]!;
+      if (r.id !== id) continue;
+      const w = this.skinned?.where.get(id);
+      return { look: LOOKS[r.look]!.id, lookIndex: r.look, body: r.bodyType, near: !!w?.near };
+    }
+    return undefined;
+  }
+
+  /** Characters drawn last frame by each path. */
+  characterStats(): { models: boolean; skinnedMeshes: number; crowd: number; segments: number; boneMs: number } {
+    return {
+      models: !!this.skinned,
+      skinnedMeshes: this.skinned?.stats.near ?? 0,
+      crowd: this.skinned?.stats.crowd ?? 0,
+      segments: this.parts.torso.mesh.count,
+      boneMs: this.skinned?.stats.boneMs ?? 0,
+    };
+  }
+
+  /**
+   * Draws characters with the skinned models when `on` and the models are loaded (the renderer turns them off on the
+   * software tier). Without them every character is drawn with segments.
+   */
+  useModels(on: boolean): void {
+    if (on && !this.skinned) {
+      const templates = buildLookTemplates();
+      if (!templates) return;
+      this.skinned = new SkinnedCrowd(templates);
+      this.group.add(this.skinned.group);
+    } else if (!on && this.skinned) {
+      this.group.remove(this.skinned.group);
+      this.skinned = null;
+    }
+    // Far segment characters cast no shadow beside the skinned ones (too far for the shadow map to show them).
+    for (const p of Object.values(this.parts)) p.mesh.castShadow = !this.skinned;
+  }
+
+  /** The skinned models' renderer, or null (segment crowd only). */
+  get models(): SkinnedCrowd | null {
+    return this.skinned;
   }
 
   /** The drawn gun of `gun`; a weapon with no model of its own is drawn as the pistol. */
@@ -368,11 +460,107 @@ export class CrowdView {
   }
 
   private put(part: Part, m: THREE.Matrix4, color: number): void {
+    if (this.rec && part.body) {
+      this.record(part.body, m);
+      return;
+    }
+    if (this.far && part.minor) return;
     if (part.n >= part.mesh.instanceMatrix.count) return;
     part.mesh.setMatrixAt(part.n, m);
     part.mesh.setColorAt(part.n, colorOf(color));
     (part.mesh.geometry.getAttribute('instanceFade').array as Float32Array)[part.n] = this.drawFade;
     part.n++;
+  }
+
+  /** Records a body part's matrix into the pose of the skinned character being posed (see crowd/rig.ts RigPose). */
+  private record(name: PartName, m: THREE.Matrix4): void {
+    const r = this.rec!;
+    const a = this.armSide;
+    const l = this.legSide;
+    switch (name) {
+      case 'torso':
+        r.pelvis.setFromMatrixPosition(m);
+        r.body.extractRotation(m);
+        r.have |= HAVE.torso;
+        break;
+      case 'head':
+        r.neck.setFromMatrixPosition(m);
+        r.head.extractRotation(m);
+        r.have |= HAVE.head;
+        break;
+      case 'upperArm':
+        r.shoulder[a].setFromMatrixPosition(m);
+        r.upper[a].extractRotation(m);
+        break;
+      case 'forearm':
+        r.elbow[a].setFromMatrixPosition(m);
+        r.fore[a].extractRotation(m);
+        break;
+      case 'hand':
+        r.hand[a].setFromMatrixPosition(m);
+        r.have |= a === 0 ? HAVE.armL : HAVE.armR;
+        break;
+      case 'thigh':
+        r.hip[l].setFromMatrixPosition(m);
+        r.thigh[l].extractRotation(m);
+        break;
+      case 'shin':
+        r.knee[l].setFromMatrixPosition(m);
+        r.shin[l].extractRotation(m);
+        r.have |= l === 0 ? HAVE.legL : HAVE.legR;
+        break;
+      case 'shoe':
+        r.ankle[l].setFromMatrixPosition(m);
+        r.foot[l].extractRotation(m);
+        r.have |= l === 0 ? HAVE.footL : HAVE.footR;
+        break;
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Starts recording `c`'s pose for the skinned models instead of drawing his segments, when the models are on and he
+   * is within SKIN_RANGE of the camera (`d2`: squared distance) and `allowed`.
+   */
+  private beginRig(c: Character, d2: number, allowed = true): void {
+    this.rec = null;
+    this.far = !!this.skinned && d2 > SKIN_RANGE * SKIN_RANGE;
+    if (!this.skinned || !allowed || this.far) return;
+    let r = this.rigs[this.rigCount];
+    if (!r) {
+      r = makeRigPose();
+      this.rigs.push(r);
+    }
+    r.id = c.id;
+    r.have = 0;
+    r.s = c.appearance.height;
+    r.build = c.appearance.build;
+    r.fade = this.drawFade;
+    // The near-lens dissolve is for bodies the camera can pass through: everyone but another player's character.
+    r.lens = !(c.role === 'player' && c !== this.player);
+    r.idle = 0;
+    r.time = this.time;
+    r.look = this.lookOverride.get(c.id) ?? lookOf(c);
+    r.bodyType = this.bodyOverride.get(c.id) ?? bodyTypeOf(c);
+    const hex = slotColors(c, LOOKS[r.look]!, this.slotHex);
+    for (let i = 0; i < SLOTS; i++) {
+      const col = colorOf(hex[i] ?? 0xffffff);
+      r.colors[i * 3] = col.r;
+      r.colors[i * 3 + 1] = col.g;
+      r.colors[i * 3 + 2] = col.b;
+    }
+    this.rec = r;
+  }
+
+  /** Ends the recording: a pose with a torso and a head is drawn skinned (missing limbs hang straight). */
+  private endRig(): void {
+    const r = this.rec;
+    this.rec = null;
+    this.far = false;
+    if (!r || (r.have & (HAVE.torso | HAVE.head)) !== (HAVE.torso | HAVE.head)) return;
+    completePose(r);
+    this.rigCount++;
   }
 
   /** The fade (0..1) `c` was last drawn with, or undefined when it was not drawn. */
@@ -397,6 +585,7 @@ export class CrowdView {
     this.frame++;
     this.time += dt;
     this.player = null;
+    this.rigCount = 0;
     for (const c of chars) {
       if (c.id === localCharacterId && !c.removed) {
         this.player = c;
@@ -411,19 +600,26 @@ export class CrowdView {
         const v = c.vehicle;
         // A burning car still shows who is in it (until he gets out or it blows up).
         if (!v || v.removed || v.destroyed) continue;
-        if ((v.pos.x - camX) ** 2 + (v.pos.z - camZ) ** 2 > OCCUPANT_RANGE * OCCUPANT_RANGE) continue;
+        const vd2 = (v.pos.x - camX) ** 2 + (v.pos.z - camZ) ** 2;
+        if (vd2 > OCCUPANT_RANGE * OCCUPANT_RANGE) continue;
         this.drawFade = 1;
         this.trackShot(c);
+        // Nobody is drawn behind a van's dark windows, only a gun arm held out of one: that stays a segment arm.
+        this.beginRig(c, vd2, v.spec.class !== 'car' || cabinLayout(v.kind) !== null);
         this.seated(c, v);
+        this.endRig();
         continue;
       }
-      if ((c.pos.x - camX) ** 2 + (c.pos.z - camZ) ** 2 > 200 * 200) continue;
+      const d2 = (c.pos.x - camX) ** 2 + (c.pos.z - camZ) ** 2;
+      if (d2 > 200 * 200) continue;
       // Player characters (the local one and the other players' in multiplayer) are whole at once; pedestrians fade in.
       const fade = this.fadeFor(c, c === this.player || c.role === 'player', dt);
       fade.foot = true;
       this.drawFade = fade.f;
       this.trackShot(c);
+      this.beginRig(c, d2);
       this.poseOnFoot(c, dt);
+      this.endRig();
     }
     // Characters removed while drawn on foot (a body or a despawned ped) fade out where they were; the rest are gone.
     for (const [c, s] of this.fades) {
@@ -436,9 +632,15 @@ export class CrowdView {
       }
       s.frame = this.frame;
       this.drawFade = s.f;
+      this.beginRig(c, (c.pos.x - camX) ** 2 + (c.pos.z - camZ) ** 2);
       this.poseOnFoot(c, dt);
+      this.endRig();
     }
     this.drawFade = 1;
+    if (this.skinned) {
+      if (this.rigCount > 0) this.skinned.draw(this.rigs, this.rigCount, camX, camZ);
+      else this.skinned.clear();
+    }
     for (const [id, a] of this.lie) if (a.frame !== this.frame) this.lie.delete(id);
     for (const [id, s] of this.shots) if (s.frame !== this.frame) this.shots.delete(id);
     const finish = (p: Part) => {
@@ -476,7 +678,7 @@ export class CrowdView {
   private poseOnFoot(c: Character, dt: number): void {
     let anim = this.lie.get(c.id);
     if (!anim) {
-      anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, frame: 0 };
+      anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, idle: 0, frame: 0 };
       this.lie.set(c.id, anim);
     }
     anim.frame = this.frame;
@@ -491,6 +693,7 @@ export class CrowdView {
    * towards `side`, its length scaled by `sy`. Leaves the unit basis in S.bx/by/bz.
    */
   private bone(part: Part, a: THREE.Vector3, b: THREE.Vector3, side: THREE.Vector3, sy: number, color: number): void {
+    if (part === this.parts.thigh) this.legSide = a === S.hipR ? 1 : 0;
     const Y = S.by.subVectors(a, b);
     const l = Y.length();
     if (l > 1e-9) Y.divideScalar(l);
@@ -509,6 +712,7 @@ export class CrowdView {
 
   /** Upper arm, forearm and hand from the shoulder to the elbow to the centre of the hand. */
   private arm(shoulder: THREE.Vector3, elbow: THREE.Vector3, hand: THREE.Vector3, side: THREE.Vector3, c: Character): void {
+    this.armSide = shoulder === S.shR ? 1 : 0;
     const s = c.appearance.height;
     this.bone(this.parts.upperArm, shoulder, elbow, side, s, c.appearance.shirt);
     const wrist = S.wrist.copy(elbow).lerp(hand, SKELETON.forearm / (SKELETON.forearm + SKELETON.hand));
@@ -670,6 +874,10 @@ export class CrowdView {
     const punch = fists && c.punchTimer > 0 ? Math.sin(Math.PI * clamp(1 - c.punchTimer / 0.32, 0, 1)) : 0;
     // Place of the punch in the combo: CombatSystem.melee counts meleeCombo on before the punch is thrown.
     const combo = (((c.meleeCombo + 2) % 3) + 3) % 3;
+    // The skinned models' idle motion (crowd/rig.ts): standing still, nothing in hand.
+    const still = !armed && !fists && !cower && !entering && !held && c.phoneTimer <= 0 && grounded && c.state === 'normal';
+    anim.idle = damp(anim.idle, still ? 1 - anim.walk : 0, 4, dt);
+    if (this.rec) this.rec.idle = anim.idle;
 
     // Weapon pose from the trunk before any drawn-only offsets, and its recoil.
     let kick = 0;
@@ -1015,6 +1223,13 @@ export class CrowdView {
       const hip = (sd > 0 ? S.hipL : S.hipR).copy(P).addScaledVector(S.vleft, sd * hx);
       S.knee.copy(hip).addScaledVector(S.vfwd, SKELETON.thigh * s).addScaledVector(S.vup, 0.04 * s).addScaledVector(S.vleft, sd * 0.03);
       this.bone(this.parts.thigh, hip, S.knee, S.vleft, s, a.pants);
+      if (this.rec) {
+        // A skinned body is whole: its shins go down into the footwell, out of sight, the feet flat on its floor.
+        S.ankle.copy(S.knee).addScaledVector(S.vup, -SKELETON.shin * s * Math.cos(0.35)).addScaledVector(S.vfwd, SKELETON.shin * s * Math.sin(0.35));
+        this.bone(this.parts.shin, S.knee, S.ankle, S.vleft, s, a.pants);
+        S.inst.copy(vrot).scale(S.sc.set(1, s, s)).setPosition(S.ankle);
+        this.put(this.parts.shoe, S.inst, 0xffffff);
+      }
     }
     const pole = S.pole;
     let busy = 0;
