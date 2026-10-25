@@ -182,6 +182,28 @@ describe('imported car bodies', () => {
     }
   });
 
+  it('a camera inside a model body draws it without its dark lining (pressed against a wall), outside with it', () => {
+    for (const kind of MODEL_KINDS) {
+      const v = view(kind);
+      const body = mesh(v, 'body');
+      const g = body.geometry;
+      const start = g.userData.linerStart as number;
+      expect(start, kind).toBeGreaterThan(0);
+      expect(start, kind).toBeLessThan(g.getAttribute('position').count);
+      const cam = new THREE.PerspectiveCamera();
+      const r = undefined as unknown as THREE.WebGLRenderer;
+      const scene = new THREE.Scene();
+      for (const [at, inside] of [[new THREE.Vector3(0, 1, 0), true], [new THREE.Vector3(6, 2, 6), false]] as const) {
+        cam.position.copy(at);
+        cam.updateMatrixWorld(true);
+        body.onBeforeRender(r, scene, cam, g, body.material as THREE.Material, null as unknown as THREE.Group);
+        expect(g.drawRange.count, `${kind} ${inside ? 'inside' : 'outside'}`).toBe(inside ? start : Infinity);
+        body.onAfterRender(r, scene, cam, g, body.material as THREE.Material, null as unknown as THREE.Group);
+        expect(g.drawRange.count, kind).toBe(Infinity);
+      }
+    }
+  });
+
   it('VAL-CAR-004: a front-corner impact dents the model body by 5 cm or more, nothing a metre away, and its shadow follows', () => {
     const rows: string[] = [];
     for (const kind of MODEL_KINDS) {

@@ -817,6 +817,28 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
   return a;
 }
 
+const camLocal = new THREE.Vector3();
+const bodyInverse = new THREE.Matrix4();
+/** How far round its box a camera counts as inside an imported body (m). */
+const INSIDE_MARGIN = 0.1;
+
+/**
+ * An imported body's dark lining is for looks through its windows from outside. A camera inside the body (the chase
+ * camera pressed in against a wall) would see nothing but the lining, so for that draw the body is drawn without it
+ * (its geometry's draw range stops at `userData.linerStart`), as the procedural bodies, whose insides are culled.
+ */
+function hideLiningInside(mesh: THREE.Mesh): void {
+  mesh.onBeforeRender = (_r, _s, camera, geometry) => {
+    const start = geometry.userData.linerStart as number | undefined;
+    if (start === undefined || !geometry.boundingBox) return;
+    camLocal.setFromMatrixPosition(camera.matrixWorld).applyMatrix4(bodyInverse.copy(mesh.matrixWorld).invert());
+    if (geometry.boundingBox.distanceToPoint(camLocal) <= INSIDE_MARGIN) geometry.setDrawRange(0, start);
+  };
+  mesh.onAfterRender = (_r, _s, _c, geometry) => {
+    if (geometry.drawRange.count !== Infinity) geometry.setDrawRange(0, Infinity);
+  };
+}
+
 /** A copy of `g` with every vertex shaded `shade` and texture coordinates kept (for merging into a painted body). */
 function shaded(g: THREE.BufferGeometry, shade: number): THREE.BufferGeometry {
   const src = g.index ? g.toNonIndexed() : g;
@@ -855,9 +877,12 @@ function modelAssets(kind: VehicleKind, m: CarModel, coarse: boolean): KindAsset
     if (rw && rw.z < rb[0] - 0.05) bb.box(-half, m.bottom + 0.05, rw.z - 0.03, half, rw.y - 0.01, rb[0], DARK);
     const interior = bb.build();
     // The paint, the cabin's dark lining (seen through the windows) and the interior, in the body's one draw.
-    const pieces = [m.paint, m.liner];
+    // The lining last: a camera inside the body (pressed against a wall) leaves it out (hideLiningInside).
+    const pieces = [m.paint];
     if (interior.getAttribute('position').count > 0) pieces.push(interior);
+    pieces.push(m.liner);
     body = mergeGeometries(pieces)!;
+    body.userData.linerStart = body.getAttribute('position').count - m.liner.getAttribute('position').count;
     interior.dispose();
     body.computeBoundingBox();
     body.computeBoundingSphere();
@@ -1282,6 +1307,7 @@ export class VehicleView {
     this.kindAssets = a;
     const s = VEHICLE_SPECS[kind];
     this.body = new THREE.Mesh(a.body, bodyMaterial(0xffffff));
+    if (a.model) hideLiningInside(this.body);
     this.cabin = new THREE.Mesh(a.cabin, glassMat);
     this.exterior = new THREE.Mesh(a.exterior, exteriorMat);
     this.exterior.name = 'exterior';
