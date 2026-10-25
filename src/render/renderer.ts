@@ -234,6 +234,8 @@ export class GameRenderer {
     const gpu = settings.gpu ?? probeGpu();
     this.software = gpuClass(gpu.renderer) === 'software';
     this.softwareMaterials = this.software ? new SoftwareMaterials() : null;
+    // The software tier keeps the segment characters (no skinning there).
+    if (this.software) this.crowd.useModels(false);
     this.hdr = gpu.halfFloat && !this.software;
     // Garage interiors and the occlusion at the foot of walls: patched into three's lighting chunks before the first program is built.
     const field = this.software ? null : wallFieldOf(world.layout);
@@ -361,6 +363,9 @@ export class GameRenderer {
     const depthProbe = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshDepthMaterial({ alphaHash: true }));
     depthProbe.position.set(0, -50, 0);
     this.scene.add(depthProbe);
+    // The skinned characters: a near mesh and a crowd instance shown while compiling, and stand-ins for their shadows.
+    const crowdProbes = this.crowd.models?.beginWarmup() ?? [];
+    for (const p of crowdProbes) this.scene.add(p);
     // Loaded asset models are in the scene only while compiling, so their programs exist before the first use.
     const assetProbe = assets.warmGroup();
     this.softwareMaterials?.apply(assetProbe);
@@ -389,6 +394,8 @@ export class GameRenderer {
     target?.dispose();
     this.rain.mesh.visible = rainShown;
     if (haze) haze.visible = hazeShown;
+    for (const p of crowdProbes) this.scene.remove(p);
+    this.crowd.models?.endWarmup(crowdProbes);
     this.scene.remove(assetProbe);
     this.scene.remove(depthProbe);
     depthProbe.geometry.dispose();
@@ -627,6 +634,7 @@ export class GameRenderer {
       }),
       // Every bullet or pellet: its tracer and its impact.
       ev.on('shot', (e) => {
+        if (e.shooter) this.crowd.noteShot(e.shooter.id);
         // Helicopter rounds have no weaponFired of their own.
         if (!e.shooter) fx.muzzleFlash(e.fx, e.fy, e.fz, flashSize(e.weapon));
         else if (e.hit !== 'none') fx.shotLanded(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz, e.nx, e.ny, e.nz);
