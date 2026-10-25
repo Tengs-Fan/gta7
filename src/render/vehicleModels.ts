@@ -99,6 +99,12 @@ export interface CarModel {
   /** Trim with texture coordinates in the exterior atlas (dark rubber and satin metal cells). */
   readonly trim: THREE.BufferGeometry;
   readonly glass: THREE.BufferGeometry;
+  /**
+   * The inside of the cabin's shell: the body and trim round the windows again, facing in and dark. A model's panels
+   * are single surfaces facing out, so from outside, through a window, the far door's and the roof's insides were culled
+   * and the street showed through them.
+   */
+  readonly liner: THREE.BufferGeometry;
   /** The same parts unrefined, for the far versions. */
   readonly farPaint: THREE.BufferGeometry;
   readonly farTrim: THREE.BufferGeometry;
@@ -119,6 +125,8 @@ export interface CarModel {
   readonly roofTopY: number;
   /** Lowest point of the body (ground clearance). */
   readonly bottom: number;
+  /** The rear window's foot: its rearmost z and its lowest y (null without one behind the side windows). */
+  readonly rearWindow: { readonly z: number; readonly y: number } | null;
 }
 
 const built = new Map<string, CarModel | null>();
@@ -425,6 +433,38 @@ function findPlates(tris: Tri[], length: number): PlateFrames | null {
   return { front: frames.front ?? fill, rear: frames.rear ?? fill };
 }
 
+/** How dark the cabin's lining is (a vertex shade of the paint). */
+const LINER_SHADE = 0.1;
+
+/**
+ * Inward-facing, dark copies of the triangles of the cabin's shell (everything but glass and lamps between the beltline
+ * and the roof, along the windows), with flipped normals and the paint's attributes.
+ */
+function linerOf(positions: readonly THREE.Vector3[], tris: ReadonlyArray<readonly [number, number, number]>, parts: readonly Part[], normals: Float32Array, z0: number, z1: number, y0: number, y1: number): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const nor: number[] = [];
+  tris.forEach((t, i) => {
+    const part = parts[i]!;
+    if (part === 'glass' || part === 'head' || part === 'tail') return;
+    const cy = (positions[t[0]]!.y + positions[t[1]]!.y + positions[t[2]]!.y) / 3;
+    const cz = (positions[t[0]]!.z + positions[t[1]]!.z + positions[t[2]]!.z) / 3;
+    if (cy < y0 || cy > y1 || cz < z0 || cz > z1) return;
+    for (const k of [2, 1, 0]) {
+      const v = positions[t[k]!]!;
+      pos.push(v.x, v.y, v.z);
+      nor.push(-normals[i * 9 + k * 3]!, -normals[i * 9 + k * 3 + 1]!, -normals[i * 9 + k * 3 + 2]!);
+    }
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pos.length).fill(LINER_SHADE), 3));
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  return g;
+}
+
 /**
  * Lamps of one part at one end (front: z > 0) on each side: centroid, extent and the area-weighted face normal. (A
  * model's 'Headlights' may hold its white rear lamps too.)
@@ -547,6 +587,14 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
       rt = Math.min(rt, p.z);
     }
   }
+  // The rear window: glass behind the side windows' rear edge.
+  let rwZ = Infinity;
+  let rwY = Infinity;
+  for (const p of glassPts) {
+    if (p.z > rb - 0.1) continue;
+    rwZ = Math.min(rwZ, p.z);
+    rwY = Math.min(rwY, p.y);
+  }
   // The roof's top over the cabin (where roof gear stands) and the body's lowest point.
   let roofTopY = yHi;
   let bottom = Infinity;
@@ -566,6 +614,9 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
     livery: hasLivery ? make(fine, ['livery'], 'paint') : null,
     trim: make(fine, ['dark', 'metal', 'plate'], 'trim'),
     glass: make(fine, ['glass'], 'glass'),
+    // Everything from under the beltline up, along the whole car: through the windows a look reaches the bonnet's and
+    // the boot lid's insides too.
+    liner: linerOf(fine.positions, fine.tris, fine.parts, fineNormals, -Infinity, Infinity, yLo - 0.12, roofTopY + 0.05),
     farPaint: make(coarse, ['paint'], 'paint'),
     farTrim: make(coarse, ['dark', 'metal', 'plate'], 'trim'),
     farGlass: make(coarse, ['glass'], 'glass'),
@@ -580,5 +631,6 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
     roofY: yHi - 0.015,
     roofTopY,
     bottom: Number.isFinite(bottom) ? bottom : 0.2,
+    rearWindow: Number.isFinite(rwZ) ? { z: rwZ, y: rwY } : null,
   };
 }

@@ -148,6 +148,40 @@ describe('imported car bodies', () => {
     }
   });
 
+  it('VAL-CAR-001: no look through a model\'s windows passes out of the cabin through one pane (no open aperture)', () => {
+    // From 16 views round the car, rays into its glass: each leaves through a second pane or meets the body (its
+    // front faces only, as drawn: the panels' insides are the dark lining, the boot and bonnet closed by bulkheads).
+    for (const kind of MODEL_KINDS) {
+      const v = view(kind);
+      const glass = mesh(v, 'glass');
+      const front = new THREE.MeshBasicMaterial({ side: THREE.FrontSide });
+      const both = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+      const G = new THREE.Mesh(glass.geometry, both);
+      const solid = ['body', 'exterior', 'livery'].map((n) => mesh(v, n)).filter((o) => o).map((o) => new THREE.Mesh(o.geometry, front));
+      glass.geometry.computeBoundingBox();
+      const c = glass.geometry.boundingBox!.getCenter(new THREE.Vector3());
+      let rays = 0;
+      let leaks = 0;
+      for (let a = 0; a < 16; a++) {
+        const ang = (a / 16) * Math.PI * 2;
+        const cam = new THREE.Vector3(Math.sin(ang) * 5, 1.6, Math.cos(ang) * 5);
+        for (let dx = -0.6; dx <= 0.6001; dx += 0.1) {
+          for (let dy = -0.2; dy <= 0.2001; dy += 0.1) {
+            const dir = c.clone().add(new THREE.Vector3(dx * Math.cos(ang), dy, -dx * Math.sin(ang))).sub(cam).normalize();
+            const hits = new THREE.Raycaster(cam, dir, 0, 20).intersectObjects([G, ...solid], false);
+            const firstSolid = hits.findIndex((h) => h.object !== G);
+            const panes = (firstSolid < 0 ? hits : hits.slice(0, firstSolid)).length;
+            if (panes === 0) continue;
+            rays++;
+            if (firstSolid < 0 && panes < 2) leaks++;
+          }
+        }
+      }
+      expect(rays, kind).toBeGreaterThan(400);
+      expect(leaks, kind).toBe(0);
+    }
+  });
+
   it('VAL-CAR-004: a front-corner impact dents the model body by 5 cm or more, nothing a metre away, and its shadow follows', () => {
     const rows: string[] = [];
     for (const kind of MODEL_KINDS) {

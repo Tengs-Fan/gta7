@@ -845,13 +845,22 @@ function modelAssets(kind: VehicleKind, m: CarModel, coarse: boolean): KindAsset
   else {
     const bb = new GeoBuilder();
     if (layout) addInterior(bb, prof, kind, layout);
+    // Dark bulkheads closing the cabin off from the bonnet and the boot below the windows: the model's panels are
+    // single surfaces facing out, so a look through the windscreen down past the rear seats saw out of the boot.
+    const half = Math.min(VEHICLE_SPECS[kind].width / 2 - 0.03, m.cabinHalf + 0.06);
+    const [fb, , , rb] = m.cabin as [Pt, Pt, Pt, Pt];
+    for (const z of [fb[0] - 0.02, rb[0] + 0.02]) bb.box(-half, m.bottom + 0.05, z - 0.02, half, m.beltY + 0.04, z + 0.02, DARK);
+    // And the parcel shelf under the rear window, filled down to the floor pan, so no look passes under its foot.
+    const rw = m.rearWindow;
+    if (rw && rw.z < rb[0] - 0.05) bb.box(-half, m.bottom + 0.05, rw.z - 0.03, half, rw.y - 0.01, rb[0], DARK);
     const interior = bb.build();
-    body = interior.getAttribute('position').count > 0 ? mergeGeometries([m.paint, interior])! : m.paint;
-    if (body !== m.paint) {
-      interior.dispose();
-      body.computeBoundingBox();
-      body.computeBoundingSphere();
-    }
+    // The paint, the cabin's dark lining (seen through the windows) and the interior, in the body's one draw.
+    const pieces = [m.paint, m.liner];
+    if (interior.getAttribute('position').count > 0) pieces.push(interior);
+    body = mergeGeometries(pieces)!;
+    interior.dispose();
+    body.computeBoundingBox();
+    body.computeBoundingSphere();
   }
   const wheel = coarse ? new THREE.CylinderGeometry(m.wheelR, m.wheelR, 0.26, 6) : tireGeometry(m.wheelR);
   if (coarse) wheel.rotateZ(Math.PI / 2);
