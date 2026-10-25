@@ -260,6 +260,57 @@ describe('imported car bodies', () => {
     console.log(rows.join('\n'));
   });
 
+  it('number plates on both ends of every model body (near and far), in its fittings draw, seen from outside', () => {
+    const rows: string[] = [];
+    const ray = new THREE.Raycaster();
+    for (const kind of MODEL_KINDS) {
+      const s = VEHICLE_SPECS[kind];
+      const m = carModel(kind)!;
+      const v = view(kind);
+      const parts = [mesh(v, 'body'), mesh(v, 'exterior')];
+      for (const [name, g] of [['near', m.trim], ['far', m.farTrim]] as const) {
+        const pos = g.getAttribute('position');
+        const uv = g.getAttribute('uv');
+        const nor = g.getAttribute('normal');
+        const ends = [new THREE.Box3(), new THREE.Box3()];
+        for (let i = 0; i < pos.count; i++) {
+          // The fittings atlas's plate cell.
+          if (uv.getY(i) < 0.5) continue;
+          const p = new THREE.Vector3().fromBufferAttribute(pos, i);
+          ends[p.z > 0 ? 0 : 1]!.expandByPoint(p);
+          expect(nor.getZ(i) * Math.sign(p.z), `${kind} ${name}: the plate faces out of its end`).toBeGreaterThan(0.75);
+        }
+        ends.forEach((b, e) => {
+          const label = `${kind} ${name} ${e ? 'rear' : 'front'} plate`;
+          expect(b.isEmpty(), label).toBe(false);
+          const w = b.max.x - b.min.x;
+          // About the procedural plate's 0.40 m, centred across, within the end's last 30 cm and at most 4 cm proud of it.
+          expect(w, label).toBeGreaterThanOrEqual(0.3);
+          expect(w, label).toBeLessThanOrEqual(0.45);
+          expect(Math.abs(b.min.x + b.max.x) / 2, label).toBeLessThan(0.02);
+          const proud = e ? -s.length / 2 - b.min.z : b.max.z - s.length / 2;
+          const depth = e ? b.max.z + s.length / 2 : s.length / 2 - b.min.z;
+          expect(proud, label).toBeLessThanOrEqual(0.04);
+          expect(depth, label).toBeLessThanOrEqual(0.3);
+          if (name === 'near') {
+            rows.push(`${label}: ${w.toFixed(2)} x ${(b.max.y - b.min.y).toFixed(2)} m at y ${((b.min.y + b.max.y) / 2).toFixed(2)}, ${(-proud).toFixed(3)} m inside the end`);
+            // Seen straight on from outside, its middle and corners are the plate, not the body in front of it.
+            for (const [fx, fy] of [[0, 0], [-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]] as const) {
+              const x = (fx * w) / 2;
+              const y = (b.min.y + b.max.y) / 2 + (fy * (b.max.y - b.min.y)) / 2;
+              const sign = e ? -1 : 1;
+              ray.set(new THREE.Vector3(x, y, sign * (s.length / 2 + 2)), new THREE.Vector3(0, 0, -sign));
+              const hit = ray.intersectObjects(parts, false)[0];
+              expect(hit?.object.name, `${label} seen at ${fx}, ${fy}`).toBe('exterior');
+              expect(hit!.uv!.y, `${label} seen at ${fx}, ${fy}`).toBeGreaterThan(0.5);
+            }
+          }
+        });
+      }
+    }
+    console.log(`model number plates:\n${rows.join('\n')}`);
+  });
+
   it('VAL-CAR-005/007: lenses on the model\'s lamps, batched; the car draws body, glass and fittings (police: and its livery)', () => {
     const batches = new VehiclePartBatches();
     for (const kind of MODEL_KINDS) {

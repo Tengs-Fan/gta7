@@ -407,37 +407,191 @@ interface PlateFrames {
   rear: { x0: number; x1: number; y0: number; y1: number };
 }
 
+/** The number plates' size (m), as the procedural bodies' (vehicleDetails), and how far they stand off the body. */
+const PLATE_W = 0.4;
+const PLATE_H = 0.145;
+const PLATE_PROUD = 0.01;
+
 /**
- * The model's number plates: trim faces that look straight out of an end, near the middle, in the last 6 % of the
- * length (marked 'plate', so they wear the plate texture). Returns each end's plate extent, or null without a plate.
+ * A plate where it lies: its middle `y` (centred across), how far out along the end its middle face is (`out`, m), its
+ * outward lean per metre up (`slope`), and its size.
  */
-function findPlates(tris: Tri[], length: number): PlateFrames | null {
-  const frames: Partial<PlateFrames> = {};
+interface PlatePlace {
+  y: number;
+  out: number;
+  slope: number;
+  w: number;
+  h: number;
+}
+
+/** The plate's two triangles (facing out of the end) and its extent. */
+function plateQuad(end: 1 | -1, p: PlatePlace): { tris: Tri[]; frame: PlateFrames['front'] } {
+  const h = p.h / 2 / Math.sqrt(1 + p.slope * p.slope);
+  const corner = (x: number, oy: number): THREE.Vector3 => new THREE.Vector3(x, p.y + oy, end * (p.out + p.slope * oy));
+  const [a, b, c, d] = [corner(-p.w / 2, -h), corner(p.w / 2, -h), corner(p.w / 2, h), corner(-p.w / 2, h)];
+  const tris: Tri[] = end > 0 ? [{ p: [a, b, c], part: 'plate' }, { p: [a, c, d], part: 'plate' }] : [{ p: [a, c, b], part: 'plate' }, { p: [a, d, c], part: 'plate' }];
+  return { tris, frame: { x0: -p.w / 2, x1: p.w / 2, y0: p.y - h, y1: p.y + h } };
+}
+
+/**
+ * The model's own plate panel at an end, with the plate laid on it: the largest flat patch of trim (connected faces of
+ * one part looking straight out of the end near the middle, in the last 6 % of the length) about the size of a plate.
+ * The plate is as big as fits in it, up to PLATE_W x PLATE_H. Null without a panel.
+ */
+function platePanel(tris: readonly Tri[], length: number, end: 1 | -1): { place: PlatePlace; tris: Tri[]; box: THREE.Box3 } | null {
   const ab = new THREE.Vector3();
   const ac = new THREE.Vector3();
-  for (const end of [1, -1] as const) {
-    const hits: Tri[] = [];
-    for (const t of tris) {
-      if (t.part !== 'metal' && t.part !== 'dark') continue;
-      const cx = (t.p[0].x + t.p[1].x + t.p[2].x) / 3;
-      const cz = (t.p[0].z + t.p[1].z + t.p[2].z) / 3;
-      if (cz * end < length * 0.44 || Math.abs(cx) > 0.42) continue;
-      const n = ab.subVectors(t.p[1], t.p[0]).cross(ac.subVectors(t.p[2], t.p[0])).normalize();
-      if (n.z * end < 0.85) continue;
-      hits.push(t);
-    }
-    // A plate is a small flat rectangle, about 0.2-0.7 m wide.
-    const b = new THREE.Box3();
-    for (const t of hits) for (const p of t.p) b.expandByPoint(p);
-    const w = b.max.x - b.min.x;
-    const h = b.max.y - b.min.y;
-    if (hits.length === 0 || w < 0.2 || w > 0.7 || h < 0.06 || h > 0.4) continue;
-    for (const t of hits) t.part = 'plate';
-    frames[end > 0 ? 'front' : 'rear'] = { x0: b.min.x, x1: b.max.x, y0: b.min.y, y1: b.max.y };
+  const hits: Tri[] = [];
+  for (const t of tris) {
+    if (t.part !== 'metal' && t.part !== 'dark') continue;
+    const cx = (t.p[0].x + t.p[1].x + t.p[2].x) / 3;
+    const cz = (t.p[0].z + t.p[1].z + t.p[2].z) / 3;
+    if (cz * end < length * 0.44 || Math.abs(cx) > 0.42) continue;
+    if (ab.subVectors(t.p[1], t.p[0]).cross(ac.subVectors(t.p[2], t.p[0])).normalize().z * end < 0.85) continue;
+    hits.push(t);
   }
-  if (!frames.front && !frames.rear) return null;
-  const fill = { x0: -0.2, x1: 0.2, y0: 0, y1: 0.15 };
-  return { front: frames.front ?? fill, rear: frames.rear ?? fill };
+  // Patches: faces of one part sharing a corner.
+  const root = hits.map((_, i) => i);
+  const find = (i: number): number => (root[i] === i ? i : (root[i] = find(root[i]!)));
+  const owner = new Map<string, number>();
+  hits.forEach((t, i) => {
+    for (const p of t.p) {
+      const k = `${t.part}:${Math.round(p.x * 1e3)},${Math.round(p.y * 1e3)},${Math.round(p.z * 1e3)}`;
+      const o = owner.get(k);
+      if (o === undefined) owner.set(k, i);
+      else root[find(o)] = find(i);
+    }
+  });
+  interface Patch {
+    box: THREE.Box3;
+    area: number;
+    normal: THREE.Vector3;
+    at: THREE.Vector3;
+    tris: Tri[];
+  }
+  const patches = new Map<number, Patch>();
+  hits.forEach((t, i) => {
+    const r = find(i);
+    let q = patches.get(r);
+    if (!q) patches.set(r, (q = { box: new THREE.Box3(), area: 0, normal: new THREE.Vector3(), at: new THREE.Vector3(), tris: [] }));
+    for (const p of t.p) q.box.expandByPoint(p);
+    const n = ab.subVectors(t.p[1], t.p[0]).cross(ac.subVectors(t.p[2], t.p[0]));
+    const a = n.length() / 2;
+    q.area += a;
+    q.normal.add(n);
+    q.at.addScaledVector(t.p[0].clone().add(t.p[1]).add(t.p[2]), a / 3);
+    q.tris.push(t);
+  });
+  // The outermost (a plate panel stands proud of a bumper strip round it).
+  let best: Patch | null = null;
+  for (const q of patches.values()) {
+    const w = q.box.max.x - q.box.min.x;
+    const h = q.box.max.y - q.box.min.y;
+    if (w < 0.3 || w > 0.8 || h < 0.1 || h > 0.3) continue;
+    if (!best || q.box.max.z * end > best.box.max.z * end + 0.005 || (q.box.max.z * end > best.box.max.z * end - 0.005 && q.area > best.area)) best = q;
+  }
+  if (!best) return null;
+  const n = best.normal.normalize();
+  const at = best.at.multiplyScalar(1 / best.area);
+  const y = (best.box.min.y + best.box.max.y) / 2;
+  // The panel's plane as outward distance along the end against height; the plate clears all of the panel's facets.
+  const slope = (-n.y / n.z) * end;
+  const plane = (px: number, py: number): number => at.z * end + slope * (py - at.y) - (n.x / n.z) * end * (px - at.x);
+  let poke = 0;
+  for (const t of best.tris) for (const p of t.p) poke = Math.max(poke, p.z * end - plane(p.x, p.y));
+  let w = Math.min(PLATE_W, best.box.max.x - best.box.min.x - 0.01);
+  let h = (w * PLATE_H) / PLATE_W;
+  const room = best.box.max.y - best.box.min.y - 0.005;
+  if (h > room) {
+    h = room;
+    w = (h * PLATE_W) / PLATE_H;
+  }
+  return { place: { y, out: plane(0, y) + poke + PLATE_PROUD, slope, w, h }, tris: best.tris, box: best.box };
+}
+
+/** How far out along an end (m) the first surface is at (x, y): null for none, or for a lamp (its lens is drawn there). */
+type EndCast = (x: number, y: number) => number | null;
+
+function endCast(tris: readonly Tri[], half: number, end: 1 | -1): EndCast {
+  const near = tris.filter((t) => t.part !== 'glass' && t.p.some((p) => p.z * end > half - 0.8) && t.p.some((p) => Math.abs(p.x) < PLATE_W));
+  const ray = new THREE.Ray(new THREE.Vector3(), new THREE.Vector3(0, 0, -end));
+  const at = new THREE.Vector3();
+  return (x, y) => {
+    ray.origin.set(x, y, end * (half + 1));
+    let out = -Infinity;
+    let part: Part | null = null;
+    for (const t of near) {
+      if (!ray.intersectTriangle(t.p[0], t.p[1], t.p[2], false, at) || at.z * end <= out) continue;
+      out = at.z * end;
+      part = t.part;
+    }
+    return part === null || part === 'head' || part === 'tail' ? null : out;
+  };
+}
+
+/** The plate's sample grid (fractions of its half size). */
+const PLATE_STEPS = [-1, -0.5, 0, 0.5, 1];
+
+/**
+ * A panel's plate brought out in front of anything the rays find over it (a plate panel inside a bumper strip, a lip),
+ * or null when that would stand it more than 3 cm off, or a lamp is under it.
+ */
+function clearPlate(cast: EndCast, p: PlatePlace): PlatePlace | null {
+  let need = -Infinity;
+  for (const sy of PLATE_STEPS) {
+    for (const sx of PLATE_STEPS) {
+      const oy = (sy * p.h) / 2;
+      const o = cast((sx * p.w) / 2, p.y + oy);
+      if (o === null) return null;
+      need = Math.max(need, o - p.slope * oy + 0.005);
+    }
+  }
+  if (need - p.out > 0.03) return null;
+  return { ...p, out: Math.max(p.out, need) };
+}
+
+/**
+ * A plate where the model has no plate panel: laid on the flattest stretch of the end's outer surface near `yPref`
+ * (rays cast at a 5 x 5 grid over the plate), upright or leaning with the surface, clear of every lamp and of `avoid`.
+ */
+function platePlace(cast: EndCast, yPref: number, yLo: number, yHi: number, avoid: ModelLamp | null): PlatePlace | null {
+  const dy = PLATE_H / 2;
+  const steps = PLATE_STEPS;
+  let pick: { place: PlatePlace; score: number } | null = null;
+  for (let y = yLo; y <= yHi + 1e-6; y += 0.02) {
+    if (avoid && Math.abs(avoid.at.x) < (PLATE_W + avoid.size[0]) / 2 && Math.abs(avoid.at.y - y) < (PLATE_H + avoid.size[1]) / 2) continue;
+    const rows: number[][] = [];
+    for (const sy of steps) {
+      const row = steps.map((sx) => cast((sx * PLATE_W) / 2, y + sy * dy));
+      if (row.some((o) => o === null)) break;
+      rows.push(row as number[]);
+    }
+    if (rows.length < steps.length) continue;
+    const mean = rows.map((r) => r.reduce((s, o) => s + o, 0) / r.length);
+    // Outward lean per metre up, fitted to the rows (the plate leans with the surface, up to about 37 degrees).
+    let num = 0;
+    let den = 0;
+    steps.forEach((sy, i) => {
+      num += sy * dy * (mean[i]! - mean[2]!);
+      den += sy * dy * sy * dy;
+    });
+    const slope = num / den;
+    if (Math.abs(slope) > 0.75) continue;
+    let poke = -Infinity;
+    let dev = 0;
+    rows.forEach((r, i) => {
+      for (const o of r) {
+        const d = o - (mean[2]! + slope * steps[i]! * dy);
+        poke = Math.max(poke, d);
+        dev = Math.max(dev, Math.abs(d));
+      }
+    });
+    // A plate standing off more than 4 cm anywhere floats.
+    if (dev > 0.02) continue;
+    const score = dev + 0.4 * Math.abs(y - yPref) + 0.02 * Math.abs(slope);
+    if (!pick || score < pick.score) pick = { place: { y, out: mean[2]! + poke + PLATE_PROUD, slope, w: PLATE_W, h: PLATE_H }, score };
+  }
+  return pick?.place ?? null;
 }
 
 /** How dark the cabin's lining is (a vertex shade of the paint). */
@@ -560,8 +714,38 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
   const tailMid = tail.reduce((v, l) => v.add(l.at), new THREE.Vector3()).multiplyScalar(1 / tail.length);
   const reverse: ModelLamp = white[0] ?? { at: new THREE.Vector3(0, tailMid.y - 0.09, tailMid.z), size: [0.16, 0.06], normal: new THREE.Vector3(0, 0, -1), across: new THREE.Vector3(-1, 0, 0) };
   // Draw parts (lamps are the view's lenses), refined for dents; and the unrefined ones for the far versions.
-  const plates = findPlates(tris, s.length) ?? undefined;
-  const kept = tris.filter((t) => t.part !== 'head' && t.part !== 'tail');
+  // Number plates on both ends, as the procedural bodies carry.
+  let low = Infinity;
+  for (const t of tris) if (t.part !== 'glass') for (const p of t.p) low = Math.min(low, p.y);
+  const plateTris: Tri[] = [];
+  const frames: Partial<PlateFrames> = {};
+  for (const end of [1, -1] as const) {
+    const lamps = end > 0 ? head : tail;
+    const lampY = lamps.reduce((y, l) => y + l.at.y, 0) / lamps.length;
+    const yPref = end > 0 ? Math.max(low + 0.16, lampY - 0.22) : Math.max(low + 0.2, lampY - 0.25);
+    const cast = endCast(tris, half, end);
+    const panel = platePanel(tris, s.length, end);
+    const onPanel = panel && clearPlate(cast, panel.place);
+    const key = end > 0 ? 'front' : 'rear';
+    if (!onPanel && panel) {
+      const w = panel.box.max.x - panel.box.min.x;
+      const h = panel.box.max.y - panel.box.min.y;
+      if (w / h > 2.2 && w / h < 3.4) {
+        // A plate-shaped panel set into the body, too tight for a plate laid on it: the panel wears the plate.
+        for (const t of panel.tris) t.part = 'plate';
+        frames[key] = { x0: panel.box.min.x, x1: panel.box.max.x, y0: panel.box.min.y, y1: panel.box.max.y };
+        continue;
+      }
+    }
+    const place = onPanel ?? platePlace(cast, yPref, low + 0.09, lampY + 0.02, end < 0 && !white[0] ? reverse : null);
+    if (!place) continue;
+    const plate = plateQuad(end, place);
+    plateTris.push(...plate.tris);
+    frames[key] = plate.frame;
+  }
+  const fill = { x0: -PLATE_W / 2, x1: PLATE_W / 2, y0: 0, y1: PLATE_H };
+  const plates: PlateFrames = { front: frames.front ?? fill, rear: frames.rear ?? fill };
+  const kept = [...tris.filter((t) => t.part !== 'head' && t.part !== 'tail'), ...plateTris];
   const coarse = weld(kept);
   const fine = refine(coarse.positions.map((v) => v.clone()), coarse.tris, coarse.parts, MAX_EDGE);
   const fineNormals = cornerNormals(fine.positions, fine.tris, fine.parts);
