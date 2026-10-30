@@ -300,8 +300,9 @@ describe('VAL-NPC-005: angry-driver fights follow the existing combat and crime 
     v.pos.z -= lane.dz * (GIVE_UP + 25);
     v.vel.x = 0;
     v.vel.z = 0;
-    step(sim, 14, input({ brake: 1 }));
+    // Checked as he settles it: once he has driven on, his car is ordinary traffic that streaming may recycle.
     const g = sim.angryDrivers.log.find((l) => l.car === target.id)!.grievance!;
+    for (let t = 0; t < 14 && g.end === 'none'; t += 0.1) step(sim, 0.1, input({ brake: 1 }));
     expect(driver.brain?.mode === 'fight' && driver.brain.target === sim.player).toBe(false);
     expect(['drove', 'walked']).toContain(g.end);
     if (g.end === 'drove') {

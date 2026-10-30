@@ -120,8 +120,10 @@ function scripted(seed: number): Run {
   // A car abandoned across the end of a lane into a junction, so that every turn off the lane passes it, with a
   // driver coming up behind it. Held up for over 2 s, the driver takes it as the vehicle to detour round (and backs
   // off); as no detour gets past it, it keeps holding traffic up and is towed once that has gone on for 30 s, the
-  // player well away from it and looking the other way.
+  // player well away from it and looking the other way. Sitting stopped at five stars can end in a bust: its respawn
+  // runs out first, so it does not move the player away from the car halfway through.
   sim.wanted.setLevel(0);
+  while (sim.players[0]!.deathKind) tick(input({}));
   const n = sim.roads.node(5, 5);
   const lane = sim.roads.lanes.find((l) => l.to === n.id && l.length > 45 && l.turns.length >= 2 && l.turns.some((t) => t.kind === 'straight'))!;
   const e = lane.length + 2;
