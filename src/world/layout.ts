@@ -4,6 +4,7 @@
 
 import { Rng } from '../core/rng';
 import { clamp } from '../core/math';
+import { buildMonorail, noMonorail, type Monorail } from './monorail';
 import {
   AVENUE_W, BEACH_W, BOARDWALK_W, CITY_SEED, CROSSWALK_W, CURB_H, GRID_N, PED_INSET,
   PROMENADE_W, PROP_INSET, SAND_DROP, SIDEWALK_W, STREET_W, WATER_Y,
@@ -229,6 +230,8 @@ export interface CityLayout {
   openSpots: { x: number; z: number; district: District }[];
   stadium: Rect | null;
   bounds: Bounds;
+  /** AzuraLink, the monorail along Cortez Canal (world/monorail.ts). */
+  monorail: Monorail;
 }
 
 // ---------------------------------------------------------------------------
@@ -558,6 +561,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     openSpots: [],
     stadium: null,
     bounds,
+    monorail: noMonorail(),
   };
 
   // Blocks: one per cell, one per superblock, none on a sea cell.
@@ -630,6 +634,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   layout.parking = layout.parking.filter((p) => !waterAt(layout, p.x, p.z));
   layout.openSpots = layout.openSpots.filter((p) => !waterAt(layout, p.x, p.z));
   assignGroundFloors(layout);
+  buildMonorail(layout);
 
   // Final sanity: never leave NaN in generated data.
   for (const b of layout.buildings) {

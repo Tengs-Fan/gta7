@@ -351,9 +351,9 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     console.log(`[VAL-BLD-010] buildings ${b}, colliders ${c}`);
     // Captured at d98da7b with the same canonical JSON (tsx over a d98da7b export), re-captured when the map was broken
     // up (docs/map.md): superblocks, the cove, the basin, the canal with its bridges' parapets, and the headland; and again when four bays were drowned into the coast, and when the ring road
-    // was bridged across their mouths (the bridges' parapets).
+    // was bridged across their mouths (the bridges' parapets), and when AzuraLink's pylons and stations were appended.
     expect(b).toBe('a52c2c8ab0629cf2b89bc0b11e6ab1f26eb0cd80959093183317293951215293');
-    expect(c).toBe('43c5b26d1cd25e59712608ef1c4a8e68d56ca36e38a5b047fda722737b9fe752');
+    expect(c).toBe('71443f3d2e5948574ad81b85eee8d205bd240bad9411b3c2103fd4587326a55a');
   });
 });
 

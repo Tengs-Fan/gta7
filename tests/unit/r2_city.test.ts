@@ -255,8 +255,9 @@ function specialPoi(W: StaticWorld, b: Building): { side: Side; x: number; z: nu
 describe('round 2 city: layout', () => {
   it('ground floors leave the generated layout bit-identical to the base commit', () => {
     // Captured on 8788242 (round 2 base) with the same canonical JSON, re-captured when Hotel Salgado (Vera's
-    // SPECIALS row) was added, when the map was broken up and when the ring road was bridged across the bays (docs/map.md).
-    expect(layoutHash()).toBe('868a2932e6aa0e33fdf0f27bd3b9e184ec700c7021314c4a339a04871228231d');
+    // SPECIALS row) was added, when the map was broken up and when the ring road was bridged across the bays (docs/map.md),
+    // and when AzuraLink's line joined the layout.
+    expect(layoutHash()).toBe('3a28e74cc3679ecd70c79e2d903ad068c76dd911e97a9849b17b7641f158f110');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
