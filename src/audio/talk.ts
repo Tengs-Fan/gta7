@@ -43,7 +43,7 @@ const clipLen = (id: string) => SPEECH.clips[id]!;
 const SHOW: readonly PieceKind[] = ['host', 'call', 'news'];
 
 /** Draws the pieces of a pool in a seeded order, all of them before any comes round again, never the same twice running. */
-class Bag {
+export class Bag {
   private left: string[] = [];
   private last = '';
 
