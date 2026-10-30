@@ -192,7 +192,8 @@ const PIECES: readonly TalkPiece[] = [
     ],
   },
 
-  // Ads only THE BOWL runs (it also carries Bang Bang Guns, the Thunderhoof, Torque and Morty Fenwick, script.ts).
+  // Ads only THE BOWL runs: its own Bang Bang Guns and Thunderhoof spots, so a break never airs one brand twice (it
+  // also carries Torque and Morty Fenwick, script.ts).
   {
     id: 'bowl-ad-tickets',
     kind: 'ad',

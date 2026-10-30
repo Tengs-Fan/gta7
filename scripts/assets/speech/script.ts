@@ -326,7 +326,6 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-guns',
     kind: 'ad',
-    shows: ['azura', 'bowl'],
     lines: [
       ['announcer', "Bang Bang Guns, in Southgate and on the Westside! Home of the friendliest staff in San Azura."],
       ['announcer', "Ask about our family pack. Our layaway plan. Our no questions, seriously, stop asking questions guarantee. Bang Bang Guns. We know a guy. We are the guy."],
@@ -443,7 +442,6 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-thunderhoof',
     kind: 'ad',
-    shows: ['azura', 'bowl'],
     lines: [
       ['announcer', "The Thunderhoof. It's loud. It's thirsty. It parks across two spaces, and it does not apologize."],
       ['announcer', "The Thunderhoof. For men who need you to know they're coming."],
