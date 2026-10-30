@@ -1,9 +1,9 @@
 // The talk stations: each a seeded, endless programme of its show (AZURA TALK's Chet Bramble with his callers, the
-// newsdesk and the traffic; THE BOWL's Big Ron Tackett with his), station idents over a jingle and ad breaks, with short
-// gaps of dead air between segments. Every piece is a recorded clip (src/sim/speech.ts). A TalkFormat makes a station
-// sound like itself: the order of its show, its beds, its jingle's motif and, on AM, a narrow band. Every programme runs
-// on its own clock like a live broadcast: tuning in lands mid-segment. TalkProgramme is pure (the schedule); TalkShow
-// plays the current segment's clip over a soft bed.
+// newsdesk and the traffic; THE BOWL's Big Ron Tackett with his; SAPR's critic, garden line and serial), station idents
+// over a jingle and ad breaks, with short gaps of dead air between segments. Every piece is a recorded clip
+// (src/sim/speech.ts). A TalkFormat makes a station sound like itself: the order of its show, its beds, its jingle's
+// motif and, on AM, a narrow band. Every programme runs on its own clock like a live broadcast: tuning in lands
+// mid-segment. TalkProgramme is pure (the schedule); TalkShow plays the current segment's clip over a soft bed.
 
 import { Rng } from '../core/rng';
 import { SPEECH, type ShowId, type TalkKind as PieceKind } from '../sim/speech';
@@ -131,7 +131,7 @@ const HOST_LEVEL = 0.5;
 const AD_LEVEL = 0.46;
 const IDENT_LEVEL = 0.46;
 /** The soft pad under the host: keeps the air from going dead between phrases, about 18 dB under the voice. */
-const HOST_BED = 0.05;
+export const HOST_BED = 0.05;
 const AD_BED = 0.05;
 
 /** AZURA TALK: Chet alone, a caller, the newsdesk or the traffic in any order, over a soft sine pad; ads bounce on a square one. */

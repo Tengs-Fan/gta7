@@ -30,6 +30,12 @@ export const CAST = {
   nate: 'am_eric',
   sal: 'am_santa',
   pembury: 'bm_lewis,bm_daniel',
+  reginald: 'bm_daniel',
+  pru: 'bf_emma,bf_lily',
+  marjorie: 'bf_alice,bf_isabella',
+  sam: 'am_michael,am_adam',
+  marguerite: 'af_nicole,af_bella',
+  lefty: 'am_santa,am_echo',
 } as const;
 
 export type Role = keyof typeof CAST;
@@ -41,6 +47,10 @@ export type Role = keyof typeof CAST;
 export const SAY: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bAzura\b/g, '[Azura](/ɑzˈuɹə/)'],
   [/\bCitybus\b/g, 'City bus'],
+  [/\bReginald\b/g, 'Redginald'],
+  [/\bAshcombe\b/g, 'Ashkum'],
+  [/\bMarguerite\b/g, '[Marguerite](/mˌɑɹɡəɹˈit/)'],
+  [/\bSzabo\b/g, 'Sahbo'],
 ];
 
 /** Talk station roles heard down a phone line or a radio link: their lines are band-limited when rendered. */

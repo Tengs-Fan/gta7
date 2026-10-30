@@ -55,6 +55,7 @@ const index: SpeechIndex = {
   talk: {
     azura: { host: [], call: [], news: [], ad: [], ident: [], serial: [] },
     bowl: { host: [], call: [], news: [], ad: [], ident: [], serial: [] },
+    sapr: { host: [], call: [], news: [], ad: [], ident: [], serial: [] },
   },
   adSeries: {},
   barks: {} as Record<BarkKind, string[][]>,

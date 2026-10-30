@@ -9,11 +9,11 @@ import { AudioEngine } from '../../src/audio/audio';
 import { DOPPLER_RANGE, dopplerFactor } from '../../src/audio/doppler';
 import { decayTime, echoImpulse, gunEcho } from '../../src/audio/echo';
 import { mixTargets, type MixInput } from '../../src/audio/mixer';
-import { BOWL_FORMAT, INTENSITY_FALL, Radio, STATIONS, wantedIntensity } from '../../src/audio/radio';
+import { BOWL_FORMAT, INTENSITY_FALL, Radio, SAPR_FORMAT, STATIONS, wantedIntensity } from '../../src/audio/radio';
 import { BARK_MIN_GAP, BARK_WAIT, barkLength, PoliceScanner, RADIO_BAND } from '../../src/audio/scanner';
 import { dispatchClips, SpeechBank } from '../../src/audio/speech';
 import { NodeTally } from '../../src/audio/tally';
-import { AZURA_FORMAT, DESK_LEAD, DESK_PAUSE, DESK_TAIL, deskLength, GAP_LEN, IDENT_AT, JINGLE_TAIL, talkProgramme, TalkProgramme, TalkShow } from '../../src/audio/talk';
+import { AZURA_FORMAT, DESK_LEAD, DESK_PAUSE, DESK_TAIL, deskLength, GAP_LEN, IDENT_AT, JINGLE_TAIL, talkProgramme, TalkProgramme, TalkShow, type TalkFormat } from '../../src/audio/talk';
 import { SPEECH } from '../../src/sim/speech';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
@@ -263,6 +263,47 @@ describe('talk station', () => {
     });
   }
 
+  it('airs Harbor Lights on SAPR in order, one chapter a round of its slots, from a seeded chapter on and round again after the fifth', () => {
+    const chapters = SPEECH.talk.sapr.serial;
+    expect(chapters).toEqual([1, 2, 3, 4, 5].map((n) => `talk-sapr-serial-${n}`));
+    const slot = SAPR_FORMAT.slots.findIndex((k) => k.join() === 'serial');
+    const firsts = new Set<string>();
+    for (let seed = 1; seed <= 40; seed++) {
+      const shows = talkProgramme(seed, 2 * 3600, SAPR_FORMAT).filter((s) => s.kind === 'host');
+      const aired = shows.filter((_, n) => n % SAPR_FORMAT.slots.length === slot);
+      expect(shows.filter((s) => s.piece === 'serial')).toEqual(aired);
+      expect(aired.length, `seed ${seed}`).toBeGreaterThan(chapters.length);
+      const first = chapters.indexOf(aired[0]!.clip);
+      aired.forEach((s, i) => expect(s.clip, `seed ${seed} airing ${i}`).toBe(chapters[(first + i) % chapters.length]));
+      firsts.add(aired[0]!.clip);
+    }
+    // Tuning in on another day starts the story somewhere else.
+    expect(firsts).toEqual(new Set(chapters));
+  });
+
+  it("plays a show piece over its kind's bed: Harbor Lights over rain alone, the reviews over a triangle pad", () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) }));
+    const ctx = new FContext();
+    const show = new TalkShow(ctx as unknown as BaseAudioContext, ctx.createGain() as unknown as AudioNode, ctx.createBuffer(1, 16000) as AudioBuffer);
+    /** The nodes the bed of the first show segment of `piece` makes (its voice comes after its clip loads). */
+    const bed = (format: TalkFormat, piece: string) => {
+      const seg = new TalkProgramme(3, format).until(3600).find((s) => s.kind === 'host' && s.piece === piece)!;
+      const from = ctx.nodes.length;
+      show.update(seg, ctx.currentTime, format);
+      return ctx.nodes.slice(from);
+    };
+    const biquads = (ns: FNode[]) => ns.filter((n) => n.kind === 'biquad').map((n) => { const f = n as unknown as { type: string; frequency: FParam; Q: FParam }; return `${f.type} ${f.frequency.value}`; });
+    const oscs = (ns: FNode[]) => ns.filter((n) => n.kind === 'oscillator') as unknown as Array<FNode & { type: string; frequency: FParam; detune: FParam }>;
+    const rain = bed(SAPR_FORMAT, 'serial');
+    expect(oscs(rain)).toEqual([]);
+    expect(biquads(rain)).toEqual(['highpass 300', 'lowpass 1400']);
+    const noise = rain.filter((n) => n.kind === 'source') as unknown as Array<FNode & { loop: boolean }>;
+    expect(noise.map((n) => n.started && n.loop)).toEqual([true]);
+    const review = bed(SAPR_FORMAT, 'host');
+    expect(oscs(review).map((o) => o.type)).toEqual(['triangle', 'triangle', 'triangle']);
+    expect(biquads(review)).toEqual(['lowpass 900']);
+  });
+
   it('finds the segment on air at any time, extending the schedule as needed', () => {
     const p = new TalkProgramme(5);
     for (const t of [0, 3, 59.9, 600, 3600, 0.5]) {
@@ -367,7 +408,7 @@ describe('talk station', () => {
     }
   });
 
-  it('renders only the tuned talk station: off the air the programmes run on their clock and start nothing; THE BOWL comes through the AM band', () => {
+  it('renders only the tuned talk station: off the air the programmes run on their clock and start nothing; THE BOWL comes through the AM band, SAPR not', () => {
     const sim = makeSim({ police: false });
     const rp = roadPoint(sim);
     const v = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
@@ -398,11 +439,11 @@ describe('talk station', () => {
     expect(band).toEqual(['highpass 150', 'highpass 150', 'lowpass 4500', 'lowpass 4500']);
     const hiss = radio.hiss!;
     expect(hiss.started && (hiss as unknown as { loop: boolean }).loop).toBe(true);
-    // Back on AZURA TALK the show is straight into the radio's output and the hiss has stopped.
+    // One stop down the dial, on SAPR's FM, the show is straight into the radio's output and the hiss has stopped.
     audio.radio.prev();
     frames(10);
-    expect(audio.radio.stationName).toBe('AZURA TALK 104.5');
-    expect(audio.radio.talkProgramme!.format).toBe(AZURA_FORMAT);
+    expect(audio.radio.stationName).toBe('SAPR 107.3');
+    expect(audio.radio.talkProgramme!.format).toBe(SAPR_FORMAT);
     expect((radio.talkOut.outputs[0] as FNode).kind).toBe('gain');
     expect(hiss.stopAt).toBeLessThanOrEqual(FContext.last!.currentTime);
     expect(radio.hiss).toBeNull();

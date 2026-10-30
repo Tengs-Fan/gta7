@@ -6,8 +6,8 @@ import index from '../assets/speech/speech.json';
 
 /** A talk piece's kind: a serial's chapters air in order. */
 export type TalkKind = 'host' | 'call' | 'news' | 'ad' | 'ident' | 'serial';
-/** The talk shows: AZURA TALK's and THE BOWL's. */
-export type ShowId = 'azura' | 'bowl';
+/** The talk shows: AZURA TALK's, THE BOWL's and SAPR's. */
+export type ShowId = 'azura' | 'bowl' | 'sapr';
 export type BarkKind = 'greet' | 'hurt' | 'jacked' | 'panic' | 'rammed' | 'witness' | 'freeze' | 'shots' | 'officerDown' | 'pullOver' | 'arrest' | 'turf';
 
 export interface SpeechIndex {

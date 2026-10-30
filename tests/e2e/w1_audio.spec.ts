@@ -141,6 +141,21 @@ async function tuneTalk(page: Page): Promise<void> {
   await expect(page.locator('.radio')).toHaveText(/^AZURA TALK 104\.5/);
 }
 
+/**
+ * The music bus through six seconds of the tuned talk station's next show piece whose clip starts with `prefix`, sampled
+ * with the share of power above 5 kHz (callers are band-limited on any station).
+ */
+async function showPiece(page: Page, prefix: string): Promise<Sample[]> {
+  await page.evaluate((prefix) => {
+    const radio = (window as Api).__gta7.game.audio.radio;
+    while (!radio.cueTalk('host', 1).clip.startsWith(prefix));
+  }, prefix);
+  // The cued piece goes on air on the next frame and its clip decodes after that: until then the bus carries what
+  // played before the cue.
+  await page.waitForTimeout(800);
+  return (await record(page, 'music', 6000, 50, 5000, 24000)).filter((x) => x.kind === 'host' && x.into > 0.3 && x.left > 0.3);
+}
+
 test.describe('GTA 7 wave-1 audio', () => {
   test('the talk station: tuned with R, host speech is voice-band above -50 dBFS on the music bus, gaps fall silent', async ({ page }) => {
     const errors = await boot(page);
@@ -262,29 +277,38 @@ test.describe('GTA 7 wave-1 audio', () => {
     await quietCar(page);
     await installTaps(page);
     await tuneTalk(page);
-    /** The music bus through a monologue of the tuned station's host (callers are band-limited on any station). */
-    const monologue = async (prefix: string) => {
-      await page.evaluate((prefix) => {
-        const radio = (window as Api).__gta7.game.audio.radio;
-        while (!radio.cueTalk('host', 1).clip.startsWith(prefix));
-      }, prefix);
-      // The cued host goes on air on the next frame and its clip decodes after that: until then the bus carries what
-      // played before the cue.
-      await page.waitForTimeout(800);
-      return (await record(page, 'music', 6000, 50, 5000, 24000)).filter((x) => x.kind === 'host' && x.into > 0.3 && x.left > 0.3);
-    };
-    const azura = await monologue('talk-host-');
-    // One stop up the dial.
+    const azura = await showPiece(page, 'talk-host-');
+    // Up the dial, past SAPR.
     await pressUntil(page, 'KeyR', 'THE BOWL 1090 AM');
     await expect(page.locator('.radio')).toHaveText(/^THE BOWL 1090 AMSports talk, zero wins$/);
     await page.screenshot({ path: test.info().outputPath('hud-the-bowl.png') });
-    const bowl = await monologue('talk-bowl-host-');
+    const bowl = await showPiece(page, 'talk-bowl-host-');
     const above = (s: Sample[]) => s.reduce((p, x) => p + x.band, 0) / s.length;
     console.log(`[bowl] host: ${bowl.length} windows, mean ${meanDb(bowl).toFixed(1)} dBFS, min ${Math.min(...bowl.map((x) => x.db)).toFixed(1)}; share above 5 kHz ${above(bowl).toExponential(2)} against AZURA TALK's ${above(azura).toExponential(2)}`);
     expect(azura.length).toBeGreaterThan(40);
     expect(bowl.length).toBeGreaterThan(40);
     expect(bowl.filter((x) => x.db < -50)).toEqual([]);
     expect(above(bowl)).toBeLessThan(above(azura) * 0.3);
+    expect(errors).toEqual([]);
+  });
+
+  test('SAPR: a review and a chapter of Harbor Lights over its rain stay above -50 dBFS on the music bus', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    await quietCar(page);
+    await installTaps(page);
+    await tuneTalk(page);
+    await pressUntil(page, 'KeyR', 'SAPR 107.3');
+    await expect(page.locator('.radio')).toHaveText(/^SAPR 107\.3Calm voices\. Pledge now\.$/);
+    await page.screenshot({ path: test.info().outputPath('hud-sapr.png') });
+    const review = await showPiece(page, 'talk-sapr-host-');
+    const chapter = await showPiece(page, 'talk-sapr-serial-');
+    const low = (s: Sample[]) => Math.min(...s.map((x) => x.db)).toFixed(1);
+    console.log(`[sapr] review: ${review.length} windows, mean ${meanDb(review).toFixed(1)} dBFS, min ${low(review)}; Harbor Lights: ${chapter.length} windows, mean ${meanDb(chapter).toFixed(1)}, min ${low(chapter)}`);
+    for (const s of [review, chapter]) {
+      expect(s.length).toBeGreaterThan(40);
+      expect(s.filter((x) => x.db < -50)).toEqual([]);
+    }
     expect(errors).toEqual([]);
   });
 

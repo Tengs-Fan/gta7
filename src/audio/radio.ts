@@ -21,7 +21,7 @@ import { locate, type Beat, type Song, type Style } from './stations/style';
 import { surf } from './stations/surf';
 import { synthwave } from './stations/synthwave';
 import type { NodeTally } from './tally';
-import { AZURA_FORMAT, TalkProgramme, TalkShow, type TalkFormat, type TalkSegment } from './talk';
+import { AZURA_FORMAT, HOST_BED, TalkProgramme, TalkShow, type TalkFormat, type TalkSegment } from './talk';
 
 export interface StationDef {
   name: string;
@@ -33,6 +33,21 @@ export interface StationDef {
   /** A talk station's show. */
   talk?: TalkFormat;
 }
+
+/**
+ * SAPR 107.3, San Azura Public Radio: Reginald Ashcombe-Pryce's review, Pru's garden line, the next chapter of Harbor
+ * Lights and a pledge break in turn, over a soft triangle pad; the serial plays over rain, the underwriting over a pad
+ * that breathes. Its jingle climbs a tenth and settles.
+ */
+export const SAPR_FORMAT: TalkFormat = {
+  show: 'sapr',
+  slots: [['host'], ['call'], ['serial'], ['news']],
+  adChance: 0.3,
+  bed: { ...AZURA_FORMAT.bed, type: 'triangle', cutoff: 900 },
+  beds: { serial: { ...AZURA_FORMAT.bed, level: 0, noise: { filters: [['highpass', 300], ['lowpass', 1400]], level: HOST_BED } } },
+  adBed: { ...AZURA_FORMAT.bed, cutoff: 800, tremolo: 1.5 },
+  bells: [0, 7, 16, 12],
+};
 
 /**
  * THE BOWL 1090 AM: Big Ron's rant, two callers and the sports desk in turn, over a low pad and a crowd that swells
@@ -104,6 +119,7 @@ export const STATIONS: readonly StationDef[] = [
     style: chiptune,
   },
   { name: 'AZURA TALK 104.5', genre: 'talk', tag: 'Talk, news, nonsense', style: null, talk: AZURA_FORMAT },
+  { name: 'SAPR 107.3', genre: 'talk', tag: 'Calm voices. Pledge now.', style: null, talk: SAPR_FORMAT },
   { name: 'THE BOWL 1090 AM', genre: 'talk', tag: 'Sports talk, zero wins', style: null, talk: BOWL_FORMAT },
 ];
 

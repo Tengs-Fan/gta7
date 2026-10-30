@@ -207,6 +207,32 @@
   "talk-bowl-ident-ron": 4.417,
   "talk-bowl-ident-sal": 5.556,
   "talk-bowl-ident-pembury": 5.119,
+  "talk-sapr-host-alarm": 24.698,
+  "talk-sapr-host-burrito": 22.388,
+  "talk-sapr-host-wheel": 25.101,
+  "talk-sapr-host-exhaust": 25.435,
+  "talk-sapr-host-chet": 23.974,
+  "talk-sapr-call-roses": 20.524,
+  "talk-sapr-call-fence": 25.449,
+  "talk-sapr-call-hedge": 23.853,
+  "talk-sapr-call-ducks": 21.276,
+  "talk-sapr-call-orchard": 26.763,
+  "talk-sapr-news-tote": 23.86,
+  "talk-sapr-news-goal": 22.969,
+  "talk-sapr-news-garden": 17.352,
+  "talk-sapr-serial-1": 77.306,
+  "talk-sapr-serial-2": 79.645,
+  "talk-sapr-serial-3": 75.772,
+  "talk-sapr-serial-4": 72.007,
+  "talk-sapr-serial-5": 73.74,
+  "talk-sapr-ad-morty": 9.919,
+  "talk-sapr-ad-morty-bail": 13.785,
+  "talk-sapr-ad-mutual": 14.547,
+  "talk-sapr-ad-salgado": 12.76,
+  "talk-sapr-ident-calm": 5.724,
+  "talk-sapr-ident-reginald": 5.98,
+  "talk-sapr-ident-pru": 5.692,
+  "talk-sapr-ident-sam": 5.335,
   "ident-neon-drive-88-7-0": 4.489,
   "ident-neon-drive-88-7-1": 3.246,
   "ident-neon-drive-88-7-2": 3.161,
@@ -825,6 +851,45 @@
     "talk-bowl-ident-pembury"
    ],
    "serial": []
+  },
+  "sapr": {
+   "host": [
+    "talk-sapr-host-alarm",
+    "talk-sapr-host-burrito",
+    "talk-sapr-host-wheel",
+    "talk-sapr-host-exhaust",
+    "talk-sapr-host-chet"
+   ],
+   "call": [
+    "talk-sapr-call-roses",
+    "talk-sapr-call-fence",
+    "talk-sapr-call-hedge",
+    "talk-sapr-call-ducks",
+    "talk-sapr-call-orchard"
+   ],
+   "news": [
+    "talk-sapr-news-tote",
+    "talk-sapr-news-goal",
+    "talk-sapr-news-garden"
+   ],
+   "ad": [
+    "talk-sapr-ad-morty",
+    "talk-sapr-ad-mutual",
+    "talk-sapr-ad-salgado"
+   ],
+   "ident": [
+    "talk-sapr-ident-calm",
+    "talk-sapr-ident-reginald",
+    "talk-sapr-ident-pru",
+    "talk-sapr-ident-sam"
+   ],
+   "serial": [
+    "talk-sapr-serial-1",
+    "talk-sapr-serial-2",
+    "talk-sapr-serial-3",
+    "talk-sapr-serial-4",
+    "talk-sapr-serial-5"
+   ]
   }
  },
  "adSeries": {
@@ -833,6 +898,10 @@
    "talk-ad-morty-car",
    "talk-ad-morty-payphone",
    "talk-ad-morty-cell"
+  ],
+  "talk-sapr-ad-morty": [
+   "talk-sapr-ad-morty",
+   "talk-sapr-ad-morty-bail"
   ]
  },
  "barks": {
