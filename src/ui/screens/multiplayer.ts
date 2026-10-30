@@ -96,7 +96,7 @@ export function showMultiplayer(ctx: MenuCtx): void {
     rows.forEach((r, k) => r.classList.toggle('sel', k === sel));
     const input = rows[sel]!.querySelector('input');
     if (input && focus) input.focus();
-    else if (!input) (document.activeElement as HTMLElement | null)?.blur?.();
+    else if (!input) (document.activeElement as HTMLElement | null)?.blur();
   };
   const doJoin = () => {
     const v = joinValues(values());
@@ -111,7 +111,7 @@ export function showMultiplayer(ctx: MenuCtx): void {
     ctx.host.click();
     rememberFields(v);
     // The connection screens take the keyboard from here (a focused field would keep it).
-    (document.activeElement as HTMLElement | null)?.blur?.();
+    (document.activeElement as HTMLElement | null)?.blur();
     ctx.host.joinMultiplayer?.(v);
   };
   const goBack = () => {
@@ -157,7 +157,7 @@ export function showMultiplayer(ctx: MenuCtx): void {
         else r.querySelector('input')?.focus();
       }
     },
-    close: () => (document.activeElement as HTMLElement | null)?.blur?.(),
+    close: () => (document.activeElement as HTMLElement | null)?.blur(),
     refresh: () => select(sel, false),
   });
   // A keyboard player can type his name at once; a pad starts on the name row without a caret.

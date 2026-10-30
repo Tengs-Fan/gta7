@@ -192,7 +192,7 @@ export class ScorchDecals {
    * `angle`. Nothing is laid over water.
    */
   add(x: number, z: number, radius: number, strength: number, angle: number, ground: ScorchGround): boolean {
-    if (!Number.isFinite(x + z + radius) || !(radius > 0)) return false;
+    if (radius <= 0) return false;
     if ((ground.waterDepth?.(x, z) ?? -1) > 0) return false;
     let slot = this.slots.findIndex((s, i) => !s.alive && i < this.cap);
     if (slot < 0) {

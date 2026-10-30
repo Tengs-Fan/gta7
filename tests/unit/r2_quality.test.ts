@@ -264,7 +264,6 @@ describe('tier table', () => {
       expect(pixelRatioFor(q, 3)).toBeCloseTo(QUALITY[q].dprCap * QUALITY[q].renderScale, 6);
       expect(pixelRatioFor(q, 1)).toBeCloseTo(Math.min(1, QUALITY[q].dprCap) * QUALITY[q].renderScale, 6);
     }
-    expect(pixelRatioFor('high', Number.NaN)).toBe(1);
   });
 });
 

@@ -234,10 +234,10 @@ export function scroller(panel: HTMLElement): { input(ui: UiActions): void; tick
   return {
     input: (ui) => {
       const d = (ui.down ? 1 : 0) - (ui.up ? 1 : 0);
-      if (d !== 0) panel.scrollBy?.({ top: d * Math.max(80, panel.clientHeight * 0.5), behavior: 'smooth' });
+      if (d !== 0) panel.scrollBy({ top: d * Math.max(80, panel.clientHeight * 0.5), behavior: 'smooth' });
     },
     tick: () => cue.classList.toggle('hidden', !(panel.scrollHeight - panel.clientHeight - panel.scrollTop > 2)),
-    focus: () => panel.focus?.({ preventScroll: true }),
+    focus: () => panel.focus({ preventScroll: true }),
   };
 }
 

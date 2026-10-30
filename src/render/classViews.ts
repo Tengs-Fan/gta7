@@ -28,7 +28,7 @@ export class ClassViewPool {
   }
 
   acquire(kind: VehicleKind): AnyVehicleView {
-    const cls = VEHICLE_SPECS[kind]?.class ?? 'car';
+    const cls = VEHICLE_SPECS[kind].class;
     if (cls === 'car') {
       const car = this.cars.acquire(kind);
       if (!car.suspension && this.ground) car.suspension = new Suspension(this.ground);

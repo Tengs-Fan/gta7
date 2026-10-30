@@ -263,7 +263,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     // swipe is not a whole step. Unlike for weapons, ctrl+wheel (a touchpad pinch) zooms too.
     const newGesture = e.timeStamp - wheelT > WHEEL_GESTURE_GAP;
     wheelT = e.timeStamp;
-    if (!Number.isFinite(dy) || dy === 0 || Math.abs(e.deltaX * unit) > Math.abs(dy)) return;
+    if (dy === 0 || Math.abs(e.deltaX * unit) > Math.abs(dy)) return;
     const steps = newGesture ? 1 : Math.min(Math.abs(dy) / WHEEL_STEP, 1);
     zoom = clamp(zoom - Math.sign(dy) * 0.5 * steps, 0, 4);
   }, { passive: false });

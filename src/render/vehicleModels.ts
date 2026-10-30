@@ -141,12 +141,7 @@ export function carModel(kind: VehicleKind): CarModel | null {
   const key = `${kind}:${t.scene.uuid}`;
   let m = built.get(key);
   if (m === undefined) {
-    try {
-      m = buildModel(kind, spec, t.scene, t.entry.sockets ?? {}, t.entry.wheelRadius ?? 0.33, t.entry.wheelNodes ?? {}, key);
-    } catch {
-      // A model that cannot be split as expected is drawn procedurally.
-      m = null;
-    }
+    m = buildModel(kind, spec, t.scene, t.entry.sockets ?? {}, t.entry.wheelRadius ?? 0.33, t.entry.wheelNodes ?? {}, key);
     built.set(key, m);
   }
   return m;

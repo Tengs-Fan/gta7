@@ -229,7 +229,7 @@ export class PuffLayer {
    * the scene light), `grav` > 0 pulls down (negative: buoyant), `ground` is the height its bottom fades out at.
    */
   emit(kind: PuffKind, x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, s0: number, s1: number, h0: number, h1: number, alpha: number, color: THREE.Color, seed: number, rot: number, spin: number, drag: number, grav: number, ground: number): void {
-    if (!(life > 0) || !Number.isFinite(x + y + z)) return;
+    if (life <= 0) return;
     const i = this.next;
     this.next = (this.next + 1) % this.cap;
     this.px[i] = x;

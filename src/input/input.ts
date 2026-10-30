@@ -128,12 +128,8 @@ const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'AltGraph', 'Meta', 'C
  * for it anyway. Unit tests (Node) stub a navigator without webdriver.
  */
 function automationRefusesLock(): boolean {
-  try {
-    if (typeof navigator === 'undefined' || navigator.webdriver !== true) return false;
-    return new URLSearchParams(typeof location !== 'undefined' ? location.search : '').get('lock') !== '1';
-  } catch {
-    return false;
-  }
+  if (typeof navigator === 'undefined' || navigator.webdriver !== true) return false;
+  return new URLSearchParams(typeof location !== 'undefined' ? location.search : '').get('lock') !== '1';
 }
 
 /**
@@ -202,7 +198,7 @@ export class KeyLabels {
 
   /** Learns what a key types from its keydown (with a modifier held it types something else). */
   learn(ev: KeyboardEvent): void {
-    if (ev.shiftKey || ev.altKey || ev.ctrlKey || ev.metaKey || ev.getModifierState?.('AltGraph')) return;
+    if (ev.shiftKey || ev.altKey || ev.ctrlKey || ev.metaKey || ev.getModifierState('AltGraph')) return;
     this.set(ev.code, ev.key);
   }
 
@@ -477,7 +473,6 @@ export class Input {
       if (document.pointerLockElement !== this.canvas) return;
       const mx = ev.movementX;
       const my = ev.movementY;
-      if (!Number.isFinite(mx) || !Number.isFinite(my)) return;
       const now = performance.now();
       // Gaining the lock (closing the map, resuming) delivers a move by the cursor's offset from where it was
       // locked, which would swing the camera round: drop the first move after it, whenever it comes, and any
@@ -533,7 +528,7 @@ export class Input {
     const unit = ev.deltaMode === 1 ? 40 : ev.deltaMode === 2 ? 800 : 1;
     const dy = ev.deltaY * unit;
     // Ctrl+wheel is a touchpad pinch; mostly-horizontal swipes are not weapon changes.
-    if (ev.ctrlKey || !Number.isFinite(dy) || dy === 0 || Math.abs(ev.deltaX * unit) > Math.abs(dy)) return;
+    if (ev.ctrlKey || dy === 0 || Math.abs(ev.deltaX * unit) > Math.abs(dy)) return;
     const dir = Math.sign(dy);
     const queue = () => {
       this.wheelSteps = Math.max(-6, Math.min(6, this.wheelSteps + dir));

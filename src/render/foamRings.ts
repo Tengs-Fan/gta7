@@ -97,7 +97,7 @@ export class FoamRings {
 
   /** A ring at (x, z) on the sea spreading to `radius` m over `life` s. */
   add(x: number, z: number, radius: number, life: number, alpha = 0.8): void {
-    if (!Number.isFinite(x + z) || !(radius > 0) || !(life > 0)) return;
+    if (radius <= 0 || life <= 0) return;
     const i = this.next;
     this.next = (this.next + 1) % this.max;
     this.x[i] = x;

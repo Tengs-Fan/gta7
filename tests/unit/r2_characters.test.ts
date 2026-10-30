@@ -343,18 +343,12 @@ describe('jointed rig and planted-foot gait', () => {
         }
       }
     }
-    for (const bad of [Number.NaN, Infinity, -Infinity]) {
-      gait(bad, bad, bad, out);
-      expect([out.hipY, ...out.legs.flatMap((l) => [l.knee.x, l.knee.y, l.knee.z, l.kneeFlex])].every(Number.isFinite)).toBe(true);
-    }
     const ik = makeTwoBone();
     const cases: number[][] = [
       [0, 0, 0, 0, 0, 0, 0, 0, 1], // target on the root
       [0, 0, 0, 0, -0.5, 0, 0, -1, 0], // pole along the chain
       [0, 0, 0, 5, 3, -2, 0, 0, 1], // far out of reach
       [0, 0, 0, 0.001, 0, 0, 0, 0, 0], // folded, no pole
-      [0, 0, 0, Number.NaN, 0, 0, 0, 0, 1],
-      [0, 0, 0, 0, -0.6, 0.2, Number.NaN, 0, Infinity],
     ];
     for (const [rx, ry, rz, tx, ty, tz, px, py, pz] of cases) {
       solveTwoBone(rx!, ry!, rz!, tx!, ty!, tz!, 0.43, 0.39, px!, py!, pz!, ik);

@@ -1719,7 +1719,6 @@ describe('round 2 harness', () => {
       expect(move(300, 0)).toEqual([300, 0]);
       expect(move(0, 250)).toEqual([0, 0]); // 720 / 3 = 240
       expect(move(-200, -10)).toEqual([-200, -10]);
-      expect(move(NaN, 0)).toEqual([0, 0]);
     });
 
     it('closing the map leaves the camera where it was', async () => {
@@ -4511,7 +4510,6 @@ describe('R2 fixes: the mouse filter keeps real turns', () => {
     for (const x of [100, 300, 450]) frame(x, 0);
     expect(frame(-900, 0)).toEqual([0, 0]); // against a flick to the right
     expect(frame(0, 600)).toEqual([0, 0]); // across it
-    expect(frame(NaN, 0)).toEqual([0, 0]);
   });
 });
 

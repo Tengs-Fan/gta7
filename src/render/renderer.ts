@@ -535,7 +535,7 @@ export class GameRenderer {
     this.lightSprites.setPoolCap(t.headlightPools);
     this.rain.setCount(this.software ? SOFTWARE_RAIN_DROPS : t.rainDrops);
     this.city.wet.setMode(t.wetGround);
-    const maxAnisotropy = this.renderer.capabilities?.getMaxAnisotropy?.() ?? 1;
+    const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
     this.city.setAnisotropy(this.software ? 'software' : q, maxAnisotropy);
     this.city.setQuality(q, maxAnisotropy, this.software);
     this.env.setWaterGrid(!this.software && t.waterGrid);
@@ -670,7 +670,7 @@ export class GameRenderer {
   }
 
   set resolutionScale(v: number) {
-    const s = Number.isFinite(v) ? Math.max(0.5, Math.min(1, v)) : 1;
+    const s = Math.max(0.5, Math.min(1, v));
     if (s === this.userScale) return;
     this.userScale = s;
     this.resize();
@@ -773,8 +773,8 @@ export class GameRenderer {
       ev.on('propBroken', (e) => {
         this.props.breakProp(e.index, e.dirX, e.dirZ);
         const p = this.world.layout.props[e.index];
-        if (p?.kind === 'hydrant') fx.hydrantSpray(p.x, p.y, p.z);
-        if (p?.kind === 'lamp') fx.debris(p.x, p.y + 0.6, p.z);
+        if (p.kind === 'hydrant') fx.hydrantSpray(p.x, p.y, p.z);
+        if (p.kind === 'lamp') fx.debris(p.x, p.y + 0.6, p.z);
       }),
       ev.on('splash', (e) => fx.splash(e.x, e.y, e.z, e.big)),
       ev.on('lightning', () => {
@@ -979,7 +979,7 @@ export class GameRenderer {
       const hz = v.pos.z + fzh * v.halfL * 0.62;
       // Nothing smokes or burns in the sea (cars that drown are marked destroyed, with no health left).
       if (!v.inWater && (v.burning || (v.destroyed && v.wreckTime < 25) || v.condition < 0.45)) {
-        fx.vehicleSmoke(v.destroyed ? v.pos.x : hx, v.pos.y + v.spec.height * 0.55, v.destroyed ? v.pos.z : hz, v.condition, v.burning, v.destroyed && v.wreckTime < 25, dt, v.destroyed && !v.inWater ? v.wreckTime : -1);
+        fx.vehicleSmoke(v.destroyed ? v.pos.x : hx, v.pos.y + v.spec.height * 0.55, v.destroyed ? v.pos.z : hz, v.condition, v.burning, v.destroyed && v.wreckTime < 25, dt, v.destroyed ? v.wreckTime : -1);
       }
       if (v.spec.class === 'boat') {
         // Foam and spray on the tiers that draw tyre spray; a boat in its own view rides the drawn swell.

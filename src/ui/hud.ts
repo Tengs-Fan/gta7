@@ -450,7 +450,7 @@ export class Hud {
         el.classList.add('kill');
       }
       this.hitTimer = Math.max(this.hitTimer, e.killed ? KILL_TIME : HIT_TIME);
-    } else if (e.victim === local && (e.dirX !== 0 || e.dirZ !== 0) && Number.isFinite(e.dirX + e.dirZ)) {
+    } else if (e.victim === local && (e.dirX !== 0 || e.dirZ !== 0)) {
       // The hit travels along (dirX, dirZ): it came from the opposite way.
       const bearing = Math.atan2(-e.dirX, -e.dirZ);
       let arc = this.arcs.find((a) => a.t > 0 && Math.abs(wrapAngle(a.bearing - bearing)) < ARC_MERGE);
@@ -685,8 +685,8 @@ export class Hud {
     this.subtitleH = window.innerHeight;
     const box = this.el.subtitle!.getBoundingClientRect();
     // Not laid out (the HUD hidden): nothing to keep clear of.
-    const above = this.subtitleH > 0 && box.height > 0 && Number.isFinite(box.top) ? Math.max(0, Math.round(this.subtitleH - box.top)) : 0;
-    this.root.style.setProperty?.('--sub-top', `${above}px`);
+    const above = this.subtitleH > 0 && box.height > 0 ? Math.max(0, Math.round(this.subtitleH - box.top)) : 0;
+    this.root.style.setProperty('--sub-top', `${above}px`);
     this.stackDirty = true;
   }
 
@@ -694,7 +694,7 @@ export class Hud {
   private lowerPrompt(): void {
     this.subtitleW = 0;
     this.subtitleH = 0;
-    this.root.style.setProperty?.('--sub-top', '0px');
+    this.root.style.setProperty('--sub-top', '0px');
     this.stackDirty = true;
   }
 
@@ -713,11 +713,11 @@ export class Hud {
     let top = 0;
     const raise = (e: HTMLElement) => {
       const box = e.getBoundingClientRect();
-      if (h > 0 && box.height > 0 && Number.isFinite(box.top)) top = Math.max(top, Math.round(h - box.top));
+      if (h > 0 && box.height > 0) top = Math.max(top, Math.round(h - box.top));
     };
     if (this.subtitleW > 0) raise(this.el.subtitle!);
     if (this.promptUp) raise(this.el.prompt!);
-    this.root.style.setProperty?.('--stack-top', `${top}px`);
+    this.root.style.setProperty('--stack-top', `${top}px`);
   }
 
   /** Raises a pop-up message under the status cluster (see MAX_TOASTS); the same one again just stays up longer. */
@@ -823,8 +823,8 @@ export class Hud {
     if (clear === this.titleClear) return;
     this.titleClear = clear;
     const [left, right] = clear ? clear.split(' ') : ['0px', '0px'];
-    this.el.big!.style.setProperty?.('--title-left', left!);
-    this.el.big!.style.setProperty?.('--title-clear', right!);
+    this.el.big!.style.setProperty('--title-left', left!);
+    this.el.big!.style.setProperty('--title-clear', right!);
   }
 
   showRadio(name: string): void {

@@ -86,7 +86,6 @@ export class Suspension {
     }
     this.rotX = clamp(this.rotX, -MAX_ANGLE, MAX_ANGLE);
     this.rotZ = clamp(this.rotZ, -MAX_ANGLE, MAX_ANGLE);
-    if (!Number.isFinite(this.rotX) || !Number.isFinite(this.rotZ)) this.reset();
     return this;
   }
 }

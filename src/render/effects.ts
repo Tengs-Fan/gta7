@@ -642,7 +642,7 @@ class Tracers {
     const dy = ty - fy;
     const dz = tz - fz;
     const l = Math.hypot(dx, dy, dz);
-    if (!(l > 1e-3) || !Number.isFinite(l + fx + fy + fz)) return;
+    if (l <= 1e-3) return;
     const i = this.next;
     this.next = (this.next + 1) % this.max;
     this.from.set([fx, fy, fz], i * 3);
@@ -905,7 +905,7 @@ export class Effects {
       return;
     }
     const p = this.muzzleOf(t.shooter);
-    if (!p || !Number.isFinite(p.x + p.y + p.z)) return;
+    if (!p) return;
     const dx = p.x - t.x;
     const dy = p.y - t.y;
     const dz = p.z - t.z;
@@ -1022,7 +1022,7 @@ export class Effects {
   /** The surface under (x, z): ground, a deck, or the sea's surface over water. */
   private groundAt(x: number, y: number, z: number): number {
     const g = this.world?.groundHeight(x, z);
-    if (g === undefined || !Number.isFinite(g) || g > y + 0.5) return y - 0.6;
+    if (g === undefined || g > y + 0.5) return y - 0.6;
     const depth = this.world?.waterDepth?.(x, z) ?? -1;
     return depth > 0 ? g + depth : g;
   }
@@ -1037,7 +1037,7 @@ export class Effects {
    * (less once its shots land: shotLanded) and is dimmed to throw at most FLASH_HEAD_LIGHT on the shooter's own head.
    */
   muzzleFlash(x: number, y: number, z: number, size: number, aim: FlashAim | null = null): void {
-    if (!(size > 0) || !Number.isFinite(x + y + z)) return;
+    if (size <= 0) return;
     const rot = Math.random() * Math.PI;
     const ids = [rot, rot + Math.PI / 2].map((r) => this.glow.emit(x, y, z, 0, 0, 0, FLASH_LIFE, size, size * 1.3, 0xfff0b0, 0xff8020, 1, 0, 0, 0, 3, r));
     const tr = this.flashTrack;
@@ -1055,7 +1055,7 @@ export class Effects {
     p.peak = Math.min(FLASH_LIGHT_MAX, FLASH_LIGHT * size);
     p.shooter = aim?.shooter ?? null;
     const l = aim ? Math.hypot(aim.dx, aim.dy, aim.dz) : 0;
-    p.aimed = !!aim && l > 1e-6 && Number.isFinite(l);
+    p.aimed = !!aim && l > 1e-6;
     p.dx = p.aimed ? aim!.dx / l : 0;
     p.dy = p.aimed ? aim!.dy / l : 0;
     p.dz = p.aimed ? aim!.dz / l : 0;
@@ -1077,7 +1077,7 @@ export class Effects {
     // How far in front of the flash the surface lies, and how fast the light's way along the shot closes on it.
     const depth = (fx - tx) * nx + (fy - ty) * ny + (fz - tz) * nz;
     const closing = -(p.dx * nx + p.dy * ny + p.dz * nz);
-    if (!(closing > 1e-3) || !Number.isFinite(depth)) return;
+    if (closing <= 1e-3) return;
     const ahead = Math.max(0, (depth - FLASH_LIGHT_CLEAR) / closing);
     if (ahead >= p.ahead) return;
     p.ahead = ahead;
@@ -1095,7 +1095,7 @@ export class Effects {
     if (p.aimed && p.shooter) {
       const h = headOf(p.shooter);
       const d2 = (lx - h.x) ** 2 + (ly - h.y) ** 2 + (lz - h.z) ** 2;
-      if (Number.isFinite(d2)) intensity = Math.min(intensity, FLASH_HEAD_LIGHT * d2);
+      intensity = Math.min(intensity, FLASH_HEAD_LIGHT * d2);
     }
     this.muzzle.position.set(lx, ly, lz);
     this.muzzle.intensity = intensity;
@@ -1123,7 +1123,6 @@ export class Effects {
    * the flash light, and a scorch mark when it went off near the ground.
    */
   explosion(x: number, y: number, z: number, radius: number, water = false): void {
-    if (!Number.isFinite(x + y + z + radius)) return;
     const s = radius / 7.5;
     if (water) {
       this.waterPlume(x, y, z, s);
