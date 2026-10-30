@@ -9,7 +9,7 @@ import { AudioEngine } from '../../src/audio/audio';
 import { DOPPLER_RANGE, dopplerFactor } from '../../src/audio/doppler';
 import { decayTime, echoImpulse, gunEcho } from '../../src/audio/echo';
 import { mixTargets, type MixInput } from '../../src/audio/mixer';
-import { BOWL_FORMAT, INTENSITY_FALL, Radio, SAPR_FORMAT, STATIONS, wantedIntensity } from '../../src/audio/radio';
+import { BOWL_FORMAT, INTENSITY_FALL, Radio, SAPR_FORMAT, STATIC_FORMAT, STATIONS, wantedIntensity } from '../../src/audio/radio';
 import { BARK_MIN_GAP, BARK_WAIT, barkLength, PoliceScanner, RADIO_BAND } from '../../src/audio/scanner';
 import { dispatchClips, SpeechBank } from '../../src/audio/speech';
 import { NodeTally } from '../../src/audio/tally';
@@ -281,7 +281,7 @@ describe('talk station', () => {
     expect(firsts).toEqual(new Set(chapters));
   });
 
-  it("plays a show piece over its kind's bed: Harbor Lights over rain alone, the reviews over a triangle pad", () => {
+  it("plays a show piece over its kind's bed: Harbor Lights over rain alone, the reviews over a triangle pad, STATIC over a wavering pad and a low wind", () => {
     vi.stubGlobal('fetch', () => Promise.resolve({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) }));
     const ctx = new FContext();
     const show = new TalkShow(ctx as unknown as BaseAudioContext, ctx.createGain() as unknown as AudioNode, ctx.createBuffer(1, 16000) as AudioBuffer);
@@ -302,6 +302,16 @@ describe('talk station', () => {
     const review = bed(SAPR_FORMAT, 'host');
     expect(oscs(review).map((o) => o.type)).toEqual(['triangle', 'triangle', 'triangle']);
     expect(biquads(review)).toEqual(['lowpass 900']);
+    const theory = bed(STATIC_FORMAT, 'host');
+    const voices = oscs(theory).filter((o) => o.frequency.value > 100);
+    const vibrato = oscs(theory).find((o) => o.frequency.value === 5.5);
+    expect(voices.map((o) => o.type)).toEqual(['sine', 'sine', 'sine']);
+    // One 5.5 Hz LFO bends all three voices by 25 cents either way.
+    const depth = vibrato!.outputs[0] as FNode & { gain: FParam };
+    expect(depth.gain.value).toBe(25);
+    expect(depth.outputs).toEqual(voices.map((o) => o.detune));
+    expect(biquads(theory)).toEqual([`lowpass ${STATIC_FORMAT.bed.cutoff}`, 'bandpass 450']);
+    expect(oscs(theory).every((o) => o.started)).toBe(true);
   });
 
   it('finds the segment on air at any time, extending the schedule as needed', () => {

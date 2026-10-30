@@ -134,7 +134,7 @@ describe('the talk station and the street', () => {
     expect(bowl.ident.length).toBeGreaterThanOrEqual(4);
     expect(bowl.ad.length).toBeGreaterThanOrEqual(3);
     expect(bowl.host.length + bowl.call.length + bowl.news.length).toBeGreaterThanOrEqual(15);
-    for (const show of ['sapr'] as const) {
+    for (const show of ['sapr', 'static'] as const) {
       const p = SPEECH.talk[show];
       expect(p.ident.length, show).toBeGreaterThanOrEqual(4);
       expect(p.ad.length, show).toBeGreaterThanOrEqual(2);

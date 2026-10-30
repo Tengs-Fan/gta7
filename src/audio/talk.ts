@@ -1,9 +1,9 @@
 // The talk stations: each a seeded, endless programme of its show (AZURA TALK's Chet Bramble with his callers, the
-// newsdesk and the traffic; THE BOWL's Big Ron Tackett with his; SAPR's critic, garden line and serial), station idents
-// over a jingle and ad breaks, with short gaps of dead air between segments. Every piece is a recorded clip
-// (src/sim/speech.ts). A TalkFormat makes a station sound like itself: the order of its show, its beds, its jingle's
-// motif and, on AM, a narrow band. Every programme runs on its own clock like a live broadcast: tuning in lands
-// mid-segment. TalkProgramme is pure (the schedule); TalkShow plays the current segment's clip over a soft bed.
+// newsdesk and the traffic; THE BOWL's Big Ron Tackett with his; SAPR's critic, garden line and serial; STATIC's Lyle
+// Truett), station idents over a jingle and ad breaks, with short gaps of dead air between segments. Every piece is a
+// recorded clip (src/sim/speech.ts). A TalkFormat makes a station sound like itself: the order of its show, its beds,
+// its jingle's motif and, on AM, a narrow band. Every programme runs on its own clock like a live broadcast: tuning in
+// lands mid-segment. TalkProgramme is pure (the schedule); TalkShow plays the current segment's clip over a soft bed.
 
 import { Rng } from '../core/rng';
 import { SPEECH, type ShowId, type TalkKind as PieceKind } from '../sim/speech';
@@ -455,7 +455,7 @@ export class TalkShow {
 
   /**
    * The bed: a three-note pad changing chord every 4 s and, on some stations, a band of noise under it, faded in and out
-   * at the segment's ends. The tremolo pulses the pad (the ad bed's bounce); the vibrato bends its notes.
+   * at the segment's ends. The tremolo pulses the pad (the ad bed's bounce); the vibrato bends its notes (STATIC's waver).
    */
   private pad(seed: number, t0: number, end: number, bed: Bed): void {
     const ctx = this.ctx;

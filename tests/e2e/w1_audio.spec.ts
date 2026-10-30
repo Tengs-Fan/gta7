@@ -292,12 +292,13 @@ test.describe('GTA 7 wave-1 audio', () => {
     expect(errors).toEqual([]);
   });
 
-  test('SAPR: a review and a chapter of Harbor Lights over its rain stay above -50 dBFS on the music bus', async ({ page }) => {
+  test("SAPR: a review and a chapter of Harbor Lights over its rain stay above -50 dBFS on the music bus; STATIC comes through the AM band", async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
     await quietCar(page);
     await installTaps(page);
     await tuneTalk(page);
+    const azura = await showPiece(page, 'talk-host-');
     await pressUntil(page, 'KeyR', 'SAPR 107.3');
     await expect(page.locator('.radio')).toHaveText(/^SAPR 107\.3Calm voices\. Pledge now\.$/);
     await page.screenshot({ path: test.info().outputPath('hud-sapr.png') });
@@ -309,6 +310,15 @@ test.describe('GTA 7 wave-1 audio', () => {
       expect(s.length).toBeGreaterThan(40);
       expect(s.filter((x) => x.db < -50)).toEqual([]);
     }
+    await pressUntil(page, 'KeyR', 'STATIC 1260 AM');
+    await expect(page.locator('.radio')).toHaveText(/^STATIC 1260 AMIt's always 3 AM here$/);
+    await page.screenshot({ path: test.info().outputPath('hud-static.png') });
+    const theory = await showPiece(page, 'talk-static-host-');
+    const above = (s: Sample[]) => s.reduce((p, x) => p + x.band, 0) / s.length;
+    console.log(`[static] host: ${theory.length} windows, mean ${meanDb(theory).toFixed(1)} dBFS, min ${low(theory)}; share above 5 kHz ${above(theory).toExponential(2)} against AZURA TALK's ${above(azura).toExponential(2)}`);
+    expect(theory.length).toBeGreaterThan(40);
+    expect(theory.filter((x) => x.db < -50)).toEqual([]);
+    expect(above(theory)).toBeLessThan(above(azura) * 0.3);
     expect(errors).toEqual([]);
   });
 

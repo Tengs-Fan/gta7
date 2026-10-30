@@ -36,6 +36,9 @@ export const CAST = {
   sam: 'am_michael,am_adam',
   marguerite: 'af_nicole,af_bella',
   lefty: 'am_santa,am_echo',
+  lyle: 'bm_fable',
+  trish: 'af_kore',
+  reader: 'af_alloy',
 } as const;
 
 export type Role = keyof typeof CAST;
@@ -51,10 +54,11 @@ export const SAY: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bAshcombe\b/g, 'Ashkum'],
   [/\bMarguerite\b/g, '[Marguerite](/mˌɑɹɡəɹˈit/)'],
   [/\bSzabo\b/g, 'Sahbo'],
+  [/\bTruett\b/g, 'Trooett'],
 ];
 
 /** Talk station roles heard down a phone line or a radio link: their lines are band-limited when rendered. */
-export const PHONE_ROLES: ReadonlySet<Role> = new Set<Role>(['gary', 'linda', 'marcus', 'doris', 'vince', 'jen', 'kid', 'skip', 'sal']);
+export const PHONE_ROLES: ReadonlySet<Role> = new Set<Role>(['gary', 'linda', 'marcus', 'doris', 'vince', 'jen', 'kid', 'skip', 'sal', 'trish']);
 
 /** Mission speakers (the subtitle's name without " (phone)") and the role that voices them. */
 export const SPEAKERS: Readonly<Record<string, Role>> = {

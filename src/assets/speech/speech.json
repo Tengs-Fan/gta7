@@ -233,6 +233,28 @@
   "talk-sapr-ident-reginald": 5.98,
   "talk-sapr-ident-pru": 5.692,
   "talk-sapr-ident-sam": 5.335,
+  "talk-static-host-lighthouse": 27.045,
+  "talk-static-host-wheel": 24.719,
+  "talk-static-host-canal": 24.667,
+  "talk-static-host-ring": 23.768,
+  "talk-static-host-tower": 21.349,
+  "talk-static-host-gulls": 22.936,
+  "talk-static-call-gary": 28.36,
+  "talk-static-call-cat": 23.25,
+  "talk-static-call-lights": 25.422,
+  "talk-static-call-sal": 26.835,
+  "talk-static-call-lawn": 24.052,
+  "talk-static-call-kid": 20.315,
+  "talk-static-news-gulls": 8.898,
+  "talk-static-news-wheel": 9.231,
+  "talk-static-news-ducks": 10.331,
+  "talk-static-ad-bunker": 23.957,
+  "talk-static-ad-hat": 16.569,
+  "talk-static-ad-hat-pulse": 18.863,
+  "talk-static-ident-three": 4.192,
+  "talk-static-ident-signal": 5.227,
+  "talk-static-ident-gary": 4.841,
+  "talk-static-ident-reader": 2.935,
   "ident-neon-drive-88-7-0": 4.489,
   "ident-neon-drive-88-7-1": 3.246,
   "ident-neon-drive-88-7-2": 3.161,
@@ -890,6 +912,40 @@
     "talk-sapr-serial-4",
     "talk-sapr-serial-5"
    ]
+  },
+  "static": {
+   "host": [
+    "talk-static-host-lighthouse",
+    "talk-static-host-wheel",
+    "talk-static-host-canal",
+    "talk-static-host-ring",
+    "talk-static-host-tower",
+    "talk-static-host-gulls"
+   ],
+   "call": [
+    "talk-static-call-gary",
+    "talk-static-call-cat",
+    "talk-static-call-lights",
+    "talk-static-call-sal",
+    "talk-static-call-lawn",
+    "talk-static-call-kid"
+   ],
+   "news": [
+    "talk-static-news-gulls",
+    "talk-static-news-wheel",
+    "talk-static-news-ducks"
+   ],
+   "ad": [
+    "talk-static-ad-bunker",
+    "talk-static-ad-hat"
+   ],
+   "ident": [
+    "talk-static-ident-three",
+    "talk-static-ident-signal",
+    "talk-static-ident-gary",
+    "talk-static-ident-reader"
+   ],
+   "serial": []
   }
  },
  "adSeries": {
@@ -902,6 +958,10 @@
   "talk-sapr-ad-morty": [
    "talk-sapr-ad-morty",
    "talk-sapr-ad-morty-bail"
+  ],
+  "talk-static-ad-hat": [
+   "talk-static-ad-hat",
+   "talk-static-ad-hat-pulse"
   ]
  },
  "barks": {

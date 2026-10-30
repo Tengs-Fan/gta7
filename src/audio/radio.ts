@@ -63,6 +63,20 @@ export const BOWL_FORMAT: TalkFormat = {
   am: true,
 };
 
+/**
+ * STATIC 1260 AM, Beyond the Bay: Lyle Truett's theory, a caller, another theory, another caller and the Signal in
+ * turn, over a pad that wavers like a theremin and a low wind; its jingle falls through a tritone.
+ */
+export const STATIC_FORMAT: TalkFormat = {
+  show: 'static',
+  slots: [['host'], ['call'], ['host'], ['call'], ['news']],
+  adChance: 0.4,
+  bed: { ...AZURA_FORMAT.bed, vibrato: { hz: 5.5, cents: 25 }, noise: { filters: [['bandpass', 450, 1.2]], level: 0.06, swell: 0.06 } },
+  adBed: AZURA_FORMAT.adBed,
+  bells: [12, 11, 6, 0],
+  am: true,
+};
+
 export const STATIONS: readonly StationDef[] = [
   {
     name: 'NEON DRIVE 88.7',
@@ -121,6 +135,7 @@ export const STATIONS: readonly StationDef[] = [
   { name: 'AZURA TALK 104.5', genre: 'talk', tag: 'Talk, news, nonsense', style: null, talk: AZURA_FORMAT },
   { name: 'SAPR 107.3', genre: 'talk', tag: 'Calm voices. Pledge now.', style: null, talk: SAPR_FORMAT },
   { name: 'THE BOWL 1090 AM', genre: 'talk', tag: 'Sports talk, zero wins', style: null, talk: BOWL_FORMAT },
+  { name: 'STATIC 1260 AM', genre: 'talk', tag: "It's always 3 AM here", style: null, talk: STATIC_FORMAT },
 ];
 
 /** AZURA TALK's place on the dial: the talk station the tools act on while no talk station is tuned. */
