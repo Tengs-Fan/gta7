@@ -314,8 +314,8 @@ export class AudioEngine {
       }),
       on('vehicleEnter', (e) => {
         if (e.character === this.me(sim).character) this.doorThunk(e.vehicle);
-        // The driver pulled out of the car shouts after it.
-        if (e.jacked) this.bark('jacked', e.vehicle.id, e.vehicle.pos.x, e.vehicle.pos.y + 1, e.vehicle.pos.z);
+        // The driver pulled out of the car shouts after it (a cabbie has his own lines).
+        if (e.jacked) this.bark(e.vehicle.kind === 'taxi' ? 'cabbie' : 'jacked', e.vehicle.id, e.vehicle.pos.x, e.vehicle.pos.y + 1, e.vehicle.pos.z);
       }),
       on('vehicleExit', (e) => {
         if (e.character === this.me(sim).character) this.doorThunk(e.vehicle);
