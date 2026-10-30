@@ -97,6 +97,8 @@ export class MonorailView {
   private readonly southLamps = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, emissive: 0xffffff, emissiveIntensity: 0 });
   private readonly glow = new THREE.MeshBasicMaterial({ color: 0x000000 });
   private readonly pool: THREE.Mesh;
+  /** The tier's railGlow: the pool shows when it is on and after dark (an additive plane at opacity 0 still draws). */
+  private poolOn = true;
   private readonly doors: THREE.InstancedMesh;
   private readonly signs: Sign[] = [];
   private readonly matrix = new THREE.Matrix4();
@@ -377,7 +379,8 @@ export class MonorailView {
 
   /** The pool of light under the train on the canal (the tier's railGlow). */
   setGlow(on: boolean): void {
-    this.pool.visible = on;
+    this.poolOn = on;
+    this.pool.visible = on && this.night > 0.01;
   }
 
   /** Places the train at sim time `t`, opens its doors at a station, lights it by `night` (0 day .. 1 night) and updates the signs. */
@@ -400,6 +403,7 @@ export class MonorailView {
       this.southLamps.emissiveIntensity = 0.4 + night * 2.6;
       this.glow.color.setRGB(0.05 + night * 0.25, 0.2 + night * 1.6, 0.25 + night * 1.9);
       (this.pool.material as THREE.MeshBasicMaterial).opacity = night * 0.5;
+      this.pool.visible = this.poolOn && night > 0.01;
       for (const sign of this.signs) sign.face.emissiveIntensity = 0.5 + night * 1.6;
     }
     this.signs.forEach((sign, i) => {

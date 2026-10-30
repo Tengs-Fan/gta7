@@ -2,11 +2,13 @@
 // between its two stations and dwelling at each; the pylons stand in the canal clear of every deck; the stations stand
 // on the promenades clear of the footbridges, the pedestrians' paths and every prop; a boat or a swimmer stops at a
 // pylon; the train is heard rising in pitch as it comes and falling as it goes, a station's loudspeaker announcing
-// each departure; and the $5 ride takes the player from one station's foot to the other's, the camera on the train.
+// each departure; the light pool it throws on the canal is drawn only after dark; and the $5 ride takes the player
+// from one station's foot to the other's, the camera on the train.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Glider } from '../../src/audio/mixer';
 import { PA_LEAD, TrainVoice, type Hearing } from '../../src/audio/trainVoice';
+import { MonorailView } from '../../src/render/monorail';
 import { MONORAIL_FARE, MP_NO_MONORAIL } from '../../src/sim/activities/monorail';
 import { gangAt } from '../../src/sim/gangs';
 import type { Sim } from '../../src/sim/sim';
@@ -290,6 +292,44 @@ describe('AzuraLink: the sound', () => {
       expect(SPEECH.pa[st.name]!.length).toBeGreaterThanOrEqual(2);
       for (const id of SPEECH.pa[st.name]!) expect(SPEECH.clips[id]).toBeGreaterThan(2);
     }
+  });
+});
+
+/** A document whose canvases draw nothing and read back blank pixels, for MonorailView's textures and signs. */
+function stubCanvas(): void {
+  const blank = (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h });
+  const fixed: Record<string | symbol, unknown> = {
+    getImageData: (_x: number, _y: number, w: number, h: number) => blank(w, h),
+    createImageData: blank,
+    measureText: () => ({ width: 100 }),
+    createLinearGradient: () => ({ addColorStop: () => {} }),
+    createRadialGradient: () => ({ addColorStop: () => {} }),
+  };
+  const ctx = new Proxy(fixed, { get: (o, k) => (k in o ? o[k] : () => {}), set: (o, k, v) => ((o[k] = v), true) });
+  vi.stubGlobal('document', { createElement: () => ({ width: 300, height: 150, style: {}, getContext: () => ctx }) });
+}
+
+describe('AzuraLink: drawn', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('throws its light pool on the canal only after dark, and only on a tier with railGlow', () => {
+    stubCanvas();
+    const view = new MonorailView(world());
+    const pool = view.group.getObjectByName('train-pool')!;
+    view.setGlow(true);
+    // By day an additive plane at opacity 0 would still cost a draw: it is not drawn at all.
+    view.update(0, 0);
+    expect(pool.visible).toBe(false);
+    view.update(0, 1);
+    expect(pool.visible).toBe(true);
+    view.setGlow(false);
+    expect(pool.visible).toBe(false);
+    view.update(0, 0.5);
+    expect(pool.visible).toBe(false);
+    view.setGlow(true);
+    expect(pool.visible).toBe(true);
+    view.update(0, 0);
+    expect(pool.visible).toBe(false);
   });
 });
 
