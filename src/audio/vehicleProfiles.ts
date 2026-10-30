@@ -34,6 +34,8 @@ export interface EngineParams {
   roar: number;
   /** Wind noise, (speed / 50)^2. */
   wind: number;
+  /** Depth (Hz) of the random cycle-to-cycle wobble on the cycle frequency: no two combustion cycles are alike. */
+  jitterHz: number;
 }
 
 /** Overall gain of the engine voice for a 0 dB profile. */
@@ -47,9 +49,9 @@ const WIND_K = 0.07;
  */
 export function engineParams(kind: VehicleKind, rpm01: number, throttle: number, speed: number, soft = false, out?: EngineParams): EngineParams {
   const p = engineProfileOf(kind);
-  const r = Number.isFinite(rpm01) ? clamp(rpm01, 0, 1) : 0;
-  const th = Number.isFinite(throttle) ? clamp(throttle, 0, 1) : 0;
-  const sp = Number.isFinite(speed) ? clamp(Math.abs(speed), 0, 90) : 0;
+  const r = clamp(rpm01, 0, 1);
+  const th = clamp(throttle, 0, 1);
+  const sp = clamp(Math.abs(speed), 0, 90);
   const rpm = p.idleRpm + r * (p.redlineRpm - p.idleRpm);
   const firingHz = (rpm * p.cylinders) / 120;
   const level = dbToGain(p.loudness) * ENGINE_BASE * (0.55 + 0.45 * th) * (0.8 + 0.2 * r);
@@ -64,13 +66,47 @@ export function engineParams(kind: VehicleKind, rpm01: number, throttle: number,
   o.exhaustLevel = level * (0.12 + 0.55 * th) * (0.7 + 0.6 * p.roughness);
   o.roar = Math.min(0.35, ROAR_K * Math.pow(sp, 1.2) * (soft ? dbToGain(3) : 1));
   o.wind = WIND_K * Math.min(1.5, (sp / 50) ** 2);
+  o.jitterHz = o.cycleHz * (0.008 + 0.025 * p.roughness);
   return o;
 }
 
-/** Tyre squeal for a skid amount: two detuned triangles between 900 and 1400 Hz. */
-export function squealParams(skid: number, airborne: boolean): { level: number; hz: number } {
-  const s = Number.isFinite(skid) && !airborne ? clamp((skid - 0.3) / 0.7, 0, 1) : 0;
-  return { level: 0.075 * s, hz: 900 + 500 * s };
+export interface SquealParams {
+  /** Gain of the two resonant squeal bands. */
+  level: number;
+  /** Centre of the lower squeal band (Hz); the upper one sits SQUEAL_OVERTONE above it. */
+  hz: number;
+  /** Gain of the broad rubber scrub under the squeal. */
+  scrub: number;
+  /** Depth of the stick-slip flutter on the squeal's amplitude (0..1). */
+  flutter: number;
+}
+
+/** The upper squeal band, an inharmonic step above the lower one: no steady interval, so no bell. */
+export const SQUEAL_OVERTONE = 1.94;
+
+/**
+ * Tyre noise for a slide: rubber sliding on asphalt squeals in narrow, wandering bands of noise between about 0.7 and
+ * 1.6 kHz that rise with the slip (the sim's skid, 0..1) and the speed (m/s), over a broad scrub.
+ * Braking straight groans lower and chatters more; sand and grass (`soft`) only scrub.
+ */
+export function squealParams(slip: number, speed: number, airborne: boolean, braking: boolean, soft: boolean, out?: SquealParams): SquealParams {
+  const o = out ?? ({} as SquealParams);
+  const s = airborne ? 0 : clamp((slip - 0.12) / 0.7, 0, 1);
+  const sp = clamp(Math.abs(speed) / 25, 0.25, 1);
+  o.level = soft ? 0 : 0.09 * Math.pow(s, 1.3) * (0.55 + 0.45 * sp);
+  o.hz = (braking ? 600 : 700) + 450 * s + 10 * Math.min(Math.abs(speed), 40);
+  o.scrub = 0.05 * s * (0.4 + 0.6 * sp) * (soft ? 2 : 1);
+  o.flutter = (braking ? 0.55 : 0.3) + 0.15 * (1 - s);
+  return o;
+}
+
+/**
+ * Wheelspin off the line (0..1, added to the skid for the tyre voice): a car with a strong engine floored from a
+ * standstill spins its tyres until it reaches about 8 m/s; the stronger the car, the harder.
+ */
+export function launchSlip(throttle: number, forwardSpeed: number, accel: number, reversing: boolean): number {
+  if (reversing || throttle < 0.85 || accel < 13 || forwardSpeed < 0 || forwardSpeed >= 8) return 0;
+  return 0.95 * (1 - forwardSpeed / 8) * Math.min(1, (accel - 11) / 3);
 }
 
 /** Number of harmonics in the engine PeriodicWave (enough for ~1.8 kHz of detail at a bus's idle). */

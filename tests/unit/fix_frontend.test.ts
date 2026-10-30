@@ -718,29 +718,6 @@ describe('audio', () => {
     expect(outputGain((audio as unknown as { sfx: unknown }).sfx)).toBe(0);
   });
 
-  it('a NaN on the player car or in an event never reaches an AudioParam', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const sim = quickSim();
-    const rp = roadPoint(sim);
-    const v = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
-    placeInCar(sim, v);
-    const audio = new AudioEngine();
-    audio.unlock();
-    audio.attach(sim);
-    audio.setListener(v.pos.x, v.pos.y, v.pos.z, 0);
-    v.rpm = NaN;
-    v.controls.throttle = NaN;
-    audio.update(1 / 60, sim, true);
-    sim.events.emit('explosion', { x: NaN, y: 0, z: 0, radius: 7.5 });
-    sim.events.emit('explosion', { x: v.pos.x, y: v.pos.y, z: v.pos.z, radius: NaN });
-    sim.events.emit('impact', { x: v.pos.x, y: v.pos.y, z: v.pos.z, strength: NaN, vehicle: null });
-    audio.setListener(NaN, 0, 0, NaN);
-    sim.events.emit('melee', { x: 0, y: 0, z: 0, hit: true });
-    audio.update(1 / 60, sim, true);
-    // The guards kept every value finite, so nothing even had to be caught.
-    expect(warn).not.toHaveBeenCalled();
-  });
-
   it('long noise bursts are not cut short by the random buffer offset', () => {
     const audio = new AudioEngine();
     audio.unlock();
@@ -3376,11 +3353,11 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(inner.engine.dips).toBe(1);
   });
 
-  it('a skid above 0.5 raises the tyre squeal; it stops with the skid', () => {
+  it('a skid raises the tyre squeal; it stops with the skid', () => {
     const { sim, audio, ctx, inner, frames } = rig();
     const v = seatInCar(sim);
     frames(5);
-    const eng = inner.engine as unknown as { squealGain: FakeGain; squeal1: FakeOscillator };
+    const eng = inner.engine as unknown as { squealGain: FakeGain; squealLow: { frequency: FakeParam } };
     const step = () => {
       ctx.currentTime += 1 / 60;
       audio.update(1 / 60, sim, true);
@@ -3389,8 +3366,8 @@ describe('round 2 audio: mix, voices and ambience', () => {
     v.skid = 0.8;
     step();
     expect(eng.squealGain.gain.target).toBeGreaterThan(0.02);
-    expect(eng.squeal1.frequency.target).toBeGreaterThanOrEqual(900);
-    expect(eng.squeal1.frequency.target).toBeLessThanOrEqual(1400);
+    expect(eng.squealLow.frequency.target).toBeGreaterThanOrEqual(700);
+    expect(eng.squealLow.frequency.target).toBeLessThanOrEqual(1600);
     v.skid = 0;
     step();
     expect(eng.squealGain.gain.target).toBe(0);

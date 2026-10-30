@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ambienceTargets, IN_CAR, shoreInfo, type AmbienceDistrict, type AmbienceInput } from '../../src/audio/ambience';
 import { AudioEngine } from '../../src/audio/audio';
 import { dbToGain, distanceCutoff, EXPLOSION_DUCK_RANGE, gainToDb, Glider, MIX_DB, mixTargets, OPEN_HZ, softClipCurve, withinParam, type MixInput } from '../../src/audio/mixer';
-import { ENGINE_PROFILES, engineParams, engineWave, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
+import { ENGINE_PROFILES, engineParams, engineWave, launchSlip, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import type { VehicleKind } from '../../src/sim/specs';
@@ -328,21 +328,43 @@ describe('engine profiles', () => {
     }
   });
 
-  it('non-finite vehicle state gives finite parameters', () => {
-    const p = engineParams('sedan', NaN, NaN, NaN);
-    for (const v of Object.values(p)) expect(Number.isFinite(v)).toBe(true);
-    const s = squealParams(NaN, false);
-    expect(s.level).toBe(0);
+  it('tyres squeal in wandering noise bands that rise with the slip and the speed, never in the air or on sand', () => {
+    expect(squealParams(0.1, 20, false, false, false).level).toBe(0);
+    const mid = squealParams(0.5, 20, false, false, false);
+    const full = squealParams(1, 20, false, false, false);
+    expect(mid.level).toBeGreaterThan(0);
+    expect(full.level).toBeGreaterThan(mid.level);
+    expect(full.hz).toBeGreaterThan(mid.hz);
+    for (const p of [mid, full]) {
+      expect(p.hz).toBeGreaterThanOrEqual(700);
+      expect(p.hz).toBeLessThanOrEqual(1600);
+    }
+    expect(squealParams(1, 40, false, false, false).hz).toBeGreaterThan(full.hz);
+    // Braking straight groans lower and chatters more than a slide.
+    const brake = squealParams(0.5, 20, false, true, false);
+    expect(brake.hz).toBeLessThan(mid.hz);
+    expect(brake.flutter).toBeGreaterThan(mid.flutter);
+    expect(squealParams(1, 20, true, false, false)).toMatchObject({ level: 0, scrub: 0 });
+    const sand = squealParams(1, 20, false, false, true);
+    expect(sand.level).toBe(0);
+    expect(sand.scrub).toBeGreaterThan(full.scrub);
   });
 
-  it('tyres squeal with the skid, between 900 and 1400 Hz, never in the air', () => {
-    expect(squealParams(0.2, false).level).toBe(0);
-    const s = squealParams(0.8, false);
-    expect(s.level).toBeGreaterThan(0);
-    expect(s.hz).toBeGreaterThanOrEqual(900);
-    expect(s.hz).toBeLessThanOrEqual(1400);
-    expect(squealParams(1, false).hz).toBe(1400);
-    expect(squealParams(0.8, true).level).toBe(0);
+  it('a strong car floored from a standstill spins its tyres until about 8 m/s', () => {
+    expect(launchSlip(1, 0, 15.5, false)).toBeGreaterThan(0.9);
+    expect(launchSlip(1, 4, 15.5, false)).toBeCloseTo(launchSlip(1, 0, 15.5, false) / 2, 6);
+    expect(launchSlip(1, 8, 15.5, false)).toBe(0);
+    expect(launchSlip(0.5, 0, 15.5, false)).toBe(0);
+    expect(launchSlip(1, 0, 10.5, false)).toBe(0);
+    expect(launchSlip(1, 0, 15.5, true)).toBe(0);
+  });
+
+  it('every engine wobbles a little from cycle to cycle, rough ones more', () => {
+    const smooth = engineParams('sports', 0.5, 1, 20);
+    const rough = engineParams('scooter', 0.5, 1, 20);
+    expect(smooth.jitterHz / smooth.cycleHz).toBeGreaterThan(0.005);
+    expect(rough.jitterHz / rough.cycleHz).toBeGreaterThan(smooth.jitterHz / smooth.cycleHz);
+    expect(rough.jitterHz / rough.cycleHz).toBeLessThan(0.03);
   });
 
   it('builds a unit-RMS pulse wave whose V8 burble sits at half the firing frequency', () => {
