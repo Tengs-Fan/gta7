@@ -498,9 +498,9 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // Recorded at d98da7b (tests/unit/m3_props.test.ts hashes run against an archive of that commit), re-recorded when
   // the map was broken up (docs/map.md), which moves, adds and drops props and adds colliders.
   const D98 = {
-    props: '65fa5a6b553bf370b44efc12b245425dcc7b6b6b250014d76f1563db3e254f41',
-    colliders: 'd587c894db329faf84d0eddaac67920372f1da5dbbf24337256906e00a15d000',
-    envelopes: '17e2cfaeeacbc26581513d643da087aa778b7f8d35e56733d998f80533294c8f',
+    props: 'af23e8b9a5aecfab165d28f2f1f525be1251153f9950478bb3ab06a000df8794',
+    colliders: '335a1ac0a10df24c0d42eb3edf36fa71212cf816b1039dd54259ca091c4c7f9d',
+    envelopes: 'eafe2ec73254666037c220e7dbb2d40a53be9ca5f601ae20edf73fae0867eaca',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {

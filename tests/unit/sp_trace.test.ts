@@ -7,6 +7,8 @@
 //   car swim out or drown instead of vanishing. Seeds 11 and 29 still end wasted / busted after a Street Run start.
 // - Story chapter 2: Hotel Salgado's entrance (Vera's SPECIALS row) displaced one street lamp, so propBroken indices
 //   past it are one lower; against the trace track C recorded on its own branch that is the only difference.
+// - The map broken up (docs/map.md): superblocks, the cove, the basin, the canal and Azura Point change the roads, the
+//   lanes traffic spawns on and the props, so the fixture was re-recorded with them.
 // The economy, ui, audio and render tracks and the multiplayer server change nothing in it.
 
 import { readFileSync } from 'node:fs';

@@ -152,7 +152,7 @@ To play with friends on your network, run the optional multiplayer server (see [
     <td width="50%" valign="top"><img src="docs/screenshots/beach.jpg" alt="The player walks along Azura Pier under the Ferris wheel, with the palm-lined beach and the skyline across the water"><br>Azura Pier and its Ferris wheel, with Ocean Beach and the skyline behind.</td>
   </tr>
   <tr>
-    <td colspan="2" align="center"><img src="docs/screenshots/map.jpg" width="50%" alt="The full-screen map of San Azura with district names, Mama Lou's marker, safehouse, shops, Spray Shacks, hospital, police station, a legend and a waypoint on the pier"><br>The full-screen map, with a waypoint set on Azura Pier.</td>
+    <td colspan="2" align="center"><img src="docs/screenshots/map.jpg" width="50%" alt="The full-screen map of San Azura: Hillcrest Cove in the north-west, Cortez Canal from coast to coast, Port Basin in the docks, Azura Point and its lighthouse to the north, Hillcrest Green, Civic Plaza and the Azura Bowl, with district names, markers and a legend"><br>The full-screen map: the cove, the canal, the basin and Azura Point.</td>
   </tr>
 </table>
 

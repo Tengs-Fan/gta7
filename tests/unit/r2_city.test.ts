@@ -255,7 +255,7 @@ describe('round 2 city: layout', () => {
   it('ground floors leave the generated layout bit-identical to the base commit', () => {
     // Captured on 8788242 (round 2 base) with the same canonical JSON, re-captured when Hotel Salgado (Vera's
     // SPECIALS row) was added and when the map was broken up (docs/map.md).
-    expect(layoutHash()).toBe('18aa9c5639862dab7c3c4a0283d6648d5353f98f1565ed92ecf13c77f71017d1');
+    expect(layoutHash()).toBe('5c32c15dd644ed2570cf4a9673fb9ff670f84838335b494806535dad64d8083d');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

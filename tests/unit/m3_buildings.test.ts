@@ -351,8 +351,8 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     console.log(`[VAL-BLD-010] buildings ${b}, colliders ${c}`);
     // Captured at d98da7b with the same canonical JSON (tsx over a d98da7b export), re-captured when the map was broken
     // up (docs/map.md): superblocks, the cove, the basin, the canal with its bridges' parapets, and the headland.
-    expect(b).toBe('7bb887cc180718e4d66c2d59fe2a1c0bc59ea8dfae0593a2255e837e836ceff7');
-    expect(c).toBe('24105d8329cd829c73544233ff321dd490967bf34ce846ccccc74f01c8e0d2fb');
+    expect(b).toBe('1e50aa28bb42a8cddf3122d3fea3631755a9371a7206b971c621ff2104d25adf');
+    expect(c).toBe('51757281b9b3c7e1a30142df83b6f5e1139f7a0e82a9b8207b5579172b3a2ecf');
   });
 });
 
