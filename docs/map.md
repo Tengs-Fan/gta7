@@ -118,7 +118,7 @@ What the attractions add to the world:
 - The hay-bale kicker is the sixth stunt ramp, and its run-up and landing keep the corridor every ramp keeps.
 - Pumpkins and ordinary headstones break; the twelve epitaph stones do not.
 
-
+## Rejected, and why
 
 - **Hills.** Vehicle physics, the collider grid's fixed height bands, the ground and facade renderers and the traffic and police AI all assume flat ground (ramps and decks are the only slopes and steps).
   Real hills would touch every one of them.
