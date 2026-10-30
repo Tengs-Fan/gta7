@@ -37,6 +37,7 @@ import { TrafficSystem } from './traffic';
 import { registeredSystems, SystemSlots, type SimSystem, type SystemSlot } from './systems';
 import { abandonSinkingCar } from './sinking';
 import './vehicleSystems';
+import './farm';
 import { collideVehicles, collideVehicleStatic, stepVehicle, type VehiclePhysicsHost } from './vehiclePhysics';
 import type { WantedSystem } from './wanted';
 import { WeatherSystem, type WeatherMode } from './weather';
@@ -590,7 +591,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     if (idx < 0) return;
     const sp = Math.max(0.1, v.speed);
     this.events.emit('propBroken', { index: idx, dirX: v.vel.x / sp, dirZ: v.vel.z / sp });
-    this.events.emit('impact', { x: c.cx, y: v.pos.y + 0.5, z: c.cz, strength: 3, vehicle: v });
+    // Corn only rustles (audio plays it from propBroken): no crash, no camera kick.
+    if (c.tag !== 'crop') this.events.emit('impact', { x: c.cx, y: v.pos.y + 0.5, z: c.cz, strength: 3, vehicle: v });
   }
 
   onVehicleLanded(v: Vehicle, impact: number): void {

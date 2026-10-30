@@ -13,7 +13,9 @@ export type ColliderTag =
   | 'bin'
   | 'rock'
   | 'pillar'
-  | 'boat';
+  | 'boat'
+  /** Standing crops (the corn maze): they stop people and slow cars, but hide nothing from sight. */
+  | 'crop';
 
 export interface StaticCollider extends AABB {
   id: number;

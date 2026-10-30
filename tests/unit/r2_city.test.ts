@@ -17,7 +17,7 @@ import { Sim } from '../../src/sim/sim';
 import { isSolidForSight, makeRayHit } from '../../src/world/colliders';
 import { Helicopter } from '../../src/sim/entities';
 import { CURB_H } from '../../src/world/constants';
-import { SPECIALS, blockOf, frontages, generateCity, rectContains, type Building, type Poi, type Prop, type Side } from '../../src/world/layout';
+import { SPECIALS, blockOf, frontages, generateCity, insetRect, mkRect, rectContains, sideHeading, type Building, type Garage, type Prop, type Side } from '../../src/world/layout';
 import { GARAGE_EAVE, GARAGE_ROOF, type StaticWorld } from '../../src/world/staticWorld';
 import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
@@ -255,8 +255,9 @@ function specialPoi(W: StaticWorld, b: Building): { side: Side; x: number; z: nu
 describe('round 2 city: layout', () => {
   it('ground floors leave the generated layout bit-identical to the base commit', () => {
     // Captured on 8788242 (round 2 base) with the same canonical JSON, re-captured when Hotel Salgado (Vera's
-    // SPECIALS row) was added, when the map was broken up and when the ring road was bridged across the bays (docs/map.md).
-    expect(layoutHash()).toBe('868a2932e6aa0e33fdf0f27bd3b9e184ec700c7021314c4a339a04871228231d');
+    // SPECIALS row) was added, when the map was broken up and when the ring road was bridged across the bays (docs/map.md),
+    // and when two cells were rebuilt as Hollister Farm and Eternal Palms Cemetery (the attractions pass).
+    expect(layoutHash()).toBe('c0fc8bb115a0bb972e07b907a351f9729d988849c48c35f7bf0886ae250067e3');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
@@ -1026,14 +1027,20 @@ function helisOnly(sim: Sim): void {
   for (const c of sim.characters) if (c.isLaw) sim.removeCharacter(c);
 }
 
-/** A garage's bay, its centre, and the way out of it (the side its opening faces). */
-function bayOf(poi: Poi): { cx: number; cz: number; fx: number; fz: number; depth: number } {
-  const b = poi.bay!;
-  const fx = Math.sin(poi.heading);
-  const fz = Math.cos(poi.heading);
+/**
+ * A garage's bay, its centre, and the way out of it (the side its opening faces): inside the walls, short of the first
+ * 1.5 m at the opening, as layout.ts gives a place's POI (Hollister Farm's barn has no POI, but the same bay).
+ */
+function bayOf(g: Garage): { bay: { minX: number; minZ: number; maxX: number; maxZ: number }; heading: number; cx: number; cz: number; fx: number; fz: number; depth: number } {
+  const r = g.rect;
+  const i = insetRect(r, 1.1);
+  const b = g.side === 'N' ? mkRect(i.minX, r.minZ + 1.5, i.maxX, i.maxZ) : g.side === 'S' ? mkRect(i.minX, i.minZ, i.maxX, r.maxZ - 1.5) : g.side === 'E' ? mkRect(i.minX, i.minZ, r.maxX - 1.5, i.maxZ) : mkRect(r.minX + 1.5, i.minZ, i.maxX, i.maxZ);
+  const heading = sideHeading(g.side);
+  const fx = Math.sin(heading);
+  const fz = Math.cos(heading);
   // Half the bay's extent along the way out.
   const depth = (Math.abs(fx) * (b.maxX - b.minX) + Math.abs(fz) * (b.maxZ - b.minZ)) / 2;
-  return { cx: (b.minX + b.maxX) / 2, cz: (b.minZ + b.maxZ) / 2, fx, fz, depth };
+  return { bay: b, heading, cx: (b.minX + b.maxX) / 2, cz: (b.minZ + b.maxZ) / 2, fx, fz, depth };
 }
 
 describe('round 2 fix 2: garages hide the bay from above', () => {
@@ -1042,8 +1049,11 @@ describe('round 2 fix 2: garages hide the bay from above', () => {
     const mesh = new CityView(W).group.getObjectByName('garages') as THREE.Mesh;
     const pos = mesh.geometry.getAttribute('position');
     const nrm = mesh.geometry.getAttribute('normal');
-    expect(W.layout.garages.length).toBe(4);
+    // Lou's, three spray shacks and Hollister Farm's barn.
+    expect(W.layout.garages.length).toBe(5);
     for (const g of W.layout.garages) {
+      const poi = W.layout.pois.find((p) => p.id === g.poi);
+      if (poi) expect(bayOf(g).bay, g.poi).toEqual(poi.bay);
       // The roof slab's top face: the upward faces at the top of the slab over this garage.
       const top = { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity };
       for (let i = 0; i < pos.count; i++) {
@@ -1068,8 +1078,7 @@ describe('round 2 fix 2: garages hide the bay from above', () => {
   it('no helicopter round the orbit or overhead sees into a garage bay, though it sees the street in front', () => {
     const sim = makeSim({ startHour: 12 });
     for (const g of sim.world.layout.garages) {
-      const poi = sim.world.layout.pois.find((p) => p.id === g.poi)!;
-      const { cx, cz, fx, fz, depth } = bayOf(poi);
+      const { cx, cz, fx, fz, depth } = bayOf(g);
       // The road 6 m beyond the sidewalk in front of the opening.
       const sx = cx + fx * (depth + 1.5 + 10);
       const sz = cz + fz * (depth + 1.5 + 10);
@@ -1097,9 +1106,8 @@ describe('round 2 fix 2: garages hide the bay from above', () => {
     for (const g of world().layout.garages) {
       const sim = makeSim({ startHour: 12 });
       sim.clock.rate = 0;
-      const poi = sim.world.layout.pois.find((p) => p.id === g.poi)!;
-      const { cx, cz } = bayOf(poi);
-      placeInCar(sim, sim.spawnVehicle('sedan', cx, cz, poi.heading + Math.PI));
+      const { cx, cz, heading } = bayOf(g);
+      placeInCar(sim, sim.spawnVehicle('sedan', cx, cz, heading + Math.PI));
       sim.wanted.setLevel(3);
       sim.helis.push(new Helicopter(sim.newId(), cx + 20, sim.world.groundHeight(cx, cz) + 36, cz));
       let flashed = -1;
@@ -1128,7 +1136,7 @@ describe('round 2 fix 2: garages hide the bay from above', () => {
       sim.missions.noBust = true;
       sim.progress.addMoney(5000);
       const poi = sim.world.layout.pois.find((p) => p.id === id)!;
-      const { cx, cz, fx, fz, depth } = bayOf(poi);
+      const { cx, cz, fx, fz, depth } = bayOf(sim.world.layout.garages.find((g) => g.poi === id)!);
       // On the road 14 m out from the bay, facing in, with a helicopter over him.
       const sx = cx + fx * (depth + 14);
       const sz = cz + fz * (depth + 14);

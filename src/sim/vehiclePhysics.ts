@@ -680,7 +680,8 @@ export function collideVehicleStatic(v: Vehicle, host: VehiclePhysicsHost): bool
     any = true;
     if (c.breakable && v.speed > 3.5) {
       host.onPropBroken(c, v);
-      const k = c.tag === 'bench' || c.tag === 'bin' || c.tag === 'hydrant' ? 0.95 : 0.85;
+      // Standing corn barely slows a car (at 0.85 ten maze walls would stop it), a bench or a bin a little, the rest more.
+      const k = c.tag === 'crop' ? 0.97 : c.tag === 'bench' || c.tag === 'bin' || c.tag === 'hydrant' ? 0.95 : 0.85;
       v.vel.x *= k;
       v.vel.z *= k;
       return;

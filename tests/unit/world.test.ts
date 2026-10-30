@@ -25,7 +25,8 @@ describe('city layout', () => {
     expect(L.props.length).toBeGreaterThan(800);
     expect(L.parking.length).toBeGreaterThan(40);
     expect(L.openSpots.length).toBeGreaterThan(40);
-    expect(L.ramps.length).toBe(5);
+    // Five round the coast and Hollister Farm's hay-bale kicker.
+    expect(L.ramps.length).toBe(6);
   });
 
   it('keeps every building inside a block lot', () => {
@@ -60,7 +61,8 @@ describe('city layout', () => {
   });
 
   it('keeps garage bays drivable and their entrances open', () => {
-    for (const g of L.garages) {
+    // The places' drive-in garages; Hollister Farm's barn opens onto the farm's own lane (attractions.test.ts).
+    for (const g of L.garages.filter((q) => q.poi !== 'farm_barn')) {
       const poi = L.pois.find((p) => p.id === g.poi)!;
       expect(poi.bay).not.toBeNull();
       const bay = poi.bay!;

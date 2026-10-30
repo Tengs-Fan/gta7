@@ -4,6 +4,7 @@
 import { rectContains, type Poi } from '../world/layout';
 import { getActivity } from './activities';
 import { places } from './activities/places';
+import { epitaphMarkers, readEpitaph } from './epitaphs';
 import { formatMoney } from '../core/math';
 import { BUSINESS_DAILY, BUSINESS_NAME, BUSINESS_PRICE, buyProperty, GARAGE_PRICE, GARAGE_SLOTS, propertyState, storedCars } from './properties';
 import { Inventory } from './entities';
@@ -13,7 +14,7 @@ import type { PlayerView } from './viewState';
 import { WEAPON_ORDER, WEAPONS, weaponKindOf, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
 
-export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun';
+export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun' | 'epitaph';
 
 export interface Marker {
   id: string;
@@ -92,6 +93,8 @@ export class Interactions {
     const bay = at.customsBay;
     this.markers.push({ id: 'azura_customs', kind: 'customs', x: (bay.minX + bay.maxX) / 2, z: (bay.minZ + bay.maxZ) / 2, radius: 0, label: '', color: 0xb36bff, ref: 'customs', blip: { color: '#b36bff', label: 'C' } });
     this.markers.push({ id: 'courier_office', kind: 'courier', x: at.courier.x + 3.6, z: at.courier.z, radius: 1.5, label: 'Azura Express: stop a car or bike here and press T for a courier run', color: 0xffd23d, ref: 'courier' });
+    // In front of each of Eternal Palms Cemetery's twelve epitaph stones.
+    this.markers.push(...epitaphMarkers(sim.world));
   }
 
   /** The marker under the player (on foot), if any. `slot` is slot 0 by default. */
@@ -241,6 +244,9 @@ export class Interactions {
       case 'courier':
       case 'customs':
       case 'streetRun':
+        break;
+      case 'epitaph':
+        readEpitaph(sim, slot, Number(m.ref));
         break;
       case 'garage':
       case 'business': {

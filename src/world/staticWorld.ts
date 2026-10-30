@@ -2,6 +2,7 @@
 // ground height, water, zones and free-space searches.
 
 import { circleVsAabb, makeContact } from '../core/collision';
+import { attractionOf } from './attractions';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
@@ -43,6 +44,8 @@ export class StaticWorld {
   readonly grid: StaticGrid;
   /** Collider id for each prop index (or -1). */
   readonly propColliders: number[] = [];
+  /** The cemetery's epitaph stones (prop indices): headstones that stand whatever hits them. */
+  private readonly epitaphStones: ReadonlySet<number>;
   private readonly contact = makeContact();
   /** Decks and ramps by grid cell, for groundHeight. */
   private readonly surfaces: SurfaceGrid;
@@ -50,6 +53,7 @@ export class StaticWorld {
 
   constructor(seed: number = CITY_SEED) {
     this.layout = generateCity(seed);
+    this.epitaphStones = new Set(attractionOf(this.layout, 'cemetery').anchors.epitaphs.map((e) => e.prop));
     this.roads = new RoadNetwork(this.layout);
     this.walk = new SidewalkGraph(this.layout, this.roads);
     const b = this.layout.bounds;
@@ -74,6 +78,13 @@ export class StaticWorld {
     this.layout.props.forEach((p, i) => {
       this.propColliders[i] = this.addPropCollider(p, i);
     });
+    for (const a of this.layout.attractions) {
+      for (const s of a.solids) {
+        const r = s.rect;
+        if (s.round) g.addCircle((r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2, (r.maxX - r.minX) / 2, s.y0, s.y1, s.tag);
+        else g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, s.y0, s.y1, s.tag);
+      }
+    }
   }
 
   private addPropCollider(p: Prop, i: number): number {
@@ -136,6 +147,15 @@ export class StaticWorld {
         this.addBoatBox(p, BOAT_HULL, WATER_Y - 1.5, p.y + BOAT_DECK);
         return this.addBoatBox(p, BOAT_CABIN, p.y + BOAT_DECK, p.y + BOAT_ROOF).id;
       }
+      case 'corn':
+        // Not solid for sight (isSolidForSight): the police lose a target in the rows by the cover rule (coverAt).
+        return g.addBox(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.y + p.h, 'crop', i, true).id;
+      case 'pumpkin':
+        return g.addCircle(p.x, p.z, 0.45 * s, p.y, p.y + 0.6 * s, 'bin', i, true).id;
+      case 'headstone':
+        return g.addBox(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.y + p.h, 'bench', i, !this.epitaphStones.has(i)).id;
+      case 'cypress':
+        return g.addCircle(p.x, p.z, 0.3 * s, p.y, p.y + 9 * s, 'tree').id;
       case 'bush':
       default:
         return -1;
@@ -215,6 +235,12 @@ export class StaticWorld {
 
   isOnRoad(x: number, z: number): boolean {
     return this.roads.isOnRoad(x, z);
+  }
+
+  /** Whether (x, z) is in an attraction's cover (the corn maze, the barn), where the police see a target only up close (wanted.ts). */
+  coverAt(x: number, z: number): boolean {
+    for (const a of this.layout.attractions) for (const r of a.cover) if (rectContains(r, x, z)) return true;
+    return false;
   }
 
   zoneName(x: number, z: number): string {
