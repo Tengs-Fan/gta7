@@ -1,5 +1,6 @@
 // The ambience bed: city hum, traffic wash, wind, surf and crowd murmur as looping layers,
-// plus rate-limited one-shots (birds, gulls, crickets, far horns, dogs, a distant siren).
+// plus rate-limited one-shots (birds, gulls, crickets, far horns, dogs, a distant siren),
+// and the cemetery chapel's bell, tolling twelve at noon and at midnight.
 // The layers are a fixed set of about two dozen nodes.
 // Their loops are generated procedurally (no files), one per frame after start-up,
 // and only their gains, filters and pans move afterwards.
@@ -343,6 +344,37 @@ export interface AmbienceFrame extends AmbienceInput {
   /** Pan (-1 left .. 1 right) toward the sea and toward the traffic. */
   seaPan: number;
   trafficPan: number;
+  /** Metres to Eternal Palms Cemetery's bell tower and the pan toward it (none: no bell in earshot). */
+  bell?: { dist: number; pan: number };
+}
+
+/** The chapel bell is heard within BELL_RANGE m: BELL_STRIKES strokes BELL_GAP s apart when the clock passes 0:00 or 12:00. */
+export const BELL_RANGE = 500;
+export const BELL_STRIKES = 12;
+export const BELL_GAP = 2.6;
+const BELL_GAIN = 0.07;
+/** The bell's strike tone (Hz) and its partials: a church bell's hum, prime, minor third, fifth, nominal and the rest above, out of tune with one another. */
+const BELL_HZ = 392;
+const BELL_PARTIALS: ReadonlyArray<readonly [ratio: number, gain: number, decay: number]> = [
+  [0.5, 0.55, 6], [1, 0.8, 4.5], [1.183, 0.45, 3.5], [1.506, 0.3, 2.8], [2, 0.5, 2.5], [2.514, 0.22, 1.8], [2.662, 0.2, 1.6], [3.011, 0.14, 1.3], [4.166, 0.1, 0.9],
+];
+
+/**
+ * Whether the clock ran on past noon or midnight between two readings of its hours a frame apart (NaN: no earlier
+ * reading). A jump (a new game, a load, a cheat setting the time) tolls nothing.
+ */
+export function bellTolls(prev: number, hours: number): boolean {
+  const d = (hours - prev + 24) % 24;
+  return d > 0 && d < 0.25 && Math.floor((prev + d) / 12) > Math.floor(prev / 12);
+}
+
+/** The whisper by the Bramble family crypt: within WHISPER_RANGE m of its door, from 03:00 to 03:15, once a night. */
+export const WHISPER_RANGE = 6;
+export const WHISPER_FROM = 3;
+export const WHISPER_TO = 3.25;
+
+export function whisperDue(hours: number, dist: number): boolean {
+  return hours >= WHISPER_FROM && hours < WHISPER_TO && dist <= WHISPER_RANGE;
 }
 
 export class Ambience {
@@ -369,6 +401,10 @@ export class Ambience {
   private surfDrift = 0;
   private surfSource: AudioBufferSourceNode | null = null;
   private readonly rate: number;
+  /** The clock's hours at the last update (for the bell). */
+  private lastHours = NaN;
+  /** Bell tolls started so far (for tests). */
+  tolls = 0;
 
   constructor(private readonly ctx: BaseAudioContext, dest: AudioNode) {
     const gain = (v: number) => {
@@ -480,6 +516,36 @@ export class Ambience {
       this.surfSource.playbackRate.setTargetAtTime(0.9 + this.random() * 0.2, now, 3);
     }
     this.oneShotsFor(dt, now, l, f);
+    if (f.bell && f.bell.dist < BELL_RANGE && bellTolls(this.lastHours, f.hours)) this.toll(now + 0.05, f.bell);
+    this.lastHours = f.hours;
+  }
+
+  /** Twelve strokes of the chapel bell, quieter and duller the farther off it is. */
+  private toll(t: number, bell: { dist: number; pan: number }): void {
+    const ctx = this.ctx;
+    const near = clamp(1 - bell.dist / BELL_RANGE, 0, 1);
+    const o = this.shotOut(bell.pan, BELL_GAIN * near * near);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = withinParam(lp.frequency, 1400 + 6000 * near);
+    lp.connect(o.node);
+    this.tolls++;
+    for (let k = 0; k < BELL_STRIKES; k++) {
+      const ts = t + k * BELL_GAP;
+      for (const [ratio, gain, decay] of BELL_PARTIALS) {
+        const osc = ctx.createOscillator();
+        osc.frequency.value = BELL_HZ * ratio;
+        const g = this.envGain(ctx.currentTime);
+        g.gain.setValueAtTime(0, ts);
+        g.gain.linearRampToValueAtTime(o.level * gain, ts + 0.004);
+        g.gain.exponentialRampToValueAtTime(Math.max(1e-5, o.level * gain * 1e-3), ts + decay);
+        g.gain.linearRampToValueAtTime(0, ts + decay + 0.05);
+        osc.connect(g);
+        g.connect(lp);
+        osc.start(ts + 1 / ctx.sampleRate);
+        osc.stop(ts + decay + 0.1);
+      }
+    }
   }
 
   private oneShotsFor(dt: number, now: number, l: AmbienceLevels, f: AmbienceFrame): void {

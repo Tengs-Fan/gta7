@@ -78,7 +78,9 @@
   "dsp-san-azura-bay": 1.287,
   "dsp-ocean-beach": 1.136,
   "dsp-hillcrest": 0.89,
+  "dsp-hollister-farm": 1.267,
   "dsp-hillcrest-green": 1.247,
+  "dsp-eternal-palms-cemetery": 1.782,
   "dsp-westside": 0.903,
   "dsp-midtown": 0.856,
   "dsp-downtown": 0.877,
@@ -550,7 +552,16 @@
   "bark-turf-af-alloy-0": 1.255,
   "bark-turf-af-alloy-1": 1.251,
   "bark-turf-af-alloy-2": 1.606,
-  "bark-turf-af-alloy-3": 0.801
+  "bark-turf-af-alloy-3": 0.801,
+  "bark-farmer-am-santa-0": 2.95,
+  "bark-farmer-am-santa-1": 3.249,
+  "bark-farmer-am-santa-2": 4.151,
+  "bark-farmer-am-santa-3": 3.607,
+  "bark-farmerangry-am-santa-0": 1.784,
+  "bark-farmerangry-am-santa-1": 2.414,
+  "bark-farmerangry-am-santa-2": 3.028,
+  "bark-farmerangry-am-santa-3": 2.116,
+  "bark-whisper-af-nicole-0": 3.187
  },
  "dialogue": {
   "Dex Moreau|So you are Lou's miracle worker. Charming. I have a problem with a mouth.": "dlg-dex-02cf79984f",
@@ -633,7 +644,9 @@
   "san azura bay": "dsp-san-azura-bay",
   "ocean beach": "dsp-ocean-beach",
   "hillcrest": "dsp-hillcrest",
+  "hollister farm": "dsp-hollister-farm",
   "hillcrest green": "dsp-hillcrest-green",
+  "eternal palms cemetery": "dsp-eternal-palms-cemetery",
   "westside": "dsp-westside",
   "midtown": "dsp-midtown",
   "downtown": "dsp-downtown",
@@ -1263,6 +1276,27 @@
     "bark-turf-af-alloy-1",
     "bark-turf-af-alloy-2",
     "bark-turf-af-alloy-3"
+   ]
+  ],
+  "farmer": [
+   [
+    "bark-farmer-am-santa-0",
+    "bark-farmer-am-santa-1",
+    "bark-farmer-am-santa-2",
+    "bark-farmer-am-santa-3"
+   ]
+  ],
+  "farmerAngry": [
+   [
+    "bark-farmerangry-am-santa-0",
+    "bark-farmerangry-am-santa-1",
+    "bark-farmerangry-am-santa-2",
+    "bark-farmerangry-am-santa-3"
+   ]
+  ],
+  "whisper": [
+   [
+    "bark-whisper-af-nicole-0"
    ]
   ]
  },

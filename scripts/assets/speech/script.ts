@@ -448,6 +448,8 @@ export const STATION_IDENTS: Readonly<Record<string, { voice: string; lines: rea
 export interface BarkSet {
   voices: readonly string[];
   lines: readonly string[];
+  /** Kokoro's speed (1 unless set). */
+  speed?: number;
 }
 
 const PEDS = ['am_liam', 'bm_fable', 'am_echo', 'bm_lewis', 'af_jessica', 'af_river', 'af_kore', 'bf_lily'];
@@ -479,4 +481,21 @@ export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
   arrest: { voices: COPS, lines: ["You're under arrest.", 'Hands behind your back.', 'You have the right to remain silent. Use it.'] },
   /** Gang members starting a fight on their turf. */
   turf: { voices: GANG, lines: ['This is our turf!', 'Wrong neighborhood!', 'You picked the wrong street!', 'Get him!'] },
+  /** Old Man Hollister on his porch, to someone who walks up (sim/farm.ts). */
+  farmer: {
+    voices: ['am_santa'],
+    lines: [
+      'Moreau sent you? Tell him the cows said no.',
+      "This land's not for sale. Not now. Not ever.",
+      "I've got a lawyer and a pitchfork, and I'm not afraid to use the lawyer.",
+      'Hollister Farm. Here before the city, and here after it.',
+    ],
+  },
+  /** Old Man Hollister, to a car in his corn or his pumpkins. */
+  farmerAngry: {
+    voices: ['am_santa'],
+    lines: ['Get that car outta my corn!', 'Those pumpkins were for the county fair!', 'Not the pumpkins! Anything but the pumpkins!', 'That corn was knee high, you animal!'],
+  },
+  /** By the Bramble family crypt, once a night between 03:00 and 03:15. Slowed. */
+  whisper: { voices: ['af_nicole'], lines: ['Keep it on one-oh-four-point-five...'], speed: 0.75 },
 };

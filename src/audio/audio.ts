@@ -4,12 +4,14 @@
 
 import { clamp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
+import { hollister } from '../sim/farm';
 import type { SimEvents } from '../sim/events';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { VehicleKind, WeaponId } from '../sim/specs';
+import { attractionOf } from '../world/attractions';
 import type { Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
-import { Ambience, shoreInfo, type AmbienceFrame, type ShoreInfo } from './ambience';
+import { Ambience, shoreInfo, whisperDue, type AmbienceFrame, type ShoreInfo } from './ambience';
 import { Barks, nearestCharacter } from './barks';
 import { Dialogue } from './dialogue';
 import { dopplerFactor } from './doppler';
@@ -139,6 +141,8 @@ export class AudioEngine {
   /** The water cut into the city (cove, basin, canal), for the surf bed. */
   private waterWorld: StaticWorld | null = null;
   private water: Rect[] = [];
+  /** The game day the whisper by the Bramble crypt was last heard on (once a night). */
+  private whisperDay = -1;
   /** Instrumentation for tests: sounds started since the page loaded. */
   readonly counters = { gunshots: 0, doorThunks: 0, scrapes: 0, dispatches: 0, barks: 0, voices: 0, echoes: 0 };
   private failed = false;
@@ -280,7 +284,15 @@ export class AudioEngine {
         if (this.mine(e) && e.amount >= 500) this.chime('cash');
       }),
       on('splash', (e) => this.splash(e.x, e.y, e.z, e.big)),
-      on('propBroken', () => this.thud(0.5)),
+      on('propBroken', (e) => {
+        const p = sim.world.layout.props[e.index]!;
+        // Corn rustles as it goes down; the rest thuds.
+        if (p.kind === 'corn') this.rustle(p.x, p.y, p.z);
+        else this.thud(0.5);
+        // Old Man Hollister sees a car in his corn or his pumpkins.
+        const h = hollister(sim);
+        if (h && h.alive && (p.kind === 'corn' || p.kind === 'pumpkin') && Math.hypot(h.pos.x - p.x, h.pos.z - p.z) < 90) this.bark('farmerAngry', h.id, h.pos.x, h.pos.y + 1.6, h.pos.z);
+      }),
       on('reload', (e) => {
         if (e.character === this.me(sim).character) this.reloadClick();
       }),
@@ -493,8 +505,16 @@ export class AudioEngine {
       }
       if (best) this.bark('pullOver', best.id, best.pos.x, best.pos.y + 1.5, best.pos.z);
     } else if (!pc.vehicle && me.wanted.level === 0 && Math.hypot(pc.vel.x, pc.vel.z) < 2.5) {
+      const h = hollister(sim);
       const c = nearestCharacter(sim.characters, pc.pos.x, pc.pos.z, 3, (c) => c.role === 'civilian' && c.state === 'normal' && c !== pc);
-      if (c) this.bark('greet', c.id, c.pos.x, c.pos.y + 1.6, c.pos.z);
+      if (h && h.alive && Math.hypot(h.pos.x - pc.pos.x, h.pos.z - pc.pos.z) < 6) this.bark('farmer', h.id, h.pos.x, h.pos.y + 1.6, h.pos.z);
+      else if (c) this.bark('greet', c.id, c.pos.x, c.pos.y + 1.6, c.pos.z);
+    }
+    // At three in the morning, by the Bramble family crypt, once a night.
+    const crypt = attractionOf(sim.world.layout, 'cemetery').anchors.crypt;
+    if (this.whisperDay !== sim.clock.day && whisperDue(sim.clock.hours, Math.hypot(pc.pos.x - crypt.x, pc.pos.z - crypt.z)) && this.ready() && this.barks!.say('whisper', -1, crypt.x, 1.4, crypt.z)) {
+      this.whisperDay = sim.clock.day;
+      this.counters.voices++;
     }
   }
 
@@ -693,6 +713,17 @@ export class AudioEngine {
     if (!this.ready()) return;
     const t = this.ctx!.currentTime;
     this.noiseBurst(this.sfx, t, 0.2, 'lowpass', 900, 0.6, 0.4 * k, 200);
+  }
+
+  /** Stalks swept down: a dry, bright swish of leaves where corn falls. */
+  private rustle(x: number, y: number, z: number): void {
+    if (!this.ready()) return;
+    const s = this.spatial(x, y, z, 6, 60);
+    if (!s) return;
+    const t = this.ctx!.currentTime;
+    const out = this.out(s.pan, s.cutoff);
+    this.noiseBurst(out, t, 0.32, 'bandpass', 3600, 0.8, 0.22 * s.gain, 1800);
+    this.noiseBurst(out, t + 0.05, 0.22, 'highpass', 5200, 0.7, 0.1 * s.gain);
   }
 
   /**
@@ -1036,6 +1067,11 @@ export class AudioEngine {
     f.wanted = this.me(sim).wanted.level;
     f.seaPan = shore.dirX * rx + shore.dirZ * rz;
     f.trafficPan = w > 0 ? (sx * rx + sz * rz) / w : 0;
+    const tower = attractionOf(world.layout, 'cemetery').anchors.tower.rect;
+    const bx = (tower.minX + tower.maxX) / 2 - L.x;
+    const bz = (tower.minZ + tower.maxZ) / 2 - L.z;
+    const bd = Math.hypot(bx, bz);
+    f.bell = { dist: bd, pan: bd > 1 ? (bx * rx + bz * rz) / bd : 0 };
     this.ambience!.update(dt, t, f);
   }
 }
