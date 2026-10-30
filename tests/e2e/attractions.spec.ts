@@ -43,9 +43,9 @@ test.describe('the attractions', () => {
       g.setTime(16);
       const c = g.sim.world.layout.attractions.find((a: { kind: string }) => a.kind === 'cemetery');
       const e = c.anchors.epitaphs[0];
-      // A few steps north of the stone's marker (the stone stands south of it): the player walks south up to it.
-      g.teleport(e.x, e.z - 3.5);
-      g.setCamera(0, -0.2);
+      // A few steps east of the stone's marker, between its row and the next: the player walks west up to it.
+      g.teleport(e.x + 3, e.z);
+      g.setCamera(-Math.PI / 2, -0.2);
       return e;
     });
     expect(at).toBeTruthy();
