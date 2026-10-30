@@ -88,7 +88,8 @@ To play with friends on your network, run the optional multiplayer server (see [
 - **A whole city.** San Azura is a street grid across seven districts (Downtown towers, Midtown, the Hillcrest suburbs, Westside, Port Azura Docks, Southgate and the Ocean Beach strip), broken up by the sea and by big blocks (see [docs/map.md](docs/map.md)).
   Hillcrest Cove bites into the north-west corner, Cortez Canal runs from coast to coast between Westside and Downtown under a bridge at every street, Port Basin cuts into the docks with cranes on its wharf and boats moored in it, and Azura Point reaches out into the bay with the lighthouse at its tip.
   The rest of the coast steps in and out too: Gull Bay and Northshore Bay flank Hillcrest Green on the north shore, Pelican Harbor bites into Westside and Coral Bay cuts in west of the beach, with the ring road crossing each bay's mouth on a bridge, so the city no longer reads as a square.
-  Hillcrest Green is a park four blocks big, Civic Plaza an open square between downtown towers, and the Azura Bowl stadium stands between its car parks; Azura Park and Southgate Square, Azura Pier and its Ferris wheel and the Marina complete it.
+  Hillcrest Green is a park four blocks big that rises into a 7 m hill at the top of Coral St, its old cross paths climbing to the fountain on the summit; the SAN AZURA letters stand on its south slope, the last A slumped on its side and two uplights on them at night, with a summit plaque and coin telescopes looking over them to downtown.
+  Civic Plaza is an open square between downtown towers, and the Azura Bowl stadium stands between its car parks; Azura Park and Southgate Square, Azura Pier and its Ferris wheel and the Marina complete it.
   Parody shopfronts (DONUTS, PAWN, TACOS, BAIL BONDS and more), tower lobbies and house porches line the streets, and lamp posts, traffic signals, fire hydrants, bins and benches break.
 - **The look.** Stylised low-poly models with PBR materials, all CC0 (see [Assets](#assets) and [Credits](#credits)).
   People are chunky toy figures built in code from rounded segments on the game's own jointed skeleton: a face, hair, caps and sunglasses, shirts with collars and jackets, police badges, and their own height, build and colours; feet are planted by the gait, and every body part is one instanced draw for the whole crowd.
@@ -109,7 +110,7 @@ To play with friends on your network, run the optional multiplayer server (see [
   Walk into their turf with a gun out, or attack one of them, and the whole crew comes for you; now and then the two gangs fight it out where their turfs meet.
   Hit someone or open fire with no police around and a bystander may pull out his phone, and a few seconds later you are wanted unless you stop him first; ram another car hard and its driver may jump out to fight you or run for it.
 - **Driving.** Sixteen vehicles: the Pipsqueak compact, Velora sedan, Azura Cab, Nightjar GT sports car, Thunderhoof muscle car, Dustrunner pickup, Breadbox van, Citybus, Patrol Cruiser, Riot Van, an ambulance and a fire truck, the Viper 600 sport bike and the Zippa 50 scooter, and the Marlin speedboat and Puffin dinghy, and you can steal any road vehicle, even with someone inside.
-  Arcade handling with handbrake drifts, skid marks and tire smoke, and the body rocks on its springs over curbs and bumps; cars dent, lose their lamps and glass, spark along walls, catch fire when they land on their roof and blow up, and you can see who is inside through the glass.
+  Arcade handling with handbrake drifts, skid marks and tire smoke, and the body rocks on its springs over curbs and bumps and rolls with the slope on Hillcrest Green's hill; cars dent, lose their lamps and glass, spark along walls, catch fire when they land on their roof and blow up, and you can see who is inside through the glass.
   Cars wade through the surf off the beach but sink in deep water, where the people in them swim out or drown, and Azura Pier and the Marina deck can be driven onto, and off.
   Five stunt ramps pay stunt bonuses, doubled for the first jump off each one.
   The bikes lean into turns, the sport bike pulls wheelies, a hard crash throws the rider off, and bikes ride in traffic, park in the bays and can be stolen like cars.
@@ -125,7 +126,7 @@ To play with friends on your network, run the optional multiplayer server (see [
   Patrol cars, pursuit units that from two stars cut you off from ahead and shoot from their windows, SWAT Riot Vans from four stars, and a helicopter from three that loses you behind buildings and at night sees little beyond its spotlight.
   Officers arrest you when they reach you on foot while you are not running, or beside your car once it has stopped, and from two stars they shoot on sight (at any level once you attack one of them); a DISPATCH line on the HUD narrates the chase.
   From three stars the police also set up roadblocks ahead of you with spike strips; burst tyres slow you down and make the car slide.
-  To lose them, break line of sight and get out of the red search area on the radar (or hide inside it for longer) until the evade bar fills, or pay a Spray Shack $100 a star for a respray, if the police don't see you drive in.
+  To lose them, break line of sight (behind buildings, or over the crest of Hillcrest Green's hill) and get out of the red search area on the radar (or hide inside it for longer) until the evade bar fills, or pay a Spray Shack $100 a star for a respray, if the police don't see you drive in.
   BUSTED costs bail ($100 plus $150 a star) and, from two stars, your guns; WASTED costs a hospital bill ($100 plus $100 a star) and your armor.
 - **Story.** You are Kai Navarro, just out after six years inside, and a new game opens with a call from Mama Lou.
   Twelve missions in two chapters. Chapter 1: Wheels, Hot Delivery and Repo Man for Lou, then Loose Lips, Heatwave and The Big Score for Dex Moreau, the last a raid on the First Azura Bank with a getaway to the Marina; Hot Delivery, Repo Man and Heatwave pit you against the Tiburones.
@@ -276,6 +277,7 @@ All of these are minor; the most noticeable come first.
 - Near the land end of Azura Pier or the Marina deck, getting out of a car on the side that faces the edge can drop you about a meter onto the sand, where you cannot climb back up (walk round to the land end), and a wreck sunk under the deck can block getting out of a car parked above it ("No room to get out here") until you drive off.
 - Now and then a new city bus appears slightly overlapping the bus ahead of it in the same lane, usually out of sight, and both end up dented.
 - Boats cannot pass under the canal's bridges (they are decks, like the pier), so the canal is for looking at from a boat, not for sailing through.
+- On Hillcrest Green's hill a car rolls with the slope only as drawn: the sim keeps the body level across it, so a car never tips over sideways there.
 
 **Multiplayer (limits of this version)**
 
@@ -297,6 +299,8 @@ All of these are minor; the most noticeable come first.
 - If a car you left behind kills a pedestrian, either because another vehicle smashed it into them or because it was still rolling after you bailed out and died, the death can be pinned on you, with a wanted star, even when you are far away.
 - People who flee onto the narrow Marina piers walk off the side into the sea, and some stay paddling against a pier or a moored boat; on the beach beside a pier or the Marina deck a fleeing person can get boxed in and stand frozen for up to about ten seconds.
 - Stunt ramps look solid, but bullets, officers' line of sight and explosions pass straight through them.
+- A bullet fired into the slope of Hillcrest Green's hill can spark half a metre or so under the turf, where the hill's buried sight blocks stop it, rather than on the grass.
+- A molotov's fire on the steepest part of Hillcrest Green's hill spreads round the slope more than up or down it.
 - At one star, an officer who ends up in the sea while you are swimming treads water until you leave it; swimming away still loses the star.
 - Officers on a pier cannot get back to a cruiser standing in the surf beside it: while you are wanted they pace back and forth at the pier's land end, and once you are not they give up and leave the car sitting dark in the water.
 - A shot aimed at you that misses can still fly on and hit an officer standing behind you.
@@ -558,7 +562,7 @@ The release pass then drew the static city (ground layers as one mesh each, shad
 With every feature of the update in place (bikes and boats, the new weapons and fire, gangs and roadblocks; the multiplayer client is loaded only for a multiplayer game), the perf playtest measured 60/60/58/60 fps and `rainnight` 60/60/60/60 fps at 1920x1080 High on the M4 Pro, and the two-minute chaos test averaged 59.9 fps.
 Motorbikes and boats now cost about as much as a car (6-8 draw calls on High, 14-30 before), but have no lighter far version yet (see Known issues).
 Nothing adjusts itself at runtime: there is no dynamic resolution, and the tier only changes when you pick another one (see [Settings and graphics quality](#settings-and-graphics-quality) for what each tier trades away).
-`node scripts/playtest.mjs --scenario perf` prints fps, draw calls, triangles and heap at the start, in Downtown, in a four-star pursuit and on the beach at dusk.
+`node scripts/playtest.mjs --scenario perf` prints fps, draw calls, triangles and heap at the start, in Downtown, in a four-star pursuit, on the beach at dusk and on Hillcrest Green's summit at 18:30, looking over the SAN AZURA letters to downtown.
 `window.__gta7.game.renderer.vehicleParts.counts` reports the vehicle part batches and `contactShadows.drawn` the contact-shadow depth draws; `window.__gta7.game.renderer.crowd.firstDrawn` lists the last 400 characters drawn for the first time.
 `window.__gta7.state()` reports actual wall-clock `fps`, plus `render.calls` and the latest CPU timings in `perf.frameMs`, `simMs` and `renderMs`. `perf.frameIntervalMs` measures the time between animation frames, including GPU or browser delays that CPU timings miss. Physics still clamps long frames for stability; the FPS counter does not. Sample many frames when comparing performance.
 

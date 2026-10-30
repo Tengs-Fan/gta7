@@ -40,7 +40,7 @@ What assumes the square:
 ## The changes
 
 The road network stays a grid of axis-aligned lines, because the lane graph, the sidewalk graph, the collider grid, the renderers and the AI all work on rectangles and four directions.
-Inside that, the city loses its uniformity in three ways.
+Inside that, the city loses its uniformity in four ways.
 
 ### Connectivity: segments and nodes can be missing
 
@@ -90,10 +90,30 @@ The two stunt ramps that stood in Pelican Harbor and Gull Bay moved along their 
 Where water still cuts an avenue short, it leaves a stub whose far end leads only into side streets.
 A city bus keeps to the avenues that go on (`throughAvenues` in `src/sim/driver.ts`): traffic spawns none on a stub, and a bus on the move never turns into one.
 
+### Hills off the road grid
+
+Hills were first set aside: vehicle physics, the collider grid's fixed height bands, the ground and facade renderers and the traffic and police AI all assume flat ground, with the ramps and decks the only slopes and steps.
+They came back where none of those assumptions reach: off the road grid, on ground that no road, sidewalk, walk node or building footprint stands on.
+`src/world/terrain.ts` holds the rises and everything they need.
+
+- **Hillcrest Green** rises 7 m on its fountain at the top of Coral St: an elliptical cosine bell 136 by 156 m across, flat on its summit and 0 a good 7 m inside the park's lot, so the streets and sidewalks round it stay flat.
+  Its steepest grade is 20%, gentler than the stunt ramps.
+  The SAN AZURA letters stand on its south slope, facing down Coral St, the words either side of the old path up to the fountain and the last A slumped on its side.
+
+Each flat-ground assumption is kept like this:
+
+- **The layout.** `settleTerrain` runs last in `generateCity`: it records the rises and stands every prop on them, drawing no random number and moving nothing across the ground, so the pickups and the mission spots stay where they were.
+  Only the trees and bushes on the lawn under the letters, and down the slope in front of them, go, so the sign is seen from the street.
+- **The ground.** `baseGround` adds the rise on the lawns, and the roads, sidewalks and buildings all stand where it is 0, so every lookup there returns what it always did.
+  The ground renderer draws a patch over a rise as a grid on a 2 m lattice, its triangles within a centimetre of the sim's slope.
+- **Physics.** The slope is smooth and never steeper than 21%, so a car follows it (ground follow tracks a drop of up to 0.4 m per 1/120 s step), never hits a ledge, and crosses the summit at 30 m/s without leaving the ground; the body's roll across the slope is drawn only.
+  People walk up it as they step up a curb.
+- **The collider grid's height bands.** Sight-blocking boxes, nested every 2 m of rise, are buried in the hill: each stands half a metre under the turf over its footprint grown by 6.5 m, farther than any body, free-space check or camera that tests its own height band reaches from where it stands.
+  So nothing on the ground ever meets one, while a police officer's or a witness's line of sight, a bullet or a blast across the hill stops in it: break line of sight over the crest.
+- **The AI.** No lane and no walk node is on the hill: traffic and the police keep to the streets round it, and officers walk up it on foot.
+
 ## Rejected, and why
 
-- **Hills.** Vehicle physics, the collider grid's fixed height bands, the ground and facade renderers and the traffic and police AI all assume flat ground (ramps and decks are the only slopes and steps).
-  Real hills would touch every one of them.
 - **Diagonal or curved roads.** The lane graph knows four directions, and lanes, turns, signals, crosswalks, furniture and the renderers are built on that.
   A diagonal avenue would mean a new road model.
 - **Very different block sizes.** Moving road lines shifts every block, which moves places that are offsets from others and the coordinates written into tests, for less variety than the superblocks and the water give.

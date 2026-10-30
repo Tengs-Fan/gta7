@@ -255,8 +255,9 @@ function specialPoi(W: StaticWorld, b: Building): { side: Side; x: number; z: nu
 describe('round 2 city: layout', () => {
   it('ground floors leave the generated layout bit-identical to the base commit', () => {
     // Captured on 8788242 (round 2 base) with the same canonical JSON, re-captured when Hotel Salgado (Vera's
-    // SPECIALS row) was added, when the map was broken up and when the ring road was bridged across the bays (docs/map.md).
-    expect(layoutHash()).toBe('868a2932e6aa0e33fdf0f27bd3b9e184ec700c7021314c4a339a04871228231d');
+    // SPECIALS row) was added, when the map was broken up and when the ring road was bridged across the bays (docs/map.md),
+    // and when Hillcrest Green rose into a hill under the SAN AZURA letters (the rises, the settled props, the sign's lawn).
+    expect(layoutHash()).toBe('765a05f02cce875e4353c420c01ba20a2bce04619914c7bdee9d2d4c78976fec');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

@@ -7,6 +7,7 @@ import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
+import { hillSignLetters, riseAt, terrainCores } from './terrain';
 
 /**
  * The roof slab over a garage's walls, as render/city/structures.ts draws it: from the top of the walls up this
@@ -74,6 +75,10 @@ export class StaticWorld {
     this.layout.props.forEach((p, i) => {
       this.propColliders[i] = this.addPropCollider(p, i);
     });
+    // The rises' sight cores, buried out of reach of anything on the ground (world/terrain.ts), and the letters of the
+    // hill sign.
+    for (const c of terrainCores(this.layout.rises)) g.addBox(c.minX, c.minZ, c.maxX, c.maxZ, -1, c.y1, 'terrain');
+    for (const l of hillSignLetters(this.layout.rises)) g.addBox(l.box.minX, l.box.minZ, l.box.maxX, l.box.maxZ, l.box.y0, l.box.y1, 'wall');
   }
 
   private addPropCollider(p: Prop, i: number): number {
@@ -172,14 +177,14 @@ export class StaticWorld {
     return this.layout.bounds;
   }
 
-  /** Terrain height ignoring ramps and decks. */
+  /** Terrain height ignoring ramps and decks: the rises (world/terrain.ts) stand on lawns only. */
   baseGround(x: number, z: number): number {
     const b = this.layout.bounds;
     if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return headlandAt(this.layout, x, z) ? CURB_H : SEABED_Y;
     if (waterAt(this.layout, x, z)) return SEABED_Y;
     if (x >= b.beachStartX) return sandHeight(b, x);
     if (this.roads.isOnRoad(x, z)) return 0;
-    return CURB_H;
+    return CURB_H + riseAt(this.layout.rises, x, z);
   }
 
   /** Height of the ground, a deck or a ramp's surface at (x, z), whichever is highest. */

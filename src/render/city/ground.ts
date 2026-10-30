@@ -2,8 +2,9 @@
 
 import * as THREE from 'three';
 import { CURB_H, SIDEWALK_W } from '../../world/constants';
-import { cellBlock, mkRect, rectsMinus, waterAt, type Block, type GroundKind, type Rect } from '../../world/layout';
-import { GeoBuilder } from '../geo';
+import { cellBlock, mkRect, rectsMinus, rectsOverlap, waterAt, type Block, type GroundKind, type Rect } from '../../world/layout';
+import { riseAt, riseBounds } from '../../world/terrain';
+import { GeoBuilder, type UvMode } from '../geo';
 import type { CityView } from './index';
 import { quadLine } from './shared';
 import { LAWN_OVERHANG, NO_RECT, rectRange, setGroundAttribute, type GroundDetail, type GroundRange } from './surfaces';
@@ -20,6 +21,9 @@ const DETAIL: Record<'grass' | 'plaza' | 'asphalt' | 'dirt', GroundDetail> = { g
 
 type Rect4 = [number, number, number, number];
 const rect4 = (r: Rect): Rect4 => [r.minX, r.minZ, r.maxX, r.maxZ];
+
+/** Lattice (m) of the ground drawn over a rise: the sim's cosine slopes stay within a centimetre of its triangles. */
+const RISE_STEP = 2;
 
 export function buildGround(view: CityView): void {
   const layout = view.world.layout;
@@ -38,6 +42,12 @@ export function buildGround(view: CityView): void {
   };
   const y = CURB_H;
   const sw = SIDEWALK_W;
+  const rises = layout.rises;
+  // A patch on a rise follows it (a grid on the shared lattice); every other one is a flat quad.
+  const patchSurface = (g: GeoBuilder, minX: number, minZ: number, maxX: number, maxZ: number, uv: UvMode) => {
+    if (rises.some((r) => rectsOverlap(riseBounds(r), mkRect(minX, minZ, maxX, maxZ)))) g.heightGrid(minX, minZ, maxX, maxZ, RISE_STEP, (x, z) => y + 0.004 + riseAt(rises, x, z), uv);
+    else g.flat(minX, minZ, maxX, maxZ, y + 0.004, uv);
+  };
   const walkUv = { kind: 'world', scale: surfaces.tile('kerb') } as const;
   const curbUv = { kind: 'world', scale: surfaces.tile('curb') } as const;
   // Each sidewalk strip carries the rectangle whose sides are its kerbs (the shader darkens the paving along them).
@@ -78,10 +88,10 @@ export function buildGround(view: CityView): void {
       const minZ = gp.rect.minZ - out(gp.rect.minZ, inner[1]);
       const maxX = gp.rect.maxX + out(gp.rect.maxX, inner[2]);
       const maxZ = gp.rect.maxZ + out(gp.rect.maxZ, inner[3]);
-      p.g.flat(minX, minZ, maxX, maxZ, y + 0.004, { kind: 'world', scale });
+      patchSurface(p.g, minX, minZ, maxX, maxZ, { kind: 'world', scale });
       p.ranges.push(rectRange(start, p.g.vertexCount, inner));
     } else {
-      p.g.flat(gp.rect.minX, gp.rect.minZ, gp.rect.maxX, gp.rect.maxZ, y + 0.004, { kind: 'world', scale });
+      patchSurface(p.g, gp.rect.minX, gp.rect.minZ, gp.rect.maxX, gp.rect.maxZ, { kind: 'world', scale });
     }
   }
   // Parking bay lines.

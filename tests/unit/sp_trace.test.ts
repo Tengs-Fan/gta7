@@ -12,6 +12,8 @@
 // The economy, ui, audio and render tracks and the multiplayer server change nothing in it.
 // Re-recorded once more when the per-frame NaN scrub (Sim.sanitize) went: it floored health at -1000, so seed 11's
 // wasted player reads -1900 for the four frames before his respawn; nothing else in the trace moved.
+// And when Hillcrest Green rose into a hill (world/terrain.ts): the sign's lawn lost its trees, so propBroken indices past
+// them are 36 lower; nothing else in the trace moved.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

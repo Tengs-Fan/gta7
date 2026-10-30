@@ -13,7 +13,9 @@ export type ColliderTag =
   | 'bin'
   | 'rock'
   | 'pillar'
-  | 'boat';
+  | 'boat'
+  /** A sight core buried in a rise (world/terrain.ts): nothing standing on the ground ever reaches one. */
+  | 'terrain';
 
 export interface StaticCollider extends AABB {
   id: number;
@@ -48,7 +50,7 @@ export function makeRayHit(): RayHit {
 
 /** Tags that block bullets, cameras and line of sight. */
 export function isSolidForSight(c: StaticCollider): boolean {
-  return c.tag === 'building' || c.tag === 'wall' || c.tag === 'container' || c.tag === 'pillar' || c.tag === 'boat';
+  return c.tag === 'building' || c.tag === 'wall' || c.tag === 'container' || c.tag === 'pillar' || c.tag === 'boat' || c.tag === 'terrain';
 }
 
 /**

@@ -342,7 +342,7 @@ const SCENARIOS = {
       })),
     );
   },
-  /** Frame rate in a few demanding places; prints a table. */
+  /** Frame rate in a few demanding places (the start, downtown, a pursuit, the beach, Hillcrest Green's summit); prints a table. */
   async perf() {
     await t.boot();
     await t.newGame();
@@ -368,6 +368,15 @@ const SCENARIOS = {
     });
     await t.wait(1500);
     await t.measure('beach-dusk', 4000);
+    // Hillcrest Green's summit at 18:30, looking south over the SAN AZURA letters to downtown.
+    await t.game((g) => {
+      g.setTime(18.5);
+      const hill = g.sim.world.layout.rises.find((r) => r.name === 'Hillcrest Green');
+      g.teleport(hill.cx + 2, hill.cz + 11);
+      g.setCamera(0, -0.06);
+    });
+    await t.wait(1500);
+    await t.measure('hill', 4000);
     console.table(report.segments.map((s) => ({ label: s.label, fps: s.fps, calls: s.render?.calls, tris: s.render?.triangles, heapMB: s.heapMB })));
   },
 };

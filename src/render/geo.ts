@@ -120,6 +120,54 @@ export class GeoBuilder {
     this.quad(minX, y, maxZ, maxX, y, maxZ, maxX, y, minZ, minX, y, minZ, uvs, color);
   }
 
+  /**
+   * Ground over the rectangle following h(x, z): a grid of quads on the world lattice of `step` m (plus the rectangle's
+   * own edges), so neighbouring patches meet at the same vertices along their shared edges, with smooth normals from
+   * central differences of h. World uvs as flat's; 'unit' spans the rectangle.
+   */
+  heightGrid(minX: number, minZ: number, maxX: number, maxZ: number, step: number, h: (x: number, z: number) => number, uv: UvMode, color?: RGB): void {
+    const lattice = (a: number, b: number) => {
+      const out = [a];
+      for (let v = (Math.floor(a / step) + 1) * step; v < b - 1e-6; v += step) if (v > a + 1e-6) out.push(v);
+      out.push(b);
+      return out;
+    };
+    const xs = lattice(minX, maxX);
+    const zs = lattice(minZ, maxZ);
+    const base = this.n;
+    const e = step / 2;
+    const s = uv.kind === 'world' ? 1 / uv.scale : 0;
+    for (const z of zs) {
+      for (const x of xs) {
+        const y = h(x, z);
+        this.pos.push(x, y, z);
+        const nx = h(x - e, z) - h(x + e, z);
+        const nz = h(x, z - e) - h(x, z + e);
+        const l = Math.hypot(nx, 2 * e, nz);
+        this.nrm.push(nx / l, (2 * e) / l, nz / l);
+        if (uv.kind === 'world') this.uv.push(x * s, -z * s);
+        else this.uv.push((x - minX) / (maxX - minX), (maxZ - z) / (maxZ - minZ));
+        if (this.colored) {
+          const c = color ?? [1, 1, 1];
+          this.col.push(c[0], c[1], c[2]);
+        }
+        if (this.seeded) this.seeds.push(this.seed);
+      }
+    }
+    const row = xs.length;
+    for (let j = 0; j + 1 < zs.length; j++) {
+      for (let i = 0; i + 1 < row; i++) {
+        // As flat's quad: (x0, z1), (x1, z1), (x1, z0), (x0, z0), counter-clockwise seen from above.
+        const d = base + j * row + i;
+        const c = d + 1;
+        const a = d + row;
+        const b = a + 1;
+        this.idx.push(a, b, c, a, c, d);
+      }
+    }
+    this.n += xs.length * zs.length;
+  }
+
   private planarUv(uv: UvMode, minX: number, minZ: number, maxX: number, maxZ: number): number[] {
     if (uv.kind === 'world') {
       const s = 1 / uv.scale;
