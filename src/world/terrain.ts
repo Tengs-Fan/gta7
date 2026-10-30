@@ -133,14 +133,11 @@ export function cityRises(layout: CityLayout): Rise[] {
 
 /**
  * Lays the rises into the layout and stands every prop on them, after everything else is placed: it draws no random
- * number and moves nothing across the ground, so pickups and mission spots stay where they were. Only the trees and
- * bushes on the lawn the SAN AZURA letters stand on, and down the slope in front of them, go: the sign has to be
- * seen from the street, and a trunk must not stand in a letter.
+ * number, moves nothing across the ground and drops no prop, so pickups, mission spots and every prop index recorded
+ * before it (an earlier pass's own props among them) stay as they were.
  */
 export function settleTerrain(layout: CityLayout): void {
   layout.rises = cityRises(layout);
-  const lawn = signLawn(layout);
-  layout.props = layout.props.filter((p) => !((p.kind === 'tree' || p.kind === 'bush') && inRect(lawn, p.x, p.z)));
   for (const p of layout.props) p.y += riseAt(layout.rises, p.x, p.z);
 }
 
@@ -257,9 +254,10 @@ export interface SignLetter {
 /**
  * The sign as laid out on the hill: its line of letters `dz` m south of the summit, each `w` wide, `gap` apart, the
  * words split either side of the old cross path running north-south up the slope (`path` m wide, kept clear) so it
- * still climbs to the fountain, and the last A slumped on its side.
+ * still climbs to the fountain, and the last A slumped on its side. The park's trees all stay (settleTerrain drops no
+ * prop), so the line runs where every trunk stands clear of the letters and the fence along their front.
  */
-const SIGN = { words: ['SAN', 'AZURA'], dz: 41, w: 4.4, h: 7, d: 1, gap: 1.2, path: 6, sink: 1, slump: (25 * Math.PI) / 180, band: 1 } as const;
+const SIGN = { words: ['SAN', 'AZURA'], dz: 43, w: 4.4, h: 7, d: 1, gap: 1.2, path: 6, sink: 1, slump: (25 * Math.PI) / 180, band: 1 } as const;
 
 export function hillSignLetters(rises: readonly Rise[]): SignLetter[] {
   const hill = hillRise(rises);
@@ -323,18 +321,6 @@ function bandBoxes(quads: ReadonlyArray<ReadonlyArray<readonly [number, number]>
     out.push({ minX, maxX, minZ: z - SIGN.d / 2, maxZ: z + SIGN.d / 2, y0, y1 });
   }
   return out;
-}
-
-/** The lawn the sign stands on, clear of trees from 3 m behind the letters down to the park's south edge. */
-function signLawn(layout: CityLayout): Rect {
-  const letters = hillSignLetters(layout.rises);
-  const park = layout.blocks.find((b) => b.zone === HILL.name)!;
-  return {
-    minX: Math.min(...letters.map((l) => l.box.minX)) - 3,
-    minZ: letters[0]!.box.minZ - 3,
-    maxX: Math.max(...letters.map((l) => l.box.maxX)) + 3,
-    maxZ: park.lot.maxZ,
-  };
 }
 
 // ---------------------------------------------------------------------------

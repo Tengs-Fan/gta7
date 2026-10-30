@@ -73,7 +73,7 @@ describe('the rises stay off everything that assumes flat ground', () => {
     expect(worst).toBeLessThanOrEqual(0.21);
   });
 
-  it('stands every prop on it at the ground height, and clears the sign lawn of trees', () => {
+  it('stands every prop on it at the ground height, no trunk in a letter', () => {
     let settled = 0;
     for (const p of L.props) {
       if (riseAt(rises, p.x, p.z) <= 0) continue;
@@ -81,16 +81,22 @@ describe('the rises stay off everything that assumes flat ground', () => {
       expect(p.y, `${p.kind} at ${p.x}, ${p.z}`).toBeCloseTo(W.groundHeight(p.x, p.z), 9);
     }
     expect(settled).toBeGreaterThan(150);
-    const letters = hillSignLetters(rises);
     for (const p of L.props) {
-      if (p.kind !== 'tree' && p.kind !== 'bush') continue;
-      for (const l of letters) expect(p.x > l.box.minX - 3 && p.x < l.box.maxX + 3 && p.z > l.box.minZ - 3 && p.z < park.lot.maxZ, `${p.kind} at ${p.x}, ${p.z} by ${l.char}`).toBe(false);
+      if (p.kind !== 'tree') continue;
+      for (const l of hillSignLetters(rises)) {
+        for (const b of l.solids) {
+          const gap = Math.hypot(Math.max(b.minX - p.x, p.x - b.maxX, 0), Math.max(b.minZ - p.z, p.z - b.maxZ, 0)) - 0.32 * p.scale;
+          expect(gap, `tree at ${p.x}, ${p.z} by ${l.char}`).toBeGreaterThan(0.3);
+        }
+      }
     }
   });
 
-  it('keeps the park and its open spots as they were: no densifying, the pickups in place', () => {
+  it('keeps the park and its open spots as they were: every tree and bush, the pickups in place', () => {
+    // settleTerrain drops no prop, so every prop index an earlier pass recorded still names its prop.
     const inPark = L.props.filter((p) => p.x > park.lot.minX && p.x < park.lot.maxX && p.z > park.lot.minZ && p.z < park.lot.maxZ);
-    expect(inPark.filter((p) => p.kind === 'tree').length).toBeLessThan(277);
+    expect(inPark.filter((p) => p.kind === 'tree').length).toBe(277);
+    expect(inPark.filter((p) => p.kind === 'bush').length).toBe(47);
     expect(inPark.filter((p) => p.kind === 'bench').length).toBe(4);
     const spots = L.openSpots.filter((s) => s.x > park.lot.minX && s.x < park.lot.maxX && s.z > park.lot.minZ && s.z < park.lot.maxZ);
     expect(spots.map((s) => [s.x, s.z])).toEqual([[44, -458.5], [122, -458.5], [44, -364.5], [122, -364.5]]);
