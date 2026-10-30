@@ -38,6 +38,104 @@ test.describe('GTA 7 side content', () => {
     expect(errors).toEqual([]);
   });
 
+  test('taxi: steal a cab, a pedestrian hails it and rides to their stop', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    // A cab with a cabbie at the wheel (no driver AI: it stays put), and the player at its driver's door.
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      g.godMode(true);
+      const id = g.spawnVehicle('taxi', false);
+      const v = g.sim.vehicles.find((x: Api) => x.id === id);
+      g.sim.seat(g.sim.spawnCharacter('civilian', v.pos.x, v.pos.z), v, 0);
+      const out = v.halfW + 0.8;
+      g.place(v.pos.x + Math.cos(v.heading) * out, v.pos.z - Math.sin(v.heading) * out);
+      (window as Api).__cab = v;
+    });
+    await page.keyboard.press('KeyF');
+    await page.waitForFunction(() => {
+      const g = (window as Api).__gta7;
+      const v = (window as Api).__cab;
+      return g.sim.player.vehicle === v && v.driver === g.sim.player;
+    }, null, { timeout: 8000 });
+    // Up the lane it stands in, from its start.
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      const v = (window as Api).__cab;
+      const lane = g.sim.roads.nearestLane(v.pos.x, v.pos.z).lane;
+      g.place(lane.sx + lane.dx * 4, lane.sz + lane.dz * 4, lane.heading);
+    });
+    // Someone on the sidewalk 30 m ahead keeps pace with the cab until anybody waves it down.
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      const sim = g.sim;
+      const v = (window as Api).__cab;
+      const c = sim.spawnCharacter('civilian', v.pos.x, v.pos.z);
+      c.owner = 'ped';
+      c.brain = sim.peds.makeGangBrain(c.pos.x, c.pos.z);
+      c.brain.brave = false;
+      c.brain.mode = 'idle';
+      c.brain.modeTimer = 60;
+      const timer = setInterval(() => {
+        if (sim.characters.some((x: Api) => x.owner === 'ped' && x.hailTimer > 0)) {
+          clearInterval(timer);
+          return;
+        }
+        // The first free ground off the road to the cab's right (the curb side), a step in.
+        const fx = Math.sin(v.heading);
+        const fz = Math.cos(v.heading);
+        for (let d = 1; d < 20; d += 0.25) {
+          const x = v.pos.x + fx * 30 - fz * d;
+          const z = v.pos.z + fz * 30 + fx * d;
+          if (sim.world.isOnRoad(x, z) || !sim.world.isFree(x, z, 0.4)) continue;
+          c.pos.x = x - fz;
+          c.pos.z = z + fx;
+          c.pos.y = sim.world.groundHeight(c.pos.x, c.pos.z);
+          break;
+        }
+      }, 100);
+    });
+    // Keep the cab rolling between 6 and 9 m/s with W until he does.
+    let speed = 0;
+    let hailed = -1;
+    await page.keyboard.down('KeyW');
+    for (let i = 0; i < 150 && hailed < 0; i++) {
+      await page.waitForTimeout(100);
+      ({ speed, hailed } = await page.evaluate(() => {
+        const g = (window as Api).__gta7;
+        const h = g.sim.characters.find((x: Api) => x.owner === 'ped' && x.hailTimer > 0);
+        return { speed: (window as Api).__cab.speed, hailed: h ? h.id : -1 };
+      }));
+      if (speed > 9) await page.keyboard.up('KeyW');
+      else if (speed < 6) await page.keyboard.down('KeyW');
+    }
+    await page.keyboard.up('KeyW');
+    expect(hailed).toBeGreaterThan(0);
+    // Pull up on the road beside him.
+    await page.evaluate((id) => {
+      const g = (window as Api).__gta7;
+      const v = (window as Api).__cab;
+      const h = g.sim.characters.find((x: Api) => x.id === id);
+      const fx = Math.sin(v.heading);
+      const fz = Math.cos(v.heading);
+      const ahead = (h.pos.x - v.pos.x) * fx + (h.pos.z - v.pos.z) * fz;
+      g.place(v.pos.x + fx * ahead, v.pos.z + fz * ahead, v.heading);
+    }, hailed);
+    await expect(page.locator('.big')).toContainText('TAXI DRIVER', { timeout: 3000 });
+    expect(await page.evaluate(() => (window as Api).__gta7.sim.activities.job.fare.id)).toBe(hailed);
+    await page.waitForFunction(() => (window as Api).__gta7.sim.activities.job?.stage === 'dropoff', null, { timeout: 8000 });
+    const dest = await page.evaluate(() => (window as Api).__gta7.sim.activities.job.destName);
+    await expect(page.locator('.subtitle')).toContainText(dest, { timeout: 3000 });
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      const j = g.sim.activities.job;
+      g.place(j.destX, j.destZ);
+    });
+    await expect(page.locator('.big')).toContainText('FARE COMPLETE', { timeout: 5000 });
+    expect(await page.evaluate(() => (window as Api).__gta7.sim.progress.stats.taxiFares)).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
   test('vigilante: stop a fleeing criminal from a police car', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);

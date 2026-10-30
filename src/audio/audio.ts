@@ -323,6 +323,9 @@ export class AudioEngine {
       on('witnessCall', (e) => {
         if (e.started) this.bark('witness', e.caller.id, e.caller.pos.x, e.caller.pos.y + 1.6, e.caller.pos.z);
       }),
+      on('taxiHail', (e) => {
+        if (e.started || e.missed) this.bark(e.started ? 'hail' : 'hailMissed', e.caller.id, e.x, e.y, e.z);
+      }),
       on('vehicleRammed', (e) => {
         const d = e.vehicle.driver;
         if (d && !d.isPlayer && !e.vehicle.spec.police) this.bark('rammed', d.id, e.vehicle.pos.x, e.vehicle.pos.y + 1, e.vehicle.pos.z);

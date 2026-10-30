@@ -185,6 +185,8 @@ export class Character {
   gang: GangId | null = null;
   /** A witness on the phone to the police: seconds left of the call (witnesses.ts), 0 when not calling. */
   phoneTimer = 0;
+  /** Waving down a taxi (activities/taxiHail.ts), or a fare waiting for his cab: > 0 while his arm is up, 0 otherwise. */
+  hailTimer = 0;
 
   constructor(
     readonly id: number,

@@ -1,7 +1,9 @@
-import { formatMoney } from '../../core/math';
+import { formatMoney, moveAngleTowards } from '../../core/math';
 import { makeBrain } from '../brains';
 import type { Character, Vehicle } from '../entities';
 import { setTimeoutLike } from '../pickups';
+import { lineSeconds } from '../speech';
+import { fareOf, type Fare } from './fares';
 import { releaseCharacter } from './shared';
 import type { ActivityDef, ActivityHost, Objective } from './types';
 
@@ -12,6 +14,8 @@ export interface TaxiJob {
   fare: Character | null;
   /** Seconds the fare has been walking to the cab, -1 while he waits (see board). */
   boarding: number;
+  /** This fare already shouted for the cab coming his way (or hailed it himself, taxiHail.ts). */
+  waved: boolean;
   /** Where he set off to the cab from: he goes back there if it pulls away while he walks to it. */
   waitX: number;
   waitZ: number;
@@ -29,9 +33,9 @@ const CURB_SEARCH = 16;
  * A cab below this (m/s) is stopped: a fare walks to it or gets out of it at his destination, and it rolling his way
  * this slowly is no danger to him (a car runs a pedestrian over from 4.5 m/s, see characterPhysics).
  */
-const CAB_STOPPED = 2.5;
+export const CAB_STOPPED = 2.5;
 /** A fare walks to a cab stopped within this of him (m)... */
-const BOARD_RANGE = 9;
+export const BOARD_RANGE = 9;
 /** ...and gives up on it once it is this far (m) or faster. */
 const BOARD_GIVE_UP = 12;
 /** He gets in once this close to its door (m), or after walking this long (s): a blocked path never stalls a pickup. */
@@ -39,6 +43,8 @@ const BOARD_REACH = 1;
 const BOARD_MAX = 4;
 /** Outside the cab's body (m), where he stands at its door. */
 const DOOR_OUT = 0.6;
+/** A waiting fare waves at his cab once it is this close (m), turned towards it, until it stops for him. */
+const WAVE_RANGE = 40;
 
 /** Spawns the next fare; `lead` is news to tell the player first, in the same message. */
 function spawnFare(host: ActivityHost, j: TaxiJob, lead = ''): boolean {
@@ -54,8 +60,47 @@ function spawnFare(host: ActivityHost, j: TaxiJob, lead = ''): boolean {
   j.fare = c;
   j.stage = 'pickup';
   j.boarding = -1;
+  j.waved = false;
   host.say(lead ? `${lead} Pick up the next fare (blue marker).` : 'Pick up the fare (blue marker).');
   return true;
+}
+
+/** The job begins in `taxi`, by the job key or a hail (takeHailer): it has no fare yet. */
+function begin(host: ActivityHost, taxi: Vehicle): TaxiJob {
+  const j: TaxiJob = { kind: 'taxi', taxi, stage: 'pickup', fare: null, boarding: -1, waved: false, waitX: 0, waitZ: 0, destX: 0, destZ: 0, destName: '', timer: 0, fares: 0, tripDist: 0 };
+  host.job = j;
+  host.sim.events.emit('big', { text: 'TAXI DRIVER', sub: 'Pick up fares and drive them to their destination', style: 'title', duration: 3 });
+  return j;
+}
+
+/**
+ * A pedestrian who waved the cab down (taxiHail.ts) and saw it stop beside him: the fare to pick up now, the job
+ * starting if none runs, or taking the waiting fare's place.
+ */
+export function takeHailer(host: ActivityHost, taxi: Vehicle, c: Character): void {
+  let j = host.job as TaxiJob | null;
+  if (!j) {
+    j = begin(host, taxi);
+    host.say('Hold still while the fare gets in.');
+  } else if (j.fare && !j.fare.removed) {
+    j.fare.hailTimer = 0;
+    releaseCharacter(j.fare);
+  }
+  c.owner = 'mission';
+  c.persistent = true;
+  c.missionTag = 'fare';
+  c.brain!.mode = 'stand';
+  j.fare = c;
+  j.stage = 'pickup';
+  j.boarding = -1;
+  j.waved = true;
+}
+
+/** The fare says his line of the moment (fares.ts), in his own voice. */
+function speak(host: ActivityHost, c: Character, pick: (f: Fare) => string): void {
+  const f = fareOf(c);
+  const text = pick(f);
+  host.sim.events.emit('subtitle', { speaker: f.speaker, text, duration: lineSeconds(f.speaker, text) });
 }
 
 function updateTaxi(host: ActivityHost, j: TaxiJob, dt: number): void {
@@ -72,7 +117,18 @@ function updateTaxi(host: ActivityHost, j: TaxiJob, dt: number): void {
       if (!spawnFare(host, j)) host.end('No fares around. Taxi job ended.');
       return;
     }
-    if (board(host, j, j.fare, v, dt)) {
+    const f = j.fare;
+    if (j.boarding < 0 && Math.hypot(v.pos.x - f.pos.x, v.pos.z - f.pos.z) < WAVE_RANGE) {
+      // Waiting, he sees his cab coming: he turns to it with his arm up, and calls out once.
+      f.hailTimer = 1;
+      f.heading = moveAngleTowards(f.heading, Math.atan2(v.pos.x - f.pos.x, v.pos.z - f.pos.z), 6 * dt);
+      if (!j.waved) {
+        j.waved = true;
+        sim.events.emit('taxiHail', { caller: f, x: f.pos.x, y: f.pos.y + 1.6, z: f.pos.z, started: true, missed: false });
+      }
+    } else f.hailTimer = 0;
+    if (board(host, j, f, v, dt)) {
+      f.hailTimer = 0;
       const dest = sim.world.walk.randomPointNear(sim.rng, v.pos.x, v.pos.z, 320, 900) ?? sim.world.walk.randomPointNear(sim.rng, v.pos.x, v.pos.z, 150, 1400);
       if (!dest) {
         host.end('Taxi job ended.');
@@ -85,6 +141,7 @@ function updateTaxi(host: ActivityHost, j: TaxiJob, dt: number): void {
       j.timer = Math.round(j.tripDist / 11 + 25);
       j.stage = 'dropoff';
       host.say(`Take the fare to ${j.destName}.`);
+      speak(host, f, (fare) => fare.ask(j.destName));
     }
     return;
   }
@@ -103,6 +160,7 @@ function updateTaxi(host: ActivityHost, j: TaxiJob, dt: number): void {
   j.timer -= dt;
   if (j.timer <= 0) {
     if (j.fare && !j.fare.removed) {
+      speak(host, j.fare, (f) => f.late);
       if (j.fare.vehicle) sim.unseat(j.fare);
       placeOnSidewalk(host, j.fare, v);
       releaseCharacter(j.fare);
@@ -118,6 +176,7 @@ function updateTaxi(host: ActivityHost, j: TaxiJob, dt: number): void {
     j.fares++;
     sim.events.emit('money', { amount: pay });
     if (j.fare && !j.fare.removed) {
+      speak(host, j.fare, (f) => f.paid);
       if (j.fare.vehicle) sim.unseat(j.fare);
       placeOnSidewalk(host, j.fare, v, j.destX, j.destZ);
       releaseCharacter(j.fare);
@@ -281,11 +340,7 @@ export const taxiActivity: ActivityDef<TaxiJob> = {
 
   start(host, _slot, taxi) {
     if (!taxi) return false;
-    const sim = host.sim;
-    const j: TaxiJob = { kind: 'taxi', taxi, stage: 'pickup', fare: null, boarding: -1, waitX: 0, waitZ: 0, destX: 0, destZ: 0, destName: '', timer: 0, fares: 0, tripDist: 0 };
-    host.job = j;
-    sim.events.emit('big', { text: 'TAXI DRIVER', sub: 'Pick up fares and drive them to their destination', style: 'title', duration: 3 });
-    spawnFare(host, j);
+    spawnFare(host, begin(host, taxi));
     return true;
   },
 
@@ -302,6 +357,7 @@ export const taxiActivity: ActivityDef<TaxiJob> = {
       if (fare.alive) placeOnSidewalk(host, fare, cab);
     }
     const walking = fare.brain?.mode === 'guard';
+    fare.hailTimer = 0;
     releaseCharacter(fare);
     if (walking) walkBack(host, fare, j.waitX, j.waitZ);
   },

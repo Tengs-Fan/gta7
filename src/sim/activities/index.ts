@@ -16,6 +16,7 @@ import { carExportActivity } from './carExport';
 import { courierActivity } from './courier';
 import { firefighterActivity } from './firefighter';
 import './serviceVehicles';
+import './taxiHail';
 import type { ActivityDef, ActivityHost, ActivityJob, CancelReason, Job, Objective } from './types';
 
 export type { CabJob } from './cab';
