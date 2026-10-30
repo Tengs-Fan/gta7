@@ -41,10 +41,12 @@ test.describe('GTA 7 side content', () => {
   test('taxi: steal a cab, a pedestrian hails it and rides to their stop', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
-    // A cab with a cabbie at the wheel (no driver AI: it stays put), and the player at its driver's door.
+    // A cab with a cabbie at the wheel (no driver AI: it stays put), and the player at its driver's door. Never wanted:
+    // someone who sees the cab stolen would call it in, and nobody hails a wanted man.
     await page.evaluate(() => {
       const g = (window as Api).__gta7;
       g.godMode(true);
+      g.sim.cheats.neverWanted = true;
       const id = g.spawnVehicle('taxi', false);
       const v = g.sim.vehicles.find((x: Api) => x.id === id);
       g.sim.seat(g.sim.spawnCharacter('civilian', v.pos.x, v.pos.z), v, 0);
@@ -77,7 +79,7 @@ test.describe('GTA 7 side content', () => {
       c.brain.mode = 'idle';
       c.brain.modeTimer = 60;
       const timer = setInterval(() => {
-        if (sim.characters.some((x: Api) => x.owner === 'ped' && x.hailTimer > 0)) {
+        if (c.owner !== 'ped' || sim.characters.some((x: Api) => x.owner === 'ped' && x.hailTimer > 0)) {
           clearInterval(timer);
           return;
         }
@@ -94,6 +96,7 @@ test.describe('GTA 7 side content', () => {
           break;
         }
       }, 100);
+      (window as Api).__planting = timer;
     });
     // Keep the cab rolling between 6 and 9 m/s with W until he does.
     let speed = 0;
@@ -113,6 +116,7 @@ test.describe('GTA 7 side content', () => {
     expect(hailed).toBeGreaterThan(0);
     // Pull up on the road beside him.
     await page.evaluate((id) => {
+      clearInterval((window as Api).__planting);
       const g = (window as Api).__gta7;
       const v = (window as Api).__cab;
       const h = g.sim.characters.find((x: Api) => x.id === id);
