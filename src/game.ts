@@ -736,17 +736,20 @@ export class Game {
     this.perf.frameIntervalMs = elapsed * 1000;
   };
 
-  /** One frame of game logic + rendering (also driven directly by tests). */
-  /** R and Q change the station; the HUD shows it, and each new song on the radio with its station. */
+  /**
+   * R and Q change the station; the HUD shows it, and each new song on the radio with its station. A station tuned has no
+   * song until the radio next runs (later in the frame), so its song's line follows with the next frame's songSerial.
+   */
   private radioKeys(ui: FrameInput['ui']): void {
     const radio = this.audio.radio;
-    if (ui.radioNext) this.hud.showRadio(radio.next(), radio.nowPlaying);
-    if (ui.radioPrev) this.hud.showRadio(radio.prev(), radio.nowPlaying);
+    if (ui.radioNext) this.hud.showRadio(radio.next());
+    if (ui.radioPrev) this.hud.showRadio(radio.prev());
     if (radio.songSerial === this.songSerial) return;
     this.songSerial = radio.songSerial;
     if (radio.playing) this.hud.showRadio(radio.stationName, radio.nowPlaying);
   }
 
+  /** One frame of game logic + rendering (also driven directly by tests). */
   step(dt: number, fi: FrameInput): void {
     if (this.crashed) return;
     if (this.gfxLost) {
