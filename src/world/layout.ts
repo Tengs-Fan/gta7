@@ -368,11 +368,20 @@ const SUPERBLOCKS: ReadonlyArray<{ bi: number; bj: number; bi2: number; bj2: num
 /** The superblock built round an open square. */
 const PLAZA_BLOCK = { bi: 5, bj: 6, name: 'Civic Plaza' };
 
-/**
- * Cells given to the sea, and the quay (m) left between the water and the coast road round it: a sidewalk's width,
- * or a wharf for the cranes.
- */
-const SEA_BODIES: ReadonlyArray<{ name: string; cells: ReadonlyArray<readonly [number, number]>; quay: number }> = [
+interface SeaBody {
+  name: string;
+  cells: ReadonlyArray<readonly [number, number]>;
+  /** The quay (m) left between the water and the coast road round it: a sidewalk's width, or a wharf for the cranes. */
+  quay: number;
+  /**
+   * Built as land and drowned once the street furniture stands (see drown()): every other block keeps the random
+   * draws it had while these cells were land.
+   */
+  drowned?: true;
+}
+
+/** Cells given to the sea. */
+const SEA_BODIES: readonly SeaBody[] = [
   { name: 'Hillcrest Cove', cells: [[0, 0], [1, 0]], quay: SIDEWALK_W },
   { name: 'Port Basin', cells: [[0, 9], [1, 9]], quay: 20 },
 ];
@@ -547,7 +556,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   // Blocks: one per cell, one per superblock, none on a sea cell.
   const cells: (Block | null)[] = layout.cells;
   for (let k = 0; k < n * n; k++) cells.push(null);
-  const sea = new Set(SEA_BODIES.flatMap((w) => w.cells.map(([bi, bj]) => bj * n + bi)));
+  const sea = new Set(SEA_BODIES.filter((w) => !w.drowned).flatMap((w) => w.cells.map(([bi, bj]) => bj * n + bi)));
   for (let bj = 0; bj < n; bj++) {
     for (let bi = 0; bi < n; bi++) {
       if (sea.has(bj * n + bi) || cells[bj * n + bi]) continue;
@@ -579,7 +588,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     }
   }
   layoutRoads(layout);
-  buildWater(layout);
+  buildWater(layout, SEA_BODIES.filter((w) => !w.drowned));
   buildCanal(layout);
   buildHeadland(layout);
 
@@ -605,6 +614,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   }
 
   buildStreetFurniture(layout, rng, reserved);
+  drown(layout, SEA_BODIES.filter((w) => w.drowned));
   // The coast draws from its own generator, so changes to the city's blocks leave the beach and promenade as they are.
   buildCoast(layout, new Rng(seed === CITY_SEED ? COAST_STATE : hashInts(seed, 6151)));
   buildRamps(layout);
@@ -660,10 +670,45 @@ function layoutRoads(layout: CityLayout): void {
   for (let j = 0; j < n; j++) for (let i = 0; i <= n; i++) layout.roadV.push(i !== CANAL.line && exists(cell(i - 1, j), cell(i, j)));
 }
 
+/**
+ * Gives the drowned bodies' cells to the sea once the city round them stands: their blocks and everything on them go,
+ * the roads that bordered only them close, a signal stays only where three roads still meet on a live approach, and
+ * the water comes in.
+ */
+function drown(layout: CityLayout, bodies: readonly SeaBody[]): void {
+  const { n } = layout;
+  const gone: Rect[] = [];
+  for (const body of bodies) {
+    for (const [bi, bj] of body.cells) {
+      gone.push(layout.cells[bj * n + bi]!.rect);
+      layout.cells[bj * n + bi] = null;
+    }
+  }
+  const dry = (x: number, z: number) => !gone.some((r) => rectContains(r, x, z));
+  layout.blocks = layout.blocks.filter((b) => dry(rectCX(b.rect), rectCZ(b.rect)));
+  layout.buildings = layout.buildings.filter((b) => dry(rectCX(b.rect), rectCZ(b.rect)));
+  layout.ground = layout.ground.filter((g) => dry(rectCX(g.rect), rectCZ(g.rect)));
+  layout.garages = layout.garages.filter((g) => dry(rectCX(g.rect), rectCZ(g.rect)));
+  layout.props = layout.props.filter((p) => dry(p.x, p.z));
+  layout.parking = layout.parking.filter((p) => dry(p.x, p.z));
+  layout.openSpots = layout.openSpots.filter((p) => dry(p.x, p.z));
+  layout.roadH = [];
+  layout.roadV = [];
+  layoutRoads(layout);
+  layout.props = layout.props.filter((p) => {
+    if (p.kind !== 'signal') return true;
+    const i = p.node! % (n + 1);
+    const j = Math.floor(p.node! / (n + 1));
+    const roads = [0, 1, 2, 3].filter((d) => roadFrom(layout, i, j, d));
+    return roads.length >= 3 && roads.includes((p.dir! + 2) % 4);
+  });
+  buildWater(layout, bodies);
+}
+
 /** The sea cells' water: each cell out to the coast or to the middle of its roads, short of the live roads and their quay. */
-function buildWater(layout: CityLayout): void {
+function buildWater(layout: CityLayout, bodies: readonly SeaBody[]): void {
   const { n, vLines, hLines, bounds: b } = layout;
-  for (const body of SEA_BODIES) {
+  for (const body of bodies) {
     const q = body.quay;
     const keep: Rect[] = [];
     for (let j = 0; j <= n; j++) {
