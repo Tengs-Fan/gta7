@@ -6,7 +6,7 @@ import { Emitter } from '../../src/core/emitter';
 import { GameClock } from '../../src/sim/clock';
 import type { SimEvents } from '../../src/sim/events';
 import { Sim } from '../../src/sim/sim';
-import { scheduledWeather, slotKind, WeatherSystem, type WeatherKind, type WeatherState } from '../../src/sim/weather';
+import { RAMP_HOURS, scheduledWeather, SLOT_HOURS, slotKind, WeatherSystem, type WeatherKind, type WeatherState } from '../../src/sim/weather';
 import { input, world } from './helpers';
 
 const FIELDS = ['cloud', 'rain', 'storm', 'wet', 'dim', 'fog', 'seaState'] as const;
@@ -275,5 +275,44 @@ describe('layering', () => {
     const imports = [...src.matchAll(/from '([^']+)'/g)].map((m) => m[1]);
     for (const i of imports) expect(i).toMatch(/^\.\.?\//);
     expect(src).not.toMatch(/\b(window|document|localStorage)\b/);
+  });
+});
+
+describe('forecast', () => {
+  it('names the slot now, the first later slot today of another kind and tomorrow at midday, for seeds 1, 7 and 42', () => {
+    for (const seed of [1, 7, 42]) {
+      const w = new WeatherSystem(seed, 'dynamic');
+      let changes = 0;
+      for (let day = 1; day <= 40; day++) {
+        for (let hours = 0; hours < 24; hours += 0.5) {
+          const f = w.forecast(day, hours)!;
+          const g = Math.floor((day * 24 + hours) / SLOT_HOURS);
+          expect(f.now).toBe(slotKind(seed, g));
+          expect(f.tomorrow).toBe(slotKind(seed, (day + 1) * 8 + 12 / SLOT_HOURS));
+          const end = f.next ? day * 8 + f.next.startHours / SLOT_HOURS : (day + 1) * 8;
+          for (let k = g + 1; k < end; k++) expect(slotKind(seed, k), `seed ${seed} day ${day} ${hours} h`).toBe(f.now);
+          if (!f.next) continue;
+          changes++;
+          expect(f.next.startHours).toBeGreaterThan(hours);
+          expect(f.next.startHours).toBeLessThan(24);
+          expect(f.next.kind).toBe(slotKind(seed, end));
+          expect(f.next.kind).not.toBe(f.now);
+          // It comes true: once the change has ramped in, the schedule's weather is the kind forecast.
+          expect(scheduledWeather(seed, day, f.next.startHours + RAMP_HOURS).kind).toBe(f.next.kind);
+        }
+      }
+      expect(changes, `seed ${seed}`).toBeGreaterThan(200);
+    }
+  });
+
+  it('is null while the weather is held: under an override and in the clear mode', () => {
+    const w = new WeatherSystem(7, 'dynamic');
+    expect(w.forecast(5, 12)).not.toBeNull();
+    w.override('rain');
+    expect(w.forecast(5, 12)).toBeNull();
+    w.override(null);
+    expect(w.forecast(5, 12)).not.toBeNull();
+    w.mode = 'clear';
+    expect(w.forecast(5, 12)).toBeNull();
   });
 });
