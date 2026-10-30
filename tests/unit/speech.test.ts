@@ -110,6 +110,20 @@ describe('the police dispatcher', () => {
     console.log(`[speech] ${n} dispatch lines covered by ${Object.keys(SPEECH.dispatch).length} phrases`);
   });
 
+  it('can name every place the city names: an 8 m sweep of the world finds no zone without its clip', () => {
+    const w = world();
+    const zones = new Set(zoneNames(w));
+    const b = w.bounds;
+    const missing = new Map<string, number>();
+    for (let x = b.worldMinX; x <= b.worldMaxX; x += 8) {
+      for (let z = b.worldMinZ; z <= b.worldMaxZ; z += 8) {
+        const zone = w.zoneName(x, z);
+        if (!zones.has(zone)) missing.set(zone, (missing.get(zone) ?? 0) + 1);
+      }
+    }
+    expect(Object.fromEntries(missing)).toEqual({});
+  });
+
   it('can say the lines of a real chase', () => {
     const sim = makeSim({ police: true, ambient: false, seed: 11 });
     sim.cheats.godMode = true;
