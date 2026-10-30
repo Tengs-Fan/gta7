@@ -17,7 +17,7 @@ import { HOST_VOICE, speechPlan, voicedSeconds } from '../../src/audio/voice';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { isGun, WEAPONS, type WeaponId } from '../../src/sim/specs';
-import { input, makeSim, placeInCar, roadPoint, teleport } from './helpers';
+import { input, makeSim, placeInCar, roadPoint, teleport, legacyLane } from './helpers';
 
 // ---------------------------------------------------------------------------
 // A minimal fake Web Audio context.
@@ -406,7 +406,8 @@ describe('siren Doppler', () => {
   it('a cruiser driving past the stopped player shifts the siren oscillator from above to below its pitch', () => {
     const sim = makeSim({ police: false });
     // On a long lane: the player stands at its middle, the cruiser comes down it 3 m to his side.
-    const lane = [...sim.roads.lanes].sort((x, y) => y.length - x.length)[0]!;
+    // One of the square city's longest lanes, down Delgado St from the north ring road.
+    const lane = legacyLane(sim, 38);
     const mid = lane.length / 2;
     teleport(sim, lane.sx + lane.dx * mid - lane.dz * 3, lane.sz + lane.dz * mid + lane.dx * 3);
     const { audio, frames } = rig(sim);

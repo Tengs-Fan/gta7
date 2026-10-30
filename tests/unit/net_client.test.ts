@@ -24,7 +24,8 @@ function pct(a: readonly number[], p: number): number {
 
 /** A loop of lane points round a few blocks, driving on the right. */
 function loopRoute(roads: RoadNetwork): Array<{ x: number; z: number }> {
-  const cells: Array<[number, number]> = [[3, 3], [4, 3], [5, 3], [5, 4], [5, 5], [4, 5], [3, 5], [3, 4], [3, 3]];
+  // One column east of where it ran before Cortez Canal took line 3.
+  const cells: Array<[number, number]> = [[4, 3], [5, 3], [6, 3], [6, 4], [6, 5], [5, 5], [4, 5], [4, 4], [4, 3]];
   const pts: Array<{ x: number; z: number }> = [];
   for (let k = 0; k + 1 < cells.length; k++) {
     const a = roads.node(...cells[k]!).id;

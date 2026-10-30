@@ -198,7 +198,8 @@ describe('route drivers reach their destination', () => {
 
   it('reports the driving distance left and stops counting at the destination', () => {
     const sim = new Sim({ world: world(), ambient: false, police: false });
-    const lane = sim.roads.lanes.find((l) => l.length > 60 && l.turns.length > 0)!;
+    // Into an ordinary junction (a canal bridge's straight runs 40 m).
+    const lane = sim.roads.lanes.find((l) => l.length > 60 && l.turns.some((t) => t.kind === 'straight' && t.length < 30))!;
     const next = lane.turns.find((t) => t.kind === 'straight')!.to;
     const dest = { x: next.sx + next.dx * 40, z: next.sz + next.dz * 40 };
     const car = sim.spawnVehicle('sedan', lane.sx + lane.dx * 10, lane.sz + lane.dz * 10, lane.heading);

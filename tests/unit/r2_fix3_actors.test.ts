@@ -119,6 +119,9 @@ function openSouthFace(w: StaticWorld): { x: number; z: number } {
     let open = true;
     for (let dz = 0.36; dz <= 6 && open; dz += 0.4) for (const dx of [-3, -1.5, 0, 1.5, 3]) if (!w.isFree(x + dx, z + dz, 0.35)) open = false;
     if (!open || w.layout.props.some((q) => Math.hypot(q.x - x, q.z - z) < 7)) continue;
+    // Not one looking out over the water (Hillcrest Cove, the canal), nor one beside a garage's roof.
+    if ([3, 6, 9, 12].some((d) => w.waterDepth(x, z + d) > 0)) continue;
+    if (w.layout.garages.some((g) => Math.hypot((g.rect.minX + g.rect.maxX) / 2 - x, (g.rect.minZ + g.rect.maxZ) / 2 - z) < 25)) continue;
     // The wall is really there, right behind him.
     if (!w.grid.raycast(x, w.groundHeight(x, z + 1) + 1.6, z + 1, 0, 0, -1, 1.2, sightHit, isSolidForSight)) continue;
     return { x, z };

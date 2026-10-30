@@ -364,7 +364,8 @@ describe('round 2 city: ground-floor geometry', () => {
       for (const t of upper) expect(t.minY, label).toBeGreaterThanOrEqual(top - 1e-3);
       checked++;
     }
-    expect(checked).toBeGreaterThan(1000);
+    // 91 blocks since the map was broken up (docs/map.md).
+    expect(checked).toBeGreaterThan(900);
   });
 
   it('hangs the big signs above the ground floor', () => {

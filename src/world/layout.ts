@@ -417,10 +417,10 @@ const SPRAY_GARAGE: GarageBuild = { type: 'garage', color: 0x2f8f5b, markerOffse
 export const SPECIALS: readonly SpecialDef[] = [
   { id: 'safehouse', kind: 'safehouse', bi: 4, bj: 1, side: 'S', name: 'Safehouse' },
   { id: 'hospital', kind: 'hospital', bi: 7, bj: 2, side: 'S', name: 'San Azura General' },
-  { id: 'police', kind: 'police', bi: 2, bj: 4, side: 'E', name: 'SAPD Central' },
+  { id: 'police', kind: 'police', bi: 2, bj: 4, side: 'S', name: 'SAPD Central' },
   { id: 'spray_docks', kind: 'spray', bi: 1, bj: 8, side: 'N', name: 'Spray Shack' },
   { id: 'spray_south', kind: 'spray', bi: 7, bj: 8, side: 'W', name: 'Spray Shack' },
-  { id: 'spray_hill', kind: 'spray', bi: 1, bj: 1, side: 'N', name: 'Spray Shack' },
+  { id: 'spray_hill', kind: 'spray', bi: 2, bj: 0, side: 'S', name: 'Spray Shack' },
   { id: 'guns_south', kind: 'gunshop', bi: 5, bj: 7, side: 'N', name: 'Bang Bang Guns' },
   { id: 'guns_west', kind: 'gunshop', bi: 0, bj: 3, side: 'E', name: 'Bang Bang Guns' },
   { id: 'bank', kind: 'bank', bi: 5, bj: 3, side: 'W', name: 'First Azura Bank' },
@@ -874,6 +874,8 @@ function buildBlock(layout: CityLayout, block: Block, rng: Rng, specials: Specia
       blocked.push(insetRect(g, -1.5));
       const marker = sidewalkMarker(block, def.side, garage.markerOffset);
       layout.pois.push({ id: def.id, kind: def.kind, name: def.name, x: marker.x, z: marker.z, heading, bay: bayOf(g, def.side), block: block.id });
+      // The marker beside the door stays clear of lamps, trees and benches too, for a bus parked on it.
+      reserved.push(mkRect(marker.x - 6, marker.z - 6, marker.x + 6, marker.z + 6));
     } else {
       const p = sidePoint(block.lot, def.side);
       const parcel = parcels.find((q) => rectContains(q, p.x, p.z, 0.01));

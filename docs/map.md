@@ -62,7 +62,7 @@ The cells were picked where nothing else depends on the closed streets: no stree
 ### Water: a cove, a harbour basin, a canal and a headland
 
 - **Hillcrest Cove** takes the north-west corner: two cells become sea, and the coast road turns round the water behind a sidewalk-wide quay.
-  The Hillcrest Spray Shack moved from the drowned cell to the waterfront facing it.
+  The Hillcrest Spray Shack moved one block east, out of the drowned cell.
 - **Port Basin** cuts into the docks from the south: two cells become a harbour basin, with a 20 m wharf along the docks' last street where the three cranes now stand, and four boats moored in it.
 - **Cortez Canal** replaces Cortez St, running from the north coast to the south coast between Westside and Downtown.
   Every street crosses it on a bridge: the junction's box is the carriageway (a deck at road height, no signal), with a footway deck either side and a parapet along each footway's outer edge; each promenade has a footbridge along its seaward edge.
