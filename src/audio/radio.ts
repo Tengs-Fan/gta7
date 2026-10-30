@@ -123,10 +123,6 @@ const INTENSITY_TEMPO = 0.08;
 
 /** Output level of a playing station: 3 dB over unity, so the music sits over the engine. */
 const RADIO_LEVEL = 1.41;
-/** The AM band: two high-passes and two low-passes (24 dB per octave each side), and a faint hiss (about -67 dBFS, 40 dB under the voice). */
-const AM_LOW = 150;
-const AM_HIGH = 4500;
-const HISS_LEVEL = 0.0016;
 /** A station voice's ident over a song's intro, at the talk station's ident level. */
 const IDENT_LEVEL = 0.46;
 
@@ -137,6 +133,11 @@ const COMBS: readonly (readonly [number, number])[] = [
   [0.0411, 0.76],
   [0.0437, 0.74],
 ];
+
+/** The AM band: two high-passes and two low-passes (24 dB per octave each side), and a faint hiss (about -67 dBFS, 40 dB under the voice). */
+const AM_LOW = 150;
+const AM_HIGH = 4500;
+const HISS_LEVEL = 0.0016;
 
 export class Radio {
   private ctx: AudioContext | null = null;
