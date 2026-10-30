@@ -251,7 +251,7 @@ export const TALK: readonly TalkPiece[] = [
     ],
   },
 
-  // Newsdesk, traffic, weather and sports.
+  // Newsdesk, traffic and sports (the weather is the newsroom's: newsroom.ts).
   {
     id: 'news-ducks',
     kind: 'news',
@@ -268,15 +268,6 @@ export const TALK: readonly TalkPiece[] = [
       ['dolores', "Police are asking for help after a string of car thefts across the city. Witnesses describe the suspect as in a hurry, and really good at driving."],
       ['dolores', "SAPD believes the cars are taken to a garage, possibly in the docks, possibly owned by a woman who calls everybody baby."],
       ['dolores', "If you have information, officers ask that you call it in during business hours. They are very busy."],
-    ],
-  },
-  {
-    id: 'news-weather',
-    kind: 'news',
-    lines: [
-      ['dolores', "And now your weather. Sunny over Ocean Beach, highs in the upper eighties, and a strong chance of sunburn."],
-      ['dolores', "A sea breeze picks up this afternoon, so hold on to your hats, your umbrellas and your small dogs."],
-      ['dolores', "Storms may roll in off the bay tonight. If you hear thunder, it's either the weather or the Westside drag races. Possibly both."],
     ],
   },
   {

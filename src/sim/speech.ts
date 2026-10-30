@@ -24,6 +24,10 @@ export interface SpeechIndex {
   barks: Record<BarkKind, string[][]>;
   /** Spoken idents of the music stations, by station name. */
   idents: Record<string, string[]>;
+  /** The clip of each sentence the Azura Newsdesk can read (src/audio/newsText.ts), by its text. */
+  news: Record<string, string>;
+  /** The newsdesk's pieces about each mission, by mission id: when it is passed, and a day later. */
+  missionNews: Record<string, { breaking: string; followUp?: string }>;
 }
 
 export const SPEECH = index as SpeechIndex;

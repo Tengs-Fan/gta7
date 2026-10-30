@@ -37,7 +37,7 @@ describe('the speech index', () => {
     const ids = Object.keys(SPEECH.clips);
     expect(new Set(files)).toEqual(new Set(ids.map((id) => `${id}.mp3`)));
     for (const id of ids) expect(SPEECH.clips[id]).toBeGreaterThan(0.2);
-    const used = [...Object.values(SPEECH.dialogue), ...Object.values(SPEECH.dispatch), ...talkClips(), ...Object.values(SPEECH.barks).flat(2)];
+    const used = [...Object.values(SPEECH.dialogue), ...Object.values(SPEECH.dispatch), ...talkClips(), ...Object.values(SPEECH.barks).flat(2), ...Object.values(SPEECH.news), ...Object.values(SPEECH.missionNews).flatMap((m) => Object.values(m))];
     for (const id of used) expect(existsSync(`${DIR}${id}.mp3`), id).toBe(true);
   });
 

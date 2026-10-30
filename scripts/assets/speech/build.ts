@@ -2,7 +2,8 @@
 // 32 kbps mono MP3 per clip and speech.json, the index the sim and the audio read (src/sim/speech.ts).
 //
 // Clips: the mission dialogue (dialogue.ts), the police dispatcher's phrases (phrases.ts), the talk station's pieces,
-// the music stations' idents and the barks (script.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
+// the newsdesk's sentences and mission pieces (news.ts, missionNews.ts), the music stations' idents and the barks
+// (script.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
 // (~/.cache/gta7-speech), so a rerun renders only new lines. Each clip is trimmed, band-limited where it is heard down
 // a phone line, levelled to the same loudness and encoded with ffmpeg; files the index no longer lists are removed.
 
@@ -15,7 +16,9 @@ import type { BarkKind, SpeechIndex } from '../../../src/sim/speech';
 import { dialogueKey, phraseWords } from '../../../src/sim/speech';
 import { StaticWorld } from '../../../src/world/staticWorld';
 import { dialogueLines } from './dialogue';
-import { dispatchPhrases } from './phrases';
+import { MISSION_NEWS } from './missionNews';
+import { newsSentences } from './news';
+import { dispatchPhrases, zoneNames } from './phrases';
 import { BARKS, CAST, PHONE_ROLES, SAY, SPEAKERS, STATION_IDENTS, TALK } from './script';
 import { SHOW_PIECES } from './shows';
 
@@ -59,6 +62,8 @@ const index: SpeechIndex = {
   adSeries: {},
   barks: {} as Record<BarkKind, string[][]>,
   idents: {},
+  news: {},
+  missionNews: {},
 };
 
 for (const line of dialogueLines(world)) {
@@ -85,6 +90,19 @@ for (const piece of [...TALK, ...SHOW_PIECES]) {
   for (const show of piece.shows ?? [piece.show ?? 'azura']) index.talk[show][piece.kind].push(id);
 }
 for (const parts of Object.values(series)) index.adSeries[parts[0]!] = parts;
+for (const text of newsSentences(zoneNames(world))) {
+  const id = `news-${hash(text).slice(0, 10)}`;
+  clips.push({ id, takes: [{ voice: CAST.dolores, text, speed: 1 }] });
+  index.news[text] = id;
+}
+for (const [mission, piece] of Object.entries(MISSION_NEWS)) {
+  const read = (id: string, lines: readonly string[]) => {
+    clips.push({ id, takes: lines.map((text) => ({ voice: CAST.dolores, text, speed: 1 })) });
+    return id;
+  };
+  const breaking = read(`news-m-${mission}`, piece.breaking);
+  index.missionNews[mission] = piece.followUp ? { breaking, followUp: read(`news-m-${mission}-later`, piece.followUp) } : { breaking };
+}
 for (const [station, set] of Object.entries(STATION_IDENTS)) {
   index.idents[station] = set.lines.map((text, i) => {
     const id = `ident-${slug(station)}-${i}`;
