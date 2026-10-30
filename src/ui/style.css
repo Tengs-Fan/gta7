@@ -696,10 +696,21 @@ body {
   font-family: 'Anton', Impact, sans-serif;
   font-size: 20px;
   letter-spacing: 1px;
+  text-align: center;
+  white-space: nowrap;
   color: var(--gold);
   text-shadow: var(--outline);
   opacity: 0;
   transition: opacity 0.4s;
+}
+
+.radio small {
+  display: block;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #fff;
 }
 
 .radio.show {
@@ -708,7 +719,8 @@ body {
 
 /*
  * Windows under 1100 px wide: the station name, centred at the top, would run into a help box at the top
- * left (its right edge up to 442 px in; NEON DRIVE 88.7 is 176 px wide, so 1100 px leaves a 20 px gap).
+ * left (its right edge up to 442 px in; the widest name, DOCKSIDE DUB 92.3, is under 200 px wide, so 1100 px leaves a
+ * gap; the tag line under it is shorter).
  * While one shows, the name goes 9 px below it, however many lines it has (the help box is the anchor;
  * it comes first in the HUD). Without anchor(): below three lines, the longest messages (109 px down).
  */

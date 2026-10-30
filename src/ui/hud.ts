@@ -1,5 +1,6 @@
 // In-game heads-up display: status cluster, radar, messages and prompts.
 
+import { STATIONS } from '../audio/radio';
 import { formatMoney, formatTime, wrapAngle } from '../core/math';
 import { KeyLabels } from '../input/input';
 import type { DamageKind } from '../sim/combat';
@@ -827,8 +828,10 @@ export class Hud {
     this.el.big!.style.setProperty('--title-clear', right!);
   }
 
+  /** The tuned station's name, with its tag line under it ('RADIO OFF' has none). */
   showRadio(name: string): void {
-    this.el.radio!.textContent = name;
+    const tag = STATIONS.find((s) => s.name === name)?.tag;
+    this.el.radio!.innerHTML = `${escapeHtml(name)}${tag ? `<small>${escapeHtml(tag)}</small>` : ''}`;
     this.el.radio!.classList.add('show');
     this.timers.radio = 2.5;
   }

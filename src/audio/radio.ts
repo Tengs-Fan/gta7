@@ -1,31 +1,106 @@
-// Procedural radio: three music stations generating endless music with a WebAudio lookahead scheduler, and a talk
-// station (talk.ts). Songs are seeded (key, progression, drums, motif). The music follows the wanted level: an
-// intensity value glides toward the level's target and drives an extra layer (driving hats, a pulsing bass, off-beat
-// kicks) and a slightly faster tempo; at 0 the music is exactly the calm original.
+// Procedural radio: nine music stations generating endless music with a WebAudio lookahead scheduler, and a talk
+// station (talk.ts), in dial order. Each music station is a style (stations/): it seeds songs (key, progressions,
+// motifs, a pattern variant) and plays each sixteenth of a song's form (intro, A, B, A again, outro; some add a
+// breakdown) on a shared instrument kit with a tempo echo and a small reverb. The music follows the wanted level: an
+// intensity value glides toward the level's target, lifts the tempo a little and drives each style's own chase
+// behaviour; at 0 the music is exactly the calm original.
 
 import { clamp } from '../core/math';
 import { Rng } from '../core/rng';
+import { boombap } from './stations/boombap';
+import { chiptune } from './stations/chiptune';
+import { country } from './stations/country';
+import { dnb } from './stations/dnb';
+import { dub } from './stations/dub';
+import { house } from './stations/house';
+import { Kit } from './stations/kit';
+import { lounge } from './stations/lounge';
+import { locate, type Beat, type Song, type Style } from './stations/style';
+import { surf } from './stations/surf';
+import { synthwave } from './stations/synthwave';
 import type { NodeTally } from './tally';
 import { TalkProgramme, TalkShow, type TalkSegment } from './talk';
 
-type Genre = 'synthwave' | 'boombap' | 'house';
-
-interface StationDef {
+export interface StationDef {
   name: string;
-  genre: Genre | 'talk';
-  bpm: [number, number];
+  genre: string;
+  /** The line under the name when the station is tuned. */
+  tag: string;
+  /** The music; null on the talk station. */
+  style: Style | null;
+  /** What the station's voice says between songs (station idents, for a voiced radio). */
+  idents: readonly string[];
 }
 
 export const STATIONS: readonly StationDef[] = [
-  { name: 'NEON DRIVE 88.7', genre: 'synthwave', bpm: [98, 112] },
-  { name: 'BOOM BAP 101.3', genre: 'boombap', bpm: [84, 94] },
-  { name: 'PULSE 96.1', genre: 'house', bpm: [120, 126] },
-  { name: 'AZURA TALK 104.5', genre: 'talk', bpm: [0, 0] },
+  {
+    name: 'NEON DRIVE 88.7',
+    genre: 'synthwave',
+    tag: 'Synthwave after dark',
+    style: synthwave,
+    idents: ['Neon Drive, eighty-eight point seven. Keep your lights on and your engine warm.', 'You are cruising with Neon Drive. The night is long, San Azura.'],
+  },
+  {
+    name: 'VELVET 89.9',
+    genre: 'lounge',
+    tag: 'Lounge, music to wait to',
+    style: lounge,
+    idents: ['Velvet, eighty-nine point nine. Music to wait to.', 'Relax. Whatever it is, it can wait. This is Velvet.'],
+  },
+  {
+    name: 'DOCKSIDE DUB 92.3',
+    genre: 'dub',
+    tag: 'Dub from the Docks',
+    style: dub,
+    idents: ['Dockside Dub, ninety-two point three. Bass from the harbour, all night long.', 'Turn it up and lean back. Dockside Dub.'],
+  },
+  {
+    name: 'PULSE 96.1',
+    genre: 'house',
+    tag: 'House all night',
+    style: house,
+    idents: ['Pulse, ninety-six point one. Keep moving, San Azura.', 'Four to the floor and no brakes. This is Pulse.'],
+  },
+  {
+    name: 'COYOTE 97.7',
+    genre: 'country',
+    tag: 'Outlaw country',
+    style: country,
+    idents: ['Coyote, ninety-seven point seven. Outlaw country for the open road.', 'Dust on the boots, gas in the tank. You are on Coyote.'],
+  },
+  {
+    name: 'WIPEOUT 99.5',
+    genre: 'surf',
+    tag: 'Surf rock, Ocean Beach',
+    style: surf,
+    idents: ['Wipeout, ninety-nine point five, live from Ocean Beach. Surf is up.', 'Wax your board and floor it. This is Wipeout.'],
+  },
+  {
+    name: 'BOOM BAP 101.3',
+    genre: 'boombap',
+    tag: 'Golden-era hip hop',
+    style: boombap,
+    idents: ['Boom Bap, one-oh-one point three. Beats from the block.', 'Heads nodding from Southgate to the Docks. Boom Bap.'],
+  },
+  {
+    name: 'BREAKNECK 102.7',
+    genre: 'dnb',
+    tag: 'Drum and bass, jungle',
+    style: dnb,
+    idents: ['Breakneck, one-oh-two point seven. Faster than the cops.', 'One hundred and seventy-four beats a minute. Breakneck.'],
+  },
+  {
+    name: 'PIXEL 103.9',
+    genre: 'chiptune',
+    tag: '8-bit chiptune',
+    style: chiptune,
+    idents: ['Pixel, one-oh-three point nine. Insert coin to continue.', 'High score radio. You are tuned to Pixel.'],
+  },
+  { name: 'AZURA TALK 104.5', genre: 'talk', tag: 'Talk, news, nonsense', style: null, idents: [] },
 ];
 
 /** Music intensity for a wanted level (0-5 stars): non-decreasing, 0 at no stars, 1 at five. */
 export function wantedIntensity(level: number): number {
-  if (!Number.isFinite(level)) return 0;
   return clamp(Math.floor(level), 0, 5) / 5;
 }
 
@@ -40,30 +115,21 @@ const TALK_AHEAD = 0.3;
 /** Output level of a playing station: 3 dB over unity, so the music sits over the engine. */
 const RADIO_LEVEL = 1.41;
 
-const MINOR = [0, 2, 3, 5, 7, 8, 10];
-const DORIAN = [0, 2, 3, 5, 7, 9, 10];
-
-interface Song {
-  genre: Genre;
-  bpm: number;
-  root: number;
-  scale: number[];
-  prog: number[];
-  motif: number[];
-  kickVariant: number;
-  bars: number;
-}
-
-function midi(m: number): number {
-  return 440 * Math.pow(2, (m - 69) / 12);
-}
+/** The reverb: four damped feedback delays in parallel (s, feedback), a short metallic room like a spring tank. */
+const COMBS: readonly (readonly [number, number])[] = [
+  [0.0297, 0.8],
+  [0.0371, 0.78],
+  [0.0411, 0.76],
+  [0.0437, 0.74],
+];
 
 export class Radio {
   private ctx: AudioContext | null = null;
   private out!: GainNode;
   private noise!: AudioBuffer;
   private delay!: DelayNode;
-  private delaySend!: GainNode;
+  private echoFeedback!: GainNode;
+  private kit!: Kit;
   private index = 0;
   private active = false;
   private paused = false;
@@ -71,7 +137,10 @@ export class Radio {
   private step = 0;
   private bar = 0;
   private song: Song | null = null;
+  private style: Style | null = null;
   private rng = new Rng(Date.now() & 0xffff);
+  /** The step being played, handed to the style (one object, refilled each sixteenth). */
+  private readonly beat: Beat = { t: 0, sd: 0, step: 0, bar: 0, section: 'intro', sbar: 0, top: false, fill: false, chord: 0, nextChord: 0, k: 0, r: this.rng };
   private intensityValue = 0;
   private intensityTarget = 0;
   private programme: TalkProgramme | null = null;
@@ -146,18 +215,37 @@ export class Radio {
     this.epoch = ctx.currentTime - Math.random() * 60;
     this.talk = new TalkShow(ctx, this.out, noise, tally);
     this.delay = ctx.createDelay(1.5);
-    const fb = ctx.createGain();
-    fb.gain.value = 0.32;
+    this.echoFeedback = ctx.createGain();
+    this.echoFeedback.gain.value = 0.32;
     const dl = ctx.createBiquadFilter();
     dl.type = 'lowpass';
     dl.frequency.value = 2500;
-    this.delaySend = ctx.createGain();
-    this.delaySend.gain.value = 0.35;
-    this.delaySend.connect(this.delay);
+    const echoSend = ctx.createGain();
+    echoSend.gain.value = 0.35;
+    echoSend.connect(this.delay);
     this.delay.connect(dl);
-    dl.connect(fb);
-    fb.connect(this.delay);
+    dl.connect(this.echoFeedback);
+    this.echoFeedback.connect(this.delay);
     dl.connect(this.out);
+    const verbSend = ctx.createGain();
+    const verbOut = ctx.createGain();
+    verbOut.gain.value = 0.22;
+    verbOut.connect(this.out);
+    for (const [time, feedback] of COMBS) {
+      const d = ctx.createDelay(0.1);
+      d.delayTime.value = time;
+      const damp = ctx.createBiquadFilter();
+      damp.type = 'lowpass';
+      damp.frequency.value = 3200;
+      const fb = ctx.createGain();
+      fb.gain.value = feedback;
+      verbSend.connect(d);
+      d.connect(damp);
+      damp.connect(fb);
+      fb.connect(d);
+      damp.connect(verbOut);
+    }
+    this.kit = new Kit(ctx, this.out, noise, echoSend, verbSend);
   }
 
   next(): string {
@@ -212,54 +300,24 @@ export class Radio {
     src.stop(t + 0.35);
   }
 
-  /** Starts a new song and moves the echo to a dotted eighth of its tempo. */
+  /** Starts a new song of the tuned station and moves the echo to a dotted eighth of its tempo and the style's feedback. */
   private startSong(): Song {
-    const song = this.newSong();
+    const style = STATIONS[this.index]!.style!;
+    const song = style.song(this.rng, this.rng.range(style.bpm[0], style.bpm[1]));
     this.song = song;
-    if (this.ctx) this.delay.delayTime.setTargetAtTime((0.75 * 60) / song.bpm, this.ctx.currentTime, 0.05);
+    this.style = style;
+    // Tuned in from a longer song: this one starts over.
+    if (this.bar >= song.bars) this.bar = 0;
+    const t = this.ctx!.currentTime;
+    this.delay.delayTime.setTargetAtTime((0.75 * 60) / song.bpm, t, 0.05);
+    this.echoFeedback.gain.setTargetAtTime(style.echo, t, 0.05);
     return song;
-  }
-
-  private newSong(): Song {
-    const def = STATIONS[this.index]!;
-    // Only the music stations make songs.
-    const st = def.genre === 'talk' ? { ...STATIONS[0]!, genre: 'synthwave' as const } : { ...def, genre: def.genre };
-    const r = this.rng;
-    const progs: Record<Genre, number[][]> = {
-      synthwave: [[0, 5, 2, 6], [0, 3, 5, 4], [5, 3, 0, 4], [0, 6, 5, 6]],
-      boombap: [[1, 4, 0, 0], [0, 3, 0, 3], [5, 1, 4, 0], [0, 5, 3, 4]],
-      house: [[0, 0, 5, 5], [0, 3, 5, 4], [0, 5, 3, 4], [5, 5, 0, 0]],
-    };
-    const scale = st.genre === 'boombap' ? DORIAN : MINOR;
-    const motif: number[] = [];
-    let deg = r.int(0, 4);
-    for (let i = 0; i < 8; i++) {
-      deg = Math.max(0, Math.min(9, deg + r.pick([-2, -1, -1, 0, 1, 1, 2])));
-      motif.push(r.chance(0.2) ? -1 : deg);
-    }
-    return {
-      genre: st.genre,
-      bpm: r.range(st.bpm[0], st.bpm[1]),
-      root: (st.genre === 'boombap' ? 43 : 45) + r.int(-2, 4),
-      scale,
-      prog: r.pick(progs[st.genre]),
-      motif,
-      kickVariant: r.int(0, 2),
-      bars: 32,
-    };
-  }
-
-  private note(deg: number, octave: number, song: Song): number {
-    const s = song.scale;
-    const o = Math.floor(deg / s.length);
-    const i = ((deg % s.length) + s.length) % s.length;
-    return song.root + 12 * (octave + o) + s[i]!;
   }
 
   update(dt: number, inCar: boolean): void {
     const ctx = this.ctx;
     if (!ctx) return;
-    const step = Number.isFinite(dt) && dt > 0 ? Math.min(dt, 0.25) : 0;
+    const step = Math.min(dt, 0.25);
     const up = this.intensityTarget > this.intensityValue;
     this.intensityValue += (this.intensityTarget - this.intensityValue) * (1 - Math.exp(-step / (up ? INTENSITY_RISE : INTENSITY_FALL)));
     const want = inCar && !this.paused && this.index < STATIONS.length;
@@ -281,8 +339,7 @@ export class Radio {
     }
     let song = this.song ?? this.startSong();
     if (this.nextTime < t - 0.2) this.nextTime = t + 0.05;
-    let guard = 0;
-    while (this.nextTime < t + 0.14 && guard++ < 32) {
+    while (this.nextTime < t + 0.14) {
       const stepDur = 60 / (song.bpm * (1 + INTENSITY_TEMPO * this.intensityValue)) / 4;
       this.playStep(song, this.step, this.bar, this.nextTime, stepDur);
       this.nextTime += stepDur;
@@ -298,196 +355,21 @@ export class Radio {
     }
   }
 
+  /** Plays one sixteenth of the song: where it falls in the form, then the style. */
+  private playStep(song: Song, step: number, bar: number, t: number, sd: number): void {
+    const b = this.beat;
+    locate(b, song, bar);
+    b.t = t;
+    b.sd = sd;
+    b.step = step;
+    b.k = this.intensityValue;
+    b.r = this.rng;
+    this.style!.step(this.kit, song, b);
+  }
+
   private updateTalk(t: number): void {
     const prog = this.programme!;
     const seg = prog.at(t - this.epoch);
     this.talk!.update(seg, this.epoch + seg.start, t + TALK_AHEAD);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Instruments
-
-  /** Envelope on a fresh gain: silent from creation (notes are scheduled ahead) until `t`. */
-  private env(g: GainNode, t: number, peak: number, attack: number, hold: number, release: number): void {
-    g.gain.value = 0;
-    // After a stalled frame a note can be due a little in the past: the zero must not land after it starts.
-    g.gain.setValueAtTime(0, Math.min(this.ctx!.currentTime, t));
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(peak, t + attack);
-    g.gain.setValueAtTime(peak, t + attack + hold);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + attack + hold + release);
-    g.gain.linearRampToValueAtTime(0, t + attack + hold + release + 0.01);
-  }
-
-  private kick(t: number, k = 1): void {
-    const ctx = this.ctx!;
-    const o = ctx.createOscillator();
-    o.frequency.setValueAtTime(150, t);
-    o.frequency.exponentialRampToValueAtTime(44, t + 0.12);
-    const g = ctx.createGain();
-    this.env(g, t, 0.85 * k, 0.003, 0.02, 0.3);
-    o.connect(g);
-    g.connect(this.out);
-    o.start(t + this.sample);
-    o.stop(t + 0.4);
-  }
-
-  private noiseHit(t: number, type: BiquadFilterType, freq: number, dur: number, gain: number, send = 0): void {
-    const ctx = this.ctx!;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    const f = ctx.createBiquadFilter();
-    f.type = type;
-    f.frequency.value = freq;
-    const g = ctx.createGain();
-    this.env(g, t, gain, 0.002, 0.005, dur);
-    src.connect(f);
-    f.connect(g);
-    g.connect(this.out);
-    if (send > 0) {
-      const s = ctx.createGain();
-      s.gain.value = send;
-      g.connect(s);
-      s.connect(this.delaySend);
-    }
-    src.start(t + this.sample, Math.random() * 1.5);
-    src.stop(t + dur + 0.05);
-  }
-
-  private snare(t: number, big: boolean): void {
-    this.noiseHit(t, 'bandpass', 1900, big ? 0.22 : 0.15, 0.42, big ? 0.6 : 0);
-    const ctx = this.ctx!;
-    const o = ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.setValueAtTime(200, t);
-    o.frequency.exponentialRampToValueAtTime(120, t + 0.08);
-    const g = ctx.createGain();
-    this.env(g, t, 0.25, 0.002, 0.01, 0.1);
-    o.connect(g);
-    g.connect(this.out);
-    o.start(t + this.sample);
-    o.stop(t + 0.2);
-  }
-
-  private clap(t: number): void {
-    for (let i = 0; i < 3; i++) this.noiseHit(t + i * 0.011, 'bandpass', 1300, 0.12, 0.28, i === 2 ? 0.4 : 0);
-  }
-
-  private hat(t: number, open: boolean, gain = 0.13): void {
-    this.noiseHit(t, 'highpass', 7500, open ? 0.22 : 0.035, gain);
-  }
-
-  private synth(t: number, freq: number, dur: number, type: OscillatorType, gain: number, cutoff: number, opts: { attack?: number; detune?: number; send?: number; release?: number; filterEnv?: boolean } = {}): void {
-    const ctx = this.ctx!;
-    const f = ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.Q.value = 1.5;
-    if (opts.filterEnv) {
-      f.frequency.setValueAtTime(cutoff * 3, t);
-      f.frequency.exponentialRampToValueAtTime(cutoff, t + Math.min(dur, 0.25));
-    } else f.frequency.value = cutoff;
-    const g = ctx.createGain();
-    const attack = opts.attack ?? 0.005;
-    const release = opts.release ?? 0.08;
-    this.env(g, t, gain, attack, Math.max(0, dur - attack), release);
-    f.connect(g);
-    g.connect(this.out);
-    if (opts.send) {
-      const s = ctx.createGain();
-      s.gain.value = opts.send;
-      g.connect(s);
-      s.connect(this.delaySend);
-    }
-    const voices = opts.detune ? [-opts.detune, opts.detune] : [0];
-    for (const d of voices) {
-      const o = ctx.createOscillator();
-      o.type = type;
-      o.frequency.value = freq;
-      o.detune.value = d;
-      o.connect(f);
-      o.start(t + this.sample);
-      o.stop(t + dur + release + 0.05);
-    }
-  }
-
-  /**
-   * The chase layer, as loud as the intensity: driving sixteenth hats, a pulsing eighth bass on the chord root, and from
-   * about three stars off-beat kicks and a stab on every other bar.
-   */
-  private intensityStep(song: Song, step: number, bar: number, chordDeg: number, t: number, sd: number): void {
-    const k = this.intensityValue;
-    if (k < 0.03) return;
-    this.hat(t, false, 0.08 * k * (step % 4 === 2 ? 1.5 : 1));
-    if (step % 2 === 0) this.synth(t, midi(this.note(chordDeg, 0, song)), sd * 0.85, 'sawtooth', 0.18 * k, 280 + 900 * k, { filterEnv: true });
-    if (k > 0.45 && (step === 6 || step === 14)) this.kick(t, 0.55 * k);
-    if (k > 0.55 && step === 0 && bar % 2 === 0) {
-      for (const d of [0, 1]) this.synth(t, midi(this.note(chordDeg + d, 2, song)), sd * 3, 'square', 0.04 * k, 1800, { release: 0.2, send: 0.3 });
-    }
-  }
-
-  private playStep(song: Song, step: number, bar: number, t: number, sd: number): void {
-    const chordDeg = song.prog[bar % song.prog.length]!;
-    const section = bar < 4 ? 'intro' : bar < 12 ? 'a' : bar < 20 ? 'b' : bar < 28 ? 'a2' : 'outro';
-    // A chase brings the drums in through the intro and the outro too.
-    const drums = (section !== 'intro' && section !== 'outro') || this.intensityValue > 0.3;
-    this.intensityStep(song, step, bar, chordDeg, t, sd);
-    const lead = section === 'b' || section === 'a2';
-    switch (song.genre) {
-      case 'synthwave': {
-        if (drums) {
-          if (step === 0 || step === 8 || (song.kickVariant > 0 && (step === 6 || step === 10) && bar % 2 === 1)) this.kick(t);
-          if (step === 4 || step === 12) this.snare(t, true);
-        }
-        if (step % 2 === 0) this.hat(t, step === 14 && section !== 'intro', 0.08);
-        if (section !== 'intro') {
-          const n = this.note(chordDeg, step % 2 === 0 ? 0 : 1, song);
-          this.synth(t, midi(n), sd * 0.9, 'sawtooth', 0.16, 520, { filterEnv: true });
-        }
-        if (step === 0) {
-          for (const k of [0, 2, 4]) this.synth(t, midi(this.note(chordDeg + k, 2, song)), sd * 15, 'sawtooth', 0.035, 1500, { attack: 0.25, detune: 9, release: 0.6, send: 0.2 });
-        }
-        if (lead && step % 2 === 0) {
-          const d = song.motif[(step / 2 + (bar % 2) * 4) % 8]!;
-          if (d >= 0) this.synth(t, midi(this.note(d + chordDeg, 3, song)), sd * 1.6, 'square', 0.05, 2600, { send: 0.55, release: 0.12 });
-        }
-        break;
-      }
-      case 'boombap': {
-        const swing = step % 4 === 2 ? sd * 0.32 : 0;
-        const tt = t + swing;
-        if (drums || section === 'outro') {
-          if (step === 0 || step === 10 || (song.kickVariant === 1 && step === 7) || (song.kickVariant === 2 && step === 3)) this.kick(tt, 0.95);
-          if (step === 4 || step === 12) this.snare(tt, false);
-        }
-        if (step % 2 === 0) this.hat(tt, false, step % 4 === 0 ? 0.12 : 0.07);
-        if (step === 0) this.synth(tt, midi(this.note(chordDeg, -1, song)), sd * 7, 'triangle', 0.32, 420, { release: 0.15 });
-        if (step === 10) this.synth(tt, midi(this.note(chordDeg, -1, song)), sd * 3, 'triangle', 0.26, 420);
-        if (step === 0 || step === 6 || (step === 14 && bar % 2 === 1)) {
-          for (const k of [0, 2, 4, 6]) this.synth(tt, midi(this.note(chordDeg + k, 1, song)), sd * 2.5, 'triangle', 0.045, 1800, { release: 0.35, send: 0.15 });
-        }
-        if (lead && (step === 2 || step === 8 || step === 11)) {
-          const d = song.motif[(step + bar) % 8]!;
-          if (d >= 0) this.synth(tt, midi(this.note(d + chordDeg, 2, song)), sd * 2, 'sine', 0.08, 3000, { send: 0.45, release: 0.3 });
-        }
-        break;
-      }
-      case 'house': {
-        if (section !== 'intro' || bar >= 2) {
-          if (step % 4 === 0) this.kick(t, 0.9);
-        }
-        if (drums && (step === 4 || step === 12)) this.clap(t);
-        if (step % 4 === 2) this.hat(t, true, 0.09);
-        else if (drums && step % 2 === 1) this.hat(t, false, 0.04);
-        if (section !== 'intro' && step % 4 === 2) this.synth(t, midi(this.note(chordDeg, 0, song)), sd * 1.2, 'sawtooth', 0.2, 480, { filterEnv: true });
-        if (drums && (step === 3 || step === 6 || step === 11)) {
-          for (const k of [0, 2, 4]) this.synth(t, midi(this.note(chordDeg + k, 2, song)), sd * 1.1, 'square', 0.035, 2200, { send: 0.3 });
-        }
-        if (lead) {
-          const k = [0, 2, 4, 7][step % 4]!;
-          this.synth(t, midi(this.note(chordDeg + k, 3, song)), sd * 0.8, 'triangle', 0.04, 3500, { send: 0.35 });
-        }
-        break;
-      }
-    }
   }
 }
