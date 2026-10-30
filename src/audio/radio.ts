@@ -470,8 +470,12 @@ export class Radio {
     const start = Math.max(t, this.nextTime);
     const clip = item && this.bank.get(item.clip);
     if (!boundary) {
-      // The link loaded for the song after the last one tuned is not coming: it need not stay decoded.
-      if (this.upNext?.item && this.upNext.item.kind !== 'ident') this.bank.forget(this.upNext.item.clip);
+      // The link loaded for the song after the last one tuned is not coming: it need not stay decoded, also once a load
+      // still under way comes in (load hands back that load).
+      if (this.upNext?.item && this.upNext.item.kind !== 'ident') {
+        const id = this.upNext.item.clip;
+        void this.bank.load(id).then(() => this.bank.forget(id), () => undefined);
+      }
       const idents = SPEECH.idents[def.name];
       if (idents && this.rng.chance(0.5)) this.sayClip(idents[this.rng.int(0, idents.length - 1)]!, start + 0.4, false);
     } else if (item && clip) {

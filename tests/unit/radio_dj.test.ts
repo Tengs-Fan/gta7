@@ -329,7 +329,7 @@ describe('the radio, music side', () => {
     }
   });
 
-  it('drops a link loaded for a song that is not coming when the station changes', async () => {
+  it('drops a link loaded for a song that is not coming when the station changes, also one still loading then', async () => {
     const r = await rig();
     const clip = SPEECH.dj[NEON]!.banter![2]!;
     r.inner.upNext.item = { kind: 'banter', clip };
@@ -338,7 +338,21 @@ describe('the radio, music side', () => {
     expect(r.inner.bank.get(clip)).toBeDefined();
     r.radio.next();
     r.frames(0.1);
+    await flush();
     expect(r.inner.bank.get(clip)).toBeUndefined();
+    // Back on NEON DRIVE, and off again before the link's fetch comes back.
+    const held: Array<() => void> = [];
+    vi.stubGlobal('fetch', (url: string) => new Promise((res) => held.push(() => res({ arrayBuffer: () => Promise.resolve(url) }))));
+    r.radio.prev();
+    r.frames(0.1);
+    const late = SPEECH.dj[NEON]!.banter![3]!;
+    r.inner.upNext.item = { kind: 'banter', clip: late };
+    r.inner.bank.preload([late]);
+    r.radio.next();
+    r.frames(0.1);
+    for (const f of held) f();
+    await flush();
+    expect(r.inner.bank.get(late)).toBeUndefined();
   });
 
   it('hears a getaway when the stars clear from two or more, not as a wasted or busted player comes back or off the game', async () => {
