@@ -3,11 +3,15 @@
 // motifs, a pattern variant) and plays each sixteenth of a song's form (intro, A, B, A again, outro; some add a
 // breakdown) on a shared instrument kit with a tempo echo and a small reverb. The music follows the wanted level: an
 // intensity value glides toward the level's target, lifts the tempo a little and drives each style's own chase
-// behaviour; at 0 the music is exactly the calm original.
+// behaviour; at 0 the music is exactly the calm original. A station's songs come round from a rotation of its hits
+// (stations/playlists.ts) and deep cuts, and its DJ (djProgramme.ts) talks over some intros, the music ducked under
+// the voice.
 
 import { clamp } from '../core/math';
 import { Rng } from '../core/rng';
-import { SPEECH } from '../sim/speech';
+import { SPEECH, type LinkKind } from '../sim/speech';
+import type { WeatherKind } from '../sim/weather';
+import { DjProgramme, introSeconds, LINK_MARGIN, type DjItem, type DjScene } from './djProgramme';
 import { playClip, SpeechBank } from './speech';
 import { boombap } from './stations/boombap';
 import { chiptune } from './stations/chiptune';
@@ -17,11 +21,12 @@ import { dub } from './stations/dub';
 import { house } from './stations/house';
 import { Kit } from './stations/kit';
 import { lounge } from './stations/lounge';
+import { deepCut, HITS, hitSong } from './stations/playlists';
 import { locate, type Beat, type Song, type Style } from './stations/style';
 import { surf } from './stations/surf';
 import { synthwave } from './stations/synthwave';
 import type { NodeTally } from './tally';
-import { TalkProgramme, TalkShow, type TalkSegment } from './talk';
+import { Bag, TalkProgramme, TalkShow, type TalkSegment } from './talk';
 
 export interface StationDef {
   name: string;
@@ -99,12 +104,28 @@ export function wantedIntensity(level: number): number {
 export const INTENSITY_RISE = 1;
 export const INTENSITY_FALL = 3;
 /** Tempo lift at full intensity. */
-const INTENSITY_TEMPO = 0.08;
+export const INTENSITY_TEMPO = 0.08;
 
 /** Output level of a playing station: 3 dB over unity, so the music sits over the engine. */
 const RADIO_LEVEL = 1.41;
-/** A station voice's ident over a song's intro, at the talk station's ident level. */
+/** A station voice over a song's intro (an ident or a DJ's link), at the talk station's ident level. */
 const IDENT_LEVEL = 0.46;
+/** The music under a DJ's link (-7 dB), reached just before the first word. */
+const DUCK = 0.45;
+const DUCK_LEAD = 0.25;
+/** The music starts back up this long before the link's clip ends, so it is most of the way up on the downbeat. */
+const DUCK_RELEASE = 0.15;
+/** Seconds after a chase of two stars or more clears that the DJ may still talk about the getaway. */
+const GOT_AWAY = 60;
+/** The station whose DJ (Captain Reverb) talks into the station's own echo. */
+const ECHO_DJ = 'DOCKSIDE DUB 92.3';
+
+/** The song on air: a hit (its index in the station's HITS) or a deep cut. */
+export interface NowPlaying {
+  artist: string;
+  title: string;
+  hit: number | null;
+}
 
 /** The reverb: four damped feedback delays in parallel (s, feedback), a short metallic room like a spring tank. */
 const COMBS: readonly (readonly [number, number])[] = [
@@ -142,6 +163,25 @@ export class Radio {
   private ident: AudioBufferSourceNode | null = null;
   /** Context time of the talk programme's start: the station is live whether or not anyone listens. */
   private epoch = 0;
+  /** The music (the kit, its echo and reverb) into the output: ducked under a DJ's link. */
+  private music!: GainNode;
+  private echoSend!: GainNode;
+  /** Each music station's rotation (its hits and as many deep-cut tokens) and its DJ, by station name. */
+  private readonly rotations: Record<string, Bag> = {};
+  private readonly djs: Record<string, DjProgramme> = {};
+  private onAir: NowPlaying | null = null;
+  /** The bar the song on air started at (tuning in joins a song mid-form). */
+  private songFrom = 0;
+  /** The song after this one, composed ahead, and what the DJ will say over its intro (loading meanwhile). */
+  private upNext: { song: Song; track: NowPlaying; item: DjItem | null } | null = null;
+  /** Songs started so far: the HUD shows each new one. */
+  songSerial = 0;
+  private wanted = 0;
+  private lastWanted = 0;
+  private hours = 12;
+  private weather: WeatherKind = 'clear';
+  /** Context time the stars last cleared after a chase of two or more. */
+  private clearedAt = -Infinity;
 
   /** How hard the music drives (0 calm .. 1 five stars), gliding toward the wanted level's target. */
   get intensity(): number {
@@ -151,6 +191,49 @@ export class Radio {
   /** The wanted level the music follows. */
   setWanted(level: number): void {
     this.intensityTarget = wantedIntensity(level);
+    this.lastWanted = this.wanted;
+    this.wanted = level;
+  }
+
+  /**
+   * What the DJs talk about: the time of day and the weather, and a getaway when the stars clear (after setWanted) from
+   * two or more while the player is not down (wasted or busted is no getaway).
+   */
+  setScene(hours: number, weather: WeatherKind, down: boolean): void {
+    this.hours = hours;
+    this.weather = weather;
+    if (this.lastWanted >= 2 && this.wanted === 0 && !down) this.clearedAt = this.ctx!.currentTime;
+  }
+
+  /** The song on the tuned music station (null off the music stations, and until a tuned station's song starts). */
+  get nowPlaying(): NowPlaying | null {
+    return this.song ? this.onAir : null;
+  }
+
+  /**
+   * Cuts to the next song now, as if this one had ended (tools and tests; the owner auditions with it). With a seed, that
+   * song is the one the seed composes, as a hit's (named as the station's hit with that seed, if there is one); with a
+   * link kind, the DJ says a link of that kind over its intro, and the cut waits for the clip to load. Resolves to what
+   * the DJ says over the intro (null for nothing, or off the music stations).
+   */
+  async cueSong(seed?: number, link?: LinkKind): Promise<DjItem | null> {
+    const up = this.upNext;
+    if (!this.song || !up) return null;
+    const name = STATIONS[this.index]!.name;
+    if (seed !== undefined) {
+      const hit = HITS[name]!.findIndex((h) => h.seed === seed);
+      up.song = hitSong(this.style!, seed);
+      up.track = hit >= 0 ? { artist: HITS[name]![hit]!.artist, title: HITS[name]![hit]!.title, hit } : { artist: 'Seed', title: String(seed), hit: null };
+      up.item = null;
+    }
+    if (link) {
+      up.item = this.djs[name]!.link(link, this.scene(up));
+      if (up.item) await this.bank.load(up.item.clip);
+    }
+    this.step = 0;
+    this.bar = 0;
+    this.startSong(true);
+    return up.item;
   }
 
   /** The tuned station is the talk station. */
@@ -223,11 +306,9 @@ export class Radio {
     this.delay.connect(dl);
     dl.connect(this.echoFeedback);
     this.echoFeedback.connect(this.delay);
-    dl.connect(this.out);
     const verbSend = ctx.createGain();
     const verbOut = ctx.createGain();
     verbOut.gain.value = 0.22;
-    verbOut.connect(this.out);
     for (const [time, feedback] of COMBS) {
       const d = ctx.createDelay(0.1);
       d.delayTime.value = time;
@@ -242,7 +323,12 @@ export class Radio {
       fb.connect(d);
       damp.connect(verbOut);
     }
-    this.kit = new Kit(ctx, this.out, noise, echoSend, verbSend);
+    this.echoSend = echoSend;
+    this.music = ctx.createGain();
+    this.music.connect(this.out);
+    dl.connect(this.music);
+    verbOut.connect(this.music);
+    this.kit = new Kit(ctx, this.music, noise, echoSend, verbSend);
   }
 
   next(): string {
@@ -274,17 +360,32 @@ export class Radio {
   }
 
   private stopIdent(): void {
-    this.ident?.stop();
+    if (!this.ident) return;
+    this.ident.stop();
     this.ident = null;
+    // A link cut short: the music comes straight back up.
+    const t = this.ctx!.currentTime;
+    this.music.gain.cancelScheduledValues(t);
+    this.music.gain.setTargetAtTime(1, t, 0.05);
   }
 
-  /** The station's voice says one of its idents at `at`, unless the station changes before it has loaded. */
-  private sayIdent(ids: readonly string[], at: number): void {
+  /**
+   * The station's voice says `id` at `at`, unless the station changes before it has loaded. A DJ's link ducks the music
+   * from just before its first word until just before its last ends, goes round the echo on ECHO_DJ's station, and is
+   * dropped from the bank once it has played (idents stay: they are short).
+   */
+  private sayClip(id: string, at: number, link: boolean): void {
     const station = this.index;
-    const id = ids[this.rng.int(0, ids.length - 1)]!;
     const still = () => this.active && this.index === station;
-    void playClip({ ctx: this.ctx!, bank: this.bank, id, dest: this.out, at, level: IDENT_LEVEL, still, tally: this.tally, kind: 'ident' }).then((p) => {
-      if (p) this.ident = p.src;
+    void playClip({ ctx: this.ctx!, bank: this.bank, id, dest: this.out, at, level: IDENT_LEVEL, still, tally: this.tally, kind: link ? 'dj' : 'ident' }).then((p) => {
+      if (!p) return;
+      this.ident = p.src;
+      if (!link) return;
+      const g = this.music.gain;
+      g.setTargetAtTime(DUCK, at - DUCK_LEAD, 0.08);
+      g.setTargetAtTime(1, at + p.src.buffer!.duration - DUCK_RELEASE, 0.1);
+      if (STATIONS[station]!.name === ECHO_DJ) p.gain.connect(this.echoSend);
+      p.src.addEventListener('ended', () => this.bank.forget(id));
     });
   }
 
@@ -316,20 +417,71 @@ export class Radio {
     src.stop(t + 0.35);
   }
 
-  /** Starts a new song of the tuned station and moves the echo to a dotted eighth of its tempo and the style's feedback. */
-  private startSong(): Song {
-    const style = STATIONS[this.index]!.style!;
-    const song = style.song(this.rng, this.rng.range(style.bpm[0], style.bpm[1]));
+  /** The tuned station's next song from its rotation: a hit (the same song every time) or a deep cut. */
+  private compose(): { song: Song; track: NowPlaying } {
+    const def = STATIONS[this.index]!;
+    const style = def.style!;
+    const hits = HITS[def.name]!;
+    this.rotations[def.name] ??= new Bag(hits.flatMap((_, i) => [String(i), String(hits.length + i)]), this.rng);
+    const i = Number(this.rotations[def.name]!.next());
+    if (i < hits.length) return { song: hitSong(style, hits[i]!.seed), track: { artist: hits[i]!.artist, title: hits[i]!.title, hit: i } };
+    return { song: style.song(this.rng, this.rng.range(style.bpm[0], style.bpm[1])), track: { ...deepCut(def.name, this.rng), hit: null } };
+  }
+
+  /** What the DJ knows now about the coming song, `next`. */
+  private scene(next: { song: Song; track: NowPlaying }): DjScene {
+    const k = this.intensityValue;
+    const song = this.song!;
+    return {
+      hit: next.track.hit,
+      back: this.onAir!.hit !== null && 3 * (song.bars - this.songFrom) >= 2 * song.bars ? this.onAir!.hit : null,
+      room: introSeconds(next.song, next.song.bpm * (1 + INTENSITY_TEMPO * k)) - LINK_MARGIN,
+      hours: this.hours,
+      weather: this.weather,
+      intensity: k,
+      gotAway: this.ctx!.currentTime - this.clearedAt < GOT_AWAY,
+    };
+  }
+
+  /**
+   * Starts the tuned station's next song and moves the echo to a dotted eighth of its tempo and the style's feedback.
+   * At a song `boundary` (the last one ended) it is the song composed ahead, and the DJ says what was decided for its
+   * intro if that clip has loaded: an ident just after the song starts, a link where its last word lands on the A
+   * section's first downbeat. Tuned in, half the time the station's voice says an ident. Then the DJ decides what to
+   * say over the next song's intro, which starts loading.
+   */
+  private startSong(boundary = false): Song {
+    const def = STATIONS[this.index]!;
+    const style = def.style!;
+    const { song, track, item } = (boundary && this.upNext) || { ...this.compose(), item: null };
     this.song = song;
     this.style = style;
+    this.onAir = track;
+    this.songSerial++;
     // Tuned in from a longer song: this one starts over.
     if (this.bar >= song.bars) this.bar = 0;
+    this.songFrom = this.bar;
     const t = this.ctx!.currentTime;
     this.delay.delayTime.setTargetAtTime((0.75 * 60) / song.bpm, t, 0.05);
     this.echoFeedback.gain.setTargetAtTime(style.echo, t, 0.05);
-    // Half the songs, and half the times a station is tuned in, open with the station's voice over the intro.
-    const idents = SPEECH.idents[STATIONS[this.index]!.name];
-    if (idents && this.rng.chance(0.5)) this.sayIdent(idents, Math.max(t, this.nextTime) + 0.4);
+    const start = Math.max(t, this.nextTime);
+    const clip = item && this.bank.get(item.clip);
+    if (!boundary) {
+      // The link loaded for the song after the last one tuned is not coming: it need not stay decoded.
+      if (this.upNext?.item && this.upNext.item.kind !== 'ident') this.bank.forget(this.upNext.item.clip);
+      const idents = SPEECH.idents[def.name];
+      if (idents && this.rng.chance(0.5)) this.sayClip(idents[this.rng.int(0, idents.length - 1)]!, start + 0.4, false);
+    } else if (item && clip) {
+      if (item.kind === 'ident') this.sayClip(item.clip, start + 0.4, false);
+      else {
+        const downbeat = start + introSeconds(song, song.bpm * (1 + INTENSITY_TEMPO * this.intensityValue));
+        this.sayClip(item.clip, Math.max(start, downbeat - clip.duration), true);
+      }
+    }
+    const next = this.compose();
+    this.djs[def.name] ??= new DjProgramme(def.name, (this.rng.next() * 0xffffffff) >>> 0);
+    this.upNext = { ...next, item: this.djs[def.name]!.next(this.scene(next)) };
+    if (this.upNext.item) this.bank.preload([this.upNext.item.clip]);
     return song;
   }
 
@@ -371,7 +523,7 @@ export class Radio {
         this.bar++;
         if (this.bar >= song.bars) {
           this.bar = 0;
-          song = this.startSong();
+          song = this.startSong(true);
         }
       }
     }

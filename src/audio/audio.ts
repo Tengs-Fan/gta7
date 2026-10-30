@@ -905,6 +905,7 @@ export class AudioEngine {
     this.updateHorn(live, t);
     this.updateSiren(sim, inGame, t);
     this.radio.setWanted(inGame ? this.me(sim).wanted.level : 0);
+    this.radio.setScene(sim.clock.hours, sim.weather.state.kind, inGame && this.me(sim).down);
     this.radio.update(dt, inGame && !!pv && !pv.destroyed);
     this.subtitleTimer = Math.max(0, this.subtitleTimer - step);
     this.bigTimer = Math.max(0, this.bigTimer - step);
