@@ -251,7 +251,7 @@ export const TALK: readonly TalkPiece[] = [
     ],
   },
 
-  // Newsdesk, traffic and sports (the weather is the newsroom's: newsroom.ts).
+  // Newsdesk, traffic, weather and sports.
   {
     id: 'news-ducks',
     kind: 'news',
