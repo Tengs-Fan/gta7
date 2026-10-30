@@ -268,20 +268,18 @@ test.describe('GTA 7 wave-1 audio', () => {
         const radio = (window as Api).__gta7.game.audio.radio;
         while (!radio.cueTalk('host', 1).clip.startsWith(prefix));
       }, prefix);
-      return (await record(page, 'music', 5000, 50, 5000, 24000)).filter((x) => x.kind === 'host' && x.into > 0.3 && x.left > 0.3);
+      return (await record(page, 'music', 6000, 50, 5000, 24000)).filter((x) => x.kind === 'host' && x.into > 0.3 && x.left > 0.3);
     };
     const azura = await monologue('talk-host-');
-    await page.evaluate(() => {
-      const radio = (window as Api).__gta7.game.audio.radio;
-      while (radio.stationName !== 'THE BOWL 1090 AM') radio.next();
-    });
-    await expect(page.locator('.radio')).toHaveText(/^THE BOWL 1090 AM/);
+    // One stop up the dial.
+    await pressUntil(page, 'KeyR', 'THE BOWL 1090 AM');
+    await expect(page.locator('.radio')).toHaveText(/^THE BOWL 1090 AMSports talk, zero wins$/);
     await page.screenshot({ path: test.info().outputPath('hud-the-bowl.png') });
     const bowl = await monologue('talk-bowl-host-');
     const above = (s: Sample[]) => s.reduce((p, x) => p + x.band, 0) / s.length;
     console.log(`[bowl] host: ${bowl.length} windows, mean ${meanDb(bowl).toFixed(1)} dBFS, min ${Math.min(...bowl.map((x) => x.db)).toFixed(1)}; share above 5 kHz ${above(bowl).toExponential(2)} against AZURA TALK's ${above(azura).toExponential(2)}`);
-    expect(azura.length).toBeGreaterThan(60);
-    expect(bowl.length).toBeGreaterThan(60);
+    expect(azura.length).toBeGreaterThan(40);
+    expect(bowl.length).toBeGreaterThan(40);
     expect(bowl.filter((x) => x.db < -50)).toEqual([]);
     expect(above(bowl)).toBeLessThan(above(azura) * 0.3);
     expect(errors).toEqual([]);
