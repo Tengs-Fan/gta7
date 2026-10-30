@@ -23,7 +23,10 @@ test.describe('graphics tiers', () => {
         const frames = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
         g.godMode(true);
         g.setClockRate(0);
-        const n = g.sim.roads.node(4, 4);
+        // Beside the crossing of two downtown avenues: at 23:00 the pools come from passing traffic's headlights (the
+        // player's car lights the road with its own spot on High), and the bays and superblocks thinned the traffic
+        // past the old corner at (4, 4).
+        const n = g.sim.roads.node(5, 5);
         g.teleport(n.x + n.halfX + 2.2, n.z + n.halfZ + 9);
         g.spawnVehicle('sedan', true);
         const out = [];
