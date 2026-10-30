@@ -4,26 +4,11 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { hillSignLetters, type SignLetter } from '../../world/terrain';
+import { GLYPHS, hillSignLetters, STROKE_T, type SignLetter } from '../../world/terrain';
 import { viewpoints, type ViewpointItem } from '../dressing';
 import { box, cyl, bar, ModelBuilder } from '../furniture';
 import { canvas, toTexture } from '../textures/misc';
 import type { CityView } from './index';
-
-/** A glyph's strokes in its letter's frame (x across from -w/2, y up from its buried foot; the ground is at y 1). */
-type Stroke = readonly [x0: number, y0: number, x1: number, y1: number] | { readonly d: readonly [xa: number, ya: number, xb: number, yb: number] };
-
-/** Stroke width (m) of the block letters. */
-const T = 1;
-/** Block glyphs on the 4.4 m by 7 m letter (6 m out of the ground): bars and posts from the foot, diagonals as `d`. */
-const GLYPHS: Readonly<Record<string, readonly Stroke[]>> = {
-  S: [[-2.2, 6, 2.2, 7], [-2.2, 3.5, -2.2 + T, 7], [-2.2, 3.5, 2.2, 4.5], [2.2 - T, 0, 2.2, 4.5], [-2.2, 0, 2.2, 2]],
-  A: [{ d: [-1.75, 1, -0.45, 7] }, { d: [1.75, 1, 0.45, 7] }, [-1, 6, 1, 7], [-1.3, 2.6, 1.3, 3.6], [-2.3, 0, -1.1, 1.4], [1.1, 0, 2.3, 1.4]],
-  N: [[-2.2, 0, -2.2 + T, 7], [2.2 - T, 0, 2.2, 7], { d: [-1.5, 6.6, 1.5, 1.4] }],
-  Z: [[-2.2, 6, 2.2, 7], [-2.2, 0, 2.2, 2], { d: [1.5, 6.3, -1.5, 1.7] }],
-  U: [[-2.2, 0, -2.2 + T, 7], [2.2 - T, 0, 2.2, 7], [-2.2, 0, 2.2, 2]],
-  R: [[-2.2, 0, -2.2 + T, 7], [-2.2, 6, 1.4, 7], [2.2 - T, 4, 2.2, 6.6], [-2.2, 3.5, 1.4, 4.5], { d: [-0.1, 3.8, 1.75, 1.2] }, [1.1, 0, 2.3, 1.4]],
-};
 
 /** The uplights' warm white, and how far (m) in front of the letters they stand on the lawn. */
 const UPLIGHT = 0xffcf8a;
@@ -40,7 +25,7 @@ function letterGeometry(l: SignLetter): THREE.BufferGeometry {
     let g: THREE.BufferGeometry;
     if ('d' in s) {
       const [xa, ya, xb, yb] = s.d;
-      g = new THREE.BoxGeometry(Math.hypot(xb - xa, yb - ya) + T * 0.4, T, l.d).rotateZ(Math.atan2(yb - ya, xb - xa)).translate((xa + xb) / 2, (ya + yb) / 2, 0);
+      g = new THREE.BoxGeometry(Math.hypot(xb - xa, yb - ya) + STROKE_T * 0.4, STROKE_T, l.d).rotateZ(Math.atan2(yb - ya, xb - xa)).translate((xa + xb) / 2, (ya + yb) / 2, 0);
     } else {
       const [x0, y0, x1, y1] = s;
       g = new THREE.BoxGeometry(x1 - x0, y1 - y0, l.d).translate((x0 + x1) / 2, (y0 + y1) / 2, 0);

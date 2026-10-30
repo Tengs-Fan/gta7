@@ -78,7 +78,7 @@ export class StaticWorld {
     // The rises' sight cores, buried out of reach of anything on the ground (world/terrain.ts), the letters of the hill
     // sign and the parapet of the lookout at Azura Point.
     for (const c of terrainCores(this.layout.rises)) g.addBox(c.minX, c.minZ, c.maxX, c.maxZ, -1, c.y1, 'terrain');
-    for (const l of hillSignLetters(this.layout.rises)) g.addBox(l.box.minX, l.box.minZ, l.box.maxX, l.box.maxZ, l.box.y0, l.box.y1, 'wall');
+    for (const l of hillSignLetters(this.layout.rises)) for (const b of l.solids) g.addBox(b.minX, b.minZ, b.maxX, b.maxZ, b.y0, b.y1, 'wall');
     const rail = lookoutRail(this.layout);
     g.addBox(rail.minX, rail.minZ, rail.maxX, rail.maxZ, rail.y, rail.y + PARAPET_H, 'wall');
   }

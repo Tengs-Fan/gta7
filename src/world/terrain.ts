@@ -195,6 +195,44 @@ export function terrainCores(rises: readonly Rise[]): Core[] {
 // ---------------------------------------------------------------------------
 // The SAN AZURA letters
 
+/** A glyph's stroke in its letter's frame (x across from -w/2, y up from its buried foot; the ground is at y 1). */
+export type Stroke = readonly [x0: number, y0: number, x1: number, y1: number] | { readonly d: readonly [xa: number, ya: number, xb: number, yb: number] };
+
+/** Stroke width (m) of the block letters. A diagonal runs on a fifth of it past either end, into the bars it joins. */
+export const STROKE_T = 1;
+const T = STROKE_T;
+/**
+ * Block glyphs on the 4.4 m by 7 m letter (6 m out of the ground): bars and posts from the foot, diagonals as `d`.
+ * render/city/hillSign.ts draws them, and a leaning letter's colliders follow them (SignLetter.solids).
+ */
+export const GLYPHS: Readonly<Record<string, readonly Stroke[]>> = {
+  S: [[-2.2, 6, 2.2, 7], [-2.2, 3.5, -2.2 + T, 7], [-2.2, 3.5, 2.2, 4.5], [2.2 - T, 0, 2.2, 4.5], [-2.2, 0, 2.2, 2]],
+  A: [{ d: [-1.75, 1, -0.45, 7] }, { d: [1.75, 1, 0.45, 7] }, [-1, 6, 1, 7], [-1.3, 2.6, 1.3, 3.6], [-2.3, 0, -1.1, 1.4], [1.1, 0, 2.3, 1.4]],
+  N: [[-2.2, 0, -2.2 + T, 7], [2.2 - T, 0, 2.2, 7], { d: [-1.5, 6.6, 1.5, 1.4] }],
+  Z: [[-2.2, 6, 2.2, 7], [-2.2, 0, 2.2, 2], { d: [1.5, 6.3, -1.5, 1.7] }],
+  U: [[-2.2, 0, -2.2 + T, 7], [2.2 - T, 0, 2.2, 7], [-2.2, 0, 2.2, 2]],
+  R: [[-2.2, 0, -2.2 + T, 7], [-2.2, 6, 1.4, 7], [2.2 - T, 4, 2.2, 6.6], [-2.2, 3.5, 1.4, 4.5], { d: [-0.1, 3.8, 1.75, 1.2] }, [1.1, 0, 2.3, 1.4]],
+};
+
+/** A stroke's four corners in its letter's frame, as hillSign.ts draws it, in order round it. */
+export function strokeCorners(s: Stroke): Array<[number, number]> {
+  if (!('d' in s)) {
+    const [x0, y0, x1, y1] = s;
+    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  }
+  const [xa, ya, xb, yb] = s.d;
+  const len = Math.hypot(xb - xa, yb - ya);
+  const ux = (xb - xa) / len;
+  const uy = (yb - ya) / len;
+  const hl = len / 2 + T * 0.2;
+  const cx = (xa + xb) / 2;
+  const cy = (ya + yb) / 2;
+  return ([[-1, -1], [1, -1], [1, 1], [-1, 1]] as const).map(([a, b]): [number, number] => [cx + a * hl * ux - (b * T * uy) / 2, cy + a * hl * uy + (b * T * ux) / 2]);
+}
+
+/** An axis box in the world, for a collider. */
+export type SignBox = Rect & { y0: number; y1: number };
+
 /** One block letter of the hill sign, facing south: its glyph, footprint centre, width and depth, base and height. */
 export interface SignLetter {
   char: string;
@@ -207,8 +245,13 @@ export interface SignLetter {
   h: number;
   /** Lean about its depth axis (rad, positive towards +x), pivoting on the middle of its foot. */
   tilt: number;
-  /** The world box round it, for its collider. */
-  box: Rect & { y0: number; y1: number };
+  /** The world box round it (the dressing keeps clear of it). */
+  box: SignBox;
+  /**
+   * Its colliders: standing, the box itself; leaning, a box round its strokes in each SIGN.band m of height, so no
+   * invisible wall stands under its overhang or in the open air over its low side.
+   */
+  solids: SignBox[];
 }
 
 /**
@@ -216,7 +259,7 @@ export interface SignLetter {
  * words split either side of the old cross path running north-south up the slope (`path` m wide, kept clear) so it
  * still climbs to the fountain, and the last A slumped on its side.
  */
-const SIGN = { words: ['SAN', 'AZURA'], dz: 41, w: 4.4, h: 7, d: 1, gap: 1.2, path: 6, sink: 1, slump: (25 * Math.PI) / 180 } as const;
+const SIGN = { words: ['SAN', 'AZURA'], dz: 41, w: 4.4, h: 7, d: 1, gap: 1.2, path: 6, sink: 1, slump: (25 * Math.PI) / 180, band: 1 } as const;
 
 export function hillSignLetters(rises: readonly Rise[]): SignLetter[] {
   const hill = hillRise(rises);
@@ -228,27 +271,57 @@ export function hillSignLetters(rises: readonly Rise[]): SignLetter[] {
       const x = x0 + i * (SIGN.w + SIGN.gap) + SIGN.w / 2;
       const tilt = last && i === word.length - 1 ? SIGN.slump : 0;
       const y0 = CURB_H + riseAt(rises, x, z) - SIGN.sink;
-      // The corners of the leaning letter round the middle of its foot.
+      // A point of the letter's frame in the world's x and y, leaning round the middle of its foot.
       const cos = Math.cos(tilt);
       const sin = Math.sin(tilt);
-      const xs = [-1, 1].flatMap((u) => [0, SIGN.h].map((v) => (u * SIGN.w) / 2 * cos + v * sin));
-      const ys = [-1, 1].flatMap((u) => [0, SIGN.h].map((v) => -(u * SIGN.w) / 2 * sin + v * cos));
-      out.push({
-        char,
-        x,
-        z,
-        w: SIGN.w,
-        d: SIGN.d,
-        y0,
-        h: SIGN.h,
-        tilt,
-        box: { minX: x + Math.min(...xs), maxX: x + Math.max(...xs), minZ: z - SIGN.d / 2, maxZ: z + SIGN.d / 2, y0: y0 + Math.min(...ys), y1: y0 + Math.max(...ys) },
-      });
+      const at = (u: number, v: number): [number, number] => [x + u * cos + v * sin, y0 - u * sin + v * cos];
+      const corners = [-1, 1].flatMap((u) => [0, SIGN.h].map((v) => at((u * SIGN.w) / 2, v)));
+      const box = {
+        minX: Math.min(...corners.map((c) => c[0])),
+        maxX: Math.max(...corners.map((c) => c[0])),
+        minZ: z - SIGN.d / 2,
+        maxZ: z + SIGN.d / 2,
+        y0: Math.min(...corners.map((c) => c[1])),
+        y1: Math.max(...corners.map((c) => c[1])),
+      };
+      const solids = tilt === 0 ? [box] : bandBoxes(GLYPHS[char]!.map((s) => strokeCorners(s).map(([u, v]) => at(u, v))), z);
+      out.push({ char, x, z, w: SIGN.w, d: SIGN.d, y0, h: SIGN.h, tilt, box, solids });
     });
   };
   const [west, east] = SIGN.words;
   place(west, hill.cx - SIGN.path / 2 - span(west.length), false);
   place(east, hill.cx + SIGN.path / 2, true);
+  return out;
+}
+
+/**
+ * Boxes round convex quads (strokes, as corners in the world's x and y) lying in the plane z, one per SIGN.band m of
+ * height or less: each spans what of any quad its slice of height holds.
+ */
+function bandBoxes(quads: ReadonlyArray<ReadonlyArray<readonly [number, number]>>, z: number): SignBox[] {
+  const ys = quads.flatMap((q) => q.map((c) => c[1]));
+  const lo = Math.min(...ys);
+  const hi = Math.max(...ys);
+  const n = Math.ceil((hi - lo) / SIGN.band);
+  const out: SignBox[] = [];
+  for (let k = 0; k < n; k++) {
+    const y0 = lo + ((hi - lo) * k) / n;
+    const y1 = lo + ((hi - lo) * (k + 1)) / n;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    const take = (x: number) => {
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+    };
+    for (const q of quads) {
+      q.forEach(([px, py], i) => {
+        const [rx, ry] = q[(i + 1) % q.length]!;
+        if (py >= y0 && py <= y1) take(px);
+        for (const y of [y0, y1]) if ((py - y) * (ry - y) < 0) take(px + ((rx - px) * (y - py)) / (ry - py));
+      });
+    }
+    out.push({ minX, maxX, minZ: z - SIGN.d / 2, maxZ: z + SIGN.d / 2, y0, y1 });
+  }
   return out;
 }
 

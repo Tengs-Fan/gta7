@@ -251,6 +251,22 @@ describe('on the hill', () => {
     const y = W.groundHeight(a.x, a.z + 5) + 1.6;
     expect(W.lineOfSight(a.x, y, a.z + 5, a.x, y, a.z - 5)).toBe(false);
     expect(W.isFree(a.x, a.z, 0.4)).toBe(false);
+    // The slumped A's colliders follow its strokes: its foot and legs stop a man and a look through it, while under its
+    // overhang (east) a man walks and sees past its foot, and over its low side (west) the air is open.
+    const s = letters.at(-1)!;
+    const across = (dx: number, up: number) => {
+      const g = W.groundHeight(s.x + dx, s.z) + up;
+      return W.lineOfSight(s.x + dx, g, s.z + 3, s.x + dx, g, s.z - 3);
+    };
+    for (const dx of [0, 2]) {
+      expect(W.isFree(s.x + dx, s.z, 0.3), `${dx} m east of the A's foot`).toBe(false);
+      expect(across(dx, 1), `${dx} m east of the A's foot`).toBe(false);
+    }
+    for (const dx of [3.5, 4, 4.5]) {
+      expect(W.isFree(s.x + dx, s.z, 0.3), `${dx} m east of the A's foot`).toBe(true);
+      expect(across(dx, 1), `${dx} m east of the A's foot`).toBe(true);
+    }
+    for (const dx of [-1, -2]) for (const up of [2, 3, 4]) expect(across(dx, up), `${-dx} m west of the A's foot, ${up} m up`).toBe(true);
   });
 
   it('places the plaques, the telescopes, the fences and the sign clear of everything the dressing keeps clear of', () => {
