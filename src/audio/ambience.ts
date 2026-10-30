@@ -13,7 +13,7 @@
 
 import { clamp, smoothstep } from '../core/math';
 import { WATER_Y } from '../world/constants';
-import { beachOffsetAt, type Bounds, type District } from '../world/layout';
+import { beachOffsetAt, type Bounds, type District, type Rect } from '../world/layout';
 import { Glider, OPEN_HZ, dbToGain, withinParam } from './mixer';
 
 export type AmbienceDistrict = District | 'beach' | 'sea';
@@ -91,8 +91,11 @@ export interface ShoreInfo {
   dirZ: number;
 }
 
-/** The nearest surf for a listener at (x, z): the east beach's waterline, or a sea wall 60 m "farther". Pure. */
-export function shoreInfo(b: Bounds, x: number, z: number, out?: ShoreInfo): ShoreInfo {
+/**
+ * The nearest surf for a listener at (x, z): the east beach's waterline, or a sea wall 60 m "farther", the walls round
+ * the water cut into the city (`water`: the cove, the basin, the canal) included. Pure.
+ */
+export function shoreInfo(b: Bounds, x: number, z: number, out?: ShoreInfo, water: readonly Rect[] = []): ShoreInfo {
   const o = out ?? ({} as ShoreInfo);
   const waterX = b.beachStartX + beachOffsetAt(WATER_Y);
   if (!(x >= b.landMinX && x <= waterX && z >= b.landMinZ && z <= b.landMaxZ)) {
@@ -120,6 +123,22 @@ export function shoreInfo(b: Bounds, x: number, z: number, out?: ShoreInfo): Sho
     o.dist = south;
     o.dirX = 0;
     o.dirZ = 1;
+  }
+  for (const r of water) {
+    const dx = x < r.minX ? r.minX - x : x > r.maxX ? r.maxX - x : 0;
+    const dz = z < r.minZ ? r.minZ - z : z > r.maxZ ? r.maxZ - z : 0;
+    const d = Math.hypot(dx, dz);
+    if (d === 0) {
+      o.dist = 0;
+      o.dirX = 0;
+      o.dirZ = 0;
+      return o;
+    }
+    if (d + SEAWALL_EXTRA < o.dist) {
+      o.dist = d + SEAWALL_EXTRA;
+      o.dirX = dx / d;
+      o.dirZ = dz / d;
+    }
   }
   return o;
 }

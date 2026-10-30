@@ -229,6 +229,17 @@ describe('shoreInfo', () => {
     const sea = shoreInfo(b, b.beachEndX + 40, 0);
     expect(sea).toEqual({ dist: 0, dirX: 0, dirZ: 0 });
   });
+
+  it('hears the walls round the water cut into the city too: 60 m farther beside the canal, none over it', () => {
+    const w = world();
+    const b = w.bounds;
+    const canal = w.layout.water.find((q) => q.name === 'Cortez Canal')!.bounds;
+    const rects = w.layout.water.flatMap((q) => q.rects);
+    const beside = shoreInfo(b, canal.maxX + 15, 0, undefined, rects);
+    expect(beside.dist).toBeCloseTo(75, 6);
+    expect([beside.dirX, beside.dirZ]).toEqual([-1, 0]);
+    expect(shoreInfo(b, (canal.minX + canal.maxX) / 2, 0, undefined, rects)).toEqual({ dist: 0, dirX: 0, dirZ: 0 });
+  });
 });
 
 describe('StaticWorld.districtAt', () => {
