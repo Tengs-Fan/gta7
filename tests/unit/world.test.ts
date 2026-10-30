@@ -19,8 +19,8 @@ describe('city layout', () => {
   });
 
   it('has a reasonable amount of content', () => {
-    // 100 cells: three superblocks cover seven of them, and four are sea.
-    expect(L.blocks.length).toBe(91);
+    // 100 cells: three superblocks cover eight of them, and ten are sea.
+    expect(L.blocks.length).toBe(85);
     expect(L.buildings.length).toBeGreaterThan(250);
     expect(L.props.length).toBeGreaterThan(800);
     expect(L.parking.length).toBeGreaterThan(40);
@@ -129,8 +129,8 @@ describe('ground and water', () => {
 });
 
 describe('the sea in the land', () => {
-  it('cuts a cove, a harbour basin and a canal into the land, and a headland out of it', () => {
-    expect(L.water.map((w) => w.name).sort()).toEqual(['Cortez Canal', 'Hillcrest Cove', 'Port Basin']);
+  it('cuts a cove, four bays, a harbour basin and a canal into the land, and a headland out of it', () => {
+    expect(L.water.map((w) => w.name).sort()).toEqual(['Coral Bay', 'Cortez Canal', 'Gull Bay', 'Hillcrest Cove', 'Northshore Bay', 'Pelican Harbor', 'Port Basin']);
     for (const w of L.water) {
       for (const r of w.rects) {
         const x = rectCX(r);

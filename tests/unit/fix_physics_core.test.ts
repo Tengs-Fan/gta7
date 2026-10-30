@@ -29,7 +29,7 @@ describe('knocked characters in deep water', () => {
   it('a player who bails out over the sea swims instead of floating knocked forever', () => {
     const sim = makeSim();
     const b = sim.world.bounds;
-    const v = sim.spawnVehicle('sedan', b.landMinX + 60, 0, -Math.PI / 2);
+    const v = sim.spawnVehicle('sedan', b.landMinX + 60, -85, -Math.PI / 2);
     placeInCar(sim, v);
     let bailAt = -1;
     let swimAt = -1;

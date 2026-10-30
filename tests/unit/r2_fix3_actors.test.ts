@@ -329,10 +329,10 @@ describe('in the water with his back to a quay, the pier or a marina deck, the p
     const deck = W.layout.decks.find((q) => q.name === 'Marina' && Math.abs(q.rect.maxX - 594) < 1e-6 && q.rect.minZ < 465.5 && q.rect.maxZ > 465.5)!;
     expect(deck).toBeDefined();
     // Water too deep to stand in right off both edges.
-    expect(W.groundHeight(b.landMinX - 0.05, 140)).toBeLessThan(WATER_Y - 1.5);
+    expect(W.groundHeight(b.landMinX - 0.05, -140)).toBeLessThan(WATER_Y - 1.5);
     expect(W.groundHeight(594.05, 465.5)).toBeLessThan(WATER_Y - 1.5);
     return [
-      { name: 'quay', at: (d: number) => ({ x: b.landMinX - d, z: 140 }), back: -Math.PI / 2 },
+      { name: 'quay', at: (d: number) => ({ x: b.landMinX - d, z: -140 }), back: -Math.PI / 2 },
       { name: 'deck', at: (d: number) => ({ x: 594 + d, z: 465.5 }), back: Math.PI / 2 },
     ];
   };
@@ -370,10 +370,10 @@ describe('in the water with his back to a quay, the pier or a marina deck, the p
     const sim = makeSim({ police: false });
     sim.cheats.godMode = true;
     const b = sim.world.layout.bounds;
-    sim.world.grid.addBox(b.landMinX - 0.5, 130, b.landMinX + 8, 150, 1.6, 2.2, 'wall');
+    sim.world.grid.addBox(b.landMinX - 0.5, -150, b.landMinX + 8, -130, 1.6, 2.2, 'wall');
     const p = sim.player;
     p.pos.x = b.landMinX - 1;
-    p.pos.z = 140;
+    p.pos.z = -140;
     p.pos.y = WATER_Y - 1.3;
     p.state = 'swimming';
     p.heading = -Math.PI / 2;
@@ -394,7 +394,7 @@ describe('in the water with his back to a quay, the pier or a marina deck, the p
     const sim = makeSim({ world: world(), police: false });
     sim.cheats.godMode = true;
     const b = sim.world.layout.bounds;
-    const v = sim.spawnVehicle('sedan', b.landMinX + 1.6, 100, Math.PI);
+    const v = sim.spawnVehicle('sedan', b.landMinX + 1.6, -100, Math.PI);
     placeInCar(sim, v);
     const cam = playCamera();
     cam.reset(sim);
@@ -412,7 +412,7 @@ describe('in the water with his back to a quay, the pier or a marina deck, the p
   });
 
   it('swimming along the quay wall a hand off it, the quay on his right: the camera takes his left shoulder, over the sea', () => {
-    for (const z of [100, 140]) {
+    for (const z of [-100, -140]) {
       // Northward, the camera behind him: his right shoulder is over the quay, whose edge the line to his head clipped
       // in every frame with the camera kept there.
       const { sim, cam, crowd } = swimmerAt(world().layout.bounds.landMinX - 0.1, z, Math.PI);
@@ -434,7 +434,7 @@ describe('in the water with his back to a quay, the pier or a marina deck, the p
     const b = sim.world.layout.bounds;
     const p = sim.player;
     p.pos.x = b.landMinX + 3;
-    p.pos.z = 140;
+    p.pos.z = -140;
     p.pos.y = sim.world.groundHeight(p.pos.x, p.pos.z);
     p.heading = -Math.PI / 2;
     const cam = playCamera();

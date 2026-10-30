@@ -639,7 +639,7 @@ describe('Getting out beside a quay, pier or deck edge: the dry side first', () 
 
   it('a car parked along the west quay with the sea on the driver side: out on the quay', () => {
     const b = world().bounds;
-    const { sim, p } = exitFrom(b.landMinX + 1.6, 100, Math.PI);
+    const { sim, p } = exitFrom(b.landMinX + 1.6, -100, Math.PI);
     expect(p.vehicle).toBeNull();
     expect(p.state).toBe('normal');
     expect(sim.world.waterDepth(p.pos.x, p.pos.z)).toBeLessThan(0);

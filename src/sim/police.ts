@@ -631,7 +631,9 @@ export class PoliceSystem {
     const away = searching && w.outside;
     const floor = searching ? SEARCH_FLOOR : 95;
     const gap = (x: number, z: number, l: Lane) => pointSegDist(x, z, l.sx, l.sz, l.ex, l.ez);
-    const near = searching ? lanes.filter((l) => gap(goal.x, goal.z, l) < reach && gap(pp.x, pp.z, l) < 215) : lanes;
+    // Otherwise any lane reaching into his 215 m ring: drawn from the whole city, a coast cut by bays could leave a
+    // call with no spot found.
+    const near = searching ? lanes.filter((l) => gap(goal.x, goal.z, l) < reach && gap(pp.x, pp.z, l) < 215) : lanes.filter((l) => gap(pp.x, pp.z, l) < 215);
     // The fallback lanes: those reaching into his floor-215 m ring that come nearer the sighting than he is.
     const ring = searching ? lanes.filter((l) => gap(pp.x, pp.z, l) < 215 && Math.max(Math.hypot(l.sx - pp.x, l.sz - pp.z), Math.hypot(l.ex - pp.x, l.ez - pp.z)) > floor && gap(goal.x, goal.z, l) < seenDist) : lanes;
     for (let tries = 0; tries < 30; tries++) {

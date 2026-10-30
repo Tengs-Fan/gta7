@@ -384,6 +384,13 @@ interface SeaBody {
 const SEA_BODIES: readonly SeaBody[] = [
   { name: 'Hillcrest Cove', cells: [[0, 0], [1, 0]], quay: SIDEWALK_W },
   { name: 'Port Basin', cells: [[0, 9], [1, 9]], quay: 20 },
+  // West of Hillcrest Green, and east of it beside Azura Point: the north shore steps in and out round the park.
+  { name: 'Gull Bay', cells: [[4, 0]], quay: SIDEWALK_W, drowned: true },
+  { name: 'Northshore Bay', cells: [[7, 0], [8, 0]], quay: SIDEWALK_W, drowned: true },
+  // A harbour bitten out of Westside's shore.
+  { name: 'Pelican Harbor', cells: [[0, 5], [0, 6]], quay: SIDEWALK_W, drowned: true },
+  // The south shore turns in before the beach.
+  { name: 'Coral Bay', cells: [[8, 9]], quay: SIDEWALK_W, drowned: true },
 ];
 
 const PARKS: ReadonlyArray<{ bi: number; bj: number; name: string }> = [
@@ -1741,10 +1748,10 @@ function buildRamps(layout: CityLayout): void {
   // Beach, launching south and north along the sand.
   addRamp(b.beachStartX + 22, b.landMinZ + 150, 0, 2.6);
   addRamp(b.beachStartX + 22, b.landMaxZ - 190, Math.PI, 2.6);
-  // West promenade, launching north.
-  addRamp(b.landMinX + 15, 120, Math.PI, 2.2);
-  // North promenade, launching east.
-  addRamp(-80, b.landMinZ + 15, Math.PI / 2, 2.2);
+  // West promenade by the docks, between Pelican Harbor and Port Basin, launching north.
+  addRamp(b.landMinX + 15, 290, Math.PI, 2.2);
+  // North promenade below Hillcrest Green, between Gull Bay and Northshore Bay, launching east.
+  addRamp(62, b.landMinZ + 15, Math.PI / 2, 2.2);
   // South promenade near the docks, launching west.
   addRamp(120, b.landMaxZ - 15, -Math.PI / 2, 2.2);
 }
