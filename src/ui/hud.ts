@@ -828,10 +828,11 @@ export class Hud {
     this.el.big!.style.setProperty('--title-clear', right!);
   }
 
-  /** The tuned station's name, with its tag line under it ('RADIO OFF' has none). */
-  showRadio(name: string): void {
+  /** The tuned station's name, with its tag line under it ('RADIO OFF' has none) and the song on air under that. */
+  showRadio(name: string, track?: { artist: string; title: string } | null): void {
     const tag = STATIONS.find((s) => s.name === name)?.tag;
-    this.el.radio!.innerHTML = `${escapeHtml(name)}${tag ? `<small>${escapeHtml(tag)}</small>` : ''}`;
+    const song = track ? `<small class="track">${escapeHtml(track.artist)} - ${escapeHtml(track.title)}</small>` : '';
+    this.el.radio!.innerHTML = `${escapeHtml(name)}${tag ? `<small>${escapeHtml(tag)}</small>` : ''}${song}`;
     this.el.radio!.classList.add('show');
     this.timers.radio = 2.5;
   }
