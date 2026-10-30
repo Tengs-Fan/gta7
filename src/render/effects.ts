@@ -1681,8 +1681,9 @@ export class Effects {
     this.sprays.push({ x, y, z, t: 12, acc: 0 });
   }
 
-  debris(x: number, y: number, z: number): void {
-    for (let i = 0; i < 8; i++) this.smoke.emit(x, y + 0.8, z, this.r(-3, 3), this.r(2, 5), this.r(-3, 3), this.r(0.4, 0.8), 0.12, 0.08, 0x555555, 0x333333, 1, 16);
+  /** Bits thrown up from (x, y, z) and falling back: grey by default (a knocked lamp), in any colour (a smashed pumpkin). */
+  debris(x: number, y: number, z: number, color0 = 0x555555, color1 = 0x333333): void {
+    for (let i = 0; i < 8; i++) this.smoke.emit(x, y + 0.8, z, this.r(-3, 3), this.r(2, 5), this.r(-3, 3), this.r(0.4, 0.8), 0.12, 0.08, color0, color1, 1, 16);
   }
 
   /** Every drawn lobe of the live fireballs: world centre, quad size, heat and opacity. */

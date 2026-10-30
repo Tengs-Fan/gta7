@@ -769,6 +769,7 @@ export class GameRenderer {
         const p = this.world.layout.props[e.index];
         if (p.kind === 'hydrant') fx.hydrantSpray(p.x, p.y, p.z);
         if (p.kind === 'lamp') fx.debris(p.x, p.y + 0.6, p.z);
+        if (p.kind === 'pumpkin') fx.debris(p.x, p.y, p.z, 0xff7a12, 0xc24a08);
       }),
       ev.on('splash', (e) => fx.splash(e.x, e.y, e.z, e.big)),
       ev.on('lightning', () => {
