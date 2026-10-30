@@ -2,7 +2,8 @@
 // set, once. The smashed ones are kept per Progress and saved (FARM_KEY); they do not grow back, but a new game stands
 // every prop up again (StaticWorld.resetBroken), and a loaded game counts each one only once. Old Man Hollister stands
 // in front of his porch while a player is near: spawned within HOLLISTER_NEAR of it and gone beyond HOLLISTER_FAR, so
-// the rest of the city never sees him (nor the sim's ids and draws).
+// the rest of the city never sees him (nor the sim's ids and draws). Only in sims with ambient life: a multiplayer
+// client's predictor moves its player alone, and the server's sim has him out for everyone.
 
 import { formatMoney } from '../core/math';
 import { attractionOf, type FarmAnchors } from '../world/attractions';
@@ -13,6 +14,7 @@ import { registerSaveCodec } from './saveExt';
 import type { Sim } from './sim';
 import { registerSystem } from './systems';
 import { makeBrain } from './brains';
+import type { ViewState } from './viewState';
 
 export const PUMPKIN_COUNT = 40;
 export const PUMPKIN_REWARD = 2000;
@@ -66,9 +68,13 @@ function rt(sim: Sim): FarmRuntime {
   return r;
 }
 
-/** Old Man Hollister while he is out, else null (the audio has him shout). */
-export function hollister(sim: object): Character | null {
-  return runtime.get(sim as Sim)?.hollister ?? null;
+/**
+ * Old Man Hollister while he is out, else null (the audio has him shout): the mission character in front of the porch,
+ * found among the view's characters, so a multiplayer client's mirror of the server finds him too.
+ */
+export function hollister(view: Pick<ViewState, 'world' | 'characters'>): Character | null {
+  const at = attractionOf(view.world.layout, 'farm').anchors.porch;
+  return view.characters.find((c) => c.role === 'mission' && !c.removed && Math.hypot(c.pos.x - at.x, c.pos.z - at.z) < 2) ?? null;
 }
 
 /** A pumpkin smashed (by slot 0's player: whoever smashes them in single player). */
@@ -115,7 +121,8 @@ registerSystem({
   id: 'farm',
   slot: 'afterInteractions',
   update(sim) {
-    updateHollister(sim, rt(sim));
+    const r = rt(sim);
+    if (sim.ambient) updateHollister(sim, r);
   },
   reset(sim) {
     runtime.delete(sim);

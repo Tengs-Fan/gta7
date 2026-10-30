@@ -6,7 +6,7 @@ import { bellTolls, whisperDue } from '../../src/audio/ambience';
 import { completionRows } from '../../src/sim/completion';
 import { EPITAPHS, epitaphsRead } from '../../src/sim/epitaphs';
 import { farmState, hollister, HOLLISTER_FAR, HOLLISTER_NEAR, PUMPKIN_COUNT, PUMPKIN_REWARD } from '../../src/sim/farm';
-import { Helicopter } from '../../src/sim/entities';
+import { Character, Helicopter } from '../../src/sim/entities';
 import { applyExt, parseExt, serializeExt } from '../../src/sim/saveExt';
 import type { Sim } from '../../src/sim/sim';
 import { attractionOf, SPOT_CLEAR, type MazeHalf } from '../../src/world/attractions';
@@ -236,17 +236,19 @@ describe('the pumpkins', () => {
 
 describe('Old Man Hollister', () => {
   it('is out on his porch only while the player is near the farm', () => {
-    const sim = makeSim({ police: false });
+    // A sim with ambient life, as the game's and the server's are (the people it streams in are civilians).
+    const sim = makeSim({ police: false, ambient: true });
     const porch = farmOf(sim.world).anchors.porch;
+    const mission = () => sim.characters.filter((c) => c.role === 'mission' && !c.removed);
     teleport(sim, porch.x + HOLLISTER_NEAR + 30, porch.z);
     step(sim, 0.5);
     expect(hollister(sim)).toBeNull();
-    const before = sim.characters.length;
+    expect(mission()).toEqual([]);
     teleport(sim, porch.x + 20, porch.z);
     step(sim, 0.5);
     const h = hollister(sim)!;
     expect(h).not.toBeNull();
-    expect(sim.characters.length).toBe(before + 1);
+    expect(mission()).toEqual([h]);
     expect(Math.hypot(h.pos.x - porch.x, h.pos.z - porch.z)).toBeLessThan(0.5);
     step(sim, 3);
     expect(Math.hypot(h.pos.x - porch.x, h.pos.z - porch.z)).toBeLessThan(0.5);
@@ -254,6 +256,28 @@ describe('Old Man Hollister', () => {
     step(sim, 0.5);
     expect(hollister(sim)).toBeNull();
     expect(h.removed).toBe(true);
+  });
+
+  it('stays in a sim without ambient life, as a multiplayer client\'s predictor is', () => {
+    const sim = makeSim({ police: false });
+    const porch = farmOf(sim.world).anchors.porch;
+    const before = sim.characters.length;
+    teleport(sim, porch.x + 20, porch.z);
+    step(sim, 0.5);
+    expect(hollister(sim)).toBeNull();
+    expect(sim.characters.length).toBe(before);
+  });
+
+  it('is found by the audio among a view\'s characters, as a multiplayer client\'s mirror holds them', () => {
+    const sim = makeSim({ police: false, ambient: true });
+    const porch = farmOf(sim.world).anchors.porch;
+    teleport(sim, porch.x + 20, porch.z);
+    step(sim, 0.5);
+    const h = hollister(sim)!;
+    // The mirror's own characters, made from the snapshot's id, role, position and look (net/mirror.ts).
+    const copies = sim.characters.filter((c) => !c.removed).map((c) => new Character(c.id, c.role, c.pos.x, c.pos.y, c.pos.z, { ...c.appearance }));
+    expect(hollister({ world: sim.world, characters: copies })?.id).toBe(h.id);
+    expect(hollister({ world: sim.world, characters: copies.filter((c) => c.id !== h.id) })).toBeNull();
   });
 });
 
