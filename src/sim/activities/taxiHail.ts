@@ -57,8 +57,8 @@ interface Hail {
 interface HailState {
   rng: Rng;
   scan: number;
-  /** By slot id. */
-  slots: Map<number, Hail>;
+  /** By player: a slot id goes to the next player to join once its own leaves (Sim.addPlayer). */
+  slots: Map<PlayerSlot, Hail>;
 }
 
 const states = new WeakMap<Sim, HailState>();
@@ -72,11 +72,17 @@ function update(sim: Sim, dt: number): void {
   st.scan -= dt;
   const scanning = st.scan <= 0;
   if (scanning) st.scan = SCAN;
+  // A player gone from the game (multiplayer, Sim.removePlayer): whoever was waving him down lowers his arm and walks on.
+  for (const [slot, h] of st.slots) {
+    if (sim.players.includes(slot)) continue;
+    if (h.ped) giveUp(sim, st, h, false);
+    st.slots.delete(slot);
+  }
   for (const slot of sim.players) {
-    let h = st.slots.get(slot.id);
+    let h = st.slots.get(slot);
     if (!h) {
       h = { cab: null, cooldown: 0, ped: null, since: 0 };
-      st.slots.set(slot.id, h);
+      st.slots.set(slot, h);
     }
     const me = slot.character;
     const v = me.vehicle;

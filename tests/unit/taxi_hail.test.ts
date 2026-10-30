@@ -280,6 +280,29 @@ describe('a pedestrian waves down the taxi the player drives', () => {
     expect(a.ped.vehicle).toBe(a.taxi);
     expect(pedB.vehicle).toBe(taxiB);
   });
+
+  it('lets the hailer of a player who leaves the game walk on without a word, nothing for the next to join', () => {
+    const sim = makeSim({ ambient: false, police: false });
+    const laneB = laneOf(sim, 400);
+    const slotB = sim.addPlayer(laneB.sx, laneB.sz);
+    const taxiB = sim.spawnVehicle('taxi', laneB.sx + laneB.dx * START, laneB.sz + laneB.dz * START, laneB.heading);
+    sim.seat(slotB.character, taxiB, 0);
+    const ped = plantPed(sim, curbside(sim, laneB, START + AHEAD));
+    const hails: Array<SimEvents['taxiHail']> = [];
+    sim.events.on('taxiHail', (e) => hails.push(e));
+    step(sim, 6.5);
+    cruise(sim, [taxiB], 1);
+    expect(ped.hailTimer).toBeGreaterThan(0);
+    sim.removePlayer(slotB);
+    step(sim, 0.1);
+    expect(ped.hailTimer).toBe(0);
+    expect(ped.brain!.mode).toBe('wander');
+    expect(hails).toEqual([expect.objectContaining({ caller: ped, started: true }), expect.objectContaining({ caller: ped, started: false, missed: false })]);
+    // The next to join takes the slot id.
+    expect(sim.addPlayer(laneB.sx, laneB.sz).id).toBe(slotB.id);
+    step(sim, 1);
+    expect(hails).toHaveLength(2);
+  });
 });
 
 describe('the taxi job started with the job key', () => {
