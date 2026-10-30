@@ -57,7 +57,7 @@ export class MapImage {
     for (const gp of world.layout.ground) rect(gp.rect.minX, gp.rect.minZ, gp.rect.maxX, gp.rect.maxZ, gc[gp.kind] ?? '#333');
     // Roads.
     for (const s of world.roads.segments) rect(s.minX, s.minZ, s.maxX, s.maxZ, '#9aa1aa');
-    for (const n of world.roads.nodes) rect(n.x - n.halfX, n.z - n.halfZ, n.x + n.halfX, n.z + n.halfZ, '#9aa1aa');
+    for (const n of world.roads.live) rect(n.x - n.halfX, n.z - n.halfZ, n.x + n.halfX, n.z + n.halfZ, '#9aa1aa');
     // Buildings.
     for (const bd of world.layout.buildings) {
       const tall = bd.height > 40;

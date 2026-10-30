@@ -4,7 +4,7 @@
 import { circleVsAabb, makeContact } from '../core/collision';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
-import { generateCity, rectContains, sandHeight, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
+import { cellBlock, generateCity, rectContains, sandHeight, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
 
@@ -221,9 +221,24 @@ export class StaticWorld {
     const b = l.bounds;
     if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return 'San Azura Bay';
     if (x > b.cityMaxX) return 'Ocean Beach';
-    const bi = lineSegment(l.vLines.map((v) => v.pos), x);
-    const bj = lineSegment(l.hLines.map((v) => v.pos), z);
-    return l.blocks[bj * l.n + bi]!.zone;
+    return this.blockNear(x, z).zone;
+  }
+
+  /** The block on the cell under (x, z), or by a sea cell the nearest block. */
+  blockNear(x: number, z: number): Block {
+    const l = this.layout;
+    const block = cellBlock(l, lineSegment(l.vLines, x), lineSegment(l.hLines, z));
+    if (block) return block;
+    let best = l.blocks[0]!;
+    let bd = Infinity;
+    for (const b of l.blocks) {
+      const d = Math.hypot(Math.max(b.rect.minX - x, x - b.rect.maxX, 0), Math.max(b.rect.minZ - z, z - b.rect.maxZ, 0));
+      if (d < bd) {
+        bd = d;
+        best = b;
+      }
+    }
+    return best;
   }
 
   /**
@@ -292,21 +307,7 @@ export class StaticWorld {
     if (!Number.isFinite(x) || !Number.isFinite(z) || this.baseGround(x, z) < WATER_Y) return 'sea';
     const l = this.layout;
     if (x > l.bounds.cityMaxX) return 'beach';
-    let bi = l.vLines.length - 2;
-    for (let i = 0; i < l.vLines.length - 1; i++) {
-      if (x < l.vLines[i + 1]!.pos) {
-        bi = i;
-        break;
-      }
-    }
-    let bj = l.hLines.length - 2;
-    for (let j = 0; j < l.hLines.length - 1; j++) {
-      if (z < l.hLines[j + 1]!.pos) {
-        bj = j;
-        break;
-      }
-    }
-    return l.blocks[bj * l.n + bi]!.district;
+    return this.blockNear(x, z).district;
   }
 }
 
@@ -385,7 +386,8 @@ export function rampHeight(r: Ramp, x: number, z: number): number {
   return (r.height * (along + r.length / 2)) / r.length;
 }
 
-function lineSegment(positions: number[], v: number): number {
-  for (let i = 0; i < positions.length - 1; i++) if (v < positions[i + 1]!) return i;
-  return positions.length - 2;
+/** Index i of the cell between lines i and i + 1 holding v (clamped). */
+function lineSegment(lines: readonly { pos: number }[], v: number): number {
+  for (let i = 0; i < lines.length - 1; i++) if (v < lines[i + 1]!.pos) return i;
+  return lines.length - 2;
 }

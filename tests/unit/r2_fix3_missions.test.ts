@@ -11,7 +11,7 @@ import { missionSpots } from '../../src/sim/missions/spots';
 import { parseSave, serialize } from '../../src/sim/progress';
 import type { Sim, SimOptions } from '../../src/sim/sim';
 import { STAR_HEAT } from '../../src/sim/wanted';
-import { input, makeSim, placeInCar, step, teleport } from './helpers';
+import { input, makeSim, placeInCar, step, teleport, legacyLane } from './helpers';
 
 // --- helpers ------------------------------------------------------------------
 
@@ -620,7 +620,7 @@ describe('prompts at the markers', () => {
     expect(sim.interactions.current()?.ref).toBe('wheels');
     expect(sim.interactions.prompt()).toBe('Press E to start "Wheels"');
     // Nothing to say in a car away from the markers.
-    const lane = sim.roads.lanes[40]!;
+    const lane = legacyLane(sim, 40);
     const far = sim.spawnVehicle('sedan', lane.sx + lane.dx * 20, lane.sz + lane.dz * 20, lane.heading);
     placeInCar(sim, far);
     expect(sim.interactions.prompt()).toBeNull();

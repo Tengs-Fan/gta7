@@ -65,8 +65,14 @@ function chase(seed: number, side: Side) {
   });
   const copDamageToB: string[] = [];
   const otherDamageToB: string[] = [];
+  let trafficLoss = 0;
   sim.events.on('damage', (e) => {
     if (e.victim !== b.character) return;
+    // Ambient traffic can run him down where he is put on the carriageway: that is no one's chase.
+    if (e.kind === 'vehicle' && !e.attacker) {
+      trafficLoss += e.healthLoss;
+      return;
+    }
     (e.attacker?.isLaw ? copDamageToB : otherDamageToB).push(`${e.kind} by ${e.attacker?.id ?? 'nobody'} at ${sim.time.toFixed(1)}`);
   });
 
@@ -93,7 +99,7 @@ function chase(seed: number, side: Side) {
     for (const c of sim.characters) if (c.isLaw && !c.removed && c.alive && c.brain && c.brain.target === b.character) targetsB++;
     maxChasing = Math.max(maxChasing, chasing);
   }
-  return { b, startHealth, firedAtA, aimedOrFiredAtB, copRounds, copDamageToB, otherDamageToB, targetsB, maxChasing, near, placed };
+  return { b, startHealth, trafficLoss, firedAtA, aimedOrFiredAtB, copRounds, copDamageToB, otherDamageToB, targetsB, maxChasing, near, placed };
 }
 
 /** A armed and standing his ground with B right beside him (no god mode): the police still get to A. */
@@ -159,7 +165,7 @@ describe('a bystander near another player’s chase (VAL-MPX-002)', () => {
         expect(r.targetsB).toBe(0);
         expect(r.copDamageToB).toEqual([]);
         expect(r.otherDamageToB).toEqual([]);
-        expect(r.b.character.health).toBe(r.startHealth);
+        expect(r.b.character.health).toBe(r.startHealth - r.trafficLoss);
         expect(r.b.wanted.level).toBe(0);
       }, 120_000);
     }

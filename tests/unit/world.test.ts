@@ -1,9 +1,10 @@
 import { writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CURB_H } from '../../src/world/constants';
-import { generateCity, rectContains, rectsOverlap, rectCX, rectCZ } from '../../src/world/layout';
+import { cellBlock, generateCity, rectContains, rectsOverlap, rectCX, rectCZ } from '../../src/world/layout';
 import { SIGNAL_CYCLE } from '../../src/world/roads';
 import { StaticWorld } from '../../src/world/staticWorld';
+import { legacyLane } from './helpers';
 
 const world = new StaticWorld();
 const L = world.layout;
@@ -18,7 +19,8 @@ describe('city layout', () => {
   });
 
   it('has a reasonable amount of content', () => {
-    expect(L.blocks.length).toBe(100);
+    // 100 cells: three superblocks cover seven of them.
+    expect(L.blocks.length).toBe(95);
     expect(L.buildings.length).toBeGreaterThan(250);
     expect(L.props.length).toBeGreaterThan(800);
     expect(L.parking.length).toBeGreaterThan(40);
@@ -107,9 +109,9 @@ describe('ground and water', () => {
   it('reports road, curb and sea heights', () => {
     const v = L.vLines[3]!;
     const h = L.hLines[4]!;
-    expect(world.groundHeight(v.pos, rectCZ(L.blocks[4 * 10 + 3]!.rect))).toBe(0);
-    expect(world.groundHeight(rectCX(L.blocks[4 * 10 + 3]!.rect), h.pos)).toBe(0);
-    const blk = L.blocks[55]!;
+    expect(world.groundHeight(v.pos, rectCZ(cellBlock(L, 3, 4)!.rect))).toBe(0);
+    expect(world.groundHeight(rectCX(cellBlock(L, 3, 4)!.rect), h.pos)).toBe(0);
+    const blk = cellBlock(L, 5, 5)!;
     expect(world.groundHeight(blk.rect.minX + 1, rectCZ(blk.rect))).toBe(CURB_H);
     expect(world.waterDepth(L.bounds.landMinX - 20, 0)).toBeGreaterThan(5);
     expect(world.waterDepth(L.bounds.beachEndX + 20, 0)).toBeGreaterThan(5);
@@ -119,7 +121,7 @@ describe('ground and water', () => {
   });
 
   it('names zones', () => {
-    const dt = L.blocks[4 * 10 + 4]!;
+    const dt = cellBlock(L, 4, 4)!;
     expect(world.zoneName(rectCX(dt.rect), rectCZ(dt.rect))).toBe('Downtown');
     expect(world.zoneName(L.bounds.beachStartX + 20, 0)).toBe('Ocean Beach');
     expect(world.zoneName(L.bounds.landMinX - 50, 0)).toBe('San Azura Bay');
@@ -162,10 +164,20 @@ describe('road network', () => {
     }
   });
 
+  it('reaches every live junction from every other', () => {
+    const live = roads.live.map((n) => n.id);
+    for (const goal of [live[0]!, live[Math.floor(live.length / 2)]!, live[live.length - 1]!]) {
+      const field = roads.distanceField(goal);
+      for (const id of live) expect(field[id], `junction ${id} to ${goal}`).toBeLessThan(Infinity);
+    }
+    for (const n of roads.nodes) if (n.degree === 0) expect(roads.live).not.toContain(n);
+  });
+
   it('finds routes between any two intersections', () => {
+    const live = roads.live;
     for (let k = 0; k < 200; k++) {
-      const a = (k * 37) % roads.nodes.length;
-      const b = (k * 91 + 13) % roads.nodes.length;
+      const a = live[(k * 37) % live.length]!.id;
+      const b = live[(k * 91 + 13) % live.length]!.id;
       const route = roads.findRoute(a, b);
       expect(route).not.toBeNull();
       expect(route![0]).toBe(a);
@@ -188,7 +200,7 @@ describe('road network', () => {
   });
 
   it('finds the nearest lane respecting heading', () => {
-    const lane = roads.lanes[123]!;
+    const lane = legacyLane(world, 123);
     const x = lane.sx + lane.dx * 20;
     const z = lane.sz + lane.dz * 20;
     const r = roads.nearestLane(x, z, lane.heading);

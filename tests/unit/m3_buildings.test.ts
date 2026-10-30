@@ -254,7 +254,8 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
   it('keeps every projection off the road lanes and every wall plane on its footprint (VAL-BLD-003/010)', () => {
     const inside = buildingIndex(W);
     const lanes = [...W.layout.vLines, ...W.layout.hLines];
-    const onRoad = (x: number, z: number): boolean => lanes.some((l) => Math.abs((l.vertical ? x : z) - l.pos) < l.width / 2 - 1e-3);
+    // Strictly inside a line's width, on a road that exists (superblocks build over the streets they close).
+    const onRoad = (x: number, z: number): boolean => W.isOnRoad(x, z) && lanes.some((l) => Math.abs((l.vertical ? x : z) - l.pos) < l.width / 2 - 1e-3);
     const check = (names: string[], margin: number) => {
       let n = 0;
       const bad: string[] = [];

@@ -12,7 +12,7 @@ import { drownsInSinkingCar } from '../../src/sim/sinking';
 import { WATER_Y } from '../../src/world/constants';
 import { rectContains, rectCX, rectCZ, type Rect } from '../../src/world/layout';
 import type { StaticCollider } from '../../src/world/colliders';
-import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
+import { input, makeSim, placeInCar, step, teleport, world, legacyLane } from './helpers';
 
 // --- helpers ------------------------------------------------------------------
 
@@ -298,7 +298,7 @@ interface VigilanteJobView {
 }
 
 function startVigilante(sim: Sim): () => VigilanteJobView {
-  const lane = sim.roads.lanes[40]!;
+  const lane = legacyLane(sim, 40);
   const cop = sim.spawnVehicle('police', lane.sx + lane.dx * 20, lane.sz + lane.dz * 20, lane.heading);
   placeInCar(sim, cop);
   step(sim, 0.1);

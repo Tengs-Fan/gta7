@@ -437,7 +437,8 @@ describe('city and prop geometry', () => {
 
   it('a fountain basin shows its far wall and rim above the water from outside', () => {
     const fountains = world().layout.props.filter((p) => p.kind === 'fountain');
-    expect(fountains.length).toBe(3);
+    // The three parks' and Civic Plaza's.
+    expect(fountains.length).toBe(4);
     for (const f of fountains) {
       const g = props.group.children.find((o) => o instanceof THREE.Group && Math.abs(o.position.x - f.x) < 1e-6 && Math.abs(o.position.z - f.z) < 1e-6)!;
       expect(g).toBeTruthy();

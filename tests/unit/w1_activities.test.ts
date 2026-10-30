@@ -16,7 +16,7 @@ import type { Vehicle } from '../../src/sim/entities';
 import type { PlayerInput } from '../../src/sim/input';
 import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
-import { input, makeSim, placeInCar, step, teleport } from './helpers';
+import { input, makeSim, placeInCar, step, teleport, legacyLane } from './helpers';
 
 function carAt(sim: Sim, kind: VehicleKind, x: number, z: number, heading = 0, color?: number): Vehicle {
   const v = sim.spawnVehicle(kind, x, z, heading, color);
@@ -115,7 +115,7 @@ describe('fire truck kind', () => {
     expect(s.bodyProfile).toBeDefined();
     expect(s.engine).toBeDefined();
     const sim = makeSim();
-    const lane = sim.roads.lanes[40]!;
+    const lane = legacyLane(sim, 40);
     const v = carAt(sim, 'firetruck', lane.sx + lane.dx * 20, lane.sz + lane.dz * 20, lane.heading);
     step(sim, 3, input({ throttle: 1 }));
     expect(v.speed).toBeGreaterThan(8);

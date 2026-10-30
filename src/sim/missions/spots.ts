@@ -1,6 +1,6 @@
 // Deterministic mission locations derived from the generated city.
 
-import { rectCX, rectCZ, type ParkingSpot, type Poi } from '../../world/layout';
+import { cellBlock, rectCX, rectCZ, type ParkingSpot, type Poi } from '../../world/layout';
 import type { Lane } from '../../world/roads';
 import type { StaticWorld } from '../../world/staticWorld';
 
@@ -21,7 +21,7 @@ export interface MissionSpots {
 const cache = new WeakMap<StaticWorld, MissionSpots>();
 
 function blockCenter(world: StaticWorld, bi: number, bj: number): { x: number; z: number } {
-  const b = world.layout.blocks[bj * world.layout.n + bi]!;
+  const b = cellBlock(world.layout, bi, bj)!;
   return { x: rectCX(b.rect), z: rectCZ(b.rect) };
 }
 

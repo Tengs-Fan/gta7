@@ -6,7 +6,7 @@ import type { Character } from '../../src/sim/entities';
 import type { PlayerInput } from '../../src/sim/input';
 import type { PlayerSlot } from '../../src/sim/playerSlot';
 import type { Sim } from '../../src/sim/sim';
-import { input } from './helpers';
+import { input, legacyLane } from './helpers';
 
 export const DT = 1 / 60;
 
@@ -68,7 +68,7 @@ export function stateHash(sim: Sim): string {
 
 /** A point on the sidewalk-free road `lane` at `s` m along it. */
 export function onLane(sim: Sim, laneIndex: number, s = 20): { x: number; z: number; heading: number } {
-  const lane = sim.roads.lanes[laneIndex]!;
+  const lane = legacyLane(sim, laneIndex);
   return { x: lane.sx + lane.dx * s, z: lane.sz + lane.dz * s, heading: lane.heading };
 }
 

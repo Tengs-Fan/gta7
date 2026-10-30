@@ -183,7 +183,7 @@ export function buildRoads(view: CityView): void {
   const yellow = new GeoBuilder(false);
   const yM = 0.02;
   const uv = { kind: 'world', scale: surfaces.tile('road') } as const;
-  for (const n of roads.nodes) asphalt.flat(n.x - n.halfX, n.z - n.halfZ, n.x + n.halfX, n.z + n.halfZ, 0, uv);
+  for (const n of roads.live) asphalt.flat(n.x - n.halfX, n.z - n.halfZ, n.x + n.halfX, n.z + n.halfZ, 0, uv);
   roads.segments.forEach((s, si) => {
     const start = asphalt.vertexCount;
     asphalt.flat(s.minX, s.minZ, s.maxX, s.maxZ, 0, uv);

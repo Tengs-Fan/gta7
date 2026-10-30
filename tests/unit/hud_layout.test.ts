@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sim } from '../../src/sim/sim';
 import { Hud, trimRoute } from '../../src/ui/hud';
 import { MapImage } from '../../src/ui/mapRender';
-import { teleport, world } from './helpers';
+import { teleport, world, legacyLane } from './helpers';
 
 type Box = { left: number; top: number; width: number; height: number };
 
@@ -339,7 +339,7 @@ describe('radar route', () => {
     const { hud, internals } = makeHud();
     const sim = quickSim();
     hud.bind(sim);
-    const lane = sim.roads.lanes[40]!;
+    const lane = legacyLane(sim, 40);
     teleport(sim, lane.sx, lane.sz);
     // A waypoint across town; he then drives the route as first planned, at 30 m/s.
     const b = sim.world.layout.bounds;
