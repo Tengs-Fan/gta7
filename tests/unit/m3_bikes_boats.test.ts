@@ -1,11 +1,9 @@
 // Mission 3 track C: the sculpted motorbikes (render/bikeModels.ts, drawn by BikeView) and the boat hulls
 // (render/boatModels.ts, drawn by BoatView) with their waterline foam, riders posed on the new parts, fades that cover
-// every part, and the draw budgets. The models are procedural (no assets needed); the rider checks run on both the
-// segment crowd and the skinned models loaded from disk.
+// every part, and the draw budgets. The models are procedural (no assets needed).
 
 import * as THREE from 'three';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { loadAssetsFromDisk, unloadAssets } from '../../src/render/assets/testing';
+import { describe, expect, it, vi } from 'vitest';
 import { BikeView, bikeKinds } from '../../src/render/bikeView';
 import { bikeModel, headFrame, TREAD } from '../../src/render/bikeModels';
 import { boatModel, mooredBoat, mooredBoatGeometry } from '../../src/render/boatModels';
@@ -22,18 +20,13 @@ import type { Character, Vehicle } from '../../src/sim/entities';
 import { SKELETON } from '../../src/sim/pose';
 import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
-import { segmentJoints, skinnedJoints } from '../support/characterRig';
+import { segmentJoints } from '../support/crowdJoints';
 import { makeSim, world } from './helpers';
 
 await vi.hoisted(async () => {
   const m = await import('../support/canvasStub');
   m.installCanvasStubs();
 });
-
-beforeAll(async () => {
-  await loadAssetsFromDisk({ filter: (e) => e.kind === 'character' || e.kind === 'animation' });
-});
-afterAll(() => unloadAssets());
 
 const log = (s: string) => console.log(`[m3-bikes-boats] ${s}`);
 
@@ -155,10 +148,7 @@ describe('riders on the new bikes (VAL-BKB-004)', () => {
         view.bind(v);
         view.sync(v, 1 / 60, 0, 0);
         const seg = new CrowdView();
-        seg.useModels(false);
         seg.sync([c], v.pos.x + 6, v.pos.z, 1 / 60);
-        const skin = new CrowdView();
-        skin.sync([c], v.pos.x + 3, v.pos.z, 1 / 60);
         const frame = riderMount(v)!.frame;
         const inv = frame.matrixWorld.clone().invert();
         const H = headFrame(m.headY, m.headZ, m.rake);
@@ -181,8 +171,6 @@ describe('riders on the new bikes (VAL-BKB-004)', () => {
           expect(Math.abs(tilt - D98_RECLINE[kind]!)).toBeLessThanOrEqual((3 * Math.PI) / 180);
         };
         check('segments', segmentJoints(seg, c));
-        const sj = skinnedJoints(skin, c.id);
-        if (sj) check('skinned', sj);
       }
     }
     log(`${kind}:\n  ${rows.join('\n  ')}`);
@@ -485,10 +473,7 @@ describe('boat drivers (VAL-BKB-004)', () => {
       view.bind(v);
       view.sync(v, 1 / 60, 3, 0);
       const seg = new CrowdView();
-      seg.useModels(false);
       seg.sync([c], v.pos.x + 6, v.pos.z, 1 / 60);
-      const skin = new CrowdView();
-      skin.sync([c], v.pos.x + 3, v.pos.z, 1 / 60);
       const inv = riderMount(v)!.frame.matrixWorld.clone().invert();
       const check = (label: string, joints: Map<string, THREE.Vector3>) => {
         const j = (n: string) => joints.get(n)!.clone().applyMatrix4(inv);
@@ -501,8 +486,6 @@ describe('boat drivers (VAL-BKB-004)', () => {
         expect(above).toBeLessThanOrEqual(0.03);
       };
       check('segments', segmentJoints(seg, c));
-      const sj = skinnedJoints(skin, c.id);
-      if (sj) check('skinned', sj);
     }
     log(`${kind}:\n  ${rows.join('\n  ')}`);
   });
@@ -554,7 +537,6 @@ describe('riders fade with their bike or boat (VAL-BKB-005)', () => {
     for (const f of [0.25, 0.7]) {
       view.setFade(f);
       const seg = new CrowdView();
-      seg.useModels(false);
       seg.sync([c], v.pos.x + 6, v.pos.z, 1 / 60);
       const head = (seg as unknown as { parts: Record<string, { mesh: THREE.InstancedMesh }> }).parts.head!.mesh;
       expect(head.count).toBe(1);

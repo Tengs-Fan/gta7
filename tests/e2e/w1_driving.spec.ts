@@ -227,7 +227,7 @@ test.describe('wave 1 driving', () => {
             R.cameraCtl.orbitPitch = 0.1;
             R.cameraCtl.lookIdle = 0;
             await new Promise((res) => requestAnimationFrame(res));
-            // His head is drawn in the car (mission 3: segment or skinned, so not parts.head, which holds only far ones).
+            // His head is drawn in the car.
             const heads = crowd.drawnHeads().filter((h) => Math.hypot(h.x - v.pos.x, h.z - v.pos.z) < v.halfL);
             out[k].push(v.burning && g.sim.player.vehicle === v && heads.length >= 1);
           }

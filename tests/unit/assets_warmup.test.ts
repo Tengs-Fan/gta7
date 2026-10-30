@@ -116,7 +116,7 @@ const hasProbe = (scene: THREE.Object3D): boolean => !!scene.getObjectByName('as
 
 describe('asset warm-up', () => {
   it('compiles every asset material on every tier, then leaves the warm-up objects out of the scene', async () => {
-    await loadAssetsFromDisk({ filter: (e) => e.id === 'char.swat' || e.id === 'veh.q.police' || e.id === 'veh.k.van' || e.id === 'prop.q.hydrant' });
+    await loadAssetsFromDisk({ filter: (e) => e.id === 'veh.q.police' || e.id === 'veh.k.van' || e.id === 'prop.q.hydrant' });
     const materials = assets.materials();
     expect(materials.length).toBeGreaterThan(5);
     for (const gpu of [{ renderer: '', halfFloat: true }, { renderer: 'SwiftShader', halfFloat: false }]) {

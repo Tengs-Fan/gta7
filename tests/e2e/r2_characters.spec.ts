@@ -52,7 +52,7 @@ test.describe('character rig', () => {
       const d = sim.spawnCharacter('civilian', v.pos.x, v.pos.z);
       sim.seat(d, v, 0);
       await new Promise((r) => setTimeout(r, 500));
-      // Every drawn head, segment or skinned (mission 3: parts.head holds only the far segment characters).
+      // Every drawn head.
       const heads = g.game.renderer.crowd.drawnHeads() as Array<{ x: number; y: number; z: number }>;
       let inside = 0;
       for (const { x, y, z } of heads) {

@@ -10,17 +10,6 @@ The assets are used under CC0 (no attribution required, credited here anyway) or
 
 | ID | Asset | Author | Source | License | Credit | Used by |
 | --- | --- | --- | --- | --- | --- | --- |
-| pp-Btfn3G5Xv4 | SWAT (Poly Pizza Btfn3G5Xv4) | Quaternius | https://poly.pizza/m/Btfn3G5Xv4 | CC0 |  | anim.umc, char.swat |
-| pp-BTALZymknF | Punk (Poly Pizza BTALZymknF) | Quaternius | https://poly.pizza/m/BTALZymknF | CC0 |  | char.punk |
-| pp-JFrLIKqvCH | Business Man (Poly Pizza JFrLIKqvCH) | Quaternius | https://poly.pizza/m/JFrLIKqvCH | CC0 |  | char.businessman |
-| pp-gKLBoRsyKe | Hoodie (Poly Pizza gKLBoRsyKe) | Quaternius | https://poly.pizza/m/gKLBoRsyKe | CC0 |  | char.hoodie |
-| pp-kZ3DmIoGip | Casual 2 (Poly Pizza kZ3DmIoGip) | Quaternius | https://poly.pizza/m/kZ3DmIoGip | CC0 |  | char.casual2 |
-| pp-DojKLcO34E | Beach (Poly Pizza DojKLcO34E) | Quaternius | https://poly.pizza/m/DojKLcO34E | CC0 |  | char.beach |
-| pp-Yg2bQZO6Hj | Worker (Poly Pizza Yg2bQZO6Hj) | Quaternius | https://poly.pizza/m/Yg2bQZO6Hj | CC0 |  | char.worker |
-| pp-7pn3R6hPvE | Farmer (Poly Pizza 7pn3R6hPvE) | Quaternius | https://poly.pizza/m/7pn3R6hPvE | CC0 |  | char.farmer |
-| pp-5EGWBMpuXq | Adventurer (Poly Pizza 5EGWBMpuXq) | Quaternius | https://poly.pizza/m/5EGWBMpuXq | CC0 |  | char.adventurer |
-| pp-nIItLV9nxS | Animated Woman (formal) (Poly Pizza nIItLV9nxS) | Quaternius | https://poly.pizza/m/nIItLV9nxS | CC0 |  | char.woman_formal |
-| pp-qJ2gsTUBHL | Animated Woman (casual) (Poly Pizza qJ2gsTUBHL) | Quaternius | https://poly.pizza/m/qJ2gsTUBHL | CC0 |  | char.woman_casual |
 | pp-BwwnUrWGmV | Police Car (Poly Pizza BwwnUrWGmV) | Quaternius | https://poly.pizza/m/BwwnUrWGmV | CC0 |  | veh.q.police |
 | pp-x43lOScTpN | Taxi (Poly Pizza x43lOScTpN) | Quaternius | https://poly.pizza/m/x43lOScTpN | CC0 |  | veh.q.taxi |
 | pp-1mkmFkAz5v | Sports Car 2 (Poly Pizza 1mkmFkAz5v) | Quaternius | https://poly.pizza/m/1mkmFkAz5v | CC0 |  | veh.q.sports2 |

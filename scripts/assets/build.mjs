@@ -4,12 +4,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Logger } from '@gltf-transform/core';
-import { resample } from '@gltf-transform/functions';
-import { atlases, boats, characters, CHARACTER_BONES, clips, envs, props, SPEC_DIMS, textureSets, vehicles } from './catalog.mjs';
+import { atlases, boats, envs, props, SPEC_DIMS, textureSets, vehicles } from './catalog.mjs';
 import { buildLeafAtlas } from './leafAtlas.mjs';
 import { OUT_DIR, ROOT, readSources, srcPath } from './lib.mjs';
 import {
-  boundsOf, dropAnimations, dropMeshes, io, nodeCentre, normalize, optimize, recenterNode, renameNodes, sceneOf, triangleCount, writeGlb,
+  boundsOf, io, nodeCentre, normalize, optimize, recenterNode, sceneOf, triangleCount, writeGlb,
 } from './pipeline.mjs';
 import { buildTextureSet, readHdrSize } from './textures.mjs';
 import { writeLicenses } from './licenses.mjs';
@@ -33,8 +32,6 @@ function addEntry(entry) {
   entries.push(entry);
 }
 
-const stripDots = (name) => name.replaceAll('.', '');
-
 async function readModel(def) {
   const doc = await io.read(srcPath(def.src));
   doc.setLogger(new Logger(Logger.Verbosity.ERROR));
@@ -49,30 +46,6 @@ async function finishModel(doc, def, extra) {
   emit(file, buffer);
   addEntry({
     id: def.id, file, kind: def.kind, bytes: buffer.length, bounds: boundsOf(sceneOf(doc)), triangles: triangleCount(doc), license: def.license, ...extra,
-  });
-}
-
-async function buildCharacter(def) {
-  const doc = await readModel(def);
-  renameNodes(doc, stripDots);
-  dropAnimations(doc);
-  const nodes = new Set(doc.getRoot().listNodes().map((n) => n.getName()));
-  for (const [joint, bone] of Object.entries(CHARACTER_BONES)) if (!nodes.has(bone)) throw new Error(`${def.id}: bone ${bone} (${joint}) missing`);
-  normalize(doc, { height: def.height, origin: 'ground' });
-  await finishModel(doc, def, { role: def.role, body: def.body, bones: CHARACTER_BONES, clips: clips.id });
-}
-
-async function buildClips(def) {
-  const doc = await readModel(def);
-  renameNodes(doc, stripDots);
-  dropMeshes(doc);
-  await doc.transform(resample());
-  await optimize(doc);
-  const buffer = await writeGlb(doc, def.out);
-  emit(def.out, buffer);
-  addEntry({
-    id: def.id, file: def.out, kind: def.kind, bytes: buffer.length, bounds: { min: [0, 0, 0], max: [0, 0, 0] }, license: def.license,
-    clips: doc.getRoot().listAnimations().map((a) => a.getName()).sort(),
   });
 }
 
@@ -150,8 +123,6 @@ function buildEnv(def) {
   addEntry({ id: def.id, file: def.out, kind: def.kind, bytes: buffer.length, bounds: readHdrSize(srcPath(def.src)), license: def.license });
 }
 
-for (const def of characters) await buildCharacter(def);
-await buildClips(clips);
 for (const def of vehicles) await buildVehicle(def);
 for (const def of boats) await buildBoat(def);
 for (const def of props) await buildProp(def);

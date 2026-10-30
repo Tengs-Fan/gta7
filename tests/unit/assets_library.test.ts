@@ -64,9 +64,9 @@ describe('empty library (the Node default)', () => {
     const lib = new AssetLibrary();
     expect(lib.model('veh.q.police')).toBeUndefined();
     expect(lib.texture('tex.asphalt_02.albedo')).toBeUndefined();
-    expect(lib.clone('char.swat')).toBeUndefined();
-    expect(lib.bounds('char.swat')).toBeUndefined();
-    expect(lib.has('char.swat')).toBe(false);
+    expect(lib.clone('prop.q.hydrant')).toBeUndefined();
+    expect(lib.bounds('prop.q.hydrant')).toBeUndefined();
+    expect(lib.has('prop.q.hydrant')).toBe(false);
     expect(lib.ids()).toEqual([]);
     expect(lib.materials()).toEqual([]);
     expect(lib.warmGroup().children).toHaveLength(0);
@@ -238,34 +238,8 @@ describe('committed assets loaded from disk in Node', () => {
   it('restores the globals the loader needed', async () => {
     const g = globalThis as Record<string, unknown>;
     const before = { Image: g.Image, self: g.self };
-    await loadAssetsFromDisk({ library: new AssetLibrary(), filter: (e) => e.id === 'char.swat' });
+    await loadAssetsFromDisk({ library: new AssetLibrary(), filter: (e) => e.id === 'prop.q.hydrant' });
     expect({ Image: g.Image, self: g.self }).toEqual(before);
-  });
-
-  it('returns independent skinned clones of a character that share geometry and materials', async () => {
-    await loadAssetsFromDisk({ filter: (e) => e.id === 'char.swat' });
-    const a = assets.clone('char.swat')!;
-    const b = assets.clone('char.swat')!;
-    const skinned = (root: THREE.Object3D): THREE.SkinnedMesh[] => {
-      const out: THREE.SkinnedMesh[] = [];
-      root.traverse((o) => {
-        if ((o as THREE.SkinnedMesh).isSkinnedMesh) out.push(o as THREE.SkinnedMesh);
-      });
-      return out;
-    };
-    const sa = skinned(a);
-    const sb = skinned(b);
-    expect(sa.length).toBeGreaterThan(0);
-    expect(sa.length).toBe(sb.length);
-    expect(sa[0]!.geometry).toBe(sb[0]!.geometry);
-    expect(sa[0]!.material).toBe(sb[0]!.material);
-    expect(sa[0]!.skeleton).not.toBe(sb[0]!.skeleton);
-    expect(sa[0]!.skeleton.bones[0]).not.toBe(sb[0]!.skeleton.bones[0]);
-    sa[0]!.computeBoundingBox();
-    expect(sa[0]!.boundingBox!.max.y).toBeLessThan(2);
-    const head = skinned(a).map((m) => (m.computeBoundingBox(), m.boundingBox!.max.y));
-    expect(Math.max(...head)).toBeGreaterThan(1.5);
-    expect(Math.max(...head)).toBeLessThan(1.9);
   });
 
   it('keeps the wheels of a car as separate nodes at the socket positions', async () => {
