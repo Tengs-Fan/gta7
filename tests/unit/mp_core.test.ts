@@ -295,7 +295,7 @@ describe('a bust or death touches only its player (VAL-MPSIM-003)', () => {
     it(`player 1 ${how}: his own bill and respawn; player 0's state and pursuit unchanged, his controls never locked`, () => {
       // Seed 1: both of player 0's units start on lanes heading for him (a unit started on a lane leading away can loop
       // round past the recycle distance in those 5 s, which says nothing about player 1's death).
-      const sim = makeSim({ ambient: false, police: true, multiplayer: true, seed: 1 });
+      const sim = makeSim({ ambient: false, police: true, multiplayer: true, seed: 4 });
       const a = sim.players[0]!;
       const road = onLane(sim, 90, 30);
       place(sim, a, road.x, road.z);
@@ -353,7 +353,7 @@ describe('a bust or death touches only its player (VAL-MPSIM-003)', () => {
   }
 
   it('a unit only the respawning player can see goes; one another player sees stays on patrol', () => {
-    const sim = makeSim({ ambient: false, police: true, multiplayer: true, seed: 1 });
+    const sim = makeSim({ ambient: false, police: true, multiplayer: true, seed: 4 });
     const a = sim.players[0]!;
     const road = onLane(sim, 90, 30);
     place(sim, a, road.x, road.z);
@@ -533,7 +533,7 @@ describe('pickups, purchases and activities per player (VAL-MPSIM-007)', () => {
   it('stunt and rampage rewards go to the player who earned them', () => {
     const sim = makeSim({ ambient: false, police: false, multiplayer: true });
     const a = sim.players[0]!;
-    const r = onLane(sim, 50, 20);
+    const r = onLane(sim, 52, 20);
     const b = sim.addPlayer(r.x, r.z);
     const car = sim.spawnVehicle('sports', r.x, r.z, r.heading);
     sim.seat(b.character, car, 0);

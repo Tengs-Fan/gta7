@@ -82,7 +82,7 @@ export function missionSpots(world: StaticWorld): MissionSpots {
 
   const mid = blockCenter(world, 7, 3);
   const pickupSpot = found(nearestParking(world, mid.x, mid.z));
-  const hill = blockCenter(world, 8, 0);
+  const hill = blockCenter(world, 7, 1);
   const drop = world.layout.openSpots
     .filter((s) => s.district === 'hillcrest' && world.isFree(s.x, s.z, 0.8))
     .sort((a, b) => Math.hypot(a.x - hill.x, a.z - hill.z) - Math.hypot(b.x - hill.x, b.z - hill.z))[0];

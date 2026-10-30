@@ -98,6 +98,9 @@ describe('lethal force and arrests', () => {
     const sim = makeSim({ ambient: true, seed: 7 });
     sim.cheats.godMode = true;
     sim.missions.noBust = true;
+    // Downtown, where lanes run every way: by the safehouse, with Gull Bay north of it, a unit may take a while.
+    const corner = sim.roads.node(6, 4);
+    teleport(sim, corner.x + corner.halfX + 3, corner.z + corner.halfZ + 3);
     sim.wanted.setLevel(1);
     const shots = countPoliceShots(sim, true);
     let officersNear = 0;
@@ -1345,7 +1348,10 @@ describe('readable evasion', () => {
   it('shows every police unit and officer on foot as a blinking blip', () => {
     const sim = makeSim();
     sim.wanted.setLevel(2);
-    const unit = sim.police.spawnUnit('police', true)!;
+    // As dispatch does, until a spot turns up.
+    let unit = sim.police.spawnUnit('police', true);
+    for (let i = 0; i < 10 && !unit; i++) unit = sim.police.spawnUnit('police', true);
+    unit = unit!;
     expect(unit.occupants().length).toBe(2);
     internals(sim).deploy(unit);
     const police = (time: number) => collectBlips(sim, time).filter((b) => b.color === '#ff3030' || b.color === '#3060ff');

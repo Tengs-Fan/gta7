@@ -346,10 +346,10 @@ describe('single player is unchanged by the multiplayer core (VAL-MPSIM-010)', (
     // sp_trace.test.ts holds the plain trace byte for byte against tests/unit/fixtures/sp_trace_72d0b98.json. This is
     // the same script with sim.streetCrime on (as the real game runs), its hash recorded at a971b0e, before mp-core,
     // and again once the NaN scrub went (a dead player's health is no longer floored at -1000) and the map was broken
-    // up (docs/map.md).
+    // up and four bays drowned into it (docs/map.md).
     const now = `${JSON.stringify(recordSpTrace({ streetCrime: true }))}\n`;
     const hash = createHash('sha256').update(now).digest('hex');
     console.log(`[mpsim-010] streetCrime trace sha256 ${hash}`);
-    expect(hash).toBe('f0f767369302d1c9a49704686b1eac8499ea3539248744bae87bff45317ea8c5');
+    expect(hash).toBe('b3f46d56a94929653e2b53c55e971365f33174b723252ebbe9cb62a0397857cb');
   }, 120_000);
 });
