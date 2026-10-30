@@ -135,11 +135,6 @@ export class PhoneLog {
   }
 }
 
-/** What a contact says on the phone about work they have (or have not). */
-export function offerLine(c: ContactDef, def: MissionDef | undefined): string {
-  return def ? `I've got work for you: "${def.title}". Come see me, ${c.mapLabel} on your radar.` : "Nothing for you right now. I'll call you.";
-}
-
 export interface CallState {
   contact: ContactDef;
   mission: MissionDef;

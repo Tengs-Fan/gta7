@@ -47,7 +47,8 @@ describe('manifest', () => {
       expect(typeof e.license, e.id).toBe('string');
       expect(statSync(join(ROOT, e.file)).size, `${e.id} bytes`).toBe(e.bytes);
     }
-    const files = filesUnder(ROOT).filter((f) => f !== 'manifest.json').sort();
+    // speech/ is the speech build's, checked by speech.test.ts.
+    const files = filesUnder(ROOT).filter((f) => f !== 'manifest.json' && !f.startsWith('speech/')).sort();
     expect(files).toEqual(manifest.entries.map((e) => e.file).sort());
     console.log(`manifest check: ${manifest.entries.length} entries, ${files.length} files`);
   });

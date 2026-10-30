@@ -12,7 +12,7 @@ export const DISPATCH_GAP = 6;
 /** A line still waiting for its turn after this many seconds is stale and dropped. */
 export const DISPATCH_MAX_WAIT = 4;
 
-const CRIME_PHRASES: Readonly<Record<CrimeType, string>> = {
+export const CRIME_PHRASES: Readonly<Record<CrimeType, string>> = {
   carjack: 'a carjacking',
   stealPoliceCar: 'a stolen police cruiser',
   hitPed: 'a hit-and-run',
@@ -29,7 +29,7 @@ const CRIME_PHRASES: Readonly<Record<CrimeType, string>> = {
 };
 
 /** Colour names for suspect vehicles: the nearest of these reference colours. */
-const COLOUR_NAMES: ReadonlyArray<readonly [string, number]> = [
+export const COLOUR_NAMES: ReadonlyArray<readonly [string, number]> = [
   ['red', 0xaa2d26],
   ['blue', 0x2a5db0],
   ['green', 0x2e8b3a],
@@ -60,7 +60,7 @@ export function colourName(color: number): string {
   return best;
 }
 
-const COMPASS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'] as const;
+export const COMPASS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'] as const;
 
 /** Compass point of a direction on the map (+X east, +Z south). */
 export function compassName(dx: number, dz: number): string {
