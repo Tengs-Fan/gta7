@@ -323,6 +323,37 @@ describe('talk station', () => {
     expect(most.at(-1)).toBeGreaterThan(0);
   });
 
+  it('reads a desk: a three-bell sting, then its clips one after another from DESK_LEAD, over the bed', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) }));
+    const ctx = new FContext();
+    const voices: number[] = [];
+    const source = ctx.createBufferSource.bind(ctx);
+    ctx.createBufferSource = () => {
+      const n = source();
+      const start = n.start.bind(n);
+      n.start = (t = 0, offset = 0) => {
+        voices.push(t);
+        start(t, offset);
+      };
+      return n;
+    };
+    const show = new TalkShow(ctx as unknown as BaseAudioContext, ctx.createGain() as unknown as AudioNode, ctx.createBuffer(1, 16000) as AudioBuffer);
+    const p = new TalkProgramme(4);
+    p.at(300);
+    const clips = SPEECH.talk.azura.news.slice(0, 3);
+    const desk = p.splice(p.segments.findIndex((s) => s.kind === 'gap'), clips);
+    const t0 = ctx.currentTime;
+    show.update(desk, t0, AZURA_FORMAT);
+    await new Promise((r) => setTimeout(r, 0));
+    const len = (i: number) => SPEECH.clips[clips[i]!]!;
+    const at = [t0 + DESK_LEAD, t0 + DESK_LEAD + len(0) + DESK_PAUSE, t0 + DESK_LEAD + len(0) + len(1) + 2 * DESK_PAUSE];
+    expect(voices.length).toBe(3);
+    voices.forEach((t, i) => expect(t).toBeCloseTo(at[i]!, 9));
+    // Three bells of two partials each, and the pad's three voices.
+    expect(ctx.nodes.filter((n) => n.kind === 'oscillator' && n.started).length).toBe(3 * 2 + 3);
+    expect(show.segment).toBe(desk);
+  });
+
   it("airs an ad campaign one part a break, in order, on every station that carries it: Morty Fenwick's four", () => {
     expect(SPEECH.adSeries['talk-ad-lawyer']).toHaveLength(4);
     for (const st of STATIONS.filter((s) => s.talk)) {
