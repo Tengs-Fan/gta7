@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { formatTime, smoothstep } from '../core/math';
 import { SEABED_Y, WATER_Y } from '../world/constants';
 import { BEAM_OVERRUN, CAR_GAP, CAR_HEIGHT, CAR_LENGTH, CAR_WIDTH, nextDeparture, PLATFORM_SLAB, TOWER_H, TRAIN_DWELL, TRAIN_LENGTH, trainAt, type Monorail, type MonorailStation } from '../world/monorail';
+import type { Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { GeoBuilder, type RGB } from './geo';
 import { groundSurface } from './textures';
@@ -184,12 +185,12 @@ export class MonorailView {
   /** A station: platform and walkway slabs, the canopy on its posts, railings, the tower with its doors and glazing. */
   private buildStation(m: Monorail, s: MonorailStation, g: GeoBuilder, steel: GeoBuilder, lit: GeoBuilder, glass: GeoBuilder): void {
     const y = m.beamY;
-    const [plat, walk] = s.platform as [typeof s.tower, typeof s.tower];
+    const [plat, walk] = s.platform as [Rect, Rect];
     const edge = s.side > 0 ? plat.minX : plat.maxX;
     const outer = s.side > 0 ? plat.maxX : plat.minX;
     for (const r of s.platform) box(g, r.minX, y - PLATFORM_SLAB, r.minZ, r.maxX, y, r.maxZ, BEAM, true);
     // The yellow line along the platform's edge.
-    box(g, edge + s.side * 0.15, y, plat.minZ + 0.3, edge + s.side * 0.45, y + 0.012, plat.maxZ - 0.3, SAFETY);
+    box(g, edge + s.side * 0.15, y, plat.minZ + 0.3, edge + s.side * 0.45, y + 0.03, plat.maxZ - 0.3, SAFETY);
     // The canopy, reaching out over the gap to the train, on posts along the outer edge; its light strip under it.
     const cy = y + CANOPY_Y;
     box(steel, edge - s.side * 0.6, cy, plat.minZ, outer + s.side * 0.3, cy + 0.18, plat.maxZ, WHITE, true);
