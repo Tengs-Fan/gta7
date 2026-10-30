@@ -2,6 +2,7 @@
 // corn maze, the cover rule, the barn, the pumpkins and the epitaphs (src/sim/farm.ts, src/sim/epitaphs.ts).
 
 import { describe, expect, it } from 'vitest';
+import { bellTolls, whisperDue } from '../../src/audio/ambience';
 import { completionRows } from '../../src/sim/completion';
 import { EPITAPHS, epitaphsRead } from '../../src/sim/epitaphs';
 import { farmState, hollister, HOLLISTER_FAR, HOLLISTER_NEAR, PUMPKIN_COUNT, PUMPKIN_REWARD } from '../../src/sim/farm';
@@ -310,5 +311,28 @@ describe('the cemetery', () => {
     applyExt(next, parseExt(JSON.parse(JSON.stringify(serializeExt(sim)))));
     expect([...epitaphsRead(next.progress)]).toEqual([k]);
     expect(next.interactions.markers.find((m) => m.ref === String(k) && m.kind === 'epitaph')!.id).toBe(`epitaph:${k}:read`);
+  });
+});
+
+describe('the cemetery after dark and at noon', () => {
+  it('tolls the bell when the clock runs past noon or midnight, not on a jump of the clock', () => {
+    expect(bellTolls(11.99, 12.01)).toBe(true);
+    expect(bellTolls(23.995, 0.002)).toBe(true);
+    expect(bellTolls(12.01, 12.03)).toBe(false);
+    expect(bellTolls(5, 5.02)).toBe(false);
+    // A new game, a load or a cheat setting the clock.
+    expect(bellTolls(15.5, 12)).toBe(false);
+    expect(bellTolls(23, 3)).toBe(false);
+    expect(bellTolls(NaN, 12)).toBe(false);
+  });
+
+  it('whispers by the Bramble crypt between 03:00 and 03:15, within 6 m', () => {
+    const crypt = cemeteryOf(world()).anchors.mausoleums.find((m) => m.family === 'BRAMBLE')!;
+    const door = cemeteryOf(world()).anchors.crypt;
+    expect(Math.abs(door.x - rectCX(crypt.rect))).toBeLessThan(0.01);
+    expect(whisperDue(3.1, 4)).toBe(true);
+    expect(whisperDue(2.95, 4)).toBe(false);
+    expect(whisperDue(3.3, 4)).toBe(false);
+    expect(whisperDue(3.1, 7)).toBe(false);
   });
 });
