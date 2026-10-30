@@ -135,8 +135,8 @@ const COMBS: readonly (readonly [number, number])[] = [
 ];
 
 /** The AM band: two high-passes and two low-passes (24 dB per octave each side), and a faint hiss (about -67 dBFS, 40 dB under the voice). */
-const AM_LOW = 150;
-const AM_HIGH = 4500;
+export const AM_LOW = 150;
+export const AM_HIGH = 4500;
 const HISS_LEVEL = 0.0016;
 
 export class Radio {
