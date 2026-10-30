@@ -355,6 +355,7 @@ function quitRig(sim: Sim) {
     pendingAutosave: false,
     unsub: [] as Array<() => void>,
     hud: { toast: vi.fn(), setVisible: vi.fn() },
+    exportList: { update: vi.fn() },
     audio: { setPaused: vi.fn(), attach: vi.fn() },
     renderer: { attach: vi.fn(), cameraCtl: { mode: 'play' } },
     canvas: { classList: { remove: vi.fn() } },

@@ -37,7 +37,7 @@ afterEach(() => {
 /** Presses and releases a number-row key, and polls one frame. */
 function tap(n: number): number {
   const code = `Digit${n}`;
-  win.dispatchEvent(Object.assign(new Event('keydown'), { code, key: String(n), repeat: false }));
+  win.dispatchEvent(Object.assign(new Event('keydown'), { code, key: String(n), repeat: false, getModifierState: () => false }));
   const fi = inp.poll(1 / 60);
   inp.endFrame();
   win.dispatchEvent(Object.assign(new Event('keyup'), { code, key: String(n) }));

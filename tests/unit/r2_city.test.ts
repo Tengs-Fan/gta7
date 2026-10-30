@@ -60,6 +60,7 @@ vi.mock('three', async (importOriginal) => {
     readonly domElement: unknown;
     readonly info = { autoReset: true, reset: () => {}, render: { calls: 0, triangles: 0 }, programs: [] as unknown[], memory: { geometries: 0, textures: 0 } };
     readonly shadowMap = { enabled: false, type: 0 };
+    readonly capabilities = { getMaxAnisotropy: () => 16 };
     // What CubeCamera.update and PMREMGenerator.fromCubemap touch (rendering itself is a no-op).
     readonly xr = { enabled: false };
     readonly coordinateSystem = actual.WebGLCoordinateSystem;
@@ -69,7 +70,7 @@ vi.mock('three', async (importOriginal) => {
     toneMappingExposure = 1;
     private target: unknown = null;
     constructor(params: { canvas?: unknown } = {}) {
-      this.domElement = params.canvas;
+      this.domElement = params.canvas ?? new EventTarget();
     }
     setPixelRatio(): void {}
     setSize(): void {}

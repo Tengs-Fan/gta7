@@ -16,6 +16,7 @@ import { makeSim } from './helpers';
 function ev(type: string, props: Record<string, unknown> = {}): Event {
   const e = new Event(type, { cancelable: true });
   for (const [k, v] of Object.entries(props)) Object.defineProperty(e, k, { value: v });
+  if (type.startsWith('key') && !('getModifierState' in props)) Object.defineProperty(e, 'getModifierState', { value: () => false });
   return e;
 }
 

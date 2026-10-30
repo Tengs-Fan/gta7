@@ -88,13 +88,16 @@ function recordingContext(calls: Call[]): unknown {
 
 const VOID_TAGS = new Set(['br', 'hr', 'img', 'input', 'meta']);
 
+/** A WebGL 2 context for the GPU probe: every extension present, an unnamed GPU. */
+const FAKE_GL2: unknown = { RENDERER: 0x1f01, getExtension: () => ({ loseContext: () => undefined }), getParameter: () => '' };
+
 class FakeElement extends EventTarget {
   readonly tagName: string;
   children: FakeElement[] = [];
   parent: FakeElement | null = null;
   readonly classList = new FakeClassList();
   readonly dataset: Record<string, string> = {};
-  readonly style: Record<string, string> = {};
+  readonly style: Record<string, string> = Object.defineProperty({}, 'setProperty', { value: () => undefined, writable: true });
   readonly attrs: Record<string, string> = {};
   disabled = false;
   checked = false;
@@ -169,7 +172,8 @@ class FakeElement extends EventTarget {
   querySelectorAll(sel: string): FakeElement[] {
     return this.all().filter((e) => (sel === '[data-el]' ? 'el' in e.dataset : e.tagName === sel.toUpperCase()));
   }
-  getContext(): unknown {
+  getContext(kind?: string): unknown {
+    if (kind === 'webgl2') return FAKE_GL2;
     this.ctx ??= recordingContext(this.calls);
     return this.ctx;
   }
@@ -447,6 +451,7 @@ afterEach(() => {
 function ev(type: string, props: Record<string, unknown> = {}): Event {
   const e = new Event(type, { cancelable: true });
   for (const [k, v] of Object.entries(props)) Object.defineProperty(e, k, { value: v });
+  if (type.startsWith('key') && !('getModifierState' in props)) Object.defineProperty(e, 'getModifierState', { value: () => false });
   return e;
 }
 

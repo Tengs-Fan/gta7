@@ -75,13 +75,16 @@ const ctx2d: unknown = new Proxy({} as Record<string | symbol, unknown>, {
 
 const VOID_TAGS = new Set(['br', 'hr', 'img', 'input', 'meta']);
 
+/** A WebGL 2 context for the GPU probe: every extension present, an unnamed GPU. */
+const FAKE_GL2: unknown = { RENDERER: 0x1f01, getExtension: () => ({ loseContext: () => undefined }), getParameter: () => '' };
+
 class FakeElement extends EventTarget {
   readonly tagName: string;
   children: FakeElement[] = [];
   parent: FakeElement | null = null;
   readonly classList = new FakeClassList();
   readonly dataset: Record<string, string> = {};
-  readonly style: Record<string, string> = {};
+  readonly style: Record<string, string> = Object.defineProperty({}, 'setProperty', { value: () => undefined, writable: true });
   readonly attrs: Record<string, string> = {};
   disabled = false;
   checked = false;
@@ -152,8 +155,8 @@ class FakeElement extends EventTarget {
   querySelectorAll(sel: string): FakeElement[] {
     return this.all().filter((e) => (sel === '[data-el]' ? 'el' in e.dataset : e.tagName === sel.toUpperCase()));
   }
-  getContext(): unknown {
-    return ctx2d;
+  getContext(kind?: string): unknown {
+    return kind === 'webgl2' ? FAKE_GL2 : ctx2d;
   }
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
     return { left: 0, top: 0, width: this.width, height: this.height };
@@ -274,6 +277,7 @@ afterEach(() => {
 function ev(type: string, props: Record<string, unknown> = {}): Event {
   const e = new Event(type, { cancelable: true });
   for (const [k, v] of Object.entries(props)) Object.defineProperty(e, k, { value: v });
+  if (type.startsWith('key') && !('getModifierState' in props)) Object.defineProperty(e, 'getModifierState', { value: () => false });
   return e;
 }
 

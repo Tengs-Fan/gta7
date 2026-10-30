@@ -6,7 +6,7 @@ export function installCanvasStubs(): void {
     const store: Record<string | symbol, unknown> = {
       getImageData: (_x: number, _y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
       createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
-      measureText: () => ({ width: 100 }),
+      measureText: () => ({ width: 100, actualBoundingBoxLeft: 50, actualBoundingBoxRight: 50, actualBoundingBoxAscent: 30, actualBoundingBoxDescent: 8 }),
       createLinearGradient: () => ({ addColorStop: () => {} }),
       createRadialGradient: () => ({ addColorStop: () => {} }),
     };
