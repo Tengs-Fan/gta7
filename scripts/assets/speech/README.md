@@ -5,10 +5,11 @@ The voices are [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) v1.0 (Apa
 
 | File | Role |
 | --- | --- |
-| `script.ts` | The cast (a Kokoro voice per role), the talk station's programme (Chet Bramble's monologues, callers, the newsdesk, traffic, ads and idents) and the shouts of people, officers and gangs. |
+| `script.ts` | The cast (a Kokoro voice or blend per role), AZURA TALK's programme (Chet Bramble's monologues, callers, the newsdesk, traffic and idents), the ads of every talk station and the shouts of people, officers and gangs. |
+| `shows/` | The other talk shows, one file each (`bowl.ts`: THE BOWL 1090 AM), collected in `shows/index.ts`: their pieces, their own ads and their idents. |
 | `dialogue.ts` | Reads the mission dialogue from `src/sim/missions/*.ts`: every `m.say(SPEAKER, …)` and `[SPEAKER, …]` intro line, both branches of a ternary, template literals evaluated against the generated city. Adds the phone's offer and busy lines. |
 | `phrases.ts` | The police dispatcher's phrases, from `src/sim/dispatch.ts`'s tables, the vehicle names and the city's zone names. The scanner joins them, longest match first. |
-| `build.ts` | Renders new lines (`render.py`), trims, band-limits the callers and the Skycopter to a phone line, levels every clip to the same loudness, encodes with ffmpeg, writes the index and removes clips nobody uses. |
+| `build.ts` | Renders new lines (`render.py`), trims, band-limits the callers and the Skycopter to a phone line, levels every clip to the same loudness, encodes with ffmpeg, writes the index (each show's pools and the ad campaigns) and removes clips nobody uses. |
 | `render.py` | Kokoro, one WAV per line, cached by voice, speed and text in `~/.cache/gta7-speech` (`GTA7_SPEECH_CACHE` overrides), so a rerun renders only what changed. |
 | `check.py` | Transcribes every clip with Whisper and reports the word error rate per kind of clip and the clips above 20 %. |
 
@@ -26,14 +27,22 @@ npm run speech                                                   # GTA7_TTS_PYTH
 
 The model downloads from Hugging Face on first use. A CUDA GPU renders the whole set in a few minutes; a CPU works too, more slowly.
 
+## Talk pieces
+
+A piece is one clip: its lines in order, with a short pause between them.
+`show` names the talk show it belongs to (AZURA TALK's by default); an ad lists in `shows` every show whose breaks may play it.
+An ad campaign is a `series` of pieces with a `part` each, from 1: the ad pools hold its first part, and each time a programme draws it, the next part airs.
+A line may carry options as its third element: `{ speed: 1.5 }` for fine print read fast (an ad's lines are otherwise read at 1.05), `{ phone: true }` for a role down a phone line just this once, `{ phone: false }` for a caller who is in the room.
+A cast entry such as `'am_onyx,am_fenrir'` is a blend: Kokoro averages the voices, and the first one sets the language.
+
 ## When to rerun
 
-After changing a line of mission dialogue, a contact's name, a mission title, a vehicle name, a zone, a dispatch line or anything in `script.ts`.
+After changing a line of mission dialogue, a contact's name, a mission title, a vehicle name, a zone, a dispatch line or anything in `script.ts` or `shows/`.
 `tests/unit/speech.test.ts` fails until every line the game can say has its clip, and the index lists exactly the files on disk.
 A new mission speaker needs a role in `SPEAKERS` (`script.ts`); a mission template literal that uses something besides `sim`, `spots` and the file's exports needs it added to `SCOPES` (`dialogue.ts`).
 
 ## Output
 
-- `dlg-<role>-<hash>`: a line of dialogue; `dsp-<words>`: a dispatch phrase; `talk-<piece>`: a talk station piece; `bark-<kind>-<voice>-<n>`: a shout.
+- `dlg-<role>-<hash>`: a line of dialogue; `dsp-<words>`: a dispatch phrase; `talk-<piece>`: a talk station piece (THE BOWL's are `talk-bowl-…`); `bark-<kind>-<voice>-<n>`: a shout.
 - Every clip is levelled to -20 dBFS RMS over its voiced samples, peaks under -1 dBFS.
 - The same input on the same machine gives the same bytes (ffmpeg runs with bitexact flags); Kokoro on another GPU or on a CPU may differ in the last bits.
