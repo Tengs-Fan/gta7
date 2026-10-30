@@ -64,7 +64,7 @@ export function daypart(hours: number): Daypart {
   return h < 5 ? 'tonight' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 21 ? 'evening' : 'tonight';
 }
 
-export const OPENERS: readonly string[] = ['Breaking news from the Azura Newsdesk.', 'This just in.', 'News just in to the Azura Newsdesk.'];
+export const OPENERS: readonly string[] = ['Breaking news from the Azura Newsdesk.', 'This just in.', 'News just in at the Azura Newsdesk.'];
 
 /** A story's second airing opens on it by name: the story of today, or of yesterday when the day has turned since. */
 export const AGAIN: Readonly<Record<'chase' | 'sunk' | 'fire' | 'mission', { today: string; yesterday: string }>> = {
@@ -92,7 +92,7 @@ export const PLACED = {
   ended: (zone: string) => `It ended ${ZONE_PREP[zone]!}.`,
   stayed: (zone: string) => `It never left ${place(zone)}.`,
   sunk: (zone: string) => `A car went into the water ${ZONE_PREP[zone]!}.`,
-  fire: (zone: string) => `Fire crews were called ${ZONE_PREP[zone]!}.`,
+  fire: (zone: string) => `Fire crews were called to a blaze ${ZONE_PREP[zone]!}.`,
 };
 
 export const HELI_DOWN = 'The police helicopter did not make it home.';

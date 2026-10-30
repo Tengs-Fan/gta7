@@ -48,7 +48,7 @@ export const MISSION_NEWS: Readonly<Record<string, { breaking: readonly string[]
     breaking: ['A Thunderhoof was clocked at twice the speed limit through three neighborhoods today, stopping only to pick up envelopes.', 'Police believe the driver works for the post office, and they are filing a complaint.'],
   },
   last_call: {
-    breaking: ['An SAPD sergeant has left the country.', 'The department says there was never a ledger, and please stop asking about the ledger.'],
+    breaking: ['A San Azura police sergeant has left the country.', 'The department says there was never a ledger, and please stop asking about the ledger.'],
     followUp: ['The sergeant who left the country has sent the department a postcard.', 'It says, wish you were here, but not really.'],
   },
 };
