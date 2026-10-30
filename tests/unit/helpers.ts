@@ -2,6 +2,7 @@ import type { V3 } from '../../src/core/math';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import { neutralInput, type PlayerInput } from '../../src/sim/input';
 import { Sim, type SimOptions } from '../../src/sim/sim';
+import type { Lane, RoadNetwork } from '../../src/world/roads';
 import { StaticWorld } from '../../src/world/staticWorld';
 
 let shared: StaticWorld | null = null;
@@ -71,8 +72,33 @@ export function teleport(sim: Sim, x: number, z: number): void {
 }
 
 /** A point in the middle of a long straight lane, with its heading. */
+/**
+ * The lane that was roads.lanes[id] in the square city, before road segments could be missing (docs/map.md): the
+ * fixtures that name lanes by number keep their places whatever the map closes elsewhere. That order was the
+ * junctions by id, each one's directions N, E, S, W, and each direction's lanes from the centre line out.
+ */
+export function legacyLane(sim: { roads: RoadNetwork }, id: number): Lane {
+  const roads = sim.roads;
+  const { n, vLines, hLines } = roads.layout;
+  const step = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const;
+  let k = 0;
+  for (let j = 0; j <= n; j++) {
+    for (let i = 0; i <= n; i++) {
+      for (let d = 0; d < 4; d++) {
+        const ni = i + step[d]![0];
+        const nj = j + step[d]![1];
+        if (ni < 0 || ni > n || nj < 0 || nj > n) continue;
+        const lanes = (d % 2 === 0 ? vLines[i]! : hLines[j]!).lanes;
+        if (id < k + lanes) return roads.lanesBetween(roads.id(i, j), roads.id(ni, nj))[id - k]!;
+        k += lanes;
+      }
+    }
+  }
+  throw new Error(`No lane ${id} in the square city`);
+}
+
 export function roadPoint(sim: Sim, laneIndex = 40, s = 20): { x: number; z: number; heading: number; lane: ReturnType<Sim['roads']['nearestLane']>['lane'] } {
-  const lane = sim.roads.lanes[laneIndex]!;
+  const lane = legacyLane(sim, laneIndex);
   return { x: lane.sx + lane.dx * s, z: lane.sz + lane.dz * s, heading: lane.heading, lane };
 }
 

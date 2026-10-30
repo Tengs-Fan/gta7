@@ -1,9 +1,10 @@
 // Pedestrian navigation graph: a walking loop around every block, an outer
-// loop along the promenade, and crosswalk edges at every intersection.
+// loop along the promenade (broken where the sea comes in), crosswalk edges at
+// every intersection, and the path out along Azura Point.
 
 import type { Rng } from '../core/rng';
 import { PED_INSET } from './constants';
-import type { CityLayout } from './layout';
+import { rectContains, rectCX, waterAt, type CityLayout } from './layout';
 import type { Axis, RoadNetwork } from './roads';
 
 export interface WalkEdge {
@@ -48,10 +49,11 @@ export class SidewalkGraph {
     const east = b.cityMaxX + I;
     const north = b.cityMinZ - I;
     const south = b.cityMaxZ + I;
-    this.addNode(west, north);
-    this.addNode(east, north);
-    this.addNode(east, south);
-    this.addNode(west, south);
+    for (const [x, z] of [[west, north], [east, north], [east, south], [west, south]] as const) if (!waterAt(layout, x, z)) this.addNode(x, z);
+    // The path out to the lighthouse leaves the promenade loop here.
+    const point = layout.headlands.find((h) => h.name === 'Azura Point');
+    const pointX = point ? rectCX(point.rects[1]!) : 0;
+    const pointFoot = point ? this.addNode(pointX, north) : -1;
 
     for (const node of roads.nodes) {
       for (let d = 0; d < 4; d++) {
@@ -80,6 +82,10 @@ export class SidewalkGraph {
         const c = this.addNode(bx, bz);
         this.link(a, c, true, axis, node.id);
       }
+      // A junction over the water is a bridge: its footways join the sidewalks either side of it.
+      if (node.degree > 0 && waterAt(layout, node.x, node.z)) {
+        for (const z of [node.z - node.halfZ - I, node.z + node.halfZ + I]) this.link(this.addNode(node.x - node.halfX - I, z), this.addNode(node.x + node.halfX + I, z));
+      }
     }
 
     // Connect consecutive nodes along the four promenade lines.
@@ -92,8 +98,26 @@ export class SidewalkGraph {
     ];
     for (const line of lines) {
       const list = this.nodes.filter(line.pick).sort((p, q) => line.key(p) - line.key(q));
-      for (let i = 1; i < list.length; i++) this.link(list[i - 1]!.id, list[i]!.id);
+      for (let i = 1; i < list.length; i++) if (!this.crossesWater(layout, list[i - 1]!, list[i]!)) this.link(list[i - 1]!.id, list[i]!.id);
     }
+    if (point) {
+      const tip = point.rects[1]!;
+      const neck = this.addNode(pointX, b.landMinZ);
+      const end = this.addNode(pointX, tip.minZ + 24);
+      this.link(pointFoot, neck);
+      this.link(neck, end);
+    }
+  }
+
+  /** Whether a straight walk from a to b would step into the sea (a bridge's footway keeps it dry). */
+  private crossesWater(layout: CityLayout, a: WalkNode, b: WalkNode): boolean {
+    const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 2);
+    for (let k = 0; k <= steps; k++) {
+      const x = a.x + ((b.x - a.x) * k) / steps;
+      const z = a.z + ((b.z - a.z) * k) / steps;
+      if (waterAt(layout, x, z) && !layout.decks.some((d) => rectContains(d.rect, x, z))) return true;
+    }
+    return false;
   }
 
   private addNode(x: number, z: number): number {

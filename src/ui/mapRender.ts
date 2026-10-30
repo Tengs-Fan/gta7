@@ -51,19 +51,22 @@ export class MapImage {
     g.addColorStop(1, '#16384f');
     ctx.fillStyle = g;
     ctx.fillRect(X(shoreX), Z(b.landMinZ), (b.beachEndX - shoreX) * MAP_SCALE, (b.landMaxZ - b.landMinZ) * MAP_SCALE);
+    // Headlands, and the sea where it comes into the land.
+    for (const h of world.layout.headlands) for (const r of h.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#3b4249');
+    for (const w of world.layout.water) for (const r of w.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#1a4560');
     // Blocks and ground.
     for (const blk of world.layout.blocks) rect(blk.rect.minX, blk.rect.minZ, blk.rect.maxX, blk.rect.maxZ, '#2c3238');
     const gc: Record<string, string> = { grass: '#2f6a3a', yard: '#35603a', plaza: '#3c4147', parking: '#33373c', dirt: '#4a4438' };
     for (const gp of world.layout.ground) rect(gp.rect.minX, gp.rect.minZ, gp.rect.maxX, gp.rect.maxZ, gc[gp.kind] ?? '#333');
     // Roads.
     for (const s of world.roads.segments) rect(s.minX, s.minZ, s.maxX, s.maxZ, '#9aa1aa');
-    for (const n of world.roads.nodes) rect(n.x - n.halfX, n.z - n.halfZ, n.x + n.halfX, n.z + n.halfZ, '#9aa1aa');
+    for (const n of world.roads.live) rect(n.x - n.halfX, n.z - n.halfZ, n.x + n.halfX, n.z + n.halfZ, '#9aa1aa');
     // Buildings.
     for (const bd of world.layout.buildings) {
       const tall = bd.height > 40;
       rect(bd.rect.minX, bd.rect.minZ, bd.rect.maxX, bd.rect.maxZ, tall ? '#1d2228' : '#22282e');
     }
-    for (const d of world.layout.decks) rect(d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ, '#7b5a3a');
+    for (const d of world.layout.decks) rect(d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ, d.bridge ? '#9aa1aa' : '#7b5a3a');
     this.turf = document.createElement('canvas');
     this.turf.width = w;
     this.turf.height = h;

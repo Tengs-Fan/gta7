@@ -182,7 +182,9 @@ describe('PBR ground with the asset library (VAL-GND-001, 003, 004)', () => {
       const blk = W.layout.blocks.find((b) => b.rect.minX === rect[0] && b.rect.minZ === rect[1] && b.rect.maxX === rect[2] && b.rect.maxZ === rect[3]);
       const b = W.layout.bounds;
       const city4 = [b.cityMinX, b.cityMinZ, b.cityMaxX, b.cityMaxZ];
-      expect(blk !== undefined || rect.every((v, k) => v === city4[k]), `${x},${z}`).toBe(true);
+      // A quay between a coast road and the water is its own kerb rectangle, inside the cells the sea took.
+      const quay = W.layout.water.some((w) => w.area.some((r) => rect[0]! >= r.minX && rect[2]! <= r.maxX && rect[1]! >= r.minZ && rect[3]! <= r.maxZ));
+      expect(blk !== undefined || quay || rect.every((v, k) => v === city4[k]), `${x},${z}`).toBe(true);
       // Each vertex lies on the kerb rectangle's edge or within a sidewalk width of it.
       const f = Math.min(x - rect[0]!, rect[2]! - x, z - rect[1]!, rect[3]! - z);
       expect(Math.abs(f)).toBeLessThanOrEqual(SIDEWALK_W + 1e-6);
@@ -496,7 +498,8 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
   it('pilings: the shader\'s lattice is the drawn one, and every piling has foam on all four sides within 0.5 m', () => {
     const W = world();
     const r = renderer('high');
-    const decks = W.layout.decks;
+    // The canal's bridges are slabs, not piers on pilings (docs/map.md).
+    const decks = W.layout.decks.filter((d) => !d.bridge);
     expect(decks.length).toBeLessThanOrEqual(MAX_PILING_DECKS);
     decks.forEach((d, i) => expect(r.env.sea.uPilings.value[i]!.toArray()).toEqual([d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ]));
     // The pilings CityView draws.

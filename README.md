@@ -85,7 +85,9 @@ To play with friends on your network, run the optional multiplayer server (see [
 
 ## What's in the game
 
-- **A whole city.** San Azura is ten by ten blocks across seven districts (Downtown towers, Midtown, the Hillcrest suburbs, Westside, Port Azura Docks, Southgate and the Ocean Beach strip) and three parks, with the Azura Bowl stadium, Azura Pier and its Ferris wheel, the Marina, a lighthouse, and the cranes and containers of the docks.
+- **A whole city.** San Azura is a street grid across seven districts (Downtown towers, Midtown, the Hillcrest suburbs, Westside, Port Azura Docks, Southgate and the Ocean Beach strip), broken up by the sea and by big blocks (see [docs/map.md](docs/map.md)).
+  Hillcrest Cove bites into the north-west corner, Cortez Canal runs from coast to coast between Westside and Downtown under a bridge at every street, Port Basin cuts into the docks with cranes on its wharf and boats moored in it, and Azura Point reaches out into the bay with the lighthouse at its tip.
+  Hillcrest Green is a park four blocks big, Civic Plaza an open square between downtown towers, and the Azura Bowl stadium stands between its car parks; Azura Park and Southgate Square, Azura Pier and its Ferris wheel and the Marina complete it.
   Parody shopfronts (DONUTS, PAWN, TACOS, BAIL BONDS and more), tower lobbies and house porches line the streets, and lamp posts, traffic signals, fire hydrants, bins and benches break.
 - **The look.** Stylised low-poly models with PBR materials, all CC0 (see [Assets](#assets) and [Credits](#credits)).
   People are chunky toy figures built in code from rounded segments on the game's own jointed skeleton: a face, hair, caps and sunglasses, shirts with collars and jackets, police badges, and their own height, build and colours; feet are planted by the gait, and every body part is one instanced draw for the whole crowd.
@@ -112,7 +114,7 @@ To play with friends on your network, run the optional multiplayer server (see [
   The bikes lean into turns, the sport bike pulls wheelies, a hard crash throws the rider off, and bikes ride in traffic, park in the bays and can be stolen like cars.
   Boats wait at the Marina: step aboard from the pier (or climb in from the water) with F, run them on the open sea where they ride the waves; they run aground on the beach, stop at quays and piers, and leaving one puts you on the pier or in the water.
 - **On foot and in the water.** Walk, sprint and jump (long falls hurt); with your back to a wall the camera rises over your shoulder and looks down at you, aiming or not (the crosshair stays where the drawn view points; the sniper scope is still your eye). Swim in deep water: there is no drowning, but no shooting, weapon switching or getting into cars either.
-- **Street runs.** Three repeatable timed courses with a launch countdown, ordered checkpoints, turn directions, bronze/silver/gold medals, cash payouts and saved personal bests. Take the fast avenues of Magnolia Rush, the long coastal sweep of Coastline Circuit, or the tight corners of Dockside Switchback.
+- **Street runs.** Three repeatable timed courses with a launch countdown, ordered checkpoints, turn directions, bronze/silver/gold medals, cash payouts and saved personal bests. Take the fast avenues of Magnolia Rush, the long coastal sweep of Coastline Circuit, or the tight corners of Dockside Switchback, twice over the canal.
 - **Combat.** Fists, Pistol, SMG, Shotgun, Assault Rifle and Rocket Launcher, and a Baseball Bat and Combat Knife (combos: the bat floors people, the knife makes them bleed), Grenades and Molotov cocktails (hold right mouse for the throwing arc; grenades bounce and blow 3 s later, molotovs start a spreading fire that sets people and cars alight) and a Sniper Rifle (right mouse for the scope, the wheel zooms), sold at Bang Bang Guns and found around the city.
   Hip fire is quick and loose, while aiming zooms over the shoulder and tightens the spread; hit markers show hits, headshots and kills, and red arcs show where fire is coming from.
   Body armor, jab-jab-hook punch combos, drive-bys with the pistol or SMG, and explosions that throw people and cars and set off damaged or light cars nearby.
@@ -153,7 +155,7 @@ To play with friends on your network, run the optional multiplayer server (see [
     <td width="50%" valign="top"><img src="docs/screenshots/beach.jpg" alt="The player walks along Azura Pier under the Ferris wheel, with the palm-lined beach and the skyline across the water"><br>Azura Pier and its Ferris wheel, with Ocean Beach and the skyline behind.</td>
   </tr>
   <tr>
-    <td colspan="2" align="center"><img src="docs/screenshots/map.jpg" width="50%" alt="The full-screen map of San Azura with district names, Mama Lou's marker, safehouse, shops, Spray Shacks, hospital, police station, a legend and a waypoint on the pier"><br>The full-screen map, with a waypoint set on Azura Pier.</td>
+    <td colspan="2" align="center"><img src="docs/screenshots/map.jpg" width="50%" alt="The full-screen map of San Azura: Hillcrest Cove in the north-west, Cortez Canal from coast to coast, Port Basin in the docks, Azura Point and its lighthouse to the north, Hillcrest Green, Civic Plaza and the Azura Bowl, with district names, markers and a legend"><br>The full-screen map: the cove, the canal, the basin and Azura Point.</td>
   </tr>
 </table>
 
@@ -271,6 +273,7 @@ All of these are minor; the most noticeable come first.
 - A car or bus sliding slowly off the side of the pier shows part of its body poking up through the deck for a second or two as it falls in, and a car resting half inside the edge of the pier or the Marina deck can be shoved or steered about twice as deep into it, though it still drives away.
 - Near the land end of Azura Pier or the Marina deck, getting out of a car on the side that faces the edge can drop you about a meter onto the sand, where you cannot climb back up (walk round to the land end), and a wreck sunk under the deck can block getting out of a car parked above it ("No room to get out here") until you drive off.
 - Now and then a new city bus appears slightly overlapping the bus ahead of it in the same lane, usually out of sight, and both end up dented.
+- Boats cannot pass under the canal's bridges (they are decks, like the pier), so the canal is for looking at from a boat, not for sailing through.
 
 **Multiplayer (limits of this version)**
 

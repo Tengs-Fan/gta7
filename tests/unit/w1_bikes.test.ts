@@ -54,11 +54,13 @@ describe('VAL-BIKE-001: two motorbike kinds as data', () => {
       const { sim, bike } = bikeOnRoad(kind);
       expect(sim.player.vehicle?.kind).toBe(kind);
       const trace: number[] = [];
+      const x0 = bike.pos.x;
+      const z0 = bike.pos.z;
       for (let f = 0; f < 600; f++) {
         step(sim, 1 / 60, input({ throttle: f % 200 < 150 ? 1 : 0, brake: f % 200 >= 170 ? 1 : 0, steer: Math.sin(f / 50) * 0.6 }));
         trace.push(bike.pos.x, bike.pos.z, bike.heading, bike.lean, bike.wheelie);
       }
-      expect(bike.speed).toBeGreaterThan(0);
+      expect(Math.hypot(bike.pos.x - x0, bike.pos.z - z0)).toBeGreaterThan(20);
       return trace;
     };
     expect(runOnce()).toEqual(runOnce());

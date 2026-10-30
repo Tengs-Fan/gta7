@@ -49,7 +49,8 @@ function expectedHolds(roads: RoadNetwork, course: StreetRunCourse, checkpoint: 
   const want = new Map<number, Axis>();
   for (const k of [checkpoint + 1, checkpoint + 2]) {
     const id = course.nodes[k];
-    if (id !== undefined && !want.has(id)) want.set(id, incomingAxis(roads, course, id));
+    // A canal bridge has no signal to hold.
+    if (id !== undefined && roads.nodes[id]!.signal && !want.has(id)) want.set(id, incomingAxis(roads, course, id));
   }
   return want;
 }
@@ -185,7 +186,8 @@ describe('street run green wave', () => {
       const j = job(sim);
       expect(j.stage).toBe('racing');
       const want = expectedHolds(sim.roads, course, 0);
-      expect(want.size).toBe(2);
+      // Two junctions ahead, one where the first of them is a canal bridge (the Dockside Switchback).
+      expect(want.size).toBe(id === 'dockside' ? 1 : 2);
       expect(new Map(sim.roads.heldSignals)).toEqual(want);
       for (let t = 0; t <= SIGNAL_CYCLE + 1; t += 0.5) {
         expectSignals(sim.roads, want, sim.time);

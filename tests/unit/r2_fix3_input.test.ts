@@ -1086,7 +1086,8 @@ describe('a cheat code whose keys all arrive within one frame has no side effect
   it('SPAWNSPORTS leaves no pause menu open, and its S, A and W never walk the player', async () => {
     const { game, sim, frames, burst } = await playing();
     sim.cheats.godMode = true;
-    const sports = () => sim.vehicles.filter((v) => v.kind === 'sports').length;
+    // The one beside him: traffic may bring another past.
+    const sports = () => sim.vehicles.filter((v) => v.kind === 'sports' && Math.hypot(v.pos.x - sim.player.pos.x, v.pos.z - sim.player.pos.z) < 12).length;
     const before = sports();
     frames(30);
     const x = sim.player.pos.x;

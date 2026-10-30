@@ -495,11 +495,12 @@ describe('VAL-PRP-007 garages are furnished', () => {
 });
 
 describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98da7b', () => {
-  // Recorded at d98da7b (tests/unit/m3_props.test.ts hashes run against an archive of that commit).
+  // Recorded at d98da7b (tests/unit/m3_props.test.ts hashes run against an archive of that commit), re-recorded when
+  // the map was broken up (docs/map.md), which moves, adds and drops props and adds colliders.
   const D98 = {
-    props: '809e61adb1200acde43e527c9d1a3f6d03509d2e23508a5944b846215c486dae',
-    colliders: 'dcf88cbd155d519a5d088ed4c91c18580df8425fbac7f41c830c772ed60880c4',
-    envelopes: '2cfbae84a52dd1ff030ed1af50567b7114b4354c694c363295047b10c1a81591',
+    props: 'af23e8b9a5aecfab165d28f2f1f525be1251153f9950478bb3ab06a000df8794',
+    colliders: '335a1ac0a10df24c0d42eb3edf36fa71212cf816b1039dd54259ca091c4c7f9d',
+    envelopes: 'eafe2ec73254666037c220e7dbb2d40a53be9ca5f601ae20edf73fae0867eaca',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {

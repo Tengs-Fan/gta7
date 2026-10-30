@@ -59,7 +59,8 @@ export function places(world: StaticWorld): Places {
   p = {
     depots: [
       { kind: 'ambulance', name: 'San Azura General', x: hospital.x - 22.5, z: hospital.z - 7.8, heading: 0 },
-      { kind: 'firetruck', name: 'SAFD Station 1', x: police.x - 32.8, z: police.z + 27.5, heading: Math.PI / 2 },
+      // At the curb of Central Ave beside SAPD Central's door, with the westbound traffic (the station faced Cortez St before the canal took it).
+      { kind: 'firetruck', name: 'SAFD Station 1', x: police.x - 18, z: police.z + 4.2, heading: -Math.PI / 2 },
     ],
     hospitalDrop: { x: hospital.x, z: hospital.z + 6.5, heading: -Math.PI / 2, radius: 8 },
     courier: { x: bank.x - 4.2, z: bank.z - 9, heading: Math.PI, radius: 7 },

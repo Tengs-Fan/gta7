@@ -257,7 +257,7 @@ const bigScore: MissionDef = {
       pinWanted(sim, 3);
       let progress = 0;
       let wave = 0;
-      let swat = false;
+      let swat: Vehicle | null = null;
       const responders: Character[] = [];
       yield m.until((dt) => {
         const p = sim.player;
@@ -272,7 +272,8 @@ const bigScore: MissionDef = {
             const n = Math.min(2, MAX_RESPONDERS - responders.filter((c) => !c.removed && c.alive).length);
             if (n > 0) responders.push(...m.spawnResponders(bank.x, bank.z, n, 'cop'));
           }
-          if (!swat && progress >= 10) swat = !!sim.police.spawnUnit('swat', true);
+          // Another if the police recycle the first before it gets here (one placed heading away lags and goes).
+          if (progress >= 10 && (!swat || swat.removed)) swat = sim.police.spawnUnit('swat', true);
         }
         return progress >= 20;
       });

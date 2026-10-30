@@ -33,6 +33,8 @@ interface Run {
   events: string[];
   heldSeen: number;
   crewsOnFoot: number;
+  /** The most police cars about at once during the 5-star chase. */
+  policeCars: number;
   abandoned: Vehicle | null;
   /** First driver to hold the abandoned car as the vehicle it detours round, and when (sim time). */
   detour: { at: number; frame: number; driver: number } | null;
@@ -74,7 +76,7 @@ function scripted(seed: number): Run {
   sim.clock.day = rainyDay(seed);
   // The chase is about the police finding a way to the car, not about the player dying in it.
   sim.cheats.godMode = true;
-  const run: Run = { sim, events: [], heldSeen: 0, crewsOnFoot: 0, abandoned: null, detour: null, firstHeldAt: null, tow: null, gates: 0, frames: 0 };
+  const run: Run = { sim, events: [], heldSeen: 0, crewsOnFoot: 0, policeCars: 0, abandoned: null, detour: null, firstHeldAt: null, tow: null, gates: 0, frames: 0 };
   const emit = sim.events.emit.bind(sim.events);
   sim.events.emit = ((type: string, payload: unknown) => {
     run.events.push(`${run.frames} ${serialise(type, payload)}`);
@@ -112,6 +114,7 @@ function scripted(seed: number): Run {
     tick(input({ brake: 1, handbrake: true }));
     const onFoot = sim.characters.filter((c) => !c.removed && !c.vehicle && (c.role === 'cop' || c.role === 'swat')).length;
     run.crewsOnFoot = Math.max(run.crewsOnFoot, onFoot);
+    run.policeCars = Math.max(run.policeCars, sim.vehicles.filter((v) => !v.removed && v.spec.police).length);
   }
 
   // A car abandoned across the end of a lane into a junction, so that every turn off the lane passes it, with a
@@ -188,7 +191,7 @@ describe('same-seed determinism of the newer behaviour', () => {
     expect(a.heldSeen).toBeGreaterThan(0);
     expect(a.gates).toBeGreaterThan(0);
     expect(a.events.some((e) => / wanted /.test(e) && /"level":5/.test(e))).toBe(true);
-    expect(a.sim.vehicles.some((v) => v.spec.police)).toBe(true);
+    expect(a.policeCars).toBeGreaterThan(0);
     expect(a.events.some((e) => / damage /.test(e))).toBe(true);
     expect(a.crewsOnFoot).toBeGreaterThan(0);
     for (const [name, r] of [['a', a], ['b', b]] as const) {

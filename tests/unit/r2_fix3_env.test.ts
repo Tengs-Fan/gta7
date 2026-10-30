@@ -341,7 +341,8 @@ describe('marina boats', () => {
 
   it('every boat has a hull and a cabin box where the boat is drawn, and they block sight', () => {
     const W = world();
-    expect(boats().length).toBe(3);
+    // The Marina's three and Port Basin's four.
+    expect(boats().length).toBe(7);
     for (const { p, i } of boats()) {
       expect(W.propColliders[i]).toBeGreaterThanOrEqual(0);
       const mine = boatBoxes().filter((c) => c.cx > p.x - 8 && c.cx < p.x + 8 && c.cz > p.z - 8 && c.cz < p.z + 8);
@@ -447,7 +448,8 @@ describe('city and prop geometry', () => {
 
   it('a fountain basin shows its far wall and rim above the water from outside', () => {
     const fountains = world().layout.props.filter((p) => p.kind === 'fountain');
-    expect(fountains.length).toBe(3);
+    // The three parks' and Civic Plaza's.
+    expect(fountains.length).toBe(4);
     for (const f of fountains) {
       const g = props.group.children.find((o) => o instanceof THREE.Group && Math.abs(o.position.x - f.x) < 1e-6 && Math.abs(o.position.z - f.z) < 1e-6)!;
       expect(g).toBeTruthy();

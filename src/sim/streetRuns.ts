@@ -60,8 +60,8 @@ const DESIGNS: readonly CourseDesign[] = [
   },
   {
     id: 'dockside', name: 'Dockside Switchback',
-    description: 'A technical run through the docks. Brake early and link the turns.',
-    corners: [[2, 8], [5, 8], [5, 9], [3, 9], [3, 10], [2, 10], [2, 8]],
+    description: 'A technical run through the docks and twice over the canal. Brake early and link the turns.',
+    corners: [[2, 8], [5, 8], [5, 9], [4, 9], [4, 10], [2, 10], [2, 8]],
     gold: 52, silver: 66, bronze: 90, reward: 1250,
   },
 ];

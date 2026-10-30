@@ -10,6 +10,7 @@ import { neutralInput, type PlayerInput } from '../../src/sim/input';
 import type { PlayerSlot } from '../../src/sim/playerSlot';
 import { Sim } from '../../src/sim/sim';
 import { StaticWorld } from '../../src/world/staticWorld';
+import { legacyLane } from './helpers';
 
 const DT = 1 / 60;
 const UNITS_BY_LEVEL = [0, 2, 3, 4, 6, 7];
@@ -118,7 +119,7 @@ describe('witness calls end with the player who committed the crime (MP-SCR-CORE
 
 /** Rams civilian cars into one another from `rammer`'s car until a driver decides to get out and fight. */
 function angryDriver(r: Room, rammer: PlayerSlot, near: PlayerSlot) {
-  const lane = r.sim.roads.lanes[40]!;
+  const lane = legacyLane(r.sim, 40);
   put(r.sim, near, lane.sx + lane.dx * 25 + 4, lane.sz + lane.dz * 25 + 4);
   const driven = r.sim.spawnVehicle('sedan', lane.sx + lane.dx * 10, lane.sz + lane.dz * 10, lane.heading);
   r.sim.seat(rammer.character, driven, 0);

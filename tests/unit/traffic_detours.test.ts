@@ -330,13 +330,14 @@ function junctionSoak(seed: number, i: number, j: number, seconds: number) {
 }
 
 describe('gridlock round a car abandoned in a junction (VAL-TRAFFIC-001, reduced)', () => {
-  it('stays well under the old jams at (5,5) and (3,4), seeds 3 and 11', () => {
+  it('stays well under the old jams at (5,5) and (4,4), seeds 3 and 11', () => {
     // Before the detours these four runs came to 1,932 stuck car-seconds, drivers waiting at the car for minutes.
     let carSec = 0;
     let worst = 0;
     let worstHeld = 0;
     for (const seed of [3, 11]) {
-      for (const [i, j] of [[5, 5], [3, 4]] as const) {
+      // (3,4) of the old jams is a canal bridge now: its neighbour (4,4) stands in for it.
+      for (const [i, j] of [[5, 5], [4, 4]] as const) {
         const r = junctionSoak(seed, i, j, 180);
         carSec += r.carSec;
         worst = Math.max(worst, r.worst);

@@ -8,7 +8,8 @@ import type { Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import type { VehicleKind } from '../../src/sim/specs';
 import { vehicleObb } from '../../src/sim/vehiclePhysics';
-import { makeSim } from './helpers';
+import { cellBlock } from '../../src/world/layout';
+import { makeSim, teleport } from './helpers';
 
 /** Runs one parked-car streaming pass (it runs every 1.1 s). */
 const streamOnce = (sim: Sim) => sim.traffic.updateStreaming(1.2);
@@ -24,6 +25,9 @@ describe('parked cars', () => {
   it('stream into a bay only when no other vehicle stands over it, and fill it again once it is clear', () => {
     const sim = makeSim({ police: false });
     sim.traffic.density = 0;
+    // By the Azura Bowl's car parks, where bays lie thick.
+    const bowl = cellBlock(sim.world.layout, 6, 9)!.rect;
+    teleport(sim, (bowl.minX + bowl.maxX) / 2, bowl.minZ + 6);
     streamOnce(sim);
     const bays = [...sim.traffic.parkedBySpot].slice(0, 6);
     expect(bays.length).toBeGreaterThanOrEqual(6);
@@ -69,6 +73,9 @@ describe('parked cars', () => {
     // footprint test leaves them out too, as it did not at first.
     const sim = makeSim({ police: false });
     sim.traffic.density = 0;
+    // By the Azura Bowl's car parks, where bays lie thick.
+    const bowl = cellBlock(sim.world.layout, 6, 9)!.rect;
+    teleport(sim, (bowl.minX + bowl.maxX) / 2, bowl.minZ + 6);
     streamOnce(sim);
     const [index, parked] = [...sim.traffic.parkedBySpot][0]!;
     const s = sim.world.layout.parking[index]!;
@@ -90,6 +97,9 @@ describe('parked cars', () => {
     // since it decides how many cars a street scene draws.
     const sim = makeSim({ police: false });
     sim.traffic.density = 0;
+    // By the Azura Bowl's car parks, where bays lie thick.
+    const bowl = cellBlock(sim.world.layout, 6, 9)!.rect;
+    teleport(sim, (bowl.minX + bowl.maxX) / 2, bowl.minZ + 6);
     streamOnce(sim);
     const parked = [...sim.traffic.parkedBySpot.values()];
     expect(parked.length).toBeGreaterThan(5);

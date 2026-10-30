@@ -108,7 +108,8 @@ describe('route drivers reach their destination', () => {
     const f = roads.distanceField(goal);
     expect(roads.distanceField(goal)).toBe(f);
     expect(f[goal]).toBe(0);
-    for (const from of [roads.node(0, 0).id, roads.node(9, 7).id, roads.node(3, 10).id]) {
+    // (2,0): the north-west corner the roads reach, now that Hillcrest Cove has (0,0).
+    for (const from of [roads.node(2, 0).id, roads.node(9, 7).id, roads.node(3, 10).id]) {
       const route = roads.findRoute(from, goal)!;
       let len = 0;
       for (let i = 1; i < route.length; i++) len += dist(roads.nodes[route[i - 1]!]!, roads.nodes[route[i]!]!);
@@ -197,7 +198,8 @@ describe('route drivers reach their destination', () => {
 
   it('reports the driving distance left and stops counting at the destination', () => {
     const sim = new Sim({ world: world(), ambient: false, police: false });
-    const lane = sim.roads.lanes.find((l) => l.length > 60 && l.turns.length > 0)!;
+    // Into an ordinary junction (a canal bridge's straight runs 40 m).
+    const lane = sim.roads.lanes.find((l) => l.length > 60 && l.turns.some((t) => t.kind === 'straight' && t.length < 30))!;
     const next = lane.turns.find((t) => t.kind === 'straight')!.to;
     const dest = { x: next.sx + next.dx * 40, z: next.sz + next.dz * 40 };
     const car = sim.spawnVehicle('sedan', lane.sx + lane.dx * 10, lane.sz + lane.dz * 10, lane.heading);

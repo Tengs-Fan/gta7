@@ -255,8 +255,8 @@ function specialPoi(W: StaticWorld, b: Building): { side: Side; x: number; z: nu
 describe('round 2 city: layout', () => {
   it('ground floors leave the generated layout bit-identical to the base commit', () => {
     // Captured on 8788242 (round 2 base) with the same canonical JSON, re-captured when Hotel Salgado (Vera's
-    // SPECIALS row) was added; without that row the layout still hashes to 845117c784a8f32c1b1d3d2dea4648ac91e109e2c016e07e1473fc5199b3215c.
-    expect(layoutHash()).toBe('435d93c418a5948f8bfcfeec00dcc6d7f12dc736e7fe7db5b281b4b702610955');
+    // SPECIALS row) was added and when the map was broken up (docs/map.md).
+    expect(layoutHash()).toBe('5c32c15dd644ed2570cf4a9673fb9ff670f84838335b494806535dad64d8083d');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
@@ -365,7 +365,8 @@ describe('round 2 city: ground-floor geometry', () => {
       for (const t of upper) expect(t.minY, label).toBeGreaterThanOrEqual(top - 1e-3);
       checked++;
     }
-    expect(checked).toBeGreaterThan(1000);
+    // 91 blocks since the map was broken up (docs/map.md).
+    expect(checked).toBeGreaterThan(900);
   });
 
   it('hangs the big signs above the ground floor', () => {

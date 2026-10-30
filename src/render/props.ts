@@ -721,7 +721,7 @@ export class PropsView {
   }
 
   /**
-   * Where a lamp's light pool may lie: the deck its pole stands on, else the land (not the sea or the
+   * Where a lamp's light pool may lie: the deck or headland its pole stands on, else the land (not the sea or the
    * sloping beach, which lie below it). The pool is a flat sheet at the pole's foot, so past that it
    * would hang in the air.
    */
@@ -729,8 +729,22 @@ export class PropsView {
     const L = this.world.layout;
     const deck = L.decks.find((d) => rectContains(d.rect, p.x, p.z));
     if (deck) return deck.rect;
+    const head = L.headlands.flatMap((h) => h.rects).find((r) => rectContains(r, p.x, p.z));
+    if (head) return head;
     const b = L.bounds;
-    return { minX: b.landMinX, minZ: b.landMinZ, maxX: b.beachStartX, maxZ: b.landMaxZ };
+    const clip = { minX: b.landMinX, minZ: b.landMinZ, maxX: b.beachStartX, maxZ: b.landMaxZ };
+    // Short of the water beside it: the canal next to a sidewalk, a cove or basin next to a quay.
+    for (const r of L.water.flatMap((w) => w.rects)) {
+      if (p.z >= r.minZ && p.z <= r.maxZ) {
+        if (r.minX >= p.x) clip.maxX = Math.min(clip.maxX, r.minX);
+        else if (r.maxX <= p.x) clip.minX = Math.max(clip.minX, r.maxX);
+      }
+      if (p.x >= r.minX && p.x <= r.maxX) {
+        if (r.minZ >= p.z) clip.maxZ = Math.min(clip.maxZ, r.minZ);
+        else if (r.maxZ <= p.z) clip.minZ = Math.max(clip.minZ, r.maxZ);
+      }
+    }
+    return clip;
   }
 
   private buildLamps(lamps: number[]): void {

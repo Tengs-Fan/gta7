@@ -3,7 +3,7 @@
 
 import { Rng } from '../core/rng';
 import { CROSSWALK_W, LANE_W } from './constants';
-import { DIR_VECTORS, type CityLayout, type RoadLine } from './layout';
+import { DIR_VECTORS, roadFrom, type CityLayout, type RoadLine } from './layout';
 
 export type Dir = 0 | 1 | 2 | 3; // N E S W
 export type Axis = 'NS' | 'EW';
@@ -82,7 +82,10 @@ export interface RoadSegment {
 }
 
 export class RoadNetwork {
+  /** Every junction of the grid by id (j * (n + 1) + i); one with no road left (degree 0) is dead. */
   readonly nodes: RoadNode[] = [];
+  /** The junctions some road reaches. */
+  readonly live: RoadNode[] = [];
   readonly lanes: Lane[] = [];
   readonly segments: RoadSegment[] = [];
   private readonly lanesByEdge = new Map<number, Lane[]>();
@@ -101,10 +104,10 @@ export class RoadNetwork {
     for (let j = 0; j <= n; j++) {
       for (let i = 0; i <= n; i++) {
         const neighbors: [number, number, number, number] = [
-          j > 0 ? this.id(i, j - 1) : -1,
-          i < n ? this.id(i + 1, j) : -1,
-          j < n ? this.id(i, j + 1) : -1,
-          i > 0 ? this.id(i - 1, j) : -1,
+          roadFrom(layout, i, j, 0) ? this.id(i, j - 1) : -1,
+          roadFrom(layout, i, j, 1) ? this.id(i + 1, j) : -1,
+          roadFrom(layout, i, j, 2) ? this.id(i, j + 1) : -1,
+          roadFrom(layout, i, j, 3) ? this.id(i - 1, j) : -1,
         ];
         const degree = neighbors.filter((v) => v >= 0).length;
         this.nodes.push({
@@ -122,6 +125,7 @@ export class RoadNetwork {
         });
       }
     }
+    for (const node of this.nodes) if (node.degree > 0) this.live.push(node);
 
     // Segments (undirected) and lanes (directed).
     for (const a of this.nodes) {
@@ -285,9 +289,19 @@ export class RoadNetwork {
   }
 
   nearestNode(x: number, z: number): RoadNode {
-    const i = nearestIndex(this.layout.vLines, x);
-    const j = nearestIndex(this.layout.hLines, z);
-    return this.node(i, j);
+    const node = this.node(nearestIndex(this.layout.vLines, x), nearestIndex(this.layout.hLines, z));
+    if (node.degree > 0) return node;
+    // The nearest crossing of the lines is dead (by the sea or inside a superblock): the nearest live one.
+    let best = this.live[0]!;
+    let bd = Infinity;
+    for (const n of this.live) {
+      const d = (n.x - x) ** 2 + (n.z - z) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = n;
+      }
+    }
+    return best;
   }
 
   /**
@@ -308,8 +322,10 @@ export class RoadNetwork {
     const sh = this.lanesBetween(this.id(si, hj), this.id(si + 1, hj));
     const sh2 = this.lanesBetween(this.id(si + 1, hj), this.id(si, hj));
     candidates.push(...sh, ...sh2);
+    // No road round the point (by the sea or inside a superblock): every lane.
+    if (candidates.length === 0) candidates.push(...this.lanes);
 
-    let best: Lane = candidates[0] ?? this.lanes[0]!;
+    let best: Lane = candidates[0]!;
     let bestScore = Infinity;
     let bestS = 0;
     let bestDist = Infinity;
@@ -424,10 +440,15 @@ export class RoadNetwork {
 
   /** True if the point lies on any road surface (lanes, shoulders, intersections). */
   isOnRoad(x: number, z: number): boolean {
-    const b = this.layout.bounds;
+    const { vLines, hLines, bounds: b } = this.layout;
     if (x < b.cityMinX || x > b.cityMaxX || z < b.cityMinZ || z > b.cityMaxZ) return false;
-    for (const l of this.layout.vLines) if (Math.abs(x - l.pos) <= l.width / 2) return true;
-    for (const l of this.layout.hLines) if (Math.abs(z - l.pos) <= l.width / 2) return true;
+    const i = nearestIndex(vLines, x);
+    const j = nearestIndex(hLines, z);
+    const inV = Math.abs(x - vLines[i]!.pos) <= vLines[i]!.width / 2;
+    const inH = Math.abs(z - hLines[j]!.pos) <= hLines[j]!.width / 2;
+    if (inV && inH) return this.node(i, j).degree > 0;
+    if (inV) return roadFrom(this.layout, i, segmentIndex(hLines, z), 2);
+    if (inH) return roadFrom(this.layout, segmentIndex(vLines, x), j, 1);
     return false;
   }
 }

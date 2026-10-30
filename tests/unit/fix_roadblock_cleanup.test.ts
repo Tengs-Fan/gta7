@@ -27,8 +27,14 @@ function avenue(): { sim: Sim; car: Vehicle; rb: Roadblock; frame: (braking: boo
     const fz = Math.cos(car.heading);
     const dir = braking ? -1 : 1;
     const n = Math.hypot(1, 0.1);
+    // He keeps to his lane, aiming 15 m ahead along it, so a cruiser's shove does not put him off the road
+    // (positive steer turns right, towards a lower heading).
+    const s = (car.pos.x - lane.sx) * lane.dx + (car.pos.z - lane.sz) * lane.dz + 15;
+    const want = Math.atan2(lane.sx + lane.dx * s - car.pos.x, lane.sz + lane.dz * s - car.pos.z);
+    const err = Math.atan2(Math.sin(want - car.heading), Math.cos(want - car.heading));
+    const steer = Math.max(-1, Math.min(1, -err * 3));
     // A third-person camera; braking, the driver looks back over his shoulder.
-    const inp = input({ brake: braking ? 1 : 0, handbrake: braking, throttle });
+    const inp = input({ brake: braking ? 1 : 0, handbrake: braking, throttle, steer });
     inp.aimOrigin = { x: car.pos.x - dir * fx * 8, y: car.pos.y + 3, z: car.pos.z - dir * fz * 8 };
     inp.aimDir = { x: (dir * fx) / n, y: -0.1 / n, z: (dir * fz) / n };
     inp.cameraYaw = Math.atan2(dir * fx, dir * fz);

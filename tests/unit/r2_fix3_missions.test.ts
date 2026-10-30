@@ -11,7 +11,7 @@ import { missionSpots } from '../../src/sim/missions/spots';
 import { parseSave, serialize } from '../../src/sim/progress';
 import type { Sim, SimOptions } from '../../src/sim/sim';
 import { STAR_HEAT } from '../../src/sim/wanted';
-import { input, makeSim, placeInCar, step, teleport } from './helpers';
+import { input, makeSim, placeInCar, step, teleport, legacyLane } from './helpers';
 
 // --- helpers ------------------------------------------------------------------
 
@@ -620,7 +620,7 @@ describe('prompts at the markers', () => {
     expect(sim.interactions.current()?.ref).toBe('wheels');
     expect(sim.interactions.prompt()).toBe('Press E to start "Wheels"');
     // Nothing to say in a car away from the markers.
-    const lane = sim.roads.lanes[40]!;
+    const lane = legacyLane(sim, 40);
     const far = sim.spawnVehicle('sedan', lane.sx + lane.dx * 20, lane.sz + lane.dz * 20, lane.heading);
     placeInCar(sim, far);
     expect(sim.interactions.prompt()).toBeNull();
@@ -948,10 +948,10 @@ describe('a fare let out of a cab left across the road', () => {
     fare.pos.x = x - Math.cos(lane.heading) * 3.5;
     fare.pos.z = z + Math.sin(lane.heading) * 3.5;
     stepUntil(sim, () => fare.vehicle === taxi, 3);
-    // At his destination, 4 m to the cab's right, still sliding that way at 1.5 m/s.
-    parkIn(sim, taxi, -173, -304);
+    // At his destination, 4 m to the cab's right, still sliding that way at 1.5 m/s (northbound on Marlin St).
+    parkIn(sim, taxi, -87, -304);
     taxi.heading = Math.PI;
-    job().destX = -169;
+    job().destX = -83;
     job().destZ = -304;
     job().timer = 50;
     taxi.vel.x = 1.5;
@@ -977,9 +977,9 @@ describe('a fare let out of a cab left across the road', () => {
     fare.pos.x = x - Math.cos(lane.heading) * 3.5;
     fare.pos.z = z + Math.sin(lane.heading) * 3.5;
     stepUntil(sim, () => fare.vehicle === taxi, 3);
-    // Square across a street running east-west, backing up at 6 m/s as the fare's time runs out.
-    parkIn(sim, taxi, -418, -468.1);
-    expect(Math.abs(Math.sin(sim.roads.nearestLane(-418, -468.1).lane.heading))).toBeCloseTo(1, 3);
+    // Square across a street running east-west, backing up at 6 m/s as the fare's time runs out (the north ring road).
+    parkIn(sim, taxi, -45, -468.1);
+    expect(Math.abs(Math.sin(sim.roads.nearestLane(-45, -468.1).lane.heading))).toBeCloseTo(1, 3);
     taxi.heading = Math.PI;
     taxi.vel.z = 6;
     job().timer = 0.001;
