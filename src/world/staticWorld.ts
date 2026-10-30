@@ -7,7 +7,7 @@ import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
-import { hillSignLetters, lookoutRail, riseAt, terrainCores } from './terrain';
+import { hillSignLetters, lookoutRail, riseAt, riseRay, terrainCores } from './terrain';
 
 /**
  * The roof slab over a garage's walls, as render/city/structures.ts draws it: from the top of the walls up this
@@ -306,8 +306,9 @@ export class StaticWorld {
     for (const c of this.grid.colliders) c.broken = false;
   }
 
+  /** True when no sight-blocking collider stands between the two points and no rise (world/terrain.ts) comes between them. */
   lineOfSight(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
-    return this.grid.lineOfSight(ax, ay, az, bx, by, bz, this.scratchHit);
+    return this.grid.lineOfSight(ax, ay, az, bx, by, bz, this.scratchHit) && riseRay(this.layout.rises, ax, ay, az, bx - ax, by - ay, bz - az, 0, 1) < 0;
   }
 
   /**

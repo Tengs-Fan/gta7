@@ -2,7 +2,8 @@
 // decks and ramps. They stand only where nothing assumes flat ground (no road, sidewalk, walk node outside the Azura
 // Point path, or building footprint), so the lane graph, traffic and the AI keep their flat world. Pure data and
 // queries, no rendering: settleTerrain lays the rises into the layout last and lifts the props onto them, StaticWorld
-// adds them to baseGround and buries sight cores in them, and the renderers draw the ground, the cliffs and the sign.
+// adds them to baseGround, tests lines of sight against them (as combat does shots) and buries sight cores in them for
+// the rays that know only the collider grid, and the renderers draw the ground, the cliffs and the sign.
 
 import { CURB_H } from './constants';
 import type { CityLayout, Rect } from './layout';
@@ -71,7 +72,11 @@ export function hillRise(rises: readonly Rise[]): Rise {
 }
 
 function climbAt(r: Rise, x: number, z: number): number {
-  if (!r.within.some((q) => inRect(q, x, z))) return 0;
+  return r.within.some((q) => inRect(q, x, z)) ? climbOver(r, z) : 0;
+}
+
+/** A climb's height at z over its land. */
+function climbOver(r: Rise, z: number): number {
   const t = Math.min(1, Math.max(0, (r.cz - z) / r.rz));
   return r.height * t * t * (3 - 2 * t);
 }
@@ -93,6 +98,75 @@ export function riseTop(rises: readonly Rise[], x0: number, z0: number, x1: numb
     if (b.minX <= x1 && b.maxX >= x0 && b.minZ <= z1 && b.maxZ >= z0) top = Math.max(top, r.height);
   }
   return top;
+}
+
+/**
+ * Spacing (m along the ground) of riseRay's samples. Between two samples a straight line sags under these slopes by at
+ * most an eighth of their curvature (under 0.012 /m) times the spacing squared: 6 mm, finer than the drawn ground's own
+ * 2 m lattice.
+ */
+const RAY_STEP = 2;
+
+/**
+ * Where the ray o + t d first runs under a rise's ground (CURB_H over its height, where that is above 0), for t from t0
+ * to t1; -1 when it stays over them. Lines of sight and shots test the ground itself, which no box buried in it can
+ * follow: each rise's land is sampled every RAY_STEP m along the ground (from the cliff face, where the ray comes in
+ * through one), and the crossing taken between the last sample over the ground and the first under it.
+ */
+export function riseRay(rises: readonly Rise[], ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number): number {
+  const run = Math.hypot(dx, dz);
+  let end = t1;
+  let hit = -1;
+  for (let i = 0; i < rises.length; i++) {
+    const r = rises[i]!;
+    const b = r.bounds;
+    const xa = ox + dx * t0;
+    const xb = ox + dx * end;
+    const za = oz + dz * t0;
+    const zb = oz + dz * end;
+    if (Math.max(xa, xb) < b.minX || Math.min(xa, xb) > b.maxX || Math.max(za, zb) < b.minZ || Math.min(za, zb) > b.maxZ) continue;
+    if (r.kind === 'bell') {
+      const t = rayOver(r, b, ox, oy, oz, dx, dy, dz, t0, end, run);
+      if (t >= 0) end = hit = t;
+    } else {
+      for (const q of r.within) {
+        const t = rayOver(r, q, ox, oy, oz, dx, dy, dz, t0, end, run);
+        if (t >= 0) end = hit = t;
+      }
+    }
+  }
+  return hit;
+}
+
+/** riseRay over one rectangle of a rise's land, the ray's part over it from t0 to t1 (`run` m along the ground per unit t). */
+function rayOver(r: Rise, q: Rect, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number, run: number): number {
+  let a = t0;
+  let b = t1;
+  if (dx !== 0) {
+    const u = (q.minX - ox) / dx;
+    const v = (q.maxX - ox) / dx;
+    a = Math.max(a, Math.min(u, v));
+    b = Math.min(b, Math.max(u, v));
+  } else if (ox < q.minX || ox > q.maxX) return -1;
+  if (dz !== 0) {
+    const u = (q.minZ - oz) / dz;
+    const v = (q.maxZ - oz) / dz;
+    a = Math.max(a, Math.min(u, v));
+    b = Math.min(b, Math.max(u, v));
+  } else if (oz < q.minZ || oz > q.maxZ) return -1;
+  if (a > b) return -1;
+  const n = Math.max(1, Math.ceil(((b - a) * run) / RAY_STEP));
+  let pt = a;
+  let pf = 0;
+  for (let k = 0; k <= n; k++) {
+    const t = a + ((b - a) * k) / n;
+    const h = r.kind === 'bell' ? bellAt(r, ox + dx * t, oz + dz * t) : climbOver(r, oz + dz * t);
+    const f = oy + dy * t - CURB_H - h;
+    if (h > 0 && f < 0) return k > 0 && pf > 0 ? pt + ((t - pt) * pf) / (pf - f) : t;
+    pt = t;
+    pf = f;
+  }
+  return -1;
 }
 
 /** The hill on Hillcrest Green's fountain and the bluff over Azura Point, from the layout as generateCity built it. */
@@ -148,7 +222,7 @@ function inRect(r: Rect, x: number, z: number): boolean {
 // ---------------------------------------------------------------------------
 // Sight cores
 
-/** A box buried in a rise, solid for sight (bullets, the camera, line of sight), from y -1 up to y1. */
+/** A box buried in a rise, solid for sight, from y -1 up to y1. */
 export interface Core extends Rect {
   y1: number;
 }
@@ -156,8 +230,9 @@ export interface Core extends Rect {
 /**
  * Nested boxes buried in each rise, one every CORE_STEP m of rise from 1 m up: each the axis rectangle inscribed in
  * the contour where the rise stands CORE_COVER over its top, inset CORE_INSET. So no body, camera or free-space check
- * standing on the rise ever meets one (they ignore colliders below their feet, see CORE_INSET), while a line of sight
- * across the hill below its crest, a bullet or a blast stops inside it.
+ * standing on the rise ever meets one (they ignore colliders below their feet, see CORE_INSET), while the rays that test
+ * only the collider grid (the camera's, the police drivers' look-ahead) stop inside it. Lines of sight and shots follow
+ * the ground itself (riseRay).
  */
 export function terrainCores(rises: readonly Rise[]): Core[] {
   const out: Core[] = [];

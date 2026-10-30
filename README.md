@@ -127,7 +127,7 @@ To play with friends on your network, run the optional multiplayer server (see [
   Patrol cars, pursuit units that from two stars cut you off from ahead and shoot from their windows, SWAT Riot Vans from four stars, and a helicopter from three that loses you behind buildings and at night sees little beyond its spotlight.
   Officers arrest you when they reach you on foot while you are not running, or beside your car once it has stopped, and from two stars they shoot on sight (at any level once you attack one of them); a DISPATCH line on the HUD narrates the chase.
   From three stars the police also set up roadblocks ahead of you with spike strips; burst tyres slow you down and make the car slide.
-  To lose them, break line of sight (behind buildings, or over the crest of Hillcrest Green's hill) and get out of the red search area on the radar (or hide inside it for longer) until the evade bar fills, or pay a Spray Shack $100 a star for a respray, if the police don't see you drive in.
+  To lose them, break line of sight (behind buildings, or, from officers chasing you on foot, over the crest of Hillcrest Green's hill) and get out of the red search area on the radar (or hide inside it for longer) until the evade bar fills, or pay a Spray Shack $100 a star for a respray, if the police don't see you drive in.
   BUSTED costs bail ($100 plus $150 a star) and, from two stars, your guns; WASTED costs a hospital bill ($100 plus $100 a star) and your armor.
 - **Story.** You are Kai Navarro, just out after six years inside, and a new game opens with a call from Mama Lou.
   Twelve missions in two chapters. Chapter 1: Wheels, Hot Delivery and Repo Man for Lou, then Loose Lips, Heatwave and The Big Score for Dex Moreau, the last a raid on the First Azura Bank with a getaway to the Marina; Hot Delivery, Repo Man and Heatwave pit you against the Tiburones.
@@ -300,7 +300,6 @@ All of these are minor; the most noticeable come first.
 - If a car you left behind kills a pedestrian, either because another vehicle smashed it into them or because it was still rolling after you bailed out and died, the death can be pinned on you, with a wanted star, even when you are far away.
 - People who flee onto the narrow Marina piers walk off the side into the sea, and some stay paddling against a pier or a moored boat; on the beach beside a pier or the Marina deck a fleeing person can get boxed in and stand frozen for up to about ten seconds.
 - Stunt ramps look solid, but bullets, officers' line of sight and explosions pass straight through them.
-- A bullet fired into the slope of Hillcrest Green's hill can spark half a metre or so under the turf, where the hill's buried sight blocks stop it, rather than on the grass.
 - A molotov's fire on the steepest part of Hillcrest Green's hill spreads round the slope more than up or down it.
 - At one star, an officer who ends up in the sea while you are swimming treads water until you leave it; swimming away still loses the star.
 - Officers on a pier cannot get back to a cruiser standing in the surf beside it: while you are wanted they pace back and forth at the pier's land end, and once you are not they give up and leave the car sitting dark in the water.

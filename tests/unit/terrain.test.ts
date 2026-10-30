@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CameraController } from '../../src/render/camera';
 import { DressingRules, viewpointViolation, viewpoints } from '../../src/render/dressing';
 import { Sim } from '../../src/sim/sim';
+import { COP_SIGHT } from '../../src/sim/wanted';
 import { CURB_H, SWIM_DEPTH, WATER_Y } from '../../src/world/constants';
 import { headlandAt, mkRect, rectsOverlap, type Rect } from '../../src/world/layout';
 import { bluffRise, CORE_COVER, CORE_INSET, hillRise, hillSignLetters, lookoutRail, riseAt, riseBounds, terrainCores, type Rise } from '../../src/world/terrain';
@@ -118,19 +119,6 @@ describe('the sight cores', () => {
     }
   });
 
-  it('are solid for sight: the hill blocks a line of sight across it at head height, not over the summit', () => {
-    const head = (x: number, z: number) => W.groundHeight(x, z) + 1.6;
-    const s = park.lot.maxZ - 4;
-    const n = park.lot.minZ + 4;
-    // North to south over the crest, and west to east, from the foot of the hill on either side.
-    expect(W.lineOfSight(hill.cx + 20, head(hill.cx + 20, s), s, hill.cx + 20, head(hill.cx + 20, n), n)).toBe(false);
-    expect(W.lineOfSight(park.lot.minX + 4, head(park.lot.minX + 4, hill.cz + 20), hill.cz + 20, park.lot.maxX - 4, head(park.lot.maxX - 4, hill.cz + 20), hill.cz + 20)).toBe(false);
-    // Two people on the summit see each other, and one up there sees down the slope to the street.
-    expect(W.lineOfSight(hill.cx - 9, head(hill.cx - 9, hill.cz - 2), hill.cz - 2, hill.cx + 9, head(hill.cx + 9, hill.cz + 2), hill.cz + 2)).toBe(true);
-    const street = park.rect.maxZ + 6;
-    expect(W.lineOfSight(hill.cx, head(hill.cx, hill.cz + 9), hill.cz + 9, hill.cx, 1.2, street)).toBe(true);
-  });
-
   it('are out of reach of bodies, free-space checks and the camera on the slopes', () => {
     for (const c of cores) {
       for (let x = c.minX - CORE_INSET; x <= c.maxX + CORE_INSET; x += 2) {
@@ -142,6 +130,76 @@ describe('the sight cores', () => {
           expect(near, `${x}, ${z}`).toBe(false);
         }
       }
+    }
+  });
+});
+
+describe('sight and shots across the rises', () => {
+  /** How far (m) the segment runs over a rise's ground at its lowest, sampled every 0.25 m along the ground; Infinity off the rises. */
+  const clearance = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.25));
+    let low = Infinity;
+    for (let k = 0; k <= n; k++) {
+      const t = k / n;
+      const h = riseAt(rises, ax + (bx - ax) * t, az + (bz - az) * t);
+      if (h > 0) low = Math.min(low, ay + (by - ay) * t - CURB_H - h);
+    }
+    return low;
+  };
+
+  it('every line of sight within police range that the hill hides is blocked, and none that it leaves clear', () => {
+    // Officers on foot and the player anywhere on the park's lot, within COP_SIGHT: eyes 1.6 m and chest 1.2 m over the
+    // ground, as copWitness looks.
+    const spots: Array<[number, number]> = [];
+    for (let x = park.lot.minX + 3; x <= park.lot.maxX - 3; x += 9) for (let z = park.lot.minZ + 3; z <= park.lot.maxZ - 3; z += 9) spots.push([x, z]);
+    let hidden = 0;
+    let open = 0;
+    const wrong: string[] = [];
+    for (const [ax, az] of spots) {
+      for (const [bx, bz] of spots) {
+        if ((ax === bx && az === bz) || Math.hypot(bx - ax, bz - az) > COP_SIGHT) continue;
+        const ay = W.groundHeight(ax, az) + 1.6;
+        const by = W.groundHeight(bx, bz) + 1.2;
+        const c = clearance(ax, ay, az, bx, by, bz);
+        const seen = W.lineOfSight(ax, ay, az, bx, by, bz);
+        if (c < -0.02) {
+          hidden++;
+          if (seen) wrong.push(`seen through the hill: ${ax}, ${az} to ${bx}, ${bz}`);
+        } else if (c > 0.02 && W.grid.lineOfSight(ax, ay, az, bx, by, bz, W.scratchHit)) {
+          open++;
+          if (!seen) wrong.push(`blocked over the hill: ${ax}, ${az} to ${bx}, ${bz}`);
+        }
+      }
+    }
+    expect(wrong.slice(0, 5)).toEqual([]);
+    expect(hidden).toBeGreaterThan(3000);
+    expect(open).toBeGreaterThan(3000);
+    // Two people on the summit see each other, and one up there sees down the slope to the street.
+    const head = (x: number, z: number) => W.groundHeight(x, z) + 1.6;
+    expect(W.lineOfSight(hill.cx - 9, head(hill.cx - 9, hill.cz - 2), hill.cz - 2, hill.cx + 9, head(hill.cx + 9, hill.cz + 2), hill.cz + 2)).toBe(true);
+    expect(W.lineOfSight(hill.cx, head(hill.cx, hill.cz + 9), hill.cz + 9, hill.cx, 1.2, park.rect.maxZ + 6)).toBe(true);
+  });
+
+  it('the bluff hides its plateau from a swimmer under the cliff', () => {
+    const top = CURB_H + 10 + 1.2;
+    expect(W.lineOfSight(tip.minX - 3, WATER_Y + 1, -600, tip.minX + 10, top, -600)).toBe(false);
+    expect(W.lineOfSight(tip.minX - 40, WATER_Y + 1, -600, tip.minX + 1, top, -600)).toBe(true);
+  });
+
+  it('a shot into the slope stops on the turf, and one fired down it flies on to what it is aimed at', () => {
+    const sim = new Sim({ world: freshWorld(), ambient: false, police: false });
+    // Up Coral St from Magnolia Ave, level, into the hill's foot.
+    const oz = park.rect.maxZ + 6;
+    const r = sim.combat.castRay(50, 1.4, oz, 0, 0, -1, 250, null);
+    expect(r.kind).toBe('world');
+    expect(oz - r.t).toBeGreaterThan(park.lot.minZ);
+    expect(sim.world.groundHeight(50, oz - r.t)).toBeCloseTo(1.4, 2);
+    // Down the east slope (its steepest) at a man's chest 20 m and 30 m below: nothing stops the shot short of him.
+    for (const [sx, tx] of [[hill.cx + 20, hill.cx + 40], [hill.cx + 16, hill.cx + 46]] as const) {
+      const oy = sim.world.groundHeight(sx, hill.cz) + 1.4;
+      const ty = sim.world.groundHeight(tx, hill.cz) + 1.2;
+      const d = Math.hypot(tx - sx, ty - oy);
+      expect(sim.combat.castRay(sx, oy, hill.cz, (tx - sx) / d, (ty - oy) / d, 0, 100, null).t, `from ${sx}`).toBeGreaterThan(d);
     }
   });
 });
