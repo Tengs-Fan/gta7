@@ -330,25 +330,6 @@ describe('entering vehicles', () => {
   });
 });
 
-describe('sanitize', () => {
-  it('repairs non-finite smoothed vehicle values the renderer and audio read', () => {
-    const sim = makeSim();
-    const v = carAtPlayer(sim);
-    placeInCar(sim, v);
-    v.rpm = NaN;
-    v.steer = NaN;
-    v.climbRate = NaN;
-    v.skid = NaN;
-    v.wheelSpin = NaN;
-    v.vel.x = NaN;
-    sim.update(1 / 60, input({ throttle: 1 }));
-    for (const val of [v.rpm, v.steer, v.climbRate, v.skid, v.wheelSpin, v.speed, v.forwardSpeed]) expect(Number.isFinite(val)).toBe(true);
-    step(sim, 1, input({ throttle: 1 }));
-    expect(v.speed).toBeGreaterThan(3);
-    expect(Number.isFinite(v.rpm) && v.rpm > 0).toBe(true);
-  });
-});
-
 describe('stolen police cars', () => {
   it('getting back into a stolen cruiser is not a new theft', () => {
     const sim = makeSim();

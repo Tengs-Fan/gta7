@@ -48,7 +48,6 @@ export function installDebugApi(game: Game): void {
       return {
         mode: game.mode,
         crashed: game.isCrashed,
-        listenerErrors: game.sim.events.errors,
         fps: Math.round(game.fps * 10) / 10,
         frames: game.frames,
         menuOpen: game.menus.open,
@@ -253,7 +252,6 @@ function viewState(game: Game, view: ViewState): Record<string, unknown> {
   return {
     mode: game.mode,
     crashed: game.isCrashed,
-    listenerErrors: view.events.errors,
     fps: Math.round(game.fps * 10) / 10,
     frames: game.frames,
     menuOpen: game.menus.open,

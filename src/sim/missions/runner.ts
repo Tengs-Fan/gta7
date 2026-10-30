@@ -115,52 +115,25 @@ export class MissionCtx {
   tick(dt: number): void {
     if (this.done || this.failedReason) return;
     this.time += dt;
-    try {
-      if (!this.won && this.timer && this.sim.time >= this.timer.endsAt) {
-        this.fail(this.timer.reason);
+    if (!this.won && this.timer && this.sim.time >= this.timer.endsAt) {
+      this.fail(this.timer.reason);
+      return;
+    }
+    for (const f of this.fails) {
+      // Past the goal the checks still run, as the watches ride on them, but they fail nothing.
+      if (f.check(dt) && !this.won) {
+        this.fail(f.reason);
         return;
       }
-      for (const f of this.fails) {
-        // Past the goal the checks still run, as the watches ride on them, but they fail nothing.
-        if (f.check(dt) && !this.won) {
-          this.fail(f.reason);
-          return;
-        }
-      }
-    } catch (err) {
-      // A broken fail check must never take the game down with it either (see the script below).
-      console.error(`Mission ${this.def.id} check error`, err);
-      this.fail('Something went wrong.');
-      return;
     }
     let guard = 0;
     let waited = dt;
     for (;;) {
-      if (this.current !== null) {
-        let ready: boolean;
-        try {
-          ready = this.current(waited);
-        } catch (err) {
-          // Nor a broken wait (until, goTo's checks, a line of dialogue): the mission fails, as for the script.
-          console.error(`Mission ${this.def.id} wait error`, err);
-          this.fail('Something went wrong.');
-          return;
-        }
-        if (!ready) return;
-      }
+      if (this.current !== null && !this.current(waited)) return;
       // A wait yielded during this tick is checked right away, but it has not waited through this frame.
       waited = 0;
       if (++guard > 64) return;
-      let r: IteratorResult<Wait, void>;
-      try {
-        r = this.it.next();
-      } catch (err) {
-        // A broken script must never take the game down with it (past its goal, it ends passed all the same).
-        console.error(`Mission ${this.def.id} script error`, err);
-        if (this.won) this.done = true;
-        else this.failedReason = this.failedReason ?? 'Something went wrong.';
-        return;
-      }
+      const r = this.it.next();
       if (this.failedReason || this.done) return;
       if (r.done) {
         this.done = true;
@@ -196,11 +169,7 @@ export class MissionCtx {
     // Its dialogue ends with it: a line cut short must not run on over MISSION FAILED (or the offer card).
     if (this.line && this.time < this.line.end) this.sim.events.emit('subtitle', { speaker: '', text: '', duration: 0 });
     this.line = null;
-    try {
-      this.it.return(undefined);
-    } catch {
-      // Scripts must not throw from finally blocks; ignore if they do.
-    }
+    this.it.return(undefined);
   }
 
   // --- waiting --------------------------------------------------------------

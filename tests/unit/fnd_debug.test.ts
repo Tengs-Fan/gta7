@@ -10,7 +10,7 @@ const BASELINE_KEYS = [
   'markDone', 'poi', 'setCamera', 'samplePixels', 'place', 'spawnPedAhead', 'characterAlive',
 ];
 const BASELINE_STATE_KEYS = [
-  'mode', 'crashed', 'listenerErrors', 'fps', 'frames', 'menuOpen', 'player', 'wanted', 'money', 'mission', 'objective',
+  'mode', 'crashed', 'fps', 'frames', 'menuOpen', 'player', 'wanted', 'money', 'mission', 'objective',
   'missionsDone', 'activity', 'activityStatus', 'hours', 'vehicles', 'police', 'characters', 'deathKind', 'render', 'perf',
 ];
 

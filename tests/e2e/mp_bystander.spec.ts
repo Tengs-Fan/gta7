@@ -386,7 +386,6 @@ test.describe('multiplayer bystander (VAL-MPX-002)', () => {
     for (const p of [A, B]) {
       const s = await p.page.evaluate(() => (window as Api).__gta7.state());
       expect(s.crashed).toBe(false);
-      expect(s.listenerErrors).toBe(0);
       expect(s.render.tier).toBe('high');
       expect(appErrors(p.errors)).toEqual([]);
     }

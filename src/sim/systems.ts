@@ -11,7 +11,7 @@ export const SYSTEM_SLOTS = [
   'afterPlayers',
   /** After vehicle AI, pedestrian AI and police decisions, before physics. */
   'afterTraffic',
-  /** After the physics steps, sanitize and occupant sync. */
+  /** After the physics steps and occupant sync. */
   'afterPhysics',
   /** After combat, character timers and wanted. */
   'afterCombat',
@@ -19,7 +19,7 @@ export const SYSTEM_SLOTS = [
   'afterInteractions',
   /** After activities and missions. */
   'afterMissions',
-  /** At the very end of the update, after compaction and the final sanitize. */
+  /** At the very end of the update, after compaction. */
   'late',
 ] as const;
 
