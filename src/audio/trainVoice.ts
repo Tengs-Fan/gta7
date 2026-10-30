@@ -116,10 +116,10 @@ export class TrainVoice {
     const f = near ? dopplerFactor(m.x, nz, 0, s.dir * s.speed, ear.x, ear.z, ear.vx, ear.vz) : 1;
     this.doppler = f;
     const lv = this.levels;
-    lv.rumble = near ? (0.05 + 0.32 * k) * falloff(d, 22) : 0;
-    lv.hiss = near ? 0.1 * k * falloff(d, 10) : 0;
-    lv.whoosh = near ? (0.22 * k) / (1 + (d / 7) ** 2) : 0;
-    lv.whine = near ? 0.025 * (0.25 + k) * falloff(d, 14) : 0;
+    lv.rumble = near ? (0.06 + 0.45 * k) * falloff(d, 22) : 0;
+    lv.hiss = near ? 0.14 * k * falloff(d, 10) : 0;
+    lv.whoosh = near ? (0.32 * k) / (1 + (d / 7) ** 2) : 0;
+    lv.whine = near ? 0.035 * (0.25 + k) * falloff(d, 14) : 0;
     const g = this.glide;
     g.set(this.rumble.gain, lv.rumble, now, GLIDE);
     g.set(this.hiss.gain, lv.hiss, now, GLIDE);
