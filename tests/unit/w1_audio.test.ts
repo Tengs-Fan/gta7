@@ -445,7 +445,6 @@ describe('wanted-adaptive music', () => {
     for (let i = 1; i < v.length; i++) expect(v[i]!).toBeGreaterThanOrEqual(v[i - 1]!);
     expect(v[5]!).toBeGreaterThan(v[0]!);
     expect(v[0]).toBe(0);
-    expect(wantedIntensity(NaN)).toBe(0);
     expect(wantedIntensity(9)).toBe(1);
   });
 

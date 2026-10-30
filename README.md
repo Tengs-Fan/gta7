@@ -3,7 +3,7 @@
 An original, GTA-style open-world crime sandbox that runs entirely in the browser.
 Steal cars, cause chaos, outrun the cops, and work your way up from a broke ex-con to the top of **San Azura**, a sun-bleached fictional coastal city.
 
-Everything is generated at runtime: the city, the buildings, the cars, the people, every texture, every sound effect, three radio stations of procedural music and a talk station.
+Everything is generated at runtime: the city, the buildings, the cars, the people, every texture, every sound effect, nine radio stations of procedural music and a talk station.
 There are no downloaded images, models or audio files; the only bundled assets are two fonts.
 
 > Fan-made parody.
@@ -132,8 +132,10 @@ To play with friends on your network, run the optional multiplayer server (see [
 - **Phone.** Tab (D-pad right) opens the phone: contacts call when they have work and route your GPS to them (a call never starts a mission by itself; walk into the marker and press E), Texts keep mission rewards and payouts, and Azura Cab picks you up and drives you to your map waypoint for a small fare (refused while wanted, in a vehicle or during a mission; press F to get out early at no charge).
 - **Properties.** Buy the garage across the street from the safehouse ($15,000; stores 4 cars with their paint and upgrades) and the Pier Arcade ($25,000; $500 a game day, up to 7 days, collected at the safehouse). Azura Customs (east Midtown, purple C) sells engine, brakes and tyre upgrades and paint; upgrades stay with the car, and through saves only for cars stored in the garage.
 - **Side content.** Taxi fares in an Azura Cab and vigilante jobs in a police vehicle (press T), paramedic jobs in an ambulance (San Azura General) and firefighter jobs in the fire truck (SAFD Station 1 by SAPD Central; hold fire to use the water cannon), both with levels, Azura Express courier runs from First Azura Bank in any car or on a bike (press T there), Lou's export list at her garage (ship 8 listed cars at the docks crane), three gang rampages, twenty hidden packages ($25,000 for finding them all), unique stunt jumps, health, armor and weapon pickups, and two Bang Bang Guns stores (from the Pistol at $250 to the Rocket Launcher at $8,000, Body Armor $300, First Aid $80).
-- **Radio and sound.** In a vehicle, NEON DRIVE 88.7 (synthwave), BOOM BAP 101.3 (hip-hop) and PULSE 96.1 (house) play endless music generated live, and AZURA TALK 104.5 runs a live talk show of synthesized host chatter, station jingles and ad breaks, with RADIO OFF as the fifth stop.
-  The music drives harder while you are wanted and calms down after; police radio barks crackle over each dispatch line; sirens drop in pitch as they pass (Doppler); gunfire echoes by district, ringing on between downtown towers and hardly at all on the open beach.
+- **Radio and sound.** In a vehicle, nine stations play endless music generated live, up the dial: NEON DRIVE 88.7 (synthwave), VELVET 89.9 (lounge and bossa nova), DOCKSIDE DUB 92.3 (dub), PULSE 96.1 (house), COYOTE 97.7 (outlaw country), WIPEOUT 99.5 (surf rock), BOOM BAP 101.3 (hip-hop), BREAKNECK 102.7 (drum and bass) and PIXEL 103.9 (chiptune).
+  AZURA TALK 104.5 runs a live talk show of synthesized host chatter, station jingles and ad breaks, with RADIO OFF as the last stop; tuning in shows the station's name and a one-line tag.
+  Songs have an intro, verses, a bridge and an outro with fills, and each station drives harder in its own way while you are wanted, then calms down after: WIPEOUT's tom groove takes over, DOCKSIDE DUB turns to steppers, VELVET's band panics into double-time swing, COYOTE breaks into banjo rolls and PIXEL plays the boss battle.
+  Police radio barks crackle over each dispatch line; sirens drop in pitch as they pass (Doppler); gunfire echoes by district, ringing on between downtown towers and hardly at all on the open beach.
   An ambience of city hum, traffic, surf, gulls, birds by day and crickets at night, an engine voice for every kind of vehicle, music that ducks under dialogue and nearby explosions, and the world muffled inside a car.
 - **HUD, map and saves.** A radar that turns with the camera, with a road-following GPS route to your waypoint, the objective or the contact who has work, and the police, the helicopter and the search area on the radar and the map while you are wanted.
   Prompts and first-time hints drawn for your keyboard layout or gamepad, a full-screen map with district names, a waypoint you can set, a legend with seven categories you can switch off (missions, shops including Azura Customs, places, properties grey for sale and green owned, gang turf, collectibles, and the cyan A, F, C and E marks of the paramedic, firefighter, courier and car export jobs), a completion checklist (story per contact, collectibles, activities, properties), and a STATS screen with a game completion percentage (story 50%, packages 20%, stunts 15%, rampages 15%; jobs and properties are checklist-only).
@@ -342,7 +344,8 @@ src/
                built by `npm run assets` (see Assets)
   ui/          HUD and radar, the phone, menus and the full-screen map, first-time hints, key and button glyphs
   input/       keyboard with layout-aware key names, mouse with pointer lock, gamepad, cheat codes
-  audio/       synthesized effects, mixer and ducking, ambience, engine voices, procedural radio, talk station
+  audio/       synthesized effects, mixer and ducking, ambience, engine voices, procedural radio (stations/: the
+               instrument kit and one style per station), talk station
                and formant voices, police barks, gun echo, Doppler
   net/         multiplayer: the wire protocol (protocol.ts, wire.ts, shared with server/), the room and race types
                (lobby.ts), and the browser client, loaded only for a multiplayer game: session, socket transport,
