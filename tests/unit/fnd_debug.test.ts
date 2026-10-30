@@ -19,7 +19,6 @@ function fakeGame(): Game {
   const sim = {
     player,
     playerPos: () => ({ x: 1, y: 2, z: 3 }),
-    events: { errors: 0 },
     wanted: { level: 0 },
     progress: { money: 0, missionsDone: new Set<string>() },
     missions: { active: null },
@@ -31,6 +30,7 @@ function fakeGame(): Game {
   };
   return {
     sim,
+    view: sim,
     mode: 'playing',
     isCrashed: false,
     fps: 60,

@@ -342,10 +342,11 @@ describe('same seed, same inputs: same game with 2-4 players (VAL-MPSIM-008)', (
 describe('single player is unchanged by the multiplayer core (VAL-MPSIM-010)', () => {
   it('the single-player trace with the wave-1 street systems on matches its a971b0e recording', () => {
     // sp_trace.test.ts holds the plain trace byte for byte against tests/unit/fixtures/sp_trace_72d0b98.json. This is
-    // the same script with sim.streetCrime on (as the real game runs), its hash recorded at a971b0e, before mp-core.
+    // the same script with sim.streetCrime on (as the real game runs), its hash recorded at a971b0e, before mp-core,
+    // and again once the NaN scrub went (a dead player's health is no longer floored at -1000).
     const now = `${JSON.stringify(recordSpTrace({ streetCrime: true }))}\n`;
     const hash = createHash('sha256').update(now).digest('hex');
     console.log(`[mpsim-010] streetCrime trace sha256 ${hash}`);
-    expect(hash).toBe('dd0956bf6ac5c7d1f89a8a40a3ccdd0dc8cc20473ce5fa3603723779a1387e07');
+    expect(hash).toBe('d06c1ee2a8bc4fd0a5f0d7bfa77b91337822d83a49ae12bd6f918d06b2ebb976');
   }, 120_000);
 });
