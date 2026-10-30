@@ -471,7 +471,8 @@ export class AudioEngine {
 
   /**
    * Twice a second: a cruiser behind the wanted player's car calls on him to pull over, a passer-by he walks up to
-   * (no stars, on foot, slowly) says hello, and the hand on the Marina's deck sees a Gull Regatta off.
+   * (no stars, on foot, slowly) says hello, and the hand at the Marina calls a Gull Regatta's boat up on its radio
+   * through the countdown.
    */
   private updateBarks(step: number, sim: ViewState): void {
     this.barkScan -= step;
@@ -482,9 +483,9 @@ export class AudioEngine {
     if (me.down) return;
     const job = sim.activities.job;
     if (job?.kind === 'regatta' && job.stage === 'countdown') {
-      // No character in the sim is the hand on duty: the boat's id picks which of them it is.
-      const marina = sim.world.layout.pois.find((p) => p.kind === 'marina')!;
-      this.bark('marina', job.boat.id, marina.x, sim.world.groundHeight(marina.x, marina.z) + 1.6, marina.z);
+      // Over the boat's own radio: the start line is 50 m off the deck, too far to shout. No character in the sim is the
+      // hand on duty, so the boat's id picks which of them it is.
+      this.bark('marina', job.boat.id, job.boat.pos.x, job.boat.pos.y + 1.2, job.boat.pos.z);
     } else if (pc.vehicle && me.wanted.level > 0) {
       let best: Vehicle | null = null;
       let bd = 45 * 45;

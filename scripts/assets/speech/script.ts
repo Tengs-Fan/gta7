@@ -480,6 +480,6 @@ export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
   arrest: { voices: COPS, lines: ["You're under arrest.", 'Hands behind your back.', 'You have the right to remain silent. Use it.'] },
   /** Gang members starting a fight on their turf. */
   turf: { voices: GANG, lines: ['This is our turf!', 'Wrong neighborhood!', 'You picked the wrong street!', 'Get him!'] },
-  /** The hand on duty on the Marina's deck as a Gull Regatta starts. */
+  /** The hand on duty at the Marina, calling a Gull Regatta's boat on the start line over its radio. */
   marina: { voices: ['am_eric', 'bm_fable', 'am_adam'], lines: ["Mind the blades, they're bigger than they look."] },
 };

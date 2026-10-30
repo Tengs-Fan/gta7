@@ -312,4 +312,20 @@ describe('voices in the street', () => {
     ctx.currentTime += 60;
     expect(b.say('greet', 9, 500, 0, 500)).toBe(false);
   });
+
+  it("the Marina's radio call to a regatta boat carries as far as the loudspeaker, through the same band", async () => {
+    const ctx = new Ctx();
+    const out = new N('out');
+    const place = vi.fn(() => ({ gain: 0.5, pan: 0, cutoff: 20000 }));
+    const b = new Barks(ctx as unknown as BaseAudioContext, bank(ctx), place, () => out as unknown as AudioNode);
+    expect(b.say('marina', 7, 1, 2, 3)).toBe(true);
+    expect(place).toHaveBeenLastCalledWith(1, 2, 3, 14, 110);
+    await flush();
+    expect(filters(ctx).sort()).toEqual(['highpass 500', 'lowpass 3000']);
+    expect(ctx.made.some((n) => n.kind === 'shaper')).toBe(true);
+    // A greet stays a voice in the street.
+    ctx.currentTime += 60;
+    expect(b.say('greet', 9, 1, 2, 3)).toBe(true);
+    expect(place).toHaveBeenLastCalledWith(1, 2, 3, 6, 70);
+  });
 });

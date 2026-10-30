@@ -1,7 +1,8 @@
 // Voices in the street: people, officers and gang members shouting recorded lines (speech.ts) where they stand, as
 // world sounds (panned, quieter and duller with distance). A person keeps one voice and says one thing at a time; any
 // two shouts are a beat apart, and every kind has its own cooldown, so a riot does not turn into a choir. A cruiser's
-// loudspeaker (pullOver) comes through a horn's narrow band.
+// loudspeaker (pullOver) and the Marina's radio call to a boat on the regatta's start line (marina) come through a
+// horn's narrow band and carry further.
 //
 //   clip -> gain -> [megaphone: HP 500 -> LP 3000 -> drive] -> panner and distance low-pass -> effects bus
 
@@ -36,7 +37,7 @@ export const BARK_COOLDOWN: Readonly<Record<BarkKind, number>> = {
 export const BARK_GAP = 0.6;
 const LEVEL = 0.9;
 const MEGAPHONE_LEVEL = 1.3;
-/** Heard out to this many metres; the loudspeaker carries further. */
+/** Heard out to this many metres; the loudspeaker and the radio carry further. */
 const RANGE = 70;
 const MEGAPHONE_RANGE = 110;
 
@@ -86,7 +87,7 @@ export class Barks {
   say(kind: BarkKind, who: number, x: number, y: number, z: number): boolean {
     const now = this.ctx.currentTime;
     if (now - this.last < BARK_GAP || now - (this.lastOf.get(kind) ?? -Infinity) < BARK_COOLDOWN[kind] || now < (this.busy.get(who) ?? 0)) return false;
-    const megaphone = kind === 'pullOver';
+    const megaphone = kind === 'pullOver' || kind === 'marina';
     const s = this.place(x, y, z, megaphone ? 14 : 6, megaphone ? MEGAPHONE_RANGE : RANGE);
     if (!s) return false;
     const voices = SPEECH.barks[kind];
