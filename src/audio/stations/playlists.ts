@@ -53,7 +53,7 @@ export const HITS: Readonly<Record<string, readonly Track[]>> = {
     { artist: 'The Bootcut Brothers', title: 'Ten Gallon Headache', seed: 5369 },
     { artist: 'Clem Dooley', title: 'Mama Sold the Jukebox', seed: 5217 },
     { artist: 'Rhonda Spurs', title: 'Whiskey Is My Accountant', seed: 5385 },
-    { artist: 'Tex Lariat', title: 'Hot Sauce and Heartache', seed: 5074 },
+    { artist: 'Tex Lariat', title: 'Hot Sauce and Heartbreak', seed: 5074 },
   ],
   'WIPEOUT 99.5': [
     { artist: 'The Riptide Rejects', title: 'Gull Bay Wipeout', seed: 6000 },
