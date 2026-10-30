@@ -350,9 +350,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     const c = createHash('sha256').update(JSON.stringify(W.grid.colliders.map((x) => ({ ...x })))).digest('hex');
     console.log(`[VAL-BLD-010] buildings ${b}, colliders ${c}`);
     // Captured at d98da7b with the same canonical JSON (tsx over a d98da7b export), re-captured when the map was broken
-    // up (docs/map.md): superblocks, the cove, the basin, the canal with its bridges' parapets, and the headland; and again when four bays were drowned into the coast.
+    // up (docs/map.md): superblocks, the cove, the basin, the canal with its bridges' parapets, and the headland; and again when four bays were drowned into the coast, and when the ring road
+    // was bridged across their mouths (the bridges' parapets).
     expect(b).toBe('a52c2c8ab0629cf2b89bc0b11e6ab1f26eb0cd80959093183317293951215293');
-    expect(c).toBe('4978c7ba54e420ec21b21c703e1a15f6cdde5c2b20b4a97ce550a859dfc0e282');
+    expect(c).toBe('43c5b26d1cd25e59712608ef1c4a8e68d56ca36e38a5b047fda722737b9fe752');
   });
 });
 

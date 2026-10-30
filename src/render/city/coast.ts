@@ -43,7 +43,8 @@ export function buildCoast(view: CityView): void {
   view.add(setGroundAttribute(sand.build(), []), sandMat, { name: 'beach' });
   view.add(walls.build(), view.surface('concrete', 1, 3), { name: 'quay' });
 
-  // The canal's bridges: concrete slabs (the road's asphalt is drawn on the carriageway), parapets on the footways.
+  // The bridges over the canal and the bays: concrete slabs (the road's asphalt is drawn on the carriageway), parapets on
+  // the footways.
   const bridges = new GeoBuilder(false);
   const concrete = { uv: { kind: 'world', scale: 3 }, bottom: true } as const;
   for (const d of view.world.layout.decks) {
@@ -52,7 +53,7 @@ export function buildCoast(view: CityView): void {
     bridges.box(d.rect.minX, d.y - 0.7, d.rect.minZ, d.rect.maxX, d.y > 0 ? d.y : d.y - 0.02, d.rect.maxZ, concrete);
   }
   for (const r of view.world.layout.parapets) bridges.box(r.minX, CURB_H, r.minZ, r.maxX, CURB_H + PARAPET_H, r.maxZ, concrete);
-  view.add(bridges.build(), view.wet.patch(view.surface('concrete', 1, 3)), { shadow: true, name: 'bridges' });
+  view.add(bridges.build(), view.wet.patch(view.surface('concrete', 1, 3)), { shadow: true, name: 'bridges', split: false });
 
   // Piers.
   const deck = new GeoBuilder(false);

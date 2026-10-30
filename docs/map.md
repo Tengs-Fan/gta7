@@ -82,9 +82,12 @@ Pedestrians keep to dry land: the promenade loop breaks where the sea comes in, 
 These bodies are drowned rather than left out: their blocks are generated as land, and once the street furniture stands, `drown()` removes the blocks and everything on them, closes the roads that bordered only them, keeps a signal only where three roads still meet on a live approach, and lets the water in.
 The shared generator therefore makes exactly the draws it made while they were land, so every other lamp, tree, hydrant and bench, building and parked car stays where it was; only what stood in the bays moved.
 Building ids keep their gaps, so facades and rooftops elsewhere keep their looks.
+The ring road is not closed with them: it crosses each bay's mouth on a bridge (a carriageway deck at road height, a footway deck either side and a parapet along each, like the canal's), so the coast road runs on.
+Closed, it turned the junctions either side into corners with a single way out, where a car fleeing the police was pinned against the quay (`r2_police_escape*`).
+The bridges, the canal's and the bays', are drawn as one mesh: a few slabs across the city would only add draws if split into cells.
 The two stunt ramps that stood in Pelican Harbor and Gull Bay moved along their promenades, and Hot Delivery's drop is now found from the block south of Northshore Bay.
 
-A bay cutting the ring avenue leaves a stub of avenue whose far end leads only into side streets.
+Where water still cuts an avenue short, it leaves a stub whose far end leads only into side streets.
 A city bus keeps to the avenues that go on (`throughAvenues` in `src/sim/driver.ts`): traffic spawns none on a stub, and a bus on the move never turns into one.
 
 ## Rejected, and why

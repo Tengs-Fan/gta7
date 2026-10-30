@@ -72,7 +72,10 @@ describe('traffic and pedestrians round every player (VAL-MPSIM-005)', () => {
     let yaw = 0;
     for (let t = 0; t < T; t++) {
       if (t === 120) {
-        car = sim.spawnVehicle('sports', b.pos().x, b.pos().z, 0);
+        // In the lane he stands nearest, facing along it (parked across the road, a passing car would hit it and knock
+        // its driver out into the crowd).
+        const kerb = sim.roads.nearestLane(b.pos().x, b.pos().z);
+        car = sim.spawnVehicle('sports', kerb.lane.sx + kerb.lane.dx * kerb.s, kerb.lane.sz + kerb.lane.dz * kerb.s, kerb.lane.heading);
         sim.seat(b.character, car, 0);
       }
       for (let f = 0; f < 60; f++) {
@@ -346,10 +349,10 @@ describe('single player is unchanged by the multiplayer core (VAL-MPSIM-010)', (
     // sp_trace.test.ts holds the plain trace byte for byte against tests/unit/fixtures/sp_trace_72d0b98.json. This is
     // the same script with sim.streetCrime on (as the real game runs), its hash recorded at a971b0e, before mp-core,
     // and again once the NaN scrub went (a dead player's health is no longer floored at -1000) and the map was broken
-    // up and four bays drowned into it (docs/map.md).
+    // up, four bays drowned into it and the ring road bridged across their mouths (docs/map.md).
     const now = `${JSON.stringify(recordSpTrace({ streetCrime: true }))}\n`;
     const hash = createHash('sha256').update(now).digest('hex');
     console.log(`[mpsim-010] streetCrime trace sha256 ${hash}`);
-    expect(hash).toBe('b3f46d56a94929653e2b53c55e971365f33174b723252ebbe9cb62a0397857cb');
+    expect(hash).toBe('b377ea5974d0803e67886247f96989890e67ad80d47f1077eb1e7606eb13590f');
   }, 120_000);
 });

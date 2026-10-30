@@ -87,7 +87,7 @@ To play with friends on your network, run the optional multiplayer server (see [
 
 - **A whole city.** San Azura is a street grid across seven districts (Downtown towers, Midtown, the Hillcrest suburbs, Westside, Port Azura Docks, Southgate and the Ocean Beach strip), broken up by the sea and by big blocks (see [docs/map.md](docs/map.md)).
   Hillcrest Cove bites into the north-west corner, Cortez Canal runs from coast to coast between Westside and Downtown under a bridge at every street, Port Basin cuts into the docks with cranes on its wharf and boats moored in it, and Azura Point reaches out into the bay with the lighthouse at its tip.
-  The rest of the coast steps in and out too: Gull Bay and Northshore Bay flank Hillcrest Green on the north shore, Pelican Harbor bites into Westside and Coral Bay cuts in west of the beach, so the city no longer reads as a square.
+  The rest of the coast steps in and out too: Gull Bay and Northshore Bay flank Hillcrest Green on the north shore, Pelican Harbor bites into Westside and Coral Bay cuts in west of the beach, with the ring road crossing each bay's mouth on a bridge, so the city no longer reads as a square.
   Hillcrest Green is a park four blocks big, Civic Plaza an open square between downtown towers, and the Azura Bowl stadium stands between its car parks; Azura Park and Southgate Square, Azura Pier and its Ferris wheel and the Marina complete it.
   Parody shopfronts (DONUTS, PAWN, TACOS, BAIL BONDS and more), tower lobbies and house porches line the streets, and lamp posts, traffic signals, fire hydrants, bins and benches break.
 - **The look.** Stylised low-poly models with PBR materials, all CC0 (see [Assets](#assets) and [Credits](#credits)).
