@@ -99,18 +99,23 @@ They came back where none of those assumptions reach: off the road grid, on grou
 - **Hillcrest Green** rises 7 m on its fountain at the top of Coral St: an elliptical cosine bell 136 by 156 m across, flat on its summit and 0 a good 7 m inside the park's lot, so the streets and sidewalks round it stay flat.
   Its steepest grade is 20%, gentler than the stunt ramps.
   The SAN AZURA letters stand on its south slope, facing down Coral St, the words either side of the old path up to the fountain and the last A slumped on its side.
+- **Azura Point** climbs from the promenade to a 10 m bluff: the ground rises with z alone, in a smoothstep over 72 m (20.8% at its steepest, no cross-slope), then runs flat out to the tip, so the lighthouse's lamp shines from 36 m over the water.
+  Its sides drop sheer into the sea (`render/city/coast.ts` draws them as rock, with the boulders heaped higher where the cliff is taller), 11 m round the tip and nearly 9 m where the base meets it on either side.
+  A parapet rails a 24 m lookout along the cliff edge in front of the lighthouse; the rest of the edge is open, so a car driven off it flies and sinks, and someone who steps or jumps off splashes in before landing, so takes no harm, and cannot climb back up the cliff: only near the promenade is the ground low enough over the water.
+  A fall of more than 8 m into the water pays a CLIFF DIVE bonus, once a game day.
 
 Each flat-ground assumption is kept like this:
 
 - **The layout.** `settleTerrain` runs last in `generateCity`: it records the rises and stands every prop on them, drawing no random number and moving nothing across the ground, so the pickups and the mission spots stay where they were.
   Only the trees and bushes on the lawn under the letters, and down the slope in front of them, go, so the sign is seen from the street.
-- **The ground.** `baseGround` adds the rise on the lawns, and the roads, sidewalks and buildings all stand where it is 0, so every lookup there returns what it always did.
+- **The ground.** `baseGround` adds the rises on the lawns and the headland, and the roads, sidewalks and buildings all stand where they are 0, so every lookup there returns what it always did.
   The ground renderer draws a patch over a rise as a grid on a 2 m lattice, its triangles within a centimetre of the sim's slope.
-- **Physics.** The slope is smooth and never steeper than 21%, so a car follows it (ground follow tracks a drop of up to 0.4 m per 1/120 s step), never hits a ledge, and crosses the summit at 30 m/s without leaving the ground; the body's roll across the slope is drawn only.
-  People walk up it as they step up a curb.
-- **The collider grid's height bands.** Sight-blocking boxes, nested every 2 m of rise, are buried in the hill: each stands half a metre under the turf over its footprint grown by 6.5 m, farther than any body, free-space check or camera that tests its own height band reaches from where it stands.
+- **Physics.** The slopes are smooth and never steeper than 21%, so a car follows them (ground follow tracks a drop of up to 0.4 m per 1/120 s step), never hits a ledge, and crosses the summit at 30 m/s without leaving the ground; the body's roll across the slope is drawn only.
+  People walk up them as they step up a curb.
+- **The collider grid's height bands.** Sight-blocking boxes, nested every 2 m of rise, are buried in the hill and the bluff: each stands half a metre under the turf over its footprint grown by 6.5 m, farther than any body, free-space check or camera that tests its own height band reaches from where it stands.
   So nothing on the ground ever meets one, while a police officer's or a witness's line of sight, a bullet or a blast across the hill stops in it: break line of sight over the crest.
 - **The AI.** No lane and no walk node is on the hill: traffic and the police keep to the streets round it, and officers walk up it on foot.
+  The only walk on a rise is the path out to the lighthouse, which pedestrians and officers climb as they climb a curb.
 
 ## Rejected, and why
 

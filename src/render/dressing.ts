@@ -5,7 +5,7 @@
 // clear of every one of them.
 import { mkRect, rectContains, rectsOverlap, sandHeight, type Building, type Rect, type Side } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
-import { hillRise, hillSignLetters } from '../world/terrain';
+import { hillRise, hillSignLetters, lookoutRail } from '../world/terrain';
 import { places } from '../sim/activities/places';
 
 export type DressingKind =
@@ -551,13 +551,15 @@ export const VIEWPOINT_SIZE: Readonly<Record<Exclude<ViewpointKind, 'fence'>, re
 export const PLAQUE_TEXT = {
   summit: "HILLCREST SUMMIT, ELEV. 7 M. HIGHEST POINT IN SAN AZURA THAT ISN'T A PARKING GARAGE.",
   letters: 'DO NOT CLIMB THE LETTERS. THE LETTERS HAVE BEEN THROUGH ENOUGH.',
+  lookout: 'AZURA POINT LOOKOUT. ON A CLEAR DAY YOU CAN SEE THE SMOG.',
   telescope: "VIEWS 25 CENTS. YOUR EX'S BALCONY NOT GUARANTEED.",
 } as const;
 
 /**
  * The summit of Hillcrest Green: a plaque beside the south path below the fountain and two coin telescopes at the
  * plateau's south edge, looking over the letters to downtown; a low fence along the front of each word, with the sign
- * where the path climbs between them.
+ * where the path climbs between them. The lookout at Azura Point's tip: its plaque at the middle of the parapet, and a
+ * telescope at either end, one turned back south-west over Gull Bay to the hill and the towers, one out to sea.
  */
 export function viewpoints(world: StaticWorld): ViewpointItem[] {
   const L = world.layout;
@@ -577,6 +579,11 @@ export function viewpoints(world: StaticWorld): ViewpointItem[] {
     for (let x = x0; x < x1 - 0.01; x += FENCE_RUN) out.push(at('fence', x, front, 0, '', Math.min(x + FENCE_RUN, x1), front));
   }
   out.push(at('sign', Math.max(...words[0]!.map((l) => l.box.maxX)) - 1.6, front + 0.6, 0, PLAQUE_TEXT.letters));
+  const rail = lookoutRail(L);
+  const mid = (rail.minX + rail.maxX) / 2;
+  out.push(at('plaque', mid, rail.maxZ + 1.3, 0, PLAQUE_TEXT.lookout));
+  out.push(at('telescope', rail.minX + 1.5, rail.maxZ + 1.2, Math.atan2(-0.6, 0.8), PLAQUE_TEXT.telescope));
+  out.push(at('telescope', rail.maxX - 1.5, rail.maxZ + 1.2, Math.atan2(0.6, -0.8), PLAQUE_TEXT.telescope));
   return out;
 }
 

@@ -11,6 +11,7 @@ import { axisOf, type Dir } from '../world/roads';
 import { SEABED_Y } from '../world/constants';
 import { rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
+import { riseAt } from '../world/terrain';
 import { adTexture, AD_COUNT, glowTexture, groundTexture } from './textures';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
 import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, SIGNAL_BULB_AXIS, type OccluderKind } from './occluderFade';
@@ -772,11 +773,18 @@ export class PropsView {
       clip.set([r.minX, r.minZ, r.maxX, r.maxZ], k * 4);
     });
     pool.setAttribute('aClip', new THREE.InstancedBufferAttribute(clip, 4));
+    // On a rise (the path up Azura Point's bluff, world/terrain.ts) a pool lies along the slope under it.
+    const rises = this.world.layout.rises;
+    const up = new THREE.Vector3(0, 1, 0);
     this.makeInstanced(pool, this.poolMat, lamps, (p, m) => {
       const fx = Math.sin(p.rot);
       const fz = Math.cos(p.rot);
       const r = LAMP_HEAD.reach * p.scale;
-      m.compose(new THREE.Vector3(p.x + fx * r, p.y + 0.04, p.z + fz * r), new THREE.Quaternion(), new THREE.Vector3(13, 1, 13));
+      const x = p.x + fx * r;
+      const z = p.z + fz * r;
+      const h = (dx: number, dz: number) => riseAt(rises, x + dx, z + dz);
+      const slope = new THREE.Quaternion().setFromUnitVectors(up, new THREE.Vector3(h(-1, 0) - h(1, 0), 2, h(0, -1) - h(0, 1)).normalize());
+      m.compose(new THREE.Vector3(x, p.y + 0.04 + h(0, 0) - riseAt(rises, p.x, p.z), z), slope, new THREE.Vector3(13, 1, 13));
     }, { shadow: false });
     // Each lamp's halo (LAMP_HALO), just under its bulb; a knocked-over lamp's goes dark (breakProp).
     if (lamps.length === 0) return;

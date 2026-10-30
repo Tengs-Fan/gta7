@@ -1,32 +1,39 @@
-// The city's rises: Hillcrest Green's hill, the only ground higher than a curb apart from the decks and ramps. It
-// stands only where nothing assumes flat ground (no road, sidewalk, walk node or building footprint), so the lane
-// graph, traffic and the AI keep their flat world. Pure data and queries, no rendering: settleTerrain lays the rises
-// into the layout last and lifts the props onto them, StaticWorld adds them to baseGround and buries sight cores in
-// them, and the renderers draw the ground and the sign.
+// The city's rises: Hillcrest Green's hill and Azura Point's bluff, the only ground higher than a curb apart from the
+// decks and ramps. They stand only where nothing assumes flat ground (no road, sidewalk, walk node outside the Azura
+// Point path, or building footprint), so the lane graph, traffic and the AI keep their flat world. Pure data and
+// queries, no rendering: settleTerrain lays the rises into the layout last and lifts the props onto them, StaticWorld
+// adds them to baseGround and buries sight cores in them, and the renderers draw the ground, the cliffs and the sign.
 
 import { CURB_H } from './constants';
 import type { CityLayout, Rect } from './layout';
 
 export interface Rise {
   name: string;
-  /** 'bell': an elliptical cosine bell, flat on its plateau. */
-  kind: 'bell';
-  /** Its centre. */
+  /** 'bell': an elliptical cosine bell, flat on its plateau; 'climb': a slope northward (towards -z) only, flat beyond. */
+  kind: 'bell' | 'climb';
+  /** Bell: its centre. Climb: the middle of its width, and the z its foot runs along. */
   cx: number;
   cz: number;
-  /** Its semi-axes (m). */
+  /** Bell: its semi-axes (m). Climb: half its width, and the run (m) north of its foot over which it climbs. */
   rx: number;
   rz: number;
-  /** The plateau's radius along x (m; along z it scales with rz). */
+  /** Bell: the plateau's radius along x (m; along z it scales with rz). Climb: the flat beyond the run (m). */
   plateau: number;
   /** Highest it reaches above the curb (m). */
   height: number;
   /** Where it can be above 0. */
   bounds: Rect;
+  /** Climb: the land it covers (a headland's rects), 0 off it. A bell covers its whole ellipse (none listed). */
+  within: Rect[];
 }
 
 /** Hillcrest Green's hill, on the park's fountain: 20% at its steepest across x, 17% along z, 0 a good 7 m inside the lot. */
 const HILL = { name: 'Hillcrest Green', rx: 68, rz: 78, plateau: 14, height: 7 } as const;
+/**
+ * Azura Point's bluff: from the promenade up to 10 m over 72 m (a smoothstep, 20.8% at its steepest, with no
+ * cross-slope), flat out to the tip.
+ */
+const BLUFF = { name: 'Azura Point', run: 72, height: 10 } as const;
 
 /** The sight cores: one box per CORE_STEP m of rise from 1 m up, buried CORE_COVER m deep and inset CORE_INSET m. */
 const CORE_STEP = 2;
@@ -45,7 +52,7 @@ export function riseAt(rises: readonly Rise[], x: number, z: number): number {
     const r = rises[i]!;
     const b = r.bounds;
     if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
-    h += bellAt(r, x, z);
+    h += r.kind === 'bell' ? bellAt(r, x, z) : climbAt(r, x, z);
   }
   return h;
 }
@@ -63,6 +70,17 @@ export function hillRise(rises: readonly Rise[]): Rise {
   return rises.find((r) => r.name === HILL.name)!;
 }
 
+function climbAt(r: Rise, x: number, z: number): number {
+  if (!r.within.some((q) => inRect(q, x, z))) return 0;
+  const t = Math.min(1, Math.max(0, (r.cz - z) / r.rz));
+  return r.height * t * t * (3 - 2 * t);
+}
+
+/** Azura Point's bluff among the rises. */
+export function bluffRise(rises: readonly Rise[]): Rise {
+  return rises.find((r) => r.name === BLUFF.name)!;
+}
+
 export function riseBounds(r: Rise): Rect {
   return r.bounds;
 }
@@ -77,7 +95,7 @@ export function riseTop(rises: readonly Rise[], x0: number, z0: number, x1: numb
   return top;
 }
 
-/** The hill on Hillcrest Green's fountain, from the layout as generateCity built it. */
+/** The hill on Hillcrest Green's fountain and the bluff over Azura Point, from the layout as generateCity built it. */
 export function cityRises(layout: CityLayout): Rise[] {
   const park = layout.blocks.find((b) => b.zone === HILL.name)!;
   const cx = (park.lot.minX + park.lot.maxX) / 2;
@@ -88,8 +106,29 @@ export function cityRises(layout: CityLayout): Rise[] {
     cx,
     cz,
     bounds: { minX: cx - HILL.rx, minZ: cz - HILL.rz, maxX: cx + HILL.rx, maxZ: cz + HILL.rz },
+    within: [],
   };
-  return [hill];
+  // The bluff climbs from the promenade's edge (the headland's south side) over its whole width.
+  const point = layout.headlands.find((h) => h.name === BLUFF.name)!;
+  const bounds = {
+    minX: Math.min(...point.rects.map((q) => q.minX)),
+    minZ: Math.min(...point.rects.map((q) => q.minZ)),
+    maxX: Math.max(...point.rects.map((q) => q.maxX)),
+    maxZ: Math.max(...point.rects.map((q) => q.maxZ)),
+  };
+  const bluff: Rise = {
+    name: BLUFF.name,
+    kind: 'climb',
+    cx: (bounds.minX + bounds.maxX) / 2,
+    cz: bounds.maxZ,
+    rx: (bounds.maxX - bounds.minX) / 2,
+    rz: BLUFF.run,
+    plateau: bounds.maxZ - BLUFF.run - bounds.minZ,
+    height: BLUFF.height,
+    bounds,
+    within: point.rects.map((q) => ({ ...q })),
+  };
+  return [hill, bluff];
 }
 
 /**
@@ -127,13 +166,27 @@ export function terrainCores(rises: readonly Rise[]): Core[] {
   const out: Core[] = [];
   for (const r of rises) {
     for (let k = 1; k + CORE_COVER <= r.height; k += CORE_STEP) {
-      // The bell is c high on the ellipse s = sc; the rectangle inscribed in an ellipse has half extents a / sqrt 2.
       const c = k + CORE_COVER;
-      const p = r.plateau / r.rx;
-      const sc = p + ((1 - p) * Math.acos((2 * c) / r.height - 1)) / Math.PI;
-      const hx = (sc * r.rx) / Math.SQRT2 - CORE_INSET;
-      const hz = (sc * r.rz) / Math.SQRT2 - CORE_INSET;
-      out.push({ minX: r.cx - hx, minZ: r.cz - hz, maxX: r.cx + hx, maxZ: r.cz + hz, y1: CURB_H + k });
+      if (r.kind === 'bell') {
+        // The bell is c high on the ellipse s = sc; the rectangle inscribed in an ellipse has half extents a / sqrt 2.
+        const p = r.plateau / r.rx;
+        const sc = p + ((1 - p) * Math.acos((2 * c) / r.height - 1)) / Math.PI;
+        const hx = (sc * r.rx) / Math.SQRT2 - CORE_INSET;
+        const hz = (sc * r.rz) / Math.SQRT2 - CORE_INSET;
+        out.push({ minX: r.cx - hx, minZ: r.cz - hz, maxX: r.cx + hx, maxZ: r.cz + hz, y1: CURB_H + k });
+      } else {
+        // North of zc the climb stands over c (smoothstep inverted), across the narrowest land it spans there.
+        const zc = r.cz - r.rz * (0.5 - Math.sin(Math.asin(1 - (2 * c) / r.height) / 3));
+        const minZ = Math.min(...r.within.map((q) => q.minZ));
+        const over = r.within.filter((q) => q.minZ < zc && q.maxZ > minZ);
+        out.push({
+          minX: Math.max(...over.map((q) => q.minX)) + CORE_INSET,
+          minZ: minZ + CORE_INSET,
+          maxX: Math.min(...over.map((q) => q.maxX)) - CORE_INSET,
+          maxZ: zc - CORE_INSET,
+          y1: CURB_H + k,
+        });
+      }
     }
   }
   return out;
@@ -209,4 +262,22 @@ function signLawn(layout: CityLayout): Rect {
     maxX: Math.max(...letters.map((l) => l.box.maxX)) + 3,
     maxZ: park.lot.maxZ,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The lookout
+
+/** Thickness (m) of the lookout's parapet: as the bridges' (and PARAPET_H high, as theirs). */
+const LOOKOUT_RAIL_T = 0.35;
+/** Length (m) of the railed terrace along the cliff edge in front of the lighthouse. */
+const LOOKOUT_SPAN = 24;
+
+/**
+ * The parapet of the lookout terrace at Azura Point's tip: along the cliff edge in front of the lighthouse, standing on
+ * the plateau (y). The rest of the edge stays open to drive off.
+ */
+export function lookoutRail(layout: CityLayout): Rect & { y: number } {
+  const lighthouse = layout.props.find((p) => p.kind === 'lighthouse')!;
+  const tip = layout.headlands.find((h) => h.name === BLUFF.name)!.rects.reduce((a, q) => (q.minZ < a.minZ ? q : a));
+  return { minX: lighthouse.x - LOOKOUT_SPAN / 2, minZ: tip.minZ, maxX: lighthouse.x + LOOKOUT_SPAN / 2, maxZ: tip.minZ + LOOKOUT_RAIL_T, y: lighthouse.y };
 }

@@ -256,8 +256,9 @@ describe('round 2 city: layout', () => {
   it('ground floors leave the generated layout bit-identical to the base commit', () => {
     // Captured on 8788242 (round 2 base) with the same canonical JSON, re-captured when Hotel Salgado (Vera's
     // SPECIALS row) was added, when the map was broken up and when the ring road was bridged across the bays (docs/map.md),
-    // and when Hillcrest Green rose into a hill under the SAN AZURA letters (the rises, the settled props, the sign's lawn).
-    expect(layoutHash()).toBe('765a05f02cce875e4353c420c01ba20a2bce04619914c7bdee9d2d4c78976fec');
+    // and when Hillcrest Green rose into a hill under the SAN AZURA letters (the rises, the settled props, the sign's lawn)
+    // and Azura Point climbed to a bluff (its rise, the lighthouse and the point's props on it).
+    expect(layoutHash()).toBe('185a4a4edb3859b296741a82044b6d74d4e9051cae5edf6761f990fa4f712baf');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

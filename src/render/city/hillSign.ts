@@ -1,6 +1,6 @@
 // The SAN AZURA letters on Hillcrest Green's south slope, the two uplights that wash them at night, and the viewpoints'
-// dressing (render/dressing.ts viewpoints: plaques, the sign, the fences and the coin telescopes). Three merged meshes,
-// so three draws wherever they are in view: the letters with the uplights' lenses, the frames, and the plates.
+// dressing (render/dressing.ts viewpoints: plaques, the sign, the fences and the coin telescopes). Two merged meshes, so
+// two draws wherever they are in view: the letters with the uplights' lenses, and the viewpoints with their plates.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -220,18 +220,30 @@ export class HillSign {
     this.buildViewpoints(view, viewpoints(world), housings);
   }
 
-  /** The plaques, the sign, the fences and the telescopes: their frames in one mesh, their plates in another. */
+  /**
+   * The plaques, the sign, the fences and the telescopes in one mesh: the frames vertex coloured on the atlas's last,
+   * white row, the plates white on their own rows of it.
+   */
   private buildViewpoints(view: CityView, items: readonly ViewpointItem[], extra: THREE.BufferGeometry[]): void {
     const plates = items.filter((it): it is ViewpointItem & { kind: 'plaque' | 'sign' | 'telescope' } => it.kind !== 'fence');
     const keys = [...new Set(plates.map((it) => `${it.kind}|${it.text}`))];
-    const [c, ctx] = canvas(CELL_W, CELL_H * keys.length);
+    const rows = keys.length + 1;
+    const [c, ctx] = canvas(CELL_W, CELL_H * rows);
     keys.forEach((k, row) => {
       const [kind, text] = k.split('|') as ['plaque' | 'sign' | 'telescope', string];
       drawPlate(ctx, row, kind, text);
     });
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, CELL_H * keys.length, CELL_W, CELL_H);
     const atlas = toTexture(c, true, false);
-    const frames: THREE.BufferGeometry[] = [...extra];
-    const faces: THREE.BufferGeometry[] = [];
+    const white = 1 - (keys.length + 0.5) / rows;
+    const parts: THREE.BufferGeometry[] = [];
+    const frame = (g: THREE.BufferGeometry) => {
+      const uv = g.getAttribute('uv');
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.5, white);
+      parts.push(g);
+    };
+    for (const g of extra) frame(g);
     const world = view.world;
     const m = new THREE.Matrix4();
     for (const it of items) {
@@ -239,21 +251,23 @@ export class HillSign {
       m.makeRotationY(dir).setPosition(it.x, it.y, it.z);
       const end = it.kind === 'fence' && !items.some((o) => o.kind === 'fence' && Math.abs(o.x - it.x2) < 1e-6 && Math.abs(o.z - it.z2) < 1e-6);
       const y2 = it.kind === 'fence' ? world.groundHeight(it.x2, it.z2) : it.y;
-      frames.push(frameGeometry(it, end, y2).applyMatrix4(m));
+      frame(frameGeometry(it, end, y2).applyMatrix4(m));
       if (it.kind === 'fence') continue;
       const row = keys.indexOf(`${it.kind}|${it.text}`);
       const [w, h] = PLATE_SIZE[it.kind];
       // On the plaque's tilted plate, on the sign's board, and on the back of the telescope's head where the viewer stands.
-      const plate =
-        it.kind === 'plaque' ? plateQuad(w, h, 1.02, 0.02, 0.026, 0.6, row, keys.length)
-        : it.kind === 'sign' ? plateQuad(w, h, 1.3, 0, 0.031, 0, row, keys.length)
-        : plateQuad(w, h, 1.225, 0, 0.211, 0, row, keys.length).rotateY(Math.PI);
-      faces.push(plate.applyMatrix4(m));
+      const quad =
+        it.kind === 'plaque' ? plateQuad(w, h, 1.02, 0.02, 0.026, 0.6, row, rows)
+        : it.kind === 'sign' ? plateQuad(w, h, 1.3, 0, 0.031, 0, row, rows)
+        : plateQuad(w, h, 1.225, 0, 0.211, 0, row, rows).rotateY(Math.PI);
+      // As the frames are: unindexed, with a (white) vertex colour.
+      const plate = quad.toNonIndexed();
+      quad.dispose();
+      plate.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(plate.getAttribute('position').count * 3).fill(1), 3));
+      parts.push(plate.applyMatrix4(m));
     }
-    view.add(mergeGeometries(frames, false)!, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.25 }), { shadow: true, name: 'viewpoints', split: false });
-    for (const g of frames) g.dispose();
-    view.add(mergeGeometries(faces, false)!, new THREE.MeshStandardMaterial({ map: atlas, roughness: 0.55, metalness: 0.2 }), { name: 'viewpoint-plates', split: false });
-    for (const g of faces) g.dispose();
+    view.add(mergeGeometries(parts, false)!, new THREE.MeshStandardMaterial({ map: atlas, vertexColors: true, roughness: 0.6, metalness: 0.2 }), { shadow: true, name: 'viewpoints', split: false });
+    for (const g of parts) g.dispose();
   }
 
   /** Night factor 0..1: the uplights come on with the dark. */

@@ -193,8 +193,9 @@ function inFace(world: StaticWorld, x: number, z: number, y: number, from: numbe
  * edge of water too shallow to sink in, crossed from deeper water (see sinkBlocked).
  */
 function faceAhead(v: Vehicle, world: StaticWorld, x0: number, z0: number, h0: number, x1: number, z1: number, h1: number, ux: number, uz: number, sinking: boolean): boolean {
-  // On land, ground higher than a curb comes only from decks and ramps (the land's edge a car reaches only sinking): far
-  // from all of them, there is nothing to probe for.
+  // On land, ground higher than a curb comes only from decks and ramps, and from the rises (world/terrain.ts), whose
+  // smooth slopes make no face (the land's edge a car reaches from below only sinking): far from every deck and ramp,
+  // there is nothing to probe for.
   if (!sinking && !nearRaisedGround(world, x0, z0, x1, z1, v.halfL + v.halfW)) return false;
   const turning = ux === 0 && uz === 0;
   const f0x = Math.sin(h0);

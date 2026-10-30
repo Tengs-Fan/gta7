@@ -2,21 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { CameraController } from '../../src/render/camera';
 import { DressingRules, viewpointViolation, viewpoints } from '../../src/render/dressing';
 import { Sim } from '../../src/sim/sim';
-import { CURB_H } from '../../src/world/constants';
-import { mkRect, rectsOverlap, type Rect } from '../../src/world/layout';
-import { CORE_COVER, CORE_INSET, hillRise, hillSignLetters, riseAt, riseBounds, terrainCores, type Rise } from '../../src/world/terrain';
+import { CURB_H, SWIM_DEPTH, WATER_Y } from '../../src/world/constants';
+import { headlandAt, mkRect, rectsOverlap, type Rect } from '../../src/world/layout';
+import { bluffRise, CORE_COVER, CORE_INSET, hillRise, hillSignLetters, lookoutRail, riseAt, riseBounds, terrainCores, type Rise } from '../../src/world/terrain';
+import type { StaticWorld } from '../../src/world/staticWorld';
 import { freshWorld, input, placeInCar, world } from './helpers';
 
 const W = world();
 const L = W.layout;
 const rises = L.rises;
 const hill = hillRise(rises);
+const bluff = bluffRise(rises);
+const point = L.headlands.find((h) => h.name === 'Azura Point')!;
+const [base, tip] = point.rects as [Rect, Rect];
 const park = L.blocks.find((b) => b.zone === 'Hillcrest Green')!;
 const DT = 1 / 60;
 
-/** Where a rise covers land: its own bounds. */
+/** Where a rise covers land: a climb's headland rects, a bell's own bounds. */
 function land(r: Rise): Rect[] {
-  return [riseBounds(r)];
+  return r.kind === 'climb' ? r.within : [riseBounds(r)];
 }
 
 describe('the rises stay off everything that assumes flat ground', () => {
@@ -47,7 +51,10 @@ describe('the rises stay off everything that assumes flat ground', () => {
         expect(hit, `${r.name} over a ${what}`).toBeUndefined();
       }
     }
-    for (const n of W.walk.nodes) expect(riseAt(rises, n.x, n.z), `walk node ${n.id}`).toBe(0);
+    // The path out to the lighthouse is the only walk on a rise: from the promenade's edge to the plateau.
+    const path = W.walk.nodes.filter((n) => headlandAt(L, n.x, n.z));
+    expect(path.map((n) => riseAt(rises, n.x, n.z))).toEqual([0, 10]);
+    for (const n of W.walk.nodes) if (!path.includes(n)) expect(riseAt(rises, n.x, n.z), `walk node ${n.id}`).toBe(0);
   });
 
   it('is never steeper than 21% on a 1 m lattice', () => {
@@ -246,16 +253,152 @@ describe('on the hill', () => {
     expect(W.isFree(a.x, a.z, 0.4)).toBe(false);
   });
 
-  it('places the summit plaque, the telescopes, the fences and the sign clear of everything the dressing keeps clear of', () => {
+  it('places the plaques, the telescopes, the fences and the sign clear of everything the dressing keeps clear of', () => {
     const items = viewpoints(W);
     const rules = new DressingRules(W);
-    expect(items.filter((it) => it.kind === 'telescope').length).toBe(2);
-    expect(items.filter((it) => it.kind === 'plaque').map((it) => it.text)).toContain("HILLCREST SUMMIT, ELEV. 7 M. HIGHEST POINT IN SAN AZURA THAT ISN'T A PARKING GARAGE.");
+    expect(items.filter((it) => it.kind === 'telescope').length).toBe(4);
+    expect(items.filter((it) => it.kind === 'plaque').map((it) => it.text)).toEqual([
+      "HILLCREST SUMMIT, ELEV. 7 M. HIGHEST POINT IN SAN AZURA THAT ISN'T A PARKING GARAGE.",
+      'AZURA POINT LOOKOUT. ON A CLEAR DAY YOU CAN SEE THE SMOG.',
+    ]);
     expect(items.filter((it) => it.kind === 'sign').map((it) => it.text)).toEqual(['DO NOT CLIMB THE LETTERS. THE LETTERS HAVE BEEN THROUGH ENOUGH.']);
     for (const it of items) {
       expect(viewpointViolation(rules, it), `${it.kind} at ${it.x}, ${it.z}`).toBeNull();
       expect(it.y).toBeCloseTo(W.groundHeight(it.x, it.z), 9);
     }
-    for (const t of items.filter((it) => it.kind === 'telescope')) expect(t.y).toBeCloseTo(CURB_H + 7, 3);
+    // Two on the summit, two at the lookout on the plateau.
+    expect(items.filter((it) => it.kind === 'telescope').map((t) => Math.round(t.y - CURB_H))).toEqual([7, 7, 10, 10]);
+  });
+});
+
+/** A z on Azura Point's plateau with nothing standing between the middle of the tip and its west cliff. */
+function clearToWestCliff(w: StaticWorld): number {
+  for (let z = tip.minZ + 8; z < bluff.cz - bluff.rz - 4; z += 1) {
+    let blocked = false;
+    w.grid.query(tip.minX, z - 3, tip.minX + 22, z + 3, (c) => {
+      if (c.tag !== 'terrain' && c.y1 > CURB_H + 10) blocked = true;
+    });
+    if (!blocked) return z;
+  }
+  throw new Error('no clear way to the west cliff');
+}
+
+describe("Azura Point's bluff", () => {
+  it('climbs from the promenade to a 10 m plateau, the lighthouse and its lookout on top', () => {
+    expect(W.groundHeight(base.minX + 30, base.maxZ)).toBe(CURB_H);
+    const mid = W.groundHeight((base.minX + base.maxX) / 2, (base.minZ + base.maxZ) / 2);
+    expect(mid).toBeGreaterThan(CURB_H + 2);
+    expect(mid).toBeLessThan(CURB_H + 8);
+    expect(W.groundHeight((tip.minX + tip.maxX) / 2, (tip.minZ + tip.maxZ) / 2)).toBe(CURB_H + 10);
+    // No cross-slope: across the base and the tip the ground is level.
+    for (const z of [-530, -560, -600]) expect(W.groundHeight(tip.minX + 1, z)).toBe(W.groundHeight(tip.maxX - 1, z));
+    const lighthouse = L.props.find((p) => p.kind === 'lighthouse')!;
+    expect(lighthouse.y).toBe(CURB_H + 10);
+    const rail = lookoutRail(L);
+    expect(rail.y).toBe(CURB_H + 10);
+    expect(rail.maxX - rail.minX).toBe(24);
+    expect(W.isFree((rail.minX + rail.maxX) / 2, (rail.minZ + rail.maxZ) / 2, 0.3)).toBe(false);
+    // The sea round it is as deep as ever.
+    expect(W.waterDepth(tip.minX - 2, -600)).toBeGreaterThan(SWIM_DEPTH);
+  });
+
+  it('a car drives up the path to the lighthouse without leaving the ground', () => {
+    const sim = new Sim({ world: freshWorld(), ambient: false, police: false });
+    const v = sim.spawnVehicle('sports', bluff.cx, base.maxZ + 10, Math.PI);
+    placeInCar(sim, v);
+    for (let i = 0; i < Math.round(8 / DT) && v.pos.z > tip.minZ + 30; i++) {
+      v.vel.x = 0;
+      v.vel.z = -25;
+      v.heading = Math.PI;
+      v.angVel = 0;
+      sim.update(DT, input());
+      expect(v.airborne, `airborne at z ${v.pos.z.toFixed(1)}`).toBe(false);
+    }
+    expect(v.pos.z).toBeLessThanOrEqual(tip.minZ + 30);
+    expect(v.pos.y).toBeCloseTo(CURB_H + 10, 6);
+  });
+
+  it('a car driven off the cliff flies and sinks', () => {
+    const w = freshWorld();
+    const sim = new Sim({ world: w, ambient: false, police: false });
+    const z = clearToWestCliff(w);
+    const v = sim.spawnVehicle('sports', tip.minX + 16, z, -Math.PI / 2);
+    placeInCar(sim, v);
+    let flew = false;
+    for (let i = 0; i < Math.round(8 / DT) && !v.inWater; i++) {
+      if (!v.airborne && v.pos.x > tip.minX) {
+        v.vel.x = -20;
+        v.vel.z = 0;
+        v.heading = -Math.PI / 2;
+        v.angVel = 0;
+      }
+      sim.update(DT, input());
+      if (v.airborne) flew = true;
+    }
+    expect(flew).toBe(true);
+    expect(v.inWater).toBe(true);
+    expect(v.pos.x).toBeLessThan(tip.minX);
+  });
+
+  it('a man who steps off comes up swimming, unhurt, and cannot climb the cliff, but climbs out at the promenade end', () => {
+    const w = freshWorld();
+    const sim = new Sim({ world: w, ambient: false, police: false });
+    const p = sim.player;
+    const z = clearToWestCliff(w);
+    p.pos.x = tip.minX + 3;
+    p.pos.z = z;
+    p.pos.y = w.groundHeight(p.pos.x, p.pos.z);
+    for (let i = 0; i < Math.round(8 / DT) && p.state !== 'swimming'; i++) sim.update(DT, input({ moveZ: 1, cameraYaw: -Math.PI / 2 }));
+    expect(p.state).toBe('swimming');
+    expect(p.health).toBe(p.maxHealth);
+    for (let i = 0; i < Math.round(6 / DT); i++) sim.update(DT, input({ moveZ: 1, cameraYaw: Math.PI / 2 }));
+    expect(p.state).toBe('swimming');
+    expect(p.pos.x).toBeLessThan(tip.minX + 0.5);
+    // Round to the base's foot by the promenade, where the ground is a step over the water.
+    p.pos.x = base.minX - 4;
+    p.pos.z = base.maxZ - 3;
+    for (let i = 0; i < Math.round(8 / DT) && p.state === 'swimming'; i++) sim.update(DT, input({ moveZ: 1, cameraYaw: Math.PI / 2 }));
+    expect(p.state).toBe('normal');
+    expect(p.pos.x).toBeGreaterThanOrEqual(base.minX);
+    expect(p.pos.y).toBeGreaterThan(WATER_Y);
+  });
+
+  it('pays a cliff dive once a game day', () => {
+    const w = freshWorld();
+    const sim = new Sim({ world: w, ambient: false, police: false });
+    const p = sim.player;
+    const z = clearToWestCliff(w);
+    const big: string[] = [];
+    sim.events.on('big', (e) => big.push(e.text));
+    const swimming = () => p.state === 'swimming';
+    const dive = () => {
+      p.state = 'normal';
+      p.vel.x = p.vel.y = p.vel.z = 0;
+      p.pos.x = tip.minX + 2;
+      p.pos.z = z;
+      p.pos.y = w.groundHeight(p.pos.x, p.pos.z);
+      for (let i = 0; i < Math.round(6 / DT) && !swimming(); i++) sim.update(DT, input({ moveZ: 1, cameraYaw: -Math.PI / 2 }));
+      expect(p.state).toBe('swimming');
+    };
+    const money = sim.progress.money;
+    dive();
+    expect(sim.progress.money - money).toBe(100);
+    expect(big).toEqual(['CLIFF DIVE']);
+    dive();
+    expect(sim.progress.money - money).toBe(100);
+    expect(big).toEqual(['CLIFF DIVE']);
+    sim.clock.day++;
+    dive();
+    expect(sim.progress.money - money).toBe(200);
+    expect(big).toEqual(['CLIFF DIVE', 'CLIFF DIVE']);
+    // Off a quay, or the bluff's low end by the promenade, it is only a splash.
+    p.state = 'normal';
+    p.pos.x = base.minX + 0.5;
+    p.pos.z = base.maxZ - 6;
+    p.pos.y = w.groundHeight(p.pos.x, p.pos.z);
+    sim.clock.day++;
+    for (let i = 0; i < Math.round(4 / DT) && !swimming(); i++) sim.update(DT, input({ moveZ: 1, cameraYaw: -Math.PI / 2 }));
+    expect(p.state).toBe('swimming');
+    expect(sim.progress.money - money).toBe(200);
   });
 });

@@ -141,12 +141,16 @@ describe('the sea in the land', () => {
       }
     }
     const point = L.headlands.find((h) => h.name === 'Azura Point')!;
-    for (const r of point.rects) {
-      expect(r.minZ).toBeLessThan(L.bounds.landMinZ);
-      expect(world.groundHeight(rectCX(r), rectCZ(r))).toBe(CURB_H);
-    }
+    for (const r of point.rects) expect(r.minZ).toBeLessThan(L.bounds.landMinZ);
+    // It climbs from the promenade (world/terrain.ts): the base's middle is part way up, the tip on the 10 m plateau.
+    const [base, tip] = point.rects as [typeof point.rects[0], typeof point.rects[0]];
+    expect(world.groundHeight(rectCX(base), base.maxZ)).toBe(CURB_H);
+    expect(world.groundHeight(rectCX(base), rectCZ(base))).toBeGreaterThan(CURB_H + 1);
+    expect(world.groundHeight(rectCX(base), rectCZ(base))).toBeLessThan(CURB_H + 9);
+    expect(world.groundHeight(rectCX(tip), rectCZ(tip))).toBe(CURB_H + 10);
     const lighthouse = L.props.find((p) => p.kind === 'lighthouse')!;
     expect(rectContains(point.rects[1]!, lighthouse.x, lighthouse.z)).toBe(true);
+    expect(lighthouse.y).toBe(CURB_H + 10);
   });
 
   it('carries every street over the canal on a bridge, its footways fenced by parapets', () => {

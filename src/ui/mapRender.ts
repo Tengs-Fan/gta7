@@ -99,8 +99,9 @@ export class MapImage {
 const SHADE_CELL = 2;
 
 /**
- * Hillshade over the rises, in one pass over their bounds: the ground darkens with its slope, and most where it faces
- * away from a light in the north-west (top left), so the hill and the bluff read as relief.
+ * Hillshade over the rises, in one pass over their bounds: the ground darkens with its slope, most where it faces away
+ * from a light in the north-west (top left), and lightens a little where it faces the light, so the hill and the bluff
+ * read as relief; the bluff's cliffs come out as a dark rim.
  */
 function hillshade(ctx: CanvasRenderingContext2D, world: StaticWorld, X: (x: number) => number, Z: (z: number) => number): void {
   const rises = world.layout.rises;
@@ -114,10 +115,11 @@ function hillshade(ctx: CanvasRenderingContext2D, world: StaticWorld, X: (x: num
         if (h(mx, mz) <= 0) continue;
         const gx = (h(mx + 1, mz) - h(mx - 1, mz)) / 2;
         const gz = (h(mx, mz + 1) - h(mx, mz - 1)) / 2;
+        // Facing away from the light (> 0) or towards it (< 0).
         const away = -(gx + gz) / Math.SQRT2;
-        const a = Math.min(0.6, 0.8 * Math.hypot(gx, gz) + 1.4 * Math.max(0, away));
-        if (a < 0.01) continue;
-        ctx.fillStyle = `rgba(0,0,0,${a.toFixed(3)})`;
+        const dark = Math.min(0.6, 0.35 * Math.hypot(gx, gz) + 1.6 * Math.max(0, away));
+        const lit = Math.min(0.25, 0.9 * Math.max(0, -away));
+        ctx.fillStyle = lit > dark ? `rgba(255,255,255,${lit.toFixed(3)})` : `rgba(0,0,0,${dark.toFixed(3)})`;
         ctx.fillRect(X(x), Z(z), SHADE_CELL * MAP_SCALE, SHADE_CELL * MAP_SCALE);
       }
     }

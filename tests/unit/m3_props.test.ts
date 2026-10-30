@@ -497,12 +497,13 @@ describe('VAL-PRP-007 garages are furnished', () => {
 describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98da7b', () => {
   // Recorded at d98da7b (tests/unit/m3_props.test.ts hashes run against an archive of that commit), re-recorded when
   // the map was broken up and when its four bays were drowned and the ring road bridged across their mouths (docs/map.md), which moves, adds
-  // and drops props and adds colliders, and when Hillcrest Green rose into a hill: its props stand on it, the sign's lawn
-  // lost its trees, and the sight cores and the letters are colliders.
+  // and drops props and adds colliders, and when Hillcrest Green rose into a hill and Azura Point into a bluff: their
+  // props stand on them, the sign's lawn lost its trees, and the sight cores, the letters and the lookout's parapet are
+  // colliders.
   const D98 = {
-    props: '1aa93d0c95bce158e2337dac8e2871d9acde61eaa454ed270c0b5b3f515e582c',
-    colliders: '3243ed48c085fc016910ed823bc03c249bfc838e03067f0600722d83fdbf4768',
-    envelopes: 'd82906f1d6f4497f34f732160064e9ea0266ee9de3a1a2968ee2986b0b1ca87f',
+    props: '247233d935bc61960106ddafa2b408178b3edb82c3c8bd462de3fd08f014539f',
+    colliders: 'ad11b6adee5e5bb8b06465d9864c258d59d406344a5f20237ca5f871be65f7f5',
+    envelopes: '8d6e434520982ed2b772b86b2c1e35c63bab7a3ba1d98ccbd374667dce42cc98',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {
