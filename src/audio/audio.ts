@@ -1,5 +1,6 @@
-// Synthesised sound effects, the player's vehicle, sirens, the ambience bed and the mix (mixer.ts).
-// Everything is generated with WebAudio nodes; there are no audio files.
+// Synthesised sound effects, the player's vehicle, sirens, the ambience bed and the mix (mixer.ts), and the recorded
+// speech: dialogue, the police scanner and the voices in the street (speech.ts). Everything but the speech is
+// generated with WebAudio nodes.
 
 import { clamp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
@@ -9,12 +10,16 @@ import type { VehicleKind, WeaponId } from '../sim/specs';
 import type { Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { Ambience, shoreInfo, type AmbienceFrame, type ShoreInfo } from './ambience';
+import { Barks, nearestCharacter } from './barks';
+import { Dialogue } from './dialogue';
 import { dopplerFactor } from './doppler';
 import { EchoBank } from './echo';
 import { EngineVoice } from './engineVoice';
 import { distanceCutoff, EXPLOSION_DUCK_RANGE, Glider, Mixer, mixTargets, OPEN_HZ, withinParam, type MixTargets } from './mixer';
 import { Radio } from './radio';
 import { PoliceScanner } from './scanner';
+import { eagerClips, SpeechBank } from './speech';
+import type { BarkKind } from '../sim/speech';
 import { NodeTally } from './tally';
 import { DEFAULT_HORN, engineProfile } from './vehicleProfiles';
 
@@ -77,6 +82,10 @@ export class AudioEngine {
   /** Sources started by the talk station, the barks and the echoes, and how many still play. */
   readonly nodes = new NodeTally();
   private scanner: PoliceScanner | null = null;
+  private dialogue: Dialogue | null = null;
+  private barks: Barks | null = null;
+  /** Seconds until the next look for someone to greet the player or a cruiser to call on him to pull over. */
+  private barkScan = 0;
   private echo: EchoBank | null = null;
   private readonly listener: Listener = { x: 0, y: 0, z: 0, yaw: 0 };
   private unsub: Array<() => void> = [];
@@ -116,7 +125,7 @@ export class AudioEngine {
   private softWorld: StaticWorld | null = null;
   private softPatches: Rect[] = [];
   /** Instrumentation for tests: sounds started since the page loaded. */
-  readonly counters = { gunshots: 0, doorThunks: 0, scrapes: 0, dispatches: 0, barks: 0, echoes: 0 };
+  readonly counters = { gunshots: 0, doorThunks: 0, scrapes: 0, dispatches: 0, barks: 0, voices: 0, echoes: 0 };
   private failed = false;
   private warned = false;
 
@@ -143,7 +152,11 @@ export class AudioEngine {
         const d = this.noise.getChannelData(0);
         for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
         this.radio.init(ctx, this.musicBus, this.noise, this.nodes);
-        this.scanner = new PoliceScanner(ctx, this.sfx, this.noise, this.nodes);
+        const speech = new SpeechBank(ctx);
+        speech.preload(eagerClips());
+        this.scanner = new PoliceScanner(ctx, this.sfx, this.noise, speech, this.nodes);
+        this.dialogue = new Dialogue(ctx, this.uiBus, speech, this.nodes);
+        this.barks = new Barks(ctx, speech, (x, y, z, ref, max) => this.spatial(x, y, z, ref, max), (pan, cutoff) => this.out(pan, cutoff), this.nodes);
         this.echo = new EchoBank(ctx, this.sfx, this.nodes);
         this.engine = new EngineVoice(ctx, this.vehicleBus, this.noise);
         this.ambience = new Ambience(ctx, mixer.ambBus);
@@ -178,6 +191,7 @@ export class AudioEngine {
     this.paused = paused;
     this.radio.setPaused(paused);
     this.mixer?.setPaused(paused);
+    this.dialogue?.setPaused(paused);
   }
 
   /** Runs a sound routine; an audio bug is logged once and never reaches the game loop. */
@@ -197,6 +211,7 @@ export class AudioEngine {
     for (const u of this.unsub) u();
     this.unsub = [];
     this.subtitleTimer = 0;
+    this.dialogue?.cut();
     this.bigTimer = 0;
     this.failTimer = 0;
     this.explosionTimer = 0;
@@ -216,6 +231,11 @@ export class AudioEngine {
         this.policeBark(e.text);
       }),
       on('damage', (e) => {
+        const v = e.victim;
+        if (!e.killed && !v.isPlayer) {
+          const kind = v.role === 'cop' || v.role === 'swat' ? (e.attacker?.isPlayer ? 'shots' : null) : v.role === 'gang' ? 'turf' : 'hurt';
+          if (kind) this.bark(kind, v.id, v.pos.x, v.pos.y + 1.6, v.pos.z);
+        }
         // The player's weapon hits: bullets, fists and explosions, not people run over.
         if (!e.attacker || e.attacker !== this.me(sim).character || e.victim.isPlayer || !(e.kind === 'bullet' || e.kind === 'melee' || e.kind === 'explosion')) return;
         const kind: HitConfirm = e.killed ? 'kill' : e.zone === 'head' ? 'head' : 'hit';
@@ -268,15 +288,50 @@ export class AudioEngine {
         if (this.mine(e)) this.failTimer = 0;
       }),
       on('subtitle', (e) => {
+        if (!this.mine(e)) return;
         // Dialogue ducks the music and the ambience for as long as the line shows (as in the HUD).
-        if (this.mine(e) && finite(e.duration)) this.subtitleTimer = e.duration;
+        this.subtitleTimer = e.duration;
+        void this.dialogue?.say(e.speaker, e.text);
       }),
-      on('scream', (e) => this.scream(e.x, e.y, e.z)),
+      on('scream', (e) => {
+        this.scream(e.x, e.y, e.z);
+        if (Math.random() < 0.5) this.bark('panic', (Math.random() * 0xffff) | 0, e.x, e.y, e.z);
+      }),
       on('vehicleEnter', (e) => {
         if (e.character === this.me(sim).character) this.doorThunk(e.vehicle);
+        // The driver pulled out of the car shouts after it.
+        if (e.jacked) this.bark('jacked', e.vehicle.id, e.vehicle.pos.x, e.vehicle.pos.y + 1, e.vehicle.pos.z);
       }),
       on('vehicleExit', (e) => {
         if (e.character === this.me(sim).character) this.doorThunk(e.vehicle);
+      }),
+      on('witnessCall', (e) => {
+        if (e.started) this.bark('witness', e.caller.id, e.caller.pos.x, e.caller.pos.y + 1.6, e.caller.pos.z);
+      }),
+      on('vehicleRammed', (e) => {
+        const d = e.vehicle.driver;
+        if (d && !d.isPlayer && !e.vehicle.spec.police) this.bark('rammed', d.id, e.vehicle.pos.x, e.vehicle.pos.y + 1, e.vehicle.pos.z);
+      }),
+      on('characterKilled', (e) => {
+        const v = e.victim;
+        if (v.role !== 'cop' && v.role !== 'swat') return;
+        const c = nearestCharacter(sim.characters, v.pos.x, v.pos.z, 40, (c) => c !== v && (c.role === 'cop' || c.role === 'swat'));
+        if (c) this.bark('officerDown', c.id, c.pos.x, c.pos.y + 1.6, c.pos.z);
+      }),
+      on('wanted', (e) => {
+        if (!this.mine(e) || e.level <= e.previous) return;
+        const p = this.me(sim).pos();
+        const c = nearestCharacter(sim.characters, p.x, p.z, 35, (c) => (c.role === 'cop' || c.role === 'swat') && !c.vehicle);
+        if (c) this.bark('freeze', c.id, c.pos.x, c.pos.y + 1.6, c.pos.z);
+      }),
+      on('busted', (e) => {
+        if (!this.mine(e)) return;
+        const p = this.me(sim).pos();
+        const c = nearestCharacter(sim.characters, p.x, p.z, 15, (c) => c.role === 'cop' || c.role === 'swat');
+        if (c) this.bark('arrest', c.id, c.pos.x, c.pos.y + 1.6, c.pos.z);
+      }),
+      on('gangWar', (e) => {
+        if (e.started) this.bark('turf', (e.x * 31 + e.z) | 0, e.x, 1.6, e.z);
       }),
     );
   }
@@ -392,6 +447,40 @@ export class AudioEngine {
     if (!this.scanner.bark(text)) return false;
     this.counters.barks++;
     return true;
+  }
+
+  /** Someone in the street shouts (barks.ts); counted in counters.voices. */
+  private bark(kind: BarkKind, who: number, x: number, y: number, z: number): void {
+    if (this.ready() && this.barks!.say(kind, who, x, y, z)) this.counters.voices++;
+  }
+
+  /**
+   * Twice a second: a cruiser behind the wanted player's car calls on him to pull over, and a passer-by he walks up to
+   * (no stars, on foot, slowly) says hello.
+   */
+  private updateBarks(step: number, sim: ViewState): void {
+    this.barkScan -= step;
+    if (this.barkScan > 0) return;
+    this.barkScan = 0.5;
+    const me = this.me(sim);
+    const pc = me.character;
+    if (me.down) return;
+    if (pc.vehicle && me.wanted.level > 0) {
+      let best: Vehicle | null = null;
+      let bd = 45 * 45;
+      for (const v of sim.vehicles) {
+        if (!v.spec.police || v.destroyed || !v.driver || v === pc.vehicle) continue;
+        const d = (v.pos.x - pc.vehicle.pos.x) ** 2 + (v.pos.z - pc.vehicle.pos.z) ** 2;
+        if (d < bd) {
+          bd = d;
+          best = v;
+        }
+      }
+      if (best) this.bark('pullOver', best.id, best.pos.x, best.pos.y + 1.5, best.pos.z);
+    } else if (!pc.vehicle && me.wanted.level === 0 && Math.hypot(pc.vel.x, pc.vel.z) < 2.5) {
+      const c = nearestCharacter(sim.characters, pc.pos.x, pc.pos.z, 3, (c) => c.role === 'civilian' && c.state === 'normal' && c !== pc);
+      if (c) this.bark('greet', c.id, c.pos.x, c.pos.y + 1.6, c.pos.z);
+    }
   }
 
   /**
@@ -746,6 +835,7 @@ export class AudioEngine {
       if (this.explosionTimer <= 0) this.explosionDist = Infinity;
     }
     this.updateAmbience(step, sim, inGame, t);
+    if (inGame) this.updateBarks(step, sim);
     // The radio is as present in the mix as the music volume lets it be heard (switched off or at 0: not at all).
     const radio = this.radio.playing ? clamp(this.volumes.music / RADIO_FULL, 0, 1) : 0;
     const m = mixTargets(
