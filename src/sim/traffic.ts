@@ -1,6 +1,6 @@
 // Streams ambient traffic and parked cars in and out around the player.
 
-import { axisOf, type Lane } from '../world/roads';
+import { axisOf, SIGNAL_CYCLE, SIGNAL_GREEN, type Lane } from '../world/roads';
 import { pointSegDist } from '../core/math';
 import type { Rng } from '../core/rng';
 import { WATER_Y } from '../world/constants';
@@ -37,13 +37,13 @@ const BAY_SPACING = 3.5;
 /**
  * A vehicle nobody is in, standing in a junction, that has held up traffic for TOW_BLOCK s is towed away out of the
  * player's view, as drivers that cannot detour round it would otherwise wait for good. Drivers held up by it back off,
- * re-plan and wait out red lights in between (a red phase is about 16 s): the hold-up only ends once nobody has stood
- * held up by it for TOW_GAP s.
+ * re-plan and wait out red lights in between (an approach waits up to SIGNAL_CYCLE - SIGNAL_GREEN = 21 s for green):
+ * the hold-up only ends once nobody has stood held up by it for TOW_GAP s, a little longer than that wait.
  * The car the player left is kept while he is within TOW_KEEP_NEAR m of it, in view or not, and a car someone is
  * getting into, a police unit or a mission car is never towed.
  */
 const TOW_BLOCK = 30;
-const TOW_GAP = 20;
+const TOW_GAP = SIGNAL_CYCLE - SIGNAL_GREEN + 4;
 const TOW_KEEP_NEAR = 20;
 /** Multiplayer: nothing is towed this near (m) any player. */
 const TOW_FAR_MP = 40;

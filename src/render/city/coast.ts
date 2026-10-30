@@ -1,8 +1,10 @@
 // Coast: the sloped beach, quay walls and piers.
 
 import * as THREE from 'three';
+import { Rng } from '../../core/rng';
 import { BEACH_W, CURB_H, DECK_SLAB, SEABED_Y, WATER_Y } from '../../world/constants';
 import { PARAPET_H, sandHeight } from '../../world/layout';
+import { foreshoreReach, shores, type Shore } from '../../world/shore';
 import { GeoBuilder } from '../geo';
 import { pilingCentres, PILING_RADIUS } from '../sea';
 import type { CityView } from './index';
@@ -27,7 +29,9 @@ export function buildCoast(view: CityView): void {
   sand.quad(b.beachEndX, end, b.landMaxZ, b.beachEndX + 25, SEABED_Y, b.landMaxZ, b.beachEndX + 25, SEABED_Y, b.landMinZ, b.beachEndX, end, b.landMinZ, [0, 0, 1, 0, 1, 1, 0, 1]);
   // Quay walls wherever the land meets the sea, and the beach's north/south edges.
   const bottom = SEABED_Y;
-  quayWalls(view, walls);
+  const shore = shores(view.world);
+  quayWalls(shore, walls);
+  revetments(view, shore);
   for (let i = 0; i < steps; i++) {
     const x0 = b.beachStartX + (BEACH_W * i) / steps;
     const x1 = b.beachStartX + (BEACH_W * (i + 1)) / steps;
@@ -76,45 +80,95 @@ export function buildCoast(view: CityView): void {
   }
 }
 
-/**
- * The quay walls: every stretch where land meets the sea along the land rectangle's west, north and south edges,
- * round the water cut into it and round the headlands, each facing out over the water.
- */
-function quayWalls(view: CityView, walls: GeoBuilder): void {
-  const world = view.world;
-  const layout = world.layout;
-  const b = layout.bounds;
-  const land = (x: number, z: number) => world.baseGround(x, z) > WATER_Y;
-  const rects = [...layout.water.flatMap((w) => w.rects), ...layout.headlands.flatMap((h) => h.rects)];
-  const edges: Array<{ vertical: boolean; at: number; t0: number; t1: number }> = [
-    { vertical: true, at: b.landMinX, t0: b.landMinZ, t1: b.landMaxZ },
-    { vertical: false, at: b.landMinZ, t0: b.landMinX, t1: b.beachStartX },
-    { vertical: false, at: b.landMaxZ, t0: b.landMinX, t1: b.beachStartX },
-  ];
-  for (const r of rects) {
-    edges.push({ vertical: true, at: r.minX, t0: r.minZ, t1: r.maxZ }, { vertical: true, at: r.maxX, t0: r.minZ, t1: r.maxZ });
-    edges.push({ vertical: false, at: r.minZ, t0: r.minX, t1: r.maxX }, { vertical: false, at: r.maxZ, t0: r.minX, t1: r.maxX });
-  }
-  // Land and water can only change hands at a rectangle's edge: split every edge there.
-  const xs = [b.landMinX, b.beachStartX, ...rects.flatMap((r) => [r.minX, r.maxX])];
-  const zs = [b.landMinZ, b.landMaxZ, ...rects.flatMap((r) => [r.minZ, r.maxZ])];
-  const done = new Set<string>();
+/** The quay walls along every stretch of shore, each facing out over the water. */
+function quayWalls(shore: Shore[], walls: GeoBuilder): void {
   const uv = { kind: 'world', scale: 3 } as const;
-  for (const e of edges) {
-    const cuts = [e.t0, e.t1, ...(e.vertical ? zs : xs).filter((t) => t > e.t0 && t < e.t1)].sort((p, q) => p - q);
-    for (let k = 1; k < cuts.length; k++) {
-      const t0 = cuts[k - 1]!;
-      const t1 = cuts[k]!;
-      const key = `${e.vertical ? 'x' : 'z'}${e.at.toFixed(2)}:${t0.toFixed(2)}`;
-      if (t1 - t0 < 0.01 || done.has(key)) continue;
-      const m = (t0 + t1) / 2;
-      const before = e.vertical ? land(e.at - 0.3, m) : land(m, e.at - 0.3);
-      const after = e.vertical ? land(e.at + 0.3, m) : land(m, e.at + 0.3);
-      if (before === after) continue;
-      done.add(key);
-      // GeoBuilder.wall faces (-dz, dx) of the direction it runs in.
-      if (e.vertical) walls.wall(e.at, before ? t1 : t0, e.at, before ? t0 : t1, SEABED_Y, CURB_H, uv);
-      else walls.wall(before ? t0 : t1, e.at, before ? t1 : t0, e.at, SEABED_Y, CURB_H, uv);
+  for (const s of shore) {
+    // GeoBuilder.wall faces (-dz, dx) of the direction it runs in.
+    const forward = -(s.z1 - s.z0) * s.nx + (s.x1 - s.x0) * s.nz > 0;
+    if (forward) walls.wall(s.x0, s.z0, s.x1, s.z1, SEABED_Y, CURB_H, uv);
+    else walls.wall(s.x1, s.z1, s.x0, s.z0, SEABED_Y, CURB_H, uv);
+  }
+}
+
+/**
+ * The rocky foreshore's boulders: per metre of shore, from `out` m off the wall across the band foreshoreReach gives,
+ * their size (m), and the icosahedron detail of their shape. Bigger and higher round a headland.
+ */
+const RIPRAP = { perMetre: 1, out: 0.3, size: [0.9, 2.4], rise: 0, detail: 0 } as const;
+const HEADLAND_RIPRAP = { perMetre: 1.4, out: 0.2, size: [1.4, 3.6], rise: 0.5, detail: 1 } as const;
+
+/** A lumpy boulder: an icosahedron pushed in and out by a few seeded bumps, flat-shaded. */
+function boulder(seed: number, detail: number): THREE.BufferGeometry {
+  const rng = new Rng(seed);
+  const bumps = Array.from({ length: 5 }, () => new THREE.Vector3(rng.range(-1, 1), rng.range(-1, 1), rng.range(-1, 1)).normalize().multiplyScalar(rng.range(0.15, 0.35)));
+  const g = new THREE.IcosahedronGeometry(1, detail);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const p = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    p.fromBufferAttribute(pos, i);
+    let r = 1;
+    for (const b of bumps) r += b.length() * Math.max(0, p.dot(b) / b.length()) ** 3 - 0.08;
+    p.multiplyScalar(r);
+    // Flatter than tall, as boulders settle.
+    p.y *= 0.62;
+    pos.setXYZ(i, p.x, p.y, p.z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * Riprap: a rocky foreshore at the foot of the open coast's quay walls and round the headlands, so the shore reads as
+ * a ragged line of rock and water rather than a ruled one. The harbour basin and the canal keep their plain stone
+ * walls. Drawn only: the rocks stand in the water off the walls, where nothing walks.
+ */
+function revetments(view: CityView, shore: Shore[]): void {
+  const rng = new Rng(0x7e55e1);
+  const specs = [RIPRAP, HEADLAND_RIPRAP];
+  const variants = specs.map((spec, k) => [boulder(11 + k, spec.detail), boulder(23 + k, spec.detail), boulder(37 + k, spec.detail)]);
+  const placed: THREE.Matrix4[][][] = specs.map(() => [[], [], []]);
+  const tints: THREE.Color[][][] = specs.map(() => [[], [], []]);
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  for (const s of shore) {
+    if (s.built) continue;
+    const len = Math.hypot(s.x1 - s.x0, s.z1 - s.z0);
+    const k = s.headland ? 1 : 0;
+    const spec = specs[k]!;
+    const reachAt = foreshoreReach(s);
+    const count = Math.max(1, Math.round(len * spec.perMetre));
+    for (let n = 0; n < count; n++) {
+      const t = (n + rng.next()) / count;
+      // Heaped: most boulders hug the wall, fewer reach the band's far edge.
+      const f = rng.next() ** 1.5;
+      const out = spec.out + reachAt(t * len) * f;
+      const x = s.x0 + (s.x1 - s.x0) * t + s.nx * out;
+      const z = s.z0 + (s.z1 - s.z0) * t + s.nz * out;
+      const size = rng.range(spec.size[0], spec.size[1]) * (1 - 0.4 * f);
+      const y = WATER_Y + rng.range(-0.35, 0.45) * size + spec.rise * (1 - f);
+      e.set(rng.range(-0.3, 0.3), rng.range(0, Math.PI * 2), rng.range(-0.3, 0.3));
+      q.setFromEuler(e);
+      const v = rng.int(0, 2);
+      placed[k]![v]!.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(size * rng.range(0.9, 1.4), size, size * rng.range(0.9, 1.3))));
+      tints[k]![v]!.push(new THREE.Color(0x7d766c).multiplyScalar(rng.range(0.75, 1.15)).lerp(new THREE.Color(0x5e564b), rng.next() * 0.5));
     }
   }
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true });
+  specs.forEach((_, k) => {
+    variants[k]!.forEach((g, v) => {
+      const list = placed[k]![v]!;
+      if (list.length === 0) return;
+      const mesh = new THREE.InstancedMesh(g, mat, list.length);
+      list.forEach((m, i) => {
+        mesh.setMatrixAt(i, m);
+        mesh.setColorAt(i, tints[k]![v]![i]!);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      mesh.receiveShadow = true;
+      mesh.name = 'riprap';
+      view.group.add(mesh);
+    });
+  });
 }

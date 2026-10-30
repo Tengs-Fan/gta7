@@ -87,7 +87,17 @@ Pedestrians keep to dry land: the promenade loop breaks where the sea comes in, 
 - The coast (promenade furniture, beach palms, the pier and the Marina) draws from its own generator, seeded with the state the shared generator had when the coast began before, so the beach is exactly as it was.
 - Tests that named lanes by their index in `roads.lanes` now name them by their place in the square city (`legacyLane` in `tests/unit/helpers.ts`), because closing segments renumbers lanes.
 
+## The shore
+
+The open coast's sea walls and the headland's edges are fronted by a rocky foreshore drawn in `src/render/city/coast.ts`: boulders heaped at the walls' foot, in a band whose width wanders along the shore (2 to 11 m, 4 to 16 m round Azura Point), so the coast reads as a ragged line of rock and water from the street and from the air.
+Port Basin and Cortez Canal keep their plain quays, as built water should.
+The rocks are drawn only; the land and the water stay the rectangles above.
+The cove, the basin and the canal count as shore for the surf in the ambience (`shoreInfo`), as the outer sea walls do.
+
+More sea cells (a west inlet, a south bay, an extended cove) were tried and set aside for now: each one re-rolls every block generated after it, which moved 20 to 48 of the unit tests' scenarios and recorded hashes at once.
+
 ## Known limits
 
 - Bridges are decks, like the pier: boats cannot pass under them, so the canal is for looking at from a boat rather than for sailing through, and a swimmer passing under a bridge climbs out onto it.
 - The gang turf overlay on the map still covers Port Basin.
+- The foreshore's boulders are decoration: a swimmer or a boat passes through them.

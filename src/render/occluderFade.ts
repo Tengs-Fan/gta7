@@ -8,9 +8,12 @@ import type { V3 } from '../core/math';
 export const OCCLUDER_CAPSULE_R = 0.35;
 /** ...and is drawn in full from twice that out. */
 export const OCCLUDER_CAPSULE_FULL = 2 * OCCLUDER_CAPSULE_R;
-/** An axis within OCCLUDER_LENS_NEAR (m) of the lens is fully dissolved, and drawn in full beyond OCCLUDER_LENS_FAR. */
+/**
+ * An axis within OCCLUDER_LENS_NEAR (m) of the lens is fully dissolved, and drawn in full beyond OCCLUDER_LENS_FAR: a
+ * lamp brushing past the lens on a sidewalk walk is well under half drawn while it still fills the side of the frame.
+ */
 export const OCCLUDER_LENS_NEAR = 1;
-export const OCCLUDER_LENS_FAR = 1.5;
+export const OCCLUDER_LENS_FAR = 1.6;
 
 export type OccluderKind = 'lamp' | 'signal' | 'tree' | 'palm';
 

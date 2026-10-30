@@ -739,6 +739,10 @@ describe('Fire kills are credited to whoever set the car alight', () => {
     const r = openRoad(sim);
     teleport(sim, r.x, r.z);
     expect(sim.activities.startRampage('test')).toBe(true);
+    // Only the fire is on stage: a gunman the rampage sends (one every 1.2 s, 22-48 m off, nearly half of them armed)
+    // could put the civilian to flight from his shots.
+    const rampage = sim.activities.job!;
+    if (rampage.kind === 'rampage') rampage.spawnTimer = 10;
     const car = sim.spawnVehicle('sedan', r.x + r.fx * 14, r.z + r.fz * 14, r.h);
     sim.combat.damageVehicle(car, car.health + 1, sim.player, 'bullet');
     car.burnTimer = 30;

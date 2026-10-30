@@ -110,14 +110,14 @@ function clearance(w: StaticWorld, a: THREE.Vector3, b: THREE.Vector3): number {
 }
 
 /** The middle of a building's south face (tier 0) with open ground 6 m out in front of it and no prop within 7 m. */
-function openSouthFace(w: StaticWorld): { x: number; z: number } {
+function openSouthFace(w: StaticWorld, depth = 6): { x: number; z: number } {
   for (const b of w.layout.buildings) {
     const t = b.tiers[0];
     if (!t || t.maxX - t.minX < 8) continue;
     const x = (t.minX + t.maxX) / 2;
     const z = t.maxZ;
     let open = true;
-    for (let dz = 0.36; dz <= 6 && open; dz += 0.4) for (const dx of [-3, -1.5, 0, 1.5, 3]) if (!w.isFree(x + dx, z + dz, 0.35)) open = false;
+    for (let dz = 0.36; dz <= depth && open; dz += 0.4) for (const dx of [-3, -1.5, 0, 1.5, 3]) if (!w.isFree(x + dx, z + dz, 0.35)) open = false;
     if (!open || w.layout.props.some((q) => Math.hypot(q.x - x, q.z - z) < 7)) continue;
     // Not one looking out over the water (Hillcrest Cove, the canal), nor one beside a garage's roof.
     if ([3, 6, 9, 12].some((d) => w.waterDepth(x, z + d) > 0)) continue;
@@ -239,8 +239,8 @@ describe('the camera with his back to a wall, and his car parked against one', (
         x = f.x - gap - spec.width / 2;
         z = f.z;
       } else {
-        // Facing south (+z), its tail gap m off a south face.
-        const f = openSouthFace(W);
+        // Facing south (+z), its tail gap m off a south face with room for all of it.
+        const f = openSouthFace(W, spec.length + 1);
         x = f.x;
         z = f.z + gap + spec.length / 2;
       }

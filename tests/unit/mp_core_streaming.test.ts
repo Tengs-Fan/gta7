@@ -323,10 +323,12 @@ describe('same seed, same inputs: same game with 2-4 players (VAL-MPSIM-008)', (
 
   for (const n of [2, 3, 4]) {
     it(`${n} players: two runs with one seed match, another seed does not`, () => {
-      const a = run(n, 77);
-      const b = run(n, 77);
-      const c = run(n, 78);
-      console.log(`[mpsim-008] ${n} players, seed 77: state ${a.hash.slice(0, 16)} / ${b.hash.slice(0, 16)}, event log ${a.log.slice(0, 16)} / ${b.log.slice(0, 16)} (${a.events} events, ${a.deaths} deaths, wanted ${JSON.stringify(a.wanted)}); seed 78: state ${c.hash.slice(0, 16)}, log ${c.log.slice(0, 16)}`);
+      // Seeds 80 and 81: in 60 s someone sees player 1's shooting and calls it in (the gunfire can also kill every
+      // witness first, which makes a run with no pursuit; seed 77 did that once the map was broken up).
+      const a = run(n, 80);
+      const b = run(n, 80);
+      const c = run(n, 81);
+      console.log(`[mpsim-008] ${n} players, seed 80: state ${a.hash.slice(0, 16)} / ${b.hash.slice(0, 16)}, event log ${a.log.slice(0, 16)} / ${b.log.slice(0, 16)} (${a.events} events, ${a.deaths} deaths, wanted ${JSON.stringify(a.wanted)}); seed 81: state ${c.hash.slice(0, 16)}, log ${c.log.slice(0, 16)}`);
       expect(a.events).toBeGreaterThan(200);
       expect(b.hash).toBe(a.hash);
       expect(b.log).toBe(a.log);

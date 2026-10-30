@@ -136,6 +136,9 @@ export class AudioEngine {
   private readonly shore = {} as ShoreInfo;
   private softWorld: StaticWorld | null = null;
   private softPatches: Rect[] = [];
+  /** The water cut into the city (cove, basin, canal), for the surf bed. */
+  private waterWorld: StaticWorld | null = null;
+  private water: Rect[] = [];
   /** Instrumentation for tests: sounds started since the page loaded. */
   readonly counters = { gunshots: 0, doorThunks: 0, scrapes: 0, dispatches: 0, barks: 0, voices: 0, echoes: 0 };
   private failed = false;
@@ -990,12 +993,20 @@ export class AudioEngine {
     return false;
   }
 
+  private waterRects(world: StaticWorld): Rect[] {
+    if (this.waterWorld !== world) {
+      this.waterWorld = world;
+      this.water = world.layout.water.flatMap((w) => w.rects);
+    }
+    return this.water;
+  }
+
   private updateAmbience(dt: number, sim: ViewState, inGame: boolean, t: number): void {
     const L = this.listener;
     // A broken camera pose keeps the bed as it was rather than reading NaN places.
     if (!finite(L.x, L.y, L.z, L.yaw)) return;
     const world = sim.world;
-    const shore = shoreInfo(world.bounds, L.x, L.z, this.shore);
+    const shore = shoreInfo(world.bounds, L.x, L.z, this.shore, this.waterRects(world));
     const rx = -Math.cos(L.yaw);
     const rz = Math.sin(L.yaw);
     // Moving traffic within 120 m (in 3D: rooftops and the title flyover hear the street from afar), speed-weighted, and where it is.
