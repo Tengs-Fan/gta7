@@ -19,7 +19,7 @@ async function installTaps(page: Page): Promise<void> {
       node.connect(an);
       return an;
     };
-    const taps: Record<string, AnalyserNode> = { music: mk(m.musicBus), sfx: mk(m.sfx), master: mk(m.softClip), limiter: mk(m.limiter) };
+    const taps: Record<string, AnalyserNode> = { music: mk(m.musicBus), sfx: mk(m.sfx), master: mk(m.softClip), limiter: mk(m.limiter), radio: mk((audio.radio as unknown as { out: AudioNode }).out) };
     const td = new Float32Array(4096);
     const fd = new Float32Array(2048);
     const src = `class R extends AudioWorkletProcessor { constructor() { super(); this.on = false; this.buf = []; this.port.onmessage = (e) => { if (e.data === 'start') { this.on = true; this.buf = []; } else { this.on = false; this.port.postMessage(this.buf); this.buf = []; } }; } process(inputs) { const i = inputs[0]; if (this.on && i && i.length) { const n = i[0].length; const o = new Float32Array(n); for (let c = 0; c < i.length; c++) for (let k = 0; k < n; k++) o[k] += i[c][k] * i[c][k]; this.buf.push(o); } return true; } } registerProcessor('w1-rec', R);`;
@@ -181,16 +181,29 @@ test.describe('GTA 7 wave-1 audio', () => {
     await quietCar(page);
     await installTaps(page);
     await tuneTalk(page);
+    // The host is recorded speech, louder in one piece or phrase than another, so the Music volume's effect is read as
+    // the music bus against the radio's own output at the same instants (the median over the voiced ones).
     const level = async (music: number) => {
       await volumes(page, { music });
       await page.evaluate(() => (window as Api).__gta7.game.audio.radio.cueTalk('host', 1));
       await page.waitForTimeout(300);
-      return meanDb((await record(page, 'music', 3000)).filter((x) => x.kind === 'host'));
+      return page.evaluate(async () => {
+        const w1 = (window as Api).__w1;
+        const d: number[] = [];
+        for (let i = 0; i < 60; i++) {
+          const radio = w1.rms('radio') as number;
+          if (radio > -50) d.push((w1.rms('music') as number) - radio);
+          await new Promise((res) => setTimeout(res, 50));
+        }
+        return d.sort((a, b) => a - b)[d.length >> 1]!;
+      });
     };
     const full = await level(0.6);
     const half = await level(0.3);
-    const none = await level(0);
-    console.log(`[talk] music bus: ${full.toFixed(1)} dBFS at 0.6, ${half.toFixed(1)} at 0.3, ${none.toFixed(1)} at 0`);
+    await volumes(page, { music: 0 });
+    await page.waitForTimeout(300);
+    const none = meanDb((await record(page, 'music', 1000)).filter((x) => x.kind === 'host'));
+    console.log(`[talk] music bus over the radio: ${full.toFixed(1)} dB at 0.6, ${half.toFixed(1)} at 0.3; ${none.toFixed(1)} dBFS at 0`);
     expect(full - half).toBeGreaterThan(2.5);
     expect(full - half).toBeLessThan(10);
     expect(none).toBeLessThan(-90);
