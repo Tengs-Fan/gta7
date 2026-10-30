@@ -762,9 +762,10 @@ describe('round-2 audio fixes', () => {
     const grind = (speed: number) => {
       noise.mockClear();
       sim.events.emit('scrape', { x: p.pos.x + 3, y: p.pos.y + 0.4, z: p.pos.z, speed, vehicle: sim.spawnVehicle('sedan', p.pos.x + 3, p.pos.z, 0) });
-      expect(noise).toHaveBeenCalledTimes(1);
+      // The grind and its ring: two short band-passed bursts, the grind first.
+      expect(noise).toHaveBeenCalledTimes(2);
       const c = noise.mock.calls[0]!;
-      // noiseBurst(dest, t, dur, type, freq, q, gain, freqEnd): a short band-passed burst.
+      // noiseBurst(dest, t, dur, type, freq, q, gain, freqEnd).
       expect(c[3]).toBe('bandpass');
       expect(c[2] as number).toBeLessThan(0.2);
       return { hz: c[4] as number, gain: c[6] as number };

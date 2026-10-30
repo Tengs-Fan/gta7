@@ -36,8 +36,8 @@ function finite(...xs: number[]): boolean {
 
 /** Peak gain of the player's held horn. */
 const HORN_LEVEL = 0.15;
-/** Peak gain of the nearest police siren. */
-const SIREN_LEVEL = 0.4;
+/** Peak gain of the nearest police siren (a square wave: about as loud as the old triangle at 0.4). */
+const SIREN_LEVEL = 0.25;
 /** Siren pitch and wail depth (Hz) before the Doppler shift. */
 const SIREN_HZ = 950;
 const SIREN_SWEEP = 380;
@@ -45,6 +45,18 @@ const SIREN_SWEEP = 380;
 const DOPPLER_TAU = 0.06;
 /** Scream peak: 14 dB above the old 0.12. */
 const SCREAM_LEVEL = 0.12 * Math.pow(10, 14 / 20);
+/** Formants of a screamed "ah" (centre Hz, Q, level). */
+const SCREAM_FORMANTS: ReadonlyArray<readonly [number, number, number]> = [
+  [950, 6, 1.05],
+  [1450, 7, 0.8],
+  [2900, 8, 0.45],
+];
+/** Modes of a struck car panel (ratios to the lowest) and their levels: a clank, not a chord. */
+const PANEL_MODES: ReadonlyArray<readonly [number, number]> = [
+  [1, 0.5],
+  [2.32, 0.35],
+  [4.25, 0.22],
+];
 /** Seconds an explosion keeps the music ducked before it recovers. */
 const EXPLOSION_HOLD = 0.15;
 /**
@@ -338,7 +350,7 @@ export class AudioEngine {
   }
 
   private noiseBurst(dest: AudioNode, t: number, dur: number, type: BiquadFilterType, freq: number, q: number, gain: number, freqEnd?: number): void {
-    if (!finite(t, dur, freq, q, gain, freqEnd ?? freq) || !(gain > 0) || !(dur > 0)) return;
+    if (!(gain > 0)) return;
     const ctx = this.ctx!;
     const src = ctx.createBufferSource();
     src.buffer = this.noise;
@@ -364,8 +376,8 @@ export class AudioEngine {
   }
 
   private tone(dest: AudioNode, t: number, type: OscillatorType, f0: number, f1: number, dur: number, gain: number, attack = 0.002): void {
-    // The exponential ramp below also rejects a zero peak.
-    if (!finite(t, f0, f1, dur, gain, attack) || gain <= 0) return;
+    // The exponential ramp below rejects a zero peak.
+    if (!(gain > 0)) return;
     const ctx = this.ctx!;
     const o = ctx.createOscillator();
     o.type = type;
@@ -423,16 +435,20 @@ export class AudioEngine {
     const t = now + 0.005;
     this.counters.gunshots++;
     switch (w) {
+      // Every report opens with the muzzle blast's crack: a few milliseconds of bright noise.
       case 'pistol':
         this.noiseBurst(out, t, 0.16, 'lowpass', 4200, 0.7, 0.9 * g, 900);
+        this.noiseBurst(out, t, 0.025, 'highpass', 2400, 0.7, 0.5 * g);
         this.tone(out, t, 'sine', 160, 50, 0.12, 0.5 * g);
         break;
       case 'smg':
         this.noiseBurst(out, t, 0.09, 'lowpass', 5200, 0.6, 0.75 * g, 1200);
+        this.noiseBurst(out, t, 0.018, 'highpass', 2800, 0.7, 0.4 * g);
         this.tone(out, t, 'sine', 180, 60, 0.07, 0.35 * g);
         break;
       case 'shotgun':
         this.noiseBurst(out, t, 0.42, 'lowpass', 2600, 0.6, 1.1 * g, 300);
+        this.noiseBurst(out, t, 0.035, 'highpass', 1800, 0.7, 0.6 * g);
         this.tone(out, t, 'sine', 110, 38, 0.3, 0.8 * g);
         break;
       case 'sniper':
@@ -468,9 +484,19 @@ export class AudioEngine {
     const delay = s.dist > 80 ? Math.min(0.8, s.dist / 343) : 0;
     const t = this.ctx!.currentTime + 0.01 + delay;
     const k = clamp(radius / 7.5, 0.5, 1.4) * s.gain;
+    // The crack of the blast front, the fireball's roar, and a low rumble that rolls on for seconds.
+    this.noiseBurst(out, t, 0.06, 'highpass', 800, 0.6, 0.9 * k);
     this.noiseBurst(out, t, 1.6, 'lowpass', 2200, 0.5, 1.4 * k, 120);
     this.noiseBurst(out, t, 0.25, 'highpass', 1500, 0.5, 0.6 * k);
+    this.noiseBurst(out, t + 0.03, 3.2, 'lowpass', 220, 0.7, 0.9 * k, 50);
     this.tone(out, t, 'sine', 70, 28, 1.2, 1.2 * k, 0.005);
+    // Debris pattering down, close by only: short bright ticks thinning out over a second and a half.
+    if (s.dist < 120) {
+      for (let i = 0; i < 9; i++) {
+        const dt = 0.15 + Math.pow(Math.random(), 1.6) * 1.4;
+        this.noiseBurst(out, t + dt, 0.015 + Math.random() * 0.03, 'bandpass', 1400 + Math.random() * 3000, 2, 0.22 * k * (1 - dt / 1.8));
+      }
+    }
   }
 
   /** A collision at (x, y, z); `own` is one of the player's car, which plays on the vehicle bus. */
@@ -481,8 +507,24 @@ export class AudioEngine {
     const out = this.out(s.pan, s.cutoff, own ? this.vehicleBus : this.sfx);
     const t = this.ctx!.currentTime + 0.005;
     const k = clamp(strength / 14, 0.15, 1) * s.gain;
-    this.noiseBurst(out, t, 0.18 + k * 0.25, 'bandpass', 700 + Math.random() * 400, 0.9, 1.1 * k, 200);
-    if (strength > 8) this.tone(out, t, 'triangle', 900 + Math.random() * 500, 300, 0.25, 0.25 * k);
+    // The body's thud, then sheet metal crumpling: a few short grains of noise, each in its own band.
+    // Both grow with the square of the hit, so a nudge stays a knock and a crash lands.
+    const k2 = k * clamp(strength / 14, 0.15, 1);
+    this.tone(out, t, 'sine', 95, 42, 0.16 + k * 0.1, 0.7 * k2, 0.003);
+    this.noiseBurst(out, t, 0.12 + k * 0.2, 'bandpass', 700 + Math.random() * 400, 0.9, 0.8 * k, 200);
+    const grains = 2 + Math.round(3 * k);
+    for (let i = 0; i < grains; i++) {
+      this.noiseBurst(out, t + Math.random() * 0.07, 0.03 + Math.random() * 0.06, 'bandpass', 500 + Math.random() * 2200, 1.6, 0.5 * k2);
+    }
+    if (strength > 8) {
+      // A panel rings at a few inharmonic modes (a struck plate, not a note).
+      const f = 380 + Math.random() * 260;
+      for (const [m, a] of PANEL_MODES) this.noiseBurst(out, t, 0.25 + 0.2 * k, 'bandpass', f * m, 28, a * k);
+    }
+    // A hard hit breaks glass: sparse bright tinkles over a quarter of a second.
+    if (strength > 11 && Math.random() < 0.5) {
+      for (let i = 0; i < 7; i++) this.noiseBurst(out, t + 0.01 + Math.random() * 0.25, 0.01 + Math.random() * 0.025, 'bandpass', 3000 + Math.random() * 4500, 5, 0.3 * k);
+    }
   }
 
   /**
@@ -500,7 +542,8 @@ export class AudioEngine {
     const k = clamp((speed - 2) / 18, 0.15, 1) * s.gain;
     const hz = 800 + 85 * Math.min(speed, 36);
     this.noiseBurst(out, t, 0.11, 'bandpass', hz * (0.9 + Math.random() * 0.2), 3, 0.55 * k, hz * 0.75);
-    this.tone(out, t, 'triangle', hz * 2.1, hz * 1.8, 0.08, 0.05 * k);
+    // The metal rings in a narrow band that lands somewhere new every burst, so a long grind never repeats a chirp.
+    this.noiseBurst(out, t, 0.1, 'bandpass', hz * (1.8 + Math.random() * 1.2), 20, 0.3 * k);
     this.counters.scrapes++;
   }
 
@@ -560,6 +603,10 @@ export class AudioEngine {
     this.noiseBurst(this.sfx, t, 0.2, 'lowpass', 900, 0.6, 0.4 * k, 200);
   }
 
+  /**
+   * A scream: a strained voice whose pitch jumps up and sags with a 6-7 Hz vibrato, and the breath under it,
+   * both through the formants of an open "ah".
+   */
   scream(x: number, y: number, z: number): void {
     if (!this.ready()) return;
     const s = this.spatial(x, y, z, 8, 70);
@@ -567,26 +614,49 @@ export class AudioEngine {
     const ctx = this.ctx!;
     const out = this.out(s.pan, s.cutoff);
     const t = ctx.currentTime;
+    const end = t + 0.7;
+    const envelope = (peak: number) => {
+      const g = this.envGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(peak, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
+      g.gain.linearRampToValueAtTime(0, t + 0.67);
+      return g;
+    };
+    const voice = envelope(SCREAM_LEVEL * s.gain);
+    const air = envelope(0.25 * SCREAM_LEVEL * s.gain);
     const o = ctx.createOscillator();
     o.type = 'sawtooth';
     const base = 520 + Math.random() * 300;
-    o.frequency.setValueAtTime(base, t);
-    o.frequency.linearRampToValueAtTime(base * 1.35, t + 0.15);
-    o.frequency.linearRampToValueAtTime(base * 0.8, t + 0.6);
-    const f = ctx.createBiquadFilter();
-    f.type = 'bandpass';
-    f.frequency.value = 1400;
-    f.Q.value = 3;
-    const g = this.envGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(SCREAM_LEVEL * s.gain, t + 0.04);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
-    g.gain.linearRampToValueAtTime(0, t + 0.67);
-    o.connect(f);
-    f.connect(g);
-    g.connect(out);
+    const vib = 6 + Math.random();
+    for (let i = 0; i <= 26; i++) {
+      const u = i * 0.025;
+      const contour = u < 0.15 ? 1 + 0.35 * (u / 0.15) : 1.35 - 0.55 * Math.min(1, (u - 0.15) / 0.45);
+      const f = base * contour * (1 + 0.03 * Math.sin(2 * Math.PI * vib * u));
+      if (i === 0) o.frequency.setValueAtTime(f, t);
+      else o.frequency.linearRampToValueAtTime(f, t + u);
+    }
+    const breath = ctx.createBufferSource();
+    breath.buffer = this.noise;
+    breath.loop = true;
+    o.connect(voice);
+    breath.connect(air);
+    for (const [hz, q, level] of SCREAM_FORMANTS) {
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = hz;
+      f.Q.value = q;
+      const fg = ctx.createGain();
+      fg.gain.value = level;
+      voice.connect(f);
+      air.connect(f);
+      f.connect(fg);
+      fg.connect(out);
+    }
     o.start(t + this.sample);
-    o.stop(t + 0.7);
+    breath.start(t + this.sample, Math.random() * 1.5);
+    o.stop(end);
+    breath.stop(end);
   }
 
   /**
@@ -695,9 +765,14 @@ export class AudioEngine {
 
   private buildSiren(): void {
     const ctx = this.ctx!;
+    // An electronic siren drives a square wave into a horn speaker, which rolls off the top: bright, not a flute.
     const osc = ctx.createOscillator();
-    osc.type = 'triangle';
+    osc.type = 'square';
     osc.frequency.value = SIREN_HZ;
+    const horn = ctx.createBiquadFilter();
+    horn.type = 'lowpass';
+    horn.frequency.value = 3200;
+    horn.Q.value = 1.2;
     const lfo = ctx.createOscillator();
     lfo.type = 'sine';
     lfo.frequency.value = 0.32;
@@ -707,7 +782,8 @@ export class AudioEngine {
     lfoGain.connect(osc.frequency);
     const gain = ctx.createGain();
     gain.gain.value = 0;
-    osc.connect(gain);
+    osc.connect(horn);
+    horn.connect(gain);
     gain.connect(this.sfx);
     osc.start();
     lfo.start();

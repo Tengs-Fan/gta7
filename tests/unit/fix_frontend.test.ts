@@ -3409,7 +3409,7 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(blast(600).delay).toBeCloseTo(0.01 + 0.8 + 1 / ctx.sampleRate, 6);
   });
 
-  it('sirens peak at 0.4 (8 dB louder than before) and screams 14 dB louder', () => {
+  it('sirens peak at 0.25 (a square wave, as loud as the old triangle at 0.4) and screams 14 dB louder', () => {
     const { sim, ctx, audio, frames } = rig();
     frames(2);
     const p = sim.playerPos();
@@ -3418,8 +3418,8 @@ describe('round 2 audio: mix, voices and ambience', () => {
     frames(1);
     const siren = (audio as unknown as { sirenNodes: { gain: FakeGain } }).sirenNodes.gain;
     // At the listener's own position the distance law gives the peak.
-    expect(siren.gain.target).toBeGreaterThan(0.39);
-    expect(siren.gain.target).toBeLessThanOrEqual(0.4);
+    expect(siren.gain.target).toBeGreaterThan(0.24);
+    expect(siren.gain.target).toBeLessThanOrEqual(0.25);
     const b = ctx.nodes.length;
     const L = { ...sim.playerPos() };
     audio.setListener(L.x, L.y, L.z, 0);
