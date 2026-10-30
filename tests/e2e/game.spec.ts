@@ -724,7 +724,7 @@ test.describe('GTA 7 menus', () => {
       await page.evaluate((t) => {
         const hud = (window as Api).__gta7.game.hud;
         hud.help(t, 6);
-        hud.showRadio('NEON DRIVE 88.7');
+        hud.showRadio('DOCKSIDE DUB 92.3');
       }, text);
       await page.waitForTimeout(300);
       const help = (await page.locator('.help').boundingBox())!;

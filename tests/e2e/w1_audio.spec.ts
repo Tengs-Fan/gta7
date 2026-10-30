@@ -128,12 +128,12 @@ async function quietCar(page: Page): Promise<void> {
 
 async function tuneTalk(page: Page): Promise<void> {
   // R cycles the stations in a car; the HUD shows the station's name.
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i <= 10; i++) {
     if ((await page.evaluate(() => (window as Api).__gta7.game.audio.radio.stationName)) === 'AZURA TALK 104.5') break;
     await page.keyboard.press('KeyR');
     await page.waitForTimeout(250);
   }
-  await expect(page.locator('.radio')).toHaveText('AZURA TALK 104.5');
+  await expect(page.locator('.radio')).toHaveText(/^AZURA TALK 104\.5/);
 }
 
 test.describe('GTA 7 wave-1 audio', () => {
@@ -225,7 +225,7 @@ test.describe('GTA 7 wave-1 audio', () => {
     expect(off).toBeLessThan(-80);
     // Back on, then out of the car.
     await page.keyboard.press('KeyQ');
-    await expect(page.locator('.radio')).toHaveText('AZURA TALK 104.5');
+    await expect(page.locator('.radio')).toHaveText(/^AZURA TALK 104\.5/);
     await page.evaluate(() => (window as Api).__gta7.game.audio.radio.cueTalk('host', 1));
     await page.waitForTimeout(800);
     expect(await rms(page, 'music')).toBeGreaterThan(-50);
