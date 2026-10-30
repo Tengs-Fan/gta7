@@ -11,8 +11,6 @@ import { WATER_Y } from '../world/constants';
 import { seaHeightAt } from './boatView';
 import type { SeaUniforms } from './sea';
 
-/** A buoy stands this far (m) beyond the gate's radius, out of the way of a boat taking the gate wide. */
-const BUOY_OUT = 1.5;
 
 /** A racing buoy: a float with a red and white band, a cone on top and a short pole with a pennant, its waterline at 0. */
 function buoyGeometry(): THREE.BufferGeometry {
@@ -49,7 +47,8 @@ export function buoySpots(): Array<{ x: number; z: number }> {
     const b = REGATTA_GATES[i + 1];
     const len = b ? Math.hypot(b.x - a.x, b.z - a.z) : 1;
     const [dx, dz] = b ? [(b.x - a.x) / len, (b.z - a.z) / len] : [0, -1];
-    const r = REGATTA_GATE_R + BUOY_OUT;
+    // On the gate's radius: a boat that passes between the buoys has taken the gate.
+    const r = REGATTA_GATE_R;
     out.push({ x: g.x - dz * r, z: g.z + dx * r }, { x: g.x + dz * r, z: g.z - dx * r });
   });
   return out;
