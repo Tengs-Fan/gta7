@@ -99,11 +99,14 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   };
   showHint();
   const ctx = canvas.getContext('2d')!;
-  // Start centred on the island showing the whole city.
+  // Start centred on the island showing the whole city, with as much sea north of it as south: the open sea runs on
+  // north to Turbine Row (world/offshore.ts), a pan away, and the city keeps its size on the map.
   const b = sim.world.layout.bounds;
   let zoom = 0;
   let cx = (b.landMinX + b.beachEndX) / 2;
   let cz = (b.landMinZ + b.landMaxZ) / 2;
+  const fitW = 2 * (b.worldMaxX - cx);
+  const fitH = 2 * (b.worldMaxZ - cz);
   let dragging = false;
   let moved = 0;
   let lx = 0;
@@ -118,7 +121,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   let vw = window.innerWidth;
   let vh = window.innerHeight;
   const scale = () => {
-    const base = Math.min(vw / (menus.map.canvas.width / MAP_SCALE), vh / (menus.map.canvas.height / MAP_SCALE));
+    const base = Math.min(vw / fitW, vh / fitH);
     return base * Math.pow(1.5, zoom);
   };
   const toWorld = (sx: number, sy: number) => {

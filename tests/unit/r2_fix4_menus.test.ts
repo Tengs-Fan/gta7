@@ -10,7 +10,7 @@ import type { Settings } from '../../src/settings';
 import type { MissionCtx } from '../../src/sim/missions/runner';
 import { missionSpots } from '../../src/sim/missions/spots';
 import { Sim } from '../../src/sim/sim';
-import { MAP_SCALE, MapImage } from '../../src/ui/mapRender';
+import { MapImage } from '../../src/ui/mapRender';
 import { Menus, type MenuHost } from '../../src/ui/menus';
 import { input, step, teleport, world } from './helpers';
 
@@ -283,10 +283,10 @@ describe('the full-screen map and a direction held since before it opened (low)'
     const rig = makeMenus(sim);
     rig.menus.showMap();
     const canvas = rig.top().children[0]!;
-    const map = (rig.menus as unknown as { map: MapImage }).map;
-    const base = Math.min(win.innerWidth / (map.canvas.width / MAP_SCALE), win.innerHeight / (map.canvas.height / MAP_SCALE));
     const b = sim.world.layout.bounds;
     const centre = { x: (b.landMinX + b.beachEndX) / 2, z: (b.landMinZ + b.landMaxZ) / 2 };
+    // Zoom 0 fits the land with as much sea round it on every side as south of it (map.ts).
+    const base = Math.min(win.innerWidth / (2 * (b.worldMaxX - centre.x)), win.innerHeight / (2 * (b.worldMaxZ - centre.z)));
     /** World metres a second at full deflection: 0.8 of the smaller side of the page (CSS px) a second, at zoom 0. */
     const speed = (0.8 * Math.min(win.innerWidth, win.innerHeight)) / base;
     /** One 60 fps frame of menu input (the screen's input guard counts these too). */

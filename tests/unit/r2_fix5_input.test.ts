@@ -11,7 +11,7 @@ import type { UiActions } from '../../src/input/input';
 import type { Settings } from '../../src/settings';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import { Sim } from '../../src/sim/sim';
-import { MAP_SCALE, MapImage } from '../../src/ui/mapRender';
+import { MapImage } from '../../src/ui/mapRender';
 import { Menus, type MenuHost } from '../../src/ui/menus';
 import { placeInCar, world } from './helpers';
 
@@ -872,9 +872,10 @@ function mapRig() {
   const canvas = top.children[0]!;
   const vw = dom.win.innerWidth;
   const vh = dom.win.innerHeight;
-  const base = Math.min(vw / (map.canvas.width / MAP_SCALE), vh / (map.canvas.height / MAP_SCALE));
   const b = sim.world.layout.bounds;
   const centre = { x: (b.landMinX + b.beachEndX) / 2, z: (b.landMinZ + b.landMaxZ) / 2 };
+  // Zoom 0 fits the land with as much sea round it on every side as south of it (map.ts).
+  const base = Math.min(vw / (2 * (b.worldMaxX - centre.x)), vh / (2 * (b.worldMaxZ - centre.z)));
   /** World metres a second at full deflection: 0.8 of the smaller side of the page a second, at zoom 0. */
   const speed = (0.8 * Math.min(vw, vh)) / base;
   /** One 60 fps frame of menu input (the screen's input guard counts these too). */

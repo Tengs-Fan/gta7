@@ -20,7 +20,7 @@ import { VEHICLE_SPECS } from '../../src/sim/specs';
 import { formatRunTime, runMedal } from '../../src/sim/streetRuns';
 import { vehicleObb } from '../../src/sim/vehiclePhysics';
 import { Hud } from '../../src/ui/hud';
-import { MAP_SCALE, MapImage } from '../../src/ui/mapRender';
+import { MapImage } from '../../src/ui/mapRender';
 import { Menus, type MenuHost } from '../../src/ui/menus';
 import { placeInCar, roadPoint, step, world } from './helpers';
 
@@ -989,11 +989,11 @@ describe('menus', () => {
     menus.input(ui(), 0.3); // first frame sizes the canvas to the window
     const canvas = top().children[0]!;
     const legend = top().all().find((e) => e.classList.contains('map-legend'))!;
-    const map = (menus as unknown as { map: MapImage }).map;
-    const k = Math.min(1280 / (map.canvas.width / MAP_SCALE), 720 / (map.canvas.height / MAP_SCALE));
     const b = sim.world.layout.bounds;
     const cx = (b.landMinX + b.beachEndX) / 2;
     const cz = (b.landMinZ + b.landMaxZ) / 2;
+    // Zoom 0 fits the land with as much sea round it on every side as south of it (map.ts).
+    const k = Math.min(1280 / (2 * (b.worldMaxX - cx)), 720 / (2 * (b.worldMaxZ - cz)));
     pointer(canvas, 'down', 500, 300, 1);
     pointer(canvas, 'move', 600, 300, 1); // drag 100 px to the right
     pointer(legend, 'up', 600, 300, 0); // released over the legend
@@ -1298,10 +1298,11 @@ function mapWheelRig() {
   menus.showMap();
   menus.input(NO_UI, 0.3); // the first frame sizes the canvas to the 1280 x 720 window
   const canvas = (menus.top!.el as unknown as FakeElement).children[0]!;
-  const map = (menus as unknown as { map: MapImage }).map;
-  const base = Math.min(1280 / (map.canvas.width / MAP_SCALE), 720 / (map.canvas.height / MAP_SCALE));
   const b = sim.world.layout.bounds;
   const cx = (b.landMinX + b.beachEndX) / 2;
+  const cz = (b.landMinZ + b.landMaxZ) / 2;
+  // Zoom 0 fits the land with as much sea round it on every side as south of it (map.ts).
+  const base = Math.min(1280 / (2 * (b.worldMaxX - cx)), 720 / (2 * (b.worldMaxZ - cz)));
   /** The zoom level, read back from where a click 100 px right of the centre drops the waypoint. */
   const zoom = () => {
     wp = null;
