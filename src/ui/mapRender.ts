@@ -11,6 +11,7 @@ import { packageIndex } from '../sim/pickups';
 import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
 import { beachOffsetAt, rectContains } from '../world/layout';
+import { foreshoreReach, shores } from '../world/shore';
 import type { StaticWorld } from '../world/staticWorld';
 
 export const MAP_SCALE = 1; // pixels per metre in the pre-rendered image
@@ -54,6 +55,24 @@ export class MapImage {
     // Headlands, and the sea where it comes into the land.
     for (const h of world.layout.headlands) for (const r of h.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#3b4249');
     for (const w of world.layout.water) for (const r of w.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#1a4560');
+    // The rocky foreshore off the open sea walls, as ragged as the boulders the city draws (world/shore.ts).
+    ctx.fillStyle = '#56524c';
+    for (const s of shores(world)) {
+      if (s.built) continue;
+      const len = Math.hypot(s.x1 - s.x0, s.z1 - s.z0);
+      const reach = foreshoreReach(s);
+      ctx.beginPath();
+      ctx.moveTo(X(s.x0), Z(s.z0));
+      for (let d = 0; d <= len; d += 3) {
+        const o = 0.3 + 0.7 * reach(d);
+        ctx.lineTo(X(s.x0 + ((s.x1 - s.x0) * d) / len + s.nx * o), Z(s.z0 + ((s.z1 - s.z0) * d) / len + s.nz * o));
+      }
+      const o = 0.3 + 0.7 * reach(len);
+      ctx.lineTo(X(s.x1 + s.nx * o), Z(s.z1 + s.nz * o));
+      ctx.lineTo(X(s.x1), Z(s.z1));
+      ctx.closePath();
+      ctx.fill();
+    }
     // Blocks and ground.
     for (const blk of world.layout.blocks) rect(blk.rect.minX, blk.rect.minZ, blk.rect.maxX, blk.rect.maxZ, '#2c3238');
     const gc: Record<string, string> = { grass: '#2f6a3a', yard: '#35603a', plaza: '#3c4147', parking: '#33373c', dirt: '#4a4438' };
