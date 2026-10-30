@@ -1,7 +1,8 @@
 // The Gull Regatta's gates (sim/activities/regatta.ts) while one is under way: a pair of buoys either side of each gate,
 // bobbing on the sea, one instanced draw for the course. The gate to pass next stands out, its buoys larger (the
-// objective marker rings it too), and the gates already passed are gone. The material is the turbines' (an instanced,
-// vertex-coloured standard material), so the course hidden at warm-up has its program already. Presentation only.
+// objective marker rings it too), and the gates already passed are gone. The material is set up as the turbines' is
+// (instanced, vertex-coloured, the same standard parameters), so it shares their program and the course hidden at
+// warm-up has it already. Presentation only.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -10,7 +11,6 @@ import type { ViewState } from '../sim/viewState';
 import { WATER_Y } from '../world/constants';
 import { seaHeightAt } from './boatView';
 import type { SeaUniforms } from './sea';
-
 
 /** A racing buoy: a float with a red and white band, a cone on top and a short pole with a pennant, its waterline at 0. */
 function buoyGeometry(): THREE.BufferGeometry {
@@ -57,6 +57,8 @@ export function buoySpots(): Array<{ x: number; z: number }> {
 export class RegattaView {
   readonly mesh: THREE.InstancedMesh;
   private readonly spots = buoySpots();
+  /** The first gate on each gate's spot (the pier end is passed going out and coming home): the gate itself if none. */
+  private readonly twin = REGATTA_GATES.map((g) => REGATTA_GATES.findIndex((o) => o.x === g.x && o.z === g.z));
   private readonly phase = this.spots.map(() => Math.random() * Math.PI * 2);
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
@@ -81,7 +83,10 @@ export class RegattaView {
     this.sea = u;
   }
 
-  /** Shows the course while the local player's regatta runs: the next gate (the start line first) larger, those passed gone. */
+  /**
+   * Shows the course while the local player's regatta runs: the next gate (the start line first) larger, those passed
+   * gone, and a gate on the spot of one still ahead of it left to that one's buoys until it is passed.
+   */
   sync(sim: ViewState, time: number): void {
     const j = sim.activities.job;
     this.mesh.visible = j?.kind === 'regatta';
@@ -91,7 +96,8 @@ export class RegattaView {
     this.spots.forEach((s, i) => {
       const gate = i >> 1;
       const t = time * 1.4 + this.phase[i]!;
-      const y = gate < next ? -100 : WATER_Y + seaHeightAt(this.sea, s.x, s.z) + Math.sin(t) * 0.12;
+      const twin = this.twin[gate]!;
+      const y = gate < next || (twin < gate && twin >= next) ? -100 : WATER_Y + seaHeightAt(this.sea, s.x, s.z) + Math.sin(t) * 0.12;
       this.e.set(Math.sin(t * 0.8) * 0.08, 0, Math.cos(t * 0.9) * 0.08);
       this.mesh.setMatrixAt(i, this.m.compose(this.p.set(s.x, y, s.z), this.q.setFromEuler(this.e), gate === next ? this.big : this.one));
     });

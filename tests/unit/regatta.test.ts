@@ -1,20 +1,29 @@
 // The Gull Regatta (sim/activities/regatta.ts): T starts it only in a boat at the Marina, its gates count only in order,
 // a scripted Marlin lap is inside the gold time that lap set the medals by, running out of time, leaving the boat or
-// bringing the police to the start line ends it, and the best lap is kept through a save.
+// bringing the police to the start line ends it, the best lap is kept through a save, and the buoys (render/regatta.ts)
+// show each gate once.
 
-import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
+import { describe, expect, it, vi } from 'vitest';
 import { clamp, wrapAngle } from '../../src/core/math';
 import { multiplayerInteractions } from '../../src/net/mpPlaces';
+import { RegattaView } from '../../src/render/regatta';
 import { activityRecords } from '../../src/sim/activities/records';
 import { MP_NO_REGATTA, REGATTA_GATE_R, REGATTA_GATES, REGATTA_START, REGATTA_TIMES, regattaMedal, type RegattaJob } from '../../src/sim/activities/regatta';
 import type { Vehicle } from '../../src/sim/entities';
 import { applySave, parseSave, serialize } from '../../src/sim/progress';
 import { applyExt, serializeExt } from '../../src/sim/saveExt';
 import { Sim } from '../../src/sim/sim';
+import type { ViewState } from '../../src/sim/viewState';
 import { WATER_Y } from '../../src/world/constants';
 import { headlandAt } from '../../src/world/layout';
 import { foreshoreReach, shores } from '../../src/world/shore';
 import { input, makeSim, placeInCar, step, world } from './helpers';
+
+await vi.hoisted(async () => {
+  const m = await import('../support/canvasStub');
+  m.installCanvasStubs();
+});
 
 /** A sim with the player at the helm of a Marlin at (x, z), facing `heading`. */
 function inBoat(x: number = REGATTA_START.x, z: number = REGATTA_START.z, heading: number = REGATTA_START.heading, opts: { multiplayer?: boolean } = {}): { sim: Sim; boat: Vehicle } {
@@ -227,5 +236,29 @@ describe('Gull Regatta', () => {
     console.log(`[regatta] three-quarter-throttle lap ${slow.toFixed(2)} s (${regattaMedal(slow)})`);
     expect(slow).toBeGreaterThan(t);
     expect(activityRecords(again.progress).regattaBest).toBe(best);
+  });
+
+  it('floats every gate once: the pier end, passed going out and coming home, shows one pair of buoys at a time', () => {
+    const view = new RegattaView();
+    const pier = REGATTA_GATES.map((g) => g.label).lastIndexOf('Pier end');
+    expect(pier).toBeGreaterThan(0);
+    expect(REGATTA_GATES[0]).toMatchObject({ x: REGATTA_GATES[pier]!.x, z: REGATTA_GATES[pier]!.z });
+    const shown = (stage: RegattaJob['stage'], gate: number) => {
+      view.sync({ activities: { job: { kind: 'regatta', stage, gate } } } as unknown as ViewState, 0);
+      const m = new THREE.Matrix4();
+      const p = new THREE.Vector3();
+      return REGATTA_GATES.map((_g, i) => [0, 1].every((k) => (view.mesh.getMatrixAt(2 * i + k, m), p.setFromMatrixPosition(m).y > -50)));
+    };
+    // Before the start only the start line floats; then every gate ahead, but the pier end once until it is passed.
+    expect(shown('countdown', 0)).toEqual(REGATTA_GATES.map((_g, i) => i === REGATTA_GATES.length - 1));
+    const out = shown('racing', 0);
+    expect(out[0]).toBe(true);
+    expect(out[pier]).toBe(false);
+    expect(out.filter((on) => on).length).toBe(REGATTA_GATES.length - 1);
+    const back = shown('racing', 1);
+    expect(back[0]).toBe(false);
+    expect(back[pier]).toBe(true);
+    expect(back.filter((on) => on).length).toBe(REGATTA_GATES.length - 1);
+    view.dispose();
   });
 });
