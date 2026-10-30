@@ -37,7 +37,7 @@ const CARS_PACK = { Windows: 'glass', Black: 'dark', Grey: 'metal', Headlights: 
 
 /**
  * The model each kind is drawn with. Quaternius models only: the Kenney car kit's toy proportions (oversized wheels,
- * chunky cabins) clash with the Quaternius characters, and its sedan, taxi, van and fire truck do not fit the specs
+ * chunky cabins) clash with the other Quaternius models, and its sedan, taxi, van and fire truck do not fit the specs
  * (VAL-CAR-003, see the cars report). The sedan shares the taxi's body (without its roof sign), as the procedural
  * sedan family did; the box vehicles (van, bus, riot van, ambulance, fire truck) stay procedural. Kenney's ambulance
  * fits within 20 %, but its cab sits 1.0-1.8 m ahead of the centre: the sim seats a front row 0.15 m ahead of it
