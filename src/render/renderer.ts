@@ -23,6 +23,7 @@ import { Environment } from './environment';
 import { FinishPass } from './finishPass';
 import { gradeAt, type Grade } from './grade';
 import { MarkerView } from './markers';
+import { MonorailView } from './monorail';
 import { PropsView } from './props';
 import { Rain, SOFTWARE_RAIN_DROPS } from './rain';
 import { setPilings, setSeaCuts } from './sea';
@@ -169,6 +170,8 @@ export class GameRenderer {
   /** The wave-1 jobs' bins and water jet, and the signs and structures of their places. */
   readonly activityFx = new ActivityFxView();
   readonly sites: SiteView;
+  /** AzuraLink: the beam, the stations and the train. */
+  readonly monorail: MonorailView;
   /** Grenades and molotovs in flight, the throw's aiming arc and molotov fires. */
   readonly throwView = new ThrowView();
   readonly rain: Rain;
@@ -280,7 +283,9 @@ export class GameRenderer {
     this.props = new PropsView(world, chunk);
     this.streetLighting = new StreetLighting(world);
     this.sites = new SiteView(world);
-    this.scene.add(this.activityFx.group, this.sites.group);
+    this.monorail = new MonorailView(world);
+    this.scene.add(this.activityFx.group, this.sites.group, this.monorail.group);
+    this.softwareMaterials?.apply(this.monorail.group);
     this.softwareMaterials?.apply(this.sites.group);
     this.softwareMaterials?.apply(this.activityFx.group);
     this.scene.add(this.streetLighting.group, this.footShadows.mesh);
@@ -527,6 +532,7 @@ export class GameRenderer {
     }
     this.headlight.visible = t.headlight;
     this.lightSprites.setPoolCap(t.headlightPools);
+    this.monorail.setGlow(t.railGlow);
     this.rain.setCount(this.software ? SOFTWARE_RAIN_DROPS : t.rainDrops);
     this.city.wet.setMode(t.wetGround);
     const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
@@ -1124,6 +1130,7 @@ export class GameRenderer {
       this.throwView.sync(sim, this.me(sim).character, this.cameraCtl.aimRay().dir, this.effects, dt, this.time, cam.position);
       this.vehicleEffects(sim, dt);
       this.activityFx.sync(sim, dt, this.effects, this.time);
+      this.monorail.update(sim.time, lights);
       this.crowd.scopeHiddenId = this.cameraCtl.scoped ? this.me(sim).character.id : -1;
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt, this.me(sim).character.id);
       this.footShadows.update(sim.characters, cam.position, this.crowd.scopeHiddenId);
