@@ -107,6 +107,9 @@ The block keeps its district and takes the attraction's name as its zone, so the
 **The open-spot rule.**
 The hidden packages and pickups are placed over the city's open spots (`src/sim/pickups.ts`, farthest first), so dropping or moving one spot would move all twenty packages.
 An attraction therefore keeps every open spot in its cell, and keeps each one free: no collider within a metre, none on a ramp.
+Two of the farm's spots lie under its kicker's flight, one a metre past the lip and one where a car at full throttle lands.
+The lane's spots are 18 to 24 m apart and a car lands 12 to 25 m past the lip, so the kicker could stand nowhere on the lane without one there.
+Neither spot receives a package or a pickup, which `tests/unit/attractions.test.ts` holds.
 The farm's lane runs down the line of the old yards' setback spots, and the cemetery's paths across it run where its fifteen spots lie.
 `tests/unit/map_guard.test.ts` pins the mission spots of both chapters, the filtered open spots and the landmark towers, recorded before the pass existed.
 

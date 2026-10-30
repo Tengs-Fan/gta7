@@ -78,6 +78,24 @@ describe('the attractions pass', () => {
     expect(n).toBe(23);
   });
 
+  it("puts no package or pickup under a ramp's flight, where two of the farm lane's spots lie", () => {
+    // The lane's spots are 18 to 24 m apart and a car lands 12 to 25 m past the kicker's lip, so on the lane it could
+    // stand nowhere without one under its flight (docs/map.md). Nothing is placed on them; a reshuffle of the pickups
+    // (a spot added or dropped anywhere in the city) that put something there fails here.
+    const sim = makeSim({ police: false });
+    const W = sim.world;
+    const under = W.layout.openSpots.filter((s) => W.layout.ramps.some((r) => {
+      const along = (s.x - r.x) * Math.sin(r.heading) + (s.z - r.z) * Math.cos(r.heading);
+      const side = Math.abs((s.x - r.x) * Math.cos(r.heading) - (s.z - r.z) * Math.sin(r.heading));
+      return side < r.width / 2 + 1 && along > r.length / 2 && along < r.length / 2 + 35;
+    }));
+    expect(under.length).toBe(2);
+    for (const s of under) {
+      expect(rectContains(farmOf(W).rect, s.x, s.z)).toBe(true);
+      expect(sim.pickups.filter((p) => Math.hypot(p.pos.x - s.x, p.pos.z - s.z) < 0.5), `spot ${s.x},${s.z}`).toEqual([]);
+    }
+  });
+
   it("adds the farm's hay-bale kicker as the sixth stunt jump", () => {
     const sim = makeSim();
     const farm = farmOf(sim.world);
