@@ -453,6 +453,8 @@ export const GARAGE_LANE = 3.6;
 export function garageSpecs(world: StaticWorld): GarageSpec[] {
   const out: GarageSpec[] = [];
   for (const g of world.layout.garages) {
+    // Hollister Farm's barn takes a garage's walls and roof, not its trade: no workbench, tyres or posters in it.
+    if (g.poi === 'farm_barn') continue;
     const r = g.rect;
     const t = 0.5;
     // Opening on side g.side; w runs inward, u across (right-handed with y up: u = w x y).

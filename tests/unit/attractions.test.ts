@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { bellTolls, whisperDue } from '../../src/audio/ambience';
+import { dressingItems, garageSpecs } from '../../src/render/dressing';
 import { completionRows } from '../../src/sim/completion';
 import { EPITAPHS, epitaphsRead } from '../../src/sim/epitaphs';
 import { farmState, hollister, HOLLISTER_FAR, HOLLISTER_NEAR, PUMPKIN_COUNT, PUMPKIN_REWARD } from '../../src/sim/farm';
@@ -96,6 +97,13 @@ describe('the attractions pass', () => {
     for (let x = rectCX(b); x > rectCX(lane); x -= 1) expect(W.isFree(x, z, 1.4), `barn door at ${x}`).toBe(true);
     for (let zz = z; zz < lane.maxZ + 10; zz += 1) expect(W.isFree(rectCX(lane), zz, 1.4), `lane at ${zz}`).toBe(true);
     expect(W.isOnRoad(rectCX(lane), lane.maxZ + 8)).toBe(true);
+  });
+
+  it('keeps a garage\'s benches, tyres and posters out of the barn', () => {
+    const W = world();
+    const b = farmOf(W).anchors.barn;
+    expect(garageSpecs(W).map((g) => g.name)).not.toContain('farm_barn');
+    expect(dressingItems(W).filter((it) => rectContains(b, it.x, it.z))).toEqual([]);
   });
 });
 

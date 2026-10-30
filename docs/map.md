@@ -114,7 +114,7 @@ What the attractions add to the world:
 
 - Corn is a breakable collider of its own tag (`crop`): it stops people, barely slows a car (each segment takes 3 % of its speed) and hides nothing from a line of sight.
   The maze and the barn are *cover* (`StaticWorld.coverAt`): there officers see a target only within 10 m and the helicopter crew only within 15 m along the ground, where the barn's roof is in the way.
-- The barn is a garage without a marker (its walls, roof slab and dark interior are a garage's); the chapel, the tower and the mausoleums are solids of the attraction, not buildings, so facades, rooftops and the landmark towers never see them.
+- The barn is a garage without a marker (its walls, roof slab and dark interior are a garage's, but none of a garage's benches, tyres and posters); the chapel, the tower and the mausoleums are solids of the attraction, not buildings, so facades, rooftops and the landmark towers never see them.
 - The hay-bale kicker is the sixth stunt ramp, and its run-up and landing keep the corridor every ramp keeps.
 - Pumpkins and ordinary headstones break; the twelve epitaph stones do not.
 
