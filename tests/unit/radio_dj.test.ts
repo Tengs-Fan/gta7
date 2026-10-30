@@ -225,7 +225,13 @@ class FContext {
   }
 }
 
-type Inner = { music: FNode; echoSend: FNode; bank: { get(id: string): unknown; preload(ids: string[]): void }; upNext: { item: DjItem | null } };
+type Inner = {
+  music: FNode;
+  echoSend: FNode;
+  bank: { get(id: string): unknown; preload(ids: string[]): void };
+  upNext: { item: DjItem | null };
+  scene(next: Inner['upNext']): DjScene;
+};
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 /** A radio in a car on NEON DRIVE (the first station), its clips fetched by a fake that knows their lengths. */
@@ -333,6 +339,27 @@ describe('the radio, music side', () => {
     r.radio.next();
     r.frames(0.1);
     expect(r.inner.bank.get(clip)).toBeUndefined();
+  });
+
+  it('hears a getaway when the stars clear from two or more, not as a wasted or busted player comes back or off the game', async () => {
+    const r = await rig();
+    // As audio.ts does each frame: the wanted level, then the scene.
+    const frame = (wanted: number, down: boolean) => {
+      r.radio.setWanted(wanted);
+      r.radio.setScene(15, 'clear', down);
+    };
+    const gotAway = () => r.inner.scene(r.inner.upNext).gotAway;
+    // Busted at three stars: the sim clears the stars in the step that brings the player back, so he is up again then.
+    frame(3, true);
+    frame(0, false);
+    expect(gotAway()).toBe(false);
+    // Quit to the title at three stars: off the game is down.
+    frame(3, false);
+    frame(0, true);
+    expect(gotAway()).toBe(false);
+    frame(3, false);
+    frame(0, false);
+    expect(gotAway()).toBe(true);
   });
 
   it("sends Captain Reverb's links round DOCKSIDE DUB's echo", async () => {

@@ -178,6 +178,7 @@ export class Radio {
   songSerial = 0;
   private wanted = 0;
   private lastWanted = 0;
+  private lastDown = false;
   private hours = 12;
   private weather: WeatherKind = 'clear';
   /** Context time the stars last cleared after a chase of two or more. */
@@ -197,12 +198,14 @@ export class Radio {
 
   /**
    * What the DJs talk about: the time of day and the weather, and a getaway when the stars clear (after setWanted) from
-   * two or more while the player is not down (wasted or busted is no getaway).
+   * two or more while the player is up, and was the frame before: wasted or busted is no getaway, and the sim clears the
+   * stars in the step that brings him back. Off the game (the title) counts as down.
    */
   setScene(hours: number, weather: WeatherKind, down: boolean): void {
     this.hours = hours;
     this.weather = weather;
-    if (this.lastWanted >= 2 && this.wanted === 0 && !down) this.clearedAt = this.ctx!.currentTime;
+    if (this.lastWanted >= 2 && this.wanted === 0 && !down && !this.lastDown) this.clearedAt = this.ctx!.currentTime;
+    this.lastDown = down;
   }
 
   /** The song on the tuned music station (null off the music stations, and until a tuned station's song starts). */
