@@ -8,6 +8,7 @@ import type { Character, Vehicle } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
 import { fareOf, FARES } from '../../src/sim/activities/fares';
 import { BOARD_RANGE } from '../../src/sim/activities/taxi';
+import { HAIL_STARS } from '../../src/sim/activities/taxiHail';
 import type { TaxiJob } from '../../src/sim/activities';
 import type { PlayerSlot } from '../../src/sim/playerSlot';
 import type { Sim } from '../../src/sim/sim';
@@ -190,13 +191,24 @@ describe('a pedestrian waves down the taxi the player drives', () => {
     expect(near.vehicle).toBe(taxi);
   });
 
+  it('still for the star stealing the cab gets the player, and no longer once the police are after him', () => {
+    const { sim, taxi, ped, hails } = rig();
+    sim.wanted.setLevel(HAIL_STARS);
+    cruise(sim, [taxi], 1);
+    expect(ped.hailTimer).toBeGreaterThan(0);
+    sim.wanted.setLevel(HAIL_STARS + 1);
+    step(sim, 0.1);
+    expect(ped.hailTimer).toBe(0);
+    expect(hails.at(-1)).toMatchObject({ caller: ped, started: false, missed: true });
+  });
+
   it('never for a stopped cab, a wanted player, during a story mission, or a passenger', () => {
     const stopped = rig();
     step(stopped.sim, 10);
     expect(stopped.hails).toEqual([]);
 
     const wanted = rig();
-    wanted.sim.wanted.setLevel(1);
+    wanted.sim.wanted.setLevel(HAIL_STARS + 1);
     cruise(wanted.sim, [wanted.taxi], 2);
     expect(wanted.hails).toEqual([]);
     expect(wanted.ped.hailTimer).toBe(0);
@@ -403,6 +415,11 @@ describe('the first-time taxi hints', () => {
     sim.unseat(sim.player);
     const taxi = sim.spawnVehicle('taxi', lane.sx + lane.dx * (START + 30), lane.sz + lane.dz * (START + 30), lane.heading);
     placeInCar(sim, taxi);
+    sim.wanted.setLevel(HAIL_STARS + 1);
+    h.update();
+    expect(h.pending.has('taxi')).toBe(false);
+    // The star the stolen cab gets him.
+    sim.wanted.setLevel(HAIL_STARS);
     h.update();
     expect(h.pending.get('taxi')?.text).toContain('wave down cabs');
     expect(h.pending.has('taxi:shift')).toBe(false);

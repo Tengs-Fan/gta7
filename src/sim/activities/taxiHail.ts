@@ -1,8 +1,8 @@
 // Hails: a pedestrian at the curb ahead of a taxi a player drives waves it down, his arm up, calling out for it, and
 // the cab stopping beside him makes him the fare (taxi.ts takeHailer): the taxi job starts with him, or he takes the
 // place of the fare the job was sending the player to. One hailer per player at a time, and none for a player with
-// stars, in a story mission, with a full cab or a fare aboard. Draws from its own random generator, and only while a
-// player drives a taxi, so other play is unchanged.
+// more stars than the cab's theft gets him, in a story mission, with a full cab or a fare aboard. Draws from its own
+// random generator, and only while a player drives a taxi, so other play is unchanged.
 
 import { moveAngleTowards } from '../../core/math';
 import { Rng } from '../../core/rng';
@@ -12,6 +12,11 @@ import type { Sim } from '../sim';
 import { registerSystem } from '../systems';
 import { BOARD_RANGE, CAB_STOPPED, takeHailer } from './taxi';
 
+/**
+ * A player with more stars than this is not waved down: one is what stealing the cab gets him (someone who saw it
+ * calls it in); with more, the police are on his tail.
+ */
+export const HAIL_STARS = 1;
 /** Seconds between looks for someone to wave the cab down. */
 const SCAN = 0.5;
 /** A hailer stands this far ahead of the cab along its heading (m)... */
@@ -86,8 +91,8 @@ function update(sim: Sim, dt: number): void {
     }
     h.cooldown -= dt;
     const job = sim.activities.jobOf(slot);
-    // Free for a fare: no stars, no story mission, a seat for him, and no job but the taxi's, on its way to a fare.
-    const open = slot.wanted.level === 0 && !(slot.id === 0 && sim.missions.active) && v.passengers.includes(null) && (!job || (job.kind === 'taxi' && job.stage === 'pickup' && job.taxi === v));
+    // Free for a fare: a star at most, no story mission, a seat for him, and no job but the taxi's, on its way to one.
+    const open = slot.wanted.level <= HAIL_STARS && !(slot.id === 0 && sim.missions.active) && v.passengers.includes(null) && (!job || (job.kind === 'taxi' && job.stage === 'pickup' && job.taxi === v));
     if (h.ped) follow(sim, st, slot, h, v, open, dt);
     else if (open && scanning && h.cooldown <= 0 && v.speed > MOVING) look(sim, h, v);
   }

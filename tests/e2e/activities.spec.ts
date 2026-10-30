@@ -42,7 +42,7 @@ test.describe('GTA 7 side content', () => {
     const errors = await boot(page);
     await newGame(page);
     // A cab with a cabbie at the wheel (no driver AI: it stays put), and the player at its driver's door. Never wanted:
-    // someone who sees the cab stolen would call it in, and nobody hails a wanted man.
+    // someone who sees the cab stolen would call it in, and the police would come after it.
     await page.evaluate(() => {
       const g = (window as Api).__gta7;
       g.godMode(true);
