@@ -268,6 +268,64 @@ describe('the taxi job started with the job key', () => {
     expect(hails.filter((e) => e.started)).toHaveLength(1);
   });
 
+  it('has a knocked-down fare lie still, and wave and call out once back on his feet', () => {
+    const { sim, taxi, hails } = rig();
+    sim.activities.toggleJob();
+    const fare = taxiJob(sim).fare!;
+    const lane = sim.roads.nearestLane(fare.pos.x, fare.pos.z).lane;
+    placeOnLane(taxi, sim, lane, Math.max(0, alongOf(lane, fare) - 25));
+    // Turned away from the cab, as the cab clipping him at the curb would leave him.
+    fare.heading = Math.atan2(fare.pos.x - taxi.pos.x, fare.pos.z - taxi.pos.z);
+    fare.state = 'knocked';
+    fare.knockTimer = 3;
+    const heading = fare.heading;
+    step(sim, 0.5);
+    expect(fare.state).toBe('knocked');
+    expect(fare.hailTimer).toBe(0);
+    expect(fare.heading).toBe(heading);
+    expect(hails).toEqual([]);
+    step(sim, 4);
+    expect(fare.state).toBe('normal');
+    expect(fare.hailTimer).toBeGreaterThan(0);
+    expect(hails).toEqual([expect.objectContaining({ caller: fare, started: true })]);
+  });
+
+  it('has a fare scared off on his way to the cab run without waving', () => {
+    const { sim, taxi } = rig();
+    sim.activities.toggleJob();
+    const job = taxiJob(sim);
+    const fare = job.fare!;
+    const lane = sim.roads.nearestLane(fare.pos.x, fare.pos.z).lane;
+    placeOnLane(taxi, sim, lane, alongOf(lane, fare));
+    step(sim, 0.3);
+    expect(fare.brain!.mode).toBe('guard');
+    sim.peds.onViolence(fare.pos.x, fare.pos.z, null, 60);
+    expect(fare.brain!.mode).toBe('flee');
+    let waved = 0;
+    step(sim, 1, () => {
+      waved = Math.max(waved, fare.hailTimer);
+      return input();
+    });
+    expect(fare.brain!.mode).toBe('flee');
+    expect(job.boarding).toBe(-1);
+    expect(waved).toBe(0);
+  });
+
+  it('lets a fare killed while he waves go with his arm down', () => {
+    const { sim, taxi } = rig();
+    sim.activities.toggleJob();
+    const fare = taxiJob(sim).fare!;
+    const lane = sim.roads.nearestLane(fare.pos.x, fare.pos.z).lane;
+    placeOnLane(taxi, sim, lane, Math.max(0, alongOf(lane, fare) - 25));
+    step(sim, 0.5);
+    expect(fare.hailTimer).toBeGreaterThan(0);
+    sim.combat.kill(fare, null, 'bullet', 0, 0);
+    step(sim, 0.1);
+    expect(taxiJob(sim).fare).not.toBe(fare);
+    expect(fare.owner).toBe('ped');
+    expect(fare.hailTimer).toBe(0);
+  });
+
   it('lets a pedestrian who hails the cab on its way to the fare take his place', () => {
     const { sim, lane, taxi, ped } = rig();
     sim.activities.toggleJob();

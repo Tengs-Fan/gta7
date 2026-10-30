@@ -112,14 +112,18 @@ function updateTaxi(host: ActivityHost, j: TaxiJob, dt: number): void {
   }
   if (j.stage === 'pickup') {
     if (!j.fare || j.fare.removed || !j.fare.alive) {
-      if (j.fare && !j.fare.removed) releaseCharacter(j.fare);
+      if (j.fare && !j.fare.removed) {
+        j.fare.hailTimer = 0;
+        releaseCharacter(j.fare);
+      }
       j.fare = null;
       if (!spawnFare(host, j)) host.end('No fares around. Taxi job ended.');
       return;
     }
     const f = j.fare;
-    if (j.boarding < 0 && Math.hypot(v.pos.x - f.pos.x, v.pos.z - f.pos.z) < WAVE_RANGE) {
-      // Waiting, he sees his cab coming: he turns to it with his arm up, and calls out once.
+    if (j.boarding < 0 && f.state === 'normal' && f.brain!.mode === 'stand' && Math.hypot(v.pos.x - f.pos.x, v.pos.z - f.pos.z) < WAVE_RANGE) {
+      // Waiting on his feet, he sees his cab coming: he turns to it with his arm up, and calls out once. Not knocked
+      // down, running scared, on his way to the cab or back, or walking about once over his fright (board takes him then).
       f.hailTimer = 1;
       f.heading = moveAngleTowards(f.heading, Math.atan2(v.pos.x - f.pos.x, v.pos.z - f.pos.z), 6 * dt);
       if (!j.waved) {
