@@ -1,6 +1,6 @@
 // Hails (src/sim/activities/taxiHail.ts) and the taxi job's fares (taxi.ts, fares.ts): a pedestrian at the curb ahead
 // waves down a taxi the player drives and becomes the fare when it stops beside him, a waiting fare waves at his cab,
-// and fares say where to and goodbye in their own voice.
+// fares say where to and goodbye in their own voice, and the first-time hints point the player at all of it.
 
 import { describe, expect, it } from 'vitest';
 import { makeBrain } from '../../src/sim/brains';
@@ -12,6 +12,8 @@ import type { PlayerSlot } from '../../src/sim/playerSlot';
 import type { Sim } from '../../src/sim/sim';
 import { dialogueKey, SPEECH } from '../../src/sim/speech';
 import { STORY } from '../../src/sim/missions';
+import { HintSystem } from '../../src/ui/hints';
+import type { HintOptions } from '../../src/ui/hud';
 import type { Lane } from '../../src/world/roads';
 import { BARKS, CAST, SPEAKERS } from '../../scripts/assets/speech/script';
 import { input, legacyLane, makeSim, placeInCar, step, teleport } from './helpers';
@@ -284,6 +286,45 @@ describe('the taxi job started with the job key', () => {
     step(sim, 5);
     expect(ped.vehicle).toBe(taxi);
     expect(job.stage).toBe('dropoff');
+  });
+});
+
+function hintRig(sim: Sim) {
+  const seen = ['drive', 'wanted', 'weapon', 'mouse'];
+  const pending = new Map<string, { text: string; options: HintOptions }>();
+  const hints = new HintSystem({
+    enabled: () => true,
+    seen: () => seen,
+    markSeen: (id) => seen.push(id),
+    pending: (id) => pending.has(id),
+    show: (text, _duration, options) => {
+      pending.set(options.id, { text, options });
+      return true;
+    },
+  });
+  const update = () => hints.update(1 / 60, sim, { device: 'kb', mouseFree: false });
+  return { pending, seen, update };
+}
+
+describe('the first-time taxi hints', () => {
+  it('tell a cab driver about hails and the job key, and a taxi job about pay and how to end it', () => {
+    const sim = makeSim({ ambient: false, police: false });
+    const lane = laneOf(sim, 40);
+    const sedan = sim.spawnVehicle('sedan', lane.sx + lane.dx * START, lane.sz + lane.dz * START, lane.heading);
+    placeInCar(sim, sedan);
+    const h = hintRig(sim);
+    h.update();
+    expect(h.pending.has('taxi')).toBe(false);
+    sim.unseat(sim.player);
+    const taxi = sim.spawnVehicle('taxi', lane.sx + lane.dx * (START + 30), lane.sz + lane.dz * (START + 30), lane.heading);
+    placeInCar(sim, taxi);
+    h.update();
+    expect(h.pending.get('taxi')?.text).toContain('wave down cabs');
+    expect(h.pending.has('taxi:shift')).toBe(false);
+    sim.activities.toggleJob();
+    h.update();
+    expect(h.pending.get('taxi')!.options.valid!()).toBe(false);
+    expect(h.pending.get('taxi:shift')?.text).toContain('$500 bonus');
   });
 });
 

@@ -50,6 +50,18 @@ const RULES: readonly Rule[] = [
     when: (_sim, me) => me.character.vehicle?.driver === me.character && !me.down,
   },
   {
+    id: 'taxi',
+    text: 'People at the curb wave down cabs: pull up beside one to take the fare. Or stop and press <kbd>T</kbd> for a taxi job.',
+    duration: 8,
+    when: (sim, me) => me.character.vehicle?.kind === 'taxi' && me.character.vehicle.driver === me.character && !me.down && me.wanted.level === 0 && !sim.activities.busy && !sim.missions.active,
+  },
+  {
+    id: 'taxi:shift',
+    text: 'Quicker trips pay more, and every fifth fare pays a $500 bonus. <kbd>T</kbd> ends the taxi job.',
+    duration: 8,
+    when: (sim, me) => sim.activities.job?.kind === 'taxi' && !me.down,
+  },
+  {
     id: 'wanted',
     text: 'Break line of sight and leave the search area, or drive into a Spray Shack (S on the radar).',
     duration: 8,
