@@ -81,10 +81,7 @@ export function rideMonorail(sim: Sim, slot: PlayerView, station: number): void 
 function board(host: ActivityHost, j: MonorailJob): void {
   const sim = host.sim;
   const slot = host.slot;
-  if (!slot.progress.spend(MONORAIL_FARE)) {
-    host.end(`AzuraLink: the fare is $${MONORAIL_FARE}.`);
-    return;
-  }
+  slot.progress.spend(MONORAIL_FARE);
   sim.events.emit('money', { amount: -MONORAIL_FARE });
   const foot = sim.world.layout.monorail.stations[1 - j.from]!.foot;
   const p = slot.character;
@@ -170,7 +167,7 @@ registerSystem({
   update(sim: Sim) {
     const j = rideOf(sim);
     const slot = sim.players[0]!;
-    if (!j || j.stage !== 'riding' || !slot.input.enterExit || slot.down) return;
+    if (!j || j.stage !== 'riding' || !slot.input.enterExit) return;
     slot.input.enterExit = false;
     arrive(hosts.get(sim)!, j);
   },
