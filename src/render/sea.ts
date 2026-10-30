@@ -28,7 +28,7 @@ export const PILING_START = 2;
 export const PILING_STEP = 7;
 export const PILING_INSET = 0.6;
 export const PILING_RADIUS = 0.25;
-/** Decks the sea shader looks for pilings under (the layout has five). */
+/** Decks the sea shader looks for pilings under (the layout has six). */
 export const MAX_PILING_DECKS = 8;
 /** Water bodies cut into the land (layout.water) the quay foam keeps out of. */
 export const MAX_SEA_CUTS = 8;

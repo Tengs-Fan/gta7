@@ -45,7 +45,7 @@ export const REGATTA_GATE_R = 14;
 
 /**
  * The course, every gate at least 30 m from a turbine and from the Key's rocks: outside the pier's end and up the coast,
- * a slalom through Turbine Row's near row (north of one tower, south of the next), then once round the Key (down its
+ * a slalom through Turbine Row's near row (south of one tower, north of the next), then once round the Key (down its
  * east side, west along its south side, up the channel between it and Azura Point), round the lighthouse at the
  * Point's tip, back east along the Key's north side and down the coast to the Marina.
  */
