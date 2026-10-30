@@ -996,11 +996,6 @@ export class AudioEngine {
     if (this.barks!.announce(lines[Math.floor(Math.random() * lines.length)]!, m.x + st.side * 4, m.beamY + 3, st.z)) this.counters.voices++;
   }
 
-  /** The train's voice: its Doppler factor and levels now (tests). */
-  trainInfo(): { doppler: number; levels: { rumble: number; hiss: number; whoosh: number; whine: number } } | null {
-    return this.train ? { doppler: this.train.doppler, levels: { ...this.train.levels } } : null;
-  }
-
   /** The siren voice now: its pitch before the wail (Doppler-shifted), the factor, its gain and wail rate. */
   sirenInfo(): { frequency: number; doppler: number; gain: number; wail: number } | null {
     const s = this.sirenNodes;
