@@ -36,6 +36,8 @@ test.describe('AzuraLink', () => {
     expect(Math.abs(aboard.camX)).toBeLessThan(8);
     expect(aboard.camY).toBeGreaterThan(aboard.beamY);
     expect(aboard.shadow).toBeLessThan(10);
+    await expect(page.locator('.quick-controls')).toContainText('Skip ride');
+    await expect(page.locator('.quick-controls')).not.toContainText('Enter car');
     expect((await state(page)).money).toBe(money - 5);
     // F: off at Seaview's foot at once, walking again.
     await page.keyboard.press('KeyF');
@@ -48,6 +50,7 @@ test.describe('AzuraLink', () => {
     });
     expect(off.d).toBeLessThan(1);
     expect(off.locked).toBe(false);
+    await expect(page.locator('.quick-controls')).toContainText('Enter car');
     await page.waitForTimeout(300);
     expect(await page.evaluate(() => (window as Api).__gta7.game.renderer.crowd.scopeHiddenId)).toBe(-1);
     const before = (await state(page)).player;

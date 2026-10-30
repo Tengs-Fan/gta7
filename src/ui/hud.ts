@@ -8,7 +8,7 @@ import type { Character } from '../sim/entities';
 import type { BigStyle, SimEvents } from '../sim/events';
 import { CONTACTS, contactById } from '../sim/missions/contacts';
 import type { MissionDef } from '../sim/missions/runner';
-import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
+import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import { isGun, WEAPONS, weaponIconOf, weaponKindOf, type WeaponId } from '../sim/specs';
 import { formatRunTime } from '../sim/streetRuns';
 import { formatKeys, padGlyph, type InputDevice } from './glyphs';
@@ -1072,12 +1072,15 @@ export class Hud {
       el.drive!.classList.toggle('damaged', condition < 0.3);
       el.conditionLabel!.textContent = condition < 0.3 ? 'CRITICAL DAMAGE' : 'CONDITION';
     }
-    // A boat has no handbrake.
+    // A boat has no handbrake. On AzuraLink his control is locked: F only skips the ride.
     const boat = v?.spec.class === 'boat';
-    const mode = `${this.device}:${inVehicle}:${boat}:${this.keys.keymap.version}`;
+    const riding = !!monorailRide(sim, this.me(sim));
+    const mode = `${this.device}:${inVehicle}:${boat}:${riding}:${this.keys.keymap.version}`;
     if (mode === this.controlMode) return;
     this.controlMode = mode;
-    const line = inVehicle
+    const line = riding
+      ? '<span><kbd>F</kbd> Skip ride</span>'
+      : inVehicle
       ? `<span>${this.device === 'pad' ? `${padGlyph('rt')} / ${padGlyph('lt')}` : '<kbd>W</kbd><kbd>S</kbd>'} Drive</span>${boat ? '' : '<span><kbd>Space</kbd> Handbrake</span>'}<span><kbd>F</kbd> Exit</span>`
       : '<span><kbd>Shift</kbd> Sprint</span><span><kbd>F</kbd> Enter car</span>';
     el.quickControls!.innerHTML = formatKeys(`${line}<span><kbd>M</kbd> Map</span>`, this.device, { labels: this.keys, inVehicle });
