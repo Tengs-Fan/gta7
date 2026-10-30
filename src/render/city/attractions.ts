@@ -240,7 +240,7 @@ export function buildAttractionViews(view: CityView): void {
   const n = cem.nave;
   boxC(g, n.rect.minX, CURB_H, n.rect.minZ, n.rect.maxX, n.eaves, n.rect.maxZ, plaster);
   pitched(g, n.rect, n.eaves, n.ridge, false, 0.45, slate, plaster);
-  // Three tall windows down each long wall, a round one in the south gable.
+  // Three tall windows down each long wall, a square one high in the south gable.
   for (const [x, out] of [[n.rect.minX - 0.04, -1], [n.rect.maxX + 0.04, 1]] as const) {
     for (let k = 0; k < 3; k++) {
       const z = n.rect.minZ + ((k + 1) * (n.rect.maxZ - n.rect.minZ)) / 4;
