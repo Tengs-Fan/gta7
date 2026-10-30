@@ -31,7 +31,7 @@ export const PILING_RADIUS = 0.25;
 /** Decks the sea shader looks for pilings under (the layout has five). */
 export const MAX_PILING_DECKS = 8;
 /** Water bodies cut into the land (layout.water) the quay foam keeps out of. */
-export const MAX_SEA_CUTS = 4;
+export const MAX_SEA_CUTS = 8;
 /** Water depths (m) over which the beach's surf bands fade in seaward of the swash (4.1-7.6 m out on the 1:34 sand). */
 export const SURF_BAND_FADE = [0.12, 0.22] as const;
 /** Piling foam reaches at most this far (m) out from a piling's side. */
