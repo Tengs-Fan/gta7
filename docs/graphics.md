@@ -190,6 +190,7 @@ Counters and caps are in `state().render.effects` (live, peak and cap per type) 
 | Ground | PBR sets, 16x anisotropic | PBR sets, 8x | PBR sets, 4x | procedural maps, 1x |
 | Foliage wind | yes | yes | still | still |
 | Motorbikes and boats | sculpted models, waterline foam ring | same | same | same, vertex-lit (foam ring kept) |
+| AzuraLink (`TierSpec.railGlow`) | lit windows and underglow, light pool on the canal | same | lit windows and underglow | same, vertex-lit |
 | Lighting | see the table under Lighting and sky | | | |
 | Explosions, smoke, scorch, wrecks | see the table under Effects and weapons | | | |
 
