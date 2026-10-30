@@ -36,6 +36,8 @@ function lap(courseId: string, seed: number, traffic: boolean): Lap {
   step(sim, 8);
   sim.activities.startStreetRun(courseId);
   const nodes = course.nodes;
+  const gates: number[] = [];
+  sim.events.on('streetRunCheckpoint', (e) => gates.push(e.index));
   const bot = fleeBot(sim, car);
   const priv = bot.ai as unknown as { chooseTurn(l: Lane): Turn | null };
   priv.chooseTurn = (lane: Lane) => {
@@ -45,7 +47,12 @@ function lap(courseId: string, seed: number, traffic: boolean): Lap {
         if (t) return t;
       }
     }
-    return lane.turns.find((t) => t.kind === 'straight') ?? lane.turns[0] ?? null;
+    // Knocked off the course (a crash turned it round or onto another street): back to the next gate it has not
+    // passed, the way a player follows the gate's marker. Gate k is the course's node k, the finish its first node.
+    const gate = nodes[gates.length + 1] ?? nodes[0]!;
+    const route = sim.roads.findRoute(lane.to, gate, lane.from);
+    const back = route && route.length > 1 ? sim.roads.turnTowards(lane, route[1]!) : null;
+    return back ?? lane.turns.find((t) => t.kind === 'straight') ?? lane.turns[0] ?? null;
   };
   bot.ai.resetPath();
   let impacts = 0;
@@ -60,8 +67,6 @@ function lap(courseId: string, seed: number, traffic: boolean): Lap {
     finished = e.time;
     medal = e.medal;
   });
-  const gates: number[] = [];
-  sim.events.on('streetRunCheckpoint', (e) => gates.push(e.index));
   let ended = false;
   sim.events.on('activityEnded', () => (ended = true));
   let crawl = 0;

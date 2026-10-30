@@ -125,7 +125,8 @@ describe('call a cab', () => {
     setCabDestination(sim, curbSpot(sim, 400));
     until(sim, 8, () => false);
     expect(j.stage).toBe('riding');
-    expect(j.cab.speed).toBeGreaterThan(1);
+    // Off and away: it has covered ground (it may be waiting at a red light at this instant).
+    expect(j.odometer).toBeGreaterThan(20);
     const money = sim.progress.money;
     pressEnter(sim);
     until(sim, 10, () => !sim.activities.busy);

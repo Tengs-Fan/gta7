@@ -2070,8 +2070,9 @@ describe('round 2 harness', () => {
     it('IMMORTAL and SPAWNSPORTS close the map and the pause menu their first letters opened', async () => {
       const { game, sim, frames, type } = await playing();
       let opened = 0;
-      const sports = () => sim.vehicles.filter((v) => v.kind === 'sports').length;
-      const cars = sports();
+      // The cheat's car: a sports car within the 20 m it searches round 6 m ahead (traffic may bring its own meanwhile).
+      const before = new Set(sim.vehicles);
+      const spawned = () => sim.vehicles.filter((v) => v.kind === 'sports' && !before.has(v) && Math.hypot(v.pos.x - sim.player.pos.x, v.pos.z - sim.player.pos.z) < 30).length;
       for (const code of ['IMMORTAL', 'SPAWNSPORTS']) {
         for (const ch of code) {
           type(ch);
@@ -2082,7 +2083,7 @@ describe('round 2 harness', () => {
       }
       expect(opened).toBeGreaterThan(0);
       expect(sim.cheats.godMode).toBe(true);
-      expect(sports()).toBe(cars + 1);
+      expect(spawned()).toBe(1);
     });
 
     it('SPAWNSPORTS puts its car where it fits: not inside a car parked 6 m ahead, nor on anyone', async () => {

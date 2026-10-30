@@ -505,11 +505,14 @@ describe('pickups, purchases and activities per player (VAL-MPSIM-007)', () => {
     expect(tj.kind).toBe('taxi');
     const fare = (tj as { fare: Character | null }).fare!;
     expect(fare).toBeTruthy();
-    // Drive up to the fare and stop.
-    place(sim, b, fare.pos.x + 2, fare.pos.z);
+    // Drive up to the fare and stop: on the road beside him, held on the handbrake (a held brake reverses a car that
+    // stands still, and the fare only boards a cab that waits).
+    const kerb = sim.roads.nearestLane(fare.pos.x, fare.pos.z);
+    place(sim, b, kerb.lane.sx + kerb.lane.dx * kerb.s, kerb.lane.sz + kerb.lane.dz * kerb.s);
+    taxi.heading = kerb.lane.heading;
     taxi.vel.x = 0;
     taxi.vel.z = 0;
-    for (let i = 0; i < 600 && (tj as { stage: string }).stage !== 'dropoff'; i++) sim.update(DT, new Map([[1, behind(b.character, { brake: 1 })], [0, behind(a.character)]]));
+    for (let i = 0; i < 600 && (tj as { stage: string }).stage !== 'dropoff'; i++) sim.update(DT, new Map([[1, behind(b.character, { handbrake: true })], [0, behind(a.character)]]));
     expect((tj as { stage: string }).stage).toBe('dropoff');
     const dest = sim.activities.objectives(b)[0]!;
     const money = [a.progress.money, b.progress.money];
