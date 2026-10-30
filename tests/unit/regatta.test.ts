@@ -1,6 +1,6 @@
 // The Gull Regatta (sim/activities/regatta.ts): T starts it only in a boat at the Marina, its gates count only in order,
-// a scripted Marlin lap is inside the gold time that lap set the medals by, running out of time or leaving the boat ends
-// it, and the best lap is kept through a save.
+// a scripted Marlin lap is inside the gold time that lap set the medals by, running out of time, leaving the boat or
+// bringing the police to the start line ends it, and the best lap is kept through a save.
 
 import { describe, expect, it } from 'vitest';
 import { clamp, wrapAngle } from '../../src/core/math';
@@ -184,6 +184,28 @@ describe('Gull Regatta', () => {
     step(left.sim, 1);
     expect(left.sim.player.vehicle).toBeNull();
     expect(left.sim.activities.job).toBeNull();
+  });
+
+  it('is not offered while wanted, and stars picked up on the way to the start line end it there', () => {
+    const marina = world().layout.pois.find((p) => p.kind === 'marina')!;
+    const { sim, boat } = inBoat(marina.x + 30, marina.z - 30);
+    sim.wanted.setLevel(1);
+    expect(sim.activities.jobPrompt()).toBeNull();
+    sim.wanted.setLevel(0);
+    expect(sim.activities.jobPrompt()).toBe('Press T to start the Gull Regatta');
+    sim.activities.toggleJob();
+    expect(job(sim)?.stage).toBe('approach');
+    sim.wanted.setLevel(1);
+    const said: string[] = [];
+    sim.events.on('message', (e) => said.push(e.text));
+    for (let i = 0; i < 60 * 30 && job(sim); i++) {
+      const near = Math.hypot(REGATTA_START.x - boat.pos.x, REGATTA_START.z - boat.pos.z) < 12;
+      sim.update(1 / 60, near ? input({ brake: 1 }) : steerFor(boat, REGATTA_START.x, REGATTA_START.z));
+    }
+    expect(sim.activities.job).toBeNull();
+    expect(Math.hypot(REGATTA_START.x - boat.pos.x, REGATTA_START.z - boat.pos.z)).toBeLessThanOrEqual(REGATTA_START.radius);
+    expect(said.some((t) => t.startsWith('The start is compromised.'))).toBe(true);
+    expect(sim.controlLock).toBe(0);
   });
 
   it('keeps the best lap through a save, and a slower one does not replace it', () => {

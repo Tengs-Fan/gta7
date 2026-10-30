@@ -102,6 +102,10 @@ function holdStart(host: ActivityHost, j: RegattaJob): void {
 
 function beginCountdown(host: ActivityHost, j: RegattaJob): void {
   const sim = host.sim;
+  if (sim.wanted.level > 0) {
+    host.end('The start is compromised. Lose the cops and press T at the Marina to try again.');
+    return;
+  }
   j.stage = 'countdown';
   j.countdown = 3;
   sim.controlLock = Math.max(sim.controlLock, 3.1);
@@ -193,7 +197,7 @@ export const regattaActivity: ActivityDef<RegattaJob> = {
 
   canStart: (host, slot, vehicle) => !!vehicle && vehicle.spec.class === 'boat' && vehicle.driver === slot && nearMarina(host, vehicle),
 
-  prompt: (host, _slot, vehicle) => (vehicle && vehicle.speed < 1 && !host.sim.multiplayer ? 'Press T to start the Gull Regatta' : null),
+  prompt: (host, _slot, vehicle) => (vehicle && vehicle.speed < 1 && !host.sim.multiplayer && host.sim.wanted.level === 0 ? 'Press T to start the Gull Regatta' : null),
 
   start(host, _slot, boat) {
     const sim = host.sim;
