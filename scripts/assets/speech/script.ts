@@ -320,7 +320,7 @@ export const TALK: readonly TalkPiece[] = [
     ],
   },
 
-  // Ads. THE BOWL's breaks carry the ones that name it in `shows`, and its own (shows/bowl.ts).
+  // Ads. THE BOWL and STATIC air the ones that name them in `shows`, and their own (shows/bowl.ts, shows/static.ts).
   {
     id: 'ad-pipsqueak',
     kind: 'ad',
@@ -399,7 +399,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-torque',
     kind: 'ad',
-    shows: ['azura', 'bowl'],
+    shows: ['azura', 'bowl', 'static'],
     lines: [
       ['announcer', "Torque energy drink. It tastes like a battery and feels like a car crash. Now in blue flavor. What is blue flavor? Nobody knows."],
       ['announcer', "Torque. Sleep is for people with nothing to do."],
@@ -408,6 +408,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-insurance',
     kind: 'ad',
+    shows: ['azura', 'static'],
     lines: [
       ['announcer', "Azura Mutual Insurance. Car fire? Covered. Sinkhole? Covered. Car fire in a sinkhole? Let's not get greedy."],
       ['announcer', "Azura Mutual. We're probably there for you."],
@@ -432,6 +433,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-tacos',
     kind: 'ad',
+    shows: ['azura', 'static'],
     lines: [
       ['announcer', "Taco Tornado. Thirty six fillings, one regrettable decision. Try the Inferno Burrito, now served with a waiver."],
       ['announcer', "Taco Tornado. Open late, because you are up late."],
@@ -448,6 +450,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-hillcrest',
     kind: 'ad',
+    shows: ['azura', 'static'],
     lines: [
       ['announcer', "Hillcrest Heights. Luxury living for people who are just a little bit better than you."],
       ['announcer', "Three car garages. Two car families. One very strict homeowners association. Hillcrest Heights. Keep off the grass. We mean it."],

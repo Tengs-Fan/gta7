@@ -241,7 +241,7 @@
   "talk-static-host-gulls": 22.936,
   "talk-static-call-gary": 28.36,
   "talk-static-call-cat": 23.25,
-  "talk-static-call-lights": 25.422,
+  "talk-static-call-lights": 25.466,
   "talk-static-call-sal": 26.835,
   "talk-static-call-lawn": 24.052,
   "talk-static-call-kid": 20.315,
@@ -936,6 +936,10 @@
     "talk-static-news-ducks"
    ],
    "ad": [
+    "talk-ad-torque",
+    "talk-ad-insurance",
+    "talk-ad-tacos",
+    "talk-ad-hillcrest",
     "talk-static-ad-bunker",
     "talk-static-ad-hat"
    ],

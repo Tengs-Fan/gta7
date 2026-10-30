@@ -97,7 +97,7 @@ const PIECES: readonly TalkPiece[] = [
       ['lyle', "Trish, you're on Beyond the Bay."],
       ['trish', 'Lyle, Chet said on Azura Talk that the lights in Midtown are green for exactly four seconds.'],
       ['lyle', 'I heard him.'],
-      ['trish', "So I sat at Central and Market with a notebook. Four seconds green. Then red. Then four seconds green. It's not timing, Lyle. It's Morse code."],
+      ['trish', "So I sat at Sunset and Market with a notebook. Four seconds green. Then red. Then four seconds green. It's not timing, Lyle. It's Morse code."],
       ['lyle', 'What does it say?'],
       ['trish', 'So far? Go. Stop. Go. Stop.'],
       ['lyle', "Trish. That's a traffic light."],
@@ -173,7 +173,8 @@ const PIECES: readonly TalkPiece[] = [
     ],
   },
 
-  // Ads only STATIC runs. Lyle's hat goes on from one break to the next.
+  // Ads only STATIC runs (it also carries Torque, Taco Tornado, Azura Mutual and Hillcrest Heights, script.ts). Lyle's
+  // hat goes on from one break to the next.
   {
     id: 'static-ad-bunker',
     kind: 'ad',
