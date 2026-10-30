@@ -2,7 +2,6 @@
 // `src` paths are relative to the source cache; `license` is the id of a source in sources.json.
 //
 // Model families and their conventions (all outputs: metres, +Y up, +Z forward, meshopt, WebP textures):
-//   character  origin between the feet, 1.8 m tall, shared 62-bone rig (bones renamed without dots)
 //   vehicle    origin under the bounding-box centre on the ground, scaled so the length matches `length` (a
 //              VEHICLE_SPECS length), wheels as separate nodes centred on their axles
 //   boat       like vehicle, origin at the keel
@@ -15,37 +14,6 @@ const KN = (name) => `kenney/nature-kit/Models/GLTF format/${name}.glb`;
 const KS = (name) => `kenney/city-kit-suburban/Models/GLB format/${name}.glb`;
 const KB = (name) => `kenney/city-kit-commercial/Models/GLB format/${name}.glb`;
 const PP = (id) => `polypizza/${id}.glb`;
-
-/** Joint -> bone name in the Quaternius Ultimate Modular rig (names as three.js sees them, without dots). */
-export const CHARACTER_BONES = {
-  pelvis: 'Hips', spine: 'Abdomen', chest: 'Torso', upperChest: 'Chest', neck: 'Neck', head: 'Head',
-  clavicleL: 'ShoulderL', shoulderL: 'UpperArmL', elbowL: 'LowerArmL', wristL: 'WristL',
-  clavicleR: 'ShoulderR', shoulderR: 'UpperArmR', elbowR: 'LowerArmR', wristR: 'WristR',
-  hipL: 'UpperLegL', kneeL: 'LowerLegL', ankleL: 'FootL', toeL: 'FootL_end',
-  hipR: 'UpperLegR', kneeR: 'LowerLegR', ankleR: 'FootR', toeR: 'FootR_end',
-};
-
-// id, source file, license source id, output name, role
-const CHARACTERS = [
-  ['swat', PP('Btfn3G5Xv4'), 'pp-Btfn3G5Xv4', 'police', 'male'],
-  ['punk', PP('BTALZymknF'), 'pp-BTALZymknF', 'gang', 'male'],
-  ['businessman', PP('JFrLIKqvCH'), 'pp-JFrLIKqvCH', 'civilian', 'male'],
-  ['hoodie', PP('gKLBoRsyKe'), 'pp-gKLBoRsyKe', 'civilian', 'male'],
-  ['casual2', PP('kZ3DmIoGip'), 'pp-kZ3DmIoGip', 'civilian', 'male'],
-  ['beach', PP('DojKLcO34E'), 'pp-DojKLcO34E', 'civilian', 'male'],
-  ['worker', PP('Yg2bQZO6Hj'), 'pp-Yg2bQZO6Hj', 'civilian', 'male'],
-  ['farmer', PP('7pn3R6hPvE'), 'pp-7pn3R6hPvE', 'civilian', 'male'],
-  ['adventurer', PP('5EGWBMpuXq'), 'pp-5EGWBMpuXq', 'civilian', 'male'],
-  ['woman_formal', PP('nIItLV9nxS'), 'pp-nIItLV9nxS', 'civilian', 'female'],
-  ['woman_casual', PP('qJ2gsTUBHL'), 'pp-qJ2gsTUBHL', 'civilian', 'female'],
-];
-
-export const characters = CHARACTERS.map(([name, src, license, role, body]) => ({
-  id: `char.${name}`, kind: 'character', src, license, out: `models/characters/${name}.glb`, role, body, height: 1.8,
-}));
-
-/** Shared animation clips of the rig, taken from the first character; no mesh. */
-export const clips = { id: 'anim.umc', kind: 'animation', src: PP('Btfn3G5Xv4'), license: 'pp-Btfn3G5Xv4', out: 'models/characters/clips.glb' };
 
 /** VEHICLE_SPECS footprints (width, height, length in metres) of the kinds a model can be fitted to; a unit test keeps them in step. */
 export const SPEC_DIMS = {

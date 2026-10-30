@@ -46,24 +46,12 @@ function plan(doc, { scale, length, height, width, origin = 'ground' }) {
  * 'bottom-center' puts the bounding box centre (x, z) at 0 and its lowest point on y = 0, 'ground' keeps the authored x/z
  * and only drops the lowest point to y = 0.
  *
- * Skinned models get one wrapper node carrying the scale and translation, which keeps skins and animations intact.
- * Static models are baked: every mesh node is flattened to the scene root with an identity transform and the
- * normalisation (and any authored node scale or rotation) written into its vertices, so a wheel node later rotates about
- * its own axes.
+ * Models are baked: every mesh node is flattened to the scene root with an identity transform and the normalisation
+ * (and any authored node scale or rotation) written into its vertices, so a wheel node later rotates about its own axes.
  */
 export function normalize(doc, opts) {
   const { s, offset } = plan(doc, opts);
   const scene = sceneOf(doc);
-  const skinned = doc.getRoot().listSkins().length > 0;
-  if (skinned) {
-    const wrapper = doc.createNode('asset').setScale([s, s, s]).setTranslation(offset);
-    for (const child of scene.listChildren()) {
-      scene.removeChild(child);
-      wrapper.addChild(child);
-    }
-    scene.addChild(wrapper);
-    return s;
-  }
   const nodes = doc.getRoot().listNodes().filter((n) => n.getMesh());
   const matrices = new Map(nodes.map((n) => {
     const w = n.getWorldMatrix();
@@ -130,13 +118,6 @@ export function nodeCentre(doc, name) {
   };
 }
 
-export function renameNodes(doc, fn) {
-  for (const node of doc.getRoot().listNodes()) {
-    const next = fn(node.getName());
-    if (next !== node.getName()) node.setName(next);
-  }
-}
-
 export function triangleCount(doc) {
   let tris = 0;
   for (const node of doc.getRoot().listNodes()) {
@@ -177,31 +158,6 @@ export async function optimize(doc, { textureSize = DEFAULT_TEXTURE_SIZE, lossle
     quantize({ pattern: /^(NORMAL|TANGENT)$/, quantizeNormal: 10 }),
   );
   doc.createExtension(EXTMeshoptCompression).setRequired(true).setEncoderOptions({ method: EXTMeshoptCompression.EncoderMethod.QUANTIZE });
-}
-
-/** Drops animation clips that are not in `keep` (all when `keep` is empty) and their orphaned sampler accessors. */
-export function dropAnimations(doc, keep = []) {
-  for (const anim of doc.getRoot().listAnimations()) {
-    if (keep.includes(anim.getName())) continue;
-    const accessors = [];
-    for (const channel of anim.listChannels()) channel.dispose();
-    for (const sampler of anim.listSamplers()) {
-      accessors.push(sampler.getInput(), sampler.getOutput());
-      sampler.dispose();
-    }
-    anim.dispose();
-    for (const acc of accessors) if (acc && acc.listParents().every((p) => p.propertyType === 'Root')) acc.dispose();
-  }
-}
-
-export function dropMeshes(doc) {
-  for (const node of doc.getRoot().listNodes()) {
-    if (node.getMesh()) node.setMesh(null);
-    if (node.getSkin()) node.setSkin(null);
-  }
-  for (const mesh of doc.getRoot().listMeshes()) mesh.dispose();
-  for (const skin of doc.getRoot().listSkins()) skin.dispose();
-  for (const acc of doc.getRoot().listAccessors()) if (acc.listParents().every((p) => p.propertyType === 'Root')) acc.dispose();
 }
 
 export async function writeGlb(doc, file) {

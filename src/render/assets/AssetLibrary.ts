@@ -5,7 +5,6 @@
 // a request failed, and on the software tier where a view chooses to. The library never throws and never changes
 // after `preload` settles, so a response that arrives late cannot swap a model in the middle of play.
 import * as THREE from 'three';
-import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import type { AssetBackend } from './backend';
 import { materialsOf } from './gltf';
 import type { AssetKind, Manifest, ManifestEntry, ModelBounds } from './types';
@@ -232,10 +231,9 @@ export class AssetLibrary {
     return this.textures.get(id);
   }
 
-  /** A fresh copy of a loaded model (skeletons rebound), sharing geometry and materials. Undefined when not loaded. */
+  /** A fresh copy of a loaded model, sharing geometry and materials. Undefined when not loaded. */
   clone(id: string): THREE.Object3D | undefined {
-    const t = this.models.get(id);
-    return t ? SkeletonUtils.clone(t.scene) : undefined;
+    return this.models.get(id)?.scene.clone();
   }
 
   /** The model's footprint from the manifest, or undefined. */

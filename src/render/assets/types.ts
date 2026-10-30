@@ -1,6 +1,6 @@
 // Shapes shared by the asset manifest (src/assets/manifest.json, written by scripts/assets/build.mjs) and the library.
 
-export type AssetKind = 'character' | 'animation' | 'vehicle' | 'boat' | 'prop' | 'texture' | 'env';
+export type AssetKind = 'vehicle' | 'boat' | 'prop' | 'texture' | 'env';
 
 /** Model bounds in metres after the build's normalisation (+Y up, +Z forward). */
 export interface ModelBounds {
@@ -24,13 +24,6 @@ export interface ManifestEntry {
   /** Id of a source in scripts/assets/sources.json, which is also a row of LICENSES-ASSETS.md. */
   license: string;
   triangles?: number;
-  /** Characters: police, gang or civilian, and the body type. */
-  role?: string;
-  body?: string;
-  /** Characters: joint name (see CHARACTER_JOINTS) -> bone name as three.js sees it. */
-  bones?: Record<string, string>;
-  /** Characters: id of the animation entry holding their clips. Animations: the clip names. */
-  clips?: string | string[];
   /** Vehicles and boats: the VEHICLE_SPECS kind the model is meant for, and its bounds divided by that spec's footprint. */
   spec?: string | null;
   fit?: [number, number, number];
@@ -49,16 +42,9 @@ export interface Manifest {
   entries: ManifestEntry[];
 }
 
-/** The joints every character's bone map must cover; they follow SKELETON in sim/pose.ts. */
-export const CHARACTER_JOINTS = [
-  'pelvis', 'spine', 'chest', 'upperChest', 'neck', 'head',
-  'clavicleL', 'shoulderL', 'elbowL', 'wristL', 'clavicleR', 'shoulderR', 'elbowR', 'wristR',
-  'hipL', 'kneeL', 'ankleL', 'toeL', 'hipR', 'kneeR', 'ankleR', 'toeR',
-] as const;
-
 export const WHEEL_SOCKETS = ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'] as const;
 
-const KINDS: readonly string[] = ['character', 'animation', 'vehicle', 'boat', 'prop', 'texture', 'env'];
+const KINDS: readonly string[] = ['vehicle', 'boat', 'prop', 'texture', 'env'];
 
 /** Throws on a manifest that is not shaped as the build writes it. */
 export function parseManifest(json: unknown): Manifest {
