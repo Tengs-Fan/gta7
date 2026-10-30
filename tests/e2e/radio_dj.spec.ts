@@ -57,6 +57,9 @@ test.describe('GTA 7 radio DJs', () => {
     const errors = await boot(page);
     await newGame(page);
     await quietCar(page);
+    // The car's radio comes on: a frame has run with the player in it, so R changes the station (on a slow frame, a key
+    // pressed before that frame would be taken on foot).
+    await expect(page.locator('.radio')).toHaveText(/^NEON DRIVE 88\.7/);
     await page.keyboard.press('KeyR');
     await expect(page.locator('.radio')).toHaveText(/^VELVET 89\.9/);
     const track = page.locator('.radio small.track');
