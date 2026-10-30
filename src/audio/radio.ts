@@ -34,6 +34,20 @@ export interface StationDef {
   talk?: TalkFormat;
 }
 
+/**
+ * THE BOWL 1090 AM: Big Ron's rant, two callers and the sports desk in turn, over a low pad and a crowd that swells
+ * and falls; its jingle is a stadium organ's charge.
+ */
+export const BOWL_FORMAT: TalkFormat = {
+  show: 'bowl',
+  slots: [['host'], ['call'], ['call'], ['news']],
+  adChance: 0.6,
+  bed: { ...AZURA_FORMAT.bed, cutoff: 600, noise: { hz: 700, q: 0.8, level: 0.03, swell: 0.1 } },
+  adBed: AZURA_FORMAT.adBed,
+  bells: [0, 7, 12, 7, 12],
+  am: true,
+};
+
 export const STATIONS: readonly StationDef[] = [
   {
     name: 'NEON DRIVE 88.7',
@@ -90,6 +104,7 @@ export const STATIONS: readonly StationDef[] = [
     style: chiptune,
   },
   { name: 'AZURA TALK 104.5', genre: 'talk', tag: 'Talk, news, nonsense', style: null, talk: AZURA_FORMAT },
+  { name: 'THE BOWL 1090 AM', genre: 'talk', tag: 'Sports talk, zero wins', style: null, talk: BOWL_FORMAT },
 ];
 
 /** AZURA TALK's place on the dial: the talk station the tools act on while no talk station is tuned. */

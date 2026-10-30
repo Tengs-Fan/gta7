@@ -9,7 +9,7 @@ import { AudioEngine } from '../../src/audio/audio';
 import { DOPPLER_RANGE, dopplerFactor } from '../../src/audio/doppler';
 import { decayTime, echoImpulse, gunEcho } from '../../src/audio/echo';
 import { mixTargets, type MixInput } from '../../src/audio/mixer';
-import { INTENSITY_FALL, Radio, STATIONS, wantedIntensity } from '../../src/audio/radio';
+import { BOWL_FORMAT, INTENSITY_FALL, Radio, STATIONS, wantedIntensity } from '../../src/audio/radio';
 import { BARK_MIN_GAP, BARK_WAIT, barkLength, PoliceScanner, RADIO_BAND } from '../../src/audio/scanner';
 import { dispatchClips, SpeechBank } from '../../src/audio/speech';
 import { NodeTally } from '../../src/audio/tally';
@@ -323,6 +323,47 @@ describe('talk station', () => {
     expect(most.at(-1)).toBeGreaterThan(0);
   });
 
+  it('renders only the tuned talk station: off the air the programmes run on their clock and start nothing; THE BOWL comes through the AM band', () => {
+    const sim = makeSim({ police: false });
+    const rp = roadPoint(sim);
+    const v = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
+    placeInCar(sim, v);
+    const { audio, frames } = rig(sim);
+    const radio = audio.radio as unknown as { hiss: FNode | null; talkOut: FNode };
+    frames(30);
+    expect(audio.radio.stationName).toBe(STATIONS[0]!.name);
+    // With no talk station tuned the tools act on AZURA TALK's programme, which plays on unheard.
+    expect(audio.radio.cueTalk('host')).not.toBeNull();
+    frames(60);
+    expect(audio.radio.talkInfo().segment?.kind).toBe('host');
+    expect(audio.radio.talkInfo().rendering).toBeNull();
+    expect(audio.nodes.started.talk ?? 0).toBe(0);
+    while (audio.radio.stationName !== 'THE BOWL 1090 AM') audio.radio.next();
+    audio.radio.cueTalk('host');
+    frames(30);
+    const prog = audio.radio.talkProgramme!;
+    expect(prog.format).toBe(BOWL_FORMAT);
+    expect(prog.segments).toContain(audio.radio.talkInfo().rendering);
+    expect(audio.nodes.started.talk).toBeGreaterThan(0);
+    // The show's output runs through two 150 Hz high-passes and two 4.5 kHz low-passes, and a hiss loops under it.
+    const band: string[] = [];
+    for (let n = radio.talkOut.outputs[0] as FNode; n.kind === 'biquad'; n = n.outputs[0] as FNode) {
+      const f = n as unknown as { type: string; frequency: FParam };
+      band.push(`${f.type} ${f.frequency.value}`);
+    }
+    expect(band).toEqual(['highpass 150', 'highpass 150', 'lowpass 4500', 'lowpass 4500']);
+    const hiss = radio.hiss!;
+    expect(hiss.started && (hiss as unknown as { loop: boolean }).loop).toBe(true);
+    // Back on AZURA TALK the show is straight into the radio's output and the hiss has stopped.
+    audio.radio.prev();
+    frames(10);
+    expect(audio.radio.stationName).toBe('AZURA TALK 104.5');
+    expect(audio.radio.talkProgramme!.format).toBe(AZURA_FORMAT);
+    expect((radio.talkOut.outputs[0] as FNode).kind).toBe('gain');
+    expect(hiss.stopAt).toBeLessThanOrEqual(FContext.last!.currentTime);
+    expect(radio.hiss).toBeNull();
+  });
+
   it('plays through the music bus with the same mix as the music stations; pause, RADIO OFF and leaving the car stop it', () => {
     const sim = makeSim({ police: false });
     const rp = roadPoint(sim);
@@ -350,9 +391,9 @@ describe('talk station', () => {
     audio.setPaused(false);
     frames(10);
     expect(audio.radio.talkInfo().rendering).not.toBeNull();
-    audio.radio.next();
+    // RADIO OFF is the stop after the last talk station.
+    while (audio.radio.next() !== 'RADIO OFF');
     frames(5);
-    expect(audio.radio.stationName).toBe('RADIO OFF');
     expect(audio.radio.playing).toBe(false);
     expect(audio.radio.talkInfo().rendering).toBeNull();
     audio.radio.prev();

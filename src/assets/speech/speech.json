@@ -170,6 +170,31 @@
   "talk-ident-facts": 2.936,
   "talk-ident-road": 4.154,
   "talk-ident-works": 4.464,
+  "talk-bowl-host-kicker": 23.875,
+  "talk-bowl-host-ducks": 25.578,
+  "talk-bowl-host-streak": 23.43,
+  "talk-bowl-host-pettibone": 24.259,
+  "talk-bowl-host-mascot": 26.476,
+  "talk-bowl-host-coach": 24.349,
+  "talk-bowl-call-sal-coach": 20.438,
+  "talk-bowl-call-sal-seat": 23.581,
+  "talk-bowl-call-sal-ducks": 23.634,
+  "talk-bowl-call-velora": 20.107,
+  "talk-bowl-call-tacos": 20.405,
+  "talk-bowl-call-gary": 20.659,
+  "talk-bowl-call-paint": 17.506,
+  "talk-bowl-news-injuries": 16.467,
+  "talk-bowl-news-squawk": 19.291,
+  "talk-bowl-news-scores": 21.74,
+  "talk-bowl-news-presser": 25.538,
+  "talk-bowl-ad-tickets": 18.563,
+  "talk-bowl-ad-thunderhoof": 15.656,
+  "talk-bowl-ad-guns": 19.358,
+  "talk-bowl-ident-hope": 2.806,
+  "talk-bowl-ident-wins": 3.807,
+  "talk-bowl-ident-ron": 4.417,
+  "talk-bowl-ident-sal": 5.556,
+  "talk-bowl-ident-pembury": 5.119,
   "ident-neon-drive-88-7-0": 4.489,
   "ident-neon-drive-88-7-1": 3.246,
   "ident-neon-drive-88-7-2": 3.161,
@@ -740,11 +765,44 @@
    ]
   },
   "bowl": {
-   "host": [],
-   "call": [],
-   "news": [],
-   "ad": [],
-   "ident": []
+   "host": [
+    "talk-bowl-host-kicker",
+    "talk-bowl-host-ducks",
+    "talk-bowl-host-streak",
+    "talk-bowl-host-pettibone",
+    "talk-bowl-host-mascot",
+    "talk-bowl-host-coach"
+   ],
+   "call": [
+    "talk-bowl-call-sal-coach",
+    "talk-bowl-call-sal-seat",
+    "talk-bowl-call-sal-ducks",
+    "talk-bowl-call-velora",
+    "talk-bowl-call-tacos",
+    "talk-bowl-call-gary",
+    "talk-bowl-call-paint"
+   ],
+   "news": [
+    "talk-bowl-news-injuries",
+    "talk-bowl-news-squawk",
+    "talk-bowl-news-scores",
+    "talk-bowl-news-presser"
+   ],
+   "ad": [
+    "talk-ad-guns",
+    "talk-ad-torque",
+    "talk-ad-thunderhoof",
+    "talk-bowl-ad-tickets",
+    "talk-bowl-ad-thunderhoof",
+    "talk-bowl-ad-guns"
+   ],
+   "ident": [
+    "talk-bowl-ident-hope",
+    "talk-bowl-ident-wins",
+    "talk-bowl-ident-ron",
+    "talk-bowl-ident-sal",
+    "talk-bowl-ident-pembury"
+   ]
   }
  },
  "adSeries": {},

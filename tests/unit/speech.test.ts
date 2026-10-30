@@ -130,6 +130,10 @@ describe('the talk station and the street', () => {
     expect(azura.ident.length).toBeGreaterThanOrEqual(4);
     expect(azura.ad.length).toBeGreaterThanOrEqual(10);
     expect(azura.host.length + azura.call.length + azura.news.length).toBeGreaterThanOrEqual(20);
+    const bowl = SPEECH.talk.bowl;
+    expect(bowl.ident.length).toBeGreaterThanOrEqual(4);
+    expect(bowl.ad.length).toBeGreaterThanOrEqual(3);
+    expect(bowl.host.length + bowl.call.length + bowl.news.length).toBeGreaterThanOrEqual(15);
     for (const id of talkClips()) expect(SPEECH.clips[id], id).toBeLessThan(40);
   });
 

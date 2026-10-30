@@ -26,6 +26,10 @@ export const CAST = {
   jen: 'af_river',
   morty: 'bm_lewis',
   kid: 'af_sky',
+  ron: 'am_onyx,am_fenrir',
+  nate: 'am_eric',
+  sal: 'am_santa',
+  pembury: 'bm_lewis,bm_daniel',
 } as const;
 
 export type Role = keyof typeof CAST;
@@ -40,7 +44,7 @@ export const SAY: ReadonlyArray<readonly [RegExp, string]> = [
 ];
 
 /** Talk station roles heard down a phone line or a radio link: their lines are band-limited when rendered. */
-export const PHONE_ROLES: ReadonlySet<Role> = new Set<Role>(['gary', 'linda', 'marcus', 'doris', 'vince', 'jen', 'kid', 'skip']);
+export const PHONE_ROLES: ReadonlySet<Role> = new Set<Role>(['gary', 'linda', 'marcus', 'doris', 'vince', 'jen', 'kid', 'skip', 'sal']);
 
 /** Mission speakers (the subtitle's name without " (phone)") and the role that voices them. */
 export const SPEAKERS: Readonly<Record<string, Role>> = {
@@ -302,7 +306,7 @@ export const TALK: readonly TalkPiece[] = [
     ],
   },
 
-  // Ads.
+  // Ads. THE BOWL's breaks carry the ones that name it in `shows`, and its own (shows/bowl.ts).
   {
     id: 'ad-pipsqueak',
     kind: 'ad',
@@ -322,6 +326,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-guns',
     kind: 'ad',
+    shows: ['azura', 'bowl'],
     lines: [
       ['announcer', "Bang Bang Guns, in Southgate and on the Westside! Home of the friendliest staff in San Azura."],
       ['announcer', "Ask about our family pack. Our layaway plan. Our no questions, seriously, stop asking questions guarantee. Bang Bang Guns. We know a guy. We are the guy."],
@@ -339,6 +344,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-torque',
     kind: 'ad',
+    shows: ['azura', 'bowl'],
     lines: [
       ['announcer', "Torque energy drink. It tastes like a battery and feels like a car crash. Now in blue flavor. What is blue flavor? Nobody knows."],
       ['announcer', "Torque. Sleep is for people with nothing to do."],
@@ -395,6 +401,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-thunderhoof',
     kind: 'ad',
+    shows: ['azura', 'bowl'],
     lines: [
       ['announcer', "The Thunderhoof. It's loud. It's thirsty. It parks across two spaces, and it does not apologize."],
       ['announcer', "The Thunderhoof. For men who need you to know they're coming."],

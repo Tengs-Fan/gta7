@@ -2,6 +2,7 @@
 // non-gap segment (the validator measures the music bus above -50 dBFS wherever the programme says something plays).
 
 import { describe, expect, it } from 'vitest';
+import { STATIONS } from '../../src/audio/radio';
 import { bellGain, jingleBells, padEnvelope, TREMOLO_BASE, TREMOLO_DEPTH, talkProgramme } from '../../src/audio/talk';
 
 const SR = 16000;
@@ -47,10 +48,10 @@ function pad(dur: number, seed: number, square: boolean): number {
   });
 }
 
-/** The bells alone of a jingle `dur` seconds long (its ident only adds to them). */
-function jingle(seed: number, dur: number): number {
+/** The bells alone of a jingle `dur` seconds long on `motif` (its ident only adds to them). */
+function jingle(seed: number, dur: number, motif: readonly number[]): number {
   const root = 60 + (seed % 5);
-  const bells = jingleBells(dur);
+  const bells = jingleBells(dur, motif);
   return minLevel(dur, (t) => {
     let v = 0;
     for (const b of bells) {
@@ -62,11 +63,13 @@ function jingle(seed: number, dur: number): number {
 }
 
 describe('talk station segments are audible across their declared length', () => {
-  it('the jingle never falls under -50 dBFS from its start to its declared end', () => {
-    const jingles = talkProgramme(7, 1800).filter((s) => s.kind === 'jingle');
-    const lows = jingles.map((s) => jingle(s.seed, s.dur));
-    console.log(`[talk] jingle min 20 ms level over ${jingles.map((s) => s.dur.toFixed(1)).join(', ')} s: ${lows.map((x) => x.toFixed(1)).join(', ')} dBFS`);
-    for (const l of lows) expect(l).toBeGreaterThan(-50);
+  it("every talk station's jingle never falls under -50 dBFS from its start to its declared end", () => {
+    for (const { name, talk } of STATIONS.filter((s) => s.talk)) {
+      const jingles = talkProgramme(7, 1800, talk).filter((s) => s.kind === 'jingle');
+      const lows = jingles.map((s) => jingle(s.seed, s.dur, talk!.bells));
+      console.log(`[talk] ${name} jingle min 20 ms level over ${jingles.map((s) => s.dur.toFixed(1)).join(', ')} s: ${lows.map((x) => x.toFixed(1)).join(', ')} dBFS`);
+      for (const l of lows) expect(l, name).toBeGreaterThan(-50);
+    }
   });
 
   it('every host and ad segment of ten-minute programmes keeps its bed above -50 dBFS from edge to edge', () => {

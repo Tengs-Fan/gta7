@@ -126,13 +126,18 @@ async function quietCar(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as Api).__gta7.state().player.vehicle === 'sedan', null, { timeout: 5000 });
 }
 
-async function tuneTalk(page: Page): Promise<void> {
-  // R cycles the stations in a car; the HUD shows the station's name.
-  for (let i = 0; i <= 10; i++) {
-    if ((await page.evaluate(() => (window as Api).__gta7.game.audio.radio.stationName)) === 'AZURA TALK 104.5') break;
-    await page.keyboard.press('KeyR');
+/** Presses `key` (R or Q, up or down the dial) until the radio is on `station`, at most once round the dial. */
+async function pressUntil(page: Page, key: string, station: string): Promise<void> {
+  for (let i = 0; i < 16; i++) {
+    if ((await page.evaluate(() => (window as Api).__gta7.game.audio.radio.stationName)) === station) break;
+    await page.keyboard.press(key);
     await page.waitForTimeout(250);
   }
+}
+
+async function tuneTalk(page: Page): Promise<void> {
+  // R cycles the stations in a car; the HUD shows the station's name.
+  await pressUntil(page, 'KeyR', 'AZURA TALK 104.5');
   await expect(page.locator('.radio')).toHaveText(/^AZURA TALK 104\.5/);
 }
 
@@ -230,14 +235,14 @@ test.describe('GTA 7 wave-1 audio', () => {
     await page.evaluate(() => (window as Api).__gta7.game.audio.radio.cueTalk('host', 1));
     await page.waitForTimeout(800);
     expect(await rms(page, 'music')).toBeGreaterThan(-50);
-    // RADIO OFF.
-    await page.keyboard.press('KeyR');
+    // RADIO OFF, the stop after the last talk station.
+    await pressUntil(page, 'KeyR', 'RADIO OFF');
     await expect(page.locator('.radio')).toHaveText('RADIO OFF');
     await page.waitForTimeout(1200);
     const off = await rms(page, 'music');
     expect(off).toBeLessThan(-80);
     // Back on, then out of the car.
-    await page.keyboard.press('KeyQ');
+    await pressUntil(page, 'KeyQ', 'AZURA TALK 104.5');
     await expect(page.locator('.radio')).toHaveText(/^AZURA TALK 104\.5/);
     await page.evaluate(() => (window as Api).__gta7.game.audio.radio.cueTalk('host', 1));
     await page.waitForTimeout(800);
@@ -248,6 +253,37 @@ test.describe('GTA 7 wave-1 audio', () => {
     const out = await rms(page, 'music');
     console.log(`[talk] radio off ${off.toFixed(1)} dBFS, out of the car ${out.toFixed(1)} dBFS`);
     expect(out).toBeLessThan(-80);
+    expect(errors).toEqual([]);
+  });
+
+  test('THE BOWL: the AM band keeps the host above -50 dBFS on the music bus, with far less above 5 kHz than AZURA TALK', async ({ page }) => {
+    const errors = await boot(page);
+    await newGame(page);
+    await quietCar(page);
+    await installTaps(page);
+    await tuneTalk(page);
+    /** The music bus through a monologue of the tuned station's host (callers are band-limited on any station). */
+    const monologue = async (prefix: string) => {
+      await page.evaluate((prefix) => {
+        const radio = (window as Api).__gta7.game.audio.radio;
+        while (!radio.cueTalk('host', 1).clip.startsWith(prefix));
+      }, prefix);
+      return (await record(page, 'music', 5000, 50, 5000, 24000)).filter((x) => x.kind === 'host' && x.into > 0.3 && x.left > 0.3);
+    };
+    const azura = await monologue('talk-host-');
+    await page.evaluate(() => {
+      const radio = (window as Api).__gta7.game.audio.radio;
+      while (radio.stationName !== 'THE BOWL 1090 AM') radio.next();
+    });
+    await expect(page.locator('.radio')).toHaveText(/^THE BOWL 1090 AM/);
+    await page.screenshot({ path: test.info().outputPath('hud-the-bowl.png') });
+    const bowl = await monologue('talk-bowl-host-');
+    const above = (s: Sample[]) => s.reduce((p, x) => p + x.band, 0) / s.length;
+    console.log(`[bowl] host: ${bowl.length} windows, mean ${meanDb(bowl).toFixed(1)} dBFS, min ${Math.min(...bowl.map((x) => x.db)).toFixed(1)}; share above 5 kHz ${above(bowl).toExponential(2)} against AZURA TALK's ${above(azura).toExponential(2)}`);
+    expect(azura.length).toBeGreaterThan(60);
+    expect(bowl.length).toBeGreaterThan(60);
+    expect(bowl.filter((x) => x.db < -50)).toEqual([]);
+    expect(above(bowl)).toBeLessThan(above(azura) * 0.3);
     expect(errors).toEqual([]);
   });
 
