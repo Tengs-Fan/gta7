@@ -64,6 +64,18 @@ export function daypart(hours: number): Daypart {
   return h < 5 ? 'tonight' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 21 ? 'evening' : 'tonight';
 }
 
+/** A story from before the desk's day turned: last night's, or yesterday's. */
+export const BEFORE: Readonly<Record<'night' | 'day', string>> = { night: 'last night', day: 'yesterday' };
+
+/**
+ * When a story at `at` happened, said at `now`: its part of the day while the desk's day lasts, then BEFORE. The
+ * desk's day turns at 5 in the morning, when tonight ends: a chase at 2 is tonight's until then, last night's after.
+ */
+export function ago(at: number, now: number): string {
+  const d = daypart(at);
+  return Math.floor((now - 5) / 24) === Math.floor((at - 5) / 24) ? WHEN[d] : BEFORE[d === 'tonight' ? 'night' : 'day'];
+}
+
 export const OPENERS: readonly string[] = ['Breaking news from the Azura Newsdesk.', 'This just in.', 'News just in at the Azura Newsdesk.'];
 
 /** A story's second airing opens on it by name: the story of today, or of yesterday when the day has turned since. */
@@ -79,7 +91,7 @@ export const FOLLOW_UP = 'And an update on a story we have been following.';
 
 export const SIGN_OFFS: readonly string[] = ['Back to you, Chet.', "That's the news. Back to you, Chet.", 'Dolores Vance, Azura Newsdesk. Back to you, Chet.'];
 
-/** A chase's lead by its most stars (2 or 3, 4, 5), and when it happened. */
+/** A chase's lead by its most stars (2 or 3, 4, 5), and when it happened (ago). */
 export const CHASE_LEADS: readonly ((when: string) => string)[] = [
   (w) => `A police chase tore across San Azura ${w}.`,
   (w) => `SWAT vans joined a police chase across the city ${w}.`,
@@ -199,12 +211,13 @@ const bucket = (stars: number): number => (stars >= 5 ? 2 : stars >= 4 ? 1 : 0);
  * on the story by name and skips the lead; it draws a new kicker.
  */
 export function bulletin(story: Story, now: number, bags: Bags, again = false): string[] {
+  // The second airing names the calendar day ("today's police chase" of one at 3 in the morning); the lead, the desk's.
   const day = Math.floor(now / 24) === Math.floor(story.at / 24) ? 'today' : 'yesterday';
   const signOff = () => bags.draw(SIGN_OFFS);
   switch (story.kind) {
     case 'chase': {
       const route = story.from === story.to ? [PLACED.stayed(story.from)] : [PLACED.started(story.from), PLACED.ended(story.to)];
-      const lead = again ? [AGAIN.chase[day]] : [bags.draw(OPENERS), CHASE_LEADS[bucket(story.stars)]!(WHEN[daypart(story.at)])];
+      const lead = again ? [AGAIN.chase[day]] : [bags.draw(OPENERS), CHASE_LEADS[bucket(story.stars)]!(ago(story.at, now))];
       return [...lead, ...route, ...(story.heli ? [HELI_DOWN] : []), bags.draw(OUTCOMES[story.outcome]), bags.draw(CHASE_KICKERS), signOff()];
     }
     case 'sunk':

@@ -9,8 +9,8 @@ The voices are [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) v1.0 (Apa
 | `shows/` | The other talk shows, one file each (`bowl.ts`: THE BOWL 1090 AM), collected in `shows/index.ts`: their pieces, their own ads and their idents. |
 | `dialogue.ts` | Reads the mission dialogue from `src/sim/missions/*.ts`: every `m.say(SPEAKER, …)` and `[SPEAKER, …]` intro line, both branches of a ternary, template literals evaluated against the generated city. Adds the phone's offer and busy lines. |
 | `phrases.ts` | The police dispatcher's phrases, from `src/sim/dispatch.ts`'s tables, the vehicle names and the city's zone names. The scanner joins them, longest match first. |
-| `news.ts` | Every sentence the Azura Newsdesk can read, from the tables in `src/audio/newsText.ts`: those that name a place once per zone, the chase leads and the weather's arrivals once per part of the day. A bulletin joins them at sentence boundaries. |
-| `missionNews.ts` | The newsdesk's piece on each mission of the story when it is passed, and the follow-up a game day later. |
+| `news.ts` | Every sentence the Azura Newsdesk can read, from the tables in `src/audio/newsText.ts`: those that name a place once per zone, the chase leads once per part of the day and for last night and yesterday, the weather's arrivals once per part of the day. A bulletin joins them at sentence boundaries. |
+| `missionNews.ts` | The newsdesk's piece on each mission of the story when it is passed, and the follow-up a game day later; neither says what day it happened, since either may air a day late. |
 | `build.ts` | Renders new lines (`render.py`), trims, band-limits the callers and the Skycopter to a phone line, levels every clip to the same loudness, encodes with ffmpeg, writes the index (each show's pools and the ad campaigns) and removes clips nobody uses. |
 | `render.py` | Kokoro, one WAV per line, cached by voice, speed and text in `~/.cache/gta7-speech` (`GTA7_SPEECH_CACHE` overrides), so a rerun renders only what changed. |
 | `check.py` | Transcribes every clip with Whisper and reports the word error rate per kind of clip and the clips above 20 %. |

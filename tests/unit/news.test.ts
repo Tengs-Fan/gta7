@@ -65,8 +65,8 @@ describe('the newsdesk speech', () => {
     const bags = recorder();
     const said = new Set<string>();
     for (const s of everyStory(zones)) {
-      // The first airing, the second the same day, and the second the next day.
-      for (const [now, again] of [[s.at, false], [s.at + 1, true], [s.at + 24, true]] as const) for (const line of bulletin(s, now, bags, again)) said.add(line);
+      // The first airing at once and half a day on, the second the same day and the next.
+      for (const [now, again] of [[s.at, false], [s.at + 12, false], [s.at + 1, true], [s.at + 24, true]] as const) for (const line of bulletin(s, now, bags, again)) said.add(line);
     }
     for (const pool of bags.pools) for (const line of pool) said.add(line);
     for (const line of said) expect(SPEECH.news[line], line).toBeDefined();
@@ -86,13 +86,19 @@ describe('the newsdesk speech', () => {
     expect(Object.values(SPEECH.missionNews).filter((m) => m.followUp).length).toBeGreaterThanOrEqual(6);
   });
 
-  it('reads a chase lead by its stars and the part of the day it happened in', () => {
+  it('reads a chase lead by its stars and the part of the day it happened in, until the day turns at 5', () => {
     const bags = recorder();
-    const lead = (stars: number, hours: number) => bulletin({ kind: 'chase', at: 48 + hours, stars, from: 'Midtown', to: 'Ocean Beach', heli: true, outcome: 'evaded' }, 48 + hours, bags)[1];
+    const lead = (stars: number, hours: number, read = hours) => bulletin({ kind: 'chase', at: 48 + hours, stars, from: 'Midtown', to: 'Ocean Beach', heli: true, outcome: 'evaded' }, 48 + read, bags)[1];
     expect(lead(2, 19)).toBe('A police chase tore across San Azura this evening.');
     expect(lead(4, 13)).toBe('SWAT vans joined a police chase across the city this afternoon.');
     expect(lead(5, 2)).toBe('The entire San Azura police department chased one driver tonight.');
     expect(lead(3, 7)).toBe('A police chase tore across San Azura this morning.');
+    // First read later on: after midnight, the next morning.
+    expect(lead(2, 20, 24.5)).toBe('A police chase tore across San Azura this evening.');
+    expect(lead(2, 22, 26)).toBe('A police chase tore across San Azura tonight.');
+    expect(lead(2, 3, 8)).toBe('A police chase tore across San Azura last night.');
+    expect(lead(2, 22, 33)).toBe('A police chase tore across San Azura last night.');
+    expect(lead(2, 20, 32)).toBe('A police chase tore across San Azura yesterday.');
     expect(DAYPARTS).toHaveLength(4);
     const chase: Story = { kind: 'chase', at: 60, stars: 4, from: 'Midtown', to: 'Ocean Beach', heli: true, outcome: 'evaded' };
     expect(bulletin(chase, 60, bags)).toEqual([OPENERS[0], 'SWAT vans joined a police chase across the city this afternoon.', 'It started in Midtown.', 'It ended on Ocean Beach.', 'The police helicopter did not make it home.', 'The suspect got away.', CHASE_KICKERS[0], SIGN_OFFS[0]]);
@@ -239,7 +245,9 @@ describe('the newsroom', () => {
   });
 
   it('splices a bulletin after the host or ad piece nearing its end, DESK_GAP of programme after tuning in, and keeps the programme contiguous', () => {
-    const { radio, room, nextDesk, poll } = newsroom();
+    const { sim, radio, room, nextDesk, poll } = newsroom();
+    sim.clock.day = 3;
+    sim.clock.hours = 20;
     poll(0);
     room.file({ kind: 'chase', at: 24 * 3 + 20, stars: 4, from: 'Midtown', to: 'Ocean Beach', heli: true, outcome: 'evaded' });
     const got = nextDesk()!;
