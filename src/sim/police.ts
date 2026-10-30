@@ -357,6 +357,7 @@ export class PoliceSystem {
   /**
    * Ends slot `slot`'s pursuit (its player respawned): its units, officers and helicopters go. With other players in the
    * sim, those in sight of one of them stay where they are instead and go back on patrol (their player has no stars).
+   * The respawning player's own camera does not count: his view cuts to the hospital or the police station.
    */
   dismiss(slot: PlayerSlot): void {
     const sim = this.sim;
@@ -365,7 +366,7 @@ export class PoliceSystem {
       return;
     }
     const id = slot.id;
-    const seen = (x: number, y: number, z: number) => sim.isVisible(x, y, z);
+    const seen = (x: number, y: number, z: number) => sim.activePlayers().some((s) => s !== slot && sim.seenFrom(s, x, y, z, 320));
     for (const v of sim.vehicles) {
       if (v.owner !== 'police' || v.removed || sim.slotOf(v.driver) || this.targetSlotOf(v) !== id) continue;
       if (!seen(v.pos.x, v.pos.y, v.pos.z)) sim.removeVehicle(v);

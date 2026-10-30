@@ -349,6 +349,40 @@ describe('a bust or death touches only its player (VAL-MPSIM-003)', () => {
       expect(Math.hypot(after.pos[0]! - before.pos[0]!, after.pos[2]! - before.pos[2]!)).toBeLessThan(0.5);
     });
   }
+
+  it('a unit only the respawning player can see goes; one another player sees stays on patrol', () => {
+    const sim = makeSim({ ambient: false, police: true, multiplayer: true, seed: 1 });
+    const a = sim.players[0]!;
+    const road = onLane(sim, 90, 30);
+    place(sim, a, road.x, road.z);
+    const b = sim.addPlayer(road.x + 60, road.z);
+    place(sim, b, road.x + 60, road.z);
+    b.wanted.setLevel(3);
+    sim.update(DT, new Map([[0, behind(a.character)], [1, behind(b.character)]]));
+    const units: Vehicle[] = [];
+    for (let k = 0; k < 20 && units.length < 2; k++) {
+      const v = sim.police.spawnUnit('police', true, b);
+      if (v) units.push(v);
+    }
+    expect(units.length).toBe(2);
+    const [mine, shared] = units as [Vehicle, Vehicle];
+    // Player 1's camera looks at both units, player 0's only at the second.
+    const look = (s: PlayerSlot, v: Vehicle) => {
+      s.cam.x = v.pos.x - 20;
+      s.cam.y = v.pos.y + 3;
+      s.cam.z = v.pos.z;
+      s.camDir.x = 1;
+      s.camDir.y = 0;
+      s.camDir.z = 0;
+    };
+    look(b, mine);
+    look(a, shared);
+    expect(sim.seenFrom(b, mine.pos.x, mine.pos.y, mine.pos.z, 320)).toBe(true);
+    expect(sim.seenFrom(a, mine.pos.x, mine.pos.y, mine.pos.z, 320)).toBe(false);
+    sim.police.dismiss(b);
+    expect(mine.removed).toBe(true);
+    expect(shared.removed).toBe(false);
+  });
 });
 
 describe('a respawn and the shared clock (VAL-MPSIM-004)', () => {
