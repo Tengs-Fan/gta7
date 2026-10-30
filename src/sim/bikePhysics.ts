@@ -24,9 +24,7 @@ export const FALLEN_LEAN = 1.4;
  */
 export function leanFor(v: Vehicle, lat: number): number {
   const cap = v.spec.bike?.leanCap ?? 0;
-  const limit = 1.12 * v.spec.grip;
-  if (!(limit > 0) || !Number.isFinite(lat)) return 0;
-  return -cap * clamp(lat / limit, -1, 1);
+  return -cap * clamp(lat / (1.12 * v.spec.grip), -1, 1);
 }
 
 /**
@@ -42,7 +40,6 @@ export function stepBike(v: Vehicle, dt: number, throttle: number): void {
   else if (!ridden) target = v.speed < 0.5 ? STAND_LEAN : 0;
   else if (!v.airborne) target = leanFor(v, v.forwardSpeed * v.angVel);
   v.lean = damp(v.lean, target, v.toppled ? 6 : LEAN_RATE, dt);
-  if (!Number.isFinite(v.lean)) v.lean = 0;
 
   const w = b.wheelie;
   let lift = 0;
@@ -50,7 +47,7 @@ export function stepBike(v: Vehicle, dt: number, throttle: number): void {
     lift = w.pitch * clamp((throttle - WHEELIE_THROTTLE) / (1 - WHEELIE_THROTTLE), 0, 1);
   }
   v.wheelie = damp(v.wheelie, lift, lift > v.wheelie ? WHEELIE_UP : WHEELIE_DOWN, dt);
-  if (!Number.isFinite(v.wheelie) || v.wheelie < 1e-5) v.wheelie = 0;
+  if (v.wheelie < 1e-5) v.wheelie = 0;
 }
 
 /**

@@ -74,8 +74,7 @@ export function gaitPhaseStep(speed: number, dt: number): number {
 }
 
 /** Fraction of a cycle each foot is planted: above 0.5 a walk (both feet down at times), below a run (both up at times). */
-export function dutyFactor(speed: number): number {
-  const v = Number.isFinite(speed) ? speed : 0;
+export function dutyFactor(v: number): number {
   if (v <= 1.45) return 0.62;
   if (v <= 1.9) return lerp(0.62, 0.6, (v - 1.45) / 0.45);
   if (v <= 2.8) return lerp(0.6, 0.55, (v - 1.9) / 0.9);
@@ -190,7 +189,7 @@ function reachLimit(f: FootTarget, scale: number): number {
  * the ground there.
  */
 export function gaitCycle(speed: number, mx: number, mz: number, scale: number, out: GaitCycle): GaitCycle {
-  const v = Number.isFinite(speed) ? clamp(speed, 0, 20) : 0;
+  const v = clamp(speed, 0, 20);
   const ml = Math.hypot(mx, mz);
   out.mx = ml > 1e-6 ? mx / ml : 0;
   out.mz = ml > 1e-6 ? mz / ml : 1;
@@ -329,12 +328,12 @@ export function gaitLean(speed: number, mz: number): number {
 
 /** Chest yaw against the legs at gait phase `phase`: about 6 degrees each way at a walk, the right shoulder forward with the left foot. */
 export function counterTwist(speed: number, mz: number, phase: number): number {
-  return 0.1 * smoothstep(IDLE_SPEED, 1.5, speed) * Math.max(0, mz) * Math.cos(Number.isFinite(phase) ? phase : 0);
+  return 0.1 * smoothstep(IDLE_SPEED, 1.5, speed) * Math.max(0, mz) * Math.cos(phase);
 }
 
 /** Fraction of the left foot's gait cycle (0..1) for a gait phase in radians. */
 export function cycleFraction(phase: number): number {
-  const u = (Number.isFinite(phase) ? phase : 0) / TAU;
+  const u = phase / TAU;
   return u - Math.floor(u);
 }
 
@@ -381,9 +380,9 @@ export function aimed(c: Character): boolean {
 /** Pose of the hips and chest of an upright character, from simulation state only. */
 export function trunkPose(c: Character, out: Trunk = makeTrunk()): Trunk {
   const s = c.appearance.height;
-  const heading = Number.isFinite(c.heading) ? c.heading : 0;
+  const heading = c.heading;
   const isAimed = aimed(c);
-  const aimYaw = Number.isFinite(c.aimYaw) ? c.aimYaw : heading;
+  const aimYaw = c.aimYaw;
   let hipYaw = heading;
   if (isAimed) {
     const d = wrapAngle(aimYaw - heading);
@@ -391,10 +390,10 @@ export function trunkPose(c: Character, out: Trunk = makeTrunk()): Trunk {
     else if (d < -MAX_TWIST) hipYaw = wrapAngle(aimYaw + MAX_TWIST);
   }
   out.hipYaw = hipYaw;
-  const speed = Number.isFinite(c.speed) ? c.speed : 0;
+  const speed = c.speed;
   // Movement direction relative to the hips: sideways and backwards steps follow the actual velocity.
-  const vx = Number.isFinite(c.vel.x) ? c.vel.x : 0;
-  const vz = Number.isFinite(c.vel.z) ? c.vel.z : 0;
+  const vx = c.vel.x;
+  const vz = c.vel.z;
   const lx = vx * Math.cos(hipYaw) - vz * Math.sin(hipYaw);
   const lz = vx * Math.sin(hipYaw) + vz * Math.cos(hipYaw);
   const lm = Math.hypot(lx, lz);
@@ -410,7 +409,7 @@ export function trunkPose(c: Character, out: Trunk = makeTrunk()): Trunk {
     out.y = top;
   }
   if (isAimed) {
-    const pitch = Number.isFinite(c.aimPitch) ? c.aimPitch : 0;
+    const pitch = c.aimPitch;
     // A long gun or launcher keeps the bladed stance through its reloads, so the chest never snaps round.
     const w = c.inventory.current;
     const bladed = isGun(w) && w !== 'pistol';
@@ -562,7 +561,7 @@ export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): We
   const my = hy + cl * shY;
   const mz = hz + sl * cy * shY;
 
-  const pitch = Number.isFinite(c.aimPitch) ? clamp(c.aimPitch, -1.4, 1.4) : 0;
+  const pitch = clamp(c.aimPitch, -1.4, 1.4);
   const yaw = t.armYaw;
   out.twoHands = weapon !== 'pistol' || out.mode !== 'lowered';
   if (weapon === 'rocket') {
@@ -600,7 +599,7 @@ export function weaponPoseInto(c: Character, out: WeaponPose, trunk?: Trunk): We
   } else if (weapon === 'pistol') {
     // Hanging at the right side, pointing at the ground ahead, swinging a little with the stride.
     aimFrame(out, yaw, -1.15, 0.15);
-    const swing = 0.06 * t.move * Math.cos(Number.isFinite(c.animPhase) ? c.animPhase : 0) * s;
+    const swing = 0.06 * t.move * Math.cos(c.animPhase) * s;
     const drop = (SKELETON.upperArm + SKELETON.forearm + SKELETON.hand) * 0.93 * s;
     const fwd = 0.1 * s + swing;
     anchor(out, pts.grip, sh.x - sl * sy * drop + cl * sy * fwd, sh.y - cl * drop - sl * fwd, sh.z - sl * cy * drop + cl * cy * fwd);
@@ -669,7 +668,7 @@ export function windowMuzzle(v: Pick<Vehicle, 'pos' | 'heading' | 'pitch' | 'hal
   const up = v.spec.height * 0.75 - centre;
   const ch = Math.cos(v.heading);
   const sh = Math.sin(v.heading);
-  const pitch = Number.isFinite(v.pitch) ? v.pitch : 0;
+  const pitch = v.pitch;
   const cp = Math.cos(pitch);
   const sp = Math.sin(pitch);
   // Body axes, nose up for a positive pitch: left (ch, 0, -sh), up (-sh sp, cp, -ch sp), forward (sh cp, sp, ch cp).
@@ -688,7 +687,7 @@ export function windowMuzzle(v: Pick<Vehicle, 'pos' | 'heading' | 'pitch' | 'hal
  */
 function swimmerGun(c: Character, out: WeaponPose, weapon: Gun, s: number, b: number): WeaponPose {
   const pts = weaponPointsOf(weapon);
-  const h = Number.isFinite(c.heading) ? c.heading : 0;
+  const h = c.heading;
   const ch = Math.cos(h);
   const sh = Math.sin(h);
   const cl = Math.cos(SWIM_TREAD_LEAN);
@@ -700,8 +699,8 @@ function swimmerGun(c: Character, out: WeaponPose, weapon: Gun, s: number, b: nu
   const shoulder = set(out.shoulder, c.pos.x + lx * ch + lz * sh, c.pos.y + SWIM_HIP + ly, c.pos.z - lx * sh + lz * ch);
   out.mode = 'raised';
   out.twoHands = false;
-  const yaw = c.aiming && Number.isFinite(c.aimYaw) ? c.aimYaw : h;
-  const pitch = c.aiming && Number.isFinite(c.aimPitch) ? clamp(c.aimPitch, SWIM_AIM_LOW, 1.2) : 0;
+  const yaw = c.aiming ? c.aimYaw : h;
+  const pitch = c.aiming ? clamp(c.aimPitch, SWIM_AIM_LOW, 1.2) : 0;
   aimFrame(out, yaw, pitch, 0);
   const reach = 0.9 * (SKELETON.upperArm + SKELETON.forearm + SKELETON.hand) * s;
   anchor(out, pts.grip, shoulder.x + out.dir.x * reach, shoulder.y + out.dir.y * reach, shoulder.z + out.dir.z * reach);

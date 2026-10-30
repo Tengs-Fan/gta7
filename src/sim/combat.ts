@@ -1161,7 +1161,7 @@ export class CombatSystem {
     }
     const killed = c.health <= 0;
     const hl = Math.hypot(dx, dz);
-    const dir = Number.isFinite(hl) && hl > 1e-9;
+    const dir = hl > 1e-9;
     const dirX = dir ? dx / hl : 0;
     const dirZ = dir ? dz / hl : 0;
     sim.events.emit('damage', { victim: c, attacker, healthLoss, armourLoss, kind, zone, killed, dirX, dirZ, ...this.tagOf(attacker) });

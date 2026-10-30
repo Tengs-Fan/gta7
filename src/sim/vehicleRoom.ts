@@ -82,7 +82,6 @@ export function vehicleFits(sim: Sim, kind: VehicleKind, x: number, z: number, h
  * up to `maxRadius` like StaticWorld.findFreeSpot; null if there is none.
  */
 export function findVehicleRoom(sim: Sim, kind: VehicleKind, x: number, z: number, heading: number, maxRadius = 20): { x: number; z: number } | null {
-  if (!Number.isFinite(x + z + heading)) return null;
   if (vehicleFits(sim, kind, x, z, heading)) return { x, z };
   for (let ring = 1; ring * 1.5 <= maxRadius; ring++) {
     const rad = ring * 1.5;

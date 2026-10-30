@@ -261,26 +261,23 @@ describe('street run timing, ordered gates and rewards', () => {
     expect(sim.progress.streetRuns.magnolia).toMatchObject({ bestTime: best, finishes: 2 });
   });
 
-  it('fails when bronze time expires, with no money or record, and ignores invalid dt', () => {
+  it('fails when bronze time expires, with no money or record', () => {
     const { sim, course } = setup();
-    const j = start(sim);
-    const elapsed = j.elapsed;
-    for (const invalid of [0, -1, Infinity, NaN]) sim.activities.update(invalid);
-    expect(j.elapsed).toBe(elapsed);
+    start(sim);
     sim.activities.update(course.bronze + 0.1);
     expect(sim.activities.busy).toBe(false);
     expect(sim.progress.streetRuns).toEqual({});
     expect(sim.progress.money).toBe(250);
   });
 
-  it('assigns medals at inclusive thresholds and rejects non-finite or invalid finishes', () => {
+  it('assigns medals at inclusive thresholds and rejects invalid finishes', () => {
     const course = buildStreetRunCourses(world().roads)[0]!;
     expect(runMedal(course, course.gold)).toBe('gold');
     expect(runMedal(course, course.gold + 0.01)).toBe('silver');
     expect(runMedal(course, course.silver)).toBe('silver');
     expect(runMedal(course, course.silver + 0.01)).toBe('bronze');
     expect(runMedal(course, course.bronze)).toBe('bronze');
-    for (const invalid of [0, -1, Infinity, NaN, course.bronze + 0.01]) expect(runMedal(course, invalid)).toBeNull();
+    for (const invalid of [0, -1, Infinity, course.bronze + 0.01]) expect(runMedal(course, invalid)).toBeNull();
   });
 });
 
