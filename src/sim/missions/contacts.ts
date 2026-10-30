@@ -30,6 +30,14 @@ export const CONTACTS: ContactDef[] = [
   { id: 'vera', name: 'Vera Salgado', phoneName: 'Vera Salgado (phone)', color: '#b8e62e', cssClass: 'vera', poiId: 'vera', mapLabel: 'V' },
 ];
 
+/** What a contact says on the phone while the player is busy with a mission. */
+export const BUSY_LINE = "You've got your hands full. Call me when you're done.";
+
+/** What a contact says on the phone about work they have (or have not). */
+export function offerLine(c: ContactDef, def: MissionDef | undefined): string {
+  return def ? `I've got work for you: "${def.title}". Come see me, ${c.mapLabel} on your radar.` : "Nothing for you right now. I'll call you.";
+}
+
 export function findContact(id: ContactId): ContactDef | undefined {
   return CONTACTS.find((c) => c.id === id);
 }

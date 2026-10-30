@@ -16,7 +16,8 @@
     "check": "npm run typecheck && npm run test && npm run build && npm run test:e2e",
     "server": "tsx server/main.ts --port 4210",
     "assets": "node scripts/assets/build.mjs",
-    "assets:fetch": "node scripts/assets/fetch.mjs"
+    "assets:fetch": "node scripts/assets/fetch.mjs",
+    "speech": "tsx scripts/assets/speech/build.ts"
   },
   "dependencies": {
     "@fontsource/anton": "5.3.0",

@@ -45,3 +45,11 @@ The assets are used under CC0 (no attribution required, credited here anyway) or
 | acg-Facade006 | Facade006 (ambientCG material, 1K) | ambientCG | https://ambientcg.com/a/Facade006 | CC0 |  | tex.facade006.albedo, tex.facade006.normal, tex.facade006.orm |
 | acg-Facade009 | Facade009 (ambientCG material, 1K) | ambientCG | https://ambientcg.com/a/Facade009 | CC0 |  | tex.facade009.albedo, tex.facade009.emissive, tex.facade009.normal, tex.facade009.orm |
 | acg-LeafSet024 | LeafSet024 (ambientCG leaf atlas, 1K) | ambientCG | https://ambientcg.com/a/LeafSet024 | CC0 |  | tex.leaf_atlas.albedo |
+
+## Speech
+
+Every clip under `src/assets/speech/` is rendered by `npm run speech` from original lines (scripts/assets/speech) with the model and voices below.
+
+| Model | Author | Source | License | Used by |
+| --- | --- | --- | --- | --- |
+| Kokoro-82M v1.0 and its voices | hexgrad | https://huggingface.co/hexgrad/Kokoro-82M | Apache-2.0 | speech/*.mp3 |

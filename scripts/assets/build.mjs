@@ -134,11 +134,12 @@ entries.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 const manifest = `{"version":1,"entries":[\n${entries.map((e) => `  ${JSON.stringify(e)}`).join(',\n')}\n]}\n`;
 fs.writeFileSync(path.join(OUT_DIR, 'manifest.json'), manifest);
 
-// Remove outputs that the catalog no longer produces.
+// Remove outputs that the catalog no longer produces. speech/ is the speech build's (speech/build.ts).
 function prune(dir) {
   for (const name of fs.readdirSync(dir)) {
     const full = path.join(dir, name);
     const rel = path.relative(OUT_DIR, full).split(path.sep).join('/');
+    if (rel === 'speech') continue;
     if (fs.statSync(full).isDirectory()) {
       prune(full);
       if (fs.readdirSync(full).length === 0) fs.rmdirSync(full);

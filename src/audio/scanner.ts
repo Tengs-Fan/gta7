@@ -1,28 +1,30 @@
-// Police radio barks: a short procedural voice clip per dispatch line, squeezed through a radio's band
-// (two high-passes at 300 Hz, two low-passes at 3.4 kHz, a little drive) between a squelch click and a squelch tail.
+// Police radio barks: the dispatcher's recorded phrases for a dispatch line (speech.ts), joined and squeezed through a
+// radio's band (two high-passes at 300 Hz, two low-passes at 3.4 kHz, a little drive) between a squelch click and a
+// squelch tail.
 //
-//   cop voice -+
-//   hiss ------+-> HP 300 -> HP 300 -> LP 3400 -> LP 3400 -> drive -> out -> effects bus
-//   squelch ---+
+//   dispatcher clips -+
+//   hiss -------------+-> HP 300 -> HP 300 -> LP 3400 -> LP 3400 -> drive -> out -> effects bus
+//   squelch ----------+
 
-import { clamp } from '../core/math';
+import { SPEECH } from '../sim/speech';
 import { withinParam } from './mixer';
+import { dispatchClips, type SpeechBank } from './speech';
 import type { NodeTally } from './tally';
-import { COP_VOICE, FormantVoice, hashString, speechPlan } from './voice';
 
-/** Seconds between the starts of two barks, and a bark never starts while another is on the air. */
+/** Seconds between the starts of two barks. */
 export const BARK_MIN_GAP = 4;
-/** Longest bark, seconds (the voice; the squelch tail comes after). */
-export const BARK_MAX = 2.8;
+/** A bark never starts while another is on the air: it waits for it, at most this many seconds, or is dropped. */
+export const BARK_WAIT = 2;
 /** The radio band, Hz. */
 export const RADIO_BAND: readonly [number, number] = [300, 3400];
 /** Output level of a bark. */
 const BARK_LEVEL = 0.4;
+/** The voice starts this long after the key opens. */
+const VOICE_AT = 0.08;
 
-/** Seconds of voice for a line: about a sixth of a second per word, 0.9 to 2.8 s. */
+/** Seconds of voice for a line: its phrases back to back. */
 export function barkLength(text: string): number {
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  return clamp(0.45 + words * 0.17, 0.9, BARK_MAX);
+  return dispatchClips(text).reduce((s, id) => s + SPEECH.clips[id]!, 0);
 }
 
 /** A gentle tanh drive: the radio's speaker breaking up a little. */
@@ -45,6 +47,7 @@ export class PoliceScanner {
     private readonly ctx: BaseAudioContext,
     private readonly dest: AudioNode,
     private readonly noise: AudioBuffer,
+    private readonly bank: SpeechBank,
     private readonly tally?: NodeTally,
   ) {}
 
@@ -53,18 +56,23 @@ export class PoliceScanner {
     return this.ctx.currentTime < this.busyUntil;
   }
 
-  /** Whether a bark may start at context time `t`. */
+  /** Whether a bark asked for at context time `t` may go on the air (now or once the one on the air ends). */
   canBark(t: number): boolean {
-    return t >= this.busyUntil && t - this.lastStart >= BARK_MIN_GAP;
+    return t - this.lastStart >= BARK_MIN_GAP && this.busyUntil - t <= BARK_WAIT;
   }
 
-  /** Plays `text` as a bark at context time `t` (default now); false when rate-limited. */
-  bark(text: string, t = this.ctx.currentTime + 0.02): boolean {
-    if (!this.canBark(t)) return false;
+  /**
+   * Plays `text` as a bark asked for at context time `t` (default now), from then or from the end of the bark on the
+   * air; false when rate-limited. Resolves once its voice is scheduled (its clips are normally loaded already).
+   */
+  bark(text: string, asked = this.ctx.currentTime + 0.02): Promise<void> | false {
+    if (!this.canBark(asked)) return false;
     const ctx = this.ctx;
+    const t = Math.max(asked, this.busyUntil);
+    const clips = dispatchClips(text);
     const len = barkLength(text);
     this.lastStart = t;
-    this.busyUntil = t + len + 0.35;
+    this.busyUntil = t + VOICE_AT + len + 0.35;
 
     // The radio band.
     const filters: BiquadFilterNode[] = [];
@@ -101,20 +109,29 @@ export class PoliceScanner {
     hg.gain.linearRampToValueAtTime(0.5, t + 0.003);
     hg.gain.linearRampToValueAtTime(0.18, t + 0.02);
     hg.gain.exponentialRampToValueAtTime(0.03, t + 0.07);
-    hg.gain.setValueAtTime(0.03, t + 0.08 + len);
-    hg.gain.linearRampToValueAtTime(0.3, t + 0.1 + len);
-    hg.gain.exponentialRampToValueAtTime(0.01, t + 0.3 + len);
-    hg.gain.linearRampToValueAtTime(0, t + 0.32 + len);
+    hg.gain.setValueAtTime(0.03, t + VOICE_AT + len);
+    hg.gain.linearRampToValueAtTime(0.3, t + VOICE_AT + 0.02 + len);
+    hg.gain.exponentialRampToValueAtTime(0.01, t + VOICE_AT + 0.22 + len);
+    hg.gain.linearRampToValueAtTime(0, t + VOICE_AT + 0.24 + len);
     hiss.connect(hg);
     hg.connect(band);
     this.tally?.track('bark', hiss);
     hiss.start(t, Math.random() * 1.5);
-    hiss.stop(t + len + 0.35);
+    hiss.stop(t + VOICE_AT + len + 0.27);
 
-    const seed = hashString(text) ^ ((Math.random() * 0xffff) | 0);
-    const voice = new FormantVoice(ctx, band, this.noise, speechPlan(seed, len, COP_VOICE), t + 0.08, { highpass: 200, lowpass: 4000, level: 1 }, this.tally, 'bark');
-    voice.schedule(t + 0.08 + len + 1);
-    voice.stop(t + 0.08 + len);
-    return true;
+    return Promise.all(clips.map((id) => this.bank.load(id))).then(
+      (buffers) => {
+        let at = Math.max(ctx.currentTime, t + VOICE_AT);
+        for (const b of buffers) {
+          const s = ctx.createBufferSource();
+          s.buffer = b;
+          s.connect(band);
+          this.tally?.track('bark', s);
+          s.start(at);
+          at += b.duration;
+        }
+      },
+      () => undefined,
+    );
   }
 }

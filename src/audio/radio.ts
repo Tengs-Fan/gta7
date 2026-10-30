@@ -109,8 +109,6 @@ export const INTENSITY_RISE = 1;
 export const INTENSITY_FALL = 3;
 /** Tempo lift at full intensity. */
 const INTENSITY_TEMPO = 0.08;
-/** Seconds the talk scheduler looks ahead. */
-const TALK_AHEAD = 0.3;
 
 /** Output level of a playing station: 3 dB over unity, so the music sits over the engine. */
 const RADIO_LEVEL = 1.41;
@@ -213,7 +211,7 @@ export class Radio {
     this.programme = new TalkProgramme(seed);
     // Tuning in for the first time lands somewhere in the first minute of the show.
     this.epoch = ctx.currentTime - Math.random() * 60;
-    this.talk = new TalkShow(ctx, this.out, noise, tally);
+    this.talk = new TalkShow(ctx, this.out, tally);
     this.delay = ctx.createDelay(1.5);
     this.echoFeedback = ctx.createGain();
     this.echoFeedback.gain.value = 0.32;
@@ -370,6 +368,7 @@ export class Radio {
   private updateTalk(t: number): void {
     const prog = this.programme!;
     const seg = prog.at(t - this.epoch);
-    this.talk!.update(seg, this.epoch + seg.start, t + TALK_AHEAD);
+    this.talk!.update(seg, this.epoch + seg.start);
+    this.talk!.preload(prog.at(seg.start + seg.dur));
   }
 }

@@ -10,10 +10,11 @@ import { DOPPLER_RANGE, dopplerFactor } from '../../src/audio/doppler';
 import { decayTime, echoImpulse, gunEcho } from '../../src/audio/echo';
 import { mixTargets, type MixInput } from '../../src/audio/mixer';
 import { INTENSITY_FALL, Radio, STATIONS, wantedIntensity } from '../../src/audio/radio';
-import { BARK_MAX, BARK_MIN_GAP, barkLength, RADIO_BAND } from '../../src/audio/scanner';
+import { BARK_MIN_GAP, BARK_WAIT, barkLength, PoliceScanner, RADIO_BAND } from '../../src/audio/scanner';
+import { dispatchClips, SpeechBank } from '../../src/audio/speech';
 import { NodeTally } from '../../src/audio/tally';
-import { JINGLE_LEN, talkProgramme, TalkProgramme } from '../../src/audio/talk';
-import { HOST_VOICE, speechPlan, voicedSeconds } from '../../src/audio/voice';
+import { IDENT_AT, JINGLE_TAIL, talkProgramme, TalkProgramme } from '../../src/audio/talk';
+import { SPEECH } from '../../src/sim/speech';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { isGun, WEAPONS, type WeaponId } from '../../src/sim/specs';
@@ -70,8 +71,11 @@ class FNode {
   disconnect(): void {
     this.outputs.length = 0;
   }
-  start(): void {
+  /** A buffer source that does not loop ends with its buffer, as a real one does. */
+  start(t = 0, offset = 0): void {
     this.started = true;
+    const { buffer, loop } = this as unknown as { buffer?: { duration: number } | null; loop?: boolean };
+    if (buffer && !loop) this.stopAt = Math.min(this.stopAt, t + buffer.duration - offset);
   }
   stop(t = 0): void {
     this.stopAt = Math.min(this.stopAt, t);
@@ -129,6 +133,10 @@ class FContext {
   resume(): Promise<void> {
     return Promise.resolve();
   }
+  /** Every clip decodes to one second of silence. */
+  decodeAudioData(): Promise<unknown> {
+    return Promise.resolve({ duration: 1, length: this.sampleRate, numberOfChannels: 1, getChannelData: () => new Float32Array(this.sampleRate) });
+  }
   /** Fires `onended` for every source whose stop time has passed (the real context does this itself). */
   endSources(): void {
     for (const n of this.nodes) {
@@ -146,6 +154,7 @@ type Internals = { sfx: unknown; musicBus: unknown };
 /** An unlocked engine on a sim, the listener a few metres behind the player; `frames` runs sim and audio together. */
 function rig(sim: Sim = makeSim({ police: false })) {
   vi.stubGlobal('window', { AudioContext: FContext });
+  vi.stubGlobal('fetch', () => Promise.resolve({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) }));
   const audio = new AudioEngine();
   audio.unlock();
   const ctx = FContext.last!;
@@ -202,7 +211,14 @@ describe('talk station', () => {
       }
       for (const s of segs) {
         if (s.kind === 'gap') expect(s.dur).toBeLessThan(1);
-        if (s.kind === 'jingle') expect(s.dur).toBe(JINGLE_LEN);
+        // Every item plays a recorded piece of its pool; a jingle is the bells, then an ident over the chord.
+        if (s.kind === 'gap') expect(s.clip).toBe('');
+        if (s.kind === 'jingle') {
+          expect(SPEECH.talk.ident).toContain(s.clip);
+          expect(s.dur).toBeCloseTo(IDENT_AT + SPEECH.clips[s.clip]! + JINGLE_TAIL, 9);
+        }
+        if (s.kind === 'ad') expect(SPEECH.talk.ad).toContain(s.clip);
+        if (s.kind === 'host') expect([...SPEECH.talk.host, ...SPEECH.talk.call, ...SPEECH.talk.news]).toContain(s.clip);
       }
       expect(talkProgramme(seed, 600)).toEqual(segs);
       if (seed === 42) {
@@ -226,22 +242,15 @@ describe('talk station', () => {
       expect(s.start).toBeLessThanOrEqual(t);
       expect(s.start + s.dur).toBeGreaterThan(t);
     }
-    expect(p.at(NaN)).toBe(p.segments[0]);
   });
 
-  it('host speech plans are seeded syllables with phrase pauses inside the segment', () => {
-    const plan = speechPlan(3, 30, HOST_VOICE);
-    expect(speechPlan(3, 30, HOST_VOICE)).toEqual(plan);
-    const last = plan.at(-1)!;
-    expect(last.t + last.dur).toBeLessThanOrEqual(30 + 1e-9);
-    // About five syllables a second, voiced most of the time.
-    expect(plan.length).toBeGreaterThan(100);
-    expect(voicedSeconds(plan) / 30).toBeGreaterThan(0.6);
-    for (const s of plan) {
-      expect(Number.isFinite(s.pitch) && s.pitch > 60 && s.pitch < 250).toBe(true);
-      expect(s.f1).toBeGreaterThan(200);
-      expect(s.f3).toBeLessThan(4000);
-    }
+  it('plays every piece of the show before any comes round again, never the same twice running', () => {
+    const show = [...SPEECH.talk.host, ...SPEECH.talk.call, ...SPEECH.talk.news];
+    const played = talkProgramme(3, 3 * 3600).filter((s) => s.kind === 'host').map((s) => s.clip);
+    expect(new Set(played.slice(0, show.length)).size).toBe(show.length);
+    for (let i = 1; i < played.length; i++) expect(played[i]).not.toBe(played[i - 1]);
+    const ads = talkProgramme(3, 3 * 3600).filter((s) => s.kind === 'ad').map((s) => s.clip);
+    expect(new Set(ads.slice(0, SPEECH.talk.ad.length)).size).toBe(SPEECH.talk.ad.length);
   });
 
   it('plays through the music bus with the same mix as the music stations; pause, RADIO OFF and leaving the car stop it', () => {
@@ -314,6 +323,7 @@ describe('police radio barks', () => {
     expect(audio.counters.barks).toBe(1);
     expect(audio.counters.dispatches).toBe(3);
     frames(60 * BARK_MIN_GAP);
+    // The first line is still on the air: this one waits for it.
     say('Suspect spotted heading north through Midtown.');
     expect(audio.counters.barks).toBe(2);
     // Lines for another player are not ours.
@@ -321,7 +331,24 @@ describe('police radio barks', () => {
     sim.events.emit('dispatch', { text: 'Not you.', playerId: 3 });
     expect(audio.counters.dispatches).toBe(4);
     expect(audio.counters.barks).toBe(2);
-    expect(BARK_MIN_GAP).toBeGreaterThanOrEqual(BARK_MAX);
+  });
+
+  it('a line that comes while a long one is on the air starts when it ends; one that would wait too long is dropped', () => {
+    const { ctx } = rig();
+    const scanner = new PoliceScanner(ctx as unknown as BaseAudioContext, new FNode(ctx, 'out') as unknown as AudioNode, ctx.createBuffer(1, 8) as AudioBuffer, new SpeechBank(ctx as unknown as BaseAudioContext));
+    const long = 'All units, an assault on an officer reported in Port Azura Docks. Suspect in an orange Nightjar GT.';
+    expect(barkLength(long)).toBeGreaterThan(6);
+    const t0 = ctx.currentTime;
+    expect(scanner.bark(long, t0)).not.toBe(false);
+    expect(scanner.canBark(t0 + BARK_MIN_GAP)).toBe(false);
+    // The dispatcher's next line, DISPATCH_GAP (6 s) later: on the air from the end of the long one.
+    expect(scanner.bark('SWAT is rolling.', t0 + 6)).not.toBe(false);
+    expect(scanner.busy).toBe(true);
+    ctx.currentTime = t0 + 0.08 + barkLength(long) + 0.35 + 0.08 + barkLength('SWAT is rolling.') + 0.34;
+    expect(scanner.busy).toBe(true);
+    ctx.currentTime += 0.02;
+    expect(scanner.busy).toBe(false);
+    expect(BARK_WAIT).toBeLessThan(BARK_MIN_GAP);
   });
 
   it('the dispatch lines of a real 3-star chase each get a bark (they come 6 s apart)', () => {
@@ -337,10 +364,13 @@ describe('police radio barks', () => {
     expect(audio.counters.barks).toBe(lines);
   });
 
-  it('a bark is a voice through two 300 Hz high-passes and two 3.4 kHz low-passes into the effects bus, with squelch', () => {
+  it("a bark is the dispatcher's phrases through two 300 Hz high-passes and two 3.4 kHz low-passes into the effects bus, with squelch", async () => {
     const { audio, ctx, inner } = rig();
+    await new Promise((r) => setTimeout(r, 0));
     const n0 = ctx.nodes.length;
-    expect(audio.policeBark('All units, return to patrol.')).toBe(true);
+    const line = 'All units, a carjacking reported in Midtown. Suspect in a red Velora.';
+    expect(audio.policeBark(line)).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
     const made = ctx.nodes.slice(n0);
     const band = made.filter((n) => n.kind === 'biquad' && ((n as unknown as { type: string }).type === 'highpass' || (n as unknown as { type: string }).type === 'lowpass'));
     const hz = band.map((n) => [(n as unknown as { type: string }).type, (n as unknown as { frequency: FParam }).frequency.value]);
@@ -348,27 +378,30 @@ describe('police radio barks', () => {
     expect(hz.filter(([t, f]) => t === 'lowpass' && f === RADIO_BAND[1]).length).toBe(2);
     // The chain ends on the effects bus (so the Sound effects volume and the pause stage apply).
     expect(made.some((n) => n.outputs.includes(inner.sfx))).toBe(true);
-    // A looping hiss source (the squelch) and the voice's two sources.
-    expect(made.filter((n) => n.kind === 'source').length).toBe(2);
-    expect(made.filter((n) => n.kind === 'oscillator').length).toBe(1);
+    // A looping hiss source (the squelch) and one source per phrase: "All units, a carjacking reported in", "Midtown",
+    // "Suspect in a red", "Velora".
+    expect(dispatchClips(line).length).toBe(4);
+    expect(made.filter((n) => n.kind === 'source').length).toBe(1 + 4);
+    expect(made.filter((n) => n.kind === 'oscillator').length).toBe(0);
     // The band: the chain passes 1 kHz and cuts 100 Hz and 8 kHz by more than 24 dB.
     const chain = (f: number) => biquadMag('highpass', RADIO_BAND[0], 0.8, f) ** 2 * biquadMag('lowpass', RADIO_BAND[1], 0.8, f) ** 2;
     const db = (x: number) => 20 * Math.log10(x);
     expect(db(chain(1000))).toBeGreaterThan(-1.5);
     expect(db(chain(100) / chain(1000))).toBeLessThan(-24);
     expect(db(chain(8000) / chain(1000))).toBeLessThan(-24);
-    // Bark lengths follow the line, within limits.
-    expect(barkLength('Go.')).toBeGreaterThanOrEqual(0.9);
-    expect(barkLength('word '.repeat(100))).toBe(BARK_MAX);
+    // A bark lasts as long as its phrases.
+    expect(barkLength(line)).toBeCloseTo(dispatchClips(line).reduce((a, id) => a + SPEECH.clips[id]!, 0), 9);
   });
 
-  it('started bark sources end and are counted off, so barks do not pile up', () => {
+  it('started bark sources end and are counted off, so barks do not pile up', async () => {
     const { audio, frames, sim } = rig();
     for (let i = 0; i < 6; i++) {
-      sim.events.emit('dispatch', { text: `Line ${i}, all units respond.` });
+      sim.events.emit('dispatch', { text: 'Suspect spotted heading north through Midtown.' });
+      await new Promise((r) => setTimeout(r, 0));
       frames(60 * (BARK_MIN_GAP + 0.1));
     }
     expect(audio.counters.barks).toBe(6);
+    // The squelch and the line's two phrases, six times.
     expect(audio.nodes.started.bark).toBe(18);
     expect(audio.nodes.live.bark).toBe(0);
   });

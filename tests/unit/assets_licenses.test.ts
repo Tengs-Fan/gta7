@@ -12,8 +12,9 @@ const readme = read('README.md');
 
 interface Row { id: string; name: string; author: string; url: string; license: string; credit: string }
 
+/** The rows of the sources table (the speech section after it lists the speech model). */
 function rows(md: string): Row[] {
-  return md.split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| ID') && !l.startsWith('| ---')).map((l) => {
+  return md.split('\n## ')[0]!.split('\n').filter((l) => l.startsWith('| ') && !l.startsWith('| ID') && !l.startsWith('| ---')).map((l) => {
     const c = l.slice(1, -1).split(/(?<!\\)\|/).map((x) => x.trim().replaceAll('\\|', '|'));
     return { id: c[0]!, name: c[1]!, author: c[2]!, url: c[3]!, license: c[4]!, credit: c[5]! };
   });

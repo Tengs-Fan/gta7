@@ -11,6 +11,7 @@ import { makeBrain, type PedMode } from '../brains';
 import type { DriverPolicy } from '../driver';
 import type { Character, CharacterRole, Pickup, Vehicle, WeaponSlot } from '../entities';
 import type { Sim } from '../sim';
+import { lineSeconds } from '../speech';
 import type { VehicleKind, WeaponId } from '../specs';
 import { findVehicleRoom, vehiclesInTheWay } from '../vehicleRoom';
 import { CONTACTS, contactById, contactColorNumber, type ContactId } from './contacts';
@@ -188,7 +189,7 @@ export class MissionCtx {
    * (in a vehicle, where that key is the horn, it skips instead of honking: see canSkipLine).
    */
   *say(speaker: string, text: string, seconds?: number): Script {
-    const s = seconds ?? Math.min(6, 1.6 + text.length * 0.055);
+    const s = seconds ?? lineSeconds(speaker, text);
     this.sim.events.emit('subtitle', { speaker, text, duration: s });
     const line = { start: this.time, end: this.time + s };
     this.line = line;

@@ -8,6 +8,17 @@ const LICENSES = {
 
 const cell = (s) => String(s).replaceAll('|', '\\|');
 
+/** The speech is not built from sources.json: `npm run speech` renders it (scripts/assets/speech). */
+const SPEECH = [
+  '## Speech',
+  '',
+  'Every clip under `src/assets/speech/` is rendered by `npm run speech` from original lines (scripts/assets/speech) with the model and voices below.',
+  '',
+  '| Model | Author | Source | License | Used by |',
+  '| --- | --- | --- | --- | --- |',
+  '| Kokoro-82M v1.0 and its voices | hexgrad | https://huggingface.co/hexgrad/Kokoro-82M | Apache-2.0 | speech/*.mp3 |',
+];
+
 export function writeLicenses(sources, entries, file) {
   const usedBy = new Map();
   for (const e of entries) {
@@ -35,6 +46,6 @@ export function writeLicenses(sources, entries, file) {
     // Every id is named, never truncated: the table is the per-asset license record.
     lines.push(`| ${cell(s.id)} | ${cell(s.name)} | ${cell(s.author)} | ${s.page} | ${s.license} | ${cell(s.credit ?? '')} | ${cell(ids.join(', '))} |`);
   }
-  lines.push('');
+  lines.push('', ...SPEECH, '');
   fs.writeFileSync(file, lines.join('\n'));
 }

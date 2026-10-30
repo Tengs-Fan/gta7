@@ -8,6 +8,7 @@
 | `fetch.mjs` | Downloads into `~/Projects/gta7-assets-src` (`GTA7_ASSETS_SRC` overrides), checks size and sha256, unzips archives. `--record` fills in size and hash for new sources, `--verify` never downloads. A second run downloads nothing. |
 | `catalog.mjs` | What is built from the sources, one entry per line: vehicles, boats, props, PBR texture sets, the sky. Add rows here for new assets. |
 | `build.mjs` | Runs the catalog through `pipeline.mjs` (models) and `textures.mjs` (PBR sets), writes the manifest and the license table, and removes outputs the catalog no longer produces. |
+| `speech/` | The speech build (`npm run speech`), apart from the rest: it renders `src/assets/speech/`, which `build.mjs` leaves alone. See [speech/README.md](speech/README.md). |
 
 ## Conventions of the output
 

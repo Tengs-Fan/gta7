@@ -3,8 +3,8 @@
 An original, GTA-style open-world crime sandbox that runs entirely in the browser.
 Steal cars, cause chaos, outrun the cops, and work your way up from a broke ex-con to the top of **San Azura**, a sun-bleached fictional coastal city.
 
-Everything is generated at runtime: the city, the buildings, the cars, the people, every texture, every sound effect, nine radio stations of procedural music and a talk station.
-There are no downloaded images, models or audio files; the only bundled assets are two fonts.
+The city, the buildings, every sound effect and the music of nine radio stations are generated at runtime.
+The models and textures are free CC0 assets, and every voice (the contacts, the police, people in the street and a whole talk station) is recorded English speech rendered offline with an open text-to-speech model (see [Assets](#assets)).
 
 > Fan-made parody.
 > Not affiliated with or endorsed by Rockstar Games or Take-Two Interactive.
@@ -134,10 +134,11 @@ To play with friends on your network, run the optional multiplayer server (see [
 - **Phone.** Tab (D-pad right) opens the phone: contacts call when they have work and route your GPS to them (a call never starts a mission by itself; walk into the marker and press E), Texts keep mission rewards and payouts, and Azura Cab picks you up and drives you to your map waypoint for a small fare (refused while wanted, in a vehicle or during a mission; press F to get out early at no charge).
 - **Properties.** Buy the garage across the street from the safehouse ($15,000; stores 4 cars with their paint and upgrades) and the Pier Arcade ($25,000; $500 a game day, up to 7 days, collected at the safehouse). Azura Customs (east Midtown, purple C) sells engine, brakes and tyre upgrades and paint; upgrades stay with the car, and through saves only for cars stored in the garage.
 - **Side content.** Taxi fares in an Azura Cab and vigilante jobs in a police vehicle (press T), paramedic jobs in an ambulance (San Azura General) and firefighter jobs in the fire truck (SAFD Station 1 by SAPD Central; hold fire to use the water cannon), both with levels, Azura Express courier runs from First Azura Bank in any car or on a bike (press T there), Lou's export list at her garage (ship 8 listed cars at the docks crane), three gang rampages, twenty hidden packages ($25,000 for finding them all), unique stunt jumps, health, armor and weapon pickups, and two Bang Bang Guns stores (from the Pistol at $250 to the Rocket Launcher at $8,000, Body Armor $300, First Aid $80).
-- **Radio and sound.** In a vehicle, nine stations play endless music generated live, up the dial: NEON DRIVE 88.7 (synthwave), VELVET 89.9 (lounge and bossa nova), DOCKSIDE DUB 92.3 (dub), PULSE 96.1 (house), COYOTE 97.7 (outlaw country), WIPEOUT 99.5 (surf rock), BOOM BAP 101.3 (hip-hop), BREAKNECK 102.7 (drum and bass) and PIXEL 103.9 (chiptune).
-  AZURA TALK 104.5 runs a live talk show of synthesized host chatter, station jingles and ad breaks, with RADIO OFF as the last stop; tuning in shows the station's name and a one-line tag.
+- **Radio and sound.** In a vehicle, nine stations play endless music generated live, up the dial: NEON DRIVE 88.7 (synthwave), VELVET 89.9 (lounge and bossa nova), DOCKSIDE DUB 92.3 (dub), PULSE 96.1 (house), COYOTE 97.7 (outlaw country), WIPEOUT 99.5 (surf rock), BOOM BAP 101.3 (hip-hop), BREAKNECK 102.7 (drum and bass) and PIXEL 103.9 (chiptune), each with spoken station idents.
+  AZURA TALK 104.5 runs Chet Bramble's talk show (his rants, callers, Dolores Vance's newsdesk and Skip's traffic from the Skycopter) with spoken station idents over a jingle and parody ads, with RADIO OFF as the last stop; tuning in shows the station's name and a one-line tag.
   Songs have an intro, verses, a bridge and an outro with fills, and each station drives harder in its own way while you are wanted, then calms down after: WIPEOUT's tom groove takes over, DOCKSIDE DUB turns to steppers, VELVET's band panics into double-time swing, COYOTE breaks into banjo rolls and PIXEL plays the boss battle.
-  Police radio barks crackle over each dispatch line; sirens drop in pitch as they pass (Doppler); gunfire echoes by district, ringing on between downtown towers and hardly at all on the open beach.
+  The police dispatcher reads each dispatch line over the scanner; sirens drop in pitch as they pass (Doppler); gunfire echoes by district, ringing on between downtown towers and hardly at all on the open beach.
+  Mama Lou, Dex and Vera speak every line of their missions, and their calls come down a phone line; officers shout at you to freeze, a cruiser's loudspeaker orders you to pull over, and people in the street say hello, yell after their stolen car, curse a driver who rams them and call for help.
   An ambience of city hum, traffic, surf, gulls, birds by day and crickets at night, an engine voice for every kind of vehicle, music that ducks under dialogue and nearby explosions, and the world muffled inside a car.
   Tyres squeal in wandering bands of noise when they slide (lower and choppier braking straight, a chirp off the line in a strong car, only a scrub on sand and grass); crashes thud, crunch and ring, breaking glass on hard hits; scrapes grind; explosions crack, roar and rumble on with debris pattering down; sirens sound through a horn speaker.
 - **HUD, map and saves.** A radar that turns with the camera, with a road-following GPS route to your waypoint, the objective or the contact who has work, and the police, the helicopter and the search area on the radar and the map while you are wanted.
@@ -349,8 +350,8 @@ src/
   ui/          HUD and radar, the phone, menus and the full-screen map, first-time hints, key and button glyphs
   input/       keyboard with layout-aware key names, mouse with pointer lock, gamepad, cheat codes
   audio/       synthesized effects, mixer and ducking, ambience, engine voices, procedural radio (stations/: the
-               instrument kit and one style per station), talk station
-               and formant voices, police barks, gun echo, Doppler
+               instrument kit and one style per station), talk station, recorded speech (dialogue, police scanner,
+               voices in the street, station idents), gun echo, Doppler
   net/         multiplayer: the wire protocol (protocol.ts, wire.ts, shared with server/), the room and race types
                (lobby.ts), and the browser client, loaded only for a multiplayer game: session, socket transport,
                snapshot mirror, interpolation, local prediction, the single-player-only places (mpPlaces.ts) and the
@@ -402,6 +403,10 @@ npm run assets         # rebuilds src/assets/**, manifest.json and LICENSES-ASSE
 ```
 
 The raw downloads (zips, FBX, JPG sets) are never committed. To add an asset, add its source to `sources.json`, run `assets:fetch -- --record` once to fill in size and hash, add a line to `catalog.mjs` and run `npm run assets`.
+Speech is built apart: `src/assets/speech/` holds one 32 kbps mono MP3 per clip and `speech.json`, its index (which clip says each line of dialogue and each dispatch phrase, the talk station's pieces and the shouts, and every clip's length, which the sim uses to keep a line up for as long as it is spoken).
+`npm run speech` renders them with [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (Apache-2.0): the mission dialogue is read from the mission scripts, the dispatcher's phrases from its tables and the city's zone names, and the rest from `scripts/assets/speech/script.ts`; see [scripts/assets/speech/README.md](scripts/assets/speech/README.md).
+Rerun it after changing a line of dialogue, a vehicle, a zone name or a dispatch line: `tests/unit/speech.test.ts` fails until every line the game can say has its clip.
+The dialogue, dispatch and shout clips are fetched in the background when sound starts; a talk station piece when the programme comes to it.
 At boot `main.ts` waits for the fonts, then calls `assets.preload(onProgress)` (`src/render/assets/`), which fetches the manifest and every file by its content-hashed relative URL (so the game also runs from a sub-path such as GitHub Pages `/gta7/`), decodes them, and moves the bar of the loading screen with the bytes received. Preload waits at most 12 s (`PRELOAD_TIMEOUT_MS`) and never rejects: an asset that fails or stalls simply stays out of the library, logs one `console.warn`, and its view builds today's procedural model. Views ask the library synchronously (`assets.model(id)`, `assets.clone(id)`, `assets.texture(id)`), so Node tests and `?assets=0` run entirely on the procedural models, and a test can load the real files with `loadAssetsFromDisk()` from `src/render/assets/testing.ts`. After preload the renderer's warm-up compiles the asset materials once, and again after a lost WebGL context is restored. `window.__gta7.ext.assets` lists what loaded.
 
 ## Testing
@@ -564,6 +569,8 @@ Models, textures and the sky come from CC0 sources, listed one by one in [LICENS
 - [ambientCG](https://ambientcg.com): facade materials, and the leaf atlas built from [LeafSet024](https://ambientcg.com/a/LeafSet024).
 
 No asset needs attribution; CC-BY assets, if one is ever added, are credited here by the text in their `LICENSES-ASSETS.md` row.
+
+Every voice is rendered with [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad (model and voices Apache-2.0); the lines are original.
 
 ## License
 
