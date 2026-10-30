@@ -16,6 +16,7 @@ import { dopplerFactor } from './doppler';
 import { EchoBank } from './echo';
 import { EngineVoice } from './engineVoice';
 import { distanceCutoff, EXPLOSION_DUCK_RANGE, Glider, Mixer, mixTargets, OPEN_HZ, withinParam, type MixTargets } from './mixer';
+import { Newsroom } from './newsroom';
 import { Radio } from './radio';
 import { PoliceScanner } from './scanner';
 import { eagerClips, SpeechBank } from './speech';
@@ -91,6 +92,8 @@ export class AudioEngine {
   /** Doppler factor last applied to the siren. */
   private sirenDoppler = 1;
   readonly radio = new Radio();
+  /** AZURA TALK's newsdesk on the local player's record and the weather: a new one for every game it is attached to. */
+  newsroom: Newsroom | null = null;
   /** Sources started by the talk station, the barks and the echoes, and how many still play. */
   readonly nodes = new NodeTally();
   private scanner: PoliceScanner | null = null;
@@ -231,6 +234,8 @@ export class AudioEngine {
     this.failTimer = 0;
     this.explosionTimer = 0;
     this.explosionDist = Infinity;
+    const newsroom = new Newsroom(this.radio, sim.world);
+    this.newsroom = newsroom;
     // Sound handlers run inside sim.update(): isolate them from it.
     const on = <K extends keyof SimEvents>(type: K, fn: (e: SimEvents[K]) => void) => sim.events.on(type, (e) => this.safely(() => fn(e)));
     this.confirm = null;
@@ -302,6 +307,10 @@ export class AudioEngine {
       on('missionStarted', (e) => {
         if (this.mine(e)) this.failTimer = 0;
       }),
+      on('missionEnded', (e) => {
+        if (this.mine(e) && e.passed) newsroom.mission(e.id, sim);
+      }),
+      on('vehicleDestroyed', (e) => newsroom.wreck(e.vehicle, sim, this.me(sim))),
       on('subtitle', (e) => {
         if (!this.mine(e)) return;
         // Dialogue ducks the music and the ambience for as long as the line shows (as in the HUD).
@@ -915,6 +924,7 @@ export class AudioEngine {
     }
     this.updateAmbience(step, sim, inGame, t);
     if (inGame) this.updateBarks(step, sim);
+    if (inGame) this.newsroom!.update(step, sim, this.me(sim));
     // The radio is as present in the mix as the music volume lets it be heard (switched off or at 0: not at all).
     const radio = this.radio.playing ? clamp(this.volumes.music / RADIO_FULL, 0, 1) : 0;
     const m = mixTargets(
