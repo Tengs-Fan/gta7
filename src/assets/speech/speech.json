@@ -783,7 +783,8 @@
     "talk-ident-facts",
     "talk-ident-road",
     "talk-ident-works"
-   ]
+   ],
+   "serial": []
   },
   "bowl": {
    "host": [
@@ -822,7 +823,8 @@
     "talk-bowl-ident-ron",
     "talk-bowl-ident-sal",
     "talk-bowl-ident-pembury"
-   ]
+   ],
+   "serial": []
   }
  },
  "adSeries": {

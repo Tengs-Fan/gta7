@@ -3,7 +3,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { AM_HIGH, AM_LOW, STATIONS } from '../../src/audio/radio';
-import { bellGain, jingleBells, padEnvelope, TREMOLO_BASE, TREMOLO_DEPTH, talkProgramme, type Bed } from '../../src/audio/talk';
+import { bellGain, jingleBells, padEnvelope, TREMOLO_BASE, TREMOLO_DEPTH, talkProgramme, type Bed, type NoiseFilter } from '../../src/audio/talk';
+import { Rng } from '../../src/core/rng';
 
 const SR = 16000;
 const WIN = 0.02;
@@ -20,27 +21,71 @@ function minLevel(dur: number, sample: (t: number) => number): number {
   const n = Math.round(dur * SR);
   const x = new Float32Array(n);
   for (let i = 0; i < n; i++) x[i] = sample(i / SR);
-  const w = Math.round(WIN * SR);
+  return lowest(x, SR);
+}
+
+/** Lowest 20 ms RMS (dBFS) of `x` at `sr` over [EDGE, end - EDGE], hopping 5 ms. */
+function lowest(x: Float32Array, sr: number): number {
+  const n = x.length;
+  const sum = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) sum[i + 1] = sum[i]! + x[i]! * x[i]!;
+  const w = Math.round(WIN * sr);
   let min = Infinity;
-  const e = Math.round(EDGE * SR);
-  for (let i = e; i + w <= n - e; i += Math.round(0.005 * SR)) {
-    let s = 0;
-    for (let k = i; k < i + w; k++) s += x[k]! * x[k]!;
-    min = Math.min(min, 10 * Math.log10(s / w + 1e-15));
-  }
+  const e = Math.round(EDGE * sr);
+  for (let i = e; i + w <= n - e; i += Math.round(0.005 * sr)) min = Math.min(min, 10 * Math.log10((sum[i + w]! - sum[i]!) / w + 1e-15));
   return min;
 }
 
+/** A Web Audio biquad (its spec's formulas: Q in dB for a low- or high-pass, default 1) run over `x` in place at `sr`. */
+function biquad(x: Float32Array, sr: number, [type, hz, q]: NoiseFilter): void {
+  const w0 = (2 * Math.PI * hz) / sr;
+  const c = Math.cos(w0);
+  const alpha = type === 'bandpass' ? Math.sin(w0) / (2 * (q ?? 1)) : Math.sin(w0) / (2 * Math.pow(10, (q ?? 1) / 20));
+  const b =
+    type === 'lowpass' ? [(1 - c) / 2, 1 - c, (1 - c) / 2] : type === 'highpass' ? [(1 + c) / 2, -(1 + c), (1 + c) / 2] : [alpha, 0, -alpha];
+  const a0 = 1 + alpha;
+  const [a1, a2] = [-2 * c, 1 - alpha];
+  let [x1, x2, y1, y2] = [0, 0, 0, 0];
+  for (let i = 0; i < x.length; i++) {
+    const y = (b[0]! * x[i]! + b[1]! * x1 + b[2]! * x2 - a1 * y1 - a2 * y2) / a0;
+    [x2, x1, y2, y1] = [x1, x[i]!, y1, y];
+    x[i] = y;
+  }
+}
+
+/** The radio's noise is a buffer of uniform white noise at the context's rate. */
+const NOISE_SR = 48000;
+
 /**
- * The pad bed alone (a lower bound on a host or ad segment: the voice and a bed's noise only add to it). A Web Audio
- * low- or high-pass at its default Q never cuts its pass band, so a note under the bed's low-pass (and, on AM, inside
- * the band) counts at full level and any other is left out. A square note counts as its fundamental alone (4/pi of its
- * peak): the harmonics the low-pass leaves only add to it.
+ * A bed's noise alone (the voice only adds to it): seeded white noise through its filters and, on AM, the band, at the
+ * bottom of its swell for the whole segment.
+ */
+function noise(dur: number, bed: Bed, am = false): number {
+  const n = bed.noise!;
+  const r = new Rng(9);
+  const x = new Float32Array(Math.round(dur * NOISE_SR));
+  for (let i = 0; i < x.length; i++) x[i] = r.range(-1, 1);
+  const band: NoiseFilter[] = am ? [['highpass', AM_LOW], ['highpass', AM_LOW], ['lowpass', AM_HIGH], ['lowpass', AM_HIGH]] : [];
+  for (const f of [...n.filters, ...band]) biquad(x, NOISE_SR, f);
+  const level = n.swell ? n.level * 0.2 : n.level;
+  for (let i = 0; i < x.length; i++) x[i]! *= level * padEnvelope(i / NOISE_SR, dur);
+  return lowest(x, NOISE_SR);
+}
+
+/** A note's fundamental, as a share of the oscillator's peak. */
+const FUNDAMENTAL: Partial<Record<OscillatorType, number>> = { square: 4 / Math.PI, triangle: 8 / Math.PI ** 2 };
+
+/**
+ * The pad bed alone (a lower bound on a host or ad segment: the voice and a bed's noise only add to it), or a bed without
+ * a pad's noise. A Web Audio low- or high-pass at its default Q never cuts its pass band, so a note under the bed's
+ * low-pass (and, on AM, inside the band) counts at full level and any other is left out. A square or triangle note
+ * counts as its fundamental alone (4/pi or 8/pi^2 of its peak): the harmonics the low-pass leaves only add to it.
  */
 function pad(dur: number, seed: number, bed: Bed, am = false): number {
+  if (bed.level === 0) return noise(dur, bed, am);
   const root = 50 + (seed % 7);
   const notes = [0, 3, 7].map((m) => midi(root + m + 12)).filter((f) => f <= bed.cutoff && (!am || (f >= AM_LOW && f <= AM_HIGH)));
-  const amp = (bed.type === 'square' ? 4 / Math.PI : 1) / 3;
+  const amp = (FUNDAMENTAL[bed.type] ?? 1) / 3;
   return minLevel(dur, (t) => {
     let v = 0;
     for (const f of notes) v += amp * Math.sin(2 * Math.PI * f * t);
@@ -79,7 +124,7 @@ describe('talk station segments are audible across their declared length', () =>
       let ad = Infinity;
       for (const seed of [1, 7, 42, 1234, 99991]) {
         for (const s of talkProgramme(seed, 600, talk)) {
-          if (s.kind === 'host') host = Math.min(host, pad(s.dur, s.seed, talk!.bed, talk!.am));
+          if (s.kind === 'host') host = Math.min(host, pad(s.dur, s.seed, talk!.beds?.[s.piece!] ?? talk!.bed, talk!.am));
           if (s.kind === 'ad') ad = Math.min(ad, pad(s.dur, s.seed, talk!.adBed, talk!.am));
         }
       }

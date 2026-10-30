@@ -42,7 +42,7 @@ export const BOWL_FORMAT: TalkFormat = {
   show: 'bowl',
   slots: [['host'], ['call'], ['call'], ['news']],
   adChance: 0.6,
-  bed: { ...AZURA_FORMAT.bed, cutoff: 600, noise: { hz: 700, q: 0.8, level: 0.03, swell: 0.1 } },
+  bed: { ...AZURA_FORMAT.bed, cutoff: 600, noise: { filters: [['bandpass', 700, 0.8]], level: 0.03, swell: 0.1 } },
   adBed: AZURA_FORMAT.adBed,
   bells: [0, 7, 12, 7, 12],
   am: true,

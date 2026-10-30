@@ -4,7 +4,8 @@
 
 import index from '../assets/speech/speech.json';
 
-export type TalkKind = 'host' | 'call' | 'news' | 'ad' | 'ident';
+/** A talk piece's kind: a serial's chapters air in order. */
+export type TalkKind = 'host' | 'call' | 'news' | 'ad' | 'ident' | 'serial';
 /** The talk shows: AZURA TALK's and THE BOWL's. */
 export type ShowId = 'azura' | 'bowl';
 export type BarkKind = 'greet' | 'hurt' | 'jacked' | 'panic' | 'rammed' | 'witness' | 'freeze' | 'shots' | 'officerDown' | 'pullOver' | 'arrest' | 'turf';

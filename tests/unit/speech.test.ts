@@ -125,7 +125,7 @@ describe('the police dispatcher', () => {
 });
 
 describe('the talk station and the street', () => {
-  it('has idents, ads and a show of monologues, callers and news on every talk station, each a few seconds to half a minute', () => {
+  it('has idents, ads and a show of monologues, callers and news on every talk station, each a few seconds to half a minute, a serial chapter to a minute and a half', () => {
     const azura = SPEECH.talk.azura;
     expect(azura.ident.length).toBeGreaterThanOrEqual(4);
     expect(azura.ad.length).toBeGreaterThanOrEqual(10);
@@ -134,7 +134,10 @@ describe('the talk station and the street', () => {
     expect(bowl.ident.length).toBeGreaterThanOrEqual(4);
     expect(bowl.ad.length).toBeGreaterThanOrEqual(3);
     expect(bowl.host.length + bowl.call.length + bowl.news.length).toBeGreaterThanOrEqual(15);
-    for (const id of talkClips()) expect(SPEECH.clips[id], id).toBeLessThan(40);
+    for (const pools of Object.values(SPEECH.talk)) {
+      for (const [kind, ids] of Object.entries(pools)) for (const id of ids) expect(SPEECH.clips[id], id).toBeLessThan(kind === 'serial' ? 90 : 40);
+    }
+    for (const id of Object.values(SPEECH.adSeries).flat()) expect(SPEECH.clips[id], id).toBeLessThan(40);
   });
 
   it('has every kind of shout in several voices, each voice saying every line of its kind', () => {

@@ -32,6 +32,7 @@ The model downloads from Hugging Face on first use. A CUDA GPU renders the whole
 A piece is one clip: its lines in order, with a short pause between them.
 `show` names the talk show it belongs to (AZURA TALK's by default); an ad lists in `shows` every show whose breaks may play it.
 An ad campaign is a `series` of pieces with a `part` each, from 1: the ad pools hold its first part, and each time a programme draws it, the next part airs.
+A `serial` piece is a chapter: a station whose format has a slot of the serial alone airs its chapters in the order they are written, one each time round its slots, and a chapter may run to a minute and a half.
 A line may carry options as its third element: `{ speed: 1.5 }` for fine print read fast (an ad's lines are otherwise read at 1.05), `{ phone: true }` for a role down a phone line just this once, `{ phone: false }` for a caller who is in the room.
 A cast entry such as `'am_onyx,am_fenrir'` is a blend: Kokoro averages the voices, and the first one sets the language.
 
