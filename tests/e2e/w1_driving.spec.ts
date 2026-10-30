@@ -24,7 +24,8 @@ test.describe('wave 1 driving', () => {
       const sim = g.sim;
       // A long straight lane into a junction with a right turn, the car 70 m out from its end.
       // Turning right onto an avenue, which leaves room to slide wide.
-      const lane = sim.roads.lanes.find((l: { length: number; turns: { kind: string; to: { line: { avenue: boolean } } }[]; line: { avenue: boolean } }) => l.length > 80 && !l.line.avenue && l.turns.some((t) => t.kind === 'right' && t.to.line.avenue));
+      // North up Delgado St into the ring road, turning right onto it (Palmetto St, the first such lane, ends in Hillcrest Cove now).
+      const lane = sim.roads.lanesBetween(sim.roads.node(7, 1).id, sim.roads.node(7, 0).id)[0];
       const s = lane.length - 70;
       g.teleport(lane.sx + lane.dx * s, lane.sz + lane.dz * s);
       const v = sim.spawnVehicle('sports', lane.sx + lane.dx * s, lane.sz + lane.dz * s, lane.heading);

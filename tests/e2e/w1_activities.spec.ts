@@ -49,7 +49,12 @@ test.describe('wave-1 activities', () => {
   test("Lou's export board takes the list with E and shows it", async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
-    await page.evaluate(() => (window as Api).__gta7.teleport(-205, 376.2));
+    // The board stands 6 m along the sidewalk from Lou's marker (places.ts exportBoard).
+    await page.evaluate(() => {
+      const g = (window as Api).__gta7;
+      const lou = g.poi('lou')!;
+      g.teleport(lou.x + 6, lou.z);
+    });
     await expect(page.locator('.prompt')).toContainText("export list", { timeout: 5000 });
     await page.keyboard.press('KeyE');
     await expect(page.locator('.export-board')).toBeVisible({ timeout: 3000 });
