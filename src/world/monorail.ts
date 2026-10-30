@@ -37,6 +37,8 @@ const WALKWAY_W = 4;
 const STOP_IN = 37;
 /** A station's tower stands this far (m) from the stop along the canal, on the promenade's bank. */
 const TOWER_OFF = 13;
+/** The foot of its stairs is this far (m) out from its door, on the side away from the canal. */
+const FOOT_OUT = 2.4;
 
 export interface MonorailStation {
   name: string;
@@ -48,7 +50,7 @@ export interface MonorailStation {
   tower: Rect;
   /** The platform beside the train and the walkway over the water to the tower, their floor at beamY. */
   platform: Rect[];
-  /** The foot of the stairs: where the ride is taken and where it leaves you, facing away from the tower. */
+  /** The foot of the stairs, out from the tower's door on the side away from the canal: where the ride is taken and where it leaves you, facing away from the tower. */
   foot: { x: number; z: number; heading: number };
 }
 
@@ -135,7 +137,7 @@ export function buildMonorail(layout: CityLayout): void {
       { minX: Math.min(edge, outer), minZ: pz0, maxX: Math.max(edge, outer), maxZ: pz1 },
       { minX: Math.min(outer, tx0), minZ: tz - WALKWAY_W / 2, maxX: Math.max(outer, tx0), maxZ: tz + WALKWAY_W / 2 },
     ];
-    const foot = { x: (tx0 + tx1) / 2, z: tz + landward * (TOWER_D / 2 + 1.4), heading: landward > 0 ? 0 : Math.PI };
+    const foot = { x: tx1 + side * FOOT_OUT, z: tz, heading: (side * Math.PI) / 2 };
     return { name, z, side, tower, platform, foot };
   };
   layout.monorail = {

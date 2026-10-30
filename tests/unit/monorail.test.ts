@@ -176,10 +176,13 @@ describe('AzuraLink: the line', () => {
       expect(Math.min(Math.abs(plat.minX - m.x), Math.abs(plat.maxX - m.x))).toBeCloseTo(CAR_WIDTH / 2 + 0.2, 6);
       expect(plat.maxZ - plat.minZ).toBeGreaterThan(TRAIN_LENGTH);
       expect(s.side > 0 ? walk.maxX : walk.minX).toBe(s.side > 0 ? t.minX : t.maxX);
-      // The foot of its stairs is free ground off any gang's turf, facing the city.
+      // The foot of its stairs is free ground off any gang's turf and off the walks, out from the tower's door away from
+      // the canal and facing away from it.
       expect(W.isFree(s.foot.x, s.foot.z, 0.6)).toBe(true);
       expect(gangAt(L, s.foot.x, s.foot.z)).toBeNull();
-      expect(Math.sign(Math.cos(s.foot.heading))).toBe(-Math.sign(s.z));
+      expect(Math.abs(s.foot.z) - L.bounds.cityMaxZ).toBeGreaterThan(6);
+      expect(s.side * (s.foot.x - (t.minX + t.maxX) / 2)).toBeGreaterThan(5);
+      expect(Math.sin(s.foot.heading)).toBeCloseTo(s.side, 9);
       // Solid: the tower from the ground up, the platform under its floor.
       const solid = W.grid.colliders.filter((col) => col.tag === 'building' && overlaps(col, grow(t, -0.1)));
       expect(solid.some((col) => col.y0 === 0 && col.y1 === TOWER_H)).toBe(true);
@@ -286,3 +289,4 @@ describe('AzuraLink: the sound', () => {
     }
   });
 });
+

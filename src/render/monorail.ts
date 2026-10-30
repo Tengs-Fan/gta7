@@ -87,7 +87,7 @@ export class MonorailView {
   private readonly lit = new THREE.MeshStandardMaterial({ color: 0x24303a, roughness: 0.2, metalness: 0.4, emissive: 0xffe4b5, emissiveIntensity: 0 });
   private readonly glazing = new THREE.MeshStandardMaterial({ color: 0x2c3e4a, roughness: 0.08, metalness: 0.7, emissive: 0xffd9a0, emissiveIntensity: 0 });
   private readonly body = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.25 });
-  private readonly windows = new THREE.MeshStandardMaterial({ color: 0x1b2a33, roughness: 0.1, metalness: 0.6, emissive: 0xffe0a6, emissiveIntensity: 0 });
+  private readonly windows = new THREE.MeshStandardMaterial({ color: 0x2a3e4c, roughness: 0.1, metalness: 0.6, emissive: 0xffe0a6, emissiveIntensity: 0 });
   /** The lamps at either end: white ahead, red behind, by the way it runs. */
   private readonly northLamps = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, emissive: 0xffffff, emissiveIntensity: 0 });
   private readonly southLamps = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, emissive: 0xffffff, emissiveIntensity: 0 });
@@ -218,24 +218,24 @@ export class MonorailView {
     const wx1 = s.side > 0 ? walk.maxX : walk.minX;
     rail(wx0, walk.minZ + 0.1, wx1, walk.minZ + 0.1);
     rail(wx0, walk.maxZ - 0.1, wx1, walk.maxZ - 0.1);
-    // The tower: a parapet round its roof over the line's teal band, a door at its foot and one onto the walkway, slots
-    // of stair windows.
+    // The tower: a parapet round its roof over the line's teal band, slots of stair windows, the door at the foot of the
+    // stairs on the side away from the canal (under the sign, addSign) and the one onto the walkway.
     const t = s.tower;
     box(g, t.minX, 0, t.minZ, t.maxX, TOWER_H - 1.4, t.maxZ, BEAM);
     box(g, t.minX - 0.04, TOWER_H - 1.4, t.minZ - 0.04, t.maxX + 0.04, TOWER_H - 0.7, t.maxZ + 0.04, TEAL);
     box(g, t.minX, TOWER_H - 0.7, t.minZ, t.maxX, TOWER_H, t.maxZ, BEAM);
     box(g, t.minX - 0.15, TOWER_H, t.minZ - 0.15, t.maxX + 0.15, TOWER_H + 0.5, t.maxZ + 0.15, PIER);
-    const land = Math.sign(s.foot.z - (t.minZ + t.maxZ) / 2);
-    const face = land > 0 ? t.maxZ : t.minZ;
-    const fx = (t.minX + t.maxX) / 2;
-    box(g, fx - 0.9, 0.15, face, fx + 0.9, 2.55, face + land * 0.05, OPENING);
-    const wallX = s.side > 0 ? t.minX : t.maxX;
-    box(g, wallX, y, walk.minZ + 0.6, wallX - s.side * 0.05, y + 2.4, walk.maxZ - 0.6, OPENING);
-    // The stairs' windows: two slots up the side away from the walkway, one over the door.
     const far = s.side > 0 ? t.maxX : t.minX;
     const tz = (t.minZ + t.maxZ) / 2;
-    for (const dz of [-2, 2]) box(glass, far, 1.4, tz + dz - 0.45, far + s.side * 0.05, TOWER_H - 2, tz + dz + 0.45, WHITE);
-    box(glass, fx - 0.6, 5.2, face, fx + 0.6, TOWER_H - 2, face + land * 0.05, WHITE);
+    box(g, far, 0.15, tz - 0.9, far + s.side * 0.05, 2.55, tz + 0.9, OPENING);
+    const wallX = s.side > 0 ? t.minX : t.maxX;
+    box(g, wallX, y, walk.minZ + 0.6, wallX - s.side * 0.05, y + 2.4, walk.maxZ - 0.6, OPENING);
+    box(glass, far, 5.2, tz - 0.6, far + s.side * 0.05, TOWER_H - 2, tz + 0.6, WHITE);
+    // Toward the city.
+    const land = -Math.sign(s.z);
+    const face = land > 0 ? t.maxZ : t.minZ;
+    const fx = (t.minX + t.maxX) / 2;
+    for (const dx of [-1.8, 1.8]) box(glass, fx + dx - 0.45, 1.4, face, fx + dx + 0.45, TOWER_H - 2, face + land * 0.05, WHITE);
   }
 
   /** The sign over a tower's door: the line's name, the station's, and the next train. */
@@ -249,9 +249,8 @@ export class MonorailView {
     const panel = new THREE.Mesh(new THREE.BoxGeometry(SIGN_W, SIGN_H, 0.12), [this.steel, this.steel, this.steel, this.steel, face, this.steel]);
     panel.name = 'monorail-sign';
     const t = s.tower;
-    const land = Math.sign(s.foot.z - (t.minZ + t.maxZ) / 2);
-    panel.position.set((t.minX + t.maxX) / 2, 2.65 + 0.15 + SIGN_H / 2, (land > 0 ? t.maxZ : t.minZ) + land * 0.08);
-    panel.rotation.y = land > 0 ? 0 : Math.PI;
+    panel.position.set((s.side > 0 ? t.maxX : t.minX) + s.side * 0.08, 2.8 + SIGN_H / 2, (t.minZ + t.maxZ) / 2);
+    panel.rotation.y = (s.side * Math.PI) / 2;
     panel.castShadow = true;
     panel.matrixAutoUpdate = false;
     panel.updateMatrix();
@@ -389,7 +388,7 @@ export class MonorailView {
     }
     if (Math.abs(night - this.night) > 0.01) {
       this.night = night;
-      this.windows.emissiveIntensity = 0.05 + night * 1.5;
+      this.windows.emissiveIntensity = night * 1.5;
       this.lit.emissiveIntensity = night * 2.2;
       this.glazing.emissiveIntensity = night * 0.55;
       this.northLamps.emissiveIntensity = 0.4 + night * 2.6;
