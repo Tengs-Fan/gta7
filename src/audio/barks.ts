@@ -104,6 +104,19 @@ export class Barks {
     return true;
   }
 
+  /** A station's loudspeaker at (x, y, z) reads clip `id` (AzuraLink's departures); false when out of earshot. */
+  announce(id: string, x: number, y: number, z: number): boolean {
+    const s = this.place(x, y, z, 14, MEGAPHONE_RANGE);
+    if (!s) return false;
+    const out = this.outlet(s.pan, s.cutoff);
+    const gain = MEGAPHONE_LEVEL * s.gain;
+    this.bank.load(id).then(
+      (buffer) => this.play(buffer, out, gain, true),
+      () => undefined,
+    );
+    return true;
+  }
+
   private play(buffer: AudioBuffer, out: AudioNode, level: number, megaphone: boolean): void {
     const ctx = this.ctx;
     let into = out;

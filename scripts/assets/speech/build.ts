@@ -2,7 +2,7 @@
 // 32 kbps mono MP3 per clip and speech.json, the index the sim and the audio read (src/sim/speech.ts).
 //
 // Clips: the mission dialogue (dialogue.ts), the police dispatcher's phrases (phrases.ts), the talk station's pieces,
-// the music stations' idents and the barks (script.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
+// the music stations' idents, the barks and AzuraLink's announcements (script.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
 // (~/.cache/gta7-speech), so a rerun renders only new lines. Each clip is trimmed, band-limited where it is heard down
 // a phone line, levelled to the same loudness and encoded with ffmpeg; files the index no longer lists are removed.
 
@@ -16,7 +16,7 @@ import { dialogueKey, phraseWords } from '../../../src/sim/speech';
 import { StaticWorld } from '../../../src/world/staticWorld';
 import { dialogueLines } from './dialogue';
 import { dispatchPhrases } from './phrases';
-import { BARKS, CAST, PHONE_ROLES, SAY, SPEAKERS, STATION_IDENTS, TALK, type Role } from './script';
+import { BARKS, CAST, MONORAIL_PA, PHONE_ROLES, SAY, SPEAKERS, STATION_IDENTS, TALK, type Role } from './script';
 
 const RATE = 24000;
 const HERE = new URL('.', import.meta.url).pathname;
@@ -54,6 +54,7 @@ const index: SpeechIndex = {
   talk: { host: [], call: [], news: [], ad: [], ident: [] },
   barks: {} as Record<BarkKind, string[][]>,
   idents: {},
+  pa: {},
 };
 
 for (const line of dialogueLines(world)) {
@@ -90,6 +91,14 @@ for (const [kind, set] of Object.entries(BARKS) as Array<[BarkKind, (typeof BARK
       return id;
     }),
   );
+}
+
+for (const [stop, lines] of Object.entries(MONORAIL_PA.lines)) {
+  index.pa[stop] = lines.map((text, i) => {
+    const id = `pa-${slug(stop)}-${i}`;
+    clips.push({ id, takes: [{ voice: MONORAIL_PA.voice, text, speed: 1 }] });
+    return id;
+  });
 }
 
 // Render the takes that are not cached yet.

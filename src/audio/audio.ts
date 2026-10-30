@@ -19,8 +19,9 @@ import { distanceCutoff, EXPLOSION_DUCK_RANGE, Glider, Mixer, mixTargets, OPEN_H
 import { Radio } from './radio';
 import { PoliceScanner } from './scanner';
 import { eagerClips, SpeechBank } from './speech';
-import type { BarkKind } from '../sim/speech';
+import { SPEECH, type BarkKind } from '../sim/speech';
 import { NodeTally } from './tally';
+import { PA_RANGE, TrainVoice, type Hearing } from './trainVoice';
 import { DEFAULT_HORN, engineProfile } from './vehicleProfiles';
 
 interface Listener {
@@ -90,6 +91,9 @@ export class AudioEngine {
   private sirenNodes: { osc: OscillatorNode; gain: GainNode; lfo: OscillatorNode; lfoGain: GainNode } | null = null;
   /** Doppler factor last applied to the siren. */
   private sirenDoppler = 1;
+  /** AzuraLink's train, and where the listener hears it from. */
+  private train: TrainVoice | null = null;
+  private readonly ear: Hearing = { x: 0, y: 0, z: 0, yaw: 0, vx: 0, vz: 0 };
   readonly radio = new Radio();
   /** Sources started by the talk station, the barks and the echoes, and how many still play. */
   readonly nodes = new NodeTally();
@@ -177,6 +181,7 @@ export class AudioEngine {
         this.ambience = new Ambience(ctx, mixer.ambBus);
         this.buildHorn();
         this.buildSiren();
+        this.train = new TrainVoice(ctx, this.sfx, this.noise, this.glide);
         this.applyVolumes();
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => undefined);
@@ -904,6 +909,7 @@ export class AudioEngine {
     this.engine!.update(live, t, live ? this.softGround(sim.world, live.pos.x, live.pos.z) : false);
     this.updateHorn(live, t);
     this.updateSiren(sim, inGame, t);
+    this.updateTrain(sim, inGame, t);
     this.radio.setWanted(inGame ? this.me(sim).wanted.level : 0);
     this.radio.update(dt, inGame && !!pv && !pv.destroyed);
     this.subtitleTimer = Math.max(0, this.subtitleTimer - step);
@@ -966,6 +972,33 @@ export class AudioEngine {
     this.glide.set(s.osc.frequency, SIREN_HZ * f, t, DOPPLER_TAU, 0.0005);
     this.glide.set(s.lfoGain.gain, SIREN_SWEEP * f, t, DOPPLER_TAU, 0.0005);
     this.glide.set(s.lfo.frequency, this.me(sim).wanted.level >= 3 ? 1.6 : 0.32, t, 0.3);
+  }
+
+  /** AzuraLink's train where it is, and a station's loudspeaker announcing a departure to the player at its foot. */
+  private updateTrain(sim: ViewState, inGame: boolean, t: number): void {
+    const me = this.me(sim);
+    const lv = me.character.vehicle ? me.character.vehicle.vel : me.character.vel;
+    const L = this.listener;
+    const ear = this.ear;
+    ear.x = L.x;
+    ear.y = L.y;
+    ear.z = L.z;
+    ear.yaw = L.yaw;
+    ear.vx = lv.x;
+    ear.vz = lv.z;
+    const m = sim.world.layout.monorail;
+    const pa = this.train!.update(m, sim.time, ear, t);
+    if (pa < 0 || !inGame) return;
+    const st = m.stations[pa]!;
+    const p = me.pos();
+    if (Math.hypot(p.x - st.foot.x, p.z - st.foot.z) > PA_RANGE) return;
+    const lines = SPEECH.pa[m.stations[1 - pa]!.name]!;
+    if (this.barks!.announce(lines[Math.floor(Math.random() * lines.length)]!, m.x + st.side * 4, m.beamY + 3, st.z)) this.counters.voices++;
+  }
+
+  /** The train's voice: its Doppler factor and levels now (tests). */
+  trainInfo(): { doppler: number; levels: { rumble: number; hiss: number; whoosh: number; whine: number } } | null {
+    return this.train ? { doppler: this.train.doppler, levels: { ...this.train.levels } } : null;
   }
 
   /** The siren voice now: its pitch before the wail (Doppler-shifted), the factor, its gain and wail rate. */

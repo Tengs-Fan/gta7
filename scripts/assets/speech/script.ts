@@ -480,3 +480,12 @@ export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
   /** Gang members starting a fight on their turf. */
   turf: { voices: GANG, lines: ['This is our turf!', 'Wrong neighborhood!', 'You picked the wrong street!', 'Get him!'] },
 };
+
+/** AzuraLink's station loudspeakers (src/audio/trainVoice.ts), by the departing train's destination: one voice, as it is about to leave. */
+export const MONORAIL_PA: { voice: string; lines: Readonly<Record<string, readonly string[]>> } = {
+  voice: 'bf_alice',
+  lines: {
+    Seaview: ['This train is for Seaview. Please stand clear of the doors, and of your feelings.', 'Azura Link to Seaview, now departing. Hold on to the handrail, and to your dreams.'],
+    Northshore: ['This train is for Northshore. Please stand clear of the doors, and of your feelings.', 'Azura Link to Northshore, now departing. Please do not feed the gulls on board.'],
+  },
+};

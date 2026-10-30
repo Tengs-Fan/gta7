@@ -1,10 +1,14 @@
 // AzuraLink, the monorail along Cortez Canal (src/world/monorail.ts): the train keeps a timetable of sim time alone,
 // between its two stations and dwelling at each; the pylons stand in the canal clear of every deck; the stations stand
-// on the promenades clear of the footbridges, the pedestrians' paths and every prop; and a boat or a swimmer stops at a
-// pylon.
+// on the promenades clear of the footbridges, the pedestrians' paths and every prop; a boat or a swimmer stops at a
+// pylon; and the train is heard rising in pitch as it comes and falling as it goes, a station's loudspeaker announcing
+// each departure.
 
 import { describe, expect, it } from 'vitest';
+import { Glider } from '../../src/audio/mixer';
+import { PA_LEAD, TrainVoice, type Hearing } from '../../src/audio/trainVoice';
 import { gangAt } from '../../src/sim/gangs';
+import { SPEECH } from '../../src/sim/speech';
 import { WATER_Y } from '../../src/world/constants';
 import { CAR_WIDTH, nextDeparture, runTime, TRAIN_DWELL, TRAIN_LENGTH, TRAIN_SPEED, trainAt, trainPeriod, TOWER_H } from '../../src/world/monorail';
 import { rectContains, type Rect } from '../../src/world/layout';
@@ -224,3 +228,61 @@ describe('AzuraLink: the pylons in the water', () => {
   });
 });
 
+/** Just enough of a Web Audio context for the train's voice: params keep their last target. */
+function fakeContext(): BaseAudioContext {
+  const param = (value: number) => ({ value, setTargetAtTime(v: number) { this.value = v; return this; } });
+  const node = (props: Record<string, unknown>) => ({ connect: (d: unknown) => d, start: () => {}, ...props });
+  return {
+    createBiquadFilter: () => node({ type: 'lowpass', frequency: param(350), Q: param(1) }),
+    createGain: () => node({ gain: param(1) }),
+    createBufferSource: () => node({ buffer: null, loop: false, playbackRate: param(1) }),
+    createOscillator: () => node({ type: 'sine', frequency: param(440) }),
+    createStereoPanner: () => node({ pan: param(0) }),
+  } as unknown as BaseAudioContext;
+}
+
+describe('AzuraLink: the sound', () => {
+  it('comes rumbling over a bridge higher than it goes away, loudest and whooshing as it passes, silent far off', () => {
+    const m = line();
+    const voice = new TrainVoice(fakeContext(), {} as AudioNode, {} as AudioBuffer, new Glider());
+    // A listener on Central Ave's bridge, beside the beam, as the train runs south over it at full speed.
+    const ear: Hearing = { x: m.x + 9, y: 2, z: 0, yaw: Math.PI, vx: 0, vz: 0 };
+    const leave = nextDeparture(m, 0, 0);
+    // Cruising: 30 m out after the 4 s it takes to reach 15 m/s, then 15 m a second.
+    const at = (z: number) => leave + 4 + (z - m.z0 - 30) / TRAIN_SPEED;
+    const hear = (z: number) => {
+      voice.update(m, at(z), ear, 0);
+      return { doppler: voice.doppler, ...voice.levels };
+    };
+    const coming = hear(-80);
+    const over = hear(0);
+    const going = hear(80);
+    expect(trainAt(m, at(0)).z).toBeCloseTo(0, 6);
+    expect(coming.doppler).toBeGreaterThan(1.02);
+    expect(going.doppler).toBeLessThan(0.98);
+    expect(over.doppler).toBeCloseTo(1, 6);
+    expect(over.rumble).toBeGreaterThan(coming.rumble * 2);
+    expect(over.whoosh).toBeGreaterThan(10 * coming.whoosh);
+    expect(over.hiss).toBeGreaterThan(0);
+    // Stopped at a station a kilometre away: nothing.
+    const far = hear(m.z1);
+    expect(far.rumble + far.hiss + far.whoosh + far.whine).toBe(0);
+  });
+
+  it("announces each departure once, a few seconds before the doors close, with a line for the train's destination", () => {
+    const m = line();
+    const voice = new TrainVoice(fakeContext(), {} as AudioNode, {} as AudioBuffer, new Glider());
+    const ear: Hearing = { x: 0, y: 2, z: 0, yaw: 0, vx: 0, vz: 0 };
+    const calls: Array<[number, number]> = [];
+    for (let t = 0; t < trainPeriod(m) * 2; t += 1 / 30) {
+      const s = voice.update(m, t, ear, t);
+      if (s >= 0) calls.push([s, t]);
+    }
+    expect(calls.map(([s]) => s)).toEqual([0, 1, 0, 1]);
+    for (const [s, t] of calls) expect(nextDeparture(m, s, t)).toBeCloseTo(PA_LEAD, 1);
+    for (const st of m.stations) {
+      expect(SPEECH.pa[st.name]!.length).toBeGreaterThanOrEqual(2);
+      for (const id of SPEECH.pa[st.name]!) expect(SPEECH.clips[id]).toBeGreaterThan(2);
+    }
+  });
+});

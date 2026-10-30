@@ -20,6 +20,8 @@ export interface SpeechIndex {
   barks: Record<BarkKind, string[][]>;
   /** Spoken idents of the music stations, by station name. */
   idents: Record<string, string[]>;
+  /** AzuraLink's station announcements, by the departing train's destination. */
+  pa: Record<string, string[]>;
 }
 
 export const SPEECH = index as SpeechIndex;
