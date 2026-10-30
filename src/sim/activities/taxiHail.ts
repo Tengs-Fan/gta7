@@ -17,8 +17,11 @@ const SCAN = 0.5;
 /** A hailer stands this far ahead of the cab along its heading (m)... */
 const AHEAD_MIN = 18;
 const AHEAD_MAX = 45;
-/** ...and no further than this to either side of it (m): at the curbs of the road it drives, not a street over. */
-const SIDE = 14;
+/**
+ * ...and no further than this to either side of it (m): at the curb of the road it drives, close enough that the cab
+ * stopped level with him in its own lane is within BOARD_RANGE of him (not across an avenue's oncoming lanes).
+ */
+const SIDE = BOARD_RANGE - 0.5;
 /** Only a cab going faster than this is waved down (m/s): one standing still is the job key's (taxi.ts prompt). */
 const MOVING = 4;
 /** The first hail comes this long after the player takes the wheel of a taxi (s)... */

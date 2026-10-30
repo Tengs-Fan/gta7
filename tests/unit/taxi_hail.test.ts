@@ -7,6 +7,7 @@ import { makeBrain } from '../../src/sim/brains';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
 import { fareOf, FARES } from '../../src/sim/activities/fares';
+import { BOARD_RANGE } from '../../src/sim/activities/taxi';
 import type { TaxiJob } from '../../src/sim/activities';
 import type { PlayerSlot } from '../../src/sim/playerSlot';
 import type { Sim } from '../../src/sim/sim';
@@ -22,10 +23,13 @@ import { input, legacyLane, makeSim, placeInCar, step, teleport } from './helper
 const START = 20;
 const AHEAD = 35;
 
-/** A spot on the sidewalk to the right of `lane`, `s` metres along it: the first free ground off the road, a step in. */
-function curbside(sim: Sim, lane: Lane, s: number): { x: number; z: number } {
-  const rx = -Math.cos(lane.heading);
-  const rz = Math.sin(lane.heading);
+/**
+ * A spot on the sidewalk to the right of `lane` (its left, side -1), `s` metres along it: the first free ground off the
+ * road, a step in.
+ */
+function curbside(sim: Sim, lane: Lane, s: number, side = 1): { x: number; z: number } {
+  const rx = -Math.cos(lane.heading) * side;
+  const rz = Math.sin(lane.heading) * side;
   const x0 = lane.sx + lane.dx * s;
   const z0 = lane.sz + lane.dz * s;
   for (let d = 1; d < 20; d += 0.25) {
@@ -161,6 +165,29 @@ describe('a pedestrian waves down the taxi the player drives', () => {
     expect(ped.hailTimer).toBe(0);
     expect(ped.brain!.mode).toBe('wander');
     expect(sim.activities.job).toBeNull();
+  });
+
+  it('only from the curb of the lane it drives: across an avenue, he could never be picked up', () => {
+    const sim = makeSim({ ambient: false, police: false });
+    const outer = laneOf(sim, 40);
+    // The inner lane of the avenue, the oncoming two to its left.
+    const lane = sim.roads.lanesBetween(outer.from, outer.to).find((l) => l.index === 0)!;
+    expect(outer.index).toBe(1);
+    const taxi = sim.spawnVehicle('taxi', lane.sx + lane.dx * START, lane.sz + lane.dz * START, lane.heading);
+    placeInCar(sim, taxi);
+    const across = plantPed(sim, curbside(sim, lane, START + AHEAD - 5, -1));
+    const near = plantPed(sim, curbside(sim, lane, START + AHEAD));
+    // Out of reach of the cab stopped level with him in its lane, the far one; the near one just within it.
+    const side = (c: Character) => Math.abs((c.pos.x - lane.sx) * lane.dz - (c.pos.z - lane.sz) * lane.dx);
+    expect(side(across)).toBeGreaterThan(BOARD_RANGE);
+    expect(side(near)).toBeLessThan(BOARD_RANGE);
+    step(sim, 6.5);
+    cruise(sim, [taxi], 1);
+    expect(across.hailTimer).toBe(0);
+    expect(near.hailTimer).toBeGreaterThan(0);
+    placeOnLane(taxi, sim, lane, alongOf(lane, near));
+    step(sim, 5);
+    expect(near.vehicle).toBe(taxi);
   });
 
   it('never for a stopped cab, a wanted player, during a story mission, or a passenger', () => {
