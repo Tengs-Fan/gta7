@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CameraController } from '../../src/render/camera';
 import { DressingRules, viewpointViolation, viewpoints } from '../../src/render/dressing';
+import { GeoBuilder } from '../../src/render/geo';
 import { Sim } from '../../src/sim/sim';
 import { COP_SIGHT } from '../../src/sim/wanted';
 import { CURB_H, SWIM_DEPTH, WATER_Y } from '../../src/world/constants';
@@ -380,6 +381,32 @@ describe("Azura Point's bluff", () => {
     expect(W.isFree((rail.minX + rail.maxX) / 2, (rail.minZ + rail.maxZ) / 2, 0.3)).toBe(false);
     // The sea round it is as deep as ever.
     expect(W.waterDepth(tip.minX - 2, -600)).toBeGreaterThan(SWIM_DEPTH);
+  });
+
+  it("draws its ground with the slope's normals, up to the cliffs' rims", () => {
+    // As render/city/ground.ts lays a patch over a rise: a 2 m grid, 4 mm over the ground.
+    const patches = L.ground.filter((g) => point.rects.some((q) => rectsOverlap(q, g.rect)));
+    expect(patches.length).toBeGreaterThan(0);
+    for (const { rect: q } of patches) {
+      const H = (x: number, z: number) => CURB_H + 0.004 + riseAt(rises, x, z);
+      const g = new GeoBuilder();
+      g.heightGrid(q.minX, q.minZ, q.maxX, q.maxZ, 2, H, { kind: 'world', scale: 8 });
+      const geo = g.build();
+      const pos = geo.getAttribute('position');
+      const nrm = geo.getAttribute('normal');
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const z = pos.getZ(i);
+        // The slope within the patch: it climbs with z alone.
+        const z0 = Math.max(q.minZ, z - 0.01);
+        const z1 = Math.min(q.maxZ, z + 0.01);
+        const gz = (H(x, z1) - H(x, z0)) / (z1 - z0);
+        const l = Math.hypot(1, gz);
+        // Within about a degree of it (the rim's normal is one-sided, 0.3 degrees off on the climb's curve).
+        expect(nrm.getY(i) / l - (nrm.getZ(i) * gz) / l, `normal at ${x}, ${z}`).toBeGreaterThan(Math.cos(0.02));
+      }
+      geo.dispose();
+    }
   });
 
   it('a car drives up the path to the lighthouse without leaving the ground', () => {

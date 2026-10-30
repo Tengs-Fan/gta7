@@ -123,7 +123,8 @@ export class GeoBuilder {
   /**
    * Ground over the rectangle following h(x, z): a grid of quads on the world lattice of `step` m (plus the rectangle's
    * own edges), so neighbouring patches meet at the same vertices along their shared edges, with smooth normals from
-   * central differences of h. World uvs as flat's; 'unit' spans the rectangle.
+   * central differences of h, one-sided at the rectangle's edges: beyond them h may be other ground (past a cliff's top,
+   * the sea's), which would tilt the rim's normals over the drop. World uvs as flat's; 'unit' spans the rectangle.
    */
   heightGrid(minX: number, minZ: number, maxX: number, maxZ: number, step: number, h: (x: number, z: number) => number, uv: UvMode, color?: RGB): void {
     const lattice = (a: number, b: number) => {
@@ -141,10 +142,14 @@ export class GeoBuilder {
       for (const x of xs) {
         const y = h(x, z);
         this.pos.push(x, y, z);
-        const nx = h(x - e, z) - h(x + e, z);
-        const nz = h(x, z - e) - h(x, z + e);
-        const l = Math.hypot(nx, 2 * e, nz);
-        this.nrm.push(nx / l, (2 * e) / l, nz / l);
+        const x0 = Math.max(minX, x - e);
+        const x1 = Math.min(maxX, x + e);
+        const z0 = Math.max(minZ, z - e);
+        const z1 = Math.min(maxZ, z + e);
+        const gx = (h(x1, z) - h(x0, z)) / (x1 - x0);
+        const gz = (h(x, z1) - h(x, z0)) / (z1 - z0);
+        const l = Math.hypot(gx, 1, gz);
+        this.nrm.push(-gx / l, 1 / l, -gz / l);
         if (uv.kind === 'world') this.uv.push(x * s, -z * s);
         else this.uv.push((x - minX) / (maxX - minX), (maxZ - z) / (maxZ - minZ));
         if (this.colored) {
