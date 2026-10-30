@@ -39,8 +39,11 @@ const BEAM: RGB = [0.86, 0.86, 0.84];
 const PIER: RGB = [0.74, 0.74, 0.72];
 const OPENING: RGB = [0.1, 0.1, 0.11];
 const SAFETY: RGB = [0.95, 0.78, 0.12];
+/** The sign over a tower's door: its size, how far it stands out from the wall, and its bottom edge (m). */
 const SIGN_W = 5;
 const SIGN_H = 1.9;
+const SIGN_D = 0.12;
+const SIGN_Y = 2.8;
 
 /** A prism of `sides` faces round (cx, cz), radius r, from y0 to y1. */
 function prism(g: GeoBuilder, cx: number, cz: number, r: number, y0: number, y1: number, sides: number, color: RGB): void {
@@ -229,6 +232,8 @@ export class MonorailView {
     const far = s.side > 0 ? t.maxX : t.minX;
     const tz = (t.minZ + t.maxZ) / 2;
     box(g, far, 0.15, tz - 0.9, far + s.side * 0.05, 2.55, tz + 0.9, OPENING);
+    // The sign's steel back plate (its printed face is addSign's).
+    box(steel, far, SIGN_Y, tz - SIGN_W / 2, far + s.side * SIGN_D, SIGN_Y + SIGN_H, tz + SIGN_W / 2);
     const wallX = s.side > 0 ? t.minX : t.maxX;
     box(g, wallX, y, walk.minZ + 0.6, wallX - s.side * 0.05, y + 2.4, walk.maxZ - 0.6, OPENING);
     box(glass, far, 5.2, tz - 0.6, far + s.side * 0.05, TOWER_H - 2, tz + 0.6, WHITE);
@@ -239,7 +244,7 @@ export class MonorailView {
     for (const dx of [-1.8, 1.8]) box(glass, fx + dx - 0.45, 1.4, face, fx + dx + 0.45, TOWER_H - 2, face + land * 0.05, WHITE);
   }
 
-  /** The sign over a tower's door: the line's name, the station's, and the next train. */
+  /** The printed face of the sign over a tower's door: the line's name, the station's, and the next train. */
   private addSign(m: Monorail, s: MonorailStation, i: number): void {
     const [c, ctx] = canvas(512, 192);
     const texture = toTexture(c, true, false);
@@ -247,12 +252,11 @@ export class MonorailView {
     const sign: Sign = { ctx, texture, face, name: s.name.toUpperCase(), text: '' };
     this.signs.push(sign);
     this.drawSign(sign, signLine(m, i, 0));
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(SIGN_W, SIGN_H, 0.12), [this.steel, this.steel, this.steel, this.steel, face, this.steel]);
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(SIGN_W, SIGN_H), face);
     panel.name = 'monorail-sign';
     const t = s.tower;
-    panel.position.set((s.side > 0 ? t.maxX : t.minX) + s.side * 0.08, 2.8 + SIGN_H / 2, (t.minZ + t.maxZ) / 2);
+    panel.position.set((s.side > 0 ? t.maxX : t.minX) + s.side * (SIGN_D + 0.02), SIGN_Y + SIGN_H / 2, (t.minZ + t.maxZ) / 2);
     panel.rotation.y = (s.side * Math.PI) / 2;
-    panel.castShadow = true;
     panel.matrixAutoUpdate = false;
     panel.updateMatrix();
     this.group.add(panel);
