@@ -486,6 +486,6 @@ export const MONORAIL_PA: { voice: string; lines: Readonly<Record<string, readon
   voice: 'bf_alice',
   lines: {
     Seaview: ['This train is for Seaview. Please stand clear of the doors, and of your feelings.', 'Azura Link to Seaview, now departing. Hold on to the handrail, and to your dreams.'],
-    Northshore: ['This train is for Northshore. Please stand clear of the doors, and of your feelings.', 'Azura Link to Northshore, now departing. Please do not feed the gulls on board.'],
+    Northshore: ['This train is for Northshore. Please stand clear of the doors, and of your feelings.', 'Azura Link to Northshore, now departing. Please keep your feet off the seats, and your opinions to yourself.'],
   },
 };
