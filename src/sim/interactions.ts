@@ -13,7 +13,7 @@ import type { PlayerView } from './viewState';
 import { WEAPON_ORDER, WEAPONS, weaponKindOf, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
 
-export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun';
+export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun' | 'regatta';
 
 export interface Marker {
   id: string;
@@ -241,6 +241,7 @@ export class Interactions {
       case 'courier':
       case 'customs':
       case 'streetRun':
+      case 'regatta':
         break;
       case 'garage':
       case 'business': {

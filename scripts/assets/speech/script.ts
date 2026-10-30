@@ -137,6 +137,7 @@ export const TALK: readonly TalkPiece[] = [
       ['chet', "If you know, call in. I won't judge. I'll judge a little."],
     ],
   },
+  { id: 'host-windmills', kind: 'host', lines: [['chet', "They put windmills in the bay. Windmills! In my day the bay made its own wind, out of spite."]] },
 
   // Callers.
   {
@@ -479,4 +480,6 @@ export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
   arrest: { voices: COPS, lines: ["You're under arrest.", 'Hands behind your back.', 'You have the right to remain silent. Use it.'] },
   /** Gang members starting a fight on their turf. */
   turf: { voices: GANG, lines: ['This is our turf!', 'Wrong neighborhood!', 'You picked the wrong street!', 'Get him!'] },
+  /** The hand on duty on the Marina's deck as a Gull Regatta starts. */
+  marina: { voices: ['am_eric', 'bm_fable', 'am_adam'], lines: ["Mind the blades, they're bigger than they look."] },
 };

@@ -30,6 +30,7 @@ export const BARK_COOLDOWN: Readonly<Record<BarkKind, number>> = {
   pullOver: 7,
   arrest: 4,
   turf: 6,
+  marina: 30,
 };
 /** Seconds between any two shouts. */
 export const BARK_GAP = 0.6;

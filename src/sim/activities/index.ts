@@ -7,6 +7,7 @@ import type { Sim } from '../sim';
 import type { StreetRunCourse } from '../streetRuns';
 import { cabActivity } from './cab';
 import { rampageActivity } from './rampage';
+import { regattaActivity } from './regatta';
 import { onVehicleLanded } from './stunts';
 import { streetRunActivity, streetRunCourses } from './streetRun';
 import { placeOnSidewalk, taxiActivity } from './taxi';
@@ -20,6 +21,7 @@ import type { ActivityDef, ActivityHost, ActivityJob, CancelReason, Job, Objecti
 
 export type { CabJob } from './cab';
 export type { RampageJob } from './rampage';
+export type { RegattaJob } from './regatta';
 export type { StreetRunJob } from './streetRun';
 export type { TaxiJob } from './taxi';
 export type { VigilanteJob } from './vigilante';
@@ -62,6 +64,7 @@ registerActivity(courierActivity);
 registerActivity(carExportActivity);
 registerActivity(streetRunActivity);
 registerActivity(cabActivity);
+registerActivity(regattaActivity);
 
 export class Activities {
   /** Slot 0's job (single player's only one); other slots' jobs are behind jobOf. */

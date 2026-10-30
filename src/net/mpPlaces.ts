@@ -1,8 +1,9 @@
 // The places a multiplayer client marks in the world and what standing on one says: the head-to-head Street Run
-// starts, and the single-player places (contacts, the safehouse, properties, Lou's export board, gun shops) with the
-// reason they do nothing here. The server's sim gives the same answer if E is pressed there. Pure TypeScript.
+// starts, and the single-player places (contacts, the safehouse, properties, Lou's export board, gun shops, the Gull
+// Regatta at the Marina) with the reason they do nothing here. The server's sim gives the same answer if E is pressed there. Pure TypeScript.
 
 import { places } from '../sim/activities/places';
+import { MP_NO_REGATTA } from '../sim/activities/regatta';
 import { streetRunCourses } from '../sim/activities/streetRun';
 import { FOR_SALE, MP_NO_EXPORT, MP_NO_PROPERTY, MP_NO_SAVE, type Marker } from '../sim/interactions';
 import { CONTACTS, contactColorNumber, contactUnlocked } from '../sim/missions/contacts';
@@ -31,6 +32,7 @@ function markersOf(world: StaticWorld): Marker[] {
   for (const poi of world.layout.pois) {
     if (poi.kind === 'safehouse') out.push({ id: poi.id, kind: 'save', x: poi.x, z: poi.z, radius: 1.5, label: MP_NO_SAVE, color: 0x55ccff, ref: poi.id });
     if (poi.kind === 'gunshop') out.push({ id: poi.id, kind: 'gunshop', x: poi.x, z: poi.z, radius: 1.5, label: MP_NO_SHOP, color: 0xff8a1f, ref: poi.id });
+    if (poi.kind === 'marina') out.push({ id: 'regatta', kind: 'regatta', x: poi.x, z: poi.z, radius: 1.5, label: MP_NO_REGATTA, color: 0x50f1d1, ref: 'regatta' });
   }
   const at = places(world);
   out.push({ id: 'export_board', kind: 'exportBoard', x: at.exportBoard.x, z: at.exportBoard.z, radius: 1.5, label: MP_NO_EXPORT, color: 0xffa020, ref: 'carExport' });

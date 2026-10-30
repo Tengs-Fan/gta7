@@ -5,7 +5,7 @@
 import index from '../assets/speech/speech.json';
 
 export type TalkKind = 'host' | 'call' | 'news' | 'ad' | 'ident';
-export type BarkKind = 'greet' | 'hurt' | 'jacked' | 'panic' | 'rammed' | 'witness' | 'freeze' | 'shots' | 'officerDown' | 'pullOver' | 'arrest' | 'turf';
+export type BarkKind = 'greet' | 'hurt' | 'jacked' | 'panic' | 'rammed' | 'witness' | 'freeze' | 'shots' | 'officerDown' | 'pullOver' | 'arrest' | 'turf' | 'marina';
 
 export interface SpeechIndex {
   /** Seconds of each clip, by id (the file is `<id>.mp3`). */

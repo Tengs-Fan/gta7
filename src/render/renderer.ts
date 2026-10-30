@@ -26,6 +26,7 @@ import { MarkerView } from './markers';
 import { OffshoreView } from './offshore';
 import { PropsView } from './props';
 import { Rain, SOFTWARE_RAIN_DROPS } from './rain';
+import { RegattaView } from './regatta';
 import { setPilings, setSeaCuts } from './sea';
 import { buildCoverMap, coverAt, type CoverMap } from './rainCover';
 import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
@@ -174,6 +175,8 @@ export class GameRenderer {
   /** Turbine Row out at sea, and Smuggler's Key's ruins, guns, wreck and signs. */
   readonly turbines: TurbineView;
   readonly offshore: OffshoreView;
+  /** The Gull Regatta's buoys while one runs. */
+  readonly regatta = new RegattaView();
   /** Grenades and molotovs in flight, the throw's aiming arc and molotov fires. */
   readonly throwView = new ThrowView();
   readonly rain: Rain;
@@ -288,10 +291,12 @@ export class GameRenderer {
     this.turbines = new TurbineView(world);
     this.turbines.foam.bindSea(this.env.sea);
     this.offshore = new OffshoreView(world);
-    this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group);
+    this.regatta.bindSea(this.env.sea);
+    this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group, this.regatta.mesh);
     this.softwareMaterials?.apply(this.sites.group);
     this.softwareMaterials?.apply(this.turbines.group);
     this.softwareMaterials?.apply(this.offshore.group);
+    this.softwareMaterials?.apply(this.regatta.mesh);
     this.softwareMaterials?.apply(this.activityFx.group);
     this.scene.add(this.streetLighting.group, this.footShadows.mesh);
     this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group, this.lightSprites.group, this.vehicleParts.group, this.throwView.group);
@@ -1140,7 +1145,9 @@ export class GameRenderer {
       this.footShadows.update(sim.characters, cam.position, this.crowd.scopeHiddenId);
       this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming);
       const objectives = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
-      this.markers.syncObjectives(objectives, (x, z) => sim.world.groundHeight(x, z), this.time);
+      // One out on the sea (a regatta gate) stands on its surface, not the seabed.
+      this.markers.syncObjectives(objectives, (x, z) => Math.max(WATER_Y, sim.world.groundHeight(x, z)), this.time);
+      this.regatta.sync(sim, this.time);
       this.markers.syncPickups(sim.pickups, this.time, cam.position.x, cam.position.z);
       this.markers.syncHelis(sim.helis, night, (x, z) => sim.world.groundHeight(x, z));
       // Paused (dt 0), nothing new is emitted.
@@ -1248,6 +1255,7 @@ export class GameRenderer {
     this.throwView.dispose();
     this.turbines.dispose();
     this.offshore.dispose();
+    this.regatta.dispose();
     this.rain.dispose();
     this.city.wet.dispose();
     this.env.dispose();

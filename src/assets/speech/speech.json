@@ -142,6 +142,7 @@
   "talk-host-chopper": 21.12,
   "talk-host-cab": 20.12,
   "talk-host-docks": 19.348,
+  "talk-host-windmills": 4.798,
   "talk-call-lighthouse": 19.607,
   "talk-call-pickup": 17.873,
   "talk-call-tacos": 23.334,
@@ -552,7 +553,10 @@
   "bark-turf-af-alloy-0": 1.255,
   "bark-turf-af-alloy-1": 1.251,
   "bark-turf-af-alloy-2": 1.606,
-  "bark-turf-af-alloy-3": 0.801
+  "bark-turf-af-alloy-3": 0.801,
+  "bark-marina-am-eric-0": 1.997,
+  "bark-marina-bm-fable-0": 1.982,
+  "bark-marina-am-adam-0": 2.074
  },
  "dialogue": {
   "Dex Moreau|So you are Lou's miracle worker. Charming. I have a problem with a mouth.": "dlg-dex-02cf79984f",
@@ -701,7 +705,8 @@
    "talk-host-potholes",
    "talk-host-chopper",
    "talk-host-cab",
-   "talk-host-docks"
+   "talk-host-docks",
+   "talk-host-windmills"
   ],
   "call": [
    "talk-call-lighthouse",
@@ -1267,6 +1272,17 @@
     "bark-turf-af-alloy-1",
     "bark-turf-af-alloy-2",
     "bark-turf-af-alloy-3"
+   ]
+  ],
+  "marina": [
+   [
+    "bark-marina-am-eric-0"
+   ],
+   [
+    "bark-marina-bm-fable-0"
+   ],
+   [
+    "bark-marina-am-adam-0"
    ]
   ]
  },

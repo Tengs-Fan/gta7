@@ -5,7 +5,7 @@ import { WHEEL_GESTURE_GAP, WHEEL_STEP } from '../../input/input';
 import { padGlyph, type InputDevice } from '../glyphs';
 import { escapeHtml } from '../hud';
 import { COMPLETION_GROUP_NAMES, COMPLETION_GROUPS, completionPercent, completionRows } from '../../sim/completion';
-import { collectBlips, drawBlip, drawPoliceOverlay, MAP_CATEGORIES, MAP_SCALE, type Blip, type MapCategory } from '../mapRender';
+import { collectBlips, drawBlip, drawPoliceOverlay, drawRegattaCourse, MAP_CATEGORIES, MAP_SCALE, type Blip, type MapCategory } from '../mapRender';
 import { h, localPlayer, type MenuCtx } from './shared';
 
 /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
@@ -149,6 +149,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     ctx.drawImage(menus.map.canvas, 0, 0);
     if (layerOn('turf')) ctx.drawImage(menus.map.turf, 0, 0);
     drawPoliceOverlay(ctx, sim, menus.map, time, k / MAP_SCALE, localId);
+    drawRegattaCourse(ctx, sim, menus.map, k / MAP_SCALE);
     ctx.restore();
     // District labels.
     ctx.font = '700 15px Rajdhani, sans-serif';
