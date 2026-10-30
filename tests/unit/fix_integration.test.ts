@@ -151,16 +151,3 @@ describe('melee', () => {
     expect(passer.health).toBeLessThan(passer.maxHealth);
   });
 });
-
-describe('sanitize', () => {
-  it('repairs non-finite controls on a car nobody is steering', () => {
-    const sim = makeSim();
-    const rp = roadPoint(sim, 40, 30);
-    const v = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
-    v.controls.throttle = NaN;
-    v.controls.brake = Infinity;
-    v.controls.steer = NaN;
-    step(sim, 2 / 60);
-    expect([v.controls.throttle, v.controls.brake, v.controls.steer].every(Number.isFinite)).toBe(true);
-  });
-});

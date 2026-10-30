@@ -1340,7 +1340,6 @@ export class Game {
       return `${p.state}, health ${Math.round(p.health)}, armor ${Math.round(p.armor)}, ${p.inventory.current}, vehicle ${p.vehicle?.kind ?? 'none'}, wanted ${sim.wanted.level}`;
     });
     add('quality', () => `${this.settings.quality} (rendering ${this.renderer.currentQuality})`);
-    add('listener errors', () => String(sim.events.errors));
     add('browser', () => String(navigator.userAgent));
     lines.push(`last ${this.recent.length} events (sim time, oldest first):`);
     for (const e of this.recent) lines.push(`  ${e.t.toFixed(2)} ${e.type}${e.text ? ` ${e.text}` : ''}`);

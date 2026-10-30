@@ -68,7 +68,6 @@ export class Progress {
 
   addMoney(amount: number): void {
     const a = Math.round(amount);
-    if (!Number.isFinite(a)) return;
     this.money = Math.max(0, Math.min(999_999_999, this.money + a));
     if (a > 0) this.stats.moneyEarned += a;
   }

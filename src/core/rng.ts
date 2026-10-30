@@ -41,9 +41,7 @@ export class Rng {
       r -= w;
       if (r < 0) return item;
     }
-    const last = items[items.length - 1];
-    if (!last) throw new Error('Rng.weighted on empty array');
-    return last[0];
+    return items[items.length - 1]![0];
   }
 
   shuffle<T>(items: T[]): T[] {

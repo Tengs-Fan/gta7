@@ -328,7 +328,7 @@ describe('jointed rig and planted-foot gait', () => {
     expect(finiteMatrices(cv)).toBe(true);
   });
 
-  it('the gait and the two-bone IK stay finite for every speed, phase, direction and degenerate target', () => {
+  it('the gait and the two-bone IK stay finite for every speed, phase, direction and target', () => {
     const out = makeGaitOut();
     const nums = (o: unknown): number[] => (typeof o === 'number' ? [o] : o && typeof o === 'object' ? Object.values(o).flatMap(nums) : []);
     for (let v = 0; v <= 12; v += 0.25) {

@@ -41,14 +41,13 @@ export function installDebugApi(game: Game): void {
     state: () => {
       // In multiplayer the screens show the mirror; the same fields come from it.
       const view = game.view;
-      if (view && view !== game.sim) return viewState(game, view);
+      if (view !== game.sim) return viewState(game, view);
       const sim = game.sim;
       const p = sim.player;
       const pos = sim.playerPos();
       return {
         mode: game.mode,
         crashed: game.isCrashed,
-        listenerErrors: game.sim.events.errors,
         fps: Math.round(game.fps * 10) / 10,
         frames: game.frames,
         menuOpen: game.menus.open,
@@ -253,7 +252,6 @@ function viewState(game: Game, view: ViewState): Record<string, unknown> {
   return {
     mode: game.mode,
     crashed: game.isCrashed,
-    listenerErrors: view.events.errors,
     fps: Math.round(game.fps * 10) / 10,
     frames: game.frames,
     menuOpen: game.menus.open,

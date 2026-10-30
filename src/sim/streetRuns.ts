@@ -73,7 +73,7 @@ export function formatRunTime(seconds: number): string {
 }
 
 export function runMedal(course: StreetRunCourse, seconds: number): StreetRunMedal | null {
-  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > course.bronze) return null;
+  if (seconds <= 0 || seconds > course.bronze) return null;
   if (seconds <= course.gold) return 'gold';
   return seconds <= course.silver ? 'silver' : 'bronze';
 }

@@ -410,7 +410,7 @@ export class Predictor {
       vvel: v ? { ...v.vel } : null,
       vctl: v ? { ...v.controls } : null,
       ctl: primsOf(ctl, CTL_REFS),
-      entryPoints: ((ctl.entryPoints as Array<{ x: number; z: number }>) ?? []).map((p) => ({ ...p })),
+      entryPoints: (ctl.entryPoints as Array<{ x: number; z: number }>).map((p) => ({ ...p })),
       steerCarId: steerCar?.id ?? 0,
       time: this.sim.time,
       frame: this.sim.frame,

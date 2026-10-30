@@ -190,7 +190,7 @@ export function captureVehicle(v: Vehicle): CapturedVehicle {
 }
 
 export function captureCharacter(c: Character): CapturedCharacter {
-  const phase = Number.isFinite(c.animPhase) ? c.animPhase - Math.floor(c.animPhase / TAU) * TAU : 0;
+  const phase = c.animPhase - Math.floor(c.animPhase / TAU) * TAU;
   return {
     id: c.id,
     motion: {

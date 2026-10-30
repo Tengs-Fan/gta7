@@ -10,7 +10,7 @@ const BASELINE_KEYS = [
   'markDone', 'poi', 'setCamera', 'samplePixels', 'place', 'spawnPedAhead', 'characterAlive',
 ];
 const BASELINE_STATE_KEYS = [
-  'mode', 'crashed', 'listenerErrors', 'fps', 'frames', 'menuOpen', 'player', 'wanted', 'money', 'mission', 'objective',
+  'mode', 'crashed', 'fps', 'frames', 'menuOpen', 'player', 'wanted', 'money', 'mission', 'objective',
   'missionsDone', 'activity', 'activityStatus', 'hours', 'vehicles', 'police', 'characters', 'deathKind', 'render', 'perf',
 ];
 
@@ -19,7 +19,6 @@ function fakeGame(): Game {
   const sim = {
     player,
     playerPos: () => ({ x: 1, y: 2, z: 3 }),
-    events: { errors: 0 },
     wanted: { level: 0 },
     progress: { money: 0, missionsDone: new Set<string>() },
     missions: { active: null },
@@ -31,6 +30,7 @@ function fakeGame(): Game {
   };
   return {
     sim,
+    view: sim,
     mode: 'playing',
     isCrashed: false,
     fps: 60,

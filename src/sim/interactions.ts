@@ -61,7 +61,7 @@ function roomFor(inv: Inventory, weapon: WeaponId, ammo: number): boolean {
 export function shopItems(): ShopItem[] {
   const items: ShopItem[] = [];
   // Every weapon with a price: the first guns in key order, then the newer weapons from the cheapest up.
-  const sold = WEAPON_ORDER.filter((id) => WEAPONS[id] && WEAPONS[id].price > 0);
+  const sold = WEAPON_ORDER.filter((id) => WEAPONS[id].price > 0);
   const first = sold.slice(0, 5);
   const rest = sold.slice(5).sort((a, b) => WEAPONS[a].price - WEAPONS[b].price);
   for (const id of [...first, ...rest]) {

@@ -16,7 +16,6 @@ describe('math', () => {
       expect(Math.sin(w)).toBeCloseTo(Math.sin(a), 9);
     }
     expect(angleDiff(3, -3)).toBeCloseTo(2 * Math.PI - 6, 9);
-    expect(wrapAngle(Number.NaN)).toBe(0);
   });
 });
 

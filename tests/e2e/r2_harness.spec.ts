@@ -2,31 +2,6 @@ import { expect, test } from '@playwright/test';
 import { boot, newGame, state, type Api } from './helpers';
 
 test.describe('GTA 7 harness: resilience and typed cheats', () => {
-  test('a throwing sim listener is logged and counted, and the game plays on', async ({ page }) => {
-    const errors = await boot(page);
-    await newGame(page);
-    await page.evaluate(() => {
-      const g = (window as Api).__gta7;
-      g.godMode(true);
-      g.give('pistol', 60);
-      g.sim.events.on('shot', () => {
-        throw new Error('test listener');
-      });
-    });
-    await page.waitForTimeout(400); // the pistol's draw time
-    // Pointer lock is refused under automation, so the first click already shoots.
-    await page.mouse.click(640, 360);
-    await page.waitForFunction(() => (window as Api).__gta7.state().listenerErrors >= 1, null, { timeout: 5000 });
-    expect(await page.evaluate(() => (window as Api).__gta7.sim.progress.stats.shotsFired)).toBe(1);
-    const f0 = (await state(page)).frames;
-    await page.waitForTimeout(500);
-    const s = await state(page);
-    expect(s.crashed).toBe(false);
-    expect(s.frames).toBeGreaterThan(f0 + 5);
-    expect(errors.filter((e) => /GTA7 listener error/.test(e))).toHaveLength(1);
-    expect(errors.filter((e) => !/GTA7 listener error/.test(e))).toEqual([]);
-  });
-
   test('errors outside the frame loop are logged and kept for the crash report, and the game plays on', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);

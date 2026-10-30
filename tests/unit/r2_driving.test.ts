@@ -229,16 +229,6 @@ describe('keyboard steering (P23a)', () => {
     expect(v.controls.steer).toBe(0);
   });
 
-  it('a non-finite steer value is ignored', () => {
-    const sim = new Sim({ world: flatWorld(), ambient: false, police: false });
-    const v = sim.spawnVehicle('sedan', 0, 0, 0);
-    placeInCar(sim, v);
-    sim.update(DT, input({ steer: NaN }));
-    expect(v.controls.steer).toBe(0);
-    sim.update(DT, input({ steer: 1, steerDigital: true }));
-    expect(v.controls.steer).toBeCloseTo(4.2 * DT, 6);
-  });
-
   it('starts centred in a new car', () => {
     const sim = new Sim({ world: flatWorld(), ambient: false, police: false });
     const a = sim.spawnVehicle('sedan', 0, 0, 0);

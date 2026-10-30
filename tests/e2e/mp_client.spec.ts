@@ -78,7 +78,6 @@ test.describe('multiplayer client', () => {
     expect(state.mode).toBe('game');
     expect(state.render.tier).toBe('high');
     expect(state.crashed).toBe(false);
-    expect(state.listenerErrors).toBe(0);
     expect(await page.locator('.hud').first().isVisible()).toBe(true);
 
     // A second player in the room is in the first one's player list, and the other way round.

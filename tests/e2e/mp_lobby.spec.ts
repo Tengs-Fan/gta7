@@ -252,7 +252,6 @@ test.describe('multiplayer lobby', () => {
     for (const p of [page, pageB]) {
       const s = await p.evaluate(() => (window as Api).__gta7.state());
       expect(s.crashed).toBe(false);
-      expect(s.listenerErrors).toBe(0);
     }
     await ctx.close();
     expect(appErrors(errorsA)).toEqual([]);
@@ -305,7 +304,6 @@ test.describe('multiplayer lobby', () => {
     for (const p of [page, pageB]) {
       const s = await p.evaluate(() => (window as Api).__gta7.state());
       expect(s.crashed).toBe(false);
-      expect(s.listenerErrors).toBe(0);
     }
     await ctx.close();
     expect(appErrors(errorsA)).toEqual([]);

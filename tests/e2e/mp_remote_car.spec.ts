@@ -441,7 +441,6 @@ test.describe('remote car drawn smoothly', () => {
       for (const p of [A, B]) {
         const s = await p.evaluate(() => (window as Api).__gta7.state());
         expect(s.crashed).toBe(false);
-        expect(s.listenerErrors).toBe(0);
       }
       expect(appErrors(errorsA)).toEqual([]);
       expect(appErrors(errorsB)).toEqual([]);

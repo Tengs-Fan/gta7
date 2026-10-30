@@ -54,7 +54,6 @@ export function moveTowards(current: number, target: number, maxDelta: number): 
 
 /** Wraps an angle to the range (-PI, PI]. */
 export function wrapAngle(a: number): number {
-  if (!Number.isFinite(a)) return 0;
   a = a % TAU;
   if (a > Math.PI) a -= TAU;
   else if (a <= -Math.PI) a += TAU;
@@ -110,10 +109,6 @@ export function dist3(a: V3, b: V3): number {
   const dy = b.y - a.y;
   const dz = b.z - a.z;
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
-}
-
-export function isFiniteV3(v: V3): boolean {
-  return Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
 }
 
 /** Distance from point P to segment AB in the XZ plane. */

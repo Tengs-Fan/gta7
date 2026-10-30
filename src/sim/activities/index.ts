@@ -238,7 +238,6 @@ export class Activities {
   }
 
   update(dt: number): void {
-    if (!(dt > 0) || !Number.isFinite(dt)) return;
     const j = this.job;
     if (j && !this.sim.playerDown) getActivity(j.kind)?.update(this.host, j, dt);
     if (this.others.size === 0) return;

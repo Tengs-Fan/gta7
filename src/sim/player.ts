@@ -557,7 +557,7 @@ export class PlayerController {
     this.steerCar = v;
     this.steerFrame = frame;
     // A broken pad axis must not stick in the keyboard wheel.
-    const target = Number.isFinite(input.steer) ? clamp(input.steer, -1, 1) : 0;
+    const target = clamp(input.steer, -1, 1);
     if (!input.steerDigital || input.handbrake) {
       this.steerKb = target;
       return target;
