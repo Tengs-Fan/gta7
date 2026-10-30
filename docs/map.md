@@ -73,6 +73,23 @@ The cells were picked where nothing else depends on the closed streets: no stree
 Water is a list of rectangles (`layout.water`) cut out of the land, and headlands (`layout.headlands`) add land outside it: `baseGround` is the seabed in the water and the curb height on a headland, zone names follow both, the quay walls are built wherever land meets water (`render/city/coast.ts`), the ground renderer leaves the water out of the promenade and draws the quays, and the sea shader keeps its quay foam off the old land edge where the sea now comes in.
 Pedestrians keep to dry land: the promenade loop breaks where the sea comes in, and the bridges' footways join the sidewalks either side.
 
+### Bays: the coast steps in and out
+
+- **Gull Bay** (one cell) and **Northshore Bay** (two cells) drown the north shore either side of Hillcrest Green, so the shore runs bay, park and Azura Point, bay.
+- **Pelican Harbor** (two cells) bites into Westside's shore between the cove and Port Basin.
+- **Coral Bay** (one cell) cuts into the south shore west of the beach.
+
+These bodies are drowned rather than left out: their blocks are generated as land, and once the street furniture stands, `drown()` removes the blocks and everything on them, closes the roads that bordered only them, keeps a signal only where three roads still meet on a live approach, and lets the water in.
+The shared generator therefore makes exactly the draws it made while they were land, so every other lamp, tree, hydrant and bench, building and parked car stays where it was; only what stood in the bays moved.
+Building ids keep their gaps, so facades and rooftops elsewhere keep their looks.
+The ring road is not closed with them: it crosses each bay's mouth on a bridge (a carriageway deck at road height, a footway deck either side and a parapet along each, like the canal's), so the coast road runs on.
+Closed, it turned the junctions either side into corners with a single way out, where a car fleeing the police was pinned against the quay (`r2_police_escape*`).
+The bridges, the canal's and the bays', are drawn as one mesh: a few slabs across the city would only add draws if split into cells.
+The two stunt ramps that stood in Pelican Harbor and Gull Bay moved along their promenades, and Hot Delivery's drop is now found from the block south of Northshore Bay.
+
+Where water still cuts an avenue short, it leaves a stub whose far end leads only into side streets.
+A city bus keeps to the avenues that go on (`throughAvenues` in `src/sim/driver.ts`): traffic spawns none on a stub, and a bus on the move never turns into one.
+
 ## Rejected, and why
 
 - **Hills.** Vehicle physics, the collider grid's fixed height bands, the ground and facade renderers and the traffic and police AI all assume flat ground (ramps and decks are the only slopes and steps).
@@ -86,6 +103,7 @@ Pedestrians keep to dry land: the promenade loop breaks where the sea comes in, 
 
 - The coast (promenade furniture, beach palms, the pier and the Marina) draws from its own generator, seeded with the state the shared generator had when the coast began before, so the beach is exactly as it was.
 - Tests that named lanes by their index in `roads.lanes` now name them by their place in the square city (`legacyLane` in `tests/unit/helpers.ts`), because closing segments renumbers lanes.
+- New bays are drowned bodies (see Bays above), so adding one moves only what stood in it and the scenarios that used it.
 
 ## The shore
 

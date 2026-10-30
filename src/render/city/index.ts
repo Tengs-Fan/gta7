@@ -68,7 +68,8 @@ export class CityView {
     for (const mesh of this.softwareMeshes) mesh.prepare(this.frustum, camera.position.x, camera.position.z, distance);
   }
 
-  add(geo: THREE.BufferGeometry, mat: THREE.Material, opts: { shadow?: boolean; receive?: boolean; name?: string } = {}): void {
+  /** `split: false` keeps a shadow caster in one mesh: for a few pieces across the city, cells would only add draws. */
+  add(geo: THREE.BufferGeometry, mat: THREE.Material, opts: { shadow?: boolean; receive?: boolean; name?: string; split?: boolean } = {}): void {
     if (this.software) {
       const mesh = new CulledStaticMesh(geo, mat, this.chunkSize);
       mesh.name = opts.name ?? '';
@@ -77,7 +78,7 @@ export class CityView {
       return;
     }
     // Layers that cast no shadow are thin ground surfaces: a few triangles a cell, so culling them saves nothing but draws.
-    const parts = spatialGeometry(geo, opts.shadow ? this.chunkSize : Infinity);
+    const parts = spatialGeometry(geo, opts.shadow && opts.split !== false ? this.chunkSize : Infinity);
     for (const part of parts) {
       const m = new THREE.Mesh(part, mat);
       m.castShadow = opts.shadow ?? false;

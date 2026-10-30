@@ -36,6 +36,8 @@ function lap(courseId: string, seed: number, traffic: boolean): Lap {
   step(sim, 8);
   sim.activities.startStreetRun(courseId);
   const nodes = course.nodes;
+  const gates: number[] = [];
+  sim.events.on('streetRunCheckpoint', (e) => gates.push(e.index));
   const bot = fleeBot(sim, car);
   const priv = bot.ai as unknown as { chooseTurn(l: Lane): Turn | null };
   priv.chooseTurn = (lane: Lane) => {
@@ -45,13 +47,27 @@ function lap(courseId: string, seed: number, traffic: boolean): Lap {
         if (t) return t;
       }
     }
-    return lane.turns.find((t) => t.kind === 'straight') ?? lane.turns[0] ?? null;
+    // Knocked off the course (a crash turned it round or onto another street): back to the next gate it has not
+    // passed, the way a player follows the gate's marker. Gate k is the course's node k, the finish its first node.
+    const gate = nodes[gates.length + 1] ?? nodes[0]!;
+    const route = sim.roads.findRoute(lane.to, gate, lane.from);
+    const back = route && route.length > 1 ? sim.roads.turnTowards(lane, route[1]!) : null;
+    return back ?? lane.turns.find((t) => t.kind === 'straight') ?? lane.turns[0] ?? null;
   };
   bot.ai.resetPath();
+  // Collisions, not contacts: a hit reports once for each car of the pair and bounces a few times within a fraction
+  // of a second, so it counts again only after 1.5 s clear of that car.
   let impacts = 0;
+  let now = 0;
+  const lastHit = new Map<Vehicle, number>();
   const impact = sim.onVehicleImpact.bind(sim);
   sim.onVehicleImpact = (v: Vehicle, other: Vehicle | null, deltaV: number, ...rest: unknown[]) => {
-    if ((v === car || other === car) && other && deltaV > 3) impacts++;
+    if ((v === car || other === car) && other && deltaV > 3) {
+      const partner = v === car ? other : v;
+      const last = lastHit.get(partner);
+      if (last === undefined || now - last > 1.5) impacts++;
+      lastHit.set(partner, now);
+    }
     return (impact as (...a: unknown[]) => void)(v, other, deltaV, ...rest);
   };
   let finished = -1;
@@ -60,14 +76,13 @@ function lap(courseId: string, seed: number, traffic: boolean): Lap {
     finished = e.time;
     medal = e.medal;
   });
-  const gates: number[] = [];
-  sim.events.on('streetRunCheckpoint', (e) => gates.push(e.index));
   let ended = false;
   sim.events.on('activityEnded', () => (ended = true));
   let crawl = 0;
   const dt = 1 / 60;
   for (let f = 0; f < 60 * 140 && !ended; f++) {
     const racing = (sim.activities.job as StreetRunJob | null)?.stage === 'racing';
+    now = f * dt;
     step(sim, dt, bot(dt));
     if (racing && car.speed < 4) crawl += dt;
   }

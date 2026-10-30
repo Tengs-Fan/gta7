@@ -368,13 +368,29 @@ const SUPERBLOCKS: ReadonlyArray<{ bi: number; bj: number; bi2: number; bj2: num
 /** The superblock built round an open square. */
 const PLAZA_BLOCK = { bi: 5, bj: 6, name: 'Civic Plaza' };
 
-/**
- * Cells given to the sea, and the quay (m) left between the water and the coast road round it: a sidewalk's width,
- * or a wharf for the cranes.
- */
-const SEA_BODIES: ReadonlyArray<{ name: string; cells: ReadonlyArray<readonly [number, number]>; quay: number }> = [
+interface SeaBody {
+  name: string;
+  cells: ReadonlyArray<readonly [number, number]>;
+  /** The quay (m) left between the water and the coast road round it: a sidewalk's width, or a wharf for the cranes. */
+  quay: number;
+  /**
+   * Built as land and drowned once the street furniture stands (see drown()): every other block keeps the random
+   * draws it had while these cells were land.
+   */
+  drowned?: true;
+}
+
+/** Cells given to the sea. */
+const SEA_BODIES: readonly SeaBody[] = [
   { name: 'Hillcrest Cove', cells: [[0, 0], [1, 0]], quay: SIDEWALK_W },
   { name: 'Port Basin', cells: [[0, 9], [1, 9]], quay: 20 },
+  // West of Hillcrest Green, and east of it beside Azura Point: the north shore steps in and out round the park.
+  { name: 'Gull Bay', cells: [[4, 0]], quay: SIDEWALK_W, drowned: true },
+  { name: 'Northshore Bay', cells: [[7, 0], [8, 0]], quay: SIDEWALK_W, drowned: true },
+  // A harbour bitten out of Westside's shore.
+  { name: 'Pelican Harbor', cells: [[0, 5], [0, 6]], quay: SIDEWALK_W, drowned: true },
+  // The south shore turns in before the beach.
+  { name: 'Coral Bay', cells: [[8, 9]], quay: SIDEWALK_W, drowned: true },
 ];
 
 const PARKS: ReadonlyArray<{ bi: number; bj: number; name: string }> = [
@@ -547,7 +563,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   // Blocks: one per cell, one per superblock, none on a sea cell.
   const cells: (Block | null)[] = layout.cells;
   for (let k = 0; k < n * n; k++) cells.push(null);
-  const sea = new Set(SEA_BODIES.flatMap((w) => w.cells.map(([bi, bj]) => bj * n + bi)));
+  const sea = new Set(SEA_BODIES.filter((w) => !w.drowned).flatMap((w) => w.cells.map(([bi, bj]) => bj * n + bi)));
   for (let bj = 0; bj < n; bj++) {
     for (let bi = 0; bi < n; bi++) {
       if (sea.has(bj * n + bi) || cells[bj * n + bi]) continue;
@@ -579,7 +595,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     }
   }
   layoutRoads(layout);
-  buildWater(layout);
+  buildWater(layout, SEA_BODIES.filter((w) => !w.drowned), new Set());
   buildCanal(layout);
   buildHeadland(layout);
 
@@ -605,6 +621,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   }
 
   buildStreetFurniture(layout, rng, reserved);
+  drown(layout, SEA_BODIES.filter((w) => w.drowned));
   // The coast draws from its own generator, so changes to the city's blocks leave the beach and promenade as they are.
   buildCoast(layout, new Rng(seed === CITY_SEED ? COAST_STATE : hashInts(seed, 6151)));
   buildRamps(layout);
@@ -660,19 +677,76 @@ function layoutRoads(layout: CityLayout): void {
   for (let j = 0; j < n; j++) for (let i = 0; i <= n; i++) layout.roadV.push(i !== CANAL.line && exists(cell(i - 1, j), cell(i, j)));
 }
 
-/** The sea cells' water: each cell out to the coast or to the middle of its roads, short of the live roads and their quay. */
-function buildWater(layout: CityLayout): void {
+/**
+ * Gives the drowned bodies' cells to the sea once the city round them stands: their blocks and everything on them go,
+ * the roads that bordered only them close, except the ring road, which crosses the bay's mouth on a bridge so the coast
+ * road runs on and no junction on it is left with a single way out; a signal stays only where three roads still meet
+ * on a live approach, and the water comes in.
+ */
+function drown(layout: CityLayout, bodies: readonly SeaBody[]): void {
+  const { n } = layout;
+  const gone: Rect[] = [];
+  for (const body of bodies) {
+    for (const [bi, bj] of body.cells) {
+      gone.push(layout.cells[bj * n + bi]!.rect);
+      layout.cells[bj * n + bi] = null;
+    }
+  }
+  const dry = (x: number, z: number) => !gone.some((r) => rectContains(r, x, z));
+  layout.blocks = layout.blocks.filter((b) => dry(rectCX(b.rect), rectCZ(b.rect)));
+  layout.buildings = layout.buildings.filter((b) => dry(rectCX(b.rect), rectCZ(b.rect)));
+  layout.ground = layout.ground.filter((g) => dry(rectCX(g.rect), rectCZ(g.rect)));
+  layout.garages = layout.garages.filter((g) => dry(rectCX(g.rect), rectCZ(g.rect)));
+  layout.props = layout.props.filter((p) => dry(p.x, p.z));
+  layout.parking = layout.parking.filter((p) => dry(p.x, p.z));
+  layout.openSpots = layout.openSpots.filter((p) => dry(p.x, p.z));
+  layout.roadH = [];
+  layout.roadV = [];
+  layoutRoads(layout);
+  const bridged = new Set<string>();
+  for (const body of bodies) {
+    for (const [bi, bj] of body.cells) {
+      if (bj === 0) bridged.add(`h${bi},0`);
+      if (bj === n - 1) bridged.add(`h${bi},${n}`);
+      if (bi === 0) bridged.add(`v0,${bj}`);
+      if (bi === n - 1) bridged.add(`v${n},${bj}`);
+    }
+  }
+  for (const key of bridged) {
+    const [i, j] = key.slice(1).split(',').map(Number) as [number, number];
+    if (key[0] === 'h') layout.roadH[j * n + i] = true;
+    else layout.roadV[j * (n + 1) + i] = true;
+  }
+  layout.props = layout.props.filter((p) => {
+    if (p.kind !== 'signal') return true;
+    const i = p.node! % (n + 1);
+    const j = Math.floor(p.node! / (n + 1));
+    const roads = [0, 1, 2, 3].filter((d) => roadFrom(layout, i, j, d));
+    return roads.length >= 3 && roads.includes((p.dir! + 2) % 4);
+  });
+  buildWater(layout, bodies, bridged);
+}
+
+/**
+ * The sea cells' water: each cell out to the coast or to the middle of its roads, short of the live roads and their
+ * quay. The `bridged` road segments (`h<i>,<j>` east of junction (i, j), `v<i>,<j>` south of it) and the junctions they
+ * alone serve stand over the water instead, on bridge decks with parapets along their footways.
+ */
+function buildWater(layout: CityLayout, bodies: readonly SeaBody[], bridged: ReadonlySet<string>): void {
   const { n, vLines, hLines, bounds: b } = layout;
-  for (const body of SEA_BODIES) {
+  // The segment leaving junction (i, j) towards dir (0 N, 1 E, 2 S, 3 W), by its key.
+  const segKey = (i: number, j: number, d: number) => (d === 0 ? `v${i},${j - 1}` : d === 1 ? `h${i},${j}` : d === 2 ? `v${i},${j}` : `h${i - 1},${j}`);
+  const onLand = (i: number, j: number, d: number) => roadFrom(layout, i, j, d) && !bridged.has(segKey(i, j, d));
+  for (const body of bodies) {
     const q = body.quay;
     const keep: Rect[] = [];
     for (let j = 0; j <= n; j++) {
       for (let i = 0; i <= n; i++) {
         const v = vLines[i]!;
         const h = hLines[j]!;
-        if ([0, 1, 2, 3].some((d) => roadFrom(layout, i, j, d))) keep.push(mkRect(v.pos - v.width / 2 - q, h.pos - h.width / 2 - q, v.pos + v.width / 2 + q, h.pos + h.width / 2 + q));
-        if (roadFrom(layout, i, j, 1)) keep.push(mkRect(v.pos, h.pos - h.width / 2 - q, vLines[i + 1]!.pos, h.pos + h.width / 2 + q));
-        if (roadFrom(layout, i, j, 2)) keep.push(mkRect(v.pos - v.width / 2 - q, h.pos, v.pos + v.width / 2 + q, hLines[j + 1]!.pos));
+        if ([0, 1, 2, 3].some((d) => onLand(i, j, d))) keep.push(mkRect(v.pos - v.width / 2 - q, h.pos - h.width / 2 - q, v.pos + v.width / 2 + q, h.pos + h.width / 2 + q));
+        if (onLand(i, j, 1)) keep.push(mkRect(v.pos, h.pos - h.width / 2 - q, vLines[i + 1]!.pos, h.pos + h.width / 2 + q));
+        if (onLand(i, j, 2)) keep.push(mkRect(v.pos - v.width / 2 - q, h.pos, v.pos + v.width / 2 + q, hLines[j + 1]!.pos));
       }
     }
     const cells = body.cells.map(([bi, bj]) =>
@@ -681,6 +755,21 @@ function buildWater(layout: CityLayout): void {
     const rects = rectsMinus(cells, keep);
     const bounds = mkRect(Math.min(...rects.map((r) => r.minX)), Math.min(...rects.map((r) => r.minZ)), Math.max(...rects.map((r) => r.maxX)), Math.max(...rects.map((r) => r.maxZ)));
     layout.water.push({ name: body.name, rects, bounds, area: cells });
+    // The bridges over this body's water: the carriageway at road level, a footway either side, a parapet outside each.
+    const overWater = (r: Rect) => rects.map((w) => mkRect(Math.max(r.minX, w.minX), Math.max(r.minZ, w.minZ), Math.min(r.maxX, w.maxX), Math.min(r.maxZ, w.maxZ))).filter((x) => x.maxX > x.minX && x.maxZ > x.minZ);
+    for (const key of bridged) {
+      const [i, j] = key.slice(1).split(',').map(Number) as [number, number];
+      // Across the road: its two kerb lines; along it: junction centre to junction centre.
+      const [k0, k1, a0, a1] = key[0] === 'h' ? [hLines[j]!.pos - hLines[j]!.width / 2, hLines[j]!.pos + hLines[j]!.width / 2, vLines[i]!.pos, vLines[i + 1]!.pos] : [vLines[i]!.pos - vLines[i]!.width / 2, vLines[i]!.pos + vLines[i]!.width / 2, hLines[j]!.pos, hLines[j + 1]!.pos];
+      const strip = (c0: number, c1: number) => (key[0] === 'h' ? mkRect(a0, c0, a1, c1) : mkRect(c0, a0, c1, a1));
+      const deck = (c0: number, c1: number, y: number) => {
+        for (const r of overWater(strip(c0, c1))) layout.decks.push({ rect: r, y, name: body.name, bridge: true });
+      };
+      deck(k0, k1, 0);
+      deck(k0 - SIDEWALK_W, k0, CURB_H);
+      deck(k1, k1 + SIDEWALK_W, CURB_H);
+      layout.parapets.push(...overWater(strip(k0 - SIDEWALK_W, k0 - SIDEWALK_W + PARAPET_T)), ...overWater(strip(k1 + SIDEWALK_W - PARAPET_T, k1 + SIDEWALK_W)));
+    }
   }
 }
 
@@ -1696,10 +1785,10 @@ function buildRamps(layout: CityLayout): void {
   // Beach, launching south and north along the sand.
   addRamp(b.beachStartX + 22, b.landMinZ + 150, 0, 2.6);
   addRamp(b.beachStartX + 22, b.landMaxZ - 190, Math.PI, 2.6);
-  // West promenade, launching north.
-  addRamp(b.landMinX + 15, 120, Math.PI, 2.2);
-  // North promenade, launching east.
-  addRamp(-80, b.landMinZ + 15, Math.PI / 2, 2.2);
+  // West promenade by the docks, between Pelican Harbor and Port Basin, launching north.
+  addRamp(b.landMinX + 15, 290, Math.PI, 2.2);
+  // North promenade below Hillcrest Green, between Gull Bay and Northshore Bay, launching east.
+  addRamp(62, b.landMinZ + 15, Math.PI / 2, 2.2);
   // South promenade near the docks, launching west.
   addRamp(120, b.landMaxZ - 15, -Math.PI / 2, 2.2);
 }

@@ -977,9 +977,10 @@ describe('a fare let out of a cab left across the road', () => {
     fare.pos.x = x - Math.cos(lane.heading) * 3.5;
     fare.pos.z = z + Math.sin(lane.heading) * 3.5;
     stepUntil(sim, () => fare.vehicle === taxi, 3);
-    // Square across a street running east-west, backing up at 6 m/s as the fare's time runs out (the north ring road).
-    parkIn(sim, taxi, -45, -468.1);
-    expect(Math.abs(Math.sin(sim.roads.nearestLane(-45, -468.1).lane.heading))).toBeCloseTo(1, 3);
+    // Square across a street running east-west, backing up at 6 m/s as the fare's time runs out (the north ring road
+    // below Hillcrest Green).
+    parkIn(sim, taxi, 80, -468.1);
+    expect(Math.abs(Math.sin(sim.roads.nearestLane(80, -468.1).lane.heading))).toBeCloseTo(1, 3);
     taxi.heading = Math.PI;
     taxi.vel.z = 6;
     job().timer = 0.001;

@@ -321,7 +321,7 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     const heights = W.layout.buildings.map((b) => b.height).sort((a, b) => b - a);
     const p90 = heights[Math.floor(heights.length * 0.1)]!;
     const rows = lms.map((l) => {
-      const b = W.layout.buildings[l.id]!;
+      const b = W.layout.buildings.find((b) => b.id === l.id)!;
       const spire = l.spire >= 8;
       const stepped = l.setbacks.length >= 2 && l.setbacks.every((s) => s >= 0.15);
       const taper = l.taper90 <= 0.8;
@@ -332,10 +332,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     console.log(`[VAL-BLD-005] landmarks:\n  ${rows.join('\n  ')}`);
     expect(lms.length).toBeGreaterThanOrEqual(3);
     expect(new Set(lms.map((l) => l.kind)).size).toBe(lms.length);
-    expect(lms.filter((l) => W.layout.buildings[l.id]!.height >= p90).length).toBeGreaterThanOrEqual(2);
+    expect(lms.filter((l) => W.layout.buildings.find((b) => b.id === l.id)!.height >= p90).length).toBeGreaterThanOrEqual(2);
     // Seen from the sea (sight lines run west, along x) no crown stands in line with another or behind a nearer tower
     // that reaches within 4 m of its roof over half its breadth.
-    const lmB = lms.map((l) => W.layout.buildings[l.id]!);
+    const lmB = lms.map((l) => W.layout.buildings.find((b) => b.id === l.id)!);
     const cz = (b: (typeof lmB)[number]) => (b.rect.minZ + b.rect.maxZ) / 2;
     for (let i = 0; i < lmB.length; i++) {
       for (let j = i + 1; j < lmB.length; j++) expect(Math.abs(cz(lmB[i]!) - cz(lmB[j]!)), `landmarks ${lmB[i]!.id}/${lmB[j]!.id}`).toBeGreaterThanOrEqual(45);
@@ -350,9 +350,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     const c = createHash('sha256').update(JSON.stringify(W.grid.colliders.map((x) => ({ ...x })))).digest('hex');
     console.log(`[VAL-BLD-010] buildings ${b}, colliders ${c}`);
     // Captured at d98da7b with the same canonical JSON (tsx over a d98da7b export), re-captured when the map was broken
-    // up (docs/map.md): superblocks, the cove, the basin, the canal with its bridges' parapets, and the headland.
-    expect(b).toBe('1e50aa28bb42a8cddf3122d3fea3631755a9371a7206b971c621ff2104d25adf');
-    expect(c).toBe('51757281b9b3c7e1a30142df83b6f5e1139f7a0e82a9b8207b5579172b3a2ecf');
+    // up (docs/map.md): superblocks, the cove, the basin, the canal with its bridges' parapets, and the headland; and again when four bays were drowned into the coast, and when the ring road
+    // was bridged across their mouths (the bridges' parapets).
+    expect(b).toBe('a52c2c8ab0629cf2b89bc0b11e6ab1f26eb0cd80959093183317293951215293');
+    expect(c).toBe('43c5b26d1cd25e59712608ef1c4a8e68d56ca36e38a5b047fda722737b9fe752');
   });
 });
 

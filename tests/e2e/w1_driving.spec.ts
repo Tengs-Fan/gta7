@@ -24,8 +24,9 @@ test.describe('wave 1 driving', () => {
       const sim = g.sim;
       // A long straight lane into a junction with a right turn, the car 70 m out from its end.
       // Turning right onto an avenue, which leaves room to slide wide.
-      // North up Delgado St into the ring road, turning right onto it (Palmetto St, the first such lane, ends in Hillcrest Cove now).
-      const lane = sim.roads.lanesBetween(sim.roads.node(7, 1).id, sim.roads.node(7, 0).id)[0];
+      // North up Reef St into the ring road, turning right onto it (Palmetto St ends in Hillcrest Cove, and Delgado St's
+      // right turn now leads straight onto the bridge over Northshore Bay, between parapets).
+      const lane = sim.roads.lanesBetween(sim.roads.node(9, 1).id, sim.roads.node(9, 0).id)[0];
       const s = lane.length - 70;
       g.teleport(lane.sx + lane.dx * s, lane.sz + lane.dz * s);
       const v = sim.spawnVehicle('sports', lane.sx + lane.dx * s, lane.sz + lane.dz * s, lane.heading);

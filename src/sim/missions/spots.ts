@@ -1,6 +1,6 @@
 // Deterministic mission locations derived from the generated city.
 
-import { cellBlock, rectCX, rectCZ, type ParkingSpot, type Poi } from '../../world/layout';
+import { rectCX, rectCZ, type ParkingSpot, type Poi } from '../../world/layout';
 import type { Lane } from '../../world/roads';
 import type { StaticWorld } from '../../world/staticWorld';
 
@@ -20,9 +20,14 @@ export interface MissionSpots {
 
 const cache = new WeakMap<StaticWorld, MissionSpots>();
 
+/** The centre of cell (bi, bj) between its roads' kerbs: a one-cell block's centre, and a sea cell's too. */
 function blockCenter(world: StaticWorld, bi: number, bj: number): { x: number; z: number } {
-  const b = cellBlock(world.layout, bi, bj)!;
-  return { x: rectCX(b.rect), z: rectCZ(b.rect) };
+  const { vLines, hLines } = world.layout;
+  const v0 = vLines[bi]!;
+  const v1 = vLines[bi + 1]!;
+  const h0 = hLines[bj]!;
+  const h1 = hLines[bj + 1]!;
+  return { x: (v0.pos + v0.width / 2 + v1.pos - v1.width / 2) / 2, z: (h0.pos + h0.width / 2 + h1.pos - h1.width / 2) / 2 };
 }
 
 /**
@@ -77,7 +82,7 @@ export function missionSpots(world: StaticWorld): MissionSpots {
 
   const mid = blockCenter(world, 7, 3);
   const pickupSpot = found(nearestParking(world, mid.x, mid.z));
-  const hill = blockCenter(world, 8, 0);
+  const hill = blockCenter(world, 7, 1);
   const drop = world.layout.openSpots
     .filter((s) => s.district === 'hillcrest' && world.isFree(s.x, s.z, 0.8))
     .sort((a, b) => Math.hypot(a.x - hill.x, a.z - hill.z) - Math.hypot(b.x - hill.x, b.z - hill.z))[0];

@@ -841,7 +841,7 @@ describe('searching while the player is far from the last sighting', () => {
     const wrong: string[] = [];
     let sent = 0;
     for (const [level, li, lj, fi, fj] of [
-      [1, 8, 3, 2, 1], [1, 2, 5, 9, 4], [1, 0, 6, 8, 5], [1, 4, 0, 4, 8], [2, 1, 7, 8, 6], [2, 5, 0, 5, 7], [2, 9, 9, 3, 2], [2, 0, 2, 7, 3],
+      [1, 8, 3, 2, 1], [1, 2, 5, 9, 4], [1, 0, 4, 8, 5], [1, 4, 0, 4, 8], [2, 1, 7, 8, 6], [2, 5, 0, 5, 7], [2, 9, 9, 3, 2], [2, 0, 2, 7, 3],
     ] as const) {
       const sim = makeSim({ seed: li * 10 + lj });
       const seen = corner(sim, li, lj);

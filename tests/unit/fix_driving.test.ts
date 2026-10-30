@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DriverPolicy } from '../../src/sim/driver';
+import { throughAvenues, type DriverPolicy } from '../../src/sim/driver';
 import type { Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
@@ -243,9 +243,10 @@ describe('driving fixes', () => {
     for (const kind of ['compact', 'sedan', 'sports', 'police'] as const) {
       const sim = makeSim({ police: false });
       signalsOff(sim);
-      // Straight down a north-south avenue: nothing to slow down for.
-      const lane = sim.roads.lanes.find((l) => l.line.avenue && l.dir === 2 && l.index === 0 && sim.roads.nodes[l.from]!.j === 0 && sim.roads.nodes[l.from]!.degree === 3)!;
-      const end = sim.roads.node(sim.roads.nodes[lane.from]!.i, sim.roads.layout.n);
+      // Straight up a north-south avenue, the city's whole depth: nothing to slow down for.
+      const n = sim.roads.layout.n;
+      const lane = sim.roads.lanes.find((l) => l.line.avenue && l.dir === 0 && l.index === 0 && sim.roads.nodes[l.from]!.j === n && sim.roads.nodes[l.from]!.degree === 3)!;
+      const end = sim.roads.node(sim.roads.nodes[lane.from]!.i, 0);
       const v = drive(sim, kind, lane, 2, 12, 'route');
       v.ai!.dest = { x: end.x, z: end.z };
       v.ai!.setLane(lane, 2);
@@ -271,8 +272,10 @@ describe('driving fixes', () => {
     const sim = makeSim({ police: false });
     let broken = 0;
     sim.events.on('propBroken', () => broken++);
-    // Free-roaming buses only take turns they can steer: they never end up in a side street.
-    const starts = sim.roads.lanes.filter((l) => l.line.avenue && l.length >= 70).filter((_, i) => i % 9 === 0).slice(0, 6);
+    // Free-roaming buses only take turns they can steer: they never end up in a side street. They start where traffic
+    // puts buses: on avenues they can drive on for ever (not one cut short by a bay).
+    const through = throughAvenues(sim.roads);
+    const starts = sim.roads.lanes.filter((l) => through.has(l) && l.length >= 70).filter((_, i) => i % 9 === 0).slice(0, 6);
     const buses = starts.map((l) => drive(sim, 'bus', l, 10, 8));
     let onStreet = 0;
     step(sim, 60, () => {

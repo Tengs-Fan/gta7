@@ -302,7 +302,7 @@ describe('cross traffic queued at a light', () => {
     const tooNear: string[] = [];
     const ranRed: string[] = [];
     let seed = 0;
-    for (const street of streets.slice(0, 6)) {
+    for (const street of streets.slice(0, 8)) {
       for (let t0 = 0; t0 < SIGNAL_CYCLE; t0 += 1.5) {
         const sim = new Sim({ world: W, ambient: false, police: false, seed: ++seed });
         sim.time = t0;

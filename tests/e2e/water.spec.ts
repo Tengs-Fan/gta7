@@ -21,7 +21,7 @@ test.describe('the sea', () => {
       g.setWeather('clear', { instant: true });
       g.godMode(true);
       g.setTime(12);
-      g.teleport(-509, 100);
+      g.teleport(-509, -100);
       g.give('rocket', 4);
       g.setCamera(-Math.PI / 2, -0.5);
       const w = window as unknown as { __waterEvents: Array<{ kind: string; y: number }> };

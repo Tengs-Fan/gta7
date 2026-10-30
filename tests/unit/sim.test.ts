@@ -247,8 +247,9 @@ describe('combat, wanted level and police', () => {
       sim.progress.addMoney(1000);
       const money = sim.progress.money;
       sim.wanted.setLevel(stars);
-      // Use the police system equipment path for a proper brain.
-      const unit = sim.police.spawnUnit('police', true);
+      // Use the police system equipment path for a proper brain, calling it as dispatch does until a spot turns up.
+      let unit = sim.police.spawnUnit('police', true);
+      for (let i = 0; i < 10 && !unit; i++) unit = sim.police.spawnUnit('police', true);
       expect(unit).not.toBeNull();
       // Move the crew next to the player on foot.
       for (const c of unit!.occupants()) {

@@ -4,7 +4,7 @@ import { axisOf, SIGNAL_CYCLE, SIGNAL_GREEN, type Lane } from '../world/roads';
 import { pointSegDist } from '../core/math';
 import type { Rng } from '../core/rng';
 import { WATER_Y } from '../world/constants';
-import { STOP_MARGIN } from './driver';
+import { STOP_MARGIN, throughAvenues } from './driver';
 import type { Vehicle } from './entities';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
@@ -502,7 +502,7 @@ export class TrafficSystem {
       if (sim.isVisible(x, 1, z)) continue;
       if (!this.isClear(x, z, 11)) continue;
       let k = kind ?? trafficBike(sim.rng.weighted(TRAFFIC_MIX), x, z);
-      if (k === 'bus' && !lane.line.avenue) k = 'sedan';
+      if (k === 'bus' && !throughAvenues(sim.roads).has(lane)) k = 'sedan';
       // Queued at a light that is not green, the front bumper waits STOP_MARGIN short of the line (see DriverAI). A bus
       // queued nearer than that would already be in the junction for its driver and pull out against the light: it
       // waits further back (with half a metre to spare), where it has to be out of sight and clear too.

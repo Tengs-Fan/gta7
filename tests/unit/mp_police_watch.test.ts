@@ -44,7 +44,8 @@ describe('police watch in the room status', () => {
   it("lists every police unit with the player it works for and the one it targets: only the wanted player's pursuit is active", () => {
     const { room, a } = twoPlayers(32);
     room.command(a, 'debug', JSON.stringify({ wanted: 2 }));
-    for (let i = 0; i < 60 * 20; i++) room.step();
+    // Until a unit has him in its sights (the status is under test here, not how fast the police find him).
+    for (let i = 0; i < 60 * 60 && !room.status().policeUnits.some((u) => u.target === 'Ann'); i++) room.step();
     const st = room.status();
     expect(st.policeUnits.length).toBeGreaterThan(0);
     const active = st.policeUnits.filter((u) => u.active);

@@ -244,6 +244,28 @@ function steerSpeed(spec: VehicleSpec, radius: number): number {
   return (spec.steerFade ?? STEER_FADE) * (spec.steer / Math.atan((spec.length * 0.6) / radius) - 1);
 }
 
+const throughCache = new WeakMap<RoadNetwork, ReadonlySet<Lane>>();
+
+/**
+ * The avenue lanes from which the avenues go on. One cut short by a bay, whose far end leads only into side streets,
+ * is not among them, nor is one leading only into such a stub: a bus that took it could only leave by a side street.
+ */
+export function throughAvenues(roads: RoadNetwork): ReadonlySet<Lane> {
+  const cached = throughCache.get(roads);
+  if (cached) return cached;
+  const through = new Set(roads.lanes.filter((l) => l.line.avenue));
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const lane of through) {
+      if (lane.turns.some((t) => through.has(t.to))) continue;
+      through.delete(lane);
+      changed = true;
+    }
+  }
+  throughCache.set(roads, through);
+  return through;
+}
+
 /** Distance (m) from the stretch from (ax, az) to (bx, bz) to the footprint of `o`; 0 where it crosses it. */
 function boxGap(o: Vehicle, ax: number, az: number, bx: number, bz: number): number {
   // In the frame of `o`: x across it, z along it.
@@ -628,6 +650,12 @@ export class DriverAI {
     }
     const legal = turns.filter((t) => t.legal);
     let pool = legal.length > 0 ? legal : turns;
+    // A bus keeps to the avenues that go on: not into one cut short by a bay, which it could leave only by a side street.
+    if (this.vehicle.kind === 'bus') {
+      const through = throughAvenues(roads);
+      const onward = pool.filter((t) => through.has(t.to));
+      if (onward.length > 0) pool = onward;
+    }
     // Skip turns tighter than the vehicle can steer (a bus into a side street) when it can go elsewhere.
     const steerable = pool.filter((t) => t.kind === 'straight' || steerSpeed(this.vehicle.spec, turnRadius(t)) >= CRAWL_SPEED);
     if (steerable.length > 0) pool = steerable;
