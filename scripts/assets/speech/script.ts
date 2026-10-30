@@ -418,6 +418,30 @@ export const STATION_IDENTS: Readonly<Record<string, { voice: string; lines: rea
       "Pulse, ninety six one. The party is wherever you park.",
     ],
   },
+  'VELVET 89.9': {
+    voice: 'af_nicole',
+    lines: ['Velvet, eighty nine point nine. Music to wait to.', 'Relax. Whatever it is, it can wait. This is Velvet.'],
+  },
+  'DOCKSIDE DUB 92.3': {
+    voice: 'bm_george',
+    lines: ['Dockside Dub, ninety two point three. Bass from the harbour, all night long.', 'Turn it up and lean back. Dockside Dub.'],
+  },
+  'COYOTE 97.7': {
+    voice: 'am_adam',
+    lines: ['Coyote, ninety seven point seven. Outlaw country for the open road.', 'Dust on the boots, gas in the tank. You are on Coyote.'],
+  },
+  'WIPEOUT 99.5': {
+    voice: 'am_puck',
+    lines: ['Wipeout, ninety nine point five, live from Ocean Beach. Surf is up.', 'Wax your board and floor it. This is Wipeout.'],
+  },
+  'BREAKNECK 102.7': {
+    voice: 'bf_isabella',
+    lines: ['Breakneck, one oh two point seven. Faster than the cops.', 'One hundred and seventy four beats a minute. Breakneck.'],
+  },
+  'PIXEL 103.9': {
+    voice: 'af_sky',
+    lines: ['Pixel, one oh three point nine. Insert coin to continue.', 'High score radio. You are tuned to Pixel.'],
+  },
 };
 
 /** A set of short shouts, each rendered in every voice of its pool; a person keeps one voice. */

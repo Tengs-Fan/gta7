@@ -7,6 +7,8 @@
 
 import { clamp } from '../core/math';
 import { Rng } from '../core/rng';
+import { SPEECH } from '../sim/speech';
+import { playClip, SpeechBank } from './speech';
 import { boombap } from './stations/boombap';
 import { chiptune } from './stations/chiptune';
 import { country } from './stations/country';
@@ -28,8 +30,6 @@ export interface StationDef {
   tag: string;
   /** The music; null on the talk station. */
   style: Style | null;
-  /** What the station's voice says between songs (station idents, for a voiced radio). */
-  idents: readonly string[];
 }
 
 export const STATIONS: readonly StationDef[] = [
@@ -38,65 +38,56 @@ export const STATIONS: readonly StationDef[] = [
     genre: 'synthwave',
     tag: 'Synthwave after dark',
     style: synthwave,
-    idents: ['Neon Drive, eighty-eight point seven. Keep your lights on and your engine warm.', 'You are cruising with Neon Drive. The night is long, San Azura.'],
   },
   {
     name: 'VELVET 89.9',
     genre: 'lounge',
     tag: 'Lounge, music to wait to',
     style: lounge,
-    idents: ['Velvet, eighty-nine point nine. Music to wait to.', 'Relax. Whatever it is, it can wait. This is Velvet.'],
   },
   {
     name: 'DOCKSIDE DUB 92.3',
     genre: 'dub',
     tag: 'Dub from the Docks',
     style: dub,
-    idents: ['Dockside Dub, ninety-two point three. Bass from the harbour, all night long.', 'Turn it up and lean back. Dockside Dub.'],
   },
   {
     name: 'PULSE 96.1',
     genre: 'house',
     tag: 'House all night',
     style: house,
-    idents: ['Pulse, ninety-six point one. Keep moving, San Azura.', 'Four to the floor and no brakes. This is Pulse.'],
   },
   {
     name: 'COYOTE 97.7',
     genre: 'country',
     tag: 'Outlaw country',
     style: country,
-    idents: ['Coyote, ninety-seven point seven. Outlaw country for the open road.', 'Dust on the boots, gas in the tank. You are on Coyote.'],
   },
   {
     name: 'WIPEOUT 99.5',
     genre: 'surf',
     tag: 'Surf rock, Ocean Beach',
     style: surf,
-    idents: ['Wipeout, ninety-nine point five, live from Ocean Beach. Surf is up.', 'Wax your board and floor it. This is Wipeout.'],
   },
   {
     name: 'BOOM BAP 101.3',
     genre: 'boombap',
     tag: 'Golden-era hip hop',
     style: boombap,
-    idents: ['Boom Bap, one-oh-one point three. Beats from the block.', 'Heads nodding from Southgate to the Docks. Boom Bap.'],
   },
   {
     name: 'BREAKNECK 102.7',
     genre: 'dnb',
     tag: 'Drum and bass, jungle',
     style: dnb,
-    idents: ['Breakneck, one-oh-two point seven. Faster than the cops.', 'One hundred and seventy-four beats a minute. Breakneck.'],
   },
   {
     name: 'PIXEL 103.9',
     genre: 'chiptune',
     tag: '8-bit chiptune',
     style: chiptune,
-    idents: ['Pixel, one-oh-three point nine. Insert coin to continue.', 'High score radio. You are tuned to Pixel.'],
   },
-  { name: 'AZURA TALK 104.5', genre: 'talk', tag: 'Talk, news, nonsense', style: null, idents: [] },
+  { name: 'AZURA TALK 104.5', genre: 'talk', tag: 'Talk, news, nonsense', style: null },
 ];
 
 /** Music intensity for a wanted level (0-5 stars): non-decreasing, 0 at no stars, 1 at five. */
@@ -112,6 +103,8 @@ const INTENSITY_TEMPO = 0.08;
 
 /** Output level of a playing station: 3 dB over unity, so the music sits over the engine. */
 const RADIO_LEVEL = 1.41;
+/** A station voice's ident over a song's intro, at the talk station's ident level. */
+const IDENT_LEVEL = 0.46;
 
 /** The reverb: four damped feedback delays in parallel (s, feedback), a short metallic room like a spring tank. */
 const COMBS: readonly (readonly [number, number])[] = [
@@ -143,6 +136,10 @@ export class Radio {
   private intensityTarget = 0;
   private programme: TalkProgramme | null = null;
   private talk: TalkShow | null = null;
+  private bank!: SpeechBank;
+  private tally?: NodeTally;
+  /** The station voice's ident on air, cut when the station changes. */
+  private ident: AudioBufferSourceNode | null = null;
   /** Context time of the talk programme's start: the station is live whether or not anyone listens. */
   private epoch = 0;
 
@@ -212,6 +209,8 @@ export class Radio {
     // Tuning in for the first time lands somewhere in the first minute of the show.
     this.epoch = ctx.currentTime - Math.random() * 60;
     this.talk = new TalkShow(ctx, this.out, tally);
+    this.bank = new SpeechBank(ctx);
+    this.tally = tally;
     this.delay = ctx.createDelay(1.5);
     this.echoFeedback = ctx.createGain();
     this.echoFeedback.gain.value = 0.32;
@@ -261,13 +260,32 @@ export class Radio {
   private switched(): void {
     this.song = null;
     this.stopTalk();
+    this.stopIdent();
     this.static();
   }
 
   setPaused(p: boolean): void {
     this.paused = p;
     // update() does not run under a menu: the talk voices must not hold on behind the pause.
-    if (p) this.stopTalk();
+    if (p) {
+      this.stopTalk();
+      this.stopIdent();
+    }
+  }
+
+  private stopIdent(): void {
+    this.ident?.stop();
+    this.ident = null;
+  }
+
+  /** The station's voice says one of its idents at `at`, unless the station changes before it has loaded. */
+  private sayIdent(ids: readonly string[], at: number): void {
+    const station = this.index;
+    const id = ids[this.rng.int(0, ids.length - 1)]!;
+    const still = () => this.active && this.index === station;
+    void playClip({ ctx: this.ctx!, bank: this.bank, id, dest: this.out, at, level: IDENT_LEVEL, still, tally: this.tally, kind: 'ident' }).then((p) => {
+      if (p) this.ident = p.src;
+    });
   }
 
   private stopTalk(): void {
@@ -309,6 +327,9 @@ export class Radio {
     const t = this.ctx!.currentTime;
     this.delay.delayTime.setTargetAtTime((0.75 * 60) / song.bpm, t, 0.05);
     this.echoFeedback.gain.setTargetAtTime(style.echo, t, 0.05);
+    // Half the songs, and half the times a station is tuned in, open with the station's voice over the intro.
+    const idents = SPEECH.idents[STATIONS[this.index]!.name];
+    if (idents && this.rng.chance(0.5)) this.sayIdent(idents, Math.max(t, this.nextTime) + 0.4);
     return song;
   }
 
@@ -328,7 +349,10 @@ export class Radio {
         this.nextTime = t + 0.08;
         if (!this.song && !talk) this.startSong();
         this.static();
-      } else this.stopTalk();
+      } else {
+        this.stopTalk();
+        this.stopIdent();
+      }
     }
     if (!this.active) return;
     if (talk) {

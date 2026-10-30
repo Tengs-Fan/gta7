@@ -5,6 +5,7 @@ import { STATIONS } from '../../src/audio/radio';
 import type { Kit } from '../../src/audio/stations/kit';
 import { locate, type Beat, type Style } from '../../src/audio/stations/style';
 import { Rng } from '../../src/core/rng';
+import { SPEECH } from '../../src/sim/speech';
 
 /** A kit that only counts the voices a style asks for. */
 function countingKit(): { kit: Kit; count: () => number } {
@@ -43,7 +44,7 @@ describe('radio stations', () => {
     expect(STATIONS.at(-1)!.genre).toBe('talk');
     expect(MUSIC.length).toBe(9);
     for (const s of STATIONS) expect(s.tag.length, s.name).toBeLessThanOrEqual(25);
-    for (const s of MUSIC) expect(s.idents.length, s.name).toBeGreaterThan(0);
+    for (const s of MUSIC) expect(SPEECH.idents[s.name]?.length, s.name).toBeGreaterThan(0);
   });
 
   for (const st of MUSIC) {
