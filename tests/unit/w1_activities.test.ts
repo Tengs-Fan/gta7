@@ -81,8 +81,8 @@ function douseFire(sim: Sim, truck: Vehicle, f: { x: number; z: number; strength
 
 describe('wave-1 activity registry', () => {
   it('registers ambulance, firefighter, courier and car export next to the four existing activities', () => {
-    // The phone's cab (ui track) sits after the street run.
-    expect(activityKinds()).toEqual(['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'streetRun', 'cab']);
+    // The phone's cab (ui track) and AzuraLink's ride sit after the street run.
+    expect(activityKinds()).toEqual(['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'streetRun', 'cab', 'monorail']);
     for (const kind of ['ambulance', 'firefighter', 'courier', 'carExport']) {
       const def = getActivity(kind)!;
       for (const m of ['canStart', 'prompt', 'start', 'update', 'end', 'objectives', 'status'] as const) expect(typeof def[m], `${kind}.${m}`).toBe('function');

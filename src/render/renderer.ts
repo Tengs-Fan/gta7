@@ -4,7 +4,7 @@ import { ActivityFxView } from './activityFx';
 import { SiteView } from './siteView';
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
+import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { Vehicle } from '../sim/entities';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
@@ -1131,7 +1131,8 @@ export class GameRenderer {
       this.vehicleEffects(sim, dt);
       this.activityFx.sync(sim, dt, this.effects, this.time);
       this.monorail.update(sim.time, lights);
-      this.crowd.scopeHiddenId = this.cameraCtl.scoped ? this.me(sim).character.id : -1;
+      // Scoped, or riding AzuraLink (he waits out of sight at the far station), the player is not drawn.
+      this.crowd.scopeHiddenId = this.cameraCtl.scoped || monorailRide(sim, this.me(sim)) ? this.me(sim).character.id : -1;
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt, this.me(sim).character.id);
       this.footShadows.update(sim.characters, cam.position, this.crowd.scopeHiddenId);
       this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming);

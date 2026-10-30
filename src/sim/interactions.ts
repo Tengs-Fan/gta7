@@ -3,6 +3,7 @@
 
 import { rectContains, type Poi } from '../world/layout';
 import { getActivity } from './activities';
+import { monorailPrompt, rideMonorail } from './activities/monorail';
 import { places } from './activities/places';
 import { formatMoney } from '../core/math';
 import { BUSINESS_DAILY, BUSINESS_NAME, BUSINESS_PRICE, buyProperty, GARAGE_PRICE, GARAGE_SLOTS, propertyState, storedCars } from './properties';
@@ -13,7 +14,7 @@ import type { PlayerView } from './viewState';
 import { WEAPON_ORDER, WEAPONS, weaponKindOf, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
 
-export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun';
+export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun' | 'monorail';
 
 export interface Marker {
   id: string;
@@ -27,6 +28,14 @@ export interface Marker {
   ref: string;
   /** A radar and map icon for the place (properties), or none. */
   blip?: { color: string; label: string };
+}
+
+/** AzuraLink's teal. */
+export const MONORAIL_COLOR = 0x0aa5ad;
+
+/** The marker at the foot of AzuraLink station `i`'s stairs, saying `label` (a multiplayer client's says why not). */
+export function monorailMarker(at: { x: number; z: number }, i: number, label: string): Marker {
+  return { id: `monorail_${i}`, kind: 'monorail', x: at.x, z: at.z, radius: 1.5, label, color: MONORAIL_COLOR, ref: String(i), blip: { color: '#0aa5ad', label: 'M' } };
 }
 
 /** Property icons: grey while for sale, green once owned. */
@@ -92,6 +101,8 @@ export class Interactions {
     const bay = at.customsBay;
     this.markers.push({ id: 'azura_customs', kind: 'customs', x: (bay.minX + bay.maxX) / 2, z: (bay.minZ + bay.maxZ) / 2, radius: 0, label: '', color: 0xb36bff, ref: 'customs', blip: { color: '#b36bff', label: 'C' } });
     this.markers.push({ id: 'courier_office', kind: 'courier', x: at.courier.x + 3.6, z: at.courier.z, radius: 1.5, label: 'Azura Express: stop a car or bike here and press T for a courier run', color: 0xffd23d, ref: 'courier' });
+    // AzuraLink: the foot of each station's stairs (activities/monorail.ts says what it offers).
+    sim.world.layout.monorail.stations.forEach((s, i) => this.markers.push(monorailMarker(s.foot, i, '')));
   }
 
   /** The marker under the player (on foot), if any. `slot` is slot 0 by default. */
@@ -125,6 +136,7 @@ export class Interactions {
       return this.startBlock(slot, false) ?? m.label;
     }
     if (m.kind === 'garage' || m.kind === 'business') return this.propertyPrompt(m.kind);
+    if (m.kind === 'monorail') return monorailPrompt(sim, slot, Number(m.ref));
     if (m.kind === 'exportBoard') return sim.activities.job?.kind === 'carExport' ? "Press E to read Lou's export list" : m.label;
     if (m.kind === 'save') {
       // As interact() would answer, before E is pressed.
@@ -241,6 +253,9 @@ export class Interactions {
       case 'courier':
       case 'customs':
       case 'streetRun':
+        break;
+      case 'monorail':
+        rideMonorail(sim, slot, Number(m.ref));
         break;
       case 'garage':
       case 'business': {

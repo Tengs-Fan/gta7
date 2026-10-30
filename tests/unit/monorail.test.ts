@@ -1,13 +1,16 @@
 // AzuraLink, the monorail along Cortez Canal (src/world/monorail.ts): the train keeps a timetable of sim time alone,
 // between its two stations and dwelling at each; the pylons stand in the canal clear of every deck; the stations stand
 // on the promenades clear of the footbridges, the pedestrians' paths and every prop; a boat or a swimmer stops at a
-// pylon; and the train is heard rising in pitch as it comes and falling as it goes, a station's loudspeaker announcing
-// each departure.
+// pylon; the train is heard rising in pitch as it comes and falling as it goes, a station's loudspeaker announcing
+// each departure; and the $5 ride takes the player from one station's foot to the other's, the camera on the train.
 
 import { describe, expect, it } from 'vitest';
 import { Glider } from '../../src/audio/mixer';
 import { PA_LEAD, TrainVoice, type Hearing } from '../../src/audio/trainVoice';
+import { MONORAIL_FARE, MP_NO_MONORAIL } from '../../src/sim/activities/monorail';
 import { gangAt } from '../../src/sim/gangs';
+import type { Sim } from '../../src/sim/sim';
+import { monorailRide } from '../../src/sim/viewState';
 import { SPEECH } from '../../src/sim/speech';
 import { WATER_Y } from '../../src/world/constants';
 import { CAR_WIDTH, nextDeparture, runTime, TRAIN_DWELL, TRAIN_LENGTH, TRAIN_SPEED, trainAt, trainPeriod, TOWER_H } from '../../src/world/monorail';
@@ -290,3 +293,109 @@ describe('AzuraLink: the sound', () => {
   });
 });
 
+/** A sim with the player at the foot of station `from`'s stairs, standing on its marker. */
+function atStation(from: number, opts: Parameters<typeof makeSim>[0] = {}): Sim {
+  const sim = makeSim({ police: false, ...opts });
+  const foot = sim.world.layout.monorail.stations[from]!.foot;
+  teleport(sim, foot.x, foot.z);
+  step(sim, 0.1);
+  return sim;
+}
+
+/** Steps until `done` holds (true) or `seconds` pass (false). */
+function until(sim: Sim, seconds: number, done: () => boolean): boolean {
+  for (let i = 0; i < seconds * 60; i++) {
+    if (done()) return true;
+    step(sim, 1 / 60);
+  }
+  return done();
+}
+
+const press = (sim: Sim, key: 'interact' | 'enterExit') => step(sim, 1 / 60, input({ [key]: true }));
+
+describe('AzuraLink: the ride', () => {
+  it('E at the foot of the stairs waits for the next train, charges $5 as it leaves and lets him out at the other station', () => {
+    const sim = atStation(0);
+    const m = sim.world.layout.monorail;
+    const marker = sim.interactions.current()!;
+    expect(marker.kind).toBe('monorail');
+    expect(sim.interactions.prompt()).toBe(`Press E to ride AzuraLink to Seaview ($${MONORAIL_FARE})`);
+    const money = sim.progress.money;
+    const leaves = sim.time + nextDeparture(m, 0, sim.time);
+    press(sim, 'interact');
+    const j = sim.activities.job!;
+    expect(j.kind).toBe('monorail');
+    expect(sim.activities.status()).toMatch(/^AZURALINK {2}· {2}TRAIN IN \d:\d\d$/);
+    // Waiting costs nothing, and he can still walk about the foot of the stairs.
+    expect(sim.progress.money).toBe(money);
+    expect(sim.controlLock).toBe(0);
+    expect(until(sim, trainPeriod(m), () => sim.time >= leaves)).toBe(true);
+    step(sim, 2 / 60);
+    // Aboard: $5 down, locked, out of sight at the far station's foot, the camera on the train.
+    expect(sim.progress.money).toBe(money - MONORAIL_FARE);
+    expect(sim.controlLock).toBeGreaterThan(runTime(m) - 1);
+    expect(monorailRide(sim, sim.players[0]!)).not.toBeNull();
+    const far = m.stations[1]!.foot;
+    const p = sim.player;
+    expect(Math.hypot(p.pos.x - far.x, p.pos.z - far.z)).toBeLessThan(0.5);
+    step(sim, 2, input({ moveZ: 1, cameraYaw: 0 }));
+    expect(Math.hypot(p.pos.x - far.x, p.pos.z - far.z)).toBeLessThan(0.5);
+    // Off as the train pulls in: control back, nothing more charged.
+    expect(until(sim, runTime(m) + 2, () => sim.activities.job === null)).toBe(true);
+    expect(trainAt(m, sim.time).station).toBe(1);
+    expect(sim.controlLock).toBe(0);
+    expect(sim.progress.money).toBe(money - MONORAIL_FARE);
+    expect(monorailRide(sim, sim.players[0]!)).toBeNull();
+    expect(p.state).toBe('normal');
+    // He walks off north, away from the tower behind him.
+    step(sim, 1, input({ moveZ: 1, cameraYaw: Math.PI }));
+    expect(Math.hypot(p.pos.x - far.x, p.pos.z - far.z)).toBeGreaterThan(2);
+  });
+
+  it('F on the train skips to the far station at once', () => {
+    const sim = atStation(1);
+    press(sim, 'interact');
+    expect(until(sim, trainPeriod(sim.world.layout.monorail), () => monorailRide(sim, sim.players[0]!) !== null)).toBe(true);
+    press(sim, 'enterExit');
+    expect(sim.activities.job).toBeNull();
+    expect(sim.controlLock).toBe(0);
+    const far = sim.world.layout.monorail.stations[0]!.foot;
+    expect(Math.hypot(sim.player.pos.x - far.x, sim.player.pos.z - far.z)).toBeLessThan(0.5);
+    // The F did not also try to take a car.
+    expect(sim.player.state).toBe('normal');
+  });
+
+  it('is refused while wanted, during a mission, without the fare and in multiplayer; walking off gives up the wait', () => {
+    const wanted = atStation(0);
+    wanted.wanted.setLevel(1);
+    press(wanted, 'interact');
+    expect(wanted.activities.job).toBeNull();
+    expect(wanted.interactions.prompt()).toMatch(/cops/);
+    const broke = atStation(0);
+    broke.progress.money = MONORAIL_FARE - 1;
+    press(broke, 'interact');
+    expect(broke.activities.job).toBeNull();
+    expect(broke.interactions.prompt()).toMatch(/fare/);
+    const mp = atStation(0, { multiplayer: true });
+    press(mp, 'interact');
+    expect(mp.activities.job).toBeNull();
+    expect(mp.interactions.prompt()).toBe(MP_NO_MONORAIL);
+    const walker = atStation(0);
+    press(walker, 'interact');
+    expect(walker.activities.job?.kind).toBe('monorail');
+    step(walker, 6, input({ moveZ: 1, cameraYaw: 0, sprint: true }));
+    expect(walker.activities.job).toBeNull();
+  });
+
+  it('ends early, control back, when he is wasted or busted on the way', () => {
+    for (const end of ['wasted', 'busted'] as const) {
+      const sim = atStation(0);
+      press(sim, 'interact');
+      expect(until(sim, trainPeriod(sim.world.layout.monorail), () => monorailRide(sim, sim.players[0]!) !== null)).toBe(true);
+      if (end === 'wasted') sim.playerDied();
+      else sim.bustPlayer();
+      expect(sim.activities.job).toBeNull();
+      expect(sim.controlLock).toBe(0);
+    }
+  });
+});
