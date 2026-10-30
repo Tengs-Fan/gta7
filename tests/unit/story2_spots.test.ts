@@ -26,7 +26,8 @@ describe('chapter 2 spots', () => {
   it('parks the Nightjar by the street, the box near SAPD Central and the stops apart', () => {
     expect(world.roads.nearestLane(s.stealCar.x, s.stealCar.z).dist).toBeLessThan(15);
     const police = world.layout.pois.find((p) => p.id === 'police')!;
-    expect(Math.hypot(s.evidence.x - police.x, s.evidence.z - police.z)).toBeLessThan(80);
+    // The station's own block lost its car park to Cortez Canal: the nearest lot is a block away.
+    expect(Math.hypot(s.evidence.x - police.x, s.evidence.z - police.z)).toBeLessThan(90);
     const stops = [...s.pickupStops, s.curb];
     for (let i = 1; i < stops.length; i++) expect(Math.hypot(stops[i]!.x - stops[i - 1]!.x, stops[i]!.z - stops[i - 1]!.z)).toBeGreaterThan(150);
     expect(Math.hypot(s.tailStart.x - s.curb.x, s.tailStart.z - s.curb.z)).toBeGreaterThan(50);
