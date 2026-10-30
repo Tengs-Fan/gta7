@@ -268,6 +268,9 @@ test.describe('GTA 7 wave-1 audio', () => {
         const radio = (window as Api).__gta7.game.audio.radio;
         while (!radio.cueTalk('host', 1).clip.startsWith(prefix));
       }, prefix);
+      // The cued host goes on air on the next frame and its clip decodes after that: until then the bus carries what
+      // played before the cue.
+      await page.waitForTimeout(800);
       return (await record(page, 'music', 6000, 50, 5000, 24000)).filter((x) => x.kind === 'host' && x.into > 0.3 && x.left > 0.3);
     };
     const azura = await monologue('talk-host-');
