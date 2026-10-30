@@ -75,9 +75,9 @@ describe('the occluder fade helper', () => {
     expect(OCCLUDER_CAPSULE_R).toBe(0.35);
     expect(OCCLUDER_CAPSULE_FULL).toBe(0.7);
     expect(OCCLUDER_LENS_NEAR).toBe(1);
-    expect(OCCLUDER_LENS_FAR).toBe(1.5);
+    expect(OCCLUDER_LENS_FAR).toBe(1.6);
     // The shader's uniforms come from the same constants.
-    expect(OCCLUDER_FADE_EDGES).toEqual([0.35, 0.7, 1, 1.5]);
+    expect(OCCLUDER_FADE_EDGES).toEqual([0.35, 0.7, 1, 1.6]);
   });
 
   it('dissolves an axis inside the capsule round the sight line, and one within 1 m of the lens', () => {
