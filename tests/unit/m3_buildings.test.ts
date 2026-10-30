@@ -352,10 +352,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // Captured at d98da7b with the same canonical JSON (tsx over a d98da7b export), re-captured when the map was broken
     // up (docs/map.md): superblocks, the cove, the basin, the canal with its bridges' parapets, and the headland; and again when four bays were drowned into the coast, and when the ring road
     // was bridged across their mouths (the bridges' parapets); the colliders again when Hillcrest Green's hill added its
-    // sight cores and the SAN AZURA letters, and stood the props on it, and when Azura Point's bluff added its cores and
-    // the lookout's parapet and lifted the lighthouse.
+    // sight cores and the SAN AZURA letters (the slumped A a box per metre of its strokes), and stood the props on it,
+    // and when Azura Point's bluff added its cores and the lookout's parapet and lifted the lighthouse.
     expect(b).toBe('a52c2c8ab0629cf2b89bc0b11e6ab1f26eb0cd80959093183317293951215293');
-    expect(c).toBe('40bed186c3b6aa882d2dd8f2fd0a8832fa4aa279c9365d22d9a83ffd89717eb0');
+    expect(c).toBe('eefc777e8101e393345ab0c236b56370308794087f8857e6cc699b1b698c192a');
   });
 });
 
