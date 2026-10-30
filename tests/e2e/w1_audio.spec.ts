@@ -27,6 +27,10 @@ async function installTaps(page: Page): Promise<void> {
     const rec = new AudioWorkletNode(ctx, 'w1-rec', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 2, channelCountMode: 'explicit' });
     m.sfx.connect(rec);
     w.__w1 = {
+      /** Taps `node` as `name` (a node that is rerouted loses its taps: tap it once it is where it will stay). */
+      tap(name: string, node: AudioNode) {
+        taps[name] = mk(node);
+      },
       rms(tap: string) {
         taps[tap]!.getFloatTimeDomainData(td);
         let s = 0;
@@ -298,7 +302,6 @@ test.describe('GTA 7 wave-1 audio', () => {
     await quietCar(page);
     await installTaps(page);
     await tuneTalk(page);
-    const azura = await showPiece(page, 'talk-host-');
     await pressUntil(page, 'KeyR', 'SAPR 107.3');
     await expect(page.locator('.radio')).toHaveText(/^SAPR 107\.3Calm voices\. Pledge now\.$/);
     await page.screenshot({ path: test.info().outputPath('hud-sapr.png') });
@@ -314,11 +317,37 @@ test.describe('GTA 7 wave-1 audio', () => {
     await expect(page.locator('.radio')).toHaveText(/^STATIC 1260 AMIt's always 3 AM here$/);
     await page.screenshot({ path: test.info().outputPath('hud-static.png') });
     const theory = await showPiece(page, 'talk-static-host-');
-    const above = (s: Sample[]) => s.reduce((p, x) => p + x.band, 0) / s.length;
-    console.log(`[static] host: ${theory.length} windows, mean ${meanDb(theory).toFixed(1)} dBFS, min ${low(theory)}; share above 5 kHz ${above(theory).toExponential(2)} against AZURA TALK's ${above(azura).toExponential(2)}`);
+    console.log(`[static] host: ${theory.length} windows, mean ${meanDb(theory).toFixed(1)} dBFS, min ${low(theory)}`);
     expect(theory.length).toBeGreaterThan(40);
     expect(theory.filter((x) => x.db < -50)).toEqual([]);
-    expect(above(theory)).toBeLessThan(above(azura) * 0.3);
+    // Lyle's voice is breathier than Chet's (about 7 times the power above 5 kHz in its clips), so the band is read on
+    // his own words: the share above 5 kHz of the show's output, before the band, against the music bus at the same
+    // instants.
+    await page.evaluate(() => (window as Api).__w1.tap('show', ((window as Api).__gta7.game.audio.radio as unknown as { talkOut: AudioNode }).talkOut));
+    await page.evaluate(() => {
+      const radio = (window as Api).__gta7.game.audio.radio;
+      while (!radio.cueTalk('host', 1).clip.startsWith('talk-static-host-'));
+    });
+    await page.waitForTimeout(800);
+    const band = await page.evaluate(async () => {
+      const w1 = (window as Api).__w1;
+      const radio = (window as Api).__gta7.game.audio.radio;
+      let [show, music, n] = [0, 0, 0];
+      for (let i = 0; i < 120; i++) {
+        const info = radio.talkInfo();
+        const seg = info.segment!;
+        if (seg.kind === 'host' && info.time - seg.start > 0.3 && seg.start + seg.dur - info.time > 0.3) {
+          show += w1.band('show', 5000, 24000) as number;
+          music += w1.band('music', 5000, 24000) as number;
+          n++;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return { show: show / n, music: music / n, n };
+    });
+    console.log(`[static] share above 5 kHz over ${band.n} windows: ${band.show.toExponential(2)} from the show, ${band.music.toExponential(2)} on the music bus`);
+    expect(band.n).toBeGreaterThan(60);
+    expect(band.music).toBeLessThan(band.show * 0.3);
     expect(errors).toEqual([]);
   });
 
