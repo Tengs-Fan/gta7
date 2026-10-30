@@ -16,7 +16,8 @@ import { dialogueKey, phraseWords } from '../../../src/sim/speech';
 import { StaticWorld } from '../../../src/world/staticWorld';
 import { dialogueLines } from './dialogue';
 import { dispatchPhrases } from './phrases';
-import { BARKS, CAST, PHONE_ROLES, SAY, SPEAKERS, STATION_IDENTS, TALK, type Role } from './script';
+import { BARKS, CAST, PHONE_ROLES, SAY, SPEAKERS, STATION_IDENTS, TALK } from './script';
+import { SHOW_PIECES } from './shows';
 
 const RATE = 24000;
 const HERE = new URL('.', import.meta.url).pathname;
@@ -51,7 +52,11 @@ const index: SpeechIndex = {
   clips: {},
   dialogue: {},
   dispatch: {},
-  talk: { host: [], call: [], news: [], ad: [], ident: [] },
+  talk: {
+    azura: { host: [], call: [], news: [], ad: [], ident: [] },
+    bowl: { host: [], call: [], news: [], ad: [], ident: [] },
+  },
+  adSeries: {},
   barks: {} as Record<BarkKind, string[][]>,
   idents: {},
 };
@@ -69,12 +74,17 @@ for (const phrase of dispatchPhrases(world)) {
   clips.push({ id, takes: [{ voice: CAST.dispatch, text: phrase, speed: 1 }] });
   index.dispatch[words] = id;
 }
-for (const piece of TALK) {
+const series: Record<string, string[]> = {};
+for (const piece of [...TALK, ...SHOW_PIECES]) {
   const id = `talk-${piece.id}`;
   const speed = piece.kind === 'ad' ? 1.05 : 1;
-  clips.push({ id, takes: piece.lines.map(([role, text]: readonly [Role, string]) => ({ voice: CAST[role], text, speed, phone: PHONE_ROLES.has(role) })) });
-  index.talk[piece.kind].push(id);
+  clips.push({ id, takes: piece.lines.map(([role, text, opts]) => ({ voice: CAST[role], text, speed: opts?.speed ?? speed, phone: opts?.phone ?? PHONE_ROLES.has(role) })) });
+  // A campaign is in the ad pools as its first part, and its parts under that part's id.
+  if (piece.series) (series[piece.series] ??= [])[piece.part! - 1] = id;
+  if ((piece.part ?? 1) > 1) continue;
+  for (const show of piece.shows ?? [piece.show ?? 'azura']) index.talk[show][piece.kind].push(id);
 }
+for (const parts of Object.values(series)) index.adSeries[parts[0]!] = parts;
 for (const [station, set] of Object.entries(STATION_IDENTS)) {
   index.idents[station] = set.lines.map((text, i) => {
     const id = `ident-${slug(station)}-${i}`;

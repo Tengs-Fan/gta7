@@ -18,6 +18,11 @@ import { input, makeSim, step, teleport, world } from './helpers';
 
 const DIR = new URL('../../src/assets/speech/', import.meta.url).pathname;
 
+/** Every clip a talk station can play: each show's pieces of every kind and every part of every ad campaign. */
+function talkClips(): string[] {
+  return [...Object.values(SPEECH.talk).flatMap((show) => Object.values(show).flat()), ...Object.values(SPEECH.adSeries).flat()];
+}
+
 /** The words a line's dispatch clips say, joined. */
 function spoken(text: string): string {
   const phraseOf = new Map(Object.entries(SPEECH.dispatch).map(([words, id]) => [id, words]));
@@ -32,7 +37,7 @@ describe('the speech index', () => {
     const ids = Object.keys(SPEECH.clips);
     expect(new Set(files)).toEqual(new Set(ids.map((id) => `${id}.mp3`)));
     for (const id of ids) expect(SPEECH.clips[id]).toBeGreaterThan(0.2);
-    const used = [...Object.values(SPEECH.dialogue), ...Object.values(SPEECH.dispatch), ...Object.values(SPEECH.talk).flat(), ...Object.values(SPEECH.barks).flat(2)];
+    const used = [...Object.values(SPEECH.dialogue), ...Object.values(SPEECH.dispatch), ...talkClips(), ...Object.values(SPEECH.barks).flat(2)];
     for (const id of used) expect(existsSync(`${DIR}${id}.mp3`), id).toBe(true);
   });
 
@@ -120,11 +125,12 @@ describe('the police dispatcher', () => {
 });
 
 describe('the talk station and the street', () => {
-  it('has idents, ads and a show of monologues, callers and news, each a few seconds to half a minute', () => {
-    expect(SPEECH.talk.ident.length).toBeGreaterThanOrEqual(4);
-    expect(SPEECH.talk.ad.length).toBeGreaterThanOrEqual(10);
-    expect(SPEECH.talk.host.length + SPEECH.talk.call.length + SPEECH.talk.news.length).toBeGreaterThanOrEqual(20);
-    for (const id of Object.values(SPEECH.talk).flat()) expect(SPEECH.clips[id]).toBeLessThan(40);
+  it('has idents, ads and a show of monologues, callers and news on every talk station, each a few seconds to half a minute', () => {
+    const azura = SPEECH.talk.azura;
+    expect(azura.ident.length).toBeGreaterThanOrEqual(4);
+    expect(azura.ad.length).toBeGreaterThanOrEqual(10);
+    expect(azura.host.length + azura.call.length + azura.news.length).toBeGreaterThanOrEqual(20);
+    for (const id of talkClips()) expect(SPEECH.clips[id], id).toBeLessThan(40);
   });
 
   it('has every kind of shout in several voices, each voice saying every line of its kind', () => {

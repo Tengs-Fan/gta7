@@ -2,9 +2,12 @@
 // police dispatch phrases (built from the dispatch tables, see build.ts): the cast, the talk station's programme and the
 // barks of people in the street. Every line is original. Voices are Kokoro-82M voice ids (see README.md here).
 
-import type { BarkKind, TalkKind } from '../../../src/sim/speech';
+import type { BarkKind, ShowId, TalkKind } from '../../../src/sim/speech';
 
-/** Kokoro voice per role. American voices start with a, British with b; f and m are female and male. */
+/**
+ * Kokoro voice per role. American voices start with a, British with b; f and m are female and male. A comma-separated
+ * list is a blend: Kokoro averages the voices (the language is the first one's).
+ */
 export const CAST = {
   lou: 'af_bella',
   dex: 'bm_george',
@@ -46,11 +49,28 @@ export const SPEAKERS: Readonly<Record<string, Role>> = {
   'Vera Salgado': 'vera',
 };
 
+/** How one line is delivered, where it differs from its piece's: a fine-print line read fast, a caller in the studio. */
+export interface LineOpts {
+  /** Kokoro's speed (default 1.05 in an ad, else 1). */
+  speed?: number;
+  /** Band-limited to a phone line (default: the role is in PHONE_ROLES). */
+  phone?: boolean;
+}
+
+export type Line = readonly [Role, string, LineOpts?];
+
 export interface TalkPiece {
   id: string;
   kind: TalkKind;
+  /** The show it belongs to (default 'azura'). */
+  show?: ShowId;
+  /** An ad: every show whose breaks may play it (default [show]). */
+  shows?: readonly ShowId[];
+  /** An ad campaign's name and this piece's place in it, from 1: a break plays the campaign's next part. */
+  series?: string;
+  part?: number;
   /** The lines in order; a piece is rendered as one clip with short pauses between speakers. */
-  lines: ReadonlyArray<readonly [Role, string]>;
+  lines: ReadonlyArray<Line>;
 }
 
 /** AZURA TALK 104.5: Chet Bramble's show, Dolores Vance's newsdesk, Skip in the Skycopter, callers and ads. */

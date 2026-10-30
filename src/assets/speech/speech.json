@@ -688,56 +688,66 @@
   "suspect spotted heading northwest through": "dsp-suspect-spotted-heading-northwest-through"
  },
  "talk": {
-  "host": [
-   "talk-host-lights",
-   "talk-host-wheel",
-   "talk-host-steps",
-   "talk-host-gulls",
-   "talk-host-rent",
-   "talk-host-potholes",
-   "talk-host-chopper",
-   "talk-host-cab",
-   "talk-host-docks"
-  ],
-  "call": [
-   "talk-call-lighthouse",
-   "talk-call-pickup",
-   "talk-call-tacos",
-   "talk-call-cat",
-   "talk-call-velora",
-   "talk-call-houseboat",
-   "talk-call-kid"
-  ],
-  "news": [
-   "talk-news-ducks",
-   "talk-news-thefts",
-   "talk-news-weather",
-   "talk-news-sports",
-   "talk-traffic-pigeon",
-   "talk-traffic-hill"
-  ],
-  "ad": [
-   "talk-ad-pipsqueak",
-   "talk-ad-nightjar",
-   "talk-ad-guns",
-   "talk-ad-lawyer",
-   "talk-ad-torque",
-   "talk-ad-insurance",
-   "talk-ad-hospital",
-   "talk-ad-spray",
-   "talk-ad-tacos",
-   "talk-ad-pier",
-   "talk-ad-hillcrest",
-   "talk-ad-thunderhoof"
-  ],
-  "ident": [
-   "talk-ident-cheap",
-   "talk-ident-voice",
-   "talk-ident-facts",
-   "talk-ident-road",
-   "talk-ident-works"
-  ]
+  "azura": {
+   "host": [
+    "talk-host-lights",
+    "talk-host-wheel",
+    "talk-host-steps",
+    "talk-host-gulls",
+    "talk-host-rent",
+    "talk-host-potholes",
+    "talk-host-chopper",
+    "talk-host-cab",
+    "talk-host-docks"
+   ],
+   "call": [
+    "talk-call-lighthouse",
+    "talk-call-pickup",
+    "talk-call-tacos",
+    "talk-call-cat",
+    "talk-call-velora",
+    "talk-call-houseboat",
+    "talk-call-kid"
+   ],
+   "news": [
+    "talk-news-ducks",
+    "talk-news-thefts",
+    "talk-news-weather",
+    "talk-news-sports",
+    "talk-traffic-pigeon",
+    "talk-traffic-hill"
+   ],
+   "ad": [
+    "talk-ad-pipsqueak",
+    "talk-ad-nightjar",
+    "talk-ad-guns",
+    "talk-ad-lawyer",
+    "talk-ad-torque",
+    "talk-ad-insurance",
+    "talk-ad-hospital",
+    "talk-ad-spray",
+    "talk-ad-tacos",
+    "talk-ad-pier",
+    "talk-ad-hillcrest",
+    "talk-ad-thunderhoof"
+   ],
+   "ident": [
+    "talk-ident-cheap",
+    "talk-ident-voice",
+    "talk-ident-facts",
+    "talk-ident-road",
+    "talk-ident-works"
+   ]
+  },
+  "bowl": {
+   "host": [],
+   "call": [],
+   "news": [],
+   "ad": [],
+   "ident": []
+  }
  },
+ "adSeries": {},
  "barks": {
   "greet": [
    [
