@@ -721,7 +721,7 @@ export class PropsView {
   }
 
   /**
-   * Where a lamp's light pool may lie: the deck its pole stands on, else the land (not the sea or the
+   * Where a lamp's light pool may lie: the deck or headland its pole stands on, else the land (not the sea or the
    * sloping beach, which lie below it). The pool is a flat sheet at the pole's foot, so past that it
    * would hang in the air.
    */
@@ -729,6 +729,8 @@ export class PropsView {
     const L = this.world.layout;
     const deck = L.decks.find((d) => rectContains(d.rect, p.x, p.z));
     if (deck) return deck.rect;
+    const head = L.headlands.flatMap((h) => h.rects).find((r) => rectContains(r, p.x, p.z));
+    if (head) return head;
     const b = L.bounds;
     return { minX: b.landMinX, minZ: b.landMinZ, maxX: b.beachStartX, maxZ: b.landMaxZ };
   }

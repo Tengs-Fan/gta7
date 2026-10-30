@@ -47,6 +47,9 @@ function dryGround(y: number): boolean {
  * either side in steps of 22.5 degrees, then straight back. Fine enough to find the way along a 4 m finger pier, whatever
  * the angle he flees at.
  */
+/** How far ahead (m) a fleeing ped makes sure of dry ground (see doFlee). */
+const FLEE_PROBES: readonly number[] = [1.5, 3, 6];
+
 const FLEE_TURNS: readonly number[] = (() => {
   const turns = [0];
   for (let k = 1; k < 8; k++) turns.push((k * Math.PI) / 8, (-k * Math.PI) / 8);
@@ -487,7 +490,8 @@ export class PedSystem {
       dz = -Math.cos(c.heading);
     }
     // Bend the escape direction a little per ped so crowds scatter. Never off a quay, a seawall or a pier into the sea:
-    // the direction nearest it (see FLEE_TURNS) whose ground 3 and 6 m ahead is dry, and no higher than he can step up
+    // the direction nearest it (see FLEE_TURNS) whose ground 1.5, 3 and 6 m ahead is dry (1.5 m keeps him from cutting
+    // across the water where a coast turns inward, as round Azura Point), and no higher than he can step up
     // (not the side of a deck from the sand). When that way out lies back towards what he runs from (the end of a pier),
     // he is cornered and stays where he is, rather than pace back and forth at the edge. Off dry ground himself, on the
     // wet sand at the water's edge of the beach or wading in its shallows, every way along the beach is as wet as where
@@ -511,7 +515,9 @@ export class PedSystem {
       for (const turn of FLEE_TURNS) {
         const sx = Math.sin(ang + turn);
         const sz = Math.cos(ang + turn);
-        if (open(sim.world.groundHeight(c.pos.x + sx * 3, c.pos.z + sz * 3)) && open(sim.world.groundHeight(c.pos.x + sx * 6, c.pos.z + sz * 6))) {
+        let dry = true;
+        for (const d of FLEE_PROBES) if (!open(sim.world.groundHeight(c.pos.x + sx * d, c.pos.z + sz * d))) dry = false;
+        if (dry) {
           tx = c.pos.x + sx * 6;
           tz = c.pos.z + sz * 6;
           way = true;

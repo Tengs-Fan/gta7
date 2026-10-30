@@ -331,7 +331,8 @@ describe('marina boats', () => {
 
   it('every boat has a hull and a cabin box where the boat is drawn, and they block sight', () => {
     const W = world();
-    expect(boats().length).toBe(3);
+    // The Marina's three and Port Basin's four.
+    expect(boats().length).toBe(7);
     for (const { p, i } of boats()) {
       expect(W.propColliders[i]).toBeGreaterThanOrEqual(0);
       const mine = boatBoxes().filter((c) => c.cx > p.x - 8 && c.cx < p.x + 8 && c.cz > p.z - 8 && c.cz < p.z + 8);

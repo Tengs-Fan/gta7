@@ -30,6 +30,8 @@ export const PILING_INSET = 0.6;
 export const PILING_RADIUS = 0.25;
 /** Decks the sea shader looks for pilings under (the layout has five). */
 export const MAX_PILING_DECKS = 8;
+/** Water bodies cut into the land (layout.water) the quay foam keeps out of. */
+export const MAX_SEA_CUTS = 4;
 /** Water depths (m) over which the beach's surf bands fade in seaward of the swash (4.1-7.6 m out on the 1:34 sand). */
 export const SURF_BAND_FADE = [0.12, 0.22] as const;
 /** Piling foam reaches at most this far (m) out from a piling's side. */
@@ -129,6 +131,8 @@ export interface SeaUniforms {
   uSeaAbyss: { value: THREE.Color };
   /** Deck rectangles (minX, minZ, maxX, maxZ) whose pilings get foam; unused slots lie far away. */
   uPilings: { value: THREE.Vector4[] };
+  /** Bounds of the water cut into the land, where the land rectangle's edge is no quay (unused slots lie far away). */
+  uSeaCuts: { value: THREE.Vector4[] };
 }
 
 export function seaUniforms(): SeaUniforms {
@@ -148,6 +152,7 @@ export function seaUniforms(): SeaUniforms {
     uSeaDeep: { value: new THREE.Color(DEEP) },
     uSeaAbyss: { value: new THREE.Color(ABYSS) },
     uPilings: { value: Array.from({ length: MAX_PILING_DECKS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
+    uSeaCuts: { value: Array.from({ length: MAX_SEA_CUTS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
   };
 }
 
@@ -155,6 +160,15 @@ export function seaUniforms(): SeaUniforms {
 export function setShore(u: SeaUniforms, b: Bounds): void {
   u.uShoreLand.value.set(b.landMinX, b.landMinZ, b.landMaxZ, b.beachEndX);
   u.uShoreBeach.value.set(b.beachStartX, BEACH_W, SAND_DROP, CURB_H);
+}
+
+/** Feeds the quay foam the bounds of the water cut into the land (layout.water). */
+export function setSeaCuts(u: SeaUniforms, cuts: readonly Rect[]): void {
+  u.uSeaCuts.value.forEach((v, i) => {
+    const r = cuts[i];
+    if (r) v.set(r.minX, r.minZ, r.maxX, r.maxZ);
+    else v.set(1e6, 1e6, 1e6, 1e6);
+  });
 }
 
 /** Feeds the piling foam the piers' deck rectangles (layout.decks). */
@@ -207,6 +221,15 @@ uniform vec3 uSandTint;
 uniform vec3 uSeaDeep;
 uniform vec3 uSeaAbyss;
 uniform vec4 uPilings[${MAX_PILING_DECKS}];
+uniform vec4 uSeaCuts[${MAX_SEA_CUTS}];
+/** 0 where the sea comes into the land (the land rectangle's edge there is open water), else 1. */
+float seaOffCut(vec2 p) {
+  for (int i = 0; i < ${MAX_SEA_CUTS}; i++) {
+    vec4 r = uSeaCuts[i];
+    if (p.x > r.x - 3.0 && p.x < r.z + 3.0 && p.y > r.y - 3.0 && p.y < r.w + 3.0) return 0.0;
+  }
+  return 1.0;
+}
 float seaBeachOut(vec2 p) {
   vec2 c = vec2(clamp(p.x, uShoreBeach.x, uShoreLand.w + ${n(DROP_OFF)}), clamp(p.y, uShoreLand.y, uShoreLand.z));
   return length(p - c);
@@ -272,7 +295,7 @@ float seaFoam(vec2 p, float depth, float noise, float sea, float px) {
   float width = 0.5 + 1.0 * smoothstep(0.3, 0.7, noise);
   float pulse = 0.8 + 0.2 * sin(uQuayPhase + (p.x + p.y) * 0.21);
   float notBeach = 1.0 - smoothstep(seaWaterlineX() - 5.0, seaWaterlineX() + 10.0, p.x);
-  float quay = (1.0 - smoothstep(width * 0.4, width, d)) * step(1e-3, d) * pulse * notBeach * (0.85 + 0.3 * sea) * (0.75 + 0.5 * noise);
+  float quay = (1.0 - smoothstep(width * 0.4, width, d)) * step(1e-3, d) * pulse * notBeach * seaOffCut(p) * (0.85 + 0.3 * sea) * (0.75 + 0.5 * noise);
   return clamp(max(max(beach, quay), seaPilingFoam(p, noise, px)), 0.0, 1.0);
 }
 /**

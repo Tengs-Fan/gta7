@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CURB_H } from '../../src/world/constants';
-import { cellBlock, generateCity, rectContains, rectsOverlap, rectCX, rectCZ } from '../../src/world/layout';
+import { CURB_H, SWIM_DEPTH, WATER_Y } from '../../src/world/constants';
+import { cellBlock, generateCity, PARAPET_H, rectContains, rectsOverlap, rectCX, rectCZ, waterAt } from '../../src/world/layout';
 import { SIGNAL_CYCLE } from '../../src/world/roads';
 import { StaticWorld } from '../../src/world/staticWorld';
 import { legacyLane } from './helpers';
@@ -19,8 +19,8 @@ describe('city layout', () => {
   });
 
   it('has a reasonable amount of content', () => {
-    // 100 cells: three superblocks cover seven of them.
-    expect(L.blocks.length).toBe(95);
+    // 100 cells: three superblocks cover seven of them, and four are sea.
+    expect(L.blocks.length).toBe(91);
     expect(L.buildings.length).toBeGreaterThan(250);
     expect(L.props.length).toBeGreaterThan(800);
     expect(L.parking.length).toBeGreaterThan(40);
@@ -107,10 +107,10 @@ describe('city layout', () => {
 
 describe('ground and water', () => {
   it('reports road, curb and sea heights', () => {
-    const v = L.vLines[3]!;
+    const v = L.vLines[4]!;
     const h = L.hLines[4]!;
-    expect(world.groundHeight(v.pos, rectCZ(cellBlock(L, 3, 4)!.rect))).toBe(0);
-    expect(world.groundHeight(rectCX(cellBlock(L, 3, 4)!.rect), h.pos)).toBe(0);
+    expect(world.groundHeight(v.pos, rectCZ(cellBlock(L, 4, 4)!.rect))).toBe(0);
+    expect(world.groundHeight(rectCX(cellBlock(L, 4, 4)!.rect), h.pos)).toBe(0);
     const blk = cellBlock(L, 5, 5)!;
     expect(world.groundHeight(blk.rect.minX + 1, rectCZ(blk.rect))).toBe(CURB_H);
     expect(world.waterDepth(L.bounds.landMinX - 20, 0)).toBeGreaterThan(5);
@@ -125,6 +125,70 @@ describe('ground and water', () => {
     expect(world.zoneName(rectCX(dt.rect), rectCZ(dt.rect))).toBe('Downtown');
     expect(world.zoneName(L.bounds.beachStartX + 20, 0)).toBe('Ocean Beach');
     expect(world.zoneName(L.bounds.landMinX - 50, 0)).toBe('San Azura Bay');
+  });
+});
+
+describe('the sea in the land', () => {
+  it('cuts a cove, a harbour basin and a canal into the land, and a headland out of it', () => {
+    expect(L.water.map((w) => w.name).sort()).toEqual(['Cortez Canal', 'Hillcrest Cove', 'Port Basin']);
+    for (const w of L.water) {
+      for (const r of w.rects) {
+        const x = rectCX(r);
+        const z = rectCZ(r);
+        if (L.decks.some((d) => rectContains(d.rect, x, z))) continue;
+        expect(world.waterDepth(x, z), `${w.name} at ${x},${z}`).toBeGreaterThan(SWIM_DEPTH);
+        expect(world.zoneName(x, z)).toBe(w.name);
+      }
+    }
+    const point = L.headlands.find((h) => h.name === 'Azura Point')!;
+    for (const r of point.rects) {
+      expect(r.minZ).toBeLessThan(L.bounds.landMinZ);
+      expect(world.groundHeight(rectCX(r), rectCZ(r))).toBe(CURB_H);
+    }
+    const lighthouse = L.props.find((p) => p.kind === 'lighthouse')!;
+    expect(rectContains(point.rects[1]!, lighthouse.x, lighthouse.z)).toBe(true);
+  });
+
+  it('carries every street over the canal on a bridge, its footways fenced by parapets', () => {
+    const canal = L.water.find((w) => w.name === 'Cortez Canal')!.bounds;
+    const bridges = world.roads.live.filter((n) => rectContains(canal, n.x, n.z));
+    expect(bridges.length).toBe(11);
+    for (const n of bridges) {
+      expect(n.neighbors[0]).toBe(-1);
+      expect(n.neighbors[2]).toBe(-1);
+      expect(n.signal).toBe(false);
+      expect(world.groundHeight(n.x, n.z)).toBe(0);
+      expect(world.isOnRoad(n.x, n.z)).toBe(true);
+      for (const side of [-1, 1]) {
+        const z = n.z + side * (n.halfZ + 2);
+        expect(world.groundHeight(n.x, z), `footway of bridge ${n.id}`).toBe(CURB_H);
+        // The parapet stands at the footway's outer edge: a body walking off it stops there.
+        expect(world.isFree(n.x, n.z + side * (n.halfZ + 3.8), 0.3)).toBe(false);
+      }
+    }
+    expect(PARAPET_H).toBeGreaterThan(0.9);
+    // Nothing on foot or in a car crosses the canal anywhere but on a bridge.
+    for (const lane of world.roads.lanes) expect(rectContains(canal, lane.sx, lane.sz) || rectContains(canal, lane.ex, lane.ez)).toBe(false);
+  });
+
+  it('keeps people, props, parking and pickups out of the water', () => {
+    const dry = (x: number, z: number) => !waterAt(L, x, z) || L.decks.some((d) => rectContains(d.rect, x, z));
+    for (const n of world.walk.nodes) {
+      expect(dry(n.x, n.z), `walk node ${n.id}`).toBe(true);
+      for (const e of n.edges) {
+        const m = world.walk.nodes[e.to]!;
+        for (let t = 0; t <= 1; t += 0.05) expect(dry(n.x + (m.x - n.x) * t, n.z + (m.z - n.z) * t), `walk edge ${n.id}-${e.to}`).toBe(true);
+      }
+    }
+    for (const p of L.props) if (p.kind !== 'boat') expect(waterAt(L, p.x, p.z), `${p.kind} at ${p.x},${p.z}`).toBeNull();
+    for (const p of [...L.parking, ...L.openSpots]) expect(world.waterDepth(p.x, p.z)).toBeLessThan(0);
+    // The moored boats float in the basin, the cranes stand on its wharf.
+    const basin = L.water.find((w) => w.name === 'Port Basin')!;
+    expect(L.props.filter((p) => p.kind === 'boat' && waterAt(L, p.x, p.z) === basin).length).toBe(4);
+    for (const c of L.props.filter((p) => p.kind === 'crane')) {
+      expect(world.groundHeight(c.x, c.z)).toBe(CURB_H);
+      expect(world.waterDepth(c.x, c.z + 40)).toBeGreaterThan(WATER_Y + 5);
+    }
   });
 });
 

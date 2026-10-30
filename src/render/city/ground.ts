@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { CURB_H, SIDEWALK_W } from '../../world/constants';
-import type { GroundKind, Rect } from '../../world/layout';
+import { cellBlock, mkRect, rectsMinus, waterAt, type Block, type GroundKind, type Rect } from '../../world/layout';
 import { GeoBuilder } from '../geo';
 import type { CityView } from './index';
 import { quadLine } from './shared';
@@ -54,11 +54,13 @@ export function buildGround(view: CityView): void {
     strip(r.minX, r.maxZ - sw, r.maxX, r.maxZ, kerb);
     strip(r.minX, r.minZ + sw, r.minX + sw, r.maxZ - sw, kerb);
     strip(r.maxX - sw, r.minZ + sw, r.maxX, r.maxZ - sw, kerb);
-    // Curb faces.
-    curbs.wall(r.minX, r.maxZ, r.maxX, r.maxZ, 0, y, curbUv);
-    curbs.wall(r.maxX, r.maxZ, r.maxX, r.minZ, 0, y, curbUv);
-    curbs.wall(r.maxX, r.minZ, r.minX, r.minZ, 0, y, curbUv);
-    curbs.wall(r.minX, r.minZ, r.minX, r.maxZ, 0, y, curbUv);
+    // Curb faces, except where the sidewalk meets the canal (its quay wall runs on down there).
+    const cz = (r.minZ + r.maxZ) / 2;
+    const cx = (r.minX + r.maxX) / 2;
+    if (!waterAt(layout, cx, r.maxZ + 0.5)) curbs.wall(r.minX, r.maxZ, r.maxX, r.maxZ, 0, y, curbUv);
+    if (!waterAt(layout, r.maxX + 0.5, cz)) curbs.wall(r.maxX, r.maxZ, r.maxX, r.minZ, 0, y, curbUv);
+    if (!waterAt(layout, cx, r.minZ - 0.5)) curbs.wall(r.maxX, r.minZ, r.minX, r.minZ, 0, y, curbUv);
+    if (!waterAt(layout, r.minX - 0.5, cz)) curbs.wall(r.minX, r.minZ, r.minX, r.maxZ, 0, y, curbUv);
   }
   for (const gp of layout.ground) {
     const tex = GROUND_TEX[gp.kind];
@@ -100,22 +102,57 @@ export function buildGround(view: CityView): void {
     }
   }
 
-  // Outer land around the city: sidewalk ring + promenade strips + boardwalk.
+  // Outer land around the city, short of the sea where it comes in: sidewalk ring + promenade strips + boardwalk.
   const b = layout.bounds;
+  const water = layout.water.flatMap((w) => w.rects);
   const prom = patch('plaza').g;
   const wood = new GeoBuilder(false);
   const city: Rect4 = [b.cityMinX, b.cityMinZ, b.cityMaxX, b.cityMaxZ];
-  strip(b.cityMinX - sw, b.cityMinZ - sw, b.cityMaxX + sw, b.cityMinZ, city);
-  strip(b.cityMinX - sw, b.cityMaxZ, b.cityMaxX + sw, b.cityMaxZ + sw, city);
-  strip(b.cityMinX - sw, b.cityMinZ, b.cityMinX, b.cityMaxZ, city);
-  strip(b.cityMaxX, b.cityMinZ, b.cityMaxX + sw, b.cityMaxZ, city);
-  curbs.wall(b.cityMinX, b.cityMinZ, b.cityMaxX, b.cityMinZ, 0, y, curbUv);
-  curbs.wall(b.cityMaxX, b.cityMaxZ, b.cityMinX, b.cityMaxZ, 0, y, curbUv);
-  curbs.wall(b.cityMinX, b.cityMaxZ, b.cityMinX, b.cityMinZ, 0, y, curbUv);
-  curbs.wall(b.cityMaxX, b.cityMinZ, b.cityMaxX, b.cityMaxZ, 0, y, curbUv);
-  prom.flat(b.landMinX, b.landMinZ, b.cityMinX - sw, b.landMaxZ, y, { kind: 'world', scale: 6 });
-  prom.flat(b.cityMinX - sw, b.landMinZ, b.beachStartX, b.cityMinZ - sw, y, { kind: 'world', scale: 6 });
-  prom.flat(b.cityMinX - sw, b.cityMaxZ + sw, b.beachStartX, b.landMaxZ, y, { kind: 'world', scale: 6 });
+  const ring = [
+    mkRect(b.cityMinX - sw, b.cityMinZ - sw, b.cityMaxX + sw, b.cityMinZ),
+    mkRect(b.cityMinX - sw, b.cityMaxZ, b.cityMaxX + sw, b.cityMaxZ + sw),
+    mkRect(b.cityMinX - sw, b.cityMinZ, b.cityMinX, b.cityMaxZ),
+    mkRect(b.cityMaxX, b.cityMinZ, b.cityMaxX + sw, b.cityMaxZ),
+  ];
+  for (const r of rectsMinus(ring, water)) strip(r.minX, r.minZ, r.maxX, r.maxZ, city);
+  const promenade = [
+    mkRect(b.landMinX, b.landMinZ, b.cityMinX - sw, b.landMaxZ),
+    mkRect(b.cityMinX - sw, b.landMinZ, b.beachStartX, b.cityMinZ - sw),
+    mkRect(b.cityMinX - sw, b.cityMaxZ + sw, b.beachStartX, b.landMaxZ),
+  ];
+  for (const r of rectsMinus(promenade, water)) prom.flat(r.minX, r.minZ, r.maxX, r.maxZ, y, { kind: 'world', scale: 6 });
+  // The quays between the coast roads and the water: what the sea's cells keep inside the ring road.
+  const roads = view.world.roads;
+  const paved: Rect[] = [...roads.segments, ...roads.live.map((nd) => mkRect(nd.x - nd.halfX, nd.z - nd.halfZ, nd.x + nd.halfX, nd.z + nd.halfZ)), ...layout.blocks.map((bl) => bl.rect)];
+  for (const w of layout.water) {
+    const inside = w.area.map((r) => mkRect(Math.max(r.minX, b.cityMinX), Math.max(r.minZ, b.cityMinZ), Math.min(r.maxX, b.cityMaxX), Math.min(r.maxZ, b.cityMaxZ)));
+    for (const r of rectsMinus(inside, [...w.rects, ...paved])) strip(r.minX, r.minZ, r.maxX, r.maxZ, rect4(r));
+  }
+  // Kerbs along every road edge with no block beside it: the ring road's outer edge, the coast roads, the bridges.
+  const n = layout.n;
+  const cell = (bi: number, bj: number) => (bi >= 0 && bi < n && bj >= 0 && bj < n ? cellBlock(layout, bi, bj) : null);
+  for (const sg of roads.segments) {
+    const a = roads.nodes[sg.a]!;
+    if (sg.vertical) {
+      if (!cell(a.i - 1, a.j)) curbs.wall(sg.minX, sg.maxZ, sg.minX, sg.minZ, 0, y, curbUv);
+      if (!cell(a.i, a.j)) curbs.wall(sg.maxX, sg.minZ, sg.maxX, sg.maxZ, 0, y, curbUv);
+    } else {
+      if (!cell(a.i, a.j - 1)) curbs.wall(sg.minX, sg.minZ, sg.maxX, sg.minZ, 0, y, curbUv);
+      if (!cell(a.i, a.j)) curbs.wall(sg.maxX, sg.maxZ, sg.minX, sg.maxZ, 0, y, curbUv);
+    }
+  }
+  for (const nd of roads.live) {
+    const x0 = nd.x - nd.halfX;
+    const x1 = nd.x + nd.halfX;
+    const z0 = nd.z - nd.halfZ;
+    const z1 = nd.z + nd.halfZ;
+    // A side with no road leaving it meets the pavement, unless one block runs on across it (inside a superblock).
+    const open = (p: Block | null, q: Block | null) => !(p && p === q);
+    if (nd.neighbors[0]! < 0 && open(cell(nd.i - 1, nd.j - 1), cell(nd.i, nd.j - 1))) curbs.wall(x0, z0, x1, z0, 0, y, curbUv);
+    if (nd.neighbors[2]! < 0 && open(cell(nd.i - 1, nd.j), cell(nd.i, nd.j))) curbs.wall(x1, z1, x0, z1, 0, y, curbUv);
+    if (nd.neighbors[3]! < 0 && open(cell(nd.i - 1, nd.j - 1), cell(nd.i - 1, nd.j))) curbs.wall(x0, z1, x0, z0, 0, y, curbUv);
+    if (nd.neighbors[1]! < 0 && open(cell(nd.i, nd.j - 1), cell(nd.i, nd.j))) curbs.wall(x1, z0, x1, z1, 0, y, curbUv);
+  }
   wood.flat(b.cityMaxX + sw, b.cityMinZ - sw, b.beachStartX, b.cityMaxZ + sw, y, { kind: 'world', scale: 4 });
 
   const wet = view.wet;

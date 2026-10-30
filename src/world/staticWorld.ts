@@ -4,7 +4,7 @@
 import { circleVsAabb, makeContact } from '../core/collision';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
-import { cellBlock, generateCity, rectContains, sandHeight, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
+import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
 
@@ -70,6 +70,7 @@ export class StaticWorld {
       const r = gar.rect;
       g.addBox(r.minX - GARAGE_EAVE, r.minZ - GARAGE_EAVE, r.maxX + GARAGE_EAVE, r.maxZ + GARAGE_EAVE, gar.height, gar.height + GARAGE_ROOF, 'wall');
     }
+    for (const r of this.layout.parapets) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
     this.layout.props.forEach((p, i) => {
       this.propColliders[i] = this.addPropCollider(p, i);
     });
@@ -174,7 +175,8 @@ export class StaticWorld {
   /** Terrain height ignoring ramps and decks. */
   baseGround(x: number, z: number): number {
     const b = this.layout.bounds;
-    if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return SEABED_Y;
+    if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return headlandAt(this.layout, x, z) ? CURB_H : SEABED_Y;
+    if (waterAt(this.layout, x, z)) return SEABED_Y;
     if (x >= b.beachStartX) return sandHeight(b, x);
     if (this.roads.isOnRoad(x, z)) return 0;
     return CURB_H;
@@ -219,7 +221,9 @@ export class StaticWorld {
     const l = this.layout;
     for (const d of l.decks) if (rectContains(d.rect, x, z)) return d.name;
     const b = l.bounds;
-    if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return 'San Azura Bay';
+    if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return headlandAt(l, x, z)?.name ?? 'San Azura Bay';
+    const water = waterAt(l, x, z);
+    if (water) return water.name;
     if (x > b.cityMaxX) return 'Ocean Beach';
     return this.blockNear(x, z).zone;
   }

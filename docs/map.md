@@ -3,6 +3,8 @@
 San Azura used to be one perfect square: a 10 by 10 grid of blocks inside a ring road, a promenade round three sides and the beach on the fourth.
 This page explains how the city is built, what depends on its shape, and how the shape was broken up without rewriting the road network.
 
+![The map screen: Hillcrest Cove in the north-west, Cortez Canal from coast to coast, Port Basin in the south-west, Azura Point to the north, and the big blocks of Hillcrest Green, Civic Plaza and the Azura Bowl](screenshots/map.jpg)
+
 ## How the city is built
 
 `src/world/layout.ts` generates the whole city from `CITY_SEED`, so every game (and the multiplayer server, which runs the sim from source) gets the same San Azura.
@@ -51,19 +53,25 @@ The node grid keeps its 11 by 11 indexing, so `roads.node(i, j)` still names the
 
 `layout.cells` maps each grid cell to its block, so one block can cover several cells:
 
-- Azura Park becomes a two-by-two park with the streets inside it turned into lawns and paths.
-- The Azura Bowl takes two cells, with a car park round the stadium.
-- Downtown gets Civic Plaza, two cells round an open square with a fountain.
+- Hillcrest Green becomes a two-by-two park, the streets inside it turned into lawns and paths.
+- The Azura Bowl takes two cells: the bowl in the middle, a car park at either end.
+- Downtown gets Civic Plaza, two cells with towers at either end of an open square: paving, two lawns, a fountain and rows of trees.
+
+The cells were picked where nothing else depends on the closed streets: no street-run course, mission spot or test junction runs through them.
 
 ### Water: a cove, a harbour basin, a canal and a headland
 
-- **Hillcrest Cove** takes the north-west corner: three cells become sea, and the coast road steps round the water.
-- **Port Basin** cuts into the docks from the south: two cells become a harbour basin with the cranes and moored boats on its quay.
-- **Cortez Canal** replaces Cortez St, running from the north coast to the south coast between Westside and Downtown, with a road bridge at every street and footbridges on the promenade.
-  Columns 2 and 3 give up a little width to it, so every other road line stays where it was.
-- **Azura Point** is a headland of parkland reaching out from the north promenade, with the lighthouse at its tip.
+- **Hillcrest Cove** takes the north-west corner: two cells become sea, and the coast road turns round the water behind a sidewalk-wide quay.
+  The Hillcrest Spray Shack moved from the drowned cell to the waterfront facing it.
+- **Port Basin** cuts into the docks from the south: two cells become a harbour basin, with a 20 m wharf along the docks' last street where the three cranes now stand, and four boats moored in it.
+- **Cortez Canal** replaces Cortez St, running from the north coast to the south coast between Westside and Downtown.
+  Every street crosses it on a bridge: the junction's box is the carriageway (a deck at road height, no signal), with a footway deck either side and a parapet along each footway's outer edge; each promenade has a footbridge along its seaward edge.
+  Columns 2 and 3 give 11 m each to it, so every other road line stays where it was.
+  The Dockside Switchback street run moved its switchback one street east and crosses the canal twice.
+- **Azura Point** is a headland of lawns, trees and benches reaching out into the bay from the north promenade beyond Hillcrest Green, with a path out to the lighthouse at its tip (the lighthouse used to stand at the promenade's north-east corner).
 
-Water is a list of rectangles cut out of the land: `baseGround` is the seabed there, the quay walls follow the edges where water meets land, and the sea shader is told where the cuts are.
+Water is a list of rectangles (`layout.water`) cut out of the land, and headlands (`layout.headlands`) add land outside it: `baseGround` is the seabed in the water and the curb height on a headland, zone names follow both, the quay walls are built wherever land meets water (`render/city/coast.ts`), the ground renderer leaves the water out of the promenade and draws the quays, and the sea shader keeps its quay foam off the old land edge where the sea now comes in.
+Pedestrians keep to dry land: the promenade loop breaks where the sea comes in, and the bridges' footways join the sidewalks either side.
 
 ## Rejected, and why
 
@@ -74,6 +82,12 @@ Water is a list of rectangles cut out of the land: `baseGround` is the seabed th
 - **Very different block sizes.** Moving road lines shifts every block, which moves places that are offsets from others and the coordinates written into tests, for less variety than the superblocks and the water give.
   Only the canal's two neighbouring columns change width.
 
+## Keeping the rest steady
+
+- The coast (promenade furniture, beach palms, the pier and the Marina) draws from its own generator, seeded with the state the shared generator had when the coast began before, so the beach is exactly as it was.
+- Tests that named lanes by their index in `roads.lanes` now name them by their place in the square city (`legacyLane` in `tests/unit/helpers.ts`), because closing segments renumbers lanes.
+
 ## Known limits
 
-- Bridges are decks, like the pier: boats cannot pass under them, so boats in the canal and the basin are moored props, and the basin opens to the sea for boats only south of the promenade.
+- Bridges are decks, like the pier: boats cannot pass under them, so the canal is for looking at from a boat rather than for sailing through, and a swimmer passing under a bridge climbs out onto it.
+- The gang turf overlay on the map still covers Port Basin.

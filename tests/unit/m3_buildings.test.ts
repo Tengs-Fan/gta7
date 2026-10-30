@@ -349,9 +349,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     const b = createHash('sha256').update(JSON.stringify(W.layout.buildings.map((x) => ({ id: x.id, rect: x.rect, height: x.height, tiers: x.tiers })))).digest('hex');
     const c = createHash('sha256').update(JSON.stringify(W.grid.colliders.map((x) => ({ ...x })))).digest('hex');
     console.log(`[VAL-BLD-010] buildings ${b}, colliders ${c}`);
-    // Captured at d98da7b with the same canonical JSON (tsx over a d98da7b export).
-    expect(b).toBe('cd8204d3458b2ced8ceab653abe1407dd52c9bef7e3251b970aa981b864569bc');
-    expect(c).toBe('2bb5c9f0c855d6f0768ccb539b216b364350a713f707b4e77d27d27cfc3a55fa');
+    // Captured at d98da7b with the same canonical JSON (tsx over a d98da7b export), re-captured when the map was broken
+    // up (docs/map.md): superblocks, the cove, the basin, the canal with its bridges' parapets, and the headland.
+    expect(b).toBe('7bb887cc180718e4d66c2d59fe2a1c0bc59ea8dfae0593a2255e837e836ceff7');
+    expect(c).toBe('24105d8329cd829c73544233ff321dd490967bf34ce846ccccc74f01c8e0d2fb');
   });
 });
 

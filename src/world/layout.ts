@@ -155,6 +155,25 @@ export interface Deck {
   rect: Rect;
   y: number;
   name: string;
+  /** A bridge's carriageway or footway over the canal (a slab with parapets), not a pier on pilings. */
+  bridge: boolean;
+}
+
+/** Sea inside the land: a cove, a harbour basin or a canal. */
+export interface WaterBody {
+  name: string;
+  /** Rectangles of water (they may touch). */
+  rects: Rect[];
+  /** Their bounding box. */
+  bounds: Rect;
+  /** The cells given to it: the water and the quay round it, short of the roads and blocks. */
+  area: Rect[];
+}
+
+/** Land reaching out beyond the promenade into the sea. */
+export interface Headland {
+  name: string;
+  rects: Rect[];
 }
 
 export interface ParkingSpot {
@@ -194,6 +213,10 @@ export interface CityLayout {
    */
   roadH: boolean[];
   roadV: boolean[];
+  water: WaterBody[];
+  headlands: Headland[];
+  /** Parapets along the bridges' footways over the water, PARAPET_H high above the footway. */
+  parapets: Rect[];
   buildings: Building[];
   ground: GroundPatch[];
   props: Prop[];
@@ -243,6 +266,41 @@ export function rectsOverlap(a: Rect, b: Rect, margin = 0): boolean {
   return a.minX < b.maxX + margin && a.maxX > b.minX - margin && a.minZ < b.maxZ + margin && a.maxZ > b.minZ - margin;
 }
 
+/** The parts of r outside cut: r itself, nothing, or up to four rectangles. */
+export function rectMinus(r: Rect, cut: Rect): Rect[] {
+  if (!rectsOverlap(r, cut)) return [r];
+  const out: Rect[] = [];
+  if (cut.minZ > r.minZ) out.push(mkRect(r.minX, r.minZ, r.maxX, cut.minZ));
+  if (cut.maxZ < r.maxZ) out.push(mkRect(r.minX, cut.maxZ, r.maxX, r.maxZ));
+  const z0 = Math.max(r.minZ, cut.minZ);
+  const z1 = Math.min(r.maxZ, cut.maxZ);
+  if (cut.minX > r.minX) out.push(mkRect(r.minX, z0, cut.minX, z1));
+  if (cut.maxX < r.maxX) out.push(mkRect(cut.maxX, z0, r.maxX, z1));
+  return out;
+}
+
+/** The parts of rects outside every cut. */
+export function rectsMinus(rects: readonly Rect[], cuts: readonly Rect[]): Rect[] {
+  let out = [...rects];
+  for (const c of cuts) out = out.flatMap((r) => rectMinus(r, c));
+  return out;
+}
+
+/** The water body at (x, z), or null. */
+export function waterAt(layout: CityLayout, x: number, z: number): WaterBody | null {
+  for (const w of layout.water) {
+    if (!rectContains(w.bounds, x, z)) continue;
+    for (const r of w.rects) if (rectContains(r, x, z)) return w;
+  }
+  return null;
+}
+
+/** The headland at (x, z), or null. */
+export function headlandAt(layout: CityLayout, x: number, z: number): Headland | null {
+  for (const h of layout.headlands) for (const r of h.rects) if (rectContains(r, x, z)) return h;
+  return null;
+}
+
 export function sideHeading(side: Side): number {
   switch (side) {
     case 'N':
@@ -279,11 +337,20 @@ export function cellBlock(layout: CityLayout, bi: number, bj: number): Block | n
 // ---------------------------------------------------------------------------
 // Static design data
 
-const COL_SIZES = [88, 84, 84, 76, 72, 72, 76, 84, 88, 92];
+// Columns 2 and 3 gave 11 m each to the canal (see CANAL), so every other line stays where it was.
+const COL_SIZES = [88, 84, 73, 65, 72, 72, 76, 84, 88, 92];
 const ROW_SIZES = [92, 88, 84, 76, 72, 72, 76, 84, 88, 92];
 const AVENUES = new Set([0, 2, 5, 8, 10]);
-const V_NAMES = ['Harbor Blvd', 'Palmetto St', 'Vista Ave', 'Cortez St', 'Marlin St', 'Azura Ave', 'Coral St', 'Delgado St', 'Sunset Ave', 'Reef St', 'Ocean Dr'];
+const V_NAMES = ['Harbor Blvd', 'Palmetto St', 'Vista Ave', 'Cortez Canal', 'Marlin St', 'Azura Ave', 'Coral St', 'Delgado St', 'Sunset Ave', 'Reef St', 'Ocean Dr'];
 const H_NAMES = ['Northshore Blvd', 'Hillcrest Rd', 'Magnolia Ave', 'Elm St', 'Union St', 'Central Ave', 'Market St', 'Canal St', 'Southgate Ave', 'Dock St', 'Seaview Blvd'];
+
+/** Height of the bridges' parapets above their footways (m). */
+export const PARAPET_H = 1.05;
+/** Their thickness (m). */
+const PARAPET_T = 0.35;
+
+/** The vertical line given to a canal from the north coast to the south coast, bridged at every street. */
+const CANAL = { line: 3, name: 'Cortez Canal', width: 32 };
 
 /** The shared generator's state where the coast began before the city was broken up: the beach keeps its places. */
 const COAST_STATE = 1821245402;
@@ -301,8 +368,14 @@ const SUPERBLOCKS: ReadonlyArray<{ bi: number; bj: number; bi2: number; bj2: num
 /** The superblock built round an open square. */
 const PLAZA_BLOCK = { bi: 5, bj: 6, name: 'Civic Plaza' };
 
-/** Cells given to the sea. */
-const SEA_CELLS: ReadonlyArray<readonly [number, number]> = [];
+/**
+ * Cells given to the sea, and the quay (m) left between the water and the coast road round it: a sidewalk's width,
+ * or a wharf for the cranes.
+ */
+const SEA_BODIES: ReadonlyArray<{ name: string; cells: ReadonlyArray<readonly [number, number]>; quay: number }> = [
+  { name: 'Hillcrest Cove', cells: [[0, 0], [1, 0]], quay: SIDEWALK_W },
+  { name: 'Port Basin', cells: [[0, 9], [1, 9]], quay: 20 },
+];
 
 const PARKS: ReadonlyArray<{ bi: number; bj: number; name: string }> = [
   { bi: 7, bj: 5, name: 'Azura Park' },
@@ -347,7 +420,7 @@ export const SPECIALS: readonly SpecialDef[] = [
   { id: 'police', kind: 'police', bi: 2, bj: 4, side: 'E', name: 'SAPD Central' },
   { id: 'spray_docks', kind: 'spray', bi: 1, bj: 8, side: 'N', name: 'Spray Shack' },
   { id: 'spray_south', kind: 'spray', bi: 7, bj: 8, side: 'W', name: 'Spray Shack' },
-  { id: 'spray_hill', kind: 'spray', bi: 1, bj: 0, side: 'S', name: 'Spray Shack' },
+  { id: 'spray_hill', kind: 'spray', bi: 1, bj: 1, side: 'N', name: 'Spray Shack' },
   { id: 'guns_south', kind: 'gunshop', bi: 5, bj: 7, side: 'N', name: 'Bang Bang Guns' },
   { id: 'guns_west', kind: 'gunshop', bi: 0, bj: 3, side: 'E', name: 'Bang Bang Guns' },
   { id: 'bank', kind: 'bank', bi: 5, bj: 3, side: 'W', name: 'First Azura Bank' },
@@ -455,6 +528,9 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     cells: [],
     roadH: [],
     roadV: [],
+    water: [],
+    headlands: [],
+    parapets: [],
     buildings: [],
     ground: [],
     props: [],
@@ -471,7 +547,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   // Blocks: one per cell, one per superblock, none on a sea cell.
   const cells: (Block | null)[] = layout.cells;
   for (let k = 0; k < n * n; k++) cells.push(null);
-  const sea = new Set(SEA_CELLS.map(([bi, bj]) => bj * n + bi));
+  const sea = new Set(SEA_BODIES.flatMap((w) => w.cells.map(([bi, bj]) => bj * n + bi)));
   for (let bj = 0; bj < n; bj++) {
     for (let bi = 0; bi < n; bi++) {
       if (sea.has(bj * n + bi) || cells[bj * n + bi]) continue;
@@ -503,6 +579,9 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     }
   }
   layoutRoads(layout);
+  buildWater(layout);
+  buildCanal(layout);
+  buildHeadland(layout);
 
   // Reserved sidewalk spans (drive-in entrances) where no street furniture may stand.
   const reserved: Rect[] = [];
@@ -530,6 +609,9 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   buildCoast(layout, new Rng(seed === CITY_SEED ? COAST_STATE : hashInts(seed, 6151)));
   buildRamps(layout);
   removePropsInRamps(layout);
+  layout.props = layout.props.filter((p) => p.kind === 'boat' || !waterAt(layout, p.x, p.z));
+  layout.parking = layout.parking.filter((p) => !waterAt(layout, p.x, p.z));
+  layout.openSpots = layout.openSpots.filter((p) => !waterAt(layout, p.x, p.z));
   assignGroundFloors(layout);
 
   // Final sanity: never leave NaN in generated data.
@@ -543,7 +625,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
 
 function makeLines(vertical: boolean, sizes: number[]): RoadLine[] {
   const widths: number[] = [];
-  for (let i = 0; i <= sizes.length; i++) widths.push(AVENUES.has(i) ? AVENUE_W : STREET_W);
+  for (let i = 0; i <= sizes.length; i++) widths.push(vertical && i === CANAL.line ? CANAL.width : AVENUES.has(i) ? AVENUE_W : STREET_W);
   let total = 0;
   for (const w of widths) total += w;
   for (const s of sizes) total += s;
@@ -575,7 +657,71 @@ function layoutRoads(layout: CityLayout): void {
   const cell = (bi: number, bj: number) => (bi >= 0 && bi < n && bj >= 0 && bj < n ? (cells[bj * n + bi] ?? null) : null);
   const exists = (a: Block | null, b: Block | null) => (a !== null || b !== null) && a !== b;
   for (let j = 0; j <= n; j++) for (let i = 0; i < n; i++) layout.roadH.push(exists(cell(i, j - 1), cell(i, j)));
-  for (let j = 0; j < n; j++) for (let i = 0; i <= n; i++) layout.roadV.push(exists(cell(i - 1, j), cell(i, j)));
+  for (let j = 0; j < n; j++) for (let i = 0; i <= n; i++) layout.roadV.push(i !== CANAL.line && exists(cell(i - 1, j), cell(i, j)));
+}
+
+/** The sea cells' water: each cell out to the coast or to the middle of its roads, short of the live roads and their quay. */
+function buildWater(layout: CityLayout): void {
+  const { n, vLines, hLines, bounds: b } = layout;
+  for (const body of SEA_BODIES) {
+    const q = body.quay;
+    const keep: Rect[] = [];
+    for (let j = 0; j <= n; j++) {
+      for (let i = 0; i <= n; i++) {
+        const v = vLines[i]!;
+        const h = hLines[j]!;
+        if ([0, 1, 2, 3].some((d) => roadFrom(layout, i, j, d))) keep.push(mkRect(v.pos - v.width / 2 - q, h.pos - h.width / 2 - q, v.pos + v.width / 2 + q, h.pos + h.width / 2 + q));
+        if (roadFrom(layout, i, j, 1)) keep.push(mkRect(v.pos, h.pos - h.width / 2 - q, vLines[i + 1]!.pos, h.pos + h.width / 2 + q));
+        if (roadFrom(layout, i, j, 2)) keep.push(mkRect(v.pos - v.width / 2 - q, h.pos, v.pos + v.width / 2 + q, hLines[j + 1]!.pos));
+      }
+    }
+    const cells = body.cells.map(([bi, bj]) =>
+      mkRect(bi === 0 ? b.landMinX : vLines[bi]!.pos, bj === 0 ? b.landMinZ : hLines[bj]!.pos, vLines[bi + 1]!.pos, bj === n - 1 ? b.landMaxZ : hLines[bj + 1]!.pos),
+    );
+    const rects = rectsMinus(cells, keep);
+    const bounds = mkRect(Math.min(...rects.map((r) => r.minX)), Math.min(...rects.map((r) => r.minZ)), Math.max(...rects.map((r) => r.maxX)), Math.max(...rects.map((r) => r.maxZ)));
+    layout.water.push({ name: body.name, rects, bounds, area: cells });
+  }
+}
+
+/**
+ * Cortez Canal: the canal line's whole width from coast to coast, a bridge where every street crosses it (the
+ * junction's box as carriageway, a sidewalk-wide footway either side of it) and a footbridge on each promenade.
+ */
+function buildCanal(layout: CityLayout): void {
+  const { n, vLines, hLines, bounds: b } = layout;
+  const line = vLines[CANAL.line]!;
+  const x0 = line.pos - line.width / 2;
+  const x1 = line.pos + line.width / 2;
+  const water = mkRect(x0, b.landMinZ, x1, b.landMaxZ);
+  layout.water.push({ name: CANAL.name, rects: [water], bounds: water, area: [water] });
+  const deck = (z0: number, z1: number, y: number) => layout.decks.push({ rect: mkRect(x0, z0, x1, z1), y, name: CANAL.name, bridge: true });
+  for (let j = 0; j <= n; j++) {
+    if (!roadFrom(layout, CANAL.line, j, 1)) continue;
+    const h = hLines[j]!;
+    const z0 = h.pos - h.width / 2;
+    const z1 = h.pos + h.width / 2;
+    deck(z0, z1, 0);
+    deck(z0 - SIDEWALK_W, z0, CURB_H);
+    deck(z1, z1 + SIDEWALK_W, CURB_H);
+    layout.parapets.push(mkRect(x0, z0 - SIDEWALK_W, x1, z0 - SIDEWALK_W + PARAPET_T), mkRect(x0, z1 + SIDEWALK_W - PARAPET_T, x1, z1 + SIDEWALK_W));
+  }
+  // The promenades' footbridges, along their seaward edge, clear of the stunt ramps' run-out lanes.
+  for (const z of [b.landMinZ + 2, b.landMaxZ - 8]) {
+    deck(z, z + 6, CURB_H);
+    layout.parapets.push(mkRect(x0, z, x1, z + PARAPET_T), mkRect(x0, z + 6 - PARAPET_T, x1, z + 6));
+  }
+}
+
+/** Azura Point: parkland reaching north from the promenade beyond Hillcrest Green, the lighthouse at its tip. */
+function buildHeadland(layout: CityLayout): void {
+  const { vLines, bounds: b } = layout;
+  const x0 = vLines[5]!.pos + 24;
+  const x1 = vLines[7]!.pos - 12;
+  const cx = (x0 + x1) / 2;
+  const base = mkRect(x0, b.landMinZ - 50, x1, b.landMinZ);
+  const tip = mkRect(cx - 32, b.landMinZ - 118, cx + 32, b.landMinZ - 50);
+  layout.headlands.push({ name: 'Azura Point', rects: [base, tip] });
 }
 
 // ---------------------------------------------------------------------------
@@ -1461,7 +1607,7 @@ function buildCoast(layout: CityLayout, rng: Rng): void {
   }
 
   // Azura Pier with a Ferris wheel (centre of the beach) and the marina piers (south).
-  layout.decks.push({ rect: pierRect, y: 0.45, name: 'Azura Pier' });
+  layout.decks.push({ rect: pierRect, y: 0.45, name: 'Azura Pier', bridge: false });
   addProp(layout, 'ferris', beachEndX + 70, pierZ, Math.PI / 2, 1, 0.45);
   // Railing lamps along both edges, their heads over the deck.
   for (let x = beachStartX + 20; x < beachEndX + 85; x += 22) {
@@ -1470,21 +1616,22 @@ function buildCoast(layout: CityLayout, rng: Rng): void {
   }
   layout.openSpots.push({ x: beachEndX + 50, z: pierZ + 3, district: 'beachfront' });
 
-  layout.decks.push({ rect: marinaMain, y: 0.45, name: 'Marina' });
+  layout.decks.push({ rect: marinaMain, y: 0.45, name: 'Marina', bridge: false });
   for (let k = 0; k < 3; k++) {
     const x = beachEndX - 10 + k * 26;
-    layout.decks.push({ rect: mkRect(x - 2, marinaZ + 5, x + 2, marinaZ + 34), y: 0.45, name: 'Marina' });
+    layout.decks.push({ rect: mkRect(x - 2, marinaZ + 5, x + 2, marinaZ + 34), y: 0.45, name: 'Marina', bridge: false });
     const boat = addProp(layout, 'boat', x + 6, marinaZ + 20, 0, 1, -1.0);
     boat.color = rng.pick([0xffffff, 0xe8e2d0, 0x1f4e79, 0xb03a2e]);
   }
   layout.pois.push({ id: 'marina', kind: 'marina', name: 'Marina', x: beachEndX + 52, z: marinaZ, heading: Math.PI / 2, bay: null, block: -1 });
 
-  // Lighthouse at the north-east tip of the promenade.
-  addProp(layout, 'lighthouse', beachStartX - 8, landMinZ + 8, 0, 1);
-
-  // Dock cranes on the south-west quay.
-  for (let k = 0; k < 3; k++) {
-    addProp(layout, 'crane', cityMinX + 60 + k * 70, landMaxZ - 9, 0, 1);
+  // Dock cranes on the wharf between the docks' last street and Port Basin, boats moored in the basin.
+  const dockSt = layout.hLines[layout.n - 1]!;
+  const wharf = dockSt.pos + dockSt.width / 2 + 10;
+  for (let k = 0; k < 3; k++) addProp(layout, 'crane', cityMinX + 30 + k * 60, wharf, 0, 1);
+  for (let k = 0; k < 4; k++) {
+    const boat = addProp(layout, 'boat', cityMinX + 10 + k * 46, wharf + 40 + (k % 2) * 16, 0, 1, -1.0);
+    boat.color = rng.pick([0xffffff, 0xe8e2d0, 0x1f4e79, 0xb03a2e]);
   }
 
   // Billboards on the promenade facing the ring roads, 9 m inland of the stunt ramp lines
@@ -1496,6 +1643,34 @@ function buildCoast(layout: CityLayout, rng: Rng): void {
   // Beach collectibles, just seaward of the ramp corridor where the sand is still dry.
   layout.openSpots.push({ x: beachStartX + 30, z: landMinZ + 60, district: 'beachfront' });
   layout.openSpots.push({ x: beachStartX + 30, z: landMaxZ - 120, district: 'beachfront' });
+
+  buildPoint(layout, rng);
+}
+
+/** Azura Point: lawns either side of a path out to the lighthouse, trees, benches and lamps along it. */
+function buildPoint(layout: CityLayout, rng: Rng): void {
+  const [base, tip] = layout.headlands.find((h) => h.name === 'Azura Point')!.rects as [Rect, Rect];
+  const cx = rectCX(tip);
+  const yard = mkRect(cx - 9, tip.minZ + 4, cx + 9, tip.minZ + 22);
+  const path = mkRect(cx - 2.5, yard.maxZ, cx + 2.5, base.maxZ);
+  for (const r of rectsMinus([base, tip], [yard, path])) layout.ground.push({ rect: r, kind: 'grass' });
+  layout.ground.push({ rect: yard, kind: 'plaza' }, { rect: path, kind: 'plaza' });
+  addProp(layout, 'lighthouse', cx, yard.minZ + 7, 0, 1);
+  for (let z = path.maxZ - 10, k = 0; z > path.minZ + 4; z -= 16, k++) {
+    const side = k % 2 === 0 ? -1 : 1;
+    addProp(layout, 'bench', cx + side * 4.2, z, side < 0 ? Math.PI / 2 : -Math.PI / 2, 1);
+    addProp(layout, 'lamp', cx - side * 3.6, z - 8, side < 0 ? -Math.PI / 2 : Math.PI / 2, 1);
+  }
+  for (const r of [base, tip]) {
+    const count = Math.floor((rectW(r) * rectD(r)) / 160);
+    for (let i = 0; i < count; i++) {
+      const x = rng.range(r.minX + 3, r.maxX - 3);
+      const z = rng.range(r.minZ + 3, r.maxZ - 3);
+      if (Math.abs(x - cx) < 7 || rectContains(yard, x, z, 4)) continue;
+      addProp(layout, rng.chance(0.75) ? 'tree' : 'bush', x, z, rng.range(0, 6.28), rng.range(0.8, 1.2));
+    }
+  }
+  layout.openSpots.push({ x: cx + 6, z: yard.maxZ + 2, district: 'park' }, { x: base.minX + 8, z: rectCZ(base), district: 'park' });
 }
 
 /** Height of the sloping beach sand at x (independent of z). */

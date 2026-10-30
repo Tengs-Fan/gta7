@@ -93,7 +93,7 @@ export function missionSpots(world: StaticWorld): MissionSpots {
   }
 
   const vans: ParkingSpot[] = [];
-  for (const [bi, bj] of [[0, 9], [8, 8], [2, 1]] as const) {
+  for (const [bi, bj] of [[0, 8], [8, 8], [2, 1]] as const) {
     const c = blockCenter(world, bi, bj);
     // Street-side, so the last one can make a run for it (see Heatwave).
     vans.push(found(nearestParking(world, c.x, c.z, { exclude: vans, street: true }) ?? nearestParking(world, c.x, c.z, { exclude: vans })));

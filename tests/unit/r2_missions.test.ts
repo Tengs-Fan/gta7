@@ -108,7 +108,8 @@ describe('route drivers reach their destination', () => {
     const f = roads.distanceField(goal);
     expect(roads.distanceField(goal)).toBe(f);
     expect(f[goal]).toBe(0);
-    for (const from of [roads.node(0, 0).id, roads.node(9, 7).id, roads.node(3, 10).id]) {
+    // (2,0): the north-west corner the roads reach, now that Hillcrest Cove has (0,0).
+    for (const from of [roads.node(2, 0).id, roads.node(9, 7).id, roads.node(3, 10).id]) {
       const route = roads.findRoute(from, goal)!;
       let len = 0;
       for (let i = 1; i < route.length; i++) len += dist(roads.nodes[route[i - 1]!]!, roads.nodes[route[i]!]!);
