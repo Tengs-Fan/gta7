@@ -323,6 +323,19 @@ describe('talk station', () => {
     expect(most.at(-1)).toBeGreaterThan(0);
   });
 
+  it("airs an ad campaign one part a break, in order, on every station that carries it: Morty Fenwick's four", () => {
+    expect(SPEECH.adSeries['talk-ad-lawyer']).toHaveLength(4);
+    for (const st of STATIONS.filter((s) => s.talk)) {
+      const campaigns = Object.entries(SPEECH.adSeries).filter(([first]) => SPEECH.talk[st.talk!.show].ad.includes(first));
+      expect(campaigns.length, st.name).toBeGreaterThan(0);
+      for (const [, parts] of campaigns) {
+        const aired = talkProgramme(5, 3 * 3600, st.talk).filter((s) => s.kind === 'ad' && parts.includes(s.clip)).map((s) => s.clip);
+        expect(aired.length, st.name).toBeGreaterThan(parts.length);
+        aired.forEach((clip, n) => expect(clip, `${st.name} airing ${n}`).toBe(parts[n % parts.length]));
+      }
+    }
+  });
+
   it('renders only the tuned talk station: off the air the programmes run on their clock and start nothing; THE BOWL comes through the AM band', () => {
     const sim = makeSim({ police: false });
     const rp = roadPoint(sim);

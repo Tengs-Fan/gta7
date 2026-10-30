@@ -332,13 +332,55 @@ export const TALK: readonly TalkPiece[] = [
       ['announcer', "Ask about our family pack. Our layaway plan. Our no questions, seriously, stop asking questions guarantee. Bang Bang Guns. We know a guy. We are the guy."],
     ],
   },
+  // Morty Fenwick's campaign, one part a break: from his office, his car, the payphone outside SAPD Central, a cell.
   {
     id: 'ad-lawyer',
     kind: 'ad',
+    shows: ['azura', 'bowl'],
+    series: 'morty',
+    part: 1,
     lines: [
       ['announcer', "Have you been arrested? Have you been arrested more than twice this week?"],
       ['morty', "Hi, I'm Morty Fenwick, attorney at law. Car theft? Hit and run? Accidentally drove onto the pier? Morty's got you."],
       ['announcer', "Morty Fenwick. Technically a lawyer."],
+    ],
+  },
+  {
+    id: 'ad-morty-car',
+    kind: 'ad',
+    shows: ['azura', 'bowl'],
+    series: 'morty',
+    part: 2,
+    lines: [
+      ['announcer', "Has your car been impounded? Has it been impounded with you still in it?"],
+      ['morty', "Morty Fenwick again, coming to you from my car, which is also my office now, since the landlord changed the locks. Joyriding? Reckless driving? Drove a stolen cab with the meter running? Morty's got you."],
+      ['morty', "Consultations in the back seat. Bring snacks."],
+      ['announcer', "Morty Fenwick. Technically a lawyer. Technically a car."],
+    ],
+  },
+  {
+    id: 'ad-morty-payphone',
+    kind: 'ad',
+    shows: ['azura', 'bowl'],
+    series: 'morty',
+    part: 3,
+    lines: [
+      ['morty', "Hi, it's Morty Fenwick, calling from the payphone outside SAPD Central, to be closer to my clients. Also, they towed my car.", { phone: true }],
+      ['morty', "Arrested? Wanted? Wanted and arrested? Just yell my name from the cells. I'm right outside. I can hear you.", { phone: true }],
+      ['announcer', "Morty Fenwick. Technically a lawyer. Currently loitering."],
+    ],
+  },
+  {
+    id: 'ad-morty-cell',
+    kind: 'ad',
+    shows: ['azura', 'bowl'],
+    series: 'morty',
+    part: 4,
+    lines: [
+      ['announcer', "The following message was recorded at SAPD Central."],
+      ['morty', "Hi, Morty Fenwick. Good news. I've never been closer to my clients. Bad news. I'm in the cell next to them.", { phone: true }],
+      ['morty', "Turns out you can't live in a car outside a police station for three weeks. Who knew? Me. I should have known. I'm a lawyer.", { phone: true }],
+      ['announcer', "Morty Fenwick. Technically a lawyer. Currently a client."],
     ],
   },
   {
@@ -405,6 +447,96 @@ export const TALK: readonly TalkPiece[] = [
     lines: [
       ['announcer', "The Thunderhoof. It's loud. It's thirsty. It parks across two spaces, and it does not apologize."],
       ['announcer', "The Thunderhoof. For men who need you to know they're coming."],
+    ],
+  },
+
+  // The fine print, read at one and a half times the speed.
+  {
+    id: 'ad-pipsqueak-deal',
+    kind: 'ad',
+    lines: [
+      ['announcer', "It's the Pipsqueak Spring Sales Event! Zero down, zero percent, zero people looking at you. Drive home a brand new Pipsqueak today."],
+      ['announcer', "The Pipsqueak is not a getaway vehicle. The Pipsqueak will not outrun a cruiser, a bicycle, or a determined toddler. Offer void where people can see you.", { speed: 1.5 }],
+    ],
+  },
+  {
+    id: 'ad-unclench',
+    kind: 'ad',
+    lines: [
+      ['announcer', "Do you honk at red lights? Do red lights honk back? Ask your doctor about Unclench, the once a day pill for drivers who are one more merge away from the evening news."],
+      ['announcer', "Unclench may cause drowsiness, patience and sudden use of the turn signal. Do not take Unclench with Torque. Tell your doctor if you have been on the news twice in one week.", { speed: 1.5 }],
+    ],
+  },
+  {
+    id: 'ad-scratch',
+    kind: 'ad',
+    lines: [
+      ['ident', "Play Lucky Pier, the scratch card from the Azura Lottery! Scratch three Ferris wheels and win a ride on the Ferris wheel. Scratch three sharks and win a giant stuffed shark."],
+      ['announcer', "Odds of winning, one in forty million. Odds of losing your hat to a seagull while you scratch, one in three. Prizes are paid at the top of the Ferris wheel, which may stop.", { speed: 1.5 }],
+    ],
+  },
+
+  // The host reads it himself.
+  {
+    id: 'ad-torque-chet',
+    kind: 'ad',
+    lines: [
+      ['chet', "Folks, you know I don't do ads. But I have been drinking Torque energy drink every morning this week, and I have not slept since Tuesday."],
+      ['chet', "It tastes like a battery, folks. I mean that as a compliment. I licked a battery once when I was a kid, and I've been chasing that feeling ever since."],
+      ['chet', "Torque. Ask for the blue one. Nobody knows what blue is."],
+    ],
+  },
+
+  // Sketches.
+  {
+    id: 'ad-mutual-claim',
+    kind: 'ad',
+    lines: [
+      ['announcer', "Azura Mutual, claims line, how can I help?"],
+      ['jen', "Hi, my boyfriend drove our car into the Marina."],
+      ['announcer', "Is the car on fire?"],
+      ['jen', "Not yet."],
+      ['announcer', "Then you're not covered yet."],
+      ['jen', "How would it be on fire? It's underwater."],
+      ['announcer', "Ma'am, we're an insurance company. We can't tell you that. Officially. Azura Mutual. We're probably there for you."],
+    ],
+  },
+  {
+    id: 'ad-tornado-window',
+    kind: 'ad',
+    lines: [
+      ['doris', "Welcome to Taco Tornado, what can I get you, love?"],
+      ['gary', "One Inferno Burrito, please.", { phone: false }],
+      ['doris', "Lovely. Would you like the waiver with that?"],
+      ['gary', "Is the waiver extra?", { phone: false }],
+      ['doris', "The waiver is free, love. The hospital is extra."],
+      ['announcer', "Taco Tornado. Thirty six fillings, one regrettable decision. Open late, because you are up late."],
+    ],
+  },
+
+  // Jobs: Azura Cab's fares, San Azura General's ambulance and Azura Express's runs from First Azura Bank.
+  {
+    id: 'ad-cab-jobs',
+    kind: 'ad',
+    lines: [
+      ['announcer', "Azura Cab is hiring! Clean driving record? Great. Messy one? We don't check. Find one of our cabs anywhere in San Azura, get in, and start picking up fares."],
+      ['announcer', "The faster you drive, the bigger the tip. Azura Cab. However you got the cab, you're one of us now."],
+    ],
+  },
+  {
+    id: 'ad-paramedic-jobs',
+    kind: 'ad',
+    lines: [
+      ['dolores', "San Azura General is looking for paramedics. If you can drive fast, stay calm and lift a grown man off the pavement, there is an ambulance waiting outside our doors."],
+      ['dolores', "Experience preferred, not required. The keys are in the ambulance. San Azura General. We'll train you on the way."],
+    ],
+  },
+  {
+    id: 'ad-courier-jobs',
+    kind: 'ad',
+    lines: [
+      ['ident', "Azura Express needs couriers! Any car, any bike, any time. Pick up your parcels at First Azura Bank, and get them across town before the clock runs out."],
+      ['ident', "We don't ask what's in the parcels, and neither should you. Azura Express. It's not a crime if you're on time."],
     ],
   },
 

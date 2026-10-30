@@ -157,6 +157,9 @@
   "talk-ad-nightjar": 16.925,
   "talk-ad-guns": 15.294,
   "talk-ad-lawyer": 13.117,
+  "talk-ad-morty-car": 22.678,
+  "talk-ad-morty-payphone": 18.52,
+  "talk-ad-morty-cell": 20.17,
   "talk-ad-torque": 10.449,
   "talk-ad-insurance": 9.289,
   "talk-ad-hospital": 13.337,
@@ -165,6 +168,15 @@
   "talk-ad-pier": 7.752,
   "talk-ad-hillcrest": 12.745,
   "talk-ad-thunderhoof": 8.235,
+  "talk-ad-pipsqueak-deal": 14.17,
+  "talk-ad-unclench": 16.12,
+  "talk-ad-scratch": 16.186,
+  "talk-ad-torque-chet": 17.79,
+  "talk-ad-mutual-claim": 17.445,
+  "talk-ad-tornado-window": 18.935,
+  "talk-ad-cab-jobs": 15.168,
+  "talk-ad-paramedic-jobs": 16.427,
+  "talk-ad-courier-jobs": 15.153,
   "talk-ident-cheap": 3.855,
   "talk-ident-voice": 4.708,
   "talk-ident-facts": 2.936,
@@ -754,7 +766,16 @@
     "talk-ad-tacos",
     "talk-ad-pier",
     "talk-ad-hillcrest",
-    "talk-ad-thunderhoof"
+    "talk-ad-thunderhoof",
+    "talk-ad-pipsqueak-deal",
+    "talk-ad-unclench",
+    "talk-ad-scratch",
+    "talk-ad-torque-chet",
+    "talk-ad-mutual-claim",
+    "talk-ad-tornado-window",
+    "talk-ad-cab-jobs",
+    "talk-ad-paramedic-jobs",
+    "talk-ad-courier-jobs"
    ],
    "ident": [
     "talk-ident-cheap",
@@ -790,6 +811,7 @@
    ],
    "ad": [
     "talk-ad-guns",
+    "talk-ad-lawyer",
     "talk-ad-torque",
     "talk-ad-thunderhoof",
     "talk-bowl-ad-tickets",
@@ -805,7 +827,14 @@
    ]
   }
  },
- "adSeries": {},
+ "adSeries": {
+  "talk-ad-lawyer": [
+   "talk-ad-lawyer",
+   "talk-ad-morty-car",
+   "talk-ad-morty-payphone",
+   "talk-ad-morty-cell"
+  ]
+ },
  "barks": {
   "greet": [
    [
