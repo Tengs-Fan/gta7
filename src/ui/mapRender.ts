@@ -86,6 +86,14 @@ export class MapImage {
       rect(bd.rect.minX, bd.rect.minZ, bd.rect.maxX, bd.rect.maxZ, tall ? '#1d2228' : '#22282e');
     }
     for (const d of world.layout.decks) rect(d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ, d.bridge ? '#9aa1aa' : '#7b5a3a');
+    // Turbine Row's towers out at sea.
+    ctx.fillStyle = '#c9d2da';
+    for (const p of world.layout.props) {
+      if (p.kind !== 'turbine') continue;
+      ctx.beginPath();
+      ctx.arc(X(p.x), Z(p.z), 4 * MAP_SCALE, 0, Math.PI * 2);
+      ctx.fill();
+    }
     this.turf = document.createElement('canvas');
     this.turf.width = w;
     this.turf.height = h;

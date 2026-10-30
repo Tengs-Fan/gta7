@@ -23,6 +23,7 @@ import { Environment } from './environment';
 import { FinishPass } from './finishPass';
 import { gradeAt, type Grade } from './grade';
 import { MarkerView } from './markers';
+import { OffshoreView } from './offshore';
 import { PropsView } from './props';
 import { Rain, SOFTWARE_RAIN_DROPS } from './rain';
 import { setPilings, setSeaCuts } from './sea';
@@ -30,6 +31,7 @@ import { buildCoverMap, coverAt, type CoverMap } from './rainCover';
 import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
 import { HARDWARE_CHUNK_SIZE, STATIC_CHUNK_SIZE } from './spatial';
 import { SoftwareMaterials } from './softwareMaterials';
+import { TurbineView } from './turbines';
 import { ClassViewPool, type AnyVehicleView } from './classViews';
 import type { BikeView } from './bikeView';
 import type { BoatView } from './boatView';
@@ -169,6 +171,9 @@ export class GameRenderer {
   /** The wave-1 jobs' bins and water jet, and the signs and structures of their places. */
   readonly activityFx = new ActivityFxView();
   readonly sites: SiteView;
+  /** Turbine Row out at sea, and Smuggler's Key's ruins, guns, wreck and signs. */
+  readonly turbines: TurbineView;
+  readonly offshore: OffshoreView;
   /** Grenades and molotovs in flight, the throw's aiming arc and molotov fires. */
   readonly throwView = new ThrowView();
   readonly rain: Rain;
@@ -280,8 +285,13 @@ export class GameRenderer {
     this.props = new PropsView(world, chunk);
     this.streetLighting = new StreetLighting(world);
     this.sites = new SiteView(world);
-    this.scene.add(this.activityFx.group, this.sites.group);
+    this.turbines = new TurbineView(world);
+    this.turbines.foam.bindSea(this.env.sea);
+    this.offshore = new OffshoreView(world);
+    this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group);
     this.softwareMaterials?.apply(this.sites.group);
+    this.softwareMaterials?.apply(this.turbines.group);
+    this.softwareMaterials?.apply(this.offshore.group);
     this.softwareMaterials?.apply(this.activityFx.group);
     this.scene.add(this.streetLighting.group, this.footShadows.mesh);
     this.scene.add(this.city.group, this.props.group, this.crowd.group, this.effects.group, this.markers.group, this.lightSprites.group, this.vehicleParts.group, this.throwView.group);
@@ -1114,6 +1124,7 @@ export class GameRenderer {
     // Signals run on the sim clock, the one drivers and pedestrians obey.
     this.props.update(this.time, night, sim ? sim.time : this.time);
     this.props.setWind(weather?.wind ?? NO_WIND);
+    this.turbines.update(dt, this.time, night, weather?.wind ?? NO_WIND, this.env.smokeLight);
     this.props.setOccluderView(cam.position, sim ? this.cameraCtl.occlusionSubject() : null);
     if (sim) {
       const lights = Math.max(night, this.weatherDim);
@@ -1235,6 +1246,8 @@ export class GameRenderer {
     this.footShadows.dispose();
     this.wallField?.dispose();
     this.throwView.dispose();
+    this.turbines.dispose();
+    this.offshore.dispose();
     this.rain.dispose();
     this.city.wet.dispose();
     this.env.dispose();

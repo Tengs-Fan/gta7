@@ -351,9 +351,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     console.log(`[VAL-BLD-010] buildings ${b}, colliders ${c}`);
     // Captured at d98da7b with the same canonical JSON (tsx over a d98da7b export), re-captured when the map was broken
     // up (docs/map.md): superblocks, the cove, the basin, the canal with its bridges' parapets, and the headland; and again when four bays were drowned into the coast, and when the ring road
-    // was bridged across their mouths (the bridges' parapets).
+    // was bridged across their mouths (the bridges' parapets); the colliders again for Turbine Row's towers and Smuggler's
+    // Key's palms, lamp and walls, appended after all of these.
     expect(b).toBe('a52c2c8ab0629cf2b89bc0b11e6ab1f26eb0cd80959093183317293951215293');
-    expect(c).toBe('43c5b26d1cd25e59712608ef1c4a8e68d56ca36e38a5b047fda722737b9fe752');
+    expect(c).toBe('faea971a2b229cbfc6e6c2845353012959b4f7417681b12da8454ebb3611900d');
   });
 });
 

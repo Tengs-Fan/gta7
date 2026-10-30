@@ -517,7 +517,8 @@ describe('city and prop geometry', () => {
       }
     }
       }
-    expect(pier).toBe(16);
+    // Azura Pier's 16, and the one at the end of the jetty on Smuggler's Key.
+    expect(pier).toBe(17);
     expect(worst, `largest share of a pool's light hanging in the air: ${worstAt}`).toBeLessThan(0.03);
   });
 

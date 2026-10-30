@@ -78,6 +78,11 @@ export class PickupSystem {
       add('weapon', 2, 3, 'molotov', 240);
       add('weapon', 1, 10, 'sniper', 300);
     }
+    // The stash on Smuggler's Key has spots of its own, so it moves none of the above.
+    for (const s of sim.world.layout.offshore.stash) {
+      if (s.what === 'rifle') this.add('weapon', s.x, s.z, 90, 'rifle', 240, 'key:rifle');
+      else this.add('armor', s.x, s.z, 100, null, 120, 'key:armor');
+    }
     this.syncCollected();
   }
 

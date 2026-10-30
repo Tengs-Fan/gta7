@@ -497,10 +497,10 @@ describe('VAL-PRP-007 garages are furnished', () => {
 describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98da7b', () => {
   // Recorded at d98da7b (tests/unit/m3_props.test.ts hashes run against an archive of that commit), re-recorded when
   // the map was broken up and when its four bays were drowned and the ring road bridged across their mouths (docs/map.md), which moves, adds
-  // and drops props and adds colliders.
+  // and drops props and adds colliders, and when Turbine Row and Smuggler's Key appended theirs.
   const D98 = {
-    props: '3296b464823dfaf2f7235cd53301e90de86d425d9c8425d814f93e6368ed9089',
-    colliders: '2221257e4318a844a90ee3035e8945400492f4327ea239d44a7de04cde1d7af2',
+    props: 'b8423b87a53f3562b56adb3b502f4f7f28ef393b9a8438d8859087a67bb2e4cd',
+    colliders: 'e6daa54a72ae6d9872dc5ed3106e7981e6754402fed412b634c536197f339b81',
     envelopes: '3becde233d3999a98870b40283cb8e3520e322b6e97a1128761b80a1596ad558',
   };
 

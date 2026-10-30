@@ -8,6 +8,7 @@ import {
   AVENUE_W, BEACH_W, BOARDWALK_W, CITY_SEED, CROSSWALK_W, CURB_H, GRID_N, PED_INSET,
   PROMENADE_W, PROP_INSET, SAND_DROP, SIDEWALK_W, STREET_W, WATER_Y,
 } from './constants';
+import { buildOffshore, type Offshore } from './offshore';
 
 export interface Rect {
   minX: number;
@@ -23,7 +24,7 @@ export type RoofStyle = 'flat' | 'gable' | 'helipad';
 export type GroundKind = 'grass' | 'plaza' | 'parking' | 'dirt' | 'yard';
 export type PropKind =
   | 'tree' | 'palm' | 'lamp' | 'signal' | 'hydrant' | 'bench' | 'bin' | 'container' | 'bush'
-  | 'fountain' | 'crane' | 'boat' | 'lighthouse' | 'ferris' | 'billboard';
+  | 'fountain' | 'crane' | 'boat' | 'lighthouse' | 'ferris' | 'billboard' | 'turbine';
 /** The `contact...` kinds are mission givers' places: which one a POI is, and how it is built, is the SPECIALS row's business. */
 export type PoiKind = 'safehouse' | 'hospital' | 'police' | 'spray' | 'gunshop' | 'bank' | 'marina' | `contact${string}`;
 export type RoofPropKind = 'ac' | 'tank' | 'antenna' | 'billboard' | 'helipad';
@@ -228,6 +229,8 @@ export interface CityLayout {
   /** Free positions inside lots/parks used for pickups and collectibles. */
   openSpots: { x: number; z: number; district: District }[];
   stadium: Rect | null;
+  /** Turbine Row's sea and Smuggler's Key: the battery's walls and the Key's dressing (world/offshore.ts). */
+  offshore: Offshore;
   bounds: Bounds;
 }
 
@@ -531,7 +534,9 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     beachEndX,
     worldMinX: cityMinX - PROMENADE_W - 160,
     worldMaxX: beachEndX + 160,
-    worldMinZ: cityMinZ - PROMENADE_W - 160,
+    // The north sea reaches 384 m further, out past Turbine Row: exactly 32 cells of the StaticGrid, so every collider
+    // keeps its cell boundaries.
+    worldMinZ: cityMinZ - PROMENADE_W - 544,
     worldMaxZ: cityMaxZ + PROMENADE_W + 160,
   };
 
@@ -557,6 +562,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     parking: [],
     openSpots: [],
     stadium: null,
+    offshore: { solids: [], cannons: [], wrecks: [], signs: [], stash: [] },
     bounds,
   };
 
@@ -630,6 +636,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   layout.parking = layout.parking.filter((p) => !waterAt(layout, p.x, p.z));
   layout.openSpots = layout.openSpots.filter((p) => !waterAt(layout, p.x, p.z));
   assignGroundFloors(layout);
+  buildOffshore(layout);
 
   // Final sanity: never leave NaN in generated data.
   for (const b of layout.buildings) {

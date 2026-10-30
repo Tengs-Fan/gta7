@@ -5,6 +5,7 @@ import { circleVsAabb, makeContact } from '../core/collision';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
+import { TURBINE_BASE } from './offshore';
 import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
 
@@ -74,6 +75,8 @@ export class StaticWorld {
     this.layout.props.forEach((p, i) => {
       this.propColliders[i] = this.addPropCollider(p, i);
     });
+    // After every prop, so each older collider keeps its id.
+    for (const s of this.layout.offshore.solids) g.addBox(s.minX, s.minZ, s.maxX, s.maxZ, s.y0, s.y1, 'wall');
   }
 
   private addPropCollider(p: Prop, i: number): number {
@@ -104,6 +107,9 @@ export class StaticWorld {
         return g.addBox(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.y + p.h, 'container').id;
       case 'lighthouse':
         return g.addCircle(p.x, p.z, 3.6, p.y, p.y + 26, 'pillar').id;
+      case 'turbine':
+        // The tower from below the swimmers' band up past the nacelle: boats, shots, the camera and sight stop at it.
+        return g.addCircle(p.x, p.z, TURBINE_BASE, WATER_Y - 1.5, p.y + 72, 'pillar').id;
       case 'crane': {
         // Four legs of a gantry crane spanning 12 m x 10 m.
         for (const [lx, lz] of [[-6, -5], [6, -5], [-6, 5], [6, 5]] as const) g.addBox(p.x + lx - 0.6, p.z + lz - 0.6, p.x + lx + 0.6, p.z + lz + 0.6, 0, 30, 'pillar');
