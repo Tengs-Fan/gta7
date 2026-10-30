@@ -6,6 +6,7 @@ The voices are [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) v1.0 (Apa
 | File | Role |
 | --- | --- |
 | `script.ts` | The cast (a Kokoro voice per role), the talk station's programme (Chet Bramble's monologues, callers, the newsdesk, traffic, ads and idents) and the shouts of people, officers and gangs. |
+| `djs.ts` | The music stations' DJs: a voice each (a blend where a voice alone is already somebody else), their idents, banter, lines for the night, the rain, a chase and a getaway, and the frames they announce and back-announce the hits of `src/audio/stations/playlists.ts` with. |
 | `dialogue.ts` | Reads the mission dialogue from `src/sim/missions/*.ts`: every `m.say(SPEAKER, …)` and `[SPEAKER, …]` intro line, both branches of a ternary, template literals evaluated against the generated city. Adds the phone's offer and busy lines. |
 | `phrases.ts` | The police dispatcher's phrases, from `src/sim/dispatch.ts`'s tables, the vehicle names and the city's zone names. The scanner joins them, longest match first. |
 | `build.ts` | Renders new lines (`render.py`), trims, band-limits the callers and the Skycopter to a phone line, levels every clip to the same loudness, encodes with ffmpeg, writes the index and removes clips nobody uses. |
@@ -35,5 +36,6 @@ A new mission speaker needs a role in `SPEAKERS` (`script.ts`); a mission templa
 ## Output
 
 - `dlg-<role>-<hash>`: a line of dialogue; `dsp-<words>`: a dispatch phrase; `talk-<piece>`: a talk station piece; `bark-<kind>-<voice>-<n>`: a shout.
+- `ident-<station>-<n>`: a music station's ident; `dj-<station>-<kind>-<n>`: a DJ's link (of the kinds `front` and `back`, the announce and the back-announce of hit `n`).
 - Every clip is levelled to -20 dBFS RMS over its voiced samples, peaks under -1 dBFS.
 - The same input on the same machine gives the same bytes (ffmpeg runs with bitexact flags); Kokoro on another GPU or on a CPU may differ in the last bits.

@@ -6,6 +6,11 @@ import index from '../assets/speech/speech.json';
 
 export type TalkKind = 'host' | 'call' | 'news' | 'ad' | 'ident';
 export type BarkKind = 'greet' | 'hurt' | 'jacked' | 'panic' | 'rammed' | 'witness' | 'freeze' | 'shots' | 'officerDown' | 'pullOver' | 'arrest' | 'turf';
+/**
+ * What a music station's DJ says over a song's intro: an ident, a hit's announce ('front') or back-announce ('back'),
+ * banter, or a line for the night, the rain, a chase or a chase got away from.
+ */
+export type LinkKind = 'ident' | 'front' | 'back' | 'banter' | 'night' | 'rain' | 'chase' | 'gotAway';
 
 export interface SpeechIndex {
   /** Seconds of each clip, by id (the file is `<id>.mp3`). */
@@ -20,6 +25,10 @@ export interface SpeechIndex {
   barks: Record<BarkKind, string[][]>;
   /** Spoken idents of the music stations, by station name. */
   idents: Record<string, string[]>;
+  /** The music stations' DJ links of each kind (banter, night, rain, chase, gotAway), by station name. */
+  dj: Record<string, Partial<Record<LinkKind, string[]>>>;
+  /** The announce and back-announce of each of a music station's hits (stations/playlists.ts HITS, in order). */
+  tracks: Record<string, Array<{ front: string; back: string }>>;
 }
 
 export const SPEECH = index as SpeechIndex;

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BARK_COOLDOWN, BARK_GAP, Barks } from '../../src/audio/barks';
 import { Dialogue } from '../../src/audio/dialogue';
 import { dispatchClips, SpeechBank } from '../../src/audio/speech';
+import { HITS } from '../../src/audio/stations/playlists';
 import { COLOUR_NAMES, COMPASS, CRIME_PHRASES } from '../../src/sim/dispatch';
 import { STORY } from '../../src/sim/missions';
 import { dialogueKey, LINE_TAIL, lineSeconds, phraseWords, SPEECH } from '../../src/sim/speech';
@@ -131,6 +132,23 @@ describe('the talk station and the street', () => {
     for (const [kind, voices] of Object.entries(SPEECH.barks)) {
       expect(voices.length, kind).toBeGreaterThanOrEqual(3);
       for (const lines of voices) expect(lines.length, kind).toBe(voices[0]!.length);
+    }
+  });
+});
+
+describe('the music stations\' DJs', () => {
+  it('have every kind of link, and an announce and a back-announce for every hit, each a recorded clip', () => {
+    const kinds = ['banter', 'night', 'rain', 'chase', 'gotAway'] as const;
+    for (const [station, hits] of Object.entries(HITS)) {
+      const dj = SPEECH.dj[station]!;
+      expect(Object.keys(dj).sort(), station).toEqual([...kinds].sort());
+      for (const kind of kinds) {
+        expect(dj[kind]!.length, `${station} ${kind}`).toBeGreaterThanOrEqual(kind === 'banter' ? 4 : 2);
+        for (const id of dj[kind]!) expect(existsSync(`${DIR}${id}.mp3`), id).toBe(true);
+      }
+      expect(SPEECH.tracks[station]!.length, station).toBe(hits.length);
+      for (const t of SPEECH.tracks[station]!) for (const id of [t.front, t.back]) expect(existsSync(`${DIR}${id}.mp3`), id).toBe(true);
+      for (const id of SPEECH.idents[station]!) expect(existsSync(`${DIR}${id}.mp3`), id).toBe(true);
     }
   });
 });
