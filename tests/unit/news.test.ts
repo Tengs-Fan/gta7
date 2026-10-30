@@ -185,7 +185,7 @@ describe('the newsroom', () => {
     expect(room.stories).toHaveLength(1);
   });
 
-  it('files his car going into the water where it went in, but not a boat', () => {
+  it('files his car going into the water where it went in, but not a boat or a bike', () => {
     const { sim, room, poll } = newsroom();
     const rp = roadPoint(sim);
     const car = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
@@ -199,6 +199,11 @@ describe('the newsroom', () => {
     placeInCar(sim, boat);
     poll();
     boat.inWater = true;
+    poll();
+    const scooter = sim.spawnVehicle('scooter', rp.x, rp.z, rp.heading);
+    placeInCar(sim, scooter);
+    poll();
+    scooter.inWater = true;
     poll();
     expect(room.stories).toHaveLength(1);
   });

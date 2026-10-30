@@ -170,7 +170,7 @@ export class Newsroom {
     this.level = level;
   }
 
-  /** His road vehicle going into the water, whether he is still in it or not. */
+  /** His car going into the water, whether he is still in it or not: a boat floats, and a bike is not a car. */
   private watchCar(me: PlayerView, now: number): void {
     const v = me.character.vehicle;
     if (v && v !== this.car) {
@@ -180,7 +180,7 @@ export class Newsroom {
     const car = this.car;
     if (!car || car.inWater === this.wet) return;
     this.wet = car.inWater;
-    if (car.inWater && car.spec.class !== 'boat') this.file({ kind: 'sunk', at: now, zone: this.world.zoneName(car.pos.x, car.pos.z) });
+    if (car.inWater && car.spec.class === 'car') this.file({ kind: 'sunk', at: now, zone: this.world.zoneName(car.pos.x, car.pos.z) });
   }
 
   /** The change the last forecast promised, arriving while he listens: the desk says so, once. */
