@@ -228,7 +228,6 @@ export class Debris {
    * recycles its oldest piece.
    */
   spawn(shape: DebrisShape, x: number, y: number, z: number, vx: number, vy: number, vz: number, spin: THREE.Vector3, scale: number, color: THREE.Color, life: number, fade: number, world: DebrisWorld | ((x: number, z: number) => number)): void {
-    if (!Number.isFinite(x + y + z + vx + vy + vz)) return;
     const p = this.pieces.length >= this.cap ? this.pieces.shift()! : this.free.pop() ?? this.pieces.shift()!;
     p.shape = DEBRIS_SHAPES.indexOf(shape);
     p.pos.set(x, y, z);

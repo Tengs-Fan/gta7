@@ -237,8 +237,8 @@ export class BikeView {
     this.group.position.set(v.pos.x, v.pos.y, v.pos.z);
     this.group.rotation.set(-v.pitch, v.heading, v.roll);
     // +rotation.z swings the top towards -x, the bike's right: a positive lean is to the right.
-    this.leanGroup.rotation.z = Number.isFinite(v.lean) ? v.lean : 0;
-    this.wheelieGroup.rotation.x = -(Number.isFinite(v.wheelie) ? v.wheelie : 0);
+    this.leanGroup.rotation.z = v.lean;
+    this.wheelieGroup.rotation.x = -v.wheelie;
     this.steerGroup.rotation.y = -v.steer * steerLimit(s, v.forwardSpeed);
     this.spin += (v.forwardSpeed / m.wheelR) * dt;
     if (Math.abs(this.spin) > 1e4) this.spin %= Math.PI * 2;

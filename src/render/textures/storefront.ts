@@ -242,11 +242,11 @@ class Painter {
     sc.textBaseline = 'middle';
     const m = sc.measureText(t);
     const fs = size * k;
-    // Ink extents from the centre point (with a fallback where the box metrics are missing).
-    const left = Number.isFinite(m.actualBoundingBoxLeft) ? m.actualBoundingBoxLeft : m.width / 2;
-    const right = Number.isFinite(m.actualBoundingBoxRight) ? m.actualBoundingBoxRight : m.width / 2;
-    const up = Number.isFinite(m.actualBoundingBoxAscent) ? m.actualBoundingBoxAscent : fs * 0.8;
-    const down = Number.isFinite(m.actualBoundingBoxDescent) ? m.actualBoundingBoxDescent : fs * 0.8;
+    // Ink extents from the centre point.
+    const left = m.actualBoundingBoxLeft;
+    const right = m.actualBoundingBoxRight;
+    const up = m.actualBoundingBoxAscent;
+    const down = m.actualBoundingBoxDescent;
     const pad = 2 * k;
     // Resizing clears the scratch canvas and resets its state.
     s.width = Math.max(1, Math.ceil(left + right) + 2 * pad);
@@ -295,8 +295,7 @@ function room(p: Pair, x: number, y: number, w: number, h: number, depth: number
   const py = m.y(y);
   const pw = w * m.sx;
   const ph = h * m.sy;
-  const src = (m.c as CanvasRenderingContext2D & { canvas?: HTMLCanvasElement }).canvas;
-  if (src && typeof i.c.drawImage === 'function') i.c.drawImage(src, px, py, pw, ph, px, py, pw, ph);
+  i.c.drawImage(m.c.canvas, px, py, pw, ph, px, py, pw, ph);
   INTERIORS[p.cell] = { x, y, w, h, depth, design };
 }
 

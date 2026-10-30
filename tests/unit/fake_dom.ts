@@ -39,6 +39,9 @@ const ctx2d: unknown = new Proxy({} as Record<string | symbol, unknown>, {
   },
 });
 
+/** A WebGL 2 context for the GPU probe: every extension present, an unnamed GPU. */
+const gl2: unknown = { RENDERER: 0x1f01, getExtension: () => ({ loseContext: () => undefined }), getParameter: () => '' };
+
 const VOID_TAGS = new Set(['br', 'hr', 'img', 'input', 'meta']);
 
 export class FakeElement extends EventTarget {
@@ -114,8 +117,8 @@ export class FakeElement extends EventTarget {
   querySelectorAll(sel: string): FakeElement[] {
     return this.all().filter((e) => (sel === '[data-el]' ? 'el' in e.dataset : e.tagName === sel.toUpperCase()));
   }
-  getContext(): unknown {
-    return ctx2d;
+  getContext(kind?: string): unknown {
+    return kind === 'webgl2' ? gl2 : ctx2d;
   }
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
     return { left: 0, top: 0, width: this.width, height: this.height };

@@ -18,7 +18,7 @@ export type AnisoTier = 'high' | 'medium' | 'low' | 'software';
 export const ANISOTROPY_CAP: Readonly<Record<AnisoTier, number>> = { high: 16, medium: 8, low: 4, software: 1 };
 
 export function anisotropyFor(tier: AnisoTier, maxAnisotropy: number): number {
-  const max = Number.isFinite(maxAnisotropy) && maxAnisotropy >= 1 ? Math.floor(maxAnisotropy) : 1;
+  const max = maxAnisotropy >= 1 ? Math.floor(maxAnisotropy) : 1;
   return Math.max(1, Math.min(ANISOTROPY_CAP[tier], max));
 }
 

@@ -80,8 +80,7 @@ export const HIGH_PIXEL_BUDGET = 3.5e6;
  */
 export function pixelRatioFor(tier: QualityTier, devicePixelRatio: number, cssWidth?: number, cssHeight?: number): number {
   const t = QUALITY[tier];
-  const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
-  const r = Math.min(dpr, t.dprCap) * t.renderScale;
+  const r = Math.min(devicePixelRatio, t.dprCap) * t.renderScale;
   if (tier !== 'high' || !cssWidth || !cssHeight || !(cssWidth > 0) || !(cssHeight > 0)) return r;
   return Math.min(r, Math.sqrt(HIGH_PIXEL_BUDGET / (cssWidth * cssHeight)));
 }
@@ -203,12 +202,7 @@ export function probeGpu(): GpuProbe {
     // No usable probe: unknown GPU (and no half-float targets unless that answer came first).
   } finally {
     // Release the throwaway context whatever happened, so it does not count against the page's limit.
-    try {
-      const lose = gl?.getExtension('WEBGL_lose_context') as { loseContext?: () => void } | null | undefined;
-      if (typeof lose?.loseContext === 'function') lose.loseContext();
-    } catch {
-      // Best effort.
-    }
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
   }
   return out;
 }

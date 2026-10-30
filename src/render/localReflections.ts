@@ -18,7 +18,6 @@ export class LocalReflections {
   private capturedAt = new THREE.Vector3(Infinity, Infinity, Infinity);
   private capturedHour = -100;
   private captureTime = -100;
-  private disabled = false;
   /** The filtered map shows this car's surroundings: false after a release or warm-up until the next full capture. */
   private current = false;
 
@@ -28,16 +27,15 @@ export class LocalReflections {
     this.camera.updateCoordinateSystem();
   }
 
-  get ready(): boolean { return this.filtered !== null && this.current && !this.disabled; }
-  get capturing(): boolean { return this.face >= 0 && !this.disabled; }
+  get ready(): boolean { return this.filtered !== null && this.current; }
+  get capturing(): boolean { return this.face >= 0; }
 
   /** Vehicle damage/glass sync can restore a shared material each frame, before the main draw. */
   applyCurrent(target: THREE.Object3D): void {
-    if (this.target === target && this.filtered && this.current && !this.disabled) this.syncFinishes(target, this.filtered.texture);
+    if (this.target === target && this.filtered && this.current) this.syncFinishes(target, this.filtered.texture);
   }
 
   update(target: THREE.Object3D, position: THREE.Vector3, hours: number, time: number, excluded: readonly THREE.Object3D[]): void {
-    if (this.disabled) return;
     if (this.target !== target) {
       this.restoreFinishes();
       this.target = target;
@@ -57,23 +55,17 @@ export class LocalReflections {
       this.captureTime = time;
       this.capturedHour = hours;
     }
-    try {
-      if (this.face >= 0) {
-        this.captureFace(excluded);
-        this.face++;
-        if (this.face === 6) {
-          this.filterCube();
-          this.current = true;
-          this.capturedAt.copy(this.camera.position);
-          this.face = -1;
-        }
+    if (this.face >= 0) {
+      this.captureFace(excluded);
+      this.face++;
+      if (this.face === 6) {
+        this.filterCube();
+        this.current = true;
+        this.capturedAt.copy(this.camera.position);
+        this.face = -1;
       }
-      if (this.filtered && this.current) this.syncFinishes(target, this.filtered.texture);
-    } catch {
-      // Optional enhancement: a driver that cannot capture the HDR cube keeps the sky reflection.
-      this.restoreFinishes();
-      this.disabled = true;
     }
+    if (this.filtered && this.current) this.syncFinishes(target, this.filtered.texture);
   }
 
   private filterCube(): void {
@@ -88,7 +80,7 @@ export class LocalReflections {
       if (next !== this.filtered) this.filtered?.dispose();
       this.filtered = next;
     } finally {
-      // PMREM may fail during driver/context loss. Leave the main scene on its original target.
+      // Leave the main scene on its original target.
       renderer.xr.enabled = xr;
       renderer.autoClear = autoClear;
       renderer.setRenderTarget(target, face, mip);
@@ -175,13 +167,7 @@ export class LocalReflections {
    * finish with the filtered map on each target, so the renderer's compile covers them. `endWarm` follows the compile.
    */
   warm(targets: readonly THREE.Object3D[]): void {
-    if (this.disabled) return;
-    try {
-      this.filterCube();
-    } catch {
-      this.disabled = true;
-      return;
-    }
+    this.filterCube();
     this.current = false;
     for (const t of targets) this.syncFinishes(t, this.filtered!.texture);
   }

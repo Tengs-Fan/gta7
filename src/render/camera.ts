@@ -507,9 +507,9 @@ export class CameraController {
    * A hit with no horizontal direction (a landing) dips the camera instead.
    */
   addKick(dirX: number, dirZ: number, strength: number): void {
-    if (!this.shakeOn || !(strength > 0) || !Number.isFinite(strength)) return;
+    if (!this.shakeOn || strength <= 0) return;
     const amp = Math.min(KICK_MAX, strength / 60);
-    const len = Number.isFinite(dirX) && Number.isFinite(dirZ) ? Math.hypot(dirX, dirZ) : 0;
+    const len = Math.hypot(dirX, dirZ);
     const dir = len > 1e-3 ? new THREE.Vector3(dirX / len, 0, dirZ / len) : new THREE.Vector3(0, -1, 0);
     this.kickVel.addScaledVector(dir, amp / KICK_PEAK);
     // Kicks in quick succession never swing further than one full-strength kick.
@@ -661,8 +661,8 @@ export class CameraController {
       // swimmers cannot aim either, so they keep the wider camera.
       if (swimming && this.pitch > 0.3) this.pitch = 0.3;
       const aim = aiming && !swimming;
-      const scope = aim && p.state === 'normal' && p.alive ? WEAPONS[p.inventory.current]?.scope : undefined;
-      if (scope) return this.scopeView(dt, p, scope.zooms[Math.min(scope.zooms.length - 1, Math.max(0, p.scopeLevel))] ?? scope.zooms[0]!, scope.sway, wasScoped);
+      const scope = aim && p.state === 'normal' && p.alive ? WEAPONS[p.inventory.current].scope : undefined;
+      if (scope) return this.scopeView(dt, p, scope.zooms[Math.min(scope.zooms.length - 1, Math.max(0, p.scopeLevel))]!, scope.sway, wasScoped);
       lookOver = !aim && (swimming || p.pos.y < WATER_Y);
       raise = !lookOver;
       const lying = p.state === 'knocked' || p.state === 'dead';

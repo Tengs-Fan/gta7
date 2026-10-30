@@ -1040,15 +1040,8 @@ export class Environment {
           gl_FragColor = vec4(c, 1.0); }`,
     });
     this.envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 24, 12), this.envMat));
-    this.pmrem = null;
-    if (hdr) {
-      try {
-        this.pmrem = new THREE.PMREMGenerator(renderer);
-      } catch {
-        this.pmrem = null;
-      }
-    }
-    renderer.domElement?.addEventListener?.('webglcontextrestored', this.onContextRestored);
+    this.pmrem = hdr ? new THREE.PMREMGenerator(renderer) : null;
+    renderer.domElement.addEventListener('webglcontextrestored', this.onContextRestored);
   }
 
   private readonly envScene = new THREE.Scene();
@@ -1139,21 +1132,17 @@ export class Environment {
     }
     (u.uSun!.value as THREE.Color).copy(sun);
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);
-    try {
-      if (!this.cubeTarget || !this.cubeCamera) {
-        this.cubeTarget = new THREE.WebGLCubeRenderTarget(64, { type: THREE.HalfFloatType });
-        this.cubeCamera = new THREE.CubeCamera(0.1, 100, this.cubeTarget);
-      }
-      this.cubeCamera.update(this.renderer, this.envScene);
-      const target = this.pmrem.fromCubemap(this.cubeTarget.texture, this.envTarget);
-      if (target !== this.envTarget) {
-        this.envTarget?.dispose();
-        this.envTarget = target;
-      }
-      if (this.scene.environment !== target.texture) this.scene.environment = target.texture;
-    } catch {
-      this.scene.environment = null;
+    if (!this.cubeTarget || !this.cubeCamera) {
+      this.cubeTarget = new THREE.WebGLCubeRenderTarget(64, { type: THREE.HalfFloatType });
+      this.cubeCamera = new THREE.CubeCamera(0.1, 100, this.cubeTarget);
     }
+    this.cubeCamera.update(this.renderer, this.envScene);
+    const target = this.pmrem.fromCubemap(this.cubeTarget.texture, this.envTarget);
+    if (target !== this.envTarget) {
+      this.envTarget?.dispose();
+      this.envTarget = target;
+    }
+    if (this.scene.environment !== target.texture) this.scene.environment = target.texture;
   }
 
   /** The shoreline's terrain (the layout's land and beach). */
@@ -1179,7 +1168,7 @@ export class Environment {
   }
 
   get waterGrid(): boolean {
-    return this.water.geometry === this.seaGridGeo && this.seaGridGeo !== null;
+    return this.water.geometry === this.seaGridGeo;
   }
 
   setShadows(on: boolean): void {
@@ -1389,7 +1378,7 @@ export class Environment {
   private readonly tmpR = new THREE.Vector3();
 
   dispose(): void {
-    this.renderer.domElement?.removeEventListener?.('webglcontextrestored', this.onContextRestored);
+    this.renderer.domElement.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.cloudNoise.dispose();
     this.seaPlane.dispose();
     this.seaGridGeo?.dispose();

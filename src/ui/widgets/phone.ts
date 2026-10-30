@@ -266,7 +266,7 @@ export function showPhone(ctx: MenuCtx, host: PhoneHost, onClose?: () => void): 
     rows[i]?.el.scrollIntoView?.({ block: 'nearest' });
   };
   const addEntry = (r: HTMLElement, action?: () => void, color?: string) => {
-    if (color) r.style.setProperty?.('--who', color);
+    if (color) r.style.setProperty('--who', color);
     const i = rows.length;
     r.addEventListener('click', () => {
       select(i);
@@ -392,7 +392,7 @@ export class PhoneWidget {
     this.card.classList.toggle('hidden', !call);
     if (call) {
       this.card.innerHTML = html;
-      this.card.style.setProperty?.('--who', call.contact.color);
+      this.card.style.setProperty('--who', call.contact.color);
     }
   }
 }

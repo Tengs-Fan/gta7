@@ -77,7 +77,6 @@ export class StreetLighting {
       const dz = p.z - camera.z;
       if (dx * dx + dz * dz > STREAK_RANGE * STREAK_RANGE || this.broken(i)) continue;
       const st = roads.signalState(p.node, axisOf(p.dir as Dir), signalTime);
-      if (st !== 'red' && st !== 'yellow' && st !== 'green') continue;
       const c = SIGNAL_STREAK[st];
       sprites.offerStreakLight(p.x + Math.sin(p.rot) * BULB_Z, p.y + BULB_Y[st], p.z + Math.cos(p.rot) * BULB_Z, c[0], c[1], c[2]);
     }
@@ -85,6 +84,6 @@ export class StreetLighting {
 
   private broken(i: number): boolean {
     const collider = this.world.propColliders[i];
-    return collider !== undefined && collider >= 0 && !!this.world.grid.colliders[collider]?.broken;
+    return collider >= 0 && this.world.grid.colliders[collider]!.broken;
   }
 }

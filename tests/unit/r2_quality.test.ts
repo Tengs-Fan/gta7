@@ -61,6 +61,10 @@ vi.mock('three', async (importOriginal) => {
     readonly params: Record<string, unknown>;
     readonly info = { autoReset: true, reset: () => {}, render: { calls: 0, triangles: 0 }, programs: [] as unknown[], memory: { geometries: 0, textures: 0 } };
     readonly shadowMap = { enabled: false, type: 0 };
+    readonly capabilities = { getMaxAnisotropy: () => 16 };
+    readonly xr = { enabled: false };
+    readonly coordinateSystem = actual.WebGLCoordinateSystem;
+    autoClear = true;
     outputColorSpace = '';
     toneMapping = 0;
     toneMappingExposure = 1;
@@ -69,7 +73,7 @@ vi.mock('three', async (importOriginal) => {
     compiles = 0;
     constructor(params: { canvas?: unknown } = {}) {
       this.params = params;
-      this.domElement = params.canvas;
+      this.domElement = params.canvas ?? new EventTarget();
     }
     setPixelRatio(r: number): void {
       this.pixelRatio = r;
@@ -117,6 +121,12 @@ vi.mock('three', async (importOriginal) => {
     };
     getContext(): unknown {
       return this.gl;
+    }
+    getActiveCubeFace(): number {
+      return 0;
+    }
+    getActiveMipmapLevel(): number {
+      return 0;
     }
   }
   return { ...actual, WebGLRenderer: FakeWebGLRenderer };
@@ -254,7 +264,6 @@ describe('tier table', () => {
       expect(pixelRatioFor(q, 3)).toBeCloseTo(QUALITY[q].dprCap * QUALITY[q].renderScale, 6);
       expect(pixelRatioFor(q, 1)).toBeCloseTo(Math.min(1, QUALITY[q].dprCap) * QUALITY[q].renderScale, 6);
     }
-    expect(pixelRatioFor('high', Number.NaN)).toBe(1);
   });
 });
 

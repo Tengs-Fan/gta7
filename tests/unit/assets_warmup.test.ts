@@ -49,12 +49,16 @@ vi.mock('three', async (importOriginal) => {
     readonly domElement: unknown;
     readonly info = { autoReset: true, reset: () => {}, render: { calls: 0, triangles: 0 }, programs: [] as unknown[], memory: { geometries: 0, textures: 0 } };
     readonly shadowMap = { enabled: false, type: 0 };
+    readonly capabilities = { getMaxAnisotropy: () => 16 };
+    readonly xr = { enabled: false };
+    readonly coordinateSystem = actual.WebGLCoordinateSystem;
+    autoClear = true;
     outputColorSpace = '';
     toneMapping = 0;
     toneMappingExposure = 1;
     effects: unknown[] = [];
     constructor(params: { canvas?: unknown } = {}) {
-      this.domElement = params.canvas;
+      this.domElement = params.canvas ?? new EventTarget();
     }
     setPixelRatio(): void {}
     setSize(): void {}
@@ -72,6 +76,15 @@ vi.mock('three', async (importOriginal) => {
         else if (m) materials.add(m);
       });
       compiled.push({ materials, probe: !!scene.getObjectByName('asset-warmup') });
+    }
+    getRenderTarget(): unknown {
+      return null;
+    }
+    getActiveCubeFace(): number {
+      return 0;
+    }
+    getActiveMipmapLevel(): number {
+      return 0;
     }
     render(): void {}
     setRenderTarget(): void {}

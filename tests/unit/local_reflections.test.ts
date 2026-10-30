@@ -113,29 +113,6 @@ describe('local reflection lifecycle', () => {
     expect(t.traffic.material).toBe(t.source);
   });
 
-  it.each(['capture', 'filter'])('keeps the main scene usable if %s fails', (stage) => {
-    const t = setup();
-    if (stage === 'capture') t.renderer.render.mockImplementation(() => { throw new Error('context lost'); });
-    else t.filter.mockImplementation(() => {
-      t.renderer.setRenderTarget(t.target, 3, 1);
-      t.renderer.xr.enabled = false;
-      t.renderer.autoClear = false;
-      throw new Error('filter unavailable');
-    });
-    t.complete();
-    expect(t.probe.ready).toBe(false);
-    expect(t.body.material).toBe(t.source);
-    expect(t.car.visible).toBe(true);
-    expect(t.hidden.visible).toBe(false);
-    expect(t.renderer.getRenderTarget()).toBeNull();
-    expect(t.renderer.getActiveCubeFace()).toBe(0);
-    expect(t.renderer.getActiveMipmapLevel()).toBe(0);
-    expect(t.renderer.xr.enabled).toBe(true);
-    expect(t.renderer.toneMapping).toBe(THREE.ACESFilmicToneMapping);
-    expect(t.renderer.autoClear).toBe(true);
-    expect(t.renderer.shadowMap.autoUpdate).toBe(true);
-    t.probe.dispose();
-  });
 });
 
 describe('local reflections build no programs in play', () => {

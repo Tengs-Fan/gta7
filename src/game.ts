@@ -67,11 +67,7 @@ const WELCOME_CALL = 'Welcome to San Azura. Mama Lou has work for you. Steal a r
 
 /** Whether the page URL turns the opening call off (?intro=0, used by tests and playtests). */
 function introOffByUrl(): boolean {
-  try {
-    return typeof location !== 'undefined' && new URLSearchParams(location.search).get('intro') === '0';
-  } catch {
-    return false;
-  }
+  return typeof location !== 'undefined' && new URLSearchParams(location.search).get('intro') === '0';
 }
 
 /** Single player plays slot 0. */
@@ -463,8 +459,7 @@ export class Game {
     this.startSim(loadGame(), false);
     const sim = this.sim;
     const courses = sim.activities.streetRunCourses();
-    const course = courses.find((c) => c.id === courseId) ?? courses[0];
-    if (!course) return;
+    const course = courses.find((c) => c.id === courseId) ?? courses[0]!;
     const { x, z, heading } = course.start;
     const car = sim.spawnVehicle('sports', x, z, heading, 0xf36c49);
     sim.seat(sim.player, car, 0);
@@ -595,8 +590,7 @@ export class Game {
     this.mode = 'title';
     this.introTimer = -1;
     this.hud.setVisible(false);
-    // (Absent on the stand-in hosts the quit tests call this on.)
-    this.exportList?.update(null, this.localPlayerId, false);
+    this.exportList.update(null, this.localPlayerId, false);
     // Still paused (by the pause menu): the title's audio updates fade the frozen game's voices out under the closed
     // stage first, then step() opens it.
     this.audio.setPaused(true);
@@ -1239,13 +1233,7 @@ export class Game {
    * button copies the report: a pad press is no user activation, so the clipboard would refuse it.)
    */
   private padReloads(): void {
-    const a = () => {
-      try {
-        return !!this.input.standardPad()?.buttons[0]?.pressed;
-      } catch {
-        return false;
-      }
-    };
+    const a = () => !!this.input.standardPad()?.buttons[0]?.pressed;
     // A held through the crash is not a press.
     let was = a();
     const tick = () => {

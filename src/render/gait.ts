@@ -30,8 +30,8 @@ export function makeTwoBone(): TwoBone {
 /**
  * Two-bone IK: a chain of lengths a (root to middle) and b (middle to end) from the root towards the
  * target, bending its middle joint towards the pole direction. Out-of-reach targets clamp (straight or
- * fully folded chain pointing at the target); degenerate input (target on the root, pole along the chain,
- * non-finite numbers) still gives finite joints.
+ * fully folded chain pointing at the target); degenerate input (target on the root, pole along the chain)
+ * still gives finite joints.
  */
 export function solveTwoBone(
   rx: number, ry: number, rz: number,
@@ -43,14 +43,7 @@ export function solveTwoBone(
   let dx = tx - rx;
   let dy = ty - ry;
   let dz = tz - rz;
-  let d = Math.hypot(dx, dy, dz);
-  if (!Number.isFinite(d)) {
-    // No usable target: hang the chain straight down.
-    dx = 0;
-    dy = -(a + b);
-    dz = 0;
-    d = a + b;
-  }
+  const d = Math.hypot(dx, dy, dz);
   let ux: number;
   let uy: number;
   let uz: number;
@@ -66,15 +59,10 @@ export function solveTwoBone(
   const lo = Math.abs(a - b) + 1e-5;
   const hi = Math.max(lo, a + b - 1e-5);
   const dc = clamp(d, lo, hi);
-  out.reached = Number.isFinite(d) && d >= lo - 1e-9 && d <= hi + 1e-9;
+  out.reached = d >= lo - 1e-9 && d <= hi + 1e-9;
   const cosA = clamp((a * a + dc * dc - b * b) / (2 * a * dc), -1, 1);
   const sinA = Math.sqrt(1 - cosA * cosA);
   // Bend direction: the pole with its component along the chain removed.
-  if (!Number.isFinite(px + py + pz)) {
-    px = 0;
-    py = 0;
-    pz = 1;
-  }
   const pd = px * ux + py * uy + pz * uz;
   let wx = px - pd * ux;
   let wy = py - pd * uy;
@@ -219,8 +207,7 @@ export function solveLeg(hx: number, hy: number, scale: number, leg: LegPose): L
  * for exactly these (sim/pose.ts trunkPose computes it).
  */
 export function gait(phase: number, speed: number, strafe: number, out: GaitOut, scale = 1, build = 1, cycle: GaitCycle | null = null): GaitOut {
-  const st = Number.isFinite(strafe) ? strafe : 0;
-  const g = cycle ? Object.assign(out.cycle, cycle) : gaitCycle(speed, Math.sin(st), Math.cos(st), scale, out.cycle);
+  const g = cycle ? Object.assign(out.cycle, cycle) : gaitCycle(speed, Math.sin(strafe), Math.cos(strafe), scale, out.cycle);
   const u = cycleFraction(phase);
   const ph = u * Math.PI * 2;
   const v = g.speed;

@@ -70,7 +70,7 @@ class FakeElement extends EventTarget {
   parent: FakeElement | null = null;
   readonly classList = new FakeClassList();
   readonly dataset: Record<string, string> = {};
-  readonly style: Record<string, string> = {};
+  readonly style: Record<string, string> = Object.defineProperty({}, 'setProperty', { value: () => undefined, writable: true });
   disabled = false;
   width = 300;
   height = 150;
@@ -169,6 +169,7 @@ afterEach(() => {
 function ev(type: string, props: Record<string, unknown> = {}): Event {
   const e = new Event(type, { cancelable: true });
   for (const [k, v] of Object.entries(props)) Object.defineProperty(e, k, { value: v });
+  if (type.startsWith('key') && !('getModifierState' in props)) Object.defineProperty(e, 'getModifierState', { value: () => false });
   return e;
 }
 
