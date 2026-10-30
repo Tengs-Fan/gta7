@@ -27,12 +27,15 @@ test.describe('AzuraLink', () => {
       const r = g.game.renderer;
       const m = g.sim.world.layout.monorail;
       const cam = r.cameraCtl.camera.position;
-      return { hidden: r.crowd.scopeHiddenId === g.sim.player.id, camX: cam.x - m.x, camY: cam.y, beamY: m.beamY, locked: g.sim.controlLock > 0 };
+      // The sun's shadows centre near the camera, not on him at the far station.
+      const sun = r.env.sun.target.position;
+      return { hidden: r.crowd.scopeHiddenId === g.sim.player.id, camX: cam.x - m.x, camY: cam.y, beamY: m.beamY, locked: g.sim.controlLock > 0, shadow: Math.hypot(sun.x - cam.x, sun.z - cam.z) };
     });
     expect(aboard.hidden).toBe(true);
     expect(aboard.locked).toBe(true);
     expect(Math.abs(aboard.camX)).toBeLessThan(8);
     expect(aboard.camY).toBeGreaterThan(aboard.beamY);
+    expect(aboard.shadow).toBeLessThan(10);
     expect((await state(page)).money).toBe(money - 5);
     // F: off at Seaview's foot at once, walking again.
     await page.keyboard.press('KeyF');

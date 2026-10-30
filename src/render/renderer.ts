@@ -1100,7 +1100,10 @@ export class GameRenderer {
     const cam = this.cameraCtl.camera;
     if (sim) this.cameraCtl.update(dt, sim, aiming);
     const hours = sim ? sim.clock.hours : 17.5;
-    const focus = sim && this.cameraCtl.mode === 'play' ? new THREE.Vector3(cam.position.x * 0.5 + this.me(sim).pos().x * 0.5, 0, cam.position.z * 0.5 + this.me(sim).pos().z * 0.5) : new THREE.Vector3(cam.position.x * 0.3, 0, cam.position.z * 0.3);
+    const riding = sim ? monorailRide(sim, this.me(sim)) : null;
+    // Riding AzuraLink he waits out of sight at the far station: the shadows follow the train the camera rides beside.
+    const subject = sim && this.cameraCtl.mode === 'play' ? (riding ? this.cameraCtl.occlusionSubject()! : this.me(sim).pos()) : null;
+    const focus = subject ? new THREE.Vector3(cam.position.x * 0.5 + subject.x * 0.5, 0, cam.position.z * 0.5 + subject.z * 0.5) : new THREE.Vector3(cam.position.x * 0.3, 0, cam.position.z * 0.3);
     const weather = sim?.weather.state;
     this.weatherDim = weather?.dim ?? 0;
     this.flashAge += dt;
@@ -1132,7 +1135,7 @@ export class GameRenderer {
       this.activityFx.sync(sim, dt, this.effects, this.time);
       this.monorail.update(sim.time, lights);
       // Scoped, or riding AzuraLink (he waits out of sight at the far station), the player is not drawn.
-      this.crowd.scopeHiddenId = this.cameraCtl.scoped || monorailRide(sim, this.me(sim)) ? this.me(sim).character.id : -1;
+      this.crowd.scopeHiddenId = this.cameraCtl.scoped || riding ? this.me(sim).character.id : -1;
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt, this.me(sim).character.id);
       this.footShadows.update(sim.characters, cam.position, this.crowd.scopeHiddenId);
       this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming);
