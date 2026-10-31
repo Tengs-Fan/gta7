@@ -145,7 +145,8 @@ function wallOf(b: Building, side: Side): Wall {
 /** Every first-tier wall within STREET_FACING_DIST of its lot edge, computed here from scratch. */
 function streetWalls(W: StaticWorld): Wall[] {
   const out: Wall[] = [];
-  for (const b of W.layout.buildings) {
+  // The city's buildings: Dry Creek's stores stand in no block.
+  for (const b of W.layout.buildings.slice(0, W.layout.country.firstBuilding)) {
     const t = b.tiers[0]!;
     const lot = W.layout.blocks.find((bl) => bl.lot.minX <= t.minX && bl.lot.maxX >= t.maxX && bl.lot.minZ <= t.minZ && bl.lot.maxZ >= t.maxZ)!.lot;
     if (t.minZ - lot.minZ <= STREET_FACING_DIST) out.push(wallOf(b, 'N'));
@@ -262,15 +263,16 @@ describe('round 2 city: layout', () => {
     // Smuggler's Key were added offshore, when AzuraLink's line joined the layout, and on the merged round-2 head, where
     // all four stand together and the trees in front of the letters are bushes; and when Las Lomas County joined it
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
-    // parapets, the four props moved out of the links' mouths, its signal heads and lamps).
-    expect(layoutHash()).toBe('67d94bef7895b89e9c05c389719d9f6cde6e876d1152c1d8b151bae32d6fbc4e');
+    // parapets, the four props moved out of the links' mouths, its signal heads and lamps); and when Dry Creek's stores,
+    // props, POIs, footpaths and bays were appended.
+    expect(layoutHash()).toBe('146d7fb47a85167e6a05a030a1f09872b0dee222c09dfe3e91464327b2ca3c25');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
     const L = generateCity();
     const front = frontages(L);
     const kinds = new Set<string>();
-    for (const b of L.buildings) {
+    for (const b of L.buildings.slice(0, L.country.firstBuilding)) {
       const f = front.get(b)!;
       expect(f, `building ${b.id} has a block`).toBeTruthy();
       expect(b.groundSides).toEqual(f.sides);

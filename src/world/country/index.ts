@@ -9,6 +9,7 @@
 import { CROSSWALK_W, CURB_H, PROP_INSET, SEABED_Y, WATER_Y } from '../constants';
 import { addProp, mkRect, PARAPET_T, rectContains, type CityLayout, type Rect } from '../layout';
 import { riseAt, type Rise } from '../terrain';
+import { buildPlaces, noPlaces, type CountyPlaces } from './places';
 
 export type CountryRoadKind = 'highway' | 'country';
 
@@ -89,6 +90,10 @@ export interface Country {
   /** The first prop and the first parapet of the county's: StaticWorld adds their colliders after every older one. */
   firstProp: number;
   firstParapet: number;
+  /** The first building of the county's (Dry Creek's stores): StaticWorld adds their colliders after every older one. */
+  firstBuilding: number;
+  /** Dry Creek, the Moonbeam Drive-In and Gravel Gulch (places.ts). */
+  places: CountyPlaces;
 }
 
 export type CountyJunction = 'drycreek' | 'hollister' | 'creek';
@@ -343,6 +348,8 @@ export function buildCountry(layout: CityLayout): void {
     walks: [],
     firstProp: layout.props.length,
     firstParapet: layout.parapets.length,
+    firstBuilding: layout.buildings.length,
+    places: noPlaces(),
   };
   // The links. The causeway is a headland of its own at road level, quay walls and rocks along its sides (shore.ts) and
   // none at either end, where it meets land; the bridge is a deck at road level with a parapet along either edge and no
@@ -376,6 +383,7 @@ export function buildCountry(layout: CityLayout): void {
   }
   // The content passes go here, in this order, each one call that only appends: buildHills (the landscape), buildFarms,
   // buildPlaces.
+  buildPlaces(layout);
 }
 
 /** A node's place: a grid node's line crossing, or a county vertex. */
@@ -412,6 +420,8 @@ export function noCountry(): Country {
     walks: [],
     firstProp: 0,
     firstParapet: 0,
+    firstBuilding: 0,
+    places: noPlaces(),
   };
 }
 

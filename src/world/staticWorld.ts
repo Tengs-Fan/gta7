@@ -6,7 +6,7 @@ import { attractionOf } from './attractions';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { BRIDGE_ARCH, COUNTY_NAME, countryGround, plotAt } from './country';
-import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
+import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type Building, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { PLATFORM_SLAB, TOWER_H } from './monorail';
 import { TURBINE_BASE } from './offshore';
 import { RoadNetwork } from './roads';
@@ -68,9 +68,10 @@ export class StaticWorld {
 
   private buildColliders(): void {
     const g = this.grid;
-    for (const b of this.layout.buildings) {
-      b.tiers.forEach((t, i) => g.addBox(t.minX, t.minZ, t.maxX, t.maxZ, i === 0 ? 0 : t.y0, t.y1, 'building'));
-    }
+    const country = this.layout.country;
+    const buildings = this.layout.buildings;
+    const addBuilding = (b: Building) => b.tiers.forEach((t, i) => g.addBox(t.minX, t.minZ, t.maxX, t.maxZ, i === 0 ? 0 : t.y0, t.y1, 'building'));
+    for (const b of buildings.slice(0, country.firstBuilding)) addBuilding(b);
     for (const gar of this.layout.garages) {
       for (const w of gar.walls) g.addBox(w.minX, w.minZ, w.maxX, w.maxZ, 0, gar.height, 'wall');
       // The roof hides the bay from the helicopter and stops shots and the camera from above. It is no
@@ -78,7 +79,6 @@ export class StaticWorld {
       const r = gar.rect;
       g.addBox(r.minX - GARAGE_EAVE, r.minZ - GARAGE_EAVE, r.maxX + GARAGE_EAVE, r.maxZ + GARAGE_EAVE, gar.height, gar.height + GARAGE_ROOF, 'wall');
     }
-    const country = this.layout.country;
     const parapets = this.layout.parapets;
     const props = this.layout.props;
     for (const r of parapets.slice(0, country.firstParapet)) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
@@ -112,6 +112,13 @@ export class StaticWorld {
     for (const r of parapets.slice(country.firstParapet)) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
     for (const x of [BRIDGE_ARCH.x0, BRIDGE_ARCH.x1]) for (const z of BRIDGE_ARCH.ribs) g.addCircle(x, z, BRIDGE_ARCH.post, WATER_Y - 1.5, BRIDGE_ARCH.postTop, 'pillar');
     for (let i = country.firstProp; i < props.length; i++) this.propColliders[i] = this.addPropCollider(props[i]!, i);
+    // Its stores and its places' solids (world/country/places.ts).
+    for (const b of buildings.slice(country.firstBuilding)) addBuilding(b);
+    for (const s of country.places.solids) {
+      const r = s.rect;
+      if (s.round) g.addCircle((r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2, (r.maxX - r.minX) / 2, s.y0, s.y1, s.tag);
+      else g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, s.y0, s.y1, s.tag);
+    }
   }
 
   private addPropCollider(p: Prop, i: number): number {
@@ -186,6 +193,8 @@ export class StaticWorld {
         return g.addBox(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.y + p.h, 'bench', i, !this.epitaphStones.has(i)).id;
       case 'cypress':
         return g.addCircle(p.x, p.z, 0.3 * s, p.y, p.y + 9 * s, 'tree').id;
+      case 'pump':
+        return g.addBox(p.x - 0.4, p.z - 0.4, p.x + 0.4, p.z + 0.4, p.y, p.y + 1.9, 'bin', i, true).id;
       case 'bush':
       default:
         return -1;

@@ -6,6 +6,7 @@ import { clamp, formatMoney, type V3 } from '../core/math';
 import { Rng } from '../core/rng';
 import type { StaticCollider } from '../world/colliders';
 import { GRAVITY, WATER_Y } from '../world/constants';
+import { bustStation } from '../world/country/places';
 import type { RoadNetwork } from '../world/roads';
 import { StaticWorld } from '../world/staticWorld';
 import { Activities } from './activities';
@@ -38,6 +39,7 @@ import { registeredSystems, SystemSlots, type SimSystem, type SystemSlot } from 
 import { abandonSinkingCar } from './sinking';
 import './vehicleSystems';
 import './farm';
+import './dryCreek';
 import { collideVehicles, collideVehicleStatic, stepVehicle, type VehiclePhysicsHost } from './vehiclePhysics';
 import type { WantedSystem } from './wanted';
 import { WeatherSystem, type WeatherMode } from './weather';
@@ -966,8 +968,9 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   finishRespawn(slot: PlayerSlot = this.players[0]!): void {
     if (!slot.deathKind) return;
     const busted = slot.deathKind === 'busted';
-    const poi = this.world.layout.pois.find((p) => p.id === (busted ? 'police' : 'hospital'))!;
     const p = slot.character;
+    // Busted out in Las Lomas County, he walks out of the Sheriff's Office.
+    const poi = busted ? bustStation(this.world.layout, p.pos.x, p.pos.z) : this.world.layout.pois.find((q) => q.id === 'hospital')!;
     if (p.vehicle) this.unseat(p);
     p.state = 'normal';
     p.health = p.maxHealth;

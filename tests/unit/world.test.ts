@@ -30,7 +30,8 @@ describe('city layout', () => {
   });
 
   it('keeps every building inside a block lot', () => {
-    for (const b of L.buildings) {
+    // The city's: Dry Creek's stores stand in Las Lomas County, in no block (dry_creek.test.ts).
+    for (const b of L.buildings.slice(0, L.country.firstBuilding)) {
       const inside = L.blocks.some((bl) => rectContains(bl.lot, b.rect.minX, b.rect.minZ, 0.01) && rectContains(bl.lot, b.rect.maxX, b.rect.maxZ, 0.01));
       expect(inside, `building ${b.id}`).toBe(true);
       for (const t of b.tiers) {
@@ -53,7 +54,7 @@ describe('city layout', () => {
 
   it('places every special point of interest exactly once', () => {
     const ids = L.pois.map((p) => p.id).sort();
-    expect(ids).toEqual(['bank', 'dex', 'guns_south', 'guns_west', 'hospital', 'lou', 'marina', 'police', 'safehouse', 'spray_docks', 'spray_hill', 'spray_south', 'vera']);
+    expect(ids).toEqual(['bank', 'dex', 'guns_county', 'guns_south', 'guns_west', 'hospital', 'lou', 'marina', 'police', 'safehouse', 'sheriff', 'spray_docks', 'spray_hill', 'spray_south', 'vera']);
     for (const p of L.pois) {
       expect(world.isFree(p.x, p.z, 0.6), `poi ${p.id} marker blocked`).toBe(true);
       expect(world.waterDepth(p.x, p.z)).toBeLessThan(0);
