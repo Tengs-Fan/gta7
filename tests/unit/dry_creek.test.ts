@@ -27,11 +27,14 @@ function lattice(r: Rect): Array<[number, number]> {
 
 describe('Dry Creek: the town', () => {
   it('stands its stores and landmarks in its plot, and the places\' solids and props in theirs, clear of the roads, the verges and every older building', () => {
-    const stores = L.buildings.slice(L.country.firstBuilding);
+    // The stores by their buildings, and every building older than them (the city's, and any of the county's passes
+    // before the places').
+    const stores = town.stores.map((s) => L.buildings.find((b) => b.id === s.building)!);
+    const others = L.buildings.filter((b) => !stores.includes(b));
     expect(stores.map((b) => b.district)).toEqual(stores.map(() => 'country'));
     expect(stores.map((s) => s.sign!.text)).toEqual(town.stores.map((s) => s.name));
     expect(town.stores.map((s) => s.name)).toEqual(expect.arrayContaining(['DRY CREEK FEED & SEED', "MOO-MOO'S DINER", 'BANG BANG GUNS & BAIT', 'GAS & GRITS', "SHERIFF'S OFFICE"]));
-    const older = Math.max(...L.buildings.slice(0, L.country.firstBuilding).map((b) => b.id));
+    const older = Math.max(...others.map((b) => b.id));
     stores.forEach((b, k) => expect(b.id).toBe(older + 1 + k));
     const solids = [...stores.flatMap((b) => b.tiers), ...L.country.places.solids.map((s) => s.rect)];
     for (const b of stores) expect(rectContains(plot, b.rect.minX, b.rect.minZ) && rectContains(plot, b.rect.maxX, b.rect.maxZ)).toBe(true);
@@ -40,9 +43,9 @@ describe('Dry Creek: the town', () => {
       for (const [x, z] of lattice(r)) expect(W.isOnRoad(x, z), `${x}, ${z}`).toBe(false);
       for (const n of W.walk.nodes) expect(rectContains(r, n.x, n.z, 0.4), `walk node ${n.id} in ${JSON.stringify(r)}`).toBe(false);
     }
-    for (const b of L.buildings.slice(0, L.country.firstBuilding)) for (const r of solids) expect(rectsOverlap(b.rect, r)).toBe(false);
-    for (const p of L.props.slice(L.country.firstProp)) {
-      if (p.kind === 'signal' || p.kind === 'lamp') continue;
+    for (const b of others) for (const r of solids) expect(rectsOverlap(b.rect, r)).toBe(false);
+    // The places' props, from Gas & Grits' first pump on: after any older pass's.
+    for (const p of L.props.slice(town.pumps[0])) {
       expect(places.some((q) => rectContains(q, p.x, p.z)), `${p.kind} at ${p.x}, ${p.z}`).toBe(true);
       expect(W.isOnRoad(p.x, p.z)).toBe(false);
     }
