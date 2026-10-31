@@ -265,7 +265,7 @@ describe('round 2 city: layout', () => {
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
     // parapets, the four props moved out of the links' mouths, its signal heads and lamps), and when its farms were
     // appended (their fields, farmhouses, barns, hedgerows, props and farmyard bays).
-    expect(layoutHash()).toBe('9f462dc9739a1f3c820ed5b15be6aea9b97bec547ed5bfa4bbe82c31544726c6');
+    expect(layoutHash()).toBe('6c98d01e64d3d26642d89715a518284d42dee378ab59b96a0c5adc6c4a411394');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

@@ -200,15 +200,14 @@ function buildBottoms(layout: CityLayout, farms: CountyFarms, rng: Rng): void {
     id: 'bottoms', yard, barn: barnRect, door: 'E', house, drive: [P.maxX + 40, driveZ, P.maxX, driveZ],
     sign: { x: P.maxX - 2, z: driveZ + 5, rot: E }, mailbox: { x: P.maxX + 37.5, z: driveZ + 5, rot: E },
   });
-  // The corn: two fields either side of a 4 m aisle running north from a gate in the south hedge, and one north of the yard.
+  // The corn: two fields either side of a 4 m aisle running north from the plot's south edge, and one north of the yard.
   const aisle = (P.minX + yard.minX) / 2;
   field(farms, 'corn', mkRect(P.minX + 4, P.minZ + 4, aisle - 2, P.maxZ - 4), 0);
   field(farms, 'corn', mkRect(aisle + 2, P.minZ + 4, yard.minX - 4, P.maxZ - 4), 0);
   field(farms, 'corn', mkRect(yard.minX, P.minZ + 4, P.maxX - 4, yard.minZ - 4), E);
   for (const z of [P.minZ + 30, P.minZ + 70, P.minZ + 110]) scarecrow(layout, farms, aisle, z, rng);
   scarecrow(layout, farms, yard.minX + 24, yard.minZ - 2, rng);
-  hedge(farms, P, 'S', P.minX, aisle - 2);
-  hedge(farms, P, 'S', aisle + 2, yard.minX - 4);
+  // Hedgerows along Hollister Lane either side; the corn stands open to the highway.
   hedge(farms, P, 'W', P.minZ, P.maxZ);
   hedge(farms, P, 'E', P.minZ, yard.minZ - 4);
 }
@@ -252,7 +251,6 @@ function buildDairy(layout: CityLayout, farms: CountyFarms, rng: Rng): void {
   for (const x of [lettuce.minX + 36, lettuce.maxX - 36]) scarecrow(layout, farms, x, (lettuce.minZ + lettuce.maxZ) / 2, rng);
   for (const z of [furrow.minZ + 56, furrow.maxZ - 40]) scarecrow(layout, farms, (furrow.minX + furrow.maxX) / 2, z, rng);
   hedge(farms, P, 'E', P.minZ, yard.minZ - 4);
-  hedge(farms, P, 'E', driveZ + 8, P.maxZ);
 }
 
 /**
@@ -289,8 +287,9 @@ function buildOrchard(layout: CityLayout, farms: CountyFarms, rng: Rng): void {
   }
   // The scarecrows stand in the aisles between the rows.
   for (const [dx, k] of [[60, 3], [110, 9], [140, 15], [30, 5]] as const) scarecrow(layout, farms, P.minX + dx + 3.5, P.minZ + 6 + k * 8 + 4, rng);
-  hedge(farms, P, 'W', P.minZ, driveZ - 4);
-  hedge(farms, P, 'W', driveZ + 4, P.maxZ);
+  // Gaps either side of the drive for it and the sign.
+  hedge(farms, P, 'W', P.minZ, driveZ - 10);
+  hedge(farms, P, 'W', driveZ + 10, P.maxZ);
   hedge(farms, P, 'N', P.minX, P.maxX);
 }
 
@@ -324,8 +323,7 @@ function buildAcres(layout: CityLayout, farms: CountyFarms, rng: Rng): void {
   for (const [x, z] of [[wheat.minX + 36, wheat.minZ + 36], [wheat.minX + 86, wheat.maxZ - 40], [wheat.maxX - 34, wheat.minZ + 50], [wheat.minX + 20, wheat.maxZ - 20]] as const) scarecrow(layout, farms, x, z, rng);
   for (const z of [P.minZ + 40, P.maxZ - 44]) scarecrow(layout, farms, aisle, z, rng);
   for (const z of [furrow.minZ + 24, furrow.maxZ - 22]) scarecrow(layout, farms, (furrow.minX + furrow.maxX) / 2, z, rng);
-  hedge(farms, P, 'S', P.minX, aisle - 2);
-  hedge(farms, P, 'S', aisle + 2, yard.minX - 4);
+  // A hedgerow along Creek Road by the furrows; the wheat and the sunflowers stand open to the highway.
   hedge(farms, P, 'E', P.minZ, yard.minZ - 4);
 }
 

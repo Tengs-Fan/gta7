@@ -364,7 +364,7 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // the causeway's lamps; and both when its farms appended their farmhouses, and their barns' walls and roofs, their
     // props and their hedgerows after every other collider.
     expect(b).toBe('a563ac93264775491aeef9435556a31c126f51d48def2b1806a9c1bd6ab87ccb');
-    expect(c).toBe('b64a06070812e4607bcf59fe97878cba2cc0710ed1ac054697be4295b0b227ba');
+    expect(c).toBe('1fba3897f038fbbdb118478efe9d890796d5dfa3deee59fb3d0440ed856f0134');
   });
 });
 

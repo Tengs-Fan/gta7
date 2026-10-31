@@ -508,7 +508,7 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // its farms appended their props, with the farmhouses', barns' and hedgerows' colliders after those.
   const D98 = {
     props: 'd16909f8dfd8cdc4983208af8b33b4623a854948e4fa8ce8fda0e090cabe86f1',
-    colliders: '4910dfae08abbe4cfa7fedff77cf0d3a98cebf76d0914a8b471d0fcb8c876957',
+    colliders: 'b33fc77a63d0f21ee3d206cf3a053cbd3786eac1555d86d68c1971bf685ea46c',
     envelopes: 'ee2e5b736e46e7238cc67b0fab8bea193f9a10933bcb9ebda1b8c257c52f7585',
   };
 
