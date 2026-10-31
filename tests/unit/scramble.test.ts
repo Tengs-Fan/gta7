@@ -1,6 +1,7 @@
-// The Gravel Gulch scramble (sim/activities/scramble.ts, world/country/places.ts): the track inside its plot, a
-// scripted ride of the two laps on a Viper 600 that sets the medals, the gates in order, the record saved and loaded,
-// and the track's whoops and tabletops kept out of the stunt jumps.
+// The Gravel Gulch scramble (sim/activities/scramble.ts, world/country/places.ts): the track inside its plot, its gates
+// at the turns' apexes so the shortest legal line is the track's own, a scripted ride of the two laps on a Viper 600
+// that sets the medals, the gates in order, the record saved and loaded, and the track's whoops and tabletops kept out
+// of the stunt jumps.
 
 import { describe, expect, it } from 'vitest';
 import type { ScrambleJob } from '../../src/sim/activities';
@@ -13,8 +14,9 @@ import { applySave, parseSave, serialize } from '../../src/sim/progress';
 import { applyExt, serializeExt } from '../../src/sim/saveExt';
 import { Sim } from '../../src/sim/sim';
 import { COUNTY_PLOTS } from '../../src/world/country';
+import { TRACK_GATE_R } from '../../src/world/country/places';
 import { rectContains } from '../../src/world/layout';
-import { input, placeInCar, step, world } from './helpers';
+import { distanceToLine, input, placeInCar, shortestThrough, step, world } from './helpers';
 
 const W = world();
 const track = W.layout.country.places.track;
@@ -82,14 +84,23 @@ function ride(sim: Sim, v: Vehicle): { time: number | null; gates: number[] } {
 }
 
 describe('Gravel Gulch: the track', () => {
-  it('closes a lap of about 1.1 km in its plot, its gates evenly round it, its whoops and tables no stunt', () => {
+  it('closes a lap of about 1.1 km in its plot, a gate at each turn\'s apex, its whoops and tables no stunt', () => {
     expect(track.length).toBeGreaterThan(1050);
     expect(track.length).toBeLessThan(1150);
     const end = track.line.at(-1)!;
     expect(Math.hypot(end.x - track.line[0]!.x, end.z - track.line[0]!.z)).toBeLessThan(1e-6);
     for (const p of track.line) expect(rectContains(plot, p.x, p.z, -track.width / 2)).toBe(true);
-    expect(track.gates).toHaveLength(10);
-    expect(track.gates.at(-1)).toEqual(track.line[0]);
+    // A gate at each turn's apex in order, reaching in to the track's inside edge, and the last on the start line.
+    expect(track.gates).toHaveLength(track.turns.length + 1);
+    track.turns.forEach((turn, k) => {
+      const g = track.gates[k]!;
+      const a = Math.atan2(track.line[g.at]!.z - turn.cz, track.line[g.at]!.x - turn.cx);
+      const span = Math.atan2(Math.sin(turn.a1 - turn.a0), Math.cos(turn.a1 - turn.a0));
+      expect(Math.abs(Math.atan2(Math.sin(a - turn.a0 - span / 2), Math.cos(a - turn.a0 - span / 2)))).toBeLessThan(0.1);
+      expect(Math.hypot(g.x - turn.cx, g.z - turn.cz) - TRACK_GATE_R).toBeCloseTo(turn.r - track.width / 2, 6);
+    });
+    for (let k = 1; k < track.gates.length; k++) expect(track.gates[k]!.at).toBeGreaterThan(track.gates[k - 1]!.at);
+    expect(track.gates.at(-1)).toMatchObject({ ...track.line[0], at: track.line.length - 1 });
     for (const id of track.ramps) {
       const r = W.layout.ramps[id]!;
       expect(r.stunt).toBe(false);
@@ -109,6 +120,28 @@ describe('Gravel Gulch: the track', () => {
     onVehicleLanded(sim, car);
     expect(sim.progress.stunts).toEqual([]);
     expect(car.launchRamp).toBe(-1);
+  });
+});
+
+describe('Gravel Gulch: the gates', () => {
+  it('make the track the shortest legal line: through every gate of a lap, a line across the infield saves under 25 m and keeps to the turns\' insides', () => {
+    // The track's own racing line: through the track's width at every other point of a lap, from the start line home.
+    const line = track.line.filter((_, i) => i % 2 === 0 || i === track.line.length - 1);
+    const racing = shortestThrough(line.map((p, i) => ({ x: p.x, z: p.z, r: i === 0 || i === line.length - 1 ? 0 : track.width / 2 }))).length;
+    expect(racing).toBeGreaterThan(track.length - 60);
+    // The shortest legal line: from the start line through each gate's reach in order and home.
+    const start = { ...track.line[0]!, r: 0 };
+    const legal = shortestThrough([start, ...track.gates.slice(0, -1).map((g) => ({ x: g.x, z: g.z, r: TRACK_GATE_R })), start]);
+    expect(legal.length).toBeGreaterThan(racing - 25);
+    // It never leaves the track by more than a turn's inside, cut a few metres short.
+    let off = 0;
+    for (let i = 1; i < legal.path.length; i++) {
+      const a = legal.path[i - 1]!;
+      const b = legal.path[i]!;
+      for (let k = 0; k <= 20; k++) off = Math.max(off, distanceToLine(a.x + ((b.x - a.x) * k) / 20, a.z + ((b.z - a.z) * k) / 20, track.line) - track.width / 2);
+    }
+    console.log(`[scramble] a lap's racing line ${racing.toFixed(0)} m (centre line ${track.length.toFixed(0)} m), the shortest line through its gates ${legal.length.toFixed(0)} m, at most ${off.toFixed(1)} m off the track`);
+    expect(off).toBeLessThan(8);
   });
 });
 
@@ -146,7 +179,7 @@ describe('Gravel Gulch: the scramble', () => {
       }
       expect(j.gate).toBe(target === g[0] ? 1 : 0);
     }
-    expect(sim.activities.objectives()[0]).toMatchObject({ x: g[1]!.x, z: g[1]!.z, label: 'Lap 1/2 · Gate 2/10' });
+    expect(sim.activities.objectives()[0]).toMatchObject({ x: g[1]!.x, z: g[1]!.z, label: `Lap 1/2 · Gate 2/${g.length}` });
     sim.activities.toggleJob();
     expect(sim.activities.busy).toBe(false);
     // Far from the gate the job key starts a street run instead.

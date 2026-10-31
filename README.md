@@ -221,7 +221,7 @@ It is single player only.
 ### Gravel Gulch
 
 At Gravel Gulch's gate on its north straight (a dirt drive leads in from the Lomas Highway), press **T** in anything with wheels, stop in the start box and wait out the countdown.
-Then ride two laps of the 1.1 km dirt track, through its ten flag gates each lap: six whoops down its east side, a hairpin loop up its middle and two tabletops up its west side, a little over two minutes on a Viper 600.
+Then ride two laps of the 1.1 km dirt track, through its nine flag gates each lap, one at each turn's apex and one on the start line: six whoops down its east side, a hairpin loop up its middle and two tabletops up its west side, a little over two minutes on a Viper 600.
 
 | Course | Start | Gold | Silver | Bronze | Gold payout |
 | --- | --- | --- | --- | --- | --- |

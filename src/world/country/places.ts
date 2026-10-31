@@ -83,8 +83,11 @@ export interface TrackAnchors {
   at: number[];
   length: number;
   width: number;
-  /** Where a lap's gates stand, the last of them the start line. */
-  gates: Array<{ x: number; z: number }>;
+  /**
+   * A lap's gates: one at each turn's apex, then the start line. `at` is the point of the line its flags stand either
+   * side of; an apex gate's centre is pushed out from it, so its reach (TRACK_GATE_R) ends at the track's inside edge.
+   */
+  gates: Array<{ x: number; z: number; at: number }>;
   /** Where the scramble starts, just past the start line facing on round. */
   start: { x: number; z: number; heading: number };
   turns: TrackTurn[];
@@ -406,8 +409,8 @@ const TRACK_R = 24;
 const TRACK_WIDTH = 9;
 const TRACK_STEP = 2;
 const TRACK_LEGS: ReadonlyArray<number | readonly [number]> = [150, [-90], 168, [-90], 31, [-90], 116, [90], 8, [90], 116, [-90], 23, [-90], 168, [-90], 8];
-/** The gates round a lap. */
-const TRACK_GATES = 10;
+/** How near (m) a rider passes a gate's centre to pass it (sim/activities/scramble.ts). */
+export const TRACK_GATE_R = 8;
 /**
  * The east straight's six whoops (from WHOOPS m down it, a crest every WHOOP_PITCH m) and the west straight's two
  * tabletops (each from its distance up it: a steep face to a lip over the table, the table, and the landing), all as
@@ -459,14 +462,16 @@ function buildTrack(layout: CityLayout, places: CountyPlaces): void {
     }
     h = h0 + turn;
     t.turns.push({ cx, cz, r: TRACK_R, a0: Math.atan2(t.line[t.line.length - n - 1]!.z - cz, t.line[t.line.length - n - 1]!.x - cx), a1: Math.atan2(z - cz, x - cx) });
+    // The turn's gate at its apex, pushed out so a rider on the racing line, hugging the inside edge, passes it and one
+    // up on the berm does too, but one cutting across the infield does not.
+    const at = t.line.length - 1 - Math.floor(n / 2);
+    const apex = t.line[at]!;
+    const out = (TRACK_R + TRACK_GATE_R - TRACK_WIDTH / 2) / TRACK_R;
+    t.gates.push({ x: cx + (apex.x - cx) * out, z: cz + (apex.z - cz) * out, at });
   }
   t.length = s;
-  // The lap's gates evenly round it, the last on the start line; the scramble starts just past it.
-  for (let k = 1; k <= TRACK_GATES; k++) {
-    const want = (t.length * k) / TRACK_GATES;
-    const i = t.at.findIndex((a) => a >= want - 1e-6);
-    t.gates.push(t.line[i]!);
-  }
+  // The lap's last gate on the start line; the scramble starts just past it.
+  t.gates.push({ ...t.line.at(-1)!, at: t.line.length - 1 });
   t.start = { x: TRACK_START.x + 6, z: TRACK_START.z, heading: Math.PI / 2 };
 
   // The whoops on the east straight (heading south), the tabletops on the west one (heading north): a ramp rising

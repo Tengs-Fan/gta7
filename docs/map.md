@@ -240,7 +240,9 @@ It draws nothing from the city's generator (the stores' tints come from its own)
 - The whoops and the tabletops are ramp pairs (a ramp up to a crest, one up to it from beyond) that are not stunt ramps (`Ramp.stunt` false): a jump off one is no stunt, and the stunt jumps' total is still the six.
   A tabletop's top is a deck (`Deck.dirt`, drawn by the track, no pier under it), and its face rises 0.7 m over it, so a rider at speed leaves the ground at the lip.
 - The ribbon, the berms round the turns and the flags are drawn only.
-- The scramble (`sim/activities/scramble.ts`) is two laps against the clock, ten gates a lap, in anything with wheels; its medals come from a scripted ride on a Viper 600.
+- The scramble (`sim/activities/scramble.ts`) is two laps against the clock, nine gates a lap, in anything with wheels; its medals come from a scripted ride on a Viper 600.
+  A gate stands at each turn's apex, its centre pushed out from the line so its 8 m reach comes in to the track's inside edge and runs out over the berm, and the ninth on the start line.
+  Straight lines from gate to gate save about 20 m a lap on the track's own racing line, cutting a turn's inside by 7 m at most; gates spread evenly round the lap had let a rider save about 95 m across the infield.
 
 **The Las Lomas Loop** is the fourth street run, about 3 km: west down Magnolia Ave, over the Magnolia Causeway, through Dry Creek and round the Lomas Highway, home over the Southgate Bridge and north up Vista Ave.
 - A course's corners may name a county junction or a gated bend; the legs to and from one take the shortest way on, never back the way it came.

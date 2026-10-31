@@ -84,11 +84,11 @@ export function buildTrack(view: CountryView, kit: PlacesKit): void {
 
   // The flag gates: a pole either side of the track, a pennant on each, red then yellow round the lap.
   t.gates.forEach((g, k) => {
-    const i = t.line.indexOf(g);
-    const n = right(i);
+    const c = t.line[g.at]!;
+    const n = right(g.at);
     for (const side of [-1, 1]) {
-      const x = g.x + n.x * side * (half + 0.8);
-      const z = g.z + n.z * side * (half + 0.8);
+      const x = c.x + n.x * side * (half + 0.8);
+      const z = c.z + n.z * side * (half + 0.8);
       prism(p.plain, x, z, 0.05, 0.05, 0, 3.2, 6, [0.85, 0.85, 0.85]);
       const flag: RGB = k % 2 === 0 ? [0.85, 0.12, 0.1] : [0.95, 0.78, 0.1];
       tri(p.plain, [x, 3.2, z], [x, 2.4, z], [x + n.x * side * 0.9, 2.8, z + n.z * side * 0.9], [n.z, 0, -n.x], flag);

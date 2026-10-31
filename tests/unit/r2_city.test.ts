@@ -265,8 +265,9 @@ describe('round 2 city: layout', () => {
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
     // parapets, the four props moved out of the links' mouths, its signal heads and lamps); and when the county's places
     // appended theirs (Dry Creek's stores, props, POIs, footpaths and bays, the Moonbeam Drive-In's posts and bays,
-    // Gravel Gulch's ramps and decks) and every ramp gained its stunt flag.
-    expect(layoutHash()).toBe('413d1bdd784541e6cf8f0335597b93f5b687467d09b930431abf701855149372');
+    // Gravel Gulch's ramps and decks) and every ramp gained its stunt flag; and when Gravel Gulch's gates moved to its
+    // turns' apexes.
+    expect(layoutHash()).toBe('3d2ef43a778688640dcaaa2bf374ac2c99820102d0fa77f95c06c0418064983a');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

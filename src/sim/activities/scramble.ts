@@ -1,9 +1,10 @@
 // The Gravel Gulch scramble (world/country/places.ts): two laps of Las Lomas County's dirt track against the clock, its
-// ten gates in order each lap, over the whoops and the tabletops. In anything with wheels at the gate, T starts it: stop
-// in the start box, a three-second countdown, then bronze, silver and gold, cash and a saved best as on the street
-// runs. Single player only.
+// gates in order each lap (one at each turn's apex, so the infield cannot be cut, and one on the start line), over the
+// whoops and the tabletops. In anything with wheels at the gate, T starts it: stop in the start box, a three-second
+// countdown, then bronze, silver and gold, cash and a saved best as on the street runs. Single player only.
 
 import { formatMoney } from '../../core/math';
+import { TRACK_GATE_R } from '../../world/country/places';
 import type { StaticWorld } from '../../world/staticWorld';
 import type { Vehicle } from '../entities';
 import { registerStatRow } from '../statRows';
@@ -38,7 +39,7 @@ export const SCRAMBLE_LAPS = 2;
 /** A vehicle within this distance (m) of the start can start the scramble; the start box's radius; every gate's. */
 export const SCRAMBLE_REACH = 45;
 export const SCRAMBLE_START_R = 6;
-export const SCRAMBLE_GATE_R = 8;
+export const SCRAMBLE_GATE_R = TRACK_GATE_R;
 /**
  * Medal times (s) for the two laps, from a scripted ride on a Viper 600 (scramble.test.ts, about 130 s): gold about 5%
  * over it, silver 25%, bronze 60%.
