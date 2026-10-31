@@ -4,8 +4,10 @@
 // nothing much and hardly ever crawl, credit every gate in order, and earn silver or better.
 
 import { describe, expect, it } from 'vitest';
+import { pointSegDist } from '../../src/core/math';
 import type { StreetRunJob } from '../../src/sim/activities';
 import type { Vehicle } from '../../src/sim/entities';
+import { LINK_REACH } from '../../src/sim/traffic';
 import type { Lane, Turn } from '../../src/world/roads';
 import { makeSim, placeInCar, step } from './helpers';
 import { fleeBot } from './r2_police_helpers';
@@ -14,16 +16,13 @@ const SEEDS = [1, 2, 3, 4, 5, 6];
 /** Acceptance thresholds per course (gameplay F1): mean impacts per lap and mean seconds below 4 m/s while racing. */
 const MAX_IMPACTS = 0.6;
 /**
- * Dockside's 4.5 s: the course ends 200 m from the Southgate Bridge's landfall, where two cars at a time now come in over
- * the bridge to a player within 235 m of it (traffic.ts streamLinks), so every lap meets different traffic on Southgate
- * Ave. The six seeds' mean goes from 3.3 s to 4.3 s (seed 3 from 10.3 s to 3.6 s, seed 6 from 0.3 s to 12.5 s).
- * Before that it was 3.5 s: with Las Lomas County on the lane graph only seed 5 changed. Its last turn, up Vista Ave onto
+ * Dockside's 3.5 s: with Las Lomas County on the lane graph only seed 5 changes. Its last turn, up Vista Ave onto
  * Southgate Ave, is 200 m from the Southgate gateway (node 88), where a patrol car now takes the new turn onto the
  * Southgate Bridge 8 s before the start instead of turning onto Harbor Blvd, and that lap waits 6.3 s at the last turn
  * instead of 2.5 s. Every other seed of the 16-seed set runs as before to the frame. The metric was already noisy: the
  * 16 seeds' mean was 3.4 s, past 3, before the county and is 3.6 s now; the six here go from 2.7 s to 3.3 s.
  */
-const MAX_CRAWL: Readonly<Record<string, number>> = { magnolia: 3, coastline: 3, dockside: 4.5 };
+const MAX_CRAWL: Readonly<Record<string, number>> = { magnolia: 3, coastline: 3, dockside: 3.5 };
 
 interface Lap {
   seed: number;
@@ -100,6 +99,24 @@ function lap(courseId: string, seed: number, traffic: boolean): Lap {
 }
 
 describe('street run laps through traffic', () => {
+  it("no course comes within LINK_REACH of the causeway's or the bridge's landfall, where traffic comes in over them", () => {
+    const sim = makeSim();
+    const roads = sim.roads;
+    // The links' lanes into the city, each ending at its landfall.
+    const links = roads.lanes.filter((l) => l.to < roads.gridNodeCount && l.from >= roads.gridNodeCount);
+    expect(links.length).toBe(4);
+    for (const c of sim.activities.streetRunCourses()) {
+      const at = c.nodes.map((id) => roads.nodes[id]!);
+      let nearest = Infinity;
+      for (const l of links) {
+        nearest = Math.min(nearest, Math.hypot(c.start.x - l.ex, c.start.z - l.ez));
+        for (let k = 1; k < at.length; k++) nearest = Math.min(nearest, pointSegDist(l.ex, l.ez, at[k - 1]!.x, at[k - 1]!.z, at[k]!.x, at[k]!.z));
+      }
+      console.log(`[run] ${c.id}: ${nearest.toFixed(0)} m from the nearest landfall at the closest`);
+      expect(nearest, c.id).toBeGreaterThan(LINK_REACH);
+    }
+  });
+
   it.each(['magnolia', 'coastline', 'dockside'])('%s: few impacts, little crawling, every gate in order, medals within reach', (id) => {
     const course = makeSim().activities.streetRunCourses().find((c) => c.id === id)!;
     const clear = lap(id, 1, false);
