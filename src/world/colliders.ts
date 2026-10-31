@@ -15,7 +15,9 @@ export type ColliderTag =
   | 'pillar'
   | 'boat'
   /** A sight core buried in a rise (world/terrain.ts): nothing standing on the ground ever reaches one. */
-  | 'terrain';
+  | 'terrain'
+  /** Standing crops (the corn maze): they stop people and slow cars, but hide nothing from sight. */
+  | 'crop';
 
 export interface StaticCollider extends AABB {
   id: number;

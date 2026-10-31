@@ -1,20 +1,21 @@
 // Where the render-only dressing goes: beach things on Ocean Beach, yard things round the houses, railings and
-// bollards on the piers, the furnishing of the enterable garages, and the plaques, sign, fences and coin telescopes of
-// the viewpoints. Pure placement from the static world (no three.js, no sim randomness: hashes of positions), so tests
-// check it directly. None of it is solid: the world's colliders, the spawns and the markers never see it, and it keeps
-// clear of every one of them.
+// bollards on the piers, the iron fence round the cemetery, the furnishing of the enterable garages, and the plaques,
+// sign, fences and coin telescopes of the viewpoints. Pure placement from the static world (no three.js, no sim
+// randomness: hashes of positions), so tests check it directly. None of it is solid: the world's colliders, the spawns
+// and the markers never see it, and it keeps clear of every one of them.
 import { mkRect, rectContains, rectsOverlap, sandHeight, type Building, type Rect, type Side } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { hillRise, hillSignLetters, lookoutRail } from '../world/terrain';
 import { places } from '../sim/activities/places';
+import { attractionOf } from '../world/attractions';
 
 export type DressingKind =
   | 'umbrella' | 'towel' | 'lounger' | 'lifeguard' | 'volleyball' | 'surfboard'
   | 'fence' | 'mailbox' | 'shrub' | 'planter' | 'wheelie'
-  | 'rail' | 'bollard'
+  | 'rail' | 'bollard' | 'ironfence'
   | 'workbench' | 'toolwall' | 'shelving' | 'wallshelf' | 'tyres' | 'tyrerack' | 'drum' | 'chest' | 'jack' | 'poster' | 'lamphousing' | 'lamptube';
 
-export type DressingArea = 'beach' | 'yard' | 'deck' | 'garage';
+export type DressingArea = 'beach' | 'yard' | 'deck' | 'garage' | 'cemetery';
 
 export interface DressingItem {
   kind: DressingKind;
@@ -39,7 +40,7 @@ export interface DressingItem {
 export const DRESSING_SIZE: Readonly<Record<DressingKind, readonly [number, number]>> = {
   umbrella: [1.15, 1.15], towel: [0.4, 0.85], lounger: [0.32, 1.05], lifeguard: [1.35, 1.35], volleyball: [4.7, 0.2], surfboard: [0.28, 0.15],
   fence: [1.0, 0.06], mailbox: [0.12, 0.25], shrub: [0.6, 0.45], planter: [0.3, 0.3], wheelie: [0.31, 0.38],
-  rail: [1.2, 0.06], bollard: [0.19, 0.19],
+  rail: [1.2, 0.06], bollard: [0.19, 0.19], ironfence: [1.2, 0.06],
   workbench: [1.0, 0.35], toolwall: [1.0, 0.04], shelving: [0.8, 0.25], wallshelf: [0.8, 0.13], tyres: [0.34, 0.34], tyrerack: [0.84, 0.1],
   drum: [0.3, 0.3], chest: [0.52, 0.25], jack: [0.17, 0.75], poster: [0.62, 0.02], lamphousing: [0.65, 0.13], lamptube: [0.6, 0.08],
 };
@@ -387,6 +388,35 @@ function decks(world: StaticWorld, rules: DressingRules, out: DressingItem[]): v
   }
 }
 
+/**
+ * Eternal Palms Cemetery: wrought iron round its lot, a gap at the gate (and where a path's end keeps a pickup's spot
+ * clear). Drawn only: people and cars pass through it, as through the yards' picket fences.
+ */
+function cemeteryFence(world: StaticWorld, rules: DressingRules, out: DressingItem[]): void {
+  const { fence: r, gate } = attractionOf(world.layout, 'cemetery').anchors;
+  const y = world.groundHeight((r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2);
+  const run = DRESSING_SIZE.ironfence[0] * 2;
+  const along = (x0: number, z0: number, x1: number, z1: number) => {
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    const n = Math.floor(len / run);
+    const ux = (x1 - x0) / len;
+    const uz = (z1 - z0) / len;
+    const start = (len - n * run) / 2;
+    for (let k = 0; k < n; k++) {
+      const t = start + (k + 0.5) * run;
+      const x = x0 + ux * t;
+      const z = z0 + uz * t;
+      if (z0 === z1 && z0 === r.minZ + 0.1 && x > gate.x0 - run / 2 && x < gate.x1 + run / 2) continue;
+      const it = item('ironfence', 'cemetery', x, y, z, Math.atan2(uz, ux) === 0 ? 0 : Math.PI / 2, 0xffffff);
+      if (!rules.violation(it)) out.push(it);
+    }
+  };
+  along(r.minX, r.minZ + 0.1, r.maxX, r.minZ + 0.1);
+  along(r.minX, r.maxZ - 0.1, r.maxX, r.maxZ - 0.1);
+  along(r.minX + 0.1, r.minZ, r.minX + 0.1, r.maxZ);
+  along(r.maxX - 0.1, r.minZ, r.maxX - 0.1, r.maxZ);
+}
+
 /** The Marina's main-deck railings start this far (m) landward of its first finger pier. */
 const MARINA_RAIL_LEAD = 12;
 /** Railings keep this far (m) clear of a finger pier's sides where it joins the main deck. */
@@ -425,6 +455,8 @@ export const GARAGE_LANE = 3.6;
 export function garageSpecs(world: StaticWorld): GarageSpec[] {
   const out: GarageSpec[] = [];
   for (const g of world.layout.garages) {
+    // Hollister Farm's barn takes a garage's walls and roof, not its trade: no workbench, tyres or posters in it.
+    if (g.poi === 'farm_barn') continue;
     const r = g.rect;
     const t = 0.5;
     // Opening on side g.side; w runs inward, u across (right-handed with y up: u = w x y).
@@ -617,6 +649,7 @@ export function dressingItems(world: StaticWorld): DressingItem[] {
   beach(world, rules, out);
   yards(world, rules, out);
   decks(world, rules, out);
+  cemeteryFence(world, rules, out);
   furnish(world, out);
   cache.set(world, out);
   return out;

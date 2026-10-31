@@ -163,8 +163,11 @@ describe('the talk station and the street', () => {
   });
 
   it('has every kind of shout in several voices, each voice saying every line of its kind', () => {
+    // Old Man Hollister and the voice by the Bramble crypt are one person each, with one voice.
+    const one = new Set(['farmer', 'farmerAngry', 'whisper']);
     for (const [kind, voices] of Object.entries(SPEECH.barks)) {
-      expect(voices.length, kind).toBeGreaterThanOrEqual(3);
+      if (one.has(kind)) expect(voices.length, kind).toBe(1);
+      else expect(voices.length, kind).toBeGreaterThanOrEqual(3);
       for (const lines of voices) expect(lines.length, kind).toBe(voices[0]!.length);
     }
   });

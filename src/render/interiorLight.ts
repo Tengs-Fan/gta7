@@ -16,10 +16,11 @@ import { CURB_H } from '../world/constants';
 import type { CityLayout, Garage, Rect } from '../world/layout';
 
 /**
- * Garages the shader can hold (the city has four). Each has its own vec4/vec2 uniforms rather than one array: three
- * re-sends array uniforms on every material switch, while single vectors are compared with its cache first.
+ * Garages the shader can hold (the city has five: Lou's, three spray shacks and Hollister Farm's barn). Each has its own
+ * vec4/vec2 uniforms rather than one array: three re-sends array uniforms on every material switch, while single vectors
+ * are compared with its cache first.
  */
-export const MAX_INTERIORS = 4;
+export const MAX_INTERIORS = 5;
 /**
  * Share of the sky's diffuse light (hemisphere and image-based) kept deep inside, of the sun's, and of the sky's
  * reflections: glossy paint inside still mirrors the bright doorway, so reflections lose less.

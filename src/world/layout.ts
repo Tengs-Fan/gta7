@@ -4,6 +4,7 @@
 
 import { Rng } from '../core/rng';
 import { clamp } from '../core/math';
+import { buildAttractions, type Attraction } from './attractions';
 import {
   AVENUE_W, BEACH_W, BOARDWALK_W, CITY_SEED, CROSSWALK_W, CURB_H, GRID_N, PED_INSET,
   PROMENADE_W, PROP_INSET, SAND_DROP, SIDEWALK_W, STREET_W, WATER_Y,
@@ -24,7 +25,9 @@ export type RoofStyle = 'flat' | 'gable' | 'helipad';
 export type GroundKind = 'grass' | 'plaza' | 'parking' | 'dirt' | 'yard';
 export type PropKind =
   | 'tree' | 'palm' | 'lamp' | 'signal' | 'hydrant' | 'bench' | 'bin' | 'container' | 'bush'
-  | 'fountain' | 'crane' | 'boat' | 'lighthouse' | 'ferris' | 'billboard';
+  | 'fountain' | 'crane' | 'boat' | 'lighthouse' | 'ferris' | 'billboard'
+  // The attractions (attractions.ts): a corn maze's wall segment (with its footprint, like a container), and the rest.
+  | 'corn' | 'pumpkin' | 'headstone' | 'cypress';
 /** The `contact...` kinds are mission givers' places: which one a POI is, and how it is built, is the SPECIALS row's business. */
 export type PoiKind = 'safehouse' | 'hospital' | 'police' | 'spray' | 'gunshop' | 'bank' | 'marina' | `contact${string}`;
 export type RoofPropKind = 'ac' | 'tank' | 'antenna' | 'billboard' | 'helipad';
@@ -228,6 +231,8 @@ export interface CityLayout {
   parking: ParkingSpot[];
   /** Free positions inside lots/parks used for pickups and collectibles. */
   openSpots: { x: number; z: number; district: District }[];
+  /** Single cells rebuilt as places of their own (attractions.ts): the farm, the cemetery. */
+  attractions: Attraction[];
   stadium: Rect | null;
   /** The ground's rises (world/terrain.ts): set by settleTerrain, last, once every prop stands. */
   rises: Rise[];
@@ -559,6 +564,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     decks: [],
     parking: [],
     openSpots: [],
+    attractions: [],
     stadium: null,
     rises: [],
     bounds,
@@ -633,6 +639,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   layout.props = layout.props.filter((p) => p.kind === 'boat' || !waterAt(layout, p.x, p.z));
   layout.parking = layout.parking.filter((p) => !waterAt(layout, p.x, p.z));
   layout.openSpots = layout.openSpots.filter((p) => !waterAt(layout, p.x, p.z));
+  buildAttractions(layout);
   assignGroundFloors(layout);
   settleTerrain(layout);
 
@@ -899,7 +906,7 @@ function garageRect(lot: Rect, side: Side, along: number, width: number, depth: 
   }
 }
 
-function garageWalls(g: Rect, side: Side, t: number): Rect[] {
+export function garageWalls(g: Rect, side: Side, t: number): Rect[] {
   // Back wall opposite the opening plus two side walls.
   switch (side) {
     case 'N':

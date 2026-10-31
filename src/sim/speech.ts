@@ -8,7 +8,12 @@ import index from '../assets/speech/speech.json';
 export type TalkKind = 'host' | 'call' | 'news' | 'ad' | 'ident' | 'serial';
 /** The talk shows: AZURA TALK's, THE BOWL's, SAPR's and STATIC's. */
 export type ShowId = 'azura' | 'bowl' | 'sapr' | 'static';
-export type BarkKind = 'greet' | 'hurt' | 'jacked' | 'panic' | 'rammed' | 'witness' | 'freeze' | 'shots' | 'officerDown' | 'pullOver' | 'arrest' | 'turf' | 'hail' | 'hailMissed' | 'cabbie';
+export type BarkKind =
+  | 'greet' | 'hurt' | 'jacked' | 'panic' | 'rammed' | 'witness' | 'freeze' | 'shots' | 'officerDown' | 'pullOver' | 'arrest' | 'turf'
+  // People waving down a taxi the player drives, and a cabbie pulled out of his cab.
+  | 'hail' | 'hailMissed' | 'cabbie'
+  // Hollister Farm's owner, and the voice by the Bramble family crypt at three in the morning.
+  | 'farmer' | 'farmerAngry' | 'whisper';
 /**
  * What a music station's DJ says over a song's intro: an ident, a hit's announce ('front') or back-announce ('back'),
  * banter, or a line for the night, the rain, a chase or a chase got away from.

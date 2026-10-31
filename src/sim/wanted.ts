@@ -68,6 +68,12 @@ export const COP_SIGHT = 80;
  */
 export const HELI_SIGHT = 60;
 export const HELI_NIGHT_SIGHT = 60;
+/**
+ * In cover (StaticWorld.coverAt: the corn maze, the barn) officers make out a target only within COVER_COP_SIGHT and the
+ * helicopter crew only within COVER_HELI_SIGHT along the ground, whatever the line of sight: the rows hide him.
+ */
+export const COVER_COP_SIGHT = 10;
+export const COVER_HELI_SIGHT = 15;
 /** Radius (m) of the spotlight's pool of light on the ground (markers.ts draws it this size). */
 export const SPOT_RADIUS = 5;
 /**
@@ -253,12 +259,14 @@ export class WantedSystem {
   }
 
   /**
-   * Any police officer, patrol car or helicopter that can see (x, z)? Officers within `range`, the helicopter within
-   * HELI_SIGHT. Officers within `near` notice what happens there through a wall too (they hear a crime that close).
+   * Any police officer, patrol car or helicopter that can see (x, z)? Officers within `range` (in cover within
+   * COVER_COP_SIGHT), the helicopter as heliSees. Officers within `near` notice what happens there through a wall too
+   * (they hear a crime that close).
    */
   copWitness(x: number, z: number, range = 48, near = 8): boolean {
     const sim = this.sim;
     const gy = sim.world.groundHeight(x, z) + 1.2;
+    if (sim.world.coverAt(x, z)) range = Math.min(range, COVER_COP_SIGHT);
     for (const c of sim.characters) {
       if (c.removed || !c.isLaw || !c.alive) continue;
       const p = c.vehicle ? c.vehicle.pos : c.pos;
@@ -273,11 +281,12 @@ export class WantedSystem {
   /**
    * Can the crew of helicopter `h` make out (x, z)? Within HELI_SIGHT along the ground, with a clear line of
    * sight; at night (from SPOTLIGHT_DARK, while the beam is drawn) only in the spotlight (within SPOT_SEE of its
-   * centre) or close below (HELI_NIGHT_SIGHT).
+   * centre) or close below (HELI_NIGHT_SIGHT). In cover only within COVER_HELI_SIGHT.
    */
   heliSees(h: Helicopter, x: number, z: number): boolean {
     const sim = this.sim;
-    if (h.removed || h.destroyed || Math.hypot(h.pos.x - x, h.pos.z - z) > HELI_SIGHT) return false;
+    const ground = Math.hypot(h.pos.x - x, h.pos.z - z);
+    if (h.removed || h.destroyed || ground > HELI_SIGHT || (ground > COVER_HELI_SIGHT && sim.world.coverAt(x, z))) return false;
     const gy = sim.world.groundHeight(x, z) + 1.2;
     if (darkness(sim.clock.hours) > SPOTLIGHT_DARK && Math.hypot(h.spotlight.x - x, h.spotlight.z - z) > SPOT_SEE && Math.hypot(h.pos.x - x, h.pos.y - gy, h.pos.z - z) > HELI_NIGHT_SIGHT) return false;
     return sim.world.lineOfSight(h.pos.x, h.pos.y - 1.5, h.pos.z, x, gy, z);

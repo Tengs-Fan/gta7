@@ -1,6 +1,7 @@
 // Garages, ramps, helipads.
 
 import * as THREE from 'three';
+import { attractionOf } from '../../world/attractions';
 import type { Building } from '../../world/layout';
 import { GeoBuilder, hexToRgb, scaleRgb } from '../geo';
 import { groundTexture, helipadTexture } from '../textures';
@@ -15,7 +16,9 @@ export function buildStructures(view: CityView): void {
     const col = hexToRgb(g.color);
     for (const w of g.walls) garageGeo.box(w.minX, 0, w.minZ, w.maxX, g.height, w.maxZ, { uv: { kind: 'world', scale: 3 }, color: col });
     garageGeo.box(g.rect.minX - 0.3, g.height, g.rect.minZ - 0.3, g.rect.maxX + 0.3, g.height + 0.4, g.rect.maxZ + 0.3, { uv: { kind: 'world', scale: 3 }, color: scaleRgb(col, 0.7), bottom: true });
-    const poi = layout.pois.find((p) => p.id === g.poi)!;
+    // Hollister Farm's barn has no marker: its sign is painted on (attractions.ts).
+    const poi = layout.pois.find((p) => p.id === g.poi);
+    if (!poi) continue;
     const text = poi.kind === 'spray' ? 'SPRAY SHACK' : "LOU'S AUTO";
     const color = poi.kind === 'spray' ? '#5cff9d' : '#ff9a5c';
     const fake: Building = { id: -1, rect: g.rect, height: g.height + 3.2, tiers: [], style: 'office', roof: 'flat', tint: 0, district: 'docks', roofProps: [], sign: null, special: null, ground: 'none', groundH: 0, groundSides: [] };
@@ -26,7 +29,10 @@ export function buildStructures(view: CityView): void {
   // Stunt ramps: sloped plate plus side panels with hazard colours.
   const plate = new GeoBuilder(false);
   const sides = new GeoBuilder(true);
+  // The farm's kicker wears hay bales instead (attractions.ts).
+  const hay = attractionOf(layout, 'farm').anchors.ramp;
   for (const r of layout.ramps) {
+    if (r.id === hay) continue;
     const fx = Math.sin(r.heading);
     const fz = Math.cos(r.heading);
     const sx = Math.cos(r.heading);

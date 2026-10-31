@@ -16,6 +16,7 @@ import { buildRoads } from './roads';
 import { buildCoast } from './coast';
 import { buildStructures } from './structures';
 import { HillSign } from './hillSign';
+import { buildAttractionViews } from './attractions';
 import type { CityMaterials, Entrance, NightUniforms } from './shared';
 import { GroundSurfaces, registerGroundDebug, type AnisoTier } from './surfaces';
 
@@ -54,6 +55,7 @@ export class CityView {
     buildCoast(this);
     buildStructures(this);
     this.hillSign = new HillSign(this);
+    buildAttractionViews(this);
     this.group.traverse((o) => {
       if (o instanceof THREE.Mesh && !(o instanceof CulledStaticMesh)) this.visibility.add(o);
     });

@@ -6,6 +6,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { places } from '../../src/sim/activities/places';
 import { activityRecords } from '../../src/sim/activities/records';
+import { EPITAPHS, epitaphsRead } from '../../src/sim/epitaphs';
+import { farmState, PUMPKIN_COUNT } from '../../src/sim/farm';
 import { completionEntries, completionPercent, completionRows, statRows } from '../../src/sim/completion';
 import type { Vehicle } from '../../src/sim/entities';
 import { buyMod, buyPaint, MAX_MOD_LEVEL, MOD_CATEGORIES, MOD_TABLE, PAINT_COLORS, PAINT_PRICE, setMods, type ModCategory } from '../../src/sim/mods';
@@ -487,6 +489,8 @@ describe('stats and completion registry', () => {
     Object.assign(activityRecords(p), { ambulanceLevel: 6, fireLevel: 5, courierRuns: 2, exportLists: 1 });
     propertyState(p).garage = true;
     propertyState(p).business = true;
+    farmState(p).smashed = new Set(Array.from({ length: PUMPKIN_COUNT }, (_v, i) => i));
+    for (let k = 0; k < EPITAPHS.length; k++) epitaphsRead(p).add(k);
     expect(completionPercent(sim, me)).toBe(100);
     for (const r of completionRows(sim, me)) {
       // The taxi, vigilante and Street Run rows are older activities this test does not play.

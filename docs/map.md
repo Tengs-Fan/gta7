@@ -121,6 +121,37 @@ Each flat-ground assumption is kept like this:
 - **The AI.** No lane and no walk node is on the hill: traffic and the police keep to the streets round it, and officers walk up it on foot.
   The only walk on a rise is the path out to the lighthouse, which pedestrians and officers climb as they climb a curb.
 
+### Attractions: single cells rebuilt as places
+
+Two cells are rebuilt once the city stands, by `buildAttractions` in `src/world/attractions.ts`, a pass modelled on `drown()`:
+
+- **Hollister Farm** on cell (3,0), between the canal and Gull Bay: a gravel lane from a gate on Hillcrest Rd, the farmhouse, a red barn, a silo, forty pumpkins and a corn maze either side of the lane's mown aisle, with a hay-bale kicker on the lane that throws a car down the aisle.
+- **Eternal Palms Cemetery** on cell (1,1), across Hillcrest Rd from the cove: paths in a grid, about 140 headstones in rows, twelve of them epitaph stones, a chapel with a bell tower, three family mausoleums, cypresses and an iron fence.
+
+The pass runs last but one in `generateCity`, just before the ground floors, after the street furniture, the drowned bays, the coast, the stunt ramps and the water filters.
+So every shared random draw is made as before, and the pass draws only from its own generator per attraction (`hashInts(seed, 9001, k)`).
+It clears each cell's lot (buildings, ground, garages, props and parking), every lot before it builds any, so the props it appends keep their indices.
+Unlike `drown()`, it keeps the sidewalk ring and its furniture, except in a gate's span.
+New building ids are one more than the largest, since `drown()` left gaps.
+The block keeps its district and takes the attraction's name as its zone, so the HUD, the map and the police scanner name it.
+
+**The open-spot rule.**
+The hidden packages and pickups are placed over the city's open spots (`src/sim/pickups.ts`, farthest first), so dropping or moving one spot would move all twenty packages.
+An attraction therefore keeps every open spot in its cell, and keeps each one free: no collider within a metre, none on a ramp.
+Two of the farm's spots lie under its kicker's flight, one a metre past the lip and one where a car at full throttle lands.
+The lane's spots are 18 to 24 m apart and a car lands 12 to 25 m past the lip, so the kicker could stand nowhere on the lane without one there.
+Neither spot receives a package or a pickup, which `tests/unit/attractions.test.ts` holds.
+The farm's lane runs down the line of the old yards' setback spots, and the cemetery's paths across it run where its fifteen spots lie.
+`tests/unit/map_guard.test.ts` pins the mission spots of both chapters, the filtered open spots and the landmark towers, recorded before the pass existed.
+
+What the attractions add to the world:
+
+- Corn is a breakable collider of its own tag (`crop`): it stops people, barely slows a car (each segment takes 3 % of its speed) and hides nothing from a line of sight.
+  The maze and the barn are *cover* (`StaticWorld.coverAt`): there officers see a target only within 10 m and the helicopter crew only within 15 m along the ground, where the barn's roof is in the way.
+- The barn is a garage without a marker (its walls, roof slab and dark interior are a garage's, but none of a garage's benches, tyres and posters); the chapel, the tower and the mausoleums are solids of the attraction, not buildings, so facades, rooftops and the landmark towers never see them.
+- The hay-bale kicker is the sixth stunt ramp, and its run-up and landing keep the corridor every ramp keeps.
+- Pumpkins and ordinary headstones break; the twelve epitaph stones do not.
+
 ## Rejected, and why
 
 - **Diagonal or curved roads.** The lane graph knows four directions, and lanes, turns, signals, crosswalks, furniture and the renderers are built on that.
@@ -148,3 +179,4 @@ More sea cells (a west inlet, a south bay, an extended cove) were tried and set 
 - Bridges are decks, like the pier: boats cannot pass under them, so the canal is for looking at from a boat rather than for sailing through, and a swimmer passing under a bridge climbs out onto it.
 - The gang turf overlay on the map still covers Port Basin.
 - The foreshore's boulders are decoration: a swimmer or a boat passes through them.
+- The cemetery's iron fence and gate, and the farm stand, are decoration too: people and cars pass through them.

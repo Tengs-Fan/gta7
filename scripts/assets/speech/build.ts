@@ -133,7 +133,7 @@ for (const [kind, set] of Object.entries(BARKS) as Array<[BarkKind, (typeof BARK
   index.barks[kind] = set.voices.map((voice) =>
     set.lines.map((text, i) => {
       const id = `bark-${slug(kind)}-${voice.replace('_', '-')}-${i}`;
-      clips.push({ id, takes: [{ voice, text, speed: 1 }] });
+      clips.push({ id, takes: [{ voice, text, speed: set.speed ?? 1 }] });
       return id;
     }),
   );

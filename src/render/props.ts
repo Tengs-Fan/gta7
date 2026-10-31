@@ -9,7 +9,8 @@ import { smoothstep, type V3 } from '../core/math';
 import { Rng } from '../core/rng';
 import { axisOf, type Dir } from '../world/roads';
 import { SEABED_Y } from '../world/constants';
-import { rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
+import { attractionOf } from '../world/attractions';
+import { hashInts, rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { riseAt } from '../world/terrain';
 import { adTexture, AD_COUNT, glowTexture, groundTexture } from './textures';
@@ -25,6 +26,7 @@ import {
 import { dressingItems, type DressingItem, type DressingKind } from './dressing';
 import { WIND_GLSL, windAmplitude } from './wind';
 import { SHADOW_LAYER } from './vehicleBatches';
+import { CORN_H, cornGeometry, cornTexture, headstoneGeometry, HEADSTONE_SHAPES, ironFenceGeometry, pumpkinGeometry } from './attractionModels';
 
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
@@ -544,7 +546,7 @@ export class PropsView {
     });
     const get = (k: PropKind) => byKind.get(k) ?? [];
 
-    this.buildTrees(get('tree'), get('bush'));
+    this.buildTrees(get('tree'), get('bush'), get('cypress'));
     this.buildPalms(get('palm'));
     this.buildLamps(get('lamp'));
     this.buildSignals(get('signal'));
@@ -552,6 +554,11 @@ export class PropsView {
     this.buildSimple(get('bench'), benchGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.78, metalness: 0.15 }));
     this.buildSimple(get('bin'), binGeometry(), new THREE.MeshStandardMaterial({ color: 0x1e4d2b, vertexColors: true, roughness: 0.6, metalness: 0.3 }));
     this.buildContainers(get('container'));
+    this.buildCorn(get('corn'));
+    this.makeInstanced(pumpkinGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.55 }), get('pumpkin'), PropsView.standard, {
+      color: (p, c) => c.setHSL(0.05 + (p.rot % 1) * 0.02, 0.95, 0.3 + (p.scale - 1) * 0.1),
+    });
+    this.buildHeadstones(get('headstone'));
     for (const i of get('fountain')) this.buildFountain(world.layout.props[i]!);
     for (const i of get('crane')) this.buildCrane(world.layout.props[i]!);
     for (const i of get('lighthouse')) this.buildLighthouse(world.layout.props[i]!);
@@ -682,11 +689,15 @@ export class PropsView {
     this.makeInstanced(geo, mat, props, PropsView.standard);
   }
 
-  private buildTrees(trees: number[], bushes: number[]): void {
+  private buildTrees(trees: number[], bushes: number[], cypresses: number[]): void {
     const rng = new Rng(77);
     const trunk = new THREE.MeshStandardMaterial({ color: 0x725440, vertexColors: true, roughness: 0.96 });
     dissolveOccluder(trunk, OCCLUDER_AXIS.tree, this.occUniforms);
     this.makeInstanced(treeTrunkGeometry(), trunk, trees, PropsView.standard);
+    this.makeInstanced(treeTrunkGeometry(), trunk, cypresses, (p, m) => {
+      PropsView.standard(p, m);
+      m.multiply(this.tmpM.makeScale(0.6, 0.55, 0.6));
+    });
     // Leaf cards: alpha-tested (never sorted), the atlas's own greens with a per-tree tint, swaying in the wind.
     const leafMaterial = (name: string): THREE.MeshStandardMaterial => {
       const m = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: broadleafTexture(), alphaTest: 0.5, roughness: 0.86 });
@@ -696,13 +707,48 @@ export class PropsView {
       return m;
     };
     const tint = new THREE.Color();
-    this.makeInstanced(broadleafGeometry('tree'), leafMaterial('broadleaf-canopy'), trees, PropsView.standard, {
+    const canopy = broadleafGeometry('tree');
+    const canopyMat = leafMaterial('broadleaf-canopy');
+    this.makeInstanced(canopy, canopyMat, trees, PropsView.standard, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.24 + rng.range(-0.04, 0.04), rng.range(0.34, 0.52), rng.range(0.42, 0.55)), 0.45),
     });
     this.makeInstanced(broadleafGeometry('bush'), leafMaterial('broadleaf-shrub'), bushes, PropsView.standard, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.27 + rng.range(-0.03, 0.03), 0.43, rng.range(0.4, 0.5)), 0.5),
       shadow: false,
     });
+    // Cypresses: the trees' canopy drawn tall and narrow, from about a metre up to nine, dark.
+    this.makeInstanced(canopy, canopyMat, cypresses, (p, m) => {
+      PropsView.standard(p, m);
+      m.multiply(this.tmpM.makeScale(0.42, 2.4, 0.42)).multiply(this.tmpM.makeTranslation(0, -2.6, 0));
+    }, {
+      color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.31 + rng.range(-0.02, 0.02), 0.38, rng.range(0.2, 0.26)), 0.75),
+    });
+  }
+
+  /**
+   * The corn maze's walls: one instance of ten stalks' cross-cards per segment, alpha-tested on the leaves' program and
+   * swaying from the ground up (still on Low and software, where the wind is off). A car lays a segment flat (breakProp).
+   */
+  private buildCorn(corn: number[]): void {
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: cornTexture(), alphaTest: 0.5, roughness: 0.86 });
+    mat.name = 'corn';
+    fadeNearCamera(mat, { shared: this.windUniforms, pivot: new THREE.Vector4(0, 0, 0, CORN_H) });
+    mat.customProgramCacheKey = () => 'gta7-foliage-leaves';
+    this.makeInstanced(cornGeometry(), mat, corn, PropsView.standard, { color: (p, c) => c.setRGB(0.92 + (p.color % 7) * 0.012, 0.95 + (p.color % 5) * 0.01, 0.9) });
+  }
+
+  /** Headstones, one batch per shape: three by a hash of the place, the epitaph stones their own. */
+  private buildHeadstones(stones: number[]): void {
+    const epitaph = new Set(attractionOf(this.world.layout, 'cemetery').anchors.epitaphs.map((e) => e.prop));
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.8, metalness: 0.05 });
+    const shape = (i: number) => {
+      const p = this.world.layout.props[i]!;
+      return epitaph.has(i) ? HEADSTONE_SHAPES - 1 : hashInts(Math.round(p.x * 10), Math.round(p.z * 10)) % (HEADSTONE_SHAPES - 1);
+    };
+    for (let k = 0; k < HEADSTONE_SHAPES; k++) {
+      // Weathered stones vary in tint; the polished granite does not.
+      this.makeInstanced(headstoneGeometry(k), mat, stones.filter((i) => shape(i) === k), PropsView.standard, { color: (p, c) => c.setScalar(k === HEADSTONE_SHAPES - 1 ? 1 : 0.82 + (p.color % 64) / 360) });
+    }
   }
 
   private buildPalms(palms: number[]): void {
@@ -1147,7 +1193,7 @@ export class PropsView {
     const builders: Record<DressingKind, () => THREE.BufferGeometry> = {
       umbrella: umbrellaGeometry, towel: towelGeometry, lounger: loungerGeometry, lifeguard: lifeguardGeometry, volleyball: volleyballGeometry, surfboard: surfboardGeometry,
       fence: fenceGeometry, mailbox: mailboxGeometry, shrub: shrubGeometry, planter: planterGeometry, wheelie: wheelieBinGeometry,
-      rail: railGeometry, bollard: bollardGeometry,
+      rail: railGeometry, bollard: bollardGeometry, ironfence: ironFenceGeometry,
       workbench: workbenchGeometry, toolwall: toolWallGeometry, shelving: () => shelvingGeometry(0.5), wallshelf: () => shelvingGeometry(0.26), tyres: tyreStackGeometry,
       tyrerack: tyreRackGeometry, drum: drumGeometry, chest: toolChestGeometry, jack: jackGeometry, poster: posterGeometry, lamphousing: lampHousingGeometry, lamptube: lampTubeGeometry,
     };
@@ -1158,8 +1204,8 @@ export class PropsView {
       l.push(it);
     }
     // Flat or small pieces cast no shadow map shadow; the flattest also stay out of the contact-shadow pass.
-    const shadowless: ReadonlySet<DressingKind> = new Set(['towel', 'poster', 'lamptube', 'toolwall', 'fence', 'mailbox', 'planter', 'shrub', 'bollard', 'surfboard']);
-    const noContact: ReadonlySet<DressingKind> = new Set(['towel', 'poster', 'lamptube', 'toolwall', 'fence']);
+    const shadowless: ReadonlySet<DressingKind> = new Set(['towel', 'poster', 'lamptube', 'toolwall', 'fence', 'ironfence', 'mailbox', 'planter', 'shrub', 'bollard', 'surfboard']);
+    const noContact: ReadonlySet<DressingKind> = new Set(['towel', 'poster', 'lamptube', 'toolwall', 'fence', 'ironfence']);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const up = new THREE.Vector3(0, 1, 0);
@@ -1213,8 +1259,9 @@ export class PropsView {
     const fall = new THREE.Matrix4().makeRotationAxis(axis, Math.PI / 2 - 0.08);
     const toOrigin = new THREE.Matrix4().makeTranslation(-p.x, -p.y, -p.z);
     const back = new THREE.Matrix4().makeTranslation(p.x, p.y + (p.kind === 'lamp' || p.kind === 'signal' ? 0.15 : 0.2), p.z);
-    // A knocked-down lamp goes completely, light and all, so no head, lens or glow is left hanging where it stood.
-    const hide = p.kind === 'hydrant' || p.kind === 'lamp';
+    // A knocked-down lamp goes completely, light and all, so no head, lens or glow is left hanging where it stood; a
+    // smashed pumpkin goes in a burst of orange (renderer.ts).
+    const hide = p.kind === 'hydrant' || p.kind === 'lamp' || p.kind === 'pumpkin';
     for (const r of [...refs, ...(this.shadowRefs.get(index) ?? [])]) {
       let m: THREE.Matrix4;
       if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat || r.mesh === this.signalBulbs || r.mesh.userData.signalBulbs) m = new THREE.Matrix4().makeScale(0, 0, 0);
