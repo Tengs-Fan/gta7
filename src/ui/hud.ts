@@ -830,14 +830,13 @@ export class Hud {
 
   /**
    * The tuned station's name, with its tag line under it ('RADIO OFF' has none) and the song on air under that, marked
-   * with the station's language (zh-Hant: Han characters take their Traditional forms).
+   * with the station's language: English, or 月光電台's zh-Hant, so its Han characters take their Traditional forms.
    */
   showRadio(name: string, track?: { artist: string; title: string } | null): void {
     const def = STATIONS.find((s) => s.name === name);
     const song = track ? `<small class="track">${escapeHtml(track.artist)} - ${escapeHtml(track.title)}</small>` : '';
     this.el.radio!.innerHTML = `${escapeHtml(name)}${def?.tag ? `<small>${escapeHtml(def.tag)}</small>` : ''}${song}`;
-    if (def?.lang) this.el.radio!.lang = def.lang;
-    else this.el.radio!.removeAttribute('lang');
+    this.el.radio!.lang = def?.lang ?? 'en';
     this.el.radio!.classList.add('show');
     this.timers.radio = 2.5;
   }
