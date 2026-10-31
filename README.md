@@ -310,6 +310,7 @@ All of these are minor; the most noticeable come first.
 - Now and then a new city bus appears slightly overlapping the bus ahead of it in the same lane, usually out of sight, and both end up dented.
 - Boats cannot pass under the canal's bridges (they are decks, like the pier), so the canal is for looking at from a boat, not for sailing through.
 - On Hillcrest Green's hill a car rolls with the slope only as drawn: the sim keeps the body level across it, so a car never tips over sideways there.
+- Seen from the city, the Magnolia Causeway and the Southgate Bridge only carry traffic heading out to the county: traffic appears on the county's roads only once you are off the city's land, which keeps the city's own traffic and its recorded test runs exactly as they were; the county's traffic update, still to come, may lift this.
 
 **Multiplayer (limits of this version)**
 
