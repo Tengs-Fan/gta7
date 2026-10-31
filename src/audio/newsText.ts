@@ -50,6 +50,9 @@ export const ZONE_PREP: Readonly<Record<string, string>> = {
   'Hillcrest Cove': 'in Hillcrest Cove',
   'Port Basin': 'in Port Basin',
   'Azura Point': 'at Azura Point',
+  'Hollister Farm': 'at Hollister Farm',
+  'Eternal Palms Cemetery': 'at Eternal Palms Cemetery',
+  "Smuggler's Key": "on Smuggler's Key",
 };
 
 /** The place on its own ('the Marina', 'downtown'): its phrase without the preposition. */
