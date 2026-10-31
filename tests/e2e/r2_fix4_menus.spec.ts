@@ -67,11 +67,12 @@ test.describe('GTA 7 menus fixes on a HiDPI screen', () => {
   test.use({ deviceScaleFactor: 2 });
 
   test('the map canvas is backed at twice its CSS size, and clicks land on the same world points as at ratio 1', async ({ page, browser, baseURL }) => {
-    // Clear of the title (top left), the legend (top right) and the hint (bottom left); the second is the cross.
+    // Clear of the title and the checklist (top left, down to y 577 at 1280x720 since the county's rows), the legend
+    // (top right) and the hint (bottom); the second is the cross.
     const points = [
       [700, 250],
       [640, 360],
-      [180, 560],
+      [400, 600],
     ] as const;
     // The same clicks on a screen at ratio 1 first.
     const one = await browser.newContext({ baseURL, viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
