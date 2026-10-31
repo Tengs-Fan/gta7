@@ -282,6 +282,11 @@ export function collectBlips(sim: ViewState, time: number, localPlayerId = 0, op
     const z = t ? t.pos.z : o.z;
     out.push({ x, z, color: '#' + o.color.toString(16).padStart(6, '0'), label: '', sticky: true, shape: t ? 'square' : 'circle' });
   }
+  // Pedestrians waving down the taxi you drive, small.
+  const me = playerOf(sim, localPlayerId).character;
+  if (me.vehicle?.kind === 'taxi' && me.vehicle.driver === me) {
+    for (const c of sim.characters) if (c.hailTimer > 0 && c.owner === 'ped' && c.alive && !c.removed) out.push({ x: c.pos.x, z: c.pos.z, color: '#3dd9ff', label: '', sticky: false, shape: 'pip' });
+  }
   out.push(...otherPlayerBlips(sim, localPlayerId));
   if (playerOf(sim, localPlayerId).wanted.level > 0) {
     const blink = Math.floor(time * 4) % 2 === 0;

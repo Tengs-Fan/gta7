@@ -2,6 +2,7 @@
 // police dispatch phrases (built from the dispatch tables, see build.ts): the cast, the talk station's programme and the
 // barks of people in the street. Every line is original. Voices are Kokoro-82M voice ids (see README.md here).
 
+import { FARES } from '../../../src/sim/activities/fares';
 import type { BarkKind, TalkKind } from '../../../src/sim/speech';
 
 /** Kokoro voice per role. American voices start with a, British with b; f and m are female and male. */
@@ -23,6 +24,10 @@ export const CAST = {
   jen: 'af_river',
   morty: 'bm_lewis',
   kid: 'af_sky',
+  // The taxi's fares (src/sim/activities/fares.ts).
+  commuter: 'am_eric',
+  tourist: 'bf_lily',
+  local: 'af_kore',
 } as const;
 
 export type Role = keyof typeof CAST;
@@ -39,11 +44,14 @@ export const SAY: ReadonlyArray<readonly [RegExp, string]> = [
 /** Talk station roles heard down a phone line or a radio link: their lines are band-limited when rendered. */
 export const PHONE_ROLES: ReadonlySet<Role> = new Set<Role>(['gary', 'linda', 'marcus', 'doris', 'vince', 'jen', 'kid', 'skip']);
 
-/** Mission speakers (the subtitle's name without " (phone)") and the role that voices them. */
+/** Speakers of subtitled lines (missions, phone, the taxi's fares), by the subtitle's name without " (phone)", and the role that voices them. */
 export const SPEAKERS: Readonly<Record<string, Role>> = {
   'Mama Lou': 'lou',
   'Dex Moreau': 'dex',
   'Vera Salgado': 'vera',
+  'Commuter': 'commuter',
+  'Tourist': 'tourist',
+  'Local': 'local',
 };
 
 export interface TalkPiece {
@@ -453,6 +461,8 @@ export interface BarkSet {
 const PEDS = ['am_liam', 'bm_fable', 'am_echo', 'bm_lewis', 'af_jessica', 'af_river', 'af_kore', 'bf_lily'];
 const COPS = ['am_michael', 'am_onyx', 'bm_daniel', 'af_aoede'];
 const GANG = ['am_echo', 'am_onyx', 'af_alloy'];
+/** The fare types' voices in FARES order: a pedestrian hails a cab in the voice he talks in once aboard (fareOf). */
+const FARE_VOICES = FARES.map((f) => CAST[SPEAKERS[f.speaker]!]);
 
 export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
   /** A passer-by the player walks up to. */
@@ -479,4 +489,10 @@ export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
   arrest: { voices: COPS, lines: ["You're under arrest.", 'Hands behind your back.', 'You have the right to remain silent. Use it.'] },
   /** Gang members starting a fight on their turf. */
   turf: { voices: GANG, lines: ['This is our turf!', 'Wrong neighborhood!', 'You picked the wrong street!', 'Get him!'] },
+  /** Waving down a taxi the player drives. */
+  hail: { voices: FARE_VOICES, lines: ['Taxi!', 'Hey! Taxi!', 'Cab! Over here!', "Taxi! I'm running late!"] },
+  /** Left standing by the taxi. */
+  hailMissed: { voices: FARE_VOICES, lines: ['Oh, come on!', 'Off duty, huh? Figures.', 'I saw you look at me!'] },
+  /** A cabbie pulled out of his cab. */
+  cabbie: { voices: PEDS, lines: ["Hey! I'm still on the clock!", "That's a company car, pal!", 'Fine! You want my job? The fares are all yours!', "The meter's still running!"] },
 };

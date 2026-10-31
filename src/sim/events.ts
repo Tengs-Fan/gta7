@@ -96,6 +96,11 @@ export interface SimEvents {
   roadblock: { x: number; z: number; strip: boolean };
   /** A witness starts (or ends: through, or stopped) a call to the police about a crime at (x, z). */
   witnessCall: { caller: Character; x: number; z: number; started: boolean };
+  /**
+   * A pedestrian starts waving down the taxi a player drives (or a waiting fare sees his cab coming), or gives up on
+   * it: missed when the cab left him standing.
+   */
+  taxiHail: { caller: Character; x: number; y: number; z: number; started: boolean; missed: boolean };
   /** The player's car hit `vehicle` hard enough to jolt it by deltaV (m/s). */
   vehicleRammed: { vehicle: Vehicle; by: Character; deltaV: number };
   fade: { duration: number } & PlayerScoped;

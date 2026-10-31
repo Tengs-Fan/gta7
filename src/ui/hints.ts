@@ -5,6 +5,7 @@
 // it after Sim.update; the HUD's help queue decides when a hint appears (never over a message,
 // never while a subtitle is up).
 
+import { HAIL_STARS } from '../sim/activities/taxiHail';
 import type { Vehicle } from '../sim/entities';
 import { isGun } from '../sim/specs';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
@@ -48,6 +49,18 @@ const RULES: readonly Rule[] = [
     text: 'Hold <kbd>Space</kbd> for the handbrake. <kbd>R</kbd> changes the radio station.',
     duration: 7,
     when: (_sim, me) => me.character.vehicle?.driver === me.character && !me.down,
+  },
+  {
+    id: 'taxi',
+    text: 'People at the curb wave down cabs: pull up beside one to take the fare. Or stop and press <kbd>T</kbd> for a taxi job.',
+    duration: 8,
+    when: (sim, me) => me.character.vehicle?.kind === 'taxi' && me.character.vehicle.driver === me.character && !me.down && me.wanted.level <= HAIL_STARS && !sim.activities.busy && !sim.missions.active,
+  },
+  {
+    id: 'taxi:shift',
+    text: 'Quicker trips pay more, and every fifth fare pays a $500 bonus. <kbd>T</kbd> ends the taxi job.',
+    duration: 8,
+    when: (sim, me) => sim.activities.job?.kind === 'taxi' && !me.down,
   },
   {
     id: 'wanted',

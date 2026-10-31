@@ -845,6 +845,12 @@ export class CrowdView {
       rightDone = true;
       S.inst.makeBasis(S.bx.copy(fwd), S.by.copy(up), S.bz.copy(left).negate()).setPosition(S.hand.x + left.x * 0.03, S.hand.y, S.hand.z + left.z * 0.03);
       this.put(this.phone, S.inst, 0x1c1c22);
+    } else if (c.hailTimer > 0 && !held) {
+      // Waving down a taxi (Character.hailTimer): the right arm up high, the hand waving from side to side.
+      S.targetR.copy(S.shR).addScaledVector(up, 0.42 * s).addScaledVector(fwd, 0.16 * s).addScaledVector(left, -0.1 + 0.06 * Math.sin(this.time * 7 + c.id));
+      pole.copy(left).negate().addScaledVector(up, -0.4);
+      this.armTo(S.shR, S.targetR, pole, left, c);
+      rightDone = true;
     }
     // Free arms swing with the gait, and go out for balance in the air.
     const air = anim.air;
