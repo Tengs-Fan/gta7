@@ -2,10 +2,10 @@
 // fixed order each frame. Never touches the DOM, WebGL or audio.
 
 import { Emitter } from '../core/emitter';
-import { clamp, type V3 } from '../core/math';
+import { clamp, formatMoney, type V3 } from '../core/math';
 import { Rng } from '../core/rng';
 import type { StaticCollider } from '../world/colliders';
-import { WATER_Y } from '../world/constants';
+import { GRAVITY, WATER_Y } from '../world/constants';
 import type { RoadNetwork } from '../world/roads';
 import { StaticWorld } from '../world/staticWorld';
 import { Activities } from './activities';
@@ -78,6 +78,8 @@ export interface StreetCrime {
 }
 
 const PHYSICS_STEP = 1 / 120;
+/** A player who comes down into deep water from higher than `fall` m over it dived: `pay` dollars, once a game day. */
+const CLIFF_DIVE = { fall: 8, pay: 100 } as const;
 
 function isInputMap(input: PlayerInput | ReadonlyMap<number, PlayerInput>): input is ReadonlyMap<number, PlayerInput> {
   return typeof (input as ReadonlyMap<number, PlayerInput>).get === 'function';
@@ -733,7 +735,19 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
 
   onCharacterSplash(c: Character): void {
     this.events.emit('splash', { x: c.pos.x, y: WATER_Y, z: c.pos.z, big: false });
+    const slot = this.slotOf(c);
+    if (!slot) return;
+    // How high over the water the fall began: its speed still holds it (a jump's or a bail-out's rise included).
+    const fell = c.pos.y + (c.vel.y * c.vel.y) / (2 * GRAVITY) - WATER_Y;
+    if (fell <= CLIFF_DIVE.fall || this.cliffDives.get(slot.id) === this.clock.day) return;
+    this.cliffDives.set(slot.id, this.clock.day);
+    slot.progress.addMoney(CLIFF_DIVE.pay);
+    this.events.emit('money', { amount: CLIFF_DIVE.pay, ...slot.tag });
+    this.events.emit('big', { text: 'CLIFF DIVE', sub: `${fell.toFixed(0)} m  ·  ${formatMoney(CLIFF_DIVE.pay)}`, style: 'stunt', duration: 3.5, ...slot.tag });
   }
+
+  /** The game day of each player slot's last paid cliff dive. */
+  private readonly cliffDives = new Map<number, number>();
 
   onHorn(v: Vehicle): void {
     v.hornTimer = 0.45;

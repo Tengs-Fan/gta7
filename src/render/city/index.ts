@@ -1,5 +1,5 @@
 // Static city geometry: terrain, roads, markings, sidewalks, buildings, roofs,
-// coast, piers, ramps, garages and signs. Spatial batches retain material sharing and culling.
+// coast, piers, ramps, garages, signs and the hill sign. Spatial batches retain material sharing and culling.
 
 import * as THREE from 'three';
 import { BOARDWALK_W } from '../../world/constants';
@@ -15,6 +15,7 @@ import { buildGround } from './ground';
 import { buildRoads } from './roads';
 import { buildCoast } from './coast';
 import { buildStructures } from './structures';
+import { HillSign } from './hillSign';
 import type { CityMaterials, Entrance, NightUniforms } from './shared';
 import { GroundSurfaces, registerGroundDebug, type AnisoTier } from './surfaces';
 
@@ -37,6 +38,8 @@ export class CityView {
   readonly wet = new WetGround();
   /** The ground's PBR materials, detail patches and anisotropy (roads, sidewalks, lawns, sand). */
   readonly ground: GroundSurfaces;
+  /** The SAN AZURA letters and the viewpoints' dressing. */
+  readonly hillSign: HillSign;
   private readonly softwareMeshes: CulledStaticMesh[] = [];
   private readonly frustum = new THREE.Frustum();
   private readonly projection = new THREE.Matrix4();
@@ -50,6 +53,7 @@ export class CityView {
     buildRoads(this);
     buildCoast(this);
     buildStructures(this);
+    this.hillSign = new HillSign(this);
     this.group.traverse((o) => {
       if (o instanceof THREE.Mesh && !(o instanceof CulledStaticMesh)) this.visibility.add(o);
     });
@@ -130,6 +134,7 @@ export class CityView {
     for (const m of this.materials.facades.values()) m.emissiveIntensity = night * 1.4;
     if (this.materials.storefront) this.materials.storefront.emissiveIntensity = night * 2.8;
     for (const m of this.materials.signs) m.emissiveIntensity = 0.35 + night * 3.2;
+    this.hillSign.update(night);
   }
 }
 

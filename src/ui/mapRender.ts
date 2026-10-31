@@ -13,6 +13,7 @@ import { WATER_Y } from '../world/constants';
 import { beachOffsetAt, rectContains } from '../world/layout';
 import { foreshoreReach, shores } from '../world/shore';
 import type { StaticWorld } from '../world/staticWorld';
+import { riseAt, riseBounds } from '../world/terrain';
 
 export const MAP_SCALE = 1; // pixels per metre in the pre-rendered image
 const PACKAGE_COLOR = '#f5cd80';
@@ -77,6 +78,7 @@ export class MapImage {
     for (const blk of world.layout.blocks) rect(blk.rect.minX, blk.rect.minZ, blk.rect.maxX, blk.rect.maxZ, '#2c3238');
     const gc: Record<string, string> = { grass: '#2f6a3a', yard: '#35603a', plaza: '#3c4147', parking: '#33373c', dirt: '#4a4438' };
     for (const gp of world.layout.ground) rect(gp.rect.minX, gp.rect.minZ, gp.rect.maxX, gp.rect.maxZ, gc[gp.kind] ?? '#333');
+    hillshade(ctx, world, X, Z);
     // Roads.
     for (const s of world.roads.segments) rect(s.minX, s.minZ, s.maxX, s.maxZ, '#9aa1aa');
     for (const n of world.roads.live) rect(n.x - n.halfX, n.z - n.halfZ, n.x + n.halfX, n.z + n.halfZ, '#9aa1aa');
@@ -90,6 +92,37 @@ export class MapImage {
     this.turf.width = w;
     this.turf.height = h;
     drawTurf(this.turf.getContext('2d')!, world, X, Z);
+  }
+}
+
+/** Metres between the hillshade's samples. */
+const SHADE_CELL = 2;
+
+/**
+ * Hillshade over the rises, in one pass over their bounds: the ground darkens with its slope, most where it faces away
+ * from a light in the north-west (top left), and lightens a little where it faces the light, so the hill and the bluff
+ * read as relief; the bluff's cliffs come out as a dark rim.
+ */
+function hillshade(ctx: CanvasRenderingContext2D, world: StaticWorld, X: (x: number) => number, Z: (z: number) => number): void {
+  const rises = world.layout.rises;
+  const h = (x: number, z: number) => riseAt(rises, x, z);
+  for (const r of rises) {
+    const b = riseBounds(r);
+    for (let z = b.minZ; z < b.maxZ; z += SHADE_CELL) {
+      for (let x = b.minX; x < b.maxX; x += SHADE_CELL) {
+        const mx = x + SHADE_CELL / 2;
+        const mz = z + SHADE_CELL / 2;
+        if (h(mx, mz) <= 0) continue;
+        const gx = (h(mx + 1, mz) - h(mx - 1, mz)) / 2;
+        const gz = (h(mx, mz + 1) - h(mx, mz - 1)) / 2;
+        // Facing away from the light (> 0) or towards it (< 0).
+        const away = -(gx + gz) / Math.SQRT2;
+        const dark = Math.min(0.6, 0.35 * Math.hypot(gx, gz) + 1.6 * Math.max(0, away));
+        const lit = Math.min(0.25, 0.9 * Math.max(0, -away));
+        ctx.fillStyle = lit > dark ? `rgba(255,255,255,${lit.toFixed(3)})` : `rgba(0,0,0,${dark.toFixed(3)})`;
+        ctx.fillRect(X(x), Z(z), SHADE_CELL * MAP_SCALE, SHADE_CELL * MAP_SCALE);
+      }
+    }
   }
 }
 

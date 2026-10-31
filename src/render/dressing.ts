@@ -1,9 +1,11 @@
 // Where the render-only dressing goes: beach things on Ocean Beach, yard things round the houses, railings and
-// bollards on the piers, and the furnishing of the enterable garages. Pure placement from the static world (no three.js,
-// no sim randomness: hashes of positions), so tests check it directly. None of it is solid: the world's colliders, the
-// spawns and the markers never see it, and it keeps clear of every one of them.
+// bollards on the piers, the furnishing of the enterable garages, and the plaques, sign, fences and coin telescopes of
+// the viewpoints. Pure placement from the static world (no three.js, no sim randomness: hashes of positions), so tests
+// check it directly. None of it is solid: the world's colliders, the spawns and the markers never see it, and it keeps
+// clear of every one of them.
 import { mkRect, rectContains, rectsOverlap, sandHeight, type Building, type Rect, type Side } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
+import { hillRise, hillSignLetters, lookoutRail } from '../world/terrain';
 import { places } from '../sim/activities/places';
 
 export type DressingKind =
@@ -521,6 +523,84 @@ function furnish(world: StaticWorld, out: DressingItem[]): void {
       }
     }
   });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Viewpoints
+
+export type ViewpointKind = 'plaque' | 'sign' | 'telescope' | 'fence';
+
+/** A plaque on a post, a sign board on two posts, a coin telescope, or a fence from (x, z) to (x2, z2). */
+export interface ViewpointItem {
+  kind: ViewpointKind;
+  x: number;
+  y: number;
+  z: number;
+  /** Facing, as DressingItem's (the side the text or the telescope's view is on). */
+  rot: number;
+  /** What its plate says (plaques, signs and telescopes). */
+  text: string;
+  /** A fence's far end. */
+  x2: number;
+  z2: number;
+}
+
+/** Footprint half extents (across, along the facing) of the viewpoint kinds that stand in one place. */
+export const VIEWPOINT_SIZE: Readonly<Record<Exclude<ViewpointKind, 'fence'>, readonly [number, number]>> = { plaque: [0.5, 0.3], sign: [1.3, 0.12], telescope: [0.3, 0.45] };
+
+export const PLAQUE_TEXT = {
+  summit: "HILLCREST SUMMIT, ELEV. 7 M. HIGHEST POINT IN SAN AZURA THAT ISN'T A PARKING GARAGE.",
+  letters: 'DO NOT CLIMB THE LETTERS. THE LETTERS HAVE BEEN THROUGH ENOUGH.',
+  lookout: 'AZURA POINT LOOKOUT. ON A CLEAR DAY YOU CAN SEE THE SMOG.',
+  telescope: "VIEWS 25 CENTS. YOUR EX'S BALCONY NOT GUARANTEED.",
+} as const;
+
+/**
+ * The summit of Hillcrest Green: a plaque beside the south path below the fountain and two coin telescopes at the
+ * plateau's south edge, looking over the letters to downtown; a low fence along the front of each word, with the sign
+ * where the path climbs between them. The lookout at Azura Point's tip: its plaque at the middle of the parapet, and a
+ * telescope at either end, one turned back south-west over Gull Bay to the hill and the towers, one out to sea.
+ */
+export function viewpoints(world: StaticWorld): ViewpointItem[] {
+  const L = world.layout;
+  const hill = hillRise(L.rises);
+  const ground = (x: number, z: number) => world.groundHeight(x, z);
+  const at = (kind: ViewpointKind, x: number, z: number, rot: number, text = '', x2 = x, z2 = z): ViewpointItem => ({ kind, x, y: ground(x, z), z, rot, text, x2, z2 });
+  const out: ViewpointItem[] = [];
+  const summit = hill.cz + (hill.plateau * hill.rz) / hill.rx - 1;
+  out.push(at('plaque', hill.cx + 4.2, hill.cz + 9, -Math.PI / 2, PLAQUE_TEXT.summit));
+  for (const dx of [-4.5, 4.5]) out.push(at('telescope', hill.cx + dx, summit, 0, PLAQUE_TEXT.telescope));
+  const letters = hillSignLetters(L.rises);
+  const front = letters[0]!.box.maxZ + 2.5;
+  const words = [letters.slice(0, 3), letters.slice(3)];
+  for (const word of words) {
+    const x0 = Math.min(...word.map((l) => l.box.minX)) - 1;
+    const x1 = Math.max(...word.map((l) => l.box.maxX)) + 1;
+    for (let x = x0; x < x1 - 0.01; x += FENCE_RUN) out.push(at('fence', x, front, 0, '', Math.min(x + FENCE_RUN, x1), front));
+  }
+  out.push(at('sign', Math.max(...words[0]!.map((l) => l.box.maxX)) - 1.6, front + 0.6, 0, PLAQUE_TEXT.letters));
+  const rail = lookoutRail(L);
+  const mid = (rail.minX + rail.maxX) / 2;
+  out.push(at('plaque', mid, rail.maxZ + 1.3, 0, PLAQUE_TEXT.lookout));
+  out.push(at('telescope', rail.minX + 1.5, rail.maxZ + 1.2, Math.atan2(-0.6, 0.8), PLAQUE_TEXT.telescope));
+  out.push(at('telescope', rail.maxX - 1.5, rail.maxZ + 1.2, Math.atan2(0.6, -0.8), PLAQUE_TEXT.telescope));
+  return out;
+}
+
+/** A viewpoint fence runs in straight lengths of this many metres (m), post to post, following the ground. */
+export const FENCE_RUN = 2.4;
+
+/** Why a viewpoint item breaks the dressing rules (fences by their ends and middle), or null. */
+export function viewpointViolation(rules: DressingRules, it: ViewpointItem): string | null {
+  if (it.kind !== 'fence') {
+    const [hx, hz] = VIEWPOINT_SIZE[it.kind];
+    return rules.violation({ x: it.x, z: it.z, rot: it.rot, hx, hz, back: false });
+  }
+  for (const t of [0, 0.5, 1]) {
+    const v = rules.violation({ x: it.x + (it.x2 - it.x) * t, z: it.z + (it.z2 - it.z) * t, rot: 0, hx: 0.05, hz: 0.05, back: false });
+    if (v) return v;
+  }
+  return null;
 }
 
 /** Wall-mounted kinds whose back is their origin (they stand out from the wall along their facing). */

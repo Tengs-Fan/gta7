@@ -12,8 +12,8 @@ const OMEGA = 13;
 const ZETA = 0.6;
 /** Angular speed (rad/s) a sudden rise under one axle or one side gives the body, per radian of the step it makes. */
 const KICK = 6;
-/** Largest drawn suspension angle (rad). */
-const MAX_ANGLE = 0.12;
+/** Largest drawn suspension angle (rad): a car across Hillcrest Green's slope rolls with it (20%, about 0.2 rad). */
+const MAX_ANGLE = 0.2;
 /** Steps bigger than this (m) between frames are a teleport, a flight landing or a deck edge: no kick. */
 const MAX_STEP = 0.4;
 

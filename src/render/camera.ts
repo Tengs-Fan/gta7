@@ -10,6 +10,7 @@ import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
 import { CURB_H, WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
+import { riseTop } from '../world/terrain';
 import { FOLIAGE_FADE_FAR, foliageKept, foliagePoints, foliageSpheres } from './props';
 
 export type CameraMode = 'play' | 'title';
@@ -298,9 +299,9 @@ function floorAt(world: StaticWorld, x: number, z: number): number {
   return Math.max(world.groundHeight(x, z), WATER_Y) + 0.35;
 }
 
-/** The highest the terrain reaches (curbs, decks, ramps; see StaticWorld.groundHeight) over the box x0..x1, z0..z1. */
+/** The highest the terrain reaches (curbs, rises, decks, ramps; see StaticWorld.groundHeight) over the box x0..x1, z0..z1. */
 function terrainTop(world: StaticWorld, x0: number, z0: number, x1: number, z1: number): number {
-  let top = CURB_H;
+  let top = CURB_H + riseTop(world.layout.rises, x0, z0, x1, z1);
   for (const d of world.layout.decks) {
     if (d.y > top && d.rect.minX <= x1 && d.rect.maxX >= x0 && d.rect.minZ <= z1 && d.rect.maxZ >= z0) top = d.y;
   }

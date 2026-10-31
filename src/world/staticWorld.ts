@@ -7,6 +7,7 @@ import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
+import { hillSignLetters, lookoutRail, riseAt, riseRay, terrainCores } from './terrain';
 
 /**
  * The roof slab over a garage's walls, as render/city/structures.ts draws it: from the top of the walls up this
@@ -74,6 +75,12 @@ export class StaticWorld {
     this.layout.props.forEach((p, i) => {
       this.propColliders[i] = this.addPropCollider(p, i);
     });
+    // The rises' sight cores, buried out of reach of anything on the ground (world/terrain.ts), the letters of the hill
+    // sign and the parapet of the lookout at Azura Point.
+    for (const c of terrainCores(this.layout.rises)) g.addBox(c.minX, c.minZ, c.maxX, c.maxZ, -1, c.y1, 'terrain');
+    for (const l of hillSignLetters(this.layout.rises)) for (const b of l.solids) g.addBox(b.minX, b.minZ, b.maxX, b.maxZ, b.y0, b.y1, 'wall');
+    const rail = lookoutRail(this.layout);
+    g.addBox(rail.minX, rail.minZ, rail.maxX, rail.maxZ, rail.y, rail.y + PARAPET_H, 'wall');
   }
 
   private addPropCollider(p: Prop, i: number): number {
@@ -172,14 +179,14 @@ export class StaticWorld {
     return this.layout.bounds;
   }
 
-  /** Terrain height ignoring ramps and decks. */
+  /** Terrain height ignoring ramps and decks: the rises (world/terrain.ts) stand on lawns and the headland only. */
   baseGround(x: number, z: number): number {
     const b = this.layout.bounds;
-    if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return headlandAt(this.layout, x, z) ? CURB_H : SEABED_Y;
+    if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return headlandAt(this.layout, x, z) ? CURB_H + riseAt(this.layout.rises, x, z) : SEABED_Y;
     if (waterAt(this.layout, x, z)) return SEABED_Y;
     if (x >= b.beachStartX) return sandHeight(b, x);
     if (this.roads.isOnRoad(x, z)) return 0;
-    return CURB_H;
+    return CURB_H + riseAt(this.layout.rises, x, z);
   }
 
   /** Height of the ground, a deck or a ramp's surface at (x, z), whichever is highest. */
@@ -299,8 +306,9 @@ export class StaticWorld {
     for (const c of this.grid.colliders) c.broken = false;
   }
 
+  /** True when no sight-blocking collider stands between the two points and no rise (world/terrain.ts) comes between them. */
   lineOfSight(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
-    return this.grid.lineOfSight(ax, ay, az, bx, by, bz, this.scratchHit);
+    return this.grid.lineOfSight(ax, ay, az, bx, by, bz, this.scratchHit) && riseRay(this.layout.rises, ax, ay, az, bx - ax, by - ay, bz - az, 0, 1) < 0;
   }
 
   /**

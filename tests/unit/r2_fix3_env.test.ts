@@ -19,6 +19,7 @@ import { vehicleObb } from '../../src/sim/vehiclePhysics';
 import { WATER_Y } from '../../src/world/constants';
 import type { StaticCollider } from '../../src/world/colliders';
 import { FLOAT_FEET, type StaticWorld } from '../../src/world/staticWorld';
+import { riseAt } from '../../src/world/terrain';
 import { SWIM_FLOAT } from '../../src/sim/characterPhysics';
 import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
@@ -502,15 +503,18 @@ describe('city and prop geometry', () => {
           const v = (b + 0.5) / N - 0.5;
           const w = glow(Math.hypot(u, v) * 2);
           if (w <= 0) continue;
-          const x = pos.x + u * sc.x;
-          const z = pos.z + v * sc.z;
+          // The pool's plane, turned as it lies (along a slope on a rise).
+          const at = new THREE.Vector3(u * sc.x, 0, v * sc.z).applyQuaternion(q).add(pos);
+          const x = at.x;
+          const z = at.z;
           total += w;
           if (x < x0 || x > x1 || z < z0 || z > z1) continue;
-          if (pos.y > Math.max(W.groundHeight(x, z), WATER_Y) + 0.3) floating += w;
+          if (at.y > Math.max(W.groundHeight(x, z), WATER_Y) + 0.3) floating += w;
         }
       }
       const share = floating / total;
-      if (pos.y > 0.4) pier++;
+      // A pool over 0.4 m is on a deck, unless a rise (world/terrain.ts) lifts it: the path lamps on Azura Point.
+      if (pos.y - riseAt(W.layout.rises, pos.x, pos.z) > 0.4) pier++;
       if (share > worst) {
         worst = share;
         worstAt = `pool ${i} at (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`;
