@@ -160,7 +160,7 @@ The reflector posts along the county's roads are one mesh cut into cells; after 
 
 **The city from the county.**
 From Lookout Point the whole city stands 1-2.4 km off in the frustum, and its props (every tree, lamp and bench chunk) cost 662 of the 1191 draw calls there, though the fog had long hidden them.
-So off the city's land, on the hardware tiers, a prop past the fog's far end and the county's margin is not drawn, as the county's own cells are not; on the land every prop is drawn as before, so no city frame changes.
+So with the camera off the city's land, on the hardware tiers, a prop past the fog's far end and the county's margin is not drawn, as the county's own cells are not; with the camera on the land every prop is drawn as before.
 The skyline itself needs nothing: the camera's far plane is 2400 m, no tier culls the city's buildings, and the building fog's cap keeps the towers.
 
 ## Sea
@@ -249,18 +249,18 @@ Las Lomas County's landscape on 2026-10-31 (`--scenario perf`, which now ends wi
 
 | Scene | Draw calls | Triangles |
 | --- | ---: | ---: |
-| start | 940 | 3.76 M |
-| downtown | 797 | 3.26 M |
-| pursuit-4-stars | 461 | 2.55 M |
-| beach-dusk | 427 | 2.39 M |
-| hill | 356 | 1.78 M |
-| ridge-dusk (on the crest facing the skyline) | 487 | 1.32 M |
-| lookout-night (Lookout Point facing the skyline) | 539 | 1.62 M |
-| promenade-west-night (facing the county) | 266 | 1.36 M |
-| county-pursuit-4-stars (up the Lomas Highway's west leg) | 180 | 1.09 M |
+| start | 956 | 3.78 M |
+| downtown | 782 | 3.21 M |
+| pursuit-4-stars | 539 | 2.72 M |
+| beach-dusk | 742 | 3.46 M |
+| hill | 378 | 1.89 M |
+| ridge-dusk (on the crest facing the skyline) | 488 | 1.37 M |
+| lookout-night (Lookout Point facing the skyline) | 525 | 1.73 M |
+| promenade-west-night (facing the county) | 264 | 1.42 M |
+| county-pursuit-4-stars (up the Lomas Highway's west leg) | 129 | 0.78 M |
 
-The city's scenes are as on main (929, 791, 475, 463 and 360 calls).
-The two scenes facing the whole skyline across the sound draw a little more than the city's pursuit, the city's own buildings and their detail most of it; before the props were left undrawn off the city's land they drew 1144 and 1178.
+Every frame took 1-4 ms to submit. The city's scenes are as on main (929, 791, 475, 463 and 360 calls): the pursuit and beach-dusk keep the camera's turn and the traffic the segment before left them, so across three runs they drew 449-539 and 427-742 calls. Facing west, a city frame now also draws the county's ridge outline, its turbines and its trees and scrub, a few dozen calls.
+The two scenes facing the whole skyline across the sound draw a little more than the city's pursuit, the city's own buildings, its activity sites and its markers most of it; before the props were left undrawn off the city's land they drew 1144 and 1178.
 
 ## Software fallback
 

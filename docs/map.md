@@ -234,7 +234,7 @@ The HUD and the scanner name the plot you are in, or Las Lomas County.
 - **The beaches.** The county's coast is beach all round: the sand runs 8 m out from the land's edge to the waterline and falls to the flat seabed 45 m out.
   The sea draws it from a depth map baked from the county's ground, so turquoise shallows ring its coves and points for about 15 m past the waterline, with surf bands and swash on the sand, and Lomas Sound stays blue between it and the city.
   The surf is heard anywhere on the county's land within about 180 m of its waterline; the causeway's quay walls make none.
-- **Reflector posts**, drawn only, stand every 25 m along both edges of every county road on the land, clear of the junctions.
+- **Reflector posts**, drawn only, stand every 25 m along both edges of every county road on the land, clear of the junctions and of Dry Creek.
 
 ## Rejected, and why
 
