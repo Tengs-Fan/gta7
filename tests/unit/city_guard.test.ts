@@ -36,9 +36,13 @@ const OLD = { minX: -672, maxX: 762, minZ: -1060, maxZ: 676 };
 
 const sha = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 
-/** The links' corridors west of the city (the mouths, the causeway, the bridge) and everything west of x -650. */
+/**
+ * The links (their mouths through the promenade, x -512 to -478 and 8 m either side of the road's centre, then the
+ * causeway's and the bridge's corridors west of it) and everything west of x -650.
+ */
 function county(x: number, z: number): boolean {
-  return x < -650 || (x < -478 && (Math.abs(z + 268) <= 14 || Math.abs(z - 268) <= 14));
+  const off = Math.min(Math.abs(z + 268), Math.abs(z - 268));
+  return x < -650 || (x < -512 && off <= 14) || (x <= -478 && off <= 8);
 }
 
 const laneRow = (l: Lane) => [
@@ -172,7 +176,7 @@ describe('city guard: the ground and the lookups over the old world', () => {
       if (county(x, z)) continue;
       rows.push(`${W.baseGround(x, z)} ${W.groundHeight(x, z)} ${W.waterDepth(x, z)} ${W.isOnRoad(x, z) ? 1 : 0} ${W.zoneName(x, z)} ${W.districtAt(x, z)}`);
     }
-    expect(sha(rows)).toBe('3c82ef9430d55ef8a7819098e28f13d3026079e1c3402099ecde358558a29581');
+    expect(sha(rows)).toBe('d4e65a86737a3847d33a1a29128738cacea6c5672e84acdf5af9a3cdae5385cd');
   });
 
   it('answers nearestLane and nearestNode as the city did, or with a county lane or node strictly nearer', () => {
