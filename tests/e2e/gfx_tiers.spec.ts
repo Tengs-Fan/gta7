@@ -35,6 +35,8 @@ test.describe('graphics tiers', () => {
           g.setWeather(kind, { instant: true });
           await frames();
           await new Promise((res) => setTimeout(res, 500));
+          // A lit car may not be passing the corner at that instant: give the traffic up to 5 s to bring one by.
+          for (let i = 0; hours === 23 && i < 50 && g.state().render.pools === 0; i++) await new Promise((res) => setTimeout(res, 100));
           const r = g.state().render;
           out.push({ label, colors: g.samplePixels().colors, tier: r.tier, post: r.post, rainDrops: r.rainDrops, pools: r.pools, glows: r.glows, waterGrid: r.waterGrid, crashed: g.state().crashed });
         }
