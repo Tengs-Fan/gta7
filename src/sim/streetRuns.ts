@@ -1,7 +1,7 @@
 // Authored time trials resolved onto San Azura's actual road graph. Every gate
 // sits at a connected intersection; there are no straight lines through blocks.
 
-import type { Axis, RoadNetwork } from '../world/roads';
+import { axisOf, type Axis, type RoadNetwork } from '../world/roads';
 
 export const STREET_RUN_IDS = ['magnolia', 'coastline', 'dockside'] as const;
 export type StreetRunId = typeof STREET_RUN_IDS[number];
@@ -94,7 +94,7 @@ export function greenWave(course: StreetRunCourse, roads: RoadNetwork, checkpoin
     if (!node.signal || out.some((h) => h.nodeId === nodeId)) continue;
     const first = course.nodes.indexOf(nodeId, 1);
     const previous = roads.nodes[course.nodes[first - 1]!]!;
-    out.push({ nodeId, axis: previous.i === node.i ? 'NS' : 'EW' });
+    out.push({ nodeId, axis: axisOf(roads.lanesBetween(previous.id, nodeId)[0]!.dir) });
   }
   return out;
 }
@@ -128,7 +128,7 @@ export function buildStreetRunCourses(roads: RoadNetwork): StreetRunCourse[] {
       const inDir = Math.atan2(node.x - previous.x, node.z - previous.z);
       const outDir = Math.atan2(next.x - node.x, next.z - node.z);
       const turn = Math.atan2(Math.sin(outDir - inDir), Math.cos(outDir - inDir));
-      const road = next.i === node.i ? roads.layout.vLines[node.i]! : roads.layout.hLines[node.j]!;
+      const road = roads.lanesBetween(node.id, next.id)[0]!.line;
       const instruction = Math.abs(turn) < 0.1 ? 'Straight' : turn < 0 ? 'Right' : 'Left';
       // The whole junction box plus 3 m: a tight inside line through a corner passes near the box's corner.
       checkpoints.push({ x: node.x, z: node.z, radius: Math.hypot(node.halfX, node.halfZ) + 3, label: `${instruction} · ${road.name}`, nodeId: node.id });

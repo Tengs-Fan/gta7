@@ -70,13 +70,15 @@ describe('Turbine Row', () => {
     expect((b.cityMinZ - PROMENADE_W - 160 - b.worldMinZ) % W.grid.cell).toBe(0);
     // Every collider older than the offshore ones (the first turbine's on) is the one the city builds without them:
     // captured at 4323153 as the m3_buildings colliders hash, before Turbine Row, and again on the merged round-2 head
-    // as the colliders it builds with buildOffshore left out (the hill's, the attractions' and AzuraLink's among them).
+    // as the colliders it builds with buildOffshore left out (the hill's, the attractions' and AzuraLink's among them),
+    // and once more when Las Lomas County moved four of them, two lamps, a tree and a bench, out of the links' mouths.
     const first = W.propColliders[L.props.indexOf(turbines[0]!)]!;
-    expect(sha(W.grid.colliders.slice(0, first).map((c) => ({ ...c })))).toBe('0283d54059559c7612b8b07211477bdd9d0d9cd7982336fa74a2f8c4069a5d83');
+    expect(sha(W.grid.colliders.slice(0, first).map((c) => ({ ...c })))).toBe('ca0025d7549e165d0e149354928d618ba0357db72c9b486e0a9918ef5c8d4a19');
     // After them: a pillar per turbine and the Key's palms and jetty lamp, the last props; then the solids the earlier
     // passes append past every prop (the rises' cores, the letters and the lookout's parapet, the attractions'), the
-    // battery's walls, and AzuraLink's pylons and stations.
+    // battery's walls, AzuraLink's pylons and stations, and last Las Lomas County's (the bridge's parapets, its props).
     const rest = W.grid.colliders.slice(first);
+    const county = L.props.slice(L.country.firstProp).map((p) => (p.kind === 'signal' ? 'signal' : 'lamp'));
     expect(rest.map((c) => c.tag)).toEqual([
       ...turbines.map(() => 'pillar'), 'palm', 'palm', 'palm', 'lamp',
       ...terrainCores(L.rises).map(() => 'terrain'),
@@ -86,6 +88,7 @@ describe('Turbine Row', () => {
       ...L.offshore.solids.map(() => 'wall'),
       ...L.monorail.pylons.map(() => 'rock'),
       ...L.monorail.stations.flatMap((s) => ['building', ...s.platform.map(() => 'building')]),
+      'wall', 'wall', ...county,
     ]);
     for (const [i, t] of turbines.entries()) {
       const c = rest[i]!;

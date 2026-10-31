@@ -5,6 +5,7 @@ import { circleVsAabb, makeContact } from '../core/collision';
 import { attractionOf } from './attractions';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
+import { COUNTY_NAME, countryGround, plotAt } from './country';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { PLATFORM_SLAB, TOWER_H } from './monorail';
 import { TURBINE_BASE } from './offshore';
@@ -77,10 +78,11 @@ export class StaticWorld {
       const r = gar.rect;
       g.addBox(r.minX - GARAGE_EAVE, r.minZ - GARAGE_EAVE, r.maxX + GARAGE_EAVE, r.maxZ + GARAGE_EAVE, gar.height, gar.height + GARAGE_ROOF, 'wall');
     }
-    for (const r of this.layout.parapets) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
-    this.layout.props.forEach((p, i) => {
-      this.propColliders[i] = this.addPropCollider(p, i);
-    });
+    const country = this.layout.country;
+    const parapets = this.layout.parapets;
+    const props = this.layout.props;
+    for (const r of parapets.slice(0, country.firstParapet)) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
+    for (let i = 0; i < country.firstProp; i++) this.propColliders[i] = this.addPropCollider(props[i]!, i);
     // The rises' sight cores, buried out of reach of anything on the ground (world/terrain.ts), the letters of the hill
     // sign and the parapet of the lookout at Azura Point.
     for (const c of terrainCores(this.layout.rises)) g.addBox(c.minX, c.minZ, c.maxX, c.maxZ, -1, c.y1, 'terrain');
@@ -105,6 +107,10 @@ export class StaticWorld {
       g.addBox(s.tower.minX, s.tower.minZ, s.tower.maxX, s.tower.maxZ, 0, TOWER_H, 'building');
       for (const r of s.platform) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, m.beamY - PLATFORM_SLAB, m.beamY, 'building');
     }
+    // Las Lomas County's (world/country), after every older collider so each keeps its id: the bridge's parapets and the
+    // county's props.
+    for (const r of parapets.slice(country.firstParapet)) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
+    for (let i = country.firstProp; i < props.length; i++) this.propColliders[i] = this.addPropCollider(props[i]!, i);
   }
 
   private addPropCollider(p: Prop, i: number): number {
@@ -215,10 +221,16 @@ export class StaticWorld {
     return this.layout.bounds;
   }
 
-  /** Terrain height ignoring ramps and decks: the rises (world/terrain.ts) stand on lawns and the headland only. */
+  /**
+   * Terrain height ignoring ramps and decks: the rises (world/terrain.ts) stand on lawns and the headland only. Off the
+   * land, a headland's height (the causeway's is the road's), else Las Lomas County's ground or the seabed.
+   */
   baseGround(x: number, z: number): number {
     const b = this.layout.bounds;
-    if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return headlandAt(this.layout, x, z) ? CURB_H + riseAt(this.layout.rises, x, z) : SEABED_Y;
+    if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) {
+      const h = headlandAt(this.layout, x, z);
+      return h ? h.y + riseAt(this.layout.rises, x, z) : countryGround(this.layout.country, x, z);
+    }
     if (waterAt(this.layout, x, z)) return SEABED_Y;
     if (x >= b.beachStartX) return sandHeight(b, x);
     if (this.roads.isOnRoad(x, z)) return 0;
@@ -270,11 +282,18 @@ export class StaticWorld {
     const l = this.layout;
     for (const d of l.decks) if (rectContains(d.rect, x, z)) return d.name;
     const b = l.bounds;
-    if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return headlandAt(l, x, z)?.name ?? 'San Azura Bay';
+    if (x < b.landMinX || z < b.landMinZ || z > b.landMaxZ || x > b.beachEndX) return headlandAt(l, x, z)?.name ?? this.countyZone(x, z);
     const water = waterAt(l, x, z);
     if (water) return water.name;
     if (x > b.cityMaxX) return 'Ocean Beach';
     return this.blockNear(x, z).zone;
+  }
+
+  /** Off the land and its headlands: a plot of Las Lomas County or the county on its land and beaches, else the bay. */
+  private countyZone(x: number, z: number): string {
+    const country = this.layout.country;
+    if (countryGround(country, x, z) > WATER_Y) return plotAt(country, x, z)?.name ?? COUNTY_NAME;
+    return 'San Azura Bay';
   }
 
   /** The block on the cell under (x, z), or by a sea cell the nearest block. */
@@ -355,12 +374,14 @@ export class StaticWorld {
 
   /**
    * The district at (x, z): a city block's district (roads and the promenades take the nearest block's),
-   * 'beach' east of the city down to the waterline, and 'sea' over water (decks included).
+   * 'beach' east of the city down to the waterline, 'country' west of the city's land (the causeway and Las Lomas
+   * County) and 'sea' over water (decks included).
    */
   districtAt(x: number, z: number): District | 'beach' | 'sea' {
     if (!Number.isFinite(x) || !Number.isFinite(z) || this.baseGround(x, z) < WATER_Y) return 'sea';
     const l = this.layout;
     if (x > l.bounds.cityMaxX) return 'beach';
+    if (x < l.bounds.landMinX) return 'country';
     return this.blockNear(x, z).district;
   }
 }

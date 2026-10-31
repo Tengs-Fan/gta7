@@ -502,11 +502,13 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // when the attractions pass rebuilt two cells (their yards' trees gone, the farm's and the cemetery's props and solids
   // added), when Turbine Row and Smuggler's Key appended theirs, and when AzuraLink's pylons and stations were appended
   // to the colliders; and on the merged round-2 head, where all four passes stand together and the trees in front of the
-  // SAN AZURA letters are bushes (their kind, trunks and envelopes).
+  // SAN AZURA letters are bushes (their kind, trunks and envelopes); and when Las Lomas County moved the four props out
+  // of the links' mouths through the promenade (a tree's envelope with them) and appended its signal heads and the
+  // causeway's lamps, their colliders after the bridge's parapets, after every other.
   const D98 = {
-    props: '1a01b0818b2ab9478c3b1af626c1b7f3355fb5815efbfee075e0c2efe25224be',
-    colliders: '90c170900ea027f8e371569aecda53ecbe4c72adc2a67e96ee7c46393cd3f28e',
-    envelopes: 'ea3cbd9d5cc97c4f50cacf114dd37a248c57c3a7d6ca9c1229e0da7b543740dc',
+    props: '5b9687b0dd22d2abaa2a5adb312ffc099851b9273444ea5db2e6b0aa2d3d9e77',
+    colliders: '04786a0fdaab64c9a72078cef9953f49a99a9b5e20c7e9c4e50b5df1ee28ca04',
+    envelopes: 'ee2e5b736e46e7238cc67b0fab8bea193f9a10933bcb9ebda1b8c257c52f7585',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {

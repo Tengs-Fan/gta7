@@ -3,9 +3,9 @@ import { CAB_ARRIVAL_LIMIT, cabState, callCab, setCabDestination } from '../../s
 import type { Sim } from '../../src/sim/sim';
 import { input, makeSim } from './helpers';
 
-/** A sidewalk spot beside lane `laneIndex`. */
+/** A sidewalk spot beside the city's lane `laneIndex` (Las Lomas County's lanes come after them). */
 function curbSpot(sim: Sim, laneIndex: number): { x: number; z: number } {
-  const lane = sim.roads.lanes[laneIndex % sim.roads.lanes.length]!;
+  const lane = sim.roads.gridLanes[laneIndex % sim.roads.gridLanes.length]!;
   const s = lane.length / 2;
   const x = lane.sx + lane.dx * s;
   const z = lane.sz + lane.dz * s;

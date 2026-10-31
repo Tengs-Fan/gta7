@@ -53,8 +53,9 @@ describe('the rises stay off everything that assumes flat ground', () => {
         expect(hit, `${r.name} over a ${what}`).toBeUndefined();
       }
     }
-    // The path out to the lighthouse is the only walk on a rise: from the promenade's edge to the plateau.
-    const path = W.walk.nodes.filter((n) => headlandAt(L, n.x, n.z));
+    // The path out to the lighthouse is the only walk on a rise: from the promenade's edge to the plateau (the causeway's
+    // verge, on a headland of its own, is flat).
+    const path = W.walk.nodes.filter((n) => headlandAt(L, n.x, n.z)?.name === 'Azura Point');
     expect(path.map((n) => riseAt(rises, n.x, n.z))).toEqual([0, 10]);
     for (const n of W.walk.nodes) if (!path.includes(n)) expect(riseAt(rises, n.x, n.z), `walk node ${n.id}`).toBe(0);
   });

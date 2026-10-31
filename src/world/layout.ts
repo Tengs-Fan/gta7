@@ -5,6 +5,7 @@
 import { Rng } from '../core/rng';
 import { clamp } from '../core/math';
 import { buildAttractions, type Attraction } from './attractions';
+import { buildCountry, noCountry, type Country } from './country';
 import { buildMonorail, noMonorail, type Monorail } from './monorail';
 import {
   AVENUE_W, BEACH_W, BOARDWALK_W, CITY_SEED, CROSSWALK_W, CURB_H, GRID_N, PED_INSET,
@@ -20,7 +21,7 @@ export interface Rect {
   maxZ: number;
 }
 
-export type District = 'downtown' | 'midtown' | 'hillcrest' | 'westside' | 'docks' | 'southgate' | 'beachfront' | 'park';
+export type District = 'downtown' | 'midtown' | 'hillcrest' | 'westside' | 'docks' | 'southgate' | 'beachfront' | 'park' | 'country';
 export type Side = 'N' | 'E' | 'S' | 'W';
 export type FacadeStyle = 'glassBlue' | 'glassTeal' | 'office' | 'brick' | 'stucco' | 'house' | 'warehouse' | 'hotel';
 export type RoofStyle = 'flat' | 'gable' | 'helipad';
@@ -179,6 +180,8 @@ export interface WaterBody {
 /** Land reaching out beyond the promenade into the sea. */
 export interface Headland {
   name: string;
+  /** Its ground's height before any rise: the kerb's for a point or an island, the road's for the causeway. */
+  y: number;
   rects: Rect[];
 }
 
@@ -243,6 +246,8 @@ export interface CityLayout {
   bounds: Bounds;
   /** AzuraLink, the monorail along Cortez Canal (world/monorail.ts). */
   monorail: Monorail;
+  /** Las Lomas County across Lomas Sound (world/country): set by buildCountry, the last pass. */
+  country: Country;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,7 +366,7 @@ const H_NAMES = ['Northshore Blvd', 'Hillcrest Rd', 'Magnolia Ave', 'Elm St', 'U
 /** Height of the bridges' parapets above their footways (m). */
 export const PARAPET_H = 1.05;
 /** Their thickness (m). */
-const PARAPET_T = 0.35;
+export const PARAPET_T = 0.35;
 
 /** The vertical line given to a canal from the north coast to the south coast, bridged at every street. */
 const CANAL = { line: 3, name: 'Cortez Canal', width: 32 };
@@ -514,6 +519,7 @@ const DISTRICT_ZONE: Record<District, string> = {
   southgate: 'Southgate',
   beachfront: 'Ocean Beach',
   park: 'Park',
+  country: 'Las Lomas County',
 };
 
 // ---------------------------------------------------------------------------
@@ -543,7 +549,9 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     landMaxZ: cityMaxZ + PROMENADE_W,
     beachStartX,
     beachEndX,
-    worldMinX: cityMinX - PROMENADE_W - 160,
+    // Out past Las Lomas County, 1104 m further west than the sea once reached: exactly 92 cells of the StaticGrid, so
+    // every collider keeps its cell boundaries.
+    worldMinX: cityMinX - PROMENADE_W - 1264,
     worldMaxX: beachEndX + 160,
     // The north sea reaches 384 m further, out past Turbine Row: exactly 32 cells of the StaticGrid, so every collider
     // keeps its cell boundaries.
@@ -578,6 +586,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     rises: [],
     bounds,
     monorail: noMonorail(),
+    country: noCountry(),
   };
 
   // Blocks: one per cell, one per superblock, none on a sea cell.
@@ -654,6 +663,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   buildOffshore(layout);
   buildMonorail(layout);
   settleTerrain(layout);
+  buildCountry(layout);
 
   // Final sanity: never leave NaN in generated data.
   for (const b of layout.buildings) {
@@ -834,7 +844,7 @@ function buildHeadland(layout: CityLayout): void {
   const cx = (x0 + x1) / 2;
   const base = mkRect(x0, b.landMinZ - 50, x1, b.landMinZ);
   const tip = mkRect(cx - 32, b.landMinZ - 118, cx + 32, b.landMinZ - 50);
-  layout.headlands.push({ name: 'Azura Point', rects: [base, tip] });
+  layout.headlands.push({ name: 'Azura Point', y: CURB_H, rects: [base, tip] });
 }
 
 // ---------------------------------------------------------------------------
@@ -872,6 +882,7 @@ const PARCEL_SIZES: Record<District, [number, number]> = {
   southgate: [18, 34],
   beachfront: [22, 40],
   park: [999, 999],
+  country: [999, 999],
 };
 
 function sidePoint(lot: Rect, side: Side): { x: number; z: number } {

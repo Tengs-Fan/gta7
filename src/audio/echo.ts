@@ -89,6 +89,7 @@ const DISTRICT_SPACE: Readonly<Record<ShotDistrict, EchoSpace>> = {
   hillcrest: 'suburb',
   park: 'suburb',
   beachfront: 'shore',
+  country: 'open',
   beach: 'open',
   sea: 'open',
 };

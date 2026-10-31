@@ -3,6 +3,7 @@
 
 import { clamp, moveAngleTowards, pointSegDist, wrapAngle } from '../core/math';
 import { SWIM_DEPTH, WATER_Y } from '../world/constants';
+import { pastCitySea } from '../world/country';
 import { rectContains, type Deck } from '../world/layout';
 import type { Lane } from '../world/roads';
 import type { StaticWorld } from '../world/staticWorld';
@@ -620,7 +621,10 @@ export class PoliceSystem {
       if (spot) return this.placeUnit(kind, true, false, spot.lane, spot.s);
     }
     const goal = searching ? { x: w.lastSeenX, z: w.lastSeenZ } : pp;
-    const lanes = sim.roads.lanes;
+    // Anywhere the world reached before Las Lomas County every lane of the grid, as ever; out past it those within reach
+    // of him, and no unit (nor any draw) when none is.
+    const lanes = pastCitySea(sim.world.layout, pp.x) ? sim.roads.lanes.filter((l) => pointSegDist(pp.x, pp.z, l.sx, l.sz, l.ex, l.ez) < 215) : sim.roads.gridLanes;
+    if (lanes.length === 0) return null;
     // Search reinforcements preferably start a short drive from the search area; failing that, nearer to
     // it than the player is. Either way out of his sight and at least SEARCH_FLOOR from him, well beyond
     // the COP_SIGHT an officer sees, and while he is away from the area, on a lane heading for it and away
@@ -701,7 +705,9 @@ export class PoliceSystem {
     const mid = (AHEAD_MIN + AHEAD_MAX) / 2;
     const cx = pp.x + ux * mid;
     const cz = pp.z + uz * mid;
-    const lanes = sim.roads.lanes.filter((l) => l.dx * ux + l.dz * uz < -0.5 && pointSegDist(cx, cz, l.sx, l.sz, l.ex, l.ez) < mid);
+    // Off the city's land, Las Lomas County's lanes too: on it the grid's alone.
+    const pool = pp.x < sim.world.bounds.landMinX ? sim.roads.lanes : sim.roads.gridLanes;
+    const lanes = pool.filter((l) => l.dx * ux + l.dz * uz < -0.5 && pointSegDist(cx, cz, l.sx, l.sz, l.ex, l.ez) < mid);
     for (let tries = 0; tries < 16 && lanes.length > 0; tries++) {
       const lane = sim.rng.pick(lanes);
       const s = sim.rng.range(5, Math.max(6, lane.length - 5));
@@ -735,11 +741,14 @@ export class PoliceSystem {
     // Only along a road (not across a plaza or the beach).
     if (lane.dx * vx + lane.dz * vz < 0.7 * sp) return null;
     const spans: Array<{ lane: Lane; s0: number; s1: number }> = [];
-    for (let n = 0; n < 4 && lane; n++) {
+    for (let n = 0; n < 4 && lane; ) {
       const node = roads.nodes[lane.to]!;
       const ahead = (node.x - pp.x) * vx / sp + (node.z - pp.z) * vz / sp;
       if (ahead > AHEAD_MAX) break;
-      if (ahead >= AHEAD_MIN) {
+      // A county road's bend is no junction: no corner to wait round, and no count.
+      const bend = roads.isBend(node);
+      if (!bend) n++;
+      if (ahead >= AHEAD_MIN && !bend) {
         for (const turn of [1, 3]) {
           const side = node.neighbors[(lane.dir + turn) % 4]!;
           if (side < 0) continue;
