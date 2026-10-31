@@ -1,11 +1,12 @@
 // Las Lomas County's four farms (world/country/farms.ts, sim/farms.ts): where everything stands (in the farm plots, 12 m
 // and more off every road edge, nothing older moved), the barns that blind the helicopter, the corn that hides a target
 // and drags at a car, the propane tank that goes up, the hedgerows that stop sight but not the camera, the cows tipped
-// at night that stand up again at dawn (on a Sim and on a multiplayer client's mirror alike), and the twenty scarecrows.
+// at night that stand up again at dawn (on a Sim and, once, on a multiplayer client's mirror alike), and the twenty
+// scarecrows.
 
 import { describe, expect, it } from 'vitest';
 import { Mirror } from '../../src/net/mirror';
-import type { SnapshotMsg } from '../../src/net/protocol';
+import { toNetEvent, type SnapshotMsg } from '../../src/net/protocol';
 import { completionRows } from '../../src/sim/completion';
 import { Helicopter } from '../../src/sim/entities';
 import { farmsState, passedDawn, SCARECROW_REWARD } from '../../src/sim/farms';
@@ -258,7 +259,7 @@ describe('Las Lomas County: the cows', () => {
     expect(restored.length).toBe(1);
   });
 
-  it('stand up at 06:00 on a multiplayer client\'s mirror too, by the clock alone', () => {
+  it('stand up at 06:00 on a multiplayer client\'s mirror too, by the clock alone, once', () => {
     const mirror = new Mirror({ world: new StaticWorld() });
     const cow = farms.cows[2]!;
     mirror.applyWelcome({ type: 'welcome', playerId: 2, slot: 1, roomId: 'x', roomSeed: 1, tick: 0, tickRate: 60, snapshotRate: 20, brokenProps: [cow], signalHolds: [], pickups: [] });
@@ -275,6 +276,10 @@ describe('Las Lomas County: the cows', () => {
     expect(c.broken).toBe(true);
     mirror.applySnapshot(snapshot(6, 6.01), 100);
     expect(c.broken).toBe(false);
+    expect(restored).toEqual([[cow]]);
+    // The server's sim stood its cows up at its own dawn and the room passes its event on: one dawn here all the same.
+    mirror.queueEvents({ type: 'event', tick: 6, events: [toNetEvent('propsRestored', { indices: [cow] })] });
+    mirror.flushEvents();
     expect(restored).toEqual([[cow]]);
     // Broken again by the server (a car after dawn): the mirror takes it.
     mirror.applySnapshot({ ...snapshot(9, 6.02), brokenProps: [cow] }, 150);

@@ -394,6 +394,8 @@ export class Mirror implements ViewState {
   queueEvents(m: EventMsg): void {
     const mine = this.localCharacter;
     for (const ev of m.events) {
+      // The cows stand up at dawn by this mirror's own clock (dawn()): the server's word of it would be a second dawn.
+      if (ev.type === 'propsRestored') continue;
       const payload = this.resolveEvent(ev);
       if (!payload) {
         this.stats.eventsDropped++;
@@ -599,8 +601,8 @@ export class Mirror implements ViewState {
   }
 
   /**
-   * Las Lomas County's cows stand up at dawn here as on the server (sim/farms.ts), by the clock alone: no message stands
-   * a prop up again, and one the server reports broken after that breaks here again.
+   * Las Lomas County's cows stand up at dawn here as on the server (sim/farms.ts), by the clock alone: the server's own
+   * propsRestored is dropped (queueEvents), and one the server reports broken after that breaks here again.
    */
   private dawn(before: number): void {
     const up = cowsAtDawn(this.world, before, this.clock.hours);
