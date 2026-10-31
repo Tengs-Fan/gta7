@@ -36,6 +36,7 @@ export const BARK_COOLDOWN: Readonly<Record<BarkKind, number>> = {
   cabbie: 2,
   farmer: 10,
   farmerAngry: 5,
+  dairyman: 5,
   whisper: 60,
   marina: 30,
 };

@@ -6,6 +6,7 @@ import { getActivity } from './activities';
 import { monorailPrompt, rideMonorail } from './activities/monorail';
 import { places } from './activities/places';
 import { epitaphMarkers, readEpitaph } from './epitaphs';
+import { cowMarkers, cowPrompt, tipCow } from './farms';
 import { formatMoney } from '../core/math';
 import { BUSINESS_DAILY, BUSINESS_NAME, BUSINESS_PRICE, buyProperty, GARAGE_PRICE, GARAGE_SLOTS, propertyState, storedCars } from './properties';
 import { Inventory } from './entities';
@@ -16,7 +17,8 @@ import { WEAPON_ORDER, WEAPONS, weaponKindOf, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
 
 export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun' | 'epitaph' | 'regatta' | 'monorail'
-  | 'hillClimb';
+  | 'hillClimb'
+  | 'cow';
 
 export interface Marker {
   id: string;
@@ -107,6 +109,8 @@ export class Interactions {
     this.markers.push(...epitaphMarkers(sim.world));
     // AzuraLink: the foot of each station's stairs (activities/monorail.ts says what it offers).
     sim.world.layout.monorail.stations.forEach((s, i) => this.markers.push(monorailMarker(s.foot, i, '')));
+    // Beside each of Las Lomas County's cows, to tip her at night: in single player only, as the scarecrows count.
+    if (!sim.multiplayer) this.markers.push(...cowMarkers(sim.world));
   }
 
   /** The marker under the player (on foot), if any. `slot` is slot 0 by default. */
@@ -141,6 +145,7 @@ export class Interactions {
     }
     if (m.kind === 'garage' || m.kind === 'business') return this.propertyPrompt(m.kind);
     if (m.kind === 'monorail') return monorailPrompt(sim, slot, Number(m.ref));
+    if (m.kind === 'cow') return cowPrompt(sim, Number(m.ref));
     if (m.kind === 'exportBoard') return sim.activities.job?.kind === 'carExport' ? "Press E to read Lou's export list" : m.label;
     if (m.kind === 'save') {
       // As interact() would answer, before E is pressed.
@@ -265,6 +270,9 @@ export class Interactions {
         break;
       case 'monorail':
         rideMonorail(sim, slot, Number(m.ref));
+        break;
+      case 'cow':
+        tipCow(sim, slot, Number(m.ref));
         break;
       case 'garage':
       case 'business': {

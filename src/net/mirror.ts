@@ -8,6 +8,7 @@ import type { V3 } from '../core/math';
 import { GameClock } from '../sim/clock';
 import { Character, Helicopter, Pickup, Projectile, Vehicle, type Appearance } from '../sim/entities';
 import type { SimEvents } from '../sim/events';
+import { cowsAtDawn } from '../sim/farms';
 import type { PlayerCheats, PlayerTag } from '../sim/playerSlot';
 import { gaitPhaseStep } from '../sim/pose';
 import { Progress } from '../sim/progress';
@@ -379,9 +380,11 @@ export class Mirror implements ViewState {
     this.tick = s.tick;
     this.ackSeq = s.ackSeq;
     this.snapTime = s.time;
+    const hours = this.clock.hours;
     this.clock.day = s.clock.day;
     this.clock.hours = s.clock.hours;
     this.clock.rate = s.clock.rate;
+    this.dawn(hours);
     this.renderClock.onSnapshot(s.tick, nowMs);
     this.syncPlayers();
     return res;
@@ -391,6 +394,8 @@ export class Mirror implements ViewState {
   queueEvents(m: EventMsg): void {
     const mine = this.localCharacter;
     for (const ev of m.events) {
+      // The cows stand up at dawn by this mirror's own clock (dawn()): the server's word of it would be a second dawn.
+      if (ev.type === 'propsRestored') continue;
       const payload = this.resolveEvent(ev);
       if (!payload) {
         this.stats.eventsDropped++;
@@ -452,7 +457,9 @@ export class Mirror implements ViewState {
     this.nowMs = nowMs;
     while (this.shown.length && nowMs - this.shown[0]!.at > SHOWN_SHOT_TTL_MS) this.shown.shift();
     const rt = this.renderClock.advance(dt, nowMs);
+    const hours = this.clock.hours;
     this.clock.update(dt);
+    this.dawn(hours);
     for (const p of this.players) if (p.deathKind) p.deathTimer += dt;
     // The server respawns 4.8 s after a death; a respawn event that never came (lost on a lossy link) must not leave
     // the screen on WASTED or BUSTED once the player is up again.
@@ -591,6 +598,16 @@ export class Mirror implements ViewState {
       this.me.deathKind = null;
       this.me.deathTimer = -1;
     }
+  }
+
+  /**
+   * Las Lomas County's cows stand up at dawn here as on the server (sim/farms.ts), by the clock alone: the server's own
+   * propsRestored is dropped (queueEvents), and one the server reports broken after that breaks here again.
+   */
+  private dawn(before: number): void {
+    const up = cowsAtDawn(this.world, before, this.clock.hours);
+    for (const i of up) this.broken.delete(i);
+    if (up.length > 0) this.emit('propsRestored', { indices: up });
   }
 
   private breakLocal(i: number): void {

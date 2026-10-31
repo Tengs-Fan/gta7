@@ -17,7 +17,11 @@ export type ColliderTag =
   /** A sight core buried in a rise (world/terrain.ts): nothing standing on the ground ever reaches one. */
   | 'terrain'
   /** Standing crops (the corn maze): they stop people and slow cars, but hide nothing from sight. */
-  | 'crop';
+  | 'crop'
+  /** Las Lomas County's hedgerows: they stop sight and shots, but not the camera. */
+  | 'hedge'
+  /** Cows: knocked over by a car, which they slow hard, and tipped at night. */
+  | 'livestock';
 
 export interface StaticCollider extends AABB {
   id: number;
@@ -50,9 +54,14 @@ export function makeRayHit(): RayHit {
   return { t: 0, x: 0, y: 0, z: 0, nx: 0, ny: 1, nz: 0, collider: null };
 }
 
-/** Tags that block bullets, cameras and line of sight. */
+/** Tags that block bullets and line of sight (and, but for hedgerows, the camera: blocksCamera). */
 export function isSolidForSight(c: StaticCollider): boolean {
-  return c.tag === 'building' || c.tag === 'wall' || c.tag === 'container' || c.tag === 'pillar' || c.tag === 'boat' || c.tag === 'terrain';
+  return c.tag === 'building' || c.tag === 'wall' || c.tag === 'container' || c.tag === 'pillar' || c.tag === 'boat' || c.tag === 'terrain' || c.tag === 'hedge';
+}
+
+/** What the camera's rays stop at: what blocks sight, but a hedgerow, which the camera looks through rather than snapping in at. */
+export function blocksCamera(c: StaticCollider): boolean {
+  return isSolidForSight(c) && c.tag !== 'hedge';
 }
 
 /**

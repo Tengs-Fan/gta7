@@ -32,6 +32,8 @@ const ridge = ridgeRise(rises);
 const DT = 1 / 60;
 const rise = (x: number, z: number) => riseAt(rises, x, z);
 const sha = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
+/** The props' wind for a CountryView, still (the farms' corn sways on it). */
+const wind = { uWindTime: { value: 0 }, uWindAmp: { value: 0 }, uWindDir: { value: new THREE.Vector2(1, 0) } };
 
 /** What the county had before the landscape: 4605 colliders in all, and the props up to its first. */
 const COLLIDERS = 4605;
@@ -350,7 +352,7 @@ describe('on the ridge', () => {
 });
 
 describe('drawing the fire road and Lookout Point', () => {
-  const view = new CountryView(W, new CityView(W));
+  const view = new CountryView(W, new CityView(W), wind);
   const mesh = (name: string) => view.group.children.find((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.name === name)!;
 
   it('drapes the gravel just over the ground the cars drive on, from the highway to the car park', () => {
@@ -435,7 +437,7 @@ describe('reflector posts', () => {
   });
 
   it('shine back only at a lit car whose headlights fall on them', () => {
-    const view = new CountryView(W, new CityView(W));
+    const view = new CountryView(W, new CityView(W), wind);
     const ls = new LightSprites();
     const sim = new Sim({ world: freshWorld(), ambient: false, police: false });
     // Northbound up the Lomas Highway's west leg: the posts ahead light up, those behind stay dark.

@@ -145,7 +145,8 @@ function wallOf(b: Building, side: Side): Wall {
 /** Every first-tier wall within STREET_FACING_DIST of its lot edge, computed here from scratch. */
 function streetWalls(W: StaticWorld): Wall[] {
   const out: Wall[] = [];
-  for (const b of W.layout.buildings) {
+  // The city's buildings: Las Lomas County's farmhouses stand on no block.
+  for (const b of W.layout.buildings.slice(0, W.layout.country.firstBuilding)) {
     const t = b.tiers[0]!;
     const lot = W.layout.blocks.find((bl) => bl.lot.minX <= t.minX && bl.lot.maxX >= t.maxX && bl.lot.minZ <= t.minZ && bl.lot.maxZ >= t.maxZ)!.lot;
     if (t.minZ - lot.minZ <= STREET_FACING_DIST) out.push(wallOf(b, 'N'));
@@ -262,8 +263,10 @@ describe('round 2 city: layout', () => {
     // Smuggler's Key were added offshore, when AzuraLink's line joined the layout, and on the merged round-2 head, where
     // all four stand together and the trees in front of the letters are bushes; and when Las Lomas County joined it
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
-    // parapets, the four props moved out of the links' mouths, its signal heads and lamps), and when its landscape rose
-    // (Coyote Ridge and the foothills in its rises, the ridge's turbines, the tree belts along its foot and the scrub).
+    // parapets, the four props moved out of the links' mouths, its signal heads and lamps), and on the integrated county
+    // head, where its landscape rose (Coyote Ridge and the foothills in its rises, the ridge's turbines, the tree belts
+    // along its foot and the scrub) and its farms were appended (their fields, farmhouses, barns, hedgerows, props and
+    // farmyard bays, and the dairy's farmer's spot).
     expect(layoutHash()).toBe('88406400b69f1dbb3386670c05a9f6cade829d29b12b7dd91c943bce3b2883d9');
   });
 
@@ -271,7 +274,8 @@ describe('round 2 city: layout', () => {
     const L = generateCity();
     const front = frontages(L);
     const kinds = new Set<string>();
-    for (const b of L.buildings) {
+    // The city's buildings: Las Lomas County's farmhouses stand on no block and have no ground floor.
+    for (const b of L.buildings.slice(0, L.country.firstBuilding)) {
       const f = front.get(b)!;
       expect(f, `building ${b.id} has a block`).toBeTruthy();
       expect(b.groundSides).toEqual(f.sides);
@@ -1056,8 +1060,8 @@ describe('round 2 fix 2: garages hide the bay from above', () => {
     const mesh = new CityView(W).group.getObjectByName('garages') as THREE.Mesh;
     const pos = mesh.geometry.getAttribute('position');
     const nrm = mesh.geometry.getAttribute('normal');
-    // Lou's, three spray shacks and Hollister Farm's barn.
-    expect(W.layout.garages.length).toBe(5);
+    // Lou's, three spray shacks and Hollister Farm's barn, and the barns of Las Lomas County's four farms.
+    expect(W.layout.garages.length).toBe(9);
     for (const g of W.layout.garages) {
       const poi = W.layout.pois.find((p) => p.id === g.poi);
       if (poi) expect(bayOf(g).bay, g.poi).toEqual(poi.bay);

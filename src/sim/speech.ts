@@ -14,6 +14,8 @@ export type BarkKind =
   | 'hail' | 'hailMissed' | 'cabbie'
   // Hollister Farm's owner, and the voice by the Bramble family crypt at three in the morning.
   | 'farmer' | 'farmerAngry' | 'whisper'
+  // The Cud & Sons Dairy's farmer, at a cow going over.
+  | 'dairyman'
   // The Marina hand calling the Gull Regatta's boat up on its radio.
   | 'marina';
 /**

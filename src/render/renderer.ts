@@ -299,7 +299,7 @@ export class GameRenderer {
     this.offshore = new OffshoreView(world);
     this.regatta.bindSea(this.env.sea);
     this.monorail = new MonorailView(world);
-    this.country = new CountryView(world, this.city);
+    this.country = new CountryView(world, this.city, this.props.windUniforms, this.software);
     this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group, this.regatta.mesh, this.monorail.group, this.country.group);
     this.softwareMaterials?.apply(this.country.group);
     this.softwareMaterials?.apply(this.monorail.group);
@@ -542,6 +542,7 @@ export class GameRenderer {
     // Without a bloom halo the coloured lamps (traffic lights) must carry their hue in the lamp itself.
     this.props.setGlow(this.bloom !== null);
     this.props.setWindEnabled(!this.software && q !== 'low');
+    this.country.setTier(this.software ? 'software' : q);
     // Dynamic lights: on 'few' the sources stay hidden and feed the pool (see syncLightPool).
     // The number of visible lights only changes here, so shaders are not rebuilt during play.
     this.collectPointSources();
@@ -790,6 +791,7 @@ export class GameRenderer {
         if (e.strength > 7) fx.debris(e.x, e.y, e.z);
         if (e.vehicle && e.vehicle.driver === this.me(sim).character) this.cameraCtl.addKick(e.x - e.vehicle.pos.x, e.z - e.vehicle.pos.z, e.strength);
       }),
+      ev.on('propsRestored', (e) => this.props.restoreProps(e.indices)),
       ev.on('propBroken', (e) => {
         this.props.breakProp(e.index, e.dirX, e.dirZ);
         const p = this.world.layout.props[e.index];
@@ -1157,6 +1159,7 @@ export class GameRenderer {
     this.props.setWind(weather?.wind ?? NO_WIND);
     this.turbines.update(dt, this.time, night, weather?.wind ?? NO_WIND, this.env.smokeLight);
     this.props.setOccluderView(cam.position, sim ? this.cameraCtl.occlusionSubject() : null);
+    this.country.farms.sight(cam.position, sim ? this.cameraCtl.occlusionSubject() : null, dt);
     if (sim) {
       const lights = Math.max(night, this.weatherDim);
       this.syncVehicles(sim, dt, lights);
@@ -1171,7 +1174,9 @@ export class GameRenderer {
       this.crowd.scopeHiddenId = this.cameraCtl.scoped || riding ? this.me(sim).character.id : -1;
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt, this.me(sim).character.id);
       this.footShadows.update(sim.characters, cam.position, this.crowd.scopeHiddenId);
-      this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming, cityReach);
+      // A cow's marker only takes the E beside her: it has no beam.
+      const busy = !!sim.missions.active || this.me(sim).wanted.level > 0;
+      this.markers.syncMarkers(sim.interactions.markers.filter((m) => m.kind !== 'cow' && !(busy && m.kind === 'mission')), this.time, cam.position, this.me(sim).pos(), aiming, cityReach);
       const objectives = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
       // One out on the sea (a regatta gate) stands on its surface, not the seabed.
       this.markers.syncObjectives(objectives, (x, z) => Math.max(WATER_Y, sim.world.groundHeight(x, z)), this.time);
@@ -1185,6 +1190,7 @@ export class GameRenderer {
     this.effects.update(dt, this.time, this.cameraCtl.camera.position);
     this.syncLightPool();
     this.country.cull(cam.position.x, cam.position.z, this.env.fog.far);
+    this.country.update(cam.position.x, cam.position.y, cam.position.z, this.time, hours, weather?.wind ?? NO_WIND);
     if (this.software) {
       // Culling ends at the fog horizon, where geometry has already faded into the sky.
       this.city.cull(cam, 230);

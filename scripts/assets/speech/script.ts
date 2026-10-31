@@ -625,6 +625,18 @@ export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
     voices: ['am_santa'],
     lines: ['Get that car outta my corn!', 'Those pumpkins were for the county fair!', 'Not the pumpkins! Anything but the pumpkins!', 'That corn was knee high, you animal!'],
   },
+  /** The Cud & Sons Dairy's farmer at his pasture's gate, to a cow knocked over or tipped (sim/farms.ts). */
+  dairyman: {
+    voices: ['am_onyx,am_santa'],
+    lines: [
+      'Hey! Those are dairy cows, not bowling pins!',
+      'Get away from my girls!',
+      "That's Buttercup! She's got a name, you know!",
+      'Sons! Get the truck!',
+      "You tip 'em, you milk 'em!",
+      'Not again! Every single week!',
+    ],
+  },
   /** By the Bramble family crypt, once a night between 03:00 and 03:15. Slowed. */
   whisper: { voices: ['af_nicole'], lines: ['Keep it on one-oh-four-point-five...'], speed: 0.75 },
   /** The hand on duty at the Marina, calling a Gull Regatta's boat on the start line over its radio. */

@@ -5,6 +5,7 @@
 import { clamp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import { hollister } from '../sim/farm';
+import { dairyman } from '../sim/farms';
 import type { SimEvents } from '../sim/events';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { VehicleKind, WeaponId } from '../sim/specs';
@@ -296,12 +297,20 @@ export class AudioEngine {
       on('splash', (e) => this.splash(e.x, e.y, e.z, e.big)),
       on('propBroken', (e) => {
         const p = sim.world.layout.props[e.index]!;
-        // Corn rustles as it goes down; the rest thuds.
+        // Corn rustles as it goes down, a cow moos; the rest thuds.
         if (p.kind === 'corn') this.rustle(p.x, p.y, p.z);
+        else if (p.kind === 'cow') this.moo(p.x, p.y + 1.1, p.z, 1);
         else this.thud(0.5);
-        // Old Man Hollister sees a car in his corn or his pumpkins.
+        // Old Man Hollister sees a car in his corn or his pumpkins, the dairy's farmer a cow go over.
         const h = hollister(sim);
         if (h && h.alive && (p.kind === 'corn' || p.kind === 'pumpkin') && Math.hypot(h.pos.x - p.x, h.pos.z - p.z) < 90) this.bark('farmerAngry', h.id, h.pos.x, h.pos.y + 1.6, h.pos.z);
+        const cud = p.kind === 'cow' ? dairyman(sim) : null;
+        if (cud && cud.alive && Math.hypot(cud.pos.x - p.x, cud.pos.z - p.z) < 90) this.bark('dairyman', cud.id, cud.pos.x, cud.pos.y + 1.6, cud.pos.z);
+      }),
+      // Dawn in Las Lomas County: the first cow back on her feet says so.
+      on('propsRestored', (e) => {
+        const p = sim.world.layout.props[e.indices[0]!]!;
+        this.moo(p.x, p.y + 1.1, p.z, 0.8);
       }),
       on('reload', (e) => {
         if (e.character === this.me(sim).character) this.reloadClick();
@@ -736,6 +745,42 @@ export class AudioEngine {
     if (!this.ready()) return;
     const t = this.ctx!.currentTime;
     this.noiseBurst(this.sfx, t, 0.2, 'lowpass', 900, 0.6, 0.4 * k, 200);
+  }
+
+  /**
+   * A cow mooing where she stands (a tipped one, indignant; the first up at dawn): a low sawtooth swelling and sagging
+   * through an "oo" and an "ah", `k` her loudness.
+   */
+  private moo(x: number, y: number, z: number, k: number): void {
+    if (!this.ready()) return;
+    const s = this.spatial(x, y, z, 10, 140);
+    if (!s) return;
+    const ctx = this.ctx!;
+    const out = this.out(s.pan, s.cutoff);
+    const t = ctx.currentTime;
+    const len = 1.4;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(115, t);
+    o.frequency.linearRampToValueAtTime(150, t + 0.45);
+    o.frequency.linearRampToValueAtTime(95, t + len);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(350, t);
+    bp.frequency.linearRampToValueAtTime(700, t + 0.5);
+    bp.frequency.linearRampToValueAtTime(320, t + len);
+    bp.Q.value = 1.8;
+    const g = this.envGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5 * k * s.gain, t + 0.12);
+    g.gain.setValueAtTime(0.5 * k * s.gain, t + 0.9);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    g.gain.linearRampToValueAtTime(0, t + len + 0.02);
+    o.connect(bp);
+    bp.connect(g);
+    g.connect(out);
+    o.start(t + this.sample);
+    o.stop(t + len + 0.05);
   }
 
   /** Stalks swept down: a dry, bright swish of leaves where corn falls. */

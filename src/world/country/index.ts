@@ -9,6 +9,7 @@
 import { CROSSWALK_W, CURB_H, PROP_INSET, SEABED_Y, WATER_Y } from '../constants';
 import { addProp, mkRect, PARAPET_T, rectContains, type CityLayout, type Rect } from '../layout';
 import { riseAt, type Rise } from '../terrain';
+import { buildFarms, noFarms, type CountyFarms } from './farms';
 import { buildHills } from './hills';
 
 export type CountryRoadKind = 'highway' | 'country';
@@ -87,9 +88,16 @@ export interface Country {
   /** The county's rises, read by countryGround alone (the landscape pass fills it). */
   rises: Rise[];
   walks: CountyWalk[];
-  /** The first prop and the first parapet of the county's: StaticWorld adds their colliders after every older one. */
+  /** The farms (world/country/farms.ts): their fields, farmsteads, hedgerows and the props kept by index. */
+  farms: CountyFarms;
+  /**
+   * The first prop, parapet, building and garage of the county's: StaticWorld adds their colliders after every older
+   * one.
+   */
   firstProp: number;
   firstParapet: number;
+  firstBuilding: number;
+  firstGarage: number;
 }
 
 export type CountyJunction = 'drycreek' | 'hollister' | 'creek';
@@ -347,8 +355,11 @@ export function buildCountry(layout: CityLayout): void {
     plots: COUNTY_PLOTS,
     rises: [],
     walks: [],
+    farms: noFarms(),
     firstProp: layout.props.length,
     firstParapet: layout.parapets.length,
+    firstBuilding: layout.buildings.length,
+    firstGarage: layout.garages.length,
   };
   // The links. The causeway is a headland of its own at road level, quay walls and rocks along its sides (shore.ts) and
   // none at either end, where it meets land; the bridge is a deck at road level with a parapet along either edge and no
@@ -383,6 +394,7 @@ export function buildCountry(layout: CityLayout): void {
   // The content passes go here, in this order, each one call that only appends: buildHills (the landscape), buildFarms,
   // buildPlaces.
   buildHills(layout);
+  buildFarms(layout);
 }
 
 /** A node's place: a grid node's line crossing, or a county vertex. */
@@ -417,8 +429,11 @@ export function noCountry(): Country {
     plots: [],
     rises: [],
     walks: [],
+    farms: noFarms(),
     firstProp: 0,
     firstParapet: 0,
+    firstBuilding: 0,
+    firstGarage: 0,
   };
 }
 

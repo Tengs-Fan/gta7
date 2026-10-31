@@ -44,6 +44,8 @@ const SINK_DEPTH = 0.8;
  * again, a bus as well as a sedan.
  */
 const WADE_DRAG = 2 / 10.5;
+/** A tall crop (corn, sunflowers: StaticWorld.cropAt) drags at a car whose centre is in it this share as hard as wading's deep end. */
+const CROP_DRAG = 0.25;
 /** Explosion kicks: the horizontal speed (m/s) a kick may raise a car to, and the top launch speed upwards. */
 const LAUNCH_MAX_SPEED = 24;
 const LAUNCH_MAX_VY = 12;
@@ -469,6 +471,7 @@ export function stepVehicle(v: Vehicle, dt: number, host: VehiclePhysicsHost): v
     if (v.destroyed || v.flipped || v.toppled) friction += 9;
     friction += tyres.drag;
     friction += wade * (WADE_DRAG * s.accel + 0.04 * vF * vF);
+    if (world.cropAt(v.pos.x, v.pos.z)) friction += CROP_DRAG * (WADE_DRAG * s.accel + 0.04 * vF * vF);
     vF = moveTowards(vF, 0, friction * dt);
 
     // --- Lateral grip ---
@@ -681,8 +684,9 @@ export function collideVehicleStatic(v: Vehicle, host: VehiclePhysicsHost): bool
     any = true;
     if (c.breakable && v.speed > 3.5) {
       host.onPropBroken(c, v);
-      // Standing corn barely slows a car (at 0.85 ten maze walls would stop it), a bench or a bin a little, the rest more.
-      const k = c.tag === 'crop' ? 0.97 : c.tag === 'bench' || c.tag === 'bin' || c.tag === 'hydrant' ? 0.95 : 0.85;
+      // Standing corn barely slows a car (at 0.85 ten maze walls would stop it), a bench or a bin a little, a cow a lot,
+      // the rest in between.
+      const k = c.tag === 'crop' ? 0.97 : c.tag === 'bench' || c.tag === 'bin' || c.tag === 'hydrant' ? 0.95 : c.tag === 'livestock' ? 0.6 : 0.85;
       v.vel.x *= k;
       v.vel.z *= k;
       return;

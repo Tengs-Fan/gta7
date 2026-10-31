@@ -97,7 +97,9 @@ describe('city batches on hardware GPUs', () => {
   });
 
   it('is much cheaper to submit: well under half the draw meshes of the fine cells', () => {
-    expect(meshes(coarse.group).length).toBeLessThan(meshes(fine.group).length * 0.4);
+    // The city's: Las Lomas County's farmhouses stand in cells of their own at either size.
+    const city = (root: THREE.Object3D) => meshes(root).filter((m) => new THREE.Box3().setFromObject(m).max.x > world().bounds.landMinX);
+    expect(city(coarse.group).length).toBeLessThan(city(fine.group).length * 0.4);
   });
 });
 

@@ -136,7 +136,7 @@ for (const [station, dj] of Object.entries(DJS)) {
 for (const [kind, set] of Object.entries(BARKS) as Array<[BarkKind, (typeof BARKS)[BarkKind]]>) {
   index.barks[kind] = set.voices.map((voice) =>
     set.lines.map((text, i) => {
-      const id = `bark-${slug(kind)}-${voice.replace('_', '-')}-${i}`;
+      const id = `bark-${slug(kind)}-${slug(voice)}-${i}`;
       clips.push({ id, takes: [{ voice, text, speed: set.speed ?? 1 }] });
       return id;
     }),

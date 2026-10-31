@@ -118,7 +118,7 @@ describe('the map of Las Lomas County', () => {
 
 describe('drawing Las Lomas County', () => {
   const city = new CityView(W);
-  const view = new CountryView(W, city);
+  const view = new CountryView(W, city, { uWindTime: { value: 0 }, uWindAmp: { value: 0 }, uWindDir: { value: new THREE.Vector2(1, 0) } });
   const meshes = view.group.children.filter((o): o is THREE.Mesh => o instanceof THREE.Mesh);
   const tris = (m: THREE.Mesh) => (m.geometry.index ? m.geometry.index.count : m.geometry.getAttribute('position').count) / 3;
 

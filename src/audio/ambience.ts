@@ -48,6 +48,8 @@ export interface AmbienceLevels {
   dogs: number;
   horns: number;
   siren: number;
+  /** Cows lowing across the fields: Las Lomas County's farms only. */
+  moos: number;
 }
 
 interface DistrictMood {
@@ -250,6 +252,7 @@ export function ambienceTargets(i: AmbienceInput, out?: AmbienceLevels): Ambienc
   o.dogs = k * street * m.dogs * (0.5 + 0.5 * day);
   o.horns = k * m.horns * (0.25 + 0.75 * traffic) * (0.4 + 0.6 * day);
   o.siren = (i.wanted ?? 0) > 0 ? 0 : k * m.hum;
+  o.moos = i.district === 'country' ? k * street * (0.4 + 0.6 * day) : 0;
   return o;
 }
 
@@ -257,10 +260,10 @@ export function ambienceTargets(i: AmbienceInput, out?: AmbienceLevels): Ambienc
 const LAYER_GAIN = { cityHum: 0.09, trafficWash: 0.16, wind: 0.18, surf: 0.036, murmur: 0.05 };
 
 /** Peak gain of each one-shot (scaled by a random distance). */
-const ONE_SHOT_GAIN = { birds: 0.05, gulls: 0.05, crickets: 0.03, dogs: 0.05, horns: 0.03, siren: 0.022 };
+const ONE_SHOT_GAIN = { birds: 0.05, gulls: 0.05, crickets: 0.03, dogs: 0.05, horns: 0.03, siren: 0.022, moos: 0.04 };
 
 /** One-shots per second at density 1. */
-const ONE_SHOT_RATE = { birds: 0.45, gulls: 0.2, crickets: 1, dogs: 0.05, horns: 0.07, siren: 0.006 };
+const ONE_SHOT_RATE = { birds: 0.45, gulls: 0.2, crickets: 1, dogs: 0.05, horns: 0.07, siren: 0.006, moos: 0.04 };
 
 /** At most two ambience one-shots start per second. */
 export const ONE_SHOT_GAP = 0.5;
@@ -680,7 +683,38 @@ export class Ambience {
       case 'siren':
         this.farSiren(this.shotOut(side, ONE_SHOT_GAIN.siren), t);
         break;
+      case 'moos':
+        this.moo(this.shotOut(side, ONE_SHOT_GAIN.moos * near), t);
+        break;
     }
+  }
+
+  /** A cow lowing far off: a low sawtooth rising and sagging through an "oo", a long nasal tail. */
+  private moo(o: ShotOut, t: number): void {
+    const ctx = this.ctx;
+    const r = this.random;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    const f0 = 105 + r() * 40;
+    const len = 1.1 + r() * 0.7;
+    osc.frequency.setValueAtTime(f0 * 0.9, t);
+    osc.frequency.linearRampToValueAtTime(f0 * 1.18, t + len * 0.3);
+    osc.frequency.linearRampToValueAtTime(f0 * 0.82, t + len);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(380, t);
+    bp.frequency.linearRampToValueAtTime(620, t + len * 0.35);
+    bp.frequency.linearRampToValueAtTime(330, t + len);
+    bp.Q.value = 2.2;
+    const g = this.envGain(ctx.currentTime);
+    g.gain.linearRampToValueAtTime(o.level, t + 0.15);
+    g.gain.setValueAtTime(o.level, t + len * 0.6);
+    g.gain.linearRampToValueAtTime(0, t + len);
+    osc.connect(bp);
+    bp.connect(g);
+    g.connect(o.node);
+    osc.start(t + 1 / ctx.sampleRate);
+    osc.stop(t + len + 0.05);
   }
 
   private bird(o: ShotOut, t: number): void {

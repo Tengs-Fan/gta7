@@ -1394,6 +1394,12 @@
   "bark-farmerangry-am-santa-1": 2.414,
   "bark-farmerangry-am-santa-2": 3.028,
   "bark-farmerangry-am-santa-3": 2.116,
+  "bark-dairyman-am-onyx-am-santa-0": 2.823,
+  "bark-dairyman-am-onyx-am-santa-1": 1.532,
+  "bark-dairyman-am-onyx-am-santa-2": 2.412,
+  "bark-dairyman-am-onyx-am-santa-3": 1.446,
+  "bark-dairyman-am-onyx-am-santa-4": 1.489,
+  "bark-dairyman-am-onyx-am-santa-5": 2.07,
   "bark-whisper-af-nicole-0": 3.187,
   "bark-marina-am-eric-0": 1.997,
   "bark-marina-bm-fable-0": 1.982,
@@ -2493,6 +2499,16 @@
     "bark-farmerangry-am-santa-1",
     "bark-farmerangry-am-santa-2",
     "bark-farmerangry-am-santa-3"
+   ]
+  ],
+  "dairyman": [
+   [
+    "bark-dairyman-am-onyx-am-santa-0",
+    "bark-dairyman-am-onyx-am-santa-1",
+    "bark-dairyman-am-onyx-am-santa-2",
+    "bark-dairyman-am-onyx-am-santa-3",
+    "bark-dairyman-am-onyx-am-santa-4",
+    "bark-dairyman-am-onyx-am-santa-5"
    ]
   ],
   "whisper": [

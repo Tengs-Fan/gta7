@@ -27,6 +27,7 @@ import { dressingItems, type DressingItem, type DressingKind } from './dressing'
 import { WIND_GLSL, windAmplitude } from './wind';
 import { SHADOW_LAYER } from './vehicleBatches';
 import { CORN_H, cornGeometry, cornTexture, headstoneGeometry, HEADSTONE_SHAPES, ironFenceGeometry, pumpkinGeometry } from './attractionModels';
+import { applesGeometry, baleTexture, COW_NECK, cowGeometry, cowTexture, farmFenceGeometry, propaneGeometry, scarecrowGeometry } from './country/farmModels';
 
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
@@ -100,7 +101,7 @@ export function foliagePoints(q: Prop): number[] {
  * so a canopy the camera pushes into turns see-through instead of filling the screen. Opaque, so no
  * sorting and no extra draws; shadows come from the default depth material and are unaffected.
  */
-function fadeNearCamera(mat: THREE.Material, wind?: WindPatch): void {
+export function fadeNearCamera(mat: THREE.Material, wind?: WindPatch): void {
   mat.userData.contactShadow = false; // The normal override cannot reproduce the near-camera dissolve.
   mat.onBeforeCompile = (shader) => {
     if (wind) windVertex(shader, wind);
@@ -141,13 +142,13 @@ float fadeBayer4( vec2 frag ) {
 }
 
 /** The wind every foliage material shares (wind.ts), and where one material's foliage hangs from. */
-interface WindUniforms {
+export interface WindUniforms {
   uWindTime: { value: number };
   uWindAmp: { value: number };
   uWindDir: { value: THREE.Vector2 };
 }
 
-interface WindPatch {
+export interface WindPatch {
   shared: WindUniforms;
   /** Local point the foliage grows from and the reach (m) over which its sway builds up (w 0: none, full sway). */
   pivot: THREE.Vector4;
@@ -525,8 +526,8 @@ export class PropsView {
   /** Batches holding an occluder that is dissolving now: kept out of the contact-shadow pass (see setOccluderView). */
   private readonly occFlagged = new Set<THREE.Object3D>();
   private readonly occFallen = new Set<Occluder>();
-  /** Shared by every foliage material (windVertex); setWind and setWindEnabled drive it. */
-  private readonly windUniforms: WindUniforms = { uWindTime: { value: 0 }, uWindAmp: { value: windAmplitude(0) }, uWindDir: { value: new THREE.Vector2(1, 0) } };
+  /** Shared by every foliage material (windVertex; the county's crops too, render/country/fields.ts); setWind and setWindEnabled drive it. */
+  readonly windUniforms: WindUniforms = { uWindTime: { value: 0 }, uWindAmp: { value: windAmplitude(0) }, uWindDir: { value: new THREE.Vector2(1, 0) } };
   private windOn = true;
   private windSpeed = 0;
   /** The dressing's instanced meshes by kind (beach, yards, decks, garages). */
@@ -548,7 +549,7 @@ export class PropsView {
     });
     const get = (k: PropKind) => byKind.get(k) ?? [];
 
-    this.buildTrees(get('tree'), get('bush'), get('cypress'));
+    this.buildTrees(get('tree'), get('bush'), get('cypress'), get('orchardTree'));
     this.buildPalms(get('palm'));
     this.buildLamps(get('lamp'));
     this.buildSignals(get('signal'));
@@ -561,6 +562,7 @@ export class PropsView {
       color: (p, c) => c.setHSL(0.05 + (p.rot % 1) * 0.02, 0.95, 0.3 + (p.scale - 1) * 0.1),
     });
     this.buildHeadstones(get('headstone'));
+    this.buildFarmProps(get);
     for (const i of get('fountain')) this.buildFountain(world.layout.props[i]!);
     for (const i of get('crane')) this.buildCrane(world.layout.props[i]!);
     for (const i of get('lighthouse')) this.buildLighthouse(world.layout.props[i]!);
@@ -703,7 +705,7 @@ export class PropsView {
     this.makeInstanced(geo, mat, props, PropsView.standard);
   }
 
-  private buildTrees(trees: number[], bushes: number[], cypresses: number[]): void {
+  private buildTrees(trees: number[], bushes: number[], cypresses: number[], orchard: number[]): void {
     const rng = new Rng(77);
     const trunk = new THREE.MeshStandardMaterial({ color: 0x725440, vertexColors: true, roughness: 0.96 });
     dissolveOccluder(trunk, OCCLUDER_AXIS.tree, this.occUniforms);
@@ -726,7 +728,9 @@ export class PropsView {
     this.makeInstanced(canopy, canopyMat, trees, PropsView.standard, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.24 + rng.range(-0.04, 0.04), rng.range(0.34, 0.52), rng.range(0.42, 0.55)), 0.45),
     });
-    this.makeInstanced(broadleafGeometry('bush'), leafMaterial('broadleaf-shrub'), bushes, PropsView.standard, {
+    const shrub = broadleafGeometry('bush');
+    const shrubMat = leafMaterial('broadleaf-shrub');
+    this.makeInstanced(shrub, shrubMat, bushes, PropsView.standard, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.27 + rng.range(-0.03, 0.03), 0.43, rng.range(0.4, 0.5)), 0.5),
       shadow: false,
     });
@@ -737,6 +741,58 @@ export class PropsView {
     }, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.31 + rng.range(-0.02, 0.02), 0.38, rng.range(0.2, 0.26)), 0.75),
     });
+    // Las Lomas County's apple trees: the trees' trunk, short, under the shrubs' leaves grown into a round crown, apples on it.
+    const apple = (p: Prop, m: THREE.Matrix4) => PropsView.standard(p, m);
+    this.makeInstanced(treeTrunkGeometry(), trunk, orchard, (p, m) => {
+      apple(p, m);
+      m.multiply(this.tmpM.makeScale(0.5, 0.42, 0.5));
+    });
+    this.makeInstanced(shrub, shrubMat, orchard, (p, m) => {
+      apple(p, m);
+      m.multiply(this.tmpM.makeTranslation(0, 1.55, 0)).multiply(this.tmpM.makeScale(1.85, 2.1, 1.85));
+    }, {
+      color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.26 + rng.range(-0.03, 0.03), 0.5, rng.range(0.36, 0.44)), 0.5),
+    });
+    this.makeInstanced(applesGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.45 }), orchard, apple, { shadow: false, track: false });
+  }
+
+  /**
+   * Las Lomas County's farm props (world/country/farms.ts; the silos, bins and the windpump are the farms' own drawing,
+   * render/country/farms.ts): fences, the propane tank, the scarecrows and the bale stacks, and the cows, which nod
+   * as they graze (their heads turned about the neck by the foliage's clock). Few and small, spread over the county's
+   * four farms: one batch each, not one per cell.
+   */
+  private buildFarmProps(get: (k: PropKind) => number[]): void {
+    const painted = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.8 });
+    const one = { chunked: true } as const;
+    this.makeInstanced(farmFenceGeometry(), painted, get('fence'), PropsView.standard, one);
+    this.makeInstanced(propaneGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.4, metalness: 0.2 }), get('propane'), PropsView.standard, one);
+    this.makeInstanced(scarecrowGeometry(), painted, get('scarecrow'), PropsView.standard, one);
+    const bale = new THREE.MeshStandardMaterial({ map: baleTexture(), roughness: 0.95 });
+    this.makeInstanced(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), bale, get('bale'), (p, m) => m.compose(new THREE.Vector3(p.x, p.y, p.z), new THREE.Quaternion(), new THREE.Vector3(p.w, p.h, p.d)), one);
+    const hide = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: cowTexture(), roughness: 0.85 });
+    const time = this.windUniforms.uWindTime;
+    hide.onBeforeCompile = (shader) => {
+      shader.uniforms.uCowTime = time;
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nuniform float uCowTime;').replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+{
+  float ph = 0.0;
+  #ifdef USE_INSTANCING
+  ph = instanceMatrix[ 3 ].x * 0.37 + instanceMatrix[ 3 ].z * 0.61;
+  #endif
+  // Head down to graze for a while, up to chew, down again; only what is forward of the neck turns.
+  float graze = smoothstep( -0.2, 0.6, sin( uCowTime * 0.23 + ph ) ) * 0.8 + 0.08 * sin( uCowTime * 2.1 + ph );
+  float a = graze * smoothstep( ${COW_NECK.z.toFixed(2)} - 0.1, ${COW_NECK.z.toFixed(2)} + 0.1, position.z );
+  vec3 q = transformed - vec3( 0.0, ${COW_NECK.y.toFixed(2)}, ${COW_NECK.z.toFixed(2)} );
+  transformed = vec3( q.x, q.y * cos( a ) - q.z * sin( a ), q.y * sin( a ) + q.z * cos( a ) ) + vec3( 0.0, ${COW_NECK.y.toFixed(2)}, ${COW_NECK.z.toFixed(2)} );
+}`,
+      );
+    };
+    hide.customProgramCacheKey = () => 'gta7-cow';
+    const coats = [0xffffff, 0xffffff, 0xb07a48, 0x2a2624];
+    this.makeInstanced(cowGeometry(), hide, get('cow'), PropsView.standard, { ...one, color: (p, c) => c.setHex(coats[p.color]!) });
   }
 
   /**
@@ -1270,12 +1326,14 @@ export class PropsView {
     const p = this.world.layout.props[index]!;
     const l = Math.hypot(dirX, dirZ) || 1;
     const axis = new THREE.Vector3(dirZ / l, 0, -dirX / l);
-    const fall = new THREE.Matrix4().makeRotationAxis(axis, Math.PI / 2 - 0.08);
+    let fall = new THREE.Matrix4().makeRotationAxis(axis, Math.PI / 2 - 0.08);
+    // A cow goes over on her side, whichever way she was pushed, legs out.
+    if (p.kind === 'cow') fall = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(Math.sin(p.rot), 0, Math.cos(p.rot)), -Math.sign(dirX * Math.cos(p.rot) - dirZ * Math.sin(p.rot) || 1) * (Math.PI / 2));
     const toOrigin = new THREE.Matrix4().makeTranslation(-p.x, -p.y, -p.z);
-    const back = new THREE.Matrix4().makeTranslation(p.x, p.y + (p.kind === 'lamp' || p.kind === 'signal' ? 0.15 : 0.2), p.z);
+    const back = new THREE.Matrix4().makeTranslation(p.x, p.y + (p.kind === 'lamp' || p.kind === 'signal' ? 0.15 : p.kind === 'cow' ? 0.4 : 0.2), p.z);
     // A knocked-down lamp goes completely, light and all, so no head, lens or glow is left hanging where it stood; a
-    // smashed pumpkin goes in a burst of orange (renderer.ts).
-    const hide = p.kind === 'hydrant' || p.kind === 'lamp' || p.kind === 'pumpkin';
+    // smashed pumpkin goes in a burst of orange, the propane tank in its blast (renderer.ts).
+    const hide = p.kind === 'hydrant' || p.kind === 'lamp' || p.kind === 'pumpkin' || p.kind === 'propane';
     for (const r of [...refs, ...(this.shadowRefs.get(index) ?? [])]) {
       let m: THREE.Matrix4;
       if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat || r.mesh === this.signalBulbs || r.mesh.userData.signalBulbs) m = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -1403,6 +1461,17 @@ export class PropsView {
   /** Whether bloom draws halos round bright lights (GameRenderer.setQuality): without it the coloured lamps use LAMPS.flat. */
   setGlow(on: boolean): void {
     this.glow = on;
+  }
+
+  /** Stands the props `indices` up again (the county's cows at dawn). */
+  restoreProps(indices: readonly number[]): void {
+    for (const i of indices) {
+      for (const r of [...(this.refs.get(i) ?? []), ...(this.shadowRefs.get(i) ?? [])]) {
+        r.mesh.setMatrixAt(r.index, r.base);
+        r.mesh.instanceMatrix.needsUpdate = true;
+        r.mesh.computeBoundingSphere();
+      }
+    }
   }
 
   /** Puts every knocked-over prop back in place (new game). */

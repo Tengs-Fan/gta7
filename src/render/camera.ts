@@ -7,7 +7,7 @@ import { clamp, damp, dampAngle, smoothstep, wrapAngle, type V3 } from '../core/
 import type { Vehicle } from '../sim/entities';
 import { WEAPONS } from '../sim/specs';
 import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/viewState';
-import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
+import { blocksCamera, makeRayHit, type StaticCollider } from '../world/colliders';
 import { CURB_H, WATER_Y } from '../world/constants';
 import { CAR_GAP, CAR_LENGTH, trainAt } from '../world/monorail';
 import type { StaticWorld } from '../world/staticWorld';
@@ -747,7 +747,7 @@ export class CameraController {
     const fresh = this.freshBoom;
     if (len > 0.01) {
       d.divideScalar(len);
-      if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, isSolidForSight)) {
+      if (sim.world.grid.raycast(lookFrom.x, lookFrom.y, lookFrom.z, d.x, d.y, d.z, len, hit, blocksCamera)) {
         reach = Math.max(0.35, hit.t - 0.3);
         if (onFoot) {
           // Never into the wall: with his back to one and the view turned toward the camera's shoulder, the boom meets
@@ -931,14 +931,14 @@ export class CameraController {
     if (k <= 0 && this.raiseUp === 0 && this.raiseTilt === 0 && !raise) return;
     const grid = sim.world.grid;
     let lift = Math.max(CLOSE_LIFT * k, this.raiseUp);
-    if (lift > 0 && grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight)) lift = Math.max(0, hit.t - 0.3);
+    if (lift > 0 && grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, blocksCamera)) lift = Math.max(0, hit.t - 0.3);
     p.y += lift;
     // Out to his right, or his left with a swimmer's camera over that shoulder (between the two while it changes).
     const out = this.shoulderSide;
     const ox = -Math.cos(this.yaw) * Math.sign(out);
     const oz = Math.sin(this.yaw) * Math.sign(out);
     let slide = Math.max(CLOSE_SIDE * k, RAISE_SIDE * Math.min(1, this.raiseUp / RAISE_SIDE_AT)) * Math.abs(out);
-    if (slide > 0 && grid.raycast(p.x, p.y, p.z, ox, 0, oz, slide + 0.3, hit, isSolidForSight)) slide = Math.max(0, hit.t - 0.3);
+    if (slide > 0 && grid.raycast(p.x, p.y, p.z, ox, 0, oz, slide + 0.3, hit, blocksCamera)) slide = Math.max(0, hit.t - 0.3);
     p.x += ox * slide;
     p.z += oz * slide;
     this.footLift += lift;
@@ -949,7 +949,7 @@ export class CameraController {
       // nearer, the near plane cut into that wall and the frame's edge showed through it.
       const rx = -Math.cos(this.yaw);
       const rz = Math.sin(this.yaw);
-      const room = (s: number) => (grid.raycast(p.x, p.y, p.z, rx * s, 0, rz * s, RAISE_CLEAR + 0.3, hit, isSolidForSight) ? hit.t : RAISE_CLEAR + 0.3);
+      const room = (s: number) => (grid.raycast(p.x, p.y, p.z, rx * s, 0, rz * s, RAISE_CLEAR + 0.3, hit, blocksCamera) ? hit.t : RAISE_CLEAR + 0.3);
       const right = room(1);
       const left = room(-1);
       let shift = Math.max(0, RAISE_CLEAR - right) - Math.max(0, RAISE_CLEAR - left);
@@ -1115,7 +1115,7 @@ export class CameraController {
 
   /** How far (m, up to `lift`) the camera at `p` may rise before anything solid overhead (an eave, an upper storey reaching out) comes within 0.3 m of it. */
   private headroom(world: StaticWorld, p: V3, lift: number): number {
-    return world.grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight) ? Math.max(0, hit.t - 0.3) : lift;
+    return world.grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, blocksCamera) ? Math.max(0, hit.t - 0.3) : lift;
   }
 
   /**
@@ -1157,7 +1157,7 @@ export class CameraController {
     const near = 1 - smoothstep(BODY_CLEAR, BODY_CLEAR + BODY_BAND, out);
     let lift = (near * Math.max(0, h / 2 + ROOF_CLEAR - local.y)) / up;
     if (!(lift > 1e-4)) return;
-    if (sim.world.grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, isSolidForSight)) lift = Math.max(0, hit.t - 0.3);
+    if (sim.world.grid.raycast(p.x, p.y, p.z, 0, 1, 0, lift + 0.3, hit, blocksCamera)) lift = Math.max(0, hit.t - 0.3);
     p.y += lift;
     this.dir.copy(this.chaseLook).sub(p).normalize();
     this.pitch = Math.asin(clamp(this.dir.y, -1, 1));

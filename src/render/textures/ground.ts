@@ -226,6 +226,76 @@ export function groundSurface(kind: GroundTex, seed = 1): GroundSurfaceTextures 
   return { map: groundTexture(kind, seed), rough: toTexture(cr, false), normal: normalFromHeight(ch, spec.strength) };
 }
 
+/** The county's fields under their crops (render/country/fields.ts): their soil, wheat stubble, furrows, lettuce. */
+export type CropTex = 'soil' | 'wheat' | 'furrow' | 'lettuce';
+/** A crop tile's side (m): four 1 m rows, or five of lettuce, running along u (the canvas's x). */
+export const CROP_TILE = 4;
+
+/**
+ * A field's ground: rows along u (each centred on whole metres plus a half, the plants' rows), tiling every CROP_TILE m.
+ * Soil is the bare earth between corn or sunflower rows, wheat the crop seen from afar (fields.ts ripples it), furrows a
+ * ploughed field's ridges, lettuce its rosettes on the ridges.
+ */
+export function cropTexture(kind: CropTex): THREE.Texture {
+  const S = 256;
+  const row = S / CROP_TILE;
+  const rng = new Rng(kind.length * 4099 + 7);
+  const [c, ctx] = canvas(S, S);
+  const band = (y: number, h: number, col: string) => {
+    ctx.fillStyle = col;
+    ctx.fillRect(0, y, S, h);
+  };
+  switch (kind) {
+    case 'soil':
+      band(0, S, '#5f4a34');
+      for (let k = 0; k < CROP_TILE; k++) {
+        band(k * row + row * 0.3, row * 0.4, '#4d3b29');
+        band(k * row + row * 0.42, row * 0.16, '#55603a');
+      }
+      noise(ctx, S, S, rng, 30, 2);
+      break;
+    case 'wheat':
+      band(0, S, '#c9a95a');
+      for (let y = 0; y < S; y += 4) band(y, 2, `rgba(${rng.int(120, 160)},${rng.int(95, 120)},40,${rng.range(0.15, 0.35)})`);
+      noise(ctx, S, S, rng, 34, 2);
+      noise(ctx, S, S, rng, 18, 8);
+      break;
+    case 'furrow':
+      for (let y = 0; y < S; y++) {
+        // A ridge's crest at each row's centre, the furrow's trough between.
+        const t = 0.5 + 0.5 * Math.cos(((y / row) % 1) * Math.PI * 2 - Math.PI);
+        const l = Math.round(58 + 40 * t);
+        ctx.fillStyle = `rgb(${l + 18},${Math.round(l * 0.78)},${Math.round(l * 0.55)})`;
+        ctx.fillRect(0, y, S, 1);
+      }
+      noise(ctx, S, S, rng, 26, 2);
+      break;
+    case 'lettuce': {
+      band(0, S, '#634b33');
+      const pitch = S / 5;
+      for (let k = 0; k < 5; k++) {
+        band(k * pitch + pitch * 0.25, pitch * 0.5, '#6e5639');
+        for (let x = 0; x < S; x += pitch / 2) {
+          const cx = x + rng.range(-3, 3);
+          const cy = k * pitch + pitch / 2 + rng.range(-2, 2);
+          const r = rng.range(9, 13);
+          ctx.fillStyle = `rgb(${rng.int(92, 120)},${rng.int(150, 178)},${rng.int(60, 80)})`;
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(200,230,140,0.45)';
+          ctx.beginPath();
+          ctx.arc(cx - 2, cy - 2, r * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      noise(ctx, S, S, rng, 20, 2);
+      break;
+    }
+  }
+  return toTexture(c);
+}
+
 /** Side of the sea's ripple tile (px). */
 export const WATER_TILE = 256;
 /** Crest trains summed into the tile, their wave numbers (whole cycles per tile, so it repeats seamlessly) between these. */
