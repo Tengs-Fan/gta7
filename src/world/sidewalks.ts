@@ -1,11 +1,17 @@
 // Pedestrian navigation graph: a walking loop around every block, an outer
 // loop along the promenade (broken where the sea comes in), crosswalk edges at
-// every intersection, and the path out along Azura Point.
+// every intersection, and the path out along Azura Point. Las Lomas County's
+// verges and footpaths come after all of these, apart from them.
 
 import type { Rng } from '../core/rng';
-import { PED_INSET } from './constants';
-import { rectContains, rectCX, waterAt, type CityLayout } from './layout';
+import { PED_INSET, WATER_Y } from './constants';
+import { countryGround } from './country';
+import { headlandAt, rectContains, rectCX, waterAt, type CityLayout } from './layout';
 import type { Axis, RoadNetwork } from './roads';
+
+/** The county's verges: a footpath this far (m) outside the road's edge, a node at least every VERGE_STEP m. */
+const VERGE_OUT = 1.5;
+const VERGE_STEP = 30;
 
 export interface WalkEdge {
   to: number;
@@ -29,8 +35,12 @@ export class SidewalkGraph {
   private readonly keys = new Map<string, number>();
   /** Non-crosswalk edges as [a, b] pairs, used for spawning. */
   readonly walkEdges: Array<[number, number]> = [];
+  /** Las Lomas County's: its footpaths' edges pedestrians spawn on there (the verges are not among them). */
+  readonly countyWalkEdges: Array<[number, number]> = [];
+  private readonly county: CityLayout['country'];
 
   constructor(layout: CityLayout, roads: RoadNetwork) {
+    this.county = layout.country;
     const I = PED_INSET;
     for (const block of layout.blocks) {
       const r = block.rect;
@@ -55,9 +65,10 @@ export class SidewalkGraph {
     const pointX = point ? rectCX(point.rects[1]!) : 0;
     const pointFoot = point ? this.addNode(pointX, north) : -1;
 
-    for (const node of roads.nodes) {
+    for (const node of roads.gridNodes) {
       for (let d = 0; d < 4; d++) {
-        if (node.neighbors[d]! < 0) continue;
+        // A gateway's arm out to the county crosses the promenade, not a sidewalk: its crosswalk is the promenade's edge (below).
+        if (node.neighbors[d]! < 0 || node.neighbors[d]! >= roads.gridNodeCount) continue;
         let ax: number;
         let az: number;
         let bx: number;
@@ -100,6 +111,18 @@ export class SidewalkGraph {
       const list = this.nodes.filter(line.pick).sort((p, q) => line.key(p) - line.key(q));
       for (let i = 1; i < list.length; i++) if (!this.crossesWater(layout, list[i - 1]!, list[i]!)) this.link(list[i - 1]!.id, list[i]!.id);
     }
+    // Where a gateway's arm leaves for the county, the promenade's edge across its mouth becomes the crosswalk, obeying
+    // the junction's light, and keeps its place among the walking edges.
+    for (const node of roads.gridNodes) {
+      if (!node.neighbors.some((nb) => nb >= roads.gridNodeCount)) continue;
+      const a = this.addNode(node.x - node.halfX - I, node.z - node.halfZ - I);
+      const c = this.addNode(node.x - node.halfX - I, node.z + node.halfZ + I);
+      for (const e of [this.edge(a, c)!, this.edge(c, a)!]) {
+        e.crosswalk = true;
+        e.axis = 'EW';
+        e.roadNode = node.id;
+      }
+    }
     if (point) {
       const tip = point.rects[1]!;
       const neck = this.addNode(pointX, b.landMinZ);
@@ -107,6 +130,91 @@ export class SidewalkGraph {
       this.link(pointFoot, neck);
       this.link(neck, end);
     }
+    this.buildCounty(layout, roads);
+  }
+
+  /**
+   * Las Lomas County, after every older node and edge: a verge along one side of each road (the right of its centre
+   * line, VERGE_OUT m off the edge), broken where the road is over water or on the city's land, its pieces joined round
+   * each junction, none of it to spawn on and none touching the city's graph; then the content passes' footpaths.
+   */
+  private buildCounty(layout: CityLayout, roads: RoadNetwork): void {
+    const b = layout.bounds;
+    const country = layout.country;
+    const ground = (x: number, z: number) => x < b.landMinX && (!!headlandAt(layout, x, z) || countryGround(country, x, z) > WATER_Y);
+    const ends = new Map<number, number[]>();
+    for (const { road, nodes } of roads.outerRoads) {
+      const side = road.width / 2 + VERGE_OUT;
+      const pts: Array<{ x: number; z: number; junction: number }> = [];
+      for (let k = 0; k < nodes.length; k++) {
+        const node = roads.nodes[nodes[k]!]!;
+        const prev = roads.nodes[nodes[k - 1] ?? -1];
+        const next = roads.nodes[nodes[k + 1] ?? -1];
+        // Each stretch's direction, and the right of the line through the node (their mean at a bend).
+        const dir = (p: { x: number; z: number }, q: { x: number; z: number }) => {
+          const l = Math.hypot(q.x - p.x, q.z - p.z);
+          return { x: (q.x - p.x) / l, z: (q.z - p.z) / l };
+        };
+        const din = prev ? dir(prev, node) : null;
+        const dout = next ? dir(node, next) : null;
+        if (roads.isBend(node)) {
+          const ux = din!.x + dout!.x;
+          const uz = din!.z + dout!.z;
+          const l = Math.hypot(ux, uz);
+          const cos = (din!.x * dout!.x + din!.z * dout!.z + 1) / 2;
+          // Mitred: the offset grows as the line turns, so both stretches' verges keep their distance.
+          const out = side / Math.sqrt(cos);
+          pts.push({ x: node.x - (uz / l) * out, z: node.z + (ux / l) * out, junction: -1 });
+          continue;
+        }
+        // A junction (or a road's end at one): the verge stops at the corner past its box, either side of it.
+        const along = node.halfX + VERGE_OUT;
+        if (din) pts.push({ x: node.x - din.x * along - din.z * side, z: node.z - din.z * along + din.x * side, junction: node.id });
+        if (dout) pts.push({ x: node.x + dout.x * along - dout.z * side, z: node.z + dout.z * along + dout.x * side, junction: node.id });
+      }
+      let last = -1;
+      for (let k = 0; k < pts.length; k++) {
+        const p = pts[k]!;
+        const q = pts[k - 1];
+        // From one corner of a junction to the next is across a road: a new piece starts.
+        const across = !q || (q.junction >= 0 && q.junction === p.junction);
+        if (across) last = -1;
+        const steps = across ? 1 : Math.ceil(Math.hypot(p.x - q.x, p.z - q.z) / VERGE_STEP);
+        for (let s = 1; s <= steps; s++) {
+          const x = across ? p.x : q.x + ((p.x - q.x) * s) / steps;
+          const z = across ? p.z : q.z + ((p.z - q.z) * s) / steps;
+          if (!ground(x, z)) {
+            last = -1;
+            continue;
+          }
+          const id = this.addNode(x, z);
+          if (last >= 0) this.link(last, id, false, null, -1, null);
+          last = id;
+        }
+        if (p.junction >= 0 && last >= 0 && roads.nodes[p.junction]!.i < 0) {
+          const list = ends.get(p.junction) ?? [];
+          list.push(last);
+          ends.set(p.junction, list);
+        }
+      }
+    }
+    // Round each junction, its verges' ends in turn by their bearing from it, but for the longest step (across the box);
+    // a step over one of its roads is a crosswalk on its light.
+    for (const [junction, list] of ends) {
+      const j = roads.nodes[junction]!;
+      const ring = [...new Set(list)].sort((p, q) => Math.atan2(this.nodes[p]!.z - j.z, this.nodes[p]!.x - j.x) - Math.atan2(this.nodes[q]!.z - j.z, this.nodes[q]!.x - j.x));
+      if (ring.length < 2) continue;
+      const steps = ring.map((id, k) => [this.nodes[id]!, this.nodes[ring[(k + 1) % ring.length]!]!] as const);
+      const len = (s: (typeof steps)[number]) => Math.hypot(s[1].x - s[0].x, s[1].z - s[0].z);
+      const longest = steps.reduce((m, s) => (len(s) > len(m) ? s : m));
+      for (const s of steps) {
+        if (s === longest && ring.length > 2) continue;
+        const [p, q] = s;
+        if (roads.isOnRoad((p.x + q.x) / 2, (p.z + q.z) / 2)) this.link(p.id, q.id, true, Math.abs(q.x - p.x) > Math.abs(q.z - p.z) ? 'NS' : 'EW', junction);
+        else this.link(p.id, q.id, false, null, -1, null);
+      }
+    }
+    for (const w of country.walks) this.link(this.addNode(w.ax, w.az), this.addNode(w.bx, w.bz), false, null, -1, w.spawn ? this.countyWalkEdges : null);
   }
 
   /** Whether a straight walk from a to b would step into the sea (a bridge's footway keeps it dry). */
@@ -130,7 +238,8 @@ export class SidewalkGraph {
     return id;
   }
 
-  private link(a: number, b: number, crosswalk = false, axis: Axis | null = null, roadNode = -1): void {
+  /** Joins a and b once. A walking edge goes to `spawn`, the city's walking edges unless another list or none is given. */
+  private link(a: number, b: number, crosswalk = false, axis: Axis | null = null, roadNode = -1, spawn: Array<[number, number]> | null = this.walkEdges): void {
     if (a === b) return;
     const na = this.nodes[a]!;
     const nb = this.nodes[b]!;
@@ -138,7 +247,7 @@ export class SidewalkGraph {
     const length = Math.hypot(nb.x - na.x, nb.z - na.z);
     na.edges.push({ to: b, length, crosswalk, axis, roadNode });
     nb.edges.push({ to: a, length, crosswalk, axis, roadNode });
-    if (!crosswalk) this.walkEdges.push([a, b]);
+    if (!crosswalk && spawn) spawn.push([a, b]);
   }
 
   edge(a: number, b: number): WalkEdge | null {
@@ -158,10 +267,15 @@ export class SidewalkGraph {
     return best;
   }
 
-  /** Random point on a walking edge whose distance to (px, pz) is within [minD, maxD]. */
+  /**
+   * Random point on a walking edge whose distance to (px, pz) is within [minD, maxD]: the city's, or round Las Lomas
+   * County its own (none there, none drawn, while it has no footpath to spawn on).
+   */
   randomPointNear(rng: Rng, px: number, pz: number, minD: number, maxD: number): { a: number; b: number; t: number; x: number; z: number } | null {
+    const pool = rectContains(this.county.bounds, px, pz) ? this.countyWalkEdges : this.walkEdges;
+    if (pool.length === 0) return null;
     for (let tries = 0; tries < 40; tries++) {
-      const [a, b] = rng.pick(this.walkEdges);
+      const [a, b] = rng.pick(pool);
       const na = this.nodes[a]!;
       const nb = this.nodes[b]!;
       const t = rng.next();
@@ -179,8 +293,8 @@ export class SidewalkGraph {
       pieces.push(edge, s0, s1);
       total += s1 - s0;
     };
-    for (let i = 0; i < this.walkEdges.length; i++) {
-      const [a, b] = this.walkEdges[i]!;
+    for (let i = 0; i < pool.length; i++) {
+      const [a, b] = pool[i]!;
       const na = this.nodes[a]!;
       const nb = this.nodes[b]!;
       const len = Math.hypot(nb.x - na.x, nb.z - na.z);
@@ -202,7 +316,7 @@ export class SidewalkGraph {
         u -= span;
         continue;
       }
-      const [a, b] = this.walkEdges[pieces[k]!]!;
+      const [a, b] = pool[pieces[k]!]!;
       const na = this.nodes[a]!;
       const nb = this.nodes[b]!;
       const t = (s0 + Math.min(u, span)) / Math.hypot(nb.x - na.x, nb.z - na.z);

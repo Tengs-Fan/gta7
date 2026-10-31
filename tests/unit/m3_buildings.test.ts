@@ -358,9 +358,12 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // headstones and the chapel's solids added); the colliders again for Turbine Row's towers and Smuggler's Key's palms,
     // lamp and walls, appended after all of these, and for AzuraLink's pylons and stations, appended after those; the
     // colliders again on the merged round-2 head, where all four passes stand together and the trees in front of the
-    // letters, grown as bushes, lose their trunks.
+    // letters, grown as bushes, lose their trunks; and the colliders again when Las Lomas County moved the four props in
+    // the links' mouths out of the way (two lamps, a tree, a bench) and appended, after every other collider, the
+    // Southgate Bridge's two parapets and its arch's four portal posts, the gateways' and its junctions' signal heads and
+    // the causeway's lamps.
     expect(b).toBe('cb24287bf52d2607b0cdf537ee6f3cb8b1958e1495464192f58b2cb03287bf80');
-    expect(c).toBe('ccf857273884f0d5af37160b32aa7fb9de4097ebc3be8b35e8042c4b8decca0a');
+    expect(c).toBe('7e68ff25454a2bae9d5988fbcf3d0d12a74930954a4280b7447eca55e43f94f8');
   });
 });
 

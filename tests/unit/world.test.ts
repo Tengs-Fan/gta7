@@ -117,6 +117,10 @@ describe('ground and water', () => {
     expect(world.groundHeight(blk.rect.minX + 1, rectCZ(blk.rect))).toBe(CURB_H);
     expect(world.waterDepth(L.bounds.landMinX - 20, 0)).toBeGreaterThan(5);
     expect(world.waterDepth(L.bounds.beachEndX + 20, 0)).toBeGreaterThan(5);
+    // The world reaches out past Las Lomas County, 1104 m (92 collider cells) further west than the sea once did.
+    expect(L.bounds.worldMinX).toBe(-1776);
+    expect(L.bounds.landMinX - 160 - L.bounds.worldMinX).toBe(92 * world.grid.cell);
+    expect(world.waterDepth(L.bounds.worldMinX + 20, 0)).toBeGreaterThan(5);
     // Dry sand near the boardwalk, water further out.
     expect(world.waterDepth(L.bounds.beachStartX + 5, -200)).toBeLessThan(0);
     expect(world.waterDepth(L.bounds.beachStartX + 80, -200)).toBeGreaterThan(0.5);
@@ -202,10 +206,11 @@ describe('road network', () => {
   const roads = world.roads;
 
   it('builds the grid of intersections and lanes', () => {
-    expect(roads.nodes.length).toBe(121);
-    expect(roads.lanes.length).toBeGreaterThan(500);
+    // Las Lomas County's nodes and lanes follow the grid's (tests/unit/country_roads.test.ts holds its bends' lengths).
+    expect(roads.gridNodes.length).toBe(121);
+    expect(roads.gridLanes.length).toBeGreaterThan(500);
     for (const lane of roads.lanes) {
-      expect(lane.length).toBeGreaterThan(40);
+      if (lane.line.index >= 0) expect(lane.length).toBeGreaterThan(40);
       expect(lane.turns.length).toBeGreaterThan(0);
       expect(lane.turns.some((t) => t.legal)).toBe(true);
       for (const t of lane.turns) {
@@ -281,19 +286,25 @@ describe('road network', () => {
 
 describe('sidewalk graph', () => {
   const walk = world.walk;
-  it('is connected', () => {
-    const seen = new Set<number>([0]);
-    const queue = [0];
-    while (queue.length) {
-      const n = queue.shift()!;
-      for (const e of walk.nodes[n]!.edges) {
-        if (!seen.has(e.to)) {
-          seen.add(e.to);
-          queue.push(e.to);
+  it('is connected: the city\'s graph as one, and Las Lomas County\'s verges, which touch none of it, as another', () => {
+    const reach = (from: number) => {
+      const seen = new Set<number>([from]);
+      const queue = [from];
+      while (queue.length) {
+        const n = queue.shift()!;
+        for (const e of walk.nodes[n]!.edges) {
+          if (!seen.has(e.to)) {
+            seen.add(e.to);
+            queue.push(e.to);
+          }
         }
       }
-    }
-    expect(seen.size).toBe(walk.nodes.length);
+      return seen;
+    };
+    const city = walk.nodes.findIndex((n) => n.x < L.bounds.landMinX);
+    expect(city).toBe(463);
+    expect(reach(0).size).toBe(city);
+    expect(reach(city).size).toBe(walk.nodes.length - city);
   });
 
   it('keeps walking edges off the roads and crosswalks linked to signals', () => {

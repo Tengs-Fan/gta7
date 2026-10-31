@@ -69,6 +69,7 @@ const MOOD: Readonly<Record<AmbienceDistrict, DistrictMood>> = {
   westside: { hum: 0.45, murmur: 0.2, birds: 0.35, crickets: 0.75, gulls: 0, dogs: 0.6, horns: 0.4, wind: 0.15 },
   hillcrest: { hum: 0.42, murmur: 0.1, birds: 0.9, crickets: 0.8, gulls: 0, dogs: 0.7, horns: 0.3, wind: 0.2 },
   park: { hum: 0.45, murmur: 0.25, birds: 1, crickets: 1, gulls: 0, dogs: 0.2, horns: 0.2, wind: 0.15 },
+  country: { hum: 0.03, murmur: 0, birds: 1, crickets: 1, gulls: 0.1, dogs: 0.4, horns: 0, wind: 0.45 },
   beach: { hum: 0.15, murmur: 0.15, birds: 0, crickets: 0, gulls: 1, dogs: 0, horns: 0.1, wind: 0.5 },
   sea: { hum: 0.05, murmur: 0, birds: 0, crickets: 0, gulls: 0.8, dogs: 0, horns: 0, wind: 0.7 },
 };

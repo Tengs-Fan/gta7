@@ -20,10 +20,16 @@ export const MAP_SCALE = 1; // pixels per metre in the pre-rendered image
 const PACKAGE_COLOR = '#f5cd80';
 const RAMPAGE_COLOR = '#e8402c';
 
+/** Las Lomas County on the map: its beaches, its land, its plots by kind, and its roads by kind. */
+const COUNTY_COLORS = { beach: '#cdb77d', land: '#33503a', town: '#3c4147', farm: '#3b5c39', venue: '#4a4438', wild: '#2f4a33' } as const;
+const COUNTY_ROAD_COLORS = { highway: '#b0a46a', country: '#9aa1aa' } as const;
+
 export class MapImage {
   readonly canvas: HTMLCanvasElement;
-  /** The gang turf tint, drawn over `canvas` when the legend has it on. */
+  /** The gang turf tint over the city's rectangle (the only place turf is), drawn over `canvas` at (turfX, turfZ) px. */
   readonly turf: HTMLCanvasElement;
+  readonly turfX: number;
+  readonly turfZ: number;
   readonly minX: number;
   readonly minZ: number;
 
@@ -54,6 +60,16 @@ export class MapImage {
     g.addColorStop(1, '#16384f');
     ctx.fillStyle = g;
     ctx.fillRect(X(shoreX), Z(b.landMinZ), (b.beachEndX - shoreX) * MAP_SCALE, (b.landMaxZ - b.landMinZ) * MAP_SCALE);
+    // Las Lomas County: the beach out to the waterline round its land, the land, and the plots on it.
+    const country = world.layout.country;
+    ctx.fillStyle = COUNTY_COLORS.beach;
+    for (const r of country.land) {
+      ctx.beginPath();
+      ctx.roundRect(X(r.minX - 8), Z(r.minZ - 8), (r.maxX - r.minX + 16) * MAP_SCALE, (r.maxZ - r.minZ + 16) * MAP_SCALE, 8 * MAP_SCALE);
+      ctx.fill();
+    }
+    for (const r of country.land) rect(r.minX, r.minZ, r.maxX, r.maxZ, COUNTY_COLORS.land);
+    for (const p of country.plots) rect(p.rect.minX, p.rect.minZ, p.rect.maxX, p.rect.maxZ, COUNTY_COLORS[p.kind]);
     // Headlands, and the sea where it comes into the land.
     for (const h of world.layout.headlands) for (const r of h.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#3b4249');
     for (const w of world.layout.water) for (const r of w.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#1a4560');
@@ -83,12 +99,29 @@ export class MapImage {
     // Roads.
     for (const s of world.roads.segments) rect(s.minX, s.minZ, s.maxX, s.maxZ, '#9aa1aa');
     for (const n of world.roads.live) rect(n.x - n.halfX, n.z - n.halfZ, n.x + n.halfX, n.z + n.halfZ, '#9aa1aa');
+    // The county's roads (over the causeway and the bridge, after their deck below), at their widths, round at the bends.
+    const strokeRoads = () => {
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'butt';
+      for (const { road, nodes } of world.roads.outerRoads) {
+        ctx.strokeStyle = COUNTY_ROAD_COLORS[road.kind];
+        ctx.lineWidth = road.width * MAP_SCALE;
+        ctx.beginPath();
+        nodes.forEach((id, k) => {
+          const n = world.roads.nodes[id]!;
+          if (k === 0) ctx.moveTo(X(n.x), Z(n.z));
+          else ctx.lineTo(X(n.x), Z(n.z));
+        });
+        ctx.stroke();
+      }
+    };
     // Buildings.
     for (const bd of world.layout.buildings) {
       const tall = bd.height > 40;
       rect(bd.rect.minX, bd.rect.minZ, bd.rect.maxX, bd.rect.maxZ, tall ? '#1d2228' : '#22282e');
     }
     for (const d of world.layout.decks) rect(d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ, d.bridge ? '#9aa1aa' : '#7b5a3a');
+    strokeRoads();
     // Turbine Row's towers out at sea.
     ctx.fillStyle = '#c9d2da';
     for (const p of world.layout.props) {
@@ -102,9 +135,11 @@ export class MapImage {
     rect(m.x - 1.2, m.stations[0]!.platform[0]!.minZ, m.x + 1.2, m.stations[1]!.platform[0]!.maxZ, '#0aa5ad');
     for (const s of m.stations) for (const r of [...s.platform, s.tower]) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#0aa5ad');
     this.turf = document.createElement('canvas');
-    this.turf.width = w;
-    this.turf.height = h;
-    drawTurf(this.turf.getContext('2d')!, world, X, Z);
+    this.turfX = Math.floor(X(b.cityMinX));
+    this.turfZ = Math.floor(Z(b.cityMinZ));
+    this.turf.width = Math.ceil(X(b.cityMaxX)) - this.turfX;
+    this.turf.height = Math.ceil(Z(b.cityMaxZ)) - this.turfZ;
+    drawTurf(this.turf.getContext('2d')!, world, (x) => X(x) - this.turfX, (z) => Z(z) - this.turfZ);
   }
 }
 

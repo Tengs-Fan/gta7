@@ -16,8 +16,9 @@ export interface PoliceInternals {
 }
 export const internals = (sim: Sim) => sim.police as unknown as PoliceInternals;
 
+/** The city's longest lane (or avenue lane): Las Lomas County's long straights are not among them. */
 export function longestLane(sim: Sim, avenue = false): Lane {
-  return [...sim.roads.lanes].filter((l) => !avenue || l.line.avenue).sort((a, b) => b.length - a.length)[0]!;
+  return [...sim.roads.gridLanes].filter((l) => !avenue || l.line.avenue).sort((a, b) => b.length - a.length)[0]!;
 }
 
 export function at(lane: Lane, s: number): { x: number; z: number } {
@@ -124,11 +125,16 @@ const FLEE_SHIFT = 6;
  * road, someone in the street) to a standstill, and traffic coming the other way rules a line out
  * within FLEE_ONCOMING seconds. It keeps to its own lane when nothing is gained elsewhere and on the
  * way into a turn, and when it stops nose to tail with something it backs up a little to pull round it.
+ * It keeps to the city, whose pursuits these runs measure: straight on at Harbor Blvd is no way out onto Las Lomas
+ * County's roads for it, unless `county` sends it there.
  */
-export function fleeBot(sim: Sim, car: Vehicle, maxSpeed = Infinity): ((dt?: number) => PlayerInput) & { ai: DriverAI; offset(): number } {
+export function fleeBot(sim: Sim, car: Vehicle, maxSpeed = Infinity, county = false): ((dt?: number) => PlayerInput) & { ai: DriverAI; offset(): number } {
   const ai = new DriverAI(sim, car, 'flee');
   const priv = ai as unknown as PathPriv;
-  priv.chooseTurn = (lane: Lane) => lane.turns.find((t) => t.kind === 'straight') ?? lane.turns.find((t) => t.legal) ?? lane.turns[0] ?? null;
+  priv.chooseTurn = (lane: Lane) => {
+    const turns = county || lane.line.index < 0 ? lane.turns : lane.turns.filter((t) => t.to.line.index >= 0);
+    return turns.find((t) => t.kind === 'straight') ?? turns.find((t) => t.legal) ?? turns[0] ?? null;
+  };
   ai.speedMul = 3;
   ai.cornering = 11 / 9;
   ai.maxSpeed = Math.min(car.spec.maxSpeed, maxSpeed);

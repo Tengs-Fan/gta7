@@ -260,8 +260,10 @@ describe('round 2 city: layout', () => {
     // and Azura Point climbed to a bluff (its rise, the lighthouse and the point's props on it), when two cells
     // were rebuilt as Hollister Farm and Eternal Palms Cemetery (the attractions pass), when Turbine Row and
     // Smuggler's Key were added offshore, when AzuraLink's line joined the layout, and on the merged round-2 head, where
-    // all four stand together and the trees in front of the letters are bushes.
-    expect(layoutHash()).toBe('23010fa1e1b8fc031c1f4c049901907e60f06973e71961ebf79ba98b6c80ea19');
+    // all four stand together and the trees in front of the letters are bushes; and when Las Lomas County joined it
+    // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
+    // parapets, the four props moved out of the links' mouths, its signal heads and lamps).
+    expect(layoutHash()).toBe('67d94bef7895b89e9c05c389719d9f6cde6e876d1152c1d8b151bae32d6fbc4e');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

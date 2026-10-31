@@ -20,7 +20,7 @@ interface PoliceInternals {
 const police = (sim: Sim) => sim.police as unknown as PoliceInternals;
 
 function longestLane(sim: Sim): Lane {
-  return [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+  return [...sim.roads.gridLanes].sort((a, b) => b.length - a.length)[0]!;
 }
 
 function at(lane: Lane, s: number): { x: number; z: number } {

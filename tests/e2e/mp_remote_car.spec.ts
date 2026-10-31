@@ -96,7 +96,8 @@ function straightLanes(): Array<{ lane: Lane; length: number }> {
     while (l && !seen.has(l.id)) {
       seen.add(l.id);
       length += l.length;
-      const t: { to: Lane; length: number } | undefined = l.turns.find((x) => x.kind === 'straight');
+      // On along the avenue: not out over the Magnolia Causeway or the Southgate Bridge into Las Lomas County.
+      const t: { to: Lane; length: number } | undefined = l.turns.find((x) => x.kind === 'straight' && x.to.line.avenue);
       if (!t) break;
       length += t.length;
       l = t.to;

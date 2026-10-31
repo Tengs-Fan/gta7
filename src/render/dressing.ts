@@ -8,6 +8,7 @@ import type { StaticWorld } from '../world/staticWorld';
 import { hillRise, hillSignLetters, lookoutRail } from '../world/terrain';
 import { places } from '../sim/activities/places';
 import { attractionOf } from '../world/attractions';
+import { CAUSEWAY } from '../world/country';
 
 export type DressingKind =
   | 'umbrella' | 'towel' | 'lounger' | 'lifeguard' | 'volleyball' | 'surfboard'
@@ -585,6 +586,7 @@ export const PLAQUE_TEXT = {
   letters: 'DO NOT CLIMB THE LETTERS. THE LETTERS HAVE BEEN THROUGH ENOUGH.',
   lookout: 'AZURA POINT LOOKOUT. ON A CLEAR DAY YOU CAN SEE THE SMOG.',
   telescope: "VIEWS 25 CENTS. YOUR EX'S BALCONY NOT GUARANTEED.",
+  county: 'WELCOME TO LAS LOMAS COUNTY. POPULATION: MOSTLY COWS.',
 } as const;
 
 /**
@@ -592,6 +594,7 @@ export const PLAQUE_TEXT = {
  * plateau's south edge, looking over the letters to downtown; a low fence along the front of each word, with the sign
  * where the path climbs between them. The lookout at Azura Point's tip: its plaque at the middle of the parapet, and a
  * telescope at either end, one turned back south-west over Gull Bay to the hill and the towers, one out to sea.
+ * And where the Magnolia Causeway makes landfall, Las Lomas County's welcome on the verge, facing the traffic coming in.
  */
 export function viewpoints(world: StaticWorld): ViewpointItem[] {
   const L = world.layout;
@@ -616,6 +619,7 @@ export function viewpoints(world: StaticWorld): ViewpointItem[] {
   out.push(at('plaque', mid, rail.maxZ + 1.3, 0, PLAQUE_TEXT.lookout));
   out.push(at('telescope', rail.minX + 1.5, rail.maxZ + 1.2, Math.atan2(-0.6, 0.8), PLAQUE_TEXT.telescope));
   out.push(at('telescope', rail.maxX - 1.5, rail.maxZ + 1.2, Math.atan2(0.6, -0.8), PLAQUE_TEXT.telescope));
+  out.push(at('sign', CAUSEWAY.minX - 12, CAUSEWAY.minZ + 0.5, Math.PI / 2, PLAQUE_TEXT.county));
   return out;
 }
 

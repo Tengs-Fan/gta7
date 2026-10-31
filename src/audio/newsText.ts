@@ -53,6 +53,17 @@ export const ZONE_PREP: Readonly<Record<string, string>> = {
   'Hollister Farm': 'at Hollister Farm',
   'Eternal Palms Cemetery': 'at Eternal Palms Cemetery',
   "Smuggler's Key": "on Smuggler's Key",
+  'Magnolia Causeway': 'on the Magnolia Causeway',
+  'Southgate Bridge': 'on the Southgate Bridge',
+  'Las Lomas County': 'in Las Lomas County',
+  'Dry Creek': 'in Dry Creek',
+  'Hollister Bottoms': 'at Hollister Bottoms',
+  'Cud & Sons Dairy': 'at the Cud & Sons Dairy',
+  'Pippin Hollow': 'in Pippin Hollow',
+  'Halfmoon Acres': 'at Halfmoon Acres',
+  'Moonbeam Drive-In': 'at the Moonbeam Drive-In',
+  'Gravel Gulch': 'at Gravel Gulch',
+  'Coyote Ridge': 'on Coyote Ridge',
 };
 
 /** The place on its own ('the Marina', 'downtown'): its phrase without the preposition. */

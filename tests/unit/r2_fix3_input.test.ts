@@ -518,7 +518,7 @@ const newInput = () => new Input(new FakeElement('canvas') as unknown as HTMLCan
 
 /** The longest lane, for driving fast in a straight line. */
 function longLane(sim: Sim) {
-  return [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+  return [...sim.roads.gridLanes].sort((a, b) => b.length - a.length)[0]!;
 }
 
 /** Puts the player at the wheel of a new `kind` 8 m into the longest lane. */

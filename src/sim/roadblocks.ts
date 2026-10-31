@@ -5,6 +5,7 @@
 
 import { circleVsObb, makeContact, type OBB } from '../core/collision';
 import { Rng } from '../core/rng';
+import { LANE_W } from '../world/constants';
 import type { Lane } from '../world/roads';
 import { DriverAI } from './driver';
 import type { Character, Vehicle } from './entities';
@@ -222,7 +223,9 @@ export class RoadblockSystem implements SimSystem {
     let s = start.s;
     let ahead = 0;
     let next = ROADBLOCK_AHEAD_MIN;
-    for (let hops = 0; lane && hops < 8 && next <= ROADBLOCK_AHEAD_MAX; hops++) {
+    for (let hops = 0; lane && hops < 8 && next <= ROADBLOCK_AHEAD_MAX; ) {
+      // A county road's bends are no junctions: they do not count.
+      if (!sim.roads.isBend(sim.roads.nodes[lane.to]!)) hops++;
       while (next <= ROADBLOCK_AHEAD_MAX && next - ahead <= lane.length - s) {
         out.push({ lane, s: s + (next - ahead), ahead: next });
         next += 10;
@@ -252,10 +255,12 @@ export class RoadblockSystem implements SimSystem {
       const lx = lane.sx + lane.dx * sp.s;
       const lz = lane.sz + lane.dz * sp.s;
       if (Math.hypot(lx - pp.x, lz - pp.z) < ROADBLOCK_MIN_AHEAD) continue;
-      // The road's centre line through this point, and the way across it.
+      // The road's centre line through this point (a county lane's, its own offset back to its left), and the way across it.
       const along = Math.abs(lane.dx) > 0.5;
-      const cx = along ? lx : lane.line.pos;
-      const cz = along ? lane.line.pos : lz;
+      const off = LANE_W * (lane.index + 0.5);
+      const outer = lane.line.index < 0;
+      const cx = outer ? lx + lane.dz * off : along ? lx : lane.line.pos;
+      const cz = outer ? lz - lane.dx * off : along ? lane.line.pos : lz;
       if (sim.isVisible(cx, 1, cz)) continue;
       // Across the road, positive towards the curb of the player's side. The cruisers block the road but for an opening
       // the width of his lane, where it runs on through the roadblock; the spike strip covers that too.

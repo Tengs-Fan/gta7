@@ -53,8 +53,9 @@ describe('the rises stay off everything that assumes flat ground', () => {
         expect(hit, `${r.name} over a ${what}`).toBeUndefined();
       }
     }
-    // The path out to the lighthouse is the only walk on a rise: from the promenade's edge to the plateau.
-    const path = W.walk.nodes.filter((n) => headlandAt(L, n.x, n.z));
+    // The path out to the lighthouse is the only walk on a rise: from the promenade's edge to the plateau (the causeway's
+    // verge, on a headland of its own, is flat).
+    const path = W.walk.nodes.filter((n) => headlandAt(L, n.x, n.z)?.name === 'Azura Point');
     expect(path.map((n) => riseAt(rises, n.x, n.z))).toEqual([0, 10]);
     for (const n of W.walk.nodes) if (!path.includes(n)) expect(riseAt(rises, n.x, n.z), `walk node ${n.id}`).toBe(0);
   });
@@ -346,7 +347,8 @@ describe('on the hill', () => {
       "HILLCREST SUMMIT, ELEV. 7 M. HIGHEST POINT IN SAN AZURA THAT ISN'T A PARKING GARAGE.",
       'AZURA POINT LOOKOUT. ON A CLEAR DAY YOU CAN SEE THE SMOG.',
     ]);
-    expect(items.filter((it) => it.kind === 'sign').map((it) => it.text)).toEqual(['DO NOT CLIMB THE LETTERS. THE LETTERS HAVE BEEN THROUGH ENOUGH.']);
+    // The letters' sign, and Las Lomas County's welcome where the Magnolia Causeway makes landfall.
+    expect(items.filter((it) => it.kind === 'sign').map((it) => it.text)).toEqual(['DO NOT CLIMB THE LETTERS. THE LETTERS HAVE BEEN THROUGH ENOUGH.', 'WELCOME TO LAS LOMAS COUNTY. POPULATION: MOSTLY COWS.']);
     for (const it of items) {
       expect(viewpointViolation(rules, it), `${it.kind} at ${it.x}, ${it.z}`).toBeNull();
       expect(it.y).toBeCloseTo(W.groundHeight(it.x, it.z), 9);

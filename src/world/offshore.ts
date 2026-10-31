@@ -54,7 +54,7 @@ export function buildOffshore(layout: CityLayout): void {
   const rng = new Rng(hashInts(layout.seed, 0x6b3));
   for (const row of TURBINE_ROWS) for (const x of row.x) addProp(layout, 'turbine', x, row.z, 0, 1, WATER_Y);
 
-  layout.headlands.push({ name: KEY_NAME, rects: [...KEY_RECTS] });
+  layout.headlands.push({ name: KEY_NAME, y: CURB_H, rects: [...KEY_RECTS] });
   // Turf over the rock; bare dirt in the fort's yard and along the path down to the jetty.
   const path = mkRect(247, FORT.maxZ, 253, -610);
   const [body, knoll] = KEY_RECTS as [Rect, Rect];

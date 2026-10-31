@@ -373,7 +373,10 @@ export class TrafficSystem {
 
   private refreshNearLanes(): void {
     const pp = this.anchorPos();
-    this.nearLanes = this.sim.roads.lanes.filter((l) => pointSegDist(pp.x, pp.z, l.sx, l.sz, l.ex, l.ez) < 235);
+    // Off the city's land, Las Lomas County's lanes too: on it the grid's alone, as they ever were.
+    const roads = this.sim.roads;
+    const pool = pp.x < this.sim.world.bounds.landMinX ? roads.lanes : roads.gridLanes;
+    this.nearLanes = pool.filter((l) => pointSegDist(pp.x, pp.z, l.sx, l.sz, l.ex, l.ez) < 235);
     this.nearCum = runningWeights(this.nearLanes.map((l) => l.lanesInDir));
   }
 
@@ -410,13 +413,19 @@ export class TrafficSystem {
     // Only along a lane, not across a plaza or the beach.
     if (lane.dx * pv.x + lane.dz * pv.z < 0.7 * speed) return;
     const from = roads.nodes[lane.from]!;
+    // A county road's bend is no junction: no side street there, and it does not count as one of the junctions ahead.
     for (const turn of [1, 3]) {
       const side = from.neighbors[(lane.dir + turn) % 4]!;
-      if (side >= 0) for (const l of roads.lanesBetween(side, from.id)) this.aheadCross.add(l);
+      if (side >= 0 && !roads.isBend(from)) for (const l of roads.lanesBetween(side, from.id)) this.aheadCross.add(l);
     }
-    for (let n = 0; n < AHEAD_JUNCTIONS && lane; n++) {
+    for (let n = 0; n < AHEAD_JUNCTIONS && lane; ) {
       for (const l of roads.lanesBetween(lane.from, lane.to)) this.aheadPath.add(l);
       const node = roads.nodes[lane.to]!;
+      if (roads.isBend(node)) {
+        lane = lane.turns[0]!.to;
+        continue;
+      }
+      n++;
       const lead = Math.hypot(node.x - pp.x, node.z - pp.z) / speed - CROSS_LEAD;
       for (const turn of [1, 3]) {
         const side = node.neighbors[(lane.dir + turn) % 4]!;
