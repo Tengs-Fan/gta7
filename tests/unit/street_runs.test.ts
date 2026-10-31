@@ -8,7 +8,7 @@ import { multiplayerInteractions } from '../../src/net/mpPlaces';
 import { streetRunCourses } from '../../src/sim/activities/streetRun';
 import { HeadToHead } from '../../src/sim/headToHead';
 import { StaticWorld } from '../../src/world/staticWorld';
-import { input, placeInCar, step, world } from './helpers';
+import { distanceToLine, input, placeInCar, shortestThrough, step, world } from './helpers';
 
 function setup(id = 'magnolia'): { sim: Sim; car: Vehicle; course: StreetRunCourse } {
   const sim = new Sim({ world: world(), ambient: false, police: false });
@@ -439,7 +439,7 @@ describe('the Las Lomas Loop', () => {
     expect(sim.roads.heldSignals.size).toBe(0);
   });
 
-  it('runs over the causeway, round the Lomas Highway and home over the bridge, its gates at junctions only, after the city\'s three', () => {
+  it('runs over the causeway, round the Lomas Highway and home over the bridge, its gates at junctions and the highway\'s two curves, after the city\'s three', () => {
     const roads = world().roads;
     const courses = allStreetRunCourses(roads);
     expect(courses.map((c) => c.id)).toEqual(['magnolia', 'coastline', 'dockside', 'laslomas']);
@@ -455,10 +455,20 @@ describe('the Las Lomas Loop', () => {
     const highway = roads.outerRoads.find((r) => r.road.name === 'Lomas Highway')!.nodes;
     const from = loop.nodes.indexOf(highway[0]!);
     expect(loop.nodes.slice(from, from + highway.length)).toEqual(highway);
-    // Gates at the junctions alone: the gateways, Dry Creek, the two T's and the grid's corners, never at a bend.
+    // Gates at the junctions (the gateways, Dry Creek, the two T's and the grid's corners) and at the apex of each of
+    // the highway's curves (its middle vertex), at no other bend.
+    const apexes: number[] = [];
+    const radii = roads.outerRoads.find((r) => r.road.name === 'Lomas Highway')!.road.radii;
+    for (let k = 0; k < radii.length; k++) {
+      if (!Number.isFinite(radii[k]!) || Number.isFinite(radii[k - 1] ?? Infinity)) continue;
+      let end = k;
+      while (Number.isFinite(radii[end + 1] ?? Infinity)) end++;
+      apexes.push(highway[k + Math.floor((end - k + 1) / 2)]!);
+    }
+    expect(apexes).toHaveLength(2);
     const gates = loop.checkpoints.slice(0, -1);
-    for (const g of gates) expect(roads.isBend(roads.nodes[g.nodeId]!)).toBe(false);
-    expect(gates.map((g) => g.nodeId)).toEqual(loop.nodes.slice(1).filter((id) => !roads.isBend(roads.nodes[id]!)));
+    expect(gates.map((g) => g.nodeId)).toEqual(loop.nodes.slice(1).filter((id) => !roads.isBend(roads.nodes[id]!) || apexes.includes(id)));
+    expect(gates.filter((g) => roads.isBend(roads.nodes[g.nodeId]!)).map((g) => [g.nodeId, g.radius])).toEqual(apexes.map((id) => [id, 11]));
     expect(gates.map((g) => g.nodeId)).toEqual(expect.arrayContaining([roads.junction('drycreek').id, roads.junction('hollister').id, roads.junction('creek').id, roads.id(0, 2), roads.id(0, 8)]));
     // Its length along the road, bends and all.
     expect(loop.distance).toBeGreaterThan(2900);
@@ -467,6 +477,33 @@ describe('the Las Lomas Loop', () => {
     expect(loop.silver).toBeLessThan(loop.bronze);
     expect(loop.distance / loop.gold).toBeLessThan(20);
     expect(roads.isOnRoad(loop.start.x, loop.start.z)).toBe(true);
+  });
+
+  it('cannot be cut round the highway\'s west loop: a U-turn back through Dry Creek and a line across the fields each miss a gate', () => {
+    const roads = world().roads;
+    const loop = buildCountyRunCourses(roads)[0]!;
+    const [h, dc, c] = (['hollister', 'drycreek', 'creek'] as const).map((name) => roads.junction(name));
+    const node = (id: number) => roads.nodes[id]!;
+    const length = (pts: ReadonlyArray<{ x: number; z: number }>) => pts.slice(1).reduce((sum, p, k) => sum + Math.hypot(p.x - pts[k]!.x, p.z - pts[k]!.z), 0);
+    // The course's way from the Hollister T to the Creek T, and the gates on it.
+    const road = loop.nodes.slice(loop.nodes.indexOf(h!.id), loop.nodes.indexOf(c!.id) + 1).map(node);
+    const from = loop.checkpoints.findIndex((g) => g.nodeId === h!.id);
+    const to = loop.checkpoints.findIndex((g) => g.nodeId === c!.id);
+    const west = loop.checkpoints.slice(from + 1, to);
+    expect(length(road)).toBeGreaterThan(1100);
+    // Back east through Dry Creek and down Creek Road, and straight across the fields: each shorter, each missing a
+    // gate.
+    const uTurn = [...roads.findRoute(h!.id, dc!.id)!, ...roads.findRoute(dc!.id, c!.id)!.slice(1)].map(node);
+    const field = [h!, c!];
+    for (const cut of [uTurn, field]) {
+      expect(length(cut)).toBeLessThan(810);
+      expect(west.some((g) => distanceToLine(g.x, g.z, cut) > g.radius)).toBe(true);
+    }
+    // Across the fields from gate to gate, the shortest line through them all saves under 50 m on the road's own racing
+    // line (through the road's width at each of its nodes).
+    const racing = shortestThrough(road.map((n, k) => ({ x: n.x, z: n.z, r: k === 0 || k === road.length - 1 ? loop.checkpoints[from]!.radius : 8 }))).length;
+    const gated = shortestThrough([loop.checkpoints[from]!, ...west, loop.checkpoints[to]!].map((g) => ({ x: g.x, z: g.z, r: g.radius }))).length;
+    expect(gated).toBeGreaterThan(racing - 50);
   });
 
   it('drives through real physics within the gold target, along the road through its bends', () => {

@@ -32,8 +32,21 @@ export interface StreetRunCourse {
   nodes: readonly number[];
 }
 
-/** A course's corner: a grid junction (i, j) or one of Las Lomas County's junctions by name. */
-type Waypoint = readonly [number, number] | CountyJunction;
+/**
+ * Bends of Las Lomas County's roads a course may name as corners: the apexes of the Lomas Highway's two curves round
+ * the west of the county (each curve's middle vertex). Between the Hollister T and the Creek T the highway runs 1.1 km
+ * round them, and without a gate there a U-turn back through Dry Creek and down Creek Road (0.8 km), or a line across
+ * the fields (0.6 km), would cut it; through gates at both apexes a line across the fields saves only about 45 m on the
+ * road's own racing line.
+ */
+const COUNTY_BENDS = {
+  'northwest curve': [-1277.3, -215.3],
+  'southwest curve': [-1294.9, 214.4],
+} as const;
+type CountyBend = keyof typeof COUNTY_BENDS;
+
+/** A course's corner: a grid junction (i, j), or one of Las Lomas County's junctions or gated bends by name. */
+type Waypoint = readonly [number, number] | CountyJunction | CountyBend;
 
 interface CourseDesign {
   id: StreetRunId;
@@ -41,7 +54,7 @@ interface CourseDesign {
   description: string;
   /**
    * The corners in order: between two grid corners the course runs along the lines (one straight, then the other); to or
-   * from a county junction it takes the shortest way on (roads.findRoute), never back the way it came.
+   * from a county junction or bend it takes the shortest way on (roads.findRoute), never back the way it came.
    */
   corners: readonly Waypoint[];
   gold: number;
@@ -76,15 +89,16 @@ const DESIGNS: readonly CourseDesign[] = [
 
 /**
  * Las Lomas County's: west along Magnolia Ave and over the Magnolia Causeway, through Dry Creek and round the Lomas
- * Highway, home over the Southgate Bridge and north up Vista Ave. Its medal times come from the course bot's lap
- * through an empty world (street_runs.test.ts: about 106 s over 3 km), at the city's margins: gold asks for at most a
- * 20 m/s average (1.46 times the bot's lap), silver and bronze as far behind it as the city's are behind theirs.
+ * Highway, through the apexes of its two curves out west, home over the Southgate Bridge and north up Vista Ave. Its
+ * medal times come from the course bot's lap through an empty world (street_runs.test.ts: about 106 s over 3 km), at
+ * the city's margins: gold asks for at most a 20 m/s average (1.46 times the bot's lap), silver and bronze as far
+ * behind it as the city's are behind theirs.
  */
 const COUNTY_DESIGNS: readonly CourseDesign[] = [
   {
     id: 'laslomas', name: 'Las Lomas Loop',
     description: 'Out to the farms and back. Mind the cows; they have the right of way and they know it.',
-    corners: [[2, 2], [0, 2], 'drycreek', 'hollister', 'creek', [0, 8], [2, 8], [2, 2]],
+    corners: [[2, 2], [0, 2], 'drycreek', 'hollister', 'northwest curve', 'southwest curve', 'creek', [0, 8], [2, 8], [2, 2]],
     gold: 155, silver: 198, bronze: 270, reward: 2200,
   },
 ];
@@ -138,7 +152,11 @@ export function allStreetRunCourses(roads: RoadNetwork): StreetRunCourse[] {
 }
 
 function buildCourse(roads: RoadNetwork, design: CourseDesign): StreetRunCourse {
-  const at = (w: Waypoint) => (typeof w === 'string' ? roads.junction(w).id : roads.id(...w));
+  const named = (w: Waypoint): w is CountyBend => typeof w === 'string' && w in COUNTY_BENDS;
+  // A named bend is the county's node nearest its point.
+  const bend = ([x, z]: readonly [number, number]) => roads.nodes.slice(roads.gridNodeCount).reduce((a, b) => (Math.hypot(b.x - x, b.z - z) < Math.hypot(a.x - x, a.z - z) ? b : a)).id;
+  const at = (w: Waypoint) => (named(w) ? bend(COUNTY_BENDS[w]) : typeof w === 'string' ? roads.junction(w).id : roads.id(...w));
+  const gated = new Set(design.corners.filter(named).map(at));
   const nodes = [at(design.corners[0]!)];
   // Explicit orthogonal segments keep each course's pacing authored rather
   // than allowing a shortest-path tie to move a turn to a different street.
@@ -170,8 +188,8 @@ function buildCourse(roads: RoadNetwork, design: CourseDesign): StreetRunCourse 
     distance += Math.hypot(node.x - px, node.z - pz);
     px = node.x;
     pz = node.z;
-    // A gate at every junction: a county road's bends have none.
-    if (roads.isBend(node)) continue;
+    // A gate at every junction: a county road's bends have none but those the design names.
+    if (roads.isBend(node) && !gated.has(node.id)) continue;
     const previous = roads.nodes[nodes[index - 1]!]!;
     const next = roads.nodes[nodes[index + 1] ?? nodes[1]!]!;
     const inDir = Math.atan2(node.x - previous.x, node.z - previous.z);
@@ -179,8 +197,9 @@ function buildCourse(roads: RoadNetwork, design: CourseDesign): StreetRunCourse 
     const turn = Math.atan2(Math.sin(outDir - inDir), Math.cos(outDir - inDir));
     const road = roads.lanesBetween(node.id, next.id)[0]!.line;
     const instruction = Math.abs(turn) < 0.1 ? 'Straight' : turn < 0 ? 'Right' : 'Left';
-    // The whole junction box plus 3 m: a tight inside line through a corner passes near the box's corner.
-    checkpoints.push({ x: node.x, z: node.z, radius: Math.hypot(node.halfX, node.halfZ) + 3, label: `${instruction} · ${road.name}`, nodeId: node.id });
+    // The whole junction box plus 3 m: a tight inside line through a corner passes near the box's corner. At a bend,
+    // the road's whole width and 3 m either side.
+    checkpoints.push({ x: node.x, z: node.z, radius: (roads.isBend(node) ? road.width / 2 : Math.hypot(node.halfX, node.halfZ)) + 3, label: `${instruction} · ${road.name}`, nodeId: node.id });
   }
   checkpoints.push({ x: start.x, z: start.z, radius: 8, label: 'Finish', nodeId: nodes[0]! });
   distance += Math.hypot(start.x - px, start.z - pz);

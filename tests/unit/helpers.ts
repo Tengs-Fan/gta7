@@ -113,6 +113,64 @@ export function allFinite(sim: Sim): boolean {
   return sim.vehicles.every((v: Vehicle) => ok(v.pos) && Number.isFinite(v.heading) && Number.isFinite(v.vel.x)) && sim.characters.every((c: Character) => ok(c.pos) && ok(c.vel));
 }
 
+/**
+ * The shortest path from the first disc through every disc in order to the last, touching each anywhere in it (a race's
+ * shortest line through its gates), and its corners. Each disc is sampled on rings of 48 points, so it comes out a hair
+ * long.
+ */
+export function shortestThrough(discs: ReadonlyArray<{ x: number; z: number; r: number }>): { length: number; path: Array<{ x: number; z: number }> } {
+  const points = discs.map((d) => {
+    const out = [{ x: d.x, z: d.z }];
+    for (let ring = 1; ring <= 4 && d.r > 0; ring++) {
+      for (let k = 0; k < 48; k++) out.push({ x: d.x + Math.cos((k * Math.PI) / 24) * d.r * (ring / 4), z: d.z + Math.sin((k * Math.PI) / 24) * d.r * (ring / 4) });
+    }
+    return out;
+  });
+  let best = points[0]!.map(() => 0);
+  const from: number[][] = [];
+  for (let i = 1; i < points.length; i++) {
+    const cost: number[] = [];
+    const back: number[] = [];
+    for (const p of points[i]!) {
+      let c = Infinity;
+      let m = 0;
+      points[i - 1]!.forEach((q, j) => {
+        const v = best[j]! + Math.hypot(p.x - q.x, p.z - q.z);
+        if (v < c) {
+          c = v;
+          m = j;
+        }
+      });
+      cost.push(c);
+      back.push(m);
+    }
+    best = cost;
+    from.push(back);
+  }
+  let k = best.indexOf(Math.min(...best));
+  const length = best[k]!;
+  const path = [points.at(-1)![k]!];
+  for (let i = points.length - 1; i > 0; i--) {
+    k = from[i - 1]![k]!;
+    path.unshift(points[i - 1]![k]!);
+  }
+  return { length, path };
+}
+
+/** How far (x, z) is from the polyline through `pts`. */
+export function distanceToLine(x: number, z: number, pts: ReadonlyArray<{ x: number; z: number }>): number {
+  let d = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1)));
+    d = Math.min(d, Math.hypot(a.x + dx * t - x, a.z + dz * t - z));
+  }
+  return d;
+}
+
 // ---------------------------------------------------------------------------
 // Frozen copies of the city's own lookups, as they were before Las Lomas County joined the lane graph (docs/map.md):
 // tests/unit/city_guard.test.ts holds the live ones to them. They see only the grid (nodes with i >= 0, lanes on a road

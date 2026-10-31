@@ -99,7 +99,7 @@ afterEach(() => {
 });
 
 describe('street run gates', () => {
-  it('cover the whole junction box plus 3 m on every course, the finish keeps 8 m and the drawn ring matches', async () => {
+  it('cover the whole junction box plus 3 m on every course (a gated bend the road\'s width), the finish keeps 8 m and the drawn ring matches', async () => {
     const roads = world().roads;
     const rows: string[] = [];
     for (const course of allStreetRunCourses(roads)) {
@@ -109,7 +109,8 @@ describe('street run gates', () => {
           continue;
         }
         const node = roads.nodes[gate.nodeId]!;
-        expect(gate.radius, `${course.id} ${gate.label}`).toBe(Math.hypot(node.halfX, node.halfZ) + 3);
+        const half = roads.isBend(node) ? roads.lanesBetween(node.id, node.neighbors.find((n) => n >= 0)!)[0]!.line.width / 2 : Math.hypot(node.halfX, node.halfZ);
+        expect(gate.radius, `${course.id} ${gate.label}`).toBe(half + 3);
       }
       rows.push(`${course.id}: ${course.checkpoints.map((g) => g.radius.toFixed(2)).join(' ')}`);
     }

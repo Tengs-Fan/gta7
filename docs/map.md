@@ -243,8 +243,9 @@ It draws nothing from the city's generator (the stores' tints come from its own)
 - The scramble (`sim/activities/scramble.ts`) is two laps against the clock, ten gates a lap, in anything with wheels; its medals come from a scripted ride on a Viper 600.
 
 **The Las Lomas Loop** is the fourth street run, about 3 km: west down Magnolia Ave, over the Magnolia Causeway, through Dry Creek and round the Lomas Highway, home over the Southgate Bridge and north up Vista Ave.
-- A course's corners may name a county junction; the legs to and from one take the shortest way on, never back the way it came.
-- Its gates stand at junctions only, never at a bend, and its distance runs along the road.
+- A course's corners may name a county junction or a gated bend; the legs to and from one take the shortest way on, never back the way it came.
+- Its gates stand at junctions and at the apex of each of the Lomas Highway's two curves out west, at no other bend, and its distance runs along the road.
+  Without the curves' gates the 1.1 km round the west loop from the Hollister T to the Creek T had none, and a U-turn back through Dry Creek and down Creek Road (0.8 km) or a line across the fields (0.6 km) cut it; through both, a line across the fields saves about 45 m on the road's own racing line.
 - The green wave walks the course's gates, so it holds the gateways and Dry Creek for the racer; on the city's courses those are the same junctions as before.
 - `buildStreetRunCourses` keeps the city's three byte for byte, and the loop comes after them, so multiplayer offers it head-to-head as it does the others.
 
