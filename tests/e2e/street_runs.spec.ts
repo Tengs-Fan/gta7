@@ -7,7 +7,7 @@ const RUN_TIMEOUT = 60_000;
 async function chooseCourse(page: Page, id = 'magnolia'): Promise<void> {
   await page.locator('button[data-id="street-run"]').click();
   await expect(page.locator('.runs-panel h2')).toHaveText('PICK YOUR RUN.');
-  await expect(page.locator('.course-menu button[data-id^="course-"]')).toHaveCount(3);
+  await expect(page.locator('.course-menu button[data-id^="course-"]')).toHaveCount(4);
   await page.locator(`button[data-id="course-${id}"]`).click();
   await page.waitForFunction((courseId) => {
     const g = (window as Api).__gta7;
@@ -95,6 +95,30 @@ test.describe('street runs: player journeys', () => {
     expect(Math.hypot(driven.x! - start.x!, driven.z! - start.z!)).toBeGreaterThan(35);
     expect(driven.elapsed).toBeGreaterThan(1);
     await expect(page.locator('[data-el="status"]')).toContainText('GATE 2/');
+    expect((await state(page)).crashed).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  test('starts the Las Lomas Loop and holds W west down Magnolia Ave through the causeway gate', async ({ page }) => {
+    const errors = await boot(page);
+    await chooseCourse(page, 'laslomas');
+    await waitForGo(page);
+    const start = await snapshot(page);
+    await page.keyboard.down('KeyW');
+    try {
+      // The first two gates are Magnolia Ave's last junction and Harbor Blvd's, where the Magnolia Causeway leaves for Las
+      // Lomas County: one straight road, held green.
+      await page.waitForFunction(() => {
+        const j = (window as Api).__gta7.sim.activities.job;
+        return j?.kind === 'streetRun' && j.checkpoint >= 2;
+      }, null, { timeout: RUN_TIMEOUT });
+    } finally {
+      await page.keyboard.up('KeyW');
+    }
+    const driven = await snapshot(page);
+    expect(driven.x!).toBeLessThan(start.x! - 170);
+    await expect(page.locator('[data-el="status"]')).toContainText('GATE 3/');
+    await expect(page.locator('[data-el="objective"]')).toContainText('Lomas Highway');
     expect((await state(page)).crashed).toBe(false);
     expect(errors).toEqual([]);
   });

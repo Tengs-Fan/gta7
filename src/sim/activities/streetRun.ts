@@ -1,7 +1,7 @@
 import { formatMoney } from '../../core/math';
 import type { Vehicle } from '../entities';
 import type { Sim } from '../sim';
-import { buildStreetRunCourses, formatRunTime, greenWave, runMedal, type StreetRunCourse } from '../streetRuns';
+import { allStreetRunCourses, formatRunTime, greenWave, runMedal, type StreetRunCourse } from '../streetRuns';
 import type { ActivityDef, ActivityHost, Objective } from './types';
 
 export interface StreetRunJob {
@@ -23,7 +23,7 @@ const greenWaveHeld = new WeakMap<Sim, number[]>();
 
 export function streetRunCourses(sim: Sim): readonly StreetRunCourse[] {
   let courses = courseCache.get(sim);
-  if (!courses) courseCache.set(sim, (courses = buildStreetRunCourses(sim.roads)));
+  if (!courses) courseCache.set(sim, (courses = allStreetRunCourses(sim.roads)));
   return courses;
 }
 

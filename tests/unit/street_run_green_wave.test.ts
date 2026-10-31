@@ -7,7 +7,7 @@ import type { StreetRunJob } from '../../src/sim/activities';
 import { makeBrain } from '../../src/sim/brains';
 import type { Vehicle } from '../../src/sim/entities';
 import { Sim } from '../../src/sim/sim';
-import { buildStreetRunCourses, type StreetRunCourse } from '../../src/sim/streetRuns';
+import { allStreetRunCourses, buildStreetRunCourses, greenWave, type StreetRunCourse } from '../../src/sim/streetRuns';
 import { CROSSWALK_W } from '../../src/world/constants';
 import { SIGNAL_CYCLE, type Axis, type RoadNetwork } from '../../src/world/roads';
 import { StaticWorld } from '../../src/world/staticWorld';
@@ -102,7 +102,7 @@ describe('street run gates', () => {
   it('cover the whole junction box plus 3 m on every course, the finish keeps 8 m and the drawn ring matches', async () => {
     const roads = world().roads;
     const rows: string[] = [];
-    for (const course of buildStreetRunCourses(roads)) {
+    for (const course of allStreetRunCourses(roads)) {
       for (const gate of course.checkpoints) {
         if (gate.label === 'Finish') {
           expect(gate.radius).toBe(8);
@@ -234,6 +234,30 @@ describe('street run green wave', () => {
       expect(sim.roads.heldSignals.size).toBe(0);
       sim.activities.toggleJob();
     }
+  });
+
+  it('holds the Las Lomas Loop\'s gateways and Dry Creek along the loop, and the T\'s too while they keep their lights', () => {
+    const { sim, car, course } = setup('laslomas');
+    const roads = sim.roads;
+    const j = race(sim, 'laslomas');
+    const dc = roads.junction('drycreek').id;
+    const held: number[] = [];
+    for (let k = 0; k < course.checkpoints.length - 1; k++) {
+      const want = new Map(greenWave(course, roads, k).map((h) => [h.nodeId, h.axis]));
+      expect(new Map(roads.heldSignals), `before gate ${k + 1}`).toEqual(want);
+      held.push(...want.keys());
+      if (want.has(dc)) {
+        // Westbound off the causeway: the causeway and the highway green, Hollister Lane and Creek Road red.
+        expect(want.get(dc)).toBe('EW');
+        expectSignals(roads, want, sim.time);
+      }
+      driveTo(sim, car, course.checkpoints[k]!.x, course.checkpoints[k]!.z);
+      expect(j.checkpoint).toBe(k + 1);
+    }
+    expect(held).toEqual(expect.arrayContaining([roads.id(0, 2), dc, roads.id(0, 8)]));
+    for (const name of ['hollister', 'creek'] as const) if (roads.junction(name).signal) expect(held).toContain(roads.junction(name).id);
+    sim.activities.toggleJob();
+    expectReleased(sim);
   });
 
   it('is released on finish, cancel, running out of time, leaving the car, death, busted, a mission and quitting', () => {
@@ -388,7 +412,7 @@ describe('pedestrians at a held junction', () => {
 describe('street run medals', () => {
   it('are re-tuned below the old times for the faster laps and keep their inclusive boundaries', () => {
     for (const course of buildStreetRunCourses(world().roads)) {
-      const [gold, silver, bronze] = OLD_MEDALS[course.id];
+      const [gold, silver, bronze] = OLD_MEDALS[course.id as keyof typeof OLD_MEDALS];
       expect(course.gold).toBeLessThan(course.silver);
       expect(course.silver).toBeLessThan(course.bronze);
       expect(course.gold).toBeLessThan(gold);
