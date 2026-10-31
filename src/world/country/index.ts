@@ -9,6 +9,7 @@
 import { CROSSWALK_W, CURB_H, PROP_INSET, SEABED_Y, WATER_Y } from '../constants';
 import { addProp, mkRect, PARAPET_T, rectContains, type CityLayout, type Rect } from '../layout';
 import { riseAt, type Rise } from '../terrain';
+import { buildHills } from './hills';
 
 export type CountryRoadKind = 'highway' | 'country';
 
@@ -288,6 +289,11 @@ export function countryGraph(layout: CityLayout, roads: readonly CountryRoad[]):
 
 /** Ground height in the county and round it: flat on the land, a beach off its edge down to the seabed, and the rises. */
 export function countryGround(country: Country, x: number, z: number): number {
+  return countryFloor(country, x, z) + riseAt(country.rises, x, z);
+}
+
+/** The ground the county's rises stand on: flat on the land, a beach off its edge down to the seabed. */
+export function countryFloor(country: Country, x: number, z: number): number {
   const b = country.bounds;
   if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) return SEABED_Y;
   let d2 = Infinity;
@@ -296,7 +302,7 @@ export function countryGround(country: Country, x: number, z: number): number {
     const dz = Math.max(r.minZ - z, 0, z - r.maxZ);
     d2 = Math.min(d2, dx * dx + dz * dz);
   }
-  return beachHeight(Math.sqrt(d2)) + riseAt(country.rises, x, z);
+  return beachHeight(Math.sqrt(d2));
 }
 
 /** The beach's height `d` m off the land: WATER_Y at WATERLINE, the seabed from SEABED_OUT on. */
@@ -376,6 +382,7 @@ export function buildCountry(layout: CityLayout): void {
   }
   // The content passes go here, in this order, each one call that only appends: buildHills (the landscape), buildFarms,
   // buildPlaces.
+  buildHills(layout);
 }
 
 /** A node's place: a grid node's line crossing, or a county vertex. */

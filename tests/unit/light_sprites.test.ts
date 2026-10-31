@@ -7,7 +7,7 @@ import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPas
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { GLOW, glowLuminance, LightSprites, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
 import { LAMP_HEAD, PropsView } from '../../src/render/props';
-import { QUALITY } from '../../src/render/quality';
+import { COUNTRY_FOG_MARGIN, QUALITY } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
 import { StreetLighting } from '../../src/render/streetLighting';
 import { VehicleView } from '../../src/render/vehicleView';
@@ -451,5 +451,128 @@ describe('street lamp luminaires', () => {
     expect(c.getX(hi) + c.getY(hi) + c.getZ(hi)).toBe(0);
     props.restoreAll();
     expect(zero(target)).toBe(false);
+  });
+});
+
+describe('Las Lomas County at night', () => {
+  it("its reflector posts shine back at the player's lit car, only ahead of it and only at night", () => {
+    const sim = makeSim({ world: W });
+    for (const u of [...sim.vehicles]) sim.removeVehicle(u);
+    // North up the Lomas Highway's west leg.
+    const v = sim.spawnVehicle('sedan', -1330, 100, Math.PI);
+    placeInCar(sim, v);
+    const r = new GameRenderer(canvas(), W, { quality: 'low', fov: 68, gpu: HDR });
+    r.attach(sim);
+    r.cameraCtl.mode = 'play';
+    r.cameraCtl.reset(sim);
+    const glows = (hours: number) => {
+      sim.clock.set(hours);
+      for (let i = 0; i < 3; i++) r.render(1 / 60, false);
+      const ls = r.lightSprites;
+      const pos = ls.glows.geometry.getAttribute('position');
+      const out: number[] = [];
+      for (let i = 0; i < ls.counts.glows; i++) if (Math.abs(pos.getX(i) + 1330) > 6) out.push(pos.getZ(i));
+      return out;
+    };
+    const night = glows(23);
+    expect(night.length).toBeGreaterThan(3);
+    for (const z of night) expect(z).toBeLessThan(v.pos.z);
+    expect(glows(12)).toEqual([]);
+    r.dispose();
+  });
+
+  it("draws none of the props past the fog while the camera is off the city's land, and on it all of the city's but none of the county's past the fog", () => {
+    const sim = makeSim({ world: W });
+    sim.clock.set(12);
+    const r = new GameRenderer(canvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    r.attach(sim);
+    r.cameraCtl.mode = 'play';
+    const meshes: THREE.Mesh[] = [];
+    r.props.group.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.name !== 'lighthouseBeam') meshes.push(o);
+    });
+    // A batch of the county's own props alone (from country.firstProp on); a batch that mixes them with the city's is the city's.
+    const first = W.layout.country.firstProp;
+    const county = (m: THREE.Mesh) => (m.userData.propIndices as number[] | undefined)?.every((i) => i >= first) ?? false;
+    const at = (x: number, z: number) => {
+      sim.player.pos.x = x;
+      sim.player.pos.z = z;
+      sim.player.pos.y = W.groundHeight(x, z);
+      r.cameraCtl.reset(sim);
+      r.render(1 / 60, false);
+      return r.cameraCtl.camera.position;
+    };
+    const off = (m: THREE.Object3D, cam: THREE.Vector3) => {
+      const b = new THREE.Box3().setFromObject(m);
+      return Math.hypot(Math.max(b.min.x - cam.x, 0, cam.x - b.max.x), Math.max(b.min.z - cam.z, 0, cam.z - b.max.z));
+    };
+    // At Lookout Point on Coyote Ridge, the whole city 1-2.4 km off.
+    let cam = at(-1467.5, -100);
+    const reach = r.env.fog.far + COUNTRY_FOG_MARGIN;
+    let hidden = 0;
+    for (const m of meshes) {
+      if (off(m, cam) > reach + 9) {
+        expect(m.visible).toBe(false);
+        hidden++;
+      }
+    }
+    expect(hidden).toBeGreaterThan(300);
+    // In the city every one of the city's props is drawn, as before the county; the county's past the fog are not.
+    cam = at(0, 0);
+    let far = 0;
+    let near = 0;
+    for (const m of meshes) {
+      if (!county(m)) expect(m.visible).toBe(true);
+      else if (off(m, cam) > reach + 9) {
+        expect(m.visible).toBe(false);
+        far++;
+      } else if (off(m, cam) < reach - 9) {
+        expect(m.visible).toBe(true);
+        near++;
+      }
+    }
+    expect(far).toBeGreaterThan(20);
+    expect(near).toBeGreaterThan(5);
+    r.dispose();
+  });
+
+  it("leaves the activity sites' signs and the interaction markers undrawn past the fog while the camera is off the city's land, and draws them all on it", () => {
+    const sim = makeSim({ world: W });
+    sim.clock.set(12);
+    const r = new GameRenderer(canvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    r.attach(sim);
+    r.cameraCtl.mode = 'play';
+    const at = (x: number, z: number) => {
+      sim.player.pos.x = x;
+      sim.player.pos.z = z;
+      sim.player.pos.y = W.groundHeight(x, z);
+      r.cameraCtl.reset(sim);
+      r.render(1 / 60, false);
+      return r.cameraCtl.camera.position;
+    };
+    const signs: THREE.Mesh[] = [];
+    r.sites.group.traverse((o) => {
+      if (o instanceof THREE.Mesh) signs.push(o);
+    });
+    const markers = () => r.markers.group.children.filter((g) => g.getObjectByName('beam') && g.getObjectByName('icon'));
+    // At Lookout Point every site and marker is in the city, past the fog.
+    const cam = at(-1467.5, -100);
+    const reach = r.env.fog.far + COUNTRY_FOG_MARGIN;
+    expect(signs.length).toBeGreaterThan(20);
+    for (const m of signs) {
+      const b = new THREE.Box3().setFromObject(m);
+      expect(Math.hypot(Math.max(b.min.x - cam.x, 0, cam.x - b.max.x), Math.max(b.min.z - cam.z, 0, cam.z - b.max.z))).toBeGreaterThan(reach);
+      expect(m.visible).toBe(false);
+    }
+    expect(markers().length).toBeGreaterThan(10);
+    for (const g of markers()) {
+      expect(Math.hypot(g.position.x - cam.x, g.position.z - cam.z)).toBeGreaterThan(reach);
+      expect(g.visible).toBe(false);
+    }
+    // In the city they are all drawn, as before the county.
+    at(0, 0);
+    expect(signs.every((m) => m.visible)).toBe(true);
+    for (const g of markers()) expect(g.visible || Math.hypot(g.position.x - r.cameraCtl.camera.position.x, g.position.z - r.cameraCtl.camera.position.z) < 5).toBe(true);
+    r.dispose();
   });
 });

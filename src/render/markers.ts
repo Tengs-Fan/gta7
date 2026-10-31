@@ -234,9 +234,10 @@ export class MarkerView {
 
   /**
    * Mirrors the interaction markers. Given the camera's position, each fades out near it (see markerFade),
-   * except one the player (at `player`) stands in or has just stepped off (MARKER_LEAVE, MARKER_LENS_NEAR).
+   * except one the player (at `player`) stands in or has just stepped off (MARKER_LEAVE, MARKER_LENS_NEAR), and one
+   * farther than `reach` m from it, fully fogged, is not drawn.
    */
-  syncMarkers(markers: readonly Marker[], time: number, cam?: { x: number; y: number; z: number }, player?: { x: number; z: number }, aiming = false): void {
+  syncMarkers(markers: readonly Marker[], time: number, cam?: { x: number; y: number; z: number }, player?: { x: number; z: number }, aiming = false, reach = Infinity): void {
     const seen = new Set<string>();
     const dt = Math.min(0.1, Math.max(0, time - this.markerTime));
     this.markerTime = time;
@@ -272,6 +273,7 @@ export class MarkerView {
         // ...but not right in front of the lens once he is past its edge.
         const lens = 1 - smooth(m.radius - 0.3, m.radius, away) * (1 - smooth(MARKER_LENS_NEAR, MARKER_LENS_FAR, d));
         fade = Math.max(smooth(MARKER_FADE_NEAR, MARKER_FADE_FAR, d), kept * lens);
+        if (Math.hypot(cam.x - m.x, cam.z - m.z) > reach) fade = 0;
       }
       g.visible = fade > 0;
       ((g.getObjectByName('beam') as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = MARKER_ALPHA * fade;

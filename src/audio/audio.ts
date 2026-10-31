@@ -1085,7 +1085,7 @@ export class AudioEngine {
     // A broken camera pose keeps the bed as it was rather than reading NaN places.
     if (!finite(L.x, L.y, L.z, L.yaw)) return;
     const world = sim.world;
-    const shore = shoreInfo(world.bounds, L.x, L.z, this.shore, this.waterRects(world));
+    const shore = shoreInfo(world.bounds, L.x, L.z, this.shore, this.waterRects(world), world.layout.country);
     const rx = -Math.cos(L.yaw);
     const rz = Math.sin(L.yaw);
     // Moving traffic within 120 m (in 3D: rooftops and the title flyover hear the street from afar), speed-weighted, and where it is.

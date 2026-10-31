@@ -1,8 +1,9 @@
 // The places a multiplayer client marks in the world and what standing on one says: the head-to-head Street Run
 // starts, and the single-player places (contacts, the safehouse, properties, Lou's export board, gun shops, the Gull
-// Regatta at the Marina, AzuraLink's stations) with the reason they do nothing here. The server's sim gives the same
-// answer if E is pressed there. Pure TypeScript.
+// Regatta at the Marina, AzuraLink's stations, the Coyote Ridge Hill Climb's foot gate) with the reason they do nothing
+// here. The server's sim gives the same answer if E is pressed there. Pure TypeScript.
 
+import { HILL_CLIMB_START, MP_NO_HILL_CLIMB } from '../sim/activities/hillClimb';
 import { MP_NO_MONORAIL } from '../sim/activities/monorail';
 import { places } from '../sim/activities/places';
 import { MP_NO_REGATTA } from '../sim/activities/regatta';
@@ -43,6 +44,7 @@ function markersOf(world: StaticWorld): Marker[] {
   const bay = at.customsBay;
   out.push({ id: 'azura_customs', kind: 'customs', x: (bay.minX + bay.maxX) / 2, z: (bay.minZ + bay.maxZ) / 2, radius: 0, label: '', color: 0xb36bff, ref: 'customs', blip: { color: '#b36bff', label: 'C' } });
   world.layout.monorail.stations.forEach((s, i) => out.push(monorailMarker(s.foot, i, MP_NO_MONORAIL)));
+  out.push({ id: 'hillClimb', kind: 'hillClimb', x: HILL_CLIMB_START.x, z: HILL_CLIMB_START.z, radius: HILL_CLIMB_START.radius, label: MP_NO_HILL_CLIMB, color: 0x50f1d1, ref: 'hillClimb' });
   // The course list is built from the road graph alone, which streetRunCourses reads off a Sim.
   for (const c of streetRunCourses({ roads: world.roads } as unknown as Sim)) {
     out.push({ id: `race:${c.id}`, kind: 'streetRun', x: c.start.x, z: c.start.z, radius: 8, label: `Press T to race ${c.name} head-to-head`, color: 0x50f1d1, ref: c.id });

@@ -1,6 +1,7 @@
 // VAL-W1X-007: the wave-1 activities are on the map, in a legend row of their own that hides and shows them.
 
 import { describe, expect, it } from 'vitest';
+import { HILL_CLIMB_START } from '../../src/sim/activities/hillClimb';
 import { places } from '../../src/sim/activities/places';
 import { REGATTA_START } from '../../src/sim/activities/regatta';
 import { collectBlips, MAP_CATEGORIES } from '../../src/ui/mapRender';
@@ -22,6 +23,7 @@ describe('activity sites on the map', () => {
       { what: 'courier office', x: at.courier.x, z: at.courier.z },
       { what: "Lou's export board", x: marker('export_board').x, z: marker('export_board').z },
       { what: 'Gull Regatta start', x: REGATTA_START.x, z: REGATTA_START.z },
+      { what: 'Coyote Ridge Hill Climb foot gate', x: HILL_CLIMB_START.x, z: HILL_CLIMB_START.z },
     ];
     const shown = collectBlips(sim, 0, 0, { map: true }).filter((b) => b.category === 'activities');
     const rows: string[] = [];

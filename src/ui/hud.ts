@@ -353,7 +353,7 @@ export class Hud {
         if (!this.mine(e)) return;
         const j = sim.activities.job;
         this.bigQueue = [];
-        this.showBig({ text: e.count === 0 ? 'GO' : String(e.count), sub: j?.kind === 'streetRun' ? j.course.name : j?.kind === 'regatta' ? 'GULL REGATTA' : 'STREET RUN', style: 'info', duration: e.count === 0 ? 1.1 : 1.2 });
+        this.showBig({ text: e.count === 0 ? 'GO' : String(e.count), sub: j?.kind === 'streetRun' ? j.course.name : j?.kind === 'regatta' ? 'GULL REGATTA' : j?.kind === 'hillClimb' ? 'COYOTE RIDGE HILL CLIMB' : 'STREET RUN', style: 'info', duration: e.count === 0 ? 1.1 : 1.2 });
         this.el.big!.classList.add('countdown');
       }),
       ev.on('streetRunCheckpoint', (e) => {

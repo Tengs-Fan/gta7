@@ -4,7 +4,7 @@ import { rayCapsule, rayCylinderY, rayObb3, type OBB } from '../core/collision';
 import { clamp, pointSegDist, wrapAngle, type V3 } from '../core/math';
 import { makeRayHit, type RayHit } from '../world/colliders';
 import { WATER_Y } from '../world/constants';
-import { riseAt, riseRay } from '../world/terrain';
+import { riseAt } from '../world/terrain';
 import { makeBrain } from './brains';
 import type { CharState, Character, Vehicle } from './entities';
 import { Projectile } from './entities';
@@ -854,9 +854,10 @@ export class CombatSystem {
       res.ny = hit.ny;
       res.nz = hit.nz;
     }
-    // The slopes of the rises (world/terrain.ts), followed exactly.
+    // The slopes of the rises (world/terrain.ts), the city's and Las Lomas County's, followed exactly.
     const rises = sim.world.layout.rises;
-    const tr = riseRay(rises, ox, oy, oz, dx, dy, dz, minT, res.t);
+    const county = sim.world.layout.country.rises;
+    const tr = sim.world.riseRay(ox, oy, oz, dx, dy, dz, minT, res.t);
     if (tr >= 0) {
       res.t = tr;
       res.kind = 'world';
@@ -867,11 +868,11 @@ export class CombatSystem {
     // Ground plane hit (roads / beach). The estimate holds on level ground, so it is taken under the rises: on a slope
     // it would stop a shot fired down it in mid-air.
     if (dy < -1e-4) {
-      const tg = (sim.world.groundHeight(ox, oz) - riseAt(rises, ox, oz) - oy) / dy;
+      const tg = (sim.world.groundHeight(ox, oz) - riseAt(rises, ox, oz) - riseAt(county, ox, oz) - oy) / dy;
       if (tg >= 0 && tg < res.t) {
         const gx = ox + dx * tg;
         const gz = oz + dz * tg;
-        const tg2 = (sim.world.groundHeight(gx, gz) - riseAt(rises, gx, gz) - oy) / dy;
+        const tg2 = (sim.world.groundHeight(gx, gz) - riseAt(rises, gx, gz) - riseAt(county, gx, gz) - oy) / dy;
         if (tg2 >= minT && tg2 < res.t) {
           res.t = tg2;
           res.kind = 'world';

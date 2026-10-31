@@ -177,7 +177,7 @@ Every older prop index, collider and pickup, the mission spots and the open spot
 
 ## Las Lomas: roads outside the grid
 
-Las Lomas County is about 0.9 km² of flat farmland on six rectangles west of the city, across Lomas Sound (x -700 to -512), with a beach round it (`src/world/country/index.ts`).
+Las Lomas County is about 0.9 km² of farmland on six rectangles west of the city, across Lomas Sound (x -700 to -512), with Coyote Ridge along its west coast and a beach round it (`src/world/country/index.ts`).
 Two links reach it: the Magnolia Causeway, which runs Magnolia Ave on from Harbor Blvd as a 16 m highway on a headland of its own with grass verges, lamps every 30 m and quay walls and rocks along its sides, and the Southgate Bridge, which carries Southgate Ave over the sound on a deck under a steel through-arch.
 Its 3.3 km of roads join the city's lane graph, so traffic, the police, the cab, the GPS and the radar all know them:
 
@@ -210,6 +210,33 @@ Every plot but the town keeps 12 m off the road edges, and every road keeps 30 m
 The content passes go at the end of `buildCountry`, each one call that only appends, in this order: the landscape, the farms, the places.
 They add no open spot (the hidden packages are placed over the open spots), append parking bays only at the end, stand their props on `countryGround`, and keep their rises in `layout.country.rises`, which only the county's ground reads.
 The HUD and the scanner name the plot you are in, or Las Lomas County.
+
+**The landscape.**
+`buildHills` (`src/world/country/hills.ts`) is the first content pass, and keeps every rule above.
+- **Coyote Ridge** runs along the west coast, round 2's `terrain.ts` with a third kind of rise, the `'ridge'`: a crest along x -1475, 24 m high and 20 m wide across its flat top from z -470 to -80, falling away in a cosine on each side and at each end.
+  Its east flank falls over 115 m to its foot 12 m off the Lomas Highway's west leg (32.8% at its steepest), its west flank over 108 m to the beach (34.9%), running 33 m out over the sand, and its north end over 110 m to the north shore (34.3%), which a Nightjar takes at 60 m/s.
+  Its south end is a 270 m shoulder (14% at its steepest), the one the fire road climbs.
+- **Five foothills**, cosine bells of 4 to 10 m, stand on the wild ground: Coyote Knoll north of the highway's bend, Gulch Hill west of Gravel Gulch, Cove Rise by the south cove, Sound Bluff on the sound's shore south of Dry Creek, and Bend Knoll inside the bend.
+  No two rises overlap.
+- **The contract**, tested on a 1 m lattice: every rise is 0 within 12 m of every road's edge, on every plot but the wild ones and at every verge node, so the roads, the verges, the farms and the places stay flat.
+- **Six wind turbines** stand along the ridge's top, on the west half of its line, 110 m apart and at least 40 m from Lookout Point, Turbine Row's kind and renderer on a foundation of their own: their towers stop cars, shots and sight from 1 m under the ground up past the nacelle.
+  Four stand on the crest, the first just off its north end, and the last two past Lookout Point down the south shoulder, 22 m and 9 m up: a row of six 110 m apart runs 550 m, and the 390 m crest keeps 40 m clear of the lookout.
+  Two belts of trees line the ridge's east foot, and bushes (no collider) grow over the slopes.
+- **Sight and shots.** The county's rises live in `country.rises`, which only `countryGround` reads, so the city's `baseGround` still loops over its own two.
+  Lines of sight, shots and the camera's terrain test follow them as they do the city's (`riseRay` over the ground they stand on: the county's own, with no curb, and past the land's edge the beach the ridge's west flank runs out over), and their sight cores, twelve for the ridge, are appended after every older collider.
+  The cores are kept inside the land, since the ridge's west flank runs on over the beach, where the ground is lower than the rise alone.
+  Two people on the crest see each other; across the ridge at a man's height nothing is seen.
+  A swimmer off the west beach is seen from the sand, from a boat and from the air, and a shot reaches him.
+- **The fire road** is a 6 m gravel track, drawn only, from a turn-off on the west leg up the ridge's south shoulder in five axis-aligned switchbacks and along the crest's flat top to the car park at Lookout Point, 297 m and 17.1% at its steepest, on ground no steeper than 21%.
+  It is not in the lane graph: traffic never takes it, and past 45 m off the road the police come up it on foot.
+- **Lookout Point** is a flat car park on the crest, 24 m up, facing the city 1.4 km off across the county and the sound, with a parapet along its east edge, a plaque (LOOKOUT POINT. ELEV. 24 M. THE CITY LOOKS BETTER FROM HERE. SO DOES EVERYTHING.), a coin telescope (VIEWS 25 CENTS. CITY SOLD SEPARATELY.) and a timber fire lookout on four posts.
+- **The Coyote Ridge Hill Climb** (`src/sim/activities/hillClimb.ts`) starts from a foot gate on the turn-off: in any road vehicle there, T starts a timed run through six gates in order up the fire road to Lookout Point.
+  Its medal times come from a scripted Nightjar run of 14.95 s: gold 15.7 s, silver 18.7 s and bronze 23.9 s, paying $1,000, 70% and 45%.
+  The best run is saved with the activity records, and it is single player only.
+- **The beaches.** The county's coast is beach all round: the sand runs 8 m out from the land's edge to the waterline and falls to the flat seabed 45 m out.
+  The sea draws it from a depth map baked from the county's ground, so turquoise shallows ring its coves and points for about 15 m past the waterline, with surf bands and swash on the sand, and Lomas Sound stays blue between it and the city.
+  The surf is heard anywhere on the county's land within about 180 m of its waterline; the causeway's quay walls make none.
+- **Reflector posts**, drawn only, stand every 25 m along both edges of every county road on the land, clear of the junctions and of Dry Creek.
 
 ## Rejected, and why
 
@@ -263,4 +290,4 @@ A three-car monorail runs along Cortez Canal on a beam 9.6 m up, from Northshore
 - The Magnolia Causeway and the Southgate Bridge close the middle of Lomas Sound, and Pelican Harbor with it, to boats: decks and headlands stop them.
 - Pedestrians can spawn on the promenade's two crossings at the links' mouths, which keep their places among the walking edges.
 - A pursuit into Las Lomas County thins out: with no buildings to hide them, units are placed only out of sight, and on the long straights a fast car outruns them; its tuning is the county traffic round's.
-- The county's beaches sit on the sea's deep-water colour, without shallows or surf.
+- The county's reflector posts are drawn only: a car passes through them.

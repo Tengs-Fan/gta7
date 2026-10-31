@@ -9,7 +9,7 @@ import { BEACH_W, CURB_H, LANE_W, SAND_DROP, WATER_Y } from '../../world/constan
 import type { StaticWorld } from '../../world/staticWorld';
 import { assets } from '../assets';
 import { cloudNoiseTexture, groundSurface, type GroundTex } from '../textures';
-import { seaDrawnDepth, surfPhases } from '../sea';
+import { countyShore, seaDrawnDepth, surfPhases, type CountyShore } from '../sea';
 
 export type GroundDetail = 'road' | 'lot' | 'kerb' | 'curb' | 'grass' | 'sand' | 'plain';
 export type AnisoTier = 'high' | 'medium' | 'low' | 'software';
@@ -403,6 +403,7 @@ export function rectRange(start: number, end: number, rect: readonly [number, nu
 export function registerGroundDebug(view: { world: StaticWorld; ground: GroundSurfaces }): void {
   const g = view.ground;
   const b = view.world.layout.bounds;
+  let county: CountyShore | null = null;
   registerDebug('ground', {
     /** Anisotropy, every ground texture with its size and filtering, their GPU estimate, and the decal counts. */
     info: () => ({
@@ -420,8 +421,11 @@ export function registerGroundDebug(view: { world: StaticWorld; ground: GroundSu
     }),
     manholes: () => g.manholes.map((m) => ({ ...m })),
     tyreMarks: () => g.tyreMarks.map((m) => ({ node: m.node, points: m.points.map((p) => ({ ...p })) })),
-    /** The sim's water depth at (x, z) and the depth the sea is drawn with (the render-only shelf offshore). */
-    seaDepth: (x: number, z: number) => ({ sim: view.world.waterDepth(x, z), drawn: seaDrawnDepth(b, x, z) }),
+    /**
+     * The sim's water depth at (x, z) and the depth the sea is drawn with (the render-only shelf offshore, Las Lomas
+     * County's beaches from its depth map, baked on the first call).
+     */
+    seaDepth: (x: number, z: number) => ({ sim: view.world.waterDepth(x, z), drawn: seaDrawnDepth(b, x, z, (county ??= countyShore(view.world.layout.country))) }),
     /** The beach's waterline (waterDepth 0 contour) and the wet sand band's inland reach (frayed up to +2.6 m). */
     shore: () => ({ waterlineX: b.beachStartX + (BEACH_W * (CURB_H - WATER_Y)) / SAND_DROP, wetBand: WET_SAND_BAND, landMinZ: b.landMinZ, landMaxZ: b.landMaxZ }),
   });

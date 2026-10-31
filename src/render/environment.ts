@@ -5,8 +5,9 @@ import { clamp, lerp, smoothstep } from '../core/math';
 import { darkness, sunIntensity } from '../sim/clock';
 import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
-import type { Bounds } from '../world/layout';
-import { patchSeaMaterial, seaGrid, seaPlane, seaUniforms, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaUniforms } from './sea';
+import { CAUSEWAY_NAME } from '../world/country';
+import { mkRect, type CityLayout, type Rect } from '../world/layout';
+import { countyShore, patchSeaMaterial, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 import { CALM_SEA } from './waves';
 import { assets } from './assets';
@@ -73,6 +74,31 @@ export function cityGlow(hours: number): number {
 const CITY_GLOW = new THREE.Color(0.1, 0.045, 0.006);
 /** The glow's falloff with the sine of the elevation: half strength about 6 degrees up. */
 const CITY_GLOW_FALL = 6.5;
+/**
+ * Off the city's land the glow gathers over the city's own horizon: uCityAway runs from 0 on the land (the beach and
+ * the city's headlands included) to 1 CITY_AWAY_RANGE m off it, and as it does the glow narrows to the cube of the cosine of the bearing off
+ * the city's centre, the stars grow 1 + STARS_AWAY times as bright and the fog takes FOG_GLOW_AWAY less of the night's
+ * horizon glow. On the land nothing changes.
+ */
+export const CITY_AWAY_RANGE = 600;
+const STARS_AWAY = 1.5;
+const FOG_GLOW_AWAY = 0.7;
+
+/** uCityAway for a camera at (x, z): 0 on the city's land `land` (cityLand), rising smoothly to 1 CITY_AWAY_RANGE m off it. */
+export function cityAway(land: readonly Rect[], x: number, z: number): number {
+  let d = Infinity;
+  for (const r of land) d = Math.min(d, Math.hypot(Math.max(r.minX - x, 0, x - r.maxX), Math.max(r.minZ - z, 0, z - r.maxZ)));
+  return smoothstep(0, CITY_AWAY_RANGE, d);
+}
+
+/**
+ * The city's land for its glow: the land with its beach, and its headlands (Azura Point and Smuggler's Key), not the
+ * causeway that leads off it.
+ */
+export function cityLand(layout: CityLayout): Rect[] {
+  const b = layout.bounds;
+  return [mkRect(b.landMinX, b.landMinZ, b.beachEndX, b.landMaxZ), ...layout.headlands.filter((h) => h.name !== CAUSEWAY_NAME).flatMap((h) => h.rects)];
+}
 
 /**
  * How much of the image-based light's map comes from the sky HDRI (src/assets/env/sky_1k.hdr) rather than the analytic
@@ -613,6 +639,9 @@ uniform vec3 uTop;
 uniform vec3 uHorizon;
 uniform vec3 uGlow;
 uniform vec3 uCityGlow;
+// Towards the city's centre (xz), and how far off the city's land the camera is (cityAway).
+uniform vec2 uCityGlowDir;
+uniform float uCityAway;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uMoonDir;
@@ -793,15 +822,20 @@ void main() {
   vec3 d = normalize(vDir);
   float h = clamp(d.y, -1.0, 1.0);
   float t = pow(clamp(h, 0.0, 1.0), 0.55);
-  // The city's warm glow hangs low over the horizon at night.
+  vec2 hz = normalize(d.xz + vec2(1e-5));
+  // The city's warm glow hangs low over the horizon at night: all round it on the city's land, gathering over the city
+  // as the camera leaves it (exactly 1 while uCityAway is 0).
+  float toCity = max(dot(hz, uCityGlowDir), 0.0);
+  float cityK = mix(1.0, toCity * toCity * toCity, uCityAway);
   vec3 horizon = uHorizon + uGlow;
-  vec3 col = max(mix(uHorizon, uTop, t) + uGlow * exp(-max(h, 0.0) * 9.0) + uCityGlow * exp(-max(h, 0.0) * ${CITY_GLOW_FALL.toFixed(2)}), vec3(0.0));
+  vec3 col = max(mix(uHorizon, uTop, t) + uGlow * exp(-max(h, 0.0) * 9.0) + uCityGlow * cityK * exp(-max(h, 0.0) * ${CITY_GLOW_FALL.toFixed(2)}), vec3(0.0));
   // Below the horizon fade towards a darker haze.
   if (h < 0.0) col = mix(horizon, horizon * 0.55, clamp(-h * 4.0, 0.0, 1.0));
   float pix = max(length(fwidth(d)), 1e-6);
   float sd = max(dot(d, uSunDir), 0.0);
   col += uSunColor * (pow(sd, 900.0) * 18.0 + pow(sd, 12.0) * 0.35 + pow(sd, 3.0) * 0.12) * smoothstep(SUN_LO, SUN_HI, uSunDir.y);
-  if (h > 0.0 && uStars > 0.0) col += stars(d, pix) * uStars * smoothstep(0.02, 0.25, h);
+  // Brighter away from the city's light.
+  if (h > 0.0 && uStars > 0.0) col += stars(d, pix) * uStars * (1.0 + ${STARS_AWAY.toFixed(1)} * uCityAway) * smoothstep(0.02, 0.25, h);
   if (uMoon > 0.0) {
     vec3 md = d - uMoonDir;
     float m = length(md);
@@ -823,7 +857,6 @@ void main() {
   // Hills across the bay to the north, west and south (the open ocean lies east): a far ridge about
   // 6 km out and a nearer one at 3.5 km, both standing on the sea, hazed towards the horizon colour.
   if (h < 0.12) {
-    vec2 hz = normalize(d.xz + vec2(1e-5));
     float present = 1.0 - smoothstep(0.05, 0.85, hz.x);
     if (present > 0.0) {
       float lightK = 1.0 - 0.92 * uNight;
@@ -929,6 +962,8 @@ export class Environment {
         uHorizon: { value: new THREE.Color() },
         uGlow: { value: new THREE.Color(0, 0, 0) },
         uCityGlow: { value: new THREE.Color(0, 0, 0) },
+        uCityGlowDir: { value: new THREE.Vector2() },
+        uCityAway: { value: 0 },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uSunColor: { value: new THREE.Color() },
         uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
@@ -1145,9 +1180,20 @@ export class Environment {
     if (this.scene.environment !== target.texture) this.scene.environment = target.texture;
   }
 
-  /** The shoreline's terrain (the layout's land and beach). */
-  setShore(b: Bounds): void {
+  /** The city's land for its glow (cityLand), and its centre; until setShore the whole world is the city's. */
+  private glowLand = [mkRect(-Infinity, -Infinity, Infinity, Infinity)];
+  private readonly cityCentre = new THREE.Vector2();
+
+  /**
+   * The shoreline's terrain (the layout's land and beach, and Las Lomas County's beaches, baked from its ground), and
+   * the city's land and centre for its glow on the night sky.
+   */
+  setShore(layout: CityLayout): void {
+    const b = layout.bounds;
     setShore(this.sea, b);
+    setCountyShore(this.sea, countyShore(layout.country));
+    this.glowLand = cityLand(layout);
+    this.cityCentre.set((b.cityMinX + b.cityMaxX) / 2, (b.cityMinZ + b.cityMaxZ) / 2);
   }
 
   /**
@@ -1226,6 +1272,9 @@ export class Environment {
     (u.uGlow!.value as THREE.Color).copy(glow);
     // Overcast, the deck catches it from below instead (see clouds()); rain and storms keep it.
     (u.uCityGlow!.value as THREE.Color).copy(CITY_GLOW).multiplyScalar(cityGlow(hours) * (1 - 0.5 * cloud));
+    const away = cityAway(this.glowLand, camera.position.x, camera.position.z);
+    u.uCityAway!.value = away;
+    (u.uCityGlowDir!.value as THREE.Vector2).set(this.cityCentre.x - camera.position.x, this.cityCentre.y - camera.position.z).normalize();
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);
     (u.uSunColor!.value as THREE.Color).copy(s.sun);
     (u.uMoonDir!.value as THREE.Vector3).copy(moonDir);
@@ -1273,7 +1322,7 @@ export class Environment {
     this.hemi.intensity = hemiLight(s, night, this.hemi.color, this.hemi.groundColor) * (1 + 0.25 * cloud) * (1 - 0.15 * rain - 0.15 * storm) + FLASH_HEMI * flash;
     if (cloud > 0) weatherTint(this.hemi.color, luminance(this.hemi.color), 0.6 * cloud, 1);
 
-    this.fog.color.copy(s.horizon).lerp(NIGHT_HORIZON_GLOW, dark * FOG_GLOW_STRENGTH).lerp(s.top, 0.15 * (1 - night));
+    this.fog.color.copy(s.horizon).lerp(NIGHT_HORIZON_GLOW, dark * FOG_GLOW_STRENGTH * (1 - FOG_GLOW_AWAY * away)).lerp(s.top, 0.15 * (1 - night));
     this.fog.near = (this.software ? lerp(70, 50, night) : lerp(180, 90, night)) * (1 - (1 - HAZE_NEAR) * haze);
     this.fog.far = (this.software ? 220 : lerp(780, 520, night)) * (1 - (1 - HAZE_FAR) * haze);
     const envI = envIntensity(night);
@@ -1382,6 +1431,7 @@ export class Environment {
     this.cloudNoise.dispose();
     this.seaPlane.dispose();
     this.seaGridGeo?.dispose();
+    this.sea.uCountyDepth.value?.dispose();
     this.cubeTarget?.dispose();
     this.envTarget?.dispose();
     this.pmrem?.dispose();

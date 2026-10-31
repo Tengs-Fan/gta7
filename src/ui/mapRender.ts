@@ -11,10 +11,11 @@ import { playerColor } from '../sim/appearance';
 import { packageIndex } from '../sim/pickups';
 import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
+import { FIRE_ROAD_W, fireRoadLine } from '../world/country/hills';
 import { beachOffsetAt, rectContains } from '../world/layout';
 import { foreshoreReach, shores } from '../world/shore';
 import type { StaticWorld } from '../world/staticWorld';
-import { riseAt, riseBounds } from '../world/terrain';
+import { riseAt, riseBounds, type Rise } from '../world/terrain';
 
 export const MAP_SCALE = 1; // pixels per metre in the pre-rendered image
 const PACKAGE_COLOR = '#f5cd80';
@@ -122,7 +123,16 @@ export class MapImage {
     }
     for (const d of world.layout.decks) rect(d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ, d.bridge ? '#9aa1aa' : '#7b5a3a');
     strokeRoads();
-    // Turbine Row's towers out at sea.
+    // Coyote Ridge's fire road, a gravel track up to Lookout Point.
+    ctx.strokeStyle = '#8a7a58';
+    ctx.lineWidth = FIRE_ROAD_W * MAP_SCALE;
+    ctx.beginPath();
+    for (const [k, p] of fireRoadLine(4).entries()) {
+      if (k === 0) ctx.moveTo(X(p.x), Z(p.z));
+      else ctx.lineTo(X(p.x), Z(p.z));
+    }
+    ctx.stroke();
+    // The turbines' towers: Turbine Row's out at sea, and Coyote Ridge's.
     ctx.fillStyle = '#c9d2da';
     for (const p of world.layout.props) {
       if (p.kind !== 'turbine') continue;
@@ -147,12 +157,15 @@ export class MapImage {
 const SHADE_CELL = 2;
 
 /**
- * Hillshade over the rises, in one pass over their bounds: the ground darkens with its slope, most where it faces away
- * from a light in the north-west (top left), and lightens a little where it faces the light, so the hill and the bluff
- * read as relief; the bluff's cliffs come out as a dark rim.
+ * Hillshade over the rises, the city's and Las Lomas County's, in one pass over their bounds: the ground darkens with its
+ * slope, most where it faces away from a light in the north-west (top left), and lightens a little where it faces the
+ * light, so the hill, the bluff, Coyote Ridge and the foothills read as relief; the bluff's cliffs come out as a dark rim.
  */
 function hillshade(ctx: CanvasRenderingContext2D, world: StaticWorld, X: (x: number) => number, Z: (z: number) => number): void {
-  const rises = world.layout.rises;
+  for (const rises of [world.layout.rises, world.layout.country.rises]) hillshadeOf(ctx, rises, X, Z);
+}
+
+function hillshadeOf(ctx: CanvasRenderingContext2D, rises: readonly Rise[], X: (x: number) => number, Z: (z: number) => number): void {
   const h = (x: number, z: number) => riseAt(rises, x, z);
   for (const r of rises) {
     const b = riseBounds(r);

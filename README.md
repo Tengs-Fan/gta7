@@ -59,7 +59,7 @@ To play with friends on your network, run the optional multiplayer server (see [
 | Radio next / previous (vehicle) | R / Q | D-pad right / left |
 | Enter / exit vehicle (also carjacks) | F or Enter | Y |
 | Interact: missions, shop, save, retry, skip dialogue | E | D-pad up |
-| Start / cancel a street run (road car), taxi job (taxi), vigilante job (police vehicle), or the Gull Regatta (boat at the Marina) | T | D-pad down |
+| Start / cancel a street run (road car), taxi job (taxi), vigilante job (police vehicle), the Gull Regatta (boat at the Marina), or the Coyote Ridge Hill Climb (at the foot of the fire road) | T | D-pad down |
 | Phone (on foot), answer a call | Tab | D-pad right |
 | Camera distance | V | R3 |
 | Map | M | Back |
@@ -94,9 +94,12 @@ To play with friends on your network, run the optional multiplayer server (see [
   Out in the bay to the north the ten wind turbines of Turbine Row turn with the wind and blink red after dark, and off the mouth of Northshore Bay lies Smuggler's Key, a rocky island with the ruins of Fort Contraband, its old guns, a wrecked fishing boat, a jetty and a stash of guns and armor in the ruins: get there by boat or swim.
   AzuraLink, a three-car monorail, glides along Cortez Canal on a beam 10 m up, over every street bridge, between Northshore station on the north promenade and Seaview on the south; it keeps to its timetable, waits 20 s at each end with its doors open, and after dark its lit windows and underglow slide along the canal.
   Parody shopfronts (DONUTS, PAWN, TACOS, BAIL BONDS and more), tower lobbies and house porches line the streets, and lamp posts, traffic signals, fire hydrants, bins and benches break.
-- **Las Lomas County.** West across Lomas Sound lies a county of flat farmland with sandy beaches and two coves (WELCOME TO LAS LOMAS COUNTY. POPULATION: MOSTLY COWS.), reached over the Magnolia Causeway, a rock-armoured highway with lamps every 30 m off Magnolia Ave at Harbor Blvd, and the Southgate Bridge under its steel arch off Southgate Ave.
+- **Las Lomas County.** West across Lomas Sound lies a county of farmland with sandy beaches and two coves (WELCOME TO LAS LOMAS COUNTY. POPULATION: MOSTLY COWS.), reached over the Magnolia Causeway, a rock-armoured highway with lamps every 30 m off Magnolia Ave at Harbor Blvd, and the Southgate Bridge under its steel arch off Southgate Ave.
   The Lomas Highway loops round it through Dry Creek's crossroads, with curves the traffic, the police, the cab and the GPS all follow; Hollister Lane circles the farm and Creek Road runs south to the Creek T.
-  The HUD, the map and the police scanner name its places: Dry Creek, Hollister Bottoms, the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge, so far fields waiting for their farms and places (see [docs/map.md](docs/map.md)).
+  Along its west coast rises Coyote Ridge, 24 m of grass and scrub with six wind turbines turning on the crest (stand under one and look up), tree belts along its foot and foothills rolling between the farms; drop behind it with stars on you and the officers on foot lose sight of you.
+  A gravel fire road switchbacks up its south shoulder from the highway to Lookout Point, where a plaque, a coin telescope and a timber fire lookout face the whole skyline across the sound, best at sunset; the Coyote Ridge Hill Climb times you up it.
+  Its beaches have turquoise shallows and surf like Ocean Beach's, reflector posts line its roads and shine back in your headlights at night, and away from the city the night sky gathers the city's glow over its skyline and shows more stars.
+  The HUD, the map and the police scanner name its places: Dry Creek, Hollister Bottoms, the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge, but for the ridge so far fields waiting for their farms and places (see [docs/map.md](docs/map.md)).
 - **The look.** Stylised low-poly models with PBR materials, all CC0 (see [Assets](#assets) and [Credits](#credits)).
   People are chunky toy figures built in code from rounded segments on the game's own jointed skeleton: a face, hair, caps and sunglasses, shirts with collars and jackets, police badges, and their own height, build and colours; feet are planted by the gait, and every body part is one instanced draw for the whole crowd.
   Cars: seven kinds (compact, sedan, taxi, sports, muscle, pickup and police) are low-poly Quaternius models fitted to the cars' real sizes and axles, with number plates, lined cabins and riders seated inside; the van, bus, SWAT van, ambulance and fire engine are rebuilt procedural bodies. Every car has tinted glass that mirrors the sky and street, clearcoat paint, moulded lamp lenses that glow softly after dark, tyres with sidewalls, and a soft shade under it; dents, broken lamps and wrecks show on the new bodies.
@@ -212,6 +215,19 @@ The next gate's buoys stand out larger with a marker between them, and the map a
 
 Silver pays 70% and bronze 45%, the best lap is saved (STATS) and a medal ticks the checklist.
 T cancels; running out of time or leaving the boat ends it without a payout.
+It is single player only.
+
+### The Coyote Ridge Hill Climb
+
+In any road vehicle at the foot of the fire road, the gravel turn-off on the Lomas Highway's west leg in Las Lomas County, press **T** (D-pad down), stop in the foot gate and wait out the countdown.
+Then pass six gates in order round the switchbacks and up the crest to Lookout Point, about 15 seconds in a Nightjar GT.
+
+| Course | Start | Gold | Silver | Bronze | Gold payout |
+| --- | --- | --- | --- | --- | --- |
+| Coyote Ridge Hill Climb | Fire road foot gate | 0:15.7 | 0:18.7 | 0:23.9 | $1,000 |
+
+Silver pays 70% and bronze 45%, the best run is saved (STATS) and a medal ticks the checklist.
+T cancels; running out of time or leaving the vehicle ends it without a payout.
 It is single player only.
 
 ## Cheats
@@ -356,6 +372,8 @@ All of these are minor; the most noticeable come first.
 - The small porches in front of houses (deck, posts and roof) and the bank's front steps are decoration only: cars, people and bullets pass through them, as they do through the cemetery's iron fence and gate and Hollister Farm's stand.
 - The boulders along the sea walls and round Azura Point and Smuggler's Key, and the wreck on the Key, are decoration only: a swimmer or a boat passes through them, and a cliff diver who steps off rather than jumps comes up among them.
 - The police helicopter flies straight through the turbines' blades.
+- Las Lomas County's reflector posts are drawn only: a car drives through them.
+- Facing the whole skyline across the sound from Coyote Ridge or Lookout Point, a frame draws about 500 calls, a little more than the city's pursuit; the city's buildings and their detail are most of it.
 - Motorbikes and boats have no lighter far version (a near one costs about 6-8 draw calls on High, about the same as a nearby car).
 - At around 10 fps, water from a knocked-over fire hydrant comes out in separate puffs instead of a steady jet.
 
@@ -466,8 +484,8 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-177 files with 2711 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set to a free port) run in Node, with no browser.
-They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the camera with your back to a wall, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs and the Gull Regatta (a scripted lap sets its medals), properties, gangs, roadblocks and witnesses, Turbine Row and Smuggler's Key (the older colliders and pickups kept as they were), saves in three slots (with an old single save, extension data per slot and corrupt entries), the content registries, the multiplayer wire protocol, server rooms, room rules and head-to-head races, interest management, the multi-player sim (per-player wanted, pursuits, respawns and streaming), the client's mirror and prediction, a 10-minute chaotic soak test (36,000 frames with a seeded random player), same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks), the layering rules (no three.js or browser code in the sim, the protocol or the server), this README's Controls table against the real key bindings, and the mission 3 asset pipeline and families (the manifest and licenses, the asset library and its warm-up, characters, cars, bikes and boats, buildings, ground and water, props, lighting, guns and effects, and the car reflection cube), with the real models loaded from disk.
+185 files with 2798 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set to a free port) run in Node, with no browser.
+They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the camera with your back to a wall, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, the Gull Regatta and the Coyote Ridge Hill Climb (a scripted lap or run sets their medals), properties, gangs, roadblocks and witnesses, Turbine Row and Smuggler's Key (the older colliders and pickups kept as they were), Las Lomas County's landscape (its rises off every road, plot and verge, its sight cores buried, the lines of sight it hides, the cars and people that climb it, its near and far ground) and its beaches in the sea shader, saves in three slots (with an old single save, extension data per slot and corrupt entries), the content registries, the multiplayer wire protocol, server rooms, room rules and head-to-head races, interest management, the multi-player sim (per-player wanted, pursuits, respawns and streaming), the client's mirror and prediction, a 10-minute chaotic soak test (36,000 frames with a seeded random player), same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks), the layering rules (no three.js or browser code in the sim, the protocol or the server), this README's Controls table against the real key bindings, and the mission 3 asset pipeline and families (the manifest and licenses, the asset library and its warm-up, characters, cars, bikes and boats, buildings, ground and water, props, lighting, guns and effects, and the car reflection cube), with the real models loaded from disk.
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.
 `DUMP_MAP=city.svg npx vitest run tests/unit/world.test.ts` also writes a top-down SVG of the city.

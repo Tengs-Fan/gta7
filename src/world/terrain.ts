@@ -10,22 +10,27 @@ import type { CityLayout, Rect } from './layout';
 
 export interface Rise {
   name: string;
-  /** 'bell': an elliptical cosine bell, flat on its plateau; 'climb': a slope northward (towards -z) only, flat beyond. */
-  kind: 'bell' | 'climb';
-  /** Bell: its centre. Climb: the middle of its width, and the z its foot runs along. */
+  /**
+   * 'bell': an elliptical cosine bell, flat on its plateau; 'climb': a slope northward (towards -z) only, flat beyond;
+   * 'ridge': a crest along z, flat across its top, falling away in a cosine to the east and west and at either end.
+   */
+  kind: 'bell' | 'climb' | 'ridge';
+  /** Bell: its centre. Climb: the middle of its width, and the z its foot runs along. Ridge: its crest's x, and the middle of the crest's full height along z. */
   cx: number;
   cz: number;
-  /** Bell: its semi-axes (m). Climb: half its width, and the run (m) north of its foot over which it climbs. */
+  /** Bell: its semi-axes (m). Climb: half its width, and the run (m) north of its foot over which it climbs. Ridge: its east run, and half the length of its crest at full height. */
   rx: number;
   rz: number;
-  /** Bell: the plateau's radius along x (m; along z it scales with rz). Climb: the flat beyond the run (m). */
+  /** Bell: the plateau's radius along x (m; along z it scales with rz). Climb: the flat beyond the run (m). Ridge: half the flat crest's width. */
   plateau: number;
-  /** Highest it reaches above the curb (m). */
+  /** Highest it reaches above the ground it stands on (m). */
   height: number;
   /** Where it can be above 0. */
   bounds: Rect;
-  /** Climb: the land it covers (a headland's rects), 0 off it. A bell covers its whole ellipse (none listed). */
+  /** Climb: the land it covers (a headland's rects), 0 off it. A bell or a ridge covers its whole bounds (none listed). */
   within: Rect[];
+  /** Ridge: its west run, and the runs (m) over which its crest falls away at the north and the south end. */
+  runs?: { west: number; north: number; south: number };
 }
 
 /** Hillcrest Green's hill, on the park's fountain: 20% at its steepest across x, 17% along z, 0 a good 7 m inside the lot. */
@@ -53,9 +58,28 @@ export function riseAt(rises: readonly Rise[], x: number, z: number): number {
     const r = rises[i]!;
     const b = r.bounds;
     if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) continue;
-    h += r.kind === 'bell' ? bellAt(r, x, z) : climbAt(r, x, z);
+    h += r.kind === 'bell' ? bellAt(r, x, z) : r.kind === 'climb' ? climbAt(r, x, z) : ridgeAt(r, x, z);
   }
   return h;
+}
+
+/** 1 within `flat` of the middle, falling in a half cosine to 0 over `run` m beyond it. */
+function falloff(d: number, flat: number, run: number): number {
+  const s = (Math.abs(d) - flat) / run;
+  if (s <= 0) return 1;
+  if (s >= 1) return 0;
+  return (1 + Math.cos(Math.PI * s)) / 2;
+}
+
+function ridgeAt(r: Rise, x: number, z: number): number {
+  const runs = r.runs!;
+  return r.height * falloff(x - r.cx, r.plateau, x > r.cx ? r.rx : runs.west) * falloff(z - r.cz, r.rz, z < r.cz ? runs.north : runs.south);
+}
+
+/** A ridge's bounds: its flanks' and ends' feet. */
+export function ridgeBounds(r: Omit<Rise, 'bounds'>): Rect {
+  const runs = r.runs!;
+  return { minX: r.cx - r.plateau - runs.west, minZ: r.cz - r.rz - runs.north, maxX: r.cx + r.plateau + r.rx, maxZ: r.cz + r.rz + runs.south };
 }
 
 function bellAt(r: Rise, x: number, z: number): number {
@@ -107,13 +131,17 @@ export function riseTop(rises: readonly Rise[], x0: number, z0: number, x1: numb
  */
 const RAY_STEP = 2;
 
+/** The ground the city's rises stand on: the curb's height. */
+const curb = () => CURB_H;
+
 /**
- * Where the ray o + t d first runs under a rise's ground (CURB_H over its height, where that is above 0), for t from t0
- * to t1; -1 when it stays over them. Lines of sight and shots test the ground itself, which no box buried in it can
- * follow: each rise's land is sampled every RAY_STEP m along the ground (from the cliff face, where the ray comes in
- * through one), and the crossing taken between the last sample over the ground and the first under it.
+ * Where the ray o + t d first runs under a rise's ground (its height over `floor`, the ground it stands on at (x, z):
+ * the curb's in the city, where that height is above 0), for t from t0 to t1; -1 when it stays over them. Lines of
+ * sight and shots test the ground itself, which no box buried in it can follow: each rise's land is sampled every
+ * RAY_STEP m along the ground (from the cliff face, where the ray comes in through one), and the crossing taken between
+ * the last sample over the ground and the first under it.
  */
-export function riseRay(rises: readonly Rise[], ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number): number {
+export function riseRay(rises: readonly Rise[], ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number, floor: (x: number, z: number) => number = curb): number {
   const run = Math.hypot(dx, dz);
   let end = t1;
   let hit = -1;
@@ -125,12 +153,12 @@ export function riseRay(rises: readonly Rise[], ox: number, oy: number, oz: numb
     const za = oz + dz * t0;
     const zb = oz + dz * end;
     if (Math.max(xa, xb) < b.minX || Math.min(xa, xb) > b.maxX || Math.max(za, zb) < b.minZ || Math.min(za, zb) > b.maxZ) continue;
-    if (r.kind === 'bell') {
-      const t = rayOver(r, b, ox, oy, oz, dx, dy, dz, t0, end, run);
+    if (r.kind !== 'climb') {
+      const t = rayOver(r, b, ox, oy, oz, dx, dy, dz, t0, end, run, floor);
       if (t >= 0) end = hit = t;
     } else {
       for (const q of r.within) {
-        const t = rayOver(r, q, ox, oy, oz, dx, dy, dz, t0, end, run);
+        const t = rayOver(r, q, ox, oy, oz, dx, dy, dz, t0, end, run, floor);
         if (t >= 0) end = hit = t;
       }
     }
@@ -139,7 +167,7 @@ export function riseRay(rises: readonly Rise[], ox: number, oy: number, oz: numb
 }
 
 /** riseRay over one rectangle of a rise's land, the ray's part over it from t0 to t1 (`run` m along the ground per unit t). */
-function rayOver(r: Rise, q: Rect, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number, run: number): number {
+function rayOver(r: Rise, q: Rect, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number, run: number, floor: (x: number, z: number) => number): number {
   let a = t0;
   let b = t1;
   if (dx !== 0) {
@@ -160,8 +188,10 @@ function rayOver(r: Rise, q: Rect, ox: number, oy: number, oz: number, dx: numbe
   let pf = 0;
   for (let k = 0; k <= n; k++) {
     const t = a + ((b - a) * k) / n;
-    const h = r.kind === 'bell' ? bellAt(r, ox + dx * t, oz + dz * t) : climbOver(r, oz + dz * t);
-    const f = oy + dy * t - CURB_H - h;
+    const x = ox + dx * t;
+    const z = oz + dz * t;
+    const h = r.kind === 'bell' ? bellAt(r, x, z) : r.kind === 'climb' ? climbOver(r, z) : ridgeAt(r, x, z);
+    const f = oy + dy * t - floor(x, z) - h;
     if (h > 0 && f < 0) return k > 0 && pf > 0 ? pt + ((t - pt) * pf) / (pf - f) : t;
     pt = t;
     pf = f;
@@ -252,18 +282,20 @@ export interface Core extends Rect {
  * only the collider grid (the camera's, the police drivers' look-ahead) stop inside it. Lines of sight and shots follow
  * the ground itself (riseRay).
  */
-export function terrainCores(rises: readonly Rise[]): Core[] {
+export function terrainCores(rises: readonly Rise[], base = CURB_H): Core[] {
   const out: Core[] = [];
   for (const r of rises) {
     for (let k = 1; k + CORE_COVER <= r.height; k += CORE_STEP) {
       const c = k + CORE_COVER;
-      if (r.kind === 'bell') {
+      if (r.kind === 'ridge') {
+        out.push({ ...ridgeContour(r, c / r.height), y1: base + k });
+      } else if (r.kind === 'bell') {
         // The bell is c high on the ellipse s = sc; the rectangle inscribed in an ellipse has half extents a / sqrt 2.
         const p = r.plateau / r.rx;
         const sc = p + ((1 - p) * Math.acos((2 * c) / r.height - 1)) / Math.PI;
         const hx = (sc * r.rx) / Math.SQRT2 - CORE_INSET;
         const hz = (sc * r.rz) / Math.SQRT2 - CORE_INSET;
-        out.push({ minX: r.cx - hx, minZ: r.cz - hz, maxX: r.cx + hx, maxZ: r.cz + hz, y1: CURB_H + k });
+        out.push({ minX: r.cx - hx, minZ: r.cz - hz, maxX: r.cx + hx, maxZ: r.cz + hz, y1: base + k });
       } else {
         // North of zc the climb stands over c (smoothstep inverted), across the narrowest land it spans there.
         const zc = r.cz - r.rz * (0.5 - Math.sin(Math.asin(1 - (2 * c) / r.height) / 3));
@@ -274,12 +306,44 @@ export function terrainCores(rises: readonly Rise[]): Core[] {
           minZ: minZ + CORE_INSET,
           maxX: Math.min(...over.map((q) => q.maxX)) - CORE_INSET,
           maxZ: zc - CORE_INSET,
-          y1: CURB_H + k,
+          y1: base + k,
         });
       }
     }
   }
   return out;
+}
+
+/** Samples of the share of a ridge's height its flanks keep over a core, among which ridgeContour takes the best. */
+const CONTOUR_SAMPLES = 32;
+
+/**
+ * The largest axis rectangle (of CONTOUR_SAMPLES tried) over which a ridge stands at least `share` of its height, inset
+ * CORE_INSET: the flanks keep a share `a` of it across the rectangle's width and the ends `share / a` along its length.
+ */
+function ridgeContour(r: Rise, share: number): Rect {
+  const runs = r.runs!;
+  // How far (as a share of its run) a cosine falloff stays at or over f.
+  const reach = (f: number) => Math.acos(2 * Math.min(1, f) - 1) / Math.PI;
+  let best: Rect = { minX: r.cx, minZ: r.cz, maxX: r.cx, maxZ: r.cz };
+  let area = -1;
+  for (let i = 0; i < CONTOUR_SAMPLES; i++) {
+    const a = share + ((1 - share) * (i + 0.5)) / CONTOUR_SAMPLES;
+    const sx = reach(a);
+    const sz = reach(share / a);
+    const q = {
+      minX: r.cx - r.plateau - runs.west * sx + CORE_INSET,
+      minZ: r.cz - r.rz - runs.north * sz + CORE_INSET,
+      maxX: r.cx + r.plateau + r.rx * sx - CORE_INSET,
+      maxZ: r.cz + r.rz + runs.south * sz - CORE_INSET,
+    };
+    const qa = (q.maxX - q.minX) * (q.maxZ - q.minZ);
+    if (qa > area) {
+      area = qa;
+      best = q;
+    }
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import { hillRise, hillSignLetters, lookoutRail } from '../world/terrain';
 import { places } from '../sim/activities/places';
 import { attractionOf } from '../world/attractions';
 import { CAUSEWAY } from '../world/country';
+import { LOOKOUT } from '../world/country/hills';
 
 export type DressingKind =
   | 'umbrella' | 'towel' | 'lounger' | 'lifeguard' | 'volleyball' | 'surfboard'
@@ -587,6 +588,8 @@ export const PLAQUE_TEXT = {
   lookout: 'AZURA POINT LOOKOUT. ON A CLEAR DAY YOU CAN SEE THE SMOG.',
   telescope: "VIEWS 25 CENTS. YOUR EX'S BALCONY NOT GUARANTEED.",
   county: 'WELCOME TO LAS LOMAS COUNTY. POPULATION: MOSTLY COWS.',
+  ridge: 'LOOKOUT POINT. ELEV. 24 M. THE CITY LOOKS BETTER FROM HERE. SO DOES EVERYTHING.',
+  ridgeTelescope: 'VIEWS 25 CENTS. CITY SOLD SEPARATELY.',
 } as const;
 
 /**
@@ -594,7 +597,8 @@ export const PLAQUE_TEXT = {
  * plateau's south edge, looking over the letters to downtown; a low fence along the front of each word, with the sign
  * where the path climbs between them. The lookout at Azura Point's tip: its plaque at the middle of the parapet, and a
  * telescope at either end, one turned back south-west over Gull Bay to the hill and the towers, one out to sea.
- * And where the Magnolia Causeway makes landfall, Las Lomas County's welcome on the verge, facing the traffic coming in.
+ * And where the Magnolia Causeway makes landfall, Las Lomas County's welcome on the verge, facing the traffic coming in;
+ * on Coyote Ridge, Lookout Point's plaque and its coin telescope at the parapet, looking east over the county to the city.
  */
 export function viewpoints(world: StaticWorld): ViewpointItem[] {
   const L = world.layout;
@@ -620,6 +624,7 @@ export function viewpoints(world: StaticWorld): ViewpointItem[] {
   out.push(at('telescope', rail.minX + 1.5, rail.maxZ + 1.2, Math.atan2(-0.6, 0.8), PLAQUE_TEXT.telescope));
   out.push(at('telescope', rail.maxX - 1.5, rail.maxZ + 1.2, Math.atan2(0.6, -0.8), PLAQUE_TEXT.telescope));
   out.push(at('sign', CAUSEWAY.minX - 12, CAUSEWAY.minZ + 0.5, Math.PI / 2, PLAQUE_TEXT.county));
+  out.push(at('plaque', LOOKOUT.plaque.x, LOOKOUT.plaque.z, -Math.PI / 2, PLAQUE_TEXT.ridge), at('telescope', LOOKOUT.telescope.x, LOOKOUT.telescope.z, Math.PI / 2, PLAQUE_TEXT.ridgeTelescope));
   return out;
 }
 

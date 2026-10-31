@@ -1,11 +1,13 @@
 // The sea surface: the Gerstner waves (render/waves.ts) and the analytic shoreline patched into the sea's
 // standard material, the camera-snapped wave grid drawn on High, and the software sea's shader. The sea's colour
 // follows a render-only shelf that keeps falling offshore (turquoise shallows, deep blue open water), its ripples are
-// warped and modulated by low-frequency noise so their tiles do not line up, and foam rings the piers' pilings.
+// warped and modulated by low-frequency noise so their tiles do not line up, and foam rings the piers' pilings. Las
+// Lomas County's beaches come from a depth map baked from its ground (countyShore), sampled once per fragment.
 
 import * as THREE from 'three';
 import { BEACH_W, CURB_H, SAND_DROP, SEABED_Y, WATER_Y } from '../world/constants';
-import type { Bounds, Rect } from '../world/layout';
+import { countryGround, type Country } from '../world/country';
+import { rectContains, type Bounds, type Rect } from '../world/layout';
 import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_SLOPE2_GLSL, SEA_WAVES_GLSL, SKIRT_EXTENT, wavePhases } from './waves';
 
 /** The sand's drop-off into deep water past the beach's end (CityView.buildCoast), m. */
@@ -32,6 +34,10 @@ export const PILING_RADIUS = 0.25;
 export const MAX_PILING_DECKS = 8;
 /** Water bodies cut into the land (layout.water) the quay foam keeps out of. */
 export const MAX_SEA_CUTS = 8;
+/** Points along each side of Las Lomas County's depth map (countyShore): about 1.9 m apart across it, 2.4 m along it. */
+export const COUNTY_TEXELS = 512;
+/** Rectangles of the county's land the drawn shelf falls away from (it has six). */
+export const MAX_COUNTY_LAND = 8;
 /** Water depths (m) over which the beach's surf bands fade in seaward of the swash (4.1-7.6 m out on the 1:34 sand). */
 export const SURF_BAND_FADE = [0.12, 0.22] as const;
 /** Piling foam reaches at most this far (m) out from a piling's side. */
@@ -83,11 +89,72 @@ export function seaShelfDepth(simDepth: number, outside: number): number {
   return simDepth + SHELF_SLOPE * Math.max(0, outside - SHELF_START);
 }
 
-/** Distance (m) of (x, z) outside the land rectangle with the beach (the shader's seaQuay). */
-export function outsideLand(b: Bounds, x: number, z: number): number {
+/**
+ * Las Lomas County's shore as the sea draws it: the water depth over its land and beaches (Country.bounds) on a
+ * COUNTY_TEXELS square lattice from corner to corner, rounded to the half floats its texture holds, and the land's
+ * rectangles the shelf falls away from.
+ */
+export interface CountyShore {
+  box: Rect;
+  /** WATER_Y less the county's ground (m, negative on land), row by row along +x, the rows going +z. */
+  depth: Float32Array;
+  land: readonly Rect[];
+}
+
+/**
+ * Bakes the county's shore from its ground: countryGround is baseGround off the city's land, but for the causeway,
+ * whose quay walls are no beach (its headland's ground would draw swash along them up to the box's edge).
+ */
+export function countyShore(country: Country): CountyShore {
+  const N = COUNTY_TEXELS;
+  const b = country.bounds;
+  const depth = new Float32Array(N * N);
+  for (let j = 0; j < N; j++) {
+    const z = b.minZ + ((b.maxZ - b.minZ) * j) / (N - 1);
+    for (let i = 0; i < N; i++) {
+      const x = b.minX + ((b.maxX - b.minX) * i) / (N - 1);
+      depth[j * N + i] = THREE.DataUtils.fromHalfFloat(THREE.DataUtils.toHalfFloat(WATER_Y - countryGround(country, x, z)));
+    }
+  }
+  return { box: b, depth, land: country.land };
+}
+
+/** CPU twin of the shader's seaCountyDepth: the county's map sampled bilinearly at (x, z) inside its box, else Infinity. */
+export function countyDepthAt(c: CountyShore, x: number, z: number): number {
+  const b = c.box;
+  if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) return Infinity;
+  const N = COUNTY_TEXELS;
+  const u = ((x - b.minX) / (b.maxX - b.minX)) * (N - 1);
+  const v = ((z - b.minZ) / (b.maxZ - b.minZ)) * (N - 1);
+  const i = Math.min(Math.floor(u), N - 2);
+  const j = Math.min(Math.floor(v), N - 2);
+  const tu = u - i;
+  const tv = v - j;
+  const d = c.depth;
+  const k = j * N + i;
+  return (d[k]! * (1 - tu) + d[k + 1]! * tu) * (1 - tv) + (d[k + N]! * (1 - tu) + d[k + N + 1]! * tu) * tv;
+}
+
+/** Distance (m) of (x, z) outside the county's land (the shader's seaCountyOut). */
+export function outsideCounty(c: CountyShore, x: number, z: number): number {
+  let d2 = Infinity;
+  for (const r of c.land) {
+    const dx = Math.max(r.minX - x, 0, x - r.maxX);
+    const dz = Math.max(r.minZ - z, 0, z - r.maxZ);
+    d2 = Math.min(d2, dx * dx + dz * dz);
+  }
+  return Math.sqrt(d2);
+}
+
+/**
+ * Distance (m) of (x, z) outside the land rectangle with the beach (the shader's seaQuay); with `county`, outside the
+ * county's land where that is nearer (seaShelf's distance).
+ */
+export function outsideLand(b: Bounds, x: number, z: number, county?: CountyShore): number {
   const dx = Math.max(b.landMinX - x, x - b.beachEndX, 0);
   const dz = Math.max(b.landMinZ - z, z - b.landMaxZ, 0);
-  return Math.hypot(dx, dz);
+  const city = Math.hypot(dx, dz);
+  return county ? Math.min(city, outsideCounty(county, x, z)) : city;
 }
 
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v));
@@ -96,19 +163,41 @@ const smooth = (a: number, b: number, x: number): number => {
   return t * t * (3 - 2 * t);
 };
 
-/** CPU twin of the shader's seaDepthAt: the analytic water depth over the beach slope, its drop-off and the deep. */
-export function seaDepthCpu(b: Bounds, x: number, z: number): number {
+/**
+ * CPU twin of the shader's seaDepthAt: the analytic water depth over the beach slope, its drop-off and the deep; with
+ * `county`, the county's map where it is shallower.
+ */
+export function seaDepthCpu(b: Bounds, x: number, z: number, county?: CountyShore): number {
   const xc = clamp(x, b.beachStartX, b.beachEndX + DROP_OFF);
   const endY = CURB_H - SAND_DROP;
   const sand = xc <= b.beachEndX ? CURB_H - ((xc - b.beachStartX) / BEACH_W) * SAND_DROP : endY + (SEABED_Y - endY) * ((xc - b.beachEndX) / DROP_OFF);
   const out = Math.hypot(x - xc, z - clamp(z, b.landMinZ, b.landMaxZ));
   const shelf = WATER_Y - sand;
-  return shelf + (WATER_Y - SEABED_Y - shelf) * smooth(0, 40, out);
+  const depth = shelf + (WATER_Y - SEABED_Y - shelf) * smooth(0, 40, out);
+  return county ? Math.min(depth, countyDepthAt(county, x, z)) : depth;
 }
 
 /** The depth the sea's colour is drawn with at (x, z): seaDepthCpu, falling on along the shelf offshore. */
-export function seaDrawnDepth(b: Bounds, x: number, z: number): number {
-  return seaShelfDepth(seaDepthCpu(b, x, z), outsideLand(b, x, z));
+export function seaDrawnDepth(b: Bounds, x: number, z: number, county?: CountyShore): number {
+  return seaShelfDepth(seaDepthCpu(b, x, z, county), outsideLand(b, x, z, county));
+}
+
+/** CPU twin of the shader's seaOnBeach: 1 where the surf bands and the swash may run, fading to 0 off the city's beach. */
+export function seaOnBeach(b: Bounds, x: number, z: number, county?: CountyShore): number {
+  if (county && rectContains(county.box, x, z)) return 1;
+  const xc = clamp(x, b.beachStartX, b.beachEndX + DROP_OFF);
+  return 1 - smooth(0, 4, Math.hypot(x - xc, z - clamp(z, b.landMinZ, b.landMaxZ)));
+}
+
+/**
+ * CPU twin of the shader's seaShallows: the sea's albedo over water `depth` m deep with the drawn shelf `shelf` m deep,
+ * for the material's own colour `mid` (linear), into `out`.
+ */
+export function seaShallowsCpu(u: SeaUniforms, mid: THREE.Color, depth: number, shelf: number, out: THREE.Color): THREE.Color {
+  out.copy(u.uShallow.value).lerp(mid, smooth(0, 4, depth));
+  out.lerp(u.uSeaDeep.value, smooth(4, 18, shelf));
+  out.lerp(u.uSeaAbyss.value, smooth(10, 45, shelf));
+  return out.lerpColors(u.uSandTint.value, out, smooth(0, 0.15, depth));
 }
 
 /** Uniforms shared by every material that follows the sea: the sea itself and the foam rings on it. */
@@ -133,6 +222,11 @@ export interface SeaUniforms {
   uPilings: { value: THREE.Vector4[] };
   /** Bounds of the water cut into the land, where the land rectangle's edge is no quay (unused slots lie far away). */
   uSeaCuts: { value: THREE.Vector4[] };
+  /** Las Lomas County's depth map (countyShore; none until setCountyShore), and its box: minX, minZ, 1 / width, 1 / depth. */
+  uCountyDepth: { value: THREE.DataTexture | null };
+  uCountyBox: { value: THREE.Vector4 };
+  /** The county's land rectangles (minX, minZ, maxX, maxZ) the drawn shelf falls away from; unused slots lie far away. */
+  uCountyLand: { value: THREE.Vector4[] };
 }
 
 export function seaUniforms(): SeaUniforms {
@@ -153,6 +247,9 @@ export function seaUniforms(): SeaUniforms {
     uSeaAbyss: { value: new THREE.Color(ABYSS) },
     uPilings: { value: Array.from({ length: MAX_PILING_DECKS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
     uSeaCuts: { value: Array.from({ length: MAX_SEA_CUTS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
+    uCountyDepth: { value: null },
+    uCountyBox: { value: new THREE.Vector4(1e6, 1e6, 1, 1) },
+    uCountyLand: { value: Array.from({ length: MAX_COUNTY_LAND }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
   };
 }
 
@@ -160,6 +257,27 @@ export function seaUniforms(): SeaUniforms {
 export function setShore(u: SeaUniforms, b: Bounds): void {
   u.uShoreLand.value.set(b.landMinX, b.landMinZ, b.landMaxZ, b.beachEndX);
   u.uShoreBeach.value.set(b.beachStartX, BEACH_W, SAND_DROP, CURB_H);
+}
+
+/**
+ * Feeds the sea Las Lomas County's shore (countyShore): its depth map as a half-float texture, filtered bilinearly with
+ * no mipmaps (the caller disposes it), its box and its land.
+ */
+export function setCountyShore(u: SeaUniforms, c: CountyShore): void {
+  const half = new Uint16Array(c.depth.length);
+  for (let i = 0; i < half.length; i++) half[i] = THREE.DataUtils.toHalfFloat(c.depth[i]!);
+  const tex = new THREE.DataTexture(half, COUNTY_TEXELS, COUNTY_TEXELS, THREE.RedFormat, THREE.HalfFloatType);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  u.uCountyDepth.value = tex;
+  const b = c.box;
+  u.uCountyBox.value.set(b.minX, b.minZ, 1 / (b.maxX - b.minX), 1 / (b.maxZ - b.minZ));
+  u.uCountyLand.value.forEach((v, i) => {
+    const r = c.land[i];
+    if (r) v.set(r.minX, r.minZ, r.maxX, r.maxZ);
+    else v.set(1e6, 1e6, 1e6, 1e6);
+  });
 }
 
 /** Feeds the quay foam the bounds of the water cut into the land (layout.water). */
@@ -208,11 +326,15 @@ const n = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v)
 /**
  * Water depth over the analytic terrain (staticWorld.baseGround): the beach's sand slope and its drop-off, deep
  * water elsewhere. Off the beach's ends the sand fades into the deep over SHORE_BLEND m so the shallows do not
- * end in a hard edge.
+ * end in a hard edge. Las Lomas County's beaches come from its depth map inside its box, whose edge lies where its
+ * seabed is already flat.
  */
 export const SHORE_GLSL = /* glsl */ `
 uniform vec4 uShoreLand;
 uniform vec4 uShoreBeach;
+uniform sampler2D uCountyDepth;
+uniform vec4 uCountyBox;
+uniform vec4 uCountyLand[${MAX_COUNTY_LAND}];
 uniform float uSurfPhase;
 uniform float uQuayPhase;
 uniform vec2 uFoamDrift;
@@ -230,9 +352,36 @@ float seaOffCut(vec2 p) {
   }
   return 1.0;
 }
+/** 1 inside Las Lomas County's box (its land and beaches), else 0. */
+float seaInCounty(vec2 p) {
+  vec2 t = (p - uCountyBox.xy) * uCountyBox.zw;
+  return step(0.0, min(t.x, t.y)) * step(max(t.x, t.y), 1.0);
+}
+/**
+ * The county's water depth from its map (countyShore), its first and last texels' centres on the box's edges; 1e3 off
+ * the box. Fetched everywhere, so the lookup stays in uniform control flow.
+ */
+float seaCountyDepth(vec2 p) {
+  float d = textureLod(uCountyDepth, (p - uCountyBox.xy) * uCountyBox.zw * ${n((COUNTY_TEXELS - 1) / COUNTY_TEXELS)} + ${n(0.5 / COUNTY_TEXELS)}, 0.0).r;
+  return seaInCounty(p) > 0.5 ? d : 1e3;
+}
+/** Distance outside the county's land (0 on it). */
+float seaCountyOut(vec2 p) {
+  float best = 1e12;
+  for (int i = 0; i < ${MAX_COUNTY_LAND}; i++) {
+    vec4 r = uCountyLand[i];
+    vec2 q = max(max(r.xy - p, p - r.zw), 0.0);
+    best = min(best, dot(q, q));
+  }
+  return sqrt(best);
+}
 float seaBeachOut(vec2 p) {
   vec2 c = vec2(clamp(p.x, uShoreBeach.x, uShoreLand.w + ${n(DROP_OFF)}), clamp(p.y, uShoreLand.y, uShoreLand.z));
   return length(p - c);
+}
+/** 1 where the surf bands and the swash may run: over the city's beach and off its ends, and round the county, all beach. */
+float seaOnBeach(vec2 p) {
+  return max(1.0 - smoothstep(0.0, 4.0, seaBeachOut(p)), seaInCounty(p));
 }
 float seaDepthAt(vec2 p) {
   float x = clamp(p.x, uShoreBeach.x, uShoreLand.w + ${n(DROP_OFF)});
@@ -241,7 +390,7 @@ float seaDepthAt(vec2 p) {
     ? uShoreBeach.w - (x - uShoreBeach.x) / uShoreBeach.y * uShoreBeach.z
     : mix(endY, ${n(SEABED_Y)}, (x - uShoreLand.w) / ${n(DROP_OFF)});
   float shelf = ${n(WATER_Y)} - sand;
-  return mix(shelf, ${n(WATER_Y - SEABED_Y)}, smoothstep(0.0, 40.0, seaBeachOut(p)));
+  return min(mix(shelf, ${n(WATER_Y - SEABED_Y)}, smoothstep(0.0, 40.0, seaBeachOut(p))), seaCountyDepth(p));
 }
 /** Distance outside the land rectangle (0 inside), and how much of it is a quay wall rather than the beach. */
 float seaQuay(vec2 p) {
@@ -249,9 +398,9 @@ float seaQuay(vec2 p) {
   float dz = max(max(uShoreLand.y - p.y, p.y - uShoreLand.z), 0.0);
   return length(vec2(dx, dz));
 }
-/** The drawn seabed's depth: the sim's near land, falling on along the shelf offshore (seaShelfDepth). */
+/** The drawn seabed's depth: the sim's near land, falling on along the shelf offshore of the city or the county (seaShelfDepth). */
 float seaShelf(vec2 p, float depth) {
-  return depth + ${n(SHELF_SLOPE)} * max(seaQuay(p) - ${n(SHELF_START)}, 0.0);
+  return depth + ${n(SHELF_SLOPE)} * max(min(seaQuay(p), seaCountyOut(p)) - ${n(SHELF_START)}, 0.0);
 }
 /** Foam 0..1 round the pilings of the decks in uPilings (the lattice of CityView.buildCoast); px: m per screen pixel. */
 float seaPilingFoam(vec2 p, float noise, float px) {
@@ -280,7 +429,7 @@ float seaWaterlineX() {
  * walls, and rings round the pilings (px: m per screen pixel).
  */
 float seaFoam(vec2 p, float depth, float noise, float sea, float px) {
-  float onBeach = 1.0 - smoothstep(0.0, 4.0, seaBeachOut(p));
+  float onBeach = seaOnBeach(p);
   float reach = 0.6 + 0.9 * sea;
   float shore = 1.0 - smoothstep(0.0, reach, depth);
   float band = 0.5 + 0.5 * sin(depth * 12.566 + uSurfPhase + noise * 2.0);
@@ -429,7 +578,7 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
         float depth = seaDepthAt(vWorld.xz);
         float light = 1.0 - uNight * 0.94;
         vec3 sea = seaShallows(vec3(0.018, 0.17, 0.23), depth, vWorld.xz) * light;
-        float onBeach = 1.0 - smoothstep(0.0, 4.0, seaBeachOut(vWorld.xz));
+        float onBeach = seaOnBeach(vWorld.xz);
         float shore = 1.0 - smoothstep(0.0, 0.6 + 0.9 * uSeaAmp, depth);
         float band = smoothstep(0.6, 0.9, 0.5 + 0.5 * sin(depth * 12.566 + uSurfPhase + ripple.z * 2.0));
         float foam = clamp(band * shore * onBeach * (0.55 + 0.6 * uSeaAmp), 0.0, 1.0);

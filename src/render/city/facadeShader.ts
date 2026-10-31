@@ -55,6 +55,45 @@ export function patchBuildingFog(shader: THREE.WebGLProgramParametersWithUniform
     .replace('#include <fog_fragment>', BUILDING_FOG);
 }
 
+/**
+ * Fog on Las Lomas County's ground (render/country/ground.ts): three's linear fog on the flat fields and the beaches, so
+ * they fade into the haze as the city's ground does and their cells vanish unseen past it, and the building fog's cap on
+ * the rises from 2 m up, so Coyote Ridge keeps its outline and some green out to 1-2 km, as the towers do.
+ */
+const TERRAIN_FOG = /* glsl */ `
+#ifdef USE_FOG
+  #ifdef FOG_EXP2
+    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+  #else
+    float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+    if ( uSkyline > 0.5 ) {
+      float clearAir = smoothstep( 350.0, 760.0, fogFar );
+      float cap = mix( 0.97, 0.45, clearAir );
+      cap += ( 1.0 - cap ) * 0.5 * smoothstep( fogFar, fogFar * 3.2, vFogDepth );
+      fogFactor = mix( fogFactor, min( fogFactor, cap ), smoothstep( 2.0, 12.0, vBFogY ) );
+    }
+  #endif
+  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+#endif`;
+
+/** A ground material with the terrain fog (TERRAIN_FOG) chained after its own patches, in a program of its own. */
+export function withTerrainFog<T extends THREE.Material>(mat: T, u: BuildingUniforms): T {
+  const prev = mat.onBeforeCompile.bind(mat);
+  const prevKey = mat.customProgramCacheKey.bind(mat);
+  mat.onBeforeCompile = (shader, renderer) => {
+    prev(shader, renderer);
+    shader.uniforms.uSkyline = u.skyline;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vBFogY;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBFogY = ( modelMatrix * vec4( transformed, 1.0 ) ).y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vBFogY;\nuniform float uSkyline;')
+      .replace('#include <fog_fragment>', TERRAIN_FOG);
+  };
+  mat.customProgramCacheKey = () => `${prevKey()}|gta7-terrain-fog`;
+  return mat;
+}
+
 /** The program of the street decor (awnings, planters): vertex colours, double sided, the building fog. */
 export const DECOR_PROGRAM = 'gta7-building-decor';
 

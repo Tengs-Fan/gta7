@@ -361,9 +361,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // letters, grown as bushes, lose their trunks; and the colliders again when Las Lomas County moved the four props in
     // the links' mouths out of the way (two lamps, a tree, a bench) and appended, after every other collider, the
     // Southgate Bridge's two parapets and its arch's four portal posts, the gateways' and its junctions' signal heads and
-    // the causeway's lamps.
+    // the causeway's lamps; and the colliders again when its landscape appended the ridge's turbines and tree belts, then
+    // its rises' sight cores and Lookout Point's parapet and tower.
     expect(b).toBe('cb24287bf52d2607b0cdf537ee6f3cb8b1958e1495464192f58b2cb03287bf80');
-    expect(c).toBe('7e68ff25454a2bae9d5988fbcf3d0d12a74930954a4280b7447eca55e43f94f8');
+    expect(c).toBe('bdfb2884dcef5acd07a3b924969001269583483a2f3b42e642515b33e25ae8e6');
   });
 });
 

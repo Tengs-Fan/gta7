@@ -6,7 +6,8 @@ import * as THREE from 'three';
 /** UnrealBloomPass's luminance threshold (GameRenderer). Every glow stays under it, so bloom never toggles on one. */
 export const BLOOM_THRESHOLD = 2.6;
 
-export type GlowKind = 'head' | 'tail' | 'brake' | 'reverse' | 'sirenRed' | 'sirenBlue';
+export type GlowKind = 'head' | 'tail' | 'brake' | 'reverse' | 'sirenRed' | 'sirenBlue'
+  | 'reflector';
 
 type Rgb = readonly [number, number, number];
 
@@ -21,6 +22,8 @@ export const GLOW: Readonly<Record<GlowKind, { readonly color: Rgb; readonly siz
   reverse: { color: [1.1, 1.1, 1.05], size: 0.8 },
   sirenRed: { color: [3, 0.12, 0.05], size: 1.7 },
   sirenBlue: { color: [0.08, 0.35, 3.2], size: 1.7 },
+  /** A roadside post's amber reflector caught full in a car's headlights (render/country/reflectors.ts). */
+  reflector: { color: [1.6, 0.82, 0.22], size: 0.45 },
 };
 
 /** One lamp's glow: its world position and the horizontal direction it shines (fx = fz = 0: all round). */
@@ -294,6 +297,18 @@ export class LightSprites {
     const i = this.glowCount++;
     this.glowPos.setXYZ(i, g.x, g.y, g.z);
     this.glowColor.setXYZ(i, spec.color[0] * k, spec.color[1] * k, spec.color[2] * k);
+    this.glowSize.setX(i, spec.size);
+    return true;
+  }
+
+  /** Adds a reflector's glow, shining back at `gain` (0..1) of its full strength all round; false when it is not drawn. */
+  addReflector(x: number, y: number, z: number, gain: number): boolean {
+    if (this.glowCount >= GLOW_CAPACITY || gain < 0.02) return false;
+    if (Math.hypot(this.cam.x - x, this.cam.y - y, this.cam.z - z) > GLOW_RANGE) return false;
+    const spec = GLOW.reflector;
+    const i = this.glowCount++;
+    this.glowPos.setXYZ(i, x, y, z);
+    this.glowColor.setXYZ(i, spec.color[0] * gain, spec.color[1] * gain, spec.color[2] * gain);
     this.glowSize.setX(i, spec.size);
     return true;
   }

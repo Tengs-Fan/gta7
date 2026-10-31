@@ -14,6 +14,7 @@
 
 import { clamp, smoothstep } from '../core/math';
 import { WATER_Y } from '../world/constants';
+import { countryGround, type Country } from '../world/country';
 import { beachOffsetAt, type Bounds, type District, type Rect } from '../world/layout';
 import { Glider, OPEN_HZ, dbToGain, withinParam } from './mixer';
 
@@ -93,14 +94,62 @@ export interface ShoreInfo {
   dirZ: number;
 }
 
+/** Las Lomas County's waterline is traced on a lattice this many metres apart (countyCoast). */
+const COAST_STEP = 4;
+const coasts = new WeakMap<Country, Float32Array>();
+
+/**
+ * Las Lomas County's waterline: marching squares on its ground over its box, as segments (x0, z0, x1, z1 runs), traced
+ * once per county. countryGround is baseGround off the city's land but for the causeway, whose quay walls are no beach.
+ */
+export function countyCoast(country: Country): Float32Array {
+  let segs = coasts.get(country);
+  if (segs) return segs;
+  const b = country.bounds;
+  const nx = Math.ceil((b.maxX - b.minX) / COAST_STEP);
+  const nz = Math.ceil((b.maxZ - b.minZ) / COAST_STEP);
+  const sx = (b.maxX - b.minX) / nx;
+  const sz = (b.maxZ - b.minZ) / nz;
+  const h = new Float32Array((nx + 1) * (nz + 1));
+  for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) h[j * (nx + 1) + i] = countryGround(country, b.minX + i * sx, b.minZ + j * sz) - WATER_Y;
+  const out: number[] = [];
+  const cut: number[] = [];
+  // Where the edge from corner a to corner b crosses the waterline, if it does.
+  const edge = (ha: number, hb: number, xa: number, za: number, xb: number, zb: number): void => {
+    if (ha > 0 === hb > 0) return;
+    const t = ha / (ha - hb);
+    cut.push(xa + (xb - xa) * t, za + (zb - za) * t);
+  };
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      const x0 = b.minX + i * sx;
+      const z0 = b.minZ + j * sz;
+      const k = j * (nx + 1) + i;
+      cut.length = 0;
+      // Round the cell: two crossings make a segment, four (a saddle) two, cutting off the corners at (x0 + sx, z0) and
+      // (x0, z0 + sz).
+      edge(h[k]!, h[k + 1]!, x0, z0, x0 + sx, z0);
+      edge(h[k + 1]!, h[k + nx + 2]!, x0 + sx, z0, x0 + sx, z0 + sz);
+      edge(h[k + nx + 2]!, h[k + nx + 1]!, x0 + sx, z0 + sz, x0, z0 + sz);
+      edge(h[k + nx + 1]!, h[k]!, x0, z0 + sz, x0, z0);
+      for (let c = 0; c < cut.length; c += 4) out.push(cut[c]!, cut[c + 1]!, cut[c + 2]!, cut[c + 3]!);
+    }
+  }
+  segs = new Float32Array(out);
+  coasts.set(country, segs);
+  return segs;
+}
+
 /**
  * The nearest surf for a listener at (x, z): the east beach's waterline, or a sea wall 60 m "farther", the walls round
- * the water cut into the city (`water`: the cove, the basin, the canal) included. Pure.
+ * the water cut into the city (`water`: the cove, the basin, the canal) included; on Las Lomas County's land and dry
+ * sand (`country`), its waterline, all beach (countyCoast). Pure.
  */
-export function shoreInfo(b: Bounds, x: number, z: number, out?: ShoreInfo, water: readonly Rect[] = []): ShoreInfo {
+export function shoreInfo(b: Bounds, x: number, z: number, out?: ShoreInfo, water: readonly Rect[] = [], country?: Country): ShoreInfo {
   const o = out ?? ({} as ShoreInfo);
   const waterX = b.beachStartX + beachOffsetAt(WATER_Y);
   if (!(x >= b.landMinX && x <= waterX && z >= b.landMinZ && z <= b.landMaxZ)) {
+    if (country && countryGround(country, x, z) > WATER_Y) return nearestCoast(countyCoast(country), x, z, o);
     o.dist = 0;
     o.dirX = 0;
     o.dirZ = 0;
@@ -142,6 +191,33 @@ export function shoreInfo(b: Bounds, x: number, z: number, out?: ShoreInfo, wate
       o.dirZ = dz / d;
     }
   }
+  return o;
+}
+
+/** The nearest point of the waterline `segs` (countyCoast) to (x, z): its distance and the way to it. */
+function nearestCoast(segs: Float32Array, x: number, z: number, o: ShoreInfo): ShoreInfo {
+  let best = Infinity;
+  let bx = 0;
+  let bz = 0;
+  for (let k = 0; k < segs.length; k += 4) {
+    const ax = segs[k]!;
+    const az = segs[k + 1]!;
+    const ex = segs[k + 2]! - ax;
+    const ez = segs[k + 3]! - az;
+    const t = clamp(((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez), 0, 1);
+    const dx = ax + ex * t - x;
+    const dz = az + ez * t - z;
+    const d = Math.hypot(dx, dz);
+    if (d < best) {
+      best = d;
+      bx = dx;
+      bz = dz;
+    }
+  }
+  const k = best > 0 ? 1 / best : 0;
+  o.dist = best;
+  o.dirX = bx * k;
+  o.dirZ = bz * k;
   return o;
 }
 

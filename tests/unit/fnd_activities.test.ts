@@ -60,10 +60,10 @@ function fixture(calls: { updates: number[]; ends: string[] }): ActivityDef<Fixt
 
 /**
  * The registry's kinds: the four built-in ones, wave 1's four service jobs (w1_activities.test.ts), the Gull Regatta,
- * the street run, then the cab and AzuraLink's ride (called from the phone and a station's marker, never by the job key,
- * so they sit after the street run).
+ * the Coyote Ridge Hill Climb, the street run, then the cab and AzuraLink's ride (called from the phone and a station's
+ * marker, never by the job key, so they sit after the street run).
  */
-const KINDS = ['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'regatta', 'streetRun', 'cab', 'monorail'];
+const KINDS = ['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'regatta', 'hillClimb', 'streetRun', 'cab', 'monorail'];
 
 describe('activity registry', () => {
   afterEach(() => {
