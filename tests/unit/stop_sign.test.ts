@@ -112,6 +112,33 @@ describe('Las Lomas County: stop signs', () => {
     expect(wentAt - stoodAt).toBeLessThan(3);
   });
 
+  // A car left in the Creek T's box (its half and 2 m, 10 m), out of the pickup's way, that nobody drives: parked on the
+  // box's corner, on a verge or on the highway's far lane, or burnt out there. It is in the way like any obstacle, not
+  // traffic to wait for; counted as traffic in the box it held the pickup at the line for good.
+  it.each([
+    ['parked on the corner', 7, 7, false],
+    ["parked on the highway's far lane", 3, 6, false],
+    ["burnt out on the highway's far lane", 3, 6, true],
+    ['parked on the south verge', 0, 9.5, false],
+    ['parked on the north-west verge', -9.5, -9.5, false],
+  ] as const)('goes on past a car %s in the junction', (where, bx, bz, wreck) => {
+    const sim = makeSim({ seed: 1, police: false, ambient: false });
+    const { node, minor } = creekT(sim);
+    teleport(sim, node.x - 30, node.z - 30);
+    const b = sim.spawnVehicle('sedan', node.x + bx, node.z + bz, Math.PI / 2);
+    b.owner = 'parked';
+    b.destroyed = wreck;
+    const pickup = aiCar(sim, minor, minor.length - 40, 8);
+    let crossed = -1;
+    for (let t = 0; t < 30 && crossed < 0; t += 1 / 60) {
+      step(sim, 1 / 60);
+      if (toLine(pickup, minor) < -pickup.halfL - 1) crossed = t;
+    }
+    console.log(`[stop_sign] past a car ${where}: crossed the line after ${crossed.toFixed(1)} s`);
+    expect(crossed).toBeGreaterThan(0);
+    expect(crossed).toBeLessThan(12);
+  });
+
   it('a pursuer runs it', () => {
     const sim = makeSim({ seed: 3, police: false, ambient: false });
     const { node, minor } = creekT(sim);

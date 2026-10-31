@@ -1455,8 +1455,10 @@ export class DriverAI {
   /**
    * At the stop line of a stop sign at the end of `lane` (the front bumper `lineGap` m short of it), taking `turn`:
    * whether the car may go on. It must have stood within STOP_NEAR m of the line, under STOP_STILL m/s, for STOP_WAIT s;
-   * then the junction's box (its half and 2 m) must hold no other vehicle, and none above STOP_MOVING m/s be coming in
-   * on an arm with right of way within STOP_REACH m or the gap it needs at its speed, the players' cars among them.
+   * then the junction's box (its half and 2 m) must hold no other vehicle someone drives or that moves above STOP_MOVING
+   * m/s (a wreck or a car left standing there is in the way like any obstacle, not traffic to wait for), and none above
+   * STOP_MOVING m/s be coming in on an arm with right of way within STOP_REACH m or the gap it needs at its speed, the
+   * players' cars among them.
    * Turning right it joins the near lanes: it needs STOP_GAP_RIGHT s of the traffic it pulls out in front of (from the
    * arm across from where it heads) and none of the rest. Any other way it crosses the near lanes from a stand before it
    * joins the far ones: STOP_GAP s of every arm. A vehicle slower off the mark than a car (accel under STOP_ACCEL m/s2: a
@@ -1483,7 +1485,7 @@ export class DriverAI {
       if (o === this.vehicle || o.removed) continue;
       const dx = o.pos.x - node.x;
       const dz = o.pos.z - node.z;
-      if (Math.abs(dx) < box && Math.abs(dz) < box) return false;
+      if (Math.abs(dx) < box && Math.abs(dz) < box && (o.driver || o.speed > STOP_MOVING)) return false;
       const d = Math.hypot(dx, dz);
       const closing = -(dx * o.vel.x + dz * o.vel.z) / d;
       // On an arm with right of way: a road leaves the junction that way, and its traffic does not stop.

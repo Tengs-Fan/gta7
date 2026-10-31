@@ -214,12 +214,15 @@ The HUD and the scanner name the plot you are in, or Las Lomas County.
 **Junctions without lights.**
 Every road has a priority (the highway 2, the country roads 1), and the Hollister T and the Creek T (`STOP_SIGNS`) have stop signs instead of lights: `RoadNode.stops` marks the arms that stop, Hollister Lane's and Creek Road's.
 The signal head for a stopping arm is a stop sign (a `stopSign` prop, breakable like a lamp) behind a stop line, and the heads for the highway's arms are lamps over the junction, so every later prop keeps its index; Dry Creek keeps its light, and no grid node has a stop.
-A driver obeying the lights stops its front bumper at the line, stands there 0.6 s, and goes once nobody is in the junction and nothing above 1.5 m/s is coming in on the highway within 30 m or the gap it needs (`DriverAI.goFromStop`).
+A driver obeying the lights stops its front bumper at the line, stands there 0.6 s, and goes once the junction holds no vehicle that someone drives or that moves above 1.5 m/s, and nothing above 1.5 m/s is coming in on the highway within 30 m or the gap it needs (`DriverAI.goFromStop`).
+A wreck or a car left standing in the junction is in the way like any obstacle, not traffic to wait for: counted as traffic it held the country road at the line for good.
 Turning right it needs 3.5 s of the traffic it pulls out in front of; turning left it crosses the near lanes from a stand and needs 4.5 s of both; a vehicle slower off the mark than a car (a tractor, a bus) needs longer, and one kept waiting takes gaps down to 0.7 of those after 10-20 s.
 Pursuers run stop signs, and a stop sign cannot be held green: the street runs' green wave and `holdSignal` pass over a junction without lights.
 On the county's lanes a left turner yields to any oncoming car up to 4.5 s away, not only within 38 m as in the city, since the highway's 22 m/s covers 38 m faster than a turn takes.
 The spawner treats a stop line like a red light (a car queued there spawns standing), starts no car at speed within 50 m of a county junction on its lane, and queues no highway car at a stop sign for a fast player: in the ten-minute soaks those were the cars that hit turners.
-`tests/unit/traffic_deadlock.test.ts` stands ten minutes at each T in the game's traffic; across seeds 1-12 nothing collided in either junction, and the longest wait at a line was 39 s (four of 24 runs passed 30 s, a left turn needing a gap in both streams at once).
+`tests/unit/traffic_deadlock.test.ts` stands ten minutes at each T for each of seeds 1-12 in the game's traffic, and once more at the Creek T with a car parked in its box: nothing collides in either junction, and no wait at a line passes 40 s.
+The longest is 39 s, and 5 of 1078 stops (in 5 of the 24 runs) wait over 30 s.
+The bound is 40 s, not 30, for three reasons: a left turn from the country road needs a gap in both of the highway's streams at once; no cheap rule tried (shorter gaps, sooner impatience, a forced go) got the longest under 36 s without collisions in the box; and the traffic's density never goes above 1.0 in play (at 1.5 times the traffic the Creek T's left turns waited up to 85 s).
 If a later round finds them wanting, emptying `STOP_SIGNS` gives both junctions their lights back.
 
 **The county's traffic.**
