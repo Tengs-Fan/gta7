@@ -106,8 +106,9 @@ describe('vehicle part batches', () => {
     frame(batches, [{ view }]);
     view.group.updateMatrixWorld(true);
     const parts: THREE.Mesh[] = [];
+    // (Those it draws: a black cruiser wears no sheriff's star.)
     view.group.traverse((o) => {
-      if (o instanceof THREE.Mesh && o.layers.isEnabled(PART_LAYER)) parts.push(o);
+      if (o instanceof THREE.Mesh && o.layers.isEnabled(PART_LAYER) && o.visible) parts.push(o);
     });
     expect(parts.length).toBe(16);
     const inst = new THREE.Matrix4();

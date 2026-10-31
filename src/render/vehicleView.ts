@@ -7,7 +7,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import { firingRow, GUN_PORT, SKELETON } from '../sim/pose';
-import { VEHICLE_SPECS, type VehicleBodyProfile, type VehicleKind } from '../sim/specs';
+import { SHERIFF_COLOR, VEHICLE_SPECS, type VehicleBodyProfile, type VehicleKind } from '../sim/specs';
 import { chaseOffset, CHASE_TARGET_Y } from './camera';
 import type { LampGlow } from './lightSprites';
 import { taxiSignTexture } from './textures';
@@ -1104,6 +1104,30 @@ const burntMat = burntMaterial();
 const brokenLampMat = new THREE.MeshStandardMaterial({ color: 0x161616, emissive: 0x000000, emissiveIntensity: 0, roughness: 0.7 });
 const barBaseMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
 const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4, metalness: 0.3 });
+/** The sheriff's cruisers (SHERIFF_COLOR): doors in the body's tan, and a gold star on each front door. */
+const sheriffDoorMat = new THREE.MeshStandardMaterial({ color: SHERIFF_COLOR, roughness: 0.4, metalness: 0.3 });
+const starMat = new THREE.MeshStandardMaterial({ color: 0xd9a826, emissive: 0x3a2800, emissiveIntensity: 1, roughness: 0.3, metalness: 0.85 });
+const stars = new Map<VehicleKind, THREE.BufferGeometry>();
+
+/** A five-pointed star `r` m to its points on either front door of `kind`, facing out, just proud of the flank. */
+function starGeometry(kind: VehicleKind): THREE.BufferGeometry {
+  let g = stars.get(kind);
+  if (!g) {
+    const s = VEHICLE_SPECS[kind];
+    const r = 0.2;
+    const shape = new THREE.Shape();
+    for (let k = 0; k <= 10; k++) {
+      const a = (k * Math.PI) / 5;
+      const l = k % 2 === 0 ? r : r * 0.42;
+      if (k === 0) shape.moveTo(Math.sin(a) * l, Math.cos(a) * l);
+      else shape.lineTo(Math.sin(a) * l, Math.cos(a) * l);
+    }
+    const sides = [1, -1].map((side) => new THREE.ShapeGeometry(shape).rotateY((side * Math.PI) / 2).translate(side * (s.width / 2 + 0.012), s.height * 0.5 - profile(kind).drop, 0.12 * s.length));
+    g = mergeGeometries(sides)!;
+    stars.set(kind, g);
+  }
+  return g;
+}
 
 /** An upright triangle `side` m on a side, facing back (-z), its centre at the origin. */
 function triangleGeometry(side: number): THREE.BufferGeometry {
@@ -1328,6 +1352,9 @@ export class VehicleView {
   private sirenLenses: { red: THREE.Mesh; blue: THREE.Mesh } | null = null;
   /** A tractor's amber beacon, turning while its engine runs. */
   private beacon: THREE.MeshStandardMaterial | null = null;
+  /** A cruiser's gold star, worn on the sheriff's tan ones (SHERIFF_COLOR) in place of the white doors. */
+  private star: THREE.Mesh | null = null;
+  private sheriff = false;
   /** What sync last lit: head and running tail lamps, and which light-bar lens (null: none). */
   private lit: { lights: boolean; siren: 'red' | 'blue' | null } = { lights: false, siren: null };
   private readonly lampTmp = new THREE.Vector3();
@@ -1505,6 +1532,16 @@ export class VehicleView {
         this.group.add(stripe);
         this.stripe = { geo, base: Float32Array.from(geo.getAttribute('position').array), mesh: stripe };
         this.livery.push({ mesh: stripe, mat: stripe.material as THREE.Material });
+        // (Drawn with the lamp lenses, one batch for every sheriff's car.)
+        const star = new THREE.Mesh(starGeometry(kind), starMat);
+        star.name = 'livery';
+        star.visible = false;
+        this.group.add(star);
+        this.star = star;
+        this.attached.push({ obj: star, base: star.position.clone() });
+        this.livery.push({ mesh: star, mat: starMat });
+        markPart(star);
+        this.lensParts.push(star);
       }
     }
     if (kind === 'taxi') {
@@ -1708,6 +1745,7 @@ export class VehicleView {
     this.shadowCaster.visible = near;
     this.syncShadow();
     if (this.stripe) this.stripe.mesh.visible = near;
+    if (this.star) this.star.visible = this.sheriff;
     for (const w of this.wheels) {
       w.pivot.visible = !coarse;
       w.tire.visible = !this.burnt;
@@ -1988,6 +2026,11 @@ export class VehicleView {
       this.setBurnt(false);
       this.body.material = bodyMaterial(v.color);
       this.color = v.color;
+      if (this.stripe) {
+        this.sheriff = v.color === SHERIFF_COLOR;
+        this.stripe.mesh.material = this.sheriff ? sheriffDoorMat : stripeMat;
+        this.applyVisibility();
+      }
     }
     if (this.distantMesh) this.distantMesh.material = this.body.material;
     if (v.dentVersion !== this.dentVersion) this.applyDents(v);

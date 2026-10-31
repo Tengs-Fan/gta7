@@ -152,7 +152,7 @@ export const VEHICLE_SPECS: Readonly<Record<VehicleKind, VehicleSpec>> = {
   pickup: { kind: 'pickup', name: 'Dustrunner', length: 5.3, width: 2.1, height: 1.85, mass: 2100, accel: 9.5, maxSpeed: 40, reverseSpeed: 9, brake: 16, grip: 20, steer: 0.58, health: 1300, seats: 2, colors: CIVIL_COLORS, police: false, value: 26000, durability: 0.75, rollGain: 1.6, pitchGain: 1.3, class: 'car', engine: { cylinders: 8, idleRpm: 650, redlineRpm: 5200, brightness: 0.4, roughness: 0.22, loudness: 0.5, horn: [330, 415] } },
   // Las Lomas County's farm tractor: slow, heavy and sure-footed, a narrow hood and cab between big rear wheels.
   tractor: {
-    kind: 'tractor', name: 'Haymaker', length: 4.2, width: 2.3, height: 2.9, mass: 4200, accel: 5, maxSpeed: 12, reverseSpeed: 4, brake: 12, grip: 26, steer: 0.62, health: 2200, seats: 1, colors: [0xa4473b, 0x6c9cc4, 0xc4762e], police: false, value: 32000, durability: 0.5, rollGain: 0.4, pitchGain: 0.8, class: 'car', cruise: 0.9,
+    kind: 'tractor', name: 'Haymaker', length: 4.2, width: 2.3, height: 2.9, mass: 4200, accel: 5, maxSpeed: 12, reverseSpeed: 4, brake: 12, grip: 26, steer: 0.62, health: 2200, seats: 1, colors: [0xa4473b, 0x4f86c6, 0xc4762e], police: false, value: 32000, durability: 0.5, rollGain: 0.4, pitchGain: 0.8, class: 'car', cruise: 0.9,
     engine: { cylinders: 4, idleRpm: 650, redlineRpm: 2400, brightness: 0.3, roughness: 0.4, loudness: 1, horn: [294, 370], diesel: true },
     bodyProfile: {
       body: [[-0.5, 0.15], [0.5, 0.15], [0.5, 0.43], [0.47, 0.47], [-0.02, 0.5], [-0.5, 0.5]],
@@ -211,6 +211,9 @@ export const VEHICLE_SPECS: Readonly<Record<VehicleKind, VehicleSpec>> = {
     ],
   },
 };
+
+/** The Las Lomas County Sheriff's tan: a patrol cruiser placed in the county wears it (police.ts), and a gold star for the white doors. */
+export const SHERIFF_COLOR = 0xc8a96a;
 
 /** The engine of a kind with no `engine` of its own: the sedan's. */
 export const DEFAULT_ENGINE_PROFILE: EngineProfile = { cylinders: 4, idleRpm: 800, redlineRpm: 6500, brightness: 0.5, roughness: 0.12, loudness: -1.5, horn: DEFAULT_HORN };
