@@ -8,6 +8,7 @@ import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/
 import type { Vehicle } from '../sim/entities';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
+import { rectContains } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { CameraController } from './camera';
 import { ContactShadows, FootShadows } from './contactShadows';
@@ -927,7 +928,12 @@ export class GameRenderer {
     this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
   }
 
-  /** The merged far version for every car but the player's beyond FAR_LOD_DISTANCE (software: its own distance). */
+  /**
+   * The merged far version for every car but the player's beyond FAR_LOD_DISTANCE (software: its own distance), and on
+   * the hardware tiers for the cars parked in the Moonbeam Drive-In's lot however near: its forty bays fill for the
+   * show, and from a bay a parked car's far version looks as its near one does (setDistant: only small dents and its
+   * shadow differ).
+   */
   private chooseDetail(view: AnyVehicleView, v: Vehicle, sim: ViewState): void {
     const cam = this.cameraCtl.camera.position;
     const d2 = (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2;
@@ -937,7 +943,7 @@ export class GameRenderer {
       return;
     }
     const d = FAR_LOD_DISTANCE + (view.isDistant ? -FAR_LOD_BAND : FAR_LOD_BAND);
-    view.setDistant(!mine && d2 > d * d);
+    view.setDistant(!mine && (d2 > d * d || (v.owner === 'parked' && rectContains(this.world.layout.country.places.driveIn.lot, v.pos.x, v.pos.z))));
   }
 
   /** Refills the part batches with the cars drawn this frame (fading ones included) whose bounds are in the camera's view. */
