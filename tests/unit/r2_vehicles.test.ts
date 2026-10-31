@@ -1427,28 +1427,31 @@ describe('round-2 fixes 2: each class leans on its own suspension', () => {
     for (const kind of ['van', 'pickup', 'swat', 'bus'] as const) expect(deepestDive(kind), kind).toBeGreaterThan(sports);
   });
 
-  // (The tractor's front wheels stand in the open, beside its narrow hood.)
-  it.each(CAR_KINDS.filter((k) => VEHICLE_SPECS[k].bodyProfile?.bodyWidth === undefined))('no %s tyre comes up through the bodywork, standing, braking hard, cornering hard or both', (kind) => {
+  // The tractor's front tyres stand in the open beside its narrow hood: all 27 points of each (54) show, standing and
+  // braking. In the corner, at 20 m/s beyond its top speed, 5 points of a rear tyre's edge show too (59). Any more is a
+  // rear tyre come up through its mudguard.
+  it.each(CAR_KINDS)('no %s tyre comes up through the bodywork, standing, braking hard, cornering hard or both', (kind) => {
+    const [open, cornering] = kind === 'tractor' ? [54, 59] : [0, 0];
     const { v, view } = car(kind);
-    expect(tyrePointsThroughBody(view), 'standing').toBe(0);
+    expect(tyrePointsThroughBody(view), 'standing').toBe(open);
     // Braking from 20 m/s: checked through the dive.
     v.forwardSpeed = 20;
     view.sync(v, DT, 0, 0);
     for (let i = 0; i < 120 && v.forwardSpeed > 0.5; i++) {
       v.forwardSpeed = Math.max(0.5, v.forwardSpeed - v.spec.brake * DT);
       view.sync(v, DT, 0, 0);
-      if (i % 10 === 9) expect(tyrePointsThroughBody(view), `braking, step ${i}`).toBe(0);
+      if (i % 10 === 9) expect(tyrePointsThroughBody(view), `braking, step ${i}`).toBe(open);
     }
     // Settled in an 18 m/s2 corner, then braking hard in it.
     v.forwardSpeed = 20;
     v.angVel = -0.9;
     for (let i = 0; i < 90; i++) view.sync(v, DT, 0, 0);
-    expect(tyrePointsThroughBody(view), 'cornering').toBe(0);
+    expect(tyrePointsThroughBody(view), 'cornering').toBe(cornering);
     for (let i = 0; i < 30; i++) {
       v.forwardSpeed = Math.max(0.5, v.forwardSpeed - v.spec.brake * DT);
       view.sync(v, DT, 0, 0);
     }
-    expect(tyrePointsThroughBody(view), 'braking in the corner').toBe(0);
+    expect(tyrePointsThroughBody(view), 'braking in the corner').toBe(open);
   });
 });
 
