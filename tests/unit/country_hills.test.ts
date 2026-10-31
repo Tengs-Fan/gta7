@@ -39,7 +39,7 @@ const wind = { uWindTime: { value: 0 }, uWindAmp: { value: 0 }, uWindDir: { valu
 /**
  * What the county had before the landscape: 4605 colliders in all, and the props up to its first. Re-recorded on the
  * integrated county head, where its traffic made the Hollister T's and the Creek T's signal heads a stop sign and two
- * lamps each (the same count, after which the landscape and the farms append theirs).
+ * lamps each (the same count, after which the landscape, the farms and the places append theirs).
  */
 const COLLIDERS = 4605;
 

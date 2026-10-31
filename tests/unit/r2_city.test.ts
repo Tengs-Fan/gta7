@@ -270,7 +270,7 @@ describe('round 2 city: layout', () => {
     // the dairy's farmer's spot) and its places theirs (Dry Creek's stores, props, POIs, footpaths and bays, the Moonbeam
     // Drive-In's posts and bays, Gravel Gulch's ramps and decks and its gates at its turns' apexes), and every ramp gained
     // its stunt flag.
-    expect(layoutHash()).toBe('23c90d40fe73b38029d65ef730236a22cdc7653da4322e41c5dbd056518322f0');
+    expect(layoutHash()).toBe('ccb5850719bbaad848bc3c7bd1b8ecca88e6a108203a2b742c11b73d98784d0c');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

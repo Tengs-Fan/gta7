@@ -510,8 +510,8 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // Dry Creek its pumps, billboards, lamps and benches and the Moonbeam Drive-In its speaker posts, then the landscape's
   // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders.
   const D98 = {
-    props: 'd377952252408602cdcb9bc9c5eb0c617dafa085fe55dbaac910ba994a1e1616',
-    colliders: '182dcd7ce54caa3bebe5b736c0e739b42a389112d5c5a791cf8f3bd4b72ca44a',
+    props: '1a83d08024e7d4d1e7e25a7a6d05b0197bda17775b24ee3f91ff331227d3cd16',
+    colliders: 'ce1e416eec515e1717a27984c44a7e38a327845690782fcb7984cf4008f129fc',
     envelopes: '49a5db289f360a17852cb9a6af6b0a08e53e66fa3d0d64b11442a350cfb3b27e',
   };
 
