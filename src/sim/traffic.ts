@@ -25,11 +25,12 @@ const ONCOMING_KEEP = 520;
 const ONCOMING_CARS = 2;
 /**
  * Seen from the city's land within LINK_REACH m of the Magnolia Causeway or the Southgate Bridge, LINK_CARS cars at a time
- * come in over them, spawned up to LINK_FAR m off by a generator of the links' own (LINK_SALT): see streamLinks.
+ * come in over them, spawned out of view up to LINK_FAR m off by a generator of the links' own (LINK_SALT): see
+ * streamLinks.
  */
 const LINK_REACH = 235;
 const LINK_CARS = 2;
-const LINK_FAR = 520;
+export const LINK_FAR = 520;
 const LINK_SALT = 0x11a5;
 /** No car is spawned at speed within this far (m) of a county junction on its lane (see trySpawnTraffic). */
 const JUNCTION_CLEAR = 50;
@@ -290,8 +291,9 @@ export class TrafficSystem {
   /**
    * Traffic coming in to the city over the Magnolia Causeway and the Southgate Bridge, for a player on the city's land
    * within LINK_REACH m of where they land, whose own spawns keep to the city's lanes (refreshNearLanes): up to LINK_CARS
-   * cars on the links' lanes into the city, out of his view, or beyond the 320 m the never-pop-in rule looks. Where,
-   * which kind and its colour come from the links' own generator (linkRng), so the city's draws stay as they were.
+   * cars on the links' lanes into the city, out of his view as far as LINK_FAR m (nothing on the open water hides one).
+   * Where, which kind, its colour, its driver's looks and cruising speed come from the links' own generator (linkRng);
+   * once on its way the car's driving (its turns, its honks) draws from the sim's, as every car's does.
    */
   private streamLinks(): void {
     const sim = this.sim;
@@ -306,11 +308,11 @@ export class TrafficSystem {
     const x = lane.sx + lane.dx * s;
     const z = lane.sz + lane.dz * s;
     const d = Math.hypot(x - pp.x, z - pp.z);
-    if (d > LINK_FAR || sim.isVisible(x, 1, z) || !this.isClear(x, z, 11)) return;
+    if (d > LINK_FAR || sim.isVisible(x, 1, z, LINK_FAR) || !this.isClear(x, z, 11)) return;
     const k = countryKind(trafficBike(rng.weighted(TRAFFIC_MIX), x, z), x, z);
     const v = sim.spawnVehicle(k, x, z, lane.heading, rng.pick(VEHICLE_SPECS[k].colors));
     v.owner = 'traffic';
-    sim.addDriver(v, 'civilian', 'traffic').owner = 'traffic';
+    sim.addDriver(v, 'civilian', 'traffic', rng).owner = 'traffic';
     v.ai!.setLane(lane, s);
     v.vel.x = lane.dx * lane.speedLimit * 0.55;
     v.vel.z = lane.dz * lane.speedLimit * 0.55;

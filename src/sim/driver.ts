@@ -465,10 +465,12 @@ export class DriverAI {
     return b && 'kind' in b && this.limiter === 'obstacle' && Math.abs(this.vehicle.forwardSpeed) < 0.5 ? b : null;
   }
 
+  /** `rng`: the generator the driver's cruising speed is drawn from (the host's unless given). */
   constructor(
     private readonly host: DriverHost,
     readonly vehicle: Vehicle,
     policy: DriverPolicy,
+    rng = host.rng,
   ) {
     this.policy = policy;
     this.speedMul = 1;
@@ -478,7 +480,7 @@ export class DriverAI {
     this.decel = 4.5;
     this.progressX = vehicle.pos.x;
     this.progressZ = vehicle.pos.z;
-    this.setPolicy(policy);
+    this.setPolicy(policy, rng);
     this.resetPath();
   }
 
@@ -494,12 +496,12 @@ export class DriverAI {
     this.holdUntil = on ? this.host.time + HOLD_TIMEOUT : -Infinity;
   }
 
-  /** Switches behaviour (e.g. a patrol car joining a pursuit) and its driving style. */
-  setPolicy(policy: DriverPolicy): void {
+  /** Switches behaviour (e.g. a patrol car joining a pursuit) and its driving style; a civilian's speed is drawn from `rng`. */
+  setPolicy(policy: DriverPolicy, rng = this.host.rng): void {
     this.policy = policy;
     const aggressive = policy === 'chase' || policy === 'flee';
     const spec = this.vehicle.spec;
-    this.speedMul = policy === 'chase' ? 1.6 : policy === 'flee' ? 1.45 : this.host.rng.range(0.85, 1.05);
+    this.speedMul = policy === 'chase' ? 1.6 : policy === 'flee' ? 1.45 : rng.range(0.85, 1.05);
     this.maxSpeed = spec.maxSpeed * (aggressive ? 0.92 : spec.cruise ?? 0.6);
     this.obeyLights = !aggressive;
     this.cornering = aggressive ? 11 : 4.5;

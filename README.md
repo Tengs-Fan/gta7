@@ -313,7 +313,7 @@ All of these are minor; the most noticeable come first.
 - Now and then a new city bus appears slightly overlapping the bus ahead of it in the same lane, usually out of sight, and both end up dented.
 - Boats cannot pass under the canal's bridges (they are decks, like the pier), so the canal is for looking at from a boat, not for sailing through.
 - On Hillcrest Green's hill a car rolls with the slope only as drawn: the sim keeps the body level across it, so a car never tips over sideways there.
-- Seen from the city, the Magnolia Causeway and the Southgate Bridge carry two cars at a time coming in, spawned by a generator of their own so the city's traffic and its recorded test runs stay as they were; the county's own traffic appears only once you are off the city's land.
+- Seen from the city, the Magnolia Causeway and the Southgate Bridge carry two cars at a time coming in to a player near where they land, spawned out of view: where each appears, its kind, colour, driver and cruising speed come from a generator of their own, but once on its way its driving (its turns, its honks) draws on the game's own like any car's, so near the links they change the city's traffic (the recorded test runs never come that close); the county's own traffic appears only once you are off the city's land.
 - Out in Las Lomas County's open fields oncoming traffic can appear as a speck far down the highway (beyond 320 m, where the fog has only begun) rather than round a bend, since nothing there hides a car yet.
 - A stop sign on a busy highway can keep a car turning left from the country road waiting over half a minute: it needs a gap in both streams at once (the longest wait seen in ten-minute runs was 39 s).
 
@@ -327,6 +327,7 @@ All of these are minor; the most noticeable come first.
 - The Docker image has not been built or run (Docker was not available where it was written).
 - Shooting another player gives you wanted stars like any gunfire the police see, and with stars you cannot open or join a head-to-head Street Run until you lose them.
 - A racer who quits a head-to-head Street Run but stays in his race car keeps it: only the empty cars of racers who did not finish are removed, so one left on the grid (which is also the finish line) stays in the way.
+- No traffic comes in over the Magnolia Causeway or the Southgate Bridge in multiplayer: the cars that come in to a player near where they land spawn in single player only.
 
 <details><summary>More, by area</summary>
 

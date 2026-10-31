@@ -230,7 +230,10 @@ In the county (`COUNTY_BOUNDS`) the traffic is 0.4 of the city's, and `countryKi
 A tractor cruises at 0.9 of its 12 m/s, and the traffic behind it queues and honks, since a driver overtakes only what holds it under 3 m/s.
 The open fields hide little, so for a fast player on a county road the spawner adds spans on the oncoming lanes along his road: 120-220 m ahead, which spawn only where something hides them, and 330-420 m ahead, beyond the 320 m the never-pop-in rule looks.
 At most two cars come his way from them at a time, and a car coming his way on a county lane is kept within 520 m whether he sees it or not.
-Seen from the city's land within 235 m of a link's landfall, two cars at a time come in over the causeway and the bridge, spawned out of view or beyond 320 m on the links' lanes into the city by a generator of their own (`linkRng`), so the city's spawns draw as they did; the recorded fixtures never come within 354 m of either landfall.
+Seen from the city's land within 235 m of a link's landfall, two cars at a time come in over the causeway and the bridge, spawned on the links' lanes into the city out of view as far as 520 m, since nothing on the open water hides one.
+Where each spawns, its kind and colour, and its driver's looks and cruising speed come from a generator of their own (`linkRng`), so the spawns draw nothing from the sim's.
+Once on its way such a car's driving (its turns, its honks) draws from the sim's generator like any car's, so near the links they change the city's traffic; the recorded fixtures never come within 354 m of either landfall.
+They come in single player only: `streamTrafficMulti` has no such stream.
 A patrol cruiser placed in the county is the Las Lomas County Sheriff's (`SHERIFF_COLOR`, a tan body with a gold star on the doors), and while the suspect or the place named is in the county the sheriff's own dispatcher, in a voice of his own, calls the chase; only he names the county's places.
 
 ## Rejected, and why

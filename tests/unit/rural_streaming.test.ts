@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Vehicle } from '../../src/sim/entities';
 import { SHERIFF_COLOR, VEHICLE_SPECS } from '../../src/sim/specs';
+import { LINK_FAR } from '../../src/sim/traffic';
 import { COUNTY_BOUNDS } from '../../src/world/country';
 import { rectContains } from '../../src/world/layout';
 import type { Lane } from '../../src/world/roads';
@@ -60,23 +61,39 @@ describe('Las Lomas County: traffic in the open', () => {
     expect(rectContains(COUNTY_BOUNDS, car.pos.x, car.pos.z)).toBe(true);
   }, 60_000);
 
-  it('brings traffic in over the Magnolia Causeway to a player on the city\'s side of it', () => {
+  it("brings traffic in over the Magnolia Causeway to a player on the city's side of it, out of his view, on its own generator", () => {
     const sim = makeSim({ seed: 5, police: false, ambient: true, startHour: 12 });
-    // On Harbor Blvd's pavement by the causeway's gateway, looking west down it.
+    // On Harbor Blvd's pavement by the causeway's gateway, looking west down it and back into the city by turns.
     const g = sim.roads.node(0, 2);
     const x = g.x + 12;
     const z = g.z + 12;
     teleport(sim, x, z);
+    // The cars spawned on the links (off the city's land), whether he could see the spot out to LINK_FAR m, and whether
+    // seating the driver drew on the sim's generator.
+    const spawns: Array<{ seen: boolean; drew: boolean }> = [];
+    const rngState = () => (sim.rng as unknown as { state: number }).state;
+    const addDriver = sim.addDriver.bind(sim);
+    sim.addDriver = (v, ...rest) => {
+      const before = rngState();
+      const d = addDriver(v, ...rest);
+      if (v.pos.x < sim.world.bounds.landMinX) spawns.push({ seen: sim.isVisible(v.pos.x, 1, v.pos.z, LINK_FAR), drew: rngState() !== before });
+      return d;
+    };
     const came = new Set<Vehicle>();
     for (let t = 0; t < 90; t += 0.5) {
-      step(sim, 0.5, input({ aimOrigin: { x: x + 4, y: 3, z }, aimDir: { x: -1, y: -0.05, z: 0 }, cameraYaw: -Math.PI / 2 }));
+      const west = Math.floor(t / 10) % 2 === 1;
+      const dx = west ? -1 : 1;
+      step(sim, 0.5, input({ aimOrigin: { x: x - dx * 4, y: 3, z }, aimDir: { x: dx, y: -0.05, z: 0 }, cameraYaw: (dx * Math.PI) / 2 }));
       for (const v of sim.vehicles) {
         // Eastbound on the causeway, within 150 m of its landfall.
         if (!v.removed && v.owner === 'traffic' && v.pos.x < g.x - 30 && v.pos.x > g.x - 180 && Math.abs(v.pos.z - g.z) < 9 && v.vel.x > 3) came.add(v);
       }
     }
-    console.log(`[rural_streaming] from Harbor Blvd: ${came.size} cars came in over the causeway in 90 s`);
+    console.log(`[rural_streaming] from Harbor Blvd: ${spawns.length} cars spawned on the links, ${came.size} came in over the causeway in 90 s`);
     expect(came.size).toBeGreaterThanOrEqual(2);
+    expect(spawns.length).toBeGreaterThanOrEqual(2);
+    expect(spawns.filter((p) => p.seen)).toEqual([]);
+    expect(spawns.filter((p) => p.drew)).toEqual([]);
   }, 60_000);
 });
 
