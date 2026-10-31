@@ -265,13 +265,59 @@ function mergeAll(parts: THREE.BufferGeometry[], name: string): THREE.BufferGeom
   return g;
 }
 
+/** A plant of a pool: where it stands, how far from the ring's centre, its turn, height and size, and its tint. */
+export interface Plant {
+  x: number;
+  z: number;
+  d: number;
+  yaw: number;
+  h: number;
+  s: number;
+  tint: number;
+}
+
+/**
+ * Every plant of `crop` within `radius` of (ox, oz), each at its own spot of its field's lattice (the field's index in
+ * `fields` seeds the hash), however many: FieldsView.fill keeps the nearest its pool holds.
+ */
+export function cropPlants(fields: readonly Field[], crop: Crop, radius: number, ox: number, oz: number): Plant[] {
+  const out: Plant[] = [];
+  const lat = LATTICE[crop]!;
+  fields.forEach((f, k) => {
+    const r = f.rect;
+    if (f.crop !== crop || radius <= 0 || ox + radius < r.minX || ox - radius > r.maxX || oz + radius < r.minZ || oz - radius > r.maxZ) return;
+    const { ux, uz, vx, vz } = frame(f);
+    const uc = ox * ux + oz * uz;
+    const vc = ox * vx + oz * vz;
+    for (let j = Math.floor((vc - radius) / lat.across); j <= Math.ceil((vc + radius) / lat.across); j++) {
+      const v = (j + 0.5) * lat.across;
+      const half = Math.sqrt(Math.max(0, radius * radius - (v - vc) ** 2));
+      // Each row's plants shifted along it by a hash of the row, so the rows do not line up across.
+      const shift = (hashInts(k, j, 7) % 1000) / 1000;
+      for (let i = Math.floor((uc - half) / lat.along - shift); i <= Math.ceil((uc + half) / lat.along - shift); i++) {
+        const h = hashInts(k, i, j);
+        const ju = ((h & 0xff) / 255 - 0.5) * lat.along * 0.3;
+        const jv = (((h >>> 8) & 0xff) / 255 - 0.5) * lat.across * (crop === 'corn' ? 0.3 : 0.5);
+        const u = (i + shift + 0.5) * lat.along + ju;
+        const vv = v + jv;
+        const x = u * ux + vv * vx;
+        const z = u * uz + vv * vz;
+        if (x < r.minX + 0.4 || x > r.maxX - 0.4 || z < r.minZ + 0.4 || z > r.maxZ - 0.4) continue;
+        const d = Math.hypot(x - ox, z - oz);
+        if (d > radius) continue;
+        const yaw = crop === 'corn' ? f.rowAngle - Math.PI / 2 + (((h >>> 16) & 0xff) / 255 - 0.5) * 0.12 : (((h >>> 16) & 0xff) / 255) * Math.PI * 2;
+        out.push({ x, z, d, yaw, h: 0.92 + (((h >>> 24) & 0xff) / 255) * 0.14, s: 0.9 + ((h % 97) / 97) * 0.2, tint: (h >>> 4) & 0xff });
+      }
+    }
+  });
+  return out;
+}
+
 /** One pool of plants: an instanced mesh of `capacity`, refilled from the fields of its crop within its ring. */
 interface Pool {
   crop: Crop;
   mesh: THREE.InstancedMesh;
   ring: { value: THREE.Vector4 };
-  /** Fields of its crop, with their index (the lattice hash's seed) and frame. */
-  fields: Array<{ f: Field; k: number }>;
 }
 
 export class FieldsView {
@@ -386,7 +432,6 @@ export class FieldsView {
   }
 
   private buildPools(view: CountryView, wind: WindUniforms): void {
-    const fieldsOf = (crop: Crop) => this.fields.flatMap((f, k) => (f.crop === crop ? [{ f, k }] : []));
     const corn = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: cornTexture(), alphaTest: 0.5, roughness: 0.86 });
     corn.name = 'county-corn';
     insideRing(corn, this.tallRing, 'gta7-county-corn', wind);
@@ -435,7 +480,7 @@ vec3 sunTurn( vec3 v ) {
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
       view.moving.add(mesh);
-      this.pools.push({ crop, mesh, ring, fields: fieldsOf(crop) });
+      this.pools.push({ crop, mesh, ring });
     };
     const most = CROP_RING.high;
     make('corn', cornGeometry(), corn, this.tallRing, most.corn, true);
@@ -473,35 +518,7 @@ vec3 sunTurn( vec3 v ) {
 
   /** Refills `pool` with its plants within `radius` of (ox, oz), at most `cap`, the nearest kept. */
   private fill(pool: Pool, radius: number, ox: number, oz: number, cap: number): void {
-    const out: Array<{ x: number; z: number; d: number; yaw: number; h: number; s: number; tint: number }> = [];
-    const lat = LATTICE[pool.crop]!;
-    for (const { f, k } of pool.fields) {
-      const r = f.rect;
-      if (radius <= 0 || ox + radius < r.minX || ox - radius > r.maxX || oz + radius < r.minZ || oz - radius > r.maxZ) continue;
-      const { ux, uz, vx, vz } = frame(f);
-      const uc = ox * ux + oz * uz;
-      const vc = ox * vx + oz * vz;
-      for (let j = Math.floor((vc - radius) / lat.across); j <= Math.ceil((vc + radius) / lat.across); j++) {
-        const v = (j + 0.5) * lat.across;
-        const half = Math.sqrt(Math.max(0, radius * radius - (v - vc) ** 2));
-        // Each row's plants shifted along it by a hash of the row, so the rows do not line up across.
-        const shift = (hashInts(k, j, 7) % 1000) / 1000;
-        for (let i = Math.floor((uc - half) / lat.along - shift); i <= Math.ceil((uc + half) / lat.along - shift); i++) {
-          const h = hashInts(k, i, j);
-          const ju = ((h & 0xff) / 255 - 0.5) * lat.along * 0.3;
-          const jv = (((h >>> 8) & 0xff) / 255 - 0.5) * lat.across * (pool.crop === 'corn' ? 0.3 : 0.5);
-          const u = (i + shift + 0.5) * lat.along + ju;
-          const vv = v + jv;
-          const x = u * ux + vv * vx;
-          const z = u * uz + vv * vz;
-          if (x < r.minX + 0.4 || x > r.maxX - 0.4 || z < r.minZ + 0.4 || z > r.maxZ - 0.4) continue;
-          const d = Math.hypot(x - ox, z - oz);
-          if (d > radius) continue;
-          const yaw = pool.crop === 'corn' ? f.rowAngle - Math.PI / 2 + (((h >>> 16) & 0xff) / 255 - 0.5) * 0.12 : (((h >>> 16) & 0xff) / 255) * Math.PI * 2;
-          out.push({ x, z, d, yaw, h: 0.92 + (((h >>> 24) & 0xff) / 255) * 0.14, s: 0.9 + ((h % 97) / 97) * 0.2, tint: (h >>> 4) & 0xff });
-        }
-      }
-    }
+    const out = cropPlants(this.fields, pool.crop, radius, ox, oz);
     if (out.length > cap) out.sort((a, b) => a.d - b.d).length = cap;
     const mesh = pool.mesh;
     out.forEach((o, n) => {

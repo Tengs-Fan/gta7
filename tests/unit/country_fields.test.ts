@@ -1,14 +1,14 @@
 // Las Lomas County's fields (world/country/farms.ts, render/country/fields.ts): where they lie (in the farm plots, 12 m
 // and more off every road edge), which of them are cover and drag at a car, and how they are drawn at a cost set by
-// what the camera sees: pools of plants sized by tier round the camera, every plant at its own spot of its field's
-// lattice, refills that move none of them, and the blocks seen from inside on the software tier; and the hedgerows,
-// which open round the camera's sight line while one stands in it.
+// what the camera sees: pools of plants sized by tier round the camera, each holding every plant of its ring wherever the
+// camera is, every plant at its own spot of its field's lattice, refills that move none of them, and the blocks seen
+// from inside on the software tier; and the hedgerows, which open round the camera's sight line while one stands in it.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { CityView } from '../../src/render/city';
 import { CountryView } from '../../src/render/country';
-import { FIELD_CELL } from '../../src/render/country/fields';
+import { cropPlants, FIELD_CELL } from '../../src/render/country/fields';
 import { CROP_RING } from '../../src/render/quality';
 import { plotAt } from '../../src/world/country';
 import { TALL_CROPS, type Crop, type Field } from '../../src/world/country/farms';
@@ -87,16 +87,33 @@ describe('Las Lomas County: drawing the fields', () => {
   };
   const biggest = (crop: Crop): Field => farms.fields.filter((f) => f.crop === crop).sort((a, b) => (b.rect.maxX - b.rect.minX) * (b.rect.maxZ - b.rect.minZ) - (a.rect.maxX - a.rect.minX) * (a.rect.maxZ - a.rect.minZ))[0]!;
 
-  it('sizes its pools by tier: halved on Medium, quartered on Low, none on the software tier', () => {
+  it('sizes its pools by tier, smaller on Medium and smaller again on Low, none on the software tier', () => {
     const { high, medium, low, software } = CROP_RING;
     for (const k of ['corn', 'wheat', 'sunflower'] as const) {
-      expect(medium[k]).toBe(high[k] / 2);
-      expect(low[k]).toBe(high[k] / 4);
+      expect(medium[k]).toBeLessThan(high[k]);
+      expect(low[k]).toBeLessThan(medium[k]);
       expect(software[k]).toBe(0);
       expect(pool(k).instanceMatrix.count).toBe(high[k]);
     }
     expect(medium.ring).toBeLessThan(high.ring);
     expect(low.ring).toBeLessThan(medium.ring);
+  });
+
+  it('holds every plant of its crop in its ring from every cell by a field, on every tier', () => {
+    for (const tier of ['high', 'medium', 'low'] as const) {
+      for (const crop of ['corn', 'wheat', 'sunflower'] as const) {
+        const radius = crop === 'wheat' ? CROP_RING[tier].wheatRing : CROP_RING[tier].ring;
+        let most = 0;
+        for (const { rect: r } of farms.fields.filter((f) => f.crop === crop)) {
+          for (let cx = Math.floor((r.minX - radius) / FIELD_CELL); cx <= Math.floor((r.maxX + radius) / FIELD_CELL); cx++) {
+            for (let cz = Math.floor((r.minZ - radius) / FIELD_CELL); cz <= Math.floor((r.maxZ + radius) / FIELD_CELL); cz++) {
+              most = Math.max(most, cropPlants(farms.fields, crop, radius, (cx + 0.5) * FIELD_CELL, (cz + 0.5) * FIELD_CELL).length);
+            }
+          }
+        }
+        expect(most, `${tier} ${crop}`).toBeLessThanOrEqual(CROP_RING[tier][crop]);
+      }
+    }
   });
 
   it('fills the ring to its edge from the middle of each crop on every tier, within its pool', () => {
