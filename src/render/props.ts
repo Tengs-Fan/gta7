@@ -487,7 +487,9 @@ function posterTexture(): THREE.CanvasTexture {
 
 export class PropsView {
   readonly group = new THREE.Group();
-  readonly visibility = new StaticVisibility();
+  /** The batches holding any of the city's props, and those of Las Lomas County's alone (from country.firstProp on). */
+  private readonly visibility = new StaticVisibility();
+  private readonly countyVisibility = new StaticVisibility();
   private readonly refs = new Map<number, InstanceRef[]>();
   /** Shadow-only stand-ins (SHADOW_LAYER) by prop index, moved with their prop by breakProp and restoreAll. */
   private readonly shadowRefs = new Map<number, InstanceRef[]>();
@@ -579,9 +581,21 @@ export class PropsView {
       cell.push(o);
     });
     // Also cover unique signs/landmarks, which are not created by makeInstanced.
+    const first = world.layout.country.firstProp;
     this.group.traverse((o) => {
-      if (o instanceof THREE.Mesh) this.visibility.add(o, 8);
+      if (!(o instanceof THREE.Mesh)) return;
+      const county = (o.userData.propIndices as number[] | undefined)?.every((i) => i >= first) ?? false;
+      (county ? this.countyVisibility : this.visibility).add(o, 8);
     });
+  }
+
+  /**
+   * Each frame: hides the batches farther than `city` m from (x, z), and those of Las Lomas County's props alone farther
+   * than `county` m.
+   */
+  cull(x: number, z: number, city: number, county: number): void {
+    this.visibility.update(x, z, city);
+    this.countyVisibility.update(x, z, county);
   }
 
   private makeInstanced(geo: THREE.BufferGeometry, mat: THREE.Material, props: number[], matrixFor: (p: Prop, m: THREE.Matrix4) => void, opts: { shadow?: boolean; color?: (p: Prop, c: THREE.Color) => void; track?: boolean; chunked?: boolean } = {}): THREE.InstancedMesh | null {

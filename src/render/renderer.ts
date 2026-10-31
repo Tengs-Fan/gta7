@@ -1143,10 +1143,15 @@ export class GameRenderer {
     this.lightSprites.haze.update(night, rain, this.bufferSize.y / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)));
     this.streetLighting.update(cam.position, night, dt);
     this.city.update(night, hours, this.time);
-    // Off the city's land (Las Lomas County and the links to it), a prop past the fog's far end and the county's margin
-    // is fully fogged: it is not drawn, as the county's own cells are not (the software tier culls nearer, below). On the
-    // land nothing is culled. Before the props' own update, which shows the lighthouse's beam only at night.
-    if (!this.software) this.props.visibility.update(cam.position.x, cam.position.z, cam.position.x < this.world.bounds.landMinX ? this.env.fog.far + COUNTRY_FOG_MARGIN : Infinity);
+    // Off the city's land (Las Lomas County and the links to it), a prop, an activity site's sign or an interaction
+    // marker past the fog's far end and the county's margin is fully fogged: it is not drawn, as the county's own cells
+    // are not (the software tier culls props nearer, below). On the land only the county's own props are culled so; the
+    // objective beams, unfogged, are always drawn. Before the props' own update, which shows the lighthouse's beam only
+    // at night.
+    const reach = this.env.fog.far + COUNTRY_FOG_MARGIN;
+    const cityReach = cam.position.x < this.world.bounds.landMinX ? reach : Infinity;
+    if (!this.software) this.props.cull(cam.position.x, cam.position.z, cityReach, reach);
+    this.sites.cull(cam.position.x, cam.position.z, cityReach);
     // Signals run on the sim clock, the one drivers and pedestrians obey.
     this.props.update(this.time, night, sim ? sim.time : this.time);
     this.props.setWind(weather?.wind ?? NO_WIND);
@@ -1166,7 +1171,7 @@ export class GameRenderer {
       this.crowd.scopeHiddenId = this.cameraCtl.scoped || riding ? this.me(sim).character.id : -1;
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt, this.me(sim).character.id);
       this.footShadows.update(sim.characters, cam.position, this.crowd.scopeHiddenId);
-      this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming);
+      this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming, cityReach);
       const objectives = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
       // One out on the sea (a regatta gate) stands on its surface, not the seabed.
       this.markers.syncObjectives(objectives, (x, z) => Math.max(WATER_Y, sim.world.groundHeight(x, z)), this.time);
@@ -1183,7 +1188,7 @@ export class GameRenderer {
     if (this.software) {
       // Culling ends at the fog horizon, where geometry has already faded into the sky.
       this.city.cull(cam, 230);
-      this.props.visibility.update(cam.position.x, cam.position.z, 110);
+      this.props.cull(cam.position.x, cam.position.z, 110, 110);
       this.softwareMaterials?.lighting(this.env.sun, this.env.hemi, this.env.envFill, cam);
       this.softwareMaterials?.sync();
     }

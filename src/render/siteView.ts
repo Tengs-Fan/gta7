@@ -7,6 +7,7 @@ import { VEHICLE_SPECS } from '../sim/specs';
 import type { StaticWorld } from '../world/staticWorld';
 import { SAFEHOUSE_BAY_LENGTH } from './dressing';
 import { signFrameGeometry } from './furniture';
+import { StaticVisibility } from './spatial';
 
 function signTexture(text: string, fg: string, bg: string): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -32,6 +33,7 @@ function signTexture(text: string, fg: string, bg: string): THREE.CanvasTexture 
 
 export class SiteView {
   readonly group = new THREE.Group();
+  private readonly visibility = new StaticVisibility();
   private readonly post = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.6, metalness: 0.5 });
   /** A sign's unprinted back: painted sheet metal. */
   private readonly back = new THREE.MeshStandardMaterial({ color: 0x8c9096, roughness: 0.55, metalness: 0.45 });
@@ -69,6 +71,14 @@ export class SiteView {
     this.sign('AZURA CUSTOMS', '#d8b4ff', '#1a1024', (c.minX + c.maxX) / 2, c.maxZ, 0, 6, 1.1, 4.35);
     // The Pier Arcade's sign on the pier's south rail, facing the boardwalk.
     this.sign('PIER ARCADE', '#ff5fd2', '#140a1c', at.arcade.x, at.arcade.z - 3.7, 0, 4.2, 1.1, 2.0);
+    this.group.traverse((o) => {
+      if (o instanceof THREE.Mesh) this.visibility.add(o);
+    });
+  }
+
+  /** Each frame: hides the meshes farther than `distance` m from (x, z). */
+  cull(x: number, z: number, distance: number): void {
+    this.visibility.update(x, z, distance);
   }
 
   /** A flat box from (x0, z0) to (x1, z1), `h` thick, its bottom `lift` m over the ground. */

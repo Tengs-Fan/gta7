@@ -160,7 +160,8 @@ The reflector posts along the county's roads are one mesh cut into cells; after 
 
 **The city from the county.**
 From Lookout Point the whole city stands 1-2.4 km off in the frustum, and its props (every tree, lamp and bench chunk) cost 662 of the 1191 draw calls there, though the fog had long hidden them.
-So with the camera off the city's land, on the hardware tiers, a prop past the fog's far end and the county's margin is not drawn, as the county's own cells are not; with the camera on the land every prop is drawn as before.
+So with the camera off the city's land a prop (on the hardware tiers), an activity site's sign or an interaction marker past the fog's far end and the county's margin is not drawn, as the county's own cells are not; the objective beams, drawn without fog to be seen from afar, stay.
+With the camera on the land the city's props, signs and markers are all drawn as before, and Las Lomas County's own props (from `country.firstProp` on) past the fog's far end and the margin are not, as from the county.
 The skyline itself needs nothing: the camera's far plane is 2400 m, no tier culls the city's buildings, and the building fog's cap keeps the towers.
 
 ## Sea
