@@ -29,7 +29,8 @@ npm run speech                                                   # GTA7_TTS_PYTH
 ```
 
 `misaki[zh]` brings jieba, pypinyin and cn2an for the Mandarin; OpenCC converts it to Simplified for the G2P (see below).
-The models download from Hugging Face on first use (v1.1-zh with the first Mandarin line), and `check.py`'s Whisper models into `~/.cache/whisper` (large-v3 is 2.9 GB). A CUDA GPU renders the whole set in a few minutes; a CPU works too, more slowly.
+The models download from Hugging Face on first use (v1.1-zh with the first Mandarin line), and `check.py`'s Whisper models into `~/.cache/whisper` (large-v3 is 2.9 GB).
+A CUDA GPU renders the whole set in a few minutes; a CPU works too, more slowly.
 
 ## Talk pieces
 
@@ -50,7 +51,8 @@ Writing a line:
 - Numbers in characters (九十五點三), no Latin letters: the Mandarin pipeline has no English reader.
 - No 〈〉 around a title (misaki cannot read them, so the announce frames leave them out) and no erhua.
 - Check every polyphone against misaki's reading (`misaki.zh.ZHG2P(version='1.1')` on the `tw2s` text): it reads 繫 xì and 聽得到 dédào, so the lines say 扣好 and 聽見.
-- About 28 characters at most for a link: `zf_044` speaks a little over 4 characters a second, pauses included, and 月光電台's fastest intro leaves 7.2 s (6.9 s in a chase). Past about 100 phonemes v1.1 rushes.
+- About 28 characters at most for a link: `zf_044` speaks a little over 4 characters a second, pauses included, and 月光電台's fastest intro leaves 7.2 s (6.9 s in a chase).
+  Past about 100 phonemes v1.1 rushes.
 
 ## When to rerun
 
@@ -61,7 +63,8 @@ A new mission speaker needs a role in `SPEAKERS` (`script.ts`); a mission templa
 ## Output
 
 - `dlg-<role>-<hash>`: a line of dialogue; `dsp-<words>`: a dispatch phrase; `talk-<piece>`: a talk station piece (SAPR's are `talk-sapr-…`, THE BOWL's `talk-bowl-…`, STATIC's `talk-static-…`); `bark-<kind>-<voice>-<n>`: a shout; `pa-<destination>-<n>`: a monorail station's announcement.
-- `ident-<station>-<n>`: a music station's ident; `dj-<station>-<kind>-<n>`: a DJ's link (of the kinds `front` and `back`, the announce and the back-announce of hit `n`). `<station>` is the name's letters and digits, or the DJ's `slug` (月光電台 95.3 is `moonlight-95-3`).
+- `ident-<station>-<n>`: a music station's ident; `dj-<station>-<kind>-<n>`: a DJ's link (of the kinds `front` and `back`, the announce and the back-announce of hit `n`).
+  `<station>` is the name's letters and digits, or the DJ's `slug` (月光電台 95.3 is `moonlight-95-3`).
 - `news-<hash>`: a newsdesk sentence (`speech.json` keys `news` by its text); `news-m-<mission>` and `news-m-<mission>-later`: a mission's piece and its follow-up.
 - Every clip is levelled to -20 dBFS RMS over its voiced samples, peaks under -1 dBFS.
 - The same input on the same machine gives the same bytes (ffmpeg runs with bitexact flags); Kokoro on another GPU or on a CPU may differ in the last bits.
