@@ -204,6 +204,34 @@ The police's unfiltered draw over every lane keeps the grid's lanes wherever the
 The promenade's edges across the mouths become crosswalks on the gateways' lights and keep their places among the walking edges, so pedestrian spawns draw as before.
 The county's verges join no city walk node and are no spawn ground: pedestrians spawn in the county only from its own footpaths (`layout.country.walks`, none yet).
 
+**The farms.**
+Four of the plots are farms (`src/world/country/farms.ts`), appended by `buildFarms`, the one call between the landscape's and the places' at the end of `buildCountry`, from its own generator:
+
+- **Hollister Bottoms**, inside Hollister Lane's loop: corn either side of a mown aisle and north of the farmyard, which opens east onto the lane, with a red gambrel barn, three grain bins, a windpump over its stock tank and the farmhouse.
+- **The Cud & Sons Dairy**, by Creek Road: the whitewashed milking barn with twin silos and the propane tank behind it, fifteen cows in a fenced pasture, lettuce and furrows.
+- **Pippin Hollow**, by the highway's west leg: about five hundred apple trees in rows, ladders against a few, and a packing barn.
+- **Halfmoon Acres**, by the highway's south leg: wheat, sunflowers either side of an aisle, furrows, and bale stacks in the yard.
+
+Each farmyard has a barn, which is a garage (its walls and roof slab, which hides the bay from the helicopter, with a gambrel roof drawn over it), a farmhouse, which is a building like a city house, a sign and a mailbox by its dirt drive, and two bays appended to the parking.
+Hedgerows run along the plots' edges beside Hollister Lane and Creek Road and round the orchard, with gaps at the gates; the corn, the wheat and the sunflowers stand open to the highway.
+A hedgerow is a collider of its own tag (`hedge`): solid for sight and shots, so traffic can stream in behind one, but not for the camera, which looks through it rather than snapping in.
+Nothing stands within 12 m of a road edge, every collider is in a farm plot, and no open spot is added.
+The farms' buildings, garages and hedgerows take their colliders after every older collider (`firstBuilding`, `firstGarage`), so the city's keep their ids.
+
+The fields are data: a rectangle, a crop (corn, wheat, sunflower, furrow or lettuce) and the direction its rows run.
+The corn and the sunflowers are cover (`StaticWorld.coverAt`, as Hollister Farm's maze is), and a car whose centre is in them drags through them at a quarter of wading's drag (`cropAt`); they have no colliders, so people walk through them.
+They are drawn at a cost set by what the camera sees (`src/render/country/fields.ts`):
+
+- Every field's ground is a slab over the grass with its crop's rows, turned along them; the wheat's ripples in the wind.
+- Within a ring round the camera (44 m on High, smaller on Medium and Low, none on the software tier), the plants themselves come from fixed pools: Hollister Farm's ten-stalk corn cards on its sway, wheat tufts, and sunflowers whose heads turn with the sun.
+  The pools are refilled when the camera moves into another 16 m cell, each plant at its own place on its field's lattice, so none of them moves between refills.
+- Past the ring, the corn and the sunflowers are a block each: a top textured as the crop from above and sides of stalks with a ragged top, drawn from outside only; plants and blocks dither into each other over the ring's edge.
+
+The cows and the twenty scarecrows are breakable props kept by index.
+A cow hit by a car slows it hard, with a moo instead of a crash; E beside one from 21:00 to 05:00 tips her over.
+At 06:00 every cow stands up again, by a rule of the clock alone that a multiplayer client's mirror applies as the server does, since no message stands a prop up again.
+The scarecrows pay $3,000 once all twenty are down (`src/sim/farms.ts`, saved), as Hollister Farm's pumpkins do.
+
 **The plots contract.**
 The county's land is split into named plots (`COUNTY_PLOTS`) that the content passes fill: Dry Creek (a town round the crossroads), Hollister Bottoms (inside the farm loop), the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge; the rest is wild.
 Every plot but the town keeps 12 m off the road edges, and every road keeps 30 m inside the land.
@@ -264,3 +292,5 @@ A three-car monorail runs along Cortez Canal on a beam 9.6 m up, from Northshore
 - Pedestrians can spawn on the promenade's two crossings at the links' mouths, which keep their places among the walking edges.
 - A pursuit into Las Lomas County thins out: with no buildings to hide them, units are placed only out of sight, and on the long straights a fast car outruns them; its tuning is the county traffic round's.
 - The county's beaches sit on the sea's deep-water colour, without shallows or surf.
+- The county's barns get no garage darkening under their roofs (the shader takes the city's five garages); the roof's shadow darkens their floors.
+- A cow knocked over at noon stays down until the next dawn.
