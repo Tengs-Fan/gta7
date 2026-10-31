@@ -342,7 +342,10 @@ const SCENARIOS = {
       })),
     );
   },
-  /** Frame rate in a few demanding places (the start, downtown, a pursuit, the beach, Hillcrest Green's summit); prints a table. */
+  /**
+   * Frame rate in a few demanding places (the start, downtown, a pursuit, the beach, Hillcrest Green's summit, and Las Lomas
+   * County's ridge, lookout, promenade view and pursuit); prints a table.
+   */
   async perf() {
     await t.boot();
     await t.newGame();
@@ -377,6 +380,35 @@ const SCENARIOS = {
     });
     await t.wait(1500);
     await t.measure('hill', 4000);
+    // Las Lomas County: on Coyote Ridge's crest at dusk and at Lookout Point at night, both facing the skyline across the
+    // sound, the county from the west promenade at night, and a four-star pursuit north up the Lomas Highway's west leg.
+    const stand = (x, z, yaw, hours) => t.game((g, x, z, yaw, hours) => {
+      if (g.sim.player.vehicle) g.sim.playerCtl.ejectPlayer(true);
+      g.setWanted(0);
+      g.setTime(hours);
+      g.teleport(x, z);
+      g.setCamera(yaw, -0.03);
+    }, x, z, yaw, hours);
+    for (const [label, x, z, yaw, hours] of [['ridge-dusk', -1468, -300, Math.PI / 2, 18.67], ['lookout-night', -1467.5, -100, Math.PI / 2, 23], ['promenade-west-night', -505, -240, -Math.PI / 2, 23]]) {
+      await stand(x, z, yaw, hours);
+      await t.wait(1500);
+      await t.measure(label, 4000);
+    }
+    await t.game((g) => {
+      g.setTime(16);
+      g.spawnVehicle('sports', true);
+      const v = g.sim.player.vehicle;
+      v.pos.x = -1330;
+      v.pos.z = 110;
+      v.pos.y = g.sim.world.groundHeight(v.pos.x, v.pos.z);
+      v.heading = Math.PI;
+      g.game.renderer.cameraCtl.reset(g.sim);
+      g.setWanted(4);
+    });
+    await t.page.keyboard.down('KeyW');
+    await t.wait(1500);
+    await t.measure('county-pursuit-4-stars', 6000);
+    await t.page.keyboard.up('KeyW');
     console.table(report.segments.map((s) => ({ label: s.label, fps: s.fps, calls: s.render?.calls, tris: s.render?.triangles, heapMB: s.heapMB })));
   },
 };
