@@ -16,12 +16,14 @@ export interface ActivityRecords {
   exportLists: number;
   /** The Gull Regatta's best lap in whole milliseconds, 0 before the first finish. */
   regattaBest: number;
+  /** The Coyote Ridge Hill Climb's best run in whole milliseconds, 0 before the first finish. */
+  hillClimbBest: number;
 }
 
 export const ACTIVITY_RECORDS_KEY = 'activityRecords';
 
 export function emptyRecords(): ActivityRecords {
-  return { ambulanceLevel: 0, patientsSaved: 0, fireLevel: 0, firesOut: 0, courierRuns: 0, parcelsDelivered: 0, exportCars: 0, exportLists: 0, regattaBest: 0 };
+  return { ambulanceLevel: 0, patientsSaved: 0, fireLevel: 0, firesOut: 0, courierRuns: 0, parcelsDelivered: 0, exportCars: 0, exportLists: 0, regattaBest: 0, hillClimbBest: 0 };
 }
 
 const records = new WeakMap<Progress, ActivityRecords>();

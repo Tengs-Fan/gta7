@@ -15,7 +15,8 @@ import type { PlayerView } from './viewState';
 import { WEAPON_ORDER, WEAPONS, weaponKindOf, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
 
-export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun' | 'epitaph' | 'regatta' | 'monorail';
+export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun' | 'epitaph' | 'regatta' | 'monorail'
+  | 'hillClimb';
 
 export interface Marker {
   id: string;
@@ -257,6 +258,7 @@ export class Interactions {
       case 'customs':
       case 'streetRun':
       case 'regatta':
+      case 'hillClimb':
         break;
       case 'epitaph':
         readEpitaph(sim, slot, Number(m.ref));
