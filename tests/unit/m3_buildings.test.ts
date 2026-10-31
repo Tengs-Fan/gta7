@@ -362,9 +362,9 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // the links' mouths out of the way (two lamps, a tree, a bench) and appended, after every other collider, the
     // Southgate Bridge's two parapets and its arch's four portal posts, the gateways' and its junctions' signal heads and
     // the causeway's lamps; and both when Dry Creek appended its stores and, after every other collider, their tiers and
-    // its places' solids.
+    // the places' solids (the town's, the drive-in's).
     expect(b).toBe('5f6ae135d483d7581be01ba8592cec854a6f229a8cec7ee51d862e959c4dfac1');
-    expect(c).toBe('e352dded943a916df9b02fce1d668770d157201b2d7b07f9041180ff0a585115');
+    expect(c).toBe('36f8fa5ac4ad501f01cb440aa685b95e46d171018d62ed9d6d3f9908a8064edf');
   });
 });
 

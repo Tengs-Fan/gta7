@@ -40,6 +40,7 @@ import { abandonSinkingCar } from './sinking';
 import './vehicleSystems';
 import './farm';
 import './dryCreek';
+import './driveIn';
 import { collideVehicles, collideVehicleStatic, stepVehicle, type VehiclePhysicsHost } from './vehiclePhysics';
 import type { WantedSystem } from './wanted';
 import { WeatherSystem, type WeatherMode } from './weather';

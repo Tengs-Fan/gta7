@@ -1,5 +1,5 @@
 // Las Lomas County's places (docs/map.md, "Las Lomas: roads outside the grid"): Dry Creek, the crossroads town with the
-// county's one traffic light. Pure data, no rendering. buildPlaces is the last of the county's content passes and only
+// county's one traffic light, and the Moonbeam Drive-In on the shore of Lomas Sound. Pure data, no rendering. buildPlaces is the last of the county's content passes and only
 // appends: its stores are buildings of district 'country' (StaticWorld adds their colliders after every older one), then
 // props, POIs, footpaths and parking bays, and the solids StaticWorld adds after the county's props. It draws nothing
 // from the city's generator, and builds only in its own plots.
@@ -48,10 +48,29 @@ export interface TownAnchors {
   neon: { x: number; z: number; y: number };
 }
 
+export interface DriveInAnchors {
+  /** The screen, its face to the west: its frame's footprint (a solid), and the picture's edges and height. */
+  frame: Rect;
+  screen: { x: number; z0: number; z1: number; y0: number; y1: number };
+  /** The lot the cars stand in (the horn's SHHH reaches across it), and the parking bays in arcs facing the screen. */
+  lot: Rect;
+  /** The bays' indices in layout.parking: from `first` up to (not including) `end`. */
+  bays: { first: number; end: number };
+  /** The speaker posts (prop indices), one between each pair of bays. */
+  speakers: number[];
+  /** The projection booth and the concession stand (solids), and the marquee by the gate on Creek Road. */
+  booth: Rect;
+  stand: Rect;
+  marquee: { x: number; z: number; posts: [number, number] };
+  /** The gravel drive from Creek Road to the gate. */
+  drive: Rect;
+}
+
 export interface CountyPlaces {
   /** The places' solids: StaticWorld adds them after the county's props. */
   solids: AttractionSolid[];
   town: TownAnchors;
+  driveIn: DriveInAnchors;
 }
 
 /** The places before buildPlaces lays them down. */
@@ -70,6 +89,17 @@ export function noPlaces(): CountyPlaces {
       cob: { x: 0, z: 0, r: 0, height: 0, plaque: { x: 0, z: 0 } },
       billboards: [],
       neon: { x: 0, z: 0, y: 0 },
+    },
+    driveIn: {
+      frame: mkRect(0, 0, 0, 0),
+      screen: { x: 0, z0: 0, z1: 0, y0: 0, y1: 0 },
+      lot: mkRect(0, 0, 0, 0),
+      bays: { first: 0, end: 0 },
+      speakers: [],
+      booth: mkRect(0, 0, 0, 0),
+      stand: mkRect(0, 0, 0, 0),
+      marquee: { x: 0, z: 0, posts: [0, 0] },
+      drive: mkRect(0, 0, 0, 0),
     },
   };
 }
@@ -273,13 +303,73 @@ function buildDryCreek(layout: CityLayout, rng: Rng, places: CountyPlaces): void
   }
 }
 
+// ---------------------------------------------------------------------------
+// The Moonbeam Drive-In
+
 /**
- * The places, the last of the county's content passes (after the landscape and the farms): Dry Creek. Its own generator
- * (hashInts(seed, 9101)) gives the stores their tints; nothing else is random.
+ * The drive-in on the county's east shore: a 30 x 14 m screen facing west across the lot, the city behind it over
+ * Lomas Sound, its picture's foot SCREEN.y0 up. The cars stand in ROWS arcs round the screen's foot, nose to it, a
+ * speaker post between each pair; the booth and the stand behind them, the gate and the marquee on Creek Road.
+ */
+const SCREEN = { x: -716, z: 120, w: 30, y0: 4, y1: 18 };
+const ROWS = [34, 42, 50, 58, 66];
+/** Cars to a row, and the gap (m) between neighbours along their arc. */
+const ROW_CARS = 8;
+const CAR_GAP = 4.2;
+
+function buildDriveIn(layout: CityLayout, places: CountyPlaces): void {
+  const d = places.driveIn;
+  const ground = (x: number, z: number) => countryGround(layout.country, x, z);
+  const { x: sx, z: sz, w } = SCREEN;
+  d.frame = mkRect(sx - 0.8, sz - w / 2 - 0.5, sx + 0.6, sz + w / 2 + 0.5);
+  d.screen = { x: sx - 0.82, z0: sz - w / 2, z1: sz + w / 2, y0: SCREEN.y0, y1: SCREEN.y1 };
+  // You can hide behind it: the frame is solid from the ground to the top of the picture.
+  places.solids.push({ rect: d.frame, y0: 0, y1: SCREEN.y1 + 0.5, tag: 'wall' });
+
+  // The bays, nose to the screen's foot, each row's cars CAR_GAP apart along its arc; a speaker post between each pair.
+  d.bays.first = layout.parking.length;
+  for (const r of ROWS) {
+    const step = CAR_GAP / r;
+    for (let k = 0; k < ROW_CARS; k++) {
+      const a = (k - (ROW_CARS - 1) / 2) * step;
+      const x = sx - Math.cos(a) * r;
+      const z = sz + Math.sin(a) * r;
+      layout.parking.push({ x, z, heading: Math.atan2(sx - x, sz - z) });
+      if (k % 2 === 1) continue;
+      const pa = a + step / 2;
+      const px = sx - Math.cos(pa) * (r + 0.8);
+      const pz = sz + Math.sin(pa) * (r + 0.8);
+      d.speakers.push(layout.props.length);
+      addProp(layout, 'speaker', px, pz, Math.atan2(sx - px, sz - pz), 1, ground(px, pz));
+    }
+  }
+  d.bays.end = layout.parking.length;
+  const far = ROWS[ROWS.length - 1]! + 4;
+  const half = Math.sin(((ROW_CARS / 2) * CAR_GAP) / ROWS[ROWS.length - 1]!) * far;
+  d.lot = mkRect(sx - far, sz - half, sx - 4, sz + half);
+
+  // The booth behind the last row, its window to the screen; the stand to its south.
+  d.booth = mkRect(-794, 116, -787, 124);
+  d.stand = mkRect(-796, 94, -784, 102);
+  places.solids.push({ rect: d.booth, y0: 0, y1: 4.6, tag: 'building' }, { rect: d.stand, y0: 0, y1: 3.8, tag: 'building' });
+
+  // The gate on Creek Road (its kerb at x -835) and the marquee beside it, facing the road.
+  d.drive = mkRect(-835, 56, -790, 64);
+  d.marquee = { x: -815, z: 50, posts: [-4.2, 4.2] };
+  for (const dz of d.marquee.posts) {
+    const z = d.marquee.z + dz;
+    places.solids.push({ rect: mkRect(d.marquee.x - 0.25, z - 0.25, d.marquee.x + 0.25, z + 0.25), y0: 0, y1: 7.5, tag: 'pillar', round: true });
+  }
+}
+
+/**
+ * The places, the last of the county's content passes (after the landscape and the farms): Dry Creek and the Moonbeam
+ * Drive-In. Its own generator (hashInts(seed, 9101)) gives the stores their tints; nothing else is random.
  */
 export function buildPlaces(layout: CityLayout): void {
   const rng = new Rng(hashInts(layout.seed, 9101));
   const places = noPlaces();
   layout.country.places = places;
   buildDryCreek(layout, rng, places);
+  buildDriveIn(layout, places);
 }

@@ -11,6 +11,8 @@ import { COUNTRY_CELL, COUNTRY_FOG_MARGIN } from '../quality';
 import { spatialGeometry, StaticVisibility } from '../spatial';
 import { buildBridge } from './bridge';
 import { buildCountryGround } from './ground';
+import type { ViewState } from '../../sim/viewState';
+import { buildDriveIn } from './driveIn';
 import { PlacesKit } from './kit';
 import { buildCountryRoads } from './roads';
 import { buildTown } from './town';
@@ -18,8 +20,10 @@ import { buildTown } from './town';
 export class CountryView {
   readonly group = new THREE.Group();
   private readonly visibility = new StaticVisibility();
-  /** What the places animate each frame (Moo-Moo's neon cow). */
-  private readonly animated: Array<(night: number, time: number) => void> = [];
+  /** What the places animate each frame: Moo-Moo's neon cow, the drive-in's screen. */
+  private readonly animated: Array<(night: number, time: number, sim: ViewState | null) => void> = [];
+  /** The drive-in's cars flash their lights at a horn (driveInShush). */
+  readonly shush: (time: number) => void;
 
   constructor(
     readonly world: StaticWorld,
@@ -32,6 +36,9 @@ export class CountryView {
     buildBridge(this);
     const kit = new PlacesKit();
     this.animated.push(buildTown(this, kit));
+    const driveIn = buildDriveIn(this, kit);
+    this.animated.push(driveIn.update);
+    this.shush = driveIn.shush;
     kit.finish(this);
   }
 
@@ -51,9 +58,9 @@ export class CountryView {
     if (parts[0] !== geo) geo.dispose();
   }
 
-  /** Each frame, with the city's (CityView.update): the places' neon. */
-  update(night: number, time: number): void {
-    for (const f of this.animated) f(night, time);
+  /** Each frame, with the city's (CityView.update): the places' neon and the drive-in's screen. */
+  update(night: number, time: number, sim: ViewState | null): void {
+    for (const f of this.animated) f(night, time, sim);
   }
 
   /** Each frame: hides the cells farther from the camera than the fog's far end and the margin. */

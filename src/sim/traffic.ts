@@ -4,6 +4,7 @@ import { axisOf, SIGNAL_CYCLE, SIGNAL_GREEN, type Lane } from '../world/roads';
 import { pointSegDist } from '../core/math';
 import type { Rng } from '../core/rng';
 import { WATER_Y } from '../world/constants';
+import { showtime } from './driveIn';
 import { STOP_MARGIN, throughAvenues } from './driver';
 import type { Vehicle } from './entities';
 import type { PlayerSlot } from './playerSlot';
@@ -34,6 +35,8 @@ const CROSS_LEAD = 3;
  * different heights do not collide (see collideVehicles).
  */
 const BAY_SPACING = 3.5;
+/** The share (%) of the drive-in's bays a show fills. */
+const DRIVE_IN_FILL = 90;
 /**
  * A vehicle nobody is in, standing in a junction, that has held up traffic for TOW_BLOCK s is towed away out of the
  * player's view, as drivers that cannot detour round it would otherwise wait for good. Drivers held up by it back off,
@@ -589,12 +592,15 @@ export class TrafficSystem {
         this.parkedBySpot.delete(i);
       }
     }
+    // The Moonbeam Drive-In's bays fill, nearly all of them, only while its lot is open for the show (sim/driveIn.ts).
+    const show = sim.world.layout.country.places.driveIn.bays;
+    const open = showtime(sim.clock.hours);
     for (let i = 0; i < spots.length; i++) {
       if (this.parkedBySpot.has(i)) continue;
       const s = spots[i]!;
       const d = multi ? sim.distToPlayer(s.x, s.z) : Math.hypot(s.x - pp.x, s.z - pp.z);
       if (d > 175 || d < 35) continue;
-      if (hash(i) % 100 >= 55) continue;
+      if (i >= show.first && i < show.end ? !open || hash(i) % 100 >= DRIVE_IN_FILL : hash(i) % 100 >= 55) continue;
       // Several players: no higher than a moving car's check either (a roof can show over a wall).
       if (sim.isVisible(s.x, 0.5, s.z) || (multi && sim.isVisible(s.x, 1, s.z))) continue;
       if (!this.isClear(s.x, s.z, BAY_SPACING)) continue;

@@ -27,6 +27,7 @@ import { dressingItems, type DressingItem, type DressingKind } from './dressing'
 import { WIND_GLSL, windAmplitude } from './wind';
 import { SHADOW_LAYER } from './vehicleBatches';
 import { CORN_H, cornGeometry, cornTexture, headstoneGeometry, HEADSTONE_SHAPES, ironFenceGeometry, pumpkinGeometry } from './attractionModels';
+import { speakerGeometry } from './country/driveIn';
 import { pumpGeometry } from './country/town';
 
 interface InstanceRef {
@@ -568,6 +569,7 @@ export class PropsView {
     // Las Lomas County's billboards carry its own ads (render/country/town.ts).
     get('billboard').filter((i) => world.layout.props[i]!.x >= world.layout.bounds.landMinX).forEach((i, k) => this.buildBillboard(world.layout.props[i]!, k));
     this.makeInstanced(pumpGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.2 }), get('pump'), PropsView.standard);
+    this.makeInstanced(speakerGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0.3 }), get('speaker'), PropsView.standard);
     this.buildRoofProps();
     this.buildDressing(dressingItems(world));
     world.layout.props.forEach((p, i) => {

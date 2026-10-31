@@ -1371,6 +1371,26 @@
   "bark-marina-am-eric-0": 1.997,
   "bark-marina-bm-fable-0": 1.982,
   "bark-marina-am-adam-0": 2.074,
+  "bark-shush-af-jessica-0": 1.176,
+  "bark-shush-af-jessica-1": 2.064,
+  "bark-shush-af-jessica-2": 2.089,
+  "bark-shush-af-jessica-3": 2.352,
+  "bark-shush-af-jessica-4": 1.948,
+  "bark-shush-am-liam-0": 1.266,
+  "bark-shush-am-liam-1": 1.914,
+  "bark-shush-am-liam-2": 2.055,
+  "bark-shush-am-liam-3": 2.347,
+  "bark-shush-am-liam-4": 1.948,
+  "bark-shush-bf-lily-0": 1.504,
+  "bark-shush-bf-lily-1": 2.312,
+  "bark-shush-bf-lily-2": 2.403,
+  "bark-shush-bf-lily-3": 2.548,
+  "bark-shush-bf-lily-4": 2.341,
+  "bark-shush-am-echo-0": 1.383,
+  "bark-shush-am-echo-1": 2.204,
+  "bark-shush-am-echo-2": 2.312,
+  "bark-shush-am-echo-3": 2.673,
+  "bark-shush-am-echo-4": 2.228,
   "pa-seaview-0": 4.478,
   "pa-seaview-1": 4.737,
   "pa-northshore-0": 4.47,
@@ -2482,6 +2502,36 @@
    ],
    [
     "bark-marina-am-adam-0"
+   ]
+  ],
+  "shush": [
+   [
+    "bark-shush-af-jessica-0",
+    "bark-shush-af-jessica-1",
+    "bark-shush-af-jessica-2",
+    "bark-shush-af-jessica-3",
+    "bark-shush-af-jessica-4"
+   ],
+   [
+    "bark-shush-am-liam-0",
+    "bark-shush-am-liam-1",
+    "bark-shush-am-liam-2",
+    "bark-shush-am-liam-3",
+    "bark-shush-am-liam-4"
+   ],
+   [
+    "bark-shush-bf-lily-0",
+    "bark-shush-bf-lily-1",
+    "bark-shush-bf-lily-2",
+    "bark-shush-bf-lily-3",
+    "bark-shush-bf-lily-4"
+   ],
+   [
+    "bark-shush-am-echo-0",
+    "bark-shush-am-echo-1",
+    "bark-shush-am-echo-2",
+    "bark-shush-am-echo-3",
+    "bark-shush-am-echo-4"
    ]
   ]
  },

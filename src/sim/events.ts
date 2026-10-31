@@ -47,6 +47,8 @@ export interface SimEvents {
   /** A lightning strike in a storm, `dist` metres from the player (for the flash and the thunder's delay). */
   lightning: { x: number; z: number; dist: number };
   horn: { vehicle: Vehicle };
+  /** A player's horn at the Moonbeam Drive-In during a reel (sim/driveIn.ts): the cars round him flash him and shush. */
+  driveInShush: { x: number; z: number };
   vehicleEnter: { vehicle: Vehicle; character: Character; jacked: boolean };
   vehicleExit: { vehicle: Vehicle; character: Character };
   vehicleDestroyed: { vehicle: Vehicle };

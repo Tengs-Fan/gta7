@@ -798,6 +798,7 @@ export class GameRenderer {
         if (p.kind === 'pumpkin') fx.debris(p.x, p.y, p.z, 0xff7a12, 0xc24a08);
       }),
       ev.on('splash', (e) => fx.splash(e.x, e.y, e.z, e.big)),
+      ev.on('driveInShush', () => this.country.shush(this.time)),
       ev.on('lightning', () => {
         if (this.lightningFlashes) this.flashAge = 0;
       }),
@@ -1141,7 +1142,7 @@ export class GameRenderer {
     this.lightSprites.haze.update(night, rain, this.bufferSize.y / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)));
     this.streetLighting.update(cam.position, night, dt);
     this.city.update(night, hours, this.time);
-    this.country.update(night, this.time);
+    this.country.update(night, this.time, sim);
     // Signals run on the sim clock, the one drivers and pedestrians obey.
     this.props.update(this.time, night, sim ? sim.time : this.time);
     this.props.setWind(weather?.wind ?? NO_WIND);

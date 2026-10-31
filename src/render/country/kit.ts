@@ -6,12 +6,15 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Atlas } from '../city/attractions';
+import { NO_RECT, setGroundAttribute } from '../city/surfaces';
 import { GeoBuilder, type RGB } from '../geo';
 import { toTexture } from '../textures/misc';
 import type { CountryView } from './index';
 
 /** The places' atlas: 1024 by ATLAS_H px. */
 const ATLAS_H = 4096;
+/** The height of the places' dirt over the flush ground. */
+export const DIRT_Y = 0.035;
 
 export interface PlacePieces {
   /** Vertex-coloured geometry (its uvs are set to the atlas's white band). */
@@ -22,6 +25,8 @@ export interface PlacePieces {
 
 export class PlacesKit {
   readonly atlas = new Atlas(ATLAS_H);
+  /** Packed dirt on the flush ground (lots, drives, the dirt track), all the places' in one draw of the city's dirt. */
+  readonly dirt = new GeoBuilder(false);
   private readonly blank: [number, number];
   private readonly places: Array<PlacePieces & { name: string }> = [];
 
@@ -46,8 +51,14 @@ export class PlacesKit {
     p.painted.quad(x - ax, y - h / 2, z - az, x + ax, y - h / 2, z + az, x + ax, y + h / 2, z + az, x - ax, y + h / 2, z - az, [u0, v[0], u1, v[0], u1, v[1], u0, v[1]], tint);
   }
 
-  /** Adds every place as a mesh of its own (shadow-casting, culled as a whole), all with one material. */
+  /** Adds every place as a mesh of its own (shadow-casting, culled as a whole), all with one material, and the dirt. */
   finish(view: CountryView): void {
+    const surfaces = view.city.ground;
+    const dirtMat = surfaces.patch(view.city.wet.patch(surfaces.material('plain', 'dirt')), 'plain');
+    dirtMat.polygonOffset = true;
+    dirtMat.polygonOffsetFactor = -1;
+    dirtMat.polygonOffsetUnits = -1;
+    view.add(setGroundAttribute(this.dirt.build(), [], NO_RECT), dirtMat, { split: false, name: 'places-dirt' });
     const mat = new THREE.MeshStandardMaterial({
       map: toTexture(this.atlas.canvas, true, false),
       emissiveMap: toTexture(this.atlas.glowCanvas, true, false),

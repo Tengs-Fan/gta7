@@ -14,17 +14,18 @@ import { box, cyl, ModelBuilder } from '../furniture';
 import { GeoBuilder, scaleRgb, type RGB } from '../geo';
 import { FACADE_CELL, FACADE_COLS, FACADE_ROWS } from '../textures/facade';
 import { canvas, toTexture } from '../textures/misc';
-import { NO_RECT, setGroundAttribute } from '../city/surfaces';
 import type { CountryView } from './index';
-import type { PlacePieces, PlacesKit } from './kit';
+import { DIRT_Y, type PlacePieces, type PlacesKit } from './kit';
 
 /** The shop windows' band, from the boardwalk up; the porch roofs over the boardwalks, from the fronts out. */
 const SHOP_TOP = 3.2;
 const PORCH = { high: 3.6, low: 3.15, post: 0.14, gap: 4 };
-/** The heights of the boardwalks' decks and of the gravel over the flush ground. */
+/** The height of the boardwalks' decks over the flush ground. */
 const DECK_Y = 0.06;
-const GRAVEL_Y = 0.035;
 
+/** How bright a lit sign's letters glow after dark, and a billboard's whole face. */
+export const SIGN_GLOW = 0.45;
+const BOARD_GLOW = 0.3;
 const WOOD: RGB = [0.4, 0.28, 0.18];
 const TIN: RGB = [0.44, 0.33, 0.27];
 const CONCRETE: RGB = [0.72, 0.7, 0.66];
@@ -66,12 +67,16 @@ export function pumpGeometry(): THREE.BufferGeometry {
   return b.build('pump');
 }
 
-/** Paints a band of a lit sign: the board and its letters, and in the glow its letters alone. */
+/**
+ * Paints a band of a lit sign: the board and its letters, and in the glow its letters alone at SIGN_GLOW (the signs'
+ * material outshines the city's lamps after dark: CityView.update).
+ */
 function sign(kit: PlacesKit, lines: ReadonlyArray<readonly [string, number]>, fg: string, bg: string, h = 128): [number, number] {
   return kit.atlas.band(h, (ctx) => {
     const glow = ctx.canvas !== kit.atlas.canvas;
     ctx.fillStyle = glow ? '#000' : bg;
     ctx.fillRect(0, 0, 1024, h);
+    if (glow) ctx.globalAlpha = SIGN_GLOW;
     if (!glow) {
       ctx.strokeStyle = fg;
       ctx.lineWidth = 6;
@@ -264,17 +269,10 @@ export function buildTown(view: CountryView, kit: PlacesKit): (night: number, ti
   }
   view.add(planks.build(), view.city.wet.patch(view.city.surface('wood')), { split: false, name: 'dry-creek-boardwalks' });
   // Packed dirt on the forecourt and the parking, white lines between the bays, the islands under the pumps.
-  const surfaces = view.city.ground;
-  const dirt = new GeoBuilder(false);
-  const dirtUv = { kind: 'world', scale: surfaces.tile('plain') } as const;
-  for (const r of town.lots) dirt.flat(r.minX, r.minZ, r.maxX, r.maxZ, GRAVEL_Y, dirtUv);
-  const dirtMat = surfaces.patch(view.city.wet.patch(surfaces.material('plain', 'dirt')), 'plain');
-  dirtMat.polygonOffset = true;
-  dirtMat.polygonOffsetFactor = -1;
-  dirtMat.polygonOffsetUnits = -1;
-  view.add(setGroundAttribute(dirt.build(), [], NO_RECT), dirtMat, { split: false, name: 'dry-creek-lots' });
+  const dirtUv = { kind: 'world', scale: view.city.ground.tile('plain') } as const;
+  for (const r of town.lots) kit.dirt.flat(r.minX, r.minZ, r.maxX, r.maxZ, DIRT_Y, dirtUv);
   const bays = L.parking.filter((b) => rectContains(town.lots[1]!, b.x, b.z) || rectContains(town.lots[2]!, b.x, b.z));
-  for (const b of bays) for (const dx of [-1.8, 1.8]) boxC(p.plain, b.x + dx - 0.06, 0, b.z - 2.3, b.x + dx + 0.06, GRAVEL_Y + 0.012, b.z + 2.3, [0.86, 0.86, 0.82]);
+  for (const b of bays) for (const dx of [-1.8, 1.8]) boxC(p.plain, b.x + dx - 0.06, 0, b.z - 2.3, b.x + dx + 0.06, DIRT_Y + 0.012, b.z + 2.3, [0.86, 0.86, 0.82]);
   for (const x of [-796, -784]) boxC(p.plain, x - 0.7, 0, -296.6, x + 0.7, 0.16, -283.4, CONCRETE);
 
   // Gas & Grits' canopy: a white slab on red posts, its name round the fascia and lit panels underneath.
@@ -377,6 +375,7 @@ export function buildTown(view: CountryView, kit: PlacesKit): (night: number, ti
   for (const bb of town.billboards) {
     const q = L.props[bb.prop]!;
     const ad = kit.atlas.band(512, (ctx) => {
+      if (ctx.canvas !== kit.atlas.canvas) ctx.globalAlpha = BOARD_GLOW;
       const g = ctx.createLinearGradient(0, 0, 1024, 512);
       g.addColorStop(0, bb.lines[0].startsWith('INJURED') ? '#f4e6c6' : '#c8262c');
       g.addColorStop(1, bb.lines[0].startsWith('INJURED') ? '#e0b45c' : '#7a1218');
@@ -459,7 +458,7 @@ function neonCow(view: CountryView, at: { x: number; z: number; y: number }): (n
   }
   const tex = toTexture(c, true, false);
   tex.repeat.set(0.5, 1);
-  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: new THREE.Color(0.25, 0.25, 0.25) });
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: new THREE.Color(0.25, 0.25, 0.25), fog: false });
   const geo = new THREE.PlaneGeometry(5.6, 2.8);
   geo.translate(at.x, at.y + 1.4, at.z);
   view.add(geo, mat, { split: false, receive: false, name: 'dry-creek-neon' });

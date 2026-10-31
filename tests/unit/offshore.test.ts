@@ -79,7 +79,7 @@ describe('Turbine Row', () => {
     // battery's walls, AzuraLink's pylons and stations, and last Las Lomas County's (the bridge's parapets and its arch's
     // portal posts, its props, its stores and its places' solids).
     const rest = W.grid.colliders.slice(first);
-    const tags: Partial<Record<string, string[]>> = { signal: ['signal'], lamp: ['lamp'], pump: ['bin'], billboard: ['pillar', 'pillar'], bench: ['bench'] };
+    const tags: Partial<Record<string, string[]>> = { signal: ['signal'], lamp: ['lamp'], pump: ['bin'], billboard: ['pillar', 'pillar'], bench: ['bench'], speaker: ['lamp'] };
     const county = L.props.slice(L.country.firstProp).flatMap((p) => tags[p.kind]!);
     expect(rest.map((c) => c.tag)).toEqual([
       ...turbines.map(() => 'pillar'), 'palm', 'palm', 'palm', 'lamp',

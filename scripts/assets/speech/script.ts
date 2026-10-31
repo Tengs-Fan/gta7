@@ -629,6 +629,11 @@ export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
   whisper: { voices: ['af_nicole'], lines: ['Keep it on one-oh-four-point-five...'], speed: 0.75 },
   /** The hand on duty at the Marina, calling a Gull Regatta's boat on the start line over its radio. */
   marina: { voices: ['am_eric', 'bm_fable', 'am_adam'], lines: ["Mind the blades, they're bigger than they look."] },
+  /** A moviegoer at the Moonbeam Drive-In, at a horn during the film (sim/driveIn.ts). */
+  shush: {
+    voices: ['af_jessica', 'am_liam', 'bf_lily', 'am_echo'],
+    lines: ['Shhh!', "Shhh! It's the good part!", 'Do you mind? The corn is about to strike!', 'Some of us are trying to watch a scarecrow, pal!', 'Hey! Dim your brights and your attitude!'],
+  },
 };
 
 /** AzuraLink's station loudspeakers (src/audio/trainVoice.ts), by the departing train's destination: one voice, as it is about to leave. */

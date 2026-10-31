@@ -263,9 +263,9 @@ describe('round 2 city: layout', () => {
     // Smuggler's Key were added offshore, when AzuraLink's line joined the layout, and on the merged round-2 head, where
     // all four stand together and the trees in front of the letters are bushes; and when Las Lomas County joined it
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
-    // parapets, the four props moved out of the links' mouths, its signal heads and lamps); and when Dry Creek's stores,
-    // props, POIs, footpaths and bays were appended.
-    expect(layoutHash()).toBe('15d6f1ea09b7c92a901c762e693c091160f7c17588a41683836e9c6f22b9939b');
+    // parapets, the four props moved out of the links' mouths, its signal heads and lamps); and when the county's places
+    // appended theirs (Dry Creek's stores, props, POIs, footpaths and bays, the Moonbeam Drive-In's posts and bays).
+    expect(layoutHash()).toBe('6137b9f823a58a97b37bdce49eff0d93e4268b3abca31dfb8c0018949961e61a');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

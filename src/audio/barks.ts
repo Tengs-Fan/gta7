@@ -38,6 +38,7 @@ export const BARK_COOLDOWN: Readonly<Record<BarkKind, number>> = {
   farmerAngry: 5,
   whisper: 60,
   marina: 30,
+  shush: 4,
 };
 /** Seconds between any two shouts. */
 export const BARK_GAP = 0.6;

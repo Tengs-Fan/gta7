@@ -195,6 +195,8 @@ export class StaticWorld {
         return g.addCircle(p.x, p.z, 0.3 * s, p.y, p.y + 9 * s, 'tree').id;
       case 'pump':
         return g.addBox(p.x - 0.4, p.z - 0.4, p.x + 0.4, p.z + 0.4, p.y, p.y + 1.9, 'bin', i, true).id;
+      case 'speaker':
+        return g.addCircle(p.x, p.z, 0.1, p.y, p.y + 1.5, 'lamp', i, true).id;
       case 'bush':
       default:
         return -1;
