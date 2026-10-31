@@ -263,8 +263,8 @@ describe('round 2 city: layout', () => {
     // all four stand together and the trees in front of the letters are bushes; and when Las Lomas County joined it
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
     // parapets, the four props moved out of the links' mouths, its signal heads and lamps), and when its landscape rose
-    // (Coyote Ridge and the foothills in its rises, the ridge's turbines and the tree belts along its foot).
-    expect(layoutHash()).toBe('b17af5ee5358c2a7f0c65926a4d5d747c379bd954e4a46de5d33d210b98f80f3');
+    // (Coyote Ridge and the foothills in its rises, the ridge's turbines, the tree belts along its foot and the scrub).
+    expect(layoutHash()).toBe('b79dd9b8189f97ae86c54a84555a83a1f8bd3a886f91967786ca4a54c7a3650a');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

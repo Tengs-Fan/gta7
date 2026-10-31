@@ -7,7 +7,7 @@
 
 import { Rng } from '../../core/rng';
 import { addProp, hashInts, mkRect, type CityLayout, type Rect } from '../layout';
-import { CORE_INSET, ridgeBounds, terrainCores, type Core, type Rise } from '../terrain';
+import { CORE_INSET, ridgeBounds, riseAt, terrainCores, type Core, type Rise } from '../terrain';
 import { COUNTY_LAND, countryGround, type Country } from './index';
 
 export const RIDGE_NAME = 'Coyote Ridge';
@@ -145,10 +145,17 @@ const TREE_ROWS: readonly number[] = [-1357, -1368];
 const TREE_GAP = 9;
 /** The stretch of the foot the fire road's turn-off crosses, left open. */
 const TURN_OFF = { minZ: 88, maxZ: 122 } as const;
+/** Salt of the generator that scatters the scrub, and how many bushes it tries per 1000 m2 of each rise's bounds. */
+const SCRUB_SALT = 0x5c2b;
+const SCRUB_DENSITY = 1.2;
+/** Scrub grows only where a rise stands this high (m), and keeps this far (m) off the fire road, the car park and the turbines. */
+const SCRUB_LOW = 2.5;
+const SCRUB_CLEAR = 7;
 
 /**
- * Lays the landscape into the county: the ridge and the foothills, the turbines on the crest and the tree belts along
- * the ridge's east foot, each prop on the ground (countryGround). Draws only from its own generator.
+ * Lays the landscape into the county: the ridge and the foothills, the turbines on the crest, the tree belts along the
+ * ridge's east foot and scrub over the rises, each prop on the ground (countryGround). Draws only from its own
+ * generators.
  */
 export function buildHills(layout: CityLayout): void {
   const country = layout.country;
@@ -164,6 +171,25 @@ export function buildHills(layout: CityLayout): void {
       const rot = rng.range(0, Math.PI * 2);
       if (tz > TURN_OFF.minZ && tz < TURN_OFF.maxZ) continue;
       addProp(layout, 'tree', x, tz, rot, scale, countryGround(country, x, tz));
+    }
+  }
+  // Scrub: bushes (no collider) scattered over the slopes, clear of the road, the car park and the turbines' feet.
+  const scrub = new Rng(hashInts(layout.seed, SCRUB_SALT));
+  const road = fireRoadLine(4);
+  const pad = LOOKOUT.pad;
+  const clear = (x: number, z: number) =>
+    road.every((p) => Math.hypot(p.x - x, p.z - z) > SCRUB_CLEAR) &&
+    (x < pad.minX - SCRUB_CLEAR || x > pad.maxX + SCRUB_CLEAR || z < pad.minZ - SCRUB_CLEAR || z > pad.maxZ + SCRUB_CLEAR) &&
+    TURBINE_Z.every((tz) => Math.hypot(TURBINE_X - x, tz - z) > SCRUB_CLEAR);
+  for (const r of country.rises) {
+    const b = r.bounds;
+    const tries = Math.round(((b.maxX - b.minX) * (b.maxZ - b.minZ) * SCRUB_DENSITY) / 1000);
+    for (let i = 0; i < tries; i++) {
+      const x = scrub.range(b.minX, b.maxX);
+      const z = scrub.range(b.minZ, b.maxZ);
+      const scale = scrub.range(0.75, 1.3);
+      const rot = scrub.range(0, Math.PI * 2);
+      if (riseAt([r], x, z) >= SCRUB_LOW && countryGround(country, x, z) >= SCRUB_LOW && clear(x, z)) addProp(layout, 'bush', x, z, rot, scale, countryGround(country, x, z));
     }
   }
 }
