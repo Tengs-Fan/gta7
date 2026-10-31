@@ -689,6 +689,33 @@
   "dj-dockside-dub-92-3-back-4": 3.836,
   "dj-dockside-dub-92-3-front-5": 4.266,
   "dj-dockside-dub-92-3-back-5": 4.527,
+  "ident-moonlight-95-3-0": 5.354,
+  "ident-moonlight-95-3-1": 3.585,
+  "ident-moonlight-95-3-2": 4.52,
+  "dj-moonlight-95-3-banter-0": 3.824,
+  "dj-moonlight-95-3-banter-1": 4.388,
+  "dj-moonlight-95-3-banter-2": 4.774,
+  "dj-moonlight-95-3-banter-3": 6.235,
+  "dj-moonlight-95-3-night-0": 4.074,
+  "dj-moonlight-95-3-night-1": 4.519,
+  "dj-moonlight-95-3-rain-0": 3.965,
+  "dj-moonlight-95-3-rain-1": 3.152,
+  "dj-moonlight-95-3-chase-0": 5.05,
+  "dj-moonlight-95-3-chase-1": 5.147,
+  "dj-moonlight-95-3-gotaway-0": 4.316,
+  "dj-moonlight-95-3-gotaway-1": 5.047,
+  "dj-moonlight-95-3-front-0": 4.711,
+  "dj-moonlight-95-3-back-0": 5.066,
+  "dj-moonlight-95-3-front-1": 5.955,
+  "dj-moonlight-95-3-back-1": 5.599,
+  "dj-moonlight-95-3-front-2": 4.577,
+  "dj-moonlight-95-3-back-2": 4.762,
+  "dj-moonlight-95-3-front-3": 3.93,
+  "dj-moonlight-95-3-back-3": 5.515,
+  "dj-moonlight-95-3-front-4": 5.195,
+  "dj-moonlight-95-3-back-4": 4.092,
+  "dj-moonlight-95-3-front-5": 3.991,
+  "dj-moonlight-95-3-back-5": 5.354,
   "ident-pulse-96-1-0": 3.856,
   "ident-pulse-96-1-1": 1.969,
   "ident-pulse-96-1-2": 3.084,
@@ -2356,6 +2383,11 @@
    "ident-dockside-dub-92-3-0",
    "ident-dockside-dub-92-3-1"
   ],
+  "月光電台 95.3": [
+   "ident-moonlight-95-3-0",
+   "ident-moonlight-95-3-1",
+   "ident-moonlight-95-3-2"
+  ],
   "PULSE 96.1": [
    "ident-pulse-96-1-0",
    "ident-pulse-96-1-1",
@@ -2454,6 +2486,30 @@
    "gotAway": [
     "dj-dockside-dub-92-3-gotaway-0",
     "dj-dockside-dub-92-3-gotaway-1"
+   ]
+  },
+  "月光電台 95.3": {
+   "banter": [
+    "dj-moonlight-95-3-banter-0",
+    "dj-moonlight-95-3-banter-1",
+    "dj-moonlight-95-3-banter-2",
+    "dj-moonlight-95-3-banter-3"
+   ],
+   "night": [
+    "dj-moonlight-95-3-night-0",
+    "dj-moonlight-95-3-night-1"
+   ],
+   "rain": [
+    "dj-moonlight-95-3-rain-0",
+    "dj-moonlight-95-3-rain-1"
+   ],
+   "chase": [
+    "dj-moonlight-95-3-chase-0",
+    "dj-moonlight-95-3-chase-1"
+   ],
+   "gotAway": [
+    "dj-moonlight-95-3-gotaway-0",
+    "dj-moonlight-95-3-gotaway-1"
    ]
   },
   "PULSE 96.1": {
@@ -2678,6 +2734,32 @@
    {
     "front": "dj-dockside-dub-92-3-front-5",
     "back": "dj-dockside-dub-92-3-back-5"
+   }
+  ],
+  "月光電台 95.3": [
+   {
+    "front": "dj-moonlight-95-3-front-0",
+    "back": "dj-moonlight-95-3-back-0"
+   },
+   {
+    "front": "dj-moonlight-95-3-front-1",
+    "back": "dj-moonlight-95-3-back-1"
+   },
+   {
+    "front": "dj-moonlight-95-3-front-2",
+    "back": "dj-moonlight-95-3-back-2"
+   },
+   {
+    "front": "dj-moonlight-95-3-front-3",
+    "back": "dj-moonlight-95-3-back-3"
+   },
+   {
+    "front": "dj-moonlight-95-3-front-4",
+    "back": "dj-moonlight-95-3-back-4"
+   },
+   {
+    "front": "dj-moonlight-95-3-front-5",
+    "back": "dj-moonlight-95-3-back-5"
    }
   ],
   "PULSE 96.1": [

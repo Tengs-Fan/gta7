@@ -1,7 +1,9 @@
 // What the music stations play: six recurring hits per station by fictional artists, and endless deep cuts in between
 // with titles from each genre's word tables. A hit is composed from its own seed, so it is the same song every time it
 // comes round (the seeds were picked by computing: songs that differ in progressions, pattern, key and tempo). The
-// speech build (scripts/assets/speech/build.ts) reads HITS for the DJs' announces. Every name is original.
+// speech build (scripts/assets/speech/build.ts) reads HITS for the DJs' announces. Every name is original; 月光電台's are
+// in Traditional Chinese, drawn in the HUD's bundled subset of Noto Sans TC (src/ui/fonts, built by
+// scripts/assets/font.py from this file and radio.ts).
 
 import { Rng } from '../../core/rng';
 import type { Song, Style } from './style';
@@ -38,6 +40,14 @@ export const HITS: Readonly<Record<string, readonly Track[]>> = {
     { artist: 'Sister Barnacle', title: 'Foghorn Version', seed: 3111 },
     { artist: 'Prince Tugboat', title: 'Heavy Cargo in Dub', seed: 3312 },
     { artist: 'Roots Wharf Collective', title: 'Bonded Warehouse Rock', seed: 3223 },
+  ],
+  '月光電台 95.3': [
+    { artist: '分期付款合唱團', title: '愛情還剩二十四期', seed: 10000 },
+    { artist: '高架橋兄弟', title: '凌晨三點的加油站', seed: 10004 },
+    { artist: '午夜計程車樂團', title: '末班車已經開走了', seed: 10028 },
+    { artist: '答錄機小姐', title: '請在嗶聲後留言', seed: 10035 },
+    { artist: '霓虹阿姨', title: '便利商店戀愛物語', seed: 10037 },
+    { artist: '卡帶王子', title: '用鉛筆把你捲回來', seed: 10093 },
   ],
   'PULSE 96.1': [
     { artist: 'DJ Open Late', title: 'Four on the Floor Plan', seed: 4000 },
@@ -97,13 +107,17 @@ export function hitSong(style: Style, seed: number): Song {
   return style.song(new Rng(seed), new Rng(seed ^ 0x5bd1e995).range(style.bpm[0], style.bpm[1]));
 }
 
-/** A genre's deep cuts: an artist of two parts and a title of a part from each column ('' leaves a column out). */
+/**
+ * A genre's deep cuts: an artist of two parts and a title of a part from each column ('' leaves a column out), the
+ * parts joined with `sep` (a space by default; Chinese runs them together).
+ */
 interface Cuts {
   artist: readonly [readonly string[], readonly string[]];
   title: readonly (readonly string[])[];
+  sep?: string;
 }
 
-const CUTS: Readonly<Record<string, Cuts>> = {
+export const CUTS: Readonly<Record<string, Cuts>> = {
   'NEON DRIVE 88.7': {
     artist: [
       ['Kid', 'Lady', 'Johnny', 'Turbo', 'Sister'],
@@ -136,6 +150,19 @@ const CUTS: Readonly<Record<string, Cuts>> = {
       ['Cargo', 'Crane', 'Customs', 'Anchor', 'Harbour'],
       ['Version', 'in Dub', 'Dubwise', 'Skank', 'Rockers'],
     ],
+  },
+  '月光電台 95.3': {
+    artist: [
+      ['霓虹', '末班車', '高架橋', '頂樓', '雨夜', '平交道', '單軌'],
+      ['姊妹', '兄弟', '樂團', '合唱團', '小姐', '王子', '阿姨'],
+    ],
+    title: [
+      ['霓虹', '末班車', '高架橋', '便利商店', '雨夜', '凌晨兩點', '頂樓', '單軌電車'],
+      ['的'],
+      ['告白', '眼淚', '約定', '秘密', '探戈', '電話', '回憶'],
+      ['', '', '', '（國語版）', '（台語版）', '（伴唱帶）'],
+    ],
+    sep: '',
   },
   'PULSE 96.1': {
     artist: [
@@ -209,11 +236,12 @@ const CUTS: Readonly<Record<string, Cuts>> = {
 /** A deep cut's artist and title, from its station's word tables. */
 export function deepCut(station: string, r: Rng): { artist: string; title: string } {
   const c = CUTS[station]!;
+  const sep = c.sep ?? ' ';
   return {
-    artist: `${r.pick(c.artist[0])} ${r.pick(c.artist[1])}`,
+    artist: [r.pick(c.artist[0]), r.pick(c.artist[1])].join(sep),
     title: c.title
       .map((col) => r.pick(col))
       .filter(Boolean)
-      .join(' '),
+      .join(sep),
   };
 }

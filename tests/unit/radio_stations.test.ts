@@ -54,7 +54,7 @@ describe('radio stations', () => {
     for (const s of STATIONS.slice(talk)) expect(s.talk, s.name).toBeDefined();
     // A station on the AM band sounds like one.
     STATIONS.forEach((s, i) => expect(!!s.talk?.am, s.name).toBe(dial[i]!.am));
-    expect(MUSIC.length).toBe(9);
+    expect(MUSIC.length).toBe(10);
     for (const s of STATIONS) expect(s.tag.length, s.name).toBeLessThanOrEqual(25);
     for (const s of MUSIC) expect(SPEECH.idents[s.name]?.length, s.name).toBeGreaterThan(0);
   });

@@ -4,8 +4,13 @@
 // (src/audio/stations/playlists.ts). Every line is original.
 //
 // A link plays only if it fits the 4-bar intro, less 0.6 s, at the song's tempo: about 4.5 s on BREAKNECK, 5 s on
-// WIPEOUT and PIXEL, 6 s on VELVET and PULSE, 6.5 s on COYOTE, 7.5 s on NEON DRIVE, 9 s on BOOM BAP and 10 s on DOCKSIDE
-// DUB, a little less in a chase (tests/unit/radio_dj.test.ts holds every clip to its station's fastest intro).
+// WIPEOUT and PIXEL, 6 s on VELVET and PULSE, 6.5 s on COYOTE, 7 s on 月光電台, 7.5 s on NEON DRIVE, 9 s on BOOM BAP and
+// 10 s on DOCKSIDE DUB, a little less in a chase (tests/unit/radio_dj.test.ts holds every clip to its station's fastest
+// intro).
+//
+// 月光電台's DJ speaks Mandarin, written in Traditional characters (render.py reads it through Simplified ones). Numbers
+// are written out in characters, and a polyphone is checked against misaki's reading of it: 繫 is read xì, so a seat
+// belt is 扣好, and 聽得到 is read dédào, so the sirens are 聽見.
 
 import type { LinkKind } from '../../../src/sim/speech';
 
@@ -17,6 +22,8 @@ export type Line = string | readonly Take[];
 export interface Dj {
   dj: string;
   voice: string;
+  /** The station in clip ids (default: its name's letters and digits, which a name in Chinese has too few of). */
+  slug?: string;
   /** Kokoro's speed for everything the DJ says (default 1). */
   speed?: number;
   /** The lines of each kind; 'ident' fills the speech index's idents, the rest its dj links. */
@@ -26,11 +33,15 @@ export interface Dj {
   back: readonly string[];
 }
 
-/** Any DJ, in a chase. */
+/** Any DJ, in a chase; 月光電台's in Mandarin. */
 const SIRENS = "I can hear sirens from the booth. This one's for whoever they're chasing.";
+const SIRENS_ZH = '連播音室都聽見警笛了。這首歌，送給他們在追的人。';
 
 const KIKI = 'bf_alice';
 const TOM_TOM = 'am_liam,am_echo';
+/** 月光電台's 小月 and 阿凱, her producer (導播), who screens the calls and answers her on air: Kokoro-82M v1.1-zh voices. */
+const XIAOYUE = 'zf_044';
+const AKAI = 'zm_029';
 
 /** By station name as the radio lists it (src/audio/radio.ts STATIONS). */
 export const DJS: Readonly<Record<string, Dj>> = {
@@ -94,6 +105,36 @@ export const DJS: Readonly<Record<string, Dj>> = {
     },
     front: ['Captain Reverb at the controls. Here comes {artist}, with {title}.', 'Lower the anchor. This is {artist}. {title}.'],
     back: ['That was {title}, by {artist}. Heavy, like cargo.', '{artist} there, with {title}. Mind the forklifts.'],
+  },
+  '月光電台 95.3': {
+    dj: '小月',
+    voice: XIAOYUE,
+    slug: 'moonlight-95-3',
+    links: {
+      ident: ['這裡是月光電台，九十五點三。夜深了，聖阿蘇拉還醒著。', '月光電台，九十五點三。陪你到天亮。', '各位夜貓子，你在聽的是月光電台，九十五點三。'],
+      banter: [
+        '我是小月。還沒睡的朋友，今晚就讓我陪你。',
+        [
+          [XIAOYUE, '阿凱，現在幾點了？'],
+          [AKAI, '兩點半。你的咖啡涼了。'],
+        ],
+        '失眠的人有兩種，一種在聽月光電台，一種還不知道。',
+        '有位計程車司機說，乘客一上車就睡著。大哥，那是我們的功勞。',
+      ],
+      night: ['凌晨兩點，海風有一點涼。把車窗搖下來吧。', '夜深了，城市的燈還亮著。還沒睡的，都是自己人。'],
+      rain: ['外面下雨了。慢慢開，不要急，城市會等你。', '雨刷打著拍子，剛好配這首歌。'],
+      chase: [SIRENS_ZH, '聽說市中心又有警車在追人。親愛的，記得扣好安全帶。'],
+      gotAway: [
+        '警笛聲越來越遠了。不管你是誰，平安就好。',
+        [
+          [AKAI, '小月，警笛聲不見了。'],
+          [XIAOYUE, '嗯，今晚有人可以好好睡了。'],
+        ],
+      ],
+    },
+    // Spoken, not shown: a title is read without the 〈〉 it is written in, which misaki cannot read.
+    front: ['接下來是{artist}，{title}。', '這首歌，送給還在路上的你。{artist}，{title}。', '月光電台，{artist}的{title}。'],
+    back: ['剛才那首是{artist}的{title}。', '{artist}，{title}。這首歌，我每次聽都想哭。'],
   },
   'PULSE 96.1': {
     dj: 'Kiki',

@@ -1,4 +1,4 @@
-// Procedural radio: nine music stations generating endless music with a WebAudio lookahead scheduler, and the talk
+// Procedural radio: ten music stations generating endless music with a WebAudio lookahead scheduler, and the talk
 // stations (talk.ts), in dial order. Each music station is a style (stations/): it seeds songs (key, progressions,
 // motifs, a pattern variant) and plays each sixteenth of a song's form (intro, A, B, A again, outro; some add a
 // breakdown) on a shared instrument kit with a tempo echo and a small reverb. The music follows the wanted level: an
@@ -15,6 +15,7 @@ import { DjProgramme, introSeconds, LINK_MARGIN, type DjItem, type DjScene } fro
 import { playClip, SpeechBank } from './speech';
 import { boombap } from './stations/boombap';
 import { chiptune } from './stations/chiptune';
+import { citypop } from './stations/citypop';
 import { country } from './stations/country';
 import { dnb } from './stations/dnb';
 import { dub } from './stations/dub';
@@ -33,6 +34,8 @@ export interface StationDef {
   genre: string;
   /** The line under the name when the station is tuned. */
   tag: string;
+  /** The language of the station's name, tag and songs when it is not English (the HUD marks them with it). */
+  lang?: string;
   /** The music; null on a talk station. */
   style: Style | null;
   /** A talk station's show. */
@@ -100,6 +103,13 @@ export const STATIONS: readonly StationDef[] = [
     genre: 'dub',
     tag: 'Dub from the Docks',
     style: dub,
+  },
+  {
+    name: '月光電台 95.3',
+    genre: 'citypop',
+    tag: '城市流行，陪你到天亮',
+    lang: 'zh-Hant',
+    style: citypop,
   },
   {
     name: 'PULSE 96.1',
