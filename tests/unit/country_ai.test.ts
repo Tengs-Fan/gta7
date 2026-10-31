@@ -65,7 +65,7 @@ describe('Las Lomas County: driving AI', () => {
     expect(visited.has('Southgate Bridge')).toBe(true);
   });
 
-  it('streams ambient traffic round the county for ten minutes: none stuck 30 s but at a red light, none in the water', () => {
+  it('streams ambient traffic round the county for ten minutes: none stopped through 30 s of green lights, none in the water', () => {
     const sim = makeSim({ seed: 6, police: false, ambient: true, startHour: 12 });
     // On the Lomas Highway's verge between Dry Creek and the Hollister T, slowly looking round.
     const x = -972;
@@ -88,17 +88,17 @@ describe('Las Lomas County: driving AI', () => {
         counted.add(v);
         expect(v.inWater, `vehicle ${v.id} at ${v.pos.x.toFixed(0)}, ${v.pos.z.toFixed(0)}`).toBe(false);
         const lane = v.ai.currentLane();
-        // Waiting at a light that is not green is no stall.
+        // Time stopped while the light ahead shows green: a red or yellow one holds the count, moving clears it. A car
+        // stuck at a signalled junction (11 s of green in each 32 s cycle) passes 30 s within three cycles.
         const red = lane !== null && sim.roads.signalState(lane.to, axisOf(lane.dir), sim.time) !== 'green';
-        const s = red ? 0 : (stuck.get(v) ?? 0) + 0.5 * (v.speed < 0.5 ? 1 : 0);
         if (v.speed >= 0.5) stuck.set(v, 0);
-        else stuck.set(v, s);
-        worst = Math.max(worst, stuck.get(v)!);
+        else if (!red) stuck.set(v, (stuck.get(v) ?? 0) + 0.5);
+        worst = Math.max(worst, stuck.get(v) ?? 0);
       }
       seen = Math.max(seen, sim.vehicles.filter((v) => !v.removed && v.owner === 'traffic').length);
     }
     const county = [...counted].filter((v) => v.pos.x < CAUSEWAY.minX).length;
-    console.log(`[country_ai] ten minutes on the highway: ${counted.size} cars (${county} last seen in the county), up to ${seen} at once, longest stall outside a red ${worst.toFixed(1)} s`);
+    console.log(`[country_ai] ten minutes on the highway: ${counted.size} cars (${county} last seen in the county), up to ${seen} at once, longest stop counting green only ${worst.toFixed(1)} s`);
     expect(counted.size).toBeGreaterThan(20);
     expect(seen).toBeGreaterThan(4);
     expect(worst).toBeLessThanOrEqual(30);
