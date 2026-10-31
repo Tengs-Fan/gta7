@@ -99,7 +99,7 @@ function lap(courseId: string, seed: number, traffic: boolean): Lap {
 }
 
 describe('street run laps through traffic', () => {
-  it("no course comes within LINK_REACH of the causeway's or the bridge's landfall, where traffic comes in over them", () => {
+  it("no city course comes within LINK_REACH of the causeway's or the bridge's landfall, where traffic comes in over them; the Las Lomas Loop runs over both", () => {
     const sim = makeSim();
     const roads = sim.roads;
     // The links' lanes into the city, each ending at its landfall.
@@ -107,13 +107,19 @@ describe('street run laps through traffic', () => {
     expect(links.length).toBe(4);
     for (const c of sim.activities.streetRunCourses()) {
       const at = c.nodes.map((id) => roads.nodes[id]!);
-      let nearest = Infinity;
-      for (const l of links) {
-        nearest = Math.min(nearest, Math.hypot(c.start.x - l.ex, c.start.z - l.ez));
-        for (let k = 1; k < at.length; k++) nearest = Math.min(nearest, pointSegDist(l.ex, l.ez, at[k - 1]!.x, at[k - 1]!.z, at[k]!.x, at[k]!.z));
+      const line = (l: Lane) => Math.min(...at.slice(1).map((n, k) => pointSegDist(l.ex, l.ez, at[k]!.x, at[k]!.z, n.x, n.z)));
+      const start = Math.min(...links.map((l) => Math.hypot(c.start.x - l.ex, c.start.z - l.ez)));
+      const nearest = Math.min(start, ...links.map(line));
+      console.log(`[run] ${c.id}: ${nearest.toFixed(0)} m from the nearest landfall at the closest, its start ${start.toFixed(0)} m`);
+      if (at.every((n) => n.x >= sim.world.bounds.landMinX)) {
+        expect(nearest, c.id).toBeGreaterThan(LINK_REACH);
+        continue;
       }
-      console.log(`[run] ${c.id}: ${nearest.toFixed(0)} m from the nearest landfall at the closest`);
-      expect(nearest, c.id).toBeGreaterThan(LINK_REACH);
+      // The county's course goes out over the causeway and home over the bridge from a start within reach of the
+      // causeway's landfall, so its countdown and its lap meet the cars coming in.
+      expect(c.id).toBe('laslomas');
+      for (const l of links) expect(line(l), `landfall at ${l.ex}, ${l.ez}`).toBeLessThan(10);
+      expect(start).toBeLessThan(LINK_REACH);
     }
   });
 

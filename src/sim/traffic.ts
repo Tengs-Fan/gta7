@@ -27,8 +27,9 @@ const ONCOMING_CARS = 2;
 /**
  * Seen from the city's land within LINK_REACH m of the Magnolia Causeway or the Southgate Bridge, LINK_CARS cars at a time
  * come in over them, spawned out of view up to LINK_FAR m off by a generator of the links' own (LINK_SALT): see
- * streamLinks. LINK_REACH keeps every street run's course out of reach (Dockside's comes within 210 m of the bridge's
- * landfall, and the 8 s before its start would have reshuffled the city's traffic for the lap).
+ * streamLinks. LINK_REACH keeps every street run's course in the city out of reach (Dockside's comes within 210 m of the
+ * bridge's landfall, and the 8 s before its start would have reshuffled the city's traffic for the lap); the Las Lomas
+ * Loop runs out over the causeway and home over the bridge, so its laps meet the cars coming in.
  */
 export const LINK_REACH = 200;
 const LINK_CARS = 2;

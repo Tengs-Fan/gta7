@@ -289,7 +289,7 @@ A tractor cruises at 0.9 of its 12 m/s, and the traffic behind it queues and hon
 The open fields hide little, so for a fast player on a county road the spawner adds spans on the oncoming lanes along his road: 120-220 m ahead, which spawn only where something hides them, and 330-420 m ahead, beyond the 320 m the never-pop-in rule looks.
 At most two cars come his way from them at a time, and a car coming his way on a county lane is kept within 520 m whether he sees it or not.
 Seen from the city's land within 200 m of a link's landfall (`LINK_REACH`), two cars at a time come in over the causeway and the bridge, spawned on the links' lanes into the city out of view as far as 520 m, since nothing on the open water hides one.
-No street run's course comes within that reach (Dockside's comes within 210 m of the bridge's), so no lap's traffic depends on them.
+No street run's course in the city comes within that reach (Dockside's comes within 210 m of the bridge's), so no lap there depends on them; the Las Lomas Loop starts 186 m from the causeway's landfall and runs over both links, so its countdown and its laps meet the cars coming in.
 Where each spawns, its kind and colour, and its driver's looks and cruising speed come from a generator of their own (`linkRng`), so the spawns draw nothing from the sim's.
 Once on its way such a car's driving (its turns, its honks) draws from the sim's generator like any car's, so near the links they change the city's traffic; the recorded fixtures never come within 354 m of either landfall.
 They come in single player only: `streamTrafficMulti` has no such stream.
