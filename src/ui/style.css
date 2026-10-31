@@ -688,12 +688,25 @@ body {
   color: #ffd76a;
 }
 
+/*
+ * 月光電台's Traditional Chinese: Anton and Rajdhani have no Chinese, so the radio line falls back to a subset of Noto
+ * Sans CJK TC Bold with every character the radio can show (scripts/assets/font.py), the same on every machine; fetched
+ * the first time Chinese is drawn. The system's Traditional Chinese fonts come after it.
+ */
+@font-face {
+  font-family: 'Noto Sans TC Subset';
+  src: url('./fonts/noto-sans-tc-subset.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+  unicode-range: U+3000-303F, U+4E00-9FFF, U+FF00-FFEF;
+}
+
 .radio {
   position: absolute;
   top: 18px;
   left: 50%;
   transform: translateX(-50%);
-  font-family: 'Anton', Impact, sans-serif;
+  font-family: 'Anton', Impact, 'Noto Sans TC Subset', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
   font-size: 20px;
   letter-spacing: 1px;
   text-align: center;
@@ -706,7 +719,7 @@ body {
 
 .radio small {
   display: block;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Rajdhani', 'Noto Sans TC Subset', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -719,6 +732,11 @@ body {
   font-weight: 600;
   font-style: italic;
   color: #e6dcc0;
+}
+
+/* Chinese is not set in italics. */
+.radio:lang(zh) small.track {
+  font-style: normal;
 }
 
 .radio.show {

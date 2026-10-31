@@ -48,8 +48,17 @@ The assets are used under CC0 (no attribution required, credited here anyway) or
 
 ## Speech
 
-Every clip under `src/assets/speech/` is rendered by `npm run speech` from original lines (scripts/assets/speech) with the model and voices below.
+Every clip under `src/assets/speech/` is rendered by `npm run speech` from original lines (scripts/assets/speech) with the models and voices below.
 
 | Model | Author | Source | License | Used by |
 | --- | --- | --- | --- | --- |
 | Kokoro-82M v1.0 and its voices | hexgrad | https://huggingface.co/hexgrad/Kokoro-82M | Apache-2.0 | speech/*.mp3 |
+| Kokoro-82M v1.1-zh and its voices zf_044 and zm_029 | hexgrad | https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh | Apache-2.0 | speech/ident-moonlight-95-3-*.mp3, speech/dj-moonlight-95-3-*.mp3 |
+
+## Fonts
+
+The HUD draws Traditional Chinese in a subset of the font below, cut by `scripts/assets/font.py` to the characters the radio shows; the subset keeps the font's copyright and license in its name table.
+
+| Font | Author | Source | License | Used by |
+| --- | --- | --- | --- | --- |
+| Noto Sans CJK TC Bold 2.004 | Adobe, for Google | https://github.com/notofonts/noto-cjk | SIL Open Font License 1.1 | src/ui/fonts/noto-sans-tc-subset.woff2 |

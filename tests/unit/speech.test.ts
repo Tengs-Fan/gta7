@@ -42,10 +42,12 @@ describe('the speech index', () => {
     for (const id of used) expect(existsSync(`${DIR}${id}.mp3`), id).toBe(true);
   });
 
-  it('names the speech model and its license in LICENSES-ASSETS.md', () => {
+  it('names the speech models and their license in LICENSES-ASSETS.md', () => {
     const md = readFileSync(new URL('../../LICENSES-ASSETS.md', import.meta.url), 'utf8');
     expect(md).toMatch(/^## Speech$/m);
     expect(md).toMatch(/\| Kokoro-82M v1\.0 and its voices \| hexgrad \| https:\/\/huggingface\.co\/hexgrad\/Kokoro-82M \| Apache-2\.0 \|/);
+    // 月光電台's Mandarin.
+    expect(md).toMatch(/\| Kokoro-82M v1\.1-zh and its voices zf_044 and zm_029 \| hexgrad \| https:\/\/huggingface\.co\/hexgrad\/Kokoro-82M-v1\.1-zh \| Apache-2\.0 \|/);
   });
 
   it('has a clip for every line of mission dialogue and every phone line, voiced by its speaker', () => {
