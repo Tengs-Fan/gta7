@@ -1,8 +1,8 @@
 // Las Lomas County's fields (world/country/farms.ts, render/country/fields.ts): where they lie (in the farm plots, 12 m
 // and more off every road edge), which of them are cover and drag at a car, and how they are drawn at a cost set by
 // what the camera sees: pools of plants sized by tier round the camera, every plant at its own spot of its field's
-// lattice, refills that move none of them; and the hedgerows, which open round the camera's sight line while one
-// stands in it.
+// lattice, refills that move none of them, and the blocks seen from inside on the software tier; and the hedgerows,
+// which open round the camera's sight line while one stands in it.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
@@ -71,7 +71,8 @@ describe('Las Lomas County: the fields', () => {
 });
 
 describe('Las Lomas County: drawing the fields', () => {
-  const view = new CountryView(W, new CityView(W), { uWindTime: { value: 0 }, uWindAmp: { value: 0 }, uWindDir: { value: new THREE.Vector2(1, 0) } });
+  const wind = { uWindTime: { value: 0 }, uWindAmp: { value: 0 }, uWindDir: { value: new THREE.Vector2(1, 0) } };
+  const view = new CountryView(W, new CityView(W), wind);
   const pool = (crop: Crop) => view.moving.children.find((o) => o.name === `crops-${crop}`) as THREE.InstancedMesh;
   /** The plants a pool holds now, as their places. */
   const plants = (crop: Crop): Map<string, number> => {
@@ -172,5 +173,14 @@ describe('Las Lomas County: drawing the fields', () => {
     // Nothing framed (the title screen): nothing opens.
     view.farms.sight(behind, null, 1);
     expect(open.value).toBe(0);
+  });
+
+  it('draws the corn and the sunflowers\' blocks from inside too on the software tier, which has no plants', () => {
+    const soft = new CountryView(W, new CityView(W), wind, true);
+    const side = (v: CountryView, name: string) => (v.group.getObjectByName(name) as THREE.Mesh<THREE.BufferGeometry, THREE.Material>).material.side;
+    for (const name of ['crop-top-corn', 'crop-side-corn', 'crop-top-sunflower', 'crop-side-sunflower']) {
+      expect(side(soft, name), name).toBe(THREE.DoubleSide);
+      expect(side(view, name), name).toBe(THREE.FrontSide);
+    }
   });
 });

@@ -34,6 +34,8 @@ export class CountryView {
     readonly city: CityView,
     /** The props' wind (PropsView): the county's corn sways on it, as Hollister Farm's does. */
     wind: WindUniforms,
+    /** A software renderer's: no plants round the camera, so the tall crops' blocks are drawn from inside too. */
+    readonly software = false,
   ) {
     this.group.name = 'country';
     this.moving.name = 'country-moving';

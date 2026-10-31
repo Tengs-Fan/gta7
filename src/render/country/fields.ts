@@ -2,7 +2,8 @@
 // - every field's ground is a slab just over the grass with its crop's row texture (render/textures/ground.ts), turned
 //   along its rows; wheat's ripples in the wind;
 // - corn and sunflowers are one block each beyond the ring round the camera: an opaque top textured as the crop seen
-//   from above and sides of stalks with a ragged top, front faces only, so from inside a field only the plants show;
+//   from above and sides of stalks with a ragged top, front faces only, so from inside a field only the plants show
+//   (on the software tier, which has no plants, both faces: from inside a field the corn stands round you);
 // - within the ring (quality.ts CROP_RING: smaller on Medium and Low, none in software or from RING_TOP up), the plants, from
 //   fixed pools: Hollister Farm's corn (its ten-stalk cards, swaying on the props' wind), wheat tufts and sunflowers,
 //   whose heads turn with the sun. The pools are refilled when the camera crosses into another FIELD_CELL cell, each
@@ -348,7 +349,10 @@ export class FieldsView {
     }
   }
 
-  /** Corn and sunflowers past the ring: per crop one mesh of every field's block, tops and sides. */
+  /**
+   * Corn and sunflowers past the ring: per crop one mesh of every field's block, tops and sides, seen from inside too on
+   * the software tier.
+   */
   private buildBlocks(view: CountryView): void {
     for (const crop of ['corn', 'sunflower'] as const) {
       const top = new GeoBuilder(false);
@@ -371,10 +375,11 @@ export class FieldsView {
           u += len;
         }
       }
-      const topMat = new THREE.MeshStandardMaterial({ map: topTexture(crop), roughness: 0.9 });
+      const faces = view.software ? THREE.DoubleSide : THREE.FrontSide;
+      const topMat = new THREE.MeshStandardMaterial({ map: topTexture(crop), roughness: 0.9, side: faces });
       outsideRing(topMat, this.tallRing, `gta7-crop-top`);
       view.add(top.build(), topMat, { name: `crop-top-${crop}`, split: false });
-      const sideMat = new THREE.MeshStandardMaterial({ map: wallTexture(crop), alphaTest: 0.5, roughness: 0.9 });
+      const sideMat = new THREE.MeshStandardMaterial({ map: wallTexture(crop), alphaTest: 0.5, roughness: 0.9, side: faces });
       outsideRing(sideMat, this.tallRing, `gta7-crop-side`);
       view.add(side.build(), sideMat, { name: `crop-side-${crop}`, split: false });
     }

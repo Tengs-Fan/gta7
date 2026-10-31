@@ -299,7 +299,7 @@ export class GameRenderer {
     this.offshore = new OffshoreView(world);
     this.regatta.bindSea(this.env.sea);
     this.monorail = new MonorailView(world);
-    this.country = new CountryView(world, this.city, this.props.windUniforms);
+    this.country = new CountryView(world, this.city, this.props.windUniforms, this.software);
     this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group, this.regatta.mesh, this.monorail.group, this.country.group);
     this.softwareMaterials?.apply(this.country.group);
     this.softwareMaterials?.apply(this.monorail.group);
