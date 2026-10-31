@@ -9,11 +9,11 @@ import { AudioEngine } from '../../src/audio/audio';
 import { DOPPLER_RANGE, dopplerFactor } from '../../src/audio/doppler';
 import { decayTime, echoImpulse, gunEcho } from '../../src/audio/echo';
 import { mixTargets, type MixInput } from '../../src/audio/mixer';
-import { INTENSITY_FALL, Radio, STATIONS, wantedIntensity } from '../../src/audio/radio';
+import { BOWL_FORMAT, INTENSITY_FALL, Radio, STATIONS, wantedIntensity } from '../../src/audio/radio';
 import { BARK_MIN_GAP, BARK_WAIT, barkLength, PoliceScanner, RADIO_BAND } from '../../src/audio/scanner';
 import { dispatchClips, SpeechBank } from '../../src/audio/speech';
 import { NodeTally } from '../../src/audio/tally';
-import { IDENT_AT, JINGLE_TAIL, talkProgramme, TalkProgramme } from '../../src/audio/talk';
+import { AZURA_FORMAT, DESK_LEAD, DESK_PAUSE, DESK_TAIL, deskLength, GAP_LEN, IDENT_AT, JINGLE_TAIL, talkProgramme, TalkProgramme, TalkShow } from '../../src/audio/talk';
 import { SPEECH } from '../../src/sim/speech';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
@@ -185,7 +185,7 @@ afterEach(() => {
 
 describe('talk station', () => {
   it('is on the station list, reached by cycling stations, and RADIO OFF stays last', () => {
-    expect(STATIONS.some((s) => s.genre === 'talk')).toBe(true);
+    expect(STATIONS.some((s) => s.talk)).toBe(true);
     const r = new Radio();
     const names: string[] = [];
     for (let i = 0; i <= STATIONS.length; i++) names.push(r.next());
@@ -193,47 +193,75 @@ describe('talk station', () => {
     expect(names.at(-2)).toBe('RADIO OFF');
     expect(names.at(-1)).toBe(STATIONS[0]!.name);
     expect(r.prev()).toBe('RADIO OFF');
-    expect(r.prev()).toBe('AZURA TALK 104.5');
+    expect(r.prev()).toBe(STATIONS.at(-1)!.name);
   });
 
-  it('its programme over 10 minutes has host speech, jingles and ad breaks, separated by short gaps, and is seeded', () => {
-    for (const seed of [1, 7, 42, 1234, 99991]) {
-      const segs = talkProgramme(seed, 600);
-      const kinds = new Set(segs.map((s) => s.kind));
-      expect(kinds.has('host'), `seed ${seed}`).toBe(true);
-      expect(kinds.has('jingle'), `seed ${seed}`).toBe(true);
-      expect(kinds.has('ad'), `seed ${seed}`).toBe(true);
-      for (let i = 1; i < segs.length; i++) {
-        // Contiguous, and dead air only between two programme items.
-        expect(segs[i]!.start).toBeCloseTo(segs[i - 1]!.start + segs[i - 1]!.dur, 9);
-        expect(segs[i]!.kind === 'gap' && segs[i - 1]!.kind === 'gap').toBe(false);
-        if (segs[i]!.kind !== 'gap') expect(segs[i - 1]!.kind).toBe('gap');
-      }
-      for (const s of segs) {
-        if (s.kind === 'gap') expect(s.dur).toBeLessThan(1);
-        // Every item plays a recorded piece of its pool; a jingle is the bells, then an ident over the chord.
-        if (s.kind === 'gap') expect(s.clip).toBe('');
-        if (s.kind === 'jingle') {
-          expect(SPEECH.talk.ident).toContain(s.clip);
-          expect(s.dur).toBeCloseTo(IDENT_AT + SPEECH.clips[s.clip]! + JINGLE_TAIL, 9);
+  for (const st of STATIONS.filter((s) => s.talk)) {
+    const format = st.talk!;
+    const pools = () => SPEECH.talk[format.show];
+    /** The pieces a slot draws from. */
+    const slotPieces = (slot: number) => format.slots[slot]!.flatMap((k) => pools()[k]);
+    /** Every clip a break can play: the ads, a campaign as each of its parts. */
+    const adClips = () => pools().ad.flatMap((id) => SPEECH.adSeries[id] ?? [id]);
+
+    it(`${st.name}: its programme over 10 minutes has its show in slot order, jingles and ad breaks, separated by short gaps, and is seeded`, () => {
+      for (const seed of [1, 7, 42, 1234, 99991]) {
+        const segs = talkProgramme(seed, 600, format);
+        const kinds = new Set(segs.map((s) => s.kind));
+        expect(kinds.has('host'), `seed ${seed}`).toBe(true);
+        expect(kinds.has('jingle'), `seed ${seed}`).toBe(true);
+        expect(kinds.has('ad'), `seed ${seed}`).toBe(true);
+        for (let i = 1; i < segs.length; i++) {
+          // Contiguous, and dead air only between two programme items.
+          expect(segs[i]!.start).toBeCloseTo(segs[i - 1]!.start + segs[i - 1]!.dur, 9);
+          expect(segs[i]!.kind === 'gap' && segs[i - 1]!.kind === 'gap').toBe(false);
+          if (segs[i]!.kind !== 'gap') expect(segs[i - 1]!.kind).toBe('gap');
         }
-        if (s.kind === 'ad') expect(SPEECH.talk.ad).toContain(s.clip);
-        if (s.kind === 'host') expect([...SPEECH.talk.host, ...SPEECH.talk.call, ...SPEECH.talk.news]).toContain(s.clip);
-      }
-      expect(talkProgramme(seed, 600)).toEqual(segs);
-      if (seed === 42) {
-        const tally: Record<string, { n: number; s: number }> = {};
         for (const s of segs) {
-          tally[s.kind] ??= { n: 0, s: 0 };
-          tally[s.kind]!.n++;
-          tally[s.kind]!.s += s.dur;
+          if (s.kind === 'gap') expect(s.dur).toBeLessThan(1);
+          // Every item plays a recorded piece of its pool; a jingle is the bells, then an ident over the chord.
+          if (s.kind === 'gap') expect(s.clip).toBe('');
+          if (s.kind === 'jingle') {
+            expect(pools().ident).toContain(s.clip);
+            expect(s.dur).toBeCloseTo(IDENT_AT + SPEECH.clips[s.clip]! + JINGLE_TAIL, 9);
+          }
+          if (s.kind === 'ad') expect(adClips()).toContain(s.clip);
         }
-        console.log(`[talk] seed 42, 10 min: ${segs.map((s) => `${s.kind}@${s.start.toFixed(1)}+${s.dur.toFixed(1)}`).join(' ')}`);
-        console.log(`[talk] per kind: ${JSON.stringify(tally)}`);
+        // Block n's piece comes from slot n.
+        segs.filter((s) => s.kind === 'host').forEach((s, n) => expect(slotPieces(n % format.slots.length), `seed ${seed} block ${n}`).toContain(s.clip));
+        expect(talkProgramme(seed, 600, format)).toEqual(segs);
+        if (seed === 42) {
+          const tally: Record<string, { n: number; s: number }> = {};
+          for (const s of segs) {
+            tally[s.kind] ??= { n: 0, s: 0 };
+            tally[s.kind]!.n++;
+            tally[s.kind]!.s += s.dur;
+          }
+          console.log(`[talk] ${st.name} seed 42, 10 min: ${segs.map((s) => `${s.kind}@${s.start.toFixed(1)}+${s.dur.toFixed(1)}`).join(' ')}`);
+          console.log(`[talk] ${st.name} per kind: ${JSON.stringify(tally)}`);
+        }
       }
-    }
-    expect(talkProgramme(1, 600)).not.toEqual(talkProgramme(2, 600));
-  });
+      expect(talkProgramme(1, 600, format)).not.toEqual(talkProgramme(2, 600, format));
+    });
+
+    it(`${st.name}: plays every piece of a slot and every ad before any comes round again, never the same twice running`, () => {
+      const segs = talkProgramme(3, 3 * 3600, format);
+      const shows = segs.filter((s) => s.kind === 'host');
+      for (const kinds of new Set(format.slots.map((k) => k.join()))) {
+        // The slots of these kinds share their pieces.
+        const slots = format.slots.flatMap((k, i) => (k.join() === kinds ? [i] : []));
+        const pieces = slotPieces(slots[0]!);
+        const played = shows.filter((_, n) => slots.includes(n % format.slots.length)).map((s) => s.clip);
+        expect(new Set(played.slice(0, pieces.length)).size, kinds).toBe(pieces.length);
+        for (let i = 1; i < played.length; i++) expect(played[i]).not.toBe(played[i - 1]);
+      }
+      for (let i = 1; i < shows.length; i++) expect(shows[i]!.clip).not.toBe(shows[i - 1]!.clip);
+      // A campaign is one ad among the others, whichever part of it airs.
+      const campaign = new Map(Object.entries(SPEECH.adSeries).flatMap(([first, parts]) => parts.map((p) => [p, first] as const)));
+      const ads = segs.filter((s) => s.kind === 'ad').map((s) => campaign.get(s.clip) ?? s.clip);
+      expect(new Set(ads.slice(0, pools().ad.length)).size).toBe(pools().ad.length);
+    });
+  }
 
   it('finds the segment on air at any time, extending the schedule as needed', () => {
     const p = new TalkProgramme(5);
@@ -244,13 +272,140 @@ describe('talk station', () => {
     }
   });
 
-  it('plays every piece of the show before any comes round again, never the same twice running', () => {
-    const show = [...SPEECH.talk.host, ...SPEECH.talk.call, ...SPEECH.talk.news];
-    const played = talkProgramme(3, 3 * 3600).filter((s) => s.kind === 'host').map((s) => s.clip);
-    expect(new Set(played.slice(0, show.length)).size).toBe(show.length);
-    for (let i = 1; i < played.length; i++) expect(played[i]).not.toBe(played[i - 1]);
-    const ads = talkProgramme(3, 3 * 3600).filter((s) => s.kind === 'ad').map((s) => s.clip);
-    expect(new Set(ads.slice(0, SPEECH.talk.ad.length)).size).toBe(SPEECH.talk.ad.length);
+  it('splices a desk and a gap in after a gap, moving the rest of the schedule back without changing it', () => {
+    const p = new TalkProgramme(9);
+    const plain = new TalkProgramme(9);
+    p.at(600);
+    const i = p.segments.findIndex((s, k) => k > 6 && s.kind === 'gap');
+    const clips = SPEECH.talk.azura.news.slice(0, 2);
+    const desk = p.splice(i, clips);
+    expect(desk).toMatchObject({ kind: 'desk', clip: '', clips, start: p.segments[i]!.start + p.segments[i]!.dur });
+    expect(desk.dur).toBeCloseTo(DESK_LEAD + SPEECH.clips[clips[0]!]! + DESK_PAUSE + SPEECH.clips[clips[1]!]! + DESK_TAIL, 9);
+    expect(deskLength(clips)).toBe(desk.dur);
+    expect(p.segments[i + 1]).toBe(desk);
+    expect(p.segments[i + 2]).toMatchObject({ kind: 'gap', clip: '', dur: GAP_LEN[0] });
+    for (const t of [desk.start, desk.start + 1, desk.start + desk.dur - 0.01]) expect(p.at(t)).toBe(desk);
+    // The schedule grows on past the splice as it would have without it, moved back by the desk and its gap.
+    const segs = p.until(1800);
+    const shift = desk.dur + GAP_LEN[0];
+    plain.at(1800);
+    for (let k = 0; k < plain.segments.length && k + 2 < segs.length; k++) {
+      const a = plain.segments[k]!;
+      const b = segs[k > i ? k + 2 : k]!;
+      expect({ ...b, start: 0 }).toEqual({ ...a, start: 0 });
+      expect(b.start).toBeCloseTo(a.start + (k > i ? shift : 0), 9);
+    }
+    for (let k = 1; k < segs.length; k++) {
+      expect(segs[k]!.start).toBeCloseTo(segs[k - 1]!.start + segs[k - 1]!.dur, 9);
+      expect(segs[k]!.kind === 'gap' && segs[k - 1]!.kind === 'gap').toBe(false);
+      if (segs[k]!.kind !== 'gap') expect(segs[k - 1]!.kind).toBe('gap');
+    }
+  });
+
+  it('holds no more decoded speech than the segment on air and the next one', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) }));
+    const ctx = new FContext();
+    const noise = ctx.createBuffer(1, 16000) as AudioBuffer;
+    const show = new TalkShow(ctx as unknown as BaseAudioContext, ctx.createGain() as unknown as AudioNode, noise);
+    const held = () => (show as unknown as { bank: { buffers: Map<string, unknown> } }).bank.buffers.size;
+    const p = new TalkProgramme(11);
+    const items = p.until(900).filter((s) => s.kind !== 'gap');
+    const most: number[] = [];
+    for (let n = 0; n < 10; n++) {
+      ctx.currentTime = items[n]!.start;
+      show.update(items[n]!, items[n]!.start, AZURA_FORMAT);
+      show.preload(items[n + 1]!);
+      await new Promise((r) => setTimeout(r, 0));
+      most.push(held());
+    }
+    console.log(`[talk] decoded clips held after each of 10 segments: ${most.join(' ')}`);
+    expect(Math.max(...most)).toBeLessThanOrEqual(3);
+    expect(most.at(-1)).toBeGreaterThan(0);
+  });
+
+  it('reads a desk: a three-bell sting, then its clips one after another from DESK_LEAD, over the bed', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) }));
+    const ctx = new FContext();
+    const voices: number[] = [];
+    const source = ctx.createBufferSource.bind(ctx);
+    ctx.createBufferSource = () => {
+      const n = source();
+      const start = n.start.bind(n);
+      n.start = (t = 0, offset = 0) => {
+        voices.push(t);
+        start(t, offset);
+      };
+      return n;
+    };
+    const show = new TalkShow(ctx as unknown as BaseAudioContext, ctx.createGain() as unknown as AudioNode, ctx.createBuffer(1, 16000) as AudioBuffer);
+    const p = new TalkProgramme(4);
+    p.at(300);
+    const clips = SPEECH.talk.azura.news.slice(0, 3);
+    const desk = p.splice(p.segments.findIndex((s) => s.kind === 'gap'), clips);
+    const t0 = ctx.currentTime;
+    show.update(desk, t0, AZURA_FORMAT);
+    await new Promise((r) => setTimeout(r, 0));
+    const len = (i: number) => SPEECH.clips[clips[i]!]!;
+    const at = [t0 + DESK_LEAD, t0 + DESK_LEAD + len(0) + DESK_PAUSE, t0 + DESK_LEAD + len(0) + len(1) + 2 * DESK_PAUSE];
+    expect(voices.length).toBe(3);
+    voices.forEach((t, i) => expect(t).toBeCloseTo(at[i]!, 9));
+    // Three bells of two partials each, and the pad's three voices.
+    expect(ctx.nodes.filter((n) => n.kind === 'oscillator' && n.started).length).toBe(3 * 2 + 3);
+    expect(show.segment).toBe(desk);
+  });
+
+  it("airs an ad campaign one part a break, in order, on every station that carries it: Morty Fenwick's four", () => {
+    expect(SPEECH.adSeries['talk-ad-lawyer']).toHaveLength(4);
+    for (const st of STATIONS.filter((s) => s.talk)) {
+      const campaigns = Object.entries(SPEECH.adSeries).filter(([first]) => SPEECH.talk[st.talk!.show].ad.includes(first));
+      expect(campaigns.length, st.name).toBeGreaterThan(0);
+      for (const [, parts] of campaigns) {
+        const aired = talkProgramme(5, 3 * 3600, st.talk).filter((s) => s.kind === 'ad' && parts.includes(s.clip)).map((s) => s.clip);
+        expect(aired.length, st.name).toBeGreaterThan(parts.length);
+        aired.forEach((clip, n) => expect(clip, `${st.name} airing ${n}`).toBe(parts[n % parts.length]));
+      }
+    }
+  });
+
+  it('renders only the tuned talk station: off the air the programmes run on their clock and start nothing; THE BOWL comes through the AM band', () => {
+    const sim = makeSim({ police: false });
+    const rp = roadPoint(sim);
+    const v = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
+    placeInCar(sim, v);
+    const { audio, frames } = rig(sim);
+    const radio = audio.radio as unknown as { hiss: FNode | null; talkOut: FNode };
+    frames(30);
+    expect(audio.radio.stationName).toBe(STATIONS[0]!.name);
+    // With no talk station tuned the tools act on AZURA TALK's programme, which plays on unheard.
+    expect(audio.radio.cueTalk('host')).not.toBeNull();
+    frames(60);
+    expect(audio.radio.talkInfo().segment?.kind).toBe('host');
+    expect(audio.radio.talkInfo().rendering).toBeNull();
+    expect(audio.nodes.started.talk ?? 0).toBe(0);
+    while (audio.radio.stationName !== 'THE BOWL 1090 AM') audio.radio.next();
+    audio.radio.cueTalk('host');
+    frames(30);
+    const prog = audio.radio.talkProgramme!;
+    expect(prog.format).toBe(BOWL_FORMAT);
+    expect(prog.segments).toContain(audio.radio.talkInfo().rendering);
+    expect(audio.nodes.started.talk).toBeGreaterThan(0);
+    // The show's output runs through two 150 Hz high-passes and two 4.5 kHz low-passes, and a hiss loops under it.
+    const band: string[] = [];
+    for (let n = radio.talkOut.outputs[0] as FNode; n.kind === 'biquad'; n = n.outputs[0] as FNode) {
+      const f = n as unknown as { type: string; frequency: FParam };
+      band.push(`${f.type} ${f.frequency.value}`);
+    }
+    expect(band).toEqual(['highpass 150', 'highpass 150', 'lowpass 4500', 'lowpass 4500']);
+    const hiss = radio.hiss!;
+    expect(hiss.started && (hiss as unknown as { loop: boolean }).loop).toBe(true);
+    // Back on AZURA TALK the show is straight into the radio's output and the hiss has stopped.
+    audio.radio.prev();
+    frames(10);
+    expect(audio.radio.stationName).toBe('AZURA TALK 104.5');
+    expect(audio.radio.talkProgramme!.format).toBe(AZURA_FORMAT);
+    expect((radio.talkOut.outputs[0] as FNode).kind).toBe('gain');
+    expect(hiss.stopAt).toBeLessThanOrEqual(FContext.last!.currentTime);
+    expect(radio.hiss).toBeNull();
   });
 
   it('plays through the music bus with the same mix as the music stations; pause, RADIO OFF and leaving the car stop it', () => {
@@ -280,9 +435,9 @@ describe('talk station', () => {
     audio.setPaused(false);
     frames(10);
     expect(audio.radio.talkInfo().rendering).not.toBeNull();
-    audio.radio.next();
+    // RADIO OFF is the stop after the last talk station.
+    while (audio.radio.next() !== 'RADIO OFF');
     frames(5);
-    expect(audio.radio.stationName).toBe('RADIO OFF');
     expect(audio.radio.playing).toBe(false);
     expect(audio.radio.talkInfo().rendering).toBeNull();
     audio.radio.prev();

@@ -5,6 +5,8 @@
 import index from '../assets/speech/speech.json';
 
 export type TalkKind = 'host' | 'call' | 'news' | 'ad' | 'ident';
+/** The talk shows: AZURA TALK's and THE BOWL's. */
+export type ShowId = 'azura' | 'bowl';
 export type BarkKind = 'greet' | 'hurt' | 'jacked' | 'panic' | 'rammed' | 'witness' | 'freeze' | 'shots' | 'officerDown' | 'pullOver' | 'arrest' | 'turf' | 'hail' | 'hailMissed' | 'cabbie';
 
 export interface SpeechIndex {
@@ -14,8 +16,10 @@ export interface SpeechIndex {
   dialogue: Record<string, string>;
   /** The clip of a police dispatch phrase, by its words (see phraseWords) joined with single spaces. */
   dispatch: Record<string, string>;
-  /** The talk station's pieces of each kind. */
-  talk: Record<TalkKind, string[]>;
+  /** Each talk show's pieces of each kind. A campaign is in the ad pools as its first part. */
+  talk: Record<ShowId, Record<TalkKind, string[]>>;
+  /** An ad campaign's parts in order, by its first part. */
+  adSeries: Record<string, string[]>;
   /** Shouts of each kind: one list of clips per voice. */
   barks: Record<BarkKind, string[][]>;
   /** Spoken idents of the music stations, by station name. */

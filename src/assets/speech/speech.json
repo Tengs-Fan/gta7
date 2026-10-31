@@ -224,6 +224,9 @@
   "talk-ad-nightjar": 16.925,
   "talk-ad-guns": 15.294,
   "talk-ad-lawyer": 13.117,
+  "talk-ad-morty-car": 22.678,
+  "talk-ad-morty-payphone": 18.52,
+  "talk-ad-morty-cell": 20.17,
   "talk-ad-torque": 10.449,
   "talk-ad-insurance": 9.289,
   "talk-ad-hospital": 13.337,
@@ -232,11 +235,45 @@
   "talk-ad-pier": 7.752,
   "talk-ad-hillcrest": 12.745,
   "talk-ad-thunderhoof": 8.235,
+  "talk-ad-pipsqueak-deal": 14.17,
+  "talk-ad-unclench": 16.12,
+  "talk-ad-scratch": 16.186,
+  "talk-ad-torque-chet": 17.79,
+  "talk-ad-mutual-claim": 17.445,
+  "talk-ad-tornado-window": 18.935,
+  "talk-ad-cab-jobs": 15.168,
+  "talk-ad-paramedic-jobs": 16.427,
+  "talk-ad-courier-jobs": 15.153,
   "talk-ident-cheap": 3.855,
   "talk-ident-voice": 4.708,
   "talk-ident-facts": 2.936,
   "talk-ident-road": 4.154,
   "talk-ident-works": 4.464,
+  "talk-bowl-host-kicker": 23.875,
+  "talk-bowl-host-ducks": 25.578,
+  "talk-bowl-host-streak": 23.43,
+  "talk-bowl-host-pettibone": 24.259,
+  "talk-bowl-host-mascot": 26.476,
+  "talk-bowl-host-coach": 24.349,
+  "talk-bowl-call-sal-coach": 20.438,
+  "talk-bowl-call-sal-seat": 23.581,
+  "talk-bowl-call-sal-ducks": 23.634,
+  "talk-bowl-call-velora": 20.107,
+  "talk-bowl-call-tacos": 20.405,
+  "talk-bowl-call-gary": 20.659,
+  "talk-bowl-call-paint": 17.506,
+  "talk-bowl-news-injuries": 16.467,
+  "talk-bowl-news-squawk": 19.291,
+  "talk-bowl-news-scores": 21.74,
+  "talk-bowl-news-presser": 25.538,
+  "talk-bowl-ad-tickets": 18.563,
+  "talk-bowl-ad-thunderhoof": 15.656,
+  "talk-bowl-ad-guns": 19.358,
+  "talk-bowl-ident-hope": 2.806,
+  "talk-bowl-ident-wins": 3.807,
+  "talk-bowl-ident-ron": 4.417,
+  "talk-bowl-ident-sal": 5.556,
+  "talk-bowl-ident-pembury": 5.119,
   "ident-neon-drive-88-7-0": 4.489,
   "ident-neon-drive-88-7-1": 3.246,
   "ident-neon-drive-88-7-2": 3.161,
@@ -875,54 +912,112 @@
   "suspect spotted heading northwest through": "dsp-suspect-spotted-heading-northwest-through"
  },
  "talk": {
-  "host": [
-   "talk-host-lights",
-   "talk-host-wheel",
-   "talk-host-steps",
-   "talk-host-gulls",
-   "talk-host-rent",
-   "talk-host-potholes",
-   "talk-host-chopper",
-   "talk-host-cab",
-   "talk-host-docks"
-  ],
-  "call": [
-   "talk-call-lighthouse",
-   "talk-call-pickup",
-   "talk-call-tacos",
-   "talk-call-cat",
-   "talk-call-velora",
-   "talk-call-houseboat",
-   "talk-call-kid"
-  ],
-  "news": [
-   "talk-news-ducks",
-   "talk-news-thefts",
-   "talk-news-weather",
-   "talk-news-sports",
-   "talk-traffic-pigeon",
-   "talk-traffic-hill"
-  ],
-  "ad": [
-   "talk-ad-pipsqueak",
-   "talk-ad-nightjar",
-   "talk-ad-guns",
+  "azura": {
+   "host": [
+    "talk-host-lights",
+    "talk-host-wheel",
+    "talk-host-steps",
+    "talk-host-gulls",
+    "talk-host-rent",
+    "talk-host-potholes",
+    "talk-host-chopper",
+    "talk-host-cab",
+    "talk-host-docks"
+   ],
+   "call": [
+    "talk-call-lighthouse",
+    "talk-call-pickup",
+    "talk-call-tacos",
+    "talk-call-cat",
+    "talk-call-velora",
+    "talk-call-houseboat",
+    "talk-call-kid"
+   ],
+   "news": [
+    "talk-news-ducks",
+    "talk-news-thefts",
+    "talk-news-weather",
+    "talk-news-sports",
+    "talk-traffic-pigeon",
+    "talk-traffic-hill"
+   ],
+   "ad": [
+    "talk-ad-pipsqueak",
+    "talk-ad-nightjar",
+    "talk-ad-guns",
+    "talk-ad-lawyer",
+    "talk-ad-torque",
+    "talk-ad-insurance",
+    "talk-ad-hospital",
+    "talk-ad-spray",
+    "talk-ad-tacos",
+    "talk-ad-pier",
+    "talk-ad-hillcrest",
+    "talk-ad-thunderhoof",
+    "talk-ad-pipsqueak-deal",
+    "talk-ad-unclench",
+    "talk-ad-scratch",
+    "talk-ad-torque-chet",
+    "talk-ad-mutual-claim",
+    "talk-ad-tornado-window",
+    "talk-ad-cab-jobs",
+    "talk-ad-paramedic-jobs",
+    "talk-ad-courier-jobs"
+   ],
+   "ident": [
+    "talk-ident-cheap",
+    "talk-ident-voice",
+    "talk-ident-facts",
+    "talk-ident-road",
+    "talk-ident-works"
+   ]
+  },
+  "bowl": {
+   "host": [
+    "talk-bowl-host-kicker",
+    "talk-bowl-host-ducks",
+    "talk-bowl-host-streak",
+    "talk-bowl-host-pettibone",
+    "talk-bowl-host-mascot",
+    "talk-bowl-host-coach"
+   ],
+   "call": [
+    "talk-bowl-call-sal-coach",
+    "talk-bowl-call-sal-seat",
+    "talk-bowl-call-sal-ducks",
+    "talk-bowl-call-velora",
+    "talk-bowl-call-tacos",
+    "talk-bowl-call-gary",
+    "talk-bowl-call-paint"
+   ],
+   "news": [
+    "talk-bowl-news-injuries",
+    "talk-bowl-news-squawk",
+    "talk-bowl-news-scores",
+    "talk-bowl-news-presser"
+   ],
+   "ad": [
+    "talk-ad-lawyer",
+    "talk-ad-torque",
+    "talk-bowl-ad-tickets",
+    "talk-bowl-ad-thunderhoof",
+    "talk-bowl-ad-guns"
+   ],
+   "ident": [
+    "talk-bowl-ident-hope",
+    "talk-bowl-ident-wins",
+    "talk-bowl-ident-ron",
+    "talk-bowl-ident-sal",
+    "talk-bowl-ident-pembury"
+   ]
+  }
+ },
+ "adSeries": {
+  "talk-ad-lawyer": [
    "talk-ad-lawyer",
-   "talk-ad-torque",
-   "talk-ad-insurance",
-   "talk-ad-hospital",
-   "talk-ad-spray",
-   "talk-ad-tacos",
-   "talk-ad-pier",
-   "talk-ad-hillcrest",
-   "talk-ad-thunderhoof"
-  ],
-  "ident": [
-   "talk-ident-cheap",
-   "talk-ident-voice",
-   "talk-ident-facts",
-   "talk-ident-road",
-   "talk-ident-works"
+   "talk-ad-morty-car",
+   "talk-ad-morty-payphone",
+   "talk-ad-morty-cell"
   ]
  },
  "barks": {

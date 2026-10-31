@@ -444,8 +444,7 @@ test.describe('GTA 7 devices', () => {
     });
     await page.keyboard.down('KeyW');
     await page.waitForTimeout(1500);
-    // Step through the stations: from the first, four presses visit the other two music stations and the talk
-    // station and end on RADIO OFF (the fifth stop).
+    // Step through the stations: from the first, four presses visit the next four music stations.
     for (let i = 0; i < 4; i++) {
       await page.keyboard.press('KeyR');
       await page.waitForTimeout(700);

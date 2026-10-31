@@ -31,6 +31,11 @@ export class SpeechBank {
     return this.buffers.get(id);
   }
 
+  /** Drops a decoded clip: a long clip heard once is fetched again (from the HTTP cache) if it plays again. */
+  forget(id: string): void {
+    this.buffers.delete(id);
+  }
+
   /** The clip, decoded. A clip that fails to load (the network) is forgotten, so the next request tries again. */
   load(id: string): Promise<AudioBuffer> {
     const ready = this.buffers.get(id);

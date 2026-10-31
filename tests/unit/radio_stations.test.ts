@@ -37,11 +37,22 @@ function voicesPerBar(style: Style, seed: number, k: number): number[] {
 const MUSIC = STATIONS.filter((s) => s.style);
 
 describe('radio stations', () => {
-  it('run up the dial in frequency order, the talk station last, with short tag lines and voiced idents', () => {
-    const freqs = STATIONS.map((s) => Number(s.name.split(' ').at(-1)));
-    for (let i = 1; i < freqs.length; i++) expect(freqs[i]!, STATIONS[i]!.name).toBeGreaterThan(freqs[i - 1]!);
+  it('run up the dial in frequency order, FM before AM, the talk stations last, with short tag lines and voiced idents', () => {
+    const dial = STATIONS.map((s) => {
+      const [, f, am] = /(\d+(?:\.\d+)?)( AM)?$/.exec(s.name)!;
+      return { am: !!am, f: Number(f) };
+    });
+    for (let i = 1; i < dial.length; i++) {
+      const [a, b] = [dial[i - 1]!, dial[i]!];
+      expect(a.am && !b.am, STATIONS[i]!.name).toBe(false);
+      if (a.am === b.am) expect(b.f, STATIONS[i]!.name).toBeGreaterThan(a.f);
+    }
     expect(new Set(STATIONS.map((s) => s.name)).size).toBe(STATIONS.length);
-    expect(STATIONS.at(-1)!.genre).toBe('talk');
+    const talk = STATIONS.findIndex((s) => s.talk);
+    expect(talk).toBeGreaterThan(0);
+    for (const s of STATIONS.slice(talk)) expect(s.talk, s.name).toBeDefined();
+    // A station on the AM band sounds like one.
+    STATIONS.forEach((s, i) => expect(!!s.talk?.am, s.name).toBe(dial[i]!.am));
     expect(MUSIC.length).toBe(9);
     for (const s of STATIONS) expect(s.tag.length, s.name).toBeLessThanOrEqual(25);
     for (const s of MUSIC) expect(SPEECH.idents[s.name]?.length, s.name).toBeGreaterThan(0);
