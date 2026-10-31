@@ -296,7 +296,8 @@ describe('Las Lomas County: the Magnolia Causeway, the Southgate Bridge and thei
 
   it('builds the county\'s colliders after every older one: the bridge\'s parapets and its props', () => {
     const first = L.country.firstProp;
-    const ids = L.props.slice(first).map((_p, k) => W.propColliders[first + k]!);
+    // Those with one: the landscape's scrub has none (country_hills.test.ts).
+    const ids = L.props.slice(first).map((_p, k) => W.propColliders[first + k]!).filter((id) => id >= 0);
     expect(Math.min(...ids)).toBeGreaterThan(4574);
     const parapets = W.grid.colliders.filter((c) => c.tag === 'wall' && rectContains(BRIDGE, c.cx, c.cz));
     expect(parapets.length).toBe(2);
