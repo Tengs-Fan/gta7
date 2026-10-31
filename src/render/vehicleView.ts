@@ -1888,6 +1888,7 @@ export class VehicleView {
       for (let i = 0; i < this.wheels.length; i++) this.wheels[i]!.pivot.visible = shown[i] === 1;
       for (const b of this.boxParts) b.visible = true;
       for (const b of this.lensParts) b.visible = true;
+      if (this.star) this.star.visible = this.sheriff;
     }
   }
 
