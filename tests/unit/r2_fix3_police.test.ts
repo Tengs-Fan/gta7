@@ -756,7 +756,8 @@ describe('ledges: the side of the pier, and long noses', () => {
         if (impacts > 0 || v.pos.x < b.beachStartX + 10 || Math.abs(v.pos.y - 0.45) > 0.01) bad.push(`${kind} onto the ${name}: x ${v.pos.x.toFixed(1)}, y ${v.pos.y.toFixed(2)}, ${impacts} impacts`);
       }
     }
-    for (const r of W.layout.ramps) {
+    // The stunt ramps: Gravel Gulch's whoops and tabletops are a dirt track's, not a launch's.
+    for (const r of W.layout.ramps.filter((q) => q.stunt)) {
       for (const kind of ['bus', 'swat', 'compact'] as const) {
         let air = 0;
         let from = -1;

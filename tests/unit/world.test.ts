@@ -25,8 +25,8 @@ describe('city layout', () => {
     expect(L.props.length).toBeGreaterThan(800);
     expect(L.parking.length).toBeGreaterThan(40);
     expect(L.openSpots.length).toBeGreaterThan(40);
-    // Five round the coast and Hollister Farm's hay-bale kicker.
-    expect(L.ramps.length).toBe(6);
+    // Five round the coast and Hollister Farm's hay-bale kicker (Gravel Gulch's whoops and tabletops are no stunt ramps).
+    expect(L.ramps.filter((r) => r.stunt).length).toBe(6);
   });
 
   it('keeps every building inside a block lot', () => {

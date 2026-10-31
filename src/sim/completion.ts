@@ -106,7 +106,7 @@ registerCompletion({
   id: 'stunts',
   group: 'collectibles',
   weight: 0.15,
-  rows: (view, me) => [{ id: 'stunts', group: 'collectibles', label: 'Unique stunt jumps', done: me.progress.stunts.length, total: view.world.layout.ramps.length }],
+  rows: (view, me) => [{ id: 'stunts', group: 'collectibles', label: 'Unique stunt jumps', done: me.progress.stunts.length, total: view.world.layout.ramps.filter((r) => r.stunt).length }],
 });
 
 registerCompletion({

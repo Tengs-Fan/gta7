@@ -219,7 +219,7 @@ function buildFarm(layout: CityLayout, block: Block, rng: Rng): Attraction {
   const silo = { x: lane.maxX + FARM.silo.east, z: lot.maxZ - FARM.silo.south, r: FARM.silo.r, height: FARM.silo.h };
   const R = FARM.ramp;
   const ramp = layout.ramps.length;
-  layout.ramps.push({ id: ramp, x, z: lot.maxZ - R.south, heading: Math.PI, length: R.length, width: R.width, height: R.height });
+  layout.ramps.push({ id: ramp, x, z: lot.maxZ - R.south, heading: Math.PI, length: R.length, width: R.width, height: R.height, stunt: true });
 
   pushGround(layout, [lane, west, east], 'dirt');
   const yard = mkRect(lot.minX, mz1, lane.minX, lot.maxZ);

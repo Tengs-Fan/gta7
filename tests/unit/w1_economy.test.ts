@@ -479,14 +479,15 @@ describe('stats and completion registry', () => {
     applySave(sim.progress, save);
     const p = sim.progress;
     const done = sim.missions.defs.filter((d) => p.hasDone(d.id)).length;
-    const old = Math.round(((done / sim.missions.defs.length) * 0.5 + (p.packages.length / PACKAGE_COUNT) * 0.2 + (p.stunts.length / sim.world.layout.ramps.length) * 0.15 + (p.rampages.length / 3) * 0.15) * 100);
+    const stunts = sim.world.layout.ramps.filter((r) => r.stunt);
+    const old = Math.round(((done / sim.missions.defs.length) * 0.5 + (p.packages.length / PACKAGE_COUNT) * 0.2 + (p.stunts.length / stunts.length) * 0.15 + (p.rampages.length / 3) * 0.15) * 100);
     expect(completionPercent(sim, me)).toBe(old);
     // Everything done: 100%.
     for (const d of sim.missions.defs) p.markDone(d.id);
     p.packages.splice(0, p.packages.length, ...Array.from({ length: PACKAGE_COUNT }, (_v, i) => i));
-    p.stunts.splice(0, p.stunts.length, ...sim.world.layout.ramps.map((_r, i) => i));
+    p.stunts.splice(0, p.stunts.length, ...stunts.map((r) => r.id));
     p.rampages.splice(0, p.rampages.length, 'rampage:0', 'rampage:1', 'rampage:2');
-    Object.assign(activityRecords(p), { ambulanceLevel: 6, fireLevel: 5, courierRuns: 2, exportLists: 1, regattaBest: 125_000 });
+    Object.assign(activityRecords(p), { ambulanceLevel: 6, fireLevel: 5, courierRuns: 2, exportLists: 1, regattaBest: 125_000, scrambleBest: 130_000 });
     propertyState(p).garage = true;
     propertyState(p).business = true;
     farmState(p).smashed = new Set(Array.from({ length: PUMPKIN_COUNT }, (_v, i) => i));

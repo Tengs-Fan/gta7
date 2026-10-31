@@ -498,8 +498,8 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
   it('pilings: the shader\'s lattice is the drawn one, and every piling has foam on all four sides within 0.5 m', () => {
     const W = world();
     const r = renderer('high');
-    // The canal's bridges are slabs, not piers on pilings (docs/map.md).
-    const decks = W.layout.decks.filter((d) => !d.bridge);
+    // The canal's bridges are slabs, not piers on pilings (docs/map.md), and Gravel Gulch's tabletops are dirt.
+    const decks = W.layout.decks.filter((d) => !d.bridge && !d.dirt);
     expect(decks.length).toBeLessThanOrEqual(MAX_PILING_DECKS);
     decks.forEach((d, i) => expect(r.env.sea.uPilings.value[i]!.toArray()).toEqual([d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ]));
     // The pilings CityView draws.

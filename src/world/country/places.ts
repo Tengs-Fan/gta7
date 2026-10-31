@@ -1,5 +1,6 @@
 // Las Lomas County's places (docs/map.md, "Las Lomas: roads outside the grid"): Dry Creek, the crossroads town with the
-// county's one traffic light, and the Moonbeam Drive-In on the shore of Lomas Sound. Pure data, no rendering. buildPlaces is the last of the county's content passes and only
+// county's one traffic light, the Moonbeam Drive-In on the shore of Lomas Sound and the Gravel Gulch dirt track. Pure
+// data, no rendering. buildPlaces is the last of the county's content passes and only
 // appends: its stores are buildings of district 'country' (StaticWorld adds their colliders after every older one), then
 // props, POIs, footpaths and parking bays, and the solids StaticWorld adds after the county's props. It draws nothing
 // from the city's generator, and builds only in its own plots.
@@ -66,11 +67,40 @@ export interface DriveInAnchors {
   drive: Rect;
 }
 
+/** A turn of the dirt track: its centre, radius and the bearings (radians from +x towards +z) it runs between. */
+export interface TrackTurn {
+  cx: number;
+  cz: number;
+  r: number;
+  a0: number;
+  a1: number;
+}
+
+export interface TrackAnchors {
+  /** The track's centre line, a point at least every TRACK_STEP m round the lap from the start line and back to it. */
+  line: Array<{ x: number; z: number }>;
+  /** How far round the lap (m) each point of the line is. */
+  at: number[];
+  length: number;
+  width: number;
+  /** Where a lap's gates stand, the last of them the start line. */
+  gates: Array<{ x: number; z: number }>;
+  /** Where the scramble starts, just past the start line facing on round. */
+  start: { x: number; z: number; heading: number };
+  turns: TrackTurn[];
+  /** The whoops' and the tabletops' ramps (ids), and the tabletops' decks (in layout.decks). */
+  ramps: number[];
+  tables: Rect[];
+  /** The dirt drive in from the Lomas Highway. */
+  drive: Rect;
+}
+
 export interface CountyPlaces {
   /** The places' solids: StaticWorld adds them after the county's props. */
   solids: AttractionSolid[];
   town: TownAnchors;
   driveIn: DriveInAnchors;
+  track: TrackAnchors;
 }
 
 /** The places before buildPlaces lays them down. */
@@ -101,6 +131,7 @@ export function noPlaces(): CountyPlaces {
       marquee: { x: 0, z: 0, posts: [0, 0] },
       drive: mkRect(0, 0, 0, 0),
     },
+    track: { line: [], at: [], length: 0, width: 0, gates: [], start: { x: 0, z: 0, heading: 0 }, turns: [], ramps: [], tables: [], drive: mkRect(0, 0, 0, 0) },
   };
 }
 
@@ -362,9 +393,112 @@ function buildDriveIn(layout: CityLayout, places: CountyPlaces): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Gravel Gulch
+
 /**
- * The places, the last of the county's content passes (after the landscape and the farms): Dry Creek and the Moonbeam
- * Drive-In. Its own generator (hashInts(seed, 9101)) gives the stores their tints; nothing else is random.
+ * The dirt track south of the Lomas Highway's south leg: a lap of about 1.1 km from the start line on its north
+ * straight, clockwise round the outside with a hairpin loop up its middle, every turn of TRACK_R m. As a turtle from
+ * the start line heading east: [straight m] or [turn: degrees, positive to the left].
+ */
+const TRACK_START = { x: -1246, z: 310 };
+const TRACK_R = 24;
+const TRACK_WIDTH = 9;
+const TRACK_STEP = 2;
+const TRACK_LEGS: ReadonlyArray<number | readonly [number]> = [150, [-90], 168, [-90], 31, [-90], 116, [90], 8, [90], 116, [-90], 23, [-90], 168, [-90], 8];
+/** The gates round a lap. */
+const TRACK_GATES = 10;
+/**
+ * The east straight's six whoops (from WHOOPS m down it, a crest every WHOOP_PITCH m) and the west straight's two
+ * tabletops (each from its distance up it: a steep face to a lip over the table, the table, and the landing), all as
+ * wide as the track. The lip stands TABLE.lip m over the table, so a rider at speed leaves the ground there.
+ */
+const WHOOPS = { from: 28, count: 6, pitch: 9, half: 3.5, height: 0.8 };
+const TABLES = [40, 104];
+const TABLE = { face: 7, lip: 2.2, top: 12, height: 1.5, landing: 10 };
+
+function buildTrack(layout: CityLayout, places: CountyPlaces): void {
+  const t = places.track;
+  t.width = TRACK_WIDTH;
+  // Walk the centre line, a point every TRACK_STEP m along the straights and round the turns.
+  let { x, z } = TRACK_START;
+  let h = Math.PI / 2;
+  let s = 0;
+  const push = () => {
+    t.line.push({ x, z });
+    t.at.push(s);
+  };
+  push();
+  const straights: Array<{ x: number; z: number; h: number; s: number }> = [];
+  for (const leg of TRACK_LEGS) {
+    if (typeof leg === 'number') {
+      straights.push({ x, z, h, s });
+      const n = Math.max(1, Math.ceil(leg / TRACK_STEP));
+      const [x0, z0] = [x, z];
+      for (let k = 1; k <= n; k++) {
+        x = x0 + Math.sin(h) * ((leg * k) / n);
+        z = z0 + Math.cos(h) * ((leg * k) / n);
+        s += leg / n;
+        push();
+      }
+      continue;
+    }
+    const turn = (leg[0] * Math.PI) / 180;
+    const sign = Math.sign(turn);
+    // The turn's centre is TRACK_R to its inside (left of the heading (cos h, -sin h) for a left turn).
+    const cx = x + sign * TRACK_R * Math.cos(h);
+    const cz = z - sign * TRACK_R * Math.sin(h);
+    const h0 = h;
+    const n = Math.ceil((TRACK_R * Math.abs(turn)) / TRACK_STEP);
+    for (let k = 1; k <= n; k++) {
+      const hk = h0 + (turn * k) / n;
+      x = cx - sign * TRACK_R * Math.cos(hk);
+      z = cz + sign * TRACK_R * Math.sin(hk);
+      s += (TRACK_R * Math.abs(turn)) / n;
+      push();
+    }
+    h = h0 + turn;
+    t.turns.push({ cx, cz, r: TRACK_R, a0: Math.atan2(t.line[t.line.length - n - 1]!.z - cz, t.line[t.line.length - n - 1]!.x - cx), a1: Math.atan2(z - cz, x - cx) });
+  }
+  t.length = s;
+  // The lap's gates evenly round it, the last on the start line; the scramble starts just past it.
+  for (let k = 1; k <= TRACK_GATES; k++) {
+    const want = (t.length * k) / TRACK_GATES;
+    const i = t.at.findIndex((a) => a >= want - 1e-6);
+    t.gates.push(t.line[i]!);
+  }
+  t.start = { x: TRACK_START.x + 6, z: TRACK_START.z, heading: Math.PI / 2 };
+
+  // The whoops on the east straight (heading south), the tabletops on the west one (heading north): a ramp rising
+  // along the way to each crest or lip, and one rising back to it from beyond.
+  const ramp = (cx: number, cz: number, heading: number, length: number, height: number) => {
+    t.ramps.push(layout.ramps.length);
+    layout.ramps.push({ id: layout.ramps.length, x: cx, z: cz, heading, length, width: TRACK_WIDTH - 1, height, stunt: false });
+  };
+  const east = straights[1]!;
+  const west = straights[7]!;
+  for (let k = 0; k < WHOOPS.count; k++) {
+    const crest = east.z + WHOOPS.from + k * WHOOPS.pitch;
+    ramp(east.x, crest - WHOOPS.half / 2, 0, WHOOPS.half, WHOOPS.height);
+    ramp(east.x, crest + WHOOPS.half / 2, Math.PI, WHOOPS.half, WHOOPS.height);
+  }
+  for (const d of TABLES) {
+    const lip = west.z - d - TABLE.face;
+    const end = lip - TABLE.top;
+    ramp(west.x, lip + TABLE.face / 2, Math.PI, TABLE.face, TABLE.lip);
+    ramp(west.x, end - TABLE.landing / 2, 0, TABLE.landing, TABLE.height);
+    const top = mkRect(west.x - (TRACK_WIDTH - 1) / 2, end, west.x + (TRACK_WIDTH - 1) / 2, lip);
+    t.tables.push(top);
+    layout.decks.push({ rect: top, y: TABLE.height, name: 'Gravel Gulch', bridge: false, dirt: true });
+  }
+  // The drive in from the highway's south kerb (z 276) to the north straight.
+  t.drive = mkRect(-1206, 276, -1196, TRACK_START.z - TRACK_WIDTH / 2);
+}
+
+/**
+ * The places, the last of the county's content passes (after the landscape and the farms): Dry Creek, the Moonbeam
+ * Drive-In and Gravel Gulch. Its own generator (hashInts(seed, 9101)) gives the stores their tints; nothing else is
+ * random.
  */
 export function buildPlaces(layout: CityLayout): void {
   const rng = new Rng(hashInts(layout.seed, 9101));
@@ -372,4 +506,5 @@ export function buildPlaces(layout: CityLayout): void {
   layout.country.places = places;
   buildDryCreek(layout, rng, places);
   buildDriveIn(layout, places);
+  buildTrack(layout, places);
 }

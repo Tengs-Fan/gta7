@@ -16,6 +16,7 @@ import { buildDriveIn } from './driveIn';
 import { PlacesKit } from './kit';
 import { buildCountryRoads } from './roads';
 import { buildTown } from './town';
+import { buildTrack } from './track';
 
 export class CountryView {
   readonly group = new THREE.Group();
@@ -39,6 +40,7 @@ export class CountryView {
     const driveIn = buildDriveIn(this, kit);
     this.animated.push(driveIn.update);
     this.shush = driveIn.shush;
+    buildTrack(this, kit);
     kit.finish(this);
   }
 

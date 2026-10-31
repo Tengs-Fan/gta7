@@ -238,7 +238,7 @@ describe('completion checklist', () => {
     const old = (sim: ReturnType<typeof makeSim>) => {
       const q = sim.progress;
       const done = sim.missions.defs.filter((d) => q.hasDone(d.id)).length;
-      return Math.round(((done / sim.missions.defs.length) * 0.5 + (q.packages.length / PACKAGE_COUNT) * 0.2 + (q.stunts.length / sim.world.layout.ramps.length) * 0.15 + (q.rampages.length / 3) * 0.15) * 100);
+      return Math.round(((done / sim.missions.defs.length) * 0.5 + (q.packages.length / PACKAGE_COUNT) * 0.2 + (q.stunts.length / sim.world.layout.ramps.filter((r) => r.stunt).length) * 0.15 + (q.rampages.length / 3) * 0.15) * 100);
     };
     expect(completionPercent(played, played.players[0]!)).toBe(old(played));
     expect(completionPercent(fresh, fresh.players[0]!)).toBe(0);

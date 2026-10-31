@@ -264,8 +264,9 @@ describe('round 2 city: layout', () => {
     // all four stand together and the trees in front of the letters are bushes; and when Las Lomas County joined it
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
     // parapets, the four props moved out of the links' mouths, its signal heads and lamps); and when the county's places
-    // appended theirs (Dry Creek's stores, props, POIs, footpaths and bays, the Moonbeam Drive-In's posts and bays).
-    expect(layoutHash()).toBe('6137b9f823a58a97b37bdce49eff0d93e4268b3abca31dfb8c0018949961e61a');
+    // appended theirs (Dry Creek's stores, props, POIs, footpaths and bays, the Moonbeam Drive-In's posts and bays,
+    // Gravel Gulch's ramps and decks) and every ramp gained its stunt flag.
+    expect(layoutHash()).toBe('413d1bdd784541e6cf8f0335597b93f5b687467d09b930431abf701855149372');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

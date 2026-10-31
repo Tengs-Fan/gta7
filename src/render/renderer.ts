@@ -284,7 +284,7 @@ export class GameRenderer {
     // Without half-float targets there is no environment map (three's PMREM needs them).
     this.env = new Environment(this.scene, this.renderer, { hdr: this.hdr, software: this.software });
     this.env.setShore(world.layout.bounds);
-    setPilings(this.env.sea, world.layout.decks.filter((d) => !d.bridge));
+    setPilings(this.env.sea, world.layout.decks.filter((d) => !d.bridge && !d.dirt));
     setSeaCuts(this.env.sea, world.layout.water.map((w) => w.bounds));
     this.effects.foam.bindSea(this.env.sea);
     this.pool.bindSea(this.env.sea);

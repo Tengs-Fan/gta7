@@ -22,6 +22,7 @@ describe('activity sites on the map', () => {
       { what: 'courier office', x: at.courier.x, z: at.courier.z },
       { what: "Lou's export board", x: marker('export_board').x, z: marker('export_board').z },
       { what: 'Gull Regatta start', x: REGATTA_START.x, z: REGATTA_START.z },
+      { what: 'Gravel Gulch scramble start', ...sim.world.layout.country.places.track.start },
     ];
     const shown = collectBlips(sim, 0, 0, { map: true }).filter((b) => b.category === 'activities');
     const rows: string[] = [];

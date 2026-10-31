@@ -16,12 +16,14 @@ export interface ActivityRecords {
   exportLists: number;
   /** The Gull Regatta's best lap in whole milliseconds, 0 before the first finish. */
   regattaBest: number;
+  /** The Gravel Gulch scramble's best two laps in whole milliseconds, 0 before the first finish. */
+  scrambleBest: number;
 }
 
 export const ACTIVITY_RECORDS_KEY = 'activityRecords';
 
 export function emptyRecords(): ActivityRecords {
-  return { ambulanceLevel: 0, patientsSaved: 0, fireLevel: 0, firesOut: 0, courierRuns: 0, parcelsDelivered: 0, exportCars: 0, exportLists: 0, regattaBest: 0 };
+  return { ambulanceLevel: 0, patientsSaved: 0, fireLevel: 0, firesOut: 0, courierRuns: 0, parcelsDelivered: 0, exportCars: 0, exportLists: 0, regattaBest: 0, scrambleBest: 0 };
 }
 
 const records = new WeakMap<Progress, ActivityRecords>();
