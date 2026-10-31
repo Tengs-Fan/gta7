@@ -3,7 +3,7 @@
 // Pure data and queries, no rendering. buildHills is the first of the content passes at the end of buildCountry: it only
 // appends (the rises to country.rises, which countryGround alone reads, and props standing on that ground). Every rise is
 // 0 within 12 m of every road's edge, off every plot but the wild ones and at every verge walk node, so the roads, the
-// verges and the farms' and places' pads stay flat (docs/map.md, "Las Lomas: the landscape").
+// verges and the farms' and places' pads stay flat (docs/map.md, "Las Lomas: roads outside the grid", the landscape).
 
 import { Rng } from '../../core/rng';
 import { addProp, hashInts, mkRect, type CityLayout, type Rect } from '../layout';
