@@ -466,7 +466,9 @@ export class MissionCtx {
   laneSpotNear(minD: number, maxD: number): { lane: Lane; s: number } | null {
     const sim = this.sim;
     const pp = sim.playerPos();
-    const lanes = sim.roads.lanes.filter((l) => l.length >= 16 && pointSegDist(pp.x, pp.z, l.sx, l.sz, l.ex, l.ez) <= maxD);
+    // Off the city's land, Las Lomas County's lanes too: on it the grid's alone.
+    const pool = pp.x < sim.world.bounds.landMinX ? sim.roads.lanes : sim.roads.gridLanes;
+    const lanes = pool.filter((l) => l.length >= 16 && pointSegDist(pp.x, pp.z, l.sx, l.sz, l.ex, l.ez) <= maxD);
     if (lanes.length === 0) return null;
     for (let tries = 0; tries < 60; tries++) {
       const lane = sim.rng.pick(lanes);

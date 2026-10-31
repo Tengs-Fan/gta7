@@ -1,15 +1,16 @@
 // The AI on Las Lomas County's roads (world/country): a route car drives the loop at speed on its lanes, ambient
 // traffic streams and flows round the county for ten minutes without sticking or ending up in the water, the police
-// chase a car over the causeway with units placed on the county's lanes, a roadblock stands on the causeway, and the
-// GPS leads into the fields.
+// chase a car over the causeway with units placed on the county's lanes, a mission's chasers come from those lanes only
+// once the player is off the city's land, a roadblock stands on the causeway, and the GPS leads into the fields.
 
 import { describe, expect, it } from 'vitest';
 import type { Vehicle } from '../../src/sim/entities';
+import { MissionCtx } from '../../src/sim/missions/runner';
 import type { Sim } from '../../src/sim/sim';
 import { gpsRoute } from '../../src/ui/mapRender';
 import { CAUSEWAY } from '../../src/world/country';
 import { axisOf, type Lane } from '../../src/world/roads';
-import { input, makeSim, placeInCar, step } from './helpers';
+import { input, makeSim, placeInCar, step, teleport } from './helpers';
 import { chaseCamera, fleeBot, liveUnits } from './r2_police_helpers';
 
 /** The county lane leaving node `from` towards `to`, lane `index`. */
@@ -138,6 +139,28 @@ describe('Las Lomas County: driving AI', () => {
     expect(outer.length).toBeGreaterThan(0);
     for (const p of outer) expect(p.d).toBeLessThanOrEqual(215);
   }, 120_000);
+
+  it("draws a mission's chasers from the grid's lanes alone on the city's land, and from the county's too once off it", () => {
+    const sim = makeSim({ seed: 5, police: false, ambient: false });
+    const m = new MissionCtx(sim, { id: 'probe', title: '', giver: 'lou', reward: 0, requires: [], blurb: '', *run() {} });
+    const pools: Array<readonly Lane[]> = [];
+    const pick = sim.rng.pick.bind(sim.rng);
+    sim.rng.pick = ((items: readonly Lane[]) => {
+      pools.push(items);
+      return pick(items);
+    }) as typeof sim.rng.pick;
+    // On Magnolia Ave 10 m east of the gateway, the causeway's lanes 22 m off, at Vera's ram targets' 110-170 m.
+    const gate = sim.roads.node(0, 2);
+    teleport(sim, gate.x + 10, gate.z);
+    expect(m.laneSpotNear(110, 170)).not.toBeNull();
+    expect(pools.at(-1)!.length).toBeGreaterThan(0);
+    expect(pools.at(-1)!.filter((l) => l.line.index < 0)).toEqual([]);
+    // On the causeway: the county's lanes join the grid's.
+    teleport(sim, -600, -268);
+    expect(m.laneSpotNear(110, 170)).not.toBeNull();
+    expect(pools.at(-1)!.some((l) => l.line.index < 0)).toBe(true);
+    expect(pools.at(-1)!.some((l) => l.line.index >= 0)).toBe(true);
+  });
 
   it('stands a roadblock mid-causeway in front of a car heading west', () => {
     const sim = makeSim({ seed: 2, police: true, ambient: false, streetCrime: true });
