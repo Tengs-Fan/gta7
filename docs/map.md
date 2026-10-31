@@ -107,7 +107,8 @@ They came back where none of those assumptions reach: off the road grid, on grou
 Each flat-ground assumption is kept like this:
 
 - **The layout.** `settleTerrain` runs last in `generateCity`: it records the rises and stands every prop on them, drawing no random number and moving nothing across the ground, so the pickups and the mission spots stay where they were.
-  It drops no prop either, so every prop index an earlier pass recorded still names its prop, and the park keeps all 277 of its trees: the letters stand on a strip of the slope where no trunk is in their way.
+  It drops no prop either, so every prop index an earlier pass recorded still names its prop, and the letters stand on a strip of the slope where no trunk is in their way.
+  The 29 trees on the lawn in front of the letters stand there as bushes, scrub under the sign as on the hillside it parodies, so it reads from Coral St and Magnolia Ave.
 - **The ground.** `baseGround` adds the rises on the lawns and the headland, and the roads, sidewalks and buildings all stand where they are 0, so every lookup there returns what it always did.
   The ground renderer draws a patch over a rise as a grid on a 2 m lattice, its triangles within a centimetre of the sim's slope.
 - **Physics.** The slopes are smooth and never steeper than 21%, so a car follows them (ground follow tracks a drop of up to 0.4 m per 1/120 s step), never hits a ledge, and crosses the summit at 30 m/s without leaving the ground; the body's roll across the slope is drawn only.

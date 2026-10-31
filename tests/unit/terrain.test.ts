@@ -6,7 +6,7 @@ import { Sim } from '../../src/sim/sim';
 import { COP_SIGHT } from '../../src/sim/wanted';
 import { CURB_H, SWIM_DEPTH, WATER_Y } from '../../src/world/constants';
 import { headlandAt, mkRect, rectsOverlap, type Rect } from '../../src/world/layout';
-import { bluffRise, CORE_COVER, CORE_INSET, hillRise, hillSignLetters, lookoutRail, riseAt, riseBounds, terrainCores, type Rise } from '../../src/world/terrain';
+import { bluffRise, CORE_COVER, CORE_INSET, hillRise, hillSignLetters, lookoutRail, riseAt, riseBounds, signLawn, terrainCores, type Rise } from '../../src/world/terrain';
 import type { StaticWorld } from '../../src/world/staticWorld';
 import { freshWorld, input, placeInCar, world } from './helpers';
 
@@ -95,10 +95,14 @@ describe('the rises stay off everything that assumes flat ground', () => {
   });
 
   it('keeps the park and its open spots as they were: every tree and bush, the pickups in place', () => {
-    // settleTerrain drops no prop, so every prop index an earlier pass recorded still names its prop.
+    // settleTerrain drops no prop, so every prop index an earlier pass recorded still names its prop. Of the park's 277
+    // trees, the 29 on the lawn in front of the letters stand there as bushes (47 before), so the sign reads from the
+    // streets below, and no tree is left on that lawn.
     const inPark = L.props.filter((p) => p.x > park.lot.minX && p.x < park.lot.maxX && p.z > park.lot.minZ && p.z < park.lot.maxZ);
-    expect(inPark.filter((p) => p.kind === 'tree').length).toBe(277);
-    expect(inPark.filter((p) => p.kind === 'bush').length).toBe(47);
+    expect(inPark.filter((p) => p.kind === 'tree').length).toBe(277 - 29);
+    expect(inPark.filter((p) => p.kind === 'bush').length).toBe(47 + 29);
+    const lawn = signLawn(L);
+    expect(L.props.filter((p) => p.kind === 'tree' && p.x >= lawn.minX && p.x <= lawn.maxX && p.z >= lawn.minZ && p.z <= lawn.maxZ)).toEqual([]);
     expect(inPark.filter((p) => p.kind === 'bench').length).toBe(4);
     const spots = L.openSpots.filter((s) => s.x > park.lot.minX && s.x < park.lot.maxX && s.z > park.lot.minZ && s.z < park.lot.maxZ);
     expect(spots.map((s) => [s.x, s.z])).toEqual([[44, -458.5], [122, -458.5], [44, -364.5], [122, -364.5]]);

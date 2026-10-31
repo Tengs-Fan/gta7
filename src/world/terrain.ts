@@ -208,11 +208,29 @@ export function cityRises(layout: CityLayout): Rise[] {
 /**
  * Lays the rises into the layout and stands every prop on them, after everything else is placed: it draws no random
  * number, moves nothing across the ground and drops no prop, so pickups, mission spots and every prop index recorded
- * before it (an earlier pass's own props among them) stay as they were.
+ * before it (an earlier pass's own props among them) stay as they were. The trees on the lawn in front of the SAN AZURA
+ * letters grow only as scrub (bushes where they stand, as on the hillside the sign parodies), so the sign reads from
+ * Coral St and Magnolia Ave.
  */
 export function settleTerrain(layout: CityLayout): void {
   layout.rises = cityRises(layout);
-  for (const p of layout.props) p.y += riseAt(layout.rises, p.x, p.z);
+  const lawn = signLawn(layout);
+  for (const p of layout.props) {
+    if (p.kind === 'tree' && inRect(lawn, p.x, p.z)) p.kind = 'bush';
+    p.y += riseAt(layout.rises, p.x, p.z);
+  }
+}
+
+/** The lawn in front of the letters: from their face down to the park's south edge, across them and 3 m either side. */
+export function signLawn(layout: CityLayout): Rect {
+  const letters = hillSignLetters(layout.rises);
+  const park = layout.blocks.find((b) => b.zone === HILL.name)!;
+  return {
+    minX: Math.min(...letters.map((l) => l.box.minX)) - 3,
+    minZ: letters[0]!.box.maxZ,
+    maxX: Math.max(...letters.map((l) => l.box.maxX)) + 3,
+    maxZ: park.lot.maxZ,
+  };
 }
 
 function inRect(r: Rect, x: number, z: number): boolean {
@@ -329,8 +347,8 @@ export interface SignLetter {
 /**
  * The sign as laid out on the hill: its line of letters `dz` m south of the summit, each `w` wide, `gap` apart, the
  * words split either side of the old cross path running north-south up the slope (`path` m wide, kept clear) so it
- * still climbs to the fountain, and the last A slumped on its side. The park's trees all stay (settleTerrain drops no
- * prop), so the line runs where every trunk stands clear of the letters and the fence along their front.
+ * still climbs to the fountain, and the last A slumped on its side. Every prop of the park stays (settleTerrain drops
+ * none), so the line runs where every trunk stands clear of the letters and the fence along their front.
  */
 const SIGN = { words: ['SAN', 'AZURA'], dz: 43, w: 4.4, h: 7, d: 1, gap: 1.2, path: 6, sink: 1, slump: (25 * Math.PI) / 180, band: 1 } as const;
 
