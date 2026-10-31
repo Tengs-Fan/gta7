@@ -12,6 +12,7 @@ import { reflectorPosts } from '../../src/render/country/reflectors';
 import { LightSprites } from '../../src/render/lightSprites';
 import { Sim } from '../../src/sim/sim';
 import { COP_SIGHT } from '../../src/sim/wanted';
+import { WATER_Y } from '../../src/world/constants';
 import { COUNTRY_ROADS, COUNTY_PLOTS, countryGround, plotAt } from '../../src/world/country';
 import { countyCores, FIRE_ROAD, FIRE_ROAD_W, fireRoadLine, LOOKOUT, ridgeRise } from '../../src/world/country/hills';
 import { PARAPET_H, rectContains } from '../../src/world/layout';
@@ -209,17 +210,20 @@ describe('sight and shots across the ridge', () => {
   };
 
   it('every line of sight within police range that the ridge hides is blocked, and none that it leaves clear', () => {
-    // Officers on foot and the player anywhere across the ridge's middle, within COP_SIGHT: eyes 1.6 m and chest 1.2 m up.
+    // Officers on foot and the player anywhere across the ridge's middle, within COP_SIGHT: eyes 1.6 m and chest 1.2 m up,
+    // and out over the water the west flank runs down into, a swimmer's head WATER_Y + 0.4.
     const spots: Array<[number, number]> = [];
-    for (let x = -1556; x <= -1345; x += 9) for (let z = -330; z <= -230; z += 11) spots.push([x, z]);
+    for (let x = -1600; x <= -1345; x += 9) for (let z = -330; z <= -230; z += 11) spots.push([x, z]);
+    const up = (x: number, z: number, h: number) => (W.groundHeight(x, z) < WATER_Y ? WATER_Y + 0.4 : W.groundHeight(x, z) + h);
+    expect(spots.filter(([x, z]) => W.groundHeight(x, z) < WATER_Y).length).toBeGreaterThan(20);
     let hidden = 0;
     let open = 0;
     const wrong: string[] = [];
     for (const [ax, az] of spots) {
       for (const [bx, bz] of spots) {
         if ((ax === bx && az === bz) || Math.hypot(bx - ax, bz - az) > COP_SIGHT) continue;
-        const ay = W.groundHeight(ax, az) + 1.6;
-        const by = W.groundHeight(bx, bz) + 1.2;
+        const ay = up(ax, az, 1.6);
+        const by = up(bx, bz, 1.2);
         const c = clearance(ax, ay, az, bx, by, bz);
         const seen = W.lineOfSight(ax, ay, az, bx, by, bz);
         if (c < -0.02) {
@@ -263,6 +267,19 @@ describe('sight and shots across the ridge', () => {
       expect(clearance(sx, oy, -300, tx, ty, -300)).toBeGreaterThan(0.3);
       expect(sim.combat.castRay(sx, oy, -300, (tx - sx) / d, (ty - oy) / d, 0, 150, null).t, `from ${sx}`).toBeGreaterThan(d);
     }
+    // From the west beach at a swimmer's head off it, over the water the flank runs on into; and level along the water
+    // from out at sea towards the beach, on to the sand.
+    const bx = -1561;
+    const by = sim.world.groundHeight(bx, -282) + 1.4;
+    for (const tx of [-1582, -1591]) {
+      expect(sim.world.groundHeight(tx, -282)).toBeLessThan(WATER_Y);
+      const ty = WATER_Y + 0.4;
+      const d = Math.hypot(tx - bx, ty - by);
+      expect(clearance(bx, by, -282, tx, ty, -282)).toBeGreaterThan(0.3);
+      expect(sim.combat.castRay(bx, by, -282, (tx - bx) / d, (ty - by) / d, 0, 60, null).t, `at ${tx}`).toBeGreaterThan(d);
+    }
+    const sea = sim.combat.castRay(-1640, WATER_Y + 0.6, -282, 1, 0, 0, 100, null);
+    expect(sim.world.groundHeight(-1640 + sea.t, -282)).toBeCloseTo(WATER_Y + 0.6, 2);
   });
 });
 

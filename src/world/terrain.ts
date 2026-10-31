@@ -131,14 +131,17 @@ export function riseTop(rises: readonly Rise[], x0: number, z0: number, x1: numb
  */
 const RAY_STEP = 2;
 
+/** The ground the city's rises stand on: the curb's height. */
+const curb = () => CURB_H;
+
 /**
- * Where the ray o + t d first runs under a rise's ground (`base`, the curb's height in the city, over its height, where
- * that is above 0), for t from t0 to t1; -1 when it stays over them. Lines of sight and shots test the ground itself,
- * which no box buried in it can follow: each rise's land is sampled every RAY_STEP m along the ground (from the cliff
- * face, where the ray comes in through one), and the crossing taken between the last sample over the ground and the
- * first under it.
+ * Where the ray o + t d first runs under a rise's ground (its height over `floor`, the ground it stands on at (x, z):
+ * the curb's in the city, where that height is above 0), for t from t0 to t1; -1 when it stays over them. Lines of
+ * sight and shots test the ground itself, which no box buried in it can follow: each rise's land is sampled every
+ * RAY_STEP m along the ground (from the cliff face, where the ray comes in through one), and the crossing taken between
+ * the last sample over the ground and the first under it.
  */
-export function riseRay(rises: readonly Rise[], ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number, base = CURB_H): number {
+export function riseRay(rises: readonly Rise[], ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number, floor: (x: number, z: number) => number = curb): number {
   const run = Math.hypot(dx, dz);
   let end = t1;
   let hit = -1;
@@ -151,11 +154,11 @@ export function riseRay(rises: readonly Rise[], ox: number, oy: number, oz: numb
     const zb = oz + dz * end;
     if (Math.max(xa, xb) < b.minX || Math.min(xa, xb) > b.maxX || Math.max(za, zb) < b.minZ || Math.min(za, zb) > b.maxZ) continue;
     if (r.kind !== 'climb') {
-      const t = rayOver(r, b, ox, oy, oz, dx, dy, dz, t0, end, run, base);
+      const t = rayOver(r, b, ox, oy, oz, dx, dy, dz, t0, end, run, floor);
       if (t >= 0) end = hit = t;
     } else {
       for (const q of r.within) {
-        const t = rayOver(r, q, ox, oy, oz, dx, dy, dz, t0, end, run, base);
+        const t = rayOver(r, q, ox, oy, oz, dx, dy, dz, t0, end, run, floor);
         if (t >= 0) end = hit = t;
       }
     }
@@ -164,7 +167,7 @@ export function riseRay(rises: readonly Rise[], ox: number, oy: number, oz: numb
 }
 
 /** riseRay over one rectangle of a rise's land, the ray's part over it from t0 to t1 (`run` m along the ground per unit t). */
-function rayOver(r: Rise, q: Rect, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number, run: number, base: number): number {
+function rayOver(r: Rise, q: Rect, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number, run: number, floor: (x: number, z: number) => number): number {
   let a = t0;
   let b = t1;
   if (dx !== 0) {
@@ -185,8 +188,10 @@ function rayOver(r: Rise, q: Rect, ox: number, oy: number, oz: number, dx: numbe
   let pf = 0;
   for (let k = 0; k <= n; k++) {
     const t = a + ((b - a) * k) / n;
-    const h = r.kind === 'bell' ? bellAt(r, ox + dx * t, oz + dz * t) : r.kind === 'climb' ? climbOver(r, oz + dz * t) : ridgeAt(r, ox + dx * t, oz + dz * t);
-    const f = oy + dy * t - base - h;
+    const x = ox + dx * t;
+    const z = oz + dz * t;
+    const h = r.kind === 'bell' ? bellAt(r, x, z) : r.kind === 'climb' ? climbOver(r, z) : ridgeAt(r, x, z);
+    const f = oy + dy * t - floor(x, z) - h;
     if (h > 0 && f < 0) return k > 0 && pf > 0 ? pt + ((t - pt) * pf) / (pf - f) : t;
     pt = t;
     pf = f;

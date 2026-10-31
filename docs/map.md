@@ -222,9 +222,10 @@ The HUD and the scanner name the plot you are in, or Las Lomas County.
 - **Six wind turbines** stand on the crest's west half, 110 m apart and at least 40 m from Lookout Point, Turbine Row's kind and renderer on a foundation of their own: their towers stop cars, shots and sight from 1 m under the ground up past the nacelle.
   Two belts of trees line the ridge's east foot, and bushes (no collider) grow over the slopes.
 - **Sight and shots.** The county's rises live in `country.rises`, which only `countryGround` reads, so the city's `baseGround` still loops over its own two.
-  Lines of sight, shots and the camera's terrain test follow them as they do the city's (`riseRay` over the ground, with no curb under it), and their sight cores, twelve for the ridge, are appended after every older collider.
+  Lines of sight, shots and the camera's terrain test follow them as they do the city's (`riseRay` over the ground they stand on: the county's own, with no curb, and past the land's edge the beach the ridge's west flank runs out over), and their sight cores, twelve for the ridge, are appended after every older collider.
   The cores are kept inside the land, since the ridge's west flank runs on over the beach, where the ground is lower than the rise alone.
   Two people on the crest see each other; across the ridge at a man's height nothing is seen.
+  A swimmer off the west beach is seen from the sand, from a boat and from the air, and a shot reaches him.
 - **The fire road** is a 6 m gravel track, drawn only, from a turn-off on the west leg up the ridge's south shoulder in five axis-aligned switchbacks and along the crest's flat top to the car park at Lookout Point, 297 m and 17.1% at its steepest, on ground no steeper than 21%.
   It is not in the lane graph: traffic never takes it, and past 45 m off the road the police come up it on foot.
 - **Lookout Point** is a flat car park on the crest, 24 m up, facing the city 1.4 km off across the county and the sound, with a parapet along its east edge, a plaque (LOOKOUT POINT. ELEV. 24 M. THE CITY LOOKS BETTER FROM HERE. SO DOES EVERYTHING.), a coin telescope (VIEWS 25 CENTS. CITY SOLD SEPARATELY.) and a timber fire lookout on four posts.
@@ -289,4 +290,3 @@ A three-car monorail runs along Cortez Canal on a beam 9.6 m up, from Northshore
 - Pedestrians can spawn on the promenade's two crossings at the links' mouths, which keep their places among the walking edges.
 - A pursuit into Las Lomas County thins out: with no buildings to hide them, units are placed only out of sight, and on the long straights a fast car outruns them; its tuning is the county traffic round's.
 - The county's reflector posts are drawn only: a car passes through them.
-- On the 33 m of beach that Coyote Ridge's west flank runs out over, lines of sight and shots take the ground as the rise alone, up to about a metre over the sand at the land's edge, so a swimmer just off the west beach can be hidden a little sooner than he should.

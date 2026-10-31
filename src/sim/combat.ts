@@ -4,7 +4,7 @@ import { rayCapsule, rayCylinderY, rayObb3, type OBB } from '../core/collision';
 import { clamp, pointSegDist, wrapAngle, type V3 } from '../core/math';
 import { makeRayHit, type RayHit } from '../world/colliders';
 import { WATER_Y } from '../world/constants';
-import { riseAt, riseRay } from '../world/terrain';
+import { riseAt } from '../world/terrain';
 import { makeBrain } from './brains';
 import type { CharState, Character, Vehicle } from './entities';
 import { Projectile } from './entities';
@@ -857,10 +857,9 @@ export class CombatSystem {
     // The slopes of the rises (world/terrain.ts), the city's and Las Lomas County's, followed exactly.
     const rises = sim.world.layout.rises;
     const county = sim.world.layout.country.rises;
-    const tr = riseRay(rises, ox, oy, oz, dx, dy, dz, minT, res.t);
-    const tc = riseRay(county, ox, oy, oz, dx, dy, dz, minT, tr >= 0 ? tr : res.t, 0);
-    if (tr >= 0 || tc >= 0) {
-      res.t = tc >= 0 ? tc : tr;
+    const tr = sim.world.riseRay(ox, oy, oz, dx, dy, dz, minT, res.t);
+    if (tr >= 0) {
+      res.t = tr;
       res.kind = 'world';
       res.nx = 0;
       res.ny = 1;

@@ -5,7 +5,7 @@ import { circleVsAabb, makeContact } from '../core/collision';
 import { attractionOf } from './attractions';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
-import { BRIDGE_ARCH, COUNTY_NAME, countryGround, plotAt } from './country';
+import { BRIDGE_ARCH, COUNTY_NAME, countryFloor, countryGround, plotAt } from './country';
 import { countyCores, LOOKOUT } from './country/hills';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { PLATFORM_SLAB, TOWER_H } from './monorail';
@@ -55,6 +55,8 @@ export class StaticWorld {
   /** Decks and ramps by grid cell, for groundHeight. */
   private readonly surfaces: SurfaceGrid;
   readonly scratchHit = makeRayHit();
+  /** The ground Las Lomas County's rises stand on (countryFloor), for riseRay. */
+  private readonly countyFloor = (x: number, z: number) => countryFloor(this.layout.country, x, z);
 
   constructor(seed: number = CITY_SEED) {
     this.layout = generateCity(seed);
@@ -383,8 +385,17 @@ export class StaticWorld {
    * Lomas County's, comes between them.
    */
   lineOfSight(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
-    const rises = this.layout.country.rises;
-    return this.grid.lineOfSight(ax, ay, az, bx, by, bz, this.scratchHit) && riseRay(this.layout.rises, ax, ay, az, bx - ax, by - ay, bz - az, 0, 1) < 0 && riseRay(rises, ax, ay, az, bx - ax, by - ay, bz - az, 0, 1, 0) < 0;
+    return this.grid.lineOfSight(ax, ay, az, bx, by, bz, this.scratchHit) && this.riseRay(ax, ay, az, bx - ax, by - ay, bz - az, 0, 1) < 0;
+  }
+
+  /**
+   * Where the ray o + t d, for t from t0 to t1, first runs under the ground of a rise, the city's (on the curb) or Las
+   * Lomas County's (on the county's own ground, the beach's where the ridge runs out over it); -1 when it stays over them.
+   */
+  riseRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, t0: number, t1: number): number {
+    const city = riseRay(this.layout.rises, ox, oy, oz, dx, dy, dz, t0, t1);
+    const county = riseRay(this.layout.country.rises, ox, oy, oz, dx, dy, dz, t0, city >= 0 ? city : t1, this.countyFloor);
+    return county >= 0 ? county : city;
   }
 
   /**
