@@ -145,6 +145,7 @@ The Southgate Bridge's steel through-arch is one merged mesh over the bay bridge
 Every mesh of the county is hidden on every tier once the camera is `COUNTRY_FOG_MARGIN` (60 m) past the fog's far end from it (`quality.ts`), where it has long faded into the sky; the fog's own distance already shrinks by night, in haze and on the software tier.
 The roads and the paint are a few thousand triangles in all, so like the city's thin ground layers they are one mesh each.
 The content passes add their meshes through `CountryView.add`, which cuts a layer into `COUNTRY_CELL` (256 m) cells unless it is told not to (`split: false`).
+Before the landscape, on the Radeon 610M (Medium) the county's own scenes drew 73 to 163 calls (the causeway at dusk, the highway at noon, the west promenade at night facing the county), against 517 for the perf scenario's pursuit on the same run.
 
 **Terrain detail by distance.**
 The ground is drawn cell by cell, each cell twice (`render/country/ground.ts`, `CountryView.addCell`).
@@ -161,7 +162,7 @@ Coyote Ridge's six turbines share Turbine Row's instanced nacelles and rotors, w
 The reflector posts along the county's roads are one mesh cut into cells; after dark the reflectors ahead of the player's lit car shine back as glows in `LightSprites` (`addReflector`), brightest dead ahead and fading over 80 m, so on Low, with no headlight beam, they mark the road's edges.
 
 **The city from the county.**
-From Lookout Point the whole city stands 1-2.4 km off in the frustum, and its props (every tree, lamp and bench chunk) cost 662 of the 1191 draw calls there, though the fog had long hidden them.
+From Lookout Point the whole city stands 1-2.4 km off in the frustum, and its props (every tree, lamp and bench chunk) cost 662 of the 1191 draw calls there, though the fog had long hidden them; its activity sites' signs and its interaction markers cost 137 more.
 So with the camera off the city's land a prop (on the hardware tiers), an activity site's sign or an interaction marker past the fog's far end and the county's margin is not drawn, as the county's own cells are not; the objective beams, drawn without fog to be seen from afar, stay.
 With the camera on the land the city's props, signs and markers are all drawn as before, and Las Lomas County's own props (from `country.firstProp` on) past the fog's far end and the margin are not, as from the county.
 The skyline itself needs nothing: the camera's far plane is 2400 m, no tier culls the city's buildings, and the building fog's cap keeps the towers.
@@ -249,24 +250,28 @@ Static draw batching (release performance pass): in the 5-star pursuit the rende
 
 ## Measurements (NVIDIA RTX 5090, Chromium with ANGLE Vulkan, 1920x1080, High)
 
-Las Lomas County's landscape on 2026-10-31 (`--scenario perf`, which now ends with four county segments, and the round's `county-perf.mjs`), every segment at 60 fps with no console errors:
+Las Lomas County's landscape on 2026-10-31 (`--scenario perf`, which now ends with four county segments, and the round's `county-perf.mjs` for lookout-dusk), every segment at 60 fps with no console errors.
+The last column is the roads round before the landscape (d831497), built and run the same afternoon:
 
-| Scene | Draw calls | Triangles |
-| --- | ---: | ---: |
-| start | 956 | 3.78 M |
-| downtown | 782 | 3.21 M |
-| pursuit-4-stars | 539 | 2.72 M |
-| beach-dusk | 742 | 3.46 M |
-| hill | 378 | 1.89 M |
-| ridge-dusk (on the crest facing the skyline) | 488 | 1.37 M |
-| lookout-night (Lookout Point facing the skyline) | 525 | 1.73 M |
-| promenade-west-night (facing the county) | 264 | 1.42 M |
-| county-pursuit-4-stars (up the Lomas Highway's west leg) | 129 | 0.78 M |
+| Scene | Draw calls | Triangles | Before the landscape |
+| --- | ---: | ---: | ---: |
+| start | 932 | 3.74 M | 951 |
+| downtown | 799 | 3.30 M | 774 |
+| pursuit-4-stars | 477 | 2.32 M | 552 |
+| beach-dusk | 456 | 2.52 M | 684 |
+| hill | 361 | 1.82 M | 387 |
+| ridge-dusk (on the crest facing the skyline) | 351 | 1.36 M | |
+| lookout-dusk (Lookout Point facing the skyline) | 418 | 1.83 M | |
+| lookout-night (Lookout Point facing the skyline) | 386 | 1.71 M | |
+| promenade-west-night (facing the county) | 241 | 1.18 M | 195 |
+| county-pursuit-4-stars (up the Lomas Highway's west leg) | 121 | 0.76 M | 110 |
 
 Every frame took 1-4 ms to submit.
-The city's scenes are as on main (929, 791, 475, 463 and 360 calls): the pursuit and beach-dusk keep the camera's turn and the traffic the segment before left them, so across three runs they drew 449-539 and 427-742 calls.
-Facing west, a city frame now also draws the county's ridge outline, its turbines and its trees and scrub, a few dozen calls.
-The two scenes facing the whole skyline across the sound draw a little more than the city's pursuit, the city's own buildings, its activity sites and its markers most of it; before the props were left undrawn off the city's land they drew 1144 and 1178.
+The city's scenes facing away from the county draw what they did before the landscape, within the spread between runs: the pursuit and beach-dusk keep the camera's turn and the traffic the segment before left them, so across five runs of the landscape they drew 449-539 and 427-742 calls.
+Facing west, a city frame also draws Coyote Ridge's outline cells and its turbines, kept in the haze on purpose (the round's `city-west.mjs`): downtown at (0, 0) facing west at noon drew 831 calls against 769 before the landscape, and the west promenade 252 against 196 at noon and 243 against 196 at night, the county's own meshes 48 to 61 of them.
+The county's trees and scrub past the fog had added 40 calls downtown and 29 on the promenade (843, 268 and 264 in all) until they were left undrawn from the city too; those within it now cost 7 to 12.
+The three scenes facing the whole skyline across the sound draw less than the city's pursuit, the city's own buildings most of it.
+On the same build day they drew 472-487 (ridge-dusk), 559-573 (lookout-dusk) and 513-528 (lookout-night) calls until the activity sites' signs (68 calls) and the interaction markers (69) past the fog were left undrawn off the city's land, and 1144 and 1178 (ridge-dusk and lookout-night) before the props were.
 
 ## Software fallback
 
