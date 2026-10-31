@@ -6,7 +6,8 @@ import { attractionOf } from './attractions';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { BRIDGE_ARCH, COUNTY_NAME, countryGround, plotAt } from './country';
-import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
+import { COW_H, COW_R, HEDGE_H, inFarmCover, inTallCrop, PROPANE, STOCK_TANK } from './country/farms';
+import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type Building, type CityLayout, type District, type Garage, type Prop, type PropKind, type Ramp, type Rect } from './layout';
 import { PLATFORM_SLAB, TOWER_H } from './monorail';
 import { TURBINE_BASE } from './offshore';
 import { RoadNetwork } from './roads';
@@ -68,17 +69,9 @@ export class StaticWorld {
 
   private buildColliders(): void {
     const g = this.grid;
-    for (const b of this.layout.buildings) {
-      b.tiers.forEach((t, i) => g.addBox(t.minX, t.minZ, t.maxX, t.maxZ, i === 0 ? 0 : t.y0, t.y1, 'building'));
-    }
-    for (const gar of this.layout.garages) {
-      for (const w of gar.walls) g.addBox(w.minX, w.minZ, w.maxX, w.maxZ, 0, gar.height, 'wall');
-      // The roof hides the bay from the helicopter and stops shots and the camera from above. It is no
-      // obstacle on the way in: cars and people collide only with what overlaps their own height.
-      const r = gar.rect;
-      g.addBox(r.minX - GARAGE_EAVE, r.minZ - GARAGE_EAVE, r.maxX + GARAGE_EAVE, r.maxZ + GARAGE_EAVE, gar.height, gar.height + GARAGE_ROOF, 'wall');
-    }
     const country = this.layout.country;
+    for (const b of this.layout.buildings.slice(0, country.firstBuilding)) this.addBuilding(b.tiers);
+    for (const gar of this.layout.garages.slice(0, country.firstGarage)) this.addGarage(gar);
     const parapets = this.layout.parapets;
     const props = this.layout.props;
     for (const r of parapets.slice(0, country.firstParapet)) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
@@ -112,6 +105,23 @@ export class StaticWorld {
     for (const r of parapets.slice(country.firstParapet)) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
     for (const x of [BRIDGE_ARCH.x0, BRIDGE_ARCH.x1]) for (const z of BRIDGE_ARCH.ribs) g.addCircle(x, z, BRIDGE_ARCH.post, WATER_Y - 1.5, BRIDGE_ARCH.postTop, 'pillar');
     for (let i = country.firstProp; i < props.length; i++) this.propColliders[i] = this.addPropCollider(props[i]!, i);
+    // The farms' farmhouses, barns and hedgerows (world/country/farms.ts).
+    for (const b of this.layout.buildings.slice(country.firstBuilding)) this.addBuilding(b.tiers);
+    for (const gar of this.layout.garages.slice(country.firstGarage)) this.addGarage(gar);
+    for (const h of country.farms.hedges) g.addBox(h.minX, h.minZ, h.maxX, h.maxZ, 0, HEDGE_H, 'hedge');
+  }
+
+  private addBuilding(tiers: Building['tiers']): void {
+    tiers.forEach((t, i) => this.grid.addBox(t.minX, t.minZ, t.maxX, t.maxZ, i === 0 ? 0 : t.y0, t.y1, 'building'));
+  }
+
+  private addGarage(gar: Garage): void {
+    const g = this.grid;
+    for (const w of gar.walls) g.addBox(w.minX, w.minZ, w.maxX, w.maxZ, 0, gar.height, 'wall');
+    // The roof hides the bay from the helicopter and stops shots and the camera from above. It is no
+    // obstacle on the way in: cars and people collide only with what overlaps their own height.
+    const r = gar.rect;
+    g.addBox(r.minX - GARAGE_EAVE, r.minZ - GARAGE_EAVE, r.maxX + GARAGE_EAVE, r.maxZ + GARAGE_EAVE, gar.height, gar.height + GARAGE_ROOF, 'wall');
   }
 
   private addPropCollider(p: Prop, i: number): number {
@@ -186,6 +196,34 @@ export class StaticWorld {
         return g.addBox(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.y + p.h, 'bench', i, !this.epitaphStones.has(i)).id;
       case 'cypress':
         return g.addCircle(p.x, p.z, 0.3 * s, p.y, p.y + 9 * s, 'tree').id;
+      case 'silo':
+      case 'grainbin':
+        return g.addCircle(p.x, p.z, p.w / 2, p.y, p.y + p.h, 'pillar').id;
+      case 'windpump':
+        // The tower's legs, and the stock tank beside it (low, so no hiding place).
+        g.addCircle(p.x + STOCK_TANK.dx, p.z, STOCK_TANK.r, p.y, p.y + STOCK_TANK.h, 'rock');
+        return g.addCircle(p.x, p.z, p.w / 2, p.y, p.y + p.h, 'pillar').id;
+      case 'fence': {
+        // A run of post-and-rail: it gives way like a bench.
+        const along = Math.abs(Math.sin(p.rot)) > 0.7;
+        const hw = along ? p.d / 2 : p.w / 2;
+        const hd = along ? p.w / 2 : p.d / 2;
+        return g.addBox(p.x - hw, p.z - hd, p.x + hw, p.z + hd, p.y, p.y + p.h, 'bench', i, true).id;
+      }
+      case 'bale':
+        return g.addBox(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.y + p.h, 'container').id;
+      case 'orchardTree':
+        return g.addCircle(p.x, p.z, 0.22 * s, p.y, p.y + 4 * s, 'tree').id;
+      case 'propane': {
+        const along = Math.abs(Math.sin(p.rot)) > 0.7;
+        const hl = PROPANE.len / 2;
+        const hr = PROPANE.r;
+        return g.addBox(p.x - (along ? hr : hl), p.z - (along ? hl : hr), p.x + (along ? hr : hl), p.z + (along ? hl : hr), p.y, p.y + p.h, 'container', i, true).id;
+      }
+      case 'cow':
+        return g.addCircle(p.x, p.z, COW_R * s, p.y, p.y + COW_H * s, 'livestock', i, true).id;
+      case 'scarecrow':
+        return g.addCircle(p.x, p.z, 0.3, p.y, p.y + 2.2 * s, 'bin', i, true).id;
       case 'bush':
       default:
         return -1;
@@ -273,10 +311,18 @@ export class StaticWorld {
     return this.roads.isOnRoad(x, z);
   }
 
-  /** Whether (x, z) is in an attraction's cover (the corn maze, the barn), where the police see a target only up close (wanted.ts). */
+  /**
+   * Whether (x, z) is in cover, where the police see a target only up close (wanted.ts): an attraction's (the corn maze,
+   * the barn), or the county farms' tall crops and barns.
+   */
   coverAt(x: number, z: number): boolean {
     for (const a of this.layout.attractions) for (const r of a.cover) if (rectContains(r, x, z)) return true;
-    return false;
+    return inFarmCover(this.layout.country.farms, x, z);
+  }
+
+  /** Whether (x, z) is in a field of tall crops (corn, sunflowers), which drags at a car (vehiclePhysics.ts). */
+  cropAt(x: number, z: number): boolean {
+    return inTallCrop(this.layout.country.farms, x, z);
   }
 
   zoneName(x: number, z: number): string {
@@ -366,6 +412,17 @@ export class StaticWorld {
   /** Restores every broken prop (new game). */
   resetBroken(): void {
     for (const c of this.grid.colliders) c.broken = false;
+  }
+
+  /** Stands every broken prop of `kind` up again (the cows at dawn, sim/farms.ts); their indices, ascending. */
+  restoreProps(kind: PropKind): number[] {
+    const out: number[] = [];
+    for (const c of this.grid.colliders) {
+      if (!c.broken || c.propIndex < 0 || this.layout.props[c.propIndex]!.kind !== kind) continue;
+      c.broken = false;
+      out.push(c.propIndex);
+    }
+    return out.sort((a, b) => a - b);
   }
 
   /** True when no sight-blocking collider stands between the two points and no rise (world/terrain.ts) comes between them. */

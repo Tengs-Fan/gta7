@@ -30,7 +30,8 @@ describe('city layout', () => {
   });
 
   it('keeps every building inside a block lot', () => {
-    for (const b of L.buildings) {
+    // The city's: Las Lomas County's farmhouses stand in their farmyards (country_farms.test.ts).
+    for (const b of L.buildings.slice(0, L.country.firstBuilding)) {
       const inside = L.blocks.some((bl) => rectContains(bl.lot, b.rect.minX, b.rect.minZ, 0.01) && rectContains(bl.lot, b.rect.maxX, b.rect.maxZ, 0.01));
       expect(inside, `building ${b.id}`).toBe(true);
       for (const t of b.tiers) {
@@ -61,8 +62,9 @@ describe('city layout', () => {
   });
 
   it('keeps garage bays drivable and their entrances open', () => {
-    // The places' drive-in garages; Hollister Farm's barn opens onto the farm's own lane (attractions.test.ts).
-    for (const g of L.garages.filter((q) => q.poi !== 'farm_barn')) {
+    // The places' drive-in garages; Hollister Farm's barn opens onto the farm's own lane (attractions.test.ts), and the
+    // county farms' barns onto their farmyards (country_farms.test.ts).
+    for (const g of L.garages.filter((q) => !q.poi.endsWith('_barn'))) {
       const poi = L.pois.find((p) => p.id === g.poi)!;
       expect(poi.bay).not.toBeNull();
       const bay = poi.bay!;

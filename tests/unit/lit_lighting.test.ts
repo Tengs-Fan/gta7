@@ -170,10 +170,11 @@ describe('garage interiors', () => {
       expect(fs.includes('directLight.color *= gta7In.y;'), id).toBe(true);
       const u = THREE.ShaderLib[id].uniforms as Record<string, THREE.IUniform>;
       // Every garage of the city fits the shader's per-garage uniforms (vectors, not arrays: three re-sends arrays on
-      // every material switch).
-      expect(u.gta7InteriorCount!.value).toBe(W.layout.garages.length);
-      expect(W.layout.garages.length).toBeLessThanOrEqual(MAX_INTERIORS);
-      for (let i = 0; i < W.layout.garages.length; i++) expect((u[`gta7InteriorRect${i}`]!.value as THREE.Vector4).z, id).toBeCloseTo(W.layout.garages[i]!.rect.maxX, 6);
+      // every material switch); Las Lomas County's barns, after them, are left out, their roofs' shadows on their floors.
+      const city = W.layout.garages.slice(0, W.layout.country.firstGarage);
+      expect(u.gta7InteriorCount!.value).toBe(city.length);
+      expect(city.length).toBeLessThanOrEqual(MAX_INTERIORS);
+      for (let i = 0; i < city.length; i++) expect((u[`gta7InteriorRect${i}`]!.value as THREE.Vector4).z, id).toBeCloseTo(city[i]!.rect.maxX, 6);
       expect(Object.values(u).some((x) => Array.isArray(x.value) && x.value.length > 0 && Object.keys(u).find((k) => u[k] === x)!.startsWith('gta7')), id).toBe(false);
       expect((u.gta7InteriorLight!.value as THREE.Vector3).toArray()).toEqual([INTERIOR_SKY, INTERIOR_SUN, INTERIOR_REFLECT]);
       expect(INTERIOR_SKY).toBeLessThan(0.7);
@@ -222,7 +223,8 @@ describe('occlusion at the foot of walls', () => {
       expect(wallDistance(f, b.rect.minX - 0.15, cz), `building ${b.id}`).toBeLessThan(0.25);
       expect(wallOcclusion(f, b.rect.minX - 0.15, 0.15, cz)).toBeLessThan(1 - 0.6 * WALL_AO);
     }
-    for (const g of W.layout.garages) for (const w of g.walls) expect(wallDistance(f, (w.minX + w.maxX) / 2, (w.minZ + w.maxZ) / 2)).toBeLessThanOrEqual(0.05);
+    // The city's garages: the field ends short of Las Lomas County's barns.
+    for (const g of W.layout.garages.slice(0, W.layout.country.firstGarage)) for (const w of g.walls) expect(wallDistance(f, (w.minX + w.maxX) / 2, (w.minZ + w.maxZ) / 2)).toBeLessThanOrEqual(0.05);
     // A garage's floor in the middle keeps its (interior) sky light; next to a side wall it loses more.
     const lou = W.layout.garages[0]!;
     const cx = (lou.rect.minX + lou.rect.maxX) / 2;

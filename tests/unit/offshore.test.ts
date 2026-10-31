@@ -77,9 +77,10 @@ describe('Turbine Row', () => {
     // After them: a pillar per turbine and the Key's palms and jetty lamp, the last props; then the solids the earlier
     // passes append past every prop (the rises' cores, the letters and the lookout's parapet, the attractions'), the
     // battery's walls, AzuraLink's pylons and stations, and last Las Lomas County's (the bridge's parapets and its arch's
-    // portal posts, its props).
-    const rest = W.grid.colliders.slice(first);
-    const county = L.props.slice(L.country.firstProp).map((p) => (p.kind === 'signal' ? 'signal' : 'lamp'));
+    // portal posts, its signal heads and lamps, before its farms').
+    const lamps = L.props.map((_p, i) => i).filter((i) => i >= L.country.firstProp && (L.props[i]!.kind === 'signal' || L.props[i]!.kind === 'lamp'));
+    const rest = W.grid.colliders.slice(first, W.propColliders[lamps[lamps.length - 1]!]! + 1);
+    const county = lamps.map((i) => L.props[i]!.kind);
     expect(rest.map((c) => c.tag)).toEqual([
       ...turbines.map(() => 'pillar'), 'palm', 'palm', 'palm', 'lamp',
       ...terrainCores(L.rises).map(() => 'terrain'),
