@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
+import { pointSegDist } from '../../src/core/math';
 import { CityView } from '../../src/render/city';
 import { CountryView } from '../../src/render/country';
 import { reflectorPosts } from '../../src/render/country/reflectors';
@@ -426,11 +427,14 @@ describe('drawing the fire road and Lookout Point', () => {
 });
 
 describe('reflector posts', () => {
-  it('stand every 25 m along both edges of the county\'s roads on its land, off the carriageway, clear of the junctions and of Dry Creek', () => {
+  it('stand every 25 m along both edges of the county\'s roads on its land, off the carriageway, clear of the junctions, the drives and Dry Creek', () => {
     const posts = reflectorPosts(W);
     expect(posts.length).toBeGreaterThan(180);
     for (const p of posts) {
       expect(plotAt(country, p.x, p.z)?.kind).not.toBe('town');
+      // Out of the farms' drives (2.6 m either side of their centre lines), and the drive-in's and Gravel Gulch's and their mouths.
+      for (const f of country.farms.farmsteads) expect(pointSegDist(p.x, p.z, ...f.drive)).toBeGreaterThan(2.6);
+      for (const d of [country.places.driveIn.drive, country.places.track.drive]) expect(rectContains(d, p.x, p.z, 2)).toBe(false);
       expect(p.x).toBeLessThan(L.bounds.landMinX);
       const off = offRoad(p.x, p.z);
       expect(off, `post at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`).toBeGreaterThan(1);

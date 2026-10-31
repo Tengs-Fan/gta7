@@ -1,9 +1,9 @@
 // Reflector posts along Las Lomas County's roads (world/country): a white post with a black band and an amber reflector
 // on either face every POST_GAP m along both edges of every county road on the land, clear of the junctions, of the
-// fire road's turn-off and of Dry Creek (the one plot that comes up to the road, its sidewalks the town's own). They are
-// drawn only (no collider), one mesh culled by cell with the rest of the county. After dark, the reflectors ahead of the
-// player's lit car shine back at it, glows in LightSprites as bright as its headlights fall on them: on Low, with no
-// headlight beam, they are what you steer by.
+// fire road's turn-off, of the drives into the drive-in and Gravel Gulch and of Dry Creek (the one plot that comes up
+// to the road, its sidewalks the town's own). They are drawn only (no collider), one mesh culled by cell with the rest
+// of the county. After dark, the reflectors ahead of the player's lit car shine back at it, glows in LightSprites as
+// bright as its headlights fall on them: on Low, with no headlight beam, they are what you steer by.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -11,6 +11,7 @@ import type { Vehicle } from '../../sim/entities';
 import { CROSSWALK_W } from '../../world/constants';
 import { onCountyLand, plotAt } from '../../world/country';
 import { FIRE_ROAD } from '../../world/country/hills';
+import { rectContains } from '../../world/layout';
 import type { StaticWorld } from '../../world/staticWorld';
 import type { LightSprites } from '../lightSprites';
 import type { CountryView } from './index';
@@ -37,12 +38,13 @@ export interface ReflectorPost {
   dz: number;
 }
 
-/** Where the posts stand: both edges of every county road, on the county's land, clear of junctions, the turn-off and the town. */
+/** Where the posts stand: both edges of every county road, on the county's land, clear of junctions, the turn-off, the drives and the town. */
 export function reflectorPosts(world: StaticWorld): ReflectorPost[] {
   const roads = world.roads;
   const country = world.layout.country;
   const junctions = roads.nodes.slice(roads.gridNodeCount).filter((n) => !roads.isBend(n));
   const [tx, tz] = FIRE_ROAD[0]!;
+  const drives = [country.places.driveIn.drive, country.places.track.drive];
   const out: ReflectorPost[] = [];
   for (const { road } of roads.outerRoads) {
     let next = POST_GAP / 2;
@@ -64,6 +66,8 @@ export function reflectorPosts(world: StaticWorld): ReflectorPost[] {
           if (!onCountyLand(country, x, z) || x >= world.bounds.landMinX || plotAt(country, x, z)?.kind === 'town') continue;
           if (junctions.some((n) => Math.hypot(n.x - x, n.z - z) < n.halfX + CROSSWALK_W + 6)) continue;
           if (Math.hypot(tx - x, tz - z) < 12) continue;
+          // Gravel Gulch's drive stops short of the kerb, so its mouth is the 2 m before it.
+          if (drives.some((d) => rectContains(d, x, z, 2))) continue;
           out.push({ x, y: world.groundHeight(x, z), z, dx, dz });
         }
       }
