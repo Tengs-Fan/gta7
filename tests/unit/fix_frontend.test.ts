@@ -1915,7 +1915,7 @@ describe('round 2 harness', () => {
 
     it('FIXMYRIDE in a car at 20 m/s: its F bails out, and the cheat puts the player back in his repaired car', async () => {
       const { game, sim, frames, type } = await playing();
-      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const lane = [...sim.roads.gridLanes].sort((a, b) => b.length - a.length)[0]!;
       const v = sim.spawnVehicle('sedan', lane.sx + lane.dx * 5, lane.sz + lane.dz * 5, lane.heading);
       placeInCar(sim, v);
       v.health = v.spec.health * 0.4;
@@ -1936,7 +1936,7 @@ describe('round 2 harness', () => {
 
     it('FIXMYRIDE in a bus at 10 m/s: its F brakes before getting out, and the cheat still ends with the player at the wheel', async () => {
       const { sim, frames, type } = await playing();
-      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const lane = [...sim.roads.gridLanes].sort((a, b) => b.length - a.length)[0]!;
       const v = sim.spawnVehicle('bus', lane.sx + lane.dx * 8, lane.sz + lane.dz * 8, lane.heading);
       placeInCar(sim, v);
       v.vel.x = lane.dx * 10.9;
@@ -1953,7 +1953,7 @@ describe('round 2 harness', () => {
 
     it('FIXMYRIDE typed fast (67 ms a key) in a bus at 10.9 m/s calls off the exit its F was still braking for', async () => {
       const { sim, frames, type } = await playing();
-      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const lane = [...sim.roads.gridLanes].sort((a, b) => b.length - a.length)[0]!;
       const v = sim.spawnVehicle('bus', lane.sx + lane.dx * 8, lane.sz + lane.dz * 8, lane.heading);
       placeInCar(sim, v);
       v.health = v.spec.health * 0.5;
@@ -1973,7 +1973,7 @@ describe('round 2 harness', () => {
 
     it('FIXMYRIDE typed slowly (350 ms a key) at 20 m/s still puts the player back at the wheel', async () => {
       const { sim, frames, type } = await playing();
-      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const lane = [...sim.roads.gridLanes].sort((a, b) => b.length - a.length)[0]!;
       const v = sim.spawnVehicle('sedan', lane.sx + lane.dx * 5, lane.sz + lane.dz * 5, lane.heading);
       placeInCar(sim, v);
       v.vel.x = lane.dx * 20;
@@ -2091,7 +2091,7 @@ describe('round 2 harness', () => {
       const { sim, frames, type } = await playing();
       type('SPAWNSPORT'); // its P opened the pause menu: the sim waits there for the last letter
       // On a long straight road facing along it, a car parked right where the code puts the new one.
-      const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+      const lane = [...sim.roads.gridLanes].sort((a, b) => b.length - a.length)[0]!;
       const p = sim.player;
       p.pos.x = lane.sx + lane.dx * 30;
       p.pos.z = lane.sz + lane.dz * 30;

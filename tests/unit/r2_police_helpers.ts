@@ -16,8 +16,9 @@ export interface PoliceInternals {
 }
 export const internals = (sim: Sim) => sim.police as unknown as PoliceInternals;
 
+/** The city's longest lane (or avenue lane): Las Lomas County's long straights are not among them. */
 export function longestLane(sim: Sim, avenue = false): Lane {
-  return [...sim.roads.lanes].filter((l) => !avenue || l.line.avenue).sort((a, b) => b.length - a.length)[0]!;
+  return [...sim.roads.gridLanes].filter((l) => !avenue || l.line.avenue).sort((a, b) => b.length - a.length)[0]!;
 }
 
 export function at(lane: Lane, s: number): { x: number; z: number } {

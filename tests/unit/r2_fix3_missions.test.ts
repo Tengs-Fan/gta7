@@ -709,7 +709,7 @@ describe('prompts at the markers', () => {
 describe('a taxi job ending with the fare aboard', () => {
   function cabWithFare(): { sim: Sim; taxi: Vehicle; fare: Character } {
     const sim = makeSim({ ambient: false });
-    const lane = [...sim.roads.lanes].sort((a, b) => b.length - a.length)[0]!;
+    const lane = [...sim.roads.gridLanes].sort((a, b) => b.length - a.length)[0]!;
     const taxi = sim.spawnVehicle('taxi', lane.sx + lane.dx * 8, lane.sz + lane.dz * 8, lane.heading);
     placeInCar(sim, taxi);
     step(sim, 0.05);
