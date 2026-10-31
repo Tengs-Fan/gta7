@@ -506,8 +506,9 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // of the links' mouths through the promenade (a tree's envelope with them) and appended its signal heads and the
   // causeway's lamps, their colliders after the bridge's parapets and its arch's posts, after every other; and on the
   // integrated county head, where its traffic made the Hollister T's and the Creek T's heads a stop sign and two lamps
-  // each, its landscape appended the ridge's turbines, tree belts and scrub (their envelopes too) and its farms their
-  // props, then the landscape's cores and Lookout Point's solids, then the farmhouses', barns' and hedgerows' colliders.
+  // each, its landscape appended the ridge's turbines, tree belts and scrub (their envelopes too), its farms their props,
+  // Dry Creek its pumps, billboards, lamps and benches and the Moonbeam Drive-In its speaker posts, then the landscape's
+  // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders.
   const D98 = {
     props: 'd377952252408602cdcb9bc9c5eb0c617dafa085fe55dbaac910ba994a1e1616',
     colliders: '182dcd7ce54caa3bebe5b736c0e739b42a389112d5c5a791cf8f3bd4b72ca44a',

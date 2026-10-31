@@ -6,6 +6,7 @@ import { clamp, formatMoney, type V3 } from '../core/math';
 import { Rng } from '../core/rng';
 import type { StaticCollider } from '../world/colliders';
 import { GRAVITY, WATER_Y } from '../world/constants';
+import { bustStation } from '../world/country/places';
 import type { RoadNetwork } from '../world/roads';
 import { StaticWorld } from '../world/staticWorld';
 import { Activities } from './activities';
@@ -39,6 +40,8 @@ import { abandonSinkingCar } from './sinking';
 import './vehicleSystems';
 import './farm';
 import './farms';
+import './dryCreek';
+import './driveIn';
 import { collideVehicles, collideVehicleStatic, stepVehicle, type VehiclePhysicsHost } from './vehiclePhysics';
 import type { WantedSystem } from './wanted';
 import { WeatherSystem, type WeatherMode } from './weather';
@@ -596,6 +599,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     const idx = this.world.breakCollider(c);
     if (idx < 0) return;
     const sp = Math.max(0.1, v.speed);
+    this.combat.propBlame.set(idx, this.slotOf(v.driver)?.character ?? null);
     this.events.emit('propBroken', { index: idx, dirX: v.vel.x / sp, dirZ: v.vel.z / sp });
     // Corn only rustles and a cow only moos (audio plays both from propBroken): no crash, no camera kick.
     if (c.tag !== 'crop' && c.tag !== 'livestock') this.events.emit('impact', { x: c.cx, y: v.pos.y + 0.5, z: c.cz, strength: 3, vehicle: v });
@@ -970,8 +974,9 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   finishRespawn(slot: PlayerSlot = this.players[0]!): void {
     if (!slot.deathKind) return;
     const busted = slot.deathKind === 'busted';
-    const poi = this.world.layout.pois.find((p) => p.id === (busted ? 'police' : 'hospital'))!;
     const p = slot.character;
+    // Busted out in Las Lomas County, he walks out of the Sheriff's Office.
+    const poi = busted ? bustStation(this.world.layout, p.pos.x, p.pos.z) : this.world.layout.pois.find((q) => q.id === 'hospital')!;
     if (p.vehicle) this.unseat(p);
     p.state = 'normal';
     p.health = p.maxHealth;

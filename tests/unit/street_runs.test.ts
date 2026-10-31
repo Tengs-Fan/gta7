@@ -3,8 +3,12 @@ import type { StreetRunJob } from '../../src/sim/activities';
 import type { Vehicle } from '../../src/sim/entities';
 import { applySave, parseSave, Progress, serialize } from '../../src/sim/progress';
 import { Sim } from '../../src/sim/sim';
-import { buildStreetRunCourses, formatRunTime, runMedal, type StreetRunCourse } from '../../src/sim/streetRuns';
-import { input, placeInCar, step, world } from './helpers';
+import { allStreetRunCourses, buildCountyRunCourses, buildStreetRunCourses, formatRunTime, runMedal, type StreetRunCourse } from '../../src/sim/streetRuns';
+import { multiplayerInteractions } from '../../src/net/mpPlaces';
+import { streetRunCourses } from '../../src/sim/activities/streetRun';
+import { HeadToHead } from '../../src/sim/headToHead';
+import { StaticWorld } from '../../src/world/staticWorld';
+import { distanceToLine, input, placeInCar, shortestThrough, step, world } from './helpers';
 
 function setup(id = 'magnolia'): { sim: Sim; car: Vehicle; course: StreetRunCourse } {
   const sim = new Sim({ world: world(), ambient: false, police: false });
@@ -224,7 +228,7 @@ describe('street run timing, ordered gates and rewards', () => {
     expect(sim.progress.money).toBe(250);
   });
 
-  it.each(['magnolia', 'coastline', 'dockside'])('completes %s once with cash, a medal and a saved best', (id) => {
+  it.each(['magnolia', 'coastline', 'dockside', 'laslomas'])('completes %s once with cash, a medal and a saved best', (id) => {
     const { sim, car, course } = setup(id);
     const gates: number[] = [];
     let finishes = 0;
@@ -387,6 +391,198 @@ describe('street course driving acceptance', () => {
     }
     const record = sim.progress.streetRuns[course.id];
     expect(record, `${id}: ${car.pos.x.toFixed(1)},${car.pos.z.toFixed(1)} health=${car.health.toFixed(0)} gate=${sim.activities.job?.kind === 'streetRun' ? sim.activities.job.checkpoint : 'ended'}`).toBeDefined();
+    expect(record!.bestTime).toBeLessThan(course.gold);
+    expect(car.condition).toBeGreaterThan(0.85);
+  });
+});
+
+describe('the Las Lomas Loop', () => {
+  it('races head-to-head in multiplayer: a marker at its start, the green wave over Dry Creek, both racers home', () => {
+    const marker = multiplayerInteractions(world()).markers.find((m) => m.id === 'race:laslomas')!;
+    const course = buildCountyRunCourses(world().roads)[0]!;
+    expect(marker).toMatchObject({ kind: 'streetRun', x: course.start.x, z: course.start.z, label: 'Press T to race Las Lomas Loop head-to-head' });
+    const sim = new Sim({ world: new StaticWorld(), ambient: false, police: false, multiplayer: true, seed: 3 });
+    const s1 = sim.players[0]!;
+    const s2 = sim.addPlayer(course.start.x + 3, course.start.z);
+    const race = new HeadToHead(sim, streetRunCourses(sim).find((c) => c.id === 'laslomas')!);
+    expect(race.join(s1)).toBeNull();
+    expect(race.join(s2)).toBeNull();
+    race.begin(0);
+    let tick = 0;
+    while (race.stage === 'countdown') race.update(++tick);
+    expect(race.stage).toBe('racing');
+    const dc = sim.roads.junction('drycreek').id;
+    let heldDryCreek = false;
+    // Both cars round the course gate by gate, a couple of metres a tick (the race reads where they are).
+    for (const gate of course.checkpoints) {
+      for (;;) {
+        let moved = false;
+        for (const slot of [s1, s2]) {
+          const car = slot.character.vehicle!;
+          const dx = gate.x - car.pos.x;
+          const dz = gate.z - car.pos.z;
+          const d = Math.hypot(dx, dz);
+          if (d < 0.01) continue;
+          const step = Math.min(d, slot === s1 ? 2.2 : 2);
+          car.pos.x += (dx / d) * step;
+          car.pos.z += (dz / d) * step;
+          moved = true;
+        }
+        race.update(++tick);
+        heldDryCreek ||= sim.roads.signalHold(dc) === 'EW';
+        if (!moved || race.stage === 'results') break;
+      }
+    }
+    while (race.stage !== 'results') race.update(++tick);
+    expect(heldDryCreek).toBe(true);
+    expect(race.results().map((r) => [r.slotId, r.status, r.position])).toEqual([[s1.id, 'finished', 1], [s2.id, 'finished', 2]]);
+    expect(sim.roads.heldSignals.size).toBe(0);
+  });
+
+  it('runs over the causeway, round the Lomas Highway and home over the bridge, its gates at junctions and the highway\'s two curves, after the city\'s three', () => {
+    const roads = world().roads;
+    const courses = allStreetRunCourses(roads);
+    expect(courses.map((c) => c.id)).toEqual(['magnolia', 'coastline', 'dockside', 'laslomas']);
+    // The city's three as they were (city_guard.test.ts hashes them).
+    expect(JSON.stringify(courses.slice(0, 3))).toBe(JSON.stringify(buildStreetRunCourses(roads)));
+    const loop = buildCountyRunCourses(roads)[0]!;
+    expect(loop.name).toBe('Las Lomas Loop');
+    expect(loop.description).toBe('Out to the farms and back. Mind the cows; they have the right of way and they know it.');
+    expect(loop.nodes[0]).toBe(roads.id(2, 2));
+    expect(loop.nodes.at(-1)).toBe(loop.nodes[0]);
+    for (let i = 1; i < loop.nodes.length; i++) expect(roads.lanesBetween(loop.nodes[i - 1]!, loop.nodes[i]!)).not.toHaveLength(0);
+    // Every node of the Lomas Highway, in its order from Dry Creek to Harbor Blvd: the west leg, not Creek Road.
+    const highway = roads.outerRoads.find((r) => r.road.name === 'Lomas Highway')!.nodes;
+    const from = loop.nodes.indexOf(highway[0]!);
+    expect(loop.nodes.slice(from, from + highway.length)).toEqual(highway);
+    // Gates at the junctions (the gateways, Dry Creek, the two T's and the grid's corners) and at the apex of each of
+    // the highway's curves (its middle vertex), at no other bend.
+    const apexes: number[] = [];
+    const radii = roads.outerRoads.find((r) => r.road.name === 'Lomas Highway')!.road.radii;
+    for (let k = 0; k < radii.length; k++) {
+      if (!Number.isFinite(radii[k]!) || Number.isFinite(radii[k - 1] ?? Infinity)) continue;
+      let end = k;
+      while (Number.isFinite(radii[end + 1] ?? Infinity)) end++;
+      apexes.push(highway[k + Math.floor((end - k + 1) / 2)]!);
+    }
+    expect(apexes).toHaveLength(2);
+    const gates = loop.checkpoints.slice(0, -1);
+    expect(gates.map((g) => g.nodeId)).toEqual(loop.nodes.slice(1).filter((id) => !roads.isBend(roads.nodes[id]!) || apexes.includes(id)));
+    expect(gates.filter((g) => roads.isBend(roads.nodes[g.nodeId]!)).map((g) => [g.nodeId, g.radius])).toEqual(apexes.map((id) => [id, 11]));
+    expect(gates.map((g) => g.nodeId)).toEqual(expect.arrayContaining([roads.junction('drycreek').id, roads.junction('hollister').id, roads.junction('creek').id, roads.id(0, 2), roads.id(0, 8)]));
+    // Its length along the road, bends and all.
+    expect(loop.distance).toBeGreaterThan(2900);
+    expect(loop.distance).toBeLessThan(3200);
+    expect(loop.gold).toBeLessThan(loop.silver);
+    expect(loop.silver).toBeLessThan(loop.bronze);
+    expect(loop.distance / loop.gold).toBeLessThan(20);
+    expect(roads.isOnRoad(loop.start.x, loop.start.z)).toBe(true);
+  });
+
+  it('cannot be cut round the highway\'s west loop: a U-turn back through Dry Creek and a line across the fields each miss a gate', () => {
+    const roads = world().roads;
+    const loop = buildCountyRunCourses(roads)[0]!;
+    const [h, dc, c] = (['hollister', 'drycreek', 'creek'] as const).map((name) => roads.junction(name));
+    const node = (id: number) => roads.nodes[id]!;
+    const length = (pts: ReadonlyArray<{ x: number; z: number }>) => pts.slice(1).reduce((sum, p, k) => sum + Math.hypot(p.x - pts[k]!.x, p.z - pts[k]!.z), 0);
+    // The course's way from the Hollister T to the Creek T, and the gates on it.
+    const road = loop.nodes.slice(loop.nodes.indexOf(h!.id), loop.nodes.indexOf(c!.id) + 1).map(node);
+    const from = loop.checkpoints.findIndex((g) => g.nodeId === h!.id);
+    const to = loop.checkpoints.findIndex((g) => g.nodeId === c!.id);
+    const west = loop.checkpoints.slice(from + 1, to);
+    expect(length(road)).toBeGreaterThan(1100);
+    // Back east through Dry Creek and down Creek Road, and straight across the fields: each shorter, each missing a
+    // gate.
+    const uTurn = [...roads.findRoute(h!.id, dc!.id)!, ...roads.findRoute(dc!.id, c!.id)!.slice(1)].map(node);
+    const field = [h!, c!];
+    for (const cut of [uTurn, field]) {
+      expect(length(cut)).toBeLessThan(810);
+      expect(west.some((g) => distanceToLine(g.x, g.z, cut) > g.radius)).toBe(true);
+    }
+    // Across the fields from gate to gate, the shortest line through them all saves under 50 m on the road's own racing
+    // line (through the road's width at each of its nodes).
+    const racing = shortestThrough(road.map((n, k) => ({ x: n.x, z: n.z, r: k === 0 || k === road.length - 1 ? loop.checkpoints[from]!.radius : 8 }))).length;
+    const gated = shortestThrough([loop.checkpoints[from]!, ...west, loop.checkpoints[to]!].map((g) => ({ x: g.x, z: g.z, r: g.radius }))).length;
+    expect(gated).toBeGreaterThan(racing - 50);
+  });
+
+  it('drives through real physics within the gold target, along the road through its bends', () => {
+    const { sim, car, course } = setup('laslomas');
+    // The road's own vertices: corners rounded as the city's bot rounds them, the county's bends at the speed their
+    // curves hold.
+    const points = [course.start, ...course.nodes.slice(1).map((id) => sim.roads.nodes[id]!), course.start];
+    const path: Array<{ x: number; z: number; speed: number }> = [];
+    const add = (x: number, z: number, speed: number) => {
+      const previous = path.at(-1);
+      const n = previous ? Math.max(1, Math.ceil(Math.hypot(x - previous.x, z - previous.z) / 2)) : 1;
+      for (let i = 1; i <= n; i++) path.push({ x: previous ? previous.x + (x - previous.x) * i / n : x, z: previous ? previous.z + (z - previous.z) * i / n : z, speed });
+    };
+    add(course.start.x, course.start.z, 34);
+    for (let i = 1; i < points.length - 1; i++) {
+      const p = points[i - 1]!;
+      const corner = points[i]!;
+      const n = points[i + 1]!;
+      const inLength = Math.hypot(corner.x - p.x, corner.z - p.z);
+      const outLength = Math.hypot(n.x - corner.x, n.z - corner.z);
+      const ix = (corner.x - p.x) / inLength;
+      const iz = (corner.z - p.z) / inLength;
+      const ox = (n.x - corner.x) / outLength;
+      const oz = (n.z - corner.z) / outLength;
+      const dot = ix * ox + iz * oz;
+      if (dot > 0.9) {
+        add(corner.x, corner.z, dot > 0.9999 ? 34 : 24);
+        continue;
+      }
+      const radius = Math.min(12, inLength / 3, outLength / 3);
+      const ax = corner.x - ix * radius;
+      const az = corner.z - iz * radius;
+      const bx = corner.x + ox * radius;
+      const bz = corner.z + oz * radius;
+      add(ax, az, 34);
+      for (let slice = 1; slice <= 10; slice++) {
+        const t = slice / 10;
+        add((1 - t) ** 2 * ax + 2 * (1 - t) * t * corner.x + t * t * bx, (1 - t) ** 2 * az + 2 * (1 - t) * t * corner.z + t * t * bz, 10);
+      }
+    }
+    add(course.start.x, course.start.z, 15);
+    start(sim, 'laslomas');
+    let nearest = 0;
+    let frames = 0;
+    for (; frames < course.bronze * 60 && sim.activities.busy; frames++) {
+      let best = Infinity;
+      for (let i = nearest; i < Math.min(path.length, nearest + 24); i++) {
+        const d = Math.hypot(path[i]!.x - car.pos.x, path[i]!.z - car.pos.z);
+        if (d < best) {
+          best = d;
+          nearest = i;
+        }
+      }
+      let aim = nearest;
+      let distance = 0;
+      while (aim + 1 < path.length && distance < 8 + car.speed * 0.15) {
+        distance += Math.hypot(path[aim + 1]!.x - path[aim]!.x, path[aim + 1]!.z - path[aim]!.z);
+        aim++;
+      }
+      const target = path[aim]!;
+      const fx = Math.sin(car.heading);
+      const fz = Math.cos(car.heading);
+      const dx = target.x - car.pos.x;
+      const dz = target.z - car.pos.z;
+      const lateral = dx * -fz + dz * fx;
+      const forward = dx * fx + dz * fz;
+      const curvature = 2 * lateral / Math.max(1, dx * dx + dz * dz);
+      const steer = forward < 0 ? Math.sign(lateral) : Math.atan(curvature * car.spec.length * 0.6) / (car.spec.steer / (1 + car.speed / 15));
+      let targetSpeed = 34;
+      distance = 0;
+      for (let i = nearest; i < path.length && distance < 80; i++) {
+        if (i > nearest) distance += Math.hypot(path[i]!.x - path[i - 1]!.x, path[i]!.z - path[i - 1]!.z);
+        targetSpeed = Math.min(targetSpeed, Math.sqrt(path[i]!.speed ** 2 + 18 * Math.max(0, distance - 5)));
+      }
+      sim.update(1 / 60, input({ steer: Math.max(-1, Math.min(1, steer)), throttle: Math.max(0, Math.min(1, (targetSpeed - car.speed) * 0.6)), brake: Math.max(0, Math.min(1, (car.speed - targetSpeed) * 0.3)) }));
+    }
+    const record = sim.progress.streetRuns.laslomas;
+    console.log(`[laslomas] bot lap ${record ? record.bestTime.toFixed(1) : 'none'} s over ${course.distance} m; gold ${course.gold}, silver ${course.silver}, bronze ${course.bronze}`);
+    expect(record, `${car.pos.x.toFixed(1)},${car.pos.z.toFixed(1)} health=${car.health.toFixed(0)} gate=${sim.activities.job?.kind === 'streetRun' ? sim.activities.job.checkpoint : 'ended'}`).toBeDefined();
     expect(record!.bestTime).toBeLessThan(course.gold);
     expect(car.condition).toBeGreaterThan(0.85);
   });

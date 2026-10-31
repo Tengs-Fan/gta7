@@ -63,7 +63,7 @@ function fixture(calls: { updates: number[]; ends: string[] }): ActivityDef<Fixt
  * the Coyote Ridge Hill Climb, the street run, then the cab and AzuraLink's ride (called from the phone and a station's
  * marker, never by the job key, so they sit after the street run).
  */
-const KINDS = ['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'regatta', 'hillClimb', 'streetRun', 'cab', 'monorail'];
+const KINDS = ['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'regatta', 'hillClimb', 'scramble', 'streetRun', 'cab', 'monorail'];
 
 describe('activity registry', () => {
   afterEach(() => {

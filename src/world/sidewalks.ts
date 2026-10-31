@@ -214,7 +214,15 @@ export class SidewalkGraph {
         else this.link(p.id, q.id, false, null, -1, null);
       }
     }
-    for (const w of country.walks) this.link(this.addNode(w.ax, w.az), this.addNode(w.bx, w.bz), false, null, -1, w.spawn ? this.countyWalkEdges : null);
+    for (const w of country.walks) {
+      const a = this.addNode(w.ax, w.az);
+      const b = this.addNode(w.bx, w.bz);
+      const mx = (w.ax + w.bx) / 2;
+      const mz = (w.az + w.bz) / 2;
+      // A footpath over a road is a crosswalk on the light of the junction nearest it (a town's arms).
+      if (roads.isOnRoad(mx, mz)) this.link(a, b, true, Math.abs(w.bx - w.ax) > Math.abs(w.bz - w.az) ? 'NS' : 'EW', roads.nearestNode(mx, mz).id);
+      else this.link(a, b, false, null, -1, w.spawn ? this.countyWalkEdges : null);
+    }
   }
 
   /** Whether a straight walk from a to b would step into the sea (a bridge's footway keeps it dry). */

@@ -1,6 +1,7 @@
 // Wave-1 render fixes: the merged-car shadow hook survives a WebGL context restore (three replaces its shadowMap),
 // part batches drop the buckets of disposed transient materials, fading cars keep their parts in the shared batches
-// (within the fade draw budget), and a falling helicopter stops on garage roofs at the longest frame the game allows.
+// (within the fade draw budget), the drive-in lot's parked cars draw as the far version however near, and a falling
+// helicopter stops on garage roofs at the longest frame the game allows.
 
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
@@ -11,7 +12,7 @@ import { Helicopter, type Vehicle } from '../../src/sim/entities';
 import { HELI_BOTTOM, heliCrashHit } from '../../src/sim/heliCrash';
 import type { Sim } from '../../src/sim/sim';
 import { GARAGE_ROOF, type StaticWorld } from '../../src/world/staticWorld';
-import { makeSim, step, world } from './helpers';
+import { makeSim, step, teleport, world } from './helpers';
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
@@ -350,6 +351,35 @@ describe('fading cars stay in the part batches', () => {
     // under-car shade's (an unlit pad sized per instance); each is one fixed key, compiled by the warm-up.
     expect(keys.size).toBeLessThanOrEqual(4);
     batches.dispose();
+  });
+});
+
+describe('the Moonbeam Drive-In\'s parked cars', () => {
+  it('draw as the far version however near in its lot, and the city\'s parked cars and an unparked car in the lot as before', () => {
+    const R = new GameRenderer(canvas(), W, { quality: 'high', fov: 68 });
+    const views = (R as unknown as { vehicleViews: Map<number, VehicleView> }).vehicleViews;
+    const sim = makeSim({ world: W });
+    R.attach(sim);
+    R.cameraCtl.mode = 'play';
+    /** Whether a sedan 12 m east of the player at (x, z), parked or not, draws as the far version. */
+    const far = (x: number, z: number, parked: boolean): boolean => {
+      teleport(sim, x, z);
+      R.cameraCtl.reset(sim);
+      const v = sim.spawnVehicle('sedan', x + 12, z, 0);
+      if (parked) v.owner = 'parked';
+      R.render(DT, false);
+      R.render(DT, false);
+      const distant = views.get(v.id)!.isDistant;
+      sim.removeVehicle(v);
+      return distant;
+    };
+    const d = W.layout.country.places.driveIn;
+    const bay = W.layout.parking[d.bays.first + 19]!;
+    expect(far(bay.x - 12, bay.z, true)).toBe(true);
+    expect(far(bay.x - 12, bay.z, false)).toBe(false);
+    // On Magnolia Ave in the city.
+    expect(far(-100, -268, true)).toBe(false);
+    R.dispose();
   });
 });
 

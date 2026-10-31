@@ -34,7 +34,9 @@ export type PropKind =
   // Las Lomas County's farms (world/country/farms.ts).
   | 'silo' | 'grainbin' | 'windpump' | 'fence' | 'bale' | 'orchardTree' | 'propane' | 'cow' | 'scarecrow'
   // Las Lomas County's stop signs (world/country STOP_SIGNS).
-  | 'stopSign';
+  | 'stopSign'
+  // Las Lomas County's places (world/country/places.ts): Gas & Grits' pumps, the Moonbeam Drive-In's speaker posts.
+  | 'pump' | 'speaker';
 /** The `contact...` kinds are mission givers' places: which one a POI is, and how it is built, is the SPECIALS row's business. */
 export type PoiKind = 'safehouse' | 'hospital' | 'police' | 'spray' | 'gunshop' | 'bank' | 'marina' | `contact${string}`;
 export type RoofPropKind = 'ac' | 'tank' | 'antenna' | 'billboard' | 'helipad';
@@ -160,6 +162,8 @@ export interface Ramp {
   length: number;
   width: number;
   height: number;
+  /** A stunt ramp, a jump off it a stunt (the coast's five and the farm's kicker); Gravel Gulch's whoops and tabletops are not. */
+  stunt: boolean;
 }
 
 export interface Deck {
@@ -168,6 +172,8 @@ export interface Deck {
   name: string;
   /** A bridge's carriageway or footway over the canal (a slab with parapets), not a pier on pilings. */
   bridge: boolean;
+  /** A dirt track's tabletop (world/country/places.ts), drawn by the track: no pier, no pilings. */
+  dirt?: true;
 }
 
 /** Sea inside the land: a cove, a harbour basin or a canal. */
@@ -1820,7 +1826,7 @@ export function beachOffsetAt(y: number): number {
 function buildRamps(layout: CityLayout): void {
   const b = layout.bounds;
   const addRamp = (x: number, z: number, heading: number, height = 2.4) =>
-    layout.ramps.push({ id: layout.ramps.length, x, z, heading, length: 11, width: 6.5, height });
+    layout.ramps.push({ id: layout.ramps.length, x, z, heading, length: 11, width: 6.5, height, stunt: true });
   // Beach, launching south and north along the sand.
   addRamp(b.beachStartX + 22, b.landMinZ + 150, 0, 2.6);
   addRamp(b.beachStartX + 22, b.landMaxZ - 190, Math.PI, 2.6);

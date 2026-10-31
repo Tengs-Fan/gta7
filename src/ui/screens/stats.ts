@@ -23,7 +23,7 @@ export function showStats(ctx: MenuCtx): void {
     ['Game completion', `${completion}%`],
     ['Story missions', `${done} / ${story}`],
     ['Hidden packages', `${p.packages.length} / ${PACKAGE_COUNT}`],
-    ['Unique stunt jumps', `${p.stunts.length} / ${sim.world.layout.ramps.length}`],
+    ['Unique stunt jumps', `${p.stunts.length} / ${sim.world.layout.ramps.filter((r) => r.stunt).length}`],
     ['Rampages', `${p.rampages.length} / 3`],
     ['Money earned', formatMoney(s.moneyEarned)],
     ['Money spent', formatMoney(s.moneySpent)],

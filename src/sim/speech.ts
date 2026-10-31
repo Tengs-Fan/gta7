@@ -17,7 +17,9 @@ export type BarkKind =
   // The Cud & Sons Dairy's farmer, at a cow going over.
   | 'dairyman'
   // The Marina hand calling the Gull Regatta's boat up on its radio.
-  | 'marina';
+  | 'marina'
+  // The Moonbeam Drive-In's moviegoers, at a horn during the film.
+  | 'shush';
 /**
  * What a music station's DJ says over a song's intro: an ident, a hit's announce ('front') or back-announce ('back'),
  * banter, or a line for the night, the rain, a chase or a chase got away from.

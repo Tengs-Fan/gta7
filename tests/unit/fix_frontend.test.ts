@@ -4894,7 +4894,8 @@ describe('San Azura driving HUD', () => {
     game.menus.showStreetRuns();
     const rows = (game.menus.top!.el as unknown as FakeElement).all();
     const courses = game.sim.activities.streetRunCourses();
-    expect(courses.length).toBe(3);
+    // The city's three and the Las Lomas Loop.
+    expect(courses.length).toBe(4);
     for (const c of courses) {
       const row = rows.find(e => e.dataset.id === `course-${c.id}`)!;
       expect(row).toBeDefined();

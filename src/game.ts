@@ -37,7 +37,7 @@ import { rememberedFields } from './ui/screens/multiplayer';
 import type { MultiplayerMenuHost } from './ui/screens/shared';
 import type { RaceCommand } from './net/lobby';
 import { playerColor } from './sim/appearance';
-import { buildStreetRunCourses } from './sim/streetRuns';
+import { allStreetRunCourses } from './sim/streetRuns';
 import { MP_NO_CHEATS } from './sim/cheats';
 import { StaticWorld } from './world/staticWorld';
 
@@ -1139,7 +1139,7 @@ export class Game {
       },
       race: () => this.mpOverlay.race,
       raceJoinLeft: () => this.mpOverlay.joinLeft(mirror()?.tick ?? 0),
-      courses: () => buildStreetRunCourses(this.world.roads).map((c) => ({ id: c.id, name: c.name, description: c.description, distance: c.distance })),
+      courses: () => allStreetRunCourses(this.world.roads).map((c) => ({ id: c.id, name: c.name, description: c.description, distance: c.distance })),
       raceCommand: (cmd) => this.net?.client.command(RACE_COMMAND, JSON.stringify(cmd)),
     };
   }

@@ -32,7 +32,8 @@ export function buildStructures(view: CityView): void {
   // The farm's kicker wears hay bales instead (attractions.ts).
   const hay = attractionOf(layout, 'farm').anchors.ramp;
   for (const r of layout.ramps) {
-    if (r.id === hay) continue;
+    // Gravel Gulch's whoops and tabletops are dirt (render/country/track.ts).
+    if (r.id === hay || !r.stunt) continue;
     const fx = Math.sin(r.heading);
     const fz = Math.cos(r.heading);
     const sx = Math.cos(r.heading);

@@ -101,7 +101,8 @@ describe('the attractions pass', () => {
     const farm = farmOf(sim.world);
     expect(farm.anchors.ramp).toBe(5);
     expect(sim.world.layout.ramps[5]!.id).toBe(5);
-    expect(sim.world.layout.ramps.length).toBe(6);
+    // Gravel Gulch's whoops and tabletops come after it, and are no stunt jumps.
+    expect(sim.world.layout.ramps.filter((r) => r.stunt).length).toBe(6);
     const row = completionRows(sim, sim.players[0]!).find((r) => r.id === 'stunts')!;
     expect(row.total).toBe(6);
   });

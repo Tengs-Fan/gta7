@@ -4,9 +4,11 @@
 // faded into the sky; the city's own buildings never come here, so CityView keeps its skyline. The ground's cells are
 // drawn finer near the camera and coarser beyond COUNTRY_NEAR, and those under Coyote Ridge and the foothills keep their
 // outline in the haze past the cull (ground.ts). The content passes (the landscape, the farms, the places) add their
-// meshes through add() too; the farms' crops near the camera and the windpump's wheel move in update().
+// meshes through add() too; the farms' crops near the camera and the windpump's wheel, and the places' neon and the
+// drive-in's screen, move in update().
 
 import * as THREE from 'three';
+import type { ViewState } from '../../sim/viewState';
 import type { Rect } from '../../world/layout';
 import type { StaticWorld } from '../../world/staticWorld';
 import type { CityView } from '../city';
@@ -15,12 +17,16 @@ import type { WindUniforms } from '../props';
 import { COUNTRY_CELL, COUNTRY_FOG_MARGIN, COUNTRY_NEAR, CROP_RING, type QualityTier } from '../quality';
 import { spatialGeometry, StaticVisibility } from '../spatial';
 import { buildBridge } from './bridge';
+import { buildDriveIn } from './driveIn';
 import { FarmsView } from './farms';
 import { FieldsView } from './fields';
 import { buildCountryGround } from './ground';
 import { buildHills } from './hills';
+import { PlacesKit } from './kit';
 import { Reflectors } from './reflectors';
 import { buildCountryRoads } from './roads';
+import { buildTown } from './town';
+import { buildTrack } from './track';
 
 export class CountryView {
   readonly group = new THREE.Group();
@@ -35,6 +41,10 @@ export class CountryView {
   readonly fields: FieldsView;
   private readonly sun = new THREE.Vector3();
   private readonly moon = new THREE.Vector3();
+  /** What the places animate each frame: Moo-Moo's neon cow, the drive-in's screen. */
+  private readonly animated: Array<(night: number, time: number, sim: ViewState | null) => void> = [];
+  /** The drive-in's cars flash their lights at a horn (driveInShush). */
+  readonly shush: (time: number) => void;
 
   constructor(
     readonly world: StaticWorld,
@@ -55,6 +65,13 @@ export class CountryView {
     this.reflectors = new Reflectors(this);
     this.farms = new FarmsView(this);
     this.fields = new FieldsView(this, wind);
+    const kit = new PlacesKit();
+    this.animated.push(buildTown(this, kit));
+    const driveIn = buildDriveIn(this, kit);
+    this.animated.push(driveIn.update);
+    this.shush = driveIn.shush;
+    buildTrack(this, kit);
+    kit.finish(this);
   }
 
   /** The tier's crops near the camera (quality.ts CROP_RING). */
@@ -62,11 +79,15 @@ export class CountryView {
     this.fields.setTier(CROP_RING[tier]);
   }
 
-  /** Each frame, with the camera at (x, y, z): the crops round it, the sunflowers to the sun (`hours`), the windpump's wheel. */
-  update(x: number, y: number, z: number, time: number, hours: number, wind: { readonly x: number; readonly z: number }): void {
+  /**
+   * Each frame, with the camera at (x, y, z): the crops round it, the sunflowers to the sun (`hours`), the windpump's
+   * wheel, and the places' neon and the drive-in's screen (`night`, and the sim's clock and cars).
+   */
+  update(x: number, y: number, z: number, night: number, time: number, hours: number, wind: { readonly x: number; readonly z: number }, sim: ViewState | null): void {
     skyPath(hours, this.sun, this.moon);
     this.fields.update(x, y, z, this.sun.x, this.sun.z);
     this.farms.update(time, Math.hypot(wind.x, wind.z));
+    for (const f of this.animated) f(night, time, sim);
   }
 
   /** A static layer of the county, cut into COUNTRY_CELL cells (unless `split` is false: a few pieces across it). */

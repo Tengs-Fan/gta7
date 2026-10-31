@@ -8,6 +8,7 @@ import type { StreetRunCourse } from '../streetRuns';
 import { cabActivity } from './cab';
 import { rampageActivity } from './rampage';
 import { regattaActivity } from './regatta';
+import { scrambleActivity } from './scramble';
 import { onVehicleLanded } from './stunts';
 import { streetRunActivity, streetRunCourses } from './streetRun';
 import { placeOnSidewalk, taxiActivity } from './taxi';
@@ -25,6 +26,7 @@ import type { ActivityDef, ActivityHost, ActivityJob, CancelReason, Job, Objecti
 export type { CabJob } from './cab';
 export type { RampageJob } from './rampage';
 export type { RegattaJob } from './regatta';
+export type { ScrambleJob } from './scramble';
 export type { StreetRunJob } from './streetRun';
 export type { TaxiJob } from './taxi';
 export type { VigilanteJob } from './vigilante';
@@ -72,6 +74,7 @@ registerActivity(cabActivity);
 registerActivity(regattaActivity);
 registerActivity(monorailActivity);
 registerActivity(hillClimbActivity);
+registerActivity(scrambleActivity);
 
 export class Activities {
   /** Slot 0's job (single player's only one); other slots' jobs are behind jobOf. */

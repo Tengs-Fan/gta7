@@ -145,7 +145,7 @@ function wallOf(b: Building, side: Side): Wall {
 /** Every first-tier wall within STREET_FACING_DIST of its lot edge, computed here from scratch. */
 function streetWalls(W: StaticWorld): Wall[] {
   const out: Wall[] = [];
-  // The city's buildings: Las Lomas County's farmhouses stand on no block.
+  // The city's buildings: Las Lomas County's farmhouses and Dry Creek's stores stand on no block.
   for (const b of W.layout.buildings.slice(0, W.layout.country.firstBuilding)) {
     const t = b.tiers[0]!;
     const lot = W.layout.blocks.find((bl) => bl.lot.minX <= t.minX && bl.lot.maxX >= t.maxX && bl.lot.minZ <= t.minZ && bl.lot.maxZ >= t.maxZ)!.lot;
@@ -266,8 +266,10 @@ describe('round 2 city: layout', () => {
     // parapets, the four props moved out of the links' mouths, its signal heads and lamps), and on the integrated county
     // head, where its traffic made the Hollister T's and the Creek T's heads a stop sign and two lamps each, its
     // landscape rose (Coyote Ridge and the foothills in its rises, the ridge's turbines, the tree belts along its foot
-    // and the scrub) and its farms were appended (their fields, farmhouses, barns, hedgerows, props and farmyard bays,
-    // and the dairy's farmer's spot).
+    // and the scrub), its farms were appended (their fields, farmhouses, barns, hedgerows, props and farmyard bays, and
+    // the dairy's farmer's spot) and its places theirs (Dry Creek's stores, props, POIs, footpaths and bays, the Moonbeam
+    // Drive-In's posts and bays, Gravel Gulch's ramps and decks and its gates at its turns' apexes), and every ramp gained
+    // its stunt flag.
     expect(layoutHash()).toBe('23c90d40fe73b38029d65ef730236a22cdc7653da4322e41c5dbd056518322f0');
   });
 
@@ -275,7 +277,8 @@ describe('round 2 city: layout', () => {
     const L = generateCity();
     const front = frontages(L);
     const kinds = new Set<string>();
-    // The city's buildings: Las Lomas County's farmhouses stand on no block and have no ground floor.
+    // The city's buildings: Las Lomas County's farmhouses and Dry Creek's stores stand on no block and have no ground
+    // floor.
     for (const b of L.buildings.slice(0, L.country.firstBuilding)) {
       const f = front.get(b)!;
       expect(f, `building ${b.id} has a block`).toBeTruthy();

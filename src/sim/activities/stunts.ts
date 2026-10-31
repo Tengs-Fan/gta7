@@ -4,7 +4,8 @@ import type { Sim } from '../sim';
 
 /** Pays the stunt bonus for a jump the player's vehicle has just landed. */
 export function onVehicleLanded(sim: Sim, v: Vehicle): void {
-  if (!v.driver || !v.driver.isPlayer || v.launchRamp < 0) {
+  // A dirt track's whoops and tabletops (Gravel Gulch) throw a car too, but they are no stunt.
+  if (!v.driver || !v.driver.isPlayer || v.launchRamp < 0 || !sim.world.layout.ramps[v.launchRamp]!.stunt) {
     v.launchRamp = -1;
     return;
   }

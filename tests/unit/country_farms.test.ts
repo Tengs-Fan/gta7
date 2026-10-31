@@ -84,13 +84,13 @@ describe('Las Lomas County: the farmsteads', () => {
 
   it('adds no open spot, appends its farmyard bays after every older one, and leaves the city its nearest bays', () => {
     expect(L.openSpots.filter((s) => s.x < L.bounds.landMinX)).toEqual([]);
+    // The county's bays come after every city bay, the farmyards' first (the places append theirs after them).
     const county = L.parking.map((s, i) => [s, i] as const).filter(([s]) => s.x < L.bounds.landMinX);
-    expect(county.length).toBe(8);
     expect(county.map(([, i]) => i)).toEqual(county.map((_, k) => L.parking.length - county.length + k));
-    for (const [s] of county) {
-      expect(W.isFree(s.x, s.z, 1.6)).toBe(true);
-      expect(farms.farmsteads.some((f) => rectContains(f.yard, s.x, s.z))).toBe(true);
-    }
+    const yards = county.filter(([s]) => farms.farmsteads.some((f) => rectContains(f.yard, s.x, s.z)));
+    expect(yards.length).toBe(8);
+    expect(yards.map(([, i]) => i)).toEqual(yards.map((_, k) => county[0]![1] + k));
+    for (const [s] of yards) expect(W.isFree(s.x, s.z, 1.6)).toBe(true);
     // From anywhere in the city, the nearest bay is a city bay.
     for (let x = L.bounds.cityMinX; x <= L.bounds.cityMaxX; x += 60) {
       for (let z = L.bounds.cityMinZ; z <= L.bounds.cityMaxZ; z += 60) {

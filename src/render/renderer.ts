@@ -8,6 +8,7 @@ import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/
 import type { Vehicle } from '../sim/entities';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
+import { rectContains } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { CameraController } from './camera';
 import { ContactShadows, FootShadows } from './contactShadows';
@@ -284,7 +285,7 @@ export class GameRenderer {
     // Without half-float targets there is no environment map (three's PMREM needs them).
     this.env = new Environment(this.scene, this.renderer, { hdr: this.hdr, software: this.software });
     this.env.setShore(world.layout);
-    setPilings(this.env.sea, world.layout.decks.filter((d) => !d.bridge));
+    setPilings(this.env.sea, world.layout.decks.filter((d) => !d.bridge && !d.dirt));
     setSeaCuts(this.env.sea, world.layout.water.map((w) => w.bounds));
     this.effects.foam.bindSea(this.env.sea);
     this.pool.bindSea(this.env.sea);
@@ -800,6 +801,7 @@ export class GameRenderer {
         if (p.kind === 'pumpkin') fx.debris(p.x, p.y, p.z, 0xff7a12, 0xc24a08);
       }),
       ev.on('splash', (e) => fx.splash(e.x, e.y, e.z, e.big)),
+      ev.on('driveInShush', () => this.country.shush(this.time)),
       ev.on('lightning', () => {
         if (this.lightningFlashes) this.flashAge = 0;
       }),
@@ -928,7 +930,12 @@ export class GameRenderer {
     this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
   }
 
-  /** The merged far version for every car but the player's beyond FAR_LOD_DISTANCE (software: its own distance). */
+  /**
+   * The merged far version for every car but the player's beyond FAR_LOD_DISTANCE (software: its own distance), and on
+   * the hardware tiers for the cars parked in the Moonbeam Drive-In's lot however near: its forty bays fill for the
+   * show, and from a bay a parked car's far version looks as its near one does (setDistant: only small dents and its
+   * shadow differ).
+   */
   private chooseDetail(view: AnyVehicleView, v: Vehicle, sim: ViewState): void {
     const cam = this.cameraCtl.camera.position;
     const d2 = (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2;
@@ -938,7 +945,7 @@ export class GameRenderer {
       return;
     }
     const d = FAR_LOD_DISTANCE + (view.isDistant ? -FAR_LOD_BAND : FAR_LOD_BAND);
-    view.setDistant(!mine && d2 > d * d);
+    view.setDistant(!mine && (d2 > d * d || (v.owner === 'parked' && rectContains(this.world.layout.country.places.driveIn.lot, v.pos.x, v.pos.z))));
   }
 
   /** Refills the part batches with the cars drawn this frame (fading ones included) whose bounds are in the camera's view. */
@@ -1190,7 +1197,7 @@ export class GameRenderer {
     this.effects.update(dt, this.time, this.cameraCtl.camera.position);
     this.syncLightPool();
     this.country.cull(cam.position.x, cam.position.z, this.env.fog.far);
-    this.country.update(cam.position.x, cam.position.y, cam.position.z, this.time, hours, weather?.wind ?? NO_WIND);
+    this.country.update(cam.position.x, cam.position.y, cam.position.z, night, this.time, hours, weather?.wind ?? NO_WIND, sim);
     if (this.software) {
       // Culling ends at the fog horizon, where geometry has already faded into the sky.
       this.city.cull(cam, 230);

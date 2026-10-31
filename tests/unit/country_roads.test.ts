@@ -223,7 +223,9 @@ describe('Las Lomas County: the land', () => {
     const walk = W.walk;
     expect(walk.walkEdges.length).toBe(432);
     expect(walk.walkEdges.every(([a, b]) => a < 463 && b < 463)).toBe(true);
-    expect(walk.countyWalkEdges).toEqual([]);
+    // The county's spawn ground is its places' footpaths alone (Dry Creek's boardwalks: dry_creek.test.ts), no verge.
+    const town = COUNTY_PLOTS.find((p) => p.id === 'drycreek')!.rect;
+    for (const [a, b] of walk.countyWalkEdges) for (const n of [walk.nodes[a]!, walk.nodes[b]!]) expect(rectContains(town, n.x, n.z)).toBe(true);
     // No county edge touches the city's graph.
     for (const n of walk.nodes.slice(0, 463)) expect(n.edges.every((e) => e.to < 463)).toBe(true);
     for (const p of centrePoints(5)) {
@@ -233,11 +235,9 @@ describe('Las Lomas County: the land', () => {
     }
     // From the middle of a field, the nearest walk node is the county's, not the promenade's.
     for (const p of COUNTY_PLOTS) expect(walk.nearestNode((p.rect.minX + p.rect.maxX) / 2, (p.rect.minZ + p.rect.maxZ) / 2), p.name).toBeGreaterThanOrEqual(463);
-    // No pedestrian spawns in the county while it has no footpath: no draw either.
+    // No pedestrian spawns in the county where it has no footpath in reach.
     const a = makeSim({ seed: 2 });
-    const b = makeSim({ seed: 2 });
     expect(a.world.walk.randomPointNear(a.rng, -900, 0, 20, 100)).toBeNull();
-    expect(a.rng.next()).toBe(b.rng.next());
   });
 
   it('lets a swimmer climb out onto a beach', () => {

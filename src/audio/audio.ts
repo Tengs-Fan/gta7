@@ -295,6 +295,19 @@ export class AudioEngine {
         if (this.mine(e) && e.amount >= 500) this.chime('cash');
       }),
       on('splash', (e) => this.splash(e.x, e.y, e.z, e.big)),
+      // From the nearest of the cars round the horn at the drive-in (each car its own voice).
+      on('driveInShush', (e) => {
+        let best: Vehicle | null = null;
+        let bd = 20 * 20;
+        for (const v of sim.vehicles) {
+          const d = (v.pos.x - e.x) ** 2 + (v.pos.z - e.z) ** 2;
+          if (v.owner === 'parked' && !v.removed && d < bd) {
+            bd = d;
+            best = v;
+          }
+        }
+        this.bark('shush', best?.id ?? -2, best?.pos.x ?? e.x, 1.2, best?.pos.z ?? e.z);
+      }),
       on('propBroken', (e) => {
         const p = sim.world.layout.props[e.index]!;
         // Corn rustles as it goes down, a cow moos; the rest thuds.

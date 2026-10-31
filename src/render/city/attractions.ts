@@ -59,7 +59,8 @@ export function pitched(g: GeoBuilder, r: Rect, eaves: number, ridge: number, al
  * Everything the attractions draw shares one texture, a column of 1024 px wide bands (ATLAS_H tall in all), so they are
  * one draw: a white band under the vertex-coloured buildings, the painted boards, the hay and the stained glass. Its
  * twin, the glow texture, is black but for the glass, which lights up after dark (the signs' emissive, CityView.update).
- * Las Lomas County's farms paint their signs on one of their own (render/country/farms.ts), `height` px tall.
+ * Las Lomas County's farms and places paint their signs on atlases of their own (render/country/farms.ts and kit.ts),
+ * `height` px tall.
  */
 const ATLAS_H = 2048;
 const GLOW_SHRINK = 4;

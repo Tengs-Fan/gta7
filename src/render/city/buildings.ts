@@ -260,6 +260,8 @@ export function buildBuildings(view: CityView): void {
   for (const f of storefrontPlan(layout)) view.storefronts.set(frontKey(f.building, f.side, f.index), f);
 
   for (const b of layout.buildings) {
+    // Dry Creek's stores are drawn with the county (render/country/town.ts).
+    if (b.district === 'country') continue;
     const gb = builders.get(b.style)!;
     // Per-building seed (k / 1000) for the night windows, so neighbours of one style never match.
     gb.seed = (hashInts(b.id, 0x5eed) % 1000) / 1000;

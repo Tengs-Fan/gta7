@@ -116,10 +116,16 @@ export class StaticWorld {
     const t = LOOKOUT.tower;
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.addCircle(t.x + sx * t.half, t.z + sz * t.half, t.post, top, top + t.cab, 'pillar');
     g.addBox(t.x - t.half - 0.3, t.z - t.half - 0.3, t.x + t.half + 0.3, t.z + t.half + 0.3, top + t.cab, top + t.top, 'wall');
-    // The farms' farmhouses, barns and hedgerows (world/country/farms.ts).
+    // Its buildings, the farms' farmhouses then Dry Creek's stores, the farms' barns and hedgerows (world/country/farms.ts),
+    // and the places' solids (world/country/places.ts).
     for (const b of this.layout.buildings.slice(country.firstBuilding)) this.addBuilding(b.tiers);
     for (const gar of this.layout.garages.slice(country.firstGarage)) this.addGarage(gar);
     for (const h of country.farms.hedges) g.addBox(h.minX, h.minZ, h.maxX, h.maxZ, 0, HEDGE_H, 'hedge');
+    for (const s of country.places.solids) {
+      const r = s.rect;
+      if (s.round) g.addCircle((r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2, (r.maxX - r.minX) / 2, s.y0, s.y1, s.tag);
+      else g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, s.y0, s.y1, s.tag);
+    }
   }
 
   private addBuilding(tiers: Building['tiers']): void {
@@ -238,6 +244,10 @@ export class StaticWorld {
         return g.addCircle(p.x, p.z, 0.3, p.y, p.y + 2.2 * s, 'bin', i, true).id;
       case 'stopSign':
         return g.addCircle(p.x, p.z, 0.06, p.y, p.y + 2.6, 'lamp', i, true).id;
+      case 'pump':
+        return g.addBox(p.x - 0.4, p.z - 0.4, p.x + 0.4, p.z + 0.4, p.y, p.y + 1.9, 'bin', i, true).id;
+      case 'speaker':
+        return g.addCircle(p.x, p.z, 0.1, p.y, p.y + 1.5, 'lamp', i, true).id;
       case 'bush':
       default:
         return -1;

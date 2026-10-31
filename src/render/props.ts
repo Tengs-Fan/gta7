@@ -27,8 +27,10 @@ import { dressingItems, type DressingItem, type DressingKind } from './dressing'
 import { WIND_GLSL, windAmplitude } from './wind';
 import { SHADOW_LAYER } from './vehicleBatches';
 import { CORN_H, cornGeometry, cornTexture, headstoneGeometry, HEADSTONE_SHAPES, ironFenceGeometry, pumpkinGeometry } from './attractionModels';
+import { speakerGeometry } from './country/driveIn';
 import { applesGeometry, baleTexture, COW_NECK, cowGeometry, cowTexture, farmFenceGeometry, propaneGeometry, scarecrowGeometry } from './country/farmModels';
 import { stopSignGeometry } from './country/stopSign';
+import { pumpGeometry } from './country/town';
 
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
@@ -570,7 +572,10 @@ export class PropsView {
     for (const i of get('lighthouse')) this.buildLighthouse(world.layout.props[i]!);
     for (const i of get('ferris')) this.buildFerris(world.layout.props[i]!);
     for (const i of get('boat')) this.buildBoat(world.layout.props[i]!);
-    get('billboard').forEach((i, k) => this.buildBillboard(world.layout.props[i]!, k));
+    // Las Lomas County's billboards carry its own ads (render/country/town.ts).
+    get('billboard').filter((i) => world.layout.props[i]!.x >= world.layout.bounds.landMinX).forEach((i, k) => this.buildBillboard(world.layout.props[i]!, k));
+    this.makeInstanced(pumpGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.2 }), get('pump'), PropsView.standard);
+    this.makeInstanced(speakerGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0.3 }), get('speaker'), PropsView.standard);
     this.buildRoofProps();
     this.buildDressing(dressingItems(world));
     world.layout.props.forEach((p, i) => {
@@ -1334,8 +1339,9 @@ export class PropsView {
     const toOrigin = new THREE.Matrix4().makeTranslation(-p.x, -p.y, -p.z);
     const back = new THREE.Matrix4().makeTranslation(p.x, p.y + (p.kind === 'lamp' || p.kind === 'signal' ? 0.15 : p.kind === 'cow' ? 0.4 : 0.2), p.z);
     // A knocked-down lamp goes completely, light and all, so no head, lens or glow is left hanging where it stood; a
-    // smashed pumpkin goes in a burst of orange, the propane tank in its blast (renderer.ts).
-    const hide = p.kind === 'hydrant' || p.kind === 'lamp' || p.kind === 'pumpkin' || p.kind === 'propane';
+    // smashed pumpkin goes in a burst of orange, the propane tank in its blast (renderer.ts), a pump up in its blast
+    // (sim/dryCreek.ts).
+    const hide = p.kind === 'hydrant' || p.kind === 'lamp' || p.kind === 'pumpkin' || p.kind === 'propane' || p.kind === 'pump';
     for (const r of [...refs, ...(this.shadowRefs.get(index) ?? [])]) {
       let m: THREE.Matrix4;
       if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat || r.mesh === this.signalBulbs || r.mesh.userData.signalBulbs) m = new THREE.Matrix4().makeScale(0, 0, 0);

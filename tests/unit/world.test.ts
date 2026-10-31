@@ -25,12 +25,13 @@ describe('city layout', () => {
     expect(L.props.length).toBeGreaterThan(800);
     expect(L.parking.length).toBeGreaterThan(40);
     expect(L.openSpots.length).toBeGreaterThan(40);
-    // Five round the coast and Hollister Farm's hay-bale kicker.
-    expect(L.ramps.length).toBe(6);
+    // Five round the coast and Hollister Farm's hay-bale kicker (Gravel Gulch's whoops and tabletops are no stunt ramps).
+    expect(L.ramps.filter((r) => r.stunt).length).toBe(6);
   });
 
   it('keeps every building inside a block lot', () => {
-    // The city's: Las Lomas County's farmhouses stand in their farmyards (country_farms.test.ts).
+    // The city's: Las Lomas County's farmhouses stand in their farmyards (country_farms.test.ts) and Dry Creek's stores in
+    // its town, in no block (dry_creek.test.ts).
     for (const b of L.buildings.slice(0, L.country.firstBuilding)) {
       const inside = L.blocks.some((bl) => rectContains(bl.lot, b.rect.minX, b.rect.minZ, 0.01) && rectContains(bl.lot, b.rect.maxX, b.rect.maxZ, 0.01));
       expect(inside, `building ${b.id}`).toBe(true);
@@ -54,7 +55,7 @@ describe('city layout', () => {
 
   it('places every special point of interest exactly once', () => {
     const ids = L.pois.map((p) => p.id).sort();
-    expect(ids).toEqual(['bank', 'dex', 'guns_south', 'guns_west', 'hospital', 'lou', 'marina', 'police', 'safehouse', 'spray_docks', 'spray_hill', 'spray_south', 'vera']);
+    expect(ids).toEqual(['bank', 'dex', 'guns_county', 'guns_south', 'guns_west', 'hospital', 'lou', 'marina', 'police', 'safehouse', 'sheriff', 'spray_docks', 'spray_hill', 'spray_south', 'vera']);
     for (const p of L.pois) {
       expect(world.isFree(p.x, p.z, 0.6), `poi ${p.id} marker blocked`).toBe(true);
       expect(world.waterDepth(p.x, p.z)).toBeLessThan(0);

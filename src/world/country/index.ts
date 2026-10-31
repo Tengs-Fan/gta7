@@ -11,6 +11,7 @@ import { addProp, mkRect, PARAPET_T, rectContains, type CityLayout, type Rect } 
 import { riseAt, type Rise } from '../terrain';
 import { buildFarms, noFarms, type CountyFarms } from './farms';
 import { buildHills } from './hills';
+import { buildPlaces, noPlaces, type CountyPlaces } from './places';
 
 export type CountryRoadKind = 'highway' | 'country';
 
@@ -92,6 +93,8 @@ export interface Country {
   walks: CountyWalk[];
   /** The farms (world/country/farms.ts): their fields, farmsteads, hedgerows and the props kept by index. */
   farms: CountyFarms;
+  /** Dry Creek, the Moonbeam Drive-In and Gravel Gulch (places.ts). */
+  places: CountyPlaces;
   /**
    * The first prop, parapet, building and garage of the county's: StaticWorld adds their colliders after every older
    * one.
@@ -361,6 +364,7 @@ export function buildCountry(layout: CityLayout): void {
     rises: [],
     walks: [],
     farms: noFarms(),
+    places: noPlaces(),
     firstProp: layout.props.length,
     firstParapet: layout.parapets.length,
     firstBuilding: layout.buildings.length,
@@ -404,6 +408,7 @@ export function buildCountry(layout: CityLayout): void {
   // buildPlaces.
   buildHills(layout);
   buildFarms(layout);
+  buildPlaces(layout);
 }
 
 /** A node's place: a grid node's line crossing, or a county vertex. */
@@ -441,6 +446,7 @@ export function noCountry(): Country {
     rises: [],
     walks: [],
     farms: noFarms(),
+    places: noPlaces(),
     firstProp: 0,
     firstParapet: 0,
     firstBuilding: 0,

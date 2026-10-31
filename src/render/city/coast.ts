@@ -65,7 +65,7 @@ export function buildCoast(view: CityView): void {
   const deck = new GeoBuilder(false);
   const pillars: THREE.Vector3[] = [];
   for (const d of view.world.layout.decks) {
-    if (d.bridge) continue;
+    if (d.bridge || d.dirt) continue;
     deck.box(d.rect.minX, d.y - DECK_SLAB, d.rect.minZ, d.rect.maxX, d.y, d.rect.maxZ, { uv: { kind: 'world', scale: 4 }, bottom: true });
     for (const p of pilingCentres(d.rect, (x, z) => view.world.baseGround(x, z))) pillars.push(new THREE.Vector3(p.x, d.y, p.z));
   }

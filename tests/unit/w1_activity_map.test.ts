@@ -24,6 +24,7 @@ describe('activity sites on the map', () => {
       { what: "Lou's export board", x: marker('export_board').x, z: marker('export_board').z },
       { what: 'Gull Regatta start', x: REGATTA_START.x, z: REGATTA_START.z },
       { what: 'Coyote Ridge Hill Climb foot gate', x: HILL_CLIMB_START.x, z: HILL_CLIMB_START.z },
+      { what: 'Gravel Gulch scramble start', ...sim.world.layout.country.places.track.start },
     ];
     const shown = collectBlips(sim, 0, 0, { map: true }).filter((b) => b.category === 'activities');
     const rows: string[] = [];

@@ -362,9 +362,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // the links' mouths out of the way (two lamps, a tree, a bench) and appended, after every other collider, the
     // Southgate Bridge's two parapets and its arch's four portal posts, the gateways' and its junctions' signal heads and
     // the causeway's lamps; and both on the integrated county head, where its traffic made the Hollister T's and the
-    // Creek T's heads a stop sign and two lamps each, its landscape appended the ridge's turbines and tree belts and its
-    // farms their props, and after every other collider the landscape its rises' sight cores and Lookout Point's
-    // parapet and tower, then the farms their farmhouses, their barns' walls and roofs and their hedgerows.
+    // Creek T's heads a stop sign and two lamps each, its landscape appended the ridge's turbines and tree belts, its
+    // farms their props and its places theirs, and after every other collider the landscape its rises' sight cores and
+    // Lookout Point's parapet and tower, then the farms' farmhouses and Dry Creek's stores, the farms' barns' walls and
+    // roofs and their hedgerows, and the places' solids (the town's, the drive-in's).
     expect(b).toBe('a563ac93264775491aeef9435556a31c126f51d48def2b1806a9c1bd6ab87ccb');
     expect(c).toBe('410075e0ea20d7dffbbb20cd6661941513af32e959d3d223bc6efdbea0f8b0a6');
   });

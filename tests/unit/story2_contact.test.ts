@@ -209,7 +209,7 @@ describe('completion counts 12 story missions', () => {
     expect(half).toEqual({ completion: '50%', story: '12 / 12' });
     const p = sim.progress;
     p.packages = Array.from({ length: PACKAGE_COUNT }, (_, i) => i);
-    p.stunts = sim.world.layout.ramps.map((_, i) => i);
+    p.stunts = sim.world.layout.ramps.filter((r) => r.stunt).map((r) => r.id);
     p.rampages = ['a', 'b', 'c'];
     const full = statsOf(sim);
     console.log('everything:', full);
