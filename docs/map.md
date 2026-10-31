@@ -1,7 +1,7 @@
 # The map of San Azura
 
 San Azura used to be one perfect square: a 10 by 10 grid of blocks inside a ring road, a promenade round three sides and the beach on the fourth.
-This page explains how the city is built, what depends on its shape, and how the shape was broken up without rewriting the road network.
+This page explains how the city is built, what depends on its shape, and how the shape was broken up without rewriting the road network, and how Las Lomas County's roads join it from outside the grid.
 
 ![The map screen: Hillcrest Cove in the north-west, Cortez Canal from coast to coast, Port Basin in the south-west, Azura Point to the north, and the big blocks of Hillcrest Green, Civic Plaza and the Azura Bowl](screenshots/map.jpg)
 
@@ -175,10 +175,47 @@ Whatever moves is held inside the new edge, and the map and the rain's cover gri
 `buildOffshore` appends all of it once the ground floors are assigned, drawing from its own generator.
 Every older prop index, collider and pickup, the mission spots and the open spots therefore stay as they were.
 
+## Las Lomas: roads outside the grid
+
+Las Lomas County is about 0.9 km² of flat farmland on six rectangles west of the city, across Lomas Sound (x -700 to -512), with a beach round it (`src/world/country/index.ts`).
+Two links reach it: the Magnolia Causeway, which runs Magnolia Ave on from Harbor Blvd as a 16 m highway on a headland of its own with grass verges, lamps every 30 m and quay walls and rocks along its sides, and the Southgate Bridge, which carries Southgate Ave over the sound on a deck under a steel through-arch.
+Its 3.3 km of roads join the city's lane graph, so traffic, the police, the cab, the GPS and the radar all know them:
+
+- **The Magnolia Causeway** to Dry Creek's crossroads (-840, -268), the county's town.
+- **The Lomas Highway**, a 2+2 loop: on west past the Hollister T (-1104, -268), south round a 180 m curve, down the west of the county, east round a 150 m curve, and back along Southgate Ave's line past the Creek T (-840, 268) and over the bridge to Harbor Blvd.
+- **Hollister Lane**, a lane each way round the farm north of the highway, from Dry Creek back to the Hollister T.
+- **Creek Road**, a lane each way from Dry Creek south to the Creek T, swerving 11 m east and back on the way.
+
+**The outer graph.**
+The roads are chains of straight lanes through bend nodes, not a new road model: every lane is still one straight line, so everything that reads a lane's start, end, direction and heading works unchanged.
+The county's 52 nodes, 160 lanes and their turns come after the grid's 121 nodes and 574 lanes in `roads.ts`, so every grid id, lane and turn keeps its number and order.
+A node stands at every vertex of every road: a bend where two links meet (`isBend`), a signalled junction where three or four do (`junction('drycreek' | 'hollister' | 'creek')`).
+Each link takes the slot of its bearing at its first node and the opposite slot at its second, so a lane's reverse is `laneFrom(lane.to, reverseDir(lane.dir), 0)` as on the grid, and junction arms keep within 15 degrees of an axis, so the grid's slot arithmetic gives the turns there; at a bend the one turn is the 'straight' continuation.
+The rules a road keeps: no dead end, bend vertices 20 to 30 m apart turning at most 10 degrees on curves of 120 m and more, none within 30 m of a junction, every bend lane 19 m or longer (so a driver still plans 70 m ahead within its 8 steps), and everything flat.
+Speed limits are 22 m/s on the highway and 15 on the country roads, each capped on a curve at what a car holds round it.
+The gateways, Magnolia Ave and Southgate Ave at Harbor Blvd, gain the link in their empty west slot and keep their signal phases: the causeway joins Magnolia Ave's east-west green.
+
+**The city does not move.**
+City code paths keep their exact code; county behaviour branches only on an outer node or lane, or on a point off the city or land rectangle.
+`nearestLane`, `nearestNode` and `isOnRoad` answer in the city as they always did, and off it add the county's lanes, nodes and road (and the links' mouths through the promenade), a tie staying on the grid.
+The police's unfiltered draw over every lane keeps the grid's lanes wherever the world reached before the county (x -672 on), traffic's and the police's look-ahead pools add the county's lanes only off the city's land, and bends count as no junction where the traffic, the police and the roadblocks count junctions ahead.
+`tests/unit/city_guard.test.ts`, recorded on the untouched round-2 head before any of this existed, hashes the grid's nodes, lanes, turns, signals, routes, distance fields, walk graph, props, colliders and street-run courses, and the ground and lookups on a lattice over the old world; the single-player trace, the crowd fixture and the multiplayer core's trace replay byte for byte.
+`buildCountry` runs last in `generateCity` and only appends, but for four props it moves out of the links' mouths (two lamps, a tree and a bench, each keeping its index); its colliders come after every older one.
+The promenade's edges across the mouths become crosswalks on the gateways' lights and keep their places among the walking edges, so pedestrian spawns draw as before.
+The county's verges join no city walk node and are no spawn ground: pedestrians spawn in the county only from its own footpaths (`layout.country.walks`, none yet).
+
+**The plots contract.**
+The county's land is split into named plots (`COUNTY_PLOTS`) that the content passes fill: Dry Creek (a town round the crossroads), Hollister Bottoms (inside the farm loop), the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge; the rest is wild.
+Every plot but the town keeps 12 m off the road edges, and every road keeps 30 m inside the land.
+The content passes go at the end of `buildCountry`, each one call that only appends, in this order: the landscape, the farms, the places.
+They add no open spot (the hidden packages are placed over the open spots), append parking bays only at the end, stand their props on `countryGround`, and keep their rises in `layout.country.rises`, which only the county's ground reads.
+The HUD and the scanner name the plot you are in, or Las Lomas County.
+
 ## Rejected, and why
 
-- **Diagonal or curved roads.** The lane graph knows four directions, and lanes, turns, signals, crosswalks, furniture and the renderers are built on that.
+- **Diagonal or curved roads in the grid.** The grid's lane graph knows four directions, and its lanes, turns, signals, crosswalks, furniture and renderers are built on that.
   A diagonal avenue would mean a new road model.
+  Las Lomas County's curves are chains of straight lanes through bend nodes instead, outside the grid, so the grid keeps its four directions.
 - **Very different block sizes.** Moving road lines shifts every block, which moves places that are offsets from others and the coordinates written into tests, for less variety than the superblocks and the water give.
   Only the canal's two neighbouring columns change width.
 
@@ -186,6 +223,7 @@ Every older prop index, collider and pickup, the mission spots and the open spot
 
 - The coast (promenade furniture, beach palms, the pier and the Marina) draws from its own generator, seeded with the state the shared generator had when the coast began before, so the beach is exactly as it was.
 - Tests that named lanes by their index in `roads.lanes` now name them by their place in the square city (`legacyLane` in `tests/unit/helpers.ts`), because closing segments renumbers lanes.
+- Tests that picked the longest lane or a lane by its index modulo the count pick from the grid's own (`roads.gridLanes`), and the police tests' flee bot keeps to the city, so Las Lomas County's long straights and gateways leave their scenarios where they were.
 - New bays are drowned bodies (see Bays above), so adding one moves only what stood in it and the scenarios that used it.
 
 ## The shore
@@ -222,3 +260,7 @@ A three-car monorail runs along Cortez Canal on a beam 9.6 m up, from Northshore
 - The cemetery's iron fence and gate, and the farm stand, are decoration too: people and cars pass through them.
 - The police helicopter does not steer round the turbines and flies through their blades.
 - AzuraLink's beam is drawn only, and its pylons stop only boats and swimmers.
+- The Magnolia Causeway and the Southgate Bridge close the middle of Lomas Sound, and Pelican Harbor with it, to boats: decks and headlands stop them.
+- Pedestrians can spawn on the promenade's two crossings at the links' mouths, which keep their places among the walking edges.
+- A pursuit into Las Lomas County thins out: with no buildings to hide them, units are placed only out of sight, and on the long straights a fast car outruns them; its tuning is the county traffic round's.
+- The county's beaches sit on the sea's deep-water colour, without shallows or surf.
