@@ -25,7 +25,7 @@
   "dlg-lou-2b2b8e773d": 5.197,
   "dlg-vera-7c711f1bf9": 4.805,
   "dlg-vera-cc36c200f7": 6.603,
-  "dlg-vera-26104efb5b": 5.169,
+  "dlg-vera-26104efb5b": 5.788,
   "dlg-vera-bfd9425a99": 4.789,
   "dlg-vera-248c46ef37": 4.944,
   "dlg-vera-35774ca245": 4.321,
@@ -60,6 +60,87 @@
   "dlg-vera-783a4b7d31": 3.413,
   "dlg-vera-30638ba1ac": 3.296,
   "dlg-vera-aeb7767d0a": 3.334,
+  "dlg-commuter-4be085d62b": 2.517,
+  "dlg-commuter-be6c38ed95": 2.258,
+  "dlg-commuter-74fef1b428": 2.12,
+  "dlg-commuter-4e42d30faa": 2.466,
+  "dlg-commuter-6547995ec3": 2.444,
+  "dlg-commuter-d964cae6b8": 3.053,
+  "dlg-commuter-5232a0fbea": 2.173,
+  "dlg-commuter-ea358cb5d9": 2.165,
+  "dlg-commuter-2e97559034": 2.193,
+  "dlg-commuter-d4dc874327": 2.283,
+  "dlg-commuter-13f1ad45e7": 2.434,
+  "dlg-commuter-0686b06a6b": 2.566,
+  "dlg-commuter-87c7281d48": 2.122,
+  "dlg-commuter-0da261308e": 2.417,
+  "dlg-commuter-c2ab88cb8a": 2.409,
+  "dlg-commuter-b89ebdfc7d": 2.144,
+  "dlg-commuter-f8e4f1c03e": 2.355,
+  "dlg-commuter-086d840869": 2.423,
+  "dlg-commuter-1861bcc811": 2.236,
+  "dlg-commuter-e99b52c047": 2.3,
+  "dlg-commuter-7200e18778": 2.14,
+  "dlg-commuter-f7c3e08480": 2.448,
+  "dlg-commuter-86c8ec8ded": 2.408,
+  "dlg-commuter-117676763e": 2.292,
+  "dlg-commuter-f4fddb5341": 2.272,
+  "dlg-commuter-e8e6bfacfb": 1.333,
+  "dlg-commuter-964ac59184": 1.221,
+  "dlg-tourist-6a3995a540": 2.789,
+  "dlg-tourist-143f24a13b": 2.616,
+  "dlg-tourist-5cc4e3aef9": 2.486,
+  "dlg-tourist-de7ab98692": 2.793,
+  "dlg-tourist-cf6bbb4ffa": 2.79,
+  "dlg-tourist-3b09d10527": 3.241,
+  "dlg-tourist-70c8416148": 2.508,
+  "dlg-tourist-874027e18a": 2.523,
+  "dlg-tourist-383db038b9": 2.526,
+  "dlg-tourist-a530ec1881": 2.689,
+  "dlg-tourist-6cd1ae34d9": 2.796,
+  "dlg-tourist-1c6771d97b": 2.916,
+  "dlg-tourist-d64a3eaea4": 2.465,
+  "dlg-tourist-8bee8fe304": 2.787,
+  "dlg-tourist-4e307d3bf1": 2.796,
+  "dlg-tourist-31304c4230": 2.484,
+  "dlg-tourist-925643d92a": 2.676,
+  "dlg-tourist-f7fefdf9e2": 2.79,
+  "dlg-tourist-e1b9482024": 2.527,
+  "dlg-tourist-444ea239f6": 2.666,
+  "dlg-tourist-dcafdce6ef": 2.434,
+  "dlg-tourist-3edd9b0670": 2.701,
+  "dlg-tourist-361075000a": 2.77,
+  "dlg-tourist-343456c6e4": 2.67,
+  "dlg-tourist-9dee905a92": 2.67,
+  "dlg-tourist-0b75bd1142": 1.777,
+  "dlg-tourist-1febdb08aa": 2.604,
+  "dlg-local-ebe86ad705": 2.645,
+  "dlg-local-c820645861": 2.291,
+  "dlg-local-32fb50e0af": 2.155,
+  "dlg-local-94c430c01f": 2.483,
+  "dlg-local-c2cd05fc7e": 2.526,
+  "dlg-local-a099319192": 3.338,
+  "dlg-local-c95d2e3266": 2.142,
+  "dlg-local-03702eacc8": 2.071,
+  "dlg-local-cd4eff7458": 2.182,
+  "dlg-local-b3a62fecf8": 2.318,
+  "dlg-local-1eefe8ddf9": 2.516,
+  "dlg-local-814f955b05": 2.73,
+  "dlg-local-145cca3ebc": 2.097,
+  "dlg-local-b3d15ab599": 2.519,
+  "dlg-local-7052be9bf9": 2.465,
+  "dlg-local-1615f31f58": 2.108,
+  "dlg-local-338e8c442e": 2.438,
+  "dlg-local-bfedb5156e": 2.513,
+  "dlg-local-c126f1ffdb": 2.238,
+  "dlg-local-8dc2614dc4": 2.313,
+  "dlg-local-150a3966ee": 2.089,
+  "dlg-local-78853c955b": 2.539,
+  "dlg-local-14c5d9bf62": 2.444,
+  "dlg-local-121087ee0c": 2.388,
+  "dlg-local-75c9a42ab0": 2.343,
+  "dlg-local-9921431f88": 1.347,
+  "dlg-local-36d25d21e1": 1.892,
   "dsp-all-units-return-to-patrol": 1.94,
   "dsp-swat-is-rolling": 1.257,
   "dsp-air-unit-on-scene": 1.39,
@@ -96,6 +177,7 @@
   "dsp-coral-bay": 0.891,
   "dsp-azura-pier": 1.143,
   "dsp-marina": 0.815,
+  "dsp-smuggler-s-key": 1.174,
   "dsp-hillcrest-cove": 1.274,
   "dsp-port-basin": 1.08,
   "dsp-azura-point": 1.235,
@@ -145,6 +227,7 @@
   "talk-host-chopper": 21.12,
   "talk-host-cab": 20.12,
   "talk-host-docks": 19.348,
+  "talk-host-windmills": 4.798,
   "talk-call-lighthouse": 19.607,
   "talk-call-pickup": 17.873,
   "talk-call-tacos": 23.334,
@@ -162,7 +245,7 @@
   "talk-ad-guns": 15.294,
   "talk-ad-lawyer": 13.117,
   "talk-ad-morty-car": 22.678,
-  "talk-ad-morty-payphone": 18.52,
+  "talk-ad-morty-payphone": 18.521,
   "talk-ad-morty-cell": 20.17,
   "talk-ad-torque": 10.449,
   "talk-ad-insurance": 9.289,
@@ -211,6 +294,54 @@
   "talk-bowl-ident-ron": 4.417,
   "talk-bowl-ident-sal": 5.556,
   "talk-bowl-ident-pembury": 5.119,
+  "talk-sapr-host-alarm": 24.698,
+  "talk-sapr-host-burrito": 22.388,
+  "talk-sapr-host-wheel": 25.101,
+  "talk-sapr-host-exhaust": 25.435,
+  "talk-sapr-host-chet": 23.974,
+  "talk-sapr-call-roses": 20.524,
+  "talk-sapr-call-fence": 25.449,
+  "talk-sapr-call-hedge": 23.853,
+  "talk-sapr-call-ducks": 21.276,
+  "talk-sapr-call-orchard": 26.763,
+  "talk-sapr-news-tote": 23.86,
+  "talk-sapr-news-goal": 22.969,
+  "talk-sapr-news-garden": 17.352,
+  "talk-sapr-serial-1": 77.306,
+  "talk-sapr-serial-2": 79.645,
+  "talk-sapr-serial-3": 75.772,
+  "talk-sapr-serial-4": 72.007,
+  "talk-sapr-serial-5": 73.74,
+  "talk-sapr-ad-morty": 9.919,
+  "talk-sapr-ad-morty-bail": 13.785,
+  "talk-sapr-ad-mutual": 14.547,
+  "talk-sapr-ad-salgado": 12.76,
+  "talk-sapr-ident-calm": 5.724,
+  "talk-sapr-ident-reginald": 5.98,
+  "talk-sapr-ident-pru": 5.692,
+  "talk-sapr-ident-sam": 5.335,
+  "talk-static-host-lighthouse": 27.045,
+  "talk-static-host-wheel": 24.719,
+  "talk-static-host-canal": 24.667,
+  "talk-static-host-ring": 23.768,
+  "talk-static-host-tower": 21.349,
+  "talk-static-host-gulls": 22.936,
+  "talk-static-call-gary": 28.36,
+  "talk-static-call-cat": 23.25,
+  "talk-static-call-lights": 25.466,
+  "talk-static-call-sal": 26.835,
+  "talk-static-call-lawn": 24.052,
+  "talk-static-call-kid": 20.315,
+  "talk-static-news-gulls": 8.898,
+  "talk-static-news-wheel": 9.231,
+  "talk-static-news-ducks": 10.331,
+  "talk-static-ad-bunker": 23.957,
+  "talk-static-ad-hat": 16.569,
+  "talk-static-ad-hat-pulse": 18.863,
+  "talk-static-ident-three": 4.192,
+  "talk-static-ident-signal": 5.227,
+  "talk-static-ident-gary": 4.841,
+  "talk-static-ident-reader": 2.935,
   "news-d3973ae53e": 1.986,
   "news-f12d385a2a": 0.977,
   "news-d24d83ac5d": 1.921,
@@ -247,7 +378,9 @@
   "news-ee6bc6a687": 1.71,
   "news-fca2d4407b": 1.522,
   "news-bb5680688b": 1.376,
+  "news-94a328b014": 1.632,
   "news-493bdbd5cf": 1.662,
+  "news-b93db8c7fc": 2.249,
   "news-b05bde8153": 1.345,
   "news-8406897e2d": 1.321,
   "news-17587468ee": 1.233,
@@ -263,13 +396,16 @@
   "news-e2d5c5b595": 1.418,
   "news-19d51a17c0": 1.469,
   "news-e63f63719e": 1.313,
+  "news-0da9fc9ab8": 1.606,
   "news-7ea74528b3": 1.683,
   "news-ff98627867": 1.554,
   "news-b9c0cb5793": 1.52,
   "news-eb32e3b32a": 1.68,
   "news-6f21ddc1c7": 1.456,
   "news-771b53f6ea": 1.279,
+  "news-cd7b61dfa5": 1.6,
   "news-e2d5ae688e": 1.626,
+  "news-d5553326fe": 2.257,
   "news-c7609c5b31": 1.244,
   "news-f37801b6c9": 1.192,
   "news-20652e3098": 1.155,
@@ -285,13 +421,16 @@
   "news-aaea12fa27": 1.336,
   "news-765b52e52f": 1.412,
   "news-09ab60b575": 1.29,
+  "news-150038d005": 1.569,
   "news-b90c3020d7": 1.604,
   "news-2303245844": 1.449,
   "news-b606ce775c": 1.5,
   "news-82baf48c95": 1.738,
   "news-9395ff7fb6": 1.534,
   "news-53a2383714": 1.429,
+  "news-f2884703e4": 1.699,
   "news-a44ba0efba": 1.732,
+  "news-57bd12b371": 2.252,
   "news-2995a8ba41": 1.376,
   "news-353ea93678": 1.319,
   "news-7699d9830f": 1.385,
@@ -307,13 +446,16 @@
   "news-e8cf329ed9": 1.461,
   "news-35329c039c": 1.615,
   "news-a3833e247b": 1.362,
+  "news-6d6c3c46e8": 1.625,
   "news-8da8958b0b": 1.654,
   "news-3e5663be11": 1.552,
   "news-562bbbdff1": 1.644,
   "news-165604cb7a": 2.391,
   "news-3d1cfc8dee": 2.255,
   "news-885f665d9f": 2.044,
+  "news-765aec458e": 2.414,
   "news-d10b132f2b": 2.393,
+  "news-583716f8a9": 3.044,
   "news-e539f89a2a": 1.96,
   "news-8a89a91550": 1.961,
   "news-0a86f17031": 1.892,
@@ -329,13 +471,16 @@
   "news-b829f41c68": 2.16,
   "news-5d9c6f131e": 2.199,
   "news-725aa3312b": 1.969,
+  "news-61a0b756fa": 2.406,
   "news-6d04365bda": 2.379,
   "news-39d231eace": 2.273,
   "news-47a5f4be50": 2.265,
   "news-359c763f93": 2.829,
   "news-b88beaf0f4": 2.589,
   "news-9886fa0516": 2.43,
+  "news-fee4120b96": 2.784,
   "news-145206a638": 2.738,
+  "news-e025bb6de5": 3.441,
   "news-0273098021": 2.339,
   "news-a2522f4c4e": 2.35,
   "news-e8bfe84fb4": 2.248,
@@ -351,6 +496,7 @@
   "news-fe97771d42": 2.509,
   "news-a4412bc2c9": 2.588,
   "news-7182ccead6": 2.444,
+  "news-d9ba22f965": 2.765,
   "news-677efad5b0": 2.684,
   "news-1359cb9969": 2.58,
   "news-18d73e60fd": 2.544,
@@ -447,7 +593,7 @@
   "news-m-delivery-later": 6.062,
   "news-m-repo": 9.807,
   "news-m-repo-later": 7.166,
-  "news-m-loose_lips": 11.379,
+  "news-m-loose_lips": 11.38,
   "news-m-loose_lips-later": 5.908,
   "news-m-heatwave": 8.012,
   "news-m-heatwave-later": 6.702,
@@ -467,24 +613,240 @@
   "ident-neon-drive-88-7-0": 4.489,
   "ident-neon-drive-88-7-1": 3.246,
   "ident-neon-drive-88-7-2": 3.161,
-  "ident-boom-bap-101-3-0": 3.56,
-  "ident-boom-bap-101-3-1": 2.464,
-  "ident-boom-bap-101-3-2": 3.973,
-  "ident-pulse-96-1-0": 3.978,
-  "ident-pulse-96-1-1": 2.045,
-  "ident-pulse-96-1-2": 3.168,
+  "dj-neon-drive-88-7-banter-0": 4.032,
+  "dj-neon-drive-88-7-banter-1": 4.442,
+  "dj-neon-drive-88-7-banter-2": 4.682,
+  "dj-neon-drive-88-7-banter-3": 5.114,
+  "dj-neon-drive-88-7-night-0": 3.065,
+  "dj-neon-drive-88-7-night-1": 3.324,
+  "dj-neon-drive-88-7-rain-0": 3.693,
+  "dj-neon-drive-88-7-rain-1": 2.981,
+  "dj-neon-drive-88-7-chase-0": 3.515,
+  "dj-neon-drive-88-7-chase-1": 3.977,
+  "dj-neon-drive-88-7-gotaway-0": 3.006,
+  "dj-neon-drive-88-7-gotaway-1": 3.347,
+  "dj-neon-drive-88-7-front-0": 2.57,
+  "dj-neon-drive-88-7-back-0": 4.529,
+  "dj-neon-drive-88-7-front-1": 3.198,
+  "dj-neon-drive-88-7-back-1": 4.15,
+  "dj-neon-drive-88-7-front-2": 4.449,
+  "dj-neon-drive-88-7-back-2": 5.149,
+  "dj-neon-drive-88-7-front-3": 2.215,
+  "dj-neon-drive-88-7-back-3": 3.892,
+  "dj-neon-drive-88-7-front-4": 3.517,
+  "dj-neon-drive-88-7-back-4": 4.424,
+  "dj-neon-drive-88-7-front-5": 4.364,
+  "dj-neon-drive-88-7-back-5": 4.963,
   "ident-velvet-89-9-0": 4.383,
   "ident-velvet-89-9-1": 4.864,
-  "ident-dockside-dub-92-3-0": 4.622,
-  "ident-dockside-dub-92-3-1": 2.652,
-  "ident-coyote-97-7-0": 3.939,
-  "ident-coyote-97-7-1": 2.727,
-  "ident-wipeout-99-5-0": 3.832,
-  "ident-wipeout-99-5-1": 2.107,
-  "ident-breakneck-102-7-0": 3.343,
-  "ident-breakneck-102-7-1": 3.249,
-  "ident-pixel-103-9-0": 3.573,
-  "ident-pixel-103-9-1": 2.358,
+  "dj-velvet-89-9-banter-0": 4.642,
+  "dj-velvet-89-9-banter-1": 3.923,
+  "dj-velvet-89-9-banter-2": 4.805,
+  "dj-velvet-89-9-banter-3": 4.202,
+  "dj-velvet-89-9-night-0": 3.573,
+  "dj-velvet-89-9-night-1": 5.797,
+  "dj-velvet-89-9-rain-0": 4.085,
+  "dj-velvet-89-9-rain-1": 4.104,
+  "dj-velvet-89-9-chase-0": 5.768,
+  "dj-velvet-89-9-chase-1": 3.176,
+  "dj-velvet-89-9-gotaway-0": 3.872,
+  "dj-velvet-89-9-gotaway-1": 3.635,
+  "dj-velvet-89-9-front-0": 4.814,
+  "dj-velvet-89-9-back-0": 5.531,
+  "dj-velvet-89-9-front-1": 4.76,
+  "dj-velvet-89-9-back-1": 4.693,
+  "dj-velvet-89-9-front-2": 5.022,
+  "dj-velvet-89-9-back-2": 4.145,
+  "dj-velvet-89-9-front-3": 3.683,
+  "dj-velvet-89-9-back-3": 4.917,
+  "dj-velvet-89-9-front-4": 5.068,
+  "dj-velvet-89-9-back-4": 4.414,
+  "dj-velvet-89-9-front-5": 5.867,
+  "dj-velvet-89-9-back-5": 5.623,
+  "ident-dockside-dub-92-3-0": 4.154,
+  "ident-dockside-dub-92-3-1": 2.528,
+  "dj-dockside-dub-92-3-banter-0": 3.665,
+  "dj-dockside-dub-92-3-banter-1": 4.581,
+  "dj-dockside-dub-92-3-banter-2": 4.178,
+  "dj-dockside-dub-92-3-banter-3": 5.094,
+  "dj-dockside-dub-92-3-night-0": 3.522,
+  "dj-dockside-dub-92-3-night-1": 2.428,
+  "dj-dockside-dub-92-3-rain-0": 3.258,
+  "dj-dockside-dub-92-3-rain-1": 3.967,
+  "dj-dockside-dub-92-3-chase-0": 3.89,
+  "dj-dockside-dub-92-3-chase-1": 3.938,
+  "dj-dockside-dub-92-3-gotaway-0": 3.324,
+  "dj-dockside-dub-92-3-gotaway-1": 3.071,
+  "dj-dockside-dub-92-3-front-0": 5.121,
+  "dj-dockside-dub-92-3-back-0": 4.083,
+  "dj-dockside-dub-92-3-front-1": 3.514,
+  "dj-dockside-dub-92-3-back-1": 3.622,
+  "dj-dockside-dub-92-3-front-2": 5.473,
+  "dj-dockside-dub-92-3-back-2": 4.383,
+  "dj-dockside-dub-92-3-front-3": 3.489,
+  "dj-dockside-dub-92-3-back-3": 3.775,
+  "dj-dockside-dub-92-3-front-4": 4.943,
+  "dj-dockside-dub-92-3-back-4": 3.836,
+  "dj-dockside-dub-92-3-front-5": 4.266,
+  "dj-dockside-dub-92-3-back-5": 4.527,
+  "ident-pulse-96-1-0": 3.856,
+  "ident-pulse-96-1-1": 1.969,
+  "ident-pulse-96-1-2": 3.084,
+  "dj-pulse-96-1-banter-0": 3.412,
+  "dj-pulse-96-1-banter-1": 4.141,
+  "dj-pulse-96-1-banter-2": 2.971,
+  "dj-pulse-96-1-banter-3": 3.148,
+  "dj-pulse-96-1-night-0": 2.681,
+  "dj-pulse-96-1-night-1": 3.023,
+  "dj-pulse-96-1-rain-0": 2.099,
+  "dj-pulse-96-1-rain-1": 2.195,
+  "dj-pulse-96-1-chase-0": 3.764,
+  "dj-pulse-96-1-chase-1": 3.619,
+  "dj-pulse-96-1-gotaway-0": 2.031,
+  "dj-pulse-96-1-gotaway-1": 2.327,
+  "dj-pulse-96-1-front-0": 3.501,
+  "dj-pulse-96-1-back-0": 3.064,
+  "dj-pulse-96-1-front-1": 2.836,
+  "dj-pulse-96-1-back-1": 2.862,
+  "dj-pulse-96-1-front-2": 2.556,
+  "dj-pulse-96-1-back-2": 2.65,
+  "dj-pulse-96-1-front-3": 3.688,
+  "dj-pulse-96-1-back-3": 3.197,
+  "dj-pulse-96-1-front-4": 2.708,
+  "dj-pulse-96-1-back-4": 2.583,
+  "dj-pulse-96-1-front-5": 2.607,
+  "dj-pulse-96-1-back-5": 2.882,
+  "ident-coyote-97-7-0": 4.106,
+  "ident-coyote-97-7-1": 2.889,
+  "dj-coyote-97-7-banter-0": 4.97,
+  "dj-coyote-97-7-banter-1": 5.172,
+  "dj-coyote-97-7-banter-2": 3.654,
+  "dj-coyote-97-7-banter-3": 2.758,
+  "dj-coyote-97-7-night-0": 3.474,
+  "dj-coyote-97-7-night-1": 3.255,
+  "dj-coyote-97-7-rain-0": 3.217,
+  "dj-coyote-97-7-rain-1": 2.636,
+  "dj-coyote-97-7-chase-0": 3.81,
+  "dj-coyote-97-7-chase-1": 3.094,
+  "dj-coyote-97-7-gotaway-0": 2.381,
+  "dj-coyote-97-7-gotaway-1": 2.755,
+  "dj-coyote-97-7-front-0": 2.544,
+  "dj-coyote-97-7-back-0": 3.987,
+  "dj-coyote-97-7-front-1": 3.903,
+  "dj-coyote-97-7-back-1": 4.179,
+  "dj-coyote-97-7-front-2": 2.791,
+  "dj-coyote-97-7-back-2": 4.011,
+  "dj-coyote-97-7-front-3": 3.358,
+  "dj-coyote-97-7-back-3": 3.552,
+  "dj-coyote-97-7-front-4": 2.837,
+  "dj-coyote-97-7-back-4": 4.182,
+  "dj-coyote-97-7-front-5": 3.1,
+  "dj-coyote-97-7-back-5": 3.503,
+  "ident-wipeout-99-5-0": 3.628,
+  "ident-wipeout-99-5-1": 2.127,
+  "dj-wipeout-99-5-banter-0": 2.435,
+  "dj-wipeout-99-5-banter-1": 2.582,
+  "dj-wipeout-99-5-banter-2": 2.491,
+  "dj-wipeout-99-5-banter-3": 2.974,
+  "dj-wipeout-99-5-night-0": 2.779,
+  "dj-wipeout-99-5-night-1": 2.189,
+  "dj-wipeout-99-5-rain-0": 2.124,
+  "dj-wipeout-99-5-rain-1": 2.478,
+  "dj-wipeout-99-5-chase-0": 3.308,
+  "dj-wipeout-99-5-chase-1": 1.923,
+  "dj-wipeout-99-5-gotaway-0": 2.004,
+  "dj-wipeout-99-5-gotaway-1": 1.763,
+  "dj-wipeout-99-5-front-0": 2.846,
+  "dj-wipeout-99-5-back-0": 3.034,
+  "dj-wipeout-99-5-front-1": 2.315,
+  "dj-wipeout-99-5-back-1": 2.672,
+  "dj-wipeout-99-5-front-2": 2.973,
+  "dj-wipeout-99-5-back-2": 3.389,
+  "dj-wipeout-99-5-front-3": 2.621,
+  "dj-wipeout-99-5-back-3": 2.805,
+  "dj-wipeout-99-5-front-4": 2.558,
+  "dj-wipeout-99-5-back-4": 2.723,
+  "dj-wipeout-99-5-front-5": 1.988,
+  "dj-wipeout-99-5-back-5": 2.156,
+  "ident-boom-bap-101-3-0": 3.899,
+  "ident-boom-bap-101-3-1": 2.514,
+  "ident-boom-bap-101-3-2": 4.319,
+  "dj-boom-bap-101-3-banter-0": 3.238,
+  "dj-boom-bap-101-3-banter-1": 3.912,
+  "dj-boom-bap-101-3-banter-2": 4.143,
+  "dj-boom-bap-101-3-banter-3": 3.388,
+  "dj-boom-bap-101-3-night-0": 5.031,
+  "dj-boom-bap-101-3-night-1": 2.9,
+  "dj-boom-bap-101-3-rain-0": 3.151,
+  "dj-boom-bap-101-3-rain-1": 2.503,
+  "dj-boom-bap-101-3-chase-0": 3.828,
+  "dj-boom-bap-101-3-chase-1": 3.078,
+  "dj-boom-bap-101-3-gotaway-0": 2.889,
+  "dj-boom-bap-101-3-gotaway-1": 2.512,
+  "dj-boom-bap-101-3-front-0": 4.353,
+  "dj-boom-bap-101-3-back-0": 3.671,
+  "dj-boom-bap-101-3-front-1": 4.193,
+  "dj-boom-bap-101-3-back-1": 4.269,
+  "dj-boom-bap-101-3-front-2": 4.045,
+  "dj-boom-bap-101-3-back-2": 3.421,
+  "dj-boom-bap-101-3-front-3": 3.903,
+  "dj-boom-bap-101-3-back-3": 3.841,
+  "dj-boom-bap-101-3-front-4": 3.877,
+  "dj-boom-bap-101-3-back-4": 3.187,
+  "dj-boom-bap-101-3-front-5": 4.18,
+  "dj-boom-bap-101-3-back-5": 4.012,
+  "ident-breakneck-102-7-0": 3.134,
+  "ident-breakneck-102-7-1": 2.944,
+  "dj-breakneck-102-7-banter-0": 3.72,
+  "dj-breakneck-102-7-banter-1": 3.41,
+  "dj-breakneck-102-7-banter-2": 2.374,
+  "dj-breakneck-102-7-banter-3": 2.279,
+  "dj-breakneck-102-7-night-0": 2.378,
+  "dj-breakneck-102-7-night-1": 1.774,
+  "dj-breakneck-102-7-rain-0": 2.139,
+  "dj-breakneck-102-7-rain-1": 2.473,
+  "dj-breakneck-102-7-chase-0": 3.558,
+  "dj-breakneck-102-7-chase-1": 2.321,
+  "dj-breakneck-102-7-gotaway-0": 1.891,
+  "dj-breakneck-102-7-gotaway-1": 1.925,
+  "dj-breakneck-102-7-front-0": 2.166,
+  "dj-breakneck-102-7-back-0": 2.254,
+  "dj-breakneck-102-7-front-1": 3.299,
+  "dj-breakneck-102-7-back-1": 3.45,
+  "dj-breakneck-102-7-front-2": 2.123,
+  "dj-breakneck-102-7-back-2": 2.47,
+  "dj-breakneck-102-7-front-3": 3.386,
+  "dj-breakneck-102-7-back-3": 3.832,
+  "dj-breakneck-102-7-front-4": 2.404,
+  "dj-breakneck-102-7-back-4": 2.612,
+  "dj-breakneck-102-7-front-5": 3.67,
+  "dj-breakneck-102-7-back-5": 4.086,
+  "ident-pixel-103-9-0": 3.473,
+  "ident-pixel-103-9-1": 2.275,
+  "dj-pixel-103-9-banter-0": 2.731,
+  "dj-pixel-103-9-banter-1": 3.251,
+  "dj-pixel-103-9-banter-2": 2.801,
+  "dj-pixel-103-9-banter-3": 2.516,
+  "dj-pixel-103-9-night-0": 2.556,
+  "dj-pixel-103-9-night-1": 2.281,
+  "dj-pixel-103-9-rain-0": 2.27,
+  "dj-pixel-103-9-rain-1": 2.897,
+  "dj-pixel-103-9-chase-0": 3.449,
+  "dj-pixel-103-9-chase-1": 2.165,
+  "dj-pixel-103-9-gotaway-0": 1.553,
+  "dj-pixel-103-9-gotaway-1": 2.328,
+  "dj-pixel-103-9-front-0": 3.142,
+  "dj-pixel-103-9-back-0": 3.403,
+  "dj-pixel-103-9-front-1": 3.606,
+  "dj-pixel-103-9-back-1": 3.47,
+  "dj-pixel-103-9-front-2": 2.977,
+  "dj-pixel-103-9-back-2": 3.454,
+  "dj-pixel-103-9-front-3": 3.164,
+  "dj-pixel-103-9-back-3": 2.949,
+  "dj-pixel-103-9-front-4": 3.293,
+  "dj-pixel-103-9-back-4": 3.531,
+  "dj-pixel-103-9-front-5": 3.132,
+  "dj-pixel-103-9-back-5": 3.144,
   "bark-greet-am-liam-0": 0.829,
   "bark-greet-am-liam-1": 1.171,
   "bark-greet-am-liam-2": 1.138,
@@ -845,6 +1207,59 @@
   "bark-turf-af-alloy-1": 1.251,
   "bark-turf-af-alloy-2": 1.606,
   "bark-turf-af-alloy-3": 0.801,
+  "bark-hail-am-eric-0": 0.694,
+  "bark-hail-am-eric-1": 0.94,
+  "bark-hail-am-eric-2": 1.06,
+  "bark-hail-am-eric-3": 1.332,
+  "bark-hail-bf-lily-0": 0.962,
+  "bark-hail-bf-lily-1": 1.265,
+  "bark-hail-bf-lily-2": 1.368,
+  "bark-hail-bf-lily-3": 1.747,
+  "bark-hail-af-kore-0": 0.651,
+  "bark-hail-af-kore-1": 0.881,
+  "bark-hail-af-kore-2": 0.944,
+  "bark-hail-af-kore-3": 1.308,
+  "bark-hailmissed-am-eric-0": 0.941,
+  "bark-hailmissed-am-eric-1": 1.423,
+  "bark-hailmissed-am-eric-2": 1.275,
+  "bark-hailmissed-bf-lily-0": 1.154,
+  "bark-hailmissed-bf-lily-1": 1.81,
+  "bark-hailmissed-bf-lily-2": 1.723,
+  "bark-hailmissed-af-kore-0": 0.757,
+  "bark-hailmissed-af-kore-1": 1.283,
+  "bark-hailmissed-af-kore-2": 1.114,
+  "bark-cabbie-am-liam-0": 1.597,
+  "bark-cabbie-am-liam-1": 1.693,
+  "bark-cabbie-am-liam-2": 2.574,
+  "bark-cabbie-am-liam-3": 1.359,
+  "bark-cabbie-bm-fable-0": 1.992,
+  "bark-cabbie-bm-fable-1": 1.939,
+  "bark-cabbie-bm-fable-2": 2.575,
+  "bark-cabbie-bm-fable-3": 1.896,
+  "bark-cabbie-am-echo-0": 1.711,
+  "bark-cabbie-am-echo-1": 1.921,
+  "bark-cabbie-am-echo-2": 2.913,
+  "bark-cabbie-am-echo-3": 1.561,
+  "bark-cabbie-bm-lewis-0": 1.585,
+  "bark-cabbie-bm-lewis-1": 1.692,
+  "bark-cabbie-bm-lewis-2": 3.094,
+  "bark-cabbie-bm-lewis-3": 1.605,
+  "bark-cabbie-af-jessica-0": 1.594,
+  "bark-cabbie-af-jessica-1": 1.645,
+  "bark-cabbie-af-jessica-2": 2.506,
+  "bark-cabbie-af-jessica-3": 1.438,
+  "bark-cabbie-af-river-0": 1.619,
+  "bark-cabbie-af-river-1": 1.601,
+  "bark-cabbie-af-river-2": 2.569,
+  "bark-cabbie-af-river-3": 1.383,
+  "bark-cabbie-af-kore-0": 1.248,
+  "bark-cabbie-af-kore-1": 1.399,
+  "bark-cabbie-af-kore-2": 2.592,
+  "bark-cabbie-af-kore-3": 1.145,
+  "bark-cabbie-bf-lily-0": 1.852,
+  "bark-cabbie-bf-lily-1": 1.973,
+  "bark-cabbie-bf-lily-2": 2.685,
+  "bark-cabbie-bf-lily-3": 1.749,
   "bark-farmer-am-santa-0": 2.95,
   "bark-farmer-am-santa-1": 3.249,
   "bark-farmer-am-santa-2": 4.151,
@@ -853,7 +1268,14 @@
   "bark-farmerangry-am-santa-1": 2.414,
   "bark-farmerangry-am-santa-2": 3.028,
   "bark-farmerangry-am-santa-3": 2.116,
-  "bark-whisper-af-nicole-0": 3.187
+  "bark-whisper-af-nicole-0": 3.187,
+  "bark-marina-am-eric-0": 1.997,
+  "bark-marina-bm-fable-0": 1.982,
+  "bark-marina-am-adam-0": 2.074,
+  "pa-seaview-0": 4.478,
+  "pa-seaview-1": 4.737,
+  "pa-northshore-0": 4.47,
+  "pa-northshore-1": 5.94
  },
  "dialogue": {
   "Dex Moreau|So you are Lou's miracle worker. Charming. I have a problem with a mouth.": "dlg-dex-02cf79984f",
@@ -915,7 +1337,88 @@
   "Vera Salgado|I've got work for you: \"Showroom Condition\". Come see me, V on your radar.": "dlg-vera-b2441279ae",
   "Vera Salgado|I've got work for you: \"Off the Road\". Come see me, V on your radar.": "dlg-vera-783a4b7d31",
   "Vera Salgado|I've got work for you: \"Rush Hour\". Come see me, V on your radar.": "dlg-vera-30638ba1ac",
-  "Vera Salgado|I've got work for you: \"Last Call\". Come see me, V on your radar.": "dlg-vera-aeb7767d0a"
+  "Vera Salgado|I've got work for you: \"Last Call\". Come see me, V on your radar.": "dlg-vera-aeb7767d0a",
+  "Commuter|San Azura Bay, and step on it. I'm already late.": "dlg-commuter-4be085d62b",
+  "Commuter|Ocean Beach, and step on it. I'm already late.": "dlg-commuter-be6c38ed95",
+  "Commuter|Hillcrest, and step on it. I'm already late.": "dlg-commuter-74fef1b428",
+  "Commuter|Hollister Farm, and step on it. I'm already late.": "dlg-commuter-4e42d30faa",
+  "Commuter|Hillcrest Green, and step on it. I'm already late.": "dlg-commuter-6547995ec3",
+  "Commuter|Eternal Palms Cemetery, and step on it. I'm already late.": "dlg-commuter-d964cae6b8",
+  "Commuter|Westside, and step on it. I'm already late.": "dlg-commuter-5232a0fbea",
+  "Commuter|Midtown, and step on it. I'm already late.": "dlg-commuter-ea358cb5d9",
+  "Commuter|Downtown, and step on it. I'm already late.": "dlg-commuter-2e97559034",
+  "Commuter|Azura Park, and step on it. I'm already late.": "dlg-commuter-d4dc874327",
+  "Commuter|Civic Plaza, and step on it. I'm already late.": "dlg-commuter-13f1ad45e7",
+  "Commuter|Port Azura Docks, and step on it. I'm already late.": "dlg-commuter-0686b06a6b",
+  "Commuter|Southgate, and step on it. I'm already late.": "dlg-commuter-87c7281d48",
+  "Commuter|Southgate Square, and step on it. I'm already late.": "dlg-commuter-0da261308e",
+  "Commuter|Cortez Canal, and step on it. I'm already late.": "dlg-commuter-c2ab88cb8a",
+  "Commuter|Gull Bay, and step on it. I'm already late.": "dlg-commuter-b89ebdfc7d",
+  "Commuter|Northshore Bay, and step on it. I'm already late.": "dlg-commuter-f8e4f1c03e",
+  "Commuter|Pelican Harbor, and step on it. I'm already late.": "dlg-commuter-086d840869",
+  "Commuter|Coral Bay, and step on it. I'm already late.": "dlg-commuter-1861bcc811",
+  "Commuter|Azura Pier, and step on it. I'm already late.": "dlg-commuter-e99b52c047",
+  "Commuter|Marina, and step on it. I'm already late.": "dlg-commuter-7200e18778",
+  "Commuter|Smuggler's Key, and step on it. I'm already late.": "dlg-commuter-f7c3e08480",
+  "Commuter|Hillcrest Cove, and step on it. I'm already late.": "dlg-commuter-86c8ec8ded",
+  "Commuter|Port Basin, and step on it. I'm already late.": "dlg-commuter-117676763e",
+  "Commuter|Azura Point, and step on it. I'm already late.": "dlg-commuter-f4fddb5341",
+  "Commuter|Made it. Barely. Thanks.": "dlg-commuter-e8e6bfacfb",
+  "Commuter|Forget it. I'll walk.": "dlg-commuter-964ac59184",
+  "Tourist|Hello! Could you take me to San Azura Bay, please?": "dlg-tourist-6a3995a540",
+  "Tourist|Hello! Could you take me to Ocean Beach, please?": "dlg-tourist-143f24a13b",
+  "Tourist|Hello! Could you take me to Hillcrest, please?": "dlg-tourist-5cc4e3aef9",
+  "Tourist|Hello! Could you take me to Hollister Farm, please?": "dlg-tourist-de7ab98692",
+  "Tourist|Hello! Could you take me to Hillcrest Green, please?": "dlg-tourist-cf6bbb4ffa",
+  "Tourist|Hello! Could you take me to Eternal Palms Cemetery, please?": "dlg-tourist-3b09d10527",
+  "Tourist|Hello! Could you take me to Westside, please?": "dlg-tourist-70c8416148",
+  "Tourist|Hello! Could you take me to Midtown, please?": "dlg-tourist-874027e18a",
+  "Tourist|Hello! Could you take me to Downtown, please?": "dlg-tourist-383db038b9",
+  "Tourist|Hello! Could you take me to Azura Park, please?": "dlg-tourist-a530ec1881",
+  "Tourist|Hello! Could you take me to Civic Plaza, please?": "dlg-tourist-6cd1ae34d9",
+  "Tourist|Hello! Could you take me to Port Azura Docks, please?": "dlg-tourist-1c6771d97b",
+  "Tourist|Hello! Could you take me to Southgate, please?": "dlg-tourist-d64a3eaea4",
+  "Tourist|Hello! Could you take me to Southgate Square, please?": "dlg-tourist-8bee8fe304",
+  "Tourist|Hello! Could you take me to Cortez Canal, please?": "dlg-tourist-4e307d3bf1",
+  "Tourist|Hello! Could you take me to Gull Bay, please?": "dlg-tourist-31304c4230",
+  "Tourist|Hello! Could you take me to Northshore Bay, please?": "dlg-tourist-925643d92a",
+  "Tourist|Hello! Could you take me to Pelican Harbor, please?": "dlg-tourist-f7fefdf9e2",
+  "Tourist|Hello! Could you take me to Coral Bay, please?": "dlg-tourist-e1b9482024",
+  "Tourist|Hello! Could you take me to Azura Pier, please?": "dlg-tourist-444ea239f6",
+  "Tourist|Hello! Could you take me to Marina, please?": "dlg-tourist-dcafdce6ef",
+  "Tourist|Hello! Could you take me to Smuggler's Key, please?": "dlg-tourist-3edd9b0670",
+  "Tourist|Hello! Could you take me to Hillcrest Cove, please?": "dlg-tourist-361075000a",
+  "Tourist|Hello! Could you take me to Port Basin, please?": "dlg-tourist-343456c6e4",
+  "Tourist|Hello! Could you take me to Azura Point, please?": "dlg-tourist-9dee905a92",
+  "Tourist|Lovely! Thank you, driver!": "dlg-tourist-0b75bd1142",
+  "Tourist|This is taking ages. I'll find my own way.": "dlg-tourist-1febdb08aa",
+  "Local|San Azura Bay. And skip the scenic route, okay?": "dlg-local-ebe86ad705",
+  "Local|Ocean Beach. And skip the scenic route, okay?": "dlg-local-c820645861",
+  "Local|Hillcrest. And skip the scenic route, okay?": "dlg-local-32fb50e0af",
+  "Local|Hollister Farm. And skip the scenic route, okay?": "dlg-local-94c430c01f",
+  "Local|Hillcrest Green. And skip the scenic route, okay?": "dlg-local-c2cd05fc7e",
+  "Local|Eternal Palms Cemetery. And skip the scenic route, okay?": "dlg-local-a099319192",
+  "Local|Westside. And skip the scenic route, okay?": "dlg-local-c95d2e3266",
+  "Local|Midtown. And skip the scenic route, okay?": "dlg-local-03702eacc8",
+  "Local|Downtown. And skip the scenic route, okay?": "dlg-local-cd4eff7458",
+  "Local|Azura Park. And skip the scenic route, okay?": "dlg-local-b3a62fecf8",
+  "Local|Civic Plaza. And skip the scenic route, okay?": "dlg-local-1eefe8ddf9",
+  "Local|Port Azura Docks. And skip the scenic route, okay?": "dlg-local-814f955b05",
+  "Local|Southgate. And skip the scenic route, okay?": "dlg-local-145cca3ebc",
+  "Local|Southgate Square. And skip the scenic route, okay?": "dlg-local-b3d15ab599",
+  "Local|Cortez Canal. And skip the scenic route, okay?": "dlg-local-7052be9bf9",
+  "Local|Gull Bay. And skip the scenic route, okay?": "dlg-local-1615f31f58",
+  "Local|Northshore Bay. And skip the scenic route, okay?": "dlg-local-338e8c442e",
+  "Local|Pelican Harbor. And skip the scenic route, okay?": "dlg-local-bfedb5156e",
+  "Local|Coral Bay. And skip the scenic route, okay?": "dlg-local-c126f1ffdb",
+  "Local|Azura Pier. And skip the scenic route, okay?": "dlg-local-8dc2614dc4",
+  "Local|Marina. And skip the scenic route, okay?": "dlg-local-150a3966ee",
+  "Local|Smuggler's Key. And skip the scenic route, okay?": "dlg-local-78853c955b",
+  "Local|Hillcrest Cove. And skip the scenic route, okay?": "dlg-local-14c5d9bf62",
+  "Local|Port Basin. And skip the scenic route, okay?": "dlg-local-121087ee0c",
+  "Local|Azura Point. And skip the scenic route, okay?": "dlg-local-75c9a42ab0",
+  "Local|Not bad. Not bad at all.": "dlg-local-9921431f88",
+  "Local|I could've walked faster. So I'm walking.": "dlg-local-36d25d21e1"
  },
  "dispatch": {
   "all units return to patrol": "dsp-all-units-return-to-patrol",
@@ -954,6 +1457,7 @@
   "coral bay": "dsp-coral-bay",
   "azura pier": "dsp-azura-pier",
   "marina": "dsp-marina",
+  "smuggler s key": "dsp-smuggler-s-key",
   "hillcrest cove": "dsp-hillcrest-cove",
   "port basin": "dsp-port-basin",
   "azura point": "dsp-azura-point",
@@ -1006,7 +1510,8 @@
     "talk-host-potholes",
     "talk-host-chopper",
     "talk-host-cab",
-    "talk-host-docks"
+    "talk-host-docks",
+    "talk-host-windmills"
    ],
    "call": [
     "talk-call-lighthouse",
@@ -1053,7 +1558,8 @@
     "talk-ident-facts",
     "talk-ident-road",
     "talk-ident-works"
-   ]
+   ],
+   "serial": []
   },
   "bowl": {
    "host": [
@@ -1092,7 +1598,85 @@
     "talk-bowl-ident-ron",
     "talk-bowl-ident-sal",
     "talk-bowl-ident-pembury"
+   ],
+   "serial": []
+  },
+  "sapr": {
+   "host": [
+    "talk-sapr-host-alarm",
+    "talk-sapr-host-burrito",
+    "talk-sapr-host-wheel",
+    "talk-sapr-host-exhaust",
+    "talk-sapr-host-chet"
+   ],
+   "call": [
+    "talk-sapr-call-roses",
+    "talk-sapr-call-fence",
+    "talk-sapr-call-hedge",
+    "talk-sapr-call-ducks",
+    "talk-sapr-call-orchard"
+   ],
+   "news": [
+    "talk-sapr-news-tote",
+    "talk-sapr-news-goal",
+    "talk-sapr-news-garden"
+   ],
+   "ad": [
+    "talk-sapr-ad-morty",
+    "talk-sapr-ad-mutual",
+    "talk-sapr-ad-salgado"
+   ],
+   "ident": [
+    "talk-sapr-ident-calm",
+    "talk-sapr-ident-reginald",
+    "talk-sapr-ident-pru",
+    "talk-sapr-ident-sam"
+   ],
+   "serial": [
+    "talk-sapr-serial-1",
+    "talk-sapr-serial-2",
+    "talk-sapr-serial-3",
+    "talk-sapr-serial-4",
+    "talk-sapr-serial-5"
    ]
+  },
+  "static": {
+   "host": [
+    "talk-static-host-lighthouse",
+    "talk-static-host-wheel",
+    "talk-static-host-canal",
+    "talk-static-host-ring",
+    "talk-static-host-tower",
+    "talk-static-host-gulls"
+   ],
+   "call": [
+    "talk-static-call-gary",
+    "talk-static-call-cat",
+    "talk-static-call-lights",
+    "talk-static-call-sal",
+    "talk-static-call-lawn",
+    "talk-static-call-kid"
+   ],
+   "news": [
+    "talk-static-news-gulls",
+    "talk-static-news-wheel",
+    "talk-static-news-ducks"
+   ],
+   "ad": [
+    "talk-ad-torque",
+    "talk-ad-insurance",
+    "talk-ad-tacos",
+    "talk-ad-hillcrest",
+    "talk-static-ad-bunker",
+    "talk-static-ad-hat"
+   ],
+   "ident": [
+    "talk-static-ident-three",
+    "talk-static-ident-signal",
+    "talk-static-ident-gary",
+    "talk-static-ident-reader"
+   ],
+   "serial": []
   }
  },
  "adSeries": {
@@ -1101,6 +1685,14 @@
    "talk-ad-morty-car",
    "talk-ad-morty-payphone",
    "talk-ad-morty-cell"
+  ],
+  "talk-sapr-ad-morty": [
+   "talk-sapr-ad-morty",
+   "talk-sapr-ad-morty-bail"
+  ],
+  "talk-static-ad-hat": [
+   "talk-static-ad-hat",
+   "talk-static-ad-hat-pulse"
   ]
  },
  "barks": {
@@ -1630,6 +2222,93 @@
     "bark-turf-af-alloy-3"
    ]
   ],
+  "hail": [
+   [
+    "bark-hail-am-eric-0",
+    "bark-hail-am-eric-1",
+    "bark-hail-am-eric-2",
+    "bark-hail-am-eric-3"
+   ],
+   [
+    "bark-hail-bf-lily-0",
+    "bark-hail-bf-lily-1",
+    "bark-hail-bf-lily-2",
+    "bark-hail-bf-lily-3"
+   ],
+   [
+    "bark-hail-af-kore-0",
+    "bark-hail-af-kore-1",
+    "bark-hail-af-kore-2",
+    "bark-hail-af-kore-3"
+   ]
+  ],
+  "hailMissed": [
+   [
+    "bark-hailmissed-am-eric-0",
+    "bark-hailmissed-am-eric-1",
+    "bark-hailmissed-am-eric-2"
+   ],
+   [
+    "bark-hailmissed-bf-lily-0",
+    "bark-hailmissed-bf-lily-1",
+    "bark-hailmissed-bf-lily-2"
+   ],
+   [
+    "bark-hailmissed-af-kore-0",
+    "bark-hailmissed-af-kore-1",
+    "bark-hailmissed-af-kore-2"
+   ]
+  ],
+  "cabbie": [
+   [
+    "bark-cabbie-am-liam-0",
+    "bark-cabbie-am-liam-1",
+    "bark-cabbie-am-liam-2",
+    "bark-cabbie-am-liam-3"
+   ],
+   [
+    "bark-cabbie-bm-fable-0",
+    "bark-cabbie-bm-fable-1",
+    "bark-cabbie-bm-fable-2",
+    "bark-cabbie-bm-fable-3"
+   ],
+   [
+    "bark-cabbie-am-echo-0",
+    "bark-cabbie-am-echo-1",
+    "bark-cabbie-am-echo-2",
+    "bark-cabbie-am-echo-3"
+   ],
+   [
+    "bark-cabbie-bm-lewis-0",
+    "bark-cabbie-bm-lewis-1",
+    "bark-cabbie-bm-lewis-2",
+    "bark-cabbie-bm-lewis-3"
+   ],
+   [
+    "bark-cabbie-af-jessica-0",
+    "bark-cabbie-af-jessica-1",
+    "bark-cabbie-af-jessica-2",
+    "bark-cabbie-af-jessica-3"
+   ],
+   [
+    "bark-cabbie-af-river-0",
+    "bark-cabbie-af-river-1",
+    "bark-cabbie-af-river-2",
+    "bark-cabbie-af-river-3"
+   ],
+   [
+    "bark-cabbie-af-kore-0",
+    "bark-cabbie-af-kore-1",
+    "bark-cabbie-af-kore-2",
+    "bark-cabbie-af-kore-3"
+   ],
+   [
+    "bark-cabbie-bf-lily-0",
+    "bark-cabbie-bf-lily-1",
+    "bark-cabbie-bf-lily-2",
+    "bark-cabbie-bf-lily-3"
+   ]
+  ],
   "farmer": [
    [
     "bark-farmer-am-santa-0",
@@ -1650,6 +2329,17 @@
    [
     "bark-whisper-af-nicole-0"
    ]
+  ],
+  "marina": [
+   [
+    "bark-marina-am-eric-0"
+   ],
+   [
+    "bark-marina-bm-fable-0"
+   ],
+   [
+    "bark-marina-am-adam-0"
+   ]
   ]
  },
  "idents": {
@@ -1657,16 +2347,6 @@
    "ident-neon-drive-88-7-0",
    "ident-neon-drive-88-7-1",
    "ident-neon-drive-88-7-2"
-  ],
-  "BOOM BAP 101.3": [
-   "ident-boom-bap-101-3-0",
-   "ident-boom-bap-101-3-1",
-   "ident-boom-bap-101-3-2"
-  ],
-  "PULSE 96.1": [
-   "ident-pulse-96-1-0",
-   "ident-pulse-96-1-1",
-   "ident-pulse-96-1-2"
   ],
   "VELVET 89.9": [
    "ident-velvet-89-9-0",
@@ -1676,6 +2356,11 @@
    "ident-dockside-dub-92-3-0",
    "ident-dockside-dub-92-3-1"
   ],
+  "PULSE 96.1": [
+   "ident-pulse-96-1-0",
+   "ident-pulse-96-1-1",
+   "ident-pulse-96-1-2"
+  ],
   "COYOTE 97.7": [
    "ident-coyote-97-7-0",
    "ident-coyote-97-7-1"
@@ -1684,6 +2369,11 @@
    "ident-wipeout-99-5-0",
    "ident-wipeout-99-5-1"
   ],
+  "BOOM BAP 101.3": [
+   "ident-boom-bap-101-3-0",
+   "ident-boom-bap-101-3-1",
+   "ident-boom-bap-101-3-2"
+  ],
   "BREAKNECK 102.7": [
    "ident-breakneck-102-7-0",
    "ident-breakneck-102-7-1"
@@ -1691,6 +2381,460 @@
   "PIXEL 103.9": [
    "ident-pixel-103-9-0",
    "ident-pixel-103-9-1"
+  ]
+ },
+ "dj": {
+  "NEON DRIVE 88.7": {
+   "banter": [
+    "dj-neon-drive-88-7-banter-0",
+    "dj-neon-drive-88-7-banter-1",
+    "dj-neon-drive-88-7-banter-2",
+    "dj-neon-drive-88-7-banter-3"
+   ],
+   "night": [
+    "dj-neon-drive-88-7-night-0",
+    "dj-neon-drive-88-7-night-1"
+   ],
+   "rain": [
+    "dj-neon-drive-88-7-rain-0",
+    "dj-neon-drive-88-7-rain-1"
+   ],
+   "chase": [
+    "dj-neon-drive-88-7-chase-0",
+    "dj-neon-drive-88-7-chase-1"
+   ],
+   "gotAway": [
+    "dj-neon-drive-88-7-gotaway-0",
+    "dj-neon-drive-88-7-gotaway-1"
+   ]
+  },
+  "VELVET 89.9": {
+   "banter": [
+    "dj-velvet-89-9-banter-0",
+    "dj-velvet-89-9-banter-1",
+    "dj-velvet-89-9-banter-2",
+    "dj-velvet-89-9-banter-3"
+   ],
+   "night": [
+    "dj-velvet-89-9-night-0",
+    "dj-velvet-89-9-night-1"
+   ],
+   "rain": [
+    "dj-velvet-89-9-rain-0",
+    "dj-velvet-89-9-rain-1"
+   ],
+   "chase": [
+    "dj-velvet-89-9-chase-0",
+    "dj-velvet-89-9-chase-1"
+   ],
+   "gotAway": [
+    "dj-velvet-89-9-gotaway-0",
+    "dj-velvet-89-9-gotaway-1"
+   ]
+  },
+  "DOCKSIDE DUB 92.3": {
+   "banter": [
+    "dj-dockside-dub-92-3-banter-0",
+    "dj-dockside-dub-92-3-banter-1",
+    "dj-dockside-dub-92-3-banter-2",
+    "dj-dockside-dub-92-3-banter-3"
+   ],
+   "night": [
+    "dj-dockside-dub-92-3-night-0",
+    "dj-dockside-dub-92-3-night-1"
+   ],
+   "rain": [
+    "dj-dockside-dub-92-3-rain-0",
+    "dj-dockside-dub-92-3-rain-1"
+   ],
+   "chase": [
+    "dj-dockside-dub-92-3-chase-0",
+    "dj-dockside-dub-92-3-chase-1"
+   ],
+   "gotAway": [
+    "dj-dockside-dub-92-3-gotaway-0",
+    "dj-dockside-dub-92-3-gotaway-1"
+   ]
+  },
+  "PULSE 96.1": {
+   "banter": [
+    "dj-pulse-96-1-banter-0",
+    "dj-pulse-96-1-banter-1",
+    "dj-pulse-96-1-banter-2",
+    "dj-pulse-96-1-banter-3"
+   ],
+   "night": [
+    "dj-pulse-96-1-night-0",
+    "dj-pulse-96-1-night-1"
+   ],
+   "rain": [
+    "dj-pulse-96-1-rain-0",
+    "dj-pulse-96-1-rain-1"
+   ],
+   "chase": [
+    "dj-pulse-96-1-chase-0",
+    "dj-pulse-96-1-chase-1"
+   ],
+   "gotAway": [
+    "dj-pulse-96-1-gotaway-0",
+    "dj-pulse-96-1-gotaway-1"
+   ]
+  },
+  "COYOTE 97.7": {
+   "banter": [
+    "dj-coyote-97-7-banter-0",
+    "dj-coyote-97-7-banter-1",
+    "dj-coyote-97-7-banter-2",
+    "dj-coyote-97-7-banter-3"
+   ],
+   "night": [
+    "dj-coyote-97-7-night-0",
+    "dj-coyote-97-7-night-1"
+   ],
+   "rain": [
+    "dj-coyote-97-7-rain-0",
+    "dj-coyote-97-7-rain-1"
+   ],
+   "chase": [
+    "dj-coyote-97-7-chase-0",
+    "dj-coyote-97-7-chase-1"
+   ],
+   "gotAway": [
+    "dj-coyote-97-7-gotaway-0",
+    "dj-coyote-97-7-gotaway-1"
+   ]
+  },
+  "WIPEOUT 99.5": {
+   "banter": [
+    "dj-wipeout-99-5-banter-0",
+    "dj-wipeout-99-5-banter-1",
+    "dj-wipeout-99-5-banter-2",
+    "dj-wipeout-99-5-banter-3"
+   ],
+   "night": [
+    "dj-wipeout-99-5-night-0",
+    "dj-wipeout-99-5-night-1"
+   ],
+   "rain": [
+    "dj-wipeout-99-5-rain-0",
+    "dj-wipeout-99-5-rain-1"
+   ],
+   "chase": [
+    "dj-wipeout-99-5-chase-0",
+    "dj-wipeout-99-5-chase-1"
+   ],
+   "gotAway": [
+    "dj-wipeout-99-5-gotaway-0",
+    "dj-wipeout-99-5-gotaway-1"
+   ]
+  },
+  "BOOM BAP 101.3": {
+   "banter": [
+    "dj-boom-bap-101-3-banter-0",
+    "dj-boom-bap-101-3-banter-1",
+    "dj-boom-bap-101-3-banter-2",
+    "dj-boom-bap-101-3-banter-3"
+   ],
+   "night": [
+    "dj-boom-bap-101-3-night-0",
+    "dj-boom-bap-101-3-night-1"
+   ],
+   "rain": [
+    "dj-boom-bap-101-3-rain-0",
+    "dj-boom-bap-101-3-rain-1"
+   ],
+   "chase": [
+    "dj-boom-bap-101-3-chase-0",
+    "dj-boom-bap-101-3-chase-1"
+   ],
+   "gotAway": [
+    "dj-boom-bap-101-3-gotaway-0",
+    "dj-boom-bap-101-3-gotaway-1"
+   ]
+  },
+  "BREAKNECK 102.7": {
+   "banter": [
+    "dj-breakneck-102-7-banter-0",
+    "dj-breakneck-102-7-banter-1",
+    "dj-breakneck-102-7-banter-2",
+    "dj-breakneck-102-7-banter-3"
+   ],
+   "night": [
+    "dj-breakneck-102-7-night-0",
+    "dj-breakneck-102-7-night-1"
+   ],
+   "rain": [
+    "dj-breakneck-102-7-rain-0",
+    "dj-breakneck-102-7-rain-1"
+   ],
+   "chase": [
+    "dj-breakneck-102-7-chase-0",
+    "dj-breakneck-102-7-chase-1"
+   ],
+   "gotAway": [
+    "dj-breakneck-102-7-gotaway-0",
+    "dj-breakneck-102-7-gotaway-1"
+   ]
+  },
+  "PIXEL 103.9": {
+   "banter": [
+    "dj-pixel-103-9-banter-0",
+    "dj-pixel-103-9-banter-1",
+    "dj-pixel-103-9-banter-2",
+    "dj-pixel-103-9-banter-3"
+   ],
+   "night": [
+    "dj-pixel-103-9-night-0",
+    "dj-pixel-103-9-night-1"
+   ],
+   "rain": [
+    "dj-pixel-103-9-rain-0",
+    "dj-pixel-103-9-rain-1"
+   ],
+   "chase": [
+    "dj-pixel-103-9-chase-0",
+    "dj-pixel-103-9-chase-1"
+   ],
+   "gotAway": [
+    "dj-pixel-103-9-gotaway-0",
+    "dj-pixel-103-9-gotaway-1"
+   ]
+  }
+ },
+ "tracks": {
+  "NEON DRIVE 88.7": [
+   {
+    "front": "dj-neon-drive-88-7-front-0",
+    "back": "dj-neon-drive-88-7-back-0"
+   },
+   {
+    "front": "dj-neon-drive-88-7-front-1",
+    "back": "dj-neon-drive-88-7-back-1"
+   },
+   {
+    "front": "dj-neon-drive-88-7-front-2",
+    "back": "dj-neon-drive-88-7-back-2"
+   },
+   {
+    "front": "dj-neon-drive-88-7-front-3",
+    "back": "dj-neon-drive-88-7-back-3"
+   },
+   {
+    "front": "dj-neon-drive-88-7-front-4",
+    "back": "dj-neon-drive-88-7-back-4"
+   },
+   {
+    "front": "dj-neon-drive-88-7-front-5",
+    "back": "dj-neon-drive-88-7-back-5"
+   }
+  ],
+  "VELVET 89.9": [
+   {
+    "front": "dj-velvet-89-9-front-0",
+    "back": "dj-velvet-89-9-back-0"
+   },
+   {
+    "front": "dj-velvet-89-9-front-1",
+    "back": "dj-velvet-89-9-back-1"
+   },
+   {
+    "front": "dj-velvet-89-9-front-2",
+    "back": "dj-velvet-89-9-back-2"
+   },
+   {
+    "front": "dj-velvet-89-9-front-3",
+    "back": "dj-velvet-89-9-back-3"
+   },
+   {
+    "front": "dj-velvet-89-9-front-4",
+    "back": "dj-velvet-89-9-back-4"
+   },
+   {
+    "front": "dj-velvet-89-9-front-5",
+    "back": "dj-velvet-89-9-back-5"
+   }
+  ],
+  "DOCKSIDE DUB 92.3": [
+   {
+    "front": "dj-dockside-dub-92-3-front-0",
+    "back": "dj-dockside-dub-92-3-back-0"
+   },
+   {
+    "front": "dj-dockside-dub-92-3-front-1",
+    "back": "dj-dockside-dub-92-3-back-1"
+   },
+   {
+    "front": "dj-dockside-dub-92-3-front-2",
+    "back": "dj-dockside-dub-92-3-back-2"
+   },
+   {
+    "front": "dj-dockside-dub-92-3-front-3",
+    "back": "dj-dockside-dub-92-3-back-3"
+   },
+   {
+    "front": "dj-dockside-dub-92-3-front-4",
+    "back": "dj-dockside-dub-92-3-back-4"
+   },
+   {
+    "front": "dj-dockside-dub-92-3-front-5",
+    "back": "dj-dockside-dub-92-3-back-5"
+   }
+  ],
+  "PULSE 96.1": [
+   {
+    "front": "dj-pulse-96-1-front-0",
+    "back": "dj-pulse-96-1-back-0"
+   },
+   {
+    "front": "dj-pulse-96-1-front-1",
+    "back": "dj-pulse-96-1-back-1"
+   },
+   {
+    "front": "dj-pulse-96-1-front-2",
+    "back": "dj-pulse-96-1-back-2"
+   },
+   {
+    "front": "dj-pulse-96-1-front-3",
+    "back": "dj-pulse-96-1-back-3"
+   },
+   {
+    "front": "dj-pulse-96-1-front-4",
+    "back": "dj-pulse-96-1-back-4"
+   },
+   {
+    "front": "dj-pulse-96-1-front-5",
+    "back": "dj-pulse-96-1-back-5"
+   }
+  ],
+  "COYOTE 97.7": [
+   {
+    "front": "dj-coyote-97-7-front-0",
+    "back": "dj-coyote-97-7-back-0"
+   },
+   {
+    "front": "dj-coyote-97-7-front-1",
+    "back": "dj-coyote-97-7-back-1"
+   },
+   {
+    "front": "dj-coyote-97-7-front-2",
+    "back": "dj-coyote-97-7-back-2"
+   },
+   {
+    "front": "dj-coyote-97-7-front-3",
+    "back": "dj-coyote-97-7-back-3"
+   },
+   {
+    "front": "dj-coyote-97-7-front-4",
+    "back": "dj-coyote-97-7-back-4"
+   },
+   {
+    "front": "dj-coyote-97-7-front-5",
+    "back": "dj-coyote-97-7-back-5"
+   }
+  ],
+  "WIPEOUT 99.5": [
+   {
+    "front": "dj-wipeout-99-5-front-0",
+    "back": "dj-wipeout-99-5-back-0"
+   },
+   {
+    "front": "dj-wipeout-99-5-front-1",
+    "back": "dj-wipeout-99-5-back-1"
+   },
+   {
+    "front": "dj-wipeout-99-5-front-2",
+    "back": "dj-wipeout-99-5-back-2"
+   },
+   {
+    "front": "dj-wipeout-99-5-front-3",
+    "back": "dj-wipeout-99-5-back-3"
+   },
+   {
+    "front": "dj-wipeout-99-5-front-4",
+    "back": "dj-wipeout-99-5-back-4"
+   },
+   {
+    "front": "dj-wipeout-99-5-front-5",
+    "back": "dj-wipeout-99-5-back-5"
+   }
+  ],
+  "BOOM BAP 101.3": [
+   {
+    "front": "dj-boom-bap-101-3-front-0",
+    "back": "dj-boom-bap-101-3-back-0"
+   },
+   {
+    "front": "dj-boom-bap-101-3-front-1",
+    "back": "dj-boom-bap-101-3-back-1"
+   },
+   {
+    "front": "dj-boom-bap-101-3-front-2",
+    "back": "dj-boom-bap-101-3-back-2"
+   },
+   {
+    "front": "dj-boom-bap-101-3-front-3",
+    "back": "dj-boom-bap-101-3-back-3"
+   },
+   {
+    "front": "dj-boom-bap-101-3-front-4",
+    "back": "dj-boom-bap-101-3-back-4"
+   },
+   {
+    "front": "dj-boom-bap-101-3-front-5",
+    "back": "dj-boom-bap-101-3-back-5"
+   }
+  ],
+  "BREAKNECK 102.7": [
+   {
+    "front": "dj-breakneck-102-7-front-0",
+    "back": "dj-breakneck-102-7-back-0"
+   },
+   {
+    "front": "dj-breakneck-102-7-front-1",
+    "back": "dj-breakneck-102-7-back-1"
+   },
+   {
+    "front": "dj-breakneck-102-7-front-2",
+    "back": "dj-breakneck-102-7-back-2"
+   },
+   {
+    "front": "dj-breakneck-102-7-front-3",
+    "back": "dj-breakneck-102-7-back-3"
+   },
+   {
+    "front": "dj-breakneck-102-7-front-4",
+    "back": "dj-breakneck-102-7-back-4"
+   },
+   {
+    "front": "dj-breakneck-102-7-front-5",
+    "back": "dj-breakneck-102-7-back-5"
+   }
+  ],
+  "PIXEL 103.9": [
+   {
+    "front": "dj-pixel-103-9-front-0",
+    "back": "dj-pixel-103-9-back-0"
+   },
+   {
+    "front": "dj-pixel-103-9-front-1",
+    "back": "dj-pixel-103-9-back-1"
+   },
+   {
+    "front": "dj-pixel-103-9-front-2",
+    "back": "dj-pixel-103-9-back-2"
+   },
+   {
+    "front": "dj-pixel-103-9-front-3",
+    "back": "dj-pixel-103-9-back-3"
+   },
+   {
+    "front": "dj-pixel-103-9-front-4",
+    "back": "dj-pixel-103-9-back-4"
+   },
+   {
+    "front": "dj-pixel-103-9-front-5",
+    "back": "dj-pixel-103-9-back-5"
+   }
   ]
  },
  "news": {
@@ -1730,7 +2874,9 @@
   "It started in San Azura Bay.": "news-ee6bc6a687",
   "It started on Ocean Beach.": "news-fca2d4407b",
   "It started in Hillcrest.": "news-bb5680688b",
+  "It started at Hollister Farm.": "news-94a328b014",
   "It started in Hillcrest Green.": "news-493bdbd5cf",
+  "It started at Eternal Palms Cemetery.": "news-b93db8c7fc",
   "It started in Westside.": "news-b05bde8153",
   "It started in Midtown.": "news-8406897e2d",
   "It started downtown.": "news-17587468ee",
@@ -1746,13 +2892,16 @@
   "It started in Coral Bay.": "news-e2d5c5b595",
   "It started on Azura Pier.": "news-19d51a17c0",
   "It started at the Marina.": "news-e63f63719e",
+  "It started on Smuggler's Key.": "news-0da9fc9ab8",
   "It started in Hillcrest Cove.": "news-7ea74528b3",
   "It started in Port Basin.": "news-ff98627867",
   "It started at Azura Point.": "news-b9c0cb5793",
   "It ended in San Azura Bay.": "news-eb32e3b32a",
   "It ended on Ocean Beach.": "news-6f21ddc1c7",
   "It ended in Hillcrest.": "news-771b53f6ea",
+  "It ended at Hollister Farm.": "news-cd7b61dfa5",
   "It ended in Hillcrest Green.": "news-e2d5ae688e",
+  "It ended at Eternal Palms Cemetery.": "news-d5553326fe",
   "It ended in Westside.": "news-c7609c5b31",
   "It ended in Midtown.": "news-f37801b6c9",
   "It ended downtown.": "news-20652e3098",
@@ -1768,13 +2917,16 @@
   "It ended in Coral Bay.": "news-aaea12fa27",
   "It ended on Azura Pier.": "news-765b52e52f",
   "It ended at the Marina.": "news-09ab60b575",
+  "It ended on Smuggler's Key.": "news-150038d005",
   "It ended in Hillcrest Cove.": "news-b90c3020d7",
   "It ended in Port Basin.": "news-2303245844",
   "It ended at Azura Point.": "news-b606ce775c",
   "It never left San Azura Bay.": "news-82baf48c95",
   "It never left Ocean Beach.": "news-9395ff7fb6",
   "It never left Hillcrest.": "news-53a2383714",
+  "It never left Hollister Farm.": "news-f2884703e4",
   "It never left Hillcrest Green.": "news-a44ba0efba",
+  "It never left Eternal Palms Cemetery.": "news-57bd12b371",
   "It never left Westside.": "news-2995a8ba41",
   "It never left Midtown.": "news-353ea93678",
   "It never left downtown.": "news-7699d9830f",
@@ -1790,13 +2942,16 @@
   "It never left Coral Bay.": "news-e8cf329ed9",
   "It never left Azura Pier.": "news-35329c039c",
   "It never left the Marina.": "news-a3833e247b",
+  "It never left Smuggler's Key.": "news-6d6c3c46e8",
   "It never left Hillcrest Cove.": "news-8da8958b0b",
   "It never left Port Basin.": "news-3e5663be11",
   "It never left Azura Point.": "news-562bbbdff1",
   "A car went into the water in San Azura Bay.": "news-165604cb7a",
   "A car went into the water on Ocean Beach.": "news-3d1cfc8dee",
   "A car went into the water in Hillcrest.": "news-885f665d9f",
+  "A car went into the water at Hollister Farm.": "news-765aec458e",
   "A car went into the water in Hillcrest Green.": "news-d10b132f2b",
+  "A car went into the water at Eternal Palms Cemetery.": "news-583716f8a9",
   "A car went into the water in Westside.": "news-e539f89a2a",
   "A car went into the water in Midtown.": "news-8a89a91550",
   "A car went into the water downtown.": "news-0a86f17031",
@@ -1812,13 +2967,16 @@
   "A car went into the water in Coral Bay.": "news-b829f41c68",
   "A car went into the water on Azura Pier.": "news-5d9c6f131e",
   "A car went into the water at the Marina.": "news-725aa3312b",
+  "A car went into the water on Smuggler's Key.": "news-61a0b756fa",
   "A car went into the water in Hillcrest Cove.": "news-6d04365bda",
   "A car went into the water in Port Basin.": "news-39d231eace",
   "A car went into the water at Azura Point.": "news-47a5f4be50",
   "Fire crews were called to a blaze in San Azura Bay.": "news-359c763f93",
   "Fire crews were called to a blaze on Ocean Beach.": "news-b88beaf0f4",
   "Fire crews were called to a blaze in Hillcrest.": "news-9886fa0516",
+  "Fire crews were called to a blaze at Hollister Farm.": "news-fee4120b96",
   "Fire crews were called to a blaze in Hillcrest Green.": "news-145206a638",
+  "Fire crews were called to a blaze at Eternal Palms Cemetery.": "news-e025bb6de5",
   "Fire crews were called to a blaze in Westside.": "news-0273098021",
   "Fire crews were called to a blaze in Midtown.": "news-a2522f4c4e",
   "Fire crews were called to a blaze downtown.": "news-e8bfe84fb4",
@@ -1834,6 +2992,7 @@
   "Fire crews were called to a blaze in Coral Bay.": "news-fe97771d42",
   "Fire crews were called to a blaze on Azura Pier.": "news-a4412bc2c9",
   "Fire crews were called to a blaze at the Marina.": "news-7182ccead6",
+  "Fire crews were called to a blaze on Smuggler's Key.": "news-d9ba22f965",
   "Fire crews were called to a blaze in Hillcrest Cove.": "news-677efad5b0",
   "Fire crews were called to a blaze in Port Basin.": "news-1359cb9969",
   "Fire crews were called to a blaze at Azura Point.": "news-18d73e60fd",
@@ -1973,5 +3132,15 @@
    "breaking": "news-m-last_call",
    "followUp": "news-m-last_call-later"
   }
+ },
+ "pa": {
+  "Seaview": [
+   "pa-seaview-0",
+   "pa-seaview-1"
+  ],
+  "Northshore": [
+   "pa-northshore-0",
+   "pa-northshore-1"
+  ]
  }
 }

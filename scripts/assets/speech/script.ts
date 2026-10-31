@@ -50,7 +50,8 @@ export type Role = keyof typeof CAST;
 
 /**
  * How Kokoro is told to say a word it gets wrong (its inline phoneme markup, or a respelling); the index keeps the
- * written line. Azura is ah-ZOO-ra everywhere, not "as you're a".
+ * written line. Azura is ah-ZOO-ra everywhere, not "as you're a". SAPD is read letter by letter: Vera's "An SAPD
+ * sergeant" came out "and sapped sergeant", and with the dots every other line keeps the phonemes it had.
  */
 export const SAY: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bAzura\b/g, '[Azura](/ɑzˈuɹə/)'],
@@ -60,6 +61,7 @@ export const SAY: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bMarguerite\b/g, '[Marguerite](/mˌɑɹɡəɹˈit/)'],
   [/\bSzabo\b/g, 'Sahbo'],
   [/\bTruett\b/g, 'Trooett'],
+  [/\bSAPD\b/g, 'S.A.P.D.'],
 ];
 
 /** Talk station roles heard down a phone line or a radio link: their lines are band-limited when rendered. */
