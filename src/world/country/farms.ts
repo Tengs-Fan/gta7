@@ -58,6 +58,8 @@ export interface CountyFarms {
   windpump: number;
   /** Ladders against apple trees: where each one's foot stands and which way it leans. */
   ladders: Array<{ x: number; z: number; rot: number }>;
+  /** Where the dairy's farmer stands (sim/farms.ts): outside the pasture's gate, facing his cows. */
+  dairyman: { x: number; z: number; heading: number };
 }
 
 /** Hedgerows' height and thickness (m). */
@@ -82,7 +84,7 @@ export const PROPANE = { len: 3, r: 0.65, axis: 1 } as const;
 const FARMS_SALT = 7301;
 
 export function noFarms(): CountyFarms {
-  return { fields: [], farmsteads: [], cover: [], tall: [], bounds: mkRect(0, 0, 0, 0), hedges: [], cows: [], scarecrows: [], propane: -1, windpump: -1, ladders: [] };
+  return { fields: [], farmsteads: [], cover: [], tall: [], bounds: mkRect(0, 0, 0, 0), hedges: [], cows: [], scarecrows: [], propane: -1, windpump: -1, ladders: [], dairyman: { x: 0, z: 0, heading: 0 } };
 }
 
 /** A prop of the county's, on its ground. */
@@ -234,6 +236,7 @@ function buildDairy(layout: CityLayout, farms: CountyFarms, rng: Rng): void {
   // The pasture, its gate on the east side by the yard (the runs at 132..140 m down it).
   const pasture = mkRect(P.minX + 4, P.minZ + 56, P.minX + 132, P.maxZ - 4);
   fenceRound(layout, pasture, { E: [33, 34] });
+  farms.dairyman = { x: pasture.maxX + 3, z: pasture.minZ + 136, heading: W };
   const inner = insetRect(pasture, 4);
   const cows: Array<{ x: number; z: number }> = [];
   while (cows.length < COW_COUNT) {

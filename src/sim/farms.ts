@@ -5,19 +5,25 @@
 // - Twenty scarecrows to knock down: SCARECROWS n/20 for each and SCARECROW_REWARD for the set, once. They are kept per
 //   Progress and saved (FARMS_KEY), as the pumpkins are (sim/farm.ts), in single player only.
 // - The propane tank behind the dairy goes up when it breaks, on the tick after: a car breaks it inside its collision step.
-// Nothing here draws sim.rng or spawns anything, so a run that never comes near the farms runs as it did.
+// - The dairy's farmer stands at his pasture's gate while a player is within DAIRYMAN_NEAR of it, and is gone past
+//   DAIRYMAN_FAR, as Old Man Hollister keeps his porch (sim/farm.ts), in sims with ambient life only; the audio has him
+//   shout at a cow going over.
+// Nothing here draws sim.rng, and only a player near the dairy brings its farmer out, so a run that never comes near the
+// farms runs as it did.
 
 import { formatMoney } from '../core/math';
 import { COW_COUNT, PROPANE, SCARECROW_COUNT, type CountyFarms } from '../world/country/farms';
 import type { StaticCollider } from '../world/colliders';
 import type { StaticWorld } from '../world/staticWorld';
 import { registerCompletion } from './completion';
+import { makeBrain } from './brains';
+import type { Appearance, Character } from './entities';
 import type { Marker } from './interactions';
 import type { Progress } from './progress';
 import { registerSaveCodec } from './saveExt';
 import type { Sim } from './sim';
 import { registerSystem } from './systems';
-import type { PlayerView } from './viewState';
+import type { PlayerView, ViewState } from './viewState';
 
 export const SCARECROW_REWARD = 3000;
 export const FARMS_KEY = 'farms';
@@ -27,6 +33,11 @@ export const TIP_TO = 5;
 export const DAWN = 6;
 /** How near (m, from the cow's middle) a player stands to tip one: just past her flank. */
 export const TIP_REACH = 2.2;
+/** The dairy's farmer is out at his gate while a player is within DAIRYMAN_NEAR m of it, and gone past DAIRYMAN_FAR. */
+export const DAIRYMAN_NEAR = 120;
+export const DAIRYMAN_FAR = 140;
+/** A white T-shirt under denim, a green feed cap. */
+const DAIRYMAN_LOOK: Appearance = { skin: 0xc68e6a, shirt: 0xe9e4d8, pants: 0x34557f, hair: 0x5a4636, hat: 0x2f6b3a, height: 1.02, build: 1.18 };
 /** The propane tank's blast: its radius (m) and damage, a burning car's. */
 const PROPANE_BLAST = 7.5;
 const PROPANE_DAMAGE = 360;
@@ -80,6 +91,15 @@ export function tipCow(sim: Sim, slot: PlayerView, k: number): void {
   sim.events.emit('big', { text: `COW TIPPED ${down}/${COW_COUNT}`, sub: '', style: 'info', duration: 2, ...slot.tag });
 }
 
+/**
+ * The dairy's farmer while he is out, else null (the audio has him shout): the mission character at his gate, found among
+ * the view's characters, so a multiplayer client's mirror of the server finds him too.
+ */
+export function dairyman(view: Pick<ViewState, 'world' | 'characters'>): Character | null {
+  const at = view.world.layout.country.farms.dairyman;
+  return view.characters.find((c) => c.role === 'mission' && !c.removed && Math.hypot(c.pos.x - at.x, c.pos.z - at.z) < 2) ?? null;
+}
+
 export interface FarmsState {
   /** The scarecrows knocked down, by their place in the farms' list (0..SCARECROW_COUNT - 1). */
   knocked: Set<number>;
@@ -106,6 +126,7 @@ interface FarmsRuntime {
   hours: number;
   /** The propane tank broke and goes up next update. */
   blast: boolean;
+  dairyman: Character | null;
 }
 
 const runtime = new WeakMap<Sim, FarmsRuntime>();
@@ -114,7 +135,7 @@ function rt(sim: Sim): FarmsRuntime {
   let r = runtime.get(sim);
   if (!r) {
     const farms = sim.world.layout.country.farms;
-    const fresh: FarmsRuntime = { farms, scarecrow: new Map(farms.scarecrows.map((prop, k) => [prop, k])), hours: sim.clock.hours, blast: false };
+    const fresh: FarmsRuntime = { farms, scarecrow: new Map(farms.scarecrows.map((prop, k) => [prop, k])), hours: sim.clock.hours, blast: false, dairyman: null };
     sim.events.on('propBroken', (e) => {
       if (e.index === fresh.farms.propane) fresh.blast = true;
       const k = fresh.scarecrow.get(e.index);
@@ -143,6 +164,29 @@ function knock(sim: Sim, k: number): void {
   sim.events.emit('activityMilestone', { kind: 'scarecrows', reward: SCARECROW_REWARD });
 }
 
+function updateDairyman(sim: Sim, r: FarmsRuntime): void {
+  const at = r.farms.dairyman;
+  let d = Infinity;
+  for (const slot of sim.players) {
+    const p = slot.pos();
+    d = Math.min(d, Math.hypot(p.x - at.x, p.z - at.z));
+  }
+  const h = r.dairyman;
+  if (h && (h.removed || d > DAIRYMAN_FAR)) {
+    sim.removeCharacter(h);
+    r.dairyman = null;
+  } else if (!h && d < DAIRYMAN_NEAR) {
+    const c = sim.spawnCharacter('mission', at.x, at.z, DAIRYMAN_LOOK);
+    c.heading = at.heading;
+    c.persistent = true;
+    const b = makeBrain('stand');
+    b.homeX = at.x;
+    b.homeZ = at.z;
+    c.brain = b;
+    r.dairyman = c;
+  }
+}
+
 registerSystem({
   id: 'farms',
   slot: 'afterInteractions',
@@ -151,6 +195,7 @@ registerSystem({
     const up = cowsAtDawn(sim.world, r.hours, sim.clock.hours);
     r.hours = sim.clock.hours;
     if (up.length > 0) sim.events.emit('propsRestored', { indices: up });
+    if (sim.ambient) updateDairyman(sim, r);
     if (r.blast) {
       r.blast = false;
       const p = sim.world.layout.props[r.farms.propane]!;

@@ -1,15 +1,15 @@
 // Las Lomas County's four farms (world/country/farms.ts, sim/farms.ts): where everything stands (in the farm plots, 12 m
 // and more off every road edge, nothing older moved), the barns that blind the helicopter, the corn that hides a target
 // and drags at a car, the propane tank that goes up, the hedgerows that stop sight but not the camera, the cows tipped
-// at night in single player that stand up again at dawn (on a Sim and, once, on a multiplayer client's mirror alike), and
-// the twenty scarecrows.
+// at night in single player that stand up again at dawn (on a Sim and, once, on a multiplayer client's mirror alike),
+// the dairy's farmer at his pasture's gate, and the twenty scarecrows.
 
 import { describe, expect, it } from 'vitest';
 import { Mirror } from '../../src/net/mirror';
 import { toNetEvent, type SnapshotMsg } from '../../src/net/protocol';
 import { completionRows } from '../../src/sim/completion';
-import { Helicopter } from '../../src/sim/entities';
-import { farmsState, passedDawn, SCARECROW_REWARD } from '../../src/sim/farms';
+import { Character, Helicopter } from '../../src/sim/entities';
+import { dairyman, DAIRYMAN_FAR, DAIRYMAN_NEAR, farmsState, passedDawn, SCARECROW_REWARD } from '../../src/sim/farms';
 import { applyExt, parseExt, serializeExt } from '../../src/sim/saveExt';
 import type { Sim } from '../../src/sim/sim';
 import { registeredSystems } from '../../src/sim/systems';
@@ -294,6 +294,48 @@ describe('Las Lomas County: the cows', () => {
     // Broken again by the server (a car after dawn): the mirror takes it.
     mirror.applySnapshot({ ...snapshot(9, 6.02), brokenProps: [cow] }, 150);
     expect(c.broken).toBe(true);
+  });
+});
+
+describe('Las Lomas County: the dairy\'s farmer', () => {
+  it('stands at his pasture\'s gate, facing his cows, only while a player is near the dairy', () => {
+    const sim = makeSim({ police: false, ambient: true });
+    const at = farms.dairyman;
+    expect(sim.world.isFree(at.x, at.z, 0.5)).toBe(true);
+    const mission = () => sim.characters.filter((c) => c.role === 'mission' && !c.removed);
+    teleport(sim, at.x + DAIRYMAN_NEAR + 30, at.z);
+    step(sim, 0.5);
+    expect(dairyman(sim)).toBeNull();
+    teleport(sim, at.x + 20, at.z);
+    step(sim, 0.5);
+    const h = dairyman(sim)!;
+    expect(mission()).toEqual([h]);
+    step(sim, 3);
+    expect(Math.hypot(h.pos.x - at.x, h.pos.z - at.z)).toBeLessThan(0.5);
+    // Every cow is within 200 m of him, west of him, and the nearest within the 90 m he shouts at.
+    const cows = farms.cows.map((i) => L.props[i]!);
+    expect(cows.every((p) => p.x < at.x && Math.hypot(p.x - at.x, p.z - at.z) < 200)).toBe(true);
+    expect(cows.filter((p) => Math.hypot(p.x - at.x, p.z - at.z) < 90).length).toBeGreaterThanOrEqual(5);
+    teleport(sim, at.x + DAIRYMAN_FAR + 10, at.z);
+    step(sim, 0.5);
+    expect(dairyman(sim)).toBeNull();
+    expect(h.removed).toBe(true);
+    // A sim without ambient life (a multiplayer client's predictor) never has him out.
+    const quiet = makeSim({ police: false });
+    teleport(quiet, at.x + 20, at.z);
+    step(quiet, 0.5);
+    expect(dairyman(quiet)).toBeNull();
+  });
+
+  it('is found by the audio among a view\'s characters, as a multiplayer client\'s mirror holds them', () => {
+    const sim = makeSim({ police: false, ambient: true });
+    const at = farms.dairyman;
+    teleport(sim, at.x + 20, at.z);
+    step(sim, 0.5);
+    const h = dairyman(sim)!;
+    const copies = sim.characters.filter((c) => !c.removed).map((c) => new Character(c.id, c.role, c.pos.x, c.pos.y, c.pos.z, { ...c.appearance }));
+    expect(dairyman({ world: sim.world, characters: copies })?.id).toBe(h.id);
+    expect(dairyman({ world: sim.world, characters: copies.filter((c) => c.id !== h.id) })).toBeNull();
   });
 });
 

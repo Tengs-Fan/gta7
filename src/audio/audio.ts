@@ -5,6 +5,7 @@
 import { clamp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import { hollister } from '../sim/farm';
+import { dairyman } from '../sim/farms';
 import type { SimEvents } from '../sim/events';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { VehicleKind, WeaponId } from '../sim/specs';
@@ -300,9 +301,11 @@ export class AudioEngine {
         if (p.kind === 'corn') this.rustle(p.x, p.y, p.z);
         else if (p.kind === 'cow') this.moo(p.x, p.y + 1.1, p.z, 1);
         else this.thud(0.5);
-        // Old Man Hollister sees a car in his corn or his pumpkins.
+        // Old Man Hollister sees a car in his corn or his pumpkins, the dairy's farmer a cow go over.
         const h = hollister(sim);
         if (h && h.alive && (p.kind === 'corn' || p.kind === 'pumpkin') && Math.hypot(h.pos.x - p.x, h.pos.z - p.z) < 90) this.bark('farmerAngry', h.id, h.pos.x, h.pos.y + 1.6, h.pos.z);
+        const cud = p.kind === 'cow' ? dairyman(sim) : null;
+        if (cud && cud.alive && Math.hypot(cud.pos.x - p.x, cud.pos.z - p.z) < 90) this.bark('dairyman', cud.id, cud.pos.x, cud.pos.y + 1.6, cud.pos.z);
       }),
       // Dawn in Las Lomas County: the first cow back on her feet says so.
       on('propsRestored', (e) => {

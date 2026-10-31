@@ -264,8 +264,8 @@ describe('round 2 city: layout', () => {
     // all four stand together and the trees in front of the letters are bushes; and when Las Lomas County joined it
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
     // parapets, the four props moved out of the links' mouths, its signal heads and lamps), and when its farms were
-    // appended (their fields, farmhouses, barns, hedgerows, props and farmyard bays).
-    expect(layoutHash()).toBe('6c98d01e64d3d26642d89715a518284d42dee378ab59b96a0c5adc6c4a411394');
+    // appended (their fields, farmhouses, barns, hedgerows, props and farmyard bays, and the dairy's farmer's spot).
+    expect(layoutHash()).toBe('6fc300e682dd35dfed07a94ef7d1154c6fe62919549353f0f3163760d8d9c4e0');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
