@@ -1,7 +1,8 @@
 // Las Lomas County's fields (world/country/farms.ts, render/country/fields.ts): where they lie (in the farm plots, 12 m
 // and more off every road edge), which of them are cover and drag at a car, and how they are drawn at a cost set by
 // what the camera sees: pools of plants sized by tier round the camera, every plant at its own spot of its field's
-// lattice, refills that move none of them.
+// lattice, refills that move none of them; and the hedgerows, which open round the camera's sight line while one
+// stands in it.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
@@ -148,5 +149,28 @@ describe('Las Lomas County: drawing the fields', () => {
     expect(pool('corn').count).toBe(a.size);
     view.fields.update(0, 3, 0, 1, 0);
     for (const crop of ['corn', 'wheat', 'sunflower'] as const) expect(pool(crop).count).toBe(0);
+  });
+
+  it('opens the hedgerows round the sight line while one stands between the camera and the player, and only then', () => {
+    const h = farms.hedges.find((q) => q.maxZ - q.minZ > 50)!;
+    const z = rectCZ(h);
+    const open = view.farms.sightUniforms.uSightOpen;
+    // The player 2 m west of the hedge facing west, the camera 4.3 m behind him, past the hedge (as the review framed it).
+    const behind = { x: h.maxX + 0.9, y: 2.1, z };
+    const player = { x: h.minX - 2, y: 1.6, z };
+    view.farms.sight(behind, player, 0.1);
+    expect(open.value).toBeCloseTo(0.5);
+    view.farms.sight(behind, player, 0.2);
+    expect(open.value).toBe(1);
+    expect(view.farms.sightUniforms.uSightSubject.value.toArray()).toEqual([player.x, player.y, player.z]);
+    // Walking along the hedge 1.2 m off it, the camera behind him: nothing in between, so it closes.
+    const along = { x: h.minX - 1.2, y: 1.6, z: z - 2 };
+    view.farms.sight({ x: h.minX - 1.6, y: 2.1, z: z + 2.3 }, along, 0.1);
+    expect(open.value).toBeCloseTo(0.5);
+    view.farms.sight({ x: h.minX - 1.6, y: 2.1, z: z + 2.3 }, along, 0.2);
+    expect(open.value).toBe(0);
+    // Nothing framed (the title screen): nothing opens.
+    view.farms.sight(behind, null, 1);
+    expect(open.value).toBe(0);
   });
 });

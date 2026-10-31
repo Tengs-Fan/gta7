@@ -2,18 +2,22 @@
 // roofs, the farmhouses' buildings, the props' and the hedgerows'. The barns' gambrel roofs over the garages' slabs
 // (structures.ts draws the walls and slabs), their trim and loft doors; the dairy's silos, the grain bins, the
 // windpump's tower and stock tank, the signs, mailboxes and ladders: one draw over the four farms, its boards painted
-// on a small atlas of its own (city/attractions.ts Atlas). The hedgerows are a second, the farmyards' and drives' dirt
-// a third; the windpump's wheel turns in the wind.
+// on a small atlas of its own (city/attractions.ts Atlas). The hedgerows are a second, which the camera sees through
+// where one stands between it and what it frames; the farmyards' and drives' dirt a third; the windpump's wheel turns in
+// the wind.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import type { V3 } from '../../core/math';
 import { Rng } from '../../core/rng';
 import { HEDGE_H, STOCK_TANK, type FarmId, type Farmstead } from '../../world/country/farms';
+import { makeRayHit, type StaticCollider } from '../../world/colliders';
 import { rectCX, rectCZ, type Rect } from '../../world/layout';
 import { GARAGE_EAVE, GARAGE_ROOF } from '../../world/staticWorld';
 import { Atlas, boxC, face, tri, type V } from '../city/attractions';
 import { prism } from '../city/rooftops';
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB } from '../geo';
+import { fadeNearCamera } from '../props';
 import { groundTexture } from '../textures';
 import { canvas, noise, toTexture } from '../textures/misc';
 import type { CountryView } from './index';
@@ -208,13 +212,59 @@ function hedgeTexture(): THREE.Texture {
   return toTexture(c);
 }
 
+/** Within this distance (m) of the sight line from the camera to what it frames a hedgerow is gone, from twice it whole. */
+const HEDGE_OPEN = 1;
+/** Seconds the opening takes to grow to its full size, or to close, as a hedgerow comes into the sight line or leaves it. */
+const HEDGE_EASE = 0.2;
+
+/** The camera, the subject it frames, and how far open (0..1) the hedgerows between them are. */
+export interface SightUniforms {
+  uSightCam: { value: THREE.Vector3 };
+  uSightSubject: { value: THREE.Vector3 };
+  uSightOpen: { value: number };
+}
+
+/**
+ * A hedgerow's material: the foliage's near-camera dissolve (props.ts fadeNearCamera, which gives the world position
+ * vFadeWorld and the dither), and, since the camera looks through a hedgerow rather than stopping at it
+ * (world/colliders.ts blocksCamera), an opening round the sight line from the camera to the subject it frames while a
+ * hedgerow stands between them (FarmsView.sight). A hedge beyond the subject, the one he faces, stays whole.
+ */
+function seeThrough(mat: THREE.Material, sight: SightUniforms): void {
+  fadeNearCamera(mat);
+  const fade = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, renderer) => {
+    fade.call(mat, shader, renderer);
+    Object.assign(shader.uniforms, sight);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uSightCam;\nuniform vec3 uSightSubject;\nuniform float uSightOpen;')
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+if ( uSightOpen > 0.0 ) {
+  vec3 sight = uSightSubject - uSightCam;
+  float along = dot( vFadeWorld - uSightCam, sight ) / dot( sight, sight );
+  float off = distance( vFadeWorld, uSightCam + sight * along );
+  float open = uSightOpen * ${HEDGE_OPEN.toFixed(2)};
+  if ( along < 1.0 && fadeBayer4( gl_FragCoord.xy ) >= smoothstep( open, open * 2.0, off ) ) discard;
+}`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'gta7-hedge';
+}
+
+const isHedge = (c: StaticCollider): boolean => c.tag === 'hedge';
+
 export class FarmsView {
   /** The windpump's wheel, turning about its hub's z axis. */
   private readonly wheel: THREE.Mesh;
   private turn = 0;
   private last = 0;
+  /** The camera, its subject and how far open the hedgerows are, which sight() drives. */
+  readonly sightUniforms: SightUniforms = { uSightCam: { value: new THREE.Vector3() }, uSightSubject: { value: new THREE.Vector3() }, uSightOpen: { value: 0 } };
+  private readonly hit = makeRayHit();
 
-  constructor(view: CountryView) {
+  constructor(private readonly view: CountryView) {
     const layout = view.world.layout;
     const farms = layout.country.farms;
     const g = new GeoBuilder(true);
@@ -259,7 +309,9 @@ export class FarmsView {
         else hedges.box(h.minX + 0.1, HEDGE_H - 0.3, h.minZ + a, h.maxX - 0.1, top, h.minZ + b, { uv: { kind: 'world', scale: 3 } });
       }
     }
-    view.add(hedges.build(), new THREE.MeshStandardMaterial({ map: hedgeTexture(), roughness: 0.95 }), { shadow: true, name: 'hedgerows', split: false });
+    const hedgeMat = new THREE.MeshStandardMaterial({ map: hedgeTexture(), roughness: 0.95 });
+    seeThrough(hedgeMat, this.sightUniforms);
+    view.add(hedges.build(), hedgeMat, { shadow: true, name: 'hedgerows', split: false });
 
     // The farmyards' and the drives' dirt, just over the grass; a drive follows the ground out to the road.
     const dirt = new GeoBuilder(false);
@@ -312,6 +364,25 @@ export class FarmsView {
   /** Hides the windpump's wheel past `far` m from (x, z), as its tower's cell is. */
   cull(x: number, z: number, far: number): void {
     this.wheel.visible = Math.hypot(this.wheel.position.x - x, this.wheel.position.z - z) < far;
+  }
+
+  /**
+   * Each frame, `dt` s on: the camera at `cam` and the subject it frames (null: none, nothing opens). While a hedgerow
+   * stands between them, the hedgerows open round the line from one to the other, over HEDGE_EASE s.
+   */
+  sight(cam: V3, subject: V3 | null, dt: number): void {
+    let to = 0;
+    if (subject) {
+      const dx = subject.x - cam.x;
+      const dy = subject.y - cam.y;
+      const dz = subject.z - cam.z;
+      const len = Math.hypot(dx, dy, dz);
+      if (len > 0 && this.view.world.grid.raycast(cam.x, cam.y, cam.z, dx / len, dy / len, dz / len, len, this.hit, isHedge)) to = 1;
+      this.sightUniforms.uSightCam.value.set(cam.x, cam.y, cam.z);
+      this.sightUniforms.uSightSubject.value.set(subject.x, subject.y, subject.z);
+    }
+    const u = this.sightUniforms.uSightOpen;
+    u.value = to > u.value ? Math.min(to, u.value + dt / HEDGE_EASE) : Math.max(to, u.value - dt / HEDGE_EASE);
   }
 
   /** Each frame: the windpump's wheel turns with the wind (`wind` m/s), a turn every few seconds in a breeze. */

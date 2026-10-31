@@ -1148,6 +1148,7 @@ export class GameRenderer {
     this.props.setWind(weather?.wind ?? NO_WIND);
     this.turbines.update(dt, this.time, night, weather?.wind ?? NO_WIND, this.env.smokeLight);
     this.props.setOccluderView(cam.position, sim ? this.cameraCtl.occlusionSubject() : null);
+    this.country.farms.sight(cam.position, sim ? this.cameraCtl.occlusionSubject() : null, dt);
     if (sim) {
       const lights = Math.max(night, this.weatherDim);
       this.syncVehicles(sim, dt, lights);

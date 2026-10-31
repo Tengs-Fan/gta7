@@ -215,6 +215,7 @@ Four of the plots are farms (`src/world/country/farms.ts`), appended by `buildFa
 Each farmyard has a barn, which is a garage (its walls and roof slab, which hides the bay from the helicopter, with a gambrel roof drawn over it), a farmhouse, which is a building like a city house, a sign and a mailbox by its dirt drive, and two bays appended to the parking.
 Hedgerows run along the plots' edges beside Hollister Lane and Creek Road and round the orchard, with gaps at the gates; the corn, the wheat and the sunflowers stand open to the highway.
 A hedgerow is a collider of its own tag (`hedge`): solid for sight and shots, so traffic can stream in behind one, but not for the camera, which looks through it rather than snapping in.
+Where one stands between the camera and the player (or his car), it opens round the line between them, and it dissolves right at the lens as foliage does (`src/render/country/farms.ts`).
 Nothing stands within 12 m of a road edge, every collider is in a farm plot, and no open spot is added.
 The farms' buildings, garages and hedgerows take their colliders after every older collider (`firstBuilding`, `firstGarage`), so the city's keep their ids.
 
