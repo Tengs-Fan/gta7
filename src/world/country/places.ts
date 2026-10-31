@@ -29,6 +29,8 @@ export interface TownAnchors {
   stores: Store[];
   /** The boardwalks along the store fronts (timber decks at the ground's height). */
   boardwalks: Rect[];
+  /** Packed dirt: Gas & Grits' forecourt, and the parking either side of Creek Road. */
+  lots: Rect[];
   /** Gas & Grits: its four pumps (prop indices) and the canopy over them. */
   pumps: number[];
   canopy: Rect;
@@ -59,6 +61,7 @@ export function noPlaces(): CountyPlaces {
     town: {
       stores: [],
       boardwalks: [],
+      lots: [],
       pumps: [],
       canopy: mkRect(0, 0, 0, 0),
       canopyY: [0, 0],
@@ -252,6 +255,9 @@ function buildDryCreek(layout: CityLayout, rng: Rng, places: CountyPlaces): void
     addProp(layout, 'billboard', x, z, Math.PI / 2, 1, ground(x, z));
   }
 
+  // Street lamps along the north kerb, their heads over the main street, clear of the crossroads' corners.
+  for (const x of [-922, -894, -866, -814, -786, -758]) addProp(layout, 'lamp', x, -277, 0, 1, ground(x, -277));
+
   // Benches against the store fronts, clear of the walking lines.
   for (const s of town.stores) {
     if (s.kind === 'gas') continue;
@@ -261,6 +267,7 @@ function buildDryCreek(layout: CityLayout, rng: Rng, places: CountyPlaces): void
   }
 
   // Nose-in parking south of the main street, facing the stores, clear of Creek Road's corners.
+  town.lots.push(mkRect(-806, -305, -772, -276.3), mkRect(-905, -259.8, -851, S_EDGE), mkRect(-829, -259.8, -777, S_EDGE));
   for (const [x0, x1] of [[-903, -853], [-827, -780]] as const) {
     for (let x = x0; x <= x1; x += BAY_GAP) layout.parking.push({ x, z: BAY_Z, heading: 0 });
   }

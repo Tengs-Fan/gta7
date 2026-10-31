@@ -11,11 +11,15 @@ import { COUNTRY_CELL, COUNTRY_FOG_MARGIN } from '../quality';
 import { spatialGeometry, StaticVisibility } from '../spatial';
 import { buildBridge } from './bridge';
 import { buildCountryGround } from './ground';
+import { PlacesKit } from './kit';
 import { buildCountryRoads } from './roads';
+import { buildTown } from './town';
 
 export class CountryView {
   readonly group = new THREE.Group();
   private readonly visibility = new StaticVisibility();
+  /** What the places animate each frame (Moo-Moo's neon cow). */
+  private readonly animated: Array<(night: number, time: number) => void> = [];
 
   constructor(
     readonly world: StaticWorld,
@@ -26,6 +30,9 @@ export class CountryView {
     buildCountryGround(this);
     buildCountryRoads(this);
     buildBridge(this);
+    const kit = new PlacesKit();
+    this.animated.push(buildTown(this, kit));
+    kit.finish(this);
   }
 
   /** A static layer of the county, cut into COUNTRY_CELL cells (unless `split` is false: a few pieces across it). */
@@ -42,6 +49,11 @@ export class CountryView {
       this.visibility.add(m);
     }
     if (parts[0] !== geo) geo.dispose();
+  }
+
+  /** Each frame, with the city's (CityView.update): the places' neon. */
+  update(night: number, time: number): void {
+    for (const f of this.animated) f(night, time);
   }
 
   /** Each frame: hides the cells farther from the camera than the fog's far end and the margin. */

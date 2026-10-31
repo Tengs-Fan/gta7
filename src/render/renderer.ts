@@ -1141,6 +1141,7 @@ export class GameRenderer {
     this.lightSprites.haze.update(night, rain, this.bufferSize.y / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)));
     this.streetLighting.update(cam.position, night, dt);
     this.city.update(night, hours, this.time);
+    this.country.update(night, this.time);
     // Signals run on the sim clock, the one drivers and pedestrians obey.
     this.props.update(this.time, night, sim ? sim.time : this.time);
     this.props.setWind(weather?.wind ?? NO_WIND);

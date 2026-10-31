@@ -505,10 +505,10 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // SAN AZURA letters are bushes (their kind, trunks and envelopes); and when Las Lomas County moved the four props out
   // of the links' mouths through the promenade (a tree's envelope with them) and appended its signal heads and the
   // causeway's lamps, their colliders after the bridge's parapets and its arch's posts, after every other; and when Dry
-  // Creek appended its pumps, billboards and benches, and its stores' and solids' colliders after those.
+  // Creek appended its pumps, billboards, lamps and benches, and its stores' and solids' colliders after those.
   const D98 = {
-    props: '874ecfd272aa571dd7be647accdc6990be25bedf4e6986a63e51fc8c780d2972',
-    colliders: 'f3cf443e3c5c9ebb5c7d469e348f24c4a8b7925aab4a1a5f0497496b80a16aad',
+    props: '3f02896fc894a699ab7ac48208159ce020e7b544bba44434c01a60bbcdbcfd89',
+    colliders: '6b2c7b57155cc1f5043385b38445f1eff8d895798f141cb519243d650b513268',
     envelopes: 'ee2e5b736e46e7238cc67b0fab8bea193f9a10933bcb9ebda1b8c257c52f7585',
   };
 

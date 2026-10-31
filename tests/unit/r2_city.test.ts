@@ -265,7 +265,7 @@ describe('round 2 city: layout', () => {
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
     // parapets, the four props moved out of the links' mouths, its signal heads and lamps); and when Dry Creek's stores,
     // props, POIs, footpaths and bays were appended.
-    expect(layoutHash()).toBe('146d7fb47a85167e6a05a030a1f09872b0dee222c09dfe3e91464327b2ca3c25');
+    expect(layoutHash()).toBe('15d6f1ea09b7c92a901c762e693c091160f7c17588a41683836e9c6f22b9939b');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

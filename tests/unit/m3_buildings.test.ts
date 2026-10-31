@@ -364,7 +364,7 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // the causeway's lamps; and both when Dry Creek appended its stores and, after every other collider, their tiers and
     // its places' solids.
     expect(b).toBe('5f6ae135d483d7581be01ba8592cec854a6f229a8cec7ee51d862e959c4dfac1');
-    expect(c).toBe('a836b6232a97ae752245a5805573ed19eb225e9d79c12056985c12876c061c54');
+    expect(c).toBe('e352dded943a916df9b02fce1d668770d157201b2d7b07f9041180ff0a585115');
   });
 });
 
