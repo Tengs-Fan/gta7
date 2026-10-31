@@ -22,7 +22,7 @@ export const GLOW: Readonly<Record<GlowKind, { readonly color: Rgb; readonly siz
   sirenRed: { color: [3, 0.12, 0.05], size: 1.7 },
   sirenBlue: { color: [0.08, 0.35, 3.2], size: 1.7 },
   /** A roadside post's amber reflector caught full in a car's headlights (render/country/reflectors.ts). */
-  reflector: { color: [1.6, 0.82, 0.22], size: 0.32 },
+  reflector: { color: [1.6, 0.82, 0.22], size: 0.45 },
 };
 
 /** One lamp's glow: its world position and the horizontal direction it shines (fx = fz = 0: all round). */

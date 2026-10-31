@@ -7,7 +7,7 @@ import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPas
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { GLOW, glowLuminance, LightSprites, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
 import { LAMP_HEAD, PropsView } from '../../src/render/props';
-import { QUALITY } from '../../src/render/quality';
+import { COUNTRY_FOG_MARGIN, QUALITY } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
 import { StreetLighting } from '../../src/render/streetLighting';
 import { VehicleView } from '../../src/render/vehicleView';
@@ -451,5 +451,70 @@ describe('street lamp luminaires', () => {
     expect(c.getX(hi) + c.getY(hi) + c.getZ(hi)).toBe(0);
     props.restoreAll();
     expect(zero(target)).toBe(false);
+  });
+});
+
+describe('Las Lomas County at night', () => {
+  it("its reflector posts shine back at the player's lit car, only ahead of it and only at night", () => {
+    const sim = makeSim({ world: W });
+    for (const u of [...sim.vehicles]) sim.removeVehicle(u);
+    // North up the Lomas Highway's west leg.
+    const v = sim.spawnVehicle('sedan', -1330, 100, Math.PI);
+    placeInCar(sim, v);
+    const r = new GameRenderer(canvas(), W, { quality: 'low', fov: 68, gpu: HDR });
+    r.attach(sim);
+    r.cameraCtl.mode = 'play';
+    r.cameraCtl.reset(sim);
+    const glows = (hours: number) => {
+      sim.clock.set(hours);
+      for (let i = 0; i < 3; i++) r.render(1 / 60, false);
+      const ls = r.lightSprites;
+      const pos = ls.glows.geometry.getAttribute('position');
+      const out: number[] = [];
+      for (let i = 0; i < ls.counts.glows; i++) if (Math.abs(pos.getX(i) + 1330) > 6) out.push(pos.getZ(i));
+      return out;
+    };
+    const night = glows(23);
+    expect(night.length).toBeGreaterThan(3);
+    for (const z of night) expect(z).toBeLessThan(v.pos.z);
+    expect(glows(12)).toEqual([]);
+    r.dispose();
+  });
+
+  it("draws none of the city's props past the fog while the camera is off the city's land, and all of them on it", () => {
+    const sim = makeSim({ world: W });
+    sim.clock.set(12);
+    const r = new GameRenderer(canvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    r.attach(sim);
+    r.cameraCtl.mode = 'play';
+    const meshes: THREE.Mesh[] = [];
+    r.props.group.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.name !== 'lighthouseBeam') meshes.push(o);
+    });
+    const at = (x: number, z: number) => {
+      sim.player.pos.x = x;
+      sim.player.pos.z = z;
+      sim.player.pos.y = W.groundHeight(x, z);
+      r.cameraCtl.reset(sim);
+      r.render(1 / 60, false);
+      return r.cameraCtl.camera.position;
+    };
+    // At Lookout Point on Coyote Ridge, the whole city 1-2.4 km off.
+    const cam = at(-1467.5, -100);
+    const reach = r.env.fog.far + COUNTRY_FOG_MARGIN;
+    let hidden = 0;
+    for (const m of meshes) {
+      const b = new THREE.Box3().setFromObject(m);
+      const d = Math.hypot(Math.max(b.min.x - cam.x, 0, cam.x - b.max.x), Math.max(b.min.z - cam.z, 0, cam.z - b.max.z));
+      if (d > reach + 9) {
+        expect(m.visible).toBe(false);
+        hidden++;
+      }
+    }
+    expect(hidden).toBeGreaterThan(300);
+    // In the city every prop is drawn, as before the county.
+    at(0, 0);
+    expect(meshes.every((m) => m.visible)).toBe(true);
+    r.dispose();
   });
 });

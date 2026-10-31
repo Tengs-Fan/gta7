@@ -31,7 +31,7 @@ import { Rain, SOFTWARE_RAIN_DROPS } from './rain';
 import { RegattaView } from './regatta';
 import { setPilings, setSeaCuts } from './sea';
 import { buildCoverMap, coverAt, type CoverMap } from './rainCover';
-import { FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
+import { COUNTRY_FOG_MARGIN, FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
 import { HARDWARE_CHUNK_SIZE, STATIC_CHUNK_SIZE } from './spatial';
 import { SoftwareMaterials } from './softwareMaterials';
 import { TurbineView } from './turbines';
@@ -1143,6 +1143,10 @@ export class GameRenderer {
     this.lightSprites.haze.update(night, rain, this.bufferSize.y / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)));
     this.streetLighting.update(cam.position, night, dt);
     this.city.update(night, hours, this.time);
+    // Off the city's land (Las Lomas County and the links to it), a prop past the fog's far end and the county's margin
+    // is fully fogged: it is not drawn, as the county's own cells are not (the software tier culls nearer, below). On the
+    // land nothing is culled. Before the props' own update, which shows the lighthouse's beam only at night.
+    if (!this.software) this.props.visibility.update(cam.position.x, cam.position.z, cam.position.x < this.world.bounds.landMinX ? this.env.fog.far + COUNTRY_FOG_MARGIN : Infinity);
     // Signals run on the sim clock, the one drivers and pedestrians obey.
     this.props.update(this.time, night, sim ? sim.time : this.time);
     this.props.setWind(weather?.wind ?? NO_WIND);
