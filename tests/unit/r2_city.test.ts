@@ -268,7 +268,7 @@ describe('round 2 city: layout', () => {
     // landscape rose (Coyote Ridge and the foothills in its rises, the ridge's turbines, the tree belts along its foot
     // and the scrub) and its farms were appended (their fields, farmhouses, barns, hedgerows, props and farmyard bays,
     // and the dairy's farmer's spot).
-    expect(layoutHash()).toBe('88406400b69f1dbb3386670c05a9f6cade829d29b12b7dd91c943bce3b2883d9');
+    expect(layoutHash()).toBe('23c90d40fe73b38029d65ef730236a22cdc7653da4322e41c5dbd056518322f0');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

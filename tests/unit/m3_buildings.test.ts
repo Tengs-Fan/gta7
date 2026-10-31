@@ -366,7 +366,7 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // farms their props, and after every other collider the landscape its rises' sight cores and Lookout Point's
     // parapet and tower, then the farms their farmhouses, their barns' walls and roofs and their hedgerows.
     expect(b).toBe('a563ac93264775491aeef9435556a31c126f51d48def2b1806a9c1bd6ab87ccb');
-    expect(c).toBe('bdfb2884dcef5acd07a3b924969001269583483a2f3b42e642515b33e25ae8e6');
+    expect(c).toBe('410075e0ea20d7dffbbb20cd6661941513af32e959d3d223bc6efdbea0f8b0a6');
   });
 });
 

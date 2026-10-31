@@ -35,7 +35,11 @@ const sha = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).diges
 /** The props' wind for a CountryView, still (the farms' corn sways on it). */
 const wind = { uWindTime: { value: 0 }, uWindAmp: { value: 0 }, uWindDir: { value: new THREE.Vector2(1, 0) } };
 
-/** What the county had before the landscape: 4605 colliders in all, and the props up to its first. */
+/**
+ * What the county had before the landscape: 4605 colliders in all, and the props up to its first. Re-recorded on the
+ * integrated county head, where its traffic made the Hollister T's and the Creek T's signal heads a stop sign and two
+ * lamps each (the same count, after which the landscape and the farms append theirs).
+ */
 const COLLIDERS = 4605;
 
 /** Every county road's centre line as segments, with its half width. */
@@ -93,7 +97,7 @@ describe('the landscape keeps off everything that assumes flat ground', () => {
 
   it('keeps every collider the county had before, and its props, appending the ridge\'s', () => {
     const rows = W.grid.colliders.slice(0, COLLIDERS).map((c) => [c.id, c.circle, c.minX, c.minZ, c.maxX, c.maxZ, c.cx, c.cz, c.r, c.y0, c.y1, c.tag, c.breakable, c.propIndex]);
-    expect(sha(rows)).toBe('edae58406b9903714023a1a61ec4abd4c0dee0f2efc818f1967bf572e45d571a');
+    expect(sha(rows)).toBe('2aeae4f3892af32178650ec7814f28a94a7f0b2486351722d6a1922203709d85');
     const turbines = L.props.filter((p) => p.kind === 'turbine' && p.x < L.bounds.landMinX);
     expect(turbines.length).toBe(6);
     expect(L.props.indexOf(turbines[0]!)).toBeGreaterThanOrEqual(country.firstProp);

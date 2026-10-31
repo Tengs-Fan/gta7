@@ -509,8 +509,8 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // each, its landscape appended the ridge's turbines, tree belts and scrub (their envelopes too) and its farms their
   // props, then the landscape's cores and Lookout Point's solids, then the farmhouses', barns' and hedgerows' colliders.
   const D98 = {
-    props: '7593c1483b72d2d9547f724478b37c77660cb2eaa7ac5d48fecb2c22f13d6ca6',
-    colliders: '446f7c8ba20b6bcb28a71a777c7df4691b5b66b4ef7349196233cddfc47dcfb2',
+    props: 'd377952252408602cdcb9bc9c5eb0c617dafa085fe55dbaac910ba994a1e1616',
+    colliders: '182dcd7ce54caa3bebe5b736c0e739b42a389112d5c5a791cf8f3bd4b72ca44a',
     envelopes: '49a5db289f360a17852cb9a6af6b0a08e53e66fa3d0d64b11442a350cfb3b27e',
   };
 
