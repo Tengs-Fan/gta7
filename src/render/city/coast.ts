@@ -3,9 +3,9 @@
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
 import { BEACH_W, CURB_H, DECK_SLAB, SEABED_Y, WATER_Y } from '../../world/constants';
-import { PARAPET_H, sandHeight } from '../../world/layout';
+import { PARAPET_H, rectContains, sandHeight } from '../../world/layout';
 import { foreshoreReach, shores, type Shore } from '../../world/shore';
-import { lookoutRail } from '../../world/terrain';
+import { bluffRise, lookoutRail, type Rise } from '../../world/terrain';
 import type { StaticWorld } from '../../world/staticWorld';
 import { GeoBuilder } from '../geo';
 import { pilingCentres, PILING_RADIUS } from '../sea';
@@ -32,9 +32,10 @@ export function buildCoast(view: CityView): void {
   // Quay walls wherever the land meets the sea, and the beach's north/south edges.
   const bottom = SEABED_Y;
   const shore = shores(view.world);
-  quayWalls(shore, walls);
+  const bluff = bluffRise(view.world.layout.rises);
+  quayWalls(shore, walls, bluff);
   revetments(view, shore);
-  cliffs(view, shore);
+  cliffs(view, shore, bluff);
   for (let i = 0; i < steps; i++) {
     const x0 = b.beachStartX + (BEACH_W * i) / steps;
     const x1 = b.beachStartX + (BEACH_W * (i + 1)) / steps;
@@ -86,11 +87,16 @@ export function buildCoast(view: CityView): void {
   }
 }
 
-/** The quay walls along every stretch of shore but the headland's (its cliffs), each facing out over the water. */
-function quayWalls(shore: Shore[], walls: GeoBuilder): void {
+/** A stretch of Azura Point's shore, round the bluff: a cliff. Smuggler's Key, a headland at the curb's height, has quay walls. */
+function onBluff(bluff: Rise, s: Shore): boolean {
+  return s.headland && bluff.within.some((r) => rectContains(r, (s.x0 + s.x1) / 2, (s.z0 + s.z1) / 2, 1));
+}
+
+/** The quay walls along every stretch of shore but Azura Point's (its cliffs), each facing out over the water. */
+function quayWalls(shore: Shore[], walls: GeoBuilder, bluff: Rise): void {
   const uv = { kind: 'world', scale: 3 } as const;
   for (const s of shore) {
-    if (s.headland) continue;
+    if (onBluff(bluff, s)) continue;
     // GeoBuilder.wall faces (-dz, dx) of the direction it runs in.
     const forward = -(s.z1 - s.z0) * s.nx + (s.x1 - s.x0) * s.nz > 0;
     if (forward) walls.wall(s.x0, s.z0, s.x1, s.z1, SEABED_Y, CURB_H, uv);
@@ -202,11 +208,11 @@ const CLIFF_ROCK = 0x544c43;
  * Azura Point's sides: rock from the seabed up to the ground at its edge, which climbs with the bluff, flat shaded like
  * the boulders (their material, in a darker rock) and batched in cells like the city's other shadow casters.
  */
-function cliffs(view: CityView, shore: Shore[]): void {
+function cliffs(view: CityView, shore: Shore[], bluff: Rise): void {
   const g = new GeoBuilder(false);
   const rng = new Rng(0xc11ff5);
   for (const s of shore) {
-    if (!s.headland) continue;
+    if (!onBluff(bluff, s)) continue;
     const vertical = s.x0 === s.x1;
     const a = vertical ? Math.min(s.z0, s.z1) : Math.min(s.x0, s.x1);
     const b = vertical ? Math.max(s.z0, s.z1) : Math.max(s.x0, s.x1);
