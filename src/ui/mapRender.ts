@@ -97,6 +97,10 @@ export class MapImage {
       ctx.arc(X(p.x), Z(p.z), 4 * MAP_SCALE, 0, Math.PI * 2);
       ctx.fill();
     }
+    // AzuraLink: a thin teal line down the canal between its stations' platforms.
+    const m = world.layout.monorail;
+    rect(m.x - 1.2, m.stations[0]!.platform[0]!.minZ, m.x + 1.2, m.stations[1]!.platform[0]!.maxZ, '#0aa5ad');
+    for (const s of m.stations) for (const r of [...s.platform, s.tower]) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#0aa5ad');
     this.turf = document.createElement('canvas');
     this.turf.width = w;
     this.turf.height = h;
@@ -207,6 +211,7 @@ const MAP_POIS: Record<string, { color: string; label: string; category: string;
   customs: { color: '#b36bff', label: 'C', category: 'shops', name: 'Azura Customs' },
   garage: { color: FOR_SALE, label: 'G', category: 'properties', name: 'Safehouse garage' },
   business: { color: FOR_SALE, label: '$', category: 'properties', name: 'Pier Arcade' },
+  monorail: { color: '#0aa5ad', label: 'M', category: 'places', name: 'AzuraLink station' },
 };
 
 export function registerMapPoi(kind: string, def: { color: string; label: string; category: string; name: string }): void {
@@ -243,7 +248,7 @@ registerMapCategory({ id: 'missions', label: 'Missions (contacts)', get swatches
 registerMapCategory({ id: 'shops', label: 'Shops (guns, Spray Shack, Azura Customs)', get swatches() {
   return poiSwatches('shops');
 } });
-registerMapCategory({ id: 'places', label: 'Safehouse, hospital, police', get swatches() {
+registerMapCategory({ id: 'places', label: 'Safehouse, hospital, police, AzuraLink', get swatches() {
   return poiSwatches('places');
 } });
 registerMapCategory({ id: 'properties', label: 'Properties (grey: for sale, green: owned)', get swatches() {

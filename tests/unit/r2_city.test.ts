@@ -258,8 +258,8 @@ describe('round 2 city: layout', () => {
     // SPECIALS row) was added, when the map was broken up and when the ring road was bridged across the bays (docs/map.md),
     // when Hillcrest Green rose into a hill under the SAN AZURA letters (the rises, the props lifted onto them)
     // and Azura Point climbed to a bluff (its rise, the lighthouse and the point's props on it), when two cells
-    // were rebuilt as Hollister Farm and Eternal Palms Cemetery (the attractions pass), and when Turbine Row and
-    // Smuggler's Key were added offshore.
+    // were rebuilt as Hollister Farm and Eternal Palms Cemetery (the attractions pass), when Turbine Row and
+    // Smuggler's Key were added offshore, and when AzuraLink's line joined the layout.
     expect(layoutHash()).toBe('c0fc8bb115a0bb972e07b907a351f9729d988849c48c35f7bf0886ae250067e3');
   });
 

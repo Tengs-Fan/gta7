@@ -5,6 +5,7 @@
 import { Rng } from '../core/rng';
 import { clamp } from '../core/math';
 import { buildAttractions, type Attraction } from './attractions';
+import { buildMonorail, noMonorail, type Monorail } from './monorail';
 import {
   AVENUE_W, BEACH_W, BOARDWALK_W, CITY_SEED, CROSSWALK_W, CURB_H, GRID_N, PED_INSET,
   PROMENADE_W, PROP_INSET, SAND_DROP, SIDEWALK_W, STREET_W, WATER_Y,
@@ -240,6 +241,8 @@ export interface CityLayout {
   /** The ground's rises (world/terrain.ts): set by settleTerrain, last, once every prop stands. */
   rises: Rise[];
   bounds: Bounds;
+  /** AzuraLink, the monorail along Cortez Canal (world/monorail.ts). */
+  monorail: Monorail;
 }
 
 // ---------------------------------------------------------------------------
@@ -574,6 +577,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     offshore: { solids: [], cannons: [], wrecks: [], signs: [], stash: [] },
     rises: [],
     bounds,
+    monorail: noMonorail(),
   };
 
   // Blocks: one per cell, one per superblock, none on a sea cell.
@@ -648,6 +652,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   buildAttractions(layout);
   assignGroundFloors(layout);
   buildOffshore(layout);
+  buildMonorail(layout);
   settleTerrain(layout);
 
   // Final sanity: never leave NaN in generated data.

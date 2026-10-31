@@ -5,7 +5,7 @@ import type { Emitter } from '../core/emitter';
 import type { V3 } from '../core/math';
 import type { RoadNetwork } from '../world/roads';
 import type { StaticWorld } from '../world/staticWorld';
-import type { Activities } from './activities';
+import type { Activities, MonorailJob } from './activities';
 import type { GameClock } from './clock';
 import type { CombatSystem } from './combat';
 import type { Character, Helicopter, Pickup, Projectile, Vehicle } from './entities';
@@ -72,6 +72,15 @@ export interface ViewState {
   readonly combat: CombatView;
   /** Police spike strips on the road (optional: a view without them draws none). */
   readonly roadblocks?: { readonly strips: readonly SpikeStrip[] };
+}
+
+/**
+ * The AzuraLink ride `me` is on, or null: while it runs the camera rides beside the train and the street does not draw
+ * him (single player only, so it is slot 0's job).
+ */
+export function monorailRide(view: ViewState, me: PlayerView): MonorailJob | null {
+  const j = me.id === 0 ? view.activities.job : null;
+  return j?.kind === 'monorail' && j.stage === 'riding' ? j : null;
 }
 
 /** The local player's seat: the slot with that id, or the first one while it has not joined yet. */

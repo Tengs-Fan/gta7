@@ -6,9 +6,10 @@ import { rayAabb3 } from '../core/collision';
 import { clamp, damp, dampAngle, smoothstep, wrapAngle, type V3 } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import { WEAPONS } from '../sim/specs';
-import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
+import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
 import { CURB_H, WATER_Y } from '../world/constants';
+import { CAR_GAP, CAR_LENGTH, trainAt } from '../world/monorail';
 import type { StaticWorld } from '../world/staticWorld';
 import { riseTop } from '../world/terrain';
 import { FOLIAGE_FADE_FAR, foliageKept, foliagePoints, foliageSpheres } from './props';
@@ -348,6 +349,13 @@ function sightFloor(world: StaticWorld, tx: number, ty: number, tz: number, cx: 
   return need;
 }
 
+/** AzuraLink's rail camera (CameraController.railView): beside the leading car (m) and just over its roof, a little back. */
+const RAIL_SIDE = 5;
+const RAIL_UP = 4.2;
+const RAIL_BACK = 6;
+/** It looks at the beam this far (m) ahead of the leading car. */
+const RAIL_AHEAD = 30;
+
 export class CameraController {
   readonly camera: THREE.PerspectiveCamera;
   /** Horizontal view heading (same convention as entity headings). */
@@ -357,6 +365,8 @@ export class CameraController {
   invertY = false;
   zoomLevel = 0;
   mode: CameraMode = 'title';
+  /** The last update rode the train (railView): the next one off it starts again behind the player. */
+  private railing = false;
   private vehYaw = 0;
   private orbitYaw = 0;
   private orbitPitch = 0;
@@ -587,6 +597,9 @@ export class CameraController {
       return;
     }
     const me = this.me(sim);
+    if (monorailRide(sim, me)) return this.railView(sim, dt);
+    // Off the train at the far station: the camera starts again behind him there.
+    if (this.railing) this.reset(sim);
     const p = me.character;
     const v = p.vehicle;
     const cam = this.camera;
@@ -816,6 +829,31 @@ export class CameraController {
     }
     cam.lookAt(cam.position.x + this.dir.x, cam.position.y + this.dir.y, cam.position.z + this.dir.z);
     this.subject.copy(this.footView ? this.head : this.target);
+  }
+
+  /**
+   * AzuraLink's rail camera: beside the leading car and just over its roof, on the downtown side, looking ahead along
+   * the beam. The train is where the timetable puts it at sim time, so the view glides with it.
+   */
+  private railView(sim: ViewState, dt: number): void {
+    const m = sim.world.layout.monorail;
+    const s = trainAt(m, sim.time);
+    const lead = s.z + s.dir * (CAR_LENGTH + CAR_GAP);
+    const cam = this.camera;
+    this.railing = true;
+    this.desired.set(m.x + RAIL_SIDE, m.beamY + RAIL_UP, lead - s.dir * RAIL_BACK);
+    this.target.set(m.x, m.beamY + 1.6, lead + s.dir * RAIL_AHEAD);
+    this.dir.copy(this.target).sub(this.desired).normalize();
+    this.yaw = Math.atan2(this.dir.x, this.dir.z);
+    this.pitch = Math.asin(clamp(this.dir.y, -1, 1));
+    cam.position.copy(this.desired);
+    this.fov = damp(this.fov, this.baseFov, 6, dt);
+    if (Math.abs(cam.fov - this.fov) > 0.01) {
+      cam.fov = this.fov;
+      cam.updateProjectionMatrix();
+    }
+    cam.lookAt(this.target);
+    this.subject.set(m.x, m.beamY + 1.6, lead);
   }
 
   /**
@@ -1252,5 +1290,6 @@ export class CameraController {
     this.subject.copy(this.target);
     this.wasInVehicle = !!p.vehicle;
     this.initialized = true;
+    this.railing = false;
   }
 }

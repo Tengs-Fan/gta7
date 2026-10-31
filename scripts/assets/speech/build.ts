@@ -1,9 +1,9 @@
 // `npm run speech`: renders everything the game says with Kokoro-82M (render.py) and writes src/assets/speech/: one
 // 32 kbps mono MP3 per clip and speech.json, the index the sim and the audio read (src/sim/speech.ts).
 //
-// Clips: the mission dialogue (dialogue.ts), the police dispatcher's phrases (phrases.ts), the talk station's pieces
-// and the barks (script.ts), the newsdesk's sentences and mission pieces (news.ts, missionNews.ts) and the music
-// stations' DJs (djs.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
+// Clips: the mission dialogue (dialogue.ts), the police dispatcher's phrases (phrases.ts), the talk station's pieces,
+// the barks and AzuraLink's announcements (script.ts), the newsdesk's sentences and mission pieces (news.ts,
+// missionNews.ts) and the music stations' DJs (djs.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
 // (~/.cache/gta7-speech), so a rerun renders only new lines. Each clip is trimmed, band-limited where it is heard down
 // a phone line, levelled to the same loudness and encoded with ffmpeg; files the index no longer lists are removed.
 
@@ -21,7 +21,7 @@ import { DJS, type Line } from './djs';
 import { MISSION_NEWS } from './missionNews';
 import { newsSentences } from './news';
 import { dispatchPhrases, zoneNames } from './phrases';
-import { BARKS, CAST, PHONE_ROLES, SAY, SPEAKERS, TALK } from './script';
+import { BARKS, CAST, MONORAIL_PA, PHONE_ROLES, SAY, SPEAKERS, TALK } from './script';
 import { SHOW_PIECES } from './shows';
 
 const RATE = 24000;
@@ -72,6 +72,7 @@ const index: SpeechIndex = {
   tracks: {},
   news: {},
   missionNews: {},
+  pa: {},
 };
 
 for (const line of dialogueLines(world)) {
@@ -137,6 +138,14 @@ for (const [kind, set] of Object.entries(BARKS) as Array<[BarkKind, (typeof BARK
       return id;
     }),
   );
+}
+
+for (const [stop, lines] of Object.entries(MONORAIL_PA.lines)) {
+  index.pa[stop] = lines.map((text, i) => {
+    const id = `pa-${slug(stop)}-${i}`;
+    clips.push({ id, takes: [{ voice: MONORAIL_PA.voice, text, speed: 1 }] });
+    return id;
+  });
 }
 
 // Render the takes that are not cached yet.

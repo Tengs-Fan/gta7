@@ -628,3 +628,12 @@ export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
   /** The hand on duty at the Marina, calling a Gull Regatta's boat on the start line over its radio. */
   marina: { voices: ['am_eric', 'bm_fable', 'am_adam'], lines: ["Mind the blades, they're bigger than they look."] },
 };
+
+/** AzuraLink's station loudspeakers (src/audio/trainVoice.ts), by the departing train's destination: one voice, as it is about to leave. */
+export const MONORAIL_PA: { voice: string; lines: Readonly<Record<string, readonly string[]>> } = {
+  voice: 'bf_alice',
+  lines: {
+    Seaview: ['This train is for Seaview. Please stand clear of the doors, and of your feelings.', 'Azura Link to Seaview, now departing. Hold on to the handrail, and to your dreams.'],
+    Northshore: ['This train is for Northshore. Please stand clear of the doors, and of your feelings.', 'Azura Link to Northshore, now departing. Please keep your feet off the seats, and your opinions to yourself.'],
+  },
+};

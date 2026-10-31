@@ -6,6 +6,7 @@ import { attractionOf } from './attractions';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
+import { PLATFORM_SLAB, TOWER_H } from './monorail';
 import { TURBINE_BASE } from './offshore';
 import { RoadNetwork } from './roads';
 import { SidewalkGraph } from './sidewalks';
@@ -95,6 +96,15 @@ export class StaticWorld {
     }
     // After every prop, so each older collider keeps its id.
     for (const s of this.layout.offshore.solids) g.addBox(s.minX, s.minZ, s.maxX, s.maxZ, s.y0, s.y1, 'wall');
+    // AzuraLink: its pylons from below the swimmers' band up to the beam, and its stations. The beam is drawn only, and
+    // the pylons stop boats and swimmers but not sight, shots or the camera (like the fountain's basin), so the line leaves
+    // what the police and the helicopter see, and where traffic streams in out of sight, as they were.
+    const m = this.layout.monorail;
+    for (const p of m.pylons) g.addCircle(p.x, p.z, 0.9, WATER_Y - 1.5, m.beamY, 'rock');
+    for (const s of m.stations) {
+      g.addBox(s.tower.minX, s.tower.minZ, s.tower.maxX, s.tower.maxZ, 0, TOWER_H, 'building');
+      for (const r of s.platform) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, m.beamY - PLATFORM_SLAB, m.beamY, 'building');
+    }
   }
 
   private addPropCollider(p: Prop, i: number): number {

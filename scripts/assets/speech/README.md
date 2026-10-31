@@ -5,7 +5,7 @@ The voices are [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) v1.0 (Apa
 
 | File | Role |
 | --- | --- |
-| `script.ts` | The cast (a Kokoro voice or blend per role), AZURA TALK's programme (Chet Bramble's monologues, callers, the newsdesk, traffic and idents), the ads of every talk station and the shouts of people, officers and gangs. |
+| `script.ts` | The cast (a Kokoro voice or blend per role), AZURA TALK's programme (Chet Bramble's monologues, callers, the newsdesk, traffic and idents), the ads of every talk station, the shouts of people, officers and gangs, and AzuraLink's station announcements. |
 | `shows/` | The other talk shows, one file each (`sapr.ts`: SAPR 107.3 and Harbor Lights; `bowl.ts`: THE BOWL 1090 AM; `static.ts`: STATIC 1260 AM), collected in `shows/index.ts`: their pieces, their own ads and their idents. |
 | `djs.ts` | The music stations' DJs: a voice each (a blend where a voice alone is already somebody else), their idents, banter, lines for the night, the rain, a chase and a getaway, and the frames they announce and back-announce the hits of `src/audio/stations/playlists.ts` with. |
 | `dialogue.ts` | Reads the mission dialogue from `src/sim/missions/*.ts`: every `m.say(SPEAKER, …)` and `[SPEAKER, …]` intro line, both branches of a ternary, template literals evaluated against the generated city. Adds the phone's offer and busy lines. |
@@ -47,7 +47,7 @@ A new mission speaker needs a role in `SPEAKERS` (`script.ts`); a mission templa
 
 ## Output
 
-- `dlg-<role>-<hash>`: a line of dialogue; `dsp-<words>`: a dispatch phrase; `talk-<piece>`: a talk station piece (SAPR's are `talk-sapr-…`, THE BOWL's `talk-bowl-…`, STATIC's `talk-static-…`); `bark-<kind>-<voice>-<n>`: a shout.
+- `dlg-<role>-<hash>`: a line of dialogue; `dsp-<words>`: a dispatch phrase; `talk-<piece>`: a talk station piece (SAPR's are `talk-sapr-…`, THE BOWL's `talk-bowl-…`, STATIC's `talk-static-…`); `bark-<kind>-<voice>-<n>`: a shout; `pa-<destination>-<n>`: a monorail station's announcement.
 - `ident-<station>-<n>`: a music station's ident; `dj-<station>-<kind>-<n>`: a DJ's link (of the kinds `front` and `back`, the announce and the back-announce of hit `n`).
 - `news-<hash>`: a newsdesk sentence (`speech.json` keys `news` by its text); `news-m-<mission>` and `news-m-<mission>-later`: a mission's piece and its follow-up.
 - Every clip is levelled to -20 dBFS RMS over its voiced samples, peaks under -1 dBFS.

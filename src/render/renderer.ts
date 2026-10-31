@@ -4,7 +4,7 @@ import { ActivityFxView } from './activityFx';
 import { SiteView } from './siteView';
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
+import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { Vehicle } from '../sim/entities';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
@@ -23,6 +23,7 @@ import { Environment } from './environment';
 import { FinishPass } from './finishPass';
 import { gradeAt, type Grade } from './grade';
 import { MarkerView } from './markers';
+import { MonorailView } from './monorail';
 import { OffshoreView } from './offshore';
 import { PropsView } from './props';
 import { Rain, SOFTWARE_RAIN_DROPS } from './rain';
@@ -177,6 +178,8 @@ export class GameRenderer {
   readonly offshore: OffshoreView;
   /** The Gull Regatta's buoys while one runs. */
   readonly regatta = new RegattaView();
+  /** AzuraLink: the beam, the stations and the train. */
+  readonly monorail: MonorailView;
   /** Grenades and molotovs in flight, the throw's aiming arc and molotov fires. */
   readonly throwView = new ThrowView();
   readonly rain: Rain;
@@ -292,7 +295,9 @@ export class GameRenderer {
     this.turbines.foam.bindSea(this.env.sea);
     this.offshore = new OffshoreView(world);
     this.regatta.bindSea(this.env.sea);
-    this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group, this.regatta.mesh);
+    this.monorail = new MonorailView(world);
+    this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group, this.regatta.mesh, this.monorail.group);
+    this.softwareMaterials?.apply(this.monorail.group);
     this.softwareMaterials?.apply(this.sites.group);
     this.softwareMaterials?.apply(this.turbines.group);
     this.softwareMaterials?.apply(this.offshore.group);
@@ -542,6 +547,7 @@ export class GameRenderer {
     }
     this.headlight.visible = t.headlight;
     this.lightSprites.setPoolCap(t.headlightPools);
+    this.monorail.setGlow(t.railGlow);
     this.rain.setCount(this.software ? SOFTWARE_RAIN_DROPS : t.rainDrops);
     this.city.wet.setMode(t.wetGround);
     const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
@@ -1110,7 +1116,10 @@ export class GameRenderer {
     const cam = this.cameraCtl.camera;
     if (sim) this.cameraCtl.update(dt, sim, aiming);
     const hours = sim ? sim.clock.hours : 17.5;
-    const focus = sim && this.cameraCtl.mode === 'play' ? new THREE.Vector3(cam.position.x * 0.5 + this.me(sim).pos().x * 0.5, 0, cam.position.z * 0.5 + this.me(sim).pos().z * 0.5) : new THREE.Vector3(cam.position.x * 0.3, 0, cam.position.z * 0.3);
+    const riding = sim ? monorailRide(sim, this.me(sim)) : null;
+    // Riding AzuraLink he waits out of sight at the far station: the shadows follow the train the camera rides beside.
+    const subject = sim && this.cameraCtl.mode === 'play' ? (riding ? this.cameraCtl.occlusionSubject()! : this.me(sim).pos()) : null;
+    const focus = subject ? new THREE.Vector3(cam.position.x * 0.5 + subject.x * 0.5, 0, cam.position.z * 0.5 + subject.z * 0.5) : new THREE.Vector3(cam.position.x * 0.3, 0, cam.position.z * 0.3);
     const weather = sim?.weather.state;
     this.weatherDim = weather?.dim ?? 0;
     this.flashAge += dt;
@@ -1141,7 +1150,9 @@ export class GameRenderer {
       this.throwView.sync(sim, this.me(sim).character, this.cameraCtl.aimRay().dir, this.effects, dt, this.time, cam.position);
       this.vehicleEffects(sim, dt);
       this.activityFx.sync(sim, dt, this.effects, this.time);
-      this.crowd.scopeHiddenId = this.cameraCtl.scoped ? this.me(sim).character.id : -1;
+      this.monorail.update(sim.time, lights);
+      // Scoped, or riding AzuraLink (he waits out of sight at the far station), the player is not drawn.
+      this.crowd.scopeHiddenId = this.cameraCtl.scoped || riding ? this.me(sim).character.id : -1;
       this.crowd.sync(sim.characters, cam.position.x, cam.position.z, dt, this.me(sim).character.id);
       this.footShadows.update(sim.characters, cam.position, this.crowd.scopeHiddenId);
       this.markers.syncMarkers(sim.missions.active || this.me(sim).wanted.level > 0 ? sim.interactions.markers.filter((m) => m.kind !== 'mission') : sim.interactions.markers, this.time, cam.position, this.me(sim).pos(), aiming);

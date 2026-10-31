@@ -16,6 +16,7 @@ import { ambulanceActivity } from './ambulance';
 import { carExportActivity } from './carExport';
 import { courierActivity } from './courier';
 import { firefighterActivity } from './firefighter';
+import { monorailActivity } from './monorail';
 import './serviceVehicles';
 import './taxiHail';
 import type { ActivityDef, ActivityHost, ActivityJob, CancelReason, Job, Objective } from './types';
@@ -30,6 +31,7 @@ export type { AmbulanceJob } from './ambulance';
 export type { CourierJob } from './courier';
 export type { ExportJob } from './carExport';
 export type { FireJob } from './firefighter';
+export type { MonorailJob } from './monorail';
 export type { ActivityDef, ActivityHost, ActivityJob, ActivitySlot, CancelReason, Job, JobKinds, Objective } from './types';
 
 /** In the job key's order: the first def whose `canStart` holds starts, and its prompt is the one offered. */
@@ -66,6 +68,7 @@ registerActivity(carExportActivity);
 registerActivity(streetRunActivity);
 registerActivity(cabActivity);
 registerActivity(regattaActivity);
+registerActivity(monorailActivity);
 
 export class Activities {
   /** Slot 0's job (single player's only one); other slots' jobs are behind jobOf. */

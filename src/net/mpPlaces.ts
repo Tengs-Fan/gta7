@@ -1,11 +1,13 @@
 // The places a multiplayer client marks in the world and what standing on one says: the head-to-head Street Run
 // starts, and the single-player places (contacts, the safehouse, properties, Lou's export board, gun shops, the Gull
-// Regatta at the Marina) with the reason they do nothing here. The server's sim gives the same answer if E is pressed there. Pure TypeScript.
+// Regatta at the Marina, AzuraLink's stations) with the reason they do nothing here. The server's sim gives the same
+// answer if E is pressed there. Pure TypeScript.
 
+import { MP_NO_MONORAIL } from '../sim/activities/monorail';
 import { places } from '../sim/activities/places';
 import { MP_NO_REGATTA } from '../sim/activities/regatta';
 import { streetRunCourses } from '../sim/activities/streetRun';
-import { FOR_SALE, MP_NO_EXPORT, MP_NO_PROPERTY, MP_NO_SAVE, type Marker } from '../sim/interactions';
+import { FOR_SALE, monorailMarker, MP_NO_EXPORT, MP_NO_PROPERTY, MP_NO_SAVE, type Marker } from '../sim/interactions';
 import { CONTACTS, contactColorNumber, contactUnlocked } from '../sim/missions/contacts';
 import { STORY } from '../sim/missions';
 import { MP_NO_STORY } from '../sim/missions/runner';
@@ -40,6 +42,7 @@ function markersOf(world: StaticWorld): Marker[] {
   out.push({ id: 'pier_arcade', kind: 'business', x: at.arcade.x, z: at.arcade.z, radius: 1.5, label: MP_NO_PROPERTY, color: 0x3fd96b, ref: 'business', blip: { color: FOR_SALE, label: '$' } });
   const bay = at.customsBay;
   out.push({ id: 'azura_customs', kind: 'customs', x: (bay.minX + bay.maxX) / 2, z: (bay.minZ + bay.maxZ) / 2, radius: 0, label: '', color: 0xb36bff, ref: 'customs', blip: { color: '#b36bff', label: 'C' } });
+  world.layout.monorail.stations.forEach((s, i) => out.push(monorailMarker(s.foot, i, MP_NO_MONORAIL)));
   // The course list is built from the road graph alone, which streetRunCourses reads off a Sim.
   for (const c of streetRunCourses({ roads: world.roads } as unknown as Sim)) {
     out.push({ id: `race:${c.id}`, kind: 'streetRun', x: c.start.x, z: c.start.z, radius: 8, label: `Press T to race ${c.name} head-to-head`, color: 0x50f1d1, ref: c.id });

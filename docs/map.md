@@ -128,7 +128,7 @@ Two cells are rebuilt once the city stands, by `buildAttractions` in `src/world/
 - **Hollister Farm** on cell (3,0), between the canal and Gull Bay: a gravel lane from a gate on Hillcrest Rd, the farmhouse, a red barn, a silo, forty pumpkins and a corn maze either side of the lane's mown aisle, with a hay-bale kicker on the lane that throws a car down the aisle.
 - **Eternal Palms Cemetery** on cell (1,1), across Hillcrest Rd from the cove: paths in a grid, about 140 headstones in rows, twelve of them epitaph stones, a chapel with a bell tower, three family mausoleums, cypresses and an iron fence.
 
-The pass runs last but one in `generateCity`, just before the ground floors, after the street furniture, the drowned bays, the coast, the stunt ramps and the water filters.
+The pass runs in `generateCity` just before the ground floors, after the street furniture, the drowned bays, the coast, the stunt ramps and the water filters; only the ground floors, Turbine Row and Smuggler's Key, AzuraLink and the hills' settling come after it.
 So every shared random draw is made as before, and the pass draws only from its own generator per attraction (`hashInts(seed, 9001, k)`).
 It clears each cell's lot (buildings, ground, garages, props and parking), every lot before it builds any, so the props it appends keep their indices.
 Unlike `drown()`, it keeps the sidewalk ring and its furniture, except in a gate's span.
@@ -195,6 +195,23 @@ The cove, the basin and the canal count as shore for the surf in the ambience (`
 
 More sea cells (a west inlet, a south bay, an extended cove) were tried and set aside for now: each one re-rolls every block generated after it, which moved 20 to 48 of the unit tests' scenarios and recorded hashes at once.
 
+## AzuraLink
+
+A three-car monorail runs along Cortez Canal on a beam 9.6 m up, from Northshore station on the north promenade to Seaview on the south (`src/world/monorail.ts`).
+
+- The beam follows the canal's middle line and passes over every street bridge.
+  Its pylons stand in the open water between the bridges, 3 m clear of every deck and at most 40 m apart.
+- Each station's platform runs beside the stopped train, over the ring road's bridge and out over the promenade, and rests on the heads of the pylons at either end.
+  A walkway leads from it to a stair tower on the promenade's bank, with its door, its sign and the foot of the stairs on the side away from the canal.
+  The towers stand clear of the footbridges, the pedestrians' paths and every prop; the platforms stop short of the footbridges and of the south stunt ramp's run-out lane.
+- `buildMonorail` runs after the ground floors are assigned and draws nothing from the shared generator, so every block, prop, pickup and mission spot stays where it was.
+- The train runs to a timetable of sim time alone (`trainAt`): 15 m/s, easing in and out over 30 m, 20 s at each station.
+  A multiplayer client works out where it is from the server's clock, with nothing in the snapshot.
+- The stations are solid.
+  The pylons stop boats and swimmers but not sight, so shots, the camera and the police see past them, and traffic still streams in where the camera cannot see, as before the line was built.
+  The beam has no collider at all.
+- The ride is a side activity (`src/sim/activities/monorail.ts`): E at the foot of a station's stairs, $5 as the train leaves.
+
 ## Known limits
 
 - Bridges are decks, like the pier: boats cannot pass under them, so the canal is for looking at from a boat rather than for sailing through, and a swimmer passing under a bridge climbs out onto it.
@@ -202,3 +219,4 @@ More sea cells (a west inlet, a south bay, an extended cove) were tried and set 
 - The foreshore's boulders are decoration: a swimmer or a boat passes through them, and through the wreck on Smuggler's Key.
 - The cemetery's iron fence and gate, and the farm stand, are decoration too: people and cars pass through them.
 - The police helicopter does not steer round the turbines and flies through their blades.
+- AzuraLink's beam is drawn only, and its pylons stop only boats and swimmers.

@@ -45,6 +45,8 @@ export interface SpeechIndex {
   news: Record<string, string>;
   /** The newsdesk's pieces about each mission, by mission id: when it is passed, and a day later. */
   missionNews: Record<string, { breaking: string; followUp?: string }>;
+  /** AzuraLink's station announcements, by the departing train's destination. */
+  pa: Record<string, string[]>;
 }
 
 export const SPEECH = index as SpeechIndex;
