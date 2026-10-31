@@ -277,24 +277,240 @@
   "ident-neon-drive-88-7-0": 4.489,
   "ident-neon-drive-88-7-1": 3.246,
   "ident-neon-drive-88-7-2": 3.161,
-  "ident-boom-bap-101-3-0": 3.56,
-  "ident-boom-bap-101-3-1": 2.464,
-  "ident-boom-bap-101-3-2": 3.973,
-  "ident-pulse-96-1-0": 3.978,
-  "ident-pulse-96-1-1": 2.045,
-  "ident-pulse-96-1-2": 3.168,
+  "dj-neon-drive-88-7-banter-0": 4.032,
+  "dj-neon-drive-88-7-banter-1": 4.442,
+  "dj-neon-drive-88-7-banter-2": 4.682,
+  "dj-neon-drive-88-7-banter-3": 5.114,
+  "dj-neon-drive-88-7-night-0": 3.065,
+  "dj-neon-drive-88-7-night-1": 3.324,
+  "dj-neon-drive-88-7-rain-0": 3.693,
+  "dj-neon-drive-88-7-rain-1": 2.981,
+  "dj-neon-drive-88-7-chase-0": 3.515,
+  "dj-neon-drive-88-7-chase-1": 3.977,
+  "dj-neon-drive-88-7-gotaway-0": 3.006,
+  "dj-neon-drive-88-7-gotaway-1": 3.347,
+  "dj-neon-drive-88-7-front-0": 2.57,
+  "dj-neon-drive-88-7-back-0": 4.529,
+  "dj-neon-drive-88-7-front-1": 3.198,
+  "dj-neon-drive-88-7-back-1": 4.15,
+  "dj-neon-drive-88-7-front-2": 4.449,
+  "dj-neon-drive-88-7-back-2": 5.149,
+  "dj-neon-drive-88-7-front-3": 2.215,
+  "dj-neon-drive-88-7-back-3": 3.892,
+  "dj-neon-drive-88-7-front-4": 3.517,
+  "dj-neon-drive-88-7-back-4": 4.424,
+  "dj-neon-drive-88-7-front-5": 4.364,
+  "dj-neon-drive-88-7-back-5": 4.963,
   "ident-velvet-89-9-0": 4.383,
   "ident-velvet-89-9-1": 4.864,
-  "ident-dockside-dub-92-3-0": 4.622,
-  "ident-dockside-dub-92-3-1": 2.652,
-  "ident-coyote-97-7-0": 3.939,
-  "ident-coyote-97-7-1": 2.727,
-  "ident-wipeout-99-5-0": 3.832,
-  "ident-wipeout-99-5-1": 2.107,
-  "ident-breakneck-102-7-0": 3.343,
-  "ident-breakneck-102-7-1": 3.249,
-  "ident-pixel-103-9-0": 3.573,
-  "ident-pixel-103-9-1": 2.358,
+  "dj-velvet-89-9-banter-0": 4.642,
+  "dj-velvet-89-9-banter-1": 3.923,
+  "dj-velvet-89-9-banter-2": 4.805,
+  "dj-velvet-89-9-banter-3": 4.202,
+  "dj-velvet-89-9-night-0": 3.573,
+  "dj-velvet-89-9-night-1": 5.797,
+  "dj-velvet-89-9-rain-0": 4.085,
+  "dj-velvet-89-9-rain-1": 4.104,
+  "dj-velvet-89-9-chase-0": 5.768,
+  "dj-velvet-89-9-chase-1": 3.176,
+  "dj-velvet-89-9-gotaway-0": 3.872,
+  "dj-velvet-89-9-gotaway-1": 3.635,
+  "dj-velvet-89-9-front-0": 4.814,
+  "dj-velvet-89-9-back-0": 5.531,
+  "dj-velvet-89-9-front-1": 4.76,
+  "dj-velvet-89-9-back-1": 4.693,
+  "dj-velvet-89-9-front-2": 5.022,
+  "dj-velvet-89-9-back-2": 4.145,
+  "dj-velvet-89-9-front-3": 3.683,
+  "dj-velvet-89-9-back-3": 4.917,
+  "dj-velvet-89-9-front-4": 5.068,
+  "dj-velvet-89-9-back-4": 4.414,
+  "dj-velvet-89-9-front-5": 5.867,
+  "dj-velvet-89-9-back-5": 5.623,
+  "ident-dockside-dub-92-3-0": 4.154,
+  "ident-dockside-dub-92-3-1": 2.528,
+  "dj-dockside-dub-92-3-banter-0": 3.665,
+  "dj-dockside-dub-92-3-banter-1": 4.581,
+  "dj-dockside-dub-92-3-banter-2": 4.178,
+  "dj-dockside-dub-92-3-banter-3": 5.094,
+  "dj-dockside-dub-92-3-night-0": 3.522,
+  "dj-dockside-dub-92-3-night-1": 2.428,
+  "dj-dockside-dub-92-3-rain-0": 3.258,
+  "dj-dockside-dub-92-3-rain-1": 3.967,
+  "dj-dockside-dub-92-3-chase-0": 3.89,
+  "dj-dockside-dub-92-3-chase-1": 3.938,
+  "dj-dockside-dub-92-3-gotaway-0": 3.324,
+  "dj-dockside-dub-92-3-gotaway-1": 3.071,
+  "dj-dockside-dub-92-3-front-0": 5.121,
+  "dj-dockside-dub-92-3-back-0": 4.083,
+  "dj-dockside-dub-92-3-front-1": 3.514,
+  "dj-dockside-dub-92-3-back-1": 3.622,
+  "dj-dockside-dub-92-3-front-2": 5.473,
+  "dj-dockside-dub-92-3-back-2": 4.383,
+  "dj-dockside-dub-92-3-front-3": 3.489,
+  "dj-dockside-dub-92-3-back-3": 3.775,
+  "dj-dockside-dub-92-3-front-4": 4.943,
+  "dj-dockside-dub-92-3-back-4": 3.836,
+  "dj-dockside-dub-92-3-front-5": 4.266,
+  "dj-dockside-dub-92-3-back-5": 4.527,
+  "ident-pulse-96-1-0": 3.856,
+  "ident-pulse-96-1-1": 1.969,
+  "ident-pulse-96-1-2": 3.084,
+  "dj-pulse-96-1-banter-0": 3.412,
+  "dj-pulse-96-1-banter-1": 4.141,
+  "dj-pulse-96-1-banter-2": 2.971,
+  "dj-pulse-96-1-banter-3": 3.148,
+  "dj-pulse-96-1-night-0": 2.681,
+  "dj-pulse-96-1-night-1": 3.023,
+  "dj-pulse-96-1-rain-0": 2.099,
+  "dj-pulse-96-1-rain-1": 2.195,
+  "dj-pulse-96-1-chase-0": 3.764,
+  "dj-pulse-96-1-chase-1": 3.619,
+  "dj-pulse-96-1-gotaway-0": 2.031,
+  "dj-pulse-96-1-gotaway-1": 2.327,
+  "dj-pulse-96-1-front-0": 3.501,
+  "dj-pulse-96-1-back-0": 3.064,
+  "dj-pulse-96-1-front-1": 2.836,
+  "dj-pulse-96-1-back-1": 2.862,
+  "dj-pulse-96-1-front-2": 2.556,
+  "dj-pulse-96-1-back-2": 2.65,
+  "dj-pulse-96-1-front-3": 3.688,
+  "dj-pulse-96-1-back-3": 3.197,
+  "dj-pulse-96-1-front-4": 2.708,
+  "dj-pulse-96-1-back-4": 2.583,
+  "dj-pulse-96-1-front-5": 2.607,
+  "dj-pulse-96-1-back-5": 2.882,
+  "ident-coyote-97-7-0": 4.106,
+  "ident-coyote-97-7-1": 2.889,
+  "dj-coyote-97-7-banter-0": 4.97,
+  "dj-coyote-97-7-banter-1": 5.172,
+  "dj-coyote-97-7-banter-2": 3.654,
+  "dj-coyote-97-7-banter-3": 2.758,
+  "dj-coyote-97-7-night-0": 3.474,
+  "dj-coyote-97-7-night-1": 3.255,
+  "dj-coyote-97-7-rain-0": 3.217,
+  "dj-coyote-97-7-rain-1": 2.636,
+  "dj-coyote-97-7-chase-0": 3.81,
+  "dj-coyote-97-7-chase-1": 3.094,
+  "dj-coyote-97-7-gotaway-0": 2.381,
+  "dj-coyote-97-7-gotaway-1": 2.755,
+  "dj-coyote-97-7-front-0": 2.544,
+  "dj-coyote-97-7-back-0": 3.987,
+  "dj-coyote-97-7-front-1": 3.903,
+  "dj-coyote-97-7-back-1": 4.179,
+  "dj-coyote-97-7-front-2": 2.791,
+  "dj-coyote-97-7-back-2": 4.011,
+  "dj-coyote-97-7-front-3": 3.358,
+  "dj-coyote-97-7-back-3": 3.552,
+  "dj-coyote-97-7-front-4": 2.837,
+  "dj-coyote-97-7-back-4": 4.182,
+  "dj-coyote-97-7-front-5": 3.1,
+  "dj-coyote-97-7-back-5": 3.503,
+  "ident-wipeout-99-5-0": 3.628,
+  "ident-wipeout-99-5-1": 2.127,
+  "dj-wipeout-99-5-banter-0": 2.435,
+  "dj-wipeout-99-5-banter-1": 2.582,
+  "dj-wipeout-99-5-banter-2": 2.491,
+  "dj-wipeout-99-5-banter-3": 2.974,
+  "dj-wipeout-99-5-night-0": 2.779,
+  "dj-wipeout-99-5-night-1": 2.189,
+  "dj-wipeout-99-5-rain-0": 2.124,
+  "dj-wipeout-99-5-rain-1": 2.478,
+  "dj-wipeout-99-5-chase-0": 3.308,
+  "dj-wipeout-99-5-chase-1": 1.923,
+  "dj-wipeout-99-5-gotaway-0": 2.004,
+  "dj-wipeout-99-5-gotaway-1": 1.763,
+  "dj-wipeout-99-5-front-0": 2.846,
+  "dj-wipeout-99-5-back-0": 3.034,
+  "dj-wipeout-99-5-front-1": 2.315,
+  "dj-wipeout-99-5-back-1": 2.672,
+  "dj-wipeout-99-5-front-2": 2.973,
+  "dj-wipeout-99-5-back-2": 3.389,
+  "dj-wipeout-99-5-front-3": 2.621,
+  "dj-wipeout-99-5-back-3": 2.805,
+  "dj-wipeout-99-5-front-4": 2.558,
+  "dj-wipeout-99-5-back-4": 2.723,
+  "dj-wipeout-99-5-front-5": 1.988,
+  "dj-wipeout-99-5-back-5": 2.156,
+  "ident-boom-bap-101-3-0": 3.899,
+  "ident-boom-bap-101-3-1": 2.514,
+  "ident-boom-bap-101-3-2": 4.319,
+  "dj-boom-bap-101-3-banter-0": 3.238,
+  "dj-boom-bap-101-3-banter-1": 3.912,
+  "dj-boom-bap-101-3-banter-2": 4.143,
+  "dj-boom-bap-101-3-banter-3": 3.388,
+  "dj-boom-bap-101-3-night-0": 5.031,
+  "dj-boom-bap-101-3-night-1": 2.9,
+  "dj-boom-bap-101-3-rain-0": 3.151,
+  "dj-boom-bap-101-3-rain-1": 2.503,
+  "dj-boom-bap-101-3-chase-0": 3.828,
+  "dj-boom-bap-101-3-chase-1": 3.078,
+  "dj-boom-bap-101-3-gotaway-0": 2.889,
+  "dj-boom-bap-101-3-gotaway-1": 2.512,
+  "dj-boom-bap-101-3-front-0": 4.353,
+  "dj-boom-bap-101-3-back-0": 3.671,
+  "dj-boom-bap-101-3-front-1": 4.193,
+  "dj-boom-bap-101-3-back-1": 4.269,
+  "dj-boom-bap-101-3-front-2": 4.045,
+  "dj-boom-bap-101-3-back-2": 3.421,
+  "dj-boom-bap-101-3-front-3": 3.903,
+  "dj-boom-bap-101-3-back-3": 3.841,
+  "dj-boom-bap-101-3-front-4": 3.877,
+  "dj-boom-bap-101-3-back-4": 3.187,
+  "dj-boom-bap-101-3-front-5": 4.18,
+  "dj-boom-bap-101-3-back-5": 4.012,
+  "ident-breakneck-102-7-0": 3.134,
+  "ident-breakneck-102-7-1": 2.944,
+  "dj-breakneck-102-7-banter-0": 3.72,
+  "dj-breakneck-102-7-banter-1": 3.41,
+  "dj-breakneck-102-7-banter-2": 2.374,
+  "dj-breakneck-102-7-banter-3": 2.279,
+  "dj-breakneck-102-7-night-0": 2.378,
+  "dj-breakneck-102-7-night-1": 1.774,
+  "dj-breakneck-102-7-rain-0": 2.139,
+  "dj-breakneck-102-7-rain-1": 2.473,
+  "dj-breakneck-102-7-chase-0": 3.558,
+  "dj-breakneck-102-7-chase-1": 2.321,
+  "dj-breakneck-102-7-gotaway-0": 1.891,
+  "dj-breakneck-102-7-gotaway-1": 1.925,
+  "dj-breakneck-102-7-front-0": 2.166,
+  "dj-breakneck-102-7-back-0": 2.254,
+  "dj-breakneck-102-7-front-1": 3.299,
+  "dj-breakneck-102-7-back-1": 3.45,
+  "dj-breakneck-102-7-front-2": 2.123,
+  "dj-breakneck-102-7-back-2": 2.47,
+  "dj-breakneck-102-7-front-3": 3.386,
+  "dj-breakneck-102-7-back-3": 3.832,
+  "dj-breakneck-102-7-front-4": 2.404,
+  "dj-breakneck-102-7-back-4": 2.612,
+  "dj-breakneck-102-7-front-5": 3.67,
+  "dj-breakneck-102-7-back-5": 4.086,
+  "ident-pixel-103-9-0": 3.473,
+  "ident-pixel-103-9-1": 2.275,
+  "dj-pixel-103-9-banter-0": 2.731,
+  "dj-pixel-103-9-banter-1": 3.251,
+  "dj-pixel-103-9-banter-2": 2.801,
+  "dj-pixel-103-9-banter-3": 2.516,
+  "dj-pixel-103-9-night-0": 2.556,
+  "dj-pixel-103-9-night-1": 2.281,
+  "dj-pixel-103-9-rain-0": 2.27,
+  "dj-pixel-103-9-rain-1": 2.897,
+  "dj-pixel-103-9-chase-0": 3.449,
+  "dj-pixel-103-9-chase-1": 2.165,
+  "dj-pixel-103-9-gotaway-0": 1.553,
+  "dj-pixel-103-9-gotaway-1": 2.328,
+  "dj-pixel-103-9-front-0": 3.142,
+  "dj-pixel-103-9-back-0": 3.403,
+  "dj-pixel-103-9-front-1": 3.606,
+  "dj-pixel-103-9-back-1": 3.47,
+  "dj-pixel-103-9-front-2": 2.977,
+  "dj-pixel-103-9-back-2": 3.454,
+  "dj-pixel-103-9-front-3": 3.164,
+  "dj-pixel-103-9-back-3": 2.949,
+  "dj-pixel-103-9-front-4": 3.293,
+  "dj-pixel-103-9-back-4": 3.531,
+  "dj-pixel-103-9-front-5": 3.132,
+  "dj-pixel-103-9-back-5": 3.144,
   "bark-greet-am-liam-0": 0.829,
   "bark-greet-am-liam-1": 1.171,
   "bark-greet-am-liam-2": 1.138,
@@ -1641,16 +1857,6 @@
    "ident-neon-drive-88-7-1",
    "ident-neon-drive-88-7-2"
   ],
-  "BOOM BAP 101.3": [
-   "ident-boom-bap-101-3-0",
-   "ident-boom-bap-101-3-1",
-   "ident-boom-bap-101-3-2"
-  ],
-  "PULSE 96.1": [
-   "ident-pulse-96-1-0",
-   "ident-pulse-96-1-1",
-   "ident-pulse-96-1-2"
-  ],
   "VELVET 89.9": [
    "ident-velvet-89-9-0",
    "ident-velvet-89-9-1"
@@ -1658,6 +1864,11 @@
   "DOCKSIDE DUB 92.3": [
    "ident-dockside-dub-92-3-0",
    "ident-dockside-dub-92-3-1"
+  ],
+  "PULSE 96.1": [
+   "ident-pulse-96-1-0",
+   "ident-pulse-96-1-1",
+   "ident-pulse-96-1-2"
   ],
   "COYOTE 97.7": [
    "ident-coyote-97-7-0",
@@ -1667,6 +1878,11 @@
    "ident-wipeout-99-5-0",
    "ident-wipeout-99-5-1"
   ],
+  "BOOM BAP 101.3": [
+   "ident-boom-bap-101-3-0",
+   "ident-boom-bap-101-3-1",
+   "ident-boom-bap-101-3-2"
+  ],
   "BREAKNECK 102.7": [
    "ident-breakneck-102-7-0",
    "ident-breakneck-102-7-1"
@@ -1674,6 +1890,460 @@
   "PIXEL 103.9": [
    "ident-pixel-103-9-0",
    "ident-pixel-103-9-1"
+  ]
+ },
+ "dj": {
+  "NEON DRIVE 88.7": {
+   "banter": [
+    "dj-neon-drive-88-7-banter-0",
+    "dj-neon-drive-88-7-banter-1",
+    "dj-neon-drive-88-7-banter-2",
+    "dj-neon-drive-88-7-banter-3"
+   ],
+   "night": [
+    "dj-neon-drive-88-7-night-0",
+    "dj-neon-drive-88-7-night-1"
+   ],
+   "rain": [
+    "dj-neon-drive-88-7-rain-0",
+    "dj-neon-drive-88-7-rain-1"
+   ],
+   "chase": [
+    "dj-neon-drive-88-7-chase-0",
+    "dj-neon-drive-88-7-chase-1"
+   ],
+   "gotAway": [
+    "dj-neon-drive-88-7-gotaway-0",
+    "dj-neon-drive-88-7-gotaway-1"
+   ]
+  },
+  "VELVET 89.9": {
+   "banter": [
+    "dj-velvet-89-9-banter-0",
+    "dj-velvet-89-9-banter-1",
+    "dj-velvet-89-9-banter-2",
+    "dj-velvet-89-9-banter-3"
+   ],
+   "night": [
+    "dj-velvet-89-9-night-0",
+    "dj-velvet-89-9-night-1"
+   ],
+   "rain": [
+    "dj-velvet-89-9-rain-0",
+    "dj-velvet-89-9-rain-1"
+   ],
+   "chase": [
+    "dj-velvet-89-9-chase-0",
+    "dj-velvet-89-9-chase-1"
+   ],
+   "gotAway": [
+    "dj-velvet-89-9-gotaway-0",
+    "dj-velvet-89-9-gotaway-1"
+   ]
+  },
+  "DOCKSIDE DUB 92.3": {
+   "banter": [
+    "dj-dockside-dub-92-3-banter-0",
+    "dj-dockside-dub-92-3-banter-1",
+    "dj-dockside-dub-92-3-banter-2",
+    "dj-dockside-dub-92-3-banter-3"
+   ],
+   "night": [
+    "dj-dockside-dub-92-3-night-0",
+    "dj-dockside-dub-92-3-night-1"
+   ],
+   "rain": [
+    "dj-dockside-dub-92-3-rain-0",
+    "dj-dockside-dub-92-3-rain-1"
+   ],
+   "chase": [
+    "dj-dockside-dub-92-3-chase-0",
+    "dj-dockside-dub-92-3-chase-1"
+   ],
+   "gotAway": [
+    "dj-dockside-dub-92-3-gotaway-0",
+    "dj-dockside-dub-92-3-gotaway-1"
+   ]
+  },
+  "PULSE 96.1": {
+   "banter": [
+    "dj-pulse-96-1-banter-0",
+    "dj-pulse-96-1-banter-1",
+    "dj-pulse-96-1-banter-2",
+    "dj-pulse-96-1-banter-3"
+   ],
+   "night": [
+    "dj-pulse-96-1-night-0",
+    "dj-pulse-96-1-night-1"
+   ],
+   "rain": [
+    "dj-pulse-96-1-rain-0",
+    "dj-pulse-96-1-rain-1"
+   ],
+   "chase": [
+    "dj-pulse-96-1-chase-0",
+    "dj-pulse-96-1-chase-1"
+   ],
+   "gotAway": [
+    "dj-pulse-96-1-gotaway-0",
+    "dj-pulse-96-1-gotaway-1"
+   ]
+  },
+  "COYOTE 97.7": {
+   "banter": [
+    "dj-coyote-97-7-banter-0",
+    "dj-coyote-97-7-banter-1",
+    "dj-coyote-97-7-banter-2",
+    "dj-coyote-97-7-banter-3"
+   ],
+   "night": [
+    "dj-coyote-97-7-night-0",
+    "dj-coyote-97-7-night-1"
+   ],
+   "rain": [
+    "dj-coyote-97-7-rain-0",
+    "dj-coyote-97-7-rain-1"
+   ],
+   "chase": [
+    "dj-coyote-97-7-chase-0",
+    "dj-coyote-97-7-chase-1"
+   ],
+   "gotAway": [
+    "dj-coyote-97-7-gotaway-0",
+    "dj-coyote-97-7-gotaway-1"
+   ]
+  },
+  "WIPEOUT 99.5": {
+   "banter": [
+    "dj-wipeout-99-5-banter-0",
+    "dj-wipeout-99-5-banter-1",
+    "dj-wipeout-99-5-banter-2",
+    "dj-wipeout-99-5-banter-3"
+   ],
+   "night": [
+    "dj-wipeout-99-5-night-0",
+    "dj-wipeout-99-5-night-1"
+   ],
+   "rain": [
+    "dj-wipeout-99-5-rain-0",
+    "dj-wipeout-99-5-rain-1"
+   ],
+   "chase": [
+    "dj-wipeout-99-5-chase-0",
+    "dj-wipeout-99-5-chase-1"
+   ],
+   "gotAway": [
+    "dj-wipeout-99-5-gotaway-0",
+    "dj-wipeout-99-5-gotaway-1"
+   ]
+  },
+  "BOOM BAP 101.3": {
+   "banter": [
+    "dj-boom-bap-101-3-banter-0",
+    "dj-boom-bap-101-3-banter-1",
+    "dj-boom-bap-101-3-banter-2",
+    "dj-boom-bap-101-3-banter-3"
+   ],
+   "night": [
+    "dj-boom-bap-101-3-night-0",
+    "dj-boom-bap-101-3-night-1"
+   ],
+   "rain": [
+    "dj-boom-bap-101-3-rain-0",
+    "dj-boom-bap-101-3-rain-1"
+   ],
+   "chase": [
+    "dj-boom-bap-101-3-chase-0",
+    "dj-boom-bap-101-3-chase-1"
+   ],
+   "gotAway": [
+    "dj-boom-bap-101-3-gotaway-0",
+    "dj-boom-bap-101-3-gotaway-1"
+   ]
+  },
+  "BREAKNECK 102.7": {
+   "banter": [
+    "dj-breakneck-102-7-banter-0",
+    "dj-breakneck-102-7-banter-1",
+    "dj-breakneck-102-7-banter-2",
+    "dj-breakneck-102-7-banter-3"
+   ],
+   "night": [
+    "dj-breakneck-102-7-night-0",
+    "dj-breakneck-102-7-night-1"
+   ],
+   "rain": [
+    "dj-breakneck-102-7-rain-0",
+    "dj-breakneck-102-7-rain-1"
+   ],
+   "chase": [
+    "dj-breakneck-102-7-chase-0",
+    "dj-breakneck-102-7-chase-1"
+   ],
+   "gotAway": [
+    "dj-breakneck-102-7-gotaway-0",
+    "dj-breakneck-102-7-gotaway-1"
+   ]
+  },
+  "PIXEL 103.9": {
+   "banter": [
+    "dj-pixel-103-9-banter-0",
+    "dj-pixel-103-9-banter-1",
+    "dj-pixel-103-9-banter-2",
+    "dj-pixel-103-9-banter-3"
+   ],
+   "night": [
+    "dj-pixel-103-9-night-0",
+    "dj-pixel-103-9-night-1"
+   ],
+   "rain": [
+    "dj-pixel-103-9-rain-0",
+    "dj-pixel-103-9-rain-1"
+   ],
+   "chase": [
+    "dj-pixel-103-9-chase-0",
+    "dj-pixel-103-9-chase-1"
+   ],
+   "gotAway": [
+    "dj-pixel-103-9-gotaway-0",
+    "dj-pixel-103-9-gotaway-1"
+   ]
+  }
+ },
+ "tracks": {
+  "NEON DRIVE 88.7": [
+   {
+    "front": "dj-neon-drive-88-7-front-0",
+    "back": "dj-neon-drive-88-7-back-0"
+   },
+   {
+    "front": "dj-neon-drive-88-7-front-1",
+    "back": "dj-neon-drive-88-7-back-1"
+   },
+   {
+    "front": "dj-neon-drive-88-7-front-2",
+    "back": "dj-neon-drive-88-7-back-2"
+   },
+   {
+    "front": "dj-neon-drive-88-7-front-3",
+    "back": "dj-neon-drive-88-7-back-3"
+   },
+   {
+    "front": "dj-neon-drive-88-7-front-4",
+    "back": "dj-neon-drive-88-7-back-4"
+   },
+   {
+    "front": "dj-neon-drive-88-7-front-5",
+    "back": "dj-neon-drive-88-7-back-5"
+   }
+  ],
+  "VELVET 89.9": [
+   {
+    "front": "dj-velvet-89-9-front-0",
+    "back": "dj-velvet-89-9-back-0"
+   },
+   {
+    "front": "dj-velvet-89-9-front-1",
+    "back": "dj-velvet-89-9-back-1"
+   },
+   {
+    "front": "dj-velvet-89-9-front-2",
+    "back": "dj-velvet-89-9-back-2"
+   },
+   {
+    "front": "dj-velvet-89-9-front-3",
+    "back": "dj-velvet-89-9-back-3"
+   },
+   {
+    "front": "dj-velvet-89-9-front-4",
+    "back": "dj-velvet-89-9-back-4"
+   },
+   {
+    "front": "dj-velvet-89-9-front-5",
+    "back": "dj-velvet-89-9-back-5"
+   }
+  ],
+  "DOCKSIDE DUB 92.3": [
+   {
+    "front": "dj-dockside-dub-92-3-front-0",
+    "back": "dj-dockside-dub-92-3-back-0"
+   },
+   {
+    "front": "dj-dockside-dub-92-3-front-1",
+    "back": "dj-dockside-dub-92-3-back-1"
+   },
+   {
+    "front": "dj-dockside-dub-92-3-front-2",
+    "back": "dj-dockside-dub-92-3-back-2"
+   },
+   {
+    "front": "dj-dockside-dub-92-3-front-3",
+    "back": "dj-dockside-dub-92-3-back-3"
+   },
+   {
+    "front": "dj-dockside-dub-92-3-front-4",
+    "back": "dj-dockside-dub-92-3-back-4"
+   },
+   {
+    "front": "dj-dockside-dub-92-3-front-5",
+    "back": "dj-dockside-dub-92-3-back-5"
+   }
+  ],
+  "PULSE 96.1": [
+   {
+    "front": "dj-pulse-96-1-front-0",
+    "back": "dj-pulse-96-1-back-0"
+   },
+   {
+    "front": "dj-pulse-96-1-front-1",
+    "back": "dj-pulse-96-1-back-1"
+   },
+   {
+    "front": "dj-pulse-96-1-front-2",
+    "back": "dj-pulse-96-1-back-2"
+   },
+   {
+    "front": "dj-pulse-96-1-front-3",
+    "back": "dj-pulse-96-1-back-3"
+   },
+   {
+    "front": "dj-pulse-96-1-front-4",
+    "back": "dj-pulse-96-1-back-4"
+   },
+   {
+    "front": "dj-pulse-96-1-front-5",
+    "back": "dj-pulse-96-1-back-5"
+   }
+  ],
+  "COYOTE 97.7": [
+   {
+    "front": "dj-coyote-97-7-front-0",
+    "back": "dj-coyote-97-7-back-0"
+   },
+   {
+    "front": "dj-coyote-97-7-front-1",
+    "back": "dj-coyote-97-7-back-1"
+   },
+   {
+    "front": "dj-coyote-97-7-front-2",
+    "back": "dj-coyote-97-7-back-2"
+   },
+   {
+    "front": "dj-coyote-97-7-front-3",
+    "back": "dj-coyote-97-7-back-3"
+   },
+   {
+    "front": "dj-coyote-97-7-front-4",
+    "back": "dj-coyote-97-7-back-4"
+   },
+   {
+    "front": "dj-coyote-97-7-front-5",
+    "back": "dj-coyote-97-7-back-5"
+   }
+  ],
+  "WIPEOUT 99.5": [
+   {
+    "front": "dj-wipeout-99-5-front-0",
+    "back": "dj-wipeout-99-5-back-0"
+   },
+   {
+    "front": "dj-wipeout-99-5-front-1",
+    "back": "dj-wipeout-99-5-back-1"
+   },
+   {
+    "front": "dj-wipeout-99-5-front-2",
+    "back": "dj-wipeout-99-5-back-2"
+   },
+   {
+    "front": "dj-wipeout-99-5-front-3",
+    "back": "dj-wipeout-99-5-back-3"
+   },
+   {
+    "front": "dj-wipeout-99-5-front-4",
+    "back": "dj-wipeout-99-5-back-4"
+   },
+   {
+    "front": "dj-wipeout-99-5-front-5",
+    "back": "dj-wipeout-99-5-back-5"
+   }
+  ],
+  "BOOM BAP 101.3": [
+   {
+    "front": "dj-boom-bap-101-3-front-0",
+    "back": "dj-boom-bap-101-3-back-0"
+   },
+   {
+    "front": "dj-boom-bap-101-3-front-1",
+    "back": "dj-boom-bap-101-3-back-1"
+   },
+   {
+    "front": "dj-boom-bap-101-3-front-2",
+    "back": "dj-boom-bap-101-3-back-2"
+   },
+   {
+    "front": "dj-boom-bap-101-3-front-3",
+    "back": "dj-boom-bap-101-3-back-3"
+   },
+   {
+    "front": "dj-boom-bap-101-3-front-4",
+    "back": "dj-boom-bap-101-3-back-4"
+   },
+   {
+    "front": "dj-boom-bap-101-3-front-5",
+    "back": "dj-boom-bap-101-3-back-5"
+   }
+  ],
+  "BREAKNECK 102.7": [
+   {
+    "front": "dj-breakneck-102-7-front-0",
+    "back": "dj-breakneck-102-7-back-0"
+   },
+   {
+    "front": "dj-breakneck-102-7-front-1",
+    "back": "dj-breakneck-102-7-back-1"
+   },
+   {
+    "front": "dj-breakneck-102-7-front-2",
+    "back": "dj-breakneck-102-7-back-2"
+   },
+   {
+    "front": "dj-breakneck-102-7-front-3",
+    "back": "dj-breakneck-102-7-back-3"
+   },
+   {
+    "front": "dj-breakneck-102-7-front-4",
+    "back": "dj-breakneck-102-7-back-4"
+   },
+   {
+    "front": "dj-breakneck-102-7-front-5",
+    "back": "dj-breakneck-102-7-back-5"
+   }
+  ],
+  "PIXEL 103.9": [
+   {
+    "front": "dj-pixel-103-9-front-0",
+    "back": "dj-pixel-103-9-back-0"
+   },
+   {
+    "front": "dj-pixel-103-9-front-1",
+    "back": "dj-pixel-103-9-back-1"
+   },
+   {
+    "front": "dj-pixel-103-9-front-2",
+    "back": "dj-pixel-103-9-back-2"
+   },
+   {
+    "front": "dj-pixel-103-9-front-3",
+    "back": "dj-pixel-103-9-back-3"
+   },
+   {
+    "front": "dj-pixel-103-9-front-4",
+    "back": "dj-pixel-103-9-back-4"
+   },
+   {
+    "front": "dj-pixel-103-9-front-5",
+    "back": "dj-pixel-103-9-back-5"
+   }
   ]
  }
 }

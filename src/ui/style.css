@@ -713,6 +713,14 @@ body {
   color: #fff;
 }
 
+/* The song on air: a quieter line under the tag. */
+.radio small.track {
+  font-size: 13px;
+  font-weight: 600;
+  font-style: italic;
+  color: #e6dcc0;
+}
+
 .radio.show {
   opacity: 1;
 }

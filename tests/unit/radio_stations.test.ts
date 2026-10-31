@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { STATIONS } from '../../src/audio/radio';
 import type { Kit } from '../../src/audio/stations/kit';
+import { deepCut, HITS, hitSong } from '../../src/audio/stations/playlists';
 import { locate, type Beat, type Style } from '../../src/audio/stations/style';
 import { Rng } from '../../src/core/rng';
 import { SPEECH } from '../../src/sim/speech';
@@ -73,6 +74,54 @@ describe('radio stations', () => {
         // The same seed makes the same song.
         expect(voicesPerBar(st.style!, seed, 0)).toEqual(calm);
       }
+    });
+  }
+});
+
+describe('the hits', () => {
+  it('six per music station, each its own, titled in 40 characters or fewer, and deep cuts named in between', () => {
+    expect(Object.keys(HITS).sort()).toEqual(MUSIC.map((s) => s.name).sort());
+    const names = new Set<string>();
+    for (const st of MUSIC) {
+      const hits = HITS[st.name]!;
+      expect(hits.length, st.name).toBe(6);
+      expect(new Set(hits.map((h) => h.seed)).size, st.name).toBe(6);
+      for (const h of hits) {
+        expect(h.title.length, h.title).toBeLessThanOrEqual(40);
+        names.add(`${h.artist} - ${h.title}`);
+      }
+      const r = new Rng(3);
+      for (let i = 0; i < 300; i++) {
+        const cut = deepCut(st.name, r);
+        expect(cut.title.length, `${st.name}: ${cut.title}`).toBeLessThanOrEqual(40);
+        expect(cut.artist.length, st.name).toBeGreaterThan(0);
+      }
+    }
+    expect(names.size).toBe(MUSIC.length * 6);
+  });
+
+  for (const st of MUSIC) {
+    it(`${st.name}: a hit is the same song every time it comes round, and passes the checks every song does`, () => {
+      const style = st.style!;
+      const songs = HITS[st.name]!.map((h) => hitSong(style, h.seed));
+      for (const [i, h] of HITS[st.name]!.entries()) {
+        const song = songs[i]!;
+        expect(hitSong(style, h.seed)).toEqual(song);
+        // The song of its seed (what voicesPerBar plays), at a tempo of the style's own.
+        expect(song).toEqual({ ...style.song(new Rng(h.seed), style.bpm[0]), bpm: song.bpm });
+        expect(song.bpm).toBeGreaterThanOrEqual(style.bpm[0]);
+        expect(song.bpm).toBeLessThanOrEqual(style.bpm[1]);
+        expect(new Set(song.form.map(([s]) => s))).toContain('b');
+        const calm = voicesPerBar(style, h.seed, 0);
+        const chase = voicesPerBar(style, h.seed, 1);
+        expect(Math.min(...calm), `${h.title}: quietest bar`).toBeGreaterThanOrEqual(3);
+        const sum = (v: number[]) => v.reduce((a, x) => a + x, 0);
+        expect(sum(chase), h.title).toBeGreaterThan(sum(calm) * 1.1);
+        expect(voicesPerBar(style, h.seed, 0)).toEqual(calm);
+      }
+      // The six differ from each other, in their chords, pattern, key or tempo.
+      const looks = songs.map((s) => JSON.stringify([s.progA, s.progB, s.variant, s.root, Math.round(s.bpm)]));
+      expect(new Set(looks).size).toBe(6);
     });
   }
 });

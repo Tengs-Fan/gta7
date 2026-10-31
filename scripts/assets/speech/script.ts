@@ -554,61 +554,6 @@ export const TALK: readonly TalkPiece[] = [
   { id: 'ident-works', kind: 'ident', lines: [['ident', "This is Azura Talk. If you can hear this, your radio works. Congratulations."]] },
 ];
 
-/**
- * Spoken idents of the music stations, by station name as the radio lists it (src/audio/radio.ts STATIONS): a DJ's
- * voice between songs. A station without an entry has none.
- */
-export const STATION_IDENTS: Readonly<Record<string, { voice: string; lines: readonly string[] }>> = {
-  'NEON DRIVE 88.7': {
-    voice: 'af_aoede',
-    lines: [
-      "Neon Drive, eighty eight point seven. Windows down, lights on, nowhere to be.",
-      "You're cruising with Neon Drive. The city looks better at night.",
-      "Neon Drive. Retro sounds for drivers who never grew up.",
-    ],
-  },
-  'BOOM BAP 101.3': {
-    voice: 'am_onyx',
-    lines: [
-      "Boom Bap, one oh one point three. Real beats for real streets.",
-      "This is Boom Bap. Turn it up, roll it slow.",
-      "Boom Bap, one oh one three. Keeping San Azura nodding since forever.",
-    ],
-  },
-  'PULSE 96.1': {
-    voice: 'bf_alice',
-    lines: [
-      "Pulse, ninety six point one. Four on the floor, all day and all night.",
-      "You're locked into Pulse. Don't stop now.",
-      "Pulse, ninety six one. The party is wherever you park.",
-    ],
-  },
-  'VELVET 89.9': {
-    voice: 'af_nicole',
-    lines: ['Velvet, eighty nine point nine. Music to wait to.', 'Relax. Whatever it is, it can wait. This is Velvet.'],
-  },
-  'DOCKSIDE DUB 92.3': {
-    voice: 'bm_george',
-    lines: ['Dockside Dub, ninety two point three. Bass from the harbour, all night long.', 'Turn it up and lean back. Dockside Dub.'],
-  },
-  'COYOTE 97.7': {
-    voice: 'am_adam',
-    lines: ['Coyote, ninety seven point seven. Outlaw country for the open road.', 'Dust on the boots, gas in the tank. You are on Coyote.'],
-  },
-  'WIPEOUT 99.5': {
-    voice: 'am_puck',
-    lines: ['Wipeout, ninety nine point five, live from Ocean Beach. Surf is up.', 'Wax your board and floor it. This is Wipeout.'],
-  },
-  'BREAKNECK 102.7': {
-    voice: 'bf_isabella',
-    lines: ['Breakneck, one oh two point seven. Faster than the cops.', 'One hundred and seventy four beats a minute. Breakneck.'],
-  },
-  'PIXEL 103.9': {
-    voice: 'af_sky',
-    lines: ['Pixel, one oh three point nine. Insert coin to continue.', 'High score radio. You are tuned to Pixel.'],
-  },
-};
-
 /** A set of short shouts, each rendered in every voice of its pool; a person keeps one voice. */
 export interface BarkSet {
   voices: readonly string[];

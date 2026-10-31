@@ -147,6 +147,8 @@ export class Game {
   private blurPause = false;
   /** When the next frame is due under an FPS cap (performance.now() ms). */
   private nextFrameAt = 0;
+  /** The radio's song count the HUD last showed. */
+  private songSerial = 0;
   /** The phone's text log, its incoming calls and the HUD card that shows one ringing. */
   readonly phoneLog = new PhoneLog();
   readonly calls = new PhoneCalls();
@@ -734,6 +736,19 @@ export class Game {
     this.perf.frameIntervalMs = elapsed * 1000;
   };
 
+  /**
+   * R and Q change the station; the HUD shows it, and each new song on the radio with its station. A station tuned has no
+   * song until the radio next runs (later in the frame), so its song's line follows with the next frame's songSerial.
+   */
+  private radioKeys(ui: FrameInput['ui']): void {
+    const radio = this.audio.radio;
+    if (ui.radioNext) this.hud.showRadio(radio.next());
+    if (ui.radioPrev) this.hud.showRadio(radio.prev());
+    if (radio.songSerial === this.songSerial) return;
+    this.songSerial = radio.songSerial;
+    if (radio.playing) this.hud.showRadio(radio.stationName, radio.nowPlaying);
+  }
+
   /** One frame of game logic + rendering (also driven directly by tests). */
   step(dt: number, fi: FrameInput): void {
     if (this.crashed) return;
@@ -799,8 +814,7 @@ export class Game {
     }
     if (fi.ui.phone && this.phoneKey()) return;
     if (fi.ui.camera) cam.zoomLevel = cam.zoomLevel === 0 ? 1 : 0;
-    if (fi.ui.radioNext) this.hud.showRadio(this.audio.radio.next());
-    if (fi.ui.radioPrev) this.hud.showRadio(this.audio.radio.prev());
+    this.radioKeys(fi.ui);
 
     const sim = this.sim;
     cam.look(fi.lookX, fi.lookY);
@@ -1024,8 +1038,7 @@ export class Game {
       if (!this.menus.showPlayers(this.guard(() => this.resume()))) this.resume();
     } else {
       if (fi.ui.camera) cam.zoomLevel = cam.zoomLevel === 0 ? 1 : 0;
-      if (fi.ui.radioNext) this.hud.showRadio(this.audio.radio.next());
-      if (fi.ui.radioPrev) this.hud.showRadio(this.audio.radio.prev());
+      this.radioKeys(fi.ui);
       cam.look(fi.lookX, fi.lookY);
       const aim = cam.rayFor();
       inp = fi.player;

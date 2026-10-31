@@ -1,8 +1,8 @@
 // `npm run speech`: renders everything the game says with Kokoro-82M (render.py) and writes src/assets/speech/: one
 // 32 kbps mono MP3 per clip and speech.json, the index the sim and the audio read (src/sim/speech.ts).
 //
-// Clips: the mission dialogue (dialogue.ts), the police dispatcher's phrases (phrases.ts), the talk station's pieces,
-// the music stations' idents and the barks (script.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
+// Clips: the mission dialogue (dialogue.ts), the police dispatcher's phrases (phrases.ts), the talk station's pieces
+// and the barks (script.ts), and the music stations' DJs (djs.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
 // (~/.cache/gta7-speech), so a rerun renders only new lines. Each clip is trimmed, band-limited where it is heard down
 // a phone line, levelled to the same loudness and encoded with ffmpeg; files the index no longer lists are removed.
 
@@ -15,8 +15,10 @@ import type { BarkKind, SpeechIndex } from '../../../src/sim/speech';
 import { dialogueKey, phraseWords } from '../../../src/sim/speech';
 import { StaticWorld } from '../../../src/world/staticWorld';
 import { dialogueLines } from './dialogue';
+import { HITS, type Track } from '../../../src/audio/stations/playlists';
+import { DJS, type Line } from './djs';
 import { dispatchPhrases } from './phrases';
-import { BARKS, CAST, PHONE_ROLES, SAY, SPEAKERS, STATION_IDENTS, TALK } from './script';
+import { BARKS, CAST, PHONE_ROLES, SAY, SPEAKERS, TALK } from './script';
 import { SHOW_PIECES } from './shows';
 
 const RATE = 24000;
@@ -45,6 +47,8 @@ const hash = (s: string) => createHash('sha1').update(s).digest('hex');
 /** The text as Kokoro reads it (SAY). */
 const spoken = (text: string) => SAY.reduce((s, [re, say]) => s.replace(re, say), text);
 const wavOf = (t: Take) => join(CACHE, `${hash(`kokoro-82m-v1.0|${t.voice}|${t.speed}|${spoken(t.text)}`)}.wav`);
+/** A DJ's announce frame filled in with a hit (a title's own closing full stop gives way to the frame's). */
+const announce = (frame: string, hit: Track) => frame.replace('{artist}', hit.artist).replace('{title}', hit.title.replace(/\.$/, ''));
 
 const world = new StaticWorld();
 const clips: Clip[] = [];
@@ -59,6 +63,8 @@ const index: SpeechIndex = {
   adSeries: {},
   barks: {} as Record<BarkKind, string[][]>,
   idents: {},
+  dj: {},
+  tracks: {},
 };
 
 for (const line of dialogueLines(world)) {
@@ -85,12 +91,23 @@ for (const piece of [...TALK, ...SHOW_PIECES]) {
   for (const show of piece.shows ?? [piece.show ?? 'azura']) index.talk[show][piece.kind].push(id);
 }
 for (const parts of Object.values(series)) index.adSeries[parts[0]!] = parts;
-for (const [station, set] of Object.entries(STATION_IDENTS)) {
-  index.idents[station] = set.lines.map((text, i) => {
-    const id = `ident-${slug(station)}-${i}`;
-    clips.push({ id, takes: [{ voice: set.voice, text, speed: 1 }] });
+for (const [station, dj] of Object.entries(DJS)) {
+  const s = slug(station);
+  const speed = dj.speed ?? 1;
+  const clip = (id: string, line: Line) => {
+    clips.push({ id, takes: typeof line === 'string' ? [{ voice: dj.voice, text: line, speed }] : line.map(([voice, text]) => ({ voice, text, speed })) });
     return id;
-  });
+  };
+  const links = (index.dj[station] = {} as (typeof index.dj)[string]);
+  for (const [kind, lines] of Object.entries(dj.links) as Array<[keyof typeof dj.links, readonly Line[]]>) {
+    const ids = lines.map((line, i) => clip(kind === 'ident' ? `ident-${s}-${i}` : `dj-${s}-${slug(kind)}-${i}`, line));
+    if (kind === 'ident') index.idents[station] = ids;
+    else links[kind] = ids;
+  }
+  index.tracks[station] = HITS[station]!.map((hit, i) => ({
+    front: clip(`dj-${s}-front-${i}`, announce(dj.front[i % dj.front.length]!, hit)),
+    back: clip(`dj-${s}-back-${i}`, announce(dj.back[i % dj.back.length]!, hit)),
+  }));
 }
 for (const [kind, set] of Object.entries(BARKS) as Array<[BarkKind, (typeof BARKS)[BarkKind]]>) {
   index.barks[kind] = set.voices.map((voice) =>

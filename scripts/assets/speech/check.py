@@ -16,7 +16,9 @@ OUT = os.path.join(HERE, '../../../src/assets/speech')
 CACHE = os.environ.get('GTA7_SPEECH_CACHE', os.path.expanduser('~/.cache/gta7-speech'))
 NAMES = set('''azura san tiburones halcones moreau salgado velora nightjar thunderhoof dustrunner pipsqueak breadbox citybus
 zippa marlin puffin hydra kai navarro lou dex vera benny chet bramble dolores vance fenwick morty sapd skycopter gt
-hillcrest westside southgate midtown pastor pier marina tackett pruitt pettibone lindqvist pembury squawk slocum'''.split())
+hillcrest westside southgate midtown pastor pier marina tackett pruitt pettibone lindqvist pembury squawk slocum
+lazer lacey simone kiki tad vic haybale rattler dooley tex lariat bootcut shoobies sharky kook tha bitcrush velour lorna
+sergio bossa scotia'''.split())
 
 NUMBERS = {'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10'}
 
