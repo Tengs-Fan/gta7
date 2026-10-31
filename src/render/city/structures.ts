@@ -54,12 +54,12 @@ export function buildStructures(view: CityView): void {
     sides.tri(...a, ...d, ...f, [0, 0, 1, 1, 1, 0], [0.95, 0.8, 0.1]);
   }
   const plateMat = new THREE.MeshStandardMaterial({ map: groundTexture('metal', 5), roughness: 0.55, metalness: 0.5, side: THREE.DoubleSide });
-  view.add(plate.build(), plateMat, { shadow: true, name: 'ramps' });
+  view.add(plate.build(), plateMat, { shadow: true, name: 'ramps', split: false });
   // The side panels share the street decor's program (with three's own fog: PLAIN_FOG), as they shared the plain
   // decor program before the decor took the building fog, so no program of their own compiles in the frame a ramp first
   // comes into view under the night lights.
   const sideMat = withBuildingFog(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide }), DECOR_PROGRAM, PLAIN_FOG);
-  view.add(sides.build(), sideMat, { shadow: true, name: 'ramp-sides' });
+  view.add(sides.build(), sideMat, { shadow: true, name: 'ramp-sides', split: false });
 
   // Helipads on rooftops.
   const pads = layout.buildings.flatMap((b) => b.roofProps.filter((p) => p.kind === 'helipad'));

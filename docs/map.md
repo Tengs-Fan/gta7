@@ -86,6 +86,7 @@ The ring road is not closed with them: it crosses each bay's mouth on a bridge (
 Closed, it turned the junctions either side into corners with a single way out, where a car fleeing the police was pinned against the quay (`r2_police_escape*`).
 The bridges, the canal's and the bays', are drawn as one mesh: a few slabs across the city would only add draws if split into cells.
 The two stunt ramps that stood in Pelican Harbor and Gull Bay moved along their promenades, and Hot Delivery's drop is now found from the block south of Northshore Bay.
+The ramps' plates and side panels are drawn as one mesh each, like the bridges: five ramps across the city would only add draws if split into cells.
 
 Where water still cuts an avenue short, it leaves a stub whose far end leads only into side streets.
 A city bus keeps to the avenues that go on (`throughAvenues` in `src/sim/driver.ts`): traffic spawns none on a stub, and a bus on the move never turns into one.
