@@ -5,6 +5,7 @@ import { clamp, lerp, smoothstep } from '../core/math';
 import { darkness, sunIntensity } from '../sim/clock';
 import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
+import { CAUSEWAY_NAME } from '../world/country';
 import { mkRect, type CityLayout, type Rect } from '../world/layout';
 import { countyShore, patchSeaMaterial, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
@@ -74,8 +75,8 @@ const CITY_GLOW = new THREE.Color(0.1, 0.045, 0.006);
 /** The glow's falloff with the sine of the elevation: half strength about 6 degrees up. */
 const CITY_GLOW_FALL = 6.5;
 /**
- * Off the city's land the glow gathers over the city's own horizon: uCityAway runs from 0 on the land (the beach
- * included) to 1 CITY_AWAY_RANGE m off it, and as it does the glow narrows to the cube of the cosine of the bearing off
+ * Off the city's land the glow gathers over the city's own horizon: uCityAway runs from 0 on the land (the beach and
+ * the city's headlands included) to 1 CITY_AWAY_RANGE m off it, and as it does the glow narrows to the cube of the cosine of the bearing off
  * the city's centre, the stars grow 1 + STARS_AWAY times as bright and the fog takes FOG_GLOW_AWAY less of the night's
  * horizon glow. On the land nothing changes.
  */
@@ -83,11 +84,20 @@ export const CITY_AWAY_RANGE = 600;
 const STARS_AWAY = 1.5;
 const FOG_GLOW_AWAY = 0.7;
 
-/** uCityAway for a camera at (x, z): 0 on the city's land `land`, rising smoothly to 1 CITY_AWAY_RANGE m off it. */
-export function cityAway(land: Rect, x: number, z: number): number {
-  const dx = Math.max(land.minX - x, 0, x - land.maxX);
-  const dz = Math.max(land.minZ - z, 0, z - land.maxZ);
-  return smoothstep(0, CITY_AWAY_RANGE, Math.hypot(dx, dz));
+/** uCityAway for a camera at (x, z): 0 on the city's land `land` (cityLand), rising smoothly to 1 CITY_AWAY_RANGE m off it. */
+export function cityAway(land: readonly Rect[], x: number, z: number): number {
+  let d = Infinity;
+  for (const r of land) d = Math.min(d, Math.hypot(Math.max(r.minX - x, 0, x - r.maxX), Math.max(r.minZ - z, 0, z - r.maxZ)));
+  return smoothstep(0, CITY_AWAY_RANGE, d);
+}
+
+/**
+ * The city's land for its glow: the land with its beach, and its headlands (Azura Point and Smuggler's Key), not the
+ * causeway that leads off it.
+ */
+export function cityLand(layout: CityLayout): Rect[] {
+  const b = layout.bounds;
+  return [mkRect(b.landMinX, b.landMinZ, b.beachEndX, b.landMaxZ), ...layout.headlands.filter((h) => h.name !== CAUSEWAY_NAME).flatMap((h) => h.rects)];
 }
 
 /**
@@ -1170,8 +1180,8 @@ export class Environment {
     if (this.scene.environment !== target.texture) this.scene.environment = target.texture;
   }
 
-  /** The city's land with its beach (the glow's), and its centre; until setShore the whole world is the city's. */
-  private cityLand = mkRect(-Infinity, -Infinity, Infinity, Infinity);
+  /** The city's land for its glow (cityLand), and its centre; until setShore the whole world is the city's. */
+  private glowLand = [mkRect(-Infinity, -Infinity, Infinity, Infinity)];
   private readonly cityCentre = new THREE.Vector2();
 
   /**
@@ -1182,7 +1192,7 @@ export class Environment {
     const b = layout.bounds;
     setShore(this.sea, b);
     setCountyShore(this.sea, countyShore(layout.country));
-    this.cityLand = mkRect(b.landMinX, b.landMinZ, b.beachEndX, b.landMaxZ);
+    this.glowLand = cityLand(layout);
     this.cityCentre.set((b.cityMinX + b.cityMaxX) / 2, (b.cityMinZ + b.cityMaxZ) / 2);
   }
 
@@ -1262,7 +1272,7 @@ export class Environment {
     (u.uGlow!.value as THREE.Color).copy(glow);
     // Overcast, the deck catches it from below instead (see clouds()); rain and storms keep it.
     (u.uCityGlow!.value as THREE.Color).copy(CITY_GLOW).multiplyScalar(cityGlow(hours) * (1 - 0.5 * cloud));
-    const away = cityAway(this.cityLand, camera.position.x, camera.position.z);
+    const away = cityAway(this.glowLand, camera.position.x, camera.position.z);
     u.uCityAway!.value = away;
     (u.uCityGlowDir!.value as THREE.Vector2).set(this.cityCentre.x - camera.position.x, this.cityCentre.y - camera.position.z).normalize();
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);

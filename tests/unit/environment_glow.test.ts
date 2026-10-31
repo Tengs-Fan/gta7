@@ -1,12 +1,13 @@
-// The city's glow over its own horizon (render/environment.ts): on the city's land (its beach included) the night sky,
-// its stars and the fog are exactly what they were; off it the glow gathers over the city, the stars brighten and the
-// fog loses most of its warm glow, all the way by 600 m out. Environment.setShore also feeds the sea Las Lomas County's
-// depth map, freed with the environment.
+// The city's glow over its own horizon (render/environment.ts): on the city's land (its beach and its headlands
+// included) the night sky, its stars and the fog are exactly what they were; off it the glow gathers over the city, the
+// stars brighten and the fog loses most of its warm glow, all the way by 600 m out. Environment.setShore also feeds the
+// sea Las Lomas County's depth map, freed with the environment.
 // The stub header is copied from env_smooth.test.ts (vi.mock cannot be shared between files).
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { cityAway, CITY_AWAY_RANGE, Environment } from '../../src/render/environment';
+import { cityAway, CITY_AWAY_RANGE, cityLand, Environment } from '../../src/render/environment';
+import { CAUSEWAY_NAME } from '../../src/world/country';
 import { mkRect } from '../../src/world/layout';
 import { world } from './helpers';
 
@@ -112,23 +113,31 @@ const land = () => {
 };
 
 describe('uCityAway', () => {
-  it('is 0 on the city\'s land, its beach included, and rises smoothly to 1 by 600 m off it', () => {
+  it('is 0 on the city\'s land, its beach and its headlands included, and rises smoothly to 1 by 600 m off it', () => {
     const r = land();
-    for (let x = r.minX; x <= r.maxX; x += 13.7) for (let z = r.minZ; z <= r.maxZ; z += 13.7) expect(cityAway(r, x, z)).toBe(0);
-    for (const [x, z] of [[r.minX, r.minZ], [r.maxX, r.maxZ], [r.minX, 0], [0, r.maxZ]] as const) expect(cityAway(r, x, z)).toBe(0);
+    const city = cityLand(world().layout);
+    expect(city[0]).toEqual(r);
+    for (let x = r.minX; x <= r.maxX; x += 13.7) for (let z = r.minZ; z <= r.maxZ; z += 13.7) expect(cityAway(city, x, z)).toBe(0);
+    for (const [x, z] of [[r.minX, r.minZ], [r.maxX, r.maxZ], [r.minX, 0], [0, r.maxZ]] as const) expect(cityAway(city, x, z)).toBe(0);
+    // Azura Point and Smuggler's Key are the city's; the causeway leads off it to Las Lomas County.
+    const heads = world().layout.headlands;
+    expect(heads.map((h) => h.name).sort()).toEqual(['Azura Point', CAUSEWAY_NAME, "Smuggler's Key"].sort());
+    for (const h of heads.filter((q) => q.name !== CAUSEWAY_NAME)) for (const q of h.rects) for (const [x, z] of [[q.minX, q.minZ], [q.maxX, q.maxZ], [(q.minX + q.maxX) / 2, (q.minZ + q.maxZ) / 2]] as const) expect(cityAway(city, x, z), h.name).toBe(0);
+    const causeway = heads.find((h) => h.name === CAUSEWAY_NAME)!.rects[0]!;
+    expect(cityAway(city, causeway.minX, (causeway.minZ + causeway.maxZ) / 2)).toBe(cityAway([r], causeway.minX, (causeway.minZ + causeway.maxZ) / 2));
     expect(CITY_AWAY_RANGE).toBe(600);
     // Out west across Lomas Sound into Las Lomas County, and out to sea north-east.
     let prev = 0;
     for (let d = 0; d <= 700; d += 10) {
-      const a = cityAway(r, r.minX - d, 0);
+      const a = cityAway(city, r.minX - d, 0);
       expect(a).toBeGreaterThanOrEqual(prev);
-      expect(cityAway(r, r.maxX + d * 0.6, r.minZ - d * 0.8)).toBeCloseTo(a, 12);
+      expect(cityAway(city, r.maxX + d * 0.6, r.minZ - d * 0.8)).toBeCloseTo(a, 12);
       prev = a;
     }
-    expect(cityAway(r, r.minX - 1, 0)).toBeLessThan(1e-5);
-    expect(cityAway(r, r.minX - 300, 0)).toBeCloseTo(0.5, 12);
-    expect(cityAway(r, r.minX - 600, 0)).toBe(1);
-    expect(cityAway(r, -1200, 0)).toBe(1);
+    expect(cityAway(city, r.minX - 1, 0)).toBeLessThan(1e-5);
+    expect(cityAway(city, r.minX - 300, 0)).toBeCloseTo(0.5, 12);
+    expect(cityAway(city, r.minX - 600, 0)).toBe(1);
+    expect(cityAway(city, -1200, 0)).toBe(1);
   });
 
   it('on the city\'s land every frame of the sky and the fog is what it was: the glow all round, the stars and the fog as main had them', () => {
@@ -136,7 +145,8 @@ describe('uCityAway', () => {
     const bare = rig(false);
     const r = land();
     for (const hours of [0.5, 3, 12, 19.6, 21, 23.5]) {
-      for (const [x, z] of [[0, 0], [r.minX, -300], [r.minX + 2, 250], [r.maxX, 30], [-200, r.minZ], [400, r.maxZ], [530, 0]] as const) {
+      // The land, and the city's headlands: Azura Point's lookout at its tip and Smuggler's Key.
+      for (const [x, z] of [[0, 0], [r.minX, -300], [r.minX + 2, 250], [r.maxX, 30], [-200, r.minZ], [400, r.maxZ], [530, 0], [87.5, -632], [250, -678], [284, -612]] as const) {
         shored.at(hours, x, z);
         bare.at(hours, x, z);
         expect(shored.u.uCityAway!.value).toBe(0);
