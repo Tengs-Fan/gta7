@@ -9,6 +9,7 @@
 | `catalog.mjs` | What is built from the sources, one entry per line: vehicles, boats, props, PBR texture sets, the sky. Add rows here for new assets. |
 | `build.mjs` | Runs the catalog through `pipeline.mjs` (models) and `textures.mjs` (PBR sets), writes the manifest and the license table, and removes outputs the catalog no longer produces. |
 | `speech/` | The speech build (`npm run speech`), apart from the rest: it renders `src/assets/speech/`, which `build.mjs` leaves alone. See [speech/README.md](speech/README.md). |
+| `font.py` | Cuts the HUD's Chinese font, `src/ui/fonts/noto-sans-tc-subset.woff2`, from Noto Sans CJK TC Bold (SIL OFL 1.1) to the characters beyond ASCII in `src/audio/radio.ts` and `src/audio/stations/playlists.ts`. Run it with the speech virtual environment after `uv pip install fonttools brotli`, giving the path of `NotoSansCJK-Bold.ttc` or `NotoSansCJKtc-Bold.otf` ([noto-cjk](https://github.com/notofonts/noto-cjk)) if it is not in `/usr/share/fonts/noto-cjk/`; `tests/unit/hud_font.test.ts` fails until the font has every character the radio shows. |
 
 ## Conventions of the output
 

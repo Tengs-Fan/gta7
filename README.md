@@ -3,8 +3,8 @@
 An original, GTA-style open-world crime sandbox that runs entirely in the browser.
 Steal cars, cause chaos, outrun the cops, and work your way up from a broke ex-con to the top of **San Azura**, a sun-bleached fictional coastal city.
 
-The city, the buildings, every sound effect and the music of nine radio stations are generated at runtime.
-The models and textures are free CC0 assets, and every voice (the contacts, the police, people in the street and whole talk stations) is recorded English speech rendered offline with an open text-to-speech model (see [Assets](#assets)).
+The city, the buildings, every sound effect and the music of ten radio stations are generated at runtime.
+The models and textures are free CC0 assets, and every voice (the contacts, the police, people in the street and whole talk stations) is recorded speech rendered offline with an open text-to-speech model, in English and, on one station, in Mandarin (see [Assets](#assets)).
 
 > Fan-made parody.
 > Not affiliated with or endorsed by Rockstar Games or Take-Two Interactive.
@@ -144,7 +144,8 @@ To play with friends on your network, run the optional multiplayer server (see [
 - **Properties.** Buy the garage across the street from the safehouse ($15,000; stores 4 cars with their paint and upgrades) and the Pier Arcade ($25,000; $500 a game day, up to 7 days, collected at the safehouse). Azura Customs (east Midtown, purple C) sells engine, brakes and tyre upgrades and paint; upgrades stay with the car, and through saves only for cars stored in the garage.
 - **Side content.** Taxi fares in an Azura Cab: steal one and people at the curb wave you down, even with the star the theft gets you (pull up beside them; they get in and tell you where to), or stop and press T for a fare across town.
   Vigilante jobs in a police vehicle (press T), paramedic jobs in an ambulance (San Azura General) and firefighter jobs in the fire truck (SAFD Station 1 by SAPD Central; hold fire to use the water cannon), both with levels, Azura Express courier runs from First Azura Bank in any car or on a bike (press T there), Lou's export list at her garage (ship 8 listed cars at the docks crane), a $5 ride on AzuraLink (E at the foot of a station's stairs waits for the train, whose sign counts down to it; the camera rides beside the train, and F skips to the far station), three gang rampages, twenty hidden packages ($25,000 for finding them all), forty pumpkins to smash at Hollister Farm ($2,000 for the set), twelve epitaphs to read at Eternal Palms Cemetery (E at a glinting headstone), unique stunt jumps, health, armor and weapon pickups, and two Bang Bang Guns stores (from the Pistol at $250 to the Rocket Launcher at $8,000, Body Armor $300, First Aid $80).
-- **Radio and sound.** In a vehicle, nine stations play endless music generated live, up the dial: NEON DRIVE 88.7 (synthwave), VELVET 89.9 (lounge and bossa nova), DOCKSIDE DUB 92.3 (dub), PULSE 96.1 (house), COYOTE 97.7 (outlaw country), WIPEOUT 99.5 (surf rock), BOOM BAP 101.3 (hip-hop), BREAKNECK 102.7 (drum and bass) and PIXEL 103.9 (chiptune), each with its own DJ: Lazer Lacey, Simone Satin, Captain Reverb, Kiki and Tom-Tom, Earl Tumbleweed, Tad Tubular, Vinyl Vic, MC Velocity and Player Two.
+- **Radio and sound.** In a vehicle, ten stations play endless music generated live, up the dial: NEON DRIVE 88.7 (synthwave), VELVET 89.9 (lounge and bossa nova), DOCKSIDE DUB 92.3 (dub), 月光電台 95.3 (city pop, with a late-night Mandarin DJ), PULSE 96.1 (house), COYOTE 97.7 (outlaw country), WIPEOUT 99.5 (surf rock), BOOM BAP 101.3 (hip-hop), BREAKNECK 102.7 (drum and bass) and PIXEL 103.9 (chiptune), each with its own DJ: Lazer Lacey, Simone Satin, Captain Reverb, 小月 and her producer 阿凱, Kiki and Tom-Tom, Earl Tumbleweed, Tad Tubular, Vinyl Vic, MC Velocity and Player Two.
+  月光電台 is Moonlight Radio: the HUD shows its name, tag and songs in Traditional Chinese, in a subset of Noto Sans CJK TC that ships with the game, and 小月 keeps the night owls of San Azura company in Mandarin.
   Each station rotates six named hits by its own fictional artists between endless deep cuts, and the HUD names the song on air under the station.
   Over some intros the DJ talks, with the music ducked under the voice: a station ident, banter, a hit announced so the last word lands on the downbeat, the last hit back-announced, or a line for the night, the rain, a chase or the moment you lose the cops.
   Up the dial from there, the talk stations: AZURA TALK 104.5 runs Chet Bramble's talk show (his rants, callers, Dolores Vance's newsdesk and Skip's traffic from the Skycopter), and SAPR 107.3 is calm public radio, with Reginald Ashcombe-Pryce reviewing the city as fine art, Pru's Garden Line, a pledge drive that never ends and Harbor Lights, a noir serial aired a chapter at a time over the rain, which finally solves the case of the rubber ducks.
@@ -369,7 +370,7 @@ All of these are minor; the most noticeable come first.
 
 ## Architecture
 
-It is strict TypeScript on three.js 0.186, built with Vite 8 and tested with Vitest 5 and Playwright 1.64; three.js and two Fontsource fonts are the only runtime dependencies of the game in the browser, and `ws` (with `tsx` and `@types/ws` for development) is used by the optional multiplayer server only.
+It is strict TypeScript on three.js 0.186, built with Vite 8 and tested with Vitest 5 and Playwright 1.64; three.js and two Fontsource fonts are the only runtime dependencies of the game in the browser (the radio's Chinese font is a file of the game's own, `src/ui/fonts/`), and `ws` (with `tsx` and `@types/ws` for development) is used by the optional multiplayer server only.
 The game is split into a **headless simulation** and a **presentation layer**:
 
 ```
@@ -444,7 +445,7 @@ npm run assets         # rebuilds src/assets/**, manifest.json and LICENSES-ASSE
 
 The raw downloads (zips, FBX, JPG sets) are never committed. To add an asset, add its source to `sources.json`, run `assets:fetch -- --record` once to fill in size and hash, add a line to `catalog.mjs` and run `npm run assets`.
 Speech is built apart: `src/assets/speech/` holds one 32 kbps mono MP3 per clip and `speech.json`, its index (which clip says each line of dialogue and each dispatch phrase, each talk show's pieces and ad campaigns and the shouts, and every clip's length, which the sim uses to keep a line up for as long as it is spoken).
-`npm run speech` renders them with [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (Apache-2.0): the mission dialogue is read from the mission scripts, the dispatcher's phrases from its tables and the city's zone names, and the rest from `scripts/assets/speech/script.ts` and `shows/`; see [scripts/assets/speech/README.md](scripts/assets/speech/README.md).
+`npm run speech` renders them with [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (Apache-2.0; 月光電台's Mandarin with [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh)): the mission dialogue is read from the mission scripts, the dispatcher's phrases from its tables and the city's zone names, and the rest from `scripts/assets/speech/script.ts` and `shows/`; see [scripts/assets/speech/README.md](scripts/assets/speech/README.md).
 Rerun it after changing a line of dialogue, a vehicle, a zone name or a dispatch line: `tests/unit/speech.test.ts` fails until every line the game can say has its clip.
 The dialogue, dispatch and shout clips are fetched in the background when sound starts; a talk station piece when the programme comes to it, and it is let go once it is off the air.
 At boot `main.ts` waits for the fonts, then calls `assets.preload(onProgress)` (`src/render/assets/`), which fetches the manifest and every file by its content-hashed relative URL (so the game also runs from a sub-path such as GitHub Pages `/gta7/`), decodes them, and moves the bar of the loading screen with the bytes received. Preload waits at most 12 s (`PRELOAD_TIMEOUT_MS`) and never rejects: an asset that fails or stalls simply stays out of the library, logs one `console.warn`, and its view builds today's procedural model. Views ask the library synchronously (`assets.model(id)`, `assets.clone(id)`, `assets.texture(id)`), so Node tests and `?assets=0` run entirely on the procedural models, and a test can load the real files with `loadAssetsFromDisk()` from `src/render/assets/testing.ts`. After preload the renderer's warm-up compiles the asset materials once, and again after a lost WebGL context is restored. `window.__gta7.ext.assets` lists what loaded.
@@ -610,9 +611,9 @@ Models, textures and the sky come from CC0 sources, listed one by one in [LICENS
 
 No asset needs attribution; CC-BY assets, if one is ever added, are credited here by the text in their `LICENSES-ASSETS.md` row.
 
-Every voice is rendered with [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad (model and voices Apache-2.0); the lines are original.
+Every voice is rendered with [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad, the Mandarin with [Kokoro-82M v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh) (models and voices Apache-2.0); the lines are original.
 
 ## License
 
 Code: MIT, see [LICENSE](LICENSE).
-Fonts: Anton and Rajdhani, SIL Open Font License (bundled via Fontsource).
+Fonts: Anton and Rajdhani, SIL Open Font License (bundled via Fontsource); a subset of Noto Sans CJK TC Bold by Adobe for Google, SIL Open Font License, cut by `scripts/assets/font.py` (`src/ui/fonts/`).
