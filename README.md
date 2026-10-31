@@ -97,6 +97,9 @@ To play with friends on your network, run the optional multiplayer server (see [
 - **Las Lomas County.** West across Lomas Sound lies a county of flat farmland with sandy beaches and two coves (WELCOME TO LAS LOMAS COUNTY. POPULATION: MOSTLY COWS.), reached over the Magnolia Causeway, a rock-armoured highway with lamps every 30 m off Magnolia Ave at Harbor Blvd, and the Southgate Bridge under its steel arch off Southgate Ave.
   The Lomas Highway loops round it through Dry Creek's crossroads, with curves the traffic, the police, the cab and the GPS all follow; Hollister Lane circles the farm and Creek Road runs south to the Creek T.
   The HUD, the map and the police scanner name its places: Dry Creek, Hollister Bottoms, the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge, so far fields waiting for their farms and places (see [docs/map.md](docs/map.md)).
+  Its traffic is thinner than the city's and runs to farm pickups and the Haymaker, a slow tractor with an amber beacon and a SLOW MOVING VEHICLE triangle, which you can steal and which the traffic queues behind, honking; oncoming cars come at you down the open highway.
+  Hollister Lane and Creek Road meet the highway at stop signs: their drivers stop, wait for a gap and pull out, and police in pursuit run them.
+  The police out there are the Las Lomas County Sheriff's, in tan cruisers with a gold star on the doors, and his own dispatcher calls the chase (Deputies, we got a carjacking out by Hollister Bottoms.).
 - **The look.** Stylised low-poly models with PBR materials, all CC0 (see [Assets](#assets) and [Credits](#credits)).
   People are chunky toy figures built in code from rounded segments on the game's own jointed skeleton: a face, hair, caps and sunglasses, shirts with collars and jackets, police badges, and their own height, build and colours; feet are planted by the gait, and every body part is one instanced draw for the whole crowd.
   Cars: seven kinds (compact, sedan, taxi, sports, muscle, pickup and police) are low-poly Quaternius models fitted to the cars' real sizes and axles, with number plates, lined cabins and riders seated inside; the van, bus, SWAT van, ambulance and fire engine are rebuilt procedural bodies. Every car has tinted glass that mirrors the sky and street, clearcoat paint, moulded lamp lenses that glow softly after dark, tyres with sidewalls, and a soft shade under it; dents, broken lamps and wrecks show on the new bodies.
@@ -310,7 +313,9 @@ All of these are minor; the most noticeable come first.
 - Now and then a new city bus appears slightly overlapping the bus ahead of it in the same lane, usually out of sight, and both end up dented.
 - Boats cannot pass under the canal's bridges (they are decks, like the pier), so the canal is for looking at from a boat, not for sailing through.
 - On Hillcrest Green's hill a car rolls with the slope only as drawn: the sim keeps the body level across it, so a car never tips over sideways there.
-- Seen from the city, the Magnolia Causeway and the Southgate Bridge only carry traffic heading out to the county: traffic appears on the county's roads only once you are off the city's land, which keeps the city's own traffic and its recorded test runs exactly as they were; the county's traffic update, still to come, may lift this.
+- Seen from the city, the Magnolia Causeway and the Southgate Bridge carry two cars at a time coming in, spawned by a generator of their own so the city's traffic and its recorded test runs stay as they were; the county's own traffic appears only once you are off the city's land.
+- Out in Las Lomas County's open fields oncoming traffic can appear as a speck far down the highway (beyond 320 m, where the fog has only begun) rather than round a bend, since nothing there hides a car yet.
+- A stop sign on a busy highway can keep a car turning left from the country road waiting over half a minute: it needs a gap in both streams at once (the longest wait seen in ten-minute runs was 39 s).
 
 **Multiplayer (limits of this version)**
 
