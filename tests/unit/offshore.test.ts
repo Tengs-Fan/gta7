@@ -12,6 +12,7 @@ import { Sim } from '../../src/sim/sim';
 import { CURB_H, PROMENADE_W, WATER_Y } from '../../src/world/constants';
 import { headlandAt, rectContains } from '../../src/world/layout';
 import { KEY_NAME, TURBINE_BASE } from '../../src/world/offshore';
+import { hillSignLetters, terrainCores } from '../../src/world/terrain';
 import { StaticWorld } from '../../src/world/staticWorld';
 import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
@@ -62,18 +63,30 @@ describe('Turbine Row', () => {
     expect(new Set(turbines.map((t) => t.z)).size).toBe(2);
   });
 
-  it('reaches the world out to z -1060 by whole grid cells and keeps every older collider as main had it', () => {
+  it('reaches the world out to z -1060 by whole grid cells and keeps every older collider as the city builds it without them', () => {
     const b = L.bounds;
     expect(b.worldMinZ).toBe(b.cityMinZ - PROMENADE_W - 544);
     expect(b.worldMinZ).toBe(-1060);
     expect((b.cityMinZ - PROMENADE_W - 160 - b.worldMinZ) % W.grid.cell).toBe(0);
-    // Every collider older than the offshore ones (the first turbine's on) is the one main built: the m3_buildings
-    // colliders hash as captured at 4323153, before Turbine Row.
+    // Every collider older than the offshore ones (the first turbine's on) is the one the city builds without them:
+    // captured at 4323153 as the m3_buildings colliders hash, before Turbine Row, and again on the merged round-2 head
+    // as the colliders it builds with buildOffshore left out (the hill's, the attractions' and AzuraLink's among them).
     const first = W.propColliders[L.props.indexOf(turbines[0]!)]!;
-    expect(sha(W.grid.colliders.slice(0, first).map((c) => ({ ...c })))).toBe('43c5b26d1cd25e59712608ef1c4a8e68d56ca36e38a5b047fda722737b9fe752');
-    // After them: a pillar per turbine, the Key's palms and jetty lamp, then the battery's walls.
+    expect(sha(W.grid.colliders.slice(0, first).map((c) => ({ ...c })))).toBe('0283d54059559c7612b8b07211477bdd9d0d9cd7982336fa74a2f8c4069a5d83');
+    // After them: a pillar per turbine and the Key's palms and jetty lamp, the last props; then the solids the earlier
+    // passes append past every prop (the rises' cores, the letters and the lookout's parapet, the attractions'), the
+    // battery's walls, and AzuraLink's pylons and stations.
     const rest = W.grid.colliders.slice(first);
-    expect(rest.map((c) => c.tag)).toEqual([...turbines.map(() => 'pillar'), 'palm', 'palm', 'palm', 'lamp', ...L.offshore.solids.map(() => 'wall')]);
+    expect(rest.map((c) => c.tag)).toEqual([
+      ...turbines.map(() => 'pillar'), 'palm', 'palm', 'palm', 'lamp',
+      ...terrainCores(L.rises).map(() => 'terrain'),
+      ...hillSignLetters(L.rises).flatMap((l) => l.solids).map(() => 'wall'),
+      'wall',
+      ...L.attractions.flatMap((a) => a.solids.map((s) => s.tag)),
+      ...L.offshore.solids.map(() => 'wall'),
+      ...L.monorail.pylons.map(() => 'rock'),
+      ...L.monorail.stations.flatMap((s) => ['building', ...s.platform.map(() => 'building')]),
+    ]);
     for (const [i, t] of turbines.entries()) {
       const c = rest[i]!;
       expect([c.circle, c.cx, c.cz, c.r]).toEqual([true, t.x, t.z, TURBINE_BASE]);
@@ -194,12 +207,13 @@ describe("Smuggler's Key", () => {
 
   it('keeps a rifle and armor in the ruins, and every older pickup where it was', () => {
     // The pickups' kinds, tags and positions as captured at 4323153, before the Key, without and with the street-crime
-    // pickups.
-    const MAIN = { false: '6d650af332dd682ef5e3040f2662b5a0abe56b66768325b0e466f690b3c159a0', true: '6f9d58ab2b9a1d493cb0f6d128178cce2121e139224845700acc0f0a7ceec7b2' };
+    // pickups, and again on the merged round-2 head, where the rises lift two of them (a package on Azura Point's
+    // plateau, the molotov on Hillcrest Green's slope) and every kind, tag, x and z is main's.
+    const OLDER = { false: '950bedbf0bbd77f09172e1b4e611053571d566f5f78a7dcf7364182a279897ad', true: 'd7ad99631e2572668c116b249f5ef070dde9a21b381c64a0a5492b29bcb5fecb' };
     for (const streetCrime of [false, true]) {
       const sim = new Sim({ world: new StaticWorld(), ambient: false, police: false, streetCrime });
       const older = sim.pickups.filter((p) => !p.tag.startsWith('key:'));
-      expect(sha(older.map((p) => [p.kind, p.tag, p.pos.x, p.pos.y, p.pos.z]))).toBe(MAIN[`${streetCrime}`]);
+      expect(sha(older.map((p) => [p.kind, p.tag, p.pos.x, p.pos.y, p.pos.z]))).toBe(OLDER[`${streetCrime}`]);
       const stash = sim.pickups.filter((p) => p.tag.startsWith('key:'));
       expect(stash.map((p) => [p.tag, p.kind, p.weapon])).toEqual([['key:rifle', 'weapon', 'rifle'], ['key:armor', 'armor', null]]);
       expect(sim.pickups.slice(-2)).toEqual(stash);
