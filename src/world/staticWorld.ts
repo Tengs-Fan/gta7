@@ -5,7 +5,7 @@ import { circleVsAabb, makeContact } from '../core/collision';
 import { attractionOf } from './attractions';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
-import { COUNTY_NAME, countryGround, plotAt } from './country';
+import { BRIDGE_ARCH, COUNTY_NAME, countryGround, plotAt } from './country';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { PLATFORM_SLAB, TOWER_H } from './monorail';
 import { TURBINE_BASE } from './offshore';
@@ -107,9 +107,10 @@ export class StaticWorld {
       g.addBox(s.tower.minX, s.tower.minZ, s.tower.maxX, s.tower.maxZ, 0, TOWER_H, 'building');
       for (const r of s.platform) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, m.beamY - PLATFORM_SLAB, m.beamY, 'building');
     }
-    // Las Lomas County's (world/country), after every older collider so each keeps its id: the bridge's parapets and the
-    // county's props.
+    // Las Lomas County's (world/country), after every older collider so each keeps its id: the bridge's parapets and its
+    // arch's portal posts, and the county's props.
     for (const r of parapets.slice(country.firstParapet)) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
+    for (const x of [BRIDGE_ARCH.x0, BRIDGE_ARCH.x1]) for (const z of BRIDGE_ARCH.ribs) g.addCircle(x, z, BRIDGE_ARCH.post, WATER_Y - 1.5, BRIDGE_ARCH.postTop, 'pillar');
     for (let i = country.firstProp; i < props.length; i++) this.propColliders[i] = this.addPropCollider(props[i]!, i);
   }
 

@@ -76,7 +76,8 @@ describe('Turbine Row', () => {
     expect(sha(W.grid.colliders.slice(0, first).map((c) => ({ ...c })))).toBe('ca0025d7549e165d0e149354928d618ba0357db72c9b486e0a9918ef5c8d4a19');
     // After them: a pillar per turbine and the Key's palms and jetty lamp, the last props; then the solids the earlier
     // passes append past every prop (the rises' cores, the letters and the lookout's parapet, the attractions'), the
-    // battery's walls, AzuraLink's pylons and stations, and last Las Lomas County's (the bridge's parapets, its props).
+    // battery's walls, AzuraLink's pylons and stations, and last Las Lomas County's (the bridge's parapets and its arch's
+    // portal posts, its props).
     const rest = W.grid.colliders.slice(first);
     const county = L.props.slice(L.country.firstProp).map((p) => (p.kind === 'signal' ? 'signal' : 'lamp'));
     expect(rest.map((c) => c.tag)).toEqual([
@@ -88,7 +89,7 @@ describe('Turbine Row', () => {
       ...L.offshore.solids.map(() => 'wall'),
       ...L.monorail.pylons.map(() => 'rock'),
       ...L.monorail.stations.flatMap((s) => ['building', ...s.platform.map(() => 'building')]),
-      'wall', 'wall', ...county,
+      'wall', 'wall', 'pillar', 'pillar', 'pillar', 'pillar', ...county,
     ]);
     for (const [i, t] of turbines.entries()) {
       const c = rest[i]!;

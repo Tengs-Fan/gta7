@@ -1235,7 +1235,7 @@ export class Hud {
     ctx.translate(-(p.x - this.map.minX) * MAP_SCALE, -(p.z - this.map.minZ) * MAP_SCALE);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.map.canvas, 0, 0);
-    ctx.drawImage(this.map.turf, 0, 0);
+    ctx.drawImage(this.map.turf, this.map.turfX, this.map.turfZ);
     drawPoliceOverlay(ctx, sim, this.map, time, zoom / MAP_SCALE, this.localPlayerId);
     drawRegattaCourse(ctx, sim, this.map, zoom / MAP_SCALE);
     // GPS route to the waypoint or first objective.

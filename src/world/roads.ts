@@ -113,7 +113,7 @@ export class RoadNetwork {
   private readonly junctions: Readonly<Record<CountyJunction, number>>;
   /** The grid junctions the county's roads leave from, and the links' mouths through the promenade beside them. */
   private readonly gateways: readonly RoadNode[];
-  private readonly mouths: readonly Rect[];
+  readonly mouths: readonly Rect[];
   /** The county's road surface: each stretch as its centre line and half width, each junction's box as a disc. */
   private readonly outerSurface: { segs: Float64Array; discs: Float64Array; bounds: Rect };
 

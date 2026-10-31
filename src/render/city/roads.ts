@@ -252,9 +252,9 @@ export function buildRoads(view: CityView): void {
       quadLine(white, p.x, p.z, q.x, q.z, 0.1, yM);
     }
   });
-  // Stop lines and zebra crossings.
+  // Stop lines and zebra crossings (Las Lomas County's junctions draw their own, render/country/roads.ts).
   const marks: TyreMark[] = [];
-  roads.nodes.forEach((n, ni) => {
+  roads.gridNodes.forEach((n, ni) => {
     for (let d = 0; d < 4; d++) {
       if (n.neighbors[d]! < 0) continue;
       const vertical = d === 0 || d === 2;

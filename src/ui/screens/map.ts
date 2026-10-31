@@ -6,6 +6,7 @@ import { padGlyph, type InputDevice } from '../glyphs';
 import { escapeHtml } from '../hud';
 import { COMPLETION_GROUP_NAMES, COMPLETION_GROUPS, completionPercent, completionRows } from '../../sim/completion';
 import { collectBlips, drawBlip, drawPoliceOverlay, drawRegattaCourse, MAP_CATEGORIES, MAP_SCALE, type Blip, type MapCategory } from '../mapRender';
+import { COUNTY_NAME } from '../../world/country';
 import { h, localPlayer, type MenuCtx } from './shared';
 
 /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
@@ -150,7 +151,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     ctx.scale(k / MAP_SCALE, k / MAP_SCALE);
     ctx.translate(-(cx - menus.map.minX) * MAP_SCALE, -(cz - menus.map.minZ) * MAP_SCALE);
     ctx.drawImage(menus.map.canvas, 0, 0);
-    if (layerOn('turf')) ctx.drawImage(menus.map.turf, 0, 0);
+    if (layerOn('turf')) ctx.drawImage(menus.map.turf, menus.map.turfX, menus.map.turfZ);
     drawPoliceOverlay(ctx, sim, menus.map, time, k / MAP_SCALE, localId);
     drawRegattaCourse(ctx, sim, menus.map, k / MAP_SCALE);
     ctx.restore();
@@ -181,6 +182,19 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
       ctx.strokeText(blk.zone.toUpperCase(), sx, sy);
       ctx.fillText(blk.zone.toUpperCase(), sx, sy);
     }
+    // Las Lomas County: its name across it, and zoomed in, its plots' (the wild ones but Coyote Ridge go unnamed).
+    const label = (text: string, x: number, z: number) => {
+      const sx = vw / 2 + (x - cx) * k;
+      const sy = vh / 2 + (z - cz) * k;
+      ctx.strokeText(text, sx, sy);
+      ctx.fillText(text, sx, sy);
+    };
+    const country = sim.world.layout.country;
+    if (zoom >= 1) for (const p of country.plots) label(p.name.toUpperCase(), (p.rect.minX + p.rect.maxX) / 2, (p.rect.minZ + p.rect.maxZ) / 2);
+    ctx.save();
+    ctx.font = '700 22px Rajdhani, sans-serif';
+    label(COUNTY_NAME.toUpperCase(), -1130, 0);
+    ctx.restore();
     // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top.
     const wp = menus.host.waypoint();
     const blips: Blip[] = wp ? [{ x: wp.x, z: wp.z, color: '#c04fff', label: 'W', sticky: true, shape: 'circle' }] : [];

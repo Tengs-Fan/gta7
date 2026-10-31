@@ -59,6 +59,14 @@ export const LIGHTING_TIERS: Readonly<Record<LightingFeature, Readonly<Record<Li
   contactShadows: { high: 'GTAO + wall-foot occlusion + foot contact shadows', medium: 'wall-foot occlusion + foot contact shadows', low: 'wall-foot occlusion + foot contact shadows', software: 'foot contact shadows' },
 };
 
+/**
+ * Las Lomas County (render/country) is drawn in cells of this many metres, on every tier alike: each is hidden once the
+ * camera is COUNTRY_FOG_MARGIN m past the fog's far end from it (the fog's own distance already shrinks by night, in
+ * haze and on the software tier).
+ */
+export const COUNTRY_CELL = 256;
+export const COUNTRY_FOG_MARGIN = 60;
+
 /** Dynamic point lights shared by the siren, muzzle flash and explosion flash on 'few'. */
 export const FEW_POINT_LIGHTS = 2;
 

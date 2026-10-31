@@ -25,6 +25,7 @@ import { gradeAt, type Grade } from './grade';
 import { MarkerView } from './markers';
 import { MonorailView } from './monorail';
 import { OffshoreView } from './offshore';
+import { CountryView } from './country';
 import { PropsView } from './props';
 import { Rain, SOFTWARE_RAIN_DROPS } from './rain';
 import { RegattaView } from './regatta';
@@ -176,6 +177,8 @@ export class GameRenderer {
   /** Turbine Row out at sea, and Smuggler's Key's ruins, guns, wreck and signs. */
   readonly turbines: TurbineView;
   readonly offshore: OffshoreView;
+  /** Las Lomas County: its ground, roads and the Southgate Bridge's arch, in cells hidden past the fog. */
+  readonly country: CountryView;
   /** The Gull Regatta's buoys while one runs. */
   readonly regatta = new RegattaView();
   /** AzuraLink: the beam, the stations and the train. */
@@ -296,7 +299,9 @@ export class GameRenderer {
     this.offshore = new OffshoreView(world);
     this.regatta.bindSea(this.env.sea);
     this.monorail = new MonorailView(world);
-    this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group, this.regatta.mesh, this.monorail.group);
+    this.country = new CountryView(world, this.city);
+    this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group, this.regatta.mesh, this.monorail.group, this.country.group);
+    this.softwareMaterials?.apply(this.country.group);
     this.softwareMaterials?.apply(this.monorail.group);
     this.softwareMaterials?.apply(this.sites.group);
     this.softwareMaterials?.apply(this.turbines.group);
@@ -1168,6 +1173,7 @@ export class GameRenderer {
     }
     this.effects.update(dt, this.time, this.cameraCtl.camera.position);
     this.syncLightPool();
+    this.country.cull(cam.position.x, cam.position.z, this.env.fog.far);
     if (this.software) {
       // Culling ends at the fog horizon, where geometry has already faded into the sky.
       this.city.cull(cam, 230);
@@ -1267,6 +1273,7 @@ export class GameRenderer {
     this.throwView.dispose();
     this.turbines.dispose();
     this.offshore.dispose();
+    this.country.dispose();
     this.regatta.dispose();
     this.rain.dispose();
     this.city.wet.dispose();

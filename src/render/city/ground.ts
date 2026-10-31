@@ -124,13 +124,15 @@ export function buildGround(view: CityView): void {
     mkRect(b.cityMinX - sw, b.cityMinZ, b.cityMinX, b.cityMaxZ),
     mkRect(b.cityMaxX, b.cityMinZ, b.cityMaxX + sw, b.cityMaxZ),
   ];
-  for (const r of rectsMinus(ring, water)) strip(r.minX, r.minZ, r.maxX, r.maxZ, city);
+  // Las Lomas County's links run through the west promenade at road level (render/country/roads.ts draws their mouths).
+  const mouths = view.world.roads.mouths;
+  for (const r of rectsMinus(ring, [...water, ...mouths])) strip(r.minX, r.minZ, r.maxX, r.maxZ, city);
   const promenade = [
     mkRect(b.landMinX, b.landMinZ, b.cityMinX - sw, b.landMaxZ),
     mkRect(b.cityMinX - sw, b.landMinZ, b.beachStartX, b.cityMinZ - sw),
     mkRect(b.cityMinX - sw, b.cityMaxZ + sw, b.beachStartX, b.landMaxZ),
   ];
-  for (const r of rectsMinus(promenade, water)) prom.flat(r.minX, r.minZ, r.maxX, r.maxZ, y, { kind: 'world', scale: 6 });
+  for (const r of rectsMinus(promenade, [...water, ...mouths])) prom.flat(r.minX, r.minZ, r.maxX, r.maxZ, y, { kind: 'world', scale: 6 });
   // The quays between the coast roads and the water: what the sea's cells keep inside the ring road.
   const roads = view.world.roads;
   const paved: Rect[] = [...roads.segments, ...roads.live.map((nd) => mkRect(nd.x - nd.halfX, nd.z - nd.halfZ, nd.x + nd.halfX, nd.z + nd.halfZ)), ...layout.blocks.map((bl) => bl.rect)];
@@ -162,6 +164,11 @@ export function buildGround(view: CityView): void {
     if (nd.neighbors[2]! < 0 && open(cell(nd.i - 1, nd.j), cell(nd.i, nd.j))) curbs.wall(x1, z1, x0, z1, 0, y, curbUv);
     if (nd.neighbors[3]! < 0 && open(cell(nd.i - 1, nd.j - 1), cell(nd.i - 1, nd.j))) curbs.wall(x0, z1, x0, z0, 0, y, curbUv);
     if (nd.neighbors[1]! < 0 && open(cell(nd.i, nd.j - 1), cell(nd.i, nd.j))) curbs.wall(x1, z0, x1, z1, 0, y, curbUv);
+  }
+  // The promenade's kerbs either side of each mouth, facing into it.
+  for (const m of mouths) {
+    curbs.wall(m.minX, m.minZ, m.maxX, m.minZ, 0, y, curbUv);
+    curbs.wall(m.maxX, m.maxZ, m.minX, m.maxZ, 0, y, curbUv);
   }
   wood.flat(b.cityMaxX + sw, b.cityMinZ - sw, b.beachStartX, b.cityMaxZ + sw, y, { kind: 'world', scale: 4 });
 

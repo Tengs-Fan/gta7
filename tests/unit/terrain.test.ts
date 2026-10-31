@@ -347,7 +347,8 @@ describe('on the hill', () => {
       "HILLCREST SUMMIT, ELEV. 7 M. HIGHEST POINT IN SAN AZURA THAT ISN'T A PARKING GARAGE.",
       'AZURA POINT LOOKOUT. ON A CLEAR DAY YOU CAN SEE THE SMOG.',
     ]);
-    expect(items.filter((it) => it.kind === 'sign').map((it) => it.text)).toEqual(['DO NOT CLIMB THE LETTERS. THE LETTERS HAVE BEEN THROUGH ENOUGH.']);
+    // The letters' sign, and Las Lomas County's welcome where the Magnolia Causeway makes landfall.
+    expect(items.filter((it) => it.kind === 'sign').map((it) => it.text)).toEqual(['DO NOT CLIMB THE LETTERS. THE LETTERS HAVE BEEN THROUGH ENOUGH.', 'WELCOME TO LAS LOMAS COUNTY. POPULATION: MOSTLY COWS.']);
     for (const it of items) {
       expect(viewpointViolation(rules, it), `${it.kind} at ${it.x}, ${it.z}`).toBeNull();
       expect(it.y).toBeCloseTo(W.groundHeight(it.x, it.z), 9);

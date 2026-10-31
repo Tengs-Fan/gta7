@@ -104,6 +104,13 @@ export const CAUSEWAY = mkRect(-700, -282, -512, -254);
 /** The bridge's deck, on Southgate Ave's line: its carriageway and a metre either side to the parapets. */
 export const BRIDGE = mkRect(-700, 258, -512, 278);
 
+/**
+ * The Southgate Bridge's steel through-arch (render/country/bridge.ts draws it): a rib over either parapet springing
+ * from a portal post at either end of the span and rising `rise` m over the deck. The posts are solid, pillars of radius
+ * `post` from the seabed up to `postTop`; the ribs, hangers and bracing over the traffic are only drawn.
+ */
+export const BRIDGE_ARCH = { x0: BRIDGE.minX + 10, x1: BRIDGE.maxX - 10, ribs: [BRIDGE.minZ + 0.2, BRIDGE.maxZ - 0.2], rise: 22, post: 0.45, postTop: 8.1 } as const;
+
 /** The land: the full box but for a cove on the north coast and one on the south, and the south-west corner. */
 export const COUNTY_LAND: readonly Rect[] = [
   mkRect(-1560, -440, -700, 170),
