@@ -555,7 +555,8 @@ describe('Las Lomas County at night', () => {
       if (o instanceof THREE.Mesh) signs.push(o);
     });
     const markers = () => r.markers.group.children.filter((g) => g.getObjectByName('beam') && g.getObjectByName('icon'));
-    // At Lookout Point every site and marker is in the city, past the fog.
+    // At Lookout Point every site and marker but Dry Creek's gun shop is in the city, past the fog; the gun shop's marker,
+    // 633 m off in the county, is drawn.
     const cam = at(-1467.5, -100);
     const reach = r.env.fog.far + COUNTRY_FOG_MARGIN;
     expect(signs.length).toBeGreaterThan(20);
@@ -565,10 +566,11 @@ describe('Las Lomas County at night', () => {
       expect(m.visible).toBe(false);
     }
     expect(markers().length).toBeGreaterThan(10);
-    for (const g of markers()) {
-      expect(Math.hypot(g.position.x - cam.x, g.position.z - cam.z)).toBeGreaterThan(reach);
-      expect(g.visible).toBe(false);
-    }
+    const near = markers().filter((g) => Math.hypot(g.position.x - cam.x, g.position.z - cam.z) <= reach);
+    expect(near.length).toBe(1);
+    expect(near[0]!.position.x).toBeLessThan(W.bounds.landMinX);
+    expect(near[0]!.visible).toBe(true);
+    for (const g of markers().filter((q) => !near.includes(q))) expect(g.visible).toBe(false);
     // In the city they are all drawn, as before the county.
     at(0, 0);
     expect(signs.every((m) => m.visible)).toBe(true);
