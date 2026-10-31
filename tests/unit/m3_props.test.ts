@@ -508,9 +508,9 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // landscape appended the ridge's turbines, tree belts and scrub (their envelopes too), then its cores and Lookout Point's
   // solids.
   const D98 = {
-    props: 'f32f57481940f365d4fe56f59d1135d2ce653f58c372c6629572eb1d9f6e4c4c',
-    colliders: 'c5dd45bc2bd5ff885ac9c176acf125fdd3121d8d480572cbb531c34e69dd25be',
-    envelopes: '3ab478c06166748bb1c80bf89609af1b266b2df7e9fbe686aa147e33479683b3',
+    props: '7593c1483b72d2d9547f724478b37c77660cb2eaa7ac5d48fecb2c22f13d6ca6',
+    colliders: '446f7c8ba20b6bcb28a71a777c7df4691b5b66b4ef7349196233cddfc47dcfb2',
+    envelopes: '49a5db289f360a17852cb9a6af6b0a08e53e66fa3d0d64b11442a350cfb3b27e',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {

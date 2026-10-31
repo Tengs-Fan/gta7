@@ -107,7 +107,7 @@ describe('the landscape keeps off everything that assumes flat ground', () => {
 });
 
 describe('Coyote Ridge', () => {
-  it('climbs no steeper than 35% from the beach and 33% from the highway, and its crest is flat across', () => {
+  it('climbs no steeper than 35% from the beach, 33% from the highway, 34.3% up its north end and 14% up its south shoulder, and its crest is flat across', () => {
     let east = 0;
     let west = 0;
     for (let x = ridge.bounds.minX; x < ridge.bounds.maxX; x += 1) {
@@ -118,7 +118,18 @@ describe('Coyote Ridge', () => {
     expect(east).toBeLessThanOrEqual(0.33);
     expect(west).toBeLessThanOrEqual(0.35);
     expect(east).toBeGreaterThan(0.3);
-    for (let z = -480; z <= -80; z += 20) for (let x = ridge.cx - ridge.plateau; x <= ridge.cx + ridge.plateau; x += 2) expect(rise(x, z)).toBe(24);
+    // Along the crest's line, from the north shore up its north end and down the south shoulder the fire road climbs.
+    let north = 0;
+    let south = 0;
+    for (let z = ridge.bounds.minZ; z < ridge.bounds.maxZ; z += 1) {
+      const g = rise(ridge.cx, z + 1) - rise(ridge.cx, z);
+      if (z < ridge.cz) north = Math.max(north, g);
+      else south = Math.max(south, -g);
+    }
+    expect(north).toBeLessThanOrEqual(0.343);
+    expect(south).toBeLessThanOrEqual(0.14);
+    expect(ridge.bounds.minZ).toBe(-580);
+    for (let z = ridge.cz - ridge.rz; z <= ridge.cz + ridge.rz; z += 10) for (let x = ridge.cx - ridge.plateau; x <= ridge.cx + ridge.plateau; x += 2) expect(rise(x, z)).toBe(24);
   });
 
   it('carries the fire road up no steeper than 18%, on a shoulder no steeper than 21% under it', () => {
@@ -149,10 +160,12 @@ describe('Coyote Ridge', () => {
     for (let x = LOOKOUT.pad.minX; x <= LOOKOUT.pad.maxX; x += 1) for (let z = LOOKOUT.pad.minZ; z <= LOOKOUT.pad.maxZ; z += 1) expect(W.groundHeight(x, z)).toBe(24);
   });
 
-  it('stands six turbines on its crest 110 m apart and 40 m from Lookout Point, each solid', () => {
+  it('stands six turbines along its top 110 m apart and 40 m from Lookout Point, four on the crest and two down the south shoulder, each solid', () => {
     const turbines = L.props.filter((p) => p.kind === 'turbine' && p.x < L.bounds.landMinX);
+    // The first 3 m off the crest's north end; the last two past Lookout Point, which the crest has no room for.
+    expect(turbines.map((t) => Number(t.y.toFixed(1)))).toEqual([24, 24, 24, 24, 22.2, 9]);
+    for (const t of turbines.slice(4)) expect(t.z).toBeGreaterThan(ridge.cz + ridge.rz);
     for (const [i, t] of turbines.entries()) {
-      expect(t.y).toBeGreaterThan(10);
       expect(Math.abs(t.x - ridge.cx)).toBeLessThan(ridge.plateau);
       expect(Math.hypot(t.x - LOOKOUT.tower.x, t.z - LOOKOUT.tower.z)).toBeGreaterThanOrEqual(40);
       expect(Math.hypot(t.x - LOOKOUT.plaque.x, t.z - LOOKOUT.plaque.z)).toBeGreaterThanOrEqual(40);
@@ -168,7 +181,7 @@ describe('Coyote Ridge', () => {
 
   it('a turbine stops a car', () => {
     const sim = new Sim({ world: freshWorld(), ambient: false, police: false });
-    const t = sim.world.layout.props.find((p) => p.kind === 'turbine' && p.x < -1000 && p.z === -157)!;
+    const t = sim.world.layout.props.find((p) => p.kind === 'turbine' && p.x < -1000 && p.z === -253)!;
     const v = sim.spawnVehicle('sedan', t.x, t.z + 30, Math.PI);
     placeInCar(sim, v);
     for (let i = 0; i < Math.round(6 / DT); i++) sim.update(DT, input({ throttle: 1 }));
@@ -302,6 +315,25 @@ describe('on the ridge', () => {
     }
     expect(v.pos.x).toBeLessThanOrEqual(ridge.cx);
     expect(top).toBe(24);
+  });
+
+  it('a Nightjar at 45 or 60 m/s drives up the north end from the shore to the crest without being stopped', () => {
+    for (const speed of [45, 60]) {
+      const sim = new Sim({ world: freshWorld(), ambient: false, police: false });
+      // On the crest's east half, clear of the turbines.
+      const v = sim.spawnVehicle('sports', ridge.cx + 4, ridge.bounds.minZ + 8, 0);
+      placeInCar(sim, v);
+      v.vel.z = speed;
+      let slow = Infinity;
+      for (let i = 0; i < Math.round(3 / DT) && v.pos.z < ridge.cz - ridge.rz; i++) {
+        sim.update(DT, input({ throttle: 1 }));
+        slow = Math.min(slow, v.speed);
+      }
+      expect(v.pos.z, `at ${speed} m/s`).toBeGreaterThanOrEqual(ridge.cz - ridge.rz);
+      expect(v.pos.y).toBeCloseTo(24, 1);
+      expect(slow).toBeGreaterThan(speed * 0.9);
+      expect(v.health).toBe(v.spec.health);
+    }
   });
 
   it('a man walks up the east flank to the crest', () => {

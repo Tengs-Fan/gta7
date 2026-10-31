@@ -364,7 +364,7 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // the causeway's lamps; and the colliders again when its landscape appended the ridge's turbines and tree belts, then
     // its rises' sight cores and Lookout Point's parapet and tower.
     expect(b).toBe('cb24287bf52d2607b0cdf537ee6f3cb8b1958e1495464192f58b2cb03287bf80');
-    expect(c).toBe('38297ca5add7edc698833bd1e0458793f908c1c131e4025d8a2ab68ba91855a1');
+    expect(c).toBe('bdfb2884dcef5acd07a3b924969001269583483a2f3b42e642515b33e25ae8e6');
   });
 });
 

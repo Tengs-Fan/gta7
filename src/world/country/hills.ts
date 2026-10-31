@@ -1,4 +1,4 @@
-// Las Lomas County's landscape: Coyote Ridge along the west coast with six wind turbines on its crest, the foothills
+// Las Lomas County's landscape: Coyote Ridge along the west coast with six wind turbines along its top, the foothills
 // between the farms, the gravel fire road that climbs the ridge's south end to Lookout Point, and the lookout itself.
 // Pure data and queries, no rendering. buildHills is the first of the content passes at the end of buildCountry: it only
 // appends (the rises to country.rises, which countryGround alone reads, and props standing on that ground). Every rise is
@@ -13,12 +13,12 @@ import { COUNTY_LAND, countryGround, type Country } from './index';
 export const RIDGE_NAME = 'Coyote Ridge';
 
 /**
- * Coyote Ridge: a 24 m crest along x -1475 from z -484 to -80, 20 m wide across its flat top. Its east flank falls over
+ * Coyote Ridge: a 24 m crest along x -1475 from z -470 to -80, 20 m wide across its flat top. Its east flank falls over
  * 115 m to the foot 12 m off the Lomas Highway's west leg (32.8% at its steepest), its west flank over 108 m to the
- * beach (34.9%), running out 33 m over the sand, its north end over 96 m to the north shore (39.3%) and its south end
+ * beach (34.9%), running out 33 m over the sand, its north end over 110 m to the north shore (34.3%) and its south end
  * over 270 m (14%), the long shoulder the fire road climbs.
  */
-const RIDGE = { cx: -1475, cz: -282, plateau: 10, rx: 115, rz: 202, height: 24, runs: { west: 108, north: 96, south: 270 } } as const;
+const RIDGE = { cx: -1475, cz: -275, plateau: 10, rx: 115, rz: 195, height: 24, runs: { west: 108, north: 110, south: 270 } } as const;
 
 /**
  * The foothills, cosine bells on the wild ground between the farms: north of the highway's bend, west of Gravel Gulch,
@@ -134,9 +134,14 @@ export const LOOKOUT = {
   tower: { x: RIDGE.cx - 5.5, z: -103, half: 2, cab: 9, top: 12.6, post: 0.22 },
 } as const;
 
-/** Where the six turbines stand: on the crest's west half, 110 m apart, clear of the fire road and of Lookout Point. */
+/**
+ * Where the six turbines stand, 110 m apart along the ridge's top on the crest's west half, clear of the fire road and of
+ * Lookout Point: the first just off the crest's north end, three more along it, and the last two past Lookout Point down
+ * the south shoulder, 22 m and 9 m up. The crest holds no more: a row of six 110 m apart runs 550 m, and the 390 m crest
+ * keeps 40 m clear of the lookout.
+ */
 const TURBINE_X = RIDGE.cx - 5;
-const TURBINE_Z: readonly number[] = [-487, -377, -267, -157, -47, 63];
+const TURBINE_Z: readonly number[] = [-473, -363, -253, -143, -33, 77];
 
 /** Salt of the generator that scatters the tree belts. */
 const TREE_SALT = 0x0c07e1;
@@ -153,7 +158,7 @@ const SCRUB_LOW = 2.5;
 const SCRUB_CLEAR = 7;
 
 /**
- * Lays the landscape into the county: the ridge and the foothills, the turbines on the crest, the tree belts along the
+ * Lays the landscape into the county: the ridge and the foothills, the turbines along its top, the tree belts along the
  * ridge's east foot and scrub over the rises, each prop on the ground (countryGround). Draws only from its own
  * generators.
  */

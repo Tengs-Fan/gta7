@@ -264,7 +264,7 @@ describe('round 2 city: layout', () => {
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
     // parapets, the four props moved out of the links' mouths, its signal heads and lamps), and when its landscape rose
     // (Coyote Ridge and the foothills in its rises, the ridge's turbines, the tree belts along its foot and the scrub).
-    expect(layoutHash()).toBe('d9a36ddc6d3e0ba659e0ab84270bd382d04f6312c280705a5fe560004b60667b');
+    expect(layoutHash()).toBe('88406400b69f1dbb3386670c05a9f6cade829d29b12b7dd91c943bce3b2883d9');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
