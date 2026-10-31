@@ -6,7 +6,8 @@ import * as THREE from 'three';
 /** UnrealBloomPass's luminance threshold (GameRenderer). Every glow stays under it, so bloom never toggles on one. */
 export const BLOOM_THRESHOLD = 2.6;
 
-export type GlowKind = 'head' | 'tail' | 'brake' | 'reverse' | 'sirenRed' | 'sirenBlue' | 'reflector';
+export type GlowKind = 'head' | 'tail' | 'brake' | 'reverse' | 'sirenRed' | 'sirenBlue'
+  | 'reflector';
 
 type Rgb = readonly [number, number, number];
 

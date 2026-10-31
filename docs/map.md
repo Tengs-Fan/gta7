@@ -219,7 +219,7 @@ The HUD and the scanner name the plot you are in, or Las Lomas County.
 - **Five foothills**, cosine bells of 4 to 10 m, stand on the wild ground: Coyote Knoll north of the highway's bend, Gulch Hill west of Gravel Gulch, Cove Rise by the south cove, Sound Bluff on the sound's shore south of Dry Creek, and Bend Knoll inside the bend.
   No two rises overlap.
 - **The contract**, tested on a 1 m lattice: every rise is 0 within 12 m of every road's edge, on every plot but the wild ones and at every verge node, so the roads, the verges, the farms and the places stay flat.
-- **Six wind turbines** stand along the ridge's top on the crest's west half, 110 m apart and at least 40 m from Lookout Point, Turbine Row's kind and renderer on a foundation of their own: their towers stop cars, shots and sight from 1 m under the ground up past the nacelle.
+- **Six wind turbines** stand along the ridge's top, on the west half of its line, 110 m apart and at least 40 m from Lookout Point, Turbine Row's kind and renderer on a foundation of their own: their towers stop cars, shots and sight from 1 m under the ground up past the nacelle.
   Four stand on the crest, the first just off its north end, and the last two past Lookout Point down the south shoulder, 22 m and 9 m up: a row of six 110 m apart runs 550 m, and the 390 m crest keeps 40 m clear of the lookout.
   Two belts of trees line the ridge's east foot, and bushes (no collider) grow over the slopes.
 - **Sight and shots.** The county's rises live in `country.rises`, which only `countryGround` reads, so the city's `baseGround` still loops over its own two.
