@@ -235,9 +235,11 @@ describe('Las Lomas County: the land', () => {
     }
     // From the middle of a field, the nearest walk node is the county's, not the promenade's.
     for (const p of COUNTY_PLOTS) expect(walk.nearestNode((p.rect.minX + p.rect.maxX) / 2, (p.rect.minZ + p.rect.maxZ) / 2), p.name).toBeGreaterThanOrEqual(463);
-    // No pedestrian spawns in the county where it has no footpath in reach.
+    // No pedestrian spawns in the county where it has no footpath in reach: no draw either.
     const a = makeSim({ seed: 2 });
+    const b = makeSim({ seed: 2 });
     expect(a.world.walk.randomPointNear(a.rng, -900, 0, 20, 100)).toBeNull();
+    expect(a.rng.next()).toBe(b.rng.next());
   });
 
   it('lets a swimmer climb out onto a beach', () => {

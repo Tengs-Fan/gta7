@@ -3,6 +3,7 @@
 // every intersection, and the path out along Azura Point. Las Lomas County's
 // verges and footpaths come after all of these, apart from them.
 
+import { pointSegDist } from '../core/math';
 import type { Rng } from '../core/rng';
 import { PED_INSET, WATER_Y } from './constants';
 import { countryGround } from './country';
@@ -277,11 +278,13 @@ export class SidewalkGraph {
 
   /**
    * Random point on a walking edge whose distance to (px, pz) is within [minD, maxD]: the city's, or round Las Lomas
-   * County its own (none there, none drawn, while it has no footpath to spawn on).
+   * County its own (none there, none drawn, where none of its footpaths is in reach).
    */
   randomPointNear(rng: Rng, px: number, pz: number, minD: number, maxD: number): { a: number; b: number; t: number; x: number; z: number } | null {
     const pool = rectContains(this.county.bounds, px, pz) ? this.countyWalkEdges : this.walkEdges;
     if (pool.length === 0) return null;
+    const near = ([a, b]: readonly [number, number]) => pointSegDist(px, pz, this.nodes[a]!.x, this.nodes[a]!.z, this.nodes[b]!.x, this.nodes[b]!.z) <= maxD;
+    if (pool === this.countyWalkEdges && !pool.some(near)) return null;
     for (let tries = 0; tries < 40; tries++) {
       const [a, b] = rng.pick(pool);
       const na = this.nodes[a]!;
