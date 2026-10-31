@@ -7,7 +7,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
 import { firingRow, GUN_PORT, SKELETON } from '../sim/pose';
-import { VEHICLE_SPECS, type VehicleBodyProfile, type VehicleKind } from '../sim/specs';
+import { SHERIFF_COLOR, VEHICLE_SPECS, type VehicleBodyProfile, type VehicleKind } from '../sim/specs';
 import { chaseOffset, CHASE_TARGET_Y } from './camera';
 import type { LampGlow } from './lightSprites';
 import { taxiSignTexture } from './textures';
@@ -331,6 +331,15 @@ interface Profile {
   rearSeats: boolean;
   /** How far the fitted body was brought down from its profile data (fitProfile), m. */
   drop: number;
+  /** The rear wheels' radius when bigger than the front ones' (VehicleBodyProfile.rearWheelR). */
+  rearR?: number;
+  /** The body's width when narrower than the spec's, the wheels standing outside it with no arches (a tractor's). */
+  bodyW?: number;
+}
+
+/** The radius of a kind's front or rear wheels. */
+function wheelRadius(p: Profile, front: boolean): number {
+  return front ? p.wheelR : (p.rearR ?? p.wheelR);
 }
 
 /** The point at fraction k along a -> b. */
@@ -419,7 +428,7 @@ function baseProfile(kind: VehicleKind): Profile {
   const P = (pts: Array<[number, number]>): Pt[] => pts.map(([x, y]) => [x * L, y * H]);
   const base = { panes: [] as Pane[], ports: [] as Pt[][], rearSeats: false, drop: 0 };
   const data = kind === 'firetruck' ? FIRE_ENGINE : s.bodyProfile;
-  if (data) return { ...base, rearSeats: !!data.rearSeats, body: P(data.body.map(([x, y]) => [x, y])), cabin: P(data.cabin.map(([x, y]) => [x, y])), cabinInset: data.cabinInset, wheelR: data.wheelR, wheelFront: data.wheelFront, wheelRear: data.wheelRear, lightY: data.lightY };
+  if (data) return { ...base, rearSeats: !!data.rearSeats, body: P(data.body.map(([x, y]) => [x, y])), cabin: P(data.cabin.map(([x, y]) => [x, y])), cabinInset: data.cabinInset, wheelR: data.wheelR, wheelFront: data.wheelFront, wheelRear: data.wheelRear, lightY: data.lightY, rearR: data.rearWheelR, bodyW: data.bodyWidth };
   switch (kind) {
     case 'compact':
       return { ...base, body: P([[-0.5, 0.22], [0.49, 0.22], [0.5, 0.4], [0.47, 0.56], [0.24, 0.62], [-0.46, 0.63], [-0.5, 0.5]]), cabin: P([[0.25, 0.61], [0.07, 0.98], [-0.39, 0.98], [-0.47, 0.62]]), cabinInset: 0.1, wheelR: 0.31, wheelFront: 0.33, wheelRear: -0.32, lightY: 0.45 };
@@ -556,6 +565,7 @@ function withPaneVertices(body: Pt[], panes: readonly Pane[]): Pt[] {
  * Returns the profile and the arch segments (shaded as dark wheel wells).
  */
 function withArches(body: Pt[], prof: Profile, L: number): { pts: Pt[]; arches: Array<[Pt, Pt]> } {
+  if (prof.bodyW !== undefined) return { pts: body, arches: [] };
   const r0 = body[0]!;
   const f0 = body[1]!;
   const yb = r0[1];
@@ -583,6 +593,10 @@ function withArches(body: Pt[], prof: Profile, L: number): { pts: Pt[]; arches: 
   out.push(f0, ...body.slice(2));
   return { pts: out, arches };
 }
+
+/** How much broader than the front tyres big rear wheels are (Profile.rearR), and a tyre's half breadth (m). */
+const REAR_TYRE_BROAD = 1.4;
+const TYRE_HALF = 0.13;
 
 /** Radial width of the moulded lip round a wheel arch, and how far it stands proud of the flank (m). */
 const ARCH_LIP = 0.055;
@@ -689,6 +703,9 @@ interface KindAssets {
   exterior: THREE.BufferGeometry;
   wheel: THREE.BufferGeometry;
   rim: THREE.BufferGeometry;
+  /** The rear wheels' tyre and rim: the front ones' but on a kind with bigger rear wheels (Profile.rearR). */
+  rearWheel: THREE.BufferGeometry;
+  rearRim: THREE.BufferGeometry;
   /** Width, height and depth of the head and tail lamp lenses, and of the reverse lamp's. */
   lamp: LensSize;
   reverse: LensSize;
@@ -744,7 +761,7 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
   const spacing = coarse ? 2 : s.length > 8 ? 0.45 : s.length > 5 ? 0.3 : 0.2;
   const bb = new GeoBuilder();
   addPrism(bb, pts, {
-    width: s.width,
+    width: prof.bodyW ?? s.width,
     bevel: BEVEL,
     bevelSegments: coarse ? 2 : 5,
     steps: coarse ? 1 : 4,
@@ -783,6 +800,22 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
     bb.box(-0.84, deck + 0.13, zc - 0.17, 0.84, deck + 0.16, zc + 0.15, 1, -0.06);
     for (const side of [-1, 1]) bb.box(side * 0.84 - 0.02, deck + 0.06, zc - 0.2, side * 0.84 + 0.02, deck + 0.2, zc + 0.17, 1);
   }
+  if (prof.bodyW !== undefined) {
+    // Mudguards over the big rear wheels, out from the body to the spec width: a plate over the tyre's top and one
+    // down either end of it.
+    const wz = prof.wheelRear * s.length;
+    const r = wheelRadius(prof, false);
+    const top = 2 * r + leanRoom(kind) + 0.05;
+    const z0 = Math.max(-s.length / 2, wz - r - 0.08);
+    const z1 = wz + r + 0.08;
+    for (const side of [-1, 1]) {
+      const x0 = side < 0 ? -hw : prof.bodyW / 2 - 0.02;
+      const x1 = side < 0 ? -prof.bodyW / 2 + 0.02 : hw;
+      bb.box(x0, top, z0, x1, top + 0.06, z1, 1);
+      bb.box(x0, r + 0.1, z0, x1, top, z0 + 0.06, 1);
+      bb.box(x0, r + 0.25, z1 - 0.06, x1, top, z1, 1);
+    }
+  }
   if (!coarse) addArchLips(bb, arches, kind, s.width / 2);
   const layout = cabinLayout(kind);
   if (layout) {
@@ -810,10 +843,21 @@ function kindAssets(kind: VehicleKind, coarse = false): KindAssets {
   const wheel = coarse ? new THREE.CylinderGeometry(prof.wheelR, prof.wheelR, 0.26, 6) : tireGeometry(prof.wheelR);
   if (coarse) wheel.rotateZ(Math.PI / 2);
   const rim = alloyGeometry(prof.wheelR, kind);
+  // Big rear wheels are broader too.
+  const rearR = wheelRadius(prof, false);
+  let rearWheel = wheel;
+  let rearRim = rim;
+  if (rearR !== prof.wheelR) {
+    rearWheel = coarse ? new THREE.CylinderGeometry(rearR, rearR, 0.26, 8) : tireGeometry(rearR);
+    if (coarse) rearWheel.rotateZ(Math.PI / 2);
+    rearWheel.scale(REAR_TYRE_BROAD, 1, 1);
+    // (The rim's face out on the broad tyre's.)
+    rearRim = alloyGeometry(rearR, kind).translate((REAR_TYRE_BROAD - 1) * TYRE_HALF, 0, 0);
+  }
   const exterior = coarse ? new THREE.BufferGeometry() : round.geometry(exteriorGeometry(kind, prof), false);
   const lamp: LensSize = [0.36, kind === 'sports' ? 0.085 : 0.14, 0.05];
   const reverse: LensSize = [0.18, 0.08, 0.04];
-  a = { body, cabin, exterior, wheel, rim, lamp, reverse, prof, round, farBody: body, farCabin: cabin, farExterior: exterior, model: null };
+  a = { body, cabin, exterior, wheel, rim, rearWheel, rearRim, lamp, reverse, prof, round, farBody: body, farCabin: cabin, farExterior: exterior, model: null };
   assets.set(key, a);
   return a;
 }
@@ -891,12 +935,15 @@ function modelAssets(kind: VehicleKind, m: CarModel, coarse: boolean): KindAsset
   }
   const wheel = coarse ? new THREE.CylinderGeometry(m.wheelR, m.wheelR, 0.26, 6) : tireGeometry(m.wheelR);
   if (coarse) wheel.rotateZ(Math.PI / 2);
+  const rim = alloyGeometry(m.wheelR, kind);
   return {
     body,
     cabin: coarse ? m.farGlass : m.glass,
     exterior: coarse ? new THREE.BufferGeometry() : m.trim,
     wheel,
-    rim: alloyGeometry(m.wheelR, kind),
+    rim,
+    rearWheel: wheel,
+    rearRim: rim,
     lamp: [0.36, 0.14, 0.05],
     reverse: [0.18, 0.08, 0.04],
     prof,
@@ -922,10 +969,11 @@ function roofTop(kind: VehicleKind): number {
 }
 
 /** The drawn wheels' distance from the centre line: an imported body's own, kept within 4.5 cm of the physics' track. */
-function wheelTrack(kind: VehicleKind): number {
+function wheelTrack(kind: VehicleKind, front = true): number {
   const hw = VEHICLE_SPECS[kind].width / 2;
   const model = carModel(kind);
-  if (!model) return hw - 0.15;
+  // Broad rear tyres (Profile.rearR) come in by their extra breadth, so they stay inside the spec's width.
+  if (!model) return hw - 0.15 - (front || profile(kind).rearR === undefined ? 0 : (REAR_TYRE_BROAD - 1) * TYRE_HALF);
   return clamp(model.wheelX, TRACK_SHARE * hw - 0.045, TRACK_SHARE * hw + 0.045);
 }
 /** The physics' track as a share of the half width (roadblocks.ts wheelPoints). */
@@ -968,8 +1016,9 @@ export function shadowBody(kind: VehicleKind, burnt: boolean): THREE.BufferGeome
   const parts = [positionsOnly(a.body), positionsOnly(a.exterior)];
   if (!burnt) {
     parts.push(positionsOnly(a.cabin));
-    for (const z of [a.prof.wheelFront * s.length, a.prof.wheelRear * s.length]) {
-      for (const side of [-1, 1]) parts.push(positionsOnly(a.wheel, new THREE.Matrix4().makeTranslation(side * wheelTrack(kind), a.prof.wheelR, z)));
+    for (const front of [true, false]) {
+      const z = (front ? a.prof.wheelFront : a.prof.wheelRear) * s.length;
+      for (const side of [-1, 1]) parts.push(positionsOnly(front ? a.wheel : a.rearWheel, new THREE.Matrix4().makeTranslation(side * wheelTrack(kind, front), wheelRadius(a.prof, front), z)));
     }
   }
   g = mergeGeometries(parts)!;
@@ -1055,6 +1104,44 @@ const burntMat = burntMaterial();
 const brokenLampMat = new THREE.MeshStandardMaterial({ color: 0x161616, emissive: 0x000000, emissiveIntensity: 0, roughness: 0.7 });
 const barBaseMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
 const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4, metalness: 0.3 });
+/** The sheriff's cruisers (SHERIFF_COLOR): doors in the body's tan, and a gold star on each front door. */
+const sheriffDoorMat = new THREE.MeshStandardMaterial({ color: SHERIFF_COLOR, roughness: 0.4, metalness: 0.3 });
+const starMat = new THREE.MeshStandardMaterial({ color: 0xd9a826, emissive: 0x3a2800, emissiveIntensity: 1, roughness: 0.3, metalness: 0.85 });
+const stars = new Map<VehicleKind, THREE.BufferGeometry>();
+
+/** A five-pointed star `r` m to its points on either front door of `kind`, facing out, just proud of the flank. */
+function starGeometry(kind: VehicleKind): THREE.BufferGeometry {
+  let g = stars.get(kind);
+  if (!g) {
+    const s = VEHICLE_SPECS[kind];
+    const r = 0.2;
+    const shape = new THREE.Shape();
+    for (let k = 0; k <= 10; k++) {
+      const a = (k * Math.PI) / 5;
+      const l = k % 2 === 0 ? r : r * 0.42;
+      if (k === 0) shape.moveTo(Math.sin(a) * l, Math.cos(a) * l);
+      else shape.lineTo(Math.sin(a) * l, Math.cos(a) * l);
+    }
+    const sides = [1, -1].map((side) => new THREE.ShapeGeometry(shape).rotateY((side * Math.PI) / 2).translate(side * (s.width / 2 + 0.012), s.height * 0.5 - profile(kind).drop, 0.12 * s.length));
+    g = mergeGeometries(sides)!;
+    stars.set(kind, g);
+  }
+  return g;
+}
+
+/** An upright triangle `side` m on a side, facing back (-z), its centre at the origin. */
+function triangleGeometry(side: number): THREE.BufferGeometry {
+  const h = (side * Math.sqrt(3)) / 2;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([side / 2, -h / 3, 0, -side / 2, -h / 3, 0, 0, (2 * h) / 3, 0], 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, -1, 0, 0, -1, 0, 0, -1], 3));
+  return g;
+}
+/** The SLOW MOVING VEHICLE emblem: a fluorescent orange triangle in a red reflective border. */
+const SMV_BORDER = triangleGeometry(0.42);
+const SMV_FACE = triangleGeometry(0.3);
+const smvBorderMat = new THREE.MeshStandardMaterial({ color: 0xa01010, emissive: 0x400000, emissiveIntensity: 1, roughness: 0.35 });
+const smvFaceMat = new THREE.MeshStandardMaterial({ color: 0xff6a10, emissive: 0xff5a00, emissiveIntensity: 0.25, roughness: 0.5 });
 /** Body paint of the far version's batches: white, tinted per car by the instance colour. */
 /**
  * Car paint: a satin metallic base under a glossy clearcoat that mirrors the sky and street (the scene environment),
@@ -1246,7 +1333,8 @@ export class VehicleView {
   private fadeLeft = 1;
   /** Wheels with their pivot's place on the body: they stay planted on the road while the body leans. */
   /** `flat`: the wheel's index in Vehicle.flat (front left, front right, rear left, rear right). */
-  private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean; base: THREE.Vector3; flat: number }> = [];
+  /** `r`: its radius, which it spins by. */
+  private readonly wheels: Array<{ pivot: THREE.Group; tire: THREE.Mesh; rim: THREE.Mesh; front: boolean; base: THREE.Vector3; flat: number; r: number }> = [];
   /** Head, tail and reverse lamps with their working material (smashed and burnt ones swap theirs out) and place. */
   private readonly lamps: Array<{ mesh: THREE.Mesh; mat: THREE.Material; broken: boolean; base: THREE.Vector3; head: boolean; role: 'head' | 'tail' | 'reverse' }> = [];
   /** Separate parts on the body (lamps, roof gear) and where they sit undamaged: dents carry them along. */
@@ -1262,6 +1350,11 @@ export class VehicleView {
   private sirenRed: THREE.MeshStandardMaterial | null = null;
   private sirenBlue: THREE.MeshStandardMaterial | null = null;
   private sirenLenses: { red: THREE.Mesh; blue: THREE.Mesh } | null = null;
+  /** A tractor's amber beacon, turning while its engine runs. */
+  private beacon: THREE.MeshStandardMaterial | null = null;
+  /** A cruiser's gold star, worn on the sheriff's tan ones (SHERIFF_COLOR) in place of the white doors. */
+  private star: THREE.Mesh | null = null;
+  private sheriff = false;
   /** What sync last lit: head and running tail lamps, and which light-bar lens (null: none). */
   private lit: { lights: boolean; siren: 'red' | 'blue' | null } = { lights: false, siren: null };
   private readonly lampTmp = new THREE.Vector3();
@@ -1332,9 +1425,9 @@ export class VehicleView {
       for (const side of [-1, 1]) {
         const pivot = new THREE.Group();
         // Inset so the tyre's outer face stays inside the body outline; the wheel arch shows it.
-        pivot.position.set(side * wheelTrack(kind), a.prof.wheelR, z);
-        const tire = new THREE.Mesh(a.wheel, tireMat);
-        const rim = new THREE.Mesh(a.rim, rimMat);
+        pivot.position.set(side * wheelTrack(kind, front), wheelRadius(a.prof, front), z);
+        const tire = new THREE.Mesh(front ? a.wheel : a.rearWheel, tireMat);
+        const rim = new THREE.Mesh(front ? a.rim : a.rearRim, rimMat);
         tire.name = 'tire';
         rim.name = 'rim';
         // The alloy face is on the rim's +x side: the right-hand wheels (-x) turn theirs round to face out.
@@ -1346,7 +1439,7 @@ export class VehicleView {
         pivot.updateMatrixWorld = updateUnlessFrozen;
         this.group.add(pivot);
         // The view's +x is the car's left.
-        this.wheels.push({ pivot, tire, rim, front, base: pivot.position.clone(), flat: (front ? 0 : 2) + (side > 0 ? 0 : 1) });
+        this.wheels.push({ pivot, tire, rim, front, base: pivot.position.clone(), flat: (front ? 0 : 2) + (side > 0 ? 0 : 1), r: wheelRadius(a.prof, front) });
       }
     }
     // As the body leans, the arch over the furthest axle and the outer track comes down the most.
@@ -1389,10 +1482,12 @@ export class VehicleView {
         h = onLamp(model.head[side > 0 ? 0 : Math.min(1, model.head.length - 1)]!, this.headMat);
         t = onLamp(model.tail[side > 0 ? 0 : Math.min(1, model.tail.length - 1)]!, this.tailMat);
       } else {
+        // (On the body's ends: a tractor's are its narrow hood and cab.)
+        const bodyHalf = (a.prof.bodyW ?? s.width) / 2;
         h = lens(a.lamp, this.headMat, false);
-        onEnd(h, side * (halfW - 0.32), ly, false);
+        onEnd(h, side * (bodyHalf - 0.32), ly, false);
         t = lens(a.lamp, this.tailMat, true);
-        onEnd(t, side * (halfW - 0.3), ly + 0.05, true);
+        onEnd(t, side * (bodyHalf - 0.3), ly + 0.05, true);
       }
       this.group.add(h, t);
       this.lamps.push({ mesh: h, mat: this.headMat, broken: false, base: h.position.clone(), head: true, role: 'head' }, { mesh: t, mat: this.tailMat, broken: false, base: t.position.clone(), head: false, role: 'tail' });
@@ -1437,6 +1532,16 @@ export class VehicleView {
         this.group.add(stripe);
         this.stripe = { geo, base: Float32Array.from(geo.getAttribute('position').array), mesh: stripe };
         this.livery.push({ mesh: stripe, mat: stripe.material as THREE.Material });
+        // (Drawn with the lamp lenses, one batch for every sheriff's car.)
+        const star = new THREE.Mesh(starGeometry(kind), starMat);
+        star.name = 'livery';
+        star.visible = false;
+        this.group.add(star);
+        this.star = star;
+        this.attached.push({ obj: star, base: star.position.clone() });
+        this.livery.push({ mesh: star, mat: starMat });
+        markPart(star);
+        this.lensParts.push(star);
       }
     }
     if (kind === 'taxi') {
@@ -1449,12 +1554,28 @@ export class VehicleView {
     // The service vehicles' gear (spec data) are plain boxes too, so the loop below batches them.
     for (const gear of s.gear ?? []) {
       const mat = new THREE.MeshStandardMaterial({ color: gear.color, emissive: gear.emissive ?? 0x000000, emissiveIntensity: gear.emissive === undefined ? 0 : 1.6, roughness: 0.4, metalness: 0.3 });
+      if (kind === 'tractor') this.beacon = mat;
       const m = new THREE.Mesh(new THREE.BoxGeometry(...gear.size), mat);
       m.position.set(...gear.at);
       m.castShadow = true;
       this.group.add(m);
       this.attached.push({ obj: m, base: m.position.clone() });
       this.livery.push({ mesh: m, mat });
+    }
+    if (kind === 'tractor') {
+      // The orange SLOW MOVING VEHICLE triangle in its red border, on the back of the cab under the rear window, drawn
+      // with the lamp lenses (one batch per shape).
+      const rb = a.prof.cabin[3]!;
+      for (const [geo, mat, back] of [[SMV_BORDER, smvBorderMat, 0.02], [SMV_FACE, smvFaceMat, 0.03]] as const) {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(0, rb[1] + 0.3, rb[0] - back);
+        m.name = 'smv';
+        this.group.add(m);
+        this.attached.push({ obj: m, base: m.position.clone() });
+        this.livery.push({ mesh: m, mat });
+        markPart(m);
+        this.lensParts.push(m);
+      }
     }
     // Every box part but the stripe (bent per car with its dents) is drawn through the part batches.
     for (const o of this.group.children) {
@@ -1567,10 +1688,11 @@ export class VehicleView {
       const a = kindAssets(this.kind, true);
       const s = VEHICLE_SPECS[this.kind];
       const parts = [a.body, shaded(a.cabin, 0.1)];
-      for (const z of [a.prof.wheelFront * s.length, a.prof.wheelRear * s.length]) {
+      for (const front of [true, false]) {
+        const z = (front ? a.prof.wheelFront : a.prof.wheelRear) * s.length;
         for (const side of [-1, 1]) {
-          const w = shaded(a.wheel, 0.055);
-          w.applyMatrix4(new THREE.Matrix4().makeTranslation(side * wheelTrack(this.kind), a.prof.wheelR, z));
+          const w = shaded(front ? a.wheel : a.rearWheel, 0.055);
+          w.applyMatrix4(new THREE.Matrix4().makeTranslation(side * wheelTrack(this.kind, front), wheelRadius(a.prof, front), z));
           parts.push(w);
         }
       }
@@ -1592,10 +1714,11 @@ export class VehicleView {
       b.geometry(a.body, m, 1);
       b.geometry(a.cabin, m, 0.1);
       const s = VEHICLE_SPECS[this.kind];
-      for (const z of [a.prof.wheelFront * s.length, a.prof.wheelRear * s.length]) {
+      for (const front of [true, false]) {
+        const z = (front ? a.prof.wheelFront : a.prof.wheelRear) * s.length;
         for (const side of [-1, 1]) {
-          m.makeTranslation(side * wheelTrack(this.kind), a.prof.wheelR, z);
-          b.geometry(a.wheel, m, 0.055);
+          m.makeTranslation(side * wheelTrack(this.kind, front), wheelRadius(a.prof, front), z);
+          b.geometry(front ? a.wheel : a.rearWheel, m, 0.055);
         }
       }
       this.distantMesh = new THREE.Mesh(b.build(), this.body.material);
@@ -1622,6 +1745,7 @@ export class VehicleView {
     this.shadowCaster.visible = near;
     this.syncShadow();
     if (this.stripe) this.stripe.mesh.visible = near;
+    if (this.star) this.star.visible = this.sheriff;
     for (const w of this.wheels) {
       w.pivot.visible = !coarse;
       w.tire.visible = !this.burnt;
@@ -1764,6 +1888,7 @@ export class VehicleView {
       for (let i = 0; i < this.wheels.length; i++) this.wheels[i]!.pivot.visible = shown[i] === 1;
       for (const b of this.boxParts) b.visible = true;
       for (const b of this.lensParts) b.visible = true;
+      if (this.star) this.star.visible = this.sheriff;
     }
   }
 
@@ -1902,6 +2027,11 @@ export class VehicleView {
       this.setBurnt(false);
       this.body.material = bodyMaterial(v.color);
       this.color = v.color;
+      if (this.stripe) {
+        this.sheriff = v.color === SHERIFF_COLOR;
+        this.stripe.mesh.material = this.sheriff ? sheriffDoorMat : stripeMat;
+        this.applyVisibility();
+      }
     }
     if (this.distantMesh) this.distantMesh.material = this.body.material;
     if (v.dentVersion !== this.dentVersion) this.applyDents(v);
@@ -1968,12 +2098,13 @@ export class VehicleView {
       w.pivot.position.copy(w.base).sub(lean).applyQuaternion(undo).add(lean);
       w.pivot.quaternion.copy(undo);
       if (w.front) w.pivot.quaternion.multiply(this.qSteer.setFromAxisAngle(this.yAxis, steerAngle));
-      w.tire.rotation.x = this.spin;
-      w.rim.rotation.x = this.spin;
+      const spin = (this.spin * this.kindAssets.prof.wheelR) / w.r;
+      w.tire.rotation.x = spin;
+      w.rim.rotation.x = spin;
       // A flat tyre (a spike strip): squashed down onto its rim, the wheel lower by what the tyre lost.
       const flat = v.flat[w.flat] === true;
       w.pivot.scale.set(flat ? 1.08 : 1, flat ? 0.62 : 1, 1);
-      if (flat) w.pivot.position.y -= this.kindAssets.prof.wheelR * 0.38;
+      if (flat) w.pivot.position.y -= w.r * 0.38;
     }
     // Parked, abandoned and wrecked cars keep their lights off (a deployed police car keeps its siren running).
     const powered = !v.destroyed && (v.driver !== null || v.siren);
@@ -1983,6 +2114,8 @@ export class VehicleView {
     this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? BRAKE_GLOW : lightsOn ? TAIL_RUNNING : TAIL_OFF * night;
     this.tailMat.emissive.copy(v.braking || lightsOn ? TAIL_LIT : TAIL_GLIMMER);
     this.reverseMat.emissiveIntensity = v.reversing && v.driver ? 4 : 0;
+    // A tractor's beacon turns once a second while its engine runs: a flash as its lamp sweeps past.
+    if (this.beacon) this.beacon.emissiveIntensity = powered ? 0.4 + 3 * Math.max(0, Math.sin(time * Math.PI * 2)) ** 4 : 0;
     this.lit.lights = lightsOn;
     this.lit.siren = null;
     if (this.sirenRed && this.sirenBlue) {

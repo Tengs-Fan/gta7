@@ -102,6 +102,9 @@ To play with friends on your network, run the optional multiplayer server (see [
   The HUD, the map and the police scanner name its places: Dry Creek, Hollister Bottoms, the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge, but for the ridge and the farms so far fields waiting for their places (see [docs/map.md](docs/map.md)).
   Four farms fill its middle: Hollister Bottoms (THE OTHER HOLLISTER FARM. WE DON'T TALK ABOUT IT.), with walls of corn either side of a mown aisle, a red gambrel barn, three grain bins and a windpump; the Cud & Sons Dairy (EST. WHENEVER.), with its twin silos, fifteen cows in a fenced pasture whose farmer, at its gate, shouts at anyone who knocks one over, lettuce, furrows and a propane tank behind the barn that goes up if you ram it; Pippin Hollow (PICK YOUR OWN. PAY FOR WHAT YOU PICK.), rows of apple trees with ladders against them; and Halfmoon Acres, wheat rippling in the wind and sunflowers that turn their heads to the sun.
   Hedgerows run along some of the fields with gaps at the gates.
+  Its traffic is thinner than the city's and runs to farm pickups and the Haymaker, a slow tractor with an amber beacon and a SLOW MOVING VEHICLE triangle, which you can steal and which the traffic queues behind, honking; oncoming cars come at you down the open highway.
+  Hollister Lane and Creek Road meet the highway at stop signs: their drivers stop, wait for a gap and pull out, and police in pursuit run them.
+  The police out there are the Las Lomas County Sheriff's, in tan cruisers with a gold star on the doors, and his own dispatcher calls the chase (Deputies, we got a carjacking out by Hollister Bottoms.).
 - **The look.** Stylised low-poly models with PBR materials, all CC0 (see [Assets](#assets) and [Credits](#credits)).
   People are chunky toy figures built in code from rounded segments on the game's own jointed skeleton: a face, hair, caps and sunglasses, shirts with collars and jackets, police badges, and their own height, build and colours; feet are planted by the gait, and every body part is one instanced draw for the whole crowd.
   Cars: seven kinds (compact, sedan, taxi, sports, muscle, pickup and police) are low-poly Quaternius models fitted to the cars' real sizes and axles, with number plates, lined cabins and riders seated inside; the van, bus, SWAT van, ambulance and fire engine are rebuilt procedural bodies. Every car has tinted glass that mirrors the sky and street, clearcoat paint, moulded lamp lenses that glow softly after dark, tyres with sidewalls, and a soft shade under it; dents, broken lamps and wrecks show on the new bodies.
@@ -329,7 +332,9 @@ All of these are minor; the most noticeable come first.
 - Now and then a new city bus appears slightly overlapping the bus ahead of it in the same lane, usually out of sight, and both end up dented.
 - Boats cannot pass under the canal's bridges (they are decks, like the pier), so the canal is for looking at from a boat, not for sailing through.
 - On Hillcrest Green's hill a car rolls with the slope only as drawn: the sim keeps the body level across it, so a car never tips over sideways there.
-- Seen from the city, the Magnolia Causeway and the Southgate Bridge only carry traffic heading out to the county: traffic appears on the county's roads only once you are off the city's land, which keeps the city's own traffic and its recorded test runs exactly as they were; the county's traffic update, still to come, may lift this.
+- Seen from the city, the Magnolia Causeway and the Southgate Bridge carry two cars at a time coming in to a player near where they land, spawned out of view: where each appears, its kind, colour, driver and cruising speed come from a generator of their own, but once on its way its driving (its turns, its honks) draws on the game's own like any car's, so near the links they change the city's traffic (the recorded test runs never come that close); the county's own traffic appears only once you are off the city's land.
+- Out in Las Lomas County's open fields oncoming traffic can appear as a speck far down the highway (beyond 320 m, where the fog has only begun) rather than round a bend, since nothing there hides a car yet.
+- A stop sign on a busy highway can keep a car turning left from the country road waiting over half a minute: it needs a gap in both streams at once (the longest wait seen in ten-minute runs was 39 s).
 
 **Multiplayer (limits of this version)**
 
@@ -342,6 +347,7 @@ All of these are minor; the most noticeable come first.
 - The Docker image has not been built or run (Docker was not available where it was written).
 - Shooting another player gives you wanted stars like any gunfire the police see, and with stars you cannot open or join a head-to-head Street Run until you lose them.
 - A racer who quits a head-to-head Street Run but stays in his race car keeps it: only the empty cars of racers who did not finish are removed, so one left on the grid (which is also the finish line) stays in the way.
+- No traffic comes in over the Magnolia Causeway or the Southgate Bridge in multiplayer: the cars that come in to a player near where they land spawn in single player only.
 
 <details><summary>More, by area</summary>
 

@@ -9,7 +9,7 @@ import { BARK_COOLDOWN, BARK_GAP, Barks } from '../../src/audio/barks';
 import { Dialogue } from '../../src/audio/dialogue';
 import { dispatchClips, SpeechBank } from '../../src/audio/speech';
 import { HITS } from '../../src/audio/stations/playlists';
-import { COLOUR_NAMES, COMPASS, CRIME_PHRASES } from '../../src/sim/dispatch';
+import { COLOUR_NAMES, COMPASS, COUNTY_ZONES, CRIME_PHRASES, SHERIFF } from '../../src/sim/dispatch';
 import { STORY } from '../../src/sim/missions';
 import { dialogueKey, LINE_TAIL, lineSeconds, phraseWords, SPEECH } from '../../src/sim/speech';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
@@ -102,11 +102,18 @@ describe('the police dispatcher', () => {
       n++;
     };
     for (const zone of zones) {
+      // Las Lomas County's places are the sheriff's dispatcher's to name, in his own lines.
+      if (COUNTY_ZONES.has(zone)) {
+        for (const what of crimes) for (const s of [SHERIFF.inVehicle, SHERIFF.onFoot, SHERIFF.haymaker]) check(`${SHERIFF.opening(what, zone)} ${s}`);
+        for (const d of COMPASS) check(SHERIFF.spotted(d, zone));
+        check(SHERIFF.search(zone));
+        continue;
+      }
       for (const what of crimes) for (const s of suspects) check(`All units, ${what} reported in ${zone}. Suspect ${s}.`);
       for (const d of COMPASS) check(`Suspect spotted heading ${d} through ${zone}.`);
       check(`We lost visual. Search around ${zone}.`);
     }
-    for (const fixed of ['All units, return to patrol.', 'SWAT is rolling.', 'Air unit on scene.']) {
+    for (const fixed of ['All units, return to patrol.', 'SWAT is rolling.', 'Air unit on scene.', SHERIFF.haymaker, SHERIFF.patrol, SHERIFF.swat, SHERIFF.air]) {
       check(fixed);
       expect(dispatchClips(fixed).length).toBe(1);
     }

@@ -83,7 +83,7 @@ describe('Turbine Row', () => {
     // its farms' farmhouses, barns' walls and roofs, and hedgerows).
     const rest = W.grid.colliders.slice(first);
     const tags: Record<string, string[]> = {
-      signal: ['signal'], lamp: ['lamp'], turbine: ['pillar'], tree: ['tree'],
+      signal: ['signal'], lamp: ['lamp'], stopSign: ['lamp'], turbine: ['pillar'], tree: ['tree'],
       silo: ['pillar'], grainbin: ['pillar'], windpump: ['rock', 'pillar'], fence: ['bench'], bale: ['container'], orchardTree: ['tree'],
       propane: ['container'], cow: ['livestock'], scarecrow: ['bin'],
     };

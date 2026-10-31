@@ -1,6 +1,8 @@
 // Static gameplay data: vehicles and weapons.
 
 import type { V3 } from '../core/math';
+import { COUNTY_BOUNDS } from '../world/country';
+import { rectContains } from '../world/layout';
 
 /** Per-kind engine character for the player's engine voice (audio/engineVoice.ts) and horn. */
 export interface EngineProfile {
@@ -29,7 +31,8 @@ export const DEFAULT_HORN: readonly [number, number] = [392, 494];
  */
 export const GUN_PORT = { z0: -0.24, z1: -0.07, y0: 0.6, y1: 0.8 } as const;
 
-export type VehicleKind = 'compact' | 'sedan' | 'taxi' | 'sports' | 'muscle' | 'pickup' | 'van' | 'bus' | 'police' | 'swat' | 'ambulance' | 'firetruck' | 'sportbike' | 'scooter' | 'speedboat' | 'dinghy';
+export type VehicleKind = 'compact' | 'sedan' | 'taxi' | 'sports' | 'muscle' | 'pickup' | 'van' | 'bus' | 'police' | 'swat' | 'ambulance' | 'firetruck' | 'sportbike' | 'scooter' | 'speedboat' | 'dinghy'
+  | 'tractor';
 
 /**
  * The side profile of a kind whose view is drawn from data (render/vehicleView.ts profile()): points along the length
@@ -49,6 +52,10 @@ export interface VehicleBodyProfile {
   rearSeats?: boolean;
   /** Flanks straight down to the sills, as on the vans and the bus: a tall body's pressed sill would bare its big tyres. */
   straightSides?: boolean;
+  /** The rear wheels' radius (m) when bigger than the front ones' (a tractor's). */
+  rearWheelR?: number;
+  /** The body's width (m) when narrower than the spec's, the wheels outside it (a tractor's hood and cab between its wheels). */
+  bodyWidth?: number;
 }
 
 /** A box of fixed equipment on a data-drawn kind (light bars, ladders, stripes): size and centre in metres, view frame (+x left, +y up, +z forward). */
@@ -130,6 +137,8 @@ export interface VehicleSpec {
   bike?: BikeSpec;
   /** Class 'boat' only: draft and rudder. */
   boat?: BoatSpec;
+  /** The share of its top speed it cruises at in traffic (0.6 for a kind without one). */
+  cruise?: number;
 }
 
 const CIVIL_COLORS = [0xb03a2e, 0x1f618d, 0x117a65, 0xd4ac0d, 0xeeeeee, 0x1c1c1c, 0x7f8c8d, 0x6c3483, 0xca6f1e, 0x2e4053, 0x922b21, 0xa9cce3, 0x5d6d7e, 0x186a3b];
@@ -141,6 +150,18 @@ export const VEHICLE_SPECS: Readonly<Record<VehicleKind, VehicleSpec>> = {
   sports: { kind: 'sports', name: 'Nightjar GT', length: 4.5, width: 2.0, height: 1.18, mass: 1300, accel: 15.5, maxSpeed: 60, reverseSpeed: 11, brake: 21, grip: 27, steer: 0.56, health: 800, seats: 2, colors: [0xc0392b, 0xf1c40f, 0x1c1c1c, 0xffffff, 0x2874a6, 0x27ae60, 0xe67e22], police: false, value: 140000, durability: 1.3, rollGain: 0.6, pitchGain: 0.6, class: 'car', engine: { cylinders: 6, idleRpm: 900, redlineRpm: 8500, brightness: 0.85, roughness: 0.08, loudness: 0, horn: [440, 554] } },
   muscle: { kind: 'muscle', name: 'Thunderhoof', length: 4.9, width: 2.0, height: 1.35, mass: 1650, accel: 13.5, maxSpeed: 54, reverseSpeed: 11, brake: 18, grip: 20, steer: 0.58, health: 1000, seats: 2, colors: [0x922b21, 0x1a5276, 0x1c1c1c, 0xd35400, 0xf7f9f9, 0x145a32], police: false, value: 45000, durability: 0.95, rollGain: 0.9, pitchGain: 0.9, class: 'car', engine: { cylinders: 8, idleRpm: 700, redlineRpm: 6000, brightness: 0.55, roughness: 0.3, loudness: 1, horn: [349, 440], uneven: true } },
   pickup: { kind: 'pickup', name: 'Dustrunner', length: 5.3, width: 2.1, height: 1.85, mass: 2100, accel: 9.5, maxSpeed: 40, reverseSpeed: 9, brake: 16, grip: 20, steer: 0.58, health: 1300, seats: 2, colors: CIVIL_COLORS, police: false, value: 26000, durability: 0.75, rollGain: 1.6, pitchGain: 1.3, class: 'car', engine: { cylinders: 8, idleRpm: 650, redlineRpm: 5200, brightness: 0.4, roughness: 0.22, loudness: 0.5, horn: [330, 415] } },
+  // Las Lomas County's farm tractor: slow, heavy and sure-footed, a narrow hood and cab between big rear wheels.
+  tractor: {
+    kind: 'tractor', name: 'Haymaker', length: 4.2, width: 2.3, height: 2.9, mass: 4200, accel: 5, maxSpeed: 12, reverseSpeed: 4, brake: 12, grip: 26, steer: 0.62, health: 2200, seats: 1, colors: [0xa4473b, 0x4f86c6, 0xc4762e], police: false, value: 32000, durability: 0.5, rollGain: 0.4, pitchGain: 0.8, class: 'car', cruise: 0.9,
+    engine: { cylinders: 4, idleRpm: 650, redlineRpm: 2400, brightness: 0.3, roughness: 0.4, loudness: 1, horn: [294, 370], diesel: true },
+    bodyProfile: {
+      body: [[-0.5, 0.15], [0.5, 0.15], [0.5, 0.43], [0.47, 0.47], [-0.02, 0.5], [-0.5, 0.5]],
+      cabin: [[-0.03, 0.5], [-0.07, 0.94], [-0.43, 0.94], [-0.46, 0.5]],
+      cabinInset: 0.5, wheelR: 0.42, wheelFront: 0.3, wheelRear: -0.3, lightY: 0.415, straightSides: true, rearWheelR: 0.78, bodyWidth: 1.3,
+    },
+    // The amber beacon on the cab roof (it turns while the engine runs: render/vehicleView.ts).
+    gear: [{ size: [0.18, 0.14, 0.18], at: [0.4, 2.89, -1.2], color: 0x6a3a00, emissive: 0xffa21a }],
+  },
   van: { kind: 'van', name: 'Breadbox', length: 5.1, width: 2.1, height: 2.4, mass: 2500, accel: 8, maxSpeed: 35, reverseSpeed: 8, brake: 15, grip: 18, steer: 0.58, health: 1400, seats: 2, colors: [0xf2f3f4, 0xd5d8dc, 0x2e86c1, 0x1e8449, 0xb9770e], police: false, value: 22000, durability: 0.8, rollGain: 1.6, pitchGain: 1.4, class: 'car', engine: { cylinders: 4, idleRpm: 600, redlineRpm: 3500, brightness: 0.35, roughness: 0.3, loudness: -0.5, horn: [311, 392], diesel: true }, firingRows: [0.24, 0.24] },
   bus: { kind: 'bus', name: 'Citybus', length: 11.5, width: 2.6, height: 3.2, mass: 9000, accel: 5.5, maxSpeed: 28, reverseSpeed: 6, brake: 12, grip: 15, steer: 0.55, health: 3000, seats: 1, colors: [0x2e86c1, 0xc0392b], police: false, value: 90000, durability: 0.4, rollGain: 1.6, pitchGain: 1.4, class: 'car', engine: { cylinders: 6, idleRpm: 550, redlineRpm: 2600, brightness: 0.3, roughness: 0.2, loudness: 1.5, horn: [220, 277], diesel: true } },
   police: { kind: 'police', name: 'Patrol Cruiser', length: 4.9, width: 2.0, height: 1.5, mass: 1650, accel: 14, maxSpeed: 52, reverseSpeed: 11, brake: 20, grip: 24, steer: 0.6, health: 1300, seats: 2, colors: [0x101820], police: true, value: 40000, durability: 0.7, rollGain: 0.9, pitchGain: 0.9, class: 'car', engine: { cylinders: 8, idleRpm: 750, redlineRpm: 6500, brightness: 0.6, roughness: 0.12, loudness: 0.5, horn: DEFAULT_HORN }, firingRows: [0, -0.138] },
@@ -190,6 +211,9 @@ export const VEHICLE_SPECS: Readonly<Record<VehicleKind, VehicleSpec>> = {
     ],
   },
 };
+
+/** The Las Lomas County Sheriff's tan: a patrol cruiser placed in the county wears it (police.ts), and a gold star for the white doors. */
+export const SHERIFF_COLOR = 0xc8a96a;
 
 /** The engine of a kind with no `engine` of its own: the sedan's. */
 export const DEFAULT_ENGINE_PROFILE: EngineProfile = { cylinders: 4, idleRpm: 800, redlineRpm: 6500, brightness: 0.5, roughness: 0.12, loudness: -1.5, horn: DEFAULT_HORN };
@@ -252,6 +276,23 @@ export function trafficBike(kind: VehicleKind, x: number, z: number): VehicleKin
   }
   return kind;
 }
+
+/** The kinds Las Lomas County's traffic and parked cars take for the city's (countryKind): farm pickups and the Haymaker. */
+const COUNTRY_KINDS: Partial<Readonly<Record<VehicleKind, VehicleKind>>> = { taxi: 'tractor', bus: 'pickup', sports: 'muscle' };
+
+/**
+ * The kind a traffic spawn or a parked car of `kind` at (x, z) takes in Las Lomas County (COUNTY_BOUNDS), and
+ * anywhere else `kind` itself: half the sedans come as pickups, the taxis as Haymaker tractors, the buses as pickups
+ * and the sports cars as muscle cars. Picked by a hash of the place, like trafficBike, so the sim's random stream stays
+ * as it was and a bay holds the same kind every time.
+ */
+export function countryKind(kind: VehicleKind, x: number, z: number): VehicleKind {
+  if (!rectContains(COUNTY_BOUNDS, x, z)) return kind;
+  if (kind === 'sedan') return mix32(((Math.imul(Math.round(x * 8) | 0, 0x9e3779b1) + Math.imul(Math.round(z * 8) | 0, 0x85ebca77)) | 0) ^ COUNTRY_SALT) % 2 === 0 ? 'pickup' : kind;
+  return COUNTRY_KINDS[kind] ?? kind;
+}
+
+const COUNTRY_SALT = 0x1a5c;
 
 export const PARKED_MIX: ReadonlyArray<readonly [VehicleKind, number]> = [
   ['sedan', 30],

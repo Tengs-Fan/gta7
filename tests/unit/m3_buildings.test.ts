@@ -361,9 +361,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // letters, grown as bushes, lose their trunks; and the colliders again when Las Lomas County moved the four props in
     // the links' mouths out of the way (two lamps, a tree, a bench) and appended, after every other collider, the
     // Southgate Bridge's two parapets and its arch's four portal posts, the gateways' and its junctions' signal heads and
-    // the causeway's lamps; and both on the integrated county head, where its landscape appended the ridge's turbines and
-    // tree belts, its farms their props, and after every other collider the landscape its rises' sight cores and Lookout
-    // Point's parapet and tower, then the farms their farmhouses, their barns' walls and roofs and their hedgerows.
+    // the causeway's lamps; and both on the integrated county head, where its traffic made the Hollister T's and the
+    // Creek T's heads a stop sign and two lamps each, its landscape appended the ridge's turbines and tree belts and its
+    // farms their props, and after every other collider the landscape its rises' sight cores and Lookout Point's
+    // parapet and tower, then the farms their farmhouses, their barns' walls and roofs and their hedgerows.
     expect(b).toBe('a563ac93264775491aeef9435556a31c126f51d48def2b1806a9c1bd6ab87ccb');
     expect(c).toBe('bdfb2884dcef5acd07a3b924969001269583483a2f3b42e642515b33e25ae8e6');
   });

@@ -396,11 +396,14 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     return v;
   }
 
-  /** Spawns an NPC driver inside `v` and gives the car a DriverAI (the driver gets no ped brain here). */
-  addDriver(v: Vehicle, role: CharacterRole, policy: DriverPolicy): Character {
-    const d = this.spawnCharacter(role, v.pos.x, v.pos.z);
+  /**
+   * Spawns an NPC driver inside `v` and gives the car a DriverAI (the driver gets no ped brain here); the driver's looks
+   * and cruising speed are drawn from `rng`.
+   */
+  addDriver(v: Vehicle, role: CharacterRole, policy: DriverPolicy, rng = this.rng): Character {
+    const d = this.spawnCharacter(role, v.pos.x, v.pos.z, randomAppearance(rng, role));
     this.seat(d, v, 0);
-    v.ai = new DriverAI(this, v, policy);
+    v.ai = new DriverAI(this, v, policy, rng);
     return d;
   }
 

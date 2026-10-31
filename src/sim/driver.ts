@@ -6,6 +6,7 @@ import { clamp, pointSegDist, wrapAngle } from '../core/math';
 import type { Rng } from '../core/rng';
 import { isSolidForSight, makeRayHit, type StaticCollider } from '../world/colliders';
 import { LANE_W, STREET_W } from '../world/constants';
+import { slotOf } from '../world/country';
 import { axisOf, reverseDir, type Lane, type RoadNetwork, type Turn } from '../world/roads';
 import type { StaticWorld } from '../world/staticWorld';
 import type { Character, Vehicle } from './entities';
@@ -96,6 +97,26 @@ const DETOUR_BACK = 2.5;
 const DETOUR_MARGIN = 0.4;
 /** A vehicle in the way short of this far (m) before the end of the lane stands on it, not in the junction after it. */
 const DETOUR_LANE_END = 2;
+/**
+ * A stop sign (see DriverAI.goFromStop): the car must stand within STOP_NEAR m of the line under STOP_STILL m/s for
+ * STOP_WAIT s, then wait while anything above STOP_MOVING m/s comes in on an arm with right of way, within STOP_ARM m of its
+ * centre line and STOP_REACH m or a gap of STOP_GAP s (STOP_GAP_RIGHT s turning right) of the junction: longer for a
+ * vehicle slower off the mark than STOP_ACCEL m/s2, and from STOP_PATIENCE s of waiting on shorter, down to STOP_SHORTEN
+ * of it (3.15 s and 2.45 s: still what a car takes to cross the near lanes from a stand, or to get going in them).
+ */
+const STOP_NEAR = 3;
+const STOP_STILL = 0.6;
+const STOP_MOVING = 1.5;
+const STOP_WAIT = 0.6;
+const STOP_REACH = 30;
+const STOP_GAP = 4.5;
+const STOP_GAP_RIGHT = 3.5;
+const STOP_ACCEL = 10;
+const STOP_PATIENCE = 10;
+const STOP_SHORTEN = 0.7;
+const STOP_ARM = 12;
+/** Seconds held up behind a tractor before a civilian first honks at it. */
+const TRACTOR_PATIENCE = 6;
 /** Seconds a civilian held up by a vehicle nobody drives, standing on its lane, waits before overtaking it (7 s otherwise). */
 const UNATTENDED_PATIENCE = 2;
 /**
@@ -369,6 +390,8 @@ export class DriverAI {
   private stuck = 0;
   private waitObstacle = 0;
   private honkCooldown = 0;
+  /** Seconds held up behind a tractor (see TRACTOR_PATIENCE). */
+  private behindTractor = 0;
   private sightTimer = 0;
   private visibleTarget = false;
   /** Route policy: within arriveRadius of `dest`; the car then stops and holds there. */
@@ -377,6 +400,13 @@ export class DriverAI {
   arriveRadius = ARRIVE_RADIUS;
   /** Lane whose signal we committed to stop for (prevents yellow-light dithering). */
   private stopLane = -1;
+  /**
+   * At a stop sign (see goFromStop): the lane whose line we committed to stop at, since when the car has stood at it, and
+   * the lane whose stop we have made and may go on from (until the car is on another lane).
+   */
+  private stopHeld = -1;
+  private stoodSince = Infinity;
+  private stopPassed = -1;
   /** Seconds an overtaking manoeuvre may still last (path shifted into the oncoming lane). */
   private overtake = 0;
   /** What we are overtaking; the manoeuvre ends once it is behind us. */
@@ -435,10 +465,12 @@ export class DriverAI {
     return b && 'kind' in b && this.limiter === 'obstacle' && Math.abs(this.vehicle.forwardSpeed) < 0.5 ? b : null;
   }
 
+  /** `rng`: the generator the driver's cruising speed is drawn from (the host's unless given). */
   constructor(
     private readonly host: DriverHost,
     readonly vehicle: Vehicle,
     policy: DriverPolicy,
+    rng = host.rng,
   ) {
     this.policy = policy;
     this.speedMul = 1;
@@ -448,7 +480,7 @@ export class DriverAI {
     this.decel = 4.5;
     this.progressX = vehicle.pos.x;
     this.progressZ = vehicle.pos.z;
-    this.setPolicy(policy);
+    this.setPolicy(policy, rng);
     this.resetPath();
   }
 
@@ -464,13 +496,13 @@ export class DriverAI {
     this.holdUntil = on ? this.host.time + HOLD_TIMEOUT : -Infinity;
   }
 
-  /** Switches behaviour (e.g. a patrol car joining a pursuit) and its driving style. */
-  setPolicy(policy: DriverPolicy): void {
+  /** Switches behaviour (e.g. a patrol car joining a pursuit) and its driving style; a civilian's speed is drawn from `rng`. */
+  setPolicy(policy: DriverPolicy, rng = this.host.rng): void {
     this.policy = policy;
     const aggressive = policy === 'chase' || policy === 'flee';
     const spec = this.vehicle.spec;
-    this.speedMul = policy === 'chase' ? 1.6 : policy === 'flee' ? 1.45 : this.host.rng.range(0.85, 1.05);
-    this.maxSpeed = aggressive ? spec.maxSpeed * 0.92 : spec.maxSpeed * 0.6;
+    this.speedMul = policy === 'chase' ? 1.6 : policy === 'flee' ? 1.45 : rng.range(0.85, 1.05);
+    this.maxSpeed = spec.maxSpeed * (aggressive ? 0.92 : spec.cruise ?? 0.6);
     this.obeyLights = !aggressive;
     this.cornering = aggressive ? 11 : 4.5;
     this.decel = aggressive ? 9 : 4.5;
@@ -1242,6 +1274,12 @@ export class DriverAI {
     } else {
       this.waitObstacle = Math.max(0, this.waitObstacle - dt);
     }
+    // Held up behind a tractor, which it overtakes only once it holds it under 3 m/s, a driver leans on the horn now and then.
+    this.behindTractor = blocked && !!ahead && 'kind' in ahead && ahead.kind === 'tractor' ? this.behindTractor + dt : 0;
+    if (this.behindTractor > TRACTOR_PATIENCE && this.honkCooldown <= 0 && this.policy === 'traffic') {
+      this.honkCooldown = this.host.rng.range(6, 14);
+      this.host.onHorn(v);
+    }
     // Make room for a car ahead backing up towards us (to pull out, or to get back into its lane).
     const makeRoom =
       this.obeyLights &&
@@ -1353,6 +1391,8 @@ export class DriverAI {
     let dist = -this.s;
     const v = this.vehicle;
     const speed = Math.abs(v.forwardSpeed);
+    const on = this.segs[0]!.lane;
+    if (on && on.id !== this.stopPassed) this.stopPassed = -1;
     for (let i = 0; i < this.segs.length; i++) {
       const seg = this.segs[i]!;
       if (i > 0 || seg.turn) {
@@ -1376,6 +1416,13 @@ export class DriverAI {
           // is in the junction: only oncoming traffic holds it, and it clears the junction after that.
           const inJunction = lineGap < 0 && !committed;
           let mustStop = !inJunction && (state === 'red' || (state === 'yellow' && (committed || lineGap > (speed * speed) / (2 * 7) + 1)));
+          // A stop sign: the front bumper stops at the line as for a red light, unless the car is past it already without
+          // having stopped (then it is in the junction).
+          const roads = this.host.roads;
+          if (seg.lane.id !== this.stopPassed && roads.stopsAt(seg.lane) && (lineGap >= 0 || this.stopHeld === seg.lane.id)) {
+            mustStop = i > 0 || !this.goFromStop(seg.lane, next.turn, lineGap, speed);
+            if (i === 0) this.stopHeld = mustStop ? seg.lane.id : -1;
+          }
           const forSignal = mustStop;
           // Once we decide to stop for a light we stay stopped until it turns green.
           if (state === 'green') {
@@ -1405,6 +1452,56 @@ export class DriverAI {
       if (dist > 90) break;
     }
     return limit;
+  }
+
+  /**
+   * At the stop line of a stop sign at the end of `lane` (the front bumper `lineGap` m short of it), taking `turn`:
+   * whether the car may go on. It must have stood within STOP_NEAR m of the line, under STOP_STILL m/s, for STOP_WAIT s;
+   * then the junction's box (its half and 2 m) must hold no other vehicle someone drives or that moves above STOP_MOVING
+   * m/s (a wreck or a car left standing there is in the way like any obstacle, not traffic to wait for), and none above
+   * STOP_MOVING m/s be coming in on an arm with right of way within STOP_REACH m or the gap it needs at its speed, the
+   * players' cars among them.
+   * Turning right it joins the near lanes: it needs STOP_GAP_RIGHT s of the traffic it pulls out in front of (from the
+   * arm across from where it heads) and none of the rest. Any other way it crosses the near lanes from a stand before it
+   * joins the far ones: STOP_GAP s of every arm. A vehicle slower off the mark than a car (accel under STOP_ACCEL m/s2: a
+   * tractor, a bus) needs gaps longer by the square root of the ratio. A driver kept waiting by busy traffic takes
+   * smaller ones: from STOP_PATIENCE s on, down to STOP_SHORTEN of them after twice that, still what it takes to clear.
+   * Then it goes, and makes no other stop at that line while it is on the lane (stopPassed).
+   */
+  private goFromStop(lane: Lane, turn: Turn | null, lineGap: number, speed: number): boolean {
+    const now = this.host.time;
+    if (lineGap > STOP_NEAR || speed > STOP_STILL) {
+      this.stoodSince = Infinity;
+      return false;
+    }
+    this.stoodSince = Math.min(this.stoodSince, now);
+    const waited = now - this.stoodSince;
+    if (waited < STOP_WAIT) return false;
+    const shorten = (1 + (STOP_SHORTEN - 1) * clamp(waited / STOP_PATIENCE - 1, 0, 1)) * Math.max(1, Math.sqrt(STOP_ACCEL / this.vehicle.spec.accel));
+    const reach = STOP_REACH * shorten;
+    const right = turn?.kind === 'right';
+    const joins = right ? (turn.to.dir + 2) % 4 : -1;
+    const node = this.host.roads.nodes[lane.to]!;
+    const box = node.halfX + 2;
+    for (const o of this.host.vehicles) {
+      if (o === this.vehicle || o.removed) continue;
+      const dx = o.pos.x - node.x;
+      const dz = o.pos.z - node.z;
+      if (Math.abs(dx) < box && Math.abs(dz) < box && (o.driver || o.speed > STOP_MOVING)) return false;
+      const d = Math.hypot(dx, dz);
+      const closing = -(dx * o.vel.x + dz * o.vel.z) / d;
+      // On an arm with right of way: a road leaves the junction that way, and its traffic does not stop.
+      const slot = slotOf(dx, dz);
+      const nb = this.host.roads.nodes[node.neighbors[slot]!];
+      if (!nb || node.stops & (1 << slot) || (right && slot !== joins)) continue;
+      if (closing < STOP_MOVING || d > Math.max(reach, (right ? STOP_GAP_RIGHT : STOP_GAP) * shorten * closing)) continue;
+      const ax = nb.x - node.x;
+      const az = nb.z - node.z;
+      if (Math.abs(dx * az - dz * ax) / Math.hypot(ax, az) < STOP_ARM) return false;
+    }
+    this.stopPassed = lane.id;
+    this.stoodSince = Infinity;
+    return true;
   }
 
   /**
@@ -2004,8 +2101,10 @@ export class DriverAI {
       if (ofx * lane.dx + ofz * lane.dz > -0.7) continue;
       const closing = (dx * o.vel.x + dz * o.vel.z) / (d || 1);
       if (closing < 1) continue;
-      // Other drivers brake for a turner they meet; the player's car is judged by when it gets here.
-      if (d > 38 && (!o.driver?.isPlayer || d / closing > ONCOMING_TIME)) continue;
+      // Other drivers brake for a turner they meet; the player's car is judged by when it gets here, and on Las Lomas
+      // County's fast roads every car is, with as long to spare as a turn across them from a stand takes (STOP_GAP).
+      const county = lane.line.index < 0;
+      if (d > 38 && (!(o.driver?.isPlayer || county) || d / closing > (county ? STOP_GAP : ONCOMING_TIME))) continue;
       return true;
     }
     return false;

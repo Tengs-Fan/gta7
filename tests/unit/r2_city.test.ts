@@ -264,9 +264,10 @@ describe('round 2 city: layout', () => {
     // all four stand together and the trees in front of the letters are bushes; and when Las Lomas County joined it
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
     // parapets, the four props moved out of the links' mouths, its signal heads and lamps), and on the integrated county
-    // head, where its landscape rose (Coyote Ridge and the foothills in its rises, the ridge's turbines, the tree belts
-    // along its foot and the scrub) and its farms were appended (their fields, farmhouses, barns, hedgerows, props and
-    // farmyard bays, and the dairy's farmer's spot).
+    // head, where its traffic made the Hollister T's and the Creek T's heads a stop sign and two lamps each, its
+    // landscape rose (Coyote Ridge and the foothills in its rises, the ridge's turbines, the tree belts along its foot
+    // and the scrub) and its farms were appended (their fields, farmhouses, barns, hedgerows, props and farmyard bays,
+    // and the dairy's farmer's spot).
     expect(layoutHash()).toBe('88406400b69f1dbb3386670c05a9f6cade829d29b12b7dd91c943bce3b2883d9');
   });
 

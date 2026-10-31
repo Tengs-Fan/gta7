@@ -344,6 +344,11 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
     const middle = a.clone().add(b).multiplyScalar(0.5);
     add(g, finish, middle.x, middle.y, middle.z);
   };
+  // The Haymaker's narrow hood and cab carry fittings of their own.
+  if (kind === 'tractor') {
+    tractorKit(p, s.bodyProfile!.bodyWidth!, L, H, box, line, add);
+    return merged(pieces);
+  }
   const flank = (side: number, y: number): number => side * ((commercial || kind === 'pickup' || s.bodyProfile?.straightSides ? hw : bodySideX(hw, H, y)) + 0.008);
   const ly = p.lightY * H;
   // The body's end faces are at +-L/2 (vehicleView fits the profile and its bevel to the spec length): bumpers, plates
@@ -446,6 +451,10 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
     box(0, topAt(p.body, z) + 0.1, z, s.width * 0.3, 0.07, 0.62);
     box(0, topAt(p.body, z) + 0.11, z + 0.3, s.width * 0.26, 0.05, 0.03, 1);
   }
+  return merged(pieces);
+}
+
+function merged(pieces: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const g = mergeGeometries(pieces)!;
   for (const piece of pieces) piece.dispose();
   g.computeBoundingBox();
@@ -454,6 +463,57 @@ export function exteriorGeometry(kind: VehicleKind, p: ExteriorProfile): THREE.B
 }
 
 type BoxFn = (x: number, y: number, z: number, w: number, h: number, d: number, finish?: Finish) => void;
+type LineFn = (a: THREE.Vector3, b: THREE.Vector3, radius: number, finish?: Finish) => void;
+type AddFn = (geo: THREE.BufferGeometry, finish: Finish, x?: number, y?: number, z?: number) => void;
+
+/**
+ * The Haymaker's fittings, on its hood and cab `width` wide between its wheels: the grille and a bumper bar on the
+ * nose, the front axle beam out to the wheels, the exhaust stack up the hood's side, the cab's corner posts, its
+ * mirrors on arms and the step up to it, and the hitch and number plate on the back.
+ */
+function tractorKit(p: ExteriorProfile, width: number, L: number, H: number, box: BoxFn, line: LineFn, add: AddFn): void {
+  const hw = width / 2;
+  const end = L / 2 + 0.004;
+  const sill = p.body[0]![1];
+  // The grille under the head lamps, its slats, and a bumper bar under it.
+  const g0 = sill + 0.2;
+  const g1 = p.lightY * H - 0.12;
+  box(0, (g0 + g1) / 2, end, width * 0.72, g1 - g0, 0.03);
+  for (let y = g0 + 0.06; y < g1 - 0.03; y += 0.08) box(0, y, end + 0.012, width * 0.66, 0.025, 0.012, 1);
+  box(0, sill + 0.08, end - 0.05, width * 0.9, 0.14, 0.12, 1);
+  // The front axle beam under the hood, out to the wheel hubs.
+  const fz = p.wheelFront * L;
+  box(0, p.wheelR, fz, 1.75, 0.13, 0.15);
+  // The exhaust stack up the hood's right side, ahead of the cab, with a bright cap.
+  const cb = p.cabin[0]!;
+  const ft = p.cabin[1]!;
+  const rt = p.cabin[2]!;
+  const rb = p.cabin[3]!;
+  const ex = new THREE.Vector3(-hw + 0.12, topAt(p.body, cb[0] + 0.3), cb[0] + 0.3);
+  line(ex, ex.clone().setY(ft[1] - 0.15), 0.05);
+  box(ex.x, ft[1] - 0.12, ex.z, 0.13, 0.08, 0.13, 1);
+  // The cab's four corner posts, just proud of its glass, and a rail round its waist.
+  for (const side of [-1, 1]) {
+    const x = side * (hw + 0.012);
+    line(new THREE.Vector3(x, cb[1], cb[0]), new THREE.Vector3(x, ft[1], ft[0]), 0.035);
+    line(new THREE.Vector3(x, rb[1], rb[0]), new THREE.Vector3(x, rt[1], rt[0]), 0.035);
+    const waist = cb[1] + 0.45;
+    line(new THREE.Vector3(x, waist, cb[0] - 0.05), new THREE.Vector3(x, waist, rb[0] + 0.05), 0.02, 1);
+    // A mirror on an arm from the front post.
+    const my = ft[1] - 0.45;
+    box(side * (hw + 0.17), my, cb[0] - 0.04, 0.32, 0.03, 0.03, 1);
+    box(side * (hw + 0.33), my, cb[0] - 0.04, 0.03, 0.24, 0.16);
+  }
+  // A step up to the cab on its left side, ahead of the rear wheel.
+  for (const k of [0, 1]) box(hw + 0.1, sill + 0.15 + k * 0.33, cb[0] - 0.2, 0.22, 0.03, 0.34, 1);
+  // The hitch and the number plate on the back.
+  box(0, sill + 0.2, -end + 0.08, width * 0.5, 0.22, 0.16);
+  box(0, sill + 0.2, -end - 0.01, 0.12, 0.12, 0.04, 1);
+  box(0, sill + 0.5, -end + 0.01, 0.46, 0.19, 0.024);
+  const plate = new THREE.PlaneGeometry(0.4, 0.145, 3, 1);
+  plate.rotateY(Math.PI);
+  add(plate, 2, 0, sill + 0.5, -end - 0.005);
+}
 
 /**
  * The fire engine's equipment body: satin aluminium roller shutters over its lockers (grooved across), between the

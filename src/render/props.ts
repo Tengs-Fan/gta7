@@ -28,6 +28,7 @@ import { WIND_GLSL, windAmplitude } from './wind';
 import { SHADOW_LAYER } from './vehicleBatches';
 import { CORN_H, cornGeometry, cornTexture, headstoneGeometry, HEADSTONE_SHAPES, ironFenceGeometry, pumpkinGeometry } from './attractionModels';
 import { applesGeometry, baleTexture, COW_NECK, cowGeometry, cowTexture, farmFenceGeometry, propaneGeometry, scarecrowGeometry } from './country/farmModels';
+import { stopSignGeometry } from './country/stopSign';
 
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
@@ -563,6 +564,7 @@ export class PropsView {
     });
     this.buildHeadstones(get('headstone'));
     this.buildFarmProps(get);
+    this.buildSimple(get('stopSign'), stopSignGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.2 }));
     for (const i of get('fountain')) this.buildFountain(world.layout.props[i]!);
     for (const i of get('crane')) this.buildCrane(world.layout.props[i]!);
     for (const i of get('lighthouse')) this.buildLighthouse(world.layout.props[i]!);

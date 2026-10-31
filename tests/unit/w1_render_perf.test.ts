@@ -9,7 +9,7 @@ import { PART_LAYER, SHADOW_LAYER, VehiclePartBatches } from '../../src/render/v
 import { VehicleView } from '../../src/render/vehicleView';
 import { makeSim } from './helpers';
 import type { Vehicle } from '../../src/sim/entities';
-import type { VehicleKind } from '../../src/sim/specs';
+import { SHERIFF_COLOR, VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
 
 // The procedural textures need a 2D canvas (stub as in vehicle_models.test.ts).
 vi.hoisted(() => {
@@ -64,6 +64,15 @@ function frame(batches: VehiclePartBatches, list: Array<{ view: VehicleView }>):
   batches.end();
 }
 
+/** `n` frames drawn as the renderer draws them: the parts taken out of three's walk for the scene's draw, and put back. */
+function frames(batches: VehiclePartBatches, list: Array<{ view: VehicleView }>, n: number): void {
+  for (let f = 0; f < n; f++) {
+    frame(batches, list);
+    for (const { view } of list) view.hideParts(true);
+    for (const { view } of list) view.hideParts(false);
+  }
+}
+
 describe('vehicle part batches', () => {
   it('draw every car of a kind with the same few instanced meshes, one slot per live part', () => {
     const batches = new VehiclePartBatches();
@@ -103,11 +112,13 @@ describe('vehicle part batches', () => {
     v.dents.push({ lx: 0, ly: v.spec.height * 0.9, lz: 0, nx: 0, nz: 0, depth: 0.1 } as never);
     v.dentVersion++;
     view.sync(v, 0.1, 1, 0.8);
+    frames(batches, [{ view }], 3);
     frame(batches, [{ view }]);
     view.group.updateMatrixWorld(true);
     const parts: THREE.Mesh[] = [];
+    // (Those it draws, a few frames on: a black cruiser wears no sheriff's star.)
     view.group.traverse((o) => {
-      if (o instanceof THREE.Mesh && o.layers.isEnabled(PART_LAYER)) parts.push(o);
+      if (o instanceof THREE.Mesh && o.layers.isEnabled(PART_LAYER) && o.visible) parts.push(o);
     });
     expect(parts.length).toBe(16);
     const inst = new THREE.Matrix4();
@@ -127,6 +138,28 @@ describe('vehicle part batches', () => {
       }
       expect(found, `${p.name || 'roof gear'} instance`).toBe(true);
     }
+    batches.dispose();
+  });
+
+  it("draw a sheriff's gold star on his tan cruiser and none on the city's black one, frame after frame", () => {
+    const batches = new VehiclePartBatches();
+    const [black, tan] = cars('police', 2) as [{ v: Vehicle; view: VehicleView }, { v: Vehicle; view: VehicleView }];
+    tan.v.color = SHERIFF_COLOR;
+    tan.view.sync(tan.v, 1 / 60, 0, 0);
+    const star = (view: VehicleView) => (view as unknown as { star: THREE.Mesh }).star;
+    expect(black.v.color).toBe(VEHICLE_SPECS.police.colors[0]);
+    const drawn = (list: Array<{ view: VehicleView }>): number[] => {
+      const out: number[] = [];
+      for (let f = 0; f < 4; f++) {
+        frames(batches, list, 1);
+        frame(batches, list);
+        out.push(batches.instancesOf(star(tan.view).geometry));
+      }
+      return out;
+    };
+    expect(drawn([black])).toEqual([0, 0, 0, 0]);
+    expect(drawn([tan])).toEqual([1, 1, 1, 1]);
+    expect(drawn([black, tan])).toEqual([1, 1, 1, 1]);
     batches.dispose();
   });
 

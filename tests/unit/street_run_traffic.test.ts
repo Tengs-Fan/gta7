@@ -4,8 +4,10 @@
 // nothing much and hardly ever crawl, credit every gate in order, and earn silver or better.
 
 import { describe, expect, it } from 'vitest';
+import { pointSegDist } from '../../src/core/math';
 import type { StreetRunJob } from '../../src/sim/activities';
 import type { Vehicle } from '../../src/sim/entities';
+import { LINK_REACH } from '../../src/sim/traffic';
 import type { Lane, Turn } from '../../src/world/roads';
 import { makeSim, placeInCar, step } from './helpers';
 import { fleeBot } from './r2_police_helpers';
@@ -97,6 +99,24 @@ function lap(courseId: string, seed: number, traffic: boolean): Lap {
 }
 
 describe('street run laps through traffic', () => {
+  it("no course comes within LINK_REACH of the causeway's or the bridge's landfall, where traffic comes in over them", () => {
+    const sim = makeSim();
+    const roads = sim.roads;
+    // The links' lanes into the city, each ending at its landfall.
+    const links = roads.lanes.filter((l) => l.to < roads.gridNodeCount && l.from >= roads.gridNodeCount);
+    expect(links.length).toBe(4);
+    for (const c of sim.activities.streetRunCourses()) {
+      const at = c.nodes.map((id) => roads.nodes[id]!);
+      let nearest = Infinity;
+      for (const l of links) {
+        nearest = Math.min(nearest, Math.hypot(c.start.x - l.ex, c.start.z - l.ez));
+        for (let k = 1; k < at.length; k++) nearest = Math.min(nearest, pointSegDist(l.ex, l.ez, at[k - 1]!.x, at[k - 1]!.z, at[k]!.x, at[k]!.z));
+      }
+      console.log(`[run] ${c.id}: ${nearest.toFixed(0)} m from the nearest landfall at the closest`);
+      expect(nearest, c.id).toBeGreaterThan(LINK_REACH);
+    }
+  });
+
   it.each(['magnolia', 'coastline', 'dockside'])('%s: few impacts, little crawling, every gate in order, medals within reach', (id) => {
     const course = makeSim().activities.streetRunCourses().find((c) => c.id === id)!;
     const clear = lap(id, 1, false);

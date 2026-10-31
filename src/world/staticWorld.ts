@@ -236,6 +236,8 @@ export class StaticWorld {
         return g.addCircle(p.x, p.z, COW_R * s, p.y, p.y + COW_H * s, 'livestock', i, true).id;
       case 'scarecrow':
         return g.addCircle(p.x, p.z, 0.3, p.y, p.y + 2.2 * s, 'bin', i, true).id;
+      case 'stopSign':
+        return g.addCircle(p.x, p.z, 0.06, p.y, p.y + 2.6, 'lamp', i, true).id;
       case 'bush':
       default:
         return -1;

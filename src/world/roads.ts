@@ -5,7 +5,7 @@
 
 import { Rng } from '../core/rng';
 import { CROSSWALK_W, LANE_W } from './constants';
-import { COUNTRY_SPEED, laneEnd, slotOf, type CountryGraph, type CountryRoad, type CountyJunction } from './country';
+import { COUNTRY_SPEED, laneEnd, slotOf, STOP_SIGNS, type CountryGraph, type CountryRoad, type CountyJunction } from './country';
 import { DIR_VECTORS, hashInts, mkRect, rectContains, roadFrom, type CityLayout, type Rect, type RoadLine } from './layout';
 
 export type Dir = 0 | 1 | 2 | 3; // N E S W
@@ -45,6 +45,8 @@ export interface RoadNode {
   degree: number;
   signal: boolean;
   offset: number;
+  /** A junction without lights: bit d is set when traffic coming in from slot d (neighbors[d]) must stop (stopsAt). */
+  stops: number;
 }
 
 export interface Turn {
@@ -144,6 +146,7 @@ export class RoadNetwork {
           degree,
           signal: degree >= 3,
           offset: rng.range(0, SIGNAL_CYCLE),
+          stops: 0,
         });
       }
     }
@@ -250,9 +253,10 @@ export class RoadNetwork {
    */
   private addOuter(graph: CountryGraph): void {
     const rng = new Rng(hashInts(this.layout.seed, OUTER_SALT));
+    const stopped = new Set(STOP_SIGNS.map((name) => graph.junctions[name]));
     for (const v of graph.vertices) {
       const degree = v.links.length;
-      this.nodes.push({ id: v.id, i: -1, j: -1, x: v.x, z: v.z, halfX: v.half, halfZ: v.half, neighbors: [-1, -1, -1, -1], degree, signal: degree >= 3, offset: rng.range(0, SIGNAL_CYCLE) });
+      this.nodes.push({ id: v.id, i: -1, j: -1, x: v.x, z: v.z, halfX: v.half, halfZ: v.half, neighbors: [-1, -1, -1, -1], degree, signal: degree >= 3 && !stopped.has(v.id), offset: rng.range(0, SIGNAL_CYCLE), stops: 0 });
     }
     for (const link of graph.links) {
       const a = this.nodes[link.a]!;
@@ -260,6 +264,13 @@ export class RoadNetwork {
       const slot = slotOf(b.x - a.x, b.z - a.z);
       a.neighbors[slot] = b.id;
       b.neighbors[(slot + 2) % 4] = a.id;
+    }
+    // At a stop sign, every arm below the junction's highest priority stops.
+    for (const id of stopped) {
+      const node = this.nodes[id]!;
+      const arms = graph.vertices[id - this.gridNodeCount]!.links.map((l) => graph.links[l]!);
+      const top = Math.max(...arms.map((l) => l.road.priority));
+      for (const l of arms) if (l.road.priority < top) node.stops |= 1 << node.neighbors.indexOf(l.a === id ? l.b : l.a);
     }
     for (const g of graph.gateways) this.nodes[g.node]!.degree = this.nodes[g.node]!.neighbors.filter((v) => v >= 0).length;
     const lines = new Map(this.layout.country.roads.map((r): [CountryRoad, RoadLine] => [r, { index: -1, vertical: false, pos: NaN, width: r.width, lanes: r.lanes, avenue: false, name: r.name }]));
@@ -361,6 +372,12 @@ export class RoadNetwork {
   /** One of the county's named junctions. */
   junction(name: CountyJunction): RoadNode {
     return this.nodes[this.junctions[name]]!;
+  }
+
+  /** Whether traffic on `lane` stops at a stop sign where it ends (RoadNode.stops). */
+  stopsAt(lane: Lane): boolean {
+    const node = this.nodes[lane.to]!;
+    return (node.stops & (1 << node.neighbors.indexOf(lane.from))) !== 0;
   }
 
   id(i: number, j: number): number {

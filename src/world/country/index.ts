@@ -18,6 +18,8 @@ export type CountryRoadKind = 'highway' | 'country';
 export interface CountryRoad {
   name: string;
   kind: CountryRoadKind;
+  /** Right of way: at a junction without lights the roads of lower priority stop for the highest (highway 2, country 1). */
+  priority: number;
   /** Lanes each way. */
   lanes: 1 | 2;
   width: number;
@@ -148,6 +150,9 @@ export const COUNTY_JUNCTIONS: Readonly<Record<CountyJunction, readonly [number,
   creek: [-840, 268],
 };
 
+/** The junctions with stop signs instead of lights: the country road stops for the highway (CountryRoad.priority). */
+export const STOP_SIGNS: readonly CountyJunction[] = ['hollister', 'creek'];
+
 /** Speed limits (m/s) by kind of road, each capped on a curve to what a car holds round it (sqrt(4.5 r)). */
 export const COUNTRY_SPEED: Readonly<Record<CountryRoadKind, number>> = { highway: 22, country: 15 };
 
@@ -201,7 +206,7 @@ const S = 0;
 
 function road(name: string, kind: CountryRoadKind, line: Centreline): CountryRoad {
   const lanes = kind === 'highway' ? 2 : 1;
-  return { name, kind, lanes, width: kind === 'highway' ? 16 : 10, pts: line.pts, radii: line.radii };
+  return { name, kind, priority: kind === 'highway' ? 2 : 1, lanes, width: kind === 'highway' ? 16 : 10, pts: line.pts, radii: line.radii };
 }
 
 /**
@@ -369,7 +374,9 @@ export function buildCountry(layout: CityLayout): void {
   layout.parapets.push(mkRect(BRIDGE.minX, BRIDGE.minZ, BRIDGE.maxX, BRIDGE.minZ + PARAPET_T), mkRect(BRIDGE.minX, BRIDGE.maxZ - PARAPET_T, BRIDGE.maxX, BRIDGE.maxZ));
   for (const m of MOUTH_MOVES) for (const p of layout.props) if (Math.abs(p.x - m.x) < 0.01 && Math.abs(p.z - m.z) < 0.01) p.z = m.to;
 
-  // Signal heads: for the eastbound approach the gateways gain, and for every approach at the county's junctions.
+  // Signal heads: for the eastbound approach the gateways gain, and for every approach at the county's junctions. At a
+  // stop sign the arms that stop have the sign where the head would stand, and the others a lamp over the junction.
+  const stops = new Set(STOP_SIGNS.map((name) => graph.junctions[name]));
   for (const g of graph.gateways) {
     const i = g.node % (layout.n + 1);
     const j = Math.floor(g.node / (layout.n + 1));
@@ -377,12 +384,14 @@ export function buildCountry(layout: CityLayout): void {
   }
   for (const v of graph.vertices) {
     if (v.links.length < 3) continue;
+    const top = Math.max(...v.links.map((l) => graph.links[l]!.road.priority));
     for (const l of v.links) {
       const link = graph.links[l]!;
       const other = link.a === v.id ? link.b : link.a;
       const o = nodeXZ(layout, graph, other);
       // Traffic coming in along this arm travels the other way.
-      signalHead(layout, v.id, (slotOf(o.x - v.x, o.z - v.z) + 2) % 4, v.x, v.z, v.half, v.half);
+      const kind = !stops.has(v.id) ? 'signal' : link.road.priority < top ? 'stopSign' : 'lamp';
+      signalHead(layout, v.id, (slotOf(o.x - v.x, o.z - v.z) + 2) % 4, v.x, v.z, v.half, v.half, kind);
     }
   }
   // The causeway's lamps, their heads over the carriageway.
@@ -406,15 +415,17 @@ export function nodeXZ(layout: CityLayout, graph: CountryGraph, id: number): { x
 
 /**
  * The signal head serving traffic travelling `dir` (0 N, 1 E, 2 S, 3 W) into the junction at (x, z) with half extents
- * hw, hh: at the corner on the approach's right, facing it, as generateCity stands the city's.
+ * hw, hh: at the corner on the approach's right, facing it, as generateCity stands the city's. A stop sign stands there
+ * the same way; a lamp leans over the junction.
  */
-function signalHead(layout: CityLayout, node: number, dir: number, x: number, z: number, hw: number, hh: number): void {
+function signalHead(layout: CityLayout, node: number, dir: number, x: number, z: number, hw: number, hh: number, kind: 'signal' | 'stopSign' | 'lamp' = 'signal'): void {
   const i = PROP_INSET;
   const [px, pz] = dir === 0 ? [x + hw + i, z + hh + i] : dir === 2 ? [x - hw - i, z - hh - i] : dir === 1 ? [x - hw - i, z + hh + i] : [x + hw + i, z - hh - i];
   const tx = dir === 1 ? 1 : dir === 3 ? -1 : 0;
   const tz = dir === 2 ? 1 : dir === 0 ? -1 : 0;
   // On a gateway's sidewalk corner, at the kerb's height; in the county, on its ground.
-  const p = addProp(layout, 'signal', px, pz, Math.atan2(-tx, -tz), 1, px < layout.bounds.landMinX ? countryGround(layout.country, px, pz) : CURB_H);
+  const rot = kind === 'lamp' ? Math.atan2(x - px, z - pz) : Math.atan2(-tx, -tz);
+  const p = addProp(layout, kind, px, pz, rot, 1, px < layout.bounds.landMinX ? countryGround(layout.country, px, pz) : CURB_H);
   p.node = node;
   p.dir = dir;
 }

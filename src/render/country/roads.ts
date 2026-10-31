@@ -75,9 +75,10 @@ export function buildCountryRoads(view: CountryView): void {
       } else {
         line(yellow, pts, centre, stop, 0, 0.13, true);
       }
-      // Stop lines at a county junction's signal, across the half coming in.
-      if (last.signal && outer(last)) line(white, pts, stop - 0.3, stop + 0.15, half / 2 + 0.05, half - 0.25, false, undefined, true);
-      if (first.signal && outer(first)) line(white, pts, centre - 0.15, centre + 0.3, -(half / 2 + 0.05), half - 0.25, false, undefined, true);
+      // Stop lines at a county junction's signal or stop sign, across the half coming in.
+      const stopFrom = (n: RoadNode, from: RoadNode) => n.signal || (n.stops & (1 << n.neighbors.indexOf(from.id))) !== 0;
+      if (stopFrom(last, r[r.length - 2]!) && outer(last)) line(white, pts, stop - 0.3, stop + 0.15, half / 2 + 0.05, half - 0.25, false, undefined, true);
+      if (stopFrom(first, r[1]!) && outer(first)) line(white, pts, centre - 0.15, centre + 0.3, -(half / 2 + 0.05), half - 0.25, false, undefined, true);
     }
   }
   // A pad on every county junction.

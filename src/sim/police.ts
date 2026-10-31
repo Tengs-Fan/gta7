@@ -3,7 +3,7 @@
 
 import { clamp, moveAngleTowards, pointSegDist, wrapAngle } from '../core/math';
 import { SWIM_DEPTH, WATER_Y } from '../world/constants';
-import { pastCitySea } from '../world/country';
+import { COUNTY_BOUNDS, pastCitySea } from '../world/country';
 import { rectContains, type Deck } from '../world/layout';
 import type { Lane } from '../world/roads';
 import type { StaticWorld } from '../world/staticWorld';
@@ -14,6 +14,7 @@ import { Helicopter, type Character, type Vehicle } from './entities';
 import { HELI_ROOF_BLAST, heliCrashHit } from './heliCrash';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
+import { SHERIFF_COLOR } from './specs';
 import { COP_SIGHT, type WantedSystem } from './wanted';
 
 const UNITS_BY_LEVEL = [0, 2, 3, 4, 6, 7];
@@ -666,6 +667,8 @@ export class PoliceSystem {
     const x = lane.sx + lane.dx * s;
     const z = lane.sz + lane.dz * s;
     const v = sim.spawnVehicle(kind, x, z, lane.heading);
+    // In Las Lomas County the cruisers are the sheriff's.
+    if (kind === 'police' && rectContains(COUNTY_BOUNDS, x, z)) v.color = SHERIFF_COLOR;
     v.owner = 'police';
     const driver = sim.addDriver(v, kind === 'swat' ? 'swat' : 'cop', pursuit ? 'chase' : 'traffic');
     this.equip(driver, v);
