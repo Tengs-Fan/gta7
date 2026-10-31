@@ -147,7 +147,7 @@ const TREE_GAP = 9;
 const TURN_OFF = { minZ: 88, maxZ: 122 } as const;
 /** Salt of the generator that scatters the scrub, and how many bushes it tries per 1000 m2 of each rise's bounds. */
 const SCRUB_SALT = 0x5c2b;
-const SCRUB_DENSITY = 1.2;
+const SCRUB_DENSITY = 3;
 /** Scrub grows only where a rise stands this high (m), and keeps this far (m) off the fire road, the car park and the turbines. */
 const SCRUB_LOW = 2.5;
 const SCRUB_CLEAR = 7;
