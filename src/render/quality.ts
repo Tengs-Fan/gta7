@@ -66,6 +66,12 @@ export const LIGHTING_TIERS: Readonly<Record<LightingFeature, Readonly<Record<Li
  */
 export const COUNTRY_CELL = 256;
 export const COUNTRY_FOG_MARGIN = 60;
+/**
+ * Its ground is drawn twice per cell (render/country/ground.ts), on every tier alike: a cell whose nearest edge is within
+ * this many metres of the camera shows its near mesh (2 m on the rises' slopes), farther ones their far mesh (16 m). On
+ * the hardware tiers a cell under a rise keeps its far mesh past the fog's cull, for Coyote Ridge's outline in the haze.
+ */
+export const COUNTRY_NEAR = 450;
 
 /** Dynamic point lights shared by the siren, muzzle flash and explosion flash on 'few'. */
 export const FEW_POINT_LIGHTS = 2;

@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { CityView } from '../../src/render/city';
 import { CountryView } from '../../src/render/country';
-import { COUNTRY_CELL, COUNTRY_FOG_MARGIN } from '../../src/render/quality';
+import { COUNTRY_CELL, COUNTRY_FOG_MARGIN, COUNTRY_NEAR } from '../../src/render/quality';
 import { MapImage, MAP_SCALE } from '../../src/ui/mapRender';
 import { BRIDGE_ARCH } from '../../src/world/country';
 import { world } from './helpers';
@@ -143,17 +143,30 @@ describe('drawing Las Lomas County', () => {
     console.log(`[map_render] county: ${meshes.length} meshes, ${meshes.reduce((s, m) => s + tris(m), 0)} triangles`);
   });
 
-  it('hides each cell past the fog\'s far end and the margin, on every tier alike', () => {
-    view.cull(0, 0, 780);
-    const shown = meshes.filter((m) => m.visible);
-    for (const m of meshes) {
-      const bb = new THREE.Box3().setFromObject(m);
-      const d = Math.hypot(Math.max(bb.min.x, 0, -bb.max.x), Math.max(bb.min.z, 0, -bb.max.z));
-      expect(m.visible, m.name).toBe(d <= 780 + COUNTRY_FOG_MARGIN);
-    }
-    expect(shown.length).toBeLessThan(meshes.length);
-    view.cull(-1000, 0, 780);
-    expect(meshes.every((m) => m.visible)).toBe(true);
+  it('hides each cell past the fog\'s far end and the margin, the ground near or far by distance and the rises\' outline kept', () => {
+    // The ground's own cells (ground.ts): the near meshes within COUNTRY_NEAR, the far ones beyond, and those under a rise
+    // past the cull too (country_hills.test.ts).
+    const near = new Set(['country-grass', 'country-sand']);
+    const far = new Set(['country-grass-far', 'country-sand-far']);
+    const check = (x: number, z: number) => {
+      view.cull(x, z, 780);
+      for (const m of meshes) {
+        const bb = new THREE.Box3().setFromObject(m);
+        const cell = (v: number) => Math.floor(v / COUNTRY_CELL) * COUNTRY_CELL;
+        const c = { minX: cell((bb.min.x + bb.max.x) / 2), minZ: cell((bb.min.z + bb.max.z) / 2) };
+        const box = near.has(m.name) || far.has(m.name) ? { minX: c.minX, minZ: c.minZ, maxX: c.minX + COUNTRY_CELL, maxZ: c.minZ + COUNTRY_CELL } : { minX: bb.min.x, minZ: bb.min.z, maxX: bb.max.x, maxZ: bb.max.z };
+        const d = Math.hypot(Math.max(box.minX - x, 0, x - box.maxX), Math.max(box.minZ - z, 0, z - box.maxZ));
+        const reach = d <= 780 + COUNTRY_FOG_MARGIN;
+        const rise = W.layout.country.rises.some((r) => r.bounds.minX < box.maxX && r.bounds.maxX > box.minX && r.bounds.minZ < box.maxZ && r.bounds.maxZ > box.minZ);
+        const want = near.has(m.name) ? d < COUNTRY_NEAR && reach : far.has(m.name) ? d >= COUNTRY_NEAR && (reach || rise) : reach;
+        expect(m.visible, `${m.name} ${d.toFixed(0)} m off at ${x}, ${z}`).toBe(want);
+      }
+    };
+    check(0, 0);
+    expect(meshes.filter((m) => m.visible).length).toBeLessThan(meshes.length);
+    expect(meshes.some((m) => m.visible && m.name === 'country-grass-far')).toBe(true);
+    check(-1000, 0);
+    check(-1475, -100);
   });
 
   it('stands the arch on the posts the sim makes solid', () => {

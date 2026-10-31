@@ -8,6 +8,8 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { CityView } from '../../src/render/city';
 import { CountryView } from '../../src/render/country';
+import { reflectorPosts } from '../../src/render/country/reflectors';
+import { LightSprites } from '../../src/render/lightSprites';
 import { Sim } from '../../src/sim/sim';
 import { COP_SIGHT } from '../../src/sim/wanted';
 import { COUNTRY_ROADS, COUNTY_PLOTS, countryGround } from '../../src/world/country';
@@ -318,6 +320,41 @@ describe('drawing the fire road and Lookout Point', () => {
     expect(box.min.z).toBeCloseTo(LOOKOUT.pad.minZ, 3);
   });
 
+  it('draws the ground near on the sim\'s own heights and far on a 16 m lattice whose skirts cover what it misses at the edges', () => {
+    const meshes = view.group.children.filter((o): o is THREE.Mesh => o instanceof THREE.Mesh);
+    const tris = (name: string) => meshes.filter((m) => m.name === name).reduce((n, m) => n + m.geometry.index!.count / 3, 0);
+    console.log(`[country_hills] ground: near ${tris('country-grass') + tris('country-sand')} triangles, far ${tris('country-grass-far') + tris('country-sand-far')}`);
+    expect(tris('country-grass-far') + tris('country-sand-far')).toBeLessThan((tris('country-grass') + tris('country-sand')) / 8);
+    let skirts = 0;
+    for (const m of meshes.filter((q) => q.name.startsWith('country-grass') || q.name.startsWith('country-sand'))) {
+      const pos = m.geometry.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        // The causeway's verge ends on the promenade's edge, a kerb higher.
+        if (pos.getX(i) >= L.bounds.landMinX) continue;
+        const d = pos.getY(i) - W.baseGround(pos.getX(i), pos.getZ(i));
+        if (Math.abs(d) > 1e-4) {
+          expect(d, `${m.name} at ${pos.getX(i)}, ${pos.getZ(i)}`).toBeCloseTo(-2, 4);
+          skirts++;
+        }
+      }
+    }
+    expect(skirts).toBeGreaterThan(100);
+    // Along a cell's edge across the ridge, the far mesh's chords between its 16 m vertices stay within the skirt of the ground.
+    let worst = 0;
+    for (let z = -560; z < 180; z += 16) {
+      const a = W.baseGround(-1536, z);
+      const b = W.baseGround(-1536, z + 16);
+      for (let t = 0; t <= 16; t += 1) worst = Math.max(worst, Math.abs(a + ((b - a) * t) / 16 - W.baseGround(-1536, z + t)));
+    }
+    for (let x = -1590; x < -1350; x += 16) {
+      const a = W.baseGround(x, -256);
+      const b = W.baseGround(x + 16, -256);
+      for (let t = 0; t <= 16; t += 1) worst = Math.max(worst, Math.abs(a + ((b - a) * t) / 16 - W.baseGround(x + t, -256)));
+    }
+    expect(worst).toBeGreaterThan(0.05);
+    expect(worst).toBeLessThan(1);
+  });
+
   it('stands the parapet and the tower where the sim makes them solid, on the crest', () => {
     const parapet = new THREE.Box3().setFromObject(mesh('lookout-parapet'));
     const solid = W.grid.colliders.find((c) => c.tag === 'wall' && c.minX === LOOKOUT.parapet.minX && c.minZ === LOOKOUT.parapet.minZ)!;
@@ -330,5 +367,38 @@ describe('drawing the fire road and Lookout Point', () => {
     expect(posts.length).toBe(4);
     for (const c of posts) expect(tower.containsPoint(new THREE.Vector3(c.cx, c.y1 - 0.5, c.cz))).toBe(true);
     expect(mesh('fire-lookout').castShadow).toBe(true);
+  });
+});
+
+describe('reflector posts', () => {
+  it('stand every 25 m along both edges of the county\'s roads on its land, off the carriageway and clear of the junctions', () => {
+    const posts = reflectorPosts(W);
+    expect(posts.length).toBeGreaterThan(200);
+    for (const p of posts) {
+      expect(p.x).toBeLessThan(L.bounds.landMinX);
+      const off = offRoad(p.x, p.z);
+      expect(off, `post at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`).toBeGreaterThan(1);
+      expect(off).toBeLessThan(2);
+      expect(p.y).toBe(W.groundHeight(p.x, p.z));
+      expect(W.roads.isOnRoad(p.x, p.z)).toBe(false);
+    }
+  });
+
+  it('shine back only at a lit car whose headlights fall on them', () => {
+    const view = new CountryView(W, new CityView(W));
+    const ls = new LightSprites();
+    const sim = new Sim({ world: freshWorld(), ambient: false, police: false });
+    // Northbound up the Lomas Highway's west leg: the posts ahead light up, those behind stay dark.
+    const car = sim.spawnVehicle('sedan', -1330, 100, Math.PI);
+    ls.begin(new THREE.Vector3(-1330, 4, 108), 800);
+    view.reflectors.glow(ls, car, 1);
+    const lit = ls.counts.glows;
+    expect(lit).toBeGreaterThan(3);
+    const pos = ls.glows.geometry.getAttribute('position');
+    for (let i = 0; i < lit; i++) expect(pos.getZ(i)).toBeLessThan(100);
+    ls.begin(new THREE.Vector3(-1330, 4, 108), 800);
+    view.reflectors.glow(ls, null, 1);
+    expect(ls.counts.glows).toBe(0);
+    expect(view.reflectors.count).toBe(reflectorPosts(W).length);
   });
 });

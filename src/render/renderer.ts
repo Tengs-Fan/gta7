@@ -1051,6 +1051,8 @@ export class GameRenderer {
         if (lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * (lamps / 2));
       }
     }
+    // Las Lomas County's reflector posts shine back at the player's own lit car.
+    this.country.reflectors.glow(ls, playerCar && this.vehicleViews.get(playerCar.id)?.lightsOn ? playerCar : null, strength);
     if (this.wet > 0.01) {
       this.offerLampStreaks();
       // By day the sky-lit road outshines a signal's reflection (streaks scale with the dark too).
