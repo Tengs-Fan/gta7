@@ -26,7 +26,7 @@ import { locate, type Beat, type Song, type Style } from './stations/style';
 import { surf } from './stations/surf';
 import { synthwave } from './stations/synthwave';
 import type { NodeTally } from './tally';
-import { AZURA_FORMAT, Bag, TalkProgramme, TalkShow, type TalkFormat, type TalkSegment } from './talk';
+import { AZURA_FORMAT, Bag, HOST_BED, TalkProgramme, TalkShow, type TalkFormat, type TalkSegment } from './talk';
 
 export interface StationDef {
   name: string;
@@ -40,6 +40,21 @@ export interface StationDef {
 }
 
 /**
+ * SAPR 107.3, San Azura Public Radio: Reginald Ashcombe-Pryce's review, Pru's garden line, the next chapter of Harbor
+ * Lights and a pledge break in turn, over a soft triangle pad; the serial plays over rain, the underwriting over a pad
+ * that breathes. Its jingle climbs a tenth and settles.
+ */
+export const SAPR_FORMAT: TalkFormat = {
+  show: 'sapr',
+  slots: [['host'], ['call'], ['serial'], ['news']],
+  adChance: 0.3,
+  bed: { ...AZURA_FORMAT.bed, type: 'triangle', cutoff: 900 },
+  beds: { serial: { ...AZURA_FORMAT.bed, level: 0, noise: { filters: [['highpass', 300], ['lowpass', 1400]], level: HOST_BED } } },
+  adBed: { ...AZURA_FORMAT.bed, cutoff: 800, tremolo: 1.5 },
+  bells: [0, 7, 16, 12],
+};
+
+/**
  * THE BOWL 1090 AM: Big Ron's rant, two callers and the sports desk in turn, over a low pad and a crowd that swells
  * and falls; its jingle is a stadium organ's charge.
  */
@@ -47,9 +62,23 @@ export const BOWL_FORMAT: TalkFormat = {
   show: 'bowl',
   slots: [['host'], ['call'], ['call'], ['news']],
   adChance: 0.6,
-  bed: { ...AZURA_FORMAT.bed, cutoff: 600, noise: { hz: 700, q: 0.8, level: 0.03, swell: 0.1 } },
+  bed: { ...AZURA_FORMAT.bed, cutoff: 600, noise: { filters: [['bandpass', 700, 0.8]], level: 0.03, swell: 0.1 } },
   adBed: AZURA_FORMAT.adBed,
   bells: [0, 7, 12, 7, 12],
+  am: true,
+};
+
+/**
+ * STATIC 1260 AM, Beyond the Bay: Lyle Truett's theory, a caller, another theory, another caller and the Signal in
+ * turn, over a pad that wavers like a theremin and a low wind; its jingle falls through a tritone.
+ */
+export const STATIC_FORMAT: TalkFormat = {
+  show: 'static',
+  slots: [['host'], ['call'], ['host'], ['call'], ['news']],
+  adChance: 0.4,
+  bed: { ...AZURA_FORMAT.bed, vibrato: { hz: 5.5, cents: 25 }, noise: { filters: [['bandpass', 450, 1.2]], level: 0.06, swell: 0.06 } },
+  adBed: AZURA_FORMAT.adBed,
+  bells: [12, 11, 6, 0],
   am: true,
 };
 
@@ -109,7 +138,9 @@ export const STATIONS: readonly StationDef[] = [
     style: chiptune,
   },
   { name: 'AZURA TALK 104.5', genre: 'talk', tag: 'Talk, news, nonsense', style: null, talk: AZURA_FORMAT },
+  { name: 'SAPR 107.3', genre: 'talk', tag: 'Calm voices. Pledge now.', style: null, talk: SAPR_FORMAT },
   { name: 'THE BOWL 1090 AM', genre: 'talk', tag: 'Sports talk, zero wins', style: null, talk: BOWL_FORMAT },
+  { name: 'STATIC 1260 AM', genre: 'talk', tag: "It's always 3 AM here", style: null, talk: STATIC_FORMAT },
 ];
 
 /** AZURA TALK's place on the dial: the talk station the tools act on while no talk station is tuned. */

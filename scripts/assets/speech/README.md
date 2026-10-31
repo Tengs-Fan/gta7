@@ -6,7 +6,7 @@ The voices are [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) v1.0 (Apa
 | File | Role |
 | --- | --- |
 | `script.ts` | The cast (a Kokoro voice or blend per role), AZURA TALK's programme (Chet Bramble's monologues, callers, the newsdesk, traffic and idents), the ads of every talk station and the shouts of people, officers and gangs. |
-| `shows/` | The other talk shows, one file each (`bowl.ts`: THE BOWL 1090 AM), collected in `shows/index.ts`: their pieces, their own ads and their idents. |
+| `shows/` | The other talk shows, one file each (`sapr.ts`: SAPR 107.3 and Harbor Lights; `bowl.ts`: THE BOWL 1090 AM; `static.ts`: STATIC 1260 AM), collected in `shows/index.ts`: their pieces, their own ads and their idents. |
 | `djs.ts` | The music stations' DJs: a voice each (a blend where a voice alone is already somebody else), their idents, banter, lines for the night, the rain, a chase and a getaway, and the frames they announce and back-announce the hits of `src/audio/stations/playlists.ts` with. |
 | `dialogue.ts` | Reads the mission dialogue from `src/sim/missions/*.ts`: every `m.say(SPEAKER, …)` and `[SPEAKER, …]` intro line, both branches of a ternary, template literals evaluated against the generated city. Adds the phone's offer and busy lines. |
 | `phrases.ts` | The police dispatcher's phrases, from `src/sim/dispatch.ts`'s tables, the vehicle names and the city's zone names. The scanner joins them, longest match first. |
@@ -35,6 +35,7 @@ The model downloads from Hugging Face on first use. A CUDA GPU renders the whole
 A piece is one clip: its lines in order, with a short pause between them.
 `show` names the talk show it belongs to (AZURA TALK's by default); an ad lists in `shows` every show whose breaks may play it.
 An ad campaign is a `series` of pieces with a `part` each, from 1: the ad pools hold its first part, and each time a programme draws it, the next part airs.
+A `serial` piece is a chapter: a station whose format has a slot of the serial alone airs its chapters in the order they are written, one each time round its slots, and a chapter may run to a minute and a half.
 A line may carry options as its third element: `{ speed: 1.5 }` for fine print read fast (an ad's lines are otherwise read at 1.05), `{ phone: true }` for a role down a phone line just this once, `{ phone: false }` for a caller who is in the room.
 A cast entry such as `'am_onyx,am_fenrir'` is a blend: Kokoro averages the voices, and the first one sets the language.
 
@@ -46,7 +47,7 @@ A new mission speaker needs a role in `SPEAKERS` (`script.ts`); a mission templa
 
 ## Output
 
-- `dlg-<role>-<hash>`: a line of dialogue; `dsp-<words>`: a dispatch phrase; `talk-<piece>`: a talk station piece (THE BOWL's are `talk-bowl-…`); `bark-<kind>-<voice>-<n>`: a shout.
+- `dlg-<role>-<hash>`: a line of dialogue; `dsp-<words>`: a dispatch phrase; `talk-<piece>`: a talk station piece (SAPR's are `talk-sapr-…`, THE BOWL's `talk-bowl-…`, STATIC's `talk-static-…`); `bark-<kind>-<voice>-<n>`: a shout.
 - `ident-<station>-<n>`: a music station's ident; `dj-<station>-<kind>-<n>`: a DJ's link (of the kinds `front` and `back`, the announce and the back-announce of hit `n`).
 - `news-<hash>`: a newsdesk sentence (`speech.json` keys `news` by its text); `news-m-<mission>` and `news-m-<mission>-later`: a mission's piece and its follow-up.
 - Every clip is levelled to -20 dBFS RMS over its voiced samples, peaks under -1 dBFS.

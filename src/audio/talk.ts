@@ -1,9 +1,9 @@
 // The talk stations: each a seeded, endless programme of its show (AZURA TALK's Chet Bramble with his callers, the
-// newsdesk and the traffic; THE BOWL's Big Ron Tackett with his), station idents over a jingle and ad breaks, with short
-// gaps of dead air between segments. Every piece is a recorded clip (src/sim/speech.ts). A TalkFormat makes a station
-// sound like itself: the order of its show, its beds, its jingle's motif and, on AM, a narrow band. Every programme runs
-// on its own clock like a live broadcast: tuning in lands mid-segment. TalkProgramme is pure (the schedule); TalkShow
-// plays the current segment's clip over a soft bed.
+// newsdesk and the traffic; THE BOWL's Big Ron Tackett with his; SAPR's critic, garden line and serial; STATIC's Lyle
+// Truett), station idents over a jingle and ad breaks, with short gaps of dead air between segments. Every piece is a
+// recorded clip (src/sim/speech.ts). A TalkFormat makes a station sound like itself: the order of its show, its beds,
+// its jingle's motif and, on AM, a narrow band. Every programme runs on its own clock like a live broadcast: tuning in
+// lands mid-segment. TalkProgramme is pure (the schedule); TalkShow plays the current segment's clip over a soft bed.
 
 import { Rng } from '../core/rng';
 import { SPEECH, type ShowId, type TalkKind as PieceKind } from '../sim/speech';
@@ -22,6 +22,8 @@ export interface TalkSegment {
   seed: number;
   /** The recorded piece it plays ('' for a gap or a desk). */
   clip: string;
+  /** A show segment's kind of piece (a monologue, a call, a serial's chapter...). */
+  piece?: PieceKind;
   /** A desk's bulletin: the clips it reads in order. */
   clips?: readonly string[];
 }
@@ -70,7 +72,29 @@ export class Bag {
   }
 }
 
-/** A bed under a segment's voice: a three-note pad, optionally over a band of noise that swells and falls (a crowd). */
+/** Draws the pieces of a pool in order, from a seeded one on and round again (a serial's chapters). */
+export class Serial {
+  private n: number;
+
+  constructor(
+    private readonly pool: readonly string[],
+    rng: Rng,
+  ) {
+    this.n = rng.int(0, pool.length - 1);
+  }
+
+  next(): string {
+    return this.pool[this.n++ % this.pool.length]!;
+  }
+}
+
+/** A filter of a bed's noise: its type, Hz and, if not the default, Q. */
+export type NoiseFilter = readonly [BiquadFilterType, number, number?];
+
+/**
+ * A bed under a segment's voice: a three-note pad, optionally over a band of noise (a crowd that swells and falls, or
+ * steady rain). A bed of level 0 has no pad, only its noise.
+ */
 export interface Bed {
   type: OscillatorType;
   /** The pad's low-pass (Hz). */
@@ -78,21 +102,25 @@ export interface Bed {
   level: number;
   /** Hz of the pad's tremolo (0: none). */
   tremolo: number;
-  /** The radio's noise through a band-pass at `hz` and `q`, its gain swelling between a fifth and all of `level` at `swell` Hz. */
-  noise?: { hz: number; q: number; level: number; swell: number };
+  /** The pad's vibrato: `cents` either side at `hz`. */
+  vibrato?: { hz: number; cents: number };
+  /** The radio's noise through `filters` in turn at `level`, or swelling between a fifth and all of it at `swell` Hz. */
+  noise?: { filters: readonly NoiseFilter[]; level: number; swell?: number };
 }
 
 /**
  * How a talk station sounds. Its show plays `slots` in turn, one per block: block n's piece is drawn from the pieces of
  * the kinds of slots[n % slots.length]. Slots of the same kinds draw from one Bag, so a show piece still airs only once
- * every piece of its kinds has. A break of ads comes before a block's ident with `adChance` (always before the first).
- * `bells` is the jingle's motif (semitones), `am` puts the station on the AM band (radio.ts).
+ * every piece of its kinds has; a slot of the serial alone plays its chapters in order instead. A break of ads comes
+ * before a block's ident with `adChance` (always before the first). A show piece plays over its kind's bed in `beds`,
+ * else over `bed`. `bells` is the jingle's motif (semitones), `am` puts the station on the AM band (radio.ts).
  */
 export interface TalkFormat {
   show: ShowId;
   slots: readonly (readonly PieceKind[])[];
   adChance: number;
   bed: Bed;
+  beds?: Partial<Record<PieceKind, Bed>>;
   adBed: Bed;
   bells: readonly number[];
   am?: boolean;
@@ -103,7 +131,7 @@ const HOST_LEVEL = 0.5;
 const AD_LEVEL = 0.46;
 const IDENT_LEVEL = 0.46;
 /** The soft pad under the host: keeps the air from going dead between phrases, about 18 dB under the voice. */
-const HOST_BED = 0.05;
+export const HOST_BED = 0.05;
 const AD_BED = 0.05;
 
 /** AZURA TALK: Chet alone, a caller, the newsdesk or the traffic in any order, over a soft sine pad; ads bounce on a square one. */
@@ -128,8 +156,9 @@ export function deskLength(clips: readonly string[]): number {
 export class TalkProgramme {
   readonly segments: TalkSegment[] = [];
   private readonly rng: Rng;
-  /** The Bag of each slot. */
-  private readonly slots: Bag[];
+  private readonly pools: Record<PieceKind, string[]>;
+  /** The Bag of each slot, or the serial. */
+  private readonly slots: (Bag | Serial)[];
   private readonly ads: Bag;
   private readonly idents: Bag;
   /** How many times each campaign has aired, by its first part. */
@@ -143,11 +172,11 @@ export class TalkProgramme {
     readonly format: TalkFormat = AZURA_FORMAT,
   ) {
     this.rng = new Rng(seed);
-    const pools = SPEECH.talk[format.show];
-    const bags = new Map<string, Bag>();
+    const pools = (this.pools = SPEECH.talk[format.show]);
+    const bags = new Map<string, Bag | Serial>();
     this.slots = format.slots.map((kinds) => {
       const key = kinds.join();
-      if (!bags.has(key)) bags.set(key, new Bag(kinds.flatMap((k) => pools[k]), this.rng));
+      if (!bags.has(key)) bags.set(key, key === 'serial' ? new Serial(pools.serial, this.rng) : new Bag(kinds.flatMap((k) => pools[k]), this.rng));
       return bags.get(key)!;
     });
     this.ads = new Bag(pools.ad, this.rng);
@@ -157,8 +186,8 @@ export class TalkProgramme {
     this.host();
   }
 
-  private push(kind: TalkKind, dur: number, clip: string): void {
-    this.segments.push({ kind, start: this.end, dur, seed: (this.rng.next() * 0xffffffff) >>> 0, clip });
+  private push(kind: TalkKind, dur: number, clip: string, piece?: PieceKind): void {
+    this.segments.push({ kind, start: this.end, dur, seed: (this.rng.next() * 0xffffffff) >>> 0, clip, piece });
     this.end += dur;
   }
 
@@ -172,8 +201,10 @@ export class TalkProgramme {
   }
 
   private host(): void {
-    const clip = this.slots[this.blocks++ % this.slots.length]!.next();
-    this.push('host', HOST_LEAD + clipLen(clip) + HOST_TAIL, clip);
+    const slot = this.blocks++ % this.slots.length;
+    const clip = this.slots[slot]!.next();
+    const piece = this.format.slots[slot]!.find((k) => this.pools[k].includes(clip));
+    this.push('host', HOST_LEAD + clipLen(clip) + HOST_TAIL, clip, piece);
     this.gap();
   }
 
@@ -383,7 +414,7 @@ export class TalkShow {
     switch (seg.kind) {
       case 'host':
         this.voice(seg, seg.clip, t0 + HOST_LEAD, HOST_LEVEL);
-        this.pad(seg.seed, t0, end, format.bed);
+        this.pad(seg.seed, t0, end, format.beds?.[seg.piece!] ?? format.bed);
         break;
       case 'ad':
         this.voice(seg, seg.clip, t0 + AD_LEAD, AD_LEVEL);
@@ -423,24 +454,11 @@ export class TalkShow {
   }
 
   /**
-   * The bed: a three-note pad changing chord every 4 s and, on some stations, a band of noise swelling under it, faded
-   * in and out at the segment's ends. The tremolo pulses the pad (the ad bed's bounce).
+   * The bed: a three-note pad changing chord every 4 s and, on some stations, a band of noise under it, faded in and out
+   * at the segment's ends. The tremolo pulses the pad (the ad bed's bounce); the vibrato bends its notes (STATIC's waver).
    */
   private pad(seed: number, t0: number, end: number, bed: Bed): void {
     const ctx = this.ctx;
-    const r = new Rng(seed ^ 0x5bd1e995);
-    const root = 50 + r.int(0, 7);
-    const chords = [
-      [0, 3, 7],
-      [-4, 0, 3],
-      [-2, 2, 5],
-      [-5, -1, 2],
-    ];
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = withinParam(lp.frequency, bed.cutoff);
-    const level = ctx.createGain();
-    level.gain.value = bed.level;
     const gain = ctx.createGain();
     const now = ctx.currentTime;
     const a = Math.max(now, t0);
@@ -449,61 +467,84 @@ export class TalkShow {
     gain.gain.linearRampToValueAtTime(1, a + PAD_FADE);
     gain.gain.setValueAtTime(1, Math.max(a + PAD_FADE, end - PAD_FADE));
     gain.gain.linearRampToValueAtTime(0, Math.max(a + 2 * PAD_FADE, end));
-    level.connect(gain);
-    const sources: AudioScheduledSourceNode[] = [];
-    if (bed.tremolo > 0) {
-      const trem = ctx.createGain();
-      trem.gain.value = TREMOLO_BASE;
-      const lfo = ctx.createOscillator();
-      lfo.frequency.value = bed.tremolo;
-      const depth = ctx.createGain();
-      depth.gain.value = TREMOLO_DEPTH;
-      lfo.connect(depth);
-      depth.connect(trem.gain);
-      lp.connect(trem);
-      trem.connect(level);
-      this.source(lfo, a, end);
-      sources.push(lfo);
-    } else lp.connect(level);
     gain.connect(this.out);
-    const order = r.shuffle([0, 1, 2, 3]);
-    for (let v = 0; v < 3; v++) {
+    const sources: AudioScheduledSourceNode[] = [];
+    const lfo = (hz: number, depth: number, param: AudioParam) => {
       const o = ctx.createOscillator();
-      o.type = bed.type;
-      for (let i = 0, t = t0; t < end; i++, t += 4) {
-        const f = midi(root + chords[order[i % 4]!]![v]! + 12);
-        o.frequency.setValueAtTime(f, Math.max(now, t));
-      }
+      o.frequency.value = hz;
       const g = ctx.createGain();
-      g.gain.value = 1 / 3;
+      g.gain.value = depth;
       o.connect(g);
-      g.connect(lp);
+      g.connect(param);
       this.source(o, a, end);
       sources.push(o);
+      return g;
+    };
+    if (bed.level > 0) {
+      const r = new Rng(seed ^ 0x5bd1e995);
+      const root = 50 + r.int(0, 7);
+      const chords = [
+        [0, 3, 7],
+        [-4, 0, 3],
+        [-2, 2, 5],
+        [-5, -1, 2],
+      ];
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = withinParam(lp.frequency, bed.cutoff);
+      const level = ctx.createGain();
+      level.gain.value = bed.level;
+      level.connect(gain);
+      if (bed.tremolo > 0) {
+        const trem = ctx.createGain();
+        trem.gain.value = TREMOLO_BASE;
+        lfo(bed.tremolo, TREMOLO_DEPTH, trem.gain);
+        lp.connect(trem);
+        trem.connect(level);
+      } else lp.connect(level);
+      const order = r.shuffle([0, 1, 2, 3]);
+      const voices: OscillatorNode[] = [];
+      for (let v = 0; v < 3; v++) {
+        const o = ctx.createOscillator();
+        o.type = bed.type;
+        for (let i = 0, t = t0; t < end; i++, t += 4) {
+          const f = midi(root + chords[order[i % 4]!]![v]! + 12);
+          o.frequency.setValueAtTime(f, Math.max(now, t));
+        }
+        const g = ctx.createGain();
+        g.gain.value = 1 / 3;
+        o.connect(g);
+        g.connect(lp);
+        this.source(o, a, end);
+        sources.push(o);
+        voices.push(o);
+      }
+      if (bed.vibrato) {
+        const depth = lfo(bed.vibrato.hz, bed.vibrato.cents, voices[0]!.detune);
+        for (const o of voices.slice(1)) depth.connect(o.detune);
+      }
     }
     if (bed.noise) {
       const n = bed.noise;
       const src = ctx.createBufferSource();
       src.buffer = this.noise;
       src.loop = true;
-      const bp = ctx.createBiquadFilter();
-      bp.type = 'bandpass';
-      bp.frequency.value = n.hz;
-      bp.Q.value = n.q;
+      let x: AudioNode = src;
+      for (const [type, hz, q] of n.filters) {
+        const f = ctx.createBiquadFilter();
+        f.type = type;
+        f.frequency.value = hz;
+        if (q !== undefined) f.Q.value = q;
+        x.connect(f);
+        x = f;
+      }
       const swell = ctx.createGain();
-      swell.gain.value = n.level * 0.6;
-      const lfo = ctx.createOscillator();
-      lfo.frequency.value = n.swell;
-      const depth = ctx.createGain();
-      depth.gain.value = n.level * 0.4;
-      lfo.connect(depth);
-      depth.connect(swell.gain);
-      src.connect(bp);
-      bp.connect(swell);
+      swell.gain.value = n.swell ? n.level * 0.6 : n.level;
+      if (n.swell) lfo(n.swell, n.level * 0.4, swell.gain);
+      x.connect(swell);
       swell.connect(gain);
       this.source(src, a, end);
-      this.source(lfo, a, end);
-      sources.push(src, lfo);
+      sources.push(src);
     }
     this.parts.push({ gain, sources });
   }

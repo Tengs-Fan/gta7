@@ -3,5 +3,7 @@
 
 import type { TalkPiece } from '../script';
 import { BOWL } from './bowl';
+import { SAPR } from './sapr';
+import { STATIC } from './static';
 
-export const SHOW_PIECES: readonly TalkPiece[] = [...BOWL];
+export const SHOW_PIECES: readonly TalkPiece[] = [...BOWL, ...SAPR, ...STATIC];

@@ -4,9 +4,10 @@
 
 import index from '../assets/speech/speech.json';
 
-export type TalkKind = 'host' | 'call' | 'news' | 'ad' | 'ident';
-/** The talk shows: AZURA TALK's and THE BOWL's. */
-export type ShowId = 'azura' | 'bowl';
+/** A talk piece's kind: a serial's chapters air in order. */
+export type TalkKind = 'host' | 'call' | 'news' | 'ad' | 'ident' | 'serial';
+/** The talk shows: AZURA TALK's, THE BOWL's, SAPR's and STATIC's. */
+export type ShowId = 'azura' | 'bowl' | 'sapr' | 'static';
 export type BarkKind = 'greet' | 'hurt' | 'jacked' | 'panic' | 'rammed' | 'witness' | 'freeze' | 'shots' | 'officerDown' | 'pullOver' | 'arrest' | 'turf' | 'hail' | 'hailMissed' | 'cabbie';
 /**
  * What a music station's DJ says over a song's intro: an ident, a hit's announce ('front') or back-announce ('back'),

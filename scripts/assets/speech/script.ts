@@ -35,6 +35,15 @@ export const CAST = {
   nate: 'am_eric',
   sal: 'am_santa',
   pembury: 'bm_lewis,bm_daniel',
+  reginald: 'bm_daniel',
+  pru: 'bf_emma,bf_lily',
+  marjorie: 'bf_alice,bf_isabella',
+  sam: 'am_michael,am_adam',
+  marguerite: 'af_nicole,af_bella',
+  lefty: 'am_santa,am_echo',
+  lyle: 'bm_fable',
+  trish: 'af_kore',
+  reader: 'af_alloy',
 } as const;
 
 export type Role = keyof typeof CAST;
@@ -46,10 +55,15 @@ export type Role = keyof typeof CAST;
 export const SAY: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bAzura\b/g, '[Azura](/ɑzˈuɹə/)'],
   [/\bCitybus\b/g, 'City bus'],
+  [/\bReginald\b/g, 'Redginald'],
+  [/\bAshcombe\b/g, 'Ashkum'],
+  [/\bMarguerite\b/g, '[Marguerite](/mˌɑɹɡəɹˈit/)'],
+  [/\bSzabo\b/g, 'Sahbo'],
+  [/\bTruett\b/g, 'Trooett'],
 ];
 
 /** Talk station roles heard down a phone line or a radio link: their lines are band-limited when rendered. */
-export const PHONE_ROLES: ReadonlySet<Role> = new Set<Role>(['gary', 'linda', 'marcus', 'doris', 'vince', 'jen', 'kid', 'skip', 'sal']);
+export const PHONE_ROLES: ReadonlySet<Role> = new Set<Role>(['gary', 'linda', 'marcus', 'doris', 'vince', 'jen', 'kid', 'skip', 'sal', 'trish']);
 
 /** Speakers of subtitled lines (missions, phone, the taxi's fares), by the subtitle's name without " (phone)", and the role that voices them. */
 export const SPEAKERS: Readonly<Record<string, Role>> = {
@@ -305,7 +319,7 @@ export const TALK: readonly TalkPiece[] = [
     ],
   },
 
-  // Ads. THE BOWL's breaks carry the ones that name it in `shows`, and its own (shows/bowl.ts).
+  // Ads. THE BOWL and STATIC air the ones that name them in `shows`, and their own (shows/bowl.ts, shows/static.ts).
   {
     id: 'ad-pipsqueak',
     kind: 'ad',
@@ -384,7 +398,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-torque',
     kind: 'ad',
-    shows: ['azura', 'bowl'],
+    shows: ['azura', 'bowl', 'static'],
     lines: [
       ['announcer', "Torque energy drink. It tastes like a battery and feels like a car crash. Now in blue flavor. What is blue flavor? Nobody knows."],
       ['announcer', "Torque. Sleep is for people with nothing to do."],
@@ -393,6 +407,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-insurance',
     kind: 'ad',
+    shows: ['azura', 'static'],
     lines: [
       ['announcer', "Azura Mutual Insurance. Car fire? Covered. Sinkhole? Covered. Car fire in a sinkhole? Let's not get greedy."],
       ['announcer', "Azura Mutual. We're probably there for you."],
@@ -417,6 +432,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-tacos',
     kind: 'ad',
+    shows: ['azura', 'static'],
     lines: [
       ['announcer', "Taco Tornado. Thirty six fillings, one regrettable decision. Try the Inferno Burrito, now served with a waiver."],
       ['announcer', "Taco Tornado. Open late, because you are up late."],
@@ -433,6 +449,7 @@ export const TALK: readonly TalkPiece[] = [
   {
     id: 'ad-hillcrest',
     kind: 'ad',
+    shows: ['azura', 'static'],
     lines: [
       ['announcer', "Hillcrest Heights. Luxury living for people who are just a little bit better than you."],
       ['announcer', "Three car garages. Two car families. One very strict homeowners association. Hillcrest Heights. Keep off the grass. We mean it."],
