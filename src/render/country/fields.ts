@@ -3,7 +3,7 @@
 //   along its rows; wheat's ripples in the wind;
 // - corn and sunflowers are one block each beyond the ring round the camera: an opaque top textured as the crop seen
 //   from above and sides of stalks with a ragged top, front faces only, so from inside a field only the plants show;
-// - within the ring (QUALITY's CROP_RING: smaller on Medium and Low, none in software), the plants themselves, from
+// - within the ring (quality.ts CROP_RING: smaller on Medium and Low, none in software or from RING_TOP up), the plants, from
 //   fixed pools: Hollister Farm's corn (its ten-stalk cards, swaying on the props' wind), wheat tufts and sunflowers,
 //   whose heads turn with the sun. The pools are refilled when the camera crosses into another FIELD_CELL cell, each
 //   plant at its own spot of its field's lattice (hashed, so nothing swims between refills), the ring centred on the
@@ -34,7 +34,7 @@ const LATTICE: Partial<Record<Crop, { along: number; across: number }>> = {
   wheat: { along: 0.8, across: 0.8 },
   sunflower: { along: 0.9, across: 1 },
 };
-/** Wheat's height (m) and its ripple: how far the tops lean at most per unit of the wind's sway amplitude. */
+/** Wheat's height (m). */
 const WHEAT_H = 0.95;
 /** A sunflower's head: its height, and the head's radius. */
 const SUN_HEAD_Y = 1.75;

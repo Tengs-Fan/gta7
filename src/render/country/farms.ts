@@ -1,9 +1,9 @@
 // Las Lomas County's farmsteads (world/country/farms.ts), drawn only: their colliders are the barns' garage walls and
 // roofs, the farmhouses' buildings, the props' and the hedgerows'. The barns' gambrel roofs over the garages' slabs
 // (structures.ts draws the walls and slabs), their trim and loft doors; the dairy's silos, the grain bins, the
-// windpump's tower and stock tank, the signs, mailboxes and ladders: one draw, its boards painted on a small atlas of
-// its own (city/attractions.ts Atlas). The hedgerows are a second, the farmyards' and drives' dirt a third; the
-// windpump's wheel turns in the wind.
+// windpump's tower and stock tank, the signs, mailboxes and ladders: one draw over the four farms, its boards painted
+// on a small atlas of its own (city/attractions.ts Atlas). The hedgerows are a second, the farmyards' and drives' dirt
+// a third; the windpump's wheel turns in the wind.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -242,7 +242,7 @@ export class FarmsView {
     for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.5, (blank[0] + blank[1]) / 2);
     const geo = mergeGeometries([decor, painted.build()], false)!;
     decor.dispose();
-    view.add(geo, new THREE.MeshStandardMaterial({ map: toTexture(atlas.canvas, true, false), vertexColors: true, roughness: 0.8 }), { shadow: true, name: 'farmsteads' });
+    view.add(geo, new THREE.MeshStandardMaterial({ map: toTexture(atlas.canvas, true, false), vertexColors: true, roughness: 0.8 }), { shadow: true, name: 'farmsteads', split: false });
 
     // The hedgerows: a leafy box each, lumped along its top.
     const hedges = new GeoBuilder(false);
@@ -259,7 +259,7 @@ export class FarmsView {
         else hedges.box(h.minX + 0.1, HEDGE_H - 0.3, h.minZ + a, h.maxX - 0.1, top, h.minZ + b, { uv: { kind: 'world', scale: 3 } });
       }
     }
-    view.add(hedges.build(), new THREE.MeshStandardMaterial({ map: hedgeTexture(), roughness: 0.95 }), { shadow: true, name: 'hedgerows' });
+    view.add(hedges.build(), new THREE.MeshStandardMaterial({ map: hedgeTexture(), roughness: 0.95 }), { shadow: true, name: 'hedgerows', split: false });
 
     // The farmyards' and the drives' dirt, just over the grass; a drive follows the ground out to the road.
     const dirt = new GeoBuilder(false);

@@ -745,15 +745,17 @@ export class PropsView {
   /**
    * Las Lomas County's farm props (world/country/farms.ts; the silos, bins and the windpump are the farms' own drawing,
    * render/country/farms.ts): fences, the propane tank, the scarecrows and the bale stacks, and the cows, which nod
-   * as they graze (their heads turned about the neck by the foliage's clock).
+   * as they graze (their heads turned about the neck by the foliage's clock). Few and small, spread over the county's
+   * four farms: one batch each, not one per cell.
    */
   private buildFarmProps(get: (k: PropKind) => number[]): void {
     const painted = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.8 });
-    this.makeInstanced(farmFenceGeometry(), painted, get('fence'), PropsView.standard);
-    this.makeInstanced(propaneGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.4, metalness: 0.2 }), get('propane'), PropsView.standard);
-    this.makeInstanced(scarecrowGeometry(), painted, get('scarecrow'), PropsView.standard);
+    const one = { chunked: true } as const;
+    this.makeInstanced(farmFenceGeometry(), painted, get('fence'), PropsView.standard, one);
+    this.makeInstanced(propaneGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.4, metalness: 0.2 }), get('propane'), PropsView.standard, one);
+    this.makeInstanced(scarecrowGeometry(), painted, get('scarecrow'), PropsView.standard, one);
     const bale = new THREE.MeshStandardMaterial({ map: baleTexture(), roughness: 0.95 });
-    this.makeInstanced(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), bale, get('bale'), (p, m) => m.compose(new THREE.Vector3(p.x, p.y, p.z), new THREE.Quaternion(), new THREE.Vector3(p.w, p.h, p.d)));
+    this.makeInstanced(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), bale, get('bale'), (p, m) => m.compose(new THREE.Vector3(p.x, p.y, p.z), new THREE.Quaternion(), new THREE.Vector3(p.w, p.h, p.d)), one);
     const hide = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: cowTexture(), roughness: 0.85 });
     const time = this.windUniforms.uWindTime;
     hide.onBeforeCompile = (shader) => {
@@ -776,7 +778,7 @@ export class PropsView {
     };
     hide.customProgramCacheKey = () => 'gta7-cow';
     const coats = [0xffffff, 0xffffff, 0xb07a48, 0x2a2624];
-    this.makeInstanced(cowGeometry(), hide, get('cow'), PropsView.standard, { color: (p, c) => c.setHex(coats[p.color]!) });
+    this.makeInstanced(cowGeometry(), hide, get('cow'), PropsView.standard, { ...one, color: (p, c) => c.setHex(coats[p.color]!) });
   }
 
   /**
