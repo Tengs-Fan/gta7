@@ -2,7 +2,8 @@ import type { V3 } from '../../src/core/math';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import { neutralInput, type PlayerInput } from '../../src/sim/input';
 import { Sim, type SimOptions } from '../../src/sim/sim';
-import type { Lane, RoadNetwork } from '../../src/world/roads';
+import type { Lane, RoadNetwork, RoadNode } from '../../src/world/roads';
+import type { RoadLine } from '../../src/world/layout';
 import { StaticWorld } from '../../src/world/staticWorld';
 
 let shared: StaticWorld | null = null;
@@ -110,4 +111,89 @@ export function placeInCar(sim: Sim, v: Vehicle): void {
 export function allFinite(sim: Sim): boolean {
   const ok = (v: V3) => Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
   return sim.vehicles.every((v: Vehicle) => ok(v.pos) && Number.isFinite(v.heading) && Number.isFinite(v.vel.x)) && sim.characters.every((c: Character) => ok(c.pos) && ok(c.vel));
+}
+
+// ---------------------------------------------------------------------------
+// Frozen copies of the city's own lookups, as they were before Las Lomas County joined the lane graph (docs/map.md):
+// tests/unit/city_guard.test.ts holds the live ones to them. They see only the grid (nodes with i >= 0, lanes on a road
+// line with index >= 0), which is all the city ever had.
+
+const gridLaneCache = new WeakMap<RoadNetwork, Lane[]>();
+
+function gridLanesOf(roads: RoadNetwork): Lane[] {
+  let lanes = gridLaneCache.get(roads);
+  if (!lanes) {
+    lanes = roads.lanes.filter((l) => l.line.index >= 0);
+    gridLaneCache.set(roads, lanes);
+  }
+  return lanes;
+}
+
+function frozenNearestIndex(lines: RoadLine[], v: number): number {
+  let best = 0;
+  let bd = Infinity;
+  for (let i = 0; i < lines.length; i++) {
+    const d = Math.abs(lines[i]!.pos - v);
+    if (d < bd) {
+      bd = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+function frozenSegmentIndex(lines: RoadLine[], v: number): number {
+  for (let i = 0; i < lines.length - 1; i++) if (v < lines[i + 1]!.pos) return i;
+  return lines.length - 2;
+}
+
+/** RoadNetwork.nearestNode as the city had it. */
+export function frozenNearestNode(roads: RoadNetwork, x: number, z: number): RoadNode {
+  const node = roads.node(frozenNearestIndex(roads.layout.vLines, x), frozenNearestIndex(roads.layout.hLines, z));
+  if (node.degree > 0) return node;
+  let best = roads.live[0]!;
+  let bd = Infinity;
+  for (const n of roads.live) {
+    const d = (n.x - x) ** 2 + (n.z - z) ** 2;
+    if (d < bd) {
+      bd = d;
+      best = n;
+    }
+  }
+  return best;
+}
+
+/** RoadNetwork.nearestLane as the city had it. */
+export function frozenNearestLane(roads: RoadNetwork, x: number, z: number, heading?: number): { lane: Lane; s: number; dist: number } {
+  const { vLines, hLines } = roads.layout;
+  const candidates: Lane[] = [];
+  const vi = frozenNearestIndex(vLines, x);
+  const hj = frozenNearestIndex(hLines, z);
+  const sj = frozenSegmentIndex(hLines, z);
+  candidates.push(...roads.lanesBetween(roads.id(vi, sj), roads.id(vi, sj + 1)), ...roads.lanesBetween(roads.id(vi, sj + 1), roads.id(vi, sj)));
+  const si = frozenSegmentIndex(vLines, x);
+  candidates.push(...roads.lanesBetween(roads.id(si, hj), roads.id(si + 1, hj)), ...roads.lanesBetween(roads.id(si + 1, hj), roads.id(si, hj)));
+  if (candidates.length === 0) candidates.push(...gridLanesOf(roads));
+  let best: Lane = candidates[0]!;
+  let bestScore = Infinity;
+  let bestS = 0;
+  let bestDist = Infinity;
+  for (const lane of candidates) {
+    const s = Math.max(0, Math.min(lane.length, (x - lane.sx) * lane.dx + (z - lane.sz) * lane.dz));
+    const dist = Math.hypot(x - (lane.sx + lane.dx * s), z - (lane.sz + lane.dz * s));
+    const score = laneScore(lane, dist, heading);
+    if (score < bestScore) {
+      bestScore = score;
+      best = lane;
+      bestS = s;
+      bestDist = dist;
+    }
+  }
+  return { lane: best, s: bestS, dist: bestDist };
+}
+
+/** The score nearestLane ranks a lane by: its distance, plus a penalty for pointing away from `heading`. */
+export function laneScore(lane: Lane, dist: number, heading?: number): number {
+  if (heading === undefined) return dist;
+  return dist + (1 - (Math.sin(heading) * lane.dx + Math.cos(heading) * lane.dz)) * 6;
 }
