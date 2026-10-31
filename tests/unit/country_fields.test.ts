@@ -1,8 +1,9 @@
 // Las Lomas County's fields (world/country/farms.ts, render/country/fields.ts): where they lie (in the farm plots, 12 m
 // and more off every road edge), which of them are cover and drag at a car, and how they are drawn at a cost set by
 // what the camera sees: pools of plants sized by tier round the camera, each holding every plant of its ring wherever the
-// camera is, every plant at its own spot of its field's lattice, refills that move none of them, and the blocks seen
-// from inside on the software tier; and the hedgerows, which open round the camera's sight line while one stands in it.
+// camera is, every plant at its own spot of its field's lattice, refills that move none of them, nothing refilled,
+// uploaded or drawn far from the fields, and the blocks seen from inside on the software tier; and the hedgerows, which
+// open round the camera's sight line while one stands in it.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
@@ -90,6 +91,9 @@ describe('Las Lomas County: drawing the fields', () => {
   it('sizes its pools by tier, smaller on Medium and smaller again on Low, none on the software tier', () => {
     const { high, medium, low, software } = CROP_RING;
     for (const k of ['corn', 'wheat', 'sunflower'] as const) {
+      // Empty and not drawn before the camera ever comes near a field.
+      expect(pool(k).count).toBe(0);
+      expect(pool(k).visible).toBe(false);
       expect(medium[k]).toBeLessThan(high[k]);
       expect(low[k]).toBeLessThan(medium[k]);
       expect(software[k]).toBe(0);
@@ -167,6 +171,26 @@ describe('Las Lomas County: drawing the fields', () => {
     expect(pool('corn').count).toBe(a.size);
     view.fields.update(0, 3, 0, 1, 0);
     for (const crop of ['corn', 'wheat', 'sunflower'] as const) expect(pool(crop).count).toBe(0);
+  });
+
+  it('uploads only the plants a pool holds, and far from the fields refills, uploads and draws nothing', () => {
+    view.setTier('high');
+    const f = biggest('corn');
+    view.fields.update(rectCX(f.rect), 3, rectCZ(f.rect), 1, 0);
+    const corn = pool('corn');
+    expect(corn.visible).toBe(true);
+    expect(corn.instanceMatrix.updateRanges).toEqual([{ start: 0, count: corn.count * 16 }]);
+    expect(corn.instanceColor!.updateRanges).toEqual([{ start: 0, count: corn.count * 3 }]);
+    // Into the city: the pools are emptied once, then left alone cell after cell.
+    view.fields.update(0.5, 3, 0.5, 1, 0);
+    const pools = (['corn', 'wheat', 'sunflower'] as const).map(pool);
+    const versions = pools.map((p) => p.instanceMatrix.version);
+    for (let x = 16; x < 176; x += FIELD_CELL) view.fields.update(x + 0.5, 3, 0.5, 1, 0);
+    expect(pools.map((p) => p.instanceMatrix.version)).toEqual(versions);
+    for (const p of pools) {
+      expect(p.count).toBe(0);
+      expect(p.visible).toBe(false);
+    }
   });
 
   it('opens the hedgerows round the sight line while one stands between the camera and the player, and only then', () => {

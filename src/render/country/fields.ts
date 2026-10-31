@@ -476,6 +476,7 @@ vec3 sunTurn( vec3 v ) {
       const mesh = new THREE.InstancedMesh(geo, mat, capacity);
       mesh.name = `crops-${crop}`;
       mesh.count = 0;
+      mesh.visible = false;
       mesh.castShadow = shadow;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
@@ -513,10 +514,15 @@ vec3 sunTurn( vec3 v ) {
     const oz = (cz + 0.5) * FIELD_CELL;
     this.tallRing.value.set(ox, oz, far ? 0 : this.ring.ring, RING_FADE);
     this.wheatRing.value.set(ox, oz, far ? 0 : this.ring.wheatRing, RING_FADE);
+    // Far from every field (the city) with the pools emptied already, there is nothing to refill.
+    if (far && this.pools.every((p) => p.mesh.count === 0)) return;
     for (const pool of this.pools) this.fill(pool, far ? 0 : pool.ring.value.z, ox, oz, far ? 0 : this.ring[pool.crop as 'corn' | 'wheat' | 'sunflower']);
   }
 
-  /** Refills `pool` with its plants within `radius` of (ox, oz), at most `cap`, the nearest kept. */
+  /**
+   * Refills `pool` with its plants within `radius` of (ox, oz), at most `cap`, the nearest kept; an empty pool is not
+   * drawn, and only the instances it holds go up to the GPU.
+   */
   private fill(pool: Pool, radius: number, ox: number, oz: number, cap: number): void {
     const out = cropPlants(this.fields, pool.crop, radius, ox, oz);
     if (out.length > cap) out.sort((a, b) => a.d - b.d).length = cap;
@@ -532,7 +538,12 @@ vec3 sunTurn( vec3 v ) {
       mesh.setColorAt(n, this.c);
     });
     mesh.count = out.length;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.visible = out.length > 0;
+    if (out.length === 0) return;
+    for (const a of [mesh.instanceMatrix, mesh.instanceColor!]) {
+      a.clearUpdateRanges();
+      a.addUpdateRange(0, out.length * a.itemSize);
+      a.needsUpdate = true;
+    }
   }
 }

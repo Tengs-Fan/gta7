@@ -227,6 +227,7 @@ They are drawn at a cost set by what the camera sees (`src/render/country/fields
 - Within a ring round the camera (44 m on High, smaller on Medium and Low, none on the software tier), the plants themselves come from fixed pools: Hollister Farm's ten-stalk corn cards on its sway, wheat tufts, and sunflowers whose heads turn with the sun.
   The pools are refilled when the camera moves into another 16 m cell, each plant at its own place on its field's lattice, so none of them moves between refills.
 - Past the ring, the corn and the sunflowers are a block each: a top textured as the crop from above and sides of stalks with a ragged top, drawn from outside only (from inside too on the software tier, which has no plants); plants and blocks dither into each other over the ring's edge.
+  Far from the fields, the empty pools are neither refilled nor drawn.
 
 The cows and the twenty scarecrows are breakable props kept by index.
 A cow hit by a car slows it hard, with a moo instead of a crash; E beside one from 21:00 to 05:00 tips her over.
