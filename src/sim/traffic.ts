@@ -4,13 +4,17 @@ import { axisOf, SIGNAL_CYCLE, SIGNAL_GREEN, type Lane } from '../world/roads';
 import { pointSegDist } from '../core/math';
 import type { Rng } from '../core/rng';
 import { WATER_Y } from '../world/constants';
+import { COUNTY_BOUNDS } from '../world/country';
+import { rectContains } from '../world/layout';
 import { STOP_MARGIN, throughAvenues } from './driver';
 import type { Vehicle } from './entities';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
-import { PARKED_MIX, parkedBike, TRAFFIC_MIX, trafficBike, VEHICLE_SPECS, type VehicleKind } from './specs';
+import { countryKind, PARKED_MIX, parkedBike, TRAFFIC_MIX, trafficBike, VEHICLE_SPECS, type VehicleKind } from './specs';
 import { clearOfVehicles } from './vehicleRoom';
 
+/** Las Lomas County's traffic is this share of the city's, while the player is there. */
+const COUNTY_DENSITY = 0.4;
 /** Above this speed (m/s) the player outruns the traffic streamed around him: spawn ahead too. */
 const AHEAD_SPEED = 8;
 /** Spawn tries (of 12) taken first from the lanes ahead, and their distance band from the player (m). */
@@ -155,7 +159,8 @@ export class TrafficSystem {
   get targetCount(): number {
     const h = this.sim.clock.hours;
     const base = h < 5 ? 14 : h < 7 ? 20 : h < 10 ? 30 : h < 16 ? 26 : h < 20 ? 30 : 20;
-    return Math.round(base * this.density);
+    const p = this.anchorPos();
+    return Math.round(base * this.density * (rectContains(COUNTY_BOUNDS, p.x, p.z) ? COUNTY_DENSITY : 1));
   }
 
   updateStreaming(dt: number): void {
@@ -510,7 +515,7 @@ export class TrafficSystem {
       // Spawn ranges lie inside the fog-free distance: never pop a car into view.
       if (sim.isVisible(x, 1, z)) continue;
       if (!this.isClear(x, z, 11)) continue;
-      let k = kind ?? trafficBike(sim.rng.weighted(TRAFFIC_MIX), x, z);
+      let k = kind ?? countryKind(trafficBike(sim.rng.weighted(TRAFFIC_MIX), x, z), x, z);
       if (k === 'bus' && !throughAvenues(sim.roads).has(lane)) k = 'sedan';
       // Queued at a light that is not green, the front bumper waits STOP_MARGIN short of the line (see DriverAI). A bus
       // queued nearer than that would already be in the junction for its driver and pull out against the light: it
@@ -598,7 +603,7 @@ export class TrafficSystem {
       // Several players: no higher than a moving car's check either (a roof can show over a wall).
       if (sim.isVisible(s.x, 0.5, s.z) || (multi && sim.isVisible(s.x, 1, s.z))) continue;
       if (!this.isClear(s.x, s.z, BAY_SPACING)) continue;
-      const kind = parkedBike(PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0], i);
+      const kind = countryKind(parkedBike(PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0], i), s.x, s.z);
       if (!clearOfVehicles(sim, kind, s.x, s.z, s.heading)) continue;
       const v = sim.spawnVehicle(kind, s.x, s.z, s.heading);
       v.owner = 'parked';

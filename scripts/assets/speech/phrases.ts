@@ -2,7 +2,7 @@
 // scanner says a line by joining the clips of its phrases, longest match first: every piece of every line the
 // dispatcher can build must be here. A phrase that runs on into the next ends on a comma, so it is read that way.
 
-import { COLOUR_NAMES, COMPASS, CRIME_PHRASES } from '../../../src/sim/dispatch';
+import { COLOUR_NAMES, COMPASS, COUNTY_ZONES, CRIME_PHRASES, SHERIFF } from '../../../src/sim/dispatch';
 import { VEHICLE_SPECS } from '../../../src/sim/specs';
 import { COUNTY_NAME } from '../../../src/world/country';
 import type { StaticWorld } from '../../../src/world/staticWorld';
@@ -27,11 +27,30 @@ export function dispatchPhrases(world: StaticWorld): string[] {
     'SWAT is rolling.',
     'Air unit on scene.',
     ...[...crimes].map((c) => `All units, ${c} reported in,`),
-    ...zoneNames(world).map((z) => `${z}.`),
+    ...zoneNames(world).filter((z) => !COUNTY_ZONES.has(z)).map((z) => `${z}.`),
     'Suspect on foot.',
     ...COLOUR_NAMES.map(([c]) => `Suspect in ${/^[aeiou]/.test(c) ? 'an' : 'a'} ${c},`),
     ...Object.values(VEHICLE_SPECS).map((s) => `${s.name}.`),
     'We lost visual. Search around,',
     ...COMPASS.map((d) => `Suspect spotted heading ${d} through,`),
+  ];
+}
+
+/** The Las Lomas County Sheriff's dispatcher's phrases (dispatch.ts SHERIFF), in his own voice: he alone names the county's places. */
+export function sheriffPhrases(): string[] {
+  const crimes = new Set([...Object.values(CRIME_PHRASES), 'a disturbance']);
+  // A line's head: the line with no place in it, running on into the place's phrase.
+  const head = (line: string) => `${line.slice(0, -2)},`;
+  return [
+    ...[...crimes].map((c) => head(SHERIFF.opening(c, ''))),
+    ...[...COUNTY_ZONES].map((z) => `${z}.`),
+    SHERIFF.inVehicle,
+    SHERIFF.onFoot,
+    SHERIFF.haymaker,
+    head(SHERIFF.search('')),
+    ...COMPASS.map((d) => head(SHERIFF.spotted(d, ''))),
+    SHERIFF.patrol,
+    SHERIFF.swat,
+    SHERIFF.air,
   ];
 }

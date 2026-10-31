@@ -231,7 +231,8 @@ describe('VAL-CAR-004 dents bend the new bodies and their shadows', () => {
       v.sync(car, 1 / 60, 0, 0);
       const src = mesh(v, 'body').geometry.getAttribute('position');
       const shadowSrc = mesh(v, 'shadow').geometry.getAttribute('position');
-      const hit = new THREE.Vector3(s.width / 2, s.height * 0.4, s.length / 2);
+      // (The body's corner: a tractor's is its narrow hood's.)
+      const hit = new THREE.Vector3((s.bodyProfile?.bodyWidth ?? s.width) / 2, s.height * 0.4, s.length / 2);
       car.dents.push({ lx: hit.x, ly: hit.y, lz: hit.z, nx: -0.6, nz: -0.8, depth: 0.2 });
       car.dentVersion++;
       v.sync(car, 1 / 60, 0, 0);
@@ -423,7 +424,8 @@ describe('VAL-CAR-003 rebuilt bodies', () => {
   });
 
   it('the wheel arches carry moulded lips standing proud of the flank, which dent with the body', () => {
-    for (const kind of KINDS) {
+    // (The tractor's wheels stand outside its body, under no arch.)
+    for (const kind of KINDS.filter((k) => VEHICLE_SPECS[k].bodyProfile?.bodyWidth === undefined)) {
       const s = VEHICLE_SPECS[kind];
       const v = view(kind);
       const p = mesh(v, 'body').geometry.getAttribute('position');

@@ -96,6 +96,8 @@ const DETOUR_BACK = 2.5;
 const DETOUR_MARGIN = 0.4;
 /** A vehicle in the way short of this far (m) before the end of the lane stands on it, not in the junction after it. */
 const DETOUR_LANE_END = 2;
+/** Seconds held up behind a tractor before a civilian first honks at it. */
+const TRACTOR_PATIENCE = 6;
 /** Seconds a civilian held up by a vehicle nobody drives, standing on its lane, waits before overtaking it (7 s otherwise). */
 const UNATTENDED_PATIENCE = 2;
 /**
@@ -369,6 +371,8 @@ export class DriverAI {
   private stuck = 0;
   private waitObstacle = 0;
   private honkCooldown = 0;
+  /** Seconds held up behind a tractor (see TRACTOR_PATIENCE). */
+  private behindTractor = 0;
   private sightTimer = 0;
   private visibleTarget = false;
   /** Route policy: within arriveRadius of `dest`; the car then stops and holds there. */
@@ -470,7 +474,7 @@ export class DriverAI {
     const aggressive = policy === 'chase' || policy === 'flee';
     const spec = this.vehicle.spec;
     this.speedMul = policy === 'chase' ? 1.6 : policy === 'flee' ? 1.45 : this.host.rng.range(0.85, 1.05);
-    this.maxSpeed = aggressive ? spec.maxSpeed * 0.92 : spec.maxSpeed * 0.6;
+    this.maxSpeed = spec.maxSpeed * (aggressive ? 0.92 : spec.cruise ?? 0.6);
     this.obeyLights = !aggressive;
     this.cornering = aggressive ? 11 : 4.5;
     this.decel = aggressive ? 9 : 4.5;
@@ -1241,6 +1245,12 @@ export class DriverAI {
       }
     } else {
       this.waitObstacle = Math.max(0, this.waitObstacle - dt);
+    }
+    // Held up behind a tractor, which it overtakes only once it holds it under 3 m/s, a driver leans on the horn now and then.
+    this.behindTractor = blocked && !!ahead && 'kind' in ahead && ahead.kind === 'tractor' ? this.behindTractor + dt : 0;
+    if (this.behindTractor > TRACTOR_PATIENCE && this.honkCooldown <= 0 && this.policy === 'traffic') {
+      this.honkCooldown = this.host.rng.range(6, 14);
+      this.host.onHorn(v);
     }
     // Make room for a car ahead backing up towards us (to pull out, or to get back into its lane).
     const makeRoom =

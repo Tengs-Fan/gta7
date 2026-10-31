@@ -44,6 +44,8 @@ export const CAST = {
   lyle: 'bm_fable',
   trish: 'af_kore',
   reader: 'af_alloy',
+  // The Las Lomas County Sheriff's dispatcher (src/sim/dispatch.ts SHERIFF).
+  sheriff: 'am_santa,am_adam',
 } as const;
 
 export type Role = keyof typeof CAST;

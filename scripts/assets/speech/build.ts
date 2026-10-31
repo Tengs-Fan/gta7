@@ -20,7 +20,7 @@ import { HITS, type Track } from '../../../src/audio/stations/playlists';
 import { DJS, type Line } from './djs';
 import { MISSION_NEWS } from './missionNews';
 import { newsSentences } from './news';
-import { dispatchPhrases, zoneNames } from './phrases';
+import { dispatchPhrases, sheriffPhrases, zoneNames } from './phrases';
 import { BARKS, CAST, MONORAIL_PA, PHONE_ROLES, SAY, SPEAKERS, TALK } from './script';
 import { SHOW_PIECES } from './shows';
 
@@ -82,10 +82,10 @@ for (const line of dialogueLines(world)) {
   clips.push({ id, takes: [{ voice: CAST[role], text: line.text, speed: 1 }] });
   index.dialogue[dialogueKey(line.speaker, line.text)] = id;
 }
-for (const phrase of dispatchPhrases(world)) {
+for (const [role, phrase] of [...dispatchPhrases(world).map((p) => ['dispatch', p] as const), ...sheriffPhrases().map((p) => ['sheriff', p] as const)]) {
   const words = phraseWords(phrase).join(' ');
   const id = `dsp-${slug(words)}`;
-  clips.push({ id, takes: [{ voice: CAST.dispatch, text: phrase, speed: 1 }] });
+  clips.push({ id, takes: [{ voice: CAST[role], text: phrase, speed: 1 }] });
   index.dispatch[words] = id;
 }
 const series: Record<string, string[]> = {};

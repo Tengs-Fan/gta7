@@ -2,6 +2,7 @@
 // updates it last) and narrates the chase as 'dispatch' events for the HUD's scanner line. It never
 // uses the subtitle channel, which belongs to the story.
 
+import { COUNTY_NAME, COUNTY_PLOTS } from '../world/country';
 import type { Vehicle } from './entities';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
@@ -60,6 +61,25 @@ export function colourName(color: number): string {
   return best;
 }
 
+/**
+ * Las Lomas County's places. A line about one, or said while the suspect is in one, is the Las Lomas County Sheriff's
+ * dispatcher's, in a voice of his own (SHERIFF): only he names them.
+ */
+export const COUNTY_ZONES: ReadonlySet<string> = new Set([COUNTY_NAME, ...COUNTY_PLOTS.map((p) => p.name)]);
+
+/** The sheriff's dispatcher's lines: the opening's head (crime, place), the suspect, the search and the sighting's head (compass point, place). */
+export const SHERIFF = {
+  opening: (crime: string, zone: string) => `Deputies, we got ${crime} out by ${zone}.`,
+  inVehicle: 'Suspect took off in a vehicle.',
+  onFoot: 'Suspect took off on foot.',
+  haymaker: "Suspect is fleeing on a Haymaker. Deputies, let's not make this a whole thing.",
+  search: (zone: string) => `Lost him. Deputies, check around ${zone}.`,
+  spotted: (dir: string, zone: string) => `There he goes, headed ${dir} past ${zone}.`,
+  patrol: 'All deputies, head on back to the diner.',
+  swat: 'The state boys are sending SWAT.',
+  air: 'Air unit is up over the county.',
+} as const;
+
 export const COMPASS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'] as const;
 
 /** Compass point of a direction on the map (+X east, +Z south). */
@@ -95,15 +115,18 @@ export class DispatchSystem {
     } else if (level === 0 && this.level > 0) {
       // Whatever ended the chase, nothing said about it is news any more.
       this.queue.length = 0;
-      if (w.evasions !== this.evasions) this.say('All units, return to patrol.');
+      if (w.evasions !== this.evasions) this.say(this.inCounty() ? SHERIFF.patrol : 'All units, return to patrol.');
     } else if (level > 0) {
       if (this.level === 0) this.say(this.opening());
       else {
-        if (searching && !this.searching) this.say(`We lost visual. Search around ${this.zone(w.lastSeenX, w.lastSeenZ)}.`);
+        if (searching && !this.searching) {
+          const zone = this.zone(w.lastSeenX, w.lastSeenZ);
+          this.say(COUNTY_ZONES.has(zone) ? SHERIFF.search(zone) : `We lost visual. Search around ${zone}.`);
+        }
         if (!searching && this.searching) this.say(this.spotted());
       }
-      if (level >= 4 && this.level < 4) this.say('SWAT is rolling.');
-      if (helis > 0 && this.helis === 0) this.say('Air unit on scene.');
+      if (level >= 4 && this.level < 4) this.say(this.inCounty() ? SHERIFF.swat : 'SWAT is rolling.');
+      if (helis > 0 && this.helis === 0) this.say(this.inCounty() ? SHERIFF.air : 'Air unit on scene.');
     }
     this.level = level;
     this.searching = searching;
@@ -129,12 +152,20 @@ export class DispatchSystem {
     return this.sim.world.zoneName(x, z);
   }
 
+  /** The suspect is in Las Lomas County: the sheriff has the air. */
+  private inCounty(): boolean {
+    const pp = this.slot.pos();
+    return COUNTY_ZONES.has(this.zone(pp.x, pp.z));
+  }
+
   private opening(): string {
     const pp = this.slot.pos();
     const crime = this.slot.wanted.lastCrime;
     const what = crime ? CRIME_PHRASES[crime] : 'a disturbance';
     const v = this.slot.character.vehicle;
-    return `All units, ${what} reported in ${this.zone(pp.x, pp.z)}. Suspect ${v ? `in ${describe(v)}` : 'on foot'}.`;
+    const zone = this.zone(pp.x, pp.z);
+    if (COUNTY_ZONES.has(zone)) return `${SHERIFF.opening(what, zone)} ${v ? (v.kind === 'tractor' ? SHERIFF.haymaker : SHERIFF.inVehicle) : SHERIFF.onFoot}`;
+    return `All units, ${what} reported in ${zone}. Suspect ${v ? `in ${describe(v)}` : 'on foot'}.`;
   }
 
   private spotted(): string {
@@ -146,7 +177,9 @@ export class DispatchSystem {
     const h = v ? v.heading : p.heading;
     // Moving: the way he goes; standing: the way he faces.
     const [dx, dz] = Math.hypot(vx, vz) > 1.5 ? [vx, vz] : [Math.sin(h), Math.cos(h)];
-    return `Suspect spotted heading ${compassName(dx, dz)} through ${this.zone(pp.x, pp.z)}.`;
+    const zone = this.zone(pp.x, pp.z);
+    if (COUNTY_ZONES.has(zone)) return v?.kind === 'tractor' ? SHERIFF.haymaker : SHERIFF.spotted(compassName(dx, dz), zone);
+    return `Suspect spotted heading ${compassName(dx, dz)} through ${zone}.`;
   }
 }
 

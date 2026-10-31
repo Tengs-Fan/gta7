@@ -460,10 +460,11 @@ describe('cap triangulation', () => {
         const g = meshNamed(new VehicleView(kind), mesh).geometry;
         const pos = g.getAttribute('position');
         const round = endRounding(kind);
-        // The body's flanks are at the spec's half width (the pickup's bed walls stand 2 mm proud); the glass's are outermost.
+        // The body's flanks are at the spec's half width (the pickup's bed walls stand 2 mm proud), or the body's own (the
+        // tractor's, between its wheels); the glass's are outermost.
         let half = 0;
         for (let i = 0; i < pos.count; i++) half = Math.max(half, Math.abs(pos.getX(i)));
-        if (mesh === 'body') half = VEHICLE_SPECS[kind].width / 2;
+        if (mesh === 'body') half = (VEHICLE_SPECS[kind].bodyProfile?.bodyWidth ?? VEHICLE_SPECS[kind].width) / 2;
         const key = (i: number): string => `${pos.getY(i).toFixed(5)},${pos.getZ(i).toFixed(5)}`;
         const edge = (a: number, b: number): string => [key(a), key(b)].sort().join('|');
         for (const side of [-1, 1]) {
@@ -1426,7 +1427,8 @@ describe('round-2 fixes 2: each class leans on its own suspension', () => {
     for (const kind of ['van', 'pickup', 'swat', 'bus'] as const) expect(deepestDive(kind), kind).toBeGreaterThan(sports);
   });
 
-  it.each(CAR_KINDS)('no %s tyre comes up through the bodywork, standing, braking hard, cornering hard or both', (kind) => {
+  // (The tractor's front wheels stand in the open, beside its narrow hood.)
+  it.each(CAR_KINDS.filter((k) => VEHICLE_SPECS[k].bodyProfile?.bodyWidth === undefined))('no %s tyre comes up through the bodywork, standing, braking hard, cornering hard or both', (kind) => {
     const { v, view } = car(kind);
     expect(tyrePointsThroughBody(view), 'standing').toBe(0);
     // Braking from 20 m/s: checked through the dive.
