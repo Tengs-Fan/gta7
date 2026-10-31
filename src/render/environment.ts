@@ -5,8 +5,8 @@ import { clamp, lerp, smoothstep } from '../core/math';
 import { darkness, sunIntensity } from '../sim/clock';
 import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
-import type { Bounds } from '../world/layout';
-import { patchSeaMaterial, seaGrid, seaPlane, seaUniforms, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaUniforms } from './sea';
+import type { CityLayout } from '../world/layout';
+import { countyShore, patchSeaMaterial, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 import { CALM_SEA } from './waves';
 import { assets } from './assets';
@@ -1145,9 +1145,10 @@ export class Environment {
     if (this.scene.environment !== target.texture) this.scene.environment = target.texture;
   }
 
-  /** The shoreline's terrain (the layout's land and beach). */
-  setShore(b: Bounds): void {
-    setShore(this.sea, b);
+  /** The shoreline's terrain (the layout's land and beach, and Las Lomas County's beaches, baked from its ground). */
+  setShore(layout: CityLayout): void {
+    setShore(this.sea, layout.bounds);
+    setCountyShore(this.sea, countyShore(layout.country));
   }
 
   /**
@@ -1382,6 +1383,7 @@ export class Environment {
     this.cloudNoise.dispose();
     this.seaPlane.dispose();
     this.seaGridGeo?.dispose();
+    this.sea.uCountyDepth.value?.dispose();
     this.cubeTarget?.dispose();
     this.envTarget?.dispose();
     this.pmrem?.dispose();
