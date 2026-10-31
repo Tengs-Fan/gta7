@@ -13,6 +13,8 @@ import type { Sim } from './sim';
 import { countryKind, PARKED_MIX, parkedBike, TRAFFIC_MIX, trafficBike, VEHICLE_SPECS, type VehicleKind } from './specs';
 import { clearOfVehicles } from './vehicleRoom';
 
+/** No car is spawned at speed within this far (m) of a county junction on its lane (see trySpawnTraffic). */
+const JUNCTION_CLEAR = 50;
 /** Las Lomas County's traffic is this share of the city's, while the player is there. */
 const COUNTY_DENSITY = 0.4;
 /** Above this speed (m/s) the player outruns the traffic streamed around him: spawn ahead too. */
@@ -438,6 +440,8 @@ export class TrafficSystem {
         for (const l of roads.lanesBetween(side, node.id)) {
           this.aheadCross.add(l);
           if (lead < 0 || !this.greenWithin(node.id, l, lead)) continue;
+          // At a stop sign only the road that stops has a queue: the highway's traffic would pull in at speed.
+          if (node.stops && !roads.stopsAt(l)) continue;
           const a = Math.max(6, l.length - QUEUE_FAR);
           const b = l.length - QUEUE_NEAR;
           if (b > a) this.aheadSpans.push({ lane: l, s0: a, s1: b });
@@ -501,6 +505,8 @@ export class TrafficSystem {
         lane = pickWeighted(sim.rng, this.nearLanes, this.nearCum);
         if (lane.length < 16) continue;
         s = sim.rng.range(6, lane.length - 6);
+        // Not at speed just short of a county junction, where it would meet whoever is crossing it with no time to stop.
+        if (lane.line.index < 0 && !sim.roads.isBend(sim.roads.nodes[lane.to]!) && lane.length - s < JUNCTION_CLEAR) continue;
       }
       let x = lane.sx + lane.dx * s;
       let z = lane.sz + lane.dz * s;
@@ -510,7 +516,8 @@ export class TrafficSystem {
       if (others && sim.distToPlayer(x, z) < Math.min(d, ahead ? aheadMin : nearMin)) continue;
       // A car spawned behind a fast player is left behind at once (and recycled): pure churn.
       if (!ahead && fast && (x - pp.x) * pv.x + (z - pp.z) * pv.z < 0) continue;
-      const red = sim.roads.signalState(lane.to, axisOf(lane.dir), sim.time) !== 'green';
+      // (A stop sign holds its traffic like a red light.)
+      const red = sim.roads.signalState(lane.to, axisOf(lane.dir), sim.time) !== 'green' || sim.roads.stopsAt(lane);
       if (red && this.anchor.wanted.level > 0 && (ahead || this.aheadPath.has(lane) || this.aheadCross.has(lane))) continue;
       // Spawn ranges lie inside the fog-free distance: never pop a car into view.
       if (sim.isVisible(x, 1, z)) continue;

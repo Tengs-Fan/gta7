@@ -186,6 +186,8 @@ export class StaticWorld {
         return g.addBox(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.y + p.h, 'bench', i, !this.epitaphStones.has(i)).id;
       case 'cypress':
         return g.addCircle(p.x, p.z, 0.3 * s, p.y, p.y + 9 * s, 'tree').id;
+      case 'stopSign':
+        return g.addCircle(p.x, p.z, 0.06, p.y, p.y + 2.6, 'lamp', i, true).id;
       case 'bush':
       default:
         return -1;

@@ -27,6 +27,7 @@ import { dressingItems, type DressingItem, type DressingKind } from './dressing'
 import { WIND_GLSL, windAmplitude } from './wind';
 import { SHADOW_LAYER } from './vehicleBatches';
 import { CORN_H, cornGeometry, cornTexture, headstoneGeometry, HEADSTONE_SHAPES, ironFenceGeometry, pumpkinGeometry } from './attractionModels';
+import { stopSignGeometry } from './country/stopSign';
 
 interface InstanceRef {
   mesh: THREE.InstancedMesh;
@@ -559,6 +560,7 @@ export class PropsView {
       color: (p, c) => c.setHSL(0.05 + (p.rot % 1) * 0.02, 0.95, 0.3 + (p.scale - 1) * 0.1),
     });
     this.buildHeadstones(get('headstone'));
+    this.buildSimple(get('stopSign'), stopSignGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.2 }));
     for (const i of get('fountain')) this.buildFountain(world.layout.props[i]!);
     for (const i of get('crane')) this.buildCrane(world.layout.props[i]!);
     for (const i of get('lighthouse')) this.buildLighthouse(world.layout.props[i]!);

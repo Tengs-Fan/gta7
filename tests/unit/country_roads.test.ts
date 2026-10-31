@@ -60,15 +60,16 @@ describe('Las Lomas County: the outer road graph', () => {
     expect(roads.gridLanes).toEqual(roads.lanes.slice(0, 574));
     expect(roads.live.every((n) => n.i >= 0)).toBe(true);
     expect(roads.junction('drycreek')).toMatchObject({ x: -840, z: -268, degree: 4, signal: true });
-    expect(roads.junction('hollister')).toMatchObject({ x: -1104, z: -268, degree: 3, signal: true });
-    expect(roads.junction('creek')).toMatchObject({ x: -840, z: 268, degree: 3, signal: true });
+    // The two T junctions have stop signs instead of lights (stop_sign.test.ts).
+    expect(roads.junction('hollister')).toMatchObject({ x: -1104, z: -268, degree: 3, signal: false });
+    expect(roads.junction('creek')).toMatchObject({ x: -840, z: 268, degree: 3, signal: false });
   });
 
   it('gives every link one slot at either end, every lane its reverse, and no node a dead end', () => {
     for (const n of outerNodes) {
       expect(n.degree, `node ${n.id}`).toBeGreaterThanOrEqual(2);
       expect(n.neighbors.filter((v) => v >= 0).length, `node ${n.id}`).toBe(n.degree);
-      expect(n.signal).toBe(n.degree >= 3);
+      expect(n.signal).toBe(n.degree >= 3 && n.stops === 0);
       expect(roads.isBend(n)).toBe(n.degree === 2);
     }
     for (const l of outerLanes) {
@@ -286,7 +287,8 @@ describe('Las Lomas County: the Magnolia Causeway, the Southgate Bridge and thei
     for (const n of outerNodes.filter((o) => o.signal)) {
       for (let d = 0; d < 4; d++) expect(at(n.id, (d + 2) % 4), `node ${n.id} arm ${d}`).toBe(n.neighbors[d]! >= 0 ? 1 : 0);
     }
-    expect(heads.length).toBe(2 + 4 + 3 + 3);
+    // Dry Creek's four; the Hollister T and the Creek T have stop signs instead (stop_sign.test.ts).
+    expect(heads.length).toBe(2 + 4);
     // Lamps along both of the causeway's verges.
     const lamps = L.props.slice(L.country.firstProp).filter((p) => p.kind === 'lamp' && rectContains(CAUSEWAY, p.x, p.z));
     expect(lamps.length).toBe(12);

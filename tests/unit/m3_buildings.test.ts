@@ -361,9 +361,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // letters, grown as bushes, lose their trunks; and the colliders again when Las Lomas County moved the four props in
     // the links' mouths out of the way (two lamps, a tree, a bench) and appended, after every other collider, the
     // Southgate Bridge's two parapets and its arch's four portal posts, the gateways' and its junctions' signal heads and
-    // the causeway's lamps.
+    // the causeway's lamps; and the colliders again when the Hollister T's and the Creek T's heads became a stop sign and
+    // two lamps each.
     expect(b).toBe('cb24287bf52d2607b0cdf537ee6f3cb8b1958e1495464192f58b2cb03287bf80');
-    expect(c).toBe('7e68ff25454a2bae9d5988fbcf3d0d12a74930954a4280b7447eca55e43f94f8');
+    expect(c).toBe('62694861e6cd09e118ce04b4818bbf6446294251de7ae9f190b2354d344f7222');
   });
 });
 

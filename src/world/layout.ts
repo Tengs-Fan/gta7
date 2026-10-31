@@ -30,7 +30,9 @@ export type PropKind =
   | 'tree' | 'palm' | 'lamp' | 'signal' | 'hydrant' | 'bench' | 'bin' | 'container' | 'bush'
   | 'fountain' | 'crane' | 'boat' | 'lighthouse' | 'ferris' | 'billboard' | 'turbine'
   // The attractions (attractions.ts): a corn maze's wall segment (with its footprint, like a container), and the rest.
-  | 'corn' | 'pumpkin' | 'headstone' | 'cypress';
+  | 'corn' | 'pumpkin' | 'headstone' | 'cypress'
+  // Las Lomas County's stop signs (world/country STOP_SIGNS).
+  | 'stopSign';
 /** The `contact...` kinds are mission givers' places: which one a POI is, and how it is built, is the SPECIALS row's business. */
 export type PoiKind = 'safehouse' | 'hospital' | 'police' | 'spray' | 'gunshop' | 'bank' | 'marina' | `contact${string}`;
 export type RoofPropKind = 'ac' | 'tank' | 'antenna' | 'billboard' | 'helipad';
