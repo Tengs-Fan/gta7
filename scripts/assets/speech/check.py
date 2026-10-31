@@ -4,7 +4,8 @@
 # left out of the count, since Whisper cannot know how they are spelled. Mandarin clips are heard by large-v3 and
 # scored by character error rate, the clips above 5 % listed: both sides in Simplified characters (Whisper writes
 # mostly Simplified), numbers in characters, 两 as 二 (Whisper writes 两点 as 2点), and only the Chinese characters
-# counted, so punctuation and spacing do not.
+# counted, so punctuation and spacing do not. The same rate over toned pinyin syllables (SER) is shown beside it: a
+# homophone Whisper wrote instead (毕生 for 嗶聲) is not the voice's error.
 #
 #   ~/Projects/VENVS/gta7-tts/bin/python scripts/assets/speech/check.py [English model]
 import json
@@ -15,6 +16,7 @@ import sys
 import cn2an
 import opencc
 import whisper
+from pypinyin import Style, lazy_pinyin
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, '../../../src/assets/speech')
@@ -53,19 +55,27 @@ lines = json.load(open(os.path.join(CACHE, 'lines.json')))
 en = whisper.load_model(sys.argv[1] if len(sys.argv) > 1 else 'small.en', device='cuda')
 zh = whisper.load_model('large-v3', device='cuda') if any(l['lang'] == 'z' for l in lines.values()) else None
 by_kind = {}
+syllables = {}
 bad = []
 for cid, line in sorted(lines.items()):
     path = os.path.join(OUT, cid + '.mp3')
     if line['lang'] == 'z':
-        heard = zh.transcribe(path, language='zh', fp16=True, temperature=0, condition_on_previous_text=False)['text']
-        kind, e = (cid.split('-')[0] + ' (Mandarin)', 'CER', 0.05), errors(hanzi(line['text']), hanzi(heard))
+        heard = zh.transcribe(path, language='zh', fp16=True, temperature=0, condition_on_previous_text=False)['text'].strip()
+        ref, hyp = hanzi(line['text']), hanzi(heard)
+        kind, e = (cid.split('-')[0] + ' (Mandarin)', 'CER', 0.05), errors(ref, hyp)
+        ser = errors(lazy_pinyin(ref, style=Style.TONE3), lazy_pinyin(hyp, style=Style.TONE3))
+        syllables.setdefault(kind, []).append(ser)
+        heard += f'  (SER {100 * ser:.1f} %)'
     else:
-        heard = en.transcribe(path, language='en', fp16=True)['text']
+        heard = en.transcribe(path, language='en', fp16=True)['text'].strip()
         kind, e = (cid.split('-')[0], 'WER', 0.2), errors(words(line['text']), words(heard))
     by_kind.setdefault(kind, []).append(e)
     if e > kind[2]:
-        bad.append((e, cid, line['text'], heard.strip()))
+        bad.append((e, cid, line['text'], heard))
+mean = lambda es: f'{100 * sum(es) / len(es):.1f} %'
 for e, cid, text, heard in sorted(bad, reverse=True):
     print(f'{100 * e:5.1f} % {cid}\n   said:  {text}\n   heard: {heard}')
-for (kind, metric, limit), es in sorted(by_kind.items()):
-    print(f'{kind}: {len(es)} clips, mean {metric} {100 * sum(es) / len(es):.1f} %, {sum(e > limit for e in es)} above {100 * limit:g} %')
+for key, es in sorted(by_kind.items()):
+    kind, metric, limit = key
+    ser = f', SER {mean(syllables[key])}' if metric == 'CER' else ''
+    print(f'{kind}: {len(es)} clips, mean {metric} {mean(es)}{ser}, {sum(e > limit for e in es)} above {100 * limit:g} %')
