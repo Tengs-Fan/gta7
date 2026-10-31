@@ -11,6 +11,7 @@ export function zoneNames(world: StaticWorld): string[] {
   const zones = new Set<string>(['San Azura Bay', 'Ocean Beach']);
   for (const b of world.layout.blocks) zones.add(b.zone);
   for (const d of world.layout.decks) zones.add(d.name);
+  for (const w of world.layout.water) zones.add(w.name);
   for (const h of world.layout.headlands) zones.add(h.name);
   return [...zones];
 }

@@ -2,7 +2,8 @@
 // 32 kbps mono MP3 per clip and speech.json, the index the sim and the audio read (src/sim/speech.ts).
 //
 // Clips: the mission dialogue (dialogue.ts), the police dispatcher's phrases (phrases.ts), the talk station's pieces
-// and the barks (script.ts), and the music stations' DJs (djs.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
+// and the barks (script.ts), the newsdesk's sentences and mission pieces (news.ts, missionNews.ts) and the music
+// stations' DJs (djs.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
 // (~/.cache/gta7-speech), so a rerun renders only new lines. Each clip is trimmed, band-limited where it is heard down
 // a phone line, levelled to the same loudness and encoded with ffmpeg; files the index no longer lists are removed.
 
@@ -17,7 +18,9 @@ import { StaticWorld } from '../../../src/world/staticWorld';
 import { dialogueLines } from './dialogue';
 import { HITS, type Track } from '../../../src/audio/stations/playlists';
 import { DJS, type Line } from './djs';
-import { dispatchPhrases } from './phrases';
+import { MISSION_NEWS } from './missionNews';
+import { newsSentences } from './news';
+import { dispatchPhrases, zoneNames } from './phrases';
 import { BARKS, CAST, PHONE_ROLES, SAY, SPEAKERS, TALK } from './script';
 import { SHOW_PIECES } from './shows';
 
@@ -65,6 +68,8 @@ const index: SpeechIndex = {
   idents: {},
   dj: {},
   tracks: {},
+  news: {},
+  missionNews: {},
 };
 
 for (const line of dialogueLines(world)) {
@@ -91,6 +96,19 @@ for (const piece of [...TALK, ...SHOW_PIECES]) {
   for (const show of piece.shows ?? [piece.show ?? 'azura']) index.talk[show][piece.kind].push(id);
 }
 for (const parts of Object.values(series)) index.adSeries[parts[0]!] = parts;
+for (const text of newsSentences(zoneNames(world))) {
+  const id = `news-${hash(text).slice(0, 10)}`;
+  clips.push({ id, takes: [{ voice: CAST.dolores, text, speed: 1 }] });
+  index.news[text] = id;
+}
+for (const [mission, piece] of Object.entries(MISSION_NEWS)) {
+  const read = (id: string, lines: readonly string[]) => {
+    clips.push({ id, takes: lines.map((text) => ({ voice: CAST.dolores, text, speed: 1 })) });
+    return id;
+  };
+  const breaking = read(`news-m-${mission}`, piece.breaking);
+  index.missionNews[mission] = piece.followUp ? { breaking, followUp: read(`news-m-${mission}-later`, piece.followUp) } : { breaking };
+}
 for (const [station, dj] of Object.entries(DJS)) {
   const s = slug(station);
   const speed = dj.speed ?? 1;

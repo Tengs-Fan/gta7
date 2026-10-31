@@ -60,72 +60,6 @@
   "dlg-vera-783a4b7d31": 3.413,
   "dlg-vera-30638ba1ac": 3.296,
   "dlg-vera-aeb7767d0a": 3.334,
-  "dlg-commuter-4be085d62b": 2.517,
-  "dlg-commuter-be6c38ed95": 2.258,
-  "dlg-commuter-74fef1b428": 2.12,
-  "dlg-commuter-6547995ec3": 2.444,
-  "dlg-commuter-5232a0fbea": 2.173,
-  "dlg-commuter-ea358cb5d9": 2.165,
-  "dlg-commuter-2e97559034": 2.193,
-  "dlg-commuter-d4dc874327": 2.283,
-  "dlg-commuter-13f1ad45e7": 2.434,
-  "dlg-commuter-0686b06a6b": 2.566,
-  "dlg-commuter-87c7281d48": 2.122,
-  "dlg-commuter-0da261308e": 2.417,
-  "dlg-commuter-c2ab88cb8a": 2.409,
-  "dlg-commuter-b89ebdfc7d": 2.144,
-  "dlg-commuter-f8e4f1c03e": 2.355,
-  "dlg-commuter-086d840869": 2.423,
-  "dlg-commuter-1861bcc811": 2.236,
-  "dlg-commuter-e99b52c047": 2.3,
-  "dlg-commuter-7200e18778": 2.14,
-  "dlg-commuter-f4fddb5341": 2.272,
-  "dlg-commuter-e8e6bfacfb": 1.333,
-  "dlg-commuter-964ac59184": 1.221,
-  "dlg-tourist-6a3995a540": 2.789,
-  "dlg-tourist-143f24a13b": 2.616,
-  "dlg-tourist-5cc4e3aef9": 2.486,
-  "dlg-tourist-cf6bbb4ffa": 2.79,
-  "dlg-tourist-70c8416148": 2.508,
-  "dlg-tourist-874027e18a": 2.523,
-  "dlg-tourist-383db038b9": 2.526,
-  "dlg-tourist-a530ec1881": 2.689,
-  "dlg-tourist-6cd1ae34d9": 2.796,
-  "dlg-tourist-1c6771d97b": 2.916,
-  "dlg-tourist-d64a3eaea4": 2.465,
-  "dlg-tourist-8bee8fe304": 2.787,
-  "dlg-tourist-4e307d3bf1": 2.796,
-  "dlg-tourist-31304c4230": 2.484,
-  "dlg-tourist-925643d92a": 2.676,
-  "dlg-tourist-f7fefdf9e2": 2.79,
-  "dlg-tourist-e1b9482024": 2.527,
-  "dlg-tourist-444ea239f6": 2.666,
-  "dlg-tourist-dcafdce6ef": 2.434,
-  "dlg-tourist-9dee905a92": 2.67,
-  "dlg-tourist-0b75bd1142": 1.777,
-  "dlg-tourist-1febdb08aa": 2.604,
-  "dlg-local-ebe86ad705": 2.645,
-  "dlg-local-c820645861": 2.291,
-  "dlg-local-32fb50e0af": 2.155,
-  "dlg-local-c2cd05fc7e": 2.526,
-  "dlg-local-c95d2e3266": 2.142,
-  "dlg-local-03702eacc8": 2.071,
-  "dlg-local-cd4eff7458": 2.182,
-  "dlg-local-b3a62fecf8": 2.318,
-  "dlg-local-1eefe8ddf9": 2.516,
-  "dlg-local-814f955b05": 2.73,
-  "dlg-local-145cca3ebc": 2.097,
-  "dlg-local-b3d15ab599": 2.519,
-  "dlg-local-7052be9bf9": 2.465,
-  "dlg-local-1615f31f58": 2.108,
-  "dlg-local-338e8c442e": 2.438,
-  "dlg-local-bfedb5156e": 2.513,
-  "dlg-local-c126f1ffdb": 2.238,
-  "dlg-local-8dc2614dc4": 2.313,
-  "dlg-local-150a3966ee": 2.089,
-  "dlg-local-75c9a42ab0": 2.343,
-  "dlg-local-9921431f88": 1.347,
-  "dlg-local-36d25d21e1": 1.892,
   "dsp-all-units-return-to-patrol": 1.94,
   "dsp-swat-is-rolling": 1.257,
   "dsp-air-unit-on-scene": 1.39,
@@ -160,6 +94,8 @@
   "dsp-coral-bay": 0.891,
   "dsp-azura-pier": 1.143,
   "dsp-marina": 0.815,
+  "dsp-hillcrest-cove": 1.274,
+  "dsp-port-basin": 1.08,
   "dsp-azura-point": 1.235,
   "dsp-suspect-on-foot": 1.317,
   "dsp-suspect-in-a-red": 1.357,
@@ -216,7 +152,6 @@
   "talk-call-kid": 13.506,
   "talk-news-ducks": 28.39,
   "talk-news-thefts": 22.217,
-  "talk-news-weather": 19.052,
   "talk-news-sports": 19.178,
   "talk-traffic-pigeon": 22.285,
   "talk-traffic-hill": 24.327,
@@ -274,243 +209,280 @@
   "talk-bowl-ident-ron": 4.417,
   "talk-bowl-ident-sal": 5.556,
   "talk-bowl-ident-pembury": 5.119,
+  "news-d3973ae53e": 1.986,
+  "news-f12d385a2a": 0.977,
+  "news-d24d83ac5d": 1.921,
+  "news-5f1377059f": 1.735,
+  "news-e9755a9658": 1.978,
+  "news-961d19b8d4": 2.573,
+  "news-6d150e4eb1": 2.842,
+  "news-21ea73654a": 1.581,
+  "news-ec9a402213": 1.841,
+  "news-99aa677151": 2.027,
+  "news-1d7497ec9d": 2.238,
+  "news-c172084361": 2.346,
+  "news-1b0c60b283": 1.014,
+  "news-297cef645a": 1.795,
+  "news-c1ca575903": 3.011,
+  "news-853c691ebd": 2.786,
+  "news-245d6092ac": 3.003,
+  "news-cf5f44b84d": 2.762,
+  "news-9e6c424452": 2.459,
+  "news-ad1e57fd20": 2.653,
+  "news-b4189cd591": 2.629,
+  "news-7d0296552d": 3.358,
+  "news-c455ce80b9": 3.475,
+  "news-76143a858a": 3.292,
+  "news-d42580f73f": 3.005,
+  "news-3f46edffe5": 3.255,
+  "news-7acaffb7c5": 3.255,
+  "news-8acd6ebe1d": 4.246,
+  "news-41477af854": 4.578,
+  "news-d3acec4721": 4.224,
+  "news-fbf2f22ce5": 3.944,
+  "news-c610aee170": 4.219,
+  "news-0fd53cac60": 4.202,
+  "news-ee6bc6a687": 1.71,
+  "news-fca2d4407b": 1.522,
+  "news-bb5680688b": 1.376,
+  "news-493bdbd5cf": 1.662,
+  "news-b05bde8153": 1.345,
+  "news-8406897e2d": 1.321,
+  "news-17587468ee": 1.233,
+  "news-116fabf90e": 1.555,
+  "news-964aea5877": 1.581,
+  "news-9b24a6f4a1": 1.887,
+  "news-fab82b5ac8": 1.376,
+  "news-6359599ba7": 1.609,
+  "news-11a56a6b97": 1.649,
+  "news-283bbc64a4": 1.321,
+  "news-cc5506074d": 1.526,
+  "news-54ea1fc985": 1.626,
+  "news-e2d5c5b595": 1.418,
+  "news-19d51a17c0": 1.469,
+  "news-e63f63719e": 1.313,
+  "news-7ea74528b3": 1.683,
+  "news-ff98627867": 1.554,
+  "news-b9c0cb5793": 1.52,
+  "news-eb32e3b32a": 1.68,
+  "news-6f21ddc1c7": 1.456,
+  "news-771b53f6ea": 1.279,
+  "news-e2d5ae688e": 1.626,
+  "news-c7609c5b31": 1.244,
+  "news-f37801b6c9": 1.192,
+  "news-20652e3098": 1.155,
+  "news-55b76225b6": 1.462,
+  "news-03f58c6283": 1.504,
+  "news-518986a8ca": 1.812,
+  "news-3ff16f42a0": 1.258,
+  "news-62ed4b03ca": 1.528,
+  "news-3749d69cbd": 1.663,
+  "news-81bfa873ac": 1.24,
+  "news-a31d4ed9ee": 1.452,
+  "news-ce25baa1ee": 1.608,
+  "news-aaea12fa27": 1.336,
+  "news-765b52e52f": 1.412,
+  "news-09ab60b575": 1.29,
+  "news-b90c3020d7": 1.604,
+  "news-2303245844": 1.449,
+  "news-b606ce775c": 1.5,
+  "news-82baf48c95": 1.738,
+  "news-9395ff7fb6": 1.534,
+  "news-53a2383714": 1.429,
+  "news-a44ba0efba": 1.732,
+  "news-2995a8ba41": 1.376,
+  "news-353ea93678": 1.319,
+  "news-7699d9830f": 1.385,
+  "news-3a27cbe510": 1.678,
+  "news-985b0f75bc": 1.572,
+  "news-06277ff5c1": 1.915,
+  "news-1064677f55": 1.374,
+  "news-a58cf3102b": 1.658,
+  "news-9d25c625d1": 1.744,
+  "news-ca0cf301e4": 1.367,
+  "news-90a0ad4cd6": 1.575,
+  "news-ba3d1ebb06": 1.634,
+  "news-e8cf329ed9": 1.461,
+  "news-35329c039c": 1.615,
+  "news-a3833e247b": 1.362,
+  "news-8da8958b0b": 1.654,
+  "news-3e5663be11": 1.552,
+  "news-562bbbdff1": 1.644,
+  "news-165604cb7a": 2.391,
+  "news-3d1cfc8dee": 2.255,
+  "news-885f665d9f": 2.044,
+  "news-d10b132f2b": 2.393,
+  "news-e539f89a2a": 1.96,
+  "news-8a89a91550": 1.961,
+  "news-0a86f17031": 1.892,
+  "news-0d22100a6d": 2.275,
+  "news-e83efa0d06": 2.298,
+  "news-1e6cdabe4e": 2.757,
+  "news-4fa4051a7e": 2.015,
+  "news-e520e59457": 2.384,
+  "news-2955a6376c": 2.482,
+  "news-674d59b7a6": 1.992,
+  "news-98c8f916b6": 2.2,
+  "news-b0566608d6": 2.365,
+  "news-b829f41c68": 2.16,
+  "news-5d9c6f131e": 2.199,
+  "news-725aa3312b": 1.969,
+  "news-6d04365bda": 2.379,
+  "news-39d231eace": 2.273,
+  "news-47a5f4be50": 2.265,
+  "news-359c763f93": 2.829,
+  "news-b88beaf0f4": 2.589,
+  "news-9886fa0516": 2.43,
+  "news-145206a638": 2.738,
+  "news-0273098021": 2.339,
+  "news-a2522f4c4e": 2.35,
+  "news-e8bfe84fb4": 2.248,
+  "news-091e2395f3": 2.53,
+  "news-d8d67a8352": 2.615,
+  "news-6df80691b2": 3.092,
+  "news-d25daca619": 2.399,
+  "news-8e35798075": 2.685,
+  "news-fa9b40f823": 2.921,
+  "news-302498c0ac": 2.382,
+  "news-c412a58e4d": 2.576,
+  "news-8526075038": 2.857,
+  "news-fe97771d42": 2.509,
+  "news-a4412bc2c9": 2.588,
+  "news-7182ccead6": 2.444,
+  "news-677efad5b0": 2.684,
+  "news-1359cb9969": 2.58,
+  "news-18d73e60fd": 2.544,
+  "news-5be2aa01e9": 2.375,
+  "news-8d29d6277f": 1.25,
+  "news-0945c4cbfe": 4.126,
+  "news-cdb0180903": 3.465,
+  "news-b8e6eaf7ee": 5,
+  "news-ee7ff8534f": 2.488,
+  "news-c31b1976de": 5.293,
+  "news-bebcfdc12a": 3.104,
+  "news-c6197753ec": 3.873,
+  "news-833ba10b0d": 3.287,
+  "news-096d050bf4": 5.129,
+  "news-da30fd52bb": 3.732,
+  "news-079bd959df": 4.609,
+  "news-fcd684301c": 3.049,
+  "news-a8c86849c2": 4.947,
+  "news-c9a90b3108": 2.638,
+  "news-47640eb7f1": 4.021,
+  "news-4d8b8db9c1": 2.125,
+  "news-c0e2e356ae": 4.275,
+  "news-dc5bc9d428": 3.067,
+  "news-f5ff00bf54": 3.989,
+  "news-ff74c06cf9": 3.124,
+  "news-83d0cd5f30": 2.964,
+  "news-61e210a3b7": 1.937,
+  "news-16533f44de": 2.985,
+  "news-8b7a85f9ac": 1.261,
+  "news-ab72ff971a": 1.331,
+  "news-6063bff5aa": 1.345,
+  "news-b11bb9fc93": 1.358,
+  "news-e125d54ad5": 1.401,
+  "news-469d676c41": 1.468,
+  "news-5739af3670": 1.296,
+  "news-1b618de830": 3.961,
+  "news-3f619926ea": 3.15,
+  "news-4160dffe14": 2.493,
+  "news-b8ed4b8f51": 3.888,
+  "news-a16b671d88": 4.195,
+  "news-dd674df4b1": 0.975,
+  "news-f730fdd961": 1.249,
+  "news-920712b356": 2.221,
+  "news-8a277f21c6": 2.232,
+  "news-165cef2351": 1.956,
+  "news-9281d3d4d2": 2.379,
+  "news-849f799646": 2.262,
+  "news-44fe4bc27a": 2.253,
+  "news-dbe77ffde8": 2.382,
+  "news-1b62fbcee1": 1.887,
+  "news-4deeffc83a": 2.782,
+  "news-78e1973e74": 1.845,
+  "news-df6bec64bc": 3.818,
+  "news-43ad9db74c": 1.731,
+  "news-82f338f0b0": 1.906,
+  "news-dd8f0942fd": 1.71,
+  "news-f86143c8e0": 1.555,
+  "news-d5cd1f2d4d": 1.484,
+  "news-d12431ffdc": 1.706,
+  "news-82378f1ba3": 1.45,
+  "news-2fcf76cf34": 1.303,
+  "news-29f1dbce12": 1.758,
+  "news-7eefec1d20": 1.939,
+  "news-77bcafe500": 1.695,
+  "news-233d89b724": 1.613,
+  "news-0f778c8837": 1.272,
+  "news-3b86817c3d": 1.511,
+  "news-4d083019b9": 1.258,
+  "news-0cb6b4fb9e": 1.259,
+  "news-aeeddb8d92": 2.197,
+  "news-80d861744d": 2.307,
+  "news-add54b14c8": 2.059,
+  "news-3bdf3de37b": 1.935,
+  "news-393d829f97": 2.375,
+  "news-1937c57e39": 1.774,
+  "news-2bfaa6eb29": 1.119,
+  "news-00ac8cb0e1": 1.159,
+  "news-fc901ba2b7": 1.113,
+  "news-57782f3f5d": 1.085,
+  "news-2206bf597c": 1.176,
+  "news-97d89df7ea": 2.163,
+  "news-0969f129ff": 2.237,
+  "news-6082ba6886": 2.761,
+  "news-20f7a87d51": 2.131,
+  "news-5ca749b9c9": 3.317,
+  "news-709ef5bcf1": 2.644,
+  "news-9d4eb422d4": 3.319,
+  "news-30c524d939": 4.068,
+  "news-7e7dc4f3e0": 4.146,
+  "news-3c99c90495": 2.191,
+  "news-m-wheels": 10.226,
+  "news-m-wheels-later": 10.032,
+  "news-m-delivery": 10.006,
+  "news-m-delivery-later": 6.062,
+  "news-m-repo": 9.807,
+  "news-m-repo-later": 7.166,
+  "news-m-loose_lips": 11.379,
+  "news-m-loose_lips-later": 5.908,
+  "news-m-heatwave": 8.012,
+  "news-m-heatwave-later": 6.702,
+  "news-m-big_score": 5.415,
+  "news-m-big_score-later": 6.83,
+  "news-m-shadow_play": 8.593,
+  "news-m-shadow_play-later": 8.733,
+  "news-m-room_service": 9.243,
+  "news-m-room_service-later": 6.611,
+  "news-m-showroom": 8.311,
+  "news-m-showroom-later": 7.636,
+  "news-m-off_the_road": 10.712,
+  "news-m-off_the_road-later": 4.666,
+  "news-m-rush_hour": 10.87,
+  "news-m-last_call": 7.395,
+  "news-m-last_call-later": 6.024,
   "ident-neon-drive-88-7-0": 4.489,
   "ident-neon-drive-88-7-1": 3.246,
   "ident-neon-drive-88-7-2": 3.161,
-  "dj-neon-drive-88-7-banter-0": 4.032,
-  "dj-neon-drive-88-7-banter-1": 4.442,
-  "dj-neon-drive-88-7-banter-2": 4.682,
-  "dj-neon-drive-88-7-banter-3": 5.114,
-  "dj-neon-drive-88-7-night-0": 3.065,
-  "dj-neon-drive-88-7-night-1": 3.324,
-  "dj-neon-drive-88-7-rain-0": 3.693,
-  "dj-neon-drive-88-7-rain-1": 2.981,
-  "dj-neon-drive-88-7-chase-0": 3.515,
-  "dj-neon-drive-88-7-chase-1": 3.977,
-  "dj-neon-drive-88-7-gotaway-0": 3.006,
-  "dj-neon-drive-88-7-gotaway-1": 3.347,
-  "dj-neon-drive-88-7-front-0": 2.57,
-  "dj-neon-drive-88-7-back-0": 4.529,
-  "dj-neon-drive-88-7-front-1": 3.198,
-  "dj-neon-drive-88-7-back-1": 4.15,
-  "dj-neon-drive-88-7-front-2": 4.449,
-  "dj-neon-drive-88-7-back-2": 5.149,
-  "dj-neon-drive-88-7-front-3": 2.215,
-  "dj-neon-drive-88-7-back-3": 3.892,
-  "dj-neon-drive-88-7-front-4": 3.517,
-  "dj-neon-drive-88-7-back-4": 4.424,
-  "dj-neon-drive-88-7-front-5": 4.364,
-  "dj-neon-drive-88-7-back-5": 4.963,
+  "ident-boom-bap-101-3-0": 3.56,
+  "ident-boom-bap-101-3-1": 2.464,
+  "ident-boom-bap-101-3-2": 3.973,
+  "ident-pulse-96-1-0": 3.978,
+  "ident-pulse-96-1-1": 2.045,
+  "ident-pulse-96-1-2": 3.168,
   "ident-velvet-89-9-0": 4.383,
   "ident-velvet-89-9-1": 4.864,
-  "dj-velvet-89-9-banter-0": 4.642,
-  "dj-velvet-89-9-banter-1": 3.923,
-  "dj-velvet-89-9-banter-2": 4.805,
-  "dj-velvet-89-9-banter-3": 4.202,
-  "dj-velvet-89-9-night-0": 3.573,
-  "dj-velvet-89-9-night-1": 5.797,
-  "dj-velvet-89-9-rain-0": 4.085,
-  "dj-velvet-89-9-rain-1": 4.104,
-  "dj-velvet-89-9-chase-0": 5.768,
-  "dj-velvet-89-9-chase-1": 3.176,
-  "dj-velvet-89-9-gotaway-0": 3.872,
-  "dj-velvet-89-9-gotaway-1": 3.635,
-  "dj-velvet-89-9-front-0": 4.814,
-  "dj-velvet-89-9-back-0": 5.531,
-  "dj-velvet-89-9-front-1": 4.76,
-  "dj-velvet-89-9-back-1": 4.693,
-  "dj-velvet-89-9-front-2": 5.022,
-  "dj-velvet-89-9-back-2": 4.145,
-  "dj-velvet-89-9-front-3": 3.683,
-  "dj-velvet-89-9-back-3": 4.917,
-  "dj-velvet-89-9-front-4": 5.068,
-  "dj-velvet-89-9-back-4": 4.414,
-  "dj-velvet-89-9-front-5": 5.867,
-  "dj-velvet-89-9-back-5": 5.623,
-  "ident-dockside-dub-92-3-0": 4.154,
-  "ident-dockside-dub-92-3-1": 2.528,
-  "dj-dockside-dub-92-3-banter-0": 3.665,
-  "dj-dockside-dub-92-3-banter-1": 4.581,
-  "dj-dockside-dub-92-3-banter-2": 4.178,
-  "dj-dockside-dub-92-3-banter-3": 5.094,
-  "dj-dockside-dub-92-3-night-0": 3.522,
-  "dj-dockside-dub-92-3-night-1": 2.428,
-  "dj-dockside-dub-92-3-rain-0": 3.258,
-  "dj-dockside-dub-92-3-rain-1": 3.967,
-  "dj-dockside-dub-92-3-chase-0": 3.89,
-  "dj-dockside-dub-92-3-chase-1": 3.938,
-  "dj-dockside-dub-92-3-gotaway-0": 3.324,
-  "dj-dockside-dub-92-3-gotaway-1": 3.071,
-  "dj-dockside-dub-92-3-front-0": 5.121,
-  "dj-dockside-dub-92-3-back-0": 4.083,
-  "dj-dockside-dub-92-3-front-1": 3.514,
-  "dj-dockside-dub-92-3-back-1": 3.622,
-  "dj-dockside-dub-92-3-front-2": 5.473,
-  "dj-dockside-dub-92-3-back-2": 4.383,
-  "dj-dockside-dub-92-3-front-3": 3.489,
-  "dj-dockside-dub-92-3-back-3": 3.775,
-  "dj-dockside-dub-92-3-front-4": 4.943,
-  "dj-dockside-dub-92-3-back-4": 3.836,
-  "dj-dockside-dub-92-3-front-5": 4.266,
-  "dj-dockside-dub-92-3-back-5": 4.527,
-  "ident-pulse-96-1-0": 3.856,
-  "ident-pulse-96-1-1": 1.969,
-  "ident-pulse-96-1-2": 3.084,
-  "dj-pulse-96-1-banter-0": 3.412,
-  "dj-pulse-96-1-banter-1": 4.141,
-  "dj-pulse-96-1-banter-2": 2.971,
-  "dj-pulse-96-1-banter-3": 3.148,
-  "dj-pulse-96-1-night-0": 2.681,
-  "dj-pulse-96-1-night-1": 3.023,
-  "dj-pulse-96-1-rain-0": 2.099,
-  "dj-pulse-96-1-rain-1": 2.195,
-  "dj-pulse-96-1-chase-0": 3.764,
-  "dj-pulse-96-1-chase-1": 3.619,
-  "dj-pulse-96-1-gotaway-0": 2.031,
-  "dj-pulse-96-1-gotaway-1": 2.327,
-  "dj-pulse-96-1-front-0": 3.501,
-  "dj-pulse-96-1-back-0": 3.064,
-  "dj-pulse-96-1-front-1": 2.836,
-  "dj-pulse-96-1-back-1": 2.862,
-  "dj-pulse-96-1-front-2": 2.556,
-  "dj-pulse-96-1-back-2": 2.65,
-  "dj-pulse-96-1-front-3": 3.688,
-  "dj-pulse-96-1-back-3": 3.197,
-  "dj-pulse-96-1-front-4": 2.708,
-  "dj-pulse-96-1-back-4": 2.583,
-  "dj-pulse-96-1-front-5": 2.607,
-  "dj-pulse-96-1-back-5": 2.882,
-  "ident-coyote-97-7-0": 4.106,
-  "ident-coyote-97-7-1": 2.889,
-  "dj-coyote-97-7-banter-0": 4.97,
-  "dj-coyote-97-7-banter-1": 5.172,
-  "dj-coyote-97-7-banter-2": 3.654,
-  "dj-coyote-97-7-banter-3": 2.758,
-  "dj-coyote-97-7-night-0": 3.474,
-  "dj-coyote-97-7-night-1": 3.255,
-  "dj-coyote-97-7-rain-0": 3.217,
-  "dj-coyote-97-7-rain-1": 2.636,
-  "dj-coyote-97-7-chase-0": 3.81,
-  "dj-coyote-97-7-chase-1": 3.094,
-  "dj-coyote-97-7-gotaway-0": 2.381,
-  "dj-coyote-97-7-gotaway-1": 2.755,
-  "dj-coyote-97-7-front-0": 2.544,
-  "dj-coyote-97-7-back-0": 3.987,
-  "dj-coyote-97-7-front-1": 3.903,
-  "dj-coyote-97-7-back-1": 4.179,
-  "dj-coyote-97-7-front-2": 2.791,
-  "dj-coyote-97-7-back-2": 4.011,
-  "dj-coyote-97-7-front-3": 3.358,
-  "dj-coyote-97-7-back-3": 3.552,
-  "dj-coyote-97-7-front-4": 2.837,
-  "dj-coyote-97-7-back-4": 4.182,
-  "dj-coyote-97-7-front-5": 3.1,
-  "dj-coyote-97-7-back-5": 3.503,
-  "ident-wipeout-99-5-0": 3.628,
-  "ident-wipeout-99-5-1": 2.127,
-  "dj-wipeout-99-5-banter-0": 2.435,
-  "dj-wipeout-99-5-banter-1": 2.582,
-  "dj-wipeout-99-5-banter-2": 2.491,
-  "dj-wipeout-99-5-banter-3": 2.974,
-  "dj-wipeout-99-5-night-0": 2.779,
-  "dj-wipeout-99-5-night-1": 2.189,
-  "dj-wipeout-99-5-rain-0": 2.124,
-  "dj-wipeout-99-5-rain-1": 2.478,
-  "dj-wipeout-99-5-chase-0": 3.308,
-  "dj-wipeout-99-5-chase-1": 1.923,
-  "dj-wipeout-99-5-gotaway-0": 2.004,
-  "dj-wipeout-99-5-gotaway-1": 1.763,
-  "dj-wipeout-99-5-front-0": 2.846,
-  "dj-wipeout-99-5-back-0": 3.034,
-  "dj-wipeout-99-5-front-1": 2.315,
-  "dj-wipeout-99-5-back-1": 2.672,
-  "dj-wipeout-99-5-front-2": 2.973,
-  "dj-wipeout-99-5-back-2": 3.389,
-  "dj-wipeout-99-5-front-3": 2.621,
-  "dj-wipeout-99-5-back-3": 2.805,
-  "dj-wipeout-99-5-front-4": 2.558,
-  "dj-wipeout-99-5-back-4": 2.723,
-  "dj-wipeout-99-5-front-5": 1.988,
-  "dj-wipeout-99-5-back-5": 2.156,
-  "ident-boom-bap-101-3-0": 3.899,
-  "ident-boom-bap-101-3-1": 2.514,
-  "ident-boom-bap-101-3-2": 4.319,
-  "dj-boom-bap-101-3-banter-0": 3.238,
-  "dj-boom-bap-101-3-banter-1": 3.912,
-  "dj-boom-bap-101-3-banter-2": 4.143,
-  "dj-boom-bap-101-3-banter-3": 3.388,
-  "dj-boom-bap-101-3-night-0": 5.031,
-  "dj-boom-bap-101-3-night-1": 2.9,
-  "dj-boom-bap-101-3-rain-0": 3.151,
-  "dj-boom-bap-101-3-rain-1": 2.503,
-  "dj-boom-bap-101-3-chase-0": 3.828,
-  "dj-boom-bap-101-3-chase-1": 3.078,
-  "dj-boom-bap-101-3-gotaway-0": 2.889,
-  "dj-boom-bap-101-3-gotaway-1": 2.512,
-  "dj-boom-bap-101-3-front-0": 4.353,
-  "dj-boom-bap-101-3-back-0": 3.671,
-  "dj-boom-bap-101-3-front-1": 4.193,
-  "dj-boom-bap-101-3-back-1": 4.269,
-  "dj-boom-bap-101-3-front-2": 4.045,
-  "dj-boom-bap-101-3-back-2": 3.421,
-  "dj-boom-bap-101-3-front-3": 3.903,
-  "dj-boom-bap-101-3-back-3": 3.841,
-  "dj-boom-bap-101-3-front-4": 3.877,
-  "dj-boom-bap-101-3-back-4": 3.187,
-  "dj-boom-bap-101-3-front-5": 4.18,
-  "dj-boom-bap-101-3-back-5": 4.012,
-  "ident-breakneck-102-7-0": 3.134,
-  "ident-breakneck-102-7-1": 2.944,
-  "dj-breakneck-102-7-banter-0": 3.72,
-  "dj-breakneck-102-7-banter-1": 3.41,
-  "dj-breakneck-102-7-banter-2": 2.374,
-  "dj-breakneck-102-7-banter-3": 2.279,
-  "dj-breakneck-102-7-night-0": 2.378,
-  "dj-breakneck-102-7-night-1": 1.774,
-  "dj-breakneck-102-7-rain-0": 2.139,
-  "dj-breakneck-102-7-rain-1": 2.473,
-  "dj-breakneck-102-7-chase-0": 3.558,
-  "dj-breakneck-102-7-chase-1": 2.321,
-  "dj-breakneck-102-7-gotaway-0": 1.891,
-  "dj-breakneck-102-7-gotaway-1": 1.925,
-  "dj-breakneck-102-7-front-0": 2.166,
-  "dj-breakneck-102-7-back-0": 2.254,
-  "dj-breakneck-102-7-front-1": 3.299,
-  "dj-breakneck-102-7-back-1": 3.45,
-  "dj-breakneck-102-7-front-2": 2.123,
-  "dj-breakneck-102-7-back-2": 2.47,
-  "dj-breakneck-102-7-front-3": 3.386,
-  "dj-breakneck-102-7-back-3": 3.832,
-  "dj-breakneck-102-7-front-4": 2.404,
-  "dj-breakneck-102-7-back-4": 2.612,
-  "dj-breakneck-102-7-front-5": 3.67,
-  "dj-breakneck-102-7-back-5": 4.086,
-  "ident-pixel-103-9-0": 3.473,
-  "ident-pixel-103-9-1": 2.275,
-  "dj-pixel-103-9-banter-0": 2.731,
-  "dj-pixel-103-9-banter-1": 3.251,
-  "dj-pixel-103-9-banter-2": 2.801,
-  "dj-pixel-103-9-banter-3": 2.516,
-  "dj-pixel-103-9-night-0": 2.556,
-  "dj-pixel-103-9-night-1": 2.281,
-  "dj-pixel-103-9-rain-0": 2.27,
-  "dj-pixel-103-9-rain-1": 2.897,
-  "dj-pixel-103-9-chase-0": 3.449,
-  "dj-pixel-103-9-chase-1": 2.165,
-  "dj-pixel-103-9-gotaway-0": 1.553,
-  "dj-pixel-103-9-gotaway-1": 2.328,
-  "dj-pixel-103-9-front-0": 3.142,
-  "dj-pixel-103-9-back-0": 3.403,
-  "dj-pixel-103-9-front-1": 3.606,
-  "dj-pixel-103-9-back-1": 3.47,
-  "dj-pixel-103-9-front-2": 2.977,
-  "dj-pixel-103-9-back-2": 3.454,
-  "dj-pixel-103-9-front-3": 3.164,
-  "dj-pixel-103-9-back-3": 2.949,
-  "dj-pixel-103-9-front-4": 3.293,
-  "dj-pixel-103-9-back-4": 3.531,
-  "dj-pixel-103-9-front-5": 3.132,
-  "dj-pixel-103-9-back-5": 3.144,
+  "ident-dockside-dub-92-3-0": 4.622,
+  "ident-dockside-dub-92-3-1": 2.652,
+  "ident-coyote-97-7-0": 3.939,
+  "ident-coyote-97-7-1": 2.727,
+  "ident-wipeout-99-5-0": 3.832,
+  "ident-wipeout-99-5-1": 2.107,
+  "ident-breakneck-102-7-0": 3.343,
+  "ident-breakneck-102-7-1": 3.249,
+  "ident-pixel-103-9-0": 3.573,
+  "ident-pixel-103-9-1": 2.358,
   "bark-greet-am-liam-0": 0.829,
   "bark-greet-am-liam-1": 1.171,
   "bark-greet-am-liam-2": 1.138,
@@ -870,60 +842,7 @@
   "bark-turf-af-alloy-0": 1.255,
   "bark-turf-af-alloy-1": 1.251,
   "bark-turf-af-alloy-2": 1.606,
-  "bark-turf-af-alloy-3": 0.801,
-  "bark-hail-am-eric-0": 0.694,
-  "bark-hail-am-eric-1": 0.94,
-  "bark-hail-am-eric-2": 1.06,
-  "bark-hail-am-eric-3": 1.332,
-  "bark-hail-bf-lily-0": 0.962,
-  "bark-hail-bf-lily-1": 1.265,
-  "bark-hail-bf-lily-2": 1.368,
-  "bark-hail-bf-lily-3": 1.747,
-  "bark-hail-af-kore-0": 0.651,
-  "bark-hail-af-kore-1": 0.881,
-  "bark-hail-af-kore-2": 0.944,
-  "bark-hail-af-kore-3": 1.308,
-  "bark-hailmissed-am-eric-0": 0.941,
-  "bark-hailmissed-am-eric-1": 1.423,
-  "bark-hailmissed-am-eric-2": 1.275,
-  "bark-hailmissed-bf-lily-0": 1.154,
-  "bark-hailmissed-bf-lily-1": 1.81,
-  "bark-hailmissed-bf-lily-2": 1.723,
-  "bark-hailmissed-af-kore-0": 0.757,
-  "bark-hailmissed-af-kore-1": 1.283,
-  "bark-hailmissed-af-kore-2": 1.114,
-  "bark-cabbie-am-liam-0": 1.597,
-  "bark-cabbie-am-liam-1": 1.693,
-  "bark-cabbie-am-liam-2": 2.574,
-  "bark-cabbie-am-liam-3": 1.359,
-  "bark-cabbie-bm-fable-0": 1.992,
-  "bark-cabbie-bm-fable-1": 1.939,
-  "bark-cabbie-bm-fable-2": 2.575,
-  "bark-cabbie-bm-fable-3": 1.896,
-  "bark-cabbie-am-echo-0": 1.711,
-  "bark-cabbie-am-echo-1": 1.921,
-  "bark-cabbie-am-echo-2": 2.913,
-  "bark-cabbie-am-echo-3": 1.561,
-  "bark-cabbie-bm-lewis-0": 1.585,
-  "bark-cabbie-bm-lewis-1": 1.692,
-  "bark-cabbie-bm-lewis-2": 3.094,
-  "bark-cabbie-bm-lewis-3": 1.605,
-  "bark-cabbie-af-jessica-0": 1.594,
-  "bark-cabbie-af-jessica-1": 1.645,
-  "bark-cabbie-af-jessica-2": 2.506,
-  "bark-cabbie-af-jessica-3": 1.438,
-  "bark-cabbie-af-river-0": 1.619,
-  "bark-cabbie-af-river-1": 1.601,
-  "bark-cabbie-af-river-2": 2.569,
-  "bark-cabbie-af-river-3": 1.383,
-  "bark-cabbie-af-kore-0": 1.248,
-  "bark-cabbie-af-kore-1": 1.399,
-  "bark-cabbie-af-kore-2": 2.592,
-  "bark-cabbie-af-kore-3": 1.145,
-  "bark-cabbie-bf-lily-0": 1.852,
-  "bark-cabbie-bf-lily-1": 1.973,
-  "bark-cabbie-bf-lily-2": 2.685,
-  "bark-cabbie-bf-lily-3": 1.749
+  "bark-turf-af-alloy-3": 0.801
  },
  "dialogue": {
   "Dex Moreau|So you are Lou's miracle worker. Charming. I have a problem with a mouth.": "dlg-dex-02cf79984f",
@@ -985,73 +904,7 @@
   "Vera Salgado|I've got work for you: \"Showroom Condition\". Come see me, V on your radar.": "dlg-vera-b2441279ae",
   "Vera Salgado|I've got work for you: \"Off the Road\". Come see me, V on your radar.": "dlg-vera-783a4b7d31",
   "Vera Salgado|I've got work for you: \"Rush Hour\". Come see me, V on your radar.": "dlg-vera-30638ba1ac",
-  "Vera Salgado|I've got work for you: \"Last Call\". Come see me, V on your radar.": "dlg-vera-aeb7767d0a",
-  "Commuter|San Azura Bay, and step on it. I'm already late.": "dlg-commuter-4be085d62b",
-  "Commuter|Ocean Beach, and step on it. I'm already late.": "dlg-commuter-be6c38ed95",
-  "Commuter|Hillcrest, and step on it. I'm already late.": "dlg-commuter-74fef1b428",
-  "Commuter|Hillcrest Green, and step on it. I'm already late.": "dlg-commuter-6547995ec3",
-  "Commuter|Westside, and step on it. I'm already late.": "dlg-commuter-5232a0fbea",
-  "Commuter|Midtown, and step on it. I'm already late.": "dlg-commuter-ea358cb5d9",
-  "Commuter|Downtown, and step on it. I'm already late.": "dlg-commuter-2e97559034",
-  "Commuter|Azura Park, and step on it. I'm already late.": "dlg-commuter-d4dc874327",
-  "Commuter|Civic Plaza, and step on it. I'm already late.": "dlg-commuter-13f1ad45e7",
-  "Commuter|Port Azura Docks, and step on it. I'm already late.": "dlg-commuter-0686b06a6b",
-  "Commuter|Southgate, and step on it. I'm already late.": "dlg-commuter-87c7281d48",
-  "Commuter|Southgate Square, and step on it. I'm already late.": "dlg-commuter-0da261308e",
-  "Commuter|Cortez Canal, and step on it. I'm already late.": "dlg-commuter-c2ab88cb8a",
-  "Commuter|Gull Bay, and step on it. I'm already late.": "dlg-commuter-b89ebdfc7d",
-  "Commuter|Northshore Bay, and step on it. I'm already late.": "dlg-commuter-f8e4f1c03e",
-  "Commuter|Pelican Harbor, and step on it. I'm already late.": "dlg-commuter-086d840869",
-  "Commuter|Coral Bay, and step on it. I'm already late.": "dlg-commuter-1861bcc811",
-  "Commuter|Azura Pier, and step on it. I'm already late.": "dlg-commuter-e99b52c047",
-  "Commuter|Marina, and step on it. I'm already late.": "dlg-commuter-7200e18778",
-  "Commuter|Azura Point, and step on it. I'm already late.": "dlg-commuter-f4fddb5341",
-  "Commuter|Made it. Barely. Thanks.": "dlg-commuter-e8e6bfacfb",
-  "Commuter|Forget it. I'll walk.": "dlg-commuter-964ac59184",
-  "Tourist|Hello! Could you take me to San Azura Bay, please?": "dlg-tourist-6a3995a540",
-  "Tourist|Hello! Could you take me to Ocean Beach, please?": "dlg-tourist-143f24a13b",
-  "Tourist|Hello! Could you take me to Hillcrest, please?": "dlg-tourist-5cc4e3aef9",
-  "Tourist|Hello! Could you take me to Hillcrest Green, please?": "dlg-tourist-cf6bbb4ffa",
-  "Tourist|Hello! Could you take me to Westside, please?": "dlg-tourist-70c8416148",
-  "Tourist|Hello! Could you take me to Midtown, please?": "dlg-tourist-874027e18a",
-  "Tourist|Hello! Could you take me to Downtown, please?": "dlg-tourist-383db038b9",
-  "Tourist|Hello! Could you take me to Azura Park, please?": "dlg-tourist-a530ec1881",
-  "Tourist|Hello! Could you take me to Civic Plaza, please?": "dlg-tourist-6cd1ae34d9",
-  "Tourist|Hello! Could you take me to Port Azura Docks, please?": "dlg-tourist-1c6771d97b",
-  "Tourist|Hello! Could you take me to Southgate, please?": "dlg-tourist-d64a3eaea4",
-  "Tourist|Hello! Could you take me to Southgate Square, please?": "dlg-tourist-8bee8fe304",
-  "Tourist|Hello! Could you take me to Cortez Canal, please?": "dlg-tourist-4e307d3bf1",
-  "Tourist|Hello! Could you take me to Gull Bay, please?": "dlg-tourist-31304c4230",
-  "Tourist|Hello! Could you take me to Northshore Bay, please?": "dlg-tourist-925643d92a",
-  "Tourist|Hello! Could you take me to Pelican Harbor, please?": "dlg-tourist-f7fefdf9e2",
-  "Tourist|Hello! Could you take me to Coral Bay, please?": "dlg-tourist-e1b9482024",
-  "Tourist|Hello! Could you take me to Azura Pier, please?": "dlg-tourist-444ea239f6",
-  "Tourist|Hello! Could you take me to Marina, please?": "dlg-tourist-dcafdce6ef",
-  "Tourist|Hello! Could you take me to Azura Point, please?": "dlg-tourist-9dee905a92",
-  "Tourist|Lovely! Thank you, driver!": "dlg-tourist-0b75bd1142",
-  "Tourist|This is taking ages. I'll find my own way.": "dlg-tourist-1febdb08aa",
-  "Local|San Azura Bay. And skip the scenic route, okay?": "dlg-local-ebe86ad705",
-  "Local|Ocean Beach. And skip the scenic route, okay?": "dlg-local-c820645861",
-  "Local|Hillcrest. And skip the scenic route, okay?": "dlg-local-32fb50e0af",
-  "Local|Hillcrest Green. And skip the scenic route, okay?": "dlg-local-c2cd05fc7e",
-  "Local|Westside. And skip the scenic route, okay?": "dlg-local-c95d2e3266",
-  "Local|Midtown. And skip the scenic route, okay?": "dlg-local-03702eacc8",
-  "Local|Downtown. And skip the scenic route, okay?": "dlg-local-cd4eff7458",
-  "Local|Azura Park. And skip the scenic route, okay?": "dlg-local-b3a62fecf8",
-  "Local|Civic Plaza. And skip the scenic route, okay?": "dlg-local-1eefe8ddf9",
-  "Local|Port Azura Docks. And skip the scenic route, okay?": "dlg-local-814f955b05",
-  "Local|Southgate. And skip the scenic route, okay?": "dlg-local-145cca3ebc",
-  "Local|Southgate Square. And skip the scenic route, okay?": "dlg-local-b3d15ab599",
-  "Local|Cortez Canal. And skip the scenic route, okay?": "dlg-local-7052be9bf9",
-  "Local|Gull Bay. And skip the scenic route, okay?": "dlg-local-1615f31f58",
-  "Local|Northshore Bay. And skip the scenic route, okay?": "dlg-local-338e8c442e",
-  "Local|Pelican Harbor. And skip the scenic route, okay?": "dlg-local-bfedb5156e",
-  "Local|Coral Bay. And skip the scenic route, okay?": "dlg-local-c126f1ffdb",
-  "Local|Azura Pier. And skip the scenic route, okay?": "dlg-local-8dc2614dc4",
-  "Local|Marina. And skip the scenic route, okay?": "dlg-local-150a3966ee",
-  "Local|Azura Point. And skip the scenic route, okay?": "dlg-local-75c9a42ab0",
-  "Local|Not bad. Not bad at all.": "dlg-local-9921431f88",
-  "Local|I could've walked faster. So I'm walking.": "dlg-local-36d25d21e1"
+  "Vera Salgado|I've got work for you: \"Last Call\". Come see me, V on your radar.": "dlg-vera-aeb7767d0a"
  },
  "dispatch": {
   "all units return to patrol": "dsp-all-units-return-to-patrol",
@@ -1088,6 +941,8 @@
   "coral bay": "dsp-coral-bay",
   "azura pier": "dsp-azura-pier",
   "marina": "dsp-marina",
+  "hillcrest cove": "dsp-hillcrest-cove",
+  "port basin": "dsp-port-basin",
   "azura point": "dsp-azura-point",
   "suspect on foot": "dsp-suspect-on-foot",
   "suspect in a red": "dsp-suspect-in-a-red",
@@ -1152,7 +1007,6 @@
    "news": [
     "talk-news-ducks",
     "talk-news-thefts",
-    "talk-news-weather",
     "talk-news-sports",
     "talk-traffic-pigeon",
     "talk-traffic-hill"
@@ -1762,93 +1616,6 @@
     "bark-turf-af-alloy-2",
     "bark-turf-af-alloy-3"
    ]
-  ],
-  "hail": [
-   [
-    "bark-hail-am-eric-0",
-    "bark-hail-am-eric-1",
-    "bark-hail-am-eric-2",
-    "bark-hail-am-eric-3"
-   ],
-   [
-    "bark-hail-bf-lily-0",
-    "bark-hail-bf-lily-1",
-    "bark-hail-bf-lily-2",
-    "bark-hail-bf-lily-3"
-   ],
-   [
-    "bark-hail-af-kore-0",
-    "bark-hail-af-kore-1",
-    "bark-hail-af-kore-2",
-    "bark-hail-af-kore-3"
-   ]
-  ],
-  "hailMissed": [
-   [
-    "bark-hailmissed-am-eric-0",
-    "bark-hailmissed-am-eric-1",
-    "bark-hailmissed-am-eric-2"
-   ],
-   [
-    "bark-hailmissed-bf-lily-0",
-    "bark-hailmissed-bf-lily-1",
-    "bark-hailmissed-bf-lily-2"
-   ],
-   [
-    "bark-hailmissed-af-kore-0",
-    "bark-hailmissed-af-kore-1",
-    "bark-hailmissed-af-kore-2"
-   ]
-  ],
-  "cabbie": [
-   [
-    "bark-cabbie-am-liam-0",
-    "bark-cabbie-am-liam-1",
-    "bark-cabbie-am-liam-2",
-    "bark-cabbie-am-liam-3"
-   ],
-   [
-    "bark-cabbie-bm-fable-0",
-    "bark-cabbie-bm-fable-1",
-    "bark-cabbie-bm-fable-2",
-    "bark-cabbie-bm-fable-3"
-   ],
-   [
-    "bark-cabbie-am-echo-0",
-    "bark-cabbie-am-echo-1",
-    "bark-cabbie-am-echo-2",
-    "bark-cabbie-am-echo-3"
-   ],
-   [
-    "bark-cabbie-bm-lewis-0",
-    "bark-cabbie-bm-lewis-1",
-    "bark-cabbie-bm-lewis-2",
-    "bark-cabbie-bm-lewis-3"
-   ],
-   [
-    "bark-cabbie-af-jessica-0",
-    "bark-cabbie-af-jessica-1",
-    "bark-cabbie-af-jessica-2",
-    "bark-cabbie-af-jessica-3"
-   ],
-   [
-    "bark-cabbie-af-river-0",
-    "bark-cabbie-af-river-1",
-    "bark-cabbie-af-river-2",
-    "bark-cabbie-af-river-3"
-   ],
-   [
-    "bark-cabbie-af-kore-0",
-    "bark-cabbie-af-kore-1",
-    "bark-cabbie-af-kore-2",
-    "bark-cabbie-af-kore-3"
-   ],
-   [
-    "bark-cabbie-bf-lily-0",
-    "bark-cabbie-bf-lily-1",
-    "bark-cabbie-bf-lily-2",
-    "bark-cabbie-bf-lily-3"
-   ]
   ]
  },
  "idents": {
@@ -1856,6 +1623,16 @@
    "ident-neon-drive-88-7-0",
    "ident-neon-drive-88-7-1",
    "ident-neon-drive-88-7-2"
+  ],
+  "BOOM BAP 101.3": [
+   "ident-boom-bap-101-3-0",
+   "ident-boom-bap-101-3-1",
+   "ident-boom-bap-101-3-2"
+  ],
+  "PULSE 96.1": [
+   "ident-pulse-96-1-0",
+   "ident-pulse-96-1-1",
+   "ident-pulse-96-1-2"
   ],
   "VELVET 89.9": [
    "ident-velvet-89-9-0",
@@ -1865,11 +1642,6 @@
    "ident-dockside-dub-92-3-0",
    "ident-dockside-dub-92-3-1"
   ],
-  "PULSE 96.1": [
-   "ident-pulse-96-1-0",
-   "ident-pulse-96-1-1",
-   "ident-pulse-96-1-2"
-  ],
   "COYOTE 97.7": [
    "ident-coyote-97-7-0",
    "ident-coyote-97-7-1"
@@ -1877,11 +1649,6 @@
   "WIPEOUT 99.5": [
    "ident-wipeout-99-5-0",
    "ident-wipeout-99-5-1"
-  ],
-  "BOOM BAP 101.3": [
-   "ident-boom-bap-101-3-0",
-   "ident-boom-bap-101-3-1",
-   "ident-boom-bap-101-3-2"
   ],
   "BREAKNECK 102.7": [
    "ident-breakneck-102-7-0",
@@ -1892,458 +1659,285 @@
    "ident-pixel-103-9-1"
   ]
  },
- "dj": {
-  "NEON DRIVE 88.7": {
-   "banter": [
-    "dj-neon-drive-88-7-banter-0",
-    "dj-neon-drive-88-7-banter-1",
-    "dj-neon-drive-88-7-banter-2",
-    "dj-neon-drive-88-7-banter-3"
-   ],
-   "night": [
-    "dj-neon-drive-88-7-night-0",
-    "dj-neon-drive-88-7-night-1"
-   ],
-   "rain": [
-    "dj-neon-drive-88-7-rain-0",
-    "dj-neon-drive-88-7-rain-1"
-   ],
-   "chase": [
-    "dj-neon-drive-88-7-chase-0",
-    "dj-neon-drive-88-7-chase-1"
-   ],
-   "gotAway": [
-    "dj-neon-drive-88-7-gotaway-0",
-    "dj-neon-drive-88-7-gotaway-1"
-   ]
-  },
-  "VELVET 89.9": {
-   "banter": [
-    "dj-velvet-89-9-banter-0",
-    "dj-velvet-89-9-banter-1",
-    "dj-velvet-89-9-banter-2",
-    "dj-velvet-89-9-banter-3"
-   ],
-   "night": [
-    "dj-velvet-89-9-night-0",
-    "dj-velvet-89-9-night-1"
-   ],
-   "rain": [
-    "dj-velvet-89-9-rain-0",
-    "dj-velvet-89-9-rain-1"
-   ],
-   "chase": [
-    "dj-velvet-89-9-chase-0",
-    "dj-velvet-89-9-chase-1"
-   ],
-   "gotAway": [
-    "dj-velvet-89-9-gotaway-0",
-    "dj-velvet-89-9-gotaway-1"
-   ]
-  },
-  "DOCKSIDE DUB 92.3": {
-   "banter": [
-    "dj-dockside-dub-92-3-banter-0",
-    "dj-dockside-dub-92-3-banter-1",
-    "dj-dockside-dub-92-3-banter-2",
-    "dj-dockside-dub-92-3-banter-3"
-   ],
-   "night": [
-    "dj-dockside-dub-92-3-night-0",
-    "dj-dockside-dub-92-3-night-1"
-   ],
-   "rain": [
-    "dj-dockside-dub-92-3-rain-0",
-    "dj-dockside-dub-92-3-rain-1"
-   ],
-   "chase": [
-    "dj-dockside-dub-92-3-chase-0",
-    "dj-dockside-dub-92-3-chase-1"
-   ],
-   "gotAway": [
-    "dj-dockside-dub-92-3-gotaway-0",
-    "dj-dockside-dub-92-3-gotaway-1"
-   ]
-  },
-  "PULSE 96.1": {
-   "banter": [
-    "dj-pulse-96-1-banter-0",
-    "dj-pulse-96-1-banter-1",
-    "dj-pulse-96-1-banter-2",
-    "dj-pulse-96-1-banter-3"
-   ],
-   "night": [
-    "dj-pulse-96-1-night-0",
-    "dj-pulse-96-1-night-1"
-   ],
-   "rain": [
-    "dj-pulse-96-1-rain-0",
-    "dj-pulse-96-1-rain-1"
-   ],
-   "chase": [
-    "dj-pulse-96-1-chase-0",
-    "dj-pulse-96-1-chase-1"
-   ],
-   "gotAway": [
-    "dj-pulse-96-1-gotaway-0",
-    "dj-pulse-96-1-gotaway-1"
-   ]
-  },
-  "COYOTE 97.7": {
-   "banter": [
-    "dj-coyote-97-7-banter-0",
-    "dj-coyote-97-7-banter-1",
-    "dj-coyote-97-7-banter-2",
-    "dj-coyote-97-7-banter-3"
-   ],
-   "night": [
-    "dj-coyote-97-7-night-0",
-    "dj-coyote-97-7-night-1"
-   ],
-   "rain": [
-    "dj-coyote-97-7-rain-0",
-    "dj-coyote-97-7-rain-1"
-   ],
-   "chase": [
-    "dj-coyote-97-7-chase-0",
-    "dj-coyote-97-7-chase-1"
-   ],
-   "gotAway": [
-    "dj-coyote-97-7-gotaway-0",
-    "dj-coyote-97-7-gotaway-1"
-   ]
-  },
-  "WIPEOUT 99.5": {
-   "banter": [
-    "dj-wipeout-99-5-banter-0",
-    "dj-wipeout-99-5-banter-1",
-    "dj-wipeout-99-5-banter-2",
-    "dj-wipeout-99-5-banter-3"
-   ],
-   "night": [
-    "dj-wipeout-99-5-night-0",
-    "dj-wipeout-99-5-night-1"
-   ],
-   "rain": [
-    "dj-wipeout-99-5-rain-0",
-    "dj-wipeout-99-5-rain-1"
-   ],
-   "chase": [
-    "dj-wipeout-99-5-chase-0",
-    "dj-wipeout-99-5-chase-1"
-   ],
-   "gotAway": [
-    "dj-wipeout-99-5-gotaway-0",
-    "dj-wipeout-99-5-gotaway-1"
-   ]
-  },
-  "BOOM BAP 101.3": {
-   "banter": [
-    "dj-boom-bap-101-3-banter-0",
-    "dj-boom-bap-101-3-banter-1",
-    "dj-boom-bap-101-3-banter-2",
-    "dj-boom-bap-101-3-banter-3"
-   ],
-   "night": [
-    "dj-boom-bap-101-3-night-0",
-    "dj-boom-bap-101-3-night-1"
-   ],
-   "rain": [
-    "dj-boom-bap-101-3-rain-0",
-    "dj-boom-bap-101-3-rain-1"
-   ],
-   "chase": [
-    "dj-boom-bap-101-3-chase-0",
-    "dj-boom-bap-101-3-chase-1"
-   ],
-   "gotAway": [
-    "dj-boom-bap-101-3-gotaway-0",
-    "dj-boom-bap-101-3-gotaway-1"
-   ]
-  },
-  "BREAKNECK 102.7": {
-   "banter": [
-    "dj-breakneck-102-7-banter-0",
-    "dj-breakneck-102-7-banter-1",
-    "dj-breakneck-102-7-banter-2",
-    "dj-breakneck-102-7-banter-3"
-   ],
-   "night": [
-    "dj-breakneck-102-7-night-0",
-    "dj-breakneck-102-7-night-1"
-   ],
-   "rain": [
-    "dj-breakneck-102-7-rain-0",
-    "dj-breakneck-102-7-rain-1"
-   ],
-   "chase": [
-    "dj-breakneck-102-7-chase-0",
-    "dj-breakneck-102-7-chase-1"
-   ],
-   "gotAway": [
-    "dj-breakneck-102-7-gotaway-0",
-    "dj-breakneck-102-7-gotaway-1"
-   ]
-  },
-  "PIXEL 103.9": {
-   "banter": [
-    "dj-pixel-103-9-banter-0",
-    "dj-pixel-103-9-banter-1",
-    "dj-pixel-103-9-banter-2",
-    "dj-pixel-103-9-banter-3"
-   ],
-   "night": [
-    "dj-pixel-103-9-night-0",
-    "dj-pixel-103-9-night-1"
-   ],
-   "rain": [
-    "dj-pixel-103-9-rain-0",
-    "dj-pixel-103-9-rain-1"
-   ],
-   "chase": [
-    "dj-pixel-103-9-chase-0",
-    "dj-pixel-103-9-chase-1"
-   ],
-   "gotAway": [
-    "dj-pixel-103-9-gotaway-0",
-    "dj-pixel-103-9-gotaway-1"
-   ]
-  }
+ "news": {
+  "Breaking news from the Azura Newsdesk.": "news-d3973ae53e",
+  "This just in.": "news-f12d385a2a",
+  "News just in at the Azura Newsdesk.": "news-d24d83ac5d",
+  "More now on today's police chase.": "news-5f1377059f",
+  "More now on yesterday's police chase.": "news-e9755a9658",
+  "More now on the car that went into the water today.": "news-961d19b8d4",
+  "More now on the car that went into the water yesterday.": "news-6d150e4eb1",
+  "More now on today's car fire.": "news-21ea73654a",
+  "More now on yesterday's car fire.": "news-ec9a402213",
+  "More now on a story we brought you earlier.": "news-99aa677151",
+  "More now on a story we brought you yesterday.": "news-1d7497ec9d",
+  "And an update on a story we have been following.": "news-c172084361",
+  "Back to you, Chet.": "news-1b0c60b283",
+  "That's the news. Back to you, Chet.": "news-297cef645a",
+  "Dolores Vance, Azura Newsdesk. Back to you, Chet.": "news-c1ca575903",
+  "A police chase tore across San Azura this morning.": "news-853c691ebd",
+  "A police chase tore across San Azura this afternoon.": "news-245d6092ac",
+  "A police chase tore across San Azura this evening.": "news-cf5f44b84d",
+  "A police chase tore across San Azura tonight.": "news-9e6c424452",
+  "A police chase tore across San Azura last night.": "news-ad1e57fd20",
+  "A police chase tore across San Azura yesterday.": "news-b4189cd591",
+  "SWAT vans joined a police chase across the city this morning.": "news-7d0296552d",
+  "SWAT vans joined a police chase across the city this afternoon.": "news-c455ce80b9",
+  "SWAT vans joined a police chase across the city this evening.": "news-76143a858a",
+  "SWAT vans joined a police chase across the city tonight.": "news-d42580f73f",
+  "SWAT vans joined a police chase across the city last night.": "news-3f46edffe5",
+  "SWAT vans joined a police chase across the city yesterday.": "news-7acaffb7c5",
+  "The entire San Azura police department chased one driver this morning.": "news-8acd6ebe1d",
+  "The entire San Azura police department chased one driver this afternoon.": "news-41477af854",
+  "The entire San Azura police department chased one driver this evening.": "news-d3acec4721",
+  "The entire San Azura police department chased one driver tonight.": "news-fbf2f22ce5",
+  "The entire San Azura police department chased one driver last night.": "news-c610aee170",
+  "The entire San Azura police department chased one driver yesterday.": "news-0fd53cac60",
+  "It started in San Azura Bay.": "news-ee6bc6a687",
+  "It started on Ocean Beach.": "news-fca2d4407b",
+  "It started in Hillcrest.": "news-bb5680688b",
+  "It started in Hillcrest Green.": "news-493bdbd5cf",
+  "It started in Westside.": "news-b05bde8153",
+  "It started in Midtown.": "news-8406897e2d",
+  "It started downtown.": "news-17587468ee",
+  "It started in Azura Park.": "news-116fabf90e",
+  "It started at Civic Plaza.": "news-964aea5877",
+  "It started in the Port Azura Docks.": "news-9b24a6f4a1",
+  "It started in Southgate.": "news-fab82b5ac8",
+  "It started in Southgate Square.": "news-6359599ba7",
+  "It started in the Cortez Canal.": "news-11a56a6b97",
+  "It started in Gull Bay.": "news-283bbc64a4",
+  "It started in Northshore Bay.": "news-cc5506074d",
+  "It started in Pelican Harbor.": "news-54ea1fc985",
+  "It started in Coral Bay.": "news-e2d5c5b595",
+  "It started on Azura Pier.": "news-19d51a17c0",
+  "It started at the Marina.": "news-e63f63719e",
+  "It started in Hillcrest Cove.": "news-7ea74528b3",
+  "It started in Port Basin.": "news-ff98627867",
+  "It started at Azura Point.": "news-b9c0cb5793",
+  "It ended in San Azura Bay.": "news-eb32e3b32a",
+  "It ended on Ocean Beach.": "news-6f21ddc1c7",
+  "It ended in Hillcrest.": "news-771b53f6ea",
+  "It ended in Hillcrest Green.": "news-e2d5ae688e",
+  "It ended in Westside.": "news-c7609c5b31",
+  "It ended in Midtown.": "news-f37801b6c9",
+  "It ended downtown.": "news-20652e3098",
+  "It ended in Azura Park.": "news-55b76225b6",
+  "It ended at Civic Plaza.": "news-03f58c6283",
+  "It ended in the Port Azura Docks.": "news-518986a8ca",
+  "It ended in Southgate.": "news-3ff16f42a0",
+  "It ended in Southgate Square.": "news-62ed4b03ca",
+  "It ended in the Cortez Canal.": "news-3749d69cbd",
+  "It ended in Gull Bay.": "news-81bfa873ac",
+  "It ended in Northshore Bay.": "news-a31d4ed9ee",
+  "It ended in Pelican Harbor.": "news-ce25baa1ee",
+  "It ended in Coral Bay.": "news-aaea12fa27",
+  "It ended on Azura Pier.": "news-765b52e52f",
+  "It ended at the Marina.": "news-09ab60b575",
+  "It ended in Hillcrest Cove.": "news-b90c3020d7",
+  "It ended in Port Basin.": "news-2303245844",
+  "It ended at Azura Point.": "news-b606ce775c",
+  "It never left San Azura Bay.": "news-82baf48c95",
+  "It never left Ocean Beach.": "news-9395ff7fb6",
+  "It never left Hillcrest.": "news-53a2383714",
+  "It never left Hillcrest Green.": "news-a44ba0efba",
+  "It never left Westside.": "news-2995a8ba41",
+  "It never left Midtown.": "news-353ea93678",
+  "It never left downtown.": "news-7699d9830f",
+  "It never left Azura Park.": "news-3a27cbe510",
+  "It never left Civic Plaza.": "news-985b0f75bc",
+  "It never left the Port Azura Docks.": "news-06277ff5c1",
+  "It never left Southgate.": "news-1064677f55",
+  "It never left Southgate Square.": "news-a58cf3102b",
+  "It never left the Cortez Canal.": "news-9d25c625d1",
+  "It never left Gull Bay.": "news-ca0cf301e4",
+  "It never left Northshore Bay.": "news-90a0ad4cd6",
+  "It never left Pelican Harbor.": "news-ba3d1ebb06",
+  "It never left Coral Bay.": "news-e8cf329ed9",
+  "It never left Azura Pier.": "news-35329c039c",
+  "It never left the Marina.": "news-a3833e247b",
+  "It never left Hillcrest Cove.": "news-8da8958b0b",
+  "It never left Port Basin.": "news-3e5663be11",
+  "It never left Azura Point.": "news-562bbbdff1",
+  "A car went into the water in San Azura Bay.": "news-165604cb7a",
+  "A car went into the water on Ocean Beach.": "news-3d1cfc8dee",
+  "A car went into the water in Hillcrest.": "news-885f665d9f",
+  "A car went into the water in Hillcrest Green.": "news-d10b132f2b",
+  "A car went into the water in Westside.": "news-e539f89a2a",
+  "A car went into the water in Midtown.": "news-8a89a91550",
+  "A car went into the water downtown.": "news-0a86f17031",
+  "A car went into the water in Azura Park.": "news-0d22100a6d",
+  "A car went into the water at Civic Plaza.": "news-e83efa0d06",
+  "A car went into the water in the Port Azura Docks.": "news-1e6cdabe4e",
+  "A car went into the water in Southgate.": "news-4fa4051a7e",
+  "A car went into the water in Southgate Square.": "news-e520e59457",
+  "A car went into the water in the Cortez Canal.": "news-2955a6376c",
+  "A car went into the water in Gull Bay.": "news-674d59b7a6",
+  "A car went into the water in Northshore Bay.": "news-98c8f916b6",
+  "A car went into the water in Pelican Harbor.": "news-b0566608d6",
+  "A car went into the water in Coral Bay.": "news-b829f41c68",
+  "A car went into the water on Azura Pier.": "news-5d9c6f131e",
+  "A car went into the water at the Marina.": "news-725aa3312b",
+  "A car went into the water in Hillcrest Cove.": "news-6d04365bda",
+  "A car went into the water in Port Basin.": "news-39d231eace",
+  "A car went into the water at Azura Point.": "news-47a5f4be50",
+  "Fire crews were called to a blaze in San Azura Bay.": "news-359c763f93",
+  "Fire crews were called to a blaze on Ocean Beach.": "news-b88beaf0f4",
+  "Fire crews were called to a blaze in Hillcrest.": "news-9886fa0516",
+  "Fire crews were called to a blaze in Hillcrest Green.": "news-145206a638",
+  "Fire crews were called to a blaze in Westside.": "news-0273098021",
+  "Fire crews were called to a blaze in Midtown.": "news-a2522f4c4e",
+  "Fire crews were called to a blaze downtown.": "news-e8bfe84fb4",
+  "Fire crews were called to a blaze in Azura Park.": "news-091e2395f3",
+  "Fire crews were called to a blaze at Civic Plaza.": "news-d8d67a8352",
+  "Fire crews were called to a blaze in the Port Azura Docks.": "news-6df80691b2",
+  "Fire crews were called to a blaze in Southgate.": "news-d25daca619",
+  "Fire crews were called to a blaze in Southgate Square.": "news-8e35798075",
+  "Fire crews were called to a blaze in the Cortez Canal.": "news-fa9b40f823",
+  "Fire crews were called to a blaze in Gull Bay.": "news-302498c0ac",
+  "Fire crews were called to a blaze in Northshore Bay.": "news-c412a58e4d",
+  "Fire crews were called to a blaze in Pelican Harbor.": "news-8526075038",
+  "Fire crews were called to a blaze in Coral Bay.": "news-fe97771d42",
+  "Fire crews were called to a blaze on Azura Pier.": "news-a4412bc2c9",
+  "Fire crews were called to a blaze at the Marina.": "news-7182ccead6",
+  "Fire crews were called to a blaze in Hillcrest Cove.": "news-677efad5b0",
+  "Fire crews were called to a blaze in Port Basin.": "news-1359cb9969",
+  "Fire crews were called to a blaze at Azura Point.": "news-18d73e60fd",
+  "The police helicopter did not make it home.": "news-5be2aa01e9",
+  "The suspect got away.": "news-8d29d6277f",
+  "The suspect got away, and police say they are not angry, just disappointed.": "news-0945c4cbfe",
+  "The suspect is in custody, and has asked for Morty Fenwick.": "news-cdb0180903",
+  "Police made an arrest, and the suspect has asked for a lawyer and a sandwich, in that order.": "news-b8e6eaf7ee",
+  "The suspect was taken to San Azura General.": "news-ee7ff8534f",
+  "The suspect is at San Azura General, where doctors describe him as, quote, still talking.": "news-c31b1976de",
+  "Police describe the driver as, quote, extremely annoying.": "news-bebcfdc12a",
+  "Witnesses say the car was going very fast, and mostly the wrong way.": "news-c6197753ec",
+  "Police remind drivers that a red light is not a suggestion.": "news-833ba10b0d",
+  "One witness called it the most exciting thing to happen in San Azura since the rubber ducks.": "news-096d050bf4",
+  "The department has asked residents to stop cheering from their balconies.": "news-da30fd52bb",
+  "Officers say they were this close, and they are holding their fingers very close together.": "news-079bd959df",
+  "A hot dog vendor along the route reports record sales.": "news-fcd684301c",
+  "Police say the suspect used his turn signal exactly once, and they found it insulting.": "news-a8c86849c2",
+  "City Hall says the potholes did everything they could.": "news-c9a90b3108",
+  "Insurance companies across the city have asked for a moment of silence.": "news-47640eb7f1",
+  "The department would like its hubcaps back.": "news-4d8b8db9c1",
+  "Police say the chase used up a whole week of overtime, and most of the donuts.": "news-c0e2e356ae",
+  "Divers recovered the car, and a very surprised crab.": "news-dc5bc9d428",
+  "The Harbor Patrol reminds drivers that the bay is not a parking space.": "news-f5ff00bf54",
+  "Witnesses say it floated for a moment, with great dignity.": "news-ff74c06cf9",
+  "Police say the driver swam out, and did not look back.": "news-83d0cd5f30",
+  "Local fish are said to be furious.": "news-61e210a3b7",
+  "Marine biologists say it is already becoming a reef.": "news-16533f44de",
+  "Two cars were destroyed.": "news-8b7a85f9ac",
+  "Three cars were destroyed.": "news-ab72ff971a",
+  "Four cars were destroyed.": "news-6063bff5aa",
+  "Five cars were destroyed.": "news-b11bb9fc93",
+  "Six cars were destroyed.": "news-e125d54ad5",
+  "Seven cars were destroyed.": "news-469d676c41",
+  "Eight cars were destroyed.": "news-5739af3670",
+  "Nine or more cars were destroyed, and the fire chief has stopped counting.": "news-1b618de830",
+  "The fire chief described the scene as, quote, a lot of fire.": "news-3f619926ea",
+  "Neighbors say the smoke could be seen from Hillcrest.": "news-4160dffe14",
+  "Firefighters ask whoever is doing this to please stop. They are tired.": "news-b8ed4b8f51",
+  "Fire crews were back at the station in time for lunch, and then called out again.": "news-a16b671d88",
+  "And now your weather.": "news-dd674df4b1",
+  "Here's your Azura weather.": "news-f730fdd961",
+  "Time for the weather, which is not my fault.": "news-920712b356",
+  "Right now, clear skies over San Azura.": "news-8a277f21c6",
+  "Right now, not a cloud over the city.": "news-165cef2351",
+  "Right now, a few clouds over San Azura.": "news-9281d3d4d2",
+  "Right now, partly cloudy, and partly not.": "news-849f799646",
+  "Right now, grey skies over the whole city.": "news-44fe4bc27a",
+  "Right now, a lid of grey over San Azura.": "news-dbe77ffde8",
+  "Right now, rain across San Azura.": "news-1b62fbcee1",
+  "Right now, it's raining, so drive like you have brakes.": "news-4deeffc83a",
+  "Right now, a storm over the city.": "news-78e1973e74",
+  "Right now, thunder and lightning over San Azura, so stay off the pier.": "news-df6bec64bc",
+  "Clear skies on the way this morning.": "news-43ad9db74c",
+  "Clear skies on the way this afternoon.": "news-82f338f0b0",
+  "Clear skies on the way this evening.": "news-dd8f0942fd",
+  "Clear skies on the way tonight.": "news-f86143c8e0",
+  "Clouds rolling in this morning.": "news-d5cd1f2d4d",
+  "Clouds rolling in this afternoon.": "news-d12431ffdc",
+  "Clouds rolling in this evening.": "news-82378f1ba3",
+  "Clouds rolling in tonight.": "news-2fcf76cf34",
+  "Grey skies moving in this morning.": "news-29f1dbce12",
+  "Grey skies moving in this afternoon.": "news-7eefec1d20",
+  "Grey skies moving in this evening.": "news-77bcafe500",
+  "Grey skies moving in tonight.": "news-233d89b724",
+  "Rain moving in this morning.": "news-0f778c8837",
+  "Rain moving in this afternoon.": "news-3b86817c3d",
+  "Rain moving in this evening.": "news-4d083019b9",
+  "Rain moving in tonight.": "news-0cb6b4fb9e",
+  "A storm rolling in off the bay this morning.": "news-aeeddb8d92",
+  "A storm rolling in off the bay this afternoon.": "news-80d861744d",
+  "A storm rolling in off the bay this evening.": "news-add54b14c8",
+  "A storm rolling in off the bay tonight.": "news-3bdf3de37b",
+  "No change expected for the rest of the day.": "news-393d829f97",
+  "More of the same for the rest of the day.": "news-1937c57e39",
+  "Tomorrow looks sunny.": "news-2bfaa6eb29",
+  "Tomorrow looks cloudy.": "news-00ac8cb0e1",
+  "Tomorrow looks grey.": "news-fc901ba2b7",
+  "Tomorrow looks wet.": "news-57782f3f5d",
+  "Tomorrow looks stormy.": "news-2206bf597c",
+  "As promised, the sun is out. You're welcome.": "news-97d89df7ea",
+  "As promised, the clouds are here. You're welcome.": "news-0969f129ff",
+  "As promised, the sky has gone grey. You're welcome.": "news-6082ba6886",
+  "As promised, the rain is here. You're welcome.": "news-20f7a87d51",
+  "As promised, the storm is here. You're welcome, and stay indoors.": "news-5ca749b9c9",
+  "City Hall has banned weather until further notice.": "news-709ef5bcf1",
+  "Our weather team has been told to stop predicting anything else.": "news-9d4eb422d4",
+  "Our weather computer has been overruled by, and I quote, a rain dance.": "news-30c524d939",
+  "Our forecast has been cancelled. Someone out there is doing the weather by hand.": "news-7e7dc4f3e0",
+  "The sky is no longer taking questions.": "news-3c99c90495"
  },
- "tracks": {
-  "NEON DRIVE 88.7": [
-   {
-    "front": "dj-neon-drive-88-7-front-0",
-    "back": "dj-neon-drive-88-7-back-0"
-   },
-   {
-    "front": "dj-neon-drive-88-7-front-1",
-    "back": "dj-neon-drive-88-7-back-1"
-   },
-   {
-    "front": "dj-neon-drive-88-7-front-2",
-    "back": "dj-neon-drive-88-7-back-2"
-   },
-   {
-    "front": "dj-neon-drive-88-7-front-3",
-    "back": "dj-neon-drive-88-7-back-3"
-   },
-   {
-    "front": "dj-neon-drive-88-7-front-4",
-    "back": "dj-neon-drive-88-7-back-4"
-   },
-   {
-    "front": "dj-neon-drive-88-7-front-5",
-    "back": "dj-neon-drive-88-7-back-5"
-   }
-  ],
-  "VELVET 89.9": [
-   {
-    "front": "dj-velvet-89-9-front-0",
-    "back": "dj-velvet-89-9-back-0"
-   },
-   {
-    "front": "dj-velvet-89-9-front-1",
-    "back": "dj-velvet-89-9-back-1"
-   },
-   {
-    "front": "dj-velvet-89-9-front-2",
-    "back": "dj-velvet-89-9-back-2"
-   },
-   {
-    "front": "dj-velvet-89-9-front-3",
-    "back": "dj-velvet-89-9-back-3"
-   },
-   {
-    "front": "dj-velvet-89-9-front-4",
-    "back": "dj-velvet-89-9-back-4"
-   },
-   {
-    "front": "dj-velvet-89-9-front-5",
-    "back": "dj-velvet-89-9-back-5"
-   }
-  ],
-  "DOCKSIDE DUB 92.3": [
-   {
-    "front": "dj-dockside-dub-92-3-front-0",
-    "back": "dj-dockside-dub-92-3-back-0"
-   },
-   {
-    "front": "dj-dockside-dub-92-3-front-1",
-    "back": "dj-dockside-dub-92-3-back-1"
-   },
-   {
-    "front": "dj-dockside-dub-92-3-front-2",
-    "back": "dj-dockside-dub-92-3-back-2"
-   },
-   {
-    "front": "dj-dockside-dub-92-3-front-3",
-    "back": "dj-dockside-dub-92-3-back-3"
-   },
-   {
-    "front": "dj-dockside-dub-92-3-front-4",
-    "back": "dj-dockside-dub-92-3-back-4"
-   },
-   {
-    "front": "dj-dockside-dub-92-3-front-5",
-    "back": "dj-dockside-dub-92-3-back-5"
-   }
-  ],
-  "PULSE 96.1": [
-   {
-    "front": "dj-pulse-96-1-front-0",
-    "back": "dj-pulse-96-1-back-0"
-   },
-   {
-    "front": "dj-pulse-96-1-front-1",
-    "back": "dj-pulse-96-1-back-1"
-   },
-   {
-    "front": "dj-pulse-96-1-front-2",
-    "back": "dj-pulse-96-1-back-2"
-   },
-   {
-    "front": "dj-pulse-96-1-front-3",
-    "back": "dj-pulse-96-1-back-3"
-   },
-   {
-    "front": "dj-pulse-96-1-front-4",
-    "back": "dj-pulse-96-1-back-4"
-   },
-   {
-    "front": "dj-pulse-96-1-front-5",
-    "back": "dj-pulse-96-1-back-5"
-   }
-  ],
-  "COYOTE 97.7": [
-   {
-    "front": "dj-coyote-97-7-front-0",
-    "back": "dj-coyote-97-7-back-0"
-   },
-   {
-    "front": "dj-coyote-97-7-front-1",
-    "back": "dj-coyote-97-7-back-1"
-   },
-   {
-    "front": "dj-coyote-97-7-front-2",
-    "back": "dj-coyote-97-7-back-2"
-   },
-   {
-    "front": "dj-coyote-97-7-front-3",
-    "back": "dj-coyote-97-7-back-3"
-   },
-   {
-    "front": "dj-coyote-97-7-front-4",
-    "back": "dj-coyote-97-7-back-4"
-   },
-   {
-    "front": "dj-coyote-97-7-front-5",
-    "back": "dj-coyote-97-7-back-5"
-   }
-  ],
-  "WIPEOUT 99.5": [
-   {
-    "front": "dj-wipeout-99-5-front-0",
-    "back": "dj-wipeout-99-5-back-0"
-   },
-   {
-    "front": "dj-wipeout-99-5-front-1",
-    "back": "dj-wipeout-99-5-back-1"
-   },
-   {
-    "front": "dj-wipeout-99-5-front-2",
-    "back": "dj-wipeout-99-5-back-2"
-   },
-   {
-    "front": "dj-wipeout-99-5-front-3",
-    "back": "dj-wipeout-99-5-back-3"
-   },
-   {
-    "front": "dj-wipeout-99-5-front-4",
-    "back": "dj-wipeout-99-5-back-4"
-   },
-   {
-    "front": "dj-wipeout-99-5-front-5",
-    "back": "dj-wipeout-99-5-back-5"
-   }
-  ],
-  "BOOM BAP 101.3": [
-   {
-    "front": "dj-boom-bap-101-3-front-0",
-    "back": "dj-boom-bap-101-3-back-0"
-   },
-   {
-    "front": "dj-boom-bap-101-3-front-1",
-    "back": "dj-boom-bap-101-3-back-1"
-   },
-   {
-    "front": "dj-boom-bap-101-3-front-2",
-    "back": "dj-boom-bap-101-3-back-2"
-   },
-   {
-    "front": "dj-boom-bap-101-3-front-3",
-    "back": "dj-boom-bap-101-3-back-3"
-   },
-   {
-    "front": "dj-boom-bap-101-3-front-4",
-    "back": "dj-boom-bap-101-3-back-4"
-   },
-   {
-    "front": "dj-boom-bap-101-3-front-5",
-    "back": "dj-boom-bap-101-3-back-5"
-   }
-  ],
-  "BREAKNECK 102.7": [
-   {
-    "front": "dj-breakneck-102-7-front-0",
-    "back": "dj-breakneck-102-7-back-0"
-   },
-   {
-    "front": "dj-breakneck-102-7-front-1",
-    "back": "dj-breakneck-102-7-back-1"
-   },
-   {
-    "front": "dj-breakneck-102-7-front-2",
-    "back": "dj-breakneck-102-7-back-2"
-   },
-   {
-    "front": "dj-breakneck-102-7-front-3",
-    "back": "dj-breakneck-102-7-back-3"
-   },
-   {
-    "front": "dj-breakneck-102-7-front-4",
-    "back": "dj-breakneck-102-7-back-4"
-   },
-   {
-    "front": "dj-breakneck-102-7-front-5",
-    "back": "dj-breakneck-102-7-back-5"
-   }
-  ],
-  "PIXEL 103.9": [
-   {
-    "front": "dj-pixel-103-9-front-0",
-    "back": "dj-pixel-103-9-back-0"
-   },
-   {
-    "front": "dj-pixel-103-9-front-1",
-    "back": "dj-pixel-103-9-back-1"
-   },
-   {
-    "front": "dj-pixel-103-9-front-2",
-    "back": "dj-pixel-103-9-back-2"
-   },
-   {
-    "front": "dj-pixel-103-9-front-3",
-    "back": "dj-pixel-103-9-back-3"
-   },
-   {
-    "front": "dj-pixel-103-9-front-4",
-    "back": "dj-pixel-103-9-back-4"
-   },
-   {
-    "front": "dj-pixel-103-9-front-5",
-    "back": "dj-pixel-103-9-back-5"
-   }
-  ]
+ "missionNews": {
+  "wheels": {
+   "breaking": "news-m-wheels",
+   "followUp": "news-m-wheels-later"
+  },
+  "delivery": {
+   "breaking": "news-m-delivery",
+   "followUp": "news-m-delivery-later"
+  },
+  "repo": {
+   "breaking": "news-m-repo",
+   "followUp": "news-m-repo-later"
+  },
+  "loose_lips": {
+   "breaking": "news-m-loose_lips",
+   "followUp": "news-m-loose_lips-later"
+  },
+  "heatwave": {
+   "breaking": "news-m-heatwave",
+   "followUp": "news-m-heatwave-later"
+  },
+  "big_score": {
+   "breaking": "news-m-big_score",
+   "followUp": "news-m-big_score-later"
+  },
+  "shadow_play": {
+   "breaking": "news-m-shadow_play",
+   "followUp": "news-m-shadow_play-later"
+  },
+  "room_service": {
+   "breaking": "news-m-room_service",
+   "followUp": "news-m-room_service-later"
+  },
+  "showroom": {
+   "breaking": "news-m-showroom",
+   "followUp": "news-m-showroom-later"
+  },
+  "off_the_road": {
+   "breaking": "news-m-off_the_road",
+   "followUp": "news-m-off_the_road-later"
+  },
+  "rush_hour": {
+   "breaking": "news-m-rush_hour"
+  },
+  "last_call": {
+   "breaking": "news-m-last_call",
+   "followUp": "news-m-last_call-later"
+  }
  }
 }

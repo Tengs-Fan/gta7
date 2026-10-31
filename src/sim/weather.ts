@@ -33,6 +33,13 @@ export interface WeatherState {
   seaState: number;
 }
 
+/** What the schedule holds from a moment on: the kind of its slot, the next change today (null: none), and tomorrow's at midday. */
+export interface Forecast {
+  now: WeatherKind;
+  next: { kind: WeatherKind; startHours: number } | null;
+  tomorrow: WeatherKind;
+}
+
 /** The numeric fields a debug override may set. */
 export type WeatherFields = Partial<Omit<WeatherState, 'kind' | 'wind'>> & { wind?: { x: number; z: number } };
 
@@ -277,6 +284,22 @@ export class WeatherSystem {
   /** Whether the weather is integrated over time (an override or the clear mode) rather than read from the schedule. */
   private get held(): boolean {
     return this.overrideKind !== null || this.modeNow === 'clear';
+  }
+
+  /**
+   * The schedule's forecast at `hours` of `day` (pure: the slots of the time line): the next change is the first later
+   * slot today of another kind. Null while the weather is held, which no schedule foretells.
+   */
+  forecast(day: number, hours: number): Forecast | null {
+    if (this.held) return null;
+    const g = Math.floor(timeline(day, hours) / SLOT_HOURS);
+    const now = slotKind(this.seed, g);
+    let next: Forecast['next'] = null;
+    for (let k = g + 1; k < (day + 1) * SLOTS_PER_DAY && !next; k++) {
+      const kind = slotKind(this.seed, k);
+      if (kind !== now) next = { kind, startHours: (k - day * SLOTS_PER_DAY) * SLOT_HOURS };
+    }
+    return { now, next, tomorrow: slotKind(this.seed, (day + 1) * SLOTS_PER_DAY + 12 / SLOT_HOURS) };
   }
 
   update(dt: number, clock: GameClock, events: Emitter<SimEvents>, player: V3): void {

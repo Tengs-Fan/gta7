@@ -279,15 +279,6 @@ export const TALK: readonly TalkPiece[] = [
     ],
   },
   {
-    id: 'news-weather',
-    kind: 'news',
-    lines: [
-      ['dolores', "And now your weather. Sunny over Ocean Beach, highs in the upper eighties, and a strong chance of sunburn."],
-      ['dolores', "A sea breeze picks up this afternoon, so hold on to your hats, your umbrellas and your small dogs."],
-      ['dolores', "Storms may roll in off the bay tonight. If you hear thunder, it's either the weather or the Westside drag races. Possibly both."],
-    ],
-  },
-  {
     id: 'news-sports',
     kind: 'news',
     lines: [

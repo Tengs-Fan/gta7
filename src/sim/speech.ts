@@ -33,6 +33,10 @@ export interface SpeechIndex {
   dj: Record<string, Partial<Record<LinkKind, string[]>>>;
   /** The announce and back-announce of each of a music station's hits (stations/playlists.ts HITS, in order). */
   tracks: Record<string, Array<{ front: string; back: string }>>;
+  /** The clip of each sentence the Azura Newsdesk can read (src/audio/newsText.ts), by its text. */
+  news: Record<string, string>;
+  /** The newsdesk's pieces about each mission, by mission id: when it is passed, and a day later. */
+  missionNews: Record<string, { breaking: string; followUp?: string }>;
 }
 
 export const SPEECH = index as SpeechIndex;

@@ -38,7 +38,7 @@ describe('the speech index', () => {
     const ids = Object.keys(SPEECH.clips);
     expect(new Set(files)).toEqual(new Set(ids.map((id) => `${id}.mp3`)));
     for (const id of ids) expect(SPEECH.clips[id]).toBeGreaterThan(0.2);
-    const used = [...Object.values(SPEECH.dialogue), ...Object.values(SPEECH.dispatch), ...talkClips(), ...Object.values(SPEECH.barks).flat(2)];
+    const used = [...Object.values(SPEECH.dialogue), ...Object.values(SPEECH.dispatch), ...talkClips(), ...Object.values(SPEECH.barks).flat(2), ...Object.values(SPEECH.news), ...Object.values(SPEECH.missionNews).flatMap((m) => Object.values(m))];
     for (const id of used) expect(existsSync(`${DIR}${id}.mp3`), id).toBe(true);
   });
 
@@ -109,6 +109,20 @@ describe('the police dispatcher', () => {
       expect(dispatchClips(fixed).length).toBe(1);
     }
     console.log(`[speech] ${n} dispatch lines covered by ${Object.keys(SPEECH.dispatch).length} phrases`);
+  });
+
+  it('can name every place the city names: an 8 m sweep of the world finds no zone without its clip', () => {
+    const w = world();
+    const zones = new Set(zoneNames(w));
+    const b = w.bounds;
+    const missing = new Map<string, number>();
+    for (let x = b.worldMinX; x <= b.worldMaxX; x += 8) {
+      for (let z = b.worldMinZ; z <= b.worldMaxZ; z += 8) {
+        const zone = w.zoneName(x, z);
+        if (!zones.has(zone)) missing.set(zone, (missing.get(zone) ?? 0) + 1);
+      }
+    }
+    expect(Object.fromEntries(missing)).toEqual({});
   });
 
   it('can say the lines of a real chase', () => {

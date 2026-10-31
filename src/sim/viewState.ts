@@ -55,7 +55,8 @@ export interface ViewState {
   readonly roads: RoadNetwork;
   readonly events: Emitter<SimEvents>;
   readonly clock: GameClock;
-  readonly weather: Pick<WeatherSystem, 'state'>;
+  /** The forecast and the override are optional: a network client's mirror has the state alone. */
+  readonly weather: Pick<WeatherSystem, 'state'> & Partial<Pick<WeatherSystem, 'forecast' | 'overridden'>>;
   readonly time: number;
   readonly frame: number;
   readonly characters: readonly Character[];
