@@ -358,8 +358,9 @@ test.describe('GTA 7', () => {
  * (parkedBySpot); PoliceSystem keeps at most UNITS_BY_LEVEL[5] = 7 crewed units out, one more with a
  * patrol. Everything else (the test's own cars, cars it jacked, wrecks, cars left by their crews) has no
  * cap of its own and goes once out of range: `far` lists what is still more than 450 m from the player,
- * beyond the 320 m anything stays visible plus a streaming tick of driving at 60 m/s. Police sweeping a
- * search area may stay by it, away from him.
+ * beyond the 320 m anything stays visible plus a streaming tick of driving at 60 m/s; a car on a county lane
+ * is kept out to the county's 520 m (ONCOMING_KEEP and LINK_FAR in traffic.ts), so its bound is 650 m. Police
+ * sweeping a search area may stay by it, away from him.
  */
 function vehicleCensus(page: Page) {
   return page.evaluate(() => {
@@ -373,7 +374,8 @@ function vehicleCensus(page: Page) {
       else if (v.owner === 'parked') out.parked++;
       else if (v.owner === 'police' && v.drivable && v.occupants().some((c: Api) => c.isLaw && c.alive)) out.units++;
       const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
-      if (v.owner !== 'police' && d > 450) out.far.push(`${v.kind} (${v.owner}${v.destroyed ? ', wreck' : ''}) ${Math.round(d)} m away`);
+      const county = (v.ai?.currentLane()?.line.index ?? 0) < 0;
+      if (v.owner !== 'police' && d > (county ? 650 : 450)) out.far.push(`${v.kind} (${v.owner}${v.destroyed ? ', wreck' : ''}) ${Math.round(d)} m away`);
     }
     return out;
   });
