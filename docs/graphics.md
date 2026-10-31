@@ -259,7 +259,9 @@ Las Lomas County's landscape on 2026-10-31 (`--scenario perf`, which now ends wi
 | promenade-west-night (facing the county) | 264 | 1.42 M |
 | county-pursuit-4-stars (up the Lomas Highway's west leg) | 129 | 0.78 M |
 
-Every frame took 1-4 ms to submit. The city's scenes are as on main (929, 791, 475, 463 and 360 calls): the pursuit and beach-dusk keep the camera's turn and the traffic the segment before left them, so across three runs they drew 449-539 and 427-742 calls. Facing west, a city frame now also draws the county's ridge outline, its turbines and its trees and scrub, a few dozen calls.
+Every frame took 1-4 ms to submit.
+The city's scenes are as on main (929, 791, 475, 463 and 360 calls): the pursuit and beach-dusk keep the camera's turn and the traffic the segment before left them, so across three runs they drew 449-539 and 427-742 calls.
+Facing west, a city frame now also draws the county's ridge outline, its turbines and its trees and scrub, a few dozen calls.
 The two scenes facing the whole skyline across the sound draw a little more than the city's pursuit, the city's own buildings, its activity sites and its markers most of it; before the props were left undrawn off the city's land they drew 1144 and 1178.
 
 ## Software fallback
