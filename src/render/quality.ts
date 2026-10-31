@@ -67,6 +67,27 @@ export const LIGHTING_TIERS: Readonly<Record<LightingFeature, Readonly<Record<Li
 export const COUNTRY_CELL = 256;
 export const COUNTRY_FOG_MARGIN = 60;
 
+/**
+ * Las Lomas County's crops near the camera (render/country/fields.ts): within `ring` m of it the corn and sunflowers are
+ * drawn plant by plant from pools of these sizes (a corn instance is a 2 m row of ten stalks), the wheat within
+ * `wheatRing`; past them, the fields' blocks and ground. The pools halve on Medium and quarter on Low, the rings with
+ * them so a ring full of one crop still fits its pool; the software tier draws the blocks alone.
+ */
+export interface CropRing {
+  ring: number;
+  wheatRing: number;
+  corn: number;
+  wheat: number;
+  sunflower: number;
+}
+
+export const CROP_RING: Readonly<Record<QualityTier | 'software', Readonly<CropRing>>> = {
+  high: { ring: 44, wheatRing: 40, corn: 4096, wheat: 8192, sunflower: 6144 },
+  medium: { ring: 32, wheatRing: 28, corn: 2048, wheat: 4096, sunflower: 3072 },
+  low: { ring: 22, wheatRing: 20, corn: 1024, wheat: 2048, sunflower: 1536 },
+  software: { ring: 0, wheatRing: 0, corn: 0, wheat: 0, sunflower: 0 },
+};
+
 /** Dynamic point lights shared by the siren, muzzle flash and explosion flash on 'few'. */
 export const FEW_POINT_LIGHTS = 2;
 

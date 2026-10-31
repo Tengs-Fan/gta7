@@ -16,23 +16,23 @@ import { canvas, toTexture } from '../textures/misc';
 import type { CityView } from './index';
 import { prism } from './rooftops';
 
-type V = readonly [number, number, number];
+export type V = readonly [number, number, number];
 
 /** A quad facing `toward`: its winding put right, since the attractions are drawn from the front only. */
-function face(g: GeoBuilder, a: V, b: V, c: V, d: V, toward: V, color: RGB, uv: readonly number[] = [0, 0, 1, 0, 1, 1, 0, 1]): void {
+export function face(g: GeoBuilder, a: V, b: V, c: V, d: V, toward: V, color: RGB, uv: readonly number[] = [0, 0, 1, 0, 1, 1, 0, 1]): void {
   const n = [(b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]), (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])];
   if (n[0]! * toward[0] + n[1]! * toward[1] + n[2]! * toward[2] >= 0) g.quad(...a, ...b, ...c, ...d, uv, color);
   else g.quad(...d, ...c, ...b, ...a, [uv[6]!, uv[7]!, uv[4]!, uv[5]!, uv[2]!, uv[3]!, uv[0]!, uv[1]!], color);
 }
 
-function tri(g: GeoBuilder, a: V, b: V, c: V, toward: V, color: RGB): void {
+export function tri(g: GeoBuilder, a: V, b: V, c: V, toward: V, color: RGB): void {
   const n = [(b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]), (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])];
   const uv = [0, 0, 1, 0, 0.5, 1];
   if (n[0]! * toward[0] + n[1]! * toward[1] + n[2]! * toward[2] >= 0) g.tri(...a, ...b, ...c, uv, color);
   else g.tri(...c, ...b, ...a, uv, color);
 }
 
-function boxC(g: GeoBuilder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: RGB): void {
+export function boxC(g: GeoBuilder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: RGB): void {
   g.box(x0, y0, z0, x1, y1, z1, { uv: { kind: 'world', scale: 4 }, color });
 }
 
@@ -40,7 +40,7 @@ function boxC(g: GeoBuilder, x0: number, y0: number, z0: number, x1: number, y1:
  * A pitched roof over `r` from height `eaves` to `ridge`, its ridge along x (`alongX`) or z, overhanging by `over`, with
  * the gable triangles at its ends in `wall` colour.
  */
-function pitched(g: GeoBuilder, r: Rect, eaves: number, ridge: number, alongX: boolean, over: number, roof: RGB, wall: RGB | null): void {
+export function pitched(g: GeoBuilder, r: Rect, eaves: number, ridge: number, alongX: boolean, over: number, roof: RGB, wall: RGB | null): void {
   const { minX, minZ, maxX, maxZ } = r;
   if (alongX) {
     const cz = (minZ + maxZ) / 2;
@@ -59,23 +59,24 @@ function pitched(g: GeoBuilder, r: Rect, eaves: number, ridge: number, alongX: b
  * Everything the attractions draw shares one texture, a column of 1024 px wide bands (ATLAS_H tall in all), so they are
  * one draw: a white band under the vertex-coloured buildings, the painted boards, the hay and the stained glass. Its
  * twin, the glow texture, is black but for the glass, which lights up after dark (the signs' emissive, CityView.update).
+ * Las Lomas County's farms paint their signs on one of their own (render/country/farms.ts), `height` px tall.
  */
 const ATLAS_H = 2048;
 const GLOW_SHRINK = 4;
 
-class Atlas {
+export class Atlas {
   readonly canvas: HTMLCanvasElement;
   readonly glowCanvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly glow: CanvasRenderingContext2D;
   private y = 0;
 
-  constructor() {
-    [this.canvas, this.ctx] = canvas(1024, ATLAS_H);
+  constructor(private readonly height = ATLAS_H) {
+    [this.canvas, this.ctx] = canvas(1024, height);
     // The glow only needs the glass's colours: a quarter of the size.
-    [this.glowCanvas, this.glow] = canvas(1024 / GLOW_SHRINK, ATLAS_H / GLOW_SHRINK);
+    [this.glowCanvas, this.glow] = canvas(1024 / GLOW_SHRINK, height / GLOW_SHRINK);
     this.glow.fillStyle = '#000';
-    this.glow.fillRect(0, 0, 1024 / GLOW_SHRINK, ATLAS_H / GLOW_SHRINK);
+    this.glow.fillRect(0, 0, 1024 / GLOW_SHRINK, height / GLOW_SHRINK);
   }
 
   /** A band `h` px tall drawn by `draw` (its origin at the band's top left), in the glow too if `lit`; its v range, bottom to top. */
@@ -87,7 +88,7 @@ class Atlas {
       draw(ctx);
       ctx.restore();
     }
-    const v: [number, number] = [1 - (this.y + h) / ATLAS_H, 1 - this.y / ATLAS_H];
+    const v: [number, number] = [1 - (this.y + h) / this.height, 1 - this.y / this.height];
     this.y += h;
     return v;
   }

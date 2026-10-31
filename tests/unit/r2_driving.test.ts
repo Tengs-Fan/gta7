@@ -812,11 +812,12 @@ describe('the camera and street trees (P21)', () => {
       if (o instanceof THREE.InstancedMesh && (o.material as THREE.Material).onBeforeCompile.toString().includes('vFadeWorld')) foliage.push(o);
     });
     // Spatial cells share the same canopy/bush/frond/corn geometries and materials (the cemetery's cypresses wear
-    // the trees' canopy). The dissolve remains one colour pass for each batch, with every foliage prop drawn once.
+    // the trees' canopy, Las Lomas County's apple trees the bushes' leaves). The dissolve remains one colour pass for
+    // each batch, with every foliage prop drawn once.
     expect(new Set(foliage.map((mesh) => mesh.material)).size).toBe(4);
     expect(new Set(foliage.map((mesh) => mesh.geometry)).size).toBe(4);
     const drawnProps = foliage.flatMap((mesh) => mesh.userData.propIndices as number[]).sort((a, b) => a - b);
-    const expectedProps = world().layout.props.flatMap((p, i) => ['tree', 'bush', 'palm', 'cypress', 'corn'].includes(p.kind) ? [i] : []);
+    const expectedProps = world().layout.props.flatMap((p, i) => ['tree', 'bush', 'palm', 'cypress', 'corn', 'orchardTree'].includes(p.kind) ? [i] : []);
     expect(drawnProps).toEqual(expectedProps);
     for (const mesh of foliage) {
       const mat = mesh.material as THREE.MeshStandardMaterial;
