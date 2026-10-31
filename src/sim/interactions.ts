@@ -107,8 +107,8 @@ export class Interactions {
     this.markers.push(...epitaphMarkers(sim.world));
     // AzuraLink: the foot of each station's stairs (activities/monorail.ts says what it offers).
     sim.world.layout.monorail.stations.forEach((s, i) => this.markers.push(monorailMarker(s.foot, i, '')));
-    // Beside each of Las Lomas County's cows, to tip her at night.
-    this.markers.push(...cowMarkers(sim.world));
+    // Beside each of Las Lomas County's cows, to tip her at night: in single player only, as the scarecrows count.
+    if (!sim.multiplayer) this.markers.push(...cowMarkers(sim.world));
   }
 
   /** The marker under the player (on foot), if any. `slot` is slot 0 by default. */

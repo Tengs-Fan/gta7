@@ -1,7 +1,7 @@
 // Las Lomas County's farms (world/country/farms.ts) in the sim: the cows, the scarecrows and the propane tank.
-// - A cow tipped at night (E beside a standing one, TIP_FROM to TIP_TO) or knocked over by a car lies there until DAWN,
-//   when every cow in the county gets back up. That is a rule of the clock alone, which a multiplayer client's mirror
-//   applies as well (net/mirror.ts): no message stands a prop up again.
+// - A cow tipped at night (E beside a standing one, TIP_FROM to TIP_TO; in single player only) or knocked over by a car
+//   lies there until DAWN, when every cow in the county gets back up. That is a rule of the clock alone, which a
+//   multiplayer client's mirror applies as well (net/mirror.ts): no message stands a prop up again.
 // - Twenty scarecrows to knock down: SCARECROWS n/20 for each and SCARECROW_REWARD for the set, once. They are kept per
 //   Progress and saved (FARMS_KEY), as the pumpkins are (sim/farm.ts), in single player only.
 // - The propane tank behind the dairy goes up when it breaks, on the tick after: a car breaks it inside its collision step.
@@ -51,7 +51,7 @@ function colliderOf(world: StaticWorld, prop: number): StaticCollider {
   return world.grid.colliders[world.propColliders[prop]!]!;
 }
 
-/** A marker at each cow (Interactions): not drawn (renderer.ts), it only takes the E beside her. */
+/** A marker at each cow (Interactions, in single player): not drawn (renderer.ts), it only takes the E beside her. */
 export function cowMarkers(world: StaticWorld): Marker[] {
   return world.layout.country.farms.cows.map((i, k) => {
     const p = world.layout.props[i]!;

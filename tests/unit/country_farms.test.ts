@@ -1,8 +1,8 @@
 // Las Lomas County's four farms (world/country/farms.ts, sim/farms.ts): where everything stands (in the farm plots, 12 m
 // and more off every road edge, nothing older moved), the barns that blind the helicopter, the corn that hides a target
 // and drags at a car, the propane tank that goes up, the hedgerows that stop sight but not the camera, the cows tipped
-// at night that stand up again at dawn (on a Sim and, once, on a multiplayer client's mirror alike), and the twenty
-// scarecrows.
+// at night in single player that stand up again at dawn (on a Sim and, once, on a multiplayer client's mirror alike), and
+// the twenty scarecrows.
 
 import { describe, expect, it } from 'vitest';
 import { Mirror } from '../../src/net/mirror';
@@ -212,6 +212,16 @@ describe('Las Lomas County: the cows', () => {
     beside(sim, 1);
     sim.interactions.interact();
     expect(bigs[1]).toBe(`COW TIPPED 2/${COW_COUNT}`);
+  });
+
+  it('are not tipped in multiplayer, where E beside one at 23:00 does nothing', () => {
+    const sim = makeSim({ police: false, multiplayer: true });
+    expect(sim.interactions.markers.some((m) => m.kind === 'cow')).toBe(false);
+    sim.clock.set(23);
+    beside(sim, 0);
+    expect(sim.interactions.prompt()).toBeNull();
+    sim.interactions.interact();
+    expect(colliderOf(sim.world, farms.cows[0]!).broken).toBe(false);
   });
 
   it('go over when a car hits one, slowing it hard, with no crash', () => {

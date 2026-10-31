@@ -318,6 +318,7 @@ All of these are minor; the most noticeable come first.
 
 - Nothing is saved in multiplayer: money, weapons and records last only as long as you stay in the room, and RECONNECT after a lost connection joins you as a new player.
 - Story missions, cheats, saving and shops are single player only; properties, Lou's export board and the phone's cab are single-player features too.
+- In Las Lomas County, tipping cows and the scarecrows' set are single player only: in multiplayer E beside a cow does nothing, and a knocked-down scarecrow counts for nobody (a cow a car hits still goes over and gets up at dawn).
 - Your own movement and driving are predicted on your machine. On a slow or lossy link (a few hundred milliseconds of lag, or lost packets) the server's answer can differ from the prediction, and your character or car is eased back, or jumps when it is more than 3 m off; other players and the traffic are drawn about 0.1 s behind the server and can stutter when snapshots are lost. Play on a LAN or a nearby server.
 - A page that the game server did not serve (`npm run dev`, `npm run preview`, the GitHub Pages build) looks for the server on its own host at port 4210 with `?mp=1`, and the MULTIPLAYER screen suggests `ws://localhost:4210`; for any other server, type its address or add `&server=<host>:<port>`.
 - An `https://` page (such as the GitHub Pages build) can only reach a `wss://` server or `ws://localhost`; playing over the internet needs your own hosting behind a TLS proxy (see [docs/multiplayer.md](docs/multiplayer.md)).

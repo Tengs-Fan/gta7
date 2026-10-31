@@ -230,7 +230,7 @@ They are drawn at a cost set by what the camera sees (`src/render/country/fields
   Far from the fields, the empty pools are neither refilled nor drawn.
 
 The cows and the twenty scarecrows are breakable props kept by index.
-A cow hit by a car slows it hard, with a moo instead of a crash; E beside one from 21:00 to 05:00 tips her over.
+A cow hit by a car slows it hard, with a moo instead of a crash; E beside one from 21:00 to 05:00 tips her over, in single player only (a multiplayer room has no cow to tip, as its scarecrows count for nobody).
 At 06:00 every cow stands up again, by a rule of the clock alone that a multiplayer client's mirror applies as the server does, since no message stands a prop up again.
 The scarecrows pay $3,000 once all twenty are down (`src/sim/farms.ts`, saved), as Hollister Farm's pumpkins do.
 
