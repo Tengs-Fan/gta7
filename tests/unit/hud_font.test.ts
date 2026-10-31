@@ -1,6 +1,6 @@
 // The HUD's Chinese font (src/ui/fonts/noto-sans-tc-subset.woff2, built by scripts/assets/font.py): every character
-// beyond ASCII the radio line can show (a station's name and tag, its hits, the words of its deep cuts) is in the
-// font's character map and in the unicode-range style.css loads it for.
+// beyond ASCII the radio line can show for a station not in English (its name and tag, its hits, the words of its deep
+// cuts) is in the font's character map and in the unicode-range style.css loads it for.
 
 import { readFileSync } from 'node:fs';
 import { brotliDecompressSync } from 'node:zlib';
@@ -58,14 +58,14 @@ function fontChars(file: string): Set<number> {
   return out;
 }
 
-/** Every character beyond ASCII the radio line can show. */
+/** Every character beyond ASCII the radio line can show for a station not in English (the Latin fonts draw the rest). */
 function shown(): Set<number> {
-  const texts = [...STATIONS.flatMap((s) => [s.name, s.tag]), ...Object.values(HITS).flatMap((hits) => hits.flatMap((h) => [h.artist, h.title])), ...Object.values(CUTS).flatMap((c) => [...c.artist, ...c.title].flat())];
+  const texts = STATIONS.filter((s) => s.lang).flatMap((s) => [s.name, s.tag, ...HITS[s.name]!.flatMap((h) => [h.artist, h.title]), ...[...CUTS[s.name]!.artist, ...CUTS[s.name]!.title].flat()]);
   return new Set([...texts.join('')].map((c) => c.codePointAt(0)!).filter((c) => c > 0x7f));
 }
 
 describe('the HUD font for Chinese', () => {
-  it('has every character beyond ASCII the radio line can show, and style.css loads it for each of them', () => {
+  it('has every character beyond ASCII the radio line can show for a station not in English, and style.css loads it for each of them', () => {
     const chars = shown();
     // 月光電台's name, tag, hits and deep cuts.
     expect(chars.size).toBeGreaterThan(100);
