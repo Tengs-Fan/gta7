@@ -356,9 +356,11 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // and when Azura Point's bluff added its cores and the lookout's parapet and lifted the lighthouse; and both when the
     // attractions pass rebuilt two cells (their houses gone, the farmhouse, the barn, the corn, the pumpkins, the
     // headstones and the chapel's solids added); the colliders again for Turbine Row's towers and Smuggler's Key's palms,
-    // lamp and walls, appended after all of these, and for AzuraLink's pylons and stations, appended after those.
+    // lamp and walls, appended after all of these, and for AzuraLink's pylons and stations, appended after those; the
+    // colliders again on the merged round-2 head, where all four passes stand together and the trees in front of the
+    // letters, grown as bushes, lose their trunks.
     expect(b).toBe('cb24287bf52d2607b0cdf537ee6f3cb8b1958e1495464192f58b2cb03287bf80');
-    expect(c).toBe('3a863c3fde315998f1c18f83577a033551779394d83284f8e761001b4c93d59c');
+    expect(c).toBe('ccf857273884f0d5af37160b32aa7fb9de4097ebc3be8b35e8042c4b8decca0a');
   });
 });
 

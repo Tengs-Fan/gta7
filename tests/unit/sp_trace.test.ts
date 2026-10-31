@@ -15,6 +15,8 @@
 // Re-recorded when the attractions pass rebuilt two cells as Hollister Farm and Eternal Palms Cemetery (docs/map.md): the
 // props past them renumber, and Old Man Hollister stands on his porch while the player is near the farm.
 // And again when Smuggler's Key's stash pickups took the next two entity ids: every id after them is two higher.
+// And on the merged round-2 head, where both stand together: it differs from each branch's recording exactly where the
+// other branch's differs from 72d0b98's (the renumbered props, the ids two higher), and nowhere else.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

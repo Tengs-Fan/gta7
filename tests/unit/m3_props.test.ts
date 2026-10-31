@@ -501,11 +501,12 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // props stand on them (every one kept), and the sight cores, the letters and the lookout's parapet are colliders; and
   // when the attractions pass rebuilt two cells (their yards' trees gone, the farm's and the cemetery's props and solids
   // added), when Turbine Row and Smuggler's Key appended theirs, and when AzuraLink's pylons and stations were appended
-  // to the colliders.
+  // to the colliders; and on the merged round-2 head, where all four passes stand together and the trees in front of the
+  // SAN AZURA letters are bushes (their kind, trunks and envelopes).
   const D98 = {
-    props: '6eb96803e723f2c901593908b4c2c06910a6669c678faba80b883e49df800ded',
-    colliders: 'fedcd825e4e19ac936e85caee020e005ff98e0ad6d02d1404741fb2e92bce79d',
-    envelopes: 'fd2998f905c0d625c4c716e1af2566385a3a65a56d37c7d7c806005b0e4c3faa',
+    props: '1a01b0818b2ab9478c3b1af626c1b7f3355fb5815efbfee075e0c2efe25224be',
+    colliders: '90c170900ea027f8e371569aecda53ecbe4c72adc2a67e96ee7c46393cd3f28e',
+    envelopes: 'ea3cbd9d5cc97c4f50cacf114dd37a248c57c3a7d6ca9c1229e0da7b543740dc',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {
