@@ -3,9 +3,10 @@
 //
 // Clips: the mission dialogue (dialogue.ts), the police dispatcher's phrases (phrases.ts), the talk station's pieces,
 // the barks and AzuraLink's announcements (script.ts), the newsdesk's sentences and mission pieces (news.ts,
-// missionNews.ts) and the music stations' DJs (djs.ts). Rendered lines are cached by voice, speed and text in GTA7_SPEECH_CACHE
-// (~/.cache/gta7-speech), so a rerun renders only new lines. Each clip is trimmed, band-limited where it is heard down
-// a phone line, levelled to the same loudness and encoded with ffmpeg; files the index no longer lists are removed.
+// missionNews.ts) and the music stations' DJs (djs.ts). Rendered lines are cached by model, voice, speed and text in
+// GTA7_SPEECH_CACHE (~/.cache/gta7-speech), so a rerun renders only new lines. Each clip is trimmed, band-limited where
+// it is heard down a phone line, levelled to the same loudness and encoded with ffmpeg; files the index no longer lists
+// are removed.
 
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -47,9 +48,11 @@ interface Clip {
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const hash = (s: string) => createHash('sha1').update(s).digest('hex');
-/** The text as Kokoro reads it (SAY). */
-const spoken = (text: string) => SAY.reduce((s, [re, say]) => s.replace(re, say), text);
-const wavOf = (t: Take) => join(CACHE, `${hash(`kokoro-82m-v1.0|${t.voice}|${t.speed}|${spoken(t.text)}`)}.wav`);
+/** A Mandarin voice: Kokoro-82M v1.1-zh's (render.py reads its takes with that model). */
+const zh = (voice: string) => /^z[fm]_\d{3}/.test(voice);
+/** The text as Kokoro reads it: SAY's respellings are English, so a Mandarin take is read as written. */
+const spoken = (t: Take) => (zh(t.voice) ? t.text : SAY.reduce((s, [re, say]) => s.replace(re, say), t.text));
+const wavOf = (t: Take) => join(CACHE, `${hash(`${zh(t.voice) ? 'kokoro-82m-v1.1-zh' : 'kokoro-82m-v1.0'}|${t.voice}|${t.speed}|${spoken(t)}`)}.wav`);
 /** A DJ's announce frame filled in with a hit (a title's own closing full stop gives way to the frame's). */
 const announce = (frame: string, hit: Track) => frame.replace('{artist}', hit.artist).replace('{title}', hit.title.replace(/\.$/, ''));
 
@@ -113,7 +116,7 @@ for (const [mission, piece] of Object.entries(MISSION_NEWS)) {
   index.missionNews[mission] = piece.followUp ? { breaking, followUp: read(`news-m-${mission}-later`, piece.followUp) } : { breaking };
 }
 for (const [station, dj] of Object.entries(DJS)) {
-  const s = slug(station);
+  const s = dj.slug ?? slug(station);
   const speed = dj.speed ?? 1;
   const clip = (id: string, line: Line) => {
     clips.push({ id, takes: typeof line === 'string' ? [{ voice: dj.voice, text: line, speed }] : line.map(([voice, text]) => ({ voice, text, speed })) });
@@ -154,7 +157,7 @@ const todo = new Map<string, Take>();
 for (const c of clips) for (const t of c.takes) if (!existsSync(wavOf(t))) todo.set(wavOf(t), t);
 if (todo.size > 0) {
   console.log(`rendering ${todo.size} lines`);
-  const jobs = [...todo].map(([out, t]) => ({ out, voice: t.voice, text: spoken(t.text), speed: t.speed }));
+  const jobs = [...todo].map(([out, t]) => ({ out, voice: t.voice, text: spoken(t), speed: t.speed }));
   execFileSync(PYTHON, [join(HERE, 'render.py')], { input: JSON.stringify(jobs), stdio: ['pipe', 'inherit', 'inherit'], env: { ...process.env, HF_HUB_DISABLE_TELEMETRY: '1' } });
 }
 
@@ -284,8 +287,8 @@ for (const f of readdirSync(OUT)) {
   }
 }
 writeFileSync(join(OUT, 'speech.json'), `${JSON.stringify(index, null, 1)}\n`);
-// What each clip says, for check.py (not shipped).
-writeFileSync(join(CACHE, 'lines.json'), JSON.stringify(Object.fromEntries(clips.map((c) => [c.id, c.takes.map((t) => t.text).join(' ')]))));
+// What each clip says and in which language (its first voice's: 'z' is Mandarin), for check.py (not shipped).
+writeFileSync(join(CACHE, 'lines.json'), JSON.stringify(Object.fromEntries(clips.map((c) => [c.id, { text: c.takes.map((t) => t.text).join(' '), lang: c.takes[0]!.voice[0] }]))));
 
 const bytes = [...written].reduce((s, f) => s + readFileSync(join(OUT, f)).length, 0);
 const seconds = Object.values(index.clips).reduce((a, b) => a + b, 0);
