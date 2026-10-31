@@ -135,7 +135,7 @@ async function quietCar(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as Api).__gta7.state().player.vehicle === 'sedan', null, { timeout: 5000 });
 }
 
-/** Presses `key` (R or Q, up or down the dial) until the radio is on `station`, at most once round the dial. */
+/** Presses `key` (R or Q, up or down the dial) until the radio is on `station`, at most once round the dial (15 stops with RADIO OFF). */
 async function pressUntil(page: Page, key: string, station: string): Promise<void> {
   for (let i = 0; i < 16; i++) {
     if ((await page.evaluate(() => (window as Api).__gta7.game.audio.radio.stationName)) === station) break;
@@ -478,15 +478,15 @@ test.describe('GTA 7 wave-1 audio', () => {
     expect(errors).toEqual([]);
   });
 
-  test('the music drives harder at 4 stars within 5 s and is calm again within 15 s of the stars clearing', async ({ page }) => {
+  for (const station of ['NEON DRIVE 88.7', '月光電台 95.3']) test(`${station}: the music drives harder at 4 stars within 5 s and is calm again within 15 s of the stars clearing`, async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
     await quietCar(page);
     await installTaps(page);
-    await page.evaluate(() => {
+    await page.evaluate((station) => {
       const r = (window as Api).__gta7.game.audio.radio;
-      while (r.stationName !== 'NEON DRIVE 88.7') r.next();
-    });
+      while (r.stationName !== station) r.next();
+    }, station);
     await page.waitForTimeout(2000);
     // Hats and the bright end of the bass: the share of the spectrum above 2 kHz.
     const calm = await record(page, 'music', 4000, 100, 2000, 24000);
@@ -507,7 +507,7 @@ test.describe('GTA 7 wave-1 audio', () => {
       }
     }
     const hi = (a: Sample[]) => a.reduce((p, x) => p + x.band, 0) / a.length;
-    console.log(`[music] calm ${meanDb(calm).toFixed(1)} dBFS, >2 kHz share ${hi(calm).toFixed(3)}; 4 stars ${meanDb(chase).toFixed(1)} dBFS, share ${hi(chase).toFixed(3)}, intensity ${i4.toFixed(2)}; calm again after ${calmAt} s`);
+    console.log(`[music] ${station}: calm ${meanDb(calm).toFixed(1)} dBFS, >2 kHz share ${hi(calm).toFixed(3)}; 4 stars ${meanDb(chase).toFixed(1)} dBFS, share ${hi(chase).toFixed(3)}, intensity ${i4.toFixed(2)}; calm again after ${calmAt} s`);
     expect(i4).toBeGreaterThan(0.7);
     const louder = meanDb(chase) - meanDb(calm) >= 1;
     const brighter = hi(chase) >= hi(calm) * 1.3;
