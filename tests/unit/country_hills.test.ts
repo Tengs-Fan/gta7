@@ -4,7 +4,10 @@
 // collider the county had before keeps its box, band and tag.
 
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
+import { describe, expect, it, vi } from 'vitest';
+import { CityView } from '../../src/render/city';
+import { CountryView } from '../../src/render/country';
 import { Sim } from '../../src/sim/sim';
 import { COP_SIGHT } from '../../src/sim/wanted';
 import { COUNTRY_ROADS, COUNTY_PLOTS, countryGround } from '../../src/world/country';
@@ -12,6 +15,11 @@ import { countyCores, FIRE_ROAD, FIRE_ROAD_W, fireRoadLine, LOOKOUT, ridgeRise }
 import { PARAPET_H, rectContains } from '../../src/world/layout';
 import { CORE_COVER, CORE_INSET, riseAt } from '../../src/world/terrain';
 import { freshWorld, input, placeInCar, world } from './helpers';
+
+await vi.hoisted(async () => {
+  const m = await import('../support/canvasStub');
+  m.installCanvasStubs();
+});
 
 const W = world();
 const L = W.layout;
@@ -287,5 +295,40 @@ describe('on the ridge', () => {
     expect(p.pos.x).toBeLessThanOrEqual(ridge.cx + 5);
     expect(p.pos.y).toBeCloseTo(24, 3);
     expect(p.health).toBe(p.maxHealth);
+  });
+});
+
+describe('drawing the fire road and Lookout Point', () => {
+  const view = new CountryView(W, new CityView(W));
+  const mesh = (name: string) => view.group.children.find((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.name === name)!;
+
+  it('drapes the gravel just over the ground the cars drive on, from the highway to the car park', () => {
+    const pos = mesh('fire-road').geometry.getAttribute('position');
+    let low = Infinity;
+    let high = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      const d = pos.getY(i) - W.groundHeight(pos.getX(i), pos.getZ(i));
+      low = Math.min(low, d);
+      high = Math.max(high, d);
+    }
+    expect(low).toBeGreaterThan(0.04);
+    expect(high).toBeLessThan(0.06);
+    const box = new THREE.Box3().setFromBufferAttribute(pos as THREE.BufferAttribute);
+    expect(box.max.x).toBeCloseTo(FIRE_ROAD[0]![0], 0);
+    expect(box.min.z).toBeCloseTo(LOOKOUT.pad.minZ, 3);
+  });
+
+  it('stands the parapet and the tower where the sim makes them solid, on the crest', () => {
+    const parapet = new THREE.Box3().setFromObject(mesh('lookout-parapet'));
+    const solid = W.grid.colliders.find((c) => c.tag === 'wall' && c.minX === LOOKOUT.parapet.minX && c.minZ === LOOKOUT.parapet.minZ)!;
+    const drawn = [parapet.min.x, parapet.min.z, parapet.max.x, parapet.max.z, parapet.min.y, parapet.max.y];
+    [solid.minX, solid.minZ, solid.maxX, solid.maxZ, solid.y0, solid.y1].forEach((v, i) => expect(drawn[i]).toBeCloseTo(v, 4));
+    const tower = new THREE.Box3().setFromObject(mesh('fire-lookout'));
+    expect(tower.min.y).toBeCloseTo(24, 6);
+    expect(tower.max.y).toBeGreaterThan(24 + LOOKOUT.tower.top);
+    const posts = W.grid.colliders.filter((c) => c.tag === 'pillar' && Math.abs(c.cx - LOOKOUT.tower.x) <= LOOKOUT.tower.half && Math.abs(c.cz - LOOKOUT.tower.z) <= LOOKOUT.tower.half);
+    expect(posts.length).toBe(4);
+    for (const c of posts) expect(tower.containsPoint(new THREE.Vector3(c.cx, c.y1 - 0.5, c.cz))).toBe(true);
+    expect(mesh('fire-lookout').castShadow).toBe(true);
   });
 });

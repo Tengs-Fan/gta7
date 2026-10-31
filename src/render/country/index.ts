@@ -11,6 +11,7 @@ import { COUNTRY_CELL, COUNTRY_FOG_MARGIN } from '../quality';
 import { spatialGeometry, StaticVisibility } from '../spatial';
 import { buildBridge } from './bridge';
 import { buildCountryGround } from './ground';
+import { buildHills } from './hills';
 import { buildCountryRoads } from './roads';
 
 export class CountryView {
@@ -26,6 +27,7 @@ export class CountryView {
     buildCountryGround(this);
     buildCountryRoads(this);
     buildBridge(this);
+    buildHills(this);
   }
 
   /** A static layer of the county, cut into COUNTRY_CELL cells (unless `split` is false: a few pieces across it). */
