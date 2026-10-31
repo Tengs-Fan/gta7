@@ -566,7 +566,9 @@ export class PropsView {
     });
     this.buildHeadstones(get('headstone'));
     this.buildFarmProps(get);
-    this.buildSimple(get('stopSign'), stopSignGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.2 }));
+    // Las Lomas County's two stop signs, the drive-in's speaker posts and its apple trees (buildTrees) are few, each in
+    // one place: one batch each, not one per cell, as the farms' props are.
+    this.makeInstanced(stopSignGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.2 }), get('stopSign'), PropsView.standard, { chunked: true });
     for (const i of get('fountain')) this.buildFountain(world.layout.props[i]!);
     for (const i of get('crane')) this.buildCrane(world.layout.props[i]!);
     for (const i of get('lighthouse')) this.buildLighthouse(world.layout.props[i]!);
@@ -575,7 +577,7 @@ export class PropsView {
     // Las Lomas County's billboards carry its own ads (render/country/town.ts).
     get('billboard').filter((i) => world.layout.props[i]!.x >= world.layout.bounds.landMinX).forEach((i, k) => this.buildBillboard(world.layout.props[i]!, k));
     this.makeInstanced(pumpGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.2 }), get('pump'), PropsView.standard);
-    this.makeInstanced(speakerGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0.3 }), get('speaker'), PropsView.standard);
+    this.makeInstanced(speakerGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0.3 }), get('speaker'), PropsView.standard, { chunked: true });
     this.buildRoofProps();
     this.buildDressing(dressingItems(world));
     world.layout.props.forEach((p, i) => {
@@ -748,19 +750,21 @@ export class PropsView {
     }, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.31 + rng.range(-0.02, 0.02), 0.38, rng.range(0.2, 0.26)), 0.75),
     });
-    // Las Lomas County's apple trees: the trees' trunk, short, under the shrubs' leaves grown into a round crown, apples on it.
+    // Las Lomas County's apple trees: the trees' trunk, short, under the shrubs' leaves grown into a round crown, apples on
+    // it. Pippin Hollow's rows alone: one batch each, not one per cell.
     const apple = (p: Prop, m: THREE.Matrix4) => PropsView.standard(p, m);
     this.makeInstanced(treeTrunkGeometry(), trunk, orchard, (p, m) => {
       apple(p, m);
       m.multiply(this.tmpM.makeScale(0.5, 0.42, 0.5));
-    });
+    }, { chunked: true });
     this.makeInstanced(shrub, shrubMat, orchard, (p, m) => {
       apple(p, m);
       m.multiply(this.tmpM.makeTranslation(0, 1.55, 0)).multiply(this.tmpM.makeScale(1.85, 2.1, 1.85));
     }, {
       color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.26 + rng.range(-0.03, 0.03), 0.5, rng.range(0.36, 0.44)), 0.5),
+      chunked: true,
     });
-    this.makeInstanced(applesGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.45 }), orchard, apple, { shadow: false, track: false });
+    this.makeInstanced(applesGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.45 }), orchard, apple, { shadow: false, track: false, chunked: true });
   }
 
   /**
