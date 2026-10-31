@@ -9,6 +9,7 @@ import {
   AVENUE_W, BEACH_W, BOARDWALK_W, CITY_SEED, CROSSWALK_W, CURB_H, GRID_N, PED_INSET,
   PROMENADE_W, PROP_INSET, SAND_DROP, SIDEWALK_W, STREET_W, WATER_Y,
 } from './constants';
+import { buildOffshore, type Offshore } from './offshore';
 import { settleTerrain, type Rise } from './terrain';
 
 export interface Rect {
@@ -25,7 +26,7 @@ export type RoofStyle = 'flat' | 'gable' | 'helipad';
 export type GroundKind = 'grass' | 'plaza' | 'parking' | 'dirt' | 'yard';
 export type PropKind =
   | 'tree' | 'palm' | 'lamp' | 'signal' | 'hydrant' | 'bench' | 'bin' | 'container' | 'bush'
-  | 'fountain' | 'crane' | 'boat' | 'lighthouse' | 'ferris' | 'billboard'
+  | 'fountain' | 'crane' | 'boat' | 'lighthouse' | 'ferris' | 'billboard' | 'turbine'
   // The attractions (attractions.ts): a corn maze's wall segment (with its footprint, like a container), and the rest.
   | 'corn' | 'pumpkin' | 'headstone' | 'cypress';
 /** The `contact...` kinds are mission givers' places: which one a POI is, and how it is built, is the SPECIALS row's business. */
@@ -234,6 +235,8 @@ export interface CityLayout {
   /** Single cells rebuilt as places of their own (attractions.ts): the farm, the cemetery. */
   attractions: Attraction[];
   stadium: Rect | null;
+  /** Turbine Row's sea and Smuggler's Key: the battery's walls and the Key's dressing (world/offshore.ts). */
+  offshore: Offshore;
   /** The ground's rises (world/terrain.ts): set by settleTerrain, last, once every prop stands. */
   rises: Rise[];
   bounds: Bounds;
@@ -539,7 +542,9 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     beachEndX,
     worldMinX: cityMinX - PROMENADE_W - 160,
     worldMaxX: beachEndX + 160,
-    worldMinZ: cityMinZ - PROMENADE_W - 160,
+    // The north sea reaches 384 m further, out past Turbine Row: exactly 32 cells of the StaticGrid, so every collider
+    // keeps its cell boundaries.
+    worldMinZ: cityMinZ - PROMENADE_W - 544,
     worldMaxZ: cityMaxZ + PROMENADE_W + 160,
   };
 
@@ -566,6 +571,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     openSpots: [],
     attractions: [],
     stadium: null,
+    offshore: { solids: [], cannons: [], wrecks: [], signs: [], stash: [] },
     rises: [],
     bounds,
   };
@@ -641,6 +647,7 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
   layout.openSpots = layout.openSpots.filter((p) => !waterAt(layout, p.x, p.z));
   buildAttractions(layout);
   assignGroundFloors(layout);
+  buildOffshore(layout);
   settleTerrain(layout);
 
   // Final sanity: never leave NaN in generated data.

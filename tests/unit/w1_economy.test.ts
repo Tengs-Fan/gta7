@@ -486,7 +486,7 @@ describe('stats and completion registry', () => {
     p.packages.splice(0, p.packages.length, ...Array.from({ length: PACKAGE_COUNT }, (_v, i) => i));
     p.stunts.splice(0, p.stunts.length, ...sim.world.layout.ramps.map((_r, i) => i));
     p.rampages.splice(0, p.rampages.length, 'rampage:0', 'rampage:1', 'rampage:2');
-    Object.assign(activityRecords(p), { ambulanceLevel: 6, fireLevel: 5, courierRuns: 2, exportLists: 1 });
+    Object.assign(activityRecords(p), { ambulanceLevel: 6, fireLevel: 5, courierRuns: 2, exportLists: 1, regattaBest: 125_000 });
     propertyState(p).garage = true;
     propertyState(p).business = true;
     farmState(p).smashed = new Set(Array.from({ length: PUMPKIN_COUNT }, (_v, i) => i));

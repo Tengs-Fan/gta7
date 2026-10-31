@@ -14,6 +14,7 @@
 // wasted player reads -1900 for the four frames before his respawn; nothing else in the trace moved.
 // Re-recorded when the attractions pass rebuilt two cells as Hollister Farm and Eternal Palms Cemetery (docs/map.md): the
 // props past them renumber, and Old Man Hollister stands on his porch while the player is near the farm.
+// And again when Smuggler's Key's stash pickups took the next two entity ids: every id after them is two higher.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

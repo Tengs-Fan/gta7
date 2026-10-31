@@ -59,10 +59,10 @@ function fixture(calls: { updates: number[]; ends: string[] }): ActivityDef<Fixt
 }
 
 /**
- * The registry's kinds: the four built-in ones, wave 1's four service jobs (w1_activities.test.ts), the street run,
- * then the cab (called from the phone, never by the job key, so it sits after the street run).
+ * The registry's kinds: the four built-in ones, wave 1's four service jobs (w1_activities.test.ts), the Gull Regatta,
+ * the street run, then the cab (called from the phone, never by the job key, so it sits after the street run).
  */
-const KINDS = ['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'streetRun', 'cab'];
+const KINDS = ['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'regatta', 'streetRun', 'cab'];
 
 describe('activity registry', () => {
   afterEach(() => {

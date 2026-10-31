@@ -44,6 +44,7 @@ const PAYOUT_NAMES: Record<string, string> = {
   vigilante: 'Vigilante reward',
   rampage: 'Rampage bonus',
   streetRun: 'Street Run prize',
+  regatta: 'Gull Regatta prize',
   ambulance: 'Paramedic pay',
   firefighter: 'Firefighter pay',
   courier: 'Azura Express pay',

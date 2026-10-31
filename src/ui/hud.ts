@@ -12,7 +12,7 @@ import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import { isGun, WEAPONS, weaponIconOf, weaponKindOf, type WeaponId } from '../sim/specs';
 import { formatRunTime } from '../sim/streetRuns';
 import { formatKeys, padGlyph, type InputDevice } from './glyphs';
-import { collectBlips, drawBlip, drawPoliceOverlay, gpsRoute, MAP_SCALE, type Blip, type MapImage } from './mapRender';
+import { collectBlips, drawBlip, drawPoliceOverlay, drawRegattaCourse, gpsRoute, MAP_SCALE, type Blip, type MapImage } from './mapRender';
 
 const NAV_PATHS = {
   bearing: 'm12 3 8 17-8-5-8 5z',
@@ -353,7 +353,7 @@ export class Hud {
         if (!this.mine(e)) return;
         const j = sim.activities.job;
         this.bigQueue = [];
-        this.showBig({ text: e.count === 0 ? 'GO' : String(e.count), sub: j?.kind === 'streetRun' ? j.course.name : 'STREET RUN', style: 'info', duration: e.count === 0 ? 1.1 : 1.2 });
+        this.showBig({ text: e.count === 0 ? 'GO' : String(e.count), sub: j?.kind === 'streetRun' ? j.course.name : j?.kind === 'regatta' ? 'GULL REGATTA' : 'STREET RUN', style: 'info', duration: e.count === 0 ? 1.1 : 1.2 });
         this.el.big!.classList.add('countdown');
       }),
       ev.on('streetRunCheckpoint', (e) => {
@@ -1234,6 +1234,7 @@ export class Hud {
     ctx.drawImage(this.map.canvas, 0, 0);
     ctx.drawImage(this.map.turf, 0, 0);
     drawPoliceOverlay(ctx, sim, this.map, time, zoom / MAP_SCALE, this.localPlayerId);
+    drawRegattaCourse(ctx, sim, this.map, zoom / MAP_SCALE);
     // GPS route to the waypoint or first objective.
     this.routeTimer -= dt;
     const target = this.routeTarget(sim);

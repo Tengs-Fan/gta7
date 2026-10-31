@@ -2,6 +2,7 @@
 // radar and the full-screen map.
 
 import { activityKinds, getActivity, type Objective } from '../sim/activities';
+import { REGATTA_GATE_R, REGATTA_GATES, REGATTA_START } from '../sim/activities/regatta';
 import { GANGS, turfZones } from '../sim/gangs';
 import { FOR_SALE, OWNED } from '../sim/interactions';
 import { CONTACTS, contactById, contactUnlocked } from '../sim/missions/contacts';
@@ -88,6 +89,14 @@ export class MapImage {
       rect(bd.rect.minX, bd.rect.minZ, bd.rect.maxX, bd.rect.maxZ, tall ? '#1d2228' : '#22282e');
     }
     for (const d of world.layout.decks) rect(d.rect.minX, d.rect.minZ, d.rect.maxX, d.rect.maxZ, d.bridge ? '#9aa1aa' : '#7b5a3a');
+    // Turbine Row's towers out at sea.
+    ctx.fillStyle = '#c9d2da';
+    for (const p of world.layout.props) {
+      if (p.kind !== 'turbine') continue;
+      ctx.beginPath();
+      ctx.arc(X(p.x), Z(p.z), 4 * MAP_SCALE, 0, Math.PI * 2);
+      ctx.fill();
+    }
     this.turf = document.createElement('canvas');
     this.turf.width = w;
     this.turf.height = h;
@@ -387,6 +396,32 @@ export function drawPoliceOverlay(ctx: CanvasRenderingContext2D, sim: ViewState,
   }
 }
 
+/**
+ * The Gull Regatta's course while the player sails it, drawn in map-image space as drawPoliceOverlay is: the gates still
+ * ahead (from the start line until the start) joined by a dashed line, each ringed.
+ */
+export function drawRegattaCourse(ctx: CanvasRenderingContext2D, sim: ViewState, map: { minX: number; minZ: number }, pxPerUnit: number): void {
+  const j = sim.activities.job;
+  if (j?.kind !== 'regatta') return;
+  const ahead = j.stage === 'racing' ? REGATTA_GATES.slice(j.gate) : [REGATTA_START, ...REGATTA_GATES];
+  const X = (x: number) => (x - map.minX) * MAP_SCALE;
+  const Z = (z: number) => (z - map.minZ) * MAP_SCALE;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(80, 241, 209, 0.9)';
+  ctx.lineWidth = 2.5 / pxPerUnit;
+  ctx.setLineDash([9 / pxPerUnit, 7 / pxPerUnit]);
+  ctx.beginPath();
+  ahead.forEach((g, i) => (i === 0 ? ctx.moveTo(X(g.x), Z(g.z)) : ctx.lineTo(X(g.x), Z(g.z))));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  for (const g of ahead) {
+    ctx.beginPath();
+    ctx.arc(X(g.x), Z(g.z), Math.max(REGATTA_GATE_R * MAP_SCALE, 4 / pxPerUnit), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 export function drawBlip(ctx: CanvasRenderingContext2D, b: Blip, x: number, y: number, size: number): void {
   ctx.save();
   ctx.translate(x, y);
@@ -469,8 +504,10 @@ export function gpsRoute(sim: ViewState, tx: number, tz: number, localPlayerId =
   const me = playerOf(sim, localPlayerId);
   const pp = me.pos();
   const roads = sim.roads;
-  const b = roads.nearestNode(tx, tz);
   const v = me.character.vehicle;
+  // A boat sails straight there: the roads are no way for it.
+  if (v?.spec.class === 'boat') return [{ x: pp.x, z: pp.z }, { x: tx, z: tz }];
+  const b = roads.nearestNode(tx, tz);
   const on = v ? roads.nearestLane(pp.x, pp.z, v.heading) : null;
   let route: number[] | null;
   if (on && on.dist <= ROUTE_ON_ROAD) {

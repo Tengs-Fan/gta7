@@ -13,7 +13,9 @@ export type BarkKind =
   // People waving down a taxi the player drives, and a cabbie pulled out of his cab.
   | 'hail' | 'hailMissed' | 'cabbie'
   // Hollister Farm's owner, and the voice by the Bramble family crypt at three in the morning.
-  | 'farmer' | 'farmerAngry' | 'whisper';
+  | 'farmer' | 'farmerAngry' | 'whisper'
+  // The Marina hand calling the Gull Regatta's boat up on its radio.
+  | 'marina';
 /**
  * What a music station's DJ says over a song's intro: an ident, a hit's announce ('front') or back-announce ('back'),
  * banter, or a line for the night, the rain, a chase or a chase got away from.

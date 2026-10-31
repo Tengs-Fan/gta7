@@ -183,6 +183,7 @@ export const TALK: readonly TalkPiece[] = [
       ['chet', "If you know, call in. I won't judge. I'll judge a little."],
     ],
   },
+  { id: 'host-windmills', kind: 'host', lines: [['chet', "They put windmills in the bay. Windmills! In my day the bay made its own wind, out of spite."]] },
 
   // Callers.
   {
@@ -624,4 +625,6 @@ export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
   },
   /** By the Bramble family crypt, once a night between 03:00 and 03:15. Slowed. */
   whisper: { voices: ['af_nicole'], lines: ['Keep it on one-oh-four-point-five...'], speed: 0.75 },
+  /** The hand on duty at the Marina, calling a Gull Regatta's boat on the start line over its radio. */
+  marina: { voices: ['am_eric', 'bm_fable', 'am_adam'], lines: ["Mind the blades, they're bigger than they look."] },
 };

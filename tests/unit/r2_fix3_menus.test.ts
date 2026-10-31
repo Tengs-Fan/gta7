@@ -11,7 +11,7 @@ import { Input, type UiActions } from '../../src/input/input';
 import { currentSlot, deleteGame, loadGame, loadSettings, loadSlot, slotKey, storeSlot, writeGame, type Settings } from '../../src/settings';
 import { Progress, serialize, type SaveData } from '../../src/sim/progress';
 import { Sim } from '../../src/sim/sim';
-import { MAP_SCALE, MapImage } from '../../src/ui/mapRender';
+import { MapImage } from '../../src/ui/mapRender';
 import { Menus, type MenuHost } from '../../src/ui/menus';
 import { world } from './helpers';
 
@@ -595,10 +595,10 @@ describe('the full-screen map without a mouse (medium)', () => {
     rig.menus.showMap();
     rig.press({}); // the first frame sizes the canvas to the 1280 x 720 window
     const canvas = rig.top().children[0]!;
-    const map = (rig.menus as unknown as { map: MapImage }).map;
-    const base = Math.min(1280 / (map.canvas.width / MAP_SCALE), 720 / (map.canvas.height / MAP_SCALE));
     const b = sim.world.layout.bounds;
     const centre = { x: (b.landMinX + b.beachEndX) / 2, z: (b.landMinZ + b.landMaxZ) / 2 };
+    // Zoom 0 fits the land with as much sea round it on every side as south of it, not the sea out to Turbine Row.
+    const base = Math.min(1280 / (2 * (b.worldMaxX - centre.x)), 720 / (2 * (b.worldMaxZ - centre.z)));
     const hint = () => rig.top().children.find((c) => c.classList.contains('map-hint'))!.innerHTML;
     /** The scale (px per m), read back from where a click 100 px right of the view centre drops the waypoint. */
     const scale = () => {

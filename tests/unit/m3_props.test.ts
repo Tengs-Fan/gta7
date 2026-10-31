@@ -500,7 +500,7 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // and drops props and adds colliders, and when Hillcrest Green rose into a hill and Azura Point into a bluff: their
   // props stand on them (every one kept), and the sight cores, the letters and the lookout's parapet are colliders; and
   // when the attractions pass rebuilt two cells (their yards' trees gone, the farm's and the cemetery's props and solids
-  // added).
+  // added), and when Turbine Row and Smuggler's Key appended theirs.
   const D98 = {
     props: '6eb96803e723f2c901593908b4c2c06910a6669c678faba80b883e49df800ded',
     colliders: 'fedcd825e4e19ac936e85caee020e005ff98e0ad6d02d1404741fb2e92bce79d',

@@ -81,8 +81,8 @@ function douseFire(sim: Sim, truck: Vehicle, f: { x: number; z: number; strength
 
 describe('wave-1 activity registry', () => {
   it('registers ambulance, firefighter, courier and car export next to the four existing activities', () => {
-    // The phone's cab (ui track) sits after the street run.
-    expect(activityKinds()).toEqual(['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'streetRun', 'cab']);
+    // The phone's cab (ui track) sits after the street run, the Gull Regatta before it.
+    expect(activityKinds()).toEqual(['taxi', 'vigilante', 'rampage', 'ambulance', 'firefighter', 'courier', 'carExport', 'regatta', 'streetRun', 'cab']);
     for (const kind of ['ambulance', 'firefighter', 'courier', 'carExport']) {
       const def = getActivity(kind)!;
       for (const m of ['canStart', 'prompt', 'start', 'update', 'end', 'objectives', 'status'] as const) expect(typeof def[m], `${kind}.${m}`).toBe('function');
@@ -628,7 +628,7 @@ describe('export list save extension', () => {
     applyExt(sim, parsed.ext);
     expect(exportDone(sim.progress).size).toBe(0);
     expect(sim.progress.money).toBe(18450);
-    expect(activityRecords(sim.progress)).toEqual({ ambulanceLevel: 0, patientsSaved: 0, fireLevel: 0, firesOut: 0, courierRuns: 0, parcelsDelivered: 0, exportCars: 0, exportLists: 0 });
+    expect(activityRecords(sim.progress)).toEqual({ ambulanceLevel: 0, patientsSaved: 0, fireLevel: 0, firesOut: 0, courierRuns: 0, parcelsDelivered: 0, exportCars: 0, exportLists: 0, regattaBest: 0 });
   });
 
   it.each([

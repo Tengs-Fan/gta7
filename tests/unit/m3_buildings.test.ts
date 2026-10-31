@@ -355,7 +355,8 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // sight cores and the SAN AZURA letters (the slumped A a box per metre of its strokes), and stood the props on it,
     // and when Azura Point's bluff added its cores and the lookout's parapet and lifted the lighthouse; and both when the
     // attractions pass rebuilt two cells (their houses gone, the farmhouse, the barn, the corn, the pumpkins, the
-    // headstones and the chapel's solids added).
+    // headstones and the chapel's solids added); the colliders again for Turbine Row's towers and Smuggler's Key's palms,
+    // lamp and walls, appended after all of these.
     expect(b).toBe('cb24287bf52d2607b0cdf537ee6f3cb8b1958e1495464192f58b2cb03287bf80');
     expect(c).toBe('3a863c3fde315998f1c18f83577a033551779394d83284f8e761001b4c93d59c');
   });

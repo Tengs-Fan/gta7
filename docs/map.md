@@ -152,6 +152,27 @@ What the attractions add to the world:
 - The hay-bale kicker is the sixth stunt ramp, and its run-up and landing keep the corridor every ramp keeps.
 - Pumpkins and ordinary headstones break; the twelve epitaph stones do not.
 
+### Offshore: Turbine Row and Smuggler's Key
+
+The world's edge now reaches 544 m out from the north promenade instead of 160 m, to z -1060.
+Those 384 m are exactly 32 cells of the collider grid, so every older collider keeps its cells and its contact order.
+Whatever moves is held inside the new edge, and the map and the rain's cover grid grow with it.
+
+- **Turbine Row**: ten wind turbines in two staggered rows of five, 112 m apart along each row, 274 m and 389 m off the north shore (`src/world/offshore.ts`).
+  Each is a `turbine` prop whose tower is a pillar from below the swimmers' band up to its nacelle, so boats, shots, the camera and line of sight stop at it.
+  The blades are drawn only, 30 m and more above the water.
+- **Smuggler's Key**: a second headland, about 95 m off Northshore Bay's mouth and as far east of Azura Point's tip.
+  It has turf and dirt, three palms, a jetty (a deck with a lamp at its end) and the low walls of Fort Contraband's battery, which are solid (`layout.offshore.solids`).
+  Its two cannons, the fishing boat wrecked on its rocks and its two signs are drawn only.
+  As a headland it is land at the kerb's height, with quay walls and heavy foreshore rocks round it and a zone name of its own.
+  The sidewalk graph only knows Azura Point, so nobody walks, parks or spawns on the Key.
+  A rifle and body armor wait in the ruins, at spots of their own placed after every other pickup.
+- **The Gull Regatta** runs from the Marina up the coast, through the near row of turbines, once round the Key and round the lighthouse, and home (`src/sim/activities/regatta.ts`).
+  Every gate keeps 30 m from a tower and from the Key's rocks.
+
+`buildOffshore` appends all of it once the ground floors are assigned, drawing from its own generator.
+Every older prop index, collider and pickup, the mission spots and the open spots therefore stay as they were.
+
 ## Rejected, and why
 
 - **Diagonal or curved roads.** The lane graph knows four directions, and lanes, turns, signals, crosswalks, furniture and the renderers are built on that.
@@ -178,5 +199,6 @@ More sea cells (a west inlet, a south bay, an extended cove) were tried and set 
 
 - Bridges are decks, like the pier: boats cannot pass under them, so the canal is for looking at from a boat rather than for sailing through, and a swimmer passing under a bridge climbs out onto it.
 - The gang turf overlay on the map still covers Port Basin.
-- The foreshore's boulders are decoration: a swimmer or a boat passes through them.
+- The foreshore's boulders are decoration: a swimmer or a boat passes through them, and through the wreck on Smuggler's Key.
 - The cemetery's iron fence and gate, and the farm stand, are decoration too: people and cars pass through them.
+- The police helicopter does not steer round the turbines and flies through their blades.

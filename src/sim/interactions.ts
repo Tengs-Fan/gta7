@@ -14,7 +14,7 @@ import type { PlayerView } from './viewState';
 import { WEAPON_ORDER, WEAPONS, weaponKindOf, type WeaponId } from './specs';
 import { HELI_SIGHT } from './wanted';
 
-export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun' | 'epitaph';
+export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun' | 'epitaph' | 'regatta';
 
 export interface Marker {
   id: string;
@@ -244,6 +244,7 @@ export class Interactions {
       case 'courier':
       case 'customs':
       case 'streetRun':
+      case 'regatta':
         break;
       case 'epitaph':
         readEpitaph(sim, slot, Number(m.ref));
