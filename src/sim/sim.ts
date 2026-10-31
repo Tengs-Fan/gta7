@@ -595,6 +595,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     const idx = this.world.breakCollider(c);
     if (idx < 0) return;
     const sp = Math.max(0.1, v.speed);
+    this.combat.propBlame.set(idx, this.slotOf(v.driver)?.character ?? null);
     this.events.emit('propBroken', { index: idx, dirX: v.vel.x / sp, dirZ: v.vel.z / sp });
     // Corn only rustles (audio plays it from propBroken): no crash, no camera kick.
     if (c.tag !== 'crop') this.events.emit('impact', { x: c.cx, y: v.pos.y + 0.5, z: c.cz, strength: 3, vehicle: v });

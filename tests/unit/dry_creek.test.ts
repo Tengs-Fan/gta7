@@ -1,12 +1,14 @@
 // Dry Creek (world/country/places.ts): its stores inside its plot and clear of the roads, a bust out here walking out of
 // the Sheriff's Office (and one in the city out of SAPD Central, as ever), people on its boardwalks crossing on its
-// light, and Gas & Grits' pumps going up one after another.
+// light, and Gas & Grits' pumps going up one after another, the doing of whoever knocked the first one down.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { COUNTY_PLOTS } from '../../src/world/country';
 import { bustStation } from '../../src/world/country/places';
 import { rectContains, rectsOverlap, type Rect } from '../../src/world/layout';
 import { PUMP_CHAIN, PUMP_FUSE } from '../../src/sim/dryCreek';
+import type { Character } from '../../src/sim/entities';
+import type { Sim } from '../../src/sim/sim';
 import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
 
 const W = world();
@@ -127,5 +129,40 @@ describe('Dry Creek: Gas & Grits', () => {
     for (let k = 1; k < at.length; k++) expect(at[k]! - at[k - 1]!).toBeGreaterThanOrEqual(PUMP_CHAIN - 1e-6);
     for (const i of town.pumps) expect(broken(i)).toBe(true);
     expect(fires.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('blames whoever knocked the first pump down, never the player who only stands nearest', () => {
+    const pump = L.props[town.pumps[0]!]!;
+    /** The owners of the pumps' blasts over the next 3 s. */
+    const blasts = (sim: Sim): Array<Character | null> => {
+      const spy = vi.spyOn(sim.combat, 'explosion');
+      step(sim, 3);
+      const owners = spy.mock.calls.filter(([x, , z]) => town.pumps.some((i) => L.props[i]!.x === x && L.props[i]!.z === z)).map((c) => c[5]);
+      expect(owners).toHaveLength(town.pumps.length);
+      return owners;
+    };
+    // The player driving into it: his blasts, his stars.
+    const rammed = makeSim({ seed: 9 });
+    const car = rammed.spawnVehicle('sedan', pump.x - 9, pump.z, Math.PI / 2);
+    placeInCar(rammed, car);
+    car.vel.x = 12;
+    expect(new Set(blasts(rammed))).toEqual(new Set([rammed.player]));
+    expect(rammed.wanted.level).toBeGreaterThan(0);
+    // An empty car sent into it, the player 30 m off on foot: nobody's blasts, no star.
+    const empty = makeSim({ seed: 9 });
+    teleport(empty, pump.x - 30, pump.z);
+    empty.spawnVehicle('sedan', pump.x - 9, pump.z, Math.PI / 2).vel.x = 14;
+    expect(new Set(blasts(empty))).toEqual(new Set([null]));
+    expect(empty.wanted.level).toBe(0);
+    // In multiplayer, the owner of the blast that knocked it down, not the other player standing nearer the pumps.
+    const mp = makeSim({ seed: 9, multiplayer: true });
+    const a = mp.players[0]!;
+    teleport(mp, pump.x - 35, pump.z);
+    const b = mp.addPlayer(-770, -265);
+    step(mp, 0.1);
+    mp.combat.explosion(pump.x - 3, pump.y + 0.5, pump.z, 5, 50, a.character, null);
+    expect(new Set(blasts(mp))).toEqual(new Set([a.character]));
+    expect(b.wanted.level).toBe(0);
+    expect(a.wanted.level).toBeGreaterThan(0);
   });
 });

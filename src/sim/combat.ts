@@ -244,6 +244,12 @@ export class CombatSystem {
    */
   private readonly damagedBy = new WeakMap<Vehicle, Character>();
   /**
+   * Prop index -> who answers for its breaking, set as it breaks, before its propBroken: the player driving the car
+   * that hit it or the blast's owner, null for nobody (sim/dryCreek.ts blames a pump's blast on it). Kept off the
+   * event, whose payload the single-player traces record as it was.
+   */
+  readonly propBlame = new Map<number, Character | null>();
+  /**
    * Vigilante suspects and their cars. The player stops them for the law: hurting, killing or wrecking them is no
    * crime, and the wreck that burns out and blows up afterwards is nobody's doing. Remembered after the job lets go of
    * them once stopped (it clears their missionTag when it counts the stop, seconds before the burning wreck explodes);
@@ -1425,6 +1431,7 @@ export class CombatSystem {
       const idx = sim.world.breakCollider(c);
       if (idx >= 0) {
         const hl = Math.hypot(c.cx - x, c.cz - z) || 1;
+        this.propBlame.set(idx, owner);
         sim.events.emit('propBroken', { index: idx, dirX: (c.cx - x) / hl, dirZ: (c.cz - z) / hl });
       }
     });
