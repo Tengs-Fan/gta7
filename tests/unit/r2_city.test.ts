@@ -262,8 +262,9 @@ describe('round 2 city: layout', () => {
     // Smuggler's Key were added offshore, when AzuraLink's line joined the layout, and on the merged round-2 head, where
     // all four stand together and the trees in front of the letters are bushes; and when Las Lomas County joined it
     // (the world's bounds out past it, its land, roads and plots, the causeway's headland, the bridge's deck and
-    // parapets, the four props moved out of the links' mouths, its signal heads and lamps).
-    expect(layoutHash()).toBe('67d94bef7895b89e9c05c389719d9f6cde6e876d1152c1d8b151bae32d6fbc4e');
+    // parapets, the four props moved out of the links' mouths, its signal heads and lamps), and when its landscape rose
+    // (Coyote Ridge and the foothills in its rises, the ridge's turbines and the tree belts along its foot).
+    expect(layoutHash()).toBe('b17af5ee5358c2a7f0c65926a4d5d747c379bd954e4a46de5d33d210b98f80f3');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

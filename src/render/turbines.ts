@@ -1,11 +1,13 @@
-// Turbine Row (world/offshore.ts): ten offshore wind turbines, instanced, so the row's towers, nacelles and rotors are
-// one draw each. The rotors turn with the weather's wind and the nacelles swing slowly round to face it; red aviation
-// lights on the nacelles blink together after dark, and foam laps at each tower's foot. The towers cast shadows wherever
-// the tier draws them (High and Medium). Presentation only: Math.random phases, nothing read back by the sim.
+// Turbine Row (world/offshore.ts): ten offshore wind turbines, and the six on Coyote Ridge in Las Lomas County
+// (world/country/hills.ts), instanced, so the towers at sea, the towers on land, the nacelles and the rotors are one draw
+// each. The rotors turn with the weather's wind and the nacelles swing slowly round to face it; red aviation lights on
+// the nacelles blink together after dark, and foam laps at the foot of each tower at sea. The towers cast shadows
+// wherever the tier draws them (High and Medium). Presentation only: Math.random phases, nothing read back by the sim.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Prop } from '../world/layout';
+import { WATER_Y } from '../world/constants';
 import { TURBINE_BASE, TURBINE_HUB, TURBINE_ROTOR } from '../world/offshore';
 import type { StaticWorld } from '../world/staticWorld';
 import { FoamRings } from './foamRings';
@@ -63,6 +65,15 @@ function towerGeometry(): THREE.BufferGeometry {
   ]);
 }
 
+/** A tower on land: a concrete foundation a little proud of the ground (buried 2 m for a slope), then the white mast. */
+function landTowerGeometry(): THREE.BufferGeometry {
+  return merge([
+    column(4, 4.2, -2, 0.5, 20, 0x8f8c85),
+    column(TURBINE_BASE + 0.15, TURBINE_BASE + 0.15, 0.5, 2.6, 20, 0xd8dbdd),
+    column(TURBINE_BASE, 1.75, 2.6, TURBINE_HUB - 1.9, 20, 0xe9ecee),
+  ]);
+}
+
 /** The nacelle on the tower's top, its front (+z) upwind. */
 function nacelleGeometry(): THREE.BufferGeometry {
   return merge([
@@ -100,6 +111,8 @@ export class TurbineView {
   /** Foam at the towers' feet: a ShaderMaterial riding the sea's waves (kept out of the software stand-ins). */
   readonly foam = new FoamRings(40);
   private readonly turbines: Prop[];
+  /** The towers standing in the sea, at whose feet the foam laps. */
+  private readonly offshore: Prop[];
   private readonly nacelles: THREE.InstancedMesh;
   private readonly rotors: THREE.InstancedMesh;
   private readonly lights: THREE.InstancedMesh;
@@ -126,14 +139,18 @@ export class TurbineView {
   constructor(world: StaticWorld) {
     this.group.name = 'turbines';
     this.turbines = world.layout.props.filter((p) => p.kind === 'turbine');
+    this.offshore = this.turbines.filter((p) => p.y <= WATER_Y);
+    const onshore = this.turbines.filter((p) => p.y > WATER_Y);
     const n = this.turbines.length;
     this.phase = this.turbines.map(() => Math.random() * ((Math.PI * 2) / 3));
     const white = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.45, metalness: 0.1 });
-    const towers = new THREE.InstancedMesh(towerGeometry(), white, n);
+    const towers = new THREE.InstancedMesh(towerGeometry(), white, this.offshore.length);
+    const landTowers = new THREE.InstancedMesh(landTowerGeometry(), white, onshore.length);
     this.nacelles = new THREE.InstancedMesh(nacelleGeometry(), white, n);
     this.rotors = new THREE.InstancedMesh(rotorGeometry(), white, n);
-    this.turbines.forEach((p, i) => towers.setMatrixAt(i, this.m.makeTranslation(p.x, p.y, p.z)));
-    for (const [mesh, name] of [[towers, 'turbineTowers'], [this.nacelles, 'turbineNacelles'], [this.rotors, 'turbineRotors']] as const) {
+    this.offshore.forEach((p, i) => towers.setMatrixAt(i, this.m.makeTranslation(p.x, p.y, p.z)));
+    onshore.forEach((p, i) => landTowers.setMatrixAt(i, this.m.makeTranslation(p.x, p.y, p.z)));
+    for (const [mesh, name] of [[towers, 'turbineTowers'], [landTowers, 'turbineLandTowers'], [this.nacelles, 'turbineNacelles'], [this.rotors, 'turbineRotors']] as const) {
       mesh.name = name;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -149,6 +166,7 @@ export class TurbineView {
     this.group.add(this.lights, this.halos);
     this.place();
     towers.computeBoundingSphere();
+    landTowers.computeBoundingSphere();
     // The rotors turn and the nacelles swing within these spheres.
     for (const mesh of [this.nacelles, this.rotors, this.lights]) {
       mesh.computeBoundingSphere();
@@ -199,7 +217,7 @@ export class TurbineView {
     this.foamClock -= dt;
     if (this.foamClock <= 0) {
       this.foamClock = FOAM_EVERY;
-      for (const p of this.turbines) this.foam.add(p.x, p.z, TURBINE_BASE + 4 + Math.random() * 2, 3.4, 0.55);
+      for (const p of this.offshore) this.foam.add(p.x, p.z, TURBINE_BASE + 4 + Math.random() * 2, 3.4, 0.55);
     }
     this.foam.light.copy(light);
     this.foam.update(dt);

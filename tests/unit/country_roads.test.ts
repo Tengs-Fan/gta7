@@ -175,9 +175,10 @@ describe('Las Lomas County: the land', () => {
 
   it('is flat on every road and plot, with a beach that meets the water 6-10 m out', () => {
     for (const p of centrePoints()) if (p.x < CAUSEWAY.minX) expect(W.groundHeight(p.x, p.z), `${p.road.name}`).toBe(0);
-    for (const p of COUNTY_PLOTS) for (const [x, z] of [[p.rect.minX, p.rect.minZ], [p.rect.maxX, p.rect.maxZ], [(p.rect.minX + p.rect.maxX) / 2, (p.rect.minZ + p.rect.maxZ) / 2]] as const) expect(W.baseGround(x, z), p.name).toBe(0);
-    // Off the west, north and south coasts and the east shore: where the ground crosses the water.
-    for (const [x, z, dx, dz] of [[-1560, 0, -1, 0], [-1000, -580, 0, -1], [-1200, 580, 0, 1], [-700, 0, 1, 0]] as const) {
+    // The wild plot (Coyote Ridge) is the landscape's (country_hills.test.ts).
+    for (const p of COUNTY_PLOTS.filter((q) => q.kind !== 'wild')) for (const [x, z] of [[p.rect.minX, p.rect.minZ], [p.rect.maxX, p.rect.maxZ], [(p.rect.minX + p.rect.maxX) / 2, (p.rect.minZ + p.rect.maxZ) / 2]] as const) expect(W.baseGround(x, z), p.name).toBe(0);
+    // Off the west coast south of the ridge, the north and south coasts and the east shore: where the ground crosses the water.
+    for (const [x, z, dx, dz] of [[-1440, 300, -1, 0], [-1000, -580, 0, -1], [-1200, 580, 0, 1], [-700, 0, 1, 0]] as const) {
       let d = 0;
       while (W.baseGround(x + dx * d, z + dz * d) > WATER_Y) d += 0.1;
       expect(d).toBeGreaterThanOrEqual(6);

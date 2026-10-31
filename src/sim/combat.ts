@@ -854,11 +854,13 @@ export class CombatSystem {
       res.ny = hit.ny;
       res.nz = hit.nz;
     }
-    // The slopes of the rises (world/terrain.ts), followed exactly.
+    // The slopes of the rises (world/terrain.ts), the city's and Las Lomas County's, followed exactly.
     const rises = sim.world.layout.rises;
+    const county = sim.world.layout.country.rises;
     const tr = riseRay(rises, ox, oy, oz, dx, dy, dz, minT, res.t);
-    if (tr >= 0) {
-      res.t = tr;
+    const tc = riseRay(county, ox, oy, oz, dx, dy, dz, minT, tr >= 0 ? tr : res.t, 0);
+    if (tr >= 0 || tc >= 0) {
+      res.t = tc >= 0 ? tc : tr;
       res.kind = 'world';
       res.nx = 0;
       res.ny = 1;
@@ -867,11 +869,11 @@ export class CombatSystem {
     // Ground plane hit (roads / beach). The estimate holds on level ground, so it is taken under the rises: on a slope
     // it would stop a shot fired down it in mid-air.
     if (dy < -1e-4) {
-      const tg = (sim.world.groundHeight(ox, oz) - riseAt(rises, ox, oz) - oy) / dy;
+      const tg = (sim.world.groundHeight(ox, oz) - riseAt(rises, ox, oz) - riseAt(county, ox, oz) - oy) / dy;
       if (tg >= 0 && tg < res.t) {
         const gx = ox + dx * tg;
         const gz = oz + dz * tg;
-        const tg2 = (sim.world.groundHeight(gx, gz) - riseAt(rises, gx, gz) - oy) / dy;
+        const tg2 = (sim.world.groundHeight(gx, gz) - riseAt(rises, gx, gz) - riseAt(county, gx, gz) - oy) / dy;
         if (tg2 >= minT && tg2 < res.t) {
           res.t = tg2;
           res.kind = 'world';

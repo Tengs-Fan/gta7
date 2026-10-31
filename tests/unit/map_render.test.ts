@@ -125,10 +125,12 @@ describe('drawing Las Lomas County', () => {
   it('draws its ground, roads, paint and the bridge\'s arch, the beaches cell by cell and the thin layers one mesh each', () => {
     const names = new Set(meshes.map((m) => m.name));
     for (const n of ['country-grass', 'country-sand', 'country-roads', 'country-markings-white', 'country-markings-yellow', 'bridge-arch']) expect(names.has(n), n).toBe(true);
-    for (const n of ['country-grass', 'country-roads', 'country-markings-white', 'country-markings-yellow', 'bridge-arch']) expect(meshes.filter((m) => m.name === n).length, n).toBe(1);
+    for (const n of ['country-roads', 'country-markings-white', 'country-markings-yellow', 'bridge-arch']) expect(meshes.filter((m) => m.name === n).length, n).toBe(1);
+    // The grass follows the rises (country_hills.test.ts), cell by cell.
+    expect(meshes.filter((m) => m.name === 'country-grass').length).toBeGreaterThan(10);
     expect(meshes.filter((m) => m.name === 'country-sand').length).toBeGreaterThan(10);
     for (const m of meshes) {
-      if (m.name !== 'country-sand') continue;
+      if (m.name !== 'country-sand' && m.name !== 'country-grass') continue;
       m.geometry.computeBoundingBox();
       const bb = m.geometry.boundingBox!;
       // Each cell's mesh stays in its cell, but for a stretch of road (its half width and its mitre round a bend) over its edge.

@@ -6,6 +6,7 @@ import { attractionOf } from './attractions';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { BRIDGE_ARCH, COUNTY_NAME, countryGround, plotAt } from './country';
+import { countyCores, LOOKOUT } from './country/hills';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type CityLayout, type District, type Prop, type Ramp, type Rect } from './layout';
 import { PLATFORM_SLAB, TOWER_H } from './monorail';
 import { TURBINE_BASE } from './offshore';
@@ -112,6 +113,14 @@ export class StaticWorld {
     for (const r of parapets.slice(country.firstParapet)) g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, CURB_H, CURB_H + PARAPET_H, 'wall');
     for (const x of [BRIDGE_ARCH.x0, BRIDGE_ARCH.x1]) for (const z of BRIDGE_ARCH.ribs) g.addCircle(x, z, BRIDGE_ARCH.post, WATER_Y - 1.5, BRIDGE_ARCH.postTop, 'pillar');
     for (let i = country.firstProp; i < props.length; i++) this.propColliders[i] = this.addPropCollider(props[i]!, i);
+    // Its rises' sight cores, and Lookout Point's parapet and fire lookout tower on Coyote Ridge (world/country/hills.ts).
+    for (const c of countyCores(country)) g.addBox(c.minX, c.minZ, c.maxX, c.maxZ, -1, c.y1, 'terrain');
+    const top = countryGround(country, LOOKOUT.tower.x, LOOKOUT.tower.z);
+    const q = LOOKOUT.parapet;
+    g.addBox(q.minX, q.minZ, q.maxX, q.maxZ, top, top + PARAPET_H, 'wall');
+    const t = LOOKOUT.tower;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.addCircle(t.x + sx * t.half, t.z + sz * t.half, t.post, top, top + t.cab, 'pillar');
+    g.addBox(t.x - t.half - 0.3, t.z - t.half - 0.3, t.x + t.half + 0.3, t.z + t.half + 0.3, top + t.cab, top + t.top, 'wall');
   }
 
   private addPropCollider(p: Prop, i: number): number {
@@ -143,8 +152,9 @@ export class StaticWorld {
       case 'lighthouse':
         return g.addCircle(p.x, p.z, 3.6, p.y, p.y + 26, 'pillar').id;
       case 'turbine':
-        // The tower from below the swimmers' band up past the nacelle: boats, shots, the camera and sight stop at it.
-        return g.addCircle(p.x, p.z, TURBINE_BASE, WATER_Y - 1.5, p.y + 72, 'pillar').id;
+        // The tower from below the swimmers' band (on land, from its foundation) up past the nacelle: boats, shots, the
+        // camera and sight stop at it.
+        return g.addCircle(p.x, p.z, TURBINE_BASE, p.y > WATER_Y ? p.y - 1 : WATER_Y - 1.5, p.y + 72, 'pillar').id;
       case 'crane': {
         // Four legs of a gantry crane spanning 12 m x 10 m.
         for (const [lx, lz] of [[-6, -5], [6, -5], [-6, 5], [6, 5]] as const) g.addBox(p.x + lx - 0.6, p.z + lz - 0.6, p.x + lx + 0.6, p.z + lz + 0.6, 0, 30, 'pillar');
@@ -368,9 +378,13 @@ export class StaticWorld {
     for (const c of this.grid.colliders) c.broken = false;
   }
 
-  /** True when no sight-blocking collider stands between the two points and no rise (world/terrain.ts) comes between them. */
+  /**
+   * True when no sight-blocking collider stands between the two points and no rise (world/terrain.ts), the city's or Las
+   * Lomas County's, comes between them.
+   */
   lineOfSight(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
-    return this.grid.lineOfSight(ax, ay, az, bx, by, bz, this.scratchHit) && riseRay(this.layout.rises, ax, ay, az, bx - ax, by - ay, bz - az, 0, 1) < 0;
+    const rises = this.layout.country.rises;
+    return this.grid.lineOfSight(ax, ay, az, bx, by, bz, this.scratchHit) && riseRay(this.layout.rises, ax, ay, az, bx - ax, by - ay, bz - az, 0, 1) < 0 && riseRay(rises, ax, ay, az, bx - ax, by - ay, bz - az, 0, 1, 0) < 0;
   }
 
   /**

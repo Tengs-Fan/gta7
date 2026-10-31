@@ -504,11 +504,12 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // to the colliders; and on the merged round-2 head, where all four passes stand together and the trees in front of the
   // SAN AZURA letters are bushes (their kind, trunks and envelopes); and when Las Lomas County moved the four props out
   // of the links' mouths through the promenade (a tree's envelope with them) and appended its signal heads and the
-  // causeway's lamps, their colliders after the bridge's parapets and its arch's posts, after every other.
+  // causeway's lamps, their colliders after the bridge's parapets and its arch's posts, after every other; and when its
+  // landscape appended the ridge's turbines and tree belts (their envelopes too), then its cores and Lookout Point's solids.
   const D98 = {
-    props: '5b9687b0dd22d2abaa2a5adb312ffc099851b9273444ea5db2e6b0aa2d3d9e77',
-    colliders: '937140524f3c79d12625fd4ceb815e9f3e02728463a683255bc971b7aeeaf550',
-    envelopes: 'ee2e5b736e46e7238cc67b0fab8bea193f9a10933bcb9ebda1b8c257c52f7585',
+    props: '16aa9c1b1da1bd613d16883b4e747a98386458241af564148d6b09d9cccf8876',
+    colliders: 'c5dd45bc2bd5ff885ac9c176acf125fdd3121d8d480572cbb531c34e69dd25be',
+    envelopes: '2a2085ccd0725005781f6047a566dcfac736f4ce315dc1087937bbd1a5e65616',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {

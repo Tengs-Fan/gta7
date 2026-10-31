@@ -9,6 +9,7 @@
 import { CROSSWALK_W, CURB_H, PROP_INSET, SEABED_Y, WATER_Y } from '../constants';
 import { addProp, mkRect, PARAPET_T, rectContains, type CityLayout, type Rect } from '../layout';
 import { riseAt, type Rise } from '../terrain';
+import { buildHills } from './hills';
 
 export type CountryRoadKind = 'highway' | 'country';
 
@@ -376,6 +377,7 @@ export function buildCountry(layout: CityLayout): void {
   }
   // The content passes go here, in this order, each one call that only appends: buildHills (the landscape), buildFarms,
   // buildPlaces.
+  buildHills(layout);
 }
 
 /** A node's place: a grid node's line crossing, or a county vertex. */

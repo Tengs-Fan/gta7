@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { OffshoreView } from '../../src/render/offshore';
 import { rotorSpeed, TurbineView } from '../../src/render/turbines';
+import { countyCores } from '../../src/world/country/hills';
 import type { Vehicle } from '../../src/sim/entities';
 import { Sim } from '../../src/sim/sim';
 import { CURB_H, PROMENADE_W, WATER_Y } from '../../src/world/constants';
@@ -35,7 +36,8 @@ vi.hoisted(() => {
 const W = world();
 const L = W.layout;
 const sha = (o: unknown) => createHash('sha256').update(JSON.stringify(o)).digest('hex');
-const turbines = L.props.filter((p) => p.kind === 'turbine');
+/** Turbine Row's, the ones in the sea (Coyote Ridge's stand on land, country_hills.test.ts). */
+const turbines = L.props.filter((p) => p.kind === 'turbine' && p.y === WATER_Y);
 const key = L.headlands.find((h) => h.name === KEY_NAME)!;
 const onKey = (x: number, z: number, margin = 0) => key.rects.some((r) => rectContains(r, x, z, margin));
 
@@ -77,9 +79,10 @@ describe('Turbine Row', () => {
     // After them: a pillar per turbine and the Key's palms and jetty lamp, the last props; then the solids the earlier
     // passes append past every prop (the rises' cores, the letters and the lookout's parapet, the attractions'), the
     // battery's walls, AzuraLink's pylons and stations, and last Las Lomas County's (the bridge's parapets and its arch's
-    // portal posts, its props).
+    // portal posts, its props, then its rises' cores and Lookout Point's parapet, tower posts and cab).
     const rest = W.grid.colliders.slice(first);
-    const county = L.props.slice(L.country.firstProp).map((p) => (p.kind === 'signal' ? 'signal' : 'lamp'));
+    const tags: Record<string, string> = { signal: 'signal', lamp: 'lamp', turbine: 'pillar', tree: 'tree' };
+    const county = L.props.slice(L.country.firstProp).map((p) => tags[p.kind]!);
     expect(rest.map((c) => c.tag)).toEqual([
       ...turbines.map(() => 'pillar'), 'palm', 'palm', 'palm', 'lamp',
       ...terrainCores(L.rises).map(() => 'terrain'),
@@ -90,6 +93,7 @@ describe('Turbine Row', () => {
       ...L.monorail.pylons.map(() => 'rock'),
       ...L.monorail.stations.flatMap((s) => ['building', ...s.platform.map(() => 'building')]),
       'wall', 'wall', 'pillar', 'pillar', 'pillar', 'pillar', ...county,
+      ...countyCores(L.country).map(() => 'terrain'), 'wall', 'pillar', 'pillar', 'pillar', 'pillar', 'wall',
     ]);
     for (const [i, t] of turbines.entries()) {
       const c = rest[i]!;
@@ -120,10 +124,11 @@ describe('Turbine Row', () => {
     expect(rotorSpeed(6)).toBeGreaterThan(rotorSpeed(2));
     expect(rotorSpeed(12)).toBe(rotorSpeed(30));
     const view = new TurbineView(W);
-    const meshes = ['turbineTowers', 'turbineNacelles', 'turbineRotors'].map((n) => view.group.getObjectByName(n) as THREE.InstancedMesh);
-    for (const m of meshes) {
+    const meshes = ['turbineTowers', 'turbineNacelles', 'turbineRotors', 'turbineLandTowers'].map((n) => view.group.getObjectByName(n) as THREE.InstancedMesh);
+    // The row's towers in the sea; the nacelles and rotors with Coyote Ridge's six, whose towers on land are a draw of their own.
+    for (const [i, m] of meshes.entries()) {
       expect(m).toBeInstanceOf(THREE.InstancedMesh);
-      expect(m.count).toBe(10);
+      expect(m.count).toBe([10, 16, 16, 6][i]);
       expect(m.castShadow).toBe(true);
     }
     const rotor = () => {
