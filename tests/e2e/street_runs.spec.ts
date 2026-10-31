@@ -116,9 +116,14 @@ test.describe('street runs: player journeys', () => {
       await page.keyboard.up('KeyW');
     }
     const driven = await snapshot(page);
-    expect(driven.x!).toBeLessThan(start.x! - 170);
+    // Harbor Blvd is 174 m on, its gate the whole junction and 3 m more round it.
+    expect(driven.x!).toBeLessThan(start.x! - 150);
     await expect(page.locator('[data-el="status"]')).toContainText('GATE 3/');
-    await expect(page.locator('[data-el="objective"]')).toContainText('Lomas Highway');
+    // The next gate is Dry Creek's, at the causeway's far end.
+    expect(await page.evaluate(() => {
+      const j = (window as Api).__gta7.sim.activities.job;
+      return j.course.checkpoints[j.checkpoint].label;
+    })).toBe('Straight · Lomas Highway');
     expect((await state(page)).crashed).toBe(false);
     expect(errors).toEqual([]);
   });

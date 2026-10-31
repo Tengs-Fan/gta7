@@ -1,8 +1,8 @@
 // Gravel Gulch (world/country/places.ts): the dirt track's ribbon, the berms banked up round the outside of its turns,
 // the whoops and the tabletops (their ramps and decks are the sim's ground: rampHeight and the decks), the flag gates
 // round a lap, the banner over the start line, and the drive in from the highway with its sign. Only drawn: riders pass
-// through the berms and the flags. The ribbon and the drive are packed dirt with the other places' (kit.dirt); the rest
-// is the track's piece of the places' atlas.
+// through the berms and the flags. The dirt (the ribbon, the berms, the jumps and the drive) is packed dirt with the other
+// places' (kit.dirt); the rest is the track's piece of the places' atlas.
 
 import { prism } from '../city/rooftops';
 import { boxC, face, tri, type V } from '../city/attractions';
@@ -11,16 +11,18 @@ import type { CountryView } from './index';
 import { DIRT_Y, type PlacesKit } from './kit';
 import { SIGN_GLOW } from './town';
 
-const DIRT: RGB = [0.46, 0.34, 0.24];
-const BERM: RGB = [0.4, 0.29, 0.2];
 /** The berms round the turns: how far out from the track's edge they rise to their crest, its height, and their foot. */
 const BERM_CREST = 1.4;
 const BERM_HEIGHT = 1.1;
 const BERM_OUT = 3.5;
 
-/** The quad a..d facing up. */
-function up(g: GeoBuilder, a: V, b: V, c: V, d: V, color: RGB): void {
-  face(g, a, b, c, d, [0, 1, 0], color);
+const WHITE: RGB = [1, 1, 1];
+
+/** The quad a..d of dirt facing `toward`, its texture laid on it from above (on the walls, along them and up). */
+function dirt(g: GeoBuilder, a: V, b: V, c: V, d: V, toward: V, scale: number): void {
+  const wall = Math.abs(toward[1]) < 0.5;
+  const uv = (v: V) => (wall ? [(v[0] + v[2]) / scale, v[1] / scale] : [v[0] / scale, v[2] / scale]);
+  face(g, a, b, c, d, toward, WHITE, [a, b, c, d].flatMap(uv));
 }
 
 export function buildTrack(view: CountryView, kit: PlacesKit): void {
@@ -29,7 +31,6 @@ export function buildTrack(view: CountryView, kit: PlacesKit): void {
   const p = kit.place('gravel-gulch');
   const uv = { kind: 'world', scale: view.city.ground.tile('plain') } as const;
   const half = t.width / 2;
-  const s = 1 / uv.scale;
 
   // The ribbon: a quad between each two points of the centre line, its edges square to the line.
   const right = (i: number) => {
@@ -43,8 +44,7 @@ export function buildTrack(view: CountryView, kit: PlacesKit): void {
     const b = t.line[i + 1]!;
     const ra = right(i);
     const rb = right(i + 1);
-    const q: V[] = [[a.x - ra.x * half, DIRT_Y, a.z - ra.z * half], [a.x + ra.x * half, DIRT_Y, a.z + ra.z * half], [b.x + rb.x * half, DIRT_Y, b.z + rb.z * half], [b.x - rb.x * half, DIRT_Y, b.z - rb.z * half]];
-    face(kit.dirt, q[0]!, q[1]!, q[2]!, q[3]!, [0, 1, 0], [1, 1, 1], q.flatMap((v) => [v[0] * s, v[2] * s]));
+    dirt(kit.dirt, [a.x - ra.x * half, DIRT_Y, a.z - ra.z * half], [a.x + ra.x * half, DIRT_Y, a.z + ra.z * half], [b.x + rb.x * half, DIRT_Y, b.z + rb.z * half], [b.x - rb.x * half, DIRT_Y, b.z - rb.z * half], [0, 1, 0], uv.scale);
   }
   const d = t.drive;
   kit.dirt.flat(d.minX, d.minZ, d.maxX, d.maxZ, DIRT_Y, uv);
@@ -58,8 +58,8 @@ export function buildTrack(view: CountryView, kit: PlacesKit): void {
     for (let k = 0; k < n; k++) {
       const a = turn.a0 + (span * k) / n;
       const b = turn.a0 + (span * (k + 1)) / n;
-      up(p.plain, at(a, r0, DIRT_Y), at(b, r0, DIRT_Y), at(b, r0 + BERM_CREST, BERM_HEIGHT), at(a, r0 + BERM_CREST, BERM_HEIGHT), BERM);
-      up(p.plain, at(a, r0 + BERM_CREST, BERM_HEIGHT), at(b, r0 + BERM_CREST, BERM_HEIGHT), at(b, r0 + BERM_OUT, 0), at(a, r0 + BERM_OUT, 0), DIRT);
+      dirt(kit.dirt, at(a, r0, DIRT_Y), at(b, r0, DIRT_Y), at(b, r0 + BERM_CREST, BERM_HEIGHT), at(a, r0 + BERM_CREST, BERM_HEIGHT), [0, 1, 0], uv.scale);
+      dirt(kit.dirt, at(a, r0 + BERM_CREST, BERM_HEIGHT), at(b, r0 + BERM_CREST, BERM_HEIGHT), at(b, r0 + BERM_OUT, 0), at(a, r0 + BERM_OUT, 0), [0, 1, 0], uv.scale);
     }
   }
 
@@ -73,14 +73,13 @@ export function buildTrack(view: CountryView, kit: PlacesKit): void {
     const hw = r.width / 2;
     const hl = r.length / 2;
     const P = (along: number, side: number, y: number): V => [r.x + fx * along + sx * side, y, r.z + fz * along + sz * side];
-    up(p.plain, P(-hl, -hw, DIRT_Y + 0.01), P(-hl, hw, DIRT_Y + 0.01), P(hl, hw, r.height), P(hl, -hw, r.height), DIRT);
-    tri(p.plain, P(-hl, hw, 0), P(hl, hw, 0), P(hl, hw, r.height), [sx, 0, sz], BERM);
-    tri(p.plain, P(-hl, -hw, 0), P(hl, -hw, 0), P(hl, -hw, r.height), [-sx, 0, -sz], BERM);
+    dirt(kit.dirt, P(-hl, -hw, DIRT_Y + 0.01), P(-hl, hw, DIRT_Y + 0.01), P(hl, hw, r.height), P(hl, -hw, r.height), [0, 1, 0], uv.scale);
+    for (const side of [-1, 1]) dirt(kit.dirt, P(-hl, side * hw, 0), P(hl, side * hw, 0), P(hl, side * hw, r.height), P(-hl, side * hw, DIRT_Y + 0.01), [side * sx, 0, side * sz], uv.scale);
   }
   for (const r of t.tables) {
     const y = L.decks.find((q) => q.rect === r)!.y;
-    up(p.plain, [r.minX, y, r.maxZ], [r.maxX, y, r.maxZ], [r.maxX, y, r.minZ], [r.minX, y, r.minZ], DIRT);
-    for (const x of [r.minX, r.maxX]) face(p.plain, [x, 0, r.minZ], [x, 0, r.maxZ], [x, y, r.maxZ], [x, y, r.minZ], [x < (r.minX + r.maxX) / 2 ? -1 : 1, 0, 0], BERM);
+    dirt(kit.dirt, [r.minX, y, r.maxZ], [r.maxX, y, r.maxZ], [r.maxX, y, r.minZ], [r.minX, y, r.minZ], [0, 1, 0], uv.scale);
+    for (const x of [r.minX, r.maxX]) dirt(kit.dirt, [x, 0, r.minZ], [x, 0, r.maxZ], [x, y, r.maxZ], [x, y, r.minZ], [x < (r.minX + r.maxX) / 2 ? -1 : 1, 0, 0], uv.scale);
   }
 
   // The flag gates: a pole either side of the track, a pennant on each, red then yellow round the lap.

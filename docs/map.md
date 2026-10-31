@@ -202,7 +202,7 @@ The police's unfiltered draw over every lane keeps the grid's lanes wherever the
 `tests/unit/city_guard.test.ts`, recorded on the untouched round-2 head before any of this existed, hashes the grid's nodes, lanes, turns, signals, routes, distance fields, walk graph, props, colliders and street-run courses, and the ground and lookups on a lattice over the old world; the single-player trace, the crowd fixture and the multiplayer core's trace replay byte for byte.
 `buildCountry` runs last in `generateCity` and only appends, but for four props it moves out of the links' mouths (two lamps, a tree and a bench, each keeping its index); its colliders come after every older one.
 The promenade's edges across the mouths become crosswalks on the gateways' lights and keep their places among the walking edges, so pedestrian spawns draw as before.
-The county's verges join no city walk node and are no spawn ground: pedestrians spawn in the county only from its own footpaths (`layout.country.walks`, none yet).
+The county's verges join no city walk node and are no spawn ground: pedestrians spawn in the county only from its own footpaths (`layout.country.walks`: Dry Creek's boardwalks).
 
 **The plots contract.**
 The county's land is split into named plots (`COUNTY_PLOTS`) that the content passes fill: Dry Creek (a town round the crossroads), Hollister Bottoms (inside the farm loop), the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge; the rest is wild.
@@ -210,6 +210,43 @@ Every plot but the town keeps 12 m off the road edges, and every road keeps 30 m
 The content passes go at the end of `buildCountry`, each one call that only appends, in this order: the landscape, the farms, the places.
 They add no open spot (the hidden packages are placed over the open spots), append parking bays only at the end, stand their props on `countryGround`, and keep their rises in `layout.country.rises`, which only the county's ground reads.
 The HUD and the scanner name the plot you are in, or Las Lomas County.
+
+### The places
+
+`buildPlaces` (`src/world/country/places.ts`) is the last of the content passes and fills three plots: Dry Creek, the Moonbeam Drive-In and Gravel Gulch.
+It draws nothing from the city's generator (the stores' tints come from its own), and it only appends.
+
+**Dry Creek** stands round its crossroads, the county's only traffic light, with the main street on the Lomas Highway.
+- Its stores are buildings of district `'country'` (DRY CREEK FEED & SEED, BANG BANG GUNS & BAIT, MOO-MOO'S DINER, GAS & GRITS, the SHERIFF'S OFFICE and three more), not blocks: the walk graph builds its block loops first, so appended blocks would shift its walking edges.
+  A store is a false front (tier 0, the tall board on its street side) and a body under a gable (tier 1).
+- Their colliders come after every older one (`country.firstBuilding`, as `firstProp` for the props), so every older collider keeps its id.
+  The city's building renderer skips them; `render/country/town.ts` draws them with the city's own facade materials, so their windows light at night as the city's do.
+- The grain elevator (40 m), the water tower (DRY CREEK. YOU'RE ALMOST SOMEWHERE.), the World's Second-Largest Corn Cob and Gas & Grits' canopy are the places' solids, added after the county's props.
+- People spawn on the boardwalks in front of the stores (footpaths with `spawn`), which join the verges at the crossroads' corners.
+  A county footpath that crosses a road is a crosswalk on the light of the junction nearest it, which gives the town the crossings over its south and east arms that the verges lack.
+- A bust off the city's land walks out of the nearest police station (`bustStation`): the Sheriff's Office in the county, SAPD Central anywhere on the city's land, as before.
+- Gas & Grits' four pumps are breakable props: one knocked down, by a car or a blast, goes up a moment later and knocks down the pumps within 13 m, so the forecourt goes up one pump after another (`sim/dryCreek.ts`).
+  Each goes once, which caps the chain; the blast is the doing of the nearest player within 40 m.
+
+**The Moonbeam Drive-In** stands on the county's east shore, its 30 by 14 m screen facing inland with the city across the sound behind it.
+- The bill runs on the game's hours alone (`sim/driveIn.ts`): a pre-show card from 19:00, THE CORN THAT ATE SAN AZURA at 19:30, the dancing hot dog's intermission at 21:00, ATTACK OF THE 50-FOOT SCARECROW at 21:15 and the first film again at 23:00, dark from 00:30.
+  A multiplayer client works out the same reel from its mirrored clock, with nothing in the snapshot.
+- The screen's canvas is redrawn only when the scene changes, the films' lines burned in under the picture.
+- Its forty bays stand in arcs nose to the screen, after every older bay; they fill, nearly all of them, only while the lot is open (19:00 to 01:00), under the parked cars' usual out-of-view rule.
+- A player's horn in the lot while a film runs sets the cars round him flashing their lights and a moviegoer shushing him (`driveInShush`, at most once every 4 s).
+- The screen's frame is solid, so you can hide behind it; the booth, the concession stand and the marquee's posts are solids too, and the speaker posts break.
+
+**Gravel Gulch** is a dirt loop of about 1.1 km south of the highway, with a hairpin loop up its middle, six whoops and two tabletops.
+- The whoops and the tabletops are ramp pairs (a ramp up to a crest, one up to it from beyond) that are not stunt ramps (`Ramp.stunt` false): a jump off one is no stunt, and the stunt jumps' total is still the six.
+  A tabletop's top is a deck (`Deck.dirt`, drawn by the track, no pier under it), and its face rises 0.7 m over it, so a rider at speed leaves the ground at the lip.
+- The ribbon, the berms round the turns and the flags are drawn only.
+- The scramble (`sim/activities/scramble.ts`) is two laps against the clock, ten gates a lap, in anything with wheels; its medals come from a scripted ride on a Viper 600.
+
+**The Las Lomas Loop** is the fourth street run, about 3 km: west down Magnolia Ave, over the Magnolia Causeway, through Dry Creek and round the Lomas Highway, home over the Southgate Bridge and north up Vista Ave.
+- A course's corners may name a county junction; the legs to and from one take the shortest way on, never back the way it came.
+- Its gates stand at junctions only, never at a bend, and its distance runs along the road.
+- The green wave walks the course's gates, so it holds the gateways and Dry Creek for the racer; on the city's courses those are the same junctions as before.
+- `buildStreetRunCourses` keeps the city's three byte for byte, and the loop comes after them, so multiplayer offers it head-to-head as it does the others.
 
 ## Rejected, and why
 
@@ -264,3 +301,6 @@ A three-car monorail runs along Cortez Canal on a beam 9.6 m up, from Northshore
 - Pedestrians can spawn on the promenade's two crossings at the links' mouths, which keep their places among the walking edges.
 - A pursuit into Las Lomas County thins out: with no buildings to hide them, units are placed only out of sight, and on the long straights a fast car outruns them; its tuning is the county traffic round's.
 - The county's beaches sit on the sea's deep-water colour, without shallows or surf.
+- The Moonbeam Drive-In's bays fill only out of view, so a lot you are watching at 19:00 fills late.
+- Gravel Gulch's berms and flags are drawn only: a rider passes through them, and a tabletop's sides drop sheer.
+- The drive-in's films have no sound: their lines are on the screen only.

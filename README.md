@@ -59,7 +59,7 @@ To play with friends on your network, run the optional multiplayer server (see [
 | Radio next / previous (vehicle) | R / Q | D-pad right / left |
 | Enter / exit vehicle (also carjacks) | F or Enter | Y |
 | Interact: missions, shop, save, retry, skip dialogue | E | D-pad up |
-| Start / cancel a street run (road car), taxi job (taxi), vigilante job (police vehicle), or the Gull Regatta (boat at the Marina) | T | D-pad down |
+| Start / cancel a street run (road car), taxi job (taxi), vigilante job (police vehicle), the Gull Regatta (boat at the Marina), or the Gravel Gulch scramble (anything with wheels at its gate) | T | D-pad down |
 | Phone (on foot), answer a call | Tab | D-pad right |
 | Camera distance | V | R3 |
 | Map | M | Back |
@@ -96,7 +96,11 @@ To play with friends on your network, run the optional multiplayer server (see [
   Parody shopfronts (DONUTS, PAWN, TACOS, BAIL BONDS and more), tower lobbies and house porches line the streets, and lamp posts, traffic signals, fire hydrants, bins and benches break.
 - **Las Lomas County.** West across Lomas Sound lies a county of flat farmland with sandy beaches and two coves (WELCOME TO LAS LOMAS COUNTY. POPULATION: MOSTLY COWS.), reached over the Magnolia Causeway, a rock-armoured highway with lamps every 30 m off Magnolia Ave at Harbor Blvd, and the Southgate Bridge under its steel arch off Southgate Ave.
   The Lomas Highway loops round it through Dry Creek's crossroads, with curves the traffic, the police, the cab and the GPS all follow; Hollister Lane circles the farm and Creek Road runs south to the Creek T.
-  The HUD, the map and the police scanner name its places: Dry Creek, Hollister Bottoms, the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge, so far fields waiting for their farms and places (see [docs/map.md](docs/map.md)).
+  The HUD, the map and the police scanner name its places: Dry Creek, Hollister Bottoms, the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge, the farms so far fields waiting for their crops (see [docs/map.md](docs/map.md)).
+  Dry Creek, the county's crossroads town, has its one traffic light and false-front stores along timber boardwalks where people stroll: DRY CREEK FEED & SEED, BANG BANG GUNS & BAIT, MOO-MOO'S DINER (its neon cow kicks after dark) and a white clapboard SHERIFF'S OFFICE, which you walk out of if you are busted out here.
+  Ram a pump at Gas & Grits and the forecourt goes up one pump after another; the 40 m grain elevator is the landmark to steer by, the water tower reads DRY CREEK. YOU'RE ALMOST SOMEWHERE., and at the edge of town stands the World's Second-Largest Corn Cob.
+  On the sound the Moonbeam Drive-In shows two B-movies a night on a 30 m screen from 19:30, THE CORN THAT ATE SAN AZURA and ATTACK OF THE 50-FOOT SCARECROW, their lines on the screen and a dancing hot dog at the intermission, and its lot fills for the show; honk during a film and the cars round you flash their lights at you and shush you.
+  Gravel Gulch is a 1.1 km dirt track of whoops and tabletops south of the highway, with a two-lap scramble against the clock (see [Gravel Gulch](#gravel-gulch)).
 - **The look.** Stylised low-poly models with PBR materials, all CC0 (see [Assets](#assets) and [Credits](#credits)).
   People are chunky toy figures built in code from rounded segments on the game's own jointed skeleton: a face, hair, caps and sunglasses, shirts with collars and jackets, police badges, and their own height, build and colours; feet are planted by the gait, and every body part is one instanced draw for the whole crowd.
   Cars: seven kinds (compact, sedan, taxi, sports, muscle, pickup and police) are low-poly Quaternius models fitted to the cars' real sizes and axles, with number plates, lined cabins and riders seated inside; the van, bus, SWAT van, ambulance and fire engine are rebuilt procedural bodies. Every car has tinted glass that mirrors the sky and street, clearcoat paint, moulded lamp lenses that glow softly after dark, tyres with sidewalls, and a soft shade under it; dents, broken lamps and wrecks show on the new bodies.
@@ -124,7 +128,7 @@ To play with friends on your network, run the optional multiplayer server (see [
   The bikes lean into turns, the sport bike pulls wheelies, a hard crash throws the rider off, and bikes ride in traffic, park in the bays and can be stolen like cars.
   Boats wait at the Marina: step aboard from the pier (or climb in from the water) with F, run them on the open sea where they ride the waves; they run aground on the beach, stop at quays, piers and the turbines' towers, and leaving one puts you on the pier or in the water.
 - **On foot and in the water.** Walk, sprint and jump (long falls hurt); with your back to a wall the camera rises over your shoulder and looks down at you, aiming or not (the crosshair stays where the drawn view points; the sniper scope is still your eye). Swim in deep water: there is no drowning, but no shooting, weapon switching or getting into cars either.
-- **Street runs.** Three repeatable timed courses with a launch countdown, ordered checkpoints, turn directions, bronze/silver/gold medals, cash payouts and saved personal bests. Take the fast avenues of Magnolia Rush, the long coastal sweep of Coastline Circuit, or the tight corners of Dockside Switchback, twice over the canal.
+- **Street runs.** Four repeatable timed courses with a launch countdown, ordered checkpoints, turn directions, bronze/silver/gold medals, cash payouts and saved personal bests. Take the fast avenues of Magnolia Rush, the long coastal sweep of Coastline Circuit, the tight corners of Dockside Switchback, twice over the canal, or the Las Lomas Loop, 3 km out over the causeway, round the county's highway and home over the Southgate Bridge.
   On the water, the Gull Regatta runs from the Marina through Turbine Row and round Smuggler's Key and the lighthouse (see [The Gull Regatta](#the-gull-regatta)).
 - **Combat.** Fists, Pistol, SMG, Shotgun, Assault Rifle and Rocket Launcher, and a Baseball Bat and Combat Knife (combos: the bat floors people, the knife makes them bleed), Grenades and Molotov cocktails (hold right mouse for the throwing arc; grenades bounce and blow 3 s later, molotovs start a spreading fire that sets people and cars alight) and a Sniper Rifle (right mouse for the scope, the wheel zooms), sold at Bang Bang Guns and found around the city.
   Hip fire is quick and loose, while aiming zooms over the shoulder and tightens the spread; hit markers show hits, headshots and kills, and red arcs show where fire is coming from.
@@ -194,6 +198,7 @@ During a run the next two junctions with traffic lights on the course hold green
 | Magnolia Rush | Azura Ave / Magnolia Ave | 0:55 | 1:10 | 1:35 | $1,000 |
 | Coastline Circuit | Sunset Ave / Magnolia Ave | 1:05 | 1:25 | 1:55 | $1,400 |
 | Dockside Switchback | Vista Ave / Southgate Ave | 0:52 | 1:06 | 1:30 | $1,250 |
+| Las Lomas Loop | Vista Ave / Magnolia Ave | 2:35 | 3:18 | 4:30 | $2,200 |
 
 Silver pays 70% of the gold prize and bronze pays 45%. Every successful finish saves your reward and personal best; slower replays retain your faster record.
 The courses loop back to their starts, so press T after a finish to line up again. Drive to another start area to enter its nearest course, or choose it from the title screen.
@@ -211,6 +216,20 @@ The next gate's buoys stand out larger with a marker between them, and the map a
 
 Silver pays 70% and bronze 45%, the best lap is saved (STATS) and a medal ticks the checklist.
 T cancels; running out of time or leaving the boat ends it without a payout.
+It is single player only.
+
+### Gravel Gulch
+
+At Gravel Gulch's gate on its north straight (a dirt drive leads in from the Lomas Highway), press **T** in anything with wheels, stop in the start box and wait out the countdown.
+Then ride two laps of the 1.1 km dirt track, through its ten flag gates each lap: six whoops down its east side, a hairpin loop up its middle and two tabletops up its west side, a little over two minutes on a Viper 600.
+
+| Course | Start | Gold | Silver | Bronze | Gold payout |
+| --- | --- | --- | --- | --- | --- |
+| Gravel Gulch scramble | Gravel Gulch gate | 2:16 | 2:42 | 3:28 | $1,500 |
+
+Silver pays 70% and bronze 45%, the best time is saved (STATS) and a medal ticks the checklist.
+The whoops and the tabletops throw you, but they are no stunt jumps.
+T cancels; running out of time or leaving your vehicle ends it without a payout.
 It is single player only.
 
 ## Cheats
@@ -311,6 +330,8 @@ All of these are minor; the most noticeable come first.
 - Boats cannot pass under the canal's bridges (they are decks, like the pier), so the canal is for looking at from a boat, not for sailing through.
 - On Hillcrest Green's hill a car rolls with the slope only as drawn: the sim keeps the body level across it, so a car never tips over sideways there.
 - Seen from the city, the Magnolia Causeway and the Southgate Bridge only carry traffic heading out to the county: traffic appears on the county's roads only once you are off the city's land, which keeps the city's own traffic and its recorded test runs exactly as they were; the county's traffic update, still to come, may lift this.
+- The Moonbeam Drive-In's cars park only out of your sight, so a lot you watch at 19:00 fills late; its films have no sound (their lines are on the screen).
+- Gravel Gulch's berms and flags are drawn only, so you ride through them, and a tabletop's sides drop sheer to the ground.
 
 **Multiplayer (limits of this version)**
 
