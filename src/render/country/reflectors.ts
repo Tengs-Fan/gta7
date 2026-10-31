@@ -1,6 +1,6 @@
 // Reflector posts along Las Lomas County's roads (world/country): a white post with a black band and an amber reflector
-// on either face every POST_GAP m along both edges of every county road on the land, clear of the junctions and of the
-// fire road's turn-off. They are drawn only (no collider), one mesh culled by cell with the rest of the county. After
+// on either face every POST_GAP m along both edges of every county road on the land, clear of the junctions, of the
+// fire road's turn-off and of Dry Creek (the one plot that comes up to the road, its sidewalks the town's own). They are drawn only (no collider), one mesh culled by cell with the rest of the county. After
 // dark, the reflectors ahead of the player's lit car shine back at it, glows in LightSprites as bright as its headlights
 // fall on them: on Low, with no headlight beam, they are what you steer by.
 
@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Vehicle } from '../../sim/entities';
 import { CROSSWALK_W } from '../../world/constants';
-import { onCountyLand } from '../../world/country';
+import { onCountyLand, plotAt } from '../../world/country';
 import { FIRE_ROAD } from '../../world/country/hills';
 import type { StaticWorld } from '../../world/staticWorld';
 import type { LightSprites } from '../lightSprites';
@@ -36,7 +36,7 @@ export interface ReflectorPost {
   dz: number;
 }
 
-/** Where the posts stand: both edges of every county road, on the county's land, clear of junctions and the turn-off. */
+/** Where the posts stand: both edges of every county road, on the county's land, clear of junctions, the turn-off and the town. */
 export function reflectorPosts(world: StaticWorld): ReflectorPost[] {
   const roads = world.roads;
   const country = world.layout.country;
@@ -60,7 +60,7 @@ export function reflectorPosts(world: StaticWorld): ReflectorPost[] {
           const o = road.width / 2 + POST_OUT;
           const x = ax + dx * t - dz * o * side;
           const z = az + dz * t + dx * o * side;
-          if (!onCountyLand(country, x, z) || x >= world.bounds.landMinX) continue;
+          if (!onCountyLand(country, x, z) || x >= world.bounds.landMinX || plotAt(country, x, z)?.kind === 'town') continue;
           if (junctions.some((n) => Math.hypot(n.x - x, n.z - z) < n.halfX + CROSSWALK_W + 6)) continue;
           if (Math.hypot(tx - x, tz - z) < 12) continue;
           out.push({ x, y: world.groundHeight(x, z), z, dx, dz });

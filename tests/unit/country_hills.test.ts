@@ -12,7 +12,7 @@ import { reflectorPosts } from '../../src/render/country/reflectors';
 import { LightSprites } from '../../src/render/lightSprites';
 import { Sim } from '../../src/sim/sim';
 import { COP_SIGHT } from '../../src/sim/wanted';
-import { COUNTRY_ROADS, COUNTY_PLOTS, countryGround } from '../../src/world/country';
+import { COUNTRY_ROADS, COUNTY_PLOTS, countryGround, plotAt } from '../../src/world/country';
 import { countyCores, FIRE_ROAD, FIRE_ROAD_W, fireRoadLine, LOOKOUT, ridgeRise } from '../../src/world/country/hills';
 import { PARAPET_H, rectContains } from '../../src/world/layout';
 import { CORE_COVER, CORE_INSET, riseAt } from '../../src/world/terrain';
@@ -371,10 +371,11 @@ describe('drawing the fire road and Lookout Point', () => {
 });
 
 describe('reflector posts', () => {
-  it('stand every 25 m along both edges of the county\'s roads on its land, off the carriageway and clear of the junctions', () => {
+  it('stand every 25 m along both edges of the county\'s roads on its land, off the carriageway, clear of the junctions and of Dry Creek', () => {
     const posts = reflectorPosts(W);
-    expect(posts.length).toBeGreaterThan(200);
+    expect(posts.length).toBeGreaterThan(180);
     for (const p of posts) {
+      expect(plotAt(country, p.x, p.z)?.kind).not.toBe('town');
       expect(p.x).toBeLessThan(L.bounds.landMinX);
       const off = offRoad(p.x, p.z);
       expect(off, `post at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`).toBeGreaterThan(1);
