@@ -14,7 +14,7 @@ export interface Settings {
   sensitivity: number;
   invertY: boolean;
   fov: number;
-  /** Contextual tutorial hints and the steal prompt. */
+  /** Contextual first-time tutorial hints. */
   hints: boolean;
   /** Hints already shown once (ids from src/ui/hints.ts). Replaced, never changed in place. */
   hintsSeen: readonly string[];
