@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sim } from '../../src/sim/sim';
 import { Hud, trimRoute } from '../../src/ui/hud';
 import { MapImage } from '../../src/ui/mapRender';
-import { teleport, world, legacyLane } from './helpers';
+import { input, legacyLane, placeInCar, step, teleport, world } from './helpers';
+import { makeClient, run as runNet, testManager, VirtualClock } from './net_client_helpers';
 
 type Box = { left: number; top: number; width: number; height: number };
 
@@ -275,6 +276,105 @@ describe('toast stack', () => {
     (hud as unknown as { fitToasts(): void }).fitToasts();
     expect(shown()).toEqual(['C']);
     expect(el.column!.getBoundingClientRect().top + el.column!.getBoundingClientRect().height).toBeLessThanOrEqual(300 - 8);
+  });
+});
+
+describe('headlight switch toast', () => {
+  /** The player at the wheel of a sedan on the sand at `hours`, a quiet sim with its HUD bound and watching. */
+  function drive(hours: number) {
+    const rig = makeHud();
+    const sim = quickSim();
+    sim.clock.set(hours);
+    const b = sim.world.layout.bounds;
+    const v = sim.spawnVehicle('sedan', b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.4);
+    placeInCar(sim, v);
+    rig.hud.bind(sim);
+    rig.run(sim, 0.1);
+    /** One press of the switch, a moment for the sim to settle, then the HUD's frame. */
+    const press = () => {
+      step(sim, 0.1, (t) => input({ lightsPressed: t < 0.01 }));
+      rig.run(sim, 1 / 60);
+    };
+    return { ...rig, sim, v, press };
+  }
+
+  it('says whether the lamps are lit after each press', () => {
+    const night = drive(23);
+    night.press();
+    expect(night.v.lights).toBe('off');
+    expect(night.shown()).toEqual(['Headlights off']);
+    night.press();
+    expect(night.shown()).toEqual(['Headlights off', 'Headlights on']);
+    const day = drive(12);
+    day.press();
+    expect(day.shown()).toEqual(['Headlights on']);
+    day.press();
+    expect(day.shown()).toEqual(['Headlights on', 'Headlights off']);
+  });
+
+  it('never takes the help box: the message showing there stays', () => {
+    const { sim, internals, el, run, press, shown } = drive(23);
+    sim.events.emit('message', { text: 'Welcome to San Azura', duration: 9 });
+    run(sim, 0.1);
+    const help = () => (internals as unknown as { helpCur: { text: string } | null }).helpCur?.text;
+    expect(help()).toBe('Welcome to San Azura');
+    press();
+    press();
+    expect(shown()).toEqual(['Headlights off', 'Headlights on']);
+    expect(help()).toBe('Welcome to San Azura');
+    expect(el.help!.classList.contains('show')).toBe(true);
+  });
+
+  it('is silent for getting into another car, the dusk lighting the lamps by itself and getting out', () => {
+    const { sim, v, run, shown } = drive(12);
+    const b = sim.world.layout.bounds;
+    const other = sim.spawnVehicle('compact', b.beachStartX + 40, (b.landMinZ + b.landMaxZ) / 2, 0.4);
+    other.lights = 'on';
+    sim.unseat(sim.player);
+    sim.seat(sim.player, other, 0);
+    run(sim, 0.1);
+    expect(shown()).toEqual([]);
+    sim.unseat(sim.player);
+    sim.seat(sim.player, v, 0);
+    run(sim, 0.1);
+    sim.clock.set(23);
+    run(sim, 0.1);
+    expect(v.lights).toBe('auto');
+    sim.unseat(sim.player);
+    run(sim, 0.1);
+    expect(shown()).toEqual([]);
+  });
+
+  it('works on a multiplayer client from the mirror, for the driver alone', () => {
+    const clock = new VirtualClock();
+    const mgr = testManager({ dev: true });
+    const a = makeClient(mgr, clock, { seed: 1 });
+    const b = makeClient(mgr, clock, { seed: 2 });
+    runNet(mgr, clock, [a, b], 1.5);
+    const room = mgr.room('r')!.sim;
+    room.clock.set(23);
+    const driver = room.players[a.mirror.slot]!.character;
+    const car = room.spawnVehicle('sedan', driver.pos.x + 3, driver.pos.z, 0);
+    room.seat(driver, car, 0);
+    const rigs = [makeHud(), makeHud()];
+    rigs.forEach((r, i) => r.hud.bind([a, b][i]!.mirror, [a, b][i]!.mirror.playerId));
+    const frames = (seconds: number, pressed = false) => {
+      let sent = !pressed;
+      runNet(mgr, clock, [a, b], seconds, {
+        input: (c) => (c === a && !sent ? { ...input(), lightsPressed: true } : null),
+        afterFrame: (c, i) => {
+          if (c === a) sent = true;
+          rigs[i]!.hud.update(1 / 60, c.mirror, 0, false, null, 0);
+        },
+      });
+    };
+    frames(1);
+    expect([car.lights, rigs[0]!.shown(), rigs[1]!.shown()]).toEqual(['auto', [], []]);
+    frames(0.5, true);
+    expect([car.lights, rigs[0]!.shown(), rigs[1]!.shown()]).toEqual(['off', ['Headlights off'], []]);
+    frames(0.5, true);
+    expect(rigs[0]!.shown()).toEqual(['Headlights off', 'Headlights on']);
+    expect(rigs[1]!.shown()).toEqual([]);
   });
 });
 

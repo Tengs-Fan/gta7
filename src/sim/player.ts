@@ -524,7 +524,6 @@ export class PlayerController {
     // The press flips what the player sees now: the lamps lit, it switches them off; dark (by day on `auto`), on.
     if (input.lightsPressed) {
       v.lights = lampsLit(v, lampDarkness(sim.clock.hours, sim.weather.state.dim)) ? 'off' : 'on';
-      sim.events.emit('message', { text: `Headlights ${v.lights}`, duration: 1.5, ...this.p.tag });
     }
 
     p.aimYaw = Math.atan2(input.aimDir.x, input.aimDir.z);

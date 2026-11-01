@@ -4,7 +4,7 @@ import { boot, fakePad, newGame, padTap, type Api } from './helpers';
 
 // The horn and the headlight switch in the real game: holding H raises the horn's gain and sets the car's horn flag, and
 // L (or B on a pad) in a car flips the lamps the player sees: at night the headlight spot and the head lens go dark and
-// come back, by day the lenses and tail lamps light, and the HUD says so.
+// come back, by day the lenses and tail lamps light, and a toast says so.
 
 /** A quiet street at `hour` with the clock stopped and the player at the wheel of a sedan, on the High tier (it has the spot). */
 async function drive(page: Page, hour: number): Promise<void> {
@@ -21,7 +21,7 @@ async function drive(page: Page, hour: number): Promise<void> {
   await page.waitForTimeout(600);
 }
 
-/** What the player's car shows: the sim's switch, the head and tail lenses' glow, the spot's intensity, the help box. */
+/** What the player's car shows: the sim's switch, the head and tail lenses' glow, the spot's intensity, the newest toast and the help box. */
 const lamps = (page: Page) =>
   page.evaluate(() => {
     const g = (window as Api).__gta7;
@@ -35,6 +35,7 @@ const lamps = (page: Page) =>
       head: glow('head'),
       tail: glow('tail'),
       spot: r.headlight.intensity as number,
+      toast: (document.querySelector('[data-el="toast"]')?.textContent ?? '') as string,
       help: (document.querySelector('[data-el="help"]')?.textContent ?? '') as string,
     };
   });
@@ -86,8 +87,12 @@ test.describe('the horn and the headlight switch', () => {
     const errors = await boot(page);
     await newGame(page);
     await drive(page, 23);
+    // An instruction up in the help box (the welcome text, a fire warning): the notice must leave it alone.
+    await page.evaluate(() => (window as Api).__gta7.sim.events.emit('message', { text: 'Probe instruction', duration: 30 }));
+    await page.waitForTimeout(200);
     const auto = await lamps(page);
     expect(auto.switch).toBe('auto');
+    expect(auto.help).toContain('Probe instruction');
     expect(auto.lit).toBe(true);
     expect(auto.spot).toBeGreaterThan(50);
     expect(auto.head).toBeGreaterThan(2);
@@ -97,14 +102,16 @@ test.describe('the horn and the headlight switch', () => {
     expect(off.lit).toBe(false);
     expect(off.spot).toBe(0);
     expect(off.head).toBeLessThan(0.5);
-    expect(off.help).toContain('Headlights off');
+    expect(off.toast).toBe('Headlights off');
+    expect(off.help).toContain('Probe instruction');
     await tap(page, 'KeyL');
     const on = await lamps(page);
     expect(on.switch).toBe('on');
     expect(on.lit).toBe(true);
     expect(on.spot).toBeCloseTo(auto.spot, 3);
     expect(on.head).toBeCloseTo(auto.head, 3);
-    expect(on.help).toContain('Headlights on');
+    expect(on.toast).toBe('Headlights on');
+    expect(on.help).toContain('Probe instruction');
     expect(errors).toEqual([]);
   });
 
@@ -121,14 +128,14 @@ test.describe('the horn and the headlight switch', () => {
     expect(on.lit).toBe(true);
     expect(on.head).toBeGreaterThan(auto.head * 4);
     expect(on.tail).toBeGreaterThanOrEqual(1);
-    expect(on.help).toContain('Headlights on');
+    expect(on.toast).toBe('Headlights on');
     await tap(page, 'KeyL');
     const off = await lamps(page);
     expect(off.switch).toBe('off');
     expect(off.lit).toBe(false);
     expect(off.head).toBe(0);
     expect(off.tail).toBe(0);
-    expect(off.help).toContain('Headlights off');
+    expect(off.toast).toBe('Headlights off');
     expect(errors).toEqual([]);
   });
 

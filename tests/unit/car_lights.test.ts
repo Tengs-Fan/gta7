@@ -218,14 +218,13 @@ describe('the press', () => {
     expect(v.siren).toBe(true);
   });
 
-  it('tells the player with a short message', () => {
+  it('raises no help-box message: the notice is the HUD’s toast, from the switch (hud_layout.test.ts)', () => {
     const { sim } = driving(23);
-    const got: Array<{ text: string; duration: number }> = [];
-    sim.events.on('message', (e) => got.push(e));
+    const got: string[] = [];
+    sim.events.on('message', (e) => got.push(e.text));
     press(sim);
     press(sim);
-    expect(got.map((m) => m.text)).toEqual(['Headlights off', 'Headlights on']);
-    expect(got.every((m) => m.duration <= 2)).toBe(true);
+    expect(got).toEqual([]);
   });
 
   it('does nothing on foot', () => {
@@ -272,7 +271,7 @@ describe('the press', () => {
 });
 
 describe('the switch in multiplayer', () => {
-  it('a client’s press reaches the room once, and the lamps and the message reach the right players', () => {
+  it('a client’s press reaches the room once, and the lamps reach every player', () => {
     const clock = new VirtualClock();
     const mgr = testManager({ dev: true });
     const a = makeClient(mgr, clock, { seed: 1 });
@@ -286,9 +285,6 @@ describe('the switch in multiplayer', () => {
     run(mgr, clock, [a, b], 1);
     const seen = (c: typeof a) => c.mirror.vehicle(car.id)?.lights;
     expect([car.lights, seen(a), seen(b)]).toEqual(['auto', 'auto', 'auto']);
-    const said = { a: [] as string[], b: [] as string[] };
-    a.mirror.events.on('message', (e) => said.a.push(e.text));
-    b.mirror.events.on('message', (e) => said.b.push(e.text));
     // One frame of the press: the latch gives the room exactly one tick of it, so the switch moves once (not each tick).
     const press = (): void => {
       let pressed = false;
@@ -303,6 +299,5 @@ describe('the switch in multiplayer', () => {
     expect([car.lights, seen(a), seen(b)]).toEqual(['off', 'off', 'off']);
     press();
     expect([car.lights, seen(a), seen(b)]).toEqual(['on', 'on', 'on']);
-    expect(said).toEqual({ a: ['Headlights off', 'Headlights on'], b: [] });
   });
 });
