@@ -7,7 +7,7 @@ import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
 import { CAUSEWAY_NAME } from '../world/country';
 import { mkRect, type CityLayout, type Rect } from '../world/layout';
-import { countyShore, patchSeaMaterial, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaUniforms } from './sea';
+import { countyShore, patchSeaMaterial, SEA_MID, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 import { CALM_SEA } from './waves';
 import { assets } from './assets';
@@ -557,44 +557,17 @@ const RIPPLE_B_DRIFT = [
   RIPPLE_B.scale * (RIPPLE_B.sin * RIPPLE_A_DRIFT[0] + RIPPLE_B.cos * RIPPLE_A_DRIFT[1]) + 0.0093,
 ] as const;
 
-/** The baked sky's colours and strength, for the sea to reflect where there is no environment map. */
-interface SkyReflection {
-  top: { value: THREE.Color };
-  horizon: { value: THREE.Color };
-  intensity: { value: number };
-}
-
 /**
  * Patches the sea's standard material to sum the two ripple samples (see RIPPLE_B). Each sample adds its
  * own offset (`offsetA` in the first one's tiles, `offsetB` in the second one's) to the mapped UV, which
  * carries none (the normal map's own offset stays 0): an offset wraps by whole tiles of its own sample,
  * which that sample cannot show, but would move the other one by a fraction of its tile.
- * With `sky` (no environment map: no float colour buffers) the sea also reflects the baked sky's
- * gradient, worked out in the shader as envMat draws it, so it still takes the sky's colour (orange at
- * sunset) on that path.
  */
-function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetA: { value: THREE.Vector2 }, offsetB: { value: THREE.Vector2 }, sky: SkyReflection | null): void {
+function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetA: { value: THREE.Vector2 }, offsetB: { value: THREE.Vector2 }): void {
   const { scale, cos, sin } = RIPPLE_B;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRippleA = offsetA;
     shader.uniforms.uRippleB = offsetB;
-    if (sky) {
-      shader.uniforms.uSkyTop = sky.top;
-      shader.uniforms.uSkyHorizon = sky.horizon;
-      shader.uniforms.uSkyI = sky.intensity;
-      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uSkyTop;\nuniform vec3 uSkyHorizon;\nuniform float uSkyI;').replace(
-        '#include <lights_fragment_maps>',
-        `#include <lights_fragment_maps>
-#if defined( RE_IndirectSpecular ) && ! defined( USE_ENVMAP )
-  {
-    vec3 skyR = inverseTransformDirection( reflect( - geometryViewDir, geometryNormal ), viewMatrix );
-    vec3 skyC = mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, skyR.y ) );
-    skyC = mix( skyC, vec3( ${HAZE.r.toFixed(3)}, ${HAZE.g.toFixed(3)}, ${HAZE.b.toFixed(3)} ) * ( uSkyHorizon + 0.2 ), 1.0 - smoothstep( -0.25, 0.0, skyR.y ) );
-    radiance += skyC * uSkyI;
-  }
-#endif`,
-      );
-    }
     shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uRippleA;\nuniform vec2 uRippleB;').replace(
       '#include <normal_fragment_maps>',
       `#ifdef USE_NORMALMAP_TANGENTSPACE
@@ -611,7 +584,7 @@ function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetA: { value: THRE
 #endif`,
     );
   };
-  mat.customProgramCacheKey = () => (sky ? 'gta7-sea-ripples-sky' : 'gta7-sea-ripples');
+  mat.customProgramCacheKey = () => 'gta7-sea-ripples';
 }
 
 /** The shadow map's texel grid is measured from a world point on a grid this coarse (m): see Environment.placeShadow. */
@@ -907,8 +880,8 @@ export class Environment {
   /** Offsets of the sea's two ripple samples (see RIPPLE_B), each in its own sample's tiles. */
   private readonly rippleA = { value: new THREE.Vector2() };
   private readonly rippleB = { value: new THREE.Vector2() };
-  /** The sky the sea reflects without an environment map (see twoLayerRipples). */
-  private readonly skyReflection: SkyReflection = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, intensity: { value: 0 } };
+  /** The sky the sea reflects without an environment map (see patchSeaMaterial). */
+  private readonly skyReflection: SeaSky = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, intensity: { value: 0 } };
   private readonly cloudNoise = cloudNoiseTexture();
   /** The PMREM target holding the environment map: allocated by the first bake and refilled by every later one. */
   private envTarget: THREE.WebGLRenderTarget | null = null;
@@ -1024,9 +997,9 @@ export class Environment {
 
     this.waterNormal = waterNormalTexture();
     this.waterNormal.repeat.set(900, 900);
-    const waterMat = new THREE.MeshStandardMaterial({ color: 0x135a73, roughness: 0.22, metalness: 0.1, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22) });
-    twoLayerRipples(waterMat, this.rippleA, this.rippleB, this.envFill ? this.skyReflection : null);
-    patchSeaMaterial(waterMat, this.sea);
+    const waterMat = new THREE.MeshStandardMaterial({ color: SEA_MID, roughness: 0.22, metalness: 0, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22) });
+    twoLayerRipples(waterMat, this.rippleA, this.rippleB);
+    patchSeaMaterial(waterMat, this.sea, this.envFill ? this.skyReflection : null);
     const simpleWater = this.software
       ? softwareSeaMaterial(this.sea, {
           uNormal: { value: this.waterNormal }, uDrift: this.rippleA,

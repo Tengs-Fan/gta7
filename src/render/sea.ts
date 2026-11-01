@@ -15,9 +15,16 @@ const DROP_OFF = 25;
 /** Shallows colour over sand, and the wet sand seen through the thinnest water (sRGB). */
 const SHALLOW = 0x2fa89e;
 const SAND_TINT = 0x86a89a;
-/** Open water past ~15 m and far offshore (sRGB): the albedo the shelf fades to (seaShallows). */
-const DEEP = 0x0b4f78;
-const ABYSS = 0x062c52;
+/**
+ * The water's own colour by the quays (the material's), in open water past ~9 m and far offshore (sRGB): the light
+ * scattered back up out of the water body, dark and greyed, so that most of what open water shows is the sky's
+ * reflection (seaShallows).
+ */
+export const SEA_MID = 0x0e4656;
+const DEEP = 0x0a2c40;
+const ABYSS = 0x061a29;
+/** Water's reflectance looking straight down (Schlick's F0 for an index of 1.33). */
+export const SEA_F0 = 0.02;
 /**
  * The drawn seabed keeps falling offshore past the sim's flat SEABED_Y (render only; the sim's waterDepth stays as it
  * is): SHELF_SLOPE m per m beyond SHELF_START m outside the land rectangle (where the beach's drop-off ends).
@@ -194,10 +201,17 @@ export function seaOnBeach(b: Bounds, x: number, z: number, county?: CountyShore
  * for the material's own colour `mid` (linear), into `out`.
  */
 export function seaShallowsCpu(u: SeaUniforms, mid: THREE.Color, depth: number, shelf: number, out: THREE.Color): THREE.Color {
-  out.copy(u.uShallow.value).lerp(mid, smooth(0, 4, depth));
-  out.lerp(u.uSeaDeep.value, smooth(4, 18, shelf));
-  out.lerp(u.uSeaAbyss.value, smooth(10, 45, shelf));
+  out.copy(u.uShallow.value).lerp(mid, smooth(0, 3, depth));
+  out.lerp(u.uSeaDeep.value, smooth(3, 9, shelf));
+  out.lerp(u.uSeaAbyss.value, smooth(9, 30, shelf));
   return out.lerpColors(u.uSandTint.value, out, smooth(0, 0.15, depth));
+}
+
+/** The sky the sea reflects where there is no environment map (no float colour buffers): the baked sky's colours and strength. */
+export interface SeaSky {
+  top: { value: THREE.Color };
+  horizon: { value: THREE.Color };
+  intensity: { value: number };
 }
 
 /** Uniforms shared by every material that follows the sea: the sea itself and the foam rings on it. */
@@ -449,15 +463,37 @@ float seaFoam(vec2 p, float depth, float noise, float sea, float px) {
 }
 /**
  * The sea's albedo by depth: wet sand through the thinnest water, turquoise shallows, the material's own colour (mid)
- * by 4 m, then deep blue and the dark offshore blue as the drawn shelf falls away (seaShelf).
+ * by 3 m, then the dark open-water body by 9 m (the quays' 7 m water is most of the way there) and the darker
+ * offshore one as the drawn shelf falls away (seaShelf).
  */
 vec3 seaShallows(vec3 mid, float depth, vec2 p) {
   float shelf = seaShelf(p, depth);
-  vec3 c = mix(uShallow, mid, smoothstep(0.0, 4.0, depth));
+  vec3 c = mix(uShallow, mid, smoothstep(0.0, 3.0, depth));
   // Overlapping ramps, so the colour keeps darkening steadily with depth rather than pausing between them.
-  c = mix(c, uSeaDeep, smoothstep(4.0, 18.0, shelf));
-  c = mix(c, uSeaAbyss, smoothstep(10.0, 45.0, shelf));
+  c = mix(c, uSeaDeep, smoothstep(3.0, 9.0, shelf));
+  c = mix(c, uSeaAbyss, smoothstep(9.0, 30.0, shelf));
   return mix(uSandTint, c, smoothstep(0.0, 0.15, depth));
+}
+`;
+
+/**
+ * The sky along the sea's reflected ray: the environment map, or the baked sky's gradient without one (uSkyTop,
+ * uSkyHorizon, uSkyI: bound only then). A ripple turned away from the eye reflects the face of the next wave rather
+ * than the sky under the horizon, which the map holds as a dark haze: the ray folds back up, so grazing water shows
+ * the bright horizon sky and never dark blotches.
+ */
+const SEA_SKY_GLSL = /* glsl */ `
+uniform vec3 uSkyTop;
+uniform vec3 uSkyHorizon;
+uniform float uSkyI;
+vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
+  vec3 r = transformDirectionByInverseViewMatrix( reflect( - viewDir, normal ), viewMatrix );
+  r.y = abs( r.y );
+#if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
+  return textureCubeUV( envMap, envMapRotation * r, roughness ).rgb * envMapIntensity;
+#else
+  return mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) ) * uSkyI;
+#endif
 }
 `;
 
@@ -468,10 +504,12 @@ export const SHORE_DAMP = 0.35;
  * Patches the sea's (already ripple-patched) standard material: world-anchored ripple UVs (the mesh follows the
  * camera), vertex displacement scaled by uDisplace (damped over the shallows), the ripples warped and their strength
  * modulated by low-frequency samples of the ripple tile itself, a third and a fourth ripple layer, the wave slopes added to the
- * ripple normal, the shallows' colour and foam. Only uniforms change at runtime: the grid on or off and the sea state
+ * ripple normal, the shallows' colour and foam, water's reflectance (SEA_F0) and the sky it reflects (SEA_SKY_GLSL;
+ * `sky` where there is no environment map). Three's lighting then splits each pixel by Fresnel between the dark body
+ * looking down and the sky towards the horizon. Only uniforms change at runtime: the grid on or off and the sea state
  * never rebuild the program.
  */
-export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms): void {
+export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms, sky: SeaSky | null): void {
   const ripples = mat.onBeforeCompile.bind(mat);
   const key = mat.customProgramCacheKey.bind(mat);
   const c = RIPPLE_C;
@@ -480,6 +518,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   mat.onBeforeCompile = (shader, renderer) => {
     ripples(shader, renderer);
     Object.assign(shader.uniforms, u);
+    if (sky) Object.assign(shader.uniforms, { uSkyTop: sky.top, uSkyHorizon: sky.horizon, uSkyI: sky.intensity });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\nattribute vec2 aEdge;\nvarying vec2 vSeaXZ;`)
       .replace(
@@ -494,7 +533,17 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
       )
       .replace('#include <begin_vertex>', `#include <begin_vertex>\n  transformed += uDisplace * seaDisplaceEdge( seaBase.xz, aEdge ) * mix( ${n(SHORE_DAMP)}, 1.0, smoothstep( 0.0, 2.0, seaDepthAt( seaBase.xz ) ) );`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\nvarying vec2 vSeaXZ;`)
+      .replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\n${SEA_SKY_GLSL}\nvarying vec2 vSeaXZ;`)
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n  material.specularColor = vec3( ${n(SEA_F0)} );\n  material.specularColorBlended = material.specularColor;`)
+      .replace(
+        '#include <lights_fragment_maps>',
+        `#if defined( RE_IndirectDiffuse ) && defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
+  iblIrradiance += getIBLIrradiance( geometryNormal );
+#endif
+#ifdef RE_IndirectSpecular
+  radiance += seaSkyRadiance( geometryViewDir, geometryNormal, material.roughness );
+#endif`,
+      )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>

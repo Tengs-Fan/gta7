@@ -453,8 +453,8 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     const luma = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     expect(luma(u.uSeaDeep.value)).toBeLessThan(luma(u.uShallow.value) * 0.5);
     expect(luma(u.uSeaAbyss.value)).toBeLessThan(luma(u.uSeaDeep.value));
-    expect(SHORE_GLSL).toContain('c = mix(c, uSeaDeep, smoothstep(4.0, 18.0, shelf));');
-    expect(SHORE_GLSL).toContain('c = mix(c, uSeaAbyss, smoothstep(10.0, 45.0, shelf));');
+    expect(SHORE_GLSL).toContain('c = mix(c, uSeaDeep, smoothstep(3.0, 9.0, shelf));');
+    expect(SHORE_GLSL).toContain('c = mix(c, uSeaAbyss, smoothstep(9.0, 30.0, shelf));');
   });
 
   it('the sea and the software sea draw the gradient', () => {
