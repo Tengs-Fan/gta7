@@ -196,6 +196,11 @@ const NEAR_HEAD: SignalHead = { x: 0, y: 4.55, z: 0.21, turn: 0, across: false, 
 /** Its countdown, under it. */
 const NEAR_COUNT: SignalCount = { x: 0, y: 3.74, z: 0.17, turn: 0, h: 0.24 };
 /**
+ * The walk heads on the pole, 2.55 m up: one facing across the approach's own road (local -x), one across the road to
+ * the approach's right (local -z, into the junction), each read by people at the far end of that crosswalk.
+ */
+const WALKS: readonly SignalFace[] = [{ x: -0.31, y: 2.55, z: 0.15, turn: -Math.PI / 2 }, { x: 0.15, y: 2.55, z: -0.31, turn: Math.PI }];
+/**
  * The heads over the road hang with their centre this high in the signal's frame, their backplates' foot 6.1 m over the
  * road (the signal stands on the kerb): clear of the tallest vehicle by 2.9 m, and of every chase camera at its normal
  * zoom (a bus's is 5.9 m up), so no camera passes through one.
@@ -212,12 +217,12 @@ const SIGNAL_LAYOUTS: Readonly<Record<SignalStyle, SignalLayout>> = {
   mast: {
     heads: [NEAR_HEAD, { ...OVER, x: laneIn(AVENUE_W, 0) }, { ...OVER, x: laneIn(AVENUE_W, 1) }],
     counts: [NEAR_COUNT, { x: (laneIn(AVENUE_W, 0) + laneIn(AVENUE_W, 1)) / 2, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4 }],
-    walks: [],
+    walks: WALKS,
   },
   bracket: {
     heads: [NEAR_HEAD, { ...OVER, x: laneIn(STREET_W, 0) }],
     counts: [NEAR_COUNT, { x: laneIn(STREET_W, 0) + 1.05, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4 }],
-    walks: [],
+    walks: WALKS,
   },
   span: { heads: [NEAR_HEAD], counts: [], walks: [] },
 };
@@ -276,6 +281,13 @@ function countBox(b: ModelBuilder, c: SignalCount): void {
   b.add('count', faceBox(c, w, 0.02, c.h * 0.3, 0, h / 2 - 0.01, c.h * 0.3), HOUSING);
 }
 
+/** A walk head: its box (the figure on the viewer's left, two digits on the right) under a hood, clamped to the pole. */
+function walkHead(b: ModelBuilder, f: SignalFace): void {
+  b.add('walk', faceBox(f, 0.56, 0.34, 0.16), HOUSING);
+  b.add('walk', faceBox(f, 0.56, 0.02, 0.1, 0, 0.16, 0.1), HOUSING);
+  b.add('clamp', faceBox(f, 0.12, 0.12, 0.06, 0, 0, -0.16), POLE, 0.85);
+}
+
 /** The pole every city signal stands on: a cast base and collar, the tapered shaft and its cap. */
 function signalPole(b: ModelBuilder): void {
   b.add('base', cyl(0.26, 0.28, 0.1, 12), POLE, 0.8);
@@ -285,8 +297,9 @@ function signalPole(b: ModelBuilder): void {
 }
 
 /**
- * A traffic signal of `style` (SignalStyle): its pole, the head on it with its countdown and, for an arm over the road,
- * the arm with its tie rod, the heads hanging from it and their countdown, all where signalLayout puts their lit parts.
+ * A traffic signal of `style` (SignalStyle): its pole, the head on it with its countdown, its walk heads and, for an arm
+ * over the road, the arm with its tie rod, the heads hanging from it and their countdown, all where signalLayout puts
+ * their lit parts.
  */
 export function signalGeometry(style: SignalStyle): THREE.BufferGeometry {
   const layout = SIGNAL_LAYOUTS[style];
@@ -306,6 +319,7 @@ export function signalGeometry(style: SignalStyle): THREE.BufferGeometry {
     countBox(b, c);
     if (c.y > OVER_Y - 0.1) b.add('hanger', box(0.05, ARM_Y - c.y - c.h * 0.7, 0.05, c.x, (ARM_Y + c.y + c.h * 0.7) / 2, 0), HOUSING);
   }
+  for (const w of layout.walks) walkHead(b, w);
   return b.build(`signal-${style}`);
 }
 

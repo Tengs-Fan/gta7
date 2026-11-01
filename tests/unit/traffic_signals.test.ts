@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { chaseOffset, CHASE_TARGET_Y } from '../../src/render/camera';
 import { lensAt, signalGeometry, signalLayout, type SignalStyle } from '../../src/render/furniture';
 import { PropsView } from '../../src/render/props';
-import { LIT, quadLit, signalCount, signalStyle, walkShow } from '../../src/render/signalHeads';
+import { LIT, quadLit, signalCount, signalStyle, walkAxes, walkShow, type QuadRole } from '../../src/render/signalHeads';
 import { HARDWARE_CHUNK_SIZE, spatialKey, STATIC_CHUNK_SIZE } from '../../src/render/spatial';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
 import { AVENUE_W, CURB_H, PROP_INSET } from '../../src/world/constants';
@@ -279,5 +279,68 @@ describe('the signals\' meshes', () => {
         for (let k = 0; k < 3; k++) expect(props.signalLens(i, head, k).at.distanceTo(world(p, lensAt(h, k)))).toBeLessThan(0.02);
       });
     });
+  });
+});
+
+describe('the walk heads on the poles', () => {
+  /** Where a walk head of signal p faces, in the world. */
+  const facing = (p: Prop, turn: number) => new THREE.Vector3(Math.sin(turn), 0, Math.cos(turn)).applyAxisAngle(new THREE.Vector3(0, 1, 0), p.rot);
+
+  it('each faces across the crosswalk whose people it serves, on that crosswalk\'s light and axis; a T junction\'s spare one faces none', () => {
+    let served = 0;
+    let spare = 0;
+    for (const p of signals) {
+      const layout = signalLayout(signalStyle(roads, p));
+      if (layout.walks.length === 0) continue;
+      const axes = walkAxes(roads, p);
+      layout.walks.forEach((f, w) => {
+        const dir = facing(p, f.turn);
+        // Crosswalks leaving from beside the pole in the direction the head faces.
+        const across = W.walk.nodes
+          .filter((a) => Math.hypot(a.x - p.x, a.z - p.z) < 3.2)
+          .flatMap((a) => a.edges.filter((e) => e.crosswalk).map((e) => ({ a, e, b: W.walk.nodes[e.to]! })))
+          .filter(({ a, b }) => new THREE.Vector3(b.x - a.x, 0, b.z - a.z).normalize().dot(dir) > 0.9);
+        if (axes[w] === null) {
+          expect(across, `${p.node} ${p.dir} head ${w}`).toEqual([]);
+          spare++;
+          return;
+        }
+        expect(across.length, `${p.node} ${p.dir} head ${w}`).toBeGreaterThan(0);
+        for (const { e } of across) {
+          expect(e.roadNode, `${p.node} ${p.dir} head ${w}`).toBe(p.node);
+          expect(e.axis, `${p.node} ${p.dir} head ${w}`).toBe(axes[w]);
+        }
+        served++;
+      });
+    }
+    console.log(`[signals] ${served} walk heads over a crosswalk, ${spare} at T junctions facing none`);
+    expect(served).toBeGreaterThan(500);
+  });
+
+  it('show the walking figure exactly when the people they face may start across, and blank where no crosswalk is', () => {
+    const props = new PropsView(W);
+    const priv = props as unknown as { signalSlots: Array<{ first: number; roles: readonly QuadRole[] }>; signalLit: THREE.InstancedMesh };
+    const lit = priv.signalLit.geometry.getAttribute('aLit');
+    const size = priv.signalLit.geometry.getAttribute('aSize');
+    let checked = 0;
+    for (let t = 0.3; t < SIGNAL_CYCLE; t += 1.7) {
+      props.update(0, 0, t);
+      signals.forEach((p, i) => {
+        const slot = priv.signalSlots[i]!;
+        const axes = walkAxes(roads, p);
+        slot.roles.forEach((role, j) => {
+          if (role.kind !== 'walk') return;
+          const q = slot.first + j;
+          const axis = axes[role.walk];
+          if (axis === null) {
+            expect(size.getX(q)).toBe(0);
+            return;
+          }
+          expect(lit.getY(q) === LIT.walk, `${p.node} ${p.dir} head ${role.walk} at ${t}`).toBe(roads.pedCanCross(p.node, axis, t));
+          checked++;
+        });
+      });
+    }
+    expect(checked).toBeGreaterThan(5000);
   });
 });

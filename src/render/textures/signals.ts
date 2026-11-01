@@ -47,15 +47,17 @@ function figure(ctx: CanvasRenderingContext2D, x0: number, draw: (c: CanvasRende
   c.lineCap = 'round';
   c.lineJoin = 'round';
   draw(c);
+  // One path of every LED: each fill in destination-in keeps only what that fill covers.
   c.globalCompositeOperation = 'destination-in';
   c.fillStyle = '#ffffff';
+  c.beginPath();
   for (let y = 4.5; y < H; y += 7) {
     for (let x = 4.5; x < H; x += 7) {
-      c.beginPath();
+      c.moveTo(x + 2.9, y);
       c.arc(x, y, 2.9, 0, Math.PI * 2);
-      c.fill();
     }
   }
+  c.fill();
   ctx.drawImage(cell, x0, 0);
 }
 
@@ -87,7 +89,7 @@ export function signalAtlas(): THREE.CanvasTexture {
       if (Math.hypot(x - lx, y - H / 2) <= 57) led(ctx, x, y, 3.6, true);
     }
   }
-  // The walking figure, mid-stride, facing the viewer's left.
+  // The walking figure, mid-stride.
   figure(ctx, SIGNAL_TILE_RECTS[SIGNAL_TILE.walk]![0] * W, (f) => {
     f.beginPath();
     f.arc(60, 20, 11, 0, Math.PI * 2);

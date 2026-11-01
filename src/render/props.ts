@@ -14,7 +14,7 @@ import { hashInts, rectContains, type Prop, type PropKind, type Rect } from '../
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { riseAt } from '../world/terrain';
 import { adTexture, AD_COUNT, glowTexture, groundTexture, signalAtlas, SIGNAL_TILE_RECTS } from './textures';
-import { DARK_SIGNAL, LIT, LIT_COLORS, quadLit, showKey, signalCount, signalQuads, signalStyle, walkShow, type QuadRole, type SignalShow } from './signalHeads';
+import { DARK_SIGNAL, LIT, LIT_COLORS, quadLit, showKey, signalCount, signalQuads, signalStyle, walkAxes, walkShow, type QuadRole, type SignalShow } from './signalHeads';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
 import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, type OccluderKind } from './occluderFade';
 import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
@@ -1045,12 +1045,16 @@ export class PropsView {
     const m = new THREE.Matrix4();
     let at = 0;
     signals.forEach((pi, k) => {
-      PropsView.standard(L.props[pi]!, m);
+      const p = L.props[pi]!;
+      PropsView.standard(p, m);
       const base = m.clone();
       this.signalSlots.push({ first: at, roles: quads[k]!.map((q) => q.role) });
+      // A walk head facing no crosswalk (a T junction's) stays blank.
+      const crosses = walkAxes(this.world.roads, p);
       for (const q of quads[k]!) {
+        const blank = (q.role.kind === 'walk' || q.role.kind === 'walkCount') && crosses[q.role.walk] === null;
         place.set([q.at[0], q.at[1], q.at[2], q.turn], at * 4);
-        size.set([q.w, q.h], at * 2);
+        size.set(blank ? [0, 0] : [q.w, q.h], at * 2);
         reach.expandByPoint(new THREE.Vector3(...q.at));
         mesh.setMatrixAt(at, base);
         this.refs.get(pi)?.push({ mesh, index: at, base });

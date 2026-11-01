@@ -26,6 +26,15 @@ const LENS_STATES: readonly SignalState[] = ['red', 'yellow', 'green'];
 const LENS_ON = [LIT.red, LIT.yellow, LIT.green] as const;
 const LENS_OFF = [LIT.redOff, LIT.yellowOff, LIT.greenOff] as const;
 
+/**
+ * The traffic each walk head's people cross: the first faces across the approach's own road, the second across the road
+ * to the approach's right, which a T junction may not have (null: no crosswalk there, nobody reads that head).
+ */
+export function walkAxes(roads: RoadNetwork, p: Prop): [Axis, Axis | null] {
+  const own = axisOf(p.dir as Dir);
+  return [own, roads.nodes[p.node]!.neighbors[(p.dir + 1) % 4]! >= 0 ? (own === 'NS' ? 'EW' : 'NS') : null];
+}
+
 /** The countdown beside a vehicle head: whole seconds left in its red or green; blank (null) in the yellow and while held. */
 export function signalCount(roads: RoadNetwork, node: number, axis: Axis, t: number): number | null {
   const left = roads.signalTimeLeft(node, axis, t);
