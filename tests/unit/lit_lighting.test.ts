@@ -365,7 +365,7 @@ describe('the heads over the road streak the wet road too', () => {
         if (h.across) expect(y - p.y, style).toBeGreaterThan(7);
       }
       console.log(`[lighting] a ${style} signal offers ${heads.length} lit lenses`);
-      expect(heads.length).toBe({ mast: 3, bracket: 2, span: 1 }[style]);
+      expect(heads.length).toBe({ mast: 3, bracket: 2, span: 2 }[style]);
     }
   });
 });

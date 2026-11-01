@@ -259,11 +259,16 @@ const SPAN_SAG = 0.2;
 /** The point the head hangs from: over the inner lane's middle, LANE_W / 2 from the centre line. */
 const SPAN_AT = -SPAN_MID + LANE_W / 2;
 const SPAN_HEAD: SignalHead = { x: SPAN_AT, y: 7.7, z: SPAN_AT + 0.12, turn: 0, across: false, lens: 0.25, gap: 0.34 };
-/** A wooden pole is thicker than a steel one: its walk heads stand a little further out. */
+/** A wooden pole is thicker than a steel one: its walk heads, and the head and countdown on it, stand a little further out. */
 const SPAN_WALKS: readonly SignalFace[] = WALKS.map((w) => {
   const [x, y, z] = onFace(w, 0, 0, 0.04);
   return { x, y, z, turn: w.turn };
 });
+/** The head on the pole serves the lanes on its side of the approach, the outer one of a highway's two; the countdown under it. */
+const SPAN_POLE_HEAD: SignalHead = { ...NEAR_HEAD, z: NEAR_HEAD.z + 0.04 };
+const SPAN_POLE_COUNT: SignalCount = { ...NEAR_COUNT, z: NEAR_COUNT.z + 0.04 };
+/** Its countdown over the inner lane, above the head hanging from the wire. */
+const SPAN_COUNT: SignalCount = { x: SPAN_AT, y: 8.45, z: SPAN_AT + 0.08, turn: 0, h: 0.3, over: true };
 
 /** The span wire's height at `s` (0 at the pole, 1 at the junction's middle). */
 function spanY(s: number): number {
@@ -286,7 +291,7 @@ const SIGNAL_LAYOUTS: Readonly<Record<SignalStyle, SignalLayout>> = {
     counts: [NEAR_COUNT, { x: laneIn(STREET_W, 0) + 1.05, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4, over: true }],
     walks: WALKS,
   },
-  span: { heads: [SPAN_HEAD], counts: [{ x: SPAN_AT, y: 8.45, z: SPAN_AT + 0.08, turn: 0, h: 0.3, over: true }], walks: SPAN_WALKS },
+  span: { heads: [SPAN_POLE_HEAD, SPAN_HEAD], counts: [SPAN_POLE_COUNT, SPAN_COUNT], walks: SPAN_WALKS },
 };
 
 /** Where a signal of this style has its lit parts. */
@@ -363,7 +368,10 @@ function signalPole(b: ModelBuilder): void {
 
 const WOOD_POLE = 0x5e4a36;
 
-/** Dry Creek's corner (SPAN_MID): the wooden pole, its half of the span wire, and its approach's head and countdown hanging from it. */
+/**
+ * Dry Creek's corner (SPAN_MID): the wooden pole with its head and countdown, its half of the span wire, and its
+ * approach's head and countdown hanging from it.
+ */
 function spanWire(b: ModelBuilder): void {
   b.add('pole', cyl(0.15, 0.19, SPAN_TOP, 10, 0, 0, 0, true), WOOD_POLE);
   b.add('cap', cyl(0.16, 0.16, 0.04, 10, 0, SPAN_TOP, 0), WOOD_POLE, 0.8);
@@ -371,10 +379,12 @@ function spanWire(b: ModelBuilder): void {
   const wire = new THREE.CatmullRomCurve3(Array.from({ length: 9 }, (_, k) => v3((-SPAN_MID * k) / 8, spanY(k / 8), (-SPAN_MID * k) / 8)));
   b.add('wire', new THREE.TubeGeometry(wire, 16, 0.016, 4), 0x26282b);
   b.add('wire', new THREE.SphereGeometry(0.06, 6, 4).translate(-SPAN_MID, SPAN_TO, -SPAN_MID), 0x26282b);
+  vehicleHead(b, SPAN_POLE_HEAD);
+  countBox(b, SPAN_POLE_COUNT);
   vehicleHead(b, SPAN_HEAD);
-  const count = SIGNAL_LAYOUTS.span.counts[0]!;
-  countBox(b, count);
+  countBox(b, SPAN_COUNT);
   // Under the wire, the countdown box on a hanger and the head under it.
+  const count = SPAN_COUNT;
   const top = count.y + count.h * 0.7;
   b.add('hanger', box(0.04, spanY(-SPAN_AT / SPAN_MID) - top, 0.04, SPAN_AT, (spanY(-SPAN_AT / SPAN_MID) + top) / 2, SPAN_AT), HOUSING);
   const head = SPAN_HEAD.y + 1.5 * SPAN_HEAD.gap;

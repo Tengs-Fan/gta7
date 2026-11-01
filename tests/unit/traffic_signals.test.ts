@@ -243,7 +243,7 @@ describe('which signals reach over the road', () => {
     const span = signals.filter((q) => signalStyle(roads, q) === 'span');
     expect(span.length).toBe(4);
     for (const p of span) {
-      const [h] = signalLayout('span').heads;
+      const h = signalLayout('span').heads.find((q) => q.y > 6);
       const at = world(p, [h!.x, h!.y, h!.z]);
       const inner = roads.lanes.find((l) => l.to === p.node && l.dir === p.dir && l.index === 0)!;
       const across = (v: { x: number; z: number }) => (axisOf(p.dir as Dir) === 'NS' ? v.x : v.z);
@@ -251,6 +251,30 @@ describe('which signals reach over the road', () => {
       // Inside the junction's box, facing the traffic coming in.
       const node = roads.nodes[p.node]!;
       expect(Math.max(Math.abs(at.x - node.x), Math.abs(at.z - node.z))).toBeLessThan(node.halfX);
+    }
+  });
+
+  it('Dry Creek\'s wooden poles carry a head and its countdown too, standing off the pole as far as its walk heads, serving the lanes by the kerb', () => {
+    const span = signalLayout('span');
+    const [pole] = span.heads;
+    // Like the steel pole's (and in the same place on it, bar the stand-off), with its small countdown under it.
+    for (const style of ['mast', 'bracket'] as const) {
+      const near = signalLayout(style).heads[0]!;
+      expect([pole!.y, pole!.turn, pole!.lens, pole!.gap, pole!.across]).toEqual([near.y, near.turn, near.lens, near.gap, near.across]);
+      expect(pole!.z).toBeGreaterThan(near.z);
+    }
+    expect(span.counts[0]).toMatchObject({ y: signalLayout('mast').counts[0]!.y, h: signalLayout('mast').counts[0]!.h });
+    expect(span.heads.length).toBe(2);
+    expect(span.counts.length).toBe(2);
+    // Each approach has it on the kerb side of the head hanging over its inner lane, so no farther from the outer lane
+    // (a highway's two-lane approaches: the pole's head is the one by the outer lane).
+    for (const p of signals.filter((q) => signalStyle(roads, q) === 'span')) {
+      const across = (v: { x: number; z: number }) => (axisOf(p.dir as Dir) === 'NS' ? v.x : v.z);
+      const kerb = across(world(p, [pole!.x, pole!.y, pole!.z]));
+      const hanging = across(world(p, [span.heads[1]!.x, span.heads[1]!.y, span.heads[1]!.z]));
+      const lanes = roads.lanes.filter((l) => l.to === p.node && l.dir === p.dir);
+      const outer = across({ x: lanes[lanes.length - 1]!.ex, z: lanes[lanes.length - 1]!.ez });
+      expect(Math.abs(kerb - outer), `${p.dir}`).toBeLessThanOrEqual(Math.abs(kerb - hanging) + 1e-9);
     }
   });
 
