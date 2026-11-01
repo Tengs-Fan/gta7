@@ -635,7 +635,9 @@ export class PropsView {
   private readonly poolMat: THREE.MeshBasicMaterial;
   /** Every signal's lit parts citywide, one quad each (litQuads), and by signal its first quad, their roles and what they show. */
   private signalLit: THREE.InstancedMesh | null = null;
-  private readonly signalSlots: Array<{ first: number; roles: readonly QuadRole[]; halo: number; lenses: number }> = [];
+  private readonly signalSlots: Array<{ first: number; roles: readonly QuadRole[]; halo: number; lenses: number; pole: THREE.Object3D; shown: boolean }> = [];
+  /** The lit quads' sizes (aSize), a blank one 0: what a signal's quads are drawn at while its pole's batch is (cull). */
+  private signalSizes: Float32Array = new Float32Array(0);
   /** A halo round every signal lens (SIGNAL_HALO), from each signal's slot `halo` on, three to a head; dark unless lit. */
   private signalHalos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> | null = null;
   private signalKeys: Float64Array = new Float64Array(0);
@@ -750,6 +752,28 @@ export class PropsView {
   cull(x: number, z: number, city: number, county: number): void {
     this.visibility.update(x, z, city);
     this.countyVisibility.update(x, z, county);
+    this.cullSignalQuads();
+  }
+
+  /**
+   * The signals' lit quads are one citywide batch, so culling cannot hide them with their poles: the quads of a signal
+   * whose pole's batch is hidden are collapsed (size 0), and restored when it shows again.
+   */
+  private cullSignalQuads(): void {
+    const quads = this.signalLit;
+    if (!quads) return;
+    const size = quads.geometry.getAttribute('aSize') as THREE.InstancedBufferAttribute;
+    let changed = false;
+    for (const slot of this.signalSlots) {
+      if (slot.pole.visible === slot.shown) continue;
+      slot.shown = slot.pole.visible;
+      const from = slot.first * 2;
+      const to = from + slot.roles.length * 2;
+      if (slot.shown) (size.array as Float32Array).set(this.signalSizes.subarray(from, to), from);
+      else (size.array as Float32Array).fill(0, from, to);
+      changed = true;
+    }
+    if (changed) size.needsUpdate = true;
   }
 
   private makeInstanced(geo: THREE.BufferGeometry, mat: THREE.Material, props: number[], matrixFor: (p: Prop, m: THREE.Matrix4) => void, opts: { shadow?: boolean; color?: (p: Prop, c: THREE.Color) => void; track?: boolean; chunked?: boolean; depth?: THREE.Material } = {}): THREE.InstancedMesh | null {
@@ -1133,7 +1157,7 @@ export class PropsView {
       const p = L.props[pi]!;
       PropsView.standard(p, m);
       const base = m.clone();
-      this.signalSlots.push({ first: at, roles: quads[k]!.map((q) => q.role), halo: halos.length / 3, lenses: quads[k]!.filter((q) => q.role.kind === 'lens').length });
+      this.signalSlots.push({ first: at, roles: quads[k]!.map((q) => q.role), halo: halos.length / 3, lenses: quads[k]!.filter((q) => q.role.kind === 'lens').length, pole: this.refs.get(pi)![0]!.mesh, shown: true });
       for (const q of quads[k]!) {
         if (q.role.kind !== 'lens') continue;
         halos.push(...placed(p, ...q.at));
@@ -1154,6 +1178,7 @@ export class PropsView {
     });
     geo.setAttribute('aQuad', new THREE.InstancedBufferAttribute(place, 4));
     geo.setAttribute('aSize', new THREE.InstancedBufferAttribute(size, 2));
+    this.signalSizes = size.slice();
     geo.setAttribute('aLit', lit);
     geo.boundingSphere = reach.getBoundingSphere(new THREE.Sphere());
     geo.boundingSphere.radius += 0.5;

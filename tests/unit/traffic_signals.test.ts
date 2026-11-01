@@ -519,6 +519,43 @@ describe('the lit buffers upload what changed', () => {
   });
 });
 
+describe('the signals\' lit quads on the software tier', () => {
+  it('go with their pole\'s batch when the props are culled by distance, and come back with it', () => {
+    const props = new PropsView(W, STATIC_CHUNK_SIZE);
+    const priv = props as unknown as { signalLit: THREE.InstancedMesh; signalSlots: Array<{ first: number; roles: readonly QuadRole[]; pole: THREE.Object3D }> };
+    const size = priv.signalLit.geometry.getAttribute('aSize');
+    const whole = Float32Array.from(size.array);
+    const drawn = (k: number) => {
+      const slot = priv.signalSlots[k]!;
+      let area = 0;
+      for (let j = slot.first; j < slot.first + slot.roles.length; j++) area += size.getX(j) * size.getY(j);
+      return area;
+    };
+    // Standing at one signal, with the 110 m cull the renderer uses on a software GPU.
+    const at = signals[200]!;
+    props.cull(at.x, at.z, 110, 110);
+    let shown = 0;
+    let hidden = 0;
+    signals.forEach((p, k) => {
+      const near = priv.signalSlots[k]!.pole.visible;
+      expect(drawn(k) > 0, `${p.node} ${p.dir}`).toBe(near);
+      if (near) shown++;
+      else hidden++;
+    });
+    console.log(`[signals] culled at 110 m: ${shown} signals drawn, ${hidden} hidden`);
+    expect(drawn(200)).toBeGreaterThan(0);
+    expect(shown).toBeGreaterThan(3);
+    expect(hidden).toBeGreaterThan(200);
+    // A shown signal's quads are as they were built (a T junction's blank walk head stays blank).
+    priv.signalSlots.forEach((slot, k) => {
+      if (slot.pole.visible) for (let j = slot.first * 2; j < (slot.first + slot.roles.length) * 2; j++) expect(size.array[j], `${k} ${j}`).toBe(whole[j]);
+    });
+    // Nothing is culled on the hardware tiers' city reach: every quad is back.
+    props.cull(at.x, at.z, Infinity, Infinity);
+    expect(Array.from(size.array)).toEqual(Array.from(whole));
+  });
+});
+
 describe('the signals\' glow at night', () => {
   it('a halo on every lens, lit in its colour only round the lens that is lit, at night, and dark round a knocked-over signal', () => {
     const props = new PropsView(W);
