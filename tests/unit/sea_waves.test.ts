@@ -17,7 +17,7 @@ import {
 } from '../../src/render/waves';
 import { SWIM_FLOAT } from '../../src/sim/characterPhysics';
 import type { Vehicle } from '../../src/sim/entities';
-import { SWIM_HIP, WEAPON_POINTS, windowMuzzle } from '../../src/sim/pose';
+import { SWIM_HIP, WEAPON_POINTS, weaponPose, windowMuzzle } from '../../src/sim/pose';
 import { BEACH_W, CURB_H, DECK_SLAB, SAND_DROP, WATER_Y } from '../../src/world/constants';
 import { segmentJoints } from '../support/crowdJoints';
 import { makeSim, world } from './helpers';
@@ -124,7 +124,7 @@ describe('the shelter map', () => {
     expect(at(0, 0)[1]).toBeLessThanOrEqual(WATER_Y);
   });
 
-  it('samples bilinearly between lattice points, as the GPU filters it', () => {
+  it('samples bilinearly between lattice points, and the texture the GPU filters holds the same map to half-float precision', () => {
     const k = (j: number, i: number) => (j * map.nx + i) * 4;
     const i = 400;
     const j = 200;
@@ -135,6 +135,24 @@ describe('the shelter map', () => {
     const want = (map.data[k(j, i) + 1]! * 0.75 + map.data[k(j, i + 1) + 1]! * 0.25) * 0.5 + (map.data[k(j + 1, i) + 1]! * 0.75 + map.data[k(j + 1, i + 1) + 1]! * 0.25) * 0.5;
     expect(mid).toBeCloseTo(want, 6);
     expect(shelterAt(null, 3, 4)).toEqual([...OPEN_SEA]);
+    // The GPU filters the half floats the texture holds: decoded and sampled the same way, they agree with the CPU twin's
+    // floats to half-float precision (a part in a thousand, or a thousandth near zero) everywhere it is sampled.
+    const u = seaUniforms();
+    setSeaShelter(u, map);
+    const tex = u.uSeaShelter.value;
+    expect(tex.type).toBe(THREE.HalfFloatType);
+    expect(tex.magFilter).toBe(THREE.LinearFilter);
+    const half = tex.image.data as Uint16Array;
+    const decoded = { ...map, data: Float32Array.from(half, (h) => THREE.DataUtils.fromHalfFloat(h)) };
+    let worst = 0;
+    for (let k = 0; k < 4000; k++) {
+      const x = map.minX + ((k * 37.3) % (map.nx * map.cell));
+      const z = map.minZ + ((k * 91.7) % (map.nz * map.cell));
+      const a = shelterAt(map, x, z, [0, 0, 0, 0]);
+      const g = shelterAt(decoded, x, z, [0, 0, 0, 0]);
+      for (let c = 0; c < 4; c++) worst = Math.max(worst, Math.abs(a[c]! - g[c]!) / (Math.abs(a[c]!) + 1));
+    }
+    expect(worst).toBeLessThan(1e-3);
   });
 });
 
@@ -215,7 +233,7 @@ describe('the waves over the beach and under the decks', () => {
     expect(hi).toBeGreaterThan(0.8 * (1 + 0.8 * SURF_BAR));
   });
 
-  it('in a storm nothing rises through the decks or over the quays, and the land stays dry', () => {
+  it('in a storm nothing rises through the decks or over the quays, and the land by the water stays dry', () => {
     const layout = world().layout;
     const b = layout.bounds;
     const decks = layout.decks.filter((d) => !d.dirt);
@@ -234,8 +252,29 @@ describe('the waves over the beach and under the decks', () => {
       const s = drawnSea(t, 1, 0, 0);
       for (let u = b.landMinZ; u <= b.landMaxZ; u += 9) worstQuay = Math.max(worstQuay, seaHeight(s, b.landMinX - 2, u));
       for (let u = b.landMinX; u <= b.beachStartX - 20; u += 9) worstQuay = Math.max(worstQuay, seaHeight(s, u, b.landMinZ - 2), seaHeight(s, u, b.landMaxZ + 2));
-      expect(seaHeight(s, 0, 0)).toBe(0);
     }
+    // The land stays dry: on every lattice point of land within 12 m of water (quays, sea walls, the promenade, the
+    // beaches, the Key and the county), at three moments of the storm, the drawn sea stays under the ground.
+    let worstLand = -Infinity;
+    let landPoints = 0;
+    const W = world();
+    for (let j = 3; j < map.nz - 3; j++) {
+      for (let i = 3; i < map.nx - 3; i++) {
+        if (map.data[(j * map.nx + i) * 4 + 1]! >= 0) continue;
+        let wet = false;
+        for (let dj = -3; dj <= 3 && !wet; dj++) for (let di = -3; di <= 3 && !wet; di++) wet = map.data[((j + dj) * map.nx + i + di) * 4 + 1]! > 0.3;
+        if (!wet) continue;
+        const x = map.minX + (i + 0.5) * map.cell;
+        const z = map.minZ + (j + 0.5) * map.cell;
+        const ground = W.groundHeight(x, z);
+        if (ground <= WATER_Y) continue;
+        landPoints++;
+        for (const t of [0.4, 3.3, 7.1]) worstLand = Math.max(worstLand, WATER_Y + seaHeight(drawnSea(t, 1, x, z), x, z) - ground);
+      }
+    }
+    console.log(`[sea] storm: ${landPoints} points of land by the water, the drawn sea at most ${worstLand.toFixed(3)} m against the ground`);
+    expect(landPoints).toBeGreaterThan(5000);
+    expect(worstLand).toBeLessThanOrEqual(1e-3);
     console.log(`[sea] storm: highest crest ${(worstDeck).toFixed(2)} m against the decks' undersides, ${(worstQuay - (CURB_H - WATER_Y)).toFixed(2)} m against the quays' tops`);
     expect(worstDeck).toBeLessThan(-0.3);
     expect(worstQuay).toBeLessThan(0.25);
@@ -378,15 +417,27 @@ describe('a swimmer in the swell', () => {
     p.aiming = true;
     const cv = new CrowdView();
     cv.bindSea(u);
+    const gun = (cv as unknown as { weapons: Map<string, { mesh: THREE.InstancedMesh }> }).weapons.get('pistol')!.mesh;
+    const m = new THREE.Matrix4();
     let seen = 0;
+    let first: number | undefined;
+    let worst = 0;
     for (let k = 0; k < 8; k++) {
       updateSea(u, 1.7 + k * 0.9, 1, p.pos.x, p.pos.z);
       cv.sync([p], p.pos.x, p.pos.z, 1 / 60);
       const lift = seaHeightAt(u, p.pos.x, p.pos.z);
       seen = Math.max(seen, Math.abs(lift));
       expect(segmentJoints(cv, p).get('pelvis')!.y).toBeCloseTo(p.pos.y + SWIM_HIP + lift, 4);
+      // The gun's barrel end rides up and down with him: where the sim holds it, lifted as he is (give or take its
+      // recoil, the same every frame).
+      gun.getMatrixAt(0, m);
+      const tip = new THREE.Vector3(WEAPON_POINTS.pistol.tip.x, WEAPON_POINTS.pistol.tip.y, WEAPON_POINTS.pistol.tip.z).applyMatrix4(m);
+      const off = tip.y - (weaponPose(p).tip.y + lift);
+      first ??= off;
+      worst = Math.max(worst, Math.abs(off - first));
     }
     expect(seen).toBeGreaterThan(0.3);
+    expect(worst).toBeLessThan(0.01);
   });
 
   it('keeps the camera above the drawn sea, rising and falling with him', () => {
