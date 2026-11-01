@@ -77,7 +77,7 @@ describe('boat wakes', () => {
     expect(Math.min(...live(w).map((p) => p.x))).toBeGreaterThan(480);
   });
 
-  it('more boats than its pool hand the oldest slot on, and its buffers never change size', () => {
+  it('more boats under way than its pool never grow its buffers or the points it draws', () => {
     const w = new BoatWakes();
     const pos = w.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
     const count = pos.count;

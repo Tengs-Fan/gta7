@@ -10,7 +10,11 @@ import { SEA_WAVES_GLSL } from './waves';
 /** How long a stretch of wake lasts (s): the churned trail fades first, the arms by then. */
 export const WAKE_LIFE = 10;
 const TRAIL_LIFE = WAKE_LIFE * 0.75;
-/** Boats with a wake drawn at once (the nearest that fed one most recently), and stern points kept per boat. */
+/**
+ * Slots for boats' wakes, and stern points kept per boat. A boat new to the pool takes the slot whose boat fed longest
+ * ago, wherever it is; with more boats under way than slots, the newcomers take that slot from one another every frame
+ * and none of them draws a wake (rooms hold eight players and the sim has no boats of its own, so it never comes to that).
+ */
 export const WAKE_BOATS = 8;
 export const WAKE_POINTS = 40;
 /** A boat leaves a stern point every WAKE_STEP m; one that jumps further than WAKE_JUMP m (a teleport) starts afresh. */
@@ -171,7 +175,8 @@ export class BoatWakes {
    */
   feed(id: number, x: number, z: number, dx: number, dz: number, speed: number, k: number, halfW: number): void {
     let slot: WakeSlot | null = null;
-    // Its own slot, else the one whose boat fed longest ago (its wake has faded, or will be the least missed).
+    // Its own slot, else the one whose boat fed longest ago (its wake has faded, or will be the least missed); a slot
+    // taken this frame counts as the oldest until the update, so a second newcomer this frame takes it over.
     let oldest = this.slots[0]!;
     for (const s of this.slots) {
       if (s.id === id) slot = s;
