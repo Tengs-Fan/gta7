@@ -79,7 +79,7 @@ type Rgb = readonly [number, number, number];
  * A light bar's lit red and blue lenses (linear RGB; unlit they fall to a tenth of plain red and blue). ACES tone-maps a
  * lamp far above 1 to a near-white core, so with bloom each one's luminance stays above the bloom threshold (2.6) and
  * the halo round it carries the colour. Without bloom (Low, or no half-float target) only that core is drawn, so they
- * stay where ACES keeps the hue: a red that reads red and a blue that reads blue (as props.ts LAMPS does for signals).
+ * stay where ACES keeps the hue: a red that reads red and a blue that reads blue (as props.ts WARNING does).
  */
 const SIREN: Readonly<Record<'glow' | 'flat', { readonly red: Rgb; readonly blue: Rgb }>> = {
   glow: { red: [13, 0.4, 0.1], blue: [0.1, 1.6, 26] },

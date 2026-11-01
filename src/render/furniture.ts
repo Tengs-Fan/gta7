@@ -3,6 +3,7 @@
 // of (tests check the parts and the fit against the older, simpler models).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { AVENUE_W, LANE_W, PROP_INSET, STREET_W } from '../world/constants';
 
 /** A street lamp's luminaire point (props.ts LAMP_HEAD). */
 interface Head { readonly y: number; readonly reach: number }
@@ -183,26 +184,129 @@ export function lensAt(h: SignalHead, k: number): [number, number, number] {
   return h.across ? onFace(h, (k - 1) * h.gap, 0) : onFace(h, 0, (1 - k) * h.gap);
 }
 
+/**
+ * Where a signal stands: on an avenue's approach a mast arm reaches over both its lanes with a head over each, on a
+ * street's a bracket arm puts one over its lane, and at Las Lomas County's junction a span wire hangs them (signalHeads.ts
+ * signalStyle picks).
+ */
+export type SignalStyle = 'mast' | 'bracket' | 'span';
+
 /** The head on the pole, facing the traffic it serves, its lenses where d98da7b put its bulbs. */
 const NEAR_HEAD: SignalHead = { x: 0, y: 4.55, z: 0.21, turn: 0, across: false, lens: 0.22, gap: 0.33 };
+/** Its countdown, under it. */
+const NEAR_COUNT: SignalCount = { x: 0, y: 3.74, z: 0.17, turn: 0, h: 0.24 };
+/**
+ * The heads over the road hang with their centre this high in the signal's frame, their backplates' foot 6.1 m over the
+ * road (the signal stands on the kerb): clear of the tallest vehicle by 2.9 m, and of every chase camera at its normal
+ * zoom (a bus's is 5.9 m up), so no camera passes through one.
+ */
+const OVER_Y = 6.3;
+const ARM_Y = 6.72;
+const POLE_TOP = 7.3;
+/** A head over the road: 30 cm lenses in a row, red on the driver's left; its face 12 cm in front of the arm it hangs from. */
+const OVER: Omit<SignalHead, 'x'> = { y: OVER_Y, z: 0.12, turn: 0, across: true, lens: 0.3, gap: 0.38 };
+/** How far in (local -x) from a city signal's pole the centre of the lane `k` lanes from the kerb lies, on a road `width` wide. */
+const laneIn = (width: number, k: number) => -(width / 2 + PROP_INSET - LANE_W * (k + 0.5));
 
-export const SIGNAL_LAYOUT: SignalLayout = { heads: [NEAR_HEAD], counts: [], walks: [] };
+const SIGNAL_LAYOUTS: Readonly<Record<SignalStyle, SignalLayout>> = {
+  mast: {
+    heads: [NEAR_HEAD, { ...OVER, x: laneIn(AVENUE_W, 0) }, { ...OVER, x: laneIn(AVENUE_W, 1) }],
+    counts: [NEAR_COUNT, { x: (laneIn(AVENUE_W, 0) + laneIn(AVENUE_W, 1)) / 2, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4 }],
+    walks: [],
+  },
+  bracket: {
+    heads: [NEAR_HEAD, { ...OVER, x: laneIn(STREET_W, 0) }],
+    counts: [NEAR_COUNT, { x: laneIn(STREET_W, 0) + 1.05, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4 }],
+    walks: [],
+  },
+  span: { heads: [NEAR_HEAD], counts: [], walks: [] },
+};
 
-/** A traffic signal: base, pole, the three-lens head with a backplate, rimmed lenses under hooded visors, and a cap. */
-export function signalPoleGeometry(): THREE.BufferGeometry {
-  const b = new ModelBuilder();
-  b.add('base', cyl(0.15, 0.16, 0.05, 10), 0xffffff, 0.85);
-  b.add('pole', cyl(0.085, 0.11, 5.2, 8, 0, 0, 0, true));
-  b.add('head', box(0.36, 1.05, 0.28, 0, 4.55, 0.05));
-  b.add('backplate', box(0.46, 1.2, 0.02, 0, 4.55, -0.1), 0x1a1b1d);
-  for (let k = 0; k < 3; k++) {
-    const [, by, bz] = lensAt(NEAR_HEAD, k);
-    b.add('lens', new THREE.RingGeometry(0.105, 0.13, 10).translate(0, by, bz - 0.02), 0xffffff, 0.7);
-    // An open hood over the top half of the lens, 11 cm deep.
-    b.add('visor', new THREE.CylinderGeometry(0.135, 0.135, 0.11, 8, 1, true, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2).translate(0, by, bz + 0.055 - 0.01), 0xffffff, 0.9);
+/** Where a signal of this style has its lit parts. */
+export function signalLayout(style: SignalStyle): SignalLayout {
+  return SIGNAL_LAYOUTS[style];
+}
+
+/** How far each style's arm reaches over the road (local -x) from the pole. */
+const ARM_REACH: Readonly<Record<SignalStyle, number>> = { mast: -laneIn(AVENUE_W, 1) + 0.7, bracket: -laneIn(STREET_W, 0) + 0.75, span: 0 };
+
+const POLE = 0x8f959b;
+const HOUSING = 0x1b1c1e;
+const BACKPLATE = 0x141516;
+/** The retroreflective tape round a backplate's edge. */
+const BORDER = 0xe0c450;
+
+/** A box `w` wide (to the viewer's right), `h` tall and `d` deep on a face, centred `u` right and `v` up of it, its front `out` m out of it. */
+function faceBox(f: SignalFace, w: number, h: number, d: number, u = 0, v = 0, out = 0): THREE.BufferGeometry {
+  const [x, y, z] = onFace(f, u, v, out - d / 2);
+  return new THREE.BoxGeometry(w, h, d).rotateY(f.turn).translate(x, y, z);
+}
+
+/** A backplate `w` by `h` behind a face, `back` m behind it, with a thin reflective border. */
+function backplate(b: ModelBuilder, f: SignalFace, w: number, h: number, back: number, u = 0, v = 0): void {
+  b.add('backplate', faceBox(f, w, h, 0.02, u, v, -back), BACKPLATE);
+  const t = 0.035;
+  for (const s of [-1, 1]) {
+    b.add('border', faceBox(f, w, t, 0.004, u, v + s * (h - t) / 2, -back + 0.004), BORDER);
+    b.add('border', faceBox(f, t, h - 2 * t, 0.004, u + s * (w - t) / 2, v, -back + 0.004), BORDER);
   }
-  b.add('cap', box(0.42, 0.06, 0.36, 0, 5.1, 0.05));
-  return b.build('signal-pole');
+}
+
+/** A vehicle head: housing, backplate, a rimmed lens hole under a tunnel visor (open below) for each lens. */
+function vehicleHead(b: ModelBuilder, h: SignalHead): void {
+  const long = 3 * h.gap;
+  const [w, tall] = h.across ? [long, h.lens + 0.12] : [h.lens + 0.14, long];
+  b.add('head', faceBox(h, w, tall, 0.24), HOUSING);
+  // The head on the pole keeps a narrow plate, as d98da7b's did.
+  const [bw, bh] = h.across ? [w + 0.24, tall + 0.24] : [w + 0.06, tall + 0.16];
+  backplate(b, h, bw, bh, 0.24);
+  const r = h.lens / 2;
+  for (let k = 0; k < 3; k++) {
+    const [x, y, z] = lensAt(h, k);
+    b.add('lens', new THREE.RingGeometry(r, r + 0.02, 16).translate(0, 0, 0.003).rotateY(h.turn).translate(x, y, z), 0x2b2d30);
+    const visor = new THREE.CylinderGeometry(r + 0.03, r + 0.03, r * 1.5, 12, 1, true, Math.PI / 4, Math.PI * 1.5).rotateX(Math.PI / 2).translate(0, 0, r * 0.75);
+    for (const g of [visor, flipped(visor)]) b.add('visor', g.rotateY(h.turn).translate(x, y, z), HOUSING);
+  }
+}
+
+/** A countdown's box: its two digits' face under a hood. */
+function countBox(b: ModelBuilder, c: SignalCount): void {
+  const [w, h] = [c.h * 1.5, c.h * 1.4];
+  b.add('count', faceBox(c, w, h, 0.16), HOUSING);
+  b.add('count', faceBox(c, w, 0.02, c.h * 0.3, 0, h / 2 - 0.01, c.h * 0.3), HOUSING);
+}
+
+/** The pole every city signal stands on: a cast base and collar, the tapered shaft and its cap. */
+function signalPole(b: ModelBuilder): void {
+  b.add('base', cyl(0.26, 0.28, 0.1, 12), POLE, 0.8);
+  b.add('base', cyl(0.19, 0.2, 0.35, 12, 0, 0.1, 0, true), POLE, 0.85);
+  b.add('pole', cyl(0.12, 0.16, POLE_TOP - 0.45, 12, 0, 0.45, 0, true), POLE);
+  b.add('cap', new THREE.SphereGeometry(0.125, 12, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, POLE_TOP, 0), POLE, 0.9);
+}
+
+/**
+ * A traffic signal of `style` (SignalStyle): its pole, the head on it with its countdown and, for an arm over the road,
+ * the arm with its tie rod, the heads hanging from it and their countdown, all where signalLayout puts their lit parts.
+ */
+export function signalGeometry(style: SignalStyle): THREE.BufferGeometry {
+  const layout = SIGNAL_LAYOUTS[style];
+  const b = new ModelBuilder();
+  signalPole(b);
+  const reach = ARM_REACH[style];
+  if (reach > 0) {
+    b.add('arm', new THREE.CylinderGeometry(0.055, 0.085, reach, 10).rotateZ(Math.PI / 2).translate(-reach / 2, ARM_Y, 0), POLE);
+    b.add('arm', cyl(0.165, 0.165, 0.34, 12, 0, ARM_Y - 0.17, 0), POLE, 0.9);
+    b.add('arm', bar(v3(0, POLE_TOP - 0.08, 0), v3(-reach / 2, ARM_Y + 0.05, 0), 0.025), POLE, 0.9);
+  }
+  for (const h of layout.heads) {
+    vehicleHead(b, h);
+    if (h.y === OVER_Y) for (const u of [-0.4, 0.4]) b.add('hanger', box(0.05, ARM_Y - OVER_Y - 0.2, 0.05, h.x + u, (ARM_Y + OVER_Y + 0.2) / 2, 0), HOUSING);
+  }
+  for (const c of layout.counts) {
+    countBox(b, c);
+    if (c.y > OVER_Y - 0.1) b.add('hanger', box(0.05, ARM_Y - c.y - c.h * 0.7, 0.05, c.x, (ARM_Y + c.y + c.h * 0.7) / 2, 0), HOUSING);
+  }
+  return b.build(`signal-${style}`);
 }
 
 /** A fire hydrant: base flange, barrel, top ring, bonnet with its operating nut, two hose nozzles with caps and a pumper. */

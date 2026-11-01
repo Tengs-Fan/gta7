@@ -759,20 +759,21 @@ describe('coloured lamps with and without bloom', () => {
     for (const c of lamps.ferris) expect(Math.max(c.r, c.g, c.b)).toBeLessThanOrEqual(1);
   });
 
-  it('with bloom every lit lamp is bright enough to bloom, so its halo carries the colour', () => {
+  it('with bloom the warning light blooms so its halo carries the colour; the signals and the ferris wheel keep their own', () => {
     const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
     const bloom = fakeOf(r).effects.find((e) => e instanceof UnrealBloomPass) as UnrealBloomPass;
     expect(bloom).toBeInstanceOf(UnrealBloomPass);
-    for (const st of ['red', 'yellow', 'green'] as const) expect(lum(litBulb(r, st)), st).toBeGreaterThan(bloom.threshold);
     const lamps = nightLamps(r);
     expect(lum(lamps.warning), 'warning light').toBeGreaterThan(bloom.threshold);
-    // The ferris wheel's lights keep a saturated core on every tier and draw their own halo (fix pass 3).
+    // The ferris wheel's lights keep a saturated core on every tier and draw their own halo (fix pass 3), and so do the
+    // signals' LED lenses (a lens 30 cm across would be many pixels of a bloomed lamp's near-white core).
     for (const c of lamps.ferris) expect(Math.max(c.r, c.g, c.b), 'ferris light').toBeLessThanOrEqual(1);
-    // The lamps follow the tier.
+    const high = (['red', 'yellow', 'green'] as const).map((st) => litBulb(r, st));
+    for (const c of high) expect(lum(c)).toBeLessThan(bloom.threshold / 2);
+    // The warning light follows the tier; the signals look the same on every one.
     r.setQuality('low');
-    expect(Math.max(...litBulb(r, 'green').toArray())).toBeLessThanOrEqual(1);
-    r.setQuality('high');
-    expect(lum(litBulb(r, 'green'))).toBeGreaterThan(bloom.threshold);
+    expect(lum(nightLamps(r).warning)).toBeLessThan(bloom.threshold);
+    (['red', 'yellow', 'green'] as const).forEach((st, k) => expect(litBulb(r, st).equals(high[k]!), st).toBe(true));
     // Without a half-float target there is no bloom on any tier: High draws the lamps as Low does.
     const plain = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat: false } });
     expect(fakeOf(plain).effects).toEqual([]);

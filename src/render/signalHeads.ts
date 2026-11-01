@@ -2,9 +2,21 @@
 // pedestrians obey (RoadNetwork.signalState, signalTimeLeft, pedCanCross): its lenses, the countdown beside a head and
 // its walk heads; and the quads they are drawn on (PropsView), laid out from the signal's model (furniture.ts).
 
-import { lensAt, onFace, type SignalLayout } from './furniture';
+import { lensAt, onFace, type SignalLayout, type SignalStyle } from './furniture';
 import { SIGNAL_TILE } from './textures';
-import { PED_WALK, SIGNAL_GREEN, type Axis, type RoadNetwork, type SignalState } from '../world/roads';
+import { AVENUE_W } from '../world/constants';
+import type { Prop } from '../world/layout';
+import { axisOf, PED_WALK, SIGNAL_GREEN, type Axis, type Dir, type RoadNetwork, type SignalState } from '../world/roads';
+
+/**
+ * Which kind of signal stands at an approach: Las Lomas County's junction hangs its heads from span wires; in the city
+ * an avenue's approach gets a mast arm over its two lanes, a street's a bracket arm over its one.
+ */
+export function signalStyle(roads: RoadNetwork, p: Prop): SignalStyle {
+  if (p.node >= roads.gridNodeCount) return 'span';
+  const node = roads.nodes[p.node]!;
+  return 2 * (axisOf(p.dir as Dir) === 'NS' ? node.halfX : node.halfZ) >= AVENUE_W ? 'mast' : 'bracket';
+}
 
 /** The lit quads' palette (PropsView sets the colours): lit and unlit lenses, the countdown's two colours, walk and hand. */
 export const LIT = { off: 0, red: 1, yellow: 2, green: 3, redOff: 4, yellowOff: 5, greenOff: 6, countRed: 7, countGreen: 8, walk: 9, hand: 10 } as const;

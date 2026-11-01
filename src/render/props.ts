@@ -14,14 +14,14 @@ import { hashInts, rectContains, type Prop, type PropKind, type Rect } from '../
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { riseAt } from '../world/terrain';
 import { adTexture, AD_COUNT, glowTexture, groundTexture, signalAtlas, SIGNAL_TILE_RECTS } from './textures';
-import { DARK_SIGNAL, LIT, LIT_COLORS, quadLit, showKey, signalCount, signalQuads, walkShow, type QuadRole, type SignalShow } from './signalHeads';
+import { DARK_SIGNAL, LIT, LIT_COLORS, quadLit, showKey, signalCount, signalQuads, signalStyle, walkShow, type QuadRole, type SignalShow } from './signalHeads';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
 import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, type OccluderKind } from './occluderFade';
 import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
 import {
   benchGeometry, binGeometry, bollardGeometry, drumGeometry, fenceGeometry, hydrantGeometry, jackGeometry, lampHeadGeometry, lampHousingGeometry, lampLensGeometry, lampShadowGeometry,
   lampPoleGeometry, lampTubeGeometry, lifeguardGeometry, loungerGeometry, mailboxGeometry, planterGeometry, posterGeometry, railGeometry, shelvingGeometry, shrubGeometry,
-  SIGNAL_LAYOUT, signalPoleGeometry, surfboardGeometry, toolChestGeometry, toolWallGeometry, towelGeometry, tyreRackGeometry, tyreStackGeometry, umbrellaGeometry,
+  signalGeometry, signalLayout, surfboardGeometry, toolChestGeometry, toolWallGeometry, towelGeometry, tyreRackGeometry, tyreStackGeometry, umbrellaGeometry,
   volleyballGeometry, wheelieBinGeometry, workbenchGeometry,
 } from './furniture';
 import { dressingItems, type DressingItem, type DressingKind } from './dressing';
@@ -311,13 +311,20 @@ diffuseColor.rgb = vLit * ledTexel.r + uLitDots * ledTexel.g;`,
   mat.customProgramCacheKey = () => 'gta7-signal-lit';
 }
 
-/** The signals' lit quads' palette: the countdowns and walk heads bright but under the bloom threshold, so their digits stay sharp. */
+/**
+ * The signals' lit quads' palette (update sets the unlit lenses'): every lit part on every tier just where ACES keeps
+ * its hue (brighter, it pales towards white: a red light must read red), far under the bloom threshold, so the
+ * countdowns' digits stay sharp; at night a halo glows round a lit lens.
+ */
 function litPalette(): THREE.Color[] {
-  const c = Array.from({ length: LIT_COLORS }, () => new THREE.Color());
-  c[LIT.countRed]!.setRGB(2.2, 0.12, 0.03);
-  c[LIT.countGreen]!.setRGB(0.08, 1.5, 0.6);
-  c[LIT.walk]!.setRGB(0.55, 2, 1.25);
-  c[LIT.hand]!.setRGB(2.3, 0.75, 0.08);
+  const c = Array.from({ length: LIT_COLORS }, () => new THREE.Color(0, 0, 0));
+  c[LIT.red]!.setRGB(1.25, 0.01, 0.005);
+  c[LIT.yellow]!.setRGB(1.15, 0.45, 0);
+  c[LIT.green]!.setRGB(0, 0.78, 0.3);
+  c[LIT.countRed]!.setRGB(1.2, 0.03, 0.01);
+  c[LIT.countGreen]!.setRGB(0, 0.75, 0.28);
+  c[LIT.walk]!.setRGB(0.1, 0.8, 0.42);
+  c[LIT.hand]!.setRGB(1.2, 0.22, 0);
   return c;
 }
 
@@ -371,16 +378,13 @@ const GLOW_COLOR = new THREE.Color(0xffe6b0);
 type Rgb = readonly [number, number, number];
 
 /**
- * Coloured lamps (signal bulbs, aircraft warning lights), lit. ACES tone-maps a lamp far above 1 to
- * a near-white core, so with bloom each one's luminance stays above the bloom threshold (2.6) and
- * the halo round it carries the colour (the reds lean a little orange to get there without a halo
- * twice as strong as the green's). Without bloom (Low, or no half-float target) only that core is
- * drawn, so they stay where ACES keeps the hue: red reads red and green green, not white and peach.
+ * The aircraft warning lights, lit. ACES tone-maps a lamp far above 1 to a near-white core, so with bloom its luminance
+ * stays above the bloom threshold (2.6) and the halo round it carries the colour (the red leans a little orange to get
+ * there). Without bloom (Low, or no half-float target) only that core is drawn, so it stays where ACES keeps the hue.
+ * The signals' lenses keep a saturated core on every tier instead (litPalette): a lens 30 cm across is many pixels of
+ * that near-white core, and a red light must read red.
  */
-const LAMPS: Readonly<Record<'glow' | 'flat', { red: Rgb; yellow: Rgb; green: Rgb; warning: Rgb }>> = {
-  glow: { red: [9.5, 1.1, 0.22], yellow: [6, 3.6, 0.07], green: [0.07, 5.5, 2.4], warning: [9.5, 1.1, 0.22] },
-  flat: { red: [1, 0.02, 0.01], yellow: [1, 0.42, 0.01], green: [0.01, 0.7, 0.22], warning: [1.1, 0.02, 0.015] },
-};
+const WARNING: Readonly<Record<'glow' | 'flat', Rgb>> = { glow: [9.5, 1.1, 0.22], flat: [1.1, 0.02, 0.015] };
 /**
  * The Ferris wheel's lights: 64 bulbs round the rim, alternately on its front and back tube, standing
  * proud of the tube (centred FERRIS_BULB_Z out, the tubes' centre lines being 1.6 out with a 0.3 m
@@ -566,7 +570,7 @@ export class PropsView {
   private signalLit: THREE.InstancedMesh | null = null;
   private readonly signalSlots: Array<{ first: number; roles: readonly QuadRole[] }> = [];
   private signalKeys: Float64Array = new Float64Array(0);
-  /** The lit quads' palette by LIT entry (update sets the lenses') and the faint grid of their unlit LEDs. */
+  /** The lit quads' palette by LIT entry and the faint grid of their unlit LEDs. */
   private readonly litColors = litPalette();
   private readonly litDots = { value: 0 };
   private signalProps: Prop[] = [];
@@ -582,7 +586,7 @@ export class PropsView {
   private readonly antennaMat = new THREE.MeshBasicMaterial({ color: 0x220000 });
   private readonly tmpM = new THREE.Matrix4();
   private readonly tmpC = new THREE.Color();
-  /** Whether a bloom pass draws halos round bright lights, which picks the coloured lamps' colours (see LAMPS). */
+  /** Whether a bloom pass draws halos round bright lights, which picks the warning lights' colour (see WARNING). */
   private glow = true;
   /** Shared by every pole and trunk material (dissolveOccluder). */
   private readonly occUniforms: OccluderUniforms = {
@@ -1008,18 +1012,22 @@ export class PropsView {
 
   private buildSignals(signals: number[]): void {
     const L = this.world.layout;
-    const pole = signalPoleGeometry();
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x2b2d30, vertexColors: true, roughness: 0.55, metalness: 0.4 });
+    // One model per style (signalStyle: a mast arm on an avenue, a bracket on a street, Dry Creek's span wire), the
+    // heads' black and their borders' yellow in its vertex colours.
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.35 });
     dissolveOccluder(poleMat, OCCLUDER_AXIS.signal, this.occUniforms);
-    this.makeInstanced(pole, poleMat, signals, PropsView.standard);
+    const styles = signals.map((i) => signalStyle(this.world.roads, L.props[i]!));
+    for (const style of ['mast', 'bracket', 'span'] as const) this.makeInstanced(signalGeometry(style), poleMat, signals.filter((_, k) => styles[k] === style), PropsView.standard);
     this.signalProps = signals.map((i) => L.props[i]!);
     this.signalPropIndex = signals;
     // Every signal's lenses, countdown digits and walk figures citywide in one draw: a few thousand quads cost the GPU
     // nothing, and one buffer keeps a changed light to a few floats. Each quad takes its signal's matrix (tracked with
     // the pole, whose refs entry exists by now, so it falls with it and a new game stands it up again).
-    const quads = signals.map(() => signalQuads(SIGNAL_LAYOUT));
+    const byStyle = new Map((['mast', 'bracket', 'span'] as const).map((style) => [style, signalQuads(signalLayout(style))]));
+    const quads = styles.map((style) => byStyle.get(style)!);
     const count = quads.reduce((n, q) => n + q.length, 0);
     const geo = new THREE.PlaneGeometry(1, 1);
+    geo.name = 'signal-lit';
     const place = new Float32Array(count * 4);
     const size = new Float32Array(count * 2);
     const lit = new THREE.InstancedBufferAttribute(new Float32Array(count * 2), 2).setUsage(THREE.DynamicDrawUsage);
@@ -1570,7 +1578,7 @@ export class PropsView {
     return { time: u.uWindTime.value, amp: u.uWindAmp.value, dir: [u.uWindDir.value.x, u.uWindDir.value.y] };
   }
 
-  /** Whether bloom draws halos round bright lights (GameRenderer.setQuality): without it the coloured lamps use LAMPS.flat. */
+  /** Whether bloom draws halos round bright lights (GameRenderer.setQuality): without it the warning lights use WARNING.flat. */
   setGlow(on: boolean): void {
     this.glow = on;
   }
@@ -1623,12 +1631,8 @@ export class PropsView {
       this.lampHalos.visible = k > 0.02;
     }
     for (const m of this.adMaterials) m.emissiveIntensity = 0.12 + k * 1.1;
-    // Signals: the lit lenses as LAMPS has them for the tier; unlit LEDs dimmer at night, with no daylight on them.
-    const lamps = LAMPS[this.glow ? 'glow' : 'flat'];
+    // Signals: unlit LEDs dimmer at night, with no daylight on them.
     const palette = this.litColors;
-    palette[LIT.red]!.setRGB(...lamps.red);
-    palette[LIT.yellow]!.setRGB(...lamps.yellow);
-    palette[LIT.green]!.setRGB(...lamps.green);
     const dim = 1 - 0.75 * night;
     palette[LIT.redOff]!.setRGB(0.12 * dim, 0.012 * dim, 0.01 * dim);
     palette[LIT.yellowOff]!.setRGB(0.11 * dim, 0.06 * dim, 0.008 * dim);
@@ -1694,7 +1698,7 @@ export class PropsView {
     }
     if (this.antennaLights) {
       const on = night > 0.3 && Math.floor(time * 1.2) % 2 === 0;
-      if (on) this.antennaMat.color.setRGB(...lamps.warning);
+      if (on) this.antennaMat.color.setRGB(...WARNING[this.glow ? 'glow' : 'flat']);
       else this.antennaMat.color.setRGB(0.25, 0.02, 0.02);
     }
   }

@@ -1,15 +1,48 @@
 // Traffic signals: the time left in each light (the countdowns), what the walk heads show against what pedestrians do,
 // which approaches get a mast arm, a bracket or Dry Creek's span wire, the arms' clearance over the tallest vehicle,
 // and the signals' meshes within the props' budget.
-import { describe, expect, it } from 'vitest';
-import { LIT, quadLit, signalCount, walkShow } from '../../src/render/signalHeads';
-import { PED_WALK, SIGNAL_CYCLE, SIGNAL_GREEN, SIGNAL_HALF, SIGNAL_YELLOW, type Axis } from '../../src/world/roads';
+import * as THREE from 'three';
+import { describe, expect, it, vi } from 'vitest';
+import { chaseOffset, CHASE_TARGET_Y } from '../../src/render/camera';
+import { lensAt, signalGeometry, signalLayout, type SignalStyle } from '../../src/render/furniture';
+import { PropsView } from '../../src/render/props';
+import { LIT, quadLit, signalCount, signalStyle, walkShow } from '../../src/render/signalHeads';
+import { HARDWARE_CHUNK_SIZE, spatialKey, STATIC_CHUNK_SIZE } from '../../src/render/spatial';
+import { VEHICLE_SPECS } from '../../src/sim/specs';
+import { AVENUE_W, CURB_H, PROP_INSET } from '../../src/world/constants';
+import type { Prop } from '../../src/world/layout';
+import { axisOf, PED_WALK, SIGNAL_CYCLE, SIGNAL_GREEN, SIGNAL_HALF, SIGNAL_YELLOW, type Axis, type Dir } from '../../src/world/roads';
 import { freshWorld } from './helpers';
+
+vi.hoisted(() => {
+  const g = globalThis as Record<string, unknown>;
+  const ctx2d = (): unknown => {
+    const store: Record<string | symbol, unknown> = {
+      getImageData: (_x: number, _y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+      createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+      measureText: () => ({ width: 100 }),
+      createLinearGradient: () => ({ addColorStop: () => {} }),
+      createRadialGradient: () => ({ addColorStop: () => {} }),
+    };
+    return new Proxy(store, { get: (o, k) => (k in o ? o[k] : () => {}), set: (o, k, v) => { o[k] = v; return true; } });
+  };
+  const canvas = (): Record<string, unknown> => ({ width: 300, height: 150, clientWidth: 1280, clientHeight: 720, style: {}, getContext: (kind: string) => (kind === '2d' ? ctx2d() : null), addEventListener: () => {}, removeEventListener: () => {} });
+  g.document ??= { createElement: canvas, createElementNS: canvas };
+  g.window ??= { devicePixelRatio: 1, innerWidth: 1280, innerHeight: 720, addEventListener: () => {} };
+});
 
 const W = freshWorld();
 const roads = W.roads;
 const signalled = roads.nodes.filter((n) => n.signal && n.degree > 0);
 const AXES = ['NS', 'EW'] as const;
+const signals = W.layout.props.filter((p) => p.kind === 'signal');
+const STYLES: readonly SignalStyle[] = ['mast', 'bracket', 'span'];
+
+/** A point in a signal's frame placed in the world, as PropsView.standard places the signal. */
+function world(p: Prop, at: readonly [number, number, number]): THREE.Vector3 {
+  const m = new THREE.Matrix4().compose(new THREE.Vector3(p.x, p.y, p.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot), new THREE.Vector3(p.scale, p.scale, p.scale));
+  return new THREE.Vector3(...at).applyMatrix4(m);
+}
 
 describe('the time left in a light', () => {
   const n = signalled[7]!;
@@ -146,5 +179,105 @@ describe('the walk heads', () => {
       expect(roads.pedCanCross(n.id, 'NS', t)).toBe(false);
     }
     roads.releaseSignal(n.id);
+  });
+});
+
+describe('which signals reach over the road', () => {
+  it('a mast arm on every avenue approach, a bracket on every street\'s, the span wire at Las Lomas County\'s junction', () => {
+    const counts: Record<SignalStyle, number> = { mast: 0, bracket: 0, span: 0 };
+    for (const p of signals) {
+      const style = signalStyle(roads, p);
+      counts[style]++;
+      const node = roads.nodes[p.node]!;
+      const width = 2 * (axisOf(p.dir as Dir) === 'NS' ? node.halfX : node.halfZ);
+      if (p.node >= roads.gridNodeCount) expect(style).toBe('span');
+      else expect(style, `${p.node} ${p.dir}`).toBe(width >= AVENUE_W ? 'mast' : 'bracket');
+    }
+    console.log(`[signals] ${signals.length}: ${JSON.stringify(counts)}`);
+    expect(counts.mast).toBeGreaterThan(100);
+    expect(counts.bracket).toBeGreaterThan(100);
+    expect(counts.span).toBe(4);
+  });
+
+  it('every city approach has a head hanging over the middle of each of its lanes, and nowhere else', () => {
+    let heads = 0;
+    for (const p of signals.filter((q) => q.node < roads.gridNodeCount)) {
+      const layout = signalLayout(signalStyle(roads, p));
+      const over = layout.heads.filter((h) => h.across).map((h) => world(p, [h.x, h.y, h.z]));
+      const lanes = roads.lanes.filter((l) => l.to === p.node && l.dir === p.dir);
+      expect(over.length, `${p.node} ${p.dir}`).toBe(lanes.length);
+      const across = (v: { x: number; z: number }) => (axisOf(p.dir as Dir) === 'NS' ? v.x : v.z);
+      for (const lane of lanes) {
+        const miss = Math.min(...over.map((h) => Math.abs(across(h) - across({ x: lane.ex, z: lane.ez }))));
+        expect(miss, `${p.node} ${p.dir} lane ${lane.index}`).toBeLessThan(0.05);
+        heads++;
+      }
+    }
+    expect(heads).toBeGreaterThan(400);
+  });
+
+  it('nothing over the road hangs lower than 2.5 m over the tallest vehicle, or any chase camera at its normal zoom', () => {
+    const tallest = Math.max(...Object.values(VEHICLE_SPECS).map((s) => s.height));
+    // The chase camera's height over the road at rest, from its look point CHASE_TARGET_Y up the vehicle.
+    const camera = Math.max(...Object.values(VEHICLE_SPECS).filter((s) => s.class !== 'boat').map((s) => s.height * CHASE_TARGET_Y + chaseOffset(s, 0, false).up));
+    for (const style of ['mast', 'bracket'] as const) {
+      const pos = signalGeometry(style).getAttribute('position');
+      let low = Infinity;
+      let over = 0;
+      for (let i = 0; i < pos.count; i++) {
+        // Past the kerb, PROP_INSET from the pole, on the signal's kerb.
+        if (pos.getX(i) >= -PROP_INSET) continue;
+        over++;
+        low = Math.min(low, pos.getY(i) + CURB_H);
+      }
+      console.log(`[signals] ${style}: lowest over the road ${low.toFixed(2)} m (tallest vehicle ${tallest} m, highest chase camera ${camera.toFixed(2)} m)`);
+      expect(over).toBeGreaterThan(100);
+      expect(low).toBeGreaterThan(tallest + 2.5);
+      expect(low).toBeGreaterThan(camera + 0.1);
+    }
+  });
+
+  it('a mast arm or a bracket and its heads stay a few thousand triangles, standing on the ground', () => {
+    for (const style of STYLES) {
+      const g = signalGeometry(style);
+      g.computeBoundingBox();
+      const tris = g.getAttribute('position').count / 3;
+      console.log(`[signals] ${style}: ${tris} triangles, ${g.boundingBox!.getSize(new THREE.Vector3()).toArray().map((v) => v.toFixed(2)).join(' x ')} m`);
+      expect(tris).toBeLessThan(3000);
+      expect(Math.abs(g.boundingBox!.min.y)).toBeLessThan(0.02);
+    }
+    for (const style of ['mast', 'bracket'] as const) expect(signalGeometry(style).userData.parts).toEqual(expect.arrayContaining(['pole', 'arm', 'head', 'lens', 'visor', 'backplate', 'border', 'count']));
+  });
+});
+
+describe('the signals\' meshes', () => {
+  it('one model per style and cell, and every lit part citywide in one more', () => {
+    for (const size of [HARDWARE_CHUNK_SIZE, STATIC_CHUNK_SIZE]) {
+      const props = new PropsView(W, size);
+      const meshes: THREE.InstancedMesh[] = [];
+      props.group.traverse((o) => {
+        if (o instanceof THREE.InstancedMesh && o.geometry.name.startsWith('signal-')) meshes.push(o);
+      });
+      const cells = (style: SignalStyle) => new Set(signals.filter((p) => signalStyle(roads, p) === style).map((p) => spatialKey(p.x, p.z, size))).size;
+      const want = STYLES.reduce((n, style) => n + cells(style), 0) + 1;
+      console.log(`[signals] ${meshes.length} signal meshes at ${size} m cells (${STYLES.map((s) => `${s} ${cells(s)}`).join(', ')}, lit 1)`);
+      expect(meshes.length).toBe(want);
+      // As many as the poles and bulbs drew before (a pole and a batch of bulbs per cell), or fewer.
+      expect(meshes.length).toBeLessThanOrEqual(2 * new Set(signals.map((p) => spatialKey(p.x, p.z, size))).size);
+      const lit = meshes.filter((m) => m.name === 'signal-lit');
+      expect(lit.length).toBe(1);
+      expect(lit[0]!.castShadow).toBe(false);
+      expect((lit[0]!.material as THREE.Material).userData.contactShadow).toBe(false);
+    }
+  });
+
+  it('every overhead lens sits on its head, drawn where the layout puts it', () => {
+    const props = new PropsView(W);
+    signals.slice(0, 40).forEach((p, i) => {
+      const layout = signalLayout(signalStyle(roads, p));
+      layout.heads.forEach((h, head) => {
+        for (let k = 0; k < 3; k++) expect(props.signalLens(i, head, k).at.distanceTo(world(p, lensAt(h, k)))).toBeLessThan(0.02);
+      });
+    });
   });
 });

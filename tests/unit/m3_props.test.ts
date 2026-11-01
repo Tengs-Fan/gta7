@@ -12,7 +12,7 @@ import { DRESSING_SIZE, DressingRules, dressingItems, footprint, GARAGE_ITEM_HEI
 import {
   broadleafClusters, broadleafGeometry, broadleafTexture, BROADLEAF_SCALE, LEAF_ATLAS_ID, LEAF_CARDS, LEAF_TILES, PALM_RING, palmCurve, palmTrunkGeometry, TREE_LIMBS,
 } from '../../src/render/foliage';
-import { benchGeometry, binGeometry, bollardGeometry, hydrantGeometry, lampHeadGeometry, lampLensGeometry, lampPoleGeometry, lampShadowGeometry, lensAt, railGeometry, SIGNAL_LAYOUT, signalPoleGeometry, triangles } from '../../src/render/furniture';
+import { benchGeometry, binGeometry, bollardGeometry, hydrantGeometry, lampHeadGeometry, lampLensGeometry, lampPoleGeometry, lampShadowGeometry, lensAt, railGeometry, signalGeometry, signalLayout, triangles } from '../../src/render/furniture';
 import { OCCLUDER_AXIS, occluderOpacity } from '../../src/render/occluderFade';
 import { foliageSpheres, LAMP_HEAD, palmAxis, palmLean, palmMatrix, PropsView } from '../../src/render/props';
 import { SiteView } from '../../src/render/siteView';
@@ -45,13 +45,15 @@ const v = (x: number, y: number, z: number) => ({ x, y, z });
 const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
 const sha = (o: unknown) => createHash('sha256').update(JSON.stringify(o)).digest('hex');
 
-/** What d98da7b drew for each street-furniture kind: triangles and the bounding box (all its parts together). */
+/**
+ * What d98da7b drew for each street-furniture kind: triangles and the bounding box (all its parts together). The traffic
+ * signal has left this fit: its arms reach over the road now (traffic_signals.test.ts checks its models).
+ */
 const BEFORE = {
   lamp: { tris: 226, size: [0.42, 6.602, 2.15] },
   bench: { tris: 48, size: [1.8, 0.955, 0.455] },
   bin: { tris: 40, size: [0.57, 1.0, 0.6] },
   hydrant: { tris: 136, size: [0.52, 0.81, 0.4] },
-  signal: { tris: 108, size: [0.42, 5.2, 0.45] },
 } as const;
 
 function sizeOf(...gs: THREE.BufferGeometry[]): THREE.Vector3 {
@@ -71,14 +73,11 @@ const partsOf = (g: THREE.BufferGeometry): string[] => g.userData.parts as strin
 const count = (g: THREE.BufferGeometry, part: string) => partsOf(g).filter((p) => p === part).length;
 
 describe('VAL-PRP-001 street furniture is modelled and fits the old models', () => {
-  const bulb = new THREE.IcosahedronGeometry(0.11, 0);
-  const bulbs = [0, 1, 2].map((k) => bulb.clone().translate(...lensAt(SIGNAL_LAYOUT.heads[0]!, k)));
   const kinds = {
     lamp: [lampPoleGeometry(LAMP_HEAD), lampHeadGeometry(LAMP_HEAD), lampLensGeometry(LAMP_HEAD)],
     bench: [benchGeometry()],
     bin: [binGeometry()],
     hydrant: [hydrantGeometry()],
-    signal: [signalPoleGeometry(), ...bulbs],
   };
 
   it('each kind has its listed parts', () => {
@@ -90,10 +89,6 @@ describe('VAL-PRP-001 street furniture is modelled and fits the old models', () 
     expect(partsOf(kinds.bin[0]!)).toEqual(expect.arrayContaining(['body', 'rim', 'lid']));
     expect(partsOf(kinds.hydrant[0]!)).toEqual(expect.arrayContaining(['body', 'bonnet']));
     expect(count(kinds.hydrant[0]!, 'cap')).toBeGreaterThanOrEqual(2);
-    const signal = kinds.signal[0]!;
-    expect(partsOf(signal)).toEqual(expect.arrayContaining(['pole', 'head']));
-    expect(count(signal, 'lens')).toBe(3);
-    expect(count(signal, 'visor')).toBe(3);
     expect(partsOf(railGeometry())).toEqual(expect.arrayContaining(['post', 'rail']));
     expect(partsOf(bollardGeometry())).toEqual(expect.arrayContaining(['post', 'cap']));
   });
@@ -164,7 +159,7 @@ describe('VAL-PRP-001 street furniture is modelled and fits the old models', () 
     props.group.traverse((o) => {
       if (o instanceof THREE.InstancedMesh) names.add(o.geometry.name);
     });
-    for (const n of ['lamp-pole', 'lamp-head', 'lamp-lens', 'bench', 'bin', 'hydrant', 'signal-pole', 'dress-rail', 'dress-bollard'].map((n) => n.replace('dress-', ''))) expect(names, n).toContain(n);
+    for (const n of ['lamp-pole', 'lamp-head', 'lamp-lens', 'bench', 'bin', 'hydrant', 'signal-mast', 'signal-bracket', 'dress-rail', 'dress-bollard'].map((n) => n.replace('dress-', ''))) expect(names, n).toContain(n);
   });
 });
 
@@ -196,9 +191,11 @@ describe('VAL-PRP-002 lamp heads, halos and signal lenses keep their positions',
   });
 
   it('the lenses of the head on the signal pole sit where d98da7b put its bulbs, each under its own visor', () => {
-    for (let k = 0; k < 3; k++) lensAt(SIGNAL_LAYOUT.heads[0]!, k).forEach((c, i) => expect(c).toBeCloseTo([0, 4.88 - k * 0.33, 0.21][i]!, 9));
-    const g = signalPoleGeometry();
-    expect(count(g, 'visor')).toBe(3);
+    for (const style of ['mast', 'bracket'] as const) {
+      for (let k = 0; k < 3; k++) lensAt(signalLayout(style).heads[0]!, k).forEach((c, i) => expect(c).toBeCloseTo([0, 4.88 - k * 0.33, 0.21][i]!, 9));
+      // A visor (inside and out) over every lens of every head.
+      expect(count(signalGeometry(style), 'visor')).toBe(2 * 3 * signalLayout(style).heads.length);
+    }
   });
 });
 
@@ -575,7 +572,7 @@ describe('VAL-PRP-009 the dissolve, halo and clip patches are on the new materia
     expect(new Set(report)).toEqual(new Set(['broadleaf-canopy', 'broadleaf-shrub', 'palm-fronds']));
   });
 
-  it('occluder dissolve on the lamp parts, the signal pole and bulbs and both trunks; the palm bends it', () => {
+  it('occluder dissolve on the lamp parts, the signal poles and both trunks; the palm bends it', () => {
     let palm = 0;
     props.group.traverse((o) => {
       if (!(o instanceof THREE.InstancedMesh)) return;
@@ -588,7 +585,7 @@ describe('VAL-PRP-009 the dissolve, halo and clip patches are on the new materia
       if ((s.uniforms.uOccBend as { value: number }).value > 0) palm++;
     });
     expect(palm).toBeGreaterThan(0);
-    for (const n of ['lamp-pole', 'lamp-head', 'lamp-lens', 'signal-pole']) expect(byGeo.get(n)!.customProgramCacheKey(), n).toBe('gta7-occluder');
+    for (const n of ['lamp-pole', 'lamp-head', 'lamp-lens', 'signal-mast', 'signal-bracket']) expect(byGeo.get(n)!.customProgramCacheKey(), n).toBe('gta7-occluder');
   });
 
   it('lamp halos keep their halo shader and the pools their clip', () => {
