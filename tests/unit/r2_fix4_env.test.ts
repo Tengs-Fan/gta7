@@ -699,7 +699,7 @@ function rippleSampler(): (uv: Vec) => Vec {
 }
 
 describe('sea ripples over time', () => {
-  // With float colour buffers, and without (where the sea's patch also reflects the sky).
+  // With float colour buffers, and without (where the sea's patch reflects the analytic sky instead of the map's).
   it.each([true, false])('neither ripple sample jumps where an offset wraps (at 83.3 s and 125 s among others): each moves by its drift only, and so does the sea\'s normal (hdr %s)', (hdr) => {
     const r = fakeRenderer();
     const env = new Environment(new THREE.Scene(), r, { hdr });
@@ -711,7 +711,9 @@ describe('sea ripples over time', () => {
       uniforms: {} as Record<string, THREE.IUniform>,
     };
     mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, r);
-    expect('uSkyI' in shader.uniforms, 'the sky reflection only without float buffers').toBe(!hdr);
+    // The analytic sky is bound either way: reflected without float buffers, the gradient the map's sky is regraded to with.
+    expect(shader.uniforms.uSkyTop, 'the analytic sky').toBeDefined();
+    expect(env.envFill === null, 'the map').toBe(hdr);
     const prog = compileGlsl(shader.fragmentShader, { USE_NORMALMAP_TANGENTSPACE: '' });
     const sample = rippleSampler();
     const map = mat.normalMap!;
