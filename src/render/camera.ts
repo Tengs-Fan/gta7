@@ -422,7 +422,10 @@ export class CameraController {
   private floorY = -Infinity;
   /** The sea whose drawn waves the camera stays above and follows a swimmer or a boat on (bindSea). */
   private sea: SeaWaveUniforms | null = null;
-  /** The drawn sea's height under the boat followed, eased so the chase camera rides the swell but not every bump. */
+  /**
+   * The drawn sea's height under the boat or the swimmer followed, eased so the camera rides the swell but not every bump
+   * (a storm's chop would swing a swimmer's view up and down several times a second).
+   */
   private seaLift = 0;
   /** The on-foot camera's shoulder: +1 his right, -1 his left (a swimmer's, see SIDE_SWAP), and where it is going. */
   private shoulderSide = 1;
@@ -693,8 +696,9 @@ export class CameraController {
       lookOver = !aim && (swimming || p.pos.y < WATER_Y);
       raise = !lookOver;
       const lying = p.state === 'knocked' || p.state === 'dead';
-      // A swimmer rides the drawn swell (CrowdView.swim).
-      const headY = swimming ? 1.6 + seaHeightAt(this.sea, p.pos.x, p.pos.z) : lying ? 0.7 : 1.58 * p.appearance.height;
+      // A swimmer rides the drawn swell (CrowdView.swim), the camera eased after him as after a boat.
+      this.seaLift = damp(this.seaLift, swimming ? seaHeightAt(this.sea, p.pos.x, p.pos.z) : 0, 3, dt);
+      const headY = swimming ? 1.6 + this.seaLift : lying ? 0.7 : 1.58 * p.appearance.height;
       this.target.lerp(new THREE.Vector3(p.pos.x, p.pos.y + headY, p.pos.z), 1 - Math.exp(-22 * dt));
       // `aiming` is the aim button (Character.aimZoom): hip fire keeps the wide view.
       const distTarget = aim ? 2.4 : this.zoomLevel === 1 ? 6.6 : 4.3;
