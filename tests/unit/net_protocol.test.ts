@@ -7,6 +7,7 @@ import {
   POS_STEP, PROTOCOL_VERSION, ProtocolError, quantizeInput, TIMER_STEP, toNetEvent, tryDecode, VEL_STEP, Writer,
   type Message, type MessageOf, type MessageType, type SnapshotMsg,
 } from '../../src/net/protocol';
+import type { LampSwitch } from '../../src/sim/entities';
 import { neutralInput, type PlayerInput } from '../../src/sim/input';
 import type { CharacterUpdate, PickupUpdate, VehicleUpdate } from '../../src/sim/snapshot';
 import { Rng } from '../../src/core/rng';
@@ -19,14 +20,14 @@ const allFlags = (on: boolean): PlayerInput => {
   return p;
 };
 
-function vehicle(id: number, sign = 1, full = true): VehicleUpdate {
+function vehicle(id: number, sign = 1, full = true, lights: LampSwitch = 'on'): VehicleUpdate {
   const vx = 89.99 * sign;
   const vz = -327.6;
   const heading = -3.5;
   return {
     id,
     motion: { x: 123.456 * sign, y: -0.37, z: -MAXPOS * sign, heading, pitch: 0.21 * sign, roll: -0.4, vx, vz, vy: 59.99, angVel: -12.345, steer: -1, speed: Math.hypot(vx, vz), forwardSpeed: vx * Math.sin(heading) + vz * Math.cos(heading) },
-    engine: { rpm: 0.73, gear: -1, skid: 1, throttle: 0.5, brake: 1, ctlSteer: -0.25, handbrake: true, braking: false, reversing: true, siren: true, horn: false },
+    engine: { rpm: 0.73, gear: -1, skid: 1, throttle: 0.5, brake: 1, ctlSteer: -0.25, handbrake: true, braking: false, reversing: true, siren: true, horn: false, lights },
     status: { health: -123.5, burning: true, destroyed: false, flipped: true, airborne: false, inWater: true, wreckTime: 255, driver: 4_000_000_000, passengers: [0, 7, 12345] },
     rare: full ? { kind: 'sports', color: 0xffffff, owner: 'parked', dentVersion: 99, dents: [{ lx: 2.25, ly: 0.725, lz: -1.1, nx: 0, nz: -1, depth: 0.4 }, { lx: 0, ly: 1.18, lz: 0, nx: 0, nz: 0, depth: 0.15 }] } : undefined,
   };
@@ -57,7 +58,7 @@ function snapshot(over: Partial<SnapshotMsg> = {}): SnapshotMsg {
     weather: { kind: 'storm', cloud: 1, rain: 0.5, storm: 0, wet: 0.25, dim: 0.75, fog: 0.1, wind: { x: -12.5, z: 3 }, seaState: 0.3 },
     signalHolds: [[0, 'NS'], [120, 'EW']],
     brokenProps: [0, 3816, 127, 128],
-    vehicles: [vehicle(1), vehicle(2, -1, false), { id: 3, rare: vehicle(3).rare }],
+    vehicles: [vehicle(1), vehicle(2, -1, false, 'off'), { id: 3, rare: vehicle(3).rare }, vehicle(4, 1, false, 'auto')],
     characters: [character(9), { id: 10, combat: character(10).combat }],
     projectiles: [{ id: 50, state: { x: 1, y: 2, z: 3, vx: -60, vy: 0, vz: 60, owner: 9 } }],
     helis: [{ id: 60, state: { x: -400, y: 70, z: 200, vx: 1, vy: -2, vz: 3, heading: 1.5, rotor: 12.6, health: 1600, destroyed: false, crashing: true, spotX: -405.5, spotZ: 210.25 } }],
@@ -222,6 +223,25 @@ describe('protocol round trips', () => {
         for (const g of INPUT_FLAG_NAMES) expect(back.input[g], `${f}/${g}`).toBe(inp[g]);
       }
     }
+  });
+
+  it('a vehicle\u2019s headlight switch round-trips as auto, on and off, and on with off at once is refused', () => {
+    const engine = (lights: LampSwitch) => encodeMessage(snapshot({ vehicles: [vehicle(1, 1, false, lights)] }));
+    for (const lights of ['auto', 'on', 'off'] as const) {
+      const back = decodeMessage(engine(lights)) as SnapshotMsg;
+      expect(back.vehicles[0]!.engine!.lights).toBe(lights);
+    }
+    // The two buffers differ only in the flag byte: set both of the bits that tell on and off apart.
+    const on = new Uint8Array(engine('on'));
+    const off = new Uint8Array(engine('off'));
+    const at = on.findIndex((b, i) => b !== off[i]);
+    expect(at).toBeGreaterThan(0);
+    expect(on.filter((b, i) => b !== off[i])).toHaveLength(1);
+    const both = on.slice();
+    both[at] = on[at]! | off[at]!;
+    const r = tryDecode(both);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.message).toMatch(/headlights/);
   });
 
   it('quantizeInput is what the server sees, and stable', () => {

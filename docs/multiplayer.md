@@ -87,8 +87,9 @@ Every 10 s the server also logs one line per room, for example:
   fixed 60 Hz with `dt = 1/60` exactly. A late wake is made up with extra fixed ticks (at most 5 per wake); a stall over
   250 ms is skipped rather than replayed.
 - Inputs are latched per client: held buttons and axes follow the newest input; every single-frame press
-  (fire, jump, enter/exit, interact, job, horn, reload, weapon next/previous/slot) reaches exactly one tick; inputs
-  with an old sequence number are ignored, and each snapshot acknowledges the last applied one (`ackSeq`).
+  (fire, jump, enter/exit, interact, job, horn, headlights, reload, weapon next/previous/slot) reaches exactly one
+  tick; inputs with an old sequence number are ignored, and each snapshot acknowledges the last applied one
+  (`ackSeq`).
 - Snapshots go out at 25 Hz. Each client gets the entities within about 250 m of its player (kept until 258 m), every
   player in the room at any distance, its own vehicle and the vehicles pursuing it, and police helicopters while it is
   wanted. Per entity, groups of fields (motion, engine, status, rare data such as model, colour, appearance and dents)

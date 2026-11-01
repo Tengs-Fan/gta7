@@ -5,7 +5,7 @@
 
 import type { V3 } from '../core/math';
 import type { Axis } from '../world/roads';
-import type { Appearance, Character, CharacterRole, CharState, Dent, Helicopter, Owner, Pickup, PickupKind, Projectile, Vehicle } from './entities';
+import type { Appearance, Character, CharacterRole, CharState, Dent, Helicopter, LampSwitch, Owner, Pickup, PickupKind, Projectile, Vehicle } from './entities';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import type { WeaponId } from './specs';
@@ -41,6 +41,7 @@ export interface VehicleEngine {
   reversing: boolean;
   siren: boolean;
   horn: boolean;
+  lights: LampSwitch;
 }
 
 /** Damage and occupancy: changes on events. */
@@ -173,6 +174,7 @@ export function captureVehicle(v: Vehicle): CapturedVehicle {
       reversing: v.reversing,
       siren: v.siren,
       horn: v.horn,
+      lights: v.lights,
     },
     status: {
       health: v.health,
@@ -265,7 +267,7 @@ export function applyVehicleUpdate(v: Vehicle, u: VehicleUpdate, resolve: (id: n
   if (e) {
     v.rpm = e.rpm; v.gear = e.gear; v.skid = e.skid;
     v.controls.throttle = e.throttle; v.controls.brake = e.brake; v.controls.steer = e.ctlSteer; v.controls.handbrake = e.handbrake;
-    v.braking = e.braking; v.reversing = e.reversing; v.siren = e.siren; v.horn = e.horn;
+    v.braking = e.braking; v.reversing = e.reversing; v.siren = e.siren; v.horn = e.horn; v.lights = e.lights;
   }
   const s = u.status;
   if (s) {

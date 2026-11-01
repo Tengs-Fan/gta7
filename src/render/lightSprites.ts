@@ -50,10 +50,39 @@ export const GLOW_RANGE = 140;
 export const POOL_RANGE = 90;
 /** The headlight pool on the road: from POOL_START m ahead of the bumper, POOL_LENGTH m long, POOL_WIDTH m wide at its far end. */
 export const POOL_START = 2;
-export const POOL_LENGTH = 12;
-export const POOL_WIDTH = 5.5;
-/** A pool's colour at full strength (both head lamps, full night). */
-const POOL_COLOR: Rgb = [0.5, 0.43, 0.31];
+export const POOL_LENGTH = 30;
+export const POOL_WIDTH = 9;
+/**
+ * What a pool adds at its brightest (a `poolShape` of 1), at full strength (both head lamps, full night), as a multiple
+ * of the road's own colour (linear): the road there is multiplied by 1 + this. Warm, so the light is a little yellow.
+ */
+export const POOL_LIGHT: Rgb = [31, 26.5, 19.5];
+/** The share of a pool's light a painted pool (the software tier's) adds as a colour. */
+const POOL_PAINT = 0.01;
+/** The head lamps sit this far (m) either side of the car's axis. */
+const POOL_LAMP_X = 0.72;
+/**
+ * The pool's shape: each lamp's lobe is `lobe` m wide (sigma) at the bumper and widens by `spread` per metre; the light
+ * falls as 1 / (1 + (d / reach) ** power) with the distance d from the bumper (a little slower than the square, so the
+ * road is still lit well down the beam), rises from nothing over the first `rise` of the decal's length and dies away
+ * from `taper` of it to the far end; the sides fade out from `side` of the half width. `peak` scales the sum of the two
+ * lobes.
+ */
+const POOL_SHAPE = { lobe: 0.22, spread: 0.08, reach: 6, power: 1.6, rise: 0.15, taper: 0.5, side: 0.6, peak: 1 };
+
+/**
+ * A pool's light 0..1 at `d` m ahead of the bumper and `x` m off the car's axis: the fragment shader's maths, for tests.
+ * Two lobes, one per lamp, show just ahead of the bumper and run into one a few metres on; the brightest ground is a few
+ * metres past the bumper, and the light falls away smoothly from there, with no plateau, to nothing at the far end.
+ */
+export function poolShape(d: number, x: number): number {
+  const S = POOL_SHAPE;
+  const t = (d - POOL_START) / POOL_LENGTH;
+  const sigma = S.lobe + S.spread * d;
+  const lobes = Math.exp(-0.5 * ((x + POOL_LAMP_X) / sigma) ** 2) + Math.exp(-0.5 * ((x - POOL_LAMP_X) / sigma) ** 2);
+  const along = (THREE.MathUtils.smoothstep(t, 0, S.rise) / (1 + (d / S.reach) ** S.power)) * (1 - THREE.MathUtils.smoothstep(t, S.taper, 1));
+  return S.peak * lobes * along * (1 - THREE.MathUtils.smoothstep(Math.abs(x) / (POOL_WIDTH / 2), S.side, 1));
+}
 /** Glows never shrink under this many pixels, so a distant lamp does not flicker as it crosses pixel boundaries. */
 const GLOW_MIN_PX = 3;
 /** Depth-tested as if this much (m) nearer the camera, so the lamp's own lens does not cut into its glow. */
@@ -114,21 +143,42 @@ void main() {
   #include <fog_vertex>
 }`;
 
-const POOL_FS = /* glsl */ `
+/**
+ * The pool's fragment shader. On the hardware tiers (`lights`) the pool lights the road: the blend multiplies the
+ * surface by 1 + the output, so the output is the light, and it skips tone mapping, which is for colours (the surface
+ * was tone mapped when it was drawn, or is, later, on their HDR target). The colour-space chunk does nothing on that
+ * linear target. On the software tier's 8-bit canvas there is no light to multiply: the road there is nearly black and
+ * a blend's source colour is clamped to 1, so a multiplier tops out at 2. The pool paints a colour there instead, which
+ * is added like the other lights.
+ */
+export function poolFragment(lights: boolean): string {
+  const S = POOL_SHAPE;
+  const f = (n: number): string => n.toFixed(3);
+  return /* glsl */ `
 varying vec2 vUv;
 varying vec3 vColor;
 #include <fog_pars_fragment>
 void main() {
-  float t = vUv.y;
-  float s = abs( vUv.x - 0.5 ) * 2.0;
-  // A cone opening from a third of the width at the near end, soft at its edges and both ends.
-  float w = 0.32 + 0.68 * t;
-  float a = ( 1.0 - smoothstep( 0.45 * w, w, s ) ) * smoothstep( 0.0, 0.22, t ) * ( 1.0 - smoothstep( 0.4, 1.0, t ) );
+  float d = ${f(POOL_START)} + vUv.y * ${f(POOL_LENGTH)};
+  float x = ( vUv.x - 0.5 ) * ${f(POOL_WIDTH)};
+  // poolShape's maths.
+  float sigma = ${f(S.lobe)} + ${f(S.spread)} * d;
+  vec2 off = ( x - vec2( -${f(POOL_LAMP_X)}, ${f(POOL_LAMP_X)} ) ) / sigma;
+  vec2 lobe = exp( -0.5 * off * off );
+  float along = smoothstep( 0.0, ${f(S.rise)}, vUv.y ) / ( 1.0 + pow( d / ${f(S.reach)}, ${f(S.power)} ) ) * ( 1.0 - smoothstep( ${f(S.taper)}, 1.0, vUv.y ) );
+  float a = ${f(S.peak)} * ( lobe.x + lobe.y ) * along * ( 1.0 - smoothstep( ${f(S.side)}, 1.0, abs( x ) / ${f(POOL_WIDTH / 2)} ) );
   ${FOG_FADE}
-  gl_FragColor = vec4( vColor * a, 1.0 );
-  #include <tonemapping_fragment>
+  ${
+    lights
+      ? `gl_FragColor = vec4( 1.0 + vColor * a, 1.0 );
   #include <colorspace_fragment>
+  gl_FragColor.rgb -= 1.0;`
+      : `gl_FragColor = vec4( vColor * ( a * ${f(POOL_PAINT)} ), 1.0 );
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>`
+  }
 }`;
+}
 
 const STREAK_FS = /* glsl */ `
 varying vec2 vUv;
@@ -158,6 +208,16 @@ function additive(vertexShader: string, fragmentShader: string, uniforms: Record
     polygonOffsetFactor: -4,
     polygonOffsetUnits: -4,
   });
+}
+
+/** The same material, but multiplying the surface by 1 + the shader's output (a light on it) instead of adding the output (paint). */
+function lighting(vertexShader: string, fragmentShader: string): THREE.ShaderMaterial {
+  const m = additive(vertexShader, fragmentShader);
+  m.blending = THREE.CustomBlending;
+  m.blendEquation = THREE.AddEquation;
+  m.blendSrc = THREE.DstColorFactor;
+  m.blendDst = THREE.OneFactor;
+  return m;
 }
 
 /** A unit decal on the ground plane: x across (-0.5..0.5), z along (0..1), uv.y running with z. */
@@ -219,7 +279,8 @@ export class LightSprites {
   private readonly s = new THREE.Vector3();
   private readonly c = new THREE.Color();
 
-  constructor() {
+  /** `lights`: the pools light the road (multiply it); otherwise, on an 8-bit canvas, they paint it (see poolFragment). */
+  constructor(lights = true) {
     this.group.name = 'light-sprites';
     const geo = new THREE.BufferGeometry();
     this.glowPos = new THREE.BufferAttribute(new Float32Array(GLOW_CAPACITY * 3), 3).setUsage(THREE.DynamicDrawUsage);
@@ -231,19 +292,21 @@ export class LightSprites {
     geo.setDrawRange(0, 0);
     this.glows = new THREE.Points(geo, additive(GLOW_VS, GLOW_FS, { uPixelsPerMetre: { value: 800 } }));
     this.glows.name = 'lamp-glows';
-    this.pools = this.decals('headlight-pools', POOL_FS, 64);
-    this.streaks = this.decals('light-streaks', STREAK_FS, STREAK_CAPACITY);
+    this.pools = this.decals('headlight-pools', lights ? lighting(DECAL_VS, poolFragment(true)) : additive(DECAL_VS, poolFragment(false)), 64);
+    this.streaks = this.decals('light-streaks', additive(DECAL_VS, STREAK_FS), STREAK_CAPACITY);
     for (const o of [this.glows, this.pools, this.streaks]) {
       // Positions change every frame; the bounds would always be stale.
       o.frustumCulled = false;
       o.renderOrder = 2;
       this.group.add(o);
     }
+    // The pools multiply what is drawn, so they go on before the glows and streaks, which they would otherwise dim and brighten.
+    this.pools.renderOrder = 1;
     this.haze = new LampHaze(this.group);
   }
 
-  private decals(name: string, fs: string, capacity: number): THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial> {
-    const mesh = new THREE.InstancedMesh(decalGeometry(), additive(DECAL_VS, fs), capacity);
+  private decals(name: string, material: THREE.ShaderMaterial, capacity: number): THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial> {
+    const mesh = new THREE.InstancedMesh(decalGeometry(), material, capacity);
     mesh.name = name;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     // Created now so the instanced-colour variant is the one compiled at warm-up.
@@ -356,7 +419,7 @@ export class LightSprites {
       this.m.compose(this.p.set(x0, y0 + 0.05, z0), this.q, this.s.set(POOL_WIDTH, 1, POOL_LENGTH));
       pools.setMatrixAt(i, this.m);
       const k = c.strength;
-      pools.setColorAt(i, this.c.setRGB(POOL_COLOR[0] * k, POOL_COLOR[1] * k, POOL_COLOR[2] * k));
+      pools.setColorAt(i, this.c.setRGB(POOL_LIGHT[0] * k, POOL_LIGHT[1] * k, POOL_LIGHT[2] * k));
     });
     this.poolCount = this.candidates.length;
     pools.count = this.poolCount;

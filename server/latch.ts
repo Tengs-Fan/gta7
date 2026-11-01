@@ -4,7 +4,7 @@
 
 import { neutralInput, type PlayerInput } from '../src/sim/input';
 
-export const EDGE_FLAGS = ['firePressed', 'jump', 'enterExit', 'interact', 'job', 'hornPressed', 'reload', 'nextWeapon', 'prevWeapon'] as const;
+export const EDGE_FLAGS = ['firePressed', 'jump', 'enterExit', 'interact', 'job', 'hornPressed', 'lightsPressed', 'reload', 'nextWeapon', 'prevWeapon'] as const;
 export type EdgeFlag = (typeof EDGE_FLAGS)[number];
 
 /** Presses queued per button at most (a flood of presses cannot build an unbounded backlog). */

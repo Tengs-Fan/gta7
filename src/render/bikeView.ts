@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import type { Vehicle } from '../sim/entities';
+import { lampsLit } from '../sim/lamps';
 import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
 import { steerLimit } from '../sim/vehiclePhysics';
 import { bikeModel, type BikeModel, type LensPlace } from './bikeModels';
@@ -14,7 +15,7 @@ import type { LampGlow } from './lightSprites';
 import { setRiderMount, type RiderMount, type RiderSeatLayout } from './riders';
 import { paintMaterial as paint, paletteMaterial } from './shapeKit';
 import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
-import { HEAD_OFF, LAMP_LENS } from './vehicleView';
+import { headGlow, LAMP_LENS } from './vehicleView';
 import { GroupFade } from './viewFade';
 import { burntMaterial } from './fx/burnt';
 
@@ -255,9 +256,8 @@ export class BikeView {
       hands[i]!.z = p.z;
     }
     // Lights with a rider aboard (a parked bike is dark), as VehicleView does for cars.
-    const powered = !v.destroyed && v.driver !== null;
-    this.lit = night > 0.35 && powered && !this.burnt;
-    this.headMat.emissiveIntensity = powered ? 0.4 + night * 5 : HEAD_OFF * night;
+    this.lit = lampsLit(v, night);
+    this.headMat.emissiveIntensity = headGlow(v, night);
     this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? BRAKE_GLOW : this.lit ? TAIL_RUNNING : TAIL_OFF;
     this.group.updateMatrixWorld(true);
     setRiderMount(v, this, this.mount);

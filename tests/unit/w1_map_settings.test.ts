@@ -44,6 +44,27 @@ describe('key bindings', () => {
     console.log('round trip ok; NotAKey, ArrowUp (reserved) and a duplicate fall back to defaults');
   });
 
+  it('a file saved before an action existed keeps every stored key, and the new action takes the first free letter if its default is taken', () => {
+    const ijkl = { forward: 'KeyI', back: 'KeyK', left: 'KeyJ', right: 'KeyL' };
+    // A file from before Headlights: no `lights` entry, and L is already the player's move-right key.
+    const { lights: _, ...older } = { ...DEFAULT_BINDINGS, ...ijkl };
+    const parsed = parseBindings(older);
+    expect(parsed).toEqual({ ...DEFAULT_BINDINGS, ...ijkl, lights: 'KeyA' });
+    expect(new Set(Object.values(parsed)).size).toBe(ACTIONS.length);
+    const keys = new Keymap();
+    keys.set(parsed);
+    expect([keys.virtual('KeyA'), keys.virtual('KeyL')]).toEqual(['KeyL', 'KeyD']);
+    // The first letter nothing has: with A taken too, B.
+    expect(parseBindings({ ...older, phone: 'KeyA' }).lights).toBe('KeyB');
+    // With L free the action keeps its default key, and a file that has the entry is read as written.
+    const { lights: __, ...stock } = DEFAULT_BINDINGS;
+    expect(parseBindings(stock)).toEqual(DEFAULT_BINDINGS);
+    expect(parseBindings({ ...older, lights: 'KeyG' })).toEqual({ ...DEFAULT_BINDINGS, ...ijkl, lights: 'KeyG' });
+    // A real duplicate among the stored keys still resets every binding, and a typo is not an absent action.
+    expect(parseBindings({ ...older, map: 'KeyI' })).toEqual(DEFAULT_BINDINGS);
+    expect(parseBindings({ ...older, lights: 'NotAKey' })).toEqual(DEFAULT_BINDINGS);
+  });
+
   it('a key another action has is refused naming it (the one rule); a reserved key too; reset restores every default', () => {
     const cases = [
       ['job', 'KeyR'],
@@ -117,7 +138,7 @@ describe('key bindings', () => {
     });
 
     it('cheat codes still work when typed, with their letters rebound', () => {
-      inp.keymap.set({ ...DEFAULT_BINDINGS, job: 'KeyC', interact: 'KeyL' });
+      inp.keymap.set({ ...DEFAULT_BINDINGS, job: 'KeyC', interact: 'KeyL', lights: 'KeyK' });
       for (const ch of 'CHILLOUT') press(`Key${ch}`, ch.toLowerCase());
       expect(inp.takeCheats().map((t) => t.code)).toContain('CHILLOUT');
     });

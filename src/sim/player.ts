@@ -6,6 +6,7 @@ import { throwDamage } from './bikes';
 import { MAX_STEP, SWIM_SPEED } from './characterPhysics';
 import type { Character, Vehicle } from './entities';
 import type { PlayerInput } from './input';
+import { lampDarkness, lampsLit, switchFor } from './lamps';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import { isGun, WEAPONS, weaponForKey } from './specs';
@@ -520,6 +521,11 @@ export class PlayerController {
       sim.onHorn(v);
     }
     v.horn = input.horn && !v.spec.police;
+    // The press flips what the player sees now: lit lamps go dark and dark ones (by day on `auto`) come on, back on `auto` where that shows the same.
+    if (input.lightsPressed) {
+      const dark = lampDarkness(sim.clock.hours, sim.weather.state.dim);
+      v.lights = switchFor(!lampsLit(v, dark), dark);
+    }
 
     p.aimYaw = Math.atan2(input.aimDir.x, input.aimDir.z);
     p.aimPitch = Math.asin(clamp(input.aimDir.y, -1, 1));

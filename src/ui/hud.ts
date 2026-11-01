@@ -4,8 +4,9 @@ import { STATIONS } from '../audio/radio';
 import { formatMoney, formatTime, wrapAngle } from '../core/math';
 import { KeyLabels } from '../input/input';
 import type { DamageKind } from '../sim/combat';
-import type { Character } from '../sim/entities';
+import type { Character, LampSwitch, Vehicle } from '../sim/entities';
 import type { BigStyle, SimEvents } from '../sim/events';
+import { lampDarkness, lampsLit } from '../sim/lamps';
 import { CONTACTS, contactById } from '../sim/missions/contacts';
 import type { MissionDef } from '../sim/missions/runner';
 import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/viewState';
@@ -153,6 +154,9 @@ export class Hud {
   private routeTimer = 0;
   /** The toasts up (oldest first) and the seconds each has left; under 0 it is fading out (TOAST_FADE). */
   private toasts: Array<{ text: string; t: number }> = [];
+  /** The vehicle the player is in (id, -1: none) and where its headlight switch stood at the last frame: a toast when that moves, not on getting into another. */
+  private switchCar = -1;
+  private switchState: LampSwitch = 'auto';
   /** The title card's side padding as last written ('left right', '' for none; see fitTitle). */
   private titleClear = '';
   private lastHealth = 100;
@@ -501,6 +505,7 @@ export class Hud {
     this.routeTimer = 0;
     this.toasts = [];
     this.renderToasts(false);
+    this.switchCar = -1;
     this.setTitleClear('');
     this.lastHealth = this.me(sim).character.health;
     this.waypoint = null;
@@ -1059,11 +1064,22 @@ export class Hud {
     el.navArrow!.style.color = race ? '#50f1d1' : target.color;
   }
 
+  /**
+   * A toast when the switch of the car the player is in moves (from his own press, or in multiplayer the server's word of
+   * it), saying whether the lamps are lit now: the lamps coming on by themselves at dusk move no switch.
+   */
+  private watchSwitch(sim: ViewState, v: Vehicle | null): void {
+    if (v && v.id === this.switchCar && v.lights !== this.switchState) this.toast(lampsLit(v, lampDarkness(sim.clock.hours, sim.weather.state.dim)) ? 'Headlights on' : 'Headlights off');
+    this.switchCar = v ? v.id : -1;
+    this.switchState = v ? v.lights : 'auto';
+  }
+
   /** Speed, mechanical condition and a compact reminder of the controls for the current device. */
   private updateDriving(sim: ViewState): void {
     const v = this.me(sim).character.vehicle;
     const el = this.el;
     const inVehicle = !!v;
+    this.watchSwitch(sim, v);
     this.root.classList.toggle('in-vehicle', inVehicle);
     el.drive!.classList.toggle('hidden', !v || this.me(sim).down);
     if (v) {

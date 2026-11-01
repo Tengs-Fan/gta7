@@ -56,6 +56,7 @@ To play with friends on your network, run the optional multiplayer server (see [
 | Handbrake (vehicle) | Space | RB or A |
 | Shoot from a vehicle (pistol or SMG), or spray the water cannon in the fire truck | Left click | X |
 | Horn, or siren in a police vehicle | E or H | L3 |
+| Headlights on / off (vehicle) | L | B in a vehicle |
 | Radio next / previous (vehicle) | R / Q | D-pad right / left |
 | Enter / exit vehicle (also carjacks) | F or Enter | Y |
 | Interact: missions, shop, save, retry, skip dialogue | E | D-pad up |
@@ -140,6 +141,7 @@ To play with friends on your network, run the optional multiplayer server (see [
   Hit someone or open fire with no police around and a bystander may pull out his phone, and a few seconds later you are wanted unless you stop him first; ram another car hard and its driver may jump out to fight you or run for it.
 - **Driving.** Sixteen vehicles: the Pipsqueak compact, Velora sedan, Azura Cab, Nightjar GT sports car, Thunderhoof muscle car, Dustrunner pickup, Breadbox van, Citybus, Patrol Cruiser, Riot Van, an ambulance and a fire truck, the Viper 600 sport bike and the Zippa 50 scooter, and the Marlin speedboat and Puffin dinghy, and you can steal any road vehicle, even with someone inside.
   Arcade handling with handbrake drifts, skid marks and tire smoke, and the body rocks on its springs over curbs and bumps and rolls with the slope on Hillcrest Green's hill; cars dent, lose their lamps and glass, spark along walls, catch fire when they land on their roof and blow up, and you can see who is inside through the glass.
+  Headlights come on by themselves in the dark (and under dark skies), and L, or B on a gamepad, switches a vehicle's lamps on or off: on by day they show as running lights, and each vehicle keeps its switch when you get out and back in.
   Cars wade through the surf off the beach but sink in deep water, where the people in them swim out or drown, and Azura Pier and the Marina deck can be driven onto, and off.
   Six stunt ramps pay stunt bonuses, doubled for the first jump off each one; the sixth is a hay-bale kicker on Hollister Farm's lane, which throws you down the aisle through the corn.
   Corn falls flat under the bumper and only takes a little speed off a car.
@@ -324,7 +326,7 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Nearby street lamps illuminate cars and facades | six pooled lights | off | off |
 | Dynamic lights (sirens, muzzle flashes, explosions) | all | two, shared | none |
 | Your headlight beam at night | on | on | off |
-| Headlight patches on the road at night (nearest cars, yours included on Low) | 40 | 24 | 12 |
+| Headlight patches on the road at night (nearest cars, yours included, softer where your beam lights the road too) | 40 | 24 | 12 |
 | Rain streaks around the camera | 6,000 | 3,500 | 1,500 |
 | Wet streets | puddles and ripples | puddles and ripples | darker and glossier |
 | Tyre spray on wet roads | on | on | off |
@@ -527,7 +529,7 @@ npm run check                      # typecheck + unit + build + e2e
 
 ### Unit tests
 
-197 files with 2935 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set to a free port) run in Node, with no browser.
+197 files with 2954 tests (one TCP test is skipped unless `GTA7_MP_TEST_PORT` is set to a free port) run in Node, with no browser.
 They cover collision math, world invariants, physics, driver AI, pedestrians, combat, the camera with your back to a wall, the wanted level and the police, every story mission of both chapters completed by a scripted bot with its failure paths and retries, side jobs, the Gull Regatta, the Coyote Ridge Hill Climb and the Gravel Gulch scramble (a scripted lap or run sets each one's medals), Dry Creek (its stores, busts walking out of the Sheriff's Office, people on its boardwalks, Gas & Grits going up) and the Moonbeam Drive-In (its bill on the clock and on a multiplayer client's, its bays, the SHHH), properties, gangs, roadblocks and witnesses, Turbine Row and Smuggler's Key (the older colliders and pickups kept as they were), Las Lomas County's landscape (its rises off every road, plot and verge, its sight cores buried, the lines of sight it hides, the cars and people that climb it, its near and far ground) and its beaches in the sea shader, saves in three slots (with an old single save, extension data per slot and corrupt entries), the content registries, the multiplayer wire protocol, server rooms, room rules and head-to-head races, interest management, the multi-player sim (per-player wanted, pursuits, respawns and streaming), the client's mirror and prediction, a 10-minute chaotic soak test (36,000 frames with a seeded random player), same-seed determinism runs of the wave-1 behaviour (bikes, boats, grenades and molotovs, witnesses, angry drivers, every new job, a business over a game day, gangs and roadblocks), the layering rules (no three.js or browser code in the sim, the protocol or the server), this README's Controls table against the real key bindings, and the mission 3 asset pipeline and families (the manifest and licenses, the asset library and its warm-up, characters, cars, bikes and boats, buildings, ground and water, props, lighting, guns and effects, and the car reflection cube), with the real models loaded from disk.
 The renderer, crowd, HUD, menus, input, audio and `Game` flows run against small in-file fakes (canvas, WebGL renderer, Web Audio, `localStorage`), and one file even runs the particle and skid-mark shaders through a small GLSL interpreter on the CPU.
 The police tests are statistics over many deterministic seeds, and they set the suite's run time.

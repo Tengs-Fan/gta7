@@ -39,6 +39,8 @@ export interface PlayerInput {
   handbrake: boolean;
   horn: boolean;
   hornPressed: boolean;
+  /** The headlight switch (pressed): flips the lamps the player sees. */
+  lightsPressed: boolean;
   /** Toggle taxi / vigilante job (pressed). */
   job: boolean;
 }
@@ -68,6 +70,7 @@ export function neutralInput(): PlayerInput {
     handbrake: false,
     horn: false,
     hornPressed: false,
+    lightsPressed: false,
     job: false,
   };
 }

@@ -3,10 +3,11 @@
 // generated with WebAudio nodes.
 
 import { clamp } from '../core/math';
-import type { Vehicle } from '../sim/entities';
+import type { LampSwitch, Vehicle } from '../sim/entities';
 import { hollister } from '../sim/farm';
 import { dairyman } from '../sim/farms';
 import type { SimEvents } from '../sim/events';
+import { lampDarkness, lampsLit } from '../sim/lamps';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { VehicleKind, WeaponId } from '../sim/specs';
 import { attractionOf } from '../world/attractions';
@@ -92,6 +93,9 @@ export class AudioEngine {
   private ambience: Ambience | null = null;
   private hornNodes: { osc1: OscillatorNode; osc2: OscillatorNode; gain: GainNode } | null = null;
   private hornKind: VehicleKind | null = null;
+  /** The player's vehicle (id, -1: none) and where its headlight switch stood at the last frame: a click when that moves, not on getting into another. */
+  private switchCar = -1;
+  private switchState: LampSwitch = 'auto';
   private sirenNodes: { osc: OscillatorNode; gain: GainNode; lfo: OscillatorNode; lfoGain: GainNode } | null = null;
   /** Doppler factor last applied to the siren. */
   private sirenDoppler = 1;
@@ -152,7 +156,7 @@ export class AudioEngine {
   /** The game day the whisper by the Bramble crypt was last heard on (once a night). */
   private whisperDay = -1;
   /** Instrumentation for tests: sounds started since the page loaded. */
-  readonly counters = { gunshots: 0, doorThunks: 0, scrapes: 0, dispatches: 0, barks: 0, voices: 0, echoes: 0 };
+  readonly counters = { gunshots: 0, doorThunks: 0, scrapes: 0, dispatches: 0, barks: 0, voices: 0, echoes: 0, switchClicks: 0 };
   private failed = false;
   private warned = false;
 
@@ -883,6 +887,16 @@ export class AudioEngine {
     this.noiseBurst(this.sfx, t + 0.25, 0.05, 'highpass', 2500, 1, 0.35);
   }
 
+  /** The headlight switch: a short, quiet click, a little higher going on than off. */
+  switchClick(on: boolean): void {
+    if (!this.ready()) return;
+    const t = this.ctx!.currentTime + 0.005;
+    const d = this.uiBus;
+    this.tone(d, t, 'sine', on ? 1500 : 1100, on ? 1450 : 1050, 0.03, 0.05, 0.002);
+    this.noiseBurst(d, t, 0.015, 'highpass', 3500, 1, 0.1);
+    this.counters.switchClicks++;
+  }
+
   /** The player's car door shutting as they get in or out. */
   doorThunk(v: Vehicle): void {
     if (!this.ready() || v.destroyed || v.inWater) return;
@@ -1015,6 +1029,7 @@ export class AudioEngine {
     this.inVehicle = !!pv;
     this.engine!.update(live, t, live ? this.softGround(sim.world, live.pos.x, live.pos.z) : false);
     this.updateHorn(live, t);
+    this.updateSwitch(sim, live);
     this.updateSiren(sim, inGame, t);
     this.updateTrain(sim, inGame, t);
     this.radio.setWanted(inGame ? this.me(sim).wanted.level : 0);
@@ -1051,6 +1066,13 @@ export class AudioEngine {
     const on = !!v && v.horn;
     // 15 ms attack, 60 ms release (three time constants each).
     this.glide.set(h.gain.gain, on ? HORN_LEVEL : 0, t, on ? 0.005 : 0.02);
+  }
+
+  /** A click when the switch of the car the player is in moves (from his own press, or in multiplayer the server's word of it), higher if the lamps are lit now. */
+  private updateSwitch(sim: ViewState, v: Vehicle | null): void {
+    if (v && v.id === this.switchCar && v.lights !== this.switchState) this.switchClick(lampsLit(v, lampDarkness(sim.clock.hours, sim.weather.state.dim)));
+    this.switchCar = v ? v.id : -1;
+    this.switchState = v ? v.lights : 'auto';
   }
 
   /** Siren loudness from the closest police car with its siren on, its pitch shifted by their relative motion. */

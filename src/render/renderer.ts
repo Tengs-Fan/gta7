@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { Vehicle } from '../sim/entities';
+import { lampDarkness, lampsLit } from '../sim/lamps';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
 import { rectContains } from '../world/layout';
@@ -67,6 +68,13 @@ const SMOKE_CONDITION = 0.45;
  */
 /** Full-beam intensity of the player's headlight at night (both lamps intact). */
 export const HEADLIGHT_INTENSITY = 160;
+/**
+ * The player's own headlight pool where the spot lights the road too, as a share of the pool every other lit car draws.
+ * The pool multiplies what the road already shows and the spot has lit the road just ahead of the car first, so a full
+ * pool there glares from the chase camera: at 0.4 the county road at 23:00 reads luma 121, 91, 52 and 43 at 5, 7, 10 and
+ * 13 m ahead of the bumper (19 with the lamps off, 38, 27, 21 and 21 with the spot alone).
+ */
+export const PLAYER_POOL = 0.4;
 const SIREN_DAY = 25;
 const SIREN_NIGHT = 25;
 const SIREN_RANGE = 12;
@@ -167,7 +175,7 @@ export class GameRenderer {
   readonly crowd = new CrowdView();
   readonly effects = new Effects();
   readonly markers = new MarkerView();
-  readonly lightSprites = new LightSprites();
+  readonly lightSprites: LightSprites;
   /** Contact shadows under the people near the camera (every tier). */
   readonly footShadows = new FootShadows();
   /** The wall-occlusion field's texture (hardware tiers; null on software renderers, whose stand-ins skip it). */
@@ -191,7 +199,7 @@ export class GameRenderer {
   readonly cover: CoverMap;
   /** Ground wetness 0..1 drawn this frame (the sim's weather.wet). */
   private wet = 0;
-  /** How dark the weather makes the day (0 clear .. 1), from the sim each frame: vehicles light up at max(night, weatherDim). */
+  /** How dark the weather makes the day (0 clear .. 1), from the sim each frame: vehicles light up at lampDarkness (the night, or this if it is darker). */
   weatherDim = 0;
   /** The lightning flash on sky and light (Settings: Lightning flashes). Off, a strike changes nothing drawn. */
   lightningFlashes = true;
@@ -257,6 +265,7 @@ export class GameRenderer {
     this.software = gpuClass(gpu.renderer) === 'software';
     this.softwareMaterials = this.software ? new SoftwareMaterials() : null;
     this.hdr = gpu.halfFloat && !this.software;
+    this.lightSprites = new LightSprites(this.hdr);
     // Garage interiors and the occlusion at the foot of walls: patched into three's lighting chunks before the first program is built.
     const field = this.software ? null : wallFieldOf(world.layout);
     this.wallField = field ? wallFieldTexture(field) : null;
@@ -1040,7 +1049,7 @@ export class GameRenderer {
     }
   }
 
-  /** Lamp glows of every drawn vehicle, and headlight pools for the nearest lit ones (the player's only without a headlight spot). */
+  /** Lamp glows of every drawn vehicle, and headlight pools for the nearest lit ones (the player's weaker where its headlight spot lights the road too). */
   private syncLightSprites(sim: ViewState, lights: number): void {
     const ls = this.lightSprites;
     const cam = this.cameraCtl.camera;
@@ -1055,9 +1064,10 @@ export class GameRenderer {
       if (!v || v.removed || !view.group.visible) continue;
       const n = view.lampWorldPositions(glows);
       for (let i = 0; i < n; i++) ls.addGlow(glows[i]!);
-      if (view.lightsOn && !(spot && v === playerCar)) {
+      if (view.lightsOn) {
         const lamps = view.headLamps;
-        if (lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * (lamps / 2));
+        const own = spot && v === playerCar ? PLAYER_POOL : 1;
+        if (lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * own * (lamps / 2));
       }
     }
     // Las Lomas County's reflector posts shine back at the player's own lit car.
@@ -1089,7 +1099,7 @@ export class GameRenderer {
 
   private syncLights(sim: ViewState, night: number): void {
     const v = this.me(sim).character.vehicle;
-    if (v && night > 0.25 && !v.destroyed) {
+    if (v && lampsLit(v, night)) {
       const fx = Math.sin(v.heading);
       const fz = Math.cos(v.heading);
       this.headlight.position.set(v.pos.x + fx * v.halfL, v.pos.y + 0.8, v.pos.z + fz * v.halfL);
@@ -1168,7 +1178,7 @@ export class GameRenderer {
     this.props.setOccluderView(cam.position, sim ? this.cameraCtl.occlusionSubject() : null);
     this.country.farms.sight(cam.position, sim ? this.cameraCtl.occlusionSubject() : null, dt);
     if (sim) {
-      const lights = Math.max(night, this.weatherDim);
+      const lights = lampDarkness(hours, this.weatherDim);
       this.syncVehicles(sim, dt, lights);
       this.lightSprites.dark = lights;
       this.syncLightSprites(sim, lights);

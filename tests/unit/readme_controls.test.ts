@@ -28,6 +28,7 @@ const ROW_OF: Record<ActionId, string> = {
   enterExit: 'Enter / exit vehicle',
   interact: 'Interact',
   horn: 'Horn',
+  lights: 'Headlights',
   reload: 'Reload',
   prevWeapon: 'Choose a weapon',
   job: 'Start / cancel',

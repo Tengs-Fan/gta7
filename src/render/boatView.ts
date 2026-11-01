@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
+import { lampsLit } from '../sim/lamps';
 import { VEHICLE_SPECS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
 import { boatModel, type BoatLamp, type BoatModel } from './boatModels';
@@ -404,8 +405,7 @@ export class BoatView {
     this.group.rotation.set(-v.pitch, v.heading, v.roll);
     this.body.rotation.set(afloat ? -(sw.pitch + this.plane) : 0, 0, afloat ? sw.roll - this.lean : 0);
     this.layFoam(v, afloat && !v.destroyed);
-    const powered = !v.destroyed && v.driver !== null;
-    this.lit = night > 0.35 && powered && !this.burnt;
+    this.lit = lampsLit(v, night);
     this.lampMat.emissiveIntensity = this.lit ? 0.6 + night * 4 : 0.2;
     this.sternMat.emissiveIntensity = this.lit ? 1.2 : 0.2;
     this.group.updateMatrixWorld(true);
