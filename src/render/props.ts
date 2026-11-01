@@ -414,6 +414,14 @@ const LAMP_HALO = 2.2;
 export const LAMP_HEAD = { y: 6.3, reach: 1.55 } as const;
 const LAMP_HALO_Y = LAMP_HEAD.y - 0.08;
 const LAMP_HALO_COLOR = new THREE.Color(0.65, 0.52, 0.33);
+/**
+ * A lit signal lens's glow at night: its own additive halo SIGNAL_HALO m across (never under HALO_MIN_PX pixels), as a
+ * street lamp's, in the lens's colour at full night (red, yellow, green), the lens and halo together under the bloom
+ * threshold; seen only from in front of the lens, so a cross street's lights glow at their own traffic, not at you.
+ */
+const SIGNAL_HALO = 1.1;
+const SIGNAL_HALO_COLORS: readonly Rgb[] = [[0.85, 0.05, 0.02], [0.8, 0.4, 0.02], [0.03, 0.7, 0.35]];
+const NO_HALO: Rgb = [0, 0, 0];
 
 /** A halo is depth-tested as if this much (m) nearer the camera, so the lamp it glows round (its head, a tube) cannot cut into it. */
 const HALO_PULL = 0.6;
@@ -421,9 +429,10 @@ const HALO_PULL = 0.6;
 /**
  * The additive glow round each point of a Points, coloured by its vertex colours, `size` m across but never under
  * HALO_MIN_PX pixels. `map` is the lamp pools' glow texture: on the GPU from the first frame, so lighting up at night
- * uploads nothing.
+ * uploads nothing. A `facing` halo (a signal lens's, with its `aFacing` direction per point) shows only to a camera in
+ * front of its lens, fading out from 60 degrees off its axis to a little past 90.
  */
-function haloMaterial(map: THREE.Texture | null, size: number): THREE.PointsMaterial {
+function haloMaterial(map: THREE.Texture | null, size: number, facing = false): THREE.PointsMaterial {
   const mat = new THREE.PointsMaterial({ size, map, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader.replace(
@@ -432,8 +441,17 @@ function haloMaterial(map: THREE.Texture | null, size: number): THREE.PointsMate
 gl_PointSize = max( gl_PointSize, ${HALO_MIN_PX.toFixed(1)} );
 gl_Position = projectionMatrix * vec4( mvPosition.xyz * max( 0.0, 1.0 - ${HALO_PULL.toFixed(2)} / length( mvPosition.xyz ) ), 1.0 );`,
     );
+    if (facing) {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec3 aFacing;')
+        .replace(
+          '#include <color_vertex>',
+          `#include <color_vertex>
+vColor *= smoothstep( -0.15, 0.5, dot( aFacing, normalize( cameraPosition - ( modelMatrix * vec4( position, 1.0 ) ).xyz ) ) );`,
+        );
+    }
   };
-  mat.customProgramCacheKey = () => 'gta7-halo';
+  mat.customProgramCacheKey = () => (facing ? 'gta7-halo-facing' : 'gta7-halo');
   return mat;
 }
 
@@ -568,7 +586,9 @@ export class PropsView {
   private readonly poolMat: THREE.MeshBasicMaterial;
   /** Every signal's lit parts citywide, one quad each (litQuads), and by signal its first quad, their roles and what they show. */
   private signalLit: THREE.InstancedMesh | null = null;
-  private readonly signalSlots: Array<{ first: number; roles: readonly QuadRole[] }> = [];
+  private readonly signalSlots: Array<{ first: number; roles: readonly QuadRole[]; halo: number }> = [];
+  /** A halo round every signal lens (SIGNAL_HALO), from each signal's slot `halo` on, three to a head; dark unless lit. */
+  private signalHalos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> | null = null;
   private signalKeys: Float64Array = new Float64Array(0);
   /** The lit quads' palette by LIT entry and the faint grid of their unlit LEDs. */
   private readonly litColors = litPalette();
@@ -1043,12 +1063,19 @@ export class PropsView {
     // The quads stand round their signal's foot, not on the unit quad: its sphere is theirs.
     const reach = new THREE.Box3();
     const m = new THREE.Matrix4();
+    const halos: number[] = [];
+    const facing: number[] = [];
     let at = 0;
     signals.forEach((pi, k) => {
       const p = L.props[pi]!;
       PropsView.standard(p, m);
       const base = m.clone();
-      this.signalSlots.push({ first: at, roles: quads[k]!.map((q) => q.role) });
+      this.signalSlots.push({ first: at, roles: quads[k]!.map((q) => q.role), halo: halos.length / 3 });
+      for (const q of quads[k]!) {
+        if (q.role.kind !== 'lens') continue;
+        halos.push(...placed(p, ...q.at));
+        facing.push(Math.sin(p.rot + q.turn), 0, Math.cos(p.rot + q.turn));
+      }
       // A walk head facing no crosswalk (a T junction's) stays blank.
       const crosses = walkAxes(this.world.roads, p);
       for (const q of quads[k]!) {
@@ -1071,6 +1098,15 @@ export class PropsView {
     this.group.add(mesh);
     this.signalLit = mesh;
     this.signalKeys = new Float64Array(signals.length).fill(-1);
+    const haloGeo = new THREE.BufferGeometry();
+    haloGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(halos), 3));
+    haloGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(halos.length), 3).setUsage(THREE.DynamicDrawUsage));
+    haloGeo.setAttribute('aFacing', new THREE.BufferAttribute(new Float32Array(facing), 3));
+    const glow = new THREE.Points(haloGeo, haloMaterial(this.poolMat.map, SIGNAL_HALO, true));
+    glow.name = 'signalHalos';
+    glow.visible = false;
+    this.group.add(glow);
+    this.signalHalos = glow;
   }
 
   /** What signal `i` shows at sim time `t`. */
@@ -1642,11 +1678,14 @@ export class PropsView {
     palette[LIT.yellowOff]!.setRGB(0.11 * dim, 0.06 * dim, 0.008 * dim);
     palette[LIT.greenOff]!.setRGB(0.01 * dim, 0.09 * dim, 0.05 * dim);
     this.litDots.value = 0.045 * dim;
-    // Each signal is rewritten only when what it shows changes: a few times a second citywide.
+    // Each signal is rewritten only when what it shows changes: a few times a second citywide. A lit lens's halo takes
+    // its colour, a dark one none; at night they glow (see SIGNAL_HALO).
     const quads = this.signalLit;
-    if (quads) {
+    const glow = this.signalHalos;
+    if (quads && glow) {
       const attr = quads.geometry.getAttribute('aLit') as THREE.InstancedBufferAttribute;
       const a = attr.array as Float32Array;
+      const halo = glow.geometry.getAttribute('color') as THREE.BufferAttribute;
       const out: [number, number] = [0, 0];
       let changed = false;
       this.signalSlots.forEach((slot, i) => {
@@ -1654,10 +1693,18 @@ export class PropsView {
         const key = showKey(show);
         if (key === this.signalKeys[i]) return;
         this.signalKeys[i] = key;
-        slot.roles.forEach((role, j) => a.set(quadLit(role, show, out), (slot.first + j) * 2));
+        slot.roles.forEach((role, j) => {
+          a.set(quadLit(role, show, out), (slot.first + j) * 2);
+          if (role.kind === 'lens') halo.setXYZ(slot.halo + role.head * 3 + role.k, ...(out[1] >= LIT.red && out[1] <= LIT.green ? SIGNAL_HALO_COLORS[role.k]! : NO_HALO));
+        });
         changed = true;
       });
-      if (changed) attr.needsUpdate = true;
+      if (changed) {
+        attr.needsUpdate = true;
+        halo.needsUpdate = true;
+      }
+      glow.material.color.setScalar(night);
+      glow.visible = night > 0.02;
     }
     // Ferris wheel.
     const f = this.ferris;

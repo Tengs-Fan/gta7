@@ -360,3 +360,53 @@ describe('the walk heads on the poles', () => {
     expect(checked).toBeGreaterThan(5000);
   });
 });
+
+describe('the signals\' glow at night', () => {
+  it('a halo on every lens, lit in its colour only round the lens that is lit, at night, and dark round a knocked-over signal', () => {
+    const props = new PropsView(W);
+    const priv = props as unknown as { signalSlots: Array<{ halo: number; roles: readonly QuadRole[] }>; signalHalos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>; signalPropIndex: number[] };
+    const halos = priv.signalHalos;
+    const pos = halos.geometry.getAttribute('position');
+    const col = halos.geometry.getAttribute('color');
+    const t = 7.3;
+    props.update(0, 0, t);
+    expect(halos.visible).toBe(false);
+    props.update(0, 1, t);
+    expect(halos.visible).toBe(true);
+    expect(halos.material.customProgramCacheKey()).toBe('gta7-halo-facing');
+    // Only toward a camera in front of its lens.
+    const lib = THREE.ShaderLib.points;
+    const shader = { uniforms: THREE.UniformsUtils.clone(lib.uniforms), vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader } as unknown as THREE.WebGLProgramParametersWithUniforms;
+    halos.material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    expect(shader.vertexShader).toContain('vColor *= smoothstep( -0.15, 0.5, dot( aFacing');
+    expect(halos.geometry.getAttribute('aFacing').count).toBe(pos.count);
+    let lit = 0;
+    signals.forEach((p, i) => {
+      const slot = priv.signalSlots[i]!;
+      const state = roads.signalState(p.node, axisOf(p.dir as Dir), t);
+      signalLayout(signalStyle(roads, p)).heads.forEach((_, head) => {
+        for (let k = 0; k < 3; k++) {
+          const v = slot.halo + head * 3 + k;
+          expect(new THREE.Vector3(pos.getX(v), pos.getY(v), pos.getZ(v)).distanceTo(props.signalLens(i, head, k).at)).toBeLessThan(1e-4);
+          const on = ['red', 'yellow', 'green'][k] === state;
+          const c = [col.getX(v), col.getY(v), col.getZ(v)];
+          if (!on) expect(c).toEqual([0, 0, 0]);
+          else {
+            lit++;
+            // Its own colour's channel leads.
+            expect(Math.max(...c)).toBe(c[k === 2 ? 1 : 0]);
+          }
+        }
+      });
+    });
+    expect(lit).toBeGreaterThan(signals.length);
+    const k = 5;
+    props.breakProp(priv.signalPropIndex[k]!, 0, 1);
+    props.update(0, 1, t);
+    const slot = priv.signalSlots[k]!;
+    for (let v = slot.halo; v < slot.halo + 3 * signalLayout(signalStyle(roads, signals[k]!)).heads.length; v++) expect([col.getX(v), col.getY(v), col.getZ(v)]).toEqual([0, 0, 0]);
+    props.restoreAll();
+    props.update(0, 1, t);
+    expect([0, 1, 2].some((j) => col.getX(slot.halo + j) + col.getY(slot.halo + j) > 0)).toBe(true);
+  });
+});
