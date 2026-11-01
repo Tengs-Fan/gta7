@@ -26,7 +26,7 @@ import { BikeView } from '../../src/render/bikeView';
 import { BoatView } from '../../src/render/boatView';
 import { VehicleView } from '../../src/render/vehicleView';
 import { darkness } from '../../src/sim/clock';
-import type { LampSwitch, Vehicle } from '../../src/sim/entities';
+import type { Character, LampSwitch, Vehicle } from '../../src/sim/entities';
 import { lampDarkness, lampsLit, lampsPowered, LAMPS_DARK, switchFor } from '../../src/sim/lamps';
 import type { VehicleKind } from '../../src/sim/specs';
 import { neutralInput } from '../../src/sim/input';
@@ -297,18 +297,52 @@ describe('the press', () => {
     expect(other.lights).toBe('auto');
     expect(v.lights).toBe('on');
   });
+});
 
-  it('leaves the traffic’s own lamps on auto', () => {
-    const sim = makeSim({ world: world(), police: true, ambient: true });
-    sim.clock.set(23);
-    sim.cheats.neverWanted = true;
-    const lane = sim.roads.nearestLane(sim.player.pos.x, sim.player.pos.z).lane;
-    const v = sim.spawnVehicle('sedan', lane.sx + lane.dx * 20, lane.sz + lane.dz * 20, lane.heading);
-    sim.seat(sim.player, v, 0);
-    step(sim, 20, (t) => input({ lightsPressed: Math.floor(t * 2) % 2 === 0 && t % 0.5 < 1 / 30 }));
-    const others = sim.vehicles.filter((u) => u !== v);
-    expect(others.length).toBeGreaterThan(0);
-    expect(others.every((u) => u.lights === 'auto')).toBe(true);
+describe('an AI at the wheel leaves the traffic’s own lamps on auto', () => {
+  /** The player drove a car at night and switched its lamps off, then got out of it. */
+  function switchedAndLeft() {
+    const g = driving(23);
+    press(g.sim);
+    expect(g.v.lights).toBe('off');
+    g.sim.unseat(g.sim.player);
+    return g;
+  }
+  /** Beside the driver's door, where an AI who comes back to the car stands. */
+  const atDoor = (sim: Sim, v: Vehicle, role: 'civilian' | 'cop') =>
+    sim.spawnCharacter(role, v.pos.x + Math.cos(v.heading) * (v.halfW + 0.6), v.pos.z - Math.sin(v.heading) * (v.halfW + 0.6));
+
+  it('takes a car the player switched back to `auto`, and another player at the wheel keeps the switch', () => {
+    const { sim, v } = switchedAndLeft();
+    sim.seat(sim.spawnCharacter('civilian', v.pos.x, v.pos.z), v, 0);
+    expect(v.lights).toBe('auto');
+    sim.unseat(v.driver!);
+    v.lights = 'off';
+    const other = sim.addPlayer(v.pos.x + 3, v.pos.z);
+    sim.seat(other.character, v, 0);
+    expect(v.lights).toBe('off');
+    // A passenger's seat is no one's wheel.
+    const w = sim.spawnVehicle('sedan', v.pos.x + 9, v.pos.z, 0.4);
+    w.lights = 'on';
+    sim.seat(sim.spawnCharacter('civilian', w.pos.x, w.pos.z), w, 1);
+    expect(w.lights).toBe('on');
+  });
+
+  it('puts a car back on `auto` when its angry driver walks back to it', () => {
+    const { sim, v } = switchedAndLeft();
+    const driver = atDoor(sim, v, 'civilian');
+    sim.angryDrivers.active.push({ driver, car: v, by: sim.player, fights: true, hitAt: sim.time, state: 'returning', outAt: sim.time, backSince: sim.time, end: 'none' });
+    step(sim, 2);
+    expect(v.driver).toBe(driver);
+    expect(v.lights).toBe('auto');
+  });
+
+  it('puts a cruiser back on `auto` when its officer returns to it', () => {
+    const { sim, v } = switchedAndLeft();
+    const cop = atDoor(sim, v, 'cop');
+    (sim.police as unknown as { walkToCar(c: Character, car: Vehicle, dt: number, level: number): void }).walkToCar(cop, v, 1 / 60, 0);
+    expect(v.driver).toBe(cop);
+    expect(v.lights).toBe('auto');
   });
 });
 

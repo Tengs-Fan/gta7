@@ -420,6 +420,8 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     if (seat === 0) {
       v.driver = c;
       v.lastDriver = c;
+      // The headlight switch is a player's: anyone else at the wheel drives on `auto`.
+      if (!c.isPlayer) v.lights = 'auto';
     } else {
       v.passengers[seat - 1] = c;
     }
