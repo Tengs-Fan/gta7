@@ -3,6 +3,7 @@
 
 import { rectContains, type Poi } from '../world/layout';
 import { getActivity } from './activities';
+import { awaitedCab } from './activities/cab';
 import { monorailPrompt, rideMonorail } from './activities/monorail';
 import { places } from './activities/places';
 import { epitaphMarkers, readEpitaph } from './epitaphs';
@@ -134,7 +135,7 @@ export class Interactions {
   prompt(slot: PlayerView = this.sim.players[0]!): string | null {
     const sim = this.sim;
     const m = this.current(slot);
-    if (!m) return this.vehiclePrompt(slot) ?? this.retryPrompt(slot);
+    if (!m) return this.vehiclePrompt(slot) ?? this.retryPrompt(slot) ?? this.enterPrompt(slot);
     if (m.kind === 'mission') {
       if (sim.missions.active) return null;
       return this.startBlock(slot, false) ?? m.label;
@@ -179,6 +180,22 @@ export class Interactions {
       return this.startBlock(slot, false) ?? `Get out of the vehicle to start "${def?.title ?? ''}"`;
     }
     return null;
+  }
+
+  /**
+   * On foot or swimming beside the vehicle F would enter (the controller's own choice, so the prompt cannot name a
+   * vehicle F then passes over): what F does there. Markers and the retry offer come first. A cab the player called
+   * takes him as its passenger (the cab system takes the key); any other with someone at the wheel is a carjacking.
+   */
+  private enterPrompt(slot: PlayerView): string | null {
+    const p = slot.character;
+    // The controller ignores every key while control is locked (a ride on AzuraLink, a countdown).
+    if (!p.onFoot || slot.down || slot.controlLock > 0) return null;
+    const v = slot.ctl.findEnterable(p, p.state === 'swimming');
+    if (!v) return null;
+    const name = v.spec.name;
+    if (v.driver && !(slot.id === 0 && awaitedCab(this.sim) === v)) return `Press F to carjack the ${name}`;
+    return `Press F to ${v.spec.class === 'boat' ? 'board' : 'get in'} the ${name}`;
   }
 
   /** Offers the retry of a mission that just failed (markers under the player come first). */

@@ -3817,6 +3817,26 @@ describe('R2 onboarding: key glyphs for the active device', () => {
     expect(el.prompt!.innerHTML).not.toContain('pad');
   });
 
+  it('the HUD draws the vehicle prompt with the key bound to enter / exit, and with Y on a pad', () => {
+    const labels = new KeyLabels();
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()), labels);
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    const v = besideNewCar(sim);
+    sim.addDriver(v, 'civilian', 'traffic');
+    const prompt = sim.interactions.prompt();
+    expect(prompt).toBe(`Press F to carjack the ${v.spec.name}`);
+    hud.update(1 / 60, sim, 0, false, prompt, 0);
+    expect(el.prompt!.innerHTML).toBe(`Press <kbd>F</kbd> to carjack the ${v.spec.name}`);
+    labels.keymap.set({ ...DEFAULT_BINDINGS, enterExit: 'KeyG' });
+    hud.update(1 / 60, sim, 0, false, prompt, 0);
+    expect(el.prompt!.innerHTML).toBe(`Press <kbd>G</kbd> to carjack the ${v.spec.name}`);
+    hud.device = 'pad';
+    hud.update(1 / 60, sim, 0, false, prompt, 0);
+    expect(el.prompt!.innerHTML).toBe(`Press <kbd class="pad pad-y">Y</kbd> to carjack the ${v.spec.name}`);
+  });
+
   it('a showing help box is redrawn when the player switches device', () => {
     const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
     const el = (hud as unknown as { el: Record<string, FakeElement> }).el;

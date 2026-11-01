@@ -103,6 +103,12 @@ function cabJob(sim: Sim): CabJob | null {
   return j?.kind === 'cab' ? j : null;
 }
 
+/** The cab the player called, while it comes or waits: F beside it takes him aboard as its passenger (no carjacking). */
+export function awaitedCab(sim: Sim): Vehicle | null {
+  const j = cabJob(sim);
+  return j && (j.stage === 'coming' || j.stage === 'waiting') ? j.cab : null;
+}
+
 /** The road point nearest (x, z): where a cab stops for someone standing there. */
 function roadPoint(sim: Sim, x: number, z: number): { x: number; z: number } {
   const { lane, s } = sim.roads.nearestLane(x, z);
@@ -509,7 +515,7 @@ registerSystem({
       }
       return;
     }
-    if ((j.stage !== 'coming' && j.stage !== 'waiting') || p.state !== 'normal' || p.vehicle) return;
+    if (awaitedCab(sim) !== v || p.state !== 'normal' || p.vehicle) return;
     if (Math.hypot(v.pos.x - p.pos.x, v.pos.z - p.pos.z) > BOARD_REACH + v.halfL * 0.5) return;
     inp.enterExit = false;
     if (v.speed < 0.8 && board(sim, j)) {
