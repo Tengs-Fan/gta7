@@ -1,5 +1,5 @@
-// The on-foot prompt for taking a vehicle ("Press F to get in the Velora", "... to carjack the Velora", "... to board the
-// Marlin"): it names the vehicle PlayerController.findEnterable picks, for the slot it is asked about, after the marker
+// The on-foot prompt for taking a vehicle ("Press F to get in the Velora", "... to get on the Viper 600", "... to steal the
+// Patrol Cruiser", "... to carjack the Velora", "... to board the Marlin"): it names the vehicle PlayerController.findEnterable picks, for the slot it is asked about, after the marker
 // prompts and the retry offer, and never for a vehicle F would pass over.
 
 import { describe, expect, it } from 'vitest';
@@ -65,6 +65,49 @@ describe('the prompt for taking a vehicle', () => {
     const sim = makeSim({ police: false });
     stoppedInTraffic(sim, 'police', 'cop');
     expect(prompt(sim)).toBe('Press F to carjack the Patrol Cruiser');
+  });
+
+  it.each([
+    ['sportbike', 'Viper 600'],
+    ['scooter', 'Zippa 50'],
+  ] as const)('a %s is something to get on, not into', (kind, name) => {
+    const sim = makeSim({ police: false });
+    const v = parkedWithPlayer(sim, kind);
+    expect(sim.playerCtl.findEnterable(sim.player)).toBe(v);
+    expect(prompt(sim)).toBe(`Press F to get on the ${name}`);
+    step(sim, DT, input({ enterExit: true }));
+    step(sim, 1.5);
+    expect(sim.player.vehicle).toBe(v);
+  });
+
+  it('an empty police vehicle is a theft, as F makes it one, until the player has taken it', () => {
+    const sim = makeSim({ police: false });
+    const v = parkedWithPlayer(sim, 'police');
+    v.owner = 'police';
+    const crimes: string[] = [];
+    const crime = sim.wanted.crime.bind(sim.wanted);
+    sim.wanted.crime = (type, x, z, by) => {
+      crimes.push(type);
+      return crime(type, x, z, by);
+    };
+    expect(prompt(sim)).toBe('Press F to steal the Patrol Cruiser');
+    step(sim, DT, input({ enterExit: true }));
+    step(sim, 3);
+    expect(sim.player.vehicle).toBe(v);
+    expect(crimes).toEqual(['stealPoliceCar']);
+    // Out of it again, it is his: no crime to take it back, so none is named.
+    sim.playerCtl.ejectPlayer(true);
+    expect(v.owner).toBe('none');
+    expect(prompt(sim)).toBe('Press F to get in the Patrol Cruiser');
+  });
+
+  it('a police vehicle that is not the police\'s to lose is only a car', () => {
+    const sim = makeSim({ police: false });
+    const v = parkedWithPlayer(sim, 'swat');
+    expect(v.owner).toBe('parked');
+    expect(prompt(sim)).toBe('Press F to get in the Riot Van');
+    v.owner = 'police';
+    expect(prompt(sim)).toBe('Press F to steal the Riot Van');
   });
 
   it('a boat is boarded from the water or the pier, and one with a skipper is a carjacking as F makes it one', () => {

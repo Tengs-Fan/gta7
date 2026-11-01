@@ -73,7 +73,9 @@ To play with friends on your network, run the optional multiplayer server (see [
 - Weapon slots: 1 Fists, 2 Pistol, 3 SMG, 4 Shotgun, 5 Assault Rifle, 6 Rocket Launcher, 7 Baseball Bat / Combat Knife, 8 Grenade / Molotov Cocktail, 9 Sniper Rifle; pressing 7 or 8 again switches between the two weapons on that key.
   The wheel, Q and LB / RB step through the weapons you own that still have ammo; in a vehicle only the pistol and SMG fire, Q changes the station, and on a gamepad LB steps the weapons (RB is the handbrake).
 - Taking a vehicle: walk up to it, or swim up to a boat, and the prompt at the bottom of the screen names what F does there.
-  "Press F to get in the Velora" and "Press F to board the Marlin" are empty ones, and "Press F to carjack the Velora" is one with someone at the wheel, the car stopped at a light or crawling in traffic included.
+  "Press F to get in the Velora", "Press F to get on the Viper 600" and "Press F to board the Marlin" are empty ones.
+  "Press F to steal the Patrol Cruiser" is an empty police vehicle, and taking one from the police is a crime in itself, worth two stars at once.
+  "Press F to carjack the Velora" is one with someone at the wheel, the car stopped at a light or crawling in traffic included.
   A car faster than 7 m/s offers nothing, and a marker's prompt, or a failed mission's "Press E to retry", comes before it.
   The notice that a retry must wait ("Lose the cops before retrying.", "Finish the rampage first.") comes after it, so a wanted player beside a car is offered the car.
 - Getting out of a moving car: below 3.5 m/s you step out, up to 11 m/s the car brakes first, and faster than that you bail out, tumble and lose 6 health.
