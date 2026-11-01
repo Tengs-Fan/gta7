@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { BEACH_W, CURB_H, SAND_DROP, SEABED_Y, WATER_Y } from '../world/constants';
 import { countryGround, type Country } from '../world/country';
 import { rectContains, type Bounds, type Rect } from '../world/layout';
+import { WATER_TILT } from './textures';
 import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_SLOPE2_GLSL, SEA_WAVES_GLSL, SKIRT_EXTENT, wavePhases } from './waves';
 
 /** The sand's drop-off into deep water past the beach's end (CityView.buildCoast), m. */
@@ -25,6 +26,13 @@ const DEEP = 0x0a2c40;
 const ABYSS = 0x061a29;
 /** Water's reflectance looking straight down (Schlick's F0 for an index of 1.33). */
 export const SEA_F0 = 0.02;
+/**
+ * The water's own roughness, under the ripples it draws: near the floor three allows (0.0525), so the sun and moon
+ * glint in the ripples round the camera; the ripples faded out with distance add theirs on top (patchSeaMaterial).
+ */
+export const SEA_ROUGHNESS = 0.06;
+/** The ripples' normal scale (the material's): chop steep enough to break the sky's reflection up round the camera. */
+export const SEA_RIPPLE = 0.36;
 /**
  * The drawn seabed keeps falling offshore past the sim's flat SEABED_Y (render only; the sim's waterDepth stays as it
  * is): SHELF_SLOPE m per m beyond SHELF_START m outside the land rectangle (where the beach's drop-off ends).
@@ -81,6 +89,25 @@ export const RIPPLE_D = { scale: 1.66, cos: 0.6, sin: 0.8, weight: 0.55 } as con
 export const RIPPLE_AB_GAIN = 0.8;
 /** The first ripple layer's tile (m): the 6 km plane's UV repeated 900 times (Environment). */
 export const RIPPLE_A_TILE = 6000 / 900;
+/**
+ * The fifth and finest ripple layer, the capillary ripples that glitter round the camera: its tile (m; against the
+ * others' 7.66, 20.6, 2.79 and 4.6 times) and its turn.
+ */
+export const RIPPLE_E = { tile: 0.87, cos: -0.83, sin: 0.56, weight: 0.45 } as const;
+/**
+ * Each ripple layer fades out as a pixel's footprint on the water grows from the first to the second of these shares
+ * of its tile (a tile holds 4 to 14 ripples), before its ripples shrink to a pixel and shimmer; the first two layers
+ * fade together, as one tile of RIPPLE_AB_TILE m. What a layer loses goes into the roughness instead (seaLost), so
+ * the far sea calms into a sheen whose sun path widens rather than vanishing.
+ */
+export const RIPPLE_FADE = [0.04, 0.25] as const;
+export const RIPPLE_AB_TILE = 10.7;
+/**
+ * The ripples' strength by sea state: this share of the material's normal scale at sea state 0, rising by
+ * RIPPLE_SEA_GAIN at 1 (a storm's chop is rougher than a calm's).
+ */
+export const RIPPLE_SEA_BASE = 0.75;
+export const RIPPLE_SEA_GAIN = 0.5;
 
 /** Centres of a deck's pilings that stand in water deeper than -0.1 m (as drawn by CityView.buildCoast). */
 export function pilingCentres(rect: Rect, baseGround: (x: number, z: number) => number): Array<{ x: number; z: number }> {
@@ -503,11 +530,12 @@ export const SHORE_DAMP = 0.35;
 /**
  * Patches the sea's (already ripple-patched) standard material: world-anchored ripple UVs (the mesh follows the
  * camera), vertex displacement scaled by uDisplace (damped over the shallows), the ripples warped and their strength
- * modulated by low-frequency samples of the ripple tile itself, a third and a fourth ripple layer, the wave slopes added to the
- * ripple normal, the shallows' colour and foam, water's reflectance (SEA_F0) and the sky it reflects (SEA_SKY_GLSL;
- * `sky` where there is no environment map). Three's lighting then splits each pixel by Fresnel between the dark body
- * looking down and the sky towards the horizon. Only uniforms change at runtime: the grid on or off and the sea state
- * never rebuild the program.
+ * modulated by low-frequency samples of the ripple tile itself and by the sea state, a third, fourth and fifth ripple
+ * layer, every layer faded out with distance into the roughness (RIPPLE_FADE), the wave slopes added to the ripple
+ * normal, the shallows' colour and foam, water's reflectance (SEA_F0) and the sky it reflects (SEA_SKY_GLSL; `sky`
+ * where there is no environment map). Three's lighting then splits each pixel by Fresnel between the dark body looking
+ * down and the sky towards the horizon. Only uniforms change at runtime: the grid on or off and the sea state never
+ * rebuild the program.
  */
 export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms, sky: SeaSky | null): void {
   const ripples = mat.onBeforeCompile.bind(mat);
@@ -515,6 +543,10 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   const c = RIPPLE_C;
   const cScale = RIPPLE_A_TILE / c.tile;
   const d = RIPPLE_D;
+  const e = RIPPLE_E;
+  const eScale = RIPPLE_A_TILE / e.tile;
+  /** GLSL: 1 for the layer with this tile (m) while the pixel's footprint seaPx is small against it, fading to 0. */
+  const kept = (tile: number) => `( 1.0 - smoothstep( ${n(RIPPLE_FADE[0] * tile)}, ${n(RIPPLE_FADE[1] * tile)}, seaPx ) )`;
   mat.onBeforeCompile = (shader, renderer) => {
     ripples(shader, renderer);
     Object.assign(shader.uniforms, u);
@@ -548,17 +580,18 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
         '#include <color_fragment>',
         `#include <color_fragment>
   float seaDepth = seaDepthAt( vSeaXZ );
+  // Metres of water per screen pixel.
+  float seaPx = length( fwidth( vSeaXZ ) );
   float seaFoamAmt = 0.0;
 #ifdef USE_NORMALMAP
   {
     vec2 fuv = vSeaXZ * 0.031 + uFoamDrift;
     float seaNoise = texture2D( normalMap, fuv ).x * 0.6 + texture2D( normalMap, fuv * 2.37 + 0.31 ).y * 0.4;
-    seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp, length( fwidth( vSeaXZ ) ) );
+    seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp, seaPx );
   }
 #endif
   diffuseColor.rgb = mix( seaShallows( diffuseColor.rgb, seaDepth, vSeaXZ ), vec3( 0.82, 0.86, 0.86 ), seaFoamAmt );`,
       )
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( roughnessFactor, 0.85, seaFoamAmt );')
       .replace('#include <aomap_fragment>', `reflectedLight.indirectDiffuse *= 1.0 + ${n(FOAM_SKY_LIFT)} * seaFoamAmt;\n#include <aomap_fragment>`)
       .replace(
         '#include <normal_fragment_begin>',
@@ -568,8 +601,10 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   vec2 seaWarp = ( texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.a)} + vec2( 0.21, 0.57 ) ).xy - 0.5 ) * ${n(RIPPLE_WARP.gainA)}
     + ( texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.b)} + vec2( 0.63, 0.12 ) ).yx - 0.5 ) * ${n(RIPPLE_WARP.gainB)};
   vec2 seaRippleUv = vNormalMapUv + seaWarp;
-  vec2 seaNormalScale = normalScale * ( 0.85 + 0.3 * smoothstep( 0.4, 0.6, texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.macro)} + vec2( 0.4, 0.9 ) ).x ) );
-  vec2 seaNormalScaleAB = seaNormalScale * ${n(RIPPLE_AB_GAIN)};
+  vec2 seaNormalScale = normalScale * ( 0.85 + 0.3 * smoothstep( 0.4, 0.6, texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.macro)} + vec2( 0.4, 0.9 ) ).x ) )
+    * ( ${n(RIPPLE_SEA_BASE)} + ${n(RIPPLE_SEA_GAIN)} * uSeaAmp );
+  float seaKeptAB = ${kept(RIPPLE_AB_TILE)};
+  vec2 seaNormalScaleAB = seaNormalScale * ${n(RIPPLE_AB_GAIN)} * seaKeptAB;
 #define vNormalMapUv seaRippleUv
 #define normalScale seaNormalScaleAB
 #endif`,
@@ -577,16 +612,31 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
       .replace(
         '#include <emissivemap_fragment>',
         `{
-    vec2 seaS = seaSlope( vSeaXZ, distance( cameraPosition.xz, vSeaXZ ) ) * ( 1.0 - 0.6 * seaFoamAmt );
+    float seaDist = distance( cameraPosition.xz, vSeaXZ );
+    vec2 seaS = seaSlope( vSeaXZ, seaDist ) * ( 1.0 - 0.6 * seaFoamAmt );
+    // The mean square slope of everything faded out with distance, which the roughness takes over.
+    float seaLost = seaSlopeLost( seaDist );
 #ifdef USE_NORMALMAP
     // A third, finer ripple layer, turned and drifting its own way (uFoamDrift wraps at 1: whole tiles of this layer).
+    float seaKeptC = ${kept(c.tile)};
     vec2 seaCuv = mat2( ${n(c.cos)}, ${n(-c.sin)}, ${n(c.sin)}, ${n(c.cos)} ) * seaRippleUv * ${n(cScale)} + uFoamDrift.yx * 3.0;
-    seaS += ( texture2D( normalMap, seaCuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(c.weight)};
+    seaS += ( texture2D( normalMap, seaCuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(c.weight)} * seaKeptC;
     // A fourth layer at the first one's scale, turned the other way (uFoamDrift times a whole number wraps by whole tiles).
+    float seaKeptD = ${kept(RIPPLE_A_TILE / d.scale)};
     vec2 seaDuv = mat2( ${n(d.cos)}, ${n(d.sin)}, ${n(-d.sin)}, ${n(d.cos)} ) * seaRippleUv * ${n(d.scale)} - uFoamDrift * 2.0 + vec2( 0.37, 0.71 );
-    seaS += ( texture2D( normalMap, seaDuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(d.weight)};
+    seaS += ( texture2D( normalMap, seaDuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(d.weight)} * seaKeptD;
+    // The fine capillary ripples, near the camera only.
+    float seaKeptE = ${kept(e.tile)};
+    vec2 seaEuv = mat2( ${n(e.cos)}, ${n(-e.sin)}, ${n(e.sin)}, ${n(e.cos)} ) * seaRippleUv * ${n(eScale)} + uFoamDrift * 5.0;
+    seaS += ( texture2D( normalMap, seaEuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(e.weight)} * seaKeptE;
+    // A layer at normal scale s has a mean square slope of (WATER_TILT s)^2; the first two sum to one layer's.
+    seaLost += ${n(WATER_TILT * WATER_TILT)} * seaNormalScale.x * seaNormalScale.x * (
+      ${n(RIPPLE_AB_GAIN * RIPPLE_AB_GAIN)} * ( 1.0 - seaKeptAB * seaKeptAB ) + ${n(c.weight * c.weight)} * ( 1.0 - seaKeptC * seaKeptC )
+      + ${n(d.weight * d.weight)} * ( 1.0 - seaKeptD * seaKeptD ) + ${n(e.weight * e.weight)} * ( 1.0 - seaKeptE * seaKeptE ) );
 #endif
     normal = normalize( normal + mat3( viewMatrix ) * vec3( -seaS.x, 0.0, -seaS.y ) );
+    // GGX's alpha squared is about the facets' mean square slope: the lost slopes add to the material's own (alpha = r^2).
+    roughnessFactor = mix( sqrt( sqrt( pow4( roughnessFactor ) + seaLost ) ), 0.85, seaFoamAmt );
   }
 #include <emissivemap_fragment>`,
       );

@@ -7,7 +7,7 @@ import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
 import { CAUSEWAY_NAME } from '../world/country';
 import { mkRect, type CityLayout, type Rect } from '../world/layout';
-import { countyShore, patchSeaMaterial, SEA_MID, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
+import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 import { CALM_SEA } from './waves';
 import { assets } from './assets';
@@ -997,7 +997,7 @@ export class Environment {
 
     this.waterNormal = waterNormalTexture();
     this.waterNormal.repeat.set(900, 900);
-    const waterMat = new THREE.MeshStandardMaterial({ color: SEA_MID, roughness: 0.22, metalness: 0, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22) });
+    const waterMat = new THREE.MeshStandardMaterial({ color: SEA_MID, roughness: SEA_ROUGHNESS, metalness: 0, normalMap: this.waterNormal, normalScale: new THREE.Vector2(SEA_RIPPLE, SEA_RIPPLE) });
     twoLayerRipples(waterMat, this.rippleA, this.rippleB);
     patchSeaMaterial(waterMat, this.sea, this.envFill ? this.skyReflection : null);
     const simpleWater = this.software

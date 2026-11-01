@@ -12,7 +12,7 @@ import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/rende
 import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
-import { FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_C, RIPPLE_D, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases } from '../../src/render/sea';
+import { FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases } from '../../src/render/sea';
 import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
 import { sandHeight } from '../../src/world/layout';
@@ -467,19 +467,19 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect((sw.env.water.material as THREE.ShaderMaterial).fragmentShader).toContain('seaShallows(vec3(0.018, 0.17, 0.23), depth, vWorld.xz)');
   });
 
-  it('ripples: four layers at scale ratios at least 0.2 from whole numbers, drifting apart, warped and modulated by low-frequency noise', () => {
+  it('ripples: five layers at scale ratios at least 0.2 from whole numbers, drifting apart, warped and modulated by low-frequency noise', () => {
     const frac = (v: number) => Math.abs(v - Math.round(v));
-    // Every pair of layer tiles (m): A, B (Environment), C and D.
-    const tiles = [RIPPLE_A_TILE, RIPPLE_A_TILE / RIPPLE_B.scale, RIPPLE_C.tile, RIPPLE_A_TILE / RIPPLE_D.scale];
+    // Every pair of layer tiles (m): A, B (Environment), C, D and E.
+    const tiles = [RIPPLE_A_TILE, RIPPLE_A_TILE / RIPPLE_B.scale, RIPPLE_C.tile, RIPPLE_A_TILE / RIPPLE_D.scale, RIPPLE_E.tile];
     for (let i = 0; i < tiles.length; i++) {
       for (let j = i + 1; j < tiles.length; j++) {
         const k = Math.max(tiles[i]!, tiles[j]!) / Math.min(tiles[i]!, tiles[j]!);
         expect(frac(k), `layers ${i} and ${j}: ${k}`).toBeGreaterThanOrEqual(0.2);
       }
     }
-    // Four different turns.
-    const turns = [0, Math.atan2(RIPPLE_B.sin, RIPPLE_B.cos), Math.atan2(-RIPPLE_C.sin, RIPPLE_C.cos), Math.atan2(RIPPLE_D.sin, RIPPLE_D.cos)];
-    expect(new Set(turns.map((a) => a.toFixed(2))).size).toBe(4);
+    // Five different turns.
+    const turns = [0, Math.atan2(RIPPLE_B.sin, RIPPLE_B.cos), Math.atan2(-RIPPLE_C.sin, RIPPLE_C.cos), Math.atan2(RIPPLE_D.sin, RIPPLE_D.cos), Math.atan2(-RIPPLE_E.sin, RIPPLE_E.cos)];
+    expect(new Set(turns.map((a) => a.toFixed(2))).size).toBe(5);
     const r = renderer('high');
     const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
     expect(fs).toContain('vec2 seaRippleUv = vNormalMapUv + seaWarp;');
@@ -491,8 +491,29 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(fs).toContain('uFoamDrift.yx * 3.0');
     expect(fs).toContain('vec2 seaDuv = mat2(');
     expect(fs).toContain(`* seaRippleUv * ${RIPPLE_D.scale} - uFoamDrift * 2.0`);
-    expect(fs).toContain(`vec2 seaNormalScaleAB = seaNormalScale * ${RIPPLE_AB_GAIN};`);
+    expect(fs).toContain(`vec2 seaNormalScaleAB = seaNormalScale * ${RIPPLE_AB_GAIN} * seaKeptAB;`);
     expect(fs).toContain('#define normalScale seaNormalScaleAB');
+    expect(fs).toContain('vec2 seaEuv = mat2(');
+  });
+
+  it('ripples fade out as a pixel spans a fair share of their tile, and what they lose goes into the roughness', () => {
+    const r = renderer('high');
+    const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
+    // Each layer's fade runs over its own tile: the finest goes first, the first two (as one tile) last.
+    for (const [name, tile] of [['AB', RIPPLE_AB_TILE], ['C', RIPPLE_C.tile], ['D', RIPPLE_A_TILE / RIPPLE_D.scale], ['E', RIPPLE_E.tile]] as const) {
+      expect(fs, name).toContain(`float seaKept${name} = ( 1.0 - smoothstep( ${RIPPLE_FADE[0] * tile}, ${RIPPLE_FADE[1] * tile}, seaPx ) );`);
+    }
+    expect(RIPPLE_FADE[0]).toBeLessThan(RIPPLE_FADE[1]);
+    // The layers are scaled by what is kept of them, the wave slopes by distance, and both losses feed the roughness.
+    expect(fs).toContain('* seaKeptC;');
+    expect(fs).toContain('* seaKeptE;');
+    expect(fs).toContain('float seaLost = seaSlopeLost( seaDist );');
+    expect(fs).toContain('roughnessFactor = mix( sqrt( sqrt( pow4( roughnessFactor ) + seaLost ) ), 0.85, seaFoamAmt );');
+    // Rougher chop in a storm than in a calm.
+    expect(fs).toContain(`* ( ${RIPPLE_SEA_BASE} + ${RIPPLE_SEA_GAIN} * uSeaAmp );`);
+    // Near the camera the water is as smooth as three allows, so the ripples glint.
+    expect((r.env.water.material as THREE.MeshStandardMaterial).roughness).toBe(SEA_ROUGHNESS);
+    expect(SEA_ROUGHNESS).toBeLessThan(0.1);
   });
 
   it('pilings: the shader\'s lattice is the drawn one, and every piling has foam on all four sides within 0.5 m', () => {
@@ -548,7 +569,8 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(SHORE_GLSL).toContain(`min(${PILING_FOAM_PX} * px, ${PILING_FOAM_FAR})`);
     expect(PILING_FOAM_FAR).toBeGreaterThan(PILING_FOAM);
     const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
-    expect(fs).toContain('seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp, length( fwidth( vSeaXZ ) ) )');
+    expect(fs).toContain('float seaPx = length( fwidth( vSeaXZ ) );');
+    expect(fs).toContain('seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp, seaPx )');
     expect(fs).toContain(`reflectedLight.indirectDiffuse *= 1.0 + ${FOAM_SKY_LIFT} * seaFoamAmt;`);
   });
 
