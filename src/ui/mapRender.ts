@@ -603,41 +603,24 @@ const BLIP_ICONS: Record<string, (ctx: CanvasRenderingContext2D, s: number, colo
     ctx.fillStyle = color;
     ctx.fillRect(-0.08 * s, 0.08 * s, 0.16 * s, 0.28 * s);
   },
-  // The safehouse garage: the car it keeps, side on.
-  garage: (ctx, s, color) => {
+  // The safehouse garage: the car it keeps, side on, plain enough to read at the radar's 14 px.
+  garage: (ctx, s) => {
     whiteShape(ctx, () => {
-      ctx.moveTo(-0.46 * s, 0.24 * s);
-      ctx.lineTo(-0.46 * s, 0.02 * s);
-      ctx.lineTo(-0.26 * s, -0.02 * s);
-      ctx.lineTo(-0.14 * s, -0.26 * s);
-      ctx.lineTo(0.16 * s, -0.26 * s);
-      ctx.lineTo(0.3 * s, -0.02 * s);
-      ctx.lineTo(0.46 * s, 0.04 * s);
-      ctx.lineTo(0.46 * s, 0.24 * s);
+      ctx.moveTo(-0.48 * s, 0.2 * s);
+      ctx.lineTo(-0.48 * s, 0.0);
+      ctx.lineTo(-0.3 * s, -0.04 * s);
+      ctx.lineTo(-0.16 * s, -0.26 * s);
+      ctx.lineTo(0.14 * s, -0.26 * s);
+      ctx.lineTo(0.28 * s, -0.04 * s);
+      ctx.lineTo(0.48 * s, 0.0);
+      ctx.lineTo(0.48 * s, 0.2 * s);
       ctx.closePath();
     });
-    // Its wheels, and its windows cut out in the icon's colour.
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(-0.08 * s, -0.19 * s);
-    ctx.lineTo(-0.17 * s, -0.03 * s);
-    ctx.lineTo(-0.02 * s, -0.03 * s);
-    ctx.lineTo(-0.02 * s, -0.19 * s);
-    ctx.closePath();
-    ctx.moveTo(0.04 * s, -0.19 * s);
-    ctx.lineTo(0.04 * s, -0.03 * s);
-    ctx.lineTo(0.2 * s, -0.03 * s);
-    ctx.lineTo(0.12 * s, -0.19 * s);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#000';
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1.5;
-    for (const x of [-0.25, 0.25]) {
+    ctx.fillStyle = '#101010';
+    for (const x of [-0.26, 0.26]) {
       ctx.beginPath();
-      ctx.arc(x * s, 0.26 * s, 0.11 * s, 0, Math.PI * 2);
+      ctx.arc(x * s, 0.22 * s, 0.12 * s, 0, Math.PI * 2);
       ctx.fill();
-      ctx.stroke();
     }
   },
   // Azura Customs: a spanner, its open jaw to the top right.
