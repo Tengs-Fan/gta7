@@ -3,6 +3,7 @@
 
 import { rectContains, type Poi } from '../world/layout';
 import { getActivity } from './activities';
+import { cabTakesEnter } from './activities/cab';
 import { monorailPrompt, rideMonorail } from './activities/monorail';
 import { places } from './activities/places';
 import { epitaphMarkers, readEpitaph } from './epitaphs';
@@ -130,11 +131,14 @@ export class Interactions {
     return this.sim.activities.jobOf(slot.id)?.kind;
   }
 
-  /** HUD prompt for the marker under the player, or for retrying a failed mission. */
+  /**
+   * HUD prompt for the marker under the player, else for retrying a failed mission, else for the vehicle he can take on
+   * foot, else for why a retry waits (the police to lose, a rampage to finish).
+   */
   prompt(slot: PlayerView = this.sim.players[0]!): string | null {
     const sim = this.sim;
     const m = this.current(slot);
-    if (!m) return this.vehiclePrompt(slot) ?? this.retryPrompt(slot);
+    if (!m) return this.vehiclePrompt(slot) ?? this.retryPrompt(slot) ?? this.enterPrompt(slot) ?? this.retryNotice(slot);
     if (m.kind === 'mission') {
       if (sim.missions.active) return null;
       return this.startBlock(slot, false) ?? m.label;
@@ -181,19 +185,49 @@ export class Interactions {
     return null;
   }
 
-  /** Offers the retry of a mission that just failed (markers under the player come first). */
-  private retryPrompt(slot: PlayerView): string | null {
-    const sim = this.sim;
-    const def = sim.missions.retryOffer();
-    // Failed with the police on him: the offer opens once they are lost.
-    if (!def) return sim.missions.retryAfterCops() ? 'Lose the cops before retrying.' : null;
+  /**
+   * On foot or swimming beside the vehicle F would enter (the cab the player called, which the cab system takes the key
+   * for and seats him in as its passenger, else the controller's own choice, so the prompt cannot name a vehicle F then
+   * passes over): what F does there. Markers and the retry offer come first, a notice of why the retry waits after.
+   * One with someone at the wheel is a carjacking, an empty police vehicle a theft.
+   */
+  private enterPrompt(slot: PlayerView): string | null {
     const p = slot.character;
-    const block = this.startBlock(slot, true);
-    if (block) return block;
+    // The controller ignores every key while control is locked (a ride on AzuraLink, a countdown).
+    if (!p.onFoot || slot.down || slot.controlLock > 0) return null;
+    const cab = cabTakesEnter(this.sim, slot);
+    if (cab) return `Press F to get in the ${cab.spec.name}`;
+    const v = this.sim.resolveSlot(slot.id)!.ctl.findEnterable(p, p.state === 'swimming');
+    if (!v) return null;
+    const name = v.spec.name;
+    if (v.driver) return `Press F to carjack the ${name}`;
+    if (v.spec.class === 'boat') return `Press F to board the ${name}`;
+    if (v.spec.class === 'bike') return `Press F to get on the ${name}`;
+    // The controller's own test for the theft: a cruiser the police still own (one left at a roadblock), not one he has taken and left.
+    if (v.owner === 'police') return `Press F to steal the ${name}`;
+    return `Press F to get in the ${name}`;
+  }
+
+  /** Offers the retry of a mission that just failed, while its few seconds last (markers under the player come first). */
+  private retryPrompt(slot: PlayerView): string | null {
+    const def = this.sim.missions.retryOffer();
+    if (!def || this.startBlock(slot, true)) return null;
+    const p = slot.character;
     // In a vehicle the key is the horn (see Input), so the retry is taken on foot.
     if (p.state === 'inVehicle') return `Get out of the vehicle to retry "${def.title}"`;
     if (!p.onFoot) return null;
     return `Press E to retry "${def.title}"`;
+  }
+
+  /**
+   * Why a failed mission cannot be retried yet, for as long as the chase or rampage lasts: it names no key, so the
+   * vehicle prompt goes ahead of it.
+   */
+  private retryNotice(slot: PlayerView): string | null {
+    const sim = this.sim;
+    // Failed with the police on him: the offer opens once they are lost.
+    if (!sim.missions.retryOffer()) return sim.missions.retryAfterCops() ? 'Lose the cops before retrying.' : null;
+    return this.startBlock(slot, true);
   }
 
   /**

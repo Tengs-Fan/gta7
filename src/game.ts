@@ -153,7 +153,7 @@ export class Game {
   readonly phoneLog = new PhoneLog();
   readonly calls = new PhoneCalls();
   private phoneCard!: PhoneWidget;
-  /** First-time tutorial hints and the steal prompt, remembered in the settings. */
+  /** First-time tutorial hints, remembered in the settings. */
   readonly hints = new HintSystem({
     enabled: () => this.settings.hints,
     seen: () => this.settings.hintsSeen,
@@ -428,8 +428,8 @@ export class Game {
       ev.on('missionEnded', (e) => {
         if (isLocal(e) && e.passed) this.showNextStep();
       }),
-      this.hints.bind(sim, this.localPlayerId),
     );
+    this.hints.bind(this.localPlayerId);
     this.mode = 'game';
     this.renderer.cameraCtl.mode = 'play';
     this.renderer.cameraCtl.reset(sim);
@@ -860,7 +860,7 @@ export class Game {
     this.countUnmute(dt);
     this.updateIntro(dt);
     this.hints.update(dt, sim, { device: fi.device, mouseFree: !this.input.pointerLocked && this.input.lockAvailable });
-    const prompt = sim.interactions.prompt(sim.players[this.localPlayerId]) ?? sim.activities.jobPrompt(sim.players[this.localPlayerId]) ?? this.hints.stealPrompt(sim);
+    const prompt = sim.interactions.prompt(sim.players[this.localPlayerId]) ?? sim.activities.jobPrompt(sim.players[this.localPlayerId]);
     this.hud.device = fi.device;
     this.hud.update(dt, sim, cam.yaw, aiming, prompt, this.renderer.time);
     this.exportList.update(sim, this.localPlayerId);

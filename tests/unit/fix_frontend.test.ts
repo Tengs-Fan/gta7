@@ -3968,6 +3968,26 @@ describe('R2 onboarding: key glyphs for the active device', () => {
     expect(el.prompt!.innerHTML).not.toContain('pad');
   });
 
+  it('the HUD draws the vehicle prompt with the key bound to enter / exit, and with Y on a pad', () => {
+    const labels = new KeyLabels();
+    const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()), labels);
+    const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
+    const sim = quickSim();
+    hud.bind(sim);
+    const v = besideNewCar(sim);
+    sim.addDriver(v, 'civilian', 'traffic');
+    const prompt = sim.interactions.prompt();
+    expect(prompt).toBe(`Press F to carjack the ${v.spec.name}`);
+    hud.update(1 / 60, sim, 0, false, prompt, 0);
+    expect(el.prompt!.innerHTML).toBe(`Press <kbd>F</kbd> to carjack the ${v.spec.name}`);
+    labels.keymap.set({ ...DEFAULT_BINDINGS, enterExit: 'KeyG' });
+    hud.update(1 / 60, sim, 0, false, prompt, 0);
+    expect(el.prompt!.innerHTML).toBe(`Press <kbd>G</kbd> to carjack the ${v.spec.name}`);
+    hud.device = 'pad';
+    hud.update(1 / 60, sim, 0, false, prompt, 0);
+    expect(el.prompt!.innerHTML).toBe(`Press <kbd class="pad pad-y">Y</kbd> to carjack the ${v.spec.name}`);
+  });
+
   it('a showing help box is redrawn when the player switches device', () => {
     const hud = new Hud(new FakeElement('div') as unknown as HTMLElement, new MapImage(world()));
     const el = (hud as unknown as { el: Record<string, FakeElement> }).el;
@@ -4082,53 +4102,7 @@ describe('R2 onboarding: the help queue', () => {
   });
 });
 
-describe('R2 onboarding: first-time hints and the steal prompt', () => {
-  it('2 m beside a parked car the prompt offers to steal it, for the first five vehicle entries only', async () => {
-    const { game, frames, prompt } = onboardingGame();
-    game.newGame({ intro: false });
-    await flush();
-    const sim = game.sim;
-    sim.cheats.godMode = true;
-    const v = besideNewCar(sim);
-    frames(2);
-    expect(prompt()).toMatch(/steal the/i);
-    expect(prompt()).toBe(`Press <kbd>F</kbd> to steal the ${v.spec.name}`);
-    // A real entry with F counts as the first.
-    dom.win.dispatchEvent(keyEv('keydown', 'KeyF', 'f'));
-    frames(2);
-    dom.win.dispatchEvent(keyEv('keyup', 'KeyF', 'f'));
-    for (let i = 0; i < 180 && sim.player.vehicle !== v; i++) frames(1);
-    expect(sim.player.vehicle).toBe(v);
-    expect(game.settings.hintsSeen).toContain('steal:1');
-    // Out again, next to the car he just sat in: not a theft any more.
-    sim.playerCtl.ejectPlayer(true);
-    frames(30);
-    expect(prompt()).toBe(`Press <kbd>F</kbd> to get in the ${v.spec.name}`);
-    for (let i = 0; i < 4; i++) sim.events.emit('vehicleEnter', { vehicle: v, character: sim.player, jacked: false });
-    expect(game.settings.hintsSeen.filter((id) => id.startsWith('steal:'))).toEqual(['steal:1', 'steal:2', 'steal:3', 'steal:4', 'steal:5']);
-    frames(2);
-    expect(prompt()).toBe(null);
-  });
-
-  it('says "get in" next to the car the player last drove, and gives way to a marker', async () => {
-    const { game, frames, prompt } = onboardingGame();
-    game.newGame({ intro: false });
-    await flush();
-    const sim = game.sim;
-    const v = besideNewCar(sim, 'compact');
-    v.lastDriver = sim.player;
-    frames(2);
-    expect(prompt()).toBe(`Press <kbd>F</kbd> to get in the ${v.spec.name}`);
-    // On the safehouse marker (with a car right there) the marker's prompt wins.
-    const save = sim.interactions.markers.find((m) => m.kind === 'save')!;
-    const car = sim.spawnVehicle('sedan', save.x + 2.2, save.z, 0);
-    car.owner = 'parked';
-    sim.player.pos.x = save.x;
-    sim.player.pos.z = save.z;
-    frames(2);
-    expect(prompt()).toBe('Press <kbd>E</kbd> to save your game');
-  });
-
+describe('R2 onboarding: first-time hints', () => {
   it('the first star explains how to lose the cops, once the welcome message is done', async () => {
     const { game, seconds, el } = onboardingGame();
     game.newGame({ intro: false });
@@ -4173,8 +4147,8 @@ describe('R2 onboarding: first-time hints and the steal prompt', () => {
     expect(spray).toBe(false);
   });
 
-  it('with hints off there is no hint and no steal prompt', async () => {
-    const { game, frames, el, prompt } = onboardingGame();
+  it('with hints off there is no hint', async () => {
+    const { game, frames, el } = onboardingGame();
     game.applySettings({ ...game.settings, hints: false }, true);
     game.newGame({ intro: false });
     await flush();
@@ -4189,7 +4163,6 @@ describe('R2 onboarding: first-time hints and the steal prompt', () => {
     for (let i = 0; i < 60 * 11; i++) {
       frames(1);
       if (el('help').classList.contains('hint')) hint = true;
-      if (prompt()?.includes('steal')) hint = true;
     }
     expect(hint).toBe(false);
     expect(game.settings.hintsSeen).toEqual([]);

@@ -70,12 +70,9 @@ class NetWanted implements WantedView {
   }
 }
 
-const NO_ENTER = { findEnterable: (): Vehicle | null => null };
-
 /** One player of the room as the presentation sees it. */
 export class NetPlayer implements PlayerView {
   tag: PlayerTag;
-  readonly ctl = NO_ENTER;
   readonly wanted = new NetWanted();
   readonly progress = new Progress();
   readonly cheats: PlayerCheats = { godMode: false, neverWanted: false };
