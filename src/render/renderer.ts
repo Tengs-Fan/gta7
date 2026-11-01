@@ -31,6 +31,7 @@ import { CountryView } from './country';
 import { PropsView } from './props';
 import { Rain, SOFTWARE_RAIN_DROPS } from './rain';
 import { RegattaView } from './regatta';
+import { onDrawn } from './riders';
 import { seaHeightAt, setPilings, setSeaCuts } from './sea';
 import { buildCoverMap, coverAt, type CoverMap } from './rainCover';
 import { COUNTRY_FOG_MARGIN, FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
@@ -218,6 +219,9 @@ export class GameRenderer {
   private readonly siren: THREE.PointLight;
   private bloom: UnrealBloomPass | null = null;
   private contactShadows: ContactShadows | null = null;
+  /** Scratch: a shot's muzzle and a vehicle's smoke, moved to where they are drawn (drawnShot, onDrawn). */
+  private readonly shotFrom = new THREE.Vector3();
+  private readonly smokeFrom = new THREE.Vector3();
   private finish: FinishPass | null = null;
   private readonly gradeNow: Grade = gradeAt(17.5);
   private localReflections: LocalReflections | null = null;
@@ -758,9 +762,9 @@ export class GameRenderer {
       }),
       // One flash per trigger pull (a shotgun blast is one flash, not nine).
       ev.on('weaponFired', (e) => {
-        const y = e.y + this.swimLift(e.shooter);
-        fx.muzzleFlash(e.x, y, e.z, flashSize(e.weapon), e);
-        if (e.weapon === 'rocket') fx.rocketLaunched(e.x, y, e.z);
+        const p = this.drawnShot(e.shooter, this.shotFrom.set(e.x, e.y, e.z));
+        fx.muzzleFlash(p.x, p.y, p.z, flashSize(e.weapon), e);
+        if (e.weapon === 'rocket') fx.rocketLaunched(p.x, p.y, p.z);
       }),
       // Every bullet or pellet: its tracer and its impact.
       ev.on('shot', (e) => {
@@ -778,15 +782,15 @@ export class GameRenderer {
           traced = this.autoRounds++ % 2 === 0;
         }
         // A round into the sea ends at its surface in a splash: the sim lets it run on to the seabed.
-        const fy = e.fy + this.swimLift(e.shooter);
+        const f = this.drawnShot(e.shooter, this.shotFrom.set(e.fx, e.fy, e.fz));
         const sea = seaCrossing(this.world, e.fx, e.fy, e.fz, e.tx, e.ty, e.tz);
         if (sea) {
           const y = WATER_Y + seaHeightAt(this.env.sea, sea.x, sea.z);
-          if (traced) fx.tracer(e.fx, fy, e.fz, sea.x, y, sea.z);
+          if (traced) fx.tracer(f.x, f.y, f.z, sea.x, y, sea.z);
           fx.splash(sea.x, y, sea.z, 'small');
           return;
         }
-        if (traced) fx.tracer(e.fx, fy, e.fz, e.tx, e.ty, e.tz);
+        if (traced) fx.tracer(f.x, f.y, f.z, e.tx, e.ty, e.tz);
         // Flesh hits bleed through 'blood', except helicopter rounds, which come without one.
         if (e.hit === 'world' || e.hit === 'vehicle' || (e.hit === 'flesh' && !e.shooter)) fx.impact(e.tx, e.ty, e.tz, e.nx, e.ny, e.nz, e.hit);
       }),
@@ -836,9 +840,15 @@ export class GameRenderer {
     return playerOf(sim, this.localPlayerId);
   }
 
-  /** How far the drawn swell lifts a swimmer over the sim's flat sea (CrowdView.swim), and his gun's flash and tracers. */
-  private swimLift(c: Character | null): number {
-    return c?.state === 'swimming' ? seaHeightAt(this.env.sea, c.pos.x, c.pos.z) : 0;
+  /**
+   * Where a shot `c` fires from the sim's muzzle `p` is drawn, in place: a swimmer rides the drawn swell (CrowdView.swim),
+   * and a rider's window moves with his boat's hull as drawn (riders.ts onDrawn), the gun in his hand and its flash and
+   * tracers with it; otherwise where the sim has it.
+   */
+  private drawnShot(c: Character | null, p: THREE.Vector3): THREE.Vector3 {
+    if (c?.state === 'swimming') p.y += seaHeightAt(this.env.sea, c.pos.x, c.pos.z);
+    else if (c?.vehicle) onDrawn(c.vehicle, p);
+    return p;
   }
 
   private syncVehicles(sim: ViewState, dt: number, night: number): void {
@@ -1025,7 +1035,9 @@ export class GameRenderer {
       const hz = v.pos.z + fzh * v.halfL * 0.62;
       // Nothing smokes or burns in the sea (cars that drown are marked destroyed, with no health left).
       if (!v.inWater && (v.burning || (v.destroyed && v.wreckTime < 25) || v.condition < 0.45)) {
-        fx.vehicleSmoke(v.destroyed ? v.pos.x : hx, v.pos.y + v.spec.height * 0.55, v.destroyed ? v.pos.z : hz, v.condition, v.burning, v.destroyed && v.wreckTime < 25, dt, v.destroyed ? v.wreckTime : -1);
+        // A boat's smoke rises from its hull as drawn on the swell.
+        const s = onDrawn(v, this.smokeFrom.set(v.destroyed ? v.pos.x : hx, v.pos.y + v.spec.height * 0.55, v.destroyed ? v.pos.z : hz));
+        fx.vehicleSmoke(s.x, s.y, s.z, v.condition, v.burning, v.destroyed && v.wreckTime < 25, dt, v.destroyed ? v.wreckTime : -1);
       }
       if (v.spec.class === 'boat') {
         // Foam and spray on the tiers that draw tyre spray; a boat in its own view rides the drawn swell.

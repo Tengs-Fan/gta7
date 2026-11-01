@@ -294,6 +294,9 @@ export class BoatView {
   /** How hard (m/s) the hull last slammed into the water, for the renderer's spray; it clears it once used. */
   slam = 0;
   private readonly tmp = new THREE.Vector3();
+  /** The hull as the sim poses it (flat on WATER_Y), and from it to the hull as drawn: the rider mount's simToDrawn. */
+  private readonly simPose = new THREE.Matrix4();
+  private readonly simToDrawn = new THREE.Matrix4();
   private plane = 0;
   private lean = 0;
   private burnt = false;
@@ -333,7 +336,7 @@ export class BoatView {
     this.foam.renderOrder = 1;
     this.group.add(this.foam);
     const fade = this.fade;
-    this.mount = { frame: this.body, seats: m.seats, get level() { return fade.level; } };
+    this.mount = { frame: this.body, seats: m.seats, simToDrawn: this.simToDrawn, get level() { return fade.level; } };
   }
 
   private own(geo: THREE.BufferGeometry, mat: THREE.Material, name: string): THREE.Mesh {
@@ -463,6 +466,9 @@ export class BoatView {
     this.lampMat.emissiveIntensity = this.lit ? 0.6 + night * 4 : 0.2;
     this.sternMat.emissiveIntensity = this.lit ? 1.2 : 0.2;
     this.group.updateMatrixWorld(true);
+    // The sim's pose is the group's without the heave, and the body's without its drawn pitch and roll.
+    this.simPose.makeRotationFromEuler(this.group.rotation).setPosition(v.pos.x, v.pos.y, v.pos.z);
+    this.simToDrawn.multiplyMatrices(this.body.matrixWorld, this.simPose.invert());
     setRiderMount(v, this, this.mount);
   }
 

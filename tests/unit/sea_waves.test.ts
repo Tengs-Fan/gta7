@@ -3,10 +3,12 @@
 // beaches to the waves; the breakers over the beach and the clearance under the decks; a boat riding and slamming; a
 // swimmer and his camera riding the swell.
 
+import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { BoatView, SLAM_SPEED } from '../../src/render/boatView';
 import { CameraController } from '../../src/render/camera';
 import { CrowdView } from '../../src/render/crowd';
+import { onDrawn, riderMount } from '../../src/render/riders';
 import { countyShore, seaDepthCpu, seaHeightAt, seaUniforms, setSeaShelter, updateSea, type CountyShore } from '../../src/render/sea';
 import { bakeSeaShelter, SHELTER_CELL, SHELTER_RAMP } from '../../src/render/seaShelter';
 import {
@@ -15,7 +17,7 @@ import {
 } from '../../src/render/waves';
 import { SWIM_FLOAT } from '../../src/sim/characterPhysics';
 import type { Vehicle } from '../../src/sim/entities';
-import { SWIM_HIP } from '../../src/sim/pose';
+import { SWIM_HIP, WEAPON_POINTS, windowMuzzle } from '../../src/sim/pose';
 import { BEACH_W, CURB_H, DECK_SLAB, SAND_DROP, WATER_Y } from '../../src/world/constants';
 import { segmentJoints } from '../support/crowdJoints';
 import { makeSim, world } from './helpers';
@@ -273,6 +275,57 @@ describe('a boat on the drawn sea', () => {
     expect(slams).toBeGreaterThan(0);
     // Its bow ploughs into a face it meets too fast to rise up, but not far.
     expect(under).toBeGreaterThan(-0.7);
+  });
+});
+
+describe('a rider shooting from a boat on the swell', () => {
+  it('holds his drive-by gun on the hull as drawn, heaving with it, and its flash leaves from there', () => {
+    const sim = makeSim({ world: world(), police: false });
+    const p = sim.player;
+    const v = sim.spawnVehicle('speedboat', 700, -250, Math.PI / 2);
+    v.pos.y = WATER_Y;
+    sim.seat(p, v, 0);
+    p.inventory.give('pistol', 100);
+    p.inventory.current = 'pistol';
+    p.shotTimer = 0.5;
+    const u = seaUniforms();
+    u.uDisplace.value = 1;
+    setSeaShelter(u, map);
+    const view = new BoatView('speedboat');
+    view.bindSea(u);
+    view.bind(v);
+    const cv = new CrowdView();
+    const gun = (cv as unknown as { weapons: Map<string, { mesh: THREE.InstancedMesh }> }).weapons.get('pistol')!.mesh;
+    const simPose = new THREE.Matrix4();
+    const m = new THREE.Matrix4();
+    let worst = 0;
+    let heaved = 0;
+    let first: THREE.Vector3 | undefined;
+    for (let k = 0; k < 240; k++) {
+      const t = k / 30;
+      updateSea(u, t, 1, v.pos.x, v.pos.z);
+      view.sync(v, 1 / 30, t, 0);
+      cv.sync([p], v.pos.x, v.pos.z, 1 / 30);
+      if (k < 5) continue;
+      // The window's point on the hull: the sim's muzzle in the sim's pose of the boat, carried by the hull as drawn.
+      const muzzle = windowMuzzle(v, 0, { x: 0, y: 0, z: 0 });
+      simPose.makeRotationFromEuler(new THREE.Euler(-v.pitch, v.heading, v.roll, 'YXZ')).setPosition(v.pos.x, v.pos.y, v.pos.z);
+      const onHull = new THREE.Vector3(muzzle.x, muzzle.y, muzzle.z).applyMatrix4(simPose.clone().invert()).applyMatrix4(riderMount(v)!.frame.matrixWorld);
+      gun.getMatrixAt(0, m);
+      const tip = new THREE.Vector3(WEAPON_POINTS.pistol.tip.x, WEAPON_POINTS.pistol.tip.y, WEAPON_POINTS.pistol.tip.z).applyMatrix4(m);
+      // The barrel end sits off the window by the gun's recoil (the shot timer is held up), the same in the hull's frame
+      // every frame however the hull heaves.
+      const off = tip.clone().sub(onHull).applyMatrix4(new THREE.Matrix4().extractRotation(riderMount(v)!.frame.matrixWorld).invert());
+      first ??= off.clone();
+      worst = Math.max(worst, off.distanceTo(first));
+      expect(off.length()).toBeLessThan(0.1);
+      heaved = Math.max(heaved, Math.abs(tip.y - muzzle.y));
+      // What the renderer draws the flash and tracers from (drawnShot): the same point.
+      expect(onDrawn(v, { ...muzzle }).y, `t ${t.toFixed(2)}`).toBeCloseTo(onHull.y, 4);
+    }
+    console.log(`[boat] drive-by gun: held to ${(worst * 100).toFixed(1)} cm on the drawn hull's window, which heaved up to ${heaved.toFixed(2)} m off the sim's`);
+    expect(worst).toBeLessThan(0.02);
+    expect(heaved).toBeGreaterThan(0.3);
   });
 });
 

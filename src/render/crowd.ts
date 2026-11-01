@@ -15,7 +15,7 @@ import {
 import { isGun, type VehicleKind, type WeaponId } from '../sim/specs';
 import { characterGeometries, type CharacterPartName } from './characterGeometry';
 import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
-import { riderMount } from './riders';
+import { onDrawn, riderMount } from './riders';
 import { seaHeightAt, type SeaWaveUniforms } from './sea';
 import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
 import { GUN_IDS, gunGeometry } from './weaponModels';
@@ -1153,7 +1153,8 @@ export class CrowdView {
   /**
    * A seated shooter's gun out of his own window, pointing along his aim (which CombatSystem.npcFire publishes for NPCs),
    * its barrel end on the point his shots leave from (sim/pose.ts windowMuzzle: his seat's window, as
-   * CombatSystem.muzzle(c, true) fires): the gun stays there and the hand reaches for its grip as far as the arm goes.
+   * CombatSystem.muzzle(c, true) fires), moved with a boat's hull as it is drawn on the swell (riders.ts onDrawn): the gun
+   * stays there and the hand reaches for its grip as far as the arm goes.
    * With no shoulder (nobody is drawn behind dark windows), his arm reaches out to the grip from inside the window.
    */
   private windowGun(c: Character, v: Vehicle, gun: Gun, shoulder: THREE.Vector3 | null, side: number): void {
@@ -1161,7 +1162,8 @@ export class CrowdView {
     const pts = WEAPON_POINTS[gun];
     w.weapon = gun;
     aimFrame(w, c.aimYaw, clamp(c.aimPitch, -1.2, 1.2), 0);
-    const m = windowMuzzle(v, c.seat, this.muzzle);
+    // On a boat the sim's window floats on a flat sea: the gun goes with the hull as drawn on the swell, in his hand.
+    const m = onDrawn(v, windowMuzzle(v, c.seat, this.muzzle));
     anchor(w, pts.tip, m.x, m.y, m.z);
     const grip = weaponPoint(w, pts.grip, S.targetL);
     if (shoulder) {

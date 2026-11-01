@@ -25,6 +25,11 @@ export interface RiderMount {
   readonly seats: readonly RiderSeatLayout[];
   /** How much of the vehicle is drawn (its fade, 0..1): its riders are drawn as much. Whole if absent. */
   readonly level?: number;
+  /**
+   * Takes a world point on the vehicle as the sim poses it to where the view draws it (a boat heaving, pitching and
+   * rolling on the drawn swell while the sim floats it flat). Absent: drawn where the sim has it.
+   */
+  readonly simToDrawn?: THREE.Matrix4;
 }
 
 const mounts = new WeakMap<Vehicle, { owner: { vehicle: Vehicle | null }; mount: RiderMount }>();
@@ -40,4 +45,19 @@ export function setRiderMount(v: Vehicle, owner: { vehicle: Vehicle | null }, mo
 export function riderMount(v: Vehicle): RiderMount | null {
   const m = mounts.get(v);
   return m && m.owner.vehicle === v ? m.mount : null;
+}
+
+/**
+ * Moves `p`, a point the sim places on `v` (a window's muzzle, its smoke), to where `v` is drawn (RiderMount.simToDrawn),
+ * in place.
+ */
+export function onDrawn<T extends { x: number; y: number; z: number }>(v: Vehicle, p: T): T {
+  const m = riderMount(v)?.simToDrawn;
+  if (!m) return p;
+  const e = m.elements;
+  const { x, y, z } = p;
+  p.x = e[0]! * x + e[4]! * y + e[8]! * z + e[12]!;
+  p.y = e[1]! * x + e[5]! * y + e[9]! * z + e[13]!;
+  p.z = e[2]! * x + e[6]! * y + e[10]! * z + e[14]!;
+  return p;
 }
