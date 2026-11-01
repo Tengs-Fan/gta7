@@ -35,6 +35,15 @@ export const SHELTER_RAMP = [4, 50] as const;
  * walls do.
  */
 export const DECK_RAMP = [2, 15] as const;
+/**
+ * The lee: the swell comes from the east (it travels -x), so water with land east of it in its row is in that land's
+ * shadow, which fills in from its edges as a diffracting wave does, over a penumbra the root of LEE_WAVE times the distance
+ * behind the land wide (Fresnel's; LEE_WAVE is the onshore swell wave's length), softened LEE_SOFT m either way along z.
+ * So Lomas Sound, behind the city, keeps only what wraps round the city's ends, while behind a rock or the Key the swell
+ * closes in again within a few hundred metres.
+ */
+export const LEE_WAVE = 72;
+export const LEE_SOFT = 12;
 
 const smooth = (a: number, b: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -43,8 +52,9 @@ const smooth = (a: number, b: number, x: number): number => {
 
 /**
  * Bakes the shelter map over the world's bounds: per lattice point the shelter (SHELTER_RAMP over the distance to the
- * nearest wall or water cut into the land, DECK_RAMP over that to the nearest deck the sea could reach), the drawn depth
- * (seaDepthCpu with the county's shore; on land, how far the ground stands over the sea, negated) and its gradient.
+ * nearest wall or water cut into the land, DECK_RAMP over that to the nearest deck the sea could reach, times the lee of
+ * the land to the east, leeOf), the drawn depth (seaDepthCpu with the county's shore; on land, how far the ground stands
+ * over the sea, negated) and its gradient.
  */
 export function bakeSeaShelter(world: StaticWorld, county: CountyShore): ShelterMap {
   const layout = world.layout;
@@ -119,6 +129,7 @@ export function bakeSeaShelter(world: StaticWorld, county: CountyShore): Shelter
   }
   const dist = chamfer(seed, nx, nz, cell);
   const deckDist = chamfer(deckSeed, nx, nz, cell);
+  const lee = leeOf(land, nx, nz, cell);
   const data = new Float32Array(n * 4);
   const clampDepth = (k: number) => Math.min(7.5, Math.max(-1, depth[k]!));
   for (let j = 0; j < nz; j++) {
@@ -126,13 +137,54 @@ export function bakeSeaShelter(world: StaticWorld, county: CountyShore): Shelter
       const k = j * nx + i;
       const gx = (clampDepth(j * nx + Math.min(nx - 1, i + 1)) - clampDepth(j * nx + Math.max(0, i - 1))) / (2 * cell);
       const gz = (clampDepth(Math.min(nz - 1, j + 1) * nx + i) - clampDepth(Math.max(0, j - 1) * nx + i)) / (2 * cell);
-      data[k * 4] = Math.min(smooth(SHELTER_RAMP[0], SHELTER_RAMP[1], dist[k]!), smooth(DECK_RAMP[0], DECK_RAMP[1], deckDist[k]!));
+      data[k * 4] = Math.min(smooth(SHELTER_RAMP[0], SHELTER_RAMP[1], dist[k]!), smooth(DECK_RAMP[0], DECK_RAMP[1], deckDist[k]!)) * lee[k]!;
       data[k * 4 + 1] = depth[k]!;
       data[k * 4 + 2] = gx;
       data[k * 4 + 3] = gz;
     }
   }
   return { minX, minZ, cell, nx, nz, data };
+}
+
+/**
+ * The share of the easterly swell that gets past the land to each lattice point (LEE_WAVE, LEE_SOFT), in O(n): a sweep of
+ * each row from the east finds the shadow and how far behind its land each point lies, then running sums down each column
+ * average the shadow over each point's penumbra.
+ */
+function leeOf(land: Uint8Array, nx: number, nz: number, cell: number): Float32Array {
+  const n = nx * nz;
+  const lit = new Float32Array(n);
+  const behind = new Float32Array(n);
+  for (let j = 0; j < nz; j++) {
+    let fetch = Infinity;
+    for (let i = nx - 1; i >= 0; i--) {
+      const k = j * nx + i;
+      // A point is in the shadow of land east of it, not of its own (the beach's sand keeps the swell at its waterline).
+      lit[k] = fetch === Infinity ? 1 : 0;
+      behind[k] = fetch;
+      fetch = land[k] ? 0 : fetch + cell;
+    }
+  }
+  // Down each column: the shadow averaged over the penumbra behind its land (none in the open), then softened.
+  const sums = new Float64Array(nz + 1);
+  const pass = (from: Float32Array, to: Float32Array, radius: (k: number) => number) => {
+    for (let i = 0; i < nx; i++) {
+      for (let j = 0; j < nz; j++) sums[j + 1] = sums[j]! + from[j * nx + i]!;
+      for (let j = 0; j < nz; j++) {
+        const r = radius(j * nx + i);
+        const lo = Math.max(0, j - r);
+        const hi = Math.min(nz, j + r + 1);
+        to[j * nx + i] = (sums[hi]! - sums[lo]!) / (hi - lo);
+      }
+    }
+  };
+  const penumbra = new Float32Array(n);
+  const maxR = Math.ceil(nz / 2);
+  pass(lit, penumbra, (k) => (behind[k] === Infinity ? 0 : Math.min(maxR, Math.round(Math.sqrt(LEE_WAVE * behind[k]!) / cell))));
+  const out = new Float32Array(n);
+  const soft = Math.round(LEE_SOFT / cell);
+  pass(penumbra, out, () => soft);
+  return out;
 }
 
 /** Distance (m) from each lattice point to the nearest seed: a two-pass chamfer over the eight neighbours. */

@@ -38,16 +38,18 @@ beforeAll(() => {
 const at = (x: number, z: number) => shelterAt(map, x, z);
 
 describe('the shelter map', () => {
-  it('covers the world with open, deep sea at its edges', () => {
+  it('covers the world with deep sea at its edges, open to the north, east and south and in the county\'s lee to the west', () => {
     const b = world().layout.bounds;
     expect(map.minX).toBeLessThan(b.worldMinX - 100);
     expect(map.minZ).toBeLessThan(b.worldMinZ - 100);
     expect(map.minX + map.nx * map.cell).toBeGreaterThan(b.worldMaxX + 100);
     expect(map.minZ + map.nz * map.cell).toBeGreaterThan(b.worldMaxZ + 100);
     expect(map.cell).toBe(SHELTER_CELL);
-    for (const [x, z] of [[map.minX - 500, 0], [0, map.minZ - 500], [5000, 5000], [b.worldMaxX + 110, -200]] as const) {
+    for (const [x, z] of [[0, map.minZ - 500], [5000, 5000], [b.worldMaxX + 110, -200], [map.minX - 500, 0]] as const) {
       const s = at(x, z);
-      expect(s[0], `${x} ${z}`).toBeCloseTo(1, 6);
+      // The swell comes from the east: west of the county, a couple of kilometres of land shelter the sea.
+      if (x < b.worldMinX) expect(s[0], `${x} ${z}`).toBeLessThan(0.05);
+      else expect(s[0], `${x} ${z}`).toBeCloseTo(1, 6);
       expect(s[1], `${x} ${z}`).toBeCloseTo(OPEN_SEA[1]!, 6);
     }
   });
@@ -65,12 +67,13 @@ describe('the shelter map', () => {
 
   it('lets the waves grow back over SHELTER_RAMP from the quays and sea walls, but not from the beaches', () => {
     const b = world().layout.bounds;
-    // North of the promenade at Delgado St, west of it in the sound: calm at the wall, open by the ramp's end.
-    for (const [x, z, nx, nz] of [[-300, b.landMinZ, 0, -1], [b.landMinX, -100, -1, 0]] as const) {
+    // North of the north quay's east end and west of the city in the sound: calm at the wall; north of the quay, where no
+    // land stands east of it, open by the ramp's end (the sound is in the city's lee: below).
+    for (const [x, z, nx, nz] of [[400, b.landMinZ, 0, -1], [b.landMinX, -100, -1, 0]] as const) {
       expect(at(x + nx * 2, z + nz * 2)[0]).toBeLessThan(0.02);
       expect(at(x + nx * 10, z + nz * 10)[0]).toBeLessThan(0.12);
-      expect(at(x + nx * (SHELTER_RAMP[1] + 6), z + nz * (SHELTER_RAMP[1] + 6))[0]).toBeGreaterThan(0.98);
     }
+    expect(at(400, b.landMinZ - SHELTER_RAMP[1] - 6)[0]).toBeGreaterThan(0.98);
     // The east beach: open right up to its waterline, which the depth pins (a third of the way down the sand).
     const waterline = b.beachStartX + 110 * (1.15 / 3.2);
     for (const z of [-400, -150, 250]) {
@@ -80,9 +83,24 @@ describe('the shelter map', () => {
         expect(s[1], `${x} ${z}`).toBeCloseTo(seaDepthCpu(b, x, z, county), 1);
       }
     }
-    // The county's shore off its east coast shelves into the sound like a beach: no wall.
-    expect(at(-680, 0)[0]).toBeGreaterThan(0.99);
-    expect(at(-680, 0)[1]).toBeGreaterThan(0.5);
+    // The county's shore off its east coast shelves into the sound like a beach: no wall, so at its waterline the sea has
+    // what the city's lee leaves it 40 m out, where the swell wraps in round the city's south end.
+    expect(at(-680, 400)[1]).toBeGreaterThan(0.5);
+    expect(at(-640, 400)[0]).toBeGreaterThan(0.05);
+    expect(at(-680, 400)[0]).toBeGreaterThan(0.9 * at(-640, 400)[0]!);
+  });
+
+  it('puts the sea west of land in its lee: Lomas Sound behind the city calm, filling in round headlands and islands', () => {
+    // The sound's middle, half a kilometre from the city's ends, keeps none of the easterly swell.
+    expect(at(-585, -100)[0]).toBeLessThan(0.02);
+    expect(at(-585, -300)[0]).toBeLessThan(0.02);
+    // Behind Smuggler's Key the swell closes in again: some of it 100 m behind, open seas east of the Key and the turbines.
+    expect(at(150, -600)[0]).toBeGreaterThan(0.3);
+    expect(at(150, -600)[0]).toBeLessThan(0.9);
+    expect(at(476, -790)[0]).toBeGreaterThan(0.99);
+    // The east beach is in nobody's lee, to its waterline.
+    const b = world().layout.bounds;
+    expect(at(b.beachStartX + 110 * (1.15 / 3.2) + 0.5, -150)[0]).toBeGreaterThan(0.99);
   });
 
   it('leaves the surf beside and under Azura Pier\'s shoreward half, where the depth keeps it off the deck, and calms its seaward half', () => {
