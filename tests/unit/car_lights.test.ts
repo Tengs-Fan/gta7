@@ -29,7 +29,8 @@ import { darkness } from '../../src/sim/clock';
 import type { LampSwitch, Vehicle } from '../../src/sim/entities';
 import { lampDarkness, lampsLit, lampsPowered, LAMPS_DARK } from '../../src/sim/lamps';
 import type { VehicleKind } from '../../src/sim/specs';
-import { makeSim, world } from './helpers';
+import type { Sim } from '../../src/sim/sim';
+import { input, makeSim, step, world } from './helpers';
 
 const sim = makeSim({ world: world() });
 const at = sim.world.layout.bounds.beachStartX + 30;
@@ -144,5 +145,126 @@ describe('what a car draws of the switch', () => {
       expect(lit('off', NIGHT), kind).toBe(false);
       expect(lit('auto', NIGHT), kind).toBe(true);
     }
+  });
+});
+
+/** The player at the wheel of a `kind` on the sand at `hours`, standing still in a quiet sim (no traffic, no police). */
+function driving(hours: number, kind: VehicleKind = 'sedan'): { sim: Sim; v: Vehicle } {
+  const sim = makeSim({ world: world(), police: false });
+  sim.clock.set(hours);
+  sim.cheats.neverWanted = true;
+  const b = sim.world.layout.bounds;
+  const v = sim.spawnVehicle(kind, b.beachStartX + 30, (b.landMinZ + b.landMaxZ) / 2, 0.4);
+  sim.seat(sim.player, v, 0);
+  return { sim, v };
+}
+
+/** One press of the switch, then a moment for it to settle. */
+const press = (sim: Sim): void => step(sim, 0.1, (t) => input({ lightsPressed: t < 0.01 }));
+
+describe('the press', () => {
+  it('flips what the player sees: lit lamps go off, dark lamps come on', () => {
+    // By night, `auto` is lit: off.
+    let g = driving(23);
+    press(g.sim);
+    expect(g.v.lights).toBe('off');
+    press(g.sim);
+    expect(g.v.lights).toBe('on');
+    press(g.sim);
+    expect(g.v.lights).toBe('off');
+    // By day, `auto` is dark: on, and then off.
+    g = driving(12);
+    press(g.sim);
+    expect(g.v.lights).toBe('on');
+    press(g.sim);
+    expect(g.v.lights).toBe('off');
+    press(g.sim);
+    expect(g.v.lights).toBe('on');
+  });
+
+  it('a vehicle never switched stays on auto', () => {
+    const { sim, v } = driving(23);
+    step(sim, 1);
+    expect(v.lights).toBe('auto');
+  });
+
+  it('judges by the same dark the renderer draws: a dim overcast noon lights `auto` lamps already', () => {
+    const { sim, v } = driving(12);
+    sim.weather.setFields({ dim: 0.65 });
+    step(sim, 0.05);
+    expect(sim.weather.state.dim).toBe(0.65);
+    expect(lampsLit(v, lampDarkness(sim.clock.hours, sim.weather.state.dim))).toBe(true);
+    press(sim);
+    expect(v.lights).toBe('off');
+  });
+
+  it('works on a bike, a boat and a police car, and the police car’s siren is its own switch', () => {
+    for (const kind of ['scooter', 'dinghy'] as const) {
+      const { sim, v } = driving(12, kind);
+      press(sim);
+      expect(v.lights, kind).toBe('on');
+    }
+    const { sim, v } = driving(23, 'police');
+    press(sim);
+    expect(v.lights).toBe('off');
+    expect(v.siren).toBe(false);
+    step(sim, 0.1, (t) => input({ hornPressed: t < 0.01 }));
+    expect(v.siren).toBe(true);
+    expect(v.lights).toBe('off');
+    press(sim);
+    expect(v.lights).toBe('on');
+    expect(v.siren).toBe(true);
+  });
+
+  it('tells the player with a short message', () => {
+    const { sim } = driving(23);
+    const got: Array<{ text: string; duration: number }> = [];
+    sim.events.on('message', (e) => got.push(e));
+    press(sim);
+    press(sim);
+    expect(got.map((m) => m.text)).toEqual(['Headlights off', 'Headlights on']);
+    expect(got.every((m) => m.duration <= 2)).toBe(true);
+  });
+
+  it('does nothing on foot', () => {
+    const { sim, v } = driving(23);
+    sim.playerCtl.ejectPlayer(false);
+    expect(sim.player.vehicle).toBeNull();
+    const got: string[] = [];
+    sim.events.on('message', (e) => got.push(e.text));
+    press(sim);
+    expect(v.lights).toBe('auto');
+    expect(got).toEqual([]);
+  });
+
+  it('is kept by the vehicle through getting out and back in', () => {
+    const { sim, v } = driving(12);
+    press(sim);
+    expect(v.lights).toBe('on');
+    step(sim, 3, (t) => input({ enterExit: t < 0.01 }));
+    expect(sim.player.vehicle).toBeNull();
+    expect(lampsLit(v, 1)).toBe(false);
+    sim.seat(sim.player, v, 0);
+    expect(v.lights).toBe('on');
+    // A vehicle he never switched stays on auto through the same trip.
+    const other = sim.spawnVehicle('compact', v.pos.x + 8, v.pos.z, 0.4);
+    sim.seat(sim.player, other, 0);
+    step(sim, 3, (t) => input({ enterExit: t < 0.01 }));
+    sim.seat(sim.player, other, 0);
+    expect(other.lights).toBe('auto');
+    expect(v.lights).toBe('on');
+  });
+
+  it('leaves the traffic’s own lamps on auto', () => {
+    const sim = makeSim({ world: world(), police: true, ambient: true });
+    sim.clock.set(23);
+    sim.cheats.neverWanted = true;
+    const lane = sim.roads.nearestLane(sim.player.pos.x, sim.player.pos.z).lane;
+    const v = sim.spawnVehicle('sedan', lane.sx + lane.dx * 20, lane.sz + lane.dz * 20, lane.heading);
+    sim.seat(sim.player, v, 0);
+    step(sim, 20, (t) => input({ lightsPressed: Math.floor(t * 2) % 2 === 0 && t % 0.5 < 1 / 30 }));
+    const others = sim.vehicles.filter((u) => u !== v);
+    expect(others.length).toBeGreaterThan(0);
+    expect(others.every((u) => u.lights === 'auto')).toBe(true);
   });
 });

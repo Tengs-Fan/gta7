@@ -6,6 +6,7 @@ import { throwDamage } from './bikes';
 import { MAX_STEP, SWIM_SPEED } from './characterPhysics';
 import type { Character, Vehicle } from './entities';
 import type { PlayerInput } from './input';
+import { lampDarkness, lampsLit } from './lamps';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
 import { isGun, WEAPONS, weaponForKey } from './specs';
@@ -520,6 +521,11 @@ export class PlayerController {
       sim.onHorn(v);
     }
     v.horn = input.horn && !v.spec.police;
+    // The press flips what the player sees now: the lamps lit, it switches them off; dark (by day on `auto`), on.
+    if (input.lightsPressed) {
+      v.lights = lampsLit(v, lampDarkness(sim.clock.hours, sim.weather.state.dim)) ? 'off' : 'on';
+      sim.events.emit('message', { text: `Headlights ${v.lights}`, duration: 1.5, ...this.p.tag });
+    }
 
     p.aimYaw = Math.atan2(input.aimDir.x, input.aimDir.z);
     p.aimPitch = Math.asin(clamp(input.aimDir.y, -1, 1));
