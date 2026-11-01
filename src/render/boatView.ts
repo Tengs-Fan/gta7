@@ -3,10 +3,10 @@
 // windscreen, and a foam ring at the waterline; the bow and stern lights go through the shared part batches, and a
 // coarse proxy casts the shadow. The sim floats a boat flat at WATER_Y; this view heaves, pitches and rolls the hull on
 // the waves the sea draws (render/waves.ts, through the sea's own uniforms: on High and Medium the displaced wave grid,
-// elsewhere a gentle bob of a few centimetres), its bow and stern unable to drop faster than they would fall, so at
-// speed it leaves a crest and slams down beyond it; it lifts the bow as it planes and leans it a little out of a turn,
-// and lays the foam ring on the drawn sea surface round the hull. All of that is presentation: nothing here feeds back
-// into the sim. Riders sit in its frame (riders.ts, posed by CrowdView).
+// elsewhere a gentle bob of a few centimetres), its bow and stern sprung to the sea and falling freely out of it, so at
+// speed in rough water it leaves a crest and slams down beyond it; it lifts the bow as it planes and leans it a little
+// out of a turn, and lays the foam ring on the drawn sea surface round the hull. All of that is presentation: nothing
+// here feeds back into the sim. Riders sit in its frame (riders.ts, posed by CrowdView).
 
 import * as THREE from 'three';
 import { damp } from '../core/math';
@@ -35,7 +35,14 @@ const TURN_LEAN = 0.06;
 export const FOAM_LIFT = 0.03;
 export const FOAM_IN = 0.02;
 export const FOAM_OUT = 0.5;
-/** How fast (m/s^2) the hull's bow and stern may drop to follow the sea: a free fall. */
+/**
+ * In the water the hull's bow and stern are each pulled to the sea under them by a damped spring (buoyancy and the
+ * planing lift: HULL_SPRING per s^2 per m under it, HULL_DAMP per s against the sea's own speed), stiff enough to ride
+ * the swell and soft enough to plough through the short chop at speed rather than take its every face; out of it they
+ * fall freely (HULL_FALL, m/s^2).
+ */
+export const HULL_SPRING = 100;
+export const HULL_DAMP = 12;
 export const HULL_FALL = 9.81;
 /** A hull coming down on the water this fast (m/s, against the surface) slams into it (BoatView.slam). */
 export const SLAM_SPEED = 1.5;
@@ -232,17 +239,22 @@ export function boatSwell(v: Vehicle, sea: SeaWaveUniforms | null, time: number,
 }
 
 /**
- * One end of the hull: it follows the sea up at once but drops no faster than HULL_FALL lets it, so it leaves a crest
- * the boat runs over too fast for the water to fall away under it. Returns how hard (m/s) it came down, or 0.
+ * One end of the hull over `dt` s as the sea under it goes from where it was to `sea` (HULL_SPRING, HULL_FALL), in steps
+ * of at most a 60th of a second: thrown up a wave's face faster than the sea falls away beyond its crest, it leaves the
+ * water. Returns how hard (m/s, against the sea's own speed) it came down, or 0.
  */
 function ride(end: { y: number; vy: number; sea: number }, sea: number, dt: number): number {
-  const free = end.y + end.vy * dt - 0.5 * HULL_FALL * dt * dt;
-  const flying = end.y > end.sea + 1e-3;
-  const y = Math.max(sea, free);
-  // Landing: the fall's speed against the water's own as it caught the hull.
-  const impact = flying && free <= sea ? (sea - end.sea) / dt - (end.vy - HULL_FALL * dt) : 0;
-  end.vy = (y - end.y) / dt;
-  end.y = y;
+  const n = Math.ceil(dt * 60);
+  const h = dt / n;
+  const rate = (sea - end.sea) / dt;
+  let impact = 0;
+  for (let i = 0; i < n; i++) {
+    const s = end.sea + rate * h * i;
+    const flying = end.y > s;
+    end.vy += (flying ? -HULL_FALL : HULL_SPRING * (s - end.y) + HULL_DAMP * (rate - end.vy)) * h;
+    end.y += end.vy * h;
+    if (flying && end.y <= s + rate * h) impact = Math.max(impact, rate - end.vy);
+  }
   end.sea = sea;
   return impact;
 }

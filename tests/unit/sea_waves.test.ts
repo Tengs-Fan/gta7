@@ -198,10 +198,11 @@ describe('a boat on the drawn sea', () => {
       hi = Math.max(hi, y);
     }
     expect(hi - lo).toBeGreaterThan(0.6);
-    expect(view.slam).toBe(0);
+    // It may lift off the water by a hair as its spring overshoots, but never slams at rest.
+    expect(view.slam).toBeLessThan(SLAM_SPEED);
   });
 
-  it('at speed into a storm\'s sea it leaves the crests and slams down beyond them, never under the surface', () => {
+  it('at speed into a storm\'s sea it leaves the crests and slams down beyond them, ploughing into the faces it cannot rise to', () => {
     const { v, view, u } = rig();
     v.heading = -Math.PI / 2;
     v.forwardSpeed = 25;
@@ -221,11 +222,13 @@ describe('a boat on the drawn sea', () => {
       if (view.slam > SLAM_SPEED) slams++;
       view.slam = 0;
     }
-    console.log(`[boat] storm at 25 m/s: up to ${flown.toFixed(2)} m clear of the sea, ${slams} slams in 5 s`);
+    console.log(`[boat] storm at 25 m/s: up to ${flown.toFixed(2)} m clear of the sea and ${(-under).toFixed(2)} m into it, ${slams} slams in 5 s`);
     expect(flown).toBeGreaterThan(0.15);
+    // Clear of it by a hull's height or so at most, never thrown metres into the air.
+    expect(flown).toBeLessThan(1.2);
     expect(slams).toBeGreaterThan(0);
-    // The hull's middle may sit a little under its ends' mean sea; never far.
-    expect(under).toBeGreaterThan(-0.15);
+    // Its bow ploughs into a face it meets too fast to rise up, but not far.
+    expect(under).toBeGreaterThan(-0.7);
   });
 });
 
