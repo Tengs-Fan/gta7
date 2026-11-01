@@ -7,6 +7,7 @@ import { formatMoney } from '../../core/math';
 import type { Vehicle } from '../entities';
 import { registerStatRow } from '../statRows';
 import { formatRunTime } from '../streetRuns';
+import type { PlayerView } from '../viewState';
 import { activityRecords } from './records';
 import type { ActivityDef, ActivityHost, Objective } from './types';
 
@@ -192,7 +193,7 @@ function finish(host: ActivityHost, j: RegattaJob): void {
 export const regattaActivity: ActivityDef<RegattaJob> = {
   kind: 'regatta',
   toggleEndText: 'Regatta abandoned. Press T at the Marina to try again.',
-  site: { label: 'sail', name: 'Gull Regatta', best: 'regattaBest', at: () => REGATTA_START },
+  site: { label: 'sail', name: 'Gull Regatta', best: bestTime, at: () => REGATTA_START },
   completion: (_view, me) => ({ label: 'Gull Regatta medal', done: activityRecords(me.progress).regattaBest > 0 ? 1 : 0, total: 1 }),
 
   canStart: (host, slot, vehicle) => !!vehicle && vehicle.spec.class === 'boat' && vehicle.driver === slot && nearMarina(host, vehicle),
@@ -241,11 +242,10 @@ export const regattaActivity: ActivityDef<RegattaJob> = {
   },
 };
 
-registerStatRow({
-  id: 'regattaBest',
-  label: 'Gull Regatta best',
-  value: (v) => {
-    const best = activityRecords(v.player.progress).regattaBest;
-    return best > 0 ? `${formatRunTime(best / 1000)} (${regattaMedal(best / 1000)})` : '-';
-  },
-});
+/** The player's best time and its medal (STATS, the map's hover), or none before his first finish. */
+function bestTime(me: PlayerView): string | undefined {
+  const best = activityRecords(me.progress).regattaBest;
+  return best > 0 ? `${formatRunTime(best / 1000)} (${regattaMedal(best / 1000)})` : undefined;
+}
+
+registerStatRow({ id: 'regattaBest', label: 'Gull Regatta best', value: (v) => bestTime(v.player) ?? '-' });

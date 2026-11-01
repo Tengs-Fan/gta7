@@ -8,6 +8,7 @@ import { fireRoadLine, FIRE_ROAD } from '../../world/country/hills';
 import type { Vehicle } from '../entities';
 import { registerStatRow } from '../statRows';
 import { formatRunTime } from '../streetRuns';
+import type { PlayerView } from '../viewState';
 import { activityRecords } from './records';
 import type { ActivityDef, ActivityHost, Objective } from './types';
 
@@ -186,7 +187,7 @@ function finish(host: ActivityHost, j: HillClimbJob): void {
 export const hillClimbActivity: ActivityDef<HillClimbJob> = {
   kind: 'hillClimb',
   toggleEndText: 'Hill climb abandoned. Press T at the foot of the fire road to try again.',
-  site: { label: 'peak', name: HILL_CLIMB_NAME, best: 'hillClimbBest', at: () => HILL_CLIMB_START },
+  site: { label: 'peak', name: HILL_CLIMB_NAME, best: bestTime, at: () => HILL_CLIMB_START },
   completion: (_view, me) => ({ label: 'Hill Climb medal', done: activityRecords(me.progress).hillClimbBest > 0 ? 1 : 0, total: 1 }),
 
   canStart: (host, slot, vehicle) => !!vehicle && vehicle.spec.class !== 'boat' && vehicle.driver === slot && !host.job && atFoot(vehicle),
@@ -238,11 +239,10 @@ export const hillClimbActivity: ActivityDef<HillClimbJob> = {
   },
 };
 
-registerStatRow({
-  id: 'hillClimbBest',
-  label: 'Coyote Ridge Hill Climb best',
-  value: (v) => {
-    const best = activityRecords(v.player.progress).hillClimbBest;
-    return best > 0 ? `${formatRunTime(best / 1000)} (${hillClimbMedal(best / 1000)})` : '-';
-  },
-});
+/** The player's best time and its medal (STATS, the map's hover), or none before his first finish. */
+function bestTime(me: PlayerView): string | undefined {
+  const best = activityRecords(me.progress).hillClimbBest;
+  return best > 0 ? `${formatRunTime(best / 1000)} (${hillClimbMedal(best / 1000)})` : undefined;
+}
+
+registerStatRow({ id: 'hillClimbBest', label: 'Coyote Ridge Hill Climb best', value: (v) => bestTime(v.player) ?? '-' });

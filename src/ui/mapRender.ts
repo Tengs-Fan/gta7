@@ -11,7 +11,6 @@ import { playerOf, type ViewState } from '../sim/viewState';
 import { playerColor } from '../sim/appearance';
 import { packageIndex } from '../sim/pickups';
 import { BUSINESS_DAILY, BUSINESS_NAME, BUSINESS_PRICE, GARAGE_PRICE, GARAGE_SLOTS } from '../sim/properties';
-import { statRows } from '../sim/statRows';
 import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
 import { FIRE_ROAD_W, fireRoadLine } from '../world/country/hills';
@@ -394,8 +393,8 @@ registerMapCategory({
       if (!def.site) return [];
       // What the player has done of it, as the checklist counts it, and his best time.
       const row = def.completion?.(sim, me);
-      const best = def.site.best ? statRows().find((r) => r.id === def.site!.best)?.value({ sim, player: me }) : undefined;
-      const detail = [row ? `${row.label}: ${row.done} / ${row.total}` : '', best && best !== '-' ? `best ${best}` : ''].filter(Boolean).join(' · ');
+      const best = def.site.best?.(me);
+      const detail = [row ? `${row.label}: ${row.done} / ${row.total}` : '', best ? `best ${best}` : ''].filter(Boolean).join(' · ');
       const at = def.site.at(sim.world);
       return [blipOf(`activity:${kind}`, at.x, at.z, { detail: detail || undefined })];
     });

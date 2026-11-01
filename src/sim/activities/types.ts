@@ -105,10 +105,10 @@ export interface ActivityDef<J extends ActivityJob = ActivityJob> {
   attach?(host: ActivityHost): void;
   /**
    * Where the activity is taken up, for its icon on the map: its letter or icon (BLIP_ICONS in ui/mapRender.ts), the name
-   * its legend row and a hover give it, and the STATS row (registerStatRow) with its best time, which a hover shows too.
+   * its legend row and a hover give it, and the player's best time, which a hover shows too (none yet: undefined).
    * Absent: no icon.
    */
-  readonly site?: { label: string; name: string; best?: string; at(world: StaticWorld): { x: number; z: number } };
+  readonly site?: { label: string; name: string; best?(me: PlayerView): string | undefined; at(world: StaticWorld): { x: number; z: number } };
   /** Its row in the completion checklist (map screen, STATS): what counts as done of how much. Absent: no row. */
   completion?(view: ViewState, me: PlayerView): { label: string; done: number; total: number } | null;
 }

@@ -9,6 +9,7 @@ import type { StaticWorld } from '../../world/staticWorld';
 import type { Vehicle } from '../entities';
 import { registerStatRow } from '../statRows';
 import { formatRunTime } from '../streetRuns';
+import type { PlayerView } from '../viewState';
 import { activityRecords } from './records';
 import type { ActivityDef, ActivityHost, Objective } from './types';
 
@@ -190,7 +191,7 @@ function nearStart(host: ActivityHost, v: Vehicle): boolean {
 export const scrambleActivity: ActivityDef<ScrambleJob> = {
   kind: 'scramble',
   toggleEndText: 'Scramble abandoned. Press T at Gravel Gulch to try again.',
-  site: { label: 'bike', name: 'Gravel Gulch scramble', best: 'scrambleBest', at: (world) => world.layout.country.places.track.start },
+  site: { label: 'bike', name: 'Gravel Gulch scramble', best: bestTime, at: (world) => world.layout.country.places.track.start },
   completion: (_view, me) => ({ label: 'Gravel Gulch medal', done: activityRecords(me.progress).scrambleBest > 0 ? 1 : 0, total: 1 }),
 
   canStart: (host, slot, vehicle) => !!vehicle && vehicle.spec.class !== 'boat' && vehicle.driver === slot && nearStart(host, vehicle),
@@ -247,11 +248,10 @@ export const scrambleActivity: ActivityDef<ScrambleJob> = {
   },
 };
 
-registerStatRow({
-  id: 'scrambleBest',
-  label: 'Gravel Gulch best',
-  value: (v) => {
-    const best = activityRecords(v.player.progress).scrambleBest;
-    return best > 0 ? `${formatRunTime(best / 1000)} (${scrambleMedal(best / 1000)})` : '-';
-  },
-});
+/** The player's best time and its medal (STATS, the map's hover), or none before his first finish. */
+function bestTime(me: PlayerView): string | undefined {
+  const best = activityRecords(me.progress).scrambleBest;
+  return best > 0 ? `${formatRunTime(best / 1000)} (${scrambleMedal(best / 1000)})` : undefined;
+}
+
+registerStatRow({ id: 'scrambleBest', label: 'Gravel Gulch best', value: (v) => bestTime(v.player) ?? '-' });

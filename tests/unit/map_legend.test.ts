@@ -2,10 +2,12 @@
 // no two kinds of icon look alike.
 
 import { describe, expect, it } from 'vitest';
+import { activityRecords } from '../../src/sim/activities/records';
 import { makeBrain } from '../../src/sim/brains';
 import { Helicopter } from '../../src/sim/entities';
 import { propertyState } from '../../src/sim/properties';
 import type { Sim } from '../../src/sim/sim';
+import { statRows } from '../../src/sim/statRows';
 import { blipKind, blipKindIds, collectBlips, drawBlip, legendRows, MAP_BLIP, MAP_CATEGORIES, type Blip } from '../../src/ui/mapRender';
 import { makeSim, placeInCar } from './helpers';
 import { CHAPTER1 } from './story2_helpers';
@@ -86,6 +88,16 @@ describe('the map legend', () => {
     // stops here on purpose: give it a kind in KINDS, or add it to this list.
     const without = kinds.filter((k) => !icons.has(k));
     expect(without.sort()).toEqual(['bank', 'contactDex', 'contactLou', 'contactVera', 'marina']);
+  });
+
+  it("names an activity site's progress and, once there is one, its best time and medal as STATS gives them", () => {
+    const sim = makeSim({ ambient: false });
+    const regatta = () => collectBlips(sim, 0, 0, { map: true }).find((b) => b.kind === 'activity:regatta')!.detail;
+    expect(regatta()).toBe('Gull Regatta medal: 0 / 1');
+    activityRecords(sim.progress).regattaBest = 140_500;
+    const stats = statRows().find((r) => r.id === 'regattaBest')!.value({ sim, player: sim.players[0]! });
+    expect(stats).toBe('2:20.5 (silver)');
+    expect(regatta()).toBe(`Gull Regatta medal: 1 / 1 · best ${stats}`);
   });
 
   it('lists only what is on the map: a locked contact, the police and a found package have no row until they show', () => {
