@@ -62,7 +62,6 @@ test.describe('the prompt for taking a vehicle', () => {
   });
 
   test('beside a car stopped in traffic it says "carjack", and F takes that car and puts its driver out', async ({ page }) => {
-    await page.setViewportSize({ width: 1600, height: 900 });
     const errors = await boot(page);
     await newGame(page);
     await page.evaluate(() => (window as Api).__gta7.godMode(true));
@@ -82,8 +81,11 @@ test.describe('the prompt for taking a vehicle', () => {
     expect(out.driverIsPlayer).toBe(true);
     expect(out.victimInCar).toBe(false);
     expect(['knocked', 'normal']).toContain(out.victimState);
-    // At the wheel the vehicle prompt is gone (a side-job prompt such as a street run's may stand in its place).
-    await expect(prompt).not.toContainText('carjack');
+    // At the wheel the vehicle prompt is gone: hidden, or (a street run's start beside the lane) another prompt in its place.
+    await page.waitForFunction(() => {
+      const el = document.querySelector('.prompt')!;
+      return el.classList.contains('hidden') || !el.textContent!.includes('carjack');
+    });
     expect(errors).toEqual([]);
   });
 });
