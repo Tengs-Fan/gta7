@@ -6,6 +6,7 @@
 import { DEFAULT_BINDINGS } from '../../src/input/bindings';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AudioEngine } from '../../src/audio/audio';
+import { LOWPASS_FLOOR_HZ, LOWPASS_MAX_HZ } from '../../src/audio/vehicleProfiles';
 import { circleVsObb, makeContact, obbVsObb, type OBB } from '../../src/core/collision';
 import { wrapAngle } from '../../src/core/math';
 import { Game } from '../../src/game';
@@ -3358,6 +3359,20 @@ describe('round 2 audio: mix, voices and ambience', () => {
     v.gear = 2;
     step();
     expect(inner.engine.dips).toBe(1);
+  });
+
+  it('the pulse voice runs through two cascaded low-passes without a resonant peak, both at the engine’s cutoff', () => {
+    const { sim, inner, input, frames } = rig();
+    seatInCar(sim);
+    frames(30, input({ throttle: 1 }));
+    const path = pathOf((inner.engine as unknown as { osc: FakeOscillator }).osc);
+    const stages = path.slice(1, path.findIndex((n) => n instanceof FakeGain)) as Array<FakeNode & { type: string; frequency: FakeParam; Q: FakeParam }>;
+    expect(stages.map((n) => n.type)).toEqual(['lowpass', 'lowpass']);
+    // A low-pass's Q is in dB: -3 dB is a Butterworth, with no peak at the cutoff.
+    for (const f of stages) expect(f.Q.target).toBeLessThanOrEqual(-3);
+    expect(stages[0]!.frequency.target).toBe(stages[1]!.frequency.target);
+    expect(stages[0]!.frequency.target).toBeGreaterThan(LOWPASS_FLOOR_HZ);
+    expect(stages[0]!.frequency.target).toBeLessThanOrEqual(LOWPASS_MAX_HZ);
   });
 
   it('a skid raises the tyre squeal; it stops with the skid', () => {

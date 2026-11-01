@@ -4,7 +4,7 @@
 // The engine's PeriodicWave is built once per vehicle kind.
 //
 //   slow noise -> jitter -> pulse oscillator frequency
-//   pulse oscillator -> throttle low-pass -> body --+
+//   pulse oscillator -> low-pass x2 -> body --------+
 //   noise -> exhaust band-pass -> exhaust gain -----+-> dip -> out
 //   noise -> road band-pass (150-500 Hz) -> roar -----------> out
 //   noise -> high-pass -> wind ------------------------------> out
@@ -31,6 +31,8 @@ const SQUEAL_WOBBLE = 0.08;
 /** Playback rates of the slow noise: the wobble wanders every ~140 ms, the stick-slip flutter every ~14 ms. */
 const WOBBLE_RATE = 0.00015;
 const FLUTTER_RATE = 0.0015;
+/** A low-pass's Q is in dB: -3 dB is a Butterworth, the steepest response with no peak at its cutoff. */
+const NO_PEAK_DB = -3.01;
 /** The combustion jitter changes every ~2 ms, several times per cycle at any rpm. */
 const JITTER_RATE = 0.01;
 
@@ -38,6 +40,7 @@ export class EngineVoice {
   private readonly osc: OscillatorNode;
   private readonly jitter: GainNode;
   private readonly lowpass: BiquadFilterNode;
+  private readonly lowpass2: BiquadFilterNode;
   private readonly body: GainNode;
   private readonly exhaust: BiquadFilterNode;
   private readonly exhaustGain: GainNode;
@@ -84,7 +87,8 @@ export class EngineVoice {
     };
     this.osc = ctx.createOscillator();
     this.osc.frequency.value = 7;
-    this.lowpass = filter('lowpass', 900, 0.9);
+    this.lowpass = filter('lowpass', 900, NO_PEAK_DB);
+    this.lowpass2 = filter('lowpass', 900, NO_PEAK_DB);
     this.body = gain();
     this.exhaust = filter('bandpass', 200, 2.2);
     this.exhaustGain = gain();
@@ -124,7 +128,8 @@ export class EngineVoice {
     this.jitter.connect(this.osc.frequency);
 
     this.osc.connect(this.lowpass);
-    this.lowpass.connect(this.body);
+    this.lowpass.connect(this.lowpass2);
+    this.lowpass2.connect(this.body);
     this.body.connect(this.dip);
     src.connect(this.exhaust);
     this.exhaust.connect(this.exhaustGain);
@@ -195,6 +200,7 @@ export class EngineVoice {
     g.set(this.osc.frequency, p.cycleHz, now, 0.03, 0.002);
     g.set(this.jitter.gain, p.jitterHz, now, 0.05);
     g.set(this.lowpass.frequency, p.lowpassHz, now, 0.06);
+    g.set(this.lowpass2.frequency, p.lowpassHz, now, 0.06);
     g.set(this.body.gain, p.level, now, 0.06);
     g.set(this.exhaust.frequency, p.exhaustHz, now, 0.04);
     g.set(this.exhaustGain.gain, p.exhaustLevel, now, 0.06);
