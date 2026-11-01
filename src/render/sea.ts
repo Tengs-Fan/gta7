@@ -13,8 +13,8 @@ import { countryGround, type Country } from '../world/country';
 import { rectContains, type Bounds, type Rect } from '../world/layout';
 import { WATER_TILT } from './textures';
 import {
-  CALM_SEA, COARSE_EXTENT, OPEN_SEA, SEA_RINGS, SEA_SNAP, SEA_SLOPE2_GLSL, SEA_WAVES_GLSL, SKIRT_EXTENT, SURF_DEPTH, SURF_BAR, SURF_GAMMA, SURF_SHELVE, SURF_SHOAL, SWELL, seaHeight,
-  surfPhases as breakerPhases, wavePhases, type SeaSurface, type ShelterMap, type WaveUniform,
+  CALM_SEA, OPEN_SEA, SEA_GRIDS, SEA_SLOPE2_GLSL, SEA_WAVES_GLSL, SKIRT_EXTENT, SURF_DEPTH, SURF_BAR, SURF_GAMMA, SURF_SHELVE, SURF_SHOAL, SWELL, seaHeight,
+  surfPhases as breakerPhases, wavePhases, WAVES, type SeaGridSpec, type SeaSurface, type ShelterMap, type WaveUniform,
 } from './waves';
 
 /** The sand's drop-off into deep water past the beach's end (CityView.buildCoast), m. */
@@ -355,6 +355,8 @@ export interface SeaWaveUniforms {
   uSeaAmp: { value: number };
   uDisplace: { value: number };
   uSeaOrigin: { value: THREE.Vector2 };
+  /** Each wave's vertex displacement fades (SeaGridSpec): the swell's starts and ends, then the chop's. */
+  uSeaFade: { value: THREE.Vector4[] };
   /** The breakers' phases (waves.ts surfPhases), the surf's foam's and the swash's. */
   uSurfPhase: { value: THREE.Vector3 };
   uSeaShelter: { value: THREE.DataTexture; map: ShelterMap | null };
@@ -414,23 +416,35 @@ function shelterTexture(data: Float32Array, nx: number, nz: number): THREE.DataT
   return tex;
 }
 
-/** Fresh wave uniforms: calm, flat, and open sea everywhere until setSeaShelter. */
+/** Feeds the vertex displacement the fades of a tier's wave grid (SeaGridSpec). */
+export function setSeaFade(u: SeaWaveUniforms, g: SeaGridSpec): void {
+  const v = u.uSeaFade.value;
+  v[0]!.fromArray(g.fadeStart, 0);
+  v[1]!.fromArray(g.fadeEnd, 0);
+  v[2]!.fromArray(g.fadeStart, SWELL);
+  v[3]!.fromArray(g.fadeEnd, SWELL);
+}
+
+/** Fresh wave uniforms: calm, flat, and open sea everywhere until setSeaShelter, with High's fades. */
 export function seaWaveUniforms(): SeaWaveUniforms {
-  return {
+  const u: SeaWaveUniforms = {
     uWavePhase: { value: new THREE.Vector4() },
     uChopPhase: { value: new THREE.Vector4() },
     uSeaAmp: { value: CALM_SEA },
     uDisplace: { value: 0 },
     uSeaOrigin: { value: new THREE.Vector2() },
+    uSeaFade: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
     uSurfPhase: { value: new THREE.Vector3() },
     uSeaShelter: { value: shelterTexture(new Float32Array(OPEN_SEA), 1, 1), map: null },
     uSeaShelterBox: { value: new THREE.Vector4(0, 0, 1, 1) },
   };
+  setSeaFade(u, SEA_GRIDS.fine);
+  return u;
 }
 
 /** The wave uniforms of `u`, for a material that follows the sea to share. */
 export function waveUniformsOf(u: SeaWaveUniforms): Pick<SeaWaveUniforms, WaveUniform> {
-  return { uWavePhase: u.uWavePhase, uChopPhase: u.uChopPhase, uSeaAmp: u.uSeaAmp, uDisplace: u.uDisplace, uSeaOrigin: u.uSeaOrigin, uSurfPhase: u.uSurfPhase, uSeaShelter: u.uSeaShelter, uSeaShelterBox: u.uSeaShelterBox };
+  return { uWavePhase: u.uWavePhase, uChopPhase: u.uChopPhase, uSeaAmp: u.uSeaAmp, uDisplace: u.uDisplace, uSeaOrigin: u.uSeaOrigin, uSeaFade: u.uSeaFade, uSurfPhase: u.uSurfPhase, uSeaShelter: u.uSeaShelter, uSeaShelterBox: u.uSeaShelterBox };
 }
 
 export function seaUniforms(): SeaUniforms {
@@ -542,7 +556,7 @@ export function updateSea(u: SeaUniforms, time: number, seaState: number, origin
 }
 
 /** The sea as the CPU twin needs it this frame, read off the wave uniforms (into `out`). */
-export function seaSurface(u: SeaWaveUniforms, out: SeaSurface = { phases: wavePhases(0), surf: [0, 0, 0], sea: 0, ox: 0, oz: 0, shelter: null }): SeaSurface {
+export function seaSurface(u: SeaWaveUniforms, out: SeaSurface = { phases: wavePhases(0), surf: [0, 0, 0], sea: 0, ox: 0, oz: 0, fadeStart: Array.from(WAVES, () => 0), fadeEnd: Array.from(WAVES, () => 0), shelter: null }): SeaSurface {
   const a = u.uWavePhase.value;
   const b = u.uChopPhase.value;
   const p = out.phases;
@@ -558,6 +572,11 @@ export function seaSurface(u: SeaWaveUniforms, out: SeaSurface = { phases: waveP
   out.sea = u.uSeaAmp.value;
   out.ox = u.uSeaOrigin.value.x;
   out.oz = u.uSeaOrigin.value.y;
+  const f = u.uSeaFade.value;
+  f[0]!.toArray(out.fadeStart, 0);
+  f[1]!.toArray(out.fadeEnd, 0);
+  f[2]!.toArray(out.fadeStart, SWELL);
+  f[3]!.toArray(out.fadeEnd, SWELL);
   out.shelter = u.uSeaShelter.map;
   return out;
 }
@@ -1063,13 +1082,14 @@ export function seaPlane(): THREE.BufferGeometry {
 }
 
 /**
- * The wave grid (High and Medium) in XZ around its centre: the rings of SEA_RINGS, then a flat skirt to SKIRT_EXTENT whose
+ * The wave grid (High and Medium) in XZ around its centre: the rings of `spec`, then a flat skirt to SKIRT_EXTENT whose
  * inner rim shares the outer ring's vertices. A ring's rim vertices that fall between the next ring's carry aEdge (the
  * rim's direction times the next ring's cell), so the shader puts them on the next ring's edges. The mesh is moved in
- * whole SEA_SNAP steps (Environment), so every vertex stays on a fixed world lattice. Its normal is up everywhere, one
+ * whole steps of spec.snap (Environment), so every vertex stays on a fixed world lattice. Its normal is up everywhere, one
  * byte a component (the contact shading's normal pass reads it); the shading's own normals come from the waves.
  */
-export function seaGrid(): THREE.BufferGeometry {
+export function seaGrid(spec: SeaGridSpec = SEA_GRIDS.fine): THREE.BufferGeometry {
+  const rings = spec.rings;
   const pos: number[] = [];
   const edge: number[] = [];
   const index: number[] = [];
@@ -1114,21 +1134,21 @@ export function seaGrid(): THREE.BufferGeometry {
       }
     }
   };
-  SEA_RINGS.forEach((r, i) => grid(r.extent, r.cell, i > 0 ? SEA_RINGS[i - 1]!.extent : 0, SEA_RINGS[i + 1]?.cell ?? 0));
+  rings.forEach((r, i) => grid(r.extent, r.cell, i > 0 ? rings[i - 1]!.extent : 0, rings[i + 1]?.cell ?? 0));
   // The skirt: per side, a strip of quads from the outer rim out to SKIRT_EXTENT, flat (the waves have faded out).
-  const outer = SEA_RINGS[SEA_RINGS.length - 1]!.cell;
-  const steps = Math.round((COARSE_EXTENT * 2) / outer);
-  const k = SKIRT_EXTENT / COARSE_EXTENT;
+  const { cell: outer, extent: coarse } = rings[rings.length - 1]!;
+  const steps = Math.round((coarse * 2) / outer);
+  const k = SKIRT_EXTENT / coarse;
   const sides: Array<(t: number) => [number, number]> = [
-    (t) => [t, -COARSE_EXTENT],
-    (t) => [COARSE_EXTENT, t],
-    (t) => [-t, COARSE_EXTENT],
-    (t) => [-COARSE_EXTENT, -t],
+    (t) => [t, -coarse],
+    (t) => [coarse, t],
+    (t) => [-t, coarse],
+    (t) => [-coarse, -t],
   ];
   for (const side of sides) {
     for (let i = 0; i < steps; i++) {
-      const [x0, z0] = side(-COARSE_EXTENT + i * outer);
-      const [x1, z1] = side(-COARSE_EXTENT + (i + 1) * outer);
+      const [x0, z0] = side(-coarse + i * outer);
+      const [x1, z1] = side(-coarse + (i + 1) * outer);
       const a = vertex(x0, z0);
       const b = vertex(x1, z1);
       const c = vertex(x0 * k, z0 * k);
@@ -1149,7 +1169,7 @@ export function seaGrid(): THREE.BufferGeometry {
   return g;
 }
 
-/** Where the grid's centre goes for a camera at (x, z): whole SEA_SNAP steps, so its vertices never swim. */
-export function snapSea(v: number): number {
-  return Math.round(v / SEA_SNAP) * SEA_SNAP;
+/** Where the grid's centre goes for a camera at (x, z): whole steps of `snap` (SeaGridSpec), so its vertices never swim. */
+export function snapSea(v: number, snap: number): number {
+  return Math.round(v / snap) * snap;
 }

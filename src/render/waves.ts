@@ -21,8 +21,8 @@ export interface Wave {
   /** Phase at time 0 (rad). */
   phase0: number;
   /**
-   * Vertex displacement fades out between these distances (m, along the larger axis from the sea grid's centre),
-   * before the grid's cells grow too coarse to sample the wave: 1 m cells reach FINE_EXTENT, 4 m cells COARSE_EXTENT.
+   * On High, vertex displacement fades out between these distances (m, along the larger axis from the sea grid's
+   * centre), before the grid's cells grow too coarse to sample the wave (SEA_GRIDS holds the fades of each tier).
    */
   fadeStart: number;
   fadeEnd: number;
@@ -60,12 +60,18 @@ export const CHOP_POWER = 1.5;
  * only the light can.
  */
 export const NORMAL_GAIN = { grid: [2.6, 1.4], flat: [3.4, 2.2] } as const;
+/** A ring of the sea grid: square cells of `cell` m out to a half-width of `extent` m round its centre. */
+export interface SeaRing {
+  readonly cell: number;
+  readonly extent: number;
+}
+
 /**
- * The sea grid (High and Medium): rings of square cells round its centre, each `cell` m to its half-width `extent`, every
- * cell doubling as the cells shrink under a pixel with distance (1 m cells to FINE_EXTENT, 16 m by COARSE_EXTENT), then
- * a flat skirt to SKIRT_EXTENT. Every wave fades out before the cells grow past a quarter of its length.
+ * The wave grid on High: rings of square cells round its centre, each cell doubling as the cells shrink under a pixel
+ * with distance (1 m cells to FINE_EXTENT, 16 m by COARSE_EXTENT), then a flat skirt to SKIRT_EXTENT. Every wave fades
+ * out before the cells grow past a quarter of its length.
  */
-export const SEA_RINGS: readonly { readonly cell: number; readonly extent: number }[] = [
+export const SEA_RINGS: readonly SeaRing[] = [
   { cell: 1, extent: 80 },
   { cell: 4, extent: 240 },
   { cell: 8, extent: 480 },
@@ -80,6 +86,41 @@ export const SEA_SNAP = SEA_RINGS[SEA_RINGS.length - 1]!.cell;
 export function seaCellAt(c: number): number {
   return (SEA_RINGS.find((r) => c <= r.extent) ?? SEA_RINGS[SEA_RINGS.length - 1]!).cell;
 }
+
+/**
+ * A tier's wave grid: its rings, the step it moves in (its largest cell), and the distances (m, from the grid's centre
+ * along the larger axis) between which each wave's vertex displacement fades out, to nothing (-1 to 0) for a wave its
+ * cells cannot sample. The drawn surface, and with it the CPU twin (SeaSurface), follows these.
+ */
+export interface SeaGridSpec {
+  readonly rings: readonly SeaRing[];
+  readonly snap: number;
+  readonly fadeStart: readonly number[];
+  readonly fadeEnd: readonly number[];
+}
+
+export type SeaGridName = 'fine' | 'coarse';
+
+/**
+ * The two wave grids (TierSpec.waterRings). The fine one is High's. The coarse one, Medium's, has a tenth of the vertices
+ * and shorter rings: an integrated GPU shades a pixel once for every triangle its samples touch, and with the fine one's
+ * cells under a pixel tall from a low camera past some 40 m (a 4 m cell at 240 m is a fifth of a pixel) it ran the whole
+ * sea shader three to four times over per pixel. Its cells stay a few pixels tall as far as the eye reaches into the
+ * swell, and only the waves it can sample (four vertices a wavelength) displace: the 9 and 4 m chop only shade.
+ */
+export const SEA_GRIDS: Readonly<Record<SeaGridName, SeaGridSpec>> = {
+  fine: { rings: SEA_RINGS, snap: SEA_SNAP, fadeStart: WAVES.map((w) => w.fadeStart), fadeEnd: WAVES.map((w) => w.fadeEnd) },
+  coarse: {
+    rings: [
+      { cell: 4, extent: 64 },
+      { cell: 8, extent: 128 },
+    ],
+    snap: 8,
+    fadeStart: [90, 90, 90, 90, 90, 40, -1, -1],
+    fadeEnd: [124, 124, 124, 124, 124, 62, 0, 0],
+  },
+};
+
 /** Sea state with no weather (calm). */
 export const CALM_SEA = 0.3;
 /**
@@ -268,6 +309,9 @@ export interface SeaSurface {
   /** The wave grid's centre, which the displacement's fades are measured from. */
   ox: number;
   oz: number;
+  /** Each wave's fade distances (SeaGridSpec), those of the grid being drawn. */
+  fadeStart: number[];
+  fadeEnd: number[];
   shelter: ShelterMap | null;
 }
 
@@ -290,7 +334,7 @@ export function waveDisplacement(sea: SeaSurface, x: number, z: number, out: [nu
   for (let i = 0; i < WAVES.length; i++) {
     const w = WAVES[i]!;
     const [ux, uz] = WAVE_DIR[i]!;
-    const a = amps[i]! * deep * (1 - smooth(w.fadeStart, w.fadeEnd, c));
+    const a = amps[i]! * deep * (1 - smooth(sea.fadeStart[i]!, sea.fadeEnd[i]!, c));
     const th = WAVE_K[i]! * (ux * x + uz * z) - sea.phases[i]!;
     dy += a * Math.sin(th);
     const h = w.steep * a * Math.cos(th);
@@ -357,7 +401,7 @@ float seaSwash(vec3 surf, float z) {
 `;
 
 /** The uniforms every material that follows the sea declares (SEA_WAVES_GLSL), bound to the sea's own. */
-export const WAVE_UNIFORMS = ['uWavePhase', 'uChopPhase', 'uSeaAmp', 'uDisplace', 'uSeaOrigin', 'uSurfPhase', 'uSeaShelter', 'uSeaShelterBox'] as const;
+export const WAVE_UNIFORMS = ['uWavePhase', 'uChopPhase', 'uSeaAmp', 'uDisplace', 'uSeaOrigin', 'uSeaFade', 'uSurfPhase', 'uSeaShelter', 'uSeaShelterBox'] as const;
 export type WaveUniform = (typeof WAVE_UNIFORMS)[number];
 
 /**
@@ -375,6 +419,7 @@ uniform vec4 uChopPhase;
 uniform float uSeaAmp;
 uniform float uDisplace;
 uniform vec2 uSeaOrigin;
+uniform vec4 uSeaFade[4];
 uniform vec3 uSurfPhase;
 uniform sampler2D uSeaShelter;
 uniform vec4 uSeaShelterBox;
@@ -383,8 +428,6 @@ ${pair('SEA_AMP', WAVES.map((w) => w.amp))}
 ${pair('SEA_DX', WAVE_DIR.map((d) => d[0]))}
 ${pair('SEA_DZ', WAVE_DIR.map((d) => d[1]))}
 ${pair('SEA_Q', WAVES.map((w) => w.steep))}
-${pair('SEA_FADE0', WAVES.map((w) => w.fadeStart))}
-${pair('SEA_FADE1', WAVES.map((w) => w.fadeEnd))}
 ${SURF_SWASH_GLSL}
 const vec3 SURF_S3 = ${vec3(SURF_S)};
 /** Shelter, depth and the depth's gradient at p (ShelterMap). */
@@ -427,8 +470,8 @@ vec3 seaDisplace(vec2 p) {
   vec2 sh = seaShoal(s);
   vec2 l = abs(p - uSeaOrigin);
   float c = max(l.x, l.y);
-  vec4 aA = seaAmpA() * sh.x * (1.0 - smoothstep(SEA_FADE0_A, SEA_FADE1_A, vec4(c)));
-  vec4 aB = seaAmpB() * sh.x * (1.0 - smoothstep(SEA_FADE0_B, SEA_FADE1_B, vec4(c)));
+  vec4 aA = seaAmpA() * sh.x * (1.0 - smoothstep(uSeaFade[0], uSeaFade[1], vec4(c)));
+  vec4 aB = seaAmpB() * sh.x * (1.0 - smoothstep(uSeaFade[2], uSeaFade[3], vec4(c)));
   vec4 thA = SEA_K_A * (SEA_DX_A * p.x + SEA_DZ_A * p.y) - uWavePhase;
   vec4 thB = SEA_K_B * (SEA_DX_B * p.x + SEA_DZ_B * p.y) - uChopPhase;
   vec4 hA = aA * SEA_Q_A * cos(thA);

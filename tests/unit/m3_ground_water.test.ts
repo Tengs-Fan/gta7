@@ -13,7 +13,7 @@ import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, 
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
 import { CITY_STREAKS, CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_MID, SEA_MOON_PATH, SEA_NIGHT_GLOW, SEA_NIGHT_SKY, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_GLSL, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, SOFTWARE_BODY, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_LACE_PX, WHITECAP_MOST, WHITECAP_SPREAD, WHITECAP_STEEP } from '../../src/render/sea';
-import { CALM_SEA, SEA_WAVES_GLSL, WAVE_K, WAVES, waveAmps, waveDisplacement, wavePhases } from '../../src/render/waves';
+import { CALM_SEA, SEA_GRIDS, SEA_WAVES_GLSL, WAVE_K, WAVES, waveAmps, waveDisplacement, wavePhases } from '../../src/render/waves';
 import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
 import { sandHeight } from '../../src/world/layout';
@@ -702,7 +702,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     let top = 0;
     for (const sea of [0.3, 1]) {
       const most = waveAmps(sea).reduce((a, b) => a + b, 0);
-      const s = { phases, surf: [0, 0, 0], sea, ox: 0, oz: 0, shelter: null };
+      const s = { phases, surf: [0, 0, 0], sea, ox: 0, oz: 0, fadeStart: [...SEA_GRIDS.fine.fadeStart], fadeEnd: [...SEA_GRIDS.fine.fadeEnd], shelter: null };
       for (let x = 0; x < 200; x += 1.7) for (let z = 0; z < 200; z += 2.3) top = Math.max(top, Math.abs(waveDisplacement(s, x, z)[1]) / most);
     }
     expect(top).toBeLessThanOrEqual(1);

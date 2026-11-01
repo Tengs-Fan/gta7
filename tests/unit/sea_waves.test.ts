@@ -12,7 +12,7 @@ import { onDrawn, riderMount } from '../../src/render/riders';
 import { countyShore, seaDepthCpu, seaHeightAt, seaUniforms, setSeaShelter, updateSea, type CountyShore } from '../../src/render/sea';
 import { bakeSeaShelter, SHELTER_CELL, SHELTER_RAMP } from '../../src/render/seaShelter';
 import {
-  CALM_SEA, OPEN_SEA, SURF_BAR, SURF_BAR_FADE, SURF_GAMMA, SURF_KZ, SURF_S, SURF_SYNC_DEPTH, SURF_W, SURF_WAVES, WAVE_DIR, WAVE_K, seaHeight, shelterAt, surfDepth, surfPhases,
+  CALM_SEA, OPEN_SEA, SEA_GRIDS, SURF_BAR, SURF_BAR_FADE, SURF_GAMMA, SURF_KZ, SURF_S, SURF_SYNC_DEPTH, SURF_W, SURF_WAVES, WAVE_DIR, WAVE_K, seaHeight, shelterAt, surfDepth, surfPhases,
   waveDisplacement, wavePhases, type SeaSurface, type ShelterMap,
 } from '../../src/render/waves';
 import { SWIM_FLOAT } from '../../src/sim/characterPhysics';
@@ -159,7 +159,7 @@ describe('the shelter map', () => {
 /** The sea as drawn at time `t` and sea state `sea`, the grid centred on (ox, oz), with the shelter map. */
 function drawnSea(t: number, sea: number, ox: number, oz: number): SeaSurface {
   const phases = wavePhases(t);
-  return { phases, surf: surfPhases(phases, world().layout.bounds.beachStartX), sea, ox, oz, shelter: map };
+  return { phases, surf: surfPhases(phases, world().layout.bounds.beachStartX), sea, ox, oz, fadeStart: [...SEA_GRIDS.fine.fadeStart], fadeEnd: [...SEA_GRIDS.fine.fadeEnd], shelter: map };
 }
 
 describe('the waves over the beach and under the decks', () => {

@@ -7,8 +7,8 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { QUALITY } from '../../src/render/quality';
 import { GameRenderer, seaCrossing } from '../../src/render/renderer';
-import { SHORE_GLSL, seaGrid, seaHeightAt, seaUniforms, surfPhases, updateSea } from '../../src/render/sea';
-import { CALM_SEA, COARSE_EXTENT, SEA_RINGS, SEA_SNAP, SEA_WAVES_GLSL, seaCellAt, SKIRT_EXTENT, SWELL, WAVES, waveAmps, waveDisplacement, wavePhases, type SeaSurface } from '../../src/render/waves';
+import { SHORE_GLSL, seaGrid, seaHeightAt, seaUniforms, seaWaveUniforms, setSeaFade, snapSea, surfPhases, updateSea } from '../../src/render/sea';
+import { CALM_SEA, SEA_GRIDS, SEA_RINGS, SEA_SNAP, SEA_WAVES_GLSL, SKIRT_EXTENT, SWELL, WAVES, waveAmps, waveDisplacement, wavePhases, type SeaGridName, type SeaSurface } from '../../src/render/waves';
 import { Projectile } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
 import { BEACH_W, CURB_H, SAND_DROP, WATER_Y } from '../../src/world/constants';
@@ -101,9 +101,9 @@ function landPoint(): { x: number; z: number } {
   return { x: (b.cityMinX + b.cityMaxX) / 2, z: (b.cityMinZ + b.cityMaxZ) / 2 };
 }
 
-/** The open sea (no shelter map: unsheltered and deep) at time `t` and sea state `sea`, the grid centred on the origin. */
-function openSea(t: number, sea: number): SeaSurface {
-  return { phases: wavePhases(t), surf: [0, 0, 0], sea, ox: 0, oz: 0, shelter: null };
+/** The open sea (no shelter map: unsheltered and deep) at time `t` and sea state `sea`, drawn with `grid`'s fades, the grid centred on the origin. */
+function openSea(t: number, sea: number, grid: SeaGridName = 'fine'): SeaSurface {
+  return { phases: wavePhases(t), surf: [0, 0, 0], sea, ox: 0, oz: 0, fadeStart: [...SEA_GRIDS[grid].fadeStart], fadeEnd: [...SEA_GRIDS[grid].fadeEnd], shelter: null };
 }
 
 describe('waves', () => {
@@ -171,23 +171,58 @@ describe('waves', () => {
     }
   });
 
-  it('displacement fades out before the grid coarsens past each wave and is gone at the skirt', () => {
-    const s = openSea(12.3, 1);
-    for (let i = 0; i < WAVES.length; i++) {
-      // Each wave is sampled by at least four vertices per wavelength where it displaces.
-      const w = WAVES[i]!;
-      expect(w.length / seaCellAt(w.fadeEnd), `${w.length} m`).toBeGreaterThanOrEqual(4);
-      expect(w.fadeEnd).toBeLessThan(COARSE_EXTENT);
+  it('displacement fades out before the grid coarsens past each wave and is gone at the skirt, on the fine grid and the coarse one', () => {
+    expect(SEA_GRIDS.fine.fadeEnd).toEqual(WAVES.map((w) => w.fadeEnd));
+    for (const name of ['fine', 'coarse'] as const) {
+      const grid = SEA_GRIDS[name];
+      const outer = grid.rings[grid.rings.length - 1]!;
+      const cellAt = (c: number) => (grid.rings.find((r) => c <= r.extent) ?? outer).cell;
+      for (let i = 0; i < WAVES.length; i++) {
+        const w = WAVES[i]!;
+        if (grid.fadeEnd[i]! > 0) {
+          // Each wave is sampled by at least four vertices per wavelength where it displaces.
+          expect(w.length / cellAt(grid.fadeEnd[i]!), `${name} ${w.length} m`).toBeGreaterThanOrEqual(4);
+          expect(grid.fadeStart[i]!).toBeLessThan(grid.fadeEnd[i]!);
+          expect(grid.fadeEnd[i]!).toBeLessThan(outer.extent);
+        } else {
+          // ...and a wave its finest cells could not sample does not displace at all.
+          expect(w.length / grid.rings[0]!.cell, `${name} ${w.length} m`).toBeLessThan(4);
+        }
+      }
+      const s = openSea(12.3, 1, name);
+      for (let x = -outer.extent; x <= outer.extent; x += 37) {
+        const d = waveDisplacement(s, x, outer.extent);
+        expect(Math.hypot(...d), name).toBeLessThan(1e-9);
+      }
     }
-    for (let x = -COARSE_EXTENT; x <= COARSE_EXTENT; x += 37) {
-      const d = waveDisplacement(s, x, COARSE_EXTENT);
-      expect(Math.hypot(...d)).toBeLessThan(1e-9);
+  });
+
+  it('the coarse grid draws the swell and the two longest chop waves close in and none of the rest: the CPU twin follows the fades it is given', () => {
+    const fine = openSea(7.7, 1, 'fine');
+    const coarse = openSea(7.7, 1, 'coarse');
+    // Near the centre every wave of the fine grid displaces, so the two surfaces differ by the dropped 9 and 4 m chop.
+    const dropped = SEA_GRIDS.coarse.fadeEnd.filter((e) => e <= 0).length;
+    expect(dropped).toBe(2);
+    let differ = 0;
+    for (let i = 0; i < 200; i++) {
+      const x = (i % 20) * 1.9 - 18;
+      const z = Math.floor(i / 20) * 2.3 - 11;
+      if (Math.abs(waveDisplacement(fine, x, z)[1] - waveDisplacement(coarse, x, z)[1]) > 1e-3) differ++;
     }
+    expect(differ).toBeGreaterThan(150);
+    // Past the coarse grid's fades only the fine grid's long swell still displaces.
+    let far = 0;
+    for (let i = 0; i < 40; i++) far = Math.max(far, Math.abs(waveDisplacement(fine, 200 + i * 3.1, 30)[1]));
+    expect(far).toBeGreaterThan(0.3);
+    for (let i = 0; i < 40; i++) expect(waveDisplacement(coarse, 130 + i * 3.1, 30)[1]).toBeCloseTo(0, 9);
   });
 });
 
-describe('the wave grid', () => {
-  const g = seaGrid();
+describe.each(['fine', 'coarse'] as const)('the %s wave grid', (name) => {
+  const spec = SEA_GRIDS[name];
+  const rings = spec.rings;
+  const outer = rings[rings.length - 1]!;
+  const g = seaGrid(spec);
   const pos = g.getAttribute('position');
   const edge = g.getAttribute('aEdge');
 
@@ -197,7 +232,7 @@ describe('the wave grid', () => {
       const x = pos.getX(i);
       const z = pos.getZ(i);
       far = Math.max(far, Math.abs(x), Math.abs(z));
-      if (Math.max(Math.abs(x), Math.abs(z)) <= COARSE_EXTENT) {
+      if (Math.max(Math.abs(x), Math.abs(z)) <= outer.extent) {
         expect(Number.isInteger(x) && Number.isInteger(z)).toBe(true);
       }
       expect(pos.getY(i)).toBe(0);
@@ -225,29 +260,29 @@ describe('the wave grid', () => {
       const ez = edge.getY(i);
       if (ex || ez) {
         const next = ex || ez;
-        const r = SEA_RINGS.findIndex((ring, k) => SEA_RINGS[k + 1]?.cell === next && Math.abs(ex ? z : x) === ring.extent);
+        const r = rings.findIndex((ring, k) => rings[k + 1]?.cell === next && Math.abs(ex ? z : x) === ring.extent);
         expect(r, `${x} ${z}`).toBeGreaterThanOrEqual(0);
         expect((ex ? x : z) % next).not.toBe(0);
         marked.set(r, (marked.get(r) ?? 0) + 1);
       }
     }
     // Per ring with one outside it: four sides of 2 extent / cell steps, all but those on the next ring's lattice.
-    for (let r = 0; r < SEA_RINGS.length - 1; r++) {
-      const { cell, extent } = SEA_RINGS[r]!;
-      const next = SEA_RINGS[r + 1]!.cell;
+    for (let r = 0; r < rings.length - 1; r++) {
+      const { cell, extent } = rings[r]!;
+      const next = rings[r + 1]!.cell;
       expect(marked.get(r), `ring ${r}`).toBe(4 * ((2 * extent) / cell - (2 * extent) / next));
     }
-    // Past the fine ring the cells double ring by ring, and the grid holds under 60,000 vertices, no uv and a byte normal.
-    for (let r = 2; r < SEA_RINGS.length; r++) expect(SEA_RINGS[r]!.cell).toBe(SEA_RINGS[r - 1]!.cell * 2);
-    expect(pos.count).toBeLessThan(60000);
+    // The grid moves in steps of its largest cell, and every ring's extent is a whole number of the next one's cells.
+    expect(spec.snap).toBe(outer.cell);
+    for (let r = 1; r < rings.length; r++) expect(rings[r - 1]!.extent % rings[r]!.cell).toBe(0);
     expect(g.getAttribute('uv')).toBeUndefined();
     expect(g.getAttribute('normal').normalized).toBe(true);
     // The shader's rim rule, on the CPU: the displaced rim point lies on the segment between the next ring's neighbours.
-    const s = openSea(4.2, 1);
+    const s = openSea(4.2, 1, name);
     const at = (x: number, z: number) => waveDisplacement(s, x, z);
-    for (let r = 0; r < SEA_RINGS.length - 1; r++) {
-      const { extent } = SEA_RINGS[r]!;
-      const next = SEA_RINGS[r + 1]!.cell;
+    for (let r = 0; r < rings.length - 1; r++) {
+      const { extent } = rings[r]!;
+      const next = rings[r + 1]!.cell;
       for (const x of [-extent + 1, Math.round(-0.43 * extent), Math.round(0.13 * extent), extent - 2]) {
         const s0 = Math.floor(x / next) * next;
         const f = (x - s0) / next;
@@ -260,6 +295,18 @@ describe('the wave grid', () => {
       }
     }
     expect(SEA_WAVES_GLSL).toContain('seaDisplaceEdge');
+  });
+
+  it('holds the vertices its tier can shade', () => {
+    // The fine grid doubles its cells ring by ring past the finest, in under 60,000 vertices; the coarse grid, which an
+    // integrated GPU shades, in under 3,000.
+    if (name === 'fine') {
+      for (let r = 2; r < rings.length; r++) expect(rings[r]!.cell).toBe(rings[r - 1]!.cell * 2);
+      expect(pos.count).toBeLessThan(60000);
+    } else {
+      expect(rings[0]!.cell).toBeGreaterThanOrEqual(SEA_RINGS[1]!.cell);
+      expect(pos.count).toBeLessThan(3000);
+    }
   });
 
 });
@@ -302,8 +349,15 @@ describe('the sea in the renderer', () => {
       expect(r.stats().waterGrid, q).toBe(true);
       expect(r.env.sea.uDisplace.value).toBe(1);
       expect(r.env.water.geometry.getAttribute('aEdge')).toBeTruthy();
-      expect(r.env.water.geometry.getAttribute('position').count).toBeGreaterThan(50000);
+      // High's fine rings hold 58,500 vertices, Medium's coarse ones a twentieth of that, and the fades follow the grid.
+      const grid = SEA_GRIDS[QUALITY[q].waterRings];
+      expect(r.env.water.geometry.getAttribute('position').count, q).toBe(seaGrid(grid).getAttribute('position').count);
+      expect(r.env.sea.uSeaFade.value.map((v) => v.toArray()).flat(), q).toEqual([...grid.fadeStart.slice(0, SWELL), ...grid.fadeEnd.slice(0, SWELL), ...grid.fadeStart.slice(SWELL), ...grid.fadeEnd.slice(SWELL)]);
     }
+    expect(QUALITY.high.waterRings).toBe('fine');
+    expect(QUALITY.medium.waterRings).toBe('coarse');
+    expect(renderer('high').env.water.geometry.getAttribute('position').count).toBeGreaterThan(50000);
+    expect(renderer('medium').env.water.geometry.getAttribute('position').count).toBeLessThan(3000);
     const low = renderer('low');
     expect(low.stats().waterGrid).toBe(false);
     expect(low.env.sea.uDisplace.value).toBe(0);
@@ -333,6 +387,47 @@ describe('the sea in the renderer', () => {
     r.setQuality('high');
     expect(r.env.water.geometry).toBe(grid);
     expect(r.stats().waterGrid).toBe(true);
+    // Medium swaps in its own coarse grid and fades, frees High's buffers, and High's come back with its fades.
+    const fine = vi.spyOn(grid, 'dispose');
+    r.setQuality('medium');
+    const coarse = r.env.water.geometry;
+    expect(coarse).not.toBe(grid);
+    expect(fine).toHaveBeenCalled();
+    expect(r.stats().waterGrid).toBe(true);
+    expect(r.env.sea.uSeaFade.value[1]!.toArray()).toEqual(SEA_GRIDS.coarse.fadeEnd.slice(0, SWELL));
+    expect(r.env.water.material).toBe(mat);
+    expect(mat.customProgramCacheKey()).toBe(key);
+    r.setQuality('low');
+    expect(r.env.sea.uSeaFade.value[1]!.toArray()).toEqual(SEA_GRIDS.fine.fadeEnd.slice(0, SWELL));
+    r.setQuality('high');
+    expect(r.env.water.geometry).toBe(grid);
+    expect(r.env.sea.uSeaFade.value[1]!.toArray()).toEqual(SEA_GRIDS.fine.fadeEnd.slice(0, SWELL));
+  });
+
+  it('what rides the sea follows the grid drawn: on Medium nothing the coarse rings cannot sample displaces, so a boat, a swimmer or a splash sits where the water is drawn', () => {
+    const fine = seaWaveUniforms();
+    const coarse = seaWaveUniforms();
+    for (const u of [fine, coarse]) {
+      u.uDisplace.value = 1;
+      u.uSeaAmp.value = 1;
+      u.uWavePhase.value.set(1.1, 2.2, 3.3, 4.4);
+      u.uChopPhase.value.set(0.5, 1.5, 2.5, 3.5);
+    }
+    setSeaFade(coarse, SEA_GRIDS.coarse);
+    // The same sea 20 m from the grid's centre: the coarse grid lacks only its dropped chop...
+    const near = Math.abs(seaHeightAt(fine, 20, 7) - seaHeightAt(coarse, 20, 7));
+    expect(near).toBeGreaterThan(0);
+    expect(near).toBeLessThan(0.3);
+    // ...and 200 m out nothing at all is drawn on it, where the fine grid still shows the long swell.
+    let top = 0;
+    for (let x = 200; x < 300; x += 7) {
+      expect(seaHeightAt(coarse, x, 7)).toBeCloseTo(0, 9);
+      top = Math.max(top, Math.abs(seaHeightAt(fine, x, 7)));
+    }
+    expect(top).toBeGreaterThan(0.3);
+    // A flat sea (Low) draws no waves whatever the fades.
+    coarse.uDisplace.value = 0;
+    expect(seaHeightAt(coarse, 20, 7)).toBe(0);
   });
 
   it('the sea material declares the waves, shoreline and foam in its patch', () => {
@@ -375,6 +470,15 @@ describe('the sea in the renderer', () => {
     expect(r.env.water.position.z % SEA_SNAP).toBe(0);
     expect(Math.abs(r.env.water.position.x - cam.x)).toBeLessThanOrEqual(SEA_SNAP / 2);
     expect(r.env.water.position.y).toBe(WATER_Y);
+    // Medium's coarse grid moves in whole steps of its own largest cell.
+    const m = renderer('medium');
+    m.attach(makeSim());
+    m.render(DT, false);
+    const step = SEA_GRIDS.coarse.snap;
+    expect(step).toBeLessThan(SEA_SNAP);
+    expect(m.env.water.position.x % step).toBe(0);
+    expect(m.env.water.position.x).toBe(snapSea(m.cameraCtl.camera.position.x, step));
+    expect(Math.abs(m.env.water.position.z - m.cameraCtl.camera.position.z)).toBeLessThanOrEqual(step / 2);
   });
 
   it('the foam rings ride on the sea uniforms', () => {

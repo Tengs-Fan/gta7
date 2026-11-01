@@ -570,7 +570,7 @@ export class GameRenderer {
     const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
     this.city.setAnisotropy(this.software ? 'software' : q, maxAnisotropy);
     this.city.setQuality(q, maxAnisotropy, this.software);
-    this.env.setWaterGrid(!this.software && t.waterGrid);
+    this.env.setWaterGrid(!this.software && t.waterGrid, t.waterRings);
     this.streetLighting.group.visible = !this.software && q === 'high';
     if (q !== 'high') this.clearLocalReflections();
     this.resize();
