@@ -3396,6 +3396,17 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(roar.frequency.target).toBeGreaterThanOrEqual(100);
   });
 
+  it('the wind is a whoosh, not a hiss: noise through a high-pass and a low-pass under 2 kHz', () => {
+    const { inner } = rig();
+    const eng = inner.engine as unknown as { windFilter: FakeNode & { type: string; frequency: FakeParam; Q: FakeParam }; windLow: FakeNode & { type: string; frequency: FakeParam; Q: FakeParam } };
+    expect(eng.windFilter.type).toBe('highpass');
+    expect(eng.windLow.type).toBe('lowpass');
+    expect(eng.windFilter.outputs[0]).toBe(eng.windLow);
+    expect(eng.windLow.frequency.target).toBeLessThanOrEqual(2000);
+    expect(eng.windFilter.frequency.target).toBeLessThan(eng.windLow.frequency.target / 4);
+    for (const f of [eng.windFilter, eng.windLow]) expect(f.Q.target).toBeLessThanOrEqual(-3);
+  });
+
   it('a skid raises the tyre squeal; it stops with the skid', () => {
     const { sim, audio, ctx, inner, frames } = rig();
     const v = seatInCar(sim);

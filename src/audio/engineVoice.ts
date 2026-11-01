@@ -7,7 +7,7 @@
 //   pulse oscillator -> low-pass x2 -> body --------+
 //   noise -> exhaust low-pass -> exhaust gain ------+-> dip -> out
 //   noise -> road band-pass (170 Hz) -> roar ---------------> out
-//   noise -> high-pass -> wind ------------------------------> out
+//   noise -> high-pass -> low-pass -> wind ------------------> out
 //   noise -> two resonant band-passes -> flutter -> squeal --> out
 //   noise -> wide band-pass -> scrub ------------------------> out
 //   slow noise -> wobble -> band centres; slow noise -> flutter depth -> flutter gain
@@ -49,6 +49,7 @@ export class EngineVoice {
   private readonly roarFilter: BiquadFilterNode;
   private readonly roarGain: GainNode;
   private readonly windFilter: BiquadFilterNode;
+  private readonly windLow: BiquadFilterNode;
   private readonly windGain: GainNode;
   private readonly squealLow: BiquadFilterNode;
   private readonly squealHigh: BiquadFilterNode;
@@ -96,7 +97,8 @@ export class EngineVoice {
     this.dip.gain.value = 1;
     this.roarFilter = filter('bandpass', 170, 0.9);
     this.roarGain = gain();
-    this.windFilter = filter('highpass', 650, 0.5);
+    this.windFilter = filter('highpass', 150, NO_PEAK_DB);
+    this.windLow = filter('lowpass', 1300, NO_PEAK_DB);
     this.windGain = gain();
     this.squealLow = filter('bandpass', 900, 12);
     this.squealHigh = filter('bandpass', 900 * SQUEAL_OVERTONE, 9);
@@ -139,7 +141,8 @@ export class EngineVoice {
     this.roarFilter.connect(this.roarGain);
     this.roarGain.connect(out);
     src.connect(this.windFilter);
-    this.windFilter.connect(this.windGain);
+    this.windFilter.connect(this.windLow);
+    this.windLow.connect(this.windGain);
     this.windGain.connect(out);
     src.connect(this.squealLow);
     src.connect(this.squealHigh);
