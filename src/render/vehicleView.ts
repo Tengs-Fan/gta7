@@ -6,6 +6,7 @@ import { burntMaterial } from './fx/burnt';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp } from '../core/math';
 import type { Vehicle } from '../sim/entities';
+import { lampsLit, lampsPowered } from '../sim/lamps';
 import { firingRow, GUN_PORT, SKELETON } from '../sim/pose';
 import { SHERIFF_COLOR, VEHICLE_SPECS, type VehicleBodyProfile, type VehicleKind } from '../sim/specs';
 import { chaseOffset, CHASE_TARGET_Y } from './camera';
@@ -69,10 +70,22 @@ const TAIL_RUNNING = 1.0;
  * and no glow sprite, so a parked car's lamps read after dark (VAL-CAR-005). By day an off lens is unlit.
  */
 export const HEAD_OFF = 0.3;
+/** The least a lit head lens glows (by day, with the switch on): a daytime running look; at night the lens is brighter anyway. */
+const HEAD_ON_MIN = 2.4;
 const TAIL_OFF = 0.62;
 /** The off tail lens's glow: red with a touch of orange (dim pure red is too dark to read next to the white heads). */
 const TAIL_GLIMMER = new THREE.Color(0xff3a1a);
 const TAIL_LIT = new THREE.Color(0xff0000);
+
+/**
+ * The head lens's emissive intensity for a `night` (sim/lamps.ts lampDarkness): dark at its off glimmer unpowered or
+ * switched off, the night's glow when driven on `auto` (a faint one by day), and lit at least HEAD_ON_MIN.
+ */
+export function headGlow(v: Vehicle, night: number): number {
+  const glow = 0.4 + night * 5;
+  if (!lampsPowered(v) || v.lights === 'off') return HEAD_OFF * night;
+  return lampsLit(v, night) ? Math.max(HEAD_ON_MIN, glow) : glow;
+}
 
 type Rgb = readonly [number, number, number];
 /**
@@ -2107,10 +2120,10 @@ export class VehicleView {
       if (flat) w.pivot.position.y -= w.r * 0.38;
     }
     // Parked, abandoned and wrecked cars keep their lights off (a deployed police car keeps its siren running).
-    const powered = !v.destroyed && (v.driver !== null || v.siren);
-    const lightsOn = night > 0.35 && powered;
+    const powered = lampsPowered(v);
+    const lightsOn = lampsLit(v, night);
     // Unlit lenses only glimmer after dark (none by day, so a parked car's lamps are not lit at noon).
-    this.headMat.emissiveIntensity = powered ? 0.4 + night * 5 : HEAD_OFF * night;
+    this.headMat.emissiveIntensity = headGlow(v, night);
     this.tailMat.emissiveIntensity = v.destroyed ? 0 : v.braking ? BRAKE_GLOW : lightsOn ? TAIL_RUNNING : TAIL_OFF * night;
     this.tailMat.emissive.copy(v.braking || lightsOn ? TAIL_LIT : TAIL_GLIMMER);
     this.reverseMat.emissiveIntensity = v.reversing && v.driver ? 4 : 0;

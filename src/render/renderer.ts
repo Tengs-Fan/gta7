@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { Vehicle } from '../sim/entities';
+import { lampDarkness, lampsLit } from '../sim/lamps';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
 import { rectContains } from '../world/layout';
@@ -191,7 +192,7 @@ export class GameRenderer {
   readonly cover: CoverMap;
   /** Ground wetness 0..1 drawn this frame (the sim's weather.wet). */
   private wet = 0;
-  /** How dark the weather makes the day (0 clear .. 1), from the sim each frame: vehicles light up at max(night, weatherDim). */
+  /** How dark the weather makes the day (0 clear .. 1), from the sim each frame: vehicles light up at lampDarkness (the night, or this if it is darker). */
   weatherDim = 0;
   /** The lightning flash on sky and light (Settings: Lightning flashes). Off, a strike changes nothing drawn. */
   lightningFlashes = true;
@@ -1089,7 +1090,7 @@ export class GameRenderer {
 
   private syncLights(sim: ViewState, night: number): void {
     const v = this.me(sim).character.vehicle;
-    if (v && night > 0.25 && !v.destroyed) {
+    if (v && lampsLit(v, night)) {
       const fx = Math.sin(v.heading);
       const fz = Math.cos(v.heading);
       this.headlight.position.set(v.pos.x + fx * v.halfL, v.pos.y + 0.8, v.pos.z + fz * v.halfL);
@@ -1168,7 +1169,7 @@ export class GameRenderer {
     this.props.setOccluderView(cam.position, sim ? this.cameraCtl.occlusionSubject() : null);
     this.country.farms.sight(cam.position, sim ? this.cameraCtl.occlusionSubject() : null, dt);
     if (sim) {
-      const lights = Math.max(night, this.weatherDim);
+      const lights = lampDarkness(hours, this.weatherDim);
       this.syncVehicles(sim, dt, lights);
       this.lightSprites.dark = lights;
       this.syncLightSprites(sim, lights);

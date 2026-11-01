@@ -22,6 +22,9 @@ export type CharacterRole = 'player' | 'civilian' | 'cop' | 'swat' | 'gang' | 'm
 
 export type CharState = 'normal' | 'knocked' | 'dead' | 'inVehicle' | 'entering' | 'swimming';
 
+/** A vehicle's headlight switch: `auto` follows the dark. */
+export type LampSwitch = 'auto' | 'on' | 'off';
+
 /** Which system manages an entity's lifecycle (spawning / streaming out). */
 export type Owner = 'none' | 'traffic' | 'parked' | 'ped' | 'police' | 'mission' | 'moored';
 
@@ -284,6 +287,8 @@ export class Vehicle {
   siren = false;
   horn = false;
   hornTimer = 0;
+  /** The headlight switch (sim/lamps.ts): `auto` lights the lamps when it is dark; the player's press sets `on` or `off`. */
+  lights: LampSwitch = 'auto';
   persistent = false;
   missionTag = '';
   removed = false;
