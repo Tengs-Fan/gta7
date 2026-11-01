@@ -60,7 +60,10 @@ export const CHOP_POWER = 1.5;
  * only the light can.
  */
 export const NORMAL_GAIN = { grid: [2.6, 1.4], flat: [3.4, 2.2] } as const;
-/** The sea grid (High and Medium): 1 m cells to this half-width, 4 m cells to COARSE_EXTENT, then a flat skirt to SKIRT_EXTENT. */
+/**
+ * The sea grid (High and Medium): 1 m cells to this half-width, 4 m cells to COARSE_EXTENT, then a flat skirt to
+ * SKIRT_EXTENT.
+ */
 export const FINE_EXTENT = 80;
 export const COARSE_EXTENT = 800;
 export const SKIRT_EXTENT = 3000;
@@ -76,11 +79,12 @@ export const WAVE_PHASE_PX = [1.2, 2.4] as const;
 /**
  * The shoaling over a beach. The open sea's waves are capped at SURF_GAMMA times the depth (a wave breaks once it is
  * about 0.8 times the depth from trough to crest), and fade out between SURF_DEPTH[1] and SURF_DEPTH[0] m deep into the
- * breakers (on a gently shelving beach, SURF_SHELVE): one wave rolling in along the depth's contours with the swell's period (its phase is the surf's foam bands',
- * SHORE_GLSL, so the foam rides its crests), SURF_SHOAL times the open sea's significant half-height (it grows as it
- * shoals) until the depth caps it, steepened (SURF_Q) and kept under SURF_STEEP of slope. Its phase is depth times
- * SURF_K plus the surf phase; on the east beach's 1:34 sand that is a wave every 17 m, at the depth of SURF_SYNC_DEPTH m
- * in step with the first (onshore) swell wave, so a swell crest rolls on into a breaker.
+ * breakers (on a gently shelving beach, SURF_SHELVE): one wave rolling in along the depth's contours with the swell's
+ * period (its phase is the surf's foam bands', SHORE_GLSL, so the foam rides its crests), SURF_SHOAL times the open
+ * sea's significant half-height (it grows as it shoals) until the depth caps it, steepened (SURF_Q) and kept under
+ * SURF_STEEP of slope. Its phase is depth times SURF_K plus the surf phase; on the east beach's 1:34 sand that is a wave
+ * every 17 m, at the depth of SURF_SYNC_DEPTH m in step with the first (onshore) swell wave, so a swell crest rolls on
+ * into a breaker.
  */
 export const SURF_GAMMA = 0.4;
 export const SURF_DEPTH = [1.4, 2.0] as const;
@@ -157,7 +161,7 @@ export function waveAmps(sea: number, out: number[] = new Array<number>(WAVES.le
   return out;
 }
 
-/** Half the open sea's significant height for the waves' heights `amps` (waveAmps): twice the surface's standard deviation (m). */
+/** Half the open sea's significant height (m) for the waves' heights `amps` (waveAmps): twice the surface's deviation. */
 export function seaHalfHeight(amps: readonly number[]): number {
   let v = 0;
   for (const a of amps) v += (a * a) / 2;

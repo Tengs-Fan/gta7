@@ -842,7 +842,7 @@ export class GameRenderer {
     return playerOf(sim, this.localPlayerId);
   }
 
-  /** How far the drawn swell lifts a swimmer over the sim's flat sea (CrowdView.swim): his gun's flash and tracers with him. */
+  /** How far the drawn swell lifts a swimmer over the sim's flat sea (CrowdView.swim), and his gun's flash and tracers. */
   private swimLift(c: Character | null): number {
     return c?.state === 'swimming' ? seaHeightAt(this.env.sea, c.pos.x, c.pos.z) : 0;
   }

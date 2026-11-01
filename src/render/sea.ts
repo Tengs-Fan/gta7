@@ -1,11 +1,11 @@
-// The sea surface: the Gerstner waves (render/waves.ts) and the analytic shoreline patched into the sea's
-// standard material, the camera-snapped wave grid drawn on High and Medium, and the software sea's shader. The sea is lit as
+// The sea surface: the Gerstner waves (render/waves.ts) and the analytic shoreline patched into the sea's standard
+// material, the camera-snapped wave grid drawn on High and Medium, and the software sea's shader. The sea is lit as
 // water: a dark body, and the sky it mirrors by Fresnel above the horizon; the sun and moon glint in its ripples, light
-// glows through its crests and whitecaps break on them in a storm. The body's colour follows a render-only shelf that
-// keeps falling offshore (turquoise shallows, dark open water), its five ripple layers are warped and modulated by
-// low-frequency noise so their tiles do not line up and fade with distance into its roughness, and foam rings the
-// piers' pilings. Las Lomas County's beaches come from a depth map baked from its ground (countyShore), sampled once
-// per fragment.
+// glows through its crests and whitecaps break on the steep ones in a storm. The body's colour follows a render-only
+// shelf that keeps falling offshore (turquoise shallows, dark open water), its five ripple layers are warped and
+// modulated by low-frequency noise so their tiles do not line up and fade with distance into its roughness, and foam
+// rings the piers' pilings. Las Lomas County's beaches come from a depth map baked from its ground (countyShore), sampled
+// once per fragment; the waves' shelter and depth from the shelter map (render/seaShelter.ts).
 
 import * as THREE from 'three';
 import { BEACH_W, CURB_H, SAND_DROP, SEABED_Y, WATER_Y } from '../world/constants';
@@ -469,7 +469,7 @@ export function setCountyShore(u: SeaUniforms, c: CountyShore): void {
   });
 }
 
-/** Feeds the waves the shelter map (render/seaShelter.ts) as a texture (the caller disposes the one it replaces), and its box. */
+/** Feeds the waves the shelter map (render/seaShelter.ts) and its box: a new texture (the caller disposes the old). */
 export function setSeaShelter(u: SeaWaveUniforms, m: ShelterMap): void {
   u.uSeaShelter.value = shelterTexture(m.data, m.nx, m.nz);
   u.uSeaShelter.map = m;
@@ -796,10 +796,10 @@ float seaWhitecap(float steep, float most, float noise, float lace, float px) {
 
 /**
  * Patches the sea's (already ripple-patched) standard material: world-anchored ripple UVs (the mesh follows the
- * camera), vertex displacement scaled by uDisplace (sheltered and shoaled in seaDisplace), the ripples warped and their strength
- * modulated by low-frequency samples of the ripple tile itself and by the sea state, a third, fourth and fifth ripple
- * layer, every layer faded out with distance into the roughness (RIPPLE_FADE), the wave slopes added to the ripple
- * normal, the shallows' colour and foam, water's reflectance (SEA_F0), its direct light (SEA_DIRECT_GLSL) and the sky
+ * camera), vertex displacement scaled by uDisplace (sheltered and shoaled in seaDisplace), the ripples warped and their
+ * strength modulated by low-frequency samples of the ripple tile itself and by the sea state, a third, fourth and fifth
+ * ripple layer, every layer faded out with distance into the roughness (RIPPLE_FADE), the wave slopes added to the
+ * ripple normal, the shallows' colour and foam, water's reflectance (SEA_F0), its direct light (SEA_DIRECT_GLSL) and the sky
  * it reflects (SEA_SKY_GLSL; `sky`, the analytic sky's colours). Three's lighting then splits each pixel by
  * Fresnel between the dark body looking down and the sky towards the horizon. Only uniforms change at runtime: the
  * grid on or off and the sea state never rebuild the program.
@@ -984,10 +984,10 @@ export function seaPlane(): THREE.BufferGeometry {
 }
 
 /**
- * The wave grid (High and Medium) in XZ around its centre: 1 m cells to FINE_EXTENT, COARSE_CELL cells to COARSE_EXTENT, then a
- * flat skirt to SKIRT_EXTENT whose inner rim shares the coarse ring's vertices. The fine ring's rim vertices that
- * fall between coarse ones carry aEdge (the rim's direction), so the shader puts them on the coarse ring's edges.
- * The mesh is moved in whole COARSE_CELL steps (Environment), so every vertex stays on a fixed world lattice.
+ * The wave grid (High and Medium) in XZ around its centre: 1 m cells to FINE_EXTENT, COARSE_CELL cells to
+ * COARSE_EXTENT, then a flat skirt to SKIRT_EXTENT whose inner rim shares the coarse ring's vertices. The fine ring's rim
+ * vertices that fall between coarse ones carry aEdge (the rim's direction), so the shader puts them on the coarse ring's
+ * edges. The mesh is moved in whole COARSE_CELL steps (Environment), so every vertex stays on a fixed world lattice.
  */
 export function seaGrid(): THREE.BufferGeometry {
   const pos: number[] = [];

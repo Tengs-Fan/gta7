@@ -174,7 +174,7 @@ function foamRing(m: BoatModel): { base: Float32Array; geometry: THREE.BufferGeo
   return { base, geometry: g };
 }
 
-/** The sea under a hull: its heave (m, the mean of four points round it), pitch and roll (rad), and its bow's and stern's heights (m). */
+/** The sea under a hull: its heave (m, the mean of four points round it), pitch and roll (rad), and its ends' heights (m). */
 export interface Swell {
   heave: number;
   pitch: number;
@@ -186,7 +186,7 @@ export interface Swell {
 /** Scratch for seaSampler (it runs per boat per frame). */
 const SURFACE: SeaSurface = seaSurface(seaWaveUniforms());
 
-/** The drawn sea's height over WATER_Y for many points of one frame: the uniforms read once (0 everywhere without the grid). */
+/** The drawn sea's height over WATER_Y for many points of a frame: the uniforms read once (0 everywhere without the grid). */
 function seaSampler(sea: SeaWaveUniforms | null): (x: number, z: number) => number {
   const displace = sea ? sea.uDisplace.value : 0;
   if (!sea || displace <= 0) return () => 0;

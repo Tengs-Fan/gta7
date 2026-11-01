@@ -137,7 +137,13 @@ To play with friends on your network, run the optional multiplayer server (see [
 - **Day and night.** A day lasts 24 minutes.
   Clouds catch the sunset, a moon and stars come out, windows light up building by building through the evening and thin out after midnight, and at night the Ferris wheel lights up and the lighthouse beam sweeps round.
   Shops stay open late: about two thirds are lit at 22:30, then they close one by one until shortly after 02:00.
-- **Weather.** Clear, cloudy, overcast, rain and storm skies change every three game hours (the first day is always clear), with greyer skies, softer shadows, closer fog, lightning in storms, and cars turning their lights on when it gets dark. Rain falls around the camera (but not under roofs, in garages or under the pier), wets and darkens the streets with puddles that dry out after the shower, reflects lamps and car lights in streaks on the road, and fast cars throw up spray. Boats under way leave a foam trail and a spreading V wake that fade over ten seconds, and throw spray off the bow (High and Medium). Weather is visual only: it does not change grip or traffic. The sea rolls with waves that grow in a storm and break into whitecaps (on High the surface itself rises and falls), with turquoise shallows, surf on the beach and foam along the quay walls; bullets and rockets fired into it splash or throw up a column of water at the surface. Swimming and floating stay level whatever the waves.
+- **Weather.** Clear, cloudy, overcast, rain and storm skies change every three game hours (the first day is always clear), with greyer skies, softer shadows, closer fog, lightning in storms, and cars turning their lights on when it gets dark. Rain falls around the camera (but not under roofs, in garages or under the pier), wets and darkens the streets with puddles that dry out after the shower, reflects lamps and car lights in streaks on the road, and fast cars throw up spray. Boats under way leave a foam trail and a spreading V wake that fade over ten seconds, and throw spray off the bow (High and Medium). Weather is visual only: it does not change grip or traffic.
+  The sea has a swell rolling in from the open sea to the east, about a metre high on a calm day and nearly three in a storm, with the wind's chop on it; on High and Medium the surface itself rises and falls, on Low the swell shows in its light.
+  The water stays calm in the harbour basin, the coves and bays, the canal and the Marina, and along the quays and piers; over Ocean Beach the swell shoals into breakers that roll in and break into the surf's foam, and the swash stays where it was.
+  Storms break the crests into whitecaps; calm days do not.
+  Boats heave and pitch on the swell, and a speedboat run fast through rough water leaves the crests and slams down in spray; swimmers ride it, and the camera with them.
+  Wakes, splashes, rounds and rockets fired into the sea, a car's wading spray and the Gull Regatta's buoys all go on the water as it is drawn.
+  The waves are drawn only: under them the sea is flat, so they never push a boat or a swimmer about.
 - **Living streets.** Traffic follows its lanes, stops at red lights, yields on left turns (judging a fast player car by when it gets there, not only how near it is), honks, overtakes, steers round cars left empty in the road and backs out of blockages, from about 14 cars around you late at night to 30 at rush hour.
   Pedestrians cross on the walk signal, flee from gunfire and explosions, put their hands up, cower or run at gunpoint, and some fight back, above all the street gangs: Los Tiburones (teal; Docks and Westside) and Los Halcones (red and gold; Southgate), each with its own cars and turf, shown on the map.
   Walk into their turf with a gun out, or attack one of them, and the whole crew comes for you; now and then the two gangs fight it out where their turfs meet.
@@ -334,7 +340,7 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Wet streets | puddles and ripples | puddles and ripples | darker and glossier |
 | Tyre spray on wet roads | on | on | off |
 | Boat wake and bow spray | on | on | off |
-| Sea waves | the surface rises and falls | in the lighting | in the lighting |
+| Sea waves (swell, chop and breakers) | the surface rises and falls | the surface rises and falls | in the lighting |
 | Traffic and pedestrians | 100% | 90% | 75% |
 | Ambient cars drawn | all | all | within 150 m |
 
@@ -419,6 +425,8 @@ All of these are minor; the most noticeable come first.
 - On older or low-end GPUs that cannot render to high-precision buffers, paint, glass and chrome don't reflect the sky and bright lights don't glow, at any setting.
 - The small porches in front of houses (deck, posts and roof) and the bank's front steps are decoration only: cars, people and bullets pass through them, as they do through the cemetery's iron fence and gate and Hollister Farm's stand.
 - The boulders along the sea walls and round Azura Point and Smuggler's Key, and the wreck on the Key, are decoration only: a swimmer or a boat passes through them, and a cliff diver who steps off rather than jumps comes up among them.
+- The swell comes from the east everywhere: off the county's and the city's north and south shores it runs along the beach rather than onto it, Lomas Sound gets it though the city would shelter it, and only Ocean Beach's gently shelving sand has breakers (the county's steeper shores have the surf's foam).
+- On a calm day, and in plain rain, a speedboat rides the swell rather than leaving it; it slams only in rough water, as a storm builds.
 - The police helicopter flies straight through the turbines' blades.
 - Las Lomas County's reflector posts are drawn only: a car drives through them.
 - Facing the whole skyline across the sound from Coyote Ridge or Lookout Point, a frame draws about 500 calls, a little more than the city's pursuit; the city's buildings and their detail are most of it.

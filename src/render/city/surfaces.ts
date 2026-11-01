@@ -349,7 +349,7 @@ export class GroundSurfaces {
     return this.anisotropy;
   }
 
-  /** Per frame: the surf phase (as the sea's, for the east beach starting at `beachStartX`), for the lace on the sand. */
+  /** Per frame: the surf phase (as the sea's, for the east beach starting at `beachStartX`), for the sand's lace. */
   update(time: number, beachStartX: number): void {
     this.uniforms.uGroundSurf.value = surfPhases(time, beachStartX).surf;
   }
