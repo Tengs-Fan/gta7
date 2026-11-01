@@ -71,9 +71,12 @@ export const POOL_RANGE = 90;
  */
 export const HEADLIGHTS = 8;
 export const POOL_FADE = 5;
-/** The headlight pool on the ground: from POOL_START m ahead of the bumper, POOL_LENGTH m long, POOL_WIDTH m wide. */
+/**
+ * The headlight pool on the ground: from POOL_START m ahead of the bumper, POOL_LENGTH m long (the light ends 50 m out), and
+ * POOL_WIDTH m wide at the bumper, widening with distance (POOL_SHAPE's `widen`).
+ */
 export const POOL_START = 2;
-export const POOL_LENGTH = 30;
+export const POOL_LENGTH = 48;
 export const POOL_WIDTH = 9;
 /**
  * The headlights' irradiance where the pool is brightest (a `poolShape` of 1), at full strength (both head lamps, full
@@ -82,7 +85,7 @@ export const POOL_WIDTH = 9;
  */
 export const POOL_LIGHT: Rgb = [12, 10.3, 7.6];
 /** The colour a painted pool (the software tier's) adds at a `poolShape` of 1, at full strength. */
-export const POOL_PAINT: Rgb = [0.15, 0.13, 0.095];
+export const POOL_PAINT: Rgb = [0.17, 0.15, 0.11];
 /** The head lamps sit this far (m) either side of the car's axis, and this high (m) over the road. */
 const POOL_LAMP_X = 0.72;
 const POOL_LAMP_Y = 0.65;
@@ -90,17 +93,22 @@ const POOL_LAMP_Y = 0.65;
 const POOL_BAND = 1.5;
 /**
  * The pool's shape: each lamp's lobe is `lobe` m wide (sigma) at the bumper and widens by `spread` per metre; the light
- * falls as 1 / (1 + (d / reach) ** power) with the distance d from the bumper (a little slower than the square, so the
- * road is still lit well down the beam), rises from nothing over the first `rise` of the decal's length and dies away
- * from `taper` of it to the far end; the sides fade out from `side` of the half width. `peak` scales the sum of the two
- * lobes.
+ * holds up to about `reach` m and falls away beyond it as 1 / (1 + (d / reach) ** power) with the distance d from the
+ * bumper (a low beam throws its light well down the road and then cuts off), rises from nothing over the first `rise` of
+ * the decal's length and dies away from `taper` of it to the far end; the sides fade out from `side` of the half width,
+ * which is POOL_WIDTH / 2 at the bumper and `widen` more per metre of d. `peak` scales the sum of the two lobes.
  */
-const POOL_SHAPE = { lobe: 0.22, spread: 0.08, reach: 6, power: 1.6, rise: 0.15, taper: 0.5, side: 0.6, peak: 1 };
+const POOL_SHAPE = { lobe: 0.22, spread: 0.05, reach: 30, power: 4, rise: 0.12, taper: 0.75, side: 0.6, peak: 0.36, widen: 0.08 };
+/** The painted pool's decal is as wide as the light is at the far end, where it ends. */
+const POOL_DECAL_WIDTH = POOL_WIDTH + 2 * POOL_SHAPE.widen * (POOL_START + POOL_LENGTH);
+/** The half width (m) of the pool at `d` m ahead of the bumper. */
+export const poolHalfWidth = (d: number): number => POOL_WIDTH / 2 + POOL_SHAPE.widen * d;
 
 /**
  * A pool's light 0..1 at `d` m ahead of the bumper and `x` m off the car's axis: the fragment shader's maths, for tests.
- * Two lobes, one per lamp, show just ahead of the bumper and run into one a few metres on; the brightest ground is a few
- * metres past the bumper, and the light falls away smoothly from there, with no plateau, to nothing at the far end.
+ * Two lobes, one per lamp, show just ahead of the bumper and run into one a few metres on; the light climbs over the first
+ * metres to a broad hot zone 13 to 25 m out, where it is within about a fifth of its best, then falls away to half of it
+ * by 33 m, and to nothing at the far end, 50 m out, in a beam that widens all the way.
  */
 export function poolShape(d: number, x: number): number {
   const S = POOL_SHAPE;
@@ -108,7 +116,7 @@ export function poolShape(d: number, x: number): number {
   const sigma = S.lobe + S.spread * d;
   const lobes = Math.exp(-0.5 * ((x + POOL_LAMP_X) / sigma) ** 2) + Math.exp(-0.5 * ((x - POOL_LAMP_X) / sigma) ** 2);
   const along = (THREE.MathUtils.smoothstep(t, 0, S.rise) / (1 + (d / S.reach) ** S.power)) * (1 - THREE.MathUtils.smoothstep(t, S.taper, 1));
-  return S.peak * lobes * along * (1 - THREE.MathUtils.smoothstep(Math.abs(x) / (POOL_WIDTH / 2), S.side, 1));
+  return S.peak * lobes * along * (1 - THREE.MathUtils.smoothstep(Math.abs(x) / poolHalfWidth(d), S.side, 1));
 }
 /** Glows never shrink under this many pixels, so a distant lamp does not flicker as it crosses pixel boundaries. */
 const GLOW_MIN_PX = 3;
@@ -181,7 +189,7 @@ float poolShape( float d, float x ) {
   vec2 off = ( x - vec2( -${f(POOL_LAMP_X)}, ${f(POOL_LAMP_X)} ) ) / sigma;
   vec2 lobe = exp( -0.5 * off * off );
   float along = smoothstep( 0.0, ${f(S.rise)}, t ) / ( 1.0 + pow( d / ${f(S.reach)}, ${f(S.power)} ) ) * ( 1.0 - smoothstep( ${f(S.taper)}, 1.0, t ) );
-  return ${f(S.peak)} * ( lobe.x + lobe.y ) * along * ( 1.0 - smoothstep( ${f(S.side)}, 1.0, abs( x ) / ${f(POOL_WIDTH / 2)} ) );
+  return ${f(S.peak)} * ( lobe.x + lobe.y ) * along * ( 1.0 - smoothstep( ${f(S.side)}, 1.0, abs( x ) / ( ${f(POOL_WIDTH / 2)} + ${f(S.widen)} * d ) ) );
 }`;
 }
 
@@ -196,7 +204,7 @@ varying vec3 vColor;
 #include <fog_pars_fragment>
 ${poolShapeGlsl()}
 void main() {
-  float a = poolShape( ${POOL_START.toFixed(3)} + vUv.y * ${POOL_LENGTH.toFixed(3)}, ( vUv.x - 0.5 ) * ${POOL_WIDTH.toFixed(3)} );
+  float a = poolShape( ${POOL_START.toFixed(3)} + vUv.y * ${POOL_LENGTH.toFixed(3)}, ( vUv.x - 0.5 ) * ${POOL_DECAL_WIDTH.toFixed(3)} );
   ${FOG_FADE}
   gl_FragColor = vec4( vColor * a, 1.0 );
   #include <tonemapping_fragment>
@@ -245,7 +253,7 @@ ${poolShapeGlsl()}`,
     vec3 r = vHeadPos - a.xyz;
     float d = dot( r.xz, b.xy );
     float x = r.x * b.y - r.z * b.x;
-    if ( d <= ${f(POOL_START)} || d >= ${f(POOL_START + POOL_LENGTH)} || abs( x ) >= ${f(POOL_WIDTH / 2)} ) continue;
+    if ( d <= ${f(POOL_START)} || d >= ${f(POOL_START + POOL_LENGTH)} || abs( x ) >= ${f(POOL_WIDTH / 2)} + ${f(POOL_SHAPE.widen)} * d ) continue;
     float band = 1.0 - smoothstep( ${f(POOL_BAND)}, ${f(POOL_BAND * 2)}, abs( r.y - b.z * d ) );
     float facing = clamp( dot( headN, vec3( 0.0, ${f(POOL_LAMP_Y)}, 0.0 ) - r ) * 4.0, 0.0, 1.0 );
     headE += a.w * poolShape( d, x ) * band * facing;
@@ -545,7 +553,7 @@ export class LightSprites {
     B[i * 4 + 2] = (y1 - y0) / end;
     if (this.pools) {
       this.q.setFromEuler(this.e.set(-Math.atan2(y1 - y0, end), c.heading, 0, 'YXZ'));
-      this.m.compose(this.p.set(c.x + fx * POOL_START, y0 + (y1 - y0) * (POOL_START / end) + 0.05, c.z + fz * POOL_START), this.q, this.s.set(POOL_WIDTH, 1, POOL_LENGTH));
+      this.m.compose(this.p.set(c.x + fx * POOL_START, y0 + (y1 - y0) * (POOL_START / end) + 0.05, c.z + fz * POOL_START), this.q, this.s.set(POOL_DECAL_WIDTH, 1, POOL_LENGTH));
       this.pools.setMatrixAt(i, this.m);
       this.pools.setColorAt(i, this.c.setRGB(POOL_PAINT[0] * k, POOL_PAINT[1] * k, POOL_PAINT[2] * k));
     }

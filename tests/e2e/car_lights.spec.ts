@@ -172,7 +172,7 @@ test.describe('the horn and the headlight switch', () => {
     expect(errors).toEqual([]);
   });
 
-  test('at night the headlights light the road ahead from the chase camera, falling off, gone past the pool, and add the same light under a street lamp, short of white', async ({ page }) => {
+  test('at night the headlights light the road ahead from the chase camera, brightest well out, still lit at 35 m and gone past the end of the beam, and add the same light under a street lamp, short of white', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
     // Mean sRGB luma (0..255) of a 7x5 box of the canvas on the road `d` m ahead of the bumper and `side` m to its left, with the lamps off, then on.
@@ -210,23 +210,24 @@ test.describe('the horn and the headlight switch', () => {
       );
     // A straight stretch of county road, running south, with no lamps of its own.
     await drive(page, 23, [-842.2, 126]);
-    const points: Array<[number, number]> = [[7, 0], [10, 0], [13, 0], [20, 0], [34, 0], [10, 1.5], [10, -1.5]];
+    const points: Array<[number, number]> = [[7, 0], [13, 0], [20, 0], [35, 0], [45, 0], [55, 0], [10, 0], [10, 1.5], [10, -1.5]];
     const off = await luma('off', points);
     const on = await luma('auto', points);
     const gain = on.map((l, i) => l - off[i]!);
-    // The lit road ahead of the car is clearly brighter, and further on less so (the asphalt's own tone varies along it,
-    // so 10 and 13 m, where the two lamps' lobes have just merged, are not compared)...
+    // The lit road ahead of the car is clearly brighter, brightest well out (13 to 25 m, where the two lamps' lobes have merged
+    // and the beam has not yet fallen away) and not in a patch by the bumper...
     expect(gain[0]!).toBeGreaterThan(25);
-    expect(gain[1]!).toBeGreaterThan(10);
-    expect(gain[2]!).toBeGreaterThan(5);
-    expect(gain[0]!).toBeGreaterThan(gain[1]!);
-    expect(gain[1]!).toBeGreaterThan(gain[3]!);
-    expect(gain[2]!).toBeGreaterThan(gain[3]!);
-    expect(gain[3]!).toBeGreaterThan(0.5);
-    // ...with nothing at 34 m, past the pool's end, and the sides softer than the middle.
-    expect(Math.abs(gain[4]!)).toBeLessThan(1.5);
-    expect(gain[5]!).toBeLessThan(gain[1]!);
-    expect(gain[6]!).toBeLessThan(gain[1]!);
+    expect(gain[6]!).toBeGreaterThan(30);
+    expect(gain[1]!).toBeGreaterThan(40);
+    expect(gain[2]!).toBeGreaterThan(30);
+    expect(gain[1]!).toBeGreaterThan(gain[0]!);
+    // ...a long beam: still lit at 35 m, fainter by 45 m, and nothing at 55 m, past its end 50 m out; the sides are softer than the middle.
+    expect(gain[3]!).toBeGreaterThan(10);
+    expect(gain[3]!).toBeLessThan(gain[2]!);
+    expect(gain[4]!).toBeLessThan(gain[3]!);
+    expect(Math.abs(gain[5]!)).toBeLessThan(1.5);
+    expect(gain[7]!).toBeLessThan(gain[6]!);
+    expect(gain[8]!).toBeLessThan(gain[6]!);
     // Downtown, 5 and 7 m ahead lie in a street lamp's light. The headlights are a light of their own, not a multiple of
     // the lamp's: they add about what they add to the dark county road (a multiplied pool added twice that there, and
     // took the road to near white, luma 223 and 204), and the lit road stays well short of white.

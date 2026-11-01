@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { GLOW, glowLuminance, HEADLIGHTS, LightSprites, poolFragment, poolShape, POOL_FADE, POOL_LENGTH, POOL_LIGHT, POOL_PAINT, POOL_RANGE, POOL_START, POOL_WIDTH, waterFresnel, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
+import { GLOW, glowLuminance, HEADLIGHTS, LightSprites, poolFragment, poolHalfWidth, poolShape, POOL_FADE, POOL_LENGTH, POOL_LIGHT, POOL_PAINT, POOL_RANGE, POOL_START, POOL_WIDTH, waterFresnel, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
 import { LAMP_HEAD, PropsView } from '../../src/render/props';
 import { COUNTRY_FOG_MARGIN } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
@@ -512,6 +512,16 @@ describe("a headlight pool's light", () => {
     expect(fs).toContain('tonemapping_fragment');
     expect(fs).toContain('colorspace_fragment');
     expect(fs).toContain('USE_FOG');
+    // The decal is as wide as the beam is at its far end, and the shader reads its width in metres.
+    paint.begin(new THREE.Vector3(0, 2, 0), 800);
+    paint.offerPool(0, 0, 0, 1);
+    paint.finish(() => 0);
+    const decal = new THREE.Matrix4();
+    paint.pools!.getMatrixAt(0, decal);
+    const scale = new THREE.Vector3().setFromMatrixScale(decal);
+    expect(scale.x).toBeCloseTo(2 * poolHalfWidth(POOL_START + POOL_LENGTH), 6);
+    expect(scale.z).toBeCloseTo(POOL_LENGTH, 6);
+    expect(fs).toContain(`( vUv.x - 0.5 ) * ${scale.x.toFixed(3)}`);
     // Warm like the light, and at its brightest a fraction of white (the road there reads lit, not shining).
     const top = Math.max(...Array.from({ length: 241 }, (_, i) => poolShape(POOL_START + i / 10, 0.72)));
     expect(POOL_PAINT[0]).toBeGreaterThan(POOL_PAINT[2]);
@@ -526,27 +536,29 @@ describe("a headlight pool's light", () => {
     }
   });
 
-  it('is brightest a few metres past the bumper and then falls away smoothly to nothing, with no plateau', () => {
+  it('climbs to a broad hot zone 13 to 25 m out, then falls away, and ends 50 m out: a long beam, not a bright patch by the bumper', () => {
     const end = POOL_START + POOL_LENGTH;
     const axis = (d: number): number => poolShape(d, 0);
     const ds = Array.from({ length: Math.round(POOL_LENGTH * 10) + 1 }, (_, i) => POOL_START + i / 10);
-    // The brightest ground anywhere (under a lamp's lobe, near) and the brightest down the middle (where the lobes have merged).
+    // The brightest ground anywhere (down the middle, where the lobes have merged, or under a lamp's lobe) and where down the middle.
     const top = Math.max(...ds.map((d) => Math.max(axis(d), poolShape(d, 0.72))));
     const middle = ds.reduce((best, d) => (axis(d) > axis(best) ? d : best));
-    // Nothing at the near end (the road under the nose) nor at the far end.
+    // Nothing under the nose, and nothing from 50 m out.
+    expect(end).toBe(50);
     expect(poolShape(POOL_START, 0.72)).toBe(0);
     expect(poolShape(end, 0)).toBe(0);
-    expect(middle - POOL_START).toBeGreaterThan(2);
-    expect(middle - POOL_START).toBeLessThan(8);
-    // Two metres past the middle's peak it falls at every metre, by at least 3 % of the top each (a plateau is flat; this
-    // slopes the whole way), until the last eight metres, where the tail runs out to nothing.
-    for (let d = middle + 2; d + 1 <= end - 8; d += 1) {
-      expect(axis(d + 1), `d ${d}`).toBeLessThan(axis(d));
-      expect(axis(d) - axis(d + 1), `d ${d}`).toBeGreaterThan(0.03 * top);
-    }
-    // Half the top is gone 11 m on, nearly all by 3 m before the far end.
-    expect(axis(middle + 11)).toBeLessThan(0.5 * top);
-    expect(axis(end - 3)).toBeLessThan(0.1 * top);
+    // The light is brightest in the hot zone, 13 to 25 m out, and holds there within a fifth of the top...
+    expect(middle).toBeGreaterThan(13);
+    expect(middle).toBeLessThan(25);
+    for (let d = 13; d <= 25; d++) expect(axis(d), `d ${d}`).toBeGreaterThan(0.8 * top);
+    // ...and builds up to it: the near field is under a third of the top at 5 m and rises on to the hot zone, with no bright patch by the bumper.
+    expect(axis(5)).toBeLessThan(0.3 * top);
+    for (let d = 5; d + 1 <= 13; d++) expect(axis(d + 1), `d ${d}`).toBeGreaterThan(axis(d));
+    // Past the hot zone it falls at every metre, to under half of the top by 35 m, still a fair light at 40 m, and nearly nothing by 45.
+    for (let d = 25; d + 1 <= end; d++) expect(axis(d + 1), `d ${d}`).toBeLessThan(axis(d));
+    expect(axis(35)).toBeLessThan(0.5 * top);
+    expect(axis(40)).toBeGreaterThan(0.2 * top);
+    expect(axis(45)).toBeLessThan(0.1 * top);
   });
 
   it('is two lobes, one per lamp, just ahead of the bumper, which run into one a few metres on, and the sides are soft', () => {
@@ -568,8 +580,13 @@ describe("a headlight pool's light", () => {
       expect(here, `x ${x}`).toBeLessThanOrEqual(prev + 1e-9);
       prev = here;
     }
-    // Nothing at the decal's edge.
-    for (const d of [POOL_START + 3, POOL_START + 8, POOL_START + 14]) expect(poolShape(d, POOL_WIDTH / 2)).toBe(0);
+    // The beam widens with distance: its half width is POOL_WIDTH / 2 at the bumper and 8 cm more a metre, and nothing is lit
+    // past it, so the ground 4.5 m to the side (the half width at the bumper) is dark 5 m ahead and lit 40 m ahead.
+    expect(poolHalfWidth(0)).toBe(POOL_WIDTH / 2);
+    expect(poolHalfWidth(50)).toBeCloseTo(POOL_WIDTH / 2 + 4, 6);
+    for (const d of [POOL_START + 3, POOL_START + 8, POOL_START + 14, 40]) expect(poolShape(d, poolHalfWidth(d)), `d ${d}`).toBe(0);
+    expect(poolShape(5, POOL_WIDTH / 2)).toBeLessThan(1e-6);
+    expect(poolShape(40, POOL_WIDTH / 2)).toBeGreaterThan(0.01);
   });
 
   it('is warm', () => {
