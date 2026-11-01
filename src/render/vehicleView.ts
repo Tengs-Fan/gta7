@@ -78,8 +78,8 @@ const TAIL_GLIMMER = new THREE.Color(0xff3a1a);
 const TAIL_LIT = new THREE.Color(0xff0000);
 
 /**
- * The head lens's emissive intensity for a `night` (sim/lamps.ts lampDarkness): dark at its off glimmer unpowered or
- * switched off, the night's glow when driven on `auto` (a faint one by day), and lit at least HEAD_ON_MIN.
+ * The head lens's emissive intensity at a `night` (sim/lamps.ts lampDarkness). Parked, wrecked or switched off it only
+ * glimmers after dark (HEAD_OFF); driven on `auto` it follows the night, faintly by day; lit, it glows at least HEAD_ON_MIN.
  */
 export function headGlow(v: Vehicle, night: number): number {
   const glow = 0.4 + night * 5;
