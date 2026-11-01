@@ -383,7 +383,7 @@ describe('engine profiles', () => {
     }
     // Only a fast-firing engine floored reaches the ceiling; a bus or a scooter keeps well under it.
     expect(engineParams('sports', 1, 1, 20).lowpassHz).toBe(LOWPASS_MAX_HZ);
-    for (const k of ['bus', 'scooter', 'dinghy'] as const) expect(engineParams(k, 1, 1, 20).lowpassHz).toBeLessThan(0.6 * LOWPASS_MAX_HZ);
+    for (const k of ['bus', 'scooter', 'dinghy'] as const) expect(engineParams(k, 1, 1, 20).lowpassHz).toBeLessThan(0.7 * LOWPASS_MAX_HZ);
   });
 
   it('tyres squeal in wandering noise bands that rise with the slip and the speed, never in the air or on sand', () => {

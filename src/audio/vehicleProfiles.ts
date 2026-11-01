@@ -41,7 +41,7 @@ export interface EngineParams {
 /** Overall gain of the engine voice for a 0 dB profile. */
 const ENGINE_BASE = 0.15;
 /** Where the pulse voice's low-pass starts, however slowly the engine fires: a bus or a scooter at idle still has body. */
-export const LOWPASS_FLOOR_HZ = 300;
+export const LOWPASS_FLOOR_HZ = 500;
 /** The most the low-pass ever opens to: nothing above it is an engine, only buzz. */
 export const LOWPASS_MAX_HZ = 2000;
 /** The exhaust noise is a rumble under the pulses, never a hiss: its band stays below this. */
