@@ -7,7 +7,7 @@ import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
 import { CAUSEWAY_NAME } from '../world/country';
 import { mkRect, type CityLayout, type Rect } from '../world/layout';
-import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
+import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 import { CALM_SEA } from './waves';
 import { assets } from './assets';
@@ -804,7 +804,7 @@ void main() {
   if (h < 0.0) col = mix(horizon, horizon * 0.55, clamp(-h * 4.0, 0.0, 1.0));
   float pix = max(length(fwidth(d)), 1e-6);
   float sd = max(dot(d, uSunDir), 0.0);
-  col += uSunColor * (pow(sd, 900.0) * 18.0 + pow(sd, 12.0) * 0.35 + pow(sd, 3.0) * 0.12) * smoothstep(SUN_LO, SUN_HI, uSunDir.y);
+  col += uSunColor * (pow(sd, 900.0) * 18.0 + pow(sd, ${SKY_SUN_HALO.tight.pow.toFixed(1)}) * ${SKY_SUN_HALO.tight.gain.toFixed(2)} + pow(sd, ${SKY_SUN_HALO.wide.pow.toFixed(1)}) * ${SKY_SUN_HALO.wide.gain.toFixed(2)}) * smoothstep(SUN_LO, SUN_HI, uSunDir.y);
   // Brighter away from the city's light.
   if (h > 0.0 && uStars > 0.0) col += stars(d, pix) * uStars * (1.0 + ${STARS_AWAY.toFixed(1)} * uCityAway) * smoothstep(0.02, 0.25, h);
   if (uMoon > 0.0) {
@@ -1259,6 +1259,8 @@ export class Environment {
     (u.uMoonDir!.value as THREE.Vector3).copy(moonDir);
     // The key light: the sun while the sky shows it, else the moon once the sun's light is gone (see SUN_LO).
     const sunVis = sunVisibility(sunDir.y);
+    // The dome's glow round the sun as it shows it, for the sea to mirror; overcast, the cloud deck hides it.
+    this.sea.uSkySunHalo.value.copy(s.sun).multiplyScalar(sunVis * (1 - cloud));
     const sunI = s.sunI * sunVis * (1 - CLOUD_SUN_LOSS * cloud);
     const moonUp = moonRamp(sunDir.y);
     const moonI = MOON_I * night * moonUp * (1 - CLOUD_SUN_LOSS * cloud);

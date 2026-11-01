@@ -36,10 +36,19 @@ export const SEA_F0 = 0.02;
 export const SEA_ROUGHNESS = 0.06;
 /**
  * The baked sky's sun (Environment's envMat): its colour times gain times pow(cos, pow) of the angle from it, a glow
- * some 28 degrees across. The sea takes it back out of the sky it reflects (seaSkyRadiance): the sun's own light glints
- * off the ripples instead, sharply, as the key light, and the glow would smear a second, blurred sun path under it.
+ * some 28 degrees across, far brighter than the dome's own (SKY_SUN_HALO). The sea takes `taken` of it back out of the
+ * sky it reflects (seaSkyRadiance), widened as the lookup blurs it, and mirrors the dome's glow instead: the sun's own
+ * light glints off the ripples, sharply, as the key light, and the map's glow would smear a second sun path under it.
+ * The map holds a little less of it than the formula gives (at 16:00 taking all of it clamped some 12,000 pixels of
+ * the sun path to black, taking 0.8 none), so less is taken.
  */
-export const SKY_SUN_GLOW = { pow: 24, gain: 2.5 } as const;
+export const SKY_SUN_GLOW = { pow: 24, gain: 2.5, taken: 0.7 } as const;
+/**
+ * The dome's own glow round the sun (Environment's sky): its colour times the sum of gain times pow(cos, pow) of the
+ * angle from it, a tight and a wide part, as the sun shows (sunVisibility). The sea mirrors it, so the water round the
+ * sun's glitter is lit as the sky round the sun is.
+ */
+export const SKY_SUN_HALO = { tight: { pow: 12, gain: 0.35 }, wide: { pow: 3, gain: 0.12 } } as const;
 /**
  * The sky dome's glows (Environment's sky) fall off with the sine of the elevation at these rates: the night's glow
  * all round the horizon, and the city's light over it (half strength about 6 degrees up). The environment map holds
@@ -336,6 +345,8 @@ export interface SeaUniforms {
   /** The baked sky's sun as the environment map holds it (colour, and direction), for the sea to take back out of it. */
   uSkySun: { value: THREE.Color };
   uSkySunDir: { value: THREE.Vector3 };
+  /** The dome's sun glow colour as it shows (SKY_SUN_HALO), for the sea to mirror. */
+  uSkySunHalo: { value: THREE.Color };
   /**
    * What lifts the reflected environment map (or baked sky) back to the sky dome's own brightness by day, 1 / the
    * scene's daytime environment intensity: grazing water mirrors the sky as brightly as it shines, with no seam.
@@ -376,6 +387,7 @@ export function seaUniforms(): SeaUniforms {
     uSeaCuts: { value: Array.from({ length: MAX_SEA_CUTS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
     uSkySun: { value: new THREE.Color(0, 0, 0) },
     uSkySunDir: { value: new THREE.Vector3(0, 1, 0) },
+    uSkySunHalo: { value: new THREE.Color(0, 0, 0) },
     uSkyLift: { value: 1 },
     uSkyGlow: { value: new THREE.Color(0, 0, 0) },
     uCityGlow: { value: new THREE.Color(0, 0, 0) },
@@ -627,11 +639,11 @@ void RE_Direct_Sea( const in IncidentLight directLight, const in vec3 geometryPo
 `;
 
 /**
- * The sky along the sea's reflected ray, as bright as the sky dome draws it (uSkyLift): the environment map less its
- * sun's glow (SKY_SUN_GLOW) and regraded from the horizon up as the dome grades it (uSkyTop, uSkyHorizon), or without
+ * The sky along the sea's reflected ray, as bright as the sky dome draws it (uSkyLift): the environment map less most
+ * of its sun's glow (SKY_SUN_GLOW) and regraded from the horizon up as the dome grades it (uSkyTop, uSkyHorizon), or without
  * one the analytic sky graded as the dome grades it (uSkyI too); by night in the night sky's blue (SEA_NIGHT_SKY); with
  * a share of the dome's night glows (SKY_GLOW_FALL, SEA_NIGHT_GLOW), the city's broken into its lights (CITY_STREAKS),
- * and its moon halo drawn out into a path (SKY_MOON_HALO, SEA_MOON_PATH) on top. A ripple turned away from the eye
+ * its moon halo drawn out into a path (SKY_MOON_HALO, SEA_MOON_PATH) and its sun glow (SKY_SUN_HALO) on top. A ripple turned away from the eye
  * reflects the face of the next wave rather than the sky under the horizon, which the map holds as a dark haze: the ray
  * folds back up, so grazing water shows the bright horizon sky and never dark blotches.
  */
@@ -641,6 +653,7 @@ uniform vec3 uSkyHorizon;
 uniform float uSkyI;
 uniform vec3 uSkySun;
 uniform vec3 uSkySunDir;
+uniform vec3 uSkySunHalo;
 uniform float uSkyLift;
 uniform vec3 uSkyGlow;
 uniform vec3 uCityGlow;
@@ -652,6 +665,7 @@ vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
   vec3 r = transformDirectionByInverseViewMatrix( reflect( - viewDir, normal ), viewMatrix );
   r.y = abs( r.y );
   float toCity = max( dot( normalize( r.xz + vec2( 1e-5 ) ), uCityGlowDir ), 0.0 );
+  float toSun = max( dot( r, uSkySunDir ), 0.0 );
   float moonUp = r.y - uMoonDir.y;
   vec3 moonOff = r - uMoonDir;
   float moon = sqrt( max( dot( moonOff, moonOff ) - moonUp * moonUp, 0.0 ) + moonUp * moonUp * ${n(SEA_MOON_PATH.stretch * SEA_MOON_PATH.stretch)} );
@@ -660,12 +674,18 @@ vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
   float lights = mix( fract( sin( cell * 12.9898 ) * 43758.5453 ), fract( sin( ( cell + 1.0 ) * 12.9898 ) * 43758.5453 ), smoothstep( 0.0, 1.0, bearing - cell ) );
   vec3 glow = uSkyGlow * ${n(SEA_NIGHT_GLOW.horizon)} * exp( - r.y * ${n(SKY_GLOW_FALL.horizon)} )
     + uCityGlow * ${n(SEA_NIGHT_GLOW.city)} * toCity * toCity * toCity * pow( lights, ${n(CITY_STREAKS.power)} ) * ${n(CITY_STREAKS.gain)} * exp( - r.y * ${n(SKY_GLOW_FALL.city)} )
-    + vec3( ${SKY_MOON_HALO.color.map(n).join(', ')} ) * ( ${n(SKY_MOON_HALO.tight.gain)} * exp( - moon * ${n(SKY_MOON_HALO.tight.fall)} ) + ${n(SKY_MOON_HALO.wide.gain)} * exp( - moon * ${n(SKY_MOON_HALO.wide.fall)} ) ) * ${n(SEA_MOON_PATH.gain)} * uMoon;
+    + vec3( ${SKY_MOON_HALO.color.map(n).join(', ')} ) * ( ${n(SKY_MOON_HALO.tight.gain)} * exp( - moon * ${n(SKY_MOON_HALO.tight.fall)} ) + ${n(SKY_MOON_HALO.wide.gain)} * exp( - moon * ${n(SKY_MOON_HALO.wide.fall)} ) ) * ${n(SEA_MOON_PATH.gain)} * uMoon
+    + uSkySunHalo * ( ${n(SKY_SUN_HALO.tight.gain)} * pow( toSun, ${n(SKY_SUN_HALO.tight.pow)} ) + ${n(SKY_SUN_HALO.wide.gain)} * pow( toSun, ${n(SKY_SUN_HALO.wide.pow)} ) );
 #if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
-  vec3 sun = uSkySun * pow( max( dot( r, uSkySunDir ), 0.0 ), ${n(SKY_SUN_GLOW.pow)} ) * ${n(SKY_SUN_GLOW.gain)};
+  // The map's sun glow as the lookup blurs it: a Gaussian lobe of variance 1 / pow per axis, widened by the GGX lobe's
+  // 2 alpha^2 and dimmed to keep its light.
+  float sunPow = 1.0 / ( ${n(1 / SKY_SUN_GLOW.pow)} + 2.0 * pow4( roughness ) );
+  vec3 sun = uSkySun * ${n(SKY_SUN_GLOW.gain * SKY_SUN_GLOW.taken / SKY_SUN_GLOW.pow)} * sunPow * pow( toSun, sunPow );
   // The map grades its sky from the horizon colour by smoothstep( 0, 0.6, h ), the dome by pow( h, 0.55 ): a few degrees
-  // up the map is still the horizon's colour where the dome has turned towards its top. Regraded as the dome draws it.
-  vec3 dome = mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) / mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) );
+  // up the map is still the horizon's colour where the dome has turned towards its top. Regraded as the dome draws it,
+  // up to some 20 degrees: higher, the map has reached its top colour while the dome still holds some of the horizon's,
+  // and the ratio of a near-black channel would multiply the clouds and the sun's glow several times over.
+  vec3 dome = mix( mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) / mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) ), vec3( 1.0 ), smoothstep( 0.3, 0.5, r.y ) );
   vec3 sky = max( textureCubeUV( envMap, envMapRotation * r, roughness ).rgb - sun, 0.0 ) * dome * envMapIntensity;
 #else
   vec3 sky = mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI;

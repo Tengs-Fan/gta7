@@ -12,7 +12,7 @@ import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/rende
 import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
-import { CITY_STREAKS, CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_MID, SEA_MOON_PATH, SEA_NIGHT_GLOW, SEA_NIGHT_SKY, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SOFTWARE_BODY, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_SEA } from '../../src/render/sea';
+import { CITY_STREAKS, CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_MID, SEA_MOON_PATH, SEA_NIGHT_GLOW, SEA_NIGHT_SKY, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, SOFTWARE_BODY, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_SEA } from '../../src/render/sea';
 import { CALM_SEA, WAVES, waveDisplacement, wavePhases } from '../../src/render/waves';
 import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
@@ -104,6 +104,14 @@ function glsl(expr: string, vars: Record<string, number>): number {
   };
   const run = new Function('mix', 'pow', 'smoothstep', 'clamp', ...names, `return ${expr};`) as (...args: unknown[]) => number;
   return run((a: number, b: number, t: number) => a + (b - a) * t, Math.pow, smooth, (x: number, a: number, b: number) => Math.min(b, Math.max(a, x)), ...names.map((k) => vars[k]));
+}
+
+/** GLSL `float` statements (with pow2, max, exp and PI) run in JavaScript with the given variables; returns `result`. */
+function glslBody(body: string, result: string, vars: Record<string, number>): number {
+  const js = body.replace(/\/\/[^\n]*/g, '').replace(/\bfloat\s+/g, 'let ').replace(/\bconst in\b/g, '');
+  const names = Object.keys(vars);
+  const run = new Function('pow2', 'max', 'exp', 'PI', 'RECIPROCAL_PI', ...names, `${js}\nreturn ${result};`) as (...args: unknown[]) => number;
+  return run((x: number) => x * x, Math.max, Math.exp, Math.PI, 1 / Math.PI, ...names.map((k) => vars[k]));
 }
 
 function compiled(mat: THREE.Material, kind: 'physical' | 'lambert' = 'physical') {
@@ -534,7 +542,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(SEA_ROUGHNESS).toBeLessThan(0.1);
   });
 
-  it('the sun and moon glint off the ripples through a capped Beckmann lobe, not through the sky map\'s blurred sun glow', () => {
+  it('the sun and moon glint off the ripples through a capped Beckmann lobe, whose tail ends where GGX\'s does not', () => {
     const r = renderer('high');
     const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
     // The sea's own direct light replaces three's for every light (the key light is the sun, or the moon by night).
@@ -543,18 +551,46 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(fs).toContain('float D = exp( ( c2 - 1.0 ) / ( a2 * c2 ) ) / ( PI * a2 * c2 * c2 );');
     expect(fs).toContain(`vec3( ${SEA_GLINT_MAX}.0 ) )`);
     expect(fs).toContain(`F_Schlick( ${SEA_F0}, 1.0,`);
-    // The reflected sky loses the baked sun's glow, as the environment map draws it, and the sea's uniforms follow each bake.
-    expect(fs).toContain(`pow( max( dot( r, uSkySunDir ), 0.0 ), ${SKY_SUN_GLOW.pow}.0 ) * ${SKY_SUN_GLOW.gain}`);
-    const env = r.env as unknown as { envMat: THREE.ShaderMaterial };
-    expect(env.envMat.fragmentShader).toContain(`pow(max(dot(d, uSunDir), 0.0), ${SKY_SUN_GLOW.pow}.0) * ${SKY_SUN_GLOW.gain}`);
-    // The Beckmann lobe ends where GGX's tail does not: at the far sea's roughness (about 0.29), facets 20 degrees off
-    // the sun's would still give GGX's glint, a hundred times too bright to draw, a third of a percent of its peak.
-    const alpha = 0.29 ** 2;
-    const beckmann = (t: number) => Math.exp(-(Math.tan(t) ** 2) / alpha ** 2) / (Math.PI * alpha ** 2 * Math.cos(t) ** 4);
-    const ggx = (t: number) => alpha ** 2 / (Math.PI * (Math.cos(t) ** 2 * (alpha ** 2 - 1) + 1) ** 2);
+    // The sea's lobe and three's GGX, each run as its shader writes it: at the far sea's roughness (about 0.29), facets
+    // 20 degrees off the sun's would still give GGX's glint, a hundred times too bright to draw, a third of a percent of
+    // its peak, where the sea's has ended.
+    const sea = /(float alpha = pow2\( material\.roughness \);[\s\S]*?)float D = ([^;]+);/.exec(fs)!;
+    const ggx = /float D_GGX\( const in float alpha, const in float dotNH \) \{([\s\S]*?)return ([^;]+);/.exec(THREE.ShaderChunk.lights_physical_pars_fragment)!;
+    const seaD = (t: number) => glslBody(sea[1]!.replace('material.roughness', 'roughness'), sea[2]!, { roughness: 0.29, dotNH: Math.cos(t) });
+    const ggxD = (t: number) => glslBody(ggx[1]!, ggx[2]!, { alpha: 0.29 ** 2, dotNH: Math.cos(t) });
     const t = (20 * Math.PI) / 180;
-    expect(beckmann(t) / beckmann(0)).toBeLessThan(1e-6);
-    expect(ggx(t) / ggx(0)).toBeGreaterThan(3e-3);
+    expect(seaD(t) / seaD(0)).toBeLessThan(1e-6);
+    expect(ggxD(t) / ggxD(0)).toBeGreaterThan(3e-3);
+    // Both peak alike: the same lobe at its centre.
+    expect(seaD(0) / ggxD(0)).toBeCloseTo(1, 1);
+  });
+
+  it('the reflected sky keeps part of the map\'s sun glow, widened as the lookup blurs it, and mirrors the dome\'s own glow round the sun', () => {
+    const r = renderer('high');
+    const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
+    const env = r.env as unknown as { envMat: THREE.ShaderMaterial };
+    // The map's glow as envMat bakes it, and as the sea takes it back out: a share of it, the lobe widened by the GGX
+    // lobe's 2 alpha^2 and dimmed to keep its light, so it never clamps the reflection round the glitter to black.
+    expect(env.envMat.fragmentShader).toContain(`pow(max(dot(d, uSunDir), 0.0), ${SKY_SUN_GLOW.pow}.0) * ${SKY_SUN_GLOW.gain}`);
+    expect(fs).toContain(`float sunPow = 1.0 / ( ${1 / SKY_SUN_GLOW.pow} + 2.0 * pow4( roughness ) );`);
+    expect(fs).toContain(`vec3 sun = uSkySun * ${(SKY_SUN_GLOW.gain * SKY_SUN_GLOW.taken) / SKY_SUN_GLOW.pow} * sunPow * pow( toSun, sunPow );`);
+    expect(SKY_SUN_GLOW.taken).toBeLessThan(0.8);
+    expect(SKY_SUN_GLOW.taken).toBeGreaterThan(0.5);
+    // The dome's glow, as the dome draws it and as the sea mirrors it.
+    const { tight, wide } = SKY_SUN_HALO;
+    expect((r.env.sky.material as THREE.ShaderMaterial).fragmentShader).toContain(`pow(sd, ${tight.pow}.0) * ${tight.gain} + pow(sd, ${wide.pow}.0) * ${wide.gain}`);
+    expect(fs).toContain(`uSkySunHalo * ( ${tight.gain} * pow( toSun, ${tight.pow}.0 ) + ${wide.gain} * pow( toSun, ${wide.pow}.0 ) )`);
+    // In the sun's colour while it shows, none at night or under a full cloud deck.
+    const cam = new THREE.PerspectiveCamera();
+    const halo = (hours: number, cloud = 0) => {
+      r.env.update(hours, new THREE.Vector3(), cam, 0, r.renderer, { cloud, rain: 0, storm: 0, fog: 0 });
+      return r.env.sea.uSkySunHalo.value.clone();
+    };
+    const day = halo(16);
+    expect(day.r).toBeGreaterThan(0.5);
+    expect(day.r).toBeGreaterThan(day.b);
+    expect(halo(23).r).toBe(0);
+    expect(halo(16, 1).r).toBe(0);
   });
 
   it('the sea mirrors the sky as brightly as the dome draws it by day, with the dome\'s horizon and city glows', () => {
@@ -576,7 +612,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(domeFs).toContain(`exp(-max(h, 0.0) * ${SKY_GLOW_FALL.city.toFixed(2)})`);
     const { color, tight, wide } = SKY_MOON_HALO;
     expect(domeFs).toContain(`col += vec3(${color.map((c) => c.toFixed(2)).join(', ')}) * (exp(-m * ${tight.fall}.0) * ${tight.gain} + exp(-m * ${wide.fall}.0) * ${wide.gain}) * uMoon;`);
-    expect(fs).toContain(`vec3( ${color.join(', ')} ) * ( ${tight.gain} * exp( - moon * ${tight.fall}.0 ) + ${wide.gain} * exp( - moon * ${wide.fall}.0 ) ) * ${SEA_MOON_PATH.gain}.0 * uMoon;`);
+    expect(fs).toContain(`vec3( ${color.join(', ')} ) * ( ${tight.gain} * exp( - moon * ${tight.fall}.0 ) + ${wide.gain} * exp( - moon * ${wide.fall}.0 ) ) * ${SEA_MOON_PATH.gain}.0 * uMoon`);
   });
 
   it('by night the sea is the night sky\'s blue, with the city\'s lights streaking towards the city and the moon\'s halo drawn into a path', () => {
@@ -609,19 +645,22 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     // The three shaders' own gradients from the horizon colour to the top colour, run as written.
     const domeT = /float t = (pow\(clamp\(h, 0\.0, 1\.0\), [0-9.]+\));/.exec((r.env.sky.material as THREE.ShaderMaterial).fragmentShader)![1]!;
     const mapC = /vec3 c = (mix\(uHorizon, uTop, [^;]+\));/.exec(env.envMat.fragmentShader)![1]!;
-    const regrade = /vec3 dome = ([^;]+);/.exec(fs)![1]!.replaceAll('r.y', 'h');
+    const regrade = /vec3 dome = ([^;]+);/.exec(fs)![1]!.replaceAll('r.y', 'h').replaceAll('vec3( 1.0 )', '1.0');
     // The HDRI's gains blend from the horizon's to the top's as the map's own gradient does, so the regrade fits them too.
     expect(env.envMat.fragmentShader).toContain('vec3 gain = mix(uHdriGainH, uHdriGain, smoothstep(0.0, 0.6, h));');
     expect(mapC).toContain('smoothstep(0.0, 0.6, h)');
     const top = env.skyReflection.top.value;
     const horizon = env.skyReflection.horizon.value;
-    for (const deg of [3, 6, 12, 25, 45]) {
+    for (const deg of [1, 3, 6, 12, 17, 35, 60]) {
       const h = Math.sin((deg * Math.PI) / 180);
       for (const c of ['r', 'g', 'b'] as const) {
         const vars = { h, uHorizon: horizon[c], uTop: top[c], uSkyHorizon: horizon[c], uSkyTop: top[c] };
         const map = glsl(mapC, vars);
         const dome = glsl(`mix(uHorizon, uTop, ${domeT})`, vars);
-        expect(map * glsl(regrade, vars), `${deg} degrees, ${c}`).toBeCloseTo(dome, 6);
+        // Up to 17 degrees, the band the far sea mirrors, as the dome draws it; from 30 the map as it is (where the
+        // ratio of the top's near-black red would multiply the sun's glow and the clouds sixfold).
+        if (deg <= 17) expect(map * glsl(regrade, vars), `${deg} degrees, ${c}`).toBeCloseTo(dome, 6);
+        else expect(glsl(regrade, vars), `${deg} degrees, ${c}`).toBe(1);
         // Without it, 6 degrees up the 16:00 map is still the warm horizon's colour where the dome has turned bluer.
         if (deg === 6 && c === 'r') expect(map / dome).toBeGreaterThan(1.15);
       }
