@@ -10,6 +10,7 @@ import type { StaticWorld } from '../../world/staticWorld';
 import { assets } from '../assets';
 import { cloudNoiseTexture, groundSurface, type GroundTex } from '../textures';
 import { countyShore, seaDrawnDepth, surfPhases, type CountyShore } from '../sea';
+import { SURF_SWASH_GLSL } from '../waves';
 
 export type GroundDetail = 'road' | 'lot' | 'kerb' | 'curb' | 'grass' | 'sand' | 'plain';
 export type AnisoTier = 'high' | 'medium' | 'low' | 'software';
@@ -67,7 +68,8 @@ vGround = aGround;`;
 
 const FS_PARS = /* glsl */ `
 uniform sampler2D uGroundNoise;
-uniform float uGroundSurf;
+uniform vec3 uGroundSurf;
+${SURF_SWASH_GLSL}
 varying vec4 vGround;
 varying vec3 vGroundPos;
 float gN( vec2 p ) { return texture2D( uGroundNoise, p ).r; }
@@ -186,9 +188,10 @@ const FS_SAND = /* glsl */ `
   diffuseColor.rgb *= mix( 0.9, 1.08, m1 ) * mix( vec3( 0.97, 0.98, 1.02 ), vec3( 1.04, 1.01, 0.95 ), m2 );
   float edge = ${n(WET_SAND_BAND)} + 2.6 * edgeN;
   gWetSand = 1.0 - smoothstep( edge, edge + 2.6, inland );
-  // The swash's reach runs up and back with the surf, scalloped along the shore (cusps of a few metres).
+  // The swash's reach runs up and back with the breakers that reach the waterline (seaSwash, as the sea's own swash),
+  // scalloped along the shore (cusps of a few metres).
   float cusp = gN( vec2( gp.y * 0.021, 0.71 ) ) * 0.7 + gN( vec2( gp.y * 0.067, 0.29 ) ) * 0.3;
-  float reach = 0.4 + 1.3 * ( 0.5 + 0.5 * sin( uGroundSurf + gp.y * 0.043 ) ) + 1.2 * ( cusp - 0.5 );
+  float reach = 0.4 + 1.3 * seaSwash( uGroundSurf, gp.y ) + 1.2 * ( cusp - 0.5 );
   // The swash's edge breaks into irregular runs (gaps of a few metres and of half a metre), fainter further off.
   float rimGaps = gN( vec2( gp.y * 0.031, 0.47 ) ) * 0.6 + gN( vec2( gp.y * 0.13, 0.83 ) ) * 0.4;
   float rim = ( 1.0 - smoothstep( 0.0, 0.3, abs( inland - reach ) ) ) * smoothstep( 0.4, 0.62, rimGaps ) * mix( 0.45, 1.0, laceFade );
@@ -246,7 +249,8 @@ const FALLBACK: Record<GroundDetail, { tex: GroundTex; tile: number }> = {
 
 export interface GroundUniforms {
   uGroundNoise: { value: THREE.Texture };
-  uGroundSurf: { value: number };
+  /** The breakers' phases (sea.ts surfPhases), for the swash's lace. */
+  uGroundSurf: { value: THREE.Vector3 };
 }
 
 export class GroundSurfaces {
@@ -260,7 +264,7 @@ export class GroundSurfaces {
   private anisotropy = 0;
 
   constructor(readonly software: boolean) {
-    this.uniforms = { uGroundNoise: { value: cloudNoiseTexture() }, uGroundSurf: { value: 0 } };
+    this.uniforms = { uGroundNoise: { value: cloudNoiseTexture() }, uGroundSurf: { value: new THREE.Vector3() } };
   }
 
   /** The PBR set of a surface when it loaded (never on the software tier). */
@@ -349,9 +353,9 @@ export class GroundSurfaces {
     return this.anisotropy;
   }
 
-  /** Per frame: the surf phase (as the sea's, for the east beach starting at `beachStartX`), for the sand's lace. */
+  /** Per frame: the breakers' phases (as the sea's, for the east beach starting at `beachStartX`), for the sand's lace. */
   update(time: number, beachStartX: number): void {
-    this.uniforms.uGroundSurf.value = surfPhases(time, beachStartX).surf;
+    this.uniforms.uGroundSurf.value.fromArray(surfPhases(time, beachStartX).surf);
   }
 
   /** Estimated GPU bytes of the ground textures (w x h x 4 x 1.33 for the mip chain). */

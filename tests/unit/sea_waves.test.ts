@@ -10,7 +10,8 @@ import { CrowdView } from '../../src/render/crowd';
 import { countyShore, seaDepthCpu, seaHeightAt, seaUniforms, setSeaShelter, updateSea, type CountyShore } from '../../src/render/sea';
 import { bakeSeaShelter, SHELTER_CELL, SHELTER_RAMP } from '../../src/render/seaShelter';
 import {
-  CALM_SEA, OPEN_SEA, SURF_GAMMA, SURF_K, SURF_LAG, SURF_SYNC_DEPTH, WAVE_K, seaHeight, shelterAt, surfPhase, wavePhases, type SeaSurface, type ShelterMap,
+  CALM_SEA, OPEN_SEA, SURF_BAR, SURF_BAR_FADE, SURF_GAMMA, SURF_KZ, SURF_S, SURF_SYNC_DEPTH, SURF_W, SURF_WAVES, WAVE_DIR, WAVE_K, seaHeight, shelterAt, surfDepth, surfPhases,
+  waveDisplacement, wavePhases, type SeaSurface, type ShelterMap,
 } from '../../src/render/waves';
 import { SWIM_FLOAT } from '../../src/sim/characterPhysics';
 import type { Vehicle } from '../../src/sim/entities';
@@ -109,7 +110,7 @@ describe('the shelter map', () => {
 /** The sea as drawn at time `t` and sea state `sea`, the grid centred on (ox, oz), with the shelter map. */
 function drawnSea(t: number, sea: number, ox: number, oz: number): SeaSurface {
   const phases = wavePhases(t);
-  return { phases, surf: surfPhase(phases[0]!, world().layout.bounds.beachStartX), sea, ox, oz, shelter: map };
+  return { phases, surf: surfPhases(phases, world().layout.bounds.beachStartX), sea, ox, oz, shelter: map };
 }
 
 describe('the waves over the beach and under the decks', () => {
@@ -118,8 +119,9 @@ describe('the waves over the beach and under the decks', () => {
     const z = -150;
     for (const sea of [CALM_SEA, 1]) {
       let breaker = { lo: Infinity, hi: -Infinity };
-      for (let k = 0; k < 120; k++) {
-        const s = drawnSea(k * 0.13, sea, 560, z);
+      // A minute and a half, long enough for a set to come in (the breakers beat about a minute apart).
+      for (let k = 0; k < 360; k++) {
+        const s = drawnSea(k * 0.25, sea, 560, z);
         for (let x = b.beachStartX + 30; x < b.beachEndX; x += 0.7) {
           const d = seaDepthCpu(b, x, z, county);
           const h = seaHeight(s, x, z);
@@ -129,15 +131,57 @@ describe('the waves over the beach and under the decks', () => {
           if (Math.abs(d - 1.2) < 0.05) breaker = { lo: Math.min(breaker.lo, h), hi: Math.max(breaker.hi, h) };
         }
       }
-      // A breaker about a metre high where the beach is 1.2 m deep (a wave breaks at about 0.8 times the depth).
+      // A set's breaker about a metre high where the beach is 1.2 m deep (a wave breaks at about 0.8 times the depth).
       expect(breaker.hi - breaker.lo, `sea ${sea}`).toBeGreaterThan(0.75);
     }
-    // The breakers come in with the onshore swell wave: at SURF_SYNC_DEPTH the two are in step.
+    // Each breaker comes in with its own swell wave: at SURF_SYNC_DEPTH the two are in step, all along the beach (the bars
+    // have faded out by then).
     const x = b.beachStartX + (BEACH_W * (SURF_SYNC_DEPTH + CURB_H - WATER_Y)) / SAND_DROP;
-    for (const p0 of [0, 1.3, 4.4]) {
-      const surf = surfPhase(p0, b.beachStartX);
-      expect(Math.sin(SURF_SYNC_DEPTH * SURF_K + surf + SURF_LAG)).toBeCloseTo(Math.sin(-WAVE_K[0]! * x - p0), 6);
+    expect(SURF_BAR_FADE[1]).toBeLessThanOrEqual(SURF_SYNC_DEPTH);
+    for (const t of [0, 13.1, 444.4]) {
+      const phases = wavePhases(t);
+      const surf = surfPhases(phases, b.beachStartX);
+      for (const zz of [-300, -150, 80]) {
+        for (let i = 0; i < SURF_WAVES; i++) {
+          const breakerPh = SURF_S[i]! * Math.sqrt(surfDepth(zz, SURF_SYNC_DEPTH)) - SURF_KZ[i]! * zz + surf[i]!;
+          const swell = WAVE_K[i]! * (WAVE_DIR[i]![0] * x + WAVE_DIR[i]![1] * zz) - phases[i]!;
+          expect(Math.sin(breakerPh), `wave ${i} t ${t} z ${zz}`).toBeCloseTo(Math.sin(swell), 6);
+        }
+      }
     }
+  });
+
+  it('the breakers bunch up shoreward, come in sets, and break further out over the bars than in the rips', () => {
+    const b = world().layout.bounds;
+    const slope = SAND_DROP / BEACH_W;
+    // Shallow-water waves slow as the water shallows: a crest every ~28 m where they break, every ~10 m by the swash.
+    const spacing = (d: number) => (2 * Math.PI) / ((SURF_S[0]! * slope) / (2 * Math.sqrt(d)));
+    expect(spacing(1.7)).toBeGreaterThan(25);
+    expect(spacing(1.7)).toBeLessThan(31);
+    expect(spacing(0.2)).toBeLessThan(11);
+    expect(SURF_W.reduce((a, w) => a + w, 0)).toBeCloseTo(1, 9);
+    // Sets: the breakers' height 1.2 m deep, window by window of 7 s (about a wave each) over three minutes, varies from
+    // a lull's to a set's.
+    const z = -150;
+    const x = b.beachStartX + (BEACH_W * (1.2 + CURB_H - WATER_Y)) / SAND_DROP;
+    const windows: number[] = [];
+    for (let w = 0; w < 26; w++) {
+      let top = 0;
+      for (let k = 0; k < 28; k++) top = Math.max(top, Math.abs(waveDisplacement(drawnSea(w * 7 + k * 0.25, CALM_SEA, x, z), x, z)[1]));
+      windows.push(top);
+    }
+    expect(Math.max(...windows) / Math.min(...windows)).toBeGreaterThan(2);
+    // The bars and rips: the depth the breakers feel ranges SURF_BAR either side of the sand's along the beach where it is
+    // shallow, and is the sand's from where they take over from the swell.
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let zz = -500; zz <= 500; zz += 2) {
+      lo = Math.min(lo, surfDepth(zz, 0.8));
+      hi = Math.max(hi, surfDepth(zz, 0.8));
+      expect(surfDepth(zz, SURF_BAR_FADE[1])).toBeCloseTo(SURF_BAR_FADE[1], 9);
+    }
+    expect(lo).toBeLessThan(0.8 * (1 - 0.8 * SURF_BAR));
+    expect(hi).toBeGreaterThan(0.8 * (1 + 0.8 * SURF_BAR));
   });
 
   it('in a storm nothing rises through the decks or over the quays, and the land stays dry', () => {

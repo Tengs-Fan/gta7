@@ -103,7 +103,7 @@ function landPoint(): { x: number; z: number } {
 
 /** The open sea (no shelter map: unsheltered and deep) at time `t` and sea state `sea`, the grid centred on the origin. */
 function openSea(t: number, sea: number): SeaSurface {
-  return { phases: wavePhases(t), surf: 0, sea, ox: 0, oz: 0, shelter: null };
+  return { phases: wavePhases(t), surf: [0, 0, 0], sea, ox: 0, oz: 0, shelter: null };
 }
 
 describe('waves', () => {
@@ -258,7 +258,7 @@ describe('shoreline foam', () => {
     let worst = 0;
     let wraps = 0;
     for (let t = 0; t < 120; t += 1 / 60) {
-      if (surfPhases(t + 1 / 60, x0).surf < surfPhases(t, x0).surf) wraps++;
+      if (surfPhases(t + 1 / 60, x0).surf[0]! < surfPhases(t, x0).surf[0]!) wraps++;
       worst = Math.max(worst, Math.abs(pulse(t + 1 / 60) - pulse(t)));
     }
     // The surf rolls in with the swell's period (7 s for its 72 m onshore wave).

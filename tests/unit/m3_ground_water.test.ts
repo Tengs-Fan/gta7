@@ -253,9 +253,13 @@ describe('PBR ground with the asset library (VAL-GND-001, 003, 004)', () => {
     }
   });
 
-  it('the surf lace follows the sea\'s surf phase', () => {
+  it('the surf lace follows the sea\'s breakers, as the sea\'s own swash does', () => {
     city.update(0, 12, 17.3);
-    expect(city.ground.uniforms.uGroundSurf.value).toBeCloseTo(surfPhases(17.3, world().layout.bounds.beachStartX).surf, 9);
+    const want = surfPhases(17.3, world().layout.bounds.beachStartX).surf;
+    expect(city.ground.uniforms.uGroundSurf.value.toArray()).toEqual(want.map((v) => expect.closeTo(v, 6)));
+    const fs = compiled(matOf(city, 'beach')).fragmentShader;
+    expect(fs).toContain('uniform vec3 uGroundSurf;');
+    expect(fs).toContain('float reach = 0.4 + 1.3 * seaSwash( uGroundSurf, gp.y )');
   });
 
   it('estimated GPU memory of the ground and sea textures stays under 48 MB', () => {
@@ -698,7 +702,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     let top = 0;
     for (const sea of [0.3, 1]) {
       const most = waveAmps(sea).reduce((a, b) => a + b, 0);
-      const s = { phases, surf: 0, sea, ox: 0, oz: 0, shelter: null };
+      const s = { phases, surf: [0, 0, 0], sea, ox: 0, oz: 0, shelter: null };
       for (let x = 0; x < 200; x += 1.7) for (let z = 0; z < 200; z += 2.3) top = Math.max(top, Math.abs(waveDisplacement(s, x, z)[1]) / most);
     }
     expect(top).toBeLessThanOrEqual(1);
@@ -781,7 +785,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(PILING_FOAM_FAR).toBeGreaterThan(PILING_FOAM);
     const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
     expect(fs).toContain('float seaPx = length( fwidth( vSeaXZ ) );');
-    expect(fs).toContain('seaFoam( vSeaXZ, seaDepth, seaShelterAt( vSeaXZ ).x, seaNoise, uSeaAmp, seaPx )');
+    expect(fs).toContain('seaFoam( vSeaXZ, seaDepth, seaSh, seaBrk, seaW.surfDepth, seaNoise, uSeaAmp, seaPx, seaCyc )');
     expect(fs).toContain(`reflectedLight.indirectDiffuse *= 1.0 + ${FOAM_SKY_LIFT} * seaFoamAmt;`);
   });
 
@@ -793,7 +797,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(swashMax(0.3) / slope).toBeLessThan(2.6);
     expect(SURF_BAND_FADE[0] / slope).toBeGreaterThan(4);
     expect(SHORE_GLSL).toContain(`smoothstep(${SURF_BAND_FADE[0]}, ${SURF_BAND_FADE[1]}, depth)`);
-    expect(SHORE_GLSL).toContain('float surge = 0.5 + 0.5 * sin(uSurfPhase');
+    expect(SHORE_GLSL).toContain('float surge = seaSwash(uSurfPhase + noise * 1.5, p.y);');
   });
 
   it('the grid is displaced by the waves as seaDisplace shelters and shoals them (sea_waves.test.ts)', () => {

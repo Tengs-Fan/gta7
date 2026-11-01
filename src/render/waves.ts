@@ -79,28 +79,35 @@ export const WAVE_PHASE_PX = [1.2, 2.4] as const;
 /**
  * The shoaling over a beach. The open sea's waves are capped at SURF_GAMMA times the depth (a wave breaks once it is
  * about 0.8 times the depth from trough to crest), and fade out between SURF_DEPTH[1] and SURF_DEPTH[0] m deep into the
- * breakers (on a gently shelving beach, SURF_SHELVE): one wave rolling in along the depth's contours with the swell's
- * period (its phase is the surf's foam bands', SHORE_GLSL, so the foam rides its crests), SURF_SHOAL times the open
- * sea's significant half-height (it grows as it shoals) until the depth caps it, steepened (SURF_Q) and kept under
- * SURF_STEEP of slope. Its phase is depth times SURF_K plus the surf phase; on the east beach's 1:34 sand that is a wave
- * every 17 m, at the depth of SURF_SYNC_DEPTH m in step with the first (onshore) swell wave, so a swell crest rolls on
- * into a breaker.
+ * breakers (on a gently shelving beach, SURF_SHELVE): the first SURF_WAVES swell waves, each slowing as the water
+ * shallows (its phase grows as the root of the depth, SURF_S, so the crests bunch up shoreward), keeping its wavenumber
+ * along the beach (SURF_KZ) and in step with its own swell wave where the beach is SURF_SYNC_DEPTH m deep, so a swell
+ * crest rolls on into a breaker. Summed by their heights (SURF_W) they beat into sets and lulls about a minute apart.
+ * Their height is SURF_SHOAL times the open sea's significant half-height (it grows as it shoals) until the depth caps
+ * it, steepened (SURF_Q). They feel the sand's depth with render-only bars and rip channels along the beach (surfDepth),
+ * so they break first over a bar and late or not at all in a rip.
  */
 export const SURF_GAMMA = 0.4;
 export const SURF_DEPTH = [1.4, 2.0] as const;
 export const SURF_SHOAL = 1.3;
 export const SURF_Q = 2.4;
-export const SURF_STEEP = 0.33;
 /**
  * Breakers roll in only where the seabed shelves gently, fading out as its slope (the depth's gradient) steepens from the
  * first of these to the second: the east beach's sand falls 1 in 34; Las Lomas County's shores, 1 in 5, and the quays'
  * walls get none (their breakers would be a stripe a few metres long).
  */
 export const SURF_SHELVE = [0.05, 0.1] as const;
-export const SURF_K = 4 * Math.PI;
 export const SURF_SYNC_DEPTH = 1.7;
-/** The breakers' crests run this far (rad) behind the surf's foam bands, which lie on their fronts. */
-export const SURF_LAG = 0.5;
+/** How many of the swell waves (the first, onshore, ones) break on the beach. */
+export const SURF_WAVES = 3;
+/**
+ * The bars and rips: the breakers feel the sand's depth times 1 + SURF_BAR surfBar(z), the bars fading out between these
+ * depths (m) so the breakers keep in step with the swell where they take over from it.
+ */
+export const SURF_BAR = 0.3;
+export const SURF_BAR_FADE = [1.1, 1.6] as const;
+/** The swash runs up the sand this long (rad of each breaker's phase, about 1.4 s) after a breaker reaches the waterline. */
+export const SWASH_DELAY = 1.4;
 
 /**
  * The sea's shelter and depth on a square lattice over the world (render/seaShelter.ts bakes it; the shaders sample it
@@ -151,6 +158,15 @@ export const WAVE_DIR: readonly (readonly [number, number])[] = WAVES.map((w) =>
   const a = (w.angle * Math.PI) / 180;
   return [-Math.cos(a), Math.sin(a)] as const;
 });
+/**
+ * Each breaker's phase per root metre of depth: in shallow water a wave runs at sqrt(g d), so over the east beach's even
+ * slope m its phase grows as 2 omega sqrt(d) / (m sqrt(g)): crests some 28 m apart where they break and 10 m at the swash.
+ */
+export const SURF_S: readonly number[] = WAVE_OMEGA.slice(0, SURF_WAVES).map((w) => (2 * w) / ((SAND_DROP / BEACH_W) * Math.sqrt(G)));
+/** Each breaker's wavenumber along the beach (+z): its swell wave's, which refraction keeps (Snell). */
+export const SURF_KZ: readonly number[] = WAVE_K.slice(0, SURF_WAVES).map((k, i) => k * WAVE_DIR[i]![1]);
+/** Each breaker's share of the surf's height: its swell wave's share of their heights. */
+export const SURF_W: readonly number[] = WAVES.slice(0, SURF_WAVES).map((w, _, a) => w.amp / a.reduce((t, v) => t + v.amp, 0));
 
 /** Each wave's height (m) at sea state `sea` (0..1): SWELL_BASE, CHOP_POWER. */
 export function waveAmps(sea: number, out: number[] = new Array<number>(WAVES.length).fill(0)): number[] {
@@ -181,14 +197,31 @@ export function wavePhases(time: number, out: number[] = new Array<number>(WAVES
 }
 
 /**
- * The surf's phase (the breakers' and the foam bands') for the first wave's phase `phase0` and the east beach's start
- * (Bounds.beachStartX): where the beach is SURF_SYNC_DEPTH m deep, a breaker's crest is where that wave's would be.
+ * The breakers' phases at the waterline at z = 0 (SeaSurface.surf, the shaders' uSurfPhase) for the swell's phases
+ * `phases` (wavePhases) and the east beach's start (Bounds.beachStartX): where the beach is SURF_SYNC_DEPTH m deep each
+ * breaker's crest is where its swell wave's would be. Breaker i's phase at depth d is SURF_S[i] sqrt(d) - SURF_KZ[i] z
+ * plus this.
  */
-export function surfPhase(phase0: number, beachStartX: number): number {
+export function surfPhases(phases: readonly number[], beachStartX: number, out: number[] = new Array<number>(SURF_WAVES).fill(0)): number[] {
   const x = beachStartX + (BEACH_W * (SURF_SYNC_DEPTH + CURB_H - WATER_Y)) / SAND_DROP;
-  // The breaker's height is sin(depth K + surf + lag), the swell's sin(-k0 x - phase0): equal where sin(pi - a) = sin(a).
-  const p = (phase0 + Math.PI - SURF_SYNC_DEPTH * SURF_K - SURF_LAG + WAVE_K[0]! * x) % TAU;
-  return p < 0 ? p + TAU : p;
+  for (let i = 0; i < SURF_WAVES; i++) {
+    // The breaker's height is sin(S sqrt(d) - kz z + surf), the swell's sin(k (dx x + dz z) - phase): equal where
+    // sin(pi - a) = sin(a), the z terms cancelling.
+    const p = (Math.PI - WAVE_K[i]! * WAVE_DIR[i]![0] * x - SURF_S[i]! * Math.sqrt(SURF_SYNC_DEPTH) + phases[i]!) % TAU;
+    out[i] = p < 0 ? p + TAU : p;
+  }
+  return out;
+}
+
+/** The bars and rips along the beach at z, -1..1: two crests 91 and 40 m long, the shorter wandering. */
+export function surfBar(z: number): number {
+  return 0.6 * Math.sin(z * 0.069 + 1.3) + 0.4 * Math.sin(z * 0.157 + 0.4 + 0.5 * Math.sin(z * 0.031));
+}
+
+/** CPU twin of the shaders' seaSurfDepth: the depth the breakers feel at z over sand `d` m deep (SURF_BAR). */
+export function surfDepth(z: number, d: number): number {
+  const dd = Math.max(d, 0);
+  return dd * (1 + SURF_BAR * surfBar(z) * (1 - smooth(SURF_BAR_FADE[0], SURF_BAR_FADE[1], dd)));
 }
 
 function smooth(a: number, b: number, x: number): number {
@@ -208,7 +241,7 @@ export function seaShoal(s: readonly number[], amps: readonly number[], out: [nu
   const r = (SURF_GAMMA * d) / Math.max(s[0]! * sum, 1e-3);
   out[0] = (s[0]! * r) / Math.sqrt(Math.sqrt(1 + r * r * r * r)) * (1 - surf);
   const slope = Math.hypot(s[2]!, s[3]!);
-  out[1] = s[0]! * surf * (1 - smooth(SURF_SHELVE[0], SURF_SHELVE[1], slope)) * Math.min(seaHalfHeight(amps) * SURF_SHOAL, SURF_GAMMA * d, SURF_STEEP / (SURF_K * Math.max(slope, 1e-4)));
+  out[1] = s[0]! * surf * (1 - smooth(SURF_SHELVE[0], SURF_SHELVE[1], slope)) * Math.min(seaHalfHeight(amps) * SURF_SHOAL, SURF_GAMMA * d);
   return out;
 }
 
@@ -216,8 +249,8 @@ export function seaShoal(s: readonly number[], amps: readonly number[], out: [nu
 export interface SeaSurface {
   /** wavePhases. */
   phases: number[];
-  /** surfPhase. */
-  surf: number;
+  /** surfPhases. */
+  surf: number[];
   /** The sea state, 0..1. */
   sea: number;
   /** The wave grid's centre, which the displacement's fades are measured from. */
@@ -253,11 +286,19 @@ export function waveDisplacement(sea: SeaSurface, x: number, z: number, out: [nu
     dz += uz * h;
   }
   if (breaker > 0) {
-    const ph = s[1]! * SURF_K + sea.surf + SURF_LAG;
+    // The breakers, summed by their heights: up the depth's gradient under their crests, as seaDisplace.
+    const r = Math.sqrt(surfDepth(z, s[1]!));
+    let bs = 0;
+    let bc = 0;
+    for (let i = 0; i < SURF_WAVES; i++) {
+      const ph = SURF_S[i]! * r - SURF_KZ[i]! * z + sea.surf[i]!;
+      bs += SURF_W[i]! * Math.sin(ph);
+      bc += SURF_W[i]! * Math.cos(ph);
+    }
     const g = Math.hypot(s[2]!, s[3]!);
-    const h = g > 1e-4 ? (SURF_Q * breaker * Math.cos(ph)) / g : 0;
+    const h = g > 1e-4 ? (SURF_Q * breaker * bc) / g : 0;
     dx += s[2]! * h;
-    dy += breaker * Math.sin(ph);
+    dy += breaker * bs;
     dz += s[3]! * h;
   }
   out[0] = dx;
@@ -288,6 +329,20 @@ const vec4 = (vals: readonly number[]): string => `vec4(${vals.map(f).join(', ')
 /** The swell's (A) and the chop's (B) values of one of WAVES' fields, as a GLSL vec4 each. */
 const pair = (name: string, vals: readonly number[]): string => `const vec4 ${name}_A = ${vec4(vals.slice(0, SWELL))};\nconst vec4 ${name}_B = ${vec4(vals.slice(SWELL))};`;
 const sumSq = (from: number, to: number): number => WAVES.slice(from, to).reduce((s, w) => s + w.amp * w.amp, 0);
+const vec3 = (vals: readonly number[]): string => `vec3(${vals.map(f).join(', ')})`;
+
+/**
+ * The breakers' wavenumbers along the beach and shares of the surf (SURF_KZ, SURF_W), and seaSwash(surf, z): how far up
+ * the sand the swash has run, 0..1, at z for the breakers' phases `surf` (surfPhases), SWASH_DELAY after each breaker
+ * reaches the waterline, its reach growing with the set. For the sea's shore foam and the sand's lace alike.
+ */
+export const SURF_SWASH_GLSL = /* glsl */ `
+const vec3 SURF_KZ3 = ${vec3(SURF_KZ)};
+const vec3 SURF_W3 = ${vec3(SURF_W)};
+float seaSwash(vec3 surf, float z) {
+  return 0.5 + 0.5 * dot(SURF_W3, sin(surf - SURF_KZ3 * z - ${f(SWASH_DELAY)}));
+}
+`;
 
 /** The uniforms every material that follows the sea declares (SEA_WAVES_GLSL), bound to the sea's own. */
 export const WAVE_UNIFORMS = ['uWavePhase', 'uChopPhase', 'uSeaAmp', 'uDisplace', 'uSeaOrigin', 'uSurfPhase', 'uSeaShelter', 'uSeaShelterBox'] as const;
@@ -296,7 +351,8 @@ export type WaveUniform = (typeof WAVE_UNIFORMS)[number];
 /**
  * Uniforms and functions for both shader stages. uWavePhase, uChopPhase: wavePhases (the swell's four, the chop's);
  * uSeaAmp: sea state 0..1; uDisplace: 1 on the grid, else 0; uSeaOrigin: the grid's centre (world XZ); uSurfPhase:
- * surfPhase; uSeaShelter, uSeaShelterBox: the shelter map (ShelterMap) and its box (minX, minZ, 1 / width, 1 / depth).
+ * the breakers' phases (surfPhases); uSeaShelter, uSeaShelterBox: the shelter map (ShelterMap) and its box (minX, minZ,
+ * 1 / width, 1 / depth). seaSurfPhases(world xz, depth) gives the breakers' phases there.
  * seaDisplace(world xz) gives the surface offset, seaDisplaceEdge does the same for a vertex on the fine ring's rim
  * (aEdge: the rim's direction, zero elsewhere), interpolating between the coarse ring's neighbouring vertices so the two
  * rings meet without cracks. seaWave(world xz, the pixel's steps on the water) gives what the shading needs (SeaWave).
@@ -307,7 +363,7 @@ uniform vec4 uChopPhase;
 uniform float uSeaAmp;
 uniform float uDisplace;
 uniform vec2 uSeaOrigin;
-uniform float uSurfPhase;
+uniform vec3 uSurfPhase;
 uniform sampler2D uSeaShelter;
 uniform vec4 uSeaShelterBox;
 ${pair('SEA_K', WAVE_K)}
@@ -317,6 +373,8 @@ ${pair('SEA_DZ', WAVE_DIR.map((d) => d[1]))}
 ${pair('SEA_Q', WAVES.map((w) => w.steep))}
 ${pair('SEA_FADE0', WAVES.map((w) => w.fadeStart))}
 ${pair('SEA_FADE1', WAVES.map((w) => w.fadeEnd))}
+${SURF_SWASH_GLSL}
+const vec3 SURF_S3 = ${vec3(SURF_S)};
 /** Shelter, depth and the depth's gradient at p (ShelterMap). */
 vec4 seaShelterAt(vec2 p) {
   return textureLod(uSeaShelter, (p - uSeaShelterBox.xy) * uSeaShelterBox.zw, 0.0);
@@ -339,12 +397,18 @@ vec2 seaShoal(vec4 s) {
   float r = ${f(SURF_GAMMA)} * d / max(s.x * (dot(seaAmpA(), vec4(1.0)) + dot(seaAmpB(), vec4(1.0))), 1e-3);
   float deep = s.x * r * inversesqrt(sqrt(1.0 + r * r * r * r)) * (1.0 - surf);
   float slope = length(s.zw);
-  float breaker = s.x * surf * (1.0 - smoothstep(${f(SURF_SHELVE[0])}, ${f(SURF_SHELVE[1])}, slope)) * min(min(seaHalfHeight() * ${f(SURF_SHOAL)}, ${f(SURF_GAMMA)} * d), ${f(SURF_STEEP / SURF_K)} / max(slope, 1e-4));
+  float breaker = s.x * surf * (1.0 - smoothstep(${f(SURF_SHELVE[0])}, ${f(SURF_SHELVE[1])}, slope)) * min(seaHalfHeight() * ${f(SURF_SHOAL)}, ${f(SURF_GAMMA)} * d);
   return vec2(deep, breaker);
 }
-/** The breakers' phase at depth d. */
-float seaSurfPhase(float d) {
-  return d * ${f(SURF_K)} + uSurfPhase + ${f(SURF_LAG)};
+/** The depth the breakers feel at p over sand d deep, with the bars and rips (surfDepth). */
+float seaSurfDepth(vec2 p, float d) {
+  d = max(d, 0.0);
+  float bar = 0.6 * sin(p.y * 0.069 + 1.3) + 0.4 * sin(p.y * 0.157 + 0.4 + 0.5 * sin(p.y * 0.031));
+  return d * (1.0 + ${f(SURF_BAR)} * bar * (1.0 - smoothstep(${f(SURF_BAR_FADE[0])}, ${f(SURF_BAR_FADE[1])}, d)));
+}
+/** The breakers' phases at p over sand d deep, felt as e deep (seaSurfDepth). */
+vec3 seaSurfPhases(vec2 p, float e) {
+  return SURF_S3 * sqrt(e) - SURF_KZ3 * p.y + uSurfPhase;
 }
 vec3 seaDisplace(vec2 p) {
   vec4 s = seaShelterAt(p);
@@ -357,10 +421,10 @@ vec3 seaDisplace(vec2 p) {
   vec4 thB = SEA_K_B * (SEA_DX_B * p.x + SEA_DZ_B * p.y) - uChopPhase;
   vec4 hA = aA * SEA_Q_A * cos(thA);
   vec4 hB = aB * SEA_Q_B * cos(thB);
-  float ph = seaSurfPhase(s.y);
-  // The breaker's water moves along the depth's gradient, out to sea under its trough and shoreward under its crest.
-  vec2 side = s.zw * (${f(SURF_Q)} * sh.y * cos(ph) * inversesqrt(max(dot(s.zw, s.zw), 1e-8)));
-  return vec3(dot(hA, SEA_DX_A) + dot(hB, SEA_DX_B) + side.x, dot(aA, sin(thA)) + dot(aB, sin(thB)) + sh.y * sin(ph), dot(hA, SEA_DZ_A) + dot(hB, SEA_DZ_B) + side.y);
+  vec3 ph = seaSurfPhases(p, seaSurfDepth(p, s.y));
+  // The breakers' water moves along the depth's gradient, out to sea under their troughs and shoreward under their crests.
+  vec2 side = s.zw * (${f(SURF_Q)} * sh.y * dot(SURF_W3, cos(ph)) * inversesqrt(max(dot(s.zw, s.zw), 1e-8)));
+  return vec3(dot(hA, SEA_DX_A) + dot(hB, SEA_DX_B) + side.x, dot(aA, sin(thA)) + dot(aB, sin(thB)) + sh.y * dot(SURF_W3, sin(ph)), dot(hA, SEA_DZ_A) + dot(hB, SEA_DZ_B) + side.y);
 }
 vec3 seaDisplaceEdge(vec2 p, vec2 edge) {
   if (dot(edge, edge) < 0.5) return seaDisplace(p);
@@ -377,7 +441,7 @@ vec3 seaDisplaceEdge(vec2 p, vec2 edge) {
  * trough to 1 where every crest meets, of the waves the pixel shows); steep, the compression of the waves the pixel shows,
  * which is how close the crests are to breaking; spread, the variance of the compression of those it cannot show (a sine
  * of amplitude c has a variance of c^2 / 2), which blurs the whitecaps' threshold rather than aliasing into it; most,
- * the compression where every crest meets.
+ * the compression where every crest meets; surf, the breakers' phases (seaSurfPhases); surfDepth, the depth they feel.
  */
 struct SeaWave {
   vec2 slope;
@@ -387,6 +451,8 @@ struct SeaWave {
   float steep;
   float spread;
   float most;
+  vec3 surf;
+  float surfDepth;
 };
 SeaWave seaWave(vec2 p, vec2 dx, vec2 dy) {
   vec4 s = seaShelterAt(p);
@@ -416,17 +482,22 @@ SeaWave seaWave(vec2 p, vec2 dx, vec2 dy) {
   vec4 cmB = skB * SEA_Q_B;
   w.spread = 0.5 * (dot(cmA * cmA, 1.0 - keptA * keptA) + dot(cmB * cmB, 1.0 - keptB * keptB));
   w.most = dot(cmA, vec4(1.0)) + dot(cmB, vec4(1.0));
-  // The breaker, sh.y sin(seaSurfPhase(depth)): its slope is its height's derivative along the depth's gradient.
-  float ph = seaSurfPhase(s.y);
-  float ks = ${f(SURF_K)} * length(s.zw);
-  float keptS = 1.0 - smoothstep(${f(WAVE_PHASE_PX[0])}, ${f(WAVE_PHASE_PX[1])}, ${f(SURF_K)} * max(abs(dot(s.zw, dx)), abs(dot(s.zw, dy))));
-  w.slope += s.zw * (${f(SURF_K)} * sh.y * cos(ph) * keptS * gainA);
-  w.lost += 0.5 * (ks * sh.y * gainA) * (ks * sh.y * gainA) * (1.0 - keptS * keptS);
-  w.kept += ${f(SURF_Q)} * ks * sh.y * sin(ph) * keptS * gainA;
-  w.steep += ${f(SURF_Q)} * ks * sh.y * sin(ph) * keptS;
-  w.spread += 0.5 * (${f(SURF_Q)} * ks * sh.y) * (${f(SURF_Q)} * ks * sh.y) * (1.0 - keptS * keptS);
-  w.most += ${f(SURF_Q)} * ks * sh.y;
-  w.height = (dot(aA * keptA, sin(thA)) + dot(aB * keptB, sin(thB)) + sh.y * keptS * sin(ph)) / max(most, 1e-3);
+  // The breakers, sh.y sum(SURF_W sin(seaSurfPhases)): their slopes are their heights' derivatives along the depth's
+  // gradient, each phase growing by SURF_S / (2 sqrt(depth)) a metre of depth (the bars' stretch of it left out).
+  w.surfDepth = seaSurfDepth(p, s.y);
+  w.surf = seaSurfPhases(p, w.surfDepth);
+  vec3 dk = SURF_S3 * (0.5 * inversesqrt(max(w.surfDepth, 0.04)));
+  vec3 kS = dk * length(s.zw);
+  vec3 keptS = 1.0 - smoothstep(${f(WAVE_PHASE_PX[0])}, ${f(WAVE_PHASE_PX[1])}, dk * max(abs(dot(s.zw, dx)), abs(dot(s.zw, dy))));
+  vec3 ws = SURF_W3 * sin(w.surf);
+  vec3 wk2 = SURF_W3 * SURF_W3 * kS * kS;
+  w.slope += s.zw * (sh.y * dot(SURF_W3 * cos(w.surf) * dk, keptS) * gainA);
+  w.lost += 0.5 * sh.y * sh.y * gainA * gainA * dot(wk2, 1.0 - keptS * keptS);
+  w.kept += ${f(SURF_Q)} * sh.y * dot(ws * kS, keptS) * gainA;
+  w.steep += ${f(SURF_Q)} * sh.y * dot(ws * kS, keptS);
+  w.spread += 0.5 * ${f(SURF_Q * SURF_Q)} * sh.y * sh.y * dot(wk2, 1.0 - keptS * keptS);
+  w.most += ${f(SURF_Q)} * sh.y * dot(SURF_W3, kS);
+  w.height = (dot(aA * keptA, sin(thA)) + dot(aB * keptB, sin(thB)) + sh.y * dot(ws, keptS)) / max(most, 1e-3);
   return w;
 }
 `;
