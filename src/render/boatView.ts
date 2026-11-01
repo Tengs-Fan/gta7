@@ -21,7 +21,7 @@ import { seaSurface, seaWaveUniforms, type SeaWaveUniforms } from './sea';
 import { paintMaterial, paletteMaterial } from './shapeKit';
 import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
 import { LAMP_LENS, vehicleGlass } from './vehicleView';
-import { CALM_SEA, seaHeight, type SeaSurface } from './waves';
+import { CALM_SEA, seaHeight, shelterAt, type SeaSurface } from './waves';
 import { GroupFade } from './viewFade';
 import { burntMaterial } from './fx/burnt';
 
@@ -117,12 +117,16 @@ export function foamMaterial(): THREE.MeshStandardMaterial {
 /** Rows of the foam ring: distance out from the waterline and alpha. */
 const FOAM_ROWS: ReadonlyArray<readonly [number, number]> = [[FOAM_IN, 0.92], [0.12, 0.72], [0.28, 0.34], [FOAM_OUT, 0]];
 
-/** The ring's layout in the boat's frame (x, z per vertex) and its geometry (positions filled per frame). */
-function foamRing(m: BoatModel): { base: Float32Array; geometry: THREE.BufferGeometry } {
+/**
+ * The ring's layout in the boat's frame (x, z per vertex), each vertex's way from its column's inner row to its outer one
+ * (0..1, for layFoam), and its geometry (positions filled per frame).
+ */
+function foamRing(m: BoatModel): { base: Float32Array; across: Float32Array; geometry: THREE.BufferGeometry } {
   const wl = m.waterline;
   const n = wl.length;
   const rows = FOAM_ROWS.length;
   const base = new Float32Array(n * rows * 2);
+  const across = new Float32Array(n * rows);
   const color = new Float32Array(n * rows * 4);
   const uv = new Float32Array(n * rows * 2);
   const normal = new Float32Array(n * rows * 3);
@@ -152,6 +156,7 @@ function foamRing(m: BoatModel): { base: Float32Array; geometry: THREE.BufferGeo
       const dist = r === rows - 1 ? d * ragged : d;
       base[k * 2] = p.x + nx * dist;
       base[k * 2 + 1] = p.y + nz * dist;
+      across[k] = (dist - FOAM_ROWS[0]![0]) / (FOAM_ROWS[rows - 1]![0] * ragged - FOAM_ROWS[0]![0]);
       color.set([1, 1, 1, alpha], k * 4);
       uv[k * 2] = (along / perimeter) * Math.round(perimeter / 1.4);
       uv[k * 2 + 1] = d / 1.4;
@@ -178,7 +183,7 @@ function foamRing(m: BoatModel): { base: Float32Array; geometry: THREE.BufferGeo
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   g.setIndex(idx);
   g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), m.length / 2 + FOAM_OUT + 1);
-  return { base, geometry: g };
+  return { base, across, geometry: g };
 }
 
 /** The sea under a hull: its heave (m, the mean of four points round it), pitch and roll (rad), and its ends' heights (m). */
@@ -190,8 +195,9 @@ export interface Swell {
   stern: number;
 }
 
-/** Scratch for seaSampler (it runs per boat per frame). */
+/** Scratch for seaSampler and layFoam (they run per boat per frame). */
 const SURFACE: SeaSurface = seaSurface(seaWaveUniforms());
+const SHELTER = [0, 0, 0, 0];
 
 /** The drawn sea's height over WATER_Y for many points of a frame: the uniforms read once (0 everywhere without the grid). */
 function seaSampler(sea: SeaWaveUniforms | null): (x: number, z: number) => number {
@@ -279,6 +285,7 @@ export class BoatView {
   private readonly glass: THREE.Mesh | null = null;
   private readonly foam: THREE.Mesh;
   private readonly foamBase: Float32Array;
+  private readonly foamAcross: Float32Array;
   private readonly lampMat = new THREE.MeshStandardMaterial({ color: 0xfffbe8, emissive: 0xfff2c8, emissiveIntensity: 0.2, roughness: 0.2 });
   private readonly sternMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.2, roughness: 0.3 });
   private readonly bowLamp: THREE.Mesh;
@@ -330,6 +337,7 @@ export class BoatView {
     // first sync every vertex sits at the boat's origin (drawing nothing and adding nothing to its bounds).
     const ring = foamRing(m);
     this.foamBase = ring.base;
+    this.foamAcross = ring.across;
     this.foam = new THREE.Mesh(ring.geometry, foamMaterial());
     this.foam.name = 'foam';
     this.foam.receiveShadow = true;
@@ -482,12 +490,23 @@ export class BoatView {
     const c = Math.cos(v.heading);
     const s = Math.sin(v.heading);
     const y0 = WATER_Y + FOAM_LIFT - this.group.position.y;
-    const height = seaSampler(this.sea);
-    // Every vertex on the sea: the storm's chop is short enough to bend the ring between its rows.
-    for (let k = 0; k < base.length / 2; k++) {
-      arr[k * 3] = base[k * 2]!;
-      arr[k * 3 + 1] = y0 + height(v.pos.x + base[k * 2]! * c + base[k * 2 + 1]! * s, v.pos.z - base[k * 2]! * s + base[k * 2 + 1]! * c);
-      arr[k * 3 + 2] = base[k * 2 + 1]!;
+    // Water sheltered to nothing (the Marina's slips, a harbour) is flat: no need to sample it.
+    const sea = this.sea;
+    const still = !sea || sea.uDisplace.value <= 0 || shelterAt(sea.uSeaShelter.map, v.pos.x, v.pos.z, SHELTER)[0]! < 1e-3;
+    const height = seaSampler(still ? null : sea);
+    // Each column's inner and outer rows on the sea, the rows between them on the line joining the two (they lie within
+    // half a metre, where the storm's shortest chop bends the water by under 4 cm).
+    const rows = FOAM_ROWS.length;
+    const across = this.foamAcross;
+    const at = (k: number) => height(v.pos.x + base[k * 2]! * c + base[k * 2 + 1]! * s, v.pos.z - base[k * 2]! * s + base[k * 2 + 1]! * c);
+    for (let k0 = 0; k0 < base.length / 2; k0 += rows) {
+      const inner = at(k0);
+      const outer = at(k0 + rows - 1);
+      for (let k = k0; k < k0 + rows; k++) {
+        arr[k * 3] = base[k * 2]!;
+        arr[k * 3 + 1] = y0 + inner + (outer - inner) * across[k]!;
+        arr[k * 3 + 2] = base[k * 2 + 1]!;
+      }
     }
     pos.needsUpdate = true;
   }
