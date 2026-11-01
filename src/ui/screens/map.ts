@@ -53,6 +53,8 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   let pick = -1;
   let hover: (typeof rows)[number] | null = null;
   let legendKey = '';
+  // A row rebuilt under a resting pointer may never hear it leave, so leaving the legend itself lets go too.
+  legend.addEventListener('pointerleave', () => (hover = null));
   const drawLegend = () => {
     rows.forEach((r, i) => {
       const on = !r.category || layerOn(r.category.id);
