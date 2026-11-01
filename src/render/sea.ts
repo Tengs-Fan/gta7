@@ -31,6 +31,17 @@ export const SEA_F0 = 0.02;
  * glint in the ripples round the camera; the ripples faded out with distance add theirs on top (patchSeaMaterial).
  */
 export const SEA_ROUGHNESS = 0.06;
+/**
+ * The baked sky's sun (Environment's envMat): its colour times gain times pow(cos, pow) of the angle from it, a glow
+ * some 28 degrees across. The sea takes it back out of the sky it reflects (seaSkyRadiance): the sun's own light glints
+ * off the ripples instead, sharply, as the key light, and the glow would smear a second, blurred sun path under it.
+ */
+export const SKY_SUN_GLOW = { pow: 24, gain: 2.5 } as const;
+/**
+ * The brightest a sun or moon glint on the sea is drawn (linear, before exposure): its true peak is a hundred times
+ * this, and bloom spreads anything that bright into a solid white column.
+ */
+export const SEA_GLINT_MAX = 6;
 /** The ripples' normal scale (the material's): chop steep enough to break the sky's reflection up round the camera. */
 export const SEA_RIPPLE = 0.36;
 /**
@@ -263,6 +274,9 @@ export interface SeaUniforms {
   uPilings: { value: THREE.Vector4[] };
   /** Bounds of the water cut into the land, where the land rectangle's edge is no quay (unused slots lie far away). */
   uSeaCuts: { value: THREE.Vector4[] };
+  /** The baked sky's sun as the environment map holds it (colour, and direction), for the sea to take back out of it. */
+  uSkySun: { value: THREE.Color };
+  uSkySunDir: { value: THREE.Vector3 };
   /** Las Lomas County's depth map (countyShore; none until setCountyShore), and its box: minX, minZ, 1 / width, 1 / depth. */
   uCountyDepth: { value: THREE.DataTexture | null };
   uCountyBox: { value: THREE.Vector4 };
@@ -288,6 +302,8 @@ export function seaUniforms(): SeaUniforms {
     uSeaAbyss: { value: new THREE.Color(ABYSS) },
     uPilings: { value: Array.from({ length: MAX_PILING_DECKS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
     uSeaCuts: { value: Array.from({ length: MAX_SEA_CUTS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
+    uSkySun: { value: new THREE.Color(0, 0, 0) },
+    uSkySunDir: { value: new THREE.Vector3(0, 1, 0) },
     uCountyDepth: { value: null },
     uCountyBox: { value: new THREE.Vector4(1e6, 1e6, 1, 1) },
     uCountyLand: { value: Array.from({ length: MAX_COUNTY_LAND }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
@@ -504,20 +520,47 @@ vec3 seaShallows(vec3 mid, float depth, vec2 p) {
 `;
 
 /**
- * The sky along the sea's reflected ray: the environment map, or the baked sky's gradient without one (uSkyTop,
- * uSkyHorizon, uSkyI: bound only then). A ripple turned away from the eye reflects the face of the next wave rather
- * than the sky under the horizon, which the map holds as a dark haze: the ray folds back up, so grazing water shows
- * the bright horizon sky and never dark blotches.
+ * The sea's direct light, in place of three's RE_Direct_Physical: a Beckmann specular lobe, the Gaussian slopes of a
+ * wind-blown sea (Cox and Munk) that end where GGX's long tails would spread a low sun across the whole sea, capped at
+ * SEA_GLINT_MAX; and three's Lambert diffuse for the water body under it.
+ */
+const SEA_DIRECT_GLSL = /* glsl */ `
+void RE_Direct_Sea( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
+  float dotNL = saturate( dot( geometryNormal, directLight.direction ) );
+  float dotNV = saturate( dot( geometryNormal, geometryViewDir ) );
+  vec3 halfDir = normalize( directLight.direction + geometryViewDir );
+  float dotNH = saturate( dot( geometryNormal, halfDir ) );
+  float F = F_Schlick( ${n(SEA_F0)}, 1.0, saturate( dot( geometryViewDir, halfDir ) ) );
+  float alpha = pow2( material.roughness );
+  float a2 = pow2( alpha );
+  float c2 = max( dotNH * dotNH, 1e-4 );
+  float D = exp( ( c2 - 1.0 ) / ( a2 * c2 ) ) / ( PI * a2 * c2 * c2 );
+  vec3 irradiance = dotNL * directLight.color;
+  reflectedLight.directSpecular += min( irradiance * F * V_GGX_SmithCorrelated( alpha, dotNL, dotNV ) * D, vec3( ${n(SEA_GLINT_MAX)} ) );
+  reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );
+}
+#undef RE_Direct
+#define RE_Direct RE_Direct_Sea
+`;
+
+/**
+ * The sky along the sea's reflected ray: the environment map less its sun's glow (SKY_SUN_GLOW), or the baked sky's
+ * gradient without one (uSkyTop, uSkyHorizon, uSkyI: bound only then). A ripple turned away from the eye reflects the
+ * face of the next wave rather than the sky under the horizon, which the map holds as a dark haze: the ray folds back
+ * up, so grazing water shows the bright horizon sky and never dark blotches.
  */
 const SEA_SKY_GLSL = /* glsl */ `
 uniform vec3 uSkyTop;
 uniform vec3 uSkyHorizon;
 uniform float uSkyI;
+uniform vec3 uSkySun;
+uniform vec3 uSkySunDir;
 vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
   vec3 r = transformDirectionByInverseViewMatrix( reflect( - viewDir, normal ), viewMatrix );
   r.y = abs( r.y );
 #if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
-  return textureCubeUV( envMap, envMapRotation * r, roughness ).rgb * envMapIntensity;
+  vec3 glow = uSkySun * pow( max( dot( r, uSkySunDir ), 0.0 ), ${n(SKY_SUN_GLOW.pow)} ) * ${n(SKY_SUN_GLOW.gain)};
+  return max( textureCubeUV( envMap, envMapRotation * r, roughness ).rgb - glow, 0.0 ) * envMapIntensity;
 #else
   return mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) ) * uSkyI;
 #endif
@@ -532,10 +575,10 @@ export const SHORE_DAMP = 0.35;
  * camera), vertex displacement scaled by uDisplace (damped over the shallows), the ripples warped and their strength
  * modulated by low-frequency samples of the ripple tile itself and by the sea state, a third, fourth and fifth ripple
  * layer, every layer faded out with distance into the roughness (RIPPLE_FADE), the wave slopes added to the ripple
- * normal, the shallows' colour and foam, water's reflectance (SEA_F0) and the sky it reflects (SEA_SKY_GLSL; `sky`
- * where there is no environment map). Three's lighting then splits each pixel by Fresnel between the dark body looking
- * down and the sky towards the horizon. Only uniforms change at runtime: the grid on or off and the sea state never
- * rebuild the program.
+ * normal, the shallows' colour and foam, water's reflectance (SEA_F0), its direct light (SEA_DIRECT_GLSL) and the sky
+ * it reflects (SEA_SKY_GLSL; `sky` where there is no environment map). Three's lighting then splits each pixel by
+ * Fresnel between the dark body looking down and the sky towards the horizon. Only uniforms change at runtime: the
+ * grid on or off and the sea state never rebuild the program.
  */
 export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms, sky: SeaSky | null): void {
   const ripples = mat.onBeforeCompile.bind(mat);
@@ -566,6 +609,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
       .replace('#include <begin_vertex>', `#include <begin_vertex>\n  transformed += uDisplace * seaDisplaceEdge( seaBase.xz, aEdge ) * mix( ${n(SHORE_DAMP)}, 1.0, smoothstep( 0.0, 2.0, seaDepthAt( seaBase.xz ) ) );`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\n${SEA_SKY_GLSL}\nvarying vec2 vSeaXZ;`)
+      .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${SEA_DIRECT_GLSL}`)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n  material.specularColor = vec3( ${n(SEA_F0)} );\n  material.specularColorBlended = material.specularColor;`)
       .replace(
         '#include <lights_fragment_maps>',
@@ -635,7 +679,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
       + ${n(d.weight * d.weight)} * ( 1.0 - seaKeptD * seaKeptD ) + ${n(e.weight * e.weight)} * ( 1.0 - seaKeptE * seaKeptE ) );
 #endif
     normal = normalize( normal + mat3( viewMatrix ) * vec3( -seaS.x, 0.0, -seaS.y ) );
-    // GGX's alpha squared is about the facets' mean square slope: the lost slopes add to the material's own (alpha = r^2).
+    // Beckmann's alpha squared is the facets' mean square slope: the lost slopes add to the material's own (alpha = r^2).
     roughnessFactor = mix( sqrt( sqrt( pow4( roughnessFactor ) + seaLost ) ), 0.85, seaFoamAmt );
   }
 #include <emissivemap_fragment>`,

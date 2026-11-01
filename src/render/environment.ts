@@ -7,7 +7,7 @@ import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
 import { CAUSEWAY_NAME } from '../world/country';
 import { mkRect, type CityLayout, type Rect } from '../world/layout';
-import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
+import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, SKY_SUN_GLOW, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 import { CALM_SEA } from './waves';
 import { assets } from './assets';
@@ -1044,7 +1044,7 @@ export class Environment {
             vec3 gain = mix(uHdriGainH, uHdriGain, smoothstep(0.0, 0.6, h));
             c = mix(c, texture2D(uHdri, uv).rgb * gain, uHdriMix * smoothstep(-0.02, 0.06, h));
           }
-          c += uSun * pow(max(dot(d, uSunDir), 0.0), 24.0) * 2.5;
+          c += uSun * pow(max(dot(d, uSunDir), 0.0), ${SKY_SUN_GLOW.pow.toFixed(1)}) * ${SKY_SUN_GLOW.gain.toFixed(1)};
           gl_FragColor = vec4(c, 1.0); }`,
     });
     this.envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 24, 12), this.envMat));
@@ -1140,6 +1140,8 @@ export class Environment {
     }
     (u.uSun!.value as THREE.Color).copy(sun);
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);
+    this.sea.uSkySun.value.copy(sun);
+    this.sea.uSkySunDir.value.copy(sunDir);
     if (!this.cubeTarget || !this.cubeCamera) {
       this.cubeTarget = new THREE.WebGLCubeRenderTarget(64, { type: THREE.HalfFloatType });
       this.cubeCamera = new THREE.CubeCamera(0.1, 100, this.cubeTarget);

@@ -12,7 +12,7 @@ import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/rende
 import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
-import { FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases } from '../../src/render/sea';
+import { FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_ROUGHNESS, SHELF_SLOPE, SKY_SUN_GLOW, SHELF_START, SHORE_DAMP, SHORE_GLSL, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases } from '../../src/render/sea';
 import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
 import { sandHeight } from '../../src/world/layout';
@@ -514,6 +514,29 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     // Near the camera the water is as smooth as three allows, so the ripples glint.
     expect((r.env.water.material as THREE.MeshStandardMaterial).roughness).toBe(SEA_ROUGHNESS);
     expect(SEA_ROUGHNESS).toBeLessThan(0.1);
+  });
+
+  it('the sun and moon glint off the ripples through a capped Beckmann lobe, not through the sky map\'s blurred sun glow', () => {
+    const r = renderer('high');
+    const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
+    // The sea's own direct light replaces three's for every light (the key light is the sun, or the moon by night).
+    expect(fs).toContain('#define RE_Direct RE_Direct_Sea');
+    expect(fs.indexOf('#define RE_Direct RE_Direct_Sea')).toBeGreaterThan(fs.indexOf('#define RE_Direct\t\t\t\tRE_Direct_Physical'));
+    expect(fs).toContain('float D = exp( ( c2 - 1.0 ) / ( a2 * c2 ) ) / ( PI * a2 * c2 * c2 );');
+    expect(fs).toContain(`vec3( ${SEA_GLINT_MAX}.0 ) )`);
+    expect(fs).toContain(`F_Schlick( ${SEA_F0}, 1.0,`);
+    // The reflected sky loses the baked sun's glow, as the environment map draws it, and the sea's uniforms follow each bake.
+    expect(fs).toContain(`pow( max( dot( r, uSkySunDir ), 0.0 ), ${SKY_SUN_GLOW.pow}.0 ) * ${SKY_SUN_GLOW.gain}`);
+    const env = r.env as unknown as { envMat: THREE.ShaderMaterial };
+    expect(env.envMat.fragmentShader).toContain(`pow(max(dot(d, uSunDir), 0.0), ${SKY_SUN_GLOW.pow}.0) * ${SKY_SUN_GLOW.gain}`);
+    // The Beckmann lobe ends where GGX's tail does not: at the far sea's roughness (about 0.29), facets 20 degrees off
+    // the sun's would still give GGX's glint, a hundred times too bright to draw, a third of a percent of its peak.
+    const alpha = 0.29 ** 2;
+    const beckmann = (t: number) => Math.exp(-(Math.tan(t) ** 2) / alpha ** 2) / (Math.PI * alpha ** 2 * Math.cos(t) ** 4);
+    const ggx = (t: number) => alpha ** 2 / (Math.PI * (Math.cos(t) ** 2 * (alpha ** 2 - 1) + 1) ** 2);
+    const t = (20 * Math.PI) / 180;
+    expect(beckmann(t) / beckmann(0)).toBeLessThan(1e-6);
+    expect(ggx(t) / ggx(0)).toBeGreaterThan(3e-3);
   });
 
   it('pilings: the shader\'s lattice is the drawn one, and every piling has foam on all four sides within 0.5 m', () => {
