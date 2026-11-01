@@ -13,6 +13,7 @@ import { gradeAt } from '../../src/render/grade';
 import { Environment } from '../../src/render/environment';
 import { AUTO_MAX_PIXELS, drawingBufferPixels, gpuClass, pickTier, pixelRatioFor, probeGpu, QUALITY, QUALITY_TIERS, type QualityTier } from '../../src/render/quality';
 import { GameRenderer, guardStaleDeletes } from '../../src/render/renderer';
+import { LIT } from '../../src/render/signalHeads';
 import type { VehicleView } from '../../src/render/vehicleView';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '../../src/settings';
 import type { Sim } from '../../src/sim/sim';
@@ -716,18 +717,47 @@ describe('coloured lamps with and without bloom', () => {
     return w.x * c.r + w.y * c.g + w.z * c.b;
   }
 
-  type PropsPriv = { signalBulbs: THREE.InstancedMesh; signalProps: Prop[]; antennaMat: THREE.MeshBasicMaterial; antennaLights: THREE.InstancedMesh | null; ferris: { lights: THREE.InstancedMesh } | null };
+  type PropsPriv = {
+    signalProps: Prop[];
+    signalLit: THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+    signalHalos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
+    antennaMat: THREE.MeshBasicMaterial;
+    antennaLights: THREE.InstancedMesh | null;
+    ferris: { lights: THREE.InstancedMesh } | null;
+  };
 
-  /** Signal 0's lit bulb at a night-time frame whose sim clock shows it `state`. */
+  /**
+   * Everything that makes the signals look as they do at night at sim time `t`, as the renderer takes it: the lit quads'
+   * and halos' programs (their shader sources and keys, as compiled), the uniforms they draw with (the palette and the
+   * dots), their buffers, and the halos' colour and visibility.
+   */
+  function signalLook(r: GameRenderer, t: number): unknown {
+    const props = r.props as unknown as PropsPriv;
+    r.props.update(0, 1, t);
+    const compile = (mat: THREE.Material, lib: { uniforms: Record<string, THREE.IUniform>; vertexShader: string; fragmentShader: string }) => {
+      const shader = { uniforms: THREE.UniformsUtils.clone(lib.uniforms), vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader } as unknown as THREE.WebGLProgramParametersWithUniforms;
+      mat.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+      return { shader, key: mat.customProgramCacheKey() };
+    };
+    const lit = compile(props.signalLit.material, THREE.ShaderLib.basic);
+    const halo = compile(props.signalHalos.material, THREE.ShaderLib.points);
+    return {
+      lit: { key: lit.key, vertex: lit.shader.vertexShader, fragment: lit.shader.fragmentShader },
+      palette: (lit.shader.uniforms.uLitColors!.value as THREE.Color[]).map((c) => c.toArray()),
+      dots: lit.shader.uniforms.uLitDots!.value as number,
+      halo: { key: halo.key, vertex: halo.shader.vertexShader, fragment: halo.shader.fragmentShader, visible: props.signalHalos.visible, color: props.signalHalos.material.color.toArray(), blending: props.signalHalos.material.blending },
+      buffers: [props.signalLit.geometry.getAttribute('aLit'), props.signalLit.geometry.getAttribute('aSize'), props.signalHalos.geometry.getAttribute('color')].map((a) => Array.from(a.array)),
+    };
+  }
+
+  /** Signal 0's lit lens at a night-time frame whose sim clock shows it `state`. */
   function litBulb(r: GameRenderer, state: 'red' | 'yellow' | 'green'): THREE.Color {
     const props = r.props as unknown as PropsPriv;
     const p = props.signalProps[0]!;
     let t = 0;
     while (W.roads.signalState(p.node, axisOf(p.dir as Dir), t) !== state) t += 0.25;
     r.props.update(0, 1, t);
-    const c = new THREE.Color();
-    props.signalBulbs.getColorAt(['red', 'yellow', 'green'].indexOf(state), c);
-    return c;
+    return r.props.signalLens(0, 0, ['red', 'yellow', 'green'].indexOf(state)).color;
   }
 
   /** The aircraft warning light, lit (it blinks on in the first 0.83 s of every 1.67 s at night), and every lit ferris wheel light. */
@@ -761,20 +791,31 @@ describe('coloured lamps with and without bloom', () => {
     for (const c of lamps.ferris) expect(Math.max(c.r, c.g, c.b)).toBeLessThanOrEqual(1);
   });
 
-  it('with bloom every lit lamp is bright enough to bloom, so its halo carries the colour', () => {
+  it('with bloom the warning light blooms so its halo carries the colour; the signals and the ferris wheel keep their own', () => {
     const r = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: HDR });
     const bloom = fakeOf(r).effects.find((e) => e instanceof UnrealBloomPass) as UnrealBloomPass;
     expect(bloom).toBeInstanceOf(UnrealBloomPass);
-    for (const st of ['red', 'yellow', 'green'] as const) expect(lum(litBulb(r, st)), st).toBeGreaterThan(bloom.threshold);
     const lamps = nightLamps(r);
     expect(lum(lamps.warning), 'warning light').toBeGreaterThan(bloom.threshold);
-    // The ferris wheel's lights keep a saturated core on every tier and draw their own halo (fix pass 3).
+    // The ferris wheel's lights keep a saturated core on every tier and draw their own halo (fix pass 3), and so do the
+    // signals' LED lenses (a lens 30 cm across would be many pixels of a bloomed lamp's near-white core).
     for (const c of lamps.ferris) expect(Math.max(c.r, c.g, c.b), 'ferris light').toBeLessThanOrEqual(1);
-    // The lamps follow the tier.
+    const high = (['red', 'yellow', 'green'] as const).map((st) => litBulb(r, st));
+    for (const c of high) expect(lum(c)).toBeLessThan(bloom.threshold / 2);
+    // The warning light follows the tier; the signals look the same on every one: the same programs, palette, dots and
+    // buffers (the look is compared as the renderer takes it, not as a palette entry, which no tier touches).
+    const look = signalLook(r, 7.3) as { palette: number[][] };
+    expect(look.palette.length).toBeGreaterThan(8);
     r.setQuality('low');
-    expect(Math.max(...litBulb(r, 'green').toArray())).toBeLessThanOrEqual(1);
+    expect(lum(nightLamps(r).warning)).toBeLessThan(bloom.threshold);
+    expect(signalLook(r, 7.3)).toEqual(look);
+    r.setQuality('medium');
+    expect(signalLook(r, 7.3)).toEqual(look);
     r.setQuality('high');
-    expect(lum(litBulb(r, 'green'))).toBeGreaterThan(bloom.threshold);
+    expect(signalLook(r, 7.3)).toEqual(look);
+    // A palette that did follow the tier would show: halve the red and the look is not the same.
+    (r.props as unknown as { litColors: THREE.Color[] }).litColors[LIT.red]!.multiplyScalar(0.5);
+    expect(signalLook(r, 7.3)).not.toEqual(look);
     // Without a half-float target there is no bloom on any tier: High draws the lamps as Low does.
     const plain = new GameRenderer(eventCanvas(), W, { quality: 'high', fov: 68, gpu: { renderer: '', halfFloat: false } });
     expect(fakeOf(plain).effects).toEqual([]);

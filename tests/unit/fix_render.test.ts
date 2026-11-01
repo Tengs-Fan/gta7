@@ -155,18 +155,14 @@ describe('render fixes', () => {
     attachPlay(sim);
     step(sim, 3.3);
     R.render(DT, false);
-    const props = R.props as unknown as { signalBulbs: THREE.InstancedMesh; signalProps: Prop[] };
-    const c = new THREE.Color();
+    const props = R.props as unknown as { signalProps: Prop[] };
     let mismatches = 0;
-    // Lit bulbs are at least 0.7 in their own channel on every tier (far more with bloom), unlit ones 0.12.
+    // Lit lenses are at least 0.78 in their own channel on every tier, unlit ones at most 0.12.
     props.signalProps.forEach((p, i) => {
       const want = W.roads.signalState(p.node, axisOf(p.dir as Dir), sim.time);
-      props.signalBulbs.getColorAt(i * 3, c);
-      const red = c.r > 0.5;
-      props.signalBulbs.getColorAt(i * 3 + 1, c);
-      const yellow = c.r > 0.5;
-      props.signalBulbs.getColorAt(i * 3 + 2, c);
-      const green = c.g > 0.5;
+      const red = R.props.signalLens(i, 0, 0).color.r > 0.5;
+      const yellow = R.props.signalLens(i, 0, 1).color.r > 0.5;
+      const green = R.props.signalLens(i, 0, 2).color.g > 0.5;
       const shown = red ? 'red' : yellow ? 'yellow' : green ? 'green' : 'off';
       if (shown !== want) mismatches++;
     });
@@ -283,25 +279,31 @@ describe('render fixes', () => {
     expect(fast / slow).toBeLessThan(1.33);
   });
 
-  it('a knocked-over traffic signal hides its bulbs and new game restores them', () => {
+  it('a knocked-over traffic signal\'s lenses go dark and fall with it, and new game stands them up lit', () => {
     const props = new PropsView(W);
-    const priv = props as unknown as { signalBulbs: THREE.InstancedMesh; signalPropIndex: number[] };
+    const priv = props as unknown as { signalPropIndex: number[]; signalProps: Prop[] };
     const k = 3;
     const idx = priv.signalPropIndex[k]!;
-    const read = (b: number): THREE.Matrix4 => {
-      const m = new THREE.Matrix4();
-      priv.signalBulbs.getMatrixAt(k * 3 + b, m);
-      return m;
-    };
-    const standing = [0, 1, 2].map(read);
+    const p = priv.signalProps[k]!;
+    const lit = () => [0, 1, 2].filter((b) => Math.max(...props.signalLens(k, 0, b).color.toArray()) > 0.5).length;
+    props.update(0, 0, 0);
+    const standing = [0, 1, 2].map((b) => props.signalLens(k, 0, b).at);
+    expect(lit()).toBe(1);
     props.breakProp(idx, 1, 0);
-    for (let b = 0; b < 3; b++) expect(new THREE.Vector3().setFromMatrixScale(read(b)).length()).toBeLessThan(1e-6);
+    props.update(0, 0, 0);
+    expect(lit()).toBe(0);
+    // Down along +x, a little off the ground, where the pole lies.
+    for (let b = 0; b < 3; b++) {
+      const at = props.signalLens(k, 0, b).at;
+      expect(at.y - p.y).toBeLessThan(0.8);
+      expect(at.x - p.x).toBeGreaterThan(3.5);
+    }
     // Other signals are untouched.
-    const other = new THREE.Matrix4();
-    priv.signalBulbs.getMatrixAt(0, other);
-    expect(new THREE.Vector3().setFromMatrixScale(other).length()).toBeGreaterThan(0.5);
+    expect(props.signalLens(0, 0, 0).at.y - priv.signalProps[0]!.y).toBeGreaterThan(4);
     props.restoreAll();
-    for (let b = 0; b < 3; b++) expect(read(b).equals(standing[b]!)).toBe(true);
+    props.update(0, 0, 0);
+    expect(lit()).toBe(1);
+    for (let b = 0; b < 3; b++) expect(props.signalLens(k, 0, b).at.distanceTo(standing[b]!)).toBeLessThan(1e-6);
   });
 
   it('a car lying on its roof is drawn above the road, rotated about its body centre', () => {

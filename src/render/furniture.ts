@@ -3,6 +3,7 @@
 // of (tests check the parts and the fit against the older, simpler models).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { AVENUE_W, LANE_W, PROP_INSET, STREET_W } from '../world/constants';
 
 /** A street lamp's luminaire point (props.ts LAMP_HEAD). */
 interface Head { readonly y: number; readonly reach: number }
@@ -12,6 +13,7 @@ type Rgb = number;
 /** Collects parts, each one colour, into a model. */
 export class ModelBuilder {
   private readonly geos: THREE.BufferGeometry[] = [];
+  private readonly spares = new Set<number>();
   readonly parts: string[] = [];
 
   add(part: string, geo: THREE.BufferGeometry, color: Rgb = 0xffffff, shade = 1): this {
@@ -29,7 +31,21 @@ export class ModelBuilder {
     return this;
   }
 
+  /**
+   * Runs `add`, marking the vertices of the parts it adds as spare (`aSpare` 1, 0 everywhere else): a part a shader may
+   * collapse for the instances that have no use for it.
+   */
+  spare(add: () => void): this {
+    const from = this.geos.length;
+    add();
+    for (let i = from; i < this.geos.length; i++) this.spares.add(i);
+    return this;
+  }
+
   build(name: string): THREE.BufferGeometry {
+    if (this.spares.size > 0) {
+      this.geos.forEach((g, i) => g.setAttribute('aSpare', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(this.spares.has(i) ? 1 : 0), 1)));
+    }
     const m = mergeGeometries(this.geos, false);
     if (!m) throw new Error(`${name}: mergeGeometries failed`);
     for (const g of this.geos) g.dispose();
@@ -144,26 +160,268 @@ export function lampLensGeometry(head: Head): THREE.BufferGeometry {
   return g;
 }
 
-/** Signal bulb centres in the signal's frame (the head faces local +z); PropsView puts its bulbs here. */
-export function signalBulbAt(k: number): [number, number, number] {
-  return [0, 4.88 - k * 0.33, 0.21];
+/** A face of a traffic signal in its frame: its centre and its turn about y (0 faces +z, the traffic the signal serves). */
+export interface SignalFace {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly turn: number;
 }
 
-/** A traffic signal: base, pole, the three-lens head with a backplate, rimmed lenses under hooded visors, and a cap. */
-export function signalPoleGeometry(): THREE.BufferGeometry {
-  const b = new ModelBuilder();
-  b.add('base', cyl(0.15, 0.16, 0.05, 10), 0xffffff, 0.85);
-  b.add('pole', cyl(0.085, 0.11, 5.2, 8, 0, 0, 0, true));
-  b.add('head', box(0.36, 1.05, 0.28, 0, 4.55, 0.05));
-  b.add('backplate', box(0.46, 1.2, 0.02, 0, 4.55, -0.1), 0x1a1b1d);
-  for (let k = 0; k < 3; k++) {
-    const [, by, bz] = signalBulbAt(k);
-    b.add('lens', new THREE.RingGeometry(0.105, 0.13, 10).translate(0, by, bz - 0.02), 0xffffff, 0.7);
-    // An open hood over the top half of the lens, 11 cm deep.
-    b.add('visor', new THREE.CylinderGeometry(0.135, 0.135, 0.11, 8, 1, true, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2).translate(0, by, bz + 0.055 - 0.01), 0xffffff, 0.9);
+/**
+ * A vehicle head: its three lenses `lens` m across and `gap` m apart, in a row across (red on the viewer's left) or down
+ * (red on top). `back` when it is the back of an arm's head, facing the opposite approach, which shows what its own
+ * signal does: the other axis's light is the same one.
+ */
+export interface SignalHead extends SignalFace {
+  readonly across: boolean;
+  readonly lens: number;
+  readonly gap: number;
+  readonly back?: boolean;
+}
+
+/**
+ * A countdown: two digits `h` m tall and half as wide; `over` when it hangs over the road, from an arm or the span wire,
+ * not on the pole. `back` is the face of an arm's countdown to the opposite approach, on the box of the front's.
+ */
+export interface SignalCount extends SignalFace {
+  readonly h: number;
+  readonly over?: boolean;
+  readonly back?: boolean;
+}
+
+/** Where a signal's lit parts are: its vehicle heads, its countdowns and its walk heads. */
+export interface SignalLayout {
+  readonly heads: readonly SignalHead[];
+  readonly counts: readonly SignalCount[];
+  readonly walks: readonly SignalFace[];
+}
+
+/** A point `u` m to the right of a face as its viewer sees it, `v` m up and `d` m out of it, in the signal's frame. */
+export function onFace(f: SignalFace, u: number, v: number, d = 0): [number, number, number] {
+  const c = Math.cos(f.turn);
+  const s = Math.sin(f.turn);
+  return [f.x + u * c + d * s, f.y + v, f.z - u * s + d * c];
+}
+
+/** The centre of a head's lens k (0 red, 1 yellow, 2 green). */
+export function lensAt(h: SignalHead, k: number): [number, number, number] {
+  return h.across ? onFace(h, (k - 1) * h.gap, 0) : onFace(h, 0, (1 - k) * h.gap);
+}
+
+/**
+ * Where a signal stands: on an avenue's approach a mast arm reaches over both its lanes with a head over each, on a
+ * street's a bracket arm puts one over its lane, and at Las Lomas County's junction a span wire hangs them (signalHeads.ts
+ * signalStyle picks).
+ */
+export type SignalStyle = 'mast' | 'bracket' | 'span';
+
+/** The head on the pole, facing the traffic it serves, its lenses where d98da7b put its bulbs. */
+const NEAR_HEAD: SignalHead = { x: 0, y: 4.55, z: 0.21, turn: 0, across: false, lens: 0.22, gap: 0.33 };
+/** Its countdown, under it. */
+const NEAR_COUNT: SignalCount = { x: 0, y: 3.74, z: 0.17, turn: 0, h: 0.24 };
+/**
+ * The walk heads on the pole, 2.55 m up: one facing across the approach's own road (local -x), one across the road to
+ * the approach's right (local -z, into the junction), each read by people at the far end of that crosswalk.
+ */
+const WALKS: readonly SignalFace[] = [{ x: -0.31, y: 2.55, z: 0.15, turn: -Math.PI / 2 }, { x: 0.15, y: 2.55, z: -0.31, turn: Math.PI }];
+/**
+ * The heads over the road hang with their centre this high in the signal's frame, their backplates' foot 7.07 m over the
+ * road (the signal stands on the kerb), their tops 7.7 m over it: clear of the tallest vehicle by 3.9 m, and of every
+ * chase camera at rest on its normal or far zoom with the view level (a bus's, the highest, is 6.9 m up at far zoom), so
+ * none passes through one. A camera pulled down with orbitPitch can reach one for the moment it takes to ease back.
+ */
+const OVER_Y = 7.25;
+const ARM_Y = 7.67;
+const POLE_TOP = 8.25;
+/** A head over the road: 30 cm lenses in a row, red on the driver's left; its face 12 cm in front of the arm it hangs from. */
+const OVER: Omit<SignalHead, 'x'> = { y: OVER_Y, z: 0.12, turn: 0, across: true, lens: 0.3, gap: 0.38 };
+/**
+ * A mast arm's heads come back to back: the one for its own traffic faces it from 26 cm in front of the arm, its
+ * twin for the opposite approach the other way from 26 cm behind, their backplates meeting over the arm.
+ */
+const OVER_Z = 0.26;
+const overPair = (x: number): [SignalHead, SignalHead] => [{ ...OVER, x, z: OVER_Z }, { ...OVER, x, z: -OVER_Z, turn: Math.PI, back: true }];
+/** How far in (local -x) from a city signal's pole the centre of the lane `k` lanes from the kerb lies, on a road `width` wide. */
+const laneIn = (width: number, k: number) => -(width / 2 + PROP_INSET - LANE_W * (k + 0.5));
+
+/**
+ * Las Lomas County's junction at Dry Creek, 16 m across: from each corner's wooden pole a span wire runs to the
+ * junction's middle (local -SPAN_MID, -SPAN_MID), the four meeting there, and each approach's head hangs from its corner's
+ * wire over the approach's inner lane, under its countdown, the backplate's foot 7.1 m over the road.
+ */
+const SPAN_MID = 8 + PROP_INSET;
+const SPAN_TOP = 9.95;
+/** Where the wire leaves the pole and where it meets the others, and how far it sags between. */
+const SPAN_FROM = 9.65;
+const SPAN_TO = 8.9;
+const SPAN_SAG = 0.2;
+/** The point the head hangs from: over the inner lane's middle, LANE_W / 2 from the centre line. */
+const SPAN_AT = -SPAN_MID + LANE_W / 2;
+const SPAN_HEAD: SignalHead = { x: SPAN_AT, y: 7.7, z: SPAN_AT + 0.12, turn: 0, across: false, lens: 0.25, gap: 0.34 };
+/** A wooden pole is thicker than a steel one: its walk heads, and the head and countdown on it, stand a little further out. */
+const SPAN_WALKS: readonly SignalFace[] = WALKS.map((w) => {
+  const [x, y, z] = onFace(w, 0, 0, 0.04);
+  return { x, y, z, turn: w.turn };
+});
+/** The head on the pole serves the lanes on its side of the approach, the outer one of a highway's two; the countdown under it. */
+const SPAN_POLE_HEAD: SignalHead = { ...NEAR_HEAD, z: NEAR_HEAD.z + 0.04 };
+const SPAN_POLE_COUNT: SignalCount = { ...NEAR_COUNT, z: NEAR_COUNT.z + 0.04 };
+/** Its countdown over the inner lane, above the head hanging from the wire. */
+const SPAN_COUNT: SignalCount = { x: SPAN_AT, y: 8.45, z: SPAN_AT + 0.08, turn: 0, h: 0.3, over: true };
+
+/** The span wire's height at `s` (0 at the pole, 1 at the junction's middle). */
+function spanY(s: number): number {
+  return SPAN_FROM + (SPAN_TO - SPAN_FROM) * s - SPAN_SAG * 4 * s * (1 - s);
+}
+
+/** A mast arm's heads, over each of its lanes, front and back. */
+const MAST_HEADS = [0, 1].map((k) => overPair(laneIn(AVENUE_W, k)));
+/** The countdown between a mast arm's two heads, its two faces on one box. */
+const MAST_COUNT: Omit<SignalCount, 'z'> = { x: (laneIn(AVENUE_W, 0) + laneIn(AVENUE_W, 1)) / 2, y: OVER_Y + 0.04, turn: 0, h: 0.4, over: true };
+
+const SIGNAL_LAYOUTS: Readonly<Record<SignalStyle, SignalLayout>> = {
+  mast: {
+    heads: [NEAR_HEAD, ...MAST_HEADS.map(([front]) => front), ...MAST_HEADS.map(([, back]) => back)],
+    counts: [NEAR_COUNT, { ...MAST_COUNT, z: 0.08 }, { ...MAST_COUNT, z: -0.08, turn: Math.PI, back: true }],
+    walks: WALKS,
+  },
+  bracket: {
+    heads: [NEAR_HEAD, { ...OVER, x: laneIn(STREET_W, 0) }],
+    counts: [NEAR_COUNT, { x: laneIn(STREET_W, 0) + 1.05, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4, over: true }],
+    walks: WALKS,
+  },
+  span: { heads: [SPAN_POLE_HEAD, SPAN_HEAD], counts: [SPAN_POLE_COUNT, SPAN_COUNT], walks: SPAN_WALKS },
+};
+
+/** Where a signal of this style has its lit parts. */
+export function signalLayout(style: SignalStyle): SignalLayout {
+  return SIGNAL_LAYOUTS[style];
+}
+
+/** How far each arm's style reaches over the road (local -x) from the pole: out past the middle of its farthest lane, to hang its last head from. */
+export const ARM_REACH: Readonly<Record<'mast' | 'bracket', number>> = { mast: -laneIn(AVENUE_W, 0) + 0.7, bracket: -laneIn(STREET_W, 0) + 0.75 };
+
+const POLE = 0x8f959b;
+const HOUSING = 0x1b1c1e;
+const BACKPLATE = 0x141516;
+/** The retroreflective tape round a backplate's edge. */
+const BORDER = 0xe0c450;
+
+/** A box `w` wide (to the viewer's right), `h` tall and `d` deep on a face, centred `u` right and `v` up of it, its front `out` m out of it. */
+function faceBox(f: SignalFace, w: number, h: number, d: number, u = 0, v = 0, out = 0): THREE.BufferGeometry {
+  const [x, y, z] = onFace(f, u, v, out - d / 2);
+  return new THREE.BoxGeometry(w, h, d).rotateY(f.turn).translate(x, y, z);
+}
+
+/** A backplate `w` by `h` behind a face, `back` m behind it, with a thin reflective border. */
+function backplate(b: ModelBuilder, f: SignalFace, w: number, h: number, back: number, u = 0, v = 0): void {
+  b.add('backplate', faceBox(f, w, h, 0.02, u, v, -back), BACKPLATE);
+  const t = 0.035;
+  for (const s of [-1, 1]) {
+    b.add('border', faceBox(f, w, t, 0.004, u, v + s * (h - t) / 2, -back + 0.004), BORDER);
+    b.add('border', faceBox(f, t, h - 2 * t, 0.004, u + s * (w - t) / 2, v, -back + 0.004), BORDER);
   }
-  b.add('cap', box(0.42, 0.06, 0.36, 0, 5.1, 0.05));
-  return b.build('signal-pole');
+}
+
+/** A vehicle head: housing, backplate, a rimmed lens hole under a tunnel visor (open below) for each lens. */
+function vehicleHead(b: ModelBuilder, h: SignalHead): void {
+  const long = 3 * h.gap;
+  const [w, tall] = h.across ? [long, h.lens + 0.12] : [h.lens + 0.14, long];
+  b.add('head', faceBox(h, w, tall, 0.24), HOUSING);
+  // The head on the pole keeps a narrow plate, as d98da7b's did.
+  const [bw, bh] = h.across ? [w + 0.24, tall + 0.24] : [w + 0.06, tall + 0.16];
+  backplate(b, h, bw, bh, 0.24);
+  const r = h.lens / 2;
+  for (let k = 0; k < 3; k++) {
+    const [x, y, z] = lensAt(h, k);
+    b.add('lens', new THREE.RingGeometry(r, r + 0.02, 16).translate(0, 0, 0.003).rotateY(h.turn).translate(x, y, z), 0x2b2d30);
+    const visor = new THREE.CylinderGeometry(r + 0.03, r + 0.03, r * 1.5, 12, 1, true, Math.PI / 4, Math.PI * 1.5).rotateX(Math.PI / 2).translate(0, 0, r * 0.75);
+    for (const g of [visor, flipped(visor)]) b.add('visor', g.rotateY(h.turn).translate(x, y, z), HOUSING);
+  }
+}
+
+/** A countdown's box: its two digits' face under a hood (the back face of a box takes its front's housing, and a hood). */
+function countBox(b: ModelBuilder, c: SignalCount): void {
+  const [w, h] = [c.h * 1.5, c.h * 1.4];
+  if (!c.back) b.add('count', faceBox(c, w, h, 0.16), HOUSING);
+  b.add('count', faceBox(c, w, 0.02, c.h * 0.3, 0, h / 2 - 0.01, c.h * 0.3), HOUSING);
+}
+
+/**
+ * A walk head, a 16 inch one: its box (the figure on the viewer's left, two digits on the right) under a hood, clamped to
+ * the pole; the figure on it is 0.30 m tall and the digits 0.23 m (signalHeads.ts signalQuads).
+ */
+function walkHead(b: ModelBuilder, f: SignalFace): void {
+  b.add('walk', faceBox(f, 0.7, 0.42, 0.16), HOUSING);
+  b.add('walk', faceBox(f, 0.7, 0.02, 0.1, 0, 0.2, 0.1), HOUSING);
+  b.add('clamp', faceBox(f, 0.12, 0.12, 0.06, 0, 0, -0.16), POLE, 0.85);
+}
+
+/** The pole every city signal stands on: a cast base and collar, the tapered shaft and its cap. */
+function signalPole(b: ModelBuilder): void {
+  b.add('base', cyl(0.26, 0.28, 0.1, 12), POLE, 0.8);
+  b.add('base', cyl(0.19, 0.2, 0.35, 12, 0, 0.1, 0, true), POLE, 0.85);
+  b.add('pole', cyl(0.12, 0.16, POLE_TOP - 0.45, 12, 0, 0.45, 0, true), POLE);
+  b.add('cap', new THREE.SphereGeometry(0.125, 12, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, POLE_TOP, 0), POLE, 0.9);
+}
+
+const WOOD_POLE = 0x5e4a36;
+
+/**
+ * Dry Creek's corner (SPAN_MID): the wooden pole with its head and countdown, its half of the span wire, and its
+ * approach's head and countdown hanging from it.
+ */
+function spanWire(b: ModelBuilder): void {
+  b.add('pole', cyl(0.15, 0.19, SPAN_TOP, 10, 0, 0, 0, true), WOOD_POLE);
+  b.add('cap', cyl(0.16, 0.16, 0.04, 10, 0, SPAN_TOP, 0), WOOD_POLE, 0.8);
+  b.add('clamp', cyl(0.2, 0.2, 0.12, 10, 0, SPAN_FROM - 0.06, 0), POLE, 0.8);
+  const wire = new THREE.CatmullRomCurve3(Array.from({ length: 9 }, (_, k) => v3((-SPAN_MID * k) / 8, spanY(k / 8), (-SPAN_MID * k) / 8)));
+  b.add('wire', new THREE.TubeGeometry(wire, 16, 0.016, 4), 0x26282b);
+  b.add('wire', new THREE.SphereGeometry(0.06, 6, 4).translate(-SPAN_MID, SPAN_TO, -SPAN_MID), 0x26282b);
+  vehicleHead(b, SPAN_POLE_HEAD);
+  countBox(b, SPAN_POLE_COUNT);
+  vehicleHead(b, SPAN_HEAD);
+  countBox(b, SPAN_COUNT);
+  // Under the wire, the countdown box on a hanger and the head under it.
+  const count = SPAN_COUNT;
+  const top = count.y + count.h * 0.7;
+  b.add('hanger', box(0.04, spanY(-SPAN_AT / SPAN_MID) - top, 0.04, SPAN_AT, (spanY(-SPAN_AT / SPAN_MID) + top) / 2, SPAN_AT), HOUSING);
+  const head = SPAN_HEAD.y + 1.5 * SPAN_HEAD.gap;
+  b.add('hanger', box(0.04, count.y - count.h * 0.7 - head, 0.04, SPAN_AT, (count.y - count.h * 0.7 + head) / 2, SPAN_AT), HOUSING);
+}
+
+/**
+ * A traffic signal of `style` (SignalStyle): its pole, the head on it with its countdown, its walk heads and, for an arm
+ * over the road, the arm with its tie rod, the heads hanging from it and their countdown, all where signalLayout puts
+ * their lit parts.
+ */
+export function signalGeometry(style: SignalStyle): THREE.BufferGeometry {
+  const layout = SIGNAL_LAYOUTS[style];
+  const b = new ModelBuilder();
+  // A pole's second walk head faces the road to its approach's right, which a T junction may not have: the instances
+  // there collapse it (props.ts buildSignals).
+  const walks = () => layout.walks.forEach((w, k) => (k === 1 ? b.spare(() => walkHead(b, w)) : walkHead(b, w)));
+  if (style === 'span') {
+    spanWire(b);
+    walks();
+    return b.build('signal-span');
+  }
+  signalPole(b);
+  const reach = ARM_REACH[style];
+  b.add('arm', new THREE.CylinderGeometry(0.055, 0.085, reach, 10).rotateZ(Math.PI / 2).translate(-reach / 2, ARM_Y, 0), POLE);
+  b.add('arm', cyl(0.165, 0.165, 0.34, 12, 0, ARM_Y - 0.17, 0), POLE, 0.9);
+  b.add('arm', bar(v3(0, POLE_TOP - 0.08, 0), v3(-reach / 2, ARM_Y + 0.05, 0), 0.025), POLE, 0.9);
+  for (const h of layout.heads) {
+    vehicleHead(b, h);
+    if (h.across && !h.back) for (const u of [-0.4, 0.4]) b.add('hanger', box(0.05, ARM_Y - h.y - 0.2, 0.05, h.x + u, (ARM_Y + h.y + 0.2) / 2, 0), HOUSING);
+  }
+  for (const c of layout.counts) {
+    countBox(b, c);
+    if (c.over && !c.back) b.add('hanger', box(0.05, ARM_Y - c.y - c.h * 0.7, 0.05, c.x, (ARM_Y + c.y + c.h * 0.7) / 2, 0), HOUSING);
+  }
+  walks();
+  return b.build(`signal-${style}`);
 }
 
 /** A fire hydrant: base flange, barrel, top ring, bonnet with its operating nut, two hose nozzles with caps and a pumper. */

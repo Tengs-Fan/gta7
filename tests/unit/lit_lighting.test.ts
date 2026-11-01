@@ -13,8 +13,12 @@ import { DOOR_IN, DOOR_OUT, FIELD_TEXEL, MAX_INTERIORS, INTERIOR_REFLECT, INTERI
 import { GLOW, HAZE_RAIN_GAIN, HAZE_RAIN_SIZE, hazeLevel, LightSprites } from '../../src/render/lightSprites';
 import { LIGHTING_TIERS, type LightingTier } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
+import { lensAt, signalLayout } from '../../src/render/furniture';
+import { placed } from '../../src/render/props';
+import { signalStyle } from '../../src/render/signalHeads';
 import { SIGNAL_STREAK, StreetLighting } from '../../src/render/streetLighting';
 import { loadAssetsFromDisk, unloadAssets } from '../../src/render/assets/testing';
+import { axisOf, type Dir } from '../../src/world/roads';
 import type { StaticWorld } from '../../src/world/staticWorld';
 import { world } from './helpers';
 
@@ -335,6 +339,33 @@ describe('wet-road reflections in their light\'s colour', () => {
       expect(offered.find((o) => Math.hypot(o[0] - p.x, o[2] - p.z) < 0.5)).toBeUndefined();
     } finally {
       collider.broken = false;
+    }
+  });
+});
+
+describe('the heads over the road streak the wet road too', () => {
+  const W = world();
+
+  it('every head facing the signal\'s traffic offers its lit lens, over the road at its own height', () => {
+    const lights = new StreetLighting(W);
+    const offered: Array<[number, number, number, number, number, number]> = [];
+    const sprites = { offerStreakLight: (...a: [number, number, number, number, number, number]) => offered.push(a) } as unknown as LightSprites;
+    for (const style of ['mast', 'bracket', 'span'] as const) {
+      const index = W.layout.props.findIndex((q) => q.kind === 'signal' && signalStyle(W.roads, q) === style);
+      const p = W.layout.props[index]!;
+      const state = W.roads.signalState(p.node, axisOf(p.dir as Dir), 12);
+      const heads = signalLayout(style).heads.filter((h) => h.turn === 0);
+      offered.length = 0;
+      lights.offerSignalStreaks(sprites, new THREE.Vector3(p.x + 8, 1.6, p.z), 12);
+      for (const h of heads) {
+        const [x, y, z] = placed(p, ...lensAt(h, ['red', 'yellow', 'green'].indexOf(state)));
+        const o = offered.find((l) => Math.hypot(l[0] - x, l[1] - y, l[2] - z) < 1e-4);
+        expect(o, `${style} head at ${h.y}`).toBeTruthy();
+        expect(o!.slice(3)).toEqual([...SIGNAL_STREAK[state]]);
+        if (h.across) expect(y - p.y, style).toBeGreaterThan(7);
+      }
+      console.log(`[lighting] a ${style} signal offers ${heads.length} lit lenses`);
+      expect(heads.length).toBe({ mast: 3, bracket: 2, span: 2 }[style]);
     }
   });
 });
