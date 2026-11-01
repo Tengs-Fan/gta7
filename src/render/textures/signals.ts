@@ -1,22 +1,22 @@
 // The traffic signals' LED atlas: the ten countdown digits, a signal lens and the walk heads' figure and hand, each an
 // array of LEDs. Red carries the LEDs that light, green every LED of the element, so a quad drawn from it (props.ts
-// litQuads) shows its lit LEDs in its colour over the faint grid of the rest.
+// litQuads) shows its lit LEDs in its colour over the faint grid of the rest. A last tile holds the lenses' night glow.
 
 import * as THREE from 'three';
 import { canvas, toTexture } from './misc';
 
-const W = 1024;
+const W = 1152;
 const H = 128;
 /** A digit's cell (portrait) and the square cells after the ten digits. */
 const DIGIT_W = 64;
 
 /** The atlas's tiles: the digits 0 to 9 are tiles 0 to 9. */
-export const SIGNAL_TILE = { lens: 10, walk: 11, hand: 12 } as const;
+export const SIGNAL_TILE = { lens: 10, walk: 11, hand: 12, glow: 13 } as const;
 
 /** Each tile's rectangle in the texture (u, v, width, height), tile id order. */
 export const SIGNAL_TILE_RECTS: ReadonlyArray<readonly [number, number, number, number]> = [
   ...Array.from({ length: 10 }, (_, d) => [(d * DIGIT_W) / W, 0, DIGIT_W / W, 1] as const),
-  ...[0, 1, 2].map((k) => [(10 * DIGIT_W + k * H) / W, 0, H / W, 1] as const),
+  ...[0, 1, 2, 3].map((k) => [(10 * DIGIT_W + k * H) / W, 0, H / W, 1] as const),
 ];
 
 /** A digit's LEDs: 8 columns by 16 rows, its segments two LEDs thick, corners shared. */
@@ -125,25 +125,29 @@ export function signalAtlas(): THREE.CanvasTexture {
     f.lineTo(18, 64);
     f.stroke();
   });
+  // The glow: a ring round a hollow middle the lens fills, so a halo adds light round a lit lens without paling it.
+  const gx = SIGNAL_TILE_RECTS[SIGNAL_TILE.glow]![0] * W + H / 2;
+  const g = ctx.createRadialGradient(gx, H / 2, 0, gx, H / 2, H / 2);
+  g.addColorStop(0, '#000000');
+  g.addColorStop(0.24, '#000000');
+  g.addColorStop(0.32, '#cccccc');
+  g.addColorStop(0.55, '#595959');
+  g.addColorStop(1, '#000000');
+  ctx.fillStyle = g;
+  ctx.fillRect(gx - H / 2, 0, H, H);
   const t = toTexture(c, false, false);
   t.name = 'signal-atlas';
   return t;
 }
 
 /**
- * A signal lens's halo (props.ts SIGNAL_HALO): a ring of glow round a hollow middle the lens fills, so the halo adds
- * light round a lit lens without paling its own colour.
+ * The atlas's glow tile as a texture of its own, for the lenses' halos (props.ts SIGNAL_HALO): the same image, so it
+ * is on the GPU with the atlas from the first frame and lighting up at night uploads nothing.
  */
-export function signalGlowTexture(): THREE.CanvasTexture {
-  const S = 128;
-  const [c, ctx] = canvas(S, S);
-  const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
-  g.addColorStop(0, 'rgba(255,255,255,0)');
-  g.addColorStop(0.24, 'rgba(255,255,255,0)');
-  g.addColorStop(0.32, 'rgba(255,255,255,0.8)');
-  g.addColorStop(0.55, 'rgba(255,255,255,0.35)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, S, S);
-  return toTexture(c, true, false);
+export function signalGlowTexture(atlas: THREE.Texture): THREE.Texture {
+  const t = atlas.clone();
+  const [u, v, w, h] = SIGNAL_TILE_RECTS[SIGNAL_TILE.glow]!;
+  t.offset.set(u, v);
+  t.repeat.set(w, h);
+  return t;
 }

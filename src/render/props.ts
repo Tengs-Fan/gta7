@@ -416,7 +416,7 @@ const LAMP_HALO_Y = LAMP_HEAD.y - 0.08;
 const LAMP_HALO_COLOR = new THREE.Color(0.65, 0.52, 0.33);
 /**
  * A lit signal lens's glow at night: its own additive halo SIGNAL_HALO m across (never under HALO_MIN_PX pixels), as a
- * street lamp's, in the lens's colour at full night (red, yellow, green), but a ring round the lens (signalGlowTexture)
+ * street lamp's, in the lens's colour at full night (red, yellow, green), but a ring round the lens (the atlas's glow tile)
  * so it leaves the lens's own colour saturated, both under the bloom threshold; seen only from in front of the lens,
  * so a cross street's lights glow at their own traffic, not at you.
  */
@@ -1052,7 +1052,8 @@ export class PropsView {
     const place = new Float32Array(count * 4);
     const size = new Float32Array(count * 2);
     const lit = new THREE.InstancedBufferAttribute(new Float32Array(count * 2), 2).setUsage(THREE.DynamicDrawUsage);
-    const mat = new THREE.MeshBasicMaterial({ map: signalAtlas() });
+    const atlas = signalAtlas();
+    const mat = new THREE.MeshBasicMaterial({ map: atlas });
     mat.name = 'signal-lit';
     dissolveOccluder(mat, OCCLUDER_AXIS.signal, this.occUniforms);
     litQuads(mat, this.litColors, this.litDots);
@@ -1103,7 +1104,7 @@ export class PropsView {
     haloGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(halos), 3));
     haloGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(halos.length), 3).setUsage(THREE.DynamicDrawUsage));
     haloGeo.setAttribute('aFacing', new THREE.BufferAttribute(new Float32Array(facing), 3));
-    const glow = new THREE.Points(haloGeo, haloMaterial(signalGlowTexture(), SIGNAL_HALO, true));
+    const glow = new THREE.Points(haloGeo, haloMaterial(signalGlowTexture(atlas), SIGNAL_HALO, true));
     glow.name = 'signalHalos';
     glow.visible = false;
     this.group.add(glow);
