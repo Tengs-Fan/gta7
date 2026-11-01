@@ -299,8 +299,8 @@ export function signalLayout(style: SignalStyle): SignalLayout {
   return SIGNAL_LAYOUTS[style];
 }
 
-/** How far each arm's style reaches over the road (local -x) from the pole. */
-const ARM_REACH: Readonly<Record<'mast' | 'bracket', number>> = { mast: -laneIn(AVENUE_W, 1) + 0.7, bracket: -laneIn(STREET_W, 0) + 0.75 };
+/** How far each arm's style reaches over the road (local -x) from the pole: out past the middle of its farthest lane, to hang its last head from. */
+export const ARM_REACH: Readonly<Record<'mast' | 'bracket', number>> = { mast: -laneIn(AVENUE_W, 0) + 0.7, bracket: -laneIn(STREET_W, 0) + 0.75 };
 
 const POLE = 0x8f959b;
 const HOUSING = 0x1b1c1e;

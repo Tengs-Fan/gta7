@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { chaseOffset, CHASE_TARGET_Y } from '../../src/render/camera';
-import { lensAt, signalGeometry, signalLayout, type SignalStyle } from '../../src/render/furniture';
+import { ARM_REACH, lensAt, signalGeometry, signalLayout, type SignalStyle } from '../../src/render/furniture';
 import { OCCLUDER_AXIS } from '../../src/render/occluderFade';
 import { PropsView, SIGNAL_UPLOAD_RANGES } from '../../src/render/props';
 import { hasOpposite, LIT, quadLit, showKey, showScratch, signalCount, signalQuads, signalShow, signalStyle, walkAxes, walkShow, type QuadRole } from '../../src/render/signalHeads';
@@ -307,6 +307,20 @@ describe('which signals reach over the road', () => {
       expect(g.boundingBox!.max.y, style).toBeLessThanOrEqual(OCCLUDER_AXIS.signal.to);
       expect(g.boundingBox!.max.y, style).toBeGreaterThan(OCCLUDER_AXIS.signal.to - 2);
     }
+  });
+
+  it('an arm reaches out over every head and countdown that hangs from it, with its hangers', () => {
+    for (const style of ['mast', 'bracket'] as const) {
+      const layout = signalLayout(style);
+      const hung = [...layout.heads.filter((h) => h.across), ...layout.counts.filter((c) => c.over)];
+      expect(hung.length, style).toBeGreaterThanOrEqual(2);
+      // The hangers of a head stand 0.4 m either side of its middle.
+      for (const h of hung) expect(-(h.x - ('lens' in h ? 0.4 : 0)), `${style} at ${h.x}`).toBeLessThan(ARM_REACH[style]);
+      // And it does not run on past the farthest lane's head by much.
+      expect(ARM_REACH[style] - Math.max(...hung.map((h) => -h.x)), style).toBeLessThan(1);
+    }
+    // Over an avenue's two lanes, 7.6 m: the head over the lane by the centre line is the farthest.
+    expect(ARM_REACH.mast).toBeCloseTo(7.6, 9);
   });
 
   it('a mast arm or a bracket and its heads stay a few thousand triangles, standing on the ground', () => {
