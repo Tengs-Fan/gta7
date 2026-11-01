@@ -12,7 +12,6 @@ import type { Character, Helicopter, Pickup, Projectile, Vehicle } from './entit
 import type { SimEvents } from './events';
 import type { Interactions } from './interactions';
 import type { MissionSystem } from './missions/runner';
-import type { PlayerController } from './player';
 import type { PlayerCheats, PlayerTag } from './playerSlot';
 import type { Progress } from './progress';
 import type { SpikeStrip } from './roadblocks';
@@ -28,7 +27,6 @@ export interface PlayerView {
   readonly character: Character;
   /** `playerId` for the events about this player; empty for slot 0. */
   readonly tag: PlayerTag;
-  readonly ctl: Pick<PlayerController, 'findEnterable'>;
   readonly wanted: WantedView;
   readonly progress: Progress;
   readonly cheats: PlayerCheats;

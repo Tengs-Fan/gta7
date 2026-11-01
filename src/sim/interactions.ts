@@ -191,7 +191,7 @@ export class Interactions {
     const p = slot.character;
     // The controller ignores every key while control is locked (a ride on AzuraLink, a countdown).
     if (!p.onFoot || slot.down || slot.controlLock > 0) return null;
-    const v = slot.ctl.findEnterable(p, p.state === 'swimming');
+    const v = this.sim.resolveSlot(slot.id)!.ctl.findEnterable(p, p.state === 'swimming');
     if (!v) return null;
     const name = v.spec.name;
     if (v.driver && !(slot.id === 0 && awaitedCab(this.sim) === v)) return `Press F to carjack the ${name}`;
