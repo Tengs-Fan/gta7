@@ -724,6 +724,15 @@ const BLIP_ICONS: Record<string, (ctx: CanvasRenderingContext2D, s: number, colo
   },
 };
 
+/** How far from its centre (px) a blip drawn at `size` reaches: the full map's hover finds it within this. */
+export function blipReach(shape: BlipShape, size: number): number {
+  if (shape === 'player') return size * 0.72;
+  if (shape === 'dot' || shape === 'ring') return size * 0.42;
+  if (shape === 'pip') return size * 0.17;
+  if (shape === 'square') return size * 0.55;
+  return size * 0.62;
+}
+
 export function drawBlip(ctx: CanvasRenderingContext2D, b: Blip, x: number, y: number, size: number): void {
   ctx.save();
   ctx.translate(x, y);

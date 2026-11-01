@@ -8,6 +8,7 @@ import { COMPLETION_GROUP_NAMES, COMPLETION_GROUPS, completionPercent, completio
 import {
   blipKind,
   blipOf,
+  blipReach,
   collectBlips,
   drawBlip,
   drawLegendIcon,
@@ -161,6 +162,32 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     const k = scale();
     return { x: cx + (sx - vw / 2) / k, z: cz + (sy - vh / 2) / k };
   };
+  // The tip that names the icons under the pointer or, once the keys or a pad move the map, under the cross.
+  const tip = h('div', 'map-tip hidden');
+  el.appendChild(tip);
+  let tipKey = '';
+  let aim: 'pointer' | 'cross' = menus.device === 'pad' ? 'cross' : 'pointer';
+  let pointerAt: { x: number; y: number } | null = null;
+  /** This frame's icons and where they are drawn (CSS px), the topmost last. */
+  let drawn: Array<{ b: Blip; x: number; y: number }> = [];
+  const showTip = () => {
+    const at = aim === 'cross' ? { x: vw / 2, y: vh / 2 } : pointerAt;
+    // Within the icon as drawn (at least 6 px for the small ones), topmost first, each kind and place once.
+    const hits = new Map<string, Blip>();
+    if (at) for (const d of [...drawn].reverse()) if (Math.hypot(d.x - at.x, d.y - at.y) <= Math.max(6, blipReach(d.b.shape, MAP_BLIP) + 2)) hits.set(`${d.b.kind}|${d.b.detail ?? ''}`, d.b);
+    const key = [...hits.keys()].join('\n');
+    if (key !== tipKey) {
+      tipKey = key;
+      tip.innerHTML = [...hits.values()].map((b) => `<div><b>${escapeHtml(blipKind(b.kind).name)}</b>${b.detail ? `<span>${escapeHtml(b.detail)}</span>` : ''}</div>`).join('');
+      tip.classList.toggle('hidden', hits.size === 0);
+    }
+    if (!at || hits.size === 0) return;
+    // Below right of the point, flipped to the left or above it near the right or bottom edge.
+    const w = tip.offsetWidth;
+    const th = tip.offsetHeight;
+    tip.style.left = `${at.x + 16 + w > vw ? at.x - 16 - w : at.x + 16}px`;
+    tip.style.top = `${at.y + 16 + th > vh ? at.y - 16 - th : at.y + 16}px`;
+  };
   const draw = (time: number) => {
     vw = Math.max(1, el.clientWidth || window.innerWidth);
     vh = Math.max(1, el.clientHeight || window.innerHeight);
@@ -239,7 +266,9 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     // The legend lists the hidden categories' icons too.
     buildLegend(blips);
     const s = menus.host.settings();
-    for (const b of blips) if (!b.category || s.mapLayers[b.category] !== false) drawBlip(ctx, b, vw / 2 + (b.x - cx) * k, vh / 2 + (b.z - cz) * k, MAP_BLIP);
+    drawn = blips.filter((b) => !b.category || s.mapLayers[b.category] !== false).map((b) => ({ b, x: vw / 2 + (b.x - cx) * k, y: vh / 2 + (b.z - cz) * k }));
+    for (const d of drawn) drawBlip(ctx, d.b, d.x, d.y, MAP_BLIP);
+    showTip();
   };
   /** Sets a waypoint at a point of the world, or clears the one within 16 px of it on the map. */
   const toggleWaypointAt = (w: { x: number; z: number }) => {
@@ -264,6 +293,9 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     ly = e.clientY;
   });
   canvas.addEventListener('pointermove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    pointerAt = { x: e.clientX - r.left, y: e.clientY - r.top };
+    aim = 'pointer';
     if (!dragging) return;
     if ((e.buttons & 1) === 0) {
       dragging = false; // the release happened where we couldn't see it
@@ -279,6 +311,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   const endDrag = () => {
     dragging = false;
   };
+  canvas.addEventListener('pointerleave', () => (pointerAt = null));
   canvas.addEventListener('pointercancel', endDrag);
   canvas.addEventListener('lostpointercapture', endDrag);
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -328,6 +361,8 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
       const speed = (0.8 * Math.min(vw, vh)) / k;
       if (freeX) cx += (ui.panX ?? 0) * speed * dt;
       if (freeY) cz += (ui.panY ?? 0) * speed * dt;
+      // Moved by the keys or a pad, the tip names what is under the cross.
+      if (ui.confirm || ui.zoomIn || ui.zoomOut || ui.up || ui.down || ui.left || ui.right || (freeX && ui.panX) || (freeY && ui.panY)) aim = 'cross';
     },
     tick: (dt, ui) => {
       if (!ui.panX) freeX = true;

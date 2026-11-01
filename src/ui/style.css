@@ -2394,6 +2394,33 @@ body {
   right: -12px;
 }
 
+/* What the icons under the pointer or the cross are. */
+.map-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 5px 10px;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.map-tip div + div {
+  margin-top: 4px;
+}
+
+.map-tip span {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .map-checklist {
   position: absolute;
   left: 26px;
