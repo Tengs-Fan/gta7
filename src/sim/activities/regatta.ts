@@ -192,7 +192,7 @@ function finish(host: ActivityHost, j: RegattaJob): void {
 export const regattaActivity: ActivityDef<RegattaJob> = {
   kind: 'regatta',
   toggleEndText: 'Regatta abandoned. Press T at the Marina to try again.',
-  site: { label: 'B', name: 'Regatta', at: () => REGATTA_START },
+  site: { label: 'sail', name: 'Gull Regatta', best: 'regattaBest', at: () => REGATTA_START },
   completion: (_view, me) => ({ label: 'Gull Regatta medal', done: activityRecords(me.progress).regattaBest > 0 ? 1 : 0, total: 1 }),
 
   canStart: (host, slot, vehicle) => !!vehicle && vehicle.spec.class === 'boat' && vehicle.driver === slot && nearMarina(host, vehicle),

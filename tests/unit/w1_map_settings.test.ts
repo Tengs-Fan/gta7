@@ -10,7 +10,7 @@ import { registerContactMissions, unregisterContactMissions } from '../../src/si
 import type { MissionDef } from '../../src/sim/missions/runner';
 import { PACKAGE_COUNT } from '../../src/sim/pickups';
 import { formatKeys } from '../../src/ui/glyphs';
-import { collectBlips, MAP_CATEGORIES } from '../../src/ui/mapRender';
+import { blipKind, collectBlips, legendRows, MAP_CATEGORIES } from '../../src/ui/mapRender';
 import { makeSim } from './helpers';
 
 function ev(type: string, props: Record<string, unknown> = {}): Event {
@@ -202,13 +202,13 @@ describe('map legend', () => {
 
   it("files the garage and Pier Arcade under properties and Azura Customs under shops, by the economy's marker kinds", () => {
     const sim = makeSim({ ambient: false });
-    const icons = (hidden: string[]) => collectBlips(sim, 0, 0, { map: true, hidden: new Set(hidden) }).map((b) => `${b.category ?? '-'}:${b.label}`);
+    const icons = (hidden: string[]) => collectBlips(sim, 0, 0, { map: true, hidden: new Set(hidden) }).map((b) => `${b.category ?? '-'}:${b.kind}`);
     const all = icons([]);
-    expect(all).toEqual(expect.arrayContaining(['properties:G', 'properties:$', 'shops:C']));
-    expect(icons(['properties'])).not.toEqual(expect.arrayContaining(['properties:G']));
-    expect(icons(['shops'])).not.toContain('shops:C');
-    const props = MAP_CATEGORIES.find((c) => c.id === 'properties')!;
-    expect(props.swatches.map((w) => w.label ?? '')).toEqual(['G', '$', '']);
+    expect(all).toEqual(expect.arrayContaining(['properties:garage', 'properties:business', 'shops:customs']));
+    expect(icons(['properties'])).not.toEqual(expect.arrayContaining(['properties:garage']));
+    expect(icons(['shops'])).not.toContain('shops:customs');
+    const props = legendRows(collectBlips(sim, 0, 0, { map: true }), []).find((r) => r.category?.id === 'properties')!;
+    expect(props.kinds.map((k) => blipKind(k).name)).toEqual(['Safehouse garage (for sale)', 'Pier Arcade (for sale)']);
   });
 });
 

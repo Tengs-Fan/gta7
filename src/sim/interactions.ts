@@ -30,8 +30,8 @@ export interface Marker {
   color: number;
   /** Mission markers carry the mission id. */
   ref: string;
-  /** A radar and map icon for the place (properties), or none. */
-  blip?: { color: string; label: string };
+  /** The kind of the place's radar and map icon (BLIP_KINDS in ui/mapRender.ts), or none. */
+  blip?: string;
 }
 
 /** AzuraLink's teal. */
@@ -39,12 +39,8 @@ export const MONORAIL_COLOR = 0x0aa5ad;
 
 /** The marker at the foot of AzuraLink station `i`'s stairs, saying `label` (a multiplayer client's says why not). */
 export function monorailMarker(at: { x: number; z: number }, i: number, label: string): Marker {
-  return { id: `monorail_${i}`, kind: 'monorail', x: at.x, z: at.z, radius: 1.5, label, color: MONORAIL_COLOR, ref: String(i), blip: { color: '#0aa5ad', label: 'M' } };
+  return { id: `monorail_${i}`, kind: 'monorail', x: at.x, z: at.z, radius: 1.5, label, color: MONORAIL_COLOR, ref: String(i), blip: 'monorail' };
 }
-
-/** Property icons: grey while for sale, green once owned. */
-export const FOR_SALE = '#9aa3ad';
-export const OWNED = '#3fd96b';
 
 export interface ShopItem {
   id: string;
@@ -99,11 +95,11 @@ export class Interactions {
     const at = places(sim.world);
     this.markers.push({ id: 'export_board', kind: 'exportBoard', x: at.exportBoard.x, z: at.exportBoard.z, radius: 1.5, label: "Press E to take Lou's export list", color: 0xffa020, ref: 'carExport' });
     // On the sidewalk by the courier office's stop, which a car or bike pulls up at (Activities' job prompt).
-    this.markers.push({ id: 'garage', kind: 'garage', x: at.garageMarker.x, z: at.garageMarker.z, radius: 1.5, label: '', color: 0x3fd96b, ref: 'garage', blip: { color: FOR_SALE, label: 'G' } });
-    this.markers.push({ id: 'pier_arcade', kind: 'business', x: at.arcade.x, z: at.arcade.z, radius: 1.5, label: '', color: 0x3fd96b, ref: 'business', blip: { color: FOR_SALE, label: '$' } });
+    this.markers.push({ id: 'garage', kind: 'garage', x: at.garageMarker.x, z: at.garageMarker.z, radius: 1.5, label: '', color: 0x3fd96b, ref: 'garage', blip: 'garage' });
+    this.markers.push({ id: 'pier_arcade', kind: 'business', x: at.arcade.x, z: at.arcade.z, radius: 1.5, label: '', color: 0x3fd96b, ref: 'business', blip: 'business' });
     // The drive-in bay: a beam over it, never a prompt on foot (radius 0).
     const bay = at.customsBay;
-    this.markers.push({ id: 'azura_customs', kind: 'customs', x: (bay.minX + bay.maxX) / 2, z: (bay.minZ + bay.maxZ) / 2, radius: 0, label: '', color: 0xb36bff, ref: 'customs', blip: { color: '#b36bff', label: 'C' } });
+    this.markers.push({ id: 'azura_customs', kind: 'customs', x: (bay.minX + bay.maxX) / 2, z: (bay.minZ + bay.maxZ) / 2, radius: 0, label: '', color: 0xb36bff, ref: 'customs', blip: 'customs' });
     this.markers.push({ id: 'courier_office', kind: 'courier', x: at.courier.x + 3.6, z: at.courier.z, radius: 1.5, label: 'Azura Express: stop a car or bike here and press T for a courier run', color: 0xffd23d, ref: 'courier' });
     // In front of each of Eternal Palms Cemetery's twelve epitaph stones.
     this.markers.push(...epitaphMarkers(sim.world));
@@ -349,8 +345,9 @@ export class Interactions {
     for (const slot of this.sim.players) this.updateSpray(slot);
     const s = propertyState(this.sim.progress);
     for (const m of this.markers) {
-      if (m.kind === 'garage' && m.blip) m.blip.color = s.garage ? OWNED : FOR_SALE;
-      if (m.kind === 'business' && m.blip) m.blip.color = s.business ? OWNED : FOR_SALE;
+      // The properties' icons turn from for sale to owned.
+      if (m.kind === 'garage') m.blip = s.garage ? 'garageOwned' : 'garage';
+      if (m.kind === 'business') m.blip = s.business ? 'businessOwned' : 'business';
     }
   }
 

@@ -538,7 +538,7 @@ describe('radar blips for other players', () => {
     for (const s of b.peer.of('snapshot')) m.applySnapshot(s, 0);
     const blips = otherPlayerBlips(m, 2);
     const A = slotOf(r, a).character;
-    expect(blips).toEqual([{ x: expect.closeTo(A.pos.x, 1), z: expect.closeTo(A.pos.z, 1), color: '#' + playerColor(a.m.slot!).toString(16).padStart(6, '0'), label: 'A', sticky: true, shape: 'player' }]);
+    expect(blips).toEqual([{ x: expect.closeTo(A.pos.x, 1), z: expect.closeTo(A.pos.z, 1), color: '#' + playerColor(a.m.slot!).toString(16).padStart(6, '0'), label: 'A', sticky: true, shape: 'player', kind: 'player', detail: 'Ann' }]);
     expect(otherPlayerBlips(m, 1).map((x) => x.label)).toEqual(['B']);
     expect(collectBlips(m, 0, 2).filter((x) => x.shape === 'player')).toHaveLength(1);
     const sp = new Sim({ world: world(), ambient: false, police: false });

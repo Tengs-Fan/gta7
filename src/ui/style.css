@@ -1398,7 +1398,7 @@ body {
   background: #08111a;
 }
 
-.map-screen canvas {
+.map-screen > canvas {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -1434,16 +1434,6 @@ body {
   font-size: 17px;
   font-weight: 600;
   line-height: 1.6;
-}
-
-.map-legend i {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  margin-right: 8px;
-  vertical-align: -1px;
-  border: 1px solid #000;
 }
 
 .map-title {
@@ -2296,10 +2286,12 @@ body {
   color: var(--muted) !important;
 }
 
-/* Map screen legend toggles and completion checklist (screens/map.ts). */
+/* Map screen legend and completion checklist (screens/map.ts). */
 .map-legend {
-  max-height: calc(100% - 120px);
-  overflow: auto;
+  /* Clear of the hint along the bottom; the rows scroll inside it where they do not fit (720p). */
+  max-height: calc(100% - 104px);
+  overflow-x: hidden;
+  overflow-y: auto;
   line-height: 1.35;
   padding: 10px 12px;
   width: 300px;
@@ -2315,30 +2307,66 @@ body {
   margin-bottom: 4px;
 }
 
-.legend-row {
+/* A category's header: its number key, its name and ON / OFF; a click switches it. */
+.legend-cat {
   display: flex;
   align-items: center;
   gap: 3px;
+  margin-top: 5px;
   padding: 2px 4px;
   border-radius: 3px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--accent2);
   cursor: pointer;
 }
 
-.legend-row.fixed {
+.legend-cat.fixed {
   cursor: default;
 }
 
-.legend-row.sel {
-  outline: 2px solid var(--accent);
+/* An icon as the map draws it and its name. */
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: 3px;
 }
 
+.legend-row canvas {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 28px;
+  margin: -2px 0;
+}
+
+.legend-cat:hover,
+.legend-row:hover,
+.legend-cat.sel,
+.legend-row.sel {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.legend-cat.sel,
+.legend-row.sel {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.legend-cat.off,
 .legend-row.off {
   opacity: 0.45;
 }
 
-.legend-row .legend-name {
+.legend-name {
   flex: 1 1 auto;
-  margin-left: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .legend-key {
@@ -2353,27 +2381,17 @@ body {
   color: var(--accent2);
 }
 
-.legend-row.off .legend-state {
+.legend-cat.off .legend-state {
   color: var(--muted);
 }
 
-.map-legend i {
-  margin-right: 0;
-  width: 14px;
-  height: 14px;
-  font-style: normal;
-  font-size: 10px;
-  line-height: 14px;
-  text-align: center;
-  color: #fff;
-  flex: 0 0 auto;
+.map-legend .scroll-cue {
+  bottom: -10px;
 }
 
-.map-legend i.hollow {
-  background: transparent;
-  border: 2px solid;
-  width: 10px;
-  height: 10px;
+.map-legend .scroll-cue::before {
+  left: -12px;
+  right: -12px;
 }
 
 .map-checklist {

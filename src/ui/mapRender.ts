@@ -1,14 +1,17 @@
 // Top-down map image (pre-rendered once) plus blip drawing, shared by the
 // radar and the full-screen map.
 
+import { formatMoney } from '../core/math';
 import { activityKinds, getActivity, type Objective } from '../sim/activities';
 import { REGATTA_GATE_R, REGATTA_GATES, REGATTA_START } from '../sim/activities/regatta';
 import { GANGS, turfZones } from '../sim/gangs';
-import { FOR_SALE, OWNED } from '../sim/interactions';
-import { CONTACTS, contactById, contactUnlocked } from '../sim/missions/contacts';
+import type { Marker } from '../sim/interactions';
+import { CONTACTS, contactById, findContact } from '../sim/missions/contacts';
 import { playerOf, type ViewState } from '../sim/viewState';
 import { playerColor } from '../sim/appearance';
 import { packageIndex } from '../sim/pickups';
+import { BUSINESS_DAILY, BUSINESS_NAME, BUSINESS_PRICE, GARAGE_PRICE, GARAGE_SLOTS } from '../sim/properties';
+import { statRows } from '../sim/statRows';
 import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
 import { FIRE_ROAD_W, fireRoadLine } from '../world/country/hills';
@@ -220,50 +223,131 @@ function drawTurf(ctx: CanvasRenderingContext2D, world: StaticWorld, X: (x: numb
   ctx.restore();
 }
 
+/**
+ * 'pip': a small dot (officers on foot); 'ring': a hollow circle (a collectible already found); 'player': another player;
+ * 'arrow': you; 'zone' and 'area': gang turf and the police search area, drawn as areas on the map and so only in the legend.
+ */
+export type BlipShape = 'circle' | 'square' | 'dot' | 'pip' | 'ring' | 'player' | 'arrow' | 'zone' | 'area';
+
 export interface Blip {
   x: number;
   z: number;
+  /** Its kind (blipKind), which the legend and a hover name. */
+  kind: string;
   color: string;
   label: string;
   /** Keep on the radar rim when out of range. */
   sticky: boolean;
-  /** 'pip': a small dot (officers on foot); 'ring': a hollow circle (a collectible already found); 'player': another player. */
-  shape: 'circle' | 'square' | 'dot' | 'pip' | 'ring' | 'player';
+  shape: BlipShape;
   /** The map legend category that can hide it (see MAP_CATEGORIES); absent: always shown. */
   category?: string;
-}
-
-/** A map legend category the player can switch off and on. */
-export interface MapCategory {
-  id: string;
-  label: string;
-  /** Swatches drawn in its legend row: colour and the blip's letter. */
-  swatches: Array<{ color: string; label?: string; hollow?: boolean }>;
-  /** The swatches the legend shows for this player, where they depend on progress; absent: `swatches`. */
-  legendSwatches?(sim: ViewState, localPlayerId: number): Array<{ color: string; label?: string; hollow?: boolean }>;
-  /** More blips of its own (collectibles, turf); POIs come in through MAP_POIS. */
-  blips?(sim: ViewState, localPlayerId: number): Blip[];
+  /** What a hover on the full map says after its kind's name: the place's own name, a price, the job on offer. */
+  detail?: string;
+  /** An arrow's heading on the screen, clockwise from up (radians). */
+  angle?: number;
 }
 
 /**
- * Each POI kind's blip and the category it belongs to, for the layout's POIs and for interaction markers that carry
- * a blip (their marker kind). Systems that add POI kinds register theirs (registerMapPoi).
+ * A kind of icon on the map and the radar: how it is drawn and what its legend row and a hover call it. Every blip has
+ * one, so nothing appears on the map that the legend cannot name, and no two kinds look alike (unit-tested).
  */
-const MAP_POIS: Record<string, { color: string; label: string; category: string; name: string }> = {
-  safehouse: { color: '#4aa8ff', label: 'H', category: 'places', name: 'Safehouse (save)' },
-  hospital: { color: '#ff4a4a', label: '+', category: 'places', name: 'Hospital' },
-  police: { color: '#3a6bff', label: 'P', category: 'places', name: 'Police station' },
-  spray: { color: '#3fd96b', label: 'S', category: 'shops', name: 'Spray Shack' },
-  gunshop: { color: '#ff8a1f', label: 'G', category: 'shops', name: 'Gun shop' },
-  // Interaction markers (sim/interactions.ts): the properties' blips turn from grey to green once owned.
-  customs: { color: '#b36bff', label: 'C', category: 'shops', name: 'Azura Customs' },
-  garage: { color: FOR_SALE, label: 'G', category: 'properties', name: 'Safehouse garage' },
-  business: { color: FOR_SALE, label: '$', category: 'properties', name: 'Pier Arcade' },
-  monorail: { color: '#0aa5ad', label: 'M', category: 'places', name: 'AzuraLink station' },
+export interface BlipKind {
+  name: string;
+  color: string;
+  /** A letter, or one of BLIP_ICONS' names, drawn on it; '' for none. */
+  label: string;
+  shape: BlipShape;
+  /** The legend category that can hide it (MAP_CATEGORIES); absent: a live marker, always shown. */
+  category?: string;
+}
+
+/** Property icons: grey while for sale, green once owned. */
+const FOR_SALE = '#9aa3ad';
+const OWNED = '#3fd96b';
+
+/**
+ * The kinds with an icon of their own: the layout's POIs by their kind (the bank, the Marina and the contacts' places
+ * have none), interaction markers' icons (Marker.blip), the collectibles and the live markers. Contacts, activity sites
+ * and gang turf are kinds through their own tables (blipKind). Systems that add more register theirs (registerBlipKind).
+ */
+const KINDS: Record<string, BlipKind> = {
+  safehouse: { name: 'Safehouse (save)', color: '#4aa8ff', label: 'house', shape: 'circle', category: 'places' },
+  hospital: { name: 'Hospital', color: '#ff4a4a', label: '+', shape: 'circle', category: 'places' },
+  police: { name: 'Police station', color: '#3a6bff', label: 'P', shape: 'circle', category: 'places' },
+  monorail: { name: 'AzuraLink station', color: '#0aa5ad', label: 'M', shape: 'circle', category: 'places' },
+  gunshop: { name: 'Gun shop', color: '#ff8a1f', label: 'G', shape: 'circle', category: 'shops' },
+  spray: { name: 'Spray Shack', color: '#3fd96b', label: 'S', shape: 'circle', category: 'shops' },
+  customs: { name: 'Azura Customs', color: '#b36bff', label: 'wrench', shape: 'circle', category: 'shops' },
+  garage: { name: 'Safehouse garage (for sale)', color: FOR_SALE, label: 'garage', shape: 'circle', category: 'properties' },
+  garageOwned: { name: 'Safehouse garage (owned)', color: OWNED, label: 'garage', shape: 'circle', category: 'properties' },
+  business: { name: `${BUSINESS_NAME} (for sale)`, color: FOR_SALE, label: '$', shape: 'circle', category: 'properties' },
+  businessOwned: { name: `${BUSINESS_NAME} (owned)`, color: OWNED, label: '$', shape: 'circle', category: 'properties' },
+  package: { name: 'Hidden package', color: PACKAGE_COLOR, label: 'parcel', shape: 'square', category: 'collectibles' },
+  packageFound: { name: 'Hidden package (found)', color: PACKAGE_COLOR, label: '', shape: 'ring', category: 'collectibles' },
+  rampage: { name: 'Rampage', color: RAMPAGE_COLOR, label: 'R', shape: 'circle', category: 'collectibles' },
+  rampageDone: { name: 'Rampage (done)', color: RAMPAGE_COLOR, label: '', shape: 'ring', category: 'collectibles' },
+  you: { name: 'You', color: '#ffffff', label: '', shape: 'arrow' },
+  waypoint: { name: 'Waypoint', color: '#c04fff', label: 'W', shape: 'circle' },
+  // Objectives come in their own colours; the legend shows the commonest.
+  objective: { name: 'Objective', color: '#ffd23d', label: '', shape: 'circle' },
+  target: { name: 'Objective (person or vehicle)', color: '#ffd23d', label: '', shape: 'square' },
+  fare: { name: 'Hailing your taxi', color: '#3dd9ff', label: '', shape: 'pip' },
+  player: { name: 'Another player', color: '#ffffff', label: '', shape: 'player' },
+  // The police flash red and blue.
+  policeUnit: { name: 'Police unit', color: '#ff3030', label: '', shape: 'dot' },
+  officer: { name: 'Police officer on foot', color: '#ff3030', label: '', shape: 'pip' },
+  heli: { name: 'Police helicopter', color: '#3060ff', label: '', shape: 'square' },
+  searchArea: { name: 'Police search area', color: '#ff3030', label: '', shape: 'area' },
 };
 
-export function registerMapPoi(kind: string, def: { color: string; label: string; category: string; name: string }): void {
-  MAP_POIS[kind] = def;
+export function registerBlipKind(id: string, kind: BlipKind): void {
+  KINDS[id] = kind;
+}
+
+// Not the objective yellow: the legend's fixed rows already use that for mission and job markers.
+const ACTIVITY_COLOR = '#00e5ff';
+
+/** Kind `id`'s look and name: KINDS', a contact's ('contact:lou'), an activity site's ('activity:regatta') or a gang's turf ('turf:halcones'). */
+export function blipKind(id: string): BlipKind {
+  const [table, key = ''] = id.split(':');
+  const c = table === 'contact' ? findContact(key) : undefined;
+  const site = table === 'activity' ? getActivity(key)?.site : undefined;
+  const gang = table === 'turf' ? GANGS[key as keyof typeof GANGS] : undefined;
+  const k = c
+    ? { name: `${c.name} (missions)`, color: c.color, label: c.mapLabel, shape: 'circle' as const, category: 'missions' }
+    : site
+      ? { name: site.name, color: ACTIVITY_COLOR, label: site.label, shape: 'circle' as const, category: 'activities' }
+      : gang
+        ? { name: `${gang.name} turf`, color: gang.mapColor, label: '', shape: 'zone' as const, category: 'turf' }
+        : KINDS[id];
+  if (!k) throw new Error(`Unknown blip kind "${id}"`);
+  return k;
+}
+
+/** Every kind, in the legend's order. */
+export function blipKindIds(): string[] {
+  return [
+    ...CONTACTS.map((c) => `contact:${c.id}`),
+    ...Object.keys(KINDS),
+    ...Object.keys(GANGS).map((g) => `turf:${g}`),
+    ...activityKinds().filter((k) => getActivity(k)?.site).map((k) => `activity:${k}`),
+  ];
+}
+
+/** A blip of kind `kind` at (x, z), as the kind draws it unless `over` says otherwise (the police's flash, a player's colour). */
+export function blipOf(kind: string, x: number, z: number, over: Partial<Blip> = {}): Blip {
+  const k = blipKind(kind);
+  return { x, z, kind, color: k.color, label: k.label, shape: k.shape, category: k.category, sticky: false, ...over };
+}
+
+/** A map legend category the player can switch off and on: its header and its icons' rows. */
+export interface MapCategory {
+  id: string;
+  label: string;
+  /** More blips of its own (collectibles, activity sites); POIs and markers come in by their kinds. */
+  blips?(sim: ViewState, localPlayerId: number): Blip[];
+  /** Kinds it draws as areas rather than blips (turf): the legend lists them whenever it lists the category. */
+  areas?(): string[];
 }
 
 /** The legend's categories in order. Systems add theirs (turf) with registerMapCategory. */
@@ -281,70 +365,63 @@ export function unregisterMapCategory(id: string): boolean {
   return true;
 }
 
-const LOCKED_CONTACT = '#8a8f98';
-const poiSwatches = (category: string) => Object.values(MAP_POIS).filter((p) => p.category === category).map((p) => ({ color: p.color, label: p.label }));
-
-registerMapCategory({ id: 'missions', label: 'Missions (contacts)', get swatches() {
-  return CONTACTS.map((c) => ({ color: c.color, label: c.mapLabel }));
-}, legendSwatches(sim, localPlayerId) {
-  const progress = playerOf(sim, localPlayerId).progress;
-  const open = CONTACTS.filter((c) => contactUnlocked(sim.missions.defs, progress, c.id));
-  const swatches = open.map((c) => ({ color: c.color, label: c.mapLabel }));
-  // A locked contact stays anonymous: neutral grey and no letter.
-  return open.length < CONTACTS.length ? [...swatches, { color: LOCKED_CONTACT, label: '?' }] : swatches;
-} });
-registerMapCategory({ id: 'shops', label: 'Shops (guns, Spray Shack, Azura Customs)', get swatches() {
-  return poiSwatches('shops');
-} });
-registerMapCategory({ id: 'places', label: 'Safehouse, hospital, police, AzuraLink', get swatches() {
-  return poiSwatches('places');
-} });
-registerMapCategory({ id: 'properties', label: 'Properties (grey: for sale, green: owned)', get swatches() {
-  return [...poiSwatches('properties'), { color: OWNED }];
-} });
-registerMapCategory({ id: 'turf', label: 'Gang turf', get swatches() {
-  return Object.values(GANGS).map((g) => ({ color: g.mapColor }));
-} });
+registerMapCategory({ id: 'missions', label: 'Missions' });
+registerMapCategory({ id: 'shops', label: 'Shops' });
+registerMapCategory({ id: 'places', label: 'Places' });
+registerMapCategory({ id: 'properties', label: 'Properties' });
+registerMapCategory({ id: 'turf', label: 'Gang turf', areas: () => Object.keys(GANGS).map((g) => `turf:${g}`) });
 registerMapCategory({
   id: 'collectibles',
-  label: 'Packages, rampages (hollow: found)',
-  swatches: [{ color: PACKAGE_COLOR }, { color: RAMPAGE_COLOR, label: 'R' }, { color: PACKAGE_COLOR, hollow: true }],
+  label: 'Collectibles',
   blips: (sim, localPlayerId) => {
     const prog = playerOf(sim, localPlayerId).progress;
     const out: Blip[] = [];
     for (const p of sim.pickups) {
       if (p.removed) continue;
-      if (p.kind === 'package') {
-        const found = prog.packages.includes(packageIndex(p.tag));
-        out.push({ x: p.pos.x, z: p.pos.z, color: PACKAGE_COLOR, label: '', sticky: false, shape: found ? 'ring' : 'square', category: 'collectibles' });
-      } else if (p.kind === 'rampage') {
-        const found = prog.rampages.includes(p.tag);
-        out.push({ x: p.pos.x, z: p.pos.z, color: RAMPAGE_COLOR, label: found ? '' : 'R', sticky: false, shape: found ? 'ring' : 'circle', category: 'collectibles' });
-      }
+      if (p.kind === 'package') out.push(blipOf(prog.packages.includes(packageIndex(p.tag)) ? 'packageFound' : 'package', p.pos.x, p.pos.z));
+      else if (p.kind === 'rampage') out.push(blipOf(prog.rampages.includes(p.tag) ? 'rampageDone' : 'rampage', p.pos.x, p.pos.z));
     }
     return out;
   },
 });
-
-// Not the objective yellow: the legend's fixed rows already use that for mission and job markers.
-const ACTIVITY_COLOR = '#00e5ff';
-const activitySites = () => activityKinds().flatMap((k) => {
-  const site = getActivity(k)?.site;
-  return site ? [site] : [];
-});
 registerMapCategory({
   id: 'activities',
-  get label() {
-    return `Activities (${activitySites().map((s) => s.name.toLowerCase()).join(', ')})`;
+  label: 'Activities',
+  blips: (sim, localPlayerId) => {
+    const me = playerOf(sim, localPlayerId);
+    return activityKinds().flatMap((kind) => {
+      const def = getActivity(kind)!;
+      if (!def.site) return [];
+      // What the player has done of it, as the checklist counts it, and his best time.
+      const row = def.completion?.(sim, me);
+      const best = def.site.best ? statRows().find((r) => r.id === def.site!.best)?.value({ sim, player: me }) : undefined;
+      const detail = [row ? `${row.label}: ${row.done} / ${row.total}` : '', best && best !== '-' ? `best ${best}` : ''].filter(Boolean).join(' · ');
+      const at = def.site.at(sim.world);
+      return [blipOf(`activity:${kind}`, at.x, at.z, { detail: detail || undefined })];
+    });
   },
-  get swatches() {
-    return activitySites().map((s) => ({ color: ACTIVITY_COLOR, label: s.label }));
-  },
-  blips: (sim) => activitySites().map((s) => {
-    const at = s.at(sim.world);
-    return { x: at.x, z: at.z, color: ACTIVITY_COLOR, label: s.label, sticky: false, shape: 'circle', category: 'activities' };
-  }),
 });
+
+/**
+ * The legend's rows: under each category, the kinds among `blips` (the map's, its hidden categories' included) and its
+ * areas; then the live markers among them and `live` (those always listed); each in blipKindIds order.
+ */
+export function legendRows(blips: readonly Blip[], live: readonly string[]): Array<{ category: MapCategory | null; kinds: string[] }> {
+  const shown = new Set([...blips.map((b) => b.kind), ...live, ...MAP_CATEGORIES.flatMap((c) => c.areas?.() ?? [])]);
+  const ids = blipKindIds().filter((id) => shown.has(id));
+  return [
+    ...MAP_CATEGORIES.map((c) => ({ category: c, kinds: ids.filter((id) => blipKind(id).category === c.id) })),
+    { category: null, kinds: ids.filter((id) => !blipKind(id).category) },
+  ];
+}
+
+/** What a hover on an interaction marker's icon says after its name. */
+function markerDetail(sim: ViewState, m: Marker): string | undefined {
+  if (m.blip === 'garage') return `${formatMoney(GARAGE_PRICE)} · stores ${GARAGE_SLOTS} cars`;
+  if (m.blip === 'business') return `${formatMoney(BUSINESS_PRICE)} · pays ${formatMoney(BUSINESS_DAILY)} a day`;
+  if (m.kind === 'monorail') return `${sim.world.layout.monorail.stations[Number(m.ref)]!.name} station`;
+  return undefined;
+}
 
 export interface BlipOptions {
   /** The full-screen map: collectibles and the categories' own blips too. */
@@ -355,19 +432,21 @@ export interface BlipOptions {
 
 export function collectBlips(sim: ViewState, time: number, localPlayerId = 0, opts: BlipOptions = {}): Blip[] {
   const out: Blip[] = [];
+  // Under the places and the contacts' offers, so that a package or a job beside one never hides it (a package on Azura
+  // Customs, Lou's export board).
+  if (opts.map) for (const c of MAP_CATEGORIES) if (c.blips) out.push(...c.blips(sim, localPlayerId));
   for (const p of sim.world.layout.pois) {
-    const b = MAP_POIS[p.kind];
-    if (b) out.push({ x: p.x, z: p.z, color: b.color, label: b.label, sticky: false, shape: 'circle', category: b.category });
+    // A POI kind with an icon is a kind of its own (KINDS); the hover names the place.
+    if (!(p.kind in KINDS)) continue;
+    out.push(blipOf(p.kind, p.x, p.z, { detail: blipKind(p.kind).name.startsWith(p.name) ? undefined : p.name }));
   }
-  // Places a marker carries an icon for (the properties and Azura Customs).
-  for (const m of sim.interactions.markers) if (m.blip) out.push({ x: m.x, z: m.z, color: m.blip.color, label: m.blip.label, sticky: false, shape: 'circle', category: MAP_POIS[m.kind]?.category });
-  // Before the contacts' offers, so that one is never hidden under an icon beside it (Lou's export board).
-  if (opts.map) for (const c of MAP_CATEGORIES) if (c.blips) out.push(...c.blips(sim, localPlayerId).map((b) => ({ ...b, category: b.category ?? c.id })));
+  // Places a marker carries an icon for (the properties, Azura Customs, AzuraLink).
+  for (const m of sim.interactions.markers) if (m.blip) out.push(blipOf(m.blip, m.x, m.z, { detail: markerDetail(sim, m) }));
   if (!sim.missions.active) {
     for (const d of sim.missions.offers()) {
       const contact = contactById(d.giver);
       const poi = sim.world.layout.pois.find((q) => q.id === contact.poiId)!;
-      out.push({ x: poi.x, z: poi.z, color: contact.color, label: contact.mapLabel, sticky: true, shape: 'circle', category: 'missions' });
+      out.push(blipOf(`contact:${contact.id}`, poi.x, poi.z, { sticky: true, detail: `Mission: ${d.title}` }));
     }
   }
   const objectives: Objective[] = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
@@ -375,20 +454,20 @@ export function collectBlips(sim: ViewState, time: number, localPlayerId = 0, op
     const t = o.vehicle ?? o.character;
     const x = t ? t.pos.x : o.x;
     const z = t ? t.pos.z : o.z;
-    out.push({ x, z, color: '#' + o.color.toString(16).padStart(6, '0'), label: '', sticky: true, shape: t ? 'square' : 'circle' });
+    out.push(blipOf(t ? 'target' : 'objective', x, z, { color: '#' + o.color.toString(16).padStart(6, '0'), sticky: true, detail: o.label || undefined }));
   }
   // Pedestrians waving down the taxi you drive, small.
   const me = playerOf(sim, localPlayerId).character;
   if (me.vehicle?.kind === 'taxi' && me.vehicle.driver === me) {
-    for (const c of sim.characters) if (c.hailTimer > 0 && c.owner === 'ped' && c.alive && !c.removed) out.push({ x: c.pos.x, z: c.pos.z, color: '#3dd9ff', label: '', sticky: false, shape: 'pip' });
+    for (const c of sim.characters) if (c.hailTimer > 0 && c.owner === 'ped' && c.alive && !c.removed) out.push(blipOf('fare', c.pos.x, c.pos.z));
   }
   out.push(...otherPlayerBlips(sim, localPlayerId));
   if (playerOf(sim, localPlayerId).wanted.level > 0) {
     const blink = Math.floor(time * 4) % 2 === 0;
-    for (const v of sim.vehicles) if (v.owner === 'police' && !v.removed && !v.destroyed) out.push({ x: v.pos.x, z: v.pos.z, color: blink ? '#ff3030' : '#3060ff', label: '', sticky: false, shape: 'dot' });
+    for (const v of sim.vehicles) if (v.owner === 'police' && !v.removed && !v.destroyed) out.push(blipOf('policeUnit', v.pos.x, v.pos.z, { color: blink ? '#ff3030' : '#3060ff' }));
     // Every officer on foot too, smaller.
-    for (const c of sim.characters) if (c.isLaw && c.alive && !c.removed && c.state !== 'inVehicle') out.push({ x: c.pos.x, z: c.pos.z, color: blink ? '#ff3030' : '#3060ff', label: '', sticky: false, shape: 'pip' });
-    for (const h of sim.helis) if (!h.removed) out.push({ x: h.pos.x, z: h.pos.z, color: blink ? '#3060ff' : '#ff3030', label: '', sticky: false, shape: 'square' });
+    for (const c of sim.characters) if (c.isLaw && c.alive && !c.removed && c.state !== 'inVehicle') out.push(blipOf('officer', c.pos.x, c.pos.z, { color: blink ? '#ff3030' : '#3060ff' }));
+    for (const h of sim.helis) if (!h.removed) out.push(blipOf('heli', h.pos.x, h.pos.z, { color: blink ? '#3060ff' : '#ff3030' }));
   }
   const hidden = opts.hidden;
   return hidden && hidden.size > 0 ? out.filter((b) => !b.category || !hidden.has(b.category)) : out;
@@ -406,7 +485,7 @@ export function otherPlayerBlips(sim: ViewState, localPlayerId: number): Blip[] 
     if (c.removed || c.id === 0) continue;
     const at = pl.pos();
     const color = '#' + playerColor(pl.slot).toString(16).padStart(6, '0');
-    out.push({ x: at.x, z: at.z, color, label: (pl.name ?? '').trim().charAt(0).toUpperCase(), sticky: true, shape: 'player' });
+    out.push(blipOf('player', at.x, at.z, { color, label: (pl.name ?? '').trim().charAt(0).toUpperCase(), sticky: true, detail: pl.name || undefined }));
   }
   return out;
 }
@@ -475,6 +554,176 @@ export function drawRegattaCourse(ctx: CanvasRenderingContext2D, sim: ViewState,
   ctx.restore();
 }
 
+/** The full map's blip size (px): its icons, and the legend's drawn as it draws them. */
+export const MAP_BLIP = 18;
+
+/** Fills the path `trace` draws white on a black outline, as the letters are drawn. */
+function whiteShape(ctx: CanvasRenderingContext2D, trace: () => void): void {
+  ctx.beginPath();
+  trace();
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+}
+
+/** Strokes the lines `trace` draws `w` px wide in white on a black outline. */
+function whiteLines(ctx: CanvasRenderingContext2D, w: number, trace: () => void): void {
+  ctx.beginPath();
+  trace();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = w + 2.5;
+  ctx.stroke();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = w;
+  ctx.stroke();
+}
+
+/**
+ * Icons drawn on a blip in place of a letter, centred on it, for a blip drawn at `s` px in colour `color`: where a
+ * letter would mean two things (H, G, C, D) or not much (B), a picture of the place.
+ */
+const BLIP_ICONS: Record<string, (ctx: CanvasRenderingContext2D, s: number, color: string) => void> = {
+  // The safehouse: a house with its door.
+  house: (ctx, s, color) => {
+    whiteShape(ctx, () => {
+      ctx.moveTo(0, -0.46 * s);
+      ctx.lineTo(0.44 * s, -0.04 * s);
+      ctx.lineTo(0.3 * s, -0.04 * s);
+      ctx.lineTo(0.3 * s, 0.36 * s);
+      ctx.lineTo(-0.3 * s, 0.36 * s);
+      ctx.lineTo(-0.3 * s, -0.04 * s);
+      ctx.lineTo(-0.44 * s, -0.04 * s);
+      ctx.closePath();
+    });
+    ctx.fillStyle = color;
+    ctx.fillRect(-0.08 * s, 0.08 * s, 0.16 * s, 0.28 * s);
+  },
+  // The safehouse garage: the car it keeps, side on.
+  garage: (ctx, s, color) => {
+    whiteShape(ctx, () => {
+      ctx.moveTo(-0.46 * s, 0.24 * s);
+      ctx.lineTo(-0.46 * s, 0.02 * s);
+      ctx.lineTo(-0.26 * s, -0.02 * s);
+      ctx.lineTo(-0.14 * s, -0.26 * s);
+      ctx.lineTo(0.16 * s, -0.26 * s);
+      ctx.lineTo(0.3 * s, -0.02 * s);
+      ctx.lineTo(0.46 * s, 0.04 * s);
+      ctx.lineTo(0.46 * s, 0.24 * s);
+      ctx.closePath();
+    });
+    // Its wheels, and its windows cut out in the icon's colour.
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(-0.08 * s, -0.19 * s);
+    ctx.lineTo(-0.17 * s, -0.03 * s);
+    ctx.lineTo(-0.02 * s, -0.03 * s);
+    ctx.lineTo(-0.02 * s, -0.19 * s);
+    ctx.closePath();
+    ctx.moveTo(0.04 * s, -0.19 * s);
+    ctx.lineTo(0.04 * s, -0.03 * s);
+    ctx.lineTo(0.2 * s, -0.03 * s);
+    ctx.lineTo(0.12 * s, -0.19 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    for (const x of [-0.25, 0.25]) {
+      ctx.beginPath();
+      ctx.arc(x * s, 0.26 * s, 0.11 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  },
+  // Azura Customs: a spanner, its open jaw to the top right.
+  wrench: (ctx, s) => {
+    whiteLines(ctx, 0.15 * s, () => {
+      ctx.moveTo(-0.3 * s, 0.3 * s);
+      ctx.lineTo(0.06 * s, -0.06 * s);
+    });
+    whiteLines(ctx, 0.13 * s, () => ctx.arc(0.15 * s, -0.15 * s, 0.17 * s, -Math.PI / 4 + 0.95, -Math.PI / 4 - 0.95 + Math.PI * 2));
+  },
+  // The Pier Arcade: a dollar sign, its bar through the S drawn long so that it never reads as the Spray Shack's S.
+  $: (ctx, s) => {
+    ctx.font = `700 ${Math.round(s * 0.95)}px Rajdhani, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    ctx.strokeText('S', 0, s * 0.05);
+    ctx.beginPath();
+    ctx.moveTo(0, -0.5 * s);
+    ctx.lineTo(0, 0.56 * s);
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 3.5;
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('S', 0, s * 0.05);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+  },
+  // The Hill Climb: two peaks.
+  peak: (ctx, s) =>
+    whiteShape(ctx, () => {
+      ctx.moveTo(-0.46 * s, 0.3 * s);
+      ctx.lineTo(-0.1 * s, -0.38 * s);
+      ctx.lineTo(0.08 * s, -0.04 * s);
+      ctx.lineTo(0.2 * s, -0.2 * s);
+      ctx.lineTo(0.46 * s, 0.3 * s);
+      ctx.closePath();
+    }),
+  // The Gull Regatta: a sailing boat.
+  sail: (ctx, s) =>
+    whiteShape(ctx, () => {
+      ctx.moveTo(0.02 * s, -0.46 * s);
+      ctx.lineTo(0.02 * s, 0.14 * s);
+      ctx.lineTo(-0.34 * s, 0.14 * s);
+      ctx.closePath();
+      ctx.moveTo(0.1 * s, -0.3 * s);
+      ctx.lineTo(0.36 * s, 0.14 * s);
+      ctx.lineTo(0.1 * s, 0.14 * s);
+      ctx.closePath();
+      ctx.moveTo(-0.42 * s, 0.2 * s);
+      ctx.lineTo(0.42 * s, 0.2 * s);
+      ctx.lineTo(0.28 * s, 0.38 * s);
+      ctx.lineTo(-0.28 * s, 0.38 * s);
+      ctx.closePath();
+    }),
+  // The Gravel Gulch scramble: a dirt bike.
+  bike: (ctx, s) =>
+    whiteLines(ctx, Math.max(1.4, 0.09 * s), () => {
+      ctx.moveTo(-0.1 * s, 0.17 * s);
+      ctx.arc(-0.26 * s, 0.17 * s, 0.16 * s, 0, Math.PI * 2);
+      ctx.moveTo(0.42 * s, 0.17 * s);
+      ctx.arc(0.26 * s, 0.17 * s, 0.16 * s, 0, Math.PI * 2);
+      ctx.moveTo(-0.26 * s, 0.17 * s);
+      ctx.lineTo(-0.04 * s, -0.08 * s);
+      ctx.lineTo(0.16 * s, -0.08 * s);
+      ctx.lineTo(0.26 * s, 0.17 * s);
+      ctx.moveTo(0.16 * s, -0.08 * s);
+      ctx.lineTo(0.12 * s, -0.32 * s);
+      ctx.moveTo(-0.18 * s, -0.12 * s);
+      ctx.lineTo(0.02 * s, -0.12 * s);
+    }),
+  // A hidden package: the square tied up with string.
+  parcel: (ctx, s) => {
+    ctx.strokeStyle = '#7a5418';
+    ctx.lineWidth = Math.max(1.5, 0.12 * s);
+    ctx.beginPath();
+    ctx.moveTo(0, -0.5 * s);
+    ctx.lineTo(0, 0.5 * s);
+    ctx.moveTo(-0.5 * s, 0);
+    ctx.lineTo(0.5 * s, 0);
+    ctx.stroke();
+  },
+};
+
 export function drawBlip(ctx: CanvasRenderingContext2D, b: Blip, x: number, y: number, size: number): void {
   ctx.save();
   ctx.translate(x, y);
@@ -516,11 +765,41 @@ export function drawBlip(ctx: CanvasRenderingContext2D, b: Blip, x: number, y: n
       ctx.textBaseline = 'middle';
       ctx.fillText(b.label, 0, size * 0.05);
     }
-  } else if (b.shape === 'square') {
+  } else if (b.shape === 'arrow') {
+    // You: the arrow the map has always drawn (24 px long at 18), pointing your way.
+    const u = size / 18;
+    ctx.rotate(b.angle ?? 0);
     ctx.fillStyle = b.color;
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, -12 * u);
+    ctx.lineTo(8 * u, 9 * u);
+    ctx.lineTo(0, 4 * u);
+    ctx.lineTo(-8 * u, 9 * u);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (b.shape === 'zone' || b.shape === 'area') {
+    // A patch of turf (tinted, its dashed edge as on the map) or the search area (a red disc).
+    ctx.beginPath();
+    if (b.shape === 'zone') ctx.rect(-size * 0.55, -size * 0.45, size * 1.1, size * 0.9);
+    else ctx.arc(0, 0, size * 0.6, 0, Math.PI * 2);
+    const alpha = ctx.globalAlpha;
+    ctx.globalAlpha = alpha * 0.3;
+    ctx.fillStyle = b.color;
+    ctx.fill();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = b.color;
+    ctx.lineWidth = 2;
+    if (b.shape === 'zone') ctx.setLineDash([4, 3]);
+    ctx.stroke();
+  } else if (b.shape === 'square') {
+    ctx.fillStyle = b.color;
     ctx.fillRect(-size * 0.5, -size * 0.5, size, size);
+    BLIP_ICONS[b.label]?.(ctx, size, b.color);
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
     ctx.strokeRect(-size * 0.5, -size * 0.5, size, size);
   } else {
     ctx.fillStyle = b.color;
@@ -530,7 +809,9 @@ export function drawBlip(ctx: CanvasRenderingContext2D, b: Blip, x: number, y: n
     ctx.arc(0, 0, size * 0.62, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    if (b.label) {
+    const icon = BLIP_ICONS[b.label];
+    if (icon) icon(ctx, size, b.color);
+    else if (b.label) {
       ctx.fillStyle = '#ffffff';
       ctx.font = `700 ${Math.round(size * 0.95)}px Rajdhani, sans-serif`;
       ctx.textAlign = 'center';
@@ -541,6 +822,19 @@ export function drawBlip(ctx: CanvasRenderingContext2D, b: Blip, x: number, y: n
     }
   }
   ctx.restore();
+}
+
+/** A legend row's icon (CSS px): wide and tall enough for every shape at MAP_BLIP. */
+export const LEGEND_ICON = { w: 30, h: 28 };
+
+/** Draws kind `id`'s icon on a legend row's canvas as the full map draws it, backed at `dpr` pixels per CSS px. */
+export function drawLegendIcon(canvas: HTMLCanvasElement, id: string, dpr: number): void {
+  canvas.width = Math.round(LEGEND_ICON.w * dpr);
+  canvas.height = Math.round(LEGEND_ICON.h * dpr);
+  const ctx = canvas.getContext('2d')!;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // The arrow points up, as it does going north.
+  drawBlip(ctx, blipOf(id, 0, 0), LEGEND_ICON.w / 2, LEGEND_ICON.h / 2, MAP_BLIP);
 }
 
 /** Within this distance (m) of the lane he drives on, a car is on that road: its GPS route leads on along it. */

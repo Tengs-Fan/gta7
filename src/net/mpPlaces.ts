@@ -8,7 +8,7 @@ import { MP_NO_MONORAIL } from '../sim/activities/monorail';
 import { places } from '../sim/activities/places';
 import { MP_NO_REGATTA } from '../sim/activities/regatta';
 import { streetRunCourses } from '../sim/activities/streetRun';
-import { FOR_SALE, monorailMarker, MP_NO_EXPORT, MP_NO_PROPERTY, MP_NO_SAVE, type Marker } from '../sim/interactions';
+import { monorailMarker, MP_NO_EXPORT, MP_NO_PROPERTY, MP_NO_SAVE, type Marker } from '../sim/interactions';
 import { CONTACTS, contactColorNumber, contactUnlocked } from '../sim/missions/contacts';
 import { STORY } from '../sim/missions';
 import { MP_NO_STORY } from '../sim/missions/runner';
@@ -39,10 +39,10 @@ function markersOf(world: StaticWorld): Marker[] {
   }
   const at = places(world);
   out.push({ id: 'export_board', kind: 'exportBoard', x: at.exportBoard.x, z: at.exportBoard.z, radius: 1.5, label: MP_NO_EXPORT, color: 0xffa020, ref: 'carExport' });
-  out.push({ id: 'garage', kind: 'garage', x: at.garageMarker.x, z: at.garageMarker.z, radius: 1.5, label: MP_NO_PROPERTY, color: 0x3fd96b, ref: 'garage', blip: { color: FOR_SALE, label: 'G' } });
-  out.push({ id: 'pier_arcade', kind: 'business', x: at.arcade.x, z: at.arcade.z, radius: 1.5, label: MP_NO_PROPERTY, color: 0x3fd96b, ref: 'business', blip: { color: FOR_SALE, label: '$' } });
+  out.push({ id: 'garage', kind: 'garage', x: at.garageMarker.x, z: at.garageMarker.z, radius: 1.5, label: MP_NO_PROPERTY, color: 0x3fd96b, ref: 'garage', blip: 'garage' });
+  out.push({ id: 'pier_arcade', kind: 'business', x: at.arcade.x, z: at.arcade.z, radius: 1.5, label: MP_NO_PROPERTY, color: 0x3fd96b, ref: 'business', blip: 'business' });
   const bay = at.customsBay;
-  out.push({ id: 'azura_customs', kind: 'customs', x: (bay.minX + bay.maxX) / 2, z: (bay.minZ + bay.maxZ) / 2, radius: 0, label: '', color: 0xb36bff, ref: 'customs', blip: { color: '#b36bff', label: 'C' } });
+  out.push({ id: 'azura_customs', kind: 'customs', x: (bay.minX + bay.maxX) / 2, z: (bay.minZ + bay.maxZ) / 2, radius: 0, label: '', color: 0xb36bff, ref: 'customs', blip: 'customs' });
   world.layout.monorail.stations.forEach((s, i) => out.push(monorailMarker(s.foot, i, MP_NO_MONORAIL)));
   out.push({ id: 'hillClimb', kind: 'hillClimb', x: HILL_CLIMB_START.x, z: HILL_CLIMB_START.z, radius: HILL_CLIMB_START.radius, label: MP_NO_HILL_CLIMB, color: 0x50f1d1, ref: 'hillClimb' });
   // The course list is built from the road graph alone, which streetRunCourses reads off a Sim.

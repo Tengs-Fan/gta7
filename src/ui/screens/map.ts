@@ -5,7 +5,22 @@ import { WHEEL_GESTURE_GAP, WHEEL_STEP } from '../../input/input';
 import { padGlyph, type InputDevice } from '../glyphs';
 import { escapeHtml } from '../hud';
 import { COMPLETION_GROUP_NAMES, COMPLETION_GROUPS, completionPercent, completionRows } from '../../sim/completion';
-import { collectBlips, drawBlip, drawPoliceOverlay, drawRegattaCourse, MAP_CATEGORIES, MAP_SCALE, type Blip, type MapCategory } from '../mapRender';
+import {
+  blipKind,
+  blipOf,
+  collectBlips,
+  drawBlip,
+  drawLegendIcon,
+  drawPoliceOverlay,
+  drawRegattaCourse,
+  legendRows,
+  MAP_BLIP,
+  MAP_CATEGORIES,
+  MAP_SCALE,
+  searchArea,
+  type Blip,
+  type MapCategory,
+} from '../mapRender';
 import { COUNTY_NAME } from '../../world/country';
 import { h, localPlayer, type MenuCtx } from './shared';
 
@@ -22,53 +37,71 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   // drawn at the middle of the canvas, which fills the screen, so CSS puts it there at any pixel ratio.
   el.appendChild(h('div', 'map-cross'));
   el.appendChild(h('div', 'map-title', 'SAN AZURA'));
-  // The legend: a row per category the player can switch off (number keys, a pad's Y to pick and X to switch, a
-  // click) and the markers that always show. Off states are kept in the settings (mapLayers).
+  // The legend: under a header per category the player can switch off (number keys, a pad's Y to pick and X to switch,
+  // a click), a row for each kind of icon on the map now, drawn as the map draws it; then the live markers. Off states are
+  // kept in the settings (mapLayers).
   const legend = h('div', 'map-legend');
-  const fixed = [
-    ['#ffffff', 'You'],
-    ['#ffd23d', 'Objective'],
-    ['#ff3030', 'Police unit'],
-    ['rgba(255, 48, 48, 0.55)', 'Search area'],
-    ['#c04fff', 'Waypoint'],
-  ];
+  legend.appendChild(h('div', 'legend-head', 'LEGEND'));
+  const legendBody = legend.appendChild(h('div'));
+  const legendCue = legend.appendChild(h('div', 'scroll-cue hidden'));
   const layerOn = (id: string) => menus.host.settings().mapLayers[id] !== false;
-  let pick = 0;
-  const catRows: HTMLElement[] = [];
-  const swatch = (w: MapCategory['swatches'][number]) =>
-    `<i class="${w.hollow ? 'hollow' : ''}" style="${w.hollow ? `border-color:${w.color}` : `background:${w.color}`}">${w.label ? escapeHtml(w.label) : ''}</i>`;
+  /** The legend's rows top to bottom, headers ('#' and the category) and icons (their kind), and the kinds each lights up. */
+  let rows: Array<{ id: string; el: HTMLElement; category: MapCategory | null; kinds: string[]; state?: HTMLElement }> = [];
+  let pick = -1;
+  let legendKey = '';
   const drawLegend = () => {
-    catRows.forEach((r, i) => {
-      const c = MAP_CATEGORIES[i]!;
-      const on = layerOn(c.id);
-      r.classList.toggle('off', !on);
-      r.classList.toggle('sel', menus.device === 'pad' && i === pick);
-      const st = r.children[r.children.length - 1];
-      if (st) st.textContent = on ? 'ON' : 'OFF';
+    rows.forEach((r, i) => {
+      const on = !r.category || layerOn(r.category.id);
+      r.el.classList.toggle('off', !on);
+      r.el.classList.toggle('sel', i === pick);
+      if (r.state) r.state.textContent = on ? 'ON' : 'OFF';
     });
   };
-  const toggleLayer = (i: number) => {
-    const c = MAP_CATEGORIES[i];
+  const toggleLayer = (c: MapCategory | null | undefined) => {
     if (!c) return;
     const s = menus.host.settings();
     menus.host.applySettings({ ...s, mapLayers: { ...s.mapLayers, [c.id]: !layerOn(c.id) } });
     menus.host.click();
     drawLegend();
   };
-  legend.appendChild(h('div', 'legend-head', 'LEGEND'));
-  MAP_CATEGORIES.forEach((c, i) => {
-    const row = h('div', 'legend-row', `<span class="legend-key">${i < 9 ? i + 1 : ''}</span>${(c.legendSwatches?.(sim, localId) ?? c.swatches).map(swatch).join('')}<span class="legend-name">${escapeHtml(c.label)}</span>`);
-    row.appendChild(h('span', 'legend-state', ''));
-    row.addEventListener('click', () => {
-      pick = i;
-      toggleLayer(i);
+  /** Rebuilds the rows when the kinds of icon on the map change (a mission marker, the police, a property bought). */
+  const buildLegend = (blips: readonly Blip[]) => {
+    const groups = legendRows(blips, ['you', 'waypoint', ...(searchArea(sim, localId) ? ['searchArea'] : [])]);
+    const key = groups.map((g) => g.kinds.join(',')).join('|');
+    if (key === legendKey) return;
+    legendKey = key;
+    const picked = rows[pick]?.id;
+    const dpr = Math.min(2, window.devicePixelRatio > 0 ? window.devicePixelRatio : 1);
+    legendBody.innerHTML = '';
+    rows = [];
+    const add = (r: (typeof rows)[number]) => {
+      legendBody.appendChild(r.el);
+      rows.push(r);
+    };
+    groups.forEach((g, i) => {
+      const c = g.category;
+      const head = h('div', c ? 'legend-cat' : 'legend-cat fixed', `<span class="legend-key">${c && i < 9 ? i + 1 : ''}</span><span class="legend-name">${escapeHtml(c?.label ?? 'Live markers')}</span>`);
+      const state = c ? head.appendChild(h('span', 'legend-state')) : undefined;
+      if (c) head.addEventListener('click', () => toggleLayer(c));
+      add({ id: `#${c?.id ?? 'live'}`, el: head, category: c, kinds: g.kinds, state });
+      for (const id of g.kinds) {
+        const row = h('div', 'legend-row');
+        row.dataset.kind = id;
+        drawLegendIcon(row.appendChild(h('canvas')), id, dpr);
+        row.appendChild(h('span', 'legend-name', escapeHtml(blipKind(id).name)));
+        add({ id, el: row, category: c, kinds: [id] });
+      }
     });
-    catRows.push(row);
-    legend.appendChild(row);
-  });
-  for (const [c, t] of fixed) legend.appendChild(h('div', 'legend-row fixed', `<span class="legend-key"></span><i style="background:${c}"></i><span class="legend-name">${t}</span>`));
+    pick = rows.findIndex((r) => r.id === picked);
+    drawLegend();
+  };
+  /** A pad's Y: the next row, and after the last none. */
+  const stepPick = () => {
+    pick = pick + 1 < rows.length ? pick + 1 : -1;
+    drawLegend();
+    rows[pick]?.el.scrollIntoView?.({ block: 'nearest' });
+  };
   el.appendChild(legend);
-  drawLegend();
   // The completion checklist: the same rows as STATS (the completion registry).
   const list = h('div', 'map-checklist');
   const drawChecklist = () => {
@@ -94,9 +127,8 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     hintDevice = menus.device;
     hint.innerHTML =
       menus.device === 'pad'
-        ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('y')} pick a legend row, ${padGlyph('x')} switch it · ${padGlyph('b')} to close`
+        ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('y')} pick a legend row, ${padGlyph('x')} switch its category · ${padGlyph('b')} to close`
         : `Click, or <kbd>Enter</kbd> at the cross, to set a waypoint (again to clear it) · Drag or arrow keys to pan · Wheel or <kbd>+</kbd> <kbd>-</kbd> to zoom · <kbd>1</kbd>-<kbd>${Math.min(9, MAP_CATEGORIES.length)}</kbd> legend on / off · <kbd>${escapeHtml(menus.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`;
-    drawLegend();
   };
   showHint();
   const ctx = canvas.getContext('2d')!;
@@ -195,30 +227,19 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     ctx.font = '700 22px Rajdhani, sans-serif';
     label(COUNTY_NAME.toUpperCase(), -1130, 0);
     ctx.restore();
-    // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top.
+    // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top; you go on top of all.
     const wp = menus.host.waypoint();
-    const blips: Blip[] = wp ? [{ x: wp.x, z: wp.z, color: '#c04fff', label: 'W', sticky: true, shape: 'circle' }] : [];
-    const s = menus.host.settings();
-    const hidden = new Set(MAP_CATEGORIES.filter((c) => s.mapLayers[c.id] === false).map((c) => c.id));
-    blips.push(...collectBlips(sim, time, localId, { map: true, hidden }));
-    for (const b of blips) drawBlip(ctx, b, vw / 2 + (b.x - cx) * k, vh / 2 + (b.z - cz) * k, 18);
     const p = me.pos();
     const ph = me.character.vehicle ? me.character.vehicle.heading : me.character.heading;
-    ctx.save();
-    ctx.translate(vw / 2 + (p.x - cx) * k, vh / 2 + (p.z - cz) * k);
-    ctx.rotate(Math.PI - ph);
-    ctx.fillStyle = '#fff';
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, -12);
-    ctx.lineTo(8, 9);
-    ctx.lineTo(0, 4);
-    ctx.lineTo(-8, 9);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
+    const blips: Blip[] = [
+      ...(wp ? [blipOf('waypoint', wp.x, wp.z, { sticky: true })] : []),
+      ...collectBlips(sim, time, localId, { map: true }),
+      blipOf('you', p.x, p.z, { angle: Math.PI - ph }),
+    ];
+    // The legend lists the hidden categories' icons too.
+    buildLegend(blips);
+    const s = menus.host.settings();
+    for (const b of blips) if (!b.category || s.mapLayers[b.category] !== false) drawBlip(ctx, b, vw / 2 + (b.x - cx) * k, vh / 2 + (b.z - cz) * k, MAP_BLIP);
   };
   /** Sets a waypoint at a point of the world, or clears the one within 16 px of it on the map. */
   const toggleWaypointAt = (w: { x: number; z: number }) => {
@@ -293,12 +314,9 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
         return;
       }
       if (ui.confirm) toggleWaypointAt({ x: cx, z: cz });
-      if (ui.digit) toggleLayer(ui.digit - 1);
-      if (ui.padY && MAP_CATEGORIES.length > 0) {
-        pick = (pick + 1) % MAP_CATEGORIES.length;
-        drawLegend();
-      }
-      if (ui.padX) toggleLayer(pick);
+      if (ui.digit) toggleLayer(MAP_CATEGORIES[ui.digit - 1]);
+      if (ui.padY) stepPick();
+      if (ui.padX) toggleLayer(rows[pick]?.category);
       if (ui.zoomIn) zoom = clamp(zoom + 0.5, 0, 4);
       if (ui.zoomOut) zoom = clamp(zoom - 0.5, 0, 4);
       // Each press (arrows / WASD, the D-pad) steps the view 60 px, also a tap whose key is up again before
@@ -317,6 +335,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
       t += dt;
       if (hintDevice !== menus.device) showHint();
       draw(t);
+      legendCue.classList.toggle('hidden', !(legend.scrollHeight - legend.clientHeight - legend.scrollTop > 2));
     },
     close: onClose,
     pans: true,

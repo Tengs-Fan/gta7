@@ -186,7 +186,7 @@ function finish(host: ActivityHost, j: HillClimbJob): void {
 export const hillClimbActivity: ActivityDef<HillClimbJob> = {
   kind: 'hillClimb',
   toggleEndText: 'Hill climb abandoned. Press T at the foot of the fire road to try again.',
-  site: { label: 'H', name: 'Hill Climb', at: () => HILL_CLIMB_START },
+  site: { label: 'peak', name: HILL_CLIMB_NAME, best: 'hillClimbBest', at: () => HILL_CLIMB_START },
   completion: (_view, me) => ({ label: 'Hill Climb medal', done: activityRecords(me.progress).hillClimbBest > 0 ? 1 : 0, total: 1 }),
 
   canStart: (host, slot, vehicle) => !!vehicle && vehicle.spec.class !== 'boat' && vehicle.driver === slot && !host.job && atFoot(vehicle),

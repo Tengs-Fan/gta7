@@ -190,7 +190,7 @@ function nearStart(host: ActivityHost, v: Vehicle): boolean {
 export const scrambleActivity: ActivityDef<ScrambleJob> = {
   kind: 'scramble',
   toggleEndText: 'Scramble abandoned. Press T at Gravel Gulch to try again.',
-  site: { label: 'D', name: 'Scramble', at: (world) => world.layout.country.places.track.start },
+  site: { label: 'bike', name: 'Gravel Gulch scramble', best: 'scrambleBest', at: (world) => world.layout.country.places.track.start },
   completion: (_view, me) => ({ label: 'Gravel Gulch medal', done: activityRecords(me.progress).scrambleBest > 0 ? 1 : 0, total: 1 }),
 
   canStart: (host, slot, vehicle) => !!vehicle && vehicle.spec.class !== 'boat' && vehicle.driver === slot && nearStart(host, vehicle),

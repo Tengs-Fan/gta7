@@ -91,7 +91,7 @@ test.describe('chapter 2: Vera Salgado', () => {
     const legend = await page.locator('.map-legend').innerText();
     const checklist = await page.locator('.map-checklist').innerText();
     expect(legend + checklist).not.toMatch(/Vera|Salgado/);
-    expect(await page.locator('.map-legend').innerHTML()).not.toMatch(/>V</);
+    await expect(page.locator('.legend-row[data-kind="contact:vera"]')).toHaveCount(0);
     // The map ignores keys for a moment after it opens.
     await page.waitForTimeout(500);
     await page.keyboard.press('KeyM');
@@ -100,8 +100,7 @@ test.describe('chapter 2: Vera Salgado', () => {
     await page.keyboard.press('KeyM');
     await expect(page.locator('.map-legend')).toBeVisible();
     await expect(page.locator('.map-checklist')).toContainText('Vera Salgado');
-    await expect(page.locator('.map-legend')).toContainText('Missions (contacts)');
-    expect(await page.locator('.map-legend').innerHTML()).toMatch(/>V</);
+    await expect(page.locator('.legend-row[data-kind="contact:vera"]')).toHaveText('Vera Salgado (missions)');
     expect(errors).toEqual([]);
   });
 });

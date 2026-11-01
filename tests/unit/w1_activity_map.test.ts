@@ -1,19 +1,17 @@
-// VAL-W1X-007: the wave-1 activities are on the map, in a legend row of their own that hides and shows them.
+// VAL-W1X-007: the wave-1 activities are on the map, in a legend category of their own that hides and shows them.
 
 import { describe, expect, it } from 'vitest';
 import { HILL_CLIMB_START } from '../../src/sim/activities/hillClimb';
 import { places } from '../../src/sim/activities/places';
 import { REGATTA_START } from '../../src/sim/activities/regatta';
-import { collectBlips, MAP_CATEGORIES } from '../../src/ui/mapRender';
+import { blipKind, collectBlips, legendRows, MAP_CATEGORIES } from '../../src/ui/mapRender';
 import { makeSim } from './helpers';
 
 describe('activity sites on the map', () => {
-  it('marks where each new activity is taken, under an activities legend row that switches them off and on', () => {
+  it('marks where each new activity is taken, under an activities legend category that switches them off and on', () => {
     const sim = makeSim({ ambient: false });
     const cat = MAP_CATEGORIES.find((c) => c.id === 'activities');
-    expect(cat, 'an activities legend row').toBeDefined();
-    expect(cat!.label).toMatch(/paramedic/i);
-    expect(cat!.label).toMatch(/courier/i);
+    expect(cat, 'an activities legend category').toBeDefined();
     const at = places(sim.world);
     const marker = (id: string) => sim.interactions.markers.find((m) => m.id === id)!;
     const sites = [
@@ -36,7 +34,10 @@ describe('activity sites on the map', () => {
     }
     console.log(rows.join('\n'));
     expect(shown).toHaveLength(sites.length);
-    expect(cat!.swatches.map((w) => w.label)).toEqual(shown.map((b) => b.label));
+    // A legend row each, under the activities header, naming it.
+    const rowsOf = legendRows(collectBlips(sim, 0, 0, { map: true }), []).find((r) => r.category === cat)!.kinds;
+    expect(rowsOf).toEqual(shown.map((b) => b.kind));
+    expect(rowsOf.map((k) => blipKind(k).name)).toEqual(expect.arrayContaining(['Paramedic', 'Azura Express courier', 'Coyote Ridge Hill Climb', 'Gravel Gulch scramble']));
     const hidden = collectBlips(sim, 0, 0, { map: true, hidden: new Set(['activities']) });
     expect(hidden.some((b) => b.category === 'activities')).toBe(false);
     expect(hidden.length).toBe(collectBlips(sim, 0, 0, { map: true }).length - sites.length);

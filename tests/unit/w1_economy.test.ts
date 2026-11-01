@@ -72,7 +72,7 @@ describe('garage', () => {
     expect(Math.hypot(m.x - home.x, m.z - home.z)).toBeLessThan(30);
     teleport(sim, m.x, m.z);
     expect(sim.interactions.prompt()).toBe(`Press E to buy the garage for $15,000 (stores ${GARAGE_SLOTS} cars)`);
-    expect(m.blip?.color).toBe('#9aa3ad');
+    expect(m.blip).toBe('garage');
     // Not enough money: refused, nothing changes.
     sim.progress.money = GARAGE_PRICE - 1;
     const msgs: string[] = [];
@@ -91,7 +91,7 @@ describe('garage', () => {
     expect(sim.progress.stats.moneySpent - spent).toBe(GARAGE_PRICE);
     expect(sim.interactions.prompt()).toMatch(/^Your garage: 0\/4 cars stored/);
     step(sim, 0.1);
-    expect(m.blip?.color).toBe('#3fd96b');
+    expect(m.blip).toBe('garageOwned');
     // Again: nothing more is taken.
     step(sim, 0.1);
     sim.update(1 / 60, input({ interact: true }));

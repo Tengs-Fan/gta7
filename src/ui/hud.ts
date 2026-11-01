@@ -12,7 +12,7 @@ import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/
 import { isGun, WEAPONS, weaponIconOf, weaponKindOf, type WeaponId } from '../sim/specs';
 import { formatRunTime } from '../sim/streetRuns';
 import { formatKeys, padGlyph, type InputDevice } from './glyphs';
-import { collectBlips, drawBlip, drawPoliceOverlay, drawRegattaCourse, gpsRoute, MAP_SCALE, type Blip, type MapImage } from './mapRender';
+import { blipOf, collectBlips, drawBlip, drawPoliceOverlay, drawRegattaCourse, gpsRoute, MAP_SCALE, type Blip, type MapImage } from './mapRender';
 
 const NAV_PATHS = {
   bearing: 'm12 3 8 17-8-5-8 5z',
@@ -1285,7 +1285,7 @@ export class Hud {
       return { x: cx + dx * c - dz * s, y: cy + dx * s + dz * c };
     };
     // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top.
-    const blips: Blip[] = this.waypoint ? [{ x: this.waypoint.x, z: this.waypoint.z, color: ROUTE_WAYPOINT, label: '', sticky: true, shape: 'square' }] : [];
+    const blips: Blip[] = this.waypoint ? [blipOf('waypoint', this.waypoint.x, this.waypoint.z, { sticky: true })] : [];
     blips.push(...collectBlips(sim, time, this.localPlayerId));
     for (const b of blips) {
       let s = toScreen(b.x, b.z);

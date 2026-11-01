@@ -103,8 +103,12 @@ export interface ActivityDef<J extends ActivityJob = ActivityJob> {
   keepsAboard?(job: J, passenger: Character, vehicle: Vehicle): boolean;
   /** Called once as each Activities facade is built (with slot 0's host), for listeners the activity keeps on the sim. */
   attach?(host: ActivityHost): void;
-  /** Where the activity is taken up, for its icon in the map legend's activities row. Absent: no icon. */
-  readonly site?: { label: string; name: string; at(world: StaticWorld): { x: number; z: number } };
+  /**
+   * Where the activity is taken up, for its icon on the map: its letter or icon (BLIP_ICONS in ui/mapRender.ts), the name
+   * its legend row and a hover give it, and the STATS row (registerStatRow) with its best time, which a hover shows too.
+   * Absent: no icon.
+   */
+  readonly site?: { label: string; name: string; best?: string; at(world: StaticWorld): { x: number; z: number } };
   /** Its row in the completion checklist (map screen, STATS): what counts as done of how much. Absent: no row. */
   completion?(view: ViewState, me: PlayerView): { label: string; done: number; total: number } | null;
 }
