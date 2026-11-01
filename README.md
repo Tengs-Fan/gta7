@@ -81,7 +81,8 @@ To play with friends on your network, run the optional multiplayer server (see [
   Drag, the arrow keys, W A S D, the D-pad or the left stick pan; the wheel, + and -, or LB and RB zoom; the number keys 1–7 (or a pad's Y to pick a category and X to switch it) turn legend categories on and off; M, Esc or Back close it.
   The legend has a row for each kind of icon on the map, drawn as the map draws it, under its category's header, and the live markers (you, the waypoint, objectives, the police) below them.
   Point at an icon, or bring it under the cross with the keys or a pad, to see its name and more: the place's own name, found or owned, a property's price, a job's progress and best time, the mission a contact has for you.
-  Point at a legend row, or pick one with Tab, to light up its icons on the map and fade the rest; a category picked with a pad's Y lights up all of its icons.
+  Point at a legend row, or pick one with Tab (Shift+Tab steps back), to light up its icons on the map and fade the rest; a category picked with a pad's Y lights up all of its icons.
+  Esc, Backspace or B first lets go of a picked row, then closes the map.
   The game is paused while the map is open.
 - Gamepads: the first pad the browser reports with the standard mapping is used.
   Buttons are named Xbox-style, and prompts switch to pad buttons as soon as you use the pad, and back to keys when you press a key.

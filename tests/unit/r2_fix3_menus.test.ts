@@ -673,6 +673,34 @@ describe('the full-screen map without a mouse (medium)', () => {
     expect((viewCentre().x - centre.x) * k).toBeCloseTo(60 + (0.8 * 720) / 60, 6);
   });
 
+  it("Tab and Shift+Tab step the legend's rows, a pad's Y its categories; Esc lets go of the pick, then closes the map", () => {
+    const { press, top, menus } = mapRig();
+    const map = menus.top;
+    /** The picked row: an icon row's kind, a header's name. */
+    const picked = () => top().all().filter((e) => e.classList.contains('sel')).map((e) => e.dataset.kind ?? /legend-name">([^<]*)/.exec(e.innerHTML)?.[1]);
+    press({ tab: 1 });
+    expect(picked()).toEqual(['Missions']);
+    press({ tab: 1 });
+    expect(picked()).toEqual(['contact:lou']);
+    press({ tab: -1 });
+    press({ tab: -1 });
+    expect(picked()).toEqual([]);
+    press({ tab: -1 }); // round to the last row
+    expect(picked()).toEqual(['waypoint']);
+    const heads: unknown[] = [];
+    for (let i = 0; i < 8; i++) {
+      press({ padY: true });
+      heads.push(picked()[0] ?? 'none');
+    }
+    expect(heads).toEqual(['none', 'Missions', 'Shops', 'Places', 'Properties', 'Gang turf', 'Collectibles', 'Activities']);
+    // Esc sends back and pause together: the first lets go, the second closes.
+    press({ back: true, pause: true });
+    expect(picked()).toEqual([]);
+    expect(menus.top).toBe(map);
+    press({ back: true, pause: true });
+    expect(menus.top).not.toBe(map);
+  });
+
   it('the hint names the controls of the device in use, and follows a change of device', () => {
     const { press, hint } = mapRig();
     expect(hint()).toContain('<kbd>Enter</kbd> at the cross');
@@ -733,6 +761,28 @@ describe('the full-screen map without a mouse (medium)', () => {
     const u = frame();
     expect(u.panY).toBeCloseTo((0.59 - 0.18) / (1 - 0.18), 6);
     expect(u.panX).toBe(0);
+    inp.detach();
+  });
+
+  it("Input steps the legend with Tab forward and Shift+Tab back (Shift as the browser says), never with the pad's D-pad right", () => {
+    const pad = fakePad();
+    const inp = new Input(new FakeElement('canvas') as unknown as HTMLCanvasElement);
+    inp.attach();
+    const frame = () => {
+      const fi = inp.poll(1 / 60);
+      inp.endFrame();
+      return fi.ui;
+    };
+    const tab = (shiftKey: boolean) => {
+      win.dispatchEvent(ev('keydown', { code: 'Tab', key: 'Tab', shiftKey, repeat: false }));
+      const u = frame();
+      win.dispatchEvent(ev('keyup', { code: 'Tab', key: 'Tab', shiftKey, repeat: false }));
+      return u;
+    };
+    expect([tab(false).tab, tab(true).tab, frame().tab]).toEqual([1, -1, 0]);
+    pad.buttons[15]!.pressed = true;
+    expect(frame()).toMatchObject({ phone: true, tab: 0 });
+    pad.buttons[15]!.pressed = false;
     inp.detach();
   });
 

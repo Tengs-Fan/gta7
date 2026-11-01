@@ -19,8 +19,11 @@ export interface UiActions {
   right: boolean;
   /** The phone: Tab, or the pad's D-pad right on foot (in a vehicle it changes the radio station). */
   phone?: boolean;
-  /** Tab alone (the phone key in play, which the pad's D-pad right is too): the map legend picks its next row with it. */
-  tab?: boolean;
+  /**
+   * Tab alone (the phone key in play, which the pad's D-pad right is too): 1, or -1 with Shift held, else 0; the map
+   * legend picks its next or previous row with it.
+   */
+  tab?: number;
   /** The pad's X and Y (screens with extra choices: the map legend). */
   padX?: boolean;
   padY?: boolean;
@@ -403,9 +406,11 @@ export class Input {
       this.virt.set(raw, vcode);
       for (const code of codes) this.held.add(code);
       if (ev.repeat) return;
-      // A key typing + or - also zooms the map, whatever the layout (TYPED_ZOOM): part of this press, never held.
+      // A key typing + or - also zooms the map, whatever the layout (TYPED_ZOOM), and the phone key with Shift held
+      // (Shift+Tab, whatever key sprints) steps the map legend back: part of this press, never held.
       const typed = typeof ev.key === 'string' ? TYPED_ZOOM[ev.key] : undefined;
-      const key: KeyPress = { press, codes: typed ? [...codes, typed] : codes, action: alias ?? vcode };
+      const extra = typed ?? (vcode === 'Tab' && ev.shiftKey ? 'Shift+Tab' : undefined);
+      const key: KeyPress = { press, codes: extra ? [...codes, extra] : codes, action: alias ?? vcode };
       // The same key again while one was held back (F F, P P): that one acts now, and this one is the same request.
       if (released === key.action) return;
       const hold = this.menuOpen ? press === this.menuHoldPress && SCREEN_KEYS.has(key.action) : key.action === 'KeyF' && this.inVehicle && this.exitAtStake;
@@ -681,7 +686,7 @@ export class Input {
     ui.map = this.pressed('KeyM');
     ui.camera = this.pressed('KeyV');
     ui.phone = this.pressed('Tab');
-    ui.tab = ui.phone;
+    ui.tab = ui.phone ? (this.pressed('Shift+Tab') ? -1 : 1) : 0;
     ui.confirm = this.pressed('Enter', 'Space');
     ui.back = this.pressed('Escape', 'Backspace');
     ui.up = this.pressed('ArrowUp', 'KeyW');

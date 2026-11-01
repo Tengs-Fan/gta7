@@ -109,8 +109,8 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     drawLegend();
     rows[pick]?.el.scrollIntoView?.({ block: 'nearest' });
   };
-  /** Tab: the next row, and after the last none. */
-  const stepPick = () => select(pick + 1 < rows.length ? pick + 1 : -1);
+  /** Tab (1) and Shift+Tab (-1): the next or the previous row, with none after the last and before the first. */
+  const stepPick = (dir: number) => select(((pick + 1 + dir + rows.length + 1) % (rows.length + 1)) - 1);
   /** A pad's Y: the next category's header, and after the last none (the pad names the icons at the cross instead). */
   const stepCategory = () => select(rows.findIndex((r, i) => i > pick && r.id === `#${r.category?.id}`));
   el.appendChild(legend);
@@ -137,10 +137,12 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   let hintDevice: InputDevice | null = null;
   const showHint = () => {
     hintDevice = menus.device;
+    const tab = escapeHtml(menus.keys.label('Tab'));
+    // One line at 1280 wide: the keys alone (a mouse drags and wheels anyway), and a waypoint again clears it (README).
     hint.innerHTML =
       menus.device === 'pad'
-        ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('y')} light up a category, ${padGlyph('x')} switch it · ${padGlyph('b')} to close`
-        : `Click, or <kbd>Enter</kbd> at the cross, to set a waypoint (again to clear it) · Drag or arrows to pan · Wheel or <kbd>+</kbd> <kbd>-</kbd> to zoom · <kbd>1</kbd>-<kbd>${Math.min(9, MAP_CATEGORIES.length)}</kbd> legend on / off · <kbd>Tab</kbd> light up a row · <kbd>${escapeHtml(menus.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`;
+        ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('y')} light up a category, ${padGlyph('x')} switch it, ${padGlyph('b')} let go · ${padGlyph('b')} to close`
+        : `Click, or <kbd>Enter</kbd> at the cross, for a waypoint · Arrows to pan · <kbd>+</kbd> <kbd>-</kbd> to zoom · <kbd>1</kbd>-<kbd>${Math.min(9, MAP_CATEGORIES.length)}</kbd> legend on / off · <kbd>${tab}</kbd> <kbd>Shift</kbd>+<kbd>${tab}</kbd> light up a row, <kbd>Esc</kbd> let go · <kbd>${escapeHtml(menus.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`;
   };
   showHint();
   const ctx = canvas.getContext('2d')!;
@@ -371,13 +373,18 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   menus.push({
     el,
     input: (ui, dt) => {
+      // Esc (Backspace, a pad's B) first lets go of a row picked with Tab or Y, then closes the map; M and P close it.
+      if (ui.back && pick >= 0) {
+        select(-1);
+        return;
+      }
       if (ui.back || ui.map || ui.pause) {
         menus.pop();
         return;
       }
       if (ui.confirm) toggleWaypointAt({ x: cx, z: cz });
       if (ui.digit) toggleLayer(MAP_CATEGORIES[ui.digit - 1]);
-      if (ui.tab) stepPick();
+      if (ui.tab) stepPick(ui.tab);
       if (ui.padY) stepCategory();
       if (ui.padX) toggleLayer(rows[pick]?.category);
       if (ui.zoomIn) zoom = clamp(zoom + 0.5, 0, 4);
