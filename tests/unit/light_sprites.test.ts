@@ -8,7 +8,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { GLOW, glowLuminance, LightSprites, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
 import { LAMP_HEAD, PropsView } from '../../src/render/props';
 import { COUNTRY_FOG_MARGIN, QUALITY } from '../../src/render/quality';
-import { GameRenderer } from '../../src/render/renderer';
+import { GameRenderer, PLAYER_POOL } from '../../src/render/renderer';
 import { StreetLighting } from '../../src/render/streetLighting';
 import { VehicleView } from '../../src/render/vehicleView';
 import type { Vehicle } from '../../src/sim/entities';
@@ -278,30 +278,39 @@ describe('headlight pools', () => {
     r.dispose();
   });
 
-  it("on Low the player's own car lights the road; on High its headlight spot does instead", () => {
+  it("the player's own car lights the road on every tier: a full pool on Low, a quarter of one where its headlight spot lights the road too", () => {
     const sim = makeSim({ world: W });
     sim.clock.set(23);
     const { v } = driven(sim);
-    const p = sim.player;
     for (const u of sim.vehicles) if (u !== v && Math.hypot(u.pos.x - v.pos.x, u.pos.z - v.pos.z) < 200) sim.removeVehicle(u);
-    expect(p.vehicle).toBe(v);
+    expect(sim.player.vehicle).toBe(v);
     const r = new GameRenderer(canvas(), W, { quality: 'low', fov: 68, gpu: HDR });
     r.attach(sim);
     r.cameraCtl.mode = 'play';
     r.cameraCtl.reset(sim);
-    r.render(0, false);
-    expect(r.stats().pools).toBeGreaterThanOrEqual(1);
-    const ls = r.lightSprites;
-    const m = new THREE.Matrix4();
-    ls.pools.getMatrixAt(0, m);
-    const at = new THREE.Vector3().setFromMatrixPosition(m);
+    // The nearest pool to the camera is the player's own: where it lies and how strong it is.
+    const poolOf = (q: 'low' | 'medium' | 'high') => {
+      r.setQuality(q);
+      r.render(0, false);
+      expect(r.stats().pools, q).toBeGreaterThanOrEqual(1);
+      const m = new THREE.Matrix4();
+      r.lightSprites.pools.getMatrixAt(0, m);
+      const at = new THREE.Vector3().setFromMatrixPosition(m);
+      const colour = new THREE.Color();
+      r.lightSprites.pools.getColorAt(0, colour);
+      return { ahead: (at.x - v.pos.x) * Math.sin(v.heading) + (at.z - v.pos.z) * Math.cos(v.heading), height: at.y - sim.world.groundHeight(at.x, at.z), strength: colour.r };
+    };
+    const low = poolOf('low');
     // Laid ahead of the bumper, on the road.
-    const ahead = (at.x - v.pos.x) * Math.sin(v.heading) + (at.z - v.pos.z) * Math.cos(v.heading);
-    expect(ahead).toBeGreaterThan(v.halfL);
-    expect(at.y - sim.world.groundHeight(at.x, at.z)).toBeLessThan(0.15);
-    r.setQuality('high');
-    r.render(0, false);
-    expect(r.stats().pools).toBe(0);
+    expect(low.ahead).toBeGreaterThan(v.halfL);
+    expect(low.height).toBeLessThan(0.15);
+    expect(low.strength).toBeGreaterThan(0.4);
+    expect(PLAYER_POOL).toBeLessThan(0.5);
+    for (const q of ['medium', 'high'] as const) {
+      const own = poolOf(q);
+      expect(own.ahead, q).toBeCloseTo(low.ahead, 3);
+      expect(own.strength, q).toBeCloseTo(low.strength * PLAYER_POOL, 3);
+    }
     r.dispose();
   });
 

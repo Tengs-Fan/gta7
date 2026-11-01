@@ -68,6 +68,12 @@ const SMOKE_CONDITION = 0.45;
  */
 /** Full-beam intensity of the player's headlight at night (both lamps intact). */
 export const HEADLIGHT_INTENSITY = 160;
+/**
+ * The player's own headlight pool where the spot lights the road too, as a share of the pool every other lit car draws.
+ * From the chase camera the pool shows above the roof: at full strength (or half) it is a white slab over the bonnet,
+ * at a quarter the road ahead reads as lit asphalt (luma 106 at 5 m, 67 at 10 m, against 35 and 22 with the spot alone).
+ */
+export const PLAYER_POOL = 0.25;
 const SIREN_DAY = 25;
 const SIREN_NIGHT = 25;
 const SIREN_RANGE = 12;
@@ -1041,7 +1047,7 @@ export class GameRenderer {
     }
   }
 
-  /** Lamp glows of every drawn vehicle, and headlight pools for the nearest lit ones (the player's only without a headlight spot). */
+  /** Lamp glows of every drawn vehicle, and headlight pools for the nearest lit ones (the player's weaker where its headlight spot lights the road too). */
   private syncLightSprites(sim: ViewState, lights: number): void {
     const ls = this.lightSprites;
     const cam = this.cameraCtl.camera;
@@ -1056,9 +1062,10 @@ export class GameRenderer {
       if (!v || v.removed || !view.group.visible) continue;
       const n = view.lampWorldPositions(glows);
       for (let i = 0; i < n; i++) ls.addGlow(glows[i]!);
-      if (view.lightsOn && !(spot && v === playerCar)) {
+      if (view.lightsOn) {
         const lamps = view.headLamps;
-        if (lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * (lamps / 2));
+        const own = spot && v === playerCar ? PLAYER_POOL : 1;
+        if (lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * own * (lamps / 2));
       }
     }
     // Las Lomas County's reflector posts shine back at the player's own lit car.

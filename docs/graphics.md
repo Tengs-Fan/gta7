@@ -68,7 +68,7 @@ On the M4 Pro at 1920x1080 High the perf playtest stayed at 60 fps in all four s
 
 ## Night lights
 
-`src/render/lightSprites.ts` draws three instanced batches, one draw call each, on every tier including software renderers. Lamp glows are camera-facing sprites at each working head, tail, brake, reverse and siren lamp (`VehicleView.lampWorldPositions()`), so smashed lamps and destroyed cars leave no glow. Each glow's colour times intensity stays below the bloom threshold (2.6), so bloom does not flicker on them; brake glows are about 2.2 times the running tail glow. Headlight pools are soft patches on the road ahead of cars with their lights on, nearest first, capped at 40 (High), 24 (Medium) and 12 (Low). On Low, which has no headlight spot light, the player's car gets a pool too. A third batch, light streaks, draws wet-road reflections (see Rain below). Lights turn on at night or in dark weather: `GameRenderer.weatherDim` follows `sim.weather.state.dim` every frame, and cars light up at `max(night, dim)` (rain and storm, and overcast; not clear or cloudy). `state().render` reports `glows`, `pools` and `streaks`.
+`src/render/lightSprites.ts` draws three instanced batches, one draw call each, on every tier including software renderers. Lamp glows are camera-facing sprites at each working head, tail, brake, reverse and siren lamp (`VehicleView.lampWorldPositions()`), so smashed lamps and destroyed cars leave no glow. Each glow's colour times intensity stays below the bloom threshold (2.6), so bloom does not flicker on them; brake glows are about 2.2 times the running tail glow. Headlight pools are soft patches on the road ahead of cars with their lights on, nearest first, capped at 40 (High), 24 (Medium) and 12 (Low). The player's car gets one on every tier: Low has no headlight spot light, so its pool is a full one, and where the spot also lights the road (High, Medium) it is a quarter of one (`PLAYER_POOL` in `src/render/renderer.ts`), since the spot lights what stands ahead but barely the road, and a full pool from the chase camera is a white slab over the bonnet. A third batch, light streaks, draws wet-road reflections (see Rain below). Lights turn on at night or in dark weather: `GameRenderer.weatherDim` follows `sim.weather.state.dim` every frame, and cars light up at `max(night, dim)` (rain and storm, and overcast; not clear or cloudy). `state().render` reports `glows`, `pools` and `streaks`.
 
 Street lamps have a plinth, a lighter metal tapered pole, a curved arm and a luminaire head with a lit lens. The head position (`LAMP_HEAD` in `src/render/props.ts`) is shared by the lens, halo, ground pool and High's street lights, so they line up. A knocked-down lamp hides every part, including its halo and pool.
 
@@ -213,7 +213,7 @@ Counters and caps are in `state().render.effects` (live, peak and cap per type) 
 | Colour grade and vignette | yes | yes | yes | no |
 | Dawn/dusk env-map compensation | yes | yes | yes | n/a (analytic fill) |
 | Lamp glows, wet-road streaks, lamp heads | yes | yes | yes | yes |
-| Headlight pools | 40 | 24 | 12 (the player's car too) | 12 |
+| Headlight pools | 40 | 24 | 12 | 12 |
 | Rain drops | 6000 | 3500 | 1500 | 500 |
 | Wet ground | puddles, ripples, roof cover | same | darken and gloss | darken only |
 | Tyre spray | yes | yes | no | no |

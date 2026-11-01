@@ -319,7 +319,7 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Nearby street lamps illuminate cars and facades | six pooled lights | off | off |
 | Dynamic lights (sirens, muzzle flashes, explosions) | all | two, shared | none |
 | Your headlight beam at night | on | on | off |
-| Headlight patches on the road at night (nearest cars, yours included on Low) | 40 | 24 | 12 |
+| Headlight patches on the road at night (nearest cars, yours included, softer where your beam lights the road too) | 40 | 24 | 12 |
 | Rain streaks around the camera | 6,000 | 3,500 | 1,500 |
 | Wet streets | puddles and ripples | puddles and ripples | darker and glossier |
 | Tyre spray on wet roads | on | on | off |
