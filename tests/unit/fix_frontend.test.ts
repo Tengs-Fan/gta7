@@ -3092,6 +3092,31 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(ctx.nodes.filter((n) => n instanceof FakeOscillator).length).toBe(n0 + 2);
   });
 
+  it('the headlight switch clicks on the UI bus when the car the player is in changes it, and not on getting into another', () => {
+    const { sim, audio, ctx, inner, input, frames } = rig();
+    const car = seatInCar(sim);
+    frames(5);
+    inner.ambience.random = () => 0.999; // no ambience one-shots while counting
+    const clicks = () => audio.counters.switchClicks;
+    const before = ctx.nodes.length;
+    // The default 16:00 is day: the first press lights the lamps, the second darkens them again.
+    frames(2, (i) => input({ lightsPressed: i === 0 }));
+    expect(car.lights).toBe('on');
+    expect(clicks()).toBe(1);
+    const gains = ctx.nodes.slice(before).filter((n): n is FakeGain => n instanceof FakeGain);
+    expect(gains.length).toBeGreaterThan(0);
+    for (const g of gains) expect(g.outputs[0]).toBe(inner.mixer.uiBus);
+    frames(2, (i) => input({ lightsPressed: i === 0 }));
+    expect(car.lights).toBe('off');
+    expect(clicks()).toBe(2);
+    // Nothing moves, no click; another car with its own switch position is no click either.
+    frames(5);
+    const other = seatInCar(sim);
+    other.lights = 'on';
+    frames(5);
+    expect(clicks()).toBe(2);
+  });
+
   it('the radio echo follows a dotted eighth of each song’s tempo', () => {
     const audio = new AudioEngine();
     audio.unlock();
