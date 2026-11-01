@@ -6,6 +6,7 @@ import { Rng } from '../core/rng';
 import type { Character, Projectile, Vehicle } from '../sim/entities';
 import { flashSizeOf, WEAPONS, type WeaponId } from '../sim/specs';
 import { registerDebug } from '../debug';
+import { BoatWakes } from './boatWakes';
 import { FoamRings } from './foamRings';
 import { burntMaterial } from './fx/burnt';
 import { FX_BUDGETS, FX_POOL_SIZES, type FxBudget, type FxTier } from './fx/budget';
@@ -781,6 +782,8 @@ export class Effects {
   private warmupProbeGroup: THREE.Group | null = null;
   private muzzleOf: ((c: Character) => { x: number; y: number; z: number } | null) | null = null;
   readonly foam = new FoamRings();
+  /** The trails and Kelvin wakes of boats under way (boatWake feeds them). */
+  readonly wakes = new BoatWakes();
   readonly flash: THREE.PointLight;
   readonly muzzle: THREE.PointLight;
   private flashLife = 0;
@@ -810,7 +813,7 @@ export class Effects {
 
   constructor() {
     this.group.add(this.glow.mesh, this.smoke.mesh, this.skids.mesh, this.tracers.mesh);
-    this.group.add(this.parts.mesh, this.foam.mesh, this.puffs.mesh, this.scorch.mesh);
+    this.group.add(this.parts.mesh, this.foam.mesh, this.wakes.mesh, this.puffs.mesh, this.scorch.mesh);
     for (let i = 0; i < FX_POOL_SIZES.fireballs; i++) this.fireballPool.push({ x: 0, y: 0, z: 0, ground: 0, R: 1, age: 0, fresh: false, lobes: [] });
     this.flash = new THREE.PointLight(0xffa040, 0, 40, 1.6);
     this.muzzle = new THREE.PointLight(0xffd080, 0, 12, 2);
@@ -843,6 +846,7 @@ export class Effects {
     this.blasts = 0;
     for (const k of Object.keys(this.peak) as Array<keyof typeof this.peak>) this.peak[k] = 0;
     this.foam.clear();
+    this.wakes.clear();
     this.glow.clear();
     this.smoke.clear();
     this.skids.clear();
@@ -869,6 +873,7 @@ export class Effects {
     this.puffs.light.copy(c);
     this.skids.light.copy(c);
     this.foam.light.copy(c);
+    this.wakes.light.copy(c);
   }
 
   private r(a: number, b: number): number {
@@ -1576,16 +1581,16 @@ export class Effects {
   }
 
   /**
-   * The wake of a boat under way over a sea whose surface is `surfaceY` here: foam spreading from its stern (its bow when
-   * it backs), spray thrown out and up off the bow, and a mist tail behind it at speed. All grow with its speed
-   * (boatWakeLevel). Flat foam and spray on the smoke layer, so in the scene's light; the layer is a fixed pool, so
-   * nothing is allocated here.
+   * The wake of a boat under way over a sea whose surface is `surfaceY` here: its trail and Kelvin wake (BoatWakes),
+   * foam spreading from its stern (its bow when it backs), spray thrown out and up off the bow, and a mist tail behind it
+   * at speed. All grow with its speed (boatWakeLevel). Flat foam and spray on the smoke layer, so in the scene's light;
+   * the layer and the wakes are fixed pools, so nothing is allocated here.
    */
   boatWake(v: Vehicle, surfaceY: number, dt: number): void {
-    const k = boatWakeLevel(Math.hypot(v.vel.x, v.vel.z));
+    const speed = Math.hypot(v.vel.x, v.vel.z);
+    const k = boatWakeLevel(speed);
     if (!(k > 0)) return;
     this.wakeBoatsOpen++;
-    if (!(dt > 0)) return;
     const fx = Math.sin(v.heading);
     const fz = Math.cos(v.heading);
     const lx = fz;
@@ -1594,6 +1599,10 @@ export class Effects {
     const dir = v.vel.x * fx + v.vel.z * fz < 0 ? -1 : 1;
     const hl = v.halfL;
     const hw = v.halfW;
+    // The trail and Kelvin wake run back from the trailing end along the way the boat is going (paused too, so the
+    // trail keeps its head at the stern).
+    this.wakes.feed(v.id, v.pos.x - fx * dir * hl * 0.92, v.pos.z - fz * dir * hl * 0.92, v.vel.x / speed, v.vel.z / speed, speed, k, hw);
+    if (!(dt > 0)) return;
     const y = surfaceY + 0.06;
     let n = 0;
     for (const side of [1, -1, 0]) {
@@ -1602,7 +1611,7 @@ export class Effects {
       for (let c = this.count(BOAT_FOAM_RATE * k * (side === 0 ? 1 : 0.7), dt); c > 0; c--, n++) {
         const lag = this.r(0, dt);
         const out = this.r(0.3, 1.1) * (0.4 + 0.6 * k);
-        this.smoke.emit(sx - v.vel.x * lag + this.r(-0.2, 0.2), y, sz - v.vel.z * lag + this.r(-0.2, 0.2), v.vel.x * 0.1 + lx * side * out, 0, v.vel.z * 0.1 + lz * side * out, this.r(1.3, 2.2), hw * 0.45, hw * (0.9 + 1.4 * k), 0xf2f9fc, 0xd6e8f0, 0.2 + 0.22 * k, 0, 1.2, 0, 4, 0);
+        this.smoke.emit(sx - v.vel.x * lag + this.r(-0.2, 0.2), y, sz - v.vel.z * lag + this.r(-0.2, 0.2), v.vel.x * 0.1 + lx * side * out, 0, v.vel.z * 0.1 + lz * side * out, this.r(1.3, 2.2), hw * 0.45, hw * (0.9 + 1.4 * k), 0xf2f9fc, 0xd6e8f0, 0.1 + 0.12 * k, 0, 1.2, 0, 4, 0);
       }
     }
     for (const side of [1, -1]) {
@@ -1757,6 +1766,7 @@ export class Effects {
     this.scorch.update(dt);
     this.parts.update(dt);
     this.foam.update(dt);
+    this.wakes.update(now);
     this.tracers.update(dt);
     this.skids.update(now);
     if (this.flashFresh) {
