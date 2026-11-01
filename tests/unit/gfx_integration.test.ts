@@ -7,6 +7,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { ContactShadows } from '../../src/render/contactShadows';
 import { FinishPass } from '../../src/render/finishPass';
+import { HEADLIGHTS } from '../../src/render/lightSprites';
 import { QUALITY } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
 import type { StaticWorld } from '../../src/world/staticWorld';
@@ -162,7 +163,7 @@ describe('tier switches at night in the rain', () => {
       expect(r.rain.mesh.geometry.instanceCount, q).toBe(t.rainDrops);
       expect(s.waterGrid, q).toBe(t.waterGrid);
       expect(s.pools, q).toBeGreaterThan(0);
-      expect(s.pools, q).toBeLessThanOrEqual(t.headlightPools);
+      expect(s.pools, q).toBeLessThanOrEqual(HEADLIGHTS);
       expect(s.glows, q).toBeGreaterThan(0);
       expect(s.streaks, q).toBeGreaterThan(0);
       expect(r.post, q).toMatchObject({ aa: t.aa, grade: true });

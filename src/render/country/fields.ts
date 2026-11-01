@@ -321,6 +321,8 @@ interface Pool {
 }
 
 export class FieldsView {
+  /** The slabs' materials: the ground the headlights light (the renderer's lightGround), as they are neither wet nor detailed. */
+  readonly ground: THREE.MeshStandardMaterial[] = [];
   private readonly fields: readonly Field[];
   private readonly pools: Pool[] = [];
   /** The box round every field, grown by the largest ring: no refill when the camera is far outside it. */
@@ -370,6 +372,7 @@ export class FieldsView {
     for (const [kind, g] of by) {
       const mat = new THREE.MeshStandardMaterial({ map: cropTexture(kind), roughness: kind === 'lettuce' ? 0.8 : 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       mat.name = `field-${kind}`;
+      this.ground.push(mat);
       // Wheat ripples: brighter and darker bands rolling downwind across the field, with the wind's strength.
       if (kind === 'wheat') {
         mat.onBeforeCompile = (shader) => {

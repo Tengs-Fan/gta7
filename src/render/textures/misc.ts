@@ -80,6 +80,22 @@ export function normalFromHeight(source: HTMLCanvasElement, strength: number): T
   return toTexture(c, false);
 }
 
+/** A white texture whose alpha is `profile(u)`, u the distance from its centre over its half size (none past 1). */
+export function radialTexture(profile: (u: number) => number, size = 128): THREE.Texture {
+  const [c, ctx] = canvas(size, size);
+  const img = ctx.getImageData(0, 0, size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) / (size / 2);
+      const i = (y * size + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = u < 1 ? Math.round(255 * profile(u)) : 0;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return toTexture(c, false, false);
+}
+
 /** Small icon textures for pickups and markers. */
 export function glowTexture(): THREE.Texture {
   const S = 128;

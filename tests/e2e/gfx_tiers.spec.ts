@@ -1,13 +1,15 @@
 import { expect, test } from '@playwright/test';
+import { HEADLIGHTS } from '../../src/render/lightSprites';
 import { boot, newGame, type Api } from './helpers';
 
 // Each saved graphics tier boots and draws the graphics milestone's features within its limits: the finish pass,
-// rain drops, headlight pools and the wave grid (High and Medium), at noon clear, noon rain and 23:00 rain.
+// rain drops, the headlights lighting the ground (the HEADLIGHTS lit cars nearest the camera, on every tier) and
+// the wave grid (High and Medium), at noon clear, noon rain and 23:00 rain.
 
 const LIMITS = {
-  low: { aa: 'fxaa', rainDrops: 1500, pools: 12, waterGrid: false },
-  medium: { aa: 'msaa', rainDrops: 3500, pools: 24, waterGrid: true },
-  high: { aa: 'msaa', rainDrops: 6000, pools: 40, waterGrid: true },
+  low: { aa: 'fxaa', rainDrops: 1500, waterGrid: false },
+  medium: { aa: 'msaa', rainDrops: 3500, waterGrid: true },
+  high: { aa: 'msaa', rainDrops: 6000, waterGrid: true },
 } as const;
 
 test.describe('graphics tiers', () => {
@@ -23,9 +25,8 @@ test.describe('graphics tiers', () => {
         const frames = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
         g.godMode(true);
         g.setClockRate(0);
-        // Beside the crossing of two downtown avenues: at 23:00 the pools come from passing traffic's headlights (the
-        // player's car lights the road with its own spot on High), and the bays and superblocks thinned the traffic
-        // past the old corner at (4, 4).
+        // Beside the crossing of two downtown avenues, in a car: at 23:00 its headlights and passing traffic's light the
+        // ground (the bays and superblocks thinned the traffic past the old corner at (4, 4)).
         const n = g.sim.roads.node(5, 5);
         g.teleport(n.x + n.halfX + 2.2, n.z + n.halfZ + 9);
         g.spawnVehicle('sedan', true);
@@ -47,7 +48,7 @@ test.describe('graphics tiers', () => {
         expect(s.tier, s.label).toBe(tier);
         expect(s.post, s.label).toMatchObject({ aa: lim.aa, grade: true });
         expect(s.rainDrops, s.label).toBe(s.label === 'noon-clear' ? 0 : lim.rainDrops);
-        expect(s.pools, s.label).toBeLessThanOrEqual(lim.pools);
+        expect(s.pools, s.label).toBeLessThanOrEqual(HEADLIGHTS);
         expect(s.waterGrid, s.label).toBe(lim.waterGrid);
         expect(s.colors, s.label).toBeGreaterThan(6);
         expect(s.crashed, s.label).toBe(false);

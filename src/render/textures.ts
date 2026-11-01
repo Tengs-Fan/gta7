@@ -10,6 +10,7 @@ export * from './textures/signals';
 export * from './textures/vehicle';
 export {
   glowTexture,
+  radialTexture,
   beamTexture,
   CLOUD_NOISE_CELLS,
   CLOUD_NOISE_SIZE,
