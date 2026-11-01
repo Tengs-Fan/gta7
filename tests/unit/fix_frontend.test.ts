@@ -2856,6 +2856,7 @@ describe('round 2 audio: mix, voices and ambience', () => {
   type EngineVoiceT = import('../../src/audio/engineVoice').EngineVoice;
   type InputT = import('../../src/sim/input').PlayerInput;
   type VehicleT = import('../../src/sim/entities').Vehicle;
+  type KindT = import('../../src/sim/specs').VehicleKind;
   type Internals = {
     mixer: MixerT;
     ambience: AmbienceT;
@@ -2941,6 +2942,82 @@ describe('round 2 audio: mix, voices and ambience', () => {
     };
     listen();
     return { sim, audio, ctx, inner, input, frames, listen };
+  }
+
+  type BiquadT = FakeNode & { type: string; frequency: FakeParam; Q: FakeParam };
+  type StemsT = Record<'pulses' | 'exhaust' | 'roar' | 'wind', { rms: number; a: number }>;
+  const SAMPLE_RATE = 48000;
+  /** Squared A-weighting gain (IEC 61672) at `f` Hz, 1 at 1 kHz. */
+  const aWeight2 = (f: number) => {
+    const f2 = f * f;
+    const ra = (12194 ** 2 * f2 * f2) / ((f2 + 20.6 ** 2) * Math.sqrt((f2 + 107.7 ** 2) * (f2 + 737.9 ** 2)) * (f2 + 12194 ** 2));
+    return (ra * 1.2589) ** 2;
+  };
+
+  /** |H(f)|^2 of a Web Audio biquad (a low-pass or high-pass's Q is in dB, a band-pass's is linear). */
+  function biquadPower(n: BiquadT, f: number): number {
+    const w0 = (2 * Math.PI * n.frequency.target) / SAMPLE_RATE;
+    const c = Math.cos(w0);
+    const alpha = Math.sin(w0) / (2 * (n.type === 'bandpass' ? n.Q.target : 10 ** (n.Q.target / 20)));
+    const b = n.type === 'lowpass' ? [(1 - c) / 2, 1 - c, (1 - c) / 2] : n.type === 'highpass' ? [(1 + c) / 2, -(1 + c), (1 + c) / 2] : [alpha, 0, -alpha];
+    const a = [1 + alpha, -2 * c, 1 - alpha];
+    const w = (2 * Math.PI * f) / SAMPLE_RATE;
+    const mag2 = (k: number[]) => (k[0]! + k[1]! * Math.cos(w) + k[2]! * Math.cos(2 * w)) ** 2 + (k[1]! * Math.sin(w) + k[2]! * Math.sin(2 * w)) ** 2;
+    return mag2(b) / mag2(a);
+  }
+
+  /**
+   * The engine voice's four stems as its graph makes them, on a fresh rig: `stems(kind, rev, throttle, speed)` has a car of that kind
+   * at `rev` (the sim's 0..1 rev position), `throttle` and `speed` update the voice, and gives dB below full scale, plain and A-weighted
+   * (the number nearest to how the ear hears it), at the voice's output, before the mixer.
+   * The pulses are the engine wave and the other three are the noise buffer (uniform in -1 to 1, so a variance of 1/3),
+   * through the filters and gains on their way to the dip (pulses, exhaust) or the vehicle bus (roar, wind), summed over the spectrum.
+   */
+  function engineStems() {
+    const { sim, ctx, inner } = rig();
+    const cars = new Map<KindT, VehicleT>();
+    const eng = inner.engine as unknown as { osc: FakeOscillator; exhaust: FakeNode; roarFilter: FakeNode; windFilter: FakeNode; dip: FakeNode };
+    const bins = 1024;
+    const noise: Array<[number, number]> = Array.from({ length: bins }, (_, i) => [((i + 0.5) * SAMPLE_RATE) / 2 / bins, 1 / 3 / bins]);
+    const through = (from: FakeNode, to: unknown, lines: Array<[number, number]>) => {
+      const path = pathOf(from);
+      const stages = path.slice(0, path.indexOf(to as FakeNode));
+      const gain = stages.reduce((g, n) => (n instanceof FakeGain ? g * n.gain.target : g), 1);
+      const filters = stages.filter((n) => n.kind === 'biquad') as BiquadT[];
+      let plain = 0;
+      let weighted = 0;
+      for (const [f, power] of lines) {
+        const p = filters.reduce((x, n) => x * biquadPower(n, f), gain * gain * power);
+        plain += p;
+        weighted += p * aWeight2(f);
+      }
+      return { rms: 10 * Math.log10(plain), a: 10 * Math.log10(weighted) };
+    };
+    return (kind: KindT, rev: number, throttle: number, speed: number): StemsT => {
+      let v = cars.get(kind);
+      if (!v) {
+        const rp = roadPoint(sim);
+        v = sim.spawnVehicle(kind, rp.x, rp.z, rp.heading);
+        cars.set(kind, v);
+      }
+      v.rpm = rev;
+      v.controls.throttle = throttle;
+      v.speed = speed;
+      inner.engine.update(v, ctx.currentTime, false);
+      const wave = eng.osc.wave as { real: Float32Array; imag: Float32Array };
+      const pulses: Array<[number, number]> = [];
+      for (let h = 1; h < wave.real.length; h++) {
+        const f = h * eng.osc.frequency.target;
+        if (f < SAMPLE_RATE / 2) pulses.push([f, (wave.real[h]! ** 2 + wave.imag[h]! ** 2) / 2]);
+      }
+      const bus = inner.mixer.vehicleBus;
+      return {
+        pulses: through(eng.osc, eng.dip, pulses),
+        exhaust: through(eng.exhaust, eng.dip, noise),
+        roar: through(eng.roarFilter, bus, noise),
+        wind: through(eng.windFilter, bus, noise),
+      };
+    };
   }
 
   function seatInCar(sim: Sim, kind: import('../../src/sim/specs').VehicleKind = 'sedan'): VehicleT {
@@ -3384,6 +3461,16 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(exhaust.Q.target).toBeLessThanOrEqual(-3);
     expect(exhaust.frequency.target).toBeGreaterThan(50);
     expect(exhaust.frequency.target).toBeLessThanOrEqual(EXHAUST_MAX_HZ);
+  });
+
+  it('the exhaust rumble is heard under the pulses: floored, 16 to 33 dB under them A-weighted for every kind, where the old noise band sat', () => {
+    // The old band-pass sat 17 to 28 dB under the pulses floored; without EXHAUST_MAKEUP the low-pass would be 36 to 47 dB under.
+    const stems = engineStems();
+    for (const k of Object.keys(VEHICLE_SPECS) as KindT[]) {
+      const s = stems(k, 0.65, 1, 25);
+      expect(s.pulses.a - s.exhaust.a, k).toBeGreaterThan(16);
+      expect(s.pulses.a - s.exhaust.a, k).toBeLessThan(33);
+    }
   });
 
   it('the road roar is a band-pass in the low hundreds of hertz', () => {

@@ -4,8 +4,8 @@
 // The engine's PeriodicWave is built once per vehicle kind.
 //
 //   slow noise -> jitter -> pulse oscillator frequency
-//   pulse oscillator -> low-pass x2 -> body --------+
-//   noise -> exhaust low-pass -> exhaust gain ------+-> dip -> out
+//   pulse oscillator -> low-pass x2 -> body -------------+
+//   noise -> exhaust low-pass -> makeup -> exhaust gain -+-> dip -> out
 //   noise -> road band-pass (170 Hz) -> roar ---------------> out
 //   noise -> high-pass -> low-pass -> wind ------------------> out
 //   noise -> two resonant band-passes -> flutter -> squeal --> out
@@ -26,6 +26,8 @@ export const SHIFT_DIP = { gain: 0.5, fall: 0.015, hold: 0.05, rise: 0.02 } as c
 
 /** Brings the narrow squeal bands (they pass a sliver of the noise) up to squealParams' levels. */
 const SQUEAL_MAKEUP = 12;
+/** Brings the exhaust low-pass (under 1% of the noise's power, 50 to 500 Hz of 24 kHz) up to exhaustLevel, a fraction of the pulses: +16 dB. */
+export const EXHAUST_MAKEUP = 6;
 /** How far the squeal bands wander around their centre, as a fraction of it. */
 const SQUEAL_WOBBLE = 0.08;
 /** Playback rates of the slow noise: the wobble wanders every ~140 ms, the stick-slip flutter every ~14 ms. */
@@ -92,6 +94,8 @@ export class EngineVoice {
     this.lowpass2 = filter('lowpass', 900, NO_PEAK_DB);
     this.body = gain();
     this.exhaust = filter('lowpass', 150, NO_PEAK_DB);
+    const exhaustMakeup = ctx.createGain();
+    exhaustMakeup.gain.value = EXHAUST_MAKEUP;
     this.exhaustGain = gain();
     this.dip = ctx.createGain();
     this.dip.gain.value = 1;
@@ -134,7 +138,8 @@ export class EngineVoice {
     this.lowpass2.connect(this.body);
     this.body.connect(this.dip);
     src.connect(this.exhaust);
-    this.exhaust.connect(this.exhaustGain);
+    this.exhaust.connect(exhaustMakeup);
+    exhaustMakeup.connect(this.exhaustGain);
     this.exhaustGain.connect(this.dip);
     this.dip.connect(out);
     src.connect(this.roarFilter);
