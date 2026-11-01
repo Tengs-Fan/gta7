@@ -157,7 +157,7 @@ describe('render fixes', () => {
     R.render(DT, false);
     const props = R.props as unknown as { signalProps: Prop[] };
     let mismatches = 0;
-    // Lit lenses are at least 0.7 in their own channel on every tier (far more with bloom), unlit ones 0.12.
+    // Lit lenses are at least 0.78 in their own channel on every tier, unlit ones at most 0.12.
     props.signalProps.forEach((p, i) => {
       const want = W.roads.signalState(p.node, axisOf(p.dir as Dir), sim.time);
       const red = R.props.signalLens(i, 0, 0).color.r > 0.5;

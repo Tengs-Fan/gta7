@@ -174,7 +174,7 @@ const signalPixels = (page: Page) =>
   });
 
 test.describe('traffic lights by tier', () => {
-  test('on Low a lit light shows its own colour without bloom; on High the red one blooms like the rest', async ({ page }) => {
+  test('on Low a lit light shows its own colour without bloom; on High the red one glows red round its lens too', async ({ page }) => {
     await noPointerLock(page);
     await page.addInitScript(() => localStorage.setItem('gta7.settings.v1', JSON.stringify({ quality: 'low' })));
     const errors = await boot(page);
@@ -195,7 +195,7 @@ test.describe('traffic lights by tier', () => {
     const [gr, gg, gb] = low.green!.centre as [number, number, number];
     expect(gg - gr, `green ${low.green!.centre}`).toBeGreaterThan(60);
     expect(gg, `green ${low.green!.centre}`).toBeGreaterThan(gb);
-    // High: the bulbs' cores are near white, so the colour is in the halo: red's has to be there too.
+    // High at night: the halo round the lens (a ring, so the lens keeps its own colour) carries red's colour too.
     await page.evaluate(() => {
       const g = (window as Api).__gta7.game;
       g.applySettings({ ...g.settings, quality: 'high' }, false);
