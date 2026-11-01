@@ -6,7 +6,7 @@
 //   slow noise -> jitter -> pulse oscillator frequency
 //   pulse oscillator -> low-pass x2 -> body --------+
 //   noise -> exhaust low-pass -> exhaust gain ------+-> dip -> out
-//   noise -> road band-pass (150-500 Hz) -> roar -----------> out
+//   noise -> road band-pass (170 Hz) -> roar ---------------> out
 //   noise -> high-pass -> wind ------------------------------> out
 //   noise -> two resonant band-passes -> flutter -> squeal --> out
 //   noise -> wide band-pass -> scrub ------------------------> out
@@ -94,7 +94,7 @@ export class EngineVoice {
     this.exhaustGain = gain();
     this.dip = ctx.createGain();
     this.dip.gain.value = 1;
-    this.roarFilter = filter('bandpass', 275, 0.8);
+    this.roarFilter = filter('bandpass', 170, 0.9);
     this.roarGain = gain();
     this.windFilter = filter('highpass', 650, 0.5);
     this.windGain = gain();

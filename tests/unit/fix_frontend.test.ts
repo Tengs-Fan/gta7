@@ -3386,6 +3386,16 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(exhaust.frequency.target).toBeLessThanOrEqual(EXHAUST_MAX_HZ);
   });
 
+  it('the road roar is a band-pass in the low hundreds of hertz', () => {
+    const { sim, inner, input, frames } = rig();
+    seatInCar(sim);
+    frames(30, input({ throttle: 1 }));
+    const roar = (inner.engine as unknown as { roarFilter: FakeNode & { type: string; frequency: FakeParam } }).roarFilter;
+    expect(roar.type).toBe('bandpass');
+    expect(roar.frequency.target).toBeLessThanOrEqual(200);
+    expect(roar.frequency.target).toBeGreaterThanOrEqual(100);
+  });
+
   it('a skid raises the tyre squeal; it stops with the skid', () => {
     const { sim, audio, ctx, inner, frames } = rig();
     const v = seatInCar(sim);

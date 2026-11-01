@@ -324,6 +324,14 @@ describe('engine profiles', () => {
     expect(engineParams('sedan', 0.5, 0.5, 0).roar).toBe(0);
   });
 
+  it('the road roar is under 0.12 at 35 m/s and never above 0.2 (it was 0.35), however fast', () => {
+    expect(engineParams('sedan', 0.5, 0.5, 35).roar).toBeLessThan(0.12);
+    for (const soft of [false, true]) {
+      for (const speed of [20, 50, 70, 90]) expect(engineParams('sports', 0.5, 0.5, speed, soft).roar).toBeLessThanOrEqual(0.2);
+    }
+    expect(engineParams('sports', 0.5, 0.5, 90, true).roar).toBe(0.2);
+  });
+
   it('wind follows (speed / 50)^2; the throttle opens the low-pass and the exhaust band', () => {
     expect(engineParams('sports', 0.5, 0.5, 50).wind / engineParams('sports', 0.5, 0.5, 25).wind).toBeCloseTo(4, 6);
     for (const k of KINDS) {

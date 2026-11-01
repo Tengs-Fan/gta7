@@ -46,7 +46,9 @@ export const LOWPASS_FLOOR_HZ = 300;
 export const LOWPASS_MAX_HZ = 2000;
 /** The exhaust noise is a rumble under the pulses, never a hiss: its band stays below this. */
 export const EXHAUST_MAX_HZ = 500;
-const ROAR_K = 0.0021;
+const ROAR_K = 0.0015;
+/** The road roar never gets louder than this, however fast the car (or how far it falls). */
+const ROAR_MAX = 0.2;
 const WIND_K = 0.07;
 
 /**
@@ -72,7 +74,7 @@ export function engineParams(kind: VehicleKind, rpm01: number, throttle: number,
   o.lowpassHz = lowpassHz;
   o.exhaustHz = clamp(firingHz * (1 + th), 50, EXHAUST_MAX_HZ);
   o.exhaustLevel = level * (0.05 + 0.22 * th) * (0.7 + 0.6 * p.roughness);
-  o.roar = Math.min(0.35, ROAR_K * Math.pow(sp, 1.2) * (soft ? dbToGain(3) : 1));
+  o.roar = Math.min(ROAR_MAX, ROAR_K * Math.pow(sp, 1.2) * (soft ? dbToGain(3) : 1));
   o.wind = WIND_K * Math.min(1.5, (sp / 50) ** 2);
   o.jitterHz = o.cycleHz * (0.004 + 0.0125 * p.roughness);
   return o;
