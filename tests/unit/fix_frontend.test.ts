@@ -689,6 +689,20 @@ describe('letter shortcuts on other keyboard layouts', () => {
     expect(press('KeyJ', 'p').ui.pause).toBe(true);
   });
 
+  it('Colemak: the key printed L presses the headlights in a vehicle while they are on L, and not once they have moved', () => {
+    const { inp, press } = setup();
+    inp.inVehicle = true;
+    // Colemak prints L on QWERTY's U position, which no action uses.
+    expect(press('KeyU', 'l').player.lightsPressed).toBe(true);
+    // On foot it does nothing, as L does.
+    inp.inVehicle = false;
+    expect(press('KeyU', 'l').player.lightsPressed).toBe(false);
+    inp.inVehicle = true;
+    inp.keymap.set({ ...DEFAULT_BINDINGS, lights: 'KeyK' });
+    expect(press('KeyU', 'l').player.lightsPressed).toBe(false);
+    expect(press('KeyK', 'k').player.lightsPressed).toBe(true);
+  });
+
   it('a held alias (horn) is released with its key', () => {
     const { inp } = setup();
     inp.inVehicle = true;

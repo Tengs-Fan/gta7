@@ -100,7 +100,7 @@ const KEY_NAMES: Record<string, string> = {
 
 /** Pseudo-codes for a press that types + or - on any key: QWERTZ has them elsewhere, AZERTY's - is the 6. */
 const TYPED_ZOOM: Record<string, string> = { '+': 'Typed+', '=': 'Typed+', '-': 'Typed-' };
-const LETTER_SHORTCUTS = new Set(['e', 'f', 'h', 'm', 'p', 'q', 'r', 't', 'v']);
+const LETTER_SHORTCUTS = new Set(['e', 'f', 'h', 'l', 'm', 'p', 'q', 'r', 't', 'v']);
 /** A letter typed longer ago than this (ms) before the next one no longer counts towards a cheat code. */
 const CHEAT_GAP_MS = 1500;
 /** From this many letters into a cheat code, the keys typing it do nothing else (see Input.typeLetter). */
