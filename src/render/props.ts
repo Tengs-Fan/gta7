@@ -430,11 +430,13 @@ const HALO_PULL = 0.6;
 /**
  * The additive glow round each point of a Points, coloured by its vertex colours, `size` m across but never under
  * HALO_MIN_PX pixels. `map` is the lamp pools' glow texture: on the GPU from the first frame, so lighting up at night
- * uploads nothing. A `facing` halo (a signal lens's, with its `aFacing` direction per point) shows only to a camera in
- * front of its lens, fading out from 60 degrees off its axis to a little past 90.
+ * uploads nothing. A signal lens's halo takes `occluder`: it shows only to a camera in front of its lens (its `aFacing`
+ * direction per point), fading out from 60 degrees off its axis to a little past 90, and it dissolves with its signal's
+ * pole (`aFoot`, the signal's foot per point, the same axis and uniforms as the pole's: dissolveOccluder).
  */
-function haloMaterial(map: THREE.Texture | null, size: number, facing = false): THREE.PointsMaterial {
+function haloMaterial(map: THREE.Texture | null, size: number, occluder: OccluderUniforms | null = null): THREE.PointsMaterial {
   const mat = new THREE.PointsMaterial({ size, map, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+  const span = { value: new THREE.Vector2(OCCLUDER_AXIS.signal.from, OCCLUDER_AXIS.signal.to) };
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader.replace(
       '#include <fog_vertex>',
@@ -442,17 +444,33 @@ function haloMaterial(map: THREE.Texture | null, size: number, facing = false): 
 gl_PointSize = max( gl_PointSize, ${HALO_MIN_PX.toFixed(1)} );
 gl_Position = projectionMatrix * vec4( mvPosition.xyz * max( 0.0, 1.0 - ${HALO_PULL.toFixed(2)} / length( mvPosition.xyz ) ), 1.0 );`,
     );
-    if (facing) {
+    if (occluder) {
+      Object.assign(shader.uniforms, occluder, { uOccSpan: span });
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute vec3 aFacing;')
+        .replace(
+          '#include <common>',
+          `#include <common>
+attribute vec3 aFacing;
+attribute vec3 aFoot;
+uniform vec3 uOccCam;
+uniform vec3 uOccSubject;
+uniform vec4 uOccFade;
+uniform vec2 uOccSpan;
+${OCCLUDER_GLSL}`,
+        )
         .replace(
           '#include <color_vertex>',
           `#include <color_vertex>
-vColor *= smoothstep( -0.15, 0.5, dot( aFacing, normalize( cameraPosition - ( modelMatrix * vec4( position, 1.0 ) ).xyz ) ) );`,
+vColor *= smoothstep( -0.15, 0.5, dot( aFacing, normalize( cameraPosition - ( modelMatrix * vec4( position, 1.0 ) ).xyz ) ) );
+{
+  vec3 occA = aFoot + vec3( 0.0, uOccSpan.x, 0.0 );
+  vec3 occB = aFoot + vec3( 0.0, uOccSpan.y, 0.0 );
+  vColor *= min( smoothstep( uOccFade.x, uOccFade.y, occSegSeg( uOccCam, uOccSubject, occA, occB ) ), smoothstep( uOccFade.z, uOccFade.w, occPointSeg( uOccCam, occA, occB ) ) );
+}`,
         );
     }
   };
-  mat.customProgramCacheKey = () => (facing ? 'gta7-halo-facing' : 'gta7-halo');
+  mat.customProgramCacheKey = () => (occluder ? 'gta7-halo-facing' : 'gta7-halo');
   return mat;
 }
 
@@ -1067,6 +1085,7 @@ export class PropsView {
     const m = new THREE.Matrix4();
     const halos: number[] = [];
     const facing: number[] = [];
+    const feet: number[] = [];
     let at = 0;
     signals.forEach((pi, k) => {
       const p = L.props[pi]!;
@@ -1077,6 +1096,7 @@ export class PropsView {
         if (q.role.kind !== 'lens') continue;
         halos.push(...placed(p, ...q.at));
         facing.push(Math.sin(p.rot + q.turn), 0, Math.cos(p.rot + q.turn));
+        feet.push(p.x, p.y, p.z);
       }
       // A walk head facing no crosswalk (a T junction's) stays blank.
       const crosses = walkAxes(this.world.roads, p);
@@ -1104,7 +1124,8 @@ export class PropsView {
     haloGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(halos), 3));
     haloGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(halos.length), 3).setUsage(THREE.DynamicDrawUsage));
     haloGeo.setAttribute('aFacing', new THREE.BufferAttribute(new Float32Array(facing), 3));
-    const glow = new THREE.Points(haloGeo, haloMaterial(signalGlowTexture(atlas), SIGNAL_HALO, true));
+    haloGeo.setAttribute('aFoot', new THREE.BufferAttribute(new Float32Array(feet), 3));
+    const glow = new THREE.Points(haloGeo, haloMaterial(signalGlowTexture(atlas), SIGNAL_HALO, this.occUniforms));
     glow.name = 'signalHalos';
     glow.visible = false;
     this.group.add(glow);

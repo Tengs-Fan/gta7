@@ -375,7 +375,7 @@ describe('the walk heads on the poles', () => {
 describe('the signals\' glow at night', () => {
   it('a halo on every lens, lit in its colour only round the lens that is lit, at night, and dark round a knocked-over signal', () => {
     const props = new PropsView(W);
-    const priv = props as unknown as { signalSlots: Array<{ halo: number; roles: readonly QuadRole[] }>; signalHalos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>; signalPropIndex: number[] };
+    const priv = props as unknown as { signalSlots: Array<{ halo: number; roles: readonly QuadRole[] }>; signalHalos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>; signalPropIndex: number[]; occUniforms: Record<string, { value: unknown }> };
     const halos = priv.signalHalos;
     const pos = halos.geometry.getAttribute('position');
     const col = halos.geometry.getAttribute('color');
@@ -391,6 +391,12 @@ describe('the signals\' glow at night', () => {
     halos.material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
     expect(shader.vertexShader).toContain('vColor *= smoothstep( -0.15, 0.5, dot( aFacing');
     expect(halos.geometry.getAttribute('aFacing').count).toBe(pos.count);
+    // And dissolving with its signal's pole: on the pole's uniforms and axis, from the signal's foot.
+    expect(shader.vertexShader).toContain('vColor *= min( smoothstep( uOccFade.x, uOccFade.y, occSegSeg( uOccCam, uOccSubject, occA, occB ) )');
+    for (const u of ['uOccCam', 'uOccSubject', 'uOccFade']) expect(shader.uniforms[u], u).toBe(priv.occUniforms[u]);
+    expect((shader.uniforms.uOccSpan as { value: THREE.Vector2 }).value.toArray()).toEqual([OCCLUDER_AXIS.signal.from, OCCLUDER_AXIS.signal.to]);
+    const feet = halos.geometry.getAttribute('aFoot');
+    expect(feet.count).toBe(pos.count);
     let lit = 0;
     signals.forEach((p, i) => {
       const slot = priv.signalSlots[i]!;
@@ -399,6 +405,7 @@ describe('the signals\' glow at night', () => {
         for (let k = 0; k < 3; k++) {
           const v = slot.halo + head * 3 + k;
           expect(new THREE.Vector3(pos.getX(v), pos.getY(v), pos.getZ(v)).distanceTo(props.signalLens(i, head, k).at)).toBeLessThan(1e-4);
+          expect([feet.getX(v), feet.getY(v), feet.getZ(v)]).toEqual([p.x, p.y, p.z].map(Math.fround));
           const on = ['red', 'yellow', 'green'][k] === state;
           const c = [col.getX(v), col.getY(v), col.getZ(v)];
           if (!on) expect(c).toEqual([0, 0, 0]);
