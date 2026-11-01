@@ -451,7 +451,7 @@ export class NetClient {
     return quantizeInput({
       moveX: 0, moveZ: 0, cameraYaw: 0, aimOrigin: { x: 0, y: 0, z: 0 }, aimDir: { x: 0, y: 0, z: 1 }, sprint: false, jump: false, fire: false,
       firePressed: false, aim: false, enterExit: false, interact: false, reload: false, nextWeapon: false, prevWeapon: false, selectSlot: -1,
-      throttle: 0, brake: 0, steer: 0, steerDigital: false, handbrake: false, horn: false, hornPressed: false, job: false,
+      throttle: 0, brake: 0, steer: 0, steerDigital: false, handbrake: false, horn: false, hornPressed: false, lightsPressed: false, job: false,
     });
   }
 

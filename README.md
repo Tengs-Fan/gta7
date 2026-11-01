@@ -56,6 +56,7 @@ To play with friends on your network, run the optional multiplayer server (see [
 | Handbrake (vehicle) | Space | RB or A |
 | Shoot from a vehicle (pistol or SMG), or spray the water cannon in the fire truck | Left click | X |
 | Horn, or siren in a police vehicle | E or H | L3 |
+| Headlights on / off (vehicle) | L | B in a vehicle |
 | Radio next / previous (vehicle) | R / Q | D-pad right / left |
 | Enter / exit vehicle (also carjacks) | F or Enter | Y |
 | Interact: missions, shop, save, retry, skip dialogue | E | D-pad up |

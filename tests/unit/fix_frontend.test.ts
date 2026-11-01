@@ -686,7 +686,7 @@ describe('letter shortcuts on other keyboard layouts', () => {
     const r = press('KeyR', 'p');
     expect(r.player.reload).toBe(true);
     expect(r.ui.pause).toBe(false);
-    expect(press('KeyL', 'p').ui.pause).toBe(true);
+    expect(press('KeyJ', 'p').ui.pause).toBe(true);
   });
 
   it('a held alias (horn) is released with its key', () => {
@@ -1457,6 +1457,7 @@ describe('key names follow the keyboard layout', () => {
     expect(rows['Move / Drive']).toBe('Z Q S D');
     // Keys 7-9 hold the wave-1 weapons (w1-weapons), so the hint counts nine keys.
     expect(rows['Weapons']).toBe('1-9, A, wheel');
+    expect(rows['Headlights (in a vehicle)']).toBe('L');
     // M works on its printed key too (letter alias), and the other shortcuts sit where QWERTY has them.
     expect([rows['Map'], rows['Enter / Exit vehicle'], rows['Interact / Horn'], rows['Reload / Next radio'], rows['Side job / Street run'], rows['Camera distance'], rows['Pause']]).toEqual(['M', 'F', 'E', 'R', 'T', 'V', 'Esc / P']);
   });
@@ -4489,6 +4490,78 @@ describe('R2 fixes: the mouse filter keeps real turns', () => {
     for (const x of [100, 300, 450]) frame(x, 0);
     expect(frame(-900, 0)).toEqual([0, 0]); // against a flick to the right
     expect(frame(0, 600)).toEqual([0, 0]); // across it
+  });
+});
+
+describe('the headlight switch key', () => {
+  const frame = (inp: Input) => {
+    const f = inp.poll(1 / 60);
+    inp.endFrame();
+    return f.player;
+  };
+
+  it('L presses it once in a vehicle and does nothing on foot', () => {
+    const inp = newInput();
+    inp.attach();
+    const down = (code: string, key: string) => dom.win.dispatchEvent(keyEv('keydown', code, key));
+    const up = (code: string, key: string) => dom.win.dispatchEvent(keyEv('keyup', code, key));
+    inp.inVehicle = true;
+    down('KeyL', 'l');
+    expect(frame(inp).lightsPressed).toBe(true);
+    // Held, it is not a second press.
+    expect(frame(inp).lightsPressed).toBe(false);
+    up('KeyL', 'l');
+    frame(inp);
+    down('KeyL', 'l');
+    expect(frame(inp).lightsPressed).toBe(true);
+    up('KeyL', 'l');
+    frame(inp);
+    inp.inVehicle = false;
+    down('KeyL', 'l');
+    expect(frame(inp).lightsPressed).toBe(false);
+  });
+
+  it('follows the rebinding: the key it moved to presses it, L no longer does', () => {
+    const inp = newInput();
+    inp.attach();
+    inp.inVehicle = true;
+    inp.keymap.set({ ...DEFAULT_BINDINGS, lights: 'KeyK' });
+    dom.win.dispatchEvent(keyEv('keydown', 'KeyL', 'l'));
+    expect(frame(inp).lightsPressed).toBe(false);
+    dom.win.dispatchEvent(keyEv('keyup', 'KeyL', 'l'));
+    frame(inp);
+    dom.win.dispatchEvent(keyEv('keydown', 'KeyK', 'k'));
+    expect(frame(inp).lightsPressed).toBe(true);
+  });
+
+  it('is B on a gamepad in a vehicle only: on foot B reloads', () => {
+    const pad = fakePad();
+    const inp = newInput();
+    const tapB = () => {
+      pad.buttons[1]!.pressed = true;
+      const f = inp.poll(1 / 60);
+      inp.endFrame();
+      pad.buttons[1]!.pressed = false;
+      inp.poll(1 / 60);
+      inp.endFrame();
+      return f;
+    };
+    inp.inVehicle = true;
+    let f = tapB();
+    expect([f.player.lightsPressed, f.player.reload]).toEqual([true, false]);
+    inp.inVehicle = false;
+    f = tapB();
+    expect([f.player.lightsPressed, f.player.reload]).toEqual([false, true]);
+  });
+
+  it('a held B is one press, not a repeat', () => {
+    const pad = fakePad();
+    const inp = newInput();
+    inp.inVehicle = true;
+    pad.buttons[1]!.pressed = true;
+    expect(frame(inp).lightsPressed).toBe(true);
+    expect(frame(inp).lightsPressed).toBe(false);
+    expect(frame(inp).lightsPressed).toBe(false);
   });
 });
 

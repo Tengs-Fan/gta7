@@ -117,7 +117,7 @@ describe('key bindings', () => {
     });
 
     it('cheat codes still work when typed, with their letters rebound', () => {
-      inp.keymap.set({ ...DEFAULT_BINDINGS, job: 'KeyC', interact: 'KeyL' });
+      inp.keymap.set({ ...DEFAULT_BINDINGS, job: 'KeyC', interact: 'KeyL', lights: 'KeyK' });
       for (const ch of 'CHILLOUT') press(`Key${ch}`, ch.toLowerCase());
       expect(inp.takeCheats().map((t) => t.code)).toContain('CHILLOUT');
     });

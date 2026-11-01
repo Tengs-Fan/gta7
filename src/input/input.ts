@@ -673,6 +673,7 @@ export class Input {
       const horn = this.eSkipped ? ['KeyH'] : ['KeyE', 'KeyH'];
       p.horn = this.inVehicle && this.key(...horn);
       p.hornPressed = this.inVehicle && this.pressed(...horn);
+      p.lightsPressed = this.inVehicle && this.pressed('KeyL');
       p.reload = !this.inVehicle && this.pressed('KeyR');
       p.prevWeapon = this.pressed('KeyQ') || wheel < 0;
       p.nextWeapon = wheel > 0;
@@ -732,6 +733,7 @@ export class Input {
           p.handbrake = p.handbrake || b(5) || b(0);
           p.horn = p.horn || b(10);
           p.hornPressed = p.hornPressed || tap(10);
+          p.lightsPressed = p.lightsPressed || tap(1);
           p.fire = p.fire || b(2);
           p.firePressed = p.firePressed || tap(2);
           // RB is the handbrake here: LB alone steps the weapons, round to the pistol or SMG for a drive-by.

@@ -21,6 +21,7 @@ export const ACTIONS = [
   { id: 'enterExit', label: 'Enter / exit vehicle', key: 'KeyF' },
   { id: 'interact', label: 'Interact / skip line', key: 'KeyE' },
   { id: 'horn', label: 'Horn', key: 'KeyH' },
+  { id: 'lights', label: 'Headlights', key: 'KeyL' },
   { id: 'reload', label: 'Reload / next station', key: 'KeyR' },
   { id: 'prevWeapon', label: 'Previous weapon / station', key: 'KeyQ' },
   { id: 'job', label: 'Side job', key: 'KeyT' },
