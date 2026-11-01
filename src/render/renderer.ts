@@ -1059,7 +1059,7 @@ export class GameRenderer {
       const n = view.lampWorldPositions(glows);
       for (let i = 0; i < n; i++) ls.addGlow(glows[i]!);
       const lamps = view.headLamps;
-      if (view.lightsOn && lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * (lamps / 2));
+      if (view.lightsOn && lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * (lamps / 2), v === playerCar);
     }
     // Las Lomas County's reflector posts shine back at the player's own lit car.
     this.country.reflectors.glow(ls, playerCar && this.vehicleViews.get(playerCar.id)?.lightsOn ? playerCar : null, strength);

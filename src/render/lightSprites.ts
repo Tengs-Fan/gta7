@@ -63,12 +63,14 @@ const LIGHT_CAPACITY = 512;
 export const GLOW_RANGE = 140;
 export const POOL_RANGE = 90;
 /**
- * The cars whose headlights light the ground: the HEADLIGHTS lit ones nearest the camera, on every tier. A car's light
- * fades out over the last POOL_FADE m before the cut (the next car's distance, or POOL_RANGE), so cars coming into the
- * nearest few, or leaving them, do not pop.
+ * The cars whose headlights light the ground, on every tier: the player's own, when its lamps are lit, always at its full
+ * strength, and the lit ones nearest the camera for the rest of the HEADLIGHTS. Each of those fades out over the last
+ * POOL_FADE m before the cut (the next car's distance, or POOL_RANGE), so cars coming into the nearest few, or leaving
+ * them, do not pop. The player's is outside the ranking: its bumper is about 11 m from the chase camera, so in a queue
+ * of lit cars it would otherwise rank among the farthest and dim.
  */
 export const HEADLIGHTS = 8;
-const POOL_FADE = 10;
+export const POOL_FADE = 5;
 /** The headlight pool on the ground: from POOL_START m ahead of the bumper, POOL_LENGTH m long, POOL_WIDTH m wide. */
 export const POOL_START = 2;
 export const POOL_LENGTH = 30;
@@ -337,8 +339,11 @@ export class LightSprites {
   private readonly glowPos: THREE.BufferAttribute;
   private readonly glowColor: THREE.BufferAttribute;
   private readonly glowSize: THREE.BufferAttribute;
-  /** Kept nearest first, at most HEADLIGHTS + 1 long (the last is where the light of the others has faded out). */
+  /** The other cars, kept nearest first, at most HEADLIGHTS + 1 long (the last is where the light of the others has faded out). */
   private readonly candidates: PoolCandidate[] = [];
+  /** The player's own car, when it offered its headlights this frame. */
+  private readonly own: PoolCandidate = { x: 0, z: 0, heading: 0, strength: 0, d2: 0 };
+  private hasOwn = false;
   private readonly spare: PoolCandidate[] = [];
   private readonly cam = new THREE.Vector3();
   private readonly m = new THREE.Matrix4();
@@ -418,6 +423,7 @@ export class LightSprites {
     this.glows.material.uniforms.uPixelsPerMetre!.value = pixelsPerMetre;
     this.glowCount = 0;
     this.lightCount = 0;
+    this.hasOwn = false;
     for (const c of this.candidates) this.spare.push(c);
     this.candidates.length = 0;
   }
@@ -457,9 +463,21 @@ export class LightSprites {
     return true;
   }
 
-  /** Offers a lit car's headlights (its bumper on the ground, heading, strength 0..1); the HEADLIGHTS nearest the camera light the ground. */
-  offerPool(x: number, z: number, heading: number, strength: number): void {
+  /**
+   * Offers a lit car's headlights (its bumper on the ground, heading, strength 0..1); the nearest to the camera light the
+   * ground. The player's own car (`own`) always does, at its strength, in a slot of its own.
+   */
+  offerPool(x: number, z: number, heading: number, strength: number, own = false): void {
     if (strength <= 0) return;
+    if (own) {
+      const c = this.own;
+      c.x = x;
+      c.z = z;
+      c.heading = heading;
+      c.strength = strength;
+      this.hasOwn = true;
+      return;
+    }
     const d2 = (x - this.cam.x) ** 2 + (z - this.cam.z) ** 2;
     if (d2 > POOL_RANGE * POOL_RANGE) return;
     const list = this.candidates;
@@ -487,43 +505,50 @@ export class LightSprites {
       a.needsUpdate = true;
     }
     const list = this.candidates;
-    const n = Math.min(list.length, HEADLIGHTS);
-    const cut = list.length > HEADLIGHTS ? Math.sqrt(list[HEADLIGHTS]!.d2) : POOL_RANGE;
-    const A = this.headlights.uHeadA.value;
-    const B = this.headlights.uHeadB.value;
-    const end = POOL_START + POOL_LENGTH;
+    const first = this.hasOwn ? 1 : 0;
+    const n = Math.min(list.length, HEADLIGHTS - first);
+    const cut = list.length > n ? Math.sqrt(list[n]!.d2) : POOL_RANGE;
+    if (this.hasOwn) this.setHeadlight(0, this.own, this.own.strength, ground);
     for (let i = 0; i < n; i++) {
       const c = list[i]!;
-      const fx = Math.sin(c.heading);
-      const fz = Math.cos(c.heading);
-      const y0 = ground(c.x, c.z);
-      // The light follows the slope; past a drop (a ramp's end, the quay) it tips down 1.5 m at most, so the ground far below stays dark.
-      const y1 = Math.max(ground(c.x + fx * end, c.z + fz * end), y0 - 1.5);
-      const k = c.strength * THREE.MathUtils.smoothstep(cut - Math.sqrt(c.d2), 0, POOL_FADE);
-      A[i * 4] = c.x;
-      A[i * 4 + 1] = y0;
-      A[i * 4 + 2] = c.z;
-      A[i * 4 + 3] = k;
-      B[i * 4] = fx;
-      B[i * 4 + 1] = fz;
-      B[i * 4 + 2] = (y1 - y0) / end;
-      if (this.pools) {
-        this.q.setFromEuler(this.e.set(-Math.atan2(y1 - y0, end), c.heading, 0, 'YXZ'));
-        this.m.compose(this.p.set(c.x + fx * POOL_START, y0 + (y1 - y0) * (POOL_START / end) + 0.05, c.z + fz * POOL_START), this.q, this.s.set(POOL_WIDTH, 1, POOL_LENGTH));
-        this.pools.setMatrixAt(i, this.m);
-        this.pools.setColorAt(i, this.c.setRGB(POOL_PAINT[0] * k, POOL_PAINT[1] * k, POOL_PAINT[2] * k));
-      }
+      this.setHeadlight(first + i, c, c.strength * THREE.MathUtils.smoothstep(cut - Math.sqrt(c.d2), 0, POOL_FADE), ground);
     }
-    this.poolCount = n;
-    this.headlights.uHeadCount.value = n;
+    const count = first + n;
+    this.poolCount = count;
+    this.headlights.uHeadCount.value = count;
     if (this.pools) {
-      this.pools.count = n;
-      if (n > 0) {
+      this.pools.count = count;
+      if (count > 0) {
         this.pools.instanceMatrix.needsUpdate = true;
         this.pools.instanceColor!.needsUpdate = true;
       }
     }
     this.layStreaks(ground);
+  }
+
+  /** Slot `i` of the headlights (and of the software tier's painted pools): car `c` at strength `k`, on `ground`. */
+  private setHeadlight(i: number, c: PoolCandidate, k: number, ground: (x: number, z: number) => number): void {
+    const end = POOL_START + POOL_LENGTH;
+    const fx = Math.sin(c.heading);
+    const fz = Math.cos(c.heading);
+    const y0 = ground(c.x, c.z);
+    // The light follows the slope; past a drop (a ramp's end, the quay) it tips down 1.5 m at most, so the ground far below stays dark.
+    const y1 = Math.max(ground(c.x + fx * end, c.z + fz * end), y0 - 1.5);
+    const A = this.headlights.uHeadA.value;
+    const B = this.headlights.uHeadB.value;
+    A[i * 4] = c.x;
+    A[i * 4 + 1] = y0;
+    A[i * 4 + 2] = c.z;
+    A[i * 4 + 3] = k;
+    B[i * 4] = fx;
+    B[i * 4 + 1] = fz;
+    B[i * 4 + 2] = (y1 - y0) / end;
+    if (this.pools) {
+      this.q.setFromEuler(this.e.set(-Math.atan2(y1 - y0, end), c.heading, 0, 'YXZ'));
+      this.m.compose(this.p.set(c.x + fx * POOL_START, y0 + (y1 - y0) * (POOL_START / end) + 0.05, c.z + fz * POOL_START), this.q, this.s.set(POOL_WIDTH, 1, POOL_LENGTH));
+      this.pools.setMatrixAt(i, this.m);
+      this.pools.setColorAt(i, this.c.setRGB(POOL_PAINT[0] * k, POOL_PAINT[1] * k, POOL_PAINT[2] * k));
+    }
   }
 
   /**

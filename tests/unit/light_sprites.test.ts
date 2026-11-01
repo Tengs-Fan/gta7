@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { GLOW, glowLuminance, HEADLIGHTS, LightSprites, poolFragment, poolShape, POOL_LENGTH, POOL_LIGHT, POOL_PAINT, POOL_RANGE, POOL_START, POOL_WIDTH, waterFresnel, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
+import { GLOW, glowLuminance, HEADLIGHTS, LightSprites, poolFragment, poolShape, POOL_FADE, POOL_LENGTH, POOL_LIGHT, POOL_PAINT, POOL_RANGE, POOL_START, POOL_WIDTH, waterFresnel, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
 import { LAMP_HEAD, PropsView } from '../../src/render/props';
 import { COUNTRY_FOG_MARGIN } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
@@ -243,9 +243,11 @@ describe('headlight pools', () => {
     expect(ls.counts.pools).toBe(HEADLIGHTS);
     const cars = lit(ls);
     expect(cars.map((c) => c.x)).toEqual(Array.from({ length: HEADLIGHTS }, (_, i) => (i + 1) * 3));
-    // Full strength well inside the cut (the next car, 27 m out); fading over the last POOL_FADE m before it.
+    // Full strength more than POOL_FADE m inside the cut (the next car, 27 m out); fading over the last POOL_FADE m before it.
     expect(cars[0]!.k).toBeCloseTo(1, 6);
-    expect(cars[HEADLIGHTS - 1]!.k).toBeLessThan(0.3);
+    expect(cars[HEADLIGHTS - 2]!.k).toBeCloseTo(1, 6);
+    expect(cars[HEADLIGHTS - 1]!.k).toBeCloseTo(THREE.MathUtils.smoothstep(27 - 24, 0, POOL_FADE), 6);
+    expect(cars[HEADLIGHTS - 1]!.k).toBeGreaterThan(0.5);
     for (let i = 1; i < HEADLIGHTS; i++) expect(cars[i]!.k).toBeLessThanOrEqual(cars[i - 1]!.k);
     // Heading north (0): forward is +z, on flat ground.
     expect(cars[0]).toMatchObject({ y: 0, fx: 0, fz: 1, rise: 0 });
@@ -254,22 +256,54 @@ describe('headlight pools', () => {
 
   it('a car swapping places with the next one past the nearest few does not pop: its light is nearly gone either side', () => {
     const ls = new LightSprites();
-    const strengthOf = (x: number): number => {
+    // With the player's own car in a slot of its own there is one slot less for the others, and the swap is as smooth.
+    const strengthOf = (x: number, own = false): number => {
       ls.begin(new THREE.Vector3(0, 2, 0), 800);
-      for (let i = 1; i < HEADLIGHTS; i++) ls.offerPool(i, 0, 0, 1);
+      if (own) ls.offerPool(0, 10.8, 0, 1, true);
+      for (let i = 1; i < HEADLIGHTS - (own ? 1 : 0); i++) ls.offerPool(i, 0, 0, 1);
       ls.offerPool(40, 0, 0, 1);
       ls.offerPool(x, 0, 0, 1);
       ls.finish(() => 0);
       return lit(ls).find((c) => c.x === x)?.k ?? 0;
     };
-    expect(strengthOf(39.9)).toBeLessThan(0.01);
-    expect(strengthOf(40.1)).toBe(0);
+    for (const own of [false, true]) {
+      expect(strengthOf(39.9, own)).toBeLessThan(0.01);
+      expect(strengthOf(40.1, own)).toBe(0);
+    }
     // With few cars about, the light fades out at POOL_RANGE instead.
     ls.begin(new THREE.Vector3(0, 2, 0), 800);
     ls.offerPool(POOL_RANGE - 0.5, 0, 0, 1);
     ls.offerPool(20, 0, 0, 1);
     ls.finish(() => 0);
-    expect(lit(ls).map((c) => c.k)).toEqual([1, expect.closeTo(0.00725, 4)]);
+    expect(lit(ls).map((c) => c.k)).toEqual([1, expect.closeTo(THREE.MathUtils.smoothstep(0.5, 0, POOL_FADE), 6)]);
+    ls.dispose();
+  });
+
+  it("the player's own car keeps its full light in the first slot however many lit cars crowd the camera, and only the others fade", () => {
+    const ls = new LightSprites();
+    // The chase camera 3.4 m up, the player's bumper 10.8 m ahead of it; the others by their distance from the camera.
+    const run = (others: number[]) => {
+      ls.begin(new THREE.Vector3(0, 3.4, 0), 800);
+      ls.offerPool(0, 10.8, 0, 1, true);
+      for (const d of others) ls.offerPool(d, 0, Math.PI / 2, 1);
+      ls.finish(() => 0);
+      return lit(ls);
+    };
+    // Without the player's slot these four took the player's car down to 1, 1, 0.53 and 0.04 of its light.
+    for (const [name, others] of [
+      ['a quiet street', [25, 40]],
+      ['8 lit cars about within 22 m', [6, 9, 12, 14, 16, 18, 20, 22]],
+      ['a queue at a red light, 8 within 16 m', [5, 7, 8, 9, 11, 12, 14, 16]],
+      ['a jam, 8 within 13 m', [4, 5, 6, 7, 8, 9, 11, 12]],
+    ] as const) {
+      const cars = run([...others]);
+      expect(cars.length, name).toBe(Math.min(HEADLIGHTS, others.length + 1));
+      expect(cars[0]!.z, name).toBeCloseTo(10.8, 5);
+      expect(cars[0]!.k, name).toBe(1);
+      // The others: the 7 nearest, each fading over the POOL_FADE m before the 8th's distance, the cut.
+      const cut = others.length >= HEADLIGHTS ? others[HEADLIGHTS - 1]! : POOL_RANGE;
+      for (const c of cars.slice(1)) expect(c.k, `${name} ${c.x}`).toBeCloseTo(THREE.MathUtils.smoothstep(cut - c.x, 0, POOL_FADE), 6);
+    }
     ls.dispose();
   });
 
@@ -321,7 +355,7 @@ describe('headlight pools', () => {
     }
   });
 
-  it("the player's own car lights the ground like any other car's on every tier (its spot, where there is one, lights what stands ahead)", () => {
+  it("the player's own car lights the ground at its full strength from the first slot on every tier (its spot, where there is one, lights what stands ahead)", () => {
     const sim = makeSim({ world: W });
     sim.clock.set(23);
     const { v } = driven(sim);
