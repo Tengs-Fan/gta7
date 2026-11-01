@@ -624,6 +624,12 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(0.2126 * SEA_NIGHT_SKY[0] + 0.7152 * SEA_NIGHT_SKY[1] + 0.0722 * SEA_NIGHT_SKY[2]).toBeCloseTo(1, 2);
     expect(SEA_NIGHT_SKY[2]).toBeGreaterThan(SEA_NIGHT_SKY[1]);
     expect(SEA_NIGHT_SKY[1]).toBeGreaterThan(SEA_NIGHT_SKY[0]);
+    // So does the software sea's.
+    const sw = renderer('high', SOFTWARE).env;
+    const swMat = sw.water.material as THREE.ShaderMaterial;
+    expect(swMat.fragmentShader).toContain(`sky = mix(sky, dot(sky, vec3(0.2126, 0.7152, 0.0722)) * vec3(${SEA_NIGHT_SKY.join(', ')}), uNight);`);
+    expect(swMat.uniforms.uNight).toBe(sw.sea.uNight);
+    expect((sw.sky.material as THREE.ShaderMaterial).uniforms.uNight).toBe(sw.sea.uNight);
     // The city's glow only towards the city, whether the camera is on its land or off it (the dome gathers it only off
     // the land), broken by bearing into lights the ripples draw out into streaks; the glow all round the horizon faintly.
     expect(fs).toContain(`uCityGlow * ${SEA_NIGHT_GLOW.city} * toCity * toCity * toCity * pow( lights, ${CITY_STREAKS.power}.0 ) * ${CITY_STREAKS.gain}.0 * exp(`);

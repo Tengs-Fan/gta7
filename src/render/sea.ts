@@ -850,7 +850,8 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
 /**
  * The software sea: two waves on a warped ripple, the shallows and the beach's surf, unlit but for the key light's glint:
  * its body (the shallows' colour under a fixed share of daylight, SOFTWARE_BODY) and the baked sky's gradient, folded
- * above the horizon and lifted to the dome's brightness, split by Schlick's Fresnel. Shares SeaUniforms (the night
+ * above the horizon, lifted to the dome's brightness and by night in the night sky's blue (SEA_NIGHT_SKY), split by
+ * Schlick's Fresnel. Shares SeaUniforms (the night
  * among them); `extra` brings the ripple tile and its drift, the sky's colours and the key light (uKeyDir, uKeyLight:
  * colour times intensity).
  */
@@ -884,6 +885,7 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
         vec3 reflection = reflect(-eye, n);
         reflection.y = abs(reflection.y);
         vec3 sky = mix(uHorizon, uTop, pow(reflection.y, 0.55)) * uSkyLift;
+        sky = mix(sky, dot(sky, vec3(0.2126, 0.7152, 0.0722)) * vec3(${SEA_NIGHT_SKY.map(n).join(', ')}), uNight);
         float fresnel = ${n(SEA_F0)} + ${n(1 - SEA_F0)} * pow(1.0 - max(dot(n, eye), 0.0), 5.0);
         float depth = seaDepthAt(vWorld.xz);
         float light = 1.0 - uNight * 0.94;
