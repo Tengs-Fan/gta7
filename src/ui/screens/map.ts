@@ -280,9 +280,10 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     // The legend lists the hidden categories' icons too.
     buildLegend(blips);
     drawn = visibleBlips(blips, menus.host.settings().mapLayers).map((b) => ({ b, x: vw / 2 + (b.x - cx) * k, y: vh / 2 + (b.z - cz) * k }));
-    // A legend row hovered or picked: the other icons fade, and its own pulse on top of them.
+    // A legend row hovered or picked: the other icons fade, and its own pulse on top of them. Not for a row with none
+    // drawn (turf, an area, a switched-off category, no waypoint): the map stays as it is.
     const r = hover ?? rows[pick];
-    const lit = r ? new Set(r.kinds) : null;
+    const lit = r && drawn.some((d) => r.kinds.includes(d.b.kind)) ? new Set(r.kinds) : null;
     for (const d of drawn) {
       if (lit?.has(d.b.kind)) continue;
       ctx.globalAlpha = lit ? 0.25 : 1;

@@ -113,6 +113,15 @@ test.describe('the map legend and icon names', () => {
     await page.locator('.legend-row', { hasText: 'Waypoint' }).hover();
     await page.waitForTimeout(150);
     expect((await pixel(page, at.x + 9, 640))[2]).toBeGreaterThan(200);
+    // A row with no icon drawn leaves the map as it is: turf (drawn as an area), a category switched off (3: places).
+    await page.locator('.legend-row', { hasText: 'Los Tiburones turf' }).hover();
+    await page.waitForTimeout(150);
+    expect((await pixel(page, at.x + 9, 640))[2]).toBeGreaterThan(200);
+    await key(page, 'Digit3');
+    await page.locator('.legend-row', { hasText: 'Hospital' }).hover();
+    await page.waitForTimeout(150);
+    expect((await pixel(page, at.x + 9, 640))[2]).toBeGreaterThan(200);
+    await key(page, 'Digit3');
 
     // With the keyboard: Tab steps through the headers and the icons.
     await page.mouse.move(at.x, 690);
