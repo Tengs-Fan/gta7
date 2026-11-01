@@ -9,8 +9,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { REGATTA_GATE_R, REGATTA_GATES, REGATTA_START } from '../sim/activities/regatta';
 import type { ViewState } from '../sim/viewState';
 import { WATER_Y } from '../world/constants';
-import { seaHeightAt } from './boatView';
-import type { SeaUniforms } from './sea';
+import { seaHeightAt, type SeaUniforms } from './sea';
 
 /** A racing buoy: a float with a red and white band, a cone on top and a short pole with a pennant, its waterline at 0. */
 function buoyGeometry(): THREE.BufferGeometry {

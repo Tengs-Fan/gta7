@@ -349,9 +349,9 @@ export class GroundSurfaces {
     return this.anisotropy;
   }
 
-  /** Per frame: the surf phase (as the sea's), for the lace on the sand. */
-  update(time: number): void {
-    this.uniforms.uGroundSurf.value = surfPhases(time).surf;
+  /** Per frame: the surf phase (as the sea's, for the east beach starting at `beachStartX`), for the lace on the sand. */
+  update(time: number, beachStartX: number): void {
+    this.uniforms.uGroundSurf.value = surfPhases(time, beachStartX).surf;
   }
 
   /** Estimated GPU bytes of the ground textures (w x h x 4 x 1.33 for the mip chain). */

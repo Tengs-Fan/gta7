@@ -132,7 +132,7 @@ export class CityView {
     this.nightU.shopOccupancy.value = shopOccupancy(hours);
     // Wrapped daily: float precision stays fine for the flicker, and it jumps once a day at most.
     this.nightU.time.value = time % 86400;
-    this.ground.update(time);
+    this.ground.update(time, this.world.layout.bounds.beachStartX);
     for (const m of this.materials.facades.values()) m.emissiveIntensity = night * 1.4;
     if (this.materials.storefront) this.materials.storefront.emissiveIntensity = night * 2.8;
     for (const m of this.materials.signs) m.emissiveIntensity = 0.35 + night * 3.2;

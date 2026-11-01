@@ -7,8 +7,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { BikeView, bikeKinds } from '../../src/render/bikeView';
 import { bikeModel, headFrame, TREAD } from '../../src/render/bikeModels';
 import { boatModel, mooredBoat, mooredBoatGeometry } from '../../src/render/boatModels';
-import { BoatView, boatKinds, FOAM_LIFT, foamMaterial, seaHeightAt } from '../../src/render/boatView';
-import { seaUniforms, updateSea } from '../../src/render/sea';
+import { BoatView, boatKinds, FOAM_LIFT, foamMaterial } from '../../src/render/boatView';
+import { seaHeightAt, seaUniforms, updateSea } from '../../src/render/sea';
 import { HEAD_OFF, vehicleGlass } from '../../src/render/vehicleView';
 import { WATER_Y } from '../../src/world/constants';
 import { BOAT_CABIN, BOAT_DECK, BOAT_HULL, BOAT_ROOF } from '../../src/world/staticWorld';
@@ -418,7 +418,7 @@ describe('the waterline foam (VAL-BKB-003)', () => {
     expect(sectors.size).toBe(12);
   });
 
-  it('on the High wave grid the ring stays on the drawn sea round the bobbing hull, in a storm too', () => {
+  it('on the wave grid the ring stays on the drawn sea round the heaving hull, in a storm too', () => {
     const { v } = parkedBoat('speedboat', false);
     const view = new BoatView('speedboat');
     const u = seaUniforms();
@@ -428,10 +428,13 @@ describe('the waterline foam (VAL-BKB-003)', () => {
     let worst = 0;
     let lowest = Infinity;
     let heave = 0;
-    for (let k = 0; k < 10; k++) {
-      const t = k * 0.5;
+    for (let k = 0; k < 150; k++) {
+      const t = k / 30;
       updateSea(u, t, 1, v.pos.x - 10, v.pos.z);
-      view.sync(v, 0.5, t, 0);
+      view.sync(v, 1 / 30, t, 0);
+      // A boat at rest never leaves the sea, so its ring always shows.
+      expect(view.group.getObjectByName('foam')!.visible).toBe(true);
+      if (k % 15) continue;
       const pts = view.foamWorld();
       for (const p of pts) {
         const over = p.y - (WATER_Y + seaHeightAt(u, p.x, p.z));

@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { QUALITY } from '../../src/render/quality';
 import { GameRenderer, seaCrossing } from '../../src/render/renderer';
 import { SHORE_GLSL, seaGrid, seaUniforms, surfPhases, updateSea } from '../../src/render/sea';
-import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_WAVES_GLSL, SKIRT_EXTENT, WAVES, waveDisplacement, wavePhases } from '../../src/render/waves';
+import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_WAVES_GLSL, SKIRT_EXTENT, SWELL, WAVES, waveAmps, waveDisplacement, wavePhases, type SeaSurface } from '../../src/render/waves';
 import { Projectile } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
 import { BEACH_W, CURB_H, SAND_DROP, WATER_Y } from '../../src/world/constants';
@@ -101,33 +101,66 @@ function landPoint(): { x: number; z: number } {
   return { x: (b.cityMinX + b.cityMaxX) / 2, z: (b.cityMinZ + b.cityMaxZ) / 2 };
 }
 
+/** The open sea (no shelter map: unsheltered and deep) at time `t` and sea state `sea`, the grid centred on the origin. */
+function openSea(t: number, sea: number): SeaSurface {
+  return { phases: wavePhases(t), surf: 0, sea, ox: 0, oz: 0, shelter: null };
+}
+
 describe('waves', () => {
-  it('four waves of 4 to 30 odd metres whose heights stay within 0.15 m in calm and 0.35 m in a storm', () => {
-    expect(WAVES).toHaveLength(4);
-    for (const w of WAVES) {
-      expect(w.length).toBeGreaterThanOrEqual(4);
-      expect(w.length).toBeLessThanOrEqual(31);
+  it('a swell of four waves 40 to 120 m long and four of chop on it, within 40 degrees of each other, none a multiple of another', () => {
+    expect(WAVES).toHaveLength(8);
+    for (const w of WAVES.slice(0, SWELL)) {
+      expect(w.length).toBeGreaterThanOrEqual(40);
+      expect(w.length).toBeLessThanOrEqual(120);
+      expect(Math.abs(w.angle)).toBeLessThanOrEqual(21);
     }
-    let calm = 0;
-    let storm = 0;
-    for (let i = 0; i < 4000; i++) {
-      const x = (i % 63) * 1.37 - 40;
-      const z = Math.floor(i / 63) * 1.11 - 30;
-      const ph = wavePhases(i * 0.137);
-      calm = Math.max(calm, Math.abs(waveDisplacement(x, z, 0, 0, ph, CALM_SEA)[1]));
-      storm = Math.max(storm, Math.abs(waveDisplacement(x, z, 0, 0, ph, 1)[1]));
+    for (const w of WAVES.slice(SWELL)) expect(w.length).toBeLessThan(40);
+    // No two running within 20 degrees of each other in a whole-number ratio (the longer would repeat the shorter's pattern).
+    for (const a of WAVES) {
+      for (const b of WAVES) {
+        if (a === b || Math.abs(a.angle - b.angle) > 20) continue;
+        const r = Math.max(a.length, b.length) / Math.min(a.length, b.length);
+        expect(Math.abs(r - Math.round(r)), `${a.length} ${b.length}`).toBeGreaterThan(0.05);
+      }
     }
-    expect(calm).toBeLessThanOrEqual(0.15);
-    expect(storm).toBeLessThanOrEqual(0.35);
-    // Visibly larger in a storm.
-    expect(storm).toBeGreaterThan(2.5 * calm);
+  });
+
+  it('the open sea\'s significant height (four standard deviations) is about 1.1 m on a calm day and 2.7 m in a storm', () => {
+    const stats = (sea: number) => {
+      let sum = 0;
+      let sq = 0;
+      let top = 0;
+      let n = 0;
+      for (let i = 0; i < 6000; i++) {
+        const s = openSea(i * 0.371, sea);
+        const y = waveDisplacement(s, (i % 71) * 7.3 - 250, Math.floor(i / 71) * 5.9 - 250)[1];
+        sum += y;
+        sq += y * y;
+        top = Math.max(top, y);
+        n++;
+      }
+      return { hs: 4 * Math.sqrt(sq / n - (sum / n) ** 2), top };
+    };
+    const calm = stats(CALM_SEA);
+    const storm = stats(1);
+    console.log(`[waves] significant height ${calm.hs.toFixed(2)} m on a calm day (highest crest seen ${calm.top.toFixed(2)} m), ${storm.hs.toFixed(2)} m in a storm (${storm.top.toFixed(2)} m)`);
+    expect(calm.hs).toBeGreaterThan(0.9);
+    expect(calm.hs).toBeLessThan(1.3);
+    expect(storm.hs).toBeGreaterThan(2.3);
+    expect(storm.hs).toBeLessThan(3);
+    // No crest higher than every wave's height together.
+    expect(storm.top).toBeLessThanOrEqual(waveAmps(1).reduce((a, b) => a + b, 0));
+    // The swell is there on a still day; the chop is next to none.
+    const still = waveAmps(0);
+    expect(still[0]).toBeGreaterThan(0.1);
+    expect(still[SWELL]).toBe(0);
   });
 
   it('the phases are wrapped in double precision and move smoothly frame to frame, even after hours', () => {
     for (const t0 of [0, 3600 * 5 + 0.37]) {
       const a = wavePhases(t0);
       const b = wavePhases(t0 + DT);
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < WAVES.length; i++) {
         expect(a[i]!).toBeGreaterThanOrEqual(0);
         expect(a[i]!).toBeLessThan(Math.PI * 2);
         let d = Math.abs(b[i]! - a[i]!);
@@ -139,8 +172,8 @@ describe('waves', () => {
   });
 
   it('displacement fades out before the grid coarsens past each wave and is gone at the skirt', () => {
-    const ph = wavePhases(12.3);
-    for (let i = 0; i < 4; i++) {
+    const s = openSea(12.3, 1);
+    for (let i = 0; i < WAVES.length; i++) {
       // Each wave is sampled by at least four vertices per wavelength where it displaces.
       const w = WAVES[i]!;
       const cell = w.fadeEnd <= FINE_EXTENT ? 1 : COARSE_CELL;
@@ -148,7 +181,7 @@ describe('waves', () => {
       expect(w.fadeEnd).toBeLessThan(COARSE_EXTENT);
     }
     for (let x = -COARSE_EXTENT; x <= COARSE_EXTENT; x += 37) {
-      const d = waveDisplacement(x, COARSE_EXTENT, 0, 0, ph, 1);
+      const d = waveDisplacement(s, x, COARSE_EXTENT);
       expect(Math.hypot(...d)).toBeLessThan(1e-9);
     }
   });
@@ -201,16 +234,16 @@ describe('the wave grid', () => {
     // Four sides of 160 one-metre steps, three of every four between coarse vertices.
     expect(marked).toBe(4 * 2 * (FINE_EXTENT * 2 / COARSE_CELL) * (COARSE_CELL - 1) / 2);
     // The shader's rim rule, on the CPU: the displaced rim point lies on the segment between its coarse neighbours.
-    const ph = wavePhases(4.2);
-    const at = (x: number, z: number) => waveDisplacement(x, z, 0, 0, ph, 1);
+    const s = openSea(4.2, 1);
+    const at = (x: number, z: number) => waveDisplacement(s, x, z);
     for (const x of [-79, -45, 13, 78]) {
       const s0 = Math.floor(x / COARSE_CELL) * COARSE_CELL;
       const f = (x - s0) / COARSE_CELL;
       const a = at(s0, FINE_EXTENT);
       const b = at(s0 + COARSE_CELL, FINE_EXTENT);
       const morph = a.map((v, k) => v + (b[k]! - v) * f);
-      // Only the long waves still displace at the rim, so the morph moves the point by little.
-      expect(Math.abs(morph[1]! - at(x, FINE_EXTENT)[1])).toBeLessThan(0.05);
+      // Only the waves of 17 m and longer still displace at the rim, so even in a storm the morph moves the point by little.
+      expect(Math.abs(morph[1]! - at(x, FINE_EXTENT)[1])).toBeLessThan(0.1);
     }
     expect(SEA_WAVES_GLSL).toContain('seaDisplaceEdge');
   });
@@ -219,15 +252,17 @@ describe('the wave grid', () => {
 describe('shoreline foam', () => {
   it('the quay pulse has no step when the surf phase wraps', () => {
     // The pulse is sin(quay phase); a frame apart it may move by at most the rate's own slope.
-    const pulse = (t: number) => Math.sin(surfPhases(t).quay);
+    const x0 = world().layout.bounds.beachStartX;
+    const pulse = (t: number) => Math.sin(surfPhases(t, x0).quay);
     const rate = 1.2 * 1.4 / 60;
     let worst = 0;
     let wraps = 0;
     for (let t = 0; t < 120; t += 1 / 60) {
-      if (surfPhases(t + 1 / 60).surf < surfPhases(t).surf) wraps++;
+      if (surfPhases(t + 1 / 60, x0).surf < surfPhases(t, x0).surf) wraps++;
       worst = Math.max(worst, Math.abs(pulse(t + 1 / 60) - pulse(t)));
     }
-    expect(wraps).toBeGreaterThan(20);
+    // The surf rolls in with the swell's period (7 s for its 72 m onshore wave).
+    expect(wraps).toBeGreaterThan(15);
     expect(worst).toBeLessThanOrEqual(rate + 1e-9);
     // Far into a session, too (float precision of the wrapped phase).
     for (const t0 of [5000, 86_000]) {
@@ -251,7 +286,7 @@ describe('the sea in the renderer', () => {
     expect(high.stats().waterGrid).toBe(true);
     expect(high.env.sea.uDisplace.value).toBe(1);
     expect(high.env.water.geometry.getAttribute('aEdge')).toBeTruthy();
-    expect(high.env.water.geometry.getAttribute('position').count).toBeGreaterThan(50000);
+    expect(high.env.water.geometry.getAttribute('position').count).toBeGreaterThan(150000);
     for (const q of ['medium', 'low'] as const) {
       const r = renderer(q);
       expect(r.stats().waterGrid, q).toBe(false);
@@ -291,7 +326,7 @@ describe('the sea in the renderer', () => {
     const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} as Record<string, THREE.IUniform> };
     mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, r.renderer);
     expect(shader.vertexShader).toContain('seaDisplaceEdge( seaBase.xz, aEdge )');
-    expect(shader.fragmentShader).toContain('seaSlope( vSeaXZ');
+    expect(shader.fragmentShader).toContain('seaWave( vSeaXZ');
     expect(shader.fragmentShader).toContain('seaFoam(');
     expect(shader.fragmentShader).toContain('seaShallows(');
     expect(shader.uniforms.uWavePhase).toBe(r.env.sea.uWavePhase);

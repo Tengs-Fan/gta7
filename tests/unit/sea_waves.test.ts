@@ -1,13 +1,22 @@
 // The sea's swell (render/waves.ts) and where it reaches (render/seaShelter.ts): the shelter and depth baked over the
 // world, which calm the harbours, the canal, the Marina and the water along the quays and leave the open sea and the
-// beaches to the waves.
+// beaches to the waves; the breakers over the beach and the clearance under the decks; a boat riding and slamming.
 
-import { beforeAll, describe, expect, it } from 'vitest';
-import { countyShore, seaDepthCpu, type CountyShore } from '../../src/render/sea';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { BoatView, SLAM_SPEED } from '../../src/render/boatView';
+import { countyShore, seaDepthCpu, seaHeightAt, seaUniforms, setSeaShelter, updateSea, type CountyShore } from '../../src/render/sea';
 import { bakeSeaShelter, SHELTER_CELL, SHELTER_RAMP } from '../../src/render/seaShelter';
-import { OPEN_SEA, shelterAt, type ShelterMap } from '../../src/render/waves';
-import { WATER_Y } from '../../src/world/constants';
-import { world } from './helpers';
+import {
+  CALM_SEA, OPEN_SEA, SURF_GAMMA, SURF_K, SURF_LAG, SURF_SYNC_DEPTH, WAVE_K, seaHeight, shelterAt, surfPhase, wavePhases, type SeaSurface, type ShelterMap,
+} from '../../src/render/waves';
+import type { Vehicle } from '../../src/sim/entities';
+import { BEACH_W, CURB_H, DECK_SLAB, SAND_DROP, WATER_Y } from '../../src/world/constants';
+import { makeSim, world } from './helpers';
+
+await vi.hoisted(async () => {
+  const m = await import('../support/canvasStub');
+  m.installCanvasStubs();
+});
 
 let county: CountyShore;
 let map: ShelterMap;
@@ -88,5 +97,128 @@ describe('the shelter map', () => {
     const want = (map.data[k(j, i) + 1]! * 0.75 + map.data[k(j, i + 1) + 1]! * 0.25) * 0.5 + (map.data[k(j + 1, i) + 1]! * 0.75 + map.data[k(j + 1, i + 1) + 1]! * 0.25) * 0.5;
     expect(mid).toBeCloseTo(want, 6);
     expect(shelterAt(null, 3, 4)).toEqual([...OPEN_SEA]);
+  });
+});
+
+/** The sea as drawn at time `t` and sea state `sea`, the grid centred on (ox, oz), with the shelter map. */
+function drawnSea(t: number, sea: number, ox: number, oz: number): SeaSurface {
+  const phases = wavePhases(t);
+  return { phases, surf: surfPhase(phases[0]!, world().layout.bounds.beachStartX), sea, ox, oz, shelter: map };
+}
+
+describe('the waves over the beach and under the decks', () => {
+  it('on the east beach the swell shoals into breakers, steeper than the swell and capped by the depth, and the waterline stays put', () => {
+    const b = world().layout.bounds;
+    const z = -150;
+    for (const sea of [CALM_SEA, 1]) {
+      let breaker = { lo: Infinity, hi: -Infinity };
+      for (let k = 0; k < 120; k++) {
+        const s = drawnSea(k * 0.13, sea, 560, z);
+        for (let x = b.beachStartX + 30; x < b.beachEndX; x += 0.7) {
+          const d = seaDepthCpu(b, x, z, county);
+          const h = seaHeight(s, x, z);
+          // Never over SURF_GAMMA times the depth (a wave breaks before it gets taller), never draining the sand.
+          expect(h, `x ${x.toFixed(1)} depth ${d.toFixed(2)}`).toBeLessThanOrEqual(SURF_GAMMA * Math.max(d, 0) * 1.05 + 1e-3);
+          expect(h).toBeGreaterThan(-Math.max(d, 0) - 1e-3);
+          if (Math.abs(d - 1.2) < 0.05) breaker = { lo: Math.min(breaker.lo, h), hi: Math.max(breaker.hi, h) };
+        }
+      }
+      // A breaker about a metre high where the beach is 1.2 m deep (a wave breaks at about 0.8 times the depth).
+      expect(breaker.hi - breaker.lo, `sea ${sea}`).toBeGreaterThan(0.75);
+    }
+    // The breakers come in with the onshore swell wave: at SURF_SYNC_DEPTH the two are in step.
+    const x = b.beachStartX + (BEACH_W * (SURF_SYNC_DEPTH + CURB_H - WATER_Y)) / SAND_DROP;
+    for (const p0 of [0, 1.3, 4.4]) {
+      const surf = surfPhase(p0, b.beachStartX);
+      expect(Math.sin(SURF_SYNC_DEPTH * SURF_K + surf + SURF_LAG)).toBeCloseTo(Math.sin(-WAVE_K[0]! * x - p0), 6);
+    }
+  });
+
+  it('in a storm nothing rises through the decks or over the quays, and the land stays dry', () => {
+    const layout = world().layout;
+    const b = layout.bounds;
+    const decks = layout.decks.filter((d) => !d.dirt);
+    let worstDeck = -Infinity;
+    let worstQuay = -Infinity;
+    for (let k = 0; k < 40; k++) {
+      const t = k * 0.71;
+      for (const d of decks) {
+        const r = d.rect;
+        const s = drawnSea(t, 1, (r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2);
+        for (let x = r.minX - 1; x <= r.maxX + 1; x += 3) {
+          for (let z = r.minZ - 1; z <= r.maxZ + 1; z += 3) worstDeck = Math.max(worstDeck, seaHeight(s, x, z) - (d.y - DECK_SLAB - WATER_Y));
+        }
+      }
+      // Two metres out from the land rectangle's west, north and south quays.
+      const s = drawnSea(t, 1, 0, 0);
+      for (let u = b.landMinZ; u <= b.landMaxZ; u += 9) worstQuay = Math.max(worstQuay, seaHeight(s, b.landMinX - 2, u));
+      for (let u = b.landMinX; u <= b.beachStartX - 20; u += 9) worstQuay = Math.max(worstQuay, seaHeight(s, u, b.landMinZ - 2), seaHeight(s, u, b.landMaxZ + 2));
+      expect(seaHeight(s, 0, 0)).toBe(0);
+    }
+    console.log(`[sea] storm: highest crest ${(worstDeck).toFixed(2)} m against the decks' undersides, ${(worstQuay - (CURB_H - WATER_Y)).toFixed(2)} m against the quays' tops`);
+    expect(worstDeck).toBeLessThan(-0.3);
+    expect(worstQuay).toBeLessThan(0.25);
+  });
+});
+
+describe('a boat on the drawn sea', () => {
+  /** A speedboat in open water east of the beach, its view on the sea's uniforms (the shelter map's too). */
+  function rig(): { v: Vehicle; view: BoatView; u: ReturnType<typeof seaUniforms> } {
+    const sim = makeSim({ world: world() });
+    const v = sim.spawnVehicle('speedboat', 700, -250, Math.PI / 2);
+    v.pos.y = WATER_Y;
+    const u = seaUniforms();
+    u.uDisplace.value = 1;
+    setSeaShelter(u, map);
+    const view = new BoatView('speedboat');
+    view.bindSea(u);
+    view.bind(v);
+    return { v, view, u };
+  }
+
+  it('at rest it heaves on the drawn surface under it, a metre or so on a calm day', () => {
+    const { v, view, u } = rig();
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let k = 0; k < 600; k++) {
+      const t = k / 30;
+      updateSea(u, t, CALM_SEA, v.pos.x, v.pos.z);
+      view.sync(v, 1 / 30, t, 0);
+      const y = view.group.position.y - WATER_Y;
+      // The hull rides on its bow and stern's sea, never off it at rest.
+      const sea = seaHeightAt(u, v.pos.x, v.pos.z);
+      expect(Math.abs(y - sea), `t ${t.toFixed(2)}`).toBeLessThan(0.12);
+      lo = Math.min(lo, y);
+      hi = Math.max(hi, y);
+    }
+    expect(hi - lo).toBeGreaterThan(0.6);
+    expect(view.slam).toBe(0);
+  });
+
+  it('at speed into a storm\'s sea it leaves the crests and slams down beyond them, never under the surface', () => {
+    const { v, view, u } = rig();
+    v.heading = -Math.PI / 2;
+    v.forwardSpeed = 25;
+    v.vel.x = -25;
+    let flown = 0;
+    let slams = 0;
+    let under = 0;
+    for (let k = 0; k < 300; k++) {
+      const t = k / 60;
+      v.pos.x = 740 - 25 * t;
+      updateSea(u, t, 1, v.pos.x, v.pos.z);
+      view.sync(v, 1 / 60, t, 0);
+      const bow = view.group.position.y - WATER_Y;
+      const sea = seaHeightAt(u, v.pos.x, v.pos.z);
+      flown = Math.max(flown, bow - sea);
+      under = Math.min(under, bow - sea);
+      if (view.slam > SLAM_SPEED) slams++;
+      view.slam = 0;
+    }
+    console.log(`[boat] storm at 25 m/s: up to ${flown.toFixed(2)} m clear of the sea, ${slams} slams in 5 s`);
+    expect(flown).toBeGreaterThan(0.15);
+    expect(slams).toBeGreaterThan(0);
+    // The hull's middle may sit a little under its ends' mean sea; never far.
+    expect(under).toBeGreaterThan(-0.15);
   });
 });

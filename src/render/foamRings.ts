@@ -3,7 +3,8 @@
 
 import * as THREE from 'three';
 import { WATER_Y } from '../world/constants';
-import { SEA_WAVES_GLSL } from './waves';
+import { seaWaveUniforms, waveUniformsOf, type SeaWaveUniforms } from './sea';
+import { SEA_WAVES_GLSL, WAVE_UNIFORMS } from './waves';
 
 const RING_VS = /* glsl */ `
 attribute vec4 iRing;
@@ -69,10 +70,7 @@ export class FoamRings {
     this.mat = new THREE.ShaderMaterial({
       vertexShader: RING_VS,
       fragmentShader: RING_FS,
-      uniforms: THREE.UniformsUtils.merge([
-        THREE.UniformsLib.fog,
-        { uLight: { value: new THREE.Color(1, 1, 1) }, uWavePhase: { value: new THREE.Vector4() }, uSeaAmp: { value: 0 }, uDisplace: { value: 0 }, uSeaOrigin: { value: new THREE.Vector2() } },
-      ]),
+      uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uLight: { value: new THREE.Color(1, 1, 1) } }]), ...waveUniformsOf(seaWaveUniforms()) },
       transparent: true,
       depthWrite: false,
       fog: true,
@@ -91,8 +89,8 @@ export class FoamRings {
   }
 
   /** Shares the sea's wave uniforms, so the rings ride the waves the sea draws. Before the first render. */
-  bindSea(u: { uWavePhase: THREE.IUniform; uSeaAmp: THREE.IUniform; uDisplace: THREE.IUniform; uSeaOrigin: THREE.IUniform }): void {
-    Object.assign(this.mat.uniforms, { uWavePhase: u.uWavePhase, uSeaAmp: u.uSeaAmp, uDisplace: u.uDisplace, uSeaOrigin: u.uSeaOrigin });
+  bindSea(u: SeaWaveUniforms): void {
+    for (const k of WAVE_UNIFORMS) this.mat.uniforms[k] = u[k];
   }
 
   /** A ring at (x, z) on the sea spreading to `radius` m over `life` s. */

@@ -5,6 +5,8 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BoatWakes, KELVIN, WAKE_BOATS, WAKE_LIFE, WAKE_POINTS, WAKE_STEP } from '../../src/render/boatWakes';
+import { seaWaveUniforms } from '../../src/render/sea';
+import { WAVE_UNIFORMS } from '../../src/render/waves';
 
 const DT = 1 / 60;
 
@@ -98,11 +100,11 @@ describe('boat wakes', () => {
 
   it('rides the sea\'s waves in one transparent draw that writes no depth', () => {
     const w = new BoatWakes();
-    const u = { uWavePhase: { value: new THREE.Vector4() }, uSeaAmp: { value: 0.3 }, uDisplace: { value: 1 }, uSeaOrigin: { value: new THREE.Vector2() } };
+    const u = seaWaveUniforms();
+    u.uDisplace.value = 1;
     w.bindSea(u);
     const mat = w.mesh.material as THREE.ShaderMaterial;
-    expect(mat.uniforms.uDisplace).toBe(u.uDisplace);
-    expect(mat.uniforms.uWavePhase).toBe(u.uWavePhase);
+    for (const k of WAVE_UNIFORMS) expect(mat.uniforms[k], k).toBe(u[k]);
     expect(mat.vertexShader).toContain('uDisplace * seaDisplace(position.xz)');
     expect(mat.transparent).toBe(true);
     expect(mat.depthWrite).toBe(false);

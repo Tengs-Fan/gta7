@@ -7,7 +7,9 @@ import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
 import { CAUSEWAY_NAME } from '../world/country';
 import { mkRect, type CityLayout, type Rect } from '../world/layout';
-import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
+import type { StaticWorld } from '../world/staticWorld';
+import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setSeaShelter, setShore, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
+import { bakeSeaShelter } from './seaShelter';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 import { CALM_SEA } from './waves';
 import { assets } from './assets';
@@ -873,7 +875,7 @@ export class Environment {
   /** The waves and shoreline the sea (and the foam rings on it) are drawn with. */
   readonly sea: SeaUniforms = seaUniforms();
   private readonly seaPlane = seaPlane();
-  /** High's wave grid, built when first shown (setWaterGrid). */
+  /** The wave grid (High and Medium), built when first shown (setWaterGrid). */
   private seaGridGeo: THREE.BufferGeometry | null = null;
   /** Offsets of the sea's two ripple samples (see RIPPLE_B), each in its own sample's tiles. */
   private readonly rippleA = { value: new THREE.Vector2() };
@@ -1164,20 +1166,25 @@ export class Environment {
   private readonly cityCentre = new THREE.Vector2();
 
   /**
-   * The shoreline's terrain (the layout's land and beach, and Las Lomas County's beaches, baked from its ground), and
-   * the city's land and centre for its glow on the night sky.
+   * The shoreline's terrain (the layout's land and beach, and Las Lomas County's beaches, baked from its ground), the
+   * waves' shelter and depth (bakeSeaShelter), and the city's land and centre for its glow on the night sky.
    */
-  setShore(layout: CityLayout): void {
+  setShore(world: StaticWorld): void {
+    const layout = world.layout;
     const b = layout.bounds;
     setShore(this.sea, b);
-    setCountyShore(this.sea, countyShore(layout.country));
+    const county = countyShore(layout.country);
+    setCountyShore(this.sea, county);
+    this.sea.uSeaShelter.value.dispose();
+    setSeaShelter(this.sea, bakeSeaShelter(world, county));
     this.glowLand = cityLand(layout);
     this.cityCentre.set((b.cityMinX + b.cityMaxX) / 2, (b.cityMinZ + b.cityMaxZ) / 2);
   }
 
   /**
-   * High: the sea is the displaced wave grid; otherwise the flat plane with the same waves in its normals. Only the
-   * geometry and a uniform change, so the sea's program is shared. Never on the software sea (it has no grid path).
+   * High and Medium: the sea is the displaced wave grid; otherwise the flat plane with the same waves in its normals.
+   * Only the geometry and a uniform change, so the sea's program is shared. Never on the software sea (it has no grid
+   * path).
    */
   setWaterGrid(on: boolean): void {
     const grid = on && !this.software;

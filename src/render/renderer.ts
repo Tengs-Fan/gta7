@@ -31,7 +31,7 @@ import { CountryView } from './country';
 import { PropsView } from './props';
 import { Rain, SOFTWARE_RAIN_DROPS } from './rain';
 import { RegattaView } from './regatta';
-import { setPilings, setSeaCuts } from './sea';
+import { seaHeightAt, setPilings, setSeaCuts } from './sea';
 import { buildCoverMap, coverAt, type CoverMap } from './rainCover';
 import { COUNTRY_FOG_MARGIN, FEW_POINT_LIGHTS, gpuClass, pixelRatioFor, probeGpu, QUALITY, softwarePixelRatioFor, type GpuProbe, type QualityTier, type TierSpec } from './quality';
 import { HARDWARE_CHUNK_SIZE, STATIC_CHUNK_SIZE } from './spatial';
@@ -39,7 +39,7 @@ import { SoftwareMaterials } from './softwareMaterials';
 import { TurbineView } from './turbines';
 import { ClassViewPool, type AnyVehicleView } from './classViews';
 import type { BikeView } from './bikeView';
-import type { BoatView } from './boatView';
+import { BoatView, SLAM_SPEED } from './boatView';
 import { SHADOW_LAYER, VehiclePartBatches } from './vehicleBatches';
 import { fadeMaterial, freezeVehicleParts, VehicleView } from './vehicleView';
 import { assets } from './assets';
@@ -293,7 +293,7 @@ export class GameRenderer {
 
     // Without half-float targets there is no environment map (three's PMREM needs them).
     this.env = new Environment(this.scene, this.renderer, { hdr: this.hdr, software: this.software });
-    this.env.setShore(world.layout);
+    this.env.setShore(world);
     setPilings(this.env.sea, world.layout.decks.filter((d) => !d.bridge && !d.dirt));
     setSeaCuts(this.env.sea, world.layout.water.map((w) => w.bounds));
     this.effects.foam.bindSea(this.env.sea);
@@ -1023,7 +1023,16 @@ export class GameRenderer {
       }
       if (v.spec.class === 'boat') {
         // Foam and spray on the tiers that draw tyre spray; a boat in its own view rides the drawn swell.
-        if (wake && !v.destroyed && d2 < BOAT_WAKE_RANGE * BOAT_WAKE_RANGE && Math.abs(v.pos.y - WATER_Y) < 0.5) fx.boatWake(v, view?.group.position.y ?? WATER_Y, dt);
+        const sea = WATER_Y + seaHeightAt(this.env.sea, v.pos.x, v.pos.z);
+        if (wake && !v.destroyed && d2 < BOAT_WAKE_RANGE * BOAT_WAKE_RANGE && Math.abs(v.pos.y - WATER_Y) < 0.5) fx.boatWake(v, sea, dt);
+        // A hull slamming down off a crest throws the sea up round its bow (and shakes the camera riding it).
+        if (view instanceof BoatView && view.slam > 0) {
+          if (view.slam > SLAM_SPEED && d2 < BOAT_WAKE_RANGE * BOAT_WAKE_RANGE) {
+            fx.splash(v.pos.x + fxh * v.halfL * 0.6, sea, v.pos.z + fzh * v.halfL * 0.6, view.slam > 2 * SLAM_SPEED ? 'big' : 'body');
+            if (v === this.me(sim).character.vehicle) this.cameraCtl.addShake(Math.min(0.5, 0.06 * view.slam));
+          }
+          view.slam = 0;
+        }
         continue;
       }
       // Wading (its wheels on the sand under the sea; deeper than the sim's flooding depth it is inWater): spray and a wake.

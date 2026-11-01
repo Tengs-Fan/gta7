@@ -1,5 +1,5 @@
 // The sea surface: the Gerstner waves (render/waves.ts) and the analytic shoreline patched into the sea's
-// standard material, the camera-snapped wave grid drawn on High, and the software sea's shader. The sea is lit as
+// standard material, the camera-snapped wave grid drawn on High and Medium, and the software sea's shader. The sea is lit as
 // water: a dark body, and the sky it mirrors by Fresnel above the horizon; the sun and moon glint in its ripples, light
 // glows through its crests and whitecaps break on them in a storm. The body's colour follows a render-only shelf that
 // keeps falling offshore (turquoise shallows, dark open water), its five ripple layers are warped and modulated by
@@ -12,7 +12,10 @@ import { BEACH_W, CURB_H, SAND_DROP, SEABED_Y, WATER_Y } from '../world/constant
 import { countryGround, type Country } from '../world/country';
 import { rectContains, type Bounds, type Rect } from '../world/layout';
 import { WATER_TILT } from './textures';
-import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_SLOPE2_GLSL, SEA_WAVES_GLSL, SKIRT_EXTENT, wavePhases } from './waves';
+import {
+  CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, OPEN_SEA, SEA_SLOPE2_GLSL, SEA_WAVES_GLSL, SKIRT_EXTENT, SURF_DEPTH, SURF_GAMMA, SURF_K, SURF_SHOAL, SWELL, seaHeight,
+  surfPhase, wavePhases, type SeaSurface, type ShelterMap, type WaveUniform,
+} from './waves';
 
 /** The sand's drop-off into deep water past the beach's end (CityView.buildCoast), m. */
 const DROP_OFF = 25;
@@ -93,10 +96,11 @@ export const SKY_MOON_HALO = { color: [0.55, 0.62, 0.8], tight: { gain: 0.16, fa
  */
 export const SEA_GLINT_MAX = 6;
 /**
- * Whitecaps break on the crests once the sea state passes the first of these, and spread down them to the second (a
- * full storm); calm and plain rain (sea state 0.3) have none.
+ * Whitecaps break on the crests whose compression (seaWave's steep, the sum of Gerstner's steepness times slope: how near
+ * they are to breaking) passes the first of these, and cover them by the second. The crests reach at most 0.09 at calm
+ * and in plain rain (sea state 0.3: no whitecaps), 0.66 in a storm; they start breaking from about sea state 0.5.
  */
-export const WHITECAP_SEA = [0.45, 1] as const;
+export const WHITECAP_STEEP = [0.2, 0.45] as const;
 /**
  * The light that shines through a thin crest towards an eye looking into the sun or moon (linear, per unit of light):
  * the water's green-blue glow on the backs of the waves (SEA_DIRECT_GLSL).
@@ -320,14 +324,25 @@ export interface SeaSky {
   intensity: { value: number };
 }
 
-/** Uniforms shared by every material that follows the sea: the sea itself, and the foam rings and boat wakes on it. */
-export interface SeaUniforms {
+/**
+ * The waves' uniforms (SEA_WAVES_GLSL), shared by every material that follows the sea: the sea itself, and the foam
+ * rings and boat wakes on it. uSeaShelter's `map` is the shelter map the texture holds, for the CPU twin.
+ */
+export interface SeaWaveUniforms {
   uWavePhase: { value: THREE.Vector4 };
+  uChopPhase: { value: THREE.Vector4 };
   uSeaAmp: { value: number };
   uDisplace: { value: number };
   uSeaOrigin: { value: THREE.Vector2 };
-  /** Surf bands' and quay-foam pulse's phases (rad, each wrapped after its own rate), and the foam noise's drift. */
+  /** The breakers' and the surf bands' phase (surfPhase). */
   uSurfPhase: { value: number };
+  uSeaShelter: { value: THREE.DataTexture; map: ShelterMap | null };
+  uSeaShelterBox: { value: THREE.Vector4 };
+}
+
+/** Uniforms shared by the sea's own materials: the waves', and the shore's and the sky's. */
+export interface SeaUniforms extends SeaWaveUniforms {
+  /** The quay-foam pulse's phase (rad, wrapped after its own rate), and the foam noise's drift. */
   uQuayPhase: { value: number };
   uFoamDrift: { value: THREE.Vector2 };
   /** landMinX, landMinZ, landMaxZ, beachEndX. */
@@ -367,13 +382,39 @@ export interface SeaUniforms {
   uCountyLand: { value: THREE.Vector4[] };
 }
 
-export function seaUniforms(): SeaUniforms {
+/** The shelter map's texture: its four values per point as half floats, filtered bilinearly, clamped at its edge. */
+function shelterTexture(data: Float32Array, nx: number, nz: number): THREE.DataTexture {
+  const half = new Uint16Array(data.length);
+  for (let i = 0; i < half.length; i++) half[i] = THREE.DataUtils.toHalfFloat(data[i]!);
+  const tex = new THREE.DataTexture(half, nx, nz, THREE.RGBAFormat, THREE.HalfFloatType);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Fresh wave uniforms: calm, flat, and open sea everywhere until setSeaShelter. */
+export function seaWaveUniforms(): SeaWaveUniforms {
   return {
     uWavePhase: { value: new THREE.Vector4() },
+    uChopPhase: { value: new THREE.Vector4() },
     uSeaAmp: { value: CALM_SEA },
     uDisplace: { value: 0 },
     uSeaOrigin: { value: new THREE.Vector2() },
     uSurfPhase: { value: 0 },
+    uSeaShelter: { value: shelterTexture(new Float32Array(OPEN_SEA), 1, 1), map: null },
+    uSeaShelterBox: { value: new THREE.Vector4(0, 0, 1, 1) },
+  };
+}
+
+/** The wave uniforms of `u`, for a material that follows the sea to share. */
+export function waveUniformsOf(u: SeaWaveUniforms): Pick<SeaWaveUniforms, WaveUniform> {
+  return { uWavePhase: u.uWavePhase, uChopPhase: u.uChopPhase, uSeaAmp: u.uSeaAmp, uDisplace: u.uDisplace, uSeaOrigin: u.uSeaOrigin, uSurfPhase: u.uSurfPhase, uSeaShelter: u.uSeaShelter, uSeaShelterBox: u.uSeaShelterBox };
+}
+
+export function seaUniforms(): SeaUniforms {
+  return {
+    ...seaWaveUniforms(),
     uQuayPhase: { value: 0 },
     uFoamDrift: { value: new THREE.Vector2() },
     // No land until setShore: deep water everywhere.
@@ -428,6 +469,13 @@ export function setCountyShore(u: SeaUniforms, c: CountyShore): void {
   });
 }
 
+/** Feeds the waves the shelter map (render/seaShelter.ts) as a texture (the caller disposes the one it replaces), and its box. */
+export function setSeaShelter(u: SeaWaveUniforms, m: ShelterMap): void {
+  u.uSeaShelter.value = shelterTexture(m.data, m.nx, m.nz);
+  u.uSeaShelter.map = m;
+  u.uSeaShelterBox.value.set(m.minX, m.minZ, 1 / (m.nx * m.cell), 1 / (m.nz * m.cell));
+}
+
 /** Feeds the quay foam the bounds of the water cut into the land (layout.water). */
 export function setSeaCuts(u: SeaUniforms, cuts: readonly Rect[]): void {
   u.uSeaCuts.value.forEach((v, i) => {
@@ -446,27 +494,59 @@ export function setPilings(u: SeaUniforms, decks: ReadonlyArray<{ rect: Rect }>)
   });
 }
 
-const tmpPhases = [0, 0, 0, 0];
-const SURF_RATE = 1.2;
-/** The quay foam pulses this much faster than the surf bands roll in. */
-const QUAY_PULSE = 1.4;
+const tmpPhases = wavePhases(0);
+/** The quay foam's pulse (rad/s). */
+const QUAY_RATE = 1.68;
 
-/** The surf bands' and quay pulse's phases at renderer time `time`, wrapped to [0, 2pi) after their rates apply. */
-export function surfPhases(time: number): { surf: number; quay: number } {
-  const TAU = Math.PI * 2;
-  return { surf: (time * SURF_RATE) % TAU, quay: (time * SURF_RATE * QUAY_PULSE) % TAU };
+/**
+ * The surf's phase (the breakers' and the foam bands', surfPhase: in step with the swell over the east beach, whose
+ * start is `beachStartX`) and the quay pulse's at renderer time `time`, each wrapped to [0, 2pi).
+ */
+export function surfPhases(time: number, beachStartX: number): { surf: number; quay: number } {
+  return { surf: surfPhase(wavePhases(time, tmpPhases)[0]!, beachStartX), quay: (time * QUAY_RATE) % (Math.PI * 2) };
 }
 
 /** Per frame: the waves' phases at renderer time `time`, the sea state, and the grid's centre. */
 export function updateSea(u: SeaUniforms, time: number, seaState: number, originX: number, originZ: number): void {
   const p = wavePhases(time, tmpPhases);
   u.uWavePhase.value.set(p[0]!, p[1]!, p[2]!, p[3]!);
+  u.uChopPhase.value.set(p[SWELL]!, p[SWELL + 1]!, p[SWELL + 2]!, p[SWELL + 3]!);
   u.uSeaAmp.value = Math.min(1, Math.max(0, seaState));
   u.uSeaOrigin.value.set(originX, originZ);
-  const phases = surfPhases(time);
+  const phases = surfPhases(time, u.uShoreBeach.value.x);
   u.uSurfPhase.value = phases.surf;
   u.uQuayPhase.value = phases.quay;
   u.uFoamDrift.value.set((time * 0.013) % 1, (time * 0.009) % 1);
+}
+
+/** The sea as the CPU twin needs it this frame, read off the wave uniforms (into `out`). */
+export function seaSurface(u: SeaWaveUniforms, out: SeaSurface = { phases: wavePhases(0), surf: 0, sea: 0, ox: 0, oz: 0, shelter: null }): SeaSurface {
+  const a = u.uWavePhase.value;
+  const b = u.uChopPhase.value;
+  const p = out.phases;
+  p[0] = a.x;
+  p[1] = a.y;
+  p[2] = a.z;
+  p[3] = a.w;
+  p[SWELL] = b.x;
+  p[SWELL + 1] = b.y;
+  p[SWELL + 2] = b.z;
+  p[SWELL + 3] = b.w;
+  out.surf = u.uSurfPhase.value;
+  out.sea = u.uSeaAmp.value;
+  out.ox = u.uSeaOrigin.value.x;
+  out.oz = u.uSeaOrigin.value.y;
+  out.shelter = u.uSeaShelter.map;
+  return out;
+}
+
+const scratchSurface = seaSurface(seaWaveUniforms());
+
+/** The drawn sea's height over WATER_Y at world (x, z) (seaHeight); 0 everywhere where the sea is drawn flat. */
+export function seaHeightAt(u: SeaWaveUniforms | null, x: number, z: number): number {
+  const displace = u ? u.uDisplace.value : 0;
+  if (!u || displace <= 0) return 0;
+  return seaHeight(seaSurface(u, scratchSurface), x, z) * displace;
 }
 
 const n = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));
@@ -483,7 +563,6 @@ uniform vec4 uShoreBeach;
 uniform sampler2D uCountyDepth;
 uniform vec4 uCountyBox;
 uniform vec4 uCountyLand[${MAX_COUNTY_LAND}];
-uniform float uSurfPhase;
 uniform float uQuayPhase;
 uniform vec2 uFoamDrift;
 uniform vec3 uShallow;
@@ -573,16 +652,17 @@ float seaWaterlineX() {
   return uShoreBeach.x + uShoreBeach.y * (uShoreBeach.w - ${n(WATER_Y)}) / uShoreBeach.z;
 }
 /**
- * Foam 0..1: surf bands moving shoreward over the beach, the swash along the waterline, a pulsing strip along the quay
- * walls, and rings round the pilings (px: m per screen pixel).
+ * Foam 0..1: surf bands moving shoreward over the beach from where the waves break (the depth that caps the breakers,
+ * seaShoal, at the shelter here), the swash along the waterline, a pulsing strip along the quay walls, and rings round
+ * the pilings (px: m per screen pixel).
  */
-float seaFoam(vec2 p, float depth, float noise, float sea, float px) {
+float seaFoam(vec2 p, float depth, float shelter, float noise, float sea, float px) {
   float onBeach = seaOnBeach(p);
-  float reach = 0.6 + 0.9 * sea;
+  float reach = min(${n(SURF_DEPTH[1])}, shelter * seaHalfHeight() * ${n(SURF_SHOAL / SURF_GAMMA)});
   float shore = 1.0 - smoothstep(0.0, reach, depth);
-  float band = 0.5 + 0.5 * sin(depth * 12.566 + uSurfPhase + noise * 2.0);
-  // The bands dissolve 4-8 m out (0.12-0.22 m deep), short of the swash, so they never merge with it into a sheet and
-  // the foam at the waterline stays a band that hugs it.
+  float band = 0.5 + 0.5 * sin(depth * ${n(SURF_K)} + uSurfPhase + noise * 2.0);
+  // The bands ride the breakers' fronts (seaSurfPhase lags them by SURF_LAG) and dissolve 4-8 m out (0.12-0.22 m deep),
+  // short of the swash, so they never merge with it into a sheet and the foam at the waterline stays a band that hugs it.
   float bands = smoothstep(0.55, 0.9, band + (noise - 0.5) * 0.5) * shore * smoothstep(${n(SURF_BAND_FADE[0])}, ${n(SURF_BAND_FADE[1])}, depth);
   // The swash surges up the sand and draws back with the surf phase (1.3-2.5 m out at sea state 0.3).
   float surge = 0.5 + 0.5 * sin(uSurfPhase + 1.7 + noise * 1.5);
@@ -698,34 +778,25 @@ vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
 `;
 
 /**
- * The waves' crests: seaCrest(p) is their height at p over the most they can add up to at this sea state, -1 in the
- * deepest trough to 1 where every crest meets. seaWhitecap gives the foam on them 0..1 (WHITECAP_SEA), broken into
- * patches by the foam noise and lace, and softened to a faint even cover as a pixel grows past their size (px: m per
- * pixel).
+ * The whitecaps on the waves' crests, 0..1 (WHITECAP_STEEP), from the crests' compression here (steep) and where every
+ * crest meets (most; seaWave): broken into patches by the foam noise and lace, and softened, as a pixel grows past
+ * their size (px: m per pixel), into a faint even cover as thick as the sea's tallest crests break.
  */
 const SEA_CREST_GLSL = /* glsl */ `
-float seaCrest(vec2 p) {
-  return seaDisplace(p).y / max(dot(SEA_AMP, vec4(1.0)) * uSeaAmp, 1e-3);
-}
-float seaWhitecap(float crest, float noise, float lace, float sea, float px) {
-  float rough = smoothstep(${n(WHITECAP_SEA[0])}, ${n(WHITECAP_SEA[1])}, sea);
+float seaWhitecap(float steep, float most, float noise, float lace, float px) {
   // The noise and lace are ripple slopes, a few hundredths either side of 0.5: stretched to about -1..1.
   float patchy = (noise - 0.5) * 12.0;
   float fine = (lace - 0.5) * 8.0;
-  float edge = mix(1.0, 0.5, rough);
-  float cap = smoothstep(edge, edge + 0.3, crest + 0.3 * patchy);
+  float cap = smoothstep(${n(WHITECAP_STEEP[0])}, ${n(WHITECAP_STEEP[1])}, steep + 0.05 * patchy);
   // Holes open in the lace where the cap thins out, and its thin edges let the water show through.
   cap *= smoothstep(-0.4, 0.6, fine + cap - 0.6);
-  return rough * 0.75 * mix(cap, 0.08, smoothstep(0.6, 2.5, px));
+  return 0.75 * mix(cap, 0.08 * smoothstep(${n(WHITECAP_STEEP[0])}, ${n(WHITECAP_STEEP[1])}, 0.6 * most), smoothstep(0.6, 2.5, px));
 }
 `;
 
-/** Waves damp to this share of their height where the water is shallowest, so the waterline stays near the sim's. */
-export const SHORE_DAMP = 0.35;
-
 /**
  * Patches the sea's (already ripple-patched) standard material: world-anchored ripple UVs (the mesh follows the
- * camera), vertex displacement scaled by uDisplace (damped over the shallows), the ripples warped and their strength
+ * camera), vertex displacement scaled by uDisplace (sheltered and shoaled in seaDisplace), the ripples warped and their strength
  * modulated by low-frequency samples of the ripple tile itself and by the sea state, a third, fourth and fifth ripple
  * layer, every layer faded out with distance into the roughness (RIPPLE_FADE), the wave slopes added to the ripple
  * normal, the shallows' colour and foam, water's reflectance (SEA_F0), its direct light (SEA_DIRECT_GLSL) and the sky
@@ -759,7 +830,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   vNormalMapUv = ( normalMapTransform * vec3( seaBase.x / 6000.0 + 0.5, 0.5 - seaBase.z / 6000.0, 1.0 ) ).xy;
 #endif`,
       )
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\n  transformed += uDisplace * seaDisplaceEdge( seaBase.xz, aEdge ) * mix( ${n(SHORE_DAMP)}, 1.0, smoothstep( 0.0, 2.0, seaDepthAt( seaBase.xz ) ) );`);
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed += uDisplace * seaDisplaceEdge( seaBase.xz, aEdge );');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\n${SEA_SKY_GLSL}\n${SEA_CREST_GLSL}\nvarying vec2 vSeaXZ;`)
       .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${SEA_DIRECT_GLSL}`)
@@ -783,16 +854,16 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   // Metres of water per screen pixel.
   float seaPx = length( fwidth( vSeaXZ ) );
   float seaFoamAmt = 0.0;
-  float seaCrestH = seaCrest( vSeaXZ );
-  // Thin crests glow when the eye looks through them into the light; a storm's taller ones more.
-  seaGlow = saturate( seaCrestH ) * saturate( seaCrestH ) * ( 0.3 + 0.7 * uSeaAmp );
+  SeaWave seaW = seaWave( vSeaXZ, dFdx( vSeaXZ ), dFdy( vSeaXZ ) );
+  // Thin crests glow when the eye looks through them into the light; steep ones more.
+  seaGlow = saturate( seaW.height ) * saturate( seaW.height ) * ( 0.3 + 0.7 * smoothstep( 0.0, ${n(WHITECAP_STEEP[1])}, seaW.steep ) );
 #ifdef USE_NORMALMAP
   {
     vec2 fuv = vSeaXZ * 0.031 + uFoamDrift;
     float seaNoise = texture2D( normalMap, fuv ).x * 0.6 + texture2D( normalMap, fuv * 2.37 + 0.31 ).y * 0.4;
-    seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp, seaPx );
+    seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaShelterAt( vSeaXZ ).x, seaNoise, uSeaAmp, seaPx );
     float seaLace = texture2D( normalMap, vSeaXZ * 0.21 + uFoamDrift.yx * 4.0 ).y;
-    seaFoamAmt = max( seaFoamAmt, seaWhitecap( seaCrestH, seaNoise, seaLace, uSeaAmp, seaPx ) * smoothstep( 0.5, 2.0, seaDepth ) );
+    seaFoamAmt = max( seaFoamAmt, seaWhitecap( seaW.steep, seaW.most, seaNoise, seaLace, seaPx ) * smoothstep( 0.5, 2.0, seaDepth ) );
   }
 #endif
   diffuseColor.rgb = mix( seaShallows( diffuseColor.rgb, seaDepth, vSeaXZ ), vec3( 0.82, 0.86, 0.86 ), seaFoamAmt );`,
@@ -817,10 +888,9 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
       .replace(
         '#include <emissivemap_fragment>',
         `{
-    float seaDist = distance( cameraPosition.xz, vSeaXZ );
-    vec2 seaS = seaSlope( vSeaXZ, seaDist ) * ( 1.0 - 0.6 * seaFoamAmt );
+    vec2 seaS = seaW.slope * ( 1.0 - 0.6 * seaFoamAmt );
     // The mean square slope of everything faded out with distance, which the roughness takes over.
-    float seaLost = seaSlopeLost( seaDist );
+    float seaLost = seaW.lost;
 #ifdef USE_NORMALMAP
     // A third, finer ripple layer, turned and drifting its own way (uFoamDrift wraps at 1: whole tiles of this layer).
     float seaKeptC = ${kept(c.tile)};
@@ -839,7 +909,8 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
       ${n(RIPPLE_AB_GAIN * RIPPLE_AB_GAIN)} * ( 1.0 - seaKeptAB * seaKeptAB ) + ${n(c.weight * c.weight)} * ( 1.0 - seaKeptC * seaKeptC )
       + ${n(d.weight * d.weight)} * ( 1.0 - seaKeptD * seaKeptD ) + ${n(e.weight * e.weight)} * ( 1.0 - seaKeptE * seaKeptE ) );
 #endif
-    normal = normalize( normal + mat3( viewMatrix ) * vec3( -seaS.x, 0.0, -seaS.y ) );
+    // Gerstner's normal rises less at a crest, where the water bunches up (seaW.kept): the crests sharpen.
+    normal = normalize( normal + mat3( viewMatrix ) * vec3( -seaS.x, - min( seaW.kept, 0.6 ) * ( 1.0 - 0.6 * seaFoamAmt ), -seaS.y ) );
     // Beckmann's alpha squared is the facets' mean square slope: the lost slopes add to the material's own (alpha = r^2).
     roughnessFactor = mix( sqrt( sqrt( pow4( roughnessFactor ) + seaLost ) ), 0.85, seaFoamAmt );
   }
@@ -893,8 +964,8 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
         float light = 1.0 - uNight * 0.94;
         vec3 sea = seaShallows(vec3(${[mid.r, mid.g, mid.b].map((c) => c.toFixed(4)).join(', ')}), depth, vWorld.xz) * ${n(SOFTWARE_BODY)} * light;
         float onBeach = seaOnBeach(vWorld.xz);
-        float shore = 1.0 - smoothstep(0.0, 0.6 + 0.9 * uSeaAmp, depth);
-        float band = smoothstep(0.6, 0.9, 0.5 + 0.5 * sin(depth * 12.566 + uSurfPhase + ripple.z * 2.0));
+        float shore = 1.0 - smoothstep(0.0, min(${n(SURF_DEPTH[1])}, seaShelterAt(vWorld.xz).x * seaHalfHeight() * ${n(SURF_SHOAL / SURF_GAMMA)}), depth);
+        float band = smoothstep(0.6, 0.9, 0.5 + 0.5 * sin(depth * ${n(SURF_K)} + uSurfPhase + ripple.z * 2.0));
         float foam = clamp(band * shore * onBeach * (0.55 + 0.6 * uSeaAmp), 0.0, 1.0);
         vec3 glint = uKeyLight * pow(max(dot(reflection, uKeyDir), 0.0), 600.0) * 40.0 * fresnel;
         vec3 col = mix(sea, sky, fresnel * (1.0 - foam)) + min(glint, vec3(${n(SEA_GLINT_MAX)})) * (1.0 - foam);
@@ -905,7 +976,7 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
       }`,
   });
 }
-/** The plane drawn on every tier but High (and on software), centred on the camera like the grid. */
+/** The plane drawn on Low (and on software), centred on the camera like the grid. */
 export function seaPlane(): THREE.BufferGeometry {
   const g = new THREE.PlaneGeometry(SKIRT_EXTENT * 2, SKIRT_EXTENT * 2).rotateX(-Math.PI / 2);
   g.setAttribute('aEdge', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2));
@@ -913,7 +984,7 @@ export function seaPlane(): THREE.BufferGeometry {
 }
 
 /**
- * High's wave grid in XZ around its centre: 1 m cells to FINE_EXTENT, COARSE_CELL cells to COARSE_EXTENT, then a
+ * The wave grid (High and Medium) in XZ around its centre: 1 m cells to FINE_EXTENT, COARSE_CELL cells to COARSE_EXTENT, then a
  * flat skirt to SKIRT_EXTENT whose inner rim shares the coarse ring's vertices. The fine ring's rim vertices that
  * fall between coarse ones carry aEdge (the rim's direction), so the shader puts them on the coarse ring's edges.
  * The mesh is moved in whole COARSE_CELL steps (Environment), so every vertex stays on a fixed world lattice.

@@ -1,11 +1,12 @@
 // Boats (class 'boat'), drawn by their own view from the procedural hulls in boatModels.ts: the painted topsides, one
 // palette draw for the rest (bottom, cockpit, seats, console and wheel, rails, outboard), the speedboat's glass
 // windscreen, and a foam ring at the waterline; the bow and stern lights go through the shared part batches, and a
-// coarse proxy casts the shadow. The sim floats a boat flat at WATER_Y; this view bobs, pitches and rolls the hull on
-// the waves the sea draws (render/waves.ts, through the sea's own uniforms: on High the displaced wave grid, elsewhere
-// a gentle bob of a few centimetres), lifts the bow as it planes and leans it a little out of a turn, and lays the
-// foam ring on the drawn sea surface round the hull. All of that is presentation: nothing here feeds back into the
-// sim. Riders sit in its frame (riders.ts, posed by CrowdView).
+// coarse proxy casts the shadow. The sim floats a boat flat at WATER_Y; this view heaves, pitches and rolls the hull on
+// the waves the sea draws (render/waves.ts, through the sea's own uniforms: on High and Medium the displaced wave grid,
+// elsewhere a gentle bob of a few centimetres), its bow and stern unable to drop faster than they would fall, so at
+// speed it leaves a crest and slams down beyond it; it lifts the bow as it planes and leans it a little out of a turn,
+// and lays the foam ring on the drawn sea surface round the hull. All of that is presentation: nothing here feeds back
+// into the sim. Riders sit in its frame (riders.ts, posed by CrowdView).
 
 import * as THREE from 'three';
 import { damp } from '../core/math';
@@ -16,15 +17,15 @@ import { WATER_Y } from '../world/constants';
 import { boatModel, type BoatLamp, type BoatModel } from './boatModels';
 import type { LampGlow } from './lightSprites';
 import { setRiderMount, type RiderMount } from './riders';
-import type { SeaUniforms } from './sea';
+import { seaSurface, seaWaveUniforms, type SeaWaveUniforms } from './sea';
 import { paintMaterial, paletteMaterial } from './shapeKit';
 import { PART_LAYER, SHADOW_LAYER, type VehiclePartBatches } from './vehicleBatches';
 import { LAMP_LENS, vehicleGlass } from './vehicleView';
-import { CALM_SEA, waveDisplacement } from './waves';
+import { CALM_SEA, seaHeight, type SeaSurface } from './waves';
 import { GroupFade } from './viewFade';
 import { burntMaterial } from './fx/burnt';
 
-/** Without the wave grid (Medium, Low, software) the hull bobs this much (m) and pitches this much (rad). */
+/** Without the wave grid (Low, software) the hull bobs this much (m) and pitches this much (rad). */
 export const GENTLE_BOB = 0.05;
 const GENTLE_PITCH = 0.012;
 /** Bow lift (rad) at full planing speed, and lean (rad) per rad/s of yaw rate. */
@@ -34,6 +35,17 @@ const TURN_LEAN = 0.06;
 export const FOAM_LIFT = 0.03;
 export const FOAM_IN = 0.02;
 export const FOAM_OUT = 0.5;
+/** How fast (m/s^2) the hull's bow and stern may drop to follow the sea: a free fall. */
+export const HULL_FALL = 9.81;
+/** A hull coming down on the water this fast (m/s, against the surface) slams into it (BoatView.slam). */
+export const SLAM_SPEED = 1.5;
+/**
+ * The bow and stern ride the sea this share of the hull's half length out from its middle, each on the mean of the
+ * sea at three points HULL_SPREAD of the half length apart along the hull (as the hull spans the short chop's crests and
+ * troughs, rather than bobbing on each).
+ */
+const HULL_REACH = 0.8;
+const HULL_SPREAD = 0.3;
 
 /** Soot, char and bare metal (fx/burnt.ts), shared by every wreck. */
 const burntMat = burntMaterial();
@@ -162,71 +174,77 @@ function foamRing(m: BoatModel): { base: Float32Array; geometry: THREE.BufferGeo
   return { base, geometry: g };
 }
 
-/** Scratch for boatSwell (it runs per boat per frame). */
-const SWELL_PHASES = [0, 0, 0, 0];
-const SWELL_OUT: [number, number, number] = [0, 0, 0];
+/** The sea under a hull: its heave (m, the mean of four points round it), pitch and roll (rad), and its bow's and stern's heights (m). */
+export interface Swell {
+  heave: number;
+  pitch: number;
+  roll: number;
+  bow: number;
+  stern: number;
+}
 
-/** The hull's drawn heave (m), pitch and roll (rad) on the sea at time `time`, for the boat's pose: see BoatView.sync. */
-export function boatSwell(v: Vehicle, sea: SeaUniforms | null, time: number, out: { heave: number; pitch: number; roll: number }): { heave: number; pitch: number; roll: number } {
+/** Scratch for seaSampler (it runs per boat per frame). */
+const SURFACE: SeaSurface = seaSurface(seaWaveUniforms());
+
+/** The drawn sea's height over WATER_Y for many points of one frame: the uniforms read once (0 everywhere without the grid). */
+function seaSampler(sea: SeaWaveUniforms | null): (x: number, z: number) => number {
   const displace = sea ? sea.uDisplace.value : 0;
+  if (!sea || displace <= 0) return () => 0;
+  const s = seaSurface(sea, SURFACE);
+  return (x, z) => seaHeight(s, x, z) * displace;
+}
+
+/** The drawn sea under the boat at time `time`, for the hull's pose: see BoatView.sync. */
+export function boatSwell(v: Vehicle, sea: SeaWaveUniforms | null, time: number, out: Swell): Swell {
+  const displace = sea ? sea.uDisplace.value : 0;
+  const a = v.halfL * HULL_REACH;
   if (sea && displace > 0) {
-    const ph = sea.uWavePhase.value;
-    const phases = SWELL_PHASES;
-    phases[0] = ph.x;
-    phases[1] = ph.y;
-    phases[2] = ph.z;
-    phases[3] = ph.w;
-    const amp = sea.uSeaAmp.value;
-    const ox = sea.uSeaOrigin.value.x;
-    const oz = sea.uSeaOrigin.value.y;
+    const height = seaSampler(sea);
     const fx = Math.sin(v.heading);
     const fz = Math.cos(v.heading);
-    const a = v.halfL * 0.8;
     const b = v.halfW;
-    const x = v.pos.x;
-    const z = v.pos.z;
-    const bow = waveDisplacement(x + fx * a, z + fz * a, ox, oz, phases, amp, SWELL_OUT)[1] * displace;
-    const stern = waveDisplacement(x - fx * a, z - fz * a, ox, oz, phases, amp, SWELL_OUT)[1] * displace;
-    const left = waveDisplacement(x - fz * b, z + fx * b, ox, oz, phases, amp, SWELL_OUT)[1] * displace;
-    const right = waveDisplacement(x + fz * b, z - fx * b, ox, oz, phases, amp, SWELL_OUT)[1] * displace;
+    const d = v.halfL * HULL_SPREAD;
+    /** The sea along the hull, `along` m forward of its middle and `side` m to its left (three points d apart). */
+    const at = (along: number, side: number) => {
+      const x = v.pos.x + fx * along - fz * side;
+      const z = v.pos.z + fz * along + fx * side;
+      return (height(x - fx * d, z - fz * d) + height(x, z) + height(x + fx * d, z + fz * d)) / 3;
+    };
+    const bow = at(a, 0);
+    const stern = at(-a, 0);
+    const left = at(0, b);
+    const right = at(0, -b);
     out.heave = (bow + stern + left + right) / 4;
     out.pitch = Math.atan2(bow - stern, 2 * a);
     out.roll = Math.atan2(left - right, 2 * b);
-    return out;
+  } else {
+    // No wave grid: a gentle bob that grows a little with the sea state, out of step from boat to boat.
+    const amp = sea ? Math.max(CALM_SEA, sea.uSeaAmp.value) : CALM_SEA;
+    const k = 0.6 + 0.4 * amp;
+    const t = time + (v.id % 17) * 0.37;
+    out.heave = GENTLE_BOB * k * Math.sin(t * 1.3);
+    out.pitch = GENTLE_PITCH * k * Math.sin(t * 1.1 + 0.7);
+    out.roll = GENTLE_PITCH * k * Math.sin(t * 0.9 + 1.9);
   }
-  // No wave grid: a gentle bob that grows a little with the sea state, out of step from boat to boat.
-  const amp = sea ? Math.max(CALM_SEA, sea.uSeaAmp.value) : CALM_SEA;
-  const k = 0.6 + 0.4 * amp;
-  const t = time + (v.id % 17) * 0.37;
-  out.heave = GENTLE_BOB * k * Math.sin(t * 1.3);
-  out.pitch = GENTLE_PITCH * k * Math.sin(t * 1.1 + 0.7);
-  out.roll = GENTLE_PITCH * k * Math.sin(t * 0.9 + 1.9);
+  out.bow = out.heave + a * Math.tan(out.pitch);
+  out.stern = out.heave - a * Math.tan(out.pitch);
   return out;
 }
 
-/** The drawn sea's height over WATER_Y at world (x, z): the wave grid's surface (one step back along its sideways push). */
-export function seaHeightAt(sea: SeaUniforms | null, x: number, z: number): number {
-  return seaSampler(sea)(x, z);
-}
-
-const phaseScratch = [0, 0, 0, 0];
-
-/** seaHeightAt for many points of one frame: the sea's uniforms read once (0 everywhere without the wave grid). */
-function seaSampler(sea: SeaUniforms | null): (x: number, z: number) => number {
-  const displace = sea ? sea.uDisplace.value : 0;
-  if (!sea || displace <= 0) return () => 0;
-  const ph = sea.uWavePhase.value;
-  phaseScratch[0] = ph.x;
-  phaseScratch[1] = ph.y;
-  phaseScratch[2] = ph.z;
-  phaseScratch[3] = ph.w;
-  const ox = sea.uSeaOrigin.value.x;
-  const oz = sea.uSeaOrigin.value.y;
-  const amp = sea.uSeaAmp.value;
-  return (x, z) => {
-    const d = waveDisplacement(x, z, ox, oz, phaseScratch, amp);
-    return waveDisplacement(x - d[0] * displace, z - d[2] * displace, ox, oz, phaseScratch, amp)[1] * displace;
-  };
+/**
+ * One end of the hull: it follows the sea up at once but drops no faster than HULL_FALL lets it, so it leaves a crest
+ * the boat runs over too fast for the water to fall away under it. Returns how hard (m/s) it came down, or 0.
+ */
+function ride(end: { y: number; vy: number; sea: number }, sea: number, dt: number): number {
+  const free = end.y + end.vy * dt - 0.5 * HULL_FALL * dt * dt;
+  const flying = end.y > end.sea + 1e-3;
+  const y = Math.max(sea, free);
+  // Landing: the fall's speed against the water's own as it caught the hull.
+  const impact = flying && free <= sea ? (sea - end.sea) / dt - (end.vy - HULL_FALL * dt) : 0;
+  end.vy = (y - end.y) / dt;
+  end.y = y;
+  end.sea = sea;
+  return impact;
 }
 
 function lampMesh(l: BoatLamp, mat: THREE.Material): THREE.Mesh {
@@ -255,14 +273,21 @@ export class BoatView {
   private readonly sternLamp: THREE.Mesh;
   private readonly model: BoatModel;
   private readonly mount: RiderMount;
-  private readonly swell = { heave: 0, pitch: 0, roll: 0 };
+  private readonly swell: Swell = { heave: 0, pitch: 0, roll: 0, bow: 0, stern: 0 };
+  /** The hull's bow and stern as drawn (m over WATER_Y), their speeds (m/s) and the sea under them last frame (ride). */
+  private readonly bow = { y: 0, vy: 0, sea: 0 };
+  private readonly stern = { y: 0, vy: 0, sea: 0 };
+  /** Whether the bow and stern rode the sea last frame (else they start on it). */
+  private riding = false;
+  /** How hard (m/s) the hull last slammed into the water, for the renderer's spray; it clears it once used. */
+  slam = 0;
   private readonly tmp = new THREE.Vector3();
   private plane = 0;
   private lean = 0;
   private burnt = false;
   private lit = false;
   private color = -1;
-  private sea: SeaUniforms | null = null;
+  private sea: SeaWaveUniforms | null = null;
   private readonly fade = new GroupFade();
   vehicle: Vehicle | null = null;
 
@@ -309,7 +334,7 @@ export class BoatView {
   }
 
   /** Shares the sea's wave uniforms, so the hull rides the waves the sea draws. */
-  bindSea(u: SeaUniforms | null): void {
+  bindSea(u: SeaWaveUniforms | null): void {
     this.sea = u;
   }
 
@@ -318,6 +343,8 @@ export class BoatView {
     this.color = -1;
     this.plane = 0;
     this.lean = 0;
+    this.riding = false;
+    this.slam = 0;
     this.setBurnt(false);
     this.group.visible = true;
   }
@@ -397,14 +424,29 @@ export class BoatView {
     // Waves move a boat afloat, not one sinking, or standing on the sand or on a trailer.
     const afloat = !v.inWater && Math.abs(v.pos.y - WATER_Y) < 0.05;
     const sw = boatSwell(v, this.sea, time, this.swell);
+    // The bow and stern ride the sea, leaving it over a crest taken too fast; a fresh boat (or one back in the water, or
+    // moved further than it could go in a frame) starts on it.
+    const a = v.halfL * HULL_REACH;
+    if (!afloat || !this.riding || Math.hypot(this.group.position.x - v.pos.x, this.group.position.z - v.pos.z) > 20) {
+      this.bow.y = this.bow.sea = sw.bow;
+      this.stern.y = this.stern.sea = sw.stern;
+      this.bow.vy = this.stern.vy = 0;
+    } else if (dt > 0) {
+      const step = Math.min(dt, 0.1);
+      this.slam = Math.max(this.slam, ride(this.bow, sw.bow, step), ride(this.stern, sw.stern, step));
+    }
+    this.riding = afloat;
+    const heave = (this.bow.y + this.stern.y) / 2;
+    const pitch = Math.atan2(this.bow.y - this.stern.y, 2 * a);
     // Planing lifts the bow with speed (a speedboat more than a dinghy); turning leans it out of the turn.
     const speed01 = Math.min(1, Math.max(0, v.forwardSpeed) / v.spec.maxSpeed);
     this.plane = damp(this.plane, PLANE_PITCH * Math.sin(Math.PI * Math.min(1, speed01 * 1.6)) * (this.model.gunwale > 0.6 ? 1 : 0.5), 2.5, dt);
     this.lean = damp(this.lean, Math.max(-0.12, Math.min(0.12, v.angVel * TURN_LEAN * speed01)), 3, dt);
-    this.group.position.set(v.pos.x, v.pos.y + (afloat ? sw.heave : 0), v.pos.z);
+    this.group.position.set(v.pos.x, v.pos.y + (afloat ? heave : 0), v.pos.z);
     this.group.rotation.set(-v.pitch, v.heading, v.roll);
-    this.body.rotation.set(afloat ? -(sw.pitch + this.plane) : 0, 0, afloat ? sw.roll - this.lean : 0);
-    this.layFoam(v, afloat && !v.destroyed);
+    this.body.rotation.set(afloat ? -(pitch + this.plane) : 0, 0, afloat ? sw.roll - this.lean : 0);
+    // No ring of foam round a hull in the air.
+    this.layFoam(v, afloat && !v.destroyed && heave - sw.heave < 0.25);
     this.lit = lampsLit(v, night);
     this.lampMat.emissiveIntensity = this.lit ? 0.6 + night * 4 : 0.2;
     this.sternMat.emissiveIntensity = this.lit ? 1.2 : 0.2;
@@ -423,21 +465,11 @@ export class BoatView {
     const s = Math.sin(v.heading);
     const y0 = WATER_Y + FOAM_LIFT - this.group.position.y;
     const height = seaSampler(this.sea);
-    // Two samples of the sea per column of the ring, one for its inner rows and one for its outer (the rows lie within
-    // FOAM_OUT of each other, a small part of a wave's length).
-    const rows = FOAM_ROWS.length;
-    const n = base.length / 2 / rows;
-    const at = (k: number) => y0 + height(v.pos.x + base[k * 2]! * c + base[k * 2 + 1]! * s, v.pos.z - base[k * 2]! * s + base[k * 2 + 1]! * c);
-    for (let i = 0; i < n; i++) {
-      const k0 = i * rows;
-      const inner = at(k0);
-      const outer = at(k0 + rows - 2);
-      for (let r = 0; r < rows; r++) {
-        const k = k0 + r;
-        arr[k * 3] = base[k * 2]!;
-        arr[k * 3 + 1] = r < rows / 2 ? inner : outer;
-        arr[k * 3 + 2] = base[k * 2 + 1]!;
-      }
+    // Every vertex on the sea: the storm's chop is short enough to bend the ring between its rows.
+    for (let k = 0; k < base.length / 2; k++) {
+      arr[k * 3] = base[k * 2]!;
+      arr[k * 3 + 1] = y0 + height(v.pos.x + base[k * 2]! * c + base[k * 2 + 1]! * s, v.pos.z - base[k * 2]! * s + base[k * 2 + 1]! * c);
+      arr[k * 3 + 2] = base[k * 2 + 1]!;
     }
     pos.needsUpdate = true;
   }

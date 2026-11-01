@@ -89,7 +89,7 @@ const smoothstep = (a: number, b: number, x: number) => {
 function rig(shore: boolean) {
   const renderer = new THREE.WebGLRenderer();
   const env = new Environment(new THREE.Scene(), renderer, { hdr: false });
-  if (shore) env.setShore(world().layout);
+  if (shore) env.setShore(world());
   const cam = new THREE.PerspectiveCamera();
   const u = (env.sky.material as THREE.ShaderMaterial).uniforms;
   const at = (hours: number, x: number, z: number) => {
