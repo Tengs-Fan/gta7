@@ -297,6 +297,7 @@ export class GameRenderer {
     setPilings(this.env.sea, world.layout.decks.filter((d) => !d.bridge && !d.dirt));
     setSeaCuts(this.env.sea, world.layout.water.map((w) => w.bounds));
     this.effects.foam.bindSea(this.env.sea);
+    this.effects.wakes.bindSea(this.env.sea);
     this.pool.bindSea(this.env.sea);
     this.pool.bindGround(world);
     const chunk = this.software ? STATIC_CHUNK_SIZE : HARDWARE_CHUNK_SIZE;

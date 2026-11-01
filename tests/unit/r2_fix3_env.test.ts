@@ -748,7 +748,7 @@ describe('without float colour buffers', () => {
       return shader;
     };
     const sea = seaShader(r.env);
-    expect(sea.fragmentShader).toContain('radiance += skyC * uSkyI');
+    expect(sea.fragmentShader).toContain('vec3 sky = mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI;');
     show(18.6);
     expect((sea.uniforms.uSkyHorizon!.value as THREE.Color).r, 'the sunset horizon').toBeGreaterThan((sea.uniforms.uSkyHorizon!.value as THREE.Color).b);
     expect(sea.uniforms.uSkyI!.value).toBeCloseTo(r.scene.environmentIntensity, 6);
@@ -757,7 +757,10 @@ describe('without float colour buffers', () => {
     hdr.show(12);
     expect((hdr.r.env as unknown as EnvPriv).pmrem).toBeTruthy();
     expect(hdr.r.env.envFill).toBeNull();
-    expect(seaShader(hdr.r.env).fragmentShader).not.toContain('uSkyI');
+    // The sea there still follows the sky's colours, to regrade the map's sky as the dome grades it.
+    hdr.show(18.6);
+    const hdrHorizon = seaShader(hdr.r.env).uniforms.uSkyHorizon!.value as THREE.Color;
+    expect(hdrHorizon.r, 'the sunset horizon').toBeGreaterThan(hdrHorizon.b);
   });
 
   it('every custom shader drawn to the screen tone-maps and sRGB-encodes its own output when there is no output pass', () => {

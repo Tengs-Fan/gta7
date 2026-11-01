@@ -1,5 +1,6 @@
 // The sea's analytic waves: four Gerstner waves shared by the sea's vertex displacement (High), its per-pixel
-// normals (every hardware tier), the software sea (the two longest) and the foam rings that ride on it.
+// normals and crests (every hardware tier), the software sea (the two longest) and the foam rings and boat wakes that
+// ride on it.
 // Free of three.js: the GLSL is plain strings and the CPU twin is used by tests. Visual only: the sim's sea
 // stays flat at WATER_Y.
 
@@ -104,7 +105,7 @@ const vec4 = (vals: readonly number[]): string => `vec4(${vals.map(f).join(', ')
  * seaDisplaceEdge does the same for a vertex on the fine ring's rim (aEdge: the rim's direction, zero elsewhere),
  * interpolating between the coarse ring's neighbouring vertices so the two rings meet without cracks.
  * seaSlope(world xz, distance from the camera) gives the shading slope (dh/dx, dh/dz), each wave fading out
- * before it shrinks below a few pixels.
+ * before it shrinks below a few pixels; seaSlopeLost(distance) the mean square slope those fades took away.
  */
 export const SEA_WAVES_GLSL = /* glsl */ `
 uniform vec4 uWavePhase;
@@ -138,6 +139,12 @@ vec2 seaSlope(vec2 p, float dist) {
   vec4 th = SEA_K * (SEA_DX * p.x + SEA_DZ * p.y) - uWavePhase;
   vec4 d = a * SEA_K * cos(th);
   return vec2(dot(d, SEA_DX), dot(d, SEA_DZ));
+}
+float seaSlopeLost(float dist) {
+  vec4 s = SEA_AMP * uSeaAmp * ${f(NORMAL_GAIN)} * SEA_K;
+  vec4 kept = 1.0 - smoothstep(SEA_LEN * 15.0, SEA_LEN * 40.0, vec4(dist));
+  // A sine of slope amplitude s has a mean square slope of s^2 / 2.
+  return dot(s * s, 1.0 - kept * kept) * 0.5;
 }
 `;
 

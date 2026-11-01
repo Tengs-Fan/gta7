@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ambienceTargets, countyCoast, shoreInfo, type AmbienceInput } from '../../src/audio/ambience';
 import {
-  COUNTY_TEXELS, countyDepthAt, countyShore, MAX_COUNTY_LAND, outsideCounty, outsideLand, patchSeaMaterial, SHELF_SLOPE, SHELF_START, SHORE_GLSL,
+  COUNTY_TEXELS, countyDepthAt, countyShore, MAX_COUNTY_LAND, outsideCounty, outsideLand, patchSeaMaterial, SEA_MID, SHELF_SLOPE, SHELF_START, SHORE_GLSL,
   seaDepthCpu, seaDrawnDepth, seaOnBeach, seaShallowsCpu, seaUniforms, setCountyShore, softwareSeaMaterial, type CountyShore,
 } from '../../src/render/sea';
 import { BEACH_W, CURB_H, SAND_DROP, SEABED_Y, WATER_Y } from '../../src/world/constants';
@@ -178,7 +178,7 @@ describe('the county\'s beaches as the sea draws them', () => {
   it('the shallows read turquoise from the wet sand out to 20 m off the county\'s land, where main drew the deep', () => {
     const u = seaUniforms();
     // The sea material's own colour (Environment's water), linear.
-    const mid = new THREE.Color(0x135a73);
+    const mid = new THREE.Color(SEA_MID);
     const hsl = { h: 0, s: 0, l: 0 };
     const hue = (depth: number, shelf: number) => seaShallowsCpu(u, mid, depth, shelf, new THREE.Color()).convertLinearToSRGB().getHSL(hsl).h * 360;
     const box = county.box;
@@ -230,7 +230,7 @@ describe('the county\'s beaches as the sea draws them', () => {
     expect(count(SHORE_GLSL, /seaDepthAt\(/g)).toBe(1);
     const u = seaUniforms();
     const mat = new THREE.MeshStandardMaterial();
-    patchSeaMaterial(mat, u);
+    patchSeaMaterial(mat, u, { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, intensity: { value: 0 } });
     const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} as Record<string, THREE.IUniform> };
     mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
     expect(count(shader.fragmentShader, /seaDepthAt\(/g)).toBe(2);

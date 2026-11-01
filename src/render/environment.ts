@@ -7,7 +7,7 @@ import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
 import { CAUSEWAY_NAME } from '../world/country';
 import { mkRect, type CityLayout, type Rect } from '../world/layout';
-import { countyShore, patchSeaMaterial, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, snapSea, softwareSeaMaterial, updateSea, type SeaUniforms } from './sea';
+import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 import { CALM_SEA } from './waves';
 import { assets } from './assets';
@@ -70,10 +70,8 @@ export function cityGlow(hours: number): number {
   return h >= 12 ? smoothstep(18.9, 22.1, h) : 1 - smoothstep(3.6, 6.7, h);
 }
 
-/** The city glow's colour on the sky at the horizon (linear), at full strength; it fades upwards over CITY_GLOW_FALL. */
+/** The city glow's colour on the sky at the horizon (linear), at full strength; it fades upwards over SKY_GLOW_FALL.city. */
 const CITY_GLOW = new THREE.Color(0.1, 0.045, 0.006);
-/** The glow's falloff with the sine of the elevation: half strength about 6 degrees up. */
-const CITY_GLOW_FALL = 6.5;
 /**
  * Off the city's land the glow gathers over the city's own horizon: uCityAway runs from 0 on the land (the beach and
  * the city's headlands included) to 1 CITY_AWAY_RANGE m off it, and as it does the glow narrows to the cube of the cosine of the bearing off
@@ -557,44 +555,17 @@ const RIPPLE_B_DRIFT = [
   RIPPLE_B.scale * (RIPPLE_B.sin * RIPPLE_A_DRIFT[0] + RIPPLE_B.cos * RIPPLE_A_DRIFT[1]) + 0.0093,
 ] as const;
 
-/** The baked sky's colours and strength, for the sea to reflect where there is no environment map. */
-interface SkyReflection {
-  top: { value: THREE.Color };
-  horizon: { value: THREE.Color };
-  intensity: { value: number };
-}
-
 /**
  * Patches the sea's standard material to sum the two ripple samples (see RIPPLE_B). Each sample adds its
  * own offset (`offsetA` in the first one's tiles, `offsetB` in the second one's) to the mapped UV, which
  * carries none (the normal map's own offset stays 0): an offset wraps by whole tiles of its own sample,
  * which that sample cannot show, but would move the other one by a fraction of its tile.
- * With `sky` (no environment map: no float colour buffers) the sea also reflects the baked sky's
- * gradient, worked out in the shader as envMat draws it, so it still takes the sky's colour (orange at
- * sunset) on that path.
  */
-function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetA: { value: THREE.Vector2 }, offsetB: { value: THREE.Vector2 }, sky: SkyReflection | null): void {
+function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetA: { value: THREE.Vector2 }, offsetB: { value: THREE.Vector2 }): void {
   const { scale, cos, sin } = RIPPLE_B;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRippleA = offsetA;
     shader.uniforms.uRippleB = offsetB;
-    if (sky) {
-      shader.uniforms.uSkyTop = sky.top;
-      shader.uniforms.uSkyHorizon = sky.horizon;
-      shader.uniforms.uSkyI = sky.intensity;
-      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uSkyTop;\nuniform vec3 uSkyHorizon;\nuniform float uSkyI;').replace(
-        '#include <lights_fragment_maps>',
-        `#include <lights_fragment_maps>
-#if defined( RE_IndirectSpecular ) && ! defined( USE_ENVMAP )
-  {
-    vec3 skyR = inverseTransformDirection( reflect( - geometryViewDir, geometryNormal ), viewMatrix );
-    vec3 skyC = mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, skyR.y ) );
-    skyC = mix( skyC, vec3( ${HAZE.r.toFixed(3)}, ${HAZE.g.toFixed(3)}, ${HAZE.b.toFixed(3)} ) * ( uSkyHorizon + 0.2 ), 1.0 - smoothstep( -0.25, 0.0, skyR.y ) );
-    radiance += skyC * uSkyI;
-  }
-#endif`,
-      );
-    }
     shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uRippleA;\nuniform vec2 uRippleB;').replace(
       '#include <normal_fragment_maps>',
       `#ifdef USE_NORMALMAP_TANGENTSPACE
@@ -611,7 +582,7 @@ function twoLayerRipples(mat: THREE.MeshStandardMaterial, offsetA: { value: THRE
 #endif`,
     );
   };
-  mat.customProgramCacheKey = () => (sky ? 'gta7-sea-ripples-sky' : 'gta7-sea-ripples');
+  mat.customProgramCacheKey = () => 'gta7-sea-ripples';
 }
 
 /** The shadow map's texel grid is measured from a world point on a grid this coarse (m): see Environment.placeShadow. */
@@ -828,12 +799,12 @@ void main() {
   float toCity = max(dot(hz, uCityGlowDir), 0.0);
   float cityK = mix(1.0, toCity * toCity * toCity, uCityAway);
   vec3 horizon = uHorizon + uGlow;
-  vec3 col = max(mix(uHorizon, uTop, t) + uGlow * exp(-max(h, 0.0) * 9.0) + uCityGlow * cityK * exp(-max(h, 0.0) * ${CITY_GLOW_FALL.toFixed(2)}), vec3(0.0));
+  vec3 col = max(mix(uHorizon, uTop, t) + uGlow * exp(-max(h, 0.0) * ${SKY_GLOW_FALL.horizon.toFixed(1)}) + uCityGlow * cityK * exp(-max(h, 0.0) * ${SKY_GLOW_FALL.city.toFixed(2)}), vec3(0.0));
   // Below the horizon fade towards a darker haze.
   if (h < 0.0) col = mix(horizon, horizon * 0.55, clamp(-h * 4.0, 0.0, 1.0));
   float pix = max(length(fwidth(d)), 1e-6);
   float sd = max(dot(d, uSunDir), 0.0);
-  col += uSunColor * (pow(sd, 900.0) * 18.0 + pow(sd, 12.0) * 0.35 + pow(sd, 3.0) * 0.12) * smoothstep(SUN_LO, SUN_HI, uSunDir.y);
+  col += uSunColor * (pow(sd, 900.0) * 18.0 + pow(sd, ${SKY_SUN_HALO.tight.pow.toFixed(1)}) * ${SKY_SUN_HALO.tight.gain.toFixed(2)} + pow(sd, ${SKY_SUN_HALO.wide.pow.toFixed(1)}) * ${SKY_SUN_HALO.wide.gain.toFixed(2)}) * smoothstep(SUN_LO, SUN_HI, uSunDir.y);
   // Brighter away from the city's light.
   if (h > 0.0 && uStars > 0.0) col += stars(d, pix) * uStars * (1.0 + ${STARS_AWAY.toFixed(1)} * uCityAway) * smoothstep(0.02, 0.25, h);
   if (uMoon > 0.0) {
@@ -849,7 +820,7 @@ void main() {
       float limb = sqrt(max(0.0, 1.0 - dot(l, l)));
       col = mix(col, vec3(1.0, 0.97, 0.9) * (0.72 + 0.28 * limb) * (0.8 + 0.2 * maria) * 2.2, disc * uMoon);
     }
-    col += vec3(0.55, 0.62, 0.8) * (exp(-m * 30.0) * 0.16 + exp(-m * 6.0) * 0.05) * uMoon;
+    col += vec3(${SKY_MOON_HALO.color.map((c) => c.toFixed(2)).join(', ')}) * (exp(-m * ${SKY_MOON_HALO.tight.fall.toFixed(1)}) * ${SKY_MOON_HALO.tight.gain.toFixed(2)} + exp(-m * ${SKY_MOON_HALO.wide.fall.toFixed(1)}) * ${SKY_MOON_HALO.wide.gain.toFixed(2)}) * uMoon;
   }
   // Evaluated everywhere (its texture lookups need uniform control flow); it fades out at the horizon.
   vec4 c = clouds(d);
@@ -907,8 +878,10 @@ export class Environment {
   /** Offsets of the sea's two ripple samples (see RIPPLE_B), each in its own sample's tiles. */
   private readonly rippleA = { value: new THREE.Vector2() };
   private readonly rippleB = { value: new THREE.Vector2() };
-  /** The sky the sea reflects without an environment map (see twoLayerRipples). */
-  private readonly skyReflection: SkyReflection = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, intensity: { value: 0 } };
+  /** The key light's colour times its intensity, for the software sea's glint. */
+  private readonly keyLight = { value: new THREE.Color() };
+  /** The analytic sky the sea reflects without an environment map, and regrades the map's sky to (see patchSeaMaterial). */
+  private readonly skyReflection: SeaSky = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, intensity: { value: 0 } };
   private readonly cloudNoise = cloudNoiseTexture();
   /** The PMREM target holding the environment map: allocated by the first bake and refilled by every later one. */
   private envTarget: THREE.WebGLRenderTarget | null = null;
@@ -960,18 +933,19 @@ export class Environment {
       uniforms: {
         uTop: { value: new THREE.Color() },
         uHorizon: { value: new THREE.Color() },
-        uGlow: { value: new THREE.Color(0, 0, 0) },
-        uCityGlow: { value: new THREE.Color(0, 0, 0) },
-        uCityGlowDir: { value: new THREE.Vector2() },
+        // Shared with the sea, which reflects the same glows and moon halo, and takes the night's colour by night.
+        uGlow: this.sea.uSkyGlow,
+        uCityGlow: this.sea.uCityGlow,
+        uCityGlowDir: this.sea.uCityGlowDir,
+        uMoonDir: this.sea.uMoonDir,
+        uMoon: this.sea.uMoon,
+        uNight: this.sea.uNight,
         uCityAway: { value: 0 },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uSunColor: { value: new THREE.Color() },
-        uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
         uLightDir: { value: new THREE.Vector3(0, 1, 0) },
         uLightAmt: { value: 1 },
         uStars: { value: 0 },
-        uMoon: { value: 0 },
-        uNight: { value: 0 },
         uGolden: { value: 0 },
         uCloudT: { value: 0.55 },
         uCloudW: { value: 0.07 },
@@ -1024,16 +998,19 @@ export class Environment {
 
     this.waterNormal = waterNormalTexture();
     this.waterNormal.repeat.set(900, 900);
-    const waterMat = new THREE.MeshStandardMaterial({ color: 0x135a73, roughness: 0.22, metalness: 0.1, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.22, 0.22) });
-    twoLayerRipples(waterMat, this.rippleA, this.rippleB, this.envFill ? this.skyReflection : null);
-    patchSeaMaterial(waterMat, this.sea);
+    const waterMat = new THREE.MeshStandardMaterial({ color: SEA_MID, roughness: SEA_ROUGHNESS, metalness: 0, normalMap: this.waterNormal, normalScale: new THREE.Vector2(SEA_RIPPLE, SEA_RIPPLE) });
+    twoLayerRipples(waterMat, this.rippleA, this.rippleB);
+    patchSeaMaterial(waterMat, this.sea, this.skyReflection);
     const simpleWater = this.software
       ? softwareSeaMaterial(this.sea, {
           uNormal: { value: this.waterNormal }, uDrift: this.rippleA,
           uTop: this.skyReflection.top, uHorizon: this.skyReflection.horizon,
-          uNight: this.skyMat.uniforms.uNight!,
+          uKeyDir: { value: this.keyDir }, uKeyLight: this.keyLight,
         })
       : null;
+    // By day the reflected sky is lifted to the dome's brightness; by night the map stays as much dimmer as the day's
+    // lift leaves it, which stands in for the dark night clouds the dome draws over its sky and the map lacks.
+    this.sea.uSkyLift.value = 1 / envIntensity(0);
     if (simpleWater) waterMat.dispose();
     const water = new THREE.Mesh(this.seaPlane, simpleWater ?? waterMat);
     // Displaced vertices leave the plane's bounds; the sea is always in view anyway.
@@ -1071,7 +1048,7 @@ export class Environment {
             vec3 gain = mix(uHdriGainH, uHdriGain, smoothstep(0.0, 0.6, h));
             c = mix(c, texture2D(uHdri, uv).rgb * gain, uHdriMix * smoothstep(-0.02, 0.06, h));
           }
-          c += uSun * pow(max(dot(d, uSunDir), 0.0), 24.0) * 2.5;
+          c += uSun * pow(max(dot(d, uSunDir), 0.0), ${SKY_SUN_GLOW.pow.toFixed(1)}) * ${SKY_SUN_GLOW.gain.toFixed(1)};
           gl_FragColor = vec4(c, 1.0); }`,
     });
     this.envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 24, 12), this.envMat));
@@ -1167,6 +1144,8 @@ export class Environment {
     }
     (u.uSun!.value as THREE.Color).copy(sun);
     (u.uSunDir!.value as THREE.Vector3).copy(sunDir);
+    this.sea.uSkySun.value.copy(sun);
+    this.sea.uSkySunDir.value.copy(sunDir);
     if (!this.cubeTarget || !this.cubeCamera) {
       this.cubeTarget = new THREE.WebGLCubeRenderTarget(64, { type: THREE.HalfFloatType });
       this.cubeCamera = new THREE.CubeCamera(0.1, 100, this.cubeTarget);
@@ -1280,6 +1259,8 @@ export class Environment {
     (u.uMoonDir!.value as THREE.Vector3).copy(moonDir);
     // The key light: the sun while the sky shows it, else the moon once the sun's light is gone (see SUN_LO).
     const sunVis = sunVisibility(sunDir.y);
+    // The dome's glow round the sun as it shows it, for the sea to mirror; overcast, the cloud deck hides it.
+    this.sea.uSkySunHalo.value.copy(s.sun).multiplyScalar(sunVis * (1 - cloud));
     const sunI = s.sunI * sunVis * (1 - CLOUD_SUN_LOSS * cloud);
     const moonUp = moonRamp(sunDir.y);
     const moonI = MOON_I * night * moonUp * (1 - CLOUD_SUN_LOSS * cloud);
@@ -1315,6 +1296,7 @@ export class Environment {
     if (useMoon) this.sun.color.copy(MOON_COLOR);
     else this.sun.color.copy(s.sun).lerp(KEY_GOLD, KEY_GOLD_MIX * goldenHour(hours));
     this.sun.intensity = Math.max(sunI, moonI);
+    this.keyLight.value.copy(this.sun.color).multiplyScalar(this.sun.intensity);
     // Under cloud the light is diffuse: softer shadows.
     this.sun.shadow.intensity = 1 - (1 - CLOUD_SHADOW) * cloud;
     this.placeShadow(focus, lightDir);
@@ -1336,13 +1318,13 @@ export class Environment {
       this.ratioNow = iblSmoothing(hours);
       this.upNow.multiplyScalar(1 - this.hdriMixNow + this.hdriMixNow * this.ratioNow);
     }
+    this.skyReflection.top.value.copy(s.top);
+    this.skyReflection.horizon.value.copy(s.horizon);
     if (this.envFill) {
       this.scene.environmentIntensity = envI;
       // A hemisphere light's colour is irradiance; the sky's diffuse light is PI x its average radiance.
       this.envFill.color.copy(this.envUp).multiplyScalar(Math.PI * envI);
       this.envFill.groundColor.copy(this.envDown).multiplyScalar(Math.PI * envI);
-      this.skyReflection.top.value.copy(s.top);
-      this.skyReflection.horizon.value.copy(s.horizon);
       this.skyReflection.intensity.value = envI;
     } else {
       // Re-bake when the sky has visibly changed since the last bake or the sun has fully set or risen

@@ -1,13 +1,17 @@
 // The sea surface: the Gerstner waves (render/waves.ts) and the analytic shoreline patched into the sea's
-// standard material, the camera-snapped wave grid drawn on High, and the software sea's shader. The sea's colour
-// follows a render-only shelf that keeps falling offshore (turquoise shallows, deep blue open water), its ripples are
-// warped and modulated by low-frequency noise so their tiles do not line up, and foam rings the piers' pilings. Las
-// Lomas County's beaches come from a depth map baked from its ground (countyShore), sampled once per fragment.
+// standard material, the camera-snapped wave grid drawn on High, and the software sea's shader. The sea is lit as
+// water: a dark body, and the sky it mirrors by Fresnel above the horizon; the sun and moon glint in its ripples, light
+// glows through its crests and whitecaps break on them in a storm. The body's colour follows a render-only shelf that
+// keeps falling offshore (turquoise shallows, dark open water), its five ripple layers are warped and modulated by
+// low-frequency noise so their tiles do not line up and fade with distance into its roughness, and foam rings the
+// piers' pilings. Las Lomas County's beaches come from a depth map baked from its ground (countyShore), sampled once
+// per fragment.
 
 import * as THREE from 'three';
 import { BEACH_W, CURB_H, SAND_DROP, SEABED_Y, WATER_Y } from '../world/constants';
 import { countryGround, type Country } from '../world/country';
 import { rectContains, type Bounds, type Rect } from '../world/layout';
+import { WATER_TILT } from './textures';
 import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_SLOPE2_GLSL, SEA_WAVES_GLSL, SKIRT_EXTENT, wavePhases } from './waves';
 
 /** The sand's drop-off into deep water past the beach's end (CityView.buildCoast), m. */
@@ -15,9 +19,96 @@ const DROP_OFF = 25;
 /** Shallows colour over sand, and the wet sand seen through the thinnest water (sRGB). */
 const SHALLOW = 0x2fa89e;
 const SAND_TINT = 0x86a89a;
-/** Open water past ~15 m and far offshore (sRGB): the albedo the shelf fades to (seaShallows). */
-const DEEP = 0x0b4f78;
-const ABYSS = 0x062c52;
+/**
+ * The water's own colour by the quays (the material's), in open water past ~9 m and far offshore (sRGB): the light
+ * scattered back up out of the water body, dark and greyed, so that most of what open water shows is the sky's
+ * reflection (seaShallows).
+ */
+export const SEA_MID = 0x0e4656;
+const DEEP = 0x0a2c40;
+const ABYSS = 0x061a29;
+/** Water's reflectance looking straight down (Schlick's F0 for an index of 1.33). */
+export const SEA_F0 = 0.02;
+/**
+ * The water's own roughness, under the ripples it draws: near the floor three allows (0.0525), so the sun and moon
+ * glint in the ripples round the camera; the ripples faded out with distance add theirs on top (patchSeaMaterial).
+ */
+export const SEA_ROUGHNESS = 0.06;
+/**
+ * The baked sky's sun (Environment's envMat): its colour times gain times pow(cos, pow) of the angle from it, a glow
+ * some 28 degrees across, far brighter than the dome's own (SKY_SUN_HALO). The sea takes `taken` of it back out of the
+ * sky it reflects (seaSkyRadiance), widened as the lookup blurs it, and mirrors the dome's glow instead: the sun's own
+ * light glints off the ripples, sharply, as the key light, and the map's glow would smear a second sun path under it.
+ * The map holds a little less of it than the formula gives (at 16:00 taking all of it clamped some 12,000 pixels of
+ * the sun path to black, taking 0.8 none), so less is taken.
+ */
+export const SKY_SUN_GLOW = { pow: 24, gain: 2.5, taken: 0.7 } as const;
+/**
+ * The dome's own glow round the sun (Environment's sky): its colour times the sum of gain times pow(cos, pow) of the
+ * angle from it, a tight and a wide part, as the sun shows (sunVisibility). The sea mirrors it, so the water round the
+ * sun's glitter is lit as the sky round the sun is.
+ */
+export const SKY_SUN_HALO = { tight: { pow: 12, gain: 0.35 }, wide: { pow: 3, gain: 0.12 } } as const;
+/**
+ * The sky dome's glows (Environment's sky) fall off with the sine of the elevation at these rates: the night's glow
+ * all round the horizon, and the city's light over it (half strength about 6 degrees up). The environment map holds
+ * neither, so the sea adds them to the sky it reflects as the dome draws them.
+ */
+export const SKY_GLOW_FALL = { horizon: 9, city: 6.5 } as const;
+/**
+ * How much of those night glows the sea mirrors. The city's light lies over the land, so the water takes it only looking
+ * towards the city (gathered as the dome gathers it off the land, by the cube of the cosine of the bearing), broken by
+ * bearing into the lights along the shore (CITY_STREAKS), each of which the ripples draw out into a warm streak; the glow
+ * all round the horizon it takes faintly, so the open night sea stays blue-black rather than mirroring the warm horizon
+ * band on every ripple turned away from the eye.
+ */
+export const SEA_NIGHT_GLOW = { horizon: 0.1, city: 1.2 } as const;
+/**
+ * The shore's lights as the night sea mirrors them: the city's glow on the water varies with the bearing in cells of
+ * 360 / cells degrees, each cell's strength a random number to this power times gain (mean gain / (power + 1)).
+ */
+export const CITY_STREAKS = { cells: 160, power: 4, gain: 3 } as const;
+/**
+ * The moon's halo on the sea: `gain` times the dome's (SKY_MOON_HALO), and stretched in elevation (an elevation
+ * difference counts `stretch` of its size). The halo stands in for the moonlight the waves' unresolved slopes spread
+ * round its glints, which the drawn ripples alone leave sparse; at grazing angles a slope spreads a reflection up and
+ * down far more than sideways, so the halo is drawn out into a column from the glints to the horizon.
+ */
+export const SEA_MOON_PATH = { gain: 5, stretch: 0.3 } as const;
+/**
+ * By night the sea's mirrored sky takes this colour (at its own luminance): the moonlit blue of the night sky's light
+ * (Environment's NIGHT_SKY_LIGHT) under the dark clouds the dome draws by night, rather than the map's dusk palette,
+ * which still mixes in the sunset's red at 20:30 and turned the night sea mauve.
+ */
+export const SEA_NIGHT_SKY = [0.78, 0.99, 1.73] as const;
+/**
+ * The dome's moon halo (Environment's sky): its colour, and the strength and falloff with the distance from the moon of
+ * its tight and wide parts. The environment map has no moon, so the sea adds the halo to the sky it reflects: the
+ * moon's glints sit in a soft column of its light.
+ */
+export const SKY_MOON_HALO = { color: [0.55, 0.62, 0.8], tight: { gain: 0.16, fall: 30 }, wide: { gain: 0.05, fall: 6 } } as const;
+/**
+ * The brightest a sun or moon glint on the sea is drawn (linear, before exposure): its true peak is a hundred times
+ * this, and bloom spreads anything that bright into a solid white column.
+ */
+export const SEA_GLINT_MAX = 6;
+/**
+ * Whitecaps break on the crests once the sea state passes the first of these, and spread down them to the second (a
+ * full storm); calm and plain rain (sea state 0.3) have none.
+ */
+export const WHITECAP_SEA = [0.45, 1] as const;
+/**
+ * The light that shines through a thin crest towards an eye looking into the sun or moon (linear, per unit of light):
+ * the water's green-blue glow on the backs of the waves (SEA_DIRECT_GLSL).
+ */
+export const CREST_GLOW = [0.02, 0.16, 0.12] as const;
+/**
+ * The software sea draws its body unlit: the shallows' colour times this share of daylight, about what the sun and sky
+ * give the lit sea's water body at noon.
+ */
+export const SOFTWARE_BODY = 1.5;
+/** The ripples' normal scale (the material's): chop steep enough to break the sky's reflection up round the camera. */
+export const SEA_RIPPLE = 0.36;
 /**
  * The drawn seabed keeps falling offshore past the sim's flat SEABED_Y (render only; the sim's waterDepth stays as it
  * is): SHELF_SLOPE m per m beyond SHELF_START m outside the land rectangle (where the beach's drop-off ends).
@@ -74,6 +165,25 @@ export const RIPPLE_D = { scale: 1.66, cos: 0.6, sin: 0.8, weight: 0.55 } as con
 export const RIPPLE_AB_GAIN = 0.8;
 /** The first ripple layer's tile (m): the 6 km plane's UV repeated 900 times (Environment). */
 export const RIPPLE_A_TILE = 6000 / 900;
+/**
+ * The fifth and finest ripple layer, the capillary ripples that glitter round the camera: its tile (m; against the
+ * others' 7.66, 20.6, 2.79 and 4.6 times) and its turn.
+ */
+export const RIPPLE_E = { tile: 0.87, cos: -0.83, sin: 0.56, weight: 0.45 } as const;
+/**
+ * Each ripple layer fades out as a pixel's footprint on the water grows from the first to the second of these shares
+ * of its tile (a tile holds 4 to 14 ripples), before its ripples shrink to a pixel and shimmer; the first two layers
+ * fade together, as one tile of RIPPLE_AB_TILE m. What a layer loses goes into the roughness instead (seaLost), so
+ * the far sea calms into a sheen whose sun path widens rather than vanishing.
+ */
+export const RIPPLE_FADE = [0.04, 0.25] as const;
+export const RIPPLE_AB_TILE = 10.7;
+/**
+ * The ripples' strength by sea state: this share of the material's normal scale at sea state 0, rising by
+ * RIPPLE_SEA_GAIN at 1 (a storm's chop is rougher than a calm's).
+ */
+export const RIPPLE_SEA_BASE = 0.75;
+export const RIPPLE_SEA_GAIN = 0.5;
 
 /** Centres of a deck's pilings that stand in water deeper than -0.1 m (as drawn by CityView.buildCoast). */
 export function pilingCentres(rect: Rect, baseGround: (x: number, z: number) => number): Array<{ x: number; z: number }> {
@@ -194,13 +304,23 @@ export function seaOnBeach(b: Bounds, x: number, z: number, county?: CountyShore
  * for the material's own colour `mid` (linear), into `out`.
  */
 export function seaShallowsCpu(u: SeaUniforms, mid: THREE.Color, depth: number, shelf: number, out: THREE.Color): THREE.Color {
-  out.copy(u.uShallow.value).lerp(mid, smooth(0, 4, depth));
-  out.lerp(u.uSeaDeep.value, smooth(4, 18, shelf));
-  out.lerp(u.uSeaAbyss.value, smooth(10, 45, shelf));
+  out.copy(u.uShallow.value).lerp(mid, smooth(0, 3, depth));
+  out.lerp(u.uSeaDeep.value, smooth(3, 9, shelf));
+  out.lerp(u.uSeaAbyss.value, smooth(9, 30, shelf));
   return out.lerpColors(u.uSandTint.value, out, smooth(0, 0.15, depth));
 }
 
-/** Uniforms shared by every material that follows the sea: the sea itself and the foam rings on it. */
+/**
+ * The analytic sky's colours and strength: the sky the sea reflects where there is no environment map (no float colour
+ * buffers), and the gradient it regrades the map's sky to.
+ */
+export interface SeaSky {
+  top: { value: THREE.Color };
+  horizon: { value: THREE.Color };
+  intensity: { value: number };
+}
+
+/** Uniforms shared by every material that follows the sea: the sea itself, and the foam rings and boat wakes on it. */
 export interface SeaUniforms {
   uWavePhase: { value: THREE.Vector4 };
   uSeaAmp: { value: number };
@@ -222,6 +342,24 @@ export interface SeaUniforms {
   uPilings: { value: THREE.Vector4[] };
   /** Bounds of the water cut into the land, where the land rectangle's edge is no quay (unused slots lie far away). */
   uSeaCuts: { value: THREE.Vector4[] };
+  /** The baked sky's sun as the environment map holds it (colour, and direction), for the sea to take back out of it. */
+  uSkySun: { value: THREE.Color };
+  uSkySunDir: { value: THREE.Vector3 };
+  /** The dome's sun glow colour as it shows (SKY_SUN_HALO), for the sea to mirror. */
+  uSkySunHalo: { value: THREE.Color };
+  /**
+   * What lifts the reflected environment map (or baked sky) back to the sky dome's own brightness by day, 1 / the
+   * scene's daytime environment intensity: grazing water mirrors the sky as brightly as it shines, with no seam.
+   */
+  uSkyLift: { value: number };
+  /** The sky dome's horizon glow and city glow (shared with it: SKY_GLOW_FALL), and its bearing to the city. */
+  uSkyGlow: { value: THREE.Color };
+  uCityGlow: { value: THREE.Color };
+  uCityGlowDir: { value: THREE.Vector2 };
+  /** The moon's direction and the strength of its disc and halo on the dome (shared with it: SKY_MOON_HALO), and the darkness. */
+  uMoonDir: { value: THREE.Vector3 };
+  uMoon: { value: number };
+  uNight: { value: number };
   /** Las Lomas County's depth map (countyShore; none until setCountyShore), and its box: minX, minZ, 1 / width, 1 / depth. */
   uCountyDepth: { value: THREE.DataTexture | null };
   uCountyBox: { value: THREE.Vector4 };
@@ -247,6 +385,16 @@ export function seaUniforms(): SeaUniforms {
     uSeaAbyss: { value: new THREE.Color(ABYSS) },
     uPilings: { value: Array.from({ length: MAX_PILING_DECKS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
     uSeaCuts: { value: Array.from({ length: MAX_SEA_CUTS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
+    uSkySun: { value: new THREE.Color(0, 0, 0) },
+    uSkySunDir: { value: new THREE.Vector3(0, 1, 0) },
+    uSkySunHalo: { value: new THREE.Color(0, 0, 0) },
+    uSkyLift: { value: 1 },
+    uSkyGlow: { value: new THREE.Color(0, 0, 0) },
+    uCityGlow: { value: new THREE.Color(0, 0, 0) },
+    uCityGlowDir: { value: new THREE.Vector2() },
+    uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
+    uMoon: { value: 0 },
+    uNight: { value: 0 },
     uCountyDepth: { value: null },
     uCountyBox: { value: new THREE.Vector4(1e6, 1e6, 1, 1) },
     uCountyLand: { value: Array.from({ length: MAX_COUNTY_LAND }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
@@ -449,15 +597,126 @@ float seaFoam(vec2 p, float depth, float noise, float sea, float px) {
 }
 /**
  * The sea's albedo by depth: wet sand through the thinnest water, turquoise shallows, the material's own colour (mid)
- * by 4 m, then deep blue and the dark offshore blue as the drawn shelf falls away (seaShelf).
+ * by 3 m, then the dark open-water body by 9 m (the quays' 7 m water is most of the way there) and the darker
+ * offshore one as the drawn shelf falls away (seaShelf).
  */
 vec3 seaShallows(vec3 mid, float depth, vec2 p) {
   float shelf = seaShelf(p, depth);
-  vec3 c = mix(uShallow, mid, smoothstep(0.0, 4.0, depth));
+  vec3 c = mix(uShallow, mid, smoothstep(0.0, 3.0, depth));
   // Overlapping ramps, so the colour keeps darkening steadily with depth rather than pausing between them.
-  c = mix(c, uSeaDeep, smoothstep(4.0, 18.0, shelf));
-  c = mix(c, uSeaAbyss, smoothstep(10.0, 45.0, shelf));
+  c = mix(c, uSeaDeep, smoothstep(3.0, 9.0, shelf));
+  c = mix(c, uSeaAbyss, smoothstep(9.0, 30.0, shelf));
   return mix(uSandTint, c, smoothstep(0.0, 0.15, depth));
+}
+`;
+
+/**
+ * The sea's direct light, in place of three's RE_Direct_Physical: a Beckmann specular lobe, the Gaussian slopes of a
+ * wind-blown sea (Cox and Munk) that end where GGX's long tails would spread a low sun across the whole sea, capped at
+ * SEA_GLINT_MAX; three's Lambert diffuse for the water body under it; and the glow through the crests (seaGlow, set
+ * by the patch per fragment) for an eye that looks towards the light.
+ */
+const SEA_DIRECT_GLSL = /* glsl */ `
+float seaGlow;
+void RE_Direct_Sea( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
+  float dotNL = saturate( dot( geometryNormal, directLight.direction ) );
+  float dotNV = saturate( dot( geometryNormal, geometryViewDir ) );
+  vec3 halfDir = normalize( directLight.direction + geometryViewDir );
+  float dotNH = saturate( dot( geometryNormal, halfDir ) );
+  float F = F_Schlick( ${n(SEA_F0)}, 1.0, saturate( dot( geometryViewDir, halfDir ) ) );
+  float alpha = pow2( material.roughness );
+  float a2 = pow2( alpha );
+  float c2 = max( dotNH * dotNH, 1e-4 );
+  float D = exp( ( c2 - 1.0 ) / ( a2 * c2 ) ) / ( PI * a2 * c2 * c2 );
+  vec3 irradiance = dotNL * directLight.color;
+  reflectedLight.directSpecular += min( irradiance * F * V_GGX_SmithCorrelated( alpha, dotNL, dotNV ) * D, vec3( ${n(SEA_GLINT_MAX)} ) );
+  reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );
+  float through = pow4( saturate( dot( - geometryViewDir, directLight.direction ) ) );
+  reflectedLight.directDiffuse += directLight.color * vec3( ${CREST_GLOW.map(n).join(', ')} ) * through * seaGlow;
+}
+#undef RE_Direct
+#define RE_Direct RE_Direct_Sea
+`;
+
+/**
+ * The sky along the sea's reflected ray, as bright as the sky dome draws it (uSkyLift): the environment map less most
+ * of its sun's glow (SKY_SUN_GLOW) and regraded from the horizon up as the dome grades it (uSkyTop, uSkyHorizon), or without
+ * one the analytic sky graded as the dome grades it (uSkyI too); by night in the night sky's blue (SEA_NIGHT_SKY); with
+ * a share of the dome's night glows (SKY_GLOW_FALL, SEA_NIGHT_GLOW), the city's broken into its lights (CITY_STREAKS),
+ * its moon halo drawn out into a path (SKY_MOON_HALO, SEA_MOON_PATH) and its sun glow (SKY_SUN_HALO) on top. A ripple turned away from the eye
+ * reflects the face of the next wave rather than the sky under the horizon, which the map holds as a dark haze: the ray
+ * folds back up, so grazing water shows the bright horizon sky and never dark blotches.
+ */
+const SEA_SKY_GLSL = /* glsl */ `
+uniform vec3 uSkyTop;
+uniform vec3 uSkyHorizon;
+uniform float uSkyI;
+uniform vec3 uSkySun;
+uniform vec3 uSkySunDir;
+uniform vec3 uSkySunHalo;
+uniform float uSkyLift;
+uniform vec3 uSkyGlow;
+uniform vec3 uCityGlow;
+uniform vec2 uCityGlowDir;
+uniform vec3 uMoonDir;
+uniform float uMoon;
+uniform float uNight;
+vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
+  vec3 r = transformDirectionByInverseViewMatrix( reflect( - viewDir, normal ), viewMatrix );
+  r.y = abs( r.y );
+  // The ray's bearing, defined even straight up (where atan( 0, 0 ) is not).
+  vec2 bearingDir = normalize( r.xz + vec2( 1e-5 ) );
+  float toCity = max( dot( bearingDir, uCityGlowDir ), 0.0 );
+  float toSun = max( dot( r, uSkySunDir ), 0.0 );
+  float moonUp = r.y - uMoonDir.y;
+  vec3 moonOff = r - uMoonDir;
+  float moon = sqrt( max( dot( moonOff, moonOff ) - moonUp * moonUp, 0.0 ) + moonUp * moonUp * ${n(SEA_MOON_PATH.stretch * SEA_MOON_PATH.stretch)} );
+  float bearing = atan( bearingDir.y, bearingDir.x ) * ${n(CITY_STREAKS.cells / (2 * Math.PI))};
+  float cell = floor( bearing );
+  float lights = mix( fract( sin( cell * 12.9898 ) * 43758.5453 ), fract( sin( ( cell + 1.0 ) * 12.9898 ) * 43758.5453 ), smoothstep( 0.0, 1.0, bearing - cell ) );
+  vec3 glow = uSkyGlow * ${n(SEA_NIGHT_GLOW.horizon)} * exp( - r.y * ${n(SKY_GLOW_FALL.horizon)} )
+    + uCityGlow * ${n(SEA_NIGHT_GLOW.city)} * toCity * toCity * toCity * pow( lights, ${n(CITY_STREAKS.power)} ) * ${n(CITY_STREAKS.gain)} * exp( - r.y * ${n(SKY_GLOW_FALL.city)} )
+    + vec3( ${SKY_MOON_HALO.color.map(n).join(', ')} ) * ( ${n(SKY_MOON_HALO.tight.gain)} * exp( - moon * ${n(SKY_MOON_HALO.tight.fall)} ) + ${n(SKY_MOON_HALO.wide.gain)} * exp( - moon * ${n(SKY_MOON_HALO.wide.fall)} ) ) * ${n(SEA_MOON_PATH.gain)} * uMoon
+    + uSkySunHalo * ( ${n(SKY_SUN_HALO.tight.gain)} * pow( toSun, ${n(SKY_SUN_HALO.tight.pow)} ) + ${n(SKY_SUN_HALO.wide.gain)} * pow( toSun, ${n(SKY_SUN_HALO.wide.pow)} ) );
+#if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
+  // The map's sun glow as the lookup blurs it: a Gaussian lobe of variance 1 / pow per axis, widened by the GGX lobe's
+  // 2 alpha^2 and dimmed to keep its light.
+  float sunPow = 1.0 / ( ${n(1 / SKY_SUN_GLOW.pow)} + 2.0 * pow4( roughness ) );
+  vec3 sun = uSkySun * ${n(SKY_SUN_GLOW.gain * SKY_SUN_GLOW.taken / SKY_SUN_GLOW.pow)} * sunPow * pow( toSun, sunPow );
+  // The map grades its sky from the horizon colour by smoothstep( 0, 0.6, h ), the dome by pow( h, 0.55 ): a few degrees
+  // up the map is still the horizon's colour where the dome has turned towards its top. Regraded as the dome draws it,
+  // up to some 20 degrees: higher, the map has reached its top colour while the dome still holds some of the horizon's,
+  // and the ratio of a near-black channel would multiply the clouds and the sun's glow several times over.
+  vec3 dome = mix( mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) / mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) ), vec3( 1.0 ), smoothstep( 0.3, 0.5, r.y ) );
+  vec3 sky = max( textureCubeUV( envMap, envMapRotation * r, roughness ).rgb - sun, 0.0 ) * dome * envMapIntensity;
+#else
+  vec3 sky = mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI;
+#endif
+  sky = mix( sky, dot( sky, vec3( 0.2126, 0.7152, 0.0722 ) ) * vec3( ${SEA_NIGHT_SKY.map(n).join(', ')} ), uNight );
+  return sky * uSkyLift + glow;
+}
+`;
+
+/**
+ * The waves' crests: seaCrest(p) is their height at p over the most they can add up to at this sea state, -1 in the
+ * deepest trough to 1 where every crest meets. seaWhitecap gives the foam on them 0..1 (WHITECAP_SEA), broken into
+ * patches by the foam noise and lace, and softened to a faint even cover as a pixel grows past their size (px: m per
+ * pixel).
+ */
+const SEA_CREST_GLSL = /* glsl */ `
+float seaCrest(vec2 p) {
+  return seaDisplace(p).y / max(dot(SEA_AMP, vec4(1.0)) * uSeaAmp, 1e-3);
+}
+float seaWhitecap(float crest, float noise, float lace, float sea, float px) {
+  float rough = smoothstep(${n(WHITECAP_SEA[0])}, ${n(WHITECAP_SEA[1])}, sea);
+  // The noise and lace are ripple slopes, a few hundredths either side of 0.5: stretched to about -1..1.
+  float patchy = (noise - 0.5) * 12.0;
+  float fine = (lace - 0.5) * 8.0;
+  float edge = mix(1.0, 0.5, rough);
+  float cap = smoothstep(edge, edge + 0.3, crest + 0.3 * patchy);
+  // Holes open in the lace where the cap thins out, and its thin edges let the water show through.
+  cap *= smoothstep(-0.4, 0.6, fine + cap - 0.6);
+  return rough * 0.75 * mix(cap, 0.08, smoothstep(0.6, 2.5, px));
 }
 `;
 
@@ -467,19 +726,27 @@ export const SHORE_DAMP = 0.35;
 /**
  * Patches the sea's (already ripple-patched) standard material: world-anchored ripple UVs (the mesh follows the
  * camera), vertex displacement scaled by uDisplace (damped over the shallows), the ripples warped and their strength
- * modulated by low-frequency samples of the ripple tile itself, a third and a fourth ripple layer, the wave slopes added to the
- * ripple normal, the shallows' colour and foam. Only uniforms change at runtime: the grid on or off and the sea state
- * never rebuild the program.
+ * modulated by low-frequency samples of the ripple tile itself and by the sea state, a third, fourth and fifth ripple
+ * layer, every layer faded out with distance into the roughness (RIPPLE_FADE), the wave slopes added to the ripple
+ * normal, the shallows' colour and foam, water's reflectance (SEA_F0), its direct light (SEA_DIRECT_GLSL) and the sky
+ * it reflects (SEA_SKY_GLSL; `sky`, the analytic sky's colours). Three's lighting then splits each pixel by
+ * Fresnel between the dark body looking down and the sky towards the horizon. Only uniforms change at runtime: the
+ * grid on or off and the sea state never rebuild the program.
  */
-export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms): void {
+export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms, sky: SeaSky): void {
   const ripples = mat.onBeforeCompile.bind(mat);
   const key = mat.customProgramCacheKey.bind(mat);
   const c = RIPPLE_C;
   const cScale = RIPPLE_A_TILE / c.tile;
   const d = RIPPLE_D;
+  const e = RIPPLE_E;
+  const eScale = RIPPLE_A_TILE / e.tile;
+  /** GLSL: 1 for the layer with this tile (m) while the pixel's footprint seaPx is small against it, fading to 0. */
+  const kept = (tile: number) => `( 1.0 - smoothstep( ${n(RIPPLE_FADE[0] * tile)}, ${n(RIPPLE_FADE[1] * tile)}, seaPx ) )`;
   mat.onBeforeCompile = (shader, renderer) => {
     ripples(shader, renderer);
     Object.assign(shader.uniforms, u);
+    Object.assign(shader.uniforms, { uSkyTop: sky.top, uSkyHorizon: sky.horizon, uSkyI: sky.intensity });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\nattribute vec2 aEdge;\nvarying vec2 vSeaXZ;`)
       .replace(
@@ -494,22 +761,42 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
       )
       .replace('#include <begin_vertex>', `#include <begin_vertex>\n  transformed += uDisplace * seaDisplaceEdge( seaBase.xz, aEdge ) * mix( ${n(SHORE_DAMP)}, 1.0, smoothstep( 0.0, 2.0, seaDepthAt( seaBase.xz ) ) );`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\nvarying vec2 vSeaXZ;`)
+      .replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\n${SEA_SKY_GLSL}\n${SEA_CREST_GLSL}\nvarying vec2 vSeaXZ;`)
+      .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${SEA_DIRECT_GLSL}`)
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n  material.specularColor = vec3( ${n(SEA_F0)} );\n  material.specularColorBlended = material.specularColor;`)
+      .replace(
+        '#include <lights_fragment_maps>',
+        `#if defined( RE_IndirectDiffuse ) && defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
+  iblIrradiance += getIBLIrradiance( geometryNormal );
+#endif
+#ifdef RE_IndirectSpecular
+  radiance += seaSkyRadiance( geometryViewDir, geometryNormal, material.roughness );
+  // The ripples faded into the roughness blur the sky they mirror but do not dim it: drawn as normals near the camera,
+  // the same slopes reflect by Schlick's Fresnel, unmasked, so the far sea is weighed at the water's own roughness too.
+  material.dfg = texture2D( dfgLUT, vec2( ${n(SEA_ROUGHNESS)}, dotNVms ) ).rg;
+#endif`,
+      )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
   float seaDepth = seaDepthAt( vSeaXZ );
+  // Metres of water per screen pixel.
+  float seaPx = length( fwidth( vSeaXZ ) );
   float seaFoamAmt = 0.0;
+  float seaCrestH = seaCrest( vSeaXZ );
+  // Thin crests glow when the eye looks through them into the light; a storm's taller ones more.
+  seaGlow = saturate( seaCrestH ) * saturate( seaCrestH ) * ( 0.3 + 0.7 * uSeaAmp );
 #ifdef USE_NORMALMAP
   {
     vec2 fuv = vSeaXZ * 0.031 + uFoamDrift;
     float seaNoise = texture2D( normalMap, fuv ).x * 0.6 + texture2D( normalMap, fuv * 2.37 + 0.31 ).y * 0.4;
-    seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp, length( fwidth( vSeaXZ ) ) );
+    seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp, seaPx );
+    float seaLace = texture2D( normalMap, vSeaXZ * 0.21 + uFoamDrift.yx * 4.0 ).y;
+    seaFoamAmt = max( seaFoamAmt, seaWhitecap( seaCrestH, seaNoise, seaLace, uSeaAmp, seaPx ) * smoothstep( 0.5, 2.0, seaDepth ) );
   }
 #endif
   diffuseColor.rgb = mix( seaShallows( diffuseColor.rgb, seaDepth, vSeaXZ ), vec3( 0.82, 0.86, 0.86 ), seaFoamAmt );`,
       )
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( roughnessFactor, 0.85, seaFoamAmt );')
       .replace('#include <aomap_fragment>', `reflectedLight.indirectDiffuse *= 1.0 + ${n(FOAM_SKY_LIFT)} * seaFoamAmt;\n#include <aomap_fragment>`)
       .replace(
         '#include <normal_fragment_begin>',
@@ -519,8 +806,10 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   vec2 seaWarp = ( texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.a)} + vec2( 0.21, 0.57 ) ).xy - 0.5 ) * ${n(RIPPLE_WARP.gainA)}
     + ( texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.b)} + vec2( 0.63, 0.12 ) ).yx - 0.5 ) * ${n(RIPPLE_WARP.gainB)};
   vec2 seaRippleUv = vNormalMapUv + seaWarp;
-  vec2 seaNormalScale = normalScale * ( 0.85 + 0.3 * smoothstep( 0.4, 0.6, texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.macro)} + vec2( 0.4, 0.9 ) ).x ) );
-  vec2 seaNormalScaleAB = seaNormalScale * ${n(RIPPLE_AB_GAIN)};
+  vec2 seaNormalScale = normalScale * ( 0.85 + 0.3 * smoothstep( 0.4, 0.6, texture2D( normalMap, vSeaXZ * ${n(RIPPLE_WARP.macro)} + vec2( 0.4, 0.9 ) ).x ) )
+    * ( ${n(RIPPLE_SEA_BASE)} + ${n(RIPPLE_SEA_GAIN)} * uSeaAmp );
+  float seaKeptAB = ${kept(RIPPLE_AB_TILE)};
+  vec2 seaNormalScaleAB = seaNormalScale * ${n(RIPPLE_AB_GAIN)} * seaKeptAB;
 #define vNormalMapUv seaRippleUv
 #define normalScale seaNormalScaleAB
 #endif`,
@@ -528,16 +817,31 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
       .replace(
         '#include <emissivemap_fragment>',
         `{
-    vec2 seaS = seaSlope( vSeaXZ, distance( cameraPosition.xz, vSeaXZ ) ) * ( 1.0 - 0.6 * seaFoamAmt );
+    float seaDist = distance( cameraPosition.xz, vSeaXZ );
+    vec2 seaS = seaSlope( vSeaXZ, seaDist ) * ( 1.0 - 0.6 * seaFoamAmt );
+    // The mean square slope of everything faded out with distance, which the roughness takes over.
+    float seaLost = seaSlopeLost( seaDist );
 #ifdef USE_NORMALMAP
     // A third, finer ripple layer, turned and drifting its own way (uFoamDrift wraps at 1: whole tiles of this layer).
+    float seaKeptC = ${kept(c.tile)};
     vec2 seaCuv = mat2( ${n(c.cos)}, ${n(-c.sin)}, ${n(c.sin)}, ${n(c.cos)} ) * seaRippleUv * ${n(cScale)} + uFoamDrift.yx * 3.0;
-    seaS += ( texture2D( normalMap, seaCuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(c.weight)};
+    seaS += ( texture2D( normalMap, seaCuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(c.weight)} * seaKeptC;
     // A fourth layer at the first one's scale, turned the other way (uFoamDrift times a whole number wraps by whole tiles).
+    float seaKeptD = ${kept(RIPPLE_A_TILE / d.scale)};
     vec2 seaDuv = mat2( ${n(d.cos)}, ${n(d.sin)}, ${n(-d.sin)}, ${n(d.cos)} ) * seaRippleUv * ${n(d.scale)} - uFoamDrift * 2.0 + vec2( 0.37, 0.71 );
-    seaS += ( texture2D( normalMap, seaDuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(d.weight)};
+    seaS += ( texture2D( normalMap, seaDuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(d.weight)} * seaKeptD;
+    // The fine capillary ripples, near the camera only.
+    float seaKeptE = ${kept(e.tile)};
+    vec2 seaEuv = mat2( ${n(e.cos)}, ${n(-e.sin)}, ${n(e.sin)}, ${n(e.cos)} ) * seaRippleUv * ${n(eScale)} + uFoamDrift * 5.0;
+    seaS += ( texture2D( normalMap, seaEuv ).xy * 2.0 - 1.0 ) * seaNormalScale * ${n(e.weight)} * seaKeptE;
+    // A layer at normal scale s has a mean square slope of (WATER_TILT s)^2; the first two sum to one layer's.
+    seaLost += ${n(WATER_TILT * WATER_TILT)} * seaNormalScale.x * seaNormalScale.x * (
+      ${n(RIPPLE_AB_GAIN * RIPPLE_AB_GAIN)} * ( 1.0 - seaKeptAB * seaKeptAB ) + ${n(c.weight * c.weight)} * ( 1.0 - seaKeptC * seaKeptC )
+      + ${n(d.weight * d.weight)} * ( 1.0 - seaKeptD * seaKeptD ) + ${n(e.weight * e.weight)} * ( 1.0 - seaKeptE * seaKeptE ) );
 #endif
     normal = normalize( normal + mat3( viewMatrix ) * vec3( -seaS.x, 0.0, -seaS.y ) );
+    // Beckmann's alpha squared is the facets' mean square slope: the lost slopes add to the material's own (alpha = r^2).
+    roughnessFactor = mix( sqrt( sqrt( pow4( roughnessFactor ) + seaLost ) ), 0.85, seaFoamAmt );
   }
 #include <emissivemap_fragment>`,
       );
@@ -545,8 +849,16 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   mat.customProgramCacheKey = () => `${key()}-waves`;
 }
 
-/** The software sea: two waves on a warped ripple, the shallows and the beach's surf. Shares SeaUniforms. */
+/**
+ * The software sea: two waves on a warped ripple, the shallows and the beach's surf, unlit but for the key light's glint:
+ * its body (the shallows' colour under a fixed share of daylight, SOFTWARE_BODY) and the baked sky's gradient, folded
+ * above the horizon, lifted to the dome's brightness and by night in the night sky's blue (SEA_NIGHT_SKY), split by
+ * Schlick's Fresnel. Shares SeaUniforms (the night
+ * among them); `extra` brings the ripple tile and its drift, the sky's colours and the key light (uKeyDir, uKeyLight:
+ * colour times intensity).
+ */
 export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.IUniform>): THREE.ShaderMaterial {
+  const mid = new THREE.Color(SEA_MID);
   return new THREE.ShaderMaterial({
     fog: true,
     uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog!), ...extra, ...u },
@@ -558,7 +870,8 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
       }`,
     fragmentShader: `varying vec3 vWorld;
       uniform sampler2D uNormal; uniform vec2 uDrift;
-      uniform vec3 uTop, uHorizon; uniform float uNight;
+      uniform vec3 uTop, uHorizon; uniform float uNight, uSkyLift;
+      uniform vec3 uKeyDir, uKeyLight;
       #include <common>
       #include <fog_pars_fragment>
       ${SEA_WAVES_GLSL}
@@ -572,17 +885,19 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
         vec3 n = normalize(vec3(wave.x * 0.18 - swell.x, 1.0, wave.y * 0.18 - swell.y));
         vec3 eye = normalize(cameraPosition - vWorld);
         vec3 reflection = reflect(-eye, n);
-        vec3 sky = mix(uHorizon, uTop, smoothstep(0.0, 0.6, reflection.y));
-        float fresnel = 1.0 - max(dot(n, eye), 0.0);
-        fresnel *= fresnel;
+        reflection.y = abs(reflection.y);
+        vec3 sky = mix(uHorizon, uTop, pow(reflection.y, 0.55)) * uSkyLift;
+        sky = mix(sky, dot(sky, vec3(0.2126, 0.7152, 0.0722)) * vec3(${SEA_NIGHT_SKY.map(n).join(', ')}), uNight);
+        float fresnel = ${n(SEA_F0)} + ${n(1 - SEA_F0)} * pow(1.0 - max(dot(n, eye), 0.0), 5.0);
         float depth = seaDepthAt(vWorld.xz);
         float light = 1.0 - uNight * 0.94;
-        vec3 sea = seaShallows(vec3(0.018, 0.17, 0.23), depth, vWorld.xz) * light;
+        vec3 sea = seaShallows(vec3(${[mid.r, mid.g, mid.b].map((c) => c.toFixed(4)).join(', ')}), depth, vWorld.xz) * ${n(SOFTWARE_BODY)} * light;
         float onBeach = seaOnBeach(vWorld.xz);
         float shore = 1.0 - smoothstep(0.0, 0.6 + 0.9 * uSeaAmp, depth);
         float band = smoothstep(0.6, 0.9, 0.5 + 0.5 * sin(depth * 12.566 + uSurfPhase + ripple.z * 2.0));
         float foam = clamp(band * shore * onBeach * (0.55 + 0.6 * uSeaAmp), 0.0, 1.0);
-        vec3 col = mix(sea, sky, (0.25 + fresnel * 0.65) * (1.0 - foam));
+        vec3 glint = uKeyLight * pow(max(dot(reflection, uKeyDir), 0.0), 600.0) * 40.0 * fresnel;
+        vec3 col = mix(sea, sky, fresnel * (1.0 - foam)) + min(glint, vec3(${n(SEA_GLINT_MAX)})) * (1.0 - foam);
         gl_FragColor = vec4(mix(col, vec3(0.8) * light, foam), 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
