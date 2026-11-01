@@ -112,15 +112,6 @@ test.describe('GTA 7 onboarding', () => {
     await expect(prompt).toContainText('Wheels');
     await expect(prompt.locator('kbd.dpad')).toHaveCount(1);
     expect(await prompt.locator('kbd').allTextContents()).not.toContain('E');
-    // Next to a car: the steal prompt names Y.
-    await page.evaluate(() => {
-      const g = (window as Api).__gta7;
-      g.spawnVehicle('sedan', false);
-      const v = g.sim.vehicles[g.sim.vehicles.length - 1];
-      g.place(v.pos.x + Math.cos(v.heading) * 2.3, v.pos.z - Math.sin(v.heading) * 2.3);
-    });
-    await expect(prompt).toContainText('to steal the Velora');
-    await expect(prompt.locator('kbd.pad-y')).toHaveText('Y');
     expect(errors).toEqual([]);
   });
 

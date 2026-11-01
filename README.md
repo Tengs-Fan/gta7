@@ -290,7 +290,7 @@ The map's legend toggles are remembered with the settings.
 | Mouse sensitivity (the right stick too) | 0.20–3.00 | 1.00 |
 | Field of view (wider at speed in a vehicle, narrower when aiming) | 55–90° | 68° |
 | Invert look Y (mouse and right stick) | On / Off | Off |
-| Tutorial hints (first-time hints and the "Press F to steal" prompt) | On / Off | On |
+| Tutorial hints (first-time hints) | On / Off | On |
 | Weather (Always clear ramps the sky to clear and keeps it so) | Dynamic, Always clear | Dynamic |
 | Lightning flashes (off: storms keep their rain and lightning events, without the sky and light flash) | On / Off | On |
 | Resolution scale | 50–100% | 100% |
