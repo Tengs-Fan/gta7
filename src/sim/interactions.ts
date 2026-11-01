@@ -30,7 +30,7 @@ export interface Marker {
   color: number;
   /** Mission markers carry the mission id. */
   ref: string;
-  /** The kind of the place's radar and map icon (BLIP_KINDS in ui/mapRender.ts), or none. */
+  /** The kind of the place's radar and map icon (KINDS in ui/mapRender.ts), or none. */
   blip?: string;
 }
 
