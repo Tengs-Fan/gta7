@@ -6,8 +6,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { chaseOffset, CHASE_TARGET_Y } from '../../src/render/camera';
 import { lensAt, signalGeometry, signalLayout, type SignalStyle } from '../../src/render/furniture';
 import { OCCLUDER_AXIS } from '../../src/render/occluderFade';
-import { PropsView } from '../../src/render/props';
-import { LIT, quadLit, signalCount, signalQuads, signalStyle, walkAxes, walkShow, type QuadRole } from '../../src/render/signalHeads';
+import { PropsView, SIGNAL_UPLOAD_RANGES } from '../../src/render/props';
+import { LIT, quadLit, showKey, showScratch, signalCount, signalQuads, signalShow, signalStyle, walkAxes, walkShow, type QuadRole } from '../../src/render/signalHeads';
 import { HARDWARE_CHUNK_SIZE, spatialKey, STATIC_CHUNK_SIZE } from '../../src/render/spatial';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
 import { AVENUE_W, CURB_H, PROP_INSET } from '../../src/world/constants';
@@ -180,6 +180,28 @@ describe('the walk heads', () => {
       expect(roads.pedCanCross(n.id, 'NS', t)).toBe(false);
     }
     roads.releaseSignal(n.id);
+  });
+});
+
+describe('what a signal shows', () => {
+  it('is written into one scratch show, equal to what its parts say, whatever the time', () => {
+    const scratch = showScratch();
+    let flashing = 0;
+    for (const p of signals.filter((_, k) => k % 7 === 0)) {
+      const own = axisOf(p.dir as Dir);
+      const cross: Axis = own === 'NS' ? 'EW' : 'NS';
+      for (let t = -5; t < SIGNAL_CYCLE + 5; t += 0.43) {
+        const show = signalShow(roads, p, t, scratch);
+        expect(show).toBe(scratch);
+        expect(show).toEqual({ state: roads.signalState(p.node, own, t), count: signalCount(roads, p.node, own, t), walks: [walkShow(roads, p.node, own, t), walkShow(roads, p.node, cross, t)] });
+        if (show.walks[0]!.symbol === 'dark') flashing++;
+      }
+    }
+    expect(flashing).toBeGreaterThan(10);
+    // The key changes with anything shown.
+    const a = showKey(signalShow(roads, signals[0]!, 3.2, scratch));
+    expect(showKey(signalShow(roads, signals[0]!, 3.2, scratch))).toBe(a);
+    expect(showKey(signalShow(roads, signals[0]!, 4.4, scratch))).not.toBe(a);
   });
 });
 
@@ -444,6 +466,56 @@ describe('the walk heads on the poles', () => {
       });
     }
     expect(checked).toBeGreaterThan(5000);
+  });
+});
+
+describe('the lit buffers upload what changed', () => {
+  /** The ranges of `attr` as sorted, merged [start, end) pairs, the way the renderer sends them. */
+  const merged = (attr: THREE.BufferAttribute): Array<[number, number]> => {
+    const out: Array<[number, number]> = [];
+    for (const r of [...attr.updateRanges].sort((a, b) => a.start - b.start)) {
+      const last = out[out.length - 1];
+      if (last && r.start <= last[1]) last[1] = Math.max(last[1], r.start + r.count);
+      else out.push([r.start, r.start + r.count]);
+    }
+    return out;
+  };
+
+  it('a frame sends the slices of the signals that changed, and the whole buffer when more than a few did', () => {
+    const props = new PropsView(W);
+    const priv = props as unknown as { signalLit: THREE.InstancedMesh; signalHalos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> };
+    const buffers = [priv.signalLit.geometry.getAttribute('aLit'), priv.signalHalos.geometry.getAttribute('color')] as THREE.BufferAttribute[];
+    // The first frame writes every signal: all of both buffers.
+    props.update(0, 1, 100);
+    for (const attr of buffers) {
+      expect(merged(attr), attr.array.length.toString()).toEqual([[0, attr.array.length]]);
+      attr.clearUpdateRanges();
+    }
+    let partial = 0;
+    let whole = 0;
+    let still = 0;
+    for (let f = 1; f <= 240; f++) {
+      const before = buffers.map((attr) => Float32Array.from(attr.array));
+      props.update(0, 1, 100 + f / 60);
+      buffers.forEach((attr, b) => {
+        const ranges = merged(attr);
+        // Whatever changed is inside what is sent.
+        for (let k = 0; k < attr.array.length; k++) {
+          if (attr.array[k] !== before[b]![k]) expect(ranges.some(([from, to]) => k >= from && k < to), `buffer ${b} float ${k} at frame ${f}`).toBe(true);
+        }
+        expect(attr.updateRanges.length, `frame ${f}`).toBeLessThanOrEqual(SIGNAL_UPLOAD_RANGES + 1);
+        if (b > 0) return;
+        if (ranges.length === 0) still++;
+        else if (ranges.length === 1 && ranges[0]![1] - ranges[0]![0] === attr.array.length) whole++;
+        else partial++;
+      });
+      for (const attr of buffers) attr.clearUpdateRanges();
+    }
+    console.log(`[signals] 240 frames: ${still} unchanged, ${partial} with a few slices, ${whole} with the whole buffer`);
+    expect(partial).toBeGreaterThan(20);
+    expect(whole).toBeGreaterThan(0);
+    // Most of the quads' buffer is never sent in a frame that sends slices.
+    expect(partial + still).toBeGreaterThan(whole);
   });
 });
 

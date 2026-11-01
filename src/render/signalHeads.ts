@@ -49,18 +49,29 @@ export interface WalkShow {
   readonly count: number | null;
 }
 
+/** A WalkShow to be written in place (walkShow's `out`). */
+type WalkOut = { -readonly [K in keyof WalkShow]: WalkShow[K] };
+
 /**
  * The walk head before people about to cross `crossed` traffic: the walking figure while they may start (pedCanCross),
  * counting down to the end of the walk; then the hand, flashing through the rest of the green beside them (whoever is
  * across finishes, nobody starts) and counting it down; steady when that green is over. A held junction walks, or
- * stops, without a count.
+ * stops, without a count. It is written into `out`, which the caller may reuse.
  */
-export function walkShow(roads: RoadNetwork, node: number, crossed: Axis, t: number): WalkShow {
+export function walkShow(roads: RoadNetwork, node: number, crossed: Axis, t: number, out: WalkOut = { symbol: 'dark', count: null }): WalkShow {
   const beside: Axis = crossed === 'NS' ? 'EW' : 'NS';
   const left = roads.signalTimeLeft(node, beside, t);
-  if (roads.pedCanCross(node, crossed, t)) return { symbol: 'walk', count: left === null ? null : Math.ceil(left - (SIGNAL_GREEN - PED_WALK)) };
-  if (left !== null && roads.signalState(node, beside, t) === 'green') return { symbol: (t % 1 + 1) % 1 < 0.5 ? 'hand' : 'dark', count: Math.ceil(left) };
-  return { symbol: 'hand', count: null };
+  if (roads.pedCanCross(node, crossed, t)) {
+    out.symbol = 'walk';
+    out.count = left === null ? null : Math.ceil(left - (SIGNAL_GREEN - PED_WALK));
+  } else if (left !== null && roads.signalState(node, beside, t) === 'green') {
+    out.symbol = (t % 1 + 1) % 1 < 0.5 ? 'hand' : 'dark';
+    out.count = Math.ceil(left);
+  } else {
+    out.symbol = 'hand';
+    out.count = null;
+  }
+  return out;
 }
 
 /** Everything a signal shows at a moment: its light (null when knocked over), its countdown and its walk heads'. */
@@ -68,6 +79,27 @@ export interface SignalShow {
   readonly state: SignalState | null;
   readonly count: number | null;
   readonly walks: readonly WalkShow[];
+}
+
+/** A SignalShow to be written in place (signalShow's `out`): one per caller serves every signal, every frame. */
+export interface ShowScratch {
+  state: SignalState | null;
+  count: number | null;
+  readonly walks: readonly [WalkOut, WalkOut];
+}
+
+export function showScratch(): ShowScratch {
+  return { state: null, count: null, walks: [{ symbol: 'dark', count: null }, { symbol: 'dark', count: null }] };
+}
+
+/** What signal `p` shows at sim time `t`, written into `out`: its light, its countdown and its walk heads across its own road and the one beside. */
+export function signalShow(roads: RoadNetwork, p: Prop, t: number, out: ShowScratch): SignalShow {
+  const own = axisOf(p.dir as Dir);
+  out.state = roads.signalState(p.node, own, t);
+  out.count = signalCount(roads, p.node, own, t);
+  walkShow(roads, p.node, own, t, out.walks[0]);
+  walkShow(roads, p.node, own === 'NS' ? 'EW' : 'NS', t, out.walks[1]);
+  return out;
 }
 
 /** A knocked-over signal shows nothing. */

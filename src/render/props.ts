@@ -7,14 +7,13 @@ import { paletteMaterial } from './shapeKit';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { smoothstep, type V3 } from '../core/math';
 import { Rng } from '../core/rng';
-import { axisOf, type Dir } from '../world/roads';
 import { SEABED_Y } from '../world/constants';
 import { attractionOf } from '../world/attractions';
 import { hashInts, rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { riseAt } from '../world/terrain';
 import { adTexture, AD_COUNT, glowTexture, groundTexture, signalAtlas, signalGlowTexture, SIGNAL_TILE_RECTS } from './textures';
-import { DARK_SIGNAL, LIT, LIT_COLORS, quadLit, showKey, signalCount, signalQuads, signalStyle, walkAxes, walkShow, type QuadRole, type SignalShow } from './signalHeads';
+import { DARK_SIGNAL, LIT, LIT_COLORS, quadLit, showKey, showScratch, signalQuads, signalShow, signalStyle, walkAxes, type QuadRole, type SignalShow } from './signalHeads';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
 import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, type OccluderKind } from './occluderFade';
 import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
@@ -440,6 +439,21 @@ const SIGNAL_HALO = 1.1;
 const SIGNAL_HALO_COLORS: readonly Rgb[] = [[0.85, 0.05, 0.02], [0.8, 0.4, 0.02], [0.03, 0.7, 0.35]];
 const NO_HALO: Rgb = [0, 0, 0];
 
+/**
+ * More update ranges than this on a buffer are worth less than all of it: the whole buffer as one range, which the
+ * renderer uploads in one call (the ranges merge, so later ones still add up to it until it is uploaded).
+ */
+export const SIGNAL_UPLOAD_RANGES = 32;
+
+/** Sends `attr` to the GPU at the next render: the ranges added to it, or all of it when there are too many. */
+function uploadRanges(attr: THREE.BufferAttribute): void {
+  if (attr.updateRanges.length > SIGNAL_UPLOAD_RANGES) {
+    attr.clearUpdateRanges();
+    attr.addUpdateRange(0, attr.array.length);
+  }
+  attr.needsUpdate = true;
+}
+
 /** A halo is depth-tested as if this much (m) nearer the camera, so the lamp it glows round (its head, a tube) cannot cut into it. */
 const HALO_PULL = 0.6;
 
@@ -621,10 +635,12 @@ export class PropsView {
   private readonly poolMat: THREE.MeshBasicMaterial;
   /** Every signal's lit parts citywide, one quad each (litQuads), and by signal its first quad, their roles and what they show. */
   private signalLit: THREE.InstancedMesh | null = null;
-  private readonly signalSlots: Array<{ first: number; roles: readonly QuadRole[]; halo: number }> = [];
+  private readonly signalSlots: Array<{ first: number; roles: readonly QuadRole[]; halo: number; lenses: number }> = [];
   /** A halo round every signal lens (SIGNAL_HALO), from each signal's slot `halo` on, three to a head; dark unless lit. */
   private signalHalos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> | null = null;
   private signalKeys: Float64Array = new Float64Array(0);
+  /** The show of the signal being looked at (showOf). */
+  private readonly scratch = showScratch();
   /** The lit quads' palette by LIT entry and the faint grid of their unlit LEDs. */
   private readonly litColors = litPalette();
   private readonly litDots = { value: 0 };
@@ -1117,7 +1133,7 @@ export class PropsView {
       const p = L.props[pi]!;
       PropsView.standard(p, m);
       const base = m.clone();
-      this.signalSlots.push({ first: at, roles: quads[k]!.map((q) => q.role), halo: halos.length / 3 });
+      this.signalSlots.push({ first: at, roles: quads[k]!.map((q) => q.role), halo: halos.length / 3, lenses: quads[k]!.filter((q) => q.role.kind === 'lens').length });
       for (const q of quads[k]!) {
         if (q.role.kind !== 'lens') continue;
         halos.push(...placed(p, ...q.at));
@@ -1158,14 +1174,10 @@ export class PropsView {
     this.signalHalos = glow;
   }
 
-  /** What signal `i` shows at sim time `t`. */
-  private signalShow(i: number, t: number): SignalShow {
+  /** What signal `i` shows at sim time `t`: the one scratch show, rewritten for each (read it before the next). */
+  private showOf(i: number, t: number): SignalShow {
     if (this.brokenSignals.has(this.signalPropIndex[i]!)) return DARK_SIGNAL;
-    const p = this.signalProps[i]!;
-    const roads = this.world.roads;
-    const own = axisOf(p.dir as Dir);
-    const cross = own === 'NS' ? 'EW' : 'NS';
-    return { state: roads.signalState(p.node, own, t), count: signalCount(roads, p.node, own, t), walks: [walkShow(roads, p.node, own, t), walkShow(roads, p.node, cross, t)] };
+    return signalShow(this.world.roads, this.signalProps[i]!, t, this.scratch);
   }
 
   /**
@@ -1727,8 +1739,10 @@ export class PropsView {
     palette[LIT.yellowOff]!.setRGB(0.11 * dim, 0.06 * dim, 0.008 * dim);
     palette[LIT.greenOff]!.setRGB(0.01 * dim, 0.09 * dim, 0.05 * dim);
     this.litDots.value = 0.045 * dim;
-    // Each signal is rewritten only when what it shows changes: a few times a second citywide. A lit lens's halo takes
-    // its colour, a dark one none; at night they glow (see SIGNAL_HALO).
+    // Each signal is rewritten only when what it shows changes: most frames a few signals (each junction counts down at
+    // its own offset), the flashing hands of every junction in that phase twice a second. A lit lens's halo takes its
+    // colour, a dark one none; at night they glow (see SIGNAL_HALO). Only the changed signals' slices go to the GPU (a
+    // buffer's update ranges), or the whole buffer when too many changed (uploadRanges).
     const quads = this.signalLit;
     const glow = this.signalHalos;
     if (quads && glow) {
@@ -1737,20 +1751,24 @@ export class PropsView {
       const halo = glow.geometry.getAttribute('color') as THREE.BufferAttribute;
       const out: [number, number] = [0, 0];
       let changed = false;
-      this.signalSlots.forEach((slot, i) => {
-        const show = this.signalShow(i, signalTime);
+      for (let i = 0; i < this.signalSlots.length; i++) {
+        const slot = this.signalSlots[i]!;
+        const show = this.showOf(i, signalTime);
         const key = showKey(show);
-        if (key === this.signalKeys[i]) return;
+        if (key === this.signalKeys[i]) continue;
         this.signalKeys[i] = key;
-        slot.roles.forEach((role, j) => {
+        for (let j = 0; j < slot.roles.length; j++) {
+          const role = slot.roles[j]!;
           a.set(quadLit(role, show, out), (slot.first + j) * 2);
           if (role.kind === 'lens') halo.setXYZ(slot.halo + role.head * 3 + role.k, ...(out[1] >= LIT.red && out[1] <= LIT.green ? SIGNAL_HALO_COLORS[role.k]! : NO_HALO));
-        });
+        }
+        attr.addUpdateRange(slot.first * 2, slot.roles.length * 2);
+        halo.addUpdateRange(slot.halo * 3, slot.lenses * 3);
         changed = true;
-      });
+      }
       if (changed) {
-        attr.needsUpdate = true;
-        halo.needsUpdate = true;
+        uploadRanges(attr);
+        uploadRanges(halo);
       }
       glow.material.color.setScalar(night);
       glow.visible = night > 0.02;
