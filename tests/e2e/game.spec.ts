@@ -629,7 +629,8 @@ test.describe('GTA 7 menus', () => {
     // The cross in the middle of the 1280 x 720 map, where A and Enter drop the waypoint.
     const cross = (await page.locator('.map-cross').boundingBox())!;
     expect([cross.x + cross.width / 2, cross.y + cross.height / 2]).toEqual([640, 360]);
-    for (const glyph of ['pad-a', 'pad-lb', 'pad-rb', 'pad-b']) await expect(page.locator(`.map-hint kbd.${glyph}`)).toBeVisible();
+    // B twice: it lets go of a legend category, then closes.
+    for (const glyph of ['pad-a', 'pad-lb', 'pad-rb', 'pad-b']) await expect(page.locator(`.map-hint kbd.${glyph}`).first()).toBeVisible();
     await page.waitForTimeout(300);
     await padTap(page, 0); // A
     const centre = (await waypoint())!;
