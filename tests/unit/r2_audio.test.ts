@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ambienceTargets, IN_CAR, shoreInfo, type AmbienceDistrict, type AmbienceInput } from '../../src/audio/ambience';
 import { AudioEngine } from '../../src/audio/audio';
 import { dbToGain, distanceCutoff, EXPLOSION_DUCK_RANGE, gainToDb, Glider, MIX_DB, mixTargets, OPEN_HZ, softClipCurve, withinParam, type MixInput } from '../../src/audio/mixer';
-import { ENGINE_PROFILES, engineParams, engineWave, launchSlip, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
+import { ENGINE_PROFILES, EXHAUST_MAX_HZ, LOWPASS_FLOOR_HZ, LOWPASS_MAX_HZ, engineParams, engineWave, launchSlip, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import type { VehicleKind } from '../../src/sim/specs';
@@ -324,19 +324,66 @@ describe('engine profiles', () => {
     expect(engineParams('sedan', 0.5, 0.5, 0).roar).toBe(0);
   });
 
+  it('the road roar is under 0.12 at 35 m/s and never above 0.2 (it was 0.35), however fast', () => {
+    expect(engineParams('sedan', 0.5, 0.5, 35).roar).toBeLessThan(0.12);
+    for (const soft of [false, true]) {
+      for (const speed of [20, 50, 70, 90]) expect(engineParams('sports', 0.5, 0.5, speed, soft).roar).toBeLessThanOrEqual(0.2);
+    }
+    expect(engineParams('sports', 0.5, 0.5, 90, true).roar).toBe(0.2);
+  });
+
   it('wind follows (speed / 50)^2; the throttle opens the low-pass and the exhaust band', () => {
     expect(engineParams('sports', 0.5, 0.5, 50).wind / engineParams('sports', 0.5, 0.5, 25).wind).toBeCloseTo(4, 6);
     for (const k of KINDS) {
       const off = engineParams(k, 0.5, 0, 20);
       const on = engineParams(k, 0.5, 1, 20);
-      expect(off.lowpassHz).toBeGreaterThanOrEqual(600);
-      expect(on.lowpassHz).toBeLessThanOrEqual(4000);
+      expect(off.lowpassHz).toBeGreaterThanOrEqual(LOWPASS_FLOOR_HZ);
+      expect(on.lowpassHz).toBeLessThanOrEqual(LOWPASS_MAX_HZ);
       expect(on.lowpassHz).toBeGreaterThan(off.lowpassHz);
-      expect(off.exhaustHz).toBeCloseTo(2 * off.firingHz, 6);
-      expect(on.exhaustHz).toBeCloseTo(Math.min(6000, 4 * on.firingHz), 6);
+      expect(off.exhaustHz).toBeCloseTo(Math.max(50, Math.min(EXHAUST_MAX_HZ, off.firingHz)), 6);
+      expect(on.exhaustHz).toBeCloseTo(Math.max(50, Math.min(EXHAUST_MAX_HZ, 2 * on.firingHz)), 6);
       expect(on.exhaustLevel).toBeGreaterThan(off.exhaustLevel);
       expect(on.level).toBeGreaterThan(off.level);
     }
+  });
+
+  it('the exhaust noise is a low rumble: at most twice the firing frequency and 500 Hz, and a fraction of the engine’s own level', () => {
+    expect(EXHAUST_MAX_HZ).toBeLessThanOrEqual(500);
+    for (const k of KINDS) {
+      for (const r of [0, 0.5, 1]) {
+        for (const th of [0, 0.5, 1]) {
+          const p = engineParams(k, r, th, 20);
+          expect(p.exhaustHz).toBeLessThanOrEqual(Math.max(50, 2 * p.firingHz));
+          expect(p.exhaustHz).toBeLessThanOrEqual(EXHAUST_MAX_HZ);
+          expect(p.exhaustLevel).toBeLessThan(0.3 * p.level);
+        }
+      }
+    }
+  });
+
+  it('the pulse low-pass sits a few firing harmonics above its floor and stays far under the old 4 kHz', () => {
+    expect(LOWPASS_MAX_HZ).toBeLessThanOrEqual(2000);
+    for (const k of KINDS) {
+      for (const r of [0, 0.3, 0.6, 1]) {
+        for (const th of [0, 0.5, 1]) {
+          const p = engineParams(k, r, th, 20);
+          expect(p.lowpassHz).toBeGreaterThanOrEqual(LOWPASS_FLOOR_HZ);
+          expect(p.lowpassHz).toBeLessThanOrEqual(LOWPASS_MAX_HZ);
+          // Below the ceiling the cutoff is the floor plus 2 to 8 firing harmonics: it tracks the firing frequency.
+          if (p.lowpassHz < LOWPASS_MAX_HZ) {
+            const harmonics = (p.lowpassHz - LOWPASS_FLOOR_HZ) / p.firingHz;
+            expect(harmonics).toBeGreaterThan(2);
+            expect(harmonics).toBeLessThan(8);
+          }
+        }
+      }
+      // Revs raise it at a given throttle, and the throttle at given revs.
+      expect(engineParams(k, 0.9, 0.5, 20).lowpassHz).toBeGreaterThan(engineParams(k, 0.2, 0.5, 20).lowpassHz);
+      expect(engineParams(k, 0.5, 1, 20).lowpassHz).toBeGreaterThan(engineParams(k, 0.5, 0, 20).lowpassHz);
+    }
+    // Only a fast-firing engine floored reaches the ceiling; a bus or a scooter keeps well under it.
+    expect(engineParams('sports', 1, 1, 20).lowpassHz).toBe(LOWPASS_MAX_HZ);
+    for (const k of ['bus', 'scooter', 'dinghy'] as const) expect(engineParams(k, 1, 1, 20).lowpassHz).toBeLessThan(0.7 * LOWPASS_MAX_HZ);
   });
 
   it('tyres squeal in wandering noise bands that rise with the slip and the speed, never in the air or on sand', () => {
@@ -373,9 +420,10 @@ describe('engine profiles', () => {
   it('every engine wobbles a little from cycle to cycle, rough ones more', () => {
     const smooth = engineParams('sports', 0.5, 1, 20);
     const rough = engineParams('scooter', 0.5, 1, 20);
-    expect(smooth.jitterHz / smooth.cycleHz).toBeGreaterThan(0.005);
+    expect(smooth.jitterHz / smooth.cycleHz).toBeGreaterThan(0.003);
     expect(rough.jitterHz / rough.cycleHz).toBeGreaterThan(smooth.jitterHz / smooth.cycleHz);
-    expect(rough.jitterHz / rough.cycleHz).toBeLessThan(0.03);
+    // Half of what it was (3%): a little rasp, not a rough voice.
+    expect(rough.jitterHz / rough.cycleHz).toBeLessThan(0.015);
   });
 
   it('builds a unit-RMS pulse wave whose V8 burble sits at half the firing frequency', () => {
@@ -383,7 +431,8 @@ describe('engine profiles', () => {
       const p = ENGINE_PROFILES[k];
       const w = engineWave(p);
       let power = 0;
-      for (let h = 1; h <= 10 * p.cylinders; h++) power += (w.real[h]! ** 2 + w.imag[h]! ** 2) / 2;
+      // Over six firing harmonics: 6 * cylinders harmonics of the cycle frequency.
+      for (let h = 1; h <= 6 * p.cylinders; h++) power += (w.real[h]! ** 2 + w.imag[h]! ** 2) / 2;
       expect(power).toBeCloseTo(1, 4);
       expect(w.real[0]).toBe(0);
     }

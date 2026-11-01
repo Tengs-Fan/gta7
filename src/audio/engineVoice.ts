@@ -1,13 +1,13 @@
-// The player's vehicle: a firing-pulse engine voice per vehicle kind, an exhaust noise band,
+// The player's vehicle: a firing-pulse engine voice per vehicle kind, an exhaust rumble,
 // road roar, tyre squeal and scrub, and wind, plus the upshift dip.
 // Every node is created once, and each frame only moves AudioParams.
 // The engine's PeriodicWave is built once per vehicle kind.
 //
 //   slow noise -> jitter -> pulse oscillator frequency
-//   pulse oscillator -> throttle low-pass -> body --+
-//   noise -> exhaust band-pass -> exhaust gain -----+-> dip -> out
-//   noise -> road band-pass (150-500 Hz) -> roar -----------> out
-//   noise -> high-pass -> wind ------------------------------> out
+//   pulse oscillator -> low-pass x2 -> body -------------+
+//   noise -> exhaust low-pass -> makeup -> exhaust gain -+-> dip -> out
+//   noise -> road band-pass (170 Hz) -> roar ---------------> out
+//   noise -> high-pass -> low-pass -> wind ------------------> out
 //   noise -> two resonant band-passes -> flutter -> squeal --> out
 //   noise -> wide band-pass -> scrub ------------------------> out
 //   slow noise -> wobble -> band centres; slow noise -> flutter depth -> flutter gain
@@ -26,11 +26,15 @@ export const SHIFT_DIP = { gain: 0.5, fall: 0.015, hold: 0.05, rise: 0.02 } as c
 
 /** Brings the narrow squeal bands (they pass a sliver of the noise) up to squealParams' levels. */
 const SQUEAL_MAKEUP = 12;
+/** Brings the exhaust low-pass (under 1% of the noise's power, 50 to 500 Hz of 24 kHz) up to exhaustLevel, a fraction of the pulses: +16 dB. */
+export const EXHAUST_MAKEUP = 6;
 /** How far the squeal bands wander around their centre, as a fraction of it. */
 const SQUEAL_WOBBLE = 0.08;
 /** Playback rates of the slow noise: the wobble wanders every ~140 ms, the stick-slip flutter every ~14 ms. */
 const WOBBLE_RATE = 0.00015;
 const FLUTTER_RATE = 0.0015;
+/** A low-pass's Q is in dB: -3 dB is a Butterworth, the steepest response with no peak at its cutoff. */
+const NO_PEAK_DB = -3.01;
 /** The combustion jitter changes every ~2 ms, several times per cycle at any rpm. */
 const JITTER_RATE = 0.01;
 
@@ -38,6 +42,7 @@ export class EngineVoice {
   private readonly osc: OscillatorNode;
   private readonly jitter: GainNode;
   private readonly lowpass: BiquadFilterNode;
+  private readonly lowpass2: BiquadFilterNode;
   private readonly body: GainNode;
   private readonly exhaust: BiquadFilterNode;
   private readonly exhaustGain: GainNode;
@@ -46,6 +51,7 @@ export class EngineVoice {
   private readonly roarFilter: BiquadFilterNode;
   private readonly roarGain: GainNode;
   private readonly windFilter: BiquadFilterNode;
+  private readonly windLow: BiquadFilterNode;
   private readonly windGain: GainNode;
   private readonly squealLow: BiquadFilterNode;
   private readonly squealHigh: BiquadFilterNode;
@@ -84,15 +90,19 @@ export class EngineVoice {
     };
     this.osc = ctx.createOscillator();
     this.osc.frequency.value = 7;
-    this.lowpass = filter('lowpass', 900, 0.9);
+    this.lowpass = filter('lowpass', 900, NO_PEAK_DB);
+    this.lowpass2 = filter('lowpass', 900, NO_PEAK_DB);
     this.body = gain();
-    this.exhaust = filter('bandpass', 200, 2.2);
+    this.exhaust = filter('lowpass', 150, NO_PEAK_DB);
+    const exhaustMakeup = ctx.createGain();
+    exhaustMakeup.gain.value = EXHAUST_MAKEUP;
     this.exhaustGain = gain();
     this.dip = ctx.createGain();
     this.dip.gain.value = 1;
-    this.roarFilter = filter('bandpass', 275, 0.8);
+    this.roarFilter = filter('bandpass', 170, 0.9);
     this.roarGain = gain();
-    this.windFilter = filter('highpass', 650, 0.5);
+    this.windFilter = filter('highpass', 150, NO_PEAK_DB);
+    this.windLow = filter('lowpass', 1300, NO_PEAK_DB);
     this.windGain = gain();
     this.squealLow = filter('bandpass', 900, 12);
     this.squealHigh = filter('bandpass', 900 * SQUEAL_OVERTONE, 9);
@@ -124,17 +134,20 @@ export class EngineVoice {
     this.jitter.connect(this.osc.frequency);
 
     this.osc.connect(this.lowpass);
-    this.lowpass.connect(this.body);
+    this.lowpass.connect(this.lowpass2);
+    this.lowpass2.connect(this.body);
     this.body.connect(this.dip);
     src.connect(this.exhaust);
-    this.exhaust.connect(this.exhaustGain);
+    this.exhaust.connect(exhaustMakeup);
+    exhaustMakeup.connect(this.exhaustGain);
     this.exhaustGain.connect(this.dip);
     this.dip.connect(out);
     src.connect(this.roarFilter);
     this.roarFilter.connect(this.roarGain);
     this.roarGain.connect(out);
     src.connect(this.windFilter);
-    this.windFilter.connect(this.windGain);
+    this.windFilter.connect(this.windLow);
+    this.windLow.connect(this.windGain);
     this.windGain.connect(out);
     src.connect(this.squealLow);
     src.connect(this.squealHigh);
@@ -195,6 +208,7 @@ export class EngineVoice {
     g.set(this.osc.frequency, p.cycleHz, now, 0.03, 0.002);
     g.set(this.jitter.gain, p.jitterHz, now, 0.05);
     g.set(this.lowpass.frequency, p.lowpassHz, now, 0.06);
+    g.set(this.lowpass2.frequency, p.lowpassHz, now, 0.06);
     g.set(this.body.gain, p.level, now, 0.06);
     g.set(this.exhaust.frequency, p.exhaustHz, now, 0.04);
     g.set(this.exhaustGain.gain, p.exhaustLevel, now, 0.06);

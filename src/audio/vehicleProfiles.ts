@@ -25,22 +25,33 @@ export interface EngineParams {
   cycleHz: number;
   /** Gain of the firing-pulse voice. */
   level: number;
-  /** Throttle low-pass on the pulse voice, 600-4000 Hz. */
+  /**
+   * Throttle low-pass on the pulse voice (both of its stages): LOWPASS_FLOOR_HZ plus a few harmonics of the firing frequency, at most LOWPASS_MAX_HZ.
+   * The two stages are identical Butterworth sections, which cascade to -6 dB at this frequency, not -3 dB.
+   */
   lowpassHz: number;
-  /** Centre of the exhaust noise band, 2-4x the firing frequency with throttle. */
+  /** Corner of the exhaust rumble's low-pass: 1-2x the firing frequency with throttle, at most EXHAUST_MAX_HZ. */
   exhaustHz: number;
   exhaustLevel: number;
   /** Road roar (tyres on the surface), proportional to speed^1.2. */
   roar: number;
   /** Wind noise, (speed / 50)^2. */
   wind: number;
-  /** Depth (Hz) of the random cycle-to-cycle wobble on the cycle frequency: no two combustion cycles are alike. */
+  /** Depth (Hz) of the random cycle-to-cycle wobble on the cycle frequency: a little, so the pulses are not a pure synth tone. */
   jitterHz: number;
 }
 
 /** Overall gain of the engine voice for a 0 dB profile. */
-const ENGINE_BASE = 0.16;
-const ROAR_K = 0.0021;
+const ENGINE_BASE = 0.15;
+/** Where the pulse voice's low-pass starts, however slowly the engine fires: a bus or a scooter at idle still has body. */
+export const LOWPASS_FLOOR_HZ = 500;
+/** The most the low-pass ever opens to: nothing above it is an engine, only buzz. */
+export const LOWPASS_MAX_HZ = 2000;
+/** The exhaust noise is a rumble under the pulses, never a hiss: its low-pass's corner stays below this. */
+export const EXHAUST_MAX_HZ = 500;
+const ROAR_K = 0.0015;
+/** The road roar never gets louder than this, however fast the car. */
+const ROAR_MAX = 0.2;
 const WIND_K = 0.07;
 
 /**
@@ -55,18 +66,20 @@ export function engineParams(kind: VehicleKind, rpm01: number, throttle: number,
   const rpm = p.idleRpm + r * (p.redlineRpm - p.idleRpm);
   const firingHz = (rpm * p.cylinders) / 120;
   const level = dbToGain(p.loudness) * ENGINE_BASE * (0.55 + 0.45 * th) * (0.8 + 0.2 * r);
-  const lowpassHz = clamp(600 + 3400 * (0.7 * th + 0.3 * r) * (0.65 + 0.35 * p.brightness), 600, 4000);
+  // A few firing harmonics, more with the throttle and for a bright engine, so a fast-firing engine stays dark
+  // and a slow one (a bus, a scooter) does not turn into thumps.
+  const lowpassHz = Math.min(LOWPASS_MAX_HZ, LOWPASS_FLOOR_HZ + firingHz * (3 + 3 * (0.7 * th + 0.3 * r)) * (0.7 + 0.6 * p.brightness));
   const o = out ?? ({} as EngineParams);
   o.rpm = rpm;
   o.firingHz = firingHz;
   o.cycleHz = rpm / 120;
   o.level = level;
   o.lowpassHz = lowpassHz;
-  o.exhaustHz = clamp(firingHz * (2 + 2 * th), 60, 6000);
-  o.exhaustLevel = level * (0.12 + 0.55 * th) * (0.7 + 0.6 * p.roughness);
-  o.roar = Math.min(0.35, ROAR_K * Math.pow(sp, 1.2) * (soft ? dbToGain(3) : 1));
+  o.exhaustHz = clamp(firingHz * (1 + th), 50, EXHAUST_MAX_HZ);
+  o.exhaustLevel = level * (0.05 + 0.22 * th) * (0.7 + 0.6 * p.roughness);
+  o.roar = Math.min(ROAR_MAX, ROAR_K * Math.pow(sp, 1.2) * (soft ? dbToGain(3) : 1));
   o.wind = WIND_K * Math.min(1.5, (sp / 50) ** 2);
-  o.jitterHz = o.cycleHz * (0.008 + 0.025 * p.roughness);
+  o.jitterHz = o.cycleHz * (0.004 + 0.0125 * p.roughness);
   return o;
 }
 
@@ -108,6 +121,13 @@ export function launchSlip(throttle: number, forwardSpeed: number, accel: number
   if (reversing || throttle < 0.85 || accel < 13 || forwardSpeed < 0 || forwardSpeed >= 8) return 0;
   return 0.95 * (1 - forwardSpeed / 8) * Math.min(1, (accel - 11) / 3);
 }
+
+/**
+ * The firing harmonics the wave's unit RMS is counted over: a calibration at the fast-firing kinds' floored cutoff,
+ * where the low-pass (lowpassHz, its -6 dB point) sits about 5 to 6 harmonics up (the sports car, the sportbike, the V8s).
+ * A slow-firing kind's cutoff sits further up (a bus floored 9, a scooter 15), so more of its wave passes and it comes out up to about 1 dB over.
+ */
+const PASSED_FIRING_HARMONICS = 6;
 
 /** Number of harmonics in the engine PeriodicWave (enough for ~1.8 kHz of detail at a bus's idle). */
 export const ENGINE_HARMONICS = 400;
@@ -170,11 +190,11 @@ export function engineWave(p: EngineProfile, harmonics = ENGINE_HARMONICS): { re
     real[h] = 2 * cRe;
     imag[h] = -2 * cIm;
   }
-  // Unit RMS (Parseval) over the band up to ten times the firing frequency, which is what the throttle low-pass lets through,
-  // so `loudness` alone sets the level and sharper or fewer pulses don't come out quieter.
+  // Unit RMS (Parseval) over the band up to PASSED_FIRING_HARMONICS times the firing frequency, the fast-firing kinds' floored cutoff,
+  // so `loudness` sets the level to within about 1 dB (a slow-firing kind lands over) and sharper or fewer pulses don't come out quieter.
   // The wave is used with normalisation disabled.
   let power = 0;
-  for (let h = 1; h <= Math.min(harmonics, 10 * n); h++) power += (real[h]! * real[h]! + imag[h]! * imag[h]!) / 2;
+  for (let h = 1; h <= Math.min(harmonics, PASSED_FIRING_HARMONICS * n); h++) power += (real[h]! * real[h]! + imag[h]! * imag[h]!) / 2;
   const k = power > 0 ? 1 / Math.sqrt(power) : 0;
   for (let h = 1; h <= harmonics; h++) {
     real[h] = real[h]! * k;
