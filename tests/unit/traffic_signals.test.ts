@@ -7,7 +7,7 @@ import { chaseOffset, CHASE_TARGET_Y } from '../../src/render/camera';
 import { lensAt, signalGeometry, signalLayout, type SignalStyle } from '../../src/render/furniture';
 import { OCCLUDER_AXIS } from '../../src/render/occluderFade';
 import { PropsView } from '../../src/render/props';
-import { LIT, quadLit, signalCount, signalStyle, walkAxes, walkShow, type QuadRole } from '../../src/render/signalHeads';
+import { LIT, quadLit, signalCount, signalQuads, signalStyle, walkAxes, walkShow, type QuadRole } from '../../src/render/signalHeads';
 import { HARDWARE_CHUNK_SIZE, spatialKey, STATIC_CHUNK_SIZE } from '../../src/render/spatial';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
 import { AVENUE_W, CURB_H, PROP_INSET } from '../../src/world/constants';
@@ -342,6 +342,81 @@ describe('the walk heads on the poles', () => {
     }
     console.log(`[signals] ${served} walk heads over a crosswalk, ${spare} at T junctions facing none`);
     expect(served).toBeGreaterThan(500);
+  });
+
+  it('a walk head is a 16 inch one: a 0.30 m figure and 0.23 m digits on a box about 0.7 x 0.42 m', () => {
+    for (const style of STYLES) {
+      const layout = signalLayout(style);
+      const quads = signalQuads(layout).filter((q) => q.role.kind === 'walk' || q.role.kind === 'walkCount');
+      expect(quads.length).toBe(3 * layout.walks.length);
+      for (const q of quads) {
+        const f = layout.walks[(q.role as { walk: number }).walk]!;
+        // Along the face from its centre, in the face's own frame (onFace).
+        const u = (q.at[0] - f.x) * Math.cos(f.turn) - (q.at[2] - f.z) * Math.sin(f.turn);
+        if (q.role.kind === 'walk') expect([q.w, q.h]).toEqual([0.3, 0.3]);
+        else expect([q.w, q.h]).toEqual([0.115, 0.23]);
+        // Inside the box, with a margin.
+        expect(Math.abs(u) + q.w / 2, `${style} ${q.role.kind}`).toBeLessThan(0.35 - 0.04);
+        expect(q.h / 2).toBeLessThan(0.21 - 0.04);
+      }
+    }
+  });
+
+  it('a T junction collapses its spare walk head, the one facing no crosswalk, on every instance, in its model and its shadow', () => {
+    const props = new PropsView(W);
+    const priv = props as unknown as { refs: Map<number, Array<{ mesh: THREE.InstancedMesh; index: number }>>; signalPropIndex: number[]; signalProps: Prop[] };
+    let spare = 0;
+    priv.signalProps.forEach((p, k) => {
+      const { mesh, index } = priv.refs.get(priv.signalPropIndex[k]!)![0]!;
+      const off = mesh.geometry.getAttribute('aSpareOff');
+      expect(mesh.geometry.getAttribute('aSpare'), mesh.geometry.name).toBeDefined();
+      expect(off.getX(index), `${p.node} ${p.dir}`).toBe(walkAxes(roads, p)[1] === null ? 1 : 0);
+      spare += off.getX(index);
+      expect(mesh.customDepthMaterial?.customProgramCacheKey()).toBe('gta7-signal-depth');
+    });
+    // The 30 of them: no new meshes, so the props' budget holds (m3_props counts it).
+    expect(spare).toBe(30);
+    // Only the second walk head's vertices are flagged: a walk head's two boxes and its clamp.
+    for (const style of STYLES) {
+      const flags = signalGeometry(style).getAttribute('aSpare');
+      let flagged = 0;
+      for (let i = 0; i < flags.count; i++) flagged += flags.getX(i);
+      expect(flagged, style).toBe(3 * 36);
+    }
+    // The two materials collapse them to the instance's foot.
+    const mesh = priv.refs.get(priv.signalPropIndex[0]!)![0]!.mesh;
+    for (const mat of [mesh.material as THREE.Material, mesh.customDepthMaterial!]) {
+      const lib = mat instanceof THREE.MeshDepthMaterial ? THREE.ShaderLib.depth : THREE.ShaderLib.standard;
+      const shader = { uniforms: THREE.UniformsUtils.clone(lib.uniforms), vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader } as unknown as THREE.WebGLProgramParametersWithUniforms;
+      mat.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+      expect(shader.vertexShader, mat.type).toContain('if ( aSpare * aSpareOff > 0.5 ) transformed = vec3( 0.0 );');
+    }
+  });
+
+  it('every crosswalk end at a signalised junction has a walk head facing the person waiting there, bar a pinned 66', () => {
+    const heads = signals.flatMap((p) => signalLayout(signalStyle(roads, p)).walks.map((f, w) => ({ p, dir: facing(p, f.turn), axis: walkAxes(roads, p)[w] })));
+    let ends = 0;
+    let bare = 0;
+    for (const a of W.walk.nodes) {
+      for (const e of a.edges) {
+        if (!e.crosswalk || !roads.nodes[e.roadNode]!.signal) continue;
+        ends++;
+        const b = W.walk.nodes[e.to]!;
+        const back = new THREE.Vector3(a.x - b.x, 0, a.z - b.z).normalize();
+        if (!heads.some((h) => h.p.node === e.roadNode && h.axis === e.axis && Math.hypot(h.p.x - b.x, h.p.z - b.z) < 3.2 && h.dir.dot(back) > 0.9)) bare++;
+      }
+    }
+    // The 66 that have none, of 704. 32 are at a T junction's corner that has no approach and so no pole (a walk head
+    // stands on the signal pole of the approach at its corner; its spare head faces along the kerb, not across the road
+    // there). The other 34 are at corners whose approach the layout left without any signal: 18 approaches
+    // (layout.ts re-lays the roads after the sea bodies and adds the bridged segments back, but the signals were
+    // generated against the earlier road set, and its filter can only remove them), a layout bug apart from this
+    // branch. Fixing either lowers the number: lower it here then.
+    expect(ends).toBe(704);
+    expect(bare).toBe(66);
+    const approaches = new Set(signals.map((p) => `${p.node}/${p.dir}`));
+    const unsignalled = new Set(roads.lanes.filter((l) => roads.nodes[l.to]!.signal && !approaches.has(`${l.to}/${l.dir}`)).map((l) => `${l.to}/${l.dir}`));
+    expect(unsignalled.size).toBe(18);
   });
 
   it('show the walking figure exactly when the people they face may start across, and blank where no crosswalk is', () => {

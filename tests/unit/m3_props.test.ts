@@ -585,7 +585,15 @@ describe('VAL-PRP-009 the dissolve, halo and clip patches are on the new materia
       if ((s.uniforms.uOccBend as { value: number }).value > 0) palm++;
     });
     expect(palm).toBeGreaterThan(0);
-    for (const n of ['lamp-pole', 'lamp-head', 'lamp-lens', 'signal-mast', 'signal-bracket']) expect(byGeo.get(n)!.customProgramCacheKey(), n).toBe('gta7-occluder');
+    for (const n of ['lamp-pole', 'lamp-head', 'lamp-lens']) expect(byGeo.get(n)!.customProgramCacheKey(), n).toBe('gta7-occluder');
+    // The signal poles keep the dissolve in a program of their own (they collapse a T junction's spare walk head too).
+    for (const n of ['signal-mast', 'signal-bracket', 'signal-span']) {
+      const mat = byGeo.get(n)!;
+      expect(mat.customProgramCacheKey(), n).toBe('gta7-signal-pole');
+      const s = compiled(mat);
+      expect(s.vertexShader, n).toContain('vOccKeep = min(');
+      expect(s.fragmentShader, n).toContain('occBayer4( gl_FragCoord.xy ) >= vOccKeep ) discard;');
+    }
   });
 
   it('lamp halos keep their halo shader and the pools their clip', () => {

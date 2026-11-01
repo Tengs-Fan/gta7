@@ -13,6 +13,7 @@ type Rgb = number;
 /** Collects parts, each one colour, into a model. */
 export class ModelBuilder {
   private readonly geos: THREE.BufferGeometry[] = [];
+  private readonly spares = new Set<number>();
   readonly parts: string[] = [];
 
   add(part: string, geo: THREE.BufferGeometry, color: Rgb = 0xffffff, shade = 1): this {
@@ -30,7 +31,21 @@ export class ModelBuilder {
     return this;
   }
 
+  /**
+   * Runs `add`, marking the vertices of the parts it adds as spare (`aSpare` 1, 0 everywhere else): a part a shader may
+   * collapse for the instances that have no use for it.
+   */
+  spare(add: () => void): this {
+    const from = this.geos.length;
+    add();
+    for (let i = from; i < this.geos.length; i++) this.spares.add(i);
+    return this;
+  }
+
   build(name: string): THREE.BufferGeometry {
+    if (this.spares.size > 0) {
+      this.geos.forEach((g, i) => g.setAttribute('aSpare', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(this.spares.has(i) ? 1 : 0), 1)));
+    }
     const m = mergeGeometries(this.geos, false);
     if (!m) throw new Error(`${name}: mergeGeometries failed`);
     for (const g of this.geos) g.dispose();
@@ -307,10 +322,13 @@ function countBox(b: ModelBuilder, c: SignalCount): void {
   b.add('count', faceBox(c, w, 0.02, c.h * 0.3, 0, h / 2 - 0.01, c.h * 0.3), HOUSING);
 }
 
-/** A walk head: its box (the figure on the viewer's left, two digits on the right) under a hood, clamped to the pole. */
+/**
+ * A walk head, a 16 inch one: its box (the figure on the viewer's left, two digits on the right) under a hood, clamped to
+ * the pole; the figure on it is 0.30 m tall and the digits 0.23 m (signalHeads.ts signalQuads).
+ */
 function walkHead(b: ModelBuilder, f: SignalFace): void {
-  b.add('walk', faceBox(f, 0.56, 0.34, 0.16), HOUSING);
-  b.add('walk', faceBox(f, 0.56, 0.02, 0.1, 0, 0.16, 0.1), HOUSING);
+  b.add('walk', faceBox(f, 0.7, 0.42, 0.16), HOUSING);
+  b.add('walk', faceBox(f, 0.7, 0.02, 0.1, 0, 0.2, 0.1), HOUSING);
   b.add('clamp', faceBox(f, 0.12, 0.12, 0.06, 0, 0, -0.16), POLE, 0.85);
 }
 
@@ -350,9 +368,12 @@ function spanWire(b: ModelBuilder): void {
 export function signalGeometry(style: SignalStyle): THREE.BufferGeometry {
   const layout = SIGNAL_LAYOUTS[style];
   const b = new ModelBuilder();
+  // A pole's second walk head faces the road to its approach's right, which a T junction may not have: the instances
+  // there collapse it (props.ts buildSignals).
+  const walks = () => layout.walks.forEach((w, k) => (k === 1 ? b.spare(() => walkHead(b, w)) : walkHead(b, w)));
   if (style === 'span') {
     spanWire(b);
-    for (const w of layout.walks) walkHead(b, w);
+    walks();
     return b.build('signal-span');
   }
   signalPole(b);
@@ -370,7 +391,7 @@ export function signalGeometry(style: SignalStyle): THREE.BufferGeometry {
     countBox(b, c);
     if (c.y > OVER_Y - 0.1) b.add('hanger', box(0.05, ARM_Y - c.y - c.h * 0.7, 0.05, c.x, (ARM_Y + c.y + c.h * 0.7) / 2, 0), HOUSING);
   }
-  for (const w of layout.walks) walkHead(b, w);
+  walks();
   return b.build(`signal-${style}`);
 }
 

@@ -260,6 +260,22 @@ if ( vOccKeep < 1.0 && occBayer4( gl_FragCoord.xy ) >= vOccKeep ) discard;`,
 }
 
 /**
+ * Collapses the spare parts of a model (aSpare 1 on their vertices, furniture.ts ModelBuilder.spare) on the instances
+ * that have no use for them (aSpareOff 1) to a point at the instance's foot, so they are not drawn. Patched after the
+ * material's own patch, and keyed by `key`, as the program is no longer the other dissolving materials'.
+ */
+function collapseSpares(mat: THREE.Material, key: string): void {
+  const patched = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, renderer) => {
+    patched(shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aSpare;\nattribute float aSpareOff;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nif ( aSpare * aSpareOff > 0.5 ) transformed = vec3( 0.0 );');
+  };
+  mat.customProgramCacheKey = () => key;
+}
+
+/**
  * Draws the signals' lit parts (signalHeads.ts) from one instanced unit quad. Each instance carries its signal's own
  * matrix, so the quads stand, fall and dissolve with their pole (dissolveOccluder, patched first); in that frame, its
  * place and turn (aQuad) and size (aSize); and what it shows (aLit: an atlas tile and a palette entry), so a light that
@@ -720,7 +736,7 @@ export class PropsView {
     this.countyVisibility.update(x, z, county);
   }
 
-  private makeInstanced(geo: THREE.BufferGeometry, mat: THREE.Material, props: number[], matrixFor: (p: Prop, m: THREE.Matrix4) => void, opts: { shadow?: boolean; color?: (p: Prop, c: THREE.Color) => void; track?: boolean; chunked?: boolean } = {}): THREE.InstancedMesh | null {
+  private makeInstanced(geo: THREE.BufferGeometry, mat: THREE.Material, props: number[], matrixFor: (p: Prop, m: THREE.Matrix4) => void, opts: { shadow?: boolean; color?: (p: Prop, c: THREE.Color) => void; track?: boolean; chunked?: boolean; depth?: THREE.Material } = {}): THREE.InstancedMesh | null {
     if (props.length === 0) return null;
     if (!opts.chunked) {
       const buckets = new Map<string, number[]>();
@@ -756,6 +772,7 @@ export class PropsView {
     mesh.userData.propIndices = props;
     mesh.castShadow = opts.shadow ?? true;
     mesh.receiveShadow = true;
+    if (opts.depth) mesh.customDepthMaterial = opts.depth;
     const m = new THREE.Matrix4();
     const c = new THREE.Color();
     props.forEach((pi, k) => {
@@ -1055,8 +1072,17 @@ export class PropsView {
     // heads' black and their borders' yellow in its vertex colours.
     const poleMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.35 });
     dissolveOccluder(poleMat, OCCLUDER_AXIS.signal, this.occUniforms);
+    collapseSpares(poleMat, 'gta7-signal-pole');
+    const depth = new THREE.MeshDepthMaterial();
+    collapseSpares(depth, 'gta7-signal-depth');
     const styles = signals.map((i) => signalStyle(this.world.roads, L.props[i]!));
-    for (const style of ['mast', 'bracket', 'span'] as const) this.makeInstanced(signalGeometry(style), poleMat, signals.filter((_, k) => styles[k] === style), PropsView.standard);
+    for (const style of ['mast', 'bracket', 'span'] as const) {
+      const own = signals.filter((_, k) => styles[k] === style);
+      // A pole's second walk head faces the road to its approach's right: none at a T junction (walkAxes), and there it goes.
+      const geo = signalGeometry(style);
+      geo.setAttribute('aSpareOff', new THREE.InstancedBufferAttribute(Float32Array.from(own, (i) => (walkAxes(this.world.roads, L.props[i]!)[1] === null ? 1 : 0)), 1));
+      this.makeInstanced(geo, poleMat, own, PropsView.standard, { depth });
+    }
     this.signalProps = signals.map((i) => L.props[i]!);
     this.signalPropIndex = signals;
     // Every signal's lenses, countdown digits and walk figures citywide in one draw: a few thousand quads cost the GPU

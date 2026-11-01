@@ -114,8 +114,8 @@ export function signalQuads(layout: SignalLayout): SignalQuad[] {
     for (let k = 0; k < 2; k++) out.push({ at: onFace(c, (k - 0.5) * c.h * 0.55, 0, PROUD), turn: c.turn, w: c.h / 2, h: c.h, role: { kind: 'count', k } });
   }
   layout.walks.forEach((f, walk) => {
-    out.push({ at: onFace(f, -0.12, 0, PROUD), turn: f.turn, w: 0.24, h: 0.24, role: { kind: 'walk', walk } });
-    for (let k = 0; k < 2; k++) out.push({ at: onFace(f, 0.08 + k * 0.1, 0, PROUD), turn: f.turn, w: 0.09, h: 0.18, role: { kind: 'walkCount', walk, k } });
+    out.push({ at: onFace(f, -0.15, 0, PROUD), turn: f.turn, w: 0.3, h: 0.3, role: { kind: 'walk', walk } });
+    for (let k = 0; k < 2; k++) out.push({ at: onFace(f, 0.1 + k * 0.125, 0, PROUD), turn: f.turn, w: 0.115, h: 0.23, role: { kind: 'walkCount', walk, k } });
   });
   return out;
 }
