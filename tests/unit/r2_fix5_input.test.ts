@@ -11,7 +11,7 @@ import type { UiActions } from '../../src/input/input';
 import type { Settings } from '../../src/settings';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import { Sim } from '../../src/sim/sim';
-import { MapImage } from '../../src/ui/mapRender';
+import { blipReach, MAP_BLIP, MapImage } from '../../src/ui/mapRender';
 import { Menus, type MenuHost } from '../../src/ui/menus';
 import { placeInCar, world } from './helpers';
 
@@ -900,6 +900,32 @@ describe('the full-screen map pans with the left stick, with none of the steps t
     for (let i = 0; i < 30; i++) frame({ panX: 1, stickX: 1 });
     expect(viewCentre().x - centre.x).toBeCloseTo(speed * 0.5, 4);
     expect(viewCentre().z).toBeCloseTo(centre.z, 6);
+  });
+});
+
+describe('the full-screen map legend rebuilt under a pointer that rests on a row (multiplayer plays on under the map)', () => {
+  it('the hovered row stays lit when the kinds on the map change', () => {
+    const { sim, menus, canvas, frame, vw, vh, base, centre } = mapRig();
+    frame({});
+    const top = menus.top!.el as unknown as FakeElement;
+    const row = (kind: string) => top.all().find((e) => e.dataset.kind === kind);
+    const poi = sim.world.layout.pois.find((p) => p.kind === 'hospital')!;
+    const at = { x: vw / 2 + (poi.x - centre.x) * base, y: vh / 2 + (poi.z - centre.z) * base };
+    /** Whether a frame draws the pulsing ring round the hospital, past its disc: its row lit. */
+    const lit = () => {
+      canvas.calls.length = 0;
+      dom.record = true;
+      frame({});
+      dom.record = false;
+      return canvas.calls.some(([fn, a]) => fn === 'arc' && Math.hypot((a[0] as number) - at.x, (a[1] as number) - at.y) < 0.5 && (a[2] as number) > blipReach('circle', MAP_BLIP) + 3);
+    };
+    expect(lit()).toBe(false);
+    row('hospital')!.dispatchEvent(new Event('pointerenter'));
+    expect(lit()).toBe(true);
+    // A package found is a new kind of icon: the legend is built anew, under the same pointer.
+    sim.progress.packages.push(0);
+    expect(lit()).toBe(true);
+    expect(row('packageFound')).toBeDefined();
   });
 });
 

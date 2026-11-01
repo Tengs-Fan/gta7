@@ -74,11 +74,12 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     const key = groups.map((g) => g.kinds.join(',')).join('|');
     if (key === legendKey) return;
     legendKey = key;
+    // The rows picked and under the pointer stay so by id (the game runs on under the map in multiplayer).
     const picked = rows[pick]?.id;
+    const hovered = hover?.id;
     const dpr = Math.min(2, window.devicePixelRatio > 0 ? window.devicePixelRatio : 1);
     legendBody.innerHTML = '';
     rows = [];
-    hover = null;
     const add = (r: (typeof rows)[number]) => {
       r.el.addEventListener('pointerenter', () => (hover = r));
       r.el.addEventListener('pointerleave', () => {
@@ -102,6 +103,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
       }
     });
     pick = rows.findIndex((r) => r.id === picked);
+    hover = rows.find((r) => r.id === hovered) ?? null;
     drawLegend();
   };
   /** Picks row `i` (-1: none) and scrolls it into view. */
