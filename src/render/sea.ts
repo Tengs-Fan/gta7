@@ -1,8 +1,11 @@
 // The sea surface: the Gerstner waves (render/waves.ts) and the analytic shoreline patched into the sea's
-// standard material, the camera-snapped wave grid drawn on High, and the software sea's shader. The sea's colour
-// follows a render-only shelf that keeps falling offshore (turquoise shallows, deep blue open water), its ripples are
-// warped and modulated by low-frequency noise so their tiles do not line up, and foam rings the piers' pilings. Las
-// Lomas County's beaches come from a depth map baked from its ground (countyShore), sampled once per fragment.
+// standard material, the camera-snapped wave grid drawn on High, and the software sea's shader. The sea is lit as
+// water: a dark body, and the sky it mirrors by Fresnel above the horizon; the sun and moon glint in its ripples, light
+// glows through its crests and whitecaps break on them in a storm. The body's colour follows a render-only shelf that
+// keeps falling offshore (turquoise shallows, dark open water), its five ripple layers are warped and modulated by
+// low-frequency noise so their tiles do not line up and fade with distance into its roughness, and foam rings the
+// piers' pilings. Las Lomas County's beaches come from a depth map baked from its ground (countyShore), sampled once
+// per fragment.
 
 import * as THREE from 'three';
 import { BEACH_W, CURB_H, SAND_DROP, SEABED_Y, WATER_Y } from '../world/constants';
@@ -273,7 +276,7 @@ export interface SeaSky {
   intensity: { value: number };
 }
 
-/** Uniforms shared by every material that follows the sea: the sea itself and the foam rings on it. */
+/** Uniforms shared by every material that follows the sea: the sea itself, and the foam rings and boat wakes on it. */
 export interface SeaUniforms {
   uWavePhase: { value: THREE.Vector4 };
   uSeaAmp: { value: number };

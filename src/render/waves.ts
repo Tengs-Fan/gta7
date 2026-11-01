@@ -1,5 +1,6 @@
 // The sea's analytic waves: four Gerstner waves shared by the sea's vertex displacement (High), its per-pixel
-// normals (every hardware tier), the software sea (the two longest) and the foam rings that ride on it.
+// normals and crests (every hardware tier), the software sea (the two longest) and the foam rings and boat wakes that
+// ride on it.
 // Free of three.js: the GLSL is plain strings and the CPU twin is used by tests. Visual only: the sim's sea
 // stays flat at WATER_Y.
 
