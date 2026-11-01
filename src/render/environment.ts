@@ -7,7 +7,7 @@ import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
 import { CAUSEWAY_NAME } from '../world/country';
 import { mkRect, type CityLayout, type Rect } from '../world/layout';
-import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, SKY_SUN_GLOW, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
+import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, SKY_GLOW_FALL, SKY_SUN_GLOW, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 import { CALM_SEA } from './waves';
 import { assets } from './assets';
@@ -70,10 +70,8 @@ export function cityGlow(hours: number): number {
   return h >= 12 ? smoothstep(18.9, 22.1, h) : 1 - smoothstep(3.6, 6.7, h);
 }
 
-/** The city glow's colour on the sky at the horizon (linear), at full strength; it fades upwards over CITY_GLOW_FALL. */
+/** The city glow's colour on the sky at the horizon (linear), at full strength; it fades upwards over SKY_GLOW_FALL.city. */
 const CITY_GLOW = new THREE.Color(0.1, 0.045, 0.006);
-/** The glow's falloff with the sine of the elevation: half strength about 6 degrees up. */
-const CITY_GLOW_FALL = 6.5;
 /**
  * Off the city's land the glow gathers over the city's own horizon: uCityAway runs from 0 on the land (the beach and
  * the city's headlands included) to 1 CITY_AWAY_RANGE m off it, and as it does the glow narrows to the cube of the cosine of the bearing off
@@ -801,7 +799,7 @@ void main() {
   float toCity = max(dot(hz, uCityGlowDir), 0.0);
   float cityK = mix(1.0, toCity * toCity * toCity, uCityAway);
   vec3 horizon = uHorizon + uGlow;
-  vec3 col = max(mix(uHorizon, uTop, t) + uGlow * exp(-max(h, 0.0) * 9.0) + uCityGlow * cityK * exp(-max(h, 0.0) * ${CITY_GLOW_FALL.toFixed(2)}), vec3(0.0));
+  vec3 col = max(mix(uHorizon, uTop, t) + uGlow * exp(-max(h, 0.0) * ${SKY_GLOW_FALL.horizon.toFixed(1)}) + uCityGlow * cityK * exp(-max(h, 0.0) * ${SKY_GLOW_FALL.city.toFixed(2)}), vec3(0.0));
   // Below the horizon fade towards a darker haze.
   if (h < 0.0) col = mix(horizon, horizon * 0.55, clamp(-h * 4.0, 0.0, 1.0));
   float pix = max(length(fwidth(d)), 1e-6);
@@ -933,10 +931,11 @@ export class Environment {
       uniforms: {
         uTop: { value: new THREE.Color() },
         uHorizon: { value: new THREE.Color() },
-        uGlow: { value: new THREE.Color(0, 0, 0) },
-        uCityGlow: { value: new THREE.Color(0, 0, 0) },
-        uCityGlowDir: { value: new THREE.Vector2() },
-        uCityAway: { value: 0 },
+        // Shared with the sea, which reflects the same glows.
+        uGlow: this.sea.uSkyGlow,
+        uCityGlow: this.sea.uCityGlow,
+        uCityGlowDir: this.sea.uCityGlowDir,
+        uCityAway: this.sea.uCityAway,
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uSunColor: { value: new THREE.Color() },
         uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
@@ -1007,6 +1006,9 @@ export class Environment {
           uNight: this.skyMat.uniforms.uNight!,
         })
       : null;
+    // By day the reflected sky is lifted to the dome's brightness; by night the map stays as much dimmer as the day's
+    // lift leaves it, which stands in for the dark night clouds the dome draws over its sky and the map lacks.
+    this.sea.uSkyLift.value = 1 / envIntensity(0);
     if (simpleWater) waterMat.dispose();
     const water = new THREE.Mesh(this.seaPlane, simpleWater ?? waterMat);
     // Displaced vertices leave the plane's bounds; the sea is always in view anyway.

@@ -38,6 +38,12 @@ export const SEA_ROUGHNESS = 0.06;
  */
 export const SKY_SUN_GLOW = { pow: 24, gain: 2.5 } as const;
 /**
+ * The sky dome's glows (Environment's sky) fall off with the sine of the elevation at these rates: the night's glow
+ * all round the horizon, and the city's light over it (half strength about 6 degrees up). The environment map holds
+ * neither, so the sea adds them to the sky it reflects as the dome draws them.
+ */
+export const SKY_GLOW_FALL = { horizon: 9, city: 6.5 } as const;
+/**
  * The brightest a sun or moon glint on the sea is drawn (linear, before exposure): its true peak is a hundred times
  * this, and bloom spreads anything that bright into a solid white column.
  */
@@ -287,6 +293,16 @@ export interface SeaUniforms {
   /** The baked sky's sun as the environment map holds it (colour, and direction), for the sea to take back out of it. */
   uSkySun: { value: THREE.Color };
   uSkySunDir: { value: THREE.Vector3 };
+  /**
+   * What lifts the reflected environment map (or baked sky) back to the sky dome's own brightness by day, 1 / the
+   * scene's daytime environment intensity: grazing water mirrors the sky as brightly as it shines, with no seam.
+   */
+  uSkyLift: { value: number };
+  /** The sky dome's horizon glow and city glow (shared with it: SKY_GLOW_FALL), its bearing to the city and how gathered it is. */
+  uSkyGlow: { value: THREE.Color };
+  uCityGlow: { value: THREE.Color };
+  uCityGlowDir: { value: THREE.Vector2 };
+  uCityAway: { value: number };
   /** Las Lomas County's depth map (countyShore; none until setCountyShore), and its box: minX, minZ, 1 / width, 1 / depth. */
   uCountyDepth: { value: THREE.DataTexture | null };
   uCountyBox: { value: THREE.Vector4 };
@@ -314,6 +330,11 @@ export function seaUniforms(): SeaUniforms {
     uSeaCuts: { value: Array.from({ length: MAX_SEA_CUTS }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
     uSkySun: { value: new THREE.Color(0, 0, 0) },
     uSkySunDir: { value: new THREE.Vector3(0, 1, 0) },
+    uSkyLift: { value: 1 },
+    uSkyGlow: { value: new THREE.Color(0, 0, 0) },
+    uCityGlow: { value: new THREE.Color(0, 0, 0) },
+    uCityGlowDir: { value: new THREE.Vector2() },
+    uCityAway: { value: 0 },
     uCountyDepth: { value: null },
     uCountyBox: { value: new THREE.Vector4(1e6, 1e6, 1, 1) },
     uCountyLand: { value: Array.from({ length: MAX_COUNTY_LAND }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
@@ -558,10 +579,11 @@ void RE_Direct_Sea( const in IncidentLight directLight, const in vec3 geometryPo
 `;
 
 /**
- * The sky along the sea's reflected ray: the environment map less its sun's glow (SKY_SUN_GLOW), or the baked sky's
- * gradient without one (uSkyTop, uSkyHorizon, uSkyI: bound only then). A ripple turned away from the eye reflects the
- * face of the next wave rather than the sky under the horizon, which the map holds as a dark haze: the ray folds back
- * up, so grazing water shows the bright horizon sky and never dark blotches.
+ * The sky along the sea's reflected ray, as bright as the sky dome draws it (uSkyLift): the environment map less its
+ * sun's glow (SKY_SUN_GLOW), or the baked sky's gradient without one (uSkyTop, uSkyHorizon, uSkyI: bound only then),
+ * with the dome's horizon and city glows (SKY_GLOW_FALL) on top. A ripple turned away from the eye reflects the face
+ * of the next wave rather than the sky under the horizon, which the map holds as a dark haze: the ray folds back up,
+ * so grazing water shows the bright horizon sky and never dark blotches.
  */
 const SEA_SKY_GLSL = /* glsl */ `
 uniform vec3 uSkyTop;
@@ -569,14 +591,21 @@ uniform vec3 uSkyHorizon;
 uniform float uSkyI;
 uniform vec3 uSkySun;
 uniform vec3 uSkySunDir;
+uniform float uSkyLift;
+uniform vec3 uSkyGlow;
+uniform vec3 uCityGlow;
+uniform vec2 uCityGlowDir;
+uniform float uCityAway;
 vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
   vec3 r = transformDirectionByInverseViewMatrix( reflect( - viewDir, normal ), viewMatrix );
   r.y = abs( r.y );
+  float toCity = max( dot( normalize( r.xz + vec2( 1e-5 ) ), uCityGlowDir ), 0.0 );
+  vec3 glow = uSkyGlow * exp( - r.y * ${n(SKY_GLOW_FALL.horizon)} ) + uCityGlow * mix( 1.0, toCity * toCity * toCity, uCityAway ) * exp( - r.y * ${n(SKY_GLOW_FALL.city)} );
 #if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
-  vec3 glow = uSkySun * pow( max( dot( r, uSkySunDir ), 0.0 ), ${n(SKY_SUN_GLOW.pow)} ) * ${n(SKY_SUN_GLOW.gain)};
-  return max( textureCubeUV( envMap, envMapRotation * r, roughness ).rgb - glow, 0.0 ) * envMapIntensity;
+  vec3 sun = uSkySun * pow( max( dot( r, uSkySunDir ), 0.0 ), ${n(SKY_SUN_GLOW.pow)} ) * ${n(SKY_SUN_GLOW.gain)};
+  return max( textureCubeUV( envMap, envMapRotation * r, roughness ).rgb - sun, 0.0 ) * envMapIntensity * uSkyLift + glow;
 #else
-  return mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) ) * uSkyI;
+  return mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) ) * uSkyI * uSkyLift + glow;
 #endif
 }
 `;

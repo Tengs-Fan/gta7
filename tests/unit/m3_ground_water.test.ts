@@ -12,7 +12,7 @@ import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/rende
 import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
-import { CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SKY_SUN_GLOW, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_SEA } from '../../src/render/sea';
+import { CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SKY_GLOW_FALL, SKY_SUN_GLOW, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_SEA } from '../../src/render/sea';
 import { CALM_SEA, WAVES, waveDisplacement, wavePhases } from '../../src/render/waves';
 import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
@@ -538,6 +538,23 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     const t = (20 * Math.PI) / 180;
     expect(beckmann(t) / beckmann(0)).toBeLessThan(1e-6);
     expect(ggx(t) / ggx(0)).toBeGreaterThan(3e-3);
+  });
+
+  it('the sea mirrors the sky as brightly as the dome draws it by day, with the dome\'s horizon and city glows', () => {
+    const r = renderer('high');
+    const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
+    // The daytime environment intensity (0.75) is lifted back to 1, so grazing water meets the horizon without a seam.
+    expect(r.env.sea.uSkyLift.value).toBeCloseTo(1 / 0.75, 9);
+    expect(fs).toContain('* envMapIntensity * uSkyLift + glow;');
+    // The sky dome's glows are the sea's uniforms, and both fall off alike.
+    const sky = (r.env.sky.material as THREE.ShaderMaterial).uniforms;
+    expect(sky.uGlow).toBe(r.env.sea.uSkyGlow);
+    expect(sky.uCityGlow).toBe(r.env.sea.uCityGlow);
+    expect(sky.uCityGlowDir).toBe(r.env.sea.uCityGlowDir);
+    expect(sky.uCityAway).toBe(r.env.sea.uCityAway);
+    expect(fs).toContain(`exp( - r.y * ${SKY_GLOW_FALL.horizon}.0 )`);
+    expect(fs).toContain(`exp( - r.y * ${SKY_GLOW_FALL.city} )`);
+    expect((r.env.sky.material as THREE.ShaderMaterial).fragmentShader).toContain(`exp(-max(h, 0.0) * ${SKY_GLOW_FALL.city.toFixed(2)})`);
   });
 
   it('crests glow towards the light, and whitecaps break on them in a storm only', () => {
