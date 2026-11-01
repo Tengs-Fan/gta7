@@ -212,6 +212,57 @@ describe('the prompt for taking a vehicle', () => {
   });
 });
 
+describe('a failed mission\'s retry beside a vehicle', () => {
+  /** Fails Wheels (with `stars` on him) and puts the player at a parked Velora's door. */
+  function failedAtCar(sim: Sim, stars: number): Vehicle {
+    expect(sim.missions.start('wheels', { retrying: true })).toBe(true);
+    sim.wanted.setLevel(stars);
+    sim.missions.active!.fail('The car was destroyed.');
+    step(sim, 0.1);
+    return parkedWithPlayer(sim);
+  }
+
+  it('the offer, which is timed and names a key, comes before the vehicle prompt', () => {
+    const sim = makeSim({ police: false });
+    const v = failedAtCar(sim, 0);
+    expect(sim.missions.retryOffer()?.id).toBe('wheels');
+    expect(sim.playerCtl.findEnterable(sim.player)).toBe(v);
+    expect(prompt(sim)).toBe('Press E to retry "Wheels"');
+  });
+
+  it('"Lose the cops before retrying." comes after it, so a wanted player beside a car is offered the car', () => {
+    const sim = makeSim({ police: false });
+    const v = failedAtCar(sim, 2);
+    expect(sim.missions.retryOffer()).toBeNull();
+    expect(sim.missions.retryAfterCops()?.id).toBe('wheels');
+    expect(prompt(sim)).toBe('Press F to get in the Velora');
+    teleport(sim, v.pos.x + 12, v.pos.z);
+    expect(prompt(sim)).toBe('Lose the cops before retrying.');
+    // Back at the car with the police lost: the offer, now open, goes first again.
+    atDoor(sim, v);
+    sim.wanted.clear();
+    step(sim, 0.1);
+    expect(prompt(sim)).toBe('Press E to retry "Wheels"');
+  });
+
+  it('the same notice for an offer that is open when the stars come, and "Finish the rampage first." likewise', () => {
+    const sim = makeSim({ police: false });
+    const v = failedAtCar(sim, 0);
+    sim.wanted.setLevel(2);
+    expect(sim.missions.retryOffer()?.id).toBe('wheels');
+    expect(prompt(sim)).toBe('Press F to get in the Velora');
+    teleport(sim, v.pos.x + 12, v.pos.z);
+    expect(prompt(sim)).toBe('Lose the cops before retrying.');
+
+    sim.wanted.clear();
+    expect(sim.activities.startRampage('rampage:0')).toBe(true);
+    atDoor(sim, v);
+    expect(prompt(sim)).toBe('Press F to get in the Velora');
+    teleport(sim, v.pos.x + 12, v.pos.z);
+    expect(prompt(sim)).toBe('Finish the rampage first.');
+  });
+});
+
 /** A cab the player called, waiting at the curb by the player's spot (he stands 6 m off the lane). */
 function waitingCab(sim: Sim): CabJob {
   const lane = sim.roads.gridLanes[(1 * 37 + 11) % sim.roads.gridLanes.length]!;

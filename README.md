@@ -74,7 +74,8 @@ To play with friends on your network, run the optional multiplayer server (see [
   The wheel, Q and LB / RB step through the weapons you own that still have ammo; in a vehicle only the pistol and SMG fire, Q changes the station, and on a gamepad LB steps the weapons (RB is the handbrake).
 - Taking a vehicle: walk up to it, or swim up to a boat, and the prompt at the bottom of the screen names what F does there.
   "Press F to get in the Velora" and "Press F to board the Marlin" are empty ones, and "Press F to carjack the Velora" is one with someone at the wheel, the car stopped at a light or crawling in traffic included.
-  A car faster than 7 m/s offers nothing, and a marker's prompt, or a failed mission's retry, comes before it.
+  A car faster than 7 m/s offers nothing, and a marker's prompt, or a failed mission's "Press E to retry", comes before it.
+  The notice that a retry must wait ("Lose the cops before retrying.", "Finish the rampage first.") comes after it, so a wanted player beside a car is offered the car.
 - Getting out of a moving car: below 3.5 m/s you step out, up to 11 m/s the car brakes first, and faster than that you bail out, tumble and lose 6 health.
 - Motorbikes and boats use the vehicle controls: W / S (RT / LT) for throttle and brake or reverse, A / D (left stick) to lean or steer, F (Y) to get on or off.
   The Viper 600 pulls a wheelie at full throttle below about 12 m/s; a boat steers only with way on, has no handbrake and no street runs, and you board it from the pier or climb in from the water with F.
