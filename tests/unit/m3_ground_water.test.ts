@@ -12,8 +12,8 @@ import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/rende
 import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
-import { CITY_STREAKS, CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_MID, SEA_MOON_PATH, SEA_NIGHT_GLOW, SEA_NIGHT_SKY, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_GLSL, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, SOFTWARE_BODY, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_STEEP } from '../../src/render/sea';
-import { CALM_SEA, WAVE_K, WAVES, waveAmps, waveDisplacement, wavePhases } from '../../src/render/waves';
+import { CITY_STREAKS, CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_MID, SEA_MOON_PATH, SEA_NIGHT_GLOW, SEA_NIGHT_SKY, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_GLSL, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, SOFTWARE_BODY, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_LACE_PX, WHITECAP_MOST, WHITECAP_SPREAD, WHITECAP_STEEP } from '../../src/render/sea';
+import { CALM_SEA, SEA_WAVES_GLSL, WAVE_K, WAVES, waveAmps, waveDisplacement, wavePhases } from '../../src/render/waves';
 import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
 import { sandHeight } from '../../src/world/layout';
@@ -708,13 +708,23 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(fs).toContain(`reflectedLight.directDiffuse += directLight.color * vec3( ${CREST_GLOW.join(', ')} ) * through * seaGlow;`);
     expect(fs).toContain(`seaGlow = saturate( seaW.height ) * saturate( seaW.height ) * ( 0.3 + 0.7 * smoothstep( 0.0, ${WHITECAP_STEEP[1]}, seaW.steep ) );`);
     // Whitecaps join the foam (its colour, roughness and sky light), clear of the shallows' surf.
-    expect(fs).toContain('seaFoamAmt = max( seaFoamAmt, seaWhitecap( seaW.steep, seaW.most, seaNoise, seaLace, seaPx ) * smoothstep( 0.5, 2.0, seaDepth ) );');
-    expect(fs).toContain(`float cap = smoothstep(${WHITECAP_STEEP[0]}, ${WHITECAP_STEEP[1]}, steep + 0.05 * patchy);`);
+    expect(fs).toContain('seaFoamAmt = max( seaFoamAmt, seaWhitecap( seaW.steep, seaW.spread, seaW.most, seaNoise, seaLace, seaPx ) * smoothstep( 0.5, 2.0, seaDepth ) );');
+    // The threshold is fed only the waves the pixel shows, and widens by its input's change across the pixel and by the
+    // spread of the waves it cannot show, so storm whitecaps do not alias; the lace's holes fade out as pixels grow.
+    expect(SEA_WAVES_GLSL).toContain('w.steep = dot(cA, keptA) + dot(cB, keptB);');
+    expect(SEA_WAVES_GLSL).toContain('w.spread = 0.5 * (dot(cmA * cmA, 1.0 - keptA * keptA) + dot(cmB * cmB, 1.0 - keptB * keptB));');
+    expect(fs).toContain(`float wx = fwidth(x) + ${WHITECAP_SPREAD} * sqrt(spread);`);
+    expect(fs).toContain(`float cap = smoothstep(${WHITECAP_STEEP[0]} - wx, ${WHITECAP_STEEP[1]} + wx, x) * smoothstep(${WHITECAP_MOST[0]}, ${WHITECAP_MOST[1]}, most);`);
+    expect(fs).toContain('cap *= smoothstep(-0.4 - wy, 0.6 + wy, y);');
+    expect(fs).toContain(`(1.0 - smoothstep(${WHITECAP_LACE_PX[0]}, ${WHITECAP_LACE_PX[1]}, px))`);
     // The crests' compression where every crest meets (Gerstner's steepness times slope, summed): short of the whitecaps'
-    // start on a calm day and in plain rain, past their full cover in a storm.
+    // start on a calm day and in plain rain, and short of the gate that allows any cover at all (so the widened threshold
+    // never whitens a calm sea), past their full cover in a storm.
     const most = (sea: number) => waveAmps(sea).reduce((a, amp, i) => a + WAVES[i]!.steep * WAVE_K[i]! * amp, 0);
     expect(most(CALM_SEA)).toBeLessThan(WHITECAP_STEEP[0]);
+    expect(most(CALM_SEA)).toBeLessThan(WHITECAP_MOST[0]);
     expect(most(1)).toBeGreaterThan(WHITECAP_STEEP[1]);
+    expect(most(1)).toBeGreaterThan(WHITECAP_MOST[1]);
   });
 
   it('pilings: the shader\'s lattice is the drawn one, and every piling has foam on all four sides within 0.5 m', () => {

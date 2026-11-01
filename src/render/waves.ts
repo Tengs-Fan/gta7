@@ -374,8 +374,10 @@ vec3 seaDisplaceEdge(vec2 p, vec2 edge) {
  * times NORMAL_GAIN), each wave's fading out as its phase outruns the pixels (WAVE_PHASE_PX); kept, the crests'
  * compression those slopes draw (Gerstner's sum of steepness times slope, which narrows the normal's rise at a crest);
  * lost, the mean square slope the fades took; height, the surface over the most the waves reach here (-1 in the deepest
- * trough to 1 where every crest meets); steep, the compression of every wave, faded or not, which is how close the
- * crests are to breaking; most, the compression where every crest meets.
+ * trough to 1 where every crest meets, of the waves the pixel shows); steep, the compression of the waves the pixel shows,
+ * which is how close the crests are to breaking; spread, the variance of the compression of those it cannot show (a sine
+ * of amplitude c has a variance of c^2 / 2), which blurs the whitecaps' threshold rather than aliasing into it; most,
+ * the compression where every crest meets.
  */
 struct SeaWave {
   vec2 slope;
@@ -383,6 +385,7 @@ struct SeaWave {
   float lost;
   float height;
   float steep;
+  float spread;
   float most;
 };
 SeaWave seaWave(vec2 p, vec2 dx, vec2 dy) {
@@ -408,8 +411,11 @@ SeaWave seaWave(vec2 p, vec2 dx, vec2 dy) {
   // A sine of slope amplitude g has a mean square slope of g^2 / 2.
   w.lost = (dot(skA * skA, 1.0 - keptA * keptA) * gainA * gainA + dot(skB * skB, 1.0 - keptB * keptB) * gain * gain) * 0.5;
   float most = dot(aA, vec4(1.0)) + dot(aB, vec4(1.0)) + sh.y;
-  w.steep = dot(cA, vec4(1.0)) + dot(cB, vec4(1.0));
-  w.most = dot(skA, SEA_Q_A) + dot(skB, SEA_Q_B);
+  w.steep = dot(cA, keptA) + dot(cB, keptB);
+  vec4 cmA = skA * SEA_Q_A;
+  vec4 cmB = skB * SEA_Q_B;
+  w.spread = 0.5 * (dot(cmA * cmA, 1.0 - keptA * keptA) + dot(cmB * cmB, 1.0 - keptB * keptB));
+  w.most = dot(cmA, vec4(1.0)) + dot(cmB, vec4(1.0));
   // The breaker, sh.y sin(seaSurfPhase(depth)): its slope is its height's derivative along the depth's gradient.
   float ph = seaSurfPhase(s.y);
   float ks = ${f(SURF_K)} * length(s.zw);
@@ -417,9 +423,10 @@ SeaWave seaWave(vec2 p, vec2 dx, vec2 dy) {
   w.slope += s.zw * (${f(SURF_K)} * sh.y * cos(ph) * keptS * gainA);
   w.lost += 0.5 * (ks * sh.y * gainA) * (ks * sh.y * gainA) * (1.0 - keptS * keptS);
   w.kept += ${f(SURF_Q)} * ks * sh.y * sin(ph) * keptS * gainA;
-  w.steep += ${f(SURF_Q)} * ks * sh.y * sin(ph);
+  w.steep += ${f(SURF_Q)} * ks * sh.y * sin(ph) * keptS;
+  w.spread += 0.5 * (${f(SURF_Q)} * ks * sh.y) * (${f(SURF_Q)} * ks * sh.y) * (1.0 - keptS * keptS);
   w.most += ${f(SURF_Q)} * ks * sh.y;
-  w.height = (dot(aA, sin(thA)) + dot(aB, sin(thB)) + sh.y * sin(ph)) / max(most, 1e-3);
+  w.height = (dot(aA * keptA, sin(thA)) + dot(aB * keptB, sin(thB)) + sh.y * keptS * sin(ph)) / max(most, 1e-3);
   return w;
 }
 `;

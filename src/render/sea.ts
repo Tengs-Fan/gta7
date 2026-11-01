@@ -97,10 +97,23 @@ export const SKY_MOON_HALO = { color: [0.55, 0.62, 0.8], tight: { gain: 0.16, fa
 export const SEA_GLINT_MAX = 6;
 /**
  * Whitecaps break on the crests whose compression (seaWave's steep, the sum of Gerstner's steepness times slope: how near
- * they are to breaking) passes the first of these, and cover them by the second. The crests reach at most 0.09 at calm
- * and in plain rain (sea state 0.3: no whitecaps), 0.66 in a storm; they start breaking from about sea state 0.5.
+ * they are to breaking) passes the first of these, and cover them by the second. The crests reach at most 0.16 at calm
+ * and in plain rain (sea state 0.3: no whitecaps), 0.69 in a storm; they start breaking from about sea state 0.55.
  */
 export const WHITECAP_STEEP = [0.2, 0.45] as const;
+/**
+ * The whitecaps' threshold widens by this many standard deviations of the compression of the waves a pixel cannot show
+ * (seaWave's spread), and by the compression's own change across the pixel, so a pixel draws the cover it would have on
+ * average instead of sampling a sharp edge on waves it cannot resolve.
+ */
+export const WHITECAP_SPREAD = 1.5;
+/**
+ * No cover at all where even every crest meeting would compress the water less than the first of these, fully allowed by
+ * the second: the widened threshold must never put whitecaps on a calm day.
+ */
+export const WHITECAP_MOST = [0.18, 0.25] as const;
+/** The lace's holes in the whitecaps (0.3-1.2 m across) fade out as a pixel grows from the first to the second (m). */
+export const WHITECAP_LACE_PX = [0.08, 0.35] as const;
 /**
  * The light that shines through a thin crest towards an eye looking into the sun or moon (linear, per unit of light):
  * the water's green-blue glow on the backs of the waves (SEA_DIRECT_GLSL).
@@ -778,18 +791,24 @@ vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
 `;
 
 /**
- * The whitecaps on the waves' crests, 0..1 (WHITECAP_STEEP), from the crests' compression here (steep) and where every
- * crest meets (most; seaWave): broken into patches by the foam noise and lace, and softened, as a pixel grows past
- * their size (px: m per pixel), into a faint even cover as thick as the sea's tallest crests break.
+ * The whitecaps on the waves' crests, 0..1 (WHITECAP_STEEP), from the crests' compression here (steep), the spread of
+ * what the pixel cannot show of it (spread) and where every crest meets (most; seaWave): broken into patches by the foam
+ * noise and lace, every threshold widened by what one pixel spans of its input (WHITECAP_SPREAD), and softened, as a
+ * pixel grows past their size (px: m per pixel), into a faint even cover as thick as the sea's tallest crests break.
+ * fwidth needs the calls in uniform control flow: never call it under a branch that varies per pixel.
  */
 const SEA_CREST_GLSL = /* glsl */ `
-float seaWhitecap(float steep, float most, float noise, float lace, float px) {
+float seaWhitecap(float steep, float spread, float most, float noise, float lace, float px) {
   // The noise and lace are ripple slopes, a few hundredths either side of 0.5: stretched to about -1..1.
   float patchy = (noise - 0.5) * 12.0;
-  float fine = (lace - 0.5) * 8.0;
-  float cap = smoothstep(${n(WHITECAP_STEEP[0])}, ${n(WHITECAP_STEEP[1])}, steep + 0.05 * patchy);
+  float fine = (lace - 0.5) * 8.0 * (1.0 - smoothstep(${n(WHITECAP_LACE_PX[0])}, ${n(WHITECAP_LACE_PX[1])}, px));
+  float x = steep + 0.05 * patchy;
+  float wx = fwidth(x) + ${n(WHITECAP_SPREAD)} * sqrt(spread);
+  float cap = smoothstep(${n(WHITECAP_STEEP[0])} - wx, ${n(WHITECAP_STEEP[1])} + wx, x) * smoothstep(${n(WHITECAP_MOST[0])}, ${n(WHITECAP_MOST[1])}, most);
   // Holes open in the lace where the cap thins out, and its thin edges let the water show through.
-  cap *= smoothstep(-0.4, 0.6, fine + cap - 0.6);
+  float y = fine + cap - 0.6;
+  float wy = fwidth(y);
+  cap *= smoothstep(-0.4 - wy, 0.6 + wy, y);
   return 0.75 * mix(cap, 0.08 * smoothstep(${n(WHITECAP_STEEP[0])}, ${n(WHITECAP_STEEP[1])}, 0.6 * most), smoothstep(0.6, 2.5, px));
 }
 `;
@@ -863,7 +882,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
     float seaNoise = texture2D( normalMap, fuv ).x * 0.6 + texture2D( normalMap, fuv * 2.37 + 0.31 ).y * 0.4;
     seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaShelterAt( vSeaXZ ).x, seaNoise, uSeaAmp, seaPx );
     float seaLace = texture2D( normalMap, vSeaXZ * 0.21 + uFoamDrift.yx * 4.0 ).y;
-    seaFoamAmt = max( seaFoamAmt, seaWhitecap( seaW.steep, seaW.most, seaNoise, seaLace, seaPx ) * smoothstep( 0.5, 2.0, seaDepth ) );
+    seaFoamAmt = max( seaFoamAmt, seaWhitecap( seaW.steep, seaW.spread, seaW.most, seaNoise, seaLace, seaPx ) * smoothstep( 0.5, 2.0, seaDepth ) );
   }
 #endif
   diffuseColor.rgb = mix( seaShallows( diffuseColor.rgb, seaDepth, vSeaXZ ), vec3( 0.82, 0.86, 0.86 ), seaFoamAmt );`,
