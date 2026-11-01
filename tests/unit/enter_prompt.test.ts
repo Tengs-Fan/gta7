@@ -3,7 +3,7 @@
 // prompts and the retry offer, and never for a vehicle F would pass over.
 
 import { describe, expect, it } from 'vitest';
-import { CAB_ARRIVAL_LIMIT, cabState, callCab } from '../../src/sim/activities/cab';
+import { CAB_ARRIVAL_LIMIT, cabState, callCab, type CabJob } from '../../src/sim/activities/cab';
 import type { Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import type { VehicleKind } from '../../src/sim/specs';
@@ -212,19 +212,39 @@ describe('the prompt for taking a vehicle', () => {
   });
 });
 
+/** A cab the player called, waiting at the curb by the player's spot (he stands 6 m off the lane). */
+function waitingCab(sim: Sim): CabJob {
+  const lane = sim.roads.gridLanes[(1 * 37 + 11) % sim.roads.gridLanes.length]!;
+  const x = lane.sx + lane.dx * (lane.length / 2);
+  const z = lane.sz + lane.dz * (lane.length / 2);
+  const spot = sim.world.findFreeSpot(x - lane.dz * 6, z + lane.dx * 6, 0.5, 8) ?? { x, z };
+  teleport(sim, spot.x, spot.z);
+  sim.update(DT, input());
+  expect(callCab(sim).ok).toBe(true);
+  for (let t = 0; t < CAB_ARRIVAL_LIMIT && cabState(sim)?.stage !== 'waiting'; t += DT) step(sim, DT);
+  const j = cabState(sim)!;
+  expect(j.stage).toBe('waiting');
+  return j;
+}
+
+/** Puts `who` `off` m from the cab's centre line, on whichever side is free. */
+function besideCab(sim: Sim, cab: Vehicle, off: number, who = sim.player): void {
+  for (const side of [-1, 1]) {
+    const x = cab.pos.x + Math.cos(cab.heading) * off * side;
+    const z = cab.pos.z - Math.sin(cab.heading) * off * side;
+    if (!sim.world.isFree(x, z, 0.4, true)) continue;
+    who.pos.x = x;
+    who.pos.z = z;
+    who.pos.y = sim.world.groundHeight(x, z);
+    return;
+  }
+  throw new Error('no free spot beside the cab');
+}
+
 describe('a cab the player called', () => {
   it('is "get in", not a carjacking: the cab system takes F and seats him as its passenger', () => {
     const sim = makeSim({ seed: 1, ambient: true, police: false });
-    const lane = sim.roads.gridLanes[(1 * 37 + 11) % sim.roads.gridLanes.length]!;
-    const x = lane.sx + lane.dx * (lane.length / 2);
-    const z = lane.sz + lane.dz * (lane.length / 2);
-    const spot = sim.world.findFreeSpot(x - lane.dz * 6, z + lane.dx * 6, 0.5, 8) ?? { x, z };
-    teleport(sim, spot.x, spot.z);
-    sim.update(DT, input());
-    expect(callCab(sim).ok).toBe(true);
-    for (let t = 0; t < CAB_ARRIVAL_LIMIT && cabState(sim)?.stage !== 'waiting'; t += DT) step(sim, DT);
-    const j = cabState(sim)!;
-    expect(j.stage).toBe('waiting');
+    const j = waitingCab(sim);
     const side = sim.world.findFreeSpot(j.cab.pos.x - Math.cos(j.cab.heading) * 2.2, j.cab.pos.z + Math.sin(j.cab.heading) * 2.2, 0.4, 3)!;
     teleport(sim, side.x, side.z);
     expect(sim.playerCtl.findEnterable(sim.player)).toBe(j.cab);
@@ -235,5 +255,51 @@ describe('a cab the player called', () => {
     expect(sim.player.vehicle).toBe(j.cab);
     expect(sim.player.seat).toBeGreaterThan(0);
     expect(j.cab.driver).toBe(j.driver);
+  });
+
+  it('is named over a parked car nearer him, which F passes over for the cab', () => {
+    const sim = makeSim({ seed: 1, ambient: true, police: false });
+    const { cab } = waitingCab(sim);
+    const fx = Math.sin(cab.heading);
+    const fz = Math.cos(cab.heading);
+    const sx = Math.cos(cab.heading);
+    const sz = -Math.sin(cab.heading);
+    // A Velora 6 m behind the cab, the player in the 1.3 m gap between them, 2.2 m out on the cab's side.
+    const parked = sim.spawnVehicle('sedan', cab.pos.x - fx * 6, cab.pos.z - fz * 6, cab.heading);
+    parked.owner = 'parked';
+    teleport(sim, cab.pos.x - fx * 3.3 - sx * 2.2, cab.pos.z - fz * 3.3 - sz * 2.2);
+    expect(sim.playerCtl.findEnterable(sim.player)).toBe(parked);
+    expect(prompt(sim)).toBe('Press F to get in the Azura Cab');
+    step(sim, DT, input({ enterExit: true }));
+    step(sim, 2.5);
+    expect(sim.player.vehicle).toBe(cab);
+    expect(sim.player.seat).toBeGreaterThan(0);
+    expect(parked.driver).toBeNull();
+  });
+
+  it.each([3.5, 4, 4.5])('is named from %s m off its side, further than the controller reaches, as long as the cab takes F there', (off) => {
+    const sim = makeSim({ seed: 1, ambient: true, police: false });
+    const { cab } = waitingCab(sim);
+    besideCab(sim, cab, off);
+    expect(sim.playerCtl.findEnterable(sim.player)).toBeNull();
+    expect(prompt(sim)).toBe('Press F to get in the Azura Cab');
+    step(sim, DT, input({ enterExit: true }));
+    step(sim, 4);
+    expect(sim.player.vehicle).toBe(cab);
+    expect(sim.player.seat).toBeGreaterThan(0);
+  });
+
+  it('is not named from beyond the cab system\'s reach, and to a second player at its side it is a carjacking', () => {
+    const sim = makeSim({ seed: 1, ambient: true, police: false });
+    const { cab } = waitingCab(sim);
+    besideCab(sim, cab, 6.5);
+    expect(prompt(sim)).toBeNull();
+
+    // The cab system takes slot 0's F only: another player's goes to the controller, which pulls the cabbie out.
+    besideCab(sim, cab, 2.2);
+    const b = sim.addPlayer(cab.pos.x, cab.pos.z);
+    besideCab(sim, cab, 2.2, b.character);
+    expect(prompt(sim, 0)).toBe('Press F to get in the Azura Cab');
+    expect(prompt(sim, 1)).toBe('Press F to carjack the Azura Cab');
   });
 });

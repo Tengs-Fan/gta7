@@ -10,6 +10,7 @@ import type { Character, Vehicle } from '../entities';
 import type { PlayerSlot } from '../playerSlot';
 import type { Sim } from '../sim';
 import { registerSystem } from '../systems';
+import type { PlayerView } from '../viewState';
 import type { ActivityDef, ActivityHost, Objective } from './types';
 
 declare module './types' {
@@ -103,10 +104,18 @@ function cabJob(sim: Sim): CabJob | null {
   return j?.kind === 'cab' ? j : null;
 }
 
-/** The cab the player called, while it comes or waits: F beside it takes him aboard as its passenger (no carjacking). */
-export function awaitedCab(sim: Sim): Vehicle | null {
+/**
+ * The cab F takes `slot`'s player aboard in, if any: the one he called, while it comes or waits, with him on foot within
+ * reach of its centre. The cab system takes the key before the controller sees it, from further than the controller
+ * reaches, so a prompt for the vehicle F takes asks here first.
+ */
+export function cabTakesEnter(sim: Sim, slot: PlayerView): Vehicle | null {
   const j = cabJob(sim);
-  return j && (j.stage === 'coming' || j.stage === 'waiting') ? j.cab : null;
+  if (!j || slot.id !== 0 || (j.stage !== 'coming' && j.stage !== 'waiting')) return null;
+  const p = slot.character;
+  const v = j.cab;
+  if (slot.down || slot.controlLock > 0 || p.state !== 'normal' || p.vehicle) return null;
+  return Math.hypot(v.pos.x - p.pos.x, v.pos.z - p.pos.z) <= BOARD_REACH + v.halfL * 0.5 ? v : null;
 }
 
 /** The road point nearest (x, z): where a cab stops for someone standing there. */
@@ -515,8 +524,7 @@ registerSystem({
       }
       return;
     }
-    if (awaitedCab(sim) !== v || p.state !== 'normal' || p.vehicle) return;
-    if (Math.hypot(v.pos.x - p.pos.x, v.pos.z - p.pos.z) > BOARD_REACH + v.halfL * 0.5) return;
+    if (cabTakesEnter(sim, slot) !== v) return;
     inp.enterExit = false;
     if (v.speed < 0.8 && board(sim, j)) {
       const host = hosts.get(sim);
