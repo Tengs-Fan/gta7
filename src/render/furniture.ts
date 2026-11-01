@@ -175,9 +175,10 @@ export interface SignalHead extends SignalFace {
   readonly gap: number;
 }
 
-/** A countdown: two digits `h` m tall and half as wide. */
+/** A countdown: two digits `h` m tall and half as wide; `over` when it hangs over the road, from an arm or the span wire, not on the pole. */
 export interface SignalCount extends SignalFace {
   readonly h: number;
+  readonly over?: boolean;
 }
 
 /** Where a signal's lit parts are: its vehicle heads, its countdowns and its walk heads. */
@@ -257,15 +258,15 @@ function spanY(s: number): number {
 const SIGNAL_LAYOUTS: Readonly<Record<SignalStyle, SignalLayout>> = {
   mast: {
     heads: [NEAR_HEAD, { ...OVER, x: laneIn(AVENUE_W, 0) }, { ...OVER, x: laneIn(AVENUE_W, 1) }],
-    counts: [NEAR_COUNT, { x: (laneIn(AVENUE_W, 0) + laneIn(AVENUE_W, 1)) / 2, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4 }],
+    counts: [NEAR_COUNT, { x: (laneIn(AVENUE_W, 0) + laneIn(AVENUE_W, 1)) / 2, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4, over: true }],
     walks: WALKS,
   },
   bracket: {
     heads: [NEAR_HEAD, { ...OVER, x: laneIn(STREET_W, 0) }],
-    counts: [NEAR_COUNT, { x: laneIn(STREET_W, 0) + 1.05, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4 }],
+    counts: [NEAR_COUNT, { x: laneIn(STREET_W, 0) + 1.05, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4, over: true }],
     walks: WALKS,
   },
-  span: { heads: [SPAN_HEAD], counts: [{ x: SPAN_AT, y: 8.45, z: SPAN_AT + 0.08, turn: 0, h: 0.3 }], walks: SPAN_WALKS },
+  span: { heads: [SPAN_HEAD], counts: [{ x: SPAN_AT, y: 8.45, z: SPAN_AT + 0.08, turn: 0, h: 0.3, over: true }], walks: SPAN_WALKS },
 };
 
 /** Where a signal of this style has its lit parts. */
@@ -273,8 +274,8 @@ export function signalLayout(style: SignalStyle): SignalLayout {
   return SIGNAL_LAYOUTS[style];
 }
 
-/** How far each style's arm reaches over the road (local -x) from the pole. */
-const ARM_REACH: Readonly<Record<SignalStyle, number>> = { mast: -laneIn(AVENUE_W, 1) + 0.7, bracket: -laneIn(STREET_W, 0) + 0.75, span: 0 };
+/** How far each arm's style reaches over the road (local -x) from the pole. */
+const ARM_REACH: Readonly<Record<'mast' | 'bracket', number>> = { mast: -laneIn(AVENUE_W, 1) + 0.7, bracket: -laneIn(STREET_W, 0) + 0.75 };
 
 const POLE = 0x8f959b;
 const HOUSING = 0x1b1c1e;
@@ -378,18 +379,16 @@ export function signalGeometry(style: SignalStyle): THREE.BufferGeometry {
   }
   signalPole(b);
   const reach = ARM_REACH[style];
-  if (reach > 0) {
-    b.add('arm', new THREE.CylinderGeometry(0.055, 0.085, reach, 10).rotateZ(Math.PI / 2).translate(-reach / 2, ARM_Y, 0), POLE);
-    b.add('arm', cyl(0.165, 0.165, 0.34, 12, 0, ARM_Y - 0.17, 0), POLE, 0.9);
-    b.add('arm', bar(v3(0, POLE_TOP - 0.08, 0), v3(-reach / 2, ARM_Y + 0.05, 0), 0.025), POLE, 0.9);
-  }
+  b.add('arm', new THREE.CylinderGeometry(0.055, 0.085, reach, 10).rotateZ(Math.PI / 2).translate(-reach / 2, ARM_Y, 0), POLE);
+  b.add('arm', cyl(0.165, 0.165, 0.34, 12, 0, ARM_Y - 0.17, 0), POLE, 0.9);
+  b.add('arm', bar(v3(0, POLE_TOP - 0.08, 0), v3(-reach / 2, ARM_Y + 0.05, 0), 0.025), POLE, 0.9);
   for (const h of layout.heads) {
     vehicleHead(b, h);
-    if (h.y === OVER_Y) for (const u of [-0.4, 0.4]) b.add('hanger', box(0.05, ARM_Y - OVER_Y - 0.2, 0.05, h.x + u, (ARM_Y + OVER_Y + 0.2) / 2, 0), HOUSING);
+    if (h.across) for (const u of [-0.4, 0.4]) b.add('hanger', box(0.05, ARM_Y - h.y - 0.2, 0.05, h.x + u, (ARM_Y + h.y + 0.2) / 2, 0), HOUSING);
   }
   for (const c of layout.counts) {
     countBox(b, c);
-    if (c.y > OVER_Y - 0.1) b.add('hanger', box(0.05, ARM_Y - c.y - c.h * 0.7, 0.05, c.x, (ARM_Y + c.y + c.h * 0.7) / 2, 0), HOUSING);
+    if (c.over) b.add('hanger', box(0.05, ARM_Y - c.y - c.h * 0.7, 0.05, c.x, (ARM_Y + c.y + c.h * 0.7) / 2, 0), HOUSING);
   }
   walks();
   return b.build(`signal-${style}`);

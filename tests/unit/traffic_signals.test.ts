@@ -295,6 +295,12 @@ describe('which signals reach over the road', () => {
       expect(Math.abs(g.boundingBox!.min.y)).toBeLessThan(0.02);
     }
     for (const style of ['mast', 'bracket'] as const) expect(signalGeometry(style).userData.parts).toEqual(expect.arrayContaining(['pole', 'arm', 'head', 'lens', 'visor', 'backplate', 'border', 'count', 'walk']));
+    // Two hangers on each head over the road and one on the countdown between them, whatever height they hang at.
+    for (const style of ['mast', 'bracket'] as const) {
+      const layout = signalLayout(style);
+      const over = layout.heads.filter((h) => h.across).length;
+      expect((signalGeometry(style).userData.parts as string[]).filter((n) => n === 'hanger').length, style).toBe(2 * over + layout.counts.filter((c) => c.over).length);
+    }
     expect(signalGeometry('span').userData.parts).toEqual(expect.arrayContaining(['pole', 'wire', 'hanger', 'head', 'lens', 'visor', 'backplate', 'border', 'count', 'walk']));
   });
 });
