@@ -3092,29 +3092,52 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(ctx.nodes.filter((n) => n instanceof FakeOscillator).length).toBe(n0 + 2);
   });
 
-  it('the headlight switch clicks on the UI bus when the car the player is in changes it, and not on getting into another', () => {
+  it('the headlight switch clicks on the UI bus when the car the player is in changes it, higher for lit lamps than dark ones, and not on getting into another', () => {
     const { sim, audio, ctx, inner, input, frames } = rig();
     const car = seatInCar(sim);
     frames(5);
     inner.ambience.random = () => 0.999; // no ambience one-shots while counting
     const clicks = () => audio.counters.switchClicks;
+    /** The pitch (Hz at the start) of the click the last frames made: the one oscillator they started. */
+    const pitchSince = (n: number): number => {
+      const osc = ctx.nodes.slice(n).filter((x): x is FakeOscillator => x instanceof FakeOscillator);
+      expect(osc.length).toBe(1);
+      return osc[0]!.frequency.log[0]!.v;
+    };
     const before = ctx.nodes.length;
-    // The default 16:00 is day: the first press lights the lamps, the second darkens them again.
+    // The default 16:00 is day: the first press lights the lamps (higher), the second darkens them again, back on `auto`.
     frames(2, (i) => input({ lightsPressed: i === 0 }));
     expect(car.lights).toBe('on');
     expect(clicks()).toBe(1);
+    const high = pitchSince(before);
     const gains = ctx.nodes.slice(before).filter((n): n is FakeGain => n instanceof FakeGain);
     expect(gains.length).toBeGreaterThan(0);
     for (const g of gains) expect(g.outputs[0]).toBe(inner.mixer.uiBus);
+    const mid = ctx.nodes.length;
+    frames(2, (i) => input({ lightsPressed: i === 0 }));
+    expect(car.lights).toBe('auto');
+    expect(clicks()).toBe(2);
+    const low = pitchSince(mid);
+    expect(high).toBeGreaterThan(low);
+    // At night `auto` is lit: off is the low click, and the press back to `auto` the high one, not the switch's value.
+    sim.clock.set(23);
+    frames(2);
+    expect(clicks()).toBe(2);
+    const night = ctx.nodes.length;
     frames(2, (i) => input({ lightsPressed: i === 0 }));
     expect(car.lights).toBe('off');
-    expect(clicks()).toBe(2);
+    expect(pitchSince(night)).toBe(low);
+    const back = ctx.nodes.length;
+    frames(2, (i) => input({ lightsPressed: i === 0 }));
+    expect(car.lights).toBe('auto');
+    expect(pitchSince(back)).toBe(high);
+    expect(clicks()).toBe(4);
     // Nothing moves, no click; another car with its own switch position is no click either.
     frames(5);
     const other = seatInCar(sim);
     other.lights = 'on';
     frames(5);
-    expect(clicks()).toBe(2);
+    expect(clicks()).toBe(4);
   });
 
   it('the radio echo follows a dotted eighth of each song’s tempo', () => {

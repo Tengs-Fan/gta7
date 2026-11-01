@@ -287,7 +287,7 @@ export class Vehicle {
   siren = false;
   horn = false;
   hornTimer = 0;
-  /** The headlight switch (sim/lamps.ts): `auto` lights the lamps when it is dark; the player's press sets `on` or `off`. */
+  /** The headlight switch (sim/lamps.ts): `auto` lights the lamps when it is dark; the player's press sets `on` or `off`, or `auto` again where that shows the same. */
   lights: LampSwitch = 'auto';
   persistent = false;
   missionTag = '';

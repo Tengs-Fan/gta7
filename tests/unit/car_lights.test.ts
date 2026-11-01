@@ -27,7 +27,7 @@ import { BoatView } from '../../src/render/boatView';
 import { VehicleView } from '../../src/render/vehicleView';
 import { darkness } from '../../src/sim/clock';
 import type { LampSwitch, Vehicle } from '../../src/sim/entities';
-import { lampDarkness, lampsLit, lampsPowered, LAMPS_DARK } from '../../src/sim/lamps';
+import { lampDarkness, lampsLit, lampsPowered, LAMPS_DARK, switchFor } from '../../src/sim/lamps';
 import type { VehicleKind } from '../../src/sim/specs';
 import { neutralInput } from '../../src/sim/input';
 import type { Sim } from '../../src/sim/sim';
@@ -85,6 +85,23 @@ describe('lampDarkness', () => {
     expect(lampDarkness(23, 0.2)).toBe(darkness(23));
     expect(darkness(23)).toBeGreaterThan(LAMPS_DARK);
     expect(darkness(12)).toBeLessThan(LAMPS_DARK);
+  });
+});
+
+describe('switchFor', () => {
+  it('is `auto` where that shows what is asked, else on or off', () => {
+    expect(switchFor(true, NIGHT)).toBe('auto');
+    expect(switchFor(false, NIGHT)).toBe('off');
+    expect(switchFor(false, DAY)).toBe('auto');
+    expect(switchFor(true, DAY)).toBe('on');
+    // On the threshold itself `auto` is dark (lampsLit).
+    expect(switchFor(false, LAMPS_DARK)).toBe('auto');
+    expect(switchFor(true, LAMPS_DARK)).toBe('on');
+    expect(switchFor(true, LAMPS_DARK + 0.01)).toBe('auto');
+    // It agrees with lampsLit for every answer.
+    for (const dark of [DAY, LAMPS_DARK, 0.5, NIGHT]) {
+      for (const lit of [true, false]) expect(lampsLit(car({ lights: switchFor(lit, dark) }), dark), `${lit} at ${dark}`).toBe(lit);
+    }
   });
 });
 
@@ -165,23 +182,48 @@ function driving(hours: number, kind: VehicleKind = 'sedan'): { sim: Sim; v: Veh
 const press = (sim: Sim): void => step(sim, 0.1, (t) => input({ lightsPressed: t < 0.01 }));
 
 describe('the press', () => {
-  it('flips what the player sees: lit lamps go off, dark lamps come on', () => {
-    // By night, `auto` is lit: off.
+  it('flips what the player sees: lit lamps go off, dark lamps come on, and the second press hands the car back to `auto`', () => {
+    // By night, `auto` is lit: off, then `auto` again (it shows lit), then off.
     let g = driving(23);
     press(g.sim);
     expect(g.v.lights).toBe('off');
+    expect(lampsLit(g.v, 1)).toBe(false);
     press(g.sim);
-    expect(g.v.lights).toBe('on');
+    expect(g.v.lights).toBe('auto');
+    expect(lampsLit(g.v, 1)).toBe(true);
     press(g.sim);
     expect(g.v.lights).toBe('off');
-    // By day, `auto` is dark: on, and then off.
+    // By day, `auto` is dark: on, `auto` again, then on.
     g = driving(12);
     press(g.sim);
     expect(g.v.lights).toBe('on');
+    expect(lampsLit(g.v, 0)).toBe(true);
     press(g.sim);
-    expect(g.v.lights).toBe('off');
+    expect(g.v.lights).toBe('auto');
+    expect(lampsLit(g.v, 0)).toBe(false);
     press(g.sim);
     expect(g.v.lights).toBe('on');
+  });
+
+  it('two presses by day leave the car on `auto`, so it lights at night', () => {
+    const { sim, v } = driving(12);
+    press(sim);
+    press(sim);
+    expect(v.lights).toBe('auto');
+    sim.clock.set(23);
+    step(sim, 0.1);
+    expect(lampsLit(v, lampDarkness(sim.clock.hours, sim.weather.state.dim))).toBe(true);
+  });
+
+  it('a press after the dusk judges by the dark of that moment: running lights put out, then `auto`', () => {
+    const { sim, v } = driving(12);
+    press(sim);
+    expect(v.lights).toBe('on');
+    sim.clock.set(23);
+    press(sim);
+    expect(v.lights).toBe('off');
+    press(sim);
+    expect(v.lights).toBe('auto');
   });
 
   it('a vehicle never switched stays on auto', () => {
@@ -214,7 +256,7 @@ describe('the press', () => {
     expect(v.siren).toBe(true);
     expect(v.lights).toBe('off');
     press(sim);
-    expect(v.lights).toBe('on');
+    expect(v.lights).toBe('auto');
     expect(v.siren).toBe(true);
   });
 
@@ -298,6 +340,6 @@ describe('the switch in multiplayer', () => {
     press();
     expect([car.lights, seen(a), seen(b)]).toEqual(['off', 'off', 'off']);
     press();
-    expect([car.lights, seen(a), seen(b)]).toEqual(['on', 'on', 'on']);
+    expect([car.lights, seen(a), seen(b)]).toEqual(['auto', 'auto', 'auto']);
   });
 });

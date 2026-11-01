@@ -304,11 +304,14 @@ describe('headlight switch toast', () => {
     expect(night.v.lights).toBe('off');
     expect(night.shown()).toEqual(['Headlights off']);
     night.press();
+    // The text is whether the lamps are lit, not the switch: back on `auto` they are lit at night.
+    expect(night.v.lights).toBe('auto');
     expect(night.shown()).toEqual(['Headlights off', 'Headlights on']);
     const day = drive(12);
     day.press();
     expect(day.shown()).toEqual(['Headlights on']);
     day.press();
+    expect(day.v.lights).toBe('auto');
     expect(day.shown()).toEqual(['Headlights on', 'Headlights off']);
   });
 

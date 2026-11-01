@@ -83,7 +83,7 @@ test.describe('the horn and the headlight switch', () => {
     expect(errors).toEqual([]);
   });
 
-  test('at night L darkens the headlight spot and the head lens and the next press brings them back, with a notice each time', async ({ page }) => {
+  test('at night L darkens the headlight spot and the head lens and the next press brings them back on auto, with a toast each time', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
     await drive(page, 23);
@@ -106,7 +106,8 @@ test.describe('the horn and the headlight switch', () => {
     expect(off.help).toContain('Probe instruction');
     await tap(page, 'KeyL');
     const on = await lamps(page);
-    expect(on.switch).toBe('on');
+    // Lit again is what `auto` shows at night, so the car goes back to `auto`.
+    expect(on.switch).toBe('auto');
     expect(on.lit).toBe(true);
     expect(on.spot).toBeCloseTo(auto.spot, 3);
     expect(on.head).toBeCloseTo(auto.head, 3);
@@ -115,7 +116,7 @@ test.describe('the horn and the headlight switch', () => {
     expect(errors).toEqual([]);
   });
 
-  test('by day L lights the lenses and the tail lamps as running lights, and the next press puts them out', async ({ page }) => {
+  test('by day L lights the lenses and the tail lamps as running lights, and the next press puts them out on auto', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
     await drive(page, 12);
@@ -131,7 +132,7 @@ test.describe('the horn and the headlight switch', () => {
     expect(on.toast).toBe('Headlights on');
     await tap(page, 'KeyL');
     const off = await lamps(page);
-    expect(off.switch).toBe('off');
+    expect(off.switch).toBe('auto');
     expect(off.lit).toBe(false);
     expect(off.head).toBe(0);
     expect(off.tail).toBe(0);
@@ -149,7 +150,10 @@ test.describe('the horn and the headlight switch', () => {
     expect((await lamps(page)).switch).toBe('off');
     await padTap(page, 1);
     await page.waitForTimeout(300);
-    expect((await lamps(page)).switch).toBe('on');
+    expect((await lamps(page)).switch).toBe('auto');
+    await padTap(page, 1);
+    await page.waitForTimeout(300);
+    expect((await lamps(page)).switch).toBe('off');
     // On foot B reloads: the car keeps its switch.
     await page.evaluate(() => (window as Api).__gta7.sim.playerCtl.ejectPlayer(false));
     await page.waitForTimeout(300);
@@ -159,7 +163,7 @@ test.describe('the horn and the headlight switch', () => {
       const g = (window as Api).__gta7;
       return { onFoot: g.sim.player.vehicle === null, lights: g.sim.vehicles.find((v: Api) => v.usedByPlayer)?.lights as string };
     });
-    expect(left).toEqual({ onFoot: true, lights: 'on' });
+    expect(left).toEqual({ onFoot: true, lights: 'off' });
     expect(errors).toEqual([]);
   });
 });

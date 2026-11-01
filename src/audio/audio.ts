@@ -7,6 +7,7 @@ import type { LampSwitch, Vehicle } from '../sim/entities';
 import { hollister } from '../sim/farm';
 import { dairyman } from '../sim/farms';
 import type { SimEvents } from '../sim/events';
+import { lampDarkness, lampsLit } from '../sim/lamps';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { VehicleKind, WeaponId } from '../sim/specs';
 import { attractionOf } from '../world/attractions';
@@ -1028,7 +1029,7 @@ export class AudioEngine {
     this.inVehicle = !!pv;
     this.engine!.update(live, t, live ? this.softGround(sim.world, live.pos.x, live.pos.z) : false);
     this.updateHorn(live, t);
-    this.updateSwitch(live);
+    this.updateSwitch(sim, live);
     this.updateSiren(sim, inGame, t);
     this.updateTrain(sim, inGame, t);
     this.radio.setWanted(inGame ? this.me(sim).wanted.level : 0);
@@ -1067,9 +1068,9 @@ export class AudioEngine {
     this.glide.set(h.gain.gain, on ? HORN_LEVEL : 0, t, on ? 0.005 : 0.02);
   }
 
-  /** A click when the switch of the car the player is in moves (from his own press, or in multiplayer the server's word of it). */
-  private updateSwitch(v: Vehicle | null): void {
-    if (v && v.id === this.switchCar && v.lights !== this.switchState) this.switchClick(v.lights === 'on');
+  /** A click when the switch of the car the player is in moves (from his own press, or in multiplayer the server's word of it), higher if the lamps are lit now. */
+  private updateSwitch(sim: ViewState, v: Vehicle | null): void {
+    if (v && v.id === this.switchCar && v.lights !== this.switchState) this.switchClick(lampsLit(v, lampDarkness(sim.clock.hours, sim.weather.state.dim)));
     this.switchCar = v ? v.id : -1;
     this.switchState = v ? v.lights : 'auto';
   }

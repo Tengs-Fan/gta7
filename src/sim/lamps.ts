@@ -2,7 +2,7 @@
 // the player sees) and the renderer (the lenses, glows, headlight pools and the player's spot).
 
 import { darkness } from './clock';
-import type { Vehicle } from './entities';
+import type { LampSwitch, Vehicle } from './entities';
 
 /** In `auto`, the lamps come on when the dark passes this (sim/clock.ts darkness, or the weather's dim if that is darker). */
 export const LAMPS_DARK = 0.35;
@@ -20,4 +20,12 @@ export function lampsPowered(v: Pick<Vehicle, 'destroyed' | 'driver' | 'siren'>)
 /** Whether the lamps are lit at a `dark` (see lampDarkness): the switch decides, `auto` by the dark, and unpowered lamps never. */
 export function lampsLit(v: Pick<Vehicle, 'destroyed' | 'driver' | 'siren' | 'lights'>, dark: number): boolean {
   return lampsPowered(v) && (v.lights === 'on' || (v.lights === 'auto' && dark > LAMPS_DARK));
+}
+
+/**
+ * The switch that leaves the lamps lit or dark (`lit`) at a `dark` (see lampDarkness): `auto` where that is what `auto`
+ * shows anyway, so a vehicle switched back and forth by the same press follows the dark again.
+ */
+export function switchFor(lit: boolean, dark: number): LampSwitch {
+  return lit === dark > LAMPS_DARK ? 'auto' : lit ? 'on' : 'off';
 }
