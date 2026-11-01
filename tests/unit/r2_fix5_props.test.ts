@@ -134,8 +134,8 @@ describe('street lamps glow by themselves', () => {
     expect(m.sizeAttenuation).toBe(true);
     expect(m.size).toBeGreaterThan(1);
     expect(m.size).toBeLessThan(2.5);
-    // The lamp pools' glow texture, on the GPU from the first frame.
-    expect(m.map).toBe(priv(props).poolMat.map);
+    // No texture (one would first be uploaded at nightfall): the glow is drawn in the shader.
+    expect(m.map).toBeNull();
     expect(lum(m.color)).toBeGreaterThan(0.3);
     // The bulb with its halo's centre added on top: under the bloom threshold on every channel, so that bloom no longer
     // switches on and off with the bulb's sub-pixel position.

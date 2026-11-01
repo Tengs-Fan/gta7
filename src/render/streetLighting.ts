@@ -4,7 +4,7 @@ import type { StaticWorld } from '../world/staticWorld';
 import { lensAt, signalLayout } from './furniture';
 import type { LightSprites } from './lightSprites';
 import { STREAK_RANGE } from './lightSprites';
-import { LAMP_HEAD, placed } from './props';
+import { LAMP_HEAD, LAMP_LIGHT, placed } from './props';
 import { signalStyle } from './signalHeads';
 
 /** A traffic signal's lit bulb as a wet-road streak light: linear colour at full strength. */
@@ -34,7 +34,7 @@ export class StreetLighting {
       return Float32Array.from(heads.flatMap((h) => [0, 1, 2].flatMap((k) => placed(p, ...lensAt(h, k)))));
     });
     for (let i = 0; i < 6; i++) {
-      const light = new THREE.SpotLight(0xffd09a, 0, 22, 1.12, 0.75, 2);
+      const light = new THREE.SpotLight(LAMP_LIGHT.color, 0, 22, LAMP_LIGHT.angle, LAMP_LIGHT.penumbra, 2);
       this.group.add(light, light.target);
       this.slots.push({ light, lamp: -1, fade: 0 });
     }
@@ -67,7 +67,7 @@ export class StreetLighting {
       slot.light.position.set(x, p.y + (LAMP_HEAD.y - 0.06) * p.scale, z);
       slot.light.target.position.set(x, p.y, z);
       slot.light.target.updateMatrixWorld();
-      slot.light.intensity = 55 * night * slot.fade;
+      slot.light.intensity = LAMP_LIGHT.intensity * night * slot.fade;
     }
   }
 

@@ -12,7 +12,7 @@ import { attractionOf } from '../world/attractions';
 import { hashInts, rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { riseAt } from '../world/terrain';
-import { adTexture, AD_COUNT, glowTexture, groundTexture, signalAtlas, signalGlowTexture, SIGNAL_TILE_RECTS } from './textures';
+import { adTexture, AD_COUNT, glowTexture, groundTexture, radialTexture, signalAtlas, signalGlowTexture, SIGNAL_TILE_RECTS } from './textures';
 import { DARK_SIGNAL, hasOpposite, LIT, LIT_COLORS, quadLit, showKey, showScratch, signalQuads, signalShow, signalStyle, walkAxes, type QuadRole, type SignalShow } from './signalHeads';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
 import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, type OccluderKind } from './occluderFade';
@@ -427,6 +427,30 @@ const LAMP_HALO = 2.2;
  * along the arm (local +z). The halo, the light pool and StreetLighting's spot all hang off this point.
  */
 export const LAMP_HEAD = { y: 6.3, reach: 1.55 } as const;
+/**
+ * A street lamp's light, from LAMP_HEAD: its colour and the cone it throws down, as High's real lamp spots draw it on
+ * the cars and facades near the camera (StreetLighting) and as every tier's light pool lays it on the ground.
+ */
+export const LAMP_LIGHT = { color: 0xffd09a, intensity: 55, angle: 1.12, penumbra: 0.75 } as const;
+/** The light pool under a lamp: LAMP_POOL m across, at full night LAMP_POOL_GAIN of LAMP_LIGHT's colour at its centre. */
+export const LAMP_POOL = 18;
+const LAMP_POOL_GAIN = 0.21;
+
+/**
+ * The lamp's light on flat ground `r` m from straight under its head, 1 there: from a point LAMP_HEAD.y up, falling as the
+ * cube of the cosine of the angle off the vertical, inside LAMP_LIGHT's cone and its soft edge (three's spot light). So
+ * the pool is broad and flat-topped, 0.71 at 3 m and 0.22 at 6 m: a lamp over 6 m up lights no hot spot under itself.
+ */
+export function lampPoolShape(r: number): number {
+  const c = LAMP_HEAD.y / Math.hypot(LAMP_HEAD.y, r);
+  return c ** 3 * THREE.MathUtils.smoothstep(c, Math.cos(LAMP_LIGHT.angle), Math.cos(LAMP_LIGHT.angle * (1 - LAMP_LIGHT.penumbra)));
+}
+
+/** The light pool's decal at `u`, the distance from its centre over its half size: lampPoolShape, faded out over its last quarter. */
+export function lampPoolDecal(u: number): number {
+  return lampPoolShape((u * LAMP_POOL) / 2) * (1 - THREE.MathUtils.smoothstep(u, 0.75, 1));
+}
+
 const LAMP_HALO_Y = LAMP_HEAD.y - 0.08;
 const LAMP_HALO_COLOR = new THREE.Color(0.65, 0.52, 0.33);
 /**
@@ -458,11 +482,19 @@ function uploadRanges(attr: THREE.BufferAttribute): void {
 const HALO_PULL = 0.6;
 
 /**
+ * A halo's glow without a texture (none to upload when the lights come on at night): glowTexture's profile, 1 at the
+ * centre, 0.45 at 0.35 of the radius and nothing at its edge.
+ */
+const HALO_GLOW = /* glsl */ `
+float haloU = length( gl_PointCoord - 0.5 ) * 2.0;
+diffuseColor.a *= haloU < 0.35 ? 1.0 - haloU * ( 0.55 / 0.35 ) : max( 0.0, 0.45 * ( 1.0 - haloU ) / 0.65 );`;
+
+/**
  * The additive glow round each point of a Points, coloured by its vertex colours, `size` m across but never under
- * HALO_MIN_PX pixels. `map` is the lamp pools' glow texture: on the GPU from the first frame, so lighting up at night
- * uploads nothing. A signal lens's halo takes `occluder`: it shows only to a camera in front of its lens (its `aFacing`
- * direction per point), fading out from 60 degrees off its axis to a little past 90, and it dissolves with its signal's
- * pole (`aFoot`, the signal's foot per point, the same axis and uniforms as the pole's: dissolveOccluder).
+ * HALO_MIN_PX pixels: `map`'s, or with none HALO_GLOW. A signal lens's halo takes `occluder`: it shows only to a camera
+ * in front of its lens (its `aFacing` direction per point), fading out from 60 degrees off its axis to a little past
+ * 90, and it dissolves with its signal's pole (`aFoot`, the signal's foot per point, the same axis and uniforms as the
+ * pole's: dissolveOccluder).
  */
 function haloMaterial(map: THREE.Texture | null, size: number, occluder: OccluderUniforms | null = null): THREE.PointsMaterial {
   const mat = new THREE.PointsMaterial({ size, map, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
@@ -474,6 +506,7 @@ function haloMaterial(map: THREE.Texture | null, size: number, occluder: Occlude
 gl_PointSize = max( gl_PointSize, ${HALO_MIN_PX.toFixed(1)} );
 gl_Position = projectionMatrix * vec4( mvPosition.xyz * max( 0.0, 1.0 - ${HALO_PULL.toFixed(2)} / length( mvPosition.xyz ) ), 1.0 );`,
     );
+    if (!map) shader.fragmentShader = shader.fragmentShader.replace('#include <map_particle_fragment>', HALO_GLOW);
     if (occluder) {
       Object.assign(shader.uniforms, occluder, { uOccSpan: span });
       shader.vertexShader = shader.vertexShader
@@ -684,7 +717,7 @@ export class PropsView {
   /** `chunk`: the cell size instances are batched in (one draw per prop shape and cell). */
   constructor(private readonly world: StaticWorld, private readonly chunk = STATIC_CHUNK_SIZE) {
     this.group.name = 'props';
-    this.poolMat = new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xffc27a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+    this.poolMat = new THREE.MeshBasicMaterial({ map: radialTexture(lampPoolDecal), color: LAMP_LIGHT.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
     clipToRect(this.poolMat);
     const byKind = new Map<PropKind, number[]>();
     world.layout.props.forEach((p, i) => {
@@ -1087,7 +1120,7 @@ export class PropsView {
       const z = p.z + fz * r;
       const h = (dx: number, dz: number) => riseAt(rises, x + dx, z + dz);
       const slope = new THREE.Quaternion().setFromUnitVectors(up, new THREE.Vector3(h(-1, 0) - h(1, 0), 2, h(0, -1) - h(0, 1)).normalize());
-      m.compose(new THREE.Vector3(x, p.y + 0.04 + h(0, 0) - riseAt(rises, p.x, p.z), z), slope, new THREE.Vector3(13, 1, 13));
+      m.compose(new THREE.Vector3(x, p.y + 0.04 + h(0, 0) - riseAt(rises, p.x, p.z), z), slope, new THREE.Vector3(LAMP_POOL, 1, LAMP_POOL));
     }, { shadow: false });
     // Each lamp's halo (LAMP_HALO), just under its bulb; a knocked-over lamp's goes dark (breakProp).
     if (lamps.length === 0) return;
@@ -1099,7 +1132,7 @@ export class PropsView {
     const haloGeo = new THREE.BufferGeometry();
     haloGeo.setAttribute('position', new THREE.BufferAttribute(haloPos, 3));
     haloGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(lamps.length * 3).fill(1), 3).setUsage(THREE.DynamicDrawUsage));
-    const halos = new THREE.Points(haloGeo, haloMaterial(this.poolMat.map, LAMP_HALO));
+    const halos = new THREE.Points(haloGeo, haloMaterial(null, LAMP_HALO));
     halos.name = 'lampHalos';
     halos.visible = false;
     this.group.add(halos);
@@ -1364,7 +1397,7 @@ export class PropsView {
     const haloGeo = new THREE.BufferGeometry();
     haloGeo.setAttribute('position', new THREE.BufferAttribute(haloPos, 3));
     haloGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(FERRIS_LIGHTS * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    const halos = new THREE.Points(haloGeo, haloMaterial(this.poolMat.map, FERRIS_HALO));
+    const halos = new THREE.Points(haloGeo, haloMaterial(null, FERRIS_HALO));
     halos.name = 'ferrisHalos';
     wheel.add(halos);
     wheel.position.set(p.x, hubY, p.z);
@@ -1753,7 +1786,7 @@ export class PropsView {
     // Lamps: the bulb, its halo added on top and the pool under it (see LAMP_HALO).
     const k = night;
     this.bulbMat.color.setRGB(0.25 + k * 1.35, 0.24 + k * 1.1, 0.22 + k * 0.7);
-    this.poolMat.opacity = k * 0.42;
+    this.poolMat.opacity = k * LAMP_POOL_GAIN;
     if (this.lampHalos) {
       this.lampHalos.material.color.copy(LAMP_HALO_COLOR).multiplyScalar(k);
       this.lampHalos.visible = k > 0.02;

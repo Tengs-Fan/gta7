@@ -80,6 +80,9 @@ The player's car gets the same light as every other: its headlight spot on High 
 On the software tier's 8-bit canvas there is no ground shading to light and the road is nearly black, so there the headlights are a painted batch (`poolFragment`, `POOL_PAINT`), a colour added like the glows with the same shape, toned to about the hardware tiers' lit road (luma 72 at 7 m on the county straight).
 
 Street lamps have a plinth, a lighter metal tapered pole, a curved arm and a luminaire head with a lit lens. The head position (`LAMP_HEAD` in `src/render/props.ts`) is shared by the lens, halo, ground pool and High's street lights, so they line up. A knocked-down lamp hides every part, including its halo and pool.
+A lamp's ground pool is its light laid on the ground, an additive decal 18 m across (`LAMP_POOL`) on every tier: the colour and cone of `LAMP_LIGHT` (`src/render/props.ts`), the same light as High's real lamp spots (`StreetLighting`), falling from 6.3 m up as the cube of the cosine off the vertical inside the cone's soft edge (`lampPoolShape`), so it is broad and flat-topped, 0.71 of its centre 3 m out and 0.22 at 6 m, with no hot spot under the lamp; at full night its centre adds 0.21 of the colour.
+On High's downtown avenue at 23:00 the road at a lamp's foot reads luma 120, 97 at 3 m and 47 at 6 m against a lens of 220 (the earlier 13 m glow, more orange than the lamp, read 148, 92 and 35: a hot spot like a mirror image of the lamp).
+The lamp and Ferris wheel halos draw their glow in the shader, so there is no texture to upload when the lights come on at night.
 
 Street Run gates use open ground outlines and slim illuminated posts, with a separate readable turn instruction, road name, gate count and distance. This keeps traffic visible through a checkpoint.
 

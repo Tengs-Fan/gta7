@@ -9,7 +9,7 @@ import * as environment from '../../src/render/environment';
 import { Environment } from '../../src/render/environment';
 import * as textures from '../../src/render/textures';
 import { CityView } from '../../src/render/city';
-import { PropsView } from '../../src/render/props';
+import { lampPoolDecal, PropsView } from '../../src/render/props';
 import { GameRenderer } from '../../src/render/renderer';
 import type { VehicleViewPool } from '../../src/render/vehicleView';
 import { VEHICLE_SPECS, type VehicleKind } from '../../src/sim/specs';
@@ -479,8 +479,8 @@ describe('city and prop geometry', () => {
     const priv = props as unknown as { poolMat: THREE.Material };
     const batches = props.group.children.filter((o) => o instanceof THREE.InstancedMesh && o.material === priv.poolMat) as THREE.InstancedMesh[];
     expect(batches.length).toBeGreaterThan(0);
-    /** Glow weight of the pool texture (textures.ts glowTexture) at a radius over the half size. */
-    const glow = (r: number) => (r <= 0.35 ? 1 - (0.55 * r) / 0.35 : r <= 1 ? 0.45 * (1 - (r - 0.35) / 0.65) : 0);
+    /** Weight of the pool's light at a radius over its half size (its texture's alpha). */
+    const glow = (r: number) => (r < 1 ? lampPoolDecal(r) : 0);
     const m = new THREE.Matrix4();
     const pos = new THREE.Vector3();
     const q = new THREE.Quaternion();
@@ -610,8 +610,8 @@ describe('Ferris wheel lights', () => {
     r.props.update(3, 0, 0);
     const halos = f.wheel.getObjectByName('ferrisHalos') as THREE.Points;
     expect(halos.visible).toBe(false);
-    // They bring no texture of their own (one would first be uploaded at nightfall): the lamp pools' glow.
-    expect((halos.material as THREE.PointsMaterial).map).toBe((r.props as unknown as { poolMat: THREE.MeshBasicMaterial }).poolMat.map);
+    // They bring no texture (one would first be uploaded at nightfall): their glow is drawn in the shader.
+    expect((halos.material as THREE.PointsMaterial).map).toBeNull();
   });
 });
 
