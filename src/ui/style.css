@@ -2106,6 +2106,11 @@ body {
   font-size: 15px;
 }
 
+/* One line at 1280 wide. */
+@media (max-width: 1440px) {
+  .map-hint { font-size: 15px; }
+}
+
 @media (max-height: 719.98px) {
   .title-wrap { top: 5vh; bottom: 4vh; }
   .logo .gta, .logo .seven { font-size: clamp(65px, min(11vw, 17vh), 132px); }

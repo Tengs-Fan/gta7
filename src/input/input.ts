@@ -19,6 +19,8 @@ export interface UiActions {
   right: boolean;
   /** The phone: Tab, or the pad's D-pad right on foot (in a vehicle it changes the radio station). */
   phone?: boolean;
+  /** Tab alone (the phone key in play, which the pad's D-pad right is too): the map legend picks its next row with it. */
+  tab?: boolean;
   /** The pad's X and Y (screens with extra choices: the map legend). */
   padX?: boolean;
   padY?: boolean;
@@ -679,6 +681,7 @@ export class Input {
     ui.map = this.pressed('KeyM');
     ui.camera = this.pressed('KeyV');
     ui.phone = this.pressed('Tab');
+    ui.tab = ui.phone;
     ui.confirm = this.pressed('Enter', 'Space');
     ui.back = this.pressed('Escape', 'Backspace');
     ui.up = this.pressed('ArrowUp', 'KeyW');

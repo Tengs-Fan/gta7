@@ -39,8 +39,8 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   el.appendChild(h('div', 'map-cross'));
   el.appendChild(h('div', 'map-title', 'SAN AZURA'));
   // The legend: under a header per category the player can switch off (number keys, a pad's Y to pick and X to switch,
-  // a click), a row for each kind of icon on the map now, drawn as the map draws it; then the live markers. Off states are
-  // kept in the settings (mapLayers).
+  // a click), a row for each kind of icon on the map now, drawn as the map draws it; then the live markers. Hovering a
+  // row, or picking it with Tab or a pad's Y, lights its icons up on the map. Off states are kept in the settings (mapLayers).
   const legend = h('div', 'map-legend');
   legend.appendChild(h('div', 'legend-head', 'LEGEND'));
   const legendBody = legend.appendChild(h('div'));
@@ -49,6 +49,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   /** The legend's rows top to bottom, headers ('#' and the category) and icons (their kind), and the kinds each lights up. */
   let rows: Array<{ id: string; el: HTMLElement; category: MapCategory | null; kinds: string[]; state?: HTMLElement }> = [];
   let pick = -1;
+  let hover: (typeof rows)[number] | null = null;
   let legendKey = '';
   const drawLegend = () => {
     rows.forEach((r, i) => {
@@ -75,7 +76,12 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     const dpr = Math.min(2, window.devicePixelRatio > 0 ? window.devicePixelRatio : 1);
     legendBody.innerHTML = '';
     rows = [];
+    hover = null;
     const add = (r: (typeof rows)[number]) => {
+      r.el.addEventListener('pointerenter', () => (hover = r));
+      r.el.addEventListener('pointerleave', () => {
+        if (hover === r) hover = null;
+      });
       legendBody.appendChild(r.el);
       rows.push(r);
     };
@@ -96,7 +102,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     pick = rows.findIndex((r) => r.id === picked);
     drawLegend();
   };
-  /** A pad's Y: the next row, and after the last none. */
+  /** Tab and a pad's Y: the next row, and after the last none. */
   const stepPick = () => {
     pick = pick + 1 < rows.length ? pick + 1 : -1;
     drawLegend();
@@ -128,8 +134,8 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     hintDevice = menus.device;
     hint.innerHTML =
       menus.device === 'pad'
-        ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('y')} pick a legend row, ${padGlyph('x')} switch its category · ${padGlyph('b')} to close`
-        : `Click, or <kbd>Enter</kbd> at the cross, to set a waypoint (again to clear it) · Drag or arrow keys to pan · Wheel or <kbd>+</kbd> <kbd>-</kbd> to zoom · <kbd>1</kbd>-<kbd>${Math.min(9, MAP_CATEGORIES.length)}</kbd> legend on / off · <kbd>${escapeHtml(menus.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`;
+        ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('y')} light up a legend row, ${padGlyph('x')} switch its category · ${padGlyph('b')} to close`
+        : `Click, or <kbd>Enter</kbd> at the cross, to set a waypoint (again to clear it) · Drag or arrows to pan · Wheel or <kbd>+</kbd> <kbd>-</kbd> to zoom · <kbd>1</kbd>-<kbd>${Math.min(9, MAP_CATEGORIES.length)}</kbd> legend on / off · <kbd>Tab</kbd> light up a row · <kbd>${escapeHtml(menus.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`;
   };
   showHint();
   const ctx = canvas.getContext('2d')!;
@@ -267,7 +273,25 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     buildLegend(blips);
     const s = menus.host.settings();
     drawn = blips.filter((b) => !b.category || s.mapLayers[b.category] !== false).map((b) => ({ b, x: vw / 2 + (b.x - cx) * k, y: vh / 2 + (b.z - cz) * k }));
-    for (const d of drawn) drawBlip(ctx, d.b, d.x, d.y, MAP_BLIP);
+    // A legend row hovered or picked: the other icons fade, and its own pulse on top of them.
+    const r = hover ?? rows[pick];
+    const lit = r ? new Set(r.kinds) : null;
+    for (const d of drawn) {
+      if (lit?.has(d.b.kind)) continue;
+      ctx.globalAlpha = lit ? 0.25 : 1;
+      drawBlip(ctx, d.b, d.x, d.y, MAP_BLIP);
+    }
+    ctx.globalAlpha = 1;
+    const pulse = 0.5 + 0.5 * Math.sin(time * Math.PI * 3);
+    for (const d of drawn) {
+      if (!lit?.has(d.b.kind)) continue;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, blipReach(d.b.shape, MAP_BLIP) + 4 + 5 * pulse, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${(1 - 0.6 * pulse).toFixed(3)})`;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      drawBlip(ctx, d.b, d.x, d.y, MAP_BLIP);
+    }
     showTip();
   };
   /** Sets a waypoint at a point of the world, or clears the one within 16 px of it on the map. */
@@ -348,7 +372,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
       }
       if (ui.confirm) toggleWaypointAt({ x: cx, z: cz });
       if (ui.digit) toggleLayer(MAP_CATEGORIES[ui.digit - 1]);
-      if (ui.padY) stepPick();
+      if (ui.padY || ui.tab) stepPick();
       if (ui.padX) toggleLayer(rows[pick]?.category);
       if (ui.zoomIn) zoom = clamp(zoom + 0.5, 0, 4);
       if (ui.zoomOut) zoom = clamp(zoom - 0.5, 0, 4);
