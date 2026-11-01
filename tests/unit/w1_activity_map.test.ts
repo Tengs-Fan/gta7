@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { HILL_CLIMB_START } from '../../src/sim/activities/hillClimb';
 import { places } from '../../src/sim/activities/places';
 import { REGATTA_START } from '../../src/sim/activities/regatta';
-import { blipKind, collectBlips, legendRows, MAP_CATEGORIES } from '../../src/ui/mapRender';
+import { blipKind, collectBlips, legendRows, MAP_CATEGORIES, visibleBlips } from '../../src/ui/mapRender';
 import { makeSim } from './helpers';
 
 describe('activity sites on the map', () => {
@@ -38,7 +38,7 @@ describe('activity sites on the map', () => {
     const rowsOf = legendRows(collectBlips(sim, 0, 0, { map: true }), []).find((r) => r.category === cat)!.kinds;
     expect(rowsOf).toEqual(shown.map((b) => b.kind));
     expect(rowsOf.map((k) => blipKind(k).name)).toEqual(expect.arrayContaining(['Paramedic', 'Azura Express courier', 'Coyote Ridge Hill Climb', 'Gravel Gulch scramble']));
-    const hidden = collectBlips(sim, 0, 0, { map: true, hidden: new Set(['activities']) });
+    const hidden = visibleBlips(collectBlips(sim, 0, 0, { map: true }), { activities: false });
     expect(hidden.some((b) => b.category === 'activities')).toBe(false);
     expect(hidden.length).toBe(collectBlips(sim, 0, 0, { map: true }).length - sites.length);
   });

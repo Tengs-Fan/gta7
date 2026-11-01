@@ -19,6 +19,7 @@ import {
   MAP_CATEGORIES,
   MAP_SCALE,
   searchArea,
+  visibleBlips,
   type Blip,
   type MapCategory,
 } from '../mapRender';
@@ -278,8 +279,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     ];
     // The legend lists the hidden categories' icons too.
     buildLegend(blips);
-    const s = menus.host.settings();
-    drawn = blips.filter((b) => !b.category || s.mapLayers[b.category] !== false).map((b) => ({ b, x: vw / 2 + (b.x - cx) * k, y: vh / 2 + (b.z - cz) * k }));
+    drawn = visibleBlips(blips, menus.host.settings().mapLayers).map((b) => ({ b, x: vw / 2 + (b.x - cx) * k, y: vh / 2 + (b.z - cz) * k }));
     // A legend row hovered or picked: the other icons fade, and its own pulse on top of them.
     const r = hover ?? rows[pick];
     const lit = r ? new Set(r.kinds) : null;

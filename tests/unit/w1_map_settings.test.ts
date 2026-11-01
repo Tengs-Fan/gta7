@@ -10,7 +10,7 @@ import { registerContactMissions, unregisterContactMissions } from '../../src/si
 import type { MissionDef } from '../../src/sim/missions/runner';
 import { PACKAGE_COUNT } from '../../src/sim/pickups';
 import { formatKeys } from '../../src/ui/glyphs';
-import { blipKind, collectBlips, legendRows, MAP_CATEGORIES } from '../../src/ui/mapRender';
+import { blipKind, collectBlips, legendRows, MAP_CATEGORIES, visibleBlips } from '../../src/ui/mapRender';
 import { makeSim } from './helpers';
 
 function ev(type: string, props: Record<string, unknown> = {}): Event {
@@ -180,7 +180,7 @@ describe('map legend', () => {
     const key = (b: { x: number; z: number; label: string; category?: string }) => `${b.category ?? '-'}:${b.label}:${b.x.toFixed(1)},${b.z.toFixed(1)}`;
     const rows: string[] = [];
     for (const c of MAP_CATEGORIES) {
-      const shown = collectBlips(sim, 0, 0, { map: true, hidden: new Set([c.id]) }).map(key);
+      const shown = visibleBlips(all, { [c.id]: false }).map(key);
       const expected = all.filter((b) => b.category !== c.id).map(key);
       expect(shown).toEqual(expected);
       rows.push(`${c.id} off: ${all.length - shown.length} of ${all.length} icons hidden`);
@@ -202,7 +202,7 @@ describe('map legend', () => {
 
   it("files the garage and Pier Arcade under properties and Azura Customs under shops, by the economy's marker kinds", () => {
     const sim = makeSim({ ambient: false });
-    const icons = (hidden: string[]) => collectBlips(sim, 0, 0, { map: true, hidden: new Set(hidden) }).map((b) => `${b.category ?? '-'}:${b.kind}`);
+    const icons = (off: string[]) => visibleBlips(collectBlips(sim, 0, 0, { map: true }), Object.fromEntries(off.map((id) => [id, false]))).map((b) => `${b.category ?? '-'}:${b.kind}`);
     const all = icons([]);
     expect(all).toEqual(expect.arrayContaining(['properties:garage', 'properties:business', 'shops:customs']));
     expect(icons(['properties'])).not.toEqual(expect.arrayContaining(['properties:garage']));

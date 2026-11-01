@@ -426,8 +426,6 @@ function markerDetail(sim: ViewState, m: Marker): string | undefined {
 export interface BlipOptions {
   /** The full-screen map: collectibles and the categories' own blips too. */
   map?: boolean;
-  /** Categories switched off in the map legend: their blips are left out. */
-  hidden?: ReadonlySet<string>;
 }
 
 export function collectBlips(sim: ViewState, time: number, localPlayerId = 0, opts: BlipOptions = {}): Blip[] {
@@ -469,8 +467,12 @@ export function collectBlips(sim: ViewState, time: number, localPlayerId = 0, op
     for (const c of sim.characters) if (c.isLaw && c.alive && !c.removed && c.state !== 'inVehicle') out.push(blipOf('officer', c.pos.x, c.pos.z, { color: blink ? '#ff3030' : '#3060ff' }));
     for (const h of sim.helis) if (!h.removed) out.push(blipOf('heli', h.pos.x, h.pos.z, { color: blink ? '#3060ff' : '#ff3030' }));
   }
-  const hidden = opts.hidden;
-  return hidden && hidden.size > 0 ? out.filter((b) => !b.category || !hidden.has(b.category)) : out;
+  return out;
+}
+
+/** The blips the full map draws: those of the categories the legend has on (`layers`, the settings' mapLayers). */
+export function visibleBlips(blips: readonly Blip[], layers: Readonly<Record<string, boolean>>): Blip[] {
+  return blips.filter((b) => !b.category || layers[b.category] !== false);
 }
 
 /**
