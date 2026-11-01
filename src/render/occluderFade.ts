@@ -19,12 +19,13 @@ export type OccluderKind = 'lamp' | 'signal' | 'tree' | 'palm';
 
 /**
  * Each kind's axis in its prop's frame (before the prop's scale): from (0, from, 0) to (0, to, 0). Lamps run to the arm
- * and head, signals to the top of the head; a tree's runs up its trunk to where the canopy (which fades on its own)
- * takes over, a palm's to its crown.
+ * and head, signals to the top of their tallest pole (Dry Creek's wooden ones; the arms and heads out over the road are
+ * clear of every camera at rest instead, furniture.ts); a tree's runs up its trunk to where the canopy (which fades on
+ * its own) takes over, a palm's to its crown.
  */
 export const OCCLUDER_AXIS: Readonly<Record<OccluderKind, { from: number; to: number }>> = {
   lamp: { from: 0, to: 6.5 },
-  signal: { from: 0, to: 5.5 },
+  signal: { from: 0, to: 10 },
   tree: { from: 0, to: 4.8 },
   palm: { from: 0, to: 8.7 },
 };

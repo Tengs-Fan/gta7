@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { chaseOffset, CHASE_TARGET_Y } from '../../src/render/camera';
 import { lensAt, signalGeometry, signalLayout, type SignalStyle } from '../../src/render/furniture';
+import { OCCLUDER_AXIS } from '../../src/render/occluderFade';
 import { PropsView } from '../../src/render/props';
 import { LIT, quadLit, signalCount, signalStyle, walkAxes, walkShow, type QuadRole } from '../../src/render/signalHeads';
 import { HARDWARE_CHUNK_SIZE, spatialKey, STATIC_CHUNK_SIZE } from '../../src/render/spatial';
@@ -231,10 +232,11 @@ describe('which signals reach over the road', () => {
     }
   });
 
-  it('nothing over the road hangs lower than 2.5 m over the tallest vehicle, or any chase camera at its normal zoom', () => {
+  it('nothing over the road hangs lower than 2.5 m over the tallest vehicle, or any chase camera at rest on its normal or far zoom', () => {
     const tallest = Math.max(...Object.values(VEHICLE_SPECS).map((s) => s.height));
-    // The chase camera's height over the road at rest, from its look point CHASE_TARGET_Y up the vehicle.
-    const camera = Math.max(...Object.values(VEHICLE_SPECS).filter((s) => s.class !== 'boat').map((s) => s.height * CHASE_TARGET_Y + chaseOffset(s, 0, false).up));
+    // The chase cameras' height over the road at rest (the view level), from their look point CHASE_TARGET_Y up the vehicle.
+    const cameras = Object.entries(VEHICLE_SPECS).filter(([, s]) => s.class !== 'boat').flatMap(([name, s]) => [false, true].map((far) => ({ name: `${name}${far ? ' far' : ''}`, up: s.height * CHASE_TARGET_Y + chaseOffset(s, 0, far).up })));
+    const highest = cameras.reduce((a, b) => (b.up > a.up ? b : a));
     for (const style of STYLES) {
       const pos = signalGeometry(style).getAttribute('position');
       let low = Infinity;
@@ -245,10 +247,19 @@ describe('which signals reach over the road', () => {
         over++;
         low = Math.min(low, pos.getY(i) + (style === 'span' ? 0 : CURB_H));
       }
-      console.log(`[signals] ${style}: lowest over the road ${low.toFixed(2)} m (tallest vehicle ${tallest} m, highest chase camera ${camera.toFixed(2)} m)`);
+      console.log(`[signals] ${style}: lowest over the road ${low.toFixed(2)} m (tallest vehicle ${tallest} m, highest chase camera ${highest.name} ${highest.up.toFixed(2)} m)`);
       expect(over).toBeGreaterThan(100);
       expect(low).toBeGreaterThan(tallest + 2.5);
-      expect(low).toBeGreaterThan(camera + 0.1);
+      for (const c of cameras) expect(low, c.name).toBeGreaterThan(c.up + 0.1);
+    }
+  });
+
+  it('the dissolve axis runs up to the top of every pole, the steel ones and Dry Creek\'s wooden ones', () => {
+    for (const style of STYLES) {
+      const g = signalGeometry(style);
+      g.computeBoundingBox();
+      expect(g.boundingBox!.max.y, style).toBeLessThanOrEqual(OCCLUDER_AXIS.signal.to);
+      expect(g.boundingBox!.max.y, style).toBeGreaterThan(OCCLUDER_AXIS.signal.to - 2);
     }
   });
 

@@ -201,13 +201,14 @@ const NEAR_COUNT: SignalCount = { x: 0, y: 3.74, z: 0.17, turn: 0, h: 0.24 };
  */
 const WALKS: readonly SignalFace[] = [{ x: -0.31, y: 2.55, z: 0.15, turn: -Math.PI / 2 }, { x: 0.15, y: 2.55, z: -0.31, turn: Math.PI }];
 /**
- * The heads over the road hang with their centre this high in the signal's frame, their backplates' foot 6.1 m over the
- * road (the signal stands on the kerb): clear of the tallest vehicle by 2.9 m, and of every chase camera at its normal
- * zoom (a bus's is 5.9 m up), so no camera passes through one.
+ * The heads over the road hang with their centre this high in the signal's frame, their backplates' foot 7.07 m over the
+ * road (the signal stands on the kerb), their tops 7.7 m over it: clear of the tallest vehicle by 3.9 m, and of every
+ * chase camera at rest on its normal or far zoom with the view level (a bus's, the highest, is 6.9 m up at far zoom), so
+ * none passes through one. A camera pulled down with orbitPitch can reach one for the moment it takes to ease back.
  */
-const OVER_Y = 6.3;
-const ARM_Y = 6.72;
-const POLE_TOP = 7.3;
+const OVER_Y = 7.25;
+const ARM_Y = 7.67;
+const POLE_TOP = 8.25;
 /** A head over the road: 30 cm lenses in a row, red on the driver's left; its face 12 cm in front of the arm it hangs from. */
 const OVER: Omit<SignalHead, 'x'> = { y: OVER_Y, z: 0.12, turn: 0, across: true, lens: 0.3, gap: 0.38 };
 /** How far in (local -x) from a city signal's pole the centre of the lane `k` lanes from the kerb lies, on a road `width` wide. */
@@ -216,17 +217,17 @@ const laneIn = (width: number, k: number) => -(width / 2 + PROP_INSET - LANE_W *
 /**
  * Las Lomas County's junction at Dry Creek, 16 m across: from each corner's wooden pole a span wire runs to the
  * junction's middle (local -SPAN_MID, -SPAN_MID), the four meeting there, and each approach's head hangs from its corner's
- * wire over the approach's inner lane, under its countdown, the backplate's foot 6.1 m over the road.
+ * wire over the approach's inner lane, under its countdown, the backplate's foot 7.1 m over the road.
  */
 const SPAN_MID = 8 + PROP_INSET;
-const SPAN_TOP = 9;
+const SPAN_TOP = 9.95;
 /** Where the wire leaves the pole and where it meets the others, and how far it sags between. */
-const SPAN_FROM = 8.7;
-const SPAN_TO = 7.95;
+const SPAN_FROM = 9.65;
+const SPAN_TO = 8.9;
 const SPAN_SAG = 0.2;
 /** The point the head hangs from: over the inner lane's middle, LANE_W / 2 from the centre line. */
 const SPAN_AT = -SPAN_MID + LANE_W / 2;
-const SPAN_HEAD: SignalHead = { x: SPAN_AT, y: 6.75, z: SPAN_AT + 0.12, turn: 0, across: false, lens: 0.25, gap: 0.34 };
+const SPAN_HEAD: SignalHead = { x: SPAN_AT, y: 7.7, z: SPAN_AT + 0.12, turn: 0, across: false, lens: 0.25, gap: 0.34 };
 /** A wooden pole is thicker than a steel one: its walk heads stand a little further out. */
 const SPAN_WALKS: readonly SignalFace[] = WALKS.map((w) => {
   const [x, y, z] = onFace(w, 0, 0, 0.04);
@@ -249,7 +250,7 @@ const SIGNAL_LAYOUTS: Readonly<Record<SignalStyle, SignalLayout>> = {
     counts: [NEAR_COUNT, { x: laneIn(STREET_W, 0) + 1.05, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4 }],
     walks: WALKS,
   },
-  span: { heads: [SPAN_HEAD], counts: [{ x: SPAN_AT, y: 7.5, z: SPAN_AT + 0.08, turn: 0, h: 0.3 }], walks: SPAN_WALKS },
+  span: { heads: [SPAN_HEAD], counts: [{ x: SPAN_AT, y: 8.45, z: SPAN_AT + 0.08, turn: 0, h: 0.3 }], walks: SPAN_WALKS },
 };
 
 /** Where a signal of this style has its lit parts. */
