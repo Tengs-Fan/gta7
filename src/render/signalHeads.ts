@@ -35,6 +35,14 @@ export function walkAxes(roads: RoadNetwork, p: Prop): [Axis, Axis | null] {
   return [own, roads.nodes[p.node]!.neighbors[(p.dir + 1) % 4]! >= 0 ? (own === 'NS' ? 'EW' : 'NS') : null];
 }
 
+/**
+ * Whether traffic comes at the junction from the other way, the opposite approach the backs of an arm's heads face (a T
+ * junction's stem has none: they face a dead end).
+ */
+export function hasOpposite(roads: RoadNetwork, p: Prop): boolean {
+  return roads.nodes[p.node]!.neighbors[p.dir]! >= 0;
+}
+
 /** The countdown beside a vehicle head: whole seconds left in its red or green; blank (null) in the yellow and while held. */
 export function signalCount(roads: RoadNetwork, node: number, axis: Axis, t: number): number | null {
   const left = roads.signalTimeLeft(node, axis, t);
@@ -121,13 +129,14 @@ export type QuadRole =
   | { readonly kind: 'walk'; readonly walk: number }
   | { readonly kind: 'walkCount'; readonly walk: number; readonly k: number };
 
-/** A lit quad in its signal's frame: its centre, its turn about y (0 faces +z), its size and what it shows. */
+/** A lit quad in its signal's frame: its centre, its turn about y (0 faces +z), its size, what it shows, and whether it is on the back of an arm's head or countdown (facing the opposite approach). */
 export interface SignalQuad {
   readonly at: readonly [number, number, number];
   readonly turn: number;
   readonly w: number;
   readonly h: number;
   readonly role: QuadRole;
+  readonly back: boolean;
 }
 
 /** The quads stand this far (m) out of the faces of their housings. */
@@ -139,15 +148,15 @@ export function signalQuads(layout: SignalLayout): SignalQuad[] {
   layout.heads.forEach((h, head) => {
     for (let k = 0; k < 3; k++) {
       const [x, y, z] = lensAt(h, k);
-      out.push({ at: [x + Math.sin(h.turn) * PROUD, y, z + Math.cos(h.turn) * PROUD], turn: h.turn, w: h.lens, h: h.lens, role: { kind: 'lens', head, k } });
+      out.push({ at: [x + Math.sin(h.turn) * PROUD, y, z + Math.cos(h.turn) * PROUD], turn: h.turn, w: h.lens, h: h.lens, role: { kind: 'lens', head, k }, back: h.back ?? false });
     }
   });
   for (const c of layout.counts) {
-    for (let k = 0; k < 2; k++) out.push({ at: onFace(c, (k - 0.5) * c.h * 0.55, 0, PROUD), turn: c.turn, w: c.h / 2, h: c.h, role: { kind: 'count', k } });
+    for (let k = 0; k < 2; k++) out.push({ at: onFace(c, (k - 0.5) * c.h * 0.55, 0, PROUD), turn: c.turn, w: c.h / 2, h: c.h, role: { kind: 'count', k }, back: c.back ?? false });
   }
   layout.walks.forEach((f, walk) => {
-    out.push({ at: onFace(f, -0.15, 0, PROUD), turn: f.turn, w: 0.3, h: 0.3, role: { kind: 'walk', walk } });
-    for (let k = 0; k < 2; k++) out.push({ at: onFace(f, 0.1 + k * 0.125, 0, PROUD), turn: f.turn, w: 0.115, h: 0.23, role: { kind: 'walkCount', walk, k } });
+    out.push({ at: onFace(f, -0.15, 0, PROUD), turn: f.turn, w: 0.3, h: 0.3, role: { kind: 'walk', walk }, back: false });
+    for (let k = 0; k < 2; k++) out.push({ at: onFace(f, 0.1 + k * 0.125, 0, PROUD), turn: f.turn, w: 0.115, h: 0.23, role: { kind: 'walkCount', walk, k }, back: false });
   });
   return out;
 }

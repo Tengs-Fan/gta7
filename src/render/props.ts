@@ -13,7 +13,7 @@ import { hashInts, rectContains, type Prop, type PropKind, type Rect } from '../
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { riseAt } from '../world/terrain';
 import { adTexture, AD_COUNT, glowTexture, groundTexture, signalAtlas, signalGlowTexture, SIGNAL_TILE_RECTS } from './textures';
-import { DARK_SIGNAL, LIT, LIT_COLORS, quadLit, showKey, showScratch, signalQuads, signalShow, signalStyle, walkAxes, type QuadRole, type SignalShow } from './signalHeads';
+import { DARK_SIGNAL, hasOpposite, LIT, LIT_COLORS, quadLit, showKey, showScratch, signalQuads, signalShow, signalStyle, walkAxes, type QuadRole, type SignalShow } from './signalHeads';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
 import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, type OccluderKind } from './occluderFade';
 import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
@@ -635,7 +635,7 @@ export class PropsView {
   private readonly poolMat: THREE.MeshBasicMaterial;
   /** Every signal's lit parts citywide, one quad each (litQuads), and by signal its first quad, their roles and what they show. */
   private signalLit: THREE.InstancedMesh | null = null;
-  private readonly signalSlots: Array<{ first: number; roles: readonly QuadRole[]; halo: number; lenses: number; pole: THREE.Object3D; shown: boolean }> = [];
+  private readonly signalSlots: Array<{ first: number; roles: readonly QuadRole[]; blank: readonly boolean[]; halo: number; lenses: number; pole: THREE.Object3D; shown: boolean }> = [];
   /** The lit quads' sizes (aSize), a blank one 0: what a signal's quads are drawn at while its pole's batch is (cull). */
   private signalSizes: Float32Array = new Float32Array(0);
   /** A halo round every signal lens (SIGNAL_HALO), from each signal's slot `halo` on, three to a head; dark unless lit. */
@@ -1157,19 +1157,21 @@ export class PropsView {
       const p = L.props[pi]!;
       PropsView.standard(p, m);
       const base = m.clone();
-      this.signalSlots.push({ first: at, roles: quads[k]!.map((q) => q.role), halo: halos.length / 3, lenses: quads[k]!.filter((q) => q.role.kind === 'lens').length, pole: this.refs.get(pi)![0]!.mesh, shown: true });
+      // A walk head facing no crosswalk (a T junction's) stays blank, and so does the back of an arm's head where no
+      // traffic comes from the other way (a T junction's stem).
+      const crosses = walkAxes(this.world.roads, p);
+      const opposite = hasOpposite(this.world.roads, p);
+      const blank = quads[k]!.map((q) => ((q.role.kind === 'walk' || q.role.kind === 'walkCount') && crosses[q.role.walk] === null) || (q.back && !opposite));
+      this.signalSlots.push({ first: at, roles: quads[k]!.map((q) => q.role), blank, halo: halos.length / 3, lenses: quads[k]!.filter((q) => q.role.kind === 'lens').length, pole: this.refs.get(pi)![0]!.mesh, shown: true });
       for (const q of quads[k]!) {
         if (q.role.kind !== 'lens') continue;
         halos.push(...placed(p, ...q.at));
         facing.push(Math.sin(p.rot + q.turn), 0, Math.cos(p.rot + q.turn));
         feet.push(p.x, p.y, p.z);
       }
-      // A walk head facing no crosswalk (a T junction's) stays blank.
-      const crosses = walkAxes(this.world.roads, p);
-      for (const q of quads[k]!) {
-        const blank = (q.role.kind === 'walk' || q.role.kind === 'walkCount') && crosses[q.role.walk] === null;
+      for (const [j, q] of quads[k]!.entries()) {
         place.set([q.at[0], q.at[1], q.at[2], q.turn], at * 4);
-        size.set(blank ? [0, 0] : [q.w, q.h], at * 2);
+        size.set(blank[j] ? [0, 0] : [q.w, q.h], at * 2);
         reach.expandByPoint(new THREE.Vector3(...q.at));
         mesh.setMatrixAt(at, base);
         this.refs.get(pi)?.push({ mesh, index: at, base });
@@ -1785,7 +1787,7 @@ export class PropsView {
         for (let j = 0; j < slot.roles.length; j++) {
           const role = slot.roles[j]!;
           a.set(quadLit(role, show, out), (slot.first + j) * 2);
-          if (role.kind === 'lens') halo.setXYZ(slot.halo + role.head * 3 + role.k, ...(out[1] >= LIT.red && out[1] <= LIT.green ? SIGNAL_HALO_COLORS[role.k]! : NO_HALO));
+          if (role.kind === 'lens') halo.setXYZ(slot.halo + role.head * 3 + role.k, ...(out[1] >= LIT.red && out[1] <= LIT.green && !slot.blank[j] ? SIGNAL_HALO_COLORS[role.k]! : NO_HALO));
         }
         attr.addUpdateRange(slot.first * 2, slot.roles.length * 2);
         halo.addUpdateRange(slot.halo * 3, slot.lenses * 3);

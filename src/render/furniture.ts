@@ -168,17 +168,26 @@ export interface SignalFace {
   readonly turn: number;
 }
 
-/** A vehicle head: its three lenses `lens` m across and `gap` m apart, in a row across (red on the viewer's left) or down (red on top). */
+/**
+ * A vehicle head: its three lenses `lens` m across and `gap` m apart, in a row across (red on the viewer's left) or down
+ * (red on top). `back` when it is the back of an arm's head, facing the opposite approach, which shows what its own
+ * signal does: the other axis's light is the same one.
+ */
 export interface SignalHead extends SignalFace {
   readonly across: boolean;
   readonly lens: number;
   readonly gap: number;
+  readonly back?: boolean;
 }
 
-/** A countdown: two digits `h` m tall and half as wide; `over` when it hangs over the road, from an arm or the span wire, not on the pole. */
+/**
+ * A countdown: two digits `h` m tall and half as wide; `over` when it hangs over the road, from an arm or the span wire,
+ * not on the pole. `back` is the face of an arm's countdown to the opposite approach, on the box of the front's.
+ */
 export interface SignalCount extends SignalFace {
   readonly h: number;
   readonly over?: boolean;
+  readonly back?: boolean;
 }
 
 /** Where a signal's lit parts are: its vehicle heads, its countdowns and its walk heads. */
@@ -227,6 +236,12 @@ const ARM_Y = 7.67;
 const POLE_TOP = 8.25;
 /** A head over the road: 30 cm lenses in a row, red on the driver's left; its face 12 cm in front of the arm it hangs from. */
 const OVER: Omit<SignalHead, 'x'> = { y: OVER_Y, z: 0.12, turn: 0, across: true, lens: 0.3, gap: 0.38 };
+/**
+ * A mast arm's heads come back to back: the one for its own traffic faces it from 26 cm in front of the arm, its
+ * twin for the opposite approach the other way from 26 cm behind, their backplates meeting over the arm.
+ */
+const OVER_Z = 0.26;
+const overPair = (x: number): [SignalHead, SignalHead] => [{ ...OVER, x, z: OVER_Z }, { ...OVER, x, z: -OVER_Z, turn: Math.PI, back: true }];
 /** How far in (local -x) from a city signal's pole the centre of the lane `k` lanes from the kerb lies, on a road `width` wide. */
 const laneIn = (width: number, k: number) => -(width / 2 + PROP_INSET - LANE_W * (k + 0.5));
 
@@ -255,10 +270,15 @@ function spanY(s: number): number {
   return SPAN_FROM + (SPAN_TO - SPAN_FROM) * s - SPAN_SAG * 4 * s * (1 - s);
 }
 
+/** A mast arm's heads, over each of its lanes, front and back. */
+const MAST_HEADS = [0, 1].map((k) => overPair(laneIn(AVENUE_W, k)));
+/** The countdown between a mast arm's two heads, its two faces on one box. */
+const MAST_COUNT: Omit<SignalCount, 'z'> = { x: (laneIn(AVENUE_W, 0) + laneIn(AVENUE_W, 1)) / 2, y: OVER_Y + 0.04, turn: 0, h: 0.4, over: true };
+
 const SIGNAL_LAYOUTS: Readonly<Record<SignalStyle, SignalLayout>> = {
   mast: {
-    heads: [NEAR_HEAD, { ...OVER, x: laneIn(AVENUE_W, 0) }, { ...OVER, x: laneIn(AVENUE_W, 1) }],
-    counts: [NEAR_COUNT, { x: (laneIn(AVENUE_W, 0) + laneIn(AVENUE_W, 1)) / 2, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4, over: true }],
+    heads: [NEAR_HEAD, ...MAST_HEADS.map(([front]) => front), ...MAST_HEADS.map(([, back]) => back)],
+    counts: [NEAR_COUNT, { ...MAST_COUNT, z: 0.08 }, { ...MAST_COUNT, z: -0.08, turn: Math.PI, back: true }],
     walks: WALKS,
   },
   bracket: {
@@ -316,10 +336,10 @@ function vehicleHead(b: ModelBuilder, h: SignalHead): void {
   }
 }
 
-/** A countdown's box: its two digits' face under a hood. */
+/** A countdown's box: its two digits' face under a hood (the back face of a box takes its front's housing, and a hood). */
 function countBox(b: ModelBuilder, c: SignalCount): void {
   const [w, h] = [c.h * 1.5, c.h * 1.4];
-  b.add('count', faceBox(c, w, h, 0.16), HOUSING);
+  if (!c.back) b.add('count', faceBox(c, w, h, 0.16), HOUSING);
   b.add('count', faceBox(c, w, 0.02, c.h * 0.3, 0, h / 2 - 0.01, c.h * 0.3), HOUSING);
 }
 
@@ -384,11 +404,11 @@ export function signalGeometry(style: SignalStyle): THREE.BufferGeometry {
   b.add('arm', bar(v3(0, POLE_TOP - 0.08, 0), v3(-reach / 2, ARM_Y + 0.05, 0), 0.025), POLE, 0.9);
   for (const h of layout.heads) {
     vehicleHead(b, h);
-    if (h.across) for (const u of [-0.4, 0.4]) b.add('hanger', box(0.05, ARM_Y - h.y - 0.2, 0.05, h.x + u, (ARM_Y + h.y + 0.2) / 2, 0), HOUSING);
+    if (h.across && !h.back) for (const u of [-0.4, 0.4]) b.add('hanger', box(0.05, ARM_Y - h.y - 0.2, 0.05, h.x + u, (ARM_Y + h.y + 0.2) / 2, 0), HOUSING);
   }
   for (const c of layout.counts) {
     countBox(b, c);
-    if (c.over) b.add('hanger', box(0.05, ARM_Y - c.y - c.h * 0.7, 0.05, c.x, (ARM_Y + c.y + c.h * 0.7) / 2, 0), HOUSING);
+    if (c.over && !c.back) b.add('hanger', box(0.05, ARM_Y - c.y - c.h * 0.7, 0.05, c.x, (ARM_Y + c.y + c.h * 0.7) / 2, 0), HOUSING);
   }
   walks();
   return b.build(`signal-${style}`);

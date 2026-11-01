@@ -7,7 +7,7 @@ import { chaseOffset, CHASE_TARGET_Y } from '../../src/render/camera';
 import { lensAt, signalGeometry, signalLayout, type SignalStyle } from '../../src/render/furniture';
 import { OCCLUDER_AXIS } from '../../src/render/occluderFade';
 import { PropsView, SIGNAL_UPLOAD_RANGES } from '../../src/render/props';
-import { LIT, quadLit, showKey, showScratch, signalCount, signalQuads, signalShow, signalStyle, walkAxes, walkShow, type QuadRole } from '../../src/render/signalHeads';
+import { hasOpposite, LIT, quadLit, showKey, showScratch, signalCount, signalQuads, signalShow, signalStyle, walkAxes, walkShow, type QuadRole } from '../../src/render/signalHeads';
 import { HARDWARE_CHUNK_SIZE, spatialKey, STATIC_CHUNK_SIZE } from '../../src/render/spatial';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
 import { AVENUE_W, CURB_H, PROP_INSET } from '../../src/world/constants';
@@ -226,7 +226,7 @@ describe('which signals reach over the road', () => {
     let heads = 0;
     for (const p of signals.filter((q) => q.node < roads.gridNodeCount)) {
       const layout = signalLayout(signalStyle(roads, p));
-      const over = layout.heads.filter((h) => h.across).map((h) => world(p, [h.x, h.y, h.z]));
+      const over = layout.heads.filter((h) => h.across && !h.back).map((h) => world(p, [h.x, h.y, h.z]));
       const lanes = roads.lanes.filter((l) => l.to === p.node && l.dir === p.dir);
       expect(over.length, `${p.node} ${p.dir}`).toBe(lanes.length);
       const across = (v: { x: number; z: number }) => (axisOf(p.dir as Dir) === 'NS' ? v.x : v.z);
@@ -298,10 +298,84 @@ describe('which signals reach over the road', () => {
     // Two hangers on each head over the road and one on the countdown between them, whatever height they hang at.
     for (const style of ['mast', 'bracket'] as const) {
       const layout = signalLayout(style);
-      const over = layout.heads.filter((h) => h.across).length;
-      expect((signalGeometry(style).userData.parts as string[]).filter((n) => n === 'hanger').length, style).toBe(2 * over + layout.counts.filter((c) => c.over).length);
+      const over = layout.heads.filter((h) => h.across && !h.back).length;
+      expect((signalGeometry(style).userData.parts as string[]).filter((n) => n === 'hanger').length, style).toBe(2 * over + layout.counts.filter((c) => c.over && !c.back).length);
     }
     expect(signalGeometry('span').userData.parts).toEqual(expect.arrayContaining(['pole', 'wire', 'hanger', 'head', 'lens', 'visor', 'backplate', 'border', 'count', 'walk']));
+  });
+});
+
+describe('the backs of the mast arms\' heads', () => {
+  it('a mast arm\'s heads each have a twin facing the opposite approach, on the back of their backplates, and so has its countdown', () => {
+    const mast = signalLayout('mast');
+    const fronts = mast.heads.filter((h) => h.across && !h.back);
+    const backs = mast.heads.filter((h) => h.back);
+    expect(fronts.length).toBe(2);
+    expect(backs.length).toBe(2);
+    fronts.forEach((f, k) => {
+      const b = backs[k]!;
+      expect([b.x, b.y, b.across, b.lens, b.gap]).toEqual([f.x, f.y, f.across, f.lens, f.gap]);
+      expect(b.turn).toBe(Math.PI);
+      expect(b.z).toBe(-f.z);
+      // Red is on the viewer's left from either side: the back's red lens is at the front's yellow's other side.
+      expect(lensAt(b, 0)[0]).toBeCloseTo(lensAt(f, 2)[0], 9);
+    });
+    const [front, back] = mast.counts.filter((c) => c.over);
+    expect([back!.x, back!.y, back!.back, back!.turn, back!.z]).toEqual([front!.x, front!.y, true, Math.PI, -front!.z]);
+    // The twin takes its front's housing: one box with a hood on each face.
+    const parts = signalGeometry('mast').userData.parts as string[];
+    expect(parts.filter((n) => n === 'count').length).toBe(2 + 2 + 1);
+    // Only the mast arms have them: a bracket's one head and Dry Creek's hang over their own lane for their own approach.
+    for (const style of ['bracket', 'span'] as const) {
+      expect(signalLayout(style).heads.some((h) => h.back), style).toBe(false);
+      expect(signalLayout(style).counts.some((c) => c.back), style).toBe(false);
+    }
+  });
+
+  it('show what their approach\'s own signal shows: the same lens, the same digits, and a T junction\'s stem has no one to see them', () => {
+    const props = new PropsView(W);
+    const priv = props as unknown as { signalSlots: Array<{ first: number; roles: readonly QuadRole[]; blank: readonly boolean[] }>; signalLit: THREE.InstancedMesh };
+    const lit = priv.signalLit.geometry.getAttribute('aLit');
+    const size = priv.signalLit.geometry.getAttribute('aSize');
+    let masts = 0;
+    let dead = 0;
+    for (const t of [3.3, 9.9, 20.5, 27.1]) {
+      props.update(0, 0, t);
+      signals.forEach((p, i) => {
+        if (signalStyle(roads, p) !== 'mast') return;
+        const layout = signalLayout('mast');
+        const slot = priv.signalSlots[i]!;
+        // Each over-lane head's lenses and its twin's.
+        for (let k = 0; k < 3; k++) {
+          for (const [front, back] of [[1, 3], [2, 4]] as const) {
+            const f = slot.first + slot.roles.findIndex((r) => r.kind === 'lens' && r.head === front && r.k === k);
+            const b = slot.first + slot.roles.findIndex((r) => r.kind === 'lens' && r.head === back && r.k === k);
+            expect([lit.getX(b), lit.getY(b)], `${p.node} ${p.dir} lens ${k}`).toEqual([lit.getX(f), lit.getY(f)]);
+          }
+        }
+        // The countdown: its second and third faces (the pole's is the first) show the same digits.
+        const digits = slot.roles.flatMap((r, j) => (r.kind === 'count' ? [slot.first + j] : []));
+        expect(digits.length).toBe(6);
+        for (let k = 0; k < 2; k++) expect([lit.getX(digits[4 + k]!), lit.getY(digits[4 + k]!)]).toEqual([lit.getX(digits[2 + k]!), lit.getY(digits[2 + k]!)]);
+        // Blank where no traffic comes the other way.
+        const opposite = roads.lanes.some((l) => l.to === p.node && l.dir === (p.dir + 2) % 4);
+        expect(hasOpposite(roads, p), `${p.node} ${p.dir}`).toBe(opposite);
+        layout.heads.forEach((h, head) => {
+          if (!h.back) return;
+          for (let k = 0; k < 3; k++) {
+            const j = slot.roles.findIndex((r) => r.kind === 'lens' && r.head === head && r.k === k);
+            expect(size.getX(slot.first + j) > 0, `${p.node} ${p.dir} back head ${head}`).toBe(opposite);
+            expect(slot.blank[j]).toBe(!opposite);
+          }
+        });
+        for (const j of [4, 5]) expect(size.getX(digits[j]!) > 0).toBe(opposite);
+        masts++;
+        if (!opposite) dead++;
+      });
+    }
+    console.log(`[signals] ${masts} mast signal frames checked, ${dead} of them with no opposite approach`);
+    expect(masts).toBeGreaterThan(400);
+    expect(dead).toBeGreaterThan(0);
   });
 });
 
