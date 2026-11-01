@@ -18,6 +18,8 @@ export const SIGNAL_YELLOW = 3;
 export const SIGNAL_ALL_RED = 2;
 export const SIGNAL_HALF = SIGNAL_GREEN + SIGNAL_YELLOW + SIGNAL_ALL_RED;
 export const SIGNAL_CYCLE = SIGNAL_HALF * 2;
+/** Pedestrians may start across a road in the first PED_WALK seconds of the green beside them. */
+export const PED_WALK = SIGNAL_GREEN - 5;
 
 /** The county's signal offsets draw from their own generator, never the grid's. */
 const OUTER_SALT = 0x1a5;
@@ -441,11 +443,30 @@ export class RoadNetwork {
     return this.cyclePedCanCross(nodeId, crossedAxis, t);
   }
 
+  /**
+   * Seconds until the light `axis` traffic sees at a signalised junction changes (red counts down to green, green to
+   * yellow, yellow to red), or null while the junction is held: nobody knows when a hold ends.
+   */
+  signalTimeLeft(nodeId: number, axis: Axis, t: number): number | null {
+    if (this.holds.has(nodeId)) return null;
+    const c = this.cycleTime(nodeId, t);
+    const inA = c < SIGNAL_HALF;
+    const local = inA ? c : c - SIGNAL_HALF;
+    const active: Axis = inA ? 'NS' : 'EW';
+    // The other axis's red ends with this half; this axis's own red runs on through the next half.
+    if (axis !== active) return SIGNAL_HALF - local;
+    return local < SIGNAL_GREEN ? SIGNAL_GREEN - local : local < SIGNAL_GREEN + SIGNAL_YELLOW ? SIGNAL_GREEN + SIGNAL_YELLOW - local : SIGNAL_CYCLE - local;
+  }
+
+  /** Where a junction is in its normal cycle (0 to SIGNAL_CYCLE): its first half is NS's. */
+  private cycleTime(nodeId: number, t: number): number {
+    return (((t + this.nodes[nodeId]!.offset) % SIGNAL_CYCLE) + SIGNAL_CYCLE) % SIGNAL_CYCLE;
+  }
+
   /** The junction's normal signal cycle, ignoring any hold. */
   cycleSignalState(nodeId: number, axis: Axis, t: number): SignalState {
-    const node = this.nodes[nodeId]!;
-    if (!node.signal) return 'green';
-    const c = (((t + node.offset) % SIGNAL_CYCLE) + SIGNAL_CYCLE) % SIGNAL_CYCLE;
+    if (!this.nodes[nodeId]!.signal) return 'green';
+    const c = this.cycleTime(nodeId, t);
     const inA = c < SIGNAL_HALF;
     const local = inA ? c : c - SIGNAL_HALF;
     const active: Axis = inA ? 'NS' : 'EW';
@@ -455,13 +476,12 @@ export class RoadNetwork {
 
   /** Pedestrian crossings in the junction's normal signal cycle, ignoring any hold. */
   cyclePedCanCross(nodeId: number, crossedAxis: Axis, t: number): boolean {
-    const node = this.nodes[nodeId]!;
-    if (!node.signal) return true;
-    const c = (((t + node.offset) % SIGNAL_CYCLE) + SIGNAL_CYCLE) % SIGNAL_CYCLE;
+    if (!this.nodes[nodeId]!.signal) return true;
+    const c = this.cycleTime(nodeId, t);
     const inA = c < SIGNAL_HALF;
     const local = inA ? c : c - SIGNAL_HALF;
     const active: Axis = inA ? 'NS' : 'EW';
-    return active !== crossedAxis && local < SIGNAL_GREEN - 5;
+    return active !== crossedAxis && local < PED_WALK;
   }
 
   /** The nearest node: the grid's own answer in the city; off it, a county node when one is strictly nearer. */
