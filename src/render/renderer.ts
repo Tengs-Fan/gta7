@@ -68,13 +68,6 @@ const SMOKE_CONDITION = 0.45;
  */
 /** Full-beam intensity of the player's headlight at night (both lamps intact). */
 export const HEADLIGHT_INTENSITY = 160;
-/**
- * The player's own headlight pool where the spot lights the road too, as a share of the pool every other lit car draws.
- * The pool multiplies what the road already shows and the spot has lit the road just ahead of the car first, so a full
- * pool there glares from the chase camera: at 0.4 the county road at 23:00 reads luma 121, 91, 52 and 43 at 5, 7, 10 and
- * 13 m ahead of the bumper (19 with the lamps off, 38, 27, 21 and 21 with the spot alone).
- */
-export const PLAYER_POOL = 0.4;
 const SIREN_DAY = 25;
 const SIREN_NIGHT = 25;
 const SIREN_RANGE = 12;
@@ -265,7 +258,7 @@ export class GameRenderer {
     this.software = gpuClass(gpu.renderer) === 'software';
     this.softwareMaterials = this.software ? new SoftwareMaterials() : null;
     this.hdr = gpu.halfFloat && !this.software;
-    this.lightSprites = new LightSprites(this.hdr);
+    this.lightSprites = new LightSprites(this.software);
     // Garage interiors and the occlusion at the foot of walls: patched into three's lighting chunks before the first program is built.
     const field = this.software ? null : wallFieldOf(world.layout);
     this.wallField = field ? wallFieldTexture(field) : null;
@@ -312,6 +305,8 @@ export class GameRenderer {
     this.monorail = new MonorailView(world);
     this.country = new CountryView(world, this.city, this.props.windUniforms, this.software);
     this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group, this.regatta.mesh, this.monorail.group, this.country.group);
+    // The headlights light the ground in its own shading: every road, pavement, lawn, beach and track (the software tier paints them).
+    if (!this.software) this.lightSprites.lightGround(new Set([...this.city.wet.materials, ...this.city.ground.materials]));
     this.softwareMaterials?.apply(this.country.group);
     this.softwareMaterials?.apply(this.monorail.group);
     this.softwareMaterials?.apply(this.sites.group);
@@ -563,7 +558,6 @@ export class GameRenderer {
       l.intensity = 0;
     }
     this.headlight.visible = t.headlight;
-    this.lightSprites.setPoolCap(t.headlightPools);
     this.monorail.setGlow(t.railGlow);
     this.rain.setCount(this.software ? SOFTWARE_RAIN_DROPS : t.rainDrops);
     this.city.wet.setMode(t.wetGround);
@@ -1050,14 +1044,13 @@ export class GameRenderer {
     }
   }
 
-  /** Lamp glows of every drawn vehicle, and headlight pools for the nearest lit ones (the player's weaker where its headlight spot lights the road too). */
+  /** Lamp glows of every drawn vehicle, and the headlights of the lit ones for the ground (LightSprites keeps the nearest). */
   private syncLightSprites(sim: ViewState, lights: number): void {
     const ls = this.lightSprites;
     const cam = this.cameraCtl.camera;
     this.renderer.getDrawingBufferSize(this.bufferSize);
     ls.begin(cam.position, this.bufferSize.y / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)));
     const playerCar = this.me(sim).character.vehicle;
-    const spot = this.headlight.visible;
     const strength = THREE.MathUtils.smoothstep(lights, 0.35, 0.6);
     const glows = this.lampGlows;
     for (const view of this.vehicleViews.values()) {
@@ -1065,11 +1058,8 @@ export class GameRenderer {
       if (!v || v.removed || !view.group.visible) continue;
       const n = view.lampWorldPositions(glows);
       for (let i = 0; i < n; i++) ls.addGlow(glows[i]!);
-      if (view.lightsOn) {
-        const lamps = view.headLamps;
-        const own = spot && v === playerCar ? PLAYER_POOL : 1;
-        if (lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * own * (lamps / 2));
-      }
+      const lamps = view.headLamps;
+      if (view.lightsOn && lamps > 0) ls.offerPool(v.pos.x + Math.sin(v.heading) * v.halfL, v.pos.z + Math.cos(v.heading) * v.halfL, v.heading, strength * (lamps / 2));
     }
     // Las Lomas County's reflector posts shine back at the player's own lit car.
     this.country.reflectors.glow(ls, playerCar && this.vehicleViews.get(playerCar.id)?.lightsOn ? playerCar : null, strength);

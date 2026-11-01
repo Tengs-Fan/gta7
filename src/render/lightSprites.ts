@@ -1,5 +1,7 @@
-// Vehicle lights that read at night without real light sources: camera-facing lamp glows, headlight pools on the road
-// ahead of lit cars, and light streaks on a wet road. Three batches, one draw call each, on every tier (software too).
+// Vehicle lights that read at night without real light sources: camera-facing lamp glows, the light of lit cars'
+// headlights on the ground ahead of them, and light streaks on a wet road. The glows and streaks are a batch each, one
+// draw call, on every tier; the headlights light the ground in its own shading (lightGround: uniforms, no draw), and on
+// the software tier, which has no such shading, they are a painted batch.
 
 import * as THREE from 'three';
 
@@ -45,22 +47,33 @@ const STREAK_MIN_WET = 0.01;
 const STREAK_NEAR = 4;
 /** Fixed lights (street lamps) offered for streaks in a frame. */
 const LIGHT_CAPACITY = 512;
-/** Glows and pools farther than this from the camera are not drawn (a few pixels, mostly fogged). */
+/** Glows, and headlights on the ground, farther than this from the camera are not drawn (a few pixels, mostly fogged). */
 export const GLOW_RANGE = 140;
 export const POOL_RANGE = 90;
-/** The headlight pool on the road: from POOL_START m ahead of the bumper, POOL_LENGTH m long, POOL_WIDTH m wide at its far end. */
+/**
+ * The cars whose headlights light the ground: the HEADLIGHTS lit ones nearest the camera, on every tier. A car's light
+ * fades out over the last POOL_FADE m before the cut (the next car's distance, or POOL_RANGE), so cars coming into the
+ * nearest few, or leaving them, do not pop.
+ */
+export const HEADLIGHTS = 8;
+const POOL_FADE = 10;
+/** The headlight pool on the ground: from POOL_START m ahead of the bumper, POOL_LENGTH m long, POOL_WIDTH m wide. */
 export const POOL_START = 2;
 export const POOL_LENGTH = 30;
 export const POOL_WIDTH = 9;
 /**
- * What a pool adds at its brightest (a `poolShape` of 1), at full strength (both head lamps, full night), as a multiple
- * of the road's own colour (linear): the road there is multiplied by 1 + this. Warm, so the light is a little yellow.
+ * The headlights' irradiance where the pool is brightest (a `poolShape` of 1), at full strength (both head lamps, full
+ * night), in three's light units: the ground there gains its albedo / pi times this, as from any other light, so the
+ * same headlights add the same light to a dark county road and to lamp-lit asphalt. Warm, so the light is a little yellow.
  */
-export const POOL_LIGHT: Rgb = [31, 26.5, 19.5];
-/** The share of a pool's light a painted pool (the software tier's) adds as a colour. */
-const POOL_PAINT = 0.01;
-/** The head lamps sit this far (m) either side of the car's axis. */
+export const POOL_LIGHT: Rgb = [12, 10.3, 7.6];
+/** The colour a painted pool (the software tier's) adds at a `poolShape` of 1, at full strength. */
+export const POOL_PAINT: Rgb = [0.15, 0.13, 0.095];
+/** The head lamps sit this far (m) either side of the car's axis, and this high (m) over the road. */
 const POOL_LAMP_X = 0.72;
+const POOL_LAMP_Y = 0.65;
+/** Ground this far (m) off the road's plane under the beam (a bridge deck over the road, the foot of a quay) gets none. */
+const POOL_BAND = 1.5;
 /**
  * The pool's shape: each lamp's lobe is `lobe` m wide (sigma) at the bumper and widens by `spread` per metre; the light
  * falls as 1 / (1 + (d / reach) ** power) with the distance d from the bumper (a little slower than the square, so the
@@ -143,41 +156,89 @@ void main() {
   #include <fog_vertex>
 }`;
 
-/**
- * The pool's fragment shader. On the hardware tiers (`lights`) the pool lights the road: the blend multiplies the
- * surface by 1 + the output, so the output is the light, and it skips tone mapping, which is for colours (the surface
- * was tone mapped when it was drawn, or is, later, on their HDR target). The colour-space chunk does nothing on that
- * linear target. On the software tier's 8-bit canvas there is no light to multiply: the road there is nearly black and
- * a blend's source colour is clamped to 1, so a multiplier tops out at 2. The pool paints a colour there instead, which
- * is added like the other lights.
- */
-export function poolFragment(lights: boolean): string {
+/** poolShape's maths in GLSL, as `float poolShape( float d, float x )`. */
+function poolShapeGlsl(): string {
   const S = POOL_SHAPE;
   const f = (n: number): string => n.toFixed(3);
+  return /* glsl */ `
+float poolShape( float d, float x ) {
+  float t = ( d - ${f(POOL_START)} ) / ${f(POOL_LENGTH)};
+  float sigma = ${f(S.lobe)} + ${f(S.spread)} * d;
+  vec2 off = ( x - vec2( -${f(POOL_LAMP_X)}, ${f(POOL_LAMP_X)} ) ) / sigma;
+  vec2 lobe = exp( -0.5 * off * off );
+  float along = smoothstep( 0.0, ${f(S.rise)}, t ) / ( 1.0 + pow( d / ${f(S.reach)}, ${f(S.power)} ) ) * ( 1.0 - smoothstep( ${f(S.taper)}, 1.0, t ) );
+  return ${f(S.peak)} * ( lobe.x + lobe.y ) * along * ( 1.0 - smoothstep( ${f(S.side)}, 1.0, abs( x ) / ${f(POOL_WIDTH / 2)} ) );
+}`;
+}
+
+/**
+ * The software tier's painted pool: an 8-bit canvas has no ground shading to light, and its road is nearly black, so the
+ * pool is a colour (POOL_PAINT) added like the glows, with the same shape, fading in fog.
+ */
+export function poolFragment(): string {
   return /* glsl */ `
 varying vec2 vUv;
 varying vec3 vColor;
 #include <fog_pars_fragment>
+${poolShapeGlsl()}
 void main() {
-  float d = ${f(POOL_START)} + vUv.y * ${f(POOL_LENGTH)};
-  float x = ( vUv.x - 0.5 ) * ${f(POOL_WIDTH)};
-  // poolShape's maths.
-  float sigma = ${f(S.lobe)} + ${f(S.spread)} * d;
-  vec2 off = ( x - vec2( -${f(POOL_LAMP_X)}, ${f(POOL_LAMP_X)} ) ) / sigma;
-  vec2 lobe = exp( -0.5 * off * off );
-  float along = smoothstep( 0.0, ${f(S.rise)}, vUv.y ) / ( 1.0 + pow( d / ${f(S.reach)}, ${f(S.power)} ) ) * ( 1.0 - smoothstep( ${f(S.taper)}, 1.0, vUv.y ) );
-  float a = ${f(S.peak)} * ( lobe.x + lobe.y ) * along * ( 1.0 - smoothstep( ${f(S.side)}, 1.0, abs( x ) / ${f(POOL_WIDTH / 2)} ) );
+  float a = poolShape( ${POOL_START.toFixed(3)} + vUv.y * ${POOL_LENGTH.toFixed(3)}, ( vUv.x - 0.5 ) * ${POOL_WIDTH.toFixed(3)} );
   ${FOG_FADE}
-  ${
-    lights
-      ? `gl_FragColor = vec4( 1.0 + vColor * a, 1.0 );
-  #include <colorspace_fragment>
-  gl_FragColor.rgb -= 1.0;`
-      : `gl_FragColor = vec4( vColor * ( a * ${f(POOL_PAINT)} ), 1.0 );
+  gl_FragColor = vec4( vColor * a, 1.0 );
   #include <tonemapping_fragment>
-  #include <colorspace_fragment>`
-  }
+  #include <colorspace_fragment>
 }`;
+}
+
+/**
+ * The headlights of the HEADLIGHTS cars nearest the camera, for the ground's shading: per car the bumper on the ground
+ * (x, y, z) and the strength (0..1), and its heading (fx, fz) and the ground's rise per metre ahead. The first
+ * `uHeadCount` are this frame's; the rest are stale.
+ */
+export interface HeadlightUniforms {
+  uHeadA: { value: Float32Array };
+  uHeadB: { value: Float32Array };
+  uHeadCount: { value: number };
+}
+
+/**
+ * The ground's light from the headlights (lightGround): at each fragment, the pool's shape in the car's frame times its
+ * strength, nothing off the road's plane, and nothing on ground facing away from the lamps (a kerb's far side, the road
+ * past a crest); then added to the direct diffuse light, so it takes the surface's albedo, wetness and fog like every
+ * other light.
+ */
+function headlightGlsl(): { vertexPars: string; vertex: string; fragmentPars: string; fragment: string } {
+  const f = (n: number): string => n.toFixed(3);
+  return {
+    vertexPars: /* glsl */ `
+varying vec3 vHeadPos;`,
+    vertex: /* glsl */ `
+vHeadPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;`,
+    fragmentPars: /* glsl */ `
+uniform vec4 uHeadA[ ${HEADLIGHTS} ];
+uniform vec4 uHeadB[ ${HEADLIGHTS} ];
+uniform int uHeadCount;
+varying vec3 vHeadPos;
+${poolShapeGlsl()}`,
+    fragment: /* glsl */ `
+{
+  vec3 headN = inverseTransformDirection( nonPerturbedNormal, viewMatrix );
+  float headE = 0.0;
+  for ( int i = 0; i < ${HEADLIGHTS}; i ++ ) {
+    if ( i >= uHeadCount ) break;
+    vec4 a = uHeadA[ i ];
+    vec4 b = uHeadB[ i ];
+    vec3 r = vHeadPos - a.xyz;
+    float d = dot( r.xz, b.xy );
+    float x = r.x * b.y - r.z * b.x;
+    if ( d <= ${f(POOL_START)} || d >= ${f(POOL_START + POOL_LENGTH)} || abs( x ) >= ${f(POOL_WIDTH / 2)} ) continue;
+    float band = 1.0 - smoothstep( ${f(POOL_BAND)}, ${f(POOL_BAND * 2)}, abs( r.y - b.z * d ) );
+    float facing = clamp( dot( headN, vec3( 0.0, ${f(POOL_LAMP_Y)}, 0.0 ) - r ) * 4.0, 0.0, 1.0 );
+    headE += a.w * poolShape( d, x ) * band * facing;
+  }
+  reflectedLight.directDiffuse += BRDF_Lambert( material.diffuseColor ) * vec3( ${POOL_LIGHT.map(f).join(', ')} ) * headE;
+}`,
+  };
 }
 
 const STREAK_FS = /* glsl */ `
@@ -210,16 +271,6 @@ function additive(vertexShader: string, fragmentShader: string, uniforms: Record
   });
 }
 
-/** The same material, but multiplying the surface by 1 + the shader's output (a light on it) instead of adding the output (paint). */
-function lighting(vertexShader: string, fragmentShader: string): THREE.ShaderMaterial {
-  const m = additive(vertexShader, fragmentShader);
-  m.blending = THREE.CustomBlending;
-  m.blendEquation = THREE.AddEquation;
-  m.blendSrc = THREE.DstColorFactor;
-  m.blendDst = THREE.OneFactor;
-  return m;
-}
-
 /** A unit decal on the ground plane: x across (-0.5..0.5), z along (0..1), uv.y running with z. */
 function decalGeometry(): THREE.BufferGeometry {
   return new THREE.PlaneGeometry(1, 1).rotateX(Math.PI / 2).translate(0, 0, 0.5);
@@ -244,8 +295,15 @@ interface PoolCandidate {
 export class LightSprites {
   readonly group = new THREE.Group();
   readonly glows: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
-  readonly pools: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  /** The software tier's painted pools (see poolFragment); null where the ground's shading takes the headlights. */
+  readonly pools: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null;
   readonly streaks: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  /** The nearest lit cars' headlights for the ground's shading (lightGround), written by finish. */
+  readonly headlights: HeadlightUniforms = {
+    uHeadA: { value: new Float32Array(HEADLIGHTS * 4) },
+    uHeadB: { value: new Float32Array(HEADLIGHTS * 4) },
+    uHeadCount: { value: 0 },
+  };
   /** The street lamps' haze (see LampHaze), attached once the props are built. */
   readonly haze: LampHaze;
   /** Ground wetness 0..1 (set before begin): streaks are drawn only on a wet road. */
@@ -259,7 +317,6 @@ export class LightSprites {
   private glowCount = 0;
   private poolCount = 0;
   private streakCount = 0;
-  private poolCap = 40;
   /** Fixed lights offered this frame (offerStreakLight): x, y, z, r, g, b each. */
   private readonly lights = new Float32Array(LIGHT_CAPACITY * 6);
   private lightCount = 0;
@@ -268,7 +325,7 @@ export class LightSprites {
   private readonly glowPos: THREE.BufferAttribute;
   private readonly glowColor: THREE.BufferAttribute;
   private readonly glowSize: THREE.BufferAttribute;
-  /** Kept nearest first, at most poolCap long. */
+  /** Kept nearest first, at most HEADLIGHTS + 1 long (the last is where the light of the others has faded out). */
   private readonly candidates: PoolCandidate[] = [];
   private readonly spare: PoolCandidate[] = [];
   private readonly cam = new THREE.Vector3();
@@ -279,8 +336,8 @@ export class LightSprites {
   private readonly s = new THREE.Vector3();
   private readonly c = new THREE.Color();
 
-  /** `lights`: the pools light the road (multiply it); otherwise, on an 8-bit canvas, they paint it (see poolFragment). */
-  constructor(lights = true) {
+  /** `paint`: on an 8-bit canvas with no ground shading to light (the software tier), the pools are painted (see poolFragment). */
+  constructor(paint = false) {
     this.group.name = 'light-sprites';
     const geo = new THREE.BufferGeometry();
     this.glowPos = new THREE.BufferAttribute(new Float32Array(GLOW_CAPACITY * 3), 3).setUsage(THREE.DynamicDrawUsage);
@@ -292,16 +349,14 @@ export class LightSprites {
     geo.setDrawRange(0, 0);
     this.glows = new THREE.Points(geo, additive(GLOW_VS, GLOW_FS, { uPixelsPerMetre: { value: 800 } }));
     this.glows.name = 'lamp-glows';
-    this.pools = this.decals('headlight-pools', lights ? lighting(DECAL_VS, poolFragment(true)) : additive(DECAL_VS, poolFragment(false)), 64);
+    this.pools = paint ? this.decals('headlight-pools', additive(DECAL_VS, poolFragment()), HEADLIGHTS) : null;
     this.streaks = this.decals('light-streaks', additive(DECAL_VS, STREAK_FS), STREAK_CAPACITY);
-    for (const o of [this.glows, this.pools, this.streaks]) {
+    for (const o of [this.glows, this.streaks, ...(this.pools ? [this.pools] : [])]) {
       // Positions change every frame; the bounds would always be stale.
       o.frustumCulled = false;
       o.renderOrder = 2;
       this.group.add(o);
     }
-    // The pools multiply what is drawn, so they go on before the glows and streaks, which they would otherwise dim and brighten.
-    this.pools.renderOrder = 1;
     this.haze = new LampHaze(this.group);
   }
 
@@ -322,13 +377,27 @@ export class LightSprites {
     return { glows: this.glowCount, pools: this.poolCount, streaks: this.streakCount };
   }
 
-  /** The tier's cap on headlight pools (QUALITY.headlightPools). */
-  setPoolCap(n: number): void {
-    this.poolCap = Math.max(0, Math.min(this.pools.instanceMatrix.count, n));
-  }
-
-  get poolLimit(): number {
-    return this.poolCap;
+  /**
+   * Has the ground's own shading take the headlights (headlightGlsl): patches each material, before it is first drawn,
+   * on top of any patch already on it. They all share `headlights`, so no program changes while the cars move.
+   */
+  lightGround(materials: Iterable<THREE.Material>): void {
+    const glsl = headlightGlsl();
+    for (const mat of materials) {
+      const prev = mat.onBeforeCompile.bind(mat);
+      const prevKey = mat.customProgramCacheKey.bind(mat);
+      mat.onBeforeCompile = (shader, renderer) => {
+        prev(shader, renderer);
+        Object.assign(shader.uniforms, this.headlights);
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', `#include <common>${glsl.vertexPars}`)
+          .replace('#include <project_vertex>', `#include <project_vertex>${glsl.vertex}`);
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', `#include <common>${glsl.fragmentPars}`)
+          .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>${glsl.fragment}`);
+      };
+      mat.customProgramCacheKey = () => `${prevKey()}|gta7-headlights`;
+    }
   }
 
   /** Starts a frame. `pixelsPerMetre`: drawing-buffer height / (2 tan(fov / 2)), a metre's size in pixels 1 m away. */
@@ -376,13 +445,13 @@ export class LightSprites {
     return true;
   }
 
-  /** Offers a lit car's headlight pool; only the poolCap nearest the camera are kept. */
+  /** Offers a lit car's headlights (its bumper on the ground, heading, strength 0..1); the HEADLIGHTS nearest the camera light the ground. */
   offerPool(x: number, z: number, heading: number, strength: number): void {
-    if (strength <= 0 || this.poolCap === 0) return;
+    if (strength <= 0) return;
     const d2 = (x - this.cam.x) ** 2 + (z - this.cam.z) ** 2;
     if (d2 > POOL_RANGE * POOL_RANGE) return;
     const list = this.candidates;
-    if (list.length >= this.poolCap && d2 >= list[list.length - 1]!.d2) return;
+    if (list.length > HEADLIGHTS && d2 >= list[list.length - 1]!.d2) return;
     let i = list.length;
     while (i > 0 && list[i - 1]!.d2 > d2) i--;
     const c = this.spare.pop() ?? { x: 0, z: 0, heading: 0, strength: 0, d2: 0 };
@@ -392,10 +461,10 @@ export class LightSprites {
     c.strength = strength;
     c.d2 = d2;
     list.splice(i, 0, c);
-    if (list.length > this.poolCap) this.spare.push(list.pop()!);
+    if (list.length > HEADLIGHTS + 1) this.spare.push(list.pop()!);
   }
 
-  /** Writes the frame's pools (laid on `ground`) and, on a wet road, the streaks under the nearest glows. */
+  /** Writes the frame's headlights (on `ground`) and, on a wet road, the streaks under the nearest glows. */
   finish(ground: (x: number, z: number) => number): void {
     const glowGeo = this.glows.geometry;
     glowGeo.setDrawRange(0, this.glowCount);
@@ -405,27 +474,42 @@ export class LightSprites {
       a.addUpdateRange(0, this.glowCount * a.itemSize);
       a.needsUpdate = true;
     }
-    const pools = this.pools;
-    this.candidates.forEach((c, i) => {
+    const list = this.candidates;
+    const n = Math.min(list.length, HEADLIGHTS);
+    const cut = list.length > HEADLIGHTS ? Math.sqrt(list[HEADLIGHTS]!.d2) : POOL_RANGE;
+    const A = this.headlights.uHeadA.value;
+    const B = this.headlights.uHeadB.value;
+    const end = POOL_START + POOL_LENGTH;
+    for (let i = 0; i < n; i++) {
+      const c = list[i]!;
       const fx = Math.sin(c.heading);
       const fz = Math.cos(c.heading);
-      const x0 = c.x + fx * POOL_START;
-      const z0 = c.z + fz * POOL_START;
-      const y0 = ground(x0, z0);
-      const y1 = ground(x0 + fx * POOL_LENGTH, z0 + fz * POOL_LENGTH);
-      // Follows the slope; a drop (a ramp's end, the quay) would leave the far end hanging, so it never tips down past the near end's ground.
-      const pitch = -Math.atan2(Math.max(y1 - y0, -1.5), POOL_LENGTH);
-      this.q.setFromEuler(this.e.set(pitch, c.heading, 0, 'YXZ'));
-      this.m.compose(this.p.set(x0, y0 + 0.05, z0), this.q, this.s.set(POOL_WIDTH, 1, POOL_LENGTH));
-      pools.setMatrixAt(i, this.m);
-      const k = c.strength;
-      pools.setColorAt(i, this.c.setRGB(POOL_LIGHT[0] * k, POOL_LIGHT[1] * k, POOL_LIGHT[2] * k));
-    });
-    this.poolCount = this.candidates.length;
-    pools.count = this.poolCount;
-    if (this.poolCount > 0) {
-      pools.instanceMatrix.needsUpdate = true;
-      pools.instanceColor!.needsUpdate = true;
+      const y0 = ground(c.x, c.z);
+      // The light follows the slope; past a drop (a ramp's end, the quay) it tips down 1.5 m at most, so the ground far below stays dark.
+      const y1 = Math.max(ground(c.x + fx * end, c.z + fz * end), y0 - 1.5);
+      const k = c.strength * THREE.MathUtils.smoothstep(cut - Math.sqrt(c.d2), 0, POOL_FADE);
+      A[i * 4] = c.x;
+      A[i * 4 + 1] = y0;
+      A[i * 4 + 2] = c.z;
+      A[i * 4 + 3] = k;
+      B[i * 4] = fx;
+      B[i * 4 + 1] = fz;
+      B[i * 4 + 2] = (y1 - y0) / end;
+      if (this.pools) {
+        this.q.setFromEuler(this.e.set(-Math.atan2(y1 - y0, end), c.heading, 0, 'YXZ'));
+        this.m.compose(this.p.set(c.x + fx * POOL_START, y0 + (y1 - y0) * (POOL_START / end) + 0.05, c.z + fz * POOL_START), this.q, this.s.set(POOL_WIDTH, 1, POOL_LENGTH));
+        this.pools.setMatrixAt(i, this.m);
+        this.pools.setColorAt(i, this.c.setRGB(POOL_PAINT[0] * k, POOL_PAINT[1] * k, POOL_PAINT[2] * k));
+      }
+    }
+    this.poolCount = n;
+    this.headlights.uHeadCount.value = n;
+    if (this.pools) {
+      this.pools.count = n;
+      if (n > 0) {
+        this.pools.instanceMatrix.needsUpdate = true;
+        this.pools.instanceColor!.needsUpdate = true;
+      }
     }
     this.layStreaks(ground);
   }
@@ -524,11 +608,11 @@ export class LightSprites {
   }
 
   dispose(): void {
-    for (const o of [this.glows, this.pools, this.streaks]) {
+    for (const o of [this.glows, this.streaks, ...(this.pools ? [this.pools] : [])]) {
       o.geometry.dispose();
       o.material.dispose();
     }
-    this.pools.dispose();
+    this.pools?.dispose();
     this.streaks.dispose();
     this.haze.dispose();
   }

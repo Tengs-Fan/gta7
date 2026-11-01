@@ -145,6 +145,7 @@ To play with friends on your network, run the optional multiplayer server (see [
 - **Driving.** Sixteen vehicles: the Pipsqueak compact, Velora sedan, Azura Cab, Nightjar GT sports car, Thunderhoof muscle car, Dustrunner pickup, Breadbox van, Citybus, Patrol Cruiser, Riot Van, an ambulance and a fire truck, the Viper 600 sport bike and the Zippa 50 scooter, and the Marlin speedboat and Puffin dinghy, and you can steal any road vehicle, even with someone inside.
   Arcade handling with handbrake drifts, skid marks and tire smoke, and the body rocks on its springs over curbs and bumps and rolls with the slope on Hillcrest Green's hill; cars dent, lose their lamps and glass, spark along walls, catch fire when they land on their roof and blow up, and you can see who is inside through the glass.
   Headlights come on by themselves in the dark (and under dark skies), and L, or B on a gamepad, switches a vehicle's lamps on or off: on by day they show as running lights, and each vehicle keeps its switch when you get out and back in.
+  At night headlights light the road ahead the way a lamp does, adding the same light to a dark county road and to lamp-lit asphalt, so a car's beam under a street lamp reads as lit road, not as a light shining at you.
   Cars wade through the surf off the beach but sink in deep water, where the people in them swim out or drown, and Azura Pier and the Marina deck can be driven onto, and off.
   Six stunt ramps pay stunt bonuses, doubled for the first jump off each one; the sixth is a hay-bale kicker on Hollister Farm's lane, which throws you down the aisle through the corn.
   Corn falls flat under the bumper and only takes a little speed off a car.
@@ -329,7 +330,7 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Nearby street lamps illuminate cars and facades | six pooled lights | off | off |
 | Dynamic lights (sirens, muzzle flashes, explosions) | all | two, shared | none |
 | Your headlight beam at night | on | on | off |
-| Headlight patches on the road at night (nearest cars, yours included, softer where your beam lights the road too) | 40 | 24 | 12 |
+| Headlights light the road at night (the eight nearest cars, yours included) | yes | yes | yes |
 | Rain streaks around the camera | 6,000 | 3,500 | 1,500 |
 | Wet streets | puddles and ripples | puddles and ripples | darker and glossier |
 | Tyre spray on wet roads | on | on | off |

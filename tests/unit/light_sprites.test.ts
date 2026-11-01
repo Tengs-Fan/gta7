@@ -1,14 +1,14 @@
-// Night lights: vehicle lamp glows, headlight pools on the road, wet-road streaks (render/lightSprites.ts), and street
+// Night lights: vehicle lamp glows, the headlights' light on the ground, wet-road streaks (render/lightSprites.ts), and street
 // lamps with a luminaire head whose every part goes when the lamp is knocked down. Headless, with the stub header of
 // r2_vehicles.test.ts: a tiny canvas/document stub and a fake WebGLRenderer.
 
 import * as THREE from 'three';
 import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { GLOW, glowLuminance, LightSprites, poolFragment, poolShape, POOL_LENGTH, POOL_LIGHT, POOL_START, POOL_WIDTH, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
+import { GLOW, glowLuminance, HEADLIGHTS, LightSprites, poolFragment, poolShape, POOL_LENGTH, POOL_LIGHT, POOL_PAINT, POOL_RANGE, POOL_START, POOL_WIDTH, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
 import { LAMP_HEAD, PropsView } from '../../src/render/props';
-import { COUNTRY_FOG_MARGIN, QUALITY } from '../../src/render/quality';
-import { GameRenderer, PLAYER_POOL } from '../../src/render/renderer';
+import { COUNTRY_FOG_MARGIN } from '../../src/render/quality';
+import { GameRenderer } from '../../src/render/renderer';
 import { StreetLighting } from '../../src/render/streetLighting';
 import { VehicleView } from '../../src/render/vehicleView';
 import type { Vehicle } from '../../src/sim/entities';
@@ -226,29 +226,70 @@ describe('lamp glows', () => {
 });
 
 describe('headlight pools', () => {
-  it('keeps the nearest pools first, up to the cap', () => {
+  /** The headlights the ground's shading gets: per car its bumper, strength, heading and rise (LightSprites.headlights). */
+  const lit = (ls: LightSprites) => {
+    const { uHeadA: a, uHeadB: b, uHeadCount: n } = ls.headlights;
+    return Array.from({ length: n.value }, (_, i) => ({ x: a.value[i * 4]!, y: a.value[i * 4 + 1]!, z: a.value[i * 4 + 2]!, k: a.value[i * 4 + 3]!, fx: b.value[i * 4]!, fz: b.value[i * 4 + 1]!, rise: b.value[i * 4 + 2]! }));
+  };
+
+  it('lights the ground by the HEADLIGHTS nearest cars, the farthest of them fading out towards the next one', () => {
     const ls = new LightSprites();
-    ls.setPoolCap(QUALITY.high.headlightPools);
+    expect(ls.pools).toBeNull();
     ls.begin(new THREE.Vector3(0, 2, 0), 800);
-    // 60 cars at shuffled distances 1..60 m.
-    const ds = Array.from({ length: 60 }, (_, i) => ((i * 37) % 60) + 1);
+    // 60 cars at shuffled distances 3, 6, .. 180 m (those past POOL_RANGE are never kept).
+    const ds = Array.from({ length: 60 }, (_, i) => (((i * 37) % 60) + 1) * 3);
     for (const d of ds) ls.offerPool(d, 0, 0, 1);
     ls.finish(() => 0);
-    expect(ls.counts.pools).toBe(40);
-    expect(ls.pools.count).toBe(40);
-    const xs: number[] = [];
-    const m = new THREE.Matrix4();
-    const p = new THREE.Vector3();
-    for (let i = 0; i < 40; i++) {
-      ls.pools.getMatrixAt(i, m);
-      xs.push(Math.round(p.setFromMatrixPosition(m).x));
-    }
-    expect(xs.sort((a, b) => a - b)).toEqual(Array.from({ length: 40 }, (_, i) => i + 1));
+    expect(ls.counts.pools).toBe(HEADLIGHTS);
+    const cars = lit(ls);
+    expect(cars.map((c) => c.x)).toEqual(Array.from({ length: HEADLIGHTS }, (_, i) => (i + 1) * 3));
+    // Full strength well inside the cut (the next car, 27 m out); fading over the last POOL_FADE m before it.
+    expect(cars[0]!.k).toBeCloseTo(1, 6);
+    expect(cars[HEADLIGHTS - 1]!.k).toBeLessThan(0.3);
+    for (let i = 1; i < HEADLIGHTS; i++) expect(cars[i]!.k).toBeLessThanOrEqual(cars[i - 1]!.k);
+    // Heading north (0): forward is +z, on flat ground.
+    expect(cars[0]).toMatchObject({ y: 0, fx: 0, fz: 1, rise: 0 });
     ls.dispose();
   });
 
-  it('per tier at night: within High 40 / Medium 24 / Low 12, and none at noon', () => {
-    expect([QUALITY.high.headlightPools, QUALITY.medium.headlightPools, QUALITY.low.headlightPools]).toEqual([40, 24, 12]);
+  it('a car swapping places with the next one past the nearest few does not pop: its light is nearly gone either side', () => {
+    const ls = new LightSprites();
+    const strengthOf = (x: number): number => {
+      ls.begin(new THREE.Vector3(0, 2, 0), 800);
+      for (let i = 1; i < HEADLIGHTS; i++) ls.offerPool(i, 0, 0, 1);
+      ls.offerPool(40, 0, 0, 1);
+      ls.offerPool(x, 0, 0, 1);
+      ls.finish(() => 0);
+      return lit(ls).find((c) => c.x === x)?.k ?? 0;
+    };
+    expect(strengthOf(39.9)).toBeLessThan(0.01);
+    expect(strengthOf(40.1)).toBe(0);
+    // With few cars about, the light fades out at POOL_RANGE instead.
+    ls.begin(new THREE.Vector3(0, 2, 0), 800);
+    ls.offerPool(POOL_RANGE - 0.5, 0, 0, 1);
+    ls.offerPool(20, 0, 0, 1);
+    ls.finish(() => 0);
+    expect(lit(ls).map((c) => c.k)).toEqual([1, expect.closeTo(0.00725, 4)]);
+    ls.dispose();
+  });
+
+  it('follows the ground: its height under the bumper and its rise ahead, and past a drop it tips down 1.5 m at most', () => {
+    const ls = new LightSprites();
+    const end = POOL_START + POOL_LENGTH;
+    for (const [ground, y, rise] of [
+      [(_x: number, z: number) => 2 + z * 0.1, 2, 0.1],
+      [(_x: number, z: number) => (z > 10 ? -4 : 1), 1, -1.5 / end],
+    ] as const) {
+      ls.begin(new THREE.Vector3(0, 2, -10), 800);
+      ls.offerPool(0, 0, 0, 1);
+      ls.finish(ground);
+      expect(lit(ls)[0]!.y).toBeCloseTo(y, 6);
+      expect(lit(ls)[0]!.rise).toBeCloseTo(rise, 6);
+    }
+    ls.dispose();
+  });
+
+  it('on every hardware tier the same HEADLIGHTS cars light the ground, on the software tier as many are painted, and none at noon', () => {
     const sim = makeSim({ world: W });
     const p = spot(sim);
     for (let i = 0; i < 50; i++) {
@@ -256,30 +297,31 @@ describe('headlight pools', () => {
       if (i === 0) placeInCar(sim, v);
       else sim.seat(sim.spawnCharacter('civilian', v.pos.x, v.pos.z), v, 0);
     }
-    const r = new GameRenderer(canvas(), W, { quality: 'high', fov: 68, gpu: HDR });
-    r.attach(sim);
-    r.cameraCtl.mode = 'play';
-    r.cameraCtl.reset(sim);
-    const frame = (): ReturnType<GameRenderer['stats']> => {
-      r.render(0, false);
-      return r.stats();
-    };
     sim.clock.set(23);
-    for (const q of ['high', 'medium', 'low'] as const) {
-      r.setQuality(q);
-      const s = frame();
-      expect(s.pools, q).toBe(QUALITY[q].headlightPools);
-      expect(s.glows, q).toBeGreaterThanOrEqual(90);
+    for (const [gpu, name] of [[HDR, 'hardware'], [SOFT, 'software']] as const) {
+      const r = new GameRenderer(canvas(), W, { quality: 'high', fov: 68, gpu });
+      r.attach(sim);
+      r.cameraCtl.mode = 'play';
+      r.cameraCtl.reset(sim);
+      const frame = (): ReturnType<GameRenderer['stats']> => {
+        r.render(0, false);
+        return r.stats();
+      };
+      for (const q of name === 'hardware' ? (['high', 'medium', 'low'] as const) : (['low'] as const)) {
+        r.setQuality(q);
+        const s = frame();
+        expect(s.pools, `${name} ${q}`).toBe(HEADLIGHTS);
+        expect(s.glows, `${name} ${q}`).toBeGreaterThanOrEqual(90);
+        expect(r.lightSprites.pools?.count ?? 0, `${name} ${q}`).toBe(name === 'software' ? HEADLIGHTS : 0);
+      }
+      sim.clock.set(12);
+      expect(frame().pools, name).toBe(0);
+      sim.clock.set(23);
+      r.dispose();
     }
-    const night = frame().glows;
-    sim.clock.set(12);
-    const noon = frame();
-    expect(noon.pools).toBe(0);
-    expect(noon.glows).toBeLessThan(night);
-    r.dispose();
   });
 
-  it("the player's own car lights the road on every tier: a full pool on Low, PLAYER_POOL of one where its headlight spot lights the road too", () => {
+  it("the player's own car lights the ground like any other car's on every tier (its spot, where there is one, lights what stands ahead)", () => {
     const sim = makeSim({ world: W });
     sim.clock.set(23);
     const { v } = driven(sim);
@@ -289,29 +331,16 @@ describe('headlight pools', () => {
     r.attach(sim);
     r.cameraCtl.mode = 'play';
     r.cameraCtl.reset(sim);
-    // The nearest pool to the camera is the player's own: where it lies and how strong it is (1 = a full pool's light).
-    const poolOf = (q: 'low' | 'medium' | 'high') => {
+    for (const q of ['low', 'medium', 'high'] as const) {
       r.setQuality(q);
       r.render(0, false);
-      expect(r.stats().pools, q).toBeGreaterThanOrEqual(1);
-      const m = new THREE.Matrix4();
-      r.lightSprites.pools.getMatrixAt(0, m);
-      const at = new THREE.Vector3().setFromMatrixPosition(m);
-      const colour = new THREE.Color();
-      r.lightSprites.pools.getColorAt(0, colour);
-      return { ahead: (at.x - v.pos.x) * Math.sin(v.heading) + (at.z - v.pos.z) * Math.cos(v.heading), height: at.y - sim.world.groundHeight(at.x, at.z), strength: colour.r / POOL_LIGHT[0] };
-    };
-    const low = poolOf('low');
-    // Laid ahead of the bumper, on the road.
-    expect(low.ahead).toBeGreaterThan(v.halfL);
-    expect(low.height).toBeLessThan(0.15);
-    expect(low.strength).toBeCloseTo(1, 3);
-    expect(PLAYER_POOL).toBeGreaterThan(0);
-    expect(PLAYER_POOL).toBeLessThan(0.5);
-    for (const q of ['medium', 'high'] as const) {
-      const own = poolOf(q);
-      expect(own.ahead, q).toBeCloseTo(low.ahead, 3);
-      expect(own.strength, q).toBeCloseTo(PLAYER_POOL, 3);
+      expect(r.stats().pools, q).toBe(1);
+      const own = lit(r.lightSprites)[0]!;
+      // At the front bumper, on the road, facing the car's way, at full strength.
+      expect((own.x - v.pos.x) * Math.sin(v.heading) + (own.z - v.pos.z) * Math.cos(v.heading), q).toBeCloseTo(v.halfL, 3);
+      expect(own.y, q).toBeCloseTo(sim.world.groundHeight(own.x, own.z), 6);
+      expect(own.fx, q).toBeCloseTo(Math.sin(v.heading), 6);
+      expect(own.k, q).toBeCloseTo(1, 3);
     }
     r.dispose();
   });
@@ -347,69 +376,68 @@ describe('headlight pools', () => {
   });
 });
 
-/** What the GL blend writes for a source (what the shader outputs) over a destination, for the factors the light sprites use. */
-function blended(m: THREE.Material, src: number, dst: number): number {
-  const factor = (f: THREE.BlendingDstFactor | THREE.BlendingSrcFactor): number => {
-    if (f === THREE.DstColorFactor) return dst;
-    if (f === THREE.OneFactor) return 1;
-    if (f === THREE.SrcAlphaFactor) return 1;
-    throw new Error(`blend factor ${f} is not modelled`);
-  };
-  if (m.blending === THREE.AdditiveBlending) return src + dst;
-  expect(m.blending).toBe(THREE.CustomBlending);
-  expect(m.blendEquation).toBe(THREE.AddEquation);
-  return src * factor(m.blendSrc) + dst * factor(m.blendDst);
+/** The physical material's shaders after `mat`'s onBeforeCompile, and the uniforms it added. */
+function compiled(mat: THREE.Material): { vertexShader: string; fragmentShader: string; uniforms: Record<string, THREE.IUniform> } {
+  const shader = { uniforms: {} as Record<string, THREE.IUniform>, vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, defines: {} };
+  mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, null as unknown as THREE.WebGLRenderer);
+  return shader;
 }
 
 describe("a headlight pool's light", () => {
-  it('lights the surface: the road is multiplied by 1 + the light, a dark patch and a bright one by the same factor', () => {
+  it("is a light in the ground's own shading: it adds the albedo times its irradiance, whatever light the ground already has", () => {
     const ls = new LightSprites();
-    const light = POOL_LIGHT[0] * 0.6;
-    const asphalt = 0.004;
-    const laneLine = 0.35;
-    // The shader writes the light; the blend leaves dst * (1 + light).
-    expect(blended(ls.pools.material, light, asphalt) / asphalt).toBeCloseTo(1 + light, 6);
-    expect(blended(ls.pools.material, light, laneLine) / laneLine).toBeCloseTo(1 + light, 6);
-    // So the bright lane line gains the most, and no light means no change on either.
-    expect(blended(ls.pools.material, light, laneLine) - laneLine).toBeGreaterThan((blended(ls.pools.material, light, asphalt) - asphalt) * 50);
-    expect(blended(ls.pools.material, 0, asphalt)).toBe(asphalt);
-    expect(blended(ls.pools.material, 0, laneLine)).toBe(laneLine);
-    // The glows and the streaks still add their colour.
-    expect(blended(ls.glows.material, 0.5, 0.2)).toBeCloseTo(0.7, 6);
-    expect(blended(ls.streaks.material, 0.5, 0.2)).toBeCloseTo(0.7, 6);
+    const mat = new THREE.MeshStandardMaterial();
+    ls.lightGround([mat]);
+    const { fragmentShader: fs, uniforms } = compiled(mat);
+    // Added after every other light is in, to the direct diffuse light: the albedo (BRDF_Lambert) times the irradiance.
+    const at = fs.indexOf('#include <lights_fragment_end>');
+    const block = fs.slice(at, fs.indexOf('#include <aomap_fragment>'));
+    expect(block).toContain(`reflectedLight.directDiffuse += BRDF_Lambert( material.diffuseColor ) * vec3( ${POOL_LIGHT.map((c) => c.toFixed(3)).join(', ')} ) * headE;`);
+    // The irradiance comes from the uniforms, the position and the normal alone: never from the light already on the
+    // ground, so the same headlights add the same light to a dark county road and to lamp-lit asphalt.
+    const headE = block.slice(block.indexOf('float headE'), block.indexOf('reflectedLight.directDiffuse +='));
+    expect(headE).not.toMatch(/reflectedLight|outgoingLight|irradiance|totalDiffuse/);
+    // One shared uniform set: the cars move, no program changes.
+    expect(uniforms.uHeadA).toBe(ls.headlights.uHeadA);
+    expect(uniforms.uHeadCount).toBe(ls.headlights.uHeadCount);
+    expect(fs).toContain(`uniform vec4 uHeadA[ ${HEADLIGHTS} ];`);
+    expect(mat.customProgramCacheKey()).toContain('gta7-headlights');
     ls.dispose();
   });
 
-  it('is written as a multiplier, not a colour: no tone mapping, and it fades out in fog', () => {
-    const fs = poolFragment(true);
-    expect(fs).not.toContain('tonemapping_fragment');
-    expect(fs).toContain('colorspace_fragment');
-    // 1 + the light goes out and the blend takes the 1 off again: a pool with no light leaves the surface alone.
-    expect(fs).toContain('1.0 + vColor * a');
-    expect(fs).toContain('USE_FOG');
-    expect(fs).toContain('a *= exp(');
+  it('keeps any patch already on the ground material (wet ground, surface detail), and goes on every ground material once', () => {
+    const r = new GameRenderer(canvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    const ground = new Set<THREE.Material>([...r.city.wet.materials, ...r.city.ground.materials]);
+    expect(ground.size).toBeGreaterThan(10);
+    for (const mat of ground) {
+      const { fragmentShader: fs } = compiled(mat);
+      expect(fs.split('float headE').length - 1, mat.name).toBe(1);
+      expect(mat.customProgramCacheKey().split('gta7-headlights').length - 1, mat.name).toBe(1);
+    }
+    const road = r.city.ground.materials.find((m) => m.name === 'ground-road')!;
+    const { fragmentShader: fs } = compiled(road);
+    expect(fs).toContain('wetK');
+    expect(fs).toContain('gRough');
+    r.dispose();
   });
 
-  it('draws before the glows and streaks it would otherwise dim or brighten', () => {
-    const ls = new LightSprites();
-    expect(ls.pools.renderOrder).toBeLessThan(ls.glows.renderOrder);
-    expect(ls.pools.renderOrder).toBeLessThan(ls.streaks.renderOrder);
-    ls.dispose();
-  });
-
-  it("is painted on the software tier's 8-bit canvas, where a multiplier cannot show on a nearly black road", () => {
-    const paint = new LightSprites(false);
-    expect(paint.pools.material.blending).toBe(THREE.AdditiveBlending);
-    const fs = poolFragment(false);
+  it("is painted on the software tier's 8-bit canvas, which has no ground shading to light, toned down to the hardware tiers' light", () => {
+    const paint = new LightSprites(true);
+    expect(paint.pools!.material.blending).toBe(THREE.AdditiveBlending);
+    const fs = poolFragment();
     expect(fs).toContain('tonemapping_fragment');
     expect(fs).toContain('colorspace_fragment');
     expect(fs).toContain('USE_FOG');
-    // The same light, added: a dark and a bright surface gain the same amount.
-    expect(blended(paint.pools.material, 0.3, 0.01) - 0.01).toBeCloseTo(blended(paint.pools.material, 0.3, 0.5) - 0.5, 6);
+    // Warm like the light, and at its brightest a fraction of white (the road there reads lit, not shining).
+    const top = Math.max(...Array.from({ length: 241 }, (_, i) => poolShape(POOL_START + i / 10, 0.72)));
+    expect(POOL_PAINT[0]).toBeGreaterThan(POOL_PAINT[2]);
+    expect(POOL_PAINT[0] * top).toBeLessThan(0.3);
     paint.dispose();
     for (const [gpu, name] of [[HDR, 'hardware'], [SOFT, 'software']] as const) {
       const r = new GameRenderer(canvas(), W, { quality: 'low', fov: 68, gpu });
-      expect(r.lightSprites.pools.material.blending, name).toBe(name === 'hardware' ? THREE.CustomBlending : THREE.AdditiveBlending);
+      expect(r.lightSprites.pools === null, name).toBe(name === 'hardware');
+      // The software tier's ground keeps its plain materials: nothing patched in.
+      expect(r.city.ground.materials.some((m) => m.customProgramCacheKey().includes('gta7-headlights')), name).toBe(name === 'hardware');
       r.dispose();
     }
   });
@@ -460,13 +488,9 @@ describe("a headlight pool's light", () => {
     for (const d of [POOL_START + 3, POOL_START + 8, POOL_START + 14]) expect(poolShape(d, POOL_WIDTH / 2)).toBe(0);
   });
 
-  it('is warm, and at its brightest multiplies the road by a bounded amount', () => {
-    const peak = POOL_LIGHT.map((c) => c * Math.max(...Array.from({ length: 241 }, (_, i) => poolShape(POOL_START + i / 10, 0.72))));
-    // Warm: more red than green than blue.
+  it('is warm', () => {
     expect(POOL_LIGHT[0]).toBeGreaterThan(POOL_LIGHT[1]);
     expect(POOL_LIGHT[1]).toBeGreaterThan(POOL_LIGHT[2]);
-    expect(peak[0]! + 1).toBeLessThan(40);
-    expect(peak[0]! + 1).toBeGreaterThan(8);
   });
 });
 
