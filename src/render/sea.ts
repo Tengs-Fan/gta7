@@ -58,6 +58,11 @@ export const WHITECAP_SEA = [0.45, 1] as const;
  * the water's green-blue glow on the backs of the waves (SEA_DIRECT_GLSL).
  */
 export const CREST_GLOW = [0.02, 0.16, 0.12] as const;
+/**
+ * The software sea draws its body unlit: the shallows' colour times this share of daylight, about what the sun and sky
+ * give the lit sea's water body at noon.
+ */
+export const SOFTWARE_BODY = 1.5;
 /** The ripples' normal scale (the material's): chop steep enough to break the sky's reflection up round the camera. */
 export const SEA_RIPPLE = 0.36;
 /**
@@ -759,8 +764,15 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   mat.customProgramCacheKey = () => `${key()}-waves`;
 }
 
-/** The software sea: two waves on a warped ripple, the shallows and the beach's surf. Shares SeaUniforms. */
+/**
+ * The software sea: two waves on a warped ripple, the shallows and the beach's surf, unlit but for the key light's glint:
+ * its body (the shallows' colour under a fixed share of daylight, SOFTWARE_BODY) and the baked sky's gradient, folded
+ * above the horizon and lifted to the dome's brightness, split by Schlick's Fresnel. Shares SeaUniforms; `extra` brings
+ * the ripple tile and its drift, the sky's colours, the night and the key light (uKeyDir, uKeyLight: colour times
+ * intensity).
+ */
 export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.IUniform>): THREE.ShaderMaterial {
+  const mid = new THREE.Color(SEA_MID);
   return new THREE.ShaderMaterial({
     fog: true,
     uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog!), ...extra, ...u },
@@ -772,7 +784,8 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
       }`,
     fragmentShader: `varying vec3 vWorld;
       uniform sampler2D uNormal; uniform vec2 uDrift;
-      uniform vec3 uTop, uHorizon; uniform float uNight;
+      uniform vec3 uTop, uHorizon; uniform float uNight, uSkyLift;
+      uniform vec3 uKeyDir, uKeyLight;
       #include <common>
       #include <fog_pars_fragment>
       ${SEA_WAVES_GLSL}
@@ -786,17 +799,18 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
         vec3 n = normalize(vec3(wave.x * 0.18 - swell.x, 1.0, wave.y * 0.18 - swell.y));
         vec3 eye = normalize(cameraPosition - vWorld);
         vec3 reflection = reflect(-eye, n);
-        vec3 sky = mix(uHorizon, uTop, smoothstep(0.0, 0.6, reflection.y));
-        float fresnel = 1.0 - max(dot(n, eye), 0.0);
-        fresnel *= fresnel;
+        reflection.y = abs(reflection.y);
+        vec3 sky = mix(uHorizon, uTop, smoothstep(0.0, 0.6, reflection.y)) * uSkyLift;
+        float fresnel = ${n(SEA_F0)} + ${n(1 - SEA_F0)} * pow(1.0 - max(dot(n, eye), 0.0), 5.0);
         float depth = seaDepthAt(vWorld.xz);
         float light = 1.0 - uNight * 0.94;
-        vec3 sea = seaShallows(vec3(0.018, 0.17, 0.23), depth, vWorld.xz) * light;
+        vec3 sea = seaShallows(vec3(${[mid.r, mid.g, mid.b].map((c) => c.toFixed(4)).join(', ')}), depth, vWorld.xz) * ${n(SOFTWARE_BODY)} * light;
         float onBeach = seaOnBeach(vWorld.xz);
         float shore = 1.0 - smoothstep(0.0, 0.6 + 0.9 * uSeaAmp, depth);
         float band = smoothstep(0.6, 0.9, 0.5 + 0.5 * sin(depth * 12.566 + uSurfPhase + ripple.z * 2.0));
         float foam = clamp(band * shore * onBeach * (0.55 + 0.6 * uSeaAmp), 0.0, 1.0);
-        vec3 col = mix(sea, sky, (0.25 + fresnel * 0.65) * (1.0 - foam));
+        vec3 glint = uKeyLight * pow(max(dot(reflection, uKeyDir), 0.0), 600.0) * 40.0 * fresnel;
+        vec3 col = mix(sea, sky, fresnel * (1.0 - foam)) + min(glint, vec3(${n(SEA_GLINT_MAX)})) * (1.0 - foam);
         gl_FragColor = vec4(mix(col, vec3(0.8) * light, foam), 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>

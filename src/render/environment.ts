@@ -878,6 +878,8 @@ export class Environment {
   /** Offsets of the sea's two ripple samples (see RIPPLE_B), each in its own sample's tiles. */
   private readonly rippleA = { value: new THREE.Vector2() };
   private readonly rippleB = { value: new THREE.Vector2() };
+  /** The key light's colour times its intensity, for the software sea's glint. */
+  private readonly keyLight = { value: new THREE.Color() };
   /** The sky the sea reflects without an environment map (see patchSeaMaterial). */
   private readonly skyReflection: SeaSky = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, intensity: { value: 0 } };
   private readonly cloudNoise = cloudNoiseTexture();
@@ -1003,7 +1005,7 @@ export class Environment {
       ? softwareSeaMaterial(this.sea, {
           uNormal: { value: this.waterNormal }, uDrift: this.rippleA,
           uTop: this.skyReflection.top, uHorizon: this.skyReflection.horizon,
-          uNight: this.skyMat.uniforms.uNight!,
+          uNight: this.skyMat.uniforms.uNight!, uKeyDir: { value: this.keyDir }, uKeyLight: this.keyLight,
         })
       : null;
     // By day the reflected sky is lifted to the dome's brightness; by night the map stays as much dimmer as the day's
@@ -1292,6 +1294,7 @@ export class Environment {
     if (useMoon) this.sun.color.copy(MOON_COLOR);
     else this.sun.color.copy(s.sun).lerp(KEY_GOLD, KEY_GOLD_MIX * goldenHour(hours));
     this.sun.intensity = Math.max(sunI, moonI);
+    this.keyLight.value.copy(this.sun.color).multiplyScalar(this.sun.intensity);
     // Under cloud the light is diffuse: softer shadows.
     this.sun.shadow.intensity = 1 - (1 - CLOUD_SHADOW) * cloud;
     this.placeShadow(focus, lightDir);

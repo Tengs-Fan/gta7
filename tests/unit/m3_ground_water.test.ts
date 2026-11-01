@@ -12,7 +12,7 @@ import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/rende
 import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
-import { CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SKY_GLOW_FALL, SKY_SUN_GLOW, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_SEA } from '../../src/render/sea';
+import { CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_MID, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SKY_GLOW_FALL, SKY_SUN_GLOW, SOFTWARE_BODY, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_SEA } from '../../src/render/sea';
 import { CALM_SEA, WAVES, waveDisplacement, wavePhases } from '../../src/render/waves';
 import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
@@ -465,7 +465,13 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(s.fragmentShader).toContain('seaShallows( diffuseColor.rgb, seaDepth, vSeaXZ )');
     expect(s.uniforms.uSeaDeep).toBe(r.env.sea.uSeaDeep);
     const sw = renderer('high', SOFTWARE);
-    expect((sw.env.water.material as THREE.ShaderMaterial).fragmentShader).toContain('seaShallows(vec3(0.018, 0.17, 0.23), depth, vWorld.xz)');
+    const swFs = (sw.env.water.material as THREE.ShaderMaterial).fragmentShader;
+    const mid = new THREE.Color(SEA_MID);
+    expect(swFs).toContain(`seaShallows(vec3(${[mid.r, mid.g, mid.b].map((c) => c.toFixed(4)).join(', ')}), depth, vWorld.xz) * ${SOFTWARE_BODY} * light`);
+    // The software sea splits its body and the folded sky by Schlick's Fresnel too, and glints in the key light.
+    expect(swFs).toContain(`float fresnel = ${SEA_F0} + ${1 - SEA_F0} * pow(1.0 - max(dot(n, eye), 0.0), 5.0);`);
+    expect(swFs).toContain('reflection.y = abs(reflection.y);');
+    expect((sw.env.water.material as THREE.ShaderMaterial).uniforms.uKeyDir!.value).toBe(sw.env.keyDir);
   });
 
   it('ripples: five layers at scale ratios at least 0.2 from whole numbers, drifting apart, warped and modulated by low-frequency noise', () => {
