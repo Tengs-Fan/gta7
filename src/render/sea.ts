@@ -47,6 +47,38 @@ export const SKY_SUN_GLOW = { pow: 24, gain: 2.5 } as const;
  */
 export const SKY_GLOW_FALL = { horizon: 9, city: 6.5 } as const;
 /**
+ * How much of those night glows the sea mirrors. The city's light lies over the land, so the water takes it only looking
+ * towards the city (gathered as the dome gathers it off the land, by the cube of the cosine of the bearing), broken by
+ * bearing into the lights along the shore (CITY_STREAKS), each of which the ripples draw out into a warm streak; the glow
+ * all round the horizon it takes faintly, so the open night sea stays blue-black rather than mirroring the warm horizon
+ * band on every ripple turned away from the eye.
+ */
+export const SEA_NIGHT_GLOW = { horizon: 0.1, city: 1.2 } as const;
+/**
+ * The shore's lights as the night sea mirrors them: the city's glow on the water varies with the bearing in cells of
+ * 360 / cells degrees, each cell's strength a random number to this power times gain (mean gain / (power + 1)).
+ */
+export const CITY_STREAKS = { cells: 160, power: 4, gain: 3 } as const;
+/**
+ * The moon's halo on the sea: `gain` times the dome's (SKY_MOON_HALO), and stretched in elevation (an elevation
+ * difference counts `stretch` of its size). The halo stands in for the moonlight the waves' unresolved slopes spread
+ * round its glints, which the drawn ripples alone leave sparse; at grazing angles a slope spreads a reflection up and
+ * down far more than sideways, so the halo is drawn out into a column from the glints to the horizon.
+ */
+export const SEA_MOON_PATH = { gain: 5, stretch: 0.3 } as const;
+/**
+ * By night the sea's mirrored sky takes this colour (at its own luminance): the moonlit blue of the night sky's light
+ * (Environment's NIGHT_SKY_LIGHT) under the dark clouds the dome draws by night, rather than the map's dusk palette,
+ * which still mixes in the sunset's red at 20:30 and turned the night sea mauve.
+ */
+export const SEA_NIGHT_SKY = [0.78, 0.99, 1.73] as const;
+/**
+ * The dome's moon halo (Environment's sky): its colour, and the strength and falloff with the distance from the moon of
+ * its tight and wide parts. The environment map has no moon, so the sea adds the halo to the sky it reflects: the
+ * moon's glints sit in a soft column of its light.
+ */
+export const SKY_MOON_HALO = { color: [0.55, 0.62, 0.8], tight: { gain: 0.16, fall: 30 }, wide: { gain: 0.05, fall: 6 } } as const;
+/**
  * The brightest a sun or moon glint on the sea is drawn (linear, before exposure): its true peak is a hundred times
  * this, and bloom spreads anything that bright into a solid white column.
  */
@@ -309,11 +341,14 @@ export interface SeaUniforms {
    * scene's daytime environment intensity: grazing water mirrors the sky as brightly as it shines, with no seam.
    */
   uSkyLift: { value: number };
-  /** The sky dome's horizon glow and city glow (shared with it: SKY_GLOW_FALL), its bearing to the city and how gathered it is. */
+  /** The sky dome's horizon glow and city glow (shared with it: SKY_GLOW_FALL), and its bearing to the city. */
   uSkyGlow: { value: THREE.Color };
   uCityGlow: { value: THREE.Color };
   uCityGlowDir: { value: THREE.Vector2 };
-  uCityAway: { value: number };
+  /** The moon's direction and the strength of its disc and halo on the dome (shared with it: SKY_MOON_HALO), and the darkness. */
+  uMoonDir: { value: THREE.Vector3 };
+  uMoon: { value: number };
+  uNight: { value: number };
   /** Las Lomas County's depth map (countyShore; none until setCountyShore), and its box: minX, minZ, 1 / width, 1 / depth. */
   uCountyDepth: { value: THREE.DataTexture | null };
   uCountyBox: { value: THREE.Vector4 };
@@ -345,7 +380,9 @@ export function seaUniforms(): SeaUniforms {
     uSkyGlow: { value: new THREE.Color(0, 0, 0) },
     uCityGlow: { value: new THREE.Color(0, 0, 0) },
     uCityGlowDir: { value: new THREE.Vector2() },
-    uCityAway: { value: 0 },
+    uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
+    uMoon: { value: 0 },
+    uNight: { value: 0 },
     uCountyDepth: { value: null },
     uCountyBox: { value: new THREE.Vector4(1e6, 1e6, 1, 1) },
     uCountyLand: { value: Array.from({ length: MAX_COUNTY_LAND }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
@@ -592,10 +629,11 @@ void RE_Direct_Sea( const in IncidentLight directLight, const in vec3 geometryPo
 /**
  * The sky along the sea's reflected ray, as bright as the sky dome draws it (uSkyLift): the environment map less its
  * sun's glow (SKY_SUN_GLOW) and regraded from the horizon up as the dome grades it (uSkyTop, uSkyHorizon), or without
- * one the analytic sky graded as the dome grades it (uSkyI too),
- * with the dome's horizon and city glows (SKY_GLOW_FALL) on top. A ripple turned away from the eye reflects the face
- * of the next wave rather than the sky under the horizon, which the map holds as a dark haze: the ray folds back up,
- * so grazing water shows the bright horizon sky and never dark blotches.
+ * one the analytic sky graded as the dome grades it (uSkyI too); by night in the night sky's blue (SEA_NIGHT_SKY); with
+ * a share of the dome's night glows (SKY_GLOW_FALL, SEA_NIGHT_GLOW), the city's broken into its lights (CITY_STREAKS),
+ * and its moon halo drawn out into a path (SKY_MOON_HALO, SEA_MOON_PATH) on top. A ripple turned away from the eye
+ * reflects the face of the next wave rather than the sky under the horizon, which the map holds as a dark haze: the ray
+ * folds back up, so grazing water shows the bright horizon sky and never dark blotches.
  */
 const SEA_SKY_GLSL = /* glsl */ `
 uniform vec3 uSkyTop;
@@ -607,21 +645,33 @@ uniform float uSkyLift;
 uniform vec3 uSkyGlow;
 uniform vec3 uCityGlow;
 uniform vec2 uCityGlowDir;
-uniform float uCityAway;
+uniform vec3 uMoonDir;
+uniform float uMoon;
+uniform float uNight;
 vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
   vec3 r = transformDirectionByInverseViewMatrix( reflect( - viewDir, normal ), viewMatrix );
   r.y = abs( r.y );
   float toCity = max( dot( normalize( r.xz + vec2( 1e-5 ) ), uCityGlowDir ), 0.0 );
-  vec3 glow = uSkyGlow * exp( - r.y * ${n(SKY_GLOW_FALL.horizon)} ) + uCityGlow * mix( 1.0, toCity * toCity * toCity, uCityAway ) * exp( - r.y * ${n(SKY_GLOW_FALL.city)} );
+  float moonUp = r.y - uMoonDir.y;
+  vec3 moonOff = r - uMoonDir;
+  float moon = sqrt( max( dot( moonOff, moonOff ) - moonUp * moonUp, 0.0 ) + moonUp * moonUp * ${n(SEA_MOON_PATH.stretch * SEA_MOON_PATH.stretch)} );
+  float bearing = atan( r.z, r.x ) * ${n(CITY_STREAKS.cells / (2 * Math.PI))};
+  float cell = floor( bearing );
+  float lights = mix( fract( sin( cell * 12.9898 ) * 43758.5453 ), fract( sin( ( cell + 1.0 ) * 12.9898 ) * 43758.5453 ), smoothstep( 0.0, 1.0, bearing - cell ) );
+  vec3 glow = uSkyGlow * ${n(SEA_NIGHT_GLOW.horizon)} * exp( - r.y * ${n(SKY_GLOW_FALL.horizon)} )
+    + uCityGlow * ${n(SEA_NIGHT_GLOW.city)} * toCity * toCity * toCity * pow( lights, ${n(CITY_STREAKS.power)} ) * ${n(CITY_STREAKS.gain)} * exp( - r.y * ${n(SKY_GLOW_FALL.city)} )
+    + vec3( ${SKY_MOON_HALO.color.map(n).join(', ')} ) * ( ${n(SKY_MOON_HALO.tight.gain)} * exp( - moon * ${n(SKY_MOON_HALO.tight.fall)} ) + ${n(SKY_MOON_HALO.wide.gain)} * exp( - moon * ${n(SKY_MOON_HALO.wide.fall)} ) ) * ${n(SEA_MOON_PATH.gain)} * uMoon;
 #if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
   vec3 sun = uSkySun * pow( max( dot( r, uSkySunDir ), 0.0 ), ${n(SKY_SUN_GLOW.pow)} ) * ${n(SKY_SUN_GLOW.gain)};
   // The map grades its sky from the horizon colour by smoothstep( 0, 0.6, h ), the dome by pow( h, 0.55 ): a few degrees
   // up the map is still the horizon's colour where the dome has turned towards its top. Regraded as the dome draws it.
   vec3 dome = mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) / mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) );
-  return max( textureCubeUV( envMap, envMapRotation * r, roughness ).rgb - sun, 0.0 ) * dome * envMapIntensity * uSkyLift + glow;
+  vec3 sky = max( textureCubeUV( envMap, envMapRotation * r, roughness ).rgb - sun, 0.0 ) * dome * envMapIntensity;
 #else
-  return mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI * uSkyLift + glow;
+  vec3 sky = mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI;
 #endif
+  sky = mix( sky, dot( sky, vec3( 0.2126, 0.7152, 0.0722 ) ) * vec3( ${SEA_NIGHT_SKY.map(n).join(', ')} ), uNight );
+  return sky * uSkyLift + glow;
 }
 `;
 
@@ -780,9 +830,9 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
 /**
  * The software sea: two waves on a warped ripple, the shallows and the beach's surf, unlit but for the key light's glint:
  * its body (the shallows' colour under a fixed share of daylight, SOFTWARE_BODY) and the baked sky's gradient, folded
- * above the horizon and lifted to the dome's brightness, split by Schlick's Fresnel. Shares SeaUniforms; `extra` brings
- * the ripple tile and its drift, the sky's colours, the night and the key light (uKeyDir, uKeyLight: colour times
- * intensity).
+ * above the horizon and lifted to the dome's brightness, split by Schlick's Fresnel. Shares SeaUniforms (the night
+ * among them); `extra` brings the ripple tile and its drift, the sky's colours and the key light (uKeyDir, uKeyLight:
+ * colour times intensity).
  */
 export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.IUniform>): THREE.ShaderMaterial {
   const mid = new THREE.Color(SEA_MID);

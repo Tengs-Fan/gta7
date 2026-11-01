@@ -748,7 +748,7 @@ describe('without float colour buffers', () => {
       return shader;
     };
     const sea = seaShader(r.env);
-    expect(sea.fragmentShader).toContain('return mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI * uSkyLift + glow;');
+    expect(sea.fragmentShader).toContain('vec3 sky = mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI;');
     show(18.6);
     expect((sea.uniforms.uSkyHorizon!.value as THREE.Color).r, 'the sunset horizon').toBeGreaterThan((sea.uniforms.uSkyHorizon!.value as THREE.Color).b);
     expect(sea.uniforms.uSkyI!.value).toBeCloseTo(r.scene.environmentIntensity, 6);

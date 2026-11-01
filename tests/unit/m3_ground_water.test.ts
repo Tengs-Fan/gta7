@@ -12,7 +12,7 @@ import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/rende
 import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
-import { CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_MID, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SKY_GLOW_FALL, SKY_SUN_GLOW, SOFTWARE_BODY, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_SEA } from '../../src/render/sea';
+import { CITY_STREAKS, CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_MID, SEA_MOON_PATH, SEA_NIGHT_GLOW, SEA_NIGHT_SKY, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SOFTWARE_BODY, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_SEA } from '../../src/render/sea';
 import { CALM_SEA, WAVES, waveDisplacement, wavePhases } from '../../src/render/waves';
 import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
@@ -562,16 +562,43 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
     // The daytime environment intensity (0.75) is lifted back to 1, so grazing water meets the horizon without a seam.
     expect(r.env.sea.uSkyLift.value).toBeCloseTo(1 / 0.75, 9);
-    expect(fs).toContain('* envMapIntensity * uSkyLift + glow;');
-    // The sky dome's glows are the sea's uniforms, and both fall off alike.
+    expect(fs).toContain('return sky * uSkyLift + glow;');
+    // The sky dome's glows and moon are the sea's uniforms, and fall off alike on both.
     const sky = (r.env.sky.material as THREE.ShaderMaterial).uniforms;
     expect(sky.uGlow).toBe(r.env.sea.uSkyGlow);
     expect(sky.uCityGlow).toBe(r.env.sea.uCityGlow);
     expect(sky.uCityGlowDir).toBe(r.env.sea.uCityGlowDir);
-    expect(sky.uCityAway).toBe(r.env.sea.uCityAway);
+    expect(sky.uMoonDir).toBe(r.env.sea.uMoonDir);
+    expect(sky.uMoon).toBe(r.env.sea.uMoon);
+    const domeFs = (r.env.sky.material as THREE.ShaderMaterial).fragmentShader;
     expect(fs).toContain(`exp( - r.y * ${SKY_GLOW_FALL.horizon}.0 )`);
     expect(fs).toContain(`exp( - r.y * ${SKY_GLOW_FALL.city} )`);
-    expect((r.env.sky.material as THREE.ShaderMaterial).fragmentShader).toContain(`exp(-max(h, 0.0) * ${SKY_GLOW_FALL.city.toFixed(2)})`);
+    expect(domeFs).toContain(`exp(-max(h, 0.0) * ${SKY_GLOW_FALL.city.toFixed(2)})`);
+    const { color, tight, wide } = SKY_MOON_HALO;
+    expect(domeFs).toContain(`col += vec3(${color.map((c) => c.toFixed(2)).join(', ')}) * (exp(-m * ${tight.fall}.0) * ${tight.gain} + exp(-m * ${wide.fall}.0) * ${wide.gain}) * uMoon;`);
+    expect(fs).toContain(`vec3( ${color.join(', ')} ) * ( ${tight.gain} * exp( - moon * ${tight.fall}.0 ) + ${wide.gain} * exp( - moon * ${wide.fall}.0 ) ) * ${SEA_MOON_PATH.gain}.0 * uMoon;`);
+  });
+
+  it('by night the sea is the night sky\'s blue, with the city\'s lights streaking towards the city and the moon\'s halo drawn into a path', () => {
+    const r = renderer('high');
+    const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
+    // The mirrored sky takes the night sky's moonlit blue by night, at its own luminance: no red left from the dusk.
+    expect((r.env.sky.material as THREE.ShaderMaterial).uniforms.uNight).toBe(r.env.sea.uNight);
+    expect(fs).toContain(`sky = mix( sky, dot( sky, vec3( 0.2126, 0.7152, 0.0722 ) ) * vec3( ${SEA_NIGHT_SKY.join(', ')} ), uNight );`);
+    expect(0.2126 * SEA_NIGHT_SKY[0] + 0.7152 * SEA_NIGHT_SKY[1] + 0.0722 * SEA_NIGHT_SKY[2]).toBeCloseTo(1, 2);
+    expect(SEA_NIGHT_SKY[2]).toBeGreaterThan(SEA_NIGHT_SKY[1]);
+    expect(SEA_NIGHT_SKY[1]).toBeGreaterThan(SEA_NIGHT_SKY[0]);
+    // The city's glow only towards the city, whether the camera is on its land or off it (the dome gathers it only off
+    // the land), broken by bearing into lights the ripples draw out into streaks; the glow all round the horizon faintly.
+    expect(fs).toContain(`uCityGlow * ${SEA_NIGHT_GLOW.city} * toCity * toCity * toCity * pow( lights, ${CITY_STREAKS.power}.0 ) * ${CITY_STREAKS.gain}.0 * exp(`);
+    expect(fs).toContain(`float bearing = atan( r.z, r.x ) * ${CITY_STREAKS.cells / (2 * Math.PI)};`);
+    expect(fs).toContain(`uSkyGlow * ${SEA_NIGHT_GLOW.horizon} * exp(`);
+    expect(fs).not.toContain('uCityAway');
+    expect(SEA_NIGHT_GLOW.horizon).toBeLessThan(0.5);
+    // The moon's halo: an elevation difference counts a fraction of its size, so it runs down to the horizon as a path.
+    expect(fs).toContain(`moonUp * moonUp * ${SEA_MOON_PATH.stretch ** 2} );`);
+    expect(SEA_MOON_PATH.stretch).toBeLessThan(1);
+    expect(SEA_MOON_PATH.gain).toBeGreaterThan(1);
   });
 
   it('the sea regrades the map\'s sky to the dome\'s gradient, so a few degrees up it mirrors what the dome draws there', () => {
@@ -600,7 +627,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
       }
     }
     // Both the no-map path and the software sea grade their baked sky as the dome does.
-    expect(fs).toContain('return mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI * uSkyLift + glow;');
+    expect(fs).toContain('vec3 sky = mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI;');
     expect((renderer('high', SOFTWARE).env.water.material as THREE.ShaderMaterial).fragmentShader).toContain('vec3 sky = mix(uHorizon, uTop, pow(reflection.y, 0.55)) * uSkyLift;');
   });
 

@@ -7,7 +7,7 @@ import type { WeatherState } from '../sim/weather';
 import { WATER_Y } from '../world/constants';
 import { CAUSEWAY_NAME } from '../world/country';
 import { mkRect, type CityLayout, type Rect } from '../world/layout';
-import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, SKY_GLOW_FALL, SKY_SUN_GLOW, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
+import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setShore, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
 import { CALM_SEA } from './waves';
 import { assets } from './assets';
@@ -820,7 +820,7 @@ void main() {
       float limb = sqrt(max(0.0, 1.0 - dot(l, l)));
       col = mix(col, vec3(1.0, 0.97, 0.9) * (0.72 + 0.28 * limb) * (0.8 + 0.2 * maria) * 2.2, disc * uMoon);
     }
-    col += vec3(0.55, 0.62, 0.8) * (exp(-m * 30.0) * 0.16 + exp(-m * 6.0) * 0.05) * uMoon;
+    col += vec3(${SKY_MOON_HALO.color.map((c) => c.toFixed(2)).join(', ')}) * (exp(-m * ${SKY_MOON_HALO.tight.fall.toFixed(1)}) * ${SKY_MOON_HALO.tight.gain.toFixed(2)} + exp(-m * ${SKY_MOON_HALO.wide.fall.toFixed(1)}) * ${SKY_MOON_HALO.wide.gain.toFixed(2)}) * uMoon;
   }
   // Evaluated everywhere (its texture lookups need uniform control flow); it fades out at the horizon.
   vec4 c = clouds(d);
@@ -933,19 +933,19 @@ export class Environment {
       uniforms: {
         uTop: { value: new THREE.Color() },
         uHorizon: { value: new THREE.Color() },
-        // Shared with the sea, which reflects the same glows.
+        // Shared with the sea, which reflects the same glows and moon halo, and takes the night's colour by night.
         uGlow: this.sea.uSkyGlow,
         uCityGlow: this.sea.uCityGlow,
         uCityGlowDir: this.sea.uCityGlowDir,
-        uCityAway: this.sea.uCityAway,
+        uMoonDir: this.sea.uMoonDir,
+        uMoon: this.sea.uMoon,
+        uNight: this.sea.uNight,
+        uCityAway: { value: 0 },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uSunColor: { value: new THREE.Color() },
-        uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
         uLightDir: { value: new THREE.Vector3(0, 1, 0) },
         uLightAmt: { value: 1 },
         uStars: { value: 0 },
-        uMoon: { value: 0 },
-        uNight: { value: 0 },
         uGolden: { value: 0 },
         uCloudT: { value: 0.55 },
         uCloudW: { value: 0.07 },
@@ -1005,7 +1005,7 @@ export class Environment {
       ? softwareSeaMaterial(this.sea, {
           uNormal: { value: this.waterNormal }, uDrift: this.rippleA,
           uTop: this.skyReflection.top, uHorizon: this.skyReflection.horizon,
-          uNight: this.skyMat.uniforms.uNight!, uKeyDir: { value: this.keyDir }, uKeyLight: this.keyLight,
+          uKeyDir: { value: this.keyDir }, uKeyLight: this.keyLight,
         })
       : null;
     // By day the reflected sky is lifted to the dome's brightness; by night the map stays as much dimmer as the day's
