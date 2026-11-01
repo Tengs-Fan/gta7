@@ -632,9 +632,9 @@ float seaWhitecap(float crest, float noise, float lace, float sea, float px) {
   float fine = (lace - 0.5) * 8.0;
   float edge = mix(1.0, 0.5, rough);
   float cap = smoothstep(edge, edge + 0.3, crest + 0.3 * patchy);
-  // Holes open in the lace where the cap thins out.
-  cap *= smoothstep(-0.5, 0.5, fine + cap - 0.4);
-  return rough * 0.85 * mix(cap, 0.08, smoothstep(0.6, 2.5, px));
+  // Holes open in the lace where the cap thins out, and its thin edges let the water show through.
+  cap *= smoothstep(-0.4, 0.6, fine + cap - 0.6);
+  return rough * 0.75 * mix(cap, 0.08, smoothstep(0.6, 2.5, px));
 }
 `;
 
