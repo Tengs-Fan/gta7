@@ -3473,6 +3473,22 @@ describe('round 2 audio: mix, voices and ambience', () => {
     }
   });
 
+  it('at cruise the road roar and the wind sit 13 dB or more under the pulses A-weighted for every kind', () => {
+    // At 35 m/s with the sim's own revs the eleven kinds rendered through the game measure 16.9 dB or more for the roar and 16.5 for the wind; they were 11.0 and 7.8.
+    const stems = engineStems();
+    for (const k of Object.keys(VEHICLE_SPECS) as KindT[]) {
+      const s = stems(k, 0.45, 0.3, Math.min(35, 0.95 * VEHICLE_SPECS[k].maxSpeed));
+      expect(s.pulses.a - s.roar.a, `${k} roar`).toBeGreaterThanOrEqual(13);
+      expect(s.pulses.a - s.wind.a, `${k} wind`).toBeGreaterThanOrEqual(13);
+    }
+  });
+
+  it('the pulses keep the level they were tuned to: a sedan at cruise is -22.3 dB RMS at the voice’s output, within 1 dB', () => {
+    const s = engineStems()('sedan', 0.45, 0.3, 35);
+    expect(s.pulses.rms).toBeGreaterThan(-23.3);
+    expect(s.pulses.rms).toBeLessThan(-21.3);
+  });
+
   it('the road roar is a band-pass in the low hundreds of hertz', () => {
     const { sim, inner, input, frames } = rig();
     seatInCar(sim);

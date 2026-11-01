@@ -127,7 +127,7 @@ export function launchSlip(throttle: number, forwardSpeed: number, accel: number
  * where the low-pass (lowpassHz, its -6 dB point) sits about 5 to 6 harmonics up (the sports car, the sportbike, the V8s).
  * A slow-firing kind's cutoff sits further up (a bus floored 9, a scooter 15), so more of its wave passes and it comes out up to about 1 dB over.
  */
-export const PASSED_FIRING_HARMONICS = 6;
+const PASSED_FIRING_HARMONICS = 6;
 
 /** Number of harmonics in the engine PeriodicWave (enough for ~1.8 kHz of detail at a bus's idle). */
 export const ENGINE_HARMONICS = 400;

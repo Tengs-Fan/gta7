@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ambienceTargets, IN_CAR, shoreInfo, type AmbienceDistrict, type AmbienceInput } from '../../src/audio/ambience';
 import { AudioEngine } from '../../src/audio/audio';
 import { dbToGain, distanceCutoff, EXPLOSION_DUCK_RANGE, gainToDb, Glider, MIX_DB, mixTargets, OPEN_HZ, softClipCurve, withinParam, type MixInput } from '../../src/audio/mixer';
-import { ENGINE_PROFILES, EXHAUST_MAX_HZ, LOWPASS_FLOOR_HZ, LOWPASS_MAX_HZ, PASSED_FIRING_HARMONICS, engineParams, engineWave, launchSlip, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
+import { ENGINE_PROFILES, EXHAUST_MAX_HZ, LOWPASS_FLOOR_HZ, LOWPASS_MAX_HZ, engineParams, engineWave, launchSlip, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import type { VehicleKind } from '../../src/sim/specs';
@@ -431,7 +431,8 @@ describe('engine profiles', () => {
       const p = ENGINE_PROFILES[k];
       const w = engineWave(p);
       let power = 0;
-      for (let h = 1; h <= PASSED_FIRING_HARMONICS * p.cylinders; h++) power += (w.real[h]! ** 2 + w.imag[h]! ** 2) / 2;
+      // Over six firing harmonics: 6 * cylinders harmonics of the cycle frequency.
+      for (let h = 1; h <= 6 * p.cylinders; h++) power += (w.real[h]! ** 2 + w.imag[h]! ** 2) / 2;
       expect(power).toBeCloseTo(1, 4);
       expect(w.real[0]).toBe(0);
     }
