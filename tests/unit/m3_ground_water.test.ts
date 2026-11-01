@@ -12,7 +12,8 @@ import { MANHOLE_R, manholesOf, TYRE_MARK_W, tyreMarksOf } from '../../src/rende
 import { anisotropyFor, ASPHALT_AO, LAWN_OVERHANG, PBR_SURFACES, WET_SAND_BAND, WET_SAND_DARKEN, WET_SAND_ROUGHNESS } from '../../src/render/city/surfaces';
 import { RIPPLE_B } from '../../src/render/environment';
 import { GameRenderer } from '../../src/render/renderer';
-import { FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_ROUGHNESS, SHELF_SLOPE, SKY_SUN_GLOW, SHELF_START, SHORE_DAMP, SHORE_GLSL, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases } from '../../src/render/sea';
+import { CREST_GLOW, FOAM_SKY_LIFT, MAX_PILING_DECKS, PILING_FOAM, PILING_FOAM_FAR, PILING_FOAM_PX, PILING_INSET, PILING_RADIUS, PILING_START, PILING_STEP, pilingCentres, RIPPLE_A_TILE, RIPPLE_AB_GAIN, RIPPLE_AB_TILE, RIPPLE_C, RIPPLE_D, RIPPLE_E, RIPPLE_FADE, RIPPLE_SEA_BASE, RIPPLE_SEA_GAIN, SEA_F0, SEA_GLINT_MAX, SEA_ROUGHNESS, SHELF_SLOPE, SHELF_START, SHORE_DAMP, SHORE_GLSL, SKY_SUN_GLOW, SURF_BAND_FADE, seaDepthCpu, seaDrawnDepth, seaShelfDepth, seaUniforms, surfPhases, WHITECAP_SEA } from '../../src/render/sea';
+import { CALM_SEA, WAVES, waveDisplacement, wavePhases } from '../../src/render/waves';
 import { coverWetness, puddleMask, WET_DARKEN, WET_FLATTEN, WET_ROUGHNESS } from '../../src/render/wetGround';
 import { BEACH_W, CROSSWALK_W, CURB_H, LANE_W, SAND_DROP, SEABED_Y, SIDEWALK_W, WATER_Y } from '../../src/world/constants';
 import { sandHeight } from '../../src/world/layout';
@@ -537,6 +538,30 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     const t = (20 * Math.PI) / 180;
     expect(beckmann(t) / beckmann(0)).toBeLessThan(1e-6);
     expect(ggx(t) / ggx(0)).toBeGreaterThan(3e-3);
+  });
+
+  it('crests glow towards the light, and whitecaps break on them in a storm only', () => {
+    const r = renderer('high');
+    const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
+    // The crest is the waves' height over the most they can add up to: within -1..1 anywhere, at any sea state.
+    const phases = wavePhases(123.4);
+    let top = 0;
+    for (const sea of [0.3, 1]) {
+      const most = WAVES.reduce((a, w) => a + w.amp, 0) * sea;
+      for (let x = 0; x < 200; x += 1.7) for (let z = 0; z < 200; z += 2.3) top = Math.max(top, Math.abs(waveDisplacement(x, z, x, z, phases, sea)[1]) / most);
+    }
+    expect(top).toBeLessThanOrEqual(1);
+    expect(top).toBeGreaterThan(0.6);
+    expect(fs).toContain('float seaCrestH = seaCrest( vSeaXZ );');
+    // The glow through the crests, for an eye looking towards the light, in every light's term.
+    expect(fs).toContain(`reflectedLight.directDiffuse += directLight.color * vec3( ${CREST_GLOW.join(', ')} ) * through * seaGlow;`);
+    expect(fs).toContain('seaGlow = saturate( seaCrestH ) * saturate( seaCrestH ) * ( 0.3 + 0.7 * uSeaAmp );');
+    // Whitecaps join the foam (its colour, roughness and sky light), clear of the shallows' surf.
+    expect(fs).toContain('seaFoamAmt = max( seaFoamAmt, seaWhitecap( seaCrestH, seaNoise, seaLace, uSeaAmp, seaPx ) * smoothstep( 0.5, 2.0, seaDepth ) );');
+    expect(fs).toContain(`float rough = smoothstep(${WHITECAP_SEA[0]}, ${WHITECAP_SEA[1]}.0, sea);`);
+    // None in a calm or plain rain, a full cover in a storm.
+    expect(CALM_SEA).toBeLessThan(WHITECAP_SEA[0]);
+    expect(WHITECAP_SEA[1]).toBeLessThanOrEqual(1);
   });
 
   it('pilings: the shader\'s lattice is the drawn one, and every piling has foam on all four sides within 0.5 m', () => {

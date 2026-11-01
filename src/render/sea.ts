@@ -42,6 +42,16 @@ export const SKY_SUN_GLOW = { pow: 24, gain: 2.5 } as const;
  * this, and bloom spreads anything that bright into a solid white column.
  */
 export const SEA_GLINT_MAX = 6;
+/**
+ * Whitecaps break on the crests once the sea state passes the first of these, and spread down them to the second (a
+ * full storm); calm and plain rain (sea state 0.3) have none.
+ */
+export const WHITECAP_SEA = [0.45, 1] as const;
+/**
+ * The light that shines through a thin crest towards an eye looking into the sun or moon (linear, per unit of light):
+ * the water's green-blue glow on the backs of the waves (SEA_DIRECT_GLSL).
+ */
+export const CREST_GLOW = [0.02, 0.16, 0.12] as const;
 /** The ripples' normal scale (the material's): chop steep enough to break the sky's reflection up round the camera. */
 export const SEA_RIPPLE = 0.36;
 /**
@@ -522,9 +532,11 @@ vec3 seaShallows(vec3 mid, float depth, vec2 p) {
 /**
  * The sea's direct light, in place of three's RE_Direct_Physical: a Beckmann specular lobe, the Gaussian slopes of a
  * wind-blown sea (Cox and Munk) that end where GGX's long tails would spread a low sun across the whole sea, capped at
- * SEA_GLINT_MAX; and three's Lambert diffuse for the water body under it.
+ * SEA_GLINT_MAX; three's Lambert diffuse for the water body under it; and the glow through the crests (seaGlow, set
+ * by the patch per fragment) for an eye that looks towards the light.
  */
 const SEA_DIRECT_GLSL = /* glsl */ `
+float seaGlow;
 void RE_Direct_Sea( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
   float dotNL = saturate( dot( geometryNormal, directLight.direction ) );
   float dotNV = saturate( dot( geometryNormal, geometryViewDir ) );
@@ -538,6 +550,8 @@ void RE_Direct_Sea( const in IncidentLight directLight, const in vec3 geometryPo
   vec3 irradiance = dotNL * directLight.color;
   reflectedLight.directSpecular += min( irradiance * F * V_GGX_SmithCorrelated( alpha, dotNL, dotNV ) * D, vec3( ${n(SEA_GLINT_MAX)} ) );
   reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );
+  float through = pow4( saturate( dot( - geometryViewDir, directLight.direction ) ) );
+  reflectedLight.directDiffuse += directLight.color * vec3( ${CREST_GLOW.map(n).join(', ')} ) * through * seaGlow;
 }
 #undef RE_Direct
 #define RE_Direct RE_Direct_Sea
@@ -564,6 +578,29 @@ vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
 #else
   return mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) ) * uSkyI;
 #endif
+}
+`;
+
+/**
+ * The waves' crests: seaCrest(p) is their height at p over the most they can add up to at this sea state, -1 in the
+ * deepest trough to 1 where every crest meets. seaWhitecap gives the foam on them 0..1 (WHITECAP_SEA), broken into
+ * patches by the foam noise and lace, and softened to a faint even cover as a pixel grows past their size (px: m per
+ * pixel).
+ */
+const SEA_CREST_GLSL = /* glsl */ `
+float seaCrest(vec2 p) {
+  return seaDisplace(p).y / max(dot(SEA_AMP, vec4(1.0)) * uSeaAmp, 1e-3);
+}
+float seaWhitecap(float crest, float noise, float lace, float sea, float px) {
+  float rough = smoothstep(${n(WHITECAP_SEA[0])}, ${n(WHITECAP_SEA[1])}, sea);
+  // The noise and lace are ripple slopes, a few hundredths either side of 0.5: stretched to about -1..1.
+  float patchy = (noise - 0.5) * 12.0;
+  float fine = (lace - 0.5) * 8.0;
+  float edge = mix(1.0, 0.5, rough);
+  float cap = smoothstep(edge, edge + 0.3, crest + 0.3 * patchy);
+  // Holes open in the lace where the cap thins out.
+  cap *= smoothstep(-0.5, 0.5, fine + cap - 0.4);
+  return rough * 0.85 * mix(cap, 0.08, smoothstep(0.6, 2.5, px));
 }
 `;
 
@@ -608,7 +645,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
       )
       .replace('#include <begin_vertex>', `#include <begin_vertex>\n  transformed += uDisplace * seaDisplaceEdge( seaBase.xz, aEdge ) * mix( ${n(SHORE_DAMP)}, 1.0, smoothstep( 0.0, 2.0, seaDepthAt( seaBase.xz ) ) );`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\n${SEA_SKY_GLSL}\nvarying vec2 vSeaXZ;`)
+      .replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\n${SEA_SKY_GLSL}\n${SEA_CREST_GLSL}\nvarying vec2 vSeaXZ;`)
       .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${SEA_DIRECT_GLSL}`)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n  material.specularColor = vec3( ${n(SEA_F0)} );\n  material.specularColorBlended = material.specularColor;`)
       .replace(
@@ -627,11 +664,16 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   // Metres of water per screen pixel.
   float seaPx = length( fwidth( vSeaXZ ) );
   float seaFoamAmt = 0.0;
+  float seaCrestH = seaCrest( vSeaXZ );
+  // Thin crests glow when the eye looks through them into the light; a storm's taller ones more.
+  seaGlow = saturate( seaCrestH ) * saturate( seaCrestH ) * ( 0.3 + 0.7 * uSeaAmp );
 #ifdef USE_NORMALMAP
   {
     vec2 fuv = vSeaXZ * 0.031 + uFoamDrift;
     float seaNoise = texture2D( normalMap, fuv ).x * 0.6 + texture2D( normalMap, fuv * 2.37 + 0.31 ).y * 0.4;
     seaFoamAmt = seaFoam( vSeaXZ, seaDepth, seaNoise, uSeaAmp, seaPx );
+    float seaLace = texture2D( normalMap, vSeaXZ * 0.21 + uFoamDrift.yx * 4.0 ).y;
+    seaFoamAmt = max( seaFoamAmt, seaWhitecap( seaCrestH, seaNoise, seaLace, uSeaAmp, seaPx ) * smoothstep( 0.5, 2.0, seaDepth ) );
   }
 #endif
   diffuseColor.rgb = mix( seaShallows( diffuseColor.rgb, seaDepth, vSeaXZ ), vec3( 0.82, 0.86, 0.86 ), seaFoamAmt );`,
