@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { GLOW, glowLuminance, HEADLIGHTS, LightSprites, poolFragment, poolShape, POOL_LENGTH, POOL_LIGHT, POOL_PAINT, POOL_RANGE, POOL_START, POOL_WIDTH, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
+import { GLOW, glowLuminance, HEADLIGHTS, LightSprites, poolFragment, poolShape, POOL_LENGTH, POOL_LIGHT, POOL_PAINT, POOL_RANGE, POOL_START, POOL_WIDTH, waterFresnel, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
 import { LAMP_HEAD, PropsView } from '../../src/render/props';
 import { COUNTRY_FOG_MARGIN } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
@@ -509,6 +509,30 @@ describe('wet-road streaks', () => {
     ls.wet = 1;
     expect(run()).toBe(2);
     ls.dispose();
+  });
+
+  it('mirror a light as water does: faint where the camera looks down on the mirror point, full at grazing angles', () => {
+    expect(waterFresnel(1)).toBeCloseTo(0.02, 9);
+    expect(waterFresnel(0)).toBeCloseTo(1, 9);
+    /** The red of the streak under a lamp head 6.2 m up, `d` m from a camera 2.5 m up. */
+    const streak = (d: number): number => {
+      const ls = new LightSprites();
+      ls.wet = 1;
+      ls.begin(new THREE.Vector3(0, 2.5, 0), 800);
+      ls.offerStreakLight(0, 6.2, d, 0.6, 0.5, 0.3);
+      ls.finish(() => 0);
+      const c = new THREE.Color();
+      ls.streaks.getColorAt(0, c);
+      ls.dispose();
+      return c.r;
+    };
+    // A lamp 30 m down the street and farther: the reflectance has passed STREAK_FRESNEL, the streak is the full 0.5 x wetness.
+    expect(streak(30)).toBeCloseTo(0.3, 2);
+    expect(streak(55)).toBeCloseTo(0.3, 6);
+    // A lamp 14 m off, the camera looking down at 58 degrees off the vertical: a fifth of that, and ever less nearer.
+    expect(streak(14)).toBeLessThan(0.25 * streak(30));
+    expect(streak(14)).toBeGreaterThan(0.15 * streak(30));
+    expect(streak(13)).toBeLessThan(streak(14));
   });
 });
 

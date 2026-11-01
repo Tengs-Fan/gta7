@@ -45,6 +45,18 @@ export const STREAK_RANGE = 60;
 const STREAK_MIN_WET = 0.01;
 /** Streaks of lights nearer the camera than this (m) are faded out, full from three times as far. */
 const STREAK_NEAR = 4;
+/**
+ * A wet road mirrors a light as water does, by Schlick's Fresnel with water's 0.02 head on: barely where the camera
+ * looks down at the mirror point (a lamp beside it), strongly at grazing angles (a lamp down the street). A streak is
+ * at full strength where that reflectance reaches STREAK_FRESNEL, about 73 degrees off the vertical (a street lamp 30 m
+ * off), and weaker in proportion above that.
+ */
+const STREAK_FRESNEL = 0.2;
+
+/** Schlick's Fresnel reflectance of water at a view `cos` the angle off the surface's normal. */
+export function waterFresnel(cos: number): number {
+  return 0.02 + 0.98 * (1 - cos) ** 5;
+}
 /** Fixed lights (street lamps) offered for streaks in a frame. */
 const LIGHT_CAPACITY = 512;
 /** Glows, and headlights on the ground, farther than this from the camera are not drawn (a few pixels, mostly fogged). */
@@ -552,7 +564,7 @@ export class LightSprites {
   /**
    * Wet-road reflections: a flat streak under each of the nearest lights, centred on the mirror point (h / (h + c) of
    * the way from the light's foot to the camera's, h the light's height and c the camera's) and stretched towards the
-   * camera. Their brightness follows the wetness.
+   * camera. Their brightness follows the wetness and the water's Fresnel at the mirror point (STREAK_FRESNEL).
    */
   private layStreaks(ground: (x: number, z: number) => number): void {
     const s = this.streaks;
@@ -591,8 +603,10 @@ export class LightSprites {
         this.q.setFromEuler(this.e.set(0, heading, 0, 'YXZ'));
         this.m.compose(this.p.set(mx - (Math.sin(heading) * length) / 2, ground(mx, mz) + 0.04, mz - (Math.cos(heading) * length) / 2), this.q, this.s.set(0.55, 1, length));
         s.setMatrixAt(n, this.m);
+        // The camera sees the mirror point (h + c) down over `dist` across, so at that angle off the vertical.
+        const fresnel = Math.min(1, waterFresnel((h + c) / Math.hypot(dist, h + c)) / STREAK_FRESNEL);
         // Faded out close to the camera, where the mirror point runs under it and a streak would fill the view.
-        const k = this.wet * this.dark * 0.5 * THREE.MathUtils.smoothstep(dist, STREAK_NEAR, STREAK_NEAR * 3);
+        const k = this.wet * this.dark * 0.5 * fresnel * THREE.MathUtils.smoothstep(dist, STREAK_NEAR, STREAK_NEAR * 3);
         if (glow) s.setColorAt(n, this.c.setRGB(col[o]! * k, col[o + 1]! * k, col[o + 2]! * k));
         else s.setColorAt(n, this.c.setRGB(L[o + 3]! * k, L[o + 4]! * k, L[o + 5]! * k));
         n++;
