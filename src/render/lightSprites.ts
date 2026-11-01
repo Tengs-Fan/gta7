@@ -428,8 +428,9 @@ export class LightSprites {
    * Has the ground's own shading take the headlights (headlightGlsl): patches each material, before it is first drawn,
    * on top of any patch already on it. They all share `headlights`, so no program changes while the cars move.
    * `field`: the crop fields' ground and plants, whose pale straw and many upright leaves the road's rule would turn into a
-   * shining patch: what the headlights add is held under FIELD_LIGHT_MAX, and the player's spot, whose inverse square a
-   * plant in front of the bumper takes in full, does not light them (the headlights' own light does, as it lights the soil).
+   * shining patch: what the headlights add is held under FIELD_LIGHT_MAX, and no spot light shines on them: the player's,
+   * whose inverse square a plant in front of the bumper takes in full, is the only one in reach (a street lamp's spot
+   * reaches 22 m, and the nearest lamp is 72 m from a field); the headlights' own light lights them, as it lights the soil.
    */
   lightGround(materials: Iterable<THREE.Material>, field = false): void {
     const glsl = headlightGlsl(field);

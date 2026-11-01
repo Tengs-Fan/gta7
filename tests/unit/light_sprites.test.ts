@@ -503,7 +503,7 @@ describe("a headlight pool's light", () => {
       expect(fs.split('float headE').length - 1, mat.name).toBe(1);
       expect(fs, mat.name).toContain(`float headY = dot( headLit, vec3( 0.2126, 0.7152, 0.0722 ) ) / ${FIELD_LIGHT_MAX.toFixed(3)};`);
       expect(fs, mat.name).toContain('headLit *= inversesqrt( 1.0 + headY * headY );');
-      // The spot's loop is cut out of the direct lights, which stay otherwise (the sun's and the lamps').
+      // The loop over the spot lights is cut out of the direct lights (the player's is the only spot within reach of a field), which stay otherwise: the sun's and the point lights'.
       expect(fs, mat.name).not.toContain('#include <lights_fragment_begin>');
       expect(fs.split('#if 0').length - 1, mat.name).toBe(1);
       expect(fs, mat.name).toContain('getPointLightInfo');
