@@ -59,16 +59,25 @@ export function actionLabel(id: ActionId): string {
   return ACTIONS.find((a) => a.id === id)!.label;
 }
 
+/** The letter keys, in the order a new action looks for a free one. */
+const LETTER_KEYS = Array.from({ length: 26 }, (_, i) => `Key${String.fromCharCode(65 + i)}`);
+
 /**
  * Stored bindings, checked: an unknown action is dropped, an action whose key is missing or not bindable (a typo, a
  * reserved key) keeps its default, and if that leaves two actions on one key (a hand-edited file) every binding goes
- * back to its default.
+ * back to its default. An action the file lacks altogether (one added since it was saved) takes its default key too,
+ * unless a stored action has that key: it gets the first free letter key then, so the player's own keys stay put.
  */
 export function parseBindings(raw: unknown): KeyBindings {
   const out: KeyBindings = { ...DEFAULT_BINDINGS };
   if (!raw || typeof raw !== 'object') return out;
   const r = raw as Record<string, unknown>;
   for (const a of ACTIONS) if (isBindable(r[a.id])) out[a.id] = r[a.id] as string;
+  for (const a of ACTIONS) {
+    if (r[a.id] !== undefined || !ACTIONS.some((o) => r[o.id] !== undefined && out[o.id] === a.key)) continue;
+    const used = new Set(Object.values(out));
+    out[a.id] = LETTER_KEYS.find((k) => !used.has(k))!;
+  }
   return new Set(Object.values(out)).size === ACTIONS.length ? out : { ...DEFAULT_BINDINGS };
 }
 
