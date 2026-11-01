@@ -278,21 +278,21 @@ describe('shoreline foam', () => {
 });
 
 describe('the sea in the renderer', () => {
-  it('High draws the displaced grid, Medium and Low the flat plane with wave normals, and software its own sea', () => {
+  it('High and Medium draw the displaced grid, Low the flat plane with wave normals, and software its own sea', () => {
     expect(QUALITY.high.waterGrid).toBe(true);
-    expect(QUALITY.medium.waterGrid).toBe(false);
+    expect(QUALITY.medium.waterGrid).toBe(true);
     expect(QUALITY.low.waterGrid).toBe(false);
-    const high = renderer('high');
-    expect(high.stats().waterGrid).toBe(true);
-    expect(high.env.sea.uDisplace.value).toBe(1);
-    expect(high.env.water.geometry.getAttribute('aEdge')).toBeTruthy();
-    expect(high.env.water.geometry.getAttribute('position').count).toBeGreaterThan(150000);
-    for (const q of ['medium', 'low'] as const) {
+    for (const q of ['high', 'medium'] as const) {
       const r = renderer(q);
-      expect(r.stats().waterGrid, q).toBe(false);
-      expect(r.env.sea.uDisplace.value).toBe(0);
-      expect(r.env.water.material).toBeInstanceOf(THREE.MeshStandardMaterial);
+      expect(r.stats().waterGrid, q).toBe(true);
+      expect(r.env.sea.uDisplace.value).toBe(1);
+      expect(r.env.water.geometry.getAttribute('aEdge')).toBeTruthy();
+      expect(r.env.water.geometry.getAttribute('position').count).toBeGreaterThan(150000);
     }
+    const low = renderer('low');
+    expect(low.stats().waterGrid).toBe(false);
+    expect(low.env.sea.uDisplace.value).toBe(0);
+    expect(low.env.water.material).toBeInstanceOf(THREE.MeshStandardMaterial);
     const sw = renderer('high', SOFTWARE);
     expect(sw.stats().waterGrid).toBe(false);
     const mat = sw.env.water.material as THREE.ShaderMaterial;
@@ -303,7 +303,7 @@ describe('the sea in the renderer', () => {
     expect(mat.fragmentShader).toContain('seaShallows');
   });
 
-  it('a tier switch swaps the geometry and a uniform only: the same material and program key, the grid freed on leaving High', () => {
+  it('a tier switch swaps the geometry and a uniform only: the same material and program key, the grid freed on going to Low', () => {
     const r = renderer('high');
     const mat = r.env.water.material as THREE.MeshStandardMaterial;
     const key = mat.customProgramCacheKey();

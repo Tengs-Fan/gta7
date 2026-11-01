@@ -2,11 +2,11 @@ import { expect, test } from '@playwright/test';
 import { boot, newGame, type Api } from './helpers';
 
 // Each saved graphics tier boots and draws the graphics milestone's features within its limits: the finish pass,
-// rain drops, headlight pools and the High-only wave grid, at noon clear, noon rain and 23:00 rain.
+// rain drops, headlight pools and the wave grid (High and Medium), at noon clear, noon rain and 23:00 rain.
 
 const LIMITS = {
   low: { aa: 'fxaa', rainDrops: 1500, pools: 12, waterGrid: false },
-  medium: { aa: 'msaa', rainDrops: 3500, pools: 24, waterGrid: false },
+  medium: { aa: 'msaa', rainDrops: 3500, pools: 24, waterGrid: true },
   high: { aa: 'msaa', rainDrops: 6000, pools: 40, waterGrid: true },
 } as const;
 

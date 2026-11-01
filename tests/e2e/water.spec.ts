@@ -4,7 +4,7 @@ import { boot, newGame, type Api } from './helpers';
 const WATER_Y = -1;
 
 test.describe('the sea', () => {
-  test('the wave grid is on High only, the sea state follows the weather, and a rocket into the sea goes off at the surface', async ({ page }) => {
+  test('the wave grid is on High and Medium, the sea state follows the weather, and a rocket into the sea goes off at the surface', async ({ page }) => {
     const errors = await boot(page);
     await newGame(page);
     const r = await page.evaluate(async () => {
@@ -32,7 +32,7 @@ test.describe('the sea', () => {
       });
       return { tiers, calm, storm };
     });
-    expect(r.tiers).toEqual({ low: false, medium: false, high: true });
+    expect(r.tiers).toEqual({ low: false, medium: true, high: true });
     expect(r.calm).toBeCloseTo(0.3, 5);
     expect(r.storm).toBeGreaterThan(0.95);
     await page.waitForTimeout(800);
