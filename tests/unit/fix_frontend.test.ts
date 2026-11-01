@@ -2946,6 +2946,7 @@ describe('round 2 audio: mix, voices and ambience', () => {
 
   type BiquadT = FakeNode & { type: string; frequency: FakeParam; Q: FakeParam };
   type StemsT = Record<'pulses' | 'exhaust' | 'roar' | 'wind', { rms: number; a: number }>;
+  /** The rate the game's filters are modelled at (a browser's usual), not the fake context's 8 kHz. */
   const SAMPLE_RATE = 48000;
   /** Squared A-weighting gain (IEC 61672) at `f` Hz, 1 at 1 kHz. */
   const aWeight2 = (f: number) => {
