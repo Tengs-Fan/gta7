@@ -2304,6 +2304,12 @@ body {
   pointer-events: auto;
 }
 
+/* Lower windows: the legend ends where the old one did (y 522 at 720p), clear of the Gull Regatta's icon in the
+   opening view, and scrolls the rest; from 900 px high it shows whole. */
+@media (max-height: 899.98px) {
+  .map-legend { max-height: calc(100% - 220px); }
+}
+
 .legend-head {
   font-size: 13px;
   font-weight: 700;
