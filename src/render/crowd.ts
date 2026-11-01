@@ -16,6 +16,7 @@ import { isGun, type VehicleKind, type WeaponId } from '../sim/specs';
 import { characterGeometries, type CharacterPartName } from './characterGeometry';
 import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
 import { riderMount } from './riders';
+import { seaHeightAt, type SeaWaveUniforms } from './sea';
 import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from './vehicleView';
 import { GUN_IDS, gunGeometry } from './weaponModels';
 
@@ -262,6 +263,8 @@ export class CrowdView {
   private readonly trunk: Trunk = makeTrunk();
   private readonly gaitOut = makeGaitOut();
   private readonly wp: WeaponPose = makeWeaponPose();
+  /** The sea whose drawn waves swimmers ride (bindSea). */
+  private sea: SeaWaveUniforms | null = null;
   /**
    * Per character drawn: its shot timer last frame, the value the timer had on the frame of its latest shot (it went
    * up: a shot was fired), and the frame it was last drawn. See kickOf.
@@ -946,9 +949,15 @@ export class CrowdView {
     }
   }
 
+  /** Shares the sea's wave uniforms, so swimmers ride the waves the sea draws. */
+  bindSea(u: SeaWaveUniforms): void {
+    this.sea = u;
+  }
+
   /**
-   * Swimming face down: crawl strokes and a flutter kick, or treading water when still. A swimmer with a gun up treads
-   * water holding it out of the water in his right hand, as sim/pose.ts places it (shots leave from its barrel).
+   * Swimming face down: crawl strokes and a flutter kick, or treading water when still, riding the drawn sea's swell
+   * (the sim's swimmer floats at the flat sea's level). A swimmer with a gun up treads water holding it out of the water
+   * in his right hand, as sim/pose.ts places it (shots leave from its barrel, lifted with him by the renderer).
    */
   private swim(c: Character): void {
     const bw = c.appearance.build;
@@ -956,8 +965,9 @@ export class CrowdView {
     const shooting = isGun(weapon) && (c.aiming || c.shotTimer > 0);
     const moving = c.speed > 0.3 && !shooting;
     const ph = moving ? c.animPhase : this.time * 3 + c.id;
+    const lift = seaHeightAt(this.sea, c.pos.x, c.pos.z);
     S.rot.makeRotationY(c.heading);
-    const P = S.pelvis.set(0, SWIM_HIP, 0).applyMatrix4(S.rot).add(c.pos);
+    const P = S.pelvis.set(0, SWIM_HIP + lift, 0).applyMatrix4(S.rot).add(c.pos);
     S.body.copy(S.rot).multiply(S.rot2.makeRotationX(moving ? 1.25 : SWIM_TREAD_LEAN));
     this.torso(c, P, moving ? -0.9 : -0.3);
     this.shoulders(c, P);
@@ -966,6 +976,7 @@ export class CrowdView {
       const gun = w.weapon;
       const kick = this.kickOf(c);
       const m = this.weaponMatrix(w, kick * gunKick(gun), WEAPON_POINTS[gun].grip, KICK_BACK * kick);
+      m.elements[13]! += lift;
       this.put(this.weaponPart(gun), m, 0xffffff);
       const g = WEAPON_POINTS[gun].grip;
       S.pole.copy(S.up).negate().addScaledVector(S.left, -0.6);

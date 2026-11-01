@@ -5,7 +5,7 @@ import { SiteView } from './siteView';
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { monorailRide, playerOf, type PlayerView, type ViewState } from '../sim/viewState';
-import type { Vehicle } from '../sim/entities';
+import type { Character, Vehicle } from '../sim/entities';
 import { lampDarkness, lampsLit } from '../sim/lamps';
 import { VEHICLE_SPECS, WEAPONS, type VehicleKind } from '../sim/specs';
 import { WATER_Y } from '../world/constants';
@@ -299,6 +299,8 @@ export class GameRenderer {
     this.effects.foam.bindSea(this.env.sea);
     this.effects.wakes.bindSea(this.env.sea);
     this.pool.bindSea(this.env.sea);
+    this.cameraCtl.bindSea(this.env.sea);
+    this.crowd.bindSea(this.env.sea);
     this.pool.bindGround(world);
     const chunk = this.software ? STATIC_CHUNK_SIZE : HARDWARE_CHUNK_SIZE;
     this.city = new CityView(world, chunk, this.software);
@@ -762,8 +764,9 @@ export class GameRenderer {
       }),
       // One flash per trigger pull (a shotgun blast is one flash, not nine).
       ev.on('weaponFired', (e) => {
-        fx.muzzleFlash(e.x, e.y, e.z, flashSize(e.weapon), e);
-        if (e.weapon === 'rocket') fx.rocketLaunched(e.x, e.y, e.z);
+        const y = e.y + this.swimLift(e.shooter);
+        fx.muzzleFlash(e.x, y, e.z, flashSize(e.weapon), e);
+        if (e.weapon === 'rocket') fx.rocketLaunched(e.x, y, e.z);
       }),
       // Every bullet or pellet: its tracer and its impact.
       ev.on('shot', (e) => {
@@ -781,18 +784,22 @@ export class GameRenderer {
           traced = this.autoRounds++ % 2 === 0;
         }
         // A round into the sea ends at its surface in a splash: the sim lets it run on to the seabed.
+        const fy = e.fy + this.swimLift(e.shooter);
         const sea = seaCrossing(this.world, e.fx, e.fy, e.fz, e.tx, e.ty, e.tz);
         if (sea) {
-          if (traced) fx.tracer(e.fx, e.fy, e.fz, sea.x, WATER_Y, sea.z);
-          fx.splash(sea.x, WATER_Y, sea.z, 'small');
+          const y = WATER_Y + seaHeightAt(this.env.sea, sea.x, sea.z);
+          if (traced) fx.tracer(e.fx, fy, e.fz, sea.x, y, sea.z);
+          fx.splash(sea.x, y, sea.z, 'small');
           return;
         }
-        if (traced) fx.tracer(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz);
+        if (traced) fx.tracer(e.fx, fy, e.fz, e.tx, e.ty, e.tz);
         // Flesh hits bleed through 'blood', except helicopter rounds, which come without one.
         if (e.hit === 'world' || e.hit === 'vehicle' || (e.hit === 'flesh' && !e.shooter)) fx.impact(e.tx, e.ty, e.tz, e.nx, e.ny, e.nz, e.hit);
       }),
       ev.on('explosion', (e) => {
-        fx.explosion(e.x, e.y, e.z, e.radius, Math.abs(e.y - WATER_Y) < WATER_BLAST_BAND && this.world.waterDepth(e.x, e.z) > 0);
+        // A blast at the sim's flat sea goes off on the drawn one.
+        const water = Math.abs(e.y - WATER_Y) < WATER_BLAST_BAND && this.world.waterDepth(e.x, e.z) > 0;
+        fx.explosion(e.x, water ? WATER_Y + seaHeightAt(this.env.sea, e.x, e.z) : e.y, e.z, e.radius, water);
         const c = this.cameraCtl.camera.position;
         const d = Math.hypot(c.x - e.x, c.y - e.y, c.z - e.z);
         // The only blast shake: grows with the radius and fades out by about 70 m.
@@ -810,7 +817,7 @@ export class GameRenderer {
         if (p.kind === 'lamp') fx.debris(p.x, p.y + 0.6, p.z);
         if (p.kind === 'pumpkin') fx.debris(p.x, p.y, p.z, 0xff7a12, 0xc24a08);
       }),
-      ev.on('splash', (e) => fx.splash(e.x, e.y, e.z, e.big)),
+      ev.on('splash', (e) => fx.splash(e.x, e.y + seaHeightAt(this.env.sea, e.x, e.z), e.z, e.big)),
       ev.on('driveInShush', () => this.country.shush(this.time)),
       ev.on('lightning', () => {
         if (this.lightningFlashes) this.flashAge = 0;
@@ -833,6 +840,11 @@ export class GameRenderer {
 
   private me(sim: ViewState): PlayerView {
     return playerOf(sim, this.localPlayerId);
+  }
+
+  /** How far the drawn swell lifts a swimmer over the sim's flat sea (CrowdView.swim): his gun's flash and tracers with him. */
+  private swimLift(c: Character | null): number {
+    return c?.state === 'swimming' ? seaHeightAt(this.env.sea, c.pos.x, c.pos.z) : 0;
   }
 
   private syncVehicles(sim: ViewState, dt: number, night: number): void {
@@ -1037,7 +1049,7 @@ export class GameRenderer {
       }
       // Wading (its wheels on the sand under the sea; deeper than the sim's flooding depth it is inWater): spray and a wake.
       const depth = WATER_Y - v.pos.y;
-      if (depth >= WADE_MIN && !v.airborne && !v.inWater && d2 < 120 * 120) fx.wade(v, WATER_Y, depth, dt);
+      if (depth >= WADE_MIN && !v.airborne && !v.inWater && d2 < 120 * 120) fx.wade(v, WATER_Y + seaHeightAt(this.env.sea, v.pos.x, v.pos.z), depth, dt);
       else if (spray && d2 < TYRE_SPRAY_RANGE * TYRE_SPRAY_RANGE && !v.airborne && !v.inWater && v.speed > TYRE_SPRAY_SPEED && coverAt(this.cover, v.pos.x, v.pos.z) < v.pos.y + 0.3) {
         fx.tyreSpray(v, this.wet, dt);
       }
@@ -1206,7 +1218,7 @@ export class GameRenderer {
       this.markers.syncMarkers(sim.interactions.markers.filter((m) => m.kind !== 'cow' && !(busy && m.kind === 'mission')), this.time, cam.position, this.me(sim).pos(), aiming, cityReach);
       const objectives = [...(sim.missions.active?.markers ?? []), ...sim.activities.objectives()];
       // One out on the sea (a regatta gate) stands on its surface, not the seabed.
-      this.markers.syncObjectives(objectives, (x, z) => Math.max(WATER_Y, sim.world.groundHeight(x, z)), this.time);
+      this.markers.syncObjectives(objectives, (x, z) => Math.max(WATER_Y + seaHeightAt(this.env.sea, x, z), sim.world.groundHeight(x, z)), this.time);
       this.regatta.sync(sim, this.time);
       this.markers.syncPickups(sim.pickups, this.time, cam.position.x, cam.position.z);
       this.markers.syncHelis(sim.helis, night, (x, z) => sim.world.groundHeight(x, z));

@@ -13,6 +13,7 @@ import { CAR_GAP, CAR_LENGTH, trainAt } from '../world/monorail';
 import type { StaticWorld } from '../world/staticWorld';
 import { riseTop } from '../world/terrain';
 import { FOLIAGE_FADE_FAR, foliageKept, foliagePoints, foliageSpheres } from './props';
+import { seaHeightAt, type SeaWaveUniforms } from './sea';
 
 export type CameraMode = 'play' | 'title';
 
@@ -419,6 +420,10 @@ export class CameraController {
   private footSide = 0;
   private footTilt = 0;
   private floorY = -Infinity;
+  /** The sea whose drawn waves the camera stays above and follows a swimmer or a boat on (bindSea). */
+  private sea: SeaWaveUniforms | null = null;
+  /** The drawn sea's height under the boat followed, eased so the chase camera rides the swell but not every bump. */
+  private seaLift = 0;
   /** The on-foot camera's shoulder: +1 his right, -1 his left (a swimmer's, see SIDE_SWAP), and where it is going. */
   private shoulderSide = 1;
   private sideTarget = 1;
@@ -501,6 +506,11 @@ export class CameraController {
   }
 
   private shakeOn = true;
+
+  /** Shares the sea's wave uniforms: the camera stays above the drawn sea and rides it with a swimmer or a boat. */
+  bindSea(u: SeaWaveUniforms): void {
+    this.sea = u;
+  }
 
   addShake(amount: number): void {
     if (!this.shakeOn) return;
@@ -660,7 +670,10 @@ export class CameraController {
       // and the FOV (below) widens with the absolute speed rather than the fraction of each car's top speed.
       const k = smoothstep(15, 55, speed);
       const boom = chaseOffset(s, k, this.zoomLevel === 1, this.orbitPitch, this.chase);
-      this.target.lerp(new THREE.Vector3(v.pos.x, v.pos.y + s.height * CHASE_TARGET_Y, v.pos.z), 1 - Math.exp(-18 * dt));
+      // A boat afloat rides the drawn swell (the sim's sea is flat): the camera rises and falls with it.
+      const afloat = s.class === 'boat' && !v.inWater && Math.abs(v.pos.y - WATER_Y) < 0.05;
+      this.seaLift = damp(this.seaLift, afloat ? seaHeightAt(this.sea, v.pos.x, v.pos.z) : 0, 3, dt);
+      this.target.lerp(new THREE.Vector3(v.pos.x, v.pos.y + s.height * CHASE_TARGET_Y + this.seaLift, v.pos.z), 1 - Math.exp(-18 * dt));
       this.desired.set(this.target.x - Math.sin(yaw) * boom.back, this.target.y + boom.up, this.target.z - Math.cos(yaw) * boom.back);
       this.chaseLook.set(this.target.x + Math.sin(yaw) * 3, this.target.y + 0.3, this.target.z + Math.cos(yaw) * 3);
       this.dir.copy(this.chaseLook).sub(this.desired).normalize();
@@ -680,7 +693,8 @@ export class CameraController {
       lookOver = !aim && (swimming || p.pos.y < WATER_Y);
       raise = !lookOver;
       const lying = p.state === 'knocked' || p.state === 'dead';
-      const headY = swimming ? 1.6 : lying ? 0.7 : 1.58 * p.appearance.height;
+      // A swimmer rides the drawn swell (CrowdView.swim).
+      const headY = swimming ? 1.6 + seaHeightAt(this.sea, p.pos.x, p.pos.z) : lying ? 0.7 : 1.58 * p.appearance.height;
       this.target.lerp(new THREE.Vector3(p.pos.x, p.pos.y + headY, p.pos.z), 1 - Math.exp(-22 * dt));
       // `aiming` is the aim button (Character.aimZoom): hip fire keeps the wide view.
       const distTarget = aim ? 2.4 : this.zoomLevel === 1 ? 6.6 : 4.3;
@@ -812,10 +826,10 @@ export class CameraController {
     }
     // Out of the water (or aiming) the camera does not glide: the next time it does, it starts where the rule puts it.
     if (!(onFoot && len > 0.01 && lookOver)) this.glideOn = false;
-    // Stay above the ground and above the sea, whose surface plane is invisible from below. The floor rises at once
+    // Stay above the ground and above the sea as drawn, whose surface is invisible from below. The floor rises at once
     // but sinks over a moment (the camera passing off a deck or a quay out over the sea would drop 0.8 m in one
     // frame), unless the camera jumped anyway.
-    const ground = floorAt(sim.world, this.desired.x, this.desired.z);
+    const ground = Math.max(floorAt(sim.world, this.desired.x, this.desired.z), WATER_Y + seaHeightAt(this.sea, this.desired.x, this.desired.z) + 0.35);
     const moved = Math.hypot(this.desired.x - cam.position.x, this.desired.z - cam.position.z);
     const floor = ground >= this.floorY || moved > 3 ? ground : damp(this.floorY, ground, 8, dt);
     if (this.desired.y < floor) this.desired.y = floor;

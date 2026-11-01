@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { QUALITY } from '../../src/render/quality';
 import { GameRenderer, seaCrossing } from '../../src/render/renderer';
-import { SHORE_GLSL, seaGrid, seaUniforms, surfPhases, updateSea } from '../../src/render/sea';
+import { SHORE_GLSL, seaGrid, seaHeightAt, seaUniforms, surfPhases, updateSea } from '../../src/render/sea';
 import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_WAVES_GLSL, SKIRT_EXTENT, SWELL, WAVES, waveAmps, waveDisplacement, wavePhases, type SeaSurface } from '../../src/render/waves';
 import { Projectile } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
@@ -372,7 +372,7 @@ describe('the sea in the renderer', () => {
 });
 
 describe('splashes', () => {
-  it('a round fired into the sea splashes once where it crosses the surface, and its tracer ends there', () => {
+  it('a round fired into the sea splashes once where it crosses the surface, on the drawn swell, and its tracer ends there', () => {
     const r = renderer('high');
     const sim = makeSim();
     r.attach(sim);
@@ -385,11 +385,14 @@ describe('splashes', () => {
     expect(splash).toHaveBeenCalledTimes(1);
     const [x, y, z, size] = splash.mock.calls[0]!;
     expect(x).toBeCloseTo(s.x + 20 * (4 / 11), 6);
-    expect(y).toBeCloseTo(WATER_Y, 6);
+    // The sim's sea is flat; the splash goes up on the drawn one.
+    const sea = WATER_Y + seaHeightAt(r.env.sea, x, s.z);
+    expect(Math.abs(sea - WATER_Y)).toBeGreaterThan(0.01);
+    expect(y).toBeCloseTo(sea, 6);
     expect(z).toBeCloseTo(s.z, 6);
     expect(size).toBe('small');
     expect(tracer).toHaveBeenCalledTimes(1);
-    expect(tracer.mock.calls[0]![4]).toBeCloseTo(WATER_Y, 6);
+    expect(tracer.mock.calls[0]![4]).toBeCloseTo(sea, 6);
     expect(impact).not.toHaveBeenCalled();
     // Over land: no splash, the tracer and impact as before.
     const l = landPoint();

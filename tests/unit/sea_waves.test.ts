@@ -1,16 +1,22 @@
 // The sea's swell (render/waves.ts) and where it reaches (render/seaShelter.ts): the shelter and depth baked over the
 // world, which calm the harbours, the canal, the Marina and the water along the quays and leave the open sea and the
-// beaches to the waves; the breakers over the beach and the clearance under the decks; a boat riding and slamming.
+// beaches to the waves; the breakers over the beach and the clearance under the decks; a boat riding and slamming; a
+// swimmer and his camera riding the swell.
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { BoatView, SLAM_SPEED } from '../../src/render/boatView';
+import { CameraController } from '../../src/render/camera';
+import { CrowdView } from '../../src/render/crowd';
 import { countyShore, seaDepthCpu, seaHeightAt, seaUniforms, setSeaShelter, updateSea, type CountyShore } from '../../src/render/sea';
 import { bakeSeaShelter, SHELTER_CELL, SHELTER_RAMP } from '../../src/render/seaShelter';
 import {
   CALM_SEA, OPEN_SEA, SURF_GAMMA, SURF_K, SURF_LAG, SURF_SYNC_DEPTH, WAVE_K, seaHeight, shelterAt, surfPhase, wavePhases, type SeaSurface, type ShelterMap,
 } from '../../src/render/waves';
+import { SWIM_FLOAT } from '../../src/sim/characterPhysics';
 import type { Vehicle } from '../../src/sim/entities';
+import { SWIM_HIP } from '../../src/sim/pose';
 import { BEACH_W, CURB_H, DECK_SLAB, SAND_DROP, WATER_Y } from '../../src/world/constants';
+import { segmentJoints } from '../support/crowdJoints';
 import { makeSim, world } from './helpers';
 
 await vi.hoisted(async () => {
@@ -220,5 +226,57 @@ describe('a boat on the drawn sea', () => {
     expect(slams).toBeGreaterThan(0);
     // The hull's middle may sit a little under its ends' mean sea; never far.
     expect(under).toBeGreaterThan(-0.15);
+  });
+});
+
+describe('a swimmer in the swell', () => {
+  /** The player swimming in open water east of the beach, and the sea's uniforms in a storm (the shelter map's too). */
+  function rig() {
+    const sim = makeSim({ world: world(), police: false });
+    const p = sim.player;
+    Object.assign(p.pos, { x: 700, y: WATER_Y - SWIM_FLOAT, z: -250 });
+    p.state = 'swimming';
+    const u = seaUniforms();
+    u.uDisplace.value = 1;
+    setSeaShelter(u, map);
+    return { sim, p, u };
+  }
+
+  it('is drawn riding the surface, his gun held up with him', () => {
+    const { p, u } = rig();
+    p.inventory.give('pistol', 100);
+    p.inventory.current = 'pistol';
+    p.aiming = true;
+    const cv = new CrowdView();
+    cv.bindSea(u);
+    let seen = 0;
+    for (let k = 0; k < 8; k++) {
+      updateSea(u, 1.7 + k * 0.9, 1, p.pos.x, p.pos.z);
+      cv.sync([p], p.pos.x, p.pos.z, 1 / 60);
+      const lift = seaHeightAt(u, p.pos.x, p.pos.z);
+      seen = Math.max(seen, Math.abs(lift));
+      expect(segmentJoints(cv, p).get('pelvis')!.y).toBeCloseTo(p.pos.y + SWIM_HIP + lift, 4);
+    }
+    expect(seen).toBeGreaterThan(0.3);
+  });
+
+  it('keeps the camera above the drawn sea, rising and falling with him', () => {
+    const { sim, u } = rig();
+    const cam = new CameraController(16 / 9);
+    cam.bindSea(u);
+    cam.mode = 'play';
+    cam.reset(sim);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let k = 0; k < 600; k++) {
+      updateSea(u, k / 60, 1, sim.player.pos.x, sim.player.pos.z);
+      cam.update(1 / 60, sim, false);
+      const c = cam.camera.position;
+      if (k < 60) continue;
+      expect(c.y - (WATER_Y + seaHeightAt(u, c.x, c.z)), `frame ${k}`).toBeGreaterThanOrEqual(0.35 - 1e-6);
+      lo = Math.min(lo, c.y);
+      hi = Math.max(hi, c.y);
+    }
+    expect(hi - lo).toBeGreaterThan(1);
   });
 });
