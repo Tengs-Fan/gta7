@@ -27,7 +27,7 @@ export interface EngineParams {
   level: number;
   /** Throttle low-pass on the pulse voice (both of its stages): LOWPASS_FLOOR_HZ plus a few harmonics of the firing frequency, at most LOWPASS_MAX_HZ. */
   lowpassHz: number;
-  /** Centre of the exhaust noise band, 2-4x the firing frequency with throttle. */
+  /** Corner of the exhaust rumble's low-pass: 1-2x the firing frequency with throttle, at most EXHAUST_MAX_HZ. */
   exhaustHz: number;
   exhaustLevel: number;
   /** Road roar (tyres on the surface), proportional to speed^1.2. */
@@ -44,6 +44,8 @@ const ENGINE_BASE = 0.16;
 export const LOWPASS_FLOOR_HZ = 300;
 /** The most the low-pass ever opens to: nothing above it is an engine, only buzz. */
 export const LOWPASS_MAX_HZ = 2000;
+/** The exhaust noise is a rumble under the pulses, never a hiss: its band stays below this. */
+export const EXHAUST_MAX_HZ = 500;
 const ROAR_K = 0.0021;
 const WIND_K = 0.07;
 
@@ -68,8 +70,8 @@ export function engineParams(kind: VehicleKind, rpm01: number, throttle: number,
   o.cycleHz = rpm / 120;
   o.level = level;
   o.lowpassHz = lowpassHz;
-  o.exhaustHz = clamp(firingHz * (2 + 2 * th), 60, 6000);
-  o.exhaustLevel = level * (0.12 + 0.55 * th) * (0.7 + 0.6 * p.roughness);
+  o.exhaustHz = clamp(firingHz * (1 + th), 50, EXHAUST_MAX_HZ);
+  o.exhaustLevel = level * (0.05 + 0.22 * th) * (0.7 + 0.6 * p.roughness);
   o.roar = Math.min(0.35, ROAR_K * Math.pow(sp, 1.2) * (soft ? dbToGain(3) : 1));
   o.wind = WIND_K * Math.min(1.5, (sp / 50) ** 2);
   o.jitterHz = o.cycleHz * (0.008 + 0.025 * p.roughness);

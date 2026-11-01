@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ambienceTargets, IN_CAR, shoreInfo, type AmbienceDistrict, type AmbienceInput } from '../../src/audio/ambience';
 import { AudioEngine } from '../../src/audio/audio';
 import { dbToGain, distanceCutoff, EXPLOSION_DUCK_RANGE, gainToDb, Glider, MIX_DB, mixTargets, OPEN_HZ, softClipCurve, withinParam, type MixInput } from '../../src/audio/mixer';
-import { ENGINE_PROFILES, LOWPASS_FLOOR_HZ, LOWPASS_MAX_HZ, PASSED_FIRING_HARMONICS, engineParams, engineWave, launchSlip, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
+import { ENGINE_PROFILES, EXHAUST_MAX_HZ, LOWPASS_FLOOR_HZ, LOWPASS_MAX_HZ, PASSED_FIRING_HARMONICS, engineParams, engineWave, launchSlip, squealParams, waveStats } from '../../src/audio/vehicleProfiles';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import type { VehicleKind } from '../../src/sim/specs';
@@ -332,10 +332,24 @@ describe('engine profiles', () => {
       expect(off.lowpassHz).toBeGreaterThanOrEqual(LOWPASS_FLOOR_HZ);
       expect(on.lowpassHz).toBeLessThanOrEqual(LOWPASS_MAX_HZ);
       expect(on.lowpassHz).toBeGreaterThan(off.lowpassHz);
-      expect(off.exhaustHz).toBeCloseTo(2 * off.firingHz, 6);
-      expect(on.exhaustHz).toBeCloseTo(Math.min(6000, 4 * on.firingHz), 6);
+      expect(off.exhaustHz).toBeCloseTo(Math.max(50, Math.min(EXHAUST_MAX_HZ, off.firingHz)), 6);
+      expect(on.exhaustHz).toBeCloseTo(Math.max(50, Math.min(EXHAUST_MAX_HZ, 2 * on.firingHz)), 6);
       expect(on.exhaustLevel).toBeGreaterThan(off.exhaustLevel);
       expect(on.level).toBeGreaterThan(off.level);
+    }
+  });
+
+  it('the exhaust noise is a low rumble: at most twice the firing frequency and 500 Hz, and a fraction of the engine’s own level', () => {
+    expect(EXHAUST_MAX_HZ).toBeLessThanOrEqual(500);
+    for (const k of KINDS) {
+      for (const r of [0, 0.5, 1]) {
+        for (const th of [0, 0.5, 1]) {
+          const p = engineParams(k, r, th, 20);
+          expect(p.exhaustHz).toBeLessThanOrEqual(Math.max(50, 2 * p.firingHz));
+          expect(p.exhaustHz).toBeLessThanOrEqual(EXHAUST_MAX_HZ);
+          expect(p.exhaustLevel).toBeLessThan(0.3 * p.level);
+        }
+      }
     }
   });
 

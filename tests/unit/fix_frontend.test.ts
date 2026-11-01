@@ -6,7 +6,7 @@
 import { DEFAULT_BINDINGS } from '../../src/input/bindings';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AudioEngine } from '../../src/audio/audio';
-import { LOWPASS_FLOOR_HZ, LOWPASS_MAX_HZ } from '../../src/audio/vehicleProfiles';
+import { EXHAUST_MAX_HZ, LOWPASS_FLOOR_HZ, LOWPASS_MAX_HZ } from '../../src/audio/vehicleProfiles';
 import { circleVsObb, makeContact, obbVsObb, type OBB } from '../../src/core/collision';
 import { wrapAngle } from '../../src/core/math';
 import { Game } from '../../src/game';
@@ -3373,6 +3373,17 @@ describe('round 2 audio: mix, voices and ambience', () => {
     expect(stages[0]!.frequency.target).toBe(stages[1]!.frequency.target);
     expect(stages[0]!.frequency.target).toBeGreaterThan(LOWPASS_FLOOR_HZ);
     expect(stages[0]!.frequency.target).toBeLessThanOrEqual(LOWPASS_MAX_HZ);
+  });
+
+  it('the exhaust noise is a rumble, not a hiss: a low-pass without a peak, at most EXHAUST_MAX_HZ', () => {
+    const { sim, inner, input, frames } = rig();
+    seatInCar(sim);
+    frames(30, input({ throttle: 1 }));
+    const exhaust = (inner.engine as unknown as { exhaust: FakeNode & { type: string; frequency: FakeParam; Q: FakeParam } }).exhaust;
+    expect(exhaust.type).toBe('lowpass');
+    expect(exhaust.Q.target).toBeLessThanOrEqual(-3);
+    expect(exhaust.frequency.target).toBeGreaterThan(50);
+    expect(exhaust.frequency.target).toBeLessThanOrEqual(EXHAUST_MAX_HZ);
   });
 
   it('a skid raises the tyre squeal; it stops with the skid', () => {
