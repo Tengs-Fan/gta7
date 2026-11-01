@@ -40,7 +40,8 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   el.appendChild(h('div', 'map-title', 'SAN AZURA'));
   // The legend: under a header per category the player can switch off (number keys, a pad's Y to pick and X to switch,
   // a click), a row for each kind of icon on the map now, drawn as the map draws it; then the live markers. Hovering a
-  // row, or picking it with Tab or a pad's Y, lights its icons up on the map. Off states are kept in the settings (mapLayers).
+  // row, or picking it with Tab (a pad's Y picks the headers), lights its icons up on the map. Off states are kept in
+  // the settings (mapLayers).
   const legend = h('div', 'map-legend');
   legend.appendChild(h('div', 'legend-head', 'LEGEND'));
   const legendBody = legend.appendChild(h('div'));
@@ -102,12 +103,16 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     pick = rows.findIndex((r) => r.id === picked);
     drawLegend();
   };
-  /** Tab and a pad's Y: the next row, and after the last none. */
-  const stepPick = () => {
-    pick = pick + 1 < rows.length ? pick + 1 : -1;
+  /** Picks row `i` (-1: none) and scrolls it into view. */
+  const select = (i: number) => {
+    pick = i;
     drawLegend();
     rows[pick]?.el.scrollIntoView?.({ block: 'nearest' });
   };
+  /** Tab: the next row, and after the last none. */
+  const stepPick = () => select(pick + 1 < rows.length ? pick + 1 : -1);
+  /** A pad's Y: the next category's header, and after the last none (the pad names the icons at the cross instead). */
+  const stepCategory = () => select(rows.findIndex((r, i) => i > pick && r.id === `#${r.category?.id}`));
   el.appendChild(legend);
   // The completion checklist: the same rows as STATS (the completion registry).
   const list = h('div', 'map-checklist');
@@ -134,7 +139,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     hintDevice = menus.device;
     hint.innerHTML =
       menus.device === 'pad'
-        ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('y')} light up a legend row, ${padGlyph('x')} switch its category · ${padGlyph('b')} to close`
+        ? `${padGlyph('a')} waypoint at the cross (again to clear it) · Left stick or D-pad to pan · ${padGlyph('lb')} ${padGlyph('rb')} to zoom · ${padGlyph('y')} light up a category, ${padGlyph('x')} switch it · ${padGlyph('b')} to close`
         : `Click, or <kbd>Enter</kbd> at the cross, to set a waypoint (again to clear it) · Drag or arrows to pan · Wheel or <kbd>+</kbd> <kbd>-</kbd> to zoom · <kbd>1</kbd>-<kbd>${Math.min(9, MAP_CATEGORIES.length)}</kbd> legend on / off · <kbd>Tab</kbd> light up a row · <kbd>${escapeHtml(menus.keys.label('KeyM'))}</kbd>/<kbd>Esc</kbd> to close`;
   };
   showHint();
@@ -372,7 +377,8 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
       }
       if (ui.confirm) toggleWaypointAt({ x: cx, z: cz });
       if (ui.digit) toggleLayer(MAP_CATEGORIES[ui.digit - 1]);
-      if (ui.padY || ui.tab) stepPick();
+      if (ui.tab) stepPick();
+      if (ui.padY) stepCategory();
       if (ui.padX) toggleLayer(rows[pick]?.category);
       if (ui.zoomIn) zoom = clamp(zoom + 0.5, 0, 4);
       if (ui.zoomOut) zoom = clamp(zoom - 0.5, 0, 4);

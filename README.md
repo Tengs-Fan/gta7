@@ -78,10 +78,10 @@ To play with friends on your network, run the optional multiplayer server (see [
 - In multiplayer the same keys apply (see [Multiplayer](#multiplayer-optional)).
   There the phone key, Tab (D-pad right), lists the room's players instead, and T at a course start, or pause > STREET RUNS, opens a head-to-head Street Run for the room.
 - Map: click, or press Enter, Space or A at the center cross, to set a waypoint, and do it again on the waypoint to clear it.
-  Drag, the arrow keys, W A S D, the D-pad or the left stick pan; the wheel, + and -, or LB and RB zoom; the number keys 1–7 (or a pad's Y to pick a row and X to switch its category) turn legend categories on and off; M, Esc or Back close it.
+  Drag, the arrow keys, W A S D, the D-pad or the left stick pan; the wheel, + and -, or LB and RB zoom; the number keys 1–7 (or a pad's Y to pick a category and X to switch it) turn legend categories on and off; M, Esc or Back close it.
   The legend has a row for each kind of icon on the map, drawn as the map draws it, under its category's header, and the live markers (you, the waypoint, objectives, the police) below them.
   Point at an icon, or bring it under the cross with the keys or a pad, to see its name and more: the place's own name, found or owned, a property's price, a job's progress and best time, the mission a contact has for you.
-  Point at a legend row, or pick one with Tab or a pad's Y, to light up its icons on the map and fade the rest.
+  Point at a legend row, or pick one with Tab, to light up its icons on the map and fade the rest; a category picked with a pad's Y lights up all of its icons.
   The game is paused while the map is open.
 - Gamepads: the first pad the browser reports with the standard mapping is used.
   Buttons are named Xbox-style, and prompts switch to pad buttons as soon as you use the pad, and back to keys when you press a key.

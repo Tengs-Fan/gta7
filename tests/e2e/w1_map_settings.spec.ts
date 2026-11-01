@@ -43,21 +43,16 @@ test.describe('wave 1: map legend, settings and pause on focus loss', () => {
     await expect(page.locator('.map-screen')).toBeVisible();
     await expect(page.locator('.map-checklist')).toContainText('Hidden packages');
     await page.waitForTimeout(350);
-    // Y: the legend's rows one by one, the missions header, Lou's row, then the shops header.
+    // Y: the categories' headers in turn, missions then shops.
     await padTap(page, 3);
     await expect(page.locator('.legend-cat.sel')).toContainText('Missions');
-    await padTap(page, 3);
-    await expect(page.locator('.legend-row.sel')).toContainText('Mama Lou (missions)');
     await padTap(page, 3);
     await expect(page.locator('.legend-cat.sel')).toContainText('Shops');
     await padTap(page, 2); // X: switch it off
     await expect(page.locator('.legend-cat.sel')).toHaveClass(/off/);
     await expect(page.locator('.legend-row[data-kind="spray"]')).toHaveClass(/off/);
     expect(await page.evaluate(() => (window as Api).__gta7.game.settings.mapLayers)).toEqual({ shops: false });
-    // On a shop's row, X switches its category too.
-    await padTap(page, 3);
-    await expect(page.locator('.legend-row.sel')).toContainText('Gun shop');
-    await padTap(page, 2);
+    await padTap(page, 2); // and on again
     expect(await page.evaluate(() => (window as Api).__gta7.game.settings.mapLayers)).toEqual({ shops: true });
     await page.screenshot({ path: 'test-results/uix-map-legend-pad.png' });
     expect(errors).toEqual([]);
