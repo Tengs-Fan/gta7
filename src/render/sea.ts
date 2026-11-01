@@ -664,12 +664,14 @@ uniform float uNight;
 vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
   vec3 r = transformDirectionByInverseViewMatrix( reflect( - viewDir, normal ), viewMatrix );
   r.y = abs( r.y );
-  float toCity = max( dot( normalize( r.xz + vec2( 1e-5 ) ), uCityGlowDir ), 0.0 );
+  // The ray's bearing, defined even straight up (where atan( 0, 0 ) is not).
+  vec2 bearingDir = normalize( r.xz + vec2( 1e-5 ) );
+  float toCity = max( dot( bearingDir, uCityGlowDir ), 0.0 );
   float toSun = max( dot( r, uSkySunDir ), 0.0 );
   float moonUp = r.y - uMoonDir.y;
   vec3 moonOff = r - uMoonDir;
   float moon = sqrt( max( dot( moonOff, moonOff ) - moonUp * moonUp, 0.0 ) + moonUp * moonUp * ${n(SEA_MOON_PATH.stretch * SEA_MOON_PATH.stretch)} );
-  float bearing = atan( r.z, r.x ) * ${n(CITY_STREAKS.cells / (2 * Math.PI))};
+  float bearing = atan( bearingDir.y, bearingDir.x ) * ${n(CITY_STREAKS.cells / (2 * Math.PI))};
   float cell = floor( bearing );
   float lights = mix( fract( sin( cell * 12.9898 ) * 43758.5453 ), fract( sin( ( cell + 1.0 ) * 12.9898 ) * 43758.5453 ), smoothstep( 0.0, 1.0, bearing - cell ) );
   vec3 glow = uSkyGlow * ${n(SEA_NIGHT_GLOW.horizon)} * exp( - r.y * ${n(SKY_GLOW_FALL.horizon)} )

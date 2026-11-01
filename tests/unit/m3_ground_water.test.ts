@@ -633,7 +633,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     // The city's glow only towards the city, whether the camera is on its land or off it (the dome gathers it only off
     // the land), broken by bearing into lights the ripples draw out into streaks; the glow all round the horizon faintly.
     expect(fs).toContain(`uCityGlow * ${SEA_NIGHT_GLOW.city} * toCity * toCity * toCity * pow( lights, ${CITY_STREAKS.power}.0 ) * ${CITY_STREAKS.gain}.0 * exp(`);
-    expect(fs).toContain(`float bearing = atan( r.z, r.x ) * ${CITY_STREAKS.cells / (2 * Math.PI)};`);
+    expect(fs).toContain(`float bearing = atan( bearingDir.y, bearingDir.x ) * ${CITY_STREAKS.cells / (2 * Math.PI)};`);
     expect(fs).toContain(`uSkyGlow * ${SEA_NIGHT_GLOW.horizon} * exp(`);
     expect(fs).not.toContain('uCityAway');
     expect(SEA_NIGHT_GLOW.horizon).toBeLessThan(0.5);
