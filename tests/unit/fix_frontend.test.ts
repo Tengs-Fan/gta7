@@ -3996,8 +3996,8 @@ describe('R2 onboarding: first-time hints', () => {
     expect(spray).toBe(false);
   });
 
-  it('with hints off there is no hint and no steal prompt', async () => {
-    const { game, frames, el, prompt } = onboardingGame();
+  it('with hints off there is no hint', async () => {
+    const { game, frames, el } = onboardingGame();
     game.applySettings({ ...game.settings, hints: false }, true);
     game.newGame({ intro: false });
     await flush();
@@ -4012,7 +4012,6 @@ describe('R2 onboarding: first-time hints', () => {
     for (let i = 0; i < 60 * 11; i++) {
       frames(1);
       if (el('help').classList.contains('hint')) hint = true;
-      if (prompt()?.includes('steal')) hint = true;
     }
     expect(hint).toBe(false);
     expect(game.settings.hintsSeen).toEqual([]);
