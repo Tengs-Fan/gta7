@@ -880,7 +880,7 @@ export class Environment {
   private readonly rippleB = { value: new THREE.Vector2() };
   /** The key light's colour times its intensity, for the software sea's glint. */
   private readonly keyLight = { value: new THREE.Color() };
-  /** The sky the sea reflects without an environment map (see patchSeaMaterial). */
+  /** The analytic sky the sea reflects without an environment map, and regrades the map's sky to (see patchSeaMaterial). */
   private readonly skyReflection: SeaSky = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, intensity: { value: 0 } };
   private readonly cloudNoise = cloudNoiseTexture();
   /** The PMREM target holding the environment map: allocated by the first bake and refilled by every later one. */
@@ -1000,7 +1000,7 @@ export class Environment {
     this.waterNormal.repeat.set(900, 900);
     const waterMat = new THREE.MeshStandardMaterial({ color: SEA_MID, roughness: SEA_ROUGHNESS, metalness: 0, normalMap: this.waterNormal, normalScale: new THREE.Vector2(SEA_RIPPLE, SEA_RIPPLE) });
     twoLayerRipples(waterMat, this.rippleA, this.rippleB);
-    patchSeaMaterial(waterMat, this.sea, this.envFill ? this.skyReflection : null);
+    patchSeaMaterial(waterMat, this.sea, this.skyReflection);
     const simpleWater = this.software
       ? softwareSeaMaterial(this.sea, {
           uNormal: { value: this.waterNormal }, uDrift: this.rippleA,
@@ -1316,13 +1316,13 @@ export class Environment {
       this.ratioNow = iblSmoothing(hours);
       this.upNow.multiplyScalar(1 - this.hdriMixNow + this.hdriMixNow * this.ratioNow);
     }
+    this.skyReflection.top.value.copy(s.top);
+    this.skyReflection.horizon.value.copy(s.horizon);
     if (this.envFill) {
       this.scene.environmentIntensity = envI;
       // A hemisphere light's colour is irradiance; the sky's diffuse light is PI x its average radiance.
       this.envFill.color.copy(this.envUp).multiplyScalar(Math.PI * envI);
       this.envFill.groundColor.copy(this.envDown).multiplyScalar(Math.PI * envI);
-      this.skyReflection.top.value.copy(s.top);
-      this.skyReflection.horizon.value.copy(s.horizon);
       this.skyReflection.intensity.value = envI;
     } else {
       // Re-bake when the sky has visibly changed since the last bake or the sun has fully set or risen

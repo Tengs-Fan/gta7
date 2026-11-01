@@ -230,7 +230,7 @@ describe('the county\'s beaches as the sea draws them', () => {
     expect(count(SHORE_GLSL, /seaDepthAt\(/g)).toBe(1);
     const u = seaUniforms();
     const mat = new THREE.MeshStandardMaterial();
-    patchSeaMaterial(mat, u, null);
+    patchSeaMaterial(mat, u, { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, intensity: { value: 0 } });
     const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} as Record<string, THREE.IUniform> };
     mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
     expect(count(shader.fragmentShader, /seaDepthAt\(/g)).toBe(2);

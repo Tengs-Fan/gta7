@@ -269,7 +269,10 @@ export function seaShallowsCpu(u: SeaUniforms, mid: THREE.Color, depth: number, 
   return out.lerpColors(u.uSandTint.value, out, smooth(0, 0.15, depth));
 }
 
-/** The sky the sea reflects where there is no environment map (no float colour buffers): the baked sky's colours and strength. */
+/**
+ * The analytic sky's colours and strength: the sky the sea reflects where there is no environment map (no float colour
+ * buffers), and the gradient it regrades the map's sky to.
+ */
 export interface SeaSky {
   top: { value: THREE.Color };
   horizon: { value: THREE.Color };
@@ -588,7 +591,8 @@ void RE_Direct_Sea( const in IncidentLight directLight, const in vec3 geometryPo
 
 /**
  * The sky along the sea's reflected ray, as bright as the sky dome draws it (uSkyLift): the environment map less its
- * sun's glow (SKY_SUN_GLOW), or the baked sky's gradient without one (uSkyTop, uSkyHorizon, uSkyI: bound only then),
+ * sun's glow (SKY_SUN_GLOW) and regraded from the horizon up as the dome grades it (uSkyTop, uSkyHorizon), or without
+ * one the analytic sky graded as the dome grades it (uSkyI too),
  * with the dome's horizon and city glows (SKY_GLOW_FALL) on top. A ripple turned away from the eye reflects the face
  * of the next wave rather than the sky under the horizon, which the map holds as a dark haze: the ray folds back up,
  * so grazing water shows the bright horizon sky and never dark blotches.
@@ -611,9 +615,12 @@ vec3 seaSkyRadiance( vec3 viewDir, vec3 normal, float roughness ) {
   vec3 glow = uSkyGlow * exp( - r.y * ${n(SKY_GLOW_FALL.horizon)} ) + uCityGlow * mix( 1.0, toCity * toCity * toCity, uCityAway ) * exp( - r.y * ${n(SKY_GLOW_FALL.city)} );
 #if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
   vec3 sun = uSkySun * pow( max( dot( r, uSkySunDir ), 0.0 ), ${n(SKY_SUN_GLOW.pow)} ) * ${n(SKY_SUN_GLOW.gain)};
-  return max( textureCubeUV( envMap, envMapRotation * r, roughness ).rgb - sun, 0.0 ) * envMapIntensity * uSkyLift + glow;
+  // The map grades its sky from the horizon colour by smoothstep( 0, 0.6, h ), the dome by pow( h, 0.55 ): a few degrees
+  // up the map is still the horizon's colour where the dome has turned towards its top. Regraded as the dome draws it.
+  vec3 dome = mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) / mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) );
+  return max( textureCubeUV( envMap, envMapRotation * r, roughness ).rgb - sun, 0.0 ) * dome * envMapIntensity * uSkyLift + glow;
 #else
-  return mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) ) * uSkyI * uSkyLift + glow;
+  return mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI * uSkyLift + glow;
 #endif
 }
 `;
@@ -650,11 +657,11 @@ export const SHORE_DAMP = 0.35;
  * modulated by low-frequency samples of the ripple tile itself and by the sea state, a third, fourth and fifth ripple
  * layer, every layer faded out with distance into the roughness (RIPPLE_FADE), the wave slopes added to the ripple
  * normal, the shallows' colour and foam, water's reflectance (SEA_F0), its direct light (SEA_DIRECT_GLSL) and the sky
- * it reflects (SEA_SKY_GLSL; `sky` where there is no environment map). Three's lighting then splits each pixel by
+ * it reflects (SEA_SKY_GLSL; `sky`, the analytic sky's colours). Three's lighting then splits each pixel by
  * Fresnel between the dark body looking down and the sky towards the horizon. Only uniforms change at runtime: the
  * grid on or off and the sea state never rebuild the program.
  */
-export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms, sky: SeaSky | null): void {
+export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms, sky: SeaSky): void {
   const ripples = mat.onBeforeCompile.bind(mat);
   const key = mat.customProgramCacheKey.bind(mat);
   const c = RIPPLE_C;
@@ -667,7 +674,7 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
   mat.onBeforeCompile = (shader, renderer) => {
     ripples(shader, renderer);
     Object.assign(shader.uniforms, u);
-    if (sky) Object.assign(shader.uniforms, { uSkyTop: sky.top, uSkyHorizon: sky.horizon, uSkyI: sky.intensity });
+    Object.assign(shader.uniforms, { uSkyTop: sky.top, uSkyHorizon: sky.horizon, uSkyI: sky.intensity });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${SEA_WAVES_GLSL}\n${SHORE_GLSL}\nattribute vec2 aEdge;\nvarying vec2 vSeaXZ;`)
       .replace(
@@ -692,6 +699,9 @@ export function patchSeaMaterial(mat: THREE.MeshStandardMaterial, u: SeaUniforms
 #endif
 #ifdef RE_IndirectSpecular
   radiance += seaSkyRadiance( geometryViewDir, geometryNormal, material.roughness );
+  // The ripples faded into the roughness blur the sky they mirror but do not dim it: drawn as normals near the camera,
+  // the same slopes reflect by Schlick's Fresnel, unmasked, so the far sea is weighed at the water's own roughness too.
+  material.dfg = texture2D( dfgLUT, vec2( ${n(SEA_ROUGHNESS)}, dotNVms ) ).rg;
 #endif`,
       )
       .replace(
@@ -803,7 +813,7 @@ export function softwareSeaMaterial(u: SeaUniforms, extra: Record<string, THREE.
         vec3 eye = normalize(cameraPosition - vWorld);
         vec3 reflection = reflect(-eye, n);
         reflection.y = abs(reflection.y);
-        vec3 sky = mix(uHorizon, uTop, smoothstep(0.0, 0.6, reflection.y)) * uSkyLift;
+        vec3 sky = mix(uHorizon, uTop, pow(reflection.y, 0.55)) * uSkyLift;
         float fresnel = ${n(SEA_F0)} + ${n(1 - SEA_F0)} * pow(1.0 - max(dot(n, eye), 0.0), 5.0);
         float depth = seaDepthAt(vWorld.xz);
         float light = 1.0 - uNight * 0.94;

@@ -95,6 +95,17 @@ const SOFTWARE = { renderer: 'Google SwiftShader', halfFloat: true };
 const canvas = (): HTMLCanvasElement => document.createElement('canvas') as unknown as HTMLCanvasElement;
 const renderer = (quality: 'high' | 'medium' | 'low', gpu = HDR): GameRenderer => new GameRenderer(canvas(), world(), { quality, fov: 68, gpu });
 
+/** A GLSL expression of floats in mix, pow, smoothstep and clamp, run in JavaScript with the given variables. */
+function glsl(expr: string, vars: Record<string, number>): number {
+  const names = Object.keys(vars);
+  const smooth = (a: number, b: number, x: number) => {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  const run = new Function('mix', 'pow', 'smoothstep', 'clamp', ...names, `return ${expr};`) as (...args: unknown[]) => number;
+  return run((a: number, b: number, t: number) => a + (b - a) * t, Math.pow, smooth, (x: number, a: number, b: number) => Math.min(b, Math.max(a, x)), ...names.map((k) => vars[k]));
+}
+
 function compiled(mat: THREE.Material, kind: 'physical' | 'lambert' = 'physical') {
   const shader = { vertexShader: THREE.ShaderLib[kind].vertexShader, fragmentShader: THREE.ShaderLib[kind].fragmentShader, uniforms: {} as Record<string, THREE.IUniform> };
   mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, null as unknown as THREE.WebGLRenderer);
@@ -561,6 +572,50 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(fs).toContain(`exp( - r.y * ${SKY_GLOW_FALL.horizon}.0 )`);
     expect(fs).toContain(`exp( - r.y * ${SKY_GLOW_FALL.city} )`);
     expect((r.env.sky.material as THREE.ShaderMaterial).fragmentShader).toContain(`exp(-max(h, 0.0) * ${SKY_GLOW_FALL.city.toFixed(2)})`);
+  });
+
+  it('the sea regrades the map\'s sky to the dome\'s gradient, so a few degrees up it mirrors what the dome draws there', () => {
+    const r = renderer('high');
+    r.env.update(16, new THREE.Vector3(), new THREE.PerspectiveCamera(), 0, r.renderer);
+    const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
+    const env = r.env as unknown as { envMat: THREE.ShaderMaterial; skyReflection: { top: { value: THREE.Color }; horizon: { value: THREE.Color } } };
+    // The three shaders' own gradients from the horizon colour to the top colour, run as written.
+    const domeT = /float t = (pow\(clamp\(h, 0\.0, 1\.0\), [0-9.]+\));/.exec((r.env.sky.material as THREE.ShaderMaterial).fragmentShader)![1]!;
+    const mapC = /vec3 c = (mix\(uHorizon, uTop, [^;]+\));/.exec(env.envMat.fragmentShader)![1]!;
+    const regrade = /vec3 dome = ([^;]+);/.exec(fs)![1]!.replaceAll('r.y', 'h');
+    // The HDRI's gains blend from the horizon's to the top's as the map's own gradient does, so the regrade fits them too.
+    expect(env.envMat.fragmentShader).toContain('vec3 gain = mix(uHdriGainH, uHdriGain, smoothstep(0.0, 0.6, h));');
+    expect(mapC).toContain('smoothstep(0.0, 0.6, h)');
+    const top = env.skyReflection.top.value;
+    const horizon = env.skyReflection.horizon.value;
+    for (const deg of [3, 6, 12, 25, 45]) {
+      const h = Math.sin((deg * Math.PI) / 180);
+      for (const c of ['r', 'g', 'b'] as const) {
+        const vars = { h, uHorizon: horizon[c], uTop: top[c], uSkyHorizon: horizon[c], uSkyTop: top[c] };
+        const map = glsl(mapC, vars);
+        const dome = glsl(`mix(uHorizon, uTop, ${domeT})`, vars);
+        expect(map * glsl(regrade, vars), `${deg} degrees, ${c}`).toBeCloseTo(dome, 6);
+        // Without it, 6 degrees up the 16:00 map is still the warm horizon's colour where the dome has turned bluer.
+        if (deg === 6 && c === 'r') expect(map / dome).toBeGreaterThan(1.15);
+      }
+    }
+    // Both the no-map path and the software sea grade their baked sky as the dome does.
+    expect(fs).toContain('return mix( uSkyHorizon, uSkyTop, pow( r.y, 0.55 ) ) * uSkyI * uSkyLift + glow;');
+    expect((renderer('high', SOFTWARE).env.water.material as THREE.ShaderMaterial).fragmentShader).toContain('vec3 sky = mix(uHorizon, uTop, pow(reflection.y, 0.55)) * uSkyLift;');
+  });
+
+  it('the far sea\'s reflection is weighed at the water\'s own roughness: the ripples faded into its roughness blur the sky but do not dim it', () => {
+    const fs = compiled(renderer('high').env.water.material as THREE.MeshStandardMaterial).fragmentShader;
+    // Three weighs the reflection (RE_IndirectSpecular, in lights_fragment_end) by material.dfg, which it reads in
+    // lights_fragment_begin at the faded roughness; the sea reads it again at its own between the two.
+    expect(THREE.ShaderChunk.lights_fragment_begin).toContain('material.dfg = texture2D( dfgLUT, vec2( material.roughness, dotNVms ) ).rg;');
+    expect(THREE.ShaderChunk.lights_fragment_end).toContain('RE_IndirectSpecular( radiance, iblIrradiance');
+    expect(THREE.ShaderChunk.lights_physical_pars_fragment).toContain('computeMultiscattering( material.dfg, material.specularColor');
+    const weight = `material.dfg = texture2D( dfgLUT, vec2( ${SEA_ROUGHNESS}, dotNVms ) ).rg;`;
+    expect(fs.indexOf(weight)).toBeGreaterThan(fs.indexOf('#include <lights_fragment_begin>'));
+    expect(fs.indexOf(weight)).toBeLessThan(fs.indexOf('#include <lights_fragment_end>'));
+    // The sky is still looked up at the faded roughness, so the far sea's reflection blurs.
+    expect(fs).toContain('radiance += seaSkyRadiance( geometryViewDir, geometryNormal, material.roughness );');
   });
 
   it('crests glow towards the light, and whitecaps break on them in a storm only', () => {
