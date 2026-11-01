@@ -36,10 +36,10 @@ export interface Wave {
 export const WAVES: readonly Wave[] = [
   { length: 72, angle: 0, amp: 0.62, steep: 1, phase0: 0, fadeStart: 640, fadeEnd: 790 },
   { length: 94, angle: -13, amp: 0.38, steep: 1, phase0: 2.3, fadeStart: 640, fadeEnd: 790 },
-  { length: 57, angle: 9, amp: 0.4, steep: 1, phase0: 4.4, fadeStart: 640, fadeEnd: 790 },
-  { length: 44, angle: 21, amp: 0.24, steep: 1, phase0: 1.1, fadeStart: 640, fadeEnd: 790 },
+  { length: 57, angle: 9, amp: 0.4, steep: 1, phase0: 4.4, fadeStart: 380, fadeEnd: 470 },
+  { length: 44, angle: 21, amp: 0.24, steep: 1, phase0: 1.1, fadeStart: 380, fadeEnd: 470 },
   { length: 33, angle: -30, amp: 0.3, steep: 2, phase0: 0.6, fadeStart: 300, fadeEnd: 390 },
-  { length: 17.3, angle: 27, amp: 0.18, steep: 2, phase0: 1.7, fadeStart: 150, fadeEnd: 250 },
+  { length: 17.3, angle: 27, amp: 0.18, steep: 2, phase0: 1.7, fadeStart: 150, fadeEnd: 235 },
   { length: 9.1, angle: -38, amp: 0.1, steep: 2, phase0: 4.1, fadeStart: 50, fadeEnd: 74 },
   { length: 4.3, angle: 58, amp: 0.05, steep: 2, phase0: 2.6, fadeStart: 40, fadeEnd: 70 },
 ];
@@ -61,13 +61,25 @@ export const CHOP_POWER = 1.5;
  */
 export const NORMAL_GAIN = { grid: [2.6, 1.4], flat: [3.4, 2.2] } as const;
 /**
- * The sea grid (High and Medium): 1 m cells to this half-width, 4 m cells to COARSE_EXTENT, then a flat skirt to
- * SKIRT_EXTENT.
+ * The sea grid (High and Medium): rings of square cells round its centre, each `cell` m to its half-width `extent`, every
+ * cell doubling as the cells shrink under a pixel with distance (1 m cells to FINE_EXTENT, 16 m by COARSE_EXTENT), then
+ * a flat skirt to SKIRT_EXTENT. Every wave fades out before the cells grow past a quarter of its length.
  */
-export const FINE_EXTENT = 80;
-export const COARSE_EXTENT = 800;
+export const SEA_RINGS: readonly { readonly cell: number; readonly extent: number }[] = [
+  { cell: 1, extent: 80 },
+  { cell: 4, extent: 240 },
+  { cell: 8, extent: 480 },
+  { cell: 16, extent: 800 },
+];
+export const FINE_EXTENT = SEA_RINGS[0]!.extent;
+export const COARSE_EXTENT = SEA_RINGS[SEA_RINGS.length - 1]!.extent;
 export const SKIRT_EXTENT = 3000;
-export const COARSE_CELL = 4;
+/** The grid moves in whole steps of its largest cell, so every ring's vertices stay on a fixed world lattice. */
+export const SEA_SNAP = SEA_RINGS[SEA_RINGS.length - 1]!.cell;
+/** The grid's cell size (m) at `c` m (along the larger axis) from its centre. */
+export function seaCellAt(c: number): number {
+  return (SEA_RINGS.find((r) => c <= r.extent) ?? SEA_RINGS[SEA_RINGS.length - 1]!).cell;
+}
 /** Sea state with no weather (calm). */
 export const CALM_SEA = 0.3;
 /**
@@ -353,9 +365,9 @@ export type WaveUniform = (typeof WAVE_UNIFORMS)[number];
  * uSeaAmp: sea state 0..1; uDisplace: 1 on the grid, else 0; uSeaOrigin: the grid's centre (world XZ); uSurfPhase:
  * the breakers' phases (surfPhases); uSeaShelter, uSeaShelterBox: the shelter map (ShelterMap) and its box (minX, minZ,
  * 1 / width, 1 / depth). seaSurfPhases(world xz, depth) gives the breakers' phases there.
- * seaDisplace(world xz) gives the surface offset, seaDisplaceEdge does the same for a vertex on the fine ring's rim
- * (aEdge: the rim's direction, zero elsewhere), interpolating between the coarse ring's neighbouring vertices so the two
- * rings meet without cracks. seaWave(world xz, the pixel's steps on the water) gives what the shading needs (SeaWave).
+ * seaDisplace(world xz) gives the surface offset, seaDisplaceEdge does the same for a vertex on a ring's outer rim that
+ * falls between the next ring's vertices (aEdge: the rim's direction times the next ring's cell, zero elsewhere),
+ * interpolating between those neighbours so the rings meet without cracks. seaWave(world xz, the pixel's steps on the water) gives what the shading needs (SeaWave).
  */
 export const SEA_WAVES_GLSL = /* glsl */ `
 uniform vec4 uWavePhase;
@@ -427,11 +439,13 @@ vec3 seaDisplace(vec2 p) {
   return vec3(dot(hA, SEA_DX_A) + dot(hB, SEA_DX_B) + side.x, dot(aA, sin(thA)) + dot(aB, sin(thB)) + sh.y * dot(SURF_W3, sin(ph)), dot(hA, SEA_DZ_A) + dot(hB, SEA_DZ_B) + side.y);
 }
 vec3 seaDisplaceEdge(vec2 p, vec2 edge) {
-  if (dot(edge, edge) < 0.5) return seaDisplace(p);
-  float s = dot(p, edge);
-  float s0 = floor(s / ${f(COARSE_CELL)}) * ${f(COARSE_CELL)};
-  vec2 p0 = p + edge * (s0 - s);
-  return mix(seaDisplace(p0), seaDisplace(p0 + edge * ${f(COARSE_CELL)}), (s - s0) / ${f(COARSE_CELL)});
+  float cell = length(edge);
+  if (cell < 0.5) return seaDisplace(p);
+  vec2 dir = edge / cell;
+  float s = dot(p, dir);
+  float s0 = floor(s / cell) * cell;
+  vec2 p0 = p + dir * (s0 - s);
+  return mix(seaDisplace(p0), seaDisplace(p0 + dir * cell), (s - s0) / cell);
 }
 /**
  * What the shading needs of the waves at p, for a pixel stepping dx and dy over the water: their slope (dh/dx, dh/dz,

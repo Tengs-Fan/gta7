@@ -13,7 +13,7 @@ import { countryGround, type Country } from '../world/country';
 import { rectContains, type Bounds, type Rect } from '../world/layout';
 import { WATER_TILT } from './textures';
 import {
-  CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, OPEN_SEA, SEA_SLOPE2_GLSL, SEA_WAVES_GLSL, SKIRT_EXTENT, SURF_DEPTH, SURF_BAR, SURF_GAMMA, SURF_SHELVE, SURF_SHOAL, SWELL, seaHeight,
+  CALM_SEA, COARSE_EXTENT, OPEN_SEA, SEA_RINGS, SEA_SNAP, SEA_SLOPE2_GLSL, SEA_WAVES_GLSL, SKIRT_EXTENT, SURF_DEPTH, SURF_BAR, SURF_GAMMA, SURF_SHELVE, SURF_SHOAL, SWELL, seaHeight,
   surfPhases as breakerPhases, wavePhases, type SeaSurface, type ShelterMap, type WaveUniform,
 } from './waves';
 
@@ -1063,10 +1063,11 @@ export function seaPlane(): THREE.BufferGeometry {
 }
 
 /**
- * The wave grid (High and Medium) in XZ around its centre: 1 m cells to FINE_EXTENT, COARSE_CELL cells to
- * COARSE_EXTENT, then a flat skirt to SKIRT_EXTENT whose inner rim shares the coarse ring's vertices. The fine ring's rim
- * vertices that fall between coarse ones carry aEdge (the rim's direction), so the shader puts them on the coarse ring's
- * edges. The mesh is moved in whole COARSE_CELL steps (Environment), so every vertex stays on a fixed world lattice.
+ * The wave grid (High and Medium) in XZ around its centre: the rings of SEA_RINGS, then a flat skirt to SKIRT_EXTENT whose
+ * inner rim shares the outer ring's vertices. A ring's rim vertices that fall between the next ring's carry aEdge (the
+ * rim's direction times the next ring's cell), so the shader puts them on the next ring's edges. The mesh is moved in
+ * whole SEA_SNAP steps (Environment), so every vertex stays on a fixed world lattice. Its normal is up everywhere, one
+ * byte a component (the contact shading's normal pass reads it); the shading's own normals come from the waves.
  */
 export function seaGrid(): THREE.BufferGeometry {
   const pos: number[] = [];
@@ -1077,7 +1078,7 @@ export function seaGrid(): THREE.BufferGeometry {
     edge.push(ex, ez);
     return pos.length / 3 - 1;
   };
-  const grid = (half: number, cell: number, hole: number, rim: boolean): void => {
+  const grid = (half: number, cell: number, hole: number, next: number): void => {
     const cells = Math.round((half * 2) / cell);
     const ids: number[] = [];
     for (let j = 0; j <= cells; j++) {
@@ -1090,10 +1091,10 @@ export function seaGrid(): THREE.BufferGeometry {
         }
         let ex = 0;
         let ez = 0;
-        if (rim) {
-          // On the rim and between two coarse vertices: slide along the rim.
-          if (Math.abs(z) === half && x % COARSE_CELL !== 0) ex = 1;
-          else if (Math.abs(x) === half && z % COARSE_CELL !== 0) ez = 1;
+        // On the rim and between two of the next ring's vertices: slide along the rim.
+        if (next > cell) {
+          if (Math.abs(z) === half && x % next !== 0) ex = next;
+          else if (Math.abs(x) === half && z % next !== 0) ez = next;
         }
         ids.push(vertex(x, z, ex, ez));
       }
@@ -1113,10 +1114,10 @@ export function seaGrid(): THREE.BufferGeometry {
       }
     }
   };
-  grid(FINE_EXTENT, 1, 0, true);
-  grid(COARSE_EXTENT, COARSE_CELL, FINE_EXTENT, false);
-  // The skirt: per side, a strip of quads from the coarse rim out to SKIRT_EXTENT, flat (the waves have faded out).
-  const steps = Math.round((COARSE_EXTENT * 2) / COARSE_CELL);
+  SEA_RINGS.forEach((r, i) => grid(r.extent, r.cell, i > 0 ? SEA_RINGS[i - 1]!.extent : 0, SEA_RINGS[i + 1]?.cell ?? 0));
+  // The skirt: per side, a strip of quads from the outer rim out to SKIRT_EXTENT, flat (the waves have faded out).
+  const outer = SEA_RINGS[SEA_RINGS.length - 1]!.cell;
+  const steps = Math.round((COARSE_EXTENT * 2) / outer);
   const k = SKIRT_EXTENT / COARSE_EXTENT;
   const sides: Array<(t: number) => [number, number]> = [
     (t) => [t, -COARSE_EXTENT],
@@ -1126,8 +1127,8 @@ export function seaGrid(): THREE.BufferGeometry {
   ];
   for (const side of sides) {
     for (let i = 0; i < steps; i++) {
-      const [x0, z0] = side(-COARSE_EXTENT + i * COARSE_CELL);
-      const [x1, z1] = side(-COARSE_EXTENT + (i + 1) * COARSE_CELL);
+      const [x0, z0] = side(-COARSE_EXTENT + i * outer);
+      const [x1, z1] = side(-COARSE_EXTENT + (i + 1) * outer);
       const a = vertex(x0, z0);
       const b = vertex(x1, z1);
       const c = vertex(x0 * k, z0 * k);
@@ -1138,18 +1139,17 @@ export function seaGrid(): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   const count = pos.length / 3;
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  const normals = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) normals[i * 3 + 1] = 1;
-  g.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-  // Never read (the shader works the ripple UV out from the world position), but three's shader declares it.
-  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
+  const normals = new Int8Array(count * 3);
+  for (let i = 0; i < count; i++) normals[i * 3 + 1] = 127;
+  g.setAttribute('normal', new THREE.BufferAttribute(normals, 3, true));
+  // No uv: the shader works the ripple UV out from the world position.
   g.setAttribute('aEdge', new THREE.Float32BufferAttribute(edge, 2));
   g.setIndex(count > 65535 ? new THREE.Uint32BufferAttribute(index, 1) : new THREE.Uint16BufferAttribute(index, 1));
   g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), SKIRT_EXTENT * Math.SQRT2);
   return g;
 }
 
-/** Where the grid's centre goes for a camera at (x, z): whole COARSE_CELL steps, so its vertices never swim. */
+/** Where the grid's centre goes for a camera at (x, z): whole SEA_SNAP steps, so its vertices never swim. */
 export function snapSea(v: number): number {
-  return Math.round(v / COARSE_CELL) * COARSE_CELL;
+  return Math.round(v / SEA_SNAP) * SEA_SNAP;
 }

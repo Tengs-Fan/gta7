@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { QUALITY } from '../../src/render/quality';
 import { GameRenderer, seaCrossing } from '../../src/render/renderer';
 import { SHORE_GLSL, seaGrid, seaHeightAt, seaUniforms, surfPhases, updateSea } from '../../src/render/sea';
-import { CALM_SEA, COARSE_CELL, COARSE_EXTENT, FINE_EXTENT, SEA_WAVES_GLSL, SKIRT_EXTENT, SWELL, WAVES, waveAmps, waveDisplacement, wavePhases, type SeaSurface } from '../../src/render/waves';
+import { CALM_SEA, COARSE_EXTENT, SEA_RINGS, SEA_SNAP, SEA_WAVES_GLSL, seaCellAt, SKIRT_EXTENT, SWELL, WAVES, waveAmps, waveDisplacement, wavePhases, type SeaSurface } from '../../src/render/waves';
 import { Projectile } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
 import { BEACH_W, CURB_H, SAND_DROP, WATER_Y } from '../../src/world/constants';
@@ -176,8 +176,7 @@ describe('waves', () => {
     for (let i = 0; i < WAVES.length; i++) {
       // Each wave is sampled by at least four vertices per wavelength where it displaces.
       const w = WAVES[i]!;
-      const cell = w.fadeEnd <= FINE_EXTENT ? 1 : COARSE_CELL;
-      expect(w.length / cell).toBeGreaterThanOrEqual(4);
+      expect(w.length / seaCellAt(w.fadeEnd), `${w.length} m`).toBeGreaterThanOrEqual(4);
       expect(w.fadeEnd).toBeLessThan(COARSE_EXTENT);
     }
     for (let x = -COARSE_EXTENT; x <= COARSE_EXTENT; x += 37) {
@@ -217,36 +216,52 @@ describe('the wave grid', () => {
     }
   });
 
-  it('marks exactly the fine rim vertices between coarse ones, which then sit on the coarse edges (no cracks)', () => {
-    let marked = 0;
+  it('marks exactly the rim vertices between the next ring\'s, which then sit on its edges (no cracks)', () => {
+    const marked = new Map<number, number>();
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
       const ex = edge.getX(i);
       const ez = edge.getY(i);
       if (ex || ez) {
-        marked++;
-        if (ex) expect(Math.abs(z)).toBe(FINE_EXTENT);
-        if (ez) expect(Math.abs(x)).toBe(FINE_EXTENT);
-        expect((ex ? x : z) % COARSE_CELL).not.toBe(0);
+        const next = ex || ez;
+        const r = SEA_RINGS.findIndex((ring, k) => SEA_RINGS[k + 1]?.cell === next && Math.abs(ex ? z : x) === ring.extent);
+        expect(r, `${x} ${z}`).toBeGreaterThanOrEqual(0);
+        expect((ex ? x : z) % next).not.toBe(0);
+        marked.set(r, (marked.get(r) ?? 0) + 1);
       }
     }
-    // Four sides of 160 one-metre steps, three of every four between coarse vertices.
-    expect(marked).toBe(4 * 2 * (FINE_EXTENT * 2 / COARSE_CELL) * (COARSE_CELL - 1) / 2);
-    // The shader's rim rule, on the CPU: the displaced rim point lies on the segment between its coarse neighbours.
+    // Per ring with one outside it: four sides of 2 extent / cell steps, all but those on the next ring's lattice.
+    for (let r = 0; r < SEA_RINGS.length - 1; r++) {
+      const { cell, extent } = SEA_RINGS[r]!;
+      const next = SEA_RINGS[r + 1]!.cell;
+      expect(marked.get(r), `ring ${r}`).toBe(4 * ((2 * extent) / cell - (2 * extent) / next));
+    }
+    // Past the fine ring the cells double ring by ring, and the grid holds under 60,000 vertices, no uv and a byte normal.
+    for (let r = 2; r < SEA_RINGS.length; r++) expect(SEA_RINGS[r]!.cell).toBe(SEA_RINGS[r - 1]!.cell * 2);
+    expect(pos.count).toBeLessThan(60000);
+    expect(g.getAttribute('uv')).toBeUndefined();
+    expect(g.getAttribute('normal').normalized).toBe(true);
+    // The shader's rim rule, on the CPU: the displaced rim point lies on the segment between the next ring's neighbours.
     const s = openSea(4.2, 1);
     const at = (x: number, z: number) => waveDisplacement(s, x, z);
-    for (const x of [-79, -45, 13, 78]) {
-      const s0 = Math.floor(x / COARSE_CELL) * COARSE_CELL;
-      const f = (x - s0) / COARSE_CELL;
-      const a = at(s0, FINE_EXTENT);
-      const b = at(s0 + COARSE_CELL, FINE_EXTENT);
-      const morph = a.map((v, k) => v + (b[k]! - v) * f);
-      // Only the waves of 17 m and longer still displace at the rim, so even in a storm the morph moves the point by little.
-      expect(Math.abs(morph[1]! - at(x, FINE_EXTENT)[1])).toBeLessThan(0.1);
+    for (let r = 0; r < SEA_RINGS.length - 1; r++) {
+      const { extent } = SEA_RINGS[r]!;
+      const next = SEA_RINGS[r + 1]!.cell;
+      for (const x of [-extent + 1, Math.round(-0.43 * extent), Math.round(0.13 * extent), extent - 2]) {
+        const s0 = Math.floor(x / next) * next;
+        const f = (x - s0) / next;
+        const a = at(s0, extent);
+        const b = at(s0 + next, extent);
+        const morph = a.map((v, k) => v + (b[k]! - v) * f);
+        // Only waves four of the next ring's cells long or more still displace at a rim, so even in a storm the morph moves
+        // the point by little.
+        expect(Math.abs(morph[1]! - at(x, extent)[1]), `ring ${r} x ${x}`).toBeLessThan(0.15);
+      }
     }
     expect(SEA_WAVES_GLSL).toContain('seaDisplaceEdge');
   });
+
 });
 
 describe('shoreline foam', () => {
@@ -287,7 +302,7 @@ describe('the sea in the renderer', () => {
       expect(r.stats().waterGrid, q).toBe(true);
       expect(r.env.sea.uDisplace.value).toBe(1);
       expect(r.env.water.geometry.getAttribute('aEdge')).toBeTruthy();
-      expect(r.env.water.geometry.getAttribute('position').count).toBeGreaterThan(150000);
+      expect(r.env.water.geometry.getAttribute('position').count).toBeGreaterThan(50000);
     }
     const low = renderer('low');
     expect(low.stats().waterGrid).toBe(false);
@@ -356,9 +371,9 @@ describe('the sea in the renderer', () => {
     r.render(DT, false);
     expect(r.env.sea.uSeaAmp.value).toBeGreaterThan(0.95);
     const cam = r.cameraCtl.camera.position;
-    expect(r.env.water.position.x % COARSE_CELL).toBe(0);
-    expect(r.env.water.position.z % COARSE_CELL).toBe(0);
-    expect(Math.abs(r.env.water.position.x - cam.x)).toBeLessThanOrEqual(COARSE_CELL / 2);
+    expect(r.env.water.position.x % SEA_SNAP).toBe(0);
+    expect(r.env.water.position.z % SEA_SNAP).toBe(0);
+    expect(Math.abs(r.env.water.position.x - cam.x)).toBeLessThanOrEqual(SEA_SNAP / 2);
     expect(r.env.water.position.y).toBe(WATER_Y);
   });
 
