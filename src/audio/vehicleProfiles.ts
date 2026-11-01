@@ -47,7 +47,7 @@ export const LOWPASS_MAX_HZ = 2000;
 /** The exhaust noise is a rumble under the pulses, never a hiss: its band stays below this. */
 export const EXHAUST_MAX_HZ = 500;
 const ROAR_K = 0.0015;
-/** The road roar never gets louder than this, however fast the car (or how far it falls). */
+/** The road roar never gets louder than this, however fast the car. */
 const ROAR_MAX = 0.2;
 const WIND_K = 0.07;
 

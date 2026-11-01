@@ -1,4 +1,4 @@
-// The player's vehicle: a firing-pulse engine voice per vehicle kind, an exhaust noise band,
+// The player's vehicle: a firing-pulse engine voice per vehicle kind, an exhaust rumble,
 // road roar, tyre squeal and scrub, and wind, plus the upshift dip.
 // Every node is created once, and each frame only moves AudioParams.
 // The engine's PeriodicWave is built once per vehicle kind.
