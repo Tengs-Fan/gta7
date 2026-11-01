@@ -53,8 +53,9 @@ export const SWELL_BASE = 0.22;
 export const CHOP_POWER = 1.5;
 
 /**
- * The shading normals tilt this many times more than the waves' own slopes, the swell's (first) more than the chop's: a
- * swell a metre high on a wave 70 m long tilts the water by little more than a degree, which the ripples would hide.
+ * The shading normals tilt this many times more than the waves' own slopes, the swell's and the breakers' (first) more
+ * than the chop's: a swell a metre high on a wave 70 m long tilts the water by little more than a degree, which the
+ * ripples would hide.
  * Less on the displaced grid (High and Medium), whose shape shows the swell too, than on the flat plane (Low), where
  * only the light can.
  */
@@ -85,7 +86,7 @@ export const SURF_GAMMA = 0.4;
 export const SURF_DEPTH = [1.4, 2.0] as const;
 export const SURF_SHOAL = 1.3;
 export const SURF_Q = 2.4;
-export const SURF_STEEP = 0.25;
+export const SURF_STEEP = 0.33;
 /**
  * Breakers roll in only where the seabed shelves gently, fading out as its slope (the depth's gradient) steepens from the
  * first of these to the second: the east beach's sand falls 1 in 34; Las Lomas County's shores, 1 in 5, and the quays'
@@ -156,10 +157,10 @@ export function waveAmps(sea: number, out: number[] = new Array<number>(WAVES.le
   return out;
 }
 
-/** Half the open sea's significant height at sea state `sea`: twice the standard deviation of the surface (m). */
-export function seaHalfHeight(sea: number): number {
+/** Half the open sea's significant height for the waves' heights `amps` (waveAmps): twice the surface's standard deviation (m). */
+export function seaHalfHeight(amps: readonly number[]): number {
   let v = 0;
-  for (const a of waveAmps(sea)) v += (a * a) / 2;
+  for (const a of amps) v += (a * a) / 2;
   return 2 * Math.sqrt(v);
 }
 
@@ -195,7 +196,7 @@ function smooth(a: number, b: number, x: number): number {
  * CPU twin of the shaders' seaShoal: at a point with shelter and depth `s` (shelterAt), the scale of the open sea's
  * waves (their heights times it) and the breakers' height (m), for the heights `amps` (waveAmps).
  */
-export function seaShoal(s: readonly number[], amps: readonly number[], sea: number, out: [number, number] = [0, 0]): [number, number] {
+export function seaShoal(s: readonly number[], amps: readonly number[], out: [number, number] = [0, 0]): [number, number] {
   const d = Math.max(s[1]!, 0);
   const surf = 1 - smooth(SURF_DEPTH[0], SURF_DEPTH[1], d);
   let sum = 0;
@@ -203,7 +204,7 @@ export function seaShoal(s: readonly number[], amps: readonly number[], sea: num
   const r = (SURF_GAMMA * d) / Math.max(s[0]! * sum, 1e-3);
   out[0] = (s[0]! * r) / Math.sqrt(Math.sqrt(1 + r * r * r * r)) * (1 - surf);
   const slope = Math.hypot(s[2]!, s[3]!);
-  out[1] = s[0]! * surf * (1 - smooth(SURF_SHELVE[0], SURF_SHELVE[1], slope)) * Math.min(seaHalfHeight(sea) * SURF_SHOAL, SURF_GAMMA * d, SURF_STEEP / (SURF_K * Math.max(slope, 1e-4)));
+  out[1] = s[0]! * surf * (1 - smooth(SURF_SHELVE[0], SURF_SHELVE[1], slope)) * Math.min(seaHalfHeight(amps) * SURF_SHOAL, SURF_GAMMA * d, SURF_STEEP / (SURF_K * Math.max(slope, 1e-4)));
   return out;
 }
 
@@ -232,7 +233,7 @@ const scratchShoal: [number, number] = [0, 0];
 export function waveDisplacement(sea: SeaSurface, x: number, z: number, out: [number, number, number] = [0, 0, 0]): [number, number, number] {
   const s = shelterAt(sea.shelter, x, z, scratchS);
   const amps = waveAmps(sea.sea, scratchAmps);
-  const [deep, breaker] = seaShoal(s, amps, sea.sea, scratchShoal);
+  const [deep, breaker] = seaShoal(s, amps, scratchShoal);
   const c = Math.max(Math.abs(x - sea.ox), Math.abs(z - sea.oz));
   let dx = 0;
   let dy = 0;
@@ -409,9 +410,9 @@ SeaWave seaWave(vec2 p, vec2 dx, vec2 dy) {
   float ph = seaSurfPhase(s.y);
   float ks = ${f(SURF_K)} * length(s.zw);
   float keptS = 1.0 - smoothstep(${f(WAVE_PHASE_PX[0])}, ${f(WAVE_PHASE_PX[1])}, ${f(SURF_K)} * max(abs(dot(s.zw, dx)), abs(dot(s.zw, dy))));
-  w.slope += s.zw * (${f(SURF_K)} * sh.y * cos(ph) * keptS * gain);
-  w.lost += 0.5 * (ks * sh.y * gain) * (ks * sh.y * gain) * (1.0 - keptS * keptS);
-  w.kept += ${f(SURF_Q)} * ks * sh.y * sin(ph) * keptS * gain;
+  w.slope += s.zw * (${f(SURF_K)} * sh.y * cos(ph) * keptS * gainA);
+  w.lost += 0.5 * (ks * sh.y * gainA) * (ks * sh.y * gainA) * (1.0 - keptS * keptS);
+  w.kept += ${f(SURF_Q)} * ks * sh.y * sin(ph) * keptS * gainA;
   w.steep += ${f(SURF_Q)} * ks * sh.y * sin(ph);
   w.most += ${f(SURF_Q)} * ks * sh.y;
   w.height = (dot(aA, sin(thA)) + dot(aB, sin(thB)) + sh.y * sin(ph)) / max(most, 1e-3);
