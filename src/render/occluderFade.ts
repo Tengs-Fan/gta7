@@ -29,9 +29,6 @@ export const OCCLUDER_AXIS: Readonly<Record<OccluderKind, { from: number; to: nu
   palm: { from: 0, to: 8.7 },
 };
 
-/** A signal bulb's axis relative to the bulb itself: down the pole it hangs on, so the bulbs go with their pole. */
-export const SIGNAL_BULB_AXIS = { from: -4.9, to: 0.7 } as const;
-
 const EPS = 1e-8;
 
 function smooth(e0: number, e1: number, x: number): number {

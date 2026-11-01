@@ -6,6 +6,7 @@ export * from './textures/facade';
 export * from './textures/storefront';
 export * from './textures/ground';
 export * from './textures/signs';
+export * from './textures/signals';
 export * from './textures/vehicle';
 export {
   glowTexture,

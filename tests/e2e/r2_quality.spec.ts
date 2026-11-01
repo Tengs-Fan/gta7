@@ -125,8 +125,8 @@ test.describe('graphics quality', () => {
 });
 
 /**
- * Renders one traffic light head-on (downtown node 4,4) with its clock pinned to show each colour, and
- * reads the lit bulb's pixels: the centre of the bulb, and the halo just beside it.
+ * Renders one traffic light's head on its pole head-on (downtown node 4,4) with its clock pinned to show each colour,
+ * and reads the lit lens's pixels: the centre of the lens, and the halo just beside it.
  */
 const signalPixels = (page: Page) =>
   page.evaluate(() => {
@@ -159,15 +159,13 @@ const signalPixels = (page: Page) =>
       while (sim.roads.signalState(p.node, axis, t) !== want) t += 0.25;
       sim.time = t;
       R.render(0, false);
-      const m = cam.matrixWorld.clone();
-      props.signalBulbs.getMatrixAt(k * 3 + b, m);
-      const pos = cam.position.clone().setFromMatrixPosition(m);
+      const pos = props.signalLens(k, 0, b).at;
       const v = pos.clone().project(cam);
       const w = gl.drawingBufferWidth;
       const h = gl.drawingBufferHeight;
       const x = Math.round(((v.x + 1) / 2) * w);
       const y = Math.round(((v.y + 1) / 2) * h);
-      // The bulb's radius (0.11 m) in pixels; the halo is sampled 2.2 radii out to either side.
+      // The lens's radius (0.11 m) in pixels; the halo is sampled 2.2 radii out to either side.
       const r = Math.abs(((pos.clone().add(cam.up.clone().multiplyScalar(0.11)).project(cam).y + 1) / 2) * h - y);
       const d = Math.round(2.2 * r);
       out[want] = { centre: mean([[x, y], [x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]), halo: mean([[x - d, y], [x + d, y]]) };

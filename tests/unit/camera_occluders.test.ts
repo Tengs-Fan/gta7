@@ -340,7 +340,7 @@ describe('the props view dissolves poles and trunks through uniforms only', () =
   const meshesOf = (index: number) => [...new Set((priv.refs.get(index) ?? []).map((r) => r.mesh))];
   const first = (kind: string) => W.layout.props.findIndex((q) => q.kind === kind);
 
-  it('patches the lamp pole, head and lens, the signal pole and bulbs, and both trunks, with one program key', () => {
+  it('patches the lamp pole, head and lens, the signal pole, and both trunks, with one program key, and the signal\'s lit parts with it', () => {
     const names = new Set<string>();
     for (const kind of ['lamp', 'signal', 'tree', 'palm']) {
       const i = first(kind);
@@ -350,9 +350,20 @@ describe('the props view dissolves poles and trunks through uniforms only', () =
         if (mat.customProgramCacheKey() === 'gta7-occluder') names.add(`${kind}:${m.geometry.name || m.geometry.type}`);
       }
     }
-    // The lamp's three parts, the signal's pole and bulbs, and each trunk (the canopies keep their own near fade).
+    // The lamp's three parts, the signal's pole and each trunk (the canopies keep their own near fade).
     expect([...names].filter((n) => n.startsWith('lamp:')).sort()).toEqual(['lamp:lamp-head', 'lamp:lamp-lens', 'lamp:lamp-pole']);
-    expect([...names].filter((n) => n.startsWith('signal:')).length).toBe(2);
+    expect([...names].filter((n) => n.startsWith('signal:')).length).toBe(1);
+    // The signal's lenses, digits and walk figures: their own program, on the same dissolve by the pole's axis.
+    const quads = meshesOf(first('signal')).find((m) => m.name === 'signal-lit')!;
+    const mat = quads.material as THREE.MeshBasicMaterial;
+    expect(mat.customProgramCacheKey()).toBe('gta7-signal-lit');
+    const lib = THREE.ShaderLib.basic;
+    const shader = { uniforms: THREE.UniformsUtils.clone(lib.uniforms), vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader } as unknown as THREE.WebGLProgramParametersWithUniforms;
+    mat.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    expect(shader.vertexShader).toContain('vOccKeep = min(');
+    expect(shader.vertexShader).toContain('transformed = vec3( q.x * cos( aQuad.w )');
+    expect(shader.fragmentShader).toContain('occBayer4( gl_FragCoord.xy ) >= vOccKeep ) discard;');
+    expect(shader.uniforms.uOccCam).toBe(priv.occUniforms.uOccCam);
     expect([...names].filter((n) => n.startsWith('tree:')).length).toBe(1);
     expect([...names].filter((n) => n.startsWith('palm:')).length).toBe(1);
   });

@@ -716,18 +716,16 @@ describe('coloured lamps with and without bloom', () => {
     return w.x * c.r + w.y * c.g + w.z * c.b;
   }
 
-  type PropsPriv = { signalBulbs: THREE.InstancedMesh; signalProps: Prop[]; antennaMat: THREE.MeshBasicMaterial; antennaLights: THREE.InstancedMesh | null; ferris: { lights: THREE.InstancedMesh } | null };
+  type PropsPriv = { signalProps: Prop[]; antennaMat: THREE.MeshBasicMaterial; antennaLights: THREE.InstancedMesh | null; ferris: { lights: THREE.InstancedMesh } | null };
 
-  /** Signal 0's lit bulb at a night-time frame whose sim clock shows it `state`. */
+  /** Signal 0's lit lens at a night-time frame whose sim clock shows it `state`. */
   function litBulb(r: GameRenderer, state: 'red' | 'yellow' | 'green'): THREE.Color {
     const props = r.props as unknown as PropsPriv;
     const p = props.signalProps[0]!;
     let t = 0;
     while (W.roads.signalState(p.node, axisOf(p.dir as Dir), t) !== state) t += 0.25;
     r.props.update(0, 1, t);
-    const c = new THREE.Color();
-    props.signalBulbs.getColorAt(['red', 'yellow', 'green'].indexOf(state), c);
-    return c;
+    return r.props.signalLens(0, 0, ['red', 'yellow', 'green'].indexOf(state)).color;
   }
 
   /** The aircraft warning light, lit (it blinks on in the first 0.83 s of every 1.67 s at night), and every lit ferris wheel light. */

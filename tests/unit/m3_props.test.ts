@@ -12,7 +12,7 @@ import { DRESSING_SIZE, DressingRules, dressingItems, footprint, GARAGE_ITEM_HEI
 import {
   broadleafClusters, broadleafGeometry, broadleafTexture, BROADLEAF_SCALE, LEAF_ATLAS_ID, LEAF_CARDS, LEAF_TILES, PALM_RING, palmCurve, palmTrunkGeometry, TREE_LIMBS,
 } from '../../src/render/foliage';
-import { benchGeometry, binGeometry, bollardGeometry, hydrantGeometry, lampHeadGeometry, lampLensGeometry, lampPoleGeometry, lampShadowGeometry, railGeometry, signalBulbAt, signalPoleGeometry, triangles } from '../../src/render/furniture';
+import { benchGeometry, binGeometry, bollardGeometry, hydrantGeometry, lampHeadGeometry, lampLensGeometry, lampPoleGeometry, lampShadowGeometry, lensAt, railGeometry, SIGNAL_LAYOUT, signalPoleGeometry, triangles } from '../../src/render/furniture';
 import { OCCLUDER_AXIS, occluderOpacity } from '../../src/render/occluderFade';
 import { foliageSpheres, LAMP_HEAD, palmAxis, palmLean, palmMatrix, PropsView } from '../../src/render/props';
 import { SiteView } from '../../src/render/siteView';
@@ -72,7 +72,7 @@ const count = (g: THREE.BufferGeometry, part: string) => partsOf(g).filter((p) =
 
 describe('VAL-PRP-001 street furniture is modelled and fits the old models', () => {
   const bulb = new THREE.IcosahedronGeometry(0.11, 0);
-  const bulbs = [0, 1, 2].map((k) => bulb.clone().translate(...signalBulbAt(k)));
+  const bulbs = [0, 1, 2].map((k) => bulb.clone().translate(...lensAt(SIGNAL_LAYOUT.heads[0]!, k)));
   const kinds = {
     lamp: [lampPoleGeometry(LAMP_HEAD), lampHeadGeometry(LAMP_HEAD), lampLensGeometry(LAMP_HEAD)],
     bench: [benchGeometry()],
@@ -195,8 +195,8 @@ describe('VAL-PRP-002 lamp heads, halos and signal lenses keep their positions',
     expect(worst).toBeLessThan(0.15);
   });
 
-  it('signal bulbs sit where d98da7b put them, each under its own visor', () => {
-    for (let k = 0; k < 3; k++) expect(signalBulbAt(k)).toEqual([0, 4.88 - k * 0.33, 0.21]);
+  it('the lenses of the head on the signal pole sit where d98da7b put its bulbs, each under its own visor', () => {
+    for (let k = 0; k < 3; k++) lensAt(SIGNAL_LAYOUT.heads[0]!, k).forEach((c, i) => expect(c).toBeCloseTo([0, 4.88 - k * 0.33, 0.21][i]!, 9));
     const g = signalPoleGeometry();
     expect(count(g, 'visor')).toBe(3);
   });

@@ -144,10 +144,49 @@ export function lampLensGeometry(head: Head): THREE.BufferGeometry {
   return g;
 }
 
-/** Signal bulb centres in the signal's frame (the head faces local +z); PropsView puts its bulbs here. */
-export function signalBulbAt(k: number): [number, number, number] {
-  return [0, 4.88 - k * 0.33, 0.21];
+/** A face of a traffic signal in its frame: its centre and its turn about y (0 faces +z, the traffic the signal serves). */
+export interface SignalFace {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly turn: number;
 }
+
+/** A vehicle head: its three lenses `lens` m across and `gap` m apart, in a row across (red on the viewer's left) or down (red on top). */
+export interface SignalHead extends SignalFace {
+  readonly across: boolean;
+  readonly lens: number;
+  readonly gap: number;
+}
+
+/** A countdown: two digits `h` m tall and half as wide. */
+export interface SignalCount extends SignalFace {
+  readonly h: number;
+}
+
+/** Where a signal's lit parts are: its vehicle heads, its countdowns and its walk heads. */
+export interface SignalLayout {
+  readonly heads: readonly SignalHead[];
+  readonly counts: readonly SignalCount[];
+  readonly walks: readonly SignalFace[];
+}
+
+/** A point `u` m to the right of a face as its viewer sees it, `v` m up and `d` m out of it, in the signal's frame. */
+export function onFace(f: SignalFace, u: number, v: number, d = 0): [number, number, number] {
+  const c = Math.cos(f.turn);
+  const s = Math.sin(f.turn);
+  return [f.x + u * c + d * s, f.y + v, f.z - u * s + d * c];
+}
+
+/** The centre of a head's lens k (0 red, 1 yellow, 2 green). */
+export function lensAt(h: SignalHead, k: number): [number, number, number] {
+  return h.across ? onFace(h, (k - 1) * h.gap, 0) : onFace(h, 0, (1 - k) * h.gap);
+}
+
+/** The head on the pole, facing the traffic it serves, its lenses where d98da7b put its bulbs. */
+const NEAR_HEAD: SignalHead = { x: 0, y: 4.55, z: 0.21, turn: 0, across: false, lens: 0.22, gap: 0.33 };
+
+export const SIGNAL_LAYOUT: SignalLayout = { heads: [NEAR_HEAD], counts: [], walks: [] };
 
 /** A traffic signal: base, pole, the three-lens head with a backplate, rimmed lenses under hooded visors, and a cap. */
 export function signalPoleGeometry(): THREE.BufferGeometry {
@@ -157,7 +196,7 @@ export function signalPoleGeometry(): THREE.BufferGeometry {
   b.add('head', box(0.36, 1.05, 0.28, 0, 4.55, 0.05));
   b.add('backplate', box(0.46, 1.2, 0.02, 0, 4.55, -0.1), 0x1a1b1d);
   for (let k = 0; k < 3; k++) {
-    const [, by, bz] = signalBulbAt(k);
+    const [, by, bz] = lensAt(NEAR_HEAD, k);
     b.add('lens', new THREE.RingGeometry(0.105, 0.13, 10).translate(0, by, bz - 0.02), 0xffffff, 0.7);
     // An open hood over the top half of the lens, 11 cm deep.
     b.add('visor', new THREE.CylinderGeometry(0.135, 0.135, 0.11, 8, 1, true, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2).translate(0, by, bz + 0.055 - 0.01), 0xffffff, 0.9);

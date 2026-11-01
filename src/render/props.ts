@@ -13,14 +13,15 @@ import { attractionOf } from '../world/attractions';
 import { hashInts, rectContains, type Prop, type PropKind, type Rect } from '../world/layout';
 import { FERRIS_HUB, FERRIS_LEG_X, FERRIS_LEG_Z, type StaticWorld } from '../world/staticWorld';
 import { riseAt } from '../world/terrain';
-import { adTexture, AD_COUNT, glowTexture, groundTexture } from './textures';
+import { adTexture, AD_COUNT, glowTexture, groundTexture, signalAtlas, SIGNAL_TILE_RECTS } from './textures';
+import { DARK_SIGNAL, LIT, LIT_COLORS, quadLit, showKey, signalCount, signalQuads, walkShow, type QuadRole, type SignalShow } from './signalHeads';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
-import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, SIGNAL_BULB_AXIS, type OccluderKind } from './occluderFade';
+import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, type OccluderKind } from './occluderFade';
 import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
 import {
   benchGeometry, binGeometry, bollardGeometry, drumGeometry, fenceGeometry, hydrantGeometry, jackGeometry, lampHeadGeometry, lampHousingGeometry, lampLensGeometry, lampShadowGeometry,
   lampPoleGeometry, lampTubeGeometry, lifeguardGeometry, loungerGeometry, mailboxGeometry, planterGeometry, posterGeometry, railGeometry, shelvingGeometry, shrubGeometry,
-  signalBulbAt, signalPoleGeometry, surfboardGeometry, toolChestGeometry, toolWallGeometry, towelGeometry, tyreRackGeometry, tyreStackGeometry, umbrellaGeometry,
+  SIGNAL_LAYOUT, signalPoleGeometry, surfboardGeometry, toolChestGeometry, toolWallGeometry, towelGeometry, tyreRackGeometry, tyreStackGeometry, umbrellaGeometry,
   volleyballGeometry, wheelieBinGeometry, workbenchGeometry,
 } from './furniture';
 import { dressingItems, type DressingItem, type DressingKind } from './dressing';
@@ -256,6 +257,68 @@ if ( vOccKeep < 1.0 && occBayer4( gl_FragCoord.xy ) >= vOccKeep ) discard;`,
       );
   };
   mat.customProgramCacheKey = () => 'gta7-occluder';
+}
+
+/**
+ * Draws the signals' lit parts (signalHeads.ts) from one instanced unit quad. Each instance carries its signal's own
+ * matrix, so the quads stand, fall and dissolve with their pole (dissolveOccluder, patched first); in that frame, its
+ * place and turn (aQuad) and size (aSize); and what it shows (aLit: an atlas tile and a palette entry), so a light that
+ * changes rewrites two floats. The atlas's red is the LEDs lit in the palette colour, its green the faint grid of all.
+ */
+function litQuads(mat: THREE.MeshBasicMaterial, colors: readonly THREE.Color[], dots: { value: number }): void {
+  const occluder = mat.onBeforeCompile;
+  const tiles = SIGNAL_TILE_RECTS.map((r) => new THREE.Vector4(...r));
+  mat.onBeforeCompile = (shader, renderer) => {
+    occluder(shader, renderer);
+    Object.assign(shader.uniforms, { uLitTiles: { value: tiles }, uLitColors: { value: colors }, uLitDots: dots });
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+attribute vec4 aQuad;
+attribute vec2 aSize;
+attribute vec2 aLit;
+uniform vec4 uLitTiles[ ${tiles.length} ];
+uniform vec3 uLitColors[ ${colors.length} ];
+varying vec3 vLit;`,
+      )
+      .replace(
+        '#include <uv_vertex>',
+        `#include <uv_vertex>
+{
+  vec4 tile = uLitTiles[ int( aLit.x + 0.5 ) ];
+  vMapUv = tile.xy + uv * tile.zw;
+  vLit = uLitColors[ int( aLit.y + 0.5 ) ];
+}`,
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+{
+  // The unit quad sized, turned about y (0 faces +z) and set in its place in the signal's frame.
+  vec2 q = position.xy * aSize;
+  transformed = vec3( q.x * cos( aQuad.w ), q.y, - q.x * sin( aQuad.w ) ) + aQuad.xyz;
+}`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uLitDots;\nvarying vec3 vLit;')
+      .replace(
+        '#include <map_fragment>',
+        `vec4 ledTexel = texture2D( map, vMapUv );
+diffuseColor.rgb = vLit * ledTexel.r + uLitDots * ledTexel.g;`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'gta7-signal-lit';
+}
+
+/** The signals' lit quads' palette: the countdowns and walk heads bright but under the bloom threshold, so their digits stay sharp. */
+function litPalette(): THREE.Color[] {
+  const c = Array.from({ length: LIT_COLORS }, () => new THREE.Color());
+  c[LIT.countRed]!.setRGB(2.2, 0.12, 0.03);
+  c[LIT.countGreen]!.setRGB(0.08, 1.5, 0.6);
+  c[LIT.walk]!.setRGB(0.55, 2, 1.25);
+  c[LIT.hand]!.setRGB(2.3, 0.75, 0.08);
+  return c;
 }
 
 /** A pole or trunk the camera may dissolve: its axis now (world space) and whether it is gone (a knocked-down lamp). */
@@ -499,8 +562,13 @@ export class PropsView {
   private readonly shadowRefs = new Map<number, InstanceRef[]>();
   private readonly bulbMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
   private readonly poolMat: THREE.MeshBasicMaterial;
-  private signalBulbs: THREE.InstancedMesh | null = null;
-  private readonly signalBatches: Array<{ mesh: THREE.InstancedMesh; slots: number[] }> = [];
+  /** Every signal's lit parts citywide, one quad each (litQuads), and by signal its first quad, their roles and what they show. */
+  private signalLit: THREE.InstancedMesh | null = null;
+  private readonly signalSlots: Array<{ first: number; roles: readonly QuadRole[] }> = [];
+  private signalKeys: Float64Array = new Float64Array(0);
+  /** The lit quads' palette by LIT entry (update sets the lenses') and the faint grid of their unlit LEDs. */
+  private readonly litColors = litPalette();
+  private readonly litDots = { value: 0 };
   private signalProps: Prop[] = [];
   private signalPropIndex: number[] = [];
   private readonly brokenSignals = new Set<number>();
@@ -673,6 +741,14 @@ export class PropsView {
 
   private static standard(p: Prop, m: THREE.Matrix4): void {
     m.compose(new THREE.Vector3(p.x, p.y, p.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot), new THREE.Vector3(p.scale, p.scale, p.scale));
+  }
+
+  /** Uploads the instances of meshes whose props were moved, and bounds each once (the signals' lit quads span the city). */
+  private static moved(meshes: ReadonlySet<THREE.InstancedMesh>): void {
+    for (const mesh of meshes) {
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+    }
   }
 
   /**
@@ -938,53 +1014,76 @@ export class PropsView {
     this.makeInstanced(pole, poleMat, signals, PropsView.standard);
     this.signalProps = signals.map((i) => L.props[i]!);
     this.signalPropIndex = signals;
-    // Three bulbs per signal.
-    // Low-poly bulbs: there are three per signal head, citywide.
-    const bulb = new THREE.IcosahedronGeometry(0.11, 0);
-    const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    dissolveOccluder(bulbMat, SIGNAL_BULB_AXIS, this.occUniforms);
-    const mesh = new THREE.InstancedMesh(bulb, bulbMat, signals.length * 3);
+    // Every signal's lenses, countdown digits and walk figures citywide in one draw: a few thousand quads cost the GPU
+    // nothing, and one buffer keeps a changed light to a few floats. Each quad takes its signal's matrix (tracked with
+    // the pole, whose refs entry exists by now, so it falls with it and a new game stands it up again).
+    const quads = signals.map(() => signalQuads(SIGNAL_LAYOUT));
+    const count = quads.reduce((n, q) => n + q.length, 0);
+    const geo = new THREE.PlaneGeometry(1, 1);
+    const place = new Float32Array(count * 4);
+    const size = new Float32Array(count * 2);
+    const lit = new THREE.InstancedBufferAttribute(new Float32Array(count * 2), 2).setUsage(THREE.DynamicDrawUsage);
+    const mat = new THREE.MeshBasicMaterial({ map: signalAtlas() });
+    mat.name = 'signal-lit';
+    dissolveOccluder(mat, OCCLUDER_AXIS.signal, this.occUniforms);
+    litQuads(mat, this.litColors, this.litDots);
+    mat.userData.contactShadow = false;
+    const mesh = new THREE.InstancedMesh(geo, mat, count);
+    mesh.name = 'signal-lit';
+    mesh.castShadow = false;
+    mesh.userData.propIndices = signals;
+    // The quads stand round their signal's foot, not on the unit quad: its sphere is theirs.
+    const reach = new THREE.Box3();
     const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const v = new THREE.Vector3();
+    let at = 0;
     signals.forEach((pi, k) => {
-      const p = L.props[pi]!;
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot);
-      for (let b = 0; b < 3; b++) {
-        v.set(...signalBulbAt(b)).applyQuaternion(q);
-        m.makeTranslation(p.x + v.x, p.y + v.y, p.z + v.z);
-        mesh.setMatrixAt(k * 3 + b, m);
-        mesh.setColorAt(k * 3 + b, new THREE.Color(0x111111));
-        // Tracked with the pole (whose refs entry exists by now) so breakProp hides them and restoreAll restores them.
-        this.refs.get(pi)?.push({ mesh, index: k * 3 + b, base: m.clone() });
+      PropsView.standard(L.props[pi]!, m);
+      const base = m.clone();
+      this.signalSlots.push({ first: at, roles: quads[k]!.map((q) => q.role) });
+      for (const q of quads[k]!) {
+        place.set([q.at[0], q.at[1], q.at[2], q.turn], at * 4);
+        size.set([q.w, q.h], at * 2);
+        reach.expandByPoint(new THREE.Vector3(...q.at));
+        mesh.setMatrixAt(at, base);
+        this.refs.get(pi)?.push({ mesh, index: at, base });
+        at++;
       }
     });
+    geo.setAttribute('aQuad', new THREE.InstancedBufferAttribute(place, 4));
+    geo.setAttribute('aSize', new THREE.InstancedBufferAttribute(size, 2));
+    geo.setAttribute('aLit', lit);
+    geo.boundingSphere = reach.getBoundingSphere(new THREE.Sphere());
+    geo.boundingSphere.radius += 0.5;
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
-    this.signalBulbs = mesh;
-    // A logical citywide buffer keeps signal indexing stable; only its spatial slices are drawn.
-    const cells = new Map<string, number[]>();
-    signals.forEach((pi, k) => {
-      const p = L.props[pi]!;
-      const key = spatialKey(p.x, p.z, this.chunk);
-      let slots = cells.get(key);
-      if (!slots) cells.set(key, slots = []);
-      slots.push(k * 3, k * 3 + 1, k * 3 + 2);
-    });
-    for (const slots of cells.values()) {
-      const part = new THREE.InstancedMesh(bulb, mesh.material, slots.length);
-      part.userData.signalBulbs = true;
-      slots.forEach((slot, k) => {
-        mesh.getMatrixAt(slot, m);
-        part.setMatrixAt(k, m);
-        part.setColorAt(k, new THREE.Color(0x111111));
-        const pi = signals[Math.floor(slot / 3)]!;
-        this.refs.get(pi)?.push({ mesh: part, index: k, base: m.clone() });
-      });
-      part.computeBoundingSphere();
-      this.group.add(part);
-      this.signalBatches.push({ mesh: part, slots });
-    }
+    this.group.add(mesh);
+    this.signalLit = mesh;
+    this.signalKeys = new Float64Array(signals.length).fill(-1);
+  }
+
+  /** What signal `i` shows at sim time `t`. */
+  private signalShow(i: number, t: number): SignalShow {
+    if (this.brokenSignals.has(this.signalPropIndex[i]!)) return DARK_SIGNAL;
+    const p = this.signalProps[i]!;
+    const roads = this.world.roads;
+    const own = axisOf(p.dir as Dir);
+    const cross = own === 'NS' ? 'EW' : 'NS';
+    return { state: roads.signalState(p.node, own, t), count: signalCount(roads, p.node, own, t), walks: [walkShow(roads, p.node, own, t), walkShow(roads, p.node, cross, t)] };
+  }
+
+  /**
+   * Signal `i`'s lens `k` (0 red, 1 yellow, 2 green) of head `head` (0 the head on its pole): where it is drawn (world
+   * space) and the colour it shows now (tests).
+   */
+  signalLens(i: number, head: number, k: number): { at: THREE.Vector3; color: THREE.Color } {
+    const mesh = this.signalLit!;
+    const slot = this.signalSlots[i]!;
+    const q = slot.first + slot.roles.findIndex((r) => r.kind === 'lens' && r.head === head && r.k === k);
+    const place = mesh.geometry.getAttribute('aQuad');
+    const m = new THREE.Matrix4();
+    mesh.getMatrixAt(q, m);
+    const at = new THREE.Vector3(place.getX(q), place.getY(q), place.getZ(q)).applyMatrix4(m);
+    return { at, color: this.litColors[mesh.geometry.getAttribute('aLit').getY(q)]!.clone() };
   }
 
   private buildContainers(list: number[]): void {
@@ -1346,14 +1445,15 @@ export class PropsView {
     // smashed pumpkin goes in a burst of orange, the propane tank in its blast (renderer.ts), a pump up in its blast
     // (sim/dryCreek.ts).
     const hide = p.kind === 'hydrant' || p.kind === 'lamp' || p.kind === 'pumpkin' || p.kind === 'propane' || p.kind === 'pump';
+    const moved = new Set<THREE.InstancedMesh>();
     for (const r of [...refs, ...(this.shadowRefs.get(index) ?? [])]) {
       let m: THREE.Matrix4;
-      if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat || r.mesh === this.signalBulbs || r.mesh.userData.signalBulbs) m = new THREE.Matrix4().makeScale(0, 0, 0);
+      if (hide || r.mesh.material === this.poolMat || r.mesh.material === this.bulbMat) m = new THREE.Matrix4().makeScale(0, 0, 0);
       else m = back.clone().multiply(fall).multiply(toOrigin).multiply(r.base);
       r.mesh.setMatrixAt(r.index, m);
-      r.mesh.instanceMatrix.needsUpdate = true;
-      r.mesh.computeBoundingSphere();
+      moved.add(r.mesh);
     }
+    PropsView.moved(moved);
     if (p.kind === 'signal') this.brokenSignals.add(index);
     const occ = this.occByProp.get(index);
     if (occ) {
@@ -1477,24 +1577,26 @@ export class PropsView {
 
   /** Stands the props `indices` up again (the county's cows at dawn). */
   restoreProps(indices: readonly number[]): void {
+    const moved = new Set<THREE.InstancedMesh>();
     for (const i of indices) {
       for (const r of [...(this.refs.get(i) ?? []), ...(this.shadowRefs.get(i) ?? [])]) {
         r.mesh.setMatrixAt(r.index, r.base);
-        r.mesh.instanceMatrix.needsUpdate = true;
-        r.mesh.computeBoundingSphere();
+        moved.add(r.mesh);
       }
     }
+    PropsView.moved(moved);
   }
 
   /** Puts every knocked-over prop back in place (new game). */
   restoreAll(): void {
+    const moved = new Set<THREE.InstancedMesh>();
     for (const refs of [...this.refs.values(), ...this.shadowRefs.values()]) {
       for (const r of refs) {
         r.mesh.setMatrixAt(r.index, r.base);
-        r.mesh.instanceMatrix.needsUpdate = true;
-        r.mesh.computeBoundingSphere();
+        moved.add(r.mesh);
       }
     }
+    PropsView.moved(moved);
     this.brokenSignals.clear();
     for (const o of this.occFallen) this.standUp(o);
     this.occFallen.clear();
@@ -1521,27 +1623,33 @@ export class PropsView {
       this.lampHalos.visible = k > 0.02;
     }
     for (const m of this.adMaterials) m.emissiveIntensity = 0.12 + k * 1.1;
-    // Signals.
+    // Signals: the lit lenses as LAMPS has them for the tier; unlit LEDs dimmer at night, with no daylight on them.
     const lamps = LAMPS[this.glow ? 'glow' : 'flat'];
-    const bulbs = this.signalBulbs;
-    if (bulbs) {
-      const roads = this.world.roads;
-      const off = 0.07;
-      this.signalProps.forEach((p, i) => {
-        const broken = this.brokenSignals.has(this.signalPropIndex[i]!);
-        const st = broken ? 'off' : roads.signalState(p.node, axisOf(p.dir as Dir), signalTime);
-        bulbs.setColorAt(i * 3, st === 'red' ? this.tmpC.setRGB(...lamps.red) : this.tmpC.setRGB(off + 0.05, off, off));
-        bulbs.setColorAt(i * 3 + 1, st === 'yellow' ? this.tmpC.setRGB(...lamps.yellow) : this.tmpC.setRGB(off + 0.05, off, off));
-        bulbs.setColorAt(i * 3 + 2, st === 'green' ? this.tmpC.setRGB(...lamps.green) : this.tmpC.setRGB(off, off + 0.05, off));
+    const palette = this.litColors;
+    palette[LIT.red]!.setRGB(...lamps.red);
+    palette[LIT.yellow]!.setRGB(...lamps.yellow);
+    palette[LIT.green]!.setRGB(...lamps.green);
+    const dim = 1 - 0.75 * night;
+    palette[LIT.redOff]!.setRGB(0.12 * dim, 0.012 * dim, 0.01 * dim);
+    palette[LIT.yellowOff]!.setRGB(0.11 * dim, 0.06 * dim, 0.008 * dim);
+    palette[LIT.greenOff]!.setRGB(0.01 * dim, 0.09 * dim, 0.05 * dim);
+    this.litDots.value = 0.045 * dim;
+    // Each signal is rewritten only when what it shows changes: a few times a second citywide.
+    const quads = this.signalLit;
+    if (quads) {
+      const attr = quads.geometry.getAttribute('aLit') as THREE.InstancedBufferAttribute;
+      const a = attr.array as Float32Array;
+      const out: [number, number] = [0, 0];
+      let changed = false;
+      this.signalSlots.forEach((slot, i) => {
+        const show = this.signalShow(i, signalTime);
+        const key = showKey(show);
+        if (key === this.signalKeys[i]) return;
+        this.signalKeys[i] = key;
+        slot.roles.forEach((role, j) => a.set(quadLit(role, show, out), (slot.first + j) * 2));
+        changed = true;
       });
-      if (bulbs.instanceColor) bulbs.instanceColor.needsUpdate = true;
-      for (const batch of this.signalBatches) {
-        batch.slots.forEach((slot, k) => {
-          bulbs.getColorAt(slot, this.tmpC);
-          batch.mesh.setColorAt(k, this.tmpC);
-        });
-        if (batch.mesh.instanceColor) batch.mesh.instanceColor.needsUpdate = true;
-      }
+      if (changed) attr.needsUpdate = true;
     }
     // Ferris wheel.
     const f = this.ferris;
