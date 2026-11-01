@@ -129,3 +129,21 @@ export function signalAtlas(): THREE.CanvasTexture {
   t.name = 'signal-atlas';
   return t;
 }
+
+/**
+ * A signal lens's halo (props.ts SIGNAL_HALO): a ring of glow round a hollow middle the lens fills, so the halo adds
+ * light round a lit lens without paling its own colour.
+ */
+export function signalGlowTexture(): THREE.CanvasTexture {
+  const S = 128;
+  const [c, ctx] = canvas(S, S);
+  const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  g.addColorStop(0, 'rgba(255,255,255,0)');
+  g.addColorStop(0.24, 'rgba(255,255,255,0)');
+  g.addColorStop(0.32, 'rgba(255,255,255,0.8)');
+  g.addColorStop(0.55, 'rgba(255,255,255,0.35)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  return toTexture(c, true, false);
+}
