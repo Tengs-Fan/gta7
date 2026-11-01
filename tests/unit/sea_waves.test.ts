@@ -85,6 +85,17 @@ describe('the shelter map', () => {
     expect(at(-680, 0)[1]).toBeGreaterThan(0.5);
   });
 
+  it('leaves the surf beside and under Azura Pier\'s shoreward half, where the depth keeps it off the deck, and calms its seaward half', () => {
+    const pier = world().layout.decks.find((d) => d.name === 'Azura Pier')!.rect;
+    const b = world().layout.bounds;
+    // Where the sand is 1.2 m deep the depth caps the waves at half a metre, under the deck's underside 1.1 m up.
+    const x = b.beachStartX + (BEACH_W * (1.2 + CURB_H - WATER_Y)) / SAND_DROP;
+    for (const z of [pier.minZ - 5, pier.minZ - 10, (pier.minZ + pier.maxZ) / 2, pier.maxZ + 5]) expect(at(x, z)[0], `z ${z}`).toBeGreaterThan(0.95);
+    // Out where the storm's crests would reach the deck, the water under it is calm, and 2 m off its side nearly so.
+    expect(at(650, (pier.minZ + pier.maxZ) / 2)[0]).toBeLessThan(0.02);
+    expect(at(650, pier.minZ - 2)[0]).toBeLessThan(0.1);
+  });
+
   it('holds the drawn depth and its slope: shoreward down the beach, negative on land', () => {
     const b = world().layout.bounds;
     const beach = at(560, -150);
