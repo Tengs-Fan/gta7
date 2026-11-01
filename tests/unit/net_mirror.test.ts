@@ -351,7 +351,7 @@ describe('remote entities move smoothly between snapshots (VAL-MPCL-003, unit)',
       for (let tick = every; tick < 60 * 30; tick += every) {
         const msg = base(tick);
         msg.vehicles = [tick === every
-          ? { id, motion: motion(tick), engine: { rpm: 0.5, gear: 3, skid: 0, throttle: 1, brake: 0, ctlSteer: 0, handbrake: false, braking: false, reversing: false, siren: false, horn: false }, status: { health: 1000, burning: false, destroyed: false, flipped: false, airborne: false, inWater: false, wreckTime: 0, driver: 0, passengers: [0, 0, 0] }, rare: { kind: 'sedan', color: 0xff0000, owner: 'traffic', dentVersion: 0, dents: [] } }
+          ? { id, motion: motion(tick), engine: { rpm: 0.5, gear: 3, skid: 0, throttle: 1, brake: 0, ctlSteer: 0, handbrake: false, braking: false, reversing: false, siren: false, horn: false, lights: 'auto' }, status: { health: 1000, burning: false, destroyed: false, flipped: false, airborne: false, inWater: false, wreckTime: 0, driver: 0, passengers: [0, 0, 0] }, rare: { kind: 'sedan', color: 0xff0000, owner: 'traffic', dentVersion: 0, dents: [] } }
           : { id, motion: motion(tick) }];
         if (tick > every && rnd() < 0.02) {
           dropped++;

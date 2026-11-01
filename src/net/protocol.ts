@@ -23,7 +23,7 @@ import { ProtocolError, Reader, Writer } from './wire';
 export { ProtocolError, Reader, Writer } from './wire';
 
 export const MAGIC = 0x47;
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const HEADER_BYTES = 3;
 
 export const MESSAGE_TYPES = ['hello', 'welcome', 'reject', 'input', 'snapshot', 'event', 'cmd', 'ping', 'pong', 'bye'] as const;
@@ -216,7 +216,7 @@ const AXES = ['NS', 'EW'] as const;
 // ---------------------------------------------------------------------------
 // PlayerInput (input message)
 
-const INPUT_FLAGS = ['sprint', 'jump', 'fire', 'firePressed', 'aim', 'enterExit', 'interact', 'reload', 'nextWeapon', 'prevWeapon', 'steerDigital', 'handbrake', 'horn', 'hornPressed', 'job'] as const;
+const INPUT_FLAGS = ['sprint', 'jump', 'fire', 'firePressed', 'aim', 'enterExit', 'interact', 'reload', 'nextWeapon', 'prevWeapon', 'steerDigital', 'handbrake', 'horn', 'hornPressed', 'lightsPressed', 'job'] as const;
 export type InputFlag = (typeof INPUT_FLAGS)[number];
 export const INPUT_FLAG_NAMES: readonly InputFlag[] = INPUT_FLAGS;
 
@@ -295,7 +295,8 @@ const vehicleEngine: Codec<VehicleEngine> = {
     wAxis8(w, v.throttle);
     wAxis8(w, v.brake);
     wAxis8(w, v.ctlSteer);
-    flagsOut(w, [v.handbrake, v.braking, v.reversing, v.siren, v.horn]);
+    // The headlight switch in two bits: on, off (neither: auto).
+    flagsOut(w, [v.handbrake, v.braking, v.reversing, v.siren, v.horn, v.lights === 'on', v.lights === 'off']);
   },
   r(r) {
     const rpm = rFrac(r);
@@ -304,8 +305,9 @@ const vehicleEngine: Codec<VehicleEngine> = {
     const throttle = rAxis8(r);
     const brake = rAxis8(r);
     const ctlSteer = rAxis8(r);
-    const [handbrake, braking, reversing, siren, horn] = flagsIn(r, 5) as [boolean, boolean, boolean, boolean, boolean];
-    return { rpm, gear, skid, throttle, brake, ctlSteer, handbrake, braking, reversing, siren, horn };
+    const [handbrake, braking, reversing, siren, horn, on, off] = flagsIn(r, 7) as [boolean, boolean, boolean, boolean, boolean, boolean, boolean];
+    if (on && off) throw new ProtocolError('value', 'headlights both on and off');
+    return { rpm, gear, skid, throttle, brake, ctlSteer, handbrake, braking, reversing, siren, horn, lights: on ? 'on' : off ? 'off' : 'auto' };
   },
 };
 

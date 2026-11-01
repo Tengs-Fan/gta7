@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/core/rng';
+import { INPUT_FLAG_NAMES } from '../../src/net/protocol';
 import { neutralInput, type PlayerInput } from '../../src/sim/input';
 import { EDGE_FLAGS, InputLatch, type EdgeFlag } from '../../server/latch';
 
@@ -97,6 +98,17 @@ describe('server input latching', () => {
     expect(latch.next().jump).toBe(true);
     expect(latch.next().jump).toBe(true);
     expect(latch.next().jump).toBe(false);
+  });
+
+  it('every single-frame press of the input is queued as one, so none repeats while no newer input arrives', () => {
+    const presses = INPUT_FLAG_NAMES.filter((f) => f.endsWith('Pressed'));
+    expect(presses).toContain('lightsPressed');
+    for (const f of presses) {
+      expect(EDGE_FLAGS, f).toContain(f);
+      const latch = new InputLatch();
+      latch.push(1, { ...neutralInput(), [f]: true });
+      expect(Array.from({ length: 5 }, () => latch.next()[f as EdgeFlag]), f).toEqual([true, false, false, false, false]);
+    }
   });
 
   it('an input with an older seq never overrides a newer one, and is not applied', () => {

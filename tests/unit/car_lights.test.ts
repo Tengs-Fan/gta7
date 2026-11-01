@@ -29,8 +29,10 @@ import { darkness } from '../../src/sim/clock';
 import type { LampSwitch, Vehicle } from '../../src/sim/entities';
 import { lampDarkness, lampsLit, lampsPowered, LAMPS_DARK } from '../../src/sim/lamps';
 import type { VehicleKind } from '../../src/sim/specs';
+import { neutralInput } from '../../src/sim/input';
 import type { Sim } from '../../src/sim/sim';
 import { input, makeSim, step, world } from './helpers';
+import { makeClient, run, testManager, VirtualClock } from './net_client_helpers';
 
 const sim = makeSim({ world: world() });
 const at = sim.world.layout.bounds.beachStartX + 30;
@@ -266,5 +268,41 @@ describe('the press', () => {
     const others = sim.vehicles.filter((u) => u !== v);
     expect(others.length).toBeGreaterThan(0);
     expect(others.every((u) => u.lights === 'auto')).toBe(true);
+  });
+});
+
+describe('the switch in multiplayer', () => {
+  it('a client’s press reaches the room once, and the lamps and the message reach the right players', () => {
+    const clock = new VirtualClock();
+    const mgr = testManager({ dev: true });
+    const a = makeClient(mgr, clock, { seed: 1 });
+    const b = makeClient(mgr, clock, { seed: 2 });
+    run(mgr, clock, [a, b], 1.5);
+    const room = mgr.room('r')!.sim;
+    room.clock.set(23);
+    const driver = room.players[a.mirror.slot]!.character;
+    const car = room.spawnVehicle('sedan', driver.pos.x + 3, driver.pos.z, 0);
+    room.seat(driver, car, 0);
+    run(mgr, clock, [a, b], 1);
+    const seen = (c: typeof a) => c.mirror.vehicle(car.id)?.lights;
+    expect([car.lights, seen(a), seen(b)]).toEqual(['auto', 'auto', 'auto']);
+    const said = { a: [] as string[], b: [] as string[] };
+    a.mirror.events.on('message', (e) => said.a.push(e.text));
+    b.mirror.events.on('message', (e) => said.b.push(e.text));
+    // One frame of the press: the latch gives the room exactly one tick of it, so the switch moves once (not each tick).
+    const press = (): void => {
+      let pressed = false;
+      run(mgr, clock, [a, b], 0.5, {
+        input: (c) => (c === a && !pressed ? { ...neutralInput(), lightsPressed: true } : null),
+        afterFrame: (c) => {
+          if (c === a) pressed = true;
+        },
+      });
+    };
+    press();
+    expect([car.lights, seen(a), seen(b)]).toEqual(['off', 'off', 'off']);
+    press();
+    expect([car.lights, seen(a), seen(b)]).toEqual(['on', 'on', 'on']);
+    expect(said).toEqual({ a: ['Headlights off', 'Headlights on'], b: [] });
   });
 });
