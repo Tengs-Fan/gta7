@@ -34,7 +34,7 @@ export interface EngineParams {
   roar: number;
   /** Wind noise, (speed / 50)^2. */
   wind: number;
-  /** Depth (Hz) of the random cycle-to-cycle wobble on the cycle frequency: no two combustion cycles are alike. */
+  /** Depth (Hz) of the random cycle-to-cycle wobble on the cycle frequency: a little, so the pulses are not a pure synth tone. */
   jitterHz: number;
 }
 
@@ -74,7 +74,7 @@ export function engineParams(kind: VehicleKind, rpm01: number, throttle: number,
   o.exhaustLevel = level * (0.05 + 0.22 * th) * (0.7 + 0.6 * p.roughness);
   o.roar = Math.min(0.35, ROAR_K * Math.pow(sp, 1.2) * (soft ? dbToGain(3) : 1));
   o.wind = WIND_K * Math.min(1.5, (sp / 50) ** 2);
-  o.jitterHz = o.cycleHz * (0.008 + 0.025 * p.roughness);
+  o.jitterHz = o.cycleHz * (0.004 + 0.0125 * p.roughness);
   return o;
 }
 

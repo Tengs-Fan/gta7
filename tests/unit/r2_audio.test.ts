@@ -412,9 +412,10 @@ describe('engine profiles', () => {
   it('every engine wobbles a little from cycle to cycle, rough ones more', () => {
     const smooth = engineParams('sports', 0.5, 1, 20);
     const rough = engineParams('scooter', 0.5, 1, 20);
-    expect(smooth.jitterHz / smooth.cycleHz).toBeGreaterThan(0.005);
+    expect(smooth.jitterHz / smooth.cycleHz).toBeGreaterThan(0.003);
     expect(rough.jitterHz / rough.cycleHz).toBeGreaterThan(smooth.jitterHz / smooth.cycleHz);
-    expect(rough.jitterHz / rough.cycleHz).toBeLessThan(0.03);
+    // Half of what it was (3%): a little rasp, not a rough voice.
+    expect(rough.jitterHz / rough.cycleHz).toBeLessThan(0.015);
   });
 
   it('builds a unit-RMS pulse wave whose V8 burble sits at half the firing frequency', () => {
