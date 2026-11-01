@@ -82,7 +82,8 @@ describe('the map legend', () => {
     const sim = makeSim({ ambient: false });
     const kinds = [...new Set(sim.world.layout.pois.map((p) => p.kind))];
     const icons = new Set(collectBlips(sim, 0, 0, { map: true }).map((b) => b.kind));
-    // The bank and the Marina are mission places; a contact's place carries his icon while he has work.
+    // The bank and the Marina are mission places; a contact's place carries his icon while he has work. A new POI kind
+    // stops here on purpose: give it a kind in KINDS, or add it to this list.
     const without = kinds.filter((k) => !icons.has(k));
     expect(without.sort()).toEqual(['bank', 'contactDex', 'contactLou', 'contactVera', 'marina']);
   });
