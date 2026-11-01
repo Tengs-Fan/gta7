@@ -5,7 +5,7 @@ import { formatMoney } from '../core/math';
 import { activityKinds, getActivity, type Objective } from '../sim/activities';
 import { REGATTA_GATE_R, REGATTA_GATES, REGATTA_START } from '../sim/activities/regatta';
 import { GANGS, turfZones } from '../sim/gangs';
-import type { Marker } from '../sim/interactions';
+import { MP_NO_PROPERTY, type Marker } from '../sim/interactions';
 import { CONTACTS, contactById, findContact } from '../sim/missions/contacts';
 import { playerOf, type ViewState } from '../sim/viewState';
 import { playerColor } from '../sim/appearance';
@@ -417,6 +417,8 @@ export function legendRows(blips: readonly Blip[], live: readonly string[]): Arr
 
 /** What a hover on an interaction marker's icon says after its name. */
 function markerDetail(sim: ViewState, m: Marker): string | undefined {
+  // A multiplayer client's properties, which cannot be bought there, say so instead of their price.
+  if (m.label === MP_NO_PROPERTY) return m.label;
   if (m.blip === 'garage') return `${formatMoney(GARAGE_PRICE)} · stores ${GARAGE_SLOTS} cars`;
   if (m.blip === 'business') return `${formatMoney(BUSINESS_PRICE)} · pays ${formatMoney(BUSINESS_DAILY)} a day`;
   if (m.kind === 'monorail') return `${sim.world.layout.monorail.stations[Number(m.ref)]!.name} station`;

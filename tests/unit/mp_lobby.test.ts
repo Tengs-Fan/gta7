@@ -513,6 +513,23 @@ describe('single-player places in multiplayer', () => {
     expect(prompt(c0.start.x + 5, c0.start.z, true)).toBe(`Press T to race ${c0.name} head-to-head`);
     expect(prompt(c0.start.x + 40, c0.start.z, true)).toBeNull();
   });
+
+  it("a client's map names the properties with why they cannot be bought, not their price", () => {
+    const r = room();
+    const a = join(r, 1, 'Ann');
+    steps(r, 3);
+    const m = new Mirror({ world: new StaticWorld() });
+    m.applyWelcome(a.peer.last('welcome')!);
+    for (const s of a.peer.of('snapshot')) m.applySnapshot(s, 0);
+    const props = collectBlips(m, 0, 1, { map: true }).filter((b) => b.category === 'properties');
+    expect(props.map((b) => [b.kind, b.detail])).toEqual([
+      ['garage', MP_NO_PROPERTY],
+      ['business', MP_NO_PROPERTY],
+    ]);
+    // In single player they say their price.
+    const sp = new Sim({ world: world(), ambient: false, police: false });
+    expect(collectBlips(sp, 0, 0, { map: true }).find((b) => b.kind === 'garage')!.detail).toMatch(/^\$15,000 · stores/);
+  });
 });
 
 describe('the MULTIPLAYER screen', () => {
