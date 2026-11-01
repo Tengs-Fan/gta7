@@ -134,7 +134,8 @@ test.describe('the horn and the headlight switch', () => {
     const off = await lamps(page);
     expect(off.switch).toBe('auto');
     expect(off.lit).toBe(false);
-    expect(off.head).toBe(0);
+    // Back to what it was before the first press: the faint daytime glow of a driven car on `auto`, no tail lamp.
+    expect(off.head).toBeCloseTo(auto.head, 3);
     expect(off.tail).toBe(0);
     expect(off.toast).toBe('Headlights off');
     expect(errors).toEqual([]);
