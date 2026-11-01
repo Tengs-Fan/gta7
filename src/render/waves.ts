@@ -4,6 +4,8 @@
 // Free of three.js: the GLSL is plain strings and the CPU twin is used by tests. Visual only: the sim's sea
 // stays flat at WATER_Y.
 
+import { SEABED_Y, WATER_Y } from '../world/constants';
+
 export interface Wave {
   /** Wavelength (m). */
   length: number;
@@ -40,6 +42,44 @@ export const SKIRT_EXTENT = 3000;
 export const COARSE_CELL = 4;
 /** Sea state with no weather (calm). */
 export const CALM_SEA = 0.3;
+
+/**
+ * The sea's shelter and depth on a square lattice over the world (render/seaShelter.ts bakes it; the shaders sample it
+ * as a texture): per point the share of the open sea's waves that reach it (0 in a harbour or at a quay, 1 offshore),
+ * the drawn water's depth (m, negative on land) and that depth's gradient along x and z. Point (i, j) is centred on
+ * (minX + (i + 0.5) cell, minZ + (j + 0.5) cell), four values per point, rows along +x going +z. Past its edge the sea
+ * is as at the edge, open and deep.
+ */
+export interface ShelterMap {
+  minX: number;
+  minZ: number;
+  cell: number;
+  nx: number;
+  nz: number;
+  data: Float32Array;
+}
+
+/** The open sea where there is no map: unsheltered, and as deep as the sim's seabed. */
+export const OPEN_SEA: readonly number[] = [1, WATER_Y - SEABED_Y, 0, 0];
+
+/** CPU twin of the shaders' seaShelterAt: the map sampled bilinearly at (x, z), clamped at its edge, into `out`. */
+export function shelterAt(m: ShelterMap | null, x: number, z: number, out: number[] = [0, 0, 0, 0]): number[] {
+  if (!m) {
+    for (let c = 0; c < 4; c++) out[c] = OPEN_SEA[c]!;
+    return out;
+  }
+  const u = Math.min(m.nx - 1, Math.max(0, (x - m.minX) / m.cell - 0.5));
+  const v = Math.min(m.nz - 1, Math.max(0, (z - m.minZ) / m.cell - 0.5));
+  const i = Math.min(Math.floor(u), m.nx - 2);
+  const j = Math.min(Math.floor(v), m.nz - 2);
+  const tu = u - i;
+  const tv = v - j;
+  const d = m.data;
+  const k = (j * m.nx + i) * 4;
+  const k2 = k + m.nx * 4;
+  for (let c = 0; c < 4; c++) out[c] = (d[k + c]! * (1 - tu) + d[k + 4 + c]! * tu) * (1 - tv) + (d[k2 + c]! * (1 - tu) + d[k2 + 4 + c]! * tu) * tv;
+  return out;
+}
 
 const G = 9.81;
 const TAU = Math.PI * 2;
