@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { axisOf, type Dir } from '../world/roads';
 import type { StaticWorld } from '../world/staticWorld';
+import { lensAt, signalLayout, type SignalHead } from './furniture';
 import type { LightSprites } from './lightSprites';
 import { STREAK_RANGE } from './lightSprites';
-import { LAMP_HEAD } from './props';
+import { LAMP_HEAD, placed } from './props';
+import { signalStyle } from './signalHeads';
 
 /** A traffic signal's lit bulb as a wet-road streak light: linear colour at full strength. */
 export const SIGNAL_STREAK: Readonly<Record<'red' | 'yellow' | 'green', readonly [number, number, number]>> = {
@@ -11,21 +13,22 @@ export const SIGNAL_STREAK: Readonly<Record<'red' | 'yellow' | 'green', readonly
   yellow: [0.95, 0.45, 0.03],
   green: [0.05, 0.95, 0.38],
 };
-/** Bulb heights on the signal head (as props.ts builds them: red on top) and their reach out of the pole. */
-const BULB_Y = { red: 4.88, yellow: 4.55, green: 4.22 } as const;
-const BULB_Z = 0.21;
+const LENS = { red: 0, yellow: 1, green: 2 } as const;
 
 /** A small, stable pool of real lamp light: cars and facades pick up warm light as they pass. */
 export class StreetLighting {
   readonly group = new THREE.Group();
   private readonly lamps: number[];
   private readonly signals: number[];
+  /** Each signal's first head (signalLayout: the one on its pole in the city, Dry Creek's hanging one), whose lit lens streaks. */
+  private readonly signalHeads: SignalHead[];
   private readonly slots: Array<{ light: THREE.SpotLight; lamp: number; fade: number }> = [];
 
   constructor(private readonly world: StaticWorld) {
     this.group.name = 'street-lighting';
     this.lamps = world.layout.props.flatMap((p, i) => p.kind === 'lamp' ? [i] : []);
     this.signals = world.layout.props.flatMap((p, i) => p.kind === 'signal' ? [i] : []);
+    this.signalHeads = this.signals.map((i) => signalLayout(signalStyle(world.roads, world.layout.props[i]!)).heads[0]!);
     for (let i = 0; i < 6; i++) {
       const light = new THREE.SpotLight(0xffd09a, 0, 22, 1.12, 0.75, 2);
       this.group.add(light, light.target);
@@ -71,15 +74,15 @@ export class StreetLighting {
   offerSignalStreaks(sprites: LightSprites, camera: THREE.Vector3, signalTime: number): void {
     const props = this.world.layout.props;
     const roads = this.world.roads;
-    for (const i of this.signals) {
+    this.signals.forEach((i, k) => {
       const p = props[i]!;
       const dx = p.x - camera.x;
       const dz = p.z - camera.z;
-      if (dx * dx + dz * dz > STREAK_RANGE * STREAK_RANGE || this.broken(i)) continue;
+      if (dx * dx + dz * dz > STREAK_RANGE * STREAK_RANGE || this.broken(i)) return;
       const st = roads.signalState(p.node, axisOf(p.dir as Dir), signalTime);
       const c = SIGNAL_STREAK[st];
-      sprites.offerStreakLight(p.x + Math.sin(p.rot) * BULB_Z, p.y + BULB_Y[st], p.z + Math.cos(p.rot) * BULB_Z, c[0], c[1], c[2]);
-    }
+      sprites.offerStreakLight(...placed(p, ...lensAt(this.signalHeads[k]!, LENS[st])), c[0], c[1], c[2]);
+    });
   }
 
   private broken(i: number): boolean {

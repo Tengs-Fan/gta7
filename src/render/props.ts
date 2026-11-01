@@ -76,7 +76,7 @@ function foliageParts(q: Prop) {
 }
 
 /** PropsView.standard's placement of a point given in a prop's frame: turned by rot about Y, scaled, at the prop. */
-function placed(q: Prop, x: number, y: number, z: number): [number, number, number] {
+export function placed(q: Prop, x: number, y: number, z: number): [number, number, number] {
   const cos = Math.cos(q.rot);
   const sin = Math.sin(q.rot);
   return [q.x + (x * cos + z * sin) * q.scale, q.y + y * q.scale, q.z + (z * cos - x * sin) * q.scale];

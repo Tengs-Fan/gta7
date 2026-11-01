@@ -216,19 +216,34 @@ describe('which signals reach over the road', () => {
     expect(heads).toBeGreaterThan(400);
   });
 
+  it('Dry Creek\'s heads hang from its span wires, each over the middle of its approach\'s inner lane', () => {
+    const span = signals.filter((q) => signalStyle(roads, q) === 'span');
+    expect(span.length).toBe(4);
+    for (const p of span) {
+      const [h] = signalLayout('span').heads;
+      const at = world(p, [h!.x, h!.y, h!.z]);
+      const inner = roads.lanes.find((l) => l.to === p.node && l.dir === p.dir && l.index === 0)!;
+      const across = (v: { x: number; z: number }) => (axisOf(p.dir as Dir) === 'NS' ? v.x : v.z);
+      expect(Math.abs(across(at) - across({ x: inner.ex, z: inner.ez })), `${p.dir}`).toBeLessThan(0.05);
+      // Inside the junction's box, facing the traffic coming in.
+      const node = roads.nodes[p.node]!;
+      expect(Math.max(Math.abs(at.x - node.x), Math.abs(at.z - node.z))).toBeLessThan(node.halfX);
+    }
+  });
+
   it('nothing over the road hangs lower than 2.5 m over the tallest vehicle, or any chase camera at its normal zoom', () => {
     const tallest = Math.max(...Object.values(VEHICLE_SPECS).map((s) => s.height));
     // The chase camera's height over the road at rest, from its look point CHASE_TARGET_Y up the vehicle.
     const camera = Math.max(...Object.values(VEHICLE_SPECS).filter((s) => s.class !== 'boat').map((s) => s.height * CHASE_TARGET_Y + chaseOffset(s, 0, false).up));
-    for (const style of ['mast', 'bracket'] as const) {
+    for (const style of STYLES) {
       const pos = signalGeometry(style).getAttribute('position');
       let low = Infinity;
       let over = 0;
       for (let i = 0; i < pos.count; i++) {
-        // Past the kerb, PROP_INSET from the pole, on the signal's kerb.
+        // Past the road's edge, PROP_INSET from the pole: on a city signal's kerb, on Dry Creek's ground.
         if (pos.getX(i) >= -PROP_INSET) continue;
         over++;
-        low = Math.min(low, pos.getY(i) + CURB_H);
+        low = Math.min(low, pos.getY(i) + (style === 'span' ? 0 : CURB_H));
       }
       console.log(`[signals] ${style}: lowest over the road ${low.toFixed(2)} m (tallest vehicle ${tallest} m, highest chase camera ${camera.toFixed(2)} m)`);
       expect(over).toBeGreaterThan(100);
@@ -246,7 +261,8 @@ describe('which signals reach over the road', () => {
       expect(tris).toBeLessThan(3000);
       expect(Math.abs(g.boundingBox!.min.y)).toBeLessThan(0.02);
     }
-    for (const style of ['mast', 'bracket'] as const) expect(signalGeometry(style).userData.parts).toEqual(expect.arrayContaining(['pole', 'arm', 'head', 'lens', 'visor', 'backplate', 'border', 'count']));
+    for (const style of ['mast', 'bracket'] as const) expect(signalGeometry(style).userData.parts).toEqual(expect.arrayContaining(['pole', 'arm', 'head', 'lens', 'visor', 'backplate', 'border', 'count', 'walk']));
+    expect(signalGeometry('span').userData.parts).toEqual(expect.arrayContaining(['pole', 'wire', 'hanger', 'head', 'lens', 'visor', 'backplate', 'border', 'count', 'walk']));
   });
 });
 

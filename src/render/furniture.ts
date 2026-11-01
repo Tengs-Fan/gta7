@@ -213,6 +213,31 @@ const OVER: Omit<SignalHead, 'x'> = { y: OVER_Y, z: 0.12, turn: 0, across: true,
 /** How far in (local -x) from a city signal's pole the centre of the lane `k` lanes from the kerb lies, on a road `width` wide. */
 const laneIn = (width: number, k: number) => -(width / 2 + PROP_INSET - LANE_W * (k + 0.5));
 
+/**
+ * Las Lomas County's junction at Dry Creek, 16 m across: from each corner's wooden pole a span wire runs to the
+ * junction's middle (local -SPAN_MID, -SPAN_MID), the four meeting there, and each approach's head hangs from its corner's
+ * wire over the approach's inner lane, under its countdown, the backplate's foot 6.1 m over the road.
+ */
+const SPAN_MID = 8 + PROP_INSET;
+const SPAN_TOP = 9;
+/** Where the wire leaves the pole and where it meets the others, and how far it sags between. */
+const SPAN_FROM = 8.7;
+const SPAN_TO = 7.95;
+const SPAN_SAG = 0.2;
+/** The point the head hangs from: over the inner lane's middle, LANE_W / 2 from the centre line. */
+const SPAN_AT = -SPAN_MID + LANE_W / 2;
+const SPAN_HEAD: SignalHead = { x: SPAN_AT, y: 6.75, z: SPAN_AT + 0.12, turn: 0, across: false, lens: 0.25, gap: 0.34 };
+/** A wooden pole is thicker than a steel one: its walk heads stand a little further out. */
+const SPAN_WALKS: readonly SignalFace[] = WALKS.map((w) => {
+  const [x, y, z] = onFace(w, 0, 0, 0.04);
+  return { x, y, z, turn: w.turn };
+});
+
+/** The span wire's height at `s` (0 at the pole, 1 at the junction's middle). */
+function spanY(s: number): number {
+  return SPAN_FROM + (SPAN_TO - SPAN_FROM) * s - SPAN_SAG * 4 * s * (1 - s);
+}
+
 const SIGNAL_LAYOUTS: Readonly<Record<SignalStyle, SignalLayout>> = {
   mast: {
     heads: [NEAR_HEAD, { ...OVER, x: laneIn(AVENUE_W, 0) }, { ...OVER, x: laneIn(AVENUE_W, 1) }],
@@ -224,7 +249,7 @@ const SIGNAL_LAYOUTS: Readonly<Record<SignalStyle, SignalLayout>> = {
     counts: [NEAR_COUNT, { x: laneIn(STREET_W, 0) + 1.05, y: OVER_Y + 0.04, z: 0.08, turn: 0, h: 0.4 }],
     walks: WALKS,
   },
-  span: { heads: [NEAR_HEAD], counts: [], walks: [] },
+  span: { heads: [SPAN_HEAD], counts: [{ x: SPAN_AT, y: 7.5, z: SPAN_AT + 0.08, turn: 0, h: 0.3 }], walks: SPAN_WALKS },
 };
 
 /** Where a signal of this style has its lit parts. */
@@ -296,6 +321,26 @@ function signalPole(b: ModelBuilder): void {
   b.add('cap', new THREE.SphereGeometry(0.125, 12, 3, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, POLE_TOP, 0), POLE, 0.9);
 }
 
+const WOOD_POLE = 0x5e4a36;
+
+/** Dry Creek's corner (SPAN_MID): the wooden pole, its half of the span wire, and its approach's head and countdown hanging from it. */
+function spanWire(b: ModelBuilder): void {
+  b.add('pole', cyl(0.15, 0.19, SPAN_TOP, 10, 0, 0, 0, true), WOOD_POLE);
+  b.add('cap', cyl(0.16, 0.16, 0.04, 10, 0, SPAN_TOP, 0), WOOD_POLE, 0.8);
+  b.add('clamp', cyl(0.2, 0.2, 0.12, 10, 0, SPAN_FROM - 0.06, 0), POLE, 0.8);
+  const wire = new THREE.CatmullRomCurve3(Array.from({ length: 9 }, (_, k) => v3((-SPAN_MID * k) / 8, spanY(k / 8), (-SPAN_MID * k) / 8)));
+  b.add('wire', new THREE.TubeGeometry(wire, 16, 0.016, 4), 0x26282b);
+  b.add('wire', new THREE.SphereGeometry(0.06, 6, 4).translate(-SPAN_MID, SPAN_TO, -SPAN_MID), 0x26282b);
+  vehicleHead(b, SPAN_HEAD);
+  const count = SIGNAL_LAYOUTS.span.counts[0]!;
+  countBox(b, count);
+  // Under the wire, the countdown box on a hanger and the head under it.
+  const top = count.y + count.h * 0.7;
+  b.add('hanger', box(0.04, spanY(-SPAN_AT / SPAN_MID) - top, 0.04, SPAN_AT, (spanY(-SPAN_AT / SPAN_MID) + top) / 2, SPAN_AT), HOUSING);
+  const head = SPAN_HEAD.y + 1.5 * SPAN_HEAD.gap;
+  b.add('hanger', box(0.04, count.y - count.h * 0.7 - head, 0.04, SPAN_AT, (count.y - count.h * 0.7 + head) / 2, SPAN_AT), HOUSING);
+}
+
 /**
  * A traffic signal of `style` (SignalStyle): its pole, the head on it with its countdown, its walk heads and, for an arm
  * over the road, the arm with its tie rod, the heads hanging from it and their countdown, all where signalLayout puts
@@ -304,6 +349,11 @@ function signalPole(b: ModelBuilder): void {
 export function signalGeometry(style: SignalStyle): THREE.BufferGeometry {
   const layout = SIGNAL_LAYOUTS[style];
   const b = new ModelBuilder();
+  if (style === 'span') {
+    spanWire(b);
+    for (const w of layout.walks) walkHead(b, w);
+    return b.build('signal-span');
+  }
   signalPole(b);
   const reach = ARM_REACH[style];
   if (reach > 0) {
