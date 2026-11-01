@@ -70,10 +70,11 @@ const SMOKE_CONDITION = 0.45;
 export const HEADLIGHT_INTENSITY = 160;
 /**
  * The player's own headlight pool where the spot lights the road too, as a share of the pool every other lit car draws.
- * From the chase camera the pool shows above the roof: at full strength (or half) it is a white slab over the bonnet,
- * at a quarter the road ahead reads as lit asphalt (luma 106 at 5 m, 67 at 10 m, against 35 and 22 with the spot alone).
+ * The pool multiplies what the road already shows and the spot has lit the road just ahead of the car first, so a full
+ * pool there glares from the chase camera: at 0.4 the county road at 23:00 reads luma 121, 91, 52 and 43 at 5, 7, 10 and
+ * 13 m ahead of the bumper (19 with the lamps off, 38, 27, 21 and 21 with the spot alone).
  */
-export const PLAYER_POOL = 0.25;
+export const PLAYER_POOL = 0.4;
 const SIREN_DAY = 25;
 const SIREN_NIGHT = 25;
 const SIREN_RANGE = 12;
@@ -174,7 +175,7 @@ export class GameRenderer {
   readonly crowd = new CrowdView();
   readonly effects = new Effects();
   readonly markers = new MarkerView();
-  readonly lightSprites = new LightSprites();
+  readonly lightSprites: LightSprites;
   /** Contact shadows under the people near the camera (every tier). */
   readonly footShadows = new FootShadows();
   /** The wall-occlusion field's texture (hardware tiers; null on software renderers, whose stand-ins skip it). */
@@ -264,6 +265,7 @@ export class GameRenderer {
     this.software = gpuClass(gpu.renderer) === 'software';
     this.softwareMaterials = this.software ? new SoftwareMaterials() : null;
     this.hdr = gpu.halfFloat && !this.software;
+    this.lightSprites = new LightSprites(this.hdr);
     // Garage interiors and the occlusion at the foot of walls: patched into three's lighting chunks before the first program is built.
     const field = this.software ? null : wallFieldOf(world.layout);
     this.wallField = field ? wallFieldTexture(field) : null;
