@@ -748,7 +748,7 @@ describe('without float colour buffers', () => {
       return shader;
     };
     const sea = seaShader(r.env);
-    expect(sea.fragmentShader).toContain('radiance += skyC * uSkyI');
+    expect(sea.fragmentShader).toContain('return mix( uSkyHorizon, uSkyTop, smoothstep( 0.0, 0.6, r.y ) ) * uSkyI * uSkyLift + glow;');
     show(18.6);
     expect((sea.uniforms.uSkyHorizon!.value as THREE.Color).r, 'the sunset horizon').toBeGreaterThan((sea.uniforms.uSkyHorizon!.value as THREE.Color).b);
     expect(sea.uniforms.uSkyI!.value).toBeCloseTo(r.scene.environmentIntensity, 6);
@@ -757,7 +757,8 @@ describe('without float colour buffers', () => {
     hdr.show(12);
     expect((hdr.r.env as unknown as EnvPriv).pmrem).toBeTruthy();
     expect(hdr.r.env.envFill).toBeNull();
-    expect(seaShader(hdr.r.env).fragmentShader).not.toContain('uSkyI');
+    // The map's branch is compiled in its place, and the baked sky's uniforms are not bound.
+    expect('uSkyI' in seaShader(hdr.r.env).uniforms).toBe(false);
   });
 
   it('every custom shader drawn to the screen tone-maps and sRGB-encodes its own output when there is no output pass', () => {
