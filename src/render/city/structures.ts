@@ -54,7 +54,7 @@ export function buildStructures(view: CityView): void {
     sides.tri(...bq, ...e, ...c, [0, 0, 1, 0, 1, 1], [0.95, 0.8, 0.1]);
     sides.tri(...a, ...d, ...f, [0, 0, 1, 1, 1, 0], [0.95, 0.8, 0.1]);
   }
-  const plateMat = new THREE.MeshStandardMaterial({ map: groundTexture('metal', 5), roughness: 0.55, metalness: 0.5, side: THREE.DoubleSide });
+  const plateMat = view.wet.patch(new THREE.MeshStandardMaterial({ map: groundTexture('metal', 5), roughness: 0.55, metalness: 0.5, side: THREE.DoubleSide }));
   view.add(plate.build(), plateMat, { shadow: true, name: 'ramps', split: false });
   // The side panels share the street decor's program (with three's own fog: PLAIN_FOG), as they shared the plain
   // decor program before the decor took the building fog, so no program of their own compiles in the frame a ramp first

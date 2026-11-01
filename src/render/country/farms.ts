@@ -337,7 +337,7 @@ export class FarmsView {
         dirt.quad(c[0][0], y(c[0][0], c[0][1]), c[0][1], c[1][0], y(c[1][0], c[1][1]), c[1][1], c[2][0], y(c[2][0], c[2][1]), c[2][1], c[3][0], y(c[3][0], c[3][1]), c[3][1], c.flatMap(([cx, cz]) => [cx / 6, cz / 6]));
       }
     }
-    view.add(dirt.build(), new THREE.MeshStandardMaterial({ map: groundTexture('dirt'), roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), { name: 'farm-dirt', split: false });
+    view.add(dirt.build(), view.city.wet.patch(new THREE.MeshStandardMaterial({ map: groundTexture('dirt'), roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })), { name: 'farm-dirt', split: false });
 
     // The windpump's wheel: eighteen sails round a rim, facing +z on its hub over the tower.
     const pump = layout.props[farms.windpump]!;

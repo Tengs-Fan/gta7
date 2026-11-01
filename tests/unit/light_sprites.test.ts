@@ -383,6 +383,31 @@ function compiled(mat: THREE.Material): { vertexShader: string; fragmentShader: 
   return shader;
 }
 
+/** A mesh within this many metres of the world's ground (up or down) lies on it. */
+const GROUND_NEAR = 0.6;
+/** A mesh with this many square metres of ground surface is ground, not the sill of a door. */
+const MIN_GROUND_AREA = 100;
+
+/** The area (m2) of `mesh`'s level triangles that lie on the world's ground: what a car drives or a person walks on. */
+function levelGroundArea(mesh: THREE.Mesh, w: StaticWorld): number {
+  const pos = mesh.geometry.getAttribute('position');
+  const index = mesh.geometry.getIndex();
+  const [a, b, c, n, mid] = [0, 1, 2, 3, 4].map(() => new THREE.Vector3());
+  const tri = new THREE.Triangle(a, b, c);
+  let area = 0;
+  for (let t = 0; t < (index ? index.count : pos.count) / 3; t++) {
+    const at = (k: number): number => (index ? index.getX(t * 3 + k) : t * 3 + k);
+    a!.fromBufferAttribute(pos, at(0)).applyMatrix4(mesh.matrixWorld);
+    b!.fromBufferAttribute(pos, at(1)).applyMatrix4(mesh.matrixWorld);
+    c!.fromBufferAttribute(pos, at(2)).applyMatrix4(mesh.matrixWorld);
+    tri.getNormal(n!);
+    if (Math.abs(n!.y) < 0.9) continue;
+    tri.getMidpoint(mid!);
+    if (Math.abs(mid!.y - w.groundHeight(mid!.x, mid!.z)) <= GROUND_NEAR) area += tri.getArea();
+  }
+  return area;
+}
+
 describe("a headlight pool's light", () => {
   it("is a light in the ground's own shading: it adds the albedo times its irradiance, whatever light the ground already has", () => {
     const ls = new LightSprites();
@@ -405,19 +430,44 @@ describe("a headlight pool's light", () => {
     ls.dispose();
   });
 
-  it('keeps any patch already on the ground material (wet ground, surface detail), and goes on every ground material once', () => {
+  it('lights every surface a car drives or a person walks on, once, and keeps the patches that surface already had', () => {
     const r = new GameRenderer(canvas(), W, { quality: 'high', fov: 68, gpu: HDR });
-    const ground = new Set<THREE.Material>([...r.city.wet.materials, ...r.city.ground.materials]);
-    expect(ground.size).toBeGreaterThan(10);
-    for (const mat of ground) {
-      const { fragmentShader: fs } = compiled(mat);
-      expect(fs.split('float headE').length - 1, mat.name).toBe(1);
-      expect(mat.customProgramCacheKey().split('gta7-headlights').length - 1, mat.name).toBe(1);
+    r.scene.updateMatrixWorld(true);
+    // The static ground, found by its geometry and not by a list of names: a mesh with MIN_GROUND_AREA m2 of level surface
+    // within GROUND_NEAR m of the world's ground, which a new road, track, field or ramp would be too. It must take the
+    // headlights unless it is on the short list of what stays dark by design.
+    const dark: Record<string, string> = {
+      'ground-decor': 'the street decor (planters, steps, porches), in the buildings\' fog program, a few square metres at each shop',
+    };
+    const ground = new Map<string, THREE.Material>();
+    const unlit: string[] = [];
+    for (const root of [r.city.group, r.country.group]) {
+      root.traverse((o) => {
+        // An unlit material (the drive-in's glow) has no light to add to; instanced plants are not the ground.
+        if (!(o instanceof THREE.Mesh) || o instanceof THREE.InstancedMesh || !(o.material instanceof THREE.MeshStandardMaterial)) return;
+        if (levelGroundArea(o, W) < MIN_GROUND_AREA) return;
+        ground.set(o.name, o.material);
+        const lit = o.material.customProgramCacheKey().includes('gta7-headlights');
+        if (!lit && !(o.name in dark)) unlit.push(o.name);
+      });
     }
-    const road = r.city.ground.materials.find((m) => m.name === 'ground-road')!;
-    const { fragmentShader: fs } = compiled(road);
-    expect(fs).toContain('wetK');
-    expect(fs).toContain('gRough');
+    expect(unlit).toEqual([]);
+    // The walk finds what it should: the roads and their ironwork, tracks, fields, ramps and the lawns and sand.
+    for (const name of ['roads', 'street-ironwork', 'sidewalks', 'country-roads', 'country-grass', 'beach', 'farm-dirt', 'field-wheat', 'field-soil', 'ramps']) expect([...ground.keys()], name).toContain(name);
+    for (const [name, mat] of ground) {
+      if (name in dark) continue;
+      const { fragmentShader: fs } = compiled(mat);
+      expect(fs.split('float headE').length - 1, name).toBe(1);
+      expect(mat.customProgramCacheKey().split('gta7-headlights').length - 1, name).toBe(1);
+    }
+    // The patches already there stay: the road's wetness and surface detail, the ironwork's wetness, the wheat's ripples.
+    const road = compiled(ground.get('roads')!).fragmentShader;
+    expect(road).toContain('wetK');
+    expect(road).toContain('gRough');
+    expect(compiled(ground.get('street-ironwork')!).fragmentShader).toContain('wetK');
+    const wheat = ground.get('field-wheat')!;
+    expect(compiled(wheat).fragmentShader).toContain('uWindAmp');
+    expect(wheat.customProgramCacheKey()).toContain('gta7-wheat-field');
     r.dispose();
   });
 
