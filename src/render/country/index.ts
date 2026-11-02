@@ -23,6 +23,7 @@ import { FieldsView } from './fields';
 import { buildCountryGround } from './ground';
 import { buildHills } from './hills';
 import { PlacesKit } from './kit';
+import { buildPoles } from './poles';
 import { Reflectors } from './reflectors';
 import { buildCountryRoads } from './roads';
 import { buildTown } from './town';
@@ -63,6 +64,7 @@ export class CountryView {
     buildBridge(this);
     buildHills(this);
     this.reflectors = new Reflectors(this);
+    buildPoles(this);
     this.farms = new FarmsView(this);
     this.fields = new FieldsView(this, wind);
     const kit = new PlacesKit();
