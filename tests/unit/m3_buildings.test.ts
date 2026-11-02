@@ -365,9 +365,11 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // Creek T's heads a stop sign and two lamps each, its landscape appended the ridge's turbines and tree belts, its
     // farms their props and its places theirs, and after every other collider the landscape its rises' sight cores and
     // Lookout Point's parapet and tower, then the farms' farmhouses and Dry Creek's stores, the farms' barns' walls and
-    // roofs and their hedgerows, and the places' solids (the town's, the drive-in's).
+    // roofs and their hedgerows, and the places' solids (the town's, the drive-in's); and the colliders again when the roadside
+    // oddities were appended after those: the mailboxes' and signs' props (a circle of half their width each), then the statics' solids and the telephone
+    // poles' (src/world/country/oddities.ts).
     expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
-    expect(c).toBe('5d48bb1240cc1a37da8d74764ac21311b8ad8e18b476ff2104b4915c76206f5d');
+    expect(c).toBe('7a341806ebe06010c322e3302ffb3f4f9009ad30ea3cf155470df09941cdcd7a');
   });
 });
 

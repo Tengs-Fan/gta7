@@ -23,8 +23,8 @@ export const MAP_SCALE = 1; // pixels per metre in the pre-rendered image
 const PACKAGE_COLOR = '#f5cd80';
 const RAMPAGE_COLOR = '#e8402c';
 
-/** Las Lomas County on the map: its beaches, its land, its plots by kind, and its roads by kind. */
-const COUNTY_COLORS = { beach: '#cdb77d', land: '#33503a', town: '#3c4147', farm: '#3b5c39', venue: '#4a4438', wild: '#2f4a33' } as const;
+/** Las Lomas County on the map: its beaches, its land, its plots by kind, the crop circle in a field, and its roads by kind. */
+const COUNTY_COLORS = { beach: '#cdb77d', land: '#33503a', town: '#3c4147', farm: '#3b5c39', venue: '#4a4438', wild: '#2f4a33', circle: '#cdbb78' } as const;
 const COUNTY_ROAD_COLORS = { highway: '#b0a46a', country: '#9aa1aa' } as const;
 
 export class MapImage {
@@ -73,6 +73,19 @@ export class MapImage {
     }
     for (const r of country.land) rect(r.minX, r.minZ, r.maxX, r.maxZ, COUNTY_COLORS.land);
     for (const p of country.plots) rect(p.rect.minX, p.rect.minZ, p.rect.maxX, p.rect.maxZ, COUNTY_COLORS[p.kind]);
+    // The crop circle mown into Halfmoon Acres' wheat (world/country/oddities.ts): the pattern in flattened straw.
+    const circle = country.oddities.cropCircle;
+    ctx.beginPath();
+    for (const m of circle.mown) {
+      ctx.moveTo(X(m.cx + m.r1), Z(m.cz));
+      ctx.arc(X(m.cx), Z(m.cz), m.r1 * MAP_SCALE, 0, Math.PI * 2);
+      if (m.r0 > 0) {
+        ctx.moveTo(X(m.cx + m.r0), Z(m.cz));
+        ctx.arc(X(m.cx), Z(m.cz), m.r0 * MAP_SCALE, 0, Math.PI * 2, true);
+      }
+    }
+    ctx.fillStyle = COUNTY_COLORS.circle;
+    ctx.fill();
     // Headlands, and the sea where it comes into the land.
     for (const h of world.layout.headlands) for (const r of h.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#3b4249');
     for (const w of world.layout.water) for (const r of w.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#1a4560');

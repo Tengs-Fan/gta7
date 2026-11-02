@@ -505,10 +505,12 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // integrated county head, where its traffic made the Hollister T's and the Creek T's heads a stop sign and two lamps
   // each, its landscape appended the ridge's turbines, tree belts and scrub (their envelopes too), its farms their props,
   // Dry Creek its pumps, billboards, lamps and benches and the Moonbeam Drive-In its speaker posts, then the landscape's
-  // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders.
+  // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders; and
+  // when the roadside oddities appended their nine mailboxes and signs (props of kind 'roadside', their colliders with the
+  // other county props', a circle of half the make's width each) and, after every other collider, their statics' solids and the telephone poles' (oddities.ts).
   const D98 = {
-    props: '1a83d08024e7d4d1e7e25a7a6d05b0197bda17775b24ee3f91ff331227d3cd16',
-    colliders: 'ce1e416eec515e1717a27984c44a7e38a327845690782fcb7984cf4008f129fc',
+    props: '38366df0395c944ef92104b54f91325d0cea00175646461439ca215c4be1fd26',
+    colliders: 'ab34fcb3ea4b02603d24f59fdf11d70be6a3aabcb930f67940a4155345db0c49',
     envelopes: '49a5db289f360a17852cb9a6af6b0a08e53e66fa3d0d64b11442a350cfb3b27e',
   };
 
@@ -664,8 +666,10 @@ describe('VAL-PRP-010 props stay instanced within budget', () => {
       if (o instanceof THREE.InstancedMesh) perGeo.set(o.geometry.uuid, (perGeo.get(o.geometry.uuid) ?? 0) + 1);
     });
     const cells = new Set(W.layout.props.map((p) => `${Math.floor(p.x / HARDWARE_CHUNK_SIZE)},${Math.floor(p.z / HARDWARE_CHUNK_SIZE)}`)).size;
-    console.log(`[props] ${meshes} prop meshes (d98da7b 387, cap ${Math.floor(387 * 1.5)}), ${tris} triangles over the whole city, ${cells} cells`);
-    expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5));
+    console.log(`[props] ${meshes} prop meshes (d98da7b 387, cap ${Math.floor(387 * 1.5) + 1}), ${tris} triangles over the whole city, ${cells} cells`);
+    // One more than 1.5 times: the county's roadside furniture (its mailboxes and signs, world/country/oddities.ts) is one
+    // instanced batch for every make of them (render/country/roadside.ts), the only mesh the oddities add to the props.
+    expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5) + 1);
     for (const n of perGeo.values()) expect(n).toBeLessThanOrEqual(cells + 4);
   });
 });

@@ -8,7 +8,7 @@
 import { Rng } from '../../core/rng';
 import type { AttractionSolid } from '../attractions';
 import { addProp, hashInts, mkRect, type CityLayout, type FacadeStyle, type Poi, type Rect, type Side } from '../layout';
-import { countryGround } from './index';
+import { countryGround, MOUTH_CLEAR } from './index';
 
 export type StoreKind = 'feed' | 'guns' | 'diner' | 'gas' | 'sheriff' | 'shop';
 
@@ -512,4 +512,6 @@ export function buildPlaces(layout: CityLayout): void {
   buildDryCreek(layout, rng, places);
   buildDriveIn(layout, places);
   buildTrack(layout, places);
+  // The drive-in's and Gravel Gulch's drives, for the poles to keep off.
+  layout.country.approaches.push({ rect: places.driveIn.drive, pad: MOUTH_CLEAR }, { rect: places.track.drive, pad: MOUTH_CLEAR });
 }

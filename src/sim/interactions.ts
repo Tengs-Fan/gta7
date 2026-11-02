@@ -8,6 +8,7 @@ import { monorailPrompt, rideMonorail } from './activities/monorail';
 import { places } from './activities/places';
 import { epitaphMarkers, readEpitaph } from './epitaphs';
 import { cowMarkers, cowPrompt, tipCow } from './farms';
+import { answerPayphone } from './payphone';
 import { formatMoney } from '../core/math';
 import { BUSINESS_DAILY, BUSINESS_NAME, BUSINESS_PRICE, buyProperty, GARAGE_PRICE, GARAGE_SLOTS, propertyState, storedCars } from './properties';
 import { Inventory } from './entities';
@@ -19,7 +20,9 @@ import { HELI_SIGHT } from './wanted';
 
 export type MarkerKind = 'mission' | 'gunshop' | 'save' | 'exportBoard' | 'courier' | 'garage' | 'business' | 'customs' | 'streetRun' | 'epitaph' | 'regatta' | 'monorail'
   | 'hillClimb'
-  | 'cow';
+  | 'cow'
+  // The payphone at the end of Hollister Lane, while it rings (sim/payphone.ts).
+  | 'payphone';
 
 export interface Marker {
   id: string;
@@ -303,6 +306,9 @@ export class Interactions {
         break;
       case 'cow':
         tipCow(sim, slot, Number(m.ref));
+        break;
+      case 'payphone':
+        answerPayphone(sim, slot);
         break;
       case 'garage':
       case 'business': {

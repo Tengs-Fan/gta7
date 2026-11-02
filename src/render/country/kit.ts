@@ -8,11 +8,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Atlas } from '../city/attractions';
 import { NO_RECT, setGroundAttribute } from '../city/surfaces';
 import { GeoBuilder, type RGB } from '../geo';
-import { toTexture } from '../textures/misc';
 import type { CountryView } from './index';
 
-/** The places' atlas: 1024 by ATLAS_H px. */
-const ATLAS_H = 4096;
 /** The height of the places' dirt over the flush ground. */
 export const DIRT_Y = 0.035;
 
@@ -24,7 +21,8 @@ export interface PlacePieces {
 }
 
 export class PlacesKit {
-  readonly atlas = new Atlas(ATLAS_H);
+  /** The places' atlas, 1024 px wide and as tall as its bands need: the places' boards took 4,696 px, which ran off the 4,096 it once was. */
+  readonly atlas = Atlas.growing();
   /** Packed dirt on the flush ground (lots, drives, the dirt track), all the places' in one draw of the city's dirt. */
   readonly dirt = new GeoBuilder(false);
   private readonly blank: [number, number];
@@ -60,8 +58,8 @@ export class PlacesKit {
     dirtMat.polygonOffsetUnits = -1;
     view.add(setGroundAttribute(this.dirt.build(), [], NO_RECT), dirtMat, { split: false, name: 'places-dirt' });
     const mat = new THREE.MeshStandardMaterial({
-      map: toTexture(this.atlas.canvas, true, false),
-      emissiveMap: toTexture(this.atlas.glowCanvas, true, false),
+      map: this.atlas.texture(),
+      emissiveMap: this.atlas.texture(true),
       emissive: new THREE.Color(0xffffff),
       emissiveIntensity: 0.4,
       vertexColors: true,

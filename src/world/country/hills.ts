@@ -8,7 +8,7 @@
 import { Rng } from '../../core/rng';
 import { addProp, hashInts, mkRect, type CityLayout, type Rect } from '../layout';
 import { CORE_INSET, ridgeBounds, riseAt, terrainCores, type Core, type Rise } from '../terrain';
-import { COUNTY_LAND, countryGround, type Country } from './index';
+import { COUNTY_LAND, countryGround, MOUTH_CLEAR, type Country } from './index';
 
 export const RIDGE_NAME = 'Coyote Ridge';
 
@@ -165,6 +165,8 @@ const SCRUB_CLEAR = 7;
 export function buildHills(layout: CityLayout): void {
   const country = layout.country;
   country.rises.push(...countyRises());
+  // The fire road's turn-off on the highway, for the poles to keep off.
+  country.approaches.push({ rect: mkRect(FIRE_ROAD[0]![0], FIRE_ROAD[0]![1], FIRE_ROAD[0]![0], FIRE_ROAD[0]![1]), pad: MOUTH_CLEAR });
   for (const z of TURBINE_Z) addProp(layout, 'turbine', TURBINE_X, z, 0, 1, countryGround(country, TURBINE_X, z));
   const rng = new Rng(hashInts(layout.seed, TREE_SALT));
   const ridge = ridgeRise(country.rises);

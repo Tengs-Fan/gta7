@@ -87,7 +87,7 @@ describe('Turbine Row', () => {
       signal: ['signal'], lamp: ['lamp'], stopSign: ['lamp'], turbine: ['pillar'], tree: ['tree'],
       silo: ['pillar'], grainbin: ['pillar'], windpump: ['rock', 'pillar'], fence: ['bench'], bale: ['container'], orchardTree: ['tree'],
       propane: ['container'], cow: ['livestock'], scarecrow: ['bin'],
-      pump: ['bin'], billboard: ['pillar', 'pillar'], bench: ['bench'], speaker: ['lamp'],
+      pump: ['bin'], billboard: ['pillar', 'pillar'], bench: ['bench'], speaker: ['lamp'], roadside: ['lamp'],
     };
     const county = L.props.slice(L.country.firstProp).filter((p) => p.kind !== 'bush').flatMap((p) => tags[p.kind]!);
     expect(rest.map((c) => c.tag)).toEqual([
@@ -105,6 +105,7 @@ describe('Turbine Row', () => {
       ...L.garages.slice(L.country.firstGarage).flatMap((g) => [...g.walls.map(() => 'wall'), 'wall']),
       ...L.country.farms.hedges.map(() => 'hedge'),
       ...L.country.places.solids.map((s) => s.tag),
+      ...L.country.oddities.solids.map((s) => s.tag),
     ]);
     for (const [i, t] of turbines.entries()) {
       const c = rest[i]!;

@@ -11,6 +11,7 @@ import { addProp, mkRect, PARAPET_T, rectContains, type CityLayout, type Rect } 
 import { riseAt, type Rise } from '../terrain';
 import { buildFarms, noFarms, type CountyFarms } from './farms';
 import { buildHills } from './hills';
+import { buildOddities, noOddities, type CountyOddities } from './oddities';
 import { buildPlaces, noPlaces, type CountyPlaces } from './places';
 
 export type CountryRoadKind = 'highway' | 'country';
@@ -80,6 +81,20 @@ export interface CountryGraph {
   junctions: Record<CountyJunction, number>;
 }
 
+/**
+ * Ground by the county's roads that what stands beside them keeps out of (the telephone poles do): everything within `pad`
+ * m of `rect`, which is a drive's centre line, a sign or a turn-off (a point is a rect with no area). Each content pass
+ * lists its own, so that a farm or a place added later has its drive kept clear by adding it here.
+ */
+export interface Approach {
+  rect: Rect;
+  pad: number;
+}
+
+/** How far (m) the poles keep from a farm's drive, sign and mailbox (DRIVE_CLEAR), and from the mouth of a place's drive and the fire road's turn-off (MOUTH_CLEAR). */
+export const DRIVE_CLEAR = 10;
+export const MOUTH_CLEAR = 14;
+
 export interface Country {
   /** The land: axis rectangles, the ground flat (0) inside them. */
   land: readonly Rect[];
@@ -95,6 +110,10 @@ export interface Country {
   farms: CountyFarms;
   /** Dry Creek, the Moonbeam Drive-In and Gravel Gulch (places.ts). */
   places: CountyPlaces;
+  /** The telephone poles and the roadside oddities (oddities.ts). */
+  oddities: CountyOddities;
+  /** The drives, signs and turn-offs the farms, the places and the landscape each add, for the poles to keep off. */
+  approaches: Approach[];
   /**
    * The first prop, parapet, building and garage of the county's: StaticWorld adds their colliders after every older
    * one.
@@ -365,6 +384,8 @@ export function buildCountry(layout: CityLayout): void {
     walks: [],
     farms: noFarms(),
     places: noPlaces(),
+    oddities: noOddities(),
+    approaches: [],
     firstProp: layout.props.length,
     firstParapet: layout.parapets.length,
     firstBuilding: layout.buildings.length,
@@ -405,10 +426,11 @@ export function buildCountry(layout: CityLayout): void {
     addProp(layout, 'lamp', x - LAMP_GAP / 2, -268 + half + 1, Math.PI, 1, 0);
   }
   // The content passes go here, in this order, each one call that only appends: buildHills (the landscape), buildFarms,
-  // buildPlaces.
+  // buildPlaces, buildOddities.
   buildHills(layout);
   buildFarms(layout);
   buildPlaces(layout);
+  buildOddities(layout);
 }
 
 /** A node's place: a grid node's line crossing, or a county vertex. */
@@ -447,6 +469,8 @@ export function noCountry(): Country {
     walks: [],
     farms: noFarms(),
     places: noPlaces(),
+    oddities: noOddities(),
+    approaches: [],
     firstProp: 0,
     firstParapet: 0,
     firstBuilding: 0,

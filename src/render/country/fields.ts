@@ -8,11 +8,14 @@
 //   fixed pools: Hollister Farm's corn (its ten-stalk cards, swaying on the props' wind), wheat tufts and sunflowers,
 //   whose heads turn with the sun. The pools are refilled when the camera crosses into another FIELD_CELL cell, each
 //   plant at its own spot of its field's lattice (hashed, so nothing swims between refills), the ring centred on the
-//   cell; across the ring's edge the plants and the blocks dither into each other.
+//   cell; across the ring's edge the plants and the blocks dither into each other;
+// - the crop circle (world/country/oddities.ts) is mown into one wheat field: its tufts are left out where it is flat, and
+//   a decal of flattened straw, swirled, lies over the field's slab there.
 
 import * as THREE from 'three';
 import { hashInts } from '../../world/layout';
 import type { Crop, Field } from '../../world/country/farms';
+import { isMown, type CropCircle } from '../../world/country/oddities';
 import { CORN_H, CORN_LEN, cornGeometry, cornTexture } from '../attractionModels';
 import { GeoBuilder } from '../geo';
 import { fadeNearCamera, type WindUniforms } from '../props';
@@ -278,9 +281,9 @@ export interface Plant {
 
 /**
  * Every plant of `crop` within `radius` of (ox, oz), each at its own spot of its field's lattice (the field's index in
- * `fields` seeds the hash), however many: FieldsView.fill keeps the nearest its pool holds.
+ * `fields` seeds the hash), however many: FieldsView.fill keeps the nearest its pool holds. None stands where `mown` is flat.
  */
-export function cropPlants(fields: readonly Field[], crop: Crop, radius: number, ox: number, oz: number): Plant[] {
+export function cropPlants(fields: readonly Field[], crop: Crop, radius: number, ox: number, oz: number, mown?: CropCircle): Plant[] {
   const out: Plant[] = [];
   const lat = LATTICE[crop]!;
   fields.forEach((f, k) => {
@@ -303,6 +306,7 @@ export function cropPlants(fields: readonly Field[], crop: Crop, radius: number,
         const x = u * ux + vv * vx;
         const z = u * uz + vv * vz;
         if (x < r.minX + 0.4 || x > r.maxX - 0.4 || z < r.minZ + 0.4 || z > r.maxZ - 0.4) continue;
+        if (mown?.field === k && isMown(mown, x, z)) continue;
         const d = Math.hypot(x - ox, z - oz);
         if (d > radius) continue;
         const yaw = crop === 'corn' ? f.rowAngle - Math.PI / 2 + (((h >>> 16) & 0xff) / 255 - 0.5) * 0.12 : (((h >>> 16) & 0xff) / 255) * Math.PI * 2;
@@ -326,6 +330,7 @@ export class FieldsView {
   /** The plants' materials, which the headlights light as they do the slabs, in the same shading (the renderer's lightGround). */
   readonly crops: THREE.MeshStandardMaterial[] = [];
   private readonly fields: readonly Field[];
+  private readonly circle: CropCircle;
   private readonly pools: Pool[] = [];
   /** The box round every field, grown by the largest ring: no refill when the camera is far outside it. */
   private readonly near: { minX: number; minZ: number; maxX: number; maxZ: number };
@@ -347,6 +352,7 @@ export class FieldsView {
 
   constructor(view: CountryView, wind: WindUniforms) {
     this.fields = view.world.layout.country.farms.fields;
+    this.circle = view.world.layout.country.oddities.cropCircle;
     const pad = Math.max(...Object.values(CROP_RING).map((r) => r.ring)) + FIELD_CELL;
     this.near = {
       minX: Math.min(...this.fields.map((f) => f.rect.minX)) - pad,
@@ -355,6 +361,7 @@ export class FieldsView {
       maxZ: Math.max(...this.fields.map((f) => f.rect.maxZ)) + pad,
     };
     this.buildSlabs(view, wind);
+    this.buildCircle(view);
     this.buildBlocks(view);
     this.buildPools(view, wind);
   }
@@ -398,6 +405,58 @@ export class FieldsView {
       }
       view.add(g.build(), mat, { name: `field-${kind}`, split: false });
     }
+  }
+
+  /**
+   * The crop circle's mown ground: its pattern painted as flattened straw, swirled the way the stalks were laid, on a square
+   * of canvas that lies a hand over the wheat's slab. Only the pattern shows (alpha-tested), so the wheat round it ripples on.
+   */
+  private buildCircle(view: CountryView): void {
+    const cc = this.circle;
+    const side = (cc.radius + 2) * 2;
+    const S = 1024;
+    const scale = S / side;
+    const [c, ctx] = canvas(S, S);
+    const at = (x: number, z: number): [number, number] => [(x - cc.cx + side / 2) * scale, (z - cc.cz + side / 2) * scale];
+    ctx.beginPath();
+    for (const m of cc.mown) {
+      const [px, pz] = at(m.cx, m.cz);
+      ctx.moveTo(px + m.r1 * scale, pz);
+      ctx.arc(px, pz, m.r1 * scale, 0, Math.PI * 2);
+      if (m.r0 > 0) {
+        ctx.moveTo(px + m.r0 * scale, pz);
+        ctx.arc(px, pz, m.r0 * scale, 0, Math.PI * 2, true);
+      }
+    }
+    ctx.fillStyle = '#f5ecc0';
+    ctx.fill();
+    // Stalks laid round in a swirl: strokes along each point's tangent about the pattern's centre, light and dark.
+    ctx.save();
+    ctx.clip();
+    const [cx, cz] = at(cc.cx, cc.cz);
+    for (let k = 0; k < 9000; k++) {
+      const h = hashInts(k, 31);
+      const a = ((h & 0xffff) / 0xffff) * Math.PI * 2;
+      const r = ((h >>> 16) / 0xffff) * cc.radius * scale;
+      const x = cx + Math.cos(a) * r;
+      const y = cz + Math.sin(a) * r;
+      const len = 7 + (hashInts(k, 32) % 9);
+      // Along the tangent, with a little turn in it (clockwise on the ground).
+      const t = a + Math.PI / 2 + 0.25;
+      ctx.strokeStyle = k % 3 === 0 ? 'rgba(170,128,60,0.5)' : k % 3 === 1 ? 'rgba(255,248,214,0.7)' : 'rgba(214,184,110,0.5)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(t) * len, y + Math.sin(t) * len);
+      ctx.stroke();
+    }
+    ctx.restore();
+    const tex = toTexture(c, true, false);
+    const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+    mat.name = 'crop-circle';
+    this.ground.push(mat);
+    const geo = new THREE.PlaneGeometry(side, side).rotateX(-Math.PI / 2).translate(cc.cx, SLAB_Y + 0.012, cc.cz);
+    view.add(geo, mat, { name: 'crop-circle', split: false });
   }
 
   /**
@@ -530,7 +589,7 @@ vec3 sunTurn( vec3 v ) {
    * drawn, and only the instances it holds go up to the GPU.
    */
   private fill(pool: Pool, radius: number, ox: number, oz: number, cap: number): void {
-    const out = cropPlants(this.fields, pool.crop, radius, ox, oz);
+    const out = cropPlants(this.fields, pool.crop, radius, ox, oz, this.circle);
     if (out.length > cap) out.sort((a, b) => a.d - b.d).length = cap;
     const mesh = pool.mesh;
     out.forEach((o, n) => {

@@ -51,6 +51,8 @@ export interface SimEvents {
   horn: { vehicle: Vehicle };
   /** A player's horn at the Moonbeam Drive-In during a reel (sim/driveIn.ts): the cars round him flash him and shush. */
   driveInShush: { x: number; z: number };
+  /** The payphone at the end of Hollister Lane rings once, at (x, y, z) (sim/payphone.ts): every few seconds while it rings. */
+  payphoneRing: { x: number; y: number; z: number };
   vehicleEnter: { vehicle: Vehicle; character: Character; jacked: boolean };
   vehicleExit: { vehicle: Vehicle; character: Character };
   vehicleDestroyed: { vehicle: Vehicle };

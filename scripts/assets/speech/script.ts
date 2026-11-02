@@ -46,6 +46,8 @@ export const CAST = {
   reader: 'af_alloy',
   // The Las Lomas County Sheriff's dispatcher (src/sim/dispatch.ts SHERIFF).
   sheriff: 'am_santa,am_adam',
+  // Whoever is on the payphone at the end of Hollister Lane (src/sim/payphone.ts).
+  stranger: 'am_adam,am_fenrir',
 } as const;
 
 export type Role = keyof typeof CAST;
@@ -69,7 +71,7 @@ export const SAY: ReadonlyArray<readonly [RegExp, string]> = [
 /** Talk station roles heard down a phone line or a radio link: their lines are band-limited when rendered. */
 export const PHONE_ROLES: ReadonlySet<Role> = new Set<Role>(['gary', 'linda', 'marcus', 'doris', 'vince', 'jen', 'kid', 'skip', 'sal', 'trish']);
 
-/** Speakers of subtitled lines (missions, phone, the taxi's fares), by the subtitle's name without " (phone)", and the role that voices them. */
+/** Speakers of subtitled lines (missions, phone, the taxi's fares, the payphone's stranger), by the subtitle's name without " (phone)", and the role that voices them. */
 export const SPEAKERS: Readonly<Record<string, Role>> = {
   'Mama Lou': 'lou',
   'Dex Moreau': 'dex',
@@ -77,6 +79,7 @@ export const SPEAKERS: Readonly<Record<string, Role>> = {
   'Commuter': 'commuter',
   'Tourist': 'tourist',
   'Local': 'local',
+  'Stranger': 'stranger',
 };
 
 /** How one line is delivered, where it differs from its piece's: a fine-print line read fast, a caller in the studio. */

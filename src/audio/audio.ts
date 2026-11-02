@@ -8,6 +8,7 @@ import { hollister } from '../sim/farm';
 import { dairyman } from '../sim/farms';
 import type { SimEvents } from '../sim/events';
 import { lampDarkness, lampsLit } from '../sim/lamps';
+import { PAYPHONE_SPEAKER } from '../sim/payphone';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { VehicleKind, WeaponId } from '../sim/specs';
 import { attractionOf } from '../world/attractions';
@@ -138,6 +139,8 @@ export class AudioEngine {
   /** Counts update() calls. */
   private frame = 0;
   private subtitleTimer = 0;
+  /** The payphone's bell as it sounds now (payphoneRing): its two oscillators and the gain they share, so that an answer can cut it off. */
+  private bell: { oscillators: OscillatorNode[]; cut: GainNode } | null = null;
   /** Seconds left of the result-card duck: the passed / wasted / busted cards', and the MISSION FAILED cards' apart. */
   private bigTimer = 0;
   private failTimer = 0;
@@ -324,6 +327,8 @@ export class AudioEngine {
         const cud = p.kind === 'cow' ? dairyman(sim) : null;
         if (cud && cud.alive && Math.hypot(cud.pos.x - p.x, cud.pos.z - p.z) < 90) this.bark('dairyman', cud.id, cud.pos.x, cud.pos.y + 1.6, cud.pos.z);
       }),
+      // The payphone at the end of Hollister Lane, ringing for whoever is within earshot.
+      on('payphoneRing', (e) => this.payphoneRing(e.x, e.y, e.z)),
       // Dawn in Las Lomas County: the first cow back on her feet says so.
       on('propsRestored', (e) => {
         const p = sim.world.layout.props[e.indices[0]!]!;
@@ -358,6 +363,7 @@ export class AudioEngine {
         if (!this.mine(e)) return;
         // Dialogue ducks the music and the ambience for as long as the line shows (as in the HUD).
         this.subtitleTimer = e.duration;
+        if (e.speaker === PAYPHONE_SPEAKER) this.cutBell();
         void this.dialogue?.say(e.speaker, e.text);
       }),
       on('scream', (e) => {
@@ -762,6 +768,52 @@ export class AudioEngine {
     if (!this.ready()) return;
     const t = this.ctx!.currentTime;
     this.noiseBurst(this.sfx, t, 0.2, 'lowpass', 900, 0.6, 0.4 * k, 200);
+  }
+
+  /**
+   * A payphone's bell: two struck in turn sixteen times a second for a second and a half, each strike a thin ring that dies
+   * in a few hundredths of a second, so that it rattles like an old telephone's. It carries across the fields.
+   */
+  private payphoneRing(x: number, y: number, z: number): void {
+    if (!this.ready()) return;
+    const s = this.spatial(x, y, z, 8, 220);
+    if (!s) return;
+    const ctx = this.ctx!;
+    const out = this.out(s.pan, s.cutoff);
+    const t = ctx.currentTime + this.sample;
+    const len = 1.5;
+    const strikes = Math.round(len * 16);
+    const cut = ctx.createGain();
+    cut.connect(out);
+    const bell = { oscillators: [] as OscillatorNode[], cut };
+    this.bell = bell;
+    for (const [hz, parity] of [[1180, 0], [1490, 1]] as const) {
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = withinParam(o.frequency, hz);
+      const g = this.envGain();
+      for (let k = parity; k < strikes; k += 2) {
+        const at = t + k / 16;
+        g.gain.setValueAtTime(0.0001, at);
+        g.gain.linearRampToValueAtTime(0.32 * s.gain, at + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.0001, at + 0.07);
+      }
+      g.gain.linearRampToValueAtTime(0, t + len + 0.02);
+      o.connect(g);
+      g.connect(cut);
+      o.start(t);
+      o.stop(t + len + 0.05);
+      bell.oscillators.push(o);
+    }
+  }
+
+  /** The bell stops (the phone is answered and the stranger speaks): the shared gain let down in a few milliseconds, so that the cut does not click. */
+  private cutBell(): void {
+    if (!this.bell) return;
+    const t = this.ctx!.currentTime;
+    this.bell.cut.gain.setTargetAtTime(0, t, 0.004);
+    for (const o of this.bell.oscillators) o.stop(t + 0.03);
+    this.bell = null;
   }
 
   /**
