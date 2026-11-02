@@ -13,7 +13,7 @@ import { packageIndex } from '../sim/pickups';
 import { BUSINESS_DAILY, BUSINESS_NAME, BUSINESS_PRICE, GARAGE_PRICE, GARAGE_SLOTS } from '../sim/properties';
 import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
-import { LAKE } from '../world/country';
+import { LAKE_RECTS } from '../world/country';
 import { FIRE_ROAD_W, fireRoadLine } from '../world/country/hills';
 import { beachOffsetAt, rectContains, rectsMinus } from '../world/layout';
 import { foreshoreReach, shores } from '../world/shore';
@@ -66,6 +66,8 @@ export class MapImage {
     ctx.fillRect(X(shoreX), Z(b.landMinZ), (b.beachEndX - shoreX) * MAP_SCALE, (b.landMaxZ - b.landMinZ) * MAP_SCALE);
     // Las Lomas County: the beach out to the waterline round its land, the land, and the plots on it.
     const country = world.layout.country;
+    // Lake Lomas's water first, so the beach the land's rectangles lay round it covers its edge.
+    for (const r of LAKE_RECTS) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#1a4560');
     ctx.fillStyle = COUNTY_COLORS.beach;
     for (const r of country.land) {
       ctx.beginPath();
@@ -74,8 +76,7 @@ export class MapImage {
     }
     for (const r of country.land) rect(r.minX, r.minZ, r.maxX, r.maxZ, COUNTY_COLORS.land);
     // The plots on the land; Lake Lomas, inside its plot, stays water.
-    for (const p of country.plots) for (const r of rectsMinus([p.rect], [LAKE])) rect(r.minX, r.minZ, r.maxX, r.maxZ, COUNTY_COLORS[p.kind]);
-    rect(LAKE.minX + 8, LAKE.minZ + 8, LAKE.maxX - 8, LAKE.maxZ - 8, '#1a4560');
+    for (const p of country.plots) for (const r of rectsMinus([p.rect], LAKE_RECTS)) rect(r.minX, r.minZ, r.maxX, r.maxZ, COUNTY_COLORS[p.kind]);
     // Headlands, and the sea where it comes into the land.
     for (const h of world.layout.headlands) for (const r of h.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#3b4249');
     for (const w of world.layout.water) for (const r of w.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#1a4560');

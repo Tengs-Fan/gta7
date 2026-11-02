@@ -84,6 +84,10 @@ export interface CountryGraph {
 export interface Country {
   /** The land: axis rectangles, the ground flat (0) inside them. */
   land: readonly Rect[];
+  /** The land as the sea's shelf falls away from it: the same with Lake Lomas filled in, which has no shelf. */
+  shelf: readonly Rect[];
+  /** The box round Lake Lomas, whose shore countryFloor rounds. */
+  lake: Rect;
   /** Where countryGround is above the seabed: the land and its beaches. */
   bounds: Rect;
   roads: readonly CountryRoad[];
@@ -131,25 +135,68 @@ export const BRIDGE = mkRect(-700, 258, -512, 278);
  */
 export const BRIDGE_ARCH = { x0: BRIDGE.minX + 10, x1: BRIDGE.maxX - 10, ribs: [BRIDGE.minZ + 0.2, BRIDGE.maxZ - 0.2], rise: 22, post: 0.45, postTop: 8.1 } as const;
 
-/** Lake Lomas: a hole in the valley's land, about 250 x 160 m, which the sea shows through at sea level as in the coves. */
-export const LAKE = mkRect(-2125, -330, -1875, -170);
+/**
+ * Lake Lomas: holes in the valley's land, which the sea shows through at sea level as in the coves, 280 m from the
+ * north-west to the south-east and up to 150 m across. The main body steps down from the north-west in six rectangles, a
+ * bay opens on its east side, a narrow inlet runs north from its west end, and two bays in its south shore leave a point
+ * between them. The steps are rounded where the ground is made (LAKE_ROUND), so the shore winds as a lake's does.
+ */
+export const LAKE_RECTS: readonly Rect[] = [
+  mkRect(-2120, -345, -2020, -325),
+  mkRect(-2140, -325, -2000, -300),
+  mkRect(-2155, -300, -1970, -275),
+  mkRect(-2145, -275, -1940, -250),
+  mkRect(-2130, -250, -1910, -225),
+  mkRect(-2105, -225, -1950, -200),
+  mkRect(-1985, -305, -1875, -245),
+  mkRect(-2095, -200, -2040, -155),
+  mkRect(-1990, -215, -1940, -165),
+  mkRect(-2100, -400, -2055, -340),
+];
+
+/** The box round the lake's water. */
+export const LAKE = mkRect(
+  Math.min(...LAKE_RECTS.map((r) => r.minX)),
+  Math.min(...LAKE_RECTS.map((r) => r.minZ)),
+  Math.max(...LAKE_RECTS.map((r) => r.maxX)),
+  Math.max(...LAKE_RECTS.map((r) => r.maxZ)),
+);
+
+/** Whether (x, z) is over the lake's water as the holes in the land draw it (its beach included). */
+export function inLake(x: number, z: number): boolean {
+  return LAKE_RECTS.some((r) => rectContains(r, x, z));
+}
 
 /** The valley's coves: a bay in the west coast, one in the north coast and one in the south. */
 const VALLEY_COVES: readonly Rect[] = [mkRect(-2300, 140, -2215, 250), mkRect(-2080, -580, -1960, -525), mkRect(-2080, 520, -1950, 580)];
 
-/**
- * The land: the box x -1560 to -700 but for a cove on the north coast and one on the south, and the south-west corner;
- * then the valley west of Coyote Ridge, x -2300 to -1560 (to -1440 south of z 170), but for the lake and the coves.
- */
-export const COUNTY_LAND: readonly Rect[] = [
+/** The county east of the valley: the box x -1560 to -700 but for a cove on the north coast and one on the south, and the south-west corner. */
+const EAST_LAND: readonly Rect[] = [
   mkRect(-1560, -440, -700, 170),
   mkRect(-1170, -580, -700, -440),
   mkRect(-1560, -580, -1350, -440),
   mkRect(-1440, 170, -700, 400),
   mkRect(-1440, 400, -1020, 580),
   mkRect(-880, 400, -700, 580),
-  ...rectsMinus([mkRect(-2300, -580, -1560, 170), mkRect(-2300, 170, -1440, 580)], [LAKE, ...VALLEY_COVES]),
 ];
+
+/** South of this z (m) the valley's land runs on east to STRIP_EDGE (m), 120 m past VALLEY_EDGE, beyond the ridge's south end. */
+const STRIP_Z = 170;
+const STRIP_EDGE = -1440;
+
+/** The valley west of Coyote Ridge: x -2300 to -1560, to -1440 south of z 170. */
+const VALLEY: readonly Rect[] = [mkRect(-2300, -580, VALLEY_EDGE, STRIP_Z), mkRect(-2300, STRIP_Z, STRIP_EDGE, 580)];
+
+/** Whether (x, z), on the land or its beaches, is the valley's rather than the county's east of the ridge. */
+export function inValley(x: number, z: number): boolean {
+  return x < VALLEY_EDGE || (z > STRIP_Z && x < STRIP_EDGE);
+}
+
+/** The land: the county east of the ridge, and the valley but for the lake and the coves. */
+export const COUNTY_LAND: readonly Rect[] = [...EAST_LAND, ...rectsMinus(VALLEY, [...LAKE_RECTS, ...VALLEY_COVES])];
+
+/** The land as the sea's shelf sees it (Country.shelf): the lake is filled in. */
+export const COUNTY_SHELF: readonly Rect[] = [...EAST_LAND, ...rectsMinus(VALLEY, VALLEY_COVES)];
 
 /** The beach off the land's edge: the waterline WATERLINE m out, the seabed SEABED_OUT m out. */
 const WATERLINE = 8;
@@ -164,8 +211,27 @@ export const COUNTY_BOUNDS = mkRect(
 
 /** The z (m) of Coyote Pass and the Pass Road along it, from the Coyote T on the Lomas Highway to Valley Cross. */
 export const PASS_Z = 84;
-/** The Valley Loop's sides (m): the east one through Valley Cross, the west one, and the north and south ones, and its corners' radius. */
-const LOOP = { east: -1840, west: -2165, north: -470, south: 470, corner: 140 } as const;
+/** Valley Cross, where the Pass Road meets the Valley Loop, which runs due north and south through it. */
+const CROSS = { x: -1840, z: PASS_Z } as const;
+/**
+ * The Valley Loop's corners, clockwise from Valley Cross (x, z, radius of the curve in m): the loop runs straight south out
+ * of the cross, sweeps west round the south bend past the south cove, wanders up the west side round the west cove, the
+ * bluff and the lake, round the north-west and the north cove, and back along the lake's east side and straight south to the
+ * cross. Nine curves of 125 to 200 m turning 6 to 77 degrees, between straights of 22 to 238 m, each long enough for its
+ * curves' tangents; the straights either side of the cross are long (230 m and 185 m), as the roads that meet at a stop
+ * sign's are, so the few cars that spawn on the Pass Road are not swamped by the loop's many short arc lanes.
+ */
+const LOOP_CORNERS: ReadonlyArray<readonly [x: number, z: number, r: number]> = [
+  [-1840, 430, 150],
+  [-2050, 480, 145],
+  [-2190, 400, 125],
+  [-2150, 40, 200],
+  [-2215, -170, 150],
+  [-2205, -440, 130],
+  [-1990, -490, 150],
+  [-1810, -395, 150],
+  [-1840, -100, 200],
+];
 
 /** The junctions by name: Dry Creek's crossroads, the Hollister T, the Creek T, the Coyote T and Valley Cross. */
 export const COUNTY_JUNCTIONS: Readonly<Record<CountyJunction, readonly [number, number]>> = {
@@ -173,7 +239,7 @@ export const COUNTY_JUNCTIONS: Readonly<Record<CountyJunction, readonly [number,
   hollister: [-1104, -268],
   creek: [-840, 268],
   coyote: [-1330, PASS_Z],
-  valley: [LOOP.east, PASS_Z],
+  valley: [CROSS.x, CROSS.z],
 };
 
 /** The junctions with stop signs instead of lights: the roads of lower priority stop for the highest (CountryRoad.priority). */
@@ -219,6 +285,21 @@ class Centreline {
     return this;
   }
 
+  /**
+   * Rounds the corner at (x, z) on the way on to (nx, nz): straight on to where an arc of radius r that touches both legs
+   * begins, then round it in equal chords of 20-30 m turning 10 degrees or less each. The corner's legs must be long enough
+   * for its tangents (r tan(turn / 2) each).
+   */
+  corner(x: number, z: number, r: number, nx: number, nz: number): this {
+    const [px, pz] = this.last();
+    const h0 = Math.atan2(x - px, z - pz);
+    const out = Math.atan2(nx - x, nz - z) - h0;
+    const turn = Math.atan2(Math.sin(out), Math.cos(out));
+    const t = r * Math.tan(Math.abs(turn) / 2);
+    this.to(mm(x - Math.sin(h0) * t), mm(z - Math.cos(h0) * t));
+    return this.arc(r, (turn * 180) / Math.PI, Math.max(Math.ceil((Math.abs(turn) * 18) / Math.PI), Math.ceil((r * Math.abs(turn)) / 30)));
+  }
+
   private last(): [number, number] {
     return [this.pts[this.pts.length - 2]!, this.pts[this.pts.length - 1]!];
   }
@@ -253,14 +334,18 @@ export const COUNTRY_ROADS: readonly CountryRoad[] = [
   road('Lomas Highway', 'highway', new Centreline(-840, -268, W).to(-1104, -268).to(-1150, -268).arc(180, 90, 10).to(-1330, PASS_Z).to(-1330, 118).arc(150, 90, 9).to(-840, 268).to(-470, 268)),
   road('Hollister Lane', 'country', new Centreline(-840, -268, N).to(-840, -400).arc(120, 90, 9).to(-984, -520).arc(120, 90, 9).to(-1104, -268)),
   road('Creek Road', 'country', new Centreline(-840, -268, S).to(-840, -193).arc(160, 15, 2).arc(160, -30, 3).arc(160, 15, 2).to(-840, 268)),
-  road('Coyote Pass Road', 'country', new Centreline(-1330, PASS_Z, W).to(LOOP.east, PASS_Z), 0),
+  road('Coyote Pass Road', 'country', new Centreline(-1330, PASS_Z, W).to(CROSS.x, CROSS.z), 0),
   road('Valley Loop', 'country', valleyLoop()),
 ];
 
-/** The Valley Loop: from Valley Cross south, west, north and east round the valley and back, its four corners round. */
+/** The Valley Loop: from Valley Cross south, round LOOP_CORNERS and back to it from the north. */
 function valleyLoop(): Centreline {
-  const { east, west, north, south, corner: r } = LOOP;
-  return new Centreline(east, PASS_Z, S).to(east, south - r).arc(r, -90, 10).to(west + r, south).arc(r, -90, 10).to(west, north + r).arc(r, -90, 10).to(east - r, north).arc(r, -90, 10).to(east, PASS_Z);
+  const line = new Centreline(CROSS.x, CROSS.z, S);
+  LOOP_CORNERS.forEach(([x, z, r], k) => {
+    const [nx, nz] = LOOP_CORNERS[k + 1] ?? [CROSS.x, CROSS.z];
+    line.corner(x, z, r, nx, nz);
+  });
+  return line.to(CROSS.x, CROSS.z);
 }
 
 export const COUNTY_PLOTS: readonly CountyPlot[] = [
@@ -273,13 +358,13 @@ export const COUNTY_PLOTS: readonly CountyPlot[] = [
   { id: 'track', name: 'Gravel Gulch', rect: mkRect(-1290, 300, -1060, 540), kind: 'venue' },
   { id: 'ridge', name: 'Coyote Ridge', rect: mkRect(-1600, -560, -1360, 48), kind: 'wild' },
   // The valley's, bare until the next stage fills them: the pass (the one plot a road runs through, its rock walls and
-  // the stretch of the Pass Road across the ridge), the vineyard and the lake inside the Valley Loop, the ranch and the
-  // pine wood between it and the ridge.
+  // the stretch of the Pass Road across the ridge), the vineyard (on the Vineyard Rise, the one farm with a rise on it)
+  // and the lake inside the Valley Loop, the ranch east of its south bend and the pine wood east of its north side.
   { id: 'pass', name: 'Coyote Pass', rect: mkRect(-1620, 48, -1352, 122), kind: 'wild' },
-  { id: 'vineyard', name: 'Sunset Vineyard', rect: mkRect(-2140, -110, -1865, 300), kind: 'farm' },
-  { id: 'ranch', name: 'Lazy Q Ranch', rect: mkRect(-1820, 110, -1625, 430), kind: 'farm' },
-  { id: 'lake', name: LAKE_NAME, rect: mkRect(-2140, -350, -1865, -150), kind: 'venue' },
-  { id: 'pinewood', name: 'Pinewood', rect: mkRect(-1820, -520, -1625, 60), kind: 'wild' },
+  { id: 'vineyard', name: 'Sunset Vineyard', rect: mkRect(-2125, -100, -1900, 290), kind: 'farm' },
+  { id: 'ranch', name: 'Lazy Q Ranch', rect: mkRect(-1810, 215, -1520, 470), kind: 'farm' },
+  { id: 'lake', name: LAKE_NAME, rect: mkRect(-2165, -402, -1882, -145), kind: 'venue' },
+  { id: 'pinewood', name: 'Pinewood', rect: mkRect(-1770, -520, -1625, 40), kind: 'wild' },
 ];
 
 /** How far (m) the sea reached west of the city's land before the county: the world's edge was there. */
@@ -350,18 +435,40 @@ export function countryGround(country: Country, x: number, z: number): number {
   return countryFloor(country, x, z) + riseAt(country.rises, x, z);
 }
 
-/** The ground the county's rises stand on: flat on the land, a beach off its edge down to the seabed. */
+/**
+ * The ground the county's rises stand on: flat on the land, a beach off its edge down to the seabed. Lake Lomas's shore
+ * is rounded (LAKE_ROUND): the lake's water is its holes opened by a disc, so the land runs on into the water's corners
+ * and its steps' treads, and a straight shore, a land point and every metre of land stay where the rectangles put them.
+ */
 export function countryFloor(country: Country, x: number, z: number): number {
   const b = country.bounds;
   if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) return SEABED_Y;
+  let d = landGap(country.land, x, z);
+  if (d > 0 && rectContains(country.lake, x, z)) {
+    let far = d;
+    for (const [dx, dz] of LAKE_DISC) far = Math.max(far, landGap(country.land, x + dx, z + dz));
+    d = Math.max(0, far - LAKE_ROUND);
+  }
+  return beachHeight(d);
+}
+
+/** The distance (m) from (x, z) to the nearest of `land` (0 on it). */
+function landGap(land: readonly Rect[], x: number, z: number): number {
   let d2 = Infinity;
-  for (const r of country.land) {
+  for (const r of land) {
     const dx = Math.max(r.minX - x, 0, x - r.maxX);
     const dz = Math.max(r.minZ - z, 0, z - r.maxZ);
     d2 = Math.min(d2, dx * dx + dz * dz);
   }
-  return beachHeight(Math.sqrt(d2));
+  return Math.sqrt(d2);
 }
+
+/** The radius (m) the lake's water is opened by, and the points that stand for the disc: a ring of twelve and an inner one of six. */
+const LAKE_ROUND = 10;
+const LAKE_DISC: ReadonlyArray<readonly [number, number]> = [
+  ...Array.from({ length: 12 }, (_, k): [number, number] => [Math.cos((k * Math.PI) / 6) * LAKE_ROUND, Math.sin((k * Math.PI) / 6) * LAKE_ROUND]),
+  ...Array.from({ length: 6 }, (_, k): [number, number] => [Math.cos((k * Math.PI) / 3 + 0.3) * (LAKE_ROUND / 2), Math.sin((k * Math.PI) / 3 + 0.3) * (LAKE_ROUND / 2)]),
+];
 
 /** The beach's height `d` m off the land: WATER_Y at WATERLINE, the seabed from SEABED_OUT on. */
 function beachHeight(d: number): number {
@@ -399,6 +506,8 @@ export function buildCountry(layout: CityLayout): void {
   const graph = countryGraph(layout, COUNTRY_ROADS);
   layout.country = {
     land: COUNTY_LAND,
+    shelf: COUNTY_SHELF,
+    lake: LAKE,
     bounds: COUNTY_BOUNDS,
     roads: COUNTRY_ROADS,
     graph,
@@ -488,6 +597,8 @@ function signalHead(layout: CityLayout, node: number, dir: number, x: number, z:
 export function noCountry(): Country {
   return {
     land: [],
+    shelf: [],
+    lake: mkRect(0, 0, 0, 0),
     bounds: mkRect(0, 0, 0, 0),
     roads: [],
     graph: { vertices: [], links: [], roadNodes: [], gateways: [], junctions: { drycreek: -1, hollister: -1, creek: -1, coyote: -1, valley: -1 } },

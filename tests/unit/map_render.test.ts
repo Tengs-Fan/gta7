@@ -103,12 +103,13 @@ describe('the map of Las Lomas County', () => {
     expect(at(-840, -250)).not.toBe('#33503a');
     expect(at(-696, -100)).toBe('#cdb77d');
     expect(at(-600, 0)).toBe('#16384f');
-    // The valley: its land, the vineyard's plot and the pine wood's, the lake in the middle of its plot, and the sea past its coast.
+    // The valley: its land, the vineyard's plot and the pine wood's (off their hills, whose shading is drawn over them), the
+    // lake's water in the middle of its plot with its beach round it, and the sea past its coast.
     expect(at(-2250, 300)).toBe('#33503a');
-    expect(at(-2000, 100)).toBe('#3b5c39');
-    expect(at(-1720, -200)).toBe('#2f4a33');
-    expect(at(-2000, -250)).toBe('#1a4560');
-    expect(at(-2125 + 2, -250)).toBe('#cdb77d');
+    expect(at(-2000, 270)).toBe('#3b5c39');
+    expect(at(-1700, -90)).toBe('#2f4a33');
+    expect(at(-2095, -282)).toBe('#1a4560');
+    expect(at(-2155 + 2, -288)).toBe('#cdb77d');
     expect(at(-2320, -100)).toBe('#16384f');
   });
 

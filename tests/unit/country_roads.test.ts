@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { CROSSWALK_W, CURB_H, PROMENADE_W, SWIM_DEPTH, WATER_Y } from '../../src/world/constants';
 import {
-  BRIDGE, BRIDGE_NAME, CAUSEWAY, CAUSEWAY_NAME, COUNTRY_ROADS, COUNTY_LAND, COUNTY_NAME, COUNTY_PLOTS, LAKE, LAKE_NAME, onCountyLand, PASS_Z, VALLEY_NAME,
+  BRIDGE, BRIDGE_NAME, CAUSEWAY, CAUSEWAY_NAME, COUNTRY_ROADS, COUNTY_LAND, COUNTY_NAME, COUNTY_PLOTS, inLake, LAKE, LAKE_NAME, LAKE_RECTS, onCountyLand, PASS_Z, VALLEY_NAME,
 } from '../../src/world/country';
 import { rectContains, type Rect } from '../../src/world/layout';
 import { reverseDir, type Lane } from '../../src/world/roads';
@@ -43,11 +43,11 @@ function centrePoints(step = 2): Array<{ x: number; z: number; road: (typeof COU
 const onCityLand = (x: number) => x >= L.bounds.landMinX;
 
 describe('Las Lomas County: the outer road graph', () => {
-  it('appends 98 nodes and 256 lanes after the grid, joined to it at Magnolia Ave and Southgate Ave on Harbor Blvd', () => {
+  it('appends 109 nodes and 278 lanes after the grid, joined to it at Magnolia Ave and Southgate Ave on Harbor Blvd', () => {
     expect(roads.gridNodeCount).toBe(121);
     expect(roads.gridLaneCount).toBe(574);
-    expect(outerNodes.length).toBe(98);
-    expect(outerLanes.length).toBe(256);
+    expect(outerNodes.length).toBe(109);
+    expect(outerLanes.length).toBe(278);
     expect(outerNodes.every((n, k) => n.id === roads.gridNodeCount + k && n.i === -1 && n.j === -1)).toBe(true);
     expect(outerLanes.every((l, k) => l.id === roads.gridLaneCount + k && l.line.index === -1)).toBe(true);
     for (const [i, j] of [[0, 2], [0, 8]] as const) {
@@ -165,26 +165,30 @@ function LANE_OFF(l: Lane): number {
 }
 
 describe('Las Lomas County: the land', () => {
-  it('reaches out to x -2400 by whole grid cells, the county about 1.7 km2 on seventeen rectangles', () => {
+  it('reaches out to x -2400 by whole grid cells, the county about 1.7 km2 on rectangles', () => {
     expect(L.bounds.worldMinX).toBe(-2400);
     expect((L.bounds.cityMinX - PROMENADE_W - 160 - L.bounds.worldMinX) % 12).toBe(0);
     expect(W.grid.minX).toBe(-2400);
     const area = COUNTY_LAND.reduce((s, r) => s + (r.maxX - r.minX) * (r.maxZ - r.minZ), 0);
     console.log(`[country_roads] land ${area} m2 on ${COUNTY_LAND.length} rectangles`);
     expect(area).toBeGreaterThan(1_700_000);
-    expect(COUNTY_LAND.length).toBe(17);
+    expect(COUNTY_LAND.length).toBeGreaterThan(15);
+    expect(COUNTY_LAND.length).toBeLessThan(60);
     expect(COUNTY_LAND.every((r) => r.minX >= -2300 && r.maxX <= -700 && r.minZ >= -580 && r.maxZ <= 580)).toBe(true);
     // The valley is the old county's 0.86 km2 again (x -2300 to -1560, south of z 170 to -1440), less Lake Lomas and its coves.
     const valley = COUNTY_LAND.filter((r) => r.minX < -1560).reduce((s, r) => s + (r.maxX - r.minX) * (r.maxZ - r.minZ), 0);
-    expect(valley).toBeGreaterThan(780_000);
+    expect(valley).toBeGreaterThan(800_000);
   });
 
   it('is flat on every road and plot, with a beach that meets the water 6-10 m out', () => {
     for (const p of centrePoints()) if (p.x < CAUSEWAY.minX && !(p.road.name === 'Coyote Pass Road' && p.x > -1600 && p.x < -1352)) expect(W.groundHeight(p.x, p.z), `${p.road.name}`).toBe(0);
     // The Pass Road runs flat through Coyote Pass too, but for the rock walls either side of it (country_hills.test.ts).
     for (const p of centrePoints()) if (p.road.name === 'Coyote Pass Road') expect(W.groundHeight(p.x, p.z), `${p.road.name} at ${p.x}`).toBe(0);
-    // The wild plots (Coyote Ridge, the pass, the pine wood) are the landscape's; Lake Lomas's plot has the lake in it.
-    for (const p of COUNTY_PLOTS.filter((q) => q.kind !== 'wild' && q.id !== 'lake')) for (const [x, z] of [[p.rect.minX, p.rect.minZ], [p.rect.maxX, p.rect.maxZ], [(p.rect.minX + p.rect.maxX) / 2, (p.rect.minZ + p.rect.maxZ) / 2]] as const) expect(W.baseGround(x, z), p.name).toBe(0);
+    // The wild plots (Coyote Ridge, the pass, the pine wood) are the landscape's; Lake Lomas's plot has the lake in it, and the vineyard stands on its rise.
+    for (const p of COUNTY_PLOTS.filter((q) => q.kind !== 'wild' && q.id !== 'lake')) {
+      const middle = [[(p.rect.minX + p.rect.maxX) / 2, (p.rect.minZ + p.rect.maxZ) / 2]] as const;
+      for (const [x, z] of [[p.rect.minX, p.rect.minZ], [p.rect.maxX, p.rect.maxZ], ...(p.id === 'vineyard' ? [] : middle)] as const) expect(W.baseGround(x, z), p.name).toBe(0);
+    }
     const lake = COUNTY_PLOTS.find((p) => p.id === 'lake')!.rect;
     for (const [x, z] of [[lake.minX, lake.minZ], [lake.maxX, lake.maxZ]] as const) expect(W.baseGround(x, z), 'the lake plot\'s corners').toBe(0);
     // Off the west coast south of the ridge, the north and south coasts and the east shore: where the ground crosses the water.
@@ -197,17 +201,33 @@ describe('Las Lomas County: the land', () => {
     }
   });
 
-  it('cuts Lake Lomas into the valley: 250 by 160 m of water, its beach all round, the sea no nearer than the west coast', () => {
-    expect([LAKE.maxX - LAKE.minX, LAKE.maxZ - LAKE.minZ]).toEqual([250, 160]);
-    expect([(LAKE.minX + LAKE.maxX) / 2, (LAKE.minZ + LAKE.maxZ) / 2]).toEqual([-2000, -250]);
-    // Deep in the middle, on the sand at the edge, and dry land 2 m past it.
-    expect(W.baseGround(-2000, -250)).toBe(-8);
-    expect(W.waterDepth(-2000, -250)).toBeGreaterThan(SWIM_DEPTH);
-    expect(W.baseGround(LAKE.minX + 1, -250)).toBeLessThan(0);
-    expect(W.baseGround(LAKE.minX + 1, -250)).toBeGreaterThan(WATER_Y);
-    expect(W.baseGround(LAKE.minX - 2, -250)).toBe(0);
-    // The sea's nearest water is 175 m west of it (the valley's coast at x -2300 at z -250): no way for a boat in.
-    for (let x = -2290; x < LAKE.minX - 50; x += 5) expect(W.baseGround(x, -250), `x ${x}`).toBe(0);
+  it('cuts Lake Lomas into the valley: a ragged lake of 2.6 ha, its beach all round, the sea no nearer than the west coast', () => {
+    // A union of ten holes: a lake, not a rectangle, with a bay, an inlet and a point.
+    expect(LAKE_RECTS.length).toBe(10);
+    const holes = LAKE_RECTS.reduce((s, r) => s + (r.maxX - r.minX) * (r.maxZ - r.minZ), 0);
+    expect(holes / ((LAKE.maxX - LAKE.minX) * (LAKE.maxZ - LAKE.minZ))).toBeLessThan(0.6);
+    // Its water as the ground makes it (below the waterline): its steps are rounded off, but no wider than its holes.
+    let water = 0;
+    for (let x = LAKE.minX; x < LAKE.maxX; x += 2) {
+      for (let z = LAKE.minZ; z < LAKE.maxZ; z += 2) {
+        if (W.baseGround(x, z) >= WATER_Y) continue;
+        water += 4;
+        expect(inLake(x, z), `water at ${x}, ${z}`).toBe(true);
+      }
+    }
+    console.log(`[country_roads] Lake Lomas: ${water} m2 of water in ${holes} m2 of holes`);
+    expect(water).toBeGreaterThan(24_000);
+    expect(water).toBeLessThan(30_000);
+    // Deep in the middle of the main body, on the sand at the edge, and dry land 2 m past it.
+    expect(W.baseGround(-2095, -282)).toBe(-8);
+    expect(W.waterDepth(-2095, -282)).toBeGreaterThan(SWIM_DEPTH);
+    expect(W.baseGround(-2000, -288)).toBeLessThan(WATER_Y);
+    const west = LAKE_RECTS.find((r) => r.minX === -2155)!;
+    expect(W.baseGround(west.minX + 1, -288)).toBeLessThan(0);
+    expect(W.baseGround(west.minX + 1, -288)).toBeGreaterThan(WATER_Y);
+    expect(W.baseGround(west.minX - 2, -288)).toBe(0);
+    // The sea's nearest water is 145 m west of it (the valley's coast at x -2300): no way for a boat in.
+    for (const z of [-380, -330, -280, -230, -180]) for (let x = -2290; x < LAKE.minX - 50; x += 5) expect(W.baseGround(x, z), `${x}, ${z}`).toBe(0);
   });
 
   it('keeps every road 30 m inside the land and every plot on it, 12 m off the road edges but Dry Creek', () => {
@@ -237,6 +257,9 @@ describe('Las Lomas County: the land', () => {
     expect(W.zoneName(-1250, -300)).toBe(COUNTY_NAME);
     expect(W.zoneName(-2200, 0)).toBe(VALLEY_NAME);
     expect(W.zoneName(-2250, 300)).toBe(VALLEY_NAME);
+    // The valley's land runs on east of the ridge's line south of z 170, to x -1440.
+    expect(W.zoneName(-1500, 300)).toBe(VALLEY_NAME);
+    expect(W.zoneName(-1400, 300)).toBe(COUNTY_NAME);
     expect(W.zoneName(-1480, 84)).toBe('Coyote Pass');
     expect(W.zoneName(-2000, -250)).toBe(LAKE_NAME);
     expect(W.zoneName(-2310, -250)).toBe('San Azura Bay');

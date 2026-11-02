@@ -145,8 +145,8 @@ export const MAX_SEA_CUTS = 8;
 /** Points along x and along z of Las Lomas County's depth map (countyShore): 1.65 m and 2.4 m apart over its 1690 x 1250 m box. */
 export const COUNTY_TEXELS_X = 1024;
 export const COUNTY_TEXELS_Z = 512;
-/** Rectangles of the county's land the drawn shelf falls away from (it has seventeen). */
-export const MAX_COUNTY_LAND = 24;
+/** Rectangles of the county's land the drawn shelf falls away from (Country.shelf has fourteen). */
+export const MAX_COUNTY_LAND = 14;
 /** Water depths (m) over which the beach's surf foam fades in seaward of the swash (4.1-7.6 m out on the 1:34 sand). */
 export const SURF_BAND_FADE = [0.12, 0.22] as const;
 /**
@@ -253,7 +253,7 @@ export function countyShore(country: Country): CountyShore {
       depth[j * NX + i] = THREE.DataUtils.fromHalfFloat(THREE.DataUtils.toHalfFloat(WATER_Y - countryGround(country, x, z)));
     }
   }
-  return { box: b, depth, land: country.land };
+  return { box: b, depth, land: country.shelf };
 }
 
 /** CPU twin of the shader's seaCountyDepth: the county's map sampled bilinearly at (x, z) inside its box, else Infinity. */
