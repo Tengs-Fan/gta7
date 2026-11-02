@@ -107,7 +107,7 @@ Every 10 s the server also logs one line per room, for example:
 ### Protocol
 
 `src/net/protocol.ts` (pure TypeScript, shared by server and browser). One binary frame per message:
-`u8 0x47 ('G'), u8 version (3), u8 type`, then the body. Messages:
+`u8 0x47 ('G'), u8 version (5), u8 type`, then the body. Messages:
 
 | Type | Direction | Body |
 |---|---|---|

@@ -369,7 +369,11 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // oddities were appended after those: the mailboxes' and signs' props (a circle of half their width each), then the statics' solids and the telephone
     // poles' (src/world/country/oddities.ts); and the colliders again when Halfmoon Acres' wheat was fenced round, which
     // put 156 breakable fence runs' colliders between the Acres' bales' and its scarecrows' and shifted every later collider
-    // by 156 (the buildings are the same).
+    // by 156 (the buildings are the same); and again when Las Lomas Valley joined the county: the Coyote T's and Valley Cross's
+    // stop sign and lamps (after the causeway's lamps), the
+    // ridge's cores split round Coyote Pass, and the landscape's props moved by the pass and the new fire road; and again
+    // when the valley was reshaped: the sight cores of its seven hills (appended with the ridge's and the foothills'), the
+    // pass's bank under the ridge's cores' cover, and the scrub's colliders none.
     expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
     expect(c).toBe('b82635a867685bfa602a5e2c465acafa770bb9fed3d09768c338ef1c90b91f7c');
   });

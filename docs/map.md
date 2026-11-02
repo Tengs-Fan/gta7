@@ -177,18 +177,23 @@ Every older prop index, collider and pickup, the mission spots and the open spot
 
 ## Las Lomas: roads outside the grid
 
-Las Lomas County is about 0.9 km² of farmland on six rectangles west of the city, across Lomas Sound (x -700 to -512), with Coyote Ridge along its west coast and a beach round it (`src/world/country/index.ts`).
+Las Lomas County is about 1.75 km² on thirty-seven rectangles (the valley's lake and coves cut as holes in it) west of the city, across Lomas Sound (x -700 to -512): 0.9 km² of farmland with Coyote Ridge along its west edge, and beyond the ridge Las Lomas Valley, 0.85 km² more with Lake Lomas in it, reached through Coyote Pass, and a beach round all of it (`src/world/country/index.ts`).
 Two links reach it: the Magnolia Causeway, which runs Magnolia Ave on from Harbor Blvd as a 16 m highway on a headland of its own with grass verges, lamps every 30 m and quay walls and rocks along its sides, and the Southgate Bridge, which carries Southgate Ave over the sound on a deck under a steel through-arch.
-Its 3.3 km of roads join the city's lane graph, so traffic, the police, the cab, the GPS and the radar all know them:
+Its 6.2 km of roads join the city's lane graph, so traffic, the police, the cab, the GPS and the radar all know them:
 
 - **The Magnolia Causeway** to Dry Creek's crossroads (-840, -268), the county's town.
 - **The Lomas Highway**, a 2+2 loop: on west past the Hollister T (-1104, -268), south round a 180 m curve, down the west of the county, east round a 150 m curve, and back along Southgate Ave's line past the Creek T (-840, 268) and over the bridge to Harbor Blvd.
 - **Hollister Lane**, a lane each way round the farm north of the highway, from Dry Creek back to the Hollister T.
 - **Creek Road**, a lane each way from Dry Creek south to the Creek T, swerving 11 m east and back on the way.
+- **Coyote Pass Road**, a lane each way from the Coyote T on the highway's west leg (-1330, 84), 34 m north of its south bend, 510 m west through Coyote Pass to Valley Cross (-1840, 84).
+- **The Valley Loop**, a lane each way round Las Lomas Valley through Valley Cross, 2.4 km: south out of the cross on a straight of 230 m, west round the south bend past the south cove, up the west side wandering round the west cove, the bluff and the lake, along the north side, and back down the lake's east side on a straight of 185 m.
+  Nine curves of 125 to 200 m (`LOOP_CORNERS`: each a corner of straight legs that `Centreline.corner` rounds) between straights of 22 to 238 m: its west side wanders, its south and north ends are bends of different sizes and no two straights run side by side, a loop through the country and not a stadium.
+  The spawner picks a near lane with the same weight whatever its length, so a stretch of road made of many short arc lanes takes most of the picks; the straights either side of the cross keep the loop's lanes near it few, and Valley Cross a stop line with traffic (25 to 36 cars in ten minutes against 9 to 13 with the arcs 50 m from the cross).
 
 **The outer graph.**
 The roads are chains of straight lanes through bend nodes, not a new road model: every lane is still one straight line, so everything that reads a lane's start, end, direction and heading works unchanged.
-The county's 52 nodes, 160 lanes and their turns come after the grid's 121 nodes and 574 lanes in `roads.ts`, so every grid id, lane and turn keeps its number and order.
+The county's 109 nodes, 278 lanes and their turns come after the grid's 121 nodes and 574 lanes in `roads.ts`, so every grid id, lane and turn keeps its number and order.
+(The Coyote T is a vertex of the highway's west straight, so the 57 nodes and 118 lanes of the valley come after the older county's own in a graph where the T split one highway link: the older county nodes after it and their lanes moved up by one and four, and nothing counts on those ids.)
 A node stands at every vertex of every road: a bend where two links meet (`isBend`), a signalled junction where three or four do (`junction('drycreek' | 'hollister' | 'creek')`).
 Each link takes the slot of its bearing at its first node and the opposite slot at its second, so a lane's reverse is `laneFrom(lane.to, reverseDir(lane.dir), 0)` as on the grid, and junction arms keep within 15 degrees of an axis, so the grid's slot arithmetic gives the turns there; at a bend the one turn is the 'straight' continuation.
 The rules a road keeps: no dead end, bend vertices 20 to 30 m apart turning at most 10 degrees on curves of 120 m and more, none within 30 m of a junction, every bend lane 19 m or longer (so a driver still plans 70 m ahead within its 8 steps), and everything flat.
@@ -237,40 +242,52 @@ The scarecrows pay $3,000 once all twenty are down (`src/sim/farms.ts`, saved), 
 
 **The plots contract.**
 The county's land is split into named plots (`COUNTY_PLOTS`) that the content passes fill: Dry Creek (a town round the crossroads), Hollister Bottoms (inside the farm loop), the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge; the rest is wild.
-Every plot but the town keeps 12 m off the road edges, and every road keeps 30 m inside the land.
+The valley's five plots are bare, laid out for the next round to fill: Coyote Pass (the pass and the Pass Road across the ridge), Sunset Vineyard (inside the Valley Loop, south of the lake, standing on the Vineyard Rise: its rows follow the slope, the one farm with ground that is not flat), Lake Lomas (the lake and its shores), the Lazy Q Ranch (east of the loop's south bend, flat paddocks) and Pinewood (east of its north side, on the Pine Rise).
+Every plot but the town and the pass (the Pass Road runs through it) keeps 12 m off the road edges, and every road keeps 30 m inside the land (35 m from the lake's and the coves' edges).
 The content passes go at the end of `buildCountry`, each one call that only appends, in this order: the landscape, the farms, the places.
 They add no open spot (the hidden packages are placed over the open spots), append parking bays only at the end, stand their props on `countryGround`, and keep their rises in `layout.country.rises`, which only the county's ground reads.
 The HUD and the scanner name the plot you are in, or Las Lomas County.
 
 **The landscape.**
 `buildHills` (`src/world/country/hills.ts`) is the first content pass, and keeps every rule above.
-- **Coyote Ridge** runs along the west coast, round 2's `terrain.ts` with a third kind of rise, the `'ridge'`: a crest along x -1475, 24 m high and 20 m wide across its flat top from z -470 to -80, falling away in a cosine on each side and at each end.
-  Its east flank falls over 115 m to its foot 12 m off the Lomas Highway's west leg (32.8% at its steepest), its west flank over 108 m to the beach (34.9%), running 33 m out over the sand, and its north end over 110 m to the north shore (34.3%), which a Nightjar takes at 60 m/s.
-  Its south end is a 270 m shoulder (14% at its steepest), the one the fire road climbs.
+- **Coyote Ridge** runs between the county and Las Lomas Valley, round 2's `terrain.ts` with a third kind of rise, the `'ridge'`: a crest along x -1475, 24 m high and 20 m wide across its flat top from z -470 to -80, falling away in a cosine on each side and at each end.
+  Its east flank falls over 115 m to its foot 12 m off the Lomas Highway's west leg (32.8% at its steepest), its west flank over 108 m to the valley's floor (34.9%), and its north end over 110 m to the north shore (34.3%), which a Nightjar takes at 60 m/s.
+  Its south end is a 270 m shoulder (14% at its steepest), the one the fire road climbs and Coyote Pass cuts.
+- **Coyote Pass** is the shoulder cut flat across along z 84 (`Rise.cut`), where the Pass Road crosses the ridge: the ground is 0 within 17.5 m of the road's centre line (its 5 m half width and the 12 m the landscape keeps clear of every edge), then climbs back to the ridge in a cosine over 12 m, so the rock walls stand 12 m high on the north side and 10 m on the south at the crest (57 and 53 degrees at their steepest, drawn as bare rock from 26 degrees up) and a car driven at them stops, since the ground ahead of its nose rises more than the 1 m it can step over (`ledgeTooHigh`, 2.2 m ahead, a slope of 45%); the ridge's flanks stay under 35% and cars still climb them.
+  The ridge's sight cores split in two around it, none over the carved ground or its walls, and lines of sight and shots follow the carved ground as they do the rest.
+  The shoulder south of the cut is only 4.5 m high at the wall, so a bank of 6 m (`PASS_BANK`, a cosine bell over 105 by 34 m laid on the ridge and carved with it) stands that wall within 3 m of the north one's height where the ridge is high (x -1520 to -1430), so from the Coyote T the pass reads as a notch between two walls and not as a cut in a slope.
+  Some 240 boulders (`passRocks`, the lumpy rocks of the city's foreshore, heaped at the foot of each wall and climbing its face, a few the size of a car on the lip) dress both walls; they are drawn only, so a car stopped by a wall drives through the ones at its foot, and keep clear of the fire road and its crossing.
+  It stands at z 84, not on z 15 as first planned, because the fire road climbs the shoulder from the highway to Lookout Point and the ground has one height to a point: a pass at z 15 cuts the crest the fire road runs along, 17 m up, and no road can cross it; at z 84 the cut is where the shoulder is low (the ridge 4.5 m high where the south wall would stand, 2 m or less where the fire road crosses it), and 84 is as far north as the fire road still climbs the shoulder north of the cut at 18% or less, and as far south as the T keeps its approach lane after the highway's south bend the 19 m that a driver plans from.
 - **Five foothills**, cosine bells of 4 to 10 m, stand on the wild ground: Coyote Knoll north of the highway's bend, Gulch Hill west of Gravel Gulch, Cove Rise by the south cove, Sound Bluff on the sound's shore south of Dry Creek, and Bend Knoll inside the bend.
+- **Seven hills in the valley**, bells of 4 to 9 m on the ground between its roads (`VALLEY_HILLS`): the Vineyard Rise (7 m, 210 by 190 m, 13% at its steepest) inside the loop south of the lake, where the vineyard's rows will climb it; the West Bluff (9 m, 38% on its seaward side) along the west coast north of the cove; the Pine Rise (8 m) and the Needle Knoll in the pine wood; the Mouth Knoll and the Mouth Rise on either side of the Pass Road where it comes out of the pass; and the Willow Knoll inside the loop's south bend.
+  Scrub grows on their slopes but not on the vineyard's.
   No two rises overlap.
-- **The contract**, tested on a 1 m lattice: every rise is 0 within 12 m of every road's edge, on every plot but the wild ones and at every verge node, so the roads, the verges, the farms and the places stay flat.
-- **Six wind turbines** stand along the ridge's top, on the west half of its line, 110 m apart and at least 40 m from Lookout Point, Turbine Row's kind and renderer on a foundation of their own: their towers stop cars, shots and sight from 1 m under the ground up past the nacelle.
-  Four stand on the crest, the first just off its north end, and the last two past Lookout Point down the south shoulder, 22 m and 9 m up: a row of six 110 m apart runs 550 m, and the 390 m crest keeps 40 m clear of the lookout.
+- **The contract**, tested on a 1 m lattice: every rise is 0 within 12 m of every road's edge, on every plot but the wild ones and the vineyard (the one farm that stands on a rise) and at every verge node, so the roads, the verges, the farms and the places stay flat.
+- **Six wind turbines** stand along the ridge's top, on the west half of its line and at least 40 m from Lookout Point, Turbine Row's kind and renderer on a foundation of their own: their towers stop cars, shots and sight from 1 m under the ground up past the nacelle.
+  Four stand on the crest 110 m apart, the first just off its north end, the fifth past Lookout Point down the south shoulder, 22 m up, and the sixth past Coyote Pass, 1.3 m up where the shoulder runs out: the sixth would have stood in the pass, 110 m on from the fifth.
   Two belts of trees line the ridge's east foot, and bushes (no collider) grow over the slopes.
 - **Sight and shots.** The county's rises live in `country.rises`, which only `countryGround` reads, so the city's `baseGround` still loops over its own two.
   Lines of sight, shots and the camera's terrain test follow them as they do the city's (`riseRay` over the ground they stand on: the county's own, with no curb, and past the land's edge the beach the ridge's west flank runs out over), and their sight cores, twelve for the ridge, are appended after every older collider.
   The cores are kept inside the land, since the ridge's west flank runs on over the beach, where the ground is lower than the rise alone.
   Two people on the crest see each other; across the ridge at a man's height nothing is seen.
   A swimmer off the west beach is seen from the sand, from a boat and from the air, and a shot reaches him.
-- **The fire road** is a 6 m gravel track, drawn only, from a turn-off on the west leg up the ridge's south shoulder in five axis-aligned switchbacks and along the crest's flat top to the car park at Lookout Point, 297 m and 17.1% at its steepest, on ground no steeper than 21%.
+- **The fire road** is a 6 m gravel track, drawn only, from a turn-off on the west leg west to cross the Pass Road at ground level (its gravel breaks where the asphalt runs across), then up the ridge's south shoulder in five axis-aligned switchbacks and along the crest's flat top to the car park at Lookout Point, 313 m and 17.4% at its steepest, on ground no steeper than 21%.
   It is not in the lane graph: traffic never takes it, and past 45 m off the road the police come up it on foot.
 - **Lookout Point** is a flat car park on the crest, 24 m up, facing the city 1.4 km off across the county and the sound, with a parapet along its east edge, a plaque (LOOKOUT POINT. ELEV. 24 M. THE CITY LOOKS BETTER FROM HERE. SO DOES EVERYTHING.), a coin telescope (VIEWS 25 CENTS. CITY SOLD SEPARATELY.) and a timber fire lookout on four posts.
 - **The Coyote Ridge Hill Climb** (`src/sim/activities/hillClimb.ts`) starts from a foot gate on the turn-off: in any road vehicle there, T starts a timed run through six gates in order up the fire road to Lookout Point.
   Its medal times come from a scripted Nightjar run of 14.95 s: gold 15.7 s, silver 18.7 s and bronze 23.9 s, paying $1,000, 70% and 45%.
   The best run is saved with the activity records, and it is single player only.
 - **The beaches.** The county's coast is beach all round: the sand runs 8 m out from the land's edge to the waterline and falls to the flat seabed 45 m out.
-  The sea draws it from a depth map baked from the county's ground, so turquoise shallows ring its coves and points for about 15 m past the waterline, with surf bands and swash on the sand, and Lomas Sound stays blue between it and the city.
-  The surf is heard anywhere on the county's land within about 180 m of its waterline; the causeway's quay walls make none.
-- **Reflector posts**, drawn only, stand every 25 m along both edges of every county road on the land, clear of the junctions, of the fire road's turn-off, of the drives into the farms, the drive-in and Gravel Gulch, and of Dry Creek.
+  The sea draws it from a depth map baked from the county's ground, 1024 by 512 points over the box x -2345 to -655, z -625 to 625 (1.65 by 2.4 m a point; the county's 512 square over its first box was 1.9 by 2.4), so turquoise shallows ring its coves, the lake and its points for about 15 m past the waterline, with surf bands and swash on the sand, and Lomas Sound stays blue between it and the city.
+  The surf is heard anywhere on the county's land within about 180 m of its waterline; the causeway's quay walls make none, nor does Lake Lomas, which laps.
+- **Lake Lomas** is ten rectangular holes in the valley's land (`LAKE_RECTS`, 280 by 245 m in all): a main body that steps down from the north-west in six rectangles, a bay on its east side, a narrow inlet to the north and two bays in its south shore with a point between them, 2.6 ha of water with the beach and its 8 m of sand all round.
+  Rectangles alone make a stepped shore, so `countryFloor` rounds the lake's: within its box (`Country.lake`) the water is the holes opened by a 10 m disc (the farthest any point within 10 m of a place is from the land, less 10 m: 18 samples stand for the disc), which keeps every straight shore and every metre of land where the rectangles put it and fills the water's corners and its steps' treads in, with a lake's wandering line.
+  An inlet or a bay narrower than 36 m would close up in it, so none is.
+  The sea's shelf falls away from the county's land with the lake filled in (`Country.shelf`, 14 rectangles, the shader's whole loop), as the lake has no shelf to fall off; the shelter map seeds the holes, so no swell reaches it.
+- **Reflector posts**, drawn only, stand every 25 m along both edges of every county road on the land, clear of the junctions, of the fire road's turn-off and its crossing of the Pass Road, of the drives into the farms, the drive-in and Gravel Gulch, and of Dry Creek.
 
 **Junctions without lights.**
-Every road has a priority (the highway 2, the country roads 1), and the Hollister T and the Creek T (`STOP_SIGNS`) have stop signs instead of lights: `RoadNode.stops` marks the arms that stop, Hollister Lane's and Creek Road's.
+Every road has a priority (the highway 2, the country roads 1, the Pass Road 0), and the Hollister T, the Creek T, the Coyote T and Valley Cross (`STOP_SIGNS`) have stop signs instead of lights: `RoadNode.stops` marks the arms that stop, Hollister Lane's, Creek Road's and the Pass Road's (at both of its ends: it gives way to the highway and to the loop).
 The signal head for a stopping arm is a stop sign (a `stopSign` prop, breakable like a lamp) behind a stop line, and the heads for the highway's arms are lamps over the junction, so every later prop keeps its index; Dry Creek keeps its light, and no grid node has a stop.
 A driver obeying the lights stops its front bumper at the line, stands there 0.6 s, and goes once the junction holds no vehicle that someone drives or that moves above 1.5 m/s, and nothing above 1.5 m/s is coming in on the highway within 30 m or the gap it needs (`DriverAI.goFromStop`).
 A wreck or a car left standing in the junction is in the way like any obstacle, not traffic to wait for: counted as traffic it held the country road at the line for good.
@@ -278,10 +295,15 @@ Turning right it needs 3.5 s of the traffic it pulls out in front of; turning le
 Pursuers run stop signs, and a stop sign cannot be held green: the street runs' green wave and `holdSignal` pass over a junction without lights.
 On the county's lanes a left turner yields to any oncoming car up to 4.5 s away, not only within 38 m as in the city, since the highway's 22 m/s covers 38 m faster than a turn takes.
 The spawner treats a stop line like a red light (a car queued there spawns standing), starts no car at speed within 50 m of a county junction on its lane, and queues no highway car at a stop sign for a fast player: in the ten-minute soaks those were the cars that hit turners.
-`tests/unit/traffic_deadlock.test.ts` stands ten minutes at each T for each of seeds 1-12 in the game's traffic, and once more at the Creek T with a car parked in its box: nothing collides in either junction, and no wait at a line passes 40 s.
-The longest is 39 s, and 5 of 1078 stops (in 5 of the 24 runs) wait over 30 s.
+On a lane with right of way into a county junction, which its left turns cross, it starts none at speed within as far as the lane's limit covers in 4.5 s, the time a turn across it takes from a stand (99 m on the highway, 67.5 m on the 15 m/s roads), counted on through the bends before the junction (`spawnClearance`): a turner that judged its gap before such a car existed was hit by it.
+That covers the highway's lanes at the Ts, every arm of Dry Creek's light and the Valley Loop's at Valley Cross; the lanes that stop at a sign keep 50 m.
+`tests/unit/traffic_deadlock.test.ts` stands ten minutes at the Creek T, the Hollister T and the Coyote T for each of seeds 1-12 in the game's traffic, at the Coyote T also for seeds 108, 143, 304, 326 and 336 (where a turner was hit before that clearance), at Valley Cross for seeds 1-4, and once more at the Creek T with a car parked in its box: nothing collides in any junction, no wait at a line passes 40 s, and every car that stops at a line goes on through the junction but for those still at it when the ten minutes end.
+Over each junction's seeds at least a floor of cars stop at its line and go on: 467 do at the Creek T, 745 at the Hollister T, 229 at the Coyote T and 126 at Valley Cross, against floors of 400, 690, 180 and 100 (Valley Cross's four seeds see 25 to 36 cars each on the reshaped loop, from 34 to 44 on the stadium: the loop's arcs take more of the near lanes' picks).
+At the Creek T and the Hollister T the longest wait is 34 s, and 3 of 1223 stops (in 3 of the 24 runs) wait over 30 s.
+The Coyote T's left turn waits out the platoons behind the highway's tractors, and a tractor turning needs longer gaps: its seventeen runs wait at most 35 s, and over seeds 1-400 of the same soak none collided, two waited over 40 s (49 s and 40.5 s) and none over 50 s; 7 to 20 cars come down the Pass Road to its line in each of the seventeen runs, since the valley behind it is the one place that road leads.
+Valley Cross's longest of four is 27 s.
 The bound is 40 s, not 30, for three reasons: a left turn from the country road needs a gap in both of the highway's streams at once; no cheap rule tried (shorter gaps, sooner impatience, a forced go) got the longest under 36 s without collisions in the box; and the traffic's density never goes above 1.0 in play (at 1.5 times the traffic the Creek T's left turns waited up to 85 s).
-If a later round finds them wanting, emptying `STOP_SIGNS` gives both junctions their lights back.
+If a later round finds them wanting, emptying `STOP_SIGNS` gives every junction its lights back.
 
 **The county's traffic.**
 In the county (`COUNTY_BOUNDS`) the traffic is 0.4 of the city's, and `countryKind` turns half the sedans into pickups, the taxis into Haymaker tractors, the buses into pickups and the sports cars into muscle cars, by a hash of the place after the draw, as `trafficBike` does, so the sim's random stream and every city kind stay as they were; parked bays take the same remap by place.
@@ -332,6 +354,7 @@ It draws nothing from the city's generator (the stores' tints come from its own)
 - A course's corners may name a county junction or a gated bend; the legs to and from one take the shortest way on, never back the way it came.
 - Its gates stand at junctions and at the apex of each of the Lomas Highway's two curves out west, at no other bend, and its distance runs along the road.
   Without the curves' gates the 1.1 km round the west loop from the Hollister T to the Creek T had none, and a U-turn back through Dry Creek and down Creek Road (0.8 km) or a line across the fields (0.6 km) cut it; through both, a line across the fields saves about 45 m on the road's own racing line.
+  The Coyote T stands on the highway's west leg, which the loop runs along, so it is a gate of the loop too: 18 checkpoints now, 17 before, the distance (3046 m), the medals and the lap times as they were.
 - The green wave walks the course's gates, so it holds the gateways and Dry Creek for the racer; on the city's courses those are the same junctions as before.
 - `buildStreetRunCourses` keeps the city's three byte for byte, and the loop comes after them, so multiplayer offers it head-to-head as it does the others.
 
@@ -410,6 +433,9 @@ A three-car monorail runs along Cortez Canal on a beam 9.6 m up, from Northshore
 - The Magnolia Causeway and the Southgate Bridge close the middle of Lomas Sound, and Pelican Harbor with it, to boats: decks and headlands stop them.
 - Pedestrians can spawn on the promenade's two crossings at the links' mouths, which keep their places among the walking edges.
 - A pursuit into Las Lomas County thins out: with no buildings to hide them, units are placed only out of sight, and on the long straights a fast car outruns them; its tuning is the county traffic round's.
+- Las Lomas Valley has one way in and out, Coyote Pass: a pursuit that goes in meets its units coming through the pass, so a chase there is easy to pin.
+  From a lane inside the valley `findRoute`, called with the first step back forbidden, finds no route out (a node-to-node search cannot come back through Valley Cross): the GPS then allows the turn back, and the cab starts from a lane with a drive to its fare instead.
+- The valley is bare but for its hills and their scrub and the boulders in the pass: its five plots (Sunset Vineyard, the Lazy Q Ranch, Lake Lomas, Pinewood and Coyote Pass) are named and kept clear for the next round, and the Pass Road and the loop have no pedestrians, since the verges are no spawn ground.
 - The county's reflector posts are drawn only: a car passes through them.
 - The county's barns get no garage darkening under their roofs (the shader takes the city's five garages); the roof's shadow darkens their floors.
 - A cow knocked over at noon stays down until the next dawn.

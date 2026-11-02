@@ -511,6 +511,11 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // was fenced round (156 post-and-rail runs, the gate 8 m mid-way along the highway side, the same breakable fence props
   // and colliders as the dairy's pasture), which put 156 props between the Acres' bales and its scarecrows, and their 156
   // colliders with them, shifting every later prop index and collider by 156.
+  // and when Las Lomas Valley joined the county (the Coyote T's and Valley Cross's stop sign and two lamps each, after the
+  // causeway's lamps and before the landscape's props; the tree belts and scrub the ridge's pass cut and the new fire road
+  // moved or dropped (no bush grows on the pass's rock walls), so their envelopes with them, and the sixth turbine moved
+  // past the pass); and when the valley was reshaped (the pass's bank moved the ridge's scrub on the south wall, the
+  // valley's seven hills grew theirs, none on the vineyard's rise, and their sight cores and envelopes with them).
   const D98 = {
     props: 'fd7e215cfea50fc6367c3af0475c2f43359d84cef5fb1d4931b78862b87e981f',
     colliders: 'fac1ea1efa80fe82055dbfc696832507cc65071515a790680f3f20d716578477',
@@ -669,10 +674,12 @@ describe('VAL-PRP-010 props stay instanced within budget', () => {
       if (o instanceof THREE.InstancedMesh) perGeo.set(o.geometry.uuid, (perGeo.get(o.geometry.uuid) ?? 0) + 1);
     });
     const cells = new Set(W.layout.props.map((p) => `${Math.floor(p.x / HARDWARE_CHUNK_SIZE)},${Math.floor(p.z / HARDWARE_CHUNK_SIZE)}`)).size;
-    console.log(`[props] ${meshes} prop meshes (d98da7b 387, cap ${Math.floor(387 * 1.5) + 1}), ${tris} triangles over the whole city, ${cells} cells`);
-    // One more than 1.5 times: the county's roadside furniture (its mailboxes and signs, world/country/oddities.ts) is one
-    // instanced batch for every make of them (render/country/roadside.ts), the only mesh the oddities add to the props.
-    expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5) + 1);
+    console.log(`[props] ${meshes} prop meshes (d98da7b 387, cap ${Math.floor(387 * 1.5) + 14}), ${tris} triangles over the whole city, ${cells} cells`);
+    // 14 more than 1.5 times: one for the county's roadside furniture (its mailboxes and signs, world/country/oddities.ts), one
+    // instanced batch for every make of them (render/country/roadside.ts), the only mesh the oddities add to the props; and the
+    // valley's thirteen, the ten of its two stop-sign junctions (lamps and stop signs), each in a cell of its own, and the three
+    // of the scrub on its hills, in cells the older county had none in.
+    expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5) + 14);
     for (const n of perGeo.values()) expect(n).toBeLessThanOrEqual(cells + 4);
   });
 });

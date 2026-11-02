@@ -23,8 +23,11 @@ import {
   type Blip,
   type MapCategory,
 } from '../mapRender';
-import { COUNTY_NAME } from '../../world/country';
+import { COUNTY_NAME, VALLEY_NAME } from '../../world/country';
 import { h, localPlayer, type MenuCtx } from './shared';
+
+/** The map zooms out to this many 1.5x steps (negative) from fitting the city, to show the county and the valley beyond it whole. */
+const MIN_ZOOM = -2;
 
 /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
 export function showMap(menus: MenuCtx, onClose?: () => void): void {
@@ -155,10 +158,24 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
   // north to Turbine Row (world/offshore.ts), a pan away, and the city keeps its size on the map.
   const b = sim.world.layout.bounds;
   let zoom = 0;
-  let cx = (b.landMinX + b.beachEndX) / 2;
-  let cz = (b.landMinZ + b.landMaxZ) / 2;
+  const cx0 = (b.landMinX + b.beachEndX) / 2;
+  const cz0 = (b.landMinZ + b.landMaxZ) / 2;
+  let cx = cx0;
+  let cz = cz0;
   const fitW = 2 * (b.worldMaxX - cx);
   const fitH = 2 * (b.worldMaxZ - cz);
+  // Zoomed out past the city, the view moves on to the county and the valley beyond it, which at the left edge would sit
+  // under the checklist: its middle is the city's at zoom 0 and the middle of the county's box (the valley's coast to the
+  // sound) from one step out, where the county and the valley just fit between the checklist and the legend, whatever the
+  // player has panned from it.
+  const county = sim.world.layout.country.bounds;
+  const setZoom = (next: number) => {
+    const out = (z: number) => clamp(-z, 0, 1);
+    const to = clamp(next, MIN_ZOOM, 4);
+    cx += ((county.minX + county.maxX) / 2 - cx0) * (out(to) - out(zoom));
+    cz += ((county.minZ + county.maxZ) / 2 - cz0) * (out(to) - out(zoom));
+    zoom = to;
+  };
   let dragging = false;
   let moved = 0;
   let lx = 0;
@@ -259,7 +276,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
       ctx.strokeText(blk.zone.toUpperCase(), sx, sy);
       ctx.fillText(blk.zone.toUpperCase(), sx, sy);
     }
-    // Las Lomas County: its name across it, and zoomed in, its plots' (the wild ones but Coyote Ridge go unnamed).
+    // Las Lomas County and Las Lomas Valley: their names across them, and zoomed in, every plot's.
     const label = (text: string, x: number, z: number) => {
       const sx = vw / 2 + (x - cx) * k;
       const sy = vh / 2 + (z - cz) * k;
@@ -271,6 +288,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     ctx.save();
     ctx.font = '700 22px Rajdhani, sans-serif';
     label(COUNTY_NAME.toUpperCase(), -1130, 0);
+    label(VALLEY_NAME.toUpperCase(), -1940, 20);
     ctx.restore();
     // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top; you go on top of all.
     const wp = menus.host.waypoint();
@@ -373,7 +391,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     wheelT = e.timeStamp;
     if (dy === 0 || Math.abs(e.deltaX * unit) > Math.abs(dy)) return;
     const steps = newGesture ? 1 : Math.min(Math.abs(dy) / WHEEL_STEP, 1);
-    zoom = clamp(zoom - Math.sign(dy) * 0.5 * steps, 0, 4);
+    setZoom(zoom - Math.sign(dy) * 0.5 * steps);
   }, { passive: false });
   menus.push({
     el,
@@ -392,8 +410,8 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
       if (ui.tab) stepPick(ui.tab);
       if (ui.padY) stepCategory();
       if (ui.padX) toggleLayer(rows[pick]?.category);
-      if (ui.zoomIn) zoom = clamp(zoom + 0.5, 0, 4);
-      if (ui.zoomOut) zoom = clamp(zoom - 0.5, 0, 4);
+      if (ui.zoomIn) setZoom(zoom + 0.5);
+      if (ui.zoomOut) setZoom(zoom - 0.5);
       // Each press (arrows / WASD, the D-pad) steps the view 60 px, also a tap whose key is up again before
       // Input polls and so is never seen held. Held, they and the left stick pan it on, by up to 0.8 of its
       // height a second (its size on the page, as the pointer handlers measure it), once let go since it opened.

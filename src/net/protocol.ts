@@ -23,7 +23,7 @@ import { ProtocolError, Reader, Writer } from './wire';
 export { ProtocolError, Reader, Writer } from './wire';
 
 export const MAGIC = 0x47;
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 export const HEADER_BYTES = 3;
 
 export const MESSAGE_TYPES = ['hello', 'welcome', 'reject', 'input', 'snapshot', 'event', 'cmd', 'ping', 'pong', 'bye'] as const;

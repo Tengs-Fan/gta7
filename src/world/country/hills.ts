@@ -1,22 +1,23 @@
 // Las Lomas County's landscape: Coyote Ridge along the west coast with six wind turbines along its top, the foothills
-// between the farms, the gravel fire road that climbs the ridge's south end to Lookout Point, and the lookout itself.
+// between the farms, the valley's low hills and the bluff on its west coast, the gravel fire road that climbs the
+// ridge's south end to Lookout Point, and the lookout itself.
 // Pure data and queries, no rendering. buildHills is the first of the content passes at the end of buildCountry: it only
 // appends (the rises to country.rises, which countryGround alone reads, and props standing on that ground). Every rise is
 // 0 within 12 m of every road's edge, off every plot but the wild ones and at every verge walk node, so the roads, the
 // verges and the farms' and places' pads stay flat (docs/map.md, "Las Lomas: roads outside the grid", the landscape).
 
 import { Rng } from '../../core/rng';
-import { addProp, hashInts, mkRect, type CityLayout, type Rect } from '../layout';
+import { addProp, hashInts, mkRect, rectContains, type CityLayout, type Rect } from '../layout';
 import { CORE_INSET, ridgeBounds, riseAt, terrainCores, type Core, type Rise } from '../terrain';
-import { COUNTY_LAND, countryGround, MOUTH_CLEAR, type Country } from './index';
+import { COUNTY_LAND, countryGround, MOUTH_CLEAR, PASS_Z, type Country } from './index';
 
 export const RIDGE_NAME = 'Coyote Ridge';
 
 /**
  * Coyote Ridge: a 24 m crest along x -1475 from z -470 to -80, 20 m wide across its flat top. Its east flank falls over
  * 115 m to the foot 12 m off the Lomas Highway's west leg (32.8% at its steepest), its west flank over 108 m to the
- * beach (34.9%), running out 33 m over the sand, its north end over 110 m to the north shore (34.3%) and its south end
- * over 270 m (14%), the long shoulder the fire road climbs.
+ * floor of Las Lomas Valley (34.9%), its north end over 110 m to the north shore (34.3%) and its south end over 270 m
+ * (14%), the long shoulder the fire road climbs. Coyote Pass cuts across the shoulder (PASS_CUT).
  */
 const RIDGE = { cx: -1475, cz: -275, plateau: 10, rx: 115, rz: 195, height: 24, runs: { west: 108, north: 110, south: 270 } } as const;
 
@@ -32,12 +33,38 @@ const FOOTHILLS: ReadonlyArray<Pick<Rise, 'name' | 'cx' | 'cz' | 'rx' | 'rz' | '
   { name: 'Bend Knoll', cx: -1226, cz: -181, rx: 34, rz: 30, plateau: 4, height: 4 },
 ];
 
-/** The county's rises: the ridge and the foothills, in that order. */
+/**
+ * Coyote Pass: the ridge's south shoulder cut flat across along the Pass Road (PASS_Z), 17.5 m either side of its centre
+ * line (its half width and 12 m clear of its edge), then climbing back in a cosine over 12 m: the rock walls. The north
+ * wall climbs to the ridge's own 12 m; the south one, where the shoulder is only 4.5 m, to the same height again on a
+ * bank of 5 m laid over it west of the fire road, so both sides stand 9 to 12 m over the road (PASS_BANK).
+ */
+const PASS_FLAT = 17.5;
+const PASS_RUN = 12;
+const PASS_BANK = { cx: -1470, cz: 118, rx: 105, rz: 34, height: 6 } as const;
+
+/**
+ * Las Lomas Valley's hills, cosine bells like the foothills, on ground no road, plot or farm uses (but for the
+ * vineyard's own rise): the Vineyard Rise inside the loop, south of the lake, the West Bluff along the coast north of
+ * the west cove (steeper on its seaward side), the Pine Rise and the Needle Knoll in the pine wood, the two knolls
+ * where the Pass Road comes out into the valley, and the Willow Knoll inside the loop's south bend.
+ */
+const VALLEY_HILLS: ReadonlyArray<Pick<Rise, 'name' | 'cx' | 'cz' | 'rx' | 'rz' | 'plateau' | 'height'>> = [
+  { name: 'Vineyard Rise', cx: -2015, cz: 130, rx: 105, rz: 95, plateau: 15, height: 7 },
+  { name: 'West Bluff', cx: -2255, cz: -30, rx: 45, rz: 112, plateau: 8, height: 9 },
+  { name: 'Pine Rise', cx: -1710, cz: -300, rx: 58, rz: 130, plateau: 16, height: 8 },
+  { name: 'Needle Knoll', cx: -1715, cz: -480, rx: 55, rz: 32, plateau: 6, height: 5 },
+  { name: 'Mouth Knoll', cx: -1700, cz: 8, rx: 52, rz: 30, plateau: 8, height: 4 },
+  { name: 'Mouth Rise', cx: -1700, cz: 165, rx: 55, rz: 36, plateau: 10, height: 5 },
+  { name: 'Willow Knoll', cx: -2060, cz: 370, rx: 60, rz: 45, plateau: 8, height: 5 },
+];
+
+/** The county's rises: the ridge, the foothills and the valley's hills, in that order. */
 export function countyRises(): Rise[] {
-  const ridge: Omit<Rise, 'bounds'> = { name: RIDGE_NAME, kind: 'ridge', ...RIDGE, runs: { ...RIDGE.runs }, within: [] };
+  const ridge: Omit<Rise, 'bounds'> = { name: RIDGE_NAME, kind: 'ridge', ...RIDGE, runs: { ...RIDGE.runs }, cut: { z: PASS_Z, flat: PASS_FLAT, run: PASS_RUN, bank: { ...PASS_BANK } }, within: [] };
   return [
     { ...ridge, bounds: ridgeBounds(ridge) },
-    ...FOOTHILLS.map((f): Rise => ({ ...f, kind: 'bell', bounds: mkRect(f.cx - f.rx, f.cz - f.rz, f.cx + f.rx, f.cz + f.rz), within: [] })),
+    ...[...FOOTHILLS, ...VALLEY_HILLS].map((f): Rise => ({ ...f, kind: 'bell', bounds: mkRect(f.cx - f.rx, f.cz - f.rz, f.cx + f.rx, f.cz + f.rz), within: [] })),
   ];
 }
 
@@ -54,17 +81,19 @@ export const FIRE_ROAD_W = 6;
 export const FIRE_CORNER = 12;
 
 /**
- * The fire road's centre line, corner to corner: from the gravel turn-off on the Lomas Highway's west leg it climbs the
- * ridge's south shoulder in switchbacks, west and north by turns (each west leg where the shoulder is low enough to
- * climb it at 18% or less), then north along the crest's flat top to the car park at Lookout Point.
+ * The fire road's centre line, corner to corner: from the gravel turn-off on the Lomas Highway's west leg it runs west
+ * and crosses the Pass Road at ground level (Coyote Pass cuts the shoulder flat across z 54-114, so the climb starts on
+ * the pass's north side), climbs the ridge's south shoulder in switchbacks, west and north by turns (each west leg
+ * where the shoulder is low enough to climb it at 18% or less), then north along the crest's flat top to the car park
+ * at Lookout Point.
  */
 export const FIRE_ROAD: ReadonlyArray<readonly [number, number]> = [
   [-1338, 105],
-  [-1385, 105],
-  [-1385, 78],
-  [-1430, 78],
-  [-1430, 50],
-  [RIDGE.cx + 3.5, 50],
+  [-1370, 105],
+  [-1370, 50],
+  [-1440, 50],
+  [-1440, 34],
+  [RIDGE.cx + 3.5, 34],
   [RIDGE.cx + 3.5, -84],
 ];
 
@@ -135,27 +164,29 @@ export const LOOKOUT = {
 } as const;
 
 /**
- * Where the six turbines stand, 110 m apart along the ridge's top on the crest's west half, clear of the fire road and of
- * Lookout Point: the first just off the crest's north end, three more along it, and the last two past Lookout Point down
- * the south shoulder, 22 m and 9 m up. The crest holds no more: a row of six 110 m apart runs 550 m, and the 390 m crest
- * keeps 40 m clear of the lookout.
+ * Where the six turbines stand, along the ridge's top on the crest's west half, clear of the fire road, of Lookout Point
+ * and of Coyote Pass: the first just off the crest's north end and three more 110 m apart along it, the fifth 40 m or
+ * more the other side of Lookout Point, 22 m up the south shoulder, and the last past the pass, where the shoulder runs
+ * out (Coyote Pass takes the place a sixth 110 m on would have).
  */
 const TURBINE_X = RIDGE.cx - 5;
-const TURBINE_Z: readonly number[] = [-473, -363, -253, -143, -33, 77];
+const TURBINE_Z: readonly number[] = [-473, -363, -253, -143, -33, 150];
 
 /** Salt of the generator that scatters the tree belts. */
 const TREE_SALT = 0x0c07e1;
 /** The belts along the ridge's east foot: two rows, a tree about every TREE_GAP m along each. */
 const TREE_ROWS: readonly number[] = [-1357, -1368];
 const TREE_GAP = 9;
-/** The stretch of the foot the fire road's turn-off crosses, left open. */
-const TURN_OFF = { minZ: 88, maxZ: 122 } as const;
+/** The stretch of the foot the fire road's turn-off and first leg and the Pass Road cross, left open. */
+const TURN_OFF = { minZ: 44, maxZ: 122 } as const;
 /** Salt of the generator that scatters the scrub, and how many bushes it tries per 1000 m2 of each rise's bounds. */
 const SCRUB_SALT = 0x5c2b;
 const SCRUB_DENSITY = 3;
 /** Scrub grows only where a rise stands this high (m), and keeps this far (m) off the fire road, the car park and the turbines. */
 const SCRUB_LOW = 2.5;
 const SCRUB_CLEAR = 7;
+/** Ground this steep (rise over run) is bare rock: the pass's walls, not the ridge's flanks (35% at most). */
+const ROCK_SLOPE = 0.45;
 
 /**
  * Lays the landscape into the county: the ridge and the foothills, the turbines along its top, the tree belts along the
@@ -188,6 +219,10 @@ export function buildHills(layout: CityLayout): void {
     road.every((p) => Math.hypot(p.x - x, p.z - z) > SCRUB_CLEAR) &&
     (x < pad.minX - SCRUB_CLEAR || x > pad.maxX + SCRUB_CLEAR || z < pad.minZ - SCRUB_CLEAR || z > pad.maxZ + SCRUB_CLEAR) &&
     TURBINE_Z.every((tz) => Math.hypot(TURBINE_X - x, tz - z) > SCRUB_CLEAR);
+  // The vineyard's rise is the vineyard's: its rows, not scrub.
+  const farmed = (x: number, z: number) => country.plots.some((p) => p.kind === 'farm' && rectContains(p.rect, x, z));
+  // Nothing grows on Coyote Pass's rock walls (the grass shader's rock, ground rising 1 m in 2.2: where a car stops).
+  const bare = (x: number, z: number) => Math.hypot(countryGround(country, x + 1, z) - countryGround(country, x - 1, z), countryGround(country, x, z + 1) - countryGround(country, x, z - 1)) / 2 > ROCK_SLOPE;
   for (const r of country.rises) {
     const b = r.bounds;
     const tries = Math.round(((b.maxX - b.minX) * (b.maxZ - b.minZ) * SCRUB_DENSITY) / 1000);
@@ -196,9 +231,58 @@ export function buildHills(layout: CityLayout): void {
       const z = scrub.range(b.minZ, b.maxZ);
       const scale = scrub.range(0.75, 1.3);
       const rot = scrub.range(0, Math.PI * 2);
-      if (riseAt([r], x, z) >= SCRUB_LOW && countryGround(country, x, z) >= SCRUB_LOW && clear(x, z)) addProp(layout, 'bush', x, z, rot, scale, countryGround(country, x, z));
+      if (riseAt([r], x, z) >= SCRUB_LOW && countryGround(country, x, z) >= SCRUB_LOW && clear(x, z) && !bare(x, z) && !farmed(x, z)) addProp(layout, 'bush', x, z, rot, scale, countryGround(country, x, z));
     }
   }
+}
+
+/**
+ * A boulder on one of Coyote Pass's walls (drawn only, render/country/hills.ts): the ground it sits in, its size (m, the
+ * widest of its lumps), its turn, and which of PASS_ROCK_VARIANTS shapes it takes and how far it shades to the darker rock (0 to 1).
+ */
+export interface PassRock {
+  x: number;
+  y: number;
+  z: number;
+  size: number;
+  yaw: number;
+  variant: number;
+  tint: number;
+}
+
+export const PASS_ROCK_VARIANTS = 3;
+/** Salt of the generator that scatters the pass's boulders. */
+const PASS_ROCK_SALT = 0x9a55;
+/** The boulders: PASS_ROCKS tries along the pass, each on the foot or the face of either wall, heaped at the foot. */
+const PASS_ROCKS = 520;
+/** The pass's walls climb 1 m over the ground where they stand: no boulder lies on the flat road or beyond them. */
+const PASS_ROCK_MIN = 1;
+
+/**
+ * The boulders that dress both walls of Coyote Pass, as the foreshore's riprap dresses the coast: scattered from the
+ * foot of each wall (17.5 m off the Pass Road's centre line) up its face, most of them low, a few the size of a car on
+ * the lip. They keep clear of the fire road and its crossing, and are drawn only: a car stopped by the wall passes
+ * through the ones at its foot.
+ */
+export function passRocks(country: Country): PassRock[] {
+  const rng = new Rng(PASS_ROCK_SALT);
+  const road = fireRoadLine(4);
+  const out: PassRock[] = [];
+  for (let i = 0; i < PASS_ROCKS; i++) {
+    const x = rng.range(-1590, -1360);
+    const side = rng.chance(0.5) ? -1 : 1;
+    // Heaped at the foot: most land in the first metres, the rest climb the face to the lip.
+    const f = rng.next() ** 1.6;
+    const z = PASS_Z + side * (PASS_FLAT + 0.5 + f * PASS_RUN);
+    const size = rng.range(0.9, 2.4) * (1 + 0.8 * f * rng.next());
+    const yaw = rng.range(0, Math.PI * 2);
+    const variant = rng.int(0, PASS_ROCK_VARIANTS - 1);
+    const tint = rng.next();
+    const y = countryGround(country, x, z);
+    if (y < PASS_ROCK_MIN || road.some((p) => Math.hypot(p.x - x, p.z - z) < FIRE_ROAD_W + size)) continue;
+    out.push({ x, y, z, size, yaw, variant, tint });
+  }
+  return out;
 }
 
 /**

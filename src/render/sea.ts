@@ -142,10 +142,11 @@ export const PILING_RADIUS = 0.25;
 export const MAX_PILING_DECKS = 8;
 /** Water bodies cut into the land (layout.water) the quay foam keeps out of. */
 export const MAX_SEA_CUTS = 8;
-/** Points along each side of Las Lomas County's depth map (countyShore): about 1.9 m apart across it, 2.4 m along it. */
-export const COUNTY_TEXELS = 512;
-/** Rectangles of the county's land the drawn shelf falls away from (it has six). */
-export const MAX_COUNTY_LAND = 8;
+/** Points along x and along z of Las Lomas County's depth map (countyShore): 1.65 m and 2.4 m apart over its 1690 x 1250 m box. */
+export const COUNTY_TEXELS_X = 1024;
+export const COUNTY_TEXELS_Z = 512;
+/** Rectangles of the county's land the drawn shelf falls away from (Country.shelf has fourteen). */
+export const MAX_COUNTY_LAND = 14;
 /** Water depths (m) over which the beach's surf foam fades in seaward of the swash (4.1-7.6 m out on the 1:34 sand). */
 export const SURF_BAND_FADE = [0.12, 0.22] as const;
 /**
@@ -228,8 +229,8 @@ export function seaShelfDepth(simDepth: number, outside: number): number {
 
 /**
  * Las Lomas County's shore as the sea draws it: the water depth over its land and beaches (Country.bounds) on a
- * COUNTY_TEXELS square lattice from corner to corner, rounded to the half floats its texture holds, and the land's
- * rectangles the shelf falls away from.
+ * COUNTY_TEXELS_X by COUNTY_TEXELS_Z lattice from corner to corner, rounded to the half floats its texture holds, and
+ * the land's rectangles the shelf falls away from.
  */
 export interface CountyShore {
   box: Rect;
@@ -243,33 +244,35 @@ export interface CountyShore {
  * whose quay walls are no beach (its headland's ground would draw swash along them up to the box's edge).
  */
 export function countyShore(country: Country): CountyShore {
-  const N = COUNTY_TEXELS;
+  const NX = COUNTY_TEXELS_X;
+  const NZ = COUNTY_TEXELS_Z;
   const b = country.bounds;
-  const depth = new Float32Array(N * N);
-  for (let j = 0; j < N; j++) {
-    const z = b.minZ + ((b.maxZ - b.minZ) * j) / (N - 1);
-    for (let i = 0; i < N; i++) {
-      const x = b.minX + ((b.maxX - b.minX) * i) / (N - 1);
-      depth[j * N + i] = THREE.DataUtils.fromHalfFloat(THREE.DataUtils.toHalfFloat(WATER_Y - countryGround(country, x, z)));
+  const depth = new Float32Array(NX * NZ);
+  for (let j = 0; j < NZ; j++) {
+    const z = b.minZ + ((b.maxZ - b.minZ) * j) / (NZ - 1);
+    for (let i = 0; i < NX; i++) {
+      const x = b.minX + ((b.maxX - b.minX) * i) / (NX - 1);
+      depth[j * NX + i] = THREE.DataUtils.fromHalfFloat(THREE.DataUtils.toHalfFloat(WATER_Y - countryGround(country, x, z)));
     }
   }
-  return { box: b, depth, land: country.land };
+  return { box: b, depth, land: country.shelf };
 }
 
 /** CPU twin of the shader's seaCountyDepth: the county's map sampled bilinearly at (x, z) inside its box, else Infinity. */
 export function countyDepthAt(c: CountyShore, x: number, z: number): number {
   const b = c.box;
   if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) return Infinity;
-  const N = COUNTY_TEXELS;
-  const u = ((x - b.minX) / (b.maxX - b.minX)) * (N - 1);
-  const v = ((z - b.minZ) / (b.maxZ - b.minZ)) * (N - 1);
-  const i = Math.min(Math.floor(u), N - 2);
-  const j = Math.min(Math.floor(v), N - 2);
+  const NX = COUNTY_TEXELS_X;
+  const NZ = COUNTY_TEXELS_Z;
+  const u = ((x - b.minX) / (b.maxX - b.minX)) * (NX - 1);
+  const v = ((z - b.minZ) / (b.maxZ - b.minZ)) * (NZ - 1);
+  const i = Math.min(Math.floor(u), NX - 2);
+  const j = Math.min(Math.floor(v), NZ - 2);
   const tu = u - i;
   const tv = v - j;
   const d = c.depth;
-  const k = j * N + i;
-  return (d[k]! * (1 - tu) + d[k + 1]! * tu) * (1 - tv) + (d[k + N]! * (1 - tu) + d[k + N + 1]! * tu) * tv;
+  const k = j * NX + i;
+  return (d[k]! * (1 - tu) + d[k + 1]! * tu) * (1 - tv) + (d[k + NX]! * (1 - tu) + d[k + NX + 1]! * tu) * tv;
 }
 
 /** Distance (m) of (x, z) outside the county's land (the shader's seaCountyOut). */
@@ -495,7 +498,7 @@ export function setShore(u: SeaUniforms, b: Bounds): void {
 export function setCountyShore(u: SeaUniforms, c: CountyShore): void {
   const half = new Uint16Array(c.depth.length);
   for (let i = 0; i < half.length; i++) half[i] = THREE.DataUtils.toHalfFloat(c.depth[i]!);
-  const tex = new THREE.DataTexture(half, COUNTY_TEXELS, COUNTY_TEXELS, THREE.RedFormat, THREE.HalfFloatType);
+  const tex = new THREE.DataTexture(half, COUNTY_TEXELS_X, COUNTY_TEXELS_Z, THREE.RedFormat, THREE.HalfFloatType);
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
@@ -635,7 +638,7 @@ float seaInCounty(vec2 p) {
  * the box. Fetched everywhere, so the lookup stays in uniform control flow.
  */
 float seaCountyDepth(vec2 p) {
-  float d = textureLod(uCountyDepth, (p - uCountyBox.xy) * uCountyBox.zw * ${n((COUNTY_TEXELS - 1) / COUNTY_TEXELS)} + ${n(0.5 / COUNTY_TEXELS)}, 0.0).r;
+  float d = textureLod(uCountyDepth, (p - uCountyBox.xy) * uCountyBox.zw * vec2(${n((COUNTY_TEXELS_X - 1) / COUNTY_TEXELS_X)}, ${n((COUNTY_TEXELS_Z - 1) / COUNTY_TEXELS_Z)}) + vec2(${n(0.5 / COUNTY_TEXELS_X)}, ${n(0.5 / COUNTY_TEXELS_Z)}), 0.0).r;
   return seaInCounty(p) > 0.5 ? d : 1e3;
 }
 /** Distance outside the county's land (0 on it). */

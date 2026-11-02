@@ -64,6 +64,12 @@ export const ZONE_PREP: Readonly<Record<string, string>> = {
   'Moonbeam Drive-In': 'at the Moonbeam Drive-In',
   'Gravel Gulch': 'at Gravel Gulch',
   'Coyote Ridge': 'on Coyote Ridge',
+  'Las Lomas Valley': 'in Las Lomas Valley',
+  'Coyote Pass': 'in Coyote Pass',
+  'Sunset Vineyard': 'at Sunset Vineyard',
+  'Lazy Q Ranch': 'at the Lazy Q Ranch',
+  'Lake Lomas': 'at Lake Lomas',
+  Pinewood: 'in Pinewood',
 };
 
 /** The place on its own ('the Marina', 'downtown'): its phrase without the preposition. */

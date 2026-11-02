@@ -1,13 +1,13 @@
 // Streams ambient traffic and parked cars in and out around the player.
 
-import { axisOf, SIGNAL_CYCLE, SIGNAL_GREEN, type Lane } from '../world/roads';
+import { axisOf, SIGNAL_CYCLE, SIGNAL_GREEN, type Lane, type RoadNetwork } from '../world/roads';
 import { pointSegDist } from '../core/math';
 import { Rng } from '../core/rng';
 import { WATER_Y } from '../world/constants';
 import { COUNTY_BOUNDS } from '../world/country';
 import { hashInts, rectContains } from '../world/layout';
 import { showtime } from './driveIn';
-import { STOP_MARGIN, throughAvenues } from './driver';
+import { STOP_GAP, STOP_MARGIN, throughAvenues } from './driver';
 import type { Vehicle } from './entities';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
@@ -35,7 +35,10 @@ export const LINK_REACH = 200;
 const LINK_CARS = 2;
 export const LINK_FAR = 520;
 const LINK_SALT = 0x11a5;
-/** No car is spawned at speed within this far (m) of a county junction on its lane (see trySpawnTraffic). */
+/**
+ * No car is spawned at speed within this far (m) of a county junction on its lane, nor on a lane with right of way into
+ * one within as far as it covers in STOP_GAP s at its speed limit, through the bends before it (see spawnClearance).
+ */
 const JUNCTION_CLEAR = 50;
 /** Las Lomas County's traffic is this share of the city's, while the player is there. */
 const COUNTY_DENSITY = 0.4;
@@ -152,6 +155,8 @@ export class TrafficSystem {
   /** The links' lanes into the city, and the generator their incoming traffic draws from (see streamLinks). */
   private readonly linkLanes: readonly Lane[];
   private readonly linkRng: Rng;
+  /** How far short of each lane's end (m) no car is spawned at speed, by lane id (see spawnClearance). */
+  private readonly clearance: readonly number[];
 
   constructor(private readonly sim: Sim) {
     this.anchor = sim.players[0]!;
@@ -159,6 +164,7 @@ export class TrafficSystem {
     const roads = sim.roads;
     this.linkLanes = roads.lanes.filter((l) => l.to < roads.gridNodeCount && l.from >= roads.gridNodeCount);
     this.linkRng = new Rng(hashInts(sim.seed, LINK_SALT));
+    this.clearance = roads.lanes.map((lane) => spawnClearance(roads, lane));
   }
 
   private get nearLanes(): Lane[] { return this.ring.nearLanes; }
@@ -609,7 +615,7 @@ export class TrafficSystem {
         if (lane.length < 16) continue;
         s = sim.rng.range(6, lane.length - 6);
         // Not at speed just short of a county junction, where it would meet whoever is crossing it with no time to stop.
-        if (lane.line.index < 0 && !sim.roads.isBend(sim.roads.nodes[lane.to]!) && lane.length - s < JUNCTION_CLEAR) continue;
+        if (lane.length - s < this.clearance[lane.id]!) continue;
       }
       let x = lane.sx + lane.dx * s;
       let z = lane.sz + lane.dz * s;
@@ -723,6 +729,27 @@ export class TrafficSystem {
       this.parkedBySpot.set(i, v);
     }
   }
+}
+
+/**
+ * How far short of `lane`'s end (m) trySpawnTraffic starts no car at speed. On a county lane that ends at a junction,
+ * JUNCTION_CLEAR. On one with right of way into a county junction, which a left turn there crosses, as far as it covers
+ * in STOP_GAP s at its speed limit, the time the turn across it takes from a stand: a turner that judged its gap before
+ * such a car was spawned would be hit by it (99 m on the highway; the Coyote T's turners were, by cars spawned 60-105 m
+ * up it). The lanes through the bends before such a lane keep what is left of that, so none comes out of the bend before
+ * the Coyote T's 21.5 m approach at speed either. Nothing on the city's lanes (0).
+ */
+function spawnClearance(roads: RoadNetwork, lane: Lane): number {
+  if (lane.line.index >= 0) return 0;
+  let into = lane;
+  let past = 0;
+  while (roads.isBend(roads.nodes[into.to]!)) {
+    const turn = into.turns[0]!;
+    into = turn.to;
+    past += turn.length + into.length;
+  }
+  if (roads.nodes[into.to]!.i < 0 && !roads.stopsAt(into)) return Math.max(JUNCTION_CLEAR, STOP_GAP * into.speedLimit) - past;
+  return into === lane ? JUNCTION_CLEAR : 0;
 }
 
 /** A car on a county lane coming towards (p) within ONCOMING_KEEP m (`d` off): it is about to be met, seen or not. */

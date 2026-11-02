@@ -145,8 +145,9 @@ describe('busy scene budget', () => {
     expect(tick.p95).toBeLessThanOrEqual(12);
     // Version 2 added each player's ammo and job HUD (status line, objective markers) to the snapshot head; version 3
     // whether he is down or his controls are locked (in the byte that held the searching flag); version 4 each vehicle's
-    // headlight switch (two more bits of its engine flags) and the headlight press (the input's sixteenth flag).
-    expect(PROTOCOL_VERSION).toBe(4);
+    // headlight switch (two more bits of its engine flags) and the headlight press (the input's sixteenth flag); version 5
+    // none of the wire's bytes, but the world the join message's prop indices and node ids index (Las Lomas Valley).
+    expect(PROTOCOL_VERSION).toBe(5);
     room.close();
   }, 120_000);
   }

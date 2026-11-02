@@ -120,9 +120,9 @@ describe('ground and water', () => {
     expect(world.groundHeight(blk.rect.minX + 1, rectCZ(blk.rect))).toBe(CURB_H);
     expect(world.waterDepth(L.bounds.landMinX - 20, 0)).toBeGreaterThan(5);
     expect(world.waterDepth(L.bounds.beachEndX + 20, 0)).toBeGreaterThan(5);
-    // The world reaches out past Las Lomas County, 1104 m (92 collider cells) further west than the sea once did.
-    expect(L.bounds.worldMinX).toBe(-1776);
-    expect(L.bounds.landMinX - 160 - L.bounds.worldMinX).toBe(92 * world.grid.cell);
+    // The world reaches out past Las Lomas Valley, 1728 m (144 collider cells) further west than the sea once did.
+    expect(L.bounds.worldMinX).toBe(-2400);
+    expect(L.bounds.landMinX - 160 - L.bounds.worldMinX).toBe(144 * world.grid.cell);
     expect(world.waterDepth(L.bounds.worldMinX + 20, 0)).toBeGreaterThan(5);
     // Dry sand near the boardwalk, water further out.
     expect(world.waterDepth(L.bounds.beachStartX + 5, -200)).toBeLessThan(0);

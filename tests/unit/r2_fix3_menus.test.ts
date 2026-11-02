@@ -643,8 +643,33 @@ describe('the full-screen map without a mouse (medium)', () => {
     expect(scale() / base).toBeCloseTo(1.5 ** 4, 6);
     press({ zoomOut: true });
     expect(scale() / base).toBeCloseTo(1.5 ** 3.5, 6);
+    // Out as far as the whole county and the valley beyond it in one view (MIN_ZOOM, screens/map.ts).
     for (let i = 0; i < 12; i++) press({ zoomOut: true });
-    expect(scale() / base).toBeCloseTo(1, 6);
+    expect(scale() / base).toBeCloseTo(1.5 ** -2, 6);
+  });
+
+  it('zoomed out the view moves on to the county and the valley, which then lie between the checklist and the legend, and what was panned stays', () => {
+    const { press, scale, viewCentre, sim } = mapRig();
+    const county = sim.world.layout.country.bounds;
+    // At 1280 x 720 the checklist ends 286 px from the left (style.css .map-checklist) and the legend starts at 958 px.
+    const screenX = (x: number) => 640 + (x - viewCentre().x) * scale();
+    expect(screenX(county.minX)).toBeLessThan(286);
+    for (const out of [1, 2]) {
+      for (let i = 0; i < 2; i++) press({ zoomOut: true });
+      expect(screenX(county.minX), `${out} out, the valley's coast`).toBeGreaterThan(290);
+      expect(screenX(county.maxX), `${out} out, the sound's shore`).toBeLessThan(955);
+    }
+    expect(viewCentre().x).toBeCloseTo((county.minX + county.maxX) / 2, 6);
+    expect(viewCentre().z).toBeCloseTo((county.minZ + county.maxZ) / 2, 6);
+    // Zoomed back in it goes back to the city's middle, and a pan made out there is carried back with it.
+    for (let i = 0; i < 4; i++) press({ zoomIn: true });
+    const b = sim.world.layout.bounds;
+    expect(viewCentre().x).toBeCloseTo((b.landMinX + b.beachEndX) / 2, 6);
+    press({ zoomOut: true });
+    press({ right: true });
+    const panned = viewCentre().x;
+    press({ zoomOut: true });
+    expect(viewCentre().x - panned).toBeCloseTo(((county.minX + county.maxX) / 2 - (b.landMinX + b.beachEndX) / 2) / 2, 6);
   });
 
   it('a held direction or the stick pans the view, faster the further it is pushed', () => {

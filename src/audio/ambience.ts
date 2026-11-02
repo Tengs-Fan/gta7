@@ -14,8 +14,8 @@
 
 import { clamp, smoothstep } from '../core/math';
 import { WATER_Y } from '../world/constants';
-import { countryGround, type Country } from '../world/country';
-import { beachOffsetAt, type Bounds, type District, type Rect } from '../world/layout';
+import { countryGround, LAKE, type Country } from '../world/country';
+import { beachOffsetAt, rectContains, type Bounds, type District, type Rect } from '../world/layout';
 import { Glider, OPEN_HZ, dbToGain, withinParam } from './mixer';
 
 export type AmbienceDistrict = District | 'beach' | 'sea';
@@ -102,7 +102,8 @@ const coasts = new WeakMap<Country, Float32Array>();
 
 /**
  * Las Lomas County's waterline: marching squares on its ground over its box, as segments (x0, z0, x1, z1 runs), traced
- * once per county. countryGround is baseGround off the city's land but for the causeway, whose quay walls are no beach.
+ * once per county, but for Lake Lomas's, which laps and makes no surf. countryGround is baseGround off the city's land but
+ * for the causeway, whose quay walls are no beach.
  */
 export function countyCoast(country: Country): Float32Array {
   let segs = coasts.get(country);
@@ -134,7 +135,7 @@ export function countyCoast(country: Country): Float32Array {
       edge(h[k + 1]!, h[k + nx + 2]!, x0 + sx, z0, x0 + sx, z0 + sz);
       edge(h[k + nx + 2]!, h[k + nx + 1]!, x0 + sx, z0 + sz, x0, z0 + sz);
       edge(h[k + nx + 1]!, h[k]!, x0, z0 + sz, x0, z0);
-      for (let c = 0; c < cut.length; c += 4) out.push(cut[c]!, cut[c + 1]!, cut[c + 2]!, cut[c + 3]!);
+      for (let c = 0; c < cut.length; c += 4) if (!rectContains(LAKE, (cut[c]! + cut[c + 2]!) / 2, (cut[c + 1]! + cut[c + 3]!) / 2)) out.push(cut[c]!, cut[c + 1]!, cut[c + 2]!, cut[c + 3]!);
     }
   }
   segs = new Float32Array(out);

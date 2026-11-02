@@ -6,11 +6,11 @@ import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ambienceTargets, countyCoast, shoreInfo, type AmbienceInput } from '../../src/audio/ambience';
 import {
-  COUNTY_TEXELS, countyDepthAt, countyShore, MAX_COUNTY_LAND, outsideCounty, outsideLand, patchSeaMaterial, SEA_MID, SHELF_SLOPE, SHELF_START, SHORE_GLSL,
+  COUNTY_TEXELS_X, COUNTY_TEXELS_Z, countyDepthAt, countyShore, MAX_COUNTY_LAND, outsideCounty, outsideLand, patchSeaMaterial, SEA_MID, SHELF_SLOPE, SHELF_START, SHORE_GLSL,
   seaDepthCpu, seaDrawnDepth, seaOnBeach, seaShallowsCpu, seaUniforms, setCountyShore, softwareSeaMaterial, type CountyShore,
 } from '../../src/render/sea';
 import { BEACH_W, CURB_H, SAND_DROP, SEABED_Y, WATER_Y } from '../../src/world/constants';
-import { CAUSEWAY, countryGround } from '../../src/world/country';
+import { CAUSEWAY, countryGround, LAKE } from '../../src/world/country';
 import { rectContains, type Bounds } from '../../src/world/layout';
 import { world } from './helpers';
 
@@ -63,8 +63,8 @@ beforeAll(() => {
 describe('the county\'s depth map', () => {
   it('covers the county\'s land and beaches corner to corner, its edge on the flat seabed, so the sea is continuous across it', () => {
     expect(county.box).toEqual(world().layout.country.bounds);
-    expect(county.depth.length).toBe(COUNTY_TEXELS * COUNTY_TEXELS);
-    expect(county.land).toBe(world().layout.country.land);
+    expect(county.depth.length).toBe(COUNTY_TEXELS_X * COUNTY_TEXELS_Z);
+    expect(county.land).toBe(world().layout.country.shelf);
     const box = county.box;
     let worst = 0;
     for (let t = 0; t <= 1; t += 1 / 997) {
@@ -76,17 +76,19 @@ describe('the county\'s depth map', () => {
     }
     expect(worst).toBeLessThan(0.01);
     // A lattice point reads its own texel; between them the map is bilinear.
-    const N = COUNTY_TEXELS;
-    const at = (i: number, j: number) => countyDepthAt(county, box.minX + ((box.maxX - box.minX) * i) / (N - 1), box.minZ + ((box.maxZ - box.minZ) * j) / (N - 1));
-    for (const [i, j] of [[0, 0], [N - 1, N - 1], [300, 200], [511, 17]] as const) expect(at(i, j)).toBeCloseTo(county.depth[j * N + i]!, 5);
+    const NX = COUNTY_TEXELS_X;
+    const NZ = COUNTY_TEXELS_Z;
+    const at = (i: number, j: number) => countyDepthAt(county, box.minX + ((box.maxX - box.minX) * i) / (NX - 1), box.minZ + ((box.maxZ - box.minZ) * j) / (NZ - 1));
+    for (const [i, j] of [[0, 0], [NX - 1, NZ - 1], [300, 200], [1023, 17]] as const) expect(at(i, j)).toBeCloseTo(county.depth[j * NX + i]!, 5);
     expect(countyDepthAt(county, box.minX - 0.01, 0)).toBe(Infinity);
   });
 
-  it('the twin agrees with baseGround at the county\'s waterline, and within 0.15 m over its surf zone', () => {
+  it('the twin agrees with baseGround at the county\'s waterline, and within 0.2 m over its surf zone', () => {
     const box = county.box;
     let crossings = 0;
     let worst = 0;
-    // Along lines across the box both ways: where baseGround crosses WATER_Y, the twin's depth is within 6 cm of 0.
+    // Along lines across the box both ways: where baseGround crosses WATER_Y, the twin's depth is within 9 cm of 0 (6 cm
+    // but for Lake Lomas, whose rounded steps the 1.65 by 2.4 m texels follow a little less closely).
     const scan = (along: (s: number) => [number, number], from: number, to: number) => {
       let [px, pz] = along(from);
       let pd = simDepth(px, pz);
@@ -112,7 +114,7 @@ describe('the county\'s depth map', () => {
     for (let z = box.minZ + 5; z < box.maxZ; z += 10) scan((s) => [s, z], box.minX, box.maxX);
     for (let x = box.minX + 5; x < box.maxX; x += 10) scan((s) => [x, s], box.minZ, box.maxZ);
     expect(crossings).toBeGreaterThan(400);
-    expect(worst).toBeLessThan(0.06);
+    expect(worst).toBeLessThan(0.09);
     let band = 0;
     let errs = 0;
     for (let z = box.minZ; z <= box.maxZ; z += 2.5) {
@@ -123,8 +125,9 @@ describe('the county\'s depth map', () => {
         errs = Math.max(errs, Math.abs(seaDepthCpu(b, x, z, county) - sim));
       }
     }
+    // (0.15 m round the county's own coves; Lake Lomas's rounded shore, with its kinks where the disc's reach changes, reaches 0.17.)
     expect(band).toBeGreaterThan(5000);
-    expect(errs).toBeLessThan(0.15);
+    expect(errs).toBeLessThan(0.2);
   });
 });
 
@@ -186,8 +189,8 @@ describe('the county\'s beaches as the sea draws them', () => {
     for (let z = box.minZ; z <= box.maxZ; z += 2.5) {
       for (let x = box.minX; x <= box.maxX; x += 2.5) {
         const depth = seaDepthCpu(b, x, z, county);
-        // Past the wet sand's tint (0.15 m) and no further than 20 m off the land.
-        if (!(depth > 0.15) || outsideCounty(county, x, z) > 20) continue;
+        // Past the wet sand's tint (0.15 m) and no further than 20 m off the land; Lake Lomas has no shelf, as deep as the sim makes it.
+        if (!(depth > 0.15) || outsideCounty(county, x, z) > 20 || rectContains(LAKE, x, z)) continue;
         n++;
         const h = hue(depth, seaDrawnDepth(b, x, z, county));
         expect(h, `${x}, ${z}`).toBeGreaterThan(160);
@@ -249,7 +252,7 @@ describe('the county\'s beaches as the sea draws them', () => {
     setCountyShore(u, county);
     const tex = u.uCountyDepth.value!;
     expect(tex).toBeInstanceOf(THREE.DataTexture);
-    expect([tex.image.width, tex.image.height]).toEqual([COUNTY_TEXELS, COUNTY_TEXELS]);
+    expect([tex.image.width, tex.image.height]).toEqual([COUNTY_TEXELS_X, COUNTY_TEXELS_Z]);
     expect(tex.format).toBe(THREE.RedFormat);
     expect(tex.type).toBe(THREE.HalfFloatType);
     expect(tex.magFilter).toBe(THREE.LinearFilter);
@@ -262,7 +265,8 @@ describe('the county\'s beaches as the sea draws them', () => {
     expect([v.x, v.y]).toEqual([box.minX, box.minZ]);
     expect(v.z).toBeCloseTo(1 / (box.maxX - box.minX), 12);
     expect(v.w).toBeCloseTo(1 / (box.maxZ - box.minZ), 12);
-    expect(county.land.length).toBeLessThanOrEqual(MAX_COUNTY_LAND);
+    // The shader's loop runs over exactly the rectangles of the shelf's land: none unused, none left out.
+    expect(county.land.length).toBe(MAX_COUNTY_LAND);
     u.uCountyLand.value.forEach((r, i) => {
       const land = county.land[i];
       expect([r.x, r.y, r.z, r.w]).toEqual(land ? [land.minX, land.minZ, land.maxX, land.maxZ] : [1e6, 1e6, 1e6, 1e6]);
@@ -282,8 +286,10 @@ describe('the surf on the county\'s land', () => {
       const x = (segs[k]! + segs[k + 2]!) / 2;
       const z = (segs[k + 1]! + segs[k + 3]!) / 2;
       expect(rectContains(county.box, x, z)).toBe(true);
-      expect(Math.abs(countryGround(world().layout.country, x, z) - WATER_Y)).toBeLessThan(0.15);
-      if (offCauseway(x, z)) expect(Math.abs(simDepth(x, z))).toBeLessThan(0.15);
+      // Within 0.2 m: where two rectangles' beaches meet round a cove the waterline turns a right angle, which the 4 m
+      // lattice cuts by up to a metre (the valley's coves; 0.15 m in the county's).
+      expect(Math.abs(countryGround(world().layout.country, x, z) - WATER_Y)).toBeLessThan(0.2);
+      if (offCauseway(x, z)) expect(Math.abs(simDepth(x, z))).toBeLessThan(0.2);
     }
   });
 

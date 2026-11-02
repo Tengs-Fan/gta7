@@ -273,7 +273,12 @@ describe('round 2 city: layout', () => {
     // statics, payphone and crop circle, and nine mailboxes and signs in the props), with the county's `approaches` (the drives,
     // signs and turn-offs of the farms, the places and the fire road that the poles keep off); and when Halfmoon Acres'
     // wheat was fenced round, which put 156 fence props between the Acres' bales and its scarecrows, shifting every later
-    // prop by 156.
+    // prop by 156; and when Las Lomas Valley joined it (the world's bounds out to x -2400, the land west of Coyote Ridge
+    // with Lake Lomas and its coves, the Pass Road and the Valley Loop with the Coyote T's and Valley Cross's stop signs and
+    // lamps, five plots, the ridge's pass cut and the moved fire road, trees, scrub (none on the pass's rock walls) and sixth
+    // turbine); and when the valley was reshaped (the Valley Loop's nine curves and straights and its plots, Lake Lomas's ten
+    // holes in the land and the shelf's land with the lake filled in, the pass's bank on its south wall, and seven hills, with
+    // their scrub, in the valley).
     expect(layoutHash()).toBe('1a13e60b42e9979238ea334c74f9e76d2946dd290ba2e84927a299368612cc69');
   });
 
@@ -833,10 +838,11 @@ describe('round 2 fix: the camera and street trees', () => {
         const points = foliagePoints(q);
         for (let i = 0; i < pos.count; i++) {
           v.fromBufferAttribute(pos, i).applyMatrix4(m);
-          // Inside a bounding sphere, and one of the sampled surface points.
-          expect(spheres.some((sp) => Math.hypot(v.x - sp.x, v.y - sp.y, v.z - sp.z) <= sp.r + 1e-4), `${kind} ${k}`).toBe(true);
+          // Inside a bounding sphere, and one of the sampled surface points (to what an instance matrix's floats hold: 0.25 mm
+          // past 2048 m out, where the valley's scrub stands).
+          expect(spheres.some((sp) => Math.hypot(v.x - sp.x, v.y - sp.y, v.z - sp.z) <= sp.r + 3e-4), `${kind} ${k}`).toBe(true);
           let found = false;
-          for (let j = 0; j < points.length && !found; j += 3) found = Math.hypot(v.x - points[j]!, v.y - points[j + 1]!, v.z - points[j + 2]!) < 1e-4;
+          for (let j = 0; j < points.length && !found; j += 3) found = Math.hypot(v.x - points[j]!, v.y - points[j + 1]!, v.z - points[j + 2]!) < 3e-4;
           expect(found, `${kind} ${k}`).toBe(true);
         }
         checked++;

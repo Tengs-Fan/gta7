@@ -1,14 +1,17 @@
 // Coyote Ridge's fire road and Lookout Point (world/country/hills.ts): the gravel road draped on the ridge's south
-// shoulder from its turn-off on the Lomas Highway up to the car park on the crest, the car park, its parapet, and the
-// timber fire lookout tower. The ground itself is ground.ts's, the turbines turbines.ts's, and the plaque and the coin
-// telescope are dressing (dressing.ts viewpoints). A few thousand triangles: one mesh per material.
+// shoulder from its turn-off on the Lomas Highway, across the Pass Road, up to the car park on the crest, the car park, its parapet, and the
+// timber fire lookout tower, and the boulders on the walls of Coyote Pass. The ground itself is ground.ts's, the turbines
+// turbines.ts's, and the plaque and the coin telescope are dressing (dressing.ts viewpoints). A few thousand triangles:
+// one mesh per material.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { FIRE_ROAD_W, fireRoadLine, LOOKOUT } from '../../world/country/hills';
+import { FIRE_ROAD_W, fireRoadLine, LOOKOUT, PASS_ROCK_VARIANTS, passRocks } from '../../world/country/hills';
 import { PARAPET_H } from '../../world/layout';
+import { boulder } from '../city/coast';
 import { NO_RECT, setGroundAttribute } from '../city/surfaces';
 import { GeoBuilder } from '../geo';
+import type { Country } from '../../world/country';
 import type { CountryView } from './index';
 
 /** Height (m) of the gravel over the ground it is draped on, above the ground mesh's chords over the slopes. */
@@ -21,6 +24,9 @@ const TIMBER = 0x6e5236;
 const BOARDS = 0x8a6a46;
 const ROOF = 0x4b4038;
 const GLASS = 0x26323c;
+/** The boulders' rock, as the foreshore's (city/coast.ts), and the darker one they shade to. */
+const ROCK = 0x7d766c;
+const ROCK_DARK = 0x5e564b;
 
 export function buildHills(view: CountryView): void {
   const world = view.world;
@@ -29,7 +35,8 @@ export function buildHills(view: CountryView): void {
   const gravel = new GeoBuilder(false);
   const uv = { kind: 'world', scale: 6 } as const;
   const s = 1 / uv.scale;
-  // The road: a strip across the centre line at every sample, each edge on the ground under it.
+  // The road: a strip across the centre line at every sample, each edge on the ground under it, but for where it crosses
+  // the Pass Road, whose asphalt runs on.
   const line = fireRoadLine(ROAD_STEP);
   const half = FIRE_ROAD_W / 2;
   const edge = (i: number, side: number) => {
@@ -43,6 +50,7 @@ export function buildHills(view: CountryView): void {
     const [bx, by, bz] = edge(i, 1);
     const [cx, cy, cz] = edge(i, -1);
     const [dx, dy, dz] = edge(i - 1, -1);
+    if (world.isOnRoad((ax + cx) / 2, (az + cz) / 2)) continue;
     gravel.quad(dx, dy, dz, cx, cy, cz, bx, by, bz, ax, ay, az, [dx * s, -dz * s, cx * s, -cz * s, bx * s, -bz * s, ax * s, -az * s]);
   }
   // The car park on the crest's flat top.
@@ -64,6 +72,26 @@ export function buildHills(view: CountryView): void {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 });
   mat.name = 'fire-lookout';
   view.add(lookoutTower(top), mat, { shadow: true, name: 'fire-lookout', split: false });
+  // Wet in the rain and lit by the headlights as the ground they lie on is.
+  view.add(passBoulders(world.layout.country), view.city.wet.patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true })), { shadow: true, name: 'pass-rocks' });
+}
+
+/** The pass's boulders: the foreshore's lumps (city/coast.ts) in their grey-brown rock, each sunk a fifth into the wall. */
+function passBoulders(country: Country): THREE.BufferGeometry {
+  const shapes = Array.from({ length: PASS_ROCK_VARIANTS }, (_, v) => boulder(41 + v, 1));
+  const parts: THREE.BufferGeometry[] = [];
+  const quat = new THREE.Quaternion();
+  const rock = new THREE.Color();
+  const dark = new THREE.Color(ROCK_DARK);
+  for (const r of passRocks(country)) {
+    const geo = shapes[r.variant]!.clone();
+    geo.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(r.x, r.y - r.size * 0.2, r.z), quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.yaw), new THREE.Vector3(r.size, r.size, r.size)));
+    rock.set(ROCK).lerp(dark, r.tint);
+    parts.push(paint(geo, rock.getHex()));
+  }
+  const geo = mergeGeometries(parts, false)!;
+  for (const p of parts) p.dispose();
+  return geo;
 }
 
 /** A box from a to b (its length along them) of the given cross-section, painted. */

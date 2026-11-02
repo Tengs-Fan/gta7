@@ -119,15 +119,19 @@ describe('Coyote Ridge Hill Climb', () => {
 
   it('counts the gates only in order', () => {
     const { sim, car } = launched();
-    // Through gate 1, then straight up the slope past gate 3, wide of gate 2: that counts for nothing.
-    const [g1, , g3] = HILL_CLIMB_GATES as [typeof HILL_CLIMB_GATES[0], typeof HILL_CLIMB_GATES[0], typeof HILL_CLIMB_GATES[0]];
-    const steerFor = (x: number, z: number) => input({ throttle: 0.6, steer: clamp(-wrapAngle(Math.atan2(x - car.pos.x, z - car.pos.z) - car.heading) * 2.5, -1, 1) });
-    for (let i = 0; i < 60 * 20 && job(sim)!.gate === 0; i++) sim.update(1 / 60, steerFor(g1.x, g1.z));
-    expect(job(sim)!.gate).toBe(1);
-    expect(sim.activities.status()).toMatch(/^COYOTE RIDGE HILL CLIMB · GATE 2\/6 · 0:\d\d\.\d$/);
-    for (let i = 0; i < 60 * 20 && Math.hypot(car.pos.x - g3.x, car.pos.z - g3.z) > 3; i++) sim.update(1 / 60, steerFor(g3.x, g3.z));
-    expect(Math.hypot(car.pos.x - g3.x, car.pos.z - g3.z)).toBeLessThanOrEqual(3);
-    expect(job(sim)!.gate).toBe(1);
+    // Through gates 1 and 2 along the road, then straight across the shoulder to gate 5, wide of gates 3 and 4: that counts
+    // for nothing.
+    const g5 = HILL_CLIMB_GATES[4]!;
+    for (let i = 0; i < 60 * 30 && job(sim)!.gate < 2; i++) sim.update(1 / 60, driver(car));
+    expect(job(sim)!.gate).toBe(2);
+    expect(sim.activities.status()).toMatch(/^COYOTE RIDGE HILL CLIMB · GATE 3\/6 · 0:\d\d\.\d$/);
+    let near = Infinity;
+    for (let i = 0; i < 60 * 20 && near > 3; i++) {
+      sim.update(1 / 60, input({ throttle: 0.5, steer: clamp(-wrapAngle(Math.atan2(g5.x - car.pos.x, g5.z - car.pos.z) - car.heading) * 2.5, -1, 1) }));
+      near = Math.min(near, Math.hypot(car.pos.x - g5.x, car.pos.z - g5.z));
+    }
+    expect(near).toBeLessThanOrEqual(3);
+    expect(job(sim)!.gate).toBe(2);
   });
 
   it('a scripted Nightjar run up the fire road finishes inside the gold time, about 5% faster, and pays gold', () => {

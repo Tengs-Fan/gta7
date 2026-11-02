@@ -1,0 +1,256 @@
+// Las Lomas Valley (world/country): Coyote Pass cut flat across the ridge's south shoulder with rock walls either side,
+// the Pass Road and the Valley Loop on the lane graph (a route car drives them, ambient traffic streams on them, the
+// sheriff's cruisers patrol them), Lake Lomas a hole in the valley's land that the sea can neither reach nor stir, and
+// the scanner names the valley's places.
+
+import { describe, expect, it } from 'vitest';
+import { bakeSeaShelter } from '../../src/render/seaShelter';
+import { gpsRoute } from '../../src/ui/mapRender';
+import { countyShore } from '../../src/render/sea';
+import { COUNTY_ZONES } from '../../src/sim/dispatch';
+import type { Vehicle } from '../../src/sim/entities';
+import { SHERIFF_COLOR } from '../../src/sim/specs';
+import { WATER_Y } from '../../src/world/constants';
+import { COUNTY_BOUNDS, COUNTY_PLOTS, inLake, LAKE_RECTS, PASS_Z, VALLEY_NAME } from '../../src/world/country';
+import { rectContains } from '../../src/world/layout';
+import { input, makeSim, placeInCar, step, teleport, world } from './helpers';
+
+const W = world();
+const L = W.layout;
+const roads = W.roads;
+const shelterOf = (() => {
+  let map: ReturnType<typeof bakeSeaShelter> | null = null;
+  return (x: number, z: number): number => {
+    map ??= bakeSeaShelter(W, countyShore(L.country));
+    const i = Math.min(map.nx - 1, Math.max(0, Math.floor((x - map.minX) / map.cell)));
+    const j = Math.min(map.nz - 1, Math.max(0, Math.floor((z - map.minZ) / map.cell)));
+    return map.data[(j * map.nx + i) * 4]!;
+  };
+})();
+
+describe('Coyote Pass', () => {
+  it('is flat as the road across the ridge, 35 m wide, with rock walls rising either side, the south one as high as the north', () => {
+    for (let x = -1600; x <= -1352; x += 4) for (let dz = -17.5; dz <= 17.5; dz += 2.5) expect(W.groundHeight(x, PASS_Z + dz), `${x}, ${PASS_Z + dz}`).toBe(0);
+    // Each wall climbs to the crest beside the road (the north one to the ridge's own 12 m, the south one over a bank laid on
+    // the low shoulder), and the shoulder runs on at its own height beyond them.
+    const crest = L.country.rises[0]!.cx;
+    const north = Array.from({ length: 60 }, (_, k) => W.groundHeight(crest, PASS_Z - 10 - k));
+    const south = Array.from({ length: 60 }, (_, k) => W.groundHeight(crest, PASS_Z + 10 + k));
+    expect(Math.max(...north)).toBeGreaterThan(12);
+    expect(Math.max(...south)).toBeGreaterThan(9);
+    expect(Math.max(...south)).toBeLessThan(12);
+    expect(north.findIndex((h) => h > 8)).toBeLessThan(30);
+    expect(south.findIndex((h) => h > 8)).toBeLessThan(30);
+    expect(W.groundHeight(crest, PASS_Z - 29.5)).toBeGreaterThan(11.9);
+    expect(W.groundHeight(crest, PASS_Z + 29.5)).toBeGreaterThan(8);
+    // Along the pass the south wall stands within 3 m of the north one where the ridge is high (x -1520 to -1430).
+    for (let x = -1520; x <= -1430; x += 5) expect(W.groundHeight(x, PASS_Z - 29.5) - W.groundHeight(x, PASS_Z + 29.5), `south wall at ${x}`).toBeLessThan(3);
+  });
+
+  it('is named, and the road crosses the ridge in it', () => {
+    expect(W.zoneName(-1480, PASS_Z)).toBe('Coyote Pass');
+    expect(W.zoneName(-1480, PASS_Z - 25)).toBe('Coyote Pass');
+    expect(W.zoneName(-1480, -100)).toBe('Coyote Ridge');
+  });
+
+  it('stops a car at its walls and lets one through along the road', () => {
+    const sim = makeSim({ police: false });
+    const car = sim.spawnVehicle('sports', -1480, PASS_Z, 0);
+    placeInCar(sim, car);
+    // North at 25 m/s across the pass's floor into the wall: it stops short of the shoulder's height.
+    car.vel.z = -25;
+    car.heading = Math.PI;
+    for (let i = 0; i < 60 * 6; i++) {
+      car.vel.z = Math.min(car.vel.z, -25 + (i < 40 ? 0 : 25));
+      sim.update(1 / 60, input({ throttle: 1 }));
+    }
+    expect(car.pos.z).toBeGreaterThan(PASS_Z - 28);
+    expect(car.pos.y).toBeLessThan(6);
+    // West along the road at the same speed, from the Coyote T's side to Valley Cross, it never leaves the ground.
+    const through = makeSim({ police: false });
+    const c2 = through.spawnVehicle('sports', -1360, PASS_Z + 2, -Math.PI / 2);
+    placeInCar(through, c2);
+    for (let i = 0; i < 60 * 20 && c2.pos.x > -1700; i++) {
+      c2.vel.x = -25;
+      c2.vel.z = 0;
+      c2.heading = -Math.PI / 2;
+      c2.angVel = 0;
+      through.update(1 / 60, input());
+      expect(c2.airborne).toBe(false);
+      expect(c2.pos.y).toBeCloseTo(0, 6);
+    }
+    expect(c2.pos.x).toBeLessThanOrEqual(-1700);
+  });
+
+  it('leaves the fire road to Lookout Point crossing it at ground level, not cut', () => {
+    for (let z = 105; z >= 50; z -= 1) expect(W.groundHeight(-1370, z)).toBeLessThan(1.1);
+    expect(roads.isOnRoad(-1370, PASS_Z)).toBe(true);
+  });
+});
+
+describe('Las Lomas Valley: roads', () => {
+  it('joins the lane graph with a route car that drives the Pass Road and a lap of the Valley Loop', () => {
+    const sim = makeSim({ seed: 5, police: false, ambient: false });
+    // On the highway's west leg north of the Coyote T, heading south.
+    const lane = roads.nearestLane(-1334, 20, 0).lane;
+    const v = sim.spawnVehicle('sedan', lane.sx + lane.dx * 10, lane.sz + lane.dz * 10, lane.heading);
+    v.owner = 'traffic';
+    sim.addDriver(v, 'civilian', 'route');
+    v.ai!.speedMul = 1;
+    v.ai!.setLane(lane, 10);
+    const legs = [{ x: -2165, z: 0 }, { x: -2010, z: -480 }];
+    v.ai!.setDestination(legs[0]!.x, legs[0]!.z);
+    const visited = new Set<string>();
+    let leg = 0;
+    let t = 0;
+    let fastest = 0;
+    for (; t < 400 && leg < legs.length; t += 1 / 60) {
+      step(sim, 1 / 60);
+      fastest = Math.max(fastest, v.speed);
+      visited.add(sim.world.zoneName(v.pos.x, v.pos.z));
+      expect(v.inWater).toBe(false);
+      if (Math.hypot(v.pos.x - legs[leg]!.x, v.pos.z - legs[leg]!.z) < 14) {
+        leg++;
+        if (leg < legs.length) v.ai!.setDestination(legs[leg]!.x, legs[leg]!.z);
+      }
+    }
+    console.log(`[country_valley] route car from the highway to the loop's west side and its north side in ${t.toFixed(1)} s, top speed ${fastest.toFixed(1)} m/s, through ${[...visited].join(', ')}`);
+    expect(leg).toBe(legs.length);
+    expect(fastest).toBeGreaterThan(12);
+    expect(visited.has('Coyote Pass')).toBe(true);
+    expect(visited.has(VALLEY_NAME)).toBe(true);
+  }, 120_000);
+
+  /** Four minutes of ambient traffic round a player standing at (x, z): the cars seen, how many last seen in the valley, and how near to the lake's water any came. */
+  function stream(seed: number, x: number, z: number): { cars: number; valley: number; nearest: number } {
+    const sim = makeSim({ seed, police: false, ambient: true, startHour: 12 });
+    const p = sim.player;
+    teleport(sim, x, z);
+    const counted = new Set<Vehicle>();
+    let nearest = Infinity;
+    let yaw = 0;
+    for (let f = 0; f < 240 * 60; f++) {
+      p.pos.x = x;
+      p.pos.z = z;
+      yaw += (1 / 60) * 0.15;
+      const d = { x: Math.sin(yaw), y: -0.1, z: Math.cos(yaw) };
+      sim.update(1 / 60, input({ cameraYaw: yaw, aimDir: d, aimOrigin: { x: x - d.x * 4.3, y: p.pos.y + 2.6, z: z - d.z * 4.3 } }));
+      if (f % 30 !== 0) continue;
+      for (const v of sim.vehicles) {
+        if (v.removed || v.owner !== 'traffic' || v.driver?.isPlayer) continue;
+        counted.add(v);
+        if (v.pos.x < -1560) nearest = Math.min(nearest, ...LAKE_RECTS.map((r) => Math.hypot(Math.max(r.minX - v.pos.x, 0, v.pos.x - r.maxX), Math.max(r.minZ - v.pos.z, 0, v.pos.z - r.maxZ))));
+      }
+    }
+    return { cars: counted.size, valley: [...counted].filter((v) => v.pos.x < -1600).length, nearest };
+  }
+
+  it('streams ambient traffic on the Pass Road and the loop for a player at Valley Cross, and round the lake for one on its east shore, none within 30 m of its water', () => {
+    const cross = stream(8, -1856, 98);
+    console.log(`[country_valley] four minutes at Valley Cross: ${cross.cars} cars, ${cross.valley} last seen in the valley`);
+    expect(cross.cars).toBeGreaterThan(3);
+    expect(cross.valley).toBeGreaterThan(0);
+    // The loop's east side runs 66 m off the lake's east bay: its traffic passes the lake but never closer than the loop's 35 m.
+    const shore = stream(9, -1806, -250);
+    console.log(`[country_valley] four minutes on the lake's east shore: ${shore.cars} cars, the nearest ${shore.nearest.toFixed(0)} m from its water`);
+    expect(shore.cars).toBeGreaterThan(1);
+    expect(shore.nearest).toBeGreaterThan(30);
+    expect(shore.nearest).toBeLessThan(100);
+  }, 120_000);
+
+  it('leads the GPS from the city over the causeway, up the highway and through the pass to a waypoint at the lake', () => {
+    const sim = makeSim({ seed: 1, police: false, ambient: false });
+    const lake = { x: -1860, z: -250 };
+    const route = gpsRoute(sim, lake.x, lake.z);
+    const ids = route.slice(1, -1).map((p) => roads.nearestNode(p.x, p.z).id);
+    console.log(`[country_valley] GPS from the start to the lake: ${route.length} points`);
+    expect(ids.some((id) => id === roads.node(0, 2).id || id === roads.node(0, 8).id)).toBe(true);
+    // Through the Coyote T and on west along the Pass Road to Valley Cross, and then north up the loop to the shore.
+    for (const name of ['coyote', 'valley'] as const) expect(ids.includes(roads.junction(name).id), name).toBe(true);
+    expect(ids.indexOf(roads.junction('coyote').id)).toBeLessThan(ids.indexOf(roads.junction('valley').id));
+    const end = route[route.length - 2]!;
+    expect(Math.hypot(end.x - lake.x, end.z - lake.z)).toBeLessThan(120);
+  });
+
+  it('spawns no pedestrian in the valley, and draws nothing to try', () => {
+    const a = makeSim({ seed: 2 });
+    const b = makeSim({ seed: 2 });
+    for (const [x, z] of [[-1856, 98], [-2000, 300], [-1700, -200]] as const) expect(a.world.walk.randomPointNear(a.rng, x, z, 20, 100)).toBeNull();
+    expect(a.rng.next()).toBe(b.rng.next());
+  });
+});
+
+describe('Las Lomas Valley: the sheriff', () => {
+  it('has the valley inside the county for its traffic, its tan cruisers and its dispatcher', () => {
+    for (const [x, z] of [[-2200, 0], [-1480, PASS_Z], [-2000, -250], [-1700, 300]] as const) {
+      expect(rectContains(COUNTY_BOUNDS, x, z)).toBe(true);
+      expect(COUNTY_ZONES.has(W.zoneName(x, z)), W.zoneName(x, z)).toBe(true);
+    }
+    for (const p of COUNTY_PLOTS) expect(COUNTY_ZONES.has(p.name), p.name).toBe(true);
+  });
+
+  it('sends the sheriff\'s patrol cars along the valley\'s roads for a player there with no stars', () => {
+    const sim = makeSim({ seed: 12, police: true, ambient: true, startHour: 12 });
+    teleport(sim, -1856, 98);
+    let patrols = 0;
+    let tan = 0;
+    for (let f = 0; f < 60 * 90; f++) {
+      step(sim, 1 / 60);
+      const here = sim.vehicles.filter((v) => !v.removed && v.kind === 'police' && v.pos.x < -1560);
+      patrols = Math.max(patrols, here.length);
+      tan = Math.max(tan, here.filter((v) => v.color === SHERIFF_COLOR).length);
+    }
+    expect(patrols).toBeGreaterThan(0);
+    expect(tan).toBe(patrols);
+  }, 60_000);
+
+  it('puts the sheriff\'s cruisers on the valley\'s lanes round a wanted player there', () => {
+    const sim = makeSim({ seed: 9, police: true, ambient: true, startHour: 12 });
+    sim.cheats.godMode = true;
+    teleport(sim, -1856, 98);
+    sim.wanted.setLevel(3);
+    let cruisers = 0;
+    let tan = 0;
+    for (let f = 0; f < 60 * 25; f++) {
+      step(sim, 1 / 60);
+      const here = sim.vehicles.filter((v) => !v.removed && v.kind === 'police' && v.pos.x < -1560);
+      cruisers = Math.max(cruisers, here.length);
+      tan = Math.max(tan, here.filter((v) => v.color === SHERIFF_COLOR).length);
+    }
+    console.log(`[country_valley] up to ${cruisers} cruisers in the valley after 25 s of three stars, ${tan} of them the sheriff's tan`);
+    expect(cruisers).toBeGreaterThan(0);
+    expect(tan).toBe(cruisers);
+  }, 60_000);
+});
+
+describe('Lake Lomas', () => {
+  it('is calm: no swell reaches it, though the open sea east of the city has all of it', () => {
+    // The middle of the main body, the end of the east bay, the inlet's head and the south bay.
+    for (const [x, z] of [[-2060, -285], [-1925, -275], [-2078, -385], [-2065, -165]] as const) {
+      expect(inLake(x, z), `${x}, ${z}`).toBe(true);
+      expect(shelterOf(x, z), `${x}, ${z}`).toBeLessThan(0.02);
+    }
+    expect(shelterOf(L.bounds.beachEndX + 120, 0)).toBeGreaterThan(0.95);
+    // The sea west of the valley lies in the lee of the whole county.
+    expect(shelterOf(-2350, -250)).toBeLessThan(0.5);
+  });
+
+  it('is deep in the middle, with a beach all round, and no boat gets to it from the sea', () => {
+    expect(W.waterDepth(-2095, -282)).toBeGreaterThan(6);
+    const sim = makeSim({ police: false });
+    // A speedboat out at sea west of the valley, full ahead east: it grounds on the beach, 130 m short of the lake.
+    const boat = sim.spawnVehicle('speedboat', -2350, -250, Math.PI / 2);
+    placeInCar(sim, boat);
+    for (let f = 0; f < 60 * 40; f++) sim.update(1 / 60, input({ throttle: 1 }));
+    expect(boat.pos.x).toBeLessThan(-2285);
+    // And one on the lake cannot leave it, whichever way it heads.
+    for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      const s = makeSim({ police: false });
+      const b = s.spawnVehicle('speedboat', -2000, -250, heading);
+      placeInCar(s, b);
+      for (let f = 0; f < 60 * 30; f++) s.update(1 / 60, input({ throttle: 1 }));
+      expect(inLake(b.pos.x, b.pos.z), `heading ${heading}`).toBe(true);
+      expect(W.baseGround(b.pos.x, b.pos.z)).toBeLessThan(WATER_Y);
+    }
+  }, 120_000);
+});

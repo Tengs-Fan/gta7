@@ -344,7 +344,8 @@ const SCENARIOS = {
   },
   /**
    * Frame rate in a few demanding places (the start, downtown, a pursuit, the beach, Hillcrest Green's summit, and Las Lomas
-   * County's ridge, lookout, promenade view and pursuit); prints a table.
+   * County's ridge, lookout, promenade view, Dry Creek, the valley from the ridge top, Lake Lomas, a drive through Coyote
+   * Pass and a pursuit); prints a table.
    */
   async perf() {
     await t.boot();
@@ -389,11 +390,36 @@ const SCENARIOS = {
       g.teleport(x, z);
       g.setCamera(yaw, -0.03);
     }, x, z, yaw, hours);
-    for (const [label, x, z, yaw, hours] of [['ridge-dusk', -1468, -300, Math.PI / 2, 18.67], ['lookout-night', -1467.5, -100, Math.PI / 2, 23], ['promenade-west-night', -505, -240, -Math.PI / 2, 23]]) {
+    // Las Lomas Valley's scenes too: Dry Creek facing the ridge that hides the valley, the valley from the ridge top above
+    // Coyote Pass, and Lake Lomas from its east shore at dusk.
+    for (const [label, x, z, yaw, hours] of [
+      ['ridge-dusk', -1468, -300, Math.PI / 2, 18.67],
+      ['lookout-night', -1467.5, -100, Math.PI / 2, 23],
+      ['promenade-west-night', -505, -240, -Math.PI / 2, 23],
+      ['dry-creek-noon', -840, -300, -Math.PI / 2, 12],
+      ['valley-from-ridge-noon', -1471.5, 20, -Math.PI / 2, 12],
+      ['lake-dusk', -1858, -250, -Math.PI / 2, 18.67],
+    ]) {
       await stand(x, z, yaw, hours);
       await t.wait(1500);
       await t.measure(label, 4000);
     }
+    // A sports car through Coyote Pass, from the Coyote T into the valley at noon.
+    await t.game((g) => {
+      g.setTime(12);
+      g.setWanted(0);
+      g.spawnVehicle('sports', true);
+      const v = g.sim.player.vehicle;
+      v.pos.x = -1345;
+      v.pos.z = 82;
+      v.pos.y = g.sim.world.groundHeight(v.pos.x, v.pos.z);
+      v.heading = -Math.PI / 2;
+      g.game.renderer.cameraCtl.reset(g.sim);
+    });
+    await t.page.keyboard.down('KeyW');
+    await t.wait(1000);
+    await t.measure('valley-pass-drive', 6000);
+    await t.page.keyboard.up('KeyW');
     await t.game((g) => {
       g.setTime(16);
       g.spawnVehicle('sports', true);

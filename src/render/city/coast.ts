@@ -112,8 +112,8 @@ const RIPRAP = { perMetre: 1, out: 0.3, size: [0.9, 2.4], rise: 0, climb: 0, det
 /** Round a headland the heap also climbs `climb` m against the cliff for every metre the cliff stands over the curb. */
 const HEADLAND_RIPRAP = { perMetre: 1.4, out: 0.2, size: [1.4, 3.6], rise: 0.5, climb: 0.15, detail: 1 } as const;
 
-/** A lumpy boulder: an icosahedron pushed in and out by a few seeded bumps, flat-shaded. */
-function boulder(seed: number, detail: number): THREE.BufferGeometry {
+/** A lumpy boulder: an icosahedron pushed in and out by a few seeded bumps, flat-shaded (Coyote Pass's walls take them too). */
+export function boulder(seed: number, detail: number): THREE.BufferGeometry {
   const rng = new Rng(seed);
   const bumps = Array.from({ length: 5 }, () => new THREE.Vector3(rng.range(-1, 1), rng.range(-1, 1), rng.range(-1, 1)).normalize().multiplyScalar(rng.range(0.15, 0.35)));
   const g = new THREE.IcosahedronGeometry(1, detail);
