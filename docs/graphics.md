@@ -299,6 +299,32 @@ The county's trees and scrub past the fog had added 40 calls downtown and 29 on 
 The three scenes facing the whole skyline across the sound draw less than the city's pursuit, the city's own buildings most of it.
 On the same build day they drew 472-487 (ridge-dusk), 559-573 (lookout-dusk) and 513-528 (lookout-night) calls until the activity sites' signs (68 calls) and the interaction markers (69) past the fog were left undrawn off the city's land, and 1144 and 1178 (ridge-dusk and lookout-night) before the props were.
 
+## Measurements (AMD Radeon iGPU of a Ryzen 7 9800X3D, Chromium with ANGLE Vulkan, 1600x900, Medium)
+
+The sea on Medium, on the integrated GPU the tier is for (RADV, 2 compute units; Medium draws 1360x765 of the 1600x900 viewport), `--scenario perf` built three ways and run alternately (round 6, `medium-sea`): the sea before it had its swell (`4e12085`, a flat plane with four waves in its shading on Medium), `579b2bc` (the swell on a displaced grid of 58,500 vertices, as High draws it), and this build.
+The sea's own draw call is timed with a timer query (`EXT_disjoint_timer_query_webgl2` round `Mesh.onBeforeRender` and `onAfterRender`), a median over each segment; the whole frame's GPU time likewise round the renderer's `render`.
+
+| Scene | fps before the swell | fps, the grid of 58,500 | fps now | Sea draw ms, before / grid / now | Frame GPU ms, before / grid / now |
+| --- | --- | --- | --- | --- | --- |
+| start | 39, 38, 40 | 37, 38, 40 | 39, 40 | 0.06 / 0.36 / 0.07 | 25.1 / 24.4 / 24.8 |
+| downtown | 44, 43, 44 | 42, 42, 44 | 43, 44 | 0.06 / 0.37 / 0.08 | 22.3 / 21.9 / 22.4 |
+| pursuit-4-stars | 44, 45, 45 | 44, 42, 46 | 46, 45 | 0.06 / 0.36 / 0.08 | 20.8 / 21.5 / 21.2 |
+| beach-dusk | 48, 49, 50 | 41, 49, 46 | 46, 48 | 0.67 / 2.71 / 0.56 | 19.9 / 21.7 / 20.2 |
+| hill | 47, 47, 46 | 43, 42, 44 | 45, 48 | 0.30 / 1.46 / 0.36 | 20.9 / 22.0 / 20.8 |
+| ridge-dusk | 54, 54, 54 | 51, 51, 51 | 53, 55 | 0.42 / 1.45 / 0.46 | 17.5 / 18.6 / 18.0 |
+| lookout-night | 48, 49, 49 | 46, 47, 47 | 48, 49 | 0.25 / 0.97 / 0.29 | 20.1 / 20.5 / 20.0 |
+| promenade-west-night (the vsync's 60) | 60, 60, 60 | 60, 60, 60 | 60, 60 | 0.68 / 3.20 / 1.30 | 11.4 / 14.2 / 12.1 |
+| county-pursuit-4-stars | 52, 50, 51 | 46, 50, 51 | 51, 51 | 0.06 / 0.31 / 0.08 | 18.3 / 18.6 / 18.9 |
+
+The fps are three runs of each earlier build and the last two of this one (a first run of it, at 22 to 37 fps, coincided with other work on the machine and is left out); they move 2 to 4 fps from run to run with the traffic and the pursuit, which is why the sea's own draw time, steady to a few percent, is the column to compare.
+
+What the sea cost there, by switching each part off in a scratch build (the sea's draw ms at the vantage, on the 58,500-vertex grid, then on a flat plane with the same shader): the grid's triangles, not the waves, were most of it.
+A grid with no displacement at all cost as much as the displaced one (3.1 against 3.3 ms at the promenade), and a flat plane with the same fragment shader 0.8 ms (0.7 before the swell), so the vertex shader was 0.2 to 0.4 ms (at the start, where the sea is hardly in view, the grid cost 0.4 ms against the plane's 0.06) and the waves' fragment work 0.1 to 0.2 ms on a plane.
+The rest was the fine rings' cells under a pixel tall from a low camera, shaded once per triangle a pixel's samples touch under 4x MSAA (the same frame without MSAA took 1.7 ms against 3.3): a coarse grid is as cheap as the plane once its cells are a few pixels tall, whatever the displacement (4 m cells to 64 m, 8 m to 128 m: 0.47 against 0.35 ms for the plane at the beach, 1.29 against 0.83 at the promenade; a 16 m ring on to 256 m added 0.15 to 0.25 ms more, one on to 512 m up to 0.6).
+Of the fragment shader's parts, on a flat plane over open water from a boat (7.0 ms, the sea filling the screen): the surf's breakers 0.9 ms, the shore, quay and piling foam 1.1, the whitecaps 0.7, the chop's four waves 0.8, the shelter texture 0.6, the sky 0.7, the sea's direct light 1.3 and the ripple layers C, D and E nothing; the breakers and foam are exactly zero in open water, which the skips above leave out (0.8 ms).
+In that view (a Marlin at rest in the open sea, 15:30) the sea's draw took 5.7 ms before the swell, 13.5 on the 58,500-vertex grid and 7.7 now, the frame's GPU time 19.5 ms on that grid and 13.0 now, and 52 fps became 60 (the vsync).
+Medium's swell is displaced to 130 m; at the beach, the pier, the Marina and the quays the frames are the same.
+
 ## Software fallback
 
 Hardware rendering keeps the existing physical materials, procedural sky, reflections, shadows,
