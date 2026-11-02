@@ -271,8 +271,10 @@ describe('round 2 city: layout', () => {
     // Drive-In's posts and bays, Gravel Gulch's ramps and decks and its gates at its turns' apexes), and every ramp gained
     // its stunt flag; and when the roadside oddities were appended (the county's `oddities`: its telephone poles and wires,
     // statics, payphone and crop circle, and nine mailboxes and signs in the props), with the county's `approaches` (the drives,
-    // signs and turn-offs of the farms, the places and the fire road that the poles keep off); and when Halfmoon Acres' wheat was fenced round, which put 156 fence props between the Acres' bales and its scarecrows, shifting every later prop by 156.
-    expect(layoutHash()).toBe('5c9646642ca54ddcb6658668748f9cfe9a143b4480a9ad90d2e6c1a80a54b424');
+    // signs and turn-offs of the farms, the places and the fire road that the poles keep off); and when Halfmoon Acres'
+    // wheat was fenced round, which put 156 fence props between the Acres' bales and its scarecrows, shifting every later
+    // prop by 156.
+    expect(layoutHash()).toBe('1a13e60b42e9979238ea334c74f9e76d2946dd290ba2e84927a299368612cc69');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
