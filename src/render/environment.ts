@@ -1200,6 +1200,7 @@ export class Environment {
     // Frees the GPU buffers of the grids not in use; they upload again if their tier comes back.
     for (const geo of Object.values(this.seaGridGeos)) if (geo !== this.water.geometry) geo.dispose();
     this.sea.uDisplace.value = grid ? 1 : 0;
+    this.sea.uSeaSkip.value = grid && this.gridSpec.skip ? 1 : 0;
     setSeaFade(this.sea, this.gridSpec);
   }
 

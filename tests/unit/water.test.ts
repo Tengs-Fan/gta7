@@ -7,8 +7,8 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { QUALITY } from '../../src/render/quality';
 import { GameRenderer, seaCrossing } from '../../src/render/renderer';
-import { SHORE_GLSL, seaGrid, seaHeightAt, seaUniforms, seaWaveUniforms, setSeaFade, snapSea, surfPhases, updateSea } from '../../src/render/sea';
-import { CALM_SEA, SEA_GRIDS, SEA_RINGS, SEA_SNAP, SEA_WAVES_GLSL, SKIRT_EXTENT, SWELL, WAVES, waveAmps, waveDisplacement, wavePhases, type SeaGridName, type SeaSurface } from '../../src/render/waves';
+import { QUAY_FOAM_REACH, SHORE_GLSL, seaGrid, seaHeightAt, seaUniforms, seaWaveUniforms, setSeaFade, snapSea, surfPhases, updateSea } from '../../src/render/sea';
+import { CALM_SEA, SEA_GRIDS, SEA_RINGS, SEA_SNAP, SEA_WAVES_GLSL, seaShoal, SKIRT_EXTENT, SURF_BAR_FADE, SURF_DEPTH, SURF_REACH, SWELL, WAVES, waveAmps, waveDisplacement, wavePhases, type SeaGridName, type SeaSurface } from '../../src/render/waves';
 import { Projectile } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
 import { BEACH_W, CURB_H, SAND_DROP, WATER_Y } from '../../src/world/constants';
@@ -309,6 +309,47 @@ describe.each(['fine', 'coarse'] as const)('the %s wave grid', (name) => {
     }
   });
 
+});
+
+describe('what Medium leaves out of deep water', () => {
+  it('only the coarse grid asks for the skips, and the sea shader reads them from one uniform', () => {
+    expect(SEA_GRIDS.fine.skip).toBe(false);
+    expect(SEA_GRIDS.coarse.skip).toBe(true);
+    const skip = (q: 'high' | 'medium' | 'low') => renderer(q).env.sea.uSeaSkip.value;
+    expect([skip('high'), skip('medium'), skip('low')]).toEqual([0, 1, 0]);
+    // A tier switch moves it with the grid: the same material and program, one more uniform.
+    const r = renderer('medium');
+    r.setQuality('high');
+    expect(r.env.sea.uSeaSkip.value).toBe(0);
+    r.setQuality('medium');
+    expect(r.env.sea.uSeaSkip.value).toBe(1);
+    r.setQuality('low');
+    expect(r.env.sea.uSeaSkip.value).toBe(0);
+    const mat = r.env.water.material as THREE.MeshStandardMaterial;
+    const shader = { vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader, uniforms: {} as Record<string, THREE.IUniform> };
+    mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, r.renderer);
+    expect(shader.fragmentShader).toContain('uniform float uSeaSkip;');
+    expect(shader.fragmentShader).toContain('uSeaSkip * step(');
+    expect(shader.uniforms.uSeaSkip).toBe(r.env.sea.uSeaSkip);
+  });
+
+  it('the surf has nothing to show deeper than SURF_REACH, and the quay\'s foam nothing further than QUAY_FOAM_REACH from its wall', () => {
+    // The breakers are gone from SURF_DEPTH[1] m deep, whatever the shelter, the slope and the sea state.
+    for (const d of [SURF_DEPTH[1], SURF_REACH, 12]) {
+      for (const sea of [CALM_SEA, 1]) expect(seaShoal([1, d, 0.03, 0.01], waveAmps(sea))[1], `${d} m`).toBe(0);
+    }
+    // A set breaks no deeper than SURF_DEPTH[1] (seaSurfAt), and every term of the surf's foam and face ends within 1.7
+    // times the depth it breaks at (seaSurfFoam's roller and lip, seaSurfFace's rearing), the felt depth being the sand's
+    // below the bars' reach.
+    expect(SHORE_GLSL).toContain(`min(${SURF_DEPTH[1].toFixed(1)}, shelter * seaHalfHeight()`);
+    for (const edge of ['smoothstep(0.9 * b.z, 1.02 * b.z + 0.02, e)', 'smoothstep(1.04 * b.z, 1.35 * b.z + 0.01, e)', 'smoothstep(1.05 * b.z, 1.7 * b.z + 0.01, e)']) expect(SHORE_GLSL).toContain(edge);
+    expect(1.7 * SURF_DEPTH[1] + 0.01).toBeLessThan(SURF_REACH);
+    expect(SURF_REACH).toBeGreaterThan(SURF_BAR_FADE[1]);
+    // The quay's foam is 0.5 to 1.5 m wide.
+    expect(SHORE_GLSL).toContain('float width = 0.5 + 1.0 * smoothstep(0.3, 0.7, noise);');
+    expect(QUAY_FOAM_REACH).toBe(0.5 + 1.0);
+    expect(SHORE_GLSL).toContain('d < 1.5');
+  });
 });
 
 describe('shoreline foam', () => {

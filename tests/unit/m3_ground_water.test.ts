@@ -707,7 +707,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     }
     expect(top).toBeLessThanOrEqual(1);
     expect(top).toBeGreaterThan(0.6);
-    expect(fs).toContain('SeaWave seaW = seaWave( vSeaXZ, dFdx( vSeaXZ ), dFdy( vSeaXZ ) );');
+    expect(fs).toContain('SeaWave seaW = seaWave( vSeaXZ, dFdx( vSeaXZ ), dFdy( vSeaXZ ), uSeaSkip * step(');
     // The glow through the crests, for an eye looking towards the light, in every light's term.
     expect(fs).toContain(`reflectedLight.directDiffuse += directLight.color * vec3( ${CREST_GLOW.join(', ')} ) * through * seaGlow;`);
     expect(fs).toContain(`seaGlow = saturate( seaW.height ) * saturate( seaW.height ) * ( 0.3 + 0.7 * smoothstep( 0.0, ${WHITECAP_STEEP[1]}, seaW.steep ) );`);
@@ -785,7 +785,7 @@ describe('sea depth gradient, ripples and foam (VAL-GND-007, 008, 009)', () => {
     expect(PILING_FOAM_FAR).toBeGreaterThan(PILING_FOAM);
     const fs = compiled(r.env.water.material as THREE.MeshStandardMaterial).fragmentShader;
     expect(fs).toContain('float seaPx = length( fwidth( vSeaXZ ) );');
-    expect(fs).toContain('seaFoam( vSeaXZ, seaDepth, seaSh, seaBrk, seaW.surfDepth, seaNoise, uSeaAmp, seaPx, seaCyc )');
+    expect(fs).toContain('seaFoam( vSeaXZ, seaDepth, seaSh, seaBrk, seaW.surfDepth, seaNoise, uSeaAmp, seaPx, seaCyc, seaW.deep )');
     expect(fs).toContain(`reflectedLight.indirectDiffuse *= 1.0 + ${FOAM_SKY_LIFT} * seaFoamAmt;`);
   });
 
