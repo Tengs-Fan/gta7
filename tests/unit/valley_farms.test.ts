@@ -15,7 +15,7 @@ import { HARDWARE_CHUNK_SIZE } from '../../src/render/spatial';
 import type { ViewState } from '../../src/sim/viewState';
 import { COUNTY_PLOTS, countryGround, plotAt } from '../../src/world/country';
 import { VINE_ROWS, VINE_SEG, VALLEY_FARMS_FROM } from '../../src/world/country/valley';
-import { mkRect, rectContains, rectsOverlap, type Rect } from '../../src/world/layout';
+import { mkRect, rectContains, rectCX, rectCZ, rectsOverlap, type Rect } from '../../src/world/layout';
 import { rectClearance, roadClearance } from './farm_helpers';
 import { world } from './helpers';
 
@@ -136,6 +136,26 @@ describe('the valley\'s farms: where everything stands', () => {
       const c = W.grid.colliders[W.propColliders[v.firstProp + k]!]!;
       expect([c.tag, c.breakable]).toEqual(['bench', true]);
     }
+  });
+});
+
+describe('the ranch\'s shelters', () => {
+  it('have solid walls on three sides, open to the north and to the paddock, that the horses\' roams keep off', () => {
+    const r = v.ranch;
+    expect(r.shelters.length).toBe(2);
+    r.shelters.forEach((s, k) => {
+      expect(rectContains(r.paddocks[k]!, s.roof.minX, s.roof.minZ) && rectContains(r.paddocks[k]!, s.roof.maxX, s.roof.maxZ)).toBe(true);
+      expect(rectsOverlap(r.roam[k]!, s.roof)).toBe(false);
+      expect(s.walls.length).toBe(3);
+      for (const w of s.walls) {
+        // A wall of the layout's solids, and so a collider of the world's, as tall as it is drawn.
+        expect(v.solids.some((o) => o.rect === w.rect && o.tag === 'wall' && o.y1 === w.h), `wall at ${w.rect.minX}, ${w.rect.minZ}`).toBe(true);
+        const mid = [rectCX(w.rect), rectCZ(w.rect)] as const;
+        const hit: string[] = [];
+        W.grid.query(mid[0] - 0.01, mid[1] - 0.01, mid[0] + 0.01, mid[1] + 0.01, (c) => hit.push(c.tag));
+        expect(hit, `collider at ${mid}`).toContain('wall');
+      }
+    });
   });
 });
 

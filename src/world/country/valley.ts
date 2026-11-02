@@ -72,17 +72,31 @@ export interface Ranch {
   paddocks: Rect[];
   /** Where each paddock's horses keep: inside the fence, and clear of the shelter along the paddocks' south fence. */
   roam: Rect[];
+  /** The run-in shelters along the south fence of the first two paddocks (their walls are solids). */
+  shelters: Shelter[];
   horses: Array<{ x: number; z: number; coat: number; paddock: number }>;
   /** The sheep's pasture along the loop, and how many graze it. */
   pasture: Rect;
   sheep: number;
 }
 
+/** A wall's footprint and its top (m over the ground it stands on). */
+export interface Wall {
+  rect: Rect;
+  h: number;
+}
+
+/** A paddock's run-in shelter: the footprint its roof covers (open to the north) and its three walls, which are solid. */
+export interface Shelter {
+  roof: Rect;
+  walls: Wall[];
+}
+
 /** The ruined stone barn on the Willow Knoll: its footprint, the ground it stands on and the wall stumps left, with their tops. */
 export interface Ruin {
   rect: Rect;
   y: number;
-  walls: Array<{ rect: Rect; h: number }>;
+  walls: Wall[];
 }
 
 export interface ValleyFarms {
@@ -95,7 +109,7 @@ export interface ValleyFarms {
   fields: Field[];
   /** Hedgerows, HEDGE_H tall (world/country/farms.ts): solid for sight and shots, not for the camera. */
   hedges: Rect[];
-  /** The winery's barrels, the ranch's round bales and the ruin's walls (StaticWorld adds their colliders after the places'). */
+  /** The winery's barrels, the ranch's round bales and shelters' walls and the ruin's walls (StaticWorld adds their colliders after the places'). */
   solids: AttractionSolid[];
   /** The ranch barn's inside, where the police see a target only up close (StaticWorld.coverAt). */
   cover: Rect[];
@@ -153,7 +167,7 @@ export function noValley(): ValleyFarms {
   return {
     firstProp: 0,
     vineyard: { rise: RISE, rows: 0, segments: [], winery: { hall: none, building: -1, y: 0, eaves: 0, porch: none, yard: none, poles: [], barrels: none, drive: [0, 0, 0, 0], sign: { x: 0, z: 0, rot: 0 }, mailbox: { x: 0, z: 0, rot: 0 } } },
-    ranch: { house: -1, houseRect: none, barn: none, door: 'W', yard: none, drive: [0, 0, 0, 0], gate: { x: 0, z: 0, rot: 0 }, mailbox: { x: 0, z: 0, rot: 0 }, windpump: -1, bales: [], paddocks: [], roam: [], horses: [], pasture: none, sheep: 0 },
+    ranch: { house: -1, houseRect: none, barn: none, door: 'W', yard: none, drive: [0, 0, 0, 0], gate: { x: 0, z: 0, rot: 0 }, mailbox: { x: 0, z: 0, rot: 0 }, windpump: -1, bales: [], paddocks: [], roam: [], shelters: [], horses: [], pasture: none, sheep: 0 },
     ruin: { rect: none, y: 0, walls: [] },
     fields: [],
     hedges: [],
@@ -268,6 +282,21 @@ function buildRanch(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect[])
     { x: -1664, z: 346, coat: 1, paddock: 1 }, { x: -1650, z: 360, coat: 4, paddock: 1 },
     { x: -1652, z: 292, coat: 2, paddock: 2 },
   ];
+  // A shelter against the south fence of each of the two paddocks: a back wall and two sides, open to the north.
+  const shelters = [PADDOCK_A, PADDOCK_B].map((pad, k): Shelter => {
+    const cx = (pad.minX + pad.maxX) / 2 + (k === 0 ? 8 : -8);
+    const z1 = pad.maxZ - 1.2;
+    const roof = mkRect(cx - 3.2, z1 - 3.6, cx + 3.2, z1);
+    return {
+      roof,
+      walls: [
+        { rect: mkRect(roof.minX, z1 - 0.12, roof.maxX, z1), h: 2.3 },
+        { rect: mkRect(roof.minX, roof.minZ, roof.minX + 0.12, z1), h: 2.5 },
+        { rect: mkRect(roof.maxX - 0.12, roof.minZ, roof.maxX, z1), h: 2.5 },
+      ],
+    };
+  });
+  for (const s of shelters) for (const wall of s.walls) v.solids.push({ rect: wall.rect, y0: 0, y1: wall.h, tag: 'wall' });
   const driveEnd = yard.minX;
   v.ranch = {
     house, houseRect, barn: barnRect, door: 'W', yard,
@@ -275,7 +304,7 @@ function buildRanch(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect[])
     gate: { x: -1806, z: RANCH_DRIVE_Z, rot: W },
     mailbox: { x: -1832, z: RANCH_DRIVE_Z - 7, rot: E },
     windpump: pump,
-    bales, paddocks, roam, horses, pasture: PASTURE, sheep: SHEEP_COUNT,
+    bales, paddocks, roam, shelters, horses, pasture: PASTURE, sheep: SHEEP_COUNT,
   };
   layout.parking.push({ x: -1712, z: 270, heading: E }, { x: -1712, z: 275, heading: E });
   v.drives.push(mkRect(-1835, RANCH_DRIVE_Z - 2.6, driveEnd, RANCH_DRIVE_Z + 2.6));

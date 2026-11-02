@@ -10,8 +10,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Rng } from '../../core/rng';
-import type { ValleyFarms } from '../../world/country/valley';
-import { hashInts, rectCX, rectCZ, type Rect } from '../../world/layout';
+import type { Shelter, ValleyFarms } from '../../world/country/valley';
+import { hashInts, rectCZ } from '../../world/layout';
 import { Atlas, boxC, face, pitched, type V } from '../city/attractions';
 import { prism } from '../city/rooftops';
 import { GeoBuilder, scaleRgb, type RGB } from '../geo';
@@ -454,7 +454,7 @@ export class ValleyView {
     mailbox(p.plain, r.mailbox.x, r.mailbox.z);
     // Round bales, each its own way, and the paddocks' shelters: three posts, a tin roof sloping to the back, along the south fence.
     for (const b of r.bales) roundBale(p.plain, b.x, b.z, rng.range(0, Math.PI), 0.75, 1.25);
-    for (const [k, pad] of r.paddocks.slice(0, 2).entries()) shelter(p.plain, pad, k);
+    for (const s of r.shelters) shelter(p.plain, s);
   }
 
   /** Hides the vineyard's chunks past `far` m from (x, z). */
@@ -470,14 +470,9 @@ export class ValleyView {
 }
 
 /** A run-in shelter on the south side of a paddock: a back wall and two sides of weathered boards under a tin roof sloping to the back. */
-function shelter(g: GeoBuilder, pad: Rect, k: number): void {
-  const cx = rectCX(pad) + (k === 0 ? 8 : -8);
-  const z1 = pad.maxZ - 1.2;
-  const z0 = z1 - 3.6;
-  const x0 = cx - 3.2;
-  const x1 = cx + 3.2;
+function shelter(g: GeoBuilder, s: Shelter): void {
+  const { minX: x0, minZ: z0, maxX: x1, maxZ: z1 } = s.roof;
   const board: RGB = [0.45, 0.33, 0.22];
-  boxC(g, x0, 0, z1 - 0.12, x1, 2.3, z1, board);
-  for (const x of [x0, x1 - 0.12]) boxC(g, x, 0, z0, x + 0.12, 2.5, z1, board);
+  for (const w of s.walls) boxC(g, w.rect.minX, 0, w.rect.minZ, w.rect.maxX, w.h, w.rect.maxZ, board);
   face(g, [x0 - 0.3, 2.7, z0 - 0.4], [x1 + 0.3, 2.7, z0 - 0.4], [x1 + 0.3, 2.15, z1 + 0.2], [x0 - 0.3, 2.15, z1 + 0.2], [0, 1, 0.2], [0.55, 0.57, 0.58]);
 }
