@@ -60,6 +60,11 @@ describe('ambient traffic never stays stuck over 20 s', () => {
 // The Coyote T's is 50 s: its left turn onto the highway's west leg waits out the platoons that form behind the tractors
 // on it (two runs of twelve waited 43 s and 47.5 s, the rest under 28 s, no collision), and only 4 to 18 cars come down
 // the Pass Road to its line in ten minutes, since the valley behind it is the one place that road leads.
+// The Coyote T also runs seeds 108, 143, 304, 326 and 336: there, and at seed 8, a highway left turner was hit in the T
+// by a car spawned at speed 60-105 m up the highway after it had judged its gap (8, 108 and 336 with the old 50 m spawn
+// clearance, 143, 304, 326 and 336 with a county yield 1.8 m short of the lane's end), about one run in a hundred, too
+// rare for twelve seeds to see. Since the spawner keeps a left turn's time off those lanes (spawnClearance) they are five
+// more seeds; seeds 1-400 had no collision in the T.
 type Soaked = 'creek' | 'hollister' | 'coyote' | 'valley';
 
 describe('stop signs never jam', () => {
@@ -106,11 +111,12 @@ describe('stop signs never jam', () => {
     return { worst, stops: stopped.size, crashes, through: through.size };
   }
 
-  const SEEDS: Readonly<Record<Soaked, number>> = { creek: 12, hollister: 12, coyote: 12, valley: 4 };
+  const first = (n: number) => Array.from({ length: n }, (_, k) => k + 1);
+  const SEEDS: Readonly<Record<Soaked, readonly number[]>> = { creek: first(12), hollister: first(12), coyote: [...first(12), 108, 143, 304, 326, 336], valley: first(4) };
   /** The longest wait (s) allowed at each line, and the fewest cars that stop at it in ten minutes. */
   const BOUND: Readonly<Record<Soaked, number>> = { creek: 40, hollister: 40, coyote: 50, valley: 40 };
   const MIN_STOPS: Readonly<Record<Soaked, number>> = { creek: 20, hollister: 20, coyote: 3, valley: 20 };
-  const RUNS = (Object.keys(SEEDS) as Soaked[]).flatMap((name) => Array.from({ length: SEEDS[name] }, (_, k) => [name, k + 1] as const));
+  const RUNS = (Object.keys(SEEDS) as Soaked[]).flatMap((name) => SEEDS[name].map((seed) => [name, seed] as const));
   const AT: Readonly<Record<Soaked, [number, number]>> = { creek: [-866, 286], hollister: [-1130, -290], coyote: [-1356, 106], valley: [-1866, 106] };
   const TITLE = { creek: 'the Creek T', hollister: 'the Hollister T', coyote: 'the Coyote T', valley: 'Valley Cross' } as const;
 
