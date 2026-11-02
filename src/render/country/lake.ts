@@ -185,7 +185,7 @@ function drawSign(kit: PlacesKit, p: PlacePieces, s: LakeSign): void {
 /** A picnic table, its top along (cos rot, -sin rot): a top of boards, two benches and two A-frame ends. */
 function picnicTable(g: GeoBuilder, t: Table): void {
   const f = frame(t.x, t.z, Math.round(t.rot / (Math.PI / 2)) * (Math.PI / 2));
-  const w: RGB = [0.4, 0.27, 0.16];
+  const w: RGB = [0.22, 0.14, 0.08];
   qbox(g, f, -0.9, 0.72, -0.4, 0.9, 0.78, 0.4, w);
   for (const s of [-1, 1]) {
     qbox(g, f, -0.9, 0.42, s * 0.78 - 0.14, 0.9, 0.46, s * 0.78 + 0.14, scaleRgb(w, 0.9));

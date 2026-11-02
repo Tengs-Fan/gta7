@@ -46,14 +46,15 @@ const REED_BEDS: ReadonlyArray<readonly [number, number, number]> = [
 
 /** The ducks and loons: where they swim and how fast. */
 const FOWL: ReadonlyArray<readonly ['duck' | 'loon', number, number, number, number, number, number]> = [
-  ['duck', -1946, -272, 22, 12, 0.07, 0],
-  ['duck', -1946, -272, 22, 12, 0.07, 0.35],
-  ['duck', -1946, -272, 22, 12, 0.07, 0.42],
+  ['duck', -1936, -275, 18, 12, 0.07, 0],
+  ['duck', -1936, -275, 18, 12, 0.07, 0.35],
+  ['duck', -1936, -275, 18, 12, 0.07, 0.42],
   ['duck', -2078, -368, 5, 10, 0.09, 1.2],
   ['duck', -2078, -368, 5, 10, 0.09, 1.5],
   ['loon', -2052, -283, 34, 14, 0.04, 2.1],
   ['loon', -2052, -283, 34, 14, 0.04, 2.55],
   ['loon', -2092, -262, 22, 9, 0.05, 4.0],
+  ['loon', -1962, -262, 10, 6, 0.05, 1.0],
 ];
 
 /** The road's west edge at z, nudged 0.3 m inside it so a lane's dirt meets the asphalt. */
