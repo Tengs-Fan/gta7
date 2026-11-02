@@ -2,7 +2,7 @@
 // updates it last) and narrates the chase as 'dispatch' events for the HUD's scanner line. It never
 // uses the subtitle channel, which belongs to the story.
 
-import { COUNTY_NAME, COUNTY_PLOTS } from '../world/country';
+import { COUNTY_NAME, COUNTY_PLOTS, VALLEY_NAME } from '../world/country';
 import type { Vehicle } from './entities';
 import type { PlayerSlot } from './playerSlot';
 import type { Sim } from './sim';
@@ -65,7 +65,7 @@ export function colourName(color: number): string {
  * Las Lomas County's places. A line about one, or said while the suspect is in one, is the Las Lomas County Sheriff's
  * dispatcher's, in a voice of his own (SHERIFF): only he names them.
  */
-export const COUNTY_ZONES: ReadonlySet<string> = new Set([COUNTY_NAME, ...COUNTY_PLOTS.map((p) => p.name)]);
+export const COUNTY_ZONES: ReadonlySet<string> = new Set([COUNTY_NAME, VALLEY_NAME, ...COUNTY_PLOTS.map((p) => p.name)]);
 
 /** The sheriff's dispatcher's lines: the opening's head (crime, place), the suspect, the search and the sighting's head (compass point, place). */
 export const SHERIFF = {

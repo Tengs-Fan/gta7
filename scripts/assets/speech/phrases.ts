@@ -4,7 +4,7 @@
 
 import { COLOUR_NAMES, COMPASS, COUNTY_ZONES, CRIME_PHRASES, SHERIFF } from '../../../src/sim/dispatch';
 import { VEHICLE_SPECS } from '../../../src/sim/specs';
-import { COUNTY_NAME } from '../../../src/world/country';
+import { COUNTY_NAME, VALLEY_NAME } from '../../../src/world/country';
 import type { StaticWorld } from '../../../src/world/staticWorld';
 
 /** Every place the dispatcher can name (StaticWorld.zoneName). */
@@ -14,8 +14,9 @@ export function zoneNames(world: StaticWorld): string[] {
   for (const d of world.layout.decks) zones.add(d.name);
   for (const w of world.layout.water) zones.add(w.name);
   for (const h of world.layout.headlands) zones.add(h.name);
-  // Las Lomas County, and its plots by name.
+  // Las Lomas County and the valley beside it, and the plots by name.
   zones.add(COUNTY_NAME);
+  zones.add(VALLEY_NAME);
   for (const p of world.layout.country.plots) zones.add(p.name);
   return [...zones];
 }
