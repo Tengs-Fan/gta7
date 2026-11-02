@@ -1,6 +1,6 @@
 // Las Lomas County's places (docs/map.md, "Las Lomas: roads outside the grid"): Dry Creek, the crossroads town with the
 // county's one traffic light, the Moonbeam Drive-In on the shore of Lomas Sound and the Gravel Gulch dirt track. Pure
-// data, no rendering. buildPlaces is the last of the county's content passes and only
+// data, no rendering. buildPlaces is a content pass of the county's (after the landscape and the farms) and only
 // appends: its stores are buildings of district 'country' (StaticWorld adds their colliders after every older one), then
 // props, POIs, footpaths and parking bays, and the solids StaticWorld adds after the county's props. It draws nothing
 // from the city's generator, and builds only in its own plots.
@@ -501,7 +501,7 @@ function buildTrack(layout: CityLayout, places: CountyPlaces): void {
 }
 
 /**
- * The places, the last of the county's content passes (after the landscape and the farms): Dry Creek, the Moonbeam
+ * The places, a content pass of the county's (after the landscape and the farms): Dry Creek, the Moonbeam
  * Drive-In and Gravel Gulch. Its own generator (hashInts(seed, 9101)) gives the stores their tints; nothing else is
  * random.
  */

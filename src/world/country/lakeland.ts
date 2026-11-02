@@ -1,8 +1,8 @@
 // Lake Lomas and Pinewood (docs/map.md, "Lake Lomas and Pinewood"): the lake's wooden fishing dock with the dinghies
 // moored at it, its cabins, campground, reeds, signs and waterfowl; Pinewood's pine forest, dirt track and fire lookout
 // tower; and the wild country between them, the valley's north half: scattered pines and oaks thinning toward the
-// lake, boulders and wildflower patches. Pure data and queries, no rendering. buildLakeland is the last of the county's
-// content passes and only appends: decks (the dock), buildings (the cabins), props (the pines, the oaks and bushes among
+// lake, boulders and wildflower patches. Pure data and queries, no rendering. buildLakeland is the county's fourth content
+// pass (after the landscape, the farms and the places, before the valley's farms and the oddities) and only appends: decks (the dock), buildings (the cabins), props (the pines, the oaks and bushes among
 // them), and the solids StaticWorld adds after the places'. It owns the lake plot, the pinewood plot, the pass plot's
 // little, and the valley's land north of the Pass Road outside the vineyard; it draws from its own generator
 // (hashInts(seed, LAKELAND_SALT)) and keeps clear of every road (`roadGap`).
@@ -307,7 +307,7 @@ export function prop(layout: CityLayout, kind: Parameters<typeof addProp>[1], x:
   addProp(layout, kind, x, z, rot, scale, countryGround(layout.country, x, z));
 }
 
-/** The lakeland, the county's last content pass (after the places): the lake's dock, cabins and camp, Pinewood, the north valley. */
+/** The lakeland, a content pass of the county's (after the places, before the valley's farms and the oddities): the lake's dock, cabins and camp, Pinewood, the north valley. */
 export function buildLakeland(layout: CityLayout): void {
   const rng = new Rng(hashInts(layout.seed, LAKELAND_SALT));
   const land = noLakeland();

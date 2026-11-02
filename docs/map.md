@@ -288,7 +288,7 @@ The HUD and the scanner name the plot you are in, or Las Lomas County.
 - **Reflector posts**, drawn only, stand every 25 m along both edges of every county road on the land, clear of the junctions, of the fire road's turn-off and its crossing of the Pass Road, of the drives into the farms, the drive-in and Gravel Gulch, and of Dry Creek.
 
 **Lake Lomas and Pinewood.**
-`buildLakeland` (`src/world/country/lakeland.ts`, with `lake.ts` and `woods.ts`) is the last content pass: it owns the lake plot and its shore, the pinewood plot, the valley's land north of the Pass Road (z under 70) outside the vineyard, and a little of the pass's west mouth, and draws from its own generator (`hashInts(seed, 9421)`).
+`buildLakeland` (`src/world/country/lakeland.ts`, with `lake.ts` and `woods.ts`) is a content pass after the places and before the valley's farms and the oddities: it owns the lake plot and its shore, the pinewood plot, the valley's land north of the Pass Road (z under 70) outside the vineyard, and a little of the pass's west mouth, and draws from its own generator (`hashInts(seed, 9421)`).
 Everything it places keeps 6 to 12 m off every road edge (`roadGap`), out of the vineyard's and the ranch's plots and north of z 80; its lanes begin on a road's edge and run clear of the carriageway from their third point, and no prop stands in water or on the beach.
 - **The dock** is two piers on the lake, drawn by the city's pier code with their pilings and counted among `layout.decks` (name `Lake Lomas`, so the HUD names the dock as it names the water): a 34 m walkway out from the east shore of the bay along z -275, and a 6 by 22 m T-head across its end, both at the Marina's deck height (0.45 m, a metre and a half over the water), 17 m past the waterline where the lake is 3 to 5 m deep.
   Boats are stopped by a deck as they are at the Marina's piers, and the shelter bake leaves the dock as calm as the lake.
@@ -337,7 +337,7 @@ A patrol cruiser placed in the county is the Las Lomas County Sheriff's (`SHERIF
 
 ### The places
 
-`buildPlaces` (`src/world/country/places.ts`) is the last of the content passes and fills three plots: Dry Creek, the Moonbeam Drive-In and Gravel Gulch.
+`buildPlaces` (`src/world/country/places.ts`) is a content pass after the landscape and the farms and fills three plots: Dry Creek, the Moonbeam Drive-In and Gravel Gulch.
 It draws nothing from the city's generator (the stores' tints come from its own), and it only appends.
 
 **Dry Creek** stands round its crossroads, the county's only traffic light, with the main street on the Lomas Highway.
@@ -378,8 +378,8 @@ It draws nothing from the city's generator (the stores' tints come from its own)
 
 ### Roadside oddities
 
-`buildOddities` (`src/world/country/oddities.ts`) is the last content pass, after the places: small useless things beside the county's roads, none of them in a plot.
-It draws from no generator and only appends: its solids go in `country.oddities.solids`, which `StaticWorld` adds after the places', so every older collider keeps its id, and its nine mailboxes and signs are the last props (`oddities.firstProp`; the places' own props end where they begin).
+`buildOddities` (`src/world/country/oddities.ts`) is the last content pass, after the places, the lakeland and the valley's farms: small useless things beside the county's roads, none of them in a plot.
+It draws from no generator and only appends: its solids go in `country.oddities.solids`, which `StaticWorld` adds after the places', so every older collider keeps its id, and its nine mailboxes and signs are the last props (`oddities.firstProp`; the valley's farms' props end where they begin).
 
 - **Telephone poles** stand 40 m apart along the right-hand side of every county road, 4 m outside its edge, 8.6 m tall with a crossarm of four insulators.
   A pole is left out within 16 m of a junction's box, 10 m of a farm's drive, sign or mailbox, 14 m of the drive-in's and Gravel Gulch's drives and of the fire road's turn-off (each pass lists its own in `country.approaches`, as a rect and how far to keep from it, so a farm or a place added later adds its drive there and no pole stands in its mouth), in Dry Creek, in a stunt ramp's 300 m run-out lane (`fix_progress_world` keeps every solid off those), and 3 m from any other oddity; a wire spans a gap of two poles (82 m) at most, and none is strung across a longer one.
@@ -401,7 +401,7 @@ It draws from no generator and only appends: its solids go in `country.oddities.
 
 ### The valley's farms
 
-`buildValley` (`src/world/country/valley.ts`) is the last of the content passes, after the places, and fills the valley's south half: Sunset Vineyard, the Lazy Q Ranch and the farmed land between them.
+`buildValley` (`src/world/country/valley.ts`) is a content pass after the places and the lakeland, and before the oddities, and fills the valley's south half: Sunset Vineyard, the Lazy Q Ranch and the farmed land between them.
 It only appends, from its own generator, so every older prop, building, garage and collider keeps its index (the first 4605 colliders still hash as they did, and Dry Creek's props are still the tail of the places').
 It stays south of z 100, 16 m past the Pass Road's edge, and out of the pass's plot, so the pass, the lake, Pinewood and the valley's north half are another pass's; every solid keeps 8 m off every road edge and each building 12, and no drive has a lane: a drive is dirt drawn from a road's edge, as the county's.
 The valley's farms have a record of their own, `Country.valley`, kept apart from `Country.farms` so the county's four farms and their tests stay as they were: its fields (the hay fields and the pumpkin patch's furrows, which `FieldsView` draws with the county's), hedgerows (the farms' own `hedge` colliders and sight rule), solids and cover.

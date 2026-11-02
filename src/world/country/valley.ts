@@ -1,7 +1,7 @@
 // Las Lomas Valley's farms (docs/map.md, "Las Lomas Valley: the farms"): Sunset Vineyard on the Vineyard Rise, the Lazy Q
 // Ranch east of the loop's south bend, and the open land south of the Pass Road between them, a farmed country of oaks,
-// hedgerows, hay fields, a pumpkin patch and a ruined barn on the Willow Knoll. Pure data, no rendering. buildValley is the
-// last of the county's content passes (after the places): it only appends (props, a building each for the winery and the
+// hedgerows, hay fields, a pumpkin patch and a ruined barn on the Willow Knoll. Pure data, no rendering. buildValley is
+// a content pass of the county's (after the places and the lakeland, before the oddities): it only appends (props, a building each for the winery and the
 // ranch house, the ranch's barn, parking bays), draws from its own generator, keeps every solid 12 m off every road edge,
 // every prop, building and solid south of the Pass Road (z 100 on; the vine rows follow the rise's ellipses, which reach
 // z 43) and out of the pass's plot. Its animals (the ranch's horses and sheep) are

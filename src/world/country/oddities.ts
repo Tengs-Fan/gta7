@@ -2,7 +2,7 @@
 // and the wires between them, and the small useless things beside them: a giant fibreglass cow on a flatbed beside a
 // farm stand, a crashed saucer holding up the sign of the Little Green Diner, Bigfoot at a gravel pull-off, a row of
 // mismatched mailboxes, three hand-painted signs, an abandoned pickup, a school bus turned henhouse, a payphone that rings,
-// and a crop circle in the wheat. Pure data, no rendering. buildOddities is the last of the county's content passes and
+// and a crop circle in the wheat. Pure data, no rendering. buildOddities is the last of the county's content passes (after the lakeland and the valley's farms) and
 // only appends: every solid goes into `oddities.solids` (StaticWorld adds them after the places' solids, so every older
 // collider keeps its id), the mailboxes and signs are props of their own (kind 'roadside': they are knocked over), and it
 // draws from no generator, so a run that never comes near them runs as it did. A pole's collider is a rock's (solid, but
@@ -346,7 +346,7 @@ function poleLine(layout: CityLayout, road: CountryRoad, keepOut: readonly Rect[
 }
 
 /**
- * The oddities, the last of the county's content passes (after the landscape, the farms and the places): the static
+ * The oddities, the last of the county's content passes (after the landscape, the farms, the places, the lakeland and the valley's farms): the static
  * ones with their solids, the mailboxes and signs as props, the payphone and the crop circle, and then the poles and the
  * wires along every county road, which keep clear of all of them.
  */
