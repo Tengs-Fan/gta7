@@ -131,11 +131,15 @@ Street furniture is modelled procedurally in `src/render/furniture.ts`: one vert
 
 Broadleaf trees and bushes draw 140 and 72 leaf cards. The cards are alpha-tested (`alphaTest` 0.5, never blended) and textured from `src/assets/textures/leaf_atlas/albedo.webp`. `scripts/assets/leafAtlas.mjs` builds that atlas from ambientCG's LeafSet024 (CC0) as 2x2 tiles: three leaf sprays with alpha and one dense leaf mass. Each trunk splits into limbs below the canopy. Every card vertex stays inside the `foliageSpheres` envelopes even at full storm sway, so the camera and collision envelopes are unchanged. Palms lean 0.45 to 1.4 m at the top by a hash of their position, through a shear on the instance matrix over a built-in curve, and their trunks have ring geometry. The occluder dissolve follows the bent axis in three segments (`occluderOpacityPath` on the CPU, `uOccBend` in the shader).
 
+Pinewood's and the valley's pines (`render/country/pineModels.ts`, prop kind `pine`) are a model of their own: a bare trunk under seven overlapping skirts of needles whose hems are notched like boughs, 96 triangles, one vertex-coloured geometry and one double-sided material with the foliage's wind (the top sways, the foot does not) and near-camera dissolve, tinted per instance.
+They are instanced one batch to a half cell (128 m on the hardware tiers): a batch is drawn whole, so the frustum and the sun's shadow take a few hundred pines at a time rather than a cell's thousand, and the county's cull hides the far ones with the cells.
+Of the 2,664 pines in 31 batches at most a few hundred are in view at once (from the lake's shore at dusk the wood's pines are 21 calls and 180 000 triangles of 183 and 0.78 M, shadows included), so no far impostor was needed.
+
 Wind (`src/render/wind.ts`) sways the leaf cards and palm fronds in the vertex shader from render time and world position only, through the shared uniforms `uWindTime`, `uWindAmp` and `uWindDir`; `windOffset` is its CPU mirror for tests. The canopy edge of a tree moves about 5 cm in clear weather and 12 cm in a storm, and nothing below 1 m moves. High and Medium sway; Low and the software tier keep foliage still (`PropsView.setWindEnabled`). Shadows keep the unswayed shape, and the weather changes no program.
 
 The dressing (`src/render/dressing.ts`) is render-only: it adds no colliders, uses hashes rather than the sim's random numbers, and is one instanced mesh per kind and cell. Ocean Beach has umbrellas, towels, loungers, lifeguard towers, volleyball nets and surfboards. Every house lot has yard items (picket fences, mailboxes, shrubs, planters and wheelie bins), Azura Pier has rails and the Marina has bollards. Lou's, the three spray shacks and the safehouse carport have workbenches, tool walls, shelving, tyre stacks or racks, tool chests, oil drums, jacks, posters and ceiling strip lights, at least 0.3 m clear of every car bay and clear of the entrance. `DressingRules` keeps items off roads, walking lines, crossings, parking slots, spawn points, POIs, markers and pickups.
 
-Budget on hardware GPUs: 514 prop meshes (387 at d98da7b). At 1920x1080 High, in the same camera spots as d98da7b, draw calls are 1.03x in the downtown avenue view, 1.09x in Hillcrest (`13_residential_street`) and 1.14x on Ocean Beach (`14_beach_promenade`); triangles are 1.16x, 1.15x and 1.22x.
+Budget on hardware GPUs: 514 prop meshes (387 at d98da7b; 654 after Lake Lomas and Pinewood, whose pines are 31 batches and whose oaks, bushes and a few more fill 12 cells of the valley's north that held no props, the cap in `m3_props` with it). At 1920x1080 High, in the same camera spots as d98da7b, draw calls are 1.03x in the downtown avenue view, 1.09x in Hillcrest (`13_residential_street`) and 1.14x on Ocean Beach (`14_beach_promenade`); triangles are 1.16x, 1.15x and 1.22x.
 
 ## Weather
 
@@ -186,6 +190,15 @@ A storm's haze cuts the fog's far end to about 350 m: the cells it culls are ful
 The fire road is a gravel ribbon draped 5 cm over the ground (`render/country/hills.ts`), with Lookout Point's car park in the same mesh; its parapet and the timber fire lookout are a mesh each.
 Coyote Ridge's six turbines share Turbine Row's instanced nacelles and rotors, with their land towers (a concrete foundation and the mast, no transition piece and no foam) one more instanced draw.
 The reflector posts along the county's roads are one mesh cut into cells; after dark the reflectors ahead of the player's lit car shine back as glows in `LightSprites` (`addReflector`), brightest dead ahead and fading over 80 m, so on Low, with no headlight beam, they mark the road's edges.
+
+**Lake Lomas and Pinewood's meshes.**
+Their pieces are a kit of their own (`render/country/lake.ts`, `woods.ts`, a `PlacesKit` with a 1024 x 3072 atlas and its glow twin, lit after dark with the county's signs), not the places' shared kit: the cabins' log walls with their windows, porches, chimneys and lamps, the camp's tents, camper van, pit toilet and picnic tables, the fire's stones and logs, the rowboat, the dock's bollards, crates and rods, and the signs are one mesh (`lake-lomas`), the lookout tower's cab windows another, the dirt of the lanes and pads (draped 3.5 cm over the ground) one more.
+The dock's decks are the city's piers (`render/city/coast.ts` draws every deck, with its pilings and its piling foam).
+The reeds (blades of three triangles and cattail spikes, 600 clumps), the wildflowers and the tall grass (tufts on two crossed alpha-tested cards, from an atlas of six hues: 3,300 cards of flowers, 8,500 of tall grass in big patches and 12,900 in 700 tussocks) and the valley's boulders (the pass's own rock) are layers cut into the county's cells; the reeds, the cattails and the flower cards sway from their feet up on the props' wind (`swayOnWind`: a vertex attribute `aSway` of 0 at the foot and 1 at the tip, the shared `uWindTime`, `uWindAmp` and `uWindDir`).
+After dark the cabins' windows and lamps glow with the signs' emissive map, each lamp has a halo (one `Points` draw, hidden while it is day or the camera is 500 m off) and a pool of light on the ground (one additive decal draw cut into the cells), their strength the night's.
+The campground's fire (`render/country/campfire.ts`) burns from dusk until the first light (`campfireLit`, 17:48 to 19:48 coming up and 05:12 to 07:00 burning down, the clock's hours alone): embers in the ring, a halo and a pool of firelight on the ground, flickering, and, with the camera within 110 m, flames and smoke from `Effects.groundFire` (as a molotov's fire) and the shared flash light lent to it (`Effects.fireLight`, `FIRE_LIGHT` 7 against a molotov's 9), unless a molotov's fire holds the light: the scene's light count, and every shader, stays what it was.
+Low has no dynamic lights, so there the pool and the halo are what the fire shows.
+The ducks and loons are two instanced meshes of a hundred or so triangles each, swimming ellipses over the water and hidden past 360 m of the lake; a loon dives when the camera comes within 26 m and bobs up five seconds later.
 
 **The city from the county.**
 From Lookout Point the whole city stands 1-2.4 km off in the frustum, and its props (every tree, lamp and bench chunk) cost 662 of the 1191 draw calls there, though the fog had long hidden them; its activity sites' signs and its interaction markers cost 137 more.
@@ -330,6 +343,20 @@ The pursuit up the Lomas Highway's west leg (county-pursuit-4-stars) drew 168 ca
 The valley after its reshape (a wandering loop, a ragged lake, seven hills and a bluff, the pass's bank and 240 boulders) through the same script on the merged head, every segment at 60 fps with no console errors and a frame of 1.2 to 4.1 ms of CPU: valley-from-ridge-noon 163 calls and 0.72 M triangles, lake-dusk 107 and 0.36 M, valley-pass-drive 140 and 0.36 M (153, 105 and 127 before the reshape).
 With the traffic and the people gone Lookout Point facing west draws 147 calls (144 before the reshape, 110 before the valley) and the Coyote T facing west down the pass 168 (157 and 124): the boulders are a mesh in each cell the pass crosses, three or four of them, and the hills' scrub a few more.
 The hills cost the ground no more than they cover: a piece of land is meshed on the 2 m lattice only inside the bounds of a rise that reaches it, and flat quads elsewhere, so a rise no bigger than its slopes keeps the near mesh of the cells round it small (the ridge's cells are as before).
+
+Lake Lomas and Pinewood on 2026-11-02 (`--scenario perf`, now with two more valley segments, at the playtest's default 1600x900) through the same script on the head and on a build of the valley it grew from (b858129), every valley segment at 57-60 fps with no console errors; the box carried a load average of 20 to 30 and other agents' Chromiums on the same GPU, so frame times are not compared (the city's scenes, which the lakeland is nowhere near, read 45-51 fps on the head and 60 before: the box's, as their draw calls, 936 against 979 and 806 against 800, show).
+
+| Scene | Draw calls before | after | Triangles before | after |
+| --- | ---: | ---: | ---: | ---: |
+| valley-from-ridge-noon (the crest above the pass, facing west) | 163 | 243 | 0.71 M | 1.35 M |
+| lake-dusk (Lake Lomas's east shore, facing west) | 105 | 205 | 0.34 M | 0.92 M |
+| pinewood-noon (the loop's east side, facing the wood) | 361 | 454 | 1.54 M | 2.20 M |
+| campfire-night (the camp, facing the fire) | 102 | 177 | 0.34 M | 0.75 M |
+| valley-pass-drive (through Coyote Pass at noon) | 130 | 214 | 0.36 M | 0.91 M |
+
+With the traffic and the people gone (the round's `diag.mjs`, which also hides each group of the lakeland's meshes in turn) the same views draw 215, 183, 419 and 157 calls against 151, 105, 362 and 102 before, and 1.22, 0.78, 2.08 and 0.64 M triangles against 0.68, 0.33, 1.54 and 0.34 M.
+The pines are 19 of pinewood-noon's calls and 0.35 M of its triangles (shadows included), the valley's oaks 16 and 0.09 M, its bushes 4 and 0.07 M, the kit's meshes, the reeds, the flowers, the rocks and the lights 2 to 12 calls and under 0.05 M each.
+The city's scenes facing away from the valley are as before, and the ridge hides the valley from Dry Creek: the lakeland's cells are the cells the valley's beach and ground already were.
 
 ## Software fallback
 
