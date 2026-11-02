@@ -265,11 +265,11 @@ export function ambienceTargets(i: AmbienceInput, out?: AmbienceLevels): Ambienc
   o.moos = i.district === 'country' ? k * street * (0.4 + 0.6 * day) : 0;
   // Lake Lomas's loons wail and its ducks quack at dawn and dusk, from the water out to a few hundred metres; the campfire
   // crackles within FIRE_RANGE of it while it burns.
-  const lake = 1 - smoothstep(LAKE_NEAR, LAKE_FAR, Number.isFinite(i.lakeDist) ? Math.max(0, i.lakeDist!) : 1e4);
+  const lake = 1 - smoothstep(LAKE_NEAR, LAKE_FAR, Number.isFinite(i.lakeDist) ? i.lakeDist! : 1e4);
   const twilight = Math.max(timeWindow(h, 4.8, 8.2, 0.9), timeWindow(h, 17.4, 20.8, 0.9));
   o.loons = k * lake * twilight;
   o.ducks = k * lake * (0.12 + 0.88 * twilight);
-  o.fire = k * campfireLit(h) * (1 - smoothstep(FIRE_NEAR, FIRE_RANGE, Number.isFinite(i.fireDist) ? Math.max(0, i.fireDist!) : 1e4));
+  o.fire = k * campfireLit(h) * (1 - smoothstep(FIRE_NEAR, FIRE_RANGE, Number.isFinite(i.fireDist) ? i.fireDist! : 1e4));
   return o;
 }
 
@@ -277,7 +277,7 @@ export function ambienceTargets(i: AmbienceInput, out?: AmbienceLevels): Ambienc
 const LAKE_NEAR = 90;
 const LAKE_FAR = 340;
 const FIRE_NEAR = 6;
-export const FIRE_RANGE = 70;
+const FIRE_RANGE = 70;
 
 /** Calibrated gain of each layer at level 1 (before the bus and master chain). */
 const LAYER_GAIN = { cityHum: 0.09, trafficWash: 0.16, wind: 0.18, surf: 0.036, murmur: 0.05, fire: 0.12 };

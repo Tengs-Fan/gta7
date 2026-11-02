@@ -10,7 +10,7 @@
 import { pointSegDist, smoothstep } from '../../core/math';
 import { Rng } from '../../core/rng';
 import type { AttractionSolid } from '../attractions';
-import { addProp, hashInts, mkRect, rectContains, rectsOverlap, type CityLayout, type Rect, type Side } from '../layout';
+import { addProp, hashInts, mkRect, rectContains, rectsOverlap, type CityLayout, type Rect } from '../layout';
 import { COUNTRY_ROADS, countryGround, LAKE_RECTS } from './index';
 import { buildLake } from './lake';
 import { buildWoods } from './woods';
@@ -28,7 +28,6 @@ export interface LakeSign {
 export interface LakeCabin {
   building: number;
   rect: Rect;
-  front: Side;
   porch: Rect;
   lamp: { x: number; y: number; z: number };
 }

@@ -2,7 +2,7 @@
 // and the campfire's crackle from dusk to the first light within seventy metres of it.
 
 import { describe, expect, it } from 'vitest';
-import { Ambience, ambienceTargets, crackleNoise, FIRE_RANGE, type AmbienceFrame, type AmbienceInput } from '../../src/audio/ambience';
+import { Ambience, ambienceTargets, crackleNoise, type AmbienceFrame, type AmbienceInput } from '../../src/audio/ambience';
 import { Rng } from '../../src/core/rng';
 import { campfireLit } from '../../src/world/country/lakeland';
 
@@ -33,7 +33,7 @@ describe('the campfire\'s crackle', () => {
     expect(at({ hours: 23, fireDist: 4 }).fire).toBe(1);
     expect(at({ hours: 23, fireDist: 40 }).fire).toBeGreaterThan(0.2);
     expect(at({ hours: 23, fireDist: 40 }).fire).toBeLessThan(0.8);
-    expect(at({ hours: 23, fireDist: FIRE_RANGE + 1 }).fire).toBe(0);
+    expect(at({ hours: 23, fireDist: 71 }).fire).toBe(0);
     for (const hours of [8, 12, 16]) expect(at({ hours, fireDist: 4 }).fire, `${hours} h`).toBe(0);
     for (const hours of [20, 0, 4]) expect(at({ hours, fireDist: 4 }).fire, `${hours} h`).toBe(1);
     expect(at({ hours: 6, fireDist: 4 }).fire).toBe(campfireLit(6));
@@ -64,14 +64,31 @@ describe('the ambience engine', () => {
   const any: unknown = new Proxy(() => any, { get: (_t, k) => (k === Symbol.toPrimitive ? () => 0 : any), set: () => true, apply: () => any });
   const ctx = { currentTime: 0, sampleRate: 48000, createBuffer: () => any, createBufferSource: () => any, createGain: () => any, createBiquadFilter: () => any, createOscillator: () => any, createStereoPanner: () => any, createDelay: () => any } as unknown as BaseAudioContext;
 
-  it('runs a loon, a duck and the campfire layer without a hitch, one voice each', () => {
-    const amb = new Ambience(ctx, any as AudioNode);
+  it('plays a loon as three oscillators (a vibrato and two partials) and a duck as one, each started and stopped once, and brings the campfire layer up at night', () => {
+    const oscs: Array<{ started: number; stopped: number }> = [];
+    const counting = {
+      ...ctx,
+      createOscillator: () => {
+        const rec = { started: 0, stopped: 0 };
+        oscs.push(rec);
+        return new Proxy(() => any, { get: (_t, k) => (k === 'start' ? () => rec.started++ : k === 'stop' ? () => rec.stopped++ : k === Symbol.toPrimitive ? () => 0 : any), set: () => true, apply: () => any });
+      },
+    } as unknown as BaseAudioContext;
+    const amb = new Ambience(counting, any as AudioNode);
     for (let k = 0; k < 8; k++) amb.update(1 / 60, k / 60, { district: 'country', hours: 6.5, shoreDist: 900, height: 0, traffic: 0, inVehicle: false, seaPan: 0, trafficPan: 0, lakeDist: 30, fireDist: 20, lakePan: 0.4, firePan: -0.5 } satisfies AmbienceFrame);
     expect(amb.ready).toBe(true);
     const frame = { district: 'country', hours: 23, shoreDist: 900, height: 0, traffic: 0, inVehicle: false, seaPan: 0, trafficPan: 0, lakeDist: 30, fireDist: 12, lakePan: 0.4, firePan: -0.5 } as AmbienceFrame;
     const play = (amb as unknown as { play: (kind: string, t: number, f: AmbienceFrame) => void }).play.bind(amb);
-    expect(() => play('loons', 1, frame)).not.toThrow();
-    expect(() => play('ducks', 1, frame)).not.toThrow();
+    const voice = (kind: string) => {
+      const before = oscs.length;
+      play(kind, 1, frame);
+      return oscs.slice(before);
+    };
+    const loon = voice('loons');
+    expect(loon.length).toBe(3);
+    const duck = voice('ducks');
+    expect(duck.length).toBe(1);
+    for (const o of [...loon, ...duck]) expect([o.started, o.stopped]).toEqual([1, 1]);
     amb.update(1 / 60, 2, frame);
     expect(amb.levels.fire).toBeGreaterThan(0.5);
   });

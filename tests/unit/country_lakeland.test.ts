@@ -230,7 +230,8 @@ describe('Pinewood', () => {
     expect(pines.length).toBeGreaterThan(land.forest.pines);
     const inPlot = pines.filter((p) => rectContains(pinewood, p.x, p.z));
     expect(inPlot.length).toBe(land.forest.pines);
-    for (const p of pines.slice(0, 400)) {
+    // All of them, the valley's scattered pines as well as Pinewood's.
+    for (const p of pines) {
       expect(p.y).toBe(countryGround(L.country, p.x, p.z));
       const c = W.grid.colliders[W.propColliders[L.props.indexOf(p)]!]!;
       expect(c.tag).toBe('tree');

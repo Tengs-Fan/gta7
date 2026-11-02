@@ -52,6 +52,8 @@ export class CountryView {
   private flowerRing: FlowerRing = FLOWER_RING.high;
   readonly farms: FarmsView;
   readonly fields: FieldsView;
+  /** Where the camera is, for the animators (update). */
+  private readonly cam: Camera = { x: 0, y: 0, z: 0 };
   private readonly sun = new THREE.Vector3();
   private readonly moon = new THREE.Vector3();
   /** What the places animate each frame: Moo-Moo's neon cow, the drive-in's screen. */
@@ -109,7 +111,10 @@ export class CountryView {
     skyPath(hours, this.sun, this.moon);
     this.fields.update(x, y, z, this.sun.x, this.sun.z);
     this.farms.update(time, Math.hypot(wind.x, wind.z));
-    const cam = { x, y, z };
+    const cam = this.cam;
+    cam.x = x;
+    cam.y = y;
+    cam.z = z;
     for (const f of this.animated) f(night, time, sim, cam);
     this.camp.update(hours, time, cam);
   }

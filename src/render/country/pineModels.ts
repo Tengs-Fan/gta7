@@ -8,9 +8,8 @@ import { cyl, ModelBuilder } from '../furniture';
 
 /** The pine's skirts of needles: from the lowest, its hem's height over the foot, its radius there and its height. */
 export const PINE_TIERS = Array.from({ length: 7 }, (_, k) => ({ y: 1.7 + k * 1.35, r: 2.05 - k * 0.27, h: 2.5 - k * 0.12 }));
-/** The pine's whole height (m, at scale 1) and the widest its needles reach (the lowest skirt's hem). */
+/** The pine's whole height (m, at scale 1). */
 export const PINE_H = PINE_TIERS[6]!.y + PINE_TIERS[6]!.h;
-export const PINE_R = PINE_TIERS[0]!.r;
 
 /** A skirt: a cone from its apex down to a hem of `n` notches, the points at `r`, the inner corners at 0.74 r and a little lower. */
 function skirt(y: number, r: number, h: number, n: number, phase: number): THREE.BufferGeometry {

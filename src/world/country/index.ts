@@ -165,6 +165,9 @@ export const LAKE = mkRect(
   Math.max(...LAKE_RECTS.map((r) => r.maxZ)),
 );
 
+/** The middle of the lake's box: where its loons' and ducks' calls come from, and the birds are drawn out to. */
+export const LAKE_CENTRE = { x: (LAKE.minX + LAKE.maxX) / 2, z: (LAKE.minZ + LAKE.maxZ) / 2 };
+
 /** Whether (x, z) is over the lake's water as the holes in the land draw it (its beach included). */
 export function inLake(x: number, z: number): boolean {
   return LAKE_RECTS.some((r) => rectContains(r, x, z));

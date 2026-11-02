@@ -133,7 +133,7 @@ describe('the shore and the wood', () => {
   });
 
   it('lends the fire its light while nothing else has it, lets go without writing when a molotov\'s fire takes it, and darkens it when it burns out or the camera leaves', () => {
-    const fx = { groundFire: vi.fn(), fireLight: vi.fn(() => true) };
+    const fx = { groundFire: vi.fn(), fireLight: vi.fn((_x: number, _y: number, _z: number, _i: number) => true) };
     const at = land.camp.fire;
     const near = { x: at.x + 10, y: at.y, z: at.z };
     const camp = view.camp;

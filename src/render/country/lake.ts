@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
+import { LAKE_CENTRE } from '../../world/country';
 import { EAVES_Y, RIDGE_Y } from '../../world/country/lake';
 import type { CountyLakeland, LakeCabin, LakeSign, Table, Tent } from '../../world/country/lakeland';
 import { WATER_Y } from '../../world/constants';
@@ -528,8 +529,7 @@ function cattailGeometry(land: CountyLakeland): THREE.BufferGeometry {
       geo.dispose();
     }
   }
-  const geo = parts.length > 0 ? mergeParts(parts) : new THREE.BufferGeometry();
-  return geo;
+  return mergeParts(parts);
 }
 
 function mergeParts(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
@@ -627,12 +627,9 @@ export function buildLake(view: CountryView, kit: PlacesKit, wind: WindUniforms)
   const reedMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
   swayOnWind(reedMat, wind, 1);
   view.add(reedGeometry(land), reedMat, { name: 'reeds', receive: false });
-  const tails = cattailGeometry(land);
-  if (tails.getAttribute('position')) {
-    const tailMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
-    swayOnWind(tailMat, wind, 1);
-    view.add(tails, tailMat, { name: 'cattails', receive: false });
-  }
+  const tailMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
+  swayOnWind(tailMat, wind, 1);
+  view.add(cattailGeometry(land), tailMat, { name: 'cattails', receive: false });
 
   // The lamps' halos and the pools of light under them, one draw each, their strength the night's.
   const lamps = lakeLamps(land);
@@ -660,8 +657,8 @@ export function buildLake(view: CountryView, kit: PlacesKit, wind: WindUniforms)
   const ducks = land.waterfowl.filter((b) => b.kind === 'duck');
   const loons = land.waterfowl.filter((b) => b.kind === 'loon');
   const birdMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide });
-  const duckMesh = new THREE.InstancedMesh(duckGeometry(), birdMat, Math.max(1, ducks.length));
-  const loonMesh = new THREE.InstancedMesh(loonGeometry(), birdMat, Math.max(1, loons.length));
+  const duckMesh = new THREE.InstancedMesh(duckGeometry(), birdMat, ducks.length);
+  const loonMesh = new THREE.InstancedMesh(loonGeometry(), birdMat, loons.length);
   for (const m of [duckMesh, loonMesh]) {
     m.frustumCulled = false;
     m.castShadow = false;
@@ -673,18 +670,19 @@ export function buildLake(view: CountryView, kit: PlacesKit, wind: WindUniforms)
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
+  const at = new THREE.Vector3();
+  const size = new THREE.Vector3();
   const place = (mesh: THREE.InstancedMesh, i: number, x: number, z: number, heading: number, lift: number, scale: number): void => {
     q.setFromAxisAngle(up, heading);
-    m4.compose(new THREE.Vector3(x, WATER_Y + lift, z), q, new THREE.Vector3(scale, scale, scale));
+    m4.compose(at.set(x, WATER_Y + lift, z), q, size.setScalar(scale));
     mesh.setMatrixAt(i, m4);
   };
-  const lakeCentre = { x: -2030, z: -270 };
   const cull = 360;
   return (night, time, _sim, cam) => {
     haloMat.opacity = night * 0.9;
     poolMat.opacity = night * 0.55;
     poolMat.visible = night > 0.01;
-    const shown = Math.hypot(cam.x - lakeCentre.x, cam.z - lakeCentre.z) < cull;
+    const shown = Math.hypot(cam.x - LAKE_CENTRE.x, cam.z - LAKE_CENTRE.z) < cull;
     halos.visible = night > 0.01 && shown;
     duckMesh.visible = loonMesh.visible = shown;
     if (!shown) return;

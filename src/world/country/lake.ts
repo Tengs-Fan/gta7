@@ -4,7 +4,7 @@
 // rowboat, reeds in the shallows and the ducks and loons on the water.
 
 import { Rng } from '../../core/rng';
-import { mkRect, type CityLayout, type Rect, type Side } from '../layout';
+import { mkRect, type CityLayout, type Rect } from '../layout';
 import { countryGround, LAKE_NAME } from './index';
 import { blocked, laneThrough, loopX, nextBuildingId, type CountyLakeland, type Keepout, type LakeCabin, type Tent } from './lakeland';
 
@@ -96,8 +96,7 @@ export function buildLake(layout: CityLayout, land: CountyLakeland, rng: Rng, ke
       sign: null, special: null, ground: 'none', groundH: 0, groundSides: [],
     });
     const porch = mkRect(rect.minX, rect.maxZ, rect.maxX, rect.maxZ + PORCH_D);
-    const front: Side = 'S';
-    const cabin: LakeCabin = { building: id, rect, front, porch, lamp: { x: rect.minX + 0.5 + (k % 2) * (w - 1), y: 2.1, z: porch.maxZ - 0.2 } };
+    const cabin: LakeCabin = { building: id, rect, porch, lamp: { x: rect.minX + 0.5 + (k % 2) * (w - 1), y: 2.1, z: porch.maxZ - 0.2 } };
     land.cabins.push(cabin);
     keep.rects.push(mkRect(rect.minX - 3, rect.minZ - 3, rect.maxX + 3, porch.maxZ + 4));
   });
