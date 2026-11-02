@@ -166,6 +166,8 @@ const SCRUB_DENSITY = 3;
 /** Scrub grows only where a rise stands this high (m), and keeps this far (m) off the fire road, the car park and the turbines. */
 const SCRUB_LOW = 2.5;
 const SCRUB_CLEAR = 7;
+/** Ground this steep (rise over run) is bare rock: the pass's walls, not the ridge's flanks (35% at most). */
+const ROCK_SLOPE = 0.45;
 
 /**
  * Lays the landscape into the county: the ridge and the foothills, the turbines along its top, the tree belts along the
@@ -196,6 +198,8 @@ export function buildHills(layout: CityLayout): void {
     road.every((p) => Math.hypot(p.x - x, p.z - z) > SCRUB_CLEAR) &&
     (x < pad.minX - SCRUB_CLEAR || x > pad.maxX + SCRUB_CLEAR || z < pad.minZ - SCRUB_CLEAR || z > pad.maxZ + SCRUB_CLEAR) &&
     TURBINE_Z.every((tz) => Math.hypot(TURBINE_X - x, tz - z) > SCRUB_CLEAR);
+  // Nothing grows on Coyote Pass's rock walls (the grass shader's rock, ground rising 1 m in 2.2: where a car stops).
+  const bare = (x: number, z: number) => Math.hypot(countryGround(country, x + 1, z) - countryGround(country, x - 1, z), countryGround(country, x, z + 1) - countryGround(country, x, z - 1)) / 2 > ROCK_SLOPE;
   for (const r of country.rises) {
     const b = r.bounds;
     const tries = Math.round(((b.maxX - b.minX) * (b.maxZ - b.minZ) * SCRUB_DENSITY) / 1000);
@@ -204,7 +208,7 @@ export function buildHills(layout: CityLayout): void {
       const z = scrub.range(b.minZ, b.maxZ);
       const scale = scrub.range(0.75, 1.3);
       const rot = scrub.range(0, Math.PI * 2);
-      if (riseAt([r], x, z) >= SCRUB_LOW && countryGround(country, x, z) >= SCRUB_LOW && clear(x, z)) addProp(layout, 'bush', x, z, rot, scale, countryGround(country, x, z));
+      if (riseAt([r], x, z) >= SCRUB_LOW && countryGround(country, x, z) >= SCRUB_LOW && clear(x, z) && !bare(x, z)) addProp(layout, 'bush', x, z, rot, scale, countryGround(country, x, z));
     }
   }
 }

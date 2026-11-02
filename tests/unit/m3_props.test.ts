@@ -508,11 +508,12 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders;
   // and when Las Lomas Valley joined the county (the Coyote T's and Valley Cross's stop sign and two lamps each, after the
   // causeway's lamps and before the landscape's props; the tree belts and scrub the ridge's pass cut and the new fire road
-  // moved, so their envelopes with them, and the sixth turbine moved past the pass).
+  // moved or dropped (no bush grows on the pass's rock walls), so their envelopes with them, and the sixth turbine moved
+  // past the pass).
   const D98 = {
-    props: '42507beaab5654034d7733eabf72edac088e730410731cd19d45c3dbd6440d28',
-    colliders: '849e884ee899eec5040d9f68620c68e0c0e584f09c7f65f1f1f1342d3513d182',
-    envelopes: '4fb0c7ee035badceae6b45b789d474ebf29453e9efb2e592a1b6a9f648581c11',
+    props: 'a6f8c31abea534c4f35c26b168b0b2ac1facac62fa752adaae72db05e39ec345',
+    colliders: '3bcd5d688aa67a9c12153c46ca15e14fb410dbbba21b7837fc54e2e349f0be4f',
+    envelopes: 'd497bf999faecbad12f67e4a7d33f11cece9812ee9e75663eb1d7f878e56eb03',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {

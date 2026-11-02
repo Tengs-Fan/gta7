@@ -271,8 +271,9 @@ describe('round 2 city: layout', () => {
     // Drive-In's posts and bays, Gravel Gulch's ramps and decks and its gates at its turns' apexes), and every ramp gained
     // its stunt flag; and when Las Lomas Valley joined it (the world's bounds out to x -2400, the land west of Coyote Ridge
     // with Lake Lomas and its coves, the Pass Road and the Valley Loop with the Coyote T's and Valley Cross's stop signs and
-    // lamps, five plots, the ridge's pass cut and the moved fire road, trees, scrub and sixth turbine).
-    expect(layoutHash()).toBe('75cbd2e6d7e3dbd67086454be1955646626560dee15c56fd3cbc56d6b6220af3');
+    // lamps, five plots, the ridge's pass cut and the moved fire road, trees, scrub (none on the pass's rock walls) and sixth
+    // turbine).
+    expect(layoutHash()).toBe('352f32b4cc3f9c114245b11e8bb34e90bf3b79d87c070dc450cf08badb764969');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

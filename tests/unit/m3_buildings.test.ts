@@ -369,7 +369,7 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // Lomas Valley joined the county: the Coyote T's and Valley Cross's stop sign and lamps (after the causeway's lamps), the
     // ridge's cores split round Coyote Pass, and the landscape's props moved by the pass and the new fire road.
     expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
-    expect(c).toBe('387aeca5174669e13f11264f784c4ecbd840f888df5ac314a87a78e31666728e');
+    expect(c).toBe('02b37fd8ef0994ec83a71b96abc5c0bb5f2c7e04ff245b345cdd0ad92cb48d3c');
   });
 });
 
