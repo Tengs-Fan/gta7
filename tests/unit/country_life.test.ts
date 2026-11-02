@@ -10,7 +10,7 @@ import {
   BALLOON_DAY, BALLOON_MEADOWS, BIPLANE_SPEED, COMBINE_DAY, DUSTER_HOURS, DUST_RUNS, PASS_ALT, SORTIE_PERIOD,
   balloonAt, biplaneAt, burnerAt, combineAt, combinePath, dustPaths, newPose, type Balloon, type Combine,
 } from '../../src/render/country/life/flight';
-import { ARM_Y, PLACEHOLDER_POLES, WIRES, wirePoint } from '../../src/render/country/life/wires';
+import { ARM_Y, PLACEHOLDER_POLES, SPANS, wirePoint, type Wire } from '../../src/render/country/life/wires';
 import { rectContains } from '../../src/world/layout';
 import { world } from './helpers';
 
@@ -161,7 +161,7 @@ describe('crows: where the flocks are', () => {
     for (const s of wired) {
       for (const p of s.perches) {
         // On some wire's curve, within a few centimetres.
-        const d = Math.min(...WIRES.map((w) => Math.min(...Array.from({ length: 41 }, (_, k) => { const [x, y, z] = wirePoint(w, k / 40); return Math.hypot(x - p.x, y + 0.02 - p.y, z - p.z); }))));
+        const d = Math.min(...SPANS.flat().map((w) => Math.min(...Array.from({ length: 41 }, (_, k) => { const [x, y, z] = wirePoint(w, k / 40); return Math.hypot(x - p.x, y + 0.02 - p.y, z - p.z); }))));
         expect(d).toBeLessThan(0.5);
         expect(p.y).toBeLessThan(ARM_Y + 0.1);
       }
@@ -176,6 +176,46 @@ describe('crows: where the flocks are', () => {
     const cone = sites.find((q) => q.perches.every((p) => Math.hypot(p.x - tower.x, p.z - tower.z) < tower.r))!;
     expect(cone.perches.length).toBe(4);
     for (const p of cone.perches) expect(p.y).toBeGreaterThan(tower.y1);
+  });
+});
+
+describe('crows: the wire flocks', () => {
+  const wired = (spans: ReadonlyArray<readonly Wire[]>) => crowSites(W, spans).filter((s) => s.perches.every((p) => !p.ground && p.y < ARM_Y + 0.1));
+  const yard = (id: string) => farms.farmsteads.find((f) => f.id === id)!.yard;
+  const from = (id: string, p: { x: number; z: number }) => Math.hypot(p.x - (yard(id).minX + yard(id).maxX) / 2, p.z - (yard(id).minZ + yard(id).maxZ) / 2);
+  const mid = (span: readonly Wire[]) => ({ x: (span[0]!.ax + span[0]!.bx) / 2, z: (span[0]!.az + span[0]!.bz) / 2 });
+
+  it("sits one flock on the spans nearest the dairy's yard and another on those nearest Halfmoon Acres', whatever order the spans are listed in", () => {
+    const flocks = wired(SPANS);
+    expect(flocks.length).toBe(2);
+    for (const [flock, id] of [[flocks[0]!, 'dairy'], [flocks[1]!, 'acres']] as const) {
+      const nearest = [...SPANS].sort((a, b) => from(id, mid(a)) - from(id, mid(b))).slice(0, 2).flat();
+      for (const p of flock.perches) {
+        const d = Math.min(...nearest.map((w) => Math.min(...Array.from({ length: 41 }, (_, k) => { const [x, y, z] = wirePoint(w, k / 40); return Math.hypot(x - p.x, y + 0.02 - p.y, z - p.z); }))));
+        expect(d, id).toBeLessThan(0.5);
+      }
+    }
+    // The dairy's flock sits north of the Acres' on the line, which runs from one yard towards the other.
+    const meanZ = (perches: Array<{ z: number }>) => perches.reduce((s, p) => s + p.z, 0) / perches.length;
+    expect(meanZ(flocks[0]!.perches)).toBeLessThan(meanZ(flocks[1]!.perches));
+    expect(wired([...SPANS].reverse())).toEqual(flocks);
+  });
+
+  it('takes the wire count from the data: spans of four wires, and spans far from both yards, change nothing but the wires', () => {
+    // Every span with a fourth wire 1.6 m beyond its third, and a far line of four-wire spans listed first.
+    const four = SPANS.map((span) => [...span, { ...span[2]!, ax: span[2]!.ax + 1.6, bx: span[2]!.bx + 1.6 }]);
+    const far = [0, 1, 2].map((k) => [-4, -1.6, 1.6, 4].map((dx) => ({ ax: -1100 + dx, ay: 8.5, az: -300 + k * 28, bx: -1100 + dx, by: 8.5, bz: -272 + k * 28, sag: 0.7 })));
+    const flocks = wired([...far, ...four]);
+    expect(flocks.length).toBe(2);
+    let fourth = 0;
+    for (const p of flocks.flatMap((f) => f.perches)) {
+      const d = (w: Wire) => Math.min(...Array.from({ length: 41 }, (_, k) => { const [x, y, z] = wirePoint(w, k / 40); return Math.hypot(x - p.x, y + 0.02 - p.y, z - p.z); }));
+      expect(Math.min(...four.flat().map(d))).toBeLessThan(0.5);
+      expect(Math.min(...far.flat().map(d))).toBeGreaterThan(50);
+      if (four.some((span) => d(span[3]!) < 0.5)) fourth++;
+    }
+    // Four wires a span: a bird in four sits on the fourth.
+    expect(fourth).toBeGreaterThan(0);
   });
 });
 

@@ -9,7 +9,7 @@ import { Rng } from '../../../core/rng';
 import { clamp, dampAngle, smoothstep, TAU } from '../../../core/math';
 import { hashInts, rectCX, rectCZ } from '../../../world/layout';
 import { GARAGE_ROOF, type StaticWorld } from '../../../world/staticWorld';
-import { WIRES, wirePoint, type Wire } from './wires';
+import { SPANS, wirePoint, type Wire } from './wires';
 
 /** A car or the player this close (m) to any of a flock's birds, on the ground plane, puts it up. */
 export const SCARE_R = 20;
@@ -271,13 +271,17 @@ const GROUND_SITES: ReadonlyArray<readonly [number, number, number, number, numb
   [-1030, -1000, 282, 290, 5],
 ];
 
+/** The wire flocks: the farm whose yard they sit by, and how many birds, over the SPANS_PER_FLOCK spans nearest its yard. */
+const WIRE_SITES: ReadonlyArray<readonly [string, number]> = [['dairy', 5], ['acres', 4]];
+const SPANS_PER_FLOCK = 2;
+
 /** Whether a crow can stand on the ground at (x, z): flat county land off the roads, clear of every collider and crop. */
 function groundOk(world: StaticWorld, x: number, z: number): boolean {
   return world.groundHeight(x, z) === 0 && !world.isOnRoad(x, z) && world.isFree(x, z, 0.7) && !world.cropAt(x, z) && !world.coverAt(x, z);
 }
 
-/** Every site's flocks' perches: ground, wires, the barns' ridges and the water tower's cone. */
-export function crowSites(world: StaticWorld, wires: readonly Wire[] = WIRES): Array<{ perches: Perch[]; ceiling: readonly [number, number] }> {
+/** Every site's flocks' perches: ground, wires (of `spans`, the wires of each span between two poles), the barns' ridges and the water tower's cone. */
+export function crowSites(world: StaticWorld, spans: ReadonlyArray<readonly Wire[]> = SPANS): Array<{ perches: Perch[]; ceiling: readonly [number, number] }> {
   const rng = new Rng(7721);
   const out: Array<{ perches: Perch[]; ceiling: readonly [number, number] }> = [];
   for (const [x0, x1, z0, z1, n] of GROUND_SITES) {
@@ -289,12 +293,15 @@ export function crowSites(world: StaticWorld, wires: readonly Wire[] = WIRES): A
     }
     out.push({ perches, ceiling: [9, 19] });
   }
-  // The wires: a flock over the first spans, another over the last.
-  const spans = wires.length / 3;
-  for (const [from, to, n] of [[0, Math.min(2, spans), 5], [Math.max(0, spans - 2), spans, 4]] as const) {
+  // The wires: a flock over the spans nearest the dairy's yard, another over those nearest Halfmoon Acres'.
+  for (const [id, n] of WIRE_SITES) {
+    const yard = world.layout.country.farms.farmsteads.find((q) => q.id === id)!.yard;
+    const from = (span: readonly Wire[]) => Math.hypot((span[0]!.ax + span[0]!.bx) / 2 - rectCX(yard), (span[0]!.az + span[0]!.bz) / 2 - rectCZ(yard));
+    const near = [...spans].sort((a, b) => from(a) - from(b)).slice(0, SPANS_PER_FLOCK);
     const perches: Perch[] = [];
     for (let k = 0; k < n; k++) {
-      const w = wires[(from + rng.int(0, to - from - 1)) * 3 + rng.int(0, 2)]!;
+      const span = near[rng.int(0, near.length - 1)]!;
+      const w = span[rng.int(0, span.length - 1)]!;
       const t = rng.range(0.18, 0.82);
       const [x, y, z] = wirePoint(w, t);
       perches.push({ x, y: y + 0.02, z, yaw: Math.atan2(w.bx - w.ax, w.bz - w.az) + (rng.chance(0.5) ? Math.PI : 0), ground: false });

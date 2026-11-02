@@ -1,7 +1,18 @@
-// The wires the crows perch on: a list of segments (two ends and a sag), so the perch logic (flocks.ts) takes any of them.
+// The wires the crows perch on: the wires of each span between two poles (each a segment, two ends and a sag), so the
+// perch logic (flocks.ts) takes any poles, whatever the number of wires a span carries or the order the spans come in.
 // Until the roadside branch's telephone poles land they are this placeholder line of poles beside Creek Road's west verge
 // (7 m off the road's edge from Halfmoon Acres' hedge to its highway): the poles and wires are drawn by life/index.ts so
-// the crows have something to sit on. When the real poles merge, point WIRES at their spans and delete the poles' drawing.
+// the crows have something to sit on.
+//
+// At the merge with the roadside branch (oddities, four wires a span, every road): make SPANS the wires of its poles'
+// spans, one array of Wire per span (its insulators' ends and its sag), and delete the stand-ins:
+//   - here: PLACEHOLDER_POLES, POLE_H, ARM_Y, ARM_WIRES and WIRE_SAG, and SPANS' derivation from them;
+//   - models.ts: poleGeometry;
+//   - index.ts: the poles and wires meshes (`poles`, `wires`, `polesAt`, POLES_RANGE, wireLines() and the lines that show
+//     them) and the imports of PLACEHOLDER_POLES and poleGeometry;
+//   - the tests that name them: country_life.test.ts' wire flock test (PLACEHOLDER_POLES, ARM_Y) and
+//     country_life_view.test.ts' model list (poleGeometry) and mesh names ('placeholder-poles', 'placeholder-wires').
+// crowSites picks the two spans of each wire flock nearest the dairy's or Halfmoon Acres' yard, so nothing else changes.
 
 export interface Wire {
   ax: number;
@@ -22,8 +33,8 @@ export const ARM_Y = 8.5;
 export const ARM_WIRES = [-0.8, 0, 0.8] as const;
 const WIRE_SAG = 0.7;
 
-/** Every span's three wires, hung from one pole's crossarm to the next. */
-export const WIRES: readonly Wire[] = PLACEHOLDER_POLES.slice(1).flatMap((b, i) => {
+/** The wires of each span, hung from one pole's crossarm to the next: the list the crows perch on. */
+export const SPANS: ReadonlyArray<readonly Wire[]> = PLACEHOLDER_POLES.slice(1).map((b, i) => {
   const a = PLACEHOLDER_POLES[i]!;
   return ARM_WIRES.map((dx) => ({ ax: a.x + dx, ay: ARM_Y, az: a.z, bx: b.x + dx, by: ARM_Y, bz: b.z, sag: WIRE_SAG }));
 });

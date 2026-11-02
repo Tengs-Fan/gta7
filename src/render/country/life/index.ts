@@ -23,7 +23,7 @@ import { balloonAt, biplaneAt, burnerAt, combineAt, combinePath, dustPaths, newP
 import { Flock, crowSites } from './flocks';
 import { BALLOON_BURNER_Y, BALLOON_MOUTH_Y, DOG_PART, HEADER_W, NOZZLES, REEL, basketGeometry, biplaneGeometry, combineGeometry, dogGeometry, envelopeGeometry, flameGeometry, poleGeometry } from './models';
 import { rigMaterial, type Rig } from './rig';
-import { PLACEHOLDER_POLES, WIRES, wirePoint } from './wires';
+import { PLACEHOLDER_POLES, SPANS, wirePoint } from './wires';
 
 /** Everything is drawn out to the fog's reach but the placeholder poles, which are drawn from this far from the line's middle. */
 const POLES_RANGE = 280;
@@ -359,7 +359,7 @@ export class CountryLife {
 /** The placeholder wires, each hanging in eight straight pieces. */
 function wireLines(): THREE.LineSegments {
   const pts: number[] = [];
-  for (const w of WIRES) {
+  for (const w of SPANS.flat()) {
     for (let k = 0; k < 8; k++) pts.push(...wirePoint(w, k / 8), ...wirePoint(w, (k + 1) / 8));
   }
   const g = new THREE.BufferGeometry();
