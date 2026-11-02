@@ -8,10 +8,10 @@ import { WATER_Y } from '../world/constants';
 import { CAUSEWAY_NAME } from '../world/country';
 import { mkRect, type CityLayout, type Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
-import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setSeaShelter, setShore, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
+import { countyShore, patchSeaMaterial, SEA_MID, SEA_RIPPLE, SEA_ROUGHNESS, seaGrid, seaPlane, seaUniforms, setCountyShore, setSeaFade, setSeaShelter, setShore, SKY_GLOW_FALL, SKY_MOON_HALO, SKY_SUN_GLOW, SKY_SUN_HALO, snapSea, softwareSeaMaterial, updateSea, type SeaSky, type SeaUniforms } from './sea';
 import { bakeSeaShelter } from './seaShelter';
 import { CLOUD_NOISE_CELLS, CLOUD_NOISE_SCALE, cloudNoiseTexture, waterNormalTexture } from './textures';
-import { CALM_SEA } from './waves';
+import { CALM_SEA, SEA_GRIDS, type SeaGridName, type SeaGridSpec } from './waves';
 import { assets } from './assets';
 
 interface Key {
@@ -875,8 +875,10 @@ export class Environment {
   /** The waves and shoreline the sea (and the foam rings on it) are drawn with. */
   readonly sea: SeaUniforms = seaUniforms();
   private readonly seaPlane = seaPlane();
-  /** The wave grid (High and Medium), built when first shown (setWaterGrid). */
-  private seaGridGeo: THREE.BufferGeometry | null = null;
+  /** The wave grids (High's fine rings and Medium's coarse ones, SEA_GRIDS), each built when first shown (setWaterGrid). */
+  private readonly seaGridGeos: Partial<Record<SeaGridName, THREE.BufferGeometry>> = {};
+  /** The grid the sea is drawn with (High's while it is the plane): the step the mesh moves in. */
+  private gridSpec: SeaGridSpec = SEA_GRIDS.fine;
   /** Offsets of the sea's two ripple samples (see RIPPLE_B), each in its own sample's tiles. */
   private readonly rippleA = { value: new THREE.Vector2() };
   private readonly rippleB = { value: new THREE.Vector2() };
@@ -1182,25 +1184,28 @@ export class Environment {
   }
 
   /**
-   * High and Medium: the sea is the displaced wave grid; otherwise the flat plane with the same waves in its normals.
-   * Only the geometry and a uniform change, so the sea's program is shared. Never on the software sea (it has no grid
-   * path).
+   * High and Medium: the sea is the displaced wave grid, with the rings `rings` names (High's fine ones, Medium's coarse
+   * ones); otherwise the flat plane with the same waves in its normals. Only the geometry and uniforms change, so the
+   * sea's program is shared. Never on the software sea (it has no grid path).
    */
-  setWaterGrid(on: boolean): void {
+  setWaterGrid(on: boolean, rings: SeaGridName): void {
     const grid = on && !this.software;
     if (grid) {
-      this.seaGridGeo ??= seaGrid();
-      this.water.geometry = this.seaGridGeo;
+      this.water.geometry = this.seaGridGeos[rings] ??= seaGrid(SEA_GRIDS[rings]);
+      this.gridSpec = SEA_GRIDS[rings];
     } else {
       this.water.geometry = this.seaPlane;
-      // Frees its GPU buffers; it uploads again if High comes back.
-      this.seaGridGeo?.dispose();
+      this.gridSpec = SEA_GRIDS.fine;
     }
+    // Frees the GPU buffers of the grids not in use; they upload again if their tier comes back.
+    for (const geo of Object.values(this.seaGridGeos)) if (geo !== this.water.geometry) geo.dispose();
     this.sea.uDisplace.value = grid ? 1 : 0;
+    this.sea.uSeaSkip.value = grid && this.gridSpec.skip ? 1 : 0;
+    setSeaFade(this.sea, this.gridSpec);
   }
 
   get waterGrid(): boolean {
-    return this.water.geometry === this.seaGridGeo;
+    return Object.values(this.seaGridGeos).includes(this.water.geometry);
   }
 
   setShadows(on: boolean): void {
@@ -1369,8 +1374,8 @@ export class Environment {
     // Each ripple sample's offset wraps by whole tiles of its own (see twoLayerRipples).
     this.rippleA.value.set((time * RIPPLE_A_DRIFT[0]) % 1, (time * RIPPLE_A_DRIFT[1]) % 1);
     this.rippleB.value.set((time * RIPPLE_B_DRIFT[0]) % 1, (time * RIPPLE_B_DRIFT[1]) % 1);
-    const ox = snapSea(camera.position.x);
-    const oz = snapSea(camera.position.z);
+    const ox = snapSea(camera.position.x, this.gridSpec.snap);
+    const oz = snapSea(camera.position.z, this.gridSpec.snap);
     this.water.position.set(ox, WATER_Y, oz);
     updateSea(this.sea, time, weather.seaState ?? CALM_SEA, ox, oz);
   }
@@ -1419,7 +1424,7 @@ export class Environment {
     this.renderer.domElement.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.cloudNoise.dispose();
     this.seaPlane.dispose();
-    this.seaGridGeo?.dispose();
+    for (const geo of Object.values(this.seaGridGeos)) geo.dispose();
     this.sea.uCountyDepth.value?.dispose();
     this.cubeTarget?.dispose();
     this.envTarget?.dispose();

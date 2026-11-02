@@ -21,8 +21,8 @@ export interface Wave {
   /** Phase at time 0 (rad). */
   phase0: number;
   /**
-   * Vertex displacement fades out between these distances (m, along the larger axis from the sea grid's centre),
-   * before the grid's cells grow too coarse to sample the wave: 1 m cells reach FINE_EXTENT, 4 m cells COARSE_EXTENT.
+   * On High, vertex displacement fades out between these distances (m, along the larger axis from the sea grid's
+   * centre), before the grid's cells grow too coarse to sample the wave (SEA_GRIDS holds the fades of each tier).
    */
   fadeStart: number;
   fadeEnd: number;
@@ -60,12 +60,18 @@ export const CHOP_POWER = 1.5;
  * only the light can.
  */
 export const NORMAL_GAIN = { grid: [2.6, 1.4], flat: [3.4, 2.2] } as const;
+/** A ring of the sea grid: square cells of `cell` m out to a half-width of `extent` m round its centre. */
+export interface SeaRing {
+  readonly cell: number;
+  readonly extent: number;
+}
+
 /**
- * The sea grid (High and Medium): rings of square cells round its centre, each `cell` m to its half-width `extent`, every
- * cell doubling as the cells shrink under a pixel with distance (1 m cells to FINE_EXTENT, 16 m by COARSE_EXTENT), then
- * a flat skirt to SKIRT_EXTENT. Every wave fades out before the cells grow past a quarter of its length.
+ * The wave grid on High: rings of square cells round its centre, each cell doubling as the cells shrink under a pixel
+ * with distance (1 m cells to FINE_EXTENT, 16 m by COARSE_EXTENT), then a flat skirt to SKIRT_EXTENT. Every wave fades
+ * out before the cells grow past a quarter of its length.
  */
-export const SEA_RINGS: readonly { readonly cell: number; readonly extent: number }[] = [
+export const SEA_RINGS: readonly SeaRing[] = [
   { cell: 1, extent: 80 },
   { cell: 4, extent: 240 },
   { cell: 8, extent: 480 },
@@ -80,6 +86,44 @@ export const SEA_SNAP = SEA_RINGS[SEA_RINGS.length - 1]!.cell;
 export function seaCellAt(c: number): number {
   return (SEA_RINGS.find((r) => c <= r.extent) ?? SEA_RINGS[SEA_RINGS.length - 1]!).cell;
 }
+
+/**
+ * A tier's wave grid: its rings, the step it moves in (its largest cell), and the distances (m, from the grid's centre
+ * along the larger axis) between which each wave's vertex displacement fades out, to nothing (-1 to 0) for a wave its
+ * cells cannot sample. The drawn surface, and with it the CPU twin (SeaSurface), follows these.
+ */
+export interface SeaGridSpec {
+  readonly rings: readonly SeaRing[];
+  readonly snap: number;
+  /** Whether the sea's shading leaves out what the water cannot show where it is deep (the surf past SURF_REACH, the quays' foam far from a quay). */
+  readonly skip: boolean;
+  readonly fadeStart: readonly number[];
+  readonly fadeEnd: readonly number[];
+}
+
+export type SeaGridName = 'fine' | 'coarse';
+
+/**
+ * The two wave grids (TierSpec.waterRings). The fine one is High's. The coarse one, Medium's, has a tenth of the vertices
+ * and shorter rings: an integrated GPU shades a pixel once for every triangle its samples touch, and with the fine one's
+ * cells under a pixel tall from a low camera past some 40 m (a 4 m cell at 240 m is a fifth of a pixel) it ran the whole
+ * sea shader three to four times over per pixel. Its cells stay a few pixels tall as far as the eye reaches into the
+ * swell, and only the waves it can sample (four vertices a wavelength) displace: the 9 and 4 m chop only shade.
+ */
+export const SEA_GRIDS: Readonly<Record<SeaGridName, SeaGridSpec>> = {
+  fine: { rings: SEA_RINGS, snap: SEA_SNAP, skip: false, fadeStart: WAVES.map((w) => w.fadeStart), fadeEnd: WAVES.map((w) => w.fadeEnd) },
+  coarse: {
+    rings: [
+      { cell: 4, extent: 64 },
+      { cell: 8, extent: 128 },
+    ],
+    snap: 8,
+    skip: true,
+    fadeStart: [90, 90, 90, 90, 90, 40, -1, -1],
+    fadeEnd: [124, 124, 124, 124, 124, 62, 0, 0],
+  },
+};
+
 /** Sea state with no weather (calm). */
 export const CALM_SEA = 0.3;
 /**
@@ -120,6 +164,13 @@ export const SURF_BAR = 0.3;
 export const SURF_BAR_FADE = [1.1, 1.6] as const;
 /** The swash runs up the sand this long (rad of each breaker's phase, about 1.4 s) after a breaker reaches the waterline. */
 export const SWASH_DELAY = 1.4;
+/**
+ * Deeper than this (m) nothing of the surf can show, whatever the set: the breakers fade out by SURF_DEPTH[1], a set
+ * breaks no deeper than that, its roller, lip and the rearing of its face end within 1.7 times that (seaSurfFoam,
+ * seaSurfFace), and the swash and the wash end shallower. A tier that asks for it (SeaGridSpec.skip) leaves the surf's
+ * terms out there, which costs the water nothing it would have shown.
+ */
+export const SURF_REACH = 3.5;
 
 /**
  * The sea's shelter and depth on a square lattice over the world (render/seaShelter.ts bakes it; the shaders sample it
@@ -268,6 +319,9 @@ export interface SeaSurface {
   /** The wave grid's centre, which the displacement's fades are measured from. */
   ox: number;
   oz: number;
+  /** Each wave's fade distances (SeaGridSpec), those of the grid being drawn. */
+  fadeStart: number[];
+  fadeEnd: number[];
   shelter: ShelterMap | null;
 }
 
@@ -290,7 +344,7 @@ export function waveDisplacement(sea: SeaSurface, x: number, z: number, out: [nu
   for (let i = 0; i < WAVES.length; i++) {
     const w = WAVES[i]!;
     const [ux, uz] = WAVE_DIR[i]!;
-    const a = amps[i]! * deep * (1 - smooth(w.fadeStart, w.fadeEnd, c));
+    const a = amps[i]! * deep * (1 - smooth(sea.fadeStart[i]!, sea.fadeEnd[i]!, c));
     const th = WAVE_K[i]! * (ux * x + uz * z) - sea.phases[i]!;
     dy += a * Math.sin(th);
     const h = w.steep * a * Math.cos(th);
@@ -357,7 +411,7 @@ float seaSwash(vec3 surf, float z) {
 `;
 
 /** The uniforms every material that follows the sea declares (SEA_WAVES_GLSL), bound to the sea's own. */
-export const WAVE_UNIFORMS = ['uWavePhase', 'uChopPhase', 'uSeaAmp', 'uDisplace', 'uSeaOrigin', 'uSurfPhase', 'uSeaShelter', 'uSeaShelterBox'] as const;
+export const WAVE_UNIFORMS = ['uWavePhase', 'uChopPhase', 'uSeaAmp', 'uDisplace', 'uSeaOrigin', 'uSeaFade', 'uSurfPhase', 'uSeaShelter', 'uSeaShelterBox'] as const;
 export type WaveUniform = (typeof WAVE_UNIFORMS)[number];
 
 /**
@@ -367,7 +421,7 @@ export type WaveUniform = (typeof WAVE_UNIFORMS)[number];
  * 1 / width, 1 / depth). seaSurfPhases(world xz, depth) gives the breakers' phases there.
  * seaDisplace(world xz) gives the surface offset, seaDisplaceEdge does the same for a vertex on a ring's outer rim that
  * falls between the next ring's vertices (aEdge: the rim's direction times the next ring's cell, zero elsewhere),
- * interpolating between those neighbours so the rings meet without cracks. seaWave(world xz, the pixel's steps on the water) gives what the shading needs (SeaWave).
+ * interpolating between those neighbours so the rings meet without cracks. seaWave(world xz, the pixel's steps on the water, skip) gives what the shading needs (SeaWave; skip 1 leaves the surf out where it cannot show).
  */
 export const SEA_WAVES_GLSL = /* glsl */ `
 uniform vec4 uWavePhase;
@@ -375,6 +429,7 @@ uniform vec4 uChopPhase;
 uniform float uSeaAmp;
 uniform float uDisplace;
 uniform vec2 uSeaOrigin;
+uniform vec4 uSeaFade[4];
 uniform vec3 uSurfPhase;
 uniform sampler2D uSeaShelter;
 uniform vec4 uSeaShelterBox;
@@ -383,8 +438,6 @@ ${pair('SEA_AMP', WAVES.map((w) => w.amp))}
 ${pair('SEA_DX', WAVE_DIR.map((d) => d[0]))}
 ${pair('SEA_DZ', WAVE_DIR.map((d) => d[1]))}
 ${pair('SEA_Q', WAVES.map((w) => w.steep))}
-${pair('SEA_FADE0', WAVES.map((w) => w.fadeStart))}
-${pair('SEA_FADE1', WAVES.map((w) => w.fadeEnd))}
 ${SURF_SWASH_GLSL}
 const vec3 SURF_S3 = ${vec3(SURF_S)};
 /** Shelter, depth and the depth's gradient at p (ShelterMap). */
@@ -427,8 +480,8 @@ vec3 seaDisplace(vec2 p) {
   vec2 sh = seaShoal(s);
   vec2 l = abs(p - uSeaOrigin);
   float c = max(l.x, l.y);
-  vec4 aA = seaAmpA() * sh.x * (1.0 - smoothstep(SEA_FADE0_A, SEA_FADE1_A, vec4(c)));
-  vec4 aB = seaAmpB() * sh.x * (1.0 - smoothstep(SEA_FADE0_B, SEA_FADE1_B, vec4(c)));
+  vec4 aA = seaAmpA() * sh.x * (1.0 - smoothstep(uSeaFade[0], uSeaFade[1], vec4(c)));
+  vec4 aB = seaAmpB() * sh.x * (1.0 - smoothstep(uSeaFade[2], uSeaFade[3], vec4(c)));
   vec4 thA = SEA_K_A * (SEA_DX_A * p.x + SEA_DZ_A * p.y) - uWavePhase;
   vec4 thB = SEA_K_B * (SEA_DX_B * p.x + SEA_DZ_B * p.y) - uChopPhase;
   vec4 hA = aA * SEA_Q_A * cos(thA);
@@ -455,7 +508,9 @@ vec3 seaDisplaceEdge(vec2 p, vec2 edge) {
  * trough to 1 where every crest meets, of the waves the pixel shows); steep, the compression of the waves the pixel shows,
  * which is how close the crests are to breaking; spread, the variance of the compression of those it cannot show (a sine
  * of amplitude c has a variance of c^2 / 2), which blurs the whitecaps' threshold rather than aliasing into it; most,
- * the compression where every crest meets; surf, the breakers' phases (seaSurfPhases); surfDepth, the depth they feel.
+ * the compression where every crest meets; surf, the breakers' phases (seaSurfPhases); surfDepth, the depth they feel; deep,
+ * 1 where skip asked for the surf to be left out and the sea is deeper than it reaches (SURF_REACH): then surf is 0, the
+ * breakers' terms are not summed, and nothing of the surf below can show.
  */
 struct SeaWave {
   vec2 slope;
@@ -467,8 +522,9 @@ struct SeaWave {
   float most;
   vec3 surf;
   float surfDepth;
+  float deep;
 };
-SeaWave seaWave(vec2 p, vec2 dx, vec2 dy) {
+SeaWave seaWave(vec2 p, vec2 dx, vec2 dy, float skip) {
   vec4 s = seaShelterAt(p);
   vec2 sh = seaShoal(s);
   vec4 aA = seaAmpA() * sh.x;
@@ -498,19 +554,28 @@ SeaWave seaWave(vec2 p, vec2 dx, vec2 dy) {
   w.most = dot(cmA, vec4(1.0)) + dot(cmB, vec4(1.0));
   // The breakers, sh.y sum(SURF_W sin(seaSurfPhases)): their slopes are their heights' derivatives along the depth's
   // gradient, each phase growing by SURF_S / (2 sqrt(depth)) a metre of depth (the bars' stretch of it left out).
-  w.surfDepth = seaSurfDepth(p, s.y);
-  w.surf = seaSurfPhases(p, w.surfDepth);
-  vec3 dk = SURF_S3 * (0.5 * inversesqrt(max(w.surfDepth, 0.04)));
-  vec3 kS = dk * length(s.zw);
-  vec3 keptS = 1.0 - smoothstep(${f(WAVE_PHASE_PX[0])}, ${f(WAVE_PHASE_PX[1])}, dk * max(abs(dot(s.zw, dx)), abs(dot(s.zw, dy))));
-  vec3 ws = SURF_W3 * sin(w.surf);
-  vec3 wk2 = SURF_W3 * SURF_W3 * kS * kS;
-  w.slope += s.zw * (sh.y * dot(SURF_W3 * cos(w.surf) * dk, keptS) * gainA);
-  w.lost += 0.5 * sh.y * sh.y * gainA * gainA * dot(wk2, 1.0 - keptS * keptS);
-  w.kept += ${f(SURF_Q)} * sh.y * dot(ws * kS, keptS) * gainA;
-  w.steep += ${f(SURF_Q)} * sh.y * dot(ws * kS, keptS);
-  w.spread += 0.5 * ${f(SURF_Q * SURF_Q)} * sh.y * sh.y * dot(wk2, 1.0 - keptS * keptS);
-  w.most += ${f(SURF_Q)} * sh.y * dot(SURF_W3, kS);
+  // Deeper than they reach (sh.y is 0 from SURF_DEPTH[1] down) each of their terms adds nothing.
+  vec3 ws = vec3(0.0);
+  vec3 keptS = vec3(0.0);
+  w.deep = step(${f(SURF_REACH)}, s.y) * skip;
+  if (w.deep > 0.5) {
+    w.surfDepth = s.y;
+    w.surf = vec3(0.0);
+  } else {
+    w.surfDepth = seaSurfDepth(p, s.y);
+    w.surf = seaSurfPhases(p, w.surfDepth);
+    vec3 dk = SURF_S3 * (0.5 * inversesqrt(max(w.surfDepth, 0.04)));
+    vec3 kS = dk * length(s.zw);
+    keptS = 1.0 - smoothstep(${f(WAVE_PHASE_PX[0])}, ${f(WAVE_PHASE_PX[1])}, dk * max(abs(dot(s.zw, dx)), abs(dot(s.zw, dy))));
+    ws = SURF_W3 * sin(w.surf);
+    vec3 wk2 = SURF_W3 * SURF_W3 * kS * kS;
+    w.slope += s.zw * (sh.y * dot(SURF_W3 * cos(w.surf) * dk, keptS) * gainA);
+    w.lost += 0.5 * sh.y * sh.y * gainA * gainA * dot(wk2, 1.0 - keptS * keptS);
+    w.kept += ${f(SURF_Q)} * sh.y * dot(ws * kS, keptS) * gainA;
+    w.steep += ${f(SURF_Q)} * sh.y * dot(ws * kS, keptS);
+    w.spread += 0.5 * ${f(SURF_Q * SURF_Q)} * sh.y * sh.y * dot(wk2, 1.0 - keptS * keptS);
+    w.most += ${f(SURF_Q)} * sh.y * dot(SURF_W3, kS);
+  }
   w.height = (dot(aA * keptA, sin(thA)) + dot(aB * keptB, sin(thB)) + sh.y * dot(ws, keptS)) / max(most, 1e-3);
   return w;
 }

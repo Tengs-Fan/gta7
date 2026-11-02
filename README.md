@@ -351,7 +351,7 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Wet streets | puddles and ripples | puddles and ripples | darker and glossier |
 | Tyre spray on wet roads | on | on | off |
 | Boat wake and bow spray | on | on | off |
-| Sea waves (swell, chop and breakers) | the surface rises and falls | the surface rises and falls | in the lighting |
+| Sea waves (swell, chop and breakers) | the surface rises and falls | the surface rises and falls (out to 130 m) | in the lighting |
 | Traffic and pedestrians | 100% | 90% | 75% |
 | Ambient cars drawn | all | all | within 150 m |
 
