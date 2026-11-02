@@ -29,6 +29,7 @@ import { SHADOW_LAYER } from './vehicleBatches';
 import { CORN_H, cornGeometry, cornTexture, headstoneGeometry, HEADSTONE_SHAPES, ironFenceGeometry, pumpkinGeometry } from './attractionModels';
 import { speakerGeometry } from './country/driveIn';
 import { applesGeometry, baleTexture, COW_NECK, cowGeometry, cowTexture, farmFenceGeometry, propaneGeometry, scarecrowGeometry } from './country/farmModels';
+import { roadsideAtlas, roadsideGeometry } from './country/roadside';
 import { stopSignGeometry } from './country/stopSign';
 import { pumpGeometry } from './country/town';
 
@@ -744,6 +745,7 @@ export class PropsView {
     });
     this.buildHeadstones(get('headstone'));
     this.buildFarmProps(get);
+    this.buildRoadside(get('roadside'));
     // Las Lomas County's two stop signs, the drive-in's speaker posts and its apple trees (buildTrees) are few, each in
     // one place: one batch each, not one per cell, as the farms' props are.
     this.makeInstanced(stopSignGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.2 }), get('stopSign'), PropsView.standard, { chunked: true });
@@ -1013,6 +1015,26 @@ export class PropsView {
     hide.customProgramCacheKey = () => 'gta7-cow';
     const coats = [0xffffff, 0xffffff, 0xb07a48, 0x2a2624];
     this.makeInstanced(cowGeometry(), hide, get('cow'), PropsView.standard, { ...one, color: (p, c) => c.setHex(coats[p.color]!) });
+  }
+
+  /**
+   * Las Lomas County's roadside furniture (world/country/oddities.ts): its mailboxes and hand-painted signs, every make of them
+   * one batch (render/country/roadside.ts), each instance naming its own shape in `aPick`: the vertices of every other shape
+   * are sent off the screen. They cast no shadow, which would be every shape's at every instance. A car knocks one over.
+   */
+  private buildRoadside(items: number[]): void {
+    const { texture, blank, bands } = roadsideAtlas();
+    const geo = roadsideGeometry(blank, bands);
+    geo.setAttribute('aPick', new THREE.InstancedBufferAttribute(Float32Array.from(items, (pi) => this.world.layout.props[pi]!.color), 1));
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: texture, roughness: 0.85 });
+    mat.name = 'roadside';
+    mat.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aShape;\nattribute float aPick;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nif ( aShape != aPick ) gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );');
+    };
+    mat.customProgramCacheKey = () => 'gta7-roadside';
+    this.makeInstanced(geo, mat, items, PropsView.standard, { chunked: true, shadow: false });
   }
 
   /**
