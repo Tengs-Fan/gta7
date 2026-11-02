@@ -271,8 +271,8 @@ export function flameGeometry(): THREE.BufferGeometry {
   const pos = g.getAttribute('position');
   const col: number[] = [];
   for (let i = 0; i < pos.count; i++) {
-    const t = pos.getY(i) / 2.4;
-    col.push(1.2 * (1 - t) + 0.1, 0.8 * (1 - t) ** 1.5, 0.3 * (1 - t) ** 3);
+    const k = 1 - Math.min(1, pos.getY(i) / 2.4);
+    col.push(1.2 * k + 0.1, 0.8 * k ** 1.5, 0.3 * k ** 3);
   }
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   return g;

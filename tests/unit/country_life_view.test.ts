@@ -14,6 +14,7 @@ import { CityView } from '../../src/render/city';
 import { CountryView } from '../../src/render/country';
 import { BALLOON_MEADOWS } from '../../src/render/country/life/flight';
 import { SCARE_R, type Flock } from '../../src/render/country/life/flocks';
+import { basketGeometry, biplaneGeometry, combineGeometry, crowGeometry, dogGeometry, envelopeGeometry, flameGeometry, poleGeometry } from '../../src/render/country/life/models';
 import type { Effects } from '../../src/render/effects';
 import type { Character } from '../../src/sim/entities';
 import type { ViewState } from '../../src/sim/viewState';
@@ -83,6 +84,17 @@ function frames(seconds: number, cam: { x: number; z: number }, sim: ViewState |
 }
 
 const foot = (x: number, z: number, speed: number): Character => ({ pos: { x, y: 0, z }, vel: { x: 0, y: 0, z: speed }, speed, vehicle: null }) as unknown as Character;
+
+describe('the countryside life: its models', () => {
+  it('have only finite positions, normals and colours (a NaN in one vertex blacks the whole frame out through the bloom)', () => {
+    const models = { crow: crowGeometry, dog: dogGeometry, biplane: biplaneGeometry, combine: combineGeometry, envelope: envelopeGeometry, basket: basketGeometry, flame: flameGeometry, poles: poleGeometry };
+    for (const [name, make] of Object.entries(models)) {
+      const geo = make();
+      expect(geo.getAttribute('position').count, name).toBeGreaterThan(12);
+      for (const [attr, a] of Object.entries(geo.attributes)) expect(Array.from(a.array).every(Number.isFinite), `${name} ${attr}`).toBe(true);
+    }
+  });
+});
 
 describe('the countryside life: what it draws', () => {
   it('draws nothing and sounds nothing while the camera is far from the farmland (in the city)', () => {

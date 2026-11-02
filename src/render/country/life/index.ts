@@ -47,7 +47,7 @@ const CROW_SHARE = { high: 1, medium: 0.65, low: 0.4, software: 0.4 } as const;
 const NEAR = { minX: -1420, maxX: -640, minZ: -480, maxZ: 340 };
 
 const SPRAY_COLOR = [0xe6efdc, 0xf6f9f1] as const;
-const DUST_COLOR = [0xc2a672, 0xdcd0ac] as const;
+const DUST_COLOR = [0xb89a62, 0xd2c19a] as const;
 
 export class CountryLife {
   /** What the audio hears of it: the sheet this writes each frame (audio/lifeSounds.ts). */
@@ -289,7 +289,7 @@ export class CountryLife {
   /** The spray from the boom's two ends: pale mist let off behind the nozzles, drifting down and with the wind. */
   private spraying(dt: number, wind: { readonly x: number; readonly z: number }, fx: Effects): void {
     const p = this.plane;
-    this.sprayDebt += 80 * this.plume * dt;
+    this.sprayDebt += 90 * this.plume * dt;
     for (; this.sprayDebt >= 1; this.sprayDebt -= 1) {
       const n = NOZZLES[this.rng.int(0, NOZZLES.length - 1)]!;
       // The nozzle in the world: x along the plane's left, y along its up, z along its nose.
@@ -297,7 +297,7 @@ export class CountryLife {
       const oy = this.side.y * n[0] + this.up.y * n[1] + this.nose.y * n[2];
       const oz = this.side.z * n[0] + this.up.z * n[1] + this.nose.z * n[2];
       const lag = this.rng.range(0, dt);
-      fx.puff(p.x + ox - p.vx * lag, p.y + oy - p.vy * lag, p.z + oz - p.vz * lag, p.vx * 0.04 + wind.x * 0.3 + this.rng.range(-0.4, 0.4), this.rng.range(-1.4, -0.6), p.vz * 0.04 + wind.z * 0.3 + this.rng.range(-0.4, 0.4), this.rng.range(1.8, 2.8), 0.8, this.rng.range(3, 4.5), SPRAY_COLOR[0], SPRAY_COLOR[1], 0.3, 0.5, 0.9);
+      fx.puff(p.x + ox - p.vx * lag, p.y + oy - p.vy * lag, p.z + oz - p.vz * lag, p.vx * 0.04 + wind.x * 0.3 + this.rng.range(-0.4, 0.4), this.rng.range(-1.4, -0.6), p.vz * 0.04 + wind.z * 0.3 + this.rng.range(-0.4, 0.4), this.rng.range(2.6, 4), 1.2, this.rng.range(4.5, 6.5), SPRAY_COLOR[0], SPRAY_COLOR[1], 0.42, 0.3, 0.7);
     }
   }
 
@@ -328,13 +328,13 @@ export class CountryLife {
     const hx = Math.sin(c.heading);
     const hz = Math.cos(c.heading);
     const y = this.combineMesh.position.y;
-    this.dustDebt += 22 * this.plume * dt;
+    this.dustDebt += 26 * this.plume * dt;
     for (; this.dustDebt >= 1; this.dustDebt -= 1) {
       const front = this.rng.chance(0.3);
       const along = front ? REEL.pivot[2] + 0.4 : -5.4;
       const across = this.rng.range(-1, 1) * (front ? HEADER_W / 2 - 0.5 : 1.2);
       const back = front ? 0 : 1.4;
-      fx.puff(c.x + hx * along + hz * across, y + (front ? 0.8 : 2.4), c.z + hz * along - hx * across, -hx * back + wind.x * 0.5 + this.rng.range(-0.5, 0.5), this.rng.range(0.5, 1.4), -hz * back + wind.z * 0.5 + this.rng.range(-0.5, 0.5), this.rng.range(2.4, 3.6), front ? 0.9 : 1.4, this.rng.range(4, 6.5), DUST_COLOR[0], DUST_COLOR[1], front ? 0.22 : 0.3, -0.05, 0.6);
+      fx.puff(c.x + hx * along + hz * across, y + (front ? 0.8 : 2.4), c.z + hz * along - hx * across, -hx * back + wind.x * 0.5 + this.rng.range(-0.5, 0.5), this.rng.range(0.5, 1.4), -hz * back + wind.z * 0.5 + this.rng.range(-0.5, 0.5), this.rng.range(3, 4.5), front ? 1.2 : 1.8, this.rng.range(5, 8), DUST_COLOR[0], DUST_COLOR[1], front ? 0.3 : 0.4, -0.05, 0.5);
     }
   }
 
