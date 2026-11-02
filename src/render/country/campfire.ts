@@ -85,7 +85,8 @@ export class Campfire {
     const want = near && !taken;
     if (want) this.holding = fx.fireLight(x, y + 0.9, z, FIRE_LIGHT * this.lit * this.flicker(time));
     else if (this.holding) {
-      fx.fireLight(0, 0, 0, 0);
+      // A molotov's fire that has taken the light wrote it this frame: let go without zeroing it.
+      if (!taken) fx.fireLight(0, 0, 0, 0);
       this.holding = false;
     }
   }

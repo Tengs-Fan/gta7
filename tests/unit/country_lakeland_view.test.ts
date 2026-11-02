@@ -132,6 +132,35 @@ describe('the shore and the wood', () => {
     expect(pool.opacity).toBeGreaterThan(0.3);
   });
 
+  it('lends the fire its light while nothing else has it, lets go without writing when a molotov\'s fire takes it, and darkens it when it burns out or the camera leaves', () => {
+    const fx = { groundFire: vi.fn(), fireLight: vi.fn(() => true) };
+    const at = land.camp.fire;
+    const near = { x: at.x + 10, y: at.y, z: at.z };
+    const camp = view.camp;
+    camp.update(23, 0, near);
+    camp.sync(fx as never, 0.016, near, 0, false);
+    expect(fx.fireLight).toHaveBeenCalledTimes(1);
+    expect(fx.fireLight.mock.calls[0]![3]).toBeGreaterThan(0);
+    expect(fx.groundFire).toHaveBeenCalledTimes(1);
+    // A molotov's fire has it: no light written, the fire still burns; and then it is let go.
+    fx.fireLight.mockClear();
+    camp.sync(fx as never, 0.016, near, 0.1, true);
+    expect(fx.fireLight).not.toHaveBeenCalled();
+    camp.sync(fx as never, 0.016, near, 0.2, true);
+    expect(fx.fireLight).not.toHaveBeenCalled();
+    // Free again, it takes the light back; out of range, it darkens what it holds.
+    camp.sync(fx as never, 0.016, near, 0.3, false);
+    expect(fx.fireLight).toHaveBeenCalledTimes(1);
+    fx.fireLight.mockClear();
+    camp.sync(fx as never, 0.016, { x: at.x + 400, y: at.y, z: at.z }, 0.4, false);
+    expect(fx.fireLight).toHaveBeenCalledWith(0, 0, 0, 0);
+    // By day it is out: nothing to hold.
+    fx.fireLight.mockClear();
+    camp.update(12, 0, near);
+    camp.sync(fx as never, 0.016, near, 0.5, false);
+    expect(fx.fireLight).not.toHaveBeenCalled();
+  });
+
   it('burns the campfire from dusk to the first light, embers and a pool of firelight, out through the day', () => {
     expect(campfireLit(12)).toBe(0);
     expect(campfireLit(23)).toBe(1);
