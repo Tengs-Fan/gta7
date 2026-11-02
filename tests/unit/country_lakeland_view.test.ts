@@ -74,6 +74,26 @@ describe('the shore and the wood', () => {
     expect(tower.geometry.boundingBox!.min.y).toBeCloseTo(W.groundHeight(PINE_TOWER.x, PINE_TOWER.z), 3);
   });
 
+  it('drapes the lanes and the pads as dirt facing up, 3.5 cm over the ground, along every lane from the road to its end', () => {
+    const dirt = meshes('places-dirt');
+    expect(dirt.length).toBe(2);
+    const mine = dirt.find((m) => {
+      m.geometry.computeBoundingBox();
+      return m.geometry.boundingBox!.min.x < -1900;
+    })!;
+    const pos = mine.geometry.getAttribute('position');
+    const nrm = mine.geometry.getAttribute('normal');
+    const near = (x: number, z: number, r: number) => Array.from({ length: pos.count }, (_, i) => i).filter((i) => Math.hypot(pos.getX(i) - x, pos.getZ(i) - z) < r).length;
+    for (let i = 0; i < pos.count; i++) {
+      expect(nrm.getY(i), `dirt vertex ${i} at ${pos.getX(i).toFixed(1)}, ${pos.getZ(i).toFixed(1)}`).toBeGreaterThan(0.5);
+      expect(pos.getY(i) - W.groundHeight(pos.getX(i), pos.getZ(i))).toBeGreaterThan(0);
+      expect(pos.getY(i) - W.groundHeight(pos.getX(i), pos.getZ(i))).toBeLessThan(0.5);
+    }
+    // A vertex pair every 3 m along each lane's edges, from its mouth to its end, and the tower's pad on its hill.
+    for (const l of land.lanes) for (const k of [0, 5, l.pts.length / 2 - 1].map((i) => Math.min(i, l.pts.length / 2 - 1))) expect(near(l.pts[2 * k]!, l.pts[2 * k + 1]!, l.width), `lane point ${k}`).toBeGreaterThan(0);
+    expect(near(PINE_TOWER.x, PINE_TOWER.z - 10, 8)).toBeGreaterThan(0);
+  });
+
   it('puts every lamp by a cabin door and at the dock\'s head, and its halo and pool come up with the night', () => {
     const lamps = lakeLamps(land);
     expect(lamps.length).toBe(land.cabins.length + 1);

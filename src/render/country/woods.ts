@@ -161,8 +161,9 @@ export function buildWoods(view: CountryView, kit: PlacesKit, wind: WindUniforms
       const tx = lane.pts[2 * b]! - lane.pts[2 * a]!;
       const tz = lane.pts[2 * b + 1]! - lane.pts[2 * a + 1]!;
       const l = Math.hypot(tx, tz) || 1;
-      const x = lane.pts[2 * i]! - (tz / l) * half * side;
-      const z = lane.pts[2 * i + 1]! + (tx / l) * half * side;
+      // Out to the right of the way it runs first, as the fire road's strip: so the quads face up.
+      const x = lane.pts[2 * i]! + (tz / l) * half * side;
+      const z = lane.pts[2 * i + 1]! - (tx / l) * half * side;
       return [x, ground(x, z) + DIRT_Y + 0.01, z];
     };
     for (let i = 1; i < n; i++) {
