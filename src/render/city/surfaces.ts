@@ -173,6 +173,12 @@ const FS_GRASS = /* glsl */ `
   float ns = gN( gp * 0.83 + 0.15 );
   float soil = ( 1.0 - smoothstep( 0.0, 0.06 + 0.32 * ns, f ) ) * step( 0.0, f ) * 0.8;
   diffuseColor.rgb = mix( diffuseColor.rgb * mix( 1.0, 0.72, step( f, 0.0 ) ), vec3( 0.16, 0.115, 0.075 ), soil );
+  // Ground steeper than a lawn grows on is bare rock, in layers: the carved walls of Coyote Pass (up to 48 degrees), where
+  // the ridge's own flanks (under 20) stay green.
+  vec3 gn = normalize( cross( dFdx( vGroundPos ), dFdy( vGroundPos ) ) );
+  float rock = smoothstep( 0.9, 0.8, abs( gn.y ) );
+  float strata = 0.82 + 0.3 * gN( vec2( gp.x * 0.07 + gp.y * 0.05, vGroundPos.y * 0.55 ) );
+  diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.36, 0.31, 0.26 ) * strata * mix( 0.85, 1.1, m2 ), rock );
 }`;
 
 /** Sand: colour variation, a wet band from the waterline inland with a frayed edge, and the surf's lace running up and back. */

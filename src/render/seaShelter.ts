@@ -1,10 +1,11 @@
 // The sea's shelter and depth, baked once over the world for the waves (render/waves.ts): how much of the open sea's
 // swell reaches each point, and the drawn water's depth and its slope there, which shoal the waves over the beaches.
 // The waves die away towards the walls (quays, sea walls, the causeway, headlands, and decks standing in deep water)
-// and inside the water cut into the land (the harbour basin, the coves, the bays and the canal), but run on up the
+// and inside the water cut into the land (the harbour basin, the coves, the bays, the canal and Lake Lomas), but run on up the
 // beaches, where the depth takes over. Render only: the sim's sea stays flat.
 
 import { DECK_SLAB, WATER_Y } from '../world/constants';
+import { LAKE } from '../world/country';
 import type { StaticWorld } from '../world/staticWorld';
 import { seaDepthCpu, type CountyShore } from './sea';
 import { SURF_GAMMA, WAVES, type ShelterMap } from './waves';
@@ -120,12 +121,11 @@ export function bakeSeaShelter(world: StaticWorld, county: CountyShore): Shelter
       }
     }
   }
-  for (const w of layout.water) {
-    for (const r of w.rects) {
-      const [i0, i1] = cells(r.minX + cell / 2, r.maxX - cell / 2, minX, nx);
-      const [j0, j1] = cells(r.minZ + cell / 2, r.maxZ - cell / 2, minZ, nz);
-      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) seed[j * nx + i] = 1;
-    }
+  // The water cut into the land: the city's, and Lake Lomas in the valley, which no swell reaches.
+  for (const r of [...layout.water.flatMap((w) => w.rects), LAKE]) {
+    const [i0, i1] = cells(r.minX + cell / 2, r.maxX - cell / 2, minX, nx);
+    const [j0, j1] = cells(r.minZ + cell / 2, r.maxZ - cell / 2, minZ, nz);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) seed[j * nx + i] = 1;
   }
   const dist = chamfer(seed, nx, nz, cell);
   const deckDist = chamfer(deckSeed, nx, nz, cell);

@@ -1,5 +1,5 @@
 // Coyote Ridge's fire road and Lookout Point (world/country/hills.ts): the gravel road draped on the ridge's south
-// shoulder from its turn-off on the Lomas Highway up to the car park on the crest, the car park, its parapet, and the
+// shoulder from its turn-off on the Lomas Highway, across the Pass Road, up to the car park on the crest, the car park, its parapet, and the
 // timber fire lookout tower. The ground itself is ground.ts's, the turbines turbines.ts's, and the plaque and the coin
 // telescope are dressing (dressing.ts viewpoints). A few thousand triangles: one mesh per material.
 
@@ -29,7 +29,8 @@ export function buildHills(view: CountryView): void {
   const gravel = new GeoBuilder(false);
   const uv = { kind: 'world', scale: 6 } as const;
   const s = 1 / uv.scale;
-  // The road: a strip across the centre line at every sample, each edge on the ground under it.
+  // The road: a strip across the centre line at every sample, each edge on the ground under it, but for where it crosses
+  // the Pass Road, whose asphalt runs on.
   const line = fireRoadLine(ROAD_STEP);
   const half = FIRE_ROAD_W / 2;
   const edge = (i: number, side: number) => {
@@ -43,6 +44,7 @@ export function buildHills(view: CountryView): void {
     const [bx, by, bz] = edge(i, 1);
     const [cx, cy, cz] = edge(i, -1);
     const [dx, dy, dz] = edge(i - 1, -1);
+    if (world.isOnRoad((ax + cx) / 2, (az + cz) / 2)) continue;
     gravel.quad(dx, dy, dz, cx, cy, cz, bx, by, bz, ax, ay, az, [dx * s, -dz * s, cx * s, -cz * s, bx * s, -bz * s, ax * s, -az * s]);
   }
   // The car park on the crest's flat top.

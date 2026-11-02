@@ -21,8 +21,8 @@ import type { CountryView } from './index';
 const SLOPE_STEP = 2;
 const NEAR_STEP = 4;
 const FAR_STEP = 16;
-/** How far (m) the far mesh's skirts hang under its edges: more than its chords ever stray from the finer meshes'. */
-const SKIRT = 2;
+/** How far (m) the far mesh's skirts hang under its edges: more than its chords ever stray from the finer meshes' (2.4 m across Coyote Pass's walls). */
+const SKIRT = 3;
 
 /** r and the cell's overlap, or null. */
 function clip(r: Rect, cell: Rect): Rect | null {
