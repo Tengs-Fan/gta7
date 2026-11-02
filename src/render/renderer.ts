@@ -311,8 +311,11 @@ export class GameRenderer {
     this.monorail = new MonorailView(world);
     this.country = new CountryView(world, this.city, this.props.windUniforms, this.software);
     this.scene.add(this.activityFx.group, this.sites.group, this.turbines.group, this.turbines.foam.mesh, this.offshore.group, this.regatta.mesh, this.monorail.group, this.country.group);
-    // The headlights light the ground in its own shading: every road, pavement, lawn, beach, track and field (the software tier paints them).
-    if (!this.software) this.lightSprites.lightGround(new Set([...this.city.wet.materials, ...this.city.ground.materials, ...this.country.fields.ground]));
+    // The headlights light the ground in its own shading: every road, pavement, lawn, beach and track, and the crop fields and their plants held under a limit (the software tier paints them).
+    if (!this.software) {
+      this.lightSprites.lightGround(new Set([...this.city.wet.materials, ...this.city.ground.materials]));
+      this.lightSprites.lightGround([...this.country.fields.ground, ...this.country.fields.crops], true);
+    }
     this.softwareMaterials?.apply(this.country.group);
     this.softwareMaterials?.apply(this.monorail.group);
     this.softwareMaterials?.apply(this.sites.group);

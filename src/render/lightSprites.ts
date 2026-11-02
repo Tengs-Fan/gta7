@@ -86,6 +86,18 @@ export const POOL_WIDTH = 9;
 export const POOL_LIGHT: Rgb = [12, 10.3, 7.6];
 /** The colour a painted pool (the software tier's) adds at a `poolShape` of 1, at full strength. */
 export const POOL_PAINT: Rgb = [0.17, 0.15, 0.11];
+/**
+ * The most luminance (three's light units, before tone mapping) the headlights add to a field's ground or plants. Lit as
+ * asphalt is, by albedo times irradiance, pale straw takes ten times the asphalt's light and reads as a shining patch
+ * (luma 210 to 250 where the asphalt reads 78), so a field keeps what the headlights add where that is small (up to 0.05
+ * within 3 per cent: dark soil, furrows) and takes `fieldLight` of it where it is large, never more than this however
+ * pale the straw or many the lights: the straw then reads as bright as lit pavement (luma 140).
+ */
+export const FIELD_LIGHT_MAX = 0.2;
+/** What a field keeps of a luminance `y` that the headlights would add: the fragment shader's maths, for tests. */
+export function fieldLight(y: number): number {
+  return y / Math.sqrt(1 + (y / FIELD_LIGHT_MAX) ** 2);
+}
 /** The head lamps sit this far (m) either side of the car's axis, and this high (m) over the road. */
 const POOL_LAMP_X = 0.72;
 const POOL_LAMP_Y = 0.65;
@@ -227,15 +239,19 @@ export interface HeadlightUniforms {
  * The ground's light from the headlights (lightGround): at each fragment, the pool's shape in the car's frame times its
  * strength, nothing off the road's plane, and nothing on ground facing away from the lamps (a kerb's far side, the road
  * past a crest); then added to the direct diffuse light, so it takes the surface's albedo, wetness and fog like every
- * other light.
+ * other light. A field's (`field`) is held under FIELD_LIGHT_MAX first.
  */
-function headlightGlsl(): { vertexPars: string; vertex: string; fragmentPars: string; fragment: string } {
+function headlightGlsl(field: boolean): { vertexPars: string; vertex: string; fragmentPars: string; fragment: string } {
   const f = (n: number): string => n.toFixed(3);
   return {
     vertexPars: /* glsl */ `
 varying vec3 vHeadPos;`,
     vertex: /* glsl */ `
-vHeadPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;`,
+vec4 headWorld = vec4( transformed, 1.0 );
+#ifdef USE_INSTANCING
+headWorld = instanceMatrix * headWorld;
+#endif
+vHeadPos = ( modelMatrix * headWorld ).xyz;`,
     fragmentPars: /* glsl */ `
 uniform vec4 uHeadA[ ${HEADLIGHTS} ];
 uniform vec4 uHeadB[ ${HEADLIGHTS} ];
@@ -258,10 +274,16 @@ ${poolShapeGlsl()}`,
     float facing = clamp( dot( headN, vec3( 0.0, ${f(POOL_LAMP_Y)}, 0.0 ) - r ) * 4.0, 0.0, 1.0 );
     headE += a.w * poolShape( d, x ) * band * facing;
   }
-  reflectedLight.directDiffuse += BRDF_Lambert( material.diffuseColor ) * vec3( ${POOL_LIGHT.map(f).join(', ')} ) * headE;
+  vec3 headLit = BRDF_Lambert( material.diffuseColor ) * vec3( ${POOL_LIGHT.map(f).join(', ')} ) * headE;${field ? `
+  float headY = dot( headLit, vec3( 0.2126, 0.7152, 0.0722 ) ) / ${f(FIELD_LIGHT_MAX)};
+  headLit *= inversesqrt( 1.0 + headY * headY );` : ''}
+  reflectedLight.directDiffuse += headLit;
 }`,
   };
 }
+
+/** The head of three's loop over the spot lights in `lights_fragment_begin`. */
+const SPOT_LOOP = '#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )';
 
 const STREAK_FS = /* glsl */ `
 varying vec2 vUv;
@@ -405,9 +427,13 @@ export class LightSprites {
   /**
    * Has the ground's own shading take the headlights (headlightGlsl): patches each material, before it is first drawn,
    * on top of any patch already on it. They all share `headlights`, so no program changes while the cars move.
+   * `field`: the crop fields' ground and plants, whose pale straw and many upright leaves the road's rule would turn into a
+   * shining patch: what the headlights add is held under FIELD_LIGHT_MAX, and no spot light shines on them: the player's,
+   * whose inverse square a plant in front of the bumper takes in full, is the only one in reach (a street lamp's spot
+   * reaches 22 m, and the nearest lamp is 72 m from a field); the headlights' own light lights them, as it lights the soil.
    */
-  lightGround(materials: Iterable<THREE.Material>): void {
-    const glsl = headlightGlsl();
+  lightGround(materials: Iterable<THREE.Material>, field = false): void {
+    const glsl = headlightGlsl(field);
     for (const mat of materials) {
       const prev = mat.onBeforeCompile.bind(mat);
       const prevKey = mat.customProgramCacheKey.bind(mat);
@@ -420,8 +446,9 @@ export class LightSprites {
         shader.fragmentShader = shader.fragmentShader
           .replace('#include <common>', `#include <common>${glsl.fragmentPars}`)
           .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>${glsl.fragment}`);
+        if (field) shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_begin>', THREE.ShaderChunk.lights_fragment_begin.replace(SPOT_LOOP, '#if 0'));
       };
-      mat.customProgramCacheKey = () => `${prevKey()}|gta7-headlights`;
+      mat.customProgramCacheKey = () => `${prevKey()}|gta7-headlights${field ? '-field' : ''}`;
     }
   }
 
