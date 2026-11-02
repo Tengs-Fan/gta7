@@ -23,8 +23,8 @@ import type { CountryView } from './index';
 import { Vines } from './vines';
 
 const STONE: RGB = [0.86, 0.78, 0.64];
-const MOSS: RGB = [0.6, 0.62, 0.58];
-const TILE: RGB = [0.5, 0.22, 0.15];
+const MOSS: RGB = [0.78, 0.74, 0.66];
+const TILE: RGB = [0.36, 0.16, 0.1];
 const OAK: RGB = [0.5, 0.34, 0.2];
 const IRON: RGB = [0.2, 0.2, 0.22];
 const STRAW: RGB = [0.72, 0.55, 0.25];
@@ -295,7 +295,16 @@ export class ValleyView {
     // Chimney on the north slope.
     stone.box(hall.minX + 4, top, hall.minZ + 0.6, hall.minX + 5.2, top + 3.6, hall.minZ + 1.8, { uv, color: scaleRgb(STONE, 0.9) });
     const ridge = top + 2.8;
-    pitched(p.plain, hall, top, ridge, true, 0.6, TILE, scaleRgb(STONE, 0.95));
+    pitched(p.plain, hall, top, ridge, true, 0.6, TILE, null);
+    // The gable ends in the same stone: a triangle under the ridge at either end, on the stone's texture.
+    for (const [x, s] of [[hall.minX, -1], [hall.maxX, 1]] as const) {
+      const a: V = [x, top, hall.minZ];
+      const b: V = [x, top, hall.maxZ];
+      const c: V = [x, ridge - 0.05, rectCZ(hall)];
+      const uv = (q: V) => [q[2] / 4, q[1] / 4];
+      if (s > 0) stone.tri(...b, ...a, ...c, [...uv(b), ...uv(a), ...uv(c)], STONE);
+      else stone.tri(...a, ...b, ...c, [...uv(a), ...uv(b), ...uv(c)], STONE);
+    }
     // Openings, set just off the walls: windows along both long walls, the back wall's pair, and the east front's doors and windows.
     const open = (band: [number, number], wm: number, hm: number, cx: number, cz: number, y0: number, toward: 'N' | 'S' | 'E' | 'W') => {
       const o = toward === 'E' ? [1, 0] : toward === 'W' ? [-1, 0] : toward === 'S' ? [0, 1] : [0, -1];
@@ -380,6 +389,10 @@ export class ValleyView {
       }
     }
     const r = v.ruin.rect;
+    // Two rafters of the roof still leaning from the standing gable end to the ground inside, and a beam fallen across the floor.
+    const wood: RGB = [0.34, 0.25, 0.18];
+    for (const z of [r.minZ + 2.4, r.maxZ - 2.4]) beam(stone, [r.minX + 0.4, y + 5.6, z], [r.minX + 4.6, y + 0.3, z], 0.2, wood);
+    beam(stone, [r.minX + 3, y + 0.3, r.minZ + 1], [r.maxX - 3.5, y + 0.6, r.maxZ - 1.5], 0.24, wood);
     for (let k = 0; k < 16; k++) {
       const x = rng.range(r.minX - 2.5, r.maxX + 2.5);
       const z = rng.range(r.minZ - 2.5, r.maxZ + 2.5);
