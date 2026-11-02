@@ -23,6 +23,7 @@ import { FieldsView } from './fields';
 import { buildCountryGround } from './ground';
 import { buildHills } from './hills';
 import { PlacesKit } from './kit';
+import { RanchView } from './ranch';
 import { Reflectors } from './reflectors';
 import { buildCountryRoads } from './roads';
 import { buildTown } from './town';
@@ -39,6 +40,8 @@ export class CountryView {
   private readonly cells: Array<{ bounds: Rect; near: THREE.Mesh[]; far: THREE.Mesh[]; silhouette: boolean }> = [];
   readonly farms: FarmsView;
   readonly fields: FieldsView;
+  /** The ranch's horses and sheep (ranch.ts). */
+  readonly ranch: RanchView;
   private readonly sun = new THREE.Vector3();
   private readonly moon = new THREE.Vector3();
   /** What the places animate each frame: Moo-Moo's neon cow, the drive-in's screen. */
@@ -65,6 +68,7 @@ export class CountryView {
     this.reflectors = new Reflectors(this);
     this.farms = new FarmsView(this);
     this.fields = new FieldsView(this, wind);
+    this.ranch = new RanchView(this);
     const kit = new PlacesKit();
     this.animated.push(buildTown(this, kit));
     const driveIn = buildDriveIn(this, kit);
@@ -87,6 +91,7 @@ export class CountryView {
     skyPath(hours, this.sun, this.moon);
     this.fields.update(x, y, z, this.sun.x, this.sun.z);
     this.farms.update(time, Math.hypot(wind.x, wind.z));
+    this.ranch.update(time, x, z, sim);
     for (const f of this.animated) f(night, time, sim);
   }
 

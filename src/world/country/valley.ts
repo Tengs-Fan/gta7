@@ -69,6 +69,8 @@ export interface Ranch {
   bales: Array<{ x: number; z: number }>;
   /** The two paddocks and the corral the horses live in, and the horses: where each stands first, its coat (0..4) and its paddock. */
   paddocks: Rect[];
+  /** Where each paddock's horses keep: inside the fence, and clear of the shelter along the paddocks' south fence. */
+  roam: Rect[];
   horses: Array<{ x: number; z: number; coat: number; paddock: number }>;
   /** The sheep's pasture along the loop, and how many graze it. */
   pasture: Rect;
@@ -117,10 +119,10 @@ const WINERY_YARD = mkRect(-2041, 108, -1993, 146);
 const WINERY_EAVES = 4.6;
 const DRIVE_Z = 127;
 /** The rows run from this share of the rise's semi-axes out to the other, a step apart: clear of the yard, over the slopes. */
-const ROWS = { from: 0.31, to: 0.94, step: 0.032 } as const;
-/** The ranch: its drive's z, the pasture along the loop, the yard and the horses' paddocks. */
+export const VINE_ROWS = { from: 0.31, to: 0.94, step: 0.032 } as const;
+/** The ranch: its drive's z, the pasture along the loop (its fence 8 m off the road's edge, so a car in the near lane passes 10 m from the sheep), the yard and the horses' paddocks. */
 const RANCH_DRIVE_Z = 246;
-const PASTURE = mkRect(-1822, 268, -1734, 372);
+const PASTURE = mkRect(-1826, 268, -1762, 372);
 const RANCH_YARD = mkRect(-1730, 222, -1630, 300);
 const PADDOCK_A = mkRect(-1730, 316, -1682, 376);
 const PADDOCK_B = mkRect(-1682, 316, -1634, 376);
@@ -150,7 +152,7 @@ export function noValley(): ValleyFarms {
   return {
     firstProp: 0,
     vineyard: { rise: RISE, rows: 0, segments: [], winery: { hall: none, building: -1, y: 0, eaves: 0, porch: none, yard: none, poles: [], barrels: none, drive: [0, 0, 0, 0], sign: { x: 0, z: 0, rot: 0 }, mailbox: { x: 0, z: 0, rot: 0 } } },
-    ranch: { house: -1, houseRect: none, barn: none, door: 'W', yard: none, drive: [0, 0, 0, 0], gate: { x: 0, z: 0, rot: 0 }, mailbox: { x: 0, z: 0, rot: 0 }, windpump: -1, bales: [], paddocks: [], horses: [], pasture: none, sheep: 0 },
+    ranch: { house: -1, houseRect: none, barn: none, door: 'W', yard: none, drive: [0, 0, 0, 0], gate: { x: 0, z: 0, rot: 0 }, mailbox: { x: 0, z: 0, rot: 0 }, windpump: -1, bales: [], paddocks: [], roam: [], horses: [], pasture: none, sheep: 0 },
     ruin: { rect: none, y: 0, walls: [] },
     fields: [],
     hedges: [],
@@ -174,7 +176,7 @@ function building(layout: CityLayout, rect: Rect, y: number, h: number, style: '
 function vineRows(rise: Vineyard['rise'], skip: (x: number, z: number) => boolean): { rows: number; segments: VineSegment[] } {
   const segments: VineSegment[] = [];
   let rows = 0;
-  for (let s = ROWS.from; s <= ROWS.to + 1e-6; s += ROWS.step) {
+  for (let s = VINE_ROWS.from; s <= VINE_ROWS.to + 1e-6; s += VINE_ROWS.step) {
     rows++;
     const at = (t: number): [number, number] => [rise.cx + rise.rx * s * Math.cos(t), rise.cz + rise.rz * s * Math.sin(t)];
     let t = 0;
@@ -228,8 +230,8 @@ function buildVineyard(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect
   layout.parking.push({ x: -2003, z: 141, heading: W }, { x: -1998, z: 141, heading: W });
   v.drives.push(mkRect(drive[2], DRIVE_Z - 2.6, drive[0], DRIVE_Z + 2.6));
   taken.push(WINERY_YARD, mkRect(drive[2], DRIVE_Z - 6, drive[0], DRIVE_Z + 6), mkRect(-1864, DRIVE_Z + 4, -1856, DRIVE_Z + 12));
-  // Oaks over the yard's corners, and a hedgerow along the loop's west verge, open at the drive.
-  for (const [x, z] of [[-2038, 110], [-1999, 144], [-2040, 144]] as const) oak(layout, x, z, rng);
+  // Oaks round the yard, and a hedgerow along the loop's west verge, open at the drive.
+  for (const [x, z] of [[-2030, 100], [-2049, 130], [-2005, 151]] as const) oak(layout, x, z, rng);
   v.hedges.push(mkRect(-1858.5, 141, -1857.1, 300), mkRect(-1858.5, 104, -1857.1, 114));
 }
 
@@ -252,13 +254,14 @@ function buildRanch(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect[])
   const bales = [[-1626, 254], [-1626, 258.4], [-1626, 262.8], [-1622, 256], [-1622, 260.4], [-1618, 258]].map(([x, z]) => ({ x: x!, z: z! }));
   for (const b of bales) v.solids.push({ rect: mkRect(b.x - BALE_R, b.z - BALE_R, b.x + BALE_R, b.z + BALE_R), y0: 0, y1: BALE_H, tag: 'container', round: true });
   // The paddocks, the corral and the pasture, each fenced round by whole runs, a gate (two runs) left open in each.
-  fenceRound(layout, PASTURE, { N: gap(18), E: gap(10) });
+  fenceRound(layout, PASTURE, { N: gap(11), E: gap(10) });
   fenceRound(layout, PADDOCK_A, { N: gap(5) });
   fenceLine(layout, PADDOCK_B.minX, PADDOCK_B.minZ, PADDOCK_B.maxX, PADDOCK_B.minZ, gap(5));
   fenceLine(layout, PADDOCK_B.minX, PADDOCK_B.maxZ, PADDOCK_B.maxX, PADDOCK_B.maxZ);
   fenceLine(layout, PADDOCK_B.maxX, PADDOCK_B.minZ, PADDOCK_B.maxX, PADDOCK_B.maxZ);
   fenceRound(layout, CORRAL, { N: gap(2, 3) });
   const paddocks = [PADDOCK_A, PADDOCK_B, CORRAL];
+  const roam = [mkRect(PADDOCK_A.minX + 3, PADDOCK_A.minZ + 3, PADDOCK_A.maxX - 3, PADDOCK_A.maxZ - 8), mkRect(PADDOCK_B.minX + 3, PADDOCK_B.minZ + 3, PADDOCK_B.maxX - 3, PADDOCK_B.maxZ - 8), insetRect(CORRAL, 3)];
   const horses = [
     { x: -1712, z: 340, coat: 0, paddock: 0 }, { x: -1700, z: 356, coat: 3, paddock: 0 }, { x: -1718, z: 362, coat: 2, paddock: 0 },
     { x: -1664, z: 346, coat: 1, paddock: 1 }, { x: -1650, z: 360, coat: 4, paddock: 1 },
@@ -271,13 +274,13 @@ function buildRanch(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect[])
     gate: { x: -1806, z: RANCH_DRIVE_Z, rot: W },
     mailbox: { x: -1832, z: RANCH_DRIVE_Z - 7, rot: E },
     windpump: pump,
-    bales, paddocks, horses, pasture: PASTURE, sheep: SHEEP_COUNT,
+    bales, paddocks, roam, horses, pasture: PASTURE, sheep: SHEEP_COUNT,
   };
   layout.parking.push({ x: -1712, z: 270, heading: E }, { x: -1712, z: 275, heading: E });
   v.drives.push(mkRect(-1835, RANCH_DRIVE_Z - 2.6, driveEnd, RANCH_DRIVE_Z + 2.6));
   taken.push(yard, PASTURE, mkRect(PADDOCK_A.minX, PADDOCK_A.minZ, PADDOCK_B.maxX, PADDOCK_A.maxZ), CORRAL, mkRect(-1835, RANCH_DRIVE_Z - 6, driveEnd, RANCH_DRIVE_Z + 6), mkRect(-1626 - 4, 250, -1612, 268));
   // Oaks for the house's shade and along the yard's north side; a hedgerow along the loop beside the drive.
-  for (const [x, z] of [[-1736, 228], [-1712, 218], [-1690, 224], [-1670, 232], [-1630, 220], [-1750, 306]] as const) oak(layout, x, z, rng);
+  for (const [x, z] of [[-1736, 228], [-1712, 217], [-1690, 216], [-1664, 216], [-1630, 218], [-1750, 306]] as const) oak(layout, x, z, rng);
   v.hedges.push(mkRect(-1822, 208, -1820.6, 238));
 }
 
@@ -321,12 +324,14 @@ function buildRuin(layout: CityLayout, v: ValleyFarms, taken: Rect[]): void {
 }
 
 /** Oaks and bushes over the open land: groves round the knoll, a windbreak along the loop's west verge and single trees in the meadows. */
-function scatter(layout: CityLayout, firstProp: number, rng: Rng, taken: Rect[]): void {
+function scatter(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect[]): void {
   const country = layout.country;
   const placed: Array<{ x: number; z: number }> = [];
-  for (const p of layout.props.slice(firstProp)) if (p.kind === 'tree') placed.push(p);
+  for (const p of layout.props.slice(v.firstProp)) if (p.kind === 'tree') placed.push(p);
+  const rise = v.vineyard.rise;
   const free = (x: number, z: number, edge: number, gap: number) =>
     z >= VALLEY_FARMS_FROM &&
+    Math.hypot((x - rise.cx) / rise.rx, (z - rise.cz) / rise.rz) > 0.99 &&
     countryGround(country, x, z) >= 0 &&
     [[-30, -30], [30, -30], [-30, 30], [30, 30]].every(([dx, dz]) => onCountyLand(country, x + dx!, z + dz!)) &&
     roadEdgeDistance(x, z) >= edge &&
@@ -369,7 +374,7 @@ function scatter(layout: CityLayout, firstProp: number, rng: Rng, taken: Rect[])
     for (let k = rng.int(1, 3); k > 0; k--) {
       const x = t.x + rng.range(-5, 5);
       const z = t.z + rng.range(-5, 5);
-      if (z >= VALLEY_FARMS_FROM && countryGround(country, x, z) >= 0 && roadEdgeDistance(x, z) >= 14 && !taken.some((r) => rectContains(r, x, z, 1.5))) bushAt(x, z);
+      if (z >= VALLEY_FARMS_FROM && Math.hypot((x - rise.cx) / rise.rx, (z - rise.cz) / rise.rz) > 0.99 && countryGround(country, x, z) >= 0 && roadEdgeDistance(x, z) >= 14 && !taken.some((r) => rectContains(r, x, z, 1.5))) bushAt(x, z);
     }
   }
   for (let n = 0, tries = 0; n < 30 && tries < 400; tries++) {
@@ -393,6 +398,6 @@ export function buildValley(layout: CityLayout): void {
   buildRanch(layout, v, rng, taken);
   buildFields(layout, v, rng, taken);
   buildRuin(layout, v, taken);
-  scatter(layout, v.firstProp, rng, taken);
+  scatter(layout, v, rng, taken);
   country.valley = v;
 }
