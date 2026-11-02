@@ -15,7 +15,7 @@ import { riseAt } from '../world/terrain';
 import { adTexture, AD_COUNT, glowTexture, groundTexture, radialTexture, signalAtlas, signalGlowTexture, SIGNAL_TILE_RECTS } from './textures';
 import { DARK_SIGNAL, hasOpposite, LIT, LIT_COLORS, quadLit, showKey, showScratch, signalQuads, signalShow, signalStyle, walkAxes, type QuadRole, type SignalShow } from './signalHeads';
 import { spatialKey, STATIC_CHUNK_SIZE, StaticVisibility } from './spatial';
-import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, occluderAxisPoints, occluderOpacityPath, type OccluderKind } from './occluderFade';
+import { OCCLUDER_AXIS, OCCLUDER_FADE_EDGES, OCCLUDER_GLSL, OCCLUDER_LENS_FAR, OCCLUDER_SEGMENTS, PINE_REACH, occluderAxisPoints, occluderOpacityPath, type OccluderKind } from './occluderFade';
 import { broadleafClusters, broadleafGeometry, broadleafSamples, broadleafTexture, PALM_BEND, PALM_CROWN, PALM_TOP, palmFrondsGeometry, palmTrunkGeometry, treeTrunkGeometry } from './foliage';
 import {
   benchGeometry, binGeometry, bollardGeometry, drumGeometry, fenceGeometry, hydrantGeometry, jackGeometry, lampHeadGeometry, lampHousingGeometry, lampLensGeometry, lampShadowGeometry,
@@ -199,10 +199,10 @@ const OCCLUDER_OFF = [-2, -1, -2, -1] as const;
  * for foliage. Opaque, so no sorting; uniforms only, so switching it on and off compiles nothing. Shadows come from
  * the default depth material and are unaffected; PropsView keeps a dissolving batch out of the contact-shadow pass.
  */
-function dissolveOccluder(mat: THREE.Material, axis: { readonly from: number; readonly to: number }, shared: OccluderUniforms, bend = 0): void {
+function dissolveOccluder(mat: THREE.Material, axis: { readonly from: number; readonly to: number }, shared: OccluderUniforms, bend = 0, reach = 0): void {
   const span = { value: new THREE.Vector2(axis.from, axis.to) };
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, shared, { uOccSpan: span, uOccBend: { value: bend } });
+    Object.assign(shader.uniforms, shared, { uOccSpan: span, uOccBend: { value: bend }, uOccReach: { value: reach } });
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -212,6 +212,7 @@ uniform vec3 uOccSubject;
 uniform vec4 uOccFade;
 uniform vec2 uOccSpan;
 uniform float uOccBend;
+uniform float uOccReach;
 varying float vOccKeep;
 ${OCCLUDER_GLSL}`,
       )
@@ -236,7 +237,7 @@ ${OCCLUDER_GLSL}`,
     occLens = min( occLens, occPointSeg( uOccCam, occA, occB ) );
     occA = occB;
   }
-  vOccKeep = min( smoothstep( uOccFade.x, uOccFade.y, occLine ), smoothstep( uOccFade.z, uOccFade.w, occLens ) );
+  vOccKeep = min( smoothstep( uOccFade.x, uOccFade.y, max( occLine - uOccReach, 0.0 ) ), smoothstep( uOccFade.z, uOccFade.w, occLens ) );
 }`,
       );
     shader.fragmentShader = shader.fragmentShader
@@ -761,7 +762,7 @@ export class PropsView {
     this.buildRoofProps();
     this.buildDressing(dressingItems(world));
     world.layout.props.forEach((p, i) => {
-      if (p.kind !== 'lamp' && p.kind !== 'signal' && p.kind !== 'tree' && p.kind !== 'palm') return;
+      if (p.kind !== 'lamp' && p.kind !== 'signal' && p.kind !== 'tree' && p.kind !== 'palm' && p.kind !== 'pine') return;
       const o: Occluder = { index: i, kind: p.kind, base: { x: 0, y: 0, z: 0 }, top: { x: 0, y: 0, z: 0 }, path: [], hidden: false, fallen: false };
       this.standUp(o);
       this.occluders.push(o);
@@ -987,6 +988,15 @@ export class PropsView {
     const rng = new Rng(78);
     const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
     fadeNearCamera(mat, { shared: this.windUniforms, pivot: new THREE.Vector4(0, 0, 0, PINE_H) });
+    // A pine between the camera and what it frames dissolves whole (its skirts reach about 1.3 m past its axis where the camera looks through them).
+    const fade = mat.onBeforeCompile;
+    dissolveOccluder(mat, OCCLUDER_AXIS.pine, this.occUniforms, 0, PINE_REACH);
+    const occ = mat.onBeforeCompile;
+    mat.onBeforeCompile = (shader, renderer) => {
+      fade.call(mat, shader, renderer);
+      occ.call(mat, shader, renderer);
+    };
+    mat.customProgramCacheKey = () => 'gta7-pine';
     const tint = new THREE.Color();
     // In cells of half the usual side: a batch is drawn whole (the camera's frustum and the sun's shadow take the batch or leave
     // it) and a pine is a hundred triangles, so the forest's batches are kept to a few hundred pines.
@@ -1725,7 +1735,7 @@ export class PropsView {
     u.uOccCam.value.set(cam.x, cam.y, cam.z);
     u.uOccSubject.value.set(subject.x, subject.y, subject.z);
     const check = (o: Occluder) => {
-      if (o.hidden || occluderOpacityPath(cam, subject, o.path) >= 1) return;
+      if (o.hidden || occluderOpacityPath(cam, subject, o.path, o.kind === 'pine' ? PINE_REACH : 0) >= 1) return;
       out.push(o.index);
       for (const r of this.refs.get(o.index) ?? []) {
         r.mesh.userData.contactShadow = false;

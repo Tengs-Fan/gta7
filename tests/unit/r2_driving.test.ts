@@ -596,11 +596,16 @@ describe('traffic ahead of a fast driver (P41)', () => {
 const isTree = (q: Prop) => q.kind === 'tree' || q.kind === 'palm';
 const rayHit = makeRayHit();
 
+/** A foliage material: fadeNearCamera's shader (its varying), or the pines' own program, which wraps it with the occluder dissolve. */
+function fadesNearCamera(mat: THREE.Material): boolean {
+  return mat.onBeforeCompile.toString().includes('vFadeWorld') || mat.customProgramCacheKey() === 'gta7-pine';
+}
+
 /** Share of the screen showing foliage, by rays through a pixel grid: building occlusion and the near-camera dissolve included. */
 function foliageCover(props: PropsView, sim: Sim, cam: THREE.PerspectiveCamera, cols: number, rows: number): number {
   const foliage: THREE.Object3D[] = [];
   props.group.traverse((o) => {
-    if (o instanceof THREE.InstancedMesh && (o.material as THREE.Material).onBeforeCompile.toString().includes('vFadeWorld')) foliage.push(o);
+    if (o instanceof THREE.InstancedMesh && fadesNearCamera(o.material as THREE.Material)) foliage.push(o);
   });
   const rc = new THREE.Raycaster();
   rc.near = cam.near;
@@ -809,7 +814,7 @@ describe('the camera and street trees (P21)', () => {
     const props = new PropsView(world());
     const foliage: THREE.InstancedMesh[] = [];
     props.group.traverse((o) => {
-      if (o instanceof THREE.InstancedMesh && (o.material as THREE.Material).onBeforeCompile.toString().includes('vFadeWorld')) foliage.push(o);
+      if (o instanceof THREE.InstancedMesh && fadesNearCamera(o.material as THREE.Material)) foliage.push(o);
     });
     // Spatial cells share the same canopy/bush/frond/corn geometries and materials (the cemetery's cypresses wear
     // the trees' canopy, Las Lomas County's apple trees the bushes' leaves, and Pinewood's pines their own model and

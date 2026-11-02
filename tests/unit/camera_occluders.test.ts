@@ -18,7 +18,9 @@ import {
   OCCLUDER_FADE_EDGES,
   OCCLUDER_LENS_FAR,
   OCCLUDER_LENS_NEAR,
+  PINE_REACH,
   occluderOpacity,
+  occluderOpacityPath,
   type OccluderKind,
 } from '../../src/render/occluderFade';
 import { PropsView } from '../../src/render/props';
@@ -333,6 +335,19 @@ describe('poles stay non-solid for the camera', () => {
 
 type Priv = { refs: Map<number, Array<{ mesh: THREE.InstancedMesh }>>; occUniforms: { uOccCam: { value: THREE.Vector3 }; uOccSubject: { value: THREE.Vector3 }; uOccFade: { value: THREE.Vector4 } } };
 
+describe('a pine dissolves by where its skirts are, not only its axis', () => {
+  const axis = [v(0, 0.5, -2), v(0, 5, -2)];
+  it('with a reach of 1.3 m a sight line passing 1 m off the axis dissolves it, and the axis alone would not', () => {
+    const cam = v(1, 3, -6);
+    const subject = v(1, 1.6, 2);
+    expect(occluderOpacityPath(cam, subject, axis)).toBe(1);
+    expect(occluderOpacityPath(cam, subject, axis, PINE_REACH)).toBe(0);
+  });
+  it('draws a pine in full once the line is 2 m (reach plus the capsule\'s full distance) off its axis', () => {
+    expect(occluderOpacityPath(v(2.1, 3, -6), v(2.1, 1.6, 2), axis, PINE_REACH)).toBe(1);
+  });
+});
+
 describe('the props view dissolves poles and trunks through uniforms only', () => {
   const W = world();
   const props = new PropsView(W);
@@ -416,6 +431,20 @@ describe('the props view dissolves poles and trunks through uniforms only', () =
     expect(Math.max(...priv.occUniforms.uOccFade.value.toArray())).toBeLessThan(0);
     // None of it compiled anything new.
     expect(meshesOf(lamp).map((m) => (m.material as THREE.Material).version)).toEqual(versions);
+  });
+
+  it('a pine 1.2 m behind the player dissolves, and leaves the contact shadows with the batch that holds it', () => {
+    const pine = first('pine');
+    expect(pine).toBeGreaterThanOrEqual(0);
+    const q = W.layout.props[pine]!;
+    // The player faces +x with the pine 1.2 m behind him; the boom ends 3.1 m behind the pine, as in the Pinewood shot.
+    const head = v(q.x + 1.2, q.y + 1.6, q.z);
+    const camAt = v(q.x - 3.1, q.y + 2.3, q.z);
+    expect(props.setOccluderView(camAt, head)).toContain(pine);
+    for (const m of meshesOf(pine)) expect(m.userData.contactShadow).toBe(false);
+    // Off to one side by 3 m it stands drawn in full.
+    expect(props.setOccluderView(v(camAt.x, camAt.y, camAt.z + 3), v(head.x, head.y, head.z + 3))).not.toContain(pine);
+    for (const m of meshesOf(pine)) expect(m.userData.contactShadow).toBeUndefined();
   });
 
   it('a knocked-over signal dissolves along its fallen axis, a knocked-down lamp no more, and a new game stands them up', () => {
