@@ -1,10 +1,10 @@
 // Sunset Vineyard's rows (world/country/valley.ts VineSegment), drawn as instances: each run of trellis is one instance of a
-// 3 m model (an end post, two leaf walls splayed over a low cap, grapes hanging in the lower half), set on the ground
-// under its middle, so a row that follows a contour stands level. The leaves sway on the props' wind from the post's
-// top, grown from the ground up as the crops' do (the foliage's own sway starts a metre up and would leave a 2 m vine
-// still). The instances are cut into chunks that the view hides past the county's reach, and the soil strips under the
-// rows are one static layer in the county's cells. The material joins the fields' crops, which the headlights light by
-// their own rule at night (render/lightSprites.ts lightGround).
+// 3 m model (an end post, a top wire, and a leaf card a side on a texture of two plants with trunks, wires and hanging
+// grapes, light between them), set on the ground under its middle, so a row that follows a contour stands level. The
+// leaves sway on the props' wind from the post's top, grown from the ground up as the crops' do (the foliage's own sway
+// starts a metre up and would leave a 2 m vine still). The instances are cut into chunks that the view hides past the
+// county's reach, and the soil strips under the rows are one static layer in the county's cells. The material joins the
+// fields' crops, which the headlights light by their own rule at night (render/lightSprites.ts lightGround).
 
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
@@ -25,7 +25,7 @@ const LEAF_TOP = 1.95;
 const STRIP_W = 1.3;
 const STRIP_Y = 0.025;
 
-/** A vine's leaves and grapes on a transparent ground, its bottom tenth an opaque brown strip for the posts. */
+/** A vine plant per tile (1.5 m of run): trunk, cordon wire, a foliage clump with gaps either side, grapes under it. Transparent elsewhere, but the bottom tenth, an opaque brown strip for the posts. */
 function vineTexture(): THREE.Texture {
   const W = 256;
   const H = 256;
@@ -38,19 +38,45 @@ function vineTexture(): THREE.Texture {
     ctx.ellipse(x, y, s, s * 0.78, rng.range(0, Math.PI), 0, Math.PI * 2);
     ctx.fill();
   };
-  // A dense green mat of leaves over the top nine tenths, ragged along its upper edge.
-  for (let k = 0; k < 150; k++) leaf(rng.range(0, W), rng.range(10, H * 0.9), rng.range(9, 17), rng.int(80, 140));
-  for (let k = 0; k < 40; k++) leaf(rng.range(0, W), rng.range(H * 0.3, H * 0.85), rng.range(6, 11), rng.int(130, 175));
-  // The bunches, dark purple, hanging in the lower half of the leaves.
-  for (let k = 0; k < 7; k++) {
-    const x = rng.range(14, W - 14);
-    const y = rng.range(H * 0.5, H * 0.76);
-    for (let n = 0; n < 9; n++) {
+  // The card spans 0 to LEAF_TOP m over canvas y 225 (ground) to 0: 115 px a metre.
+  const m = (metres: number) => 225 - metres * 115;
+  // Wires: the cordon at 0.95 m, a catch wire at 1.55 m.
+  ctx.strokeStyle = '#8a8a86';
+  ctx.lineWidth = 2;
+  for (const y of [m(0.95), m(1.55)]) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+  // The trunk, a little crooked, and the cordon's two arms.
+  ctx.strokeStyle = '#5a3f27';
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(128, m(0));
+  ctx.quadraticCurveTo(122, m(0.5), 128, m(0.95));
+  ctx.stroke();
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(60, m(0.95));
+  ctx.lineTo(196, m(0.95));
+  ctx.stroke();
+  // Bunches hanging under the cordon, dark purple.
+  for (let k = 0; k < 4; k++) {
+    const x = 128 + rng.range(-55, 55);
+    const y = m(0.9) + rng.range(0, 8);
+    for (let n = 0; n < 8; n++) {
       ctx.fillStyle = n % 3 === 0 ? '#5d2a63' : '#3f1d4a';
       ctx.beginPath();
-      ctx.arc(x + rng.range(-5, 5), y + n * 2.6 + rng.range(-1.5, 1.5), rng.range(3.2, 4.6), 0, Math.PI * 2);
+      ctx.arc(x + rng.range(-5, 5), y + n * 3.2 + rng.range(-1.5, 1.5), rng.range(3.4, 4.8), 0, Math.PI * 2);
       ctx.fill();
     }
+  }
+  // The foliage: a clump of leaves above the cordon, narrower at its foot and ragged at its top, with gaps either side of it.
+  for (let k = 0; k < 120; k++) {
+    const y = rng.range(6, m(0.85));
+    const half = 38 + 52 * Math.sin((Math.min(1, (m(0.85) - y) / 40) * Math.PI) / 2);
+    leaf(128 + rng.range(-half, half) * Math.sqrt(rng.next()), y, rng.range(8, 14), rng.int(80, 150));
   }
   // The posts' strip.
   ctx.fillStyle = '#6a4a2c';
@@ -63,15 +89,11 @@ function vineGeometry(): THREE.BufferGeometry {
   const g = new GeoBuilder(true);
   const h = VINE_SEG / 2;
   const white = [1, 1, 1] as const;
-  // Leaf cards sample the texture above its post strip (v 0.1 to 1), three leaf tiles along the run, the second card of
-  // each side shifted so the two do not repeat.
+  // One leaf card a side from the ground to the top wire, leaning out as it climbs, two plants (tiles) along the run; the
+  // texture's post strip is below v 0.12.
   const v0 = 0.12;
   const v1 = 1;
-  for (const s of [-1, 1]) {
-    g.quad(-h, 0.5, s * 0.18, h, 0.5, s * 0.18, h, 1.3, s * 0.44, -h, 1.3, s * 0.44, [0, v0, 3, v0, 3, v1, 0, v1], white);
-    g.quad(-h, 1.15, s * 0.42, h, 1.15, s * 0.42, h, LEAF_TOP, s * 0.24, -h, LEAF_TOP, s * 0.24, [0.5, v0, 3.5, v0, 3.5, v1, 0.5, v1], white);
-  }
-  g.quad(-h, LEAF_TOP, -0.24, h, LEAF_TOP, -0.24, h, LEAF_TOP + 0.02, 0.24, -h, LEAF_TOP + 0.02, 0.24, [0, v0, 3, v0, 3, v1, 0, v1], white);
+  for (const s of [-1, 1]) g.quad(-h, 0, s * 0.1, h, 0, s * 0.1, h, LEAF_TOP, s * 0.3, -h, LEAF_TOP, s * 0.3, [0, v0, 2, v0, 2, v1, 0, v1], white);
   // The end post, and the wire along the top, every face on the texture's brown strip.
   const strip = [0.5, 0.04, 0.5, 0.04, 0.5, 0.04, 0.5, 0.04];
   const column = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => {
