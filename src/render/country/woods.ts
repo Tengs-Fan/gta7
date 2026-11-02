@@ -203,12 +203,11 @@ export function buildWoods(view: CountryView, kit: PlacesKit, wind: WindUniforms
   }
 
   // The boulders, in the pass's rock.
-  if (land.boulders.length > 0) view.add(boulders(land.boulders), rockMaterial(view), { shadow: true, name: 'valley-rocks' });
+  view.add(boulders(land.boulders), rockMaterial(view), { shadow: true, name: 'valley-rocks' });
 
-  // The wildflowers: tufts of two crossed cards, alpha-tested, swaying on the wind.
-  if (land.flowers.length + land.tussocks.length > 0) {
-    const flowerMat = new THREE.MeshStandardMaterial({ map: flowerAtlas(), vertexColors: true, alphaTest: 0.5, roughness: 0.9, side: THREE.DoubleSide });
-    swayOnWind(flowerMat, wind, 1.4);
-    view.add(flowerGeometry(view, [...land.flowers, ...land.tussocks]), flowerMat, { name: 'wildflowers', receive: false });
-  }
+  // The wildflowers: tufts of two crossed cards, alpha-tested, swaying on the wind, drawn within the tier's ring of the camera.
+  const flowerMat = new THREE.MeshStandardMaterial({ map: flowerAtlas(), vertexColors: true, alphaTest: 0.5, roughness: 0.9, side: THREE.DoubleSide });
+  swayOnWind(flowerMat, wind, 1.4);
+  view.addFlowers(flowerGeometry(view, land.flowers), flowerMat, false);
+  view.addFlowers(flowerGeometry(view, land.tussocks), flowerMat, true);
 }

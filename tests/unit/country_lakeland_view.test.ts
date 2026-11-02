@@ -9,6 +9,7 @@ import { CountryView } from '../../src/render/country';
 import { lakeLamps } from '../../src/render/country/lake';
 import { PINE_H, pineGeometry } from '../../src/render/country/pineModels';
 import { PropsView } from '../../src/render/props';
+import { FLOWER_RING } from '../../src/render/quality';
 import { HARDWARE_CHUNK_SIZE } from '../../src/render/spatial';
 import { campfireLit } from '../../src/world/country/lakeland';
 import { PINE_TOWER } from '../../src/world/country/woods';
@@ -65,13 +66,40 @@ describe('the pine', () => {
 
 describe('the shore and the wood', () => {
   it('draws the reeds, the wildflowers, the valley\'s boulders and the lookout tower, each a mesh culled with the county\'s cells', () => {
-    for (const name of ['reeds', 'wildflowers', 'valley-rocks', 'lake-lamp-pools']) expect(meshes(name).length, name).toBeGreaterThan(0);
+    for (const name of ['reeds', 'wildflowers', 'tussocks', 'valley-rocks', 'lake-lamp-pools']) expect(meshes(name).length, name).toBeGreaterThan(0);
     expect(meshes('pine-lookout').length).toBe(1);
     const tower = meshes('pine-lookout')[0]!;
     tower.geometry.computeBoundingBox();
     // From the rise's top up past the cab to the roof, about 18 m.
     expect(tower.geometry.boundingBox!.max.y - tower.geometry.boundingBox!.min.y).toBeGreaterThan(PINE_TOWER.top - 1);
     expect(tower.geometry.boundingBox!.min.y).toBeCloseTo(W.groundHeight(PINE_TOWER.x, PINE_TOWER.z), 3);
+  });
+
+  it('draws the wildflowers and the tussocks only within the tier\'s ring of the camera, the tussocks nearer, and none on the software tier', () => {
+    const visible = (name: string) => meshes(name).filter((m) => m.visible);
+    const reach = (m: THREE.Mesh, x: number, z: number) => {
+      const b = new THREE.Box3().setFromObject(m);
+      return Math.hypot(Math.max(b.min.x - x, 0, x - b.max.x), Math.max(b.min.z - z, 0, z - b.max.z));
+    };
+    const at = PINE_TOWER;
+    for (const tier of ['high', 'medium', 'low'] as const) {
+      view.setTier(tier);
+      view.cull(at.x, at.z, 760);
+      for (const [name, ring] of [['wildflowers', FLOWER_RING[tier].patch], ['tussocks', FLOWER_RING[tier].tussock]] as const) {
+        const shown = visible(name);
+        expect(shown.length, `${tier} ${name}`).toBeGreaterThan(0);
+        for (const m of meshes(name)) expect(m.visible, `${tier} ${name}`).toBe(reach(m, at.x, at.z) <= ring);
+      }
+    }
+    expect(FLOWER_RING.high.tussock).toBeLessThan(FLOWER_RING.high.patch);
+    // Far away from every cell (the county's east end, 1,900 m off the wood), none.
+    view.setTier('high');
+    view.cull(900, 0, 760);
+    expect(visible('wildflowers').length + visible('tussocks').length).toBe(0);
+    view.setTier('software');
+    view.cull(at.x, at.z, 760);
+    expect(visible('wildflowers').length + visible('tussocks').length).toBe(0);
+    view.setTier('high');
   });
 
   it('drapes the lanes and the pads as dirt facing up, 3.5 cm over the ground, along every lane from the road to its end', () => {

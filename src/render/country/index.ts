@@ -14,7 +14,7 @@ import type { StaticWorld } from '../../world/staticWorld';
 import type { CityView } from '../city';
 import { skyPath } from '../environment';
 import type { WindUniforms } from '../props';
-import { COUNTRY_CELL, COUNTRY_FOG_MARGIN, COUNTRY_NEAR, CROP_RING, type QualityTier } from '../quality';
+import { COUNTRY_CELL, COUNTRY_FOG_MARGIN, COUNTRY_NEAR, CROP_RING, FLOWER_RING, type FlowerRing, type QualityTier } from '../quality';
 import { spatialGeometry, StaticVisibility } from '../spatial';
 import { buildBridge } from './bridge';
 import { Campfire } from './campfire';
@@ -47,6 +47,9 @@ export class CountryView {
   private readonly visibility = new StaticVisibility();
   /** The ground's cells, each drawn by its near or its far meshes (addCell). */
   private readonly cells: Array<{ bounds: Rect; near: THREE.Mesh[]; far: THREE.Mesh[]; silhouette: boolean }> = [];
+  /** The wildflower and tussock cells, hidden past the tier's FLOWER_RING (setTier, cull). */
+  private readonly flowerCells: Array<{ mesh: THREE.Mesh; bounds: THREE.Box3; tussock: boolean }> = [];
+  private flowerRing: FlowerRing = FLOWER_RING.high;
   readonly farms: FarmsView;
   readonly fields: FieldsView;
   private readonly sun = new THREE.Vector3();
@@ -95,6 +98,7 @@ export class CountryView {
   /** The tier's crops near the camera (quality.ts CROP_RING). */
   setTier(tier: QualityTier | 'software'): void {
     this.fields.setTier(CROP_RING[tier]);
+    this.flowerRing = FLOWER_RING[tier];
   }
 
   /**
@@ -126,6 +130,15 @@ export class CountryView {
     if (parts[0] !== geo) geo.dispose();
   }
 
+  /** The wildflowers (or, with `tussock`, the tussocks) as `add` cuts them, each cell drawn only within the tier's ring of the camera. */
+  addFlowers(geo: THREE.BufferGeometry, mat: THREE.Material, tussock: boolean): void {
+    const before = this.group.children.length;
+    this.add(geo, mat, { name: tussock ? 'tussocks' : 'wildflowers', receive: false });
+    for (const mesh of this.group.children.slice(before) as THREE.Mesh[]) {
+      this.flowerCells.push({ mesh, bounds: new THREE.Box3().setFromObject(mesh), tussock });
+    }
+  }
+
   /**
    * A cell of the ground, drawn by its near meshes while the camera is within COUNTRY_NEAR of it and by its far ones
    * beyond; past the fog's cull the far ones stay only for a `silhouette` (a rise's) on the hardware tiers.
@@ -145,6 +158,11 @@ export class CountryView {
     const reach = fogFar + COUNTRY_FOG_MARGIN;
     this.visibility.update(x, z, reach);
     this.farms.cull(x, z, reach);
+    for (const { mesh, bounds, tussock } of this.flowerCells) {
+      const ring = tussock ? this.flowerRing.tussock : this.flowerRing.patch;
+      const d = Math.hypot(Math.max(bounds.min.x - x, 0, x - bounds.max.x), Math.max(bounds.min.z - z, 0, z - bounds.max.z));
+      mesh.visible = mesh.visible && ring > 0 && d <= ring;
+    }
     const outline = this.city.buildingU.skyline.value > 0.5;
     for (const c of this.cells) {
       const b = c.bounds;
