@@ -285,8 +285,9 @@ describe('round 2 city: layout', () => {
     // vineyard row count, or the one vine run in the winery yard's corner).
     // and Lake Lomas and Pinewood (the dock's two piers on the lake, four cabins, some 2,700 pines and a few hundred oaks and bushes in the
     // wood and the valley's north, and the lake's review: a fire break of pines west of the lookout tower's pad, its boulders, the hills' old
-    // scrub set aside).
-    expect(layoutHash()).toBe('1a13e60b42e9979238ea334c74f9e76d2946dd290ba2e84927a299368612cc69');
+    // scrub set aside); all re-recorded once on the merged head, where the passes run places, lakeland, valley's farms, oddities, so
+    // the lakeland's props, buildings and decks come before the farms' and the roadside oddities' last.
+    expect(layoutHash()).toBe('8ac5ef2ec419abcbe0b330d2a4f0e2823c1304735ca335b806e5ac1e5bd8aca0');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

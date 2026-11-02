@@ -12,7 +12,7 @@ import { poleGeometry } from '../../src/render/country/poles';
 import { roadsideAtlas, roadsideGeometry } from '../../src/render/country/roadside';
 import { PropsView } from '../../src/render/props';
 import { HARDWARE_CHUNK_SIZE } from '../../src/render/spatial';
-import { POLE, ROADSIDE } from '../../src/world/country/oddities';
+import { insulator, POLE, ROADSIDE } from '../../src/world/country/oddities';
 import { triangles } from '../../src/render/furniture';
 import { world } from './helpers';
 
@@ -59,11 +59,15 @@ describe('the poles and the wires', () => {
     const wires = layer('telephone-wires');
     expect(wires.parts.length).toBeGreaterThan(5);
     for (const m of wires.parts) expect(m.castShadow).toBe(false);
-    // 6 vertices to each of 4 faces to each piece of the chain: no piece is longer than 5 m.
+    // 6 vertices to each of 4 faces to each piece of the chain: no piece is longer than 5 m. Each wire's length is between its
+    // two insulators (on a bend the crossarms turn with the road, so it is not exactly the poles' distance).
     let pieces = 0;
     for (const s of odd.spans) {
-      const len = Math.hypot(odd.poles[s.a]!.x - odd.poles[s.b]!.x, odd.poles[s.a]!.z - odd.poles[s.b]!.z);
-      pieces += POLE.wires.length * Math.max(2, Math.ceil(len / 5));
+      for (let k = 0; k < POLE.wires.length; k++) {
+        const a = insulator(odd.poles[s.a]!, k);
+        const b = insulator(odd.poles[s.b]!, k);
+        pieces += Math.max(2, Math.ceil(Math.hypot(a[0] - b[0], a[2] - b[2]) / 5));
+      }
     }
     expect(wires.verts).toBe(pieces * 24);
     const box = new THREE.Box3();
@@ -93,7 +97,7 @@ describe('the statics', () => {
   it('blink after dark, red and green by turns, dull glass by day', () => {
     const beacon = (meshes('saucer-beacon')[0]!.material as THREE.MeshBasicMaterial).color;
     const halo = meshes('saucer-halo')[0]!.material as THREE.MeshBasicMaterial;
-    const animate = (night: number, time: number) => (view as unknown as { animated: Array<(n: number, t: number, s: null) => void> }).animated.forEach((f) => f(night, time, null));
+    const animate = (night: number, time: number) => (view as unknown as { animated: Array<(n: number, t: number, s: null, cam: { x: number; y: number; z: number }) => void> }).animated.forEach((f) => f(night, time, null, { x: 0, y: 0, z: 0 }));
     animate(0, 0);
     const day = beacon.clone();
     expect(halo.opacity).toBe(0);

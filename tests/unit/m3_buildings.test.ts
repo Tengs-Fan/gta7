@@ -377,13 +377,15 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // appended after the places (the winery's and the ranch house's buildings, the ranch barn's walls and roof, and the
     // props', hedgerows' and solids' colliders of its vineyard, ranch and farmed land), and the buildings' hash for the
     // winery and the ranch house; and again when its review landed: the ranch's two paddock shelters' walls, three each, among
-    // its solids' colliders.
-    // laid out: the four cabins' buildings, the pines' and the oaks' trunks (after the places' props), and after the places'
-    // solids the lakeland's (the camp's tents, van, toilet, ring and tables, the valley's boulders, the dock's lamp and the
-    // lookout tower's legs and cab); and again by the lake's review: no pines on the fire break west of the tower's pad, three boulders
-    // round the pad, the old scrub set aside (no colliders of its own, but the pines it leaves out take theirs).
-    expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
-    expect(c).toBe('b82635a867685bfa602a5e2c465acafa770bb9fed3d09768c338ef1c90b91f7c');
+    // its solids' colliders; and again when Lake Lomas and Pinewood were laid out: the four cabins' buildings, the pines' and
+    // the oaks' trunks (after the places' props), and after the places' solids the lakeland's (the camp's tents, van, toilet,
+    // ring and tables, the valley's boulders, the dock's lamp and the lookout tower's legs and cab), and by the lake's review
+    // (no pines on the fire break west of the tower's pad, three boulders round the pad, the old scrub set aside). All three
+    // were re-recorded once on the merged head, where the passes run places, lakeland, valley's farms, oddities: the cabins'
+    // buildings come before the winery's and the ranch house's, and the colliders follow the passes' order (the places' solids,
+    // the lakeland's, the valley's hedgerows and solids, the oddities' after them).
+    expect(b).toBe('82da27b5e4df7346a1912b31fea4630267655e068345b4b546da54e56ce6e1b0');
+    expect(c).toBe('9e30cb01443de12df89267513eed57887983c923d97288f3825153418ba4663e');
   });
 });
 

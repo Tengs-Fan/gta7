@@ -520,15 +520,16 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // them: 76 oaks and 130 bushes, 194 fence runs, a windpump, 40 pumpkins and a scarecrow; their colliders after the
   // places', then the winery's and the ranch house's buildings, the ranch barn's walls and roof, and the hedgerows', barrels',
   // bales' and ruin's solids); and when its review landed (the colliders alone: the two paddock shelters' three walls each,
-  // among the solids after the ranch's bales).
-  // Lake Lomas and Pinewood were laid out (the pines, a new kind with a trunk collider, the oaks and the bushes by them,
-  // appended after the places' props, and after the places' solids the lakeland's solids' colliders); and again by the lake's review
-  // (the fire break west of the tower's pad takes its pines out, the pad's boulders stand, and the hills' old scrub is set aside
-  // from the pad, the track and the pines' skirts, which moves its foliage envelopes).
+  // among the solids after the ranch's bales); and when Lake Lomas and Pinewood were laid out (the pines, a new kind with a
+  // trunk collider, the oaks and the bushes by them, and after the places' solids the lakeland's solids' colliders) and by
+  // the lake's review (the fire break west of the tower's pad takes its pines out, the pad's boulders stand, and the hills' old
+  // scrub is set aside from the pad, the track and the pines' skirts, which moves its foliage envelopes); all re-recorded once
+  // on the merged head, where the passes run places, lakeland, valley's farms, oddities, so the lakeland's props come before
+  // the farms' and the roadside oddities' (mailboxes and signs) last, and the colliders follow in the same order.
   const D98 = {
-    props: 'fd7e215cfea50fc6367c3af0475c2f43359d84cef5fb1d4931b78862b87e981f',
-    colliders: 'fac1ea1efa80fe82055dbfc696832507cc65071515a790680f3f20d716578477',
-    envelopes: '49a5db289f360a17852cb9a6af6b0a08e53e66fa3d0d64b11442a350cfb3b27e',
+    props: '85a2b30dd75027abd2fc3a6bbf4f6cf38ce369c5593a861de65b112a9cb974a6',
+    colliders: 'f7e94100091c209f2bd5b08412f9fc587470bd3e6dc90f6d92ae2da3ed4e1c93',
+    envelopes: 'a13bd45640a2bdfe39ee42eba25dfe6c86b08c57f3283b7b3cbf0507c7776f47',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {
@@ -683,14 +684,19 @@ describe('VAL-PRP-010 props stay instanced within budget', () => {
       if (o instanceof THREE.InstancedMesh) perGeo.set(o.geometry.uuid, (perGeo.get(o.geometry.uuid) ?? 0) + 1);
     });
     const cells = new Set(W.layout.props.map((p) => `${Math.floor(p.x / HARDWARE_CHUNK_SIZE)},${Math.floor(p.z / HARDWARE_CHUNK_SIZE)}`)).size;
-    console.log(`[props] ${meshes} prop meshes (d98da7b 387, cap ${Math.floor(387 * 1.5) + 18}), ${tris} triangles over the whole city, ${cells} cells`);
-    // 18 more than 1.5 times: one for the county's roadside furniture (its mailboxes and signs, world/country/oddities.ts), one
-    // instanced batch for every make of them (render/country/roadside.ts), the only mesh the oddities add to the props; the
-    // valley's thirteen, the ten of its two stop-sign junctions (lamps and stop signs), each in a cell of its own, and the three
-    // of the scrub on its hills, in cells the older county had none in; and the four of the valley's farms: its oaks' trunks,
-    // its oaks' leaves and its bushes, each one batch for the whole valley (PropsView.buildTrees) and not one per cell, and
-    // its pumpkin patch's, in the one cell no pumpkin stood in before.
-    expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5) + 18);
+    console.log(`[props] ${meshes} prop meshes (d98da7b 387, cap ${Math.floor(387 * 1.5) + 80}), ${tris} triangles over the whole city, ${cells} cells`);
+    // Measured on the merged head, by geometry: 580 (1.5 times 387) before the county's later passes; 581 with the oddities' one
+    // (their mailboxes and signs, world/country/oddities.ts: one instanced batch for every make of them, render/country/roadside.ts);
+    // 594 with the valley's thirteen (the ten of its two stop-sign junctions, lamps and stop signs, each in a cell of its own, and
+    // the three of the scrub on its hills, in cells the older county had none in); 598 with the four of the valley's farms (its
+    // oaks' trunks, its oaks' leaves and its bushes, each one batch for the whole valley (PropsView.buildTrees) and not one per
+    // cell, and its pumpkin patch's, in the one cell no pumpkin stood in before); and 660 with Pinewood and the valley's north:
+    // 32 pine batches (one to a half cell, since a batch is drawn whole and a forest's must stay a few hundred pines for the
+    // frustum and the sun's shadow to take or leave; full cells would be 12 and cost about 0.3 M more triangles in the 5090's
+    // scenes) and 30 of the lakeland's oaks' trunks and canopies and its bushes (five to each of the 6 cells of the 12 they
+    // stand in that held no trees before; they stay in the cells' batches because the lakeland's props come before the farms',
+    // outside [valley.firstProp, valley.endProp)). That is draws, 1.70 times the d98da7b 387: the cap is what the props need.
+    expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5) + 80);
     for (const n of perGeo.values()) expect(n).toBeLessThanOrEqual(cells + 4);
   });
 });

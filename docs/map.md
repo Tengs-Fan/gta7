@@ -426,7 +426,7 @@ The valley's farms have a record of their own, `Country.valley`, kept apart from
   Both read only the sim's cars and players, and are updated within 420 m of the ranch.
 - **The vines' wind** is the foliage's own (`uWindTime`, `uWindAmp`, `uWindDir`), applied at full weight and scaled by the height up the vine, since the foliage's sway starts a metre up from each instance's foot and a 2 m vine would not move; the vines' material joins the fields' crops, so the headlights light the rows by the crops' rule at night.
   The string lights are emissive bulbs on the signs' glow band (lit by `CityView.update` with the city's signs), and a glow round each (additive points, off by day) that fades in with the night.
-- **Trees** of the valley's farms (the props from `ValleyFarms.firstProp`) are one batch each, as the orchard's: the trunks, the leaves and the bushes are three meshes for the whole valley rather than three a cell, and the prop-mesh cap is 597 (the pumpkin patch's cell takes the fourth).
+- **Trees** of the valley's farms (the props from `ValleyFarms.firstProp`) are one batch each, as the orchard's: the trunks, the leaves and the bushes are three meshes for the whole valley rather than three a cell, and the prop-mesh cap counts them as 3 meshes for the valley (the pumpkin patch's cell takes a fourth); the range is `[firstProp, endProp)`, so the lakeland's oaks, appended before them, stay in the cells' batches.
 
 ## Rejected, and why
 
