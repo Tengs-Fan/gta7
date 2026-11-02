@@ -490,8 +490,12 @@ describe('the balloon', () => {
 
   it('is out from 05:30 to 08:30 only, and not in the rain', () => {
     expect(balloonAt(W, BALLOON_DAY.from - 0.01, true, b)).toBe(false);
+    // Laid out on its meadow from the first moment, and still there at the last, not switched on part-way through its swelling.
+    expect(balloonAt(W, BALLOON_DAY.from, true, b)).toBe(true);
+    expect(b.fill).toBe(0);
     expect(balloonAt(W, BALLOON_DAY.from + 0.1, true, b)).toBe(true);
     expect(balloonAt(W, 7, true, b)).toBe(true);
+    expect(balloonAt(W, BALLOON_DAY.to - 1e-6, true, b)).toBe(true);
     expect(balloonAt(W, BALLOON_DAY.to - 0.1, true, b)).toBe(true);
     expect(balloonAt(W, BALLOON_DAY.to, true, b)).toBe(false);
     expect(balloonAt(W, 12, true, b)).toBe(false);

@@ -302,13 +302,11 @@ export interface Balloon {
   height: number;
 }
 
-export const BALLOON_MIN = 0.03;
-
 /** The balloon at this hour: false before 05:30 and from 08:30 on, and when it rains. */
 export function balloonAt(world: StaticWorld, hours: number, fair: boolean, out: Balloon): boolean {
   const d = BALLOON_DAY;
   out.fill = smoothstep(d.from, d.lift, hours) * (1 - smoothstep(d.land, d.to, hours));
-  if (!fair || hours < d.from || hours >= d.to || out.fill < BALLOON_MIN) return false;
+  if (!fair || hours < d.from || hours >= d.to) return false;
   const tau = clamp((hours - d.lift) / (d.land - d.lift), 0, 1);
   // Slow off the meadow and into the next, a little faster between; a long S sideways as the breeze veers.
   const along = 0.55 * tau + 0.45 * smoothstep(0, 1, tau);
