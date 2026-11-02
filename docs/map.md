@@ -335,6 +335,27 @@ It draws nothing from the city's generator (the stores' tints come from its own)
 - The green wave walks the course's gates, so it holds the gateways and Dry Creek for the racer; on the city's courses those are the same junctions as before.
 - `buildStreetRunCourses` keeps the city's three byte for byte, and the loop comes after them, so multiplayer offers it head-to-head as it does the others.
 
+### Roadside oddities
+
+`buildOddities` (`src/world/country/oddities.ts`) is the last content pass, after the places: small useless things beside the county's roads, none of them in a plot.
+It draws from no generator and only appends: its solids go in `country.oddities.solids`, which `StaticWorld` adds after the places', so every older collider keeps its id, and its nine mailboxes and signs are the last props (`oddities.firstProp`; the places' own props end where they begin).
+
+- **Telephone poles** stand 40 m apart along the right-hand side of every county road, 4 m outside its edge, 8.6 m tall with a crossarm of four insulators.
+  A pole is left out within 16 m of a junction's box, 10 m of a farm's drive, sign or mailbox, 14 m of the drive-in's and Gravel Gulch's drives and of the fire road's turn-off, in Dry Creek, in a stunt ramp's 300 m run-out lane (`fix_progress_world` keeps every solid off those), and 3 m from any other oddity; a wire spans a gap of two poles (82 m) at most, and none is strung across a longer one.
+  Four wires hang between each pair as catenaries (`sagAt`): 0.6 m at mid-span for 40 m, 2.8 m for 82, so the lowest is 5 m over the road.
+- A pole's collider is a rock's: solid, and see-through to sight, shots and the camera, as a street lamp's is (it is not a lamp's, which the camera's occluders know for a prop).
+  As a pillar it hid cars from the traffic's streaming (which places them out of the player's sight) and slowed the Creek T's soak test by about 9 s on average, and the camera snapped in at every pole.
+- **The cow** (BERTHA, on a flatbed, the farm cow of `farmModels.ts` 3.2 times as big), **the stand**, **the diner's sign** (a saucer crashed beside its board, its beacon blinking red and green after dark), **Bigfoot and his plaque** (on a gravel pull-off against the highway's west leg), **the pickup** (flat tyres, hood up, weeds), **the bus** (a henhouse), **the hives** and **the payphone** are drawn in two meshes (the cow wears her hide's texture) and their boards in the places' atlas.
+  Each has solids sized to its model, boxes along the axes (so the pickup, parked askew, is solid in the box round it) and cylinders for the posts, the saucer and the statue.
+- **Mailboxes and signs** are props of kind `roadside` (their shape in `color`: six mailboxes, the fish among them, and the three hand-painted signs): knocked over by a car like a street lamp.
+  Every make is one instanced batch, each vertex tagged with its shape and each instance naming its own, so it is one draw and, in `m3_props`' budget, one mesh.
+- **The payphone** (`sim/payphone.ts`) rings (`payphoneRing`, every 3 s for 30 s) when a player passes within 25 m of it, with a marker at its foot while it does; E there on foot answers, and a stranger says one of six lines, in an order the city's seed fixes and that goes through all six before it repeats.
+  It rings again 240 s after an answer or a ring nobody answered.
+  It is single player only: a room's phone would ring for everyone and answer to the quickest.
+- **The crop circle** is mown into Halfmoon Acres' wheat (a disc, three rings and six small discs, 50 m to its outer ring): the wheat's tufts leave the flat parts out (`cropPlants`), a decal of laid straw lies over the field's slab, and the map draws the pattern.
+  From Lookout Point it is 450 m off and a ground this flat is seen at 3 degrees, so it shows as a pale lens with rings in it, not as a circle.
+- The places' atlas had 4,696 px of boards on a 4,096 px canvas, so its last bands (the track's) drew as streaks of the edge's colour; it is 6,144 px now, which the oddities' 1,306 px fill, and `Atlas.band` fails the build rather than let one run off again.
+
 ## Rejected, and why
 
 - **Diagonal or curved roads in the grid.** The grid's lane graph knows four directions, and its lanes, turns, signals, crosswalks, furniture and renderers are built on that.
