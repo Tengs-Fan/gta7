@@ -369,9 +369,12 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // Lomas Valley joined the county: the Coyote T's and Valley Cross's stop sign and lamps (after the causeway's lamps), the
     // ridge's cores split round Coyote Pass, and the landscape's props moved by the pass and the new fire road; and again
     // when the valley was reshaped: the sight cores of its seven hills (appended with the ridge's and the foothills'), the
-    // pass's bank under the ridge's cores' cover, and the scrub's colliders none.
-    expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
-    expect(c).toBe('c2900c0e47110a241e6b5dbb73b362a522e6869422c0aa782fc202b53eadd708');
+    // pass's bank under the ridge's cores' cover, and the scrub's colliders none; and when the valley's farms were
+    // appended after the places (the winery's and the ranch house's buildings, the ranch barn's walls and roof, and the
+    // props', hedgerows' and solids' colliders of its vineyard, ranch and farmed land), and the buildings' hash for the
+    // winery and the ranch house.
+    expect(b).toBe('29c78468290ed9371002b99403903a82a9d4e9bef39080fac50e5ccda87308fc');
+    expect(c).toBe('bd7fbbb504995f0c87e715765bcf56a51ac35eb00d5f3584438e906fcea91a29');
   });
 });
 

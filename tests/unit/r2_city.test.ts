@@ -274,8 +274,10 @@ describe('round 2 city: layout', () => {
     // lamps, five plots, the ridge's pass cut and the moved fire road, trees, scrub (none on the pass's rock walls) and sixth
     // turbine); and when the valley was reshaped (the Valley Loop's nine curves and straights and its plots, Lake Lomas's ten
     // holes in the land and the shelf's land with the lake filled in, the pass's bank on its south wall, and seven hills, with
-    // their scrub, in the valley).
-    expect(layoutHash()).toBe('e612b18e12123255bfd188658b597bfb3ee184585aa76eca5ff49628ff2de52f');
+    // their scrub, in the valley); and when the valley's farms were appended after the places (the vineyard's rows' rise and
+    // winery, the ranch's house, barn, paddocks and pasture, hay fields, a pumpkin patch, a ruin on the Willow Knoll, and oaks
+    // and bushes over the open land, with their props, buildings, garage, bays and fields).
+    expect(layoutHash()).toBe('d6e7d7d1a0c40802061a941b775c2add5a22e43e303d8751129c46fd0bc58169');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
