@@ -37,7 +37,7 @@ const asRect = (i: number): Rect => {
 };
 
 describe('the valley\'s farms: where everything stands', () => {
-  it('keeps south of the Pass Road and out of the pass\'s plot, on land, off every lane and junction mouth', () => {
+  it('keeps props, buildings and solids south of the Pass Road and out of the pass\'s plot, on land, off every lane and junction mouth', () => {
     expect(mine.length).toBeGreaterThan(300);
     for (const p of mine) {
       expect(p.z, p.kind).toBeGreaterThanOrEqual(VALLEY_FARMS_FROM);
@@ -110,6 +110,8 @@ describe('the valley\'s farms: where everything stands', () => {
     const seen = new Set<string>();
     for (const s of segments) {
       expect(rectContains(plot('vineyard'), s.x, s.z)).toBe(true);
+      // The rows follow the rise's ellipses out to 94% of its half-depth, which reach z 42.8: north of the z 100 the props keep to, and their own bound.
+      expect(s.z).toBeGreaterThan(42);
       expect(Math.hypot(s.x - (winery.hall.minX + winery.hall.maxX) / 2, s.z - (winery.hall.minZ + winery.hall.maxZ) / 2)).toBeGreaterThan(33);
       expect(Math.abs(s.z - (winery.drive[1] as number)) > 4.5 || s.x < winery.yard.maxX - 2, 'a vine in the drive').toBe(true);
       const row = Math.round((Math.hypot((s.x - rise.cx) / rise.rx, (s.z - rise.cz) / rise.rz) - VINE_ROWS.from) / VINE_ROWS.step);

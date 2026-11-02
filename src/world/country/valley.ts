@@ -3,7 +3,8 @@
 // hedgerows, hay fields, a pumpkin patch and a ruined barn on the Willow Knoll. Pure data, no rendering. buildValley is the
 // last of the county's content passes (after the places): it only appends (props, a building each for the winery and the
 // ranch house, the ranch's barn, parking bays), draws from its own generator, keeps every solid 12 m off every road edge,
-// stays south of the Pass Road (z 100 on) and out of the pass's plot. Its animals (the ranch's horses and sheep) are
+// every prop, building and solid south of the Pass Road (z 100 on; the vine rows follow the rise's ellipses, which reach
+// z 43) and out of the pass's plot. Its animals (the ranch's horses and sheep) are
 // presentation only: where they live is data here, how they move is render/country/livestock.ts.
 
 import { Rng } from '../../core/rng';
@@ -12,7 +13,7 @@ import { addProp, hashInts, insetRect, mkRect, rectContains, type CityLayout, ty
 import { barn, boxProp, fenceLine, fenceRound, prop, WINDPUMP_H, type Field } from './farms';
 import { COUNTRY_ROADS, countryGround, onCountyLand, type Country } from './index';
 
-/** The z (m) the valley's farms keep south of: 16 m past the Pass Road's edge, so nothing of the valley's north half is theirs. */
+/** The z (m) the valley's props, buildings and solids keep south of: 16 m past the Pass Road's edge, so nothing of the valley's north half is theirs (the vine rows stand on the rise, z 43 and on). */
 export const VALLEY_FARMS_FROM = 100;
 
 /** A length (m) of vine row each instance of the vineyard's trellis covers. */
