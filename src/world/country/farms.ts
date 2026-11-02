@@ -9,7 +9,7 @@
 
 import { Rng } from '../../core/rng';
 import { addProp, garageWalls, hashInts, insetRect, mkRect, rectContains, type CityLayout, type Prop, type PropKind, type Rect, type Side } from '../layout';
-import { countryGround } from './index';
+import { countryGround, DRIVE_CLEAR } from './index';
 
 export type Crop = 'corn' | 'wheat' | 'sunflower' | 'furrow' | 'lettuce';
 
@@ -174,6 +174,15 @@ export function buildFarms(layout: CityLayout): void {
   buildDairy(layout, farms, rng);
   buildOrchard(layout, farms, rng);
   buildAcres(layout, farms, rng);
+  // Each farm's drive, its sign and its mailbox, for the poles to keep off.
+  for (const f of farms.farmsteads) {
+    const [ax, az, bx, bz] = f.drive;
+    layout.country.approaches.push(
+      { rect: mkRect(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz)), pad: DRIVE_CLEAR },
+      { rect: mkRect(f.sign.x, f.sign.z, f.sign.x, f.sign.z), pad: DRIVE_CLEAR },
+      { rect: mkRect(f.mailbox.x, f.mailbox.z, f.mailbox.x, f.mailbox.z), pad: DRIVE_CLEAR },
+    );
+  }
   farms.tall = farms.fields.filter((f) => TALL_CROPS.has(f.crop)).map((f) => f.rect);
   farms.cover = [...farms.tall, ...farms.farmsteads.map((f) => insetRect(f.barn, 0.5))];
   farms.bounds = mkRect(

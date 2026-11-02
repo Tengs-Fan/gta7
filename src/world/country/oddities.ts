@@ -13,7 +13,6 @@
 import type { AttractionSolid } from '../attractions';
 import { addProp, mkRect, rectContains, type CityLayout, type Rect } from '../layout';
 import { countryGround, onCountyLand, plotAt, type CountryRoad } from './index';
-import { FIRE_ROAD } from './hills';
 
 /**
  * A telephone pole: its foot, and the heading (radians, facing (sin rot, cos rot)) of the line it carries along its road,
@@ -293,22 +292,11 @@ function footprint(p: Placed, margin: number): Rect {
 
 /** The side of each road its poles stand on: the right of its direction of travel (the outside of Hollister Lane's loop). */
 const SIDE = 1;
-/** The poles keep this far (m) from a farm drive's centre line, a farm sign or mailbox, and from the other drives' and the fire road's mouths. */
-const DRIVE_CLEAR = 10;
-const MOUTH_CLEAR = 14;
 /** How far (m) past a ramp the lane that stunts run out along is kept free of solids, and how much wider (m) than the ramp it is each side. */
 const RUN_OUT = 300;
 const RUN_OUT_SIDE = 1.5;
 /** A pole keeps this far (m) from an oddity's solids, a mailbox and a sign. */
 export const ODDITY_CLEAR = 3;
-
-/** The shortest distance (m) from (x, z) to the segment (ax, az)-(bx, bz). */
-function segDist(x: number, z: number, ax: number, az: number, bx: number, bz: number): number {
-  const dx = bx - ax;
-  const dz = bz - az;
-  const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
-  return Math.hypot(x - ax - dx * t, z - az - dz * t);
-}
 
 /** Whether (x, z) is in the lane a ramp (the track's whoops and tabletops among them) throws a car along: no solid stands in it. */
 function onRunOut(layout: CityLayout, x: number, z: number): boolean {
@@ -327,17 +315,8 @@ function poleSite(layout: CityLayout, x: number, z: number, keepOut: readonly Re
   const country = layout.country;
   if (!onCountyLand(country, x, z) || x > -712 || plotAt(country, x, z)?.kind === 'town' || onRunOut(layout, x, z)) return false;
   for (const v of country.graph.vertices) if (v.half > 0 && Math.max(Math.abs(x - v.x), Math.abs(z - v.z)) < v.half + POLE.clear) return false;
-  for (const f of country.farms.farmsteads) {
-    const [ax, az, bx, bz] = f.drive;
-    if (segDist(x, z, ax, az, bx, bz) < DRIVE_CLEAR) return false;
-    // The farm's sign and mailbox stand by its drive's ends: they are inside that reach but for a pole off to the side.
-    if (Math.hypot(x - f.sign.x, z - f.sign.z) < DRIVE_CLEAR || Math.hypot(x - f.mailbox.x, z - f.mailbox.z) < DRIVE_CLEAR) return false;
-  }
-  const { driveIn, track } = country.places;
-  for (const d of [driveIn.drive, track.drive]) if (rectContains(d, x, z, MOUTH_CLEAR)) return false;
-  if (keepOut.some((r) => rectContains(r, x, z))) return false;
-  const [tx, tz] = FIRE_ROAD[0]!;
-  return Math.hypot(x - tx, z - tz) >= MOUTH_CLEAR;
+  for (const a of country.approaches) if (rectContains(a.rect, x, z, a.pad)) return false;
+  return !keepOut.some((r) => rectContains(r, x, z));
 }
 
 /** One road's poles in order along it, and the spans between those near enough to be strung. */

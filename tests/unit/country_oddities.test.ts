@@ -25,33 +25,39 @@ function segDist(x: number, z: number, ax: number, az: number, bx: number, bz: n
 }
 
 describe('the telephone poles', () => {
-  it('line the county roads on its land: some fifty, clear of the town, off the causeway and the bridge', () => {
+  it('line the county roads on its land, flat and dry, clear of the town, off the causeway and the bridge', () => {
+    // Not a ceiling on how many: a farm or a place added to the county may have poles of its own.
     expect(odd.poles.length).toBeGreaterThan(45);
-    expect(odd.poles.length).toBeLessThan(90);
     for (const p of odd.poles) {
-      expect(onCountyLand(country, p.x, p.z), `${p.x}, ${p.z}`).toBe(true);
-      expect(p.x, 'off the causeway and the bridge').toBeLessThanOrEqual(-712);
-      expect(rectContains(country.plots.find((q) => q.id === 'drycreek')!.rect, p.x, p.z), `${p.x}, ${p.z} in town`).toBe(false);
+      const at = `pole at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`;
+      expect(onCountyLand(country, p.x, p.z), at).toBe(true);
+      expect(p.x, `${at} off the causeway and the bridge`).toBeLessThanOrEqual(-712);
+      expect(rectContains(country.plots.find((q) => q.id === 'drycreek')!.rect, p.x, p.z), `${at} in town`).toBe(false);
+      // Flat: the ground is level a couple of metres round its foot, and the pole stands on it; dry: not under the sea or a creek.
+      expect(p.y, at).toBe(0);
+      for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]] as const) expect(W.groundHeight(p.x + dx, p.z + dz), `${at} level`).toBe(0);
+      expect(W.waterDepth(p.x, p.z), `${at} dry`).toBeLessThan(0);
     }
     // Poles of every county road but the causeway, whose stretch on the land is a single span of the highway's.
     const per = COUNTRY_ROADS.map((r) => odd.poles.filter((p) => segDistToRoad(p.x, p.z, r.pts) < r.width / 2 + POLE.off + 0.5).length);
     expect(per.filter((n) => n > 8).length).toBeGreaterThanOrEqual(3);
   });
 
-  it(`stand ${POLE.off} m off the road's edge, never in a junction's mouth or a farm's, the drive-in's or Gravel Gulch's drive, or the fire road's turn-off`, () => {
-    const [tx, tz] = FIRE_ROAD[0]!;
+  it(`stand ${POLE.off} m off the road's edge, never in a junction's mouth or within reach of an approach: a farm's drive, sign or mailbox, the drive-in's or Gravel Gulch's drive, the fire road's turn-off`, () => {
     for (const p of odd.poles) {
       const at = `pole at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`;
       expect(roadClearance(p.x, p.z), at).toBeGreaterThan(POLE.off - 0.5);
       for (const v of country.graph.vertices) if (v.half > 0) expect(Math.max(Math.abs(p.x - v.x), Math.abs(p.z - v.z)) - v.half, `${at} by junction ${v.id}`).toBeGreaterThanOrEqual(POLE.clear);
-      for (const f of country.farms.farmsteads) {
-        const [ax, az, bx, bz] = f.drive;
-        expect(segDist(p.x, p.z, ax, az, bx, bz), `${at} by ${f.id}'s drive`).toBeGreaterThanOrEqual(10);
-        expect(Math.hypot(p.x - f.mailbox.x, p.z - f.mailbox.z), `${at} by ${f.id}'s mailbox`).toBeGreaterThanOrEqual(10);
-      }
-      for (const d of [country.places.driveIn.drive, country.places.track.drive]) expect(rectContains(d, p.x, p.z, 14), `${at} by a drive`).toBe(false);
-      expect(Math.hypot(p.x - tx, p.z - tz), `${at} by the fire road`).toBeGreaterThanOrEqual(14);
+      for (const a of country.approaches) expect(rectContains(a.rect, p.x, p.z, a.pad), `${at} by an approach at ${a.rect.minX}, ${a.rect.minZ}`).toBe(false);
     }
+    // Every drive the county has is on the list the poles keep off, whoever added it.
+    const listed = (x: number, z: number) => country.approaches.some((a) => rectContains(a.rect, x, z));
+    for (const f of country.farms.farmsteads) {
+      const [ax, az, bx, bz] = f.drive;
+      for (const [x, z] of [[ax, az], [bx, bz], [f.sign.x, f.sign.z], [f.mailbox.x, f.mailbox.z]] as const) expect(listed(x, z), `${f.id}'s drive, sign or mailbox`).toBe(true);
+    }
+    for (const d of [country.places.driveIn.drive, country.places.track.drive]) expect(listed(d.minX, d.minZ) && listed(d.maxX, d.maxZ), 'a place\'s drive').toBe(true);
+    expect(listed(...FIRE_ROAD[0]!), 'the fire road\'s turn-off').toBe(true);
   });
 
   it('keep clear of every other prop, building, hedge and solid of the county, and stand on its ground', () => {
