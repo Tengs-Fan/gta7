@@ -327,6 +327,8 @@ interface Pool {
 export class FieldsView {
   /** The slabs' materials: the ground the headlights light (the renderer's lightGround), as they are neither wet nor detailed. */
   readonly ground: THREE.MeshStandardMaterial[] = [];
+  /** The plants' materials, which the headlights light as they do the slabs, in the same shading (the renderer's lightGround). */
+  readonly crops: THREE.MeshStandardMaterial[] = [];
   private readonly fields: readonly Field[];
   private readonly circle: CropCircle;
   private readonly pools: Pool[] = [];
@@ -534,6 +536,7 @@ vec3 sunTurn( vec3 v ) {
         .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nobjectNormal = sunTurn( objectNormal );')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed = sunTurn( transformed );');
     });
+    this.crops.push(corn, wheat, sun);
     const make = (crop: Crop, geo: THREE.BufferGeometry, mat: THREE.Material, ring: { value: THREE.Vector4 }, capacity: number, shadow: boolean) => {
       const mesh = new THREE.InstancedMesh(geo, mat, capacity);
       mesh.name = `crops-${crop}`;

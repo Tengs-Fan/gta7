@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { GLOW, glowLuminance, HEADLIGHTS, LightSprites, poolFragment, poolHalfWidth, poolShape, POOL_FADE, POOL_LENGTH, POOL_LIGHT, POOL_PAINT, POOL_RANGE, POOL_START, POOL_WIDTH, waterFresnel, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
+import { FIELD_LIGHT_MAX, fieldLight, GLOW, glowLuminance, HEADLIGHTS, LightSprites, poolFragment, poolHalfWidth, poolShape, POOL_FADE, POOL_LENGTH, POOL_LIGHT, POOL_PAINT, POOL_RANGE, POOL_START, POOL_WIDTH, waterFresnel, type GlowKind, type LampGlow } from '../../src/render/lightSprites';
 import { LAMP_HEAD, PropsView } from '../../src/render/props';
 import { COUNTRY_FOG_MARGIN } from '../../src/render/quality';
 import { GameRenderer } from '../../src/render/renderer';
@@ -451,10 +451,14 @@ describe("a headlight pool's light", () => {
     // Added after every other light is in, to the direct diffuse light: the albedo (BRDF_Lambert) times the irradiance.
     const at = fs.indexOf('#include <lights_fragment_end>');
     const block = fs.slice(at, fs.indexOf('#include <aomap_fragment>'));
-    expect(block).toContain(`reflectedLight.directDiffuse += BRDF_Lambert( material.diffuseColor ) * vec3( ${POOL_LIGHT.map((c) => c.toFixed(3)).join(', ')} ) * headE;`);
+    expect(block).toContain(`vec3 headLit = BRDF_Lambert( material.diffuseColor ) * vec3( ${POOL_LIGHT.map((c) => c.toFixed(3)).join(', ')} ) * headE;`);
+    expect(block).toContain('reflectedLight.directDiffuse += headLit;');
+    // The road's rule has no limit and leaves the spot where it is.
+    expect(block).not.toContain('headY');
+    expect(fs).toContain('#include <lights_fragment_begin>');
     // The irradiance comes from the uniforms, the position and the normal alone: never from the light already on the
     // ground, so the same headlights add the same light to a dark county road and to lamp-lit asphalt.
-    const headE = block.slice(block.indexOf('float headE'), block.indexOf('reflectedLight.directDiffuse +='));
+    const headE = block.slice(block.indexOf('float headE'), block.indexOf('vec3 headLit'));
     expect(headE).not.toMatch(/reflectedLight|outgoingLight|irradiance|totalDiffuse/);
     // One shared uniform set: the cars move, no program changes.
     expect(uniforms.uHeadA).toBe(ls.headlights.uHeadA);
@@ -462,6 +466,63 @@ describe("a headlight pool's light", () => {
     expect(fs).toContain(`uniform vec4 uHeadA[ ${HEADLIGHTS} ];`);
     expect(mat.customProgramCacheKey()).toContain('gta7-headlights');
     ls.dispose();
+  });
+
+  it("holds what it adds to a field's ground and plants under FIELD_LIGHT_MAX, as the road's rule for ground that is dark, however pale the straw or many the lights", () => {
+    // Asphalt adds this much or less at the beam's best: the field keeps it (within 3 per cent).
+    for (const y of [0.005, 0.02, 0.05]) expect(fieldLight(y) / y, `${y}`).toBeGreaterThan(0.97);
+    // Pale straw lit by the road's rule adds ten times the asphalt's: it keeps a third of that and stays under the limit,
+    // and no number of overlapping lights or pale albedos pushes it past.
+    expect(fieldLight(0.8)).toBeLessThan(0.4 * 0.8);
+    expect(fieldLight(0.8)).toBeLessThan(FIELD_LIGHT_MAX);
+    expect(fieldLight(0.8) / fieldLight(0.08)).toBeLessThan(4);
+    expect(fieldLight(1e6)).toBeLessThan(FIELD_LIGHT_MAX);
+    let last = 0;
+    for (const y of [0.01, 0.05, 0.1, 0.3, 1, 3, 10, 1e3]) {
+      expect(fieldLight(y), `${y}`).toBeGreaterThan(last);
+      last = fieldLight(y);
+    }
+  });
+
+  it("lights the crop fields' ground and every plant by the same rule, held under the limit and without the player's spot, and the city's ground by the road's", () => {
+    const r = new GameRenderer(canvas(), W, { quality: 'high', fov: 68, gpu: HDR });
+    const fields = r.country.fields;
+    const plants: THREE.Material[] = [];
+    r.country.group.traverse((o) => {
+      if (o instanceof THREE.InstancedMesh && o.name.startsWith('crops-')) plants.push(o.material as THREE.Material);
+    });
+    // Corn, wheat and sunflowers: each pool's material is one of the fields' crops.
+    expect(plants).toHaveLength(3);
+    expect(fields.crops.map((m) => m.name).sort()).toEqual(['county-corn', 'county-sunflowers', 'county-wheat']);
+    for (const mat of plants) expect(fields.crops, mat.name).toContain(mat);
+    expect(fields.ground.map((m) => m.name).sort()).toEqual(['crop-circle', 'field-furrow', 'field-lettuce', 'field-soil', 'field-wheat']);
+    for (const mat of [...fields.ground, ...fields.crops]) {
+      const { vertexShader: vs, fragmentShader: fs } = compiled(mat);
+      expect(mat.customProgramCacheKey().split('gta7-headlights').length - 1, mat.name).toBe(1);
+      expect(mat.customProgramCacheKey(), mat.name).toContain('gta7-headlights-field');
+      expect(fs.split('float headE').length - 1, mat.name).toBe(1);
+      expect(fs, mat.name).toContain(`float headY = dot( headLit, vec3( 0.2126, 0.7152, 0.0722 ) ) / ${FIELD_LIGHT_MAX.toFixed(3)};`);
+      expect(fs, mat.name).toContain('headLit *= inversesqrt( 1.0 + headY * headY );');
+      // The loop over the spot lights is cut out of the direct lights (the player's is the only spot within reach of a field), which stay otherwise: the sun's and the point lights'.
+      expect(fs, mat.name).not.toContain('#include <lights_fragment_begin>');
+      expect(fs.split('#if 0').length - 1, mat.name).toBe(1);
+      expect(fs, mat.name).toContain('getPointLightInfo');
+      expect(fs, mat.name).toContain('getDirectionalLightInfo');
+      // An instanced plant's world position carries its instance's matrix: the light follows each plant, not the mesh's origin.
+      expect(vs, mat.name).toContain('headWorld = instanceMatrix * headWorld;');
+    }
+    // The wheat's ripples stay under the new patch.
+    const wheat = fields.ground.find((m) => m.name === 'field-wheat')!;
+    expect(compiled(wheat).fragmentShader).toContain('uWindAmp');
+    expect(wheat.customProgramCacheKey()).toContain('gta7-wheat-field');
+    // The city's ground keeps the road's rule and the spot.
+    for (const mat of [...r.city.ground.materials, ...r.city.wet.materials]) {
+      const { fragmentShader: fs } = compiled(mat);
+      expect(fs).not.toContain('headY');
+      expect(fs).toContain('#include <lights_fragment_begin>');
+      expect(mat.customProgramCacheKey()).not.toContain('-field');
+    }
+    r.dispose();
   });
 
   it('lights every surface a car drives or a person walks on, once, and keeps the patches that surface already had', () => {
