@@ -315,6 +315,7 @@ export class GameRenderer {
     if (!this.software) {
       this.lightSprites.lightGround(new Set([...this.city.wet.materials, ...this.city.ground.materials]));
       this.lightSprites.lightGround([...this.country.fields.ground, ...this.country.fields.crops], true);
+      this.lightSprites.lightGround(this.country.valley.lit);
     }
     this.softwareMaterials?.apply(this.country.group);
     this.softwareMaterials?.apply(this.monorail.group);

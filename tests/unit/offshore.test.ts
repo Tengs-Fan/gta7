@@ -80,13 +80,13 @@ describe('Turbine Row', () => {
     // passes append past every prop (the rises' cores, the letters and the lookout's parapet, the attractions'), the
     // battery's walls, AzuraLink's pylons and stations, and last Las Lomas County's (the bridge's parapets and its arch's
     // portal posts, its props but the scrub, then its rises' cores and Lookout Point's parapet, tower posts and cab, then
-    // its buildings (the farms' farmhouses, then Dry Creek's stores), the farms' barns' walls and roofs and hedgerows, and
-    // the places' solids).
+    // its buildings (the farms' farmhouses, then Dry Creek's stores), the farms' barns' walls and roofs and hedgerows, the
+    // places' solids, and the valley's farms' hedgerows and solids).
     const rest = W.grid.colliders.slice(first);
     const tags: Record<string, string[]> = {
       signal: ['signal'], lamp: ['lamp'], stopSign: ['lamp'], turbine: ['pillar'], tree: ['tree'],
       silo: ['pillar'], grainbin: ['pillar'], windpump: ['rock', 'pillar'], fence: ['bench'], bale: ['container'], orchardTree: ['tree'],
-      propane: ['container'], cow: ['livestock'], scarecrow: ['bin'],
+      propane: ['container'], cow: ['livestock'], scarecrow: ['bin'], pumpkin: ['bin'],
       pump: ['bin'], billboard: ['pillar', 'pillar'], bench: ['bench'], speaker: ['lamp'], roadside: ['lamp'],
     };
     const county = L.props.slice(L.country.firstProp).filter((p) => p.kind !== 'bush').flatMap((p) => tags[p.kind]!);
@@ -105,6 +105,8 @@ describe('Turbine Row', () => {
       ...L.garages.slice(L.country.firstGarage).flatMap((g) => [...g.walls.map(() => 'wall'), 'wall']),
       ...L.country.farms.hedges.map(() => 'hedge'),
       ...L.country.places.solids.map((s) => s.tag),
+      ...L.country.valley.hedges.map(() => 'hedge'),
+      ...L.country.valley.solids.map((s) => s.tag),
       ...L.country.oddities.solids.map((s) => s.tag),
     ]);
     for (const [i, t] of turbines.entries()) {

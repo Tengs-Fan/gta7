@@ -731,7 +731,10 @@ export class PropsView {
     });
     const get = (k: PropKind) => byKind.get(k) ?? [];
 
-    this.buildTrees(get('tree'), get('bush'), get('cypress'), get('orchardTree'));
+    // The valley's farms' oaks and bushes (world/country/valley.ts) are one batch each, as the orchard's trees are.
+    const valley = world.layout.country.valley.firstProp;
+    const ofValley = (list: number[], mine: boolean) => list.filter((i) => i >= valley === mine);
+    this.buildTrees(ofValley(get('tree'), false), ofValley(get('bush'), false), get('cypress'), get('orchardTree'), ofValley(get('tree'), true), ofValley(get('bush'), true));
     this.buildPalms(get('palm'));
     this.buildLamps(get('lamp'));
     this.buildSignals(get('signal'));
@@ -925,7 +928,7 @@ export class PropsView {
     this.makeInstanced(geo, mat, props, PropsView.standard);
   }
 
-  private buildTrees(trees: number[], bushes: number[], cypresses: number[], orchard: number[]): void {
+  private buildTrees(trees: number[], bushes: number[], cypresses: number[], orchard: number[], valleyTrees: number[], valleyBushes: number[]): void {
     const rng = new Rng(77);
     const trunk = new THREE.MeshStandardMaterial({ color: 0x725440, vertexColors: true, roughness: 0.96 });
     dissolveOccluder(trunk, OCCLUDER_AXIS.tree, this.occUniforms);
@@ -976,6 +979,17 @@ export class PropsView {
       chunked: true,
     });
     this.makeInstanced(applesGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.45 }), orchard, apple, { shadow: false, track: false, chunked: true });
+    // The valley's farms' oaks and bushes: the same trunk and leaves, drawn after everything above so no older tree's tint moves.
+    this.makeInstanced(treeTrunkGeometry(), trunk, valleyTrees, PropsView.standard, { chunked: true });
+    this.makeInstanced(canopy, canopyMat, valleyTrees, PropsView.standard, {
+      color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.24 + rng.range(-0.04, 0.04), rng.range(0.34, 0.52), rng.range(0.42, 0.55)), 0.45),
+      chunked: true,
+    });
+    this.makeInstanced(shrub, shrubMat, valleyBushes, PropsView.standard, {
+      color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.27 + rng.range(-0.03, 0.03), 0.43, rng.range(0.4, 0.5)), 0.5),
+      shadow: false,
+      chunked: true,
+    });
   }
 
   /**

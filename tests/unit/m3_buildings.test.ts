@@ -373,7 +373,11 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // stop sign and lamps (after the causeway's lamps), the
     // ridge's cores split round Coyote Pass, and the landscape's props moved by the pass and the new fire road; and again
     // when the valley was reshaped: the sight cores of its seven hills (appended with the ridge's and the foothills'), the
-    // pass's bank under the ridge's cores' cover, and the scrub's colliders none.
+    // pass's bank under the ridge's cores' cover, and the scrub's colliders none; and when the valley's farms were
+    // appended after the places (the winery's and the ranch house's buildings, the ranch barn's walls and roof, and the
+    // props', hedgerows' and solids' colliders of its vineyard, ranch and farmed land), and the buildings' hash for the
+    // winery and the ranch house; and again when its review landed: the ranch's two paddock shelters' walls, three each, among
+    // its solids' colliders.
     expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
     expect(c).toBe('b82635a867685bfa602a5e2c465acafa770bb9fed3d09768c338ef1c90b91f7c');
   });

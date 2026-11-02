@@ -278,7 +278,11 @@ describe('round 2 city: layout', () => {
     // lamps, five plots, the ridge's pass cut and the moved fire road, trees, scrub (none on the pass's rock walls) and sixth
     // turbine); and when the valley was reshaped (the Valley Loop's nine curves and straights and its plots, Lake Lomas's ten
     // holes in the land and the shelf's land with the lake filled in, the pass's bank on its south wall, and seven hills, with
-    // their scrub, in the valley).
+    // their scrub, in the valley); and when the valley's farms were appended after the places (the vineyard's rows' rise and
+    // winery, the ranch's house, barn, paddocks and pasture, hay fields, a pumpkin patch, a ruin on the Willow Knoll, and oaks
+    // and bushes over the open land, with their props, buildings, garage, bays and fields); and when the valley's farms'
+    // review landed (the ranch's two shelters with their walls as solids, and no windpump index, gate or mailbox rotation,
+    // vineyard row count, or the one vine run in the winery yard's corner).
     expect(layoutHash()).toBe('1a13e60b42e9979238ea334c74f9e76d2946dd290ba2e84927a299368612cc69');
   });
 
@@ -1074,8 +1078,8 @@ describe('round 2 fix 2: garages hide the bay from above', () => {
     const mesh = new CityView(W).group.getObjectByName('garages') as THREE.Mesh;
     const pos = mesh.geometry.getAttribute('position');
     const nrm = mesh.geometry.getAttribute('normal');
-    // Lou's, three spray shacks and Hollister Farm's barn, and the barns of Las Lomas County's four farms.
-    expect(W.layout.garages.length).toBe(9);
+    // Lou's, three spray shacks and Hollister Farm's barn, the barns of Las Lomas County's four farms and the Lazy Q Ranch's.
+    expect(W.layout.garages.length).toBe(10);
     for (const g of W.layout.garages) {
       const poi = W.layout.pois.find((p) => p.id === g.poi);
       if (poi) expect(bayOf(g).bay, g.poi).toEqual(poi.bay);

@@ -491,9 +491,10 @@ describe("a headlight pool's light", () => {
     r.country.group.traverse((o) => {
       if (o instanceof THREE.InstancedMesh && o.name.startsWith('crops-')) plants.push(o.material as THREE.Material);
     });
-    // Corn, wheat and sunflowers: each pool's material is one of the fields' crops.
+    // Corn, wheat and sunflowers: each pool's material is one of the fields' crops, with Sunset Vineyard's vines, which the
+    // headlights light by the same rule.
     expect(plants).toHaveLength(3);
-    expect(fields.crops.map((m) => m.name).sort()).toEqual(['county-corn', 'county-sunflowers', 'county-wheat']);
+    expect(fields.crops.map((m) => m.name).sort()).toEqual(['county-corn', 'county-sunflowers', 'county-wheat', 'vineyard-vines']);
     for (const mat of plants) expect(fields.crops, mat.name).toContain(mat);
     expect(fields.ground.map((m) => m.name).sort()).toEqual(['crop-circle', 'field-furrow', 'field-lettuce', 'field-soil', 'field-wheat']);
     for (const mat of [...fields.ground, ...fields.crops]) {

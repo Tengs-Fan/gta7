@@ -14,6 +14,7 @@ import { buildFarms, noFarms, type CountyFarms } from './farms';
 import { buildHills } from './hills';
 import { buildOddities, noOddities, type CountyOddities } from './oddities';
 import { buildPlaces, noPlaces, type CountyPlaces } from './places';
+import { buildValley, noValley, type ValleyFarms } from './valley';
 
 export type CountryRoadKind = 'highway' | 'country';
 
@@ -119,6 +120,8 @@ export interface Country {
   oddities: CountyOddities;
   /** The drives, signs and turn-offs the farms, the places and the landscape each add, for the poles to keep off. */
   approaches: Approach[];
+  /** Sunset Vineyard, the Lazy Q Ranch and the farmed land between them (valley.ts). */
+  valley: ValleyFarms;
   /**
    * The first prop, parapet, building and garage of the county's: StaticWorld adds their colliders after every older
    * one.
@@ -537,6 +540,7 @@ export function buildCountry(layout: CityLayout): void {
     places: noPlaces(),
     oddities: noOddities(),
     approaches: [],
+    valley: noValley(),
     firstProp: layout.props.length,
     firstParapet: layout.parapets.length,
     firstBuilding: layout.buildings.length,
@@ -584,10 +588,11 @@ export function buildCountry(layout: CityLayout): void {
   }
   junctionHeads(junctions.filter((v) => valley.has(v.id)));
   // The content passes go here, in this order, each one call that only appends: buildHills (the landscape), buildFarms,
-  // buildPlaces, buildOddities.
+  // buildPlaces, buildValley (the valley's farms), buildOddities.
   buildHills(layout);
   buildFarms(layout);
   buildPlaces(layout);
+  buildValley(layout);
   buildOddities(layout);
 }
 
@@ -631,6 +636,7 @@ export function noCountry(): Country {
     places: noPlaces(),
     oddities: noOddities(),
     approaches: [],
+    valley: noValley(),
     firstProp: 0,
     firstParapet: 0,
     firstBuilding: 0,

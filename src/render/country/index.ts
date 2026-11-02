@@ -27,10 +27,12 @@ import { CountryLife } from './life';
 import { PlacesKit } from './kit';
 import { buildOddities } from './oddities';
 import { buildPoles } from './poles';
+import { RanchView } from './ranch';
 import { Reflectors } from './reflectors';
 import { buildCountryRoads } from './roads';
 import { buildTown } from './town';
 import { buildTrack } from './track';
+import { ValleyView } from './valley';
 
 export class CountryView {
   readonly group = new THREE.Group();
@@ -45,6 +47,10 @@ export class CountryView {
   readonly fields: FieldsView;
   /** The crows, the dairy's dog, the crop-duster, the combine and the balloon: the renderer drives it each frame (life/index.ts). */
   readonly life: CountryLife;
+  /** Sunset Vineyard, the Lazy Q Ranch and the ruin on the Willow Knoll (valley.ts). */
+  readonly valley: ValleyView;
+  /** The ranch's horses and sheep (ranch.ts). */
+  readonly ranch: RanchView;
   private readonly sun = new THREE.Vector3();
   private readonly moon = new THREE.Vector3();
   /** What the places animate each frame: Moo-Moo's neon cow, the drive-in's screen, the saucer's beacon. */
@@ -73,6 +79,8 @@ export class CountryView {
     this.farms = new FarmsView(this);
     this.fields = new FieldsView(this, wind);
     this.life = new CountryLife(this);
+    this.valley = new ValleyView(this, wind);
+    this.ranch = new RanchView(this);
     const kit = new PlacesKit();
     this.animated.push(buildTown(this, kit));
     const driveIn = buildDriveIn(this, kit);
@@ -97,6 +105,8 @@ export class CountryView {
     skyPath(hours, this.sun, this.moon);
     this.fields.update(x, y, z, this.sun.x, this.sun.z);
     this.farms.update(time, Math.hypot(wind.x, wind.z));
+    this.valley.update(night);
+    this.ranch.update(time, x, z, sim);
     for (const f of this.animated) f(night, time, sim);
   }
 
@@ -135,6 +145,7 @@ export class CountryView {
     const reach = fogFar + COUNTRY_FOG_MARGIN;
     this.visibility.update(x, z, reach);
     this.farms.cull(x, z, reach);
+    this.valley.cull(x, z, reach);
     const outline = this.city.buildingU.skyline.value > 0.5;
     for (const c of this.cells) {
       const b = c.bounds;

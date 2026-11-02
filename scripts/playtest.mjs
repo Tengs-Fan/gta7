@@ -391,7 +391,8 @@ const SCENARIOS = {
       g.setCamera(yaw, -0.03);
     }, x, z, yaw, hours);
     // Las Lomas Valley's scenes too: Dry Creek facing the ridge that hides the valley, the valley from the ridge top above
-    // Coyote Pass, and Lake Lomas from its east shore at dusk.
+    // Coyote Pass, Lake Lomas from its east shore at dusk, Sunset Vineyard from the loop at dusk, the Lazy Q Ranch from
+    // the loop at noon, and the south valley from the ridge's crest.
     for (const [label, x, z, yaw, hours] of [
       ['ridge-dusk', -1468, -300, Math.PI / 2, 18.67],
       ['lookout-night', -1467.5, -100, Math.PI / 2, 23],
@@ -399,6 +400,9 @@ const SCENARIOS = {
       ['dry-creek-noon', -840, -300, -Math.PI / 2, 12],
       ['valley-from-ridge-noon', -1471.5, 20, -Math.PI / 2, 12],
       ['lake-dusk', -1858, -250, -Math.PI / 2, 18.67],
+      ['vineyard-dusk', -1850, 127, -Math.PI / 2, 18.67],
+      ['ranch-noon', -1845, 262, Math.PI / 2, 12],
+      ['south-valley-ridge-noon', -1471.5, 20, -Math.PI / 4, 12],
     ]) {
       await stand(x, z, yaw, hours);
       await t.wait(1500);

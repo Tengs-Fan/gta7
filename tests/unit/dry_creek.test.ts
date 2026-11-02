@@ -34,7 +34,8 @@ describe('Dry Creek: the town', () => {
     expect(stores.map((b) => b.district)).toEqual(stores.map(() => 'country'));
     expect(stores.map((s) => s.sign!.text)).toEqual(town.stores.map((s) => s.name));
     expect(town.stores.map((s) => s.name)).toEqual(expect.arrayContaining(['DRY CREEK FEED & SEED', "MOO-MOO'S DINER", 'BANG BANG GUNS & BAIT', 'GAS & GRITS', "SHERIFF'S OFFICE"]));
-    const older = Math.max(...others.map((b) => b.id));
+    // The valley's farms (the winery, the ranch house) come after the places'.
+    const older = Math.max(...others.filter((b) => b.id < stores[0]!.id).map((b) => b.id));
     stores.forEach((b, k) => expect(b.id).toBe(older + 1 + k));
     const solids = [...stores.flatMap((b) => b.tiers), ...L.country.places.solids.map((s) => s.rect)];
     for (const b of stores) expect(rectContains(plot, b.rect.minX, b.rect.minZ) && rectContains(plot, b.rect.maxX, b.rect.maxZ)).toBe(true);
@@ -44,8 +45,8 @@ describe('Dry Creek: the town', () => {
       for (const n of W.walk.nodes) expect(rectContains(r, n.x, n.z, 0.4), `walk node ${n.id} in ${JSON.stringify(r)}`).toBe(false);
     }
     for (const b of others) for (const r of solids) expect(rectsOverlap(b.rect, r)).toBe(false);
-    // The places' props, from Gas & Grits' first pump on: after any older pass's, and before the roadside oddities'.
-    for (const p of L.props.slice(town.pumps[0], L.country.oddities.firstProp)) {
+    // The places' props, from Gas & Grits' first pump on to where the valley's farms begin: after any older pass's.
+    for (const p of L.props.slice(town.pumps[0], L.country.valley.firstProp)) {
       expect(places.some((q) => rectContains(q, p.x, p.z)), `${p.kind} at ${p.x}, ${p.z}`).toBe(true);
       expect(W.isOnRoad(p.x, p.z)).toBe(false);
     }

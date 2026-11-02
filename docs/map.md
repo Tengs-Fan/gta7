@@ -242,9 +242,9 @@ The scarecrows pay $3,000 once all twenty are down (`src/sim/farms.ts`, saved), 
 
 **The plots contract.**
 The county's land is split into named plots (`COUNTY_PLOTS`) that the content passes fill: Dry Creek (a town round the crossroads), Hollister Bottoms (inside the farm loop), the Cud & Sons Dairy, Pippin Hollow, Halfmoon Acres, the Moonbeam Drive-In, Gravel Gulch and Coyote Ridge; the rest is wild.
-The valley's five plots are bare, laid out for the next round to fill: Coyote Pass (the pass and the Pass Road across the ridge), Sunset Vineyard (inside the Valley Loop, south of the lake, standing on the Vineyard Rise: its rows follow the slope, the one farm with ground that is not flat), Lake Lomas (the lake and its shores), the Lazy Q Ranch (east of the loop's south bend, flat paddocks) and Pinewood (east of its north side, on the Pine Rise).
+The valley's five plots are Coyote Pass (the pass and the Pass Road across the ridge), Sunset Vineyard (inside the Valley Loop, south of the lake, standing on the Vineyard Rise: its rows follow the slope, the one farm with ground that is not flat) and the Lazy Q Ranch (east of the loop's south bend, flat paddocks), both filled by the valley's farms (below), and Lake Lomas (the lake and its shores) and Pinewood (east of its north side, on the Pine Rise), which are bare, laid out for the next round to fill.
 Every plot but the town and the pass (the Pass Road runs through it) keeps 12 m off the road edges, and every road keeps 30 m inside the land (35 m from the lake's and the coves' edges).
-The content passes go at the end of `buildCountry`, each one call that only appends, in this order: the landscape, the farms, the places.
+The content passes go at the end of `buildCountry`, each one call that only appends, in this order: the landscape, the farms, the places, the valley's farms.
 They add no open spot (the hidden packages are placed over the open spots), append parking bays only at the end, stand their props on `countryGround`, and keep their rises in `layout.country.rises`, which only the county's ground reads.
 The HUD and the scanner name the plot you are in, or Las Lomas County.
 
@@ -381,6 +381,35 @@ It draws from no generator and only appends: its solids go in `country.oddities.
 - The places' atlas had 4,696 px of boards on a 4,096 px canvas, so its last bands (the track's) drew as streaks of the edge's colour; it is as tall as its boards need now (`Atlas.growing`: a multiple of 512 px, 6,144 with the oddities' 1,306, a step taller when a board is added; a band's v is measured against 16,384 px and the texture's own `repeat` and `offset` map it back onto the canvas), and `Atlas.band` fails the build rather than let a band run off any atlas again.
   A device whose largest texture is shorter has three scale the canvas down: the boards blur, none streaks.
 
+### The valley's farms
+
+`buildValley` (`src/world/country/valley.ts`) is the last of the content passes, after the places, and fills the valley's south half: Sunset Vineyard, the Lazy Q Ranch and the farmed land between them.
+It only appends, from its own generator, so every older prop, building, garage and collider keeps its index (the first 4605 colliders still hash as they did, and Dry Creek's props are still the tail of the places').
+It stays south of z 100, 16 m past the Pass Road's edge, and out of the pass's plot, so the pass, the lake, Pinewood and the valley's north half are another pass's; every solid keeps 8 m off every road edge and each building 12, and no drive has a lane: a drive is dirt drawn from a road's edge, as the county's.
+The valley's farms have a record of their own, `Country.valley`, kept apart from `Country.farms` so the county's four farms and their tests stay as they were: its fields (the hay fields and the pumpkin patch's furrows, which `FieldsView` draws with the county's), hedgerows (the farms' own `hedge` colliders and sight rule), solids and cover.
+
+- **Sunset Vineyard** stands on the Vineyard Rise (7 m, a bell 105 by 95 m with a flat crown 30 m across).
+  Twenty rows run round it on its contours, ellipses of the rise's own shape from 31% to 94% of its semi-axes, 3 m apart, each a string of 3 m runs of trellis laid chord to chord (2401 in all, `VineSegment`): a row is level along its length (the test holds every run's two ends to 2 cm) and climbs from row to row, which is what following the slope means on a bell.
+  The rows break for the winery's yard and for the drive, a 148 m gravel strip up the east flank from the loop's edge, climbing 7 m.
+  On the crown a stone winery (16 by 10 m, a hall of coursed limestone under a terracotta tile roof, arched windows lit after dark, a pair of arched doors, a chimney) faces the loop across a tasting porch (7 by 16 m, a tile lean-to on posts, barrels for tables), with a barrel stack of nine against its north wall and a wooden sign at the drive's mouth that says SUNSET VINEYARD, TASTINGS 11 TO SUNSET and PLEASE SPIT RESPONSIBLY.
+  The winery is a building like the stores at Dry Creek (`district: 'country'`, so the city's renderer leaves it to the county's, which draws it from the stone texture and the valley's atlas), standing from the ground to its eaves on the crown (7 m up), and a barrel stack is a solid.
+  Two parking bays are appended in front of it.
+  A hedgerow runs along the loop's west verge, open at the drive.
+- **The Lazy Q Ranch** stands east of the loop's south bend on flat ground: a gate over its dirt drive (two timber posts under a lintel and a board, LAZY and a Q lying on its side, which is the brand), a ranch house and a red gambrel barn (a garage, as the county's: its door opens on the yard, and its inside is cover) round a gravel yard with a windpump, six round bales (solids) beside the barn, and, south of it, two paddocks and a corral with a shelter at the paddocks' south fence, and the sheep's pasture along the loop.
+  The pasture's fence stands 8 m off the loop's edge, which puts a car in the near lane 10 m from the sheep nearest the road, so a car passing scatters them.
+  The ranch house takes the city's house facade (and so its windows, lit at night).
+- **The farmed land** between them: two hay fields (wheat, with round bales left in them), a pumpkin patch (forty pumpkins, breakable props like Hollister Farm's, and a scarecrow), two hedgerows along the loop, and, over the open land, 76 oaks (the county's trees at their greatest scale, in groves round the knoll and the ranch, a windbreak along the loop's west verge and single trees in the meadows) and 130 bushes, none within 2.5 m of a vine or on a yard, field, pasture or paddock, and none on the ruin.
+  The ruin is a stone barn on the Willow Knoll's crown: stumps of its walls in broken columns, a gable end still standing 6.4 m, two rafters leaning from it, a fallen beam and rubble; its walls are solids.
+- **Fences** are the county's post-and-rail runs (194 of them, `fence` props, breakable like a bench): the pasture's, the paddocks' and the corral's, each fenced round by whole 4 m runs with a gate of two runs left open.
+- **The animals** are presentation only: no collider, no sim state, nothing saved or sent.
+  A horse (`stepHorse`) idles, grazes with its head down for 9 to 22 s, flicks its tail every 3 to 9 s and now and then walks to another spot of its paddock's roam, inside its fence and clear of the shelter.
+  A flock (`Flock`) of eighteen sheep grazes round a gathering point on the pasture's road side that moves to fresh grass every 45 to 90 s; a person within 15 m of a sheep, or a car within 15 m plus 0.4 of its speed in m/s (20.6 m at 14 m/s), sends it running away from him at 6 m/s for at least 2.2 s, and then the flock walks back to its gathering point and settles to graze, each at its own place round it.
+  The sheep keep inside the fence, and parked cars frighten none.
+  Both read only the sim's cars and players, and are updated within 420 m of the ranch.
+- **The vines' wind** is the foliage's own (`uWindTime`, `uWindAmp`, `uWindDir`), applied at full weight and scaled by the height up the vine, since the foliage's sway starts a metre up from each instance's foot and a 2 m vine would not move; the vines' material joins the fields' crops, so the headlights light the rows by the crops' rule at night.
+  The string lights are emissive bulbs on the signs' glow band (lit by `CityView.update` with the city's signs), and a glow round each (additive points, off by day) that fades in with the night.
+- **Trees** of the valley's farms (the props from `ValleyFarms.firstProp`) are one batch each, as the orchard's: the trunks, the leaves and the bushes are three meshes for the whole valley rather than three a cell, and the prop-mesh cap is 597 (the pumpkin patch's cell takes the fourth).
+
 ## Rejected, and why
 
 - **Diagonal or curved roads in the grid.** The grid's lane graph knows four directions, and its lanes, turns, signals, crosswalks, furniture and renderers are built on that.
@@ -435,10 +464,13 @@ A three-car monorail runs along Cortez Canal on a beam 9.6 m up, from Northshore
 - A pursuit into Las Lomas County thins out: with no buildings to hide them, units are placed only out of sight, and on the long straights a fast car outruns them; its tuning is the county traffic round's.
 - Las Lomas Valley has one way in and out, Coyote Pass: a pursuit that goes in meets its units coming through the pass, so a chase there is easy to pin.
   From a lane inside the valley `findRoute`, called with the first step back forbidden, finds no route out (a node-to-node search cannot come back through Valley Cross): the GPS then allows the turn back, and the cab starts from a lane with a drive to its fare instead.
-- The valley is bare but for its hills and their scrub and the boulders in the pass: its five plots (Sunset Vineyard, the Lazy Q Ranch, Lake Lomas, Pinewood and Coyote Pass) are named and kept clear for the next round, and the Pass Road and the loop have no pedestrians, since the verges are no spawn ground.
+- The valley's north half is bare but for its hills and their scrub and the boulders in the pass: Lake Lomas and Pinewood are named and kept clear for the next round, and the Pass Road and the loop have no pedestrians, since the verges are no spawn ground.
 - The county's reflector posts are drawn only: a car passes through them.
 - The county's barns get no garage darkening under their roofs (the shader takes the city's five garages); the roof's shadow darkens their floors.
-- A cow knocked over at noon stays down until the next dawn.
+- The ranch's horses and sheep are for looking at: they have no colliders, so a car passes through one that has strayed to a fence (they are fenced in), a bullet does too, and nothing records a sheep run down.
+  Sheep are frightened by the sim's cars and players only, not by a pedestrian or an animal, and a flock far from the camera (420 m) is frozen, so it picks up where it was.
+- The vineyard's rows are drawn only (no collider): a car or a person walks through the vines, which sway on the wind but not aside for them, and the vines are not cover.
+- The winery's porch and the ranch house's are decoration (a person or a car goes through their posts and decks); the winery, the ranch house, the barn, the windpump, the barrels, the bales, the paddocks' shelters' walls, the ruin's walls and the fences are solid.
 - The Moonbeam Drive-In's bays fill only out of view, so a lot you are watching at 19:00 fills late.
 - Gravel Gulch's berms and flags are drawn only: a rider passes through them, and a tabletop's sides drop sheer.
 - The drive-in's films have no sound: their lines are on the screen only.

@@ -127,6 +127,13 @@ export class StaticWorld {
       if (s.round) g.addCircle((r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2, (r.maxX - r.minX) / 2, s.y0, s.y1, s.tag);
       else g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, s.y0, s.y1, s.tag);
     }
+    // The valley's farms (world/country/valley.ts), last of all: their hedgerows, then their barrels, bales and ruin.
+    for (const h of country.valley.hedges) g.addBox(h.minX, h.minZ, h.maxX, h.maxZ, 0, HEDGE_H, 'hedge');
+    for (const s of country.valley.solids) {
+      const r = s.rect;
+      if (s.round) g.addCircle((r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2, (r.maxX - r.minX) / 2, s.y0, s.y1, s.tag);
+      else g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, s.y0, s.y1, s.tag);
+    }
   }
 
   private addBuilding(tiers: Building['tiers']): void {
@@ -340,11 +347,11 @@ export class StaticWorld {
 
   /**
    * Whether (x, z) is in cover, where the police see a target only up close (wanted.ts): an attraction's (the corn maze,
-   * the barn), or the county farms' tall crops and barns.
+   * the barn), or the county farms' tall crops and barns, and the ranch's barn.
    */
   coverAt(x: number, z: number): boolean {
     for (const a of this.layout.attractions) for (const r of a.cover) if (rectContains(r, x, z)) return true;
-    return inFarmCover(this.layout.country.farms, x, z);
+    return inFarmCover(this.layout.country.farms, x, z) || this.layout.country.valley.cover.some((r) => rectContains(r, x, z));
   }
 
   /** Whether (x, z) is in a field of tall crops (corn, sunflowers), which drags at a car (vehiclePhysics.ts). */

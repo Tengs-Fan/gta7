@@ -88,12 +88,12 @@ export function noFarms(): CountyFarms {
 }
 
 /** A prop of the county's, on its ground. */
-function prop(layout: CityLayout, kind: PropKind, x: number, z: number, rot: number, scale = 1): Prop {
+export function prop(layout: CityLayout, kind: PropKind, x: number, z: number, rot: number, scale = 1): Prop {
   return addProp(layout, kind, x, z, rot, scale, countryGround(layout.country, x, z));
 }
 
 /** A prop with a footprint (a fence run, a bale stack, a silo: w x d, h tall), its index. */
-function boxProp(layout: CityLayout, kind: PropKind, x: number, z: number, w: number, d: number, h: number, rot = 0, color = 0): number {
+export function boxProp(layout: CityLayout, kind: PropKind, x: number, z: number, w: number, d: number, h: number, rot = 0, color = 0): number {
   const p = prop(layout, kind, x, z, rot);
   p.w = w;
   p.d = d;
@@ -117,12 +117,12 @@ function farmhouse(layout: CityLayout, rect: Rect, h: number, rng: Rng): number 
 }
 
 /** A barn: a garage open on `door`, its walls `h` tall. */
-function barn(layout: CityLayout, id: FarmId, rect: Rect, door: Side, h: number, color: number): void {
+export function barn(layout: CityLayout, id: string, rect: Rect, door: Side, h: number, color: number): void {
   layout.garages.push({ poi: `${id}_barn`, rect, side: door, walls: garageWalls(rect, door, 0.5), height: h, color });
 }
 
 /** Fence runs along the straight line from (x0, z0) to (x1, z1) (on an axis, a whole number of runs), but for `gaps` (indices). */
-function fenceLine(layout: CityLayout, x0: number, z0: number, x1: number, z1: number, gaps: readonly number[] = []): void {
+export function fenceLine(layout: CityLayout, x0: number, z0: number, x1: number, z1: number, gaps: readonly number[] = []): void {
   const len = Math.hypot(x1 - x0, z1 - z0);
   const n = Math.round(len / FENCE_RUN);
   const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
@@ -134,7 +134,7 @@ function fenceLine(layout: CityLayout, x0: number, z0: number, x1: number, z1: n
 }
 
 /** Fence runs round `r` (its sides whole numbers of runs), but for the gaps on each side (indices along it, west to east or north to south). */
-function fenceRound(layout: CityLayout, r: Rect, gaps: Partial<Record<Side, readonly number[]>> = {}): void {
+export function fenceRound(layout: CityLayout, r: Rect, gaps: Partial<Record<Side, readonly number[]>> = {}): void {
   fenceLine(layout, r.minX, r.minZ, r.maxX, r.minZ, gaps.N);
   fenceLine(layout, r.minX, r.maxZ, r.maxX, r.maxZ, gaps.S);
   fenceLine(layout, r.minX, r.minZ, r.minX, r.maxZ, gaps.W);

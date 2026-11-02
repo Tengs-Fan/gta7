@@ -254,14 +254,15 @@ export function buildBuildings(view: CityView): void {
   const decor = new GeoBuilder(true);
   const relief = new GeoBuilder(true);
   const rng = new Rng(4242);
+  const farmhouses = new Set(layout.country.farms.farmsteads.map((f) => f.house));
   const landmarks = new Map(landmarkTowers(layout).map((l) => [l.id, l]));
   const atlas = storefrontAtlas();
   view.storefronts.clear();
   for (const f of storefrontPlan(layout)) view.storefronts.set(frontKey(f.building, f.side, f.index), f);
 
   for (const b of layout.buildings) {
-    // Dry Creek's stores are drawn with the county (render/country/town.ts).
-    if (b.district === 'country') continue;
+    // The county's other buildings are drawn by its own code (Dry Creek's stores: town.ts; the valley's winery and ranch house: valley.ts).
+    if (b.district === 'country' && !farmhouses.has(b.id)) continue;
     const gb = builders.get(b.style)!;
     // Per-building seed (k / 1000) for the night windows, so neighbours of one style never match.
     gb.seed = (hashInts(b.id, 0x5eed) % 1000) / 1000;
