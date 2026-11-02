@@ -1,14 +1,15 @@
 // The mission dialogue, read from the mission scripts: every `m.say(SPEAKER, …)` and every `[SPEAKER, …]` line of an
 // `m.intro([…])`, where SPEAKER is a string constant of the file. Both branches of a `cond ? 'a' : 'b'` count; a
 // template literal is evaluated against the generated city (its ${…} may use `sim`, `spots` and the file's exported
-// constants). The phone's offer lines come from offerLine and the mission table, and the taxi's fares' lines from their
-// table (src/sim/activities/fares.ts).
+// constants). The phone's offer lines come from offerLine and the mission table, the taxi's fares' lines from their
+// table (src/sim/activities/fares.ts) and the stranger's on the payphone from his (src/sim/payphone.ts).
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FARES } from '../../../src/sim/activities/fares';
 import { STORY } from '../../../src/sim/missions';
 import { BUSY_LINE, CONTACTS, contactById, offerLine } from '../../../src/sim/missions/contacts';
+import { PAYPHONE_LINES, PAYPHONE_SPEAKER } from '../../../src/sim/payphone';
 import { chapter2Spots, missionSpots } from '../../../src/sim/missions/spots';
 import * as vera from '../../../src/sim/missions/vera';
 import { StaticWorld } from '../../../src/world/staticWorld';
@@ -94,7 +95,7 @@ export function fileLines(file: string, source: string, world: StaticWorld): Dia
   return lines;
 }
 
-/** Every line of mission dialogue, every phone line and every line of a taxi's fare, speakers without the " (phone)" of a call. */
+/** Every line of mission dialogue, every phone line, every line of a taxi's fare and the payphone's stranger's, speakers without the " (phone)" of a call. */
 export function dialogueLines(world = new StaticWorld()): DialogueLine[] {
   const lines: DialogueLine[] = [];
   for (const file of readdirSync(MISSION_DIR).sort()) {
@@ -110,6 +111,7 @@ export function dialogueLines(world = new StaticWorld()): DialogueLine[] {
     for (const place of zoneNames(world)) lines.push({ speaker: f.speaker, text: f.ask(place) });
     lines.push({ speaker: f.speaker, text: f.paid }, { speaker: f.speaker, text: f.late });
   }
+  for (const text of PAYPHONE_LINES) lines.push({ speaker: PAYPHONE_SPEAKER, text });
   const seen = new Set<string>();
   return lines
     .map((l) => ({ speaker: l.speaker.replace(/ \(phone\)$/, ''), text: l.text }))

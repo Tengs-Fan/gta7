@@ -174,6 +174,12 @@
   "dlg-local-1cff5885cf": 2.267,
   "dlg-local-9921431f88": 1.347,
   "dlg-local-36d25d21e1": 1.892,
+  "dlg-stranger-02a906c522": 6.081,
+  "dlg-stranger-b3ce5f9fa7": 5.92,
+  "dlg-stranger-bbedc204f0": 5.98,
+  "dlg-stranger-cb5bf180a0": 6.207,
+  "dlg-stranger-8b8327eea8": 6.313,
+  "dlg-stranger-54a214e034": 7.39,
   "dsp-all-units-return-to-patrol": 1.94,
   "dsp-swat-is-rolling": 1.257,
   "dsp-air-unit-on-scene": 1.39,
@@ -1631,7 +1637,13 @@
   "Local|Moonbeam Drive-In. And skip the scenic route, okay?": "dlg-local-b323acd157",
   "Local|Coyote Ridge. And skip the scenic route, okay?": "dlg-local-1cff5885cf",
   "Local|Not bad. Not bad at all.": "dlg-local-9921431f88",
-  "Local|I could've walked faster. So I'm walking.": "dlg-local-36d25d21e1"
+  "Local|I could've walked faster. So I'm walking.": "dlg-local-36d25d21e1",
+  "Stranger|Good news and bad news. The good news is that you answered. The bad news is that I only wanted the phone.": "dlg-stranger-02a906c522",
+  "Stranger|Listen carefully. The pie is not what it seems. It is, in fact, exactly a pie. We are all very worried.": "dlg-stranger-b3ce5f9fa7",
+  "Stranger|I am calling from the bottom of a very large field. It is quite nice. Please do not send help. Send soup.": "dlg-stranger-bbedc204f0",
+  "Stranger|If this is the sheriff, I was never here. If this is not the sheriff, I was definitely here, and I brought a ladder.": "dlg-stranger-cb5bf180a0",
+  "Stranger|I have information about Bigfoot. He is fine. He would like you to stop waving at him. It makes him self-conscious.": "dlg-stranger-8b8327eea8",
+  "Stranger|You have reached the Las Lomas County Department of Things. For nothing, press nothing. Thank you for your time. It will not be returned.": "dlg-stranger-54a214e034"
  },
  "dispatch": {
   "all units return to patrol": "dsp-all-units-return-to-patrol",

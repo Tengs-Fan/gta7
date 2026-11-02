@@ -41,6 +41,7 @@ import './vehicleSystems';
 import './farm';
 import './farms';
 import './dryCreek';
+import './payphone';
 import './driveIn';
 import { collideVehicles, collideVehicleStatic, stepVehicle, type VehiclePhysicsHost } from './vehiclePhysics';
 import type { WantedSystem } from './wanted';
