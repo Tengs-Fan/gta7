@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { bakeSeaShelter } from '../../src/render/seaShelter';
+import { gpsRoute } from '../../src/ui/mapRender';
 import { countyShore } from '../../src/render/sea';
 import { COUNTY_ZONES } from '../../src/sim/dispatch';
 import type { Vehicle } from '../../src/sim/entities';
@@ -141,6 +142,20 @@ describe('Las Lomas Valley: roads', () => {
     expect(counted.size).toBeGreaterThan(3);
     expect(valley).toBeGreaterThan(0);
   }, 120_000);
+
+  it('leads the GPS from the city over the causeway, up the highway and through the pass to a waypoint at the lake', () => {
+    const sim = makeSim({ seed: 1, police: false, ambient: false });
+    const lake = { x: -1860, z: -250 };
+    const route = gpsRoute(sim, lake.x, lake.z);
+    const ids = route.slice(1, -1).map((p) => roads.nearestNode(p.x, p.z).id);
+    console.log(`[country_valley] GPS from the start to the lake: ${route.length} points`);
+    expect(ids.some((id) => id === roads.node(0, 2).id || id === roads.node(0, 8).id)).toBe(true);
+    // Through the Coyote T and on west along the Pass Road to Valley Cross, and then north up the loop to the shore.
+    for (const name of ['coyote', 'valley'] as const) expect(ids.includes(roads.junction(name).id), name).toBe(true);
+    expect(ids.indexOf(roads.junction('coyote').id)).toBeLessThan(ids.indexOf(roads.junction('valley').id));
+    const end = route[route.length - 2]!;
+    expect(Math.hypot(end.x - lake.x, end.z - lake.z)).toBeLessThan(120);
+  });
 
   it('spawns no pedestrian in the valley, and draws nothing to try', () => {
     const a = makeSim({ seed: 2 });
