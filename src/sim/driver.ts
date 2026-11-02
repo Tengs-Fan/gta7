@@ -109,14 +109,12 @@ const STOP_STILL = 0.6;
 const STOP_MOVING = 1.5;
 const STOP_WAIT = 0.6;
 const STOP_REACH = 30;
-const STOP_GAP = 4.5;
+export const STOP_GAP = 4.5;
 const STOP_GAP_RIGHT = 3.5;
 const STOP_ACCEL = 10;
 const STOP_PATIENCE = 10;
 const STOP_SHORTEN = 0.7;
 const STOP_ARM = 12;
-/** How far (m) short of its lane's end a county left turner yielding to oncoming traffic plans to stand (a city one's is 0.8). */
-const YIELD_COUNTY = 1.8;
 /** Seconds held up behind a tractor before a civilian first honks at it. */
 const TRACTOR_PATIENCE = 6;
 /** Seconds a civilian held up by a vehicle nobody drives, standing on its lane, waits before overtaking it (7 s otherwise). */
@@ -1432,10 +1430,8 @@ export class DriverAI {
           } else if (mustStop && i === 0) {
             this.stopLane = seg.lane.id;
           }
-          let yielding = false;
           if (!mustStop && next.turn && next.turn.kind === 'left' && stopDist < 30 && this.oncoming(seg.lane)) {
             mustStop = true;
-            yielding = true;
             this.limiter = 'yield';
           }
           if (mustStop && stopDist > -0.5) {
@@ -1444,9 +1440,7 @@ export class DriverAI {
             // harder on its own when we are above the profile. Left turners yield (on their own
             // green, or in the junction after it, with no one crossing in front) with the centre
             // near the lane end.
-            // A county left turner stops a metre further short of its lane's end: it brakes late on a lane short after a bend,
-            // and a car that rolls on to the end goes into the turn and no longer holds for the oncoming car it yielded to.
-            const vs = Math.sqrt(2 * this.decel * Math.max(0, forSignal ? lineGap : stopDist - (yielding && seg.lane.line.index < 0 ? YIELD_COUNTY : 0.8)));
+            const vs = Math.sqrt(2 * this.decel * Math.max(0, forSignal ? lineGap : stopDist - 0.8));
             if (vs < limit) {
               limit = vs;
               if (this.limiter !== 'yield') this.limiter = 'light';
