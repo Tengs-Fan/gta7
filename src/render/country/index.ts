@@ -17,16 +17,26 @@ import type { WindUniforms } from '../props';
 import { COUNTRY_CELL, COUNTRY_FOG_MARGIN, COUNTRY_NEAR, CROP_RING, type QualityTier } from '../quality';
 import { spatialGeometry, StaticVisibility } from '../spatial';
 import { buildBridge } from './bridge';
+import { Campfire } from './campfire';
 import { buildDriveIn } from './driveIn';
 import { FarmsView } from './farms';
 import { FieldsView } from './fields';
 import { buildCountryGround } from './ground';
 import { buildHills } from './hills';
 import { PlacesKit } from './kit';
+import { buildLake } from './lake';
 import { Reflectors } from './reflectors';
 import { buildCountryRoads } from './roads';
 import { buildTown } from './town';
 import { buildTrack } from './track';
+import { buildWoods } from './woods';
+
+/** Where the camera is, as the frame's updates see it. */
+export interface Camera {
+  x: number;
+  y: number;
+  z: number;
+}
 
 export class CountryView {
   readonly group = new THREE.Group();
@@ -42,7 +52,9 @@ export class CountryView {
   private readonly sun = new THREE.Vector3();
   private readonly moon = new THREE.Vector3();
   /** What the places animate each frame: Moo-Moo's neon cow, the drive-in's screen. */
-  private readonly animated: Array<(night: number, time: number, sim: ViewState | null) => void> = [];
+  private readonly animated: Array<(night: number, time: number, sim: ViewState | null, cam: Camera) => void> = [];
+  /** The campground's fire: the renderer lends it the effects (Campfire.sync). */
+  readonly camp: Campfire;
   /** The drive-in's cars flash their lights at a horn (driveInShush). */
   readonly shush: (time: number) => void;
 
@@ -72,6 +84,12 @@ export class CountryView {
     this.shush = driveIn.shush;
     buildTrack(this, kit);
     kit.finish(this);
+    // Lake Lomas and Pinewood: a kit of their own (their signs and windows need their own atlas), as the farms have.
+    const lakeKit = new PlacesKit(3072);
+    this.animated.push(buildLake(this, lakeKit, wind));
+    buildWoods(this, lakeKit, wind);
+    lakeKit.finish(this);
+    this.camp = new Campfire(this);
   }
 
   /** The tier's crops near the camera (quality.ts CROP_RING). */
@@ -87,7 +105,9 @@ export class CountryView {
     skyPath(hours, this.sun, this.moon);
     this.fields.update(x, y, z, this.sun.x, this.sun.z);
     this.farms.update(time, Math.hypot(wind.x, wind.z));
-    for (const f of this.animated) f(night, time, sim);
+    const cam = { x, y, z };
+    for (const f of this.animated) f(night, time, sim, cam);
+    this.camp.update(hours, time);
   }
 
   /** A static layer of the county, cut into COUNTRY_CELL cells (unless `split` is false: a few pieces across it). */

@@ -6,7 +6,7 @@
 import { Rng } from '../../core/rng';
 import { mkRect, type CityLayout, type Rect, type Side } from '../layout';
 import { countryGround, LAKE_NAME } from './index';
-import { blocked, loopX, nextBuildingId, type CountyLakeland, type Keepout, type LakeCabin, type Tent } from './lakeland';
+import { blocked, laneThrough, loopX, nextBuildingId, type CountyLakeland, type Keepout, type LakeCabin, type Tent } from './lakeland';
 
 /** The dock's deck height (m): the Marina's piers' (a metre and a half over the lake). */
 export const DOCK_Y = 0.45;
@@ -22,8 +22,9 @@ const CABINS: ReadonlyArray<readonly [x: number, z: number, w: number, d: number
   [-1910, -325, 7.6, 5.4, 0.8],
   [-1884, -329, 6.8, 5.2, 0.3],
 ];
-const EAVES = 2.7;
-const RIDGE = 4.7;
+/** The cabins' eaves and ridge (m): render/country/lake.ts draws their roofs from them. */
+export const EAVES_Y = 2.7;
+export const RIDGE_Y = 4.7;
 const PORCH_D = 2.0;
 
 /** The camp's fire and the ring of stones round it. */
@@ -76,10 +77,11 @@ export function buildLake(layout: CityLayout, land: CountyLakeland, rng: Rng, ke
   const pull = mkRect(-1864, -285, -1832, -265);
   const cabinZ = -337;
   const campZ = -188;
-  const lakeLane = [edgeAt(-275), -275, -1834, -275];
-  const cabinLane = [edgeAt(cabinZ), cabinZ, -1860, -336, -1900, -335, -1945, -336, -1985, -338];
-  const campLane = [edgeAt(campZ), campZ, -1860, -190, -1890, -192, -1912, -195];
-  land.lanes.push({ pts: lakeLane, width: 6 }, { pts: cabinLane, width: 4 }, { pts: campLane, width: 4 });
+  land.lanes.push(
+    laneThrough([edgeAt(-275), -275, -1834, -275], 6),
+    laneThrough([edgeAt(cabinZ), cabinZ, -1860, -336, -1900, -335, -1945, -336, -1985, -338], 4),
+    laneThrough([edgeAt(campZ), campZ, -1860, -190, -1890, -192, -1912, -195], 4),
+  );
   land.pads.push(pull);
   keep.rects.push(pull);
   for (const l of land.lanes) keep.lines.push({ pts: l.pts, r: l.width / 2 + 2 });
@@ -89,7 +91,7 @@ export function buildLake(layout: CityLayout, land: CountyLakeland, rng: Rng, ke
     const rect = mkRect(x - w / 2, z - d / 2, x + w / 2, z + d / 2);
     const id = nextBuildingId(layout);
     layout.buildings.push({
-      id, rect, height: RIDGE, tiers: [{ ...rect, y0: 0, y1: EAVES }], style: 'house', roof: 'gable', tint, district: 'country', roofProps: [],
+      id, rect, height: RIDGE_Y, tiers: [{ ...rect, y0: 0, y1: EAVES_Y }], style: 'house', roof: 'gable', tint, district: 'country', roofProps: [],
       sign: null, special: null, ground: 'none', groundH: 0, groundSides: [],
     });
     const porch = mkRect(rect.minX, rect.maxZ, rect.maxX, rect.maxZ + PORCH_D);
@@ -103,9 +105,9 @@ export function buildLake(layout: CityLayout, land: CountyLakeland, rng: Rng, ke
   const camp = land.camp;
   camp.fire = { x: FIRE.x, z: FIRE.z, y: ground(FIRE.x, FIRE.z) };
   camp.ring = RING_R;
-  camp.pad = mkRect(FIRE.x - 16, FIRE.z - 14, FIRE.x + 18, FIRE.z + 14);
+  camp.pad = mkRect(FIRE.x - 8, FIRE.z - 6.5, FIRE.x + 8, FIRE.z + 6.5);
   land.pads.push(camp.pad);
-  keep.rects.push(mkRect(camp.pad.minX - 3, camp.pad.minZ - 3, camp.pad.maxX + 3, camp.pad.maxZ + 3));
+  keep.rects.push(mkRect(FIRE.x - 15, FIRE.z - 13, FIRE.x + 23, FIRE.z + 17));
   round(FIRE.x, FIRE.z, RING_R, 0, 0.5, 'rock');
   const tents: Array<[Tent['kind'], number, number, number]> = [
     ['ridge', FIRE.x - 10, FIRE.z - 6, Math.PI / 2],
@@ -158,7 +160,7 @@ export function buildLake(layout: CityLayout, land: CountyLakeland, rng: Rng, ke
 
   // Reeds in the shallows, thickest along the bays and the inlets, none by the dock, the beach by the pull-out or the camp's shore.
   for (const [cx, cz, r] of REED_BEDS) {
-    for (let i = 0, n = Math.round(r * r * 0.45); i < n; i++) {
+    for (let i = 0, n = Math.round(r * r * 0.7); i < n; i++) {
       const a = rng.range(0, Math.PI * 2);
       const d = Math.sqrt(rng.next()) * r;
       const x = cx + Math.cos(a) * d;

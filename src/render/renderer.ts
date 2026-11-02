@@ -750,6 +750,7 @@ export class GameRenderer {
     this.activityFx.clear();
     this.crowd.reset();
     this.throwView.reset();
+    this.country.camp.reset();
     this.flashAge = Infinity;
     // A new session's clock starts again from 0.
     this.autoRounds = 0;
@@ -1211,6 +1212,8 @@ export class GameRenderer {
       this.syncLightSprites(sim, lights);
       this.effects.syncRockets(sim.projectiles);
       this.throwView.sync(sim, this.me(sim).character, this.cameraCtl.aimRay().dir, this.effects, dt, this.time, cam.position);
+      // The campground's fire burns after dark: flames and smoke, and the shared fire light unless a molotov's fire has it.
+      this.country.camp.sync(this.effects, dt, cam.position, this.time, this.throwView.fireLit);
       this.vehicleEffects(sim, dt);
       this.activityFx.sync(sim, dt, this.effects, this.time);
       this.monorail.update(sim.time, lights);

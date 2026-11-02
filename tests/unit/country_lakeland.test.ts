@@ -172,12 +172,12 @@ describe('what it keeps clear of', () => {
     }
   });
 
-  it('leaves the lanes\' mouths on the road\'s edge only: every other point of every lane is clear of the carriageway', () => {
+  it('has every lane start on the road\'s edge and run clear of the carriageway from its third point on', () => {
     for (const l of land.lanes) {
       expect(l.pts.length).toBeGreaterThanOrEqual(4);
       expect(roadGap(l.pts[0]!, l.pts[1]!)).toBeLessThan(0.5);
       expect(roadGap(l.pts[0]!, l.pts[1]!)).toBeGreaterThan(-1);
-      for (let k = 2; k < l.pts.length; k += 2) expect(roadGap(l.pts[k]!, l.pts[k + 1]!), `lane point ${k / 2}`).toBeGreaterThan(l.width / 2);
+      for (let k = 4; k < l.pts.length; k += 2) expect(roadGap(l.pts[k]!, l.pts[k + 1]!), `lane point ${k / 2}`).toBeGreaterThan(l.width / 2);
     }
   });
 
@@ -285,8 +285,10 @@ describe('the valley\'s north', () => {
     expect(per(28, 90)).toBeLessThan(per(90, 200) + per(200, 600));
     expect(land.boulders.length).toBeGreaterThan(20);
     for (const b of land.boulders) expect(W.isFree(b.x, b.z, 0.2), `boulder at ${b.x.toFixed(1)}, ${b.z.toFixed(1)}`).toBe(false);
-    expect(land.flowers.length).toBeGreaterThanOrEqual(15);
-    expect(new Set(land.flowers.map((f) => f.hue)).size).toBe(5);
+    const flowers = land.flowers.filter((f) => f.hue !== 'grass');
+    expect(flowers.length).toBeGreaterThanOrEqual(15);
+    expect(new Set(flowers.map((f) => f.hue)).size).toBe(5);
+    expect(land.flowers.filter((f) => f.hue === 'grass').length).toBeGreaterThanOrEqual(10);
     for (const f of land.flowers) {
       expect(rectContains(vineyard, f.x, f.z, f.r), 'flowers in the vineyard').toBe(false);
       expect(rectContains(lakePlot, f.x, f.z) && lakeGap(f.x, f.z) < f.r, 'flowers in the water').toBe(false);

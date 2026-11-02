@@ -1254,7 +1254,7 @@ export class CameraController {
   private clearYaw(sim: ViewState): number {
     const p = this.me(sim).character;
     const boom = this.zoomLevel === 1 ? FOOT_BOOM_FAR : FOOT_BOOM;
-    const props = sim.world.layout.props.filter((q) => (q.kind === 'tree' || q.kind === 'palm' || q.kind === 'bush') && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < boom + 8);
+    const props = sim.world.layout.props.filter((q) => (q.kind === 'tree' || q.kind === 'palm' || q.kind === 'bush' || q.kind === 'pine') && Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < boom + 8);
     if (props.length === 0) return p.heading;
     const trunks = props.filter((q) => q.kind !== 'bush');
     const leaves = props.filter((q) => q.kind !== 'palm').map((q) => ({ spheres: foliageSpheres(q), points: foliagePoints(q) }));

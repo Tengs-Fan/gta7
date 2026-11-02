@@ -1,0 +1,106 @@
+// Drawing Lake Lomas and Pinewood (render/country/lake.ts, woods.ts, campfire.ts, pineModels.ts): the pines instanced one model
+// to a cell, the shore's pieces in a kit of their own, the reeds, wildflowers and boulders culled with the county's cells, the
+// lamps' glow and the campfire coming up after dark, the waterfowl on the water.
+
+import * as THREE from 'three';
+import { describe, expect, it, vi } from 'vitest';
+import { CityView } from '../../src/render/city';
+import { CountryView } from '../../src/render/country';
+import { lakeLamps } from '../../src/render/country/lake';
+import { PINE_H, pineGeometry } from '../../src/render/country/pineModels';
+import { PropsView } from '../../src/render/props';
+import { HARDWARE_CHUNK_SIZE } from '../../src/render/spatial';
+import { campfireLit } from '../../src/world/country/lakeland';
+import { PINE_TOWER } from '../../src/world/country/woods';
+import { world } from './helpers';
+
+await vi.hoisted(async () => {
+  const m = await import('../support/canvasStub');
+  m.installCanvasStubs();
+});
+
+const W = world();
+const land = W.layout.country.lakeland;
+const wind = { uWindTime: { value: 0 }, uWindAmp: { value: 0 }, uWindDir: { value: new THREE.Vector2(1, 0) } };
+const view = new CountryView(W, new CityView(W), wind);
+const meshes = (name: string) => {
+  const out: THREE.Mesh[] = [];
+  view.group.traverse((o) => {
+    if (o instanceof THREE.Mesh && o.name === name) out.push(o);
+  });
+  return out;
+};
+const tris = (g: THREE.BufferGeometry) => (g.index?.count ?? g.getAttribute('position').count) / 3;
+
+describe('the pine', () => {
+  it('is a slender spire of seven needle skirts on a bare trunk, about a hundred triangles, 11.7 m tall, nothing like a broadleaf crown', () => {
+    const g = pineGeometry();
+    g.computeBoundingBox();
+    expect(g.boundingBox!.max.y).toBeCloseTo(PINE_H, 1);
+    expect(g.boundingBox!.min.y).toBeCloseTo(0, 6);
+    expect(Math.max(g.boundingBox!.max.x, g.boundingBox!.max.z)).toBeLessThan(2.2);
+    expect(g.userData.parts.filter((p: string) => p === 'needles').length).toBe(7);
+    expect(tris(g)).toBeLessThan(120);
+    expect(tris(g)).toBeGreaterThan(60);
+  });
+
+  it('is instanced one batch to a cell, hardware cells at most a handful in all, each pine its tint, and never more batches than cells', () => {
+    const props = new PropsView(W, HARDWARE_CHUNK_SIZE);
+    const batches: THREE.InstancedMesh[] = [];
+    props.group.traverse((o) => {
+      if (o instanceof THREE.InstancedMesh && o.geometry.name === 'pine') batches.push(o);
+    });
+    const pines = W.layout.props.filter((p) => p.kind === 'pine');
+    expect(batches.reduce((n, m) => n + m.count, 0)).toBe(pines.length);
+    const cells = new Set(pines.map((p) => `${Math.floor(p.x / HARDWARE_CHUNK_SIZE)},${Math.floor(p.z / HARDWARE_CHUNK_SIZE)}`)).size;
+    expect(batches.length).toBe(cells);
+    expect(batches.length).toBeLessThan(20);
+    for (const m of batches) expect(m.instanceColor).not.toBeNull();
+    console.log(`[lakeland] ${pines.length} pines in ${batches.length} batches, ${batches.reduce((n, m) => n + tris(m.geometry) * m.count, 0)} triangles`);
+  });
+});
+
+describe('the shore and the wood', () => {
+  it('draws the reeds, the wildflowers, the valley\'s boulders and the lookout tower, each a mesh culled with the county\'s cells', () => {
+    for (const name of ['reeds', 'wildflowers', 'valley-rocks', 'lake-lamp-pools']) expect(meshes(name).length, name).toBeGreaterThan(0);
+    expect(meshes('pine-lookout').length).toBe(1);
+    const tower = meshes('pine-lookout')[0]!;
+    tower.geometry.computeBoundingBox();
+    // From the rise's top up past the cab to the roof, about 18 m.
+    expect(tower.geometry.boundingBox!.max.y - tower.geometry.boundingBox!.min.y).toBeGreaterThan(PINE_TOWER.top - 1);
+    expect(tower.geometry.boundingBox!.min.y).toBeCloseTo(W.groundHeight(PINE_TOWER.x, PINE_TOWER.z), 3);
+  });
+
+  it('puts every lamp by a cabin door and at the dock\'s head, and its halo and pool come up with the night', () => {
+    const lamps = lakeLamps(land);
+    expect(lamps.length).toBe(land.cabins.length + 1);
+    view.update(-1900, 2, -280, 0, 5, 12, { x: 0, z: 0 }, null);
+    const pool = meshes('lake-lamp-pools')[0]!.material as THREE.MeshBasicMaterial;
+    expect(pool.opacity).toBe(0);
+    view.update(-1900, 2, -280, 1, 6, 23, { x: 0, z: 0 }, null);
+    expect(pool.opacity).toBeGreaterThan(0.3);
+  });
+
+  it('burns the campfire from dusk to the first light, embers and a pool of firelight, out through the day', () => {
+    expect(campfireLit(12)).toBe(0);
+    expect(campfireLit(23)).toBe(1);
+    expect(campfireLit(3)).toBe(1);
+    expect(campfireLit(20.5)).toBe(1);
+    expect(campfireLit(6)).toBeGreaterThan(0);
+    expect(campfireLit(6)).toBeLessThan(1);
+    expect(campfireLit(8)).toBe(0);
+    view.update(-1900, 2, -280, 0, 1, 12, { x: 0, z: 0 }, null);
+    const mat = (name: string) => {
+      let m: THREE.Material | null = null;
+      view.group.traverse((o) => {
+        if (o.name === name && (o instanceof THREE.Mesh || o instanceof THREE.Points)) m = o.material as THREE.Material;
+      });
+      return m as unknown as THREE.Material & { opacity: number };
+    };
+    expect(mat('campfire-pool').opacity).toBe(0);
+    view.update(-1900, 2, -280, 1, 2, 23, { x: 0, z: 0 }, null);
+    expect(mat('campfire-pool').opacity).toBeGreaterThan(0.2);
+    expect(mat('campfire-halo').opacity).toBeGreaterThan(0.2);
+    expect(mat('campfire-embers').opacity).toBeGreaterThan(0.2);
+  });
+});

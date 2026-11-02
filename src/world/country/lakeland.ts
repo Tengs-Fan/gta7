@@ -7,7 +7,7 @@
 // little, and the valley's land north of the Pass Road outside the vineyard; it draws from its own generator
 // (hashInts(seed, LAKELAND_SALT)) and keeps clear of every road (`roadGap`).
 
-import { pointSegDist } from '../../core/math';
+import { pointSegDist, smoothstep } from '../../core/math';
 import { Rng } from '../../core/rng';
 import { addProp, hashInts, mkRect, rectContains, rectsOverlap, type CityLayout, type Rect, type Side } from '../layout';
 import { COUNTRY_ROADS, countryGround, LAKE_RECTS } from './index';
@@ -16,7 +16,7 @@ import { buildWoods } from './woods';
 
 /** A sign board on two posts: the lines it carries (the first is the headline), facing (sin rot, cos rot). */
 export interface LakeSign {
-  id: 'lake' | 'swim' | 'camp' | 'fire' | 'pinewood' | 'welcome' | 'toilet';
+  id: 'lake' | 'swim' | 'camp' | 'fire' | 'pinewood' | 'welcome';
   x: number;
   z: number;
   rot: number;
@@ -82,9 +82,9 @@ export interface Boulder {
   tint: number;
 }
 
-export type FlowerHue = 'buttercup' | 'lupine' | 'daisy' | 'poppy' | 'clover';
+export type FlowerHue = 'buttercup' | 'lupine' | 'daisy' | 'poppy' | 'clover' | 'grass';
 
-/** A patch of wildflowers: tufts scattered over a disc, `count` of them, from its seed. */
+/** A patch of wildflowers, or of tall golden grass (`grass`): tufts scattered over a disc, `count` of them, from its seed. */
 export interface FlowerPatch {
   x: number;
   z: number;
@@ -94,10 +94,39 @@ export interface FlowerPatch {
   seed: number;
 }
 
-/** A dirt lane or track: its centre line (x, z pairs, from the road's edge in) and its width. */
+/** A dirt lane or track: its centre line (x, z pairs about LANE_STEP m apart, from the road's edge in, smooth through its bends) and its width. */
 export interface Lane {
   pts: readonly number[];
   width: number;
+}
+
+/** The spacing (m) of a lane's points. */
+export const LANE_STEP = 3;
+
+/**
+ * A lane through the corners `ctrl` (x, z pairs): a Catmull-Rom spline through them, sampled every LANE_STEP m or so, the
+ * first and last points the ends'.
+ */
+export function laneThrough(ctrl: readonly number[], width: number): Lane {
+  const n = ctrl.length / 2;
+  const at = (i: number): [number, number] => {
+    const k = Math.max(0, Math.min(n - 1, i));
+    return [ctrl[2 * k]!, ctrl[2 * k + 1]!];
+  };
+  const pts: number[] = [ctrl[0]!, ctrl[1]!];
+  for (let i = 0; i + 1 < n; i++) {
+    const [p0, p1, p2, p3] = [at(i - 1), at(i), at(i + 1), at(i + 2)];
+    const steps = Math.max(1, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / LANE_STEP));
+    for (let s = 1; s <= steps; s++) {
+      const t = s / steps;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      for (const d of [0, 1] as const) {
+        pts.push(0.5 * (2 * p1[d] + (-p0[d] + p2[d]) * t + (2 * p0[d] - 5 * p1[d] + 4 * p2[d] - p3[d]) * t2 + (-p0[d] + 3 * p1[d] - 3 * p2[d] + p3[d]) * t3));
+      }
+    }
+  }
+  return { pts, width };
 }
 
 /** A fire lookout tower's frame (render/country/hills.ts draws it, world/country/hills.ts LOOKOUT.tower is the ridge's). */
@@ -171,6 +200,15 @@ export function noLakeland(): CountyLakeland {
     forest: { first: 0, pines: 0, shade: 0 },
     firstSolid: 0,
   };
+}
+
+/**
+ * How strongly the campfire burns at `hours`: out through the day, up from dusk (the clock's, as the lamps are) and burning
+ * down in the first light. The renderer's flames and glow and the ambience's crackle use the same.
+ */
+export function campfireLit(hours: number): number {
+  const h = ((hours % 24) + 24) % 24;
+  return h >= 12 ? smoothstep(17.8, 19.8, h) : 1 - smoothstep(5.2, 7, h);
 }
 
 /** Salt of the generator behind all of it (hashInts(seed, LAKELAND_SALT)). */

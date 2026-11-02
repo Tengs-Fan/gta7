@@ -7,24 +7,24 @@ import { Rng } from '../../core/rng';
 import { smoothstep } from '../../core/math';
 import { mkRect, rectContains, type CityLayout, type Rect } from '../layout';
 import { countryGround, PASS_Z } from './index';
-import { blocked, dryLand, loopX, lakeGap, NORTH_VALLEY, prop, roadGap, valueNoise, type Boulder, type CountyLakeland, type FireTower, type FlowerHue, type Keepout } from './lakeland';
+import { blocked, dryLand, lakeGap, laneThrough, loopX, NORTH_VALLEY, prop, roadGap, valueNoise, type Boulder, type CountyLakeland, type FireTower, type FlowerHue, type Keepout } from './lakeland';
 
 /** Pine Rise's top: the fire lookout tower's frame, four posts 5 m apart, a cab on a deck 15 m up. */
 export const PINE_TOWER: FireTower = { x: -1710, z: -300, half: 2.5, cab: 15, top: 18.6, post: 0.26 };
 
 /** The gravel pad round the tower's foot, where the track ends. */
-const TOWER_PAD = mkRect(-1724, -320, -1696, -282);
+const TOWER_PAD = mkRect(-1722, -314, -1698, -288);
 
 /** The dirt track's centre line from the Valley Loop's east side into Pinewood: out across the meadow, in under the pines and up the rise's north slope. */
-function trackPoints(): number[] {
-  return [loopX(-345) - 5 + 0.3, -345, -1795, -350, -1765, -372, -1745, -404, -1722, -421, -1704, -399, -1699, -372, -1706, -346, -1712, -321];
+function trackCorners(): number[] {
+  return [loopX(-345) + 5 - 0.3, -345, -1795, -350, -1765, -372, -1745, -404, -1722, -421, -1704, -399, -1699, -372, -1706, -346, -1712, -321];
 }
 const TRACK_WIDTH = 4.2;
 
 /** The forest's cell (m): a pine in a cell about as often as the glades allow. */
 const PINE_CELL = 5.2;
 /** The valley's scatter grid (m). */
-const SCATTER_CELL = 13;
+const SCATTER_CELL = 11;
 
 export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, keep: Keepout): void {
   const country = layout.country;
@@ -48,11 +48,11 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
   land.plaque = { x: t.x - 6.5, z: t.z - 2.4, rot: -Math.PI / 2 };
 
   // The track in, with its sign where it leaves the road.
-  const track = trackPoints();
-  land.lanes.push({ pts: track, width: TRACK_WIDTH });
-  keep.lines.push({ pts: track, r: TRACK_WIDTH / 2 + 2.5 });
+  const track = laneThrough(trackCorners(), TRACK_WIDTH);
+  land.lanes.push(track);
+  keep.lines.push({ pts: track.pts, r: TRACK_WIDTH / 2 + 2.5 });
   keep.rects.push(mkRect(TOWER_PAD.minX - 4, TOWER_PAD.minZ - 4, TOWER_PAD.maxX + 4, TOWER_PAD.maxZ + 4));
-  land.signs.push({ id: 'pinewood', x: loopX(-338) - 5 - 3.5, z: -338, rot: Math.PI / 2, lines: ['PINEWOOD', 'FIRE LOOKOUT 300 M', 'ONLY YOU CAN PREVENT FOREST FIRES.', 'NO PRESSURE.'] });
+  land.signs.push({ id: 'pinewood', x: loopX(-335) + 5 + 3.5, z: -335, rot: -Math.PI / 2, lines: ['PINEWOOD', 'FIRE LOOKOUT 300 M', 'ONLY YOU CAN PREVENT FOREST FIRES.', 'NO PRESSURE.'] });
 
   // Coyote Pass's west mouth: the valley's welcome to traffic coming out of the pass.
   land.signs.push({ id: 'welcome', x: -1606, z: PASS_Z - 12.5, rot: Math.PI / 2, lines: ['LAS LOMAS VALLEY', 'LAKE · PINES · NO SIGNAL'] });
@@ -130,13 +130,15 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
       if (farPlot(pinewood, x, z, 0) || farPlot(vineyard, x, z, 14) || farPlot(ranch, x, z, 14) || farPlot(passPlot, x, z, 0)) continue;
       const lake = lakeGap(x, z);
       const grove = valueNoise(x, z, 75, 21);
-      const p = 0.95 * smoothstep(24, 170, lake) * smoothstep(0.2, 0.55, grove);
+      const p = smoothstep(24, 150, lake) * smoothstep(0.12, 0.5, grove);
       if (roll > p || roadGap(x, z) < 9 || blocked(keep, x, z, 2.5) || !dryLand(layout, x, z, 5)) continue;
       const toWood = Math.max(0, pinewood.minX - x, x - pinewood.maxX, pinewood.minZ - z, z - pinewood.maxZ);
-      if (which < 0.34 + 0.5 * smoothstep(300, 40, toWood)) prop(layout, 'pine', x, z, rng.range(0, Math.PI * 2), 0.8 + size * 0.5);
+      if (which < 0.5 + 0.4 * smoothstep(300, 40, toWood)) prop(layout, 'pine', x, z, rng.range(0, Math.PI * 2), 0.8 + size * 0.5);
       else {
         prop(layout, 'tree', x, z, rng.range(0, Math.PI * 2), 1 + size * 0.34);
-        if (rng.chance(0.5)) prop(layout, 'bush', x + rng.range(-3, 3), z + rng.range(-3, 3), rng.range(0, 6.28), rng.range(0.8, 1.25));
+        const bx = x + rng.range(-3, 3);
+        const bz = z + rng.range(-3, 3);
+        if (rng.chance(0.5) && roadGap(bx, bz) >= 8) prop(layout, 'bush', bx, bz, rng.range(0, 6.28), rng.range(0.8, 1.25));
       }
     }
   }
@@ -160,6 +162,15 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
     if (farPlot(pinewood, x, z, r) || farPlot(vineyard, x, z, r + 8) || roadGap(x, z) < r + 8 || lakeGap(x, z) < r + 16 || blocked(keep, x, z, r) || !dryLand(layout, x, z, r)) continue;
     if (land.flowers.some((f) => Math.hypot(f.x - x, f.z - z) < f.r + r + 6) || land.boulders.some((b) => Math.hypot(b.x - x, b.z - z) < r)) continue;
     patch(x, z, r, hues[n % hues.length]!);
+    n++;
+  }
+  // Tall golden grass in big loose patches, to break the lawn: the open land is more meadow than mown.
+  for (let tries = 0, n = 0; tries < 2000 && n < 16; tries++) {
+    const x = rng.range(NORTH_VALLEY.minX + 30, NORTH_VALLEY.maxX - 30);
+    const z = rng.range(NORTH_VALLEY.minZ + 30, NORTH_VALLEY.maxZ - 40);
+    const r = rng.range(20, 38);
+    if (farPlot(pinewood, x, z, r * 0.5) || farPlot(vineyard, x, z, r + 6) || roadGap(x, z) < r + 4 || lakeGap(x, z) < r * 0.5 + 14 || blocked(keep, x, z, r * 0.4) || !dryLand(layout, x, z, r * 0.5)) continue;
+    land.flowers.push({ x, z, r, hue: 'grass', count: Math.round(Math.PI * r * r * 0.2), seed: land.flowers.length + 1 });
     n++;
   }
   for (const [x, z, r, hue] of [[-1949, -314, 5.5, 'buttercup'], [-1893, -314, 4.5, 'daisy'], [-1856, -298, 4, 'poppy'], [-1938, -221, 6, 'lupine'], [-1884, -228, 5, 'clover']] as const) {

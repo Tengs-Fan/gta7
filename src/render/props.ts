@@ -29,6 +29,7 @@ import { SHADOW_LAYER } from './vehicleBatches';
 import { CORN_H, cornGeometry, cornTexture, headstoneGeometry, HEADSTONE_SHAPES, ironFenceGeometry, pumpkinGeometry } from './attractionModels';
 import { speakerGeometry } from './country/driveIn';
 import { applesGeometry, baleTexture, COW_NECK, cowGeometry, cowTexture, farmFenceGeometry, propaneGeometry, scarecrowGeometry } from './country/farmModels';
+import { PINE_H, pineGeometry } from './country/pineModels';
 import { stopSignGeometry } from './country/stopSign';
 import { pumpGeometry } from './country/town';
 
@@ -756,6 +757,7 @@ export class PropsView {
     get('billboard').filter((i) => world.layout.props[i]!.x >= world.layout.bounds.landMinX).forEach((i, k) => this.buildBillboard(world.layout.props[i]!, k));
     this.makeInstanced(pumpGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5, metalness: 0.2 }), get('pump'), PropsView.standard);
     this.makeInstanced(speakerGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0.3 }), get('speaker'), PropsView.standard, { chunked: true });
+    this.buildPines(get('pine'));
     this.buildRoofProps();
     this.buildDressing(dressingItems(world));
     world.layout.props.forEach((p, i) => {
@@ -974,6 +976,21 @@ export class PropsView {
       chunked: true,
     });
     this.makeInstanced(applesGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.45 }), orchard, apple, { shadow: false, track: false, chunked: true });
+  }
+
+  /**
+   * Pinewood's pines and the valley's (world/country/lakeland.ts): one model each (trunk and seven skirts of needles, one
+   * material, one instanced draw per cell), the tint of each its own, its top swaying in the wind (its foot does not) and
+   * dissolving, like every foliage, within a couple of metres of the camera. The skirts are single cones, so both faces draw.
+   */
+  private buildPines(pines: number[]): void {
+    const rng = new Rng(78);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
+    fadeNearCamera(mat, { shared: this.windUniforms, pivot: new THREE.Vector4(0, 0, 0, PINE_H) });
+    const tint = new THREE.Color();
+    this.makeInstanced(pineGeometry(), mat, pines, PropsView.standard, {
+      color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.37 + rng.range(-0.04, 0.03), rng.range(0.3, 0.5), rng.range(0.4, 0.52)), 0.3),
+    });
   }
 
   /**

@@ -24,13 +24,15 @@ export interface PlacePieces {
 }
 
 export class PlacesKit {
-  readonly atlas = new Atlas(ATLAS_H);
+  readonly atlas: Atlas;
   /** Packed dirt on the flush ground (lots, drives, the dirt track), all the places' in one draw of the city's dirt. */
   readonly dirt = new GeoBuilder(false);
   private readonly blank: [number, number];
   private readonly places: Array<PlacePieces & { name: string }> = [];
 
-  constructor() {
+  /** `height`: the atlas's height in px (a place with little to paint, the lake's, takes a smaller one). */
+  constructor(height = ATLAS_H) {
+    this.atlas = new Atlas(height);
     this.blank = this.atlas.band(8, (ctx) => {
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, 1024, 8);
