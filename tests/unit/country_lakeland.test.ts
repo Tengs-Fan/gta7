@@ -265,10 +265,43 @@ describe('Pinewood', () => {
     expect(W.isFree(PINE_TOWER.x, PINE_TOWER.z, 0.3)).toBe(true);
   });
 
-  it('adds a telescope and a plaque to the viewpoints, at the tower\'s foot', () => {
+  it('adds a telescope and a plaque to the viewpoints, on the tower\'s pad, the plaque promising no climb', () => {
     const items = viewpoints(W).filter((it) => Math.hypot(it.x - PINE_TOWER.x, it.z - PINE_TOWER.z) < 12);
     expect(items.map((it) => it.kind).sort()).toEqual(['plaque', 'telescope']);
-    for (const it of items) expect(it.y).toBeCloseTo(W.groundHeight(it.x, it.z), 9);
+    for (const it of items) {
+      expect(it.y).toBeCloseTo(W.groundHeight(it.x, it.z), 9);
+      expect(it.text).not.toMatch(/climb|ladder|stairs/i);
+    }
+    expect(items.find((it) => it.kind === 'plaque')!.text).toContain('STAFF ONLY');
+  });
+
+  it('puts the telescope at the pad\'s west edge, with no pine within 3 m of it and most of the lake in sight over the pines', () => {
+    const ts = land.telescope;
+    const pines = mine.filter((p) => p.kind === 'pine');
+    expect(ts.x).toBeGreaterThan(land.pads[land.pads.length - 1]!.minX);
+    expect(Math.min(...pines.map((p) => Math.hypot(p.x - ts.x, p.z - ts.z)))).toBeGreaterThan(3);
+    const lake = L.country.lake;
+    const eye = W.groundHeight(ts.x, ts.z) + 1.6;
+    let water = 0;
+    let seen = 0;
+    for (let x = lake.minX; x <= lake.maxX; x += 8) {
+      for (let z = lake.minZ; z <= lake.maxZ; z += 8) {
+        if (!(W.groundHeight(x, z) < -0.3)) continue;
+        water++;
+        const d = Math.hypot(x - ts.x, z - ts.z);
+        // A pine hides the water behind it when the sight line passes within its skirts' reach below its top.
+        const hidden = pines.some((p) => {
+          const t = ((p.x - ts.x) * (x - ts.x) + (p.z - ts.z) * (z - ts.z)) / (d * d);
+          if (t <= 0 || t >= 1) return false;
+          const off = Math.hypot(p.x - ts.x - t * (x - ts.x), p.z - ts.z - t * (z - ts.z));
+          return off < 1.2 * p.scale && eye - eye * t < W.groundHeight(p.x, p.z) + 10 * p.scale;
+        });
+        if (!hidden) seen++;
+      }
+    }
+    expect(water).toBeGreaterThan(300);
+    console.log(`[lakeland] the telescope sees ${seen} of ${water} water samples`);
+    expect(seen / water).toBeGreaterThan(0.6);
   });
 });
 
@@ -285,6 +318,8 @@ describe('the valley\'s north', () => {
     expect(per(0, 28)).toBe(0);
     expect(per(28, 90)).toBeLessThan(per(90, 200) + per(200, 600));
     expect(land.boulders.length).toBeGreaterThan(20);
+    // Three round the tower's pad, none of the attempts lost to its keep-out.
+    expect(land.boulders.filter((b) => Math.hypot(b.x - PINE_TOWER.x, b.z - PINE_TOWER.z) < 25 && !land.pads.some((p) => rectContains(p, b.x, b.z))).length).toBe(3);
     for (const b of land.boulders) expect(W.isFree(b.x, b.z, 0.2), `boulder at ${b.x.toFixed(1)}, ${b.z.toFixed(1)}`).toBe(false);
     const flowers = land.flowers.filter((f) => f.hue !== 'grass');
     expect(flowers.length).toBeGreaterThanOrEqual(15);

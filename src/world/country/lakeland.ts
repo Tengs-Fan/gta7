@@ -171,7 +171,7 @@ export interface CountyLakeland {
   /** The dirt: lanes and tracks, and gravel pads (the car park, the camp, the tower's). */
   lanes: Lane[];
   pads: Rect[];
-  /** Pinewood's fire lookout tower on Pine Rise's top, and its telescope and plaque at its foot. */
+  /** Pinewood's fire lookout tower on Pine Rise's top, and its telescope (at the pad's west edge) and plaque. */
   tower: FireTower;
   telescope: { x: number; z: number; rot: number };
   plaque: { x: number; z: number; rot: number };

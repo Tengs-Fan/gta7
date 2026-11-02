@@ -37,14 +37,15 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
   const passPlot = plot('pass');
   const lakePlot = plot('lake');
 
-  // The tower and its pad, the telescope and the plaque at its foot facing the lake.
+  // The tower and its pad, the plaque beside it and the telescope at the pad's west edge, looking down a fire break to the lake.
+  // (The tower cannot be climbed: the telescope is where the view is, and the break is cleared of pines so that there is one.)
   const t = PINE_TOWER;
   land.tower = t;
   land.pads.push(TOWER_PAD);
   const top = ground(t.x, t.z);
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) solids.push({ rect: mkRect(t.x + sx * t.half - t.post, t.z + sz * t.half - t.post, t.x + sx * t.half + t.post, t.z + sz * t.half + t.post), y0: top, y1: top + t.cab, tag: 'pillar', round: true });
   solids.push({ rect: mkRect(t.x - t.half - 0.3, t.z - t.half - 0.3, t.x + t.half + 0.3, t.z + t.half + 0.3), y0: top + t.cab, y1: top + t.top, tag: 'wall' });
-  land.telescope = { x: t.x - 6.5, z: t.z + 2.2, rot: -Math.PI / 2 };
+  land.telescope = { x: TOWER_PAD.minX + 1.2, z: t.z + 2, rot: -Math.PI / 2 };
   land.plaque = { x: t.x - 6.5, z: t.z - 2.4, rot: -Math.PI / 2 };
 
   // The track in, with its sign where it leaves the road.
@@ -52,6 +53,8 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
   land.lanes.push(track);
   keep.lines.push({ pts: track.pts, r: TRACK_WIDTH / 2 + 2.5 });
   keep.rects.push(mkRect(TOWER_PAD.minX - 4, TOWER_PAD.minZ - 4, TOWER_PAD.maxX + 4, TOWER_PAD.maxZ + 4));
+  // The fire break: 10 m wide from the telescope west down the rise, where the pines would stand in its sight.
+  keep.rects.push(mkRect(t.x - 60, land.telescope.z - 5, TOWER_PAD.minX, land.telescope.z + 5));
   land.signs.push({ id: 'pinewood', x: loopX(-335) + 5 + 3.5, z: -335, rot: -Math.PI / 2, lines: ['PINEWOOD', 'FIRE LOOKOUT 300 M', 'ONLY YOU CAN PREVENT FOREST FIRES.', 'NO PRESSURE.'] });
 
   // Coyote Pass's west mouth: the valley's welcome to traffic coming out of the pass.
@@ -73,8 +76,8 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
   };
   // The pass: three at the foot of its north wall by the sign.
   for (const [x, z, s] of [[-1600, PASS_Z - 17, 1.8], [-1596, PASS_Z - 14.5, 1.1], [-1613, PASS_Z - 18.5, 2.2]] as const) boulder(x, z, s);
-  // Round the tower pad, and beside the track.
-  for (const [dx, dz, s] of [[-12, -15, 2.4], [12, 14, 1.7], [-10, 17, 1.3]] as const) spot(t.x + dx, t.z + dz, s);
+  // Round the tower pad (outside its keep-out, 4 m wider than the pad), and beside the track.
+  for (const [dx, dz, s] of [[-12, -21, 2.4], [12, 21, 1.7], [-10, 17, 1.3]] as const) spot(t.x + dx, t.z + dz, s);
   // Along the lake's shore, singly and in pairs, just above the beach.
   for (let tries = 0, n = 0; tries < 400 && n < 12; tries++) {
     const x = rng.range(lakePlot.minX - 20, lakePlot.maxX + 8);

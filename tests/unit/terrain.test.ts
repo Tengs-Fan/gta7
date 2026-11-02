@@ -347,7 +347,7 @@ describe('on the hill', () => {
       "HILLCREST SUMMIT, ELEV. 7 M. HIGHEST POINT IN SAN AZURA THAT ISN'T A PARKING GARAGE.",
       'AZURA POINT LOOKOUT. ON A CLEAR DAY YOU CAN SEE THE SMOG.',
       'LOOKOUT POINT. ELEV. 24 M. THE CITY LOOKS BETTER FROM HERE. SO DOES EVERYTHING.',
-      'PINEWOOD FIRE LOOKOUT. ELEV. 8 M. THE TOWER IS THE OTHER 18. SMOKE? SAY SOMETHING.',
+      'PINEWOOD FIRE LOOKOUT. ELEV. 8 M. THE TOWER IS THE OTHER 18, AND STAFF ONLY. SMOKE? SAY SOMETHING.',
     ]);
     // The letters' sign, and Las Lomas County's welcome where the Magnolia Causeway makes landfall.
     expect(items.filter((it) => it.kind === 'sign').map((it) => it.text)).toEqual(['DO NOT CLIMB THE LETTERS. THE LETTERS HAVE BEEN THROUGH ENOUGH.', 'WELCOME TO LAS LOMAS COUNTY. POPULATION: MOSTLY COWS.']);
@@ -355,7 +355,7 @@ describe('on the hill', () => {
       expect(viewpointViolation(rules, it), `${it.kind} at ${it.x}, ${it.z}`).toBeNull();
       expect(it.y).toBeCloseTo(W.groundHeight(it.x, it.z), 9);
     }
-    // Two on the summit, two at the lookout on the plateau, Lookout Point's on Coyote Ridge and Pinewood's at its tower's foot on Pine Rise.
+    // Two on the summit, two at the lookout on the plateau, Lookout Point's on Coyote Ridge and Pinewood's at the west edge of its tower's pad on Pine Rise.
     expect(items.filter((it) => it.kind === 'telescope').map((t) => Math.round(t.y - CURB_H))).toEqual([7, 7, 10, 10, 24, 8]);
   });
 });
