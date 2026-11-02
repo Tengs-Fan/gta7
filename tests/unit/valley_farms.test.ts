@@ -331,6 +331,25 @@ describe('the valley\'s farms, drawn', () => {
     expect(horses.visible).toBe(false);
   });
 
+  it('has the city pass draw each county farmhouse once and leave the valley\'s winery and ranch house to the valley', () => {
+    // Vertices of the city's meshes inside a building's footprint: a box's four walls are 16 of the facade's.
+    const city = new CityView(W, HARDWARE_CHUNK_SIZE);
+    const inside = (id: number, prefix: string) => {
+      const r = L.buildings.find((b) => b.id === id)!.rect;
+      let n = 0;
+      city.group.traverse((o) => {
+        if (!(o instanceof THREE.Mesh) || !o.name.startsWith(prefix)) return;
+        const pos = o.geometry.getAttribute('position');
+        for (let i = 0; i < pos.count; i++) if (rectContains(r, pos.getX(i) + o.position.x, pos.getZ(i) + o.position.z, 0.01)) n++;
+      });
+      return n;
+    };
+    const houses = L.country.farms.farmsteads.map((f) => f.house);
+    expect(houses.length).toBe(4);
+    for (const id of houses) expect([inside(id, 'facade-'), inside(id, 'roofs') > 0], `farmhouse ${id}`).toEqual([16, true]);
+    for (const id of [v.ranch.house, v.vineyard.winery.building]) expect([inside(id, 'facade-'), inside(id, 'roofs')], `valley building ${id}`).toEqual([0, 0]);
+  });
+
   it('draws the valley\'s oaks and bushes as one batch each, not one per cell', () => {
     const props = new PropsView(W, HARDWARE_CHUNK_SIZE);
     const batches = new Map<string, number>();
