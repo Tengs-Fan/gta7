@@ -372,9 +372,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // pass's bank under the ridge's cores' cover, and the scrub's colliders none; and when the valley's farms were
     // appended after the places (the winery's and the ranch house's buildings, the ranch barn's walls and roof, and the
     // props', hedgerows' and solids' colliders of its vineyard, ranch and farmed land), and the buildings' hash for the
-    // winery and the ranch house.
+    // winery and the ranch house; and again when its review landed: the ranch's two paddock shelters' walls, three each, among
+    // its solids' colliders.
     expect(b).toBe('29c78468290ed9371002b99403903a82a9d4e9bef39080fac50e5ccda87308fc');
-    expect(c).toBe('bd7fbbb504995f0c87e715765bcf56a51ac35eb00d5f3584438e906fcea91a29');
+    expect(c).toBe('f3d0521e06bfb9b84dfde4e927ef1694de5d72a56e8f5baf010cb6d41a67b304');
   });
 });
 

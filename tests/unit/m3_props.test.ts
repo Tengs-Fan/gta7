@@ -514,10 +514,11 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // when the valley's farms were appended after the places (Sunset Vineyard, the Lazy Q Ranch and the farmed land between
   // them: 76 oaks and 130 bushes, 194 fence runs, a windpump, 40 pumpkins and a scarecrow; their colliders after the
   // places', then the winery's and the ranch house's buildings, the ranch barn's walls and roof, and the hedgerows', barrels',
-  // bales' and ruin's solids).
+  // bales' and ruin's solids); and when its review landed (the colliders alone: the two paddock shelters' three walls each,
+  // among the solids after the ranch's bales).
   const D98 = {
     props: '37e0fa6bf501f53e6f672cb8d230c6e2c32b70c4d2346b9fb276652e43b263e8',
-    colliders: 'd1237b1f83692b90597017021e9e81e9f19885c7a21599f758afaa4afc3247a6',
+    colliders: 'e92b466ba0dba7d048c1db26e7f4a8cc86a833f727e1ece65dc7ffa827580a91',
     envelopes: '302c2d57126cf21cf5797e584b0f23edfab537023433c990b37b500b1c6dd06d',
   };
 

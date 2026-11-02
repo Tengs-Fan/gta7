@@ -447,7 +447,7 @@ A three-car monorail runs along Cortez Canal on a beam 9.6 m up, from Northshore
 - The ranch's horses and sheep are for looking at: they have no colliders, so a car passes through one that has strayed to a fence (they are fenced in), a bullet does too, and nothing records a sheep run down.
   Sheep are frightened by the sim's cars and players only, not by a pedestrian or an animal, and a flock far from the camera (420 m) is frozen, so it picks up where it was.
 - The vineyard's rows are drawn only (no collider): a car or a person walks through the vines, which sway on the wind but not aside for them, and the vines are not cover.
-- The winery's porch and the ranch house's are decoration (a person or a car goes through their posts and decks); the winery, the ranch house, the barn, the windpump, the barrels, the bales, the ruin's walls and the fences are solid.
+- The winery's porch and the ranch house's are decoration (a person or a car goes through their posts and decks); the winery, the ranch house, the barn, the windpump, the barrels, the bales, the paddocks' shelters' walls, the ruin's walls and the fences are solid.
 - The Moonbeam Drive-In's bays fill only out of view, so a lot you are watching at 19:00 fills late.
 - Gravel Gulch's berms and flags are drawn only: a rider passes through them, and a tabletop's sides drop sheer.
 - The drive-in's films have no sound: their lines are on the screen only.

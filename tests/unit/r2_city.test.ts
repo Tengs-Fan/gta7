@@ -276,8 +276,10 @@ describe('round 2 city: layout', () => {
     // holes in the land and the shelf's land with the lake filled in, the pass's bank on its south wall, and seven hills, with
     // their scrub, in the valley); and when the valley's farms were appended after the places (the vineyard's rows' rise and
     // winery, the ranch's house, barn, paddocks and pasture, hay fields, a pumpkin patch, a ruin on the Willow Knoll, and oaks
-    // and bushes over the open land, with their props, buildings, garage, bays and fields).
-    expect(layoutHash()).toBe('d6e7d7d1a0c40802061a941b775c2add5a22e43e303d8751129c46fd0bc58169');
+    // and bushes over the open land, with their props, buildings, garage, bays and fields); and when the valley's farms'
+    // review landed (the ranch's two shelters with their walls as solids, and no windpump index, gate or mailbox rotation,
+    // vineyard row count, or the one vine run in the winery yard's corner).
+    expect(layoutHash()).toBe('6ff6544f655c57ce7d45c65e562cd5a0f0f0b478a62e8a19b232cec50d10bd32');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
