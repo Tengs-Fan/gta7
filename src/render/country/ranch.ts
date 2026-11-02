@@ -108,11 +108,13 @@ export class RanchView {
     this.centre = { x: rectCX(ranch.yard), z: rectCZ(ranch.pasture) };
     const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.85 });
     mat.name = 'ranch-animals';
-    const make = (geo: THREE.BufferGeometry, count: number): THREE.InstancedMesh => {
+    // Only the bodies cast a shadow: a horse's head, tail and legs and a sheep's head are too small to show in one, and each
+    // mesh that does is drawn again for every cascade.
+    const make = (geo: THREE.BufferGeometry, count: number, shadow = false): THREE.InstancedMesh => {
       const mesh = new THREE.InstancedMesh(geo, mat, count);
       mesh.name = geo.name;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      mesh.castShadow = true;
+      mesh.castShadow = shadow;
       mesh.receiveShadow = true;
       // They move all over the paddocks: bound them by hand.
       mesh.frustumCulled = false;
@@ -122,11 +124,11 @@ export class RanchView {
       return mesh;
     };
     const n = this.horses.length;
-    this.horseBodies = make(horseBody(), n);
+    this.horseBodies = make(horseBody(), n, true);
     this.horseFronts = make(horseFront(), n);
     this.horseTails = make(horseTail(), n);
     this.horseLegs = make(horseLeg(), n * 4);
-    this.sheepBodies = make(sheepBody(), this.flock.sheep.length);
+    this.sheepBodies = make(sheepBody(), this.flock.sheep.length, true);
     this.sheepHeads = make(sheepHead(), this.flock.sheep.length);
     const c = new THREE.Color();
     this.horses.forEach((h, i) => {

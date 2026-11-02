@@ -242,22 +242,22 @@ export class ValleyView {
       ctx.fillRect(0, 0, 1024, 16);
     }, true);
     const { window: windowBand, door: doorBand } = openings(atlas);
-    const stone = new GeoBuilder(true);
-    const glass = pieces();
+    // Each place a piece of its own (the winery's stone, the ruin's stone, the vineyard's and the ranch's wood, tile and
+    // boards), so a mesh's bounds hug what it draws and the cull hides it from far away.
+    const wineryStone = new GeoBuilder(true);
+    const ruinStone = new GeoBuilder(true);
+    const vineyard = pieces();
+    const ranch = pieces();
     const bulbs: V[] = [];
-    this.winery(v, stone, glass, windowBand, doorBand, lit, atlas, bulbs);
-    this.ruin(v, stone);
-    this.ranch(v, view, glass, atlas);
+    this.winery(v, wineryStone, vineyard, windowBand, doorBand, lit, atlas, bulbs);
+    this.ruin(v, ruinStone);
+    this.ranch(v, view, ranch, atlas);
     // The stone, one coursed texture in vertex colours.
     const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTexture(), vertexColors: true, roughness: 0.92 });
     stoneMat.name = 'valley-stone';
-    view.add(stone.build(), stoneMat, { shadow: true, split: false, name: 'valley-stone' });
+    view.add(wineryStone.build(), stoneMat, { shadow: true, split: false, name: 'winery-stone' });
+    view.add(ruinStone.build(), stoneMat, { shadow: true, split: false, name: 'ruin-stone' });
     // Everything else on the atlas: wood, tile, painted boards and the lit bands.
-    const plain = glass.plain.build();
-    const uv = plain.getAttribute('uv') as THREE.BufferAttribute;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.5, white);
-    const geo = mergeGeometries([plain, glass.painted.build()], false)!;
-    plain.dispose();
     const mat = new THREE.MeshStandardMaterial({
       map: toTexture(atlas.canvas, true, false),
       emissiveMap: toTexture(atlas.glowCanvas, true, false),
@@ -269,7 +269,14 @@ export class ValleyView {
     mat.name = 'valley-farms';
     // Lit up after dark with the city's signs (CityView.update).
     view.city.materials.signs.push(mat);
-    view.add(geo, mat, { shadow: true, split: false, name: 'valley-farms' });
+    for (const [name, p] of [['sunset-vineyard', vineyard], ['lazy-q-ranch', ranch]] as const) {
+      const plain = p.plain.build();
+      const uv = plain.getAttribute('uv') as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.5, white);
+      const geo = mergeGeometries([plain, p.painted.build()], false)!;
+      plain.dispose();
+      view.add(geo, mat, { shadow: true, split: false, name });
+    }
     // A glow round every bulb after dark.
     const pos = new Float32Array(bulbs.length * 3);
     bulbs.forEach((b, i) => pos.set(b, i * 3));

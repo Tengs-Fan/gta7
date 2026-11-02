@@ -16,8 +16,8 @@ import { canvas, toTexture } from '../textures/misc';
 import { WIND_GLSL } from '../wind';
 import type { CountryView } from './index';
 
-/** Chunks of this side (m) are hidden, each in one, past the cull's reach. */
-const CHUNK = 96;
+/** Chunks of this side (m) are hidden, each in one, past the cull's reach: four draws for the vineyard. */
+const CHUNK = 160;
 /** The trellis's post top and the leaf walls' height (m). */
 const POST_H = 1.75;
 const LEAF_TOP = 1.95;
