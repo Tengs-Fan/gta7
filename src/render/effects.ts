@@ -1454,6 +1454,11 @@ export class Effects {
     this.smoke.emit(x + this.r(-0.2, 0.2), y + 0.15, z + this.r(-0.2, 0.2), this.r(-0.6, 0.6), this.r(0.4, 1.0), this.r(-0.6, 0.6), this.r(0.8, 1.6), 0.5, 2.2, 0xd8d8d8, 0xeeeeee, 0.32, -0.1, 0.8);
   }
 
+  /** One puff of a plume the countryside lets off (render/country/life): crop spray, the combine's dust. On the smoke layer, in the scene's light. */
+  puff(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size0: number, size1: number, color0: number, color1: number, alpha: number, gravity: number, drag: number): void {
+    this.smoke.emit(x, y, z, vx, vy, vz, life, size0, size1, color0, color1, alpha, gravity, drag);
+  }
+
   /**
    * Something hit the water at (x, y, z) (`big` true: a car or a crash, false: a person): a crown of droplets streaking
    * out and falling back, a mist puff, and a foam ring spreading on the surface. On the smoke layer, in the scene's light.

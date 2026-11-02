@@ -265,7 +265,7 @@ export class Flock {
 const GROUND_SITES: ReadonlyArray<readonly [number, number, number, number, number]> = [
   // Halfmoon Acres' verge by the highway's south leg, the west straight's verge under the ridge, Hollister Lane's verge
   // and the south leg's far verge.
-  [-1100, -1060, 246, 254, 7],
+  [-1100, -1060, 252, 257, 7],
   [-1352, -1342, 18, 44, 6],
   [-1124, -1114, -360, -335, 6],
   [-1030, -1000, 282, 290, 5],

@@ -321,7 +321,7 @@ export function balloonAt(world: StaticWorld, hours: number, fair: boolean, out:
   const up = smoothstep(0, 0.2, tau) * (1 - smoothstep(0.8, 1, tau));
   out.height = (BALLOON_CEILING + 3 * Math.sin(hours * 40)) * up;
   out.y = world.groundHeight(out.x, out.z) + out.height;
-  out.yaw = hours * 5;
+  out.yaw = (hours - d.lift) * 0.9;
   out.heading = Math.atan2(to.x - from.x, to.z - from.z);
   out.speed = tau > 0 && tau < 1 ? (len / ((d.land - d.lift) * SECONDS_PER_HOUR)) * (0.55 + 0.45 * 6 * tau * (1 - tau)) : 0;
   return true;
