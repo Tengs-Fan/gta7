@@ -1318,15 +1318,17 @@ function mapWheelRig() {
   const cz = (b.landMinZ + b.landMaxZ) / 2;
   // Zoom 0 fits the land with as much sea round it on every side as south of it (map.ts).
   const base = Math.min(1280 / (2 * (b.worldMaxX - cx)), 720 / (2 * (b.worldMaxZ - cz)));
-  /** The zoom level, read back from where a click 100 px right of the centre drops the waypoint. */
-  const zoom = () => {
+  /** Where a click at x px (on the middle row) drops the waypoint. */
+  const click = (x: number) => {
     wp = null;
-    pointer(canvas, 'down', 740, 360, 1);
-    pointer(canvas, 'up', 740, 360, 0);
-    const k = 100 / (wp!.x - cx);
+    pointer(canvas, 'down', x, 360, 1);
+    pointer(canvas, 'up', x, 360, 0);
+    const at = wp!.x;
     wp = null;
-    return Math.log(k / base) / Math.log(1.5);
+    return at;
   };
+  /** The zoom level, read back from where a click 100 px right of the centre drops the waypoint (zoomed out the centre moves on to the county's). */
+  const zoom = () => Math.log(100 / (click(740) - click(640)) / base) / Math.log(1.5);
   let t = 1000;
   /** `times` wheel events `gap` ms apart, the first `pause` ms after the previous call's last one. */
   const wheel = (deltaY: number, times = 1, { gap = 16, pause = 1000, ...more }: { gap?: number; pause?: number; deltaX?: number; deltaMode?: number; ctrlKey?: boolean } = {}) => {
