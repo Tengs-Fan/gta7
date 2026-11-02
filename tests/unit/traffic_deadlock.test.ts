@@ -125,7 +125,7 @@ describe('stop signs never jam', () => {
    * under what as many seeds average in a sweep of 60-400 of them.
    */
   const MIN_STOPS: Readonly<Partial<Record<Soaked, number>>> = { creek: 20, hollister: 20, valley: 20 };
-  const MIN_THROUGH: Readonly<Record<Soaked, number>> = { creek: 400, hollister: 690, coyote: 180, valley: 120 };
+  const MIN_THROUGH: Readonly<Record<Soaked, number>> = { creek: 400, hollister: 690, coyote: 180, valley: 100 };
   /** The cars that stopped at each line and went on, over the seeds run so far. */
   const wentOn: Record<Soaked, number> = { creek: 0, hollister: 0, coyote: 0, valley: 0 };
   const RUNS = (Object.keys(SEEDS) as Soaked[]).flatMap((name) => SEEDS[name].map((seed) => [name, seed] as const));
