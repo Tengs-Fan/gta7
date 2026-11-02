@@ -366,10 +366,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // farms their props and its places theirs, and after every other collider the landscape its rises' sight cores and
     // Lookout Point's parapet and tower, then the farms' farmhouses and Dry Creek's stores, the farms' barns' walls and
     // roofs and their hedgerows, and the places' solids (the town's, the drive-in's); and the colliders again when the roadside
-    // oddities were appended after those: the mailboxes' and signs' props, then the statics' solids and the telephone
+    // oddities were appended after those: the mailboxes' and signs' props (a circle of half their width each), then the statics' solids and the telephone
     // poles' (src/world/country/oddities.ts).
     expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
-    expect(c).toBe('f5104507a8e3394e934447ceb944d9b5ab97ccf041ab35db63c613fc1f51e7ce');
+    expect(c).toBe('a084fcc5d403f85518287ff1190107a240e23058c87521fd94970065f0df48c8');
   });
 });
 

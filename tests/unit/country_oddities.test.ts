@@ -209,10 +209,23 @@ describe('the mailboxes and the signs', () => {
       expect(onCountyLand(country, p.x, p.z)).toBe(true);
       for (const q of props.slice(i + 1)) expect(Math.hypot(p.x - q.x, p.z - q.z)).toBeGreaterThan(2);
       const c = W.grid.colliders[W.propColliders[L.props.indexOf(p)]!]!;
-      expect([c.circle, c.breakable, c.propIndex, c.y1 - c.y0]).toEqual([true, true, L.props.indexOf(p), ROADSIDE[p.color]!.h]);
+      expect([c.circle, c.breakable, c.propIndex, c.y1 - c.y0, c.r]).toEqual([true, true, L.props.indexOf(p), ROADSIDE[p.color]!.h, ROADSIDE[p.color]!.w / 2]);
       expect(W.breakCollider(c)).toBe(L.props.indexOf(p));
     }
     W.resetBroken();
+  });
+
+  it('are as wide to a car as they are across: a sign\'s circle takes in both its posts, so a car clipping one end of the board meets it', () => {
+    for (const p of props.slice(6)) {
+      const { name, w } = ROADSIDE[p.color]!;
+      // The board runs along (cos rot, -sin rot), its posts 0.1 m in from each end and 0.05 m behind it (render/country/roadside.ts).
+      for (const s of [-1, 1]) {
+        const along = s * (w / 2 - 0.1);
+        const x = p.x + Math.cos(p.rot) * along - Math.sin(p.rot) * 0.05;
+        const z = p.z - Math.sin(p.rot) * along - Math.cos(p.rot) * 0.05;
+        expect(W.isFree(x, z, 0.05), `${name}'s post at ${along}`).toBe(false);
+      }
+    }
   });
 });
 

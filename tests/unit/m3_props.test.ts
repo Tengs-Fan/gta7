@@ -507,10 +507,10 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // Dry Creek its pumps, billboards, lamps and benches and the Moonbeam Drive-In its speaker posts, then the landscape's
   // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders; and
   // when the roadside oddities appended their nine mailboxes and signs (props of kind 'roadside', their colliders with the
-  // other county props') and, after every other collider, their statics' solids and the telephone poles' (oddities.ts).
+  // other county props', a circle of half the make's width each) and, after every other collider, their statics' solids and the telephone poles' (oddities.ts).
   const D98 = {
     props: '38366df0395c944ef92104b54f91325d0cea00175646461439ca215c4be1fd26',
-    colliders: '7839b7d9781fed0ebdea2c107157df3822508d2c17ecc3833689cbecf4122bb3',
+    colliders: 'd703ed214ef89a8050dcbe62a2f747cfada3a73ae3ea4e61bbfc51c3bd1787e0',
     envelopes: '49a5db289f360a17852cb9a6af6b0a08e53e66fa3d0d64b11442a350cfb3b27e',
   };
 

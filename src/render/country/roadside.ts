@@ -22,8 +22,8 @@ function slab(w: number, h: number, d: number, x: number, y: number, z: number, 
   return new THREE.BoxGeometry(w, h, d).rotateX(rx).rotateY(ry).rotateZ(rz).translate(x, y, z);
 }
 
-/** The signs' boards, in metres: each as wide and tall as the part of its band it is painted on (painted()). */
-const BOARDS: Readonly<Record<number, readonly [number, number]>> = { 6: [1.2, 0.85], 7: [1.2, 0.85], 8: [1.7, 1.0] };
+/** The signs' boards, in metres: each as wide (ROADSIDE's `w`) and tall as the part of its band it is painted on. */
+const BOARDS: Readonly<Record<number, readonly [number, number]>> = { 6: [ROADSIDE[6].w, 0.85], 7: [ROADSIDE[7].w, 0.85], 8: [ROADSIDE[8].w, 1.0] };
 /** The part of each band the board takes, across, and its band's height in px (the board's aspect at 512 px). */
 const U_RANGE = [0.25, 0.75] as const;
 const WOOD = 0x7a5a3a;

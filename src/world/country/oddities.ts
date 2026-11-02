@@ -66,18 +66,20 @@ export interface Placed {
 
 /**
  * The shapes of the roadside furniture that breaks (props of kind 'roadside', each one's shape in its `color`): six
- * mailboxes of different makes, the fish among them, and three hand-painted signs, each on a post `h` m tall.
+ * mailboxes of different makes, the fish among them, and three hand-painted signs, each on a post `h` m tall and `w` m
+ * across (a sign's board, a mailbox's reach about its post): a car meets a circle of w / 2 m at the post, which for a
+ * sign is wide enough to take in both of its posts, or a car clipping one end would pass through it.
  */
 export const ROADSIDE = [
-  { name: 'mailbox', h: 1.35 },
-  { name: 'fish', h: 1.55 },
-  { name: 'barn', h: 1.6 },
-  { name: 'churn', h: 1.5 },
-  { name: 'birdhouse', h: 1.55 },
-  { name: 'rusty', h: 1.35 },
-  { name: 'eggs', h: 1.9 },
-  { name: 'honey', h: 1.9 },
-  { name: 'slow', h: 2.0 },
+  { name: 'mailbox', h: 1.35, w: 0.5 },
+  { name: 'fish', h: 1.55, w: 1.0 },
+  { name: 'barn', h: 1.6, w: 0.6 },
+  { name: 'churn', h: 1.5, w: 0.4 },
+  { name: 'birdhouse', h: 1.55, w: 0.5 },
+  { name: 'rusty', h: 1.35, w: 0.5 },
+  { name: 'eggs', h: 1.9, w: 1.2 },
+  { name: 'honey', h: 1.9, w: 1.2 },
+  { name: 'slow', h: 2.0, w: 1.7 },
 ] as const;
 
 /** What the hand-painted signs say, by their index in ROADSIDE. */

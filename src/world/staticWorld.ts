@@ -250,7 +250,7 @@ export class StaticWorld {
       case 'speaker':
         return g.addCircle(p.x, p.z, 0.1, p.y, p.y + 1.5, 'lamp', i, true).id;
       case 'roadside':
-        return g.addCircle(p.x, p.z, 0.1, p.y, p.y + ROADSIDE[p.color]!.h, 'lamp', i, true).id;
+        return g.addCircle(p.x, p.z, ROADSIDE[p.color]!.w / 2, p.y, p.y + ROADSIDE[p.color]!.h, 'lamp', i, true).id;
       case 'bush':
       default:
         return -1;

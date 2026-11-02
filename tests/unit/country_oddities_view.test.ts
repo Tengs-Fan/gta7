@@ -181,6 +181,19 @@ describe('the roadside furniture', () => {
     }
   });
 
+  it('are met by a car as wide as they are drawn: the collider\'s radius is within a hand of the make\'s reach round its post, never beyond it', () => {
+    const { blank, bands } = roadsideAtlas();
+    const geo = roadsideGeometry(blank, bands);
+    const pos = geo.getAttribute('position');
+    const shape = geo.getAttribute('aShape');
+    for (const [k, r] of ROADSIDE.entries()) {
+      let reach = 0;
+      for (let i = 0; i < pos.count; i++) if (shape.getX(i) === k) reach = Math.max(reach, Math.hypot(pos.getX(i), pos.getZ(i)));
+      expect(r.w / 2, r.name).toBeLessThanOrEqual(reach);
+      expect(reach - r.w / 2, r.name).toBeLessThan(0.12);
+    }
+  });
+
   it('falls with its prop when a car knocks it down, and stands again in a new game', () => {
     const batch = batches[0]!;
     const m0 = new THREE.Matrix4();
