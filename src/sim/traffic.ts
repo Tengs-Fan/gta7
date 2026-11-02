@@ -21,7 +21,7 @@ import { clearOfVehicles } from './vehicleRoom';
  */
 const ONCOMING_NEAR: readonly [number, number] = [120, 220];
 const ONCOMING_FAR: readonly [number, number] = [330, 420];
-const ONCOMING_KEEP = 520;
+export const ONCOMING_KEEP = 520;
 /** At most this many cars come his way at a time from them: a country road, not a convoy. */
 const ONCOMING_CARS = 2;
 /**
@@ -752,9 +752,14 @@ function spawnClearance(roads: RoadNetwork, lane: Lane): number {
   return into === lane ? JUNCTION_CLEAR : 0;
 }
 
+/** Whether the car is moving towards (p). */
+export function approaching(v: Vehicle, p: { x: number; z: number }): boolean {
+  return (p.x - v.pos.x) * v.vel.x + (p.z - v.pos.z) * v.vel.z > 0;
+}
+
 /** A car on a county lane coming towards (p) within ONCOMING_KEEP m (`d` off): it is about to be met, seen or not. */
 function oncoming(v: Vehicle, p: { x: number; z: number }, d: number): boolean {
-  return d <= ONCOMING_KEEP && !!v.ai && (v.ai.currentLane()?.line.index ?? 0) < 0 && (p.x - v.pos.x) * v.vel.x + (p.z - v.pos.z) * v.vel.z > 0;
+  return d <= ONCOMING_KEEP && !!v.ai && (v.ai.currentLane()?.line.index ?? 0) < 0 && approaching(v, p);
 }
 
 /** Running totals of `weights`, for pickWeighted. */
