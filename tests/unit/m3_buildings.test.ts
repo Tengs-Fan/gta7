@@ -367,9 +367,11 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // Lookout Point's parapet and tower, then the farms' farmhouses and Dry Creek's stores, the farms' barns' walls and
     // roofs and their hedgerows, and the places' solids (the town's, the drive-in's); and the colliders again when Las
     // Lomas Valley joined the county: the Coyote T's and Valley Cross's stop sign and lamps (after the causeway's lamps), the
-    // ridge's cores split round Coyote Pass, and the landscape's props moved by the pass and the new fire road.
+    // ridge's cores split round Coyote Pass, and the landscape's props moved by the pass and the new fire road; and again
+    // when the valley was reshaped: the sight cores of its seven hills (appended with the ridge's and the foothills'), the
+    // pass's bank under the ridge's cores' cover, and the scrub's colliders none.
     expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
-    expect(c).toBe('02b37fd8ef0994ec83a71b96abc5c0bb5f2c7e04ff245b345cdd0ad92cb48d3c');
+    expect(c).toBe('c2900c0e47110a241e6b5dbb73b362a522e6869422c0aa782fc202b53eadd708');
   });
 });
 

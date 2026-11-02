@@ -509,11 +509,12 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // and when Las Lomas Valley joined the county (the Coyote T's and Valley Cross's stop sign and two lamps each, after the
   // causeway's lamps and before the landscape's props; the tree belts and scrub the ridge's pass cut and the new fire road
   // moved or dropped (no bush grows on the pass's rock walls), so their envelopes with them, and the sixth turbine moved
-  // past the pass).
+  // past the pass); and when the valley was reshaped (the pass's bank moved the ridge's scrub on the south wall, the
+  // valley's seven hills grew theirs, none on the vineyard's rise, and their sight cores and envelopes with them).
   const D98 = {
-    props: 'a6f8c31abea534c4f35c26b168b0b2ac1facac62fa752adaae72db05e39ec345',
-    colliders: '3bcd5d688aa67a9c12153c46ca15e14fb410dbbba21b7837fc54e2e349f0be4f',
-    envelopes: 'd497bf999faecbad12f67e4a7d33f11cece9812ee9e75663eb1d7f878e56eb03',
+    props: 'edb20fb4f271893b3ab187f41bd8aca250a81815f2e3abc8d9fe8bb9eb70691f',
+    colliders: '9bdb9e239bb5d908591c0f7522e8be4d9d3db4be4476d9b92d7d2892b8919878',
+    envelopes: 'e6a5d43ff1bd81c439f156c77bc7c0c631119c8d64e5712211628812f891db93',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {

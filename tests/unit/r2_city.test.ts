@@ -272,8 +272,10 @@ describe('round 2 city: layout', () => {
     // its stunt flag; and when Las Lomas Valley joined it (the world's bounds out to x -2400, the land west of Coyote Ridge
     // with Lake Lomas and its coves, the Pass Road and the Valley Loop with the Coyote T's and Valley Cross's stop signs and
     // lamps, five plots, the ridge's pass cut and the moved fire road, trees, scrub (none on the pass's rock walls) and sixth
-    // turbine).
-    expect(layoutHash()).toBe('352f32b4cc3f9c114245b11e8bb34e90bf3b79d87c070dc450cf08badb764969');
+    // turbine); and when the valley was reshaped (the Valley Loop's nine curves and straights and its plots, Lake Lomas's ten
+    // holes in the land and the shelf's land with the lake filled in, the pass's bank on its south wall, and seven hills, with
+    // their scrub, in the valley).
+    expect(layoutHash()).toBe('e612b18e12123255bfd188658b597bfb3ee184585aa76eca5ff49628ff2de52f');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {
