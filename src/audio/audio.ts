@@ -8,6 +8,7 @@ import { hollister } from '../sim/farm';
 import { dairyman } from '../sim/farms';
 import type { SimEvents } from '../sim/events';
 import { lampDarkness, lampsLit } from '../sim/lamps';
+import { PAYPHONE_SPEAKER } from '../sim/payphone';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { VehicleKind, WeaponId } from '../sim/specs';
 import { attractionOf } from '../world/attractions';
@@ -138,6 +139,8 @@ export class AudioEngine {
   /** Counts update() calls. */
   private frame = 0;
   private subtitleTimer = 0;
+  /** The payphone's bell as it sounds now (payphoneRing): its two oscillators and the gain they share, so that an answer can cut it off. */
+  private bell: { oscillators: OscillatorNode[]; cut: GainNode } | null = null;
   /** Seconds left of the result-card duck: the passed / wasted / busted cards', and the MISSION FAILED cards' apart. */
   private bigTimer = 0;
   private failTimer = 0;
@@ -360,6 +363,7 @@ export class AudioEngine {
         if (!this.mine(e)) return;
         // Dialogue ducks the music and the ambience for as long as the line shows (as in the HUD).
         this.subtitleTimer = e.duration;
+        if (e.speaker === PAYPHONE_SPEAKER) this.cutBell();
         void this.dialogue?.say(e.speaker, e.text);
       }),
       on('scream', (e) => {
@@ -779,6 +783,10 @@ export class AudioEngine {
     const t = ctx.currentTime + this.sample;
     const len = 1.5;
     const strikes = Math.round(len * 16);
+    const cut = ctx.createGain();
+    cut.connect(out);
+    const bell = { oscillators: [] as OscillatorNode[], cut };
+    this.bell = bell;
     for (const [hz, parity] of [[1180, 0], [1490, 1]] as const) {
       const o = ctx.createOscillator();
       o.type = 'triangle';
@@ -792,10 +800,20 @@ export class AudioEngine {
       }
       g.gain.linearRampToValueAtTime(0, t + len + 0.02);
       o.connect(g);
-      g.connect(out);
+      g.connect(cut);
       o.start(t);
       o.stop(t + len + 0.05);
+      bell.oscillators.push(o);
     }
+  }
+
+  /** The bell stops (the phone is answered and the stranger speaks): the shared gain let down in a few milliseconds, so that the cut does not click. */
+  private cutBell(): void {
+    if (!this.bell) return;
+    const t = this.ctx!.currentTime;
+    this.bell.cut.gain.setTargetAtTime(0, t, 0.004);
+    for (const o of this.bell.oscillators) o.stop(t + 0.03);
+    this.bell = null;
   }
 
   /**

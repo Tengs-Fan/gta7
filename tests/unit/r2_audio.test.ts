@@ -482,6 +482,8 @@ class FParam {
 
 class FNode {
   readonly outputs: unknown[] = [];
+  /** The times each stop() asked for. */
+  readonly stops: number[] = [];
   constructor(readonly kind: string, props: Record<string, unknown> = {}) {
     Object.assign(this, props);
   }
@@ -490,7 +492,9 @@ class FNode {
     return d;
   }
   start(): void {}
-  stop(): void {}
+  stop(at = 0): void {
+    this.stops.push(at);
+  }
 }
 
 class FContext {
@@ -511,8 +515,11 @@ class FContext {
   createBiquadFilter() {
     return new FNode('biquad', { type: 'lowpass', frequency: new FParam(350), Q: new FParam(1), gain: new FParam(0) });
   }
+  readonly oscillators: FNode[] = [];
   createOscillator() {
-    return new FNode('oscillator', { type: 'sine', frequency: new FParam(440), detune: new FParam(0), setPeriodicWave() {} });
+    const o = new FNode('oscillator', { type: 'sine', frequency: new FParam(440), detune: new FParam(0), setPeriodicWave() {} });
+    this.oscillators.push(o);
+    return o;
   }
   createBufferSource() {
     return new FNode('source', { buffer: null, loop: false, playbackRate: new FParam(1) });
@@ -838,6 +845,37 @@ describe('round-2 audio fixes', () => {
     // The band centre is jittered by +-10% around a pitch that rises with speed.
     expect(fast.hz).toBeGreaterThan(slow.hz * 1.3);
     expect(faster.hz).toBeGreaterThan(fast.hz);
+  });
+
+  it("the payphone's bell is cut off when the stranger picks up, not left to ring under his first words; another speaker's subtitle leaves it ringing", () => {
+    const sim = makeSim({ police: false });
+    const ph = sim.world.layout.country.oddities.payphone;
+    teleport(sim, ph.x, ph.z + 10);
+    const { ctx, frames } = rig(sim);
+    frames(3);
+    // Two oscillators, 1180 and 1490 Hz, scheduled to ring out a second and a half from now, through one gain that is open.
+    const bell = ctx.oscillators.filter((o) => [1180, 1490].includes((o as unknown as { frequency: FParam }).frequency.value));
+    expect(bell.length).toBe(2);
+    const cut = (bell[0]!.outputs[0] as FNode).outputs[0] as FNode & { gain: FParam };
+    expect((bell[1]!.outputs[0] as FNode).outputs[0]).toBe(cut);
+    expect(cut.gain.value).toBe(1);
+    const ringsOutAt = bell[0]!.stops[0]!;
+    expect(ringsOutAt).toBeGreaterThan(ctx.currentTime + 1);
+    // A subtitle of anyone else does not touch it.
+    sim.events.emit('subtitle', { speaker: 'Lou', text: 'Hello.', duration: 2, playerId: 0 });
+    expect(bell.map((o) => o.stops.length)).toEqual([1, 1]);
+    expect(cut.gain.value).toBe(1);
+    // The phone is answered: both oscillators are told to stop at once, and the gain goes to nothing.
+    frames(1);
+    teleport(sim, ph.at.x, ph.at.z);
+    frames(1);
+    sim.interactions.interact(sim.players[0]!);
+    for (const o of bell) {
+      expect(o.stops.length).toBe(2);
+      expect(o.stops[1]!).toBeLessThan(ctx.currentTime + 0.1);
+      expect(o.stops[1]!).toBeLessThan(ringsOutAt);
+    }
+    expect(cut.gain.value).toBe(0);
   });
 });
 
