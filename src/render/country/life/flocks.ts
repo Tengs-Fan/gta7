@@ -9,7 +9,7 @@ import { Rng } from '../../../core/rng';
 import { clamp, dampAngle, smoothstep, TAU } from '../../../core/math';
 import { hashInts, rectCX, rectCZ } from '../../../world/layout';
 import { GARAGE_ROOF, type StaticWorld } from '../../../world/staticWorld';
-import { SPANS, wirePoint, type Wire } from './wires';
+import { spanWires, wirePoint, type Wire } from './wires';
 
 /** A car or the player this close (m) to any of a flock's birds, on the ground plane, puts it up. */
 export const SCARE_R = 20;
@@ -281,7 +281,7 @@ function groundOk(world: StaticWorld, x: number, z: number): boolean {
 }
 
 /** Every site's flocks' perches: ground, wires (of `spans`, the wires of each span between two poles), the barns' ridges and the water tower's cone. */
-export function crowSites(world: StaticWorld, spans: ReadonlyArray<readonly Wire[]> = SPANS): Array<{ perches: Perch[]; ceiling: readonly [number, number] }> {
+export function crowSites(world: StaticWorld, spans: ReadonlyArray<readonly Wire[]> = spanWires(world.layout.country.oddities)): Array<{ perches: Perch[]; ceiling: readonly [number, number] }> {
   const rng = new Rng(7721);
   const out: Array<{ perches: Perch[]; ceiling: readonly [number, number] }> = [];
   for (const [x0, x1, z0, z1, n] of GROUND_SITES) {

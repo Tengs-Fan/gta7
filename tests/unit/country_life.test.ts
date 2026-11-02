@@ -10,7 +10,8 @@ import {
   BALLOON_DAY, BALLOON_MEADOWS, BIPLANE_SPEED, COMBINE_DAY, DUSTER_HOURS, DUST_RUNS, PASS_ALT, SORTIE_PERIOD,
   balloonAt, biplaneAt, burnerAt, combineAt, combinePath, dustPaths, newPose, type Balloon, type Combine,
 } from '../../src/render/country/life/flight';
-import { ARM_Y, PLACEHOLDER_POLES, SPANS, wirePoint, type Wire } from '../../src/render/country/life/wires';
+import { spanWires, wirePoint, type Wire } from '../../src/render/country/life/wires';
+import { POLE, sagAt } from '../../src/world/country/oddities';
 import { rectContains } from '../../src/world/layout';
 import { world } from './helpers';
 
@@ -18,6 +19,7 @@ const W = world();
 const farms = W.layout.country.farms;
 const elevator = W.layout.country.places.town.elevator;
 const tower = W.layout.country.places.town.tower;
+const SPANS = spanWires(W.layout.country.oddities);
 
 const none: Threat[] = [];
 type Caw = (x: number, y: number, z: number) => void;
@@ -156,14 +158,14 @@ describe('crows: where the flocks are', () => {
   });
 
   it('seats the wire flocks on the wires, the barn flocks on the ridges and the tower flock on its cone', () => {
-    const wired = sites.filter((s) => !s.perches[0]!.ground && s.perches[0]!.x < -800 + 400 && Math.abs(s.perches[0]!.x - PLACEHOLDER_POLES[0]!.x) < 2);
+    const wired = sites.filter((s) => s.perches.every((p) => !p.ground && p.y < POLE.wireY + 0.1));
     expect(wired.length).toBe(2);
     for (const s of wired) {
       for (const p of s.perches) {
         // On some wire's curve, within a few centimetres.
         const d = Math.min(...SPANS.flat().map((w) => Math.min(...Array.from({ length: 41 }, (_, k) => { const [x, y, z] = wirePoint(w, k / 40); return Math.hypot(x - p.x, y + 0.02 - p.y, z - p.z); }))));
         expect(d).toBeLessThan(0.5);
-        expect(p.y).toBeLessThan(ARM_Y + 0.1);
+        expect(p.y).toBeLessThan(POLE.wireY + 0.1);
       }
     }
     for (const id of ['acres', 'bottoms'] as const) {
@@ -180,7 +182,7 @@ describe('crows: where the flocks are', () => {
 });
 
 describe('crows: the wire flocks', () => {
-  const wired = (spans: ReadonlyArray<readonly Wire[]>) => crowSites(W, spans).filter((s) => s.perches.every((p) => !p.ground && p.y < ARM_Y + 0.1));
+  const wired = (spans: ReadonlyArray<readonly Wire[]>) => crowSites(W, spans).filter((s) => s.perches.every((p) => !p.ground && p.y < POLE.wireY + 0.1));
   const yard = (id: string) => farms.farmsteads.find((f) => f.id === id)!.yard;
   const from = (id: string, p: { x: number; z: number }) => Math.hypot(p.x - (yard(id).minX + yard(id).maxX) / 2, p.z - (yard(id).minZ + yard(id).maxZ) / 2);
   const mid = (span: readonly Wire[]) => ({ x: (span[0]!.ax + span[0]!.bx) / 2, z: (span[0]!.az + span[0]!.bz) / 2 });
@@ -201,21 +203,53 @@ describe('crows: the wire flocks', () => {
     expect(wired([...SPANS].reverse())).toEqual(flocks);
   });
 
-  it('takes the wire count from the data: spans of four wires, and spans far from both yards, change nothing but the wires', () => {
-    // Every span with a fourth wire 1.6 m beyond its third, and a far line of four-wire spans listed first.
-    const four = SPANS.map((span) => [...span, { ...span[2]!, ax: span[2]!.ax + 1.6, bx: span[2]!.bx + 1.6 }]);
+  it('takes the wire count from the data: spans of five wires, and spans far from both yards, change nothing but the wires', () => {
+    // Every span with a fifth wire 0.6 m beyond its fourth, and a far line of four-wire spans listed first.
+    const five = SPANS.map((span) => {
+      const [w2, w3] = [span[2]!, span[3]!];
+      const len = Math.hypot(w3.ax - w2.ax, w3.az - w2.az);
+      const dx = ((w3.ax - w2.ax) / len) * 0.6;
+      const dz = ((w3.az - w2.az) / len) * 0.6;
+      return [...span, { ...w3, ax: w3.ax + dx, az: w3.az + dz, bx: w3.bx + dx, bz: w3.bz + dz }];
+    });
     const far = [0, 1, 2].map((k) => [-4, -1.6, 1.6, 4].map((dx) => ({ ax: -1100 + dx, ay: 8.5, az: -300 + k * 28, bx: -1100 + dx, by: 8.5, bz: -272 + k * 28, sag: 0.7 })));
-    const flocks = wired([...far, ...four]);
+    const flocks = wired([...far, ...five]);
     expect(flocks.length).toBe(2);
-    let fourth = 0;
+    let fifth = 0;
     for (const p of flocks.flatMap((f) => f.perches)) {
       const d = (w: Wire) => Math.min(...Array.from({ length: 41 }, (_, k) => { const [x, y, z] = wirePoint(w, k / 40); return Math.hypot(x - p.x, y + 0.02 - p.y, z - p.z); }));
-      expect(Math.min(...four.flat().map(d))).toBeLessThan(0.5);
+      expect(Math.min(...five.flat().map(d))).toBeLessThan(0.5);
       expect(Math.min(...far.flat().map(d))).toBeGreaterThan(50);
-      if (four.some((span) => d(span[3]!) < 0.5)) fourth++;
+      if (five.some((span) => d(span[4]!) < 0.5)) fifth++;
     }
-    // Four wires a span: a bird in four sits on the fourth.
-    expect(fourth).toBeGreaterThan(0);
+    // Five wires a span: a bird in five sits on the fifth.
+    expect(fifth).toBeGreaterThan(0);
+  });
+});
+
+describe('crows: the county poles\' wires', () => {
+  const { poles, spans } = W.layout.country.oddities;
+
+  it('are the oddities\' spans, a wire to each insulator, hung as low at the middle as the catenary the poles\' wires are drawn on', () => {
+    expect(SPANS.length).toBe(spans.length);
+    SPANS.forEach((span, i) => {
+      expect(span.length).toBe(POLE.wires.length);
+      const len = Math.hypot(poles[spans[i]!.b]!.x - poles[spans[i]!.a]!.x, poles[spans[i]!.b]!.z - poles[spans[i]!.a]!.z);
+      for (const w of span) {
+        expect(wirePoint(w, 0.5)[1]).toBeCloseTo((w.ay + w.by) / 2 - sagAt(len, 0.5), 9);
+        // Within 5 cm of the catenary a quarter of the way along (a span is 82 m at most).
+        expect(Math.abs(wirePoint(w, 0.25)[1] - ((w.ay * 0.75 + w.by * 0.25) - sagAt(len, 0.25)))).toBeLessThan(0.05);
+      }
+    });
+  });
+
+  it('seat the dairy\'s flock and Halfmoon Acres\' within 150 m of their yards (the span from the dairy\'s pole at z = -10 to the next, at 110, is not strung)', () => {
+    const flocks = crowSites(W).filter((s) => s.perches.every((p) => !p.ground && p.y < POLE.wireY + 0.1));
+    expect(flocks.length).toBe(2);
+    for (const [flock, id] of [[flocks[0]!, 'dairy'], [flocks[1]!, 'acres']] as const) {
+      const y = farms.farmsteads.find((f) => f.id === id)!.yard;
+      for (const p of flock.perches) expect(Math.hypot(p.x - (y.minX + y.maxX) / 2, p.z - (y.minZ + y.maxZ) / 2), id).toBeLessThan(150);
+    }
   });
 });
 

@@ -14,7 +14,7 @@ import { CityView } from '../../src/render/city';
 import { CountryView } from '../../src/render/country';
 import { BALLOON_MEADOWS } from '../../src/render/country/life/flight';
 import { SCARE_R, type Flock } from '../../src/render/country/life/flocks';
-import { basketGeometry, biplaneGeometry, combineGeometry, crowGeometry, dogGeometry, envelopeGeometry, flameGeometry, poleGeometry } from '../../src/render/country/life/models';
+import { basketGeometry, biplaneGeometry, combineGeometry, crowGeometry, dogGeometry, envelopeGeometry, flameGeometry } from '../../src/render/country/life/models';
 import type { Effects } from '../../src/render/effects';
 import type { Character } from '../../src/sim/entities';
 import type { ViewState } from '../../src/sim/viewState';
@@ -87,7 +87,7 @@ const foot = (x: number, z: number, speed: number): Character => ({ pos: { x, y:
 
 describe('the countryside life: its models', () => {
   it('have only finite positions, normals and colours (a NaN in one vertex blacks the whole frame out through the bloom)', () => {
-    const models = { crow: crowGeometry, dog: dogGeometry, biplane: biplaneGeometry, combine: combineGeometry, envelope: envelopeGeometry, basket: basketGeometry, flame: flameGeometry, poles: poleGeometry };
+    const models = { crow: crowGeometry, dog: dogGeometry, biplane: biplaneGeometry, combine: combineGeometry, envelope: envelopeGeometry, basket: basketGeometry, flame: flameGeometry };
     for (const [name, make] of Object.entries(models)) {
       const geo = make();
       expect(geo.getAttribute('position').count, name).toBeGreaterThan(12);
@@ -107,12 +107,12 @@ describe('the countryside life: what it draws', () => {
     expect(count()).toBe(0);
   });
 
-  it('draws a few meshes by day on the farm: the crows, the dog, the duster, the combine, the poles and wires', () => {
+  it('draws a few meshes by day on the farm: the crows, the dog, the duster, the combine', () => {
     // Halfmoon Acres at 10:00, in the first sortie's low pass over the wheat.
     const { fx } = puffs();
     frames(1, { x: -1075, z: 140 }, fakeSim(12), 10, fx);
     const names = drawn().map((o) => o.name).sort();
-    expect(names).toEqual(['combine', 'crop-duster', 'crows', 'farm-dog', 'placeholder-poles', 'placeholder-wires']);
+    expect(names).toEqual(['combine', 'crop-duster', 'crows', 'farm-dog']);
     expect(life.drawn.balloon).toBe(false);
   });
 

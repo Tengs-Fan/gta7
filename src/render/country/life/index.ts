@@ -3,7 +3,7 @@
 // the wheat and the dawn balloon (flight.ts) are driven from the renderer's frame with the sim's clock, the cars and the
 // player's position; what they sound like goes on a sheet for the audio (audio/lifeSounds.ts).
 // Each is a draw or two, hidden past the fog's reach (where the fog has hidden it already), and the whole is skipped, drawn
-// and sounded, while the camera is far from the county. The placeholder poles and wires (wires.ts) stand in for the roadside branch's.
+// and sounded, while the camera is far from the county.
 
 import * as THREE from 'three';
 import { lifeSounds, shoot } from '../../../audio/lifeSounds';
@@ -21,12 +21,8 @@ import { Dog, dogRun, type Visitor } from './dog';
 import { CrowsView } from './crows';
 import { balloonAt, biplaneAt, burnerAt, combineAt, combinePath, dustPaths, newPose, type Balloon, type Combine, type FlightPath } from './flight';
 import { Flock, crowSites } from './flocks';
-import { BALLOON_BURNER_Y, BALLOON_MOUTH_Y, DOG_PART, HEADER_W, NOZZLES, REEL, basketGeometry, biplaneGeometry, combineGeometry, dogGeometry, envelopeGeometry, flameGeometry, poleGeometry } from './models';
+import { BALLOON_BURNER_Y, BALLOON_MOUTH_Y, DOG_PART, HEADER_W, NOZZLES, REEL, basketGeometry, biplaneGeometry, combineGeometry, dogGeometry, envelopeGeometry, flameGeometry } from './models';
 import { rigMaterial, type Rig } from './rig';
-import { PLACEHOLDER_POLES, SPANS, wirePoint } from './wires';
-
-/** Everything is drawn out to the fog's reach but the placeholder poles, which are drawn from this far from the line's middle. */
-const POLES_RANGE = 280;
 /** Its spray and dust are let off only this near. */
 const SPRAY_RANGE = 420;
 const DUST_RANGE = 300;
@@ -58,9 +54,6 @@ export class CountryLife {
   private readonly combinePath: FlightPath;
   private readonly combineRig: Rig;
   private readonly combineMesh: THREE.Mesh;
-  private readonly polesAt: { x: number; z: number };
-  private readonly poles: THREE.Mesh;
-  private readonly wires: THREE.LineSegments;
   private readonly balloon: THREE.Group;
   private readonly envelope: THREE.Mesh;
   private readonly envelopeMat: THREE.MeshStandardMaterial;
@@ -134,13 +127,6 @@ export class CountryLife {
     this.balloon.add(basket, this.envelope, this.flame);
     this.balloon.visible = false;
     this.group.add(this.balloon);
-    // The placeholder poles and wires.
-    this.poles = new THREE.Mesh(poleGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
-    this.poles.name = 'placeholder-poles';
-    this.poles.castShadow = true;
-    this.polesAt = { x: PLACEHOLDER_POLES[0]!.x, z: (PLACEHOLDER_POLES[0]!.z + PLACEHOLDER_POLES[PLACEHOLDER_POLES.length - 1]!.z) / 2 };
-    this.wires = wireLines();
-    this.group.add(this.poles, this.wires);
     this.setTier('high');
     registerDebug('life', {
       stats: () => ({ ...this.drawn, flocks: this.flocks.map((f) => ({ state: f.state, count: f.count, x: f.cx, z: f.cz })), dog: { state: this.dog.state, ...this.dog.pose } }),
@@ -196,10 +182,6 @@ export class CountryLife {
     this.updatePlane(step, t, hours, fair, cam, reach, wind, fx);
     this.updateCombine(step, hours, cam, reach, wind, fx);
     this.updateBalloon(t, hours, fair, cam, reach);
-    // The placeholder poles, from as far as the line reaches.
-    const poles = Math.hypot(this.polesAt.x - cam.x, this.polesAt.z - cam.z) < Math.min(reach, POLES_RANGE);
-    this.poles.visible = poles;
-    this.wires.visible = poles;
   }
 
   /** The cars under way and the walking player near the farmland, as the crows and the dog see them. */
@@ -349,18 +331,4 @@ export class CountryLife {
     s.y = b.y + BALLOON_BURNER_Y;
     s.z = b.z;
   }
-}
-
-/** The placeholder wires, each hanging in eight straight pieces. */
-function wireLines(): THREE.LineSegments {
-  const pts: number[] = [];
-  for (const w of SPANS.flat()) {
-    for (let k = 0; k < 8; k++) pts.push(...wirePoint(w, k / 8), ...wirePoint(w, (k + 1) / 8));
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x1a1a1c }));
-  lines.name = 'placeholder-wires';
-  lines.frustumCulled = false;
-  return lines;
 }

@@ -6,7 +6,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bar, box, cyl, ModelBuilder } from '../../furniture';
 import { RigBuilder } from './rig';
-import { ARM_WIRES, PLACEHOLDER_POLES, POLE_H } from './wires';
 
 const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 /** A cylinder along z, its `rTop` end at +z. */
@@ -276,18 +275,4 @@ export function flameGeometry(): THREE.BufferGeometry {
   }
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   return g;
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The placeholder poles
-
-/** The placeholder poles along Creek Road (wires.ts): each a tapered pole with its crossarm and three insulators, in world coordinates. */
-export function poleGeometry(): THREE.BufferGeometry {
-  const b = new ModelBuilder();
-  for (const { x, z } of PLACEHOLDER_POLES) {
-    b.add('pole', cyl(0.11, 0.17, POLE_H, 8, x, 0, z), 0x4d3a28);
-    b.add('arm', box(2.0, 0.12, 0.12, x, POLE_H - 0.75, z), 0x4d3a28);
-    for (const dx of ARM_WIRES) b.add('insulator', cyl(0.04, 0.05, 0.16, 6, x + dx, POLE_H - 0.69, z), 0x5a8a8c);
-  }
-  return b.build('placeholder-poles');
 }
