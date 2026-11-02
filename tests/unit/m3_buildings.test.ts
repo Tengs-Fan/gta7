@@ -367,9 +367,11 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // Lookout Point's parapet and tower, then the farms' farmhouses and Dry Creek's stores, the farms' barns' walls and
     // roofs and their hedgerows, and the places' solids (the town's, the drive-in's); and the colliders again when the roadside
     // oddities were appended after those: the mailboxes' and signs' props (a circle of half their width each), then the statics' solids and the telephone
-    // poles' (src/world/country/oddities.ts); and the colliders again on the merged head, where Halfmoon Acres' wheat was fenced round besides, which put 156 breakable fence runs' colliders between the Acres' bales' and its scarecrows' and shifted every later collider by 156 (the buildings are the same).
+    // poles' (src/world/country/oddities.ts); and the colliders again when Halfmoon Acres' wheat was fenced round, which
+    // put 156 breakable fence runs' colliders between the Acres' bales' and its scarecrows' and shifted every later collider
+    // by 156 (the buildings are the same).
     expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
-    expect(c).toBe('7a341806ebe06010c322e3302ffb3f4f9009ad30ea3cf155470df09941cdcd7a');
+    expect(c).toBe('b82635a867685bfa602a5e2c465acafa770bb9fed3d09768c338ef1c90b91f7c');
   });
 });
 
