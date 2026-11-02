@@ -113,6 +113,7 @@ describe('the valley\'s farms: where everything stands', () => {
       // The rows follow the rise's ellipses out to 94% of its half-depth, which reach z 42.8: north of the z 100 the props keep to, and their own bound.
       expect(s.z).toBeGreaterThan(42);
       expect(Math.hypot(s.x - (winery.hall.minX + winery.hall.maxX) / 2, s.z - (winery.hall.minZ + winery.hall.maxZ) / 2)).toBeGreaterThan(33);
+      expect(rectContains(winery.yard, s.x, s.z, VINE_SEG / 2), 'a vine in the winery\'s yard').toBe(false);
       expect(Math.abs(s.z - (winery.drive[1] as number)) > 4.5 || s.x < winery.yard.maxX - 2, 'a vine in the drive').toBe(true);
       const row = Math.round((Math.hypot((s.x - rise.cx) / rise.rx, (s.z - rise.cz) / rise.rz) - VINE_ROWS.from) / VINE_ROWS.step);
       let heights = rows.get(row);
@@ -124,7 +125,7 @@ describe('the valley\'s farms: where everything stands', () => {
       heights.push(W.baseGround(s.x, s.z));
       seen.add(`${Math.round(s.x)},${Math.round(s.z)}`);
     }
-    expect(rows.size).toBe(v.vineyard.rows);
+    expect(rows.size).toBe(20);
     // Every row's height is the same at all its runs, and they climb from the foot to the crest.
     const level = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, h]) => h);
     for (const h of level) expect(Math.max(...h) - Math.min(...h)).toBeLessThan(0.06);

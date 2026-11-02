@@ -359,7 +359,7 @@ The same views as perf scenes (`--scenario perf`, which gained three valley segm
 (The segments' traffic comes from the sim's random stream, so scenes the farms are not in differ a little: downtown 796 and 796, the start 961 and 961, the pursuit 578 and 593.
 On a first run the same night, with other agents' browsers on the GPU at a load average of 17 to 24, four of these scenes ran at 48 to 54 fps and the frame took longer: the box's, not the farms', which a second run at a load of 13 and falling did not show.)
 
-The vines are 2402 instances of a 24-triangle model (57,648 triangles) and cast no shadow (the first vines, a hedge of two stacked cards a side, were 30 a run, 72,000, and the perf tables above were measured with them: the redrawn ones take about 14,000 triangles less where every run is in view); the oaks, the buildings, the fences and the two animals' bodies do, which is most of the 0.3 to 0.4 M triangles more that a farm in view draws (the cascades draw them again).
+The vines are 2401 instances of a 24-triangle model (57,624 triangles) and cast no shadow (the first vines, a hedge of two stacked cards a side, were 30 a run, 72,000, and the perf tables above were measured with them: the redrawn ones take about 14,000 triangles less where every run is in view); the oaks, the buildings, the fences and the two animals' bodies do, which is most of the 0.3 to 0.4 M triangles more that a farm in view draws (the cascades draw them again).
 
 ## Software fallback
 

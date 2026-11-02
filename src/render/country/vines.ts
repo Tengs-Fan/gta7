@@ -16,7 +16,7 @@ import { canvas, toTexture } from '../textures/misc';
 import { WIND_GLSL } from '../wind';
 import type { CountryView } from './index';
 
-/** Chunks of this side (m) are hidden, each in one, past the cull's reach: five draws for the vineyard (1304, 783, 248, 60 and 7 runs). */
+/** Chunks of this side (m) are hidden, each in one, past the cull's reach: five draws for the vineyard. */
 const CHUNK = 160;
 /** The trellis's post top and the leaf walls' height (m). */
 const POST_H = 1.75;
@@ -124,10 +124,11 @@ function vineMaterial(wind: WindUniforms): THREE.MeshStandardMaterial {
         `#include <begin_vertex>
 {
   // The wind's own sway at full weight, scaled by how far up the vine this vertex is: a post barely moves, the leaves' tops lean.
+  // The frame is a rotation (the instances and the county's group are unscaled), so its transpose is its inverse.
   mat4 vineFrame = modelMatrix * instanceMatrix;
   vec3 vineWorld = ( vineFrame * vec4( transformed, 1.0 ) ).xyz;
   float vineK = smoothstep( 0.5, ${LEAF_TOP.toFixed(2)}, transformed.y ) * 2.2;
-  transformed += inverse( mat3( vineFrame ) ) * windOffset( vineWorld, 4.5, vineK );
+  transformed += transpose( mat3( vineFrame ) ) * windOffset( vineWorld, 4.5, vineK );
 }`,
       );
   };

@@ -31,7 +31,7 @@ const FENCE_KEEP = 1.6;
 
 /** How far (m) a threat of `speed` m/s frightens. */
 export function scareRadius(speed: number): number {
-  return SCARE_PERSON + SCARE_PER_SPEED * Math.max(0, speed);
+  return SCARE_PERSON + SCARE_PER_SPEED * speed;
 }
 
 export type SheepMode = 'graze' | 'run' | 'return';

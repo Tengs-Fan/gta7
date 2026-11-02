@@ -42,13 +42,12 @@ export interface Winery {
   /** The dirt drive's centre line, from the loop's edge up to the yard, the sign at its mouth and the mailbox by the road. */
   drive: readonly [number, number, number, number];
   sign: { x: number; z: number; rot: number };
-  mailbox: { x: number; z: number; rot: number };
+  mailbox: { x: number; z: number };
 }
 
 export interface Vineyard {
   /** The Vineyard Rise's centre and semi-axes: the rows follow its contours. */
   rise: { cx: number; cz: number; rx: number; rz: number };
-  rows: number;
   segments: VineSegment[];
   winery: Winery;
 }
@@ -62,10 +61,8 @@ export interface Ranch {
   yard: Rect;
   drive: readonly [number, number, number, number];
   /** The gate's arch over the drive (it faces the road) and the mailbox beside it. */
-  gate: { x: number; z: number; rot: number };
-  mailbox: { x: number; z: number; rot: number };
-  /** The windpump's prop index. */
-  windpump: number;
+  gate: { x: number; z: number };
+  mailbox: { x: number; z: number };
   /** The round bales (solids), by their middle; every one is BALE_R round. */
   bales: Array<{ x: number; z: number }>;
   /** The two paddocks and the corral the horses live in, and the horses: where each stands first, its coat (0..4) and its paddock. */
@@ -166,8 +163,8 @@ export function noValley(): ValleyFarms {
   const none = mkRect(0, 0, 0, 0);
   return {
     firstProp: 0,
-    vineyard: { rise: RISE, rows: 0, segments: [], winery: { hall: none, building: -1, y: 0, eaves: 0, porch: none, yard: none, poles: [], barrels: none, drive: [0, 0, 0, 0], sign: { x: 0, z: 0, rot: 0 }, mailbox: { x: 0, z: 0, rot: 0 } } },
-    ranch: { house: -1, houseRect: none, barn: none, door: 'W', yard: none, drive: [0, 0, 0, 0], gate: { x: 0, z: 0, rot: 0 }, mailbox: { x: 0, z: 0, rot: 0 }, windpump: -1, bales: [], paddocks: [], roam: [], shelters: [], horses: [], pasture: none, sheep: 0 },
+    vineyard: { rise: RISE, segments: [], winery: { hall: none, building: -1, y: 0, eaves: 0, porch: none, yard: none, poles: [], barrels: none, drive: [0, 0, 0, 0], sign: { x: 0, z: 0, rot: 0 }, mailbox: { x: 0, z: 0 } } },
+    ranch: { house: -1, houseRect: none, barn: none, door: 'W', yard: none, drive: [0, 0, 0, 0], gate: { x: 0, z: 0 }, mailbox: { x: 0, z: 0 }, bales: [], paddocks: [], roam: [], shelters: [], horses: [], pasture: none, sheep: 0 },
     ruin: { rect: none, y: 0, walls: [] },
     fields: [],
     hedges: [],
@@ -188,11 +185,9 @@ function building(layout: CityLayout, rect: Rect, y: number, h: number, style: '
 }
 
 /** The vine rows: ellipses round the rise's crest, each a trellis of VINE_SEG m runs laid chord to chord, but through the yard and across the drive. */
-function vineRows(rise: Vineyard['rise'], skip: (x: number, z: number) => boolean): { rows: number; segments: VineSegment[] } {
+function vineRows(rise: Vineyard['rise'], skip: (x: number, z: number) => boolean): VineSegment[] {
   const segments: VineSegment[] = [];
-  let rows = 0;
   for (let s = VINE_ROWS.from; s <= VINE_ROWS.to + 1e-6; s += VINE_ROWS.step) {
-    rows++;
     const at = (t: number): [number, number] => [rise.cx + rise.rx * s * Math.cos(t), rise.cz + rise.rz * s * Math.sin(t)];
     let t = 0;
     let [px, pz] = at(t);
@@ -213,7 +208,7 @@ function vineRows(rise: Vineyard['rise'], skip: (x: number, z: number) => boolea
       [px, pz] = [qx, qz];
     }
   }
-  return { rows, segments };
+  return segments;
 }
 
 /** Sunset Vineyard: the rows, the winery with its porch, barrels and parking, its drive and sign. */
@@ -227,10 +222,9 @@ function buildVineyard(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect
   const drive = [-1845, DRIVE_Z, WINERY_YARD.maxX, DRIVE_Z] as const;
   const cx = (hall.minX + hall.maxX) / 2;
   const cz = (hall.minZ + hall.maxZ) / 2;
-  const { rows, segments } = vineRows(RISE, (x, z) => Math.hypot(x - cx, z - cz) < 33 || (Math.abs(z - DRIVE_Z) < 4.6 && x > WINERY_YARD.maxX - 2));
+  const segments = vineRows(RISE, (x, z) => Math.hypot(x - cx, z - cz) < 33 || rectContains(WINERY_YARD, x, z, VINE_SEG / 2) || (Math.abs(z - DRIVE_Z) < 4.6 && x > WINERY_YARD.maxX - 2));
   v.vineyard = {
     rise: RISE,
-    rows,
     segments,
     winery: {
       hall, building: building_, y, eaves: WINERY_EAVES, porch, yard: WINERY_YARD,
@@ -238,7 +232,7 @@ function buildVineyard(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect
       barrels,
       drive,
       sign: { x: -1860, z: DRIVE_Z + 8, rot: E },
-      mailbox: { x: -1849, z: DRIVE_Z - 7, rot: E },
+      mailbox: { x: -1849, z: DRIVE_Z - 7 },
     },
   };
   v.solids.push({ rect: barrels, y0: y, y1: y + 2.5, tag: 'container' });
@@ -265,7 +259,7 @@ function buildRanch(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect[])
   const barnRect = mkRect(-1666, 250, -1636, 270);
   barn(layout, 'ranch', barnRect, 'W', 6.5, 0x8e2b1f);
   v.cover.push(insetRect(barnRect, 0.5));
-  const pump = boxProp(layout, 'windpump', -1692, 296, 2, 2, WINDPUMP_H);
+  boxProp(layout, 'windpump', -1692, 296, 2, 2, WINDPUMP_H);
   const bales = [[-1626, 254], [-1626, 258.4], [-1626, 262.8], [-1622, 256], [-1622, 260.4], [-1618, 258]].map(([x, z]) => ({ x: x!, z: z! }));
   for (const b of bales) v.solids.push({ rect: mkRect(b.x - BALE_R, b.z - BALE_R, b.x + BALE_R, b.z + BALE_R), y0: 0, y1: BALE_H, tag: 'container', round: true });
   // The paddocks, the corral and the pasture, each fenced round by whole runs, a gate (two runs) left open in each.
@@ -301,9 +295,8 @@ function buildRanch(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect[])
   v.ranch = {
     house, houseRect, barn: barnRect, door: 'W', yard,
     drive: [-1835, RANCH_DRIVE_Z, driveEnd, RANCH_DRIVE_Z],
-    gate: { x: -1806, z: RANCH_DRIVE_Z, rot: W },
-    mailbox: { x: -1832, z: RANCH_DRIVE_Z - 7, rot: E },
-    windpump: pump,
+    gate: { x: -1806, z: RANCH_DRIVE_Z },
+    mailbox: { x: -1832, z: RANCH_DRIVE_Z - 7 },
     bales, paddocks, roam, shelters, horses, pasture: PASTURE, sheep: SHEEP_COUNT,
   };
   layout.parking.push({ x: -1712, z: 270, heading: E }, { x: -1712, z: 275, heading: E });
@@ -322,7 +315,7 @@ function buildFields(layout: CityLayout, v: ValleyFarms, rng: Rng, taken: Rect[]
   v.fields.push({ rect: hayA, crop: 'wheat', rowAngle: 0 }, { rect: hayB, crop: 'wheat', rowAngle: E }, { rect: patch, crop: 'furrow', rowAngle: 0 });
   v.hedges.push(mkRect(-1822, 104, -1820.6, 204));
   taken.push(hayA, hayB, patch);
-  // Forty pumpkins in the furrows' rows, a scarecrow among them.
+  // Forty pumpkins scattered over the patch, across its furrows, a scarecrow among them.
   for (let n = 0; n < 40; n++) {
     const x = rng.range(patch.minX + 3, patch.maxX - 3);
     const z = rng.range(patch.minZ + 3, patch.maxZ - 3);
