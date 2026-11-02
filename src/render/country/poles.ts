@@ -1,7 +1,7 @@
 // Las Lomas County's telephone poles and their wires (world/country/oddities.ts): a creosoted pole with a crossarm braced
 // to it, four glass insulators on the arm and a cap on top, and between each pair of neighbouring poles four wires hung as
-// catenaries. The poles are solid (their colliders are the oddities' solids), the wires only drawn. Two meshes over the
-// whole county, one of poles (casting shadows) and one of wires, hidden with the rest of it past the fog.
+// catenaries. The poles are solid (their colliders are the oddities' solids), the wires only drawn. Two layers, one of poles
+// (casting shadows) and one of wires, each cut into the county's cells and hidden with the rest of it past the fog.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -97,7 +97,7 @@ export function buildPoles(view: CountryView): void {
   for (const g of [model, ...parts]) g.dispose();
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
   mat.name = 'telephone-poles';
-  view.add(geo, mat, { shadow: true, split: false, name: 'telephone-poles' });
+  view.add(geo, mat, { shadow: true, name: 'telephone-poles' });
 
   const ends = spans.map((s) => ({
     a: POLE.wires.map((_, k) => v3(...insulator(poles[s.a]!, k))),
@@ -106,5 +106,5 @@ export function buildPoles(view: CountryView): void {
   // Double-sided: a chain this thin is seen from every side, and its facets need no winding to be right.
   const wires = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide });
   wires.name = 'telephone-wires';
-  view.add(wireGeometry(ends), wires, { shadow: false, split: false, name: 'telephone-wires' });
+  view.add(wireGeometry(ends), wires, { shadow: false, name: 'telephone-wires' });
 }

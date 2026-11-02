@@ -1,5 +1,5 @@
 // How Las Lomas County's roadside oddities are drawn (render/country/poles.ts, oddities.ts, roadside.ts, fields.ts): the poles
-// and wires in a mesh each over the whole county, the statics and the cow in two, their boards in the places' atlas, the
+// and wires a layer each, in the county's cells, the statics and the cow in two, their boards in the places' atlas, the
 // saucer's beacon blinking after dark, the crop circle a decal and no wheat in it; the mailboxes and signs one instanced
 // batch of every make, each instance the shape its prop says, falling when its prop is knocked down.
 
@@ -29,14 +29,25 @@ const view = new CountryView(W, new CityView(W), wind);
 const meshes = (name: string) => view.group.children.filter((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.name === name);
 
 describe('the poles and the wires', () => {
-  it('are a mesh each over the whole county: every pole its model, a pole of a few hundred triangles', () => {
-    const [poles] = meshes('telephone-poles');
-    expect(meshes('telephone-poles').length).toBe(1);
+  /** A layer of the county cut into cells: its parts, the triangles and vertices in all. */
+  const layer = (name: string) => {
+    const parts = meshes(name);
+    return { parts, tris: parts.reduce((n, m) => n + triangles(m.geometry), 0), verts: parts.reduce((n, m) => n + m.geometry.getAttribute('position').count, 0) };
+  };
+
+  it('are a layer each, cut into the county\'s cells, every pole its model, a pole of a few hundred triangles', () => {
+    const poles = layer('telephone-poles');
     const model = poleGeometry();
     expect(triangles(model)).toBeGreaterThan(150);
     expect(triangles(model)).toBeLessThan(900);
-    expect(triangles(poles!.geometry)).toBe(triangles(model) * odd.poles.length);
-    expect(poles!.castShadow).toBe(true);
+    expect(poles.tris).toBe(triangles(model) * odd.poles.length);
+    // Cells of 256 m: the roads run through a dozen of them, each part's box within one cell's reach of the poles in it.
+    expect(poles.parts.length).toBeGreaterThan(5);
+    for (const m of poles.parts) {
+      m.geometry.computeBoundingBox();
+      expect(m.geometry.boundingBox!.max.x - m.geometry.boundingBox!.min.x).toBeLessThan(300);
+      expect(m.castShadow).toBe(true);
+    }
     // The model is the pole's size.
     model.computeBoundingBox();
     expect(model.boundingBox!.max.y).toBeGreaterThan(POLE.h);
@@ -45,18 +56,18 @@ describe('the poles and the wires', () => {
   });
 
   it('hang four wires over every span, none casting a shadow', () => {
-    const [wires] = meshes('telephone-wires');
-    expect(meshes('telephone-wires').length).toBe(1);
-    expect(wires!.castShadow).toBe(false);
-    const pos = wires!.geometry.getAttribute('position');
+    const wires = layer('telephone-wires');
+    expect(wires.parts.length).toBeGreaterThan(5);
+    for (const m of wires.parts) expect(m.castShadow).toBe(false);
     // 6 vertices to each of 4 faces to each piece of the chain: no piece is longer than 5 m.
     let pieces = 0;
     for (const s of odd.spans) {
       const len = Math.hypot(odd.poles[s.a]!.x - odd.poles[s.b]!.x, odd.poles[s.a]!.z - odd.poles[s.b]!.z);
       pieces += POLE.wires.length * Math.max(2, Math.ceil(len / 5));
     }
-    expect(pos.count).toBe(pieces * 24);
-    const box = new THREE.Box3().setFromBufferAttribute(pos as THREE.BufferAttribute);
+    expect(wires.verts).toBe(pieces * 24);
+    const box = new THREE.Box3();
+    for (const m of wires.parts) box.union(new THREE.Box3().setFromBufferAttribute(m.geometry.getAttribute('position') as THREE.BufferAttribute));
     expect(box.min.y).toBeGreaterThan(4.5);
     expect(box.max.y).toBeLessThan(POLE.wireY + 0.1);
   });
