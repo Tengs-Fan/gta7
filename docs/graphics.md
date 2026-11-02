@@ -343,7 +343,7 @@ With the traffic and the people gone (`calls.mjs` of the round, the same views o
 | the ridge's crest facing south-west over the south valley | 141 | 191 | 0.62 M | 0.97 M |
 | the winery's yard facing west | 86 | 142 | 0.35 M | 0.67 M |
 
-Looking at the farms costs about 40 to 60 calls: the vineyard's four chunks of instanced vines and its two soil cells, the winery's stone, its atlas and the ranch's, the house, the animals' six meshes (the two bodies cast a shadow, the rest do not, so a cascade draws two of them again), the oaks' three batches, and the fence runs, the windpump and the pumpkins, which join batches the county already drew.
+Looking at the farms costs about 40 to 60 calls: the vineyard's five chunks of instanced vines and its two soil cells, the winery's stone, its atlas and the ranch's, the house, the animals' six meshes (the two bodies cast a shadow, the rest do not, so a cascade draws two of them again), the oaks' three batches, and the fence runs, the windpump and the pumpkins, which join batches the county already drew.
 Dry Creek facing west draws 6 more than before: the three batches of the valley's oaks and bushes, which are one mesh each for the whole valley (the prop-mesh cap's reason: 597 meshes, four more than before), so their bounds reach from the ridge's lee to Dry Creek's fog; every other new mesh has bounds of its own and is hidden by the cull from there.
 The same views as perf scenes (`--scenario perf`, which gained three valley segments: the vineyard from the loop at dusk, the ranch from the loop at noon and the south valley from the ridge's crest), 60 fps and 0 console errors in every one of the sixteen, built and run the same half hour against the valley's head (b858129) through the same script; the frame took 1.6 to 3.0 ms of CPU in these six, as before:
 
@@ -359,7 +359,7 @@ The same views as perf scenes (`--scenario perf`, which gained three valley segm
 (The segments' traffic comes from the sim's random stream, so scenes the farms are not in differ a little: downtown 796 and 796, the start 961 and 961, the pursuit 578 and 593.
 On a first run the same night, with other agents' browsers on the GPU at a load average of 17 to 24, four of these scenes ran at 48 to 54 fps and the frame took longer: the box's, not the farms', which a second run at a load of 13 and falling did not show.)
 
-The vines are 2402 instances of a 20-triangle model (48,000 triangles) and cast no shadow; the oaks, the buildings, the fences and the two animals' bodies do, which is most of the 0.3 to 0.4 M triangles more that a farm in view draws (the cascades draw them again).
+The vines are 2402 instances of a 24-triangle model (57,648 triangles) and cast no shadow (the first vines, a hedge of two stacked cards a side, were 30 a run, 72,000, and the perf tables above were measured with them: the redrawn ones take about 14,000 triangles less where every run is in view); the oaks, the buildings, the fences and the two animals' bodies do, which is most of the 0.3 to 0.4 M triangles more that a farm in view draws (the cascades draw them again).
 
 ## Software fallback
 

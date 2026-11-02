@@ -512,7 +512,7 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // past the pass); and when the valley was reshaped (the pass's bank moved the ridge's scrub on the south wall, the
   // valley's seven hills grew theirs, none on the vineyard's rise, and their sight cores and envelopes with them); and
   // when the valley's farms were appended after the places (Sunset Vineyard, the Lazy Q Ranch and the farmed land between
-  // them: 76 oaks and 130 bushes, 206 fence runs, a windpump, 40 pumpkins and a scarecrow; their colliders after the
+  // them: 76 oaks and 130 bushes, 194 fence runs, a windpump, 40 pumpkins and a scarecrow; their colliders after the
   // places', then the winery's and the ranch house's buildings, the ranch barn's walls and roof, and the hedgerows', barrels',
   // bales' and ruin's solids).
   const D98 = {

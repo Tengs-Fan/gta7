@@ -99,7 +99,8 @@ describe('the valley\'s farms: where everything stands', () => {
     }
     for (const p of L.props.slice(0, v.firstProp)) if (p.kind === 'bush') expect(rectContains(ruin, p.x, p.z, 1), `scrub at ${p.x}, ${p.z}`).toBe(false);
     expect(mine.filter((p) => p.kind === 'tree').length).toBeGreaterThanOrEqual(50);
-    expect(mine.filter((p) => p.kind === 'fence').length).toBeGreaterThan(150);
+    // The pasture's 80 runs, the paddocks' 52 and 37 and the corral's 25.
+    expect(mine.filter((p) => p.kind === 'fence').length).toBe(194);
   });
 
   it('lays the vine rows level along the rise\'s contours, clear of the winery and the drive, and stands the fences as breakable runs', () => {
@@ -293,7 +294,7 @@ describe('the valley\'s farms, drawn', () => {
 
   it('instances every vine run, hides the rows past the cull\'s reach, and lights the vines as the crops are lit', () => {
     const rows = named('vineyard-rows') as THREE.InstancedMesh[];
-    expect(rows.length).toBeGreaterThan(2);
+    expect(rows.length).toBe(5);
     expect(rows.reduce((n, m) => n + m.count, 0)).toBe(v.vineyard.segments.length);
     expect(view.fields.crops.map((m) => m.name)).toContain('vineyard-vines');
     view.cull(-1900, 130, 840);
