@@ -327,6 +327,10 @@ Facing the valley is what costs: Lookout Point facing west draws 110 calls befor
 The wider county box is 48 cells of 256 m against 30, each drawing one near or far ground mesh of grass and one of sand, so a camera that sees the whole valley (the crest above the pass) draws about 150 calls, none of them the city's.
 The pursuit up the Lomas Highway's west leg (county-pursuit-4-stars) drew 168 calls against 468 before, the segment's units and traffic again: its camera passes the Coyote T and no more of the valley than the pass's mouth.
 
+The valley after its reshape (a wandering loop, a ragged lake, seven hills and a bluff, the pass's bank and 240 boulders) through the same script on the merged head, every segment at 60 fps with no console errors and a frame of 1.2 to 4.1 ms of CPU: valley-from-ridge-noon 163 calls and 0.72 M triangles, lake-dusk 107 and 0.36 M, valley-pass-drive 140 and 0.36 M (153, 105 and 127 before the reshape).
+With the traffic and the people gone Lookout Point facing west draws 147 calls (144 before the reshape, 110 before the valley) and the Coyote T facing west down the pass 168 (157 and 124): the boulders are a mesh in each cell the pass crosses, three or four of them, and the hills' scrub a few more.
+The hills cost the ground no more than they cover: a piece of land is meshed on the 2 m lattice only inside the bounds of a rise that reaches it, and flat quads elsewhere, so a rise no bigger than its slopes keeps the near mesh of the cells round it small (the ridge's cells are as before).
+
 ## Software fallback
 
 Hardware rendering keeps the existing physical materials, procedural sky, reflections, shadows,
