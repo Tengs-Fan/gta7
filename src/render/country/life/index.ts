@@ -2,8 +2,8 @@
 // streams. The crows (flocks.ts, crows.ts), the dairy's dog (dog.ts), the crop-duster biplane, the combine harvester in
 // its drawn-only fence round the wheat and the dawn balloon (flight.ts) are driven from the renderer's frame with the sim's
 // clock, the cars and the player's position; what they sound like goes on a sheet for the audio (audio/lifeSounds.ts).
-// Each is a draw or two, hidden past its range or the fog's reach, and the whole is skipped, drawn and sounded, while the
-// camera is far from the county. The placeholder poles and wires (wires.ts) stand in for the roadside branch's.
+// Each is a draw or two, hidden past the fog's reach (where the fog has hidden it already), and the whole is skipped, drawn
+// and sounded, while the camera is far from the county. The placeholder poles and wires (wires.ts) stand in for the roadside branch's.
 
 import * as THREE from 'three';
 import { lifeSounds, shoot } from '../../../audio/lifeSounds';
@@ -27,13 +27,7 @@ import { BALLOON_BURNER_Y, BALLOON_MOUTH_Y, DOG_PART, HEADER_W, NOZZLES, REEL, b
 import { rigMaterial, type Rig } from './rig';
 import { PLACEHOLDER_POLES, WIRES, wirePoint } from './wires';
 
-/** How far (m) from the camera each of them is drawn (and, but for the plane's and the balloon's, kept going). */
-const CROW_RANGE = 300;
-const DOG_RANGE = 180;
-const PLANE_RANGE = 800;
-const COMBINE_RANGE = 450;
-/** The fence is drawn from this far from the wheat field's middle, the poles from this far from the line's. */
-const FENCE_RANGE = 330;
+/** Everything is drawn out to the fog's reach but the placeholder poles, which are drawn from this far from the line's middle. */
 const POLES_RANGE = 280;
 /** Its spray and dust are let off only this near. */
 const SPRAY_RANGE = 420;
@@ -188,7 +182,7 @@ export class CountryLife {
     const dx = Math.max(NEAR.minX - cam.x, 0, cam.x - NEAR.maxX);
     const dz = Math.max(NEAR.minZ - cam.z, 0, cam.z - NEAR.maxZ);
     // Far from the farmland (the city) there is nothing to draw, to move or to hear.
-    if (Math.hypot(dx, dz) > Math.min(reach, PLANE_RANGE)) {
+    if (Math.hypot(dx, dz) > reach) {
       this.hideAll();
       return;
     }
@@ -200,7 +194,7 @@ export class CountryLife {
     const d = this.drawn;
     // The crows: every flock near enough.
     this.flocks.forEach((f, k) => {
-      const near = Math.hypot(f.cx - cam.x, f.cz - cam.z) < Math.min(CROW_RANGE, reach);
+      const near = Math.hypot(f.cx - cam.x, f.cz - cam.z) < reach;
       this.shown[k] = near;
       if (near) f.update(step, t, this.cars, (x, y, z) => shoot(this.sounds, 'caw', x, y, z));
     });
@@ -209,8 +203,8 @@ export class CountryLife {
     this.updatePlane(step, t, hours, fair, cam, reach, wind, fx);
     this.updateCombine(step, hours, cam, reach, wind, fx);
     this.updateBalloon(t, hours, fair, cam, reach);
-    // The fence round the wheat and the placeholder poles, from as far as the field and the line reach.
-    this.fence.visible = Math.hypot(this.fenceAt.x - cam.x, this.fenceAt.z - cam.z) < Math.min(reach, FENCE_RANGE);
+    // The fence round the wheat, as far as the fog's reach from the field's middle, and the placeholder poles from the line's.
+    this.fence.visible = Math.hypot(this.fenceAt.x - cam.x, this.fenceAt.z - cam.z) < reach;
     const poles = Math.hypot(this.polesAt.x - cam.x, this.polesAt.z - cam.z) < Math.min(reach, POLES_RANGE);
     this.poles.visible = poles;
     this.wires.visible = poles;
@@ -239,7 +233,7 @@ export class CountryLife {
 
   private updateDog(dt: number, time: number, cam: V3, reach: number): void {
     const p = this.dog.pose;
-    const shown = Math.hypot(p.x - cam.x, p.z - cam.z) < Math.min(DOG_RANGE, reach);
+    const shown = Math.hypot(p.x - cam.x, p.z - cam.z) < reach;
     this.dogMesh.visible = shown;
     this.drawn.dog = shown;
     if (!shown) return;
@@ -263,7 +257,7 @@ export class CountryLife {
   private updatePlane(dt: number, t: number, hours: number, fair: boolean, cam: V3, reach: number, wind: { readonly x: number; readonly z: number }, fx: Effects): void {
     const out = biplaneAt(this.paths, t, hours, fair, this.plane);
     const p = this.plane;
-    const near = out && Math.hypot(p.x - cam.x, p.z - cam.z) < Math.min(PLANE_RANGE, reach);
+    const near = out && Math.hypot(p.x - cam.x, p.z - cam.z) < reach;
     this.planeMesh.visible = near;
     this.drawn.plane = near;
     const s = this.sounds.plane;
@@ -304,7 +298,7 @@ export class CountryLife {
   private updateCombine(dt: number, hours: number, cam: V3, reach: number, wind: { readonly x: number; readonly z: number }, fx: Effects): void {
     const c = this.combine;
     combineAt(this.combinePath, hours, c);
-    const shown = Math.hypot(c.x - cam.x, c.z - cam.z) < Math.min(COMBINE_RANGE, reach);
+    const shown = Math.hypot(c.x - cam.x, c.z - cam.z) < reach;
     this.combineMesh.visible = shown;
     this.drawn.combine = shown;
     const s = this.sounds.combine;

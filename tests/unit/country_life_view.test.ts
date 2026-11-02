@@ -112,7 +112,7 @@ describe('the countryside life: what it draws', () => {
     const { fx } = puffs();
     frames(1, { x: -1075, z: 140 }, fakeSim(12), 10, fx);
     const names = drawn().map((o) => o.name).sort();
-    expect(names).toEqual(['combine', 'combine-fence', 'crop-duster', 'crows', 'placeholder-poles', 'placeholder-wires']);
+    expect(names).toEqual(['combine', 'combine-fence', 'crop-duster', 'crows', 'farm-dog', 'placeholder-poles', 'placeholder-wires']);
     expect(life.drawn.balloon).toBe(false);
   });
 
@@ -142,6 +142,23 @@ describe('the countryside life: what it draws', () => {
     expect(life.drawn.plane).toBe(false);
     frames(1, cam, fakeSim(12), 22, fx);
     expect(life.drawn.plane).toBe(false);
+  });
+
+  it("draws the dog, the combine and the crows out to the fog's reach, and nothing past it", () => {
+    const { fx } = puffs();
+    const look = (cam: { x: number; z: number }, reach: number) => life.update(1 / 30, { x: cam.x, y: 2, z: cam.z }, reach, fakeSim(12), null, 10, 12, NO_WIND, fx);
+    look({ x: -1086, z: 160 }, REACH);
+    const c = (life as unknown as { combine: { x: number; z: number } }).combine;
+    // 600 m east of the combine and 400 m east of the dog's yard: in plain view on a clear day, where it was once hidden.
+    look({ x: c.x + 600, z: c.z }, REACH);
+    expect(life.drawn.combine).toBe(true);
+    expect(life.drawn.crows).toBeGreaterThan(0);
+    look({ x: c.x + 600, z: c.z }, 500);
+    expect(life.drawn.combine).toBe(false);
+    look({ x: -466, z: 53 }, REACH);
+    expect(life.drawn.dog).toBe(true);
+    look({ x: -466, z: 53 }, 380);
+    expect(life.drawn.dog).toBe(false);
   });
 
   it('puts fewer crows up on the lower tiers, and the same ones back on High', () => {
