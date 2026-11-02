@@ -300,7 +300,7 @@ The county's trees and scrub past the fog had added 40 calls downtown and 29 on 
 The three scenes facing the whole skyline across the sound draw less than the city's pursuit, the city's own buildings most of it.
 On the same build day they drew 472-487 (ridge-dusk), 559-573 (lookout-dusk) and 513-528 (lookout-night) calls until the activity sites' signs (68 calls) and the interaction markers (69) past the fog were left undrawn off the city's land, and 1144 and 1178 (ridge-dusk and lookout-night) before the props were.
 
-Las Lomas Valley on 2026-11-01 (`--scenario perf`, which now has four valley segments among its county ones), every segment at 59-60 fps with no console errors, built and run the same hour against main's build (579b2bc, before the valley) through the same script.
+Las Lomas Valley on 2026-11-01 (`--scenario perf`, which now has four valley segments among its county ones, at the playtest's default 1600x900), every segment at 59-60 fps with no console errors, built and run the same hour against main's build (579b2bc, before the valley) through the same script.
 Where the valley has nothing to do with a scene the draws differ only by the traffic's luck (the segments' cars come from the sim's random stream, which the valley's longer lane graph moves): downtown 806 against 796, the start 961 against 936, the pursuit 583 against 491.
 
 | Scene | Draw calls | Triangles | Before the valley |

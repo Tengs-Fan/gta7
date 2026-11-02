@@ -342,6 +342,7 @@ It draws nothing from the city's generator (the stores' tints come from its own)
 - A course's corners may name a county junction or a gated bend; the legs to and from one take the shortest way on, never back the way it came.
 - Its gates stand at junctions and at the apex of each of the Lomas Highway's two curves out west, at no other bend, and its distance runs along the road.
   Without the curves' gates the 1.1 km round the west loop from the Hollister T to the Creek T had none, and a U-turn back through Dry Creek and down Creek Road (0.8 km) or a line across the fields (0.6 km) cut it; through both, a line across the fields saves about 45 m on the road's own racing line.
+  The Coyote T stands on the highway's west leg, which the loop runs along, so it is a gate of the loop too: 18 checkpoints now, 17 before, the distance (3046 m), the medals and the lap times as they were.
 - The green wave walks the course's gates, so it holds the gateways and Dry Creek for the racer; on the city's courses those are the same junctions as before.
 - `buildStreetRunCourses` keeps the city's three byte for byte, and the loop comes after them, so multiplayer offers it head-to-head as it does the others.
 
