@@ -44,7 +44,7 @@ describe('the pine', () => {
     expect(tris(g)).toBeGreaterThan(60);
   });
 
-  it('is instanced one batch to a cell, hardware cells at most a handful in all, each pine its tint, and never more batches than cells', () => {
+  it('is instanced one batch to a half cell, so a batch the frustum or the sun\'s shadow takes is a few hundred pines, each pine its tint', () => {
     const props = new PropsView(W, HARDWARE_CHUNK_SIZE);
     const batches: THREE.InstancedMesh[] = [];
     props.group.traverse((o) => {
@@ -52,9 +52,12 @@ describe('the pine', () => {
     });
     const pines = W.layout.props.filter((p) => p.kind === 'pine');
     expect(batches.reduce((n, m) => n + m.count, 0)).toBe(pines.length);
-    const cells = new Set(pines.map((p) => `${Math.floor(p.x / HARDWARE_CHUNK_SIZE)},${Math.floor(p.z / HARDWARE_CHUNK_SIZE)}`)).size;
+    const half = HARDWARE_CHUNK_SIZE / 2;
+    const cells = new Set(pines.map((p) => `${Math.floor(p.x / half)},${Math.floor(p.z / half)}`)).size;
     expect(batches.length).toBe(cells);
-    expect(batches.length).toBeLessThan(20);
+    expect(batches.length).toBeLessThan(40);
+    expect(Math.max(...batches.map((m) => m.count))).toBeLessThan(700);
+    expect(new Set(batches.map((m) => m.geometry)).size).toBe(1);
     for (const m of batches) expect(m.instanceColor).not.toBeNull();
     console.log(`[lakeland] ${pines.length} pines in ${batches.length} batches, ${batches.reduce((n, m) => n + tris(m.geometry) * m.count, 0)} triangles`);
   });

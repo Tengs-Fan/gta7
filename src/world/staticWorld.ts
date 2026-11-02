@@ -121,7 +121,8 @@ export class StaticWorld {
     for (const b of this.layout.buildings.slice(country.firstBuilding)) this.addBuilding(b.tiers);
     for (const gar of this.layout.garages.slice(country.firstGarage)) this.addGarage(gar);
     for (const h of country.farms.hedges) g.addBox(h.minX, h.minZ, h.maxX, h.maxZ, 0, HEDGE_H, 'hedge');
-    for (const s of country.places.solids) {
+    // Then Lake Lomas's and Pinewood's (world/country/lakeland.ts), after the places'.
+    for (const s of [...country.places.solids, ...country.lakeland.solids]) {
       const r = s.rect;
       if (s.round) g.addCircle((r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2, (r.maxX - r.minX) / 2, s.y0, s.y1, s.tag);
       else g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, s.y0, s.y1, s.tag);

@@ -274,8 +274,9 @@ describe('round 2 city: layout', () => {
     // lamps, five plots, the ridge's pass cut and the moved fire road, trees, scrub (none on the pass's rock walls) and sixth
     // turbine); and when the valley was reshaped (the Valley Loop's nine curves and straights and its plots, Lake Lomas's ten
     // holes in the land and the shelf's land with the lake filled in, the pass's bank on its south wall, and seven hills, with
-    // their scrub, in the valley).
-    expect(layoutHash()).toBe('e612b18e12123255bfd188658b597bfb3ee184585aa76eca5ff49628ff2de52f');
+    // their scrub, in the valley); and when Lake Lomas and Pinewood were laid out (the dock's two piers on the lake, four cabins,
+    // some 2,700 pines and a few hundred oaks and bushes in the wood and the valley's north).
+    expect(layoutHash()).toBe('0046b68ce998ff0483ebaa92476e0177c01cde9ceb40e63264294d3460311abe');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

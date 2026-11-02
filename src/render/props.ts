@@ -988,9 +988,23 @@ export class PropsView {
     const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
     fadeNearCamera(mat, { shared: this.windUniforms, pivot: new THREE.Vector4(0, 0, 0, PINE_H) });
     const tint = new THREE.Color();
-    this.makeInstanced(pineGeometry(), mat, pines, PropsView.standard, {
-      color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.37 + rng.range(-0.04, 0.03), rng.range(0.3, 0.5), rng.range(0.4, 0.52)), 0.3),
-    });
+    // In cells of half the usual side: a batch is drawn whole (the camera's frustum and the sun's shadow take the batch or leave
+    // it) and a pine is a hundred triangles, so the forest's batches are kept to a few hundred pines.
+    const cells = new Map<string, number[]>();
+    for (const i of pines) {
+      const p = this.world.layout.props[i]!;
+      const key = spatialKey(p.x, p.z, this.chunk / 2);
+      let cell = cells.get(key);
+      if (!cell) cells.set(key, (cell = []));
+      cell.push(i);
+    }
+    const geo = pineGeometry();
+    for (const cell of cells.values()) {
+      this.makeInstanced(geo, mat, cell, PropsView.standard, {
+        color: (_p, c) => c.setRGB(1, 1, 1).lerp(tint.setHSL(0.37 + rng.range(-0.04, 0.03), rng.range(0.3, 0.5), rng.range(0.4, 0.52)), 0.3),
+        chunked: true,
+      });
+    }
   }
 
   /**

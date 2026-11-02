@@ -174,7 +174,12 @@ function drawSign(kit: PlacesKit, p: PlacePieces, s: LakeSign): void {
   const top = s.id === 'fire' ? 1.35 : 2.3;
   for (const k of [-1, 1]) boxC(p.plain, s.x + ax * k * (w / 2 - 0.12) - 0.07, 0, s.z + az * k * (w / 2 - 0.12) - 0.07, s.x + ax * k * (w / 2 - 0.12) + 0.07, top + 0.1, s.z + az * k * (w / 2 - 0.12) + 0.07, WOOD);
   kit.board(p, signBand(kit, s), w, h, s.x + fx * 0.09, top - h / 2, s.z + fz * 0.09, s.rot);
-  boxC(p.plain, s.x - Math.abs(ax) * (w / 2 + 0.05), top - h, s.z - Math.abs(az) * (w / 2 + 0.05), s.x + Math.abs(ax) * (w / 2 + 0.05) + Math.abs(fx) * 0.14, top, s.z + Math.abs(az) * (w / 2 + 0.05) + Math.abs(fz) * 0.14, DARK_WOOD);
+  // The backing slab behind the board: 0.14 m thick, its face 2 cm behind the board's.
+  const cx = s.x - fx * 0.05;
+  const cz = s.z - fz * 0.05;
+  const hx = Math.abs(ax) * (w / 2 + 0.05) + Math.abs(fx) * 0.07;
+  const hz = Math.abs(az) * (w / 2 + 0.05) + Math.abs(fz) * 0.07;
+  boxC(p.plain, cx - hx, top - h - 0.04, cz - hz, cx + hx, top + 0.04, cz + hz, DARK_WOOD);
 }
 
 /** A picnic table, its top along (cos rot, -sin rot): a top of boards, two benches and two A-frame ends. */
@@ -636,6 +641,7 @@ export function buildLake(view: CountryView, kit: PlacesKit, wind: WindUniforms)
   const haloMat = new THREE.PointsMaterial({ map: glowTexture(), color: LAMP_GLOW, size: 2.2, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
   const halos = new THREE.Points(haloGeo, haloMat);
   halos.frustumCulled = false;
+  halos.visible = false;
   halos.name = 'lake-lamp-halos';
   view.group.add(halos);
   const [pc, px] = canvas(64, 64);
@@ -677,7 +683,9 @@ export function buildLake(view: CountryView, kit: PlacesKit, wind: WindUniforms)
   return (night, time, _sim, cam) => {
     haloMat.opacity = night * 0.9;
     poolMat.opacity = night * 0.55;
+    poolMat.visible = night > 0.01;
     const shown = Math.hypot(cam.x - lakeCentre.x, cam.z - lakeCentre.z) < cull;
+    halos.visible = night > 0.01 && shown;
     duckMesh.visible = loonMesh.visible = shown;
     if (!shown) return;
     ducks.forEach((b, i) => {

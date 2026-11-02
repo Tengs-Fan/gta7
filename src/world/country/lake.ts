@@ -61,7 +61,7 @@ const edgeAt = (z: number): number => loopX(z) - 5 + 0.3;
 
 export function buildLake(layout: CityLayout, land: CountyLakeland, rng: Rng, keep: Keepout): void {
   const country = layout.country;
-  const solids = country.places.solids;
+  const solids = land.solids;
   const ground = (x: number, z: number) => countryGround(country, x, z);
   const box = (rect: Rect, y0: number, y1: number, tag: 'wall' | 'building' | 'bench' | 'rock' | 'pillar' | 'lamp') => solids.push({ rect, y0, y1, tag });
   const round = (x: number, z: number, r: number, y0: number, y1: number, tag: 'wall' | 'rock' | 'pillar' | 'lamp') => solids.push({ rect: mkRect(x - r, z - r, x + r, z + r), y0, y1, tag, round: true });

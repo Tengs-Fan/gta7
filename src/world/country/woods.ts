@@ -28,7 +28,7 @@ const SCATTER_CELL = 11;
 
 export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, keep: Keepout): void {
   const country = layout.country;
-  const solids = country.places.solids;
+  const solids = land.solids;
   const ground = (x: number, z: number) => countryGround(country, x, z);
   const plot = (id: string) => country.plots.find((p) => p.id === id)!.rect;
   const pinewood = plot('pinewood');
@@ -58,7 +58,7 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
   land.signs.push({ id: 'welcome', x: -1606, z: PASS_Z - 12.5, rot: Math.PI / 2, lines: ['LAS LOMAS VALLEY', 'LAKE · PINES · NO SIGNAL'] });
   keep.rects.push(mkRect(-1612, PASS_Z - 15, -1600, PASS_Z - 10));
 
-  land.labels.push({ name: 'Lake Lomas Campground', x: land.camp.fire.x, z: land.camp.fire.z + 18 }, { name: 'Pinewood Lookout', x: t.x, z: t.z + 24 });
+  land.labels.push({ name: 'Lake Lomas Campground', x: land.camp.fire.x, z: land.camp.fire.z + 18 }, { name: 'Pinewood Lookout', x: t.x, z: t.z - 24 });
 
   // Boulders: a few at each place, then scattered through the open valley and along the lake's shore.
   const boulder = (x: number, z: number, size: number): void => {
@@ -114,7 +114,7 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
       const size = rng.range(0.9, 1.15);
       if (roll > p || inner(x, z) < 1.5 || roadGap(x, z) < 8 || blocked(keep, x, z, 1.2) || !dryLand(layout, x, z, 2)) continue;
       pine(x, z, size * (0.9 + 0.35 * valueNoise(x, z, 90, 12)));
-      if (rng.chance(0.14)) prop(layout, 'bush', x + rng.range(-2.4, 2.4), z + rng.range(-2.4, 2.4), rng.range(0, 6.28), rng.range(0.8, 1.2));
+      if (rng.chance(0.06)) prop(layout, 'bush', x + rng.range(-2.4, 2.4), z + rng.range(-2.4, 2.4), rng.range(0, 6.28), rng.range(0.8, 1.2));
     }
   }
 
@@ -138,7 +138,7 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
         prop(layout, 'tree', x, z, rng.range(0, Math.PI * 2), 1 + size * 0.34);
         const bx = x + rng.range(-3, 3);
         const bz = z + rng.range(-3, 3);
-        if (rng.chance(0.5) && roadGap(bx, bz) >= 8) prop(layout, 'bush', bx, bz, rng.range(0, 6.28), rng.range(0.8, 1.25));
+        if (rng.chance(0.35) && roadGap(bx, bz) >= 8) prop(layout, 'bush', bx, bz, rng.range(0, 6.28), rng.range(0.8, 1.25));
       }
     }
   }
@@ -172,6 +172,18 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
     if (farPlot(pinewood, x, z, r * 0.5) || farPlot(vineyard, x, z, r + 6) || roadGap(x, z) < r + 4 || lakeGap(x, z) < r * 0.5 + 14 || blocked(keep, x, z, r * 0.4) || !dryLand(layout, x, z, r * 0.5)) continue;
     land.flowers.push({ x, z, r, hue: 'grass', count: Math.round(Math.PI * r * r * 0.2), seed: land.flowers.length + 1 });
     n++;
+  }
+  // And tussocks of it, a few hundred small clumps strewn where a low-frequency noise lies thick, as a meadow's tall grass grows.
+  for (let tries = 0; tries < 9000 && land.tussocks.length < 700; tries++) {
+    const x = rng.range(NORTH_VALLEY.minX + 8, NORTH_VALLEY.maxX - 4);
+    const z = rng.range(NORTH_VALLEY.minZ + 8, NORTH_VALLEY.maxZ - 4);
+    const r = rng.range(1.8, 4.8);
+    const roll = rng.next();
+    const thick = smoothstep(0.32, 0.62, valueNoise(x, z, 60, 31));
+    if (roll > 0.15 + 0.85 * thick || farPlot(vineyard, x, z, r + 8) || farPlot(passPlot, x, z, 0)) continue;
+    if (farPlot(pinewood, x, z, 0) && (valueNoise(x, z, 38, 11) > 0.3 || rng.chance(0.6))) continue;
+    if (roadGap(x, z) < r + 7 || lakeGap(x, z) < r + 8 || blocked(keep, x, z, r) || !dryLand(layout, x, z, r * 0.7)) continue;
+    land.tussocks.push({ x, z, r, hue: 'grass', count: Math.round(Math.PI * r * r * 0.5), seed: 5000 + land.tussocks.length });
   }
   for (const [x, z, r, hue] of [[-1949, -314, 5.5, 'buttercup'], [-1893, -314, 4.5, 'daisy'], [-1856, -298, 4, 'poppy'], [-1938, -221, 6, 'lupine'], [-1884, -228, 5, 'clover']] as const) {
     if (!blocked(keep, x, z, r * 0.6) && dryLand(layout, x, z, r)) patch(x, z, r, hue);

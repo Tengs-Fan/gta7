@@ -15,14 +15,16 @@ import type { CountryView } from './index';
 /** How near (m) the camera must be for the fire's flames and light to be made, and the light's strength at full burn. */
 const FLAME_RANGE = 110;
 const FIRE_LIGHT = 7;
+/** How far (m) its halo sprite is drawn. */
+const HALO_RANGE = 700;
 /** The fire's pool of light on the ground: its width (m). */
 const POOL = 15;
 
 export class Campfire {
-  private readonly embers: THREE.Mesh;
   private readonly poolMat: THREE.MeshBasicMaterial;
   private readonly haloMat: THREE.PointsMaterial;
   private readonly emberMat: THREE.MeshBasicMaterial;
+  private readonly halo: THREE.Points;
   private readonly at: { x: number; y: number; z: number };
   private lit = 0;
   private holding = false;
@@ -32,10 +34,9 @@ export class Campfire {
     this.at = camp.fire;
     const { x, y, z } = this.at;
     this.emberMat = new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-    this.embers = new THREE.Mesh(new THREE.CircleGeometry(camp.ring * 0.72, 14).rotateX(-Math.PI / 2).translate(x, y + 0.07, z), this.emberMat);
-    this.embers.name = 'campfire-embers';
-    this.embers.frustumCulled = false;
-    view.group.add(this.embers);
+    // The embers and the pool are cells of the county's like any layer of it, hidden with them; the halo is a point sprite,
+    // hidden by its own distance (update).
+    view.add(new THREE.CircleGeometry(camp.ring * 0.72, 14).rotateX(-Math.PI / 2).translate(x, y + 0.07, z), this.emberMat, { split: false, receive: false, name: 'campfire-embers' });
     const [pc, px] = canvas(64, 64);
     const g = px.createRadialGradient(32, 32, 0, 32, 32, 32);
     g.addColorStop(0, 'rgba(255,170,70,1)');
@@ -44,17 +45,15 @@ export class Campfire {
     px.fillStyle = g;
     px.fillRect(0, 0, 64, 64);
     this.poolMat = new THREE.MeshBasicMaterial({ map: toTexture(pc, true, false), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
-    const pool = new THREE.Mesh(new THREE.PlaneGeometry(POOL, POOL).rotateX(-Math.PI / 2).translate(x, y + 0.09, z), this.poolMat);
-    pool.name = 'campfire-pool';
-    pool.frustumCulled = false;
-    view.group.add(pool);
+    view.add(new THREE.PlaneGeometry(POOL, POOL).rotateX(-Math.PI / 2).translate(x, y + 0.09, z), this.poolMat, { split: false, receive: false, name: 'campfire-pool' });
     const halo = new THREE.BufferGeometry();
     halo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([x, y + 0.7, z]), 3));
     this.haloMat = new THREE.PointsMaterial({ map: glowTexture(), color: 0xffa04a, size: 3.4, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-    const points = new THREE.Points(halo, this.haloMat);
-    points.name = 'campfire-halo';
-    points.frustumCulled = false;
-    view.group.add(points);
+    this.halo = new THREE.Points(halo, this.haloMat);
+    this.halo.name = 'campfire-halo';
+    this.halo.frustumCulled = false;
+    this.halo.visible = false;
+    view.group.add(this.halo);
   }
 
   /** A flicker 0.7..1: two incommensurate sines and a fast one, as the molotov fire's. */
@@ -62,14 +61,16 @@ export class Campfire {
     return 0.78 + 0.22 * Math.sin(time * 23) * Math.sin(time * 7.3 + 1) + 0.04 * Math.sin(time * 61);
   }
 
-  /** Each frame, at the clock's `hours` and the draw's `time`: how far the embers, the halo and the pool glow. */
-  update(hours: number, time: number): void {
+  /** Each frame, at the clock's `hours` and the draw's `time`, the camera at `cam`: how far the embers, the halo and the pool glow, and none of them drawn while it is out or far away. */
+  update(hours: number, time: number, cam: V3): void {
     this.lit = campfireLit(hours);
     const f = this.flicker(time);
+    const on = this.lit > 0.01;
     this.emberMat.opacity = this.lit * (0.55 + 0.4 * f);
     this.haloMat.opacity = this.lit * 0.75 * f;
     this.poolMat.opacity = this.lit * 0.6 * f;
-    this.embers.visible = this.lit > 0.01;
+    this.emberMat.visible = this.poolMat.visible = on;
+    this.halo.visible = on && Math.hypot(cam.x - this.at.x, cam.z - this.at.z) < HALO_RANGE;
   }
 
   /**

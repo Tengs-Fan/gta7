@@ -9,6 +9,7 @@
 
 import { pointSegDist, smoothstep } from '../../core/math';
 import { Rng } from '../../core/rng';
+import type { AttractionSolid } from '../attractions';
 import { addProp, hashInts, mkRect, rectContains, rectsOverlap, type CityLayout, type Rect, type Side } from '../layout';
 import { COUNTRY_ROADS, countryGround, LAKE_RECTS } from './index';
 import { buildLake } from './lake';
@@ -165,6 +166,8 @@ export interface CountyLakeland {
   waterfowl: Waterfowl[];
   boulders: Boulder[];
   flowers: FlowerPatch[];
+  /** Tussocks of tall grass, small clumps (2 to 5 m across) scattered thick in places, to break up the mown look of the open land: drawn as the flower patches are. */
+  tussocks: FlowerPatch[];
   /** The dirt: lanes and tracks, and gravel pads (the car park, the camp, the tower's). */
   lanes: Lane[];
   pads: Rect[];
@@ -174,9 +177,10 @@ export interface CountyLakeland {
   plaque: { x: number; z: number; rot: number };
   /** The places the map names: Lake Lomas's campground and the lookout. */
   labels: Array<{ name: string; x: number; z: number }>;
-  /** The first prop and the first solid (country.places.solids) the lakeland added: every prop from `first` on is its (the forest's `pines`, the valley's scatter, then the `shade` oaks by the cabins and the camp), as is every solid from `firstSolid`. */
+  /** The first prop the lakeland added: every prop from `first` on is its (the forest's `pines`, the valley's scatter, then the `shade` oaks by the cabins and the camp). */
   forest: { first: number; pines: number; shade: number };
-  firstSolid: number;
+  /** Its solids (the tents, the van, the toilet, the tables, the ring, the boulders, the tower, the dock's lamp): StaticWorld adds their colliders after the places'. */
+  solids: AttractionSolid[];
 }
 
 export function noLakeland(): CountyLakeland {
@@ -191,6 +195,7 @@ export function noLakeland(): CountyLakeland {
     waterfowl: [],
     boulders: [],
     flowers: [],
+    tussocks: [],
     lanes: [],
     pads: [],
     tower: { x: 0, z: 0, half: 0, cab: 0, top: 0, post: 0 },
@@ -198,7 +203,7 @@ export function noLakeland(): CountyLakeland {
     plaque: { x: 0, z: 0, rot: 0 },
     labels: [],
     forest: { first: 0, pines: 0, shade: 0 },
-    firstSolid: 0,
+    solids: [],
   };
 }
 
@@ -308,7 +313,6 @@ export function buildLakeland(layout: CityLayout): void {
   const rng = new Rng(hashInts(layout.seed, LAKELAND_SALT));
   const land = noLakeland();
   layout.country.lakeland = land;
-  land.firstSolid = layout.country.places.solids.length;
   const keep: Keepout = { rects: [], lines: [] };
   buildLake(layout, land, rng, keep);
   buildWoods(layout, land, rng, keep);

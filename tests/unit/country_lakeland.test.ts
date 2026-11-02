@@ -24,7 +24,7 @@ const L = W.layout;
 const land = L.country.lakeland;
 const plot = (id: string) => COUNTY_PLOTS.find((p) => p.id === id)!.rect;
 const mine = L.props.slice(land.forest.first);
-const solids = L.country.places.solids.slice(land.firstSolid);
+const solids = land.solids;
 
 describe('the fishing dock', () => {
   it('is two piers on the lake at the Marina\'s deck height, named for the lake, from dry land out over deep water', () => {
@@ -163,6 +163,7 @@ describe('what it keeps clear of', () => {
     for (const c of land.cabins) pts.push(['cabin', (c.rect.minX + c.rect.maxX) / 2, (c.rect.minZ + c.rect.maxZ) / 2, 12]);
     for (const t of land.tables) pts.push(['table', t.x, t.z, 6]);
     for (const f of land.flowers) pts.push(['flowers', f.x, f.z, f.r + 4]);
+    for (const f of land.tussocks) pts.push(['tussock', f.x, f.z, f.r + 6]);
     expect(pts.length).toBeGreaterThan(2500);
     for (const [what, x, z, gap] of pts) {
       expect(roadGap(x, z), `${what} at ${x.toFixed(1)}, ${z.toFixed(1)}`).toBeGreaterThanOrEqual(gap);
@@ -289,6 +290,8 @@ describe('the valley\'s north', () => {
     expect(flowers.length).toBeGreaterThanOrEqual(15);
     expect(new Set(flowers.map((f) => f.hue)).size).toBe(5);
     expect(land.flowers.filter((f) => f.hue === 'grass').length).toBeGreaterThanOrEqual(10);
+    expect(land.tussocks.length).toBeGreaterThan(400);
+    for (const t of land.tussocks) expect(countryGround(L.country, t.x, t.z), 'a tussock in the water').toBeGreaterThanOrEqual(0);
     for (const f of land.flowers) {
       expect(rectContains(vineyard, f.x, f.z, f.r), 'flowers in the vineyard').toBe(false);
       expect(rectContains(lakePlot, f.x, f.z) && lakeGap(f.x, f.z) < f.r, 'flowers in the water').toBe(false);

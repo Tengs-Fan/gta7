@@ -107,7 +107,7 @@ export class CountryView {
     this.farms.update(time, Math.hypot(wind.x, wind.z));
     const cam = { x, y, z };
     for (const f of this.animated) f(night, time, sim, cam);
-    this.camp.update(hours, time);
+    this.camp.update(hours, time, cam);
   }
 
   /** A static layer of the county, cut into COUNTRY_CELL cells (unless `split` is false: a few pieces across it). */
