@@ -15,9 +15,10 @@ import type { StaticWorld } from '../../world/staticWorld';
 import type { CityView } from '../city';
 import { skyPath } from '../environment';
 import type { WindUniforms } from '../props';
-import { COUNTRY_CELL, COUNTRY_FOG_MARGIN, COUNTRY_NEAR, CROP_RING, type QualityTier } from '../quality';
+import { COUNTRY_CELL, COUNTRY_FOG_MARGIN, COUNTRY_NEAR, CROP_RING, FLOWER_RING, type FlowerRing, type QualityTier } from '../quality';
 import { spatialGeometry, StaticVisibility } from '../spatial';
 import { buildBridge } from './bridge';
+import { Campfire } from './campfire';
 import { buildDriveIn } from './driveIn';
 import { FarmsView } from './farms';
 import { FieldsView } from './fields';
@@ -25,6 +26,7 @@ import { buildCountryGround } from './ground';
 import { buildHills } from './hills';
 import { CountryLife } from './life';
 import { PlacesKit } from './kit';
+import { buildLake } from './lake';
 import { buildOddities } from './oddities';
 import { buildPoles } from './poles';
 import { RanchView } from './ranch';
@@ -33,6 +35,14 @@ import { buildCountryRoads } from './roads';
 import { buildTown } from './town';
 import { buildTrack } from './track';
 import { ValleyView } from './valley';
+import { buildWoods } from './woods';
+
+/** Where the camera is, as the frame's updates see it. */
+export interface Camera {
+  x: number;
+  y: number;
+  z: number;
+}
 
 export class CountryView {
   readonly group = new THREE.Group();
@@ -43,6 +53,9 @@ export class CountryView {
   private readonly visibility = new StaticVisibility();
   /** The ground's cells, each drawn by its near or its far meshes (addCell). */
   private readonly cells: Array<{ bounds: Rect; near: THREE.Mesh[]; far: THREE.Mesh[]; silhouette: boolean }> = [];
+  /** The wildflower and tussock cells, hidden past the tier's FLOWER_RING (setTier, cull). */
+  private readonly flowerCells: Array<{ mesh: THREE.Mesh; bounds: THREE.Box3; tussock: boolean }> = [];
+  private flowerRing: FlowerRing = FLOWER_RING.high;
   readonly farms: FarmsView;
   readonly fields: FieldsView;
   /** The crows, the dairy's dog, the crop-duster, the combine and the balloon: the renderer drives it each frame (life/index.ts). */
@@ -51,10 +64,14 @@ export class CountryView {
   readonly valley: ValleyView;
   /** The ranch's horses and sheep (ranch.ts). */
   readonly ranch: RanchView;
+  /** Where the camera is, for the animators (update). */
+  private readonly cam: Camera = { x: 0, y: 0, z: 0 };
   private readonly sun = new THREE.Vector3();
   private readonly moon = new THREE.Vector3();
   /** What the places animate each frame: Moo-Moo's neon cow, the drive-in's screen, the saucer's beacon. */
-  private readonly animated: Array<(night: number, time: number, sim: ViewState | null) => void> = [];
+  private readonly animated: Array<(night: number, time: number, sim: ViewState | null, cam: Camera) => void> = [];
+  /** The campground's fire: the renderer lends it the effects (Campfire.sync). */
+  readonly camp: Campfire;
   /** The drive-in's cars flash their lights at a horn (driveInShush). */
   readonly shush: (time: number) => void;
 
@@ -89,12 +106,19 @@ export class CountryView {
     buildTrack(this, kit);
     this.animated.push(buildOddities(this, kit));
     kit.finish(this);
+    // Lake Lomas and Pinewood: a kit of their own (their signs and windows need their own atlas), as the farms have.
+    const lakeKit = new PlacesKit();
+    this.animated.push(buildLake(this, lakeKit, wind));
+    buildWoods(this, lakeKit, wind);
+    lakeKit.finish(this);
+    this.camp = new Campfire(this);
   }
 
   /** The tier's crops near the camera (quality.ts CROP_RING). */
   setTier(tier: QualityTier | 'software'): void {
     this.fields.setTier(CROP_RING[tier]);
     this.life.setTier(tier);
+    this.flowerRing = FLOWER_RING[tier];
   }
 
   /**
@@ -107,7 +131,12 @@ export class CountryView {
     this.farms.update(time, Math.hypot(wind.x, wind.z));
     this.valley.update(night);
     this.ranch.update(time, x, z, sim);
-    for (const f of this.animated) f(night, time, sim);
+    const cam = this.cam;
+    cam.x = x;
+    cam.y = y;
+    cam.z = z;
+    for (const f of this.animated) f(night, time, sim, cam);
+    this.camp.update(hours, time, cam);
   }
 
   /** A static layer of the county, cut into COUNTRY_CELL cells (unless `split` is false: a few pieces across it). */
@@ -124,6 +153,15 @@ export class CountryView {
       this.visibility.add(m);
     }
     if (parts[0] !== geo) geo.dispose();
+  }
+
+  /** The wildflowers (or, with `tussock`, the tussocks) as `add` cuts them, each cell drawn only within the tier's ring of the camera. */
+  addFlowers(geo: THREE.BufferGeometry, mat: THREE.Material, tussock: boolean): void {
+    const before = this.group.children.length;
+    this.add(geo, mat, { name: tussock ? 'tussocks' : 'wildflowers', receive: false });
+    for (const mesh of this.group.children.slice(before) as THREE.Mesh[]) {
+      this.flowerCells.push({ mesh, bounds: new THREE.Box3().setFromObject(mesh), tussock });
+    }
   }
 
   /**
@@ -146,6 +184,11 @@ export class CountryView {
     this.visibility.update(x, z, reach);
     this.farms.cull(x, z, reach);
     this.valley.cull(x, z, reach);
+    for (const { mesh, bounds, tussock } of this.flowerCells) {
+      const ring = tussock ? this.flowerRing.tussock : this.flowerRing.patch;
+      const d = Math.hypot(Math.max(bounds.min.x - x, 0, x - bounds.max.x), Math.max(bounds.min.z - z, 0, z - bounds.max.z));
+      mesh.visible = mesh.visible && ring > 0 && d <= ring;
+    }
     const outline = this.city.buildingU.skyline.value > 0.5;
     for (const c of this.cells) {
       const b = c.bounds;

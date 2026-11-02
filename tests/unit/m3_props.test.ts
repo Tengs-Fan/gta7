@@ -521,6 +521,10 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // places', then the winery's and the ranch house's buildings, the ranch barn's walls and roof, and the hedgerows', barrels',
   // bales' and ruin's solids); and when its review landed (the colliders alone: the two paddock shelters' three walls each,
   // among the solids after the ranch's bales).
+  // Lake Lomas and Pinewood were laid out (the pines, a new kind with a trunk collider, the oaks and the bushes by them,
+  // appended after the places' props, and after the places' solids the lakeland's solids' colliders); and again by the lake's review
+  // (the fire break west of the tower's pad takes its pines out, the pad's boulders stand, and the hills' old scrub is set aside
+  // from the pad, the track and the pines' skirts, which moves its foliage envelopes).
   const D98 = {
     props: 'fd7e215cfea50fc6367c3af0475c2f43359d84cef5fb1d4931b78862b87e981f',
     colliders: 'fac1ea1efa80fe82055dbfc696832507cc65071515a790680f3f20d716578477',

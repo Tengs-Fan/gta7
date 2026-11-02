@@ -284,7 +284,14 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
       ctx.fillText(text, sx, sy);
     };
     const country = sim.world.layout.country;
-    if (zoom >= 1) for (const p of country.plots) label(p.name.toUpperCase(), (p.rect.minX + p.rect.maxX) / 2, (p.rect.minZ + p.rect.maxZ) / 2);
+    if (zoom >= 1) {
+      for (const p of country.plots) label(p.name.toUpperCase(), (p.rect.minX + p.rect.maxX) / 2, (p.rect.minZ + p.rect.maxZ) / 2);
+      // The places inside the plots: Lake Lomas's campground and Pinewood's fire lookout.
+      ctx.save();
+      ctx.font = '700 12px Rajdhani, sans-serif';
+      for (const l of country.lakeland.labels) label(l.name.toUpperCase(), l.x, l.z);
+      ctx.restore();
+    }
     ctx.save();
     ctx.font = '700 22px Rajdhani, sans-serif';
     label(COUNTY_NAME.toUpperCase(), -1130, 0);

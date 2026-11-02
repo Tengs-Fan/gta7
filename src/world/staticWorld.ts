@@ -2,7 +2,7 @@
 // ground height, water, zones and free-space searches.
 
 import { circleVsAabb, makeContact } from '../core/collision';
-import { attractionOf } from './attractions';
+import { attractionOf, type AttractionSolid } from './attractions';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { BRIDGE_ARCH, COUNTY_NAME, countryFloor, countryGround, inValley, plotAt, VALLEY_NAME } from './country';
@@ -122,18 +122,16 @@ export class StaticWorld {
     for (const b of this.layout.buildings.slice(country.firstBuilding)) this.addBuilding(b.tiers);
     for (const gar of this.layout.garages.slice(country.firstGarage)) this.addGarage(gar);
     for (const h of country.farms.hedges) g.addBox(h.minX, h.minZ, h.maxX, h.maxZ, 0, HEDGE_H, 'hedge');
-    for (const s of [...country.places.solids, ...country.oddities.solids]) {
+    // The places', then Lake Lomas's and Pinewood's (world/country/lakeland.ts), the valley's farms' (their hedgerows, then their
+    // barrels, bales and ruin: valley.ts) and the oddities' (oddities.ts), each in the order its pass ran.
+    const solid = (s: AttractionSolid): void => {
       const r = s.rect;
       if (s.round) g.addCircle((r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2, (r.maxX - r.minX) / 2, s.y0, s.y1, s.tag);
       else g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, s.y0, s.y1, s.tag);
-    }
-    // The valley's farms (world/country/valley.ts), last of all: their hedgerows, then their barrels, bales and ruin.
+    };
+    for (const s of [...country.places.solids, ...country.lakeland.solids]) solid(s);
     for (const h of country.valley.hedges) g.addBox(h.minX, h.minZ, h.maxX, h.maxZ, 0, HEDGE_H, 'hedge');
-    for (const s of country.valley.solids) {
-      const r = s.rect;
-      if (s.round) g.addCircle((r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2, (r.maxX - r.minX) / 2, s.y0, s.y1, s.tag);
-      else g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, s.y0, s.y1, s.tag);
-    }
+    for (const s of [...country.valley.solids, ...country.oddities.solids]) solid(s);
   }
 
   private addBuilding(tiers: Building['tiers']): void {
@@ -222,6 +220,8 @@ export class StaticWorld {
         return g.addBox(p.x - p.w / 2, p.z - p.d / 2, p.x + p.w / 2, p.z + p.d / 2, p.y, p.y + p.h, 'bench', i, !this.epitaphStones.has(i)).id;
       case 'cypress':
         return g.addCircle(p.x, p.z, 0.3 * s, p.y, p.y + 9 * s, 'tree').id;
+      case 'pine':
+        return g.addCircle(p.x, p.z, 0.3 * s, p.y, p.y + 12 * s, 'tree').id;
       case 'silo':
       case 'grainbin':
         return g.addCircle(p.x, p.z, p.w / 2, p.y, p.y + p.h, 'pillar').id;

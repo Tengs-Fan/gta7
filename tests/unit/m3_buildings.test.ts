@@ -378,6 +378,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // props', hedgerows' and solids' colliders of its vineyard, ranch and farmed land), and the buildings' hash for the
     // winery and the ranch house; and again when its review landed: the ranch's two paddock shelters' walls, three each, among
     // its solids' colliders.
+    // laid out: the four cabins' buildings, the pines' and the oaks' trunks (after the places' props), and after the places'
+    // solids the lakeland's (the camp's tents, van, toilet, ring and tables, the valley's boulders, the dock's lamp and the
+    // lookout tower's legs and cab); and again by the lake's review: no pines on the fire break west of the tower's pad, three boulders
+    // round the pad, the old scrub set aside (no colliders of its own, but the pines it leaves out take theirs).
     expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
     expect(c).toBe('b82635a867685bfa602a5e2c465acafa770bb9fed3d09768c338ef1c90b91f7c');
   });

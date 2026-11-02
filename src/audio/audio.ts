@@ -12,6 +12,8 @@ import { PAYPHONE_SPEAKER } from '../sim/payphone';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { VehicleKind, WeaponId } from '../sim/specs';
 import { attractionOf } from '../world/attractions';
+import { LAKE_CENTRE } from '../world/country';
+import { lakeGap } from '../world/country/lakeland';
 import type { Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { Ambience, shoreInfo, whisperDue, type AmbienceFrame, type ShoreInfo } from './ambience';
@@ -41,6 +43,12 @@ interface Listener {
 
 export type HitConfirm = 'hit' | 'kill' | 'head';
 const CONFIRM_RANK: Readonly<Record<HitConfirm, number>> = { hit: 0, head: 1, kill: 2 };
+
+/** The pan (-1..1) toward (dx, dz) of a listener whose right is (rx, rz); 0 when it is right on top of him. */
+function bearingPan(dx: number, dz: number, rx: number, rz: number): number {
+  const d = Math.hypot(dx, dz);
+  return d > 1 ? (dx * rx + dz * rz) / d : 0;
+}
 
 /** AudioParams throw on NaN / Infinity, so every computed value is checked before use. */
 function finite(...xs: number[]): boolean {
@@ -1262,8 +1270,13 @@ export class AudioEngine {
     const tower = attractionOf(world.layout, 'cemetery').anchors.tower.rect;
     const bx = (tower.minX + tower.maxX) / 2 - L.x;
     const bz = (tower.minZ + tower.maxZ) / 2 - L.z;
-    const bd = Math.hypot(bx, bz);
-    f.bell = { dist: bd, pan: bd > 1 ? (bx * rx + bz * rz) / bd : 0 };
+    f.bell = { dist: Math.hypot(bx, bz), pan: bearingPan(bx, bz, rx, rz) };
+    // Lake Lomas's loons and ducks, and the campground's fire: how far, and which way.
+    const fire = world.layout.country.lakeland.camp.fire;
+    f.lakeDist = lakeGap(L.x, L.z);
+    f.lakePan = bearingPan(LAKE_CENTRE.x - L.x, LAKE_CENTRE.z - L.z, rx, rz);
+    f.fireDist = Math.hypot(fire.x - L.x, fire.z - L.z);
+    f.firePan = bearingPan(fire.x - L.x, fire.z - L.z, rx, rz);
     this.ambience!.update(dt, t, f);
   }
 }

@@ -30,7 +30,9 @@ describe('Dry Creek: the town', () => {
     // The stores by their buildings, and every building older than them (the city's, and any of the county's passes
     // before the places').
     const stores = town.stores.map((s) => L.buildings.find((b) => b.id === s.building)!);
-    const others = L.buildings.filter((b) => !stores.includes(b));
+    // The lakeland's cabins come after (world/country/lakeland.ts, the last pass).
+    const cabins = new Set(L.country.lakeland.cabins.map((c) => c.building));
+    const others = L.buildings.filter((b) => !stores.includes(b) && !cabins.has(b.id));
     expect(stores.map((b) => b.district)).toEqual(stores.map(() => 'country'));
     expect(stores.map((s) => s.sign!.text)).toEqual(town.stores.map((s) => s.name));
     expect(town.stores.map((s) => s.name)).toEqual(expect.arrayContaining(['DRY CREEK FEED & SEED', "MOO-MOO'S DINER", 'BANG BANG GUNS & BAIT', 'GAS & GRITS', "SHERIFF'S OFFICE"]));
@@ -45,8 +47,8 @@ describe('Dry Creek: the town', () => {
       for (const n of W.walk.nodes) expect(rectContains(r, n.x, n.z, 0.4), `walk node ${n.id} in ${JSON.stringify(r)}`).toBe(false);
     }
     for (const b of others) for (const r of solids) expect(rectsOverlap(b.rect, r)).toBe(false);
-    // The places' props, from Gas & Grits' first pump on to where the valley's farms begin: after any older pass's.
-    for (const p of L.props.slice(town.pumps[0], L.country.valley.firstProp)) {
+    // The places' props, from Gas & Grits' first pump on to where the lakeland's begin: after any older pass's.
+    for (const p of L.props.slice(town.pumps[0], L.country.lakeland.forest.first)) {
       expect(places.some((q) => rectContains(q, p.x, p.z)), `${p.kind} at ${p.x}, ${p.z}`).toBe(true);
       expect(W.isOnRoad(p.x, p.z)).toBe(false);
     }

@@ -591,6 +591,8 @@ export const PLAQUE_TEXT = {
   county: 'WELCOME TO LAS LOMAS COUNTY. POPULATION: MOSTLY COWS.',
   ridge: 'LOOKOUT POINT. ELEV. 24 M. THE CITY LOOKS BETTER FROM HERE. SO DOES EVERYTHING.',
   ridgeTelescope: 'VIEWS 25 CENTS. CITY SOLD SEPARATELY.',
+  pinewood: 'PINEWOOD FIRE LOOKOUT. ELEV. 8 M. THE TOWER IS THE OTHER 18, AND STAFF ONLY. SMOKE? SAY SOMETHING.',
+  pinewoodTelescope: 'VIEWS 25 CENTS. LAKE LOMAS SOLD SEPARATELY.',
 } as const;
 
 /**
@@ -599,7 +601,8 @@ export const PLAQUE_TEXT = {
  * where the path climbs between them. The lookout at Azura Point's tip: its plaque at the middle of the parapet, and a
  * telescope at either end, one turned back south-west over Gull Bay to the hill and the towers, one out to sea.
  * And where the Magnolia Causeway makes landfall, Las Lomas County's welcome on the verge, facing the traffic coming in;
- * on Coyote Ridge, Lookout Point's plaque and its coin telescope at the parapet, looking east over the county to the city.
+ * on Coyote Ridge, Lookout Point's plaque and its coin telescope at the parapet, looking east over the county to the city;
+ * and in the valley, at the foot of Pinewood's fire lookout tower, its plaque and a coin telescope at the pad's west edge looking down a fire break to the lake.
  */
 export function viewpoints(world: StaticWorld): ViewpointItem[] {
   const L = world.layout;
@@ -626,6 +629,9 @@ export function viewpoints(world: StaticWorld): ViewpointItem[] {
   out.push(at('telescope', rail.maxX - 1.5, rail.maxZ + 1.2, Math.atan2(0.6, -0.8), PLAQUE_TEXT.telescope));
   out.push(at('sign', CAUSEWAY.minX - 12, CAUSEWAY.minZ + 0.5, Math.PI / 2, PLAQUE_TEXT.county));
   out.push(at('plaque', LOOKOUT.plaque.x, LOOKOUT.plaque.z, -Math.PI / 2, PLAQUE_TEXT.ridge), at('telescope', LOOKOUT.telescope.x, LOOKOUT.telescope.z, Math.PI / 2, PLAQUE_TEXT.ridgeTelescope));
+  // Pinewood's fire lookout, on Pine Rise's top: its plaque on the pad and its telescope at the pad's west edge, looking west down a fire break to the lake.
+  const pine = L.country.lakeland;
+  out.push(at('plaque', pine.plaque.x, pine.plaque.z, pine.plaque.rot, PLAQUE_TEXT.pinewood), at('telescope', pine.telescope.x, pine.telescope.z, pine.telescope.rot, PLAQUE_TEXT.pinewoodTelescope));
   return out;
 }
 

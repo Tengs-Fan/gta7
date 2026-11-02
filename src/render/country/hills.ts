@@ -6,12 +6,12 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { FIRE_ROAD_W, fireRoadLine, LOOKOUT, PASS_ROCK_VARIANTS, passRocks } from '../../world/country/hills';
+import { FIRE_ROAD_W, fireRoadLine, LOOKOUT, PASS_ROCK_VARIANTS, passRocks, type PassRock } from '../../world/country/hills';
+import type { FireTower } from '../../world/country/lakeland';
 import { PARAPET_H } from '../../world/layout';
 import { boulder } from '../city/coast';
 import { NO_RECT, setGroundAttribute } from '../city/surfaces';
 import { GeoBuilder } from '../geo';
-import type { Country } from '../../world/country';
 import type { CountryView } from './index';
 
 /** Height (m) of the gravel over the ground it is draped on, above the ground mesh's chords over the slopes. */
@@ -71,19 +71,24 @@ export function buildHills(view: CountryView): void {
 
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 });
   mat.name = 'fire-lookout';
-  view.add(lookoutTower(top), mat, { shadow: true, name: 'fire-lookout', split: false });
+  view.add(lookoutTower(top, LOOKOUT.tower), mat, { shadow: true, name: 'fire-lookout', split: false });
   // Wet in the rain and lit by the headlights as the ground they lie on is.
-  view.add(passBoulders(world.layout.country), view.city.wet.patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true })), { shadow: true, name: 'pass-rocks' });
+  view.add(boulders(passRocks(world.layout.country)), rockMaterial(view), { shadow: true, name: 'pass-rocks' });
 }
 
-/** The pass's boulders: the foreshore's lumps (city/coast.ts) in their grey-brown rock, each sunk a fifth into the wall. */
-function passBoulders(country: Country): THREE.BufferGeometry {
+/** The material of every boulder of the county's: grey-brown flat-shaded rock, wet in the rain. */
+export function rockMaterial(view: CountryView): THREE.Material {
+  return view.city.wet.patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true }));
+}
+
+/** Boulders: the foreshore's lumps (city/coast.ts) in their grey-brown rock, each sunk a fifth into the ground. */
+export function boulders(rocks: readonly PassRock[]): THREE.BufferGeometry {
   const shapes = Array.from({ length: PASS_ROCK_VARIANTS }, (_, v) => boulder(41 + v, 1));
   const parts: THREE.BufferGeometry[] = [];
   const quat = new THREE.Quaternion();
   const rock = new THREE.Color();
   const dark = new THREE.Color(ROCK_DARK);
-  for (const r of passRocks(country)) {
+  for (const r of rocks) {
     const geo = shapes[r.variant]!.clone();
     geo.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(r.x, r.y - r.size * 0.2, r.z), quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r.yaw), new THREE.Vector3(r.size, r.size, r.size)));
     rock.set(ROCK).lerp(dark, r.tint);
@@ -117,25 +122,28 @@ function paint(g: THREE.BufferGeometry, color: number): THREE.BufferGeometry {
 }
 
 /**
- * The fire lookout: four timber posts braced crosswise on every side up to a deck, a boarded cab with a band of windows
- * all round, a catwalk rail and a pyramid roof, standing on the ground at `y` (world/country/hills.ts LOOKOUT.tower).
+ * A fire lookout: four timber posts braced crosswise on every side up to a deck, a boarded cab with a band of windows
+ * all round, a catwalk rail and a pyramid roof, standing on the ground at `y` (world/country/hills.ts LOOKOUT.tower, and
+ * Pinewood's, world/country/woods.ts PINE_TOWER, whose posts carry a storey of braces for every 5 m).
  */
-function lookoutTower(y: number): THREE.BufferGeometry {
-  const t = LOOKOUT.tower;
+export function lookoutTower(y: number, t: FireTower): THREE.BufferGeometry {
   const V = (x: number, h: number, z: number) => new THREE.Vector3(t.x + x, y + h, t.z + z);
   const h = t.half;
   const parts: THREE.BufferGeometry[] = [];
   const corners = [[-h, -h], [h, -h], [h, h], [-h, h]] as const;
   for (const [x, z] of corners) parts.push(beam(V(x, 0, z), V(x, t.cab, z), t.post * 2, t.post * 2, TIMBER));
-  // Cross braces on each side in two storeys, and a ring of girts between them.
+  // Cross braces on each side in storeys of about 5 m, and a ring of girts between them.
+  const storeys = Math.max(2, Math.round(t.cab / 5));
   for (let k = 0; k < 4; k++) {
     const [ax, az] = corners[k]!;
     const [bx, bz] = corners[(k + 1) % 4]!;
-    for (const [y0, y1] of [[0.4, t.cab / 2], [t.cab / 2, t.cab - 0.3]] as const) {
+    for (let s = 0; s < storeys; s++) {
+      const y0 = s === 0 ? 0.4 : (t.cab * s) / storeys;
+      const y1 = s === storeys - 1 ? t.cab - 0.3 : (t.cab * (s + 1)) / storeys;
       parts.push(beam(V(ax, y0, az), V(bx, y1, bz), 0.12, 0.12, TIMBER));
       parts.push(beam(V(bx, y0, bz), V(ax, y1, az), 0.12, 0.12, TIMBER));
+      if (s > 0) parts.push(beam(V(ax, y0, az), V(bx, y0, bz), 0.16, 0.16, TIMBER));
     }
-    parts.push(beam(V(ax, t.cab / 2, az), V(bx, t.cab / 2, bz), 0.16, 0.16, TIMBER));
   }
   // The deck, wider than the posts, and the cab on it: boards to the sill, windows, boards over them.
   const deck = h + 0.9;

@@ -283,6 +283,9 @@ describe('round 2 city: layout', () => {
     // and bushes over the open land, with their props, buildings, garage, bays and fields); and when the valley's farms'
     // review landed (the ranch's two shelters with their walls as solids, and no windpump index, gate or mailbox rotation,
     // vineyard row count, or the one vine run in the winery yard's corner).
+    // and Lake Lomas and Pinewood (the dock's two piers on the lake, four cabins, some 2,700 pines and a few hundred oaks and bushes in the
+    // wood and the valley's north, and the lake's review: a fire break of pines west of the lookout tower's pad, its boulders, the hills' old
+    // scrub set aside).
     expect(layoutHash()).toBe('1a13e60b42e9979238ea334c74f9e76d2946dd290ba2e84927a299368612cc69');
   });
 

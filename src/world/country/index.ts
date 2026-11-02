@@ -13,6 +13,7 @@ import { riseAt, type Rise } from '../terrain';
 import { buildFarms, noFarms, type CountyFarms } from './farms';
 import { buildHills } from './hills';
 import { buildOddities, noOddities, type CountyOddities } from './oddities';
+import { buildLakeland, noLakeland, type CountyLakeland } from './lakeland';
 import { buildPlaces, noPlaces, type CountyPlaces } from './places';
 import { buildValley, noValley, type ValleyFarms } from './valley';
 
@@ -122,6 +123,8 @@ export interface Country {
   approaches: Approach[];
   /** Sunset Vineyard, the Lazy Q Ranch and the farmed land between them (valley.ts). */
   valley: ValleyFarms;
+  /** Lake Lomas's dock, cabins and campground, Pinewood and the valley's north (lakeland.ts). */
+  lakeland: CountyLakeland;
   /**
    * The first prop, parapet, building and garage of the county's: StaticWorld adds their colliders after every older
    * one.
@@ -183,6 +186,9 @@ export const LAKE = mkRect(
   Math.max(...LAKE_RECTS.map((r) => r.maxX)),
   Math.max(...LAKE_RECTS.map((r) => r.maxZ)),
 );
+
+/** The middle of the lake's box: where its loons' and ducks' calls come from, and the birds are drawn out to. */
+export const LAKE_CENTRE = { x: (LAKE.minX + LAKE.maxX) / 2, z: (LAKE.minZ + LAKE.maxZ) / 2 };
 
 /** Whether (x, z) is over the lake's water as the holes in the land draw it (its beach included). */
 export function inLake(x: number, z: number): boolean {
@@ -541,6 +547,7 @@ export function buildCountry(layout: CityLayout): void {
     oddities: noOddities(),
     approaches: [],
     valley: noValley(),
+    lakeland: noLakeland(),
     firstProp: layout.props.length,
     firstParapet: layout.parapets.length,
     firstBuilding: layout.buildings.length,
@@ -588,10 +595,13 @@ export function buildCountry(layout: CityLayout): void {
   }
   junctionHeads(junctions.filter((v) => valley.has(v.id)));
   // The content passes go here, in this order, each one call that only appends: buildHills (the landscape), buildFarms,
-  // buildPlaces, buildValley (the valley's farms), buildOddities.
+  // buildPlaces, buildLakeland (Lake Lomas's shore and Pinewood), buildValley (the valley's farms), buildOddities. The lake's goes
+  // before the valley's, and each of the two records the props it appended as `[first, end)`: the renderer draws the valley's
+  // trees as one batch for the whole valley (PropsView.buildTrees) and takes exactly the farms' into it, and the tests slice by both ends.
   buildHills(layout);
   buildFarms(layout);
   buildPlaces(layout);
+  buildLakeland(layout);
   buildValley(layout);
   buildOddities(layout);
 }
@@ -637,6 +647,7 @@ export function noCountry(): Country {
     oddities: noOddities(),
     approaches: [],
     valley: noValley(),
+    lakeland: noLakeland(),
     firstProp: 0,
     firstParapet: 0,
     firstBuilding: 0,

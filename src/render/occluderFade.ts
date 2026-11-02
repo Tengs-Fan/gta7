@@ -15,7 +15,10 @@ export const OCCLUDER_CAPSULE_FULL = 2 * OCCLUDER_CAPSULE_R;
 export const OCCLUDER_LENS_NEAR = 1;
 export const OCCLUDER_LENS_FAR = 1.6;
 
-export type OccluderKind = 'lamp' | 'signal' | 'tree' | 'palm';
+/** How far (m) a pine's skirts stand off its axis where the camera looks through them: the capsule alone would miss them. */
+export const PINE_REACH = 1.3;
+
+export type OccluderKind = 'lamp' | 'signal' | 'tree' | 'palm' | 'pine';
 
 /**
  * Each kind's axis in its prop's frame (before the prop's scale): from (0, from, 0) to (0, to, 0). Lamps run to the arm
@@ -28,6 +31,7 @@ export const OCCLUDER_AXIS: Readonly<Record<OccluderKind, { from: number; to: nu
   signal: { from: 0, to: 10 },
   tree: { from: 0, to: 4.8 },
   palm: { from: 0, to: 8.7 },
+  pine: { from: 0.5, to: 5 },
 };
 
 const EPS = 1e-8;
@@ -102,16 +106,17 @@ export function occluderOpacity(cam: V3, subject: V3, base: V3, top: V3): number
 
 /**
  * The same for an occluder whose axis bends (a curved palm trunk): the polyline `path` (at least two points), drawn as
- * little as its segment nearest the sight line or the lens allows.
+ * little as its segment nearest the sight line or the lens allows. `reach` (m) is how far the occluder's body stands off
+ * its axis where the sight line passes (a pine's skirts): the line distance counts from that surface, not the axis.
  */
-export function occluderOpacityPath(cam: V3, subject: V3, path: readonly V3[]): number {
+export function occluderOpacityPath(cam: V3, subject: V3, path: readonly V3[], reach = 0): number {
   let line = Infinity;
   let lens = Infinity;
   for (let i = 0; i + 1 < path.length; i++) {
     line = Math.min(line, segmentDistance(cam, subject, path[i]!, path[i + 1]!));
     lens = Math.min(lens, pointSegmentDistance(cam, path[i]!, path[i + 1]!));
   }
-  return Math.min(smooth(OCCLUDER_CAPSULE_R, OCCLUDER_CAPSULE_FULL, line), smooth(OCCLUDER_LENS_NEAR, OCCLUDER_LENS_FAR, lens));
+  return Math.min(smooth(OCCLUDER_CAPSULE_R, OCCLUDER_CAPSULE_FULL, Math.max(line - reach, 0)), smooth(OCCLUDER_LENS_NEAR, OCCLUDER_LENS_FAR, lens));
 }
 
 /**

@@ -95,6 +95,23 @@ export const CROP_RING: Readonly<Record<QualityTier | 'software', Readonly<CropR
   software: { ring: 0, wheatRing: 0, corn: 0, wheat: 0, sunflower: 0 },
 };
 
+/**
+ * Pinewood's wildflowers and tussocks (render/country/woods.ts): about 50,000 alpha-tested cards, which cost most with the
+ * camera inside a patch, so they are drawn within this many metres of it and not out to the fog. The wildflower patches
+ * and the big patches of tall grass reach `patch`, the many small tussocks the shorter `tussock`; none on the software tier.
+ */
+export interface FlowerRing {
+  patch: number;
+  tussock: number;
+}
+
+export const FLOWER_RING: Readonly<Record<QualityTier | 'software', Readonly<FlowerRing>>> = {
+  high: { patch: 400, tussock: 250 },
+  medium: { patch: 260, tussock: 160 },
+  low: { patch: 160, tussock: 100 },
+  software: { patch: 0, tussock: 0 },
+};
+
 /** Dynamic point lights shared by the siren, muzzle flash and explosion flash on 'few'. */
 export const FEW_POINT_LIGHTS = 2;
 
