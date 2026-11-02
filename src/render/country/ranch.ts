@@ -108,6 +108,12 @@ export class RanchView {
     this.centre = { x: rectCX(ranch.yard), z: rectCZ(ranch.pasture) };
     const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.85 });
     mat.name = 'ranch-animals';
+    // The animals stay inside the pasture and the paddocks' fences, so one hand-set bound over them (and a few metres of
+    // height) serves every mesh: the instances move each frame, and a bound computed once from their first places would not.
+    const fenced = [ranch.pasture, ...ranch.paddocks];
+    const [x0, z0] = [Math.min(...fenced.map((r) => r.minX)), Math.min(...fenced.map((r) => r.minZ))];
+    const [x1, z1] = [Math.max(...fenced.map((r) => r.maxX)), Math.max(...fenced.map((r) => r.maxZ))];
+    const bound = new THREE.Sphere(new THREE.Vector3((x0 + x1) / 2, 1.5, (z0 + z1) / 2), Math.hypot(x1 - x0, z1 - z0) / 2 + 2);
     // Only the bodies cast a shadow: a horse's head, tail and legs and a sheep's head are too small to show in one, and each
     // mesh that does is drawn again for every cascade.
     const make = (geo: THREE.BufferGeometry, count: number, shadow = false): THREE.InstancedMesh => {
@@ -116,8 +122,7 @@ export class RanchView {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.castShadow = shadow;
       mesh.receiveShadow = true;
-      // They move all over the paddocks: bound them by hand.
-      mesh.frustumCulled = false;
+      mesh.boundingSphere = bound;
       mesh.visible = false;
       view.moving.add(mesh);
       this.meshes.push(mesh);

@@ -353,6 +353,25 @@ describe('the valley\'s farms, drawn', () => {
     for (const id of [v.ranch.house, v.vineyard.winery.building]) expect([inside(id, 'facade-'), inside(id, 'roofs')], `valley building ${id}`).toEqual([0, 0]);
   });
 
+  it('culls the animals\' six meshes by one bound over the pasture and paddocks that holds every instance as they move', () => {
+    const names = ['horse-body', 'horse-front', 'horse-tail', 'horse-leg', 'sheep-body', 'sheep-head'];
+    const meshes = names.map((n) => named(n)[0] as THREE.InstancedMesh);
+    const at = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    for (let k = 0; k < 900; k++) {
+      view.update(-1830, 5, 300, 0, 200 + k / 30, 12, { x: 1, z: 0 }, fakeSim([{ x: -1838, z: 330 + (k % 120), speed: 12 }]));
+      if (k % 30) continue;
+      for (const mesh of meshes) {
+        expect(mesh.frustumCulled, mesh.name).toBe(true);
+        for (let i = 0; i < mesh.count; i++) {
+          mesh.getMatrixAt(i, m);
+          expect(mesh.boundingSphere!.containsPoint(at.setFromMatrixPosition(m)), `${mesh.name} ${i}`).toBe(true);
+        }
+      }
+    }
+    expect(meshes.every((mesh) => mesh.boundingSphere!.radius < 160)).toBe(true);
+  });
+
   it('draws the valley\'s oaks and bushes as one batch each, not one per cell', () => {
     const props = new PropsView(W, HARDWARE_CHUNK_SIZE);
     const batches = new Map<string, number>();
