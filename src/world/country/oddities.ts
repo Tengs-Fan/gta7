@@ -78,7 +78,7 @@ export const ROADSIDE = [
   { name: 'birdhouse', h: 1.55, w: 0.5 },
   { name: 'rusty', h: 1.35, w: 0.5 },
   { name: 'eggs', h: 1.9, w: 1.2 },
-  { name: 'honey', h: 1.9, w: 1.2 },
+  { name: 'honey', h: 1.9, w: 1.7 },
   { name: 'slow', h: 2.0, w: 1.7 },
 ] as const;
 

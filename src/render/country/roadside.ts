@@ -23,7 +23,7 @@ function slab(w: number, h: number, d: number, x: number, y: number, z: number, 
 }
 
 /** The signs' boards, in metres: each as wide (ROADSIDE's `w`) and tall as the part of its band it is painted on. */
-const BOARDS: Readonly<Record<number, readonly [number, number]>> = { 6: [ROADSIDE[6].w, 0.85], 7: [ROADSIDE[7].w, 0.85], 8: [ROADSIDE[8].w, 1.0] };
+const BOARDS: Readonly<Record<number, readonly [number, number]>> = { 6: [ROADSIDE[6].w, 0.85], 7: [ROADSIDE[7].w, 1.0], 8: [ROADSIDE[8].w, 1.0] };
 /** The part of each band the board takes, across, and its band's height in px (the board's aspect at 512 px). */
 const U_RANGE = [0.25, 0.75] as const;
 const WOOD = 0x7a5a3a;
@@ -139,9 +139,17 @@ export function roadsideAtlas(): { texture: THREE.Texture; blank: [number, numbe
   return { texture: toTexture(atlas.canvas, true, false), blank, bands };
 }
 
+/** `text` broken at the space nearest its middle, into the two rows that are most alike. */
+function inTwo(text: string): [string, string] {
+  const spaces = [...text].flatMap((c, i) => (c === ' ' ? [i] : []));
+  const at = spaces.reduce((best, i) => (Math.abs(i - text.length / 2) < Math.abs(best - text.length / 2) ? i : best));
+  return [text.slice(0, at), text.slice(at + 1)];
+}
+
 /**
  * A sign's face, painted by hand: a board stained pale, its two lines of letters brushed on one at a time, each a little
- * off the line and the last ones squeezed to fit, a drip under some.
+ * off the line and the last ones squeezed to fit, a drip under some. The second line is the joke, and the one to read from
+ * the road: as large as its board allows, and the SLOW sign's, too long for one row to be read, broken in two.
  */
 function paintSign(ctx: CanvasRenderingContext2D, shape: number, x0: number, x1: number, h: number): void {
   const rng = new Rng(4400 + shape);
@@ -161,15 +169,16 @@ function paintSign(ctx: CanvasRenderingContext2D, shape: number, x0: number, x1:
   ctx.strokeStyle = ink;
   ctx.lineWidth = 9;
   ctx.strokeRect(x0 + 10, 10, x1 - x0 - 20, h - 20);
-  const lines = SIGN_TEXT[shape]!;
-  const sizes = shape === 8 ? [120, 54] : [140, lines[1]!.length > 6 ? 62 : 140];
+  const [head, joke] = SIGN_TEXT[shape]!;
+  const rows = shape === 8 ? [head, ...inTwo(joke)] : [head, joke];
+  const sizes = shape === 8 ? [88, 72, 72] : shape === 7 ? [130, 72] : [140, 140];
   ctx.textBaseline = 'middle';
   ctx.fillStyle = ink;
   let y = (h - sizes.reduce((s, n) => s + n * 1.1, 0)) / 2;
-  lines.forEach((text, i) => {
+  rows.forEach((text, i) => {
     let px = sizes[i]!;
     ctx.font = `700 ${px}px Anton, Impact, "Arial Black", sans-serif`;
-    while (ctx.measureText(text).width > (x1 - x0) * 0.86 && px > 18) {
+    while (ctx.measureText(text).width > (x1 - x0) * 0.9 && px > 18) {
       px -= 4;
       ctx.font = `700 ${px}px Anton, Impact, "Arial Black", sans-serif`;
     }
@@ -189,7 +198,7 @@ function paintSign(ctx: CanvasRenderingContext2D, shape: number, x0: number, x1:
     ctx.fillRect(x - widths.length * 4 - rng.range(0, 60), y + px * 1.05, 3, rng.range(6, 16));
     y += px * 1.1;
   });
-  // The little pictures a sign painter adds: two eggs, a bee.
+  // The little pictures a sign painter adds: two eggs, a bee beside the first line.
   ctx.fillStyle = ink;
   if (shape === 6) {
     ctx.beginPath();
@@ -197,12 +206,13 @@ function paintSign(ctx: CanvasRenderingContext2D, shape: number, x0: number, x1:
     ctx.ellipse(x1 - 62, h - 52, 22, 28, 0, 0, Math.PI * 2);
     ctx.fill();
   } else if (shape === 7) {
+    const [bx, by] = [x1 - 58, h * 0.37];
     ctx.fillStyle = '#e0a420';
     ctx.beginPath();
-    ctx.ellipse(x1 - 70, h - 58, 30, 20, 0.3, 0, Math.PI * 2);
+    ctx.ellipse(bx, by, 30, 20, 0.3, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = ink;
-    for (const dx of [-12, 0, 12]) ctx.fillRect(x1 - 70 + dx - 3, h - 76, 5, 36);
+    for (const dx of [-12, 0, 12]) ctx.fillRect(bx + dx - 3, by - 18, 5, 36);
   }
 }
 

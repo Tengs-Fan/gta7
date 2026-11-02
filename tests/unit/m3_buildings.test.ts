@@ -369,7 +369,7 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // oddities were appended after those: the mailboxes' and signs' props (a circle of half their width each), then the statics' solids and the telephone
     // poles' (src/world/country/oddities.ts).
     expect(b).toBe('c6d7934e67ad0ff2862a744385ce700158d82a4a81a6c84cc1ab6ab6f977a2f2');
-    expect(c).toBe('a084fcc5d403f85518287ff1190107a240e23058c87521fd94970065f0df48c8');
+    expect(c).toBe('7a341806ebe06010c322e3302ffb3f4f9009ad30ea3cf155470df09941cdcd7a');
   });
 });
 
