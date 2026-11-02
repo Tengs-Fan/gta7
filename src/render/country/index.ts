@@ -5,7 +5,8 @@
 // drawn finer near the camera and coarser beyond COUNTRY_NEAR, and those under Coyote Ridge and the foothills keep their
 // outline in the haze past the cull (ground.ts). The content passes (the landscape, the farms, the places) add their
 // meshes through add() too; the farms' crops near the camera and the windpump's wheel, and the places' neon and the
-// drive-in's screen, move in update().
+// drive-in's screen, move in update(). The countryside's life (life/index.ts: crows, the dairy's dog, the crop-duster, the
+// combine, the balloon) is a pass of its own, driven by the renderer.
 
 import * as THREE from 'three';
 import type { ViewState } from '../../sim/viewState';
@@ -22,6 +23,7 @@ import { FarmsView } from './farms';
 import { FieldsView } from './fields';
 import { buildCountryGround } from './ground';
 import { buildHills } from './hills';
+import { CountryLife } from './life';
 import { PlacesKit } from './kit';
 import { buildOddities } from './oddities';
 import { buildPoles } from './poles';
@@ -41,6 +43,8 @@ export class CountryView {
   private readonly cells: Array<{ bounds: Rect; near: THREE.Mesh[]; far: THREE.Mesh[]; silhouette: boolean }> = [];
   readonly farms: FarmsView;
   readonly fields: FieldsView;
+  /** The crows, the dairy's dog, the crop-duster, the combine and the balloon: the renderer drives it each frame (life/index.ts). */
+  readonly life: CountryLife;
   private readonly sun = new THREE.Vector3();
   private readonly moon = new THREE.Vector3();
   /** What the places animate each frame: Moo-Moo's neon cow, the drive-in's screen, the saucer's beacon. */
@@ -68,6 +72,7 @@ export class CountryView {
     buildPoles(this);
     this.farms = new FarmsView(this);
     this.fields = new FieldsView(this, wind);
+    this.life = new CountryLife(this);
     const kit = new PlacesKit();
     this.animated.push(buildTown(this, kit));
     const driveIn = buildDriveIn(this, kit);
@@ -81,6 +86,7 @@ export class CountryView {
   /** The tier's crops near the camera (quality.ts CROP_RING). */
   setTier(tier: QualityTier | 'software'): void {
     this.fields.setTier(CROP_RING[tier]);
+    this.life.setTier(tier);
   }
 
   /**

@@ -507,7 +507,7 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // Dry Creek its pumps, billboards, lamps and benches and the Moonbeam Drive-In its speaker posts, then the landscape's
   // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders; and
   // when the roadside oddities appended their nine mailboxes and signs (props of kind 'roadside', their colliders with the
-  // other county props', a circle of half the make's width each) and, after every other collider, their statics' solids and the telephone poles' (oddities.ts).
+  // other county props', a circle of half the make's width each) and, after every other collider, their statics' solids and the telephone poles' (oddities.ts); and when Halfmoon Acres' wheat was fenced round (156 post-and-rail runs, the gate 8 m mid-way along the highway side, the same breakable fence props and colliders as the dairy's pasture), which put 156 props between the Acres' bales and its scarecrows, and their 156 colliders with them, shifting every later prop index and collider by 156.
   const D98 = {
     props: '38366df0395c944ef92104b54f91325d0cea00175646461439ca215c4be1fd26',
     colliders: 'ab34fcb3ea4b02603d24f59fdf11d70be6a3aabcb930f67940a4155345db0c49',

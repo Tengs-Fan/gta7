@@ -210,7 +210,7 @@ Four of the plots are farms (`src/world/country/farms.ts`), appended by `buildFa
 - **Hollister Bottoms**, inside Hollister Lane's loop: corn either side of a mown aisle and north of the farmyard, which opens east onto the lane, with a red gambrel barn, three grain bins, a windpump over its stock tank and the farmhouse.
 - **The Cud & Sons Dairy**, by Creek Road: the whitewashed milking barn with twin silos and the propane tank behind it, fifteen cows in a fenced pasture, lettuce and furrows.
 - **Pippin Hollow**, by the highway's west leg: about five hundred apple trees in rows, ladders against a few, and a packing barn.
-- **Halfmoon Acres**, by the highway's south leg: wheat, sunflowers either side of an aisle, furrows, and bale stacks in the yard.
+- **Halfmoon Acres**, by the highway's south leg: wheat behind a post-and-rail fence with an 8 m gate on the highway side, sunflowers either side of an aisle, furrows, and bale stacks in the yard.
 
 Each farmyard has a barn, which is a garage (its walls and roof slab, which hides the bay from the helicopter, with a gambrel roof drawn over it), a farmhouse, which is a building like a city house, a sign and a mailbox by its dirt drive, and two bays appended to the parking.
 Hedgerows run along the plots' edges beside Hollister Lane and Creek Road and round the orchard, with gaps at the gates; the corn, the wheat and the sunflowers stand open to the highway.

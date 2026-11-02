@@ -1235,6 +1235,7 @@ export class GameRenderer {
     this.syncLightPool();
     this.country.cull(cam.position.x, cam.position.z, this.env.fog.far);
     this.country.update(cam.position.x, cam.position.y, cam.position.z, night, this.time, hours, weather?.wind ?? NO_WIND, sim);
+    this.country.life.update(dt, cam.position, reach, sim, sim ? this.me(sim).character : null, hours, this.time, weather?.wind ?? NO_WIND, this.effects);
     if (this.software) {
       // Culling ends at the fog horizon, where geometry has already faded into the sky.
       this.city.cull(cam, 230);
