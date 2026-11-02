@@ -68,8 +68,8 @@ export class CountryLife {
   private readonly rng = new Rng(9917);
   private readonly cars: Visitor[] = [];
   private readonly plane = newPose();
-  private readonly combine: Combine = { x: 0, z: 0, heading: 0, working: false, speed: 0 };
-  private readonly drift: Balloon = { x: 0, y: 0, z: 0, yaw: 0, fill: 0, height: 0, heading: 0, speed: 0 };
+  private readonly combine: Combine = { x: 0, z: 0, heading: 0, working: false };
+  private readonly drift: Balloon = { x: 0, y: 0, z: 0, yaw: 0, fill: 0, height: 0 };
   private readonly side = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
   private readonly nose = new THREE.Vector3();
@@ -205,21 +205,20 @@ export class CountryLife {
   /** The cars under way and the walking player near the farmland, as the crows and the dog see them. */
   private gather(sim: ViewState | null, player: Character | null): void {
     let n = 0;
-    const add = (x: number, z: number, speed: number, vz: number) => {
-      const c = (this.cars[n] ??= { x: 0, z: 0, speed: 0, vz: 0 });
+    const add = (x: number, z: number, vz: number) => {
+      const c = (this.cars[n] ??= { x: 0, z: 0, vz: 0 });
       c.x = x;
       c.z = z;
-      c.speed = speed;
       c.vz = vz;
       n++;
     };
     if (sim) {
       for (const v of sim.vehicles) {
         if (v.removed || v.destroyed || v.speed < MOVING || v.pos.x < NEAR.minX || v.pos.x > NEAR.maxX || v.pos.z < NEAR.minZ || v.pos.z > NEAR.maxZ) continue;
-        add(v.pos.x, v.pos.z, v.speed, v.vel.z);
+        add(v.pos.x, v.pos.z, v.vel.z);
       }
     }
-    if (player && !player.vehicle && player.speed > WALKING) add(player.pos.x, player.pos.z, player.speed, player.vel.z);
+    if (player && !player.vehicle && player.speed > WALKING) add(player.pos.x, player.pos.z, player.vel.z);
     this.cars.length = n;
   }
 
@@ -303,8 +302,6 @@ export class CountryLife {
     s.x = c.x;
     s.y = this.combineMesh.position.y + 2.5;
     s.z = c.z;
-    s.vx = Math.sin(c.heading) * c.speed;
-    s.vz = Math.cos(c.heading) * c.speed;
     if (c.working && dt > 0 && Math.hypot(c.x - cam.x, c.z - cam.z) < DUST_RANGE) this.dusting(dt, wind, fx);
   }
 
@@ -351,8 +348,6 @@ export class CountryLife {
     s.x = b.x;
     s.y = b.y + BALLOON_BURNER_Y;
     s.z = b.z;
-    s.vx = Math.sin(b.heading) * b.speed;
-    s.vz = Math.cos(b.heading) * b.speed;
   }
 }
 

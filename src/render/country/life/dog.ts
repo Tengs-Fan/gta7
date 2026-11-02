@@ -7,11 +7,10 @@
 import { clamp, dampAngle, moveTowards } from '../../../core/math';
 import type { StaticWorld } from '../../../world/staticWorld';
 
-/** A car under way or a person on foot, as the dog sees one: where, how fast and how it moves along the run (m/s). */
+/** A car under way or a person on foot, as the dog sees one: where, and how it moves along the run (m/s). */
 export interface Visitor {
   x: number;
   z: number;
-  speed: number;
   vz: number;
 }
 

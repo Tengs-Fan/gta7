@@ -222,7 +222,7 @@ describe('crows: the wire flocks', () => {
 describe('the dairy dog', () => {
   const run0 = dogRun(W);
   const plot = W.layout.country.plots.find((p) => p.id === 'dairy')!.rect;
-  const car = (z: number, vz: number): Visitor => ({ x: -837.5, z, speed: Math.abs(vz), vz });
+  const car = (z: number, vz: number): Visitor => ({ x: -837.5, z, vz });
 
   it('has a run inside the plot, off the hedgerow and the farmhouse, 20 m and more from the road', () => {
     expect(run0.x).toBeLessThan(plot.maxX - 5);
@@ -314,7 +314,7 @@ describe('the dairy dog', () => {
     // A new visitor every three seconds (or none), driving on along the road at its own pace.
     let visitor: Visitor | null = null;
     for (let k = 0; k < 30 * 120; k++) {
-      if (k % 90 === 0) visitor = r() < 0.7 ? { x: -900 + r() * 100, z: run0.z0 - 80 + r() * 220, speed: r() * 20, vz: (r() - 0.5) * 30 } : null;
+      if (k % 90 === 0) visitor = r() < 0.7 ? { x: -900 + r() * 100, z: run0.z0 - 80 + r() * 220, vz: (r() - 0.5) * 30 } : null;
       if (visitor) visitor.z += visitor.vz / 30;
       d.update(1 / 30, visitor ? [visitor] : [], () => undefined);
       expect(d.pose.x).toBe(run0.x);
@@ -435,7 +435,7 @@ describe('the crop-duster', () => {
 describe('the combine', () => {
   const wheat = farms.fields.find((f) => f.crop === 'wheat')!.rect;
   const path = combinePath(wheat);
-  const c: Combine = { x: 0, z: 0, heading: 0, working: false, speed: 0 };
+  const c: Combine = { x: 0, z: 0, heading: 0, working: false };
 
   it('stays inside the field, 6 m and more from its edge, on every lane of the circuit', () => {
     for (let h = COMBINE_DAY.from - 1; h <= COMBINE_DAY.to + 1; h += 0.01) {
@@ -486,7 +486,7 @@ describe('the combine', () => {
 });
 
 describe('the balloon', () => {
-  const b: Balloon = { x: 0, y: 0, z: 0, yaw: 0, fill: 0, height: 0, heading: 0, speed: 0 };
+  const b: Balloon = { x: 0, y: 0, z: 0, yaw: 0, fill: 0, height: 0 };
 
   it('is out from 05:30 to 08:30 only, and not in the rain', () => {
     expect(balloonAt(W, BALLOON_DAY.from - 0.01, true, b)).toBe(false);

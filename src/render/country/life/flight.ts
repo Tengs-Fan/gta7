@@ -67,11 +67,11 @@ export class FlightPath {
     out.x = mix(0);
     out.y = mix(1);
     out.z = mix(2);
-    const fl = Math.hypot(mix(3), mix(4), mix(5)) || 1;
+    const fl = Math.hypot(mix(3), mix(4), mix(5));
     out.fx = mix(3) / fl;
     out.fy = mix(4) / fl;
     out.fz = mix(5) / fl;
-    const ul = Math.hypot(mix(6), mix(7), mix(8)) || 1;
+    const ul = Math.hypot(mix(6), mix(7), mix(8));
     out.ux = mix(6) / ul;
     out.uy = mix(7) / ul;
     out.uz = mix(8) / ul;
@@ -252,8 +252,6 @@ export interface Combine {
   heading: number;
   /** In its working day. */
   working: boolean;
-  /** Its speed (m/s) at the clock's default rate. */
-  speed: number;
 }
 
 /** The combine's circuit of the wheat field `field` (rows along x): lanes west and east, a headland turn between. */
@@ -275,8 +273,8 @@ const combinePose = newPose();
 /** The combine on its circuit at this hour of the day, into `out`: the circuit takes the whole working day. */
 export function combineAt(path: FlightPath, hours: number, out: Combine): void {
   const day = COMBINE_DAY.to - COMBINE_DAY.from;
-  out.speed = path.length / (day * SECONDS_PER_HOUR);
-  path.sample(path.length * clamp((hours - COMBINE_DAY.from) / day, 0, 1), out.speed, combinePose);
+  // Nothing reads its velocity, so the sample is not told a speed.
+  path.sample(path.length * clamp((hours - COMBINE_DAY.from) / day, 0, 1), 0, combinePose);
   out.x = combinePose.x;
   out.z = combinePose.z;
   out.heading = Math.atan2(combinePose.fx, combinePose.fz);
@@ -298,13 +296,10 @@ export interface Balloon {
   z: number;
   /** The envelope's yaw (rad): it turns slowly as it drifts. */
   yaw: number;
-  /** How full the envelope is, 0 (laid out) to 1; the balloon is not drawn below BALLOON_MIN. */
+  /** How full the envelope is, 0 (laid out) to 1. */
   fill: number;
   /** Its height over the ground under it. */
   height: number;
-  /** Heading of the drift (rad) and its speed (m/s). */
-  heading: number;
-  speed: number;
 }
 
 export const BALLOON_MIN = 0.03;
@@ -326,8 +321,6 @@ export function balloonAt(world: StaticWorld, hours: number, fair: boolean, out:
   out.height = (BALLOON_CEILING + 3 * Math.sin(hours * 40)) * up;
   out.y = world.groundHeight(out.x, out.z) + out.height;
   out.yaw = (hours - d.lift) * 0.9;
-  out.heading = Math.atan2(to.x - from.x, to.z - from.z);
-  out.speed = tau > 0 && tau < 1 ? (len / ((d.land - d.lift) * SECONDS_PER_HOUR)) * (0.55 + 0.45 * 6 * tau * (1 - tau)) : 0;
   return true;
 }
 

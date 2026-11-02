@@ -316,9 +316,9 @@ describe('the countryside life: its numbers in every frame', () => {
             const b = inside.balloon;
             if (!finite(b.position.toArray()) || !finite(inside.envelope.scale.toArray()) || !Number.isFinite(inside.envelope.rotation.x) || !Number.isFinite(inside.envelopeMat.emissiveIntensity)) bad.add(`balloon ${at}`);
             if (!finite(inside.flame.scale.toArray())) bad.add(`flame ${at}`);
-            for (const q of [life.sounds.plane, life.sounds.combine, life.sounds.burner]) {
-              if (!finite([q.x, q.y, q.z, q.vx, q.vy, q.vz, q.level])) bad.add(`sound sheet ${JSON.stringify(q)} ${at}`);
-            }
+            const { plane, combine, burner } = life.sounds;
+            for (const q of [plane, combine, burner]) if (!finite([q.x, q.y, q.z, q.level])) bad.add(`sound sheet ${JSON.stringify(q)} ${at}`);
+            if (!finite([plane.vx, plane.vy, plane.vz])) bad.add(`plane velocity ${at}`);
             for (const shot of life.sounds.shots) if (!finite([shot.x, shot.y, shot.z])) bad.add(`shot ${at}`);
             life.sounds.shots.length = 0;
           }
