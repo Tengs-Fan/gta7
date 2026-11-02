@@ -178,6 +178,14 @@ The fire road is a gravel ribbon draped 5 cm over the ground (`render/country/hi
 Coyote Ridge's six turbines share Turbine Row's instanced nacelles and rotors, with their land towers (a concrete foundation and the mast, no transition piece and no foam) one more instanced draw.
 The reflector posts along the county's roads are one mesh cut into cells; after dark the reflectors ahead of the player's lit car shine back as glows in `LightSprites` (`addReflector`), brightest dead ahead and fading over 80 m, so on Low, with no headlight beam, they mark the road's edges.
 
+**The countryside's life.**
+Crows, the dairy's dog, the crop-duster, the combine and its fence, the dawn balloon and a placeholder line of poles with wires (`render/country/life/`) are presentation only: they read the sim's clock, its cars and the player's position and write nothing to it, and draw from no random stream of the sim's.
+Each is a draw or two, in `CountryView.moving`: the crows one instanced mesh (their wings folded and beaten in the vertex shader), the dog, the biplane and the combine one merged mesh each whose parts (legs, head and tail; propeller; reel) a bone-less rig turns about their pivots (`rig.ts`), the fence one instanced mesh, the balloon an envelope, a basket and an additive flame, the poles and wires one each: at most 7 draws on the farm by day, 3 more for the balloon at dawn, and none at all (nor any work) while the camera is further from the farmland than the fog's reach.
+Past its own range (crows 300 m, the dog 180 m, the biplane 800 m, the combine 450 m, the fence and poles 330 and 280 m, the balloon the fog's reach) a thing is neither drawn nor stepped.
+The biplane's spray and the combine's dust are puffs on the effects' lit smoke layer (`Effects.puff`), so they add no draw calls and dim at dusk; they are let off only within 420 and 300 m of the camera, at the effects' plume rate of the tier (1, 0.7, 0.45 and 0.3).
+Medium puts out 65 % of each flock's crows, Low and the software tier 40 %; nothing else changes with the tier.
+The engines, the caws and the barks are on a sheet (`audio/lifeSounds.ts`) the view writes each frame and the audio (`audio/fieldVoices.ts`) reads, so neither imports the other.
+
 **The city from the county.**
 From Lookout Point the whole city stands 1-2.4 km off in the frustum, and its props (every tree, lamp and bench chunk) cost 662 of the 1191 draw calls there, though the fog had long hidden them; its activity sites' signs and its interaction markers cost 137 more.
 So with the camera off the city's land a prop (on the hardware tiers), an activity site's sign or an interaction marker past the fog's far end and the county's margin is not drawn, as the county's own cells are not; the objective beams, drawn without fog to be seen from afar, stay.
