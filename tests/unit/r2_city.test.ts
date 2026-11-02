@@ -832,10 +832,11 @@ describe('round 2 fix: the camera and street trees', () => {
         const points = foliagePoints(q);
         for (let i = 0; i < pos.count; i++) {
           v.fromBufferAttribute(pos, i).applyMatrix4(m);
-          // Inside a bounding sphere, and one of the sampled surface points.
-          expect(spheres.some((sp) => Math.hypot(v.x - sp.x, v.y - sp.y, v.z - sp.z) <= sp.r + 1e-4), `${kind} ${k}`).toBe(true);
+          // Inside a bounding sphere, and one of the sampled surface points (to what an instance matrix's floats hold: 0.25 mm
+          // past 2048 m out, where the valley's scrub stands).
+          expect(spheres.some((sp) => Math.hypot(v.x - sp.x, v.y - sp.y, v.z - sp.z) <= sp.r + 3e-4), `${kind} ${k}`).toBe(true);
           let found = false;
-          for (let j = 0; j < points.length && !found; j += 3) found = Math.hypot(v.x - points[j]!, v.y - points[j + 1]!, v.z - points[j + 2]!) < 1e-4;
+          for (let j = 0; j < points.length && !found; j += 3) found = Math.hypot(v.x - points[j]!, v.y - points[j + 1]!, v.z - points[j + 2]!) < 3e-4;
           expect(found, `${kind} ${k}`).toBe(true);
         }
         checked++;

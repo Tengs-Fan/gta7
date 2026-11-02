@@ -80,22 +80,27 @@ export function buildCountryGround(view: CountryView): void {
       const sloped = country.rises.some((rise) => rectsOverlap(riseBounds(rise), cell));
       const near = { grass: new GeoBuilder(false), sand: new GeoBuilder(false) };
       const far = { grass: new GeoBuilder(false), sand: new GeoBuilder(false) };
+      // Where a rise reaches a piece of land it is meshed on the lattice, and the rest of it flat (a rise is 0 at its bounds).
       for (const r of country.land) {
         const q = clip(r, cell);
         if (!q) continue;
-        if (country.rises.some((rise) => rectsOverlap(riseBounds(rise), q))) {
-          near.grass.heightGrid(q.minX, q.minZ, q.maxX, q.maxZ, SLOPE_STEP, ground, grassUv);
-          far.grass.heightGrid(q.minX, q.minZ, q.maxX, q.maxZ, FAR_STEP, ground, grassUv);
-          skirts(far.grass, q, cell, FAR_STEP, ground, grassUv);
-        } else {
-          near.grass.flat(q.minX, q.minZ, q.maxX, q.maxZ, 0, grassUv);
-          far.grass.flat(q.minX, q.minZ, q.maxX, q.maxZ, 0, grassUv);
+        const risen = country.rises.map((rise) => clip(riseBounds(rise), q)).filter((h) => h !== null);
+        for (const h of risen) {
+          near.grass.heightGrid(h.minX, h.minZ, h.maxX, h.maxZ, SLOPE_STEP, ground, grassUv);
+          far.grass.heightGrid(h.minX, h.minZ, h.maxX, h.maxZ, FAR_STEP, ground, grassUv);
+          skirts(far.grass, h, cell, FAR_STEP, ground, grassUv);
+        }
+        for (const f of rectsMinus([q], risen)) {
+          near.grass.flat(f.minX, f.minZ, f.maxX, f.maxZ, 0, grassUv);
+          far.grass.flat(f.minX, f.minZ, f.maxX, f.maxZ, 0, grassUv);
         }
       }
       for (const r of sea) {
         const q = clip(r, cell);
         if (!q) continue;
-        near.sand.heightGrid(q.minX, q.minZ, q.maxX, q.maxZ, sloped ? SLOPE_STEP : NEAR_STEP, ground, sandUv);
+        const risen = country.rises.map((rise) => clip(riseBounds(rise), q)).filter((h) => h !== null);
+        for (const h of risen) near.sand.heightGrid(h.minX, h.minZ, h.maxX, h.maxZ, SLOPE_STEP, ground, sandUv);
+        for (const f of rectsMinus([q], risen)) near.sand.heightGrid(f.minX, f.minZ, f.maxX, f.maxZ, NEAR_STEP, ground, sandUv);
         far.sand.heightGrid(q.minX, q.minZ, q.maxX, q.maxZ, FAR_STEP, ground, sandUv);
         skirts(far.sand, q, cell, FAR_STEP, ground, sandUv);
       }

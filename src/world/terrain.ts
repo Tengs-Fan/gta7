@@ -33,9 +33,11 @@ export interface Rise {
   runs?: { west: number; north: number; south: number };
   /**
    * Ridge: a pass cut across it along the line z = `z`, carved flat (0) within `flat` m of the line and climbing back to
-   * the ridge in a cosine over the next `run` m, so a road crosses at ground level between rock walls.
+   * the ridge in a cosine over the next `run` m, so a road crosses at ground level between rock walls. `bank`: a cosine
+   * bell of `height` m added to the ridge (carved with it), over the ellipse of semi-axes rx, rz round (cx, cz), which
+   * stands the wall on a low side as high as the other.
    */
-  cut?: { z: number; flat: number; run: number };
+  cut?: { z: number; flat: number; run: number; bank?: { cx: number; cz: number; rx: number; rz: number; height: number } };
 }
 
 /** Hillcrest Green's hill, on the park's fountain: 20% at its steepest across x, 17% along z, 0 a good 7 m inside the lot. */
@@ -79,7 +81,11 @@ function falloff(d: number, flat: number, run: number): number {
 function ridgeAt(r: Rise, x: number, z: number): number {
   const runs = r.runs!;
   const h = r.height * falloff(x - r.cx, r.plateau, x > r.cx ? r.rx : runs.west) * falloff(z - r.cz, r.rz, z < r.cz ? runs.north : runs.south);
-  return r.cut ? h * (1 - falloff(z - r.cut.z, r.cut.flat, r.cut.run)) : h;
+  if (!r.cut) return h;
+  const { bank } = r.cut;
+  const s = bank ? Math.hypot((x - bank.cx) / bank.rx, (z - bank.cz) / bank.rz) : 1;
+  const lift = bank && s < 1 ? (bank.height * (1 + Math.cos(Math.PI * s))) / 2 : 0;
+  return (h + lift) * (1 - falloff(z - r.cut.z, r.cut.flat, r.cut.run));
 }
 
 /** A ridge's bounds: its flanks' and ends' feet. */

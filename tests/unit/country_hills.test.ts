@@ -62,8 +62,9 @@ function offRoad(x: number, z: number): number {
 }
 
 describe('the landscape keeps off everything that assumes flat ground', () => {
-  it('is a 24 m ridge along the west coast and five foothills of 4 to 12 m', () => {
-    expect(rises.map((r) => r.kind)).toEqual(['ridge', 'bell', 'bell', 'bell', 'bell', 'bell']);
+  it('is a 24 m ridge along the west coast, five foothills and the valley\'s seven hills of 4 to 12 m', () => {
+    expect(rises.map((r) => r.kind)).toEqual(['ridge', ...Array.from({ length: 12 }, () => 'bell')]);
+    expect(rises.slice(6).map((r) => r.name)).toEqual(['Vineyard Rise', 'West Bluff', 'Pine Rise', 'Needle Knoll', 'Mouth Knoll', 'Mouth Rise', 'Willow Knoll']);
     expect(L.rises.map((r) => r.name)).toEqual(['Hillcrest Green', 'Azura Point']);
     expect(rise(ridge.cx, -300)).toBe(24);
     for (const r of rises.slice(1)) {
@@ -74,7 +75,7 @@ describe('the landscape keeps off everything that assumes flat ground', () => {
     for (const [i, a] of rises.entries()) for (const b of rises.slice(i + 1)) expect(a.bounds.maxX <= b.bounds.minX || b.bounds.maxX <= a.bounds.minX || a.bounds.maxZ <= b.bounds.minZ || b.bounds.maxZ <= a.bounds.minZ, `${a.name} and ${b.name}`).toBe(true);
   });
 
-  it('is 0 within 12 m of every road edge, on every plot but the wild ones and at every verge node, on a 1 m lattice', () => {
+  it('is 0 within 12 m of every road edge, on every plot but the wild ones and the vineyard and at every verge node, on a 1 m lattice', () => {
     let lifted = 0;
     for (const r of rises) {
       const b = r.bounds;
@@ -84,7 +85,8 @@ describe('the landscape keeps off everything that assumes flat ground', () => {
           lifted++;
           const off = offRoad(x, z);
           if (off < 12) expect.fail(`${r.name} ${rise(x, z).toFixed(3)} m at ${x}, ${z}, ${off.toFixed(1)} m off a road`);
-          const plot = COUNTY_PLOTS.find((p) => p.kind !== 'wild' && rectContains(p.rect, x, z));
+          // The vineyard is the one farm that stands on a rise (its rows follow the Vineyard Rise's slopes).
+          const plot = COUNTY_PLOTS.find((p) => p.kind !== 'wild' && p.id !== 'vineyard' && rectContains(p.rect, x, z));
           if (plot) expect.fail(`${r.name} on ${plot.name} at ${x}, ${z}`);
         }
       }

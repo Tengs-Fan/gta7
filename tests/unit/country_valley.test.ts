@@ -29,16 +29,22 @@ const shelterOf = (() => {
 })();
 
 describe('Coyote Pass', () => {
-  it('is flat as the road across the ridge, 35 m wide, with rock walls rising either side to the shoulder', () => {
+  it('is flat as the road across the ridge, 35 m wide, with rock walls rising either side, the south one as high as the north', () => {
     for (let x = -1600; x <= -1352; x += 4) for (let dz = -17.5; dz <= 17.5; dz += 2.5) expect(W.groundHeight(x, PASS_Z + dz), `${x}, ${PASS_Z + dz}`).toBe(0);
-    // The walls climb 8.5 m to the crest beside the road, and the shoulder runs on at its own height beyond them.
+    // Each wall climbs to the crest beside the road (the north one to the ridge's own 12 m, the south one over a bank laid on
+    // the low shoulder), and the shoulder runs on at its own height beyond them.
     const crest = L.country.rises[0]!.cx;
     const north = Array.from({ length: 60 }, (_, k) => W.groundHeight(crest, PASS_Z - 10 - k));
     const south = Array.from({ length: 60 }, (_, k) => W.groundHeight(crest, PASS_Z + 10 + k));
     expect(Math.max(...north)).toBeGreaterThan(12);
-    expect(Math.max(...south)).toBeLessThan(5);
+    expect(Math.max(...south)).toBeGreaterThan(9);
+    expect(Math.max(...south)).toBeLessThan(12);
     expect(north.findIndex((h) => h > 8)).toBeLessThan(30);
+    expect(south.findIndex((h) => h > 8)).toBeLessThan(30);
     expect(W.groundHeight(crest, PASS_Z - 29.5)).toBeGreaterThan(11.9);
+    expect(W.groundHeight(crest, PASS_Z + 29.5)).toBeGreaterThan(8);
+    // Along the pass the south wall stands within 3 m of the north one where the ridge is high (x -1520 to -1430).
+    for (let x = -1520; x <= -1430; x += 5) expect(W.groundHeight(x, PASS_Z - 29.5) - W.groundHeight(x, PASS_Z + 29.5), `south wall at ${x}`).toBeLessThan(3);
   });
 
   it('is named, and the road crosses the ridge in it', () => {
@@ -77,9 +83,8 @@ describe('Coyote Pass', () => {
   });
 
   it('leaves the fire road to Lookout Point crossing it at ground level, not cut', () => {
-    const [cx] = [-1370];
-    for (let z = 105; z >= 50; z -= 1) expect(W.groundHeight(cx, z)).toBeLessThan(1.1);
-    expect(roads.isOnRoad(cx, PASS_Z)).toBe(true);
+    for (let z = 105; z >= 50; z -= 1) expect(W.groundHeight(-1370, z)).toBeLessThan(1.1);
+    expect(roads.isOnRoad(-1370, PASS_Z)).toBe(true);
   });
 });
 
