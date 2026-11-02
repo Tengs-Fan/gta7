@@ -1,4 +1,4 @@
-// Las Lomas County: about 1.8 km2 of farm country west of the city across Lomas Sound, reached over the Magnolia
+// Las Lomas County: about 1.7 km2 of farm country west of the city across Lomas Sound, reached over the Magnolia
 // Causeway (off Magnolia Ave at Harbor Blvd) and the Southgate Bridge (off Southgate Ave), with a loop of curved country
 // roads that joins the city's lane graph (docs/map.md, "Las Lomas: roads outside the grid"), and, west of Coyote Ridge
 // and reached through Coyote Pass, Las Lomas Valley with Lake Lomas and its own loop of roads. Pure data and queries, no
@@ -176,7 +176,7 @@ export const COUNTY_JUNCTIONS: Readonly<Record<CountyJunction, readonly [number,
   valley: [LOOP.east, PASS_Z],
 };
 
-/** The junctions with stop signs instead of lights: the country road stops for the highway (CountryRoad.priority). */
+/** The junctions with stop signs instead of lights: the roads of lower priority stop for the highest (CountryRoad.priority). */
 export const STOP_SIGNS: readonly CountyJunction[] = ['hollister', 'creek', 'coyote', 'valley'];
 
 /** Speed limits (m/s) by kind of road, each capped on a curve to what a car holds round it (sqrt(4.5 r)). */
@@ -234,7 +234,6 @@ function road(name: string, kind: CountryRoadKind, line: Centreline, priority = 
   const lanes = kind === 'highway' ? 2 : 1;
   return { name, kind, priority, lanes, width: kind === 'highway' ? 16 : 10, pts: line.pts, radii: line.radii };
 }
-
 
 /**
  * The county's roads, every rule of docs/map.md kept: no dead end, junction arms on the axes, bend vertices 20-30 m

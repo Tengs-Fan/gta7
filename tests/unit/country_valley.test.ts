@@ -159,6 +159,21 @@ describe('Las Lomas Valley: the sheriff', () => {
     for (const p of COUNTY_PLOTS) expect(COUNTY_ZONES.has(p.name), p.name).toBe(true);
   });
 
+  it('sends the sheriff\'s patrol cars along the valley\'s roads for a player there with no stars', () => {
+    const sim = makeSim({ seed: 12, police: true, ambient: true, startHour: 12 });
+    teleport(sim, -1856, 98);
+    let patrols = 0;
+    let tan = 0;
+    for (let f = 0; f < 60 * 90; f++) {
+      step(sim, 1 / 60);
+      const here = sim.vehicles.filter((v) => !v.removed && v.kind === 'police' && v.pos.x < -1560);
+      patrols = Math.max(patrols, here.length);
+      tan = Math.max(tan, here.filter((v) => v.color === SHERIFF_COLOR).length);
+    }
+    expect(patrols).toBeGreaterThan(0);
+    expect(tan).toBe(patrols);
+  }, 60_000);
+
   it('puts the sheriff\'s cruisers on the valley\'s lanes round a wanted player there', () => {
     const sim = makeSim({ seed: 9, police: true, ambient: true, startHour: 12 });
     sim.cheats.godMode = true;
