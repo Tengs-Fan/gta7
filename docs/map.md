@@ -355,7 +355,8 @@ It draws from no generator and only appends: its solids go in `country.oddities.
   It is single player only: a room's phone would ring for everyone and answer to the quickest.
 - **The crop circle** is mown into Halfmoon Acres' wheat (a disc, three rings and six small discs, 50 m to its outer ring): the wheat's tufts leave the flat parts out (`cropPlants`), a decal of laid straw lies over the field's slab, and the map draws the pattern.
   From Lookout Point it is 450 m off and a ground this flat is seen at 3 degrees, so it shows as a pale lens with rings in it, not as a circle.
-- The places' atlas had 4,696 px of boards on a 4,096 px canvas, so its last bands (the track's) drew as streaks of the edge's colour; it is 6,144 px now, which the oddities' 1,306 px fill, and `Atlas.band` fails the build rather than let one run off again.
+- The places' atlas had 4,696 px of boards on a 4,096 px canvas, so its last bands (the track's) drew as streaks of the edge's colour; it is as tall as its boards need now (`Atlas.growing`: a multiple of 512 px, 6,144 with the oddities' 1,306, a step taller when a board is added; a band's v is measured against 16,384 px and the texture's own `repeat` and `offset` map it back onto the canvas), and `Atlas.band` fails the build rather than let a band run off any atlas again.
+  A device whose largest texture is shorter has three scale the canvas down: the boards blur, none streaks.
 
 ## Rejected, and why
 

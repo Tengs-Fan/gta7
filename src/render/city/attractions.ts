@@ -60,29 +60,61 @@ export function pitched(g: GeoBuilder, r: Rect, eaves: number, ridge: number, al
  * one draw: a white band under the vertex-coloured buildings, the painted boards, the hay and the stained glass. Its
  * twin, the glow texture, is black but for the glass, which lights up after dark (the signs' emissive, CityView.update).
  * Las Lomas County's farms and places paint their signs on atlases of their own (render/country/farms.ts and kit.ts),
- * `height` px tall.
+ * `height` px tall, but for the places', which is `growing`.
  */
 const ATLAS_H = 2048;
 const GLOW_SHRINK = 4;
+/** A growing atlas is a multiple of this tall (px), and no taller than GROWN_MAX, which three scales down to what a device can hold. */
+const GROW_STEP = 512;
+const GROWN_MAX = 16384;
 
 export class Atlas {
-  readonly canvas: HTMLCanvasElement;
-  readonly glowCanvas: HTMLCanvasElement;
-  private readonly ctx: CanvasRenderingContext2D;
-  private readonly glow: CanvasRenderingContext2D;
+  /** A growing atlas replaces its canvases with taller ones: take them once every band is painted. */
+  canvas: HTMLCanvasElement;
+  glowCanvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private glow: CanvasRenderingContext2D;
   private y = 0;
-
-  constructor(private readonly height = ATLAS_H) {
-    [this.canvas, this.ctx] = canvas(1024, height);
+  /**
+   * An atlas `height` px tall that fails the build when a band does not fit (a band that ran off drew as streaks of the edge's
+   * colour). Its bands' v is measured against `span`: the canvas's own height, unless the atlas grows.
+   */
+  constructor(private height = ATLAS_H, private readonly span = height) {
+    [this.canvas, this.ctx] = canvas(1024, this.height);
     // The glow only needs the glass's colours: a quarter of the size.
-    [this.glowCanvas, this.glow] = canvas(1024 / GLOW_SHRINK, height / GLOW_SHRINK);
-    this.glow.fillStyle = '#000';
-    this.glow.fillRect(0, 0, 1024 / GLOW_SHRINK, height / GLOW_SHRINK);
+    [this.glowCanvas, this.glow] = this.glowOf();
+  }
+
+  /**
+   * An atlas that is as tall as its bands need, a multiple of GROW_STEP px, up to GROWN_MAX, so that adding a board never
+   * overflows it. A band's v is measured against GROWN_MAX, whatever the atlas ends up, and texture() maps it onto the canvas.
+   */
+  static growing(): Atlas {
+    return new Atlas(GROW_STEP, GROWN_MAX);
+  }
+
+  /** A black glow canvas a quarter the size of the canvas. */
+  private glowOf(): [HTMLCanvasElement, CanvasRenderingContext2D] {
+    const [c, ctx] = canvas(1024 / GLOW_SHRINK, this.height / GLOW_SHRINK);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, 1024 / GLOW_SHRINK, this.height / GLOW_SHRINK);
+    return [c, ctx];
+  }
+
+  /** The canvases made tall enough for `rows` px, what was painted on them kept. */
+  private grow(rows: number): void {
+    this.height = Math.ceil(rows / GROW_STEP) * GROW_STEP;
+    const [was, wasGlow] = [this.canvas, this.glowCanvas];
+    [this.canvas, this.ctx] = canvas(1024, this.height);
+    this.ctx.drawImage(was, 0, 0);
+    [this.glowCanvas, this.glow] = this.glowOf();
+    this.glow.drawImage(wasGlow, 0, 0);
   }
 
   /** A band `h` px tall drawn by `draw` (its origin at the band's top left), in the glow too if `lit`; its v range, bottom to top. */
   band(h: number, draw: (ctx: CanvasRenderingContext2D) => void, lit = false): [number, number] {
-    if (this.y + h > this.height) throw new Error(`The atlas is full: a band of ${h} px at ${this.y} of ${this.height}`);
+    if (this.y + h > this.span) throw new Error(`The atlas is full: a band of ${h} px at ${this.y} of ${this.span}`);
+    if (this.y + h > this.height) this.grow(this.y + h);
     for (const ctx of lit ? [this.ctx, this.glow] : [this.ctx]) {
       ctx.save();
       if (ctx === this.glow) ctx.scale(1 / GLOW_SHRINK, 1 / GLOW_SHRINK);
@@ -90,9 +122,21 @@ export class Atlas {
       draw(ctx);
       ctx.restore();
     }
-    const v: [number, number] = [1 - (this.y + h) / this.height, 1 - this.y / this.height];
+    const v: [number, number] = [1 - (this.y + h) / this.span, 1 - this.y / this.span];
     this.y += h;
     return v;
+  }
+
+  /**
+   * The atlas as a texture (its glow twin if `glow`), once every band is painted. A growing atlas is shorter than the
+   * span its v is measured against, so its uvs are scaled from the span down to the canvas (all of them lie in the top of it).
+   */
+  texture(glow = false): THREE.CanvasTexture {
+    const t = toTexture(glow ? this.glowCanvas : this.canvas, true, false);
+    const k = this.span / this.height;
+    t.repeat.set(1, k);
+    t.offset.set(0, 1 - k);
+    return t;
   }
 
   /** Stained glass: panes of saturated colour in dark lead. */

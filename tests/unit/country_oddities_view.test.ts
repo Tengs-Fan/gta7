@@ -108,6 +108,33 @@ describe('the statics', () => {
   });
 });
 
+describe("the places' atlas", () => {
+  it("is as tall as the boards on it need, a multiple of 512 px, and every uv of every place lies on its canvas (a board past the end drew as streaks of the edge's colour)", () => {
+    const mat = meshes('oddities')[0]!.material as THREE.MeshStandardMaterial;
+    const [map, glow] = [mat.map!, mat.emissiveMap!];
+    const height = (map.image as HTMLCanvasElement).height;
+    expect(height % 512).toBe(0);
+    expect((glow.image as HTMLCanvasElement).height).toBe(height / 4);
+    expect([glow.repeat.y, glow.offset.y]).toEqual([map.repeat.y, map.offset.y]);
+    let lowest = 1;
+    let places = 0;
+    view.group.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || o.material !== mat) return;
+      places++;
+      const uv = o.geometry.getAttribute('uv');
+      for (let i = 0; i < uv.count; i++) {
+        const v = map.repeat.y * uv.getY(i) + map.offset.y;
+        expect(v).toBeGreaterThanOrEqual(-1e-6);
+        expect(v).toBeLessThanOrEqual(1 + 1e-6);
+        lowest = Math.min(lowest, v);
+      }
+    });
+    // The town, the drive-in, Gravel Gulch and the oddities, and none of the last 512 px is bare.
+    expect(places).toBe(4);
+    expect(lowest * height).toBeLessThan(512);
+  });
+});
+
 describe('the crop circle', () => {
   const cc = odd.cropCircle;
 
