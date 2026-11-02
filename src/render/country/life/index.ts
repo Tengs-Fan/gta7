@@ -1,7 +1,7 @@
 // Life in Las Lomas County's countryside, presentation only: no sim state, no colliders, no draw from the sim's random
 // streams. The crows (flocks.ts, crows.ts), the dairy's dog (dog.ts), the crop-duster biplane, the combine harvester in
-// its drawn-only fence round the wheat and the dawn balloon (flight.ts) are driven from the renderer's frame with the sim's
-// clock, the cars and the player's position; what they sound like goes on a sheet for the audio (audio/lifeSounds.ts).
+// the wheat and the dawn balloon (flight.ts) are driven from the renderer's frame with the sim's clock, the cars and the
+// player's position; what they sound like goes on a sheet for the audio (audio/lifeSounds.ts).
 // Each is a draw or two, hidden past the fog's reach (where the fog has hidden it already), and the whole is skipped, drawn
 // and sounded, while the camera is far from the county. The placeholder poles and wires (wires.ts) stand in for the roadside branch's.
 
@@ -13,11 +13,9 @@ import { Rng } from '../../../core/rng';
 import { registerDebug } from '../../../debug';
 import type { Character } from '../../../sim/entities';
 import type { ViewState } from '../../../sim/viewState';
-import { rectCX, rectCZ } from '../../../world/layout';
 import type { StaticWorld } from '../../../world/staticWorld';
 import type { Effects } from '../../effects';
 import { FX_BUDGETS, type FxTier } from '../../fx/budget';
-import { farmFenceGeometry } from '../farmModels';
 import type { CountryView } from '../index';
 import { Dog, dogRun, type Visitor } from './dog';
 import { CrowsView } from './crows';
@@ -60,8 +58,6 @@ export class CountryLife {
   private readonly combinePath: FlightPath;
   private readonly combineRig: Rig;
   private readonly combineMesh: THREE.Mesh;
-  private readonly fence: THREE.InstancedMesh;
-  private readonly fenceAt: { x: number; z: number };
   private readonly polesAt: { x: number; z: number };
   private readonly poles: THREE.Mesh;
   private readonly wires: THREE.LineSegments;
@@ -113,7 +109,7 @@ export class CountryLife {
     this.planeMesh.visible = false;
     this.planeMesh.matrixAutoUpdate = false;
     this.group.add(this.planeMesh);
-    // The combine and the fence round its field.
+    // The combine.
     const wheat = world.layout.country.farms.fields.find((f) => f.crop === 'wheat')!.rect;
     this.combinePath = combinePath(wheat);
     this.combineRig = rigMaterial('combine', { roughness: 0.6 });
@@ -122,9 +118,6 @@ export class CountryLife {
     this.combineMesh.castShadow = true;
     this.combineMesh.visible = false;
     this.group.add(this.combineMesh);
-    this.fence = fenceRound(wheat);
-    this.fenceAt = { x: rectCX(wheat), z: rectCZ(wheat) };
-    this.group.add(this.fence);
     // The balloon.
     this.balloon = new THREE.Group();
     this.balloon.name = 'balloon';
@@ -203,8 +196,7 @@ export class CountryLife {
     this.updatePlane(step, t, hours, fair, cam, reach, wind, fx);
     this.updateCombine(step, hours, cam, reach, wind, fx);
     this.updateBalloon(t, hours, fair, cam, reach);
-    // The fence round the wheat, as far as the fog's reach from the field's middle, and the placeholder poles from the line's.
-    this.fence.visible = Math.hypot(this.fenceAt.x - cam.x, this.fenceAt.z - cam.z) < reach;
+    // The placeholder poles, from as far as the line reaches.
     const poles = Math.hypot(this.polesAt.x - cam.x, this.polesAt.z - cam.z) < Math.min(reach, POLES_RANGE);
     this.poles.visible = poles;
     this.wires.visible = poles;
@@ -362,23 +354,6 @@ export class CountryLife {
     s.vx = Math.sin(b.heading) * b.speed;
     s.vz = Math.cos(b.heading) * b.speed;
   }
-}
-
-/** A drawn-only post-and-rail fence round `r`: one instanced draw. */
-function fenceRound(r: { minX: number; minZ: number; maxX: number; maxZ: number }): THREE.InstancedMesh {
-  const runs: Array<[number, number, number]> = [];
-  for (let x = r.minX + 2; x < r.maxX; x += 4) runs.push([x, r.minZ, 0], [x, r.maxZ, 0]);
-  for (let z = r.minZ + 2; z < r.maxZ; z += 4) runs.push([r.minX, z, Math.PI / 2], [r.maxX, z, Math.PI / 2]);
-  const mesh = new THREE.InstancedMesh(farmFenceGeometry(), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.8 }), runs.length);
-  mesh.name = 'combine-fence';
-  const m = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const up = new THREE.Vector3(0, 1, 0);
-  const one = new THREE.Vector3(1, 1, 1);
-  runs.forEach(([x, z, rot], i) => mesh.setMatrixAt(i, m.compose(new THREE.Vector3(x, 0, z), q.setFromAxisAngle(up, rot), one)));
-  mesh.castShadow = true;
-  mesh.frustumCulled = false;
-  return mesh;
 }
 
 /** The placeholder wires, each hanging in eight straight pieces. */

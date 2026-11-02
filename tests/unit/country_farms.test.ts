@@ -378,6 +378,51 @@ describe('Las Lomas County: the scarecrows', () => {
     expect(next.progress.money).toBe(before);
   });
 
+  it("stay within reach on foot of the highway, through the gate in the wheat's fence and not through its runs", () => {
+    const wheat = farms.fields.find((f) => f.crop === 'wheat')!.rect;
+    const inWheat = farms.scarecrows.filter((i) => rectContains(wheat, L.props[i]!.x, L.props[i]!.z));
+    expect(inWheat.length).toBe(4);
+    // The fence: closed along its runs, 8 m open mid-way along the highway side.
+    const gateX = wheat.minX + 80;
+    expect(W.isFree(gateX, wheat.maxZ, 0.35)).toBe(true);
+    expect(W.isFree(gateX + 6, wheat.maxZ, 0.35)).toBe(false);
+    expect(W.isFree(wheat.minX, wheat.minZ + 60, 0.35)).toBe(false);
+    // A person (radius 0.35) walking a 0.5 m grid over the wheat and 4 m round it from the highway side of the gate: the
+    // grid is finer than the fence is thick plus his two radii, so he cannot step across a run between two cells.
+    const STEP = 0.5;
+    const x0 = wheat.minX - 4;
+    const z0 = wheat.minZ - 4;
+    const nx = Math.ceil((wheat.maxX - wheat.minX + 8) / STEP);
+    const nz = Math.ceil((wheat.maxZ - wheat.minZ + 8) / STEP);
+    const seen = new Uint8Array(nx * nz);
+    const queue = [Math.floor((gateX - x0) / STEP) + Math.floor((wheat.maxZ + 3 - z0) / STEP) * nx];
+    seen[queue[0]!] = 1;
+    for (let head = 0; head < queue.length; head++) {
+      const at = queue[head]!;
+      const ix = at % nx;
+      const iz = (at - ix) / nx;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const jx = ix + dx;
+        const jz = iz + dz;
+        if (jx < 0 || jz < 0 || jx >= nx || jz >= nz || seen[jx + jz * nx]) continue;
+        if (!W.isFree(x0 + (jx + 0.5) * STEP, z0 + (jz + 0.5) * STEP, 0.35)) continue;
+        seen[jx + jz * nx] = 1;
+        queue.push(jx + jz * nx);
+      }
+    }
+    for (const i of inWheat) {
+      const p = L.props[i]!;
+      // Some cell within a metre and a half of the scarecrow, which stands in the wheat, has been walked to.
+      let near = false;
+      for (let dz = -1.5; dz <= 1.5 && !near; dz += STEP) {
+        for (let dx = -1.5; dx <= 1.5 && !near; dx += STEP) {
+          near = seen[Math.floor((p.x + dx - x0) / STEP) + Math.floor((p.z + dz - z0) / STEP) * nx] === 1;
+        }
+      }
+      expect(near, `scarecrow ${i} at ${p.x}, ${p.z}`).toBe(true);
+    }
+  });
+
   it('count for nobody in multiplayer', () => {
     const sim = makeSim({ police: false, multiplayer: true });
     step(sim, 0.1);

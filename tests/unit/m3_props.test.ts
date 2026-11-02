@@ -505,10 +505,15 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // integrated county head, where its traffic made the Hollister T's and the Creek T's heads a stop sign and two lamps
   // each, its landscape appended the ridge's turbines, tree belts and scrub (their envelopes too), its farms their props,
   // Dry Creek its pumps, billboards, lamps and benches and the Moonbeam Drive-In its speaker posts, then the landscape's
-  // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders.
+  // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders;
+  // and when Halfmoon Acres' wheat was fenced round (156 post-and-rail runs, the gate 8 m mid-way along the highway side,
+  // the same breakable fence props and colliders as the dairy's pasture, the life's own drawn-only copy of it gone),
+  // which put 156 props between the Acres' bales and its scarecrows, and their 156 colliders with them (the orchard's
+  // before, the places' after), shifting every later prop index and collider by 156 (the envelopes are the trees' and
+  // bushes' alone).
   const D98 = {
-    props: '1a83d08024e7d4d1e7e25a7a6d05b0197bda17775b24ee3f91ff331227d3cd16',
-    colliders: 'ce1e416eec515e1717a27984c44a7e38a327845690782fcb7984cf4008f129fc',
+    props: 'a56ad92b90ee5a98ea6641ac6e7742d0c98d95aa3501b1ccb13275942c9a4990',
+    colliders: 'c52d8932f56d10f69c5e53786531366dd363b8e6bc7896a206db7407b9584306',
     envelopes: '49a5db289f360a17852cb9a6af6b0a08e53e66fa3d0d64b11442a350cfb3b27e',
   };
 

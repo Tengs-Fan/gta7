@@ -435,7 +435,7 @@ All of these are minor; the most noticeable come first.
 - The swell comes only from the east: Lomas Sound and the sea west of the county lie in the land's lee and stay calm, off the north and south shores it runs along the beach rather than onto it, and only Ocean Beach's gently shelving sand has breakers (the county's steeper shores have a wash at the waterline).
 - On a calm day, and in plain rain, a speedboat rides the swell rather than leaving it; it slams only in rough water, as a storm builds.
 - The police helicopter flies straight through the turbines' blades.
-- Las Lomas County's reflector posts are drawn only: a car drives through them, and through the farm dog, the combine, the fence round its wheat and the poles by Creek Road, which are drawn only too.
+- Las Lomas County's reflector posts are drawn only: a car drives through them, and through the farm dog, the combine and the poles by Creek Road, which are drawn only too.
 - Facing the whole skyline across the sound from Coyote Ridge or Lookout Point, a frame draws about 500 calls, a little more than the city's pursuit; the city's buildings and their detail are most of it.
 - Motorbikes and boats have no lighter far version (a near one costs about 6-8 draw calls on High, about the same as a nearby car).
 - At around 10 fps, water from a knocked-over fire hydrant comes out in separate puffs instead of a steady jet.

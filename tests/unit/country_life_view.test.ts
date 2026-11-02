@@ -107,12 +107,12 @@ describe('the countryside life: what it draws', () => {
     expect(count()).toBe(0);
   });
 
-  it('draws a few meshes by day on the farm: the crows, the dog, the duster, the combine, the fence, the poles and wires', () => {
+  it('draws a few meshes by day on the farm: the crows, the dog, the duster, the combine, the poles and wires', () => {
     // Halfmoon Acres at 10:00, in the first sortie's low pass over the wheat.
     const { fx } = puffs();
     frames(1, { x: -1075, z: 140 }, fakeSim(12), 10, fx);
     const names = drawn().map((o) => o.name).sort();
-    expect(names).toEqual(['combine', 'combine-fence', 'crop-duster', 'crows', 'farm-dog', 'placeholder-poles', 'placeholder-wires']);
+    expect(names).toEqual(['combine', 'crop-duster', 'crows', 'farm-dog', 'placeholder-poles', 'placeholder-wires']);
     expect(life.drawn.balloon).toBe(false);
   });
 

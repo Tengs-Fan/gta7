@@ -317,6 +317,8 @@ function buildAcres(layout: CityLayout, farms: CountyFarms, rng: Rng): void {
   });
   const wheat = mkRect(P.minX + 4, P.minZ + 4, P.minX + 164, P.maxZ - 4);
   field(farms, 'wheat', wheat, E);
+  // A post-and-rail fence round the wheat, an 8 m gate mid-way along the highway side for whoever walks in to the scarecrows.
+  fenceRound(layout, wheat, { S: [19, 20] });
   const sun0 = wheat.maxX + 4;
   const aisle = sun0 + 32;
   field(farms, 'sunflower', mkRect(sun0, P.minZ + 4, aisle - 2, P.maxZ - 4), 0);
