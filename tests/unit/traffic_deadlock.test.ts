@@ -49,16 +49,22 @@ describe('ambient traffic never stays stuck over 20 s', () => {
   });
 });
 
-// Las Lomas County's stop signs (docs/map.md): ten minutes at each of the Creek T and the Hollister T, seeds 1-12, the
+// Las Lomas County's stop signs (docs/map.md): ten minutes at each of the Creek T, the Hollister T and the Coyote T, seeds
+// 1-12, and at Valley Cross, seeds 1-4, the
 // player on the verge slowly looking round, police off, at noon and the game's own traffic (all of it within reach of the
-// junction). Every car that stops at a stop line goes within 40 s, and no two vehicles collide in either junction. The
+// junction). Every car that stops at a stop line goes within 40 s, and no two vehicles collide in any junction. The
 // bound is 40 s, not 30: a left turn from the country road needs a gap in both of the highway's streams at once, and the
-// longest wait across the 24 runs is 39 s (5 of 1078 stops waited over 30 s). No cheap rule tried (shorter gaps, sooner
-// impatience, a forced go) got the longest under 36 s without collisions in the box, and the traffic's density never
-// goes above 1.0 in play (at 1.5 times the traffic the Creek T's left turns waited up to 85 s).
+// longest wait across the 24 runs at the Creek T and the Hollister T is 39 s (5 of 1078 stops waited over 30 s). No cheap
+// rule tried (shorter gaps, sooner impatience, a forced go) got the longest under 36 s without collisions in the box, and
+// the traffic's density never goes above 1.0 in play (at 1.5 times the traffic the Creek T's left turns waited up to 85 s).
+// The Coyote T's is 50 s: its left turn onto the highway's west leg waits out the platoons that form behind the tractors
+// on it (two runs of twelve waited 43 s and 47.5 s, the rest under 28 s, no collision), and only 4 to 18 cars come down
+// the Pass Road to its line in ten minutes, since the valley behind it is the one place that road leads.
+type Soaked = 'creek' | 'hollister' | 'coyote' | 'valley';
+
 describe('stop signs never jam', () => {
   /** `parked`: where a car is left standing, from the junction's centre. */
-  function soak(name: 'creek' | 'hollister', at: [number, number], seed: number, parked?: [number, number]): { worst: number; stops: number; crashes: number; through: number } {
+  function soak(name: Soaked, at: [number, number], seed: number, parked?: [number, number]): { worst: number; stops: number; crashes: number; through: number } {
     const sim = makeSim({ ambient: true, police: false, startHour: 12, seed });
     const roads = sim.roads;
     const node = roads.junction(name);
@@ -100,16 +106,20 @@ describe('stop signs never jam', () => {
     return { worst, stops: stopped.size, crashes, through: through.size };
   }
 
-  const RUNS = (['creek', 'hollister'] as const).flatMap((name) => Array.from({ length: 12 }, (_, k) => [name, k + 1] as const));
-  const AT: Readonly<Record<'creek' | 'hollister', [number, number]>> = { creek: [-866, 286], hollister: [-1130, -290] };
-  const TITLE = { creek: 'the Creek T', hollister: 'the Hollister T' } as const;
+  const SEEDS: Readonly<Record<Soaked, number>> = { creek: 12, hollister: 12, coyote: 12, valley: 4 };
+  /** The longest wait (s) allowed at each line, and the fewest cars that stop at it in ten minutes. */
+  const BOUND: Readonly<Record<Soaked, number>> = { creek: 40, hollister: 40, coyote: 50, valley: 40 };
+  const MIN_STOPS: Readonly<Record<Soaked, number>> = { creek: 20, hollister: 20, coyote: 3, valley: 20 };
+  const RUNS = (Object.keys(SEEDS) as Soaked[]).flatMap((name) => Array.from({ length: SEEDS[name] }, (_, k) => [name, k + 1] as const));
+  const AT: Readonly<Record<Soaked, [number, number]>> = { creek: [-866, 286], hollister: [-1130, -290], coyote: [-1356, 106], valley: [-1866, 106] };
+  const TITLE = { creek: 'the Creek T', hollister: 'the Hollister T', coyote: 'the Coyote T', valley: 'Valley Cross' } as const;
 
-  it.each(RUNS)('ten minutes at %s, seed %i: no wait at its line over 40 s, no collision in it', (name, seed) => {
+  it.each(RUNS)('ten minutes at %s, seed %i: no wait at its line over its bound (40 s, the Coyote T 50 s), no collision in it', (name, seed) => {
     const r = soak(name, AT[name], seed);
     console.log(`[stop_sign soak] ${TITLE[name]}, seed ${seed}: ${r.stops} cars stopped at the line, ${r.through} went on, longest wait ${r.worst.toFixed(1)} s, ${r.crashes} collisions in the junction`);
-    expect(r.stops).toBeGreaterThan(20);
+    expect(r.stops).toBeGreaterThanOrEqual(MIN_STOPS[name]);
     expect(r.through).toBeGreaterThanOrEqual(r.stops - 3);
-    expect(r.worst).toBeLessThanOrEqual(40);
+    expect(r.worst).toBeLessThanOrEqual(BOUND[name]);
     expect(r.crashes).toBe(0);
   }, 300_000);
 
