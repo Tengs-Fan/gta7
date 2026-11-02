@@ -12,6 +12,7 @@ import { addProp, mkRect, PARAPET_T, rectContains, rectsMinus, type CityLayout, 
 import { riseAt, type Rise } from '../terrain';
 import { buildFarms, noFarms, type CountyFarms } from './farms';
 import { buildHills } from './hills';
+import { buildLakeland, noLakeland, type CountyLakeland } from './lakeland';
 import { buildPlaces, noPlaces, type CountyPlaces } from './places';
 
 export type CountryRoadKind = 'highway' | 'country';
@@ -100,6 +101,8 @@ export interface Country {
   farms: CountyFarms;
   /** Dry Creek, the Moonbeam Drive-In and Gravel Gulch (places.ts). */
   places: CountyPlaces;
+  /** Lake Lomas's dock, cabins and campground, Pinewood and the valley's north (lakeland.ts). */
+  lakeland: CountyLakeland;
   /**
    * The first prop, parapet, building and garage of the county's: StaticWorld adds their colliders after every older
    * one.
@@ -516,6 +519,7 @@ export function buildCountry(layout: CityLayout): void {
     walks: [],
     farms: noFarms(),
     places: noPlaces(),
+    lakeland: noLakeland(),
     firstProp: layout.props.length,
     firstParapet: layout.parapets.length,
     firstBuilding: layout.buildings.length,
@@ -563,10 +567,11 @@ export function buildCountry(layout: CityLayout): void {
   }
   junctionHeads(junctions.filter((v) => valley.has(v.id)));
   // The content passes go here, in this order, each one call that only appends: buildHills (the landscape), buildFarms,
-  // buildPlaces.
+  // buildPlaces, buildLakeland (Lake Lomas's shore and Pinewood).
   buildHills(layout);
   buildFarms(layout);
   buildPlaces(layout);
+  buildLakeland(layout);
 }
 
 /** A node's place: a grid node's line crossing, or a county vertex. */
@@ -607,6 +612,7 @@ export function noCountry(): Country {
     walks: [],
     farms: noFarms(),
     places: noPlaces(),
+    lakeland: noLakeland(),
     firstProp: 0,
     firstParapet: 0,
     firstBuilding: 0,

@@ -1,7 +1,8 @@
 // Boats moored at the Marina: a speedboat and a dinghy wait along the finger pier nearest the Marina, streamed like the
-// parked cars. One appears at its mooring once the player is within MOOR_RANGE of it (the first time even in view;
-// after that, a mooring left empty is filled again out of his sight); an untouched one goes with the traffic streaming
-// once he is far away. Only in sims with ambient life.
+// parked cars; and two dinghies at the T-head of Lake Lomas's fishing dock, on the lake the sea cannot reach. One appears
+// at its mooring once the player is within MOOR_RANGE of it (the first time even in view; after that, a mooring left
+// empty is filled again out of his sight); an untouched one goes with the traffic streaming once he is far away. Only in
+// sims with ambient life.
 
 import { WATER_Y } from '../world/constants';
 import type { StaticWorld } from '../world/staticWorld';
@@ -51,6 +52,17 @@ export function marinaMoorings(world: StaticWorld): Mooring[] {
   return [at('dinghy', 8), at('speedboat', 21)];
 }
 
+/**
+ * Lake Lomas's moorings: two dinghies along the west side of the dock's T-head, bow to the north, one in orange (the
+ * Puffin's first colour) and one in red.
+ */
+export function lakeMoorings(world: StaticWorld): Mooring[] {
+  const head = world.layout.country.lakeland.dock.head;
+  const s = VEHICLE_SPECS.dinghy;
+  const at = (along: number, color: number): Mooring => ({ kind: 'dinghy', x: head.minX - PIER_GAP - s.width / 2, z: head.minZ + along, heading: Math.PI, color });
+  return [at(6, s.colors[0]!), at(16, s.colors[2]!)];
+}
+
 interface MarinaState {
   moorings: Mooring[];
   boats: (Vehicle | null)[];
@@ -72,7 +84,7 @@ export const MARINA_SYSTEM: SimSystem = {
     if (!sim.ambient) return;
     let st = states.get(sim);
     if (!st) {
-      const moorings = marinaMoorings(sim.world);
+      const moorings = [...marinaMoorings(sim.world), ...lakeMoorings(sim.world)];
       st = { moorings, boats: moorings.map(() => null), filled: moorings.map(() => false), next: 0 };
       states.set(sim, st);
     }

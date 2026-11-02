@@ -36,7 +36,9 @@ export type PropKind =
   // Las Lomas County's stop signs (world/country STOP_SIGNS).
   | 'stopSign'
   // Las Lomas County's places (world/country/places.ts): Gas & Grits' pumps, the Moonbeam Drive-In's speaker posts.
-  | 'pump' | 'speaker';
+  | 'pump' | 'speaker'
+  // Pinewood's pines and the valley's (world/country/lakeland.ts): a tall narrow conifer, not the broadleaf trees' round crown.
+  | 'pine';
 /** The `contact...` kinds are mission givers' places: which one a POI is, and how it is built, is the SPECIALS row's business. */
 export type PoiKind = 'safehouse' | 'hospital' | 'police' | 'spray' | 'gunshop' | 'bank' | 'marina' | `contact${string}`;
 export type RoofPropKind = 'ac' | 'tank' | 'antenna' | 'billboard' | 'helipad';
