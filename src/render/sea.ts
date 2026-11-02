@@ -144,8 +144,8 @@ export const PILING_START = 2;
 export const PILING_STEP = 7;
 export const PILING_INSET = 0.6;
 export const PILING_RADIUS = 0.25;
-/** Decks the sea shader looks for pilings under (the layout has six). */
-export const MAX_PILING_DECKS = 8;
+/** Decks the sea shader looks for pilings under (the layout has eight: Azura Pier, the Marina's four, Smuggler's Key's and Lake Lomas's two). */
+export const MAX_PILING_DECKS = 12;
 /** Water bodies cut into the land (layout.water) the quay foam keeps out of. */
 export const MAX_SEA_CUTS = 8;
 /** Points along x and along z of Las Lomas County's depth map (countyShore): 1.65 m and 2.4 m apart over its 1690 x 1250 m box. */
