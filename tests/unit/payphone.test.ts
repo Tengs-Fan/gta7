@@ -4,6 +4,7 @@
 // never rings.
 
 import { describe, expect, it } from 'vitest';
+import { applyExt, parseExt, serializeExt } from '../../src/sim/saveExt';
 import { SPEECH, dialogueKey } from '../../src/sim/speech';
 import { PAYPHONE_COOLDOWN, PAYPHONE_GAP, PAYPHONE_LINES, PAYPHONE_PROMPT, PAYPHONE_RANGE, PAYPHONE_RING_FOR, PAYPHONE_SPEAKER, payphoneRinging } from '../../src/sim/payphone';
 import type { Sim } from '../../src/sim/sim';
@@ -130,15 +131,20 @@ describe('answering it', () => {
 });
 
 describe('the lines', () => {
+  /** `n` more calls to a sim's phone: the first after a second near it, each later one after the quiet that follows an answer. */
+  function calls(r: ReturnType<typeof ringing>, n: number): void {
+    for (let k = 0; k < n; k++) {
+      teleport(r.sim, r.ph.x, r.ph.z + 10);
+      step(r.sim, r.lines.length === 0 ? 1 : PAYPHONE_COOLDOWN + 1);
+      answer(r.sim, r.ph.at);
+    }
+  }
+
   /** What a sim says in answer to the phone, six calls in a row. */
   function sixCalls(seed?: number): string[] {
-    const { sim, ph, lines } = ringing({ seed, d: 10 });
-    for (let k = 0; k < PAYPHONE_LINES.length * 2; k++) {
-      teleport(sim, ph.x, ph.z + 10);
-      step(sim, k === 0 ? 1 : PAYPHONE_COOLDOWN + 1);
-      answer(sim, ph.at);
-    }
-    return lines.map((l) => l.text);
+    const r = ringing({ seed, d: 10 });
+    calls(r, PAYPHONE_LINES.length * 2);
+    return r.lines.map((l) => l.text);
   }
 
   it('are six, each said once before any is said again, in an order that is the same for a seed every time', () => {
@@ -150,6 +156,25 @@ describe('the lines', () => {
     expect(sixCalls()).toEqual(a);
     // The city's seed picks the order, so another seed's differs (all six agreeing by chance is a 1 in 720).
     expect(sixCalls(2).slice(0, 6)).not.toEqual(a.slice(0, 6));
+  });
+
+  it('go on down the order in a new session: the calls answered are saved, and loaded into a fresh sim', () => {
+    const old = ringing({ d: 10 });
+    // Nothing answered, nothing to save.
+    expect(serializeExt(old.sim)?.payphone).toBeUndefined();
+    calls(old, 2);
+    const saved = JSON.parse(JSON.stringify(serializeExt(old.sim)));
+    expect(saved.payphone).toBe(2);
+    calls(old, 1);
+    // A new game that loads the save says the third line of the order, not the first.
+    const next = ringing({ d: 10 });
+    applyExt(next.sim, parseExt(saved));
+    calls(next, 1);
+    expect(next.lines[0]!.text).toBe(old.lines[2]!.text);
+    expect(next.lines[0]!.text).not.toBe(old.lines[0]!.text);
+    expect(serializeExt(next.sim)?.payphone).toBe(3);
+    // A count that is not a whole number of calls is dropped, and the phone starts at its first line.
+    for (const bad of [0, -1, 1.5, '2', null, [2]]) expect(parseExt({ payphone: bad })).toEqual({});
   });
 
   it('each have a recorded clip, are short enough to be said in a subtitle, and read as words', () => {

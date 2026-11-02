@@ -3,13 +3,15 @@
 // the audio rings the bell for), and while it rings it has a marker like a gun shop's at its foot. E there on foot answers
 // it: a stranger says one of PAYPHONE_LINES down the line, as a subtitle (and, in his own voice, aloud). It rings again
 // only PAYPHONE_COOLDOWN s after it was answered or given up on. The lines come in an order that is fixed by the city's
-// seed and runs through all of them before any is said twice. Single player only, as the cows' markers are: a room's
-// phone would ring for whoever was near it and answer to whoever got there first. Nothing here draws sim.rng.
+// seed and runs through all of them before any is said twice; how many calls were answered is saved (PAYPHONE_KEY), so a
+// new session carries on down the order instead of starting at its first line. Single player only, as the cows' markers
+// are: a room's phone would ring for whoever was near it and answer to whoever got there first. Nothing here draws sim.rng.
 
 import { Rng } from '../core/rng';
 import { hashInts } from '../world/layout';
 import type { Marker } from './interactions';
 import type { Sim } from './sim';
+import { registerSaveCodec } from './saveExt';
 import { lineSeconds } from './speech';
 import { registerSystem } from './systems';
 import type { PlayerView } from './viewState';
@@ -30,6 +32,8 @@ export const PAYPHONE_LINES: readonly string[] = [
   'You have reached the Las Lomas County Department of Things. For nothing, press nothing. Thank you for your time. It will not be returned.',
 ];
 export const PAYPHONE_PROMPT = 'Press E to answer the payphone';
+/** The key of the number of calls answered in SaveData.ext. */
+export const PAYPHONE_KEY = 'payphone';
 /** The marker's colour: a little green. */
 const PAYPHONE_COLOR = 0x6fe08a;
 /** Salt of the generator that puts the lines in order (hashInts(seed, PAYPHONE_SALT)). */
@@ -120,5 +124,17 @@ registerSystem({
     const p = phones.get(sim);
     if (p?.ringing) dropMarker(sim, p);
     phones.delete(sim);
+  },
+});
+
+registerSaveCodec<number>({
+  key: PAYPHONE_KEY,
+  serialize: (sim) => {
+    const n = phones.get(sim)?.answered ?? 0;
+    return n > 0 ? n : undefined;
+  },
+  parse: (raw) => (typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : undefined),
+  apply: (sim, n) => {
+    phone(sim).answered = n;
   },
 });
