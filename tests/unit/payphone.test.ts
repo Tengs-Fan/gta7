@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyExt, parseExt, serializeExt } from '../../src/sim/saveExt';
 import { SPEECH, dialogueKey } from '../../src/sim/speech';
-import { PAYPHONE_COOLDOWN, PAYPHONE_GAP, PAYPHONE_LINES, PAYPHONE_PROMPT, PAYPHONE_RANGE, PAYPHONE_RING_FOR, PAYPHONE_SPEAKER, payphoneRinging } from '../../src/sim/payphone';
+import { PAYPHONE_COOLDOWN, PAYPHONE_GAP, PAYPHONE_LINES, PAYPHONE_PROMPT, PAYPHONE_RANGE, PAYPHONE_RING_FOR, PAYPHONE_SPEAKER } from '../../src/sim/payphone';
 import type { Sim } from '../../src/sim/sim';
 import { StaticWorld } from '../../src/world/staticWorld';
 import { makeSim, placeInCar, step, teleport } from './helpers';
@@ -37,12 +37,10 @@ describe('the payphone rings', () => {
     const far = ringing({ d: PAYPHONE_RANGE + 1 });
     step(far.sim, 2);
     expect(far.rings).toEqual([]);
-    expect(payphoneRinging(far.sim)).toBe(false);
     expect(markers(far.sim)).toEqual([]);
     far.stand(PAYPHONE_RANGE - 1);
     step(far.sim, 0.5);
     expect(far.rings.length).toBe(1);
-    expect(payphoneRinging(far.sim)).toBe(true);
     const m = markers(far.sim);
     expect(m.length).toBe(1);
     expect([m[0]!.x, m[0]!.z]).toEqual([far.ph.at.x, far.ph.at.z]);
@@ -63,14 +61,13 @@ describe('the payphone rings', () => {
     // Ten rings, 3 s apart, from the moment he came near.
     expect(rings.length).toBe(PAYPHONE_RING_FOR / PAYPHONE_GAP);
     for (let k = 1; k < rings.length; k++) expect(rings[k]! - rings[k - 1]!).toBeCloseTo(PAYPHONE_GAP, 1);
-    expect(payphoneRinging(sim)).toBe(false);
     expect(markers(sim)).toEqual([]);
     // Still standing there, it stays quiet for the cooldown after it gave up, then rings again.
     step(sim, PAYPHONE_COOLDOWN - 10);
     expect(rings.length).toBe(PAYPHONE_RING_FOR / PAYPHONE_GAP);
     step(sim, 15);
     expect(rings.length).toBeGreaterThan(PAYPHONE_RING_FOR / PAYPHONE_GAP);
-    expect(payphoneRinging(sim)).toBe(true);
+    expect(markers(sim).length).toBe(1);
   });
 
   it('not in a multiplayer room, which has no phone to answer it', () => {
@@ -99,7 +96,6 @@ describe('answering it', () => {
     const clip = SPEECH.dialogue[dialogueKey(PAYPHONE_SPEAKER, lines[0]!.text)]!;
     expect(clip).toBeTruthy();
     expect(lines[0]!.duration).toBeGreaterThan(SPEECH.clips[clip]!);
-    expect(payphoneRinging(sim)).toBe(false);
     expect(markers(sim)).toEqual([]);
     const n = rings.length;
     step(sim, 20);
@@ -119,11 +115,11 @@ describe('answering it', () => {
     const first = lines[0]!.text;
     teleport(sim, ph.x, ph.z + 10);
     step(sim, PAYPHONE_COOLDOWN - 5);
-    expect(payphoneRinging(sim)).toBe(false);
+    expect(markers(sim)).toEqual([]);
     const n = rings.length;
     step(sim, 10);
     expect(rings.length).toBeGreaterThan(n);
-    expect(payphoneRinging(sim)).toBe(true);
+    expect(markers(sim).length).toBe(1);
     answer(sim, ph.at);
     expect(lines.length).toBe(2);
     expect(lines[1]!.text).not.toBe(first);

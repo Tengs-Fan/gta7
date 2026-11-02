@@ -84,11 +84,6 @@ function hangUp(sim: Sim, p: Phone): void {
   dropMarker(sim, p);
 }
 
-/** Whether the payphone is ringing now. */
-export function payphoneRinging(sim: Sim): boolean {
-  return phone(sim).ringing;
-}
-
 /** `slot` presses E at the payphone: while it rings he picks it up and hears the next line; else nothing. */
 export function answerPayphone(sim: Sim, slot: PlayerView): void {
   const p = phone(sim);

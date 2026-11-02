@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { COUNTRY_ROADS, onCountyLand, plotAt } from '../../src/world/country';
 import { FIRE_ROAD } from '../../src/world/country/hills';
 import { insulator, inFrame, isMown, ODDITY_CLEAR, POLE, ROADSIDE, SIGN_TEXT, sagAt } from '../../src/world/country/oddities';
+import { blocksCamera, makeRayHit, type StaticCollider } from '../../src/world/colliders';
 import { mkRect, rectContains, rectsOverlap, type Rect } from '../../src/world/layout';
 import { rectClearance, roadClearance } from './farm_helpers';
 import { world } from './helpers';
@@ -60,7 +61,13 @@ describe('the telephone poles', () => {
       for (const r of [...odd.solids.filter((s) => s.tag !== 'rock' || !s.round || s.y1 - s.y0 !== POLE.h).map((s) => s.rect), ...odd.pads]) expect(near(p.x, p.z, 1)(r), `an oddity at ${r.minX}, ${r.minZ}`).toBe(false);
       for (const b of L.buildings.filter((b) => b.district === 'country')) expect(near(p.x, p.z, 2)(b.rect), 'a building').toBe(false);
       for (const h of country.farms.hedges) expect(near(p.x, p.z, 1)(h), 'a hedge').toBe(false);
-      // The place's own solids, and the poles' beside it: the only collider within a pole's own width is its own.
+      // The only collider within a pole's own width is its own, a round one the pole's size, and it is solid.
+      const found: StaticCollider[] = [];
+      W.grid.query(p.x - POLE.base, p.z - POLE.base, p.x + POLE.base, p.z + POLE.base, (c) => {
+        if (c.minX < p.x + POLE.base && c.maxX > p.x - POLE.base && c.minZ < p.z + POLE.base && c.maxZ > p.z - POLE.base) found.push(c);
+      });
+      expect(found.map((c) => [c.tag, c.circle, c.cx, c.cz]), `colliders at ${p.x}, ${p.z}`).toEqual([['rock', true, p.x, p.z]]);
+      expect(found[0]!.r).toBeCloseTo(POLE.base, 9);
       expect(W.isFree(p.x, p.z, POLE.base - 0.01), 'the pole is solid').toBe(false);
       expect(W.groundHeight(p.x, p.z)).toBeCloseTo(p.y, 9);
     }
@@ -79,6 +86,20 @@ describe('the telephone poles', () => {
       const c = cs[first + k]!;
       expect([c.tag, c.circle, c.breakable, c.y0, c.y1]).toEqual([s.tag, s.round === true, false, s.y0, s.y1]);
     }
+  });
+
+  it('let a man\'s sight, a bullet and the camera\'s ray through at head height, where a bus stops all three', () => {
+    const hit = makeRayHit();
+    for (const p of odd.poles) {
+      const at = `pole at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`;
+      // A line across the pole's middle, 3 m each side of it: it does cross the pole, and nothing of the pole stops it.
+      expect(W.grid.raycast(p.x - 3, 1.6, p.z, 1, 0, 0, 6, hit, () => true), `${at} is crossed`).toBe(true);
+      expect(W.lineOfSight(p.x - 3, 1.6, p.z, p.x + 3, 1.6, p.z), `${at} sight`).toBe(true);
+      expect(W.grid.raycast(p.x - 3, 1.6, p.z, 1, 0, 0, 6, hit, blocksCamera), `${at} camera`).toBe(false);
+    }
+    const bus = odd.statics.find((p) => p.kind === 'bus')!;
+    expect(W.lineOfSight(bus.x - 8, 1.5, bus.z, bus.x + 8, 1.5, bus.z), 'sight through the bus').toBe(false);
+    expect(W.grid.raycast(bus.x - 8, 1.5, bus.z, 1, 0, 0, 16, hit, blocksCamera), 'camera through the bus').toBe(true);
   });
 });
 

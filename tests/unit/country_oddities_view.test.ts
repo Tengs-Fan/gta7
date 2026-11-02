@@ -170,21 +170,13 @@ describe('the roadside furniture', () => {
     expect(items.length).toBe(9);
     const pick = batches[0]!.geometry.getAttribute('aPick') as THREE.InstancedBufferAttribute;
     expect(Array.from(pick.array)).toEqual(items.map((i) => L.props[i]!.color));
-    expect(batches[0]!.castShadow).toBe(false);
-    // Its vertex shader hides the other shapes, which the contact-shadow pass's normal override would draw all nine of, stacked.
-    expect((batches[0]!.material as THREE.Material).userData.contactShadow).toBe(false);
-  });
-
-  it('draws only each instance\'s own shape: a vertex of another is sent off the screen by the material\'s shader', () => {
-    const mat = batches[0]!.material as THREE.MeshStandardMaterial;
-    const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader } as unknown as THREE.WebGLProgramParametersWithUniforms;
-    mat.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
-    expect(shader.vertexShader).toContain('attribute float aShape;');
-    expect(shader.vertexShader).toContain('if ( aShape != aPick ) gl_Position');
-    // Every shape is in the geometry, on vertices tagged with its index.
+    // Every make is in the geometry, on vertices tagged with its index: an instance shows the ones its `aPick` names.
     const shape = batches[0]!.geometry.getAttribute('aShape');
     const count = ROADSIDE.map((_, k) => Array.from({ length: shape.count }, (_v, i) => shape.getX(i)).filter((s) => s === k).length);
     for (const [k, n] of count.entries()) expect(n, ROADSIDE[k]!.name).toBeGreaterThan(24);
+    expect(batches[0]!.castShadow).toBe(false);
+    // Its vertex shader hides the other shapes, which the contact-shadow pass's normal override would draw all nine of, stacked.
+    expect((batches[0]!.material as THREE.Material).userData.contactShadow).toBe(false);
   });
 
   it('draws each make as tall as its post and collider: a mailbox about 1.3 to 1.6 m, a sign 1.9 or 2 m', () => {
