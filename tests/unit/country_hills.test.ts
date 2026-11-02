@@ -299,8 +299,9 @@ describe('sight and shots across the ridge', () => {
       expect(clearance(bx, by, -282, tx, ty, -282)).toBeGreaterThan(0.3);
       expect(sim.combat.castRay(bx, by, -282, (tx - bx) / d, (ty - by) / d, 0, 60, null).t, `at ${tx}`).toBeGreaterThan(d);
     }
-    const floor = sim.combat.castRay(-1640, 0.6, -282, 1, 0, 0, 100, null);
-    expect(sim.world.groundHeight(-1640 + floor.t, -282)).toBeCloseTo(0.6, 2);
+    // (From 12 m before the flank's foot, where the ground is still 0: the valley's pines further out stand there by chance.)
+    const floor = sim.combat.castRay(-1596, 0.6, -282, 1, 0, 0, 100, null);
+    expect(sim.world.groundHeight(-1596 + floor.t, -282)).toBeCloseTo(0.6, 2);
   });
 });
 

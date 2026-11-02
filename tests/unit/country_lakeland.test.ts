@@ -4,6 +4,7 @@
 // are solid trunks on the ground, and the telescope at the tower's foot is a viewpoint.
 
 import { describe, expect, it } from 'vitest';
+import { pointSegDist } from '../../src/core/math';
 import { bakeSeaShelter } from '../../src/render/seaShelter';
 import { countyShore } from '../../src/render/sea';
 import { viewpoints } from '../../src/render/dressing';
@@ -239,6 +240,27 @@ describe('Pinewood', () => {
     }
   });
 
+  it('sets the hills\' old scrub aside from the tower\'s pad, the track and the pines\' skirts, none deleted and none grown', () => {
+    const old = L.props.slice(L.country.firstProp, land.forest.first).filter((p) => p.kind === 'bush');
+    expect(old.length).toBeGreaterThan(400);
+    const pad = land.pads.find((p) => rectContains(p, PINE_TOWER.x, PINE_TOWER.z))!;
+    const track = land.lanes[land.lanes.length - 1]!;
+    const onTrack = (x: number, z: number) => {
+      for (let k = 2; k < track.pts.length; k += 2) if (pointSegDist(x, z, track.pts[k - 2]!, track.pts[k - 1]!, track.pts[k]!, track.pts[k + 1]!) < track.width / 2) return true;
+      return false;
+    };
+    for (const b of old) {
+      const at = `${b.x.toFixed(1)}, ${b.z.toFixed(1)}`;
+      expect(rectContains(pad, b.x, b.z), `bush on the pad at ${at}`).toBe(false);
+      expect(onTrack(b.x, b.z), `bush on the track at ${at}`).toBe(false);
+      expect(pines.filter((p) => Math.hypot(p.x - b.x, p.z - b.z) < 1.6 * p.scale).length, `bush in a pine at ${at}`).toBe(0);
+      expect(b.y).toBe(countryGround(L.country, b.x, b.z));
+      expect(b.scale).toBeGreaterThan(0);
+    }
+    // Every one of the 503 is still there, in its place in the list.
+    expect(old.length).toBe(503);
+  });
+
   it('has a dirt track from the Valley Loop up Pine Rise no steeper than a fire road, and the fire lookout tower on the highest ground in the plot', () => {
     const track = land.lanes[land.lanes.length - 1]!;
     let steepest = 0;
@@ -319,7 +341,7 @@ describe('the valley\'s north', () => {
     expect(per(28, 90)).toBeLessThan(per(90, 200) + per(200, 600));
     expect(land.boulders.length).toBeGreaterThan(20);
     // Three round the tower's pad, none of the attempts lost to its keep-out.
-    expect(land.boulders.filter((b) => Math.hypot(b.x - PINE_TOWER.x, b.z - PINE_TOWER.z) < 25 && !land.pads.some((p) => rectContains(p, b.x, b.z))).length).toBe(3);
+    expect(land.boulders.filter((b) => Math.hypot(b.x - PINE_TOWER.x, b.z - PINE_TOWER.z) < 25).length).toBe(3);
     for (const b of land.boulders) expect(W.isFree(b.x, b.z, 0.2), `boulder at ${b.x.toFixed(1)}, ${b.z.toFixed(1)}`).toBe(false);
     const flowers = land.flowers.filter((f) => f.hue !== 'grass');
     expect(flowers.length).toBeGreaterThanOrEqual(15);

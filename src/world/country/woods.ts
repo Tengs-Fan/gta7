@@ -191,4 +191,36 @@ export function buildWoods(layout: CityLayout, land: CountyLakeland, rng: Rng, k
   for (const [x, z, r, hue] of [[-1949, -314, 5.5, 'buttercup'], [-1893, -314, 4.5, 'daisy'], [-1856, -298, 4, 'poppy'], [-1938, -221, 6, 'lupine'], [-1884, -228, 5, 'clover']] as const) {
     if (!blocked(keep, x, z, r * 0.6) && dryLand(layout, x, z, r)) patch(x, z, r, hue);
   }
+  clearOldScrub(layout, land, keep);
+}
+
+/** How far (m) a pine's needles reach from its axis, by its scale: an old bush closer than this stands inside its skirts. */
+const PINE_SKIRT = 1.6;
+
+/**
+ * The hills' scrub (props from the county's first to the forest's, scattered before the lakeland existed, from a stream
+ * of their own that stays as it is) stands in the way of what the lakeland lays: on the tower's pad, on the track, in the
+ * pines' skirts. Each such bush is set aside to the nearest free spot, up to 10 m off, with its scale and index kept
+ * (the farms' and places' prop indices are positional, so nothing is deleted).
+ */
+function clearOldScrub(layout: CityLayout, land: CountyLakeland, keep: Keepout): void {
+  const pines = layout.props.slice(land.forest.first).filter((p) => p.kind === 'pine');
+  const inSkirts = (x: number, z: number) => pines.some((p) => Math.hypot(p.x - x, p.z - z) < PINE_SKIRT * p.scale);
+  const bad = (x: number, z: number) => blocked(keep, x, z, 0) || inSkirts(x, z);
+  for (let i = layout.country.firstProp; i < land.forest.first; i++) {
+    const b = layout.props[i]!;
+    if (b.kind !== 'bush' || !bad(b.x, b.z)) continue;
+    const gap = Math.min(roadGap(b.x, b.z), 6);
+    search: for (let r = 0.5; r <= 10; r += 0.5) {
+      for (let k = 0; k < 16; k++) {
+        const x = b.x + Math.cos((k * Math.PI) / 8) * r;
+        const z = b.z + Math.sin((k * Math.PI) / 8) * r;
+        if (bad(x, z) || roadGap(x, z) < gap || !dryLand(layout, x, z, 2)) continue;
+        b.x = x;
+        b.z = z;
+        b.y = countryGround(layout.country, x, z);
+        break search;
+      }
+    }
+  }
 }
