@@ -272,25 +272,31 @@ describe('the dairy dog', () => {
     const d = new Dog(run0, 0);
     let z = run0.z0 - 50;
     let worst = 0;
-    let caught = false;
+    let metAt: number | null = null;
     for (let k = 0; k < 30 * 22; k++) {
       z += 6 / 30;
       d.update(1 / 30, [car(z, 6)], () => undefined);
-      caught ||= Math.abs(d.pose.z - z) < 3;
-      if (caught && z < run0.z1) worst = Math.max(worst, Math.abs(d.pose.z - z));
+      if (metAt === null && Math.abs(d.pose.z - z) < 3) metAt = z;
+      if (metAt !== null && z < run0.z1) worst = Math.max(worst, Math.abs(d.pose.z - z));
     }
-    // It comes out to meet the car, and then stays within a few metres of its place along the road.
-    expect(caught).toBe(true);
+    // It comes out to meet the car, well up the run from the bed it lay in (a dog that stayed there would be met as the car
+    // passed it), and then stays within a few metres of its place along the road.
+    expect(metAt).not.toBeNull();
+    expect(metAt!).toBeLessThan(run0.home - 15);
     expect(worst).toBeLessThan(8);
   });
 
   it('trots back to lie down at home when the car has gone', () => {
     const d = new Dog(run0, 0);
     let z = run0.z0 - 50;
+    let farthest = run0.home;
     for (let k = 0; k < 30 * 8; k++) {
       z += 0.5;
       d.update(1 / 30, [car(z, 15)], () => undefined);
+      farthest = Math.min(farthest, d.pose.z);
     }
+    // It ran out up the run to the car, and followed it down to the end.
+    expect(farthest).toBeLessThan(run0.home - 5);
     expect(d.pose.z).toBeGreaterThan(run0.z1 - 4);
     for (let k = 0; k < 30 * 30 && d.state !== 'rest'; k++) d.update(1 / 30, [], () => undefined);
     expect(d.state).toBe('rest');
@@ -299,17 +305,29 @@ describe('the dairy dog', () => {
     expect(d.pose.lie).toBe(1);
   });
 
-  it('never leaves its line whatever comes by, from either side, or stands on the spot', () => {
+  it('never leaves its line whatever comes by, from either side, and does not stand on the spot', () => {
     const d = new Dog(run0, 0);
     let seed = 7;
     const r = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+    let north = run0.home;
+    let south = run0.home;
+    // A new visitor every three seconds (or none), driving on along the road at its own pace.
+    let visitor: Visitor | null = null;
     for (let k = 0; k < 30 * 120; k++) {
-      const v: Visitor[] = r() < 0.5 ? [{ x: -900 + r() * 100, z: run0.z0 - 80 + r() * 220, speed: r() * 20, vz: (r() - 0.5) * 30 }] : [];
-      d.update(1 / 30, v, () => undefined);
+      if (k % 90 === 0) visitor = r() < 0.7 ? { x: -900 + r() * 100, z: run0.z0 - 80 + r() * 220, speed: r() * 20, vz: (r() - 0.5) * 30 } : null;
+      if (visitor) visitor.z += visitor.vz / 30;
+      d.update(1 / 30, visitor ? [visitor] : [], () => undefined);
       expect(d.pose.x).toBe(run0.x);
       expect(d.pose.z).toBeGreaterThanOrEqual(run0.z0);
       expect(d.pose.z).toBeLessThanOrEqual(run0.z1);
+      north = Math.min(north, d.pose.z);
+      south = Math.max(south, d.pose.z);
     }
+    // It came out along the run to what passed, and when nothing is left near it goes home to lie down.
+    expect(south - north).toBeGreaterThan(20);
+    for (let k = 0; k < 30 * 60 && d.state !== 'rest'; k++) d.update(1 / 30, [], () => undefined);
+    expect(d.state).toBe('rest');
+    expect(d.pose.z).toBeCloseTo(run0.home, 1);
   });
 });
 

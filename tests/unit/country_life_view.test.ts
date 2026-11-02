@@ -1,7 +1,7 @@
 // How Las Lomas County's life is drawn and heard (render/country/life, audio/fieldVoices.ts): a handful of draws, none
 // at all and no sound while the camera is far from the farmland, fewer crows on the lower tiers, the cars and the player
-// putting the birds and the dog up, the spray and the dust let off only where and when they should be, and all of it
-// reading the sim without writing a thing to it.
+// putting the birds and the dog up, the spray and the dust let off only where and when they should be, every number it
+// computes in a frame finite, and all of it reading the sim without writing a thing to it.
 
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
@@ -18,7 +18,7 @@ import { basketGeometry, biplaneGeometry, combineGeometry, crowGeometry, dogGeom
 import type { Effects } from '../../src/render/effects';
 import type { Character } from '../../src/sim/entities';
 import type { ViewState } from '../../src/sim/viewState';
-import { makeSim, world } from './helpers';
+import { makeSim, teleport, world } from './helpers';
 
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
@@ -240,8 +240,15 @@ describe('the countryside life: what puts it up', () => {
     expect(far.count()).toBe(0);
   });
 
-  it('reads the sim and writes nothing to it', () => {
+  it('reads the sim and writes nothing to it: not its clock, its weather, its cars or the player', () => {
     const sim = makeSim();
+    // A car under way on Creek Road past the dairy, and the player walking up to the Acres' flock, both in the life's reach.
+    const car = sim.spawnVehicle('sedan', -842.5, 20, 0);
+    car.vel.z = 15;
+    car.speed = 15;
+    teleport(sim, -1073, 252);
+    sim.player.vel.z = 3;
+    sim.player.speed = 3;
     const guard = (o: object): object => new Proxy(o, {
       get: (t, k) => {
         const v = Reflect.get(t, k) as unknown;
@@ -256,7 +263,69 @@ describe('the countryside life: what puts it up', () => {
     });
     const { fx } = puffs();
     const view3 = guard(sim) as unknown as ViewState;
-    expect(() => frames(3, { x: -1075, z: 140 }, view3, 10, fx, sim.player)).not.toThrow();
+    const walker = guard(sim.player) as unknown as Character;
+    expect(() => frames(3, { x: -1075, z: 140 }, view3, 10, fx, walker)).not.toThrow();
+    // The car and the walker were both seen by the birds and the dog.
+    expect((life as unknown as { cars: unknown[] }).cars.length).toBe(2);
+  });
+});
+
+describe('the countryside life: its numbers in every frame', () => {
+  /** What the life holds that reaches the GPU or the ears: the instances, the rigs' poses, the transforms, the sheet. */
+  interface Inside {
+    crows: { mesh: THREE.InstancedMesh; aCrow: THREE.InstancedBufferAttribute };
+    dogRig: { pose: { value: THREE.Vector3[] } };
+    planeRig: { pose: { value: THREE.Vector3[] } };
+    combineRig: { pose: { value: THREE.Vector3[] } };
+    dogMesh: THREE.Mesh;
+    planeMesh: THREE.Mesh;
+    combineMesh: THREE.Mesh;
+    balloon: THREE.Group;
+    envelope: THREE.Mesh;
+    envelopeMat: THREE.MeshStandardMaterial;
+    flame: THREE.Mesh;
+  }
+  const finite = (a: ArrayLike<number>, n = a.length): boolean => {
+    for (let i = 0; i < n; i++) if (!Number.isFinite(a[i]!)) return false;
+    return true;
+  };
+
+  it('keeps every one finite over the day, from the farms, the dairy, the meadows and the verges, at any frame time', () => {
+    const inside = life as unknown as Inside;
+    const bad = new Set<string>();
+    const { fx } = puffs();
+    // The Acres' wheat, the dairy, the balloon's two meadows, the verges of the ground flocks and the town's tower.
+    const spots = [[-1075, 140], [-870, 20], [-1110, -215], [-1118, -347], [-1346, 32], [-792, -222], [-1235, 150], [-1000, 250]] as const;
+    let t = 0;
+    for (const [x, z] of spots) {
+      for (let hours = 4; hours < 20; hours += 0.37) {
+        for (const dt of [0, 1 / 60, 0.1, 0.5]) {
+          for (let k = 0; k < 6; k++) {
+            t += 7.3;
+            const cars = [{ x: x + 5, z: z + 8, speed: 12 }, { x: -842, z, speed: 20 }];
+            life.update(dt, { x, y: 2, z }, REACH, fakeSim(t * 13, cars, k % 2 ? 0.6 : 0), foot(x, z, 2), hours, t, { x: 1, z: 2 }, fx);
+            const at = `at ${x},${z} h${hours.toFixed(2)} dt${dt}`;
+            const crows = inside.crows;
+            if (!finite(crows.mesh.instanceMatrix.array, crows.mesh.count * 16)) bad.add(`crow matrices ${at}`);
+            if (!finite(crows.aCrow.array, crows.mesh.count * 3)) bad.add(`crow attribute ${at}`);
+            for (const rig of [inside.dogRig, inside.planeRig, inside.combineRig]) {
+              for (const v of rig.pose.value) if (!finite([v.x, v.y, v.z])) bad.add(`rig pose ${at}`);
+            }
+            if (!finite(inside.planeMesh.matrix.elements)) bad.add(`plane matrix ${at}`);
+            for (const m of [inside.dogMesh, inside.combineMesh]) if (!finite(m.position.toArray()) || !Number.isFinite(m.rotation.y)) bad.add(`${m.name} transform ${at}`);
+            const b = inside.balloon;
+            if (!finite(b.position.toArray()) || !finite(inside.envelope.scale.toArray()) || !Number.isFinite(inside.envelope.rotation.x) || !Number.isFinite(inside.envelopeMat.emissiveIntensity)) bad.add(`balloon ${at}`);
+            if (!finite(inside.flame.scale.toArray())) bad.add(`flame ${at}`);
+            for (const q of [life.sounds.plane, life.sounds.combine, life.sounds.burner]) {
+              if (!finite([q.x, q.y, q.z, q.vx, q.vy, q.vz, q.level])) bad.add(`sound sheet ${JSON.stringify(q)} ${at}`);
+            }
+            for (const shot of life.sounds.shots) if (!finite([shot.x, shot.y, shot.z])) bad.add(`shot ${at}`);
+            life.sounds.shots.length = 0;
+          }
+        }
+      }
+    }
+    expect([...bad].slice(0, 20)).toEqual([]);
   });
 });
 
@@ -283,6 +352,10 @@ describe('the countryside life: what it sounds like', () => {
     return { nodes, voices: new FieldVoices(context(), {} as AudioNode, noise, new Glider(), placement, () => ({}) as AudioNode, nodes) };
   };
   const ear: Hearing = { x: 0, y: 2, z: 0, yaw: 0, vx: 0, vz: 0 };
+  /** What an engine's gain node and the plane's saw are set to: the audio params themselves, not the voices' own bookkeeping. */
+  type Engines = Record<'plane' | 'combine' | 'burner', { gain: { gain: AudioParam } }> & { planeSaw: { frequency: AudioParam } };
+  const gainOf = (voices: FieldVoices, engine: 'plane' | 'combine' | 'burner') => (voices as unknown as Engines)[engine].gain.gain.value;
+  const sawHz = (voices: FieldVoices) => (voices as unknown as Engines).planeSaw.frequency.value;
 
   it('hears the duster rise in pitch coming and fall going, loudest over its pass, and nothing from a kilometre off', () => {
     const { voices } = make();
@@ -290,18 +363,21 @@ describe('the countryside life: what it sounds like', () => {
     const at = (x: number, z: number) => {
       Object.assign(s.plane, { x, y: 10, z, vx: 0, vy: 0, vz: -34, level: 1 });
       voices.update(s, ear, 0);
-      return { f: voices.doppler, gain: voices.levels.plane };
+      return { f: voices.doppler, hz: sawHz(voices), gain: gainOf(voices, 'plane') };
     };
     const coming = at(0, 250);
     const over = at(0, 0);
     const going = at(0, -250);
     expect(coming.f).toBeGreaterThan(1.05);
     expect(going.f).toBeLessThan(0.95);
+    // The engine's saw is what carries the pitch: its frequency param follows the factor.
+    expect(coming.hz).toBeCloseTo(78 * coming.f, 3);
+    expect(going.hz).toBeCloseTo(78 * going.f, 3);
     expect(over.gain).toBeGreaterThan(coming.gain * 2);
     expect(at(0, 1000).gain).toBe(0);
     s.plane.level = 0;
     voices.update(s, ear, 1);
-    expect(voices.levels.plane).toBe(0);
+    expect(gainOf(voices, 'plane')).toBe(0);
   });
 
   it('hears the combine and the burner near, not far, and not when they are off', () => {
@@ -310,13 +386,13 @@ describe('the countryside life: what it sounds like', () => {
     Object.assign(s.combine, { x: 20, y: 2, z: 0, level: 1 });
     Object.assign(s.burner, { x: 0, y: 30, z: 30, level: 1 });
     voices.update(s, ear, 0);
-    expect(voices.levels.combine).toBeGreaterThan(0.05);
-    expect(voices.levels.burner).toBeGreaterThan(0.05);
+    expect(gainOf(voices, 'combine')).toBeGreaterThan(0.05);
+    expect(gainOf(voices, 'burner')).toBeGreaterThan(0.05);
     Object.assign(s.combine, { x: 900 });
     Object.assign(s.burner, { level: 0 });
     voices.update(s, ear, 1);
-    expect(voices.levels.combine).toBe(0);
-    expect(voices.levels.burner).toBe(0);
+    expect(gainOf(voices, 'combine')).toBe(0);
+    expect(gainOf(voices, 'burner')).toBe(0);
   });
 
   it('plays each caw and bark queued as a voice of its own, drains the queue, and drops what is out of earshot', () => {

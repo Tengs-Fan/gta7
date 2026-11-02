@@ -63,9 +63,8 @@ export class FieldVoices {
   private readonly combineBeat: GainNode;
   private readonly burner: Voice;
   private readonly burnerF: BiquadFilterNode;
-  /** The Doppler factor last applied to the plane, and the levels last set, for tests. */
+  /** The Doppler factor last applied to the plane, for tests. */
   doppler = 1;
-  readonly levels = { plane: 0, combine: 0, burner: 0 };
 
   constructor(
     private readonly ctx: BaseAudioContext,
@@ -182,8 +181,7 @@ export class FieldVoices {
     const f = hp ? dopplerFactor(p.x, p.z, p.vx, p.vz, ear.x, ear.z, ear.vx, ear.vz) : 1;
     this.doppler = f;
     const strain = 1 + 0.1 * clamp(p.vy / 8, -1, 1);
-    this.levels.plane = hp ? 0.5 * hp.gain : 0;
-    g.set(this.plane.gain.gain, this.levels.plane, now, GLIDE);
+    g.set(this.plane.gain.gain, hp ? 0.5 * hp.gain : 0, now, GLIDE);
     g.set(this.planeSaw.frequency, PLANE_HZ * strain * f, now, GLIDE, 0.0005);
     g.set(this.planeSub.frequency, (PLANE_HZ / 2) * strain * f, now, GLIDE, 0.0005);
     g.set(this.planeBlades.frequency, PLANE_HZ * strain * f, now, GLIDE, 0.0005);
@@ -193,15 +191,13 @@ export class FieldVoices {
     this.place(this.plane, hp, now);
     // The combine.
     const hc = this.hear(s.combine, ear, 30, COMBINE_RANGE);
-    this.levels.combine = hc ? 0.42 * hc.gain : 0;
-    g.set(this.combine.gain.gain, this.levels.combine, now, GLIDE);
+    g.set(this.combine.gain.gain, hc ? 0.42 * hc.gain : 0, now, GLIDE);
     g.set(this.combineNoise.gain, hc ? 0.5 : 0, now, GLIDE);
     g.set(this.combineBeat.gain, hc ? 0.3 : 0, now, GLIDE);
     this.place(this.combine, hc, now);
     // The burner, whose flare comes and goes as the level does.
     const hb = this.hear(s.burner, ear, 40, BURNER_RANGE);
-    this.levels.burner = hb ? 0.55 * hb.gain : 0;
-    g.set(this.burner.gain.gain, this.levels.burner, now, 0.05);
+    g.set(this.burner.gain.gain, hb ? 0.55 * hb.gain : 0, now, 0.05);
     this.place(this.burner, hb, now);
     for (const shot of s.shots) {
       if (shot.kind === 'caw') this.caw(shot.x, shot.y, shot.z, now);
