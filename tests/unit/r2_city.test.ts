@@ -275,8 +275,10 @@ describe('round 2 city: layout', () => {
     // turbine); and when the valley was reshaped (the Valley Loop's nine curves and straights and its plots, Lake Lomas's ten
     // holes in the land and the shelf's land with the lake filled in, the pass's bank on its south wall, and seven hills, with
     // their scrub, in the valley); and when Lake Lomas and Pinewood were laid out (the dock's two piers on the lake, four cabins,
-    // some 2,700 pines and a few hundred oaks and bushes in the wood and the valley's north).
-    expect(layoutHash()).toBe('7581940c236b01ce2889f9e9791610f7909db0f592bcae3dbaa5604b075b0e63');
+    // some 2,700 pines and a few hundred oaks and bushes in the wood and the valley's north); and again by the lake's review,
+    // which cleared a fire break of pines west of the lookout tower's pad, moved the pad's boulders out of its keep-out, and set the
+    // hills' old scrub aside from the pad, the track and the pines' skirts.
+    expect(layoutHash()).toBe('24583771303b7b95dcc5ac52d34f76a74ab347234fd2dc4dbea39d1baa09b61e');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

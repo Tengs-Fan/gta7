@@ -512,11 +512,13 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // past the pass); and when the valley was reshaped (the pass's bank moved the ridge's scrub on the south wall, the
   // valley's seven hills grew theirs, none on the vineyard's rise, and their sight cores and envelopes with them); and when
   // Lake Lomas and Pinewood were laid out (the pines, a new kind with a trunk collider, the oaks and the bushes by them,
-  // appended after the places' props, and after the places' solids the lakeland's solids' colliders).
+  // appended after the places' props, and after the places' solids the lakeland's solids' colliders); and again by the lake's review
+  // (the fire break west of the tower's pad takes its pines out, the pad's boulders stand, and the hills' old scrub is set aside
+  // from the pad, the track and the pines' skirts, which moves its foliage envelopes).
   const D98 = {
-    props: '394a2df021e06e75bbad39fab7698b147be2e0e5e5a80c4ad30ce5e709c3250c',
-    colliders: '94ad02a3d2606323f5a78c1b18e9e6a23d1f1d623ded69b59c2d0634054a565a',
-    envelopes: 'c3c6a433db4020ff3b0d6cbac8cca44c5377d4426c5fee3c6ef19fe1078cf486',
+    props: 'd5fcd7526125f15c2b2483cfef273c6cfe13939aff4a866ff61399ac8919cca6',
+    colliders: 'df8b26a39023ab2f2c53ce6b1414863212fc68a075e8b3a379c673744fc40b7f',
+    envelopes: '85a7f2ad59713ae2b7374b1dc658c47c9d56df321311420a9414d012c22f44d6',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {
@@ -672,12 +674,14 @@ describe('VAL-PRP-010 props stay instanced within budget', () => {
     });
     const cells = new Set(W.layout.props.map((p) => `${Math.floor(p.x / HARDWARE_CHUNK_SIZE)},${Math.floor(p.z / HARDWARE_CHUNK_SIZE)}`)).size;
     console.log(`[props] ${meshes} prop meshes (d98da7b 387, cap ${Math.floor(387 * 1.5)}), ${tris} triangles over the whole city, ${cells} cells`);
-    // 580, the ten of the valley's two stop-sign junctions (lamps and stop signs), each in a cell of its own, and the three
-    // of the scrub on its hills, in cells the older county had none in; and 61 more for Pinewood and the valley's north,
-    // where 12 cells held no props: the pines (one batch to a half cell, 31 of them, since a batch is drawn whole and a
-    // forest's must stay a few hundred pines for the frustum and the sun's shadow to take or leave), the oaks' trunks and
-    // canopies and the bushes, one each to a cell. The cap stays what the props need, as before.
-    expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5) + 74);
+    // Measured, by geometry, over the layouts: 580 before the valley; 593 with it, the ten of its two stop-sign junctions (lamps
+    // and stop signs, each in a cell of its own) and the three of the scrub on its hills, in cells the older county had none in;
+    // and 655 with Pinewood and the valley's north: 32 pine batches (one to a half cell, since a batch is drawn whole and a
+    // forest's must stay a few hundred pines for the frustum and the sun's shadow to take or leave; full cells would be 12 and
+    // cost about 0.3 M more triangles in the 5090's scenes) and 30 of the oaks' trunks and canopies and the bushes (five to
+    // each of the 6 cells of the 12 they stand in that held no trees before). That is draws, 1.69 times the d98da7b 387, not
+    // 1.5 times it any more: the cap is what the props need (655 = 387 * 1.5 + 75), as before.
+    expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5) + 75);
     for (const n of perGeo.values()) expect(n).toBeLessThanOrEqual(cells + 4);
   });
 });

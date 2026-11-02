@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { CityView } from '../../src/render/city';
 import { CountryView } from '../../src/render/country';
-import { COUNTRY_CELL, COUNTRY_FOG_MARGIN, COUNTRY_NEAR } from '../../src/render/quality';
+import { COUNTRY_CELL, COUNTRY_FOG_MARGIN, COUNTRY_NEAR, FLOWER_RING } from '../../src/render/quality';
 import { MapImage, MAP_SCALE } from '../../src/ui/mapRender';
 import { BRIDGE_ARCH } from '../../src/world/country';
 import { world } from './helpers';
@@ -165,7 +165,9 @@ describe('drawing Las Lomas County', () => {
         const d = Math.hypot(Math.max(box.minX - x, 0, x - box.maxX), Math.max(box.minZ - z, 0, z - box.maxZ));
         const reach = d <= 780 + COUNTRY_FOG_MARGIN;
         const rise = W.layout.country.rises.some((r) => r.bounds.minX < box.maxX && r.bounds.maxX > box.minX && r.bounds.minZ < box.maxZ && r.bounds.maxZ > box.minZ);
-        const want = near.has(m.name) ? d < COUNTRY_NEAR && reach : far.has(m.name) ? d >= COUNTRY_NEAR && (reach || rise) : reach;
+        // (Pinewood's wildflowers and tussocks are drawn within High's FLOWER_RING of the camera, not out to the fog.)
+        const ring = m.name === 'wildflowers' ? FLOWER_RING.high.patch : m.name === 'tussocks' ? FLOWER_RING.high.tussock : Infinity;
+        const want = near.has(m.name) ? d < COUNTRY_NEAR && reach : far.has(m.name) ? d >= COUNTRY_NEAR && (reach || rise) : reach && d <= ring;
         expect(m.visible, `${m.name} ${d.toFixed(0)} m off at ${x}, ${z}`).toBe(want);
       }
     };

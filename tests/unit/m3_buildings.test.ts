@@ -372,9 +372,10 @@ describe('m3 buildings: geometry (VAL-BLD-002..005, 010)', () => {
     // pass's bank under the ridge's cores' cover, and the scrub's colliders none; and again when Lake Lomas and Pinewood were
     // laid out: the four cabins' buildings, the pines' and the oaks' trunks (after the places' props), and after the places'
     // solids the lakeland's (the camp's tents, van, toilet, ring and tables, the valley's boulders, the dock's lamp and the
-    // lookout tower's legs and cab).
+    // lookout tower's legs and cab); and again by the lake's review: no pines on the fire break west of the tower's pad, three boulders
+    // round the pad, the old scrub set aside (no colliders of its own, but the pines it leaves out take theirs).
     expect(b).toBe('d6e88b1ba38bd011ac8af74e5a3950159668685c69cfb7c0c2c0350855cca35a');
-    expect(c).toBe('514ac2c9fb846d3a2a59f8ec496a71ddec12adbe31cfe71d9c88ea3396e60ea7');
+    expect(c).toBe('04c790607a09e1c7fc60555e2ccdb6203169d3eaf7cf6c1cbfd7cb1749cfe79d');
   });
 });
 
