@@ -14,7 +14,8 @@ import { allFinite, input, makeSim, teleport } from './helpers';
  * PoliceSystem keeps at most UNITS_BY_LEVEL[5] = 7 crewed units out, one more with a patrol. Everything
  * else (cars the player took or jacked, wrecks, cars left by their crews) has no cap of its own and goes
  * once out of range: `far` lists what is still more than 450 m from the player, beyond the 320 m anything
- * stays visible plus a streaming tick of driving at 60 m/s. Police sweeping a search area may stay by it.
+ * stays visible plus a streaming tick of driving at 60 m/s (traffic: 530 m, for the oncoming cars kept out to 520).
+ * Police sweeping a search area may stay by it.
  */
 function vehicleCensus(sim: Sim): { traffic: number; parked: number; units: number; far: string[] } {
   const pp = sim.playerPos();
@@ -26,7 +27,9 @@ function vehicleCensus(sim: Sim): { traffic: number; parked: number; units: numb
     else if (v.owner === 'parked') out.parked++;
     else if (v.owner === 'police' && v.drivable && v.occupants().some((c) => c.isLaw && c.alive)) out.units++;
     const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
-    if (v.owner !== 'police' && d > 450) out.far.push(`${v.kind} (${v.owner}${v.destroyed ? ', wreck' : ''}) ${Math.round(d)} m away`);
+    // Oncoming traffic is kept out to ONCOMING_KEEP (520 m, sim/traffic.ts) so that it passes a fast player instead of
+    // vanishing ahead of him: a tractor driving at him from 453 m is not left behind.
+    if (v.owner !== 'police' && d > (v.owner === 'traffic' ? 530 : 450)) out.far.push(`${v.kind} (${v.owner}${v.destroyed ? ', wreck' : ''}) ${Math.round(d)} m away`);
   }
   return out;
 }

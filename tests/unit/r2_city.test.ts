@@ -276,7 +276,7 @@ describe('round 2 city: layout', () => {
     // holes in the land and the shelf's land with the lake filled in, the pass's bank on its south wall, and seven hills, with
     // their scrub, in the valley); and when Lake Lomas and Pinewood were laid out (the dock's two piers on the lake, four cabins,
     // some 2,700 pines and a few hundred oaks and bushes in the wood and the valley's north).
-    expect(layoutHash()).toBe('0046b68ce998ff0483ebaa92476e0177c01cde9ceb40e63264294d3460311abe');
+    expect(layoutHash()).toBe('7581940c236b01ce2889f9e9791610f7909db0f592bcae3dbaa5604b075b0e63');
   });
 
   it('assigns a ground floor to every building with street frontage, by district and kind', () => {

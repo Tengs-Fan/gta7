@@ -344,15 +344,16 @@ The valley after its reshape (a wandering loop, a ragged lake, seven hills and a
 With the traffic and the people gone Lookout Point facing west draws 147 calls (144 before the reshape, 110 before the valley) and the Coyote T facing west down the pass 168 (157 and 124): the boulders are a mesh in each cell the pass crosses, three or four of them, and the hills' scrub a few more.
 The hills cost the ground no more than they cover: a piece of land is meshed on the 2 m lattice only inside the bounds of a rise that reaches it, and flat quads elsewhere, so a rise no bigger than its slopes keeps the near mesh of the cells round it small (the ridge's cells are as before).
 
-Lake Lomas and Pinewood on 2026-11-02 (`--scenario perf`, now with two more valley segments, at the playtest's default 1600x900) through the same script on the head and on a build of the valley it grew from (b858129), every valley segment at 57-60 fps with no console errors; the box carried a load average of 20 to 30 and other agents' Chromiums on the same GPU, so frame times are not compared (the city's scenes, which the lakeland is nowhere near, read 45-51 fps on the head and 60 before: the box's, as their draw calls, 936 against 979 and 806 against 800, show).
+Lake Lomas and Pinewood on 2026-11-02 (`--scenario perf`, now with two more valley segments, at the playtest's default 1600x900) through the same script on the head and on a build of the valley it grew from (b858129), every segment of the head at 60 fps with no console errors and 2.5 to 7.5 ms of CPU a frame (the valley's segments 2.5 to 6.9 ms).
+The before run was made with a load average of 14 to 43 and other agents' Chromiums on the same GPU, so its frame times (4 to 40 ms) and its dips to 49-58 fps are the box's and are not compared; the draw calls and triangles are:
 
 | Scene | Draw calls before | after | Triangles before | after |
 | --- | ---: | ---: | ---: | ---: |
-| valley-from-ridge-noon (the crest above the pass, facing west) | 163 | 243 | 0.71 M | 1.35 M |
-| lake-dusk (Lake Lomas's east shore, facing west) | 105 | 205 | 0.34 M | 0.92 M |
-| pinewood-noon (the loop's east side, facing the wood) | 361 | 454 | 1.54 M | 2.20 M |
-| campfire-night (the camp, facing the fire) | 102 | 177 | 0.34 M | 0.75 M |
-| valley-pass-drive (through Coyote Pass at noon) | 130 | 214 | 0.36 M | 0.91 M |
+| valley-from-ridge-noon (the crest above the pass, facing west) | 163 | 243 | 0.71 M | 1.36 M |
+| lake-dusk (Lake Lomas's east shore, facing west) | 105 | 203 | 0.34 M | 0.92 M |
+| pinewood-noon (the loop's east side, facing the wood) | 361 | 437 | 1.54 M | 2.17 M |
+| campfire-night (the camp, facing the fire) | 102 | 177 | 0.34 M | 0.76 M |
+| valley-pass-drive (through Coyote Pass at noon) | 130 | 216 | 0.36 M | 0.93 M |
 
 With the traffic and the people gone (the round's `diag.mjs`, which also hides each group of the lakeland's meshes in turn) the same views draw 215, 183, 419 and 157 calls against 151, 105, 362 and 102 before, and 1.22, 0.78, 2.08 and 0.64 M triangles against 0.68, 0.33, 1.54 and 0.34 M.
 The pines are 19 of pinewood-noon's calls and 0.35 M of its triangles (shadows included), the valley's oaks 16 and 0.09 M, its bushes 4 and 0.07 M, the kit's meshes, the reeds, the flowers, the rocks and the lights 2 to 12 calls and under 0.05 M each.
