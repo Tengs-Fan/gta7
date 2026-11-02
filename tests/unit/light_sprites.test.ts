@@ -472,6 +472,7 @@ describe("a headlight pool's light", () => {
     // headlights unless it is on the short list of what stays dark by design.
     const dark: Record<string, string> = {
       'ground-decor': 'the street decor (planters, steps, porches), in the buildings\' fog program, a few square metres at each shop',
+      'oddity-models': 'the roadside oddities\' roofs, decks and floors (a flatbed\'s, the bus\'s, the stand\'s), standing in fields where no car drives or person walks',
     };
     const ground = new Map<string, THREE.Material>();
     const unlit: string[] = [];

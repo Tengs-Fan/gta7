@@ -23,6 +23,7 @@ import { FieldsView } from './fields';
 import { buildCountryGround } from './ground';
 import { buildHills } from './hills';
 import { PlacesKit } from './kit';
+import { buildOddities } from './oddities';
 import { buildPoles } from './poles';
 import { Reflectors } from './reflectors';
 import { buildCountryRoads } from './roads';
@@ -42,7 +43,7 @@ export class CountryView {
   readonly fields: FieldsView;
   private readonly sun = new THREE.Vector3();
   private readonly moon = new THREE.Vector3();
-  /** What the places animate each frame: Moo-Moo's neon cow, the drive-in's screen. */
+  /** What the places animate each frame: Moo-Moo's neon cow, the drive-in's screen, the saucer's beacon. */
   private readonly animated: Array<(night: number, time: number, sim: ViewState | null) => void> = [];
   /** The drive-in's cars flash their lights at a horn (driveInShush). */
   readonly shush: (time: number) => void;
@@ -73,6 +74,7 @@ export class CountryView {
     this.animated.push(driveIn.update);
     this.shush = driveIn.shush;
     buildTrack(this, kit);
+    this.animated.push(buildOddities(this, kit));
     kit.finish(this);
   }
 

@@ -71,7 +71,7 @@ export function pumpGeometry(): THREE.BufferGeometry {
  * Paints a band of a lit sign: the board and its letters, and in the glow its letters alone at SIGN_GLOW (the signs'
  * material outshines the city's lamps after dark: CityView.update).
  */
-function sign(kit: PlacesKit, lines: ReadonlyArray<readonly [string, number]>, fg: string, bg: string, h = 128): [number, number] {
+export function sign(kit: PlacesKit, lines: ReadonlyArray<readonly [string, number]>, fg: string, bg: string, h = 128): [number, number] {
   return kit.atlas.band(h, (ctx) => {
     const glow = ctx.canvas !== kit.atlas.canvas;
     ctx.fillStyle = glow ? '#000' : bg;

@@ -11,8 +11,12 @@ import { GeoBuilder, type RGB } from '../geo';
 import { toTexture } from '../textures/misc';
 import type { CountryView } from './index';
 
-/** The places' atlas: 1024 by ATLAS_H px. */
-const ATLAS_H = 4096;
+/**
+ * The places' atlas: 1024 by ATLAS_H px. The places' own boards took 4,696 px (their last three bands, the track's, ran off
+ * the 4,096 the atlas was and drew as streaks of the edge's colour), and the roadside oddities' add 1,306 more (Atlas.band
+ * fails the build rather than let one run off again).
+ */
+const ATLAS_H = 6144;
 /** The height of the places' dirt over the flush ground. */
 export const DIRT_Y = 0.035;
 

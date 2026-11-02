@@ -82,6 +82,7 @@ export class Atlas {
 
   /** A band `h` px tall drawn by `draw` (its origin at the band's top left), in the glow too if `lit`; its v range, bottom to top. */
   band(h: number, draw: (ctx: CanvasRenderingContext2D) => void, lit = false): [number, number] {
+    if (this.y + h > this.height) throw new Error(`The atlas is full: a band of ${h} px at ${this.y} of ${this.height}`);
     for (const ctx of lit ? [this.ctx, this.glow] : [this.ctx]) {
       ctx.save();
       if (ctx === this.glow) ctx.scale(1 / GLOW_SHRINK, 1 / GLOW_SHRINK);
