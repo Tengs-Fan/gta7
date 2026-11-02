@@ -22,6 +22,12 @@ const DROP_OFF = 25;
 /** Shallows colour over sand, and the wet sand seen through the thinnest water (sRGB). */
 const SHALLOW = 0x2fa89e;
 const SAND_TINT = 0x86a89a;
+/** Fresh water inside Lake Lomas's box: its shallows, the muddy bed seen through the thinnest water, and the body's colour (sRGB). */
+const LAKE_SHALLOW = new THREE.Color(0x4f7d57);
+const LAKE_MUD = new THREE.Color(0x6b6a47);
+const LAKE_MID = new THREE.Color(0x143f3c);
+/** The share of the surf bands and the swash taken off inside the lake's box (a lake has ripples at its shore, not breakers). */
+const LAKE_SURF = 0.85;
 /**
  * The water's own colour by the quays (the material's), in open water past ~9 m and far offshore (sRGB): the light
  * scattered back up out of the water body, dark and greyed, so that most of what open water shows is the sky's
@@ -232,6 +238,8 @@ export function seaShelfDepth(simDepth: number, outside: number): number {
  */
 export interface CountyShore {
   box: Rect;
+  /** The box round Lake Lomas's water, which the sea shader draws as fresh water. */
+  lake: Rect;
   /** WATER_Y less the county's ground (m, negative on land), row by row along +x, the rows going +z. */
   depth: Float32Array;
   land: readonly Rect[];
@@ -253,7 +261,7 @@ export function countyShore(country: Country): CountyShore {
       depth[j * NX + i] = THREE.DataUtils.fromHalfFloat(THREE.DataUtils.toHalfFloat(WATER_Y - countryGround(country, x, z)));
     }
   }
-  return { box: b, depth, land: country.shelf };
+  return { box: b, lake: country.lake, depth, land: country.shelf };
 }
 
 /** CPU twin of the shader's seaCountyDepth: the county's map sampled bilinearly at (x, z) inside its box, else Infinity. */
@@ -320,22 +328,22 @@ export function seaDrawnDepth(b: Bounds, x: number, z: number, county?: CountySh
   return seaShelfDepth(seaDepthCpu(b, x, z, county), outsideLand(b, x, z, county));
 }
 
-/** CPU twin of the shader's seaOnBeach: 1 where the surf bands and the swash may run, fading to 0 off the city's beach. */
+/** CPU twin of the shader's seaOnBeach: 1 where the surf bands and the swash may run, fading to 0 off the city's beach, and mostly off in Lake Lomas's box. */
 export function seaOnBeach(b: Bounds, x: number, z: number, county?: CountyShore): number {
-  if (county && rectContains(county.box, x, z)) return 1;
+  if (county && rectContains(county.box, x, z)) return rectContains(county.lake, x, z) ? 1 - LAKE_SURF : 1;
   const xc = clamp(x, b.beachStartX, b.beachEndX + DROP_OFF);
   return 1 - smooth(0, 4, Math.hypot(x - xc, z - clamp(z, b.landMinZ, b.landMaxZ)));
 }
 
 /**
  * CPU twin of the shader's seaShallows: the sea's albedo over water `depth` m deep with the drawn shelf `shelf` m deep,
- * for the material's own colour `mid` (linear), into `out`.
+ * for the material's own colour `mid` (linear), into `out`; `lake` for a point inside Lake Lomas's box (fresh water).
  */
-export function seaShallowsCpu(u: SeaUniforms, mid: THREE.Color, depth: number, shelf: number, out: THREE.Color): THREE.Color {
-  out.copy(u.uShallow.value).lerp(mid, smooth(0, 3, depth));
+export function seaShallowsCpu(u: SeaUniforms, mid: THREE.Color, depth: number, shelf: number, out: THREE.Color, lake = false): THREE.Color {
+  out.copy(lake ? LAKE_SHALLOW : u.uShallow.value).lerp(lake ? LAKE_MID : mid, smooth(0, 3, depth));
   out.lerp(u.uSeaDeep.value, smooth(3, 9, shelf));
   out.lerp(u.uSeaAbyss.value, smooth(9, 30, shelf));
-  return out.lerpColors(u.uSandTint.value, out, smooth(0, 0.15, depth));
+  return out.lerpColors(lake ? LAKE_MUD : u.uSandTint.value, out, smooth(0, 0.15, depth));
 }
 
 /**
@@ -402,6 +410,8 @@ export interface SeaUniforms extends SeaWaveUniforms {
   /** Las Lomas County's depth map (countyShore; none until setCountyShore), and its box: minX, minZ, 1 / width, 1 / depth. */
   uCountyDepth: { value: THREE.DataTexture | null };
   uCountyBox: { value: THREE.Vector4 };
+  /** Lake Lomas's box (minX, minZ, maxX, maxZ; far away until setCountyShore), whose water is fresh. */
+  uLakeBox: { value: THREE.Vector4 };
   /** The county's land rectangles (minX, minZ, maxX, maxZ) the drawn shelf falls away from; unused slots lie far away. */
   uCountyLand: { value: THREE.Vector4[] };
 }
@@ -462,6 +472,7 @@ export function seaUniforms(): SeaUniforms {
     uNight: { value: 0 },
     uCountyDepth: { value: null },
     uCountyBox: { value: new THREE.Vector4(1e6, 1e6, 1, 1) },
+    uLakeBox: { value: new THREE.Vector4(1e6, 1e6, 1e6, 1e6) },
     uCountyLand: { value: Array.from({ length: MAX_COUNTY_LAND }, () => new THREE.Vector4(1e6, 1e6, 1e6, 1e6)) },
   };
 }
@@ -486,6 +497,7 @@ export function setCountyShore(u: SeaUniforms, c: CountyShore): void {
   u.uCountyDepth.value = tex;
   const b = c.box;
   u.uCountyBox.value.set(b.minX, b.minZ, 1 / (b.maxX - b.minX), 1 / (b.maxZ - b.minZ));
+  u.uLakeBox.value.set(c.lake.minX, c.lake.minZ, c.lake.maxX, c.lake.maxZ);
   u.uCountyLand.value.forEach((v, i) => {
     const r = c.land[i];
     if (r) v.set(r.minX, r.minZ, r.maxX, r.maxZ);
@@ -574,6 +586,7 @@ export function seaHeightAt(u: SeaWaveUniforms | null, x: number, z: number): nu
   return seaHeight(seaSurface(u, scratchSurface), x, z) * displace;
 }
 
+const vec3Glsl = (c: THREE.Color): string => `vec3(${[c.r, c.g, c.b].map((v) => v.toFixed(4)).join(', ')})`;
 const n = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));
 
 /**
@@ -587,6 +600,7 @@ uniform vec4 uShoreLand;
 uniform vec4 uShoreBeach;
 uniform sampler2D uCountyDepth;
 uniform vec4 uCountyBox;
+uniform vec4 uLakeBox;
 uniform vec4 uCountyLand[${MAX_COUNTY_LAND}];
 uniform float uQuayPhase;
 uniform vec2 uFoamDrift;
@@ -603,6 +617,10 @@ float seaOffCut(vec2 p) {
     if (p.x > r.x - 3.0 && p.x < r.z + 3.0 && p.y > r.y - 3.0 && p.y < r.w + 3.0) return 0.0;
   }
   return 1.0;
+}
+/** 1 inside Lake Lomas's box (its water is fresh and has no surf), else 0. */
+float seaInLake(vec2 p) {
+  return step(uLakeBox.x, p.x) * step(p.x, uLakeBox.z) * step(uLakeBox.y, p.y) * step(p.y, uLakeBox.w);
 }
 /** 1 inside Las Lomas County's box (its land and beaches), else 0. */
 float seaInCounty(vec2 p) {
@@ -633,7 +651,7 @@ float seaBeachOut(vec2 p) {
 }
 /** 1 where the surf bands and the swash may run: over the city's beach and off its ends, and round the county, all beach. */
 float seaOnBeach(vec2 p) {
-  return max(1.0 - smoothstep(0.0, 4.0, seaBeachOut(p)), seaInCounty(p));
+  return max(1.0 - smoothstep(0.0, 4.0, seaBeachOut(p)), seaInCounty(p)) * (1.0 - ${n(LAKE_SURF)} * seaInLake(p));
 }
 float seaDepthAt(vec2 p) {
   float x = clamp(p.x, uShoreBeach.x, uShoreLand.w + ${n(DROP_OFF)});
@@ -750,11 +768,13 @@ float seaFoam(vec2 p, float depth, vec4 sh, vec3 b, float e, float noise, float 
  */
 vec3 seaShallows(vec3 mid, float depth, vec2 p) {
   float shelf = seaShelf(p, depth);
-  vec3 c = mix(uShallow, mid, smoothstep(0.0, 3.0, depth));
+  // Inside Lake Lomas's box (its water lies in holes in the land; the box holds no sea) the water is fresh: greener and darker, over mud.
+  float lake = seaInLake(p);
+  vec3 c = mix(mix(uShallow, ${vec3Glsl(LAKE_SHALLOW)}, lake), mix(mid, ${vec3Glsl(LAKE_MID)}, lake), smoothstep(0.0, 3.0, depth));
   // Overlapping ramps, so the colour keeps darkening steadily with depth rather than pausing between them.
   c = mix(c, uSeaDeep, smoothstep(3.0, 9.0, shelf));
   c = mix(c, uSeaAbyss, smoothstep(9.0, 30.0, shelf));
-  return mix(uSandTint, c, smoothstep(0.0, 0.15, depth));
+  return mix(mix(uSandTint, ${vec3Glsl(LAKE_MUD)}, lake), c, smoothstep(0.0, 0.15, depth));
 }
 `;
 

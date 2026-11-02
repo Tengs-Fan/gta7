@@ -211,7 +211,8 @@ describe('the county\'s beaches as the sea draws them', () => {
       for (let x = box.minX; x <= box.maxX; x += 3) {
         if (!(seaDepthCpu(b, x, z, county) > 0)) continue;
         n++;
-        expect(seaOnBeach(b, x, z, county)).toBe(1);
+        // (Lake Lomas's box takes most of the surf off: see the lake's water below.)
+        expect(seaOnBeach(b, x, z, county)).toBe(rectContains(LAKE, x, z) ? 1 - 0.85 : 1);
         // outsideLand without the county is the shader's seaQuay: the quay strip is out of reach.
         expect(outsideLand(b, x, z)).toBeGreaterThan(QUAY_REACH * 50);
       }
@@ -272,6 +273,46 @@ describe('the county\'s beaches as the sea draws them', () => {
       expect([r.x, r.y, r.z, r.w]).toEqual(land ? [land.minX, land.minZ, land.maxX, land.maxZ] : [1e6, 1e6, 1e6, 1e6]);
     });
     tex.dispose();
+  });
+});
+
+describe('Lake Lomas\'s water is fresh', () => {
+  const u = seaUniforms();
+  const mid = new THREE.Color(SEA_MID);
+  const hsl = { h: 0, s: 0, l: 0 };
+  const hue = (depth: number, lake: boolean) => seaShallowsCpu(u, mid, depth, depth, new THREE.Color(), lake).convertLinearToSRGB().getHSL(hsl).h * 360;
+
+  it('its shallows are green where the sea\'s are turquoise, its thinnest water muddy where the sea\'s is sand-tinted, and its body darker', () => {
+    expect(hue(1, false)).toBeGreaterThan(160);
+    expect(hue(1, false)).toBeLessThan(190);
+    expect(hue(1, true)).toBeGreaterThan(90);
+    expect(hue(1, true)).toBeLessThan(150);
+    const bed = (lake: boolean) => seaShallowsCpu(u, mid, 0, 0, new THREE.Color(), lake);
+    expect(bed(true).equals(bed(false))).toBe(false);
+    expect(bed(true).r).toBeGreaterThan(bed(true).b);
+    const body = (lake: boolean) => seaShallowsCpu(u, mid, 6, 6, new THREE.Color(), lake);
+    expect(body(true).getHSL(hsl).l).toBeLessThan(body(false).getHSL(hsl).l);
+    expect(body(true).equals(body(false))).toBe(false);
+  });
+
+  it('has no surf line along its shore, and the sea\'s own beaches keep theirs', () => {
+    const lake = world().layout.country.lake;
+    const cx = (lake.minX + lake.maxX) / 2;
+    const cz = (lake.minZ + lake.maxZ) / 2;
+    expect(seaOnBeach(b, cx, cz, county)).toBeCloseTo(0.15, 12);
+    expect(seaOnBeach(b, lake.minX - 5, cz, county)).toBe(1);
+    expect(seaOnBeach(b, lake.maxX + 5, lake.maxZ + 5, county)).toBe(1);
+  });
+
+  it('the shader takes the box as a uniform, tests it in the shallows and the beach foam, and the county uploads it', () => {
+    expect(SHORE_GLSL).toContain('float lake = seaInLake(p);');
+    expect(SHORE_GLSL).toContain('* (1.0 - 0.85 * seaInLake(p))');
+    const u2 = seaUniforms();
+    expect(u2.uLakeBox.value.x).toBeGreaterThan(1e5);
+    setCountyShore(u2, county);
+    const l = county.lake;
+    expect(u2.uLakeBox.value.toArray()).toEqual([l.minX, l.minZ, l.maxX, l.maxZ]);
+    u2.uCountyDepth.value!.dispose();
   });
 });
 
