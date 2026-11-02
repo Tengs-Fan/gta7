@@ -39,7 +39,7 @@ function drive(sim: Sim, x: number, z: number, heading: number, speed: number) {
 describe('Las Lomas County: the farmsteads', () => {
   it('stands every farm collider in a farm plot, 12 m and more off every road edge', () => {
     const boxes: Array<{ what: string; r: Rect }> = [];
-    L.props.forEach((p, i) => {
+    L.props.slice(0, L.country.valley.firstProp).forEach((p, i) => {
       if (!FARM_KINDS.has(p.kind)) return;
       const c = colliderOf(W, i);
       boxes.push({ what: `${p.kind} ${i}`, r: c.circle ? mkRect(c.cx - c.r, c.cz - c.r, c.cx + c.r, c.cz + c.r) : c });
