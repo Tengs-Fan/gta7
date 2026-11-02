@@ -1,6 +1,6 @@
-// The ambience bed: city hum, traffic wash, wind, surf and crowd murmur as looping layers,
-// plus rate-limited one-shots (birds, gulls, crickets, far horns, dogs, a distant siren),
-// and the cemetery chapel's bell, tolling twelve at noon and at midnight.
+// The ambience bed: city hum, traffic wash, wind, surf, crowd murmur and the campground's crackling campfire as looping
+// layers, plus rate-limited one-shots (birds, gulls, crickets, far horns, dogs, a distant siren, cows, and Lake Lomas's loons
+// and ducks at dawn and dusk), and the cemetery chapel's bell, tolling twelve at noon and at midnight.
 // The layers are a fixed set of about two dozen nodes.
 // Their loops are generated procedurally (no files), one per frame after start-up,
 // and only their gains, filters and pans move afterwards.
@@ -15,6 +15,7 @@
 import { clamp, smoothstep } from '../core/math';
 import { WATER_Y } from '../world/constants';
 import { countryGround, LAKE, type Country } from '../world/country';
+import { campfireLit } from '../world/country/lakeland';
 import { beachOffsetAt, rectContains, type Bounds, type District, type Rect } from '../world/layout';
 import { Glider, OPEN_HZ, dbToGain, withinParam } from './mixer';
 
@@ -33,6 +34,9 @@ export interface AmbienceInput {
   inVehicle: boolean;
   /** Wanted level: the rare distant siren only plays at 0 stars. */
   wanted?: number;
+  /** Metres to Lake Lomas's water (0 over it) and to the campground's fire: the loons, the ducks and the crackle are heard within their ranges. */
+  lakeDist?: number;
+  fireDist?: number;
 }
 
 export interface AmbienceLevels {
@@ -50,6 +54,11 @@ export interface AmbienceLevels {
   siren: number;
   /** Cows lowing across the fields: Las Lomas County's farms only. */
   moos: number;
+  /** Loons and ducks calling on Lake Lomas, at dawn and dusk. */
+  loons: number;
+  ducks: number;
+  /** The campfire's crackle, 0..1: it burns from dusk to dawn (campfireLit) and carries FIRE_RANGE m. */
+  fire: number;
 }
 
 interface DistrictMood {
@@ -254,17 +263,30 @@ export function ambienceTargets(i: AmbienceInput, out?: AmbienceLevels): Ambienc
   o.horns = k * m.horns * (0.25 + 0.75 * traffic) * (0.4 + 0.6 * day);
   o.siren = (i.wanted ?? 0) > 0 ? 0 : k * m.hum;
   o.moos = i.district === 'country' ? k * street * (0.4 + 0.6 * day) : 0;
+  // Lake Lomas's loons wail and its ducks quack at dawn and dusk, from the water out to a few hundred metres; the campfire
+  // crackles within FIRE_RANGE of it while it burns.
+  const lake = 1 - smoothstep(LAKE_NEAR, LAKE_FAR, Number.isFinite(i.lakeDist) ? Math.max(0, i.lakeDist!) : 1e4);
+  const twilight = Math.max(timeWindow(h, 4.8, 8.2, 0.9), timeWindow(h, 17.4, 20.8, 0.9));
+  o.loons = k * lake * twilight;
+  o.ducks = k * lake * (0.12 + 0.88 * twilight);
+  o.fire = k * campfireLit(h) * (1 - smoothstep(FIRE_NEAR, FIRE_RANGE, Number.isFinite(i.fireDist) ? Math.max(0, i.fireDist!) : 1e4));
   return o;
 }
 
+/** The lake's calls are heard from its water out to LAKE_FAR m, full to LAKE_NEAR; the campfire's crackle full to FIRE_NEAR m, gone past FIRE_RANGE. */
+const LAKE_NEAR = 90;
+const LAKE_FAR = 340;
+const FIRE_NEAR = 6;
+export const FIRE_RANGE = 70;
+
 /** Calibrated gain of each layer at level 1 (before the bus and master chain). */
-const LAYER_GAIN = { cityHum: 0.09, trafficWash: 0.16, wind: 0.18, surf: 0.036, murmur: 0.05 };
+const LAYER_GAIN = { cityHum: 0.09, trafficWash: 0.16, wind: 0.18, surf: 0.036, murmur: 0.05, fire: 0.12 };
 
 /** Peak gain of each one-shot (scaled by a random distance). */
-const ONE_SHOT_GAIN = { birds: 0.05, gulls: 0.05, crickets: 0.03, dogs: 0.05, horns: 0.03, siren: 0.022, moos: 0.04 };
+const ONE_SHOT_GAIN = { birds: 0.05, gulls: 0.05, crickets: 0.03, dogs: 0.05, horns: 0.03, siren: 0.022, moos: 0.04, loons: 0.065, ducks: 0.05 };
 
 /** One-shots per second at density 1. */
-const ONE_SHOT_RATE = { birds: 0.45, gulls: 0.2, crickets: 1, dogs: 0.05, horns: 0.07, siren: 0.006, moos: 0.04 };
+const ONE_SHOT_RATE = { birds: 0.45, gulls: 0.2, crickets: 1, dogs: 0.05, horns: 0.07, siren: 0.006, moos: 0.04, loons: 0.14, ducks: 0.2 };
 
 /** At most two ambience one-shots start per second. */
 export const ONE_SHOT_GAP = 0.5;
@@ -414,6 +436,31 @@ function addVoice(d: Float32Array, rate: number, rnd: () => number, f0: number, 
   }
 }
 
+/**
+ * A campfire's crackle: a low rumble of burning wood under a faint hiss, and pops of every size (most of them small) about
+ * fourteen a second, each a few milliseconds of noise dying away.
+ */
+export function crackleNoise(d: Float32Array, rate: number, rnd: () => number): void {
+  let b = 0;
+  let hiss = 0;
+  for (let i = 0; i < d.length; i++) {
+    b = (b + 0.02 * (rnd() * 2 - 1)) / 1.02;
+    hiss += (rnd() * 2 - 1 - hiss) * 0.35;
+    d[i] = b * 0.9 + hiss * 0.05;
+  }
+  const pops = Math.round((d.length / rate) * 14);
+  for (let k = 0; k < pops; k++) {
+    const at = Math.floor(rnd() * (d.length - rate * 0.05));
+    const len = Math.max(2, Math.floor(rate * (0.002 + rnd() * rnd() * 0.03)));
+    const amp = (0.15 + rnd() * rnd() * 1.4) * (rnd() < 0.5 ? -1 : 1);
+    let y = 0;
+    for (let j = 0; j < len; j++) {
+      y += (rnd() * 2 - 1 - y) * 0.7;
+      d[at + j] = d[at + j]! + y * Math.exp((-6 * j) / len) * amp;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 interface Layer {
@@ -427,6 +474,9 @@ export interface AmbienceFrame extends AmbienceInput {
   trafficPan: number;
   /** Metres to Eternal Palms Cemetery's bell tower and the pan toward it (none: no bell in earshot). */
   bell?: { dist: number; pan: number };
+  /** The pan (-1 left .. 1 right) toward Lake Lomas and toward the campground's fire. */
+  lakePan?: number;
+  firePan?: number;
 }
 
 /** The chapel bell is heard within BELL_RANGE m: BELL_STRIKES strokes BELL_GAP s apart when the clock passes 0:00 or 12:00. */
@@ -471,6 +521,7 @@ export class Ambience {
   private readonly wind: Layer;
   private readonly surf: Layer;
   private readonly murmur: Layer;
+  private readonly fire: Layer;
   private readonly humFilter: BiquadFilterNode;
   private readonly trafficFilter: BiquadFilterNode;
   private readonly windFilter: BiquadFilterNode;
@@ -522,6 +573,7 @@ export class Ambience {
     this.wind = layer(false);
     this.surf = layer(true);
     this.murmur = layer(false);
+    this.fire = layer(true);
     this.humFilter = filter('lowpass', 200, 0.7);
     this.humFilter.connect(this.hum.level);
     this.trafficFilter = filter('bandpass', 650, 0.55);
@@ -564,6 +616,7 @@ export class Ambience {
         this.surfSource = start(makeLoop(ctx, 12.5, rate, (d, ch) => surfNoise(d, rate, 12.5, rnd, ch * 0.02)), this.surfFilter);
       },
       () => start(makeLoop(ctx, 4, rate, (d) => murmurNoise(d, rate, rnd)), this.murmur.level),
+      () => start(makeLoop(ctx, 7, rate, (d) => crackleNoise(d, rate, rnd)), this.fire.level),
     );
   }
 
@@ -584,6 +637,8 @@ export class Ambience {
     g.set(this.wind.level.gain, l.wind * LAYER_GAIN.wind, now, tau);
     g.set(this.surf.level.gain, l.surf * LAYER_GAIN.surf, now, tau);
     g.set(this.murmur.level.gain, l.murmur * LAYER_GAIN.murmur, now, tau);
+    g.set(this.fire.level.gain, l.fire * LAYER_GAIN.fire, now, 0.4);
+    if (this.fire.pan) g.set(this.fire.pan.pan, clamp(f.firePan ?? 0, -0.9, 0.9), now, 0.2, 0, 0.03);
     // The farther the surf, the darker it gets.
     const shore = Number.isFinite(f.shoreDist) ? f.shoreDist : 1e4;
     g.set(this.surfFilter.frequency, 1200 + 4800 * clamp(1 - (shore - 15) / 165, 0, 1), now, 1);
@@ -687,7 +742,97 @@ export class Ambience {
       case 'moos':
         this.moo(this.shotOut(side, ONE_SHOT_GAIN.moos * near), t);
         break;
+      case 'loons':
+        this.loon(this.shotOut((f.lakePan ?? 0) * 0.7 + side * 0.3, ONE_SHOT_GAIN.loons * near), t);
+        break;
+      case 'ducks':
+        this.duck(this.shotOut((f.lakePan ?? 0) * 0.7 + side * 0.3, ONE_SHOT_GAIN.ducks * near), t);
+        break;
     }
+  }
+
+  /**
+   * A loon's wail across the water: a sine gliding up an octave-ish and settling, a quavering vibrato on it and a ghost of the
+   * second harmonic, a slow swell in and out; a quieter, duller echo comes back off the far shore half a second later.
+   */
+  private loon(o: ShotOut, t: number): void {
+    const ctx = this.ctx;
+    const r = this.random;
+    const len = 1.5 + r() * 0.8;
+    const f0 = 500 + r() * 90;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 2600;
+    const g = this.envGain(ctx.currentTime);
+    g.gain.linearRampToValueAtTime(o.level, t + 0.3);
+    g.gain.setValueAtTime(o.level, t + len * 0.55);
+    g.gain.linearRampToValueAtTime(0, t + len);
+    const vib = ctx.createOscillator();
+    vib.frequency.value = 5 + r() * 2.5;
+    for (const [mult, gain] of [[1, 1], [2.01, 0.28]] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = mult === 1 ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(f0 * 0.82 * mult, t);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 1.6 * mult, t + len * 0.42);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 1.28 * mult, t + len);
+      const depth = ctx.createGain();
+      depth.gain.value = 16 * mult;
+      vib.connect(depth);
+      depth.connect(osc.frequency);
+      const part = ctx.createGain();
+      part.gain.value = gain;
+      osc.connect(part);
+      part.connect(lp);
+      osc.start(t + 1 / ctx.sampleRate);
+      osc.stop(t + len + 0.05);
+    }
+    vib.start(t + 1 / ctx.sampleRate);
+    vib.stop(t + len + 0.05);
+    lp.connect(g);
+    g.connect(o.node);
+    const echo = ctx.createDelay(1);
+    echo.delayTime.value = 0.5;
+    const back = ctx.createGain();
+    back.gain.value = 0.28;
+    const dull = ctx.createBiquadFilter();
+    dull.type = 'lowpass';
+    dull.frequency.value = 1100;
+    g.connect(echo);
+    echo.connect(dull);
+    dull.connect(back);
+    back.connect(o.node);
+  }
+
+  /** A duck's quacks: two to five rasping notes, each falling off in pitch, quieter one after another. */
+  private duck(o: ShotOut, t: number): void {
+    const ctx = this.ctx;
+    const r = this.random;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1100 + r() * 300;
+    bp.Q.value = 2.4;
+    const g = this.envGain(ctx.currentTime);
+    const quacks = 2 + Math.floor(r() * 4);
+    const f0 = 320 + r() * 90;
+    let tt = t;
+    for (let i = 0; i < quacks; i++) {
+      const len = 0.1 + r() * 0.06;
+      const level = o.level * (1 - i * 0.14);
+      osc.frequency.setValueAtTime(f0 * 1.08, tt);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 0.72, tt + len);
+      g.gain.setValueAtTime(0, tt);
+      g.gain.linearRampToValueAtTime(level, tt + 0.012);
+      g.gain.setValueAtTime(level * 0.8, tt + len * 0.7);
+      g.gain.linearRampToValueAtTime(0, tt + len);
+      tt += len + 0.06 + r() * 0.08;
+    }
+    osc.connect(bp);
+    bp.connect(g);
+    g.connect(o.node);
+    osc.start(t + 1 / ctx.sampleRate);
+    osc.stop(tt + 0.05);
   }
 
   /** A cow lowing far off: a low sawtooth rising and sagging through an "oo", a long nasal tail. */

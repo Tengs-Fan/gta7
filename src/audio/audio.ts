@@ -11,6 +11,7 @@ import { lampDarkness, lampsLit } from '../sim/lamps';
 import { playerOf, type PlayerView, type ViewState } from '../sim/viewState';
 import type { VehicleKind, WeaponId } from '../sim/specs';
 import { attractionOf } from '../world/attractions';
+import { lakeGap } from '../world/country/lakeland';
 import type { Rect } from '../world/layout';
 import type { StaticWorld } from '../world/staticWorld';
 import { Ambience, shoreInfo, whisperDue, type AmbienceFrame, type ShoreInfo } from './ambience';
@@ -40,6 +41,15 @@ export type HitConfirm = 'hit' | 'kill' | 'head';
 const CONFIRM_RANK: Readonly<Record<HitConfirm, number>> = { hit: 0, head: 1, kill: 2 };
 
 /** AudioParams throw on NaN / Infinity, so every computed value is checked before use. */
+/** The pan (-1..1) toward (dx, dz) of a listener whose right is (rx, rz); 0 when it is right on top of him. */
+function bearingPan(dx: number, dz: number, rx: number, rz: number): number {
+  const d = Math.hypot(dx, dz);
+  return d > 1 ? (dx * rx + dz * rz) / d : 0;
+}
+
+/** The middle of Lake Lomas's water (its loons' and ducks' calls come from that way). */
+const LAKE_CENTRE = { x: -2030, z: -270 };
+
 function finite(...xs: number[]): boolean {
   for (const x of xs) if (!Number.isFinite(x)) return false;
   return true;
@@ -1200,6 +1210,13 @@ export class AudioEngine {
     const bz = (tower.minZ + tower.maxZ) / 2 - L.z;
     const bd = Math.hypot(bx, bz);
     f.bell = { dist: bd, pan: bd > 1 ? (bx * rx + bz * rz) / bd : 0 };
+    // Lake Lomas's loons and ducks, and the campground's fire: how far, and which way.
+    const lake = LAKE_CENTRE;
+    const fire = world.layout.country.lakeland.camp.fire;
+    f.lakeDist = lakeGap(L.x, L.z);
+    f.lakePan = bearingPan(lake.x - L.x, lake.z - L.z, rx, rz);
+    f.fireDist = Math.hypot(fire.x - L.x, fire.z - L.z);
+    f.firePan = bearingPan(fire.x - L.x, fire.z - L.z, rx, rz);
     this.ambience!.update(dt, t, f);
   }
 }
