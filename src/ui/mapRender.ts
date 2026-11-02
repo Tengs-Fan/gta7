@@ -13,8 +13,9 @@ import { packageIndex } from '../sim/pickups';
 import { BUSINESS_DAILY, BUSINESS_NAME, BUSINESS_PRICE, GARAGE_PRICE, GARAGE_SLOTS } from '../sim/properties';
 import { HELI_SIGHT } from '../sim/wanted';
 import { WATER_Y } from '../world/constants';
+import { LAKE } from '../world/country';
 import { FIRE_ROAD_W, fireRoadLine } from '../world/country/hills';
-import { beachOffsetAt, rectContains } from '../world/layout';
+import { beachOffsetAt, rectContains, rectsMinus } from '../world/layout';
 import { foreshoreReach, shores } from '../world/shore';
 import type { StaticWorld } from '../world/staticWorld';
 import { riseAt, riseBounds, type Rise } from '../world/terrain';
@@ -72,7 +73,9 @@ export class MapImage {
       ctx.fill();
     }
     for (const r of country.land) rect(r.minX, r.minZ, r.maxX, r.maxZ, COUNTY_COLORS.land);
-    for (const p of country.plots) rect(p.rect.minX, p.rect.minZ, p.rect.maxX, p.rect.maxZ, COUNTY_COLORS[p.kind]);
+    // The plots on the land; Lake Lomas, inside its plot, stays water.
+    for (const p of country.plots) for (const r of rectsMinus([p.rect], [LAKE])) rect(r.minX, r.minZ, r.maxX, r.maxZ, COUNTY_COLORS[p.kind]);
+    rect(LAKE.minX + 8, LAKE.minZ + 8, LAKE.maxX - 8, LAKE.maxZ - 8, '#1a4560');
     // Headlands, and the sea where it comes into the land.
     for (const h of world.layout.headlands) for (const r of h.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#3b4249');
     for (const w of world.layout.water) for (const r of w.rects) rect(r.minX, r.minZ, r.maxX, r.maxZ, '#1a4560');

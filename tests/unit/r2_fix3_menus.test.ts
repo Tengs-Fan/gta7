@@ -643,8 +643,9 @@ describe('the full-screen map without a mouse (medium)', () => {
     expect(scale() / base).toBeCloseTo(1.5 ** 4, 6);
     press({ zoomOut: true });
     expect(scale() / base).toBeCloseTo(1.5 ** 3.5, 6);
+    // Out as far as the whole county and the valley beyond it in one view (MIN_ZOOM, screens/map.ts).
     for (let i = 0; i < 12; i++) press({ zoomOut: true });
-    expect(scale() / base).toBeCloseTo(1, 6);
+    expect(scale() / base).toBeCloseTo(1.5 ** -2, 6);
   });
 
   it('a held direction or the stick pans the view, faster the further it is pushed', () => {

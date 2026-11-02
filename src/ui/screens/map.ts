@@ -23,8 +23,11 @@ import {
   type Blip,
   type MapCategory,
 } from '../mapRender';
-import { COUNTY_NAME } from '../../world/country';
+import { COUNTY_NAME, VALLEY_NAME } from '../../world/country';
 import { h, localPlayer, type MenuCtx } from './shared';
+
+/** The map zooms out to this many 1.5x steps (negative) from fitting the city, to show the county and the valley beyond it whole. */
+const MIN_ZOOM = -2;
 
 /** Full-screen map; `onClose` runs when it closes (opened from gameplay: resume the game). */
 export function showMap(menus: MenuCtx, onClose?: () => void): void {
@@ -271,6 +274,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     ctx.save();
     ctx.font = '700 22px Rajdhani, sans-serif';
     label(COUNTY_NAME.toUpperCase(), -1130, 0);
+    label(VALLEY_NAME.toUpperCase(), -1940, 20);
     ctx.restore();
     // The waypoint goes first, under the rest: a contact's L / D on the same spot stays on top; you go on top of all.
     const wp = menus.host.waypoint();
@@ -373,7 +377,7 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
     wheelT = e.timeStamp;
     if (dy === 0 || Math.abs(e.deltaX * unit) > Math.abs(dy)) return;
     const steps = newGesture ? 1 : Math.min(Math.abs(dy) / WHEEL_STEP, 1);
-    zoom = clamp(zoom - Math.sign(dy) * 0.5 * steps, 0, 4);
+    zoom = clamp(zoom - Math.sign(dy) * 0.5 * steps, MIN_ZOOM, 4);
   }, { passive: false });
   menus.push({
     el,
@@ -392,8 +396,8 @@ export function showMap(menus: MenuCtx, onClose?: () => void): void {
       if (ui.tab) stepPick(ui.tab);
       if (ui.padY) stepCategory();
       if (ui.padX) toggleLayer(rows[pick]?.category);
-      if (ui.zoomIn) zoom = clamp(zoom + 0.5, 0, 4);
-      if (ui.zoomOut) zoom = clamp(zoom - 0.5, 0, 4);
+      if (ui.zoomIn) zoom = clamp(zoom + 0.5, MIN_ZOOM, 4);
+      if (ui.zoomOut) zoom = clamp(zoom - 0.5, MIN_ZOOM, 4);
       // Each press (arrows / WASD, the D-pad) steps the view 60 px, also a tap whose key is up again before
       // Input polls and so is never seen held. Held, they and the left stick pan it on, by up to 0.8 of its
       // height a second (its size on the page, as the pointer handlers measure it), once let go since it opened.

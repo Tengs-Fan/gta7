@@ -1361,8 +1361,9 @@ describe('map wheel zoom', () => {
     expect(zoom()).toBeCloseTo(0.5, 6);
     wheel(-100, 20);
     expect(zoom()).toBeCloseTo(4, 6);
+    // Out as far as the whole county and the valley beyond it in one view (MIN_ZOOM, screens/map.ts).
     wheel(100, 20);
-    expect(zoom()).toBeCloseTo(0, 6);
+    expect(zoom()).toBeCloseTo(-2, 6);
   });
 });
 
