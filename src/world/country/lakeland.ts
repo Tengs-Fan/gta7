@@ -11,7 +11,7 @@ import { pointSegDist, smoothstep } from '../../core/math';
 import { Rng } from '../../core/rng';
 import type { AttractionSolid } from '../attractions';
 import { addProp, hashInts, mkRect, rectContains, rectsOverlap, type CityLayout, type Rect } from '../layout';
-import { COUNTRY_ROADS, countryGround, LAKE_RECTS } from './index';
+import { COUNTRY_ROADS, countryGround, DRIVE_CLEAR, LAKE_RECTS, MOUTH_CLEAR } from './index';
 import { buildLake } from './lake';
 import { buildWoods } from './woods';
 
@@ -176,8 +176,8 @@ export interface CountyLakeland {
   plaque: { x: number; z: number; rot: number };
   /** The places the map names: Lake Lomas's campground and the lookout. */
   labels: Array<{ name: string; x: number; z: number }>;
-  /** The first prop the lakeland added: every prop from `first` on is its (the forest's `pines`, the valley's scatter, then the `shade` oaks by the cabins and the camp). */
-  forest: { first: number; pines: number; shade: number };
+  /** The props the lakeland added are [first, end): the forest's `pines`, the valley's scatter, then the `shade` oaks by the cabins and the camp. */
+  forest: { first: number; end: number; pines: number; shade: number };
   /** Its solids (the tents, the van, the toilet, the tables, the ring, the boulders, the tower, the dock's lamp): StaticWorld adds their colliders after the places'. */
   solids: AttractionSolid[];
 }
@@ -201,7 +201,7 @@ export function noLakeland(): CountyLakeland {
     telescope: { x: 0, z: 0, rot: 0 },
     plaque: { x: 0, z: 0, rot: 0 },
     labels: [],
-    forest: { first: 0, pines: 0, shade: 0 },
+    forest: { first: 0, end: 0, pines: 0, shade: 0 },
     solids: [],
   };
 }
@@ -315,4 +315,9 @@ export function buildLakeland(layout: CityLayout): void {
   const keep: Keepout = { rects: [], lines: [] };
   buildLake(layout, land, rng, keep);
   buildWoods(layout, land, rng, keep);
+  land.forest.end = layout.props.length;
+  // Where each lane leaves the loop (the pull-out's, the cabins', the camp's, the track's) and its signs, for the poles to keep off.
+  const at = (x: number, z: number) => mkRect(x, z, x, z);
+  for (const lane of land.lanes) layout.country.approaches.push({ rect: at(lane.pts[0]!, lane.pts[1]!), pad: MOUTH_CLEAR });
+  for (const s of land.signs) layout.country.approaches.push({ rect: at(s.x, s.z), pad: DRIVE_CLEAR });
 }

@@ -43,6 +43,19 @@ describe('the telephone poles', () => {
     expect(per.filter((n) => n > 8).length).toBeGreaterThanOrEqual(3);
   });
 
+  it('extend to the valley\'s roads, the Pass Road and the Valley Loop, and stay out of the lake\'s and the farms\' drives', () => {
+    const inValley = odd.poles.filter((q) => q.x < -1560);
+    expect(inValley.length).toBeGreaterThan(50);
+    // The loop's 2.4 km take one every 40 m but where a junction, a drive or a lane's mouth is; the pass road's stretch across the ridge is the county's.
+    for (const [name, most] of [['Valley Loop', 40], ['Coyote Pass Road', 6]] as const) {
+      const road = COUNTRY_ROADS.find((r) => r.name === name)!;
+      const along = odd.poles.filter((q) => segDistToRoad(q.x, q.z, road.pts) < road.width / 2 + POLE.off + 0.5);
+      expect(along.length, name).toBeGreaterThanOrEqual(most);
+    }
+    // None within reach of a lane's mouth or a drive, in the valley as elsewhere.
+    for (const q of inValley) for (const a of country.approaches) expect(rectContains(a.rect, q.x, q.z, a.pad), `pole at ${q.x.toFixed(1)}, ${q.z.toFixed(1)}`).toBe(false);
+  });
+
   it(`stand ${POLE.off} m off the road's edge, never in a junction's mouth or within reach of an approach: a farm's drive, sign or mailbox, the drive-in's or Gravel Gulch's drive, the fire road's turn-off`, () => {
     for (const p of odd.poles) {
       const at = `pole at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`;
@@ -58,6 +71,17 @@ describe('the telephone poles', () => {
     }
     for (const d of [country.places.driveIn.drive, country.places.track.drive]) expect(listed(d.minX, d.minZ) && listed(d.maxX, d.maxZ), 'a place\'s drive').toBe(true);
     expect(listed(...FIRE_ROAD[0]!), 'the fire road\'s turn-off').toBe(true);
+    // The valley's: the vineyard's and the ranch's drives with their signs, gate and mailboxes, and the lake's and the wood's lanes where they leave the loop, with their signs.
+    const farm = country.valley;
+    for (const e of [farm.vineyard.winery, farm.ranch]) {
+      const [ax, az, bx, bz] = e.drive;
+      for (const [x, z] of [[ax, az], [bx, bz], [e.mailbox.x, e.mailbox.z]] as const) expect(listed(x, z), 'a valley farm\'s drive or mailbox').toBe(true);
+    }
+    expect(listed(farm.vineyard.winery.sign.x, farm.vineyard.winery.sign.z), 'the winery\'s sign').toBe(true);
+    expect(listed(farm.ranch.gate.x, farm.ranch.gate.z), 'the ranch\'s gate').toBe(true);
+    expect(country.lakeland.lanes.length).toBeGreaterThan(3);
+    for (const lane of country.lakeland.lanes) expect(listed(lane.pts[0]!, lane.pts[1]!), 'a lane\'s mouth').toBe(true);
+    for (const s of country.lakeland.signs) expect(listed(s.x, s.z), `the ${s.id} sign`).toBe(true);
   });
 
   it('keep clear of every other prop, building, hedge and solid of the county, and stand on its ground', () => {

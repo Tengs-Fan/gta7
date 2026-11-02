@@ -733,9 +733,10 @@ export class PropsView {
     });
     const get = (k: PropKind) => byKind.get(k) ?? [];
 
-    // The valley's farms' oaks and bushes (world/country/valley.ts) are one batch each, as the orchard's trees are.
-    const valley = world.layout.country.valley.firstProp;
-    const ofValley = (list: number[], mine: boolean) => list.filter((i) => i >= valley === mine);
+    // The valley's farms' oaks and bushes (world/country/valley.ts) are one batch each, as the orchard's trees are: the props
+    // between its first and its end. (The lakeland's oaks and bushes, appended before it, stay in the cells' batches.)
+    const { firstProp, endProp } = world.layout.country.valley;
+    const ofValley = (list: number[], mine: boolean) => list.filter((i) => (i >= firstProp && i < endProp) === mine);
     this.buildTrees(ofValley(get('tree'), false), ofValley(get('bush'), false), get('cypress'), get('orchardTree'), ofValley(get('tree'), true), ofValley(get('bush'), true));
     this.buildPalms(get('palm'));
     this.buildLamps(get('lamp'));

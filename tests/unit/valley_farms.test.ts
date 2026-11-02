@@ -34,7 +34,7 @@ const L = W.layout;
 const v = L.country.valley;
 const wind = { uWindTime: { value: 0 }, uWindAmp: { value: 0.05 }, uWindDir: { value: new THREE.Vector2(1, 0) } };
 const plot = (id: string): Rect => COUNTY_PLOTS.find((p) => p.id === id)!.rect;
-const mine = L.props.slice(v.firstProp);
+const mine = L.props.slice(v.firstProp, v.endProp);
 
 const asRect = (i: number): Rect => {
   const c = W.grid.colliders[W.propColliders[i]!]!;
@@ -433,7 +433,7 @@ describe('the valley\'s farms, drawn', () => {
       if (!(o instanceof THREE.InstancedMesh)) return;
       const idx = o.userData.propIndices as number[] | undefined;
       const kind = idx ? L.props[idx[0]!]?.kind : null;
-      if (idx && idx.every((i) => i >= v.firstProp) && (kind === 'tree' || kind === 'bush')) batches.set(o.geometry.name || o.geometry.uuid, (batches.get(o.geometry.name || o.geometry.uuid) ?? 0) + 1);
+      if (idx && idx.every((i) => i >= v.firstProp && i < v.endProp) && (kind === 'tree' || kind === 'bush')) batches.set(o.geometry.name || o.geometry.uuid, (batches.get(o.geometry.name || o.geometry.uuid) ?? 0) + 1);
     });
     expect(mine.filter((p) => p.kind === 'tree' || p.kind === 'bush').length).toBeGreaterThan(150);
     // The trunk, the canopy and the shrubs: three, each in one piece.

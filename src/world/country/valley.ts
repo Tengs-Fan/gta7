@@ -11,7 +11,7 @@ import { Rng } from '../../core/rng';
 import type { AttractionSolid } from '../attractions';
 import { addProp, hashInts, insetRect, mkRect, rectContains, type CityLayout, type Rect, type Side } from '../layout';
 import { barn, boxProp, fenceLine, fenceRound, prop, WINDPUMP_H, type Field } from './farms';
-import { COUNTRY_ROADS, countryGround, onCountyLand, type Country } from './index';
+import { COUNTRY_ROADS, countryGround, DRIVE_CLEAR, onCountyLand, type Country } from './index';
 
 /** The z (m) the valley's props, buildings and solids keep south of: 16 m past the Pass Road's edge, so nothing of the valley's north half is theirs (the vine rows stand on the rise, z 43 and on). */
 export const VALLEY_FARMS_FROM = 100;
@@ -97,8 +97,9 @@ export interface Ruin {
 }
 
 export interface ValleyFarms {
-  /** The first prop the valley's farms added: its oaks and bushes are drawn as one batch each, not one per cell. */
+  /** The props the valley's farms added are [firstProp, endProp): its oaks and bushes are drawn as one batch each, not one per cell. */
   firstProp: number;
+  endProp: number;
   vineyard: Vineyard;
   ranch: Ranch;
   ruin: Ruin;
@@ -163,6 +164,7 @@ export function noValley(): ValleyFarms {
   const none = mkRect(0, 0, 0, 0);
   return {
     firstProp: 0,
+    endProp: 0,
     vineyard: { rise: RISE, segments: [], winery: { hall: none, building: -1, y: 0, eaves: 0, porch: none, yard: none, poles: [], barrels: none, drive: [0, 0, 0, 0], sign: { x: 0, z: 0, rot: 0 }, mailbox: { x: 0, z: 0 } } },
     ranch: { house: -1, houseRect: none, barn: none, door: 'W', yard: none, drive: [0, 0, 0, 0], gate: { x: 0, z: 0 }, mailbox: { x: 0, z: 0 }, bales: [], paddocks: [], roam: [], shelters: [], horses: [], pasture: none, sheep: 0 },
     ruin: { rect: none, y: 0, walls: [] },
@@ -422,5 +424,14 @@ export function buildValley(layout: CityLayout): void {
   buildFields(layout, v, rng, taken);
   buildRuin(layout, v, taken);
   scatter(layout, v, rng, taken);
+  v.endProp = layout.props.length;
+  // Each farm's drive, its sign or gate and its mailbox, for the poles to keep off (as the county's farms do).
+  const at = (x: number, z: number) => mkRect(x, z, x, z);
+  const { winery } = v.vineyard;
+  const { ranch } = v;
+  for (const [drive, sign, mailbox] of [[winery.drive, winery.sign, winery.mailbox], [ranch.drive, ranch.gate, ranch.mailbox]] as const) {
+    const [ax, az, bx, bz] = drive;
+    country.approaches.push({ rect: mkRect(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz)), pad: DRIVE_CLEAR }, { rect: at(sign.x, sign.z), pad: DRIVE_CLEAR }, { rect: at(mailbox.x, mailbox.z), pad: DRIVE_CLEAR });
+  }
   country.valley = v;
 }

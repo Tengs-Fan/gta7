@@ -24,7 +24,7 @@ const W = world();
 const L = W.layout;
 const land = L.country.lakeland;
 const plot = (id: string) => COUNTY_PLOTS.find((p) => p.id === id)!.rect;
-const mine = L.props.slice(land.forest.first);
+const mine = L.props.slice(land.forest.first, land.forest.end);
 const solids = land.solids;
 
 describe('the fishing dock', () => {
