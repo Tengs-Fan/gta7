@@ -265,11 +265,15 @@ function polyLen(pts: Array<{ x: number; z: number }>): number {
   return l;
 }
 
-/** The drive on to the end of `lane`, then on from there without turning straight back, to the target. */
+/**
+ * The drive on to the end of `lane`, then on from there without turning straight back, to the target; Infinity where
+ * there is none (deep in Las Lomas Valley, whose one way out is the way back).
+ */
 function aheadLen(sim: Sim, lane: Lane, x: number, z: number, tx: number, tz: number): number {
   const roads = sim.roads;
   const b = roads.nearestNode(tx, tz);
-  const ids = roads.findRoute(lane.to, b.id, lane.from)!;
+  const ids = roads.findRoute(lane.to, b.id, lane.from);
+  if (!ids) return Infinity;
   const pts = [{ x, z }, ...ids.map((id) => ({ x: roads.nodes[id]!.x, z: roads.nodes[id]!.z })), { x: tx, z: tz }];
   return polyLen(pts);
 }

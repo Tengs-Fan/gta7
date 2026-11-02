@@ -559,9 +559,9 @@ export function generateCity(seed: number = CITY_SEED): CityLayout {
     landMaxZ: cityMaxZ + PROMENADE_W,
     beachStartX,
     beachEndX,
-    // Out past Las Lomas County, 1104 m further west than the sea once reached: exactly 92 cells of the StaticGrid, so
+    // Out past Las Lomas Valley, 1728 m further west than the sea once reached: exactly 144 cells of the StaticGrid, so
     // every collider keeps its cell boundaries.
-    worldMinX: cityMinX - PROMENADE_W - 1264,
+    worldMinX: cityMinX - PROMENADE_W - 1888,
     worldMaxX: beachEndX + 160,
     // The north sea reaches 384 m further, out past Turbine Row: exactly 32 cells of the StaticGrid, so every collider
     // keeps its cell boundaries.

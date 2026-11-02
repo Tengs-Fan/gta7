@@ -505,11 +505,14 @@ describe('VAL-PRP-008 placements, colliders and foliage envelopes are as at d98d
   // integrated county head, where its traffic made the Hollister T's and the Creek T's heads a stop sign and two lamps
   // each, its landscape appended the ridge's turbines, tree belts and scrub (their envelopes too), its farms their props,
   // Dry Creek its pumps, billboards, lamps and benches and the Moonbeam Drive-In its speaker posts, then the landscape's
-  // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders.
+  // cores and Lookout Point's solids, then the farmhouses', stores', barns', hedgerows' and places' solids' colliders;
+  // and when Las Lomas Valley joined the county (the Coyote T's and Valley Cross's stop sign and two lamps each, after the
+  // causeway's lamps and before the landscape's props; the tree belts and scrub the ridge's pass cut and the new fire road
+  // moved, so their envelopes with them, and the sixth turbine moved past the pass).
   const D98 = {
-    props: '1a83d08024e7d4d1e7e25a7a6d05b0197bda17775b24ee3f91ff331227d3cd16',
-    colliders: 'ce1e416eec515e1717a27984c44a7e38a327845690782fcb7984cf4008f129fc',
-    envelopes: '49a5db289f360a17852cb9a6af6b0a08e53e66fa3d0d64b11442a350cfb3b27e',
+    props: '42507beaab5654034d7733eabf72edac088e730410731cd19d45c3dbd6440d28',
+    colliders: '849e884ee899eec5040d9f68620c68e0c0e584f09c7f65f1f1f1342d3513d182',
+    envelopes: '4fb0c7ee035badceae6b45b789d474ebf29453e9efb2e592a1b6a9f648581c11',
   };
 
   it('prop placements, world colliders and envelopes hash as at d98da7b', () => {
@@ -665,7 +668,8 @@ describe('VAL-PRP-010 props stay instanced within budget', () => {
     });
     const cells = new Set(W.layout.props.map((p) => `${Math.floor(p.x / HARDWARE_CHUNK_SIZE)},${Math.floor(p.z / HARDWARE_CHUNK_SIZE)}`)).size;
     console.log(`[props] ${meshes} prop meshes (d98da7b 387, cap ${Math.floor(387 * 1.5)}), ${tris} triangles over the whole city, ${cells} cells`);
-    expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5));
+    // 580, and the ten of the valley's two stop-sign junctions (lamps and stop signs), each in a cell of its own.
+    expect(meshes).toBeLessThanOrEqual(Math.floor(387 * 1.5) + 10);
     for (const n of perGeo.values()) expect(n).toBeLessThanOrEqual(cells + 4);
   });
 });

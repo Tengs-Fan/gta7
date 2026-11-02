@@ -37,28 +37,38 @@ function toLine(v: Vehicle, lane: Lane): number {
 const inBox = (v: Vehicle, n: RoadNode) => Math.abs(v.pos.x - n.x) < n.halfX + 2 && Math.abs(v.pos.z - n.z) < n.halfZ + 2;
 
 describe('Las Lomas County: stop signs', () => {
-  it('stand at the Hollister T and the Creek T, for the country road alone, where the lights were', () => {
+  it('stand at the county\'s four Ts, for the country road alone, where the lights were', () => {
     const sim = makeSim({ police: false, ambient: false });
     const roads = sim.roads;
     for (const n of roads.nodes.slice(0, roads.gridNodeCount)) expect(n.stops).toBe(0);
     expect(roads.junction('drycreek').signal).toBe(true);
     expect(roads.junction('drycreek').stops).toBe(0);
     const props = sim.world.layout.props;
+    expect([...STOP_SIGNS]).toEqual(['hollister', 'creek', 'coyote', 'valley']);
+    // Which arm stops, the way its traffic travels in (0 N, 1 E, 2 S, 3 W), and which corner its sign stands on.
+    const ARM = {
+      hollister: { slot: 0, dir: 2, west: true, north: true },
+      creek: { slot: 0, dir: 2, west: true, north: true },
+      coyote: { slot: 3, dir: 1, west: true, north: false },
+      valley: { slot: 1, dir: 3, west: false, north: true },
+    } as const;
     for (const name of STOP_SIGNS) {
       const n = roads.junction(name);
+      const arm = ARM[name as keyof typeof ARM];
       expect(n.signal, name).toBe(false);
-      // The country road comes in from the north; the highway runs through east to west.
-      expect(n.stops, name).toBe(1 << 0);
-      for (const l of [roads.lanesBetween(n.neighbors[0]!, n.id)[0]!]) expect(roads.stopsAt(l)).toBe(true);
-      for (const d of [1, 3]) for (const l of roads.lanesBetween(n.neighbors[d]!, n.id)) expect(roads.stopsAt(l)).toBe(false);
+      // The country road comes in from one side, the through road runs across it.
+      expect(n.stops, name).toBe(1 << arm.slot);
+      expect(roads.stopsAt(roads.lanesBetween(n.neighbors[arm.slot]!, n.id)[0]!), name).toBe(true);
+      for (const d of [0, 1, 2, 3].filter((d) => d !== arm.slot && n.neighbors[d]! >= 0)) for (const l of roads.lanesBetween(n.neighbors[d]!, n.id)) expect(roads.stopsAt(l), name).toBe(false);
       const at = props.filter((p) => p.node === n.id);
       expect(at.map((p) => p.kind).sort(), name).toEqual(['lamp', 'lamp', 'stopSign']);
-      // Southbound traffic stops: the sign stands on its right (west), north of the junction, facing it.
+      // The sign stands on the stopping traffic's right, before the junction, facing it.
       const sign = at.find((p) => p.kind === 'stopSign')!;
-      expect(sign.dir).toBe(2);
-      expect(sign.x).toBeLessThan(n.x);
-      expect(sign.z).toBeLessThan(n.z);
-      expect(Math.abs(Math.cos(sign.rot) + 1)).toBeLessThan(1e-9);
+      expect(sign.dir, name).toBe(arm.dir);
+      expect(sign.x < n.x, name).toBe(arm.west);
+      expect(sign.z < n.z, name).toBe(arm.north);
+      const travel = [[0, -1], [1, 0], [0, 1], [-1, 0]][arm.dir]!;
+      expect(Math.abs(Math.sin(sign.rot) + travel[0]!) + Math.abs(Math.cos(sign.rot) + travel[1]!), name).toBeLessThan(1e-9);
     }
   });
 

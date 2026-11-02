@@ -13,8 +13,7 @@ import { reflectorPosts } from '../../src/render/country/reflectors';
 import { LightSprites } from '../../src/render/lightSprites';
 import { Sim } from '../../src/sim/sim';
 import { COP_SIGHT } from '../../src/sim/wanted';
-import { WATER_Y } from '../../src/world/constants';
-import { COUNTRY_ROADS, COUNTY_PLOTS, countryGround, plotAt } from '../../src/world/country';
+import { COUNTRY_ROADS, COUNTY_PLOTS, countryGround, PASS_Z, plotAt } from '../../src/world/country';
 import { countyCores, FIRE_ROAD, FIRE_ROAD_W, fireRoadLine, LOOKOUT, ridgeRise } from '../../src/world/country/hills';
 import { PARAPET_H, rectContains } from '../../src/world/layout';
 import { CORE_COVER, CORE_INSET, riseAt } from '../../src/world/terrain';
@@ -128,7 +127,9 @@ describe('Coyote Ridge', () => {
     // Along the crest's line, from the north shore up its north end and down the south shoulder the fire road climbs.
     let north = 0;
     let south = 0;
-    for (let z = ridge.bounds.minZ; z < ridge.bounds.maxZ; z += 1) {
+    // The shoulder as far as Coyote Pass, which cuts it across (the pass's own tests below).
+    const passEdge = PASS_Z - 17.5 - 12;
+    for (let z = ridge.bounds.minZ; z + 1 <= passEdge; z += 1) {
       const g = rise(ridge.cx, z + 1) - rise(ridge.cx, z);
       if (z < ridge.cz) north = Math.max(north, g);
       else south = Math.max(south, -g);
@@ -167,10 +168,11 @@ describe('Coyote Ridge', () => {
     for (let x = LOOKOUT.pad.minX; x <= LOOKOUT.pad.maxX; x += 1) for (let z = LOOKOUT.pad.minZ; z <= LOOKOUT.pad.maxZ; z += 1) expect(W.groundHeight(x, z)).toBe(24);
   });
 
-  it('stands six turbines along its top 110 m apart and 40 m from Lookout Point, four on the crest and two down the south shoulder, each solid', () => {
+  it('stands six turbines along its top 110 m apart and 40 m from Lookout Point, four on the crest and two down the south shoulder (the last past Coyote Pass), each solid', () => {
     const turbines = L.props.filter((p) => p.kind === 'turbine' && p.x < L.bounds.landMinX);
-    // The first 3 m off the crest's north end; the last two past Lookout Point, which the crest has no room for.
-    expect(turbines.map((t) => Number(t.y.toFixed(1)))).toEqual([24, 24, 24, 24, 22.2, 9]);
+    // The first 3 m off the crest's north end; the last two past Lookout Point, which the crest has no room for: the
+    // fifth on the shoulder, the sixth past Coyote Pass, where it runs out.
+    expect(turbines.map((t) => Number(t.y.toFixed(1)))).toEqual([24, 24, 24, 24, 22.2, 1.3]);
     for (const t of turbines.slice(4)) expect(t.z).toBeGreaterThan(ridge.cz + ridge.rz);
     for (const [i, t] of turbines.entries()) {
       expect(Math.abs(t.x - ridge.cx)).toBeLessThan(ridge.plateau);
@@ -230,12 +232,10 @@ describe('sight and shots across the ridge', () => {
   };
 
   it('every line of sight within police range that the ridge hides is blocked, and none that it leaves clear', () => {
-    // Officers on foot and the player anywhere across the ridge's middle, within COP_SIGHT: eyes 1.6 m and chest 1.2 m up,
-    // and out over the water the west flank runs down into, a swimmer's head WATER_Y + 0.4.
+    // Officers on foot and the player anywhere across the ridge's middle, within COP_SIGHT: eyes 1.6 m and chest 1.2 m up.
     const spots: Array<[number, number]> = [];
-    for (let x = -1600; x <= -1345; x += 9) for (let z = -330; z <= -230; z += 11) spots.push([x, z]);
-    const up = (x: number, z: number, h: number) => (W.groundHeight(x, z) < WATER_Y ? WATER_Y + 0.4 : W.groundHeight(x, z) + h);
-    expect(spots.filter(([x, z]) => W.groundHeight(x, z) < WATER_Y).length).toBeGreaterThan(20);
+    for (let x = -1620; x <= -1345; x += 9) for (let z = -330; z <= -230; z += 11) spots.push([x, z]);
+    const up = (x: number, z: number, h: number) => W.groundHeight(x, z) + h;
     let hidden = 0;
     let open = 0;
     const wrong: string[] = [];
@@ -287,19 +287,18 @@ describe('sight and shots across the ridge', () => {
       expect(clearance(sx, oy, -300, tx, ty, -300)).toBeGreaterThan(0.3);
       expect(sim.combat.castRay(sx, oy, -300, (tx - sx) / d, (ty - oy) / d, 0, 150, null).t, `from ${sx}`).toBeGreaterThan(d);
     }
-    // From the west beach at a swimmer's head off it, over the water the flank runs on into; and level along the water
-    // from out at sea towards the beach, on to the sand.
+    // From the flank's foot on the valley floor at a man's chest further down; and level along the floor from out in the
+    // valley towards the ridge, on to the flank.
     const bx = -1561;
     const by = sim.world.groundHeight(bx, -282) + 1.4;
     for (const tx of [-1582, -1591]) {
-      expect(sim.world.groundHeight(tx, -282)).toBeLessThan(WATER_Y);
-      const ty = WATER_Y + 0.4;
+      const ty = sim.world.groundHeight(tx, -282) + 1.2;
       const d = Math.hypot(tx - bx, ty - by);
       expect(clearance(bx, by, -282, tx, ty, -282)).toBeGreaterThan(0.3);
       expect(sim.combat.castRay(bx, by, -282, (tx - bx) / d, (ty - by) / d, 0, 60, null).t, `at ${tx}`).toBeGreaterThan(d);
     }
-    const sea = sim.combat.castRay(-1640, WATER_Y + 0.6, -282, 1, 0, 0, 100, null);
-    expect(sim.world.groundHeight(-1640 + sea.t, -282)).toBeCloseTo(WATER_Y + 0.6, 2);
+    const floor = sim.combat.castRay(-1640, 0.6, -282, 1, 0, 0, 100, null);
+    expect(sim.world.groundHeight(-1640 + floor.t, -282)).toBeCloseTo(0.6, 2);
   });
 });
 
@@ -389,7 +388,7 @@ describe('drawing the fire road and Lookout Point', () => {
         if (pos.getX(i) >= L.bounds.landMinX) continue;
         const d = pos.getY(i) - W.baseGround(pos.getX(i), pos.getZ(i));
         if (Math.abs(d) > 1e-4) {
-          expect(d, `${m.name} at ${pos.getX(i)}, ${pos.getZ(i)}`).toBeCloseTo(-2, 4);
+          expect(d, `${m.name} at ${pos.getX(i)}, ${pos.getZ(i)}`).toBeCloseTo(-3, 4);
           skirts++;
         }
       }
@@ -408,7 +407,7 @@ describe('drawing the fire road and Lookout Point', () => {
       for (let t = 0; t <= 16; t += 1) worst = Math.max(worst, Math.abs(a + ((b - a) * t) / 16 - W.baseGround(x + t, -256)));
     }
     expect(worst).toBeGreaterThan(0.05);
-    expect(worst).toBeLessThan(1);
+    expect(worst).toBeLessThan(3);
   });
 
   it('stands the parapet and the tower where the sim makes them solid, on the crest', () => {

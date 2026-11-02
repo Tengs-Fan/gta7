@@ -1,13 +1,14 @@
-// Las Lomas County: about 0.9 km2 of farm country west of the city across Lomas Sound, reached over the Magnolia
+// Las Lomas County: about 1.8 km2 of farm country west of the city across Lomas Sound, reached over the Magnolia
 // Causeway (off Magnolia Ave at Harbor Blvd) and the Southgate Bridge (off Southgate Ave), with a loop of curved country
-// roads that joins the city's lane graph (docs/map.md, "Las Lomas: roads outside the grid"). Pure data and queries, no
+// roads that joins the city's lane graph (docs/map.md, "Las Lomas: roads outside the grid"), and, west of Coyote Ridge
+// and reached through Coyote Pass, Las Lomas Valley with Lake Lomas and its own loop of roads. Pure data and queries, no
 // rendering. buildCountry is the last pass of generateCity: it only appends (a headland, a deck, two parapets, props) and
 // moves four props out of the links' mouths through the promenade, keeping their indices, so every older index stays.
 // The city's lookups keep their own code: county behaviour branches only on an outer node or lane, or a point off the
 // city or land rectangle.
 
 import { CROSSWALK_W, CURB_H, PROP_INSET, SEABED_Y, WATER_Y } from '../constants';
-import { addProp, mkRect, PARAPET_T, rectContains, type CityLayout, type Rect } from '../layout';
+import { addProp, mkRect, PARAPET_T, rectContains, rectsMinus, type CityLayout, type Rect } from '../layout';
 import { riseAt, type Rise } from '../terrain';
 import { buildFarms, noFarms, type CountyFarms } from './farms';
 import { buildHills } from './hills';
@@ -105,11 +106,16 @@ export interface Country {
   firstGarage: number;
 }
 
-export type CountyJunction = 'drycreek' | 'hollister' | 'creek';
+export type CountyJunction = 'drycreek' | 'hollister' | 'creek' | 'coyote' | 'valley';
 
 export const COUNTY_NAME = 'Las Lomas County';
 export const CAUSEWAY_NAME = 'Magnolia Causeway';
 export const BRIDGE_NAME = 'Southgate Bridge';
+/** What the HUD calls the county's land west of Coyote Ridge, and the lake cut into it. */
+export const VALLEY_NAME = 'Las Lomas Valley';
+export const LAKE_NAME = 'Lake Lomas';
+/** The valley's east edge (x, m): west of it the land is the valley's, east of it the county's. */
+export const VALLEY_EDGE = -1560;
 
 /** Lomas Sound, between the city's west promenade and the county's east shore. */
 export const SOUND = mkRect(-700, -580, -512, 580);
@@ -125,7 +131,16 @@ export const BRIDGE = mkRect(-700, 258, -512, 278);
  */
 export const BRIDGE_ARCH = { x0: BRIDGE.minX + 10, x1: BRIDGE.maxX - 10, ribs: [BRIDGE.minZ + 0.2, BRIDGE.maxZ - 0.2], rise: 22, post: 0.45, postTop: 8.1 } as const;
 
-/** The land: the full box but for a cove on the north coast and one on the south, and the south-west corner. */
+/** Lake Lomas: a hole in the valley's land, about 250 x 160 m, which the sea shows through at sea level as in the coves. */
+export const LAKE = mkRect(-2125, -330, -1875, -170);
+
+/** The valley's coves: a bay in the west coast, one in the north coast and one in the south. */
+const VALLEY_COVES: readonly Rect[] = [mkRect(-2300, 140, -2215, 250), mkRect(-2080, -580, -1960, -525), mkRect(-2080, 520, -1950, 580)];
+
+/**
+ * The land: the box x -1560 to -700 but for a cove on the north coast and one on the south, and the south-west corner;
+ * then the valley west of Coyote Ridge, x -2300 to -1560 (to -1440 south of z 170), but for the lake and the coves.
+ */
 export const COUNTY_LAND: readonly Rect[] = [
   mkRect(-1560, -440, -700, 170),
   mkRect(-1170, -580, -700, -440),
@@ -133,6 +148,7 @@ export const COUNTY_LAND: readonly Rect[] = [
   mkRect(-1440, 170, -700, 400),
   mkRect(-1440, 400, -1020, 580),
   mkRect(-880, 400, -700, 580),
+  ...rectsMinus([mkRect(-2300, -580, -1560, 170), mkRect(-2300, 170, -1440, 580)], [LAKE, ...VALLEY_COVES]),
 ];
 
 /** The beach off the land's edge: the waterline WATERLINE m out, the seabed SEABED_OUT m out. */
@@ -146,15 +162,22 @@ export const COUNTY_BOUNDS = mkRect(
   Math.max(...COUNTY_LAND.map((r) => r.maxZ)) + SEABED_OUT,
 );
 
-/** The junctions by name: Dry Creek's crossroads, the Hollister T and the Creek T. */
+/** The z (m) of Coyote Pass and the Pass Road along it, from the Coyote T on the Lomas Highway to Valley Cross. */
+export const PASS_Z = 84;
+/** The Valley Loop's sides (m): the east one through Valley Cross, the west one, and the north and south ones, and its corners' radius. */
+const LOOP = { east: -1840, west: -2165, north: -470, south: 470, corner: 140 } as const;
+
+/** The junctions by name: Dry Creek's crossroads, the Hollister T, the Creek T, the Coyote T and Valley Cross. */
 export const COUNTY_JUNCTIONS: Readonly<Record<CountyJunction, readonly [number, number]>> = {
   drycreek: [-840, -268],
   hollister: [-1104, -268],
   creek: [-840, 268],
+  coyote: [-1330, PASS_Z],
+  valley: [LOOP.east, PASS_Z],
 };
 
 /** The junctions with stop signs instead of lights: the country road stops for the highway (CountryRoad.priority). */
-export const STOP_SIGNS: readonly CountyJunction[] = ['hollister', 'creek'];
+export const STOP_SIGNS: readonly CountyJunction[] = ['hollister', 'creek', 'coyote', 'valley'];
 
 /** Speed limits (m/s) by kind of road, each capped on a curve to what a car holds round it (sqrt(4.5 r)). */
 export const COUNTRY_SPEED: Readonly<Record<CountryRoadKind, number>> = { highway: 22, country: 15 };
@@ -207,10 +230,11 @@ const W = -Math.PI / 2;
 const N = Math.PI;
 const S = 0;
 
-function road(name: string, kind: CountryRoadKind, line: Centreline): CountryRoad {
+function road(name: string, kind: CountryRoadKind, line: Centreline, priority = kind === 'highway' ? 2 : 1): CountryRoad {
   const lanes = kind === 'highway' ? 2 : 1;
-  return { name, kind, priority: kind === 'highway' ? 2 : 1, lanes, width: kind === 'highway' ? 16 : 10, pts: line.pts, radii: line.radii };
+  return { name, kind, priority, lanes, width: kind === 'highway' ? 16 : 10, pts: line.pts, radii: line.radii };
 }
+
 
 /**
  * The county's roads, every rule of docs/map.md kept: no dead end, junction arms on the axes, bend vertices 20-30 m
@@ -221,13 +245,24 @@ function road(name: string, kind: CountryRoadKind, line: Centreline): CountryRoa
  *   the Southgate Bridge to Harbor Blvd.
  * - Hollister Lane loops north from Dry Creek round the farm and back to the Hollister T.
  * - Creek Road runs south from Dry Creek to the Creek T, swerving 11 m east and back on the way.
+ * - Coyote Pass Road leaves the highway's west leg at the Coyote T (a stop sign, the highway has priority), runs west
+ *   along z 84 through Coyote Pass in Coyote Ridge's south shoulder, and stops at Valley Cross for the Valley Loop.
+ * - The Valley Loop runs round the valley, through Valley Cross, with Lake Lomas inside it on its west side.
  */
 export const COUNTRY_ROADS: readonly CountryRoad[] = [
   road('Magnolia Causeway', 'highway', new Centreline(-470, -268, W).to(-840, -268)),
-  road('Lomas Highway', 'highway', new Centreline(-840, -268, W).to(-1104, -268).to(-1150, -268).arc(180, 90, 10).to(-1330, 118).arc(150, 90, 9).to(-840, 268).to(-470, 268)),
+  road('Lomas Highway', 'highway', new Centreline(-840, -268, W).to(-1104, -268).to(-1150, -268).arc(180, 90, 10).to(-1330, PASS_Z).to(-1330, 118).arc(150, 90, 9).to(-840, 268).to(-470, 268)),
   road('Hollister Lane', 'country', new Centreline(-840, -268, N).to(-840, -400).arc(120, 90, 9).to(-984, -520).arc(120, 90, 9).to(-1104, -268)),
   road('Creek Road', 'country', new Centreline(-840, -268, S).to(-840, -193).arc(160, 15, 2).arc(160, -30, 3).arc(160, 15, 2).to(-840, 268)),
+  road('Coyote Pass Road', 'country', new Centreline(-1330, PASS_Z, W).to(LOOP.east, PASS_Z), 0),
+  road('Valley Loop', 'country', valleyLoop()),
 ];
+
+/** The Valley Loop: from Valley Cross south, west, north and east round the valley and back, its four corners round. */
+function valleyLoop(): Centreline {
+  const { east, west, north, south, corner: r } = LOOP;
+  return new Centreline(east, PASS_Z, S).to(east, south - r).arc(r, -90, 10).to(west + r, south).arc(r, -90, 10).to(west, north + r).arc(r, -90, 10).to(east - r, north).arc(r, -90, 10).to(east, PASS_Z);
+}
 
 export const COUNTY_PLOTS: readonly CountyPlot[] = [
   { id: 'drycreek', name: 'Dry Creek', rect: mkRect(-930, -330, -750, -200), kind: 'town' },
@@ -237,7 +272,15 @@ export const COUNTY_PLOTS: readonly CountyPlot[] = [
   { id: 'acres', name: 'Halfmoon Acres', rect: mkRect(-1170, 80, -860, 244), kind: 'farm' },
   { id: 'drivein', name: 'Moonbeam Drive-In', rect: mkRect(-820, 40, -712, 200), kind: 'venue' },
   { id: 'track', name: 'Gravel Gulch', rect: mkRect(-1290, 300, -1060, 540), kind: 'venue' },
-  { id: 'ridge', name: 'Coyote Ridge', rect: mkRect(-1560, -560, -1360, 120), kind: 'wild' },
+  { id: 'ridge', name: 'Coyote Ridge', rect: mkRect(-1600, -560, -1360, 48), kind: 'wild' },
+  // The valley's, bare until the next stage fills them: the pass (the one plot a road runs through, its rock walls and
+  // the stretch of the Pass Road across the ridge), the vineyard and the lake inside the Valley Loop, the ranch and the
+  // pine wood between it and the ridge.
+  { id: 'pass', name: 'Coyote Pass', rect: mkRect(-1620, 48, -1352, 122), kind: 'wild' },
+  { id: 'vineyard', name: 'Sunset Vineyard', rect: mkRect(-2140, -110, -1865, 300), kind: 'farm' },
+  { id: 'ranch', name: 'Lazy Q Ranch', rect: mkRect(-1820, 110, -1625, 430), kind: 'farm' },
+  { id: 'lake', name: LAKE_NAME, rect: mkRect(-2140, -350, -1865, -150), kind: 'venue' },
+  { id: 'pinewood', name: 'Pinewood', rect: mkRect(-1820, -520, -1625, 60), kind: 'wild' },
 ];
 
 /** How far (m) the sea reached west of the city's land before the county: the world's edge was there. */
@@ -380,30 +423,37 @@ export function buildCountry(layout: CityLayout): void {
 
   // Signal heads: for the eastbound approach the gateways gain, and for every approach at the county's junctions. At a
   // stop sign the arms that stop have the sign where the head would stand, and the others a lamp over the junction.
+  // The valley's two (the Coyote T and Valley Cross) come last, after the causeway's lamps, so every older prop and
+  // collider before the landscape's keeps its index.
   const stops = new Set(STOP_SIGNS.map((name) => graph.junctions[name]));
+  const valley = new Set([graph.junctions.coyote, graph.junctions.valley]);
   for (const g of graph.gateways) {
     const i = g.node % (layout.n + 1);
     const j = Math.floor(g.node / (layout.n + 1));
     signalHead(layout, g.node, 1, layout.vLines[i]!.pos, layout.hLines[j]!.pos, layout.vLines[i]!.width / 2, layout.hLines[j]!.width / 2);
   }
-  for (const v of graph.vertices) {
-    if (v.links.length < 3) continue;
-    const top = Math.max(...v.links.map((l) => graph.links[l]!.road.priority));
-    for (const l of v.links) {
-      const link = graph.links[l]!;
-      const other = link.a === v.id ? link.b : link.a;
-      const o = nodeXZ(layout, graph, other);
-      // Traffic coming in along this arm travels the other way.
-      const kind = !stops.has(v.id) ? 'signal' : link.road.priority < top ? 'stopSign' : 'lamp';
-      signalHead(layout, v.id, (slotOf(o.x - v.x, o.z - v.z) + 2) % 4, v.x, v.z, v.half, v.half, kind);
+  const junctionHeads = (vertices: readonly OuterVertex[]) => {
+    for (const v of vertices) {
+      const top = Math.max(...v.links.map((l) => graph.links[l]!.road.priority));
+      for (const l of v.links) {
+        const link = graph.links[l]!;
+        const other = link.a === v.id ? link.b : link.a;
+        const o = nodeXZ(layout, graph, other);
+        // Traffic coming in along this arm travels the other way.
+        const kind = !stops.has(v.id) ? 'signal' : link.road.priority < top ? 'stopSign' : 'lamp';
+        signalHead(layout, v.id, (slotOf(o.x - v.x, o.z - v.z) + 2) % 4, v.x, v.z, v.half, v.half, kind);
+      }
     }
-  }
+  };
+  const junctions = graph.vertices.filter((v) => v.links.length >= 3);
+  junctionHeads(junctions.filter((v) => !valley.has(v.id)));
   // The causeway's lamps, their heads over the carriageway.
   const half = COUNTRY_ROADS[0]!.width / 2;
   for (let x = CAUSEWAY.maxX - 15; x > CAUSEWAY.minX + 5; x -= LAMP_GAP) {
     addProp(layout, 'lamp', x, -268 - half - 1, 0, 1, 0);
     addProp(layout, 'lamp', x - LAMP_GAP / 2, -268 + half + 1, Math.PI, 1, 0);
   }
+  junctionHeads(junctions.filter((v) => valley.has(v.id)));
   // The content passes go here, in this order, each one call that only appends: buildHills (the landscape), buildFarms,
   // buildPlaces.
   buildHills(layout);
@@ -441,7 +491,7 @@ export function noCountry(): Country {
     land: [],
     bounds: mkRect(0, 0, 0, 0),
     roads: [],
-    graph: { vertices: [], links: [], roadNodes: [], gateways: [], junctions: { drycreek: -1, hollister: -1, creek: -1 } },
+    graph: { vertices: [], links: [], roadNodes: [], gateways: [], junctions: { drycreek: -1, hollister: -1, creek: -1, coyote: -1, valley: -1 } },
     plots: [],
     rises: [],
     walks: [],

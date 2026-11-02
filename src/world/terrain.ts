@@ -31,6 +31,11 @@ export interface Rise {
   within: Rect[];
   /** Ridge: its west run, and the runs (m) over which its crest falls away at the north and the south end. */
   runs?: { west: number; north: number; south: number };
+  /**
+   * Ridge: a pass cut across it along the line z = `z`, carved flat (0) within `flat` m of the line and climbing back to
+   * the ridge in a cosine over the next `run` m, so a road crosses at ground level between rock walls.
+   */
+  cut?: { z: number; flat: number; run: number };
 }
 
 /** Hillcrest Green's hill, on the park's fountain: 20% at its steepest across x, 17% along z, 0 a good 7 m inside the lot. */
@@ -73,7 +78,8 @@ function falloff(d: number, flat: number, run: number): number {
 
 function ridgeAt(r: Rise, x: number, z: number): number {
   const runs = r.runs!;
-  return r.height * falloff(x - r.cx, r.plateau, x > r.cx ? r.rx : runs.west) * falloff(z - r.cz, r.rz, z < r.cz ? runs.north : runs.south);
+  const h = r.height * falloff(x - r.cx, r.plateau, x > r.cx ? r.rx : runs.west) * falloff(z - r.cz, r.rz, z < r.cz ? runs.north : runs.south);
+  return r.cut ? h * (1 - falloff(z - r.cut.z, r.cut.flat, r.cut.run)) : h;
 }
 
 /** A ridge's bounds: its flanks' and ends' feet. */
@@ -288,7 +294,13 @@ export function terrainCores(rises: readonly Rise[], base = CURB_H): Core[] {
     for (let k = 1; k + CORE_COVER <= r.height; k += CORE_STEP) {
       const c = k + CORE_COVER;
       if (r.kind === 'ridge') {
-        out.push({ ...ridgeContour(r, c / r.height), y1: base + k });
+        const q = ridgeContour(r, c / r.height);
+        if (!r.cut) out.push({ ...q, y1: base + k });
+        // A pass cut through the ridge: a core each side, none over the carved ground and its walls.
+        else {
+          const reach = r.cut.flat + r.cut.run + CORE_INSET;
+          for (const [minZ, maxZ] of [[q.minZ, Math.min(q.maxZ, r.cut.z - reach)], [Math.max(q.minZ, r.cut.z + reach), q.maxZ]] as const) if (maxZ > minZ) out.push({ ...q, minZ, maxZ, y1: base + k });
+        }
       } else if (r.kind === 'bell') {
         // The bell is c high on the ellipse s = sc; the rectangle inscribed in an ellipse has half extents a / sqrt 2.
         const p = r.plateau / r.rx;

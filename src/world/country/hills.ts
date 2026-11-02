@@ -8,15 +8,15 @@
 import { Rng } from '../../core/rng';
 import { addProp, hashInts, mkRect, type CityLayout, type Rect } from '../layout';
 import { CORE_INSET, ridgeBounds, riseAt, terrainCores, type Core, type Rise } from '../terrain';
-import { COUNTY_LAND, countryGround, type Country } from './index';
+import { COUNTY_LAND, countryGround, PASS_Z, type Country } from './index';
 
 export const RIDGE_NAME = 'Coyote Ridge';
 
 /**
  * Coyote Ridge: a 24 m crest along x -1475 from z -470 to -80, 20 m wide across its flat top. Its east flank falls over
  * 115 m to the foot 12 m off the Lomas Highway's west leg (32.8% at its steepest), its west flank over 108 m to the
- * beach (34.9%), running out 33 m over the sand, its north end over 110 m to the north shore (34.3%) and its south end
- * over 270 m (14%), the long shoulder the fire road climbs.
+ * floor of Las Lomas Valley (34.9%), its north end over 110 m to the north shore (34.3%) and its south end over 270 m
+ * (14%), the long shoulder the fire road climbs. Coyote Pass cuts across the shoulder (PASS_CUT).
  */
 const RIDGE = { cx: -1475, cz: -275, plateau: 10, rx: 115, rz: 195, height: 24, runs: { west: 108, north: 110, south: 270 } } as const;
 
@@ -32,9 +32,17 @@ const FOOTHILLS: ReadonlyArray<Pick<Rise, 'name' | 'cx' | 'cz' | 'rx' | 'rz' | '
   { name: 'Bend Knoll', cx: -1226, cz: -181, rx: 34, rz: 30, plateau: 4, height: 4 },
 ];
 
+/**
+ * Coyote Pass: the ridge's south shoulder cut flat across along the Pass Road (PASS_Z), 17.5 m either side of its centre
+ * line (its half width and 12 m clear of its edge), then climbing back in a cosine over 12 m: the rock walls, 8.5 m high
+ * at the crest.
+ */
+const PASS_FLAT = 17.5;
+const PASS_RUN = 12;
+
 /** The county's rises: the ridge and the foothills, in that order. */
 export function countyRises(): Rise[] {
-  const ridge: Omit<Rise, 'bounds'> = { name: RIDGE_NAME, kind: 'ridge', ...RIDGE, runs: { ...RIDGE.runs }, within: [] };
+  const ridge: Omit<Rise, 'bounds'> = { name: RIDGE_NAME, kind: 'ridge', ...RIDGE, runs: { ...RIDGE.runs }, cut: { z: PASS_Z, flat: PASS_FLAT, run: PASS_RUN }, within: [] };
   return [
     { ...ridge, bounds: ridgeBounds(ridge) },
     ...FOOTHILLS.map((f): Rise => ({ ...f, kind: 'bell', bounds: mkRect(f.cx - f.rx, f.cz - f.rz, f.cx + f.rx, f.cz + f.rz), within: [] })),
@@ -54,17 +62,19 @@ export const FIRE_ROAD_W = 6;
 export const FIRE_CORNER = 12;
 
 /**
- * The fire road's centre line, corner to corner: from the gravel turn-off on the Lomas Highway's west leg it climbs the
- * ridge's south shoulder in switchbacks, west and north by turns (each west leg where the shoulder is low enough to
- * climb it at 18% or less), then north along the crest's flat top to the car park at Lookout Point.
+ * The fire road's centre line, corner to corner: from the gravel turn-off on the Lomas Highway's west leg it runs west
+ * and crosses the Pass Road at ground level (Coyote Pass cuts the shoulder flat across z 54-114, so the climb starts on
+ * the pass's north side), climbs the ridge's south shoulder in switchbacks, west and north by turns (each west leg
+ * where the shoulder is low enough to climb it at 18% or less), then north along the crest's flat top to the car park
+ * at Lookout Point.
  */
 export const FIRE_ROAD: ReadonlyArray<readonly [number, number]> = [
   [-1338, 105],
-  [-1385, 105],
-  [-1385, 78],
-  [-1430, 78],
-  [-1430, 50],
-  [RIDGE.cx + 3.5, 50],
+  [-1370, 105],
+  [-1370, 50],
+  [-1440, 50],
+  [-1440, 34],
+  [RIDGE.cx + 3.5, 34],
   [RIDGE.cx + 3.5, -84],
 ];
 
@@ -135,21 +145,21 @@ export const LOOKOUT = {
 } as const;
 
 /**
- * Where the six turbines stand, 110 m apart along the ridge's top on the crest's west half, clear of the fire road and of
- * Lookout Point: the first just off the crest's north end, three more along it, and the last two past Lookout Point down
- * the south shoulder, 22 m and 9 m up. The crest holds no more: a row of six 110 m apart runs 550 m, and the 390 m crest
- * keeps 40 m clear of the lookout.
+ * Where the six turbines stand, along the ridge's top on the crest's west half, clear of the fire road, of Lookout Point
+ * and of Coyote Pass: the first just off the crest's north end and three more 110 m apart along it, the fifth 40 m or
+ * more the other side of Lookout Point, 22 m up the south shoulder, and the last past the pass, where the shoulder runs
+ * out (Coyote Pass takes the place a sixth 110 m on would have).
  */
 const TURBINE_X = RIDGE.cx - 5;
-const TURBINE_Z: readonly number[] = [-473, -363, -253, -143, -33, 77];
+const TURBINE_Z: readonly number[] = [-473, -363, -253, -143, -33, 150];
 
 /** Salt of the generator that scatters the tree belts. */
 const TREE_SALT = 0x0c07e1;
 /** The belts along the ridge's east foot: two rows, a tree about every TREE_GAP m along each. */
 const TREE_ROWS: readonly number[] = [-1357, -1368];
 const TREE_GAP = 9;
-/** The stretch of the foot the fire road's turn-off crosses, left open. */
-const TURN_OFF = { minZ: 88, maxZ: 122 } as const;
+/** The stretch of the foot the fire road's turn-off and first leg and the Pass Road cross, left open. */
+const TURN_OFF = { minZ: 44, maxZ: 122 } as const;
 /** Salt of the generator that scatters the scrub, and how many bushes it tries per 1000 m2 of each rise's bounds. */
 const SCRUB_SALT = 0x5c2b;
 const SCRUB_DENSITY = 3;

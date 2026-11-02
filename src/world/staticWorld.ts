@@ -5,7 +5,7 @@ import { circleVsAabb, makeContact } from '../core/collision';
 import { attractionOf } from './attractions';
 import { CITY_SEED, CURB_H, SEABED_Y, SWIM_DEPTH, WATER_Y } from './constants';
 import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
-import { BRIDGE_ARCH, COUNTY_NAME, countryFloor, countryGround, plotAt } from './country';
+import { BRIDGE_ARCH, COUNTY_NAME, countryFloor, countryGround, plotAt, VALLEY_EDGE, VALLEY_NAME } from './country';
 import { COW_H, COW_R, HEDGE_H, inFarmCover, inTallCrop, PROPANE, STOCK_TANK } from './country/farms';
 import { countyCores, LOOKOUT } from './country/hills';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type Building, type CityLayout, type District, type Garage, type Prop, type PropKind, type Ramp, type Rect } from './layout';
@@ -360,11 +360,15 @@ export class StaticWorld {
     return this.blockNear(x, z).zone;
   }
 
-  /** Off the land and its headlands: a plot of Las Lomas County or the county on its land and beaches, else the bay. */
+  /**
+   * Off the land and its headlands: a plot of Las Lomas County, the valley west of Coyote Ridge (Las Lomas Valley) or the
+   * county on its land and beaches, Lake Lomas over the lake's water, else the bay.
+   */
   private countyZone(x: number, z: number): string {
     const country = this.layout.country;
-    if (countryGround(country, x, z) > WATER_Y) return plotAt(country, x, z)?.name ?? COUNTY_NAME;
-    return 'San Azura Bay';
+    const plot = plotAt(country, x, z);
+    if (countryGround(country, x, z) > WATER_Y) return plot?.name ?? (x < VALLEY_EDGE ? VALLEY_NAME : COUNTY_NAME);
+    return plot?.id === 'lake' ? plot.name : 'San Azura Bay';
   }
 
   /** The block on the cell under (x, z), or by a sea cell the nearest block. */
