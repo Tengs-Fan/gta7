@@ -177,9 +177,10 @@ const FS_GRASS = /* glsl */ `
   // the ridge's own flanks (under 20) stay green.
   vec3 gn = normalize( cross( dFdx( vGroundPos ), dFdy( vGroundPos ) ) );
   float rock = smoothstep( 0.9, 0.8, abs( gn.y ) );
-  float strata = 0.72 + 0.55 * gN( vec2( gp.x * 0.07 + gp.y * 0.05, vGroundPos.y * 0.55 ) );
-  float grain = 0.8 + 0.4 * gN( gp * 0.9 + vGroundPos.y * 0.4 );
-  diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.105, 0.09, 0.075 ) * strata * grain, rock );
+  float layer = 0.5 + 0.5 * sin( vGroundPos.y * 4.4 + 5.0 * gN( gp * 0.045 + 0.2 ) );
+  float strata = 0.55 + 0.5 * layer * ( 0.5 + gN( vec2( gp.x * 0.07 + gp.y * 0.05, vGroundPos.y * 0.55 ) ) );
+  float grain = 0.7 + 0.6 * gN( gp * 0.9 + vGroundPos.y * 0.4 );
+  diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.14, 0.115, 0.09 ) * strata * grain, rock );
 }`;
 
 /** Sand: colour variation, a wet band from the waterline inland with a frayed edge, and the surf's lace running up and back. */
