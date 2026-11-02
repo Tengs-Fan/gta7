@@ -144,6 +144,8 @@ describe('the roadside furniture', () => {
     const pick = batches[0]!.geometry.getAttribute('aPick') as THREE.InstancedBufferAttribute;
     expect(Array.from(pick.array)).toEqual(items.map((i) => L.props[i]!.color));
     expect(batches[0]!.castShadow).toBe(false);
+    // Its vertex shader hides the other shapes, which the contact-shadow pass's normal override would draw all nine of, stacked.
+    expect((batches[0]!.material as THREE.Material).userData.contactShadow).toBe(false);
   });
 
   it('draws only each instance\'s own shape: a vertex of another is sent off the screen by the material\'s shader', () => {

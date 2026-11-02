@@ -1034,6 +1034,8 @@ export class PropsView {
         .replace('#include <project_vertex>', '#include <project_vertex>\nif ( aShape != aPick ) gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );');
     };
     mat.customProgramCacheKey = () => 'gta7-roadside';
+    // The contact-shadow pass draws a batch with the normal override, which would not hide the other shapes.
+    mat.userData.contactShadow = false;
     this.makeInstanced(geo, mat, items, PropsView.standard, { chunked: true, shadow: false });
   }
 
