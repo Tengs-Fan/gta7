@@ -224,6 +224,8 @@ function bulbString(p: Pieces, lit: [number, number], a: V, b: V, sag: number, n
 
 export class ValleyView {
   private readonly vines: Vines;
+  /** Materials the headlights light (renderer.ts): the farms' atlas, whose decks, posts and boards stand within the pool's reach of a car. */
+  readonly lit: THREE.MeshStandardMaterial[] = [];
   private readonly halos: THREE.Points;
   private readonly haloMat: THREE.PointsMaterial;
 
@@ -267,6 +269,7 @@ export class ValleyView {
       roughness: 0.8,
     });
     mat.name = 'valley-farms';
+    this.lit.push(mat);
     // Lit up after dark with the city's signs (CityView.update).
     view.city.materials.signs.push(mat);
     for (const [name, p] of [['sunset-vineyard', vineyard], ['lazy-q-ranch', ranch]] as const) {
