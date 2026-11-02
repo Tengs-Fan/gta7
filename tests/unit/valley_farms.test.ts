@@ -259,6 +259,22 @@ describe('the ranch\'s sheep', () => {
   });
 });
 
+describe('the ranch\'s sheep, with someone who stays', () => {
+  it('gather out of reach of a person who stands by the fence, and graze there without running', () => {
+    const pasture = v.ranch.pasture;
+    const f = new Flock(pasture, v.ranch.sheep, 78);
+    const person = { x: pasture.minX - 3, z: f.centre.z, speed: 0 };
+    let runs = 0;
+    for (let t = 0; t < 90; t += 1 / 30) {
+      f.update(1 / 30, [person]);
+      if (t > 60) runs += f.sheep.filter((s) => s.mode === 'run').length;
+    }
+    expect(Math.hypot(f.centre.x - person.x, f.centre.z - person.z)).toBeGreaterThan(SCARE_PERSON);
+    expect(runs).toBe(0);
+    for (const s of f.sheep) expect(rectContains(pasture, s.x, s.z)).toBe(true);
+  });
+});
+
 describe('the valley\'s farms, drawn', () => {
   const view = new CountryView(W, new CityView(W), wind);
   const fakeSim = (cars: Array<{ x: number; z: number; speed: number; parked?: boolean }>, people: Array<{ x: number; z: number }> = []) =>

@@ -331,6 +331,22 @@ The valley after its reshape (a wandering loop, a ragged lake, seven hills and a
 With the traffic and the people gone Lookout Point facing west draws 147 calls (144 before the reshape, 110 before the valley) and the Coyote T facing west down the pass 168 (157 and 124): the boulders are a mesh in each cell the pass crosses, three or four of them, and the hills' scrub a few more.
 The hills cost the ground no more than they cover: a piece of land is meshed on the 2 m lattice only inside the bounds of a rise that reaches it, and flat quads elsewhere, so a rise no bigger than its slopes keeps the near mesh of the cells round it small (the ridge's cells are as before).
 
+The valley's farms (Sunset Vineyard, the Lazy Q Ranch and the farmed land between them) cost what they draw, and none of it is drawn from the city or from the county's east.
+With the traffic and the people gone (`calls.mjs` of the round, the same views on the valley's head, b858129, and on the farms'):
+
+| View (traffic and people gone) | Draw calls before | after | Triangles before | after |
+| --- | ---: | ---: | ---: | ---: |
+| Dry Creek facing west (control) | 231 | 237 | 1.05 M | 1.17 M |
+| the Pass Road's west end facing west | 129 | 179 | 0.46 M | 0.80 M |
+| the loop at the vineyard's drive facing west, at dusk | 103 | 160 | 0.36 M | 0.72 M |
+| the loop at the ranch's gate facing east | 349 | 388 | 1.47 M | 1.72 M |
+| the ridge's crest facing south-west over the south valley | 141 | 191 | 0.62 M | 0.97 M |
+| the winery's yard facing west | 86 | 142 | 0.35 M | 0.67 M |
+
+Looking at the farms costs about 40 to 60 calls: the vineyard's four chunks of instanced vines and its two soil cells, the winery's stone, its atlas and the ranch's, the house, the animals' six meshes (the two bodies cast a shadow, the rest do not, so a cascade draws two of them again), the oaks' three batches, and the fence runs, the windpump and the pumpkins, which join batches the county already drew.
+Dry Creek facing west draws 6 more than before: the three batches of the valley's oaks and bushes, which are one mesh each for the whole valley (the prop-mesh cap's reason: 597 meshes, four more than before), so their bounds reach from the ridge's lee to Dry Creek's fog; every other new mesh has bounds of its own and is hidden by the cull from there.
+The vines are 2402 instances of a 20-triangle model (48,000 triangles) and cast no shadow; the oaks, the buildings, the fences and the two animals' bodies do, which is most of the 0.3 to 0.4 M triangles more that a farm in view draws (the cascades draw them again).
+
 ## Software fallback
 
 Hardware rendering keeps the existing physical materials, procedural sky, reflections, shadows,

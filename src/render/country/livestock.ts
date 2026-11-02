@@ -24,6 +24,8 @@ export const SCARE_PER_SPEED = 0.4;
 export const SHEEP_RUN = 6.2;
 export const SHEEP_WALK = 1.5;
 export const SHEEP_RUN_ON = 2.2;
+/** A gathering point keeps this far (m) beyond a threat's reach. */
+const GATHER_CLEAR = 6;
 /** The sheep keep this far (m) inside their pasture's fence. */
 const FENCE_KEEP = 1.6;
 
@@ -59,6 +61,7 @@ export class Flock {
   readonly centre: { x: number; z: number };
   private readonly rng: Rng;
   private move = 40;
+  private watch = 0;
 
   constructor(readonly pasture: Rect, count: number, seed: number) {
     this.rng = new Rng(seed);
@@ -84,6 +87,24 @@ export class Flock {
       this.move = rng.range(45, 90);
       this.centre.x = rng.range(p.minX + 10, p.minX + 40);
       this.centre.z = rng.range(p.minZ + 14, p.maxZ - 14);
+    }
+    // A flock whose gathering point lies in reach of someone who stays there moves it, to the spot of the pasture farthest from
+    // them, rather than run from him and walk back to be frightened again.
+    this.watch -= dt;
+    if (this.watch <= 0 && threats.some((t) => Math.hypot(this.centre.x - t.x, this.centre.z - t.z) < scareRadius(t.speed) + GATHER_CLEAR)) {
+      this.watch = 1;
+      let best = this.centre;
+      let far = -Infinity;
+      for (let k = 0; k < 12; k++) {
+        const c = { x: rng.range(p.minX + 8, p.maxX - 8), z: rng.range(p.minZ + 8, p.maxZ - 8) };
+        const room = Math.min(...threats.map((t) => Math.hypot(c.x - t.x, c.z - t.z) - scareRadius(t.speed)));
+        if (room > far) {
+          far = room;
+          best = c;
+        }
+      }
+      this.centre.x = best.x;
+      this.centre.z = best.z;
     }
     for (const s of this.sheep) {
       // The nearest threat that reaches it.
