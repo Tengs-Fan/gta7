@@ -44,8 +44,8 @@ describe('Dry Creek: the town', () => {
       for (const n of W.walk.nodes) expect(rectContains(r, n.x, n.z, 0.4), `walk node ${n.id} in ${JSON.stringify(r)}`).toBe(false);
     }
     for (const b of others) for (const r of solids) expect(rectsOverlap(b.rect, r)).toBe(false);
-    // The places' props, from Gas & Grits' first pump on: after any older pass's.
-    for (const p of L.props.slice(town.pumps[0])) {
+    // The places' props, from Gas & Grits' first pump on: after any older pass's, and before the roadside oddities'.
+    for (const p of L.props.slice(town.pumps[0], L.country.oddities.firstProp)) {
       expect(places.some((q) => rectContains(q, p.x, p.z)), `${p.kind} at ${p.x}, ${p.z}`).toBe(true);
       expect(W.isOnRoad(p.x, p.z)).toBe(false);
     }

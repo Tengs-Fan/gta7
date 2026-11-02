@@ -8,6 +8,7 @@ import { StaticGrid, makeRayHit, type StaticCollider } from './colliders';
 import { BRIDGE_ARCH, COUNTY_NAME, countryFloor, countryGround, plotAt } from './country';
 import { COW_H, COW_R, HEDGE_H, inFarmCover, inTallCrop, PROPANE, STOCK_TANK } from './country/farms';
 import { countyCores, LOOKOUT } from './country/hills';
+import { ROADSIDE } from './country/oddities';
 import { cellBlock, generateCity, headlandAt, PARAPET_H, rectContains, sandHeight, waterAt, type Block, type Building, type CityLayout, type District, type Garage, type Prop, type PropKind, type Ramp, type Rect } from './layout';
 import { PLATFORM_SLAB, TOWER_H } from './monorail';
 import { TURBINE_BASE } from './offshore';
@@ -117,11 +118,11 @@ export class StaticWorld {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.addCircle(t.x + sx * t.half, t.z + sz * t.half, t.post, top, top + t.cab, 'pillar');
     g.addBox(t.x - t.half - 0.3, t.z - t.half - 0.3, t.x + t.half + 0.3, t.z + t.half + 0.3, top + t.cab, top + t.top, 'wall');
     // Its buildings, the farms' farmhouses then Dry Creek's stores, the farms' barns and hedgerows (world/country/farms.ts),
-    // and the places' solids (world/country/places.ts).
+    // and the places' and the oddities' solids (world/country/places.ts, oddities.ts).
     for (const b of this.layout.buildings.slice(country.firstBuilding)) this.addBuilding(b.tiers);
     for (const gar of this.layout.garages.slice(country.firstGarage)) this.addGarage(gar);
     for (const h of country.farms.hedges) g.addBox(h.minX, h.minZ, h.maxX, h.maxZ, 0, HEDGE_H, 'hedge');
-    for (const s of country.places.solids) {
+    for (const s of [...country.places.solids, ...country.oddities.solids]) {
       const r = s.rect;
       if (s.round) g.addCircle((r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2, (r.maxX - r.minX) / 2, s.y0, s.y1, s.tag);
       else g.addBox(r.minX, r.minZ, r.maxX, r.maxZ, s.y0, s.y1, s.tag);
@@ -248,6 +249,8 @@ export class StaticWorld {
         return g.addBox(p.x - 0.4, p.z - 0.4, p.x + 0.4, p.z + 0.4, p.y, p.y + 1.9, 'bin', i, true).id;
       case 'speaker':
         return g.addCircle(p.x, p.z, 0.1, p.y, p.y + 1.5, 'lamp', i, true).id;
+      case 'roadside':
+        return g.addCircle(p.x, p.z, 0.1, p.y, p.y + ROADSIDE[p.color]!.h, 'lamp', i, true).id;
       case 'bush':
       default:
         return -1;
