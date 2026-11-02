@@ -7,6 +7,11 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { Rng } from '../../src/core/rng';
+import { completionRows } from '../../src/sim/completion';
+import { farmState } from '../../src/sim/farm';
+import { farmsState } from '../../src/sim/farms';
+import { serializeExt } from '../../src/sim/saveExt';
+import { attractionOf } from '../../src/world/attractions';
 import { CityView } from '../../src/render/city';
 import { CountryView } from '../../src/render/country';
 import { Flock, HORSE_WALK, makeHorse, SCARE_PERSON, SCARE_PER_SPEED, scareRadius, SHEEP_RUN, stepHorse } from '../../src/render/country/livestock';
@@ -17,7 +22,7 @@ import { COUNTY_PLOTS, countryGround, plotAt } from '../../src/world/country';
 import { VINE_ROWS, VINE_SEG, VALLEY_FARMS_FROM } from '../../src/world/country/valley';
 import { mkRect, rectContains, rectCX, rectCZ, rectsOverlap, type Rect } from '../../src/world/layout';
 import { rectClearance, roadClearance } from './farm_helpers';
-import { world } from './helpers';
+import { makeSim, step, world } from './helpers';
 
 await vi.hoisted(async () => {
   const m = await import('../support/canvasStub');
@@ -137,6 +142,34 @@ describe('the valley\'s farms: where everything stands', () => {
       const c = W.grid.colliders[W.propColliders[v.firstProp + k]!]!;
       expect([c.tag, c.breakable]).toEqual(['bench', true]);
     }
+  });
+});
+
+describe('the valley\'s pumpkins and scarecrow', () => {
+  it('are decoration: breaking every one counts toward no collectible, pays nothing and saves nothing', () => {
+    const sim = makeSim({ police: false });
+    step(sim, 0.1);
+    const ids = mine.flatMap((p, k) => (p.kind === 'pumpkin' || p.kind === 'scarecrow' ? [v.firstProp + k] : []));
+    expect(ids.length).toBe(41);
+    // Hollister Farm's forty and the county's twenty scarecrows are other props than these.
+    const counted = new Set([...attractionOf(L, 'farm').anchors.pumpkins, ...L.country.farms.scarecrows]);
+    for (const i of ids) expect(counted.has(i), `prop ${i}`).toBe(false);
+    const bigs: string[] = [];
+    sim.events.on('big', (e) => bigs.push(e.text));
+    const money = sim.progress.money;
+    for (const i of ids) {
+      sim.world.breakCollider(sim.world.grid.colliders[sim.world.propColliders[i]!]!);
+      sim.events.emit('propBroken', { index: i, dirX: 1, dirZ: 0 });
+    }
+    step(sim, 0.1);
+    expect(bigs).toEqual([]);
+    expect(sim.progress.money).toBe(money);
+    expect(farmState(sim.progress).smashed.size).toBe(0);
+    expect(farmsState(sim.progress).knocked.size).toBe(0);
+    const row = (id: string) => completionRows(sim, sim.players[0]!).find((r) => r.id === id)!;
+    expect([row('pumpkins').done, row('pumpkins').total]).toEqual([0, 40]);
+    expect([row('scarecrows').done, row('scarecrows').total]).toEqual([0, 20]);
+    expect(serializeExt(sim)).toBeUndefined();
   });
 });
 
