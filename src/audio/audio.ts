@@ -19,6 +19,8 @@ import { Dialogue } from './dialogue';
 import { dopplerFactor } from './doppler';
 import { EchoBank } from './echo';
 import { EngineVoice } from './engineVoice';
+import { FieldVoices } from './fieldVoices';
+import { lifeSounds } from './lifeSounds';
 import { distanceCutoff, EXPLOSION_DUCK_RANGE, Glider, Mixer, mixTargets, OPEN_HZ, withinParam, type MixTargets } from './mixer';
 import { Newsroom } from './newsroom';
 import { Radio } from './radio';
@@ -101,6 +103,8 @@ export class AudioEngine {
   private sirenDoppler = 1;
   /** AzuraLink's train, and where the listener hears it from. */
   private train: TrainVoice | null = null;
+  /** The countryside's engines, caws and barks (fieldVoices.ts). */
+  private field: FieldVoices | null = null;
   private readonly ear: Hearing = { x: 0, y: 0, z: 0, yaw: 0, vx: 0, vz: 0 };
   readonly radio = new Radio();
   /** AZURA TALK's newsdesk on the local player's record and the weather: a new one for every game it is attached to. */
@@ -194,6 +198,7 @@ export class AudioEngine {
         this.buildHorn();
         this.buildSiren();
         this.train = new TrainVoice(ctx, this.sfx, this.noise, this.glide);
+        this.field = new FieldVoices(ctx, this.sfx, this.noise, this.glide, (x, y, z, ref, max) => this.spatial(x, y, z, ref, max), (pan, cutoff) => this.out(pan, cutoff), this.nodes);
         this.applyVolumes();
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => undefined);
@@ -1031,7 +1036,9 @@ export class AudioEngine {
     this.updateHorn(live, t);
     this.updateSwitch(sim, live);
     this.updateSiren(sim, inGame, t);
+    this.hear(sim);
     this.updateTrain(sim, inGame, t);
+    this.field!.update(lifeSounds, this.ear, t);
     this.radio.setWanted(inGame ? this.me(sim).wanted.level : 0);
     this.radio.setScene(sim.clock.hours, sim.weather.state.kind, !inGame || this.me(sim).down);
     this.radio.update(dt, inGame && !!pv && !pv.destroyed);
@@ -1105,10 +1112,10 @@ export class AudioEngine {
     this.glide.set(s.lfo.frequency, this.me(sim).wanted.level >= 3 ? 1.6 : 0.32, t, 0.3);
   }
 
-  /** AzuraLink's train where it is, and a station's loudspeaker announcing a departure to the player at its foot. */
-  private updateTrain(sim: ViewState, inGame: boolean, t: number): void {
-    const me = this.me(sim);
-    const lv = me.character.vehicle ? me.character.vehicle.vel : me.character.vel;
+  /** Where the listener is and how it moves (he moves with the player), for the voices that shift in pitch: the train's, the countryside's. */
+  private hear(sim: ViewState): void {
+    const me = this.me(sim).character;
+    const lv = me.vehicle ? me.vehicle.vel : me.vel;
     const L = this.listener;
     const ear = this.ear;
     ear.x = L.x;
@@ -1117,8 +1124,13 @@ export class AudioEngine {
     ear.yaw = L.yaw;
     ear.vx = lv.x;
     ear.vz = lv.z;
+  }
+
+  /** AzuraLink's train where it is, and a station's loudspeaker announcing a departure to the player at its foot. */
+  private updateTrain(sim: ViewState, inGame: boolean, t: number): void {
+    const me = this.me(sim);
     const m = sim.world.layout.monorail;
-    const pa = this.train!.update(m, sim.time, ear, t);
+    const pa = this.train!.update(m, sim.time, this.ear, t);
     if (pa < 0 || !inGame) return;
     const st = m.stations[pa]!;
     const p = me.pos();
