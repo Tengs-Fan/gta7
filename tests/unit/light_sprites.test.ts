@@ -491,9 +491,10 @@ describe("a headlight pool's light", () => {
     r.country.group.traverse((o) => {
       if (o instanceof THREE.InstancedMesh && o.name.startsWith('crops-')) plants.push(o.material as THREE.Material);
     });
-    // Corn, wheat and sunflowers: each pool's material is one of the fields' crops.
+    // Corn, wheat and sunflowers: each pool's material is one of the fields' crops, with Sunset Vineyard's vines, which the
+    // headlights light by the same rule.
     expect(plants).toHaveLength(3);
-    expect(fields.crops.map((m) => m.name).sort()).toEqual(['county-corn', 'county-sunflowers', 'county-wheat']);
+    expect(fields.crops.map((m) => m.name).sort()).toEqual(['county-corn', 'county-sunflowers', 'county-wheat', 'vineyard-vines']);
     for (const mat of plants) expect(fields.crops, mat.name).toContain(mat);
     expect(fields.ground.map((m) => m.name).sort()).toEqual(['field-furrow', 'field-lettuce', 'field-soil', 'field-wheat']);
     for (const mat of [...fields.ground, ...fields.crops]) {
@@ -533,6 +534,7 @@ describe("a headlight pool's light", () => {
     // headlights unless it is on the short list of what stays dark by design.
     const dark: Record<string, string> = {
       'ground-decor': 'the street decor (planters, steps, porches), in the buildings\' fog program, a few square metres at each shop',
+      'valley-farms': 'the winery\'s and the ranch house\'s porch decks, a hundred square metres each under a roof, on the valley farms\' atlas',
     };
     const ground = new Map<string, THREE.Material>();
     const unlit: string[] = [];
