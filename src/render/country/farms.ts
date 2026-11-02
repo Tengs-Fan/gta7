@@ -31,12 +31,12 @@ const SIGNS: Readonly<Record<FarmId, { lines: ReadonlyArray<readonly [string, nu
 };
 /** The barns' roofs and the paint their gables' trim takes. */
 const BARN_ROOF: Readonly<Record<FarmId, number>> = { bottoms: 0x5b5651, dairy: 0x3f4a52, orchard: 0x6b6259, acres: 0x5b5651 };
-const WHITE: RGB = [0.93, 0.91, 0.86];
-const WOOD: RGB = [0.48, 0.34, 0.21];
+export const WHITE: RGB = [0.93, 0.91, 0.86];
+export const WOOD: RGB = [0.48, 0.34, 0.21];
 const STEEL: RGB = [0.7, 0.72, 0.74];
 
 /** A square beam from a to b, `t` thick. */
-function beam(g: GeoBuilder, a: V, b: V, t: number, color: RGB): void {
+export function beam(g: GeoBuilder, a: V, b: V, t: number, color: RGB): void {
   const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize();
   const side = new THREE.Vector3().crossVectors(d, Math.abs(d.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).normalize().multiplyScalar(t / 2);
   const up = new THREE.Vector3().crossVectors(side, d).normalize().multiplyScalar(t / 2);
@@ -79,13 +79,13 @@ function gambrel(g: GeoBuilder, r: Rect, eaves: number, alongX: boolean, roof: R
   }
 }
 
-/** A barn's roof, its gable trim, the header over its open doors and the loft door over them. */
-function barn(g: GeoBuilder, f: Farmstead, height: number, color: number): void {
+/** A barn's roof (of colour `roofColor`), its gable trim, the header over its open doors and the loft door over them. */
+export function barn(g: GeoBuilder, f: Pick<Farmstead, 'barn' | 'door'>, height: number, color: number, roofColor: number): void {
   const r = f.barn;
   const top = height + GARAGE_ROOF;
   const alongX = f.door === 'E' || f.door === 'W';
   const wall = hexToRgb(color);
-  gambrel(g, r, top, alongX, hexToRgb(BARN_ROOF[f.id]), wall);
+  gambrel(g, r, top, alongX, hexToRgb(roofColor), wall);
   // The front: a white header over the doors and corner boards at its ends; the loft door, braced with a white X.
   const front = f.door === 'E' ? r.maxX : f.door === 'W' ? r.minX : f.door === 'S' ? r.maxZ : r.minZ;
   const out = f.door === 'E' || f.door === 'S' ? 1 : -1;
@@ -103,7 +103,7 @@ function barn(g: GeoBuilder, f: Farmstead, height: number, color: number): void 
 }
 
 /** A farm's sign: a board on two posts by its drive, facing (sin rot, cos rot). */
-function sign(g: GeoBuilder, painted: GeoBuilder, f: Farmstead, v: [number, number]): void {
+export function sign(g: GeoBuilder, painted: GeoBuilder, f: Pick<Farmstead, 'sign'>, v: readonly [number, number]): void {
   const { x, z, rot } = f.sign;
   const ax = Math.cos(rot);
   const az = -Math.sin(rot);
@@ -117,7 +117,7 @@ function sign(g: GeoBuilder, painted: GeoBuilder, f: Farmstead, v: [number, numb
 }
 
 /** A mailbox on its post by the road, its flag up. */
-function mailbox(g: GeoBuilder, x: number, z: number): void {
+export function mailbox(g: GeoBuilder, x: number, z: number): void {
   boxC(g, x - 0.05, 0, z - 0.05, x + 0.05, 1.05, z + 0.05, WOOD);
   boxC(g, x - 0.14, 1.05, z - 0.26, x + 0.14, 1.3, z + 0.26, [0.3, 0.32, 0.34]);
   boxC(g, x + 0.14, 1.12, z + 0.05, x + 0.17, 1.42, z + 0.09, [0.75, 0.12, 0.1]);
@@ -256,8 +256,8 @@ if ( uSightOpen > 0.0 ) {
 const isHedge = (c: StaticCollider): boolean => c.tag === 'hedge';
 
 export class FarmsView {
-  /** The windpump's wheel, turning about its hub's z axis. */
-  private readonly wheel: THREE.Mesh;
+  /** The windpumps' wheels, turning about their hubs' z axes. */
+  private readonly wheels: THREE.Mesh[] = [];
   private turn = 0;
   private last = 0;
   /** The camera, its subject and how far open the hedgerows are, which sight() drives. */
@@ -276,7 +276,7 @@ export class FarmsView {
     });
     for (const f of farms.farmsteads) {
       const gar = layout.garages.find((q) => q.poi === `${f.id}_barn`)!;
-      barn(g, f, gar.height, gar.color);
+      barn(g, f, gar.height, gar.color, BARN_ROOF[f.id]);
       const s = SIGNS[f.id];
       sign(g, painted, f, atlas.board(s.lines, s.bg, 220));
       mailbox(g, f.mailbox.x, f.mailbox.z);
@@ -297,7 +297,7 @@ export class FarmsView {
     // The hedgerows: a leafy box each, lumped along its top.
     const hedges = new GeoBuilder(false);
     const rng = new Rng(4418);
-    for (const h of farms.hedges) {
+    for (const h of [...farms.hedges, ...layout.country.valley.hedges]) {
       hedges.box(h.minX, 0, h.minZ, h.maxX, HEDGE_H - 0.25, h.maxZ, { uv: { kind: 'world', scale: 3 } });
       const alongX = h.maxX - h.minX > h.maxZ - h.minZ;
       const len = alongX ? h.maxX - h.minX : h.maxZ - h.minZ;
@@ -316,16 +316,16 @@ export class FarmsView {
     // The farmyards' and the drives' dirt, just over the grass; a drive follows the ground out to the road.
     const dirt = new GeoBuilder(false);
     const dirtUv = { kind: 'world', scale: 6 } as const;
-    for (const f of farms.farmsteads) {
-      const y = (x: number, z: number) => view.world.baseGround(x, z) + 0.008;
-      dirt.flat(f.yard.minX, f.yard.minZ, f.yard.maxX, f.yard.maxZ, 0.008, dirtUv);
-      const [x0, z0, x1, z1] = f.drive;
+    const y = (x: number, z: number) => view.world.baseGround(x, z) + 0.008;
+    /** A drive's strip, `step` m at a time, each quad at the ground's height. */
+    const driveStrip = (drive: readonly [number, number, number, number], step: number): void => {
+      const [x0, z0, x1, z1] = drive;
       const len = Math.hypot(x1 - x0, z1 - z0);
       const ux = (x1 - x0) / len;
       const uz = (z1 - z0) / len;
       const half = 2.6;
-      for (let s = 0; s < len; s += 4) {
-        const e = Math.min(len, s + 4);
+      for (let s = 0; s < len; s += step) {
+        const e = Math.min(len, s + step);
         const ax = x0 + ux * s;
         const az = z0 + uz * s;
         const bx = x0 + ux * e;
@@ -336,11 +336,27 @@ export class FarmsView {
         const c = [[ax + px, az + pz], [bx + px, bz + pz], [bx - px, bz - pz], [ax - px, az - pz]] as const;
         dirt.quad(c[0][0], y(c[0][0], c[0][1]), c[0][1], c[1][0], y(c[1][0], c[1][1]), c[1][1], c[2][0], y(c[2][0], c[2][1]), c[2][1], c[3][0], y(c[3][0], c[3][1]), c[3][1], c.flatMap(([cx, cz]) => [cx / 6, cz / 6]));
       }
+    };
+    for (const f of farms.farmsteads) {
+      dirt.flat(f.yard.minX, f.yard.minZ, f.yard.maxX, f.yard.maxZ, 0.008, dirtUv);
+      driveStrip(f.drive, 4);
+    }
+    // The valley's two farmyards and drives (world/country/valley.ts), laid in 2 m squares that follow the ground: the
+    // winery's stands on the Vineyard Rise's crest, and its drive climbs it.
+    const valley = layout.country.valley;
+    for (const { yard, drive } of [valley.vineyard.winery, valley.ranch]) {
+      for (let x = yard.minX; x < yard.maxX; x += 2) {
+        for (let z = yard.minZ; z < yard.maxZ; z += 2) {
+          const x1 = Math.min(x + 2, yard.maxX);
+          const z1 = Math.min(z + 2, yard.maxZ);
+          dirt.quad(x, y(x, z1), z1, x1, y(x1, z1), z1, x1, y(x1, z), z, x, y(x, z), z, [x / 6, z1 / 6, x1 / 6, z1 / 6, x1 / 6, z / 6, x / 6, z / 6]);
+        }
+      }
+      driveStrip(drive, 2);
     }
     view.add(dirt.build(), view.city.wet.patch(new THREE.MeshStandardMaterial({ map: groundTexture('dirt'), roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })), { name: 'farm-dirt', split: false });
 
-    // The windpump's wheel: eighteen sails round a rim, facing +z on its hub over the tower.
-    const pump = layout.props[farms.windpump]!;
+    // The windpumps' wheels (the county's and the ranch's): eighteen sails round a rim, facing +z on its hub over the tower.
     const wg = new GeoBuilder(true);
     const sails = 18;
     for (let k = 0; k < sails; k++) {
@@ -354,16 +370,21 @@ export class FarmsView {
       face(wg, pt(r0, b, 0.04), pt(r1, b, 0), pt(r1, a, 0), pt(r0, a, 0.04), [0, 0, -1], scaleRgb(c, 0.8));
     }
     boxC(wg, -0.14, -0.14, -0.12, 0.14, 0.14, 0.12, [0.3, 0.3, 0.32]);
-    this.wheel = new THREE.Mesh(wg.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide }));
-    this.wheel.name = 'windpump-wheel';
-    this.wheel.position.set(pump.x, pump.y + pump.h + 0.35, pump.z + 0.45);
-    this.wheel.castShadow = true;
-    view.moving.add(this.wheel);
+    const wheelGeo = wg.build();
+    const wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide });
+    for (const pump of layout.props.filter((p) => p.kind === 'windpump')) {
+      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+      wheel.name = 'windpump-wheel';
+      wheel.position.set(pump.x, pump.y + pump.h + 0.35, pump.z + 0.45);
+      wheel.castShadow = true;
+      view.moving.add(wheel);
+      this.wheels.push(wheel);
+    }
   }
 
-  /** Hides the windpump's wheel past `far` m from (x, z), as its tower's cell is. */
+  /** Hides the windpumps' wheels past `far` m from (x, z), as their towers' cells are. */
   cull(x: number, z: number, far: number): void {
-    this.wheel.visible = Math.hypot(this.wheel.position.x - x, this.wheel.position.z - z) < far;
+    for (const w of this.wheels) w.visible = Math.hypot(w.position.x - x, w.position.z - z) < far;
   }
 
   /**
@@ -385,11 +406,11 @@ export class FarmsView {
     u.value = to > u.value ? Math.min(to, u.value + dt / HEDGE_EASE) : Math.max(to, u.value - dt / HEDGE_EASE);
   }
 
-  /** Each frame: the windpump's wheel turns with the wind (`wind` m/s), a turn every few seconds in a breeze. */
+  /** Each frame: the windpumps' wheels turn with the wind (`wind` m/s), a turn every few seconds in a breeze. */
   update(time: number, wind: number): void {
     const dt = Math.min(0.1, Math.max(0, time - this.last));
     this.last = time;
     this.turn += dt * (0.6 + wind * 0.45);
-    this.wheel.rotation.z = this.turn;
+    for (const w of this.wheels) w.rotation.z = this.turn;
   }
 }

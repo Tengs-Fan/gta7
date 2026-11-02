@@ -45,7 +45,7 @@ export function reflectorPosts(world: StaticWorld): ReflectorPost[] {
   const junctions = roads.nodes.slice(roads.gridNodeCount).filter((n) => !roads.isBend(n));
   // The fire road's turn-off, and where it crosses the Pass Road.
   const fire = [FIRE_ROAD[0]!, [FIRE_ROAD[1]![0], PASS_Z]] as const;
-  const drives = [country.places.driveIn.drive, country.places.track.drive];
+  const drives = [country.places.driveIn.drive, country.places.track.drive, ...country.valley.drives];
   const out: ReflectorPost[] = [];
   for (const { road } of roads.outerRoads) {
     let next = POST_GAP / 2;

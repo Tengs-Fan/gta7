@@ -346,7 +346,8 @@ export class FieldsView {
   private readonly up = new THREE.Vector3(0, 1, 0);
 
   constructor(view: CountryView, wind: WindUniforms) {
-    this.fields = view.world.layout.country.farms.fields;
+    const country = view.world.layout.country;
+    this.fields = [...country.farms.fields, ...country.valley.fields];
     const pad = Math.max(...Object.values(CROP_RING).map((r) => r.ring)) + FIELD_CELL;
     this.near = {
       minX: Math.min(...this.fields.map((f) => f.rect.minX)) - pad,
