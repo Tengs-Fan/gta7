@@ -342,9 +342,24 @@ describe('the crop-duster', () => {
     const out = Math.max(...paths.map((q) => q.length / BIPLANE_SPEED));
     expect(out).toBeLessThan(SORTIE_PERIOD - 20);
     expect(biplaneAt(paths, out + 5, 12, true, p)).toBe(false);
-    expect(biplaneAt(paths, 10, DUSTER_HOURS.from - 0.01, true, p)).toBe(false);
-    expect(biplaneAt(paths, 10, DUSTER_HOURS.to, true, p)).toBe(false);
+    expect(biplaneAt(paths, 10, 3, true, p)).toBe(false);
+    expect(biplaneAt(paths, 10, 22, true, p)).toBe(false);
     expect(biplaneAt(paths, 10, 12, false, p)).toBe(false);
+  });
+
+  it('flies a sortie by the hour it began: one that starts at 17:29 flies to its end past 17:30, one that starts at 07:29 does not appear at 07:30', () => {
+    const p = newPose();
+    /** Whether the plane is out in each second of the sortie `n` that starts at `hours0`, the clock running at its default rate. */
+    const frames = (n: number, hours0: number): boolean[] => {
+      const seconds = Math.floor(paths[n % paths.length]!.length / BIPLANE_SPEED);
+      return Array.from({ length: seconds + 1 }, (_, k) => biplaneAt(paths, n * SORTIE_PERIOD + k, hours0 + k / 60, true, p));
+    };
+    for (const n of [4, 5]) {
+      expect(frames(n, DUSTER_HOURS.to - 1 / 60).every(Boolean), `${n} at 17:29`).toBe(true);
+      expect(frames(n, DUSTER_HOURS.to + 1 / 60).some(Boolean), `${n} at 17:31`).toBe(false);
+      expect(frames(n, DUSTER_HOURS.from - 1 / 60).some(Boolean), `${n} at 07:29`).toBe(false);
+      expect(frames(n, DUSTER_HOURS.from + 1 / 60).every(Boolean), `${n} at 07:31`).toBe(true);
+    }
   });
 
   it('moves at its speed along its nose, and the pose is continuous second to second', () => {

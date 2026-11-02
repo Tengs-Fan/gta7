@@ -1,7 +1,7 @@
 // What flies and drives over Las Lomas County's fields, as pure functions of the clocks (no three.js, no sim state):
 // - the crop-duster biplane's sorties: every SORTIE_PERIOD s of sim time one of two runs flies in off the sound, makes
 //   three low passes along a field's rows (spraying while it is over crops), pulls up and leaves over the ridge, the
-//   Halfmoon Acres run ending in a loop; by day and in fair weather only;
+//   Halfmoon Acres run ending in a loop; a sortie that begins by day flies to its end, and none flies in the rain;
 // - the combine harvester's circuit of the wheat, lane after lane with a headland turn between, its place on it the
 //   hour of the working day (7:00-17:30), so it is where it is whenever the clock is set;
 // - the hot-air balloon, which swells on its meadow at 05:30, lifts at 05:45, drifts south down the county over the
@@ -39,6 +39,8 @@ const MAX_BANK = 1.15;
 const BANK_RAMP = 24;
 /** The doubles of a sample: x, y, z, nose, up. */
 const STRIDE = 9;
+/** One game hour is this many seconds at the clock's default rate (GameClock.rate). */
+const SECONDS_PER_HOUR = 60;
 
 /** A sampled path from a start to an end, `flag`ging the samples (the biplane's spray) by where they are. */
 export class FlightPath {
@@ -177,7 +179,7 @@ class Turtle {
 export const BIPLANE_SPEED = 34;
 /** Seconds of sim time between one sortie's start and the next's; a sortie flies 60 to 70 s of it. */
 export const SORTIE_PERIOD = 120;
-/** The hours the duster flies (it is not out in rain). */
+/** The hours a sortie may begin in: one that has begun flies to its end, past 17:30 (it is not out in rain). */
 export const DUSTER_HOURS = { from: 7.5, to: 17.5 } as const;
 /** The height (m) of the lowest pass over the ground, and of the highest ground structure it must clear (the grain elevator). */
 export const PASS_ALT = 8;
@@ -218,13 +220,17 @@ export function dustPaths(world: StaticWorld): FlightPath[] {
 
 /**
  * The biplane at sim time `time` (and the clock's `hours`): its pose into `out`, or false when it is not out (in the
- * hangar between sorties, at night, in the rain).
+ * hangar between sorties, in a sortie that began at night, in the rain). A sortie is out or not by the hour it began, so
+ * none is cut short at 17:30 or switched on part-way through at 07:30; that hour is reckoned at the clock's default
+ * rate, so at another rate it drifts within a sortie.
  */
 export function biplaneAt(paths: readonly FlightPath[], time: number, hours: number, fair: boolean, out: Pose): boolean {
-  if (!fair || hours < DUSTER_HOURS.from || hours >= DUSTER_HOURS.to) return false;
   const n = Math.floor(time / SORTIE_PERIOD);
+  const into = time - n * SORTIE_PERIOD;
+  const began = hours - into / SECONDS_PER_HOUR;
+  if (!fair || began < DUSTER_HOURS.from || began >= DUSTER_HOURS.to) return false;
   const path = paths[n % paths.length]!;
-  const s = (time - n * SORTIE_PERIOD) * BIPLANE_SPEED;
+  const s = into * BIPLANE_SPEED;
   if (s > path.length) return false;
   path.sample(s, BIPLANE_SPEED, out);
   return true;
@@ -238,8 +244,6 @@ export const COMBINE_DAY = { from: 7, to: 17.5 } as const;
 /** Metres between its lanes, and what it keeps off the field's edge (its headland turns reach 5.5 m past the lanes' ends). */
 const LANE = 11;
 const HEADLAND = 12;
-/** One game hour is this many seconds at the clock's default rate. */
-const SECONDS_PER_HOUR = 60;
 
 export interface Combine {
   x: number;
