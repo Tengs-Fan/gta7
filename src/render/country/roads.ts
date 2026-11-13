@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import { CROSSWALK_W, LANE_W } from '../../world/constants';
+import { rectContains, type Rect } from '../../world/layout';
 import type { RoadNode } from '../../world/roads';
 import { quadLine } from '../city/shared';
 import { NO_RECT, setGroundAttribute, type GroundRange } from '../city/surfaces';
@@ -20,6 +21,8 @@ const PAINT_Y = 0.024;
 /** The gravel shoulders either side of the asphalt: their width (m) out from its edge, their height over the ground. */
 const SHOULDER = 0.9;
 const SHOULDER_Y = 0.006;
+/** A shoulder's pieces (m) along the road: short enough to follow its curves and to stop where the land does. */
+const SHOULDER_STEP = 4;
 /** A dashed line's dash and gap (m). */
 const DASH = 3;
 const GAP = 6;
@@ -46,6 +49,7 @@ export function buildCountryRoads(view: CountryView): void {
   const uv = { kind: 'world', scale: surfaces.tile('road') } as const;
   const gravel = new GeoBuilder(false);
   const dirtUv = { kind: 'world', scale: surfaces.tile('plain') } as const;
+  const land = view.world.layout.country.land;
   const outer = (n: RoadNode) => n.i < 0;
   for (const { road, nodes } of roads.outerRoads) {
     const half = road.width / 2;
@@ -70,7 +74,7 @@ export function buildCountryRoads(view: CountryView): void {
       const total = pts[pts.length - 1]!.s;
       const s1 = total - box(last, pts[pts.length - 1]!.x - pts[pts.length - 2]!.x, pts[pts.length - 1]!.z - pts[pts.length - 2]!.z);
       ribbon(asphalt, ranges, pts, s0, s1, -half, half, ASPHALT_Y, uv);
-      for (const [o0, o1] of [[-half - SHOULDER, -half + 0.05], [half - 0.05, half + SHOULDER]] as const) ribbon(gravel, [], pts, s0, s1, o0, o1, SHOULDER_Y, dirtUv);
+      for (const [o0, o1] of [[-half - SHOULDER, -half + 0.05], [half - 0.05, half + SHOULDER]] as const) shoulder(gravel, land, pts, s0, s1, o0, o1, dirtUv.scale);
       for (const o of [-(half - 0.35), half - 0.35]) line(white, pts, s0, s1, o, 0.1, false);
       const centre = s0 + CROSSWALK_W;
       const stop = s1 - CROSSWALK_W;
@@ -183,6 +187,21 @@ function ribbon(g: GeoBuilder, ranges: GroundRange[], pts: Vertex[], s0: number,
         v++;
       },
     });
+  }
+}
+
+/**
+ * Gravel along the run from s0 to s1 between offsets o0 and o1, in pieces of SHOULDER_STEP m, each laid only where all of
+ * it is on the county's `land`: none on the links' spans over the water or through the city's promenade.
+ */
+function shoulder(g: GeoBuilder, land: readonly Rect[], pts: Vertex[], s0: number, s1: number, o0: number, o1: number, tile: number): void {
+  const on = (p: { x: number; z: number }) => land.some((r) => rectContains(r, p.x, p.z));
+  const k = 1 / tile;
+  for (let a = s0; a < s1 - 0.01; a += SHOULDER_STEP) {
+    const b = Math.min(s1, a + SHOULDER_STEP);
+    const q = [at(pts, a, o1), at(pts, b, o1), at(pts, b, o0), at(pts, a, o0)] as const;
+    if (!q.every(on)) continue;
+    g.quad(q[0].x, SHOULDER_Y, q[0].z, q[1].x, SHOULDER_Y, q[1].z, q[2].x, SHOULDER_Y, q[2].z, q[3].x, SHOULDER_Y, q[3].z, q.flatMap((p) => [p.x * k, -p.z * k]));
   }
 }
 

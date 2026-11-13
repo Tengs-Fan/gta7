@@ -121,3 +121,17 @@ describe('the farms\' meshes', () => {
     expect(meshes('lazy-q-ranch').length).toBe(1);
   });
 });
+
+describe('the roads\' shoulders, drawn', () => {
+  it('lay their gravel only on the county\'s land, off the bridges, the causeway\'s water and the city\'s promenade', () => {
+    const [mesh] = meshes('country-shoulders');
+    const pos = mesh!.geometry.getAttribute('position');
+    const off: string[] = [];
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      if (!L.country.land.some((r) => rectContains(r, x, z))) off.push(`${x.toFixed(1)}, ${z.toFixed(1)}`);
+    }
+    expect(off.slice(0, 12)).toEqual([]);
+  });
+});
