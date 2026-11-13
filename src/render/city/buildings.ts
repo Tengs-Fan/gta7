@@ -759,7 +759,7 @@ function facing(g: GeoBuilder, p: ReadonlyArray<readonly [number, number, number
 /**
  * Pitched roof along the longer side, with its trim: the gable ends in the wall's colour (a house's in lap boards round
  * an attic vent), fascia boards along the eaves, barge boards up the rakes and a ridge cap; a house gets a chimney and
- * downpipes at two corners.
+ * downpipes at two corners. The county's farmhouses keep their plain roofs.
  */
 function gable(roofs: GeoBuilder, relief: GeoBuilder, decor: GeoBuilder, t: Tier, b: Building, wallColor: RGB): void {
   const w = t.maxX - t.minX;
@@ -783,6 +783,14 @@ function gable(roofs: GeoBuilder, relief: GeoBuilder, decor: GeoBuilder, t: Tier
   for (const s of [-1, 1]) {
     const qe = qm + s * (half + o);
     facing(roofs, [P(p0 - o, qe, y - 0.1), P(p1 + o, qe, y - 0.1), P(p1 + o, qm, y + h), P(p0 - o, qm, y + h)], [dirQ(s)[0], 1, dirQ(s)[2]], roofCol);
+  }
+  if (b.district === 'country') {
+    // The county's farmhouses keep their plain gable ends, in the wall's tint on the roof's material.
+    for (const s of [-1, 1]) {
+      const pe = s < 0 ? p0 : p1;
+      facing(roofs, [P(pe, q0, y), P(pe, q1, y), P(pe, qm, y + h), P(pe, qm, y + h)], dirP(s), wallColor);
+    }
+    return;
   }
   const house = b.style === 'house';
   const gableCol = wallTone(b, wallColor);
