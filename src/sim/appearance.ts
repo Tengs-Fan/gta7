@@ -9,11 +9,13 @@ const HAIR = [0x1a1a1a, 0x3b2a1a, 0x6b4423, 0xb5651d, 0xd9c36a, 0x8a8a8a, 0x5a2d
 /**
  * Whether someone is a woman: by role and id, so it is theirs for as long as they are in the world and draws nothing
  * from the simulation's random stream. Half the people out walking, a quarter of the police and of a gang; the player,
- * a riot squad and a mission's people (the buyer, a guard, a farmer: "he" in every line about them) are men.
+ * a riot squad and a mission's people (the buyer, a guard, a farmer: "he" in every line about them) are men, and so
+ * is anyone a mission names as one (Character.man: Benny, the Tiburones' driver).
  * The figure drawn (render/crowd.ts), the voice a shout is in (audio/barks.ts) and the fare someone is in a cab
  * (activities/fares.ts) all follow it.
  */
-export function isWoman(c: { role: CharacterRole; id: number }): boolean {
+export function isWoman(c: { role: CharacterRole; id: number; man?: boolean }): boolean {
+  if (c.man) return false;
   const share = c.role === 'civilian' ? 0.5 : c.role === 'cop' || c.role === 'gang' ? 0.25 : 0;
   // Knuth's multiplicative hash of the id: neighbours in id are not neighbours in it.
   return (Math.imul(c.id, 2654435761) >>> 0) / 4294967296 < share;

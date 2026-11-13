@@ -293,7 +293,7 @@ function board(sim: Sim, j: CabJob): boolean {
   if (seat < 0) return false;
   p.state = 'normal';
   sim.seat(p, v, seat);
-  sim.events.emit('vehicleEnter', { vehicle: v, character: p, jacked: false });
+  sim.events.emit('vehicleEnter', { vehicle: v, character: p, jacked: false, victim: null });
   return true;
 }
 

@@ -25,7 +25,7 @@ export const FARES: readonly Fare[] = [
 ];
 
 /** The fare type of a character: by id among the types of his or her sex, as a shout picks its voice (barks.ts barkVoice). */
-export function fareOf(c: { id: number; role: CharacterRole }): Fare {
+export function fareOf(c: { id: number; role: CharacterRole; man?: boolean }): Fare {
   const woman = isWoman(c);
   const own = FARES.filter((f) => f.woman === woman);
   return own[c.id % own.length]!;

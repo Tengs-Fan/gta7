@@ -3604,12 +3604,12 @@ describe('round 2 audio: mix, voices and ambience', () => {
     const v = sim.spawnVehicle('sedan', rp.x, rp.z, rp.heading);
     audio.setListener(rp.x + 4, 2, rp.z + 4, 0);
     const n0 = audio.counters.doorThunks;
-    sim.events.emit('vehicleEnter', { vehicle: v, character: sim.player, jacked: false });
+    sim.events.emit('vehicleEnter', { vehicle: v, character: sim.player, jacked: false, victim: null });
     expect(audio.counters.doorThunks).toBe(n0 + 1);
     sim.events.emit('vehicleExit', { vehicle: v, character: sim.player });
     expect(audio.counters.doorThunks).toBe(n0 + 2);
     const npc = sim.spawnCharacter('civilian', rp.x + 3, rp.z);
-    sim.events.emit('vehicleEnter', { vehicle: v, character: npc, jacked: false });
+    sim.events.emit('vehicleEnter', { vehicle: v, character: npc, jacked: false, victim: null });
     expect(audio.counters.doorThunks).toBe(n0 + 2);
   });
 

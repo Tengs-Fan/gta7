@@ -93,6 +93,8 @@ const looseLips: MissionDef = {
       return;
     }
     const benny = target.driver!;
+    // "Make sure he never arrives."
+    benny.man = true;
     target.owner = 'mission';
     target.persistent = true;
     target.missionTag = m.def.id;

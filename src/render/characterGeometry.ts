@@ -14,7 +14,7 @@ export type CharacterPartName =
   | 'hairLong' | 'hairTail' | 'hairFull';
 
 /** A woman's shoulders, arms and legs against a man's (CrowdView): the drawn spread of the shoulders and the limbs' girth. */
-export const WOMAN = { shoulders: 0.9, arm: 0.88, leg: 0.94 } as const;
+export const WOMAN = { shoulders: 0.9, arm: 0.88, leg: 0.94, badge: { x: 0.975, z: 0.95 } } as const;
 
 /**
  * Where the arms are drawn from, in the torso's own frame (CrowdView.shoulders): nearer the spine and lower than the

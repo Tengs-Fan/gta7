@@ -424,6 +424,8 @@ const offTheRoad: MissionDef = {
       }
       target.color = TIBURONES;
       const driver = target.driver!;
+      // "He has seen you! Do not let him get away."
+      driver.man = true;
       const mk = m.mark(target, 'Tiburones car');
       m.objective(`Ram the Tiburones car off the road (${i + 1}/${RAM_TARGETS})`);
       const dist = () => {

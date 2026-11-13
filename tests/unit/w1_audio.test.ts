@@ -6,6 +6,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AudioEngine } from '../../src/audio/audio';
+import { Barks } from '../../src/audio/barks';
 import { DOPPLER_RANGE, dopplerFactor } from '../../src/audio/doppler';
 import { decayTime, echoImpulse, gunEcho } from '../../src/audio/echo';
 import { mixTargets, type MixInput } from '../../src/audio/mixer';
@@ -14,6 +15,7 @@ import { BARK_MIN_GAP, BARK_WAIT, barkLength, PoliceScanner, RADIO_BAND } from '
 import { dispatchClips, SpeechBank } from '../../src/audio/speech';
 import { NodeTally } from '../../src/audio/tally';
 import { AZURA_FORMAT, DESK_LEAD, DESK_PAUSE, DESK_TAIL, deskLength, GAP_LEN, IDENT_AT, JINGLE_TAIL, talkProgramme, TalkProgramme, TalkShow, type TalkFormat } from '../../src/audio/talk';
+import { isWoman } from '../../src/sim/appearance';
 import { SPEECH } from '../../src/sim/speech';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
@@ -533,6 +535,48 @@ describe('someone who jumps out of the way of the car shouts at its driver (roun
     dodge(8);
     expect(audio.counters.voices).toBe(voices + 1);
     dice.mockRestore();
+  });
+});
+
+describe('a shout is made by the one it belongs to, in a voice of his or her sex', () => {
+  it('someone jumping clear, a driver pulled out of his car (not his passenger, nor his car), one whose car is rammed', () => {
+    const { sim, audio } = rig();
+    const p = sim.player.pos;
+    const say = vi.spyOn(Barks.prototype, 'say');
+    const last = () => say.mock.calls[say.mock.calls.length - 1]!;
+    // A man and a woman out walking.
+    const people: Character[] = [];
+    for (let i = 0; people.length < 2 && i < 80; i++) {
+      const c = sim.spawnCharacter('civilian', p.x + 3 + i * 0.01, p.z + 3);
+      if (people.every((o) => isWoman(o) !== isWoman(c))) people.push(c);
+    }
+    expect(people.map(isWoman).sort()).toEqual([false, true]);
+    const dice = vi.spyOn(Math, 'random').mockReturnValue(0.1);
+    for (const c of people) {
+      sim.events.emit('pedDodge', { x: c.pos.x, y: c.pos.y + 1.6, z: c.pos.z, who: c.id });
+      expect([last()[0], last()[1], last()[5]]).toEqual(['dodge', c.id, isWoman(c)]);
+      // Pulled out of a car with someone else beside it: the shout is the driver's.
+      const v = sim.spawnVehicle('sedan', p.x + 4, p.z + 4, 0);
+      sim.spawnCharacter('civilian', v.pos.x + 1.5, v.pos.z);
+      sim.events.emit('vehicleEnter', { vehicle: v, character: sim.player, jacked: true, victim: c });
+      expect([last()[0], last()[1], last()[5]]).toEqual(['jacked', c.id, isWoman(c)]);
+      // Rammed at the wheel.
+      sim.seat(c, v, 0);
+      sim.events.emit('vehicleRammed', { vehicle: v, by: sim.player, deltaV: 6 });
+      expect([last()[0], last()[1], last()[5]]).toEqual(['rammed', c.id, isWoman(c)]);
+      sim.unseat(c);
+    }
+    // Nobody known to have been pulled out (a jacked event from an older server): the car's id, any voice.
+    const v = sim.spawnVehicle('taxi', p.x + 6, p.z + 6, 0);
+    sim.events.emit('vehicleEnter', { vehicle: v, character: sim.player, jacked: true, victim: null });
+    expect([last()[0], last()[1], last()[5]]).toEqual(['cabbie', v.id, undefined]);
+    // Getting into an empty car is no shout at all.
+    const n = say.mock.calls.length;
+    sim.events.emit('vehicleEnter', { vehicle: v, character: sim.player, jacked: false, victim: null });
+    expect(say.mock.calls.length).toBe(n);
+    dice.mockRestore();
+    say.mockRestore();
+    void audio;
   });
 });
 

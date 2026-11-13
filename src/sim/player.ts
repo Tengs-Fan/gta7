@@ -36,6 +36,8 @@ export class PlayerController {
   private entryPoints: EntryPoint[] = [];
   private entrySide: 1 | -1 = 1;
   private jackedAt = 0;
+  /** The driver pulled out of the vehicle being entered, for whoever hears him shout after it. */
+  private jackedDriver: Character | null = null;
   private lastX = 0;
   private lastZ = 0;
   /** Current point-blank aim convergence: how far (rad) the aim is turned from the camera ray's yaw. */
@@ -259,6 +261,7 @@ export class PlayerController {
     p.vel.z = 0;
     this.jacked = false;
     this.jackedAt = 0;
+    this.jackedDriver = null;
     if (v.ai) v.ai.hold = true;
     // Long vehicles (bus) are in reach from further than 7 m from the door.
     this.enterReach = Math.max(7, route.length + 2);
@@ -405,6 +408,7 @@ export class PlayerController {
       victim.onGround = false;
       sim.peds.onJacked(victim, this.p.character);
       this.jacked = true;
+      this.jackedDriver = victim;
       this.jackedAt = p.enterTimer;
       this.p.wanted.crime('carjack', v.pos.x, v.pos.z, this.p);
     }
@@ -440,6 +444,7 @@ export class PlayerController {
       victim.state = 'normal';
       sim.peds.onJacked(victim, this.p.character);
       this.jacked = true;
+      this.jackedDriver = victim;
       this.p.wanted.crime('carjack', v.pos.x, v.pos.z, this.p);
     }
     this.takeWheel(p, v);
@@ -479,7 +484,8 @@ export class PlayerController {
       this.exitPending = false;
       p.enterTarget = null;
       this.entryPoints = [];
-      sim.events.emit('vehicleEnter', { vehicle: v, character: p, jacked: this.jacked });
+      sim.events.emit('vehicleEnter', { vehicle: v, character: p, jacked: this.jacked, victim: this.jacked ? this.jackedDriver : null });
+      this.jackedDriver = null;
     }
   }
 

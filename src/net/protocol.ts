@@ -23,7 +23,7 @@ import { ProtocolError, Reader, Writer } from './wire';
 export { ProtocolError, Reader, Writer } from './wire';
 
 export const MAGIC = 0x47;
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 export const HEADER_BYTES = 3;
 
 export const MESSAGE_TYPES = ['hello', 'welcome', 'reject', 'input', 'snapshot', 'event', 'cmd', 'ping', 'pong', 'bye'] as const;
@@ -531,7 +531,7 @@ export const EVENT_SCHEMAS: readonly EventSchema[] = [
   { type: 'splash', fields: [...XYZ, ['big', 'b']] },
   { type: 'lightning', fields: [['x', 'f'], ['z', 'f'], ['dist', 'f']] },
   { type: 'horn', fields: [['vehicle', 'r']] },
-  { type: 'vehicleEnter', fields: [['vehicle', 'r'], ['character', 'r'], ['jacked', 'b']] },
+  { type: 'vehicleEnter', fields: [['vehicle', 'r'], ['character', 'r'], ['jacked', 'b'], ['victim', 'r']] },
   { type: 'vehicleExit', fields: [['vehicle', 'r'], ['character', 'r']] },
   { type: 'vehicleDestroyed', fields: [['vehicle', 'r']] },
   { type: 'characterKilled', fields: [['victim', 'r'], ['killer', 'r']] },

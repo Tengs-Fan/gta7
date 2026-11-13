@@ -397,9 +397,8 @@ export class AudioEngine {
         if (e.character === this.me(sim).character) this.doorThunk(e.vehicle);
         // The driver pulled out of the car shouts after it (a cabbie has his own lines).
         if (e.jacked) {
-          // (He is beside its door by now: the nearest on foot who is not the one who took it.)
           const v = e.vehicle;
-          const out = nearestCharacter(sim.characters, v.pos.x, v.pos.z, 4, (c) => c !== e.character && !c.isPlayer && !c.vehicle && c.alive);
+          const out = e.victim;
           this.bark(v.kind === 'taxi' ? 'cabbie' : 'jacked', out?.id ?? v.id, v.pos.x, v.pos.y + 1, v.pos.z, out ? isWoman(out) : undefined);
         }
       }),
@@ -593,7 +592,7 @@ export class AudioEngine {
           best = v;
         }
       }
-      if (best) this.bark('pullOver', best.id, best.pos.x, best.pos.y + 1.5, best.pos.z);
+      if (best) this.bark('pullOver', best.id, best.pos.x, best.pos.y + 1.5, best.pos.z, best.driver ? isWoman(best.driver) : undefined);
     } else if (!pc.vehicle && me.wanted.level === 0 && Math.hypot(pc.vel.x, pc.vel.z) < 2.5) {
       const h = hollister(sim);
       const c = nearestCharacter(sim.characters, pc.pos.x, pc.pos.z, 3, (c) => c.role === 'civilian' && c.state === 'normal' && c !== pc);

@@ -336,8 +336,8 @@ describe('jointed rig and planted-foot gait', () => {
     expect(easing.up.angleTo(rest.up)).toBeGreaterThan(0.05);
     c.hurtTimer = 0;
     const after = pose();
-    // (To within a breath: someone standing idle is never quite still.)
-    expect(after.head.distanceTo(rest.head)).toBeLessThan(0.004);
+    // (To within a breath: someone standing idle is never quite still, and his head rides his chest by a centimetre.)
+    expect(after.head.distanceTo(rest.head)).toBeLessThan(0.015);
   });
 
   it('a corpse lies with its arms relaxed at its sides one second after death, not in a T', () => {

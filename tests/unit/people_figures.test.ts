@@ -130,9 +130,17 @@ describe('the figure', () => {
     const collar = girthAt(g.torso, 0.648).x;
     expect(shoulders).toBeGreaterThan(waist + 0.04);
     expect(collar).toBeLessThan(0.08);
-    // A shoulder line that falls away from the neck: 4 cm lower where the arms start than at the collar.
-    expect(0.648 - 0.606).toBeGreaterThan(0.035);
-    expect(girthAt(g.torso, 0.606).x).toBeGreaterThan(0.17);
+    // A shoulder line that falls away from the neck: where the torso is 17 cm out from the spine (the arms start
+    // there) its top is 3.5 cm and more under the collar's.
+    const p = g.torso.getAttribute('position');
+    let top = -Infinity;
+    let out = -Infinity;
+    for (let i = 0; i < p.count; i++) {
+      top = Math.max(top, p.getY(i));
+      if (Math.abs(p.getX(i)) >= 0.17) out = Math.max(out, p.getY(i));
+    }
+    expect(top - out).toBeGreaterThan(0.035);
+    expect(top - out).toBeLessThan(0.08);
     // It ends inside the waistband, which is the hips' and wider than it.
     g.torso.computeBoundingBox();
     expect(g.torso.boundingBox!.min.y).toBeGreaterThan(0);
@@ -207,7 +215,7 @@ describe('the figure in the crowd', () => {
     void sim;
   });
 
-  it('what someone wears is his by his id: the same on any screen, a town of men and women, sleeves and legs long and short', () => {
+  it('what someone wears is his by his id: the same each time he is drawn, a town of men and women, sleeves and legs long and short', () => {
     const { people } = row(400);
     let women = 0;
     let bare = 0;
@@ -289,6 +297,59 @@ describe('the figure in the crowd', () => {
     expect(isWoman(sim.player)).toBe(false);
   });
 
+  it("a woman's narrower shoulders still reach the gun: an officer's hand is on the pistol's grip and on the rifle's, aimed", () => {
+    const she = row(200, 'cop').people.find((c) => isWoman(c))!;
+    expect(she).toBeDefined();
+    she.heading = 0.4;
+    for (const weapon of ['pistol', 'rifle'] as const) {
+      she.inventory.give(weapon, 30);
+      she.inventory.current = weapon;
+      she.aiming = true;
+      she.aimYaw = 0.4;
+      she.aimPitch = 0;
+      const cv = new CrowdView();
+      for (let i = 0; i < 20; i++) cv.sync([she], she.pos.x, she.pos.z, 1 / 60);
+      expect(parts(cv).torso!.shape![0]).toBe(1);
+      const w = weaponPose(she);
+      const hands = [0, 1].map((i) => origin(matrixAt(parts(cv).hand!, i)));
+      const grip = new THREE.Vector3(w.hand.x, w.hand.y, w.hand.z);
+      expect(Math.min(...hands.map((h) => h.distanceTo(grip))), weapon).toBeLessThan(0.06);
+      // And a rifle's fore-end is in the other hand.
+      if (weapon === 'rifle') {
+        const fore = new THREE.Vector3(w.offHand.x, w.offHand.y, w.offHand.z);
+        expect(Math.min(...hands.map((h) => h.distanceTo(fore)))).toBeLessThan(0.06);
+      }
+    }
+  });
+
+  it('the shaders take the two shapes and the edge light: every line the crowd adds to three\'s lands', () => {
+    const cv = new CrowdView();
+    const compile = (mat: THREE.Material, lib: { vertexShader: string; fragmentShader: string }) => {
+      const shader = { vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader, uniforms: {} };
+      (mat.onBeforeCompile as (s: unknown, r: unknown) => void)(shader, null);
+      return shader;
+    };
+    const torso = parts(cv).torso!.mesh;
+    const arm = parts(cv).upperArm!.mesh;
+    const shaped = compile(torso.material as THREE.Material, THREE.ShaderLib.standard);
+    expect(shaped.vertexShader).toContain('attribute float instanceShape;');
+    expect(shaped.vertexShader).toContain('transformed = mix( transformed, positionB, instanceShape );');
+    expect(shaped.vertexShader).toContain('objectNormal = mix( objectNormal, normalB, instanceShape );');
+    expect(shaped.vertexShader).toContain('vInstanceFade = instanceFade;');
+    expect(shaped.fragmentShader).toContain('float nap = ');
+    // A part with one shape has the fade and the edge light and no blend.
+    const plain = compile(arm.material as THREE.Material, THREE.ShaderLib.standard);
+    expect(plain.vertexShader).not.toContain('instanceShape');
+    expect(plain.vertexShader).toContain('vInstanceFade = instanceFade;');
+    expect(plain.fragmentShader).toContain('float nap = ');
+    // Their shadows: the same blend, so a woman's shadow is her own shape.
+    const depth = compile(torso.customDepthMaterial as THREE.Material, THREE.ShaderLib.depth);
+    expect(depth.vertexShader).toContain('transformed = mix( transformed, positionB, instanceShape );');
+    expect(compile(arm.customDepthMaterial as THREE.Material, THREE.ShaderLib.depth).vertexShader).not.toContain('instanceShape');
+    // Two programs, not one: three keys a program on the text of its patch.
+    expect(String((torso.material as THREE.Material).onBeforeCompile)).not.toBe(String((arm.material as THREE.Material).onBeforeCompile));
+  });
+
   it('someone standing idle breathes and looks about, to his own time, with his feet where they were; with a gun up he is still', () => {
     const { people } = row(2);
     const [a, b] = people as [Character, Character];
@@ -315,6 +376,40 @@ describe('the figure in the crowd', () => {
     expect(apart).toBeGreaterThan(0.05);
     expect(breath).toBeGreaterThan(0.005);
     expect(breath).toBeLessThan(0.05);
+    // Setting off, his head does not snap round: it eases back to his way over half a second.
+    {
+      const { people: walkers } = row(1);
+      const w = walkers[0]!;
+      const view = new CrowdView();
+      /** Which way the head faces in the chest's own frame: the glance, apart from whatever the walk does to the chest. */
+      const head = () => {
+        view.sync([w], w.pos.x, w.pos.z, 1 / 60);
+        const q = parts(view);
+        const chest = new THREE.Matrix4().extractRotation(matrixAt(q.torso!, 0)).invert();
+        return new THREE.Vector3(0, 0, 1).transformDirection(matrixAt(q.head!, 0)).transformDirection(chest);
+      };
+      const ahead = new THREE.Vector3(0, 0, 1);
+      // Stand until he is looking well to one side.
+      let was = head();
+      for (let i = 0; i < 60 * 60 && Math.abs(was.x) < 0.2; i++) was = head();
+      expect(Math.abs(was.x)).toBeGreaterThanOrEqual(0.2);
+      // Then walk: no frame turns the head by more than a couple of degrees.
+      w.speed = 1.4;
+      w.vel.x = Math.sin(w.heading) * 1.4;
+      w.vel.z = Math.cos(w.heading) * 1.4;
+      // (His head's turn to the side, apart from the nod the walk's lean gives it.)
+      const yaw = (d: THREE.Vector3) => Math.atan2(d.x, d.z);
+      let worst = 0;
+      for (let i = 0; i < 90; i++) {
+        const now = head();
+        worst = Math.max(worst, Math.abs(yaw(now) - yaw(was)));
+        was = now;
+      }
+      expect(worst).toBeLessThan(0.03);
+      // And he ends up looking where he is going.
+      expect(Math.abs(was.x)).toBeLessThan(0.03);
+      void ahead;
+    }
     // Aiming, the head is on the sights and the chest does not sway.
     a.inventory.give('pistol', 30);
     a.inventory.current = 'pistol';

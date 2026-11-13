@@ -31,6 +31,8 @@ const HURT_TIME = 0.35;
 const IDLE_BREATH = 0.012;
 const IDLE_SWAY = 0.025;
 const IDLE_GLANCE = 0.3;
+/** How fast that comes and goes as he stops and sets off (1/s). */
+const IDLE_EASE = 5;
 const FLINCH_LEAN = 0.34;
 const FLINCH_TWIST = 0.24;
 const FLINCH_DROP = 0.06;
@@ -184,6 +186,8 @@ interface Anim {
   walk: number;
   /** 0 on the ground .. 1 airborne (knees tucked). */
   air: number;
+  /** 0 .. 1: how far he has settled into standing about (the breath, the sway and the glance come and go with it). */
+  ease: number;
   /** Frame the character was last drawn. */
   frame: number;
 }
@@ -593,7 +597,7 @@ export class CrowdView {
   private poseOnFoot(c: Character, dt: number): void {
     let anim = this.lie.get(c.id);
     if (!anim) {
-      anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, frame: 0 };
+      anim = { lie: c.state === 'dead' || c.state === 'knocked' ? 1 : 0, walk: c.speed > 0.3 ? 1 : 0, air: c.onGround ? 0 : 1, ease: 0, frame: 0 };
       this.lie.set(c.id, anim);
     }
     anim.frame = this.frame;
@@ -725,7 +729,11 @@ export class CrowdView {
       this.put(this.parts.shirtInset, S.inst, local ? 0xc8c7bc : seeded(c.id, 22) > 0.5 ? 0xe1ddd0 : 0x283b48);
       this.put(this.parts.jacketTrim, S.inst, a.shirt);
     }
-    if (c.isLaw) this.put(this.parts.badge, S.inst, 0xffffff);
+    if (c.isLaw) {
+      // Cut to the man's torso: on hers it is drawn in a little, so the badge lies on her chest and the belt on her hips.
+      if (she) S.inst.copy(S.body).scale(S.sc.set(a.build * WOMAN.badge.x, s, a.build * WOMAN.badge.z)).setPosition(pelvis);
+      this.put(this.parts.badge, S.inst, 0xffffff);
+    }
     S.neck.set(0, 1, 0).transformDirection(S.body).multiplyScalar(SKELETON.neckY * s).add(pelvis);
     S.e.set(headPitch, headYaw, 0, 'YXZ');
     S.inst.copy(S.body).multiply(S.rot.makeRotationFromEuler(S.e)).scale(S.sc.set(s, s, s)).setPosition(S.neck);
@@ -869,12 +877,20 @@ export class CrowdView {
 
     // Standing about with nothing in hand he is no post: he breathes, his shoulders ease from side to side and he
     // looks up and down the street, each to his own time.
+    // (Eased in and out over half a second or so: he does not snap his head round as he sets off, and one with a
+    // phone at his ear or an arm up for a cab keeps his head where it is.)
+    const easy = idle && !armed && !fists && !held && !cower && c.alive && hurt === 0 && c.phoneTimer <= 0 && c.hailTimer <= 0;
+    anim.ease = damp(anim.ease, easy ? 1 : 0, IDLE_EASE, dt);
     let glance = 0;
-    if (idle && !armed && !fists && !held && !cower && c.alive && hurt === 0) {
+    if (anim.ease > 1e-3) {
       const ph = this.time + c.id * 1.7;
-      lean += IDLE_BREATH * Math.sin(ph * 1.5);
-      chestYaw += IDLE_SWAY * Math.sin(ph * 0.37);
-      glance = IDLE_GLANCE * Math.sin(ph * 0.23) * Math.min(1, Math.abs(Math.sin(ph * 0.11)) * 1.6);
+      // (The breath and the sway are too small to see stop, and stop at once: a chest under a raised gun is where
+      // the simulation has it. The glance is what eases.)
+      if (easy) {
+        lean += anim.ease * IDLE_BREATH * Math.sin(ph * 1.5);
+        chestYaw += anim.ease * IDLE_SWAY * Math.sin(ph * 0.37);
+      }
+      glance = anim.ease * IDLE_GLANCE * Math.sin(ph * 0.23) * Math.min(1, Math.abs(Math.sin(ph * 0.11)) * 1.6);
     }
 
     const hipYaw = t.hipYaw;

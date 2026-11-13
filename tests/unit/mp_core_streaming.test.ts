@@ -354,10 +354,11 @@ describe('single player is unchanged by the multiplayer core (VAL-MPSIM-010)', (
     // Smuggler's Key's stash took the next two entity ids, once both stood together on the merged round-2 head, and
     // once round 8 filled the lone player's streets (more traffic and a bigger crowd while he is at peace and off the
     // clock, cars started on the road ahead of him, the crowd streamed ahead of him driving, the streets filled as he
-    // comes out of the hospital or the station).
+    // comes out of the hospital or the station), and once round 9's vehicleEnter named the driver pulled out of a jacked
+    // car and a cab's fare became one of his or her own sex.
     const now = `${JSON.stringify(recordSpTrace({ streetCrime: true }))}\n`;
     const hash = createHash('sha256').update(now).digest('hex');
     console.log(`[mpsim-010] streetCrime trace sha256 ${hash}`);
-    expect(hash).toBe('2bc77732a1a5ae5194d8911e3ab05b087523b0ed02b7e49fa43d4dda0b115392');
+    expect(hash).toBe('fe3e47064c1ff35ee39f8c44bfeeec0160fc688fec1c66d3b501635c5aa8c926');
   }, 120_000);
 });

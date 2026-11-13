@@ -53,7 +53,8 @@ export interface SimEvents {
   driveInShush: { x: number; z: number };
   /** The payphone at the end of Hollister Lane rings once, at (x, y, z) (sim/payphone.ts): every few seconds while it rings. */
   payphoneRing: { x: number; y: number; z: number };
-  vehicleEnter: { vehicle: Vehicle; character: Character; jacked: boolean };
+  /** `victim`: the driver pulled out of it, when it was jacked. */
+  vehicleEnter: { vehicle: Vehicle; character: Character; jacked: boolean; victim: Character | null };
   vehicleExit: { vehicle: Vehicle; character: Character };
   vehicleDestroyed: { vehicle: Vehicle };
   /** `playerId`: the killer's slot, when a player made the kill (world events of a player's doing carry it too: shot, weaponFired, damage). */

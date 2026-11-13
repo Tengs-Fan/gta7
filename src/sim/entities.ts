@@ -125,6 +125,8 @@ export class Character {
   owner: Owner = 'none';
   /** Mission and story characters are never streamed out. */
   persistent = false;
+  /** One of a mission's named men ("he" in its lines), whatever his id would make him (appearance.ts isWoman). */
+  man = false;
   missionTag = '';
   removed = false;
 

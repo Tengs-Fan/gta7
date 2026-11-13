@@ -150,7 +150,8 @@ describe('busy scene budget', () => {
     // same again, for the county's passes running places, lakeland, the valley's farms, oddities (the lakeland's pines, cabins and
     // camp, and every roadside prop and oddities' solid after them, moved to new indices and collider ids).
     // 7: round 8's pedDodge event joined the compact event layouts (someone jumping out of a player's way).
-    expect(PROTOCOL_VERSION).toBe(7);
+    // 8: round 9's vehicleEnter names the driver pulled out of a jacked car (his shout is in his own voice).
+    expect(PROTOCOL_VERSION).toBe(8);
     room.close();
   }, 120_000);
   }
