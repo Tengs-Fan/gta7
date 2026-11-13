@@ -1961,6 +1961,7 @@ body {
 
 /* The contact who has work (no task running): a line of text over the street rather than a panel. */
 .navigation.quiet {
+  width: auto;
   background: none;
   border-left-color: transparent;
   text-shadow: var(--outline);
