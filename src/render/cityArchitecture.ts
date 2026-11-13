@@ -1,8 +1,8 @@
 // Shallow, batched facade relief. Building footprints, roof heights and street
 // clearances still come from the simulation; these are architectural finishes.
-import type { Building, Tier } from '../world/layout';
+import type { Building, Side, Tier } from '../world/layout';
 import { GeoBuilder, scaleRgb, type RGB } from './geo';
-import { FACADE_CELL, HOUSE_SILL } from './textures';
+import { FACADE_CELL, FACADE_WINDOW, HOUSE_SILL } from './textures';
 
 const UV = { kind: 'world' as const, scale: 3 };
 
@@ -104,6 +104,68 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
       g.box(x - dx, bottom, z - dz, x + dx, t.y1 - 0.16, z + dz, { uv: UV, color: cap });
     }
   }
+}
+
+/** How far (m) a balcony stands out from the wall, and its front's height above the slab. */
+export const BALCONY_DEPTH: Partial<Record<Building['style'], number>> = { hotel: 1.1, stucco: 0.85 };
+const BALCONY_FRONT = 1.0;
+
+/**
+ * Balconies on the street walls (`sides`) of an apartment block or hotel, on every storey above the ground floor whose
+ * top is at least 0.6 m under the roof: a hotel runs one along each floor, an apartment block has one per window of
+ * every `every`th column. Each is a slab with a solid front and ends in the wall's colour, its floor at the storey's
+ * (the window grid's rows start at baseY). Returns how many it drew.
+ */
+export function balconies(g: GeoBuilder, b: Building, t: Tier, baseY: number, sides: readonly Side[], wall: RGB, every: number): number {
+  const depth = BALCONY_DEPTH[b.style];
+  if (!depth) return 0;
+  const cell = FACADE_CELL[b.style];
+  const win = FACADE_WINDOW[b.style];
+  const w = t.maxX - t.minX;
+  const d = t.maxZ - t.minZ;
+  const walls = [
+    { side: 'S' as Side, x0: t.minX, z0: t.maxZ, ux: 1, uz: 0, len: w, u: 0 },
+    { side: 'E' as Side, x0: t.maxX, z0: t.maxZ, ux: 0, uz: -1, len: d, u: w },
+    { side: 'N' as Side, x0: t.maxX, z0: t.minZ, ux: -1, uz: 0, len: w, u: w + d },
+    { side: 'W' as Side, x0: t.minX, z0: t.minZ, ux: 0, uz: 1, len: d, u: 2 * w + d },
+  ];
+  const slab = scaleRgb(wall, 0.92);
+  const k0 = Math.max(1, Math.ceil((t.y0 - baseY) / cell.h - 1e-6));
+  let n = 0;
+  /** An axis-aligned box from wall-local corners (s along the wall, o out from it). */
+  const box = (wl: (typeof walls)[number], s0: number, s1: number, o0: number, o1: number, y0: number, y1: number, c: RGB) => {
+    const nx = -wl.uz;
+    const nz = wl.ux;
+    const xs = [wl.x0 + wl.ux * s0 + nx * o0, wl.x0 + wl.ux * s1 + nx * o1];
+    const zs = [wl.z0 + wl.uz * s0 + nz * o0, wl.z0 + wl.uz * s1 + nz * o1];
+    g.box(Math.min(...xs), y0, Math.min(...zs), Math.max(...xs), y1, Math.max(...zs), { uv: UV, color: c, bottom: true });
+  };
+  for (const wl of walls) {
+    if (!sides.includes(wl.side) || wl.len < cell.w + 1) continue;
+    for (let k = k0; baseY + (k + 1) * cell.h <= t.y1 - 0.6; k++) {
+      const fy = baseY + k * cell.h;
+      if (fy < t.y0 + 0.5) continue;
+      // Spans along the wall: the whole wall short of its ends, or one per window of every `every`th column.
+      const spans: Array<[number, number]> = [];
+      if (b.style === 'hotel') spans.push([0.4, wl.len - 0.4]);
+      else {
+        const c0 = Math.ceil((wl.u + 0.3) / cell.w);
+        for (let c = c0; (c + 1) * cell.w - wl.u <= wl.len - 0.3; c++) {
+          if (c % every !== 0) continue;
+          const s = c * cell.w - wl.u;
+          spans.push([s + cell.w * (win.x0 - 0.06), s + cell.w * (win.x1 + 0.06)]);
+        }
+      }
+      for (const [s0, s1] of spans) {
+        box(wl, s0, s1, 0, depth, fy - 0.14, fy, slab);
+        box(wl, s0, s1, depth - 0.07, depth, fy, fy + BALCONY_FRONT, wall);
+        box(wl, s0, s0 + 0.07, 0, depth - 0.07, fy, fy + BALCONY_FRONT, wall);
+        box(wl, s1 - 0.07, s1, 0, depth - 0.07, fy, fy + BALCONY_FRONT, wall);
+        n++;
+      }
+    }
+  }
+  return n;
 }
 
 /**

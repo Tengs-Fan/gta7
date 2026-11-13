@@ -9,7 +9,7 @@ import {
   type Block, type Building, type FacadeStyle, type Side, type Tier,
 } from '../../world/layout';
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB, type UvMode } from '../geo';
-import { facadeRelief, trimColors } from '../cityArchitecture';
+import { balconies, facadeRelief, trimColors } from '../cityArchitecture';
 import { drawLandmark, landmarkTowers } from './landmarks';
 import { PARAPET_H, drawRooftopItem, parapetThickness, rooftopItems } from './rooftops';
 import { createStorefrontMaterial, frontKey, storefrontPlan, type AwningStyle } from './storefronts';
@@ -278,11 +278,16 @@ export function buildBuildings(view: CityView): void {
     const street = new Set<Side>(block ? b.groundSides : []);
     // With a ground floor the window grid starts on top of it, on every wall so the rows meet at the corners.
     const baseY = CURB_H + (street.size > 0 ? b.groundH : 0);
+    // Hotels run a balcony along every floor of their street walls; a little under half the apartment blocks have one at
+    // every other window.
+    const balconyEvery = street.size === 0 ? 0 : b.style === 'hotel' ? 1 : b.style === 'stucco' && hashInts(b.id, 0xba1c) / 4294967296 < 0.45 ? 2 : 0;
     for (const t of b.tiers) {
       const uv = { kind: 'facade' as const, w: cell.w * FACADE_COLS, h: cell.h * FACADE_ROWS, offU, offV, baseY };
       if (t === b.tiers[0] && block && street.size > 0) groundTier(view, gb, front, decor, relief, b, block, t, street, uv, color);
       else gb.box(t.minX, t.y0, t.minZ, t.maxX, t.y1, t.maxZ, { uv, color, top: false });
       facadeRelief(relief, b, t, baseY, color);
+      // Not on the wall carrying a sign, which stands over the first storey above the ground floor.
+      if (balconyEvery > 0 && !landmarks.has(b.id)) balconies(decor, b, t, baseY, b.groundSides.filter((s) => s !== b.sign?.side), wallTone(b, color), balconyEvery);
       if (b.roof === 'gable' && t === b.tiers[b.tiers.length - 1]) gable(roofs, relief, decor, t, b, color);
       else {
         const rc = scaleRgb([0.55, 0.54, 0.52], 0.85 + rng.next() * 0.3);
@@ -732,6 +737,12 @@ const SIDING_LAP = 0.03;
 const EAVES = 0.4;
 const ROOF_TRIM: RGB = [0.82, 0.8, 0.74];
 
+/** The colour a facade paints its wall in: the building's tint times its style's base, as the facade shader has it. */
+function wallTone(b: Building, color: RGB): RGB {
+  const base = linearRgb(FACADE_LOOK[b.style].base);
+  return [color[0] * base[0], color[1] * base[1], color[2] * base[2]];
+}
+
 /**
  * A quad a, b, c, d whose winding is turned, if need be, so it faces `want` (a direction). c and d may be one point (a
  * triangle): GeoBuilder takes the normal from the first three corners, so the turned quad starts b, a, d.
@@ -774,9 +785,7 @@ function gable(roofs: GeoBuilder, relief: GeoBuilder, decor: GeoBuilder, t: Tier
     facing(roofs, [P(p0 - o, qe, y - 0.1), P(p1 + o, qe, y - 0.1), P(p1 + o, qm, y + h), P(p0 - o, qm, y + h)], [dirQ(s)[0], 1, dirQ(s)[2]], roofCol);
   }
   const house = b.style === 'house';
-  // The facade's own colour: its tint times the style's base, as the facade shader paints the wall.
-  const base = linearRgb(FACADE_LOOK[b.style].base);
-  const gableCol: RGB = [wallColor[0] * base[0], wallColor[1] * base[1], wallColor[2] * base[2]];
+  const gableCol = wallTone(b, wallColor);
   for (const s of [-1, 1]) {
     const pe = s < 0 ? p0 : p1;
     const out = dirP(s);
