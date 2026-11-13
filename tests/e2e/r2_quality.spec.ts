@@ -74,7 +74,8 @@ test.describe('graphics quality', () => {
       const g = (window as Api).__gta7;
       return { tier: g.state().render.tier, traffic: g.sim.traffic.density, peds: g.sim.peds.density, px: g.samplePixels() };
     });
-    expect(low).toMatchObject({ tier: 'low', traffic: 0.75, peds: 0.75 });
+    // (Round 8: Low takes 65% of the fuller streets' traffic and 55% of their crowd; it took 75% of the old numbers.)
+    expect(low).toMatchObject({ tier: 'low', traffic: 0.65, peds: 0.55 });
     expect(low.px.colors).toBeGreaterThan(6);
     await select.selectOption('auto');
     const back = await page.evaluate(() => {

@@ -368,7 +368,7 @@ It picks High on discrete GPUs (laptop ones included) and on Apple M-series Pro,
 | Tyre spray on wet roads | on | on | off |
 | Boat wake and bow spray | on | on | off |
 | Sea waves (swell, chop and breakers) | the surface rises and falls | the surface rises and falls (out to 130 m) | in the lighting |
-| Traffic and pedestrians | 100% | 90% | 75% |
+| Traffic, pedestrians | 100%, 100% | 80%, 70% | 65%, 55% |
 | Ambient cars drawn | all | all | within 150 m |
 
 Cars beyond about 40 m use a lighter far version on every tier, and contact shadows are worked out at half resolution, reach about 110 m and fade out while the camera moves fast.

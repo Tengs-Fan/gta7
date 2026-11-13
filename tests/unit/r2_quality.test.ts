@@ -253,13 +253,17 @@ describe('Auto tier pick (pickTier)', () => {
   });
 });
 
+// Round 8 filled the streets (38 cars and 60 people round a lone player at noon, from 26 and 40), and Medium and Low take
+// a smaller share of that than the 90% and 75% they took of the old numbers: 80% and 70% on Medium (30 cars, 42 people,
+// from 23 and 36) and 65% and 55% on Low (25 and 33, from 20 and 30), which kept the Radeon iGPU's Medium within its
+// run-to-run spread of the build before (18 scenes: 48.7 fps on average from 49.1).
 describe('tier table', () => {
   it('High is the original look, Low drops MSAA, shadows, bloom and dynamic lights', () => {
     expect(QUALITY.high).toMatchObject({ dprCap: 1.5, renderScale: 1, msaa: true, aa: 'msaa', grade: true, shadows: true, shadowSize: 2048, bloom: true, pointLights: 'all', headlight: true, trafficDensity: 1, pedDensity: 1 });
     expect(QUALITY.high.vehicleDistance).toBe(Infinity);
-    expect(QUALITY.medium).toMatchObject({ dprCap: 1, renderScale: 0.85, shadows: true, shadowSize: 1024, bloom: true, pointLights: 'few', headlight: true, trafficDensity: 0.9, pedDensity: 0.9 });
+    expect(QUALITY.medium).toMatchObject({ dprCap: 1, renderScale: 0.85, shadows: true, shadowSize: 1024, bloom: true, pointLights: 'few', headlight: true, trafficDensity: 0.8, pedDensity: 0.7 });
     expect(QUALITY.medium).toMatchObject({ aa: 'msaa', grade: true });
-    expect(QUALITY.low).toMatchObject({ dprCap: 1, renderScale: 0.67, msaa: false, aa: 'fxaa', grade: true, shadows: false, bloom: false, pointLights: 'none', headlight: false, trafficDensity: 0.75, pedDensity: 0.75 });
+    expect(QUALITY.low).toMatchObject({ dprCap: 1, renderScale: 0.67, msaa: false, aa: 'fxaa', grade: true, shadows: false, bloom: false, pointLights: 'none', headlight: false, trafficDensity: 0.65, pedDensity: 0.55 });
     // The pixel ratio is dprCap x renderScale on any display at or above the cap.
     for (const q of QUALITY_TIERS) {
       expect(pixelRatioFor(q, 3)).toBeCloseTo(QUALITY[q].dprCap * QUALITY[q].renderScale, 6);
