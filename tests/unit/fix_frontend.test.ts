@@ -4968,6 +4968,20 @@ describe('San Azura driving HUD', () => {
     expect(el.stars!.classList.contains('hidden')).toBe(true);
   });
 
+  it("a mission's clock reads large in the cluster, a job's line does not", () => {
+    const { el, sim, update } = rig();
+    expect(sim.missions.start('wheels')).toBe(true);
+    sim.missions.active!.setTimer('DELIVERY', 60, 'Too slow.');
+    update();
+    expect(el.status!.textContent).toBe('DELIVERY 1:00');
+    expect(el.status!.classList.contains('timer')).toBe(true);
+    sim.missions.active!.clearTimer();
+    sim.missions.active!.counter = '2/3 cars';
+    update();
+    expect(el.status!.textContent).toBe('2/3 cars');
+    expect(el.status!.classList.contains('timer')).toBe(false);
+  });
+
   it('the next contact is a quiet card, and none while the next-step line names her', () => {
     const { hud, el, sim, update } = rig();
     update();

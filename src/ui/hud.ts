@@ -990,6 +990,8 @@ export class Hud {
       this.shown.status = status;
       el.status!.textContent = status;
       el.status!.classList.toggle('hidden', !status);
+      // A mission's clock is what the player is racing: it reads as large as the money.
+      el.status!.classList.toggle('timer', !!sim.missions.active?.timer);
     }
     this.updatePolice(dt, sim);
     this.updateToasts(dt);
@@ -1357,17 +1359,6 @@ export class Hud {
     ctx.fill();
     ctx.stroke();
     ctx.restore();
-    // Health / armour ring.
-    const hp = Math.max(0, this.me(sim).character.health) / this.me(sim).character.maxHealth;
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-    ctx.beginPath();
-    ctx.arc(cx, cy, W / 2 - 3, Math.PI * 0.6, Math.PI * 1.4);
-    ctx.stroke();
-    ctx.strokeStyle = hp > 0.5 ? '#6fd36f' : '#e2453c';
-    ctx.beginPath();
-    ctx.arc(cx, cy, W / 2 - 3, Math.PI * 1.4 - Math.PI * 0.8 * hp, Math.PI * 1.4);
-    ctx.stroke();
   }
 
   /**

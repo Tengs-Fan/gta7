@@ -1416,7 +1416,7 @@ describe('the radar on HiDPI screens', () => {
     expect(radar.height).toBe(428);
     const k = 428 / 220;
     expect(rec.calls.find((c) => c.fn === 'setTransform')!.args).toEqual([k, 0, 0, k, 0, 0]);
-    // The geometry is the 220 px drawing's: the clip circle about its centre, the health ring inside it.
+    // The geometry is the 220 px drawing's: the clip circle about its centre.
     expect(rec.calls.find((c) => c.fn === 'arc')!.args.slice(0, 3)).toEqual([110, 110, 110]);
     // Measured again only when the window or the pixel ratio changes.
     frames(10);
