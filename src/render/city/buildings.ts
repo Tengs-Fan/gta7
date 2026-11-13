@@ -307,15 +307,17 @@ export function buildBuildings(view: CityView): void {
         roofs.box(t.minX, t.y1, t.minZ + th, t.minX + th, t.y1 + lip, t.maxZ - th, { uv: pu, color: lc });
         roofs.box(t.maxX - th, t.y1, t.minZ + th, t.maxX, t.y1 + lip, t.maxZ - th, { uv: pu, color: lc });
         // A coping along the parapet's top in the trim's stone, standing a little proud of both faces: the roofline's
-        // crisp edge against the sky.
-        const cp = trimColors(b, color).cap;
-        const y = t.y1 + lip;
-        const o = 0.06;
-        const i = th + 0.03;
-        relief.box(t.minX - o, y, t.minZ - o, t.maxX + o, y + 0.07, t.minZ + i, { uv: TRIM_UV, color: cp, bottom: true });
-        relief.box(t.minX - o, y, t.maxZ - i, t.maxX + o, y + 0.07, t.maxZ + o, { uv: TRIM_UV, color: cp, bottom: true });
-        relief.box(t.minX - o, y, t.minZ + i, t.minX + i, y + 0.07, t.maxZ - i, { uv: TRIM_UV, color: cp, bottom: true });
-        relief.box(t.maxX - i, y, t.minZ + i, t.maxX + o, y + 0.07, t.maxZ - i, { uv: TRIM_UV, color: cp, bottom: true });
+        // crisp edge against the sky, where it is seen from the street (on towers' upper roofs it is under a pixel).
+        if (t.y1 <= COPING_MAX_Y) {
+          const cp = trimColors(b, color).cap;
+          const y = t.y1 + lip;
+          const o = 0.06;
+          const i = th + 0.03;
+          relief.box(t.minX - o, y, t.minZ - o, t.maxX + o, y + 0.07, t.minZ + i, { uv: TRIM_UV, color: cp });
+          relief.box(t.minX - o, y, t.maxZ - i, t.maxX + o, y + 0.07, t.maxZ + o, { uv: TRIM_UV, color: cp });
+          relief.box(t.minX - o, y, t.minZ + i, t.minX + i, y + 0.07, t.maxZ - i, { uv: TRIM_UV, color: cp });
+          relief.box(t.maxX - i, y, t.minZ + i, t.maxX + o, y + 0.07, t.maxZ - i, { uv: TRIM_UV, color: cp });
+        }
       }
     }
     const lm = landmarks.get(b.id);
@@ -403,6 +405,9 @@ function groundTier(view: CityView, gb: GeoBuilder, front: GeoBuilder, decor: Ge
     }
   }
 }
+
+/** Roofs (m) up to which parapets carry a coping. */
+const COPING_MAX_Y = 45;
 
 /** Width (m) of the piers between the bays of a ground floor, and how far they stand out from the wall. */
 export const PIER_W = 0.32;

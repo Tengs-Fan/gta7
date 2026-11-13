@@ -18,6 +18,7 @@ const SPOTS = [
   ['hillcrest', 'house', 'hillcrest'],
   ['westside', 'house', 'westside'],
   ['beachfront', 'hotel', 'beach'],
+  ['westside', 'brick', 'westside-brick'],
 ];
 
 const ONLY = process.env.STREETSCAPE_ONLY?.split(',') ?? null;

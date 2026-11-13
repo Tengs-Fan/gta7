@@ -143,7 +143,7 @@ export function balconies(g: GeoBuilder, b: Building, t: Tier, baseY: number, si
         }
       }
       for (const [s0, s1] of spans) {
-        wallBox(g, wl, s0, s1, 0, depth, fy - 0.14, fy, slab);
+        wallBox(g, wl, s0, s1, 0, depth, fy - 0.14, fy, slab, true);
         wallBox(g, wl, s0, s1, depth - 0.07, depth, fy, fy + BALCONY_FRONT, wall);
         wallBox(g, wl, s0, s0 + 0.07, 0, depth - 0.07, fy, fy + BALCONY_FRONT, wall);
         wallBox(g, wl, s1 - 0.07, s1, 0, depth - 0.07, fy, fy + BALCONY_FRONT, wall);
@@ -192,11 +192,11 @@ function wallPoint(wl: TierWallFrame, s: number, o: number, y: number): [number,
   return [wl.x0 + wl.ux * s - wl.uz * o, y, wl.z0 + wl.uz * s + wl.ux * o];
 }
 
-/** An axis-aligned box between wall-local corners (s along the wall, o out from it). */
-export function wallBox(g: GeoBuilder, wl: TierWallFrame, s0: number, s1: number, o0: number, o1: number, y0: number, y1: number, c: RGB): void {
+/** An axis-aligned box between wall-local corners (s along the wall, o out from it); its underside only where it overhangs (`bottom`). */
+export function wallBox(g: GeoBuilder, wl: TierWallFrame, s0: number, s1: number, o0: number, o1: number, y0: number, y1: number, c: RGB, bottom = false): void {
   const [ax, , az] = wallPoint(wl, s0, o0, 0);
   const [bx, , bz] = wallPoint(wl, s1, o1, 0);
-  g.box(Math.min(ax, bx), y0, Math.min(az, bz), Math.max(ax, bx), y1, Math.max(az, bz), { uv: UV, color: c, bottom: true });
+  g.box(Math.min(ax, bx), y0, Math.min(az, bz), Math.max(ax, bx), y1, Math.max(az, bz), { uv: UV, color: c, bottom });
 }
 
 /** A quad from wall-local corners (s, o, y), for a double-sided material (the street decor's). */
@@ -240,12 +240,12 @@ export function fireEscape(g: GeoBuilder, b: Building, t: Tier, baseY: number, s
   if (floors.length < 2) return 0;
   const bar = 0.045;
   floors.forEach((fy, i) => {
-    // The landing, its toe board and rails, and posts at its corners and middle.
-    wallBox(g, wl, s0, s1, 0, D, fy - 0.06, fy, iron);
+    // The landing, its toe board and rails, and posts at its outer corners.
+    wallBox(g, wl, s0, s1, 0, D, fy - 0.06, fy, iron, true);
     wallBox(g, wl, s0, s1, D - bar, D, fy, fy + 0.1, iron);
     wallBox(g, wl, s0, s1, D - bar, D, fy + ESCAPE_RAIL - bar, fy + ESCAPE_RAIL, iron);
     for (const s of [s0, s1 - bar]) wallBox(g, wl, s, s + bar, 0, D, fy + ESCAPE_RAIL - bar, fy + ESCAPE_RAIL, iron);
-    for (const s of [s0, (s0 + s1 - bar) / 2, s1 - bar]) wallBox(g, wl, s, s + bar, D - bar, D, fy, fy + ESCAPE_RAIL, iron);
+    for (const s of [s0, s1 - bar]) wallBox(g, wl, s, s + bar, D - bar, D, fy, fy + ESCAPE_RAIL, iron);
     // Stairs up to the next landing, along the wall's side of it, turning back at every storey.
     const up = floors[i + 1];
     if (up !== undefined) {
