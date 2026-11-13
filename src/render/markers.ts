@@ -17,13 +17,13 @@ const SPOT_ALPHA = 0.1;
 const SPOT_CLEAR = 6;
 const SPOT_FADE = 4;
 /**
- * The pool of light on the ground (see buildHeli): the opacity of its rim, which marks where the light ends,
- * and of its centre relative to that. The rim carries the cue (at night the crew makes out what is within
- * twice the pool's radius of its centre, wanted.ts SPOT_SEE, besides what is close below the helicopter);
- * the dim centre keeps an unlit player from turning into a black silhouette.
+ * The pool of light on the ground (see buildHeli): the opacity of the whole pool, and of its middle relative to that,
+ * from where it falls away to nothing at the rim (poolTexture). Bright enough to show where the crew is looking (at
+ * night it makes out what is within twice the pool's radius of its centre, wanted.ts SPOT_SEE, besides what is close
+ * below the helicopter), dim enough that an unlit player in it is no black silhouette.
  */
-const SPOT_POOL = 0.16;
-const SPOT_CORE = 0.09;
+const SPOT_POOL = 0.22;
+const SPOT_CORE = 0.6;
 /** Points on the pool's rim where syncHelis samples the ground. */
 const POOL_RIM: ReadonlyArray<readonly [number, number]> = Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4) * SPOT_RADIUS * 0.9, Math.sin((k * Math.PI) / 4) * SPOT_RADIUS * 0.9] as const);
 
@@ -93,18 +93,20 @@ const smooth = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** Alpha of the spotlight's pool: a dim disc whose rim, the last fifth of the radius, glows brighter (white texels). */
+/**
+ * Alpha of the spotlight's pool: light that is fullest in the middle and falls away to nothing at the rim, as a lamp's
+ * pool does, at SPOT_CORE of the texture's white in the middle. (It was a dim disc inside a bright ring, which read as
+ * a ring drawn on the road.)
+ */
 function poolTexture(): THREE.DataTexture {
   const S = 64;
   const data = new Uint8Array(S * S * 4);
   for (let j = 0; j < S; j++) {
     for (let i = 0; i < S; i++) {
       const r = Math.hypot(((i + 0.5) / S) * 2 - 1, ((j + 0.5) / S) * 2 - 1);
-      const rim = smooth(0.68, 0.86, r) * (1 - smooth(0.9, 1, r));
-      const core = SPOT_CORE * (1 - smooth(0.86, 1, r));
       const k = (j * S + i) * 4;
       data[k] = data[k + 1] = data[k + 2] = 255;
-      data[k + 3] = Math.round(255 * Math.min(1, Math.max(rim, core)));
+      data[k + 3] = Math.round(255 * SPOT_CORE * (1 - smooth(0.1, 1, r)));
     }
   }
   const t = new THREE.DataTexture(data, S, S, THREE.RGBAFormat);

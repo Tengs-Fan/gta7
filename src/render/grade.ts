@@ -40,7 +40,9 @@ interface Key {
 export const NIGHT_LIFT = 0.0165;
 
 const NIGHT = { sat: 0.92, contrast: 1.06, tint: [0.95, 0.99, 1.06], vignette: 0.26, splitTone: 0.04, lift: NIGHT_LIFT } as const;
-const DAY = { sat: 1.03, contrast: 1.02, tint: [1, 1, 1], vignette: 0.1, splitTone: 0, lift: 0 } as const;
+// The day is graded like a postcard of the coast it is set on: fuller colour, a firmer curve, sunlit faces a little
+// warm against shadows a little cool. Ungraded (it was all but neutral) the city read as a model of itself.
+const DAY = { sat: 1.12, contrast: 1.08, tint: [1.02, 1, 0.97], vignette: 0.12, splitTone: 0.05, lift: 0 } as const;
 
 // The golden hour leans yellow (green kept up against red and blue) rather than towards magenta, and saturates less:
 // the low sun's red sky already colours the scene. The 19:00 key (its other values on the 18.4-19.3 line) holds the

@@ -39,9 +39,9 @@ describe('Las Lomas County: the Haymaker and the farm pickups', () => {
     expect(pickups / points).toBeLessThan(0.6);
   });
 
-  it("streams 0.4 of the city's traffic in the county, with no taxi, bus or sports car among it", () => {
+  it("streams 0.275 of the city's traffic in the county (the 10 cars it had before round 8 filled the city's streets), with no taxi, bus or sports car among it", () => {
     const sim = makeSim({ seed: 3, police: false, ambient: true, startHour: 12 });
-    expect(sim.traffic.targetCount).toBe(26);
+    expect(sim.traffic.targetCount).toBe(38);
     const car = sim.spawnVehicle('sedan', -980, -272, -Math.PI / 2);
     placeInCar(sim, car);
     expect(sim.traffic.targetCount).toBe(10);

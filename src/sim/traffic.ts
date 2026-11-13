@@ -35,6 +35,9 @@ const ONCOMING_CARS = 2;
 const ROAD_AHEAD: readonly [number, number] = [170, 320];
 const ROAD_AHEAD_STOP = 28;
 const ROAD_AHEAD_CARS = 3;
+/** populate(): no moving car starts nearer the arriving player than this (m), no parked one nearer than ARRIVE_PARKED. */
+const ARRIVE_NEAR = 28;
+const ARRIVE_PARKED = 10;
 /** Half the width (m) of the strip along his road that counts as it (see roadAheadCars). */
 const ROAD_AHEAD_HALF = 12;
 /**
@@ -53,8 +56,13 @@ const LINK_SALT = 0x11a5;
  * one within as far as it covers in STOP_GAP s at its speed limit, through the bends before it (see spawnClearance).
  */
 const JUNCTION_CLEAR = 50;
-/** Las Lomas County's traffic is this share of the city's, while the player is there. */
-const COUNTY_DENSITY = 0.4;
+/**
+ * Las Lomas County's traffic is this share of the city's, while the player is there: the 10 cars at noon it had when
+ * the city had 26 (0.4 of them), which its stop signs and its one set of lights are tuned for.
+ */
+const COUNTY_DENSITY = 0.275;
+/** The same 10 cars as a share of the sparse city's 26 (see TrafficSystem.sparse). */
+const COUNTY_SPARSE = 0.4;
 /** Above this speed (m/s) the player outruns the traffic streamed around him: spawn ahead too. */
 const AHEAD_SPEED = 8;
 /** Spawn tries (of 12) taken first from the lanes ahead, and their distance band from the player (m). */
@@ -167,6 +175,8 @@ export class TrafficSystem {
   private readonly blockTime = new Map<Vehicle, { since: number; last: number }>();
   /** Multiplier for traffic density (settings / tests). */
   density = 1;
+  /** True while populate() fills the streets: a spawn then takes no account of the players' view. */
+  private arriving = false;
   /** The links' lanes into the city, and the generator their incoming traffic draws from (see streamLinks). */
   private readonly linkLanes: readonly Lane[];
   private readonly linkRng: Rng;
@@ -210,11 +220,20 @@ export class TrafficSystem {
     return this.anchor.pos();
   }
 
+  /**
+   * The streets as they were before round 8 filled them: fewer cars, and none started in view on the road ahead (see
+   * ROAD_AHEAD). In a room, whose server's tick and bandwidth are sized for those numbers and where somebody else may be
+   * looking; with the police after him and on a job against the clock (a street run, a fare), which are tuned on them.
+   */
+  private get sparse(): boolean {
+    return this.sim.multiplayer || this.anchor.wanted.level > 0 || this.sim.activities.job !== null;
+  }
+
   get targetCount(): number {
     const h = this.sim.clock.hours;
-    const base = h < 5 ? 18 : h < 7 ? 28 : h < 10 ? 42 : h < 16 ? 38 : h < 20 ? 42 : 28;
+    const base = this.sparse ? (h < 5 ? 14 : h < 7 ? 20 : h < 10 ? 30 : h < 16 ? 26 : h < 20 ? 30 : 20) : h < 5 ? 18 : h < 7 ? 28 : h < 10 ? 42 : h < 16 ? 38 : h < 20 ? 42 : 28;
     const p = this.anchorPos();
-    return Math.round(base * this.density * (rectContains(COUNTY_BOUNDS, p.x, p.z) ? COUNTY_DENSITY : 1));
+    return Math.round(base * this.density * (rectContains(COUNTY_BOUNDS, p.x, p.z) ? (this.sparse ? COUNTY_SPARSE : COUNTY_DENSITY) : 1));
   }
 
   updateStreaming(dt: number): void {
@@ -242,6 +261,28 @@ export class TrafficSystem {
     if (this.parkedTimer <= 0) {
       this.parkedTimer = 1.1;
       this.streamParked();
+    }
+  }
+
+  /**
+   * Fills the streets round the one player at once, in his view too: for the moment he arrives somewhere he could not
+   * see a moment ago (a new game, a loaded one, the hospital's door, the station's), where the never-pop-in rule would
+   * leave him in an empty city until traffic had driven in from round the corners. Moving cars from ARRIVE_NEAR m of
+   * him, parked ones in every bay. Single player only: in a room somebody else may be looking.
+   */
+  populate(): void {
+    const sim = this.sim;
+    if (sim.multiplayer || sim.players.length > 1) return;
+    this.use(sim.activePlayers()[0] ?? sim.players[0]!);
+    this.refreshNearLanes();
+    this.arriving = true;
+    try {
+      let count = 0;
+      for (const v of sim.vehicles) if (!v.removed && v.owner === 'traffic' && v.driver) count++;
+      for (let tries = this.targetCount * 3; count < this.targetCount && tries > 0; tries--) if (this.trySpawnTraffic(ARRIVE_NEAR, 165)) count++;
+      this.streamParked();
+    } finally {
+      this.arriving = false;
     }
   }
 
@@ -304,6 +345,23 @@ export class TrafficSystem {
         sim.removeVehicle(gone.v);
         count--;
       }
+    }
+    // Over the count (the streets have just gone sparse, see `sparse`, or the hour has turned): the furthest cars out
+    // of view go, two at a time, or a run would start in the traffic the streets held a moment before.
+    for (let n = 0; n < 2 && count > this.targetCount; n++) {
+      let gone: Vehicle | null = null;
+      let far = 0;
+      for (const v of sim.vehicles) {
+        if (v.removed || v.persistent || v.owner !== 'traffic' || !v.driver || v.driver === me) continue;
+        const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
+        if (d > far && !sim.isVisible(v.pos.x, v.pos.y, v.pos.z)) {
+          far = d;
+          gone = v;
+        }
+      }
+      if (!gone) break;
+      sim.removeVehicle(gone);
+      count--;
     }
     let spawned = 0;
     while (count < this.targetCount && spawned < 2) {
@@ -506,7 +564,7 @@ export class TrafficSystem {
     // On a county road, oncoming traffic too, a couple of cars at a time; in the city, the road ahead from its far end.
     if (lane.line.index < 0) {
       if (this.oncomingCars(pp) < ONCOMING_CARS) this.oncomingSpans(lane, at.s);
-    } else if (this.roadAheadCars(pp, lane) < ROAD_AHEAD_CARS * lane.lanesInDir + 1) this.roadAheadSpans(lane, at.s);
+    } else if (!this.sparse && this.roadAheadCars(pp, lane) < ROAD_AHEAD_CARS * lane.lanesInDir + 1) this.roadAheadSpans(lane, pp);
     const from = roads.nodes[lane.from]!;
     // A county road's bend is no junction: no side street there, and it does not count as one of the junctions ahead.
     for (const turn of [1, 3]) {
@@ -589,15 +647,16 @@ export class TrafficSystem {
   }
 
   /**
-   * In the city: spans on the lanes of his road, both ways, ROAD_AHEAD m ahead of `at` on `first` (straight on through
-   * its junctions, while it stays in the city), short of each lane's end by ROAD_AHEAD_STOP.
+   * In the city: spans on the lanes of his road, both ways, ROAD_AHEAD m ahead of him (at `p`) along `first` and straight
+   * on through its junctions, while it stays in the city, short of each lane's end by ROAD_AHEAD_STOP.
    */
-  private roadAheadSpans(first: Lane, at: number): void {
+  private roadAheadSpans(first: Lane, p: { x: number; z: number }): void {
     const roads = this.sim.roads;
     let lane: Lane | null = first;
-    // Distance along his road at the start of `lane`.
-    let base = -at;
-    while (lane && lane.line.index >= 0 && base < ROAD_AHEAD[1]) {
+    while (lane && lane.line.index >= 0) {
+      // How far ahead of him, along his road, `lane` starts (the junctions between the lanes count too).
+      const base = (lane.sx - p.x) * first.dx + (lane.sz - p.z) * first.dz;
+      if (base >= ROAD_AHEAD[1]) break;
       const a = Math.max(ROAD_AHEAD[0], base) - base;
       const b = Math.min(ROAD_AHEAD[1], base + lane.length) - base;
       if (b - a >= 4) {
@@ -606,14 +665,13 @@ export class TrafficSystem {
           const s1 = Math.min(l.length - ROAD_AHEAD_STOP, b);
           if (s1 > s0) this.aheadSpans.push({ lane: l, s0, s1, band: ROAD_AHEAD, open: true });
         }
-        // The oncoming lane runs the other way: a distance p along `lane` is length - p along it.
+        // The oncoming lane runs the other way: a distance q along `lane` is length - q along it.
         for (const r of roads.lanesBetween(lane.to, lane.from)) {
           const s0 = Math.max(6, r.length - b);
           const s1 = Math.min(r.length - ROAD_AHEAD_STOP, r.length - a);
           if (s1 > s0) this.aheadSpans.push({ lane: r, s0, s1, band: ROAD_AHEAD, open: true });
         }
       }
-      base += lane.length;
       lane = lane.turns.find((t) => t.kind === 'straight')?.to ?? null;
     }
   }
@@ -692,7 +750,7 @@ export class TrafficSystem {
       const red = sim.roads.signalState(lane.to, axisOf(lane.dir), sim.time) !== 'green' || sim.roads.stopsAt(lane);
       if (red && this.anchor.wanted.level > 0 && (ahead || this.aheadPath.has(lane) || this.aheadCross.has(lane))) continue;
       // Spawn ranges lie inside the fog-free distance: never pop a car into view (but see ROAD_AHEAD).
-      if (sim.isVisible(x, 1, z, open ? ROAD_AHEAD[0] - 12 : undefined)) continue;
+      if (!this.arriving && sim.isVisible(x, 1, z, open ? ROAD_AHEAD[0] - 12 : undefined)) continue;
       if (!this.isClear(x, z, 11)) continue;
       let k = kind ?? countryKind(trafficBike(sim.rng.weighted(TRAFFIC_MIX), x, z), x, z);
       if (k === 'bus' && !throughAvenues(sim.roads).has(lane)) k = 'sedan';
@@ -706,7 +764,7 @@ export class TrafficSystem {
         x = lane.sx + lane.dx * s;
         z = lane.sz + lane.dz * s;
         const dq = Math.hypot(x - pp.x, z - pp.z);
-        if (dq < aheadMin || dq > aheadMax || sim.isVisible(x, 1, z) || !this.isClear(x, z, 11)) continue;
+        if (dq < aheadMin || dq > aheadMax || (!this.arriving && sim.isVisible(x, 1, z)) || !this.isClear(x, z, 11)) continue;
         if (others && sim.distToPlayer(x, z) < aheadMin) continue;
       }
       const v = sim.spawnVehicle(k, x, z, lane.heading);
@@ -780,10 +838,10 @@ export class TrafficSystem {
       if (this.parkedBySpot.has(i)) continue;
       const s = spots[i]!;
       const d = multi ? sim.distToPlayer(s.x, s.z) : Math.hypot(s.x - pp.x, s.z - pp.z);
-      if (d > 175 || d < 35) continue;
+      if (d > 175 || d < (this.arriving ? ARRIVE_PARKED : 35)) continue;
       if (i >= show.first && i < show.end ? !open || hash(i) % 100 >= DRIVE_IN_FILL : hash(i) % 100 >= 55) continue;
       // Several players: no higher than a moving car's check either (a roof can show over a wall).
-      if (sim.isVisible(s.x, 0.5, s.z) || (multi && sim.isVisible(s.x, 1, s.z))) continue;
+      if (!this.arriving && (sim.isVisible(s.x, 0.5, s.z) || (multi && sim.isVisible(s.x, 1, s.z)))) continue;
       if (!this.isClear(s.x, s.z, BAY_SPACING)) continue;
       const kind = countryKind(parkedBike(PARKED_MIX[hash(i * 7 + 3) % PARKED_MIX.length]![0], i), s.x, s.z);
       if (!clearOfVehicles(sim, kind, s.x, s.z, s.heading)) continue;

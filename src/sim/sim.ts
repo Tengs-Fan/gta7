@@ -537,6 +537,16 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
   }
 
   /** Rough "could a player see this point" test using every player's camera pose. */
+  /**
+   * Fills the streets and the pavements round the one player at once, in his view too: he has just arrived somewhere
+   * he could not see a moment ago (see TrafficSystem.populate). Nothing without ambient life, or in a room.
+   */
+  populate(): void {
+    if (!this.ambient) return;
+    this.traffic.populate();
+    this.peds.populate();
+  }
+
   isVisible(x: number, y: number, z: number, maxDist = 320): boolean {
     for (const slot of this.activePlayers()) if (this.seenFrom(slot, x, y, z, maxDist)) return true;
     return false;
@@ -1012,6 +1022,7 @@ export class Sim implements VehiclePhysicsHost, CharacterPhysicsHost, DriverHost
     slot.deathLevel = 0;
     // Single player skips the hours spent in hospital or a cell; a shared multiplayer clock runs on for the others.
     if (!this.sharedClock) this.clock.advance(busted ? 12 / 60 : 6);
+    this.populate();
     this.events.emit('respawn', { where: busted ? 'police' : 'hospital', ...slot.tag });
     if (fee > 0) this.events.emit('money', { amount: -fee, ...slot.tag });
     const weapons = !armed ? '' : confiscated ? ' Your weapons were confiscated.' : ' You kept your weapons.';

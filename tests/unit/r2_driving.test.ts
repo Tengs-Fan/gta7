@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { clamp, smoothstep, wrapAngle } from '../../src/core/math';
-import { CameraController } from '../../src/render/camera';
+import { CameraController, CHASE_FOV_REST, chaseFov } from '../../src/render/camera';
 import { FOLIAGE_FADE_FAR, PropsView } from '../../src/render/props';
 import { GameRenderer } from '../../src/render/renderer';
 import type { Vehicle } from '../../src/sim/entities';
@@ -288,21 +288,31 @@ function pose(r: { v: Vehicle; cam: CameraController }): { height: number; boom:
 }
 
 describe('the speed camera (P34)', () => {
-  it('widens the FOV with the absolute speed, the same in every car', () => {
+  it('widens the FOV with the absolute speed, the same in every car, from a longer lens than on foot', () => {
     for (const kind of ['compact', 'sports'] as const) {
       const fast = cruise(kind, 50, 2.5).cam;
-      expect(fast.camera.fov, kind).toBeGreaterThanOrEqual(fast.baseFov + 12);
       const slow = cruise(kind, 8, 2.5).cam;
-      expect(slow.camera.fov, kind).toBeLessThanOrEqual(slow.baseFov + 1);
+      // Round 8: a longer lens at rest (CHASE_FOV_REST under the setting) that opens by CHASE_FOV_SPEED.
+      expect(slow.camera.fov, kind).toBeLessThanOrEqual(slow.baseFov + CHASE_FOV_REST + 1);
+      expect(fast.camera.fov - slow.camera.fov, kind).toBeGreaterThanOrEqual(12);
+      expect(fast.camera.fov, kind).toBeCloseTo(chaseFov(fast.baseFov, 50), 1);
     }
   });
 
-  it('drops and pulls back at speed', () => {
+  it('drops and closes in at speed, so the car keeps most of its size as the lens widens', () => {
     for (const kind of ['compact', 'sedan', 'sports', 'van'] as const) {
-      const rest = pose(cruise(kind, 0, 2.5));
-      const fast = pose(cruise(kind, 50, 2.5));
-      expect(rest.height - fast.height, kind).toBeGreaterThanOrEqual(0.3);
-      expect(fast.boom - rest.boom, kind).toBeGreaterThanOrEqual(1.2);
+      const rest = cruise(kind, 0, 2.5);
+      const fast = cruise(kind, 50, 2.5);
+      expect(pose(rest).height - pose(fast).height, kind).toBeGreaterThanOrEqual(0.3);
+      // Round 8: the boom closes in (it backed away 18%, and its follow point trailed the car by 2.8 m more).
+      expect(pose(rest).boom - pose(fast).boom, kind).toBeGreaterThanOrEqual(0.5);
+      // The car's width on screen is its width over the boom times the tangent of half the lens: at 180 km/h no
+      // less than 0.8 of what it is at rest (it was 0.6).
+      const size = (r: { v: Vehicle; cam: CameraController }) => 1 / (pose(r).boom * Math.tan(THREE.MathUtils.degToRad(r.cam.camera.fov / 2)));
+      expect(size(fast) / size(rest), kind).toBeGreaterThanOrEqual(0.8);
+      // And the follow point keeps up with the car at a steady speed.
+      const t = camPriv(fast.cam).target;
+      expect(Math.hypot(t.x - fast.v.pos.x, t.z - fast.v.pos.z), kind).toBeLessThan(0.3);
     }
   });
 
@@ -414,6 +424,7 @@ describe('traffic ahead of a fast driver (P41)', () => {
     const ahead: number[] = [];
     let spawned = 0;
     let spawnedInView = 0;
+    let farAhead = 0;
     // Cross traffic spawned at a light that is not green, watched until the light changes.
     const held = new Map<Vehicle, Lane>();
     let heldTotal = 0;
@@ -435,7 +446,11 @@ describe('traffic ahead of a fast driver (P41)', () => {
         seen.add(o.id);
         if (o.owner !== 'traffic') continue;
         spawned++;
-        if (sim.isVisible(o.pos.x, 1, o.pos.z)) spawnedInView++;
+        // Round 8: his own road fills from its far end (ROAD_AHEAD, 170 m and more ahead), in view; nothing else may.
+        if (sim.isVisible(o.pos.x, 1, o.pos.z)) {
+          if (!sim.isVisible(o.pos.x, 1, o.pos.z, 150) && Math.abs(o.pos.x - n.x) < AVENUE_W / 2 && o.pos.z > v.pos.z) farAhead++;
+          else spawnedInView++;
+        }
         const lane = o.ai?.currentLane();
         // Wave 1: at the avenue's junctions, his way; a car waiting at a red light a block or more off to the side is
         // not in his way (it only showed up once motorbikes in the mix reshuffled the traffic).
@@ -461,6 +476,9 @@ describe('traffic ahead of a fast driver (P41)', () => {
     expect(mean).toBeGreaterThanOrEqual(1);
     expect(spawned).toBeGreaterThan(30);
     expect(spawnedInView).toBe(0);
+    // (Not with the police after him: his escape is tuned on the road as it was.)
+    if (stars === 0) expect(farAhead).toBeGreaterThanOrEqual(3);
+    else expect(farAhead).toBe(0);
     expect(ranRed).toBe(0);
     if (stars === 0) {
       expect(heldTotal).toBeGreaterThanOrEqual(2);
@@ -564,10 +582,12 @@ describe('traffic ahead of a fast driver (P41)', () => {
     const n = sim.roads.node(5, 3);
     const v = sim.spawnVehicle('sports', n.x - 2, n.z + n.halfZ + 30, 0);
     placeInCar(sim, v);
-    const spans = () => (sim.traffic as unknown as { aheadSpans: Array<{ lane: Lane; s0: number; s1: number }> }).aheadSpans;
+    // Round 8 added spans on his own road, far ahead (`open`, see the next test): these are the cross streets'.
+    const allSpans = () => (sim.traffic as unknown as { aheadSpans: Array<{ lane: Lane; s0: number; s1: number; open?: boolean }> }).aheadSpans;
+    const spans = () => allSpans().filter((sp) => !sp.open);
     const refresh = () => (sim.traffic as unknown as { refreshAhead(): void }).refreshAhead();
     refresh();
-    expect(spans()).toEqual([]);
+    expect(allSpans()).toEqual([]);
     v.vel.z = 30;
     for (let t = 0; t < 32; t += 0.5) {
       sim.time = t;
@@ -585,6 +605,20 @@ describe('traffic ahead of a fast driver (P41)', () => {
         let green = false;
         for (let dt = 0; dt <= arrive - 3; dt += 0.5) if (sim.roads.signalState(node.id, 'EW', t + dt) === 'green') green = true;
         expect(green).toBe(true);
+      }
+      // His own road, both ways, 170 to 320 m ahead of him and never within 28 m of a lane's end (a light to stop at).
+      const road = allSpans().filter((sp) => sp.open);
+      expect(road.length).toBeGreaterThan(0);
+      for (const sp of road) {
+        expect(sp.lane.dir % 2).toBe(0);
+        expect(Math.abs(sp.lane.sx - n.x)).toBeLessThan(AVENUE_W / 2);
+        expect(sp.lane.length - sp.s1).toBeGreaterThanOrEqual(28 - 1e-9);
+        // (Within a metre: the lanes of one road start and end a little apart.)
+        for (const at of [sp.s0, sp.s1]) {
+          const ahead = sp.lane.sz + sp.lane.dz * at - v.pos.z;
+          expect(ahead).toBeGreaterThanOrEqual(170 - 1);
+          expect(ahead).toBeLessThanOrEqual(320 + 1);
+        }
       }
     }
   });
@@ -795,7 +829,8 @@ describe('the camera and street trees (P21)', () => {
     cam.mode = 'play';
     cam.reset(sim);
     for (let i = 0; i < 60; i++) cam.update(DT, sim, false);
-    expect(v.pos.z - cam.camera.position.z).toBeGreaterThan(7);
+    // (The sedan's boom at rest is 6.6 m since round 8's closer camera; it was 8.6.)
+    expect(v.pos.z - cam.camera.position.z).toBeGreaterThan(6);
   });
 
   it('with the far camera the reset clears the trees for the longer boom', () => {

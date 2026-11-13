@@ -79,6 +79,13 @@ function isLocal(e: { playerId?: number }): boolean {
   return (e.playerId ?? 0) === LOCAL_PLAYER_ID;
 }
 
+/**
+ * A new game starts at five in the afternoon: the first minutes play through the golden hour (an hour is a minute of
+ * play), the first job ends about sunset and the lights come on over the drive home. It started at 15:30, in two and
+ * a half minutes of the day's flattest light.
+ */
+export const NEW_GAME_HOUR = 17;
+
 export class Game {
   readonly world: StaticWorld;
   readonly renderer: GameRenderer;
@@ -368,7 +375,7 @@ export class Game {
     this.pendingAutosave = false;
     this.world.resetBroken();
     this.renderer.props.restoreAll();
-    const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : 15.5, weather: this.weatherMode, serviceVehicles: true, streetCrime: true });
+    const sim = new Sim({ world: this.world, ambient: true, police: true, startHour: save ? save.hours : NEW_GAME_HOUR, weather: this.weatherMode, serviceVehicles: true, streetCrime: true });
     this.applyDensity(sim);
     sim.resetSystems();
     if (save) {
@@ -379,6 +386,8 @@ export class Game {
       sim.pickupSys.syncCollected();
       applyExt(sim, save.ext);
     }
+    // The city is already going about its day when he steps into it.
+    sim.populate();
     this.sim = sim;
     this.renderer.crowd.hiddenId = -1;
     this.renderer.attach(sim, this.localPlayerId);

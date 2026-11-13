@@ -95,7 +95,10 @@ describe('lethal force and arrests', () => {
   });
 
   it('at 1 star a passive player draws no police fire', () => {
-    const sim = makeSim({ ambient: true, seed: 7 });
+    // (Seed 8: a unit reaches him on foot in 10.6 s. How long that takes is a matter of where the nearest unit starts:
+    // 10 to 35 s over seeds 1 to 12, before round 8's fuller streets and after, and seed 7, used here until then, came
+    // out at 34.8 s for the 30 s this watches, from 22.5 s.)
+    const sim = makeSim({ ambient: true, seed: 8 });
     sim.cheats.godMode = true;
     sim.missions.noBust = true;
     // Downtown, where lanes run every way: by the safehouse, with Gull Bay north of it, a unit may take a while.
@@ -1283,7 +1286,7 @@ describe('helicopter sightings', () => {
 });
 
 describe('the spotlight beam', () => {
-  it('is a soft additive beam that vanishes when the camera is inside it, landing on a pool whose rim marks the edge of the light', () => {
+  it('is a soft additive beam that vanishes when the camera is inside it, landing on a pool of light that falls away to its rim', () => {
     const view = new MarkerView();
     const sim = makeSim();
     const h = new Helicopter(sim.newId(), 0, 40, 0);
@@ -1297,8 +1300,8 @@ describe('the spotlight beam', () => {
     expect(mat.fog).toBe(false);
     expect(mat.depthWrite).toBe(false);
     expect(mat.uniforms.uAlpha!.value).toBeCloseTo(0.1, 6);
-    // Round 2 fix pass (police): the pool is as wide as the beam's footprint, and its rim, not its centre,
-    // is bright: the night crew makes out what is within SPOT_SEE (twice the pool's radius) of its centre.
+    // Round 2 fix pass (police): the pool is as wide as the beam's footprint: the night crew makes out what is
+    // within SPOT_SEE (twice the pool's radius) of its centre.
     const pool = v.pool.material as THREE.MeshBasicMaterial;
     expect(pool.blending).toBe(THREE.AdditiveBlending);
     expect(pool.depthWrite).toBe(false);
@@ -1310,11 +1313,15 @@ describe('the spotlight beam', () => {
     expect(SPOT_SEE).toBe(2 * SPOT_RADIUS);
     const img = pool.map!.image as { data: Uint8Array; width: number };
     const alpha = (r: number) => img.data[(Math.floor(img.width / 2) * img.width + Math.min(img.width - 1, Math.floor((img.width / 2) * (1 + r)))) * 4 + 3]! / 255;
-    // A dim centre (an unlit player is no silhouette), a bright ring near the edge, nothing beyond it.
-    expect(alpha(0) * pool.opacity).toBeLessThan(0.04);
-    expect(alpha(0.82) * pool.opacity).toBeGreaterThan(0.12);
-    expect(alpha(0.82)).toBeGreaterThan(3 * alpha(0));
-    expect(alpha(0.99)).toBeLessThan(0.2);
+    // Round 8: light that is fullest in the middle and falls away to nothing at the rim, as a lamp's pool does (the
+    // dim disc inside a bright ring read as a ring drawn on the road), still dim enough in the middle that an unlit
+    // player is no silhouette (a glow at 0.35 made him one).
+    expect(alpha(0) * pool.opacity).toBeGreaterThan(0.1);
+    expect(alpha(0) * pool.opacity).toBeLessThan(0.16);
+    expect(alpha(0.5)).toBeLessThan(alpha(0));
+    expect(alpha(0.82)).toBeLessThan(alpha(0.5));
+    expect(alpha(0.82)).toBeLessThan(0.3 * alpha(0));
+    expect(alpha(0.99)).toBeLessThan(0.02);
     // The beam fades out for a camera near its axis (here by the spot on the ground), per camera.
     v.cone.updateMatrixWorld(true);
     const cam = new THREE.PerspectiveCamera();

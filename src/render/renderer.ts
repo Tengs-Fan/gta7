@@ -159,6 +159,20 @@ export function seaCrossing(world: StaticWorld, fx: number, fy: number, fz: numb
   return world.waterDepth(x, z) > 0 ? { x, z } : null;
 }
 
+/**
+ * What reaches the bloom is capped at BLOOM_CEIL (scene-linear, hue kept): the sun's highlight on a car's clearcoat is a
+ * few pixels dozens of times brighter than anything else in the frame, and uncapped it bloomed into a white blob that
+ * hid the car. Patches UnrealBloomPass's high-pass shader, and throws if three's shader no longer has the line.
+ */
+export const BLOOM_CEIL = 6;
+const BLOOM_TEXEL = 'vec4 texel = texture2D( tDiffuse, vUv );';
+function capBloom(bloom: UnrealBloomPass): void {
+  const m = (bloom as unknown as { materialHighPassFilter: THREE.ShaderMaterial }).materialHighPassFilter;
+  if (!m.fragmentShader.includes(BLOOM_TEXEL)) throw new Error("GameRenderer: the bloom cap no longer applies; check three's LuminosityHighPassShader");
+  m.fragmentShader = m.fragmentShader.replace(BLOOM_TEXEL, `${BLOOM_TEXEL}\n\t\t\ttexel.rgb *= min( 1.0, ${BLOOM_CEIL.toFixed(1)} / max( max( texel.r, max( texel.g, texel.b ) ), 1e-4 ) );`);
+  m.needsUpdate = true;
+}
+
 export class GameRenderer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -601,6 +615,7 @@ export class GameRenderer {
         const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
         // Threshold sits above sun-lit albedo so only emissive lights, the sun and explosions bloom.
         this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.6, 0.5, BLOOM_THRESHOLD);
+        capBloom(this.bloom);
       }
     } else {
       // Off on Low: free its render targets too (a fresh pass is made if it comes back).
