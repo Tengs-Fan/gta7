@@ -4948,7 +4948,7 @@ describe('San Azura driving HUD', () => {
     const rp = roadPoint(sim);
     const car = sim.spawnVehicle('sports', rp.x, rp.z, rp.heading);
     placeInCar(sim, car);
-    sim.events.emit('vehicleEnter', { character: sim.player, vehicle: car, jacked: false });
+    sim.events.emit('vehicleEnter', { character: sim.player, vehicle: car, jacked: false, victim: null });
     update();
     expect(el.drive!.classList.contains('hidden')).toBe(false);
     expect(el.drive!.textContent).not.toContain(car.spec.name);
