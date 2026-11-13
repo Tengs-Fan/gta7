@@ -82,7 +82,6 @@ const FS_HEAD = /* glsl */ `
 float gRough = 0.0;
 float gWetSand = 0.0;
 float gFoam = 0.0;
-float gFlat = 0.0;
 vec2 gp = vGroundPos.xz;
 float gpx = max( length( fwidth( gp ) ), 1e-4 );`;
 
@@ -142,59 +141,15 @@ ${lanes ? `  if ( vGround.w > 0.5 ) {
   diffuseColor.rgb *= tone;
 }`;
 
-/** Kerbstones along the edge of a sidewalk (m), and the band of pavers inside them, where the lamps and trees stand. */
-export const KERBSTONE_W = 0.3;
-export const PAVER_BAND = 1.5;
-/** One paver (m): along the kerb, across it; the rows run in a half bond. */
-const PAVER = { along: 0.3, across: 0.15 } as const;
-/** The sidewalk tile's mean colour (its fill, linear), which the pavers are tinted from in place of the slabs' joints. */
-const SIDEWALK_MEAN = '0.4, 0.38, 0.34';
-
-/**
- * Sidewalks (vGround: the rectangle whose sides are the kerbs): granite kerbstones along the kerb, a band of pavers in
- * half bond inside them (terracotta on some blocks, charcoal on the rest), and beyond it the tile's 1 m slabs, each a
- * shade of its own and a few newer and paler; grime gathered along the kerb, and faint stains. The pavers' joints and
- * shades fade into their mean where a paver is under a few pixels.
- */
+/** Sidewalks: grime gathered along the kerb edge of the rectangle vGround (its sides are the kerbs), and faint stains. */
 const FS_KERB = /* glsl */ `
 {
   float d = abs( gRect( gp ) );
   float nk = gN( gp * 0.31 + 0.11 ) * 0.6 + gN( gp * 1.13 + 0.57 ) * 0.4;
   float grime = clamp( ( 1.0 - smoothstep( 0.1, 0.42 + 0.3 * nk, d ) ) * ( 0.75 + 0.5 * nk ), 0.0, 1.0 );
   float macro = gN( gp * 0.043 + 0.77 );
-  float aa = gpx * 0.75;
-  float fine = 1.0 - smoothstep( 0.025, 0.07, gpx );
-  // The tile's joints fall on whole metres: one shade per slab.
-  vec2 slab = floor( gp );
-  float slabTone = mix( 0.93, 1.05, gHash( slab ) ) * ( gHash( slab + 17.3 ) < 0.06 ? 1.09 : 1.0 );
-  // Along and across the nearest kerb.
-  vec2 e = min( gp - vGround.xy, vGround.zw - gp );
-  float along = e.x < e.y ? gp.y : gp.x;
-  float kerb = 1.0 - smoothstep( ${n(KERBSTONE_W)} - aa, ${n(KERBSTONE_W)} + aa, d );
-  float band = smoothstep( ${n(KERBSTONE_W)} - aa, ${n(KERBSTONE_W)} + aa, d ) * ( 1.0 - smoothstep( ${n(PAVER_BAND)} - aa, ${n(PAVER_BAND)} + aa, d ) );
-  float row = floor( ( d - ${n(KERBSTONE_W)} ) / ${n(PAVER.across)} );
-  float a = ( along + mod( row, 2.0 ) * ${n(PAVER.along / 2)} ) / ${n(PAVER.along)};
-  float unit = floor( a );
-  vec2 inP = vec2( fract( a ) * ${n(PAVER.along)}, fract( ( d - ${n(KERBSTONE_W)} ) / ${n(PAVER.across)} ) * ${n(PAVER.across)} );
-  float edgeD = min( min( inP.x, ${n(PAVER.along)} - inP.x ), min( inP.y, ${n(PAVER.across)} - inP.y ) );
-  float joint = ( 1.0 - smoothstep( 0.008, 0.008 + aa, edgeD ) ) * fine;
-  // The kerb rectangle, rounded: hashing the interpolated attribute itself flickers between neighbouring fragments.
-  vec2 rk = floor( vGround.xy + 0.5 );
-  float rectH = gHash( rk * 0.37 + floor( vGround.zw + 0.5 ) * 0.11 );
-  vec3 paver = rectH < 0.45 ? vec3( 0.78, 0.47, 0.34 ) : vec3( 0.46, 0.46, 0.47 );
-  float tone = mix( 1.0, mix( 0.84, 1.12, gHash( vec2( unit, row ) + rk ) ), fine );
-  vec3 paved = diffuse * vec3( ${SIDEWALK_MEAN} ) * paver * tone * ( 1.0 - 0.55 * joint );
-  vec3 slabs = diffuseColor.rgb * mix( 1.0, slabTone, fine * 0.6 + 0.4 );
-  // The kerbstones: paler and cooler, with a dark joint where they meet the pavers.
-  vec3 stone = diffuseColor.rgb * vec3( 1.1, 1.11, 1.14 ) * ( 1.0 - 0.5 * ( 1.0 - smoothstep( 0.0, 0.012 + aa, abs( d - ${n(KERBSTONE_W)} ) ) ) );
-  diffuseColor.rgb = mix( mix( slabs, paved, band ), stone, kerb );
-  gFlat = band;
   diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 0.5, 0.46, 0.4 ), grime ) * mix( 0.94, 1.05, macro );
 }`;
-
-/** The pavers' band drops the slab tile's relief (its joints run on whole metres, not the pavers'). */
-const FS_NORMAL_KERB = /* glsl */ `
-normal = normalize( mix( normal, nonPerturbedNormal, gFlat ) );`;
 
 /** Kerb faces and gutters: road dirt, heaviest at the foot of the kerb. */
 const FS_CURB = /* glsl */ `
@@ -383,7 +338,6 @@ export class GroundSurfaces {
         .replace('#include <map_fragment>', `#include <map_fragment>${FS_HEAD}${untile ? FS_UNTILE : ''}${ALBEDO[detail]}`)
         .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>${FS_ROUGH_ALL}${detail === 'sand' ? FS_ROUGH_SAND : ''}`);
       if (detail === 'sand') fs = fs.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>${FS_NORMAL_SAND}`);
-      if (detail === 'kerb') fs = fs.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>${FS_NORMAL_KERB}`);
       shader.fragmentShader = fs;
     };
     mat.customProgramCacheKey = () => `${priorKey ? priorKey() : ''}|gta7-ground-${detail}`;
