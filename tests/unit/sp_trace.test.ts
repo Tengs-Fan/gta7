@@ -17,6 +17,10 @@
 // And again when Smuggler's Key's stash pickups took the next two entity ids: every id after them is two higher.
 // And on the merged round-2 head, where both stand together: it differs from each branch's recording exactly where the
 // other branch's differs from 72d0b98's (the renumbered props, the ids two higher), and nowhere else.
+// And for round 8's fuller streets: the lone player at peace and off the clock gets more traffic and a bigger crowd, cars
+// start on the road ahead of him from 170 m out, the crowd streams ahead of him when he drives, and the streets fill at
+// once as he comes out of the hospital or the station (Sim.populate), so who is where differs from the first spawn on.
+// With the police after him or on a Street Run the traffic's numbers are the old ones. Both seeds still end as they did.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

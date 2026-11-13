@@ -351,10 +351,13 @@ describe('single player is unchanged by the multiplayer core (VAL-MPSIM-010)', (
     // and again once the NaN scrub went (a dead player's health is no longer floored at -1000) and the map was broken
     // up, four bays drowned into it and the ring road bridged across their mouths (docs/map.md), once the attractions
     // pass rebuilt two cells (props renumbered, Old Man Hollister on his porch while the player is near), once
-    // Smuggler's Key's stash took the next two entity ids, and once both stood together on the merged round-2 head.
+    // Smuggler's Key's stash took the next two entity ids, once both stood together on the merged round-2 head, and
+    // once round 8 filled the lone player's streets (more traffic and a bigger crowd while he is at peace and off the
+    // clock, cars started on the road ahead of him, the crowd streamed ahead of him driving, the streets filled as he
+    // comes out of the hospital or the station).
     const now = `${JSON.stringify(recordSpTrace({ streetCrime: true }))}\n`;
     const hash = createHash('sha256').update(now).digest('hex');
     console.log(`[mpsim-010] streetCrime trace sha256 ${hash}`);
-    expect(hash).toBe('76dff5793b5bf1181fb182b0c49eb68945f5312c80a9da0dac61d52ab524b49e');
+    expect(hash).toBe('2166400201fe4252ce062bb3b82b52c67b875eee09c61d1a8aa6ae9d123997f0');
   }, 120_000);
 });
