@@ -197,6 +197,51 @@ describe('imported car bodies', () => {
     }
   });
 
+  it('the refined paint shades as the model\'s own faces do: its normals are the coarse ones carried onto the pieces', () => {
+    // A refined corner's normal is the coarse face's corner normals interpolated at it (within 2 degrees): normals
+    // recomputed on the refined mesh were flat over each original face and bent only along its edges (wavy blotches).
+    const rows: string[] = [];
+    const tri = new THREE.Triangle();
+    const bary = new THREE.Vector3();
+    const p = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const closest = new THREE.Vector3();
+    for (const kind of MODEL_KINDS) {
+      const m = carModel(kind)!;
+      // The far paint is the coarse paint (white vertex colour) followed by the cabin's lining.
+      const cp = m.farPaint.getAttribute('position');
+      const cn = m.farPaint.getAttribute('normal');
+      const cc = m.farPaint.getAttribute('color');
+      const coarse: number[] = [];
+      for (let t = 0; t < cp.count / 3; t++) if (cc.getX(t * 3) === 1) coarse.push(t);
+      const fp = m.paint.getAttribute('position');
+      const fn = m.paint.getAttribute('normal');
+      let worst = 0;
+      let checked = 0;
+      for (let i = 0; i < fp.count; i += 7) {
+        p.fromBufferAttribute(fp, i);
+        n.fromBufferAttribute(fn, i);
+        // The coarse face the corner lies on whose interpolated normal is nearest its own (a corner on an edge lies on both).
+        let best = Infinity;
+        for (const t of coarse) {
+          tri.set(new THREE.Vector3().fromBufferAttribute(cp, t * 3), new THREE.Vector3().fromBufferAttribute(cp, t * 3 + 1), new THREE.Vector3().fromBufferAttribute(cp, t * 3 + 2));
+          tri.closestPointToPoint(p, closest);
+          if (closest.distanceToSquared(p) > 1e-8) continue;
+          tri.getBarycoord(p, bary);
+          const want = new THREE.Vector3();
+          for (let k = 0; k < 3; k++) want.addScaledVector(new THREE.Vector3().fromBufferAttribute(cn, t * 3 + k), [bary.x, bary.y, bary.z][k]!);
+          best = Math.min(best, want.normalize().angleTo(n));
+        }
+        expect(best, `${kind} corner ${i} lies on a coarse face`).toBeLessThan(Infinity);
+        worst = Math.max(worst, best);
+        checked++;
+      }
+      rows.push(`${kind}: ${checked} refined corners, worst ${THREE.MathUtils.radToDeg(worst).toFixed(2)} deg off the coarse shading`);
+      expect(THREE.MathUtils.radToDeg(worst), kind).toBeLessThan(2);
+    }
+    console.log(rows.join('\n'));
+  });
+
   it('a camera inside a model body draws it without its dark lining (pressed against a wall), outside with it', () => {
     for (const kind of MODEL_KINDS) {
       const v = view(kind);

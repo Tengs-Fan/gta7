@@ -218,10 +218,17 @@ function lengthWarp(half: number, zr: number, zf: number, a: number): (z: number
   };
 }
 
-/** Conforming refinement: every edge longer than `maxEdge` is halved (for both its triangles) until none is. */
-function refine(positions: THREE.Vector3[], tris: Array<[number, number, number]>, parts: Part[], maxEdge: number): { positions: THREE.Vector3[]; tris: Array<[number, number, number]>; parts: Part[] } {
+/**
+ * Conforming refinement: every edge longer than `maxEdge` is halved (for both its triangles) until none is. `normals`
+ * (per triangle corner, 9 per triangle) are carried along: a corner on a split edge takes the normalised mean of the
+ * edge's two corner normals in its own triangle, so the refined body shades as the coarse one does, smooth across each
+ * of the model's faces. (Normals computed on the refined mesh instead are flat over the middle of every original face
+ * and bend only in a band one refined edge wide along its edges, which drew the low-poly facets as wavy blotches.)
+ */
+function refine(positions: THREE.Vector3[], tris: Array<[number, number, number]>, parts: Part[], normals: Float32Array, maxEdge: number): { positions: THREE.Vector3[]; tris: Array<[number, number, number]>; parts: Part[]; normals: Float32Array } {
   let T = tris;
   let P = parts;
+  let N: ArrayLike<number> = normals;
   const max2 = maxEdge * maxEdge;
   for (let pass = 0; pass < 12; pass++) {
     const mid = new Map<string, number>();
@@ -242,14 +249,32 @@ function refine(positions: THREE.Vector3[], tris: Array<[number, number, number]
     if (!any) break;
     const NT: Array<[number, number, number]> = [];
     const NP: Part[] = [];
+    const NN: number[] = [];
+    const n = new THREE.Vector3();
     T.forEach(([a, b, c], t) => {
       const part = P[t]!;
       const ab = mid.get(key(a, b));
       const bc = mid.get(key(b, c));
       const ca = mid.get(key(c, a));
+      // The triangle's corner normals by vertex, with its split edges' midpoints.
+      const corner = new Map<number, readonly number[]>([
+        [a, [N[t * 9]!, N[t * 9 + 1]!, N[t * 9 + 2]!]],
+        [b, [N[t * 9 + 3]!, N[t * 9 + 4]!, N[t * 9 + 5]!]],
+        [c, [N[t * 9 + 6]!, N[t * 9 + 7]!, N[t * 9 + 8]!]],
+      ]);
+      for (const [m, u, v] of [[ab, a, b], [bc, b, c], [ca, c, a]] as const) {
+        if (m === undefined) continue;
+        const nu = corner.get(u)!;
+        const nv = corner.get(v)!;
+        n.set(nu[0]! + nv[0]!, nu[1]! + nv[1]!, nu[2]! + nv[2]!);
+        if (n.lengthSq() < 1e-12) n.set(nu[0]!, nu[1]!, nu[2]!);
+        n.normalize();
+        corner.set(m, [n.x, n.y, n.z]);
+      }
       const emit = (x: number, y: number, z: number): void => {
         NT.push([x, y, z]);
         NP.push(part);
+        for (const k of [x, y, z]) NN.push(...corner.get(k)!);
       };
       if (ab !== undefined && bc !== undefined && ca !== undefined) {
         emit(a, ab, ca);
@@ -281,8 +306,9 @@ function refine(positions: THREE.Vector3[], tris: Array<[number, number, number]
     });
     T = NT;
     P = NP;
+    N = NN;
   }
-  return { positions, tris: T, parts: P };
+  return { positions, tris: T, parts: P, normals: Float32Array.from(N) };
 }
 
 /** Welds the triangles by position into an indexed list. */
@@ -331,7 +357,7 @@ const CREASE = Math.cos((38 * Math.PI) / 180);
 /**
  * Per-corner normals of a welded mesh: each corner averages (by area) the faces round its vertex of the same part that
  * turn less than the crease angle from its own face, so the model's curved panels shade smooth and its creases stay
- * crisp (as the model was drawn), however the refinement split its faces.
+ * crisp (as the model was drawn). Computed on the model's own faces; the refinement carries them onto its pieces.
  */
 function cornerNormals(positions: readonly THREE.Vector3[], tris: ReadonlyArray<readonly [number, number, number]>, parts: readonly Part[]): Float32Array {
   const face: THREE.Vector3[] = [];
@@ -742,9 +768,9 @@ function buildModel(kind: VehicleKind, spec: ModelSpec, scene: THREE.Object3D, s
   const plates: PlateFrames = { front: frames.front ?? fill, rear: frames.rear ?? fill };
   const kept = [...tris.filter((t) => t.part !== 'head' && t.part !== 'tail'), ...plateTris];
   const coarse = weld(kept);
-  const fine = refine(coarse.positions.map((v) => v.clone()), coarse.tris, coarse.parts, MAX_EDGE);
-  const fineNormals = cornerNormals(fine.positions, fine.tris, fine.parts);
   const coarseNormals = cornerNormals(coarse.positions, coarse.tris, coarse.parts);
+  const fine = refine(coarse.positions.map((v) => v.clone()), coarse.tris, coarse.parts, coarseNormals, MAX_EDGE);
+  const fineNormals = fine.normals;
   const make = (w: typeof coarse, parts: Part[], kindOf: 'paint' | 'trim' | 'glass'): THREE.BufferGeometry => geometryOf(w.positions, w.tris, w.parts, parts, kindOf, w === fine ? fineNormals : coarseNormals, plates);
   const hasLivery = kept.some((t) => t.part === 'livery');
   // Windows: their side outline and the beltline and roof they sit between.
