@@ -49,6 +49,22 @@ describe('contact shadow scene isolation', () => {
     geometry.dispose();
   });
 
+  it('judges an instanced batch by where its instances are, not by its one-prop geometry at the origin', () => {
+    const geometry = new THREE.BoxGeometry();
+    geometry.computeBoundingSphere();
+    const material = new THREE.MeshStandardMaterial();
+    const batch = new THREE.InstancedMesh(geometry, material, 2);
+    batch.setMatrixAt(0, new THREE.Matrix4().makeTranslation(500, 0, 0));
+    batch.setMatrixAt(1, new THREE.Matrix4().makeTranslation(520, 0, 0));
+    batch.computeBoundingSphere();
+    batch.updateMatrixWorld();
+    const item = { object: batch, geometry, material, group: null };
+    expect(shadesContact(item, new THREE.Vector3(505, 0, 0), 110)).toBe(true);
+    expect(shadesContact(item, new THREE.Vector3(0, 0, 0), 110)).toBe(false);
+    geometry.dispose();
+    material.dispose();
+  });
+
   it.each([false, true])('restores scene state after the pass (error=%s)', (fail) => {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x123456);
