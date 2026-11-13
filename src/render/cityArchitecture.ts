@@ -237,8 +237,8 @@ const ESCAPE_RAIL = 0.95;
 /**
  * A fire escape on a brick block's street wall: an iron landing at every storey above the ground floor, two window
  * columns wide, with rails, zigzag stairs between the landings and a drop ladder hanging from the lowest, which ends
- * well over the heads of people on the pavement. Placed on two columns near one end of the wall in `sides` with the
- * most of them; drawn with a double-sided material. Returns the landings drawn.
+ * well over the heads of people on the pavement. Placed on the two columns at one end of the wall in `sides` with the
+ * most of them (three at least); drawn with a double-sided material. Returns the landings drawn.
  */
 export function fireEscape(g: GeoBuilder, b: Building, t: Tier, baseY: number, sides: readonly Side[]): number {
   const cell = FACADE_CELL[b.style];
@@ -247,12 +247,12 @@ export function fireEscape(g: GeoBuilder, b: Building, t: Tier, baseY: number, s
   for (const wl of tierWalls(t)) {
     if (!sides.includes(wl.side)) continue;
     const cols = wholeCells(wl, cell.w, 0.4);
-    if (cols.length >= 4 && (!best || cols.length > best.cols.length)) best = { wl, cols };
+    if (cols.length >= 3 && (!best || cols.length > best.cols.length)) best = { wl, cols };
   }
   if (!best) return 0;
   const { wl, cols } = best;
   const r = (k: number) => hashInts(b.id, k, 0xf1e) / 4294967296;
-  const c = r(1) < 0.5 ? cols[1]! : cols[cols.length - 3]!;
+  const c = r(1) < 0.5 ? cols[0]! : cols[cols.length - 2]!;
   const s0 = c * cell.w - wl.u + 0.15;
   const s1 = (c + 2) * cell.w - wl.u - 0.15;
   const iron = r(2) < 0.3 ? IRON_GREEN : IRON;
