@@ -311,6 +311,34 @@ describe('jointed rig and planted-foot gait', () => {
     expect(still.animPhase).toBe(1.234);
   });
 
+  it('someone hit flinches: his trunk snaps back and twists, and comes up again as the hurt wears off (round 8)', () => {
+    const { c } = lone();
+    const cv = new CrowdView();
+    const pose = () => {
+      cv.sync([c], c.pos.x, c.pos.z, 1 / 60);
+      const p = parts(cv);
+      return { head: origin(matrixAt(p.head!, 0)), up: axis(matrixAt(p.torso!, 0)) };
+    };
+    for (let i = 0; i < 30; i++) pose();
+    const rest = pose();
+    // His facing: a hit throws his head back against it.
+    const fwd = new THREE.Vector3(Math.sin(c.heading), 0, Math.cos(c.heading));
+    // As CombatSystem.damageCharacter leaves him.
+    c.hurtTimer = 0.35;
+    const hit = pose();
+    expect(rest.head.clone().sub(hit.head).dot(fwd)).toBeGreaterThan(0.12);
+    expect(hit.up.angleTo(rest.up)).toBeGreaterThan(0.25);
+    expect(hit.head.y).toBeLessThan(rest.head.y);
+    // Half way through he is most of the way up again, and at the end back where he stood.
+    c.hurtTimer = 0.1;
+    const easing = pose();
+    expect(easing.up.angleTo(rest.up)).toBeLessThan(hit.up.angleTo(rest.up));
+    expect(easing.up.angleTo(rest.up)).toBeGreaterThan(0.05);
+    c.hurtTimer = 0;
+    const after = pose();
+    expect(after.head.distanceTo(rest.head)).toBeLessThan(1e-6);
+  });
+
   it('a corpse lies with its arms relaxed at its sides one second after death, not in a T', () => {
     const { sim, c } = lone();
     const cv = new CrowdView();

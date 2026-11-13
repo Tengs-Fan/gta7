@@ -21,6 +21,14 @@ import { cabinLayout, drawnFrame, riderSeat, VehicleView, type RiderSeat } from 
 import { GUN_IDS, gunGeometry } from './weaponModels';
 
 const MAX = 240;
+/**
+ * The flinch of someone hit: how long the sim keeps him hurt (CombatSystem.damageCharacter sets Character.hurtTimer to
+ * this), and how far his trunk snaps back (rad), twists to one side (rad) and sinks (m, at a height of 1) at the hit.
+ */
+const HURT_TIME = 0.35;
+const FLINCH_LEAN = 0.34;
+const FLINCH_TWIST = 0.24;
+const FLINCH_DROP = 0.06;
 /** Seated drivers and passengers are drawn within this distance of the camera. */
 export const OCCUPANT_RANGE = 60;
 /**
@@ -737,6 +745,16 @@ export class CrowdView {
       } else chestYaw += (combo === 0 ? 0.18 : -0.14) * punch;
     }
     if (kick > 0) lean -= 0.04 * kick * (gunKick(this.wp.weapon) / 0.12);
+    // Hit: the trunk snaps back and to one side (by his id: a row of people does not flinch as one) and sinks a little,
+    // and comes up again over the HURT_TIME the sim keeps him hurt; under a burst he stays rocked back. A bullet that
+    // drew only a puff of red left him standing like a signpost.
+    const hurt = c.alive && !crouch ? clamp(c.hurtTimer / HURT_TIME, 0, 1) : 0;
+    if (hurt > 0) {
+      const k = hurt * (2 - hurt);
+      lean -= FLINCH_LEAN * k;
+      chestYaw += (c.id % 2 ? FLINCH_TWIST : -FLINCH_TWIST) * k;
+      drop += FLINCH_DROP * s * k;
+    }
 
     const hipYaw = t.hipYaw;
     const hc = Math.cos(hipYaw);
