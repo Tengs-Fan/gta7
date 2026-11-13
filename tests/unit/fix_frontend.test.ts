@@ -2346,19 +2346,20 @@ function makeQualityGame() {
 }
 
 describe('r2 quality: tiers in the game and the settings row', () => {
+  // (Round 8: Medium runs 80% of the traffic and 70% of the crowd, Low 65% and 55%; they ran 90% and 75% of both.)
   it("resolves 'auto' once at boot and gives every sim the tier's traffic and pedestrian density", () => {
     const { game } = makeQualityGame();
     // No usable WebGL here, so the GPU is unknown: Auto means Medium.
     expect(game.settings.quality).toBe('auto');
     expect(game.autoTier).toBe('medium');
     expect(game.renderer.currentQuality).toBe('medium');
-    expect([game.sim.traffic.density, game.sim.peds.density]).toEqual([0.9, 0.9]); // the title's sim
+    expect([game.sim.traffic.density, game.sim.peds.density]).toEqual([0.8, 0.7]); // the title's sim
     game.newGame();
     const sim = game.sim;
-    expect([sim.traffic.density, sim.peds.density]).toEqual([0.9, 0.9]);
+    expect([sim.traffic.density, sim.peds.density]).toEqual([0.8, 0.7]);
     game.applySettings({ ...game.settings, quality: 'low' }, false);
     expect(game.renderer.currentQuality).toBe('low');
-    expect([sim.traffic.density, sim.peds.density]).toEqual([0.75, 0.75]);
+    expect([sim.traffic.density, sim.peds.density]).toEqual([0.65, 0.55]);
     const lowTargets = [sim.traffic.targetCount, sim.peds.targetCount];
     game.applySettings({ ...game.settings, quality: 'high' }, false);
     expect([sim.traffic.density, sim.peds.density]).toEqual([1, 1]);
@@ -2367,7 +2368,7 @@ describe('r2 quality: tiers in the game and the settings row', () => {
     expect(lowTargets[1]).toBeLessThan(sim.peds.targetCount);
     game.applySettings({ ...game.settings, quality: 'auto' }, false);
     expect(game.renderer.currentQuality).toBe('medium');
-    expect(sim.traffic.density).toBe(0.9);
+    expect(sim.traffic.density).toBe(0.8);
   });
 
   it('a saved fixed tier wins over Auto at boot', () => {
@@ -2375,7 +2376,7 @@ describe('r2 quality: tiers in the game and the settings row', () => {
     const { game } = makeQualityGame();
     expect(game.settings.quality).toBe('low');
     expect(game.renderer.currentQuality).toBe('low');
-    expect([game.sim.traffic.density, game.sim.peds.density]).toEqual([0.75, 0.75]);
+    expect([game.sim.traffic.density, game.sim.peds.density]).toEqual([0.65, 0.55]);
   });
 
   it('the settings row offers AUTO (tier) and says when the anti-aliasing change waits for a reload', () => {
