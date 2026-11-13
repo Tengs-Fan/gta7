@@ -224,7 +224,7 @@ function bulbString(p: Pieces, lit: [number, number], a: V, b: V, sag: number, n
 
 export class ValleyView {
   private readonly vines: Vines;
-  /** Materials the headlights light (renderer.ts): the farms' atlas, whose decks, posts and boards stand within the pool's reach of a car. */
+  /** Materials the headlights light (renderer.ts): the valley's farms' atlas and the county's farmsteads' (CountryView), whose decks, porches, posts and boards stand within the pool's reach of a car. */
   readonly lit: THREE.MeshStandardMaterial[] = [];
   private readonly halos: THREE.Points;
   private readonly haloMat: THREE.PointsMaterial;

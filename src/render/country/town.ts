@@ -250,7 +250,7 @@ function drawStore(view: CountryView, kit: PlacesKit, p: PlacePieces, facades: M
   kit.board(p, sign(kit, [[s.name, 92]], L.sign[0], L.sign[1]), sw, sh, cx, (ph.high + s.top) / 2 + 0.15, fz + out * 0.05, rot);
 }
 
-/** Slipformed concrete: the lifts' faint seams across it, darker streaks run down from the top, grime toward the foot (v[0]). */
+/** Slipformed concrete: the lifts' faint seams across it, darker streaks run down from the top, a little grime toward the foot (v[0]). */
 function concreteBand(kit: PlacesKit): [number, number] {
   return kit.atlas.band(256, (ctx) => {
     const rng = new Rng(4420);
@@ -261,12 +261,12 @@ function concreteBand(kit: PlacesKit): [number, number] {
       ctx.fillStyle = `rgba(${l},${l - 4},${l - 12},0.35)`;
       ctx.fillRect(rng.range(0, 1024), 0, rng.range(2, 10), rng.range(30, 256));
     }
-    ctx.fillStyle = 'rgba(90,84,74,0.16)';
+    ctx.fillStyle = 'rgba(90,84,74,0.1)';
     for (let y = 64; y < 256; y += 64) ctx.fillRect(0, y, 1024, 2);
     const grime = ctx.createLinearGradient(0, 0, 0, 256);
-    grime.addColorStop(0, 'rgba(60,54,44,0.12)');
+    grime.addColorStop(0, 'rgba(60,54,44,0.03)');
     grime.addColorStop(0.5, 'rgba(60,54,44,0)');
-    grime.addColorStop(1, 'rgba(60,54,44,0.22)');
+    grime.addColorStop(1, 'rgba(60,54,44,0.07)');
     ctx.fillStyle = grime;
     ctx.fillRect(0, 0, 1024, 256);
   });

@@ -484,7 +484,7 @@ const HEDGE_PROFILE: ReadonlyArray<readonly [number, number]> = [[-0.9, -0.05], 
 /**
  * A hedgerow along `h`: pillows 1.6 to 3.2 m long, each overlapping the last by a third, a little thicker or thinner,
  * taller or lower than its neighbours and tapering to its ends, so the run reads as clipped shrubs rather than a wall
- * (23,000 triangles for the county's and the valley's hedgerows, against the 5,000 of the boxes and lumps they were).
+ * (14,450 triangles for the county's and the valley's hedgerows, against the 5,020 of the boxes and lumps they were).
  * Its leaves' uvs are projected on the run's length and the profile's height.
  */
 function hedgeRun(g: GeoBuilder, rng: Rng, h: Rect): void {
@@ -580,6 +580,8 @@ const isHedge = (c: StaticCollider): boolean => c.tag === 'hedge';
 export class FarmsView {
   /** The windpumps' wheels, turning about their hubs' z axes. */
   private readonly wheels: THREE.Mesh[] = [];
+  /** The farmsteads' material: the headlights light it (valley.ts ValleyView.lit), for the porches' decks and steps a car comes up to. */
+  readonly material: THREE.MeshStandardMaterial;
   private turn = 0;
   private last = 0;
   /** The camera, its subject and how far open the hedgerows are, which sight() drives. */
@@ -622,7 +624,8 @@ export class FarmsView {
     // Repeating along u, so the tin runs on along a roof; every band spans the atlas's width.
     const map = toTexture(atlas.canvas, true, false);
     map.wrapS = THREE.RepeatWrapping;
-    view.add(geo, new THREE.MeshStandardMaterial({ map, vertexColors: true, roughness: 0.8 }), { shadow: true, name: 'farmsteads', split: false });
+    this.material = new THREE.MeshStandardMaterial({ map, vertexColors: true, roughness: 0.8 });
+    view.add(geo, this.material, { shadow: true, name: 'farmsteads', split: false });
 
     // The hedgerows: overlapping pillows of leaves along each, so its sides bulge and its top rolls.
     const hedges = new GeoBuilder(false);
