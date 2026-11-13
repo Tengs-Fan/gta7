@@ -1,5 +1,5 @@
-// Angry drivers: a civilian driver whose car the player rams hard may get out once it has stopped, and either come at
-// him with his fists or run for it. A fighter who sees the player drive off more than GIVE_UP m goes back to his car and
+// Angry drivers: a civilian driver whose car the player rams hard may get out once it has stopped (and the player's is
+// no longer coming past his door), and either come at him with his fists or run for it. A fighter who sees the player drive off more than GIVE_UP m goes back to his car and
 // drives on (or walks off); his car meanwhile stands abandoned for the traffic detour and tow logic like any other.
 // Runs only while sim.streetCrime.angryDrivers is on, from its own random generator.
 
@@ -18,6 +18,15 @@ export const GET_OUT_CHANCE = 0.6;
 export const FIGHT_CHANCE = 0.45;
 /** He gets out once his car is (nearly) stopped, or after this long (s) at most. */
 const GET_OUT_WAIT = 3;
+/**
+ * Nobody opens his door on a car still coming past: while the one that hit him is moving faster than DOOR_SPEED m/s
+ * within DOOR_CLEAR m of his car he sits tight, and if it has not let up STAY_IN s after the hit he lets it go and
+ * drives on. (He got out the moment his own car had stopped, whatever the car that hit it was doing: into its side, if
+ * it was still passing at 50 km/h, and a murder charge for a scraped wing.)
+ */
+export const DOOR_SPEED = 4;
+export const DOOR_CLEAR = 14;
+export const STAY_IN = 6;
 /** A fighter gives up once the player is this far (m) away. */
 export const GIVE_UP = 40;
 /** He walks back to his car from at most this far (m); further, he walks off. */
@@ -146,6 +155,11 @@ export class AngryDriverSystem implements SimSystem {
             break;
           }
           if (g.car.speed > 1.5 && sim.time - g.hitAt < GET_OUT_WAIT) break;
+          const his = p.vehicle;
+          if (his && Math.hypot(his.vel.x, his.vel.z) > DOOR_SPEED && Math.hypot(his.pos.x - g.car.pos.x, his.pos.z - g.car.pos.z) < DOOR_CLEAR) {
+            if (sim.time - g.hitAt > STAY_IN) g.state = 'done';
+            break;
+          }
           this.getOut(c, g.car);
           g.outAt = sim.time;
           if (g.fights) {

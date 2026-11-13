@@ -31,6 +31,9 @@ export function install(g) {
     /** What it is doing this tick, for a replay's log: aiming round a car in its way, stopping for someone on foot. */
     rounding: false,
     waiting: false,
+    /** Ticks stopped behind a car left standing in the lane, and ticks waiting for the same someone on foot. */
+    behind: 0,
+    waited: 0,
     path: [],
     at: 0,
     samples: [],
@@ -112,6 +115,7 @@ export function install(g) {
       let tz = p[ahead].z;
       const reach = 10 + speed * 0.9;
       let blocked = false;
+      let left = false;
       auto.rounding = false;
       for (const o of sim.vehicles) {
         if (o === v) continue;
@@ -121,7 +125,11 @@ export function install(g) {
         const side = dx * fz - dz * fx;
         if (along > 2 && along < reach && Math.abs(side) < 1.9) {
           const rel = speed - (o.vel.x * fx + o.vel.z * fz);
-          if (rel > 2) {
+          // A car left standing in the lane with nobody at its wheel will not move on: stopped behind it for over a
+          // second, he goes round it too, at a crawl.
+          const abandoned = !o.driver && Math.hypot(o.vel.x, o.vel.z) < 0.3 && along < 9;
+          if (abandoned) left = true;
+          if (rel > 2 || (abandoned && auto.behind > 40)) {
             const s = side >= 0 ? -1 : 1;
             tx = o.pos.x + fz * s * 3.4 + fx * 4;
             tz = o.pos.z - fx * s * 3.4 + fz * 4;
@@ -130,6 +138,7 @@ export function install(g) {
           }
         }
       }
+      auto.behind = left && speed < 1.5 ? auto.behind + 1 : left ? auto.behind : 0;
       // Somebody on foot in the way: brake for him, as a driver does (with auto.people off, the careless one this was).
       let waiting = false;
       if (auto.people) {
@@ -152,7 +161,11 @@ export function install(g) {
       }
       if (blocked) want = Math.min(want, 6);
       auto.waiting = waiting;
-      if (waiting) want = 0;
+      // (One who has not moved out of the way in three seconds is edged past at walking pace: under 4.5 m/s a car
+      // pushes a man aside and does not run him down.)
+      auto.waited = waiting ? auto.waited + 1 : 0;
+      if (waiting) want = auto.waited > 100 ? Math.min(want, 2.5) : 0;
+      if (left && auto.behind > 40) want = Math.min(want, 4);
       if (best >= p.length - 3) want = 0;
       // Wedged against something: back out for a moment, steering the other way.
       if (auto.unstick > 0) {

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { Sim } from '../../src/sim/sim';
 import { CALL_MAX, CALL_MIN } from '../../src/sim/witnesses';
-import { GIVE_UP } from '../../src/sim/angryDrivers';
+import { DOOR_CLEAR, DOOR_SPEED, GIVE_UP, STAY_IN } from '../../src/sim/angryDrivers';
 import { aimAt, input, makeSim, placeInCar, step, teleport } from './helpers';
 
 const FULL = process.env.W1_FULL === '1';
@@ -245,6 +245,65 @@ describe('VAL-NPC-004: drivers get out angry after a hard hit', () => {
         expect(r.out, `${kind} seed ${seed}`).toBe(false);
       }
     }
+  });
+
+  it('he does not open his door on the car that hit him while it is still coming past, and lets it go if it keeps at it', () => {
+    // A driver who is going to get out, a twentieth of a second after the hit.
+    const going = () => {
+      for (let seed = 1; seed < 60; seed++) {
+        const r = ram(seed, 11, 'sedan', 0.05);
+        if (r.sim.angryDrivers.log.find((l) => l.car === r.target.id)?.out) return r;
+      }
+      throw new Error('nobody got out');
+    };
+    /** The player's car sweeps past the driver's door at 8 m/s, from 8 m behind his car to 8 m ahead and round again, for `seconds`. */
+    const pass = (r: ReturnType<typeof ram>, seconds: number, each: () => void) => {
+      const { sim, target } = r;
+      const mine = sim.player.vehicle!;
+      const fx = Math.sin(target.heading);
+      const fz = Math.cos(target.heading);
+      for (let i = 0; i < Math.round(seconds * 60); i++) {
+        const s = -8 + (((i / 60) * 8) % 16);
+        // His door is on the car's left (AngryDriverSystem.getOut): 3.6 m out from it, clear of both cars.
+        mine.pos.x = target.pos.x + fx * s + fz * 3.6;
+        mine.pos.z = target.pos.z + fz * s - fx * 3.6;
+        mine.heading = target.heading;
+        mine.angVel = 0;
+        mine.vel.x = fx * 8;
+        mine.vel.z = fz * 8;
+        step(sim, 1 / 60, input({ throttle: 0.4 }));
+        each();
+      }
+    };
+    const r = going();
+    pass(r, 4, () => expect(r.driver.vehicle).toBe(r.target));
+    expect(r.sim.angryDrivers.active.some((g) => g.driver === r.driver)).toBe(true);
+    // The car stops beside him: out he gets.
+    const mine = r.sim.player.vehicle!;
+    mine.vel.x = 0;
+    mine.vel.z = 0;
+    step(r.sim, 1.5, input({ handbrake: true }));
+    expect(Math.hypot(mine.vel.x, mine.vel.z)).toBeLessThan(DOOR_SPEED);
+    expect(r.driver.vehicle).toBeNull();
+
+    // A player who keeps at it: after STAY_IN s the driver lets it go, still in his car.
+    const k = going();
+    pass(k, STAY_IN + 1, () => expect(k.driver.vehicle).toBe(k.target));
+    expect(k.sim.angryDrivers.active.some((g) => g.driver === k.driver)).toBe(false);
+    step(k.sim, 3, input({ handbrake: true }));
+    expect(k.driver.vehicle).toBe(k.target);
+
+    // One who has driven on is out of his way: with the car that hit him 14 m off and more he gets out as before.
+    const f = going();
+    const far = f.sim.player.vehicle!;
+    for (let i = 0; i < 120; i++) {
+      far.pos.x = f.target.pos.x + Math.sin(f.target.heading) * (DOOR_CLEAR + 4 + i * 0.13);
+      far.pos.z = f.target.pos.z + Math.cos(f.target.heading) * (DOOR_CLEAR + 4 + i * 0.13);
+      far.vel.x = Math.sin(f.target.heading) * 8;
+      far.vel.z = Math.cos(f.target.heading) * 8;
+      step(f.sim, 1 / 60, input({ throttle: 0.4 }));
+    }
+    expect(f.driver.vehicle).toBeNull();
   });
 
   it('same seed, same outcome', () => {

@@ -117,6 +117,10 @@ export default async function (t) {
           forward: +v.forwardSpeed.toFixed(1),
           unstick: window.__auto.unstick > 0,
           lane: +sim.roads.nearestLane(c.pos.x, c.pos.z).dist.toFixed(1),
+          // Who he was: on foot all along, or a driver who had just got out angry (AngryDriverSystem) or been thrown off a bike.
+          mode: c.brain?.mode ?? null,
+          angry: !!c.brain?.angryCar,
+          owner: c.owner,
           before: past.filter((r) => r.who[c.id]).map((r) => [r.t, ...r.car, ...r.who[c.id]]),
         });
       return hit(c, v, rel, nx, nz);
@@ -212,6 +216,27 @@ export default async function (t) {
   });
   t.note('incidents ' + JSON.stringify(await t.page.evaluate(() => window.__incidents)));
   t.note('streets ' + JSON.stringify(await t.page.evaluate(() => window.__streets)));
+  // Where it ended: the cars within 14 m ahead of it and the people within 10 m, for a run that stood still to its end.
+  t.note(
+    'around ' +
+      JSON.stringify(
+        await t.page.evaluate(() => {
+          const sim = window.__gta7.sim;
+          const v = sim.player.vehicle;
+          if (!v) return null;
+          const fx = Math.sin(v.heading);
+          const fz = Math.cos(v.heading);
+          const rel = (o) => [+((o.pos.x - v.pos.x) * fx + (o.pos.z - v.pos.z) * fz).toFixed(1), +((o.pos.x - v.pos.x) * fz - (o.pos.z - v.pos.z) * fx).toFixed(1)];
+          const cars = sim.vehicles
+            .filter((o) => o !== v && !o.removed && Math.hypot(o.pos.x - v.pos.x, o.pos.z - v.pos.z) < 14)
+            .map((o) => ({ at: rel(o), kind: o.kind, owner: o.owner, driver: o.driver ? (o.driver.alive ? 'in' : 'dead') : 'none', ai: !!o.ai, hold: !!o.ai?.hold, speed: +Math.hypot(o.vel.x, o.vel.z).toFixed(1), health: Math.round(o.health) }));
+          const people = sim.characters
+            .filter((c) => !c.removed && !c.isPlayer && !c.vehicle && Math.hypot(c.pos.x - v.pos.x, c.pos.z - v.pos.z) < 10)
+            .map((c) => ({ at: rel(c), alive: c.alive, state: c.state, mode: c.brain?.mode ?? null, angry: !!c.brain?.angryCar, dodge: +(c.brain?.dodge ?? 0).toFixed(1), owner: c.owner }));
+          return { speed: +Math.hypot(v.vel.x, v.vel.z).toFixed(1), waiting: window.__auto.waiting, rounding: window.__auto.rounding, cars, people, grievances: sim.angryDrivers.active.map((g) => g.state) };
+        }),
+      ),
+  );
   t.note(passed ? `"Wheels" passed at ${since()} s, the car at ${last?.health} health` : `"Wheels" NOT passed after ${since()} s (${JSON.stringify(last)})`);
   await t.wait(1500);
   await t.shot('passed');
