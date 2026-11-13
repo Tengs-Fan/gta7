@@ -198,7 +198,9 @@ describe('PBR ground with the asset library (VAL-GND-001, 003, 004)', () => {
     for (let i = 0; i < a.count; i += 37) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      const rect = [a.getX(i), a.getY(i), a.getZ(i), a.getW(i)];
+      // A tactile pad carries its kerb rectangle reversed (minX > maxX), a quay's strip with minZ > maxZ.
+      const raw = [a.getX(i), a.getY(i), a.getZ(i), a.getW(i)];
+      const rect = raw[0]! > raw[2]! ? [raw[2], raw[3], raw[0], raw[1]] : raw[1]! > raw[3]! ? [raw[0], raw[3], raw[2], raw[1]] : raw;
       const blk = W.layout.blocks.find((b) => b.rect.minX === rect[0] && b.rect.minZ === rect[1] && b.rect.maxX === rect[2] && b.rect.maxZ === rect[3]);
       const b = W.layout.bounds;
       const city4 = [b.cityMinX, b.cityMinZ, b.cityMaxX, b.cityMaxZ];
@@ -221,7 +223,8 @@ describe('PBR ground with the asset library (VAL-GND-001, 003, 004)', () => {
     let over = 0;
     for (let i = 0; i < ga.count; i++) {
       const f = Math.min(gp.getX(i) - ga.getX(i), ga.getZ(i) - gp.getX(i), gp.getZ(i) - ga.getY(i), ga.getW(i) - gp.getZ(i));
-      expect(f).toBeGreaterThanOrEqual(-LAWN_OVERHANG - 1e-6);
+      // To float32 precision: a verge's edge lies LAWN_OVERHANG inside its quad, both stored as float32 coordinates.
+      expect(f).toBeGreaterThanOrEqual(-LAWN_OVERHANG - 1e-4);
       if (f < -1e-6) over++;
     }
     expect(over).toBeGreaterThan(50);
