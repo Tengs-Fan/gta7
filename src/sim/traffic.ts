@@ -25,6 +25,19 @@ export const ONCOMING_KEEP = 520;
 /** At most this many cars come his way at a time from them: a country road, not a convoy. */
 const ONCOMING_CARS = 2;
 /**
+ * In the city the road ahead of a fast player is in plain view for blocks, where the never-pop-in rule lets nothing
+ * spawn: he would drive down an empty avenue with the traffic for ever turning in behind him. So that road fills from
+ * its far end: cars going his way and coming towards him start ROAD_AHEAD m ahead of him along it, where one is a few
+ * pixels wide and shows up unnoticed (the rule looks no further than the band's near edge for them), never within
+ * ROAD_AHEAD_STOP m of the lane's end (a light to stop at), and no more than ROAD_AHEAD_CARS per lane each way, plus
+ * one, within the band's far edge at a time.
+ */
+const ROAD_AHEAD: readonly [number, number] = [170, 320];
+const ROAD_AHEAD_STOP = 28;
+const ROAD_AHEAD_CARS = 3;
+/** Half the width (m) of the strip along his road that counts as it (see roadAheadCars). */
+const ROAD_AHEAD_HALF = 12;
+/**
  * Seen from the city's land within LINK_REACH m of the Magnolia Causeway or the Southgate Bridge, LINK_CARS cars at a time
  * come in over them, spawned out of view up to LINK_FAR m off by a generator of the links' own (LINK_SALT): see
  * streamLinks. LINK_REACH keeps every street run's course in the city out of reach (Dockside's comes within 210 m of the
@@ -87,6 +100,8 @@ interface SpawnSpan {
   s0: number;
   s1: number;
   band?: readonly [number, number];
+  /** On the road ahead in the city (see ROAD_AHEAD): a car may start here in view, beyond the band's near edge, and at speed. */
+  open?: boolean;
 }
 
 /**
@@ -197,7 +212,7 @@ export class TrafficSystem {
 
   get targetCount(): number {
     const h = this.sim.clock.hours;
-    const base = h < 5 ? 14 : h < 7 ? 20 : h < 10 ? 30 : h < 16 ? 26 : h < 20 ? 30 : 20;
+    const base = h < 5 ? 18 : h < 7 ? 28 : h < 10 ? 42 : h < 16 ? 38 : h < 20 ? 42 : 28;
     const p = this.anchorPos();
     return Math.round(base * this.density * (rectContains(COUNTY_BOUNDS, p.x, p.z) ? COUNTY_DENSITY : 1));
   }
@@ -488,8 +503,10 @@ export class TrafficSystem {
     let lane: Lane | null = at.lane;
     // Only along a lane, not across a plaza or the beach.
     if (lane.dx * pv.x + lane.dz * pv.z < 0.7 * speed) return;
-    // On a county road, oncoming traffic too, a couple of cars at a time.
-    if (lane.line.index < 0 && this.oncomingCars(pp) < ONCOMING_CARS) this.oncomingSpans(lane, at.s);
+    // On a county road, oncoming traffic too, a couple of cars at a time; in the city, the road ahead from its far end.
+    if (lane.line.index < 0) {
+      if (this.oncomingCars(pp) < ONCOMING_CARS) this.oncomingSpans(lane, at.s);
+    } else if (this.roadAheadCars(pp, lane) < ROAD_AHEAD_CARS * lane.lanesInDir + 1) this.roadAheadSpans(lane, at.s);
     const from = roads.nodes[lane.from]!;
     // A county road's bend is no junction: no side street there, and it does not count as one of the junctions ahead.
     for (const turn of [1, 3]) {
@@ -558,6 +575,49 @@ export class TrafficSystem {
     }
   }
 
+  /** How many traffic cars are on the road `lane` runs along, within ROAD_AHEAD's far edge ahead of (p) (see ROAD_AHEAD). */
+  private roadAheadCars(p: { x: number; z: number }, lane: Lane): number {
+    let n = 0;
+    for (const v of this.sim.vehicles) {
+      if (v.removed || v.owner !== 'traffic' || !v.driver) continue;
+      const dx = v.pos.x - p.x;
+      const dz = v.pos.z - p.z;
+      const along = dx * lane.dx + dz * lane.dz;
+      if (along > 0 && along <= ROAD_AHEAD[1] && Math.abs(dx * lane.dz - dz * lane.dx) <= ROAD_AHEAD_HALF) n++;
+    }
+    return n;
+  }
+
+  /**
+   * In the city: spans on the lanes of his road, both ways, ROAD_AHEAD m ahead of `at` on `first` (straight on through
+   * its junctions, while it stays in the city), short of each lane's end by ROAD_AHEAD_STOP.
+   */
+  private roadAheadSpans(first: Lane, at: number): void {
+    const roads = this.sim.roads;
+    let lane: Lane | null = first;
+    // Distance along his road at the start of `lane`.
+    let base = -at;
+    while (lane && lane.line.index >= 0 && base < ROAD_AHEAD[1]) {
+      const a = Math.max(ROAD_AHEAD[0], base) - base;
+      const b = Math.min(ROAD_AHEAD[1], base + lane.length) - base;
+      if (b - a >= 4) {
+        for (const l of roads.lanesBetween(lane.from, lane.to)) {
+          const s0 = Math.max(6, a);
+          const s1 = Math.min(l.length - ROAD_AHEAD_STOP, b);
+          if (s1 > s0) this.aheadSpans.push({ lane: l, s0, s1, band: ROAD_AHEAD, open: true });
+        }
+        // The oncoming lane runs the other way: a distance p along `lane` is length - p along it.
+        for (const r of roads.lanesBetween(lane.to, lane.from)) {
+          const s0 = Math.max(6, r.length - b);
+          const s1 = Math.min(r.length - ROAD_AHEAD_STOP, r.length - a);
+          if (s1 > s0) this.aheadSpans.push({ lane: r, s0, s1, band: ROAD_AHEAD, open: true });
+        }
+      }
+      base += lane.length;
+      lane = lane.turns.find((t) => t.kind === 'straight')?.to ?? null;
+    }
+  }
+
   /** Whether the light for `lane` at its junction shows green at some point in the next `secs` seconds. */
   private greenWithin(nodeId: number, lane: Lane, secs: number): boolean {
     const t = this.sim.time;
@@ -605,11 +665,14 @@ export class TrafficSystem {
       let s: number;
       // An oncoming span's own band of distances, unless the caller asked for one.
       let band: readonly [number, number] | undefined;
+      // On the road ahead in the city (see ROAD_AHEAD): in view is fine that far off.
+      let open = false;
       if (ahead) {
         const span = pickWeighted(sim.rng, this.aheadSpans, this.aheadCum);
         lane = span.lane;
         s = sim.rng.range(span.s0, span.s1);
         if (maxDist === undefined) band = span.band;
+        open = span.open === true && maxDist === undefined;
       } else {
         lane = pickWeighted(sim.rng, this.nearLanes, this.nearCum);
         if (lane.length < 16) continue;
@@ -628,8 +691,8 @@ export class TrafficSystem {
       // (A stop sign holds its traffic like a red light.)
       const red = sim.roads.signalState(lane.to, axisOf(lane.dir), sim.time) !== 'green' || sim.roads.stopsAt(lane);
       if (red && this.anchor.wanted.level > 0 && (ahead || this.aheadPath.has(lane) || this.aheadCross.has(lane))) continue;
-      // Spawn ranges lie inside the fog-free distance: never pop a car into view.
-      if (sim.isVisible(x, 1, z)) continue;
+      // Spawn ranges lie inside the fog-free distance: never pop a car into view (but see ROAD_AHEAD).
+      if (sim.isVisible(x, 1, z, open ? ROAD_AHEAD[0] - 12 : undefined)) continue;
       if (!this.isClear(x, z, 11)) continue;
       let k = kind ?? countryKind(trafficBike(sim.rng.weighted(TRAFFIC_MIX), x, z), x, z);
       if (k === 'bus' && !throughAvenues(sim.roads).has(lane)) k = 'sedan';
@@ -637,7 +700,7 @@ export class TrafficSystem {
       // queued nearer than that would already be in the junction for its driver and pull out against the light: it
       // waits further back (with half a metre to spare), where it has to be out of sight and clear too.
       const queueAt = lane.length - (VEHICLE_SPECS[k].length / 2 + STOP_MARGIN + 0.5);
-      if (ahead && red && s > queueAt) {
+      if (ahead && !open && red && s > queueAt) {
         if (queueAt < 6) continue;
         s = queueAt;
         x = lane.sx + lane.dx * s;
@@ -653,7 +716,7 @@ export class TrafficSystem {
       v.ai!.setLane(lane, s);
       // Cross traffic queued at a light that is not green waits there: a few metres from the line it
       // could not stop from cruising speed.
-      const sp = ahead && red ? 0 : lane.speedLimit * 0.55;
+      const sp = ahead && !open && red ? 0 : lane.speedLimit * 0.55;
       v.vel.x = lane.dx * sp;
       v.vel.z = lane.dz * sp;
       return v;

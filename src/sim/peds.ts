@@ -57,6 +57,20 @@ const FLEE_TURNS: readonly number[] = (() => {
   return turns;
 })();
 
+/**
+ * A player driving faster than AHEAD_SPEED m/s outruns the crowd streamed round him (it walks at 1.5 m/s) and would
+ * drive down empty pavements: the crowd streams ahead of him instead. New people appear within AHEAD_RING m of the
+ * point AHEAD_LEAD s of travel ahead of him (AHEAD_REACH m at most), in his view no nearer than AHEAD_SEEN m (on foot:
+ * NEAR_SEEN), and those he has left more than AHEAD_BEHIND m behind, out of view, make room for them.
+ */
+const AHEAD_SPEED = 6;
+const AHEAD_LEAD = 3;
+const AHEAD_REACH = 70;
+const AHEAD_RING = 60;
+const AHEAD_SEEN = 75;
+const AHEAD_BEHIND = 60;
+const NEAR_SEEN = 55;
+
 export class PedSystem {
   private timer = 0;
   private screamCooldown = 0;
@@ -80,7 +94,17 @@ export class PedSystem {
 
   get targetCount(): number {
     const h = this.sim.clock.hours;
-    return Math.round((h < 6 ? 14 : h < 8 ? 26 : h < 20 ? 40 : h < 23 ? 28 : 16) * this.density);
+    return Math.round((h < 6 ? 18 : h < 8 ? 38 : h < 20 ? 60 : h < 23 ? 42 : 22) * this.density);
+  }
+
+  /** How far ahead of `slot` (m, along the unit vector written to `dir`) the crowd streams: 0 on foot or driving slowly. */
+  private lead(slot: PlayerSlot, dir: { x: number; z: number }): number {
+    const v = slot.character.vehicle;
+    const speed = v ? Math.hypot(v.vel.x, v.vel.z) : 0;
+    if (!v || speed <= AHEAD_SPEED) return 0;
+    dir.x = v.vel.x / speed;
+    dir.z = v.vel.z / speed;
+    return Math.min(AHEAD_REACH, speed * AHEAD_LEAD);
   }
 
   updateStreaming(dt: number): void {
@@ -96,6 +120,8 @@ export class PedSystem {
     }
     const me = active[0] ?? sim.players[0]!;
     const pp = me.pos();
+    const dir = { x: 0, z: 0 };
+    const driving = this.lead(me, dir) > 0;
     let count = 0;
     for (const c of sim.characters) {
       if (c.removed || c.persistent || c.isPlayer) continue;
@@ -105,7 +131,9 @@ export class PedSystem {
         if ((c.deadTime > 30 && (d > 40 || !sim.isVisible(c.pos.x, c.pos.y, c.pos.z))) || d > 170) sim.removeCharacter(c);
         continue;
       }
-      if (d > 150 || (d > 110 && !sim.isVisible(c.pos.x, c.pos.y, c.pos.z))) {
+      // Far away, or out of view and either well off or left behind by a player driving on (see AHEAD_SPEED).
+      const behind = driving && d > AHEAD_BEHIND && (c.pos.x - pp.x) * dir.x + (c.pos.z - pp.z) * dir.z < 0;
+      if (d > 150 || ((d > 110 || behind) && !sim.isVisible(c.pos.x, c.pos.y, c.pos.z))) {
         sim.removeCharacter(c);
         continue;
       }
@@ -166,12 +194,16 @@ export class PedSystem {
     const sim = this.sim;
     const pp = around.pos();
     const others = sim.players.length > 1;
+    const dir = { x: 0, z: 0 };
+    const lead = this.lead(around, dir);
     for (let tries = 0; tries < 6; tries++) {
-      // Keep the crowd close: hidden spots (behind the camera or buildings) may be near.
-      const pt = sim.world.walk.randomPointNear(sim.rng, pp.x, pp.z, 22, sim.rng.range(45, 100));
+      // Keep the crowd close: hidden spots (behind the camera or buildings) may be near. Ahead of a player driving,
+      // round the point he is making for (see AHEAD_SPEED).
+      const pt = lead > 0 ? sim.world.walk.randomPointNear(sim.rng, pp.x + dir.x * lead, pp.z + dir.z * lead, 0, AHEAD_RING) : sim.world.walk.randomPointNear(sim.rng, pp.x, pp.z, 22, sim.rng.range(45, 100));
       if (!pt) return null;
       const d = Math.hypot(pt.x - pp.x, pt.z - pp.z);
-      if (d < 55 && sim.isVisible(pt.x, 1, pt.z)) continue;
+      if (d < 22) continue;
+      if (d < (lead > 0 ? AHEAD_SEEN : NEAR_SEEN) && sim.isVisible(pt.x, 1, pt.z)) continue;
       // Never closer to another player, or nearer in his view, than the spawn ring allows round this one.
       if (others && (sim.distToPlayer(pt.x, pt.z) < Math.min(d, 22) || (sim.distToPlayer(pt.x, pt.z) < 55 && sim.isVisible(pt.x, 1, pt.z)))) continue;
       if (sim.world.waterDepth(pt.x, pt.z) > -0.2) continue;

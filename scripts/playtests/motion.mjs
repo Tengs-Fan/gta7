@@ -217,6 +217,10 @@ function install(g) {
         wanted: sim.wanted.level,
         health: v ? Math.round(v.health) : null,
         player: Math.round(sim.player.health),
+        simMs: +g.game.perf.simMs.toFixed(2),
+        renderMs: +g.game.perf.renderMs.toFixed(2),
+        vehicles: sim.vehicles.length,
+        characters: sim.characters.length,
       };
     },
   };
@@ -256,6 +260,11 @@ const summary = (samples) => {
     firstPoliceWithin40m: contact ? contact.t : null,
     healthEnd: samples.length ? samples[samples.length - 1].health : null,
     playerEnd: samples.length ? samples[samples.length - 1].player : null,
+    simMs: +(samples.reduce((a, s) => a + s.simMs, 0) / Math.max(1, samples.length)).toFixed(2),
+    simMsMax: Math.max(0, ...samples.map((s) => s.simMs)),
+    renderMs: +(samples.reduce((a, s) => a + s.renderMs, 0) / Math.max(1, samples.length)).toFixed(2),
+    vehicles: mean((s) => s.vehicles),
+    characters: mean((s) => s.characters),
   };
 };
 
