@@ -240,7 +240,8 @@ export function buildGround(view: CityView): void {
   const paved: Rect[] = [...roads.segments, ...roads.live.map((nd) => mkRect(nd.x - nd.halfX, nd.z - nd.halfZ, nd.x + nd.halfX, nd.z + nd.halfZ)), ...layout.blocks.map((bl) => bl.rect)];
   for (const w of layout.water) {
     const inside = w.area.map((r) => mkRect(Math.max(r.minX, b.cityMinX), Math.max(r.minZ, b.cityMinZ), Math.min(r.maxX, b.cityMaxX), Math.min(r.maxZ, b.cityMaxZ)));
-    for (const r of rectsMinus(inside, [...w.rects, ...paved])) strip(r.minX, r.minZ, r.maxX, r.maxZ, rect4(r));
+    // A quay's strips abut one another: their rectangles come with minZ > maxZ, the shader's flag for no kerbstones.
+    for (const r of rectsMinus(inside, [...w.rects, ...paved])) strip(r.minX, r.minZ, r.maxX, r.maxZ, [r.minX, r.maxZ, r.maxX, r.minZ]);
   }
   // Tactile pads a centimetre over the paving, their kerb rectangle reversed (the shader's flag for buff domed slabs).
   for (const t of tactilePads(layout, roads)) {

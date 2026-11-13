@@ -198,9 +198,9 @@ describe('PBR ground with the asset library (VAL-GND-001, 003, 004)', () => {
     for (let i = 0; i < a.count; i += 37) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      // A tactile pad carries its kerb rectangle reversed (minX > maxX).
+      // A tactile pad carries its kerb rectangle reversed (minX > maxX), a quay's strip with minZ > maxZ.
       const raw = [a.getX(i), a.getY(i), a.getZ(i), a.getW(i)];
-      const rect = raw[0]! > raw[2]! ? [raw[2], raw[3], raw[0], raw[1]] : raw;
+      const rect = raw[0]! > raw[2]! ? [raw[2], raw[3], raw[0], raw[1]] : raw[1]! > raw[3]! ? [raw[0], raw[3], raw[2], raw[1]] : raw;
       const blk = W.layout.blocks.find((b) => b.rect.minX === rect[0] && b.rect.minZ === rect[1] && b.rect.maxX === rect[2] && b.rect.maxZ === rect[3]);
       const b = W.layout.bounds;
       const city4 = [b.cityMinX, b.cityMinZ, b.cityMaxX, b.cityMaxZ];

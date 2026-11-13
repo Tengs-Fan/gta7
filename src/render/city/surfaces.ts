@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { registerDebug } from '../../debug';
-import { BEACH_W, CURB_H, LANE_W, SAND_DROP, SIDEWALK_W, WATER_Y } from '../../world/constants';
+import { BEACH_W, CURB_H, LANE_W, SAND_DROP, WATER_Y } from '../../world/constants';
 import type { StaticWorld } from '../../world/staticWorld';
 import { assets } from '../assets';
 import { cloudNoiseTexture, groundSurface, type GroundTex } from '../textures';
@@ -148,20 +148,21 @@ ${lanes ? `  if ( vGround.w > 0.5 ) {
 
 /**
  * Sidewalks, out from the kerb edge of the rectangle vGround (its sides are the kerbs): on a block's (or the city's) ring
- * a band of pale kerbstones with a joint behind it, flags whose tone changes from one to the next (a few relaid, a few
+ * a band of pale kerbstones with a joint behind it (not on a quay, whose rectangle comes with minZ > maxZ), flags whose tone changes from one to the next (a few relaid, a few
  * weathered), grime gathered along the kerb, and faint stains. A tactile pad where a crossing lands (ground.ts) carries its
  * kerb rectangle reversed (minX > maxX) and is drawn as buff paving studded with domes.
  */
 const FS_KERB = /* glsl */ `
 {
   bool pad = vGround.x > vGround.z;
-  vec4 kr = pad ? vGround.zwxy : vGround;
+  bool quay = !pad && vGround.y > vGround.w;
+  vec4 kr = pad ? vGround.zwxy : quay ? vGround.xwzy : vGround;
   vec2 lo2 = gp - kr.xy;
   vec2 hi2 = kr.zw - gp;
   float d = abs( min( min( lo2.x, hi2.x ), min( lo2.y, hi2.y ) ) );
   float jaa = gpx * 0.75;
-  // Kerbstones line a block's ring; a quay's strips (narrower than two sidewalks) abut one another and keep plain flags.
-  float ring = step( ${n(2 * SIDEWALK_W)}, min( kr.z - kr.x, kr.w - kr.y ) );
+  // Kerbstones line a block's ring; a quay's strips abut one another and keep plain flags.
+  float ring = quay ? 0.0 : 1.0;
   // Flags on the texture's 1 m joints: each its own tone and warmth, about one in twenty relaid paler, one in fifteen weathered
   // darker and warmer.
   vec2 flag = floor( gp );
