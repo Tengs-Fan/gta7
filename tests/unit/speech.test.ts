@@ -5,13 +5,13 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BARK_COOLDOWN, BARK_GAP, Barks } from '../../src/audio/barks';
+import { BARK_COOLDOWN, BARK_GAP, Barks, barkVoice } from '../../src/audio/barks';
 import { Dialogue } from '../../src/audio/dialogue';
 import { dispatchClips, SpeechBank } from '../../src/audio/speech';
 import { HITS } from '../../src/audio/stations/playlists';
 import { COLOUR_NAMES, COMPASS, COUNTY_ZONES, CRIME_PHRASES, SHERIFF } from '../../src/sim/dispatch';
 import { STORY } from '../../src/sim/missions';
-import { dialogueKey, LINE_TAIL, lineSeconds, phraseWords, SPEECH } from '../../src/sim/speech';
+import { barkIsWoman, dialogueKey, LINE_TAIL, lineSeconds, phraseWords, SPEECH, type BarkKind } from '../../src/sim/speech';
 import { VEHICLE_SPECS } from '../../src/sim/specs';
 import { dialogueLines } from '../../scripts/assets/speech/dialogue';
 import { zoneNames } from '../../scripts/assets/speech/phrases';
@@ -348,6 +348,41 @@ describe('voices in the street', () => {
       expect(sources(ctx).length).toBe(1);
       vi.restoreAllMocks();
     }
+  });
+
+  it("a man shouts in a man's voice and a woman in a woman's, where the kind of shout has both", () => {
+    const mixed: BarkKind[] = [];
+    for (const kind of Object.keys(SPEECH.barks) as BarkKind[]) {
+      const women = SPEECH.barks[kind].filter((v) => barkIsWoman(v[0]!)).length;
+      const men = SPEECH.barks[kind].length - women;
+      if (women > 0 && men > 0) mixed.push(kind);
+      for (let who = 0; who < 40; who++) {
+        for (const woman of [false, true]) {
+          const clips = barkVoice(kind, who, woman);
+          // One of the kind's own voices, and of that sex whenever it has one.
+          expect(SPEECH.barks[kind]).toContain(clips);
+          if (woman ? women > 0 : men > 0) expect(barkIsWoman(clips[0]!), `${kind} ${who}`).toBe(woman);
+        }
+        // Nobody in particular (a vehicle's id, a place): any of the kind's voices, by the id, as it always was.
+        expect(barkVoice(kind, who)).toBe(SPEECH.barks[kind][who % SPEECH.barks[kind].length]);
+      }
+      // Every voice of a sex is somebody's.
+      for (const woman of [false, true]) {
+        const own = SPEECH.barks[kind].filter((v) => barkIsWoman(v[0]!) === woman);
+        expect(new Set(Array.from({ length: 40 }, (_, who) => barkVoice(kind, who, woman))).size).toBe(own.length || SPEECH.barks[kind].length);
+      }
+    }
+    // What people in the street, the police and a gang shout all have men's and women's voices.
+    expect(mixed).toEqual(expect.arrayContaining(['greet', 'hurt', 'jacked', 'panic', 'rammed', 'dodge', 'witness', 'cabbie', 'freeze', 'shots', 'officerDown', 'arrest', 'turf', 'hail', 'hailMissed']));
+    // And the shout itself goes out in it.
+    const { b } = rig();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const load = vi.spyOn(SpeechBank.prototype, 'load');
+    expect(b.say('greet', 3, 0, 0, 0, true)).toBe(true);
+    expect(load).toHaveBeenCalledWith(barkVoice('greet', 3, true)[0]);
+    expect(barkIsWoman(barkVoice('greet', 3, true)[0]!)).toBe(true);
+    expect(barkIsWoman(SPEECH.barks.greet[3]![0]!)).toBe(false);
+    vi.restoreAllMocks();
   });
 
   it('keeps shouts a beat apart, each kind to its cooldown, and one person to one line at a time', () => {

@@ -6,6 +6,19 @@ const SHIRTS = [0xc0392b, 0x2980b9, 0x27ae60, 0xf39c12, 0x8e44ad, 0xecf0f1, 0x2c
 const PANTS = [0x2c3e50, 0x34495e, 0x1a1a1a, 0x5d4037, 0x2e4053, 0x7b7d7d, 0x154360, 0xa0826d];
 const HAIR = [0x1a1a1a, 0x3b2a1a, 0x6b4423, 0xb5651d, 0xd9c36a, 0x8a8a8a, 0x5a2d0c];
 
+/**
+ * Whether someone is a woman: by role and id, so it is theirs for as long as they are in the world and draws nothing
+ * from the simulation's random stream. Half the people out walking, a quarter of the police and of a gang; the player,
+ * a riot squad and a mission's people (the buyer, a guard, a farmer: "he" in every line about them) are men.
+ * The figure drawn (render/crowd.ts), the voice a shout is in (audio/barks.ts) and the fare someone is in a cab
+ * (activities/fares.ts) all follow it.
+ */
+export function isWoman(c: { role: CharacterRole; id: number }): boolean {
+  const share = c.role === 'civilian' ? 0.5 : c.role === 'cop' || c.role === 'gang' ? 0.25 : 0;
+  // Knuth's multiplicative hash of the id: neighbours in id are not neighbours in it.
+  return (Math.imul(c.id, 2654435761) >>> 0) / 4294967296 < share;
+}
+
 export function randomAppearance(rng: Rng, role: CharacterRole): Appearance {
   const skin = rng.pick(SKINS);
   switch (role) {

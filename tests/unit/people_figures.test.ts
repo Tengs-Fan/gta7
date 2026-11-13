@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { BARE_ARM, characterGeometries, DRAWN_SHOULDER, WOMAN } from '../../src/render/characterGeometry';
 import { CrowdView } from '../../src/render/crowd';
+import { isWoman } from '../../src/sim/appearance';
 import type { Character } from '../../src/sim/entities';
 import { shoulderSpread, SKELETON, weaponPose } from '../../src/sim/pose';
 import type { Sim } from '../../src/sim/sim';
@@ -226,8 +227,9 @@ describe('the figure in the crowd', () => {
       for (const k of Object.keys(hair)) hair[k]! += d[k]!;
       const cv = new CrowdView();
       cv.sync([c], c.pos.x, c.pos.z, 1 / 60);
+      // A woman's figure for a woman (sim/appearance.ts isWoman, which her voice follows too), torso and hips alike.
       const shape = parts(cv).torso!.shape![0]!;
-      expect([0, 1]).toContain(shape);
+      expect(shape).toBe(isWoman(c) ? 1 : 0);
       expect(parts(cv).hips!.shape![0]).toBe(shape);
       if (shape === 1) {
         women++;
@@ -273,7 +275,18 @@ describe('the figure in the crowd', () => {
     for (const c of row(60, 'swat').people) {
       const d = drawn(c);
       expect([d.sleeve, d.shortLeg]).toEqual([0, 0]);
+      expect(isWoman(c)).toBe(false);
     }
+    // A quarter of the police and of a gang are women; a mission's people ("he" in every line about them) are men.
+    const share = (role: 'cop' | 'gang' | 'mission' | 'civilian'): number => Array.from({ length: 2000 }, (_, id) => isWoman({ role, id })).filter(Boolean).length / 2000;
+    expect(share('civilian')).toBeGreaterThan(0.46);
+    expect(share('civilian')).toBeLessThan(0.54);
+    expect(share('cop')).toBeGreaterThan(0.21);
+    expect(share('cop')).toBeLessThan(0.29);
+    expect(share('gang')).toBeGreaterThan(0.21);
+    expect(share('gang')).toBeLessThan(0.29);
+    expect(share('mission')).toBe(0);
+    expect(isWoman(sim.player)).toBe(false);
   });
 
   it('someone standing idle breathes and looks about, to his own time, with his feet where they were; with a gun up he is still', () => {

@@ -57,6 +57,11 @@ export interface SpeechIndex {
 
 export const SPEECH = index as SpeechIndex;
 
+/** Whether a shout's clip is in a woman's voice: the clip's id carries the voice's, and the voices are named af-, bf- (women) and am-, bm- (men). */
+export function barkIsWoman(clip: string): boolean {
+  return /^bark-[A-Za-z]+-[ab]f-/.test(clip);
+}
+
 /** A spoken line stays up this long after its clip ends. */
 export const LINE_TAIL = 0.4;
 

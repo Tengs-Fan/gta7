@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp, lerp, wrapAngle } from '../core/math';
 import type { Character, Vehicle } from '../sim/entities';
+import { isWoman } from '../sim/appearance';
 import { cowerHandsUp } from '../sim/peds';
 import {
   aimed, aimFrame, anchor, hipSpread, makeTrunk, makeWeaponPose, SKELETON, trunkPose, weaponPoint, weaponPoseInto,
@@ -286,10 +287,9 @@ function seeded(id: number, salt: number): number {
  * or shorts. By his id, so it is his for as long as he is in the world, and it draws nothing from the simulation's
  * random stream. The law and the player are always covered; it is a warm town, and half of the rest are not.
  */
-/** Whether `c` is drawn as a woman: half the people out walking, fewer of those in uniform or in a gang's colours. */
+/** Whether `c` is drawn as a woman: as the simulation has it (isWoman), which the voice of a shout follows too. */
 function woman(c: Character, local: boolean): boolean {
-  if (local || c.role === 'player' || c.role === 'swat') return false;
-  return seeded(c.id, 30) < (c.role === 'cop' ? 0.3 : c.role === 'gang' ? 0.2 : 0.5);
+  return !local && isWoman(c);
 }
 
 function shortSleeved(c: Character, local: boolean): boolean {

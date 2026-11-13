@@ -3,7 +3,8 @@
 // generated with WebAudio nodes.
 
 import { clamp } from '../core/math';
-import type { LampSwitch, Vehicle } from '../sim/entities';
+import { isWoman } from '../sim/appearance';
+import type { Character, LampSwitch, Vehicle } from '../sim/entities';
 import { hollister } from '../sim/farm';
 import { dairyman } from '../sim/farms';
 import type { SimEvents } from '../sim/events';
@@ -286,7 +287,7 @@ export class AudioEngine {
         const v = e.victim;
         if (!e.killed && !v.isPlayer) {
           const kind = v.role === 'cop' || v.role === 'swat' ? (e.attacker?.isPlayer ? 'shots' : null) : v.role === 'gang' ? 'turf' : 'hurt';
-          if (kind) this.bark(kind, v.id, v.pos.x, v.pos.y + 1.6, v.pos.z);
+          if (kind) this.shout(kind, v);
         }
         // The player's weapon hits: bullets, fists and explosions, not people run over.
         if (!e.attacker || e.attacker !== this.me(sim).character || e.victim.isPlayer || !(e.kind === 'bullet' || e.kind === 'melee' || e.kind === 'explosion')) return;
@@ -387,43 +388,53 @@ export class AudioEngine {
       }),
       // Someone who has jumped out of the car's way has a word for its driver, more often than not.
       on('pedDodge', (e) => {
-        if (Math.random() < DODGE_SHOUT) this.bark('dodge', e.who, e.x, e.y, e.z);
+        if (Math.random() < DODGE_SHOUT) {
+          const c = sim.characters.find((c) => c.id === e.who);
+          this.bark('dodge', e.who, e.x, e.y, e.z, c && isWoman(c));
+        }
       }),
       on('vehicleEnter', (e) => {
         if (e.character === this.me(sim).character) this.doorThunk(e.vehicle);
         // The driver pulled out of the car shouts after it (a cabbie has his own lines).
-        if (e.jacked) this.bark(e.vehicle.kind === 'taxi' ? 'cabbie' : 'jacked', e.vehicle.id, e.vehicle.pos.x, e.vehicle.pos.y + 1, e.vehicle.pos.z);
+        if (e.jacked) {
+          // (He is beside its door by now: the nearest on foot who is not the one who took it.)
+          const v = e.vehicle;
+          const out = nearestCharacter(sim.characters, v.pos.x, v.pos.z, 4, (c) => c !== e.character && !c.isPlayer && !c.vehicle && c.alive);
+          this.bark(v.kind === 'taxi' ? 'cabbie' : 'jacked', out?.id ?? v.id, v.pos.x, v.pos.y + 1, v.pos.z, out ? isWoman(out) : undefined);
+        }
       }),
       on('vehicleExit', (e) => {
         if (e.character === this.me(sim).character) this.doorThunk(e.vehicle);
       }),
       on('witnessCall', (e) => {
-        if (e.started) this.bark('witness', e.caller.id, e.caller.pos.x, e.caller.pos.y + 1.6, e.caller.pos.z);
+        if (e.started) this.shout('witness', e.caller);
       }),
       on('taxiHail', (e) => {
-        if (e.started || e.missed) this.bark(e.started ? 'hail' : 'hailMissed', e.caller.id, e.x, e.y, e.z);
+        // (In the voice of the fare he or she will be: among the hails' voices of his or her sex the id picks the
+        // same one as fareOf does among the fares of it.)
+        if (e.started || e.missed) this.bark(e.started ? 'hail' : 'hailMissed', e.caller.id, e.x, e.y, e.z, isWoman(e.caller));
       }),
       on('vehicleRammed', (e) => {
         const d = e.vehicle.driver;
-        if (d && !d.isPlayer && !e.vehicle.spec.police) this.bark('rammed', d.id, e.vehicle.pos.x, e.vehicle.pos.y + 1, e.vehicle.pos.z);
+        if (d && !d.isPlayer && !e.vehicle.spec.police) this.bark('rammed', d.id, e.vehicle.pos.x, e.vehicle.pos.y + 1, e.vehicle.pos.z, isWoman(d));
       }),
       on('characterKilled', (e) => {
         const v = e.victim;
         if (v.role !== 'cop' && v.role !== 'swat') return;
         const c = nearestCharacter(sim.characters, v.pos.x, v.pos.z, 40, (c) => c !== v && (c.role === 'cop' || c.role === 'swat'));
-        if (c) this.bark('officerDown', c.id, c.pos.x, c.pos.y + 1.6, c.pos.z);
+        if (c) this.shout('officerDown', c);
       }),
       on('wanted', (e) => {
         if (!this.mine(e) || e.level <= e.previous) return;
         const p = this.me(sim).pos();
         const c = nearestCharacter(sim.characters, p.x, p.z, 35, (c) => (c.role === 'cop' || c.role === 'swat') && !c.vehicle);
-        if (c) this.bark('freeze', c.id, c.pos.x, c.pos.y + 1.6, c.pos.z);
+        if (c) this.shout('freeze', c);
       }),
       on('busted', (e) => {
         if (!this.mine(e)) return;
         const p = this.me(sim).pos();
         const c = nearestCharacter(sim.characters, p.x, p.z, 15, (c) => c.role === 'cop' || c.role === 'swat');
-        if (c) this.bark('arrest', c.id, c.pos.x, c.pos.y + 1.6, c.pos.z);
+        if (c) this.shout('arrest', c);
       }),
       on('gangWar', (e) => {
         if (e.started) this.bark('turf', (e.x * 31 + e.z) | 0, e.x, 1.6, e.z);
@@ -544,9 +555,14 @@ export class AudioEngine {
     return true;
   }
 
-  /** Someone in the street shouts (barks.ts); counted in counters.voices. */
-  private bark(kind: BarkKind, who: number, x: number, y: number, z: number): void {
-    if (this.ready() && this.barks!.say(kind, who, x, y, z)) this.counters.voices++;
+  /** Someone in the street shouts (barks.ts); counted in counters.voices. `woman`: whose voice, when it is a person's. */
+  private bark(kind: BarkKind, who: number, x: number, y: number, z: number, woman?: boolean): void {
+    if (this.ready() && this.barks!.say(kind, who, x, y, z, woman)) this.counters.voices++;
+  }
+
+  /** `c` shouts from where he or she stands, in a voice of his or her own sex (sim/appearance.ts isWoman). */
+  private shout(kind: BarkKind, c: Character): void {
+    this.bark(kind, c.id, c.pos.x, c.pos.y + 1.6, c.pos.z, isWoman(c));
   }
 
   /**
@@ -582,7 +598,7 @@ export class AudioEngine {
       const h = hollister(sim);
       const c = nearestCharacter(sim.characters, pc.pos.x, pc.pos.z, 3, (c) => c.role === 'civilian' && c.state === 'normal' && c !== pc);
       if (h && h.alive && Math.hypot(h.pos.x - pc.pos.x, h.pos.z - pc.pos.z) < 6) this.bark('farmer', h.id, h.pos.x, h.pos.y + 1.6, h.pos.z);
-      else if (c) this.bark('greet', c.id, c.pos.x, c.pos.y + 1.6, c.pos.z);
+      else if (c) this.shout('greet', c);
     }
     // At three in the morning, by the Bramble family crypt, once a night.
     const crypt = attractionOf(sim.world.layout, 'cemetery').anchors.crypt;

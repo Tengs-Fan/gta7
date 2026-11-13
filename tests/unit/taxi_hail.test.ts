@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 import { makeBrain } from '../../src/sim/brains';
 import type { Character, Vehicle } from '../../src/sim/entities';
 import type { SimEvents } from '../../src/sim/events';
+import { barkVoice } from '../../src/audio/barks';
 import { fareOf, FARES } from '../../src/sim/activities/fares';
+import { isWoman } from '../../src/sim/appearance';
 import { BOARD_RANGE } from '../../src/sim/activities/taxi';
 import { HAIL_STARS } from '../../src/sim/activities/taxiHail';
 import type { TaxiJob } from '../../src/sim/activities';
@@ -460,5 +462,25 @@ describe('the fares voices', () => {
       FARES.forEach((f, i) => expect(BARKS[kind].voices[i], `${kind} ${f.speaker}`).toBe(CAST[SPEAKERS[f.speaker]!]));
       expect(SPEECH.barks[kind]).toHaveLength(FARES.length);
     }
+  });
+
+  it('a fare is a man or a woman as his or her voice is, and whoever hails is the fare of his or her own sex', () => {
+    // The cast's voices are named af_, bf_ (women) and am_, bm_ (men).
+    for (const f of FARES) expect(/^[ab]f_/.test(CAST[SPEAKERS[f.speaker]!]), f.speaker).toBe(f.woman);
+    expect(FARES.some((f) => f.woman) && FARES.some((f) => !f.woman)).toBe(true);
+    const seen = new Set<string>();
+    for (let id = 1; id <= 400; id++) {
+      const c = { id, role: 'civilian' as const };
+      const fare = fareOf(c);
+      expect(fare.woman).toBe(isWoman(c));
+      seen.add(fare.speaker);
+      // The hail is shouted in that fare's voice: the id picks the same one among the hails' voices of that sex.
+      for (const kind of ['hail', 'hailMissed'] as const) {
+        const clip = barkVoice(kind, id, isWoman(c))[0]!;
+        expect(clip, `${kind} of ${id}`).toBe(SPEECH.barks[kind][FARES.indexOf(fare)]![0]);
+      }
+    }
+    // Every type of fare rides.
+    expect(seen.size).toBe(FARES.length);
   });
 });

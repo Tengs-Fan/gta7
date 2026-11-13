@@ -7,7 +7,7 @@
 //   clip -> gain -> [megaphone: HP 500 -> LP 3000 -> drive] -> panner and distance low-pass -> effects bus
 
 import type { Character } from '../sim/entities';
-import { SPEECH, type BarkKind } from '../sim/speech';
+import { barkIsWoman, SPEECH, type BarkKind } from '../sim/speech';
 import { withinParam } from './mixer';
 import type { SpeechBank } from './speech';
 import type { NodeTally } from './tally';
@@ -74,6 +74,14 @@ export function nearestCharacter(chars: readonly Character[], x: number, z: numb
   return best;
 }
 
+/** The clips of the voice `who` shouts lines of `kind` in (see Barks.say). */
+export function barkVoice(kind: BarkKind, who: number, woman?: boolean): string[] {
+  const all = SPEECH.barks[kind];
+  const own = woman === undefined ? all : all.filter((v) => barkIsWoman(v[0]!) === woman);
+  const voices = own.length > 0 ? own : all;
+  return voices[Math.abs(who) % voices.length]!;
+}
+
 export class Barks {
   private last = -Infinity;
   private readonly lastOf = new Map<BarkKind, number>();
@@ -90,17 +98,18 @@ export class Barks {
   ) {}
 
   /**
-   * `who` (a character's or vehicle's id) shouts a line of `kind` at (x, y, z). Its voice is fixed by the id. False when
-   * the shout is held back (too soon, still talking, out of earshot).
+   * `who` (a character's or vehicle's id) shouts a line of `kind` at (x, y, z). Its voice is fixed by the id: one of the
+   * kind's voices, or, when `woman` says whose shout it is, one of the women's or of the men's among them (all of
+   * them where the kind has none of that sex). False when the shout is held back (too soon, still talking, out of
+   * earshot).
    */
-  say(kind: BarkKind, who: number, x: number, y: number, z: number): boolean {
+  say(kind: BarkKind, who: number, x: number, y: number, z: number, woman?: boolean): boolean {
     const now = this.ctx.currentTime;
     if (now - this.last < BARK_GAP || now - (this.lastOf.get(kind) ?? -Infinity) < BARK_COOLDOWN[kind] || now < (this.busy.get(who) ?? 0)) return false;
     const megaphone = kind === 'pullOver' || kind === 'marina';
     const s = this.place(x, y, z, megaphone ? 14 : 6, megaphone ? MEGAPHONE_RANGE : RANGE);
     if (!s) return false;
-    const voices = SPEECH.barks[kind];
-    const lines = voices[Math.abs(who) % voices.length]!;
+    const lines = barkVoice(kind, who, woman);
     const id = lines[Math.floor(Math.random() * lines.length)]!;
     this.last = now;
     this.lastOf.set(kind, now);
