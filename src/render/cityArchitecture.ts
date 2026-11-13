@@ -2,7 +2,7 @@
 // clearances still come from the simulation; these are architectural finishes.
 import type { Building, Tier } from '../world/layout';
 import { GeoBuilder, scaleRgb, type RGB } from './geo';
-import { FACADE_CELL } from './textures';
+import { FACADE_CELL, HOUSE_SILL } from './textures';
 
 const UV = { kind: 'world' as const, scale: 3 };
 
@@ -50,6 +50,8 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
   };
 
   if (b.style === 'house') {
+    // A stone plinth round the foot of the walls, as high as the sill the ground-floor fronts paint.
+    if (t === b.tiers[0]) band(t.y0 - 0.02, HOUSE_SILL + 0.02, 0.04, [0.37, 0.34, 0.29]);
     // Eave fascia has actual thickness even when the gable is viewed edge-on.
     band(t.y1 - 0.16, 0.14, 0.12, [0.82, 0.8, 0.74]);
     return;
