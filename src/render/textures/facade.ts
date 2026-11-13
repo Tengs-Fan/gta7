@@ -358,6 +358,11 @@ export interface FacadeLook {
   desaturate: number;
   /** Mean linear luminance of the set's albedo, which the detail is divided by. */
   meanLuma: number;
+  /**
+   * Share of the set's broad light and shade (its stains and patches, wider than about 8 cm) the wall keeps; its fine
+   * grain is kept whole. At 1 the plaster's stains, tiled every 2.6 m, read as smudges on every house and apartment.
+   */
+  stain: number;
   roughness: number;
   metalness: number;
   normalScale: number;
@@ -368,14 +373,14 @@ export interface FacadeLook {
 }
 
 export const FACADE_LOOK: Record<FacadeStyle, FacadeLook> = {
-  glassBlue: { set: 'white_plaster_02', tile: 2.2, base: 0x232a33, desaturate: 1, meanLuma: 0.2477, roughness: 0.55, metalness: 0.2, normalScale: 0.35, glassRoughness: 0.05, glassMetalness: 0.55, glassAlbedo: 0x2d4f73 },
-  glassTeal: { set: 'white_plaster_02', tile: 2.2, base: 0x1f2c2b, desaturate: 1, meanLuma: 0.2477, roughness: 0.55, metalness: 0.2, normalScale: 0.35, glassRoughness: 0.05, glassMetalness: 0.55, glassAlbedo: 0x2a5d58 },
-  office: { set: 'concrete_pavement', tile: 3.6, base: 0xcdbb98, desaturate: 0.7, meanLuma: 0.1827, roughness: 1, metalness: 0, normalScale: 0.8, glassRoughness: 0.08, glassMetalness: 0.25, glassAlbedo: 0x34495e },
-  brick: { set: 'brick_wall_001', tile: 1.6, base: 0x8d3d2c, desaturate: 0, meanLuma: 0.0881, roughness: 1, metalness: 0, normalScale: 1, glassRoughness: 0.08, glassMetalness: 0.15, glassAlbedo: 0x3b4d5e },
-  stucco: { set: 'white_plaster_02', tile: 2.6, base: 0xe8dcc4, desaturate: 1, meanLuma: 0.2477, roughness: 1, metalness: 0, normalScale: 0.9, glassRoughness: 0.08, glassMetalness: 0.15, glassAlbedo: 0x3b4d5e },
-  house: { set: 'white_plaster_02', tile: 2.6, base: 0xefe5d6, desaturate: 1, meanLuma: 0.2477, roughness: 1, metalness: 0, normalScale: 0.9, glassRoughness: 0.08, glassMetalness: 0.1, glassAlbedo: 0x44586a },
-  warehouse: { set: 'box_profile_metal_sheet', tile: 3, base: 0x8f9aa5, desaturate: 1, meanLuma: 0.0454, roughness: 1.3, metalness: 0.3, normalScale: 1, glassRoughness: 0.1, glassMetalness: 0.1, glassAlbedo: 0x3b4d5e },
-  hotel: { set: 'white_plaster_02', tile: 2.6, base: 0xf1efe9, desaturate: 1, meanLuma: 0.2477, roughness: 1, metalness: 0, normalScale: 0.9, glassRoughness: 0.07, glassMetalness: 0.2, glassAlbedo: 0x2f5470 },
+  glassBlue: { set: 'white_plaster_02', tile: 2.2, base: 0x232a33, desaturate: 1, meanLuma: 0.2477, stain: 0.3, roughness: 0.55, metalness: 0.2, normalScale: 0.35, glassRoughness: 0.05, glassMetalness: 0.55, glassAlbedo: 0x2d4f73 },
+  glassTeal: { set: 'white_plaster_02', tile: 2.2, base: 0x1f2c2b, desaturate: 1, meanLuma: 0.2477, stain: 0.3, roughness: 0.55, metalness: 0.2, normalScale: 0.35, glassRoughness: 0.05, glassMetalness: 0.55, glassAlbedo: 0x2a5d58 },
+  office: { set: 'concrete_pavement', tile: 3.6, base: 0xcdbb98, desaturate: 0.7, meanLuma: 0.1827, stain: 1, roughness: 1, metalness: 0, normalScale: 0.8, glassRoughness: 0.08, glassMetalness: 0.25, glassAlbedo: 0x34495e },
+  brick: { set: 'brick_wall_001', tile: 1.6, base: 0x8d3d2c, desaturate: 0, meanLuma: 0.0881, stain: 1, roughness: 1, metalness: 0, normalScale: 1, glassRoughness: 0.08, glassMetalness: 0.15, glassAlbedo: 0x3b4d5e },
+  stucco: { set: 'white_plaster_02', tile: 2.6, base: 0xe8dcc4, desaturate: 1, meanLuma: 0.2477, stain: 0.25, roughness: 1, metalness: 0, normalScale: 0.9, glassRoughness: 0.08, glassMetalness: 0.15, glassAlbedo: 0x3b4d5e },
+  house: { set: 'white_plaster_02', tile: 2.6, base: 0xefe5d6, desaturate: 1, meanLuma: 0.2477, stain: 0.2, roughness: 1, metalness: 0, normalScale: 0.9, glassRoughness: 0.08, glassMetalness: 0.1, glassAlbedo: 0x44586a },
+  warehouse: { set: 'box_profile_metal_sheet', tile: 3, base: 0x8f9aa5, desaturate: 1, meanLuma: 0.0454, stain: 1, roughness: 1.3, metalness: 0.3, normalScale: 1, glassRoughness: 0.1, glassMetalness: 0.1, glassAlbedo: 0x3b4d5e },
+  hotel: { set: 'white_plaster_02', tile: 2.6, base: 0xf1efe9, desaturate: 1, meanLuma: 0.2477, stain: 0.2, roughness: 1, metalness: 0, normalScale: 0.9, glassRoughness: 0.07, glassMetalness: 0.2, glassAlbedo: 0x2f5470 },
 };
 
 /** Asset ids of a style's wall maps. */
