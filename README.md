@@ -456,7 +456,7 @@ All of these are minor; the most noticeable come first.
 **Graphics**
 
 - On older or low-end GPUs that cannot render to high-precision buffers, paint, glass and chrome don't reflect the sky and bright lights don't glow, at any setting.
-- The small porches in front of houses (deck, posts and roof) and the bank's front steps are decoration only: cars, people and bullets pass through them, as they do through the cemetery's iron fence and gate and Hollister Farm's stand.
+- The small porches in front of houses (deck, posts and roof), the porches and steps of Las Lomas County's farmhouses and the bank's front steps are decoration only: cars, people and bullets pass through them, as they do through the cemetery's iron fence and gate and Hollister Farm's stand.
 - The boulders along the sea walls and round Azura Point and Smuggler's Key, and the wreck on the Key, are decoration only: a swimmer or a boat passes through them, and a cliff diver who steps off rather than jumps comes up among them.
 - The swell comes only from the east: Lomas Sound and the sea west of the county lie in the land's lee and stay calm, so does Lake Lomas in its hole in the valley, off the north and south shores it runs along the beach rather than onto it, and only Ocean Beach's gently shelving sand has breakers (the county's steeper shores have a wash at the waterline).
 - On a calm day, and in plain rain, a speedboat rides the swell rather than leaving it; it slams only in rough water, as a storm builds.
