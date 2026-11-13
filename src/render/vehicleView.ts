@@ -1356,9 +1356,9 @@ export class VehicleView {
   private readonly livery: Array<{ mesh: THREE.Mesh; mat: THREE.Material | THREE.Material[] }> = [];
   /** The police livery stripe: its own subdivided geometry, bent with the body, and its undamaged positions. */
   private stripe: { geo: THREE.BufferGeometry; base: Float32Array; mesh: THREE.Mesh } | null = null;
-  /** Lenses: a pale, satin head lamp (a mirror finish flared in the sun like a lit lamp), a deep red tail lamp. */
+  /** Lenses: a pale, satin head lamp (a mirror finish flared in the sun like a lit lamp), a clear red tail lamp (a deeper red read as a dark maroon block by day). */
   private readonly headMat = new THREE.MeshStandardMaterial({ color: 0xa9b1b8, emissive: 0xfff2c8, emissiveIntensity: 0, roughness: 0.5, metalness: 0.2 });
-  private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x6a0606, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.16, metalness: 0.2 });
+  private readonly tailMat = new THREE.MeshStandardMaterial({ color: 0x9a0c0c, emissive: 0xff0000, emissiveIntensity: 0, roughness: 0.16, metalness: 0.2 });
   private readonly reverseMat = new THREE.MeshStandardMaterial({ color: 0xa8acae, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.14, metalness: 0.45 });
   private sirenRed: THREE.MeshStandardMaterial | null = null;
   private sirenBlue: THREE.MeshStandardMaterial | null = null;

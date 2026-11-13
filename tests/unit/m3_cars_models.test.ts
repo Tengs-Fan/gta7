@@ -242,6 +242,44 @@ describe('imported car bodies', () => {
     console.log(rows.join('\n'));
   });
 
+  it('the model bodies wear the fittings kit: door handles on both flanks, and the sedan\'s sills, tail panel and grille', () => {
+    const ray = new THREE.Raycaster();
+    const rows: string[] = [];
+    for (const kind of MODEL_KINDS) {
+      const s = VEHICLE_SPECS[kind];
+      const m = carModel(kind)!;
+      const v = view(kind);
+      const ext = mesh(v, 'exterior');
+      const pos = ext.geometry.getAttribute('position');
+      const uv = ext.geometry.getAttribute('uv');
+      // Satin (the atlas's metal cell) just under the side windows on each flank: the handles.
+      const handles = [0, 0];
+      for (let i = 0; i < pos.count; i++) {
+        if (uv.getX(i) < 0.5 || uv.getY(i) > 0.5) continue;
+        if (Math.abs(pos.getY(i) - (m.beltY - 0.09)) < 0.03 && Math.abs(pos.getX(i)) > s.width / 2 - 0.25) handles[pos.getX(i) > 0 ? 0 : 1]++;
+      }
+      expect(Math.min(...handles), `${kind} a handle on each flank`).toBeGreaterThan(0);
+      // The far trim keeps the pieces that read from afar (fewer triangles than the near trim).
+      expect(m.farTrim.getAttribute('position').count, kind).toBeLessThan(m.trim.getAttribute('position').count);
+      rows.push(`${kind}: fittings ${pos.count / 3} triangles near, ${m.farTrim.getAttribute('position').count / 3} far`);
+    }
+    // The sedan (whose paint runs to its foot, with no trim of its own): from straight behind, between its tail lamps,
+    // the dark panel; from straight ahead, between the head lamps, the grille.
+    const m = carModel('sedan')!;
+    const v = view('sedan');
+    const parts = [mesh(v, 'body'), mesh(v, 'exterior')];
+    const half = VEHICLE_SPECS.sedan.length / 2;
+    // Seen square from the side, low between the wheels: the dark sill.
+    ray.set(new THREE.Vector3(VEHICLE_SPECS.sedan.width, m.bottom + 0.07, 0), new THREE.Vector3(-1, 0, 0));
+    expect(ray.intersectObjects(parts, false)[0]?.object.name, 'sedan sill').toBe('exterior');
+    for (const [lamps, end] of [[m.tail, -1], [m.head, 1]] as const) {
+      const y = (lamps[0]!.at.y + lamps[1]!.at.y) / 2;
+      ray.set(new THREE.Vector3(0, y, end * (half + 2)), new THREE.Vector3(0, 0, -end));
+      expect(ray.intersectObjects(parts, false)[0]?.object.name, `sedan ${end > 0 ? 'grille' : 'tail panel'}`).toBe('exterior');
+    }
+    console.log(rows.join('\n'));
+  });
+
   it('a camera inside a model body draws it without its dark lining (pressed against a wall), outside with it', () => {
     for (const kind of MODEL_KINDS) {
       const v = view(kind);
