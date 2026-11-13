@@ -626,6 +626,7 @@ export class GameRenderer {
       // Kept across tier switches: they only change its uniforms, so its program is never rebuilt.
       this.finish ??= new FinishPass();
       this.finish.fxaa = t.aa === 'fxaa';
+      this.finish.rushTaps = this.quality === 'high' ? 10 : 5;
       this.finish.grade = t.grade;
       this.finish.vignetteOverride = null;
     } else {

@@ -40,6 +40,7 @@ const GRADE = /* glsl */ `
 		uniform float uSplit;
 		uniform float uLift;
 		uniform float uRush;
+		uniform int uRushTaps;
 
 		const vec3 LUMA = vec3( 0.2126, 0.7152, 0.0722 );
 
@@ -61,15 +62,17 @@ const GRADE = /* glsl */ `
 
 		// The rush of speed (uRush, 0 off .. 1): the frame streaks towards the point the road runs to, just above its
 		// centre; not at all in the tall oval that holds the car and the street it is aimed down, and most at the edges.
-		// Ten taps along the streak, started at a per-pixel offset so that their spacing shows as grain, not as ghosts.
+		// uRushTaps taps along the streak (ten on High, five on Medium, whose integrated GPUs paid 3 fps for ten),
+		// started at a per-pixel offset so that their spacing shows as grain, not as ghosts.
 		vec3 Rush( vec3 c, vec2 uv ) {
 			vec2 q = uv - vec2( 0.5, 0.56 );
 			float reach = uRush * 0.11 * smoothstep( 0.17, 0.62, length( ( uv - vec2( 0.5, 0.4 ) ) * vec2( 1.0, 0.7 ) ) );
 			if ( reach < 0.0008 ) return c;
 			float n = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) );
 			vec3 sum = c;
-			for ( int i = 0; i < 10; i ++ ) sum += texture( tDiffuse, uv - q * reach * ( float( i ) + n ) / 10.0 ).rgb;
-			return sum / 11.0;
+			float taps = float( uRushTaps );
+			for ( int i = 0; i < uRushTaps; i ++ ) sum += texture( tDiffuse, uv - q * reach * ( float( i ) + n ) / taps ).rgb;
+			return sum / ( taps + 1.0 );
 		}
 
 		void main() {
@@ -119,6 +122,7 @@ export class FinishPass extends Pass {
         uSplit: { value: 0 },
         uLift: { value: 0 },
         uRush: { value: 0 },
+        uRushTaps: { value: 10 },
       },
       vertexShader: FXAAShader.vertexShader,
       fragmentShader: finishFragmentShader,
@@ -151,6 +155,11 @@ export class FinishPass extends Pass {
 
   set rush(k: number) {
     this.material.uniforms.uRush!.value = Math.min(1, Math.max(0, k));
+  }
+
+  /** How many samples the rush of speed takes along each streak (see Rush in the shader). */
+  set rushTaps(n: number) {
+    this.material.uniforms.uRushTaps!.value = Math.max(1, Math.round(n));
   }
 
   setGrade(g: Readonly<Grade>): void {
