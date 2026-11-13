@@ -336,7 +336,8 @@ describe('jointed rig and planted-foot gait', () => {
     expect(easing.up.angleTo(rest.up)).toBeGreaterThan(0.05);
     c.hurtTimer = 0;
     const after = pose();
-    expect(after.head.distanceTo(rest.head)).toBeLessThan(1e-6);
+    // (To within a breath: someone standing idle is never quite still.)
+    expect(after.head.distanceTo(rest.head)).toBeLessThan(0.004);
   });
 
   it('a corpse lies with its arms relaxed at its sides one second after death, not in a T', () => {
@@ -1389,8 +1390,10 @@ describe('the crowd draws the local player by id', () => {
     expect(parts(cv).hat!.mesh.count + parts(cv).hair!.mesh.count).toBeGreaterThanOrEqual(2);
   });
 
-  it('with a single player the crowd reproduces the output recorded at 72d0b98', () => {
-    const baseline = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'crowd_sp_72d0b98.json'), 'utf8')) as CrowdBaseline;
+  // (Recorded at 72d0b98, before the crowd drew the local player by id, and matched to the element until round 9
+  // redrew the figures; recorded again then: scripts/record-crowd-baseline.test.ts.)
+  it('with a single player the crowd reproduces the output on record', () => {
+    const baseline = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'crowd_sp.json'), 'utf8')) as CrowdBaseline;
     const now = recordCrowdScene(new CrowdView(), (sim) => sim.player.id);
     expect(baseline.samples.map((s) => s.frame)).toEqual([...CROWD_SAMPLES]);
     expect(now.samples.length).toBe(baseline.samples.length);

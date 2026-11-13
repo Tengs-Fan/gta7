@@ -9,11 +9,11 @@ import { clamp, damp, lerp, wrapAngle } from '../core/math';
 import type { Character, Vehicle } from '../sim/entities';
 import { cowerHandsUp } from '../sim/peds';
 import {
-  aimed, aimFrame, anchor, hipSpread, makeTrunk, makeWeaponPose, shoulderSpread, SKELETON, trunkPose, weaponPoint, weaponPoseInto,
+  aimed, aimFrame, anchor, hipSpread, makeTrunk, makeWeaponPose, SKELETON, trunkPose, weaponPoint, weaponPoseInto,
   SWIM_HIP, SWIM_TREAD_LEAN, WEAPON_POINTS, seatSide, windowMuzzle, type Trunk, type WeaponPose,
 } from '../sim/pose';
 import { isGun, type VehicleKind, type WeaponId } from '../sim/specs';
-import { characterGeometries, type CharacterPartName } from './characterGeometry';
+import { BARE_ARM, BARE_LEG, characterGeometries, DRAWN_SHOULDER, WOMAN, type CharacterPartName } from './characterGeometry';
 import { gait, makeGaitOut, makeTwoBone, soleLow, solveLeg, solveTwoBone, type LegPose } from './gait';
 import { onDrawn, riderMount } from './riders';
 import { seaHeightAt, type SeaWaveUniforms } from './sea';
@@ -26,6 +26,10 @@ const MAX = 240;
  * this), and how far his trunk snaps back (rad), twists to one side (rad) and sinks (m, at a height of 1) at the hit.
  */
 const HURT_TIME = 0.35;
+/** Someone standing idle: how far his chest leans with a breath and turns as he shifts (rad), and how far he looks round. */
+const IDLE_BREATH = 0.012;
+const IDLE_SWAY = 0.025;
+const IDLE_GLANCE = 0.3;
 const FLINCH_LEAN = 0.34;
 const FLINCH_TWIST = 0.24;
 const FLINCH_DROP = 0.06;
@@ -56,6 +60,8 @@ const KICK_BACK = 0.05;
  * shell, whether a wall has pulled the camera in to the player's head or a passer-by brushes the lens.
  */
 export const LENS_FADE_GONE = 0.45;
+/** How much lighter cloth and skin are drawn at a grazing angle (fadeNearLens). */
+const NAP = 0.14;
 export const LENS_FADE_FULL = 0.9;
 
 /**
@@ -65,6 +71,16 @@ export const LENS_FADE_FULL = 0.9;
  */
 function fadeNearLens(shader: THREE.WebGLProgramParametersWithUniforms): void {
   fadeByInstance(shader);
+  // Cloth and skin are a little lighter where they turn away from the eye, as a nap catches the light: a dark jacket
+  // keeps its form against a dark street instead of reading as a cut-out. Lit like the rest of it, so it does not glow.
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <normal_fragment_maps>',
+    `#include <normal_fragment_maps>
+{
+  float nap = pow( 1.0 - saturate( dot( normalize( vViewPosition ), normal ) ), 2.5 );
+  diffuseColor.rgb += nap * ${NAP.toFixed(2)} * ( vec3( 0.3 ) + diffuseColor.rgb );
+}`,
+  );
   shader.fragmentShader = shader.fragmentShader.replace(
     '#include <clipping_planes_fragment>',
     `#include <clipping_planes_fragment>
@@ -100,12 +116,28 @@ if ( vInstanceFade < 1.0 && lensBayer4( gl_FragCoord.xy ) >= vInstanceFade ) dis
 }
 
 /**
- * The characters' shadow: three's depth material with the same per-instance fade (dithered in the shadow map), and no
- * lens fade, so a player dissolved by the camera keeps his shadow.
+ * A part with two shapes (the torso and the hips: characterGeometry's `positionB`, `normalB`): each instance is drawn
+ * `instanceShape` of the way from the first to the second, so a man and a woman come out of the same batch.
  */
-function characterDepthMaterial(): THREE.MeshDepthMaterial {
+function shapeByInstance(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nattribute float instanceShape;\nattribute vec3 positionB;\nattribute vec3 normalB;')
+    .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nobjectNormal = mix( objectNormal, normalB, instanceShape );')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed = mix( transformed, positionB, instanceShape );');
+}
+
+/**
+ * The characters' shadow: three's depth material with the same per-instance fade (dithered in the shadow map), and no
+ * lens fade, so a player dissolved by the camera keeps his shadow. `shaped`: for a part with two shapes.
+ */
+function characterDepthMaterial(shaped = false): THREE.MeshDepthMaterial {
   const m = new THREE.MeshDepthMaterial();
-  m.onBeforeCompile = fadeByInstance;
+  m.onBeforeCompile = shaped
+    ? (shader) => {
+        fadeByInstance(shader);
+        shapeByInstance(shader);
+      }
+    : fadeByInstance;
   return m;
 }
 
@@ -137,6 +169,8 @@ function mergeAll(gs: THREE.BufferGeometry[]): THREE.BufferGeometry {
 interface Part {
   mesh: THREE.InstancedMesh;
   n: number;
+  /** For a part with two shapes: each instance's share of the second (see shapeByInstance). */
+  shape?: Float32Array;
 }
 
 type PartName = CharacterPartName;
@@ -247,6 +281,27 @@ function seeded(id: number, salt: number): number {
   return x - Math.floor(x);
 }
 
+/**
+ * What someone wears, beyond the colours the simulation gives him: sleeves to the wrist or to above the elbow, trousers
+ * or shorts. By his id, so it is his for as long as he is in the world, and it draws nothing from the simulation's
+ * random stream. The law and the player are always covered; it is a warm town, and half of the rest are not.
+ */
+/** Whether `c` is drawn as a woman: half the people out walking, fewer of those in uniform or in a gang's colours. */
+function woman(c: Character, local: boolean): boolean {
+  if (local || c.role === 'player' || c.role === 'swat') return false;
+  return seeded(c.id, 30) < (c.role === 'cop' ? 0.3 : c.role === 'gang' ? 0.2 : 0.5);
+}
+
+function shortSleeved(c: Character, local: boolean): boolean {
+  if (local || c.role === 'player' || c.role === 'swat') return false;
+  return seeded(c.id, 31) < (c.role === 'cop' ? 0.4 : 0.55);
+}
+
+function inShorts(c: Character, local: boolean): boolean {
+  if (local || c.role === 'player' || c.isLaw) return false;
+  return seeded(c.id, 32) < 0.24;
+}
+
 /** Recoil strength 0..1 from the time left on the shot timer. */
 export function kickAmount(shotTimer: number): number {
   return shotTimer > 0 ? clamp(shotTimer / KICK_HOLD, 0, 1) : 0;
@@ -286,6 +341,8 @@ export class CrowdView {
   private readonly fades = new Map<Character, Fade>();
   /** The fade every instance put now is drawn with. */
   private drawFade = 1;
+  /** And, for a part with two shapes, its share of the second (a woman's torso and hips: 1). */
+  private drawShape = 0;
   /**
    * The latest characters drawn for the first time (on foot): id, place, and the fade of that first frame. For checks
    * in the browser (`__gta7.game.renderer.crowd.firstDrawn`); holds the last FIRST_DRAWN_LOG.
@@ -294,18 +351,27 @@ export class CrowdView {
 
   constructor() {
     this.group.name = 'crowd';
-    const mat = (vertexColors: boolean) => {
+    const mat = (vertexColors: boolean, shaped: boolean) => {
       const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.83, metalness: 0, vertexColors });
-      m.onBeforeCompile = fadeNearLens;
+      m.onBeforeCompile = shaped
+        ? (shader) => {
+            fadeNearLens(shader);
+            shapeByInstance(shader);
+          }
+        : fadeNearLens;
       m.userData.contactShadow = false; // Keep dissolved character parts out of the contact depth pass.
       return m;
     };
     const depth = characterDepthMaterial();
+    const depthShaped = characterDepthMaterial(true);
     const make = (geo: THREE.BufferGeometry, count: number): Part => {
       geo.setAttribute('instanceFade', new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1).setUsage(THREE.DynamicDrawUsage));
-      const mesh = new THREE.InstancedMesh(geo, mat(geo.hasAttribute('color')), count);
+      const shaped = geo.hasAttribute('positionB');
+      const shape = shaped ? new Float32Array(count) : undefined;
+      if (shape) geo.setAttribute('instanceShape', new THREE.InstancedBufferAttribute(shape, 1).setUsage(THREE.DynamicDrawUsage));
+      const mesh = new THREE.InstancedMesh(geo, mat(geo.hasAttribute('color'), shaped), count);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      mesh.customDepthMaterial = depth;
+      mesh.customDepthMaterial = shaped ? depthShaped : depth;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
@@ -313,10 +379,10 @@ export class CrowdView {
       // Allocate the colour buffer up front.
       mesh.setColorAt(0, new THREE.Color(1, 1, 1));
       this.group.add(mesh);
-      return { mesh, n: 0 };
+      return { mesh, n: 0, shape };
     };
     const geometry = characterGeometries();
-    const pairs = new Set<PartName>(['upperArm', 'forearm', 'hand', 'thigh', 'shin', 'shoe']);
+    const pairs = new Set<PartName>(['upperArm', 'forearm', 'hand', 'thigh', 'shin', 'shoe', 'sleeve', 'shortLeg']);
     this.parts = Object.fromEntries(Object.entries(geometry).map(([name, geo]) => {
       const p = make(geo, MAX * (pairs.has(name as PartName) ? 2 : 1));
       p.mesh.name = 'character-' + name;
@@ -420,6 +486,7 @@ export class CrowdView {
     part.mesh.setMatrixAt(part.n, m);
     part.mesh.setColorAt(part.n, colorOf(color));
     (part.mesh.geometry.getAttribute('instanceFade').array as Float32Array)[part.n] = this.drawFade;
+    if (part.shape) part.shape[part.n] = this.drawShape;
     part.n++;
   }
 
@@ -495,6 +562,7 @@ export class CrowdView {
       p.mesh.instanceMatrix.needsUpdate = true;
       if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true;
       p.mesh.geometry.getAttribute('instanceFade').needsUpdate = true;
+      if (p.shape) p.mesh.geometry.getAttribute('instanceShape').needsUpdate = true;
     };
     for (const p of Object.values(this.parts)) finish(p);
     for (const p of this.weapons.values()) finish(p);
@@ -539,7 +607,7 @@ export class CrowdView {
    * A limb hanging from joint a to joint b (its local -y runs from a towards b), its local x turned
    * towards `side`, its length scaled by `sy`. Leaves the unit basis in S.bx/by/bz.
    */
-  private bone(part: Part, a: THREE.Vector3, b: THREE.Vector3, side: THREE.Vector3, sy: number, color: number): void {
+  private bone(part: Part, a: THREE.Vector3, b: THREE.Vector3, side: THREE.Vector3, sy: number, color: number, girth = 1): void {
     const Y = S.by.subVectors(a, b);
     const l = Y.length();
     if (l > 1e-9) Y.divideScalar(l);
@@ -552,18 +620,44 @@ export class CrowdView {
     }
     X.normalize();
     const Z = S.bz.crossVectors(X, Y);
-    S.inst.makeBasis(X, Y, Z).scale(S.sc.set(1, sy, 1)).setPosition(a);
+    S.inst.makeBasis(X, Y, Z).scale(S.sc.set(girth, sy, girth)).setPosition(a);
     this.put(part, S.inst, color);
   }
 
   /** Upper arm, forearm and hand from the shoulder to the elbow to the centre of the hand. */
   private arm(shoulder: THREE.Vector3, elbow: THREE.Vector3, hand: THREE.Vector3, side: THREE.Vector3, c: Character): void {
     const s = c.appearance.height;
-    this.bone(this.parts.upperArm, shoulder, elbow, side, s, c.appearance.shirt);
+    const a = c.appearance;
     const wrist = S.wrist.copy(elbow).lerp(hand, SKELETON.forearm / (SKELETON.forearm + SKELETON.hand));
-    this.bone(this.parts.forearm, elbow, wrist, side, s, c.appearance.shirt);
-    S.inst.makeBasis(S.bx, S.by, S.bz).scale(S.sc.set(s, s, s)).setPosition(hand);
-    this.put(this.parts.hand, S.inst, c.appearance.skin);
+    const local = c === this.player;
+    const g = woman(c, local) ? WOMAN.arm : 1;
+    if (shortSleeved(c, local)) {
+      // A bare arm, slimmer than a sleeve, with the sleeve over its top.
+      this.bone(this.parts.sleeve, shoulder, elbow, side, s, a.shirt, g);
+      this.bone(this.parts.upperArm, shoulder, elbow, side, s, a.skin, BARE_ARM * g);
+      this.bone(this.parts.forearm, elbow, wrist, side, s, a.skin, BARE_ARM * g);
+    } else {
+      this.bone(this.parts.upperArm, shoulder, elbow, side, s, a.shirt, g);
+      this.bone(this.parts.forearm, elbow, wrist, side, s, a.shirt, g);
+    }
+    S.inst.makeBasis(S.bx, S.by, S.bz).scale(S.sc.set(s * g, s, s * g)).setPosition(hand);
+    this.put(this.parts.hand, S.inst, a.skin);
+  }
+
+  /** Thigh and shin from the hip to the knee to the ankle: trouser legs, or shorts over bare ones. */
+  private leg(hip: THREE.Vector3, knee: THREE.Vector3, ankle: THREE.Vector3 | null, side: THREE.Vector3, c: Character): void {
+    const s = c.appearance.height;
+    const a = c.appearance;
+    const local = c === this.player;
+    const g = woman(c, local) ? WOMAN.leg : 1;
+    if (inShorts(c, local)) {
+      this.bone(this.parts.shortLeg, hip, knee, side, s, a.pants, g);
+      this.bone(this.parts.thigh, hip, knee, side, s, a.skin, BARE_LEG * g);
+      if (ankle) this.bone(this.parts.shin, knee, ankle, side, s, a.skin, BARE_LEG * g);
+    } else {
+      this.bone(this.parts.thigh, hip, knee, side, s, a.pants, g);
+      if (ankle) this.bone(this.parts.shin, knee, ankle, side, s, a.pants, g);
+    }
   }
 
   /** Arm by two-bone IK from the shoulder to a hand target, the elbow bending towards `pole`. Returns the hand. */
@@ -597,8 +691,7 @@ export class CrowdView {
     const s = c.appearance.height;
     S.knee.copy(hip).addScaledVector(this.limbDir(pitch, spread, sign, S.d1), SKELETON.thigh * s);
     S.ankle.copy(S.knee).addScaledVector(this.limbDir(pitch + knee, spread, sign, S.d2), SKELETON.shin * s);
-    this.bone(this.parts.thigh, hip, S.knee, S.left, s, c.appearance.pants);
-    this.bone(this.parts.shin, S.knee, S.ankle, S.left, s, c.appearance.pants);
+    this.leg(hip, S.knee, S.ankle, S.left, c);
     S.e.set(pitch + knee - ankle, 0, sign * spread, 'YXZ');
     S.inst.copy(S.body).multiply(S.rot.makeRotationFromEuler(S.e)).scale(S.sc.set(1, s, s)).setPosition(S.ankle);
     this.put(this.parts.shoe, S.inst, 0xffffff);
@@ -616,28 +709,45 @@ export class CrowdView {
   private torso(c: Character, pelvis: THREE.Vector3, headPitch: number, headYaw = 0): void {
     const a = c.appearance;
     const s = a.height;
+    const local = c === this.player;
+    const she = woman(c, local);
     S.inst.copy(S.body).scale(S.sc.set(a.build, s, a.build)).setPosition(pelvis);
+    this.drawShape = she ? 1 : 0;
     this.put(this.parts.torso, S.inst, a.shirt);
     this.put(this.parts.hips, S.inst, a.pants);
+    this.drawShape = 0;
     this.put(this.parts.neck, S.inst, a.skin);
     // The player's jacket has a light inset and rear yoke. Civilians mix zip jackets and plain tops;
     // uniforms instead carry a badge, name plate and radio. Choice is stable across streaming and saves.
-    const local = c === this.player;
-    const jacket = local || (!c.isLaw && seeded(c.id, 21) > 0.4);
+    // (The jacket's panels and the badge are cut to the man's torso.)
+    const jacket = local || (!c.isLaw && !she && seeded(c.id, 21) > 0.4 && !shortSleeved(c, local));
     if (jacket) {
       this.put(this.parts.shirtInset, S.inst, local ? 0xc8c7bc : seeded(c.id, 22) > 0.5 ? 0xe1ddd0 : 0x283b48);
       this.put(this.parts.jacketTrim, S.inst, a.shirt);
     }
-    if (c.isLaw) this.put(this.parts.badge, S.inst, 0xffffff);
+    if (c.isLaw && !she) this.put(this.parts.badge, S.inst, 0xffffff);
     S.neck.set(0, 1, 0).transformDirection(S.body).multiplyScalar(SKELETON.neckY * s).add(pelvis);
     S.e.set(headPitch, headYaw, 0, 'YXZ');
     S.inst.copy(S.body).multiply(S.rot.makeRotationFromEuler(S.e)).scale(S.sc.set(s, s, s)).setPosition(S.neck);
     this.put(this.parts.head, S.inst, a.skin);
     this.put(this.parts.face, S.inst, 0xffffff);
-    if (a.hat) this.put(this.parts.hat, S.inst, a.hat);
-    else {
+    // How the hair is worn, by his or her id: cropped (the cap alone), swept, long, tied back or full.
+    const h = seeded(c.id, 23);
+    if (a.hat) {
+      this.put(this.parts.hat, S.inst, a.hat);
+      // Long hair shows under a cap.
+      if (she && h < 0.7) this.put(this.parts.hairLong, S.inst, a.hair);
+    } else {
       this.put(this.parts.hair, S.inst, a.hair);
-      if (!local && seeded(c.id, 23) > 0.55) this.put(this.parts.hairSweep, S.inst, a.hair);
+      if (local) {
+        // The player's is cropped.
+      } else if (she) {
+        if (h < 0.45) this.put(this.parts.hairLong, S.inst, a.hair);
+        else if (h < 0.75) this.put(this.parts.hairTail, S.inst, a.hair);
+        else if (h < 0.88) this.put(this.parts.hairFull, S.inst, a.hair);
+        else this.put(this.parts.hairSweep, S.inst, a.hair);
+      } else if (h > 0.86) this.put(this.parts.hairFull, S.inst, a.hair);
+      else if (h > 0.45) this.put(this.parts.hairSweep, S.inst, a.hair);
     }
     if (!local && seeded(c.id, 24) > 0.72) this.put(this.parts.glasses, S.inst, 0xffffff);
   }
@@ -648,8 +758,9 @@ export class CrowdView {
     S.left.set(1, 0, 0).transformDirection(S.body);
     S.up.set(0, 1, 0).transformDirection(S.body);
     S.fwd.set(0, 0, 1).transformDirection(S.body);
-    const sx = shoulderSpread(c.appearance.build);
-    const shY = SKELETON.shoulderY * s;
+    // Drawn nearer the spine and lower than the simulation's joints (DRAWN_SHOULDER): hands go where it puts them.
+    const sx = (DRAWN_SHOULDER.x * c.appearance.build + DRAWN_SHOULDER.pad) * (woman(c, c === this.player) ? WOMAN.shoulders : 1);
+    const shY = (SKELETON.shoulderY - DRAWN_SHOULDER.drop) * s;
     S.shL.copy(pelvis).addScaledVector(S.up, shY).addScaledVector(S.left, sx);
     S.shR.copy(pelvis).addScaledVector(S.up, shY).addScaledVector(S.left, -sx);
   }
@@ -756,6 +867,16 @@ export class CrowdView {
       drop += FLINCH_DROP * s * k;
     }
 
+    // Standing about with nothing in hand he is no post: he breathes, his shoulders ease from side to side and he
+    // looks up and down the street, each to his own time.
+    let glance = 0;
+    if (idle && !armed && !fists && !held && !cower && c.alive && hurt === 0) {
+      const ph = this.time + c.id * 1.7;
+      lean += IDLE_BREATH * Math.sin(ph * 1.5);
+      chestYaw += IDLE_SWAY * Math.sin(ph * 0.37);
+      glance = IDLE_GLANCE * Math.sin(ph * 0.23) * Math.min(1, Math.abs(Math.sin(ph * 0.11)) * 1.6);
+    }
+
     const hipYaw = t.hipYaw;
     const hc = Math.cos(hipYaw);
     const hs = Math.sin(hipYaw);
@@ -764,7 +885,7 @@ export class CrowdView {
     S.body.makeRotationFromEuler(S.e);
     const headPitch = crouch ? 0.35 : aimed(c) ? -c.aimPitch * 0.6 - lean * 0.5 : -lean * 0.6;
     // Looking down the barrel of a shouldered gun, over the turned chest.
-    this.torso(c, P, headPitch, aimed(c) ? wrapAngle(t.armYaw - chestYaw) : 0);
+    this.torso(c, P, headPitch, aimed(c) ? wrapAngle(t.armYaw - chestYaw) : glance);
     this.shoulders(c, P);
 
     // Legs: planted gait feet, blended with standing feet, the crouch and the airborne tuck.
@@ -782,8 +903,7 @@ export class CrowdView {
       const f = leg.ankle;
       S.knee.set(c.pos.x + hc * k.x + hs * k.z, c.pos.y + k.y, c.pos.z - hs * k.x + hc * k.z);
       S.ankle.set(c.pos.x + hc * f.x + hs * f.z, c.pos.y + f.y, c.pos.z - hs * f.x + hc * f.z);
-      this.bone(this.parts.thigh, hip, S.knee, hipLeft, s, a.pants);
-      this.bone(this.parts.shin, S.knee, S.ankle, hipLeft, s, a.pants);
+      this.leg(hip, S.knee, S.ankle, hipLeft, c);
       this.shoe(S.ankle, hipYaw, leg.foot.pitch, s);
     }
 
@@ -1087,7 +1207,7 @@ export class CrowdView {
     for (const sd of [1, -1]) {
       const hip = (sd > 0 ? S.hipL : S.hipR).copy(P).addScaledVector(S.vleft, sd * hx);
       S.knee.copy(hip).addScaledVector(S.vfwd, SKELETON.thigh * s).addScaledVector(S.vup, 0.04 * s).addScaledVector(S.vleft, sd * 0.03);
-      this.bone(this.parts.thigh, hip, S.knee, S.vleft, s, a.pants);
+      this.leg(hip, S.knee, null, S.vleft, c);
     }
     const pole = S.pole;
     let busy = 0;
@@ -1147,8 +1267,7 @@ export class CrowdView {
       solveTwoBone(hip.x, hip.y, hip.z, foot.x, foot.y, foot.z, SKELETON.thigh * s, SKELETON.shin * s, S.pole.x, S.pole.y, S.pole.z, ik);
       S.knee.set(ik.mx, ik.my, ik.mz);
       const ankle = S.wrist.set(ik.ex, ik.ey, ik.ez);
-      this.bone(this.parts.thigh, hip, S.knee, S.vleft, s, a.pants);
-      this.bone(this.parts.shin, S.knee, ankle, S.vleft, s, a.pants);
+      this.leg(hip, S.knee, ankle, S.vleft, c);
       S.inst.copy(vrot).scale(S.sc.set(1, s, s)).setPosition(ankle);
       this.put(this.parts.shoe, S.inst, 0xffffff);
     }

@@ -1,7 +1,9 @@
 // Records the single-player crowd baseline. CrowdView imports three from node_modules and needs no bundler, so this runs
 // as a vitest file outside the normal suite (tsx is not installed):
 //   CROWD_OUT=/tmp/out.json npx vitest run --root <worktree> --config scripts/record-crowd.vitest.config.ts
-// The committed fixture tests/unit/fixtures/crowd_sp_72d0b98.json was recorded this way in a scratch worktree at 72d0b98.
+// The committed fixture tests/unit/fixtures/crowd_sp.json was recorded this way: first in a scratch worktree at 72d0b98
+// (to hold the crowd to its output through the change to drawing the local player by id), and again when round 9
+// redrew the figures. Record it again whenever what the crowd draws is meant to change.
 
 import { writeFileSync } from 'node:fs';
 import { it } from 'vitest';
