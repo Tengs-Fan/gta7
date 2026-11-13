@@ -17,12 +17,13 @@ import { installInteriorLight, interiorsOf, wallFieldOf, wallFieldTexture } from
 import { LightSprites, BLOOM_THRESHOLD, STREAK_RANGE, type LampGlow } from './lightSprites';
 import { LocalReflections } from './localReflections';
 import { StreetLighting } from './streetLighting';
+import { damp } from '../core/math';
 import { CityView } from './city';
 import { CrowdView } from './crowd';
 import { Effects, flashSize, TYRE_SPRAY_SPEED, WADE_MIN } from './effects';
 import { ThrowView } from './throwView';
 import { Environment } from './environment';
-import { FinishPass } from './finishPass';
+import { FinishPass, rushAt } from './finishPass';
 import { gradeAt, type Grade } from './grade';
 import { MarkerView } from './markers';
 import { MonorailView } from './monorail';
@@ -1255,7 +1256,12 @@ export class GameRenderer {
       this.localReflections ??= new LocalReflections(this.renderer, this.scene);
       this.localReflections.applyCurrent(view.group);
     } else this.localReflections?.release();
-    if (this.finish) this.finish.setGrade(gradeAt(hours, weather, this.gradeNow));
+    if (this.finish) {
+      this.finish.setGrade(gradeAt(hours, weather, this.gradeNow));
+      // The rush of speed in the player's car (not on Low, whose finish pass stays one tap, nor with camera shake off).
+      const rush = car && this.quality !== 'low' && this.cameraCtl.mode === 'play' && this.cameraCtl.shakeEnabled ? rushAt(car.speed) : 0;
+      this.finish.rush = dt > 0 ? damp(this.finish.rush, rush, 4, dt) : this.finish.rush;
+    }
     this.contactShadows?.track(dt);
     // The batches draw the vehicles' part meshes: no pass need walk them or update their matrices.
     freezeVehicleParts(true);

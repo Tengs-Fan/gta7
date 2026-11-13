@@ -13,7 +13,7 @@
 // allows it, adding lock=1 to the URL, which the game needs under automation. The game is opened with
 // intro=0 (no automatic first mission) unless --intro is passed.
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -43,7 +43,8 @@ mkdirSync(out, { recursive: true });
 
 const launch = currentBrowserLaunch(chromium, { headless, software: flag('swiftshader'), swiftshaderEnv: 'one' });
 const browser = await chromium.launch({ headless, ...launch });
-const page = await browser.newPage({ viewport: { width: vw, height: vh } });
+// --video records the whole session to <out>/video.webm (Playwright's screencast, 25 fps).
+const page = await browser.newPage({ viewport: { width: vw, height: vh }, ...(flag('video') ? { recordVideo: { dir: out, size: { width: vw, height: vh } } } : {}) });
 // Headless Chromium that grants pointer lock can stop delivering frames and grow without bound,
 // so automated runs refuse the lock (clicks then shoot unlocked); --pointer-lock opts back in.
 if (!flag('pointer-lock')) {
@@ -463,6 +464,12 @@ try {
   } catch {
     // The page may be gone.
   }
+}
+const video = page.video();
+if (video) {
+  await page.close();
+  report.video = `${out}/video.webm`;
+  renameSync(await video.path(), report.video);
 }
 writeFileSync(`${out}/report.json`, JSON.stringify(report, null, 1));
 await browser.close();

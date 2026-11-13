@@ -5,7 +5,13 @@
 import * as THREE from 'three';
 import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
+import { smoothstep } from '../core/math';
 import type { Grade } from './grade';
+
+/** How hard the frame streaks (FinishPass.rush, 0..1) in a car at `speed` m/s: nothing under 90 km/h, full from 205 km/h. */
+export function rushAt(speed: number): number {
+  return smoothstep(25, 57, Math.abs(speed));
+}
 
 const LUMA_FIND = 'float SampleLuminance( sampler2D tex2D, vec2 uv ) {\n\n\t\t\treturn dot( Sample( tex2D, uv ).rgb, vec3( 0.3, 0.59, 0.11 ) );';
 // FXAA expects display-referred input. P maps HDR into [0,1) reversibly (Pinv), so edges against
@@ -33,6 +39,7 @@ const GRADE = /* glsl */ `
 		uniform float uVignette;
 		uniform float uSplit;
 		uniform float uLift;
+		uniform float uRush;
 
 		const vec3 LUMA = vec3( 0.2126, 0.7152, 0.0722 );
 
@@ -52,10 +59,24 @@ const GRADE = /* glsl */ `
 			return c;
 		}
 
+		// The rush of speed (uRush, 0 off .. 1): the frame streaks towards the point the road runs to, just above its
+		// centre; not at all in the tall oval that holds the car and the street it is aimed down, and most at the edges.
+		// Ten taps along the streak, started at a per-pixel offset so that their spacing shows as grain, not as ghosts.
+		vec3 Rush( vec3 c, vec2 uv ) {
+			vec2 q = uv - vec2( 0.5, 0.56 );
+			float reach = uRush * 0.11 * smoothstep( 0.17, 0.62, length( ( uv - vec2( 0.5, 0.4 ) ) * vec2( 1.0, 0.7 ) ) );
+			if ( reach < 0.0008 ) return c;
+			float n = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) );
+			vec3 sum = c;
+			for ( int i = 0; i < 10; i ++ ) sum += texture( tDiffuse, uv - q * reach * ( float( i ) + n ) / 10.0 ).rgb;
+			return sum / 11.0;
+		}
+
 		void main() {
 			vec4 col;
 			if ( uFxaa > 0.5 ) col = ApplyFXAA( tDiffuse, resolution.xy, vUv );
 			else col = texture( tDiffuse, vUv );
+			if ( uRush > 0.004 ) col.rgb = Rush( col.rgb, vUv );
 			if ( uGrade > 0.5 ) col.rgb = Grade( col.rgb, vUv );
 			gl_FragColor = col;
 		}`;
@@ -97,6 +118,7 @@ export class FinishPass extends Pass {
         uVignette: { value: 0 },
         uSplit: { value: 0 },
         uLift: { value: 0 },
+        uRush: { value: 0 },
       },
       vertexShader: FXAAShader.vertexShader,
       fragmentShader: finishFragmentShader,
@@ -120,6 +142,15 @@ export class FinishPass extends Pass {
 
   set grade(on: boolean) {
     this.material.uniforms.uGrade!.value = on ? 1 : 0;
+  }
+
+  /** The rush of speed, 0 (off) to 1: how far the edges of the frame streak towards its centre (see Rush in the shader). */
+  get rush(): number {
+    return this.material.uniforms.uRush!.value as number;
+  }
+
+  set rush(k: number) {
+    this.material.uniforms.uRush!.value = Math.min(1, Math.max(0, k));
   }
 
   setGrade(g: Readonly<Grade>): void {

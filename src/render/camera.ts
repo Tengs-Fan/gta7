@@ -193,9 +193,12 @@ export const CHASE_TARGET_Y = 0.75;
 
 /**
  * Where the chase camera settles relative to its look point (CHASE_TARGET_Y up the vehicle) for a vehicle of this
- * length and height: `back` m behind it along the view's heading, `up` m above it, looking down by -`pitch`. `k` sells
- * the speed (0 at rest .. 1 from 55 m/s: the boom drops and pulls back 18%), `far` is the far zoom and `orbitPitch`
- * the player's look up or down. VehicleView cuts its roofs back from this, so the player shows in his car.
+ * length and height: `back` m behind it along the view's heading, `up` m above it, looking down by -`pitch`. At rest it
+ * stands close and low enough that a car fills about a seventh of the frame's width. `k` sells the speed (0 at rest .. 1
+ * from 55 m/s): the lens widens (chaseFov) while the boom closes in 14% and drops 20%, so the car keeps most of its size
+ * as the street stretches past it; a boom that backed away as the lens widened shrank it by a third. `far` is the far
+ * zoom and `orbitPitch` the player's look up or down. VehicleView cuts its roofs back from this, so the player shows in
+ * his car.
  */
 export function chaseOffset(
   spec: { readonly length: number; readonly height: number },
@@ -204,14 +207,42 @@ export function chaseOffset(
   orbitPitch = 0,
   out = { back: 0, up: 0, pitch: 0 },
 ): { back: number; up: number; pitch: number } {
-  const dist = (5.2 + spec.length * 0.72) * (far ? 1.5 : 1) * (1 + 0.18 * k);
-  const height = (1.3 + spec.height * 0.6) * (far ? 1.25 : 1) * (1 - 0.18 * k);
+  const dist = (3.7 + spec.length * 0.62) * (far ? 1.5 : 1) * (1 - 0.14 * k);
+  const height = (1.0 + spec.height * 0.58) * (far ? 1.25 : 1) * (1 - 0.2 * k);
   out.pitch = -0.08 + orbitPitch;
   out.back = Math.cos(out.pitch) * dist;
   // The longer boom gives back some height through its pitch.
   out.up = height - Math.sin(out.pitch) * dist * 0.3;
   return out;
 }
+
+/**
+ * The chase camera's field of view (degrees) for the player's `base` setting at `speed` m/s: CHASE_FOV_REST under the
+ * setting at rest (a longer lens than on foot: the car and the street ahead are what the frame is for), opening by
+ * CHASE_FOV_SPEED towards 58 m/s.
+ */
+export const CHASE_FOV_REST = -10;
+export const CHASE_FOV_SPEED = 17;
+export function chaseFov(base: number, speed: number): number {
+  return base + CHASE_FOV_REST + CHASE_FOV_SPEED * smoothstep(8, 58, speed);
+}
+/** The chase camera looks at the road this far (m) ahead of the car at rest and this much further at full speed, so the car sits in the frame's lower third. */
+const CHASE_LEAD = 9;
+const CHASE_LEAD_SPEED = 7;
+/**
+ * The chase camera has weight: it falls CHASE_LAG m behind per m/s^2 the car gains (up to CHASE_LAG_OUT m) and closes
+ * up as it brakes (up to CHASE_LAG_IN m), eased in and out at CHASE_LAG_RATE. Only a change of pace moves it: it
+ * catches up with a car that keeps pulling (the acceleration it has got used to, over about CHASE_LAG_SETTLE s, counts
+ * for nothing), or the car would stay small all the way up through the gears. And it leans into a turn by CHASE_ROLL
+ * rad per m/s^2 of cornering, up to CHASE_ROLL_MAX (none with camera shake off).
+ */
+const CHASE_LAG = 0.07;
+const CHASE_LAG_OUT = 0.8;
+const CHASE_LAG_IN = 0.55;
+const CHASE_LAG_RATE = 5;
+const CHASE_LAG_SETTLE = 0.9;
+const CHASE_ROLL = 0.0035;
+const CHASE_ROLL_MAX = 0.045;
 
 /** The foliage of a prop near a reset: its bounding spheres, to skip it cheaply, and points on its faces (see props.ts). */
 interface Leaves {
@@ -376,6 +407,13 @@ export class CameraController {
   private readonly desired = new THREE.Vector3();
   private readonly dir = new THREE.Vector3(0, 0, 1);
   private readonly chase = { back: 0, up: 0, pitch: 0 };
+  /** The chase camera's weight (see CHASE_LAG): the car it follows, its forward speed last frame, its smoothed acceleration, how far the camera hangs back and its lean. */
+  private chaseCar: unknown = null;
+  private chaseSpeed = 0;
+  private chaseAccel = 0;
+  private chaseUsed = 0;
+  private chaseLag = 0;
+  private roll = 0;
   private fov = 68;
   private dist = 4.4;
   private shakeAmt = 0;
@@ -669,20 +707,36 @@ export class CameraController {
       const yaw = this.vehYaw + this.orbitYaw;
       this.yaw = wrapAngle(yaw);
       const s = v.spec;
-      // Selling the speed: from 15 m/s the camera drops and pulls back by up to 18% (see chaseOffset),
-      // and the FOV (below) widens with the absolute speed rather than the fraction of each car's top speed.
+      // Selling the speed: from 15 m/s the camera drops and closes in as the lens widens (see chaseOffset and chaseFov),
+      // by the absolute speed rather than the fraction of each car's top speed.
       const k = smoothstep(15, 55, speed);
       const boom = chaseOffset(s, k, this.zoomLevel === 1, this.orbitPitch, this.chase);
+      // Its weight: behind a car pulling away, up on one braking, leaning into the turn.
+      const gained = dt > 0 && this.chaseCar === v ? clamp((v.forwardSpeed - this.chaseSpeed) / dt, -25, 25) : 0;
+      this.chaseCar = v;
+      this.chaseSpeed = v.forwardSpeed;
+      this.chaseAccel = damp(this.chaseAccel, gained, 8, dt);
+      this.chaseUsed = damp(this.chaseUsed, this.chaseAccel, 1 / CHASE_LAG_SETTLE, dt);
+      this.chaseLag = damp(this.chaseLag, clamp((this.chaseAccel - this.chaseUsed) * CHASE_LAG, -CHASE_LAG_IN, CHASE_LAG_OUT), CHASE_LAG_RATE, dt);
+      const lean = this.shakeOn && !v.airborne && s.class !== 'boat' ? clamp(-v.angVel * v.forwardSpeed * CHASE_ROLL, -CHASE_ROLL_MAX, CHASE_ROLL_MAX) : 0;
+      this.roll = damp(this.roll, lean, 5, dt);
+      const back = boom.back + this.chaseLag;
       // A boat afloat rides the drawn swell (the sim's sea is flat): the camera rises and falls with it.
       const afloat = s.class === 'boat' && !v.inWater && Math.abs(v.pos.y - WATER_Y) < 0.05;
       this.seaLift = damp(this.seaLift, afloat ? seaHeightAt(this.sea, v.pos.x, v.pos.z) : 0, 3, dt);
-      this.target.lerp(new THREE.Vector3(v.pos.x, v.pos.y + s.height * CHASE_TARGET_Y + this.seaLift, v.pos.z), 1 - Math.exp(-18 * dt));
-      this.desired.set(this.target.x - Math.sin(yaw) * boom.back, this.target.y + boom.up, this.target.z - Math.cos(yaw) * boom.back);
-      this.chaseLook.set(this.target.x + Math.sin(yaw) * 3, this.target.y + 0.3, this.target.z + Math.cos(yaw) * 3);
+      // The follow point eases after the car, which alone would leave it a frame's travel / `ease` behind (3 m at
+      // 200 km/h, a pull-back nobody asked for): it aims that far ahead of the car, and so keeps up with it at any
+      // steady speed while still easing out a jolt.
+      const ease = 1 - Math.exp(-18 * dt);
+      const ahead = ease > 1e-6 ? (dt * (1 - ease)) / ease : 0;
+      this.target.lerp(new THREE.Vector3(v.pos.x + v.vel.x * ahead, v.pos.y + s.height * CHASE_TARGET_Y + this.seaLift, v.pos.z + v.vel.z * ahead), ease);
+      this.desired.set(this.target.x - Math.sin(yaw) * back, this.target.y + boom.up, this.target.z - Math.cos(yaw) * back);
+      const lead = CHASE_LEAD + CHASE_LEAD_SPEED * k;
+      this.chaseLook.set(this.target.x + Math.sin(yaw) * lead, this.target.y + 0.3 + Math.tan(this.orbitPitch) * (boom.back + lead), this.target.z + Math.cos(yaw) * lead);
       this.dir.copy(this.chaseLook).sub(this.desired).normalize();
       lookFrom = this.target.clone();
-      fovTarget = this.baseFov + 15 * smoothstep(8, 58, speed);
-      this.rumbleAmt = 0.03 * smoothstep(30, 60, speed);
+      fovTarget = chaseFov(this.baseFov, speed);
+      this.rumbleAmt = 0.035 * smoothstep(24, 58, speed);
       this.pitch = Math.asin(clamp(this.dir.y, -1, 1));
     } else {
       this.deathT = 0;
@@ -845,6 +899,17 @@ export class CameraController {
       cam.fov = this.fov;
       cam.updateProjectionMatrix();
     }
+    // The chase camera's lean (see CHASE_ROLL): its up vector tips towards the view's right, (-dir.z, 0, dir.x).
+    if (!v) {
+      this.roll = damp(this.roll, 0, 8, dt);
+      this.chaseCar = null;
+      this.chaseAccel = 0;
+      this.chaseUsed = 0;
+      this.chaseLag = 0;
+    }
+    const flat = Math.hypot(this.dir.x, this.dir.z);
+    if (Math.abs(this.roll) > 1e-4 && flat > 1e-3) cam.up.set((-this.dir.z / flat) * Math.sin(this.roll), Math.cos(this.roll), (this.dir.x / flat) * Math.sin(this.roll));
+    else cam.up.set(0, 1, 0);
     cam.lookAt(cam.position.x + this.dir.x, cam.position.y + this.dir.y, cam.position.z + this.dir.z);
     this.subject.copy(this.footView ? this.head : this.target);
   }
