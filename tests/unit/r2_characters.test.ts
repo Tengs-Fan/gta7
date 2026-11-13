@@ -1247,16 +1247,16 @@ describe('swimming shooters and standing legs', () => {
     expect(y).toBeGreaterThan(WATER_Y + 0.1);
   });
 
-  it('standing still, the knees are all but straight', () => {
+  // (Round 9: someone standing rests on one leg; the other knee eases, its foot set forward. people_motion.test.ts.)
+  it('standing still, the knee he stands on is all but straight and the other eased, not crouched', () => {
     for (const height of [0.9, 1, 1.07]) {
       const c = person();
       c.appearance.height = height;
       const cv = drawn(c);
       const p = parts(cv);
-      for (let i = 0; i < 2; i++) {
-        const flex = THREE.MathUtils.radToDeg(axis(matrixAt(p.thigh!, i)).angleTo(axis(matrixAt(p.shin!, i))));
-        expect(flex, `height ${height}`).toBeLessThan(8);
-      }
+      const flex = [0, 1].map((i) => THREE.MathUtils.radToDeg(axis(matrixAt(p.thigh!, i)).angleTo(axis(matrixAt(p.shin!, i))))).sort((a, b) => a - b);
+      expect(flex[0], `height ${height}`).toBeLessThan(8);
+      expect(flex[1], `height ${height}`).toBeLessThan(26);
       // Still on the ground.
       expect(Math.min(soleLow(matrixAt(p.shoe!, 0)), soleLow(matrixAt(p.shoe!, 1)))).toBeLessThan(0.02);
     }
@@ -1391,7 +1391,8 @@ describe('the crowd draws the local player by id', () => {
   });
 
   // (Recorded at 72d0b98, before the crowd drew the local player by id, and matched to the element until round 9
-  // redrew the figures; recorded again then: scripts/record-crowd-baseline.test.ts.)
+  // redrew the figures; recorded again then, and when round 9 changed how they stand, walk and run:
+  // scripts/record-crowd-baseline.test.ts.)
   it('with a single player the crowd reproduces the output on record', () => {
     const baseline = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'crowd_sp.json'), 'utf8')) as CrowdBaseline;
     const now = recordCrowdScene(new CrowdView(), (sim) => sim.player.id);
