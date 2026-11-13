@@ -854,8 +854,8 @@ const KIT_STEP = 0.18;
 
 /**
  * The fittings an imported body is given where its paint runs on (it has none of its own there): a dark grille with
- * satin slats and a top bar between the head lamps, a dark panel under a satin bar joining the tail lamps, an exhaust
- * tip (two on the sports and muscle cars), dark sills between the wheel arches, and a door handle at the rear edge of
+ * satin slats and a top bar between the head lamps, a dark panel under a satin bar joining the tail lamps, a dark
+ * valance across the foot of the tail, an exhaust tip (two on the sports and muscle cars), dark sills between the wheel arches, and a door handle at the rear edge of
  * each door. Every piece is laid on the body by rays, a few millimetres proud of it.
  */
 function modelKit(kind: VehicleKind, tris: readonly Tri[], f: KitFrame): Kit {
@@ -893,6 +893,14 @@ function modelKit(kind: VehicleKind, tris: readonly Tri[], f: KitFrame): Kit {
     kit.patch(band(atFront, x0, x1, gTop - 0.004, gTop + 0.016), 0.015, 'metal', true);
   }
   const rp = f.plates.rear;
+  // A dark valance across the foot of the tail, where its paint runs down square to the end (its corners turn away and
+  // left only scraps of it): the lowest height at which a ray along the car meets paint within 30 cm of the end.
+  let foot: number | null = null;
+  for (let y = low; y < low + 0.45 && foot === null; y += 0.01) {
+    const h = atRear(0, y);
+    if (PAINTED(h) && h.at.z < -half + 0.3) foot = y;
+  }
+  if (foot !== null) kit.patch(band(atRear, -hw * 0.5, hw * 0.5, foot + 0.01, foot + 0.1), 0.008, 'dark', true, 0.85);
   // A dark panel joining the tail lamps under a satin bar, so they read as one cluster across the tail (where the
   // panel between them is all paint).
   const tailY = f.tail.reduce((y, l) => y + l.at.y, 0) / f.tail.length;

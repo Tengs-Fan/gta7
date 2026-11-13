@@ -1,7 +1,7 @@
 // A look at every kind of vehicle from fixed viewpoints, for judging their models before and after a change: broadside,
 // front three-quarter and rear three-quarter by day with nothing in the way, two kinds at night with their lamps on,
-// the player's own car from the chase camera, and a street of standing cars (the traffic mix) whose draw calls and
-// triangles are measured on High, Medium and Low.
+// the player's own car, bikes and speedboat from the chase camera, and a street of standing cars (the traffic mix) whose
+// draw calls and triangles are measured on High, Medium and Low.
 //
 //   node scripts/playtest.mjs --script scripts/playtests/carlook.mjs --out /tmp/carlook
 //   CARLOOK_KINDS=sedan,van node scripts/playtest.mjs --script scripts/playtests/carlook.mjs --out /tmp/carlook
@@ -9,7 +9,7 @@
 // The camera is held where the script puts it (the game's own camera is suspended), and the player stands behind it.
 
 const KINDS = (process.env.CARLOOK_KINDS ?? 'sedan,compact,taxi,sports,muscle,pickup,van,police,bus,ambulance,firetruck,swat,tractor,sportbike,scooter').split(',');
-const PARTS = (process.env.CARLOOK_PARTS ?? 'day,night,chase,street').split(',');
+const PARTS = (process.env.CARLOOK_PARTS ?? 'day,night,chase,street,ride,dent').split(',');
 
 /** Runs in the page: holds the camera at window.__fixed ({ pos, at, fov }) while it is set. */
 function installCamera(g) {
@@ -167,6 +167,52 @@ export default async function (t) {
       await t.shot(`street-${tier}`);
     }
     await t.game((g) => g.game.applySettings({ ...g.game.settings, quality: 'high' }, false));
+  }
+  if (PARTS.includes('ride')) {
+    // The bikes on the street and the speedboat at the Marina, from the chase camera at rest.
+    for (const kind of ['sportbike', 'scooter', 'speedboat']) {
+      await t.game((g, kind) => {
+        const sim = g.sim;
+        for (const v of [...sim.vehicles]) if (v.missionTag === 'look') sim.removeVehicle(v);
+        window.__fixed = null;
+        if (sim.player.vehicle) sim.playerCtl.ejectPlayer(true);
+        for (const v of [...sim.vehicles]) if (v.missionTag === 'street') sim.removeVehicle(v);
+        let v;
+        if (kind === 'speedboat') {
+          const b = sim.world.layout.props.find((p) => p.kind === 'boat');
+          g.teleport(b.x + 13, b.z - 6);
+          v = sim.spawnVehicle(kind, b.x + 13, b.z, 0.4);
+        } else {
+          const st = window.__street;
+          g.teleport(st.x, st.z - 5.2);
+          v = sim.spawnVehicle(kind, st.x, st.z, st.heading, window.__stage.colors[kind]);
+        }
+        v.missionTag = 'look';
+        v.persistent = true;
+        sim.seat(sim.player, v, 0);
+        v.usedByPlayer = true;
+        g.game.renderer.cameraCtl.reset(sim);
+      }, kind);
+      await t.wait(3000);
+      await t.shot(`chase-${kind}`);
+    }
+  }
+
+  if (PARTS.includes('dent')) {
+    // The sedan's tail after a rear-end hit (an 8 cm dent in the middle of it), from behind.
+    await t.game((g) => {
+      if (g.sim.player.vehicle) g.sim.playerCtl.ejectPlayer(true);
+      g.teleport(window.__stage.x, window.__stage.z);
+    });
+    await t.wait(1500);
+    await t.game(stage, 'sedan', 'rear', false);
+    await t.game((g) => {
+      const v = g.sim.vehicles.find((q) => q.missionTag === 'look');
+      v.dents.push({ lx: 0.1, ly: v.spec.height * 0.45, lz: -v.spec.length / 2 + 0.05, nx: 0, nz: 1, depth: 0.08 });
+      v.dentVersion++;
+    });
+    await t.wait(900);
+    await t.shot('sedan-rear-dented');
   }
   await t.snap('end');
 }
