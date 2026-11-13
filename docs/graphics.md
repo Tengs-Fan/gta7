@@ -455,6 +455,25 @@ With the traffic and the people gone (the round's `diag.mjs`, which also hides e
 The pines are 19 of pinewood-noon's calls and 0.35 M of its triangles (shadows included), the valley's oaks 16 and 0.09 M, its bushes 4 and 0.07 M, the kit's meshes, the reeds, the flowers, the rocks and the lights 2 to 12 calls and under 0.05 M each.
 The city's scenes facing away from the valley are as before, and the ridge hides the valley from Dry Creek: the lakeland's cells are the cells the valley's beach and ground already were.
 
+The county's models redrawn (the farmsteads' tin, porches and cupolas, the hedgerows' pillows, the elevator's concrete and the roads' shoulders) on 2026-11-13, through the round's `shoot.mjs` (39 views on foot and from the road at the named places, traffic and people gone, at the playtest's default 1600x900), on the base build (28dfbee) and the head: no view gained a county mesh but the shoulders' (`country-shoulders`, 2 calls with its depth pass), and the county's own meshes in the frustum took 0.6 to 17 k triangles more (the hedgerows' 9,400 wherever they are in the frustum, since they are one mesh, the rest the farm or the town in view).
+
+| View (traffic and people gone) | Draw calls before | after | Triangles before | after |
+| --- | ---: | ---: | ---: | ---: |
+| Hollister Bottoms from its drive | 285 | 287 | 1.50 M | 1.54 M |
+| the dairy's barn and silos | 239 | 241 | 1.10 M | 1.13 M |
+| Pippin Hollow's barn | 228 | 213 | 1.39 M | 1.39 M |
+| Halfmoon Acres' farmhouse | 566 | 568 | 1.85 M | 1.88 M |
+| Dry Creek's main street, facing west | 288 | 290 | 1.58 M | 1.62 M |
+| the elevator from the main street | 206 | 208 | 0.80 M | 0.84 M |
+| the Lazy Q's barn | 454 | 456 | 1.92 M | 1.95 M |
+| Lake Lomas's dock | 218 | 220 | 1.05 M | 1.07 M |
+| Coyote Pass | 292 | 294 | 1.64 M | 1.67 M |
+| the highway's south leg by the fields | 248 | 250 | 1.53 M | 1.56 M |
+| a pickup on the highway's north leg | 281 | 283 | 1.71 M | 1.75 M |
+
+Across 38 of the 39 views the triangles changed by -1.9 to +5.1% (median 2.0%), most of the rise the sun's cascades drawing the hedgerows again; one view, the Feed & Seed's front, read 12.6% and 16 calls more, none of them the county's (its county meshes 42 and 43), which a second run of the head had at 7.5% and 2 calls.
+Frame rates on the RTX 5090 were 44 to 61 fps in both runs, with other agents' browsers on the GPU, so they are not compared; Medium, Low and the software fallback draw the barns, the elevator and the shoulders (`tiers.mjs`; the software tier at 13 to 24 fps under the same load).
+
 ## Software fallback
 
 Hardware rendering keeps the existing physical materials, procedural sky, reflections, shadows,
