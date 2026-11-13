@@ -233,6 +233,8 @@ const IRON_GREEN: RGB = [0.05, 0.085, 0.065];
 /** A fire escape's landings stand this far (m) out from the wall; its rail is this high over them. */
 export const ESCAPE_DEPTH = 1.1;
 const ESCAPE_RAIL = 0.95;
+/** How far (m) the drop ladder hangs under the lowest landing. */
+export const LADDER_DROP = 0.95;
 
 /**
  * A fire escape on a brick block's street wall: an iron landing at every storey above the ground floor, two window
@@ -281,11 +283,12 @@ export function fireEscape(g: GeoBuilder, b: Building, t: Tier, baseY: number, s
       for (const o of [o0, o1]) wallQuad(g, wl, [[a, o, fy - 0.12], [e, o, up - 0.12], [e, o, up + 0.12], [a, o, fy + 0.12]], iron);
     }
   });
-  // The drop ladder, hanging from the lowest landing's outer edge.
+  // The drop ladder, hanging from the lowest landing's outer edge, short of the shop awnings, whose tops are 1 m under
+  // the ground floor's top.
   const fy = floors[0]!;
   const ls = r(3) < 0.5 ? s0 + 0.5 : s1 - 1.0;
-  for (const s of [ls, ls + 0.45]) wallBox(g, wl, s, s + bar, D - 0.3, D - 0.3 + bar, fy - 1.7, fy, iron);
-  for (let k = 1; k <= 5; k++) wallBox(g, wl, ls, ls + 0.45 + bar, D - 0.3, D - 0.3 + 0.03, fy - k * 0.32, fy - k * 0.32 + 0.03, iron);
+  for (const s of [ls, ls + 0.45]) wallBox(g, wl, s, s + bar, D - 0.3, D - 0.3 + bar, fy - LADDER_DROP, fy, iron);
+  for (let k = 1; k <= 3; k++) wallBox(g, wl, ls, ls + 0.45 + bar, D - 0.3, D - 0.3 + 0.03, fy - k * 0.3, fy - k * 0.3 + 0.03, iron);
   return floors.length;
 }
 

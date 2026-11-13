@@ -7,7 +7,9 @@
 //   node scripts/playtest.mjs --script scripts/playtests/streetscape.mjs --out /tmp/streetscape
 //
 // With --swiftshader the run is the software tier (only the first spot is shot). STREETSCAPE_ONLY=midtown,hillcrest
-// shoots only those spots by day, for a quick look.
+// shoots only those spots by day, for a quick look. STREETSCAPE_POIS=1 adds the special buildings' fronts (the bank, the
+// police, the hospital, the safehouse, the gun shops, Lou's, the Hotel Salgado, a spray shop), four ways from each
+// marker, as the round's model audit shot them.
 
 /** District, style of the building to face, and a short name for the files. */
 const SPOTS = [
@@ -22,6 +24,7 @@ const SPOTS = [
 ];
 
 const ONLY = process.env.STREETSCAPE_ONLY?.split(',') ?? null;
+const POIS = ['bank', 'police', 'hospital', 'safehouse', 'guns_south', 'lou', 'vera', 'spray_hill', 'guns_west'];
 
 export default async function (t) {
   await t.boot();
@@ -74,6 +77,17 @@ export default async function (t) {
     await shoot(`${name}-facade`, yaw, 0.18);
     await shoot(`${name}-along`, yaw + Math.PI / 2, 0.06);
     await shoot(`${name}-across`, yaw + Math.PI, 0.08);
+  }
+  if (process.env.STREETSCAPE_POIS === '1') {
+    for (const id of POIS) {
+      for (const [k, yaw] of [0, Math.PI / 2, Math.PI, -Math.PI / 2].entries()) {
+        await t.game((g, a) => {
+          const p = g.poi(a.id);
+          g.teleport(p.x, p.z);
+        }, { id });
+        await shoot(`bld-${id}-${k}`, yaw, 0.12);
+      }
+    }
   }
   if (!software && !ONLY) {
     await t.game((g) => g.setTime(21));

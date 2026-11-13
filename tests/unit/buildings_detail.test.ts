@@ -1,16 +1,15 @@
 // The buildings' detail where a player looks: plaster walls that keep their grain but little of their stains, doorways
 // set back behind the ground-floor fronts, piers between the bays, the houses' gables, chimneys and shutters, the
 // hotels' and apartment blocks' balconies, the brick blocks' fire escapes and the parapets' coping. All of it is
-// render geometry in the existing batches: no mesh, collider or footprint of its own.
+// render geometry in the existing batches (m3_buildings caps the city's meshes): no collider or footprint of its own.
 
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { CityView } from '../../src/render/city';
 import { createFacadeMaterial } from '../../src/render/city/facadeShader';
-import { BALCONY_DEPTH, ESCAPE_DEPTH, balconies, fireEscape, houseShutters } from '../../src/render/cityArchitecture';
+import { BALCONY_DEPTH, ESCAPE_DEPTH, LADDER_DROP, balconies, fireEscape, houseShutters } from '../../src/render/cityArchitecture';
 import { GeoBuilder } from '../../src/render/geo';
-import { HARDWARE_CHUNK_SIZE } from '../../src/render/spatial';
-import { CELL_DESIGN, CELLS, DOOR_OPENING, DOOR_U, FACADE_LOOK } from '../../src/render/textures';
+import { CELL_DESIGN, CELLS, DOOR_OPENING, DOOR_U, FACADE_LOOK, SHOP_AWNING_TOP } from '../../src/render/textures';
 import { CURB_H } from '../../src/world/constants';
 import type { FacadeStyle } from '../../src/world/layout';
 import type { StaticWorld } from '../../src/world/staticWorld';
@@ -132,12 +131,6 @@ describe('building detail', () => {
     }
   });
 
-  it("keeps the city's mesh count: the detail rides in the existing batches", () => {
-    const coarse = new CityView(world(), HARDWARE_CHUNK_SIZE);
-    // 191 at 28dfbee; the farmhouses' cells, out in the county, get no trim of their own.
-    expect(meshes(coarse.group).length).toBeLessThanOrEqual(191);
-  });
-
   it("puts balconies on every hotel's street walls, within their depth of the wall and above the ground floor", () => {
     let hotels = 0;
     let apartments = 0;
@@ -165,7 +158,9 @@ describe('building detail', () => {
     expect(apartments).toBeGreaterThan(200);
   });
 
-  it("hangs every fire escape's drop ladder at least 2.4 m over the pavement and keeps it within its landing's depth", () => {
+  it("hangs every fire escape's drop ladder at least 2.4 m over the pavement, clear of the shop awnings, and keeps it within its landing's depth", () => {
+    // An awning's top is SHOP_AWNING_TOP under the top of a 4.5 m shop band; the lowest landing stands 0.12 m over it.
+    expect(LADDER_DROP - 0.12).toBeLessThan(SHOP_AWNING_TOP);
     let escapes = 0;
     for (const b of W.layout.buildings) {
       if (b.style !== 'brick' || b.groundSides.length === 0) continue;
