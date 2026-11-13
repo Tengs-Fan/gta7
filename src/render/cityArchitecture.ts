@@ -50,8 +50,7 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
   };
 
   if (b.style === 'house') {
-    // A stone plinth round the foot of the walls, as high as the sill the ground-floor fronts paint.
-    if (t === b.tiers[0] && b.district !== 'country') band(t.y0 - 0.02, HOUSE_SILL + 0.02, 0.04, [0.37, 0.34, 0.29]);
+    if (t === b.tiers[0] && b.district !== 'country') housePlinth(g, t);
     // Eave fascia has actual thickness even when the gable is viewed edge-on.
     band(t.y1 - 0.16, 0.14, 0.12, [0.82, 0.8, 0.74]);
     return;
@@ -106,6 +105,29 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
       const dz = ux !== 0 ? 0.07 : 0.055;
       g.box(x - dx, bottom, z - dz, x + dx, t.y1 - 0.16, z + dz, { uv: UV, color: cap });
     }
+  }
+}
+
+/** Stone of the houses' plinths. */
+const PLINTH: RGB = [0.37, 0.34, 0.29];
+
+/**
+ * A stone plinth round the foot of a house's walls, as high as the sill its ground-floor fronts paint (HOUSE_SILL),
+ * standing 4 cm out with a weathered top sloping off the wall. Faces only, no cap over the footprint: no level surface
+ * near the ground (the headlights' pools light every such surface, see light_sprites.test.ts).
+ */
+function housePlinth(g: GeoBuilder, t: Tier): void {
+  const top = t.y0 + HOUSE_SILL;
+  const out = 0.04;
+  for (const wl of tierWalls(t)) {
+    const a = wallPoint(wl, -out, out, t.y0 - 0.02);
+    const b = wallPoint(wl, wl.len + out, out, t.y0 - 0.02);
+    const c = wallPoint(wl, wl.len + out, out, top - 0.03);
+    const d = wallPoint(wl, -out, out, top - 0.03);
+    g.quad(...a, ...b, ...c, ...d, [0, 0, 1, 0, 1, 1, 0, 1], PLINTH);
+    const e = wallPoint(wl, wl.len + out, 0, top);
+    const f = wallPoint(wl, -out, 0, top);
+    g.quad(...d, ...c, ...e, ...f, [0, 0, 1, 0, 1, 1, 0, 1], scaleRgb(PLINTH, 1.08));
   }
 }
 
