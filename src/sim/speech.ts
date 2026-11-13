@@ -10,6 +10,8 @@ export type TalkKind = 'host' | 'call' | 'news' | 'ad' | 'ident' | 'serial';
 export type ShowId = 'azura' | 'bowl' | 'sapr' | 'static';
 export type BarkKind =
   | 'greet' | 'hurt' | 'jacked' | 'panic' | 'rammed' | 'witness' | 'freeze' | 'shots' | 'officerDown' | 'pullOver' | 'arrest' | 'turf'
+  // Someone jumping out of the way of the player's car.
+  | 'dodge'
   // People waving down a taxi the player drives, and a cabbie pulled out of his cab.
   | 'hail' | 'hailMissed' | 'cabbie'
   // Hollister Farm's owner, and the voice by the Bramble family crypt at three in the morning.

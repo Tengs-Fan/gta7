@@ -516,6 +516,26 @@ function biquadMag(type: 'lowpass' | 'highpass', f0: number, q: number, f: numbe
   return Math.hypot(re(b), im(b)) / Math.hypot(re(a), im(a));
 }
 
+describe('someone who jumps out of the way of the car shouts at its driver (round 8)', () => {
+  it('six times in ten, where he stands, and never when the dice say no', () => {
+    const { sim, audio } = rig();
+    const p = sim.player.pos;
+    const dodge = (who: number) => sim.events.emit('pedDodge', { x: p.x + 4, y: p.y + 1.6, z: p.z + 3, who });
+    const voices = audio.counters.voices;
+    const dice = vi.spyOn(Math, 'random');
+    dice.mockReturnValue(0.61);
+    dodge(7);
+    expect(audio.counters.voices).toBe(voices);
+    dice.mockReturnValue(0.59);
+    dodge(7);
+    expect(audio.counters.voices).toBe(voices + 1);
+    // The same shout again at once: the kind's cooldown holds it back.
+    dodge(8);
+    expect(audio.counters.voices).toBe(voices + 1);
+    dice.mockRestore();
+  });
+});
+
 describe('police radio barks', () => {
   it('each dispatch line starts one bark, at most one at a time and BARK_MIN_GAP apart; counted', () => {
     const { sim, audio, frames } = rig();

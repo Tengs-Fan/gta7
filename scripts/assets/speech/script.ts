@@ -595,6 +595,8 @@ export const BARKS: Readonly<Record<BarkKind, BarkSet>> = {
   panic: { voices: PEDS, lines: ['Help!', "Run! He's got a gun!", 'Call the cops!', 'Oh my god!', 'Get down!', 'Somebody do something!'] },
   /** The driver of a car the player rams. */
   rammed: { voices: PEDS, lines: ['Learn to drive!', 'Hey! Watch it!', 'Are you blind?', 'My insurance!', 'Unbelievable!'] },
+  /** Jumping out of the way of the player's car. */
+  dodge: { voices: PEDS, lines: ['Watch out!', 'Hey! Watch it!', 'Look out!', 'Are you blind?', 'Use the road!', 'Are you crazy?', 'Slow down!', "Watch where you're going!"] },
   /** A witness on the phone to the police. */
   witness: { voices: PEDS, lines: ["Police? There's a maniac out here!", 'Hello? I want to report a crime. A big one.', 'You need to get down here, right now!', "He's still here! Hurry!"] },
   /** Officers on foot, close to a wanted player. */

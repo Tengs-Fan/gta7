@@ -83,7 +83,7 @@ const NEAR_SEEN = 55;
  * DODGE_CLEAR m by or stopped (DODGE_REST_MAX s at most). The notice is a distance and not a time: at a crawl everyone steps clear,
  * at 70 km/h it is half a second's warning and some are clipped, and flat out nobody makes it. (They walked their
  * routes into the bonnet until round 8 put half as many again on the pavements, where every one of them hit is a call
- * to the police.)
+ * to the police.) Not while a job or a mission's clock runs: those are tuned on the streets as they were.
  */
 const DODGE_SPEED = 6.5;
 const DODGE_NOTICE = 7;
@@ -99,6 +99,8 @@ const DODGE_REST = 2.5;
 const DODGE_CLEAR = 6;
 const DODGE_REST_MAX = 8;
 
+/** As a clock starts, people over the count go from this far (m) out, out of view. */
+const CLOCK_NEAR = 30;
 /** populate(): nobody starts nearer the arriving player than this (m), and those further than ARRIVE_FAR m from him are let go first. */
 const ARRIVE_NEAR = 9;
 const ARRIVE_FAR = 110;
@@ -106,6 +108,8 @@ const ARRIVE_FAR = 110;
 export class PedSystem {
   /** True while populate() fills the pavements: a spawn then takes no account of the players' view. */
   private arriving = false;
+  /** Whether a clock was running at the last refresh (TrafficSystem.onTheClock), to act on the moment one starts. */
+  private onTheClock = false;
   /** The cars players are driving faster than DODGE_SPEED this step, with the unit direction they travel in (see dodge). */
   private readonly oncoming: Array<{ v: Vehicle; ux: number; uz: number }> = [];
   private timer = 0;
@@ -130,8 +134,9 @@ export class PedSystem {
 
   get targetCount(): number {
     const h = this.sim.clock.hours;
-    // A room keeps the crowd its server's tick and bandwidth are sized for.
-    if (this.sim.multiplayer) return Math.round((h < 6 ? 14 : h < 8 ? 26 : h < 20 ? 40 : h < 23 ? 28 : 16) * this.density);
+    // A room keeps the crowd its server's tick and bandwidth are sized for, and a job or a mission against the clock
+    // the one it was tuned on (TrafficSystem.onTheClock).
+    if (this.sim.multiplayer || this.sim.traffic.onTheClock) return Math.round((h < 6 ? 14 : h < 8 ? 26 : h < 20 ? 40 : h < 23 ? 28 : 16) * this.density);
     return Math.round((h < 6 ? 18 : h < 8 ? 38 : h < 20 ? 60 : h < 23 ? 42 : 22) * this.density);
   }
 
@@ -139,7 +144,8 @@ export class PedSystem {
   private lead(slot: PlayerSlot, dir: { x: number; z: number }): number {
     const v = slot.character.vehicle;
     const speed = v ? Math.hypot(v.vel.x, v.vel.z) : 0;
-    if (!v || speed <= AHEAD_SPEED || this.sim.multiplayer) return 0;
+    // (Not on the clock: a run or a timed mission is tuned on the crowd as it stood round him, not gathered ahead.)
+    if (!v || speed <= AHEAD_SPEED || this.sim.multiplayer || this.sim.traffic.onTheClock) return 0;
     dir.x = v.vel.x / speed;
     dir.z = v.vel.z / speed;
     return Math.min(AHEAD_REACH, speed * AHEAD_LEAD);
@@ -203,6 +209,24 @@ export class PedSystem {
       }
       if (c.owner === 'ped') count++;
     }
+    // A clock has just started (TrafficSystem.onTheClock): those over the smaller crowd it runs on who are out of his
+    // view and just out walking go at once, the furthest first, as the traffic over its count does.
+    const clock = sim.traffic.onTheClock;
+    if (clock && !this.onTheClock && count > this.targetCount) {
+      const out: Array<{ c: Character; d: number }> = [];
+      for (const c of sim.characters) {
+        if (c.removed || c.persistent || c.isPlayer || !c.alive || c.owner !== 'ped' || c.brain?.mode !== 'wander' || c.brain.angryCar) continue;
+        const d = Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z);
+        if (d > CLOCK_NEAR && !sim.isVisible(c.pos.x, c.pos.y, c.pos.z)) out.push({ c, d });
+      }
+      out.sort((a, b) => b.d - a.d);
+      for (const o of out) {
+        if (count <= this.targetCount) break;
+        sim.removeCharacter(o.c);
+        count--;
+      }
+    }
+    this.onTheClock = clock;
     let spawned = 0;
     while (count < this.targetCount && spawned < 4) {
       if (!this.trySpawn(me)) break;
@@ -411,8 +435,10 @@ export class PedSystem {
       const p = s.character;
       return !s.parked && p.aiming && isGun(p.inventory.current) && p.state === 'normal';
     });
+    // Not on the clock (TrafficSystem.onTheClock): a run's medals and a delivery's countdown are set on streets whose
+    // people stood their ground, and the bots that guard those numbers brake for anyone who moves.
     this.oncoming.length = 0;
-    for (const s of sim.players) {
+    for (const s of sim.traffic.onTheClock ? [] : sim.players) {
       const v = s.parked ? null : s.character.vehicle;
       const speed = v ? Math.hypot(v.vel.x, v.vel.z) : 0;
       if (v && v.driver === s.character && speed > DODGE_SPEED) this.oncoming.push({ v, ux: v.vel.x / speed, uz: v.vel.z / speed });
@@ -541,6 +567,7 @@ export class PedSystem {
         b.dodge = DODGE_TIME;
         b.dodgeX = nx;
         b.dodgeZ = nz;
+        sim.events.emit('pedDodge', { x: c.pos.x, y: c.pos.y + 1.6, z: c.pos.z, who: c.id });
         break;
       }
       if (b.dodge === 0) return false;

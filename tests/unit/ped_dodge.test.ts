@@ -48,7 +48,11 @@ describe('people dodge a car a player drives at them', () => {
   it.each([7, 9, 12])('at %d m/s the one in its way dashes clear and is not hit, then walks on', (speed) => {
     for (const off of [0, 0.5, -0.6]) {
       const s = scene(30, off);
+      // One 'pedDodge' a dash, at his head, with his id: what the audio hangs his shout on.
+      const shouts: Array<{ who: number; y: number }> = [];
+      s.sim.events.on('pedDodge', (e) => shouts.push({ who: e.who, y: e.y }));
       const hit = drive(s, speed, 30 / speed + 1.5);
+      expect(shouts).toEqual([{ who: s.ped.id, y: s.ped.pos.y + 1.6 }]);
       expect(hit, `${off} m off its line`).toBe(false);
       expect(s.ped.alive).toBe(true);
       expect(s.ped.state).toBe('normal');
@@ -130,6 +134,24 @@ describe('people dodge a car a player drives at them', () => {
     const at = { x: r.ped.pos.x, z: r.ped.pos.z };
     drive(r, 9, 2);
     expect(Math.hypot(r.ped.pos.x - at.x, r.ped.pos.z - at.z)).toBeLessThan(0.2);
+  });
+
+  it('nobody jumps clear while a clock runs: a street run is tuned on people who stood their ground', () => {
+    const sim = makeSim({ world: world(), ambient: false, police: false });
+    const course = sim.activities.streetRunCourses().find((c) => c.id === 'magnolia')!;
+    const car = sim.spawnVehicle('sedan', course.start.x, course.start.z, course.start.heading);
+    placeInCar(sim, car);
+    expect(sim.activities.startStreetRun('magnolia')).toBe(true);
+    // Through the countdown (the car is held in the gate) to the race.
+    for (let i = 0; i < 600 && (sim.activities.job as { stage?: string } | null)?.stage !== 'racing'; i++) sim.update(DT, input());
+    expect((sim.activities.job as { stage?: string } | null)?.stage).toBe('racing');
+    const ux = Math.sin(car.heading);
+    const uz = Math.cos(car.heading);
+    const ped = sim.spawnCharacter('civilian', car.pos.x + ux * 30, car.pos.z + uz * 30);
+    ped.brain = makeBrain('idle');
+    ped.brain.modeTimer = 60;
+    expect(drive({ sim, car, ped, ux, uz }, 9, 4)).toBe(true);
+    expect(ped.brain.dodge).toBe(0);
   });
 
   it('never into the sea: on a quay he goes the way that is dry', () => {

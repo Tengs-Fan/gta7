@@ -23,7 +23,7 @@ import { ProtocolError, Reader, Writer } from './wire';
 export { ProtocolError, Reader, Writer } from './wire';
 
 export const MAGIC = 0x47;
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 export const HEADER_BYTES = 3;
 
 export const MESSAGE_TYPES = ['hello', 'welcome', 'reject', 'input', 'snapshot', 'event', 'cmd', 'ping', 'pong', 'bye'] as const;
@@ -537,6 +537,7 @@ export const EVENT_SCHEMAS: readonly EventSchema[] = [
   { type: 'characterKilled', fields: [['victim', 'r'], ['killer', 'r']] },
   { type: 'pickup', fields: [['kind', 's'], ...XYZ] },
   { type: 'scream', fields: [...XYZ] },
+  { type: 'pedDodge', fields: [...XYZ, ['who', 'u']] },
   { type: 'reload', fields: [['character', 'r']] },
 ];
 const GENERIC_EVENT = 255;

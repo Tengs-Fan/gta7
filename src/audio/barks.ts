@@ -24,6 +24,7 @@ export const BARK_COOLDOWN: Readonly<Record<BarkKind, number>> = {
   jacked: 2,
   panic: 2.5,
   rammed: 3,
+  dodge: 2.5,
   witness: 6,
   freeze: 5,
   shots: 4,

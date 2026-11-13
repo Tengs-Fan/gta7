@@ -149,7 +149,8 @@ describe('busy scene budget', () => {
     // none of the wire's bytes, but the world the join message's prop indices and node ids index (Las Lomas Valley); version 6 the
     // same again, for the county's passes running places, lakeland, the valley's farms, oddities (the lakeland's pines, cabins and
     // camp, and every roadside prop and oddities' solid after them, moved to new indices and collider ids).
-    expect(PROTOCOL_VERSION).toBe(6);
+    // 7: round 8's pedDodge event joined the compact event layouts (someone jumping out of a player's way).
+    expect(PROTOCOL_VERSION).toBe(7);
     room.close();
   }, 120_000);
   }

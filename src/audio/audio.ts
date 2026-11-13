@@ -57,6 +57,8 @@ function finite(...xs: number[]): boolean {
 }
 
 /** Peak gain of the player's held horn. */
+/** How often someone who has jumped out of the player's way shouts at him (the 'dodge' barks). */
+const DODGE_SHOUT = 0.6;
 const HORN_LEVEL = 0.15;
 /** Peak gain of the nearest police siren (a square wave: about as loud as the old triangle at 0.4). */
 const SIREN_LEVEL = 0.25;
@@ -382,6 +384,10 @@ export class AudioEngine {
       on('scream', (e) => {
         this.scream(e.x, e.y, e.z);
         if (Math.random() < 0.5) this.bark('panic', (Math.random() * 0xffff) | 0, e.x, e.y, e.z);
+      }),
+      // Someone who has jumped out of the car's way has a word for its driver, more often than not.
+      on('pedDodge', (e) => {
+        if (Math.random() < DODGE_SHOUT) this.bark('dodge', e.who, e.x, e.y, e.z);
       }),
       on('vehicleEnter', (e) => {
         if (e.character === this.me(sim).character) this.doorThunk(e.vehicle);

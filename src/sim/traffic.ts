@@ -35,6 +35,8 @@ const ONCOMING_CARS = 2;
 const ROAD_AHEAD: readonly [number, number] = [170, 320];
 const ROAD_AHEAD_STOP = 28;
 const ROAD_AHEAD_CARS = 3;
+/** As a clock starts, traffic over the count goes from this far (m) out, out of view (the nearest a car starts at). */
+const CLOCK_NEAR = 45;
 /** populate(): no moving car starts nearer the arriving player than this (m), no parked one nearer than ARRIVE_PARKED. */
 const ARRIVE_NEAR = 28;
 const ARRIVE_PARKED = 10;
@@ -146,6 +148,8 @@ export function clusterTarget(target: number, groups: number): number {
 
 /** What the spawner knows about the roads round one player (see refreshNearLanes and refreshAhead). */
 class Ring {
+  /** Whether a clock was running at the last refresh (see TrafficSystem.onTheClock), to act on the moment one starts. */
+  onTheClock = false;
   nearLanes: Lane[] = [];
   /** Running totals of the near lanes' pick weights. */
   nearCum: number[] = [];
@@ -229,7 +233,16 @@ export class TrafficSystem {
    * (a delivery's countdown), all of which are tuned on them.
    */
   private get sparse(): boolean {
-    return this.sim.multiplayer || this.anchor.wanted.level > 0 || this.sim.activities.job !== null || !!this.sim.missions.active?.timer;
+    return this.sim.multiplayer || this.anchor.wanted.level > 0 || this.onTheClock;
+  }
+
+  /**
+   * A job (a street run, a fare) or a story mission's clock is running: the streets go back to the numbers those are
+   * tuned on at once, traffic and crowd (PedSystem.targetCount) both. Left to thin out as its cars drove away, the
+   * traffic of a moment before cost a driver on Hot Delivery's 64 s clock a quarter of it.
+   */
+  get onTheClock(): boolean {
+    return this.sim.activities.job !== null || !!this.sim.missions.active?.timer;
   }
 
   get targetCount(): number {
@@ -358,6 +371,27 @@ export class TrafficSystem {
         recycled = true;
       }
     }
+    // A clock has just started (see onTheClock): every car over the count that is out of his view (and no nearer than
+    // a car may start) or far down it goes at once, the furthest first, so the clock runs on the streets it was set
+    // for from its first second.
+    const clock = this.onTheClock;
+    if (clock && !this.ring.onTheClock && count > this.targetCount) {
+      const out: Array<{ v: Vehicle; d: number }> = [];
+      for (const v of sim.vehicles) {
+        if (v.removed || v.persistent || v.owner !== 'traffic' || !v.driver || v.driver === me) continue;
+        const d = Math.hypot(v.pos.x - pp.x, v.pos.z - pp.z);
+        // (Or in his view from as far off as a car on the road ahead may start in it: what round 8 put down his road
+        // is what stands in a run's way, and at that distance one goes as unnoticed as it came.)
+        if (d > CLOCK_NEAR && (d > ROAD_AHEAD[0] || !sim.isVisible(v.pos.x, v.pos.y, v.pos.z))) out.push({ v, d });
+      }
+      out.sort((a, b) => b.d - a.d);
+      for (const o of out) {
+        if (count <= this.targetCount) break;
+        sim.removeVehicle(o.v);
+        count--;
+      }
+    }
+    this.ring.onTheClock = clock;
     // Over the count round a player who is not driving fast (the streets have just gone sparse, see `sparse`, as he
     // lines up for a run, or the hour has turned): the furthest car out of view that is as far off as one recycled,
     // whichever way, goes too, one a refresh, so the streets thin out to their number in a few seconds and not over

@@ -77,6 +77,8 @@ export interface SimEvents {
   saveRequested: { poi: string } & PlayerScoped;
   sprayed: { cost: number } & PlayerScoped;
   scream: { x: number; y: number; z: number };
+  /** Someone has just dashed out of the way of a car a player is driving at him (PedSystem.dodge): where his head is, and his id. */
+  pedDodge: { x: number; y: number; z: number; who: number };
   missionStarted: { id: string; title: string } & PlayerScoped;
   missionEnded: { id: string; passed: boolean } & PlayerScoped;
   /** A side activity is over, whatever the outcome. */
