@@ -1,8 +1,8 @@
 // Shallow, batched facade relief. Building footprints, roof heights and street
 // clearances still come from the simulation; these are architectural finishes.
-import type { Building, Side, Tier } from '../world/layout';
+import { hashInts, type Building, type Side, type Tier } from '../world/layout';
 import { GeoBuilder, scaleRgb, type RGB } from './geo';
-import { FACADE_CELL, FACADE_WINDOW, HOUSE_SILL } from './textures';
+import { FACADE_CELL, FACADE_WINDOW, HOUSE_SILL, facadeWindowAt } from './textures';
 
 const UV = { kind: 'world' as const, scale: 3 };
 
@@ -56,8 +56,11 @@ export function facadeRelief(g: GeoBuilder, b: Building, t: Tier, baseY: number,
     band(t.y1 - 0.16, 0.14, 0.12, [0.82, 0.8, 0.74]);
     return;
   }
-  // A continuous shadow line above the storefront and a second at each setback.
-  if (first > t.y0 + 0.5 && first < t.y1 - 0.5) band(first - 0.07, 0.14, 0.12, cap);
+  // A cornice crowning the ground floor (a deep band and a lip over it), and a shadow line at each setback.
+  if (first > t.y0 + 0.5 && first < t.y1 - 0.5) {
+    band(first - 0.1, 0.2, 0.16, cap);
+    band(first + 0.1, 0.07, 0.24, scaleRgb(cap, 1.06));
+  }
   if (t.y0 > baseY + 1) band(t.y0 + 0.02, 0.16, 0.12, cap);
   // The crowning cornice: a real shadow line under every roof edge.
   const cornice = corniceProjection(b);
@@ -121,26 +124,10 @@ export function balconies(g: GeoBuilder, b: Building, t: Tier, baseY: number, si
   if (!depth) return 0;
   const cell = FACADE_CELL[b.style];
   const win = FACADE_WINDOW[b.style];
-  const w = t.maxX - t.minX;
-  const d = t.maxZ - t.minZ;
-  const walls = [
-    { side: 'S' as Side, x0: t.minX, z0: t.maxZ, ux: 1, uz: 0, len: w, u: 0 },
-    { side: 'E' as Side, x0: t.maxX, z0: t.maxZ, ux: 0, uz: -1, len: d, u: w },
-    { side: 'N' as Side, x0: t.maxX, z0: t.minZ, ux: -1, uz: 0, len: w, u: w + d },
-    { side: 'W' as Side, x0: t.minX, z0: t.minZ, ux: 0, uz: 1, len: d, u: 2 * w + d },
-  ];
   const slab = scaleRgb(wall, 0.92);
   const k0 = Math.max(1, Math.ceil((t.y0 - baseY) / cell.h - 1e-6));
   let n = 0;
-  /** An axis-aligned box from wall-local corners (s along the wall, o out from it). */
-  const box = (wl: (typeof walls)[number], s0: number, s1: number, o0: number, o1: number, y0: number, y1: number, c: RGB) => {
-    const nx = -wl.uz;
-    const nz = wl.ux;
-    const xs = [wl.x0 + wl.ux * s0 + nx * o0, wl.x0 + wl.ux * s1 + nx * o1];
-    const zs = [wl.z0 + wl.uz * s0 + nz * o0, wl.z0 + wl.uz * s1 + nz * o1];
-    g.box(Math.min(...xs), y0, Math.min(...zs), Math.max(...xs), y1, Math.max(...zs), { uv: UV, color: c, bottom: true });
-  };
-  for (const wl of walls) {
+  for (const wl of tierWalls(t)) {
     if (!sides.includes(wl.side) || wl.len < cell.w + 1) continue;
     for (let k = k0; baseY + (k + 1) * cell.h <= t.y1 - 0.6; k++) {
       const fy = baseY + k * cell.h;
@@ -149,18 +136,165 @@ export function balconies(g: GeoBuilder, b: Building, t: Tier, baseY: number, si
       const spans: Array<[number, number]> = [];
       if (b.style === 'hotel') spans.push([0.4, wl.len - 0.4]);
       else {
-        const c0 = Math.ceil((wl.u + 0.3) / cell.w);
-        for (let c = c0; (c + 1) * cell.w - wl.u <= wl.len - 0.3; c++) {
+        for (const c of wholeCells(wl, cell.w, 0.3)) {
           if (c % every !== 0) continue;
           const s = c * cell.w - wl.u;
           spans.push([s + cell.w * (win.x0 - 0.06), s + cell.w * (win.x1 + 0.06)]);
         }
       }
       for (const [s0, s1] of spans) {
-        box(wl, s0, s1, 0, depth, fy - 0.14, fy, slab);
-        box(wl, s0, s1, depth - 0.07, depth, fy, fy + BALCONY_FRONT, wall);
-        box(wl, s0, s0 + 0.07, 0, depth - 0.07, fy, fy + BALCONY_FRONT, wall);
-        box(wl, s1 - 0.07, s1, 0, depth - 0.07, fy, fy + BALCONY_FRONT, wall);
+        wallBox(g, wl, s0, s1, 0, depth, fy - 0.14, fy, slab);
+        wallBox(g, wl, s0, s1, depth - 0.07, depth, fy, fy + BALCONY_FRONT, wall);
+        wallBox(g, wl, s0, s0 + 0.07, 0, depth - 0.07, fy, fy + BALCONY_FRONT, wall);
+        wallBox(g, wl, s1 - 0.07, s1, 0, depth - 0.07, fy, fy + BALCONY_FRONT, wall);
+        n++;
+      }
+    }
+  }
+  return n;
+}
+
+/**
+ * One wall of a tier, walked counter-clockwise from above as GeoBuilder.box walks it, so `u` (metres round the
+ * footprint to its start) is where the facade's window grid stands on it: its cells' edges fall at whole multiples of
+ * the cell width in u.
+ */
+export interface TierWallFrame {
+  side: Side;
+  x0: number;
+  z0: number;
+  ux: number;
+  uz: number;
+  len: number;
+  u: number;
+}
+
+export function tierWalls(t: Tier): TierWallFrame[] {
+  const w = t.maxX - t.minX;
+  const d = t.maxZ - t.minZ;
+  return [
+    { side: 'S', x0: t.minX, z0: t.maxZ, ux: 1, uz: 0, len: w, u: 0 },
+    { side: 'E', x0: t.maxX, z0: t.maxZ, ux: 0, uz: -1, len: d, u: w },
+    { side: 'N', x0: t.maxX, z0: t.minZ, ux: -1, uz: 0, len: w, u: w + d },
+    { side: 'W', x0: t.minX, z0: t.minZ, ux: 0, uz: 1, len: d, u: 2 * w + d },
+  ];
+}
+
+/** The window-grid columns lying wholly on a wall, at least `margin` m from its ends (column c spans c * cw - u to (c + 1) * cw - u). */
+export function wholeCells(wl: TierWallFrame, cw: number, margin: number): number[] {
+  const out: number[] = [];
+  for (let c = Math.ceil((wl.u + margin) / cw - 1e-9); (c + 1) * cw - wl.u <= wl.len - margin + 1e-9; c++) out.push(c);
+  return out;
+}
+
+/** A point `s` m along a wall, `o` m out from it, at height y. */
+function wallPoint(wl: TierWallFrame, s: number, o: number, y: number): [number, number, number] {
+  return [wl.x0 + wl.ux * s - wl.uz * o, y, wl.z0 + wl.uz * s + wl.ux * o];
+}
+
+/** An axis-aligned box between wall-local corners (s along the wall, o out from it). */
+export function wallBox(g: GeoBuilder, wl: TierWallFrame, s0: number, s1: number, o0: number, o1: number, y0: number, y1: number, c: RGB): void {
+  const [ax, , az] = wallPoint(wl, s0, o0, 0);
+  const [bx, , bz] = wallPoint(wl, s1, o1, 0);
+  g.box(Math.min(ax, bx), y0, Math.min(az, bz), Math.max(ax, bx), y1, Math.max(az, bz), { uv: UV, color: c, bottom: true });
+}
+
+/** A quad from wall-local corners (s, o, y), for a double-sided material (the street decor's). */
+function wallQuad(g: GeoBuilder, wl: TierWallFrame, p: ReadonlyArray<readonly [number, number, number]>, c: RGB): void {
+  const q = p.map(([s, o, y]) => wallPoint(wl, s, o, y));
+  g.quad(...q[0]!, ...q[1]!, ...q[2]!, ...q[3]!, [0, 0, 1, 0, 1, 1, 0, 1], c);
+}
+
+/** Iron of the fire escapes: black, or a dark green on some. */
+const IRON: RGB = [0.045, 0.045, 0.05];
+const IRON_GREEN: RGB = [0.05, 0.085, 0.065];
+/** A fire escape's landings stand this far (m) out from the wall; its rail is this high over them. */
+export const ESCAPE_DEPTH = 1.1;
+const ESCAPE_RAIL = 0.95;
+
+/**
+ * A fire escape on a brick block's street wall: an iron landing at every storey above the ground floor, two window
+ * columns wide, with rails, zigzag stairs between the landings and a drop ladder hanging from the lowest, which ends
+ * well over the heads of people on the pavement. Placed on two columns near one end of the wall in `sides` with the
+ * most of them; drawn with a double-sided material. Returns the landings drawn.
+ */
+export function fireEscape(g: GeoBuilder, b: Building, t: Tier, baseY: number, sides: readonly Side[]): number {
+  const cell = FACADE_CELL[b.style];
+  const h = cell.h;
+  let best: { wl: TierWallFrame; cols: number[] } | null = null;
+  for (const wl of tierWalls(t)) {
+    if (!sides.includes(wl.side)) continue;
+    const cols = wholeCells(wl, cell.w, 0.4);
+    if (cols.length >= 4 && (!best || cols.length > best.cols.length)) best = { wl, cols };
+  }
+  if (!best) return 0;
+  const { wl, cols } = best;
+  const r = (k: number) => hashInts(b.id, k, 0xf1e) / 4294967296;
+  const c = r(1) < 0.5 ? cols[1]! : cols[cols.length - 3]!;
+  const s0 = c * cell.w - wl.u + 0.15;
+  const s1 = (c + 2) * cell.w - wl.u - 0.15;
+  const iron = r(2) < 0.3 ? IRON_GREEN : IRON;
+  const D = ESCAPE_DEPTH;
+  const floors: number[] = [];
+  for (let k = Math.max(0, Math.ceil((t.y0 - baseY) / h - 1e-6)); baseY + k * h + 0.12 + ESCAPE_RAIL <= t.y1 - 0.4; k++) floors.push(baseY + k * h + 0.12);
+  if (floors.length < 2) return 0;
+  const bar = 0.045;
+  floors.forEach((fy, i) => {
+    // The landing, its toe board and rails, and posts at its corners and middle.
+    wallBox(g, wl, s0, s1, 0, D, fy - 0.06, fy, iron);
+    wallBox(g, wl, s0, s1, D - bar, D, fy, fy + 0.1, iron);
+    wallBox(g, wl, s0, s1, D - bar, D, fy + ESCAPE_RAIL - bar, fy + ESCAPE_RAIL, iron);
+    for (const s of [s0, s1 - bar]) wallBox(g, wl, s, s + bar, 0, D, fy + ESCAPE_RAIL - bar, fy + ESCAPE_RAIL, iron);
+    for (const s of [s0, (s0 + s1 - bar) / 2, s1 - bar]) wallBox(g, wl, s, s + bar, D - bar, D, fy, fy + ESCAPE_RAIL, iron);
+    // Stairs up to the next landing, along the wall's side of it, turning back at every storey.
+    const up = floors[i + 1];
+    if (up !== undefined) {
+      const run = (up - fy) / Math.tan((50 * Math.PI) / 180);
+      const fromEnd = i % 2 === 0;
+      const a = fromEnd ? s1 - 0.2 : s0 + 0.2;
+      const e = fromEnd ? a - run : a + run;
+      const [o0, o1] = [0.1, 0.7];
+      // Treads (one sloped plane) and the two stringers.
+      wallQuad(g, wl, [[a, o0, fy], [a, o1, fy], [e, o1, up], [e, o0, up]], iron);
+      for (const o of [o0, o1]) wallQuad(g, wl, [[a, o, fy - 0.12], [e, o, up - 0.12], [e, o, up + 0.12], [a, o, fy + 0.12]], iron);
+    }
+  });
+  // The drop ladder, hanging from the lowest landing's outer edge.
+  const fy = floors[0]!;
+  const ls = r(3) < 0.5 ? s0 + 0.5 : s1 - 1.0;
+  for (const s of [ls, ls + 0.45]) wallBox(g, wl, s, s + bar, D - 0.3, D - 0.3 + bar, fy - 1.7, fy, iron);
+  for (let k = 1; k <= 5; k++) wallBox(g, wl, ls, ls + 0.45 + bar, D - 0.3, D - 0.3 + 0.03, fy - k * 0.32, fy - k * 0.32 + 0.03, iron);
+  return floors.length;
+}
+
+/** Louvred shutters either side of the upper windows of a house, in the green of its ground floor's. */
+const SHUTTER: RGB = [0.05, 0.11, 0.075];
+
+/**
+ * Shutters either side of every whole window of a house above its ground floor (on its street walls, `sides`) or on
+ * its other walls, where the facade's grid (offset `col0`, `row0` cells, as the facade uv's offU and offV) paints one:
+ * a house paints windows in two cells of three (FACADE_WINDOW.skip).
+ */
+export function houseShutters(g: GeoBuilder, t: Tier, baseY: number, sides: readonly Side[], col0: number, row0: number): number {
+  const cell = FACADE_CELL.house;
+  const win = FACADE_WINDOW.house;
+  let n = 0;
+  for (const wl of tierWalls(t)) {
+    for (const c of wholeCells(wl, cell.w, 0.2)) {
+      for (let k = Math.floor((t.y0 - baseY) / cell.h); baseY + k * cell.h < t.y1; k++) {
+        const wy0 = baseY + (k + win.y0) * cell.h;
+        const wy1 = baseY + (k + win.y1) * cell.h;
+        // Whole windows only: none cut by the eaves' fascia or below the plinth, none in a street wall's ground floor.
+        if (wy1 > t.y1 - 0.2 || wy0 < t.y0 + 0.35 || (sides.includes(wl.side) && wy0 < baseY)) continue;
+        const col = (((c + col0) % 8) + 8) % 8;
+        const row = 7 - ((((k + row0) % 8) + 8) % 8);
+        if (!facadeWindowAt('house', col, row)) continue;
+        const s = c * cell.w - wl.u;
+        const a = s + win.x0 * cell.w;
+        const e = s + win.x1 * cell.w;
+        const sw = (e - a) * 0.42;
+        wallBox(g, wl, a - sw - 0.03, a - 0.03, -0.02, 0.05, wy0, wy1, SHUTTER);
+        wallBox(g, wl, e + 0.03, e + sw + 0.03, -0.02, 0.05, wy0, wy1, SHUTTER);
         n++;
       }
     }

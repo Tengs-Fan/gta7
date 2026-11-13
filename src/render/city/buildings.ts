@@ -9,7 +9,7 @@ import {
   type Block, type Building, type FacadeStyle, type Side, type Tier,
 } from '../../world/layout';
 import { GeoBuilder, hexToRgb, scaleRgb, type RGB, type UvMode } from '../geo';
-import { balconies, facadeRelief, trimColors } from '../cityArchitecture';
+import { balconies, facadeRelief, fireEscape, houseShutters, trimColors } from '../cityArchitecture';
 import { drawLandmark, landmarkTowers } from './landmarks';
 import { PARAPET_H, drawRooftopItem, parapetThickness, rooftopItems } from './rooftops';
 import { createStorefrontMaterial, frontKey, storefrontPlan, type AwningStyle } from './storefronts';
@@ -281,13 +281,18 @@ export function buildBuildings(view: CityView): void {
     // Hotels run a balcony along every floor of their street walls; a little under half the apartment blocks have one at
     // every other window.
     const balconyEvery = street.size === 0 ? 0 : b.style === 'hotel' ? 1 : b.style === 'stucco' && hashInts(b.id, 0xba1c) / 4294967296 < 0.45 ? 2 : 0;
+    // Two brick blocks in three have a fire escape down a street wall.
+    const escape = street.size > 0 && b.style === 'brick' && !b.special && hashInts(b.id, 0xe5c) / 4294967296 < 0.65;
     for (const t of b.tiers) {
       const uv = { kind: 'facade' as const, w: cell.w * FACADE_COLS, h: cell.h * FACADE_ROWS, offU, offV, baseY };
       if (t === b.tiers[0] && block && street.size > 0) groundTier(view, gb, front, decor, relief, b, block, t, street, uv, color);
       else gb.box(t.minX, t.y0, t.minZ, t.maxX, t.y1, t.maxZ, { uv, color, top: false });
       facadeRelief(relief, b, t, baseY, color);
       // Not on the wall carrying a sign, which stands over the first storey above the ground floor.
-      if (balconyEvery > 0 && !landmarks.has(b.id)) balconies(decor, b, t, baseY, b.groundSides.filter((s) => s !== b.sign?.side), wallTone(b, color), balconyEvery);
+      const plainSides = b.groundSides.filter((s) => s !== b.sign?.side);
+      if (balconyEvery > 0 && !landmarks.has(b.id)) balconies(decor, b, t, baseY, plainSides, wallTone(b, color), balconyEvery);
+      if (escape && t === b.tiers[0]) fireEscape(decor, b, t, baseY, plainSides);
+      if (b.style === 'house' && b.district !== 'country') houseShutters(relief, t, baseY, b.groundSides, offU * FACADE_COLS, offV * FACADE_ROWS);
       if (b.roof === 'gable' && t === b.tiers[b.tiers.length - 1]) gable(roofs, relief, decor, t, b, color);
       else {
         const rc = scaleRgb([0.55, 0.54, 0.52], 0.85 + rng.next() * 0.3);
@@ -301,6 +306,16 @@ export function buildBuildings(view: CityView): void {
         roofs.box(t.minX, t.y1, t.maxZ - th, t.maxX, t.y1 + lip, t.maxZ, { uv: pu, color: lc });
         roofs.box(t.minX, t.y1, t.minZ + th, t.minX + th, t.y1 + lip, t.maxZ - th, { uv: pu, color: lc });
         roofs.box(t.maxX - th, t.y1, t.minZ + th, t.maxX, t.y1 + lip, t.maxZ - th, { uv: pu, color: lc });
+        // A coping along the parapet's top in the trim's stone, standing a little proud of both faces: the roofline's
+        // crisp edge against the sky.
+        const cp = trimColors(b, color).cap;
+        const y = t.y1 + lip;
+        const o = 0.06;
+        const i = th + 0.03;
+        relief.box(t.minX - o, y, t.minZ - o, t.maxX + o, y + 0.07, t.minZ + i, { uv: TRIM_UV, color: cp, bottom: true });
+        relief.box(t.minX - o, y, t.maxZ - i, t.maxX + o, y + 0.07, t.maxZ + o, { uv: TRIM_UV, color: cp, bottom: true });
+        relief.box(t.minX - o, y, t.minZ + i, t.minX + i, y + 0.07, t.maxZ - i, { uv: TRIM_UV, color: cp, bottom: true });
+        relief.box(t.maxX - i, y, t.minZ + i, t.maxX + o, y + 0.07, t.maxZ - i, { uv: TRIM_UV, color: cp, bottom: true });
       }
     }
     const lm = landmarks.get(b.id);
